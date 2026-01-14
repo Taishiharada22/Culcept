@@ -1,0 +1,36 @@
+{
+    "name": "culcept",
+    "private": true,
+    "scripts": {
+        "dev": "NODE_OPTIONS=--max-old-space-size=8192 next dev",
+        "build": "next build",
+        "start": "next start",
+        "lint": "next lint"
+    },
+    "dependencies": {
+        "@radix-ui/react-dialog": "^1.1.15",
+        "@radix-ui/react-slot": "^1.2.4",
+        "@supabase/ssr": "latest",
+        "@supabase/supabase-js": "latest",
+        "class-variance-authority": "^0.7.1",
+        "clsx": "^2.1.1",
+        "next": "latest",
+        "next-intl": "latest",
+        "react": "latest",
+        "react-dom": "latest",
+        "tailwind-merge": "^3.4.0",
+        "tailwindcss-animate": "^1.0.7"
+    },
+    "devDependencies": {
+        "@tailwindcss/postcss": "^4.1.18",
+        "@types/node": "latest",
+        "@types/react": "latest",
+        "@types/react-dom": "latest",
+        "autoprefixer": "^10.4.23",
+        "eslint": "latest",
+        "eslint-config-next": "latest",
+        "postcss": "^8.5.6",
+        "tailwindcss": "^4.1.18",
+        "typescript": "latest"
+    }
+}

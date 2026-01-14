@@ -1,0 +1,14 @@
+{
+    "Nav": {
+        "match": "診断",
+        "shops": "ショップ",
+        "drops": "ミニ出店"
+    },
+    "Match": {
+        "title": "好み診断",
+        "streetClassic": "ストリート ↔ クラシック",
+        "minimalLoud": "ミニマル ↔ 派手",
+        "modernVintage": "現代 ↔ ヴィンテージ",
+        "cta": "おすすめを見る"
+    }
+}

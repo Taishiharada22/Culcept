@@ -1,0 +1,14 @@
+{
+    "Nav": {
+        "match": "Match",
+        "shops": "Shops",
+        "drops": "Mini Drops"
+    },
+    "Match": {
+        "title": "Match your style",
+        "streetClassic": "Street ↔ Classic",
+        "minimalLoud": "Minimal ↔ Loud",
+        "modernVintage": "Modern ↔ Vintage",
+        "cta": "Show my top picks"
+    }
+}

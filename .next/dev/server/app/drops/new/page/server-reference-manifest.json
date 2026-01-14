@@ -1,0 +1,50 @@
+{
+  "node": {
+    "003af1db1e1d56e96cd9bb4adb8bb8da6a5bf2b974": {
+      "workers": {
+        "app/drops/new/page": {
+          "moduleId": "[project]/.next-internal/server/app/drops/new/page/actions.js { ACTIONS_MODULE0 => \"[project]/app/login/actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/app/drops/new/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "logoutAction",
+          "filename": "app/login/actions.ts"
+        }
+      },
+      "layer": {
+        "app/drops/new/page": "rsc"
+      },
+      "exportedName": "logoutAction",
+      "filename": "app/login/actions.ts"
+    },
+    "60faef4636f589674be7bd964e90055fe8ec65938f": {
+      "workers": {
+        "app/drops/new/page": {
+          "moduleId": "[project]/.next-internal/server/app/drops/new/page/actions.js { ACTIONS_MODULE0 => \"[project]/app/login/actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/app/drops/new/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "authAction",
+          "filename": "app/login/actions.ts"
+        }
+      },
+      "layer": {
+        "app/drops/new/page": "rsc"
+      },
+      "exportedName": "authAction",
+      "filename": "app/login/actions.ts"
+    },
+    "60657f279b9abaabac4f96307a0d5844e5350d951c": {
+      "workers": {
+        "app/drops/new/page": {
+          "moduleId": "[project]/.next-internal/server/app/drops/new/page/actions.js { ACTIONS_MODULE0 => \"[project]/app/login/actions.ts [app-rsc] (ecmascript)\", ACTIONS_MODULE1 => \"[project]/app/drops/new/actions.ts [app-rsc] (ecmascript)\" } [app-rsc] (server actions loader, ecmascript)",
+          "async": false,
+          "exportedName": "createDropAction",
+          "filename": "app/drops/new/actions.ts"
+        }
+      },
+      "layer": {
+        "app/drops/new/page": "action-browser"
+      },
+      "exportedName": "createDropAction",
+      "filename": "app/drops/new/actions.ts"
+    }
+  },
+  "edge": {}
+}

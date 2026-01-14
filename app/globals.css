@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* ベースの読みやすさ */
+:root {
+    color-scheme: light;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    @apply bg-white text-zinc-950 antialiased;
+}
+
+a {
+    @apply underline-offset-4;
+}
