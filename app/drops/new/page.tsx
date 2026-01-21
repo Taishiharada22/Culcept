@@ -1,24 +1,31 @@
+// app/drops/new/page.tsx
+import { redirect } from "next/navigation";
 import Link from "next/link";
-import DropForm from "./DropForm";
+import { supabaseServer } from "@/lib/supabase/server";
+import NewDropForm from "./NewDropForm";
+import { createDropAction } from "./actions";
 
-export default function NewDropPage() {
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs"; // ✅ Buffer/crypto を確実にNodeで
+
+export default async function NewDropPage() {
+    const supabase = await supabaseServer();
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user;
+
+    if (!user) redirect("/login?next=/drops/new");
+
     return (
-        <main className="mx-auto max-w-3xl px-4 py-10">
-            <div className="mb-6 flex items-center justify-between">
-                <Link href="/drops" className="text-sm font-extrabold text-zinc-700 no-underline hover:text-zinc-950">
-                    ← Drops
+        <div className="grid gap-4">
+            <div className="flex items-center justify-between gap-3">
+                <h1 className="text-2xl font-extrabold tracking-tight">New Drop</h1>
+                <Link href="/shops/me" className="text-sm font-extrabold text-zinc-700 no-underline hover:text-zinc-950">
+                    ← Back to Seller
                 </Link>
-                <div className="text-xs font-semibold text-zinc-500">New</div>
             </div>
 
-            <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-                <h1 className="text-xl font-black tracking-tight">New Drop</h1>
-                <p className="mt-1 text-xs font-semibold text-zinc-500">画像は任意。後からEditでも追加できる。</p>
-
-                <div className="mt-5">
-                    <DropForm />
-                </div>
-            </section>
-        </main>
+            {/* ✅ フォームはこれ1つに統一 */}
+            <NewDropForm action={createDropAction as any} />
+        </div>
     );
 }

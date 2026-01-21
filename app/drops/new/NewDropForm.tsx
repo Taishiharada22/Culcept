@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { DropActionState } from "./type";
 import TagInput from "@/app/components/TagInput";
+import type { DropActionState } from "./actions";
 
 export default function NewDropForm({
     action,
@@ -10,7 +10,7 @@ export default function NewDropForm({
     action: (prev: DropActionState, formData: FormData) => Promise<DropActionState>;
 }) {
     const initialState: DropActionState = { ok: true, error: null, fieldErrors: {} };
-    const [state, formAction, isPending] = React.useActionState(action, initialState);
+    const [state, formAction, isPending] = React.useActionState(action as any, initialState);
 
     const [previews, setPreviews] = React.useState<string[]>([]);
 
@@ -75,7 +75,7 @@ export default function NewDropForm({
 
                         <div>
                             <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
-                                Images (max 10, jpg/png/webp, ≤6MB each)
+                                Images (max 12, jpg/png/webp, ≤6MB each)
                             </label>
                             <input
                                 name="images"

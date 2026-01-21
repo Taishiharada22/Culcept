@@ -1,69 +1,37 @@
 // app/api/outbound/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import crypto from "crypto";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
-export const runtime = "nodejs";
-
-function firstIpFromXff(xff: string) {
-    // "a, b, c" の先頭がクライアントIP想定
-    return xff.split(",")[0]?.trim() ?? "";
+function safeStr(v: any, max = 2048) {
+    const s = String(v ?? "").trim();
+    return s.length > max ? s.slice(0, max) : s;
 }
 
-function getClientIp(req: NextRequest): string | null {
-    // 代表的なヘッダーを順に見る（環境により入るものが違う）
-    const xff = req.headers.get("x-forwarded-for") ?? "";
-    const xr = req.headers.get("x-real-ip") ?? "";
-    const cf = req.headers.get("cf-connecting-ip") ?? "";
+export async function POST(req: Request) {
+    const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    const userId = auth?.user?.id ?? null;
 
-    const ip = firstIpFromXff(xff) || xr.trim() || cf.trim();
-    return ip ? ip : null;
-}
+    const body = await req.json().catch(() => ({}));
+    const dropId = safeStr(body?.dropId, 128);
+    const kind = safeStr(body?.kind, 16); // buy|link
+    const url = safeStr(body?.url, 2048);
 
-function sha256(s: string) {
-    return crypto.createHash("sha256").update(s).digest("hex");
-}
+    // 体験優先：欠けてたら 200 で終了
+    if (!dropId || !url) return NextResponse.json({ ok: true });
 
-export async function POST(req: NextRequest) {
-    try {
-        const body = await req.json().catch(() => ({}));
-        const dropId = String(body?.dropId ?? "");
-        const kind = String(body?.kind ?? "");
-        const url = String(body?.url ?? "");
+    const { error } = await supabaseAdmin.from("drop_outbound_events").insert({
+        user_id: userId,
+        drop_id: dropId,
+        kind,
+        url,
+    } as any);
 
-        if (!dropId || !url) return NextResponse.json({ ok: false }, { status: 400 });
-        if (kind !== "buy" && kind !== "link") return NextResponse.json({ ok: false }, { status: 400 });
-
-        // ユーザー取れれば入れる（取れなくてもOK）
-        let userId: string | null = null;
-        try {
-            const supabase = await supabaseServer();
-            const { data } = await supabase.auth.getUser();
-            userId = data.user?.id ?? null;
-        } catch {
-            userId = null;
-        }
-
-        const referrer = req.headers.get("referer");
-        const ua = req.headers.get("user-agent");
-
-        const ip = getClientIp(req);
-        const ip_hash = ip ? sha256(ip) : null;
-
-        const { error } = await supabaseAdmin.from("outbound_clicks").insert({
-            drop_id: dropId,
-            kind,
-            url,
-            user_id: userId,
-            referrer,
-            ua,
-            ip_hash,
-        } as any);
-
-        if (error) return NextResponse.json({ ok: false }, { status: 500 });
-        return NextResponse.json({ ok: true });
-    } catch {
-        return NextResponse.json({ ok: false }, { status: 500 });
+    if (error) {
+        // noisyなら消してOK
+        console.warn("[outbound] insert error:", error.message);
     }
+
+    return NextResponse.json({ ok: true });
 }

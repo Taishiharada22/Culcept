@@ -1,3 +1,4 @@
+// app/drops/[id]/edit/page.tsx
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/requireUser";
@@ -6,27 +7,34 @@ import DropMetaForm from "./DropMetaForm";
 import AddImagesForm from "./AddImagesForm";
 import ImageManager from "./ImageManager";
 
-export default async function EditDropPage({ params }: { params: { id: string } }) {
-    const dropId = params.id;
+export default async function EditDropPage({ params }: { params: Promise<{ id: string }> }) {
+    const p = await params;
+    const dropId = String(p?.id ?? "");
+
+    // ここで弾く（undefined対策）
+    if (!dropId || dropId === "undefined") return notFound();
 
     const { supabase, user } = await requireUser(`/login?next=/drops/${dropId}/edit`);
 
     const { data: drop, error: dErr } = await supabase
         .from("drops")
-        .select("id,user_id,title,brand,size,condition,price,url,purchase_url,description,tags")
+        .select("id,user_id,title,brand,size,condition,price,url,purchase_url,description,tags,sale_mode,auction_floor_price,auction_end_at,auction_allow_buy_now")
         .eq("id", dropId)
+        .eq("user_id", user.id)
         .maybeSingle();
 
-    if (dErr || !drop) return notFound();
-    if (String(drop.user_id ?? "") !== String(user.id)) return notFound();
+    // 開発中はエラー原因を潰しやすくするため、dErrは握りつぶさず throw 推奨
+    if (dErr) throw dErr;
+    if (!drop) return notFound();
 
     const { data: images, error: iErr } = await supabase
         .from("drop_images")
         .select("id,public_url,sort")
         .eq("drop_id", dropId)
+        .eq("user_id", user.id)
         .order("sort", { ascending: true });
 
-    if (iErr) return notFound();
+    if (iErr) throw iErr;
 
     const imgs = (images ?? []) as { id: string; public_url: string; sort: number }[];
 
@@ -64,6 +72,11 @@ export default async function EditDropPage({ params }: { params: { id: string } 
                                 purchase_url: drop.purchase_url ?? "",
                                 description: drop.description ?? "",
                                 tags: Array.isArray(drop.tags) ? drop.tags : [],
+                                sale_mode: (drop.sale_mode ?? "fixed") as any,
+                                auction_floor_price: drop.auction_floor_price ?? "",
+                                auction_end_at: drop.auction_end_at ?? null,
+                                auction_allow_buy_now: drop.auction_allow_buy_now ?? true,
+
                             }}
                         />
                     </div>

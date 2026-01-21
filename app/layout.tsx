@@ -1,8 +1,8 @@
 // app/layout.tsx
 import type { Metadata } from "next";
 import "./globals.css";
+import SiteHeader from "@/app/components/SiteHeader";
 
-// ここは「絶対に valid URL」にする（空文字/不正でも落とさない）
 function getSiteUrl(): URL {
     const raw =
         (process.env.NEXT_PUBLIC_SITE_URL ?? "").trim() ||
@@ -10,7 +10,6 @@ function getSiteUrl(): URL {
         "http://localhost:3000";
 
     try {
-        // raw が "culcept.com" みたいに scheme無しでも救う
         if (!/^https?:\/\//i.test(raw)) return new URL(`https://${raw}`);
         return new URL(raw);
     } catch {
@@ -20,23 +19,18 @@ function getSiteUrl(): URL {
 
 export const metadata: Metadata = {
     metadataBase: getSiteUrl(),
-    title: {
-        default: "Culcept",
-        template: "%s | Culcept",
-    },
+    title: { default: "Culcept", template: "%s | Culcept" },
     description: "Culcept",
-    openGraph: {
-        title: "Culcept",
-        description: "Culcept",
-        siteName: "Culcept",
-        type: "website",
-    },
+    openGraph: { title: "Culcept", description: "Culcept", siteName: "Culcept", type: "website" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
         <html lang="ja">
-            <body>{children}</body>
+            <body>
+                <SiteHeader />
+                <div className="mx-auto max-w-6xl px-4 py-8">{children}</div>
+            </body>
         </html>
     );
 }

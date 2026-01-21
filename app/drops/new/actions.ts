@@ -1,46 +1,27 @@
+// app/drops/new/actions.ts
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { randomUUID } from "crypto";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { DropActionState } from "./type";
 
-const BUCKET = "drops";
+export type DropActionState = {
+    ok: boolean;
+    error: string | null;
+    fieldErrors?: Record<string, string>;
+};
 
-function s(v: FormDataEntryValue | null) {
-    return typeof v === "string" ? v.trim() : "";
-}
+const BUCKET = process.env.SUPABASE_DROP_IMAGES_BUCKET ?? "drops";
 
-function normalizeUrl(raw: string) {
-    const x = raw.trim();
-    if (!x) return "";
-    try {
-        new URL(x);
-        return x;
-    } catch {
-        try {
-            new URL("https://" + x);
-            return "https://" + x;
-        } catch {
-            return "";
-        }
-    }
-}
+// ✅ edit 側と合わせて 10
+const MAX_IMAGES = 10;
 
-function parseTags(json: string): string[] {
-    if (!json) return [];
-    try {
-        const v = JSON.parse(json);
-        if (!Array.isArray(v)) return [];
-        return v
-            .map((x) => String(x ?? "").trim().toLowerCase())
-            .filter(Boolean)
-            .slice(0, 20);
-    } catch {
-        return [];
-    }
-}
+// ✅ 画像容量アップ（editと整合）
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function isColumnMissingError(err: any) {
     const code = String(err?.code ?? "");
@@ -48,159 +29,282 @@ function isColumnMissingError(err: any) {
     return code === "42703" || (msg.includes("column") && msg.includes("does not exist"));
 }
 
-async function uploadImages(dropId: string, userId: string, files: File[]) {
-    const uploaded: { sort: number; public_url: string; path: string }[] = [];
+function makeSlug(title: string) {
+    const base = String(title ?? "")
+        .toLowerCase()
+        .trim()
+        .replace(/['"]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
 
-    for (let i = 0; i < files.length; i++) {
-        const f = files[i];
-        if (!f || f.size === 0) continue;
-        if (!String(f.type || "").startsWith("image/")) continue;
-
-        const ext = (f.name.split(".").pop() || "jpg").toLowerCase();
-        const safeExt = ext.length <= 6 ? ext : "jpg";
-        const path = `${dropId}/${crypto.randomUUID()}.${safeExt}`;
-
-        const buf = Buffer.from(await f.arrayBuffer());
-        const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(path, buf, {
-            contentType: f.type || "image/jpeg",
-            upsert: false,
-        });
-        if (upErr) throw upErr;
-
-        const pub = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
-        const public_url = pub.data.publicUrl;
-
-        uploaded.push({ sort: i, public_url, path });
-    }
-
-    if (uploaded.length > 0) {
-        // drop_images insert（path/user_id 列が無いDBでも落ちない）
-        const rowsFull = uploaded.map((x) => ({
-            drop_id: dropId,
-            user_id: userId,
-            sort: x.sort,
-            public_url: x.public_url,
-            path: x.path,
-        }));
-
-        const { error: insErr1 } = await supabaseAdmin.from("drop_images").insert(rowsFull as any);
-
-        if (insErr1) {
-            if (isColumnMissingError(insErr1)) {
-                // まず path 抜き
-                const rowsNoPath = uploaded.map((x) => ({
-                    drop_id: dropId,
-                    user_id: userId,
-                    sort: x.sort,
-                    public_url: x.public_url,
-                }));
-                const { error: insErr2 } = await supabaseAdmin.from("drop_images").insert(rowsNoPath as any);
-
-                if (insErr2 && isColumnMissingError(insErr2)) {
-                    // user_id も無い場合
-                    const rowsMin = uploaded.map((x) => ({
-                        drop_id: dropId,
-                        sort: x.sort,
-                        public_url: x.public_url,
-                    }));
-                    const { error: insErr3 } = await supabaseAdmin.from("drop_images").insert(rowsMin as any);
-                    if (insErr3) throw insErr3;
-                } else if (insErr2) {
-                    throw insErr2;
-                }
-            } else {
-                throw insErr1;
-            }
-        }
-
-        // cover
-        const cover = uploaded[0]?.public_url ?? null;
-        if (cover) {
-            const { error: updErr } = await supabaseAdmin.from("drops").update({ cover_image_url: cover }).eq("id", dropId);
-            if (updErr && !isColumnMissingError(updErr)) throw updErr;
-        }
-    }
-
-    return uploaded;
+    const rand = randomUUID().replace(/[^a-z0-9]/gi, "").slice(0, 10);
+    return base || `drop-${rand}`;
 }
 
-export async function createDropAction(
-    _prev: DropActionState,
-    formData: FormData
-): Promise<DropActionState> {
+function getDisplayName(user: any) {
+    const meta = user?.user_metadata ?? {};
+    const raw = meta.display_name || meta.name || meta.full_name || user?.email?.split("@")?.[0] || "user";
+    return String(raw).trim().slice(0, 60) || "user";
+}
+
+function parsePrice(v: unknown): number | null {
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    if (!Number.isFinite(n)) return null;
+    return Math.floor(n);
+}
+
+function parseTags(v: unknown): string[] {
+    const s = String(v ?? "").trim();
+    if (!s) return [];
+    const parts = s
+        .split(/[,\n]/g)
+        .flatMap((x) => x.split(/\s+/g))
+        .map((x) => x.trim())
+        .filter(Boolean);
+    return Array.from(new Set(parts)).slice(0, 20);
+}
+
+function extFromMime(mime: string) {
+    const m = String(mime || "").toLowerCase();
+    if (m.includes("jpeg") || m.includes("jpg")) return "jpg";
+    if (m.includes("png")) return "png";
+    if (m.includes("webp")) return "webp";
+    return "bin";
+}
+
+function normalizeUrl(raw: string) {
+    const x = String(raw ?? "").trim();
+    if (!x) return "";
+    try {
+        const u = new URL(x);
+        if (u.protocol === "http:" || u.protocol === "https:") return x;
+        return "";
+    } catch {
+        try {
+            const u = new URL("https://" + x);
+            if (u.protocol === "http:" || u.protocol === "https:") return "https://" + x;
+            return "";
+        } catch {
+            return "";
+        }
+    }
+}
+
+function pickFiles(formData: FormData): File[] {
+    const a = formData.getAll("images");
+    const b = formData.getAll("files");
+    const all = [...a, ...b].filter((x): x is File => x instanceof File);
+    return all.filter((f) => f.size > 0);
+}
+
+function coerceFormData(arg1: any, arg2?: any): FormData | null {
+    const a = arg1 as any;
+    if (a && typeof a.get === "function" && typeof a.getAll === "function") return a as FormData;
+    const b = arg2 as any;
+    if (b && typeof b.get === "function" && typeof b.getAll === "function") return b as FormData;
+    return null;
+}
+
+// ✅ このユーザーの shop を解決（slug優先 → owner_user_id → user_id の順）
+async function resolveShopIdForUser(userId: string): Promise<string | null> {
+    const { data: bySlug } = await supabaseAdmin.from("shops").select("id").eq("slug", "master").limit(1).maybeSingle();
+    if (bySlug?.id) return String(bySlug.id);
+
+    const { data: byOwner } = await supabaseAdmin.from("shops").select("id").eq("owner_user_id", userId).limit(1).maybeSingle();
+    if (byOwner?.id) return String(byOwner.id);
+
+    const { data: byUser } = await supabaseAdmin.from("shops").select("id").eq("user_id", userId).limit(1).maybeSingle();
+    return byUser?.id ? String(byUser.id) : null;
+}
+
+async function insertDropImagesSafe(rows: any[]) {
+    // まず全部入りで試す（user_id/pathあり）
+    const { error } = await supabaseAdmin.from("drop_images").insert(rows as any);
+    if (!error) return;
+
+    // column missing の場合は段階的に落とす
+    if (isColumnMissingError(error)) {
+        // path を落とす
+        const rowsNoPath = rows.map((r) => {
+            const x = { ...r };
+            delete x.path;
+            return x;
+        });
+        const { error: e2 } = await supabaseAdmin.from("drop_images").insert(rowsNoPath as any);
+        if (!e2) return;
+
+        if (isColumnMissingError(e2)) {
+            // user_id も無いDBの場合
+            const rowsNoUser = rowsNoPath.map((r) => {
+                const x = { ...r };
+                delete x.user_id;
+                return x;
+            });
+            const { error: e3 } = await supabaseAdmin.from("drop_images").insert(rowsNoUser as any);
+            if (e3) throw new Error(e3.message);
+            return;
+        }
+
+        throw new Error(e2.message);
+    }
+
+    throw new Error(error.message);
+}
+
+export async function createDropAction(arg1: any, arg2?: any): Promise<DropActionState> {
+    const formData = coerceFormData(arg1, arg2);
+    if (!formData) return { ok: false, error: "FormData が取得できませんでした。" };
+
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
-    const user = auth.user;
+    const user = auth?.user;
 
-    if (!user) return { ok: false, error: "ログインしてください。" };
+    if (!user) redirect("/login?next=/drops/new");
 
-    const title = s(formData.get("title"));
-    const brand = s(formData.get("brand"));
-    const size = s(formData.get("size"));
-    const condition = s(formData.get("condition"));
-    const priceRaw = s(formData.get("price"));
-    const urlRaw = s(formData.get("url"));
-    const purchaseRaw = s(formData.get("purchase_url"));
-    const description = s(formData.get("description"));
-    const tagsJson = s(formData.get("tags"));
+    const uid = String(user?.id ?? "");
+    if (!uid || uid === "undefined") {
+        return { ok: false, error: "ログイン情報が取れてない（user.id が undefined）。/login から入り直して。" };
+    }
 
     const fieldErrors: Record<string, string> = {};
 
-    if (!title || title.length < 2) fieldErrors.title = "Title は2文字以上を推奨。";
+    const title = String(formData.get("title") ?? "").trim();
+    if (!title) fieldErrors.title = "Title は必須。";
 
-    let price: number | null = null;
-    if (priceRaw) {
-        const n = Number(priceRaw);
-        if (!Number.isFinite(n) || n < 0) fieldErrors.price = "Price は0以上の数字にして。";
-        else price = Math.floor(n);
+    const brand = String(formData.get("brand") ?? "").trim() || null;
+    const size = String(formData.get("size") ?? "").trim() || null;
+    const condition = String(formData.get("condition") ?? "").trim() || null;
+
+    const price = parsePrice(formData.get("price"));
+    if (String(formData.get("price") ?? "").trim() && price == null) fieldErrors.price = "Price が不正。";
+
+    const urlRaw = String(formData.get("url") ?? "").trim();
+    const purchaseRaw = String(formData.get("purchase_url") ?? "").trim();
+    const url = urlRaw ? normalizeUrl(urlRaw) : "";
+    const purchase_url = purchaseRaw ? normalizeUrl(purchaseRaw) : "";
+    if (urlRaw && !url) fieldErrors.url = "Link が不正（http/https 形式 or ドメイン）。";
+    if (purchaseRaw && !purchase_url) fieldErrors.purchase_url = "Buy link が不正（http/https 形式 or ドメイン）。";
+
+    const description = String(formData.get("description") ?? "").trim() || null;
+    const tags = parseTags(formData.get("tags"));
+
+    const filesAll = pickFiles(formData);
+
+    if (filesAll.length > MAX_IMAGES) fieldErrors.images = `画像は最大 ${MAX_IMAGES} 枚まで。`;
+    for (const f of filesAll.slice(0, MAX_IMAGES)) {
+        if (f.size > MAX_IMAGE_BYTES) {
+            fieldErrors.images = `画像サイズが大きすぎる（最大 ${Math.floor(MAX_IMAGE_BYTES / 1024 / 1024)}MB）。`;
+            break;
+        }
+        const mime = String(f.type || "").toLowerCase();
+        if (mime && !ALLOWED_MIME.has(mime)) {
+            fieldErrors.images = "対応画像形式は jpg/png/webp のみ。";
+            break;
+        }
     }
 
-    const url = urlRaw ? normalizeUrl(urlRaw) : "";
-    if (urlRaw && !url) fieldErrors.url = "URL形式が不正。https:// を含めて。";
+    if (Object.keys(fieldErrors).length) {
+        return { ok: false, error: "入力を確認して。", fieldErrors };
+    }
 
-    const purchase_url = purchaseRaw ? normalizeUrl(purchaseRaw) : "";
-    if (purchaseRaw && !purchase_url) fieldErrors.purchase_url = "URL形式が不正。https:// を含めて。";
+    const slug = makeSlug(title);
+    const display_name = getDisplayName(user);
 
-    const tags = parseTags(tagsJson);
+    const shopId = await resolveShopIdForUser(uid).catch(() => null);
 
-    if (Object.keys(fieldErrors).length > 0) return { ok: false, error: "入力を確認して。", fieldErrors };
-
-    // insert drop
-    const { data: inserted, error: insErr } = await supabaseAdmin
+    const { data: created, error: createErr } = await supabaseAdmin
         .from("drops")
         .insert({
-            user_id: user.id,
             title,
-            brand: brand || null,
-            size: size || null,
-            condition: condition || null,
+            slug,
+            display_name,
+            user_id: uid,
+            shop_id: shopId,
+            brand,
+            size,
+            condition,
             price,
             url: url || null,
             purchase_url: purchase_url || null,
-            description: description || null,
-            tags: tags.length ? tags : null,
+            description,
+            tags,
+            cover_image_url: null,
         } as any)
         .select("id")
         .single();
 
-    if (insErr || !inserted?.id) return { ok: false, error: insErr?.message ?? "作成に失敗した。" };
+    if (createErr || !created?.id) {
+        return { ok: false, error: createErr?.message ?? "Failed to create drop" };
+    }
 
-    const dropId = inserted.id as string;
+    const dropId = String(created.id);
+    if (!dropId || dropId === "undefined") {
+        return { ok: false, error: "dropId が取れてない（undefined）。作成レスポンスを確認して。" };
+    }
 
-    // images (optional)
-    const files = formData.getAll("images").filter((x): x is File => x instanceof File);
-    const limited = files.slice(0, 12);
+    const files = filesAll.slice(0, MAX_IMAGES);
+    const insertedImages: { public_url: string; path: string; sort: number }[] = [];
 
     try {
-        if (limited.length > 0) {
-            await uploadImages(dropId, user.id, limited);
+        for (let i = 0; i < files.length; i++) {
+            const f = files[i];
+            const mime = String(f.type || "application/octet-stream").toLowerCase();
+            if (mime && !ALLOWED_MIME.has(mime)) throw new Error("Unsupported image type");
+
+            const ext = extFromMime(mime);
+            const rand = randomUUID().replace(/[^a-z0-9]/gi, "").slice(0, 12);
+
+            const path = `${uid}/${dropId}/${String(i).padStart(2, "0")}-${rand}.${ext}`;
+            const buf = Buffer.from(await f.arrayBuffer());
+
+            const { error: upErr } = await supabaseAdmin.storage.from(BUCKET).upload(path, buf, {
+                contentType: mime,
+                upsert: false,
+                cacheControl: "3600",
+            });
+            if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
+
+            const pubRes = supabaseAdmin.storage.from(BUCKET).getPublicUrl(path);
+            const public_url = pubRes?.data?.publicUrl ?? "";
+            if (!public_url) throw new Error("Failed to get public url");
+
+            insertedImages.push({ public_url, path, sort: i });
+        }
+
+        if (insertedImages.length) {
+            const rows = insertedImages.map((x) => ({
+                drop_id: dropId,
+                user_id: uid,
+                sort: x.sort,
+                public_url: x.public_url,
+                path: x.path,
+            }));
+
+            await insertDropImagesSafe(rows);
+
+            const cover = insertedImages[0]?.public_url ?? null;
+            if (cover) {
+                const { error: upErr2 } = await supabaseAdmin.from("drops").update({ cover_image_url: cover }).eq("id", dropId);
+                if (upErr2) throw new Error(upErr2.message);
+            }
         }
     } catch (e: any) {
-        return { ok: false, error: `画像アップロードに失敗: ${e?.message ?? "unknown"}` };
+        try {
+            const paths = insertedImages.map((x) => x.path).filter(Boolean) as string[];
+            if (paths.length) await supabaseAdmin.storage.from(BUCKET).remove(paths);
+        } catch { }
+        try {
+            await supabaseAdmin.from("drops").delete().eq("id", dropId);
+        } catch { }
+        return { ok: false, error: e?.message ?? "Upload failed" };
     }
 
     revalidatePath("/drops");
+    revalidatePath("/shops/me");
     revalidatePath(`/drops/${dropId}`);
 
-    redirect(`/drops/${dropId}`);
+    redirect(`/drops/${dropId}/edit`);
 }

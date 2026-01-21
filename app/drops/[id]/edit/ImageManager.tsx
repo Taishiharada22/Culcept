@@ -1,6 +1,8 @@
+// app/drops/[id]/edit/ImageManager.tsx
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import type { DropActionState } from "../../new/type";
 import { deleteDropImageAction, reorderDropImagesAction } from "./actions";
 
@@ -14,6 +16,8 @@ function move<T>(arr: T[], from: number, to: number) {
 }
 
 export default function ImageManager({ dropId, images }: { dropId: string; images: Img[] }) {
+    const router = useRouter();
+
     const initial: DropActionState = { ok: true, error: null } as any;
     const [state, formAction, pending] = (React as any).useActionState(reorderDropImagesAction.bind(null, dropId), initial);
 
@@ -22,12 +26,33 @@ export default function ImageManager({ dropId, images }: { dropId: string; image
 
     const [dragId, setDragId] = React.useState<string | null>(null);
 
+    // ✅ “送信後の成功” だけを検知するためのフラグ
+    const [didSubmit, setDidSubmit] = React.useState(false);
+    React.useEffect(() => {
+        // 初期状態 ok:true は無視、submit後に成功したらViewへ
+        if (!didSubmit) return;
+        if (pending) return;
+
+        const ok = Boolean((state as any)?.ok);
+        const nextPath = String((state as any)?.nextPath ?? "");
+        if (ok && nextPath) {
+            router.push(nextPath);
+        }
+    }, [didSubmit, pending, state, router]);
+
     const orderJson = JSON.stringify(items.map((x) => x.id));
 
     return (
         <div className="grid gap-4">
             {state?.error ? (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{state.error}</div>
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{(state as any).error}</div>
+            ) : null}
+
+            {/* ✅ 成功メッセージ（遷移が一瞬遅れても安心できる） */}
+            {didSubmit && !pending && (state as any)?.ok && (state as any)?.message ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
+                    {(state as any).message} / 商品ページへ移動します…
+                </div>
             ) : null}
 
             {items.length === 0 ? (
@@ -48,10 +73,7 @@ export default function ImageManager({ dropId, images }: { dropId: string; image
                                 if (from < 0 || to < 0 || from === to) return;
                                 setItems((p) => move(p, from, to));
                             }}
-                            className={[
-                                "overflow-hidden rounded-lg border border-zinc-200 bg-white",
-                                dragId === im.id ? "opacity-60" : "opacity-100",
-                            ].join(" ")}
+                            className={["overflow-hidden rounded-lg border border-zinc-200 bg-white", dragId === im.id ? "opacity-60" : "opacity-100"].join(" ")}
                             title="ドラッグで並び替え"
                         >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -73,8 +95,15 @@ export default function ImageManager({ dropId, images }: { dropId: string; image
                 </ul>
             )}
 
-            <form action={formAction} className="flex items-center justify-end gap-3">
+            <form
+                action={formAction}
+                className="flex items-center justify-end gap-3"
+                onSubmit={() => {
+                    setDidSubmit(true);
+                }}
+            >
                 <input type="hidden" name="order" value={orderJson} />
+
                 <button
                     type="button"
                     onClick={() => setItems(images ?? [])}
@@ -82,6 +111,7 @@ export default function ImageManager({ dropId, images }: { dropId: string; image
                 >
                     Reset
                 </button>
+
                 <button
                     type="submit"
                     disabled={pending || items.length === 0}
@@ -91,7 +121,7 @@ export default function ImageManager({ dropId, images }: { dropId: string; image
                 </button>
             </form>
 
-            <div className="text-xs font-semibold text-zinc-500">ドラッグ → Save order。Deleteは即反映（Storageも削除）。</div>
+            <div className="text-xs font-semibold text-zinc-500">ドラッグ → Save order。保存後は商品ページへ自動で移動。</div>
         </div>
     );
 }

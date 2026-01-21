@@ -1,11 +1,20 @@
+// app/login/page.tsx
 import LoginForm from "./LoginForm";
+
+type SP = Record<string, string | string[] | undefined>;
+
+function spStr(v: unknown) {
+    return String(Array.isArray(v) ? v[0] : v ?? "").trim();
+}
 
 export default async function LoginPage({
     searchParams,
 }: {
-    searchParams: { next?: string };
+    searchParams?: Promise<SP>;
 }) {
-    const nextPath = typeof searchParams?.next === "string" ? searchParams.next : "/drops";
+    const sp = (await searchParams) ?? ({} as SP);
+    const nextRaw = spStr(sp.next);
+    const nextPath = nextRaw || "/drops";
 
     return (
         <main style={{ maxWidth: 520, margin: "60px auto", padding: 16 }}>

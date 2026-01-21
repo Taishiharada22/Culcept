@@ -9,8 +9,14 @@ const nextConfig = {
     turbopack: {
         root: path.join(__dirname),
     },
-    // ✅ 本番ブラウザでソースマップを配信（原因特定用）
     productionBrowserSourceMaps: true,
+
+    experimental: {
+        serverActions: {
+            // 画像をServer Actionで受けるなら必要（デフォは 1MB）
+            bodySizeLimit: "100mb",
+        },
+    },
 };
 
 module.exports = withNextIntl(nextConfig);
