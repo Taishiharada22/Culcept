@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
-
+const stripe = getStripe();
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
