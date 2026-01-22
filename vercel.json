@@ -1,8 +1,1 @@
-{
-    "crons": [
-        {
-            "path": "/api/cron/expire-orders?secret=YOUR_CRON_SECRET",
-            "schedule": "*/5 * * * *"
-        }
-    ]
-}
+{}
