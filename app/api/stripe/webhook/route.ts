@@ -1,102 +1,111 @@
 // app/api/stripe/webhook/route.ts
-import "server-only";
-import Stripe from "stripe";
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
+import { stripe } from "@/lib/stripe"; // 既存の stripe instance を使う想定
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function mustEnv(name: string) {
-    const v = process.env[name];
-    if (!v) throw new Error(`Missing env: ${name}`);
-    return v;
+const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+async function markEvent(eventId: string, status: "ok" | "ignored" | "failed", error?: string) {
+    await supabaseAdmin
+        .from("stripe_events")
+        .update({
+            processed_at: new Date().toISOString(),
+            process_status: status,
+            process_error: error ?? null,
+        })
+        .eq("event_id", eventId);
 }
 
-const stripe = new Stripe(mustEnv("STRIPE_SECRET_KEY"));
-const webhookSecret = mustEnv("STRIPE_WEBHOOK_SECRET");
-
 export async function POST(req: Request) {
+    const sig = req.headers.get("stripe-signature");
+    const whsec = process.env.STRIPE_WEBHOOK_SECRET;
+
+    if (!sig || !whsec) {
+        return NextResponse.json({ ok: false, error: "missing_signature_or_secret" }, { status: 400 });
+    }
+
+    const rawBody = await req.text();
+
     let event: Stripe.Event;
-
     try {
-        const sig = req.headers.get("stripe-signature");
-        if (!sig) return NextResponse.json({ ok: false, error: "Missing stripe-signature" }, { status: 400 });
+        event = stripe.webhooks.constructEvent(rawBody, sig, whsec);
+    } catch (e: any) {
+        return NextResponse.json({ ok: false, error: "invalid_signature" }, { status: 400 });
+    }
 
-        const body = await req.text(); // raw body 必須
-        event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
-    } catch (err: any) {
-        return NextResponse.json({ ok: false, error: err?.message ?? "Bad signature" }, { status: 400 });
+    // 1) まずログ保存（ユニーク制約で重複は自然に弾く）
+    const ins = await supabaseAdmin.from("stripe_events").insert({
+        event_id: event.id,
+        type: event.type,
+        stripe_created: event.created,
+        livemode: event.livemode,
+        payload: event as any,
+    });
+
+    // 23505 = unique violation（すでに保存済み）
+    if (ins.error && (ins.error as any).code !== "23505") {
+        return NextResponse.json({ ok: false, error: "failed_to_log_event" }, { status: 500 });
     }
 
     try {
-        if (event.type === "checkout.session.completed") {
-            const session = event.data.object as Stripe.Checkout.Session;
+        // 2) 本処理
+        switch (event.type) {
+            case "checkout.session.completed":
+            case "checkout.session.async_payment_succeeded": {
+                const session = event.data.object as Stripe.Checkout.Session;
+                const sessionId = session.id;
 
-            if (session.payment_status !== "paid") {
-                return NextResponse.json({ ok: true, ignored: true });
-            }
+                const paymentIntent =
+                    typeof session.payment_intent === "string"
+                        ? session.payment_intent
+                        : session.payment_intent?.id ?? null;
 
-            const md = (session.metadata ?? {}) as Record<string, string>;
-            const dropId = md.drop_id ?? "";
-            const buyerUserId = md.buyer_user_id ?? "";
-            const sellerUserId = md.seller_user_id ?? "";
-            const impressionId = md.impression_id || null; // text
-            const paymentIntentId =
-                typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
+                const { data: order, error: findErr } = await supabaseAdmin
+                    .from("orders")
+                    .select("id,status")
+                    .eq("stripe_session_id", sessionId)
+                    .maybeSingle();
 
-            const now = new Date().toISOString();
+                if (findErr) throw findErr;
 
-            // pendingが既にある想定：stripe_session_id で確定（冪等）
-            const { data: existing, error: selErr } = await supabaseAdmin
-                .from("orders")
-                .select("id,status")
-                .eq("stripe_session_id", session.id)
-                .maybeSingle();
+                if (!order) {
+                    await markEvent(event.id, "ignored", "order_not_found_for_session");
+                    return NextResponse.json({ ok: true, ignored: true, reason: "order_not_found" });
+                }
 
-            if (selErr) throw selErr;
+                if (order.status === "paid") {
+                    await markEvent(event.id, "ok");
+                    return NextResponse.json({ ok: true, already_paid: true });
+                }
 
-            if (existing?.status === "paid") {
-                return NextResponse.json({ ok: true, already_paid: true });
-            }
-
-            if (existing) {
-                const { error: updErr } = await supabaseAdmin
+                const { error: upErr } = await supabaseAdmin
                     .from("orders")
                     .update({
                         status: "paid",
-                        paid_at: now,
-                        stripe_payment_intent: paymentIntentId,
+                        paid_at: new Date().toISOString(),
+                        stripe_payment_intent: paymentIntent,
                     })
-                    .eq("id", existing.id);
+                    .eq("id", order.id);
 
-                if (updErr) throw updErr;
+                if (upErr) throw upErr;
+
+                await markEvent(event.id, "ok");
                 return NextResponse.json({ ok: true, updated: true });
             }
 
-            // checkoutAction側insertが何らかで失敗してても救済（UNIQUE stripe_session_id 推奨）
-            const amountTotal = typeof session.amount_total === "number" ? session.amount_total : 0;
-            const currency = typeof session.currency === "string" ? session.currency : "jpy";
-
-            const { error: insErr } = await supabaseAdmin.from("orders").insert({
-                buyer_user_id: buyerUserId,
-                seller_user_id: sellerUserId,
-                drop_id: dropId,
-                amount_total: amountTotal,
-                currency,
-                status: "paid",
-                stripe_session_id: session.id,
-                stripe_payment_intent: paymentIntentId,
-                impression_id: impressionId,
-                paid_at: now,
-            });
-
-            if (insErr) throw insErr;
-            return NextResponse.json({ ok: true, inserted: true });
+            default:
+                await markEvent(event.id, "ignored");
+                return NextResponse.json({ ok: true, ignored: true });
         }
-
-        return NextResponse.json({ ok: true, ignored: true });
-    } catch (err: any) {
-        return NextResponse.json({ ok: false, error: err?.message ?? "Webhook handler failed" }, { status: 500 });
+    } catch (e: any) {
+        await markEvent(event.id, "failed", e?.message ?? String(e));
+        return NextResponse.json({ ok: false, error: "handler_failed" }, { status: 500 });
     }
 }

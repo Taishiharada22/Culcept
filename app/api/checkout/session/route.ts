@@ -1,14 +1,23 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Body = { drop_id: string };
+type Body = { drop_id: string; impression_id?: string | null };
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+function resolveSiteUrl(req: Request) {
+    // 優先: NEXT_PUBLIC_SITE_URL → VERCEL_URL → origin → localhost
+    const envUrl =
+        process.env.NEXT_PUBLIC_SITE_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+    if (envUrl) return envUrl.replace(/\/$/, "");
+    const origin = req.headers.get("origin");
+    if (origin) return origin.replace(/\/$/, "");
+    return "http://localhost:3000";
+}
 
 export async function POST(req: Request) {
     try {
@@ -31,7 +40,6 @@ export async function POST(req: Request) {
 
         if (error || !drop) return NextResponse.json({ ok: false, error: "drop_not_found" }, { status: 404 });
 
-        // MVP: auctionは除外（必要なら後で拡張）
         if (drop.sale_mode === "auction") {
             return NextResponse.json({ ok: false, error: "auction_not_supported_yet" }, { status: 400 });
         }
@@ -41,9 +49,20 @@ export async function POST(req: Request) {
             return NextResponse.json({ ok: false, error: "invalid_price" }, { status: 400 });
         }
 
+        const siteUrl = resolveSiteUrl(req);
+
+        const md: Record<string, string> = {
+            drop_id: drop.id,
+            buyer_user_id: auth.user.id,
+            seller_user_id: String(drop.user_id ?? ""),
+        };
+        const imp = String(body?.impression_id ?? "").trim();
+        if (imp) md.impression_id = imp;
+
+        const stripe = getStripe();
+
         const session = await stripe.checkout.sessions.create({
             mode: "payment",
-            currency: "jpy",
             line_items: [
                 {
                     quantity: 1,
@@ -57,11 +76,9 @@ export async function POST(req: Request) {
                     },
                 },
             ],
-            // 誰が何を買ったかをWebhookで確定するためにmetadataを入れる
-            metadata: {
-                drop_id: drop.id,
-                buyer_id: auth.user.id,
-                seller_user_id: String(drop.user_id ?? ""),
+            metadata: md,
+            payment_intent_data: {
+                metadata: md,
             },
             success_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${siteUrl}/drops/${drop.id}?canceled=1`,
