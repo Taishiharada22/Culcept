@@ -11,6 +11,9 @@ export function getStripe() {
     return _stripe;
 }
 
+// ★追加：古いコード互換（import { stripe } が生きててもOK）
+export const stripe = getStripe();
+
 export function getWebhookSecret() {
     const v = process.env.STRIPE_WEBHOOK_SECRET;
     if (!v) throw new Error("Missing STRIPE_WEBHOOK_SECRET");
