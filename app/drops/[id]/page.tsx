@@ -10,6 +10,7 @@ import BidBox from "./BidBox";
 import RecoImpressionPing from "@/app/drops/RecoImpressionPing";
 import { toggleSavedDropAction } from "@/app/_actions/saved";
 import SavedToggleButton from "@/app/_components/saved/SavedToggleButton";
+import { createDropCheckoutAction } from "./checkoutAction";
 
 export const dynamic = "force-dynamic";
 
@@ -246,8 +247,18 @@ export default async function DropDetailPage({
     const displayPrice = Number(r?.display_price ?? d.price ?? 0);
     const highestBid30d = Number(r?.highest_bid_30d ?? 0);
 
-    const canShowBuy =
-        !!d.purchase_url && (sale_mode === "fixed" || (sale_mode === "auction" && auction_allow_buy_now && d.price != null));
+    // ✅ Buy 出し分け
+    const canShowExternalBuy =
+        !isOwner &&
+        !!d.purchase_url &&
+        (sale_mode === "fixed" || (sale_mode === "auction" && auction_allow_buy_now && d.price != null));
+
+    const canShowStripeBuy =
+        !isOwner &&
+        !d.purchase_url &&
+        sale_mode === "fixed" &&
+        d.price != null &&
+        Number(d.price) > 0;
 
     const shopSlug = (shop?.slug ?? r?.shop_slug ?? null) as string | null;
 
@@ -302,9 +313,7 @@ export default async function DropDetailPage({
 
     // ✅ Related の Saved 初期状態をまとめて取得
     const relatedIds = Array.from(
-        new Set(
-            [...(moreFromShop ?? []), ...(simRows ?? [])].map((x: any) => x?.id).filter(Boolean) as string[]
-        )
+        new Set([...moreFromShop, ...simRows].map((x: any) => x?.id).filter(Boolean) as string[])
     );
 
     let relatedSavedSet = new Set<string>();
@@ -327,11 +336,13 @@ export default async function DropDetailPage({
         brand: d.brand ? { "@type": "Brand", name: d.brand } : undefined,
         url: `${siteUrl}/drops/${d.id}`,
     };
+
     if (displayPrice > 0) {
         jsonLd.offers = {
             "@type": "Offer",
             priceCurrency: "JPY",
             price: String(displayPrice),
+            // 外部購入なら purchase_url、Stripe購入なら drop URL
             url: d.purchase_url ?? `${siteUrl}/drops/${d.id}`,
             availability: "https://schema.org/InStock",
         };
@@ -342,7 +353,9 @@ export default async function DropDetailPage({
     return (
         <div className="grid gap-4">
             {/* detail view ping（impがある時だけ） */}
-            {imp ? <RecoImpressionPing impressionId={imp} action="click" meta={{ where: "drop_detail_view", drop_id: d.id }} /> : null}
+            {imp ? (
+                <RecoImpressionPing impressionId={imp} action="click" meta={{ where: "drop_detail_view", drop_id: d.id }} />
+            ) : null}
 
             <div className="flex items-center justify-between gap-3">
                 <Link href={addQuery("/drops", { imp })} className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950">
@@ -367,7 +380,13 @@ export default async function DropDetailPage({
                     ) : null}
 
                     {!isOwner && auth?.user ? (
-                        <SavedToggleButton kind="drop" id={d.id} initialSaved={isSaved} toggleAction={toggleSavedDropAction} size="sm" />
+                        <SavedToggleButton
+                            kind="drop"
+                            id={d.id}
+                            initialSaved={isSaved}
+                            toggleAction={toggleSavedDropAction}
+                            size="sm"
+                        />
                     ) : null}
                 </div>
             </div>
@@ -380,7 +399,11 @@ export default async function DropDetailPage({
                         <div className="flex gap-3">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             {shopCard.avatar ? (
-                                <img src={shopCard.avatar} alt="shop" className="h-12 w-12 rounded-xl border border-zinc-200 object-cover" />
+                                <img
+                                    src={shopCard.avatar}
+                                    alt="shop"
+                                    className="h-12 w-12 rounded-xl border border-zinc-200 object-cover"
+                                />
                             ) : (
                                 <div className="h-12 w-12 rounded-xl border border-zinc-200 bg-zinc-50" />
                             )}
@@ -388,7 +411,9 @@ export default async function DropDetailPage({
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="truncate text-sm font-extrabold text-zinc-900">{shopCard.name}</div>
-                                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">Shop</span>
+                                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">
+                                        Shop
+                                    </span>
                                 </div>
 
                                 {shopCard.headline ? (
@@ -400,7 +425,10 @@ export default async function DropDetailPage({
                                 {shopCard.style_tags.length > 0 ? (
                                     <div className="mt-2 flex flex-wrap gap-2">
                                         {shopCard.style_tags.slice(0, 6).map((t) => (
-                                            <span key={t} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">
+                                            <span
+                                                key={t}
+                                                className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700"
+                                            >
                                                 #{t}
                                             </span>
                                         ))}
@@ -440,7 +468,8 @@ export default async function DropDetailPage({
 
                 <span className="text-xs font-semibold text-zinc-500">{new Date(d.created_at).toLocaleString()}</span>
 
-                {canShowBuy ? (
+                {/* ✅ 外部Buy（shop系） */}
+                {canShowExternalBuy ? (
                     <RecoOutboundWrap
                         impressionId={imp}
                         recoAction="purchase"
@@ -452,6 +481,27 @@ export default async function DropDetailPage({
                     >
                         Buy
                     </RecoOutboundWrap>
+                ) : null}
+
+                {/* ✅ Stripe Buy（個人Drop：purchase_url無し） */}
+                {canShowStripeBuy ? (
+                    auth?.user ? (
+                        <form action={createDropCheckoutAction.bind(null, d.id, imp)} className="inline">
+                            <button
+                                type="submit"
+                                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white hover:bg-zinc-800"
+                            >
+                                Buy
+                            </button>
+                        </form>
+                    ) : (
+                        <Link
+                            href={`/login?next=${encodeURIComponent(`/drops/${d.id}`)}`}
+                            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white no-underline hover:bg-zinc-800"
+                        >
+                            Login to Buy
+                        </Link>
+                    )
                 ) : null}
 
                 {d.url ? (
@@ -517,7 +567,10 @@ export default async function DropDetailPage({
                 <section className="mt-6 grid gap-3">
                     <div className="flex items-center justify-between gap-3">
                         <h2 className="text-lg font-extrabold tracking-tight">More from this shop</h2>
-                        <Link href={addQuery(`/shops/${encodeURIComponent(shopSlug)}`, { imp })} className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950">
+                        <Link
+                            href={addQuery(`/shops/${encodeURIComponent(shopSlug)}`, { imp })}
+                            className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950"
+                        >
                             View shop →
                         </Link>
                     </div>
