@@ -1,4 +1,3 @@
-// lib/stripe.ts
 import "server-only";
 import Stripe from "stripe";
 
@@ -7,12 +6,13 @@ let _stripe: Stripe | null = null;
 export function getStripe() {
     const key = process.env.STRIPE_SECRET_KEY;
     if (!key) throw new Error("Missing STRIPE_SECRET_KEY");
-    if (!_stripe) _stripe = new Stripe(key);
+    if (!_stripe) {
+        _stripe = new Stripe(key, {
+            apiVersion: "2025-12-15.clover",
+        });
+    }
     return _stripe;
 }
-
-// ★追加：古いコード互換（import { stripe } が生きててもOK）
-export const stripe = getStripe();
 
 export function getWebhookSecret() {
     const v = process.env.STRIPE_WEBHOOK_SECRET;
