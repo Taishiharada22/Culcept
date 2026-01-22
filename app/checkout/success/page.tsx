@@ -5,30 +5,31 @@ import { createClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-function mustEnv(name: string) {
-    const v = process.env[name];
-    if (!v) throw new Error(`Missing env: ${name}`);
-    return v;
-}
+type SearchParams = { session_id?: string };
 
 const supabaseAdmin = createClient(
-    process.env.SUPABASE_URL || mustEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    mustEnv("SUPABASE_SERVICE_ROLE_KEY"),
-    { auth: { persistSession: false, autoRefreshToken: false } }
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+        auth: { persistSession: false, autoRefreshToken: false },
+    }
 );
 
 export default async function CheckoutSuccessPage({
     searchParams,
 }: {
-    searchParams: { session_id?: string };
+    searchParams: Promise<SearchParams>;
 }) {
-    const sessionId = String(searchParams.session_id ?? "").trim();
+    const sp = await searchParams; // ✅ Next.js 16 では Promise
+    const sessionId = sp.session_id;
 
     if (!sessionId) {
         return (
             <main className="mx-auto max-w-2xl px-4 py-16">
                 <h1 className="text-3xl font-extrabold">購入完了</h1>
-                <p className="mt-3 text-sm font-semibold text-zinc-600">session_id が見つかりませんでした。</p>
+                <p className="mt-3 text-sm font-semibold text-zinc-600">
+                    session_id が見つかりませんでした。
+                </p>
                 <Link className="mt-6 inline-block underline" href="/drops">
                     Dropsへ
                 </Link>
@@ -49,24 +50,14 @@ export default async function CheckoutSuccessPage({
             {!order ? (
                 <>
                     <p className="mt-3 text-sm font-semibold text-zinc-600">
-                        注文が見つかりませんでした（反映待ちの可能性があります）。
+                        注文が見つかりませんでした（反映待ちの可能性もあります）。
                     </p>
                     <p className="mt-2 text-xs text-zinc-500">session_id: {sessionId}</p>
-                    <p className="mt-3 text-xs text-zinc-500">
-                        数秒後に更新しても見つからない場合は、Webhook/DB紐付けを確認してください。
-                    </p>
                 </>
             ) : (
                 <div className="mt-6 rounded-lg border border-zinc-200 p-5">
                     <div className="text-sm font-extrabold">ステータス: {order.status}</div>
-                    {order.paid_at && <div className="mt-2 text-sm">paid_at: {String(order.paid_at)}</div>}
-
-                    {order.status === "pending" && (
-                        <div className="mt-3 text-xs text-zinc-500">
-                            決済反映中の可能性があります。数秒後に更新してください。
-                        </div>
-                    )}
-
+                    {order.paid_at && <div className="mt-2 text-sm">paid_at: {order.paid_at}</div>}
                     {order.drop_id && (
                         <Link className="mt-4 inline-block underline" href={`/drops/${order.drop_id}`}>
                             Dropへ戻る
@@ -75,14 +66,9 @@ export default async function CheckoutSuccessPage({
                 </div>
             )}
 
-            <div className="mt-8 flex gap-4">
-                <Link className="inline-block underline" href="/drops">
-                    Dropsへ
-                </Link>
-                <Link className="inline-block underline" href={`/checkout/success?session_id=${encodeURIComponent(sessionId)}`}>
-                    更新
-                </Link>
-            </div>
+            <Link className="mt-8 inline-block underline" href="/drops">
+                Dropsへ
+            </Link>
         </main>
     );
 }
