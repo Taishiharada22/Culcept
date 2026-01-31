@@ -1,7 +1,7 @@
 // app/components/UltimateRecommendationsPanel.tsx
 "use client";
 
-import { useState } from "react";
+import React from "react";
 
 type Algorithm =
     | "collaborative"
@@ -13,7 +13,8 @@ type Algorithm =
     | "seasonal"
     | "speed"
     | "bandit"
-    | "graph";
+    | "graph"
+    | "hybrid";
 
 type AlgorithmInfo = {
     id: Algorithm;
@@ -21,223 +22,339 @@ type AlgorithmInfo = {
     emoji: string;
     description: string;
     category: "basic" | "advanced" | "ai";
+    endpoint: string;
 };
 
 const algorithms: AlgorithmInfo[] = [
+    // Basic
     {
         id: "collaborative",
         name: "協調フィルタリング",
         emoji: "👥",
         description: "似たユーザーの好みから推薦",
         category: "basic",
+        endpoint: "/api/recommendations/collaborative",
     },
     {
         id: "tag-rules",
         name: "タグ共起分析",
         emoji: "🔗",
-        description: "タグの相関ルールを発見",
+        description: `"denimを好む人はmilitaryも好む" を発見`,
         category: "basic",
+        endpoint: "/api/recommendations/tag-rules",
     },
     {
         id: "vector",
         name: "ベクトル類似度",
         emoji: "🎯",
-        description: "コサイン距離で精密推薦",
+        description: "コサイン距離で精密推薦（Pure JS）",
         category: "basic",
+        endpoint: "/api/recommendations/vector-similarity",
     },
+
+    // Advanced
     {
         id: "timeslot",
         name: "時間帯別",
         emoji: "⏰",
-        description: "朝/昼/夜で最適化",
+        description: "朝/昼/夜で好みが変わることを学習",
         category: "advanced",
+        endpoint: "/api/recommendations/timeslot",
     },
     {
         id: "sequence",
         name: "連続パターン",
         emoji: "🔄",
-        description: "評価の流れを学習",
+        description: `"3枚連続dislike後はlikeしやすい" を学習`,
         category: "advanced",
+        endpoint: "/api/recommendations/sequence-pattern",
     },
     {
         id: "diversity",
         name: "多様性スコア",
         emoji: "🎨",
-        description: "偏りを検出・調整",
+        description: "偏りを検出してランダム要素を調整",
         category: "advanced",
+        endpoint: "/api/recommendations/diversity",
     },
     {
         id: "seasonal",
         name: "季節性検出",
         emoji: "🌸",
-        description: "季節ごとの好みを学習",
+        description: "春/夏/秋/冬ごとの好みを学習",
         category: "advanced",
+        endpoint: "/api/recommendations/seasonal",
     },
+
+    // AI
     {
         id: "speed",
         name: "スピード学習",
         emoji: "⚡",
-        description: "即likeは強い興味",
+        description: "即likeは強い興味、長考後likeは弱い興味",
         category: "ai",
+        endpoint: "/api/recommendations/speed-learning",
     },
     {
         id: "bandit",
         name: "バンディット",
         emoji: "🎰",
-        description: "探索と活用のバランス",
+        description: "Epsilon-Greedy（探索と活用のバランス）",
         category: "ai",
+        endpoint: "/api/recommendations/bandit?epsilon=0.1&limit=20",
     },
     {
         id: "graph",
         name: "グラフベース",
         emoji: "🕸️",
-        description: "2-hopで発見",
+        description: "2-hopで類似カード発見",
         category: "ai",
+        endpoint: "/api/recommendations/graph",
+    },
+    {
+        id: "hybrid",
+        name: "ハイブリッド",
+        emoji: "🤖",
+        description: "5つのアルゴリズムを統合",
+        category: "ai",
+        endpoint: "/api/recommendations/hybrid?limit=20",
     },
 ];
 
+function cx(...v: Array<string | false | null | undefined>) {
+    return v.filter(Boolean).join(" ");
+}
+
+/**
+ * JSON.stringify が BigInt / circular で落ちないようにする安全版
+ */
+function safeStringify(input: unknown, space = 2) {
+    const seen = new WeakSet<object>();
+
+    return JSON.stringify(
+        input,
+        (_k, v) => {
+            if (typeof v === "bigint") return v.toString();
+            if (typeof v === "object" && v !== null) {
+                const obj = v as object;
+                if (seen.has(obj)) return "[Circular]";
+                seen.add(obj);
+            }
+            return v;
+        },
+        space
+    );
+}
+
+async function callApi(endpoint: string) {
+    const res = await fetch(endpoint, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        cache: "no-store",
+    });
+
+    const text = await res.text();
+    let json: any = null;
+
+    try {
+        json = text ? JSON.parse(text) : null;
+    } catch {
+        json = { ok: false, error: "Non-JSON response", raw: text };
+    }
+
+    if (!res.ok) {
+        const message = (json && (json.error || json.message)) || `HTTP ${res.status}`;
+        const err = new Error(message);
+        (err as any).status = res.status;
+        (err as any).payload = json;
+        throw err;
+    }
+
+    return json;
+}
+
 export default function UltimateRecommendationsPanel() {
-    const [activeAlgo, setActiveAlgo] = useState<Algorithm>("collaborative");
-    const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<any>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [activeAlgo, setActiveAlgo] = React.useState<Algorithm>("hybrid");
+    const [loading, setLoading] = React.useState(false);
+    const [data, setData] = React.useState<any>(null);
+    const [error, setError] = React.useState<string | null>(null);
 
-    const endpoints: Record<Algorithm, string> = {
-        collaborative: "/api/recommendations/collaborative",
-        "tag-rules": "/api/recommendations/tag-rules",
-        vector: "/api/recommendations/vector-similarity",
-        timeslot: "/api/recommendations/timeslot",
-        sequence: "/api/recommendations/sequence-pattern",
-        diversity: "/api/recommendations/diversity",
-        seasonal: "/api/recommendations/seasonal",
-        speed: "/api/recommendations/speed-learning",
-        bandit: "/api/recommendations/bandit?epsilon=0.1&limit=20",
-        graph: "/api/recommendations/graph",
-    };
+    const currentAlgo = React.useMemo(
+        () => algorithms.find((a) => a.id === activeAlgo)!,
+        [activeAlgo]
+    );
 
-    async function loadRecommendations(algo: Algorithm) {
+    const basicAlgos = React.useMemo(
+        () => algorithms.filter((a) => a.category === "basic"),
+        []
+    );
+    const advancedAlgos = React.useMemo(
+        () => algorithms.filter((a) => a.category === "advanced"),
+        []
+    );
+    const aiAlgos = React.useMemo(
+        () => algorithms.filter((a) => a.category === "ai"),
+        []
+    );
+
+    const prettyDebug = React.useMemo(() => {
+        if (data == null && error == null) return "";
+        try {
+            return safeStringify(data ?? { ok: false, error }, 2);
+        } catch {
+            try {
+                return String(data ?? error);
+            } catch {
+                return "[unprintable]";
+            }
+        }
+    }, [data, error]);
+
+    const loadRecommendations = React.useCallback(async () => {
         setLoading(true);
         setError(null);
+        setData(null);
 
         try {
-            const res = await fetch(endpoints[algo], {
-                credentials: "include",
-                cache: "no-store",
-            });
-            const json = await res.json();
+            const json = await callApi(currentAlgo.endpoint);
 
-            if (json.ok) {
+            // ok:true だけが成功とは限らないので、無ければそのまま出す
+            if (json && (json.ok === true || json.recommendations || json.items)) {
                 setData(json);
             } else {
-                setError(json.error || json.message || "Failed to load");
+                setError(json?.error || json?.message || "Failed to load");
+                setData(json);
             }
-        } catch (err: any) {
-            setError(err.message);
+        } catch (e: any) {
+            const msg =
+                e?.message ||
+                e?.payload?.error ||
+                e?.payload?.message ||
+                "Request failed";
+            setError(msg);
+            setData(e?.payload ?? null);
         } finally {
             setLoading(false);
         }
-    }
+    }, [currentAlgo.endpoint]);
 
-    const currentAlgo = algorithms.find((a) => a.id === activeAlgo)!;
+    const AlgoButton = ({
+        algo,
+        activeClass,
+        idleClass,
+    }: {
+        algo: AlgorithmInfo;
+        activeClass: string;
+        idleClass: string;
+    }) => {
+        const isActive = activeAlgo === algo.id;
+        return (
+            <button
+                key={algo.id}
+                type="button"
+                onClick={() => {
+                    setActiveAlgo(algo.id);
+                    setData(null);
+                    setError(null);
+                }}
+                className={cx(
+                    "rounded-xl border-2 text-sm font-bold transition-all",
+                    isActive ? activeClass : idleClass
+                )}
+                aria-pressed={isActive}
+            >
+                <div className="px-4 py-3">
+                    <div className="text-2xl mb-1">{algo.emoji}</div>
+                    <div className="text-xs">{algo.name}</div>
+                </div>
+            </button>
+        );
+    };
+
+    const recommendations: any[] =
+        (data?.recommendations as any[]) ??
+        (data?.items as any[]) ??
+        (data?.cards as any[]) ??
+        [];
 
     return (
         <div className="space-y-6">
-            {/* Category Tabs */}
-            <div className="space-y-3">
-                <div className="text-sm font-black text-gray-700 uppercase tracking-wide">
-                    📚 Basic Algorithms
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                    {algorithms
-                        .filter((a) => a.category === "basic")
-                        .map((algo) => (
-                            <button
-                                key={algo.id}
-                                onClick={() => {
-                                    setActiveAlgo(algo.id);
-                                    setData(null);
-                                    setError(null);
-                                }}
-                                className={`rounded-xl border-2 px-3 py-2 text-xs font-bold transition-all ${activeAlgo === algo.id
-                                    ? "border-purple-500 bg-purple-500 text-white shadow-lg"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-purple-300"
-                                    }`}
-                            >
-                                <div className="text-lg mb-1">{algo.emoji}</div>
-                                <div>{algo.name}</div>
-                            </button>
-                        ))}
-                </div>
-
-                <div className="text-sm font-black text-gray-700 uppercase tracking-wide mt-6">
-                    🚀 Advanced Algorithms
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                    {algorithms
-                        .filter((a) => a.category === "advanced")
-                        .map((algo) => (
-                            <button
-                                key={algo.id}
-                                onClick={() => {
-                                    setActiveAlgo(algo.id);
-                                    setData(null);
-                                    setError(null);
-                                }}
-                                className={`rounded-xl border-2 px-3 py-2 text-xs font-bold transition-all ${activeAlgo === algo.id
-                                    ? "border-orange-500 bg-orange-500 text-white shadow-lg"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-orange-300"
-                                    }`}
-                            >
-                                <div className="text-lg mb-1">{algo.emoji}</div>
-                                <div>{algo.name}</div>
-                            </button>
-                        ))}
-                </div>
-
-                <div className="text-sm font-black text-gray-700 uppercase tracking-wide mt-6">
-                    🤖 AI Algorithms
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                    {algorithms
-                        .filter((a) => a.category === "ai")
-                        .map((algo) => (
-                            <button
-                                key={algo.id}
-                                onClick={() => {
-                                    setActiveAlgo(algo.id);
-                                    setData(null);
-                                    setError(null);
-                                }}
-                                className={`rounded-xl border-2 px-3 py-2 text-xs font-bold transition-all ${activeAlgo === algo.id
-                                    ? "border-teal-500 bg-teal-500 text-white shadow-lg"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-teal-300"
-                                    }`}
-                            >
-                                <div className="text-lg mb-1">{algo.emoji}</div>
-                                <div>{algo.name}</div>
-                            </button>
-                        ))}
-                </div>
-            </div>
-
-            {/* Algorithm Info */}
-            <div className="rounded-xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
-                <div className="flex items-center gap-3">
-                    <span className="text-3xl">{currentAlgo.emoji}</span>
+            {/* Header */}
+            <div className="rounded-2xl border-2 border-purple-300 bg-gradient-to-br from-purple-50 via-white to-purple-50 p-6 shadow-lg">
+                <div className="flex items-center gap-4 mb-4">
+                    <div className="text-5xl">{currentAlgo.emoji}</div>
                     <div className="flex-1">
-                        <div className="text-lg font-black text-slate-900">
+                        <h3 className="text-2xl font-black text-gray-900 mb-1">
                             {currentAlgo.name}
+                        </h3>
+                        <p className="text-sm text-gray-600">{currentAlgo.description}</p>
+                        <div className="mt-2 text-xs font-mono text-gray-500">
+                            {currentAlgo.endpoint}
                         </div>
-                        <div className="text-sm text-slate-600">{currentAlgo.description}</div>
                     </div>
                 </div>
             </div>
 
-            {/* Load Button */}
+            {/* Category Tabs */}
+            <div className="space-y-4">
+                {/* Basic */}
+                <div>
+                    <div className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">
+                        📚 Basic Algorithms
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        {basicAlgos.map((algo) => (
+                            <AlgoButton
+                                key={algo.id}
+                                algo={algo}
+                                activeClass="border-purple-500 bg-purple-500 text-white shadow-lg scale-105"
+                                idleClass="border-gray-200 bg-white text-gray-700 hover:border-purple-300 hover:shadow-md"
+                            />
+                        ))}
+                    </div>
+                </div>
+
+                {/* Advanced */}
+                <div>
+                    <div className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">
+                        🚀 Advanced Algorithms
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                        {advancedAlgos.map((algo) => (
+                            <AlgoButton
+                                key={algo.id}
+                                algo={algo}
+                                activeClass="border-orange-500 bg-orange-500 text-white shadow-lg scale-105"
+                                idleClass="border-gray-200 bg-white text-gray-700 hover:border-orange-300 hover:shadow-md"
+                            />
+                        ))}
+                    </div>
+                </div>
+
+                {/* AI */}
+                <div>
+                    <div className="text-xs font-black text-gray-500 uppercase tracking-wide mb-2">
+                        🤖 AI Algorithms
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                        {aiAlgos.map((algo) => (
+                            <AlgoButton
+                                key={algo.id}
+                                algo={algo}
+                                activeClass="border-teal-500 bg-teal-500 text-white shadow-lg scale-105"
+                                idleClass="border-gray-200 bg-white text-gray-700 hover:border-teal-300 hover:shadow-md"
+                            />
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Execute Button */}
             {!data && !loading && !error && (
                 <button
-                    onClick={() => loadRecommendations(activeAlgo)}
-                    className="w-full rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 px-6 py-4 text-base font-black text-white transition-all hover:shadow-lg"
+                    onClick={loadRecommendations}
+                    className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-teal-600 px-6 py-4 text-lg font-black text-white shadow-lg transition-all hover:shadow-2xl hover:scale-105"
                 >
                     🚀 {currentAlgo.name}を実行
                 </button>
@@ -245,7 +362,7 @@ export default function UltimateRecommendationsPanel() {
 
             {/* Loading */}
             {loading && (
-                <div className="text-center py-16">
+                <div className="rounded-2xl border-2 border-gray-200 bg-white p-12 text-center">
                     <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-purple-200 border-t-purple-600" />
                     <div className="mt-4 text-base font-bold text-gray-700">
                         {currentAlgo.name}分析中...
@@ -254,57 +371,92 @@ export default function UltimateRecommendationsPanel() {
             )}
 
             {/* Error */}
-            {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
-                    {error}
+            {error && !loading && (
+                <div className="rounded-xl border-2 border-red-200 bg-red-50 p-4">
+                    <div className="font-bold text-red-900 mb-1">❌ エラー</div>
+                    <div className="text-sm text-red-700">{error}</div>
+
+                    {/* Debug payload */}
+                    {data && (
+                        <pre className="mt-3 max-h-[260px] overflow-auto rounded-xl border border-red-200 bg-white p-3 text-xs text-gray-800">
+                            {prettyDebug}
+                        </pre>
+                    )}
                 </div>
             )}
 
-            {/* Results - Generic Display */}
+            {/* Results */}
             {data && !loading && (
                 <div className="space-y-4">
-                    {/* Stats */}
-                    <div className="rounded-xl border-2 border-purple-200 bg-purple-50 p-4">
-                        <div className="text-sm font-black text-purple-900 mb-3">
-                            📊 分析結果
+                    {/* Summary */}
+                    <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-4">
+                        <div className="text-sm font-black text-blue-900 mb-2">
+                            📊 結果サマリー
                         </div>
-                        <div className="text-xs text-purple-800 whitespace-pre-wrap font-mono">
-                            {JSON.stringify(
-                                {
-                                    ...data,
-                                    recommendations: `${data.recommendations?.length || 0
-                                        } items`,
-                                },
-                                null,
-                                2
-                            ).substring(0, 500)}
-                            ...
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="text-blue-800">
+                                <span className="font-bold">推薦数:</span> {recommendations.length}件
+                            </div>
+                            {data.total_ratings !== undefined && (
+                                <div className="text-blue-800">
+                                    <span className="font-bold">評価数:</span> {data.total_ratings}件
+                                </div>
+                            )}
+                            {data.message && (
+                                <div className="col-span-2 text-blue-800">
+                                    <span className="font-bold">Message:</span> {String(data.message)}
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* Recommendations */}
-                    {data.recommendations?.length > 0 && (
+                    {/* Recommendations Grid */}
+                    {recommendations.length > 0 && (
                         <div>
-                            <div className="text-sm font-black text-gray-900 mb-3">
-                                推薦結果（{data.recommendations.length}件）
+                            <div className="text-lg font-black text-gray-900 mb-3">
+                                🎯 推薦結果
                             </div>
                             <div className="grid grid-cols-2 gap-3">
-                                {data.recommendations.slice(0, 8).map((rec: any, idx: number) => (
+                                {recommendations.slice(0, 8).map((rec: any, idx: number) => (
                                     <div
-                                        key={rec.card_id || idx}
-                                        className="rounded-lg border-2 border-slate-200 bg-white p-3"
+                                        key={rec.card_id || rec.id || idx}
+                                        className="rounded-xl border-2 border-gray-200 bg-white p-4 shadow-sm hover:shadow-lg transition-all"
                                     >
-                                        <div className="text-xs font-bold text-slate-700 mb-2">
-                                            #{idx + 1} {rec.card_id || rec.tag || ""}
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-purple-500 text-sm font-black text-white">
+                                                #{idx + 1}
+                                            </div>
+                                            <div className="flex-1 text-sm font-bold text-gray-800 truncate">
+                                                {rec.card_id || rec.id || rec.tag || "Item"}
+                                            </div>
                                         </div>
+
                                         {rec.score !== undefined && (
-                                            <div className="text-xs text-slate-600">
-                                                Score: {rec.score}
+                                            <div className="text-xs text-gray-600 mb-2">
+                                                スコア:{" "}
+                                                <span className="font-bold">{String(rec.score)}</span>
                                             </div>
                                         )}
+
                                         {rec.similarity !== undefined && (
-                                            <div className="text-xs text-slate-600">
-                                                類似度: {Math.round(rec.similarity * 100)}%
+                                            <div className="text-xs text-gray-600 mb-2">
+                                                類似度:{" "}
+                                                <span className="font-bold">
+                                                    {Math.round(Number(rec.similarity) * 100)}%
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        {Array.isArray(rec.tags) && rec.tags.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">
+                                                {rec.tags.slice(0, 3).map((tag: string, i: number) => (
+                                                    <span
+                                                        key={i}
+                                                        className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-bold text-purple-700"
+                                                    >
+                                                        {tag}
+                                                    </span>
+                                                ))}
                                             </div>
                                         )}
                                     </div>
@@ -313,10 +465,33 @@ export default function UltimateRecommendationsPanel() {
                         </div>
                     )}
 
-                    {/* Reload Button */}
+                    {/* No Results */}
+                    {recommendations.length === 0 && (
+                        <div className="rounded-xl border-2 border-gray-200 bg-gray-50 p-12 text-center">
+                            <div className="text-4xl mb-3 opacity-30">🤷</div>
+                            <div className="text-lg font-bold text-gray-900 mb-2">
+                                推薦結果がありません
+                            </div>
+                            <div className="text-sm text-gray-600">
+                                {data.message || "カードを評価してください"}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Debug (always available when data exists) */}
+                    <details className="rounded-xl border border-slate-200 bg-white p-3">
+                        <summary className="cursor-pointer text-sm font-bold text-slate-700">
+                            🔎 デバッグJSONを表示
+                        </summary>
+                        <pre className="mt-3 max-h-[420px] overflow-auto rounded-2xl border-2 border-slate-200 bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
+                            {safeStringify(data, 2)}
+                        </pre>
+                    </details>
+
+                    {/* Reload */}
                     <button
-                        onClick={() => loadRecommendations(activeAlgo)}
-                        className="w-full rounded-xl border-2 border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-700 transition-all hover:bg-slate-50"
+                        onClick={loadRecommendations}
+                        className="w-full rounded-xl border-2 border-gray-300 bg-white px-6 py-3 text-sm font-bold text-gray-700 transition-all hover:bg-gray-50 hover:shadow-md"
                     >
                         🔄 再実行
                     </button>
