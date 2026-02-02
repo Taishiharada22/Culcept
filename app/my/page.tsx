@@ -25,14 +25,40 @@ export default async function MyPage() {
             <h1 className="text-2xl font-extrabold">My Page</h1>
 
             <div className="mt-8 grid gap-3">
-                <Link className="rounded-lg border p-4 hover:bg-zinc-50" href="/my/orders?tab=purchases">
-                    購入履歴
+                <Link className="rounded-lg border p-4 hover:bg-zinc-50 flex items-center gap-3" href="/my/orders?tab=purchases">
+                    <span className="text-2xl">🛒</span>
+                    <div>
+                        <div className="font-medium">購入履歴</div>
+                        <div className="text-sm text-zinc-500">過去の購入を確認</div>
+                    </div>
                 </Link>
-                <Link className="rounded-lg border p-4 hover:bg-zinc-50" href="/my/orders?tab=sales">
-                    販売履歴
+                <Link className="rounded-lg border p-4 hover:bg-zinc-50 flex items-center gap-3" href="/my/orders?tab=sales">
+                    <span className="text-2xl">💰</span>
+                    <div>
+                        <div className="font-medium">販売履歴</div>
+                        <div className="text-sm text-zinc-500">売上を確認</div>
+                    </div>
                 </Link>
-                <Link className="rounded-lg border p-4 hover:bg-zinc-50" href="/my/notifications">
-                    通知
+                <Link className="rounded-lg border p-4 hover:bg-zinc-50 flex items-center gap-3" href="/favorites">
+                    <span className="text-2xl">❤️</span>
+                    <div>
+                        <div className="font-medium">お気に入り</div>
+                        <div className="text-sm text-zinc-500">いいねした商品</div>
+                    </div>
+                </Link>
+                <Link className="rounded-lg border p-4 hover:bg-zinc-50 flex items-center gap-3" href="/my-page/notifications">
+                    <span className="text-2xl">🔔</span>
+                    <div>
+                        <div className="font-medium">通知</div>
+                        <div className="text-sm text-zinc-500">お知らせを確認</div>
+                    </div>
+                </Link>
+                <Link className="rounded-lg border p-4 hover:bg-zinc-50 flex items-center gap-3" href="/settings/notifications">
+                    <span className="text-2xl">⚙️</span>
+                    <div>
+                        <div className="font-medium">通知設定</div>
+                        <div className="text-sm text-zinc-500">通知のカスタマイズ</div>
+                    </div>
                 </Link>
             </div>
         </main>

@@ -30,13 +30,15 @@
     "react-dom": "latest",
     "stripe": "^20.2.0",
     "tailwind-merge": "^3.4.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@types/web-push": "^3.6.4",
     "autoprefixer": "^10.4.23",
     "dotenv": "^17.2.3",
     "eslint": "latest",
