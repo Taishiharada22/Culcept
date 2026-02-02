@@ -1623,7 +1623,8 @@ export async function GET(req: Request) {
  * =========
  * - auth不要で “キャッシュ生成だけ” したい時に呼べる内部関数
  */
-export async function precomputeForUser(params: {
+// 内部関数: route.tsからはエクスポートしない（Next.js制約）
+async function precomputeForUser(params: {
     userId: string;
     limit?: number;
     role?: Role;
