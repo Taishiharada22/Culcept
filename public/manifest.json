@@ -1,0 +1,104 @@
+{
+  "name": "Culcept",
+  "short_name": "Culcept",
+  "description": "個人がブランドになる、新しい売買体験",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#8b5cf6",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "ja",
+  "categories": ["shopping", "lifestyle", "fashion"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/home.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "ホーム画面"
+    },
+    {
+      "src": "/screenshots/swipe.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "スワイプ画面"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "スワイプ",
+      "short_name": "スワイプ",
+      "description": "アイテムをスワイプ",
+      "url": "/start",
+      "icons": [{ "src": "/icons/swipe-icon.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "お気に入り",
+      "short_name": "お気に入り",
+      "description": "いいねしたアイテム",
+      "url": "/favorites",
+      "icons": [{ "src": "/icons/heart-icon.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "AIスタイリスト",
+      "short_name": "スタイリスト",
+      "description": "AIにコーデを相談",
+      "url": "/stylist",
+      "icons": [{ "src": "/icons/ai-icon.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

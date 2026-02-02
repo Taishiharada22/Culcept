@@ -6,6 +6,7 @@ import SiteHeader from "@/app/components/SiteHeader";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getMyShopId } from "@/lib/getMyShopId";
 import { isAdminEmail } from "@/lib/auth/isAdmin";
+import { PWAProvider } from "@/components/pwa";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,6 +29,16 @@ export const metadata: Metadata = {
     metadataBase: getSiteUrl(),
     title: { default: "Culcept", template: "%s | Culcept" },
     description: "個人がブランドになる、新しい売買体験",
+    manifest: "/manifest.json",
+    themeColor: "#8b5cf6",
+    appleWebApp: {
+        capable: true,
+        statusBarStyle: "default",
+        title: "Culcept",
+    },
+    formatDetection: {
+        telephone: false,
+    },
     openGraph: {
         title: "Culcept",
         description: "個人がブランドになる、新しい売買体験",
@@ -100,9 +111,15 @@ export default async function RootLayout({
                     href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap"
                     rel="stylesheet"
                 />
+                {/* PWA */}
+                <link rel="apple-touch-icon" href="/icons/icon.svg" />
+                <meta name="apple-mobile-web-app-capable" content="yes" />
+                <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+                <meta name="mobile-web-app-capable" content="yes" />
             </head>
 
             <body>
+                <PWAProvider>
                 <SiteHeader />
 
                 <div className="mx-auto max-w-6xl px-4 py-8">
@@ -192,6 +209,7 @@ export default async function RootLayout({
 
                     {children}
                 </div>
+                </PWAProvider>
             </body>
         </html>
     );
