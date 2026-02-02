@@ -12,8 +12,8 @@ function spStr(v: unknown) {
     return String(Array.isArray(v) ? v[0] : v ?? "").trim();
 }
 
-export default async function ProductsPage({ searchParams }: { searchParams?: SP }) {
-    const sp = searchParams ?? {};
+export default async function ProductsPage({ searchParams }: { searchParams?: Promise<SP> }) {
+    const sp = (await searchParams) ?? {};
 
     // Filters
     const q = spStr(sp.q);

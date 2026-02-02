@@ -667,7 +667,7 @@ export default function BuyerSwipeClient({ limit = 12 }: { limit?: number }) {
 
                         {card?.tags?.length ? (
                             <div className="mt-3 flex flex-wrap gap-2">
-                                {[...new Set(card.tags)].slice(0, 14).map((t: string, idx: number) => (
+                                {[...new Set<string>(card.tags)].slice(0, 14).map((t, idx) => (
                                     <span
                                         key={`${t}-${idx}`}
                                         className="rounded-full border bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50 transition-colors"

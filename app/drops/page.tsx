@@ -23,8 +23,8 @@ function addQuery(url: string, params: Record<string, string | null | undefined>
     return url + (url.includes("?") ? "&" : "?") + qs;
 }
 
-export default async function DropsPage({ searchParams }: { searchParams?: SP }) {
-    const sp = searchParams ?? {};
+export default async function DropsPage({ searchParams }: { searchParams?: Promise<SP> }) {
+    const sp = (await searchParams) ?? {};
     const q = spStr(sp.q);
     const shop = spStr(sp.shop);
 

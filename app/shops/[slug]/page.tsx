@@ -16,11 +16,11 @@ export default async function ShopSlugPage({
     params,
     searchParams,
 }: {
-    params: Promise<{ slug: string }> | { slug: string };
-    searchParams: Promise<SP> | SP;
+    params: Promise<{ slug: string }>;
+    searchParams?: Promise<SP>;
 }) {
-    const p = await (params as any);
-    const sp = (await (searchParams as any)) ?? {};
+    const p = await params;
+    const sp = (await searchParams) ?? {};
 
     const slug = String(p?.slug ?? "").trim();
     if (!slug) notFound();

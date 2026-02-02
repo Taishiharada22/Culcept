@@ -6,9 +6,10 @@ import ProductCard from "@/components/products/ProductCard";
 export default async function SearchPage({
     searchParams,
 }: {
-    searchParams?: { q?: string };
+    searchParams?: Promise<{ q?: string }>;
 }) {
-    const query = searchParams?.q || "";
+    const sp = await searchParams;
+    const query = sp?.q || "";
 
     let products: any[] = [];
     let interpretation: any = null;
