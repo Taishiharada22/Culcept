@@ -1,3 +1,4 @@
+// app/shops/[slug]/edit/page.tsx
 import "server-only";
 
 import Link from "next/link";
@@ -29,7 +30,7 @@ export default async function ShopEditPage({ params }: { params: Promise<{ slug:
             <div className="mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <Link href="/drops" className="text-sm font-extrabold text-zinc-700 no-underline hover:text-zinc-950">
-                        ← Drops
+                        ← Products
                     </Link>
                     <span className="text-xs font-semibold text-zinc-400">/</span>
                     <Link href={`/shops/${shop.slug}`} className="text-sm font-extrabold text-zinc-700 no-underline hover:text-zinc-950">

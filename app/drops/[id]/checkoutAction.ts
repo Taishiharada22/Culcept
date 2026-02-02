@@ -1,14 +1,14 @@
 // app/drops/[id]/checkoutAction.ts
-"use server";
-
 import "server-only";
 
-import Stripe from "stripe";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getStripe } from "@/lib/stripe";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+// ✅ runtime export を削除（"use server" ファイルでは使えない）
+// NOTE: この関数は page.tsx 側で export const runtime = "nodejs" を設定すれば動く
 
 function mustEnv(name: string) {
     const v = process.env[name];
@@ -16,137 +16,346 @@ function mustEnv(name: string) {
     return v;
 }
 
-const stripe = new Stripe(mustEnv("STRIPE_SECRET_KEY"), {
-    // apiVersion は固定しなくても動くが、型安定させたいなら固定してOK
-    // apiVersion: "2024-06-20",
-});
+type AdminClient = ReturnType<typeof createClient>;
+
+function getSupabaseAdmin(): AdminClient {
+    return createClient(
+        mustEnv("NEXT_PUBLIC_SUPABASE_URL"),
+        mustEnv("SUPABASE_SERVICE_ROLE_KEY"),
+        { auth: { persistSession: false, autoRefreshToken: false } }
+    );
+}
+
+async function resolveSiteUrl() {
+    const h = await headers();
+    const host = h.get("x-forwarded-host") ?? h.get("host");
+    const proto = h.get("x-forwarded-proto") ?? "https";
+
+    const envUrl =
+        process.env.NEXT_PUBLIC_SITE_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+
+    const base = (envUrl || (host ? `${proto}://${host}` : "http://localhost:3000")).replace(/\/$/, "");
+    return base;
+}
+
+function addQuery(url: string, params: Record<string, string | null | undefined>) {
+    const qs = Object.entries(params)
+        .filter(([, v]) => v != null && String(v).trim() !== "")
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join("&");
+    if (!qs) return url;
+    return url + (url.includes("?") ? "&" : "?") + qs;
+}
 
 type DropForCheckout = {
     id: string;
     title: string | null;
     price: number | null;
     user_id: string | null;
+
     purchase_url: string | null;
+
     sale_mode: "fixed" | "auction" | null;
+    buy_now_price: number | null;
     auction_allow_buy_now: boolean | null;
+    accepted_bid_id: string | null;
+
+    sold_at: string | null;
+    is_sold: boolean | null;
 };
 
-export async function createDropCheckoutAction(dropId: string, impressionId: string | null, _fd: FormData) {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-
-    if (!auth?.user) {
-        redirect(`/login?next=${encodeURIComponent(`/drops/${dropId}`)}`);
+async function createPendingOrder(
+    admin: AdminClient,
+    params: {
+        dropId: string;
+        buyerId: string;
+        sellerId: string | null;
+        sessionId: string;
+        amount: number;
+        currency: string;
+        purchaseKind: string;
+        impressionId?: string | null;
+        paymentIntent?: string | null;
+        acceptedBidId?: string | null;
     }
-
-    const buyerId = auth.user.id;
-
-    // Drop取得（Adminで取る＝RLS関係なく取れる）
-    const { data: d, error: dErr } = await supabaseAdmin
-        .from("drops")
-        .select("id,title,price,user_id,purchase_url,sale_mode,auction_allow_buy_now")
-        .eq("id", dropId)
-        .maybeSingle();
-
-    if (dErr || !d) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent(dErr?.message ?? "Drop not found")}`);
-    }
-
-    const drop = d as unknown as DropForCheckout;
-
-    // 外部購入URLがあるなら Stripe ではなくそっち（念のため）
-    if (drop.purchase_url) {
-        redirect(drop.purchase_url);
-    }
-
-    // 自分のDropは買えない
-    if (drop.user_id && drop.user_id === buyerId) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("You cannot buy your own drop.")}`);
-    }
-
-    // 固定価格のみ（auctionはBidBox側でやる）
-    const saleMode = (drop.sale_mode ?? "fixed") as "fixed" | "auction";
-    if (saleMode !== "fixed") {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("Auction drops cannot be purchased via checkout.")}`);
-    }
-
-    const price = Number(drop.price ?? 0);
-    if (!Number.isFinite(price) || price <= 0) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("Invalid price.")}`);
-    }
-
-    const sellerId = String(drop.user_id ?? "");
-    if (!sellerId) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("Seller not found.")}`);
-    }
-
-    // 既に売れてたら止める（paidが1件でもあれば sold 扱い）
-    const { data: sold } = await supabaseAdmin
+) {
+    const { error } = await admin
         .from("orders")
+        .upsert(
+            {
+                drop_id: params.dropId,
+                buyer_user_id: params.buyerId,
+                seller_user_id: params.sellerId,
+                status: "pending",
+                currency: params.currency,
+                amount_total: params.amount,
+                stripe_session_id: params.sessionId,
+                stripe_payment_intent: params.paymentIntent ?? null,
+                purchase_kind: params.purchaseKind,
+                ...(params.impressionId ? { impression_id: String(params.impressionId) } : {}),
+                ...(params.acceptedBidId ? { accepted_bid_id: String(params.acceptedBidId) } : {}),
+            } as any,
+            { onConflict: "stripe_session_id" }
+        )
         .select("id")
-        .eq("drop_id", dropId)
-        .eq("status", "paid")
         .maybeSingle();
 
-    if (sold) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("This drop is already sold.")}`);
+    if (error) throw error;
+}
+
+async function getAuthedUserId() {
+    const supabase = await supabaseServer();
+    const { data } = await supabase.auth.getUser();
+    return data?.user?.id ?? null;
+}
+
+async function getDrop(admin: AdminClient, dropId: string) {
+    const { data, error } = await admin
+        .from("drops")
+        .select(
+            "id,title,price,user_id,purchase_url,sale_mode,buy_now_price,auction_allow_buy_now,accepted_bid_id,sold_at,is_sold"
+        )
+        .eq("id", dropId)
+        .single();
+
+    if (error) throw error;
+    return data as unknown as DropForCheckout;
+}
+
+function assertNotSold(d: DropForCheckout) {
+    if (d.sold_at || d.is_sold) throw new Error("already_sold");
+}
+
+function yenAmount(n: unknown) {
+    const v = typeof n === "number" ? n : Number(String(n ?? ""));
+    if (!Number.isFinite(v) || v <= 0) return null;
+    return Math.round(v);
+}
+
+/** fixed: d.price を決済 */
+export async function createDropCheckoutAction(dropId: string, imp?: string | null, _fd?: FormData) {
+    "use server";
+
+    const buyerId = await getAuthedUserId();
+    if (!buyerId) {
+        const next = addQuery(`/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+        redirect(`/login?next=${encodeURIComponent(next)}`);
     }
 
-    // Stripe Checkout Session 作成
+    const admin = getSupabaseAdmin();
+
+    const d = await getDrop(admin, dropId);
+    assertNotSold(d);
+
+    if (d.purchase_url) throw new Error("purchase_url_exists");
+
+    const saleMode = (d.sale_mode ?? "fixed") as "fixed" | "auction";
+    if (saleMode !== "fixed") throw new Error("not_fixed_sale");
+
+    const amount = yenAmount(d.price);
+    if (!amount) throw new Error("invalid_price");
+
+    const base = await resolveSiteUrl();
+    const successUrl = `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = addQuery(`${base}/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+
+    const stripe = getStripe();
+
     const session = await stripe.checkout.sessions.create({
         mode: "payment",
-        // 日本円は unit_amount = 円（整数）でOK
+        payment_method_types: ["card"],
         line_items: [
             {
+                quantity: 1,
                 price_data: {
                     currency: "jpy",
-                    unit_amount: Math.round(price),
-                    product_data: {
-                        name: drop.title ?? "Drop",
-                        metadata: { drop_id: dropId },
-                    },
+                    unit_amount: amount,
+                    product_data: { name: String(d.title ?? "Drop") },
                 },
-                quantity: 1,
             },
         ],
-        success_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${siteUrl}/drops/${dropId}`,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        client_reference_id: buyerId,
         metadata: {
-            drop_id: dropId,
-            buyer_user_id: buyerId,
-            seller_user_id: sellerId,
-            impression_id: impressionId ?? "",
+            drop_id: String(d.id),
+            buyer_user_id: String(buyerId),
+            seller_user_id: String(d.user_id ?? ""),
+            purchase_kind: "fixed",
+            ...(imp ? { impression_id: String(imp) } : {}),
         },
-        payment_intent_data: {
-            metadata: {
-                drop_id: dropId,
-                buyer_user_id: buyerId,
-                seller_user_id: sellerId,
-                impression_id: impressionId ?? "",
+    });
+
+    await createPendingOrder(admin, {
+        dropId: d.id,
+        buyerId,
+        sellerId: d.user_id ?? null,
+        sessionId: session.id,
+        amount,
+        currency: session.currency ?? "jpy",
+        purchaseKind: "fixed",
+        impressionId: imp ?? null,
+    });
+
+    if (!session.url) throw new Error("missing_session_url");
+    redirect(session.url);
+}
+
+/** auction: buy_now_price を決済 */
+export async function createAuctionBuyNowCheckoutAction(dropId: string, imp?: string | null, _fd?: FormData) {
+    "use server";
+
+    const buyerId = await getAuthedUserId();
+    if (!buyerId) {
+        const next = addQuery(`/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+        redirect(`/login?next=${encodeURIComponent(next)}`);
+    }
+
+    const admin = getSupabaseAdmin();
+
+    const d = await getDrop(admin, dropId);
+    assertNotSold(d);
+
+    if (d.purchase_url) throw new Error("purchase_url_exists");
+
+    const saleMode = (d.sale_mode ?? "fixed") as "fixed" | "auction";
+    if (saleMode !== "auction") throw new Error("not_auction_sale");
+
+    const allow = Boolean(d.auction_allow_buy_now ?? true);
+    if (!allow) throw new Error("buy_now_not_allowed");
+
+    const amount = yenAmount(d.buy_now_price);
+    if (!amount) throw new Error("invalid_buy_now_price");
+
+    const base = await resolveSiteUrl();
+    const successUrl = `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = addQuery(`${base}/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+
+    const stripe = getStripe();
+
+    const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+            {
+                quantity: 1,
+                price_data: {
+                    currency: "jpy",
+                    unit_amount: amount,
+                    product_data: { name: String(d.title ?? "Drop") },
+                },
             },
+        ],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        client_reference_id: buyerId,
+        metadata: {
+            drop_id: String(d.id),
+            buyer_user_id: String(buyerId),
+            seller_user_id: String(d.user_id ?? ""),
+            purchase_kind: "auction_buy_now",
+            ...(imp ? { impression_id: String(imp) } : {}),
         },
     });
 
-    if (!session.url) {
-        redirect(`/drops/${dropId}?e=${encodeURIComponent("Stripe session url is missing.")}`);
-    }
-
-    // ordersに pending 作成（webhookで paid に確定）
-    const { error: insErr } = await supabaseAdmin.from("orders").insert({
-        buyer_user_id: buyerId,
-        seller_user_id: sellerId,
-        drop_id: dropId,
-        amount_total: Math.round(price),
-        currency: "jpy",
-        status: "pending",
-        stripe_session_id: session.id,
-        impression_id: impressionId ?? null,
+    await createPendingOrder(admin, {
+        dropId: d.id,
+        buyerId,
+        sellerId: d.user_id ?? null,
+        sessionId: session.id,
+        amount,
+        currency: session.currency ?? "jpy",
+        purchaseKind: "auction_buy_now",
+        impressionId: imp ?? null,
     });
 
-    if (insErr) {
-        // sessionは作れてしまってるので、ここで止めて戻す（DBが直ってない時はここで落ちる）
-        redirect(`/drops/${dropId}?e=${encodeURIComponent(insErr.message)}`);
+    if (!session.url) throw new Error("missing_session_url");
+    redirect(session.url);
+}
+
+/** auction: accepted bid の金額を決済（drop_bids: bidder_user_id 前提） */
+export async function createAuctionAcceptedBidCheckoutAction(dropId: string, imp?: string | null, _fd?: FormData) {
+    "use server";
+
+    const buyerId = await getAuthedUserId();
+    if (!buyerId) {
+        const next = addQuery(`/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+        redirect(`/login?next=${encodeURIComponent(next)}`);
     }
 
+    const admin = getSupabaseAdmin();
+
+    const d = await getDrop(admin, dropId);
+    assertNotSold(d);
+
+    if (d.purchase_url) throw new Error("purchase_url_exists");
+
+    const saleMode = (d.sale_mode ?? "fixed") as "fixed" | "auction";
+    if (saleMode !== "auction") throw new Error("not_auction_sale");
+
+    if (!d.accepted_bid_id) throw new Error("no_accepted_bid");
+
+    const { data: bid, error: bidErr } = await admin
+        .from("drop_bids")
+        .select("id,drop_id,bidder_user_id,amount")
+        .eq("id", d.accepted_bid_id)
+        .single();
+
+    if (bidErr) throw bidErr;
+
+    const bidDropId = String((bid as any)?.drop_id ?? "");
+    const bidUserId = String((bid as any)?.bidder_user_id ?? "");
+    const bidAmount = yenAmount((bid as any)?.amount);
+
+    if (!bidDropId || bidDropId !== d.id) throw new Error("accepted_bid_drop_mismatch");
+    if (!bidUserId || bidUserId !== buyerId) throw new Error("not_accepted_bidder");
+    if (!bidAmount) throw new Error("invalid_accepted_bid_amount");
+
+    const base = await resolveSiteUrl();
+    const successUrl = `${base}/checkout/success?session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = addQuery(`${base}/drops/${encodeURIComponent(dropId)}`, { imp: imp ?? null });
+
+    const stripe = getStripe();
+
+    const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        payment_method_types: ["card"],
+        line_items: [
+            {
+                quantity: 1,
+                price_data: {
+                    currency: "jpy",
+                    unit_amount: bidAmount,
+                    product_data: { name: String(d.title ?? "Drop") },
+                },
+            },
+        ],
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+        client_reference_id: buyerId,
+        metadata: {
+            drop_id: String(d.id),
+            buyer_user_id: String(buyerId),
+            seller_user_id: String(d.user_id ?? ""),
+            purchase_kind: "auction_accepted_bid",
+            accepted_bid_id: String(d.accepted_bid_id),
+            ...(imp ? { impression_id: String(imp) } : {}),
+        },
+    });
+
+    await createPendingOrder(admin, {
+        dropId: d.id,
+        buyerId,
+        sellerId: d.user_id ?? null,
+        sessionId: session.id,
+        amount: bidAmount,
+        currency: session.currency ?? "jpy",
+        purchaseKind: "auction_accepted_bid",
+        impressionId: imp ?? null,
+        acceptedBidId: d.accepted_bid_id,
+    });
+
+    if (!session.url) throw new Error("missing_session_url");
     redirect(session.url);
 }

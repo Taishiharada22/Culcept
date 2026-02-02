@@ -2,7 +2,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 
 type ToggleRes = { ok: boolean; saved: boolean; error?: string };
 
@@ -12,67 +11,117 @@ export default function SavedToggleButton({
     initialSaved,
     toggleAction,
     size = "md",
-    className,
 }: {
     kind: "drop" | "shop";
     id: string;
     initialSaved: boolean;
     toggleAction: (id: string) => Promise<ToggleRes>;
-    size?: "sm" | "md";
-    className?: string;
+    size?: "sm" | "md" | "lg";
 }) {
-    const router = useRouter();
-    const [saved, setSaved] = React.useState<boolean>(!!initialSaved);
+    const [saved, setSaved] = React.useState(initialSaved);
     const [pending, startTransition] = React.useTransition();
+    const [error, setError] = React.useState<string | null>(null);
+    const [showSuccess, setShowSuccess] = React.useState(false);
 
-    const btnSize = size === "sm" ? "h-9 w-9" : "h-10 w-10";
-    const textSize = size === "sm" ? "text-[18px]" : "text-[20px]";
+    const sizeClasses = {
+        sm: "h-9 w-9 text-base",
+        md: "h-11 w-11 text-lg",
+        lg: "h-14 w-14 text-2xl",
+    };
 
-    function onClick(e: React.MouseEvent) {
+    const handleClick = (e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        if (pending) return;
 
+        setError(null);
         startTransition(async () => {
-            const prev = saved;
-            setSaved(!prev); // optimistic
-
             try {
                 const res = await toggleAction(id);
                 if (!res?.ok) {
-                    setSaved(prev);
-                    // UXは軽く（必要なら後でtoastに置換）
-                    console.warn(`[SavedToggleButton] toggle failed: ${res?.error ?? "unknown"}`);
+                    setError(res?.error ?? "Failed");
                     return;
                 }
-
                 setSaved(!!res.saved);
-                // SSR一覧（/me/saved 等）を確実に同期
-                router.refresh();
-            } catch (err) {
-                setSaved(prev);
-                console.warn("[SavedToggleButton] toggle threw:", err);
+
+                // Success animation
+                if (res.saved) {
+                    setShowSuccess(true);
+                    setTimeout(() => setShowSuccess(false), 1000);
+                }
+            } catch (err: any) {
+                setError(String(err?.message ?? "Error"));
             }
         });
-    }
+    };
 
     return (
-        <button
-            type="button"
-            aria-label={saved ? `Unsave ${kind}` : `Save ${kind}`}
-            aria-pressed={saved}
-            onClick={onClick}
-            disabled={pending}
-            className={[
-                "grid place-items-center rounded-full border shadow-sm transition",
-                "bg-white/95 backdrop-blur",
-                "hover:scale-[1.02] active:scale-[0.98]",
-                pending ? "opacity-60" : "",
-                btnSize,
-                className ?? "",
-            ].join(" ")}
-        >
-            <span className={[textSize, "leading-none"].join(" ")}>{saved ? "♥" : "♡"}</span>
-        </button>
+        <div className="relative">
+            <button
+                type="button"
+                onClick={handleClick}
+                disabled={pending}
+                className={`
+                    ${sizeClasses[size]}
+                    relative rounded-full
+                    transition-all duration-300
+                    ${saved
+                        ? "bg-gradient-to-br from-red-500 via-pink-500 to-red-600 text-white shadow-lg scale-100"
+                        : "bg-white/90 backdrop-blur text-slate-600 border-2 border-slate-200 hover:border-red-400 hover:text-red-500"
+                    }
+                    ${pending ? "opacity-50 cursor-not-allowed" : "hover:scale-110"}
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    flex items-center justify-center
+                    shadow-md hover:shadow-xl
+                `}
+                aria-label={saved ? `Unsave this ${kind}` : `Save this ${kind}`}
+                style={{
+                    transform: showSuccess ? "scale(1.2)" : undefined,
+                }}
+            >
+                {/* Heart Icon */}
+                <span
+                    className="transition-transform duration-200"
+                    style={{
+                        animation: showSuccess ? "heartBeat 0.6s ease-in-out" : undefined,
+                    }}
+                >
+                    {saved ? "❤️" : "🤍"}
+                </span>
+
+                {/* Success Ripple */}
+                {showSuccess && (
+                    <span
+                        className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-75"
+                        style={{ animationDuration: "0.6s" }}
+                    />
+                )}
+            </button>
+
+            {/* Error Tooltip */}
+            {error && (
+                <div
+                    className="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-50 whitespace-nowrap rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white shadow-xl"
+                    style={{
+                        animation: "fadeIn 0.2s ease-out",
+                    }}
+                >
+                    {error}
+                </div>
+            )}
+
+            <style jsx>{`
+                @keyframes heartBeat {
+                    0%, 100% { transform: scale(1); }
+                    25% { transform: scale(1.3); }
+                    50% { transform: scale(1.1); }
+                    75% { transform: scale(1.2); }
+                }
+                
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
+        </div>
     );
 }

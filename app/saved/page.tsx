@@ -56,7 +56,7 @@ export default async function SavedPage() {
                         Start
                     </Link>
                     <Link href="/drops" className="rounded-xl border px-4 py-2 hover:bg-neutral-50">
-                        Drops
+                        Products
                     </Link>
                 </div>
             </div>
@@ -119,7 +119,7 @@ export default async function SavedPage() {
                 </div>
             ) : (
                 <div className="rounded-2xl border bg-white p-5 text-sm text-neutral-600">
-                    まだ保存がない。<Link className="underline" href="/drops">/drops</Link> で ♡保存してみて。
+                    まだ保存がない。<Link className="underline" href="/drops">/Products</Link> で ♡保存してみて。
                 </div>
             )}
         </div>

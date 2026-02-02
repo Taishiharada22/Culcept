@@ -1,0 +1,299 @@
+"use client";
+
+import React from "react";
+import Link from "next/link";
+import Image from "next/image";
+
+type ClickMeta = { where?: string; where_shop?: string };
+
+type DropRow = {
+  id: string;
+  title?: string | null;
+  brand?: string | null;
+  size?: string | null;
+  condition?: string | null;
+  price?: number | string | null;
+  display_price?: string | null;
+  cover_image_url?: string | null;
+
+  highest_bid_30d?: number | string | null;
+  sale_mode?: string | null;
+  is_auction_live?: boolean | null;
+
+  hot_score?: number | null;
+
+  shop_slug?: string | null;
+  shop_name_ja?: string | null;
+  shop_name_en?: string | null;
+  shop_avatar_url?: string | null;
+  shop_headline?: string | null;
+};
+
+function addQuery(url: string, params: Record<string, string | null | undefined>) {
+  const qs = Object.entries(params)
+    .filter(([, v]) => v != null && String(v).trim() !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
+  if (!qs) return url;
+  return url + (url.includes("?") ? "&" : "?") + qs;
+}
+
+function fmtJPY(v: unknown) {
+  if (v == null) return "";
+  const n =
+    typeof v === "number"
+      ? v
+      : typeof v === "string"
+        ? Number(String(v).replace(/[^\d.-]/g, ""))
+        : NaN;
+
+  if (!Number.isFinite(n)) return String(v);
+  return new Intl.NumberFormat("ja-JP", {
+    style: "currency",
+    currency: "JPY",
+    maximumFractionDigits: 0,
+  }).format(n);
+}
+
+async function safeToggle(action: any, dropId: string) {
+  const fd = new FormData();
+  // 取り得るキー名を全部入れておく（実装差を吸収）
+  fd.set("drop_id", dropId);
+  fd.set("dropId", dropId);
+  fd.set("id", dropId);
+
+  // ① (formData) ② (prevState, formData) ③ (payload object) を順に試す
+  try {
+    return await action(fd);
+  } catch {
+    try {
+      return await action(null, fd);
+    } catch {
+      return await action({ dropId, drop_id: dropId, id: dropId });
+    }
+  }
+}
+
+export default function DropCard({
+  d,
+  imp,
+  clickMeta,
+  showSave,
+  initialSaved,
+  toggleSaveAction,
+}: {
+  d: DropRow;
+  imp: string;
+  clickMeta?: ClickMeta;
+  showSave: boolean;
+  initialSaved: boolean;
+  toggleSaveAction: any;
+}) {
+  const [saved, setSaved] = React.useState<boolean>(!!initialSaved);
+  const [pending, startTransition] = React.useTransition();
+
+  const priceLabel = d.display_price?.trim() || fmtJPY(d.price);
+  const isAuction = String(d.sale_mode || "").toLowerCase().includes("auction");
+  const isLive = !!d.is_auction_live;
+
+  const dropHref = addQuery(`/drops/${d.id}`, { imp });
+  const shopHref = addQuery("/drops", { shop: d.shop_slug || undefined, imp });
+
+  const shopName =
+    (d.shop_name_ja && d.shop_name_ja.trim()) ||
+    (d.shop_name_en && d.shop_name_en.trim()) ||
+    (d.shop_slug && d.shop_slug.trim()) ||
+    "";
+
+  return (
+    <div className="group relative rounded-3xl border-2 border-slate-200 bg-white shadow-xl transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl">
+      {/* Save button (absolute, not inside Link) */}
+      {showSave ? (
+        <button
+          type="button"
+          aria-label="Save"
+          className={[
+            "absolute right-4 top-4 z-20 grid h-11 w-11 place-items-center rounded-2xl border-2 shadow-lg transition-all",
+            saved
+              ? "border-teal-300 bg-teal-50 text-teal-700"
+              : "border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-700",
+            pending ? "opacity-60" : "",
+          ].join(" ")}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (pending) return;
+
+            const next = !saved;
+            setSaved(next);
+
+            startTransition(async () => {
+              try {
+                await safeToggle(toggleSaveAction, d.id);
+              } catch {
+                // 失敗したら元に戻す（UX優先）
+                setSaved(!next);
+              }
+            });
+          }}
+        >
+          <span className="text-xl leading-none">{saved ? "❤️" : "🤍"}</span>
+        </button>
+      ) : null}
+
+      {/* Image */}
+      <Link
+        href={dropHref}
+        className="relative block overflow-hidden rounded-t-3xl"
+        data-where={clickMeta?.where}
+      >
+        <div className="relative aspect-[4/5] w-full bg-gradient-to-br from-slate-100 via-orange-50/30 to-purple-50/30">
+          {d.cover_image_url ? (
+            <Image
+              src={d.cover_image_url}
+              alt={d.title || "drop"}
+              fill
+              className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+              priority={false}
+            />
+          ) : (
+            <div className="absolute inset-0 grid place-items-center">
+              <div className="text-5xl opacity-30">🧺</div>
+            </div>
+          )}
+
+          {/* Badges */}
+          <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2">
+            {isAuction ? (
+              <span className="rounded-full border-2 border-orange-300 bg-orange-50 px-3 py-1 text-xs font-black text-orange-700">
+                AUCTION
+              </span>
+            ) : (
+              <span className="rounded-full border-2 border-slate-200 bg-white/90 px-3 py-1 text-xs font-black text-slate-700">
+                BUY NOW
+              </span>
+            )}
+            {isLive ? (
+              <span className="rounded-full border-2 border-red-300 bg-red-50 px-3 py-1 text-xs font-black text-red-700">
+                LIVE
+              </span>
+            ) : null}
+            {typeof d.hot_score === "number" && d.hot_score >= 0.8 ? (
+              <span className="rounded-full border-2 border-purple-300 bg-purple-50 px-3 py-1 text-xs font-black text-purple-700">
+                🔥 HOT
+              </span>
+            ) : null}
+          </div>
+        </div>
+      </Link>
+
+      {/* Content */}
+      <div className="p-5">
+        {/* Title */}
+        <Link
+          href={dropHref}
+          className="block no-underline"
+          data-where={clickMeta?.where}
+        >
+          <div className="text-[15px] font-black leading-snug text-slate-900 line-clamp-2">
+            {d.title || "Untitled"}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-600">
+            {d.brand ? (
+              <span className="rounded-full border-2 border-slate-200 bg-slate-50 px-3 py-1">
+                {d.brand}
+              </span>
+            ) : null}
+            {d.size ? (
+              <span className="rounded-full border-2 border-slate-200 bg-slate-50 px-3 py-1">
+                Size {d.size}
+              </span>
+            ) : null}
+            {d.condition ? (
+              <span className="rounded-full border-2 border-slate-200 bg-slate-50 px-3 py-1">
+                {d.condition}
+              </span>
+            ) : null}
+          </div>
+        </Link>
+
+        {/* Price row */}
+        <div className="mt-4 flex items-end justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-black tracking-wide text-slate-500">
+              {isAuction ? "Current" : "Price"}
+            </div>
+            <div className="text-xl font-black text-slate-900">
+              {priceLabel || "—"}
+            </div>
+            {isAuction && d.highest_bid_30d != null ? (
+              <div className="mt-1 text-[11px] font-bold text-slate-500">
+                30d High: {fmtJPY(d.highest_bid_30d)}
+              </div>
+            ) : null}
+          </div>
+
+          <Link
+            href={dropHref}
+            className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-4 py-2 text-xs font-black text-white shadow-lg transition-all duration-200 hover:shadow-xl hover:scale-[1.03] no-underline"
+            data-where={clickMeta?.where}
+          >
+            View →
+          </Link>
+        </div>
+
+        {/* Shop */}
+        {shopName ? (
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl border-2 border-slate-200 bg-gradient-to-br from-white to-slate-50 p-3">
+            <Link
+              href={shopHref}
+              className="flex min-w-0 items-center gap-3 no-underline"
+              data-where={clickMeta?.where_shop}
+            >
+              <div className="relative h-10 w-10 overflow-hidden rounded-2xl border-2 border-slate-200 bg-white">
+                {d.shop_avatar_url ? (
+                  <Image
+                    src={d.shop_avatar_url}
+                    alt={shopName}
+                    fill
+                    className="object-cover"
+                    sizes="40px"
+                  />
+                ) : (
+                  <div className="absolute inset-0 grid place-items-center text-sm font-black text-slate-500">
+                    🏪
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <div className="truncate text-xs font-black text-slate-900">
+                  {shopName}
+                </div>
+                {d.shop_headline ? (
+                  <div className="truncate text-[11px] font-bold text-slate-600">
+                    {d.shop_headline}
+                  </div>
+                ) : (
+                  <div className="text-[11px] font-bold text-slate-500">
+                    View store items
+                  </div>
+                )}
+              </div>
+            </Link>
+
+            <Link
+              href={shopHref}
+              className="shrink-0 rounded-xl border-2 border-slate-300 bg-white px-3 py-2 text-[11px] font-black text-slate-700 shadow-sm transition-all hover:border-purple-300 hover:text-purple-700 no-underline"
+              data-where={clickMeta?.where_shop}
+            >
+              Store →
+            </Link>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}

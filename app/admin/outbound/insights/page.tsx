@@ -132,8 +132,8 @@ export default async function AdminOutboundInsightsPage({
                     <Link
                         href={`/admin/outbound/insights?days=7`}
                         className={`rounded-md border px-3 py-2 text-xs font-black no-underline ${days === 7
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
                             }`}
                     >
                         7d
@@ -141,8 +141,8 @@ export default async function AdminOutboundInsightsPage({
                     <Link
                         href={`/admin/outbound/insights?days=30`}
                         className={`rounded-md border px-3 py-2 text-xs font-black no-underline ${days === 30
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
                             }`}
                     >
                         30d
@@ -150,8 +150,8 @@ export default async function AdminOutboundInsightsPage({
                     <Link
                         href={`/admin/outbound/insights?days=90`}
                         className={`rounded-md border px-3 py-2 text-xs font-black no-underline ${days === 90
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
                             }`}
                     >
                         90d
@@ -174,7 +174,7 @@ export default async function AdminOutboundInsightsPage({
                         href="/drops"
                         className="rounded-md border border-zinc-200 bg-white px-3 py-2 text-xs font-black text-zinc-800 no-underline hover:bg-zinc-50"
                     >
-                        ← Drops
+                        ← Products
                     </Link>
                 </div>
             </div>

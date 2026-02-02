@@ -1,0 +1,10 @@
+{
+    "scripts": {
+        "tag:auto": "CULCEPT_AUTO_TAG=1 tsx scripts/auto-tag-cards.ts public/cards",
+        "tag:rename": "CULCEPT_AUTO_TAG=1 tsx scripts/auto-tag-cards.ts public/cards --rename",
+        "tag:import": "CULCEPT_IMPORT_CARDS=1 tsx scripts/import-cards.ts",
+        "cards:list": "ls -la public/cards/",
+        "cards:count": "ls -1 public/cards/*.{png,jpg,jpeg,webp,gif} 2>/dev/null | wc -l",
+        "admin:cards": "open http://localhost:3000/admin/cards"
+    }
+}

@@ -1,3 +1,4 @@
+// app/admin/outbound/bots/page.tsx
 import "server-only";
 
 import Link from "next/link";

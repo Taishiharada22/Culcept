@@ -44,7 +44,7 @@ export default async function MePage() {
                 <Link href="/shops/me" className="rounded-2xl border bg-white p-6 shadow-sm no-underline hover:shadow-md">
                     <div className="text-xs font-black text-zinc-500">Brand</div>
                     <div className="mt-2 text-xl font-extrabold text-zinc-900">ショップを編集</div>
-                    <div className="mt-2 text-sm font-semibold text-zinc-600">アバター / ヘッドライン / Bio / Style tags</div>
+                    <div className="mt-2 text-sm font-semibold text-zinc-600">アバター / キャッチコピー / 店舗説明 / Style tags</div>
                     <div className="mt-4 text-xs font-semibold text-zinc-400">Open →</div>
                 </Link>
 
@@ -66,7 +66,7 @@ export default async function MePage() {
 
                 <Link href="/my-drops" className="rounded-2xl border bg-white p-6 shadow-sm no-underline hover:shadow-md">
                     <div className="text-xs font-black text-zinc-500">List</div>
-                    <div className="mt-2 text-xl font-extrabold text-zinc-900">自分のDrops</div>
+                    <div className="mt-2 text-xl font-extrabold text-zinc-900">自分のProducts</div>
                     <div className="mt-2 text-sm font-semibold text-zinc-600">自分の出品一覧。</div>
                     <div className="mt-4 text-xs font-semibold text-zinc-400">Open →</div>
                 </Link>

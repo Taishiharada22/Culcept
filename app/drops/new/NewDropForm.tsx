@@ -1,22 +1,36 @@
+// app/drops/new/NewDropForm.tsx
 "use client";
 
 import * as React from "react";
 import TagInput from "@/app/components/TagInput";
 import type { DropActionState } from "./actions";
 
+const MAX_IMAGES = 10;
+const MAX_MB = 20;
+
 export default function NewDropForm({
     action,
 }: {
     action: (prev: DropActionState, formData: FormData) => Promise<DropActionState>;
 }) {
-    const initialState: DropActionState = { ok: true, error: null, fieldErrors: {} };
-    const [state, formAction, isPending] = React.useActionState(action as any, initialState);
+    const initialState: DropActionState = { ok: false, error: null, fieldErrors: {} };
+
+    // React 19 / 型ズレ耐性
+    const [state, formAction, isPending] = (React as any).useActionState(action as any, initialState) as [
+        DropActionState,
+        (fd: FormData) => void,
+        boolean
+    ];
 
     const [previews, setPreviews] = React.useState<string[]>([]);
+    const previewsRef = React.useRef<string[]>([]);
+    previewsRef.current = previews;
 
     React.useEffect(() => {
-        return () => previews.forEach((u) => URL.revokeObjectURL(u));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        return () => {
+            // unmount時に現行プレビューを確実に解放
+            for (const u of previewsRef.current) URL.revokeObjectURL(u);
+        };
     }, []);
 
     return (
@@ -28,8 +42,16 @@ export default function NewDropForm({
                     <div style={{ display: "grid", gap: 12 }}>
                         <div>
                             <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Title *</label>
-                            <input name="title" required style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }} />
-                            {state.fieldErrors?.title && <p role="alert" style={{ marginTop: 6, color: "crimson" }}>{state.fieldErrors.title}</p>}
+                            <input
+                                name="title"
+                                required
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }}
+                            />
+                            {state.fieldErrors?.title && (
+                                <p role="alert" style={{ marginTop: 6, color: "crimson" }}>
+                                    {state.fieldErrors.title}
+                                </p>
+                            )}
                         </div>
 
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -46,12 +68,26 @@ export default function NewDropForm({
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
                                 <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Condition</label>
-                                <input name="condition" placeholder="e.g., new / like new / used" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }} />
+                                <input
+                                    name="condition"
+                                    placeholder="e.g., new / like new / used"
+                                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }}
+                                />
                             </div>
                             <div>
                                 <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Price</label>
-                                <input name="price" type="number" min={0} step="1" style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }} />
-                                {state.fieldErrors?.price && <p role="alert" style={{ marginTop: 6, color: "crimson" }}>{state.fieldErrors.price}</p>}
+                                <input
+                                    name="price"
+                                    type="number"
+                                    min={0}
+                                    step="1"
+                                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }}
+                                />
+                                {state.fieldErrors?.price && (
+                                    <p role="alert" style={{ marginTop: 6, color: "crimson" }}>
+                                        {state.fieldErrors.price}
+                                    </p>
+                                )}
                             </div>
                         </div>
 
@@ -63,19 +99,37 @@ export default function NewDropForm({
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                             <div>
                                 <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Link</label>
-                                <input name="url" type="url" placeholder="https://..." style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }} />
-                                {state.fieldErrors?.url && <p role="alert" style={{ marginTop: 6, color: "crimson" }}>{state.fieldErrors.url}</p>}
+                                <input
+                                    name="url"
+                                    type="url"
+                                    placeholder="https://..."
+                                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }}
+                                />
+                                {state.fieldErrors?.url && (
+                                    <p role="alert" style={{ marginTop: 6, color: "crimson" }}>
+                                        {state.fieldErrors.url}
+                                    </p>
+                                )}
                             </div>
                             <div>
                                 <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Buy link</label>
-                                <input name="purchase_url" type="url" placeholder="https://..." style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }} />
-                                {state.fieldErrors?.purchase_url && <p role="alert" style={{ marginTop: 6, color: "crimson" }}>{state.fieldErrors.purchase_url}</p>}
+                                <input
+                                    name="purchase_url"
+                                    type="url"
+                                    placeholder="https://..."
+                                    style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db" }}
+                                />
+                                {state.fieldErrors?.purchase_url && (
+                                    <p role="alert" style={{ marginTop: 6, color: "crimson" }}>
+                                        {state.fieldErrors.purchase_url}
+                                    </p>
+                                )}
                             </div>
                         </div>
 
                         <div>
                             <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>
-                                Images (max 12, jpg/png/webp, ≤6MB each)
+                                Images (max {MAX_IMAGES}, jpg/png/webp, ≤{MAX_MB}MB each)
                             </label>
                             <input
                                 name="images"
@@ -84,17 +138,28 @@ export default function NewDropForm({
                                 accept="image/jpeg,image/png,image/webp"
                                 onChange={(e) => {
                                     const files = Array.from(e.currentTarget.files ?? []);
-                                    previews.forEach((u) => URL.revokeObjectURL(u));
-                                    setPreviews(files.map((f) => URL.createObjectURL(f)));
+                                    // 既存プレビューを解放
+                                    for (const u of previewsRef.current) URL.revokeObjectURL(u);
+                                    const next = files.map((f) => URL.createObjectURL(f));
+                                    setPreviews(next);
                                 }}
                             />
-                            {state.fieldErrors?.images && <p role="alert" style={{ marginTop: 6, color: "crimson" }}>{state.fieldErrors.images}</p>}
+                            {state.fieldErrors?.images && (
+                                <p role="alert" style={{ marginTop: 6, color: "crimson" }}>
+                                    {state.fieldErrors.images}
+                                </p>
+                            )}
 
                             {previews.length > 0 && (
                                 <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
                                     {previews.map((src) => (
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        <img key={src} src={src} alt="preview" style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: "1px solid #e5e7eb" }} />
+                                        <img
+                                            key={src}
+                                            src={src}
+                                            alt="preview"
+                                            style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 10, border: "1px solid #e5e7eb" }}
+                                        />
                                     ))}
                                 </div>
                             )}
@@ -102,7 +167,11 @@ export default function NewDropForm({
 
                         <div>
                             <label style={{ display: "block", fontWeight: 800, marginBottom: 6 }}>Description</label>
-                            <textarea name="description" rows={5} style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", resize: "vertical" }} />
+                            <textarea
+                                name="description"
+                                rows={5}
+                                style={{ width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", resize: "vertical" }}
+                            />
                         </div>
 
                         {state.error && (
@@ -114,7 +183,15 @@ export default function NewDropForm({
                         <button
                             type="submit"
                             disabled={isPending}
-                            style={{ padding: "10px 14px", borderRadius: 10, border: "1px solid #111827", background: "#111827", color: "white", cursor: isPending ? "not-allowed" : "pointer", fontWeight: 900 }}
+                            style={{
+                                padding: "10px 14px",
+                                borderRadius: 10,
+                                border: "1px solid #111827",
+                                background: "#111827",
+                                color: "white",
+                                cursor: isPending ? "not-allowed" : "pointer",
+                                fontWeight: 900,
+                            }}
                         >
                             {isPending ? "Submitting..." : "Create"}
                         </button>

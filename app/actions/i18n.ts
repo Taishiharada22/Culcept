@@ -1,3 +1,4 @@
+// app/actions/i18n.ts
 "use server";
 
 import { cookies } from "next/headers";

@@ -1,3 +1,4 @@
+// app/drops/[id]/edit/DropMetaForm.tsx
 "use client";
 
 import * as React from "react";
@@ -52,6 +53,7 @@ function TagEditor({ name, defaultTags }: { name: string; defaultTags: string[] 
     return (
         <div className="grid gap-2">
             <input type="hidden" name={name} value={JSON.stringify(tags)} />
+
             <div className="flex flex-wrap gap-2">
                 {tags.map((t) => (
                     <button
@@ -107,13 +109,18 @@ export default function DropMetaForm({
         brand: string;
         size: string;
         condition: string;
+
+        // fixed の価格
         price: string | number;
+
+        // ✅ auction の buy now 価格（DBに列が無い場合は actions 側で price にフォールバック）
+        buy_now_price: string | number;
+
         url: string;
         purchase_url: string;
         description: string;
         tags: string[];
 
-        // ★auction
         sale_mode: "fixed" | "auction";
         auction_floor_price: string | number;
         auction_end_at: string | null;
@@ -131,12 +138,17 @@ export default function DropMetaForm({
 
     const [saleMode, setSaleMode] = React.useState<"fixed" | "auction">(defaults.sale_mode ?? "fixed");
 
+    // 入力欄を saleMode によって切り替える
+    const priceFieldName = saleMode === "auction" ? "buy_now_price" : "price";
+    const priceDefault =
+        saleMode === "auction"
+            ? String(defaults.buy_now_price ?? "")
+            : String(defaults.price ?? "");
+
     return (
         <form action={formAction} className="grid gap-4">
             {state?.error ? (
-                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
-                    {state.error}
-                </div>
+                <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{state.error}</div>
             ) : null}
 
             {msg && state?.ok ? (
@@ -219,15 +231,17 @@ export default function DropMetaForm({
                 <div className="grid gap-2">
                     <label className="text-sm font-extrabold">{saleMode === "auction" ? "Buy now price (JPY)" : "Price (JPY)"}</label>
                     <input
-                        name="price"
-                        defaultValue={String(defaults.price ?? "")}
+                        name={priceFieldName}
+                        defaultValue={priceDefault}
                         inputMode="numeric"
                         className="rounded-md border border-zinc-200 px-3 py-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-zinc-900"
                         placeholder="e.g. 9800"
                     />
-                    {fieldErr("price") ? <div className="text-xs font-semibold text-red-700">{fieldErr("price")}</div> : null}
+                    {fieldErr(priceFieldName) ? <div className="text-xs font-semibold text-red-700">{fieldErr(priceFieldName)}</div> : null}
                     {saleMode === "auction" ? (
-                        <div className="text-xs font-semibold text-zinc-500">※ Auction中も即購入を許可するなら、この価格でBuyボタンが出る</div>
+                        <div className="text-xs font-semibold text-zinc-500">
+                            ※ 「Allow Buy now」をONにするなら buy now price を入れる（OFFなら空でもOK）
+                        </div>
                     ) : null}
                 </div>
             </div>

@@ -1,3 +1,4 @@
+// app/admin/reports/page.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -45,7 +46,7 @@ export default async function AdminReportsPage() {
             <div className="mb-6 flex items-center justify-between">
                 <h1 className="text-2xl font-extrabold tracking-tight">Admin: Reports</h1>
                 <Link href="/drops" className="text-sm font-extrabold text-zinc-700 no-underline hover:text-zinc-950">
-                    ← Drops
+                    ← Products
                 </Link>
             </div>
 

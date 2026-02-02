@@ -1,3 +1,4 @@
+// app/drops/ImageModalGallery.tsx
 "use client";
 
 import * as React from "react";

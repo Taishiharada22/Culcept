@@ -1,3 +1,4 @@
+// app/shops/[slug]/ShopDropsGridClient.tsx
 "use client";
 
 import * as React from "react";

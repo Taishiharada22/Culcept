@@ -1,3 +1,4 @@
+// app/not-found.tsx
 import Link from "next/link";
 
 export default function NotFound() {
@@ -11,7 +12,7 @@ export default function NotFound() {
                 href="/drops"
                 className="mt-6 inline-block rounded-md border border-zinc-200 px-4 py-2 text-sm font-extrabold no-underline hover:bg-zinc-50"
             >
-                Go to Drops
+                Go to Products
             </Link>
         </main>
     );

@@ -1,3 +1,4 @@
+// app/explore/page.tsx
 import Link from "next/link";
 
 export const revalidate = 60;

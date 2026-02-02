@@ -25,14 +25,14 @@ export async function GET(req: Request) {
             return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
         }
 
-        // 30分以上前の pending を expired にする例
-        const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        // 30分以上前の pending を expired にする
+        const cutoffIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
         const { data, error } = await supabaseAdmin
             .from("orders")
             .update({ status: "expired" })
             .eq("status", "pending")
-            .lt("created_at", cutoff)
+            .lt("created_at", cutoffIso)
             .select("id,status,created_at");
 
         if (error) throw error;

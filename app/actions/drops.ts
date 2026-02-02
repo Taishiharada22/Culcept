@@ -1,3 +1,4 @@
+// app/actinos/drops.ts
 "use server";
 
 import { redirect } from "next/navigation";

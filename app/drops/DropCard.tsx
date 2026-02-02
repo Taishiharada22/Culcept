@@ -4,6 +4,7 @@
 import * as React from "react";
 import Link from "next/link";
 import SavedToggleButton from "@/app/_components/saved/SavedToggleButton";
+import RatingStars from "@/components/reviews/RatingStars";
 
 type ToggleRes = { ok: boolean; saved: boolean; error?: string };
 
@@ -26,6 +27,10 @@ type DropLike = {
     shop_name_en?: string | null;
     shop_avatar_url?: string | null;
     shop_headline?: string | null;
+
+    // ✅ Reviews (optional)
+    average_rating?: number | null;
+    review_count?: number | null;
 };
 
 function fmt(n: unknown) {
@@ -38,17 +43,11 @@ function shopName(d: DropLike) {
     return d.shop_name_ja || d.shop_name_en || d.shop_slug || "";
 }
 
-/**
- * Reco action ping（クリック時に “同じ対象” は1回だけ）
- * - endpoint は既存の /api/recommendations/action を想定
- * - 失敗してもUIは落とさない
- */
 function fireRecoActionOnce(payload: { impressionId: string; action: string; meta?: any }) {
     try {
         if (typeof window === "undefined") return;
 
         const where = String(payload?.meta?.where ?? "click");
-        // ✅ 重要：drop_id / shop_slug 単位で1回にする（whereだけだと全クリックが握りつぶされる）
         const target =
             String(payload?.meta?.drop_id ?? "") ||
             String(payload?.meta?.shop_slug ?? "") ||
@@ -90,9 +89,11 @@ export default function DropCard({
     showSave?: boolean;
     initialSaved?: boolean;
     toggleSaveAction?: (id: string) => Promise<ToggleRes>;
-    clickMeta?: any; // ← “JSON”だけ渡す（関数禁止）
+    clickMeta?: any;
 }) {
     const title = d.title ?? d.id.slice(0, 8);
+
+    // ✅ display_price は number なので .trim() 不要
     const shownPrice = (d.display_price ?? d.price) ?? null;
 
     const safeImp = (imp ?? "").trim() || null;
@@ -135,52 +136,61 @@ export default function DropCard({
         });
     }, [safeImp, d.id, d.shop_slug, clickMeta]);
 
+    // ✅ Reviews visibility
+    const avg = typeof d.average_rating === "number" ? d.average_rating : Number(d.average_rating ?? NaN);
+    const cnt = typeof d.review_count === "number" ? d.review_count : Number(d.review_count ?? NaN);
+    const showRating = Number.isFinite(avg) && Number.isFinite(cnt) && cnt > 0 && avg > 0;
+
     return (
-        <li className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:shadow-md">
-            <div className="relative">
-                <Link href={href} onClick={onDropLinkClick} className="block no-underline">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {d.cover_image_url ? (
-                        <img
-                            src={d.cover_image_url}
-                            alt={title}
-                            className="h-56 w-full object-cover transition hover:scale-[1.01]"
-                            loading="lazy"
-                        />
-                    ) : (
-                        <div className="h-56 w-full bg-zinc-50" />
+        <article
+            className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:border-slate-300"
+            style={{
+                animation: "fadeInUp 0.5s ease-out forwards",
+                opacity: 0,
+            }}
+        >
+            <style jsx>{`
+                @keyframes fadeInUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(30px);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+            `}</style>
+
+            {/* Image Container */}
+            <Link href={href} onClick={onDropLinkClick} className="block relative aspect-square overflow-hidden bg-slate-100">
+                {d.cover_image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                        src={d.cover_image_url}
+                        alt={title}
+                        className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-110"
+                        loading="lazy"
+                    />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center text-6xl opacity-10">📦</div>
+                )}
+
+                {/* Hover Overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+
+                {/* Status Badges */}
+                <div className="absolute top-3 left-3 flex flex-col gap-2">
+                    {d.sale_mode === "auction" && d.is_auction_live && (
+                        <span className="rounded-lg bg-gradient-to-r from-red-500 to-orange-500 px-3 py-1.5 text-xs font-black text-white shadow-lg animate-pulse">
+                            🔴 LIVE
+                        </span>
                     )}
+                </div>
 
-                    <div className="grid gap-2 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="grid gap-1 min-w-0">
-                                <div className="line-clamp-2 text-base font-black text-zinc-900">{title}</div>
-                                <div className="text-xs font-semibold text-zinc-600">
-                                    {[d.brand, d.size, d.condition].filter(Boolean).join(" · ") || " "}
-                                </div>
-                            </div>
-
-                            {shownPrice != null ? (
-                                <div className="shrink-0 text-sm font-black text-zinc-950">¥{fmt(shownPrice)}</div>
-                            ) : null}
-                        </div>
-
-                        {d.sale_mode === "auction" && Number(d.highest_bid_30d ?? 0) > 0 ? (
-                            <div className="text-xs font-semibold text-zinc-600">
-                                bid: <span className="font-black text-zinc-900">¥{fmt(d.highest_bid_30d)}</span>
-                                {d.is_auction_live ? (
-                                    <span className="ml-2 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-black text-zinc-700">
-                                        LIVE
-                                    </span>
-                                ) : null}
-                            </div>
-                        ) : null}
-                    </div>
-                </Link>
-
-                {/* ★ Saved（Drop） */}
-                {canSave ? (
-                    <div className="absolute right-3 top-3">
+                {/* Save Button */}
+                {canSave && (
+                    <div className="absolute top-3 right-3 z-10">
                         <SavedToggleButton
                             kind="drop"
                             id={d.id}
@@ -189,36 +199,68 @@ export default function DropCard({
                             size="sm"
                         />
                     </div>
-                ) : null}
-            </div>
+                )}
+            </Link>
 
-            {/* Shop strip */}
-            {d.shop_slug && shopHref ? (
-                <div className="border-t border-zinc-100 px-4 py-3">
-                    <Link
-                        href={shopHref}
-                        onClick={onShopLinkClick}
-                        className="flex items-center gap-2 text-xs font-black text-zinc-700 no-underline hover:text-zinc-950"
-                    >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
+            {/* Content */}
+            <div className="p-4 space-y-3">
+                {/* Shop Info */}
+                {d.shop_slug && shopHref && (
+                    <Link href={shopHref} onClick={onShopLinkClick} className="flex items-center gap-2 group/shop no-underline">
                         {d.shop_avatar_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
                             <img
                                 src={d.shop_avatar_url}
-                                alt="shop"
-                                className="h-7 w-7 rounded-full border border-zinc-200 object-cover"
+                                alt={shopName(d)}
+                                className="h-6 w-6 rounded-full border border-slate-200 object-cover"
                                 loading="lazy"
                             />
                         ) : (
-                            <span className="h-7 w-7 rounded-full border border-zinc-200 bg-zinc-50" />
+                            <div className="h-6 w-6 rounded-full bg-gradient-to-br from-purple-100 to-purple-200 border border-purple-200" />
                         )}
-
-                        <span className="truncate">{shopName(d)}</span>
-                        {d.shop_headline ? (
-                            <span className="ml-1 line-clamp-1 text-zinc-500 font-semibold">· {d.shop_headline}</span>
-                        ) : null}
+                        <span className="text-xs font-bold text-slate-600 group-hover/shop:text-purple-600 transition-colors uppercase tracking-wide">
+                            {shopName(d)}
+                        </span>
                     </Link>
-                </div>
-            ) : null}
-        </li>
+                )}
+
+                {/* Title & Price */}
+                <Link href={href} onClick={onDropLinkClick} className="block no-underline">
+                    <h3 className="line-clamp-2 text-base font-bold text-slate-900 leading-snug mb-2 group-hover:text-orange-600 transition-colors">
+                        {title}
+                    </h3>
+
+                    <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide truncate">
+                                {[d.brand, d.size, d.condition].filter(Boolean).join(" · ") || " "}
+                            </div>
+                        </div>
+
+                        {shownPrice != null && (
+                            <div className="shrink-0 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 px-3 py-1.5 shadow-md">
+                                <span className="text-sm font-black text-white">¥{fmt(shownPrice)}</span>
+                            </div>
+                        )}
+                    </div>
+                </Link>
+
+                {/* ✅ Reviews */}
+                {showRating ? (
+                    <div className="flex items-center gap-2 pt-1">
+                        <RatingStars rating={avg} size="sm" />
+                        <span className="text-xs font-bold text-slate-600">({Math.round(cnt).toLocaleString("ja-JP")})</span>
+                    </div>
+                ) : null}
+
+                {/* Auction Info */}
+                {d.sale_mode === "auction" && Number(d.highest_bid_30d ?? 0) > 0 && (
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                        <span className="text-xs font-semibold text-slate-500">Current Bid:</span>
+                        <span className="text-sm font-black text-purple-600">¥{fmt(d.highest_bid_30d)}</span>
+                    </div>
+                )}
+            </div>
+        </article>
     );
 }

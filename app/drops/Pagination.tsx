@@ -1,3 +1,4 @@
+// app/drops/Pagination.tsx
 import Link from "next/link";
 
 export default function Pagination(props: {

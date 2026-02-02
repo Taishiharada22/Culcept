@@ -10,7 +10,15 @@ import BidBox from "./BidBox";
 import RecoImpressionPing from "@/app/drops/RecoImpressionPing";
 import { toggleSavedDropAction } from "@/app/_actions/saved";
 import SavedToggleButton from "@/app/_components/saved/SavedToggleButton";
-import { createDropCheckoutAction } from "./checkoutAction";
+import {
+    createDropCheckoutAction,
+    createAuctionBuyNowCheckoutAction,
+    createAuctionAcceptedBidCheckoutAction,
+} from "./checkoutAction";
+
+// ✅ Added
+import PriceAlertButton from "@/components/price-alerts/PriceAlertButton";
+import ProductReviewsSection from "@/components/reviews/ProductReviewsSection";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +40,18 @@ type DropRow = {
     cover_image_url: string | null;
 
     sale_mode: "fixed" | "auction" | null;
+    buy_now_price: number | null;
     auction_floor_price: number | null;
     auction_end_at: string | null;
     auction_allow_buy_now: boolean | null;
     auction_status: string | null;
     accepted_bid_id: string | null;
+
+    sold_at: string | null;
+    is_sold: boolean | null;
+
+    // もし drops 側にあるなら（なくてもOK）
+    display_price?: number | null;
 };
 
 type RankRow = {
@@ -95,22 +110,28 @@ function addQuery(url: string, params: Record<string, string | null | undefined>
     return url + (url.includes("?") ? "&" : "?") + qs;
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+    params,
+}: {
+    params: Promise<{ id: string }>;
+}): Promise<Metadata> {
     const p = await params;
     const id = String(p?.id ?? "");
-    if (!id || id === "undefined") return { title: "Drop not found", robots: { index: false, follow: false } };
+    if (!id || id === "undefined") return { title: "Product not found", robots: { index: false, follow: false } };
 
     const supabase = await supabaseServer();
     const { data: drop } = await supabase
         .from("drops")
-        .select("id,title,description,cover_image_url,tags,sale_mode,auction_floor_price,auction_end_at,auction_allow_buy_now,auction_status")
+        .select(
+            "id,title,description,cover_image_url,tags,sale_mode,buy_now_price,auction_floor_price,auction_end_at,auction_allow_buy_now,auction_status"
+        )
         .eq("id", id)
         .maybeSingle();
 
-    if (!drop) return { title: "Drop not found", robots: { index: false, follow: false } };
+    if (!drop) return { title: "Product not found", robots: { index: false, follow: false } };
 
-    const title = String(drop.title ?? "Drop");
-    const desc = String(drop.description ?? "").slice(0, 160) || "View this drop on Culcept.";
+    const title = String(drop.title ?? "Product");
+    const desc = String(drop.description ?? "").slice(0, 160) || "View this product on Culcept.";
     const img = drop.cover_image_url ? [drop.cover_image_url] : [];
 
     return {
@@ -148,18 +169,21 @@ export default async function DropDetailPage({
 
     const supabase = await supabaseServer();
 
+    // ✅ auth
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData?.user ?? null;
+
+    // ✅ まずdrop取得（seller_id / title などメッセージリンク生成に必要）
     const [
-        { data: auth },
         { data: drop, error: dropErr },
         { data: images, error: imgErr },
         { data: stat },
         { data: rank, error: rankErr },
     ] = await Promise.all([
-        supabase.auth.getUser(),
         supabase
             .from("drops")
             .select(
-                "id,created_at,title,brand,size,condition,price,url,purchase_url,description,user_id,tags,cover_image_url,sale_mode,auction_floor_price,auction_end_at,auction_allow_buy_now,auction_status,accepted_bid_id"
+                "id,created_at,title,brand,size,condition,price,url,purchase_url,description,user_id,tags,cover_image_url,sale_mode,buy_now_price,auction_floor_price,auction_end_at,auction_allow_buy_now,auction_status,accepted_bid_id,sold_at,is_sold,display_price"
             )
             .eq("id", id)
             .single(),
@@ -207,6 +231,14 @@ export default async function DropDetailPage({
     const d = drop as unknown as DropRow;
     const r = (rank ?? null) as unknown as RankRow | null;
 
+    // ✅ View tracking（RPCが無くても落ちないように）
+    try {
+        await supabase.rpc("track_product_view", { p_product_id: d.id });
+    } catch (e: any) {
+        console.warn("track_product_view rpc failed (ignored):", e?.message ?? e);
+    }
+
+    // ✅ shop
     const { data: shop } = await supabase
         .from("shops")
         .select("slug,name_ja,name_en,headline,bio,avatar_url,style_tags,is_active,owner_id")
@@ -216,15 +248,16 @@ export default async function DropDetailPage({
 
     const imgs = (images ?? []) as DropImage[];
     const tags = Array.isArray(d.tags) ? d.tags : [];
-    const isOwner = !!auth?.user && !!d.user_id && auth.user.id === d.user_id;
+    const isOwner = !!user && !!d.user_id && user.id === d.user_id;
+    const isSold = Boolean(d.sold_at || d.is_sold);
 
     // Saved state（非owner & ログイン時のみ）
     let isSaved = false;
-    if (!isOwner && auth?.user) {
+    if (!isOwner && user) {
         const { data: savedRow, error: savedErr } = await supabase
             .from("saved_drops")
             .select("id")
-            .eq("user_id", auth.user.id)
+            .eq("user_id", user.id)
             .eq("drop_id", d.id)
             .maybeSingle();
         if (savedErr) console.warn("saved_drops check error:", savedErr.message);
@@ -244,21 +277,47 @@ export default async function DropDetailPage({
     const auction_allow_buy_now = Boolean(r?.auction_allow_buy_now ?? d.auction_allow_buy_now ?? true);
     const is_auction_live = Boolean(r?.is_auction_live ?? false);
 
-    const displayPrice = Number(r?.display_price ?? d.price ?? 0);
-    const highestBid30d = Number(r?.highest_bid_30d ?? 0);
+    // ✅ “現在価格”の統一：rank.display_price → drops.display_price → drops.price
+    const displayPrice = Number(r?.display_price ?? d.display_price ?? d.price ?? 0);
+    const highestBidNow = Number(r?.highest_bid_30d ?? 0);
+    const buyNowPrice = Number(d.buy_now_price ?? 0);
 
-    // ✅ Buy 出し分け
+    // ✅ Price Alert state（非owner & ログイン時のみ）
+    let hasAlert = false;
+    let alertPrice: number | undefined = undefined;
+    if (!isOwner && user && displayPrice > 0) {
+        const { data: alertRow, error: aErr } = await supabase
+            .from("price_alerts")
+            .select("target_price")
+            .eq("user_id", user.id)
+            .eq("product_id", d.id)
+            .eq("is_active", true)
+            .maybeSingle();
+        if (aErr) console.warn("price_alerts check error:", aErr.message);
+        hasAlert = !!alertRow;
+        const ap = (alertRow as any)?.target_price;
+        alertPrice = ap != null ? Number(ap) : undefined;
+    }
+
+    // ✅ 外部Buy（shop系）
     const canShowExternalBuy =
+        !isSold &&
         !isOwner &&
         !!d.purchase_url &&
-        (sale_mode === "fixed" || (sale_mode === "auction" && auction_allow_buy_now && d.price != null));
+        (sale_mode === "fixed" ||
+            (sale_mode === "auction" && auction_allow_buy_now && (buyNowPrice > 0 || d.price != null)));
 
-    const canShowStripeBuy =
-        !isOwner &&
-        !d.purchase_url &&
-        sale_mode === "fixed" &&
-        d.price != null &&
-        Number(d.price) > 0;
+    // ✅ Stripe Buy（fixed）
+    const canShowStripeFixedBuy =
+        !isSold && !isOwner && !d.purchase_url && sale_mode === "fixed" && d.price != null && Number(d.price) > 0;
+
+    // ✅ Stripe Buy Now（auction）
+    const canShowStripeAuctionBuyNow =
+        !isSold && !isOwner && !d.purchase_url && sale_mode === "auction" && auction_allow_buy_now && buyNowPrice > 0;
+
+    // ✅ Stripe 落札者支払い（auction accepted）
+    const canShowStripeAuctionAccepted =
+        !isSold && !isOwner && !d.purchase_url && sale_mode === "auction" && !!d.accepted_bid_id;
 
     const shopSlug = (shop?.slug ?? r?.shop_slug ?? null) as string | null;
 
@@ -311,21 +370,20 @@ export default async function DropDetailPage({
     const { data: similar } = await simQuery;
     const simRows = (similar ?? []) as any[];
 
-    // ✅ Related の Saved 初期状態をまとめて取得
-    const relatedIds = Array.from(
-        new Set([...moreFromShop, ...simRows].map((x: any) => x?.id).filter(Boolean) as string[])
-    );
+    const relatedIds = Array.from(new Set([...moreFromShop, ...simRows].map((x: any) => x?.id).filter(Boolean) as string[]));
 
     let relatedSavedSet = new Set<string>();
-    if (auth?.user && relatedIds.length) {
+    if (user && relatedIds.length) {
         const { data: rsd, error: rsdErr } = await supabase
             .from("saved_drops")
             .select("drop_id")
-            .eq("user_id", auth.user.id)
+            .eq("user_id", user.id)
             .in("drop_id", relatedIds);
 
-        if (!rsdErr) relatedSavedSet = new Set((rsd ?? []).map((r: any) => r.drop_id));
+        if (!rsdErr) relatedSavedSet = new Set((rsd ?? []).map((rr: any) => rr.drop_id));
     }
+
+    const offerPrice = sale_mode === "auction" ? (buyNowPrice > 0 ? buyNowPrice : displayPrice) : displayPrice;
 
     const jsonLd: Record<string, any> = {
         "@context": "https://schema.org",
@@ -337,25 +395,88 @@ export default async function DropDetailPage({
         url: `${siteUrl}/drops/${d.id}`,
     };
 
-    if (displayPrice > 0) {
+    if (offerPrice > 0) {
         jsonLd.offers = {
             "@type": "Offer",
             priceCurrency: "JPY",
-            price: String(displayPrice),
-            // 外部購入なら purchase_url、Stripe購入なら drop URL
+            price: String(offerPrice),
             url: d.purchase_url ?? `${siteUrl}/drops/${d.id}`,
-            availability: "https://schema.org/InStock",
+            availability: isSold ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
         };
     }
 
     const auctionFloor = numOrNull(r?.auction_floor_price ?? d.auction_floor_price);
+    const loginNext = addQuery(`/drops/${d.id}`, { imp });
+
+    // =========================================================
+    // ✅ Reviews & Stats fetch
+    // =========================================================
+    const { data: statsRow, error: statsErr } = await supabase
+        .from("v_product_review_stats")
+        .select("*")
+        .eq("product_id", d.id)
+        .maybeSingle();
+    if (statsErr) console.warn("review stats fetch error:", statsErr.message);
+
+    let reviewsRaw: any[] = [];
+    {
+        const { data: rev1, error: revErr1 } = await supabase
+            .from("product_reviews")
+            .select(
+                `
+          id,product_id,user_id,rating,title,content,verified_purchase,helpful_count,created_at,updated_at,
+          user:user_id ( raw_user_meta_data )
+        `
+            )
+            .eq("product_id", d.id)
+            .order("created_at", { ascending: false });
+
+        if (revErr1) {
+            console.warn("reviews embed user fetch error (fallback to no-user):", revErr1.message);
+            const { data: rev2, error: revErr2 } = await supabase
+                .from("product_reviews")
+                .select("id,product_id,user_id,rating,title,content,verified_purchase,helpful_count,created_at,updated_at")
+                .eq("product_id", d.id)
+                .order("created_at", { ascending: false });
+            if (revErr2) console.warn("reviews fetch error:", revErr2.message);
+            reviewsRaw = (rev2 ?? []) as any[];
+        } else {
+            reviewsRaw = (rev1 ?? []) as any[];
+        }
+    }
+
+    const formattedReviews = (reviewsRaw || []).map((r0: any) => ({
+        ...r0,
+        user_name: r0?.user?.raw_user_meta_data?.name ?? null,
+        user_avatar: r0?.user?.raw_user_meta_data?.avatar_url ?? null,
+    }));
+
+    const userReview = user ? (formattedReviews.find((x: any) => x.user_id === user.id) as any) || null : null;
+
+    const reviewStats = {
+        product_id: d.id,
+        total_reviews: Number((statsRow as any)?.total_reviews ?? 0),
+        average_rating: Number((statsRow as any)?.average_rating ?? 0),
+        rating_distribution: {
+            1: Number((statsRow as any)?.rating_1_count ?? 0),
+            2: Number((statsRow as any)?.rating_2_count ?? 0),
+            3: Number((statsRow as any)?.rating_3_count ?? 0),
+            4: Number((statsRow as any)?.rating_4_count ?? 0),
+            5: Number((statsRow as any)?.rating_5_count ?? 0),
+        },
+        last_review_at: (statsRow as any)?.last_review_at ?? null,
+    };
+
+    const canReview = !!user && !isOwner;
+
+    // ✅ Message Seller link（非ownerのみ）
+    const messageSellerHref = !isOwner && d.user_id
+        ? `/messages/new?product_id=${encodeURIComponent(d.id)}&seller_id=${encodeURIComponent(d.user_id)}`
+        : null;
 
     return (
         <div className="grid gap-4">
-            {/* detail view ping（impがある時だけ） */}
-            {imp ? (
-                <RecoImpressionPing impressionId={imp} action="click" meta={{ where: "drop_detail_view", drop_id: d.id }} />
-            ) : null}
+            {imp ? <RecoImpressionPing impressionId={imp} action="click" meta={{ where: "drop_detail_view", drop_id: d.id }} /> : null}
 
             <div className="flex items-center justify-between gap-3">
                 <Link href={addQuery("/drops", { imp })} className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950">
@@ -379,19 +500,31 @@ export default async function DropDetailPage({
                         </>
                     ) : null}
 
-                    {!isOwner && auth?.user ? (
-                        <SavedToggleButton
-                            kind="drop"
-                            id={d.id}
-                            initialSaved={isSaved}
-                            toggleAction={toggleSavedDropAction}
-                            size="sm"
-                        />
+                    {!isOwner && user ? (
+                        <SavedToggleButton kind="drop" id={d.id} initialSaved={isSaved} toggleAction={toggleSavedDropAction} size="sm" />
+                    ) : null}
+
+                    {!isOwner && user && displayPrice > 0 ? (
+                        <PriceAlertButton productId={d.id} currentPrice={displayPrice} hasAlert={hasAlert} alertPrice={alertPrice} />
+                    ) : null}
+
+                    {/* ✅ Message Seller（非ownerのみ） */}
+                    {!isOwner && messageSellerHref ? (
+                        <Link
+                            href={messageSellerHref}
+                            className="rounded-xl border-2 border-purple-300 bg-purple-50 px-6 py-3 text-sm font-black text-purple-700 transition-all hover:bg-purple-100 no-underline"
+                        >
+                            💬 Message Seller
+                        </Link>
                     ) : null}
                 </div>
             </div>
 
             <h1 className="text-3xl font-extrabold tracking-tight">{d.title}</h1>
+
+            {isSold ? (
+                <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-sm font-extrabold text-zinc-800">SOLD OUT</div>
+            ) : null}
 
             {shopCard && shopHref ? (
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
@@ -399,11 +532,7 @@ export default async function DropDetailPage({
                         <div className="flex gap-3">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
                             {shopCard.avatar ? (
-                                <img
-                                    src={shopCard.avatar}
-                                    alt="shop"
-                                    className="h-12 w-12 rounded-xl border border-zinc-200 object-cover"
-                                />
+                                <img src={shopCard.avatar} alt="shop" className="h-12 w-12 rounded-xl border border-zinc-200 object-cover" />
                             ) : (
                                 <div className="h-12 w-12 rounded-xl border border-zinc-200 bg-zinc-50" />
                             )}
@@ -411,9 +540,7 @@ export default async function DropDetailPage({
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="truncate text-sm font-extrabold text-zinc-900">{shopCard.name}</div>
-                                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">
-                                        Shop
-                                    </span>
+                                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">Shop</span>
                                 </div>
 
                                 {shopCard.headline ? (
@@ -425,10 +552,7 @@ export default async function DropDetailPage({
                                 {shopCard.style_tags.length > 0 ? (
                                     <div className="mt-2 flex flex-wrap gap-2">
                                         {shopCard.style_tags.slice(0, 6).map((t) => (
-                                            <span
-                                                key={t}
-                                                className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700"
-                                            >
+                                            <span key={t} className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-black text-zinc-700">
                                                 #{t}
                                             </span>
                                         ))}
@@ -441,7 +565,7 @@ export default async function DropDetailPage({
                     {shopInDropsHref ? (
                         <div className="mt-3 flex items-center justify-end">
                             <Link href={shopInDropsHref} className="text-xs font-black text-zinc-700 no-underline hover:text-zinc-950">
-                                View this shop in Drops →
+                                View this shop in Products →
                             </Link>
                         </div>
                     ) : null}
@@ -460,15 +584,15 @@ export default async function DropDetailPage({
                     </span>
                 ) : null}
 
-                {sale_mode === "auction" && highestBid30d > 0 ? (
+                {sale_mode === "auction" && highestBidNow > 0 ? (
                     <span className="text-xs font-semibold text-zinc-600">
-                        bid: <span className="font-black text-zinc-900">¥{fmt(highestBid30d)}</span>
+                        bid: <span className="font-black text-zinc-900">¥{fmt(highestBidNow)}</span>
                     </span>
                 ) : null}
 
                 <span className="text-xs font-semibold text-zinc-500">{new Date(d.created_at).toLocaleString()}</span>
 
-                {/* ✅ 外部Buy（shop系） */}
+                {/* 外部Buy */}
                 {canShowExternalBuy ? (
                     <RecoOutboundWrap
                         impressionId={imp}
@@ -483,23 +607,59 @@ export default async function DropDetailPage({
                     </RecoOutboundWrap>
                 ) : null}
 
-                {/* ✅ Stripe Buy（個人Drop：purchase_url無し） */}
-                {canShowStripeBuy ? (
-                    auth?.user ? (
+                {/* Stripe fixed Buy */}
+                {canShowStripeFixedBuy ? (
+                    user ? (
                         <form action={createDropCheckoutAction.bind(null, d.id, imp)} className="inline">
-                            <button
-                                type="submit"
-                                className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white hover:bg-zinc-800"
-                            >
+                            <button type="submit" className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white hover:bg-zinc-800">
                                 Buy
                             </button>
                         </form>
                     ) : (
                         <Link
-                            href={`/login?next=${encodeURIComponent(`/drops/${d.id}`)}`}
+                            href={`/login?next=${encodeURIComponent(loginNext)}`}
                             className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white no-underline hover:bg-zinc-800"
                         >
                             Login to Buy
+                        </Link>
+                    )
+                ) : null}
+
+                {/* Stripe auction Buy Now */}
+                {canShowStripeAuctionBuyNow ? (
+                    user ? (
+                        <form action={createAuctionBuyNowCheckoutAction.bind(null, d.id, imp)} className="inline">
+                            <button type="submit" className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white hover:bg-zinc-800">
+                                Buy Now
+                            </button>
+                        </form>
+                    ) : (
+                        <Link
+                            href={`/login?next=${encodeURIComponent(loginNext)}`}
+                            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-extrabold text-white no-underline hover:bg-zinc-800"
+                        >
+                            Login to Buy Now
+                        </Link>
+                    )
+                ) : null}
+
+                {/* Stripe auction accepted bid payment */}
+                {canShowStripeAuctionAccepted ? (
+                    user ? (
+                        <form action={createAuctionAcceptedBidCheckoutAction.bind(null, d.id, imp)} className="inline">
+                            <button
+                                type="submit"
+                                className="rounded-md border border-zinc-200 bg-white px-4 py-2 text-sm font-extrabold text-zinc-900 hover:bg-zinc-50"
+                            >
+                                Pay accepted bid
+                            </button>
+                        </form>
+                    ) : (
+                        <Link
+                            href={`/login?next=${encodeURIComponent(loginNext)}`}
+                            className="rounded-md border border-zinc-200 bg-white px-4 py-2 text-sm font-extrabold text-zinc-900 no-underline hover:bg-zinc-50"
+                        >
+                            Login to Pay
                         </Link>
                     )
                 ) : null}
@@ -529,11 +689,10 @@ export default async function DropDetailPage({
                 <span className="rounded-full border border-zinc-200 bg-white px-3 py-1">
                     link: <span className="font-black text-zinc-900">{fmt(s.clicks_link_30d)}</span>
                 </span>
-                {s.last_click_at_30d ? (
-                    <span className="text-xs font-semibold text-zinc-500">last: {new Date(s.last_click_at_30d).toLocaleString()}</span>
-                ) : null}
+                {s.last_click_at_30d ? <span className="text-xs font-semibold text-zinc-500">last: {new Date(s.last_click_at_30d).toLocaleString()}</span> : null}
             </div>
 
+            {/* ✅ BidBox */}
             <BidBox
                 dropId={d.id}
                 isOwner={isOwner}
@@ -542,7 +701,7 @@ export default async function DropDetailPage({
                 auction_end_at={r?.auction_end_at ?? d.auction_end_at ?? null}
                 auction_floor_price={auctionFloor}
                 accepted_bid_id={r?.accepted_bid_id ?? d.accepted_bid_id ?? null}
-                highest_bid_now={highestBid30d}
+                highest_bid_now={highestBidNow}
             />
 
             {tags.length > 0 ? (
@@ -563,14 +722,24 @@ export default async function DropDetailPage({
 
             {d.description ? <p className="leading-8 text-zinc-800">{d.description}</p> : null}
 
+            {/* ✅ Reviews Section */}
+            <section className="mt-6">
+                <ProductReviewsSection
+                    productId={d.id}
+                    productTitle={d.title}
+                    reviews={formattedReviews}
+                    stats={reviewStats}
+                    userReview={userReview}
+                    isAuthenticated={!!user}
+                    canReview={canReview}
+                />
+            </section>
+
             {shopSlug && moreFromShop.length > 0 ? (
                 <section className="mt-6 grid gap-3">
                     <div className="flex items-center justify-between gap-3">
                         <h2 className="text-lg font-extrabold tracking-tight">More from this shop</h2>
-                        <Link
-                            href={addQuery(`/shops/${encodeURIComponent(shopSlug)}`, { imp })}
-                            className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950"
-                        >
+                        <Link href={addQuery(`/shops/${encodeURIComponent(shopSlug)}`, { imp })} className="text-sm font-extrabold text-zinc-700 hover:text-zinc-950">
                             View shop →
                         </Link>
                     </div>
@@ -582,7 +751,7 @@ export default async function DropDetailPage({
                                 d={x}
                                 imp={imp}
                                 clickMeta={clickMetaMore}
-                                showSave={!!auth?.user}
+                                showSave={!!user}
                                 initialSaved={relatedSavedSet.has(x.id)}
                                 toggleSaveAction={toggleSavedDropAction}
                             />
@@ -601,7 +770,7 @@ export default async function DropDetailPage({
                                 d={x}
                                 imp={imp}
                                 clickMeta={clickMetaSimilar}
-                                showSave={!!auth?.user}
+                                showSave={!!user}
                                 initialSaved={relatedSavedSet.has(x.id)}
                                 toggleSaveAction={toggleSavedDropAction}
                             />

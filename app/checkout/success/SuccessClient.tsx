@@ -1,38 +1,22 @@
+// app/checkout/success/SuccessClient.tsx
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import * as React from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function SuccessClient() {
     const router = useRouter();
-    const sp = useSearchParams();
 
-    // 既存ロジックに合わせてキーを変えてOK
-    const sessionId = sp.get("session_id");
+    useEffect(() => {
+        let n = 0;
+        const t = setInterval(() => {
+            n += 1;
+            router.refresh(); // サーバーで orders の status を再取得
+            if (n >= 10) clearInterval(t);
+        }, 1500);
 
-    return (
-        <main className="mx-auto max-w-2xl p-6">
-            <h1 className="text-2xl font-bold">Checkout Success</h1>
+        return () => clearInterval(t);
+    }, [router]);
 
-            <div className="mt-4 rounded border p-4">
-                <p className="text-sm opacity-80">session_id</p>
-                <p className="font-mono break-all">{sessionId ?? "(none)"}</p>
-            </div>
-
-            <div className="mt-6 flex gap-3">
-                <button
-                    className="rounded border px-4 py-2"
-                    onClick={() => router.push("/")}
-                >
-                    Home
-                </button>
-                <button
-                    className="rounded border px-4 py-2"
-                    onClick={() => router.push("/orders")}
-                >
-                    Orders
-                </button>
-            </div>
-        </main>
-    );
+    return null;
 }

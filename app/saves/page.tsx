@@ -78,7 +78,7 @@ export default async function SavesPage() {
                 </div>
                 <div className="flex gap-3 text-xs font-black">
                     <Link href="/start" className="text-zinc-700 hover:text-zinc-950">Start</Link>
-                    <Link href="/drops" className="text-zinc-700 hover:text-zinc-950">Drops</Link>
+                    <Link href="/Products" className="text-zinc-700 hover:text-zinc-950">Products</Link>
                     <Link href="/shops/me" className="text-zinc-700 hover:text-zinc-950">My Shop</Link>
                 </div>
             </div>

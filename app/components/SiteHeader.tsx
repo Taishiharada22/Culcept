@@ -9,24 +9,26 @@ export default async function SiteHeader() {
     const user = auth?.user ?? null;
 
     return (
-        <header className="border-b border-zinc-200 bg-white">
+        <header className="border-b border-slate-200 bg-white">
             <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-6">
-                    <Link href="/" className="text-lg font-black tracking-tight text-zinc-950 no-underline">
-                        Culcept
+                    <Link href="/" className="text-lg font-black tracking-tight no-underline" style={{ fontFamily: "'Cormorant Garamond', serif" }}>
+                        <span className="bg-gradient-to-r from-purple-600 via-orange-500 to-teal-500 bg-clip-text text-transparent">
+                            Culcept
+                        </span>
                     </Link>
 
-                    <nav className="flex items-center gap-4 text-sm font-extrabold text-zinc-800">
-                        <Link href="/drops" className="no-underline hover:text-zinc-950">
-                            Drops
+                    <nav className="flex items-center gap-4 text-sm font-extrabold text-slate-800">
+                        <Link href="/drops" className="no-underline hover:text-orange-600 transition-colors">
+                            Products
                         </Link>
-                        <Link href="/shops" className="no-underline hover:text-zinc-950">
+                        <Link href="/shops" className="no-underline hover:text-purple-600 transition-colors">
                             Shops
                         </Link>
-                        <Link href="/shops/me" className="no-underline hover:text-zinc-950">
+                        <Link href="/shops/me" className="no-underline hover:text-teal-600 transition-colors">
                             My Page
                         </Link>
-                        <Link href="/drops/new" className="no-underline hover:text-zinc-950">
+                        <Link href="/drops/new" className="no-underline hover:text-orange-600 transition-colors">
                             New
                         </Link>
                     </nav>
@@ -37,7 +39,7 @@ export default async function SiteHeader() {
                         <form action={signOutAction}>
                             <button
                                 type="submit"
-                                className="rounded-md border border-zinc-200 px-4 py-2 text-sm font-extrabold text-zinc-900 hover:bg-zinc-50"
+                                className="rounded-md border border-slate-200 px-4 py-2 text-sm font-extrabold text-slate-900 hover:bg-slate-50 transition-colors"
                             >
                                 Logout
                             </button>
@@ -45,7 +47,7 @@ export default async function SiteHeader() {
                     ) : (
                         <Link
                             href="/login"
-                            className="rounded-md border border-zinc-200 px-4 py-2 text-sm font-extrabold text-zinc-900 no-underline hover:bg-zinc-50"
+                            className="rounded-md bg-gradient-to-r from-orange-500 to-orange-600 px-4 py-2 text-sm font-extrabold text-white no-underline hover:from-orange-600 hover:to-orange-700 transition-all shadow-sm"
                         >
                             Login
                         </Link>

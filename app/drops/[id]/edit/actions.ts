@@ -1,3 +1,4 @@
+// app/drops/[id]/edit/actions.ts
 "use server";
 
 import { revalidatePath } from "next/cache";
@@ -93,7 +94,10 @@ async function assertOwner(supabase: any, dropId: string, userId: string) {
 }
 
 async function refreshCoverSafe(supabase: any, dropId: string, userId: string) {
-    const { data: first, error } = await supabase
+    // user_id 列が無い構成もあるので、まず user_id ありで試して、ダメなら drop_id のみへ
+    let first: any = null;
+
+    const r1 = await supabase
         .from("drop_images")
         .select("path,public_url")
         .eq("drop_id", dropId)
@@ -102,16 +106,25 @@ async function refreshCoverSafe(supabase: any, dropId: string, userId: string) {
         .limit(1)
         .maybeSingle();
 
-    if (error) throw error;
+    if (!r1.error) {
+        first = r1.data;
+    } else if (isColumnMissingError(r1.error)) {
+        const r2 = await supabase
+            .from("drop_images")
+            .select("path,public_url")
+            .eq("drop_id", dropId)
+            .order("sort", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+        if (r2.error) throw r2.error;
+        first = r2.data;
+    } else {
+        throw r1.error;
+    }
 
     const cover_image_url = first?.public_url ?? null;
 
-    const { error: covErr1 } = await supabase
-        .from("drops")
-        .update({ cover_image_url })
-        .eq("id", dropId)
-        .eq("user_id", userId);
-
+    const { error: covErr1 } = await supabase.from("drops").update({ cover_image_url }).eq("id", dropId).eq("user_id", userId);
     if (covErr1 && !isColumnMissingError(covErr1)) throw covErr1;
 }
 
@@ -121,11 +134,7 @@ export async function setDropStatusAction(dropId: string, nextStatus: string) {
     await assertOwner(supabase, dropId, user.id);
 
     // 1) status を更新（本命）
-    const { error } = await supabase
-        .from("drops")
-        .update({ status: nextStatus } as any)
-        .eq("id", dropId)
-        .eq("user_id", user.id);
+    const { error } = await supabase.from("drops").update({ status: nextStatus } as any).eq("id", dropId).eq("user_id", user.id);
 
     if (!error) {
         revalidatePath(`/drops/${dropId}`);
@@ -172,14 +181,24 @@ export async function registerDropImagesAction(
 
         if (!cleaned.length) return { ok: false, error: "登録する画像データが空。" };
 
-        const { data: existing, error: exErr } = await supabase
+        // user_id 列が無い構成でも動かす：まず user_id ありで試してダメなら drop_id のみ
+        let existing: any[] = [];
+        const ex1 = await supabase
             .from("drop_images")
             .select("id,sort")
             .eq("drop_id", dropId)
             .eq("user_id", user.id)
             .order("sort", { ascending: true });
 
-        if (exErr) throw exErr;
+        if (!ex1.error) {
+            existing = ex1.data ?? [];
+        } else if (isColumnMissingError(ex1.error)) {
+            const ex2 = await supabase.from("drop_images").select("id,sort").eq("drop_id", dropId).order("sort", { ascending: true });
+            if (ex2.error) throw ex2.error;
+            existing = ex2.data ?? [];
+        } else {
+            throw ex1.error;
+        }
 
         const currentCount = (existing ?? []).length;
         if (currentCount + cleaned.length > MAX_TOTAL_IMAGES) {
@@ -190,7 +209,7 @@ export async function registerDropImagesAction(
 
         const rows: Array<{
             drop_id: string;
-            user_id: string;
+            user_id?: string;
             sort: number;
             sort_order?: number;
             path: string;
@@ -201,6 +220,7 @@ export async function registerDropImagesAction(
             const nextSort = maxSort + 1 + i;
             rows.push({
                 drop_id: dropId,
+                // user_id 列があるDBなら入る / 無いDBなら insert時に無視される(=エラーになる可能性)ので actions の insert で列無しフォールバックする
                 user_id: user.id,
                 sort: nextSort,
                 sort_order: nextSort,
@@ -209,8 +229,17 @@ export async function registerDropImagesAction(
             });
         }
 
-        const { error: insErr } = await supabase.from("drop_images").insert(rows as any);
-        if (insErr) throw insErr;
+        // insert：user_id列が無ければ落ちるのでリトライ
+        const ins1 = await supabase.from("drop_images").insert(rows as any);
+        if (ins1.error) {
+            if (isColumnMissingError(ins1.error)) {
+                const rows2 = rows.map(({ user_id, ...rest }) => rest);
+                const ins2 = await supabase.from("drop_images").insert(rows2 as any);
+                if (ins2.error) throw ins2.error;
+            } else {
+                throw ins1.error;
+            }
+        }
 
         await refreshCoverSafe(supabase, dropId, user.id);
 
@@ -223,12 +252,8 @@ export async function registerDropImagesAction(
     }
 }
 
-/** メタ更新（Fixed/Auction対応） */
-export async function updateDropMetaAction(
-    dropId: string,
-    _prev: DropActionState,
-    formData: FormData
-): Promise<DropActionState> {
+/** メタ更新（Fixed/Auction対応 + buy_now_price対応 + 列無しフォールバック） */
+export async function updateDropMetaAction(dropId: string, _prev: DropActionState, formData: FormData): Promise<DropActionState> {
     const title = String(formData.get("title") ?? "").trim();
     const brand = String(formData.get("brand") ?? "").trim();
 
@@ -242,6 +267,7 @@ export async function updateDropMetaAction(
     const sale_mode = SALE_MODE_SET.has(saleModeRaw) ? (saleModeRaw as "fixed" | "auction") : "fixed";
 
     const priceRaw = String(formData.get("price") ?? "").trim();
+    const buyNowRaw = String(formData.get("buy_now_price") ?? "").trim();
 
     const urlRaw = String(formData.get("url") ?? "").trim();
     const purchaseRaw = String(formData.get("purchase_url") ?? "").trim();
@@ -260,16 +286,38 @@ export async function updateDropMetaAction(
     if (sizeRaw && !SIZE_SET.has(sizeRaw)) fieldErrors.size = "サイズが不正。";
     if (condRaw && !COND_SET.has(condRaw)) fieldErrors.condition = "コンディションが不正。";
 
+    const auction_allow_buy_now = String(formData.get("auction_allow_buy_now") ?? "") === "on";
+
+    // fixed price
     let price: number | null = null;
-    if (priceRaw) {
+
+    // auction buy_now_price
+    let buy_now_price: number | null = null;
+
+    if (sale_mode === "fixed") {
+        // fixed は price 必須（0以下はNG）
         const n = Number(priceRaw);
-        if (!Number.isFinite(n) || n < 0) fieldErrors.price = "価格が不正。";
+        if (!Number.isFinite(n) || n <= 0) fieldErrors.price = "価格は 1円以上で入力して。";
         else price = Math.floor(n);
+
+        buy_now_price = null;
+    } else {
+        // auction：buy_now_price は「Allow buy now」がONなら必須、OFFなら無視（null）
+        const src = buyNowRaw || priceRaw; // 旧クライアント互換（auction時に name="price" を送ってくる場合）
+        if (auction_allow_buy_now) {
+            const n = Number(src);
+            if (!src) fieldErrors.buy_now_price = "Buy now price を入力して。";
+            else if (!Number.isFinite(n) || n <= 0) fieldErrors.buy_now_price = "Buy now price は 1円以上で入力して。";
+            else buy_now_price = Math.floor(n);
+        } else {
+            buy_now_price = null;
+        }
+
+        // auction では price は基本使わない（互換のためにDB列が無い場合だけ price に退避する）
+        price = null;
     }
 
     // auction fields
-    const auction_allow_buy_now = String(formData.get("auction_allow_buy_now") ?? "") === "on";
-
     const floorRaw = String(formData.get("auction_floor_price") ?? "").trim();
     let auction_floor_price: number | null = null;
     if (sale_mode === "auction") {
@@ -315,7 +363,10 @@ export async function updateDropMetaAction(
             brand: brand || null,
             size: size || null,
             condition: condition || null,
+
+            // fixed: price を更新 / auction: price は null
             price,
+
             url: url || null,
             purchase_url: purchase_url || null,
             tags,
@@ -328,38 +379,72 @@ export async function updateDropMetaAction(
             auction_status,
         };
 
+        // ✅ buy_now_price を使う（列が無いDBでも落ちないようにリトライ）
+        if (sale_mode === "auction") {
+            patch.buy_now_price = auction_allow_buy_now ? buy_now_price : null;
+        } else {
+            patch.buy_now_price = null;
+        }
+
         if (sale_mode === "fixed") patch.accepted_bid_id = null;
 
-        const { error } = await supabase.from("drops").update(patch).eq("id", dropId).eq("user_id", user.id);
-        if (error) throw error;
+        // 1st try: buy_now_price あり
+        const u1 = await supabase.from("drops").update(patch).eq("id", dropId).eq("user_id", user.id);
 
-        revalidatePath(`/drops/${dropId}`);
-        revalidatePath(`/drops/${dropId}/edit`);
+        if (!u1.error) {
+            revalidatePath(`/drops/${dropId}`);
+            revalidatePath(`/drops/${dropId}/edit`);
+            return { ok: true, error: null, message: "Saved." } as any;
+        }
 
-        return { ok: true, error: null, message: "Saved." } as any;
+        // 列が無いならフォールバック：buy_now_price を外して、auctionなら price に退避
+        if (isColumnMissingError(u1.error)) {
+            const patch2: any = { ...patch };
+            delete patch2.buy_now_price;
+
+            if (sale_mode === "auction") {
+                // DBが buy_now_price 無しなら、旧仕様として price に入れて動かす
+                patch2.price = auction_allow_buy_now ? buy_now_price : null;
+            }
+
+            const u2 = await supabase.from("drops").update(patch2).eq("id", dropId).eq("user_id", user.id);
+            if (u2.error) throw u2.error;
+
+            revalidatePath(`/drops/${dropId}`);
+            revalidatePath(`/drops/${dropId}/edit`);
+            return { ok: true, error: null, message: "Saved." } as any;
+        }
+
+        throw u1.error;
     } catch (e: any) {
         return { ok: false, error: String(e?.message ?? "更新に失敗した。"), fieldErrors: {} };
     }
 }
 
 /** 画像追加（旧：Server Actionで直接uploadするルート。今は署名URL方式が主なら使わなくてもOK） */
-export async function addDropImagesAction(
-    dropId: string,
-    _prev: DropActionState,
-    formData: FormData
-): Promise<DropActionState> {
+export async function addDropImagesAction(dropId: string, _prev: DropActionState, formData: FormData): Promise<DropActionState> {
     try {
         const { supabase, user } = await requireUser(`/drops/${dropId}/edit`);
         await assertOwner(supabase, dropId, user.id);
 
-        const { data: existing, error: exErr } = await supabase
+        // user_id 列が無い構成でも動かす：まず user_id ありで試してダメなら drop_id のみ
+        let existing: any[] = [];
+        const ex1 = await supabase
             .from("drop_images")
             .select("id,sort")
             .eq("drop_id", dropId)
             .eq("user_id", user.id)
             .order("sort", { ascending: true });
 
-        if (exErr) throw exErr;
+        if (!ex1.error) {
+            existing = ex1.data ?? [];
+        } else if (isColumnMissingError(ex1.error)) {
+            const ex2 = await supabase.from("drop_images").select("id,sort").eq("drop_id", dropId).order("sort", { ascending: true });
+            if (ex2.error) throw ex2.error;
+            existing = ex2.data ?? [];
+        } else {
+            throw ex1.error;
+        }
 
         const currentCount = (existing ?? []).length;
         const maxSort = (existing ?? []).reduce((m: number, r: any) => Math.max(m, Number(r.sort ?? 0)), -1);
@@ -369,19 +454,17 @@ export async function addDropImagesAction(
         for (const f of files) if (f instanceof File && f.size > 0) imgs.push(f);
 
         if (imgs.length === 0) return { ok: false, error: "画像が選ばれてない。", fieldErrors: {} };
-        if (currentCount + imgs.length > MAX_TOTAL_IMAGES)
-            return { ok: false, error: `画像は合計${MAX_TOTAL_IMAGES}枚まで。`, fieldErrors: {} };
+        if (currentCount + imgs.length > MAX_TOTAL_IMAGES) return { ok: false, error: `画像は合計${MAX_TOTAL_IMAGES}枚まで。`, fieldErrors: {} };
 
         for (const img of imgs) {
             const mime = String(img.type ?? "");
             if (!ALLOWED_MIME.has(mime)) return { ok: false, error: "画像は jpg/png/webp のみ。", fieldErrors: {} };
-            if (img.size > MAX_FILE_MB * 1024 * 1024)
-                return { ok: false, error: `画像は1枚${MAX_FILE_MB}MB以下。`, fieldErrors: {} };
+            if (img.size > MAX_FILE_MB * 1024 * 1024) return { ok: false, error: `画像は1枚${MAX_FILE_MB}MB以下。`, fieldErrors: {} };
         }
 
         const rows: Array<{
             drop_id: string;
-            user_id: string;
+            user_id?: string;
             sort: number;
             sort_order?: number;
             path: string;
@@ -411,8 +494,16 @@ export async function addDropImagesAction(
             rows.push({ drop_id: dropId, user_id: user.id, sort: nextSort, sort_order: nextSort, path, public_url: publicUrl });
         }
 
-        const { error: insErr } = await supabase.from("drop_images").insert(rows as any);
-        if (insErr) throw insErr;
+        const ins1 = await supabase.from("drop_images").insert(rows as any);
+        if (ins1.error) {
+            if (isColumnMissingError(ins1.error)) {
+                const rows2 = rows.map(({ user_id, ...rest }) => rest);
+                const ins2 = await supabase.from("drop_images").insert(rows2 as any);
+                if (ins2.error) throw ins2.error;
+            } else {
+                throw ins1.error;
+            }
+        }
 
         await refreshCoverSafe(supabase, dropId, user.id);
 
@@ -430,45 +521,52 @@ export async function deleteDropImageAction(dropId: string, imageId: string) {
     const { supabase, user } = await requireUser(`/drops/${dropId}/edit`);
     await assertOwner(supabase, dropId, user.id);
 
-    const { data: img, error } = await supabase
-        .from("drop_images")
-        .select("id,path")
-        .eq("id", imageId)
-        .eq("drop_id", dropId)
-        .eq("user_id", user.id)
-        .single();
+    // user_id 列あり/なし両対応
+    const q1 = await supabase.from("drop_images").select("id,path").eq("id", imageId).eq("drop_id", dropId).eq("user_id", user.id).maybeSingle();
+    let img: any = null;
 
-    if (error) throw error;
+    if (!q1.error && q1.data) img = q1.data;
+    else if (q1.error && isColumnMissingError(q1.error)) {
+        const q2 = await supabase.from("drop_images").select("id,path").eq("id", imageId).eq("drop_id", dropId).maybeSingle();
+        if (q2.error) throw q2.error;
+        img = q2.data;
+    } else if (q1.error) throw q1.error;
+
+    if (!img) throw new Error("image not found");
 
     const path = String(img?.path ?? "");
     if (path) await supabase.storage.from(BUCKET).remove([path]);
 
-    const { error: delErr } = await supabase
-        .from("drop_images")
-        .delete()
-        .eq("id", imageId)
-        .eq("drop_id", dropId)
-        .eq("user_id", user.id);
-    if (delErr) throw delErr;
+    const d1 = await supabase.from("drop_images").delete().eq("id", imageId).eq("drop_id", dropId).eq("user_id", user.id);
+    if (d1.error) {
+        if (isColumnMissingError(d1.error)) {
+            const d2 = await supabase.from("drop_images").delete().eq("id", imageId).eq("drop_id", dropId);
+            if (d2.error) throw d2.error;
+        } else {
+            throw d1.error;
+        }
+    }
 
-    const { data: rest, error: rErr } = await supabase
-        .from("drop_images")
-        .select("id")
-        .eq("drop_id", dropId)
-        .eq("user_id", user.id)
-        .order("sort", { ascending: true });
-
-    if (rErr) throw rErr;
+    // 並び詰め
+    let rest: any[] = [];
+    const r1 = await supabase.from("drop_images").select("id").eq("drop_id", dropId).eq("user_id", user.id).order("sort", { ascending: true });
+    if (!r1.error) rest = r1.data ?? [];
+    else if (isColumnMissingError(r1.error)) {
+        const r2 = await supabase.from("drop_images").select("id").eq("drop_id", dropId).order("sort", { ascending: true });
+        if (r2.error) throw r2.error;
+        rest = r2.data ?? [];
+    } else throw r1.error;
 
     for (let i = 0; i < (rest ?? []).length; i++) {
         const id = (rest as any[])[i].id;
-        const { error: uErr } = await supabase
-            .from("drop_images")
-            .update({ sort: i, sort_order: i } as any)
-            .eq("id", id)
-            .eq("drop_id", dropId)
-            .eq("user_id", user.id);
-        if (uErr) throw uErr;
+
+        const u1 = await supabase.from("drop_images").update({ sort: i, sort_order: i } as any).eq("id", id).eq("drop_id", dropId).eq("user_id", user.id);
+        if (u1.error) {
+            if (isColumnMissingError(u1.error)) {
+                const u2 = await supabase.from("drop_images").update({ sort: i, sort_order: i } as any).eq("id", id).eq("drop_id", dropId);
+                if (u2.error) throw u2.error;
+            } else throw u1.error;
+        }
     }
 
     await refreshCoverSafe(supabase, dropId, user.id);
@@ -478,11 +576,7 @@ export async function deleteDropImageAction(dropId: string, imageId: string) {
 }
 
 /** 並び替え（redirectしない版） */
-export async function reorderDropImagesAction(
-    dropId: string,
-    _prev: DropActionState,
-    formData: FormData
-): Promise<DropActionState> {
+export async function reorderDropImagesAction(dropId: string, _prev: DropActionState, formData: FormData): Promise<DropActionState> {
     try {
         const { supabase, user } = await requireUser(`/drops/${dropId}/edit`);
         await assertOwner(supabase, dropId, user.id);
@@ -498,24 +592,28 @@ export async function reorderDropImagesAction(
             return { ok: false, error: "並び順データが壊れてる。", fieldErrors: {} };
         }
 
-        const { data: imgs, error: imgErr } = await supabase
-            .from("drop_images")
-            .select("id")
-            .eq("drop_id", dropId)
-            .eq("user_id", user.id);
-        if (imgErr) throw imgErr;
+        let imgs: any[] = [];
+        const img1 = await supabase.from("drop_images").select("id").eq("drop_id", dropId).eq("user_id", user.id);
+        if (!img1.error) imgs = img1.data ?? [];
+        else if (isColumnMissingError(img1.error)) {
+            const img2 = await supabase.from("drop_images").select("id").eq("drop_id", dropId);
+            if (img2.error) throw img2.error;
+            imgs = img2.data ?? [];
+        } else throw img1.error;
 
         const allowed = new Set((imgs ?? []).map((x: any) => x.id));
         const filtered = ids.filter((id) => allowed.has(id));
 
         if (filtered.length !== allowed.size) {
-            const { data: cur, error: cErr } = await supabase
-                .from("drop_images")
-                .select("id")
-                .eq("drop_id", dropId)
-                .eq("user_id", user.id)
-                .order("sort", { ascending: true });
-            if (cErr) throw cErr;
+            let cur: any[] = [];
+            const c1 = await supabase.from("drop_images").select("id").eq("drop_id", dropId).eq("user_id", user.id).order("sort", { ascending: true });
+            if (!c1.error) cur = c1.data ?? [];
+            else if (isColumnMissingError(c1.error)) {
+                const c2 = await supabase.from("drop_images").select("id").eq("drop_id", dropId).order("sort", { ascending: true });
+                if (c2.error) throw c2.error;
+                cur = c2.data ?? [];
+            } else throw c1.error;
+
             ids = (cur ?? []).map((x: any) => x.id);
         } else {
             ids = filtered;
@@ -523,13 +621,14 @@ export async function reorderDropImagesAction(
 
         for (let i = 0; i < ids.length; i++) {
             const id = ids[i];
-            const { error: uErr } = await supabase
-                .from("drop_images")
-                .update({ sort: i, sort_order: i } as any)
-                .eq("id", id)
-                .eq("drop_id", dropId)
-                .eq("user_id", user.id);
-            if (uErr) throw uErr;
+
+            const u1 = await supabase.from("drop_images").update({ sort: i, sort_order: i } as any).eq("id", id).eq("drop_id", dropId).eq("user_id", user.id);
+            if (u1.error) {
+                if (isColumnMissingError(u1.error)) {
+                    const u2 = await supabase.from("drop_images").update({ sort: i, sort_order: i } as any).eq("id", id).eq("drop_id", dropId);
+                    if (u2.error) throw u2.error;
+                } else throw u1.error;
+            }
         }
 
         await refreshCoverSafe(supabase, dropId, user.id);

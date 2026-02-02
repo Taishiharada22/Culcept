@@ -1,3 +1,4 @@
+// app/drops/layout.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
 import LogoutButton from "@/app/components/LogoutButton";
@@ -18,10 +19,10 @@ export default async function DropsLayout({ children }: { children: React.ReactN
                         </Link>
                         <nav className="hidden items-center gap-3 text-sm font-semibold text-zinc-700 sm:flex">
                             <Link className="no-underline hover:text-zinc-950" href="/drops">
-                                Drops
+                                Products
                             </Link>
                             <Link className="no-underline hover:text-zinc-950" href="/drops?mine=1">
-                                My Drops
+                                My Products
                             </Link>
                             <Link className="no-underline hover:text-zinc-950" href="/drops/new">
                                 New

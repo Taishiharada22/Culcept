@@ -1,0 +1,397 @@
+[
+  {
+    "from": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_1_2_3.png",
+    "to": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_2_3.png",
+    "hash": "28692ec855f198a8d59dac535ece9d2fa14e89be6d26bd072577317da5b23e8c"
+  },
+  {
+    "from": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_2_2_3.png",
+    "to": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_2_3.png",
+    "hash": "28692ec855f198a8d59dac535ece9d2fa14e89be6d26bd072577317da5b23e8c"
+  },
+  {
+    "from": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_1_2_2_3.png",
+    "to": "/cards/aa9efa40_c029_4ee7_945e_1590d7b4fa3c_2_3.png",
+    "hash": "28692ec855f198a8d59dac535ece9d2fa14e89be6d26bd072577317da5b23e8c"
+  },
+  {
+    "from": "/cards/field_jacket_olive_2.png",
+    "to": "/cards/field_jacket_olive.png",
+    "hash": "f4802e84f4c7da17e870ec609aebaeacc5fff14e2deddf7b941ecc4444214e30"
+  },
+  {
+    "from": "/cards/placeholder_2.png",
+    "to": "/cards/field_jacket_olive.png",
+    "hash": "f4802e84f4c7da17e870ec609aebaeacc5fff14e2deddf7b941ecc4444214e30"
+  },
+  {
+    "from": "/cards/007ff09c_9ed2_46bf_a320_28967612d434_2_2_3.png",
+    "to": "/cards/007ff09c_9ed2_46bf_a320_28967612d434_2_3.png",
+    "hash": "847589c5158b5661498f7299023eb44022dda9863a3c576993a4d80f14b8bf9c"
+  },
+  {
+    "from": "/cards/0ccdd583_cc35_4e5e_b3f8_2d346d7d18a7_2_2_3.png",
+    "to": "/cards/0ccdd583_cc35_4e5e_b3f8_2d346d7d18a7_2_3.png",
+    "hash": "13179b2b356577289266b356839ea16188d6c628152b5cff8158f6e04d7a130d"
+  },
+  {
+    "from": "/cards/1aa7bf8c_d64a_4429_b1ba_6345a841af20_2_2_3.png",
+    "to": "/cards/1aa7bf8c_d64a_4429_b1ba_6345a841af20_2_3.png",
+    "hash": "d95f062466ec16cfbe21243d3bb415031fac9fca07d91226d56bc1ae91a87a29"
+  },
+  {
+    "from": "/cards/338aac68_eb22_4ed4_8f2b_26ac747648d6_2_2_3.png",
+    "to": "/cards/338aac68_eb22_4ed4_8f2b_26ac747648d6_2_3.png",
+    "hash": "c6345950e2be99970cd7ae3a49922b36d3791def280b71eab5c852af6782820c"
+  },
+  {
+    "from": "/cards/3efc337c_35f4_4b7f_9470_a2c88ad8e969_2_2_3.png",
+    "to": "/cards/3efc337c_35f4_4b7f_9470_a2c88ad8e969_2_3.png",
+    "hash": "627ae7fe4d860babeb1f47928927d799961fa52e7cdf5df94e125e8c2e1acb2d"
+  },
+  {
+    "from": "/cards/4524145e_c9d8_4daf_9e27_2bfb799e763a_2_2_3.png",
+    "to": "/cards/4524145e_c9d8_4daf_9e27_2bfb799e763a_2_3.png",
+    "hash": "9a8a8a1a7f409f223c88b1f7602c9d40e973306780d93caf929f076f3cf8b20a"
+  },
+  {
+    "from": "/cards/552d3691_be94_4a43_9576_fa85ed65bf08_2_2_3.png",
+    "to": "/cards/552d3691_be94_4a43_9576_fa85ed65bf08_2_3.png",
+    "hash": "d37837bf13149de5c14c292206bd3bcba2d8912a5aae79169f8765977af30a44"
+  },
+  {
+    "from": "/cards/5f976bba_ff96_417b_b1a5_817a6642fa20_2_2_3.png",
+    "to": "/cards/5f976bba_ff96_417b_b1a5_817a6642fa20_2_3.png",
+    "hash": "f348748e6806b84f61661e8ef3f3d260b6e8f319607fe41486d748a4fffdc8ae"
+  },
+  {
+    "from": "/cards/620a3d9c_5e84_4be0_ad35_88a65f9ac5e3_2_2_3.png",
+    "to": "/cards/620a3d9c_5e84_4be0_ad35_88a65f9ac5e3_2_3.png",
+    "hash": "fc6271af7a112d013be702b6b4e60901aedd741f668299fed82dea22a6bf652f"
+  },
+  {
+    "from": "/cards/6acd2043_ad54_4242_94ee_58fc9ace7097_2_2_3.png",
+    "to": "/cards/6acd2043_ad54_4242_94ee_58fc9ace7097_2_3.png",
+    "hash": "0201550547277aa6a09864f7a7d141cfd705de3c75069c586c1d306330f8379f"
+  },
+  {
+    "from": "/cards/6d21e60e_795b_4fb0_85e0_21e5a9372128_2_2_3.png",
+    "to": "/cards/6d21e60e_795b_4fb0_85e0_21e5a9372128_2_3.png",
+    "hash": "ce13a52f36af142c7001c8ae64b3c86dc143489ef2e80437e0f18cf4b1506ad6"
+  },
+  {
+    "from": "/cards/6eb10bcd_bb51_42dd_aca1_2cc54330464a_2_2_3.png",
+    "to": "/cards/6eb10bcd_bb51_42dd_aca1_2cc54330464a_2_3.png",
+    "hash": "d9a389109c6c1a2c020d74751df8c87c43d255b50d3645d914275814fba08c31"
+  },
+  {
+    "from": "/cards/838a3b51_f679_4fef_8d79_887d3003bb5a_2_2_3.png",
+    "to": "/cards/838a3b51_f679_4fef_8d79_887d3003bb5a_2_3.png",
+    "hash": "7c1ada973e6a7c8926a11890d4d61d2e1690375111c931fe48ef9bfa30a0bec9"
+  },
+  {
+    "from": "/cards/87279b7a_5b3b_4dc6_a462_1acf9fa9629f_2_2_3.png",
+    "to": "/cards/87279b7a_5b3b_4dc6_a462_1acf9fa9629f_2_3.png",
+    "hash": "7205ea41613aec9359751453429159259bb548b8a6f1b455fd112c57604acb4d"
+  },
+  {
+    "from": "/cards/8c5f2ec7_6e54_40c3_b777_f6e3e8a88ef4_2_2_3.png",
+    "to": "/cards/8c5f2ec7_6e54_40c3_b777_f6e3e8a88ef4_2_3.png",
+    "hash": "08ec4a97bf9b2ae04883c894f02cc2ed4cf05e17cf476e37279f94e26179cde5"
+  },
+  {
+    "from": "/cards/8d9839d6_5260_4544_9dda_326ab3c9d7fc_2_2_3.png",
+    "to": "/cards/8d9839d6_5260_4544_9dda_326ab3c9d7fc_2_3.png",
+    "hash": "b27650bd38978a192232e632ab2d131171d64938db2fc73f4b896585f86dbdb9"
+  },
+  {
+    "from": "/cards/95bffe7b_24d7_4e8f_843b_03e1965f6ac6_2_2_3.png",
+    "to": "/cards/95bffe7b_24d7_4e8f_843b_03e1965f6ac6_2_3.png",
+    "hash": "ca95ca3c13b986f368d0ba38160722e7f8b0f6819cd9e1702cbc369f0f37877a"
+  },
+  {
+    "from": "/cards/9f3b1a8c_4d3a_43e8_b0a6_aa1beaa219d2_2_2_3.png",
+    "to": "/cards/9f3b1a8c_4d3a_43e8_b0a6_aa1beaa219d2_2_3.png",
+    "hash": "ce25da221e4d703f0ccf0e1d9f48400265e43c088c2dc0bd6d214ce37d7d11af"
+  },
+  {
+    "from": "/cards/a259919f_5f94_47be_ad05_00179e0a942d_2_2_3.png",
+    "to": "/cards/a259919f_5f94_47be_ad05_00179e0a942d_2_3.png",
+    "hash": "6999dc0c3a811ee42da162711ad3e31a471d85c88bb76b6752f712e4e1fe417b"
+  },
+  {
+    "from": "/cards/a298c204_16bf_4127_a9ef_a681c1f0e599_2_2_3.png",
+    "to": "/cards/a298c204_16bf_4127_a9ef_a681c1f0e599_2_3.png",
+    "hash": "bac1d28d553574555a0db705cead0a3eb7a3202a38eb5b4c9f4dec8f847a0060"
+  },
+  {
+    "from": "/cards/a7d32cef_28c1_4c28_9733_9231b77a7651_2_2_3.png",
+    "to": "/cards/a7d32cef_28c1_4c28_9733_9231b77a7651_2_3.png",
+    "hash": "b6b2219f696e4699c6fd2714cf473fee5497e6069fe7e7f60dda2b9ab89545b5"
+  },
+  {
+    "from": "/cards/ab07b77b_97c2_43ac_9566_f3f28ed3be44_2_2_3.png",
+    "to": "/cards/ab07b77b_97c2_43ac_9566_f3f28ed3be44_2_3.png",
+    "hash": "6ee78547146c0ea14df8894e0727886839e0d0f0abc7dbaebb7596114a62f519"
+  },
+  {
+    "from": "/cards/acc6b7b6_5c87_41f8_b3ad_071f8f93897b_2_2_3.png",
+    "to": "/cards/acc6b7b6_5c87_41f8_b3ad_071f8f93897b_2_3.png",
+    "hash": "f135b62760e866b3f7cbb16f2447aecedda17b018926f1eba71abe4825053849"
+  },
+  {
+    "from": "/cards/aef62f6d_6077_49a3_a921_1b331b464177_2_2_3.png",
+    "to": "/cards/aef62f6d_6077_49a3_a921_1b331b464177_2_3.png",
+    "hash": "516454fc17afe64d85dad3b7b6bd95e5c77abb3fc15314a888113ae912c504c9"
+  },
+  {
+    "from": "/cards/b40e10d9_186d_47cd_bc97_730a9c985e31_2_2_3.png",
+    "to": "/cards/b40e10d9_186d_47cd_bc97_730a9c985e31_2_3.png",
+    "hash": "f97dfc5fa37ab903968c6c763c1a90123680424fd958c35cedc0c2bb19b6897b"
+  },
+  {
+    "from": "/cards/b65c88be_9490_48a9_be1f_5393bc168a03_2_2_3.png",
+    "to": "/cards/b65c88be_9490_48a9_be1f_5393bc168a03_2_3.png",
+    "hash": "efcee92dc55450ffb8cec1b8c1441c7efb848a7c6eef9d9936efab71dad8e002"
+  },
+  {
+    "from": "/cards/b79dc3d4_b593_4726_807c_205942bdbadd_2_2_3.png",
+    "to": "/cards/b79dc3d4_b593_4726_807c_205942bdbadd_2_3.png",
+    "hash": "275fb91543230d56885e45d2f32a0c86906604a67a003f1d8ac2030d618ac672"
+  },
+  {
+    "from": "/cards/bd57a086_cf89_4b67_85b4_38ea91be9c50_2_2_3.png",
+    "to": "/cards/bd57a086_cf89_4b67_85b4_38ea91be9c50_2_3.png",
+    "hash": "5b39c871df16b162a098cb3e7efa359a7c868fcbcb695b8b55624ce36bf74745"
+  },
+  {
+    "from": "/cards/black_denim_2.png",
+    "to": "/cards/black_denim.png",
+    "hash": "be52bbecf16aba6180b3da5e6bce364302796db1ddbac3ce7ebd45fd9047cbc7"
+  },
+  {
+    "from": "/cards/black_denim_4.png",
+    "to": "/cards/black_denim_3.png",
+    "hash": "b12f667c4c5cc6238d0ab67c86cd1fe114ccbcb2b9db5895fe10f477237ba61e"
+  },
+  {
+    "from": "/cards/brown_2.png",
+    "to": "/cards/brown.png",
+    "hash": "2741e4b6aa11ed92708dd1aa76e75801c7b474219f803d54d7213569f19b008d"
+  },
+  {
+    "from": "/cards/c011b843_de6e_4428_8e9a_c4ff51124450_2_2_3.png",
+    "to": "/cards/c011b843_de6e_4428_8e9a_c4ff51124450_2_3.png",
+    "hash": "d3e8baf8c5cdd5a4165eaa7ef81c493700188256cf62c531f1f14c510f5591e1"
+  },
+  {
+    "from": "/cards/c300422a_1cea_4afe_823c_efc272c13c5e_2_2_3.png",
+    "to": "/cards/c300422a_1cea_4afe_823c_efc272c13c5e_2_3.png",
+    "hash": "aa9f854f40206317a47a58c7c0138828fe2ec54b3838b6d65620d7b2da8b454a"
+  },
+  {
+    "from": "/cards/c7d08b84_d501_47ec_b9f2_c7e4ba73d23d_2_2_3.png",
+    "to": "/cards/c7d08b84_d501_47ec_b9f2_c7e4ba73d23d_2_3.png",
+    "hash": "b46334c6e3130afa2ae409f6cf3ab6347d91f761dac0d13dc0732ab627cf2096"
+  },
+  {
+    "from": "/cards/c88166ac_2d05_4179_999f_36c247814ffb_2_2_3.png",
+    "to": "/cards/c88166ac_2d05_4179_999f_36c247814ffb_2_3.png",
+    "hash": "e244494b13206eb4362219af9154dec03737ea4b9f052cb6d905786ddad71ea2"
+  },
+  {
+    "from": "/cards/ca16eff2_8137_4c7b_b615_500fc8780c22_2_2_3.png",
+    "to": "/cards/ca16eff2_8137_4c7b_b615_500fc8780c22_2_3.png",
+    "hash": "b2de3170400a40c4858cd7f25bca7f10adad297c115a5cc55183186950dfd76f"
+  },
+  {
+    "from": "/cards/cbed0ab6_8aac_45a7_ad7f_fb4a641deaac_2_2_3.png",
+    "to": "/cards/cbed0ab6_8aac_45a7_ad7f_fb4a641deaac_2_3.png",
+    "hash": "6cd858bb0a2eadcea9e097622e5195df99adfdf630f7daab4397ea4c273df9ff"
+  },
+  {
+    "from": "/cards/cde974a0_eafb_4adf_95b8_2ec51498d5d1_2_2_3.png",
+    "to": "/cards/cde974a0_eafb_4adf_95b8_2ec51498d5d1_2_3.png",
+    "hash": "d1910d5a992003e7ac6b8b0459cab4e88ad140e5379ebf43df047fe2947f20e2"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_29_22_17_56_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_29_22_17_56_2_3.png",
+    "hash": "efb4861467aeb47c4adb44034072de1c34e8a4d486c4083febbacd3499c3405c"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_11_52_57_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_11_52_57_2_3.png",
+    "hash": "00a7d7ab96d54de1204d485de9fb7743fda5c4957a965a8fc597164de46f8b03"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_12_50_11_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_12_50_11_2_3.png",
+    "hash": "8321a1d5e283519ea517027cdcc2edd9ed368f4996adee11271f812d35248f5c"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_13_06_52_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_13_06_52_2_3.png",
+    "hash": "b2aa1ceb2ec2e8e6e4cef9ae7e1d51a92c93d10fc075e1a3fb1483a2341223af"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_13_09_10_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_13_09_10_2_3.png",
+    "hash": "fd727ff3463dd7c5ced07727a59cd49f11b52cf5b2965eb7ebb6b4d4d7d8d82e"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_13_15_56_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_13_15_56_2_3.png",
+    "hash": "aaf5e4b3f34939d6f9e1d0baeb6d6a1795def6c2a2e7f4dab8e367d2856c65d9"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_18_50_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_18_50_2_3.png",
+    "hash": "aef643f94c1c40c2f7777716498a3da97114447779a31873e7ae51a2ed7154b6"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_18_53_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_18_53_2_3.png",
+    "hash": "aacf6db8c6ab6a8098b264f0e2978551652d78e3a68fdbf2c60de584445ec4ce"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_22_37_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_22_37_2_3.png",
+    "hash": "581f392e3917fd4921c57a02bc7c27c45c0187e3098b95054df4983514d7bbea"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_26_03_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_26_03_2_3.png",
+    "hash": "75ab72cbaf94c157f02a402ea52ed4bcd298691d50a42c28132bbfb23df4c20b"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_34_16_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_34_16_2_3.png",
+    "hash": "aaf9da0b108f56af358decde37361db3102c1796279d7cad25f4661414371b90"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_36_14_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_36_14_2_3.png",
+    "hash": "0b8355d39fff7c715b859d24d195938cb51b62a934683a641f7f1226d92a2c98"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_37_03_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_37_03_2_3.png",
+    "hash": "9773e291dcc1738355ef09ba4819bd438608020fd18b0fd70fa87a7406cbef8f"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_40_02_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_40_02_2_3.png",
+    "hash": "f9c8f1c61a454f2a8151f58c882c117df3a84aa66e017e39025d0f492a9de2d7"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_41_00_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_41_00_2_3.png",
+    "hash": "8057ae4f945978518857cd56e5f1cc892ca13bafb80997c2f35de41bf1cddebb"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_41_46_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_41_46_2_3.png",
+    "hash": "ac10ead0f80e674ed06075264a946b446274e055af37024e151039855d729b3f"
+  },
+  {
+    "from": "/cards/chatgpt_image_2026_1_30_16_43_30_2_2_3.png",
+    "to": "/cards/chatgpt_image_2026_1_30_16_43_30_2_3.png",
+    "hash": "7a6be8e7db300a446401f4117d241321e70335bfc9f1555e88b588e023878e3f"
+  },
+  {
+    "from": "/cards/d3bcfef3_ddc0_42b7_b6d7_344950d25109_2_2_3.png",
+    "to": "/cards/d3bcfef3_ddc0_42b7_b6d7_344950d25109_2_3.png",
+    "hash": "4c30e6edb40e3d8b6e8b0385da18eb25459e8c8d22e528d323b59ccb89f52029"
+  },
+  {
+    "from": "/cards/d99b53f5_38e0_43a0_b51d_967e28a34cd3_2_2_3.png",
+    "to": "/cards/d99b53f5_38e0_43a0_b51d_967e28a34cd3_2_3.png",
+    "hash": "58fbe1dbbf1972c774c9a5e897acb8ceed074f3a423b59dfe608a6af2e667c34"
+  },
+  {
+    "from": "/cards/de5f00a1_52da_4342_8894_9fa82c556e65_2_2_3.png",
+    "to": "/cards/de5f00a1_52da_4342_8894_9fa82c556e65_2_3.png",
+    "hash": "1ace1d2b40ad5e0af6c1ee7571eedeb1dbc8e9b0830a176ba97ee5175a8cd5cb"
+  },
+  {
+    "from": "/cards/e6391474_a8b1_49b1_b6c4_bc03f70e50bd_2_2_3.png",
+    "to": "/cards/e6391474_a8b1_49b1_b6c4_bc03f70e50bd_2_3.png",
+    "hash": "b87f14c45e4b9155d429294860a891c75ea61896206d5090861d2bc5ff7800b5"
+  },
+  {
+    "from": "/cards/e7d5bea6_e5c4_40ec_9b27_6f6699a6ab56_2_2_3.png",
+    "to": "/cards/e7d5bea6_e5c4_40ec_9b27_6f6699a6ab56_2_3.png",
+    "hash": "0a144224c33667232037b367c7429e03b19e77aa40e406d590f89297ead4d825"
+  },
+  {
+    "from": "/cards/ebe459f3_6e43_4d32_b2a4_566fd240b404_2_2_3.png",
+    "to": "/cards/ebe459f3_6e43_4d32_b2a4_566fd240b404_2_3.png",
+    "hash": "facfea8c0c1b91aeb2e090a5884b5f216bce7b9cae0120893a68a9976982b8ff"
+  },
+  {
+    "from": "/cards/f485045b_e9f9_4197_b861_6741857cecf2_2_2_3.png",
+    "to": "/cards/f485045b_e9f9_4197_b861_6741857cecf2_2_3.png",
+    "hash": "7043f34265f7dc02f77a5a0b85b5c3dbd23af2a9b229ef0c5a457e25ecf47391"
+  },
+  {
+    "from": "/cards/f63a9d02_754e_4d15_8821_6ee51ff48500_2_2_3.png",
+    "to": "/cards/f63a9d02_754e_4d15_8821_6ee51ff48500_2_3.png",
+    "hash": "d11f47fe6b5fda6c604002205d53bfe0e9043b14efec69c7baf7e7c820962509"
+  },
+  {
+    "from": "/cards/f668f834_b897_456c_bcae_03d44deb1ba6_2_2_3.png",
+    "to": "/cards/f668f834_b897_456c_bcae_03d44deb1ba6_2_3.png",
+    "hash": "39f0d264b1d3d9b79b0f0ac5640d2c30dbd0678b4f5581f3b614b7b83801bd14"
+  },
+  {
+    "from": "/cards/f745615c_b2d6_4402_9cee_bddc85d5291d_2_2_3.png",
+    "to": "/cards/f745615c_b2d6_4402_9cee_bddc85d5291d_2_3.png",
+    "hash": "011a890630893cd0d86e95ed3ae884695feba39b163ccac77f853729fb4ec36a"
+  },
+  {
+    "from": "/cards/fb15cd9a_571d_4d95_a1ad_4561f03b7eb8_2_2_3.png",
+    "to": "/cards/fb15cd9a_571d_4d95_a1ad_4561f03b7eb8_2_3.png",
+    "hash": "1df920c71d7586af7053c0476d6a315f0fba3284315b48a7d1e8d44a16e54aab"
+  },
+  {
+    "from": "/cards/fc487925_5af6_4235_b490_4382be39f6bb_2_2_3.png",
+    "to": "/cards/fc487925_5af6_4235_b490_4382be39f6bb_2_3.png",
+    "hash": "c93f8fb4c22d1baca13c174680997d17e62648e1524e6c5a42ed4e12761b3ea6"
+  },
+  {
+    "from": "/cards/field_jacket_2.png",
+    "to": "/cards/field_jacket.png",
+    "hash": "7c796e9ddee1b4e59e1f441ce512f319eb951bdd7cd6e9e30b6d0923cb8354f4"
+  },
+  {
+    "from": "/cards/field_jacket_black_2.png",
+    "to": "/cards/field_jacket_black.png",
+    "hash": "ab06b30c3a6fba9b3a8c6dd2cdf03e6bb81094c88380adf83a591e0760bf197b"
+  },
+  {
+    "from": "/cards/field_jacket_navy_2.png",
+    "to": "/cards/field_jacket_navy.png",
+    "hash": "c8962c84f5753b4b9c4bbb84409fdc59f44cd7b1cac9f60e154c542d23655a37"
+  },
+  {
+    "from": "/cards/jacket_black_2.png",
+    "to": "/cards/jacket_black.png",
+    "hash": "b9f4a928d8936dadbaa33112230eac0fefdaf3dea07d73574f1d21f743b93aee"
+  },
+  {
+    "from": "/cards/shirt_2.png",
+    "to": "/cards/shirt.png",
+    "hash": "ee3f9522596b9cbf06926c9dc13e2c8c75e757e2232c4170b309764638f6db9f"
+  },
+  {
+    "from": "/cards/shirt_4.png",
+    "to": "/cards/shirt_3.png",
+    "hash": "19c45bd56e03bc19d9f5a6deb5a1e8313e14d2a38d04369b9d3048143ad351dc"
+  },
+  {
+    "from": "/cards/shirt_brown_2.png",
+    "to": "/cards/shirt_brown.png",
+    "hash": "25864346c612aa472a0d93f6108e9d697e66633cb4476742170aa4c906abf524"
+  }
+]

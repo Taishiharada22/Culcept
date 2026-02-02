@@ -1,37 +1,49 @@
 {
-    "name": "culcept",
-    "private": true,
-    "scripts": {
-        "dev": "NODE_OPTIONS=--max-old-space-size=8192 next dev --webpack",
-        "build": "next build --webpack",
-        "start": "next start",
-        "lint": "next lint"
-    },
-    "dependencies": {
-        "@radix-ui/react-dialog": "^1.1.15",
-        "@radix-ui/react-slot": "^1.2.4",
-        "@supabase/ssr": "latest",
-        "@supabase/supabase-js": "latest",
-        "class-variance-authority": "^0.7.1",
-        "clsx": "^2.1.1",
-        "next": "latest",
-        "next-intl": "latest",
-        "react": "latest",
-        "react-dom": "latest",
-        "stripe": "^20.2.0",
-        "tailwind-merge": "^3.4.0",
-        "tailwindcss-animate": "^1.0.7"
-    },
-    "devDependencies": {
-        "@tailwindcss/postcss": "^4.1.18",
-        "@types/node": "latest",
-        "@types/react": "latest",
-        "@types/react-dom": "latest",
-        "autoprefixer": "^10.4.23",
-        "eslint": "latest",
-        "eslint-config-next": "latest",
-        "postcss": "^8.5.6",
-        "tailwindcss": "^4.1.18",
-        "typescript": "latest"
-    }
+  "name": "culcept",
+  "private": true,
+  "scripts": {
+    "dev": "NODE_OPTIONS=--max-old-space-size=8192 next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "next lint",
+    "tag:auto": "CULCEPT_AUTO_TAG=1 tsx scripts/auto-tag-cards.ts public/cards",
+    "tag:rename": "CULCEPT_AUTO_TAG=1 tsx scripts/auto-tag-cards.ts public/cards --rename",
+    "tag:import": "CULCEPT_IMPORT_CARDS=1 tsx scripts/import-cards.ts",
+    "cards:list": "ls -la public/cards/",
+    "cards:count": "find public/cards -maxdepth 1 -type f ( -iname \"*.png\" -o -iname \"*.jpg\" -o -iname \"*.jpeg\" -o -iname \"*.webp\" -o -iname \"*.gif\" ) | wc -l",
+    "admin:cards": "open http://localhost:3000/admin/cards"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@react-spring/web": "^10.0.3",
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "^2.93.3",
+    "@use-gesture/react": "^10.3.1",
+    "cheerio": "^1.2.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.563.0",
+    "next": "latest",
+    "next-intl": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "stripe": "^20.2.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "autoprefixer": "^10.4.23",
+    "dotenv": "^17.2.3",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18",
+    "tsx": "^4.21.0",
+    "typescript": "latest"
+  }
 }

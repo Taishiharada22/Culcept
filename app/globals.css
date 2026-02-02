@@ -1,6 +1,23 @@
 @import "tailwindcss";
+/* globals.css - Culcept Global Styles */
 
-/* ベースの読みやすさ */
+/* =========================
+   Design System - Culcept Professional (Tailwind v4 @theme)
+   ========================= */
+@theme {
+    /* Colors - Vintage Marketplace Theme */
+    --color-primary: #1a2332;
+    --color-primary-light: #2a3d54;
+    --color-secondary: #f8f6f3;
+    --color-accent: #c96d4a;
+    --color-accent-light: #e8a890;
+    --color-text: #2d3648;
+    --color-text-muted: #6b7280;
+    --color-border: #e5e1dc;
+    --color-surface: #ffffff;
+    --color-hover: #f0ede8;
+}
+
 :root {
     color-scheme: light;
 }
@@ -8,12 +25,183 @@
 html,
 body {
     height: 100%;
+    scroll-behavior: smooth;
 }
 
 body {
-    @apply bg-white text-zinc-950 antialiased;
+    background-color: var(--color-secondary);
+    color: var(--color-text);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* =========================
+   Typography
+   ========================= */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    font-family: "Cormorant Garamond", Georgia, serif;
+    letter-spacing: -0.02em;
 }
 
 a {
-    @apply underline-offset-4;
+    text-underline-offset: 4px;
+    transition: color 0.2s;
+}
+
+/* =========================
+   Utility Classes
+   ========================= */
+.card-hover {
+    transition: all 0.3s;
+}
+
+.card-hover:hover {
+    box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1),
+        0 4px 6px -4px rgb(0 0 0 / 0.1);
+    transform: translateY(-0.25rem);
+}
+
+.text-balance {
+    text-wrap: balance;
+}
+
+/* =========================
+   Custom Scrollbar
+   ========================= */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--color-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--color-text-muted);
+}
+
+/* =========================
+   Selection / Focus
+   ========================= */
+::selection {
+    background: var(--color-accent-light);
+    color: var(--color-primary);
+}
+
+:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* =========================
+   Animations
+   ========================= */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Confetti */
+@keyframes confetti {
+    0% {
+        transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) scale(1);
+        opacity: 1;
+    }
+
+    100% {
+        transform: translate(var(--tw-translate-x),
+                calc(var(--tw-translate-y) + 100vh)) rotate(calc(var(--tw-rotate) + 720deg)) scale(0);
+        opacity: 0;
+    }
+}
+
+/* =========================
+   Animation Utilities
+   ========================= */
+.animate-fade-in-up {
+    animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.4s ease-out;
+}
+
+.animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+}
+
+.animate-confetti {
+    animation: confetti 1.5s ease-out forwards;
+}
+
+/* =========================
+   Stagger Children
+   ========================= */
+.stagger-children>* {
+    animation: fadeInUp 0.6s ease-out both;
+}
+
+.stagger-children>*:nth-child(1) {
+    animation-delay: 0.05s;
+}
+
+.stagger-children>*:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.stagger-children>*:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+.stagger-children>*:nth-child(4) {
+    animation-delay: 0.2s;
+}
+
+.stagger-children>*:nth-child(5) {
+    animation-delay: 0.25s;
+}
+
+.stagger-children>*:nth-child(6) {
+    animation-delay: 0.3s;
 }

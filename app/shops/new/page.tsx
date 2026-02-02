@@ -1,3 +1,4 @@
+// app/shops/new/page.tsx
 import "server-only";
 
 import Link from "next/link";

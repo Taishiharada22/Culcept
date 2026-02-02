@@ -1,3 +1,4 @@
+// app/shops/types.ts
 export type ActionState = {
     ok: boolean;
     error: string | null;

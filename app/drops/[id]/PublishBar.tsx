@@ -1,3 +1,4 @@
+// app/drops/[id]/PublishBar.tsx
 "use client";
 
 import * as React from "react";

@@ -1,3 +1,4 @@
+// app/shops/me/insights/page.tsx
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
@@ -202,7 +203,7 @@ export default async function MyShopInsightsPage() {
             )}
 
             <div className="rounded-2xl border bg-white p-4">
-                <div className="text-sm font-extrabold mb-3">Drops（hot_score順）</div>
+                <div className="text-sm font-extrabold mb-3">Products（hot_score順）</div>
                 <div className="grid gap-3">
                     {rows.map((r) => (
                         <div key={r.id} className="rounded-xl border border-zinc-200 bg-white p-3 flex items-center justify-between gap-3">
