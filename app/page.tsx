@@ -111,6 +111,56 @@ export default function HomePage() {
                 </Link>
             </section>
 
+            {/* 🔥 新機能セクション */}
+            <section className="rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 p-6 text-white">
+                <div className="text-center mb-4">
+                    <h2 className="text-2xl font-black">🚀 New Features</h2>
+                    <p className="text-sm opacity-90">他にはない革新的機能</p>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <Link href="/live" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">📺</div>
+                        <div className="font-bold text-sm">ライブ</div>
+                        <div className="text-xs opacity-80">リアルタイム購入</div>
+                    </Link>
+                    <Link href="/battle" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">⚔️</div>
+                        <div className="font-bold text-sm">バトル</div>
+                        <div className="text-xs opacity-80">コーデ対決</div>
+                    </Link>
+                    <Link href="/wardrobe" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">👔</div>
+                        <div className="font-bold text-sm">診断</div>
+                        <div className="text-xs opacity-80">AI分析</div>
+                    </Link>
+                    <Link href="/try-on" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">📸</div>
+                        <div className="font-bold text-sm">AR試着</div>
+                        <div className="text-xs opacity-80">バーチャル</div>
+                    </Link>
+                    <Link href="/calendar" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">📅</div>
+                        <div className="font-bold text-sm">カレンダー</div>
+                        <div className="text-xs opacity-80">毎日コーデ</div>
+                    </Link>
+                    <Link href="/tribes" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">🏕️</div>
+                        <div className="font-bold text-sm">トライブ</div>
+                        <div className="text-xs opacity-80">コミュニティ</div>
+                    </Link>
+                    <Link href="/collab" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">🤝</div>
+                        <div className="font-bold text-sm">コラボ</div>
+                        <div className="text-xs opacity-80">限定ドロップ</div>
+                    </Link>
+                    <Link href="/style-profile" className="bg-white/20 backdrop-blur-sm rounded-xl p-4 text-center hover:bg-white/30 transition-all no-underline text-white">
+                        <div className="text-3xl mb-2">🎨</div>
+                        <div className="font-bold text-sm">スタイル</div>
+                        <div className="text-xs opacity-80">AI分析</div>
+                    </Link>
+                </div>
+            </section>
+
             {/* 最低限の共通導線 */}
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="text-sm font-extrabold text-slate-900">Quick links</div>
@@ -133,18 +183,23 @@ export default function HomePage() {
                     >
                         オーナー：Shop設定
                     </Link>
-                    {/* ✅ 追加リンク（ナビに合わせて） */}
                     <Link
-                        href="/search"
-                        className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-extrabold text-emerald-800 no-underline hover:bg-emerald-100"
+                        href="/favorites"
+                        className="rounded-md border border-pink-200 bg-pink-50 px-3 py-2 text-sm font-extrabold text-pink-700 no-underline hover:bg-pink-100"
                     >
-                        AI Search
+                        ❤️ お気に入り
                     </Link>
                     <Link
-                        href="/visual-search"
+                        href="/watchlist"
                         className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-extrabold text-emerald-800 no-underline hover:bg-emerald-100"
                     >
-                        Visual Search
+                        💰 価格アラート
+                    </Link>
+                    <Link
+                        href="/my"
+                        className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-extrabold text-slate-700 no-underline hover:bg-slate-100"
+                    >
+                        👤 マイページ
                     </Link>
                 </div>
             </section>
