@@ -1,6 +1,8 @@
 // app/api/battle/list/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { getStyleDrive } from "@/lib/styleDrive";
 
 export const runtime = "nodejs";
 
@@ -58,7 +60,81 @@ export async function GET(request: NextRequest) {
             };
         });
 
-        return NextResponse.json({ battles });
+        const { data: driveBattles } = await supabaseAdmin
+            .from("style_drive_battles")
+            .select("id, drive_id, card_id, challenger_drive_id, challenger_card_id, created_at, status")
+            .order("created_at", { ascending: false })
+            .limit(6);
+
+        if (!driveBattles || driveBattles.length === 0) {
+            return NextResponse.json({ battles });
+        }
+
+        const cardIds = Array.from(
+            new Set(
+                driveBattles
+                    .flatMap((b) => [b.card_id, b.challenger_card_id])
+                    .filter(Boolean)
+                    .map((id) => String(id))
+            )
+        );
+
+        const { data: cardRows } = await supabaseAdmin
+            .from("curated_cards")
+            .select("card_id, image_url, title")
+            .in("card_id", cardIds);
+
+        const cardMap = new Map((cardRows ?? []).map((c) => [String(c.card_id), c]));
+
+        const driveBattleItems = driveBattles.map((b) => {
+            const mainDrive = getStyleDrive(String(b.drive_id ?? "")) ?? {
+                id: String(b.drive_id ?? ""),
+                name: "Style Drive",
+                icon: "🚗",
+            };
+            const challengerDrive = getStyleDrive(String(b.challenger_drive_id ?? "")) ?? {
+                id: String(b.challenger_drive_id ?? ""),
+                name: "Challenger",
+                icon: "⚡",
+            };
+
+            const mainCard = cardMap.get(String(b.card_id));
+            const challengerCard = cardMap.get(String(b.challenger_card_id ?? ""));
+            const endDate = new Date(b.created_at ?? new Date().toISOString());
+            endDate.setDate(endDate.getDate() + 3);
+
+            return {
+                id: `drive-${b.id}`,
+                title: `${mainDrive.name} vs ${challengerDrive.name}`,
+                theme: `🏁 ${mainDrive.name} ドライブ対決`,
+                status: "voting",
+                endAt: endDate.toISOString(),
+                participants: 2 + Math.floor(Math.random() * 40),
+                entries: [
+                    {
+                        id: `drive-${b.id}-a`,
+                        user: {
+                            name: mainDrive.name,
+                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(mainDrive.id)}`,
+                        },
+                        image: mainCard?.image_url || "https://via.placeholder.com/300x400",
+                        votes: Math.floor(Math.random() * 200) + 10,
+                    },
+                    {
+                        id: `drive-${b.id}-b`,
+                        user: {
+                            name: challengerDrive.name,
+                            avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(challengerDrive.id || "challenger")}`,
+                        },
+                        image: challengerCard?.image_url || "https://via.placeholder.com/300x400",
+                        votes: Math.floor(Math.random() * 200) + 10,
+                    },
+                ],
+                prize: null,
+            };
+        });
+
+        return NextResponse.json({ battles: [...driveBattleItems, ...battles] });
     } catch (error) {
         console.error("Battle list error:", error);
         return NextResponse.json({ battles: [] });

@@ -2,7 +2,17 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
 import { authAction } from "./actions";
+import {
+    LightBackground,
+    GlassCard,
+    GlassButton,
+    GlassBadge,
+    GlassTabs,
+    GlassInput,
+} from "@/components/ui/glassmorphism-design";
 
 type AuthState = { ok: boolean; error: string | null; message?: string | null };
 
@@ -10,183 +20,142 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
     const initial: AuthState = { ok: true, error: null, message: null };
     const [state, formAction, isPending] = React.useActionState(authAction, initial);
     const [mode, setMode] = React.useState<"signin" | "signup">("signin");
+    const headingStyle = { fontFamily: "'Cormorant Garamond', serif" };
+
+    const tabs = [
+        { id: "signin", label: "ログイン", icon: <span>🔓</span> },
+        { id: "signup", label: "新規登録", icon: <span>✨</span> },
+    ];
+
+    const features = [
+        { icon: "✨", title: "AIスタイル提案", desc: "好みを学習して最適なスタイルを提案" },
+        { icon: "🛍️", title: "セレクト体験", desc: "あなたに合うアイテムだけを届ける" },
+        { icon: "🔮", title: "体験型ショッピング", desc: "AR/バーチャルで試着体験" },
+    ];
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-orange-50 p-6">
-            <style jsx global>{`
-                @keyframes slideIn {
-                    from {
-                        opacity: 0;
-                        transform: translateY(30px);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-            `}</style>
+        <LightBackground>
+            <div className="min-h-screen flex items-center justify-center px-4 py-12">
+                <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    className="w-full max-w-5xl grid lg:grid-cols-2 gap-8 items-stretch"
+                >
+                    {/* 左側: ブランド */}
+                    <div className="hidden lg:flex">
+                        <GlassCard className="p-10 flex flex-col justify-between">
+                            <div>
+                                <GlassBadge variant="gradient" className="mb-4">
+                                    ✨ AI-Powered Fashion
+                                </GlassBadge>
+                                <h1 className="text-4xl font-bold text-slate-900 mb-4" style={headingStyle}>
+                                    Culcept
+                                </h1>
+                                <p className="text-slate-500 text-lg mb-8">
+                                    古着との出会いを再定義。AIがあなたの好みを理解し、似合うスタイルを届けます。
+                                </p>
+                                <div className="space-y-4">
+                                    {features.map((item) => (
+                                        <div key={item.title} className="flex items-start gap-4">
+                                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-lg text-white shadow-lg shadow-violet-500/30">
+                                                {item.icon}
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-slate-900">{item.title}</h3>
+                                                <p className="text-sm text-slate-500">{item.desc}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="text-xs text-slate-400 mt-10">
+                                まだアカウントがない方は新規登録へ
+                            </div>
+                        </GlassCard>
+                    </div>
 
-            <div
-                className="w-full max-w-md"
-                style={{
-                    animation: "slideIn 0.6s ease-out forwards",
-                }}
-            >
-                {/* Logo / Header */}
-                <div className="text-center mb-8">
-                    <h1
-                        className="text-6xl font-black text-slate-900 mb-3"
-                        style={{ fontFamily: "'Cormorant Garamond', serif" }}
-                    >
-                        Culcept
-                    </h1>
-                    <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">
-                        Refined Vintage Marketplace
-                    </p>
-                </div>
-
-                {/* Form Card */}
-                <div className="rounded-3xl border-2 border-slate-200 bg-white p-8 shadow-2xl">
-                    <form action={formAction} className="grid gap-6">
-                        <input type="hidden" name="next" value={nextPath} />
-                        <input type="hidden" name="mode" value={mode} />
-
-                        {/* Email */}
-                        <div className="grid gap-2">
-                            <label className="text-sm font-black text-slate-700 uppercase tracking-wide">
-                                Email
-                            </label>
-                            <input
-                                name="email"
-                                type="email"
-                                autoComplete="email"
-                                required
-                                className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 transition-all duration-200 focus:border-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-100"
-                                placeholder="you@example.com"
-                            />
+                    {/* 右側: フォーム */}
+                    <GlassCard className="p-8 sm:p-10">
+                        <div className="text-center mb-8">
+                            <Link href="/" className="inline-block">
+                                <h2 className="text-3xl font-bold text-slate-900" style={headingStyle}>
+                                    Welcome to Culcept
+                                </h2>
+                            </Link>
+                            <p className="text-slate-500 mt-2">
+                                {mode === "signin" ? "ログインして続ける" : "無料でアカウント作成"}
+                            </p>
                         </div>
 
-                        {/* Password */}
-                        <div className="grid gap-2">
-                            <label className="text-sm font-black text-slate-700 uppercase tracking-wide">
-                                Password
-                            </label>
-                            <input
-                                name="password"
-                                type="password"
-                                autoComplete="current-password"
-                                required
-                                className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-base font-semibold text-slate-900 transition-all duration-200 focus:border-purple-500 focus:outline-none focus:ring-4 focus:ring-purple-100"
-                                placeholder="••••••••"
-                            />
-                        </div>
+                        <form action={formAction} className="space-y-6">
+                            <input type="hidden" name="next" value={nextPath} />
+                            <input type="hidden" name="mode" value={mode} />
 
-                        {/* Error / Success Messages */}
-                        {state.error && (
-                            <div
-                                className="rounded-xl border-2 border-red-200 bg-gradient-to-br from-red-50 to-white p-4"
-                                style={{ animation: "slideIn 0.3s ease-out" }}
-                            >
-                                <p className="text-sm font-bold text-red-700 m-0">
+                            <GlassTabs
+                                tabs={tabs}
+                                activeTab={mode}
+                                onChange={(id) => setMode(id === "signup" ? "signup" : "signin")}
+                                className="w-full justify-center"
+                            />
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-600 mb-2">
+                                        メールアドレス
+                                    </label>
+                                    <GlassInput
+                                        name="email"
+                                        type="email"
+                                        autoComplete="email"
+                                        required
+                                        placeholder="you@example.com"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-slate-600 mb-2">
+                                        パスワード
+                                    </label>
+                                    <GlassInput
+                                        name="password"
+                                        type="password"
+                                        autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                                        required
+                                        placeholder="••••••••"
+                                    />
+                                </div>
+                            </div>
+
+                            {state.error && (
+                                <div className="rounded-2xl bg-red-50 border border-red-200 p-4 text-sm text-red-600">
                                     {state.error}
-                                </p>
-                            </div>
-                        )}
-
-                        {state.message && !state.error && (
-                            <div
-                                className="rounded-xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4"
-                                style={{ animation: "slideIn 0.3s ease-out" }}
-                            >
-                                <p className="text-sm font-bold text-emerald-700 m-0">
-                                    {state.message}
-                                </p>
-                            </div>
-                        )}
-
-                        {/* Mode Toggle */}
-                        <div className="flex gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setMode("signin")}
-                                className={`
-                                    flex-1 rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wide
-                                    transition-all duration-200
-                                    ${mode === "signin"
-                                        ? "bg-gradient-to-br from-purple-500 to-purple-600 text-white shadow-lg scale-105"
-                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                    }
-                                `}
-                            >
-                                Sign In
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => setMode("signup")}
-                                className={`
-                                    flex-1 rounded-xl px-6 py-3 text-sm font-black uppercase tracking-wide
-                                    transition-all duration-200
-                                    ${mode === "signup"
-                                        ? "bg-gradient-to-br from-orange-500 to-orange-600 text-white shadow-lg scale-105"
-                                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                    }
-                                `}
-                            >
-                                Sign Up
-                            </button>
-                        </div>
-
-                        {/* Submit Button */}
-                        <button
-                            type="submit"
-                            disabled={isPending}
-                            className={`
-                                w-full rounded-xl px-6 py-4 text-base font-black uppercase tracking-wide text-white
-                                shadow-xl transition-all duration-200
-                                ${mode === "signin"
-                                    ? "bg-gradient-to-br from-purple-500 via-purple-600 to-purple-700"
-                                    : "bg-gradient-to-br from-orange-500 via-orange-600 to-orange-700"
-                                }
-                                ${isPending
-                                    ? "opacity-50 cursor-not-allowed"
-                                    : "hover:scale-105 hover:shadow-2xl"
-                                }
-                            `}
-                        >
-                            {isPending ? (
-                                <span className="flex items-center justify-center gap-2">
-                                    <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                                    </svg>
-                                    Processing...
-                                </span>
-                            ) : (
-                                <span>
-                                    {mode === "signin" ? "🔓 Sign In" : "✨ Sign Up"}
-                                </span>
+                                </div>
                             )}
-                        </button>
 
-                        {/* Note */}
-                        <p className="text-xs font-semibold text-slate-500 text-center m-0 opacity-75">
-                            ※ Supabase の設定で email confirmation がONだと、<br />
-                            Sign up後にメール確認が必要。
-                        </p>
-                    </form>
-                </div>
+                            {state.message && !state.error && (
+                                <div className="rounded-2xl bg-emerald-50 border border-emerald-200 p-4 text-sm text-emerald-600">
+                                    {state.message}
+                                </div>
+                            )}
 
-                {/* Back Link */}
-                <div className="mt-6 text-center">
-                    <a
-                        href="/drops"
-                        className="text-sm font-bold text-slate-600 hover:text-purple-600 transition-colors duration-200 no-underline"
-                    >
-                        ← Back to Products
-                    </a>
-                </div>
+                            <GlassButton
+                                type="submit"
+                                disabled={isPending}
+                                loading={isPending}
+                                variant="gradient"
+                                size="lg"
+                                className="w-full justify-center"
+                            >
+                                {mode === "signin" ? "ログイン" : "アカウント作成"}
+                            </GlassButton>
+                        </form>
+
+                        <div className="mt-6 text-center text-xs text-slate-400">
+                            続行することで、Culceptの利用規約とプライバシーに同意したことになります。
+                        </div>
+                    </GlassCard>
+                </motion.div>
             </div>
-        </div>
+        </LightBackground>
     );
 }

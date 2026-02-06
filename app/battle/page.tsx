@@ -3,6 +3,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+    LightBackground,
+    GlassNavbar,
+    GlassCard,
+    GlassButton,
+    GlassBadge,
+    FadeInView,
+    FloatingNavLight,
+} from "@/components/ui/glassmorphism-design";
 
 interface Battle {
     id: string;
@@ -49,159 +59,193 @@ export default function BattleListPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-amber-50 to-white">
-                <div className="text-center">
-                    <div className="animate-bounce text-5xl mb-4">⚔️</div>
-                    <p className="text-slate-600">バトルを読み込み中...</p>
+            <LightBackground>
+                <div className="min-h-screen flex items-center justify-center">
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        className="w-16 h-16 rounded-full border-4 border-amber-200 border-t-amber-500"
+                    />
                 </div>
-            </div>
+            </LightBackground>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-amber-50 to-white">
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                {/* ヘッダー */}
-                <div className="text-center mb-8">
-                    <h1 className="text-4xl font-bold mb-2">
-                        ⚔️ コーデバトル
-                    </h1>
-                    <p className="text-slate-600">
-                        あなたのスタイリングで勝負！投票で順位を決定
-                    </p>
+        <LightBackground>
+            <GlassNavbar>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/"
+                            className="w-10 h-10 rounded-xl bg-white/50 backdrop-blur-sm border border-white/60 flex items-center justify-center text-gray-500 hover:bg-white/80 transition-all shadow-sm"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </Link>
+                        <div>
+                            <h1 className="text-xl font-bold tracking-tight text-gray-800">コーデバトル</h1>
+                            <p className="text-xs text-gray-400">投票でランキングを決める</p>
+                        </div>
+                    </div>
+                    <GlassBadge variant="gradient" size="sm">BATTLE</GlassBadge>
                 </div>
+            </GlassNavbar>
+
+            <div className="h-24" />
+
+            <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-32">
+                <FadeInView>
+                    <GlassCard className="mb-8 overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-amber-400/15 via-transparent to-orange-400/15" />
+                        <div className="relative p-8 text-center">
+                            <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Style Battle Arena</h2>
+                            <p className="text-gray-500">
+                                あなたのスタイリングで勝負！投票で順位を決定
+                            </p>
+                        </div>
+                    </GlassCard>
+                </FadeInView>
 
                 {/* フィルター */}
-                <div className="flex justify-center gap-2 mb-8">
+                <div className="flex flex-wrap justify-center gap-2 mb-8">
                     {(["all", "voting", "upcoming"] as const).map((f) => (
-                        <button
+                        <GlassButton
                             key={f}
+                            size="sm"
+                            variant={filter === f ? "gradient" : "secondary"}
                             onClick={() => setFilter(f)}
-                            className={`px-6 py-2 rounded-full font-medium transition-colors ${
-                                filter === f
-                                    ? "bg-amber-600 text-white"
-                                    : "bg-white text-slate-600 hover:bg-slate-50 border"
-                            }`}
                         >
                             {f === "all" ? "すべて" : f === "voting" ? `🔥 投票中 (${votingCount})` : "📅 予定"}
-                        </button>
+                        </GlassButton>
                     ))}
                 </div>
 
                 {/* バトルリスト */}
                 <div className="space-y-6">
-                    {filteredBattles.map((battle) => (
-                        <Link
-                            key={battle.id}
-                            href={`/battle/${battle.id}`}
-                            className="block bg-white rounded-2xl shadow-sm border overflow-hidden hover:shadow-lg transition-shadow"
-                        >
-                            {/* バトルヘッダー */}
-                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-4 text-white">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <div className="text-sm opacity-80">THEME</div>
-                                        <h2 className="text-xl font-bold">{battle.theme}</h2>
-                                    </div>
-                                    <div className="text-right">
-                                        {battle.status === "voting" ? (
-                                            <div className="flex items-center gap-2">
-                                                <span className="animate-pulse">🔥</span>
-                                                <span className="font-bold">投票受付中</span>
+                    {filteredBattles.map((battle, index) => (
+                        <FadeInView key={battle.id} delay={0.04 * index}>
+                            <Link href={`/battle/${battle.id}`} className="block">
+                                <GlassCard className="overflow-hidden hover:shadow-xl transition-shadow">
+                                    <div className="absolute inset-0 bg-gradient-to-br from-amber-400/10 via-transparent to-orange-400/10" />
+                                    <div className="relative p-5 border-b border-white/70">
+                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                                            <div>
+                                                <div className="text-xs text-gray-400 mb-1">THEME</div>
+                                                <h2 className="text-lg font-bold text-gray-800">{battle.theme}</h2>
                                             </div>
-                                        ) : battle.status === "upcoming" ? (
-                                            <div className="text-sm">
-                                                <div>開始まで</div>
-                                                <div className="font-bold">
-                                                    {new Date(battle.endAt).toLocaleDateString("ja-JP")}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="text-sm opacity-80">終了</div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* エントリープレビュー */}
-                            <div className="p-4">
-                                <div className="flex items-center gap-4 mb-4">
-                                    <div className="flex -space-x-3">
-                                        {battle.entries.slice(0, 5).map((entry, i) => (
-                                            <img
-                                                key={i}
-                                                src={entry.user.avatar}
-                                                alt={entry.user.name}
-                                                className="w-10 h-10 rounded-full border-2 border-white"
-                                            />
-                                        ))}
-                                        {battle.participants > 5 && (
-                                            <div className="w-10 h-10 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-xs font-bold text-slate-600">
-                                                +{battle.participants - 5}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <span className="text-sm text-slate-600">
-                                        {battle.participants}人が参加中
-                                    </span>
-                                </div>
-
-                                {/* トップエントリー */}
-                                {battle.status === "voting" && battle.entries.length >= 2 && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        {battle.entries.slice(0, 2).map((entry, i) => (
-                                            <div key={entry.id} className="relative">
-                                                <img
-                                                    src={entry.image}
-                                                    alt={entry.user.name}
-                                                    className="w-full aspect-[3/4] object-cover rounded-xl"
-                                                />
-                                                <div className="absolute bottom-2 left-2 right-2 bg-black/60 backdrop-blur-sm rounded-lg p-2 flex items-center justify-between">
-                                                    <span className="text-white text-sm font-medium">
-                                                        {entry.user.name}
+                                            <div className="text-right">
+                                                {battle.status === "voting" ? (
+                                                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-600 text-xs font-semibold">
+                                                        <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                                                        投票受付中
                                                     </span>
-                                                    <span className="text-amber-400 text-sm font-bold">
-                                                        {entry.votes}票
-                                                    </span>
-                                                </div>
-                                                {i === 0 && (
-                                                    <div className="absolute top-2 left-2 px-2 py-1 bg-amber-500 text-white rounded-full text-xs font-bold">
-                                                        👑 1位
+                                                ) : battle.status === "upcoming" ? (
+                                                    <div className="text-xs text-gray-500">
+                                                        開始まで {new Date(battle.endAt).toLocaleDateString("ja-JP")}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-xs text-gray-400">終了</div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-5">
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className="flex -space-x-3">
+                                                {battle.entries.slice(0, 5).map((entry, i) => (
+                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                    <img
+                                                        key={i}
+                                                        src={entry.user.avatar}
+                                                        alt={entry.user.name}
+                                                        className="w-10 h-10 rounded-full border-2 border-white/80"
+                                                    />
+                                                ))}
+                                                {battle.participants > 5 && (
+                                                    <div className="w-10 h-10 rounded-full bg-white/70 border-2 border-white flex items-center justify-center text-xs font-bold text-slate-600">
+                                                        +{battle.participants - 5}
                                                     </div>
                                                 )}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
+                                            <span className="text-sm text-slate-500">
+                                                {battle.participants}人が参加中
+                                            </span>
+                                        </div>
 
-                                {/* 賞品 */}
-                                {battle.prize && (
-                                    <div className="mt-4 p-3 bg-amber-50 rounded-xl flex items-center gap-2">
-                                        <span className="text-xl">🏆</span>
-                                        <span className="text-sm text-amber-800">
-                                            優勝賞品: {battle.prize}
-                                        </span>
+                                        {battle.status === "voting" && battle.entries.length >= 2 && (
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {battle.entries.slice(0, 2).map((entry, i) => (
+                                                    <div key={entry.id} className="relative">
+                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                        <img
+                                                            src={entry.image}
+                                                            alt={entry.user.name}
+                                                            className="w-full aspect-[3/4] object-cover rounded-xl border border-white/70"
+                                                        />
+                                                        <div className="absolute bottom-2 left-2 right-2 bg-white/70 backdrop-blur-sm rounded-lg p-2 flex items-center justify-between">
+                                                            <span className="text-gray-700 text-xs font-medium">
+                                                                {entry.user.name}
+                                                            </span>
+                                                            <span className="text-amber-600 text-xs font-bold">
+                                                                {entry.votes}票
+                                                            </span>
+                                                        </div>
+                                                        {i === 0 && (
+                                                            <div className="absolute top-2 left-2 px-2 py-1 bg-amber-500 text-white rounded-full text-xs font-bold">
+                                                                👑 1位
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {battle.prize && (
+                                            <div className="mt-4 p-3 bg-amber-50/70 rounded-xl border border-amber-100 flex items-center gap-2">
+                                                <span className="text-xl">🏆</span>
+                                                <span className="text-sm text-amber-800">
+                                                    優勝賞品: {battle.prize}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        </Link>
+                                </GlassCard>
+                            </Link>
+                        </FadeInView>
                     ))}
                 </div>
 
                 {/* エントリーCTA */}
-                <div className="mt-12 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl p-8 text-white text-center">
-                    <h2 className="text-2xl font-bold mb-2">バトルに参加しよう！</h2>
-                    <p className="opacity-90 mb-4">
-                        あなたのコーデで他のユーザーと対決
-                    </p>
-                    <Link
-                        href="/battle/entry"
-                        className="inline-block px-8 py-3 bg-white text-amber-600 rounded-xl font-bold hover:bg-amber-50 transition-colors"
-                    >
-                        エントリーする
-                    </Link>
-                </div>
-            </div>
-        </div>
+                <FadeInView>
+                    <GlassCard className="mt-12 overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-amber-500/20 to-orange-500/20" />
+                        <div className="relative p-8 text-center">
+                            <h2 className="text-2xl font-bold mb-2 text-gray-800">バトルに参加しよう！</h2>
+                            <p className="text-gray-500 mb-4">
+                                あなたのコーデで他のユーザーと対決
+                            </p>
+                            <GlassButton href="/battle/entry" variant="gradient" size="lg">
+                                エントリーする
+                            </GlassButton>
+                        </div>
+                    </GlassCard>
+                </FadeInView>
+            </main>
+
+            <FloatingNavLight
+                items={[
+                    { href: "/", label: "ホーム", icon: "🏠" },
+                    { href: "/battle", label: "バトル", icon: "⚔️" },
+                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/collab", label: "コラボ", icon: "🤝" },
+                    { href: "/my", label: "マイページ", icon: "👤" },
+                ]}
+                activeHref="/battle"
+            />
+            <div className="h-24" />
+        </LightBackground>
     );
 }

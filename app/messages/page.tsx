@@ -1,7 +1,7 @@
 // app/messages/page.tsx
 import { supabaseServer } from "@/lib/supabase/server";
-import MessageCenter from "@/components/messages/MessageCenter";
 import { redirect } from "next/navigation";
+import MessagesPageClient from "./MessagesPageClient";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,6 @@ export default async function MessagesPage() {
             last_message_at: conv?.last_message_at,
             created_at: conv?.created_at,
 
-            // ✅ isUser ではなく isBuyer を使う
             other_user_id: isBuyer ? conv?.seller_id : conv?.buyer_id,
             other_user_name: otherUser?.raw_user_meta_data?.name || null,
             other_user_avatar: otherUser?.raw_user_meta_data?.avatar_url || null,
@@ -55,18 +54,11 @@ export default async function MessagesPage() {
             product_title: conv?.product?.title || null,
             product_image: conv?.product?.cover_image_url || null,
 
-            // unread は join の仕方によって配列/単体どちらもあり得るので両対応
             unread_count: Array.isArray(conv?.unread)
                 ? conv.unread?.[0]?.unread_count ?? 0
                 : conv?.unread?.unread_count ?? 0,
         };
     });
 
-    return (
-        <div className="max-w-7xl mx-auto px-6 py-12">
-            <h1 className="text-4xl font-black mb-8">Messages</h1>
-
-            <MessageCenter conversations={formattedConversations} userId={userId} />
-        </div>
-    );
+    return <MessagesPageClient conversations={formattedConversations} userId={userId} />;
 }

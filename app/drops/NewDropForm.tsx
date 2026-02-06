@@ -1,1 +1,1 @@
-export { default } from "./new/NewDropForm";
+export { default } from "./new/NewDropPageClient";

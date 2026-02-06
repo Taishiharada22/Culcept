@@ -155,6 +155,12 @@ export default function ProductSelectionGrid({ products }: Props) {
                                         >
                                             View
                                         </Link>
+                                        <Link
+                                            href={`/shops/me/products/${product.id}/fit-color`}
+                                            className="flex-1 rounded-lg border border-slate-300 bg-white py-1.5 text-center text-xs font-black text-slate-700 transition-all hover:bg-slate-50 no-underline"
+                                        >
+                                            Fit/Color
+                                        </Link>
                                     </div>
                                 </div>
                             </div>

@@ -1,7 +1,7 @@
 // app/shops/me/analytics/page.tsx
 import { supabaseServer } from "@/lib/supabase/server";
-import AnalyticsDashboard from "@/components/seller/AnalyticsDashboard";
 import { redirect } from "next/navigation";
+import AnalyticsPageClient from "./AnalyticsPageClient";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export default async function AnalyticsPage() {
         .eq("user_id", auth.user.id)
         .maybeSingle();
 
-    // 2) 自分のdrops id一覧（in のサブクエリはSupabaseではできないので先に取得）
+    // 2) 自分のdrops id一覧
     const { data: myDrops, error: myDropsErr } = await supabase
         .from("drops")
         .select("id")
@@ -46,7 +46,6 @@ export default async function AnalyticsPage() {
         productIds.length > 0
             ? await supabase
                 .from("product_analytics")
-                // NOTE: PostgREST の集計（.sum()）で date ごとに自動的にまとまるので .group() は不要
                 .select(
                     "date, views:views_count.sum(), clicks:clicks_count.sum(), sales:purchases_count.sum(), revenue:revenue.sum()"
                 )
@@ -67,7 +66,7 @@ export default async function AnalyticsPage() {
         revenue: Number(d.revenue ?? 0),
     }));
 
-    // 4) Top products（30d analytics をネストで取得 → JSでソート）
+    // 4) Top products
     const { data: topProductsRaw, error: topErr } = await supabase
         .from("drops")
         .select(
@@ -114,12 +113,10 @@ export default async function AnalyticsPage() {
     };
 
     return (
-        <div className="max-w-7xl mx-auto px-6 py-12">
-            <AnalyticsDashboard
-                analytics={analytics}
-                timeSeriesData={formattedTimeSeriesData}
-                topProducts={topProductsSorted}
-            />
-        </div>
+        <AnalyticsPageClient
+            analytics={analytics}
+            timeSeriesData={formattedTimeSeriesData}
+            topProducts={topProductsSorted}
+        />
     );
 }

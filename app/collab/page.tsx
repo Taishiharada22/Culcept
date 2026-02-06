@@ -3,6 +3,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import {
+    LightBackground,
+    GlassNavbar,
+    GlassCard,
+    GlassButton,
+    GlassBadge,
+    FadeInView,
+    FloatingNavLight,
+} from "@/components/ui/glassmorphism-design";
 
 interface CollabDrop {
     id: string;
@@ -56,178 +66,234 @@ export default function CollabPage() {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-pink-50 to-white">
-                <div className="text-center">
-                    <div className="animate-bounce text-5xl mb-4">🤝</div>
-                    <p className="text-slate-600">コラボを読み込み中...</p>
+            <LightBackground>
+                <div className="min-h-screen flex items-center justify-center">
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        className="w-16 h-16 rounded-full border-4 border-pink-200 border-t-pink-500"
+                    />
                 </div>
-            </div>
+            </LightBackground>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-pink-50 to-white">
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                {/* ヘッダー */}
-                <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold mb-2">🤝 コラボドロップ</h1>
-                    <p className="text-slate-600">
-                        人気セラーたちの限定コラボレーション
-                    </p>
+        <LightBackground>
+            <GlassNavbar>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/"
+                            className="w-10 h-10 rounded-xl bg-white/50 backdrop-blur-sm border border-white/60 flex items-center justify-center text-gray-500 hover:bg-white/80 transition-all shadow-sm"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </Link>
+                        <div>
+                            <h1 className="text-xl font-bold tracking-tight text-gray-800">コラボドロップ</h1>
+                            <p className="text-xs text-gray-400">限定コラボを見逃さない</p>
+                        </div>
+                    </div>
+                    <GlassBadge variant="gradient" size="sm">DROP</GlassBadge>
                 </div>
+            </GlassNavbar>
+
+            <div className="h-24" />
+
+            <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-32">
+                <FadeInView>
+                    <GlassCard className="mb-8 overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-pink-400/15 via-transparent to-rose-400/15" />
+                        <div className="relative p-8 text-center">
+                            <h2 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">Collab Drops</h2>
+                            <p className="text-gray-500">
+                                人気セラーたちの限定コラボレーション
+                            </p>
+                        </div>
+                    </GlassCard>
+                </FadeInView>
 
                 {/* ライブバナー */}
                 {liveCount > 0 && (
-                    <div className="bg-gradient-to-r from-pink-500 to-rose-500 rounded-2xl p-4 mb-6 text-white">
-                        <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                                <span className="w-3 h-3 bg-white rounded-full animate-pulse" />
-                                <span className="font-bold">LIVE</span>
+                    <FadeInView delay={0.05}>
+                        <GlassCard className="mb-6 overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-r from-pink-500/20 to-rose-500/20" />
+                            <div className="relative p-4 flex items-center gap-3">
+                                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 border border-white/80 text-pink-600 text-sm font-semibold">
+                                    <span className="w-2.5 h-2.5 bg-pink-500 rounded-full animate-pulse" />
+                                    LIVE
+                                </div>
+                                <span className="text-sm text-gray-600">{liveCount}件のコラボドロップが開催中！</span>
                             </div>
-                            <span>{liveCount}件のコラボドロップが開催中！</span>
-                        </div>
-                    </div>
+                        </GlassCard>
+                    </FadeInView>
                 )}
 
                 {/* フィルター */}
-                <div className="flex justify-center gap-2 mb-8">
+                <div className="flex flex-wrap justify-center gap-2 mb-8">
                     {(["all", "live", "upcoming"] as const).map((f) => (
-                        <button
+                        <GlassButton
                             key={f}
+                            size="sm"
+                            variant={filter === f ? "gradient" : "secondary"}
                             onClick={() => setFilter(f)}
-                            className={`px-6 py-2 rounded-full font-medium transition-colors ${
-                                filter === f
-                                    ? "bg-pink-600 text-white"
-                                    : "bg-white text-slate-600 border hover:bg-slate-50"
-                            }`}
                         >
                             {f === "all" ? "すべて" : f === "live" ? "🔥 開催中" : "📅 予定"}
-                        </button>
+                        </GlassButton>
                     ))}
                 </div>
 
                 {/* コラボリスト */}
                 <div className="space-y-6">
-                    {filteredDrops.map((drop) => {
+                    {filteredDrops.map((drop, index) => {
                         const progress = Math.round((drop.soldItems / drop.totalItems) * 100);
                         const timeLeft = new Date(drop.endAt).getTime() - Date.now();
                         const hoursLeft = Math.max(0, Math.floor(timeLeft / 3600000));
 
                         return (
-                            <Link
-                                key={drop.id}
-                                href={`/collab/${drop.id}`}
-                                className="block bg-white rounded-2xl border overflow-hidden hover:shadow-lg transition-shadow"
-                            >
-                                {/* セラーヘッダー */}
-                                <div className="bg-gradient-to-r from-pink-500 to-rose-500 p-4 text-white">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex -space-x-3">
-                                                {drop.sellers.map((seller) => (
-                                                    <img
-                                                        key={seller.id}
-                                                        src={seller.avatar}
-                                                        alt={seller.name}
-                                                        className="w-10 h-10 rounded-full border-2 border-white"
-                                                    />
-                                                ))}
+                            <FadeInView key={drop.id} delay={0.05 * index}>
+                                <Link href={`/collab/${drop.id}`} className="block">
+                                    <GlassCard className="overflow-hidden hover:shadow-xl transition-shadow">
+                                        <div className="absolute inset-0 bg-gradient-to-br from-pink-400/10 via-transparent to-rose-400/10" />
+                                        <div className="relative">
+                                            <div className="p-5 border-b border-white/70">
+                                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="flex -space-x-3">
+                                                            {drop.sellers.map((seller) => (
+                                                                // eslint-disable-next-line @next/next/no-img-element
+                                                                <img
+                                                                    key={seller.id}
+                                                                    src={seller.avatar}
+                                                                    alt={seller.name}
+                                                                    className="w-10 h-10 rounded-full border-2 border-white/80"
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        <div>
+                                                            <div className="font-bold text-gray-800">
+                                                                {drop.sellers.map((s) => s.name).join(" × ")}
+                                                            </div>
+                                                            <div className="text-xs text-gray-500">
+                                                                {drop.sellers.length}人のセラーがコラボ
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {drop.status === "live" && (
+                                                            <span className="px-3 py-1 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-600 text-xs font-semibold">
+                                                                残り{hoursLeft}時間
+                                                            </span>
+                                                        )}
+                                                        {drop.status === "upcoming" && (
+                                                            <span className="px-3 py-1 rounded-full bg-slate-200/60 border border-slate-200 text-slate-600 text-xs font-semibold">
+                                                                予定
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
                                             </div>
-                                            <div className="ml-2">
-                                                <div className="font-bold">
-                                                    {drop.sellers.map((s) => s.name).join(" × ")}
+
+                                            <div className="p-5">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <GlassBadge variant="gradient" size="sm">
+                                                        {drop.status === "live" ? "LIVE" : drop.status === "upcoming" ? "UPCOMING" : "ENDED"}
+                                                    </GlassBadge>
+                                                    <span className="text-xs text-gray-400">Collab Drop</span>
                                                 </div>
-                                                <div className="text-sm opacity-80">
-                                                    {drop.sellers.length}人のセラーがコラボ
+                                                <h2 className="font-bold text-xl mb-2 text-gray-800">{drop.title}</h2>
+                                                <p className="text-gray-500 text-sm mb-4">{drop.description}</p>
+
+                                                <div className="grid grid-cols-4 gap-2 mb-4">
+                                                    {drop.items.slice(0, 4).map((item) => (
+                                                        <div key={item.id} className="relative rounded-xl overflow-hidden border border-white/70 bg-white/70">
+                                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                            <img
+                                                                src={item.image_url}
+                                                                alt={item.name}
+                                                                className="w-full aspect-square object-cover"
+                                                            />
+                                                            <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/60 text-white text-xs rounded">
+                                                                ¥{item.price.toLocaleString()}
+                                                            </div>
+                                                        </div>
+                                                    ))}
                                                 </div>
+
+                                                {drop.status === "live" && (
+                                                    <div>
+                                                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                                                            <span>販売状況</span>
+                                                            <span className="font-semibold text-pink-600">
+                                                                {drop.soldItems}/{drop.totalItems}点
+                                                            </span>
+                                                        </div>
+                                                        <div className="h-2 bg-white/70 rounded-full overflow-hidden border border-white/80">
+                                                            <div
+                                                                className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full"
+                                                                style={{ width: `${progress}%` }}
+                                                            />
+                                                        </div>
+                                                        {progress >= 80 && (
+                                                            <div className="mt-2 text-xs text-rose-600 font-medium">
+                                                                🔥 残りわずか！
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {drop.status === "upcoming" && (
+                                                    <div className="text-center py-3 bg-white/70 rounded-xl border border-white/80">
+                                                        <div className="text-xs text-gray-500">開始予定</div>
+                                                        <div className="font-semibold text-gray-700 text-sm">
+                                                            {new Date(drop.startAt).toLocaleDateString("ja-JP", {
+                                                                month: "long",
+                                                                day: "numeric",
+                                                                hour: "2-digit",
+                                                                minute: "2-digit",
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-                                        {drop.status === "live" && (
-                                            <div className="flex items-center gap-2 px-3 py-1 bg-white/20 rounded-full">
-                                                <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                                                <span className="text-sm">残り{hoursLeft}時間</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* コンテンツ */}
-                                <div className="p-4">
-                                    <h2 className="font-bold text-xl mb-2">{drop.title}</h2>
-                                    <p className="text-slate-600 text-sm mb-4">{drop.description}</p>
-
-                                    {/* アイテムグリッド */}
-                                    <div className="grid grid-cols-4 gap-2 mb-4">
-                                        {drop.items.slice(0, 4).map((item) => (
-                                            <div key={item.id} className="relative">
-                                                <img
-                                                    src={item.image_url}
-                                                    alt={item.name}
-                                                    className="w-full aspect-square object-cover rounded-xl"
-                                                />
-                                                <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 text-white text-xs rounded">
-                                                    ¥{item.price.toLocaleString()}
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-
-                                    {/* 進捗 */}
-                                    {drop.status === "live" && (
-                                        <div>
-                                            <div className="flex justify-between text-sm mb-1">
-                                                <span className="text-slate-600">販売状況</span>
-                                                <span className="font-bold text-pink-600">
-                                                    {drop.soldItems}/{drop.totalItems}点
-                                                </span>
-                                            </div>
-                                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                                <div
-                                                    className="h-full bg-gradient-to-r from-pink-500 to-rose-500 rounded-full"
-                                                    style={{ width: `${progress}%` }}
-                                                />
-                                            </div>
-                                            {progress >= 80 && (
-                                                <div className="mt-2 text-sm text-rose-600 font-medium">
-                                                    🔥 残りわずか！
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {drop.status === "upcoming" && (
-                                        <div className="text-center py-3 bg-slate-50 rounded-xl">
-                                            <div className="text-sm text-slate-600">開始予定</div>
-                                            <div className="font-bold">
-                                                {new Date(drop.startAt).toLocaleDateString("ja-JP", {
-                                                    month: "long",
-                                                    day: "numeric",
-                                                    hour: "2-digit",
-                                                    minute: "2-digit",
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </Link>
+                                    </GlassCard>
+                                </Link>
+                            </FadeInView>
                         );
                     })}
                 </div>
 
                 {/* セラー向けCTA */}
-                <div className="mt-12 bg-gradient-to-r from-pink-500 to-rose-500 rounded-2xl p-8 text-white text-center">
-                    <h2 className="text-2xl font-bold mb-2">コラボドロップを企画しよう</h2>
-                    <p className="opacity-90 mb-4">
-                        他のセラーと協力して限定販売
-                    </p>
-                    <Link
-                        href="/collab/create"
-                        className="inline-block px-8 py-3 bg-white text-pink-600 rounded-xl font-bold hover:bg-pink-50 transition-colors"
-                    >
-                        コラボを企画する
-                    </Link>
-                </div>
-            </div>
-        </div>
+                <FadeInView>
+                    <GlassCard className="mt-12 overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-pink-500/20 to-rose-500/20" />
+                        <div className="relative p-8 text-center">
+                            <h2 className="text-2xl font-bold mb-2 text-gray-800">コラボドロップを企画しよう</h2>
+                            <p className="text-gray-500 mb-4">
+                                他のセラーと協力して限定販売
+                            </p>
+                            <GlassButton href="/collab/create" variant="gradient" size="lg">
+                                コラボを企画する
+                            </GlassButton>
+                        </div>
+                    </GlassCard>
+                </FadeInView>
+            </main>
+
+            <FloatingNavLight
+                items={[
+                    { href: "/", label: "ホーム", icon: "🏠" },
+                    { href: "/collab", label: "コラボ", icon: "🤝" },
+                    { href: "/battle", label: "バトル", icon: "⚔️" },
+                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/my", label: "マイページ", icon: "👤" },
+                ]}
+                activeHref="/collab"
+            />
+            <div className="h-24" />
+        </LightBackground>
     );
 }

@@ -3,6 +3,15 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
+import {
+    LightBackground,
+    GlassNavbar,
+    GlassCard,
+    GlassButton,
+    GlassBadge,
+    FadeInView,
+    FloatingNavLight,
+} from "@/components/ui/glassmorphism-design";
 
 interface WardrobeItem {
     id: string;
@@ -130,20 +139,46 @@ export default function WardrobePage() {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white">
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                {/* ヘッダー */}
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mb-4">
-                        <span className="text-3xl">👔</span>
+        <LightBackground>
+            <GlassNavbar>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/"
+                            className="w-10 h-10 rounded-xl bg-white/50 backdrop-blur-sm border border-white/60 flex items-center justify-center text-gray-500 hover:bg-white/80 transition-all shadow-sm"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </Link>
+                        <div>
+                            <h1 className="text-xl font-bold tracking-tight text-gray-800">AIワードローブ診断</h1>
+                            <p className="text-xs text-gray-400">手持ち服から不足アイテムを提案</p>
+                        </div>
                     </div>
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                        AIワードローブ診断
-                    </h1>
-                    <p className="text-slate-600 mt-2">
-                        手持ちの服を登録して、足りないアイテムをAIが提案
-                    </p>
+                    <GlassBadge variant="gradient" size="sm">WARDROBE</GlassBadge>
                 </div>
+            </GlassNavbar>
+
+            <div className="h-24" />
+
+            <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-32">
+                <FadeInView>
+                    <GlassCard className="mb-8 overflow-hidden">
+                        <div className="absolute inset-0 bg-gradient-to-r from-indigo-400/15 via-transparent to-purple-400/15" />
+                        <div className="relative p-8 text-center">
+                            <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl mb-4">
+                                <span className="text-3xl">👔</span>
+                            </div>
+                            <h2 className="text-2xl sm:text-3xl font-bold text-gray-800">
+                                AIワードローブ診断
+                            </h2>
+                            <p className="text-gray-500 mt-2">
+                                手持ちの服を登録して、足りないアイテムをAIが提案
+                            </p>
+                        </div>
+                    </GlassCard>
+                </FadeInView>
 
                 {/* 隠しファイル入力 */}
                 <input
@@ -156,135 +191,135 @@ export default function WardrobePage() {
                 />
 
                 {/* カテゴリ選択 */}
-                <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
-                    <h2 className="font-bold text-lg mb-4">服を追加</h2>
-                    <div className="grid grid-cols-5 gap-3">
-                        {CATEGORIES.map((cat) => (
-                            <button
-                                key={cat.id}
-                                onClick={() => {
-                                    setUploadingCategory(cat.id);
-                                    fileInputRef.current?.click();
-                                }}
-                                className="flex flex-col items-center p-4 rounded-xl border-2 border-dashed border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all"
-                            >
-                                <span className="text-3xl mb-2">{cat.icon}</span>
-                                <span className="text-sm font-medium">{cat.label}</span>
-                                <span className="text-xs text-slate-500 mt-1">
-                                    {getCategoryCount(cat.id)}点
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
+                <FadeInView delay={0.05}>
+                    <GlassCard className="mb-6">
+                        <h2 className="font-bold text-lg mb-4 text-gray-800">服を追加</h2>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                            {CATEGORIES.map((cat) => (
+                                <button
+                                    key={cat.id}
+                                    onClick={() => {
+                                        setUploadingCategory(cat.id);
+                                        fileInputRef.current?.click();
+                                    }}
+                                    className="flex flex-col items-center p-4 rounded-2xl border border-white/80 bg-white/70 hover:bg-white transition-all shadow-sm"
+                                >
+                                    <span className="text-3xl mb-2">{cat.icon}</span>
+                                    <span className="text-sm font-medium text-gray-700">{cat.label}</span>
+                                    <span className="text-xs text-gray-400 mt-1">
+                                        {getCategoryCount(cat.id)}点
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    </GlassCard>
+                </FadeInView>
 
                 {/* 登録済みアイテム */}
                 {items.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm border p-6 mb-6">
-                        <div className="flex items-center justify-between mb-4">
-                            <h2 className="font-bold text-lg">
-                                登録済み ({items.length}点)
-                            </h2>
-                            <div className="flex gap-2">
-                                {CATEGORIES.map((cat) => (
-                                    <button
-                                        key={cat.id}
-                                        onClick={() =>
-                                            setSelectedCategory(
-                                                selectedCategory === cat.id ? null : cat.id
-                                            )
-                                        }
-                                        className={`px-3 py-1 rounded-full text-sm transition-colors ${
-                                            selectedCategory === cat.id
-                                                ? "bg-indigo-600 text-white"
-                                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                                        }`}
-                                    >
-                                        {cat.icon} {getCategoryCount(cat.id)}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
-                            {items
-                                .filter(
-                                    (item) =>
-                                        !selectedCategory || item.category === selectedCategory
-                                )
-                                .map((item) => (
-                                    <div key={item.id} className="relative group">
-                                        <img
-                                            src={item.image}
-                                            alt={item.category}
-                                            className="w-full aspect-square object-cover rounded-xl"
-                                        />
-                                        <button
-                                            onClick={() => removeItem(item.id)}
-                                            className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                    <FadeInView delay={0.1}>
+                        <GlassCard className="mb-6">
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+                                <h2 className="font-bold text-lg text-gray-800">
+                                    登録済み ({items.length}点)
+                                </h2>
+                                <div className="flex flex-wrap gap-2">
+                                    {CATEGORIES.map((cat) => (
+                                        <GlassButton
+                                            key={cat.id}
+                                            size="xs"
+                                            variant={selectedCategory === cat.id ? "gradient" : "secondary"}
+                                            onClick={() =>
+                                                setSelectedCategory(
+                                                    selectedCategory === cat.id ? null : cat.id
+                                                )
+                                            }
                                         >
-                                            ✕
-                                        </button>
-                                        <div className="absolute bottom-1 left-1 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">
-                                            {item.color}
+                                            {cat.icon} {getCategoryCount(cat.id)}
+                                        </GlassButton>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
+                                {items
+                                    .filter(
+                                        (item) =>
+                                            !selectedCategory || item.category === selectedCategory
+                                    )
+                                    .map((item) => (
+                                        <div key={item.id} className="relative group">
+                                            <img
+                                                src={item.image}
+                                                alt={item.category}
+                                                className="w-full aspect-square object-cover rounded-xl border border-white/70"
+                                            />
+                                            <button
+                                                onClick={() => removeItem(item.id)}
+                                                className="absolute top-1 right-1 w-6 h-6 bg-rose-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                                            >
+                                                ✕
+                                            </button>
+                                            <div className="absolute bottom-1 left-1 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">
+                                                {item.color}
+                                            </div>
                                         </div>
-                                    </div>
-                                ))}
-                        </div>
-                    </div>
+                                    ))}
+                            </div>
+                        </GlassCard>
+                    </FadeInView>
                 )}
 
                 {/* 診断ボタン */}
-                <button
-                    onClick={handleAnalyze}
-                    disabled={items.length < 3 || analyzing}
-                    className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-bold text-lg hover:from-indigo-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
-                >
-                    {analyzing ? (
-                        <span className="flex items-center justify-center gap-2">
-                            <span className="animate-spin">🔄</span>
-                            AIが診断中...
-                        </span>
-                    ) : items.length < 3 ? (
-                        "3点以上登録してください"
-                    ) : (
-                        "🔮 ワードローブを診断する"
-                    )}
-                </button>
+                <div className="flex justify-center">
+                    <GlassButton
+                        onClick={handleAnalyze}
+                        disabled={items.length < 3 || analyzing}
+                        loading={analyzing}
+                        variant="gradient"
+                        size="lg"
+                        fullWidth
+                    >
+                        {items.length < 3 ? "3点以上登録してください" : "🔮 ワードローブを診断する"}
+                    </GlassButton>
+                </div>
 
                 {/* 診断結果 */}
                 {result && (
                     <div className="mt-8 space-y-6">
                         {/* スタイルプロファイル */}
-                        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-2xl p-6 text-white">
-                            <h3 className="font-bold text-lg mb-4">📊 あなたのスタイルプロファイル</h3>
-                            <div className="grid grid-cols-3 gap-4">
-                                <div className="text-center">
-                                    <div className="text-3xl font-bold">{result.styleProfile.score}</div>
-                                    <div className="text-sm opacity-80">スタイルスコア</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="text-2xl font-bold">{result.styleProfile.dominant}</div>
-                                    <div className="text-sm opacity-80">メインスタイル</div>
-                                </div>
-                                <div className="text-center">
-                                    <div className="flex justify-center gap-1">
-                                        {result.styleProfile.colors.map((color, i) => (
-                                            <div
-                                                key={i}
-                                                className="w-6 h-6 rounded-full border-2 border-white"
-                                                style={{ backgroundColor: color }}
-                                            />
-                                        ))}
+                        <GlassCard className="overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-purple-500/20" />
+                            <div className="relative p-6">
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">📊 あなたのスタイルプロファイル</h3>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
+                                    <div className="bg-white/70 rounded-2xl p-4 border border-white/80">
+                                        <div className="text-3xl font-bold text-indigo-600">{result.styleProfile.score}</div>
+                                        <div className="text-sm text-gray-500">スタイルスコア</div>
                                     </div>
-                                    <div className="text-sm opacity-80 mt-1">カラーパレット</div>
+                                    <div className="bg-white/70 rounded-2xl p-4 border border-white/80">
+                                        <div className="text-2xl font-bold text-gray-700">{result.styleProfile.dominant}</div>
+                                        <div className="text-sm text-gray-500">メインスタイル</div>
+                                    </div>
+                                    <div className="bg-white/70 rounded-2xl p-4 border border-white/80">
+                                        <div className="flex justify-center gap-1">
+                                            {result.styleProfile.colors.map((color, i) => (
+                                                <div
+                                                    key={i}
+                                                    className="w-6 h-6 rounded-full border-2 border-white"
+                                                    style={{ backgroundColor: color }}
+                                                />
+                                            ))}
+                                        </div>
+                                        <div className="text-sm text-gray-500 mt-1">カラーパレット</div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </GlassCard>
 
                         {/* 足りないアイテム */}
                         {result.missing.length > 0 && (
-                            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
+                            <GlassCard className="border border-amber-200/60 bg-amber-50/70">
                                 <h3 className="font-bold text-lg text-amber-800 mb-3">
                                     ⚠️ 足りないカテゴリ
                                 </h3>
@@ -298,13 +333,13 @@ export default function WardrobePage() {
                                         </span>
                                     ))}
                                 </div>
-                            </div>
+                            </GlassCard>
                         )}
 
                         {/* おすすめアイテム */}
                         {result.suggestions.length > 0 && (
-                            <div className="bg-white rounded-2xl shadow-sm border p-6">
-                                <h3 className="font-bold text-lg mb-4">✨ おすすめアイテム</h3>
+                            <GlassCard className="p-6">
+                                <h3 className="font-bold text-lg mb-4 text-gray-800">✨ おすすめアイテム</h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                                     {result.suggestions.map((suggestion, i) => (
                                         <Link
@@ -312,11 +347,11 @@ export default function WardrobePage() {
                                             href={`/drops/${suggestion.card_id}`}
                                             className="group"
                                         >
-                                            <div className="relative">
+                                            <div className="relative rounded-xl overflow-hidden border border-white/70 bg-white/70">
                                                 <img
                                                     src={suggestion.image_url}
                                                     alt="Suggestion"
-                                                    className="w-full aspect-square object-cover rounded-xl group-hover:scale-105 transition-transform"
+                                                    className="w-full aspect-square object-cover group-hover:scale-105 transition-transform"
                                                 />
                                                 <div
                                                     className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold ${
@@ -334,22 +369,22 @@ export default function WardrobePage() {
                                                         : "あると◎"}
                                                 </div>
                                             </div>
-                                            <p className="mt-2 text-sm text-slate-600 line-clamp-2">
+                                            <p className="mt-2 text-sm text-gray-500 line-clamp-2">
                                                 {suggestion.reason}
                                             </p>
                                         </Link>
                                     ))}
                                 </div>
-                            </div>
+                            </GlassCard>
                         )}
                     </div>
                 )}
 
                 {/* ヒント */}
                 {items.length === 0 && (
-                    <div className="mt-8 bg-slate-50 rounded-2xl p-6">
-                        <h3 className="font-bold text-lg mb-3">💡 使い方</h3>
-                        <ol className="space-y-2 text-slate-600">
+                    <GlassCard className="mt-8">
+                        <h3 className="font-bold text-lg mb-3 text-gray-800">💡 使い方</h3>
+                        <ol className="space-y-2 text-gray-600">
                             <li className="flex gap-2">
                                 <span className="font-bold text-indigo-600">1.</span>
                                 カテゴリを選んで服の写真を撮影・アップロード
@@ -363,9 +398,21 @@ export default function WardrobePage() {
                                 AIがあなたの手持ち服を分析し、足りないアイテムを提案
                             </li>
                         </ol>
-                    </div>
+                    </GlassCard>
                 )}
-            </div>
-        </div>
+            </main>
+
+            <FloatingNavLight
+                items={[
+                    { href: "/", label: "ホーム", icon: "🏠" },
+                    { href: "/wardrobe", label: "ワードローブ", icon: "👔" },
+                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/battle", label: "バトル", icon: "⚔️" },
+                    { href: "/my", label: "マイページ", icon: "👤" },
+                ]}
+                activeHref="/wardrobe"
+            />
+            <div className="h-24" />
+        </LightBackground>
     );
 }

@@ -22,6 +22,12 @@ export default function ProductQuickView({
     imp?: string | null;
 }) {
     const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
+    const [fitColor, setFitColor] = React.useState<{
+        fit?: number;
+        color?: number;
+        fitReason?: string;
+        colorReason?: string;
+    } | null>(null);
     const shownPrice = (product.display_price ?? product.price) ?? null;
     const detailHref = imp ? `/products/${product.id}?imp=${encodeURIComponent(imp)}` : `/products/${product.id}`;
 
@@ -41,6 +47,38 @@ export default function ProductQuickView({
             document.body.style.overflow = "";
         };
     }, []);
+
+    React.useEffect(() => {
+        let active = true;
+        const controller = new AbortController();
+        const run = async () => {
+            try {
+                const res = await fetch("/api/fit-color-score", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ product_id: product.id }),
+                    signal: controller.signal,
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const item = data?.items?.[0];
+                if (!active || !item) return;
+                setFitColor({
+                    fit: typeof item.fit?.score === "number" ? item.fit.score : undefined,
+                    color: typeof item.color?.score === "number" ? item.color.score : undefined,
+                    fitReason: item.fit?.reasons?.[0],
+                    colorReason: item.color?.reasons?.[0],
+                });
+            } catch {
+                // ignore
+            }
+        };
+        void run();
+        return () => {
+            active = false;
+            controller.abort();
+        };
+    }, [product.id]);
 
     return (
         <div
@@ -150,6 +188,26 @@ export default function ProductQuickView({
                                     <span className="text-sm font-bold text-slate-500">
                                         {product.is_auction_live ? "Current Price" : "Starting Price"}
                                     </span>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Fit / Color Scores */}
+                        {fitColor && (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded-full">
+                                        フィット {fitColor.fit ?? "--"}点
+                                    </span>
+                                    <span className="text-xs font-bold text-blue-700 bg-blue-100 px-2 py-1 rounded-full">
+                                        カラー {fitColor.color ?? "--"}点
+                                    </span>
+                                </div>
+                                {(fitColor.fitReason || fitColor.colorReason) && (
+                                    <div className="text-xs text-slate-600">
+                                        {fitColor.fitReason ? `根拠: ${fitColor.fitReason}` : "根拠: --"}
+                                        {fitColor.colorReason ? ` / ${fitColor.colorReason}` : ""}
+                                    </div>
                                 )}
                             </div>
                         )}

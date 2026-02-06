@@ -4,6 +4,16 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { use } from "react";
+import { motion } from "framer-motion";
+import {
+    LightBackground,
+    GlassNavbar,
+    GlassCard,
+    GlassButton,
+    GlassBadge,
+    FadeInView,
+    FloatingNavLight,
+} from "@/components/ui/glassmorphism-design";
 
 interface Entry {
     id: string;
@@ -85,9 +95,15 @@ export default function BattlePage({ params }: { params: Promise<{ id: string }>
 
     if (!battle) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-black text-white">
-                <div className="animate-spin text-4xl">⚔️</div>
-            </div>
+            <LightBackground>
+                <div className="min-h-screen flex items-center justify-center">
+                    <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                        className="w-16 h-16 rounded-full border-4 border-amber-200 border-t-amber-500"
+                    />
+                </div>
+            </LightBackground>
         );
     }
 
@@ -95,203 +111,198 @@ export default function BattlePage({ params }: { params: Promise<{ id: string }>
     const rankedEntries = [...battle.entries].sort((a, b) => b.votes - a.votes);
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-900 to-black text-white">
-            {/* ヘッダー */}
-            <div className="sticky top-0 z-50 bg-black/80 backdrop-blur-sm border-b border-white/10">
-                <div className="max-w-4xl mx-auto px-4 py-4">
-                    <div className="flex items-center justify-between">
-                        <Link href="/battle" className="p-2 -ml-2">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <LightBackground>
+            <GlassNavbar>
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <Link
+                            href="/battle"
+                            className="w-10 h-10 rounded-xl bg-white/50 backdrop-blur-sm border border-white/60 flex items-center justify-center text-gray-500 hover:bg-white/80 transition-all shadow-sm"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                             </svg>
                         </Link>
-                        <div className="text-center">
-                            <div className="text-sm text-amber-400">{battle.theme}</div>
-                            <div className="font-bold">{battle.title}</div>
+                        <div>
+                            <div className="text-xs text-amber-500 font-semibold">{battle.theme}</div>
+                            <div className="text-lg font-bold text-gray-800">{battle.title}</div>
                         </div>
-                        <div className="w-10" />
                     </div>
+                    <GlassBadge variant="gradient" size="sm">VS</GlassBadge>
                 </div>
-            </div>
+            </GlassNavbar>
 
-            {/* ビュー切り替え */}
-            <div className="flex justify-center py-4">
-                <div className="bg-white/10 rounded-xl p-1 flex">
-                    <button
-                        onClick={() => setViewMode("versus")}
-                        className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                            viewMode === "versus" ? "bg-amber-500 text-white" : "text-white/60"
-                        }`}
-                    >
-                        ⚔️ VS
-                    </button>
-                    <button
-                        onClick={() => setViewMode("ranking")}
-                        className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                            viewMode === "ranking" ? "bg-amber-500 text-white" : "text-white/60"
-                        }`}
-                    >
-                        🏆 ランキング
-                    </button>
-                </div>
-            </div>
+            <div className="h-24" />
 
-            {viewMode === "versus" ? (
-                /* VS モード */
-                <div className="max-w-4xl mx-auto px-4 py-6">
-                    {vsEntries.length >= 2 ? (
-                        <>
-                            <div className="grid grid-cols-2 gap-4 mb-6">
-                                {vsEntries.map((entry, i) => (
-                                    <div key={entry.id} className="relative">
-                                        <div
-                                            className={`rounded-2xl overflow-hidden border-4 transition-all ${
-                                                selectedEntry === entry.id
-                                                    ? "border-amber-500 scale-105"
-                                                    : battle.myVote === entry.id
-                                                    ? "border-green-500"
-                                                    : "border-transparent"
-                                            }`}
-                                        >
-                                            <img
-                                                src={entry.image}
-                                                alt={entry.user.name}
-                                                className="w-full aspect-[3/4] object-cover"
-                                            />
-                                        </div>
-
-                                        {/* ユーザー情報 */}
-                                        <div className="absolute bottom-4 left-4 right-4">
-                                            <div className="bg-black/70 backdrop-blur-sm rounded-xl p-3">
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <img
-                                                        src={entry.user.avatar}
-                                                        alt={entry.user.name}
-                                                        className="w-8 h-8 rounded-full"
-                                                    />
-                                                    <span className="font-medium">{entry.user.name}</span>
-                                                </div>
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-amber-400 font-bold">
-                                                        {entry.votes}票
-                                                    </span>
-                                                    {!battle.myVote && (
-                                                        <button
-                                                            onClick={() => handleVote(entry.id)}
-                                                            disabled={voting}
-                                                            className="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm hover:bg-amber-600 disabled:opacity-50"
-                                                        >
-                                                            投票
-                                                        </button>
-                                                    )}
-                                                    {battle.myVote === entry.id && (
-                                                        <span className="text-green-400 text-sm">✓ 投票済み</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* ランク表示 */}
-                                        <div className={`absolute top-4 ${i === 0 ? "left-4" : "right-4"}`}>
-                                            <div className="px-3 py-1 bg-black/70 backdrop-blur-sm rounded-full text-sm">
-                                                #{entry.rank}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* VS アイコン */}
-                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                                <div className="w-16 h-16 bg-amber-500 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg">
-                                    VS
-                                </div>
-                            </div>
-
-                            {/* 次のペアへ */}
-                            <button
-                                onClick={nextVs}
-                                className="w-full py-4 bg-white/10 rounded-xl font-medium hover:bg-white/20 transition-colors"
-                            >
-                                次のペアを見る →
-                            </button>
-                        </>
-                    ) : (
-                        <div className="text-center py-12">
-                            <p className="text-white/60">エントリーが不足しています</p>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                /* ランキングモード */
-                <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
-                    {rankedEntries.map((entry, i) => (
-                        <div
-                            key={entry.id}
-                            className={`flex items-center gap-4 p-4 rounded-2xl ${
-                                i === 0
-                                    ? "bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/50"
-                                    : i === 1
-                                    ? "bg-gradient-to-r from-slate-400/20 to-gray-400/20 border border-slate-400/50"
-                                    : i === 2
-                                    ? "bg-gradient-to-r from-orange-700/20 to-amber-700/20 border border-orange-700/50"
-                                    : "bg-white/5"
-                            }`}
+            <main className="max-w-5xl mx-auto px-4 sm:px-6 pb-32">
+                <div className="flex justify-center mb-6">
+                    <div className="inline-flex items-center gap-2 rounded-2xl bg-white/70 border border-white/80 p-1">
+                        <GlassButton
+                            size="sm"
+                            variant={viewMode === "versus" ? "gradient" : "ghost"}
+                            onClick={() => setViewMode("versus")}
                         >
-                            {/* ランク */}
-                            <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-xl">
-                                {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`}
-                            </div>
-
-                            {/* 画像 */}
-                            <img
-                                src={entry.image}
-                                alt={entry.user.name}
-                                className="w-20 h-20 object-cover rounded-xl"
-                            />
-
-                            {/* 情報 */}
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                    <img
-                                        src={entry.user.avatar}
-                                        alt={entry.user.name}
-                                        className="w-6 h-6 rounded-full"
-                                    />
-                                    <span className="font-medium">{entry.user.name}</span>
-                                </div>
-                                <div className="text-amber-400 font-bold mt-1">
-                                    {entry.votes}票
-                                </div>
-                            </div>
-
-                            {/* 投票ボタン */}
-                            {!battle.myVote ? (
-                                <button
-                                    onClick={() => handleVote(entry.id)}
-                                    disabled={voting}
-                                    className="px-4 py-2 bg-amber-500 text-white rounded-lg font-bold text-sm hover:bg-amber-600 disabled:opacity-50"
-                                >
-                                    投票
-                                </button>
-                            ) : battle.myVote === entry.id ? (
-                                <span className="text-green-400 text-sm">✓</span>
-                            ) : null}
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* 賞品情報 */}
-            {battle.prize && (
-                <div className="max-w-2xl mx-auto px-4 py-6">
-                    <div className="bg-gradient-to-r from-amber-500/20 to-orange-500/20 rounded-2xl p-6 text-center">
-                        <span className="text-4xl">🏆</span>
-                        <h3 className="font-bold text-lg mt-2">優勝賞品</h3>
-                        <p className="text-amber-400 font-bold text-xl">{battle.prize}</p>
+                            ⚔️ VS
+                        </GlassButton>
+                        <GlassButton
+                            size="sm"
+                            variant={viewMode === "ranking" ? "gradient" : "ghost"}
+                            onClick={() => setViewMode("ranking")}
+                        >
+                            🏆 ランキング
+                        </GlassButton>
                     </div>
                 </div>
-            )}
-        </div>
+
+                {viewMode === "versus" ? (
+                    <div className="relative">
+                        {vsEntries.length >= 2 ? (
+                            <>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                    {vsEntries.map((entry, i) => (
+                                        <FadeInView key={entry.id} delay={0.05 * i}>
+                                            <GlassCard className="overflow-hidden" onClick={() => setSelectedEntry(entry.id)}>
+                                                <div className={`absolute inset-0 ${selectedEntry === entry.id ? "bg-amber-400/10" : ""}`} />
+                                                <div className="relative">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={entry.image}
+                                                        alt={entry.user.name}
+                                                        className="w-full aspect-[3/4] object-cover"
+                                                    />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+
+                                                    <div className="absolute top-4 left-4">
+                                                        <span className="px-3 py-1 rounded-full bg-white/70 border border-white/80 text-xs text-gray-700">
+                                                            #{entry.rank}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="absolute bottom-4 left-4 right-4">
+                                                        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3">
+                                                            <div className="flex items-center gap-2 mb-2">
+                                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                                <img
+                                                                    src={entry.user.avatar}
+                                                                    alt={entry.user.name}
+                                                                    className="w-8 h-8 rounded-full border border-white"
+                                                                />
+                                                                <span className="font-medium text-gray-800">{entry.user.name}</span>
+                                                            </div>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-amber-600 font-bold">
+                                                                    {entry.votes}票
+                                                                </span>
+                                                                {!battle.myVote && (
+                                                                    <GlassButton
+                                                                        size="sm"
+                                                                        variant="gradient"
+                                                                        onClick={() => handleVote(entry.id)}
+                                                                        disabled={voting}
+                                                                    >
+                                                                        投票
+                                                                    </GlassButton>
+                                                                )}
+                                                                {battle.myVote === entry.id && (
+                                                                    <span className="text-emerald-500 text-sm font-semibold">✓ 投票済み</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </GlassCard>
+                                        </FadeInView>
+                                    ))}
+                                </div>
+
+                                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center text-2xl font-bold shadow-lg">
+                                        VS
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-center">
+                                    <GlassButton variant="secondary" size="md" onClick={nextVs}>
+                                        次のペアを見る →
+                                    </GlassButton>
+                                </div>
+                            </>
+                        ) : (
+                            <GlassCard className="p-10 text-center">
+                                <div className="text-5xl mb-4">⚠️</div>
+                                <p className="text-gray-500">エントリーが不足しています</p>
+                            </GlassCard>
+                        )}
+                    </div>
+                ) : (
+                    <div className="max-w-3xl mx-auto space-y-3">
+                        {rankedEntries.map((entry, i) => (
+                            <FadeInView key={entry.id} delay={0.03 * i}>
+                                <GlassCard className="p-4 flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full bg-white/70 border border-white/80 flex items-center justify-center font-bold text-lg text-gray-700">
+                                        {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`}
+                                    </div>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={entry.image}
+                                        alt={entry.user.name}
+                                        className="w-20 h-20 object-cover rounded-xl border border-white/70"
+                                    />
+                                    <div className="flex-1">
+                                        <div className="flex items-center gap-2">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={entry.user.avatar}
+                                                alt={entry.user.name}
+                                                className="w-6 h-6 rounded-full border border-white"
+                                            />
+                                            <span className="font-medium text-gray-800">{entry.user.name}</span>
+                                        </div>
+                                        <div className="text-amber-600 font-bold mt-1">{entry.votes}票</div>
+                                    </div>
+                                    {!battle.myVote ? (
+                                        <GlassButton
+                                            size="sm"
+                                            variant="gradient"
+                                            onClick={() => handleVote(entry.id)}
+                                            disabled={voting}
+                                        >
+                                            投票
+                                        </GlassButton>
+                                    ) : battle.myVote === entry.id ? (
+                                        <span className="text-emerald-500 text-sm font-semibold">✓</span>
+                                    ) : null}
+                                </GlassCard>
+                            </FadeInView>
+                        ))}
+                    </div>
+                )}
+
+                {battle.prize && (
+                    <FadeInView>
+                        <GlassCard className="mt-8 overflow-hidden">
+                            <div className="absolute inset-0 bg-gradient-to-r from-amber-400/20 to-orange-400/20" />
+                            <div className="relative p-6 text-center">
+                                <span className="text-4xl">🏆</span>
+                                <h3 className="font-bold text-lg mt-2 text-gray-800">優勝賞品</h3>
+                                <p className="text-amber-600 font-bold text-xl">{battle.prize}</p>
+                            </div>
+                        </GlassCard>
+                    </FadeInView>
+                )}
+            </main>
+
+            <FloatingNavLight
+                items={[
+                    { href: "/", label: "ホーム", icon: "🏠" },
+                    { href: "/battle", label: "バトル", icon: "⚔️" },
+                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/collab", label: "コラボ", icon: "🤝" },
+                    { href: "/my", label: "マイページ", icon: "👤" },
+                ]}
+                activeHref="/battle"
+            />
+            <div className="h-24" />
+        </LightBackground>
     );
 }

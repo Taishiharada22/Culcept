@@ -1,11 +1,8 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import Link from "next/link";
 import "./globals.css";
 import SiteHeader from "@/app/components/SiteHeader";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getMyShopId } from "@/lib/getMyShopId";
-import { isAdminEmail } from "@/lib/auth/isAdmin";
 import { PWAProvider } from "@/components/pwa";
 
 export const dynamic = "force-dynamic";
@@ -57,25 +54,7 @@ export default async function RootLayout({
     const user = auth?.user ?? null;
 
     const isAuthenticated = !!user;
-
-    // ✅ Admin判定
-    const isAdmin = isAuthenticated ? isAdminEmail(user?.email ?? null) : false;
-
-    /**
-     * ✅ Seller判定（DB列揺れを吸収）
-     * - owner_user_id / owner_id / user_id どれでもOK
-     * - エラーが出ても seller=false のまま続行（従来方針）
-     */
-    let isSeller = false;
-    if (user) {
-        try {
-            const shopId = await getMyShopId(user.id);
-            isSeller = !!shopId;
-        } catch (e: any) {
-            console.warn("shops check error:", e?.message ?? String(e));
-            isSeller = false;
-        }
-    }
+    const userName = user?.user_metadata?.name || user?.email || null;
 
     /**
      * ✅ 未読合計
@@ -120,95 +99,15 @@ export default async function RootLayout({
 
             <body>
                 <PWAProvider>
-                <SiteHeader />
+                    <SiteHeader
+                        isAuthenticated={isAuthenticated}
+                        unreadCount={unreadCount}
+                        userName={userName}
+                    />
 
-                <div className="mx-auto max-w-6xl px-4 py-8">
-                    {/* ✅ Navigation (Phase 4 + Phase 5 AI links) */}
-                    <nav className="mb-6 flex flex-wrap items-center gap-3">
-                        <Link
-                            href="/drops"
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm no-underline hover:bg-slate-50"
-                        >
-                            Products
-                        </Link>
-
-                        <Link
-                            href="/feed"
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm no-underline hover:bg-slate-50"
-                        >
-                            Feed
-                        </Link>
-
-                        {/* ✅ Start（直打ちしかできない問題を解消） */}
-                        <Link
-                            href="/start"
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm no-underline hover:bg-slate-50"
-                        >
-                            Start
-                        </Link>
-
-                        {/* ✅ Phase 5 AI機能リンク */}
-                        <Link
-                            href="/search"
-                            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 shadow-sm no-underline hover:bg-emerald-100"
-                        >
-                            AI Search
-                        </Link>
-
-                        <Link
-                            href="/visual-search"
-                            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-800 shadow-sm no-underline hover:bg-emerald-100"
-                        >
-                            Visual Search
-                        </Link>
-
-                        {/* ✅ Admin（管理者のみ表示） */}
-                        {isAuthenticated && isAdmin && (
-                            <Link
-                                href="/admin/cards"
-                                className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-black text-amber-900 shadow-sm no-underline hover:bg-amber-100"
-                            >
-                                Admin
-                            </Link>
-                        )}
-
-                        {isAuthenticated && isSeller && (
-                            <>
-                                <Link
-                                    href="/shops/me/products"
-                                    className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-black text-purple-800 shadow-sm no-underline hover:bg-purple-100"
-                                >
-                                    My Products
-                                </Link>
-
-                                <Link
-                                    href="/shops/me/analytics"
-                                    className="rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-black text-purple-800 shadow-sm no-underline hover:bg-purple-100"
-                                >
-                                    Analytics
-                                </Link>
-                            </>
-                        )}
-
-                        {isAuthenticated && (
-                            <Link
-                                href="/messages"
-                                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-800 shadow-sm no-underline hover:bg-slate-50"
-                            >
-                                <span className="inline-flex items-center">
-                                    Messages
-                                    {unreadCount > 0 && (
-                                        <span className="ml-2 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white">
-                                            {unreadCount}
-                                        </span>
-                                    )}
-                                </span>
-                            </Link>
-                        )}
-                    </nav>
-
-                    {children}
-                </div>
+                    <div className="mx-auto max-w-6xl px-4 py-8">
+                        {children}
+                    </div>
                 </PWAProvider>
             </body>
         </html>
