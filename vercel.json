@@ -1,5 +1,8 @@
 {
   "crons": [
-    { "path": "/api/cron/body-color-pipeline", "schedule": "*/5 * * * *" }
+    {
+      "path": "/api/cron/body-color-pipeline",
+      "schedule": "0 0 * * *"
+    }
   ]
 }
