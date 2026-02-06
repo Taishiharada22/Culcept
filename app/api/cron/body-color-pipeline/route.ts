@@ -14,7 +14,9 @@ function isAuthed(req: Request) {
     const url = new URL(req.url);
     const q = url.searchParams.get("secret");
     const h = req.headers.get("x-cron-secret");
+    const vercelCron = req.headers.get("x-vercel-cron") === "1";
     const secret = process.env.CRON_SECRET || "";
+    if (vercelCron) return true;
     if (!secret) return false;
     return q === secret || h === secret;
 }

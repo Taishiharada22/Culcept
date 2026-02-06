@@ -92,12 +92,11 @@ export async function POST(request: NextRequest) {
 
         const runId = crypto.randomUUID();
         const ext = extFromMime(file.type || "");
-        const inputPath = path.join(INPUT_DIR, `${auth.user.id}-${runId}.${ext}`);
         const outputDir = path.join(OUTPUT_DIR, auth.user.id, runId);
+        const inputPath = path.join(outputDir, `input.${ext}`);
         const inputRel = path.relative(ROOT, inputPath);
         const outputRel = path.relative(ROOT, outputDir);
 
-        await fs.mkdir(path.dirname(inputPath), { recursive: true });
         await fs.mkdir(outputDir, { recursive: true });
         const buffer = Buffer.from(await file.arrayBuffer());
         await fs.writeFile(inputPath, buffer);

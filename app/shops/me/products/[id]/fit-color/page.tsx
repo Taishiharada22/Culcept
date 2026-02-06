@@ -2,9 +2,9 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import FitColorClient from "./FitColorClient";
 
-type Params = { id: string };
+type PageParams = { id: string };
 
-export default async function FitColorPage({ params }: { params: Params }) {
+export default async function Page({ params }: { params: PageParams }) {
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
