@@ -1,1 +1,5 @@
-{}
+{
+  "crons": [
+    { "path": "/api/cron/body-color-pipeline", "schedule": "*/5 * * * *" }
+  ]
+}
