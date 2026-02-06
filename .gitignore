@@ -32,3 +32,11 @@ node_modules/
 # Python caches
 __pycache__/
 *.pyc
+
+# vision pipeline io
+/tools/vision-pipeline/input/
+/tools/vision-pipeline/output/
+
+# python venv
+.venv/
+**/.venv/
