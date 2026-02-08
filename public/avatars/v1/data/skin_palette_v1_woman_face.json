@@ -1,0 +1,1305 @@
+{
+  "version": "v1",
+  "avatar": "woman_face",
+  "image": {
+    "size": [
+      1024,
+      1024
+    ],
+    "crop_box_on_original": [
+      260,
+      90,
+      1746,
+      1576
+    ],
+    "note": "These tones are generated on the cropped/resized face icon for UI usage."
+  },
+  "ref_rgb": [
+    237,
+    197,
+    172
+  ],
+  "count": 40,
+  "tones": [
+    {
+      "id": "st_v1_ffdcc1",
+      "hex": "#FFDCC1",
+      "rgb": [
+        255,
+        220,
+        193
+      ],
+      "lab": {
+        "L": 90.0,
+        "a": 7.918011427679632,
+        "b": 17.559934985464086
+      },
+      "lch": {
+        "L": 90.0,
+        "C": 19.262560101466025,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 90.0,
+        "chromaPct": 64.20853367155341,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 90,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_ffdbc9",
+      "hex": "#FFDBC9",
+      "rgb": [
+        255,
+        219,
+        201
+      ],
+      "lab": {
+        "L": 90.0,
+        "a": 9.421205682586706,
+        "b": 13.572640955275496
+      },
+      "lch": {
+        "L": 90.0,
+        "C": 16.521976244215633,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 90.0,
+        "chromaPct": 55.07325414738544,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 90,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_fedcc7",
+      "hex": "#FEDCC7",
+      "rgb": [
+        254,
+        220,
+        199
+      ],
+      "lab": {
+        "L": 90.0,
+        "a": 8.60387260216063,
+        "b": 14.548614914951946
+      },
+      "lch": {
+        "L": 90.0,
+        "C": 16.90233178285684,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 90.0,
+        "chromaPct": 56.34110594285614,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 90,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_fedbd2",
+      "hex": "#FEDBD2",
+      "rgb": [
+        254,
+        219,
+        210
+      ],
+      "lab": {
+        "L": 90.0,
+        "a": 10.558805867139625,
+        "b": 9.02224021706382
+      },
+      "lch": {
+        "L": 90.0,
+        "C": 13.888455633163321,
+        "h": 40.51307520824202
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 90.0,
+        "chromaPct": 46.294852110544404,
+        "warmthPct": 85.87224595157193,
+        "lightnessBand": "very_light",
+        "chromaBand": "muted"
+      },
+      "tags": {
+        "L_target": 90,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_fcdeb5",
+      "hex": "#FCDEB5",
+      "rgb": [
+        252,
+        222,
+        181
+      ],
+      "lab": {
+        "L": 90.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 90.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 90.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 90,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_fbc89e",
+      "hex": "#FBC89E",
+      "rgb": [
+        251,
+        200,
+        158
+      ],
+      "lab": {
+        "L": 84.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 84.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 84.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 84,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_fdc6a8",
+      "hex": "#FDC6A8",
+      "rgb": [
+        253,
+        198,
+        168
+      ],
+      "lab": {
+        "L": 84.0,
+        "a": 15.735133520525594,
+        "b": 22.668788353931415
+      },
+      "lch": {
+        "L": 84.0,
+        "C": 27.5947167469446,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 84.0,
+        "chromaPct": 91.98238915648199,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 84,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_f2cab1",
+      "hex": "#F2CAB1",
+      "rgb": [
+        242,
+        202,
+        177
+      ],
+      "lab": {
+        "L": 84.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 84.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 84.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 84,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_fec4b5",
+      "hex": "#FEC4B5",
+      "rgb": [
+        254,
+        196,
+        181
+      ],
+      "lab": {
+        "L": 84.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 84.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 84.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 84,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_ebcda5",
+      "hex": "#EBCDA5",
+      "rgb": [
+        235,
+        205,
+        165
+      ],
+      "lab": {
+        "L": 84.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 84.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 84.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "very_light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 84,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_e9b78e",
+      "hex": "#E9B78E",
+      "rgb": [
+        233,
+        183,
+        142
+      ],
+      "lab": {
+        "L": 78.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 78.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 78.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 78,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_eeb596",
+      "hex": "#EEB596",
+      "rgb": [
+        238,
+        181,
+        150
+      ],
+      "lab": {
+        "L": 78.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 78.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 78.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 78,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_e0b9a0",
+      "hex": "#E0B9A0",
+      "rgb": [
+        224,
+        185,
+        160
+      ],
+      "lab": {
+        "L": 78.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 78.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 78.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 78,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_edb4a4",
+      "hex": "#EDB4A4",
+      "rgb": [
+        237,
+        180,
+        164
+      ],
+      "lab": {
+        "L": 78.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 78.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 78.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 78,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_dabd95",
+      "hex": "#DABD95",
+      "rgb": [
+        218,
+        189,
+        149
+      ],
+      "lab": {
+        "L": 78.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 78.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 78.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 78,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_d7a77e",
+      "hex": "#D7A77E",
+      "rgb": [
+        215,
+        167,
+        126
+      ],
+      "lab": {
+        "L": 72.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 72.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 72.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 72,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_dca486",
+      "hex": "#DCA486",
+      "rgb": [
+        220,
+        164,
+        134
+      ],
+      "lab": {
+        "L": 72.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 72.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 72.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 72,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_cfa991",
+      "hex": "#CFA991",
+      "rgb": [
+        207,
+        169,
+        145
+      ],
+      "lab": {
+        "L": 72.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 72.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 72.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 72,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_dba495",
+      "hex": "#DBA495",
+      "rgb": [
+        219,
+        164,
+        149
+      ],
+      "lab": {
+        "L": 72.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 72.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 72.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 72,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_c9ac85",
+      "hex": "#C9AC85",
+      "rgb": [
+        201,
+        172,
+        133
+      ],
+      "lab": {
+        "L": 72.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 72.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Spring",
+      "metrics": {
+        "lightnessPct": 72.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "light",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 72,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_c6976f",
+      "hex": "#C6976F",
+      "rgb": [
+        198,
+        151,
+        111
+      ],
+      "lab": {
+        "L": 66.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 66.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 66.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "mid",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 66,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_cb9577",
+      "hex": "#CB9577",
+      "rgb": [
+        203,
+        149,
+        119
+      ],
+      "lab": {
+        "L": 66.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 66.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 66.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "mid",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 66,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_be9981",
+      "hex": "#BE9981",
+      "rgb": [
+        190,
+        153,
+        129
+      ],
+      "lab": {
+        "L": 66.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 66.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 66.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "mid",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 66,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_ca9485",
+      "hex": "#CA9485",
+      "rgb": [
+        202,
+        148,
+        133
+      ],
+      "lab": {
+        "L": 66.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 66.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 66.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "mid",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 66,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_b89c76",
+      "hex": "#B89C76",
+      "rgb": [
+        184,
+        156,
+        118
+      ],
+      "lab": {
+        "L": 66.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 66.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 66.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "mid",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 66,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_b58760",
+      "hex": "#B58760",
+      "rgb": [
+        181,
+        135,
+        96
+      ],
+      "lab": {
+        "L": 60.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 60.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 60.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 60,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_ba8567",
+      "hex": "#BA8567",
+      "rgb": [
+        186,
+        133,
+        103
+      ],
+      "lab": {
+        "L": 60.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 60.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 60.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 60,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_ae8972",
+      "hex": "#AE8972",
+      "rgb": [
+        174,
+        137,
+        114
+      ],
+      "lab": {
+        "L": 60.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 60.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 60.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 60,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_b98476",
+      "hex": "#B98476",
+      "rgb": [
+        185,
+        132,
+        118
+      ],
+      "lab": {
+        "L": 60.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 60.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 60.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 60,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_a78d67",
+      "hex": "#A78D67",
+      "rgb": [
+        167,
+        141,
+        103
+      ],
+      "lab": {
+        "L": 60.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 60.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 60.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 60,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_a47852",
+      "hex": "#A47852",
+      "rgb": [
+        164,
+        120,
+        82
+      ],
+      "lab": {
+        "L": 54.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 54.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 54.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 54,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_a97659",
+      "hex": "#A97659",
+      "rgb": [
+        169,
+        118,
+        89
+      ],
+      "lab": {
+        "L": 54.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 54.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 54.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 54,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_9d7a63",
+      "hex": "#9D7A63",
+      "rgb": [
+        157,
+        122,
+        99
+      ],
+      "lab": {
+        "L": 54.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 54.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 54.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 54,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_a87567",
+      "hex": "#A87567",
+      "rgb": [
+        168,
+        117,
+        103
+      ],
+      "lab": {
+        "L": 54.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 54.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 54.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 54,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_977d58",
+      "hex": "#977D58",
+      "rgb": [
+        151,
+        125,
+        88
+      ],
+      "lab": {
+        "L": 54.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 54.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 54.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "tan",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 54,
+        "undertone_model": "cool_olive"
+      }
+    },
+    {
+      "id": "st_v1_946943",
+      "hex": "#946943",
+      "rgb": [
+        148,
+        105,
+        67
+      ],
+      "lab": {
+        "L": 48.0,
+        "a": 12.56329844265852,
+        "b": 27.861882477822544
+      },
+      "lch": {
+        "L": 48.0,
+        "C": 30.56339253039984,
+        "h": 65.72874468897096
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 48.0,
+        "chromaPct": 100,
+        "warmthPct": 100,
+        "lightnessBand": "deep",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 48,
+        "undertone_model": "warm_golden"
+      }
+    },
+    {
+      "id": "st_v1_98674a",
+      "hex": "#98674A",
+      "rgb": [
+        152,
+        103,
+        74
+      ],
+      "lab": {
+        "L": 48.0,
+        "a": 16.56329844265852,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 48.0,
+        "C": 29.047070259941687,
+        "h": 55.23424417033281
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 48.0,
+        "chromaPct": 96.82356753313896,
+        "warmthPct": 100,
+        "lightnessBand": "deep",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 48,
+        "undertone_model": "warm_peach"
+      }
+    },
+    {
+      "id": "st_v1_8d6b54",
+      "hex": "#8D6B54",
+      "rgb": [
+        141,
+        107,
+        84
+      ],
+      "lab": {
+        "L": 48.0,
+        "a": 10.56329844265852,
+        "b": 17.861882477822544
+      },
+      "lch": {
+        "L": 48.0,
+        "C": 20.751629324952194,
+        "h": 59.400450133027455
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 48.0,
+        "chromaPct": 69.17209774984065,
+        "warmthPct": 100,
+        "lightnessBand": "deep",
+        "chromaBand": "normal"
+      },
+      "tags": {
+        "L_target": 48,
+        "undertone_model": "neutral"
+      }
+    },
+    {
+      "id": "st_v1_986658",
+      "hex": "#986658",
+      "rgb": [
+        152,
+        102,
+        88
+      ],
+      "lab": {
+        "L": 48.0,
+        "a": 18.56329844265852,
+        "b": 15.861882477822544
+      },
+      "lch": {
+        "L": 48.0,
+        "C": 24.417112130869658,
+        "h": 40.51307520824203
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 48.0,
+        "chromaPct": 81.39037376956553,
+        "warmthPct": 100,
+        "lightnessBand": "deep",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 48,
+        "undertone_model": "cool_pink"
+      }
+    },
+    {
+      "id": "st_v1_876e4a",
+      "hex": "#876E4A",
+      "rgb": [
+        135,
+        110,
+        74
+      ],
+      "lab": {
+        "L": 48.0,
+        "a": 4.563298442658519,
+        "b": 23.861882477822544
+      },
+      "lch": {
+        "L": 48.0,
+        "C": 24.294302378586305,
+        "h": 79.17358829343969
+      },
+      "undertone": "warm",
+      "season": "Autumn",
+      "metrics": {
+        "lightnessPct": 48.0,
+        "chromaPct": 80.98100792862101,
+        "warmthPct": 100,
+        "lightnessBand": "deep",
+        "chromaBand": "clear"
+      },
+      "tags": {
+        "L_target": 48,
+        "undertone_model": "cool_olive"
+      }
+    }
+  ]
+}
