@@ -494,6 +494,7 @@ export default function SocialFeedClient() {
                 items={[
                     { href: "/", label: "ホーム", icon: <span>🏠</span> },
                     { href: "/social", label: "フィード", icon: <span>📱</span>, active: true },
+                    { href: "/sns/profile", label: "Presence", icon: <span>🪞</span> },
                     { href: "/products", label: "商品", icon: <span>👕</span> },
                     { href: "/my", label: "マイページ", icon: <span>👤</span> },
                 ]}

@@ -37,7 +37,7 @@ const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/ranking", label: "ランキング", icon: "🏆" },
     { href: "/battle", label: "バトル", icon: "⚔️" },
-    { href: "/collab", label: "コラボ", icon: "🤝" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];
 

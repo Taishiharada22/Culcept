@@ -85,10 +85,10 @@ export default function HomePageClientNew({ isLoggedIn, userName }: Props) {
                                 gradient: "from-emerald-500 to-teal-500",
                             },
                             {
-                                href: "/try-on",
-                                icon: "✨",
-                                title: "バーチャル試着",
-                                desc: "ARで試着体験",
+                                href: "/avatar-fitting",
+                                icon: "👗",
+                                title: "フィッティング診断",
+                                desc: "分身が相性を判定",
                                 badge: "NEW",
                                 gradient: "from-pink-500 to-rose-500",
                             },
@@ -351,8 +351,8 @@ export default function HomePageClientNew({ isLoggedIn, userName }: Props) {
                 items={[
                     { href: "/", label: "ホーム", icon: <span>🏠</span>, active: true },
                     { href: "/products", label: "商品", icon: <span>👕</span> },
+                    { href: "/sns/profile", label: "Presence", icon: <span>🪞</span> },
                     { href: "/social", label: "フィード", icon: <span>📱</span> },
-                    { href: "/auction", label: "オークション", icon: <span>🔨</span> },
                     { href: "/my", label: "マイページ", icon: <span>👤</span> },
                 ]}
             />

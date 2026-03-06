@@ -27,6 +27,7 @@ interface StyleSummary {
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/ai-hub", label: "AI Hub", icon: "🧠" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];

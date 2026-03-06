@@ -30,7 +30,7 @@ const DRIVE_MAP = new Map(STYLE_DRIVES.map((d) => [d.id, d]));
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
-    { href: "/battle", label: "バトル", icon: "⚔️" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/tribes", label: "ドライブ", icon: "🏎️" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];

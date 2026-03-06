@@ -16,6 +16,7 @@ import type { ShopAnalytics, TimeSeriesData, TopProduct } from "@/types/analytic
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/shops/me", label: "マイショップ", icon: "🏪" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/shops/me/analytics", label: "分析", icon: "📊" },
     { href: "/drops/new", label: "出品", icon: "✨" },
 ];

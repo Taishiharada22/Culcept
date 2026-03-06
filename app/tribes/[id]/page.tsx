@@ -29,7 +29,7 @@ type DrivePost = {
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
-    { href: "/battle", label: "バトル", icon: "⚔️" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/tribes", label: "ドライブ", icon: "🏎️" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];

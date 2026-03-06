@@ -288,7 +288,7 @@ export default function CollabPage() {
                     { href: "/", label: "ホーム", icon: "🏠" },
                     { href: "/collab", label: "コラボ", icon: "🤝" },
                     { href: "/battle", label: "バトル", icon: "⚔️" },
-                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/sns/profile", label: "Presence", icon: "🪞" },
                     { href: "/my", label: "マイページ", icon: "👤" },
                 ]}
                 activeHref="/collab"

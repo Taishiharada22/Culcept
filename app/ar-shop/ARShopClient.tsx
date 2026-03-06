@@ -1,7 +1,7 @@
 // app/ar-shop/ARShopClient.tsx
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence, useMotionValue, useTransform } from "framer-motion";
 import {
@@ -49,6 +49,15 @@ const categoryEmojis: Record<string, string> = {
     "アクセサリー": "💍",
 };
 
+type SceneMode = "day" | "night" | "street";
+const SCENE_CONFIG: Record<SceneMode, { bg: string; grid: string; label: string; icon: string }> = {
+    day: { bg: "from-sky-50 via-white to-amber-50/30", grid: "rgba(139,92,246,0.1)", label: "デイライト", icon: "☀️" },
+    night: { bg: "from-slate-900 via-indigo-950 to-slate-900", grid: "rgba(139,92,246,0.25)", label: "ナイト", icon: "🌙" },
+    street: { bg: "from-stone-100 via-zinc-50 to-stone-200", grid: "rgba(100,100,100,0.12)", label: "ストリート", icon: "🏙️" },
+};
+
+const ALL_CATEGORIES = Array.from(new Set(mockProducts.map(p => p.category)));
+
 export default function ARShopClient() {
     const [selectedProduct, setSelectedProduct] = useState<Product3D | null>(null);
     const [viewAngle, setViewAngle] = useState({ x: 0, y: 0 });
@@ -56,8 +65,40 @@ export default function ARShopClient() {
     const [isDragging, setIsDragging] = useState(false);
     const [showProductDetail, setShowProductDetail] = useState(false);
     const [isGyroEnabled, setIsGyroEnabled] = useState(false);
+    const [scene, setScene] = useState<SceneMode>("day");
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
+    const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    const [showFavorites, setShowFavorites] = useState(false);
+    const [compareMode, setCompareMode] = useState(false);
+    const [compareList, setCompareList] = useState<Product3D[]>([]);
+    const [mounted, setMounted] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const lastTouch = useRef({ x: 0, y: 0 });
+
+    useEffect(() => {
+        setMounted(true);
+        try {
+            const saved = localStorage.getItem("culcept_ar_favs_v1");
+            if (saved) setFavorites(new Set(JSON.parse(saved)));
+        } catch {}
+    }, []);
+
+    const toggleFavorite = useCallback((id: string) => {
+        setFavorites(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            localStorage.setItem("culcept_ar_favs_v1", JSON.stringify([...next]));
+            return next;
+        });
+    }, []);
+
+    const filteredProducts = useMemo(() => {
+        if (!activeCategory) return mockProducts;
+        return mockProducts.filter(p => p.category === activeCategory);
+    }, [activeCategory]);
+
+    const sceneStyle = SCENE_CONFIG[scene];
+    const isNight = scene === "night";
 
     // ジャイロスコープでの視点移動
     useEffect(() => {
@@ -170,6 +211,39 @@ export default function ARShopClient() {
                 </div>
             </GlassNavbar>
 
+            {/* カテゴリフィルター + シーン切替 */}
+            <div className="fixed top-20 left-4 right-4 z-30 pointer-events-none">
+                <div className="max-w-lg mx-auto pointer-events-auto">
+                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                        <button
+                            onClick={() => setActiveCategory(null)}
+                            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all backdrop-blur-lg shadow-sm ${!activeCategory ? "bg-purple-500 text-white" : "bg-white/80 text-slate-600 hover:bg-white"}`}
+                        >
+                            ALL
+                        </button>
+                        {ALL_CATEGORIES.map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
+                                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all backdrop-blur-lg shadow-sm ${activeCategory === cat ? "bg-purple-500 text-white" : "bg-white/80 text-slate-600 hover:bg-white"}`}
+                            >
+                                {categoryEmojis[cat] || "👕"} {cat}
+                            </button>
+                        ))}
+                        <div className="w-px h-6 self-center bg-slate-300/50 shrink-0" />
+                        {(Object.keys(SCENE_CONFIG) as SceneMode[]).map(s => (
+                            <button
+                                key={s}
+                                onClick={() => setScene(s)}
+                                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition-all backdrop-blur-lg shadow-sm ${scene === s ? "bg-indigo-500 text-white" : "bg-white/80 text-slate-600 hover:bg-white"}`}
+                            >
+                                {SCENE_CONFIG[s].icon}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
             {/* 3D空間 */}
             <div
                 ref={containerRef}
@@ -198,15 +272,18 @@ export default function ARShopClient() {
                         style={{
                             transform: "translateZ(-200px) rotateX(90deg)",
                             background: `
-                                linear-gradient(rgba(139,92,246,0.1) 1px, transparent 1px),
-                                linear-gradient(90deg, rgba(139,92,246,0.1) 1px, transparent 1px)
+                                linear-gradient(${sceneStyle.grid} 1px, transparent 1px),
+                                linear-gradient(90deg, ${sceneStyle.grid} 1px, transparent 1px)
                             `,
                             backgroundSize: "50px 50px",
                         }}
                     />
 
                     {/* 商品配置 */}
-                    {mockProducts.map((product) => (
+                    {filteredProducts.map((product) => {
+                        const isFav = favorites.has(product.id);
+                        const isCompared = compareList.some(c => c.id === product.id);
+                        return (
                         <motion.div
                             key={product.id}
                             className="absolute left-1/2 top-1/2 cursor-pointer"
@@ -222,12 +299,15 @@ export default function ARShopClient() {
                             }}
                             whileHover={{ scale: product.scale * 1.1 }}
                             whileTap={{ scale: product.scale * 0.95 }}
-                            onClick={() => handleProductClick(product)}
+                            onClick={() => compareMode
+                                ? setCompareList(prev => prev.some(c => c.id === product.id) ? prev.filter(c => c.id !== product.id) : prev.length < 3 ? [...prev, product] : prev)
+                                : handleProductClick(product)
+                            }
                         >
                             {/* 商品カード（3D風） */}
-                            <div className="relative w-40 h-52 rounded-2xl bg-white/90 backdrop-blur-xl shadow-2xl overflow-hidden border border-white">
+                            <div className={`relative w-40 h-52 rounded-2xl backdrop-blur-xl shadow-2xl overflow-hidden border ${isNight ? "bg-slate-800/90 border-slate-700" : "bg-white/90 border-white"} ${isCompared ? "ring-2 ring-cyan-400" : ""}`}>
                                 {/* 商品画像 */}
-                                <div className="h-32 bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center relative">
+                                <div className={`h-32 flex items-center justify-center relative ${isNight ? "bg-gradient-to-br from-slate-700 to-slate-800" : "bg-gradient-to-br from-slate-100 to-slate-200"}`}>
                                     <span className="text-5xl">{categoryEmojis[product.category] || "👕"}</span>
 
                                     {/* バッジ */}
@@ -241,13 +321,28 @@ export default function ARShopClient() {
                                             SALE
                                         </div>
                                     )}
+
+                                    {/* お気に入りボタン */}
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); toggleFavorite(product.id); }}
+                                        className="absolute bottom-2 right-2 w-7 h-7 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center shadow-md transition-transform hover:scale-110"
+                                    >
+                                        <span className={`text-sm ${isFav ? "text-red-500" : "text-slate-300"}`}>{isFav ? "♥" : "♡"}</span>
+                                    </button>
+
+                                    {/* 比較チェック */}
+                                    {compareMode && (
+                                        <div className={`absolute top-2 right-2 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isCompared ? "bg-cyan-400 text-white" : "bg-white/70 text-slate-400"}`}>
+                                            {isCompared ? "✓" : "+"}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* 情報 */}
                                 <div className="p-3">
-                                    <p className="text-xs text-slate-500 font-medium">{product.brand}</p>
-                                    <p className="text-sm font-bold text-slate-900 truncate">{product.title}</p>
-                                    <p className="text-sm font-bold text-purple-600 mt-1">
+                                    <p className={`text-xs font-medium ${isNight ? "text-slate-400" : "text-slate-500"}`}>{product.brand}</p>
+                                    <p className={`text-sm font-bold truncate ${isNight ? "text-white" : "text-slate-900"}`}>{product.title}</p>
+                                    <p className="text-sm font-bold text-purple-500 mt-1">
                                         ¥{product.price.toLocaleString()}
                                     </p>
                                 </div>
@@ -261,13 +356,14 @@ export default function ARShopClient() {
 
                             {/* 床への影 */}
                             <div
-                                className="absolute w-32 h-8 left-1/2 -translate-x-1/2 bg-black/10 rounded-full blur-md"
+                                className={`absolute w-32 h-8 left-1/2 -translate-x-1/2 rounded-full blur-md ${isNight ? "bg-purple-500/15" : "bg-black/10"}`}
                                 style={{
                                     transform: "translateY(120px) rotateX(90deg)",
                                 }}
                             />
                         </motion.div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -333,6 +429,140 @@ export default function ARShopClient() {
                 </button>
             </div>
 
+            {/* 左ツールバー */}
+            <div className="fixed left-4 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-20">
+                <button
+                    onClick={() => { setCompareMode(!compareMode); if (compareMode) setCompareList([]); }}
+                    className={`w-12 h-12 rounded-xl backdrop-blur-lg shadow-lg flex items-center justify-center transition-colors ${compareMode ? "bg-cyan-500 text-white" : "bg-white/80 text-slate-600 hover:bg-white"}`}
+                    title="比較モード"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                </button>
+                <button
+                    onClick={() => setShowFavorites(!showFavorites)}
+                    className={`w-12 h-12 rounded-xl backdrop-blur-lg shadow-lg flex items-center justify-center transition-colors relative ${showFavorites ? "bg-rose-500 text-white" : "bg-white/80 text-slate-600 hover:bg-white"}`}
+                    title="お気に入り"
+                >
+                    <span className="text-lg">♥</span>
+                    {favorites.size > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                            {favorites.size}
+                        </span>
+                    )}
+                </button>
+            </div>
+
+            {/* お気に入りパネル */}
+            <AnimatePresence>
+                {showFavorites && (
+                    <motion.div
+                        initial={{ x: -300, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        exit={{ x: -300, opacity: 0 }}
+                        className="fixed left-4 top-36 z-30 w-56"
+                    >
+                        <GlassCard padding="sm">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-bold text-slate-900">お気に入り</h3>
+                                <button onClick={() => setShowFavorites(false)} className="text-slate-400 hover:text-slate-600 text-xs">✕</button>
+                            </div>
+                            {mockProducts.filter(p => favorites.has(p.id)).length === 0 ? (
+                                <p className="text-xs text-slate-400 text-center py-4">まだお気に入りがありません</p>
+                            ) : (
+                                <div className="space-y-2 max-h-60 overflow-y-auto">
+                                    {mockProducts.filter(p => favorites.has(p.id)).map(p => (
+                                        <button key={p.id} onClick={() => { handleProductClick(p); setShowFavorites(false); }} className="w-full text-left flex items-center gap-2 p-2 rounded-lg hover:bg-white/50 transition-colors">
+                                            <span className="text-xl">{categoryEmojis[p.category] || "👕"}</span>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-xs font-bold text-slate-800 truncate">{p.title}</p>
+                                                <p className="text-[10px] text-purple-600 font-bold">¥{p.price.toLocaleString()}</p>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </GlassCard>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* 比較ドロワー */}
+            <AnimatePresence>
+                {compareMode && compareList.length > 0 && (
+                    <motion.div
+                        initial={{ y: 100, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: 100, opacity: 0 }}
+                        className="fixed bottom-36 left-4 right-4 z-30"
+                    >
+                        <GlassCard padding="sm">
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-xs font-bold text-slate-800">比較 ({compareList.length}/3)</h3>
+                                <button onClick={() => setCompareList([])} className="text-[10px] text-slate-400 hover:text-slate-600">クリア</button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {compareList.map(p => (
+                                    <div key={p.id} className="rounded-xl bg-white/60 p-2 text-center">
+                                        <span className="text-2xl">{categoryEmojis[p.category] || "👕"}</span>
+                                        <p className="text-[10px] font-bold text-slate-800 truncate mt-1">{p.title}</p>
+                                        <p className="text-[10px] font-bold text-purple-600">¥{p.price.toLocaleString()}</p>
+                                        <p className="text-[9px] text-slate-400">{p.brand}</p>
+                                    </div>
+                                ))}
+                            </div>
+                            {compareList.length >= 2 && (
+                                <div className="mt-2 pt-2 border-t border-slate-200/50">
+                                    <div className="grid grid-cols-3 gap-1 text-center text-[9px]">
+                                        <span className="font-bold text-slate-500">価格差</span>
+                                        <span className="font-bold text-slate-500">カテゴリ</span>
+                                        <span className="font-bold text-slate-500">ブランド</span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-1 text-center text-[10px] mt-0.5">
+                                        <span className="font-bold text-emerald-600">¥{Math.abs(compareList[0].price - compareList[1].price).toLocaleString()}</span>
+                                        <span className={`font-bold ${compareList[0].category === compareList[1].category ? "text-emerald-600" : "text-amber-600"}`}>
+                                            {compareList[0].category === compareList[1].category ? "同じ" : "異なる"}
+                                        </span>
+                                        <span className={`font-bold ${compareList[0].brand === compareList[1].brand ? "text-emerald-600" : "text-amber-600"}`}>
+                                            {compareList[0].brand === compareList[1].brand ? "同じ" : "異なる"}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+                        </GlassCard>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ミニマップ */}
+            <div className="fixed bottom-36 right-4 z-20">
+                <div className="w-20 h-20 rounded-xl bg-white/80 backdrop-blur-lg shadow-lg p-1.5 border border-white/60">
+                    <div className="relative w-full h-full rounded-lg bg-slate-100/80 overflow-hidden">
+                        {filteredProducts.map(p => (
+                            <div
+                                key={p.id}
+                                className={`absolute w-2 h-2 rounded-full transition-colors ${selectedProduct?.id === p.id ? "bg-purple-500 ring-2 ring-purple-300" : favorites.has(p.id) ? "bg-rose-400" : "bg-slate-400"}`}
+                                style={{
+                                    left: `${50 + p.position.x}%`,
+                                    top: `${50 - p.position.y}%`,
+                                }}
+                            />
+                        ))}
+                        {/* ビューポートインジケーター */}
+                        <div
+                            className="absolute border border-purple-400/50 rounded-sm bg-purple-400/10"
+                            style={{
+                                width: `${100 / zoom}%`,
+                                height: `${100 / zoom}%`,
+                                left: `${50 - viewAngle.x * 0.4 - 50 / zoom}%`,
+                                top: `${50 + viewAngle.y * 0.4 - 50 / zoom}%`,
+                            }}
+                        />
+                    </div>
+                </div>
+            </div>
+
             {/* 商品詳細モーダル */}
             <GlassModal
                 isOpen={showProductDetail}
@@ -382,13 +612,14 @@ export default function ARShopClient() {
                             <GlassButton
                                 variant="secondary"
                                 fullWidth
+                                onClick={() => toggleFavorite(selectedProduct.id)}
                                 icon={
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                                    </svg>
+                                    <span className={favorites.has(selectedProduct.id) ? "text-red-500" : ""}>
+                                        {favorites.has(selectedProduct.id) ? "♥" : "♡"}
+                                    </span>
                                 }
                             >
-                                保存
+                                {favorites.has(selectedProduct.id) ? "保存済み" : "保存"}
                             </GlassButton>
                             <GlassButton variant="gradient" fullWidth>
                                 商品ページへ
@@ -412,6 +643,7 @@ export default function ARShopClient() {
                 items={[
                     { href: "/", label: "ホーム", icon: <span>🏠</span> },
                     { href: "/ar-shop", label: "AR", icon: <span>🔮</span>, active: true },
+                    { href: "/sns/profile", label: "Presence", icon: <span>🪞</span> },
                     { href: "/products", label: "商品", icon: <span>👕</span> },
                     { href: "/my", label: "マイページ", icon: <span>👤</span> },
                 ]}

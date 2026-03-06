@@ -545,6 +545,7 @@ export default function AuctionPageClient() {
                 items={[
                     { href: "/", label: "ホーム", icon: <span>🏠</span> },
                     { href: "/auction", label: "オークション", icon: <span>🔨</span>, active: true },
+                    { href: "/sns/profile", label: "Presence", icon: <span>🪞</span> },
                     { href: "/products", label: "商品", icon: <span>👕</span> },
                     { href: "/my", label: "マイページ", icon: <span>👤</span> },
                 ]}

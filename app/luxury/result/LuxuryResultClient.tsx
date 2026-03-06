@@ -76,8 +76,8 @@ interface ResultData {
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/luxury", label: "Luxury", icon: "💎" },
-    { href: "/calendar", label: "カレンダー", icon: "📅" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];
 

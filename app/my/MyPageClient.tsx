@@ -35,7 +35,7 @@ const QUICK_LINKS = [
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
-    { href: "/luxury", label: "Luxury", icon: "💎" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/calendar", label: "カレンダー", icon: "📅" },
     { href: "/my", label: "マイページ", icon: "👤" },
 ];

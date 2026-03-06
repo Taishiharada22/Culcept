@@ -20,6 +20,7 @@ const MAX_MB = 20;
 const NAV_ITEMS = [
     { href: "/", label: "ホーム", icon: "🏠" },
     { href: "/products", label: "商品", icon: "👕" },
+    { href: "/sns/profile", label: "Presence", icon: "🪞" },
     { href: "/shops/me", label: "マイショップ", icon: "🏪" },
     { href: "/drops/new", label: "出品", icon: "✨" },
 ];

@@ -297,7 +297,7 @@ export default function BattlePage({ params }: { params: Promise<{ id: string }>
                     { href: "/", label: "ホーム", icon: "🏠" },
                     { href: "/battle", label: "バトル", icon: "⚔️" },
                     { href: "/ranking", label: "ランキング", icon: "🏆" },
-                    { href: "/collab", label: "コラボ", icon: "🤝" },
+                    { href: "/sns/profile", label: "Presence", icon: "🪞" },
                     { href: "/my", label: "マイページ", icon: "👤" },
                 ]}
                 activeHref="/battle"

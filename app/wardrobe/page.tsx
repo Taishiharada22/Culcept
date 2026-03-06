@@ -406,7 +406,7 @@ export default function WardrobePage() {
                 items={[
                     { href: "/", label: "ホーム", icon: "🏠" },
                     { href: "/wardrobe", label: "ワードローブ", icon: "👔" },
-                    { href: "/ranking", label: "ランキング", icon: "🏆" },
+                    { href: "/sns/profile", label: "Presence", icon: "🪞" },
                     { href: "/battle", label: "バトル", icon: "⚔️" },
                     { href: "/my", label: "マイページ", icon: "👤" },
                 ]}
