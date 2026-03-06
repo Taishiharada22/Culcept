@@ -4,26 +4,17 @@ import FitColorClient from "./FitColorClient";
 
 type PageParams = { id: string };
 
-type Props = {
-    // Next.js (App Router) の型期待に合わせて Promise として受け取る
-    params: Promise<PageParams>;
-};
-
-export default async function Page({ params }: Props) {
-    const { id } = await params;
-
+export default async function Page({ params }: { params: PageParams }) {
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
-
     if (!auth?.user) {
-        const nextPath = `/shops/me/products/${id}/fit-color`;
-        redirect(`/login?next=${encodeURIComponent(nextPath)}`);
+        redirect(`/login?next=/shops/me/products/${params.id}/fit-color`);
     }
 
     const { data: product } = await supabase
         .from("drops")
         .select("id,title,cover_image_url,price,status")
-        .eq("id", id)
+        .eq("id", params.id)
         .eq("user_id", auth.user.id)
         .maybeSingle();
 
@@ -32,8 +23,8 @@ export default async function Page({ params }: Props) {
     }
 
     const [{ data: fitProfile }, { data: colorProfile }] = await Promise.all([
-        supabase.from("garment_fit_profiles").select("*").eq("product_id", id).maybeSingle(),
-        supabase.from("garment_color_profiles").select("*").eq("product_id", id).maybeSingle(),
+        supabase.from("garment_fit_profiles").select("*").eq("product_id", params.id).maybeSingle(),
+        supabase.from("garment_color_profiles").select("*").eq("product_id", params.id).maybeSingle(),
     ]);
 
     return (

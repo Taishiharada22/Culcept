@@ -214,6 +214,12 @@ export default function ProductCard({
     const shownPrice = (product.display_price ?? product.price) ?? null;
     const safeImp = (imp ?? "").trim() || null;
     const href = safeImp ? `/products/${product.id}?imp=${encodeURIComponent(safeImp)}` : `/products/${product.id}`;
+    const [fitColor, setFitColor] = React.useState<{
+        fit?: number;
+        color?: number;
+        fitReason?: string;
+        colorReason?: string;
+    } | null>(null);
 
     const shopHref = product.shop_slug
         ? safeImp
@@ -254,6 +260,38 @@ export default function ProductCard({
         },
         [onQuickView, product]
     );
+
+    React.useEffect(() => {
+        let active = true;
+        const controller = new AbortController();
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch("/api/fit-color-score", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ product_id: product.id }),
+                    signal: controller.signal,
+                });
+                if (!res.ok) return;
+                const data = await res.json();
+                const item = data?.items?.[0];
+                if (!active || !item) return;
+                setFitColor({
+                    fit: typeof item.fit?.score === "number" ? item.fit.score : undefined,
+                    color: typeof item.color?.score === "number" ? item.color.score : undefined,
+                    fitReason: item.fit?.reasons?.[0],
+                    colorReason: item.color?.reasons?.[0],
+                });
+            } catch {
+                // ignore
+            }
+        }, 300);
+        return () => {
+            active = false;
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [product.id]);
 
     return (
         <article
@@ -373,6 +411,26 @@ export default function ProductCard({
                     <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                         <span className="text-xs font-semibold text-slate-500">Current Bid:</span>
                         <span className="text-sm font-black text-purple-600">¥{fmt(product.highest_bid_30d)}</span>
+                    </div>
+                )}
+
+                {/* Fit/Color Score */}
+                {fitColor && (
+                    <div className="pt-2 border-t border-slate-100 space-y-1">
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
+                                フィット {fitColor.fit ?? "--"}点
+                            </span>
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded-full">
+                                カラー {fitColor.color ?? "--"}点
+                            </span>
+                        </div>
+                        {(fitColor.fitReason || fitColor.colorReason) && (
+                            <div className="text-[10px] text-slate-500 line-clamp-2">
+                                {fitColor.fitReason ? `根拠: ${fitColor.fitReason}` : "根拠: --"}
+                                {fitColor.colorReason ? ` / ${fitColor.colorReason}` : ""}
+                            </div>
+                        )}
                     </div>
                 )}
 

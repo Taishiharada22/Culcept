@@ -13,8 +13,10 @@ export type SiteFacts = {
     };
     jsonld: {
         name: string | null;
+        description: string | null;
         url: string | null;
         logo: string | null;
+        addressText: string | null;
     };
 };
 
@@ -74,12 +76,14 @@ function pickSiteFromJsonLd(list: any[], baseUrl: string) {
         candidates[0];
 
     const name = cleanStr(ws?.name ?? null);
+    const description = cleanStr(ws?.description ?? null);
     const url = absUrlMaybe(cleanStr(ws?.url ?? null), baseUrl);
     const logo =
         absUrlMaybe(cleanStr(ws?.logo?.url ?? ws?.logo ?? null), baseUrl) ||
         absUrlMaybe(cleanStr(ws?.image?.url ?? ws?.image ?? null), baseUrl);
+    const addressText = cleanStr(ws?.address?.streetAddress ?? ws?.address ?? null);
 
-    return { name, url, logo };
+    return { name, description, url, logo, addressText };
 }
 
 async function fetchHtml(url: string, ms = 12000) {
@@ -142,8 +146,10 @@ export async function extractSiteFacts(siteUrl: string): Promise<SiteFacts> {
         },
         jsonld: {
             name: j.name,
+            description: j.description,
             url: j.url,
             logo: j.logo,
+            addressText: j.addressText,
         },
     };
 }

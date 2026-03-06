@@ -1,0 +1,82 @@
+{
+    "slug": "rolex",
+    "name": "ROLEX",
+    "concept": {
+        "catch": "精密の信頼 × “一生モノ”の王道",
+        "dna": "1905年にロンドンで創業し、1919年にジュネーブへ拠点を移す。1926年に防水・防塵の「Oyster」を確立し、1931年に自動巻きの「Perpetual rotor」を発明・特許化して実用時計の基準を引き上げた。",
+        "for_who": [
+            "小物1点で“格”と信頼感を作りたい（腕元を軸にしたい）",
+            "派手さより、精度・耐久・普遍性で長く使える基準が欲しい"
+        ]
+    },
+    "tags": [
+        "heritage",
+        "precision",
+        "durability",
+        "tool-to-luxury",
+        "oyster",
+        "perpetual",
+        "geneva",
+        "one-watch-wardrobe"
+    ],
+    "culcept_guidance": {
+        "overview": "“目立つ装飾”ではなく、精度と耐久に裏打ちされた存在感で勝つブランド。ベーシックな黒白ネイビーの服でも、腕元に一点入るだけで全体の信頼感と完成度が上がる。Culceptでは、服をシンプルにして時計を“軸”にする引き算提案が最も再現性が高い。おすすめは、毎日つけられるスチール系、きれいめに寄せられる薄めのケース/シンプルダイヤル。仕事→休日→旅まで一本で回せる“安心の王道”が欲しい人向け。",
+        "culcept_rules": {
+            "styling_core": "服は無地・定番で整え、腕元を主役にして“軸”を作る（引き算コーデ）",
+            "palette": {
+                "base": [
+                    "black",
+                    "white",
+                    "navy",
+                    "charcoal",
+                    "gray",
+                    "beige"
+                ],
+                "accent": [
+                    "silver",
+                    "gold_hint"
+                ],
+                "note": "色は増やしすぎず、腕元の金属光で締める"
+            },
+            "watch_balance": {
+                "metal_tone_match": [
+                    "時計がシルバー系なら、ベルト金具/バッグ金具もシルバー寄りで統一",
+                    "時計がゴールド系なら、他の金属もゴールド寄りに寄せる（混ぜすぎない）"
+                ],
+                "dial_colors": [
+                    "black",
+                    "white",
+                    "navy",
+                    "dark_gray"
+                ]
+            },
+            "pairing_heuristics": [
+                "時計を主役にする日は、他アクセは控えめ（リングは細め1点まで）",
+                "白T/ニット/シャツ + スラックス/デニムの“普通”に乗せるだけで完成度が上がる",
+                "旅・出張提案では“丈夫さが伝わる一本”を軸に、服はミニマルにする"
+            ],
+            "avoid": [
+                "時計＋派手アクセの同時盛り（主役が分散）",
+                "柄・装飾の強い服で腕元の品格を潰す",
+                "金属トーンを無秩序に混ぜる"
+            ]
+        },
+        "recommended_item_focus": [
+            "everyday_steel_watch",
+            "clean_dial_watch",
+            "travel_ready_watch"
+        ],
+        "best_scenes": [
+            "work",
+            "weekend",
+            "travel",
+            "business_dinner"
+        ],
+        "emotion": [
+            "reliable",
+            "timeless",
+            "quiet-status",
+            "composed"
+        ]
+    }
+}

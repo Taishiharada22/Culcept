@@ -1,0 +1,82 @@
+{
+    "slug": "saint-laurent",
+    "name": "Saint Laurent",
+    "concept": {
+        "catch": "パリの夜 × シャープなテーラリング",
+        "dna": "1961年創設。1966年に女性にタキシード＝Le Smokingを提示し、色気のある中性的スタイルを定義。",
+        "for_who": [
+            "黒が好き（でも重くならず“夜の艶”が欲しい）",
+            "細身/直線/レザー/ジャケットで“強さ”を出したい"
+        ]
+    },
+    "tags": [
+        "paris-night",
+        "sharp-tailoring",
+        "le-smoking",
+        "androgynous",
+        "black-core",
+        "leather",
+        "sleek-glam"
+    ],
+    "culcept_guidance": {
+        "overview": "直線の美しさ、削ぎ落とした強さ、夜の空気感が魅力。黒を中心にまとめても重くならず、輪郭がすっと立つ。派手な柄や装飾に頼らず、シルエットと質感で勝てるので、コーデが簡単に決まる。Culceptでは、細身〜ストレートのパンツに、肩が立つジャケットで“線”を作る提案が鉄板。おすすめアイテムはレザージャケット、シャープなブーツ、艶のあるシャツ。バー/ライブ/ナイトアウトで映える一方、昼は白Tやデニムで抜けを作るとバランスが取れる。背筋が伸びる“自分を整える服”が欲しい人に。黒が好きなら最短。逆にカラフル派は一点投入からが安全。",
+        "culcept_rules": {
+            "styling_core": "細身〜ストレートパンツ × 肩が立つジャケットで“線”を作る（黒中心でも重くしない）",
+            "palette": {
+                "base": [
+                    "deep_black",
+                    "charcoal",
+                    "midnight_navy",
+                    "ivory"
+                ],
+                "accent": [
+                    "burgundy",
+                    "smoke_gray"
+                ],
+                "note": "黒を主役にしつつ、白/アイボリーで抜けを作ると“夜の艶”が立つ"
+            },
+            "textures": [
+                "matte_wool",
+                "smooth_leather",
+                "silk_or_satin_like_sheen",
+                "polished_black_boot_leather"
+            ],
+            "silhouette_focus": [
+                "sharp_shoulders",
+                "slim_or_straight_lines",
+                "clean_waistline",
+                "minimal_details"
+            ],
+            "pairing_heuristics": [
+                "パンツは細身〜ストレートで輪郭を出す（ワイドは控えめ）",
+                "主役はレザージャケット or 艶シャツのどちらかに集中",
+                "昼は白T/デニムで抜けを作り、夜は黒×艶で締める",
+                "カラフル派は一点投入（靴 or ジャケット）から始める"
+            ],
+            "avoid": [
+                "派手柄・過剰装飾",
+                "ボリューム過多（線がぼやける）",
+                "強い色を複数投入（夜の統一感が崩れる）"
+            ]
+        },
+        "recommended_item_focus": [
+            "leather_jacket",
+            "sharp_boots",
+            "sheen_shirt",
+            "tailored_jacket"
+        ],
+        "best_scenes": [
+            "bar",
+            "live",
+            "night_out",
+            "date",
+            "after-hours"
+        ],
+        "emotion": [
+            "sleek",
+            "confident",
+            "night-glam",
+            "self-assembled"
+        ]
+    }
+}

@@ -1,0 +1,74 @@
+{
+    "slug": "louis-vuitton",
+    "name": "Louis Vuitton",
+    "concept": {
+        "catch": "旅の道具から始まった、最強のラグジュアリー",
+        "dna": "1854年にトランク/ラゲージで創業。1896年にモノグラムを導入し、旅と耐久性の物語を“記号”にした。",
+        "for_who": [
+            "“強い定番”が欲しい（安心感と格の両立）",
+            "服も小物も、ストーリーと耐久性を重視"
+        ]
+    },
+    "tags": [
+        "travel-origin",
+        "trunk-heritage",
+        "durability",
+        "iconic-signature",
+        "strong-classic",
+        "everyday-to-travel",
+        "tool-to-luxury"
+    ],
+    "culcept_guidance": {
+        "overview": "移動の文化から磨かれた“壊れない美しさ”が魅力。持ち物に安心感と物語を求める人に合う。ウェアも小物も、実用性の上にデザインの説得力が乗るから、合わせるだけで全体が整う。Culceptでは、ベーシック服に一点投入して“軸”を作る提案が鉄板（バッグ/アウター/靴など）。おすすめアイテムは、容量と耐久性が分かるバッグ、形が崩れにくいアウター。旅行や出張が多い人、荷物の強さも見た目も両方ほしい人に特に向く。王道を自分流に落とし込み、長く使いながら更新していきたい人へ。初めての王道でも失敗しにくく、スタイルの土台を作れる。",
+        "culcept_rules": {
+            "styling_core": "ベーシック服に一点投入して“軸”を作る（バッグ/アウター/靴のいずれかを主役）",
+            "palette": {
+                "base": [
+                    "black",
+                    "navy",
+                    "charcoal",
+                    "camel",
+                    "ivory"
+                ],
+                "accent": [
+                    "warm_brown",
+                    "deep_green",
+                    "burgundy"
+                ],
+                "note": "色で盛るより、形と耐久性・素材感で“強い定番”を作る"
+            },
+            "durability_focus": [
+                "容量・耐久性が一目で伝わるバッグ（構造・素材・底の強さ）",
+                "形が崩れにくいアウター（ハリ・芯・構造）",
+                "移動シーンに強い靴（安定感・耐久素材）"
+            ],
+            "pairing_heuristics": [
+                "主役は1点（バッグ or アウター or 靴）に固定し、他はベーシックで支える",
+                "旅行/出張が多い人には“容量×軽さ×丈夫さ”を優先",
+                "王道を“自分流”に落とす：主役の形を変えて印象を更新する（例：同色で形違い）"
+            ],
+            "avoid": [
+                "主役を複数にして散らす（バッグ+靴+アウターを同時に強くしない）",
+                "繊細すぎて移動に弱い素材の多用",
+                "過度な装飾で実用性を削る"
+            ]
+        },
+        "recommended_item_focus": [
+            "high_capacity_durable_bag",
+            "shape_holding_outer",
+            "travel_ready_shoe"
+        ],
+        "best_scenes": [
+            "travel",
+            "business_trip",
+            "commute",
+            "weekend_city"
+        ],
+        "emotion": [
+            "reliable",
+            "grounded-status",
+            "built-to-last",
+            "story-driven-classic"
+        ]
+    }
+}

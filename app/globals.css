@@ -2,20 +2,20 @@
 /* globals.css - Culcept Global Styles */
 
 /* =========================
-   Design System - Culcept Professional (Tailwind v4 @theme)
+   Design System - Glassmorphism Light (Tailwind v4 @theme)
    ========================= */
 @theme {
-    /* Colors - Vintage Marketplace Theme */
-    --color-primary: #1a2332;
-    --color-primary-light: #2a3d54;
-    --color-secondary: #f8f6f3;
-    --color-accent: #c96d4a;
-    --color-accent-light: #e8a890;
-    --color-text: #2d3648;
-    --color-text-muted: #6b7280;
-    --color-border: #e5e1dc;
+    /* Neutral base */
+    --color-primary: #0f172a; /* slate-900 */
+    --color-primary-light: #1f2937; /* slate-800 */
+    --color-secondary: #f8fafc; /* slate-50 */
+    --color-accent: #a855f7; /* violet-500 */
+    --color-accent-light: #e9d5ff; /* violet-200 */
+    --color-text: #0f172a; /* slate-900 */
+    --color-text-muted: #64748b; /* slate-500 */
+    --color-border: #e2e8f0; /* slate-200 */
     --color-surface: #ffffff;
-    --color-hover: #f0ede8;
+    --color-hover: #f1f5f9; /* slate-100 */
 }
 
 :root {
@@ -89,7 +89,7 @@ a {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-text-muted);
+    background: #cbd5f5;
 }
 
 /* =========================
@@ -142,6 +142,15 @@ a {
     }
 }
 
+@keyframes luxuryMarquee {
+    0% {
+        transform: translateX(0);
+    }
+    100% {
+        transform: translateX(-50%);
+    }
+}
+
 /* Confetti */
 @keyframes confetti {
     0% {
@@ -173,6 +182,29 @@ a {
 
 .animate-confetti {
     animation: confetti 1.5s ease-out forwards;
+}
+
+/* Luxury showcase marquee */
+.luxury-marquee-container {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.luxury-marquee-container::-webkit-scrollbar {
+    display: none;
+}
+
+.luxury-marquee {
+    width: max-content;
+    animation: luxuryMarquee 22s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .luxury-marquee {
+        animation: none;
+    }
 }
 
 /* =========================

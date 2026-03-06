@@ -1,0 +1,84 @@
+{
+    "slug": "chanel",
+    "name": "CHANEL",
+    "concept": {
+        "catch": "自由のエレガンス × 永遠の定番",
+        "dna": "1910年、パリで帽子店（Chanel Modes）からスタート。1926年のリトルブラックドレスのように、実用性と洗練で時代を変えた。",
+        "for_who": [
+            "“流行より基準”が欲しい（タイムレス、品、清潔感）",
+            "きちんと見せたいが、窮屈さは嫌（自由に動ける上品さ）"
+        ]
+    },
+    "tags": [
+        "paris",
+        "timeless-classic",
+        "free-elegance",
+        "little-black-dress",
+        "refined-practicality",
+        "clean-silhouette",
+        "wardrobe-core"
+    ],
+    "culcept_guidance": {
+        "overview": "飾り立てるのではなく、動きやすさと洗練を両立して“自由な上品さ”を形にする。派手さに頼らず、清潔感と格を残せるのが強い。Culceptでは、シンプルな装いに“きれいな輪郭”のアイテムを一点入れて全体を整える提案が相性◎。おすすめはツイード系の上品素材、きれいなラインのジャケット、控えめな小物。オケージョンだけでなく日常も底上げしたい人、流行より長く愛せる基準をワードローブに置きたい人にフィット。上品に見えるのに頑張って見えない、そのバランスが欲しい人へ。“良い普通”を作れるので、ワードローブの中心に置くと強い。",
+        "culcept_rules": {
+            "styling_core": "シンプルな装いに“きれいな輪郭”のアイテムを一点入れて全体を整える（頑張り過ぎず上品）",
+            "palette": {
+                "base": [
+                    "black",
+                    "ivory",
+                    "cream",
+                    "beige",
+                    "navy",
+                    "charcoal"
+                ],
+                "accent": [
+                    "soft_gold_hint",
+                    "pearl_white_hint",
+                    "dusty_pink"
+                ],
+                "note": "配色は控えめに。清潔感と輪郭の美しさを優先"
+            },
+            "textures": [
+                "refined_tweed_like",
+                "fine_wool",
+                "structured_cotton",
+                "matte_leather",
+                "subtle_lustre"
+            ],
+            "silhouette_focus": [
+                "clean_outline",
+                "balanced_proportion",
+                "mobility_and_structure",
+                "refined_jacket_line"
+            ],
+            "pairing_heuristics": [
+                "主役は『ラインのきれいなジャケット』or『上品ツイード素材』に集中",
+                "小物は控えめで“質”を足す（盛り過ぎない）",
+                "日常でも成立させるなら、服はベーシックで輪郭重視に寄せる",
+                "“きちんと”を出したい日は、色数を2〜3色に絞る"
+            ],
+            "avoid": [
+                "過度な装飾で“重さ”を出す",
+                "派手柄・強配色で主張を増やしすぎる",
+                "窮屈に見えるタイト過多（自由さが消える）"
+            ]
+        },
+        "recommended_item_focus": [
+            "tweed_like_refined_piece",
+            "clean_line_jacket",
+            "subtle_accessory"
+        ],
+        "best_scenes": [
+            "everyday-elevated",
+            "occasion",
+            "business_dinner",
+            "smart-casual"
+        ],
+        "emotion": [
+            "free-elegance",
+            "clean-class",
+            "timeless",
+            "effortless-polish"
+        ]
+    }
+}

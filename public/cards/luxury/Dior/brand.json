@@ -1,0 +1,81 @@
+{
+    "slug": "dior",
+    "name": "Dior",
+    "concept": {
+        "catch": "“夢”を仕立てる、正統派フェミニン",
+        "dna": "1946年創設。翌年の「New Look」で戦後の女性像を刷新し、エレガンスの基準になった。",
+        "for_who": [
+            "きれいめ・品格・所作まで整えたい",
+            "“可愛い”より“端正で華がある”が好き"
+        ]
+    },
+    "tags": [
+        "new-look",
+        "tailoring",
+        "feminine-elegance",
+        "grace",
+        "refined-glam",
+        "silhouette-first"
+    ],
+    "culcept_guidance": {
+        "overview": "曲線美と仕立ての良さで、所作まできれいに見せるブランド。可愛いより、凛とした華やかさを求める人に刺さる。主張は強すぎないのに、鏡の前で“整って見える”説得力がある。Culceptでは、ベーシック配色でシルエット勝負（ウエスト位置や肩の丸み）を重視して選ぶとDIORらしさが出る。おすすめアイテムは、ラインの美しいジャケット、上品なワンピ/スカート、きれいなバッグ。式典・会食・デートなど「きちんと華」を求める日に強く、やり過ぎずに印象を上げたい人向け。甘さが苦手でも、ラインの美しさで女性らしさ/品格を出せる。",
+        "culcept_rules": {
+            "styling_core": "ベーシック配色 × シルエット勝負（ウエスト位置・肩の丸み・曲線）",
+            "palette": {
+                "base": [
+                    "black",
+                    "ivory",
+                    "cream",
+                    "beige",
+                    "navy",
+                    "charcoal"
+                ],
+                "accent": [
+                    "soft_rose",
+                    "burgundy",
+                    "gold_hint"
+                ],
+                "note": "色で盛らず、ベーシックで整えて“形”の説得力を出す"
+            },
+            "silhouette_focus": [
+                "ウエスト位置がきれいに決まる（絞り/切り替え）",
+                "肩・袖の丸み、曲線の作り方が上品",
+                "スカートは落ち感・広がりの“品”を優先"
+            ],
+            "materials": [
+                "fine_wool",
+                "structured_cotton",
+                "silk_like",
+                "tweed_like_refined"
+            ],
+            "pairing_heuristics": [
+                "主役は『ラインの美しいジャケット』か『上品ワンピ/スカート』のどちらかに集中",
+                "バッグはロゴより“形と質感”で格を合わせる",
+                "甘さが苦手なら、色は抑えてカッティングで女性らしさを作る"
+            ],
+            "avoid": [
+                "過度なフリル・甘さの盛り過ぎ（ラインが負ける）",
+                "強いストリート要素の混ぜすぎ（品格が崩れる）",
+                "派手柄×派手色での主役競合"
+            ]
+        },
+        "recommended_item_focus": [
+            "beautiful_line_jacket",
+            "refined_dress",
+            "elegant_skirt",
+            "clean_bag"
+        ],
+        "best_scenes": [
+            "ceremony",
+            "business_dinner",
+            "date",
+            "formal_event"
+        ],
+        "emotion": [
+            "composed",
+            "graceful",
+            "refined-flower",
+            "quiet-confidence"
+        ]
+    }
+}

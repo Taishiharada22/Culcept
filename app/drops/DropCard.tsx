@@ -143,7 +143,7 @@ export default function DropCard({
 
     return (
         <article
-            className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200/60 shadow-sm transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:border-slate-300"
+            className="group relative overflow-hidden rounded-3xl bg-white/70 border border-white/60 backdrop-blur-xl shadow-lg shadow-slate-900/5 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 hover:border-white/90"
             style={{
                 animation: "fadeInUp 0.5s ease-out forwards",
                 opacity: 0,
@@ -163,7 +163,7 @@ export default function DropCard({
             `}</style>
 
             {/* Image Container */}
-            <Link href={href} onClick={onDropLinkClick} className="block relative aspect-square overflow-hidden bg-slate-100">
+            <Link href={href} onClick={onDropLinkClick} className="block relative aspect-square overflow-hidden bg-slate-100/70">
                 {d.cover_image_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
@@ -177,12 +177,12 @@ export default function DropCard({
                 )}
 
                 {/* Hover Overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-slate-900/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
                 {/* Status Badges */}
                 <div className="absolute top-3 left-3 flex flex-col gap-2">
                     {d.sale_mode === "auction" && d.is_auction_live && (
-                        <span className="rounded-lg bg-gradient-to-r from-red-500 to-orange-500 px-3 py-1.5 text-xs font-black text-white shadow-lg animate-pulse">
+                        <span className="rounded-lg bg-gradient-to-r from-rose-500 to-red-500 px-3 py-1.5 text-xs font-black text-white shadow-lg animate-pulse">
                             🔴 LIVE
                         </span>
                     )}
@@ -212,13 +212,13 @@ export default function DropCard({
                             <img
                                 src={d.shop_avatar_url}
                                 alt={shopName(d)}
-                                className="h-6 w-6 rounded-full border border-slate-200 object-cover"
+                                className="h-6 w-6 rounded-full border border-white/70 object-cover"
                                 loading="lazy"
                             />
                         ) : (
-                            <div className="h-6 w-6 rounded-full bg-gradient-to-br from-purple-100 to-purple-200 border border-purple-200" />
+                            <div className="h-6 w-6 rounded-full bg-gradient-to-br from-violet-100 to-purple-100 border border-white/70" />
                         )}
-                        <span className="text-xs font-bold text-slate-600 group-hover/shop:text-purple-600 transition-colors uppercase tracking-wide">
+                        <span className="text-xs font-bold text-slate-600 group-hover/shop:text-violet-600 transition-colors uppercase tracking-wide">
                             {shopName(d)}
                         </span>
                     </Link>
@@ -226,7 +226,7 @@ export default function DropCard({
 
                 {/* Title & Price */}
                 <Link href={href} onClick={onDropLinkClick} className="block no-underline">
-                    <h3 className="line-clamp-2 text-base font-bold text-slate-900 leading-snug mb-2 group-hover:text-orange-600 transition-colors">
+                    <h3 className="line-clamp-2 text-base font-bold text-slate-900 leading-snug mb-2 group-hover:text-violet-600 transition-colors">
                         {title}
                     </h3>
 
@@ -238,7 +238,7 @@ export default function DropCard({
                         </div>
 
                         {shownPrice != null && (
-                            <div className="shrink-0 rounded-lg bg-gradient-to-r from-orange-500 to-orange-600 px-3 py-1.5 shadow-md">
+                            <div className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 px-3 py-1.5 shadow-md">
                                 <span className="text-sm font-black text-white">¥{fmt(shownPrice)}</span>
                             </div>
                         )}
@@ -255,9 +255,9 @@ export default function DropCard({
 
                 {/* Auction Info */}
                 {d.sale_mode === "auction" && Number(d.highest_bid_30d ?? 0) > 0 && (
-                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center gap-2 pt-2 border-t border-white/60">
                         <span className="text-xs font-semibold text-slate-500">Current Bid:</span>
-                        <span className="text-sm font-black text-purple-600">¥{fmt(d.highest_bid_30d)}</span>
+                        <span className="text-sm font-black text-violet-600">¥{fmt(d.highest_bid_30d)}</span>
                     </div>
                 )}
             </div>

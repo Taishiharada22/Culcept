@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { SUBCATEGORIES, type Subcategory } from "../../lib/subcategory";
+import { SUBCATEGORIES, type Subcategory } from "@/lib/subcategory";
 import { SubcategorySampleBackground } from "./SubcategorySampleBackground";
 
 type Props = {

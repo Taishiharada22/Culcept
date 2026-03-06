@@ -1,0 +1,80 @@
+{
+    "slug": "hermes",
+    "name": "Hermès",
+    "concept": {
+        "catch": "馬具の起源 × 究極のクラフツマンシップ",
+        "dna": "1837年パリで馬具工房として始まる。機能美と耐久性を“美”に変える思想が核。",
+        "for_who": [
+            "派手さより、本物の作り・素材・手仕事に惹かれる",
+            "静かに“格”を上げたい（クワイエット・ラグジュアリー）"
+        ]
+    },
+    "tags": [
+        "equestrian-origin",
+        "craftsmanship",
+        "quiet-luxury",
+        "functional-beauty",
+        "durability",
+        "leather",
+        "heritage-paris"
+    ],
+    "culcept_guidance": {
+        "overview": "機能美と耐久性を、美しさに変える思想が核。目立つ記号より、手触りや縫い目、角の処理などで差が出る。使うほど馴染み、持つ人の振る舞いまで整う感覚がある。Culceptでは、色数を絞り“素材の良さ”が伝わるアイテムを優先して提案すると、世界観が崩れない。おすすめは、上質レザー小物、シンプルなバッグ、きれいなコート。ビジネス、上質な日常、特別な旅に強く、派手に盛らずに“質”だけで勝ちたい日に効く。物を長く愛し、手入れを楽しめるタイプほど相性がいい。記号より本質派。少数の良品で暮らしを整えたい人に刺さる。",
+        "culcept_rules": {
+            "styling_core": "色数を絞り、素材の良さで勝つ（記号より触感・縫製・仕立て）",
+            "palette": {
+                "base": [
+                    "black",
+                    "deep_navy",
+                    "chocolate_brown",
+                    "tan",
+                    "camel",
+                    "ecru"
+                ],
+                "accent": [
+                    "saddle_brown",
+                    "warm_orange_hint"
+                ],
+                "note": "派手色で語らず、革の色味と質感で“格”を作る"
+            },
+            "textures": [
+                "premium_leather_grain",
+                "hand_stitch_like_detail",
+                "clean_edge_paint",
+                "matte_to_subtle_sheen"
+            ],
+            "silhouette": [
+                "clean_structure",
+                "refined_proportion",
+                "no_loud_details"
+            ],
+            "pairing_heuristics": [
+                "色数は2〜3色に制限し、トーンを揃える",
+                "小物は“手触りと縫製が伝わる”ものを優先（過剰装飾は避ける）",
+                "派手に盛らず、少数の良品で全体の品格を上げる",
+                "手入れ前提の素材（経年で馴染む）を優先"
+            ],
+            "avoid": [
+                "ロゴ/モノグラムの主張",
+                "派手な金具・過度な装飾",
+                "色数の増やしすぎ（世界観が崩れる）"
+            ]
+        },
+        "recommended_item_focus": [
+            "premium_leather_small_goods",
+            "simple_bag",
+            "clean_coat"
+        ],
+        "best_scenes": [
+            "business",
+            "elevated_everyday",
+            "special_travel"
+        ],
+        "emotion": [
+            "quiet-class",
+            "composure",
+            "timeless",
+            "ritual-care"
+        ]
+    }
+}

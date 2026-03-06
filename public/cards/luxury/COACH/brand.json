@@ -1,0 +1,80 @@
+{
+    "slug": "coach",
+    "name": "COACH",
+    "concept": {
+        "catch": "NYクラフト × 毎日に強いレザー",
+        "dna": "1941年に革職人たちが始めたレザーグッズの系譜。1958年にグラブタン・レザーを採用し、耐久性と馴染みの良さを磨いた。",
+        "for_who": [
+            "ラグジュアリーを“日常で使い倒す”派",
+            "トレンドより、長く使える道具感・安心感が好き"
+        ]
+    },
+    "tags": [
+        "ny-craft",
+        "everyday-luxury",
+        "leather-goods",
+        "durable",
+        "functional",
+        "work-travel",
+        "casual-to-clean"
+    ],
+    "culcept_guidance": {
+        "overview": "一点豪華より、生活に溶け込む上質さを選ぶブランド。革の表情、縫製、使い勝手のバランスがよく、気負わず持てるのに安っぽく見えない。カジュアルに寄せてもきれいに締まり、通勤・旅行・休日のどれでも成立する万能さが強い。Culceptでは、デニムやスウェットなどラフな服を“小物の質”で整える提案が最も相性がいい。おすすめアイテムは、毎日使えるレザーバッグ、シンプルな財布やベルト。実用性重視でも、きちんと感が残るのが魅力。持ち物を“道具”として育てたい人にフィット。気負わず持てるのに、手元だけ確実に上質にしたい人に。",
+        "culcept_rules": {
+            "styling_core": "ラフ服（デニム/スウェット）を“小物の質”で整える",
+            "palette": {
+                "base": [
+                    "black",
+                    "brown",
+                    "cognac",
+                    "tan",
+                    "taupe",
+                    "navy"
+                ],
+                "accent": [
+                    "oxblood",
+                    "forest_green"
+                ],
+                "note": "派手色より、革の色味と艶・シボ感で上質を出す"
+            },
+            "textures": [
+                "natural_grain_leather",
+                "glove_tanned_like",
+                "matte_hardware",
+                "clean_stitching"
+            ],
+            "functionality_priorities": [
+                "毎日持てる容量・軽さ",
+                "出し入れのしやすさ（開口/ポケット）",
+                "傷が味になるレザー表情"
+            ],
+            "pairing_heuristics": [
+                "デニム×白Tのようなベーシックに、バッグ/ベルト/財布で締める",
+                "通勤/旅行/休日で使い回せる形を優先（過剰装飾は避ける）",
+                "“道具として育つ”素材を優先（経年で馴染む系）"
+            ],
+            "avoid": [
+                "一点豪華のギラつき（派手金具・過度な装飾）",
+                "トレンド依存の短命ディテール",
+                "実用性を削る極端なミニサイズ"
+            ]
+        },
+        "recommended_item_focus": [
+            "everyday_leather_bag",
+            "simple_wallet",
+            "clean_belt"
+        ],
+        "best_scenes": [
+            "commute",
+            "travel",
+            "weekend",
+            "everyday"
+        ],
+        "emotion": [
+            "reliable",
+            "effortless",
+            "grown-up-casual",
+            "tool-like-pride"
+        ]
+    }
+}

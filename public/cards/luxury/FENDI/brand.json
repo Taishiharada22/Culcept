@@ -1,0 +1,79 @@
+{
+    "slug": "fendi",
+    "name": "FENDI",
+    "concept": {
+        "catch": "ローマの色気 × ファミリークラフト",
+        "dna": "1925年ローマで毛皮とレザー工房として始まる。家族と職人の蓄積が“艶っぽい実用性”に繋がる。",
+        "for_who": [
+            "きれいめだけじゃなく、少し強さ・艶が欲しい",
+            "上質で“女っぽい/男っぽい”を両立したい"
+        ]
+    },
+    "tags": [
+        "rome",
+        "family-craft",
+        "leather",
+        "fur-heritage",
+        "sensual-practical",
+        "monochrome-plus-sheen",
+        "city-night"
+    ],
+    "culcept_guidance": {
+        "overview": "素材の触感と、さりげない華の出し方が上手いブランド。きれいめに寄せても固くなり過ぎず、ストリートに振っても品が残る。甘すぎない艶、強すぎない色気が欲しい人に刺さる。Culceptでは、モノトーンに一点だけ艶やかな素材（レザー/サテン感）を足す提案が再現性高め。おすすめは、触感が伝わるバッグ、上質なニット、レザーのアウター。主張しすぎずに“ローマの温度”が出て、全体が急にリッチに見える。会食、街歩き、夜の予定にも強い。ムード重視で大人っぽく魅せたい人へ。“艶の分量”を調整しやすいので、日常から夜まで守備範囲が広い。",
+        "culcept_rules": {
+            "styling_core": "モノトーンを土台に、“艶素材”を一点だけ足す（艶の分量コントロール）",
+            "palette": {
+                "base": [
+                    "black",
+                    "charcoal",
+                    "ivory",
+                    "stone_gray"
+                ],
+                "accent": [
+                    "warm_brown",
+                    "deep_burgundy",
+                    "gold_hint"
+                ],
+                "note": "色は増やさず、素材の艶と触感で“温度”を出す"
+            },
+            "textures": [
+                "supple_leather",
+                "satin_like_sheen",
+                "fine_knit",
+                "matte_wool_base"
+            ],
+            "silhouette": [
+                "clean_city_lines",
+                "soft_strength_balance",
+                "refined_street_mix"
+            ],
+            "pairing_heuristics": [
+                "モノトーン（マット）× 艶（レザー/サテン感）を1点に集中",
+                "バッグ or レザーアウターを主役にし、他は引き算で整える",
+                "“女っぽい/男っぽい”は素材で調整（形はシンプルに保つ）"
+            ],
+            "avoid": [
+                "艶素材を複数点で盛る（ギラつき）",
+                "甘さ過多（フリル/パステルの積み上げ）",
+                "強い色気×強いストリートの同時盛り"
+            ]
+        },
+        "recommended_item_focus": [
+            "tactile_bag",
+            "premium_knit",
+            "leather_outer"
+        ],
+        "best_scenes": [
+            "business_dinner",
+            "city_walk",
+            "night_out",
+            "event"
+        ],
+        "emotion": [
+            "rome-temperature",
+            "mature-mood",
+            "subtle-glam",
+            "polished-edge"
+        ]
+    }
+}

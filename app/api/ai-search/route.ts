@@ -1,6 +1,7 @@
 // app/api/ai-search/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { expandSearchTerms, detectCategory, detectPriceRange, detectStyle } from "@/lib/ai-search/synonyms";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,14 +60,25 @@ export async function GET(req: NextRequest) {
             dbQuery = dbQuery.lte("price", interpretation.filters.maxPrice);
         }
 
-        // Text search on title, brand
-        const searchTerms = interpretation.keywords.join(" ").trim();
-        if (searchTerms) {
-            // NOTE: This is a simple fallback. For better results consider:
-            // - splitting into multiple OR clauses (each keyword)
-            // - using Postgres full-text search (tsvector)
-            // - using embeddings / pgvector
-            dbQuery = dbQuery.or(`title.ilike.%${searchTerms}%,brand.ilike.%${searchTerms}%`);
+        // Text search on title, brand, tags using expanded keywords
+        const allSearchTerms = [...new Set([...interpretation.keywords, ...interpretation.expandedKeywords])];
+
+        if (allSearchTerms.length > 0) {
+            // Build OR clauses for each keyword (improved search accuracy)
+            const orClauses = allSearchTerms
+                .slice(0, 10) // Limit to prevent too long queries
+                .map(term => `title.ilike.%${term}%,brand.ilike.%${term}%`)
+                .join(",");
+
+            if (orClauses) {
+                dbQuery = dbQuery.or(orClauses);
+            }
+        }
+
+        // Apply category filter if detected
+        if (interpretation.detectedCategory) {
+            // Category could be in tags or title
+            dbQuery = dbQuery.or(`tags.cs.{${interpretation.detectedCategory}}`);
         }
 
         dbQuery = dbQuery.limit(50);
@@ -75,32 +87,57 @@ export async function GET(req: NextRequest) {
 
         if (error) throw error;
 
-        // Calculate relevance scores
+        // Calculate relevance scores with enhanced matching
         const scoredProducts = (products || []).map((product: any) => {
             let score = 0;
             const title = (product.title || "").toLowerCase();
             const brand = (product.brand || "").toLowerCase();
             const tags: string[] = Array.isArray(product.tags) ? product.tags : [];
 
-            // Keyword matching
+            // Primary keyword matching (higher weight)
             interpretation.keywords.forEach((keyword) => {
                 const kw = keyword.toLowerCase();
-                if (title.includes(kw)) score += 10;
-                if (brand.includes(kw)) score += 5;
+                if (title.includes(kw)) score += 15;
+                if (brand.includes(kw)) score += 8;
+                if (tags.some((tag) => tag.toLowerCase().includes(kw))) score += 5;
+            });
+
+            // Expanded keyword matching (lower weight - synonym matches)
+            interpretation.expandedKeywords.forEach((keyword) => {
+                const kw = keyword.toLowerCase();
+                if (title.includes(kw)) score += 8;
+                if (brand.includes(kw)) score += 4;
                 if (tags.some((tag) => tag.toLowerCase().includes(kw))) score += 3;
+            });
+
+            // Category match bonus
+            if (interpretation.detectedCategory) {
+                if (tags.some(tag => tag.toLowerCase() === interpretation.detectedCategory?.toLowerCase())) {
+                    score += 12;
+                }
+                if (title.includes(interpretation.detectedCategory.toLowerCase())) {
+                    score += 8;
+                }
+            }
+
+            // Style match bonus
+            interpretation.detectedStyles.forEach(style => {
+                if (tags.some(tag => tag.toLowerCase().includes(style.toLowerCase()))) {
+                    score += 6;
+                }
             });
 
             // Price range bonus
             if (interpretation.filters.maxPrice) {
                 const priceRatio = (product.price || 0) / interpretation.filters.maxPrice;
                 if (priceRatio <= 1) {
-                    score += Math.round((1 - priceRatio) * 5);
+                    score += Math.round((1 - priceRatio) * 8);
                 }
             }
 
             // Condition bonus
             if (interpretation.filters.conditions?.includes(product.condition)) {
-                score += 8;
+                score += 10;
             }
 
             // Brand bonus (make comparison robust)
@@ -109,7 +146,7 @@ export async function GET(req: NextRequest) {
                     (b) => b.toLowerCase() === (product.brand || "").toLowerCase()
                 )
             ) {
-                score += 15;
+                score += 20;
             }
 
             return {
@@ -128,6 +165,10 @@ export async function GET(req: NextRequest) {
             query_interpretation: {
                 intent: interpretation.intent,
                 extracted_filters: interpretation.filters,
+                detected_category: interpretation.detectedCategory,
+                detected_styles: interpretation.detectedStyles,
+                keywords: interpretation.keywords,
+                expanded_keywords: interpretation.expandedKeywords.slice(0, 20), // Limit for response size
                 suggested_refinements: generateRefinements(interpretation),
             },
             total_results: scoredProducts.length,
@@ -141,110 +182,243 @@ export async function GET(req: NextRequest) {
     }
 }
 
-function parseNaturalLanguageQuery(query: string): QueryInterpretation {
+function parseNaturalLanguageQuery(query: string): QueryInterpretation & {
+    expandedKeywords: string[];
+    detectedCategory: string | null;
+    detectedStyles: string[];
+} {
     const lowerQuery = query.toLowerCase();
 
-    const interpretation: QueryInterpretation = {
+    const interpretation: QueryInterpretation & {
+        expandedKeywords: string[];
+        detectedCategory: string | null;
+        detectedStyles: string[];
+    } = {
         intent: "product_search",
         keywords: [],
+        expandedKeywords: [],
+        detectedCategory: null,
+        detectedStyles: [],
         filters: {},
     };
 
-    // Extract price range
-    const priceMatch = lowerQuery.match(/(?:under|below|less than|<)\s*[¥$]?\s*(\d+(?:,\d{3})*)/);
-    if (priceMatch) {
-        interpretation.filters.maxPrice = parseInt(priceMatch[1].replace(/,/g, ""), 10);
+    // Use enhanced price detection from synonyms library
+    const detectedPriceRange = detectPriceRange(query);
+    if (detectedPriceRange) {
+        if (detectedPriceRange.min > 0) {
+            interpretation.filters.minPrice = detectedPriceRange.min;
+        }
+        if (detectedPriceRange.max < Infinity) {
+            interpretation.filters.maxPrice = detectedPriceRange.max;
+        }
     }
 
-    const minPriceMatch = lowerQuery.match(/(?:over|above|more than|>)\s*[¥$]?\s*(\d+(?:,\d{3})*)/);
-    if (minPriceMatch) {
-        interpretation.filters.minPrice = parseInt(minPriceMatch[1].replace(/,/g, ""), 10);
+    // Fallback: Extract price range with regex
+    if (!interpretation.filters.maxPrice) {
+        const priceMatch = lowerQuery.match(/(?:under|below|less than|<|以下)\s*[¥$]?\s*(\d+(?:,\d{3})*)/);
+        if (priceMatch) {
+            interpretation.filters.maxPrice = parseInt(priceMatch[1].replace(/,/g, ""), 10);
+        }
     }
 
-    // Extract condition
-    const conditions = ["damaged", "well", "good", "almost_new", "new"] as const;
-    const foundConditions = conditions.filter((c) => lowerQuery.includes(c));
+    if (!interpretation.filters.minPrice) {
+        const minPriceMatch = lowerQuery.match(/(?:over|above|more than|>|以上)\s*[¥$]?\s*(\d+(?:,\d{3})*)/);
+        if (minPriceMatch) {
+            interpretation.filters.minPrice = parseInt(minPriceMatch[1].replace(/,/g, ""), 10);
+        }
+    }
+
+    // Extract condition (expanded with Japanese terms)
+    const conditionMap: Record<string, string> = {
+        "damaged": "damaged",
+        "傷あり": "damaged",
+        "ダメージ": "damaged",
+        "well": "well",
+        "まあまあ": "well",
+        "good": "good",
+        "良好": "good",
+        "きれい": "good",
+        "almost_new": "almost_new",
+        "ほぼ新品": "almost_new",
+        "未使用に近い": "almost_new",
+        "new": "new",
+        "新品": "new",
+        "未使用": "new",
+        "タグ付き": "new",
+    };
+
+    const foundConditions: string[] = [];
+    for (const [term, condition] of Object.entries(conditionMap)) {
+        if (lowerQuery.includes(term.toLowerCase())) {
+            if (!foundConditions.includes(condition)) {
+                foundConditions.push(condition);
+            }
+        }
+    }
     if (foundConditions.length > 0) {
-        interpretation.filters.conditions = [...foundConditions];
+        interpretation.filters.conditions = foundConditions;
     }
 
-    // Extract common brands (expand this list)
+    // Extract common brands (expanded list)
     const brands = [
-        "nike",
-        "adidas",
-        "supreme",
-        "gucci",
-        "prada",
-        "louis vuitton",
-        "chanel",
-        "dior",
-        "balenciaga",
-        "yeezy",
-        "jordan",
-        "vintage",
-        "levi's",
-        "carhartt",
+        "nike", "ナイキ",
+        "adidas", "アディダス",
+        "supreme", "シュプリーム",
+        "gucci", "グッチ",
+        "prada", "プラダ",
+        "louis vuitton", "ルイヴィトン", "ルイ・ヴィトン",
+        "chanel", "シャネル",
+        "dior", "ディオール",
+        "balenciaga", "バレンシアガ",
+        "yeezy", "イージー",
+        "jordan", "ジョーダン",
+        "vintage", "ヴィンテージ", "ビンテージ",
+        "levi's", "リーバイス",
+        "carhartt", "カーハート",
+        "uniqlo", "ユニクロ",
+        "zara", "ザラ",
+        "h&m",
+        "gap", "ギャップ",
+        "comme des garcons", "コムデギャルソン",
+        "issey miyake", "イッセイミヤケ",
+        "yohji yamamoto", "ヨウジヤマモト",
+        "undercover", "アンダーカバー",
+        "neighborhood", "ネイバーフッド",
+        "bape", "ベイプ", "a bathing ape",
+        "stussy", "ステューシー",
+        "the north face", "ノースフェイス",
+        "patagonia", "パタゴニア",
+        "arc'teryx", "アークテリクス",
     ] as const;
 
-    const foundBrands = brands.filter((b) => lowerQuery.includes(b));
+    const foundBrands = brands.filter((b) => lowerQuery.includes(b.toLowerCase()));
     if (foundBrands.length > 0) {
-        interpretation.filters.brands = [...foundBrands];
+        interpretation.filters.brands = [...new Set(foundBrands.map(b => b.toLowerCase()))];
     }
 
-    // Extract keywords (remove price and condition terms)
-    const keywords = query
-        .toLowerCase()
-        .replace(/(?:under|below|less than|over|above|more than)\s*[¥$]?\s*\d+(?:,\d{3})*/g, "")
-        .replace(/\b(?:damaged|well|good|almost_new|new)\b/g, "")
-        .split(/\s+/)
-        .map((w) => w.trim())
-        .filter((w) => w.length > 2 && !["the", "and", "for", "with", "from"].includes(w));
+    // Detect category using synonyms library
+    interpretation.detectedCategory = detectCategory(query);
 
-    interpretation.keywords = [...new Set(keywords)];
+    // Detect styles using synonyms library
+    interpretation.detectedStyles = detectStyle(query);
+
+    // Extract and expand keywords using synonyms library
+    const cleanedQuery = query
+        .toLowerCase()
+        .replace(/(?:under|below|less than|over|above|more than|以下|以上)\s*[¥$]?\s*\d+(?:,\d{3})*/g, "")
+        .replace(/\b(?:damaged|well|good|almost_new|new|傷あり|良好|新品|未使用)\b/gi, "")
+        .trim();
+
+    const baseKeywords = cleanedQuery
+        .split(/[\s、,]+/)
+        .map((w) => w.trim())
+        .filter((w) => w.length > 1 && !["the", "and", "for", "with", "from", "を", "の", "で", "が", "に"].includes(w));
+
+    interpretation.keywords = [...new Set(baseKeywords)];
+
+    // Expand keywords with synonyms
+    interpretation.expandedKeywords = expandSearchTerms(query);
 
     return interpretation;
 }
 
-function generateMatchReason(product: any, interpretation: QueryInterpretation): string {
+function generateMatchReason(
+    product: any,
+    interpretation: QueryInterpretation & {
+        expandedKeywords?: string[];
+        detectedCategory?: string | null;
+        detectedStyles?: string[];
+    }
+): string {
     const reasons: string[] = [];
 
     const brandLower = (product.brand || "").toLowerCase();
     if (interpretation.filters.brands?.some((b) => b.toLowerCase() === brandLower)) {
-        reasons.push(`Matches brand: ${product.brand}`);
+        reasons.push(`ブランド一致: ${product.brand}`);
     }
 
     if (interpretation.filters.conditions?.includes(product.condition)) {
-        reasons.push(`Condition: ${product.condition}`);
+        const conditionLabels: Record<string, string> = {
+            new: "新品",
+            almost_new: "ほぼ新品",
+            good: "良好",
+            well: "まあまあ",
+            damaged: "傷あり",
+        };
+        reasons.push(`状態: ${conditionLabels[product.condition] || product.condition}`);
     }
 
     if (interpretation.filters.maxPrice && (product.price || 0) <= interpretation.filters.maxPrice) {
-        reasons.push(`Within budget`);
+        reasons.push("予算内");
     }
 
     const titleMatches = interpretation.keywords.filter((kw) =>
         (product.title || "").toLowerCase().includes(kw.toLowerCase())
     );
     if (titleMatches.length > 0) {
-        reasons.push(`Keywords in title`);
+        reasons.push(`キーワード一致`);
     }
 
-    return reasons.length > 0 ? reasons.join(" • ") : "General match";
+    // Check expanded keywords (synonym matches)
+    if (interpretation.expandedKeywords) {
+        const synonymMatches = interpretation.expandedKeywords.filter((kw) =>
+            (product.title || "").toLowerCase().includes(kw.toLowerCase()) ||
+            (Array.isArray(product.tags) && product.tags.some((t: string) => t.toLowerCase().includes(kw.toLowerCase())))
+        );
+        if (synonymMatches.length > 0 && titleMatches.length === 0) {
+            reasons.push("関連キーワード一致");
+        }
+    }
+
+    // Category match
+    if (interpretation.detectedCategory) {
+        const tags: string[] = Array.isArray(product.tags) ? product.tags : [];
+        if (tags.some(tag => tag.toLowerCase() === interpretation.detectedCategory?.toLowerCase())) {
+            reasons.push(`カテゴリ: ${interpretation.detectedCategory}`);
+        }
+    }
+
+    // Style match
+    if (interpretation.detectedStyles && interpretation.detectedStyles.length > 0) {
+        const tags: string[] = Array.isArray(product.tags) ? product.tags : [];
+        const matchedStyles = interpretation.detectedStyles.filter(style =>
+            tags.some(tag => tag.toLowerCase().includes(style.toLowerCase()))
+        );
+        if (matchedStyles.length > 0) {
+            reasons.push(`スタイル: ${matchedStyles[0]}`);
+        }
+    }
+
+    return reasons.length > 0 ? reasons.join(" • ") : "おすすめ";
 }
 
-function generateRefinements(interpretation: QueryInterpretation): string[] {
+function generateRefinements(
+    interpretation: QueryInterpretation & {
+        detectedCategory?: string | null;
+        detectedStyles?: string[];
+    }
+): string[] {
     const refinements: string[] = [];
 
     if (!interpretation.filters.conditions) {
-        refinements.push("Add condition filter (e.g., 'good condition')");
+        refinements.push("状態を指定（例: '新品', '良好', 'ほぼ新品'）");
     }
 
-    if (!interpretation.filters.maxPrice) {
-        refinements.push("Add price limit (e.g., 'under ¥10000')");
+    if (!interpretation.filters.maxPrice && !interpretation.filters.minPrice) {
+        refinements.push("価格を指定（例: '1万円以下', '5000円以上'）");
     }
 
     if (!interpretation.filters.brands) {
-        refinements.push("Specify brand (e.g., 'Nike', 'Adidas')");
+        refinements.push("ブランドを指定（例: 'Nike', 'Supreme', 'ユニクロ'）");
     }
 
-    return refinements;
+    if (!interpretation.detectedCategory) {
+        refinements.push("カテゴリを指定（例: 'ジャケット', 'パンツ', 'スニーカー'）");
+    }
+
+    if (!interpretation.detectedStyles || interpretation.detectedStyles.length === 0) {
+        refinements.push("スタイルを指定（例: 'カジュアル', 'ストリート', 'フォーマル'）");
+    }
+
+    return refinements.slice(0, 3); // Limit to top 3 suggestions
 }

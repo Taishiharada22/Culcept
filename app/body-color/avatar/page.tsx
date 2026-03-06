@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type React from "react";
 import Link from "next/link";
 import Script from "next/script";
 import {
@@ -466,8 +465,8 @@ export default function BodyColorAvatarPage() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <GlassBadge variant="default">360°スクロール</GlassBadge>
-                        <GlassButton href="/body-color" size="sm" variant="default">
+                        <GlassBadge variant="secondary">360°スクロール</GlassBadge>
+                        <GlassButton href="/body-color" size="sm" variant="secondary">
                             テキスト入力へ
                         </GlassButton>
                     </div>
@@ -501,7 +500,7 @@ export default function BodyColorAvatarPage() {
                                 person_rgba / clothes_rgba / mask / turntable を自動作成します。
                             </div>
                         </div>
-                        <GlassBadge variant="default">無料パイプライン</GlassBadge>
+                        <GlassBadge variant="secondary">無料パイプライン</GlassBadge>
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                         <input
@@ -568,14 +567,14 @@ export default function BodyColorAvatarPage() {
                                 />
                                 <GlassButton
                                     size="sm"
-                                    variant="default"
+                                    variant="secondary"
                                     onClick={() => (document.getElementById("avatar-upload-front") as HTMLInputElement | null)?.click()}
                                 >
                                     正面を追加
                                 </GlassButton>
                                 <GlassButton
                                     size="sm"
-                                    variant="default"
+                                    variant="secondary"
                                     onClick={() =>
                                         setAvatarViews((prev) => ({
                                             ...prev,
@@ -596,7 +595,7 @@ export default function BodyColorAvatarPage() {
                                 />
                                 <GlassButton
                                     size="sm"
-                                    variant="default"
+                                    variant="secondary"
                                     onClick={() => (document.getElementById("avatar-upload-left") as HTMLInputElement | null)?.click()}
                                 >
                                     左側面
@@ -610,7 +609,7 @@ export default function BodyColorAvatarPage() {
                                 />
                                 <GlassButton
                                     size="sm"
-                                    variant="default"
+                                    variant="secondary"
                                     onClick={() => (document.getElementById("avatar-upload-right") as HTMLInputElement | null)?.click()}
                                 >
                                     右側面
@@ -624,18 +623,18 @@ export default function BodyColorAvatarPage() {
                                 />
                                 <GlassButton
                                     size="sm"
-                                    variant="default"
+                                    variant="secondary"
                                     onClick={() => (document.getElementById("avatar-upload-back") as HTMLInputElement | null)?.click()}
                                 >
                                     背面
                                 </GlassButton>
-                                <GlassButton size="sm" variant="default" onClick={() => setRotation(0)}>
+                                <GlassButton size="sm" variant="secondary" onClick={() => setRotation(0)}>
                                     回転リセット
                                 </GlassButton>
                                 {avatarAssets.turntable_gif_url && (
                                     <GlassButton
                                         size="sm"
-                                        variant={useTurntable ? "gradient" : "default"}
+                                        variant={useTurntable ? "gradient" : "secondary"}
                                         onClick={() => setUseTurntable((v) => !v)}
                                     >
                                         {useTurntable ? "Turntable On" : "Turntable"}
@@ -672,11 +671,7 @@ export default function BodyColorAvatarPage() {
                                     {(useTurntable && avatarAssets.turntable_gif_url) || activeImage ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
-                                            src={
-                                                useTurntable && avatarAssets.turntable_gif_url
-                                                    ? avatarAssets.turntable_gif_url
-                                                    : activeImage!
-                                            }
+                                            src={useTurntable && avatarAssets.turntable_gif_url ? avatarAssets.turntable_gif_url : activeImage!}
                                             alt="avatar"
                                             className="h-full w-full object-cover"
                                             style={{ filter: "drop-shadow(0 12px 30px rgba(0,0,0,0.12))" }}
@@ -727,10 +722,11 @@ export default function BodyColorAvatarPage() {
                                                         key={opt.value}
                                                         type="button"
                                                         onClick={() => setCfvValue(point.key, opt.value)}
-                                                        className={`px-2 py-1 rounded-full text-[10px] font-semibold border ${cfv[point.key] === opt.value
+                                                        className={`px-2 py-1 rounded-full text-[10px] font-semibold border ${
+                                                            cfv[point.key] === opt.value
                                                                 ? "bg-slate-900 text-white border-slate-900"
                                                                 : "bg-white text-slate-600 border-slate-200"
-                                                            }`}
+                                                        }`}
                                                     >
                                                         {opt.label}
                                                     </button>
@@ -768,10 +764,11 @@ export default function BodyColorAvatarPage() {
                                                 key={opt.value}
                                                 type="button"
                                                 onClick={() => setCpvValue("undertone", opt.value)}
-                                                className={`px-3 py-1 rounded-full text-xs font-semibold border ${cpv.undertone === opt.value
+                                                className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                                                    cpv.undertone === opt.value
                                                         ? "bg-slate-900 text-white border-slate-900"
                                                         : "bg-white text-slate-600 border-slate-200"
-                                                    }`}
+                                                }`}
                                             >
                                                 {opt.label}
                                             </button>
@@ -827,9 +824,9 @@ export default function BodyColorAvatarPage() {
 
                         <GlassCard className="p-6">
                             <h2 className="text-lg font-bold text-slate-900 mb-3">生成物URL（パイプライン）</h2>
-                            <div className="text-xs text-slate-500 mb-3">
-                                `tools/vision-pipeline` の出力を `public/uploads/{"{userId}"}/` に置いてURLを登録します。
-                            </div>
+                                <div className="text-xs text-slate-500 mb-3">
+                                    `tools/vision-pipeline` の出力を `public/uploads/{"{userId}"}/` に置いてURLを登録します。
+                                </div>
                             <div className="grid md:grid-cols-2 gap-3 mb-4">
                                 {AVATAR_ASSET_UPLOADS.map((asset) => (
                                     <div key={asset.kind} className="rounded-2xl border border-slate-200 bg-white/70 p-3">
@@ -844,10 +841,8 @@ export default function BodyColorAvatarPage() {
                                             />
                                             <GlassButton
                                                 size="xs"
-                                                variant="default"
-                                                onClick={() =>
-                                                    (document.getElementById(`asset-${asset.kind}`) as HTMLInputElement | null)?.click()
-                                                }
+                                                variant="secondary"
+                                                onClick={() => (document.getElementById(`asset-${asset.kind}`) as HTMLInputElement | null)?.click()}
                                             >
                                                 追加
                                             </GlassButton>
@@ -926,20 +921,20 @@ export default function BodyColorAvatarPage() {
                                         shadow-intensity="0.3"
                                         exposure="0.9"
                                         environment-image="neutral"
-                                        style={{
-                                            width: "100%",
-                                            height: "360px",
-                                            background: "linear-gradient(180deg,#f8fafc,#eef2ff)",
-                                        }}
+                                        style={{ width: "100%", height: "360px", background: "linear-gradient(180deg,#f8fafc,#eef2ff)" }}
                                     />
                                 </div>
-                                <div className="mt-2 text-xs text-slate-500">ドラッグで回転、スクロールでズーム。</div>
+                                <div className="mt-2 text-xs text-slate-500">
+                                    ドラッグで回転、スクロールでズーム。
+                                </div>
                             </GlassCard>
                         )}
 
                         <GlassCard className="p-6">
                             <h2 className="text-lg font-bold text-slate-900 mb-3">保存</h2>
-                            <p className="text-sm text-slate-500 mb-4">保存するとFit/Colorスコアに反映されます。</p>
+                            <p className="text-sm text-slate-500 mb-4">
+                                保存するとFit/Colorスコアに反映されます。
+                            </p>
                             <GlassButton onClick={handleSave} loading={saving} variant="gradient">
                                 保存する
                             </GlassButton>
@@ -952,10 +947,16 @@ export default function BodyColorAvatarPage() {
                         <GlassCard className="p-6">
                             <h2 className="text-lg font-bold text-slate-900 mb-3">次にやると良いこと</h2>
                             <div className="flex flex-col gap-2">
-                                <Link href="/body-color" className="text-sm text-slate-600 underline hover:text-slate-800">
+                                <Link
+                                    href="/body-color"
+                                    className="text-sm text-slate-600 underline hover:text-slate-800"
+                                >
                                     テキスト入力で詳細なCFV/CPVを補完
                                 </Link>
-                                <Link href="/style-profile" className="text-sm text-slate-600 underline hover:text-slate-800">
+                                <Link
+                                    href="/style-profile"
+                                    className="text-sm text-slate-600 underline hover:text-slate-800"
+                                >
                                     Style DNAで診断結果を見る
                                 </Link>
                             </div>

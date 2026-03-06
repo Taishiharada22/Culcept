@@ -1,6 +1,6 @@
 // app/my/orders/page.tsx
-import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
+import MyOrdersClient from "./MyOrdersClient";
 
 export const dynamic = "force-dynamic";
 
@@ -19,14 +19,7 @@ export default async function MyOrdersPage({
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
-        return (
-            <main className="mx-auto max-w-2xl px-4 py-16">
-                <p className="text-sm text-zinc-600">ログインしてください。</p>
-                <Link className="mt-6 inline-block underline" href="/login">
-                    Login
-                </Link>
-            </main>
-        );
+        return <MyOrdersClient isLoggedIn={false} tab={tab} orders={[]} />;
     }
 
     const userId = auth.user.id;
@@ -44,48 +37,28 @@ export default async function MyOrdersPage({
             ? await q.eq("seller_user_id", userId)
             : await q.eq("buyer_user_id", userId);
 
-    if (error) {
-        return (
-            <main className="mx-auto max-w-2xl px-4 py-16">
-                <h1 className="text-2xl font-extrabold">Orders</h1>
-                <p className="mt-3 text-sm text-red-600">Error: {error.message}</p>
-            </main>
-        );
-    }
+    const orders = (rows ?? []).map((o: any) => {
+        const rawAmount = typeof o?.amount_total === "number" ? o.amount_total : Number(o?.amount_total ?? "");
+        const amount_total = Number.isFinite(rawAmount) ? rawAmount : null;
+
+        return {
+            id: String(o?.id ?? ""),
+            status: o?.status ?? null,
+            paid_at: o?.paid_at ?? null,
+            created_at: o?.created_at ?? null,
+            drop_id: o?.drop_id ?? null,
+            amount_total,
+            currency: o?.currency ?? null,
+            stripe_session_id: o?.stripe_session_id ?? null,
+        };
+    });
 
     return (
-        <main className="mx-auto max-w-2xl px-4 py-16">
-            <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-extrabold">{tab === "sales" ? "販売履歴" : "購入履歴"}</h1>
-                <Link className="text-sm underline" href={`/my/orders?tab=${tab === "sales" ? "purchases" : "sales"}`}>
-                    {tab === "sales" ? "購入履歴へ" : "販売履歴へ"}
-                </Link>
-            </div>
-
-            <div className="mt-6 space-y-3">
-                {(rows ?? []).map((o) => (
-                    <div key={o.id} className="rounded-lg border p-4">
-                        <div className="text-sm font-bold">status: {o.status}</div>
-                        <div className="mt-1 text-xs text-zinc-600">order_id: {o.id}</div>
-                        {o.paid_at && <div className="mt-1 text-xs text-zinc-600">paid_at: {o.paid_at}</div>}
-                        <div className="mt-2 flex gap-3">
-                            {o.drop_id && (
-                                <Link className="text-sm underline" href={`/drops/${o.drop_id}`}>
-                                    Productsを見る
-                                </Link>
-                            )}
-                            {o.stripe_session_id && (
-                                <span className="text-xs text-zinc-500">session: {o.stripe_session_id}</span>
-                            )}
-                        </div>
-                    </div>
-                ))}
-                {(rows ?? []).length === 0 && <p className="text-sm text-zinc-600">まだありません。</p>}
-            </div>
-
-            <Link className="mt-8 inline-block underline" href="/my">
-                My Pageへ
-            </Link>
-        </main>
+        <MyOrdersClient
+            isLoggedIn
+            tab={tab}
+            orders={orders}
+            errorMessage={error?.message ?? null}
+        />
     );
 }

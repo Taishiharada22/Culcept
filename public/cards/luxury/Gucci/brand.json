@@ -1,0 +1,80 @@
+{
+    "slug": "gucci",
+    "name": "Gucci",
+    "concept": {
+        "catch": "旅の起源 × レトロで遊ぶイタリア的豪華さ",
+        "dna": "1921年フィレンツェで創設。旅とクラフトの系譜を持ち、戦後にはBamboo 1947のような素材発想でも象徴を作ってきた。",
+        "for_who": [
+            "服で“気分”を上げたい（色、艶、レトロ、遊び）",
+            "きれいめだけじゃ物足りない、少しクセが欲しい"
+        ]
+    },
+    "tags": [
+        "italian-eclectic",
+        "retro-maximal",
+        "travel-heritage",
+        "craft",
+        "glam",
+        "color-play",
+        "pattern-accent"
+    ],
+    "culcept_guidance": {
+        "overview": "レトロなムードと現代のエネルギーを混ぜて、主役感を作るブランド。きれいめだけでは物足りない人、配色や柄で“らしさ”を出したい人に合う。全部を派手にしなくても、バッグや小物を一点足すだけで雰囲気が一段リッチに跳ねる。Culceptでは、ベースを無地で固めて“主役パーツ”を一つに絞る提案が鉄板。おすすめは、艶のあるジャケット、柄の小物、色の効いたトップス。柄を入れるなら他は引き算すると派手になりすぎず上品にまとまる。パーティー、旅行、街歩きなど、気分を上げたい日に強い。“盛る日”と“引く日”を使い分けられる人ほど、幅広く遊べる。",
+        "culcept_rules": {
+            "styling_core": "ベースは無地で固めて、主役パーツを「1つ」に絞る",
+            "palette": {
+                "base": [
+                    "black",
+                    "ivory",
+                    "camel",
+                    "navy"
+                ],
+                "accent": [
+                    "emerald",
+                    "ruby",
+                    "sapphire",
+                    "burgundy",
+                    "mustard"
+                ],
+                "note": "色は足し算しすぎず、主役パーツに集約する"
+            },
+            "textures": [
+                "glossy_satin_like",
+                "velvet_like",
+                "polished_leather",
+                "rich_wool"
+            ],
+            "pattern_rules": [
+                "柄を入れるなら他は引き算（無地で逃がす）",
+                "柄×柄は避け、1点に固定して“品の派手さ”に寄せる"
+            ],
+            "pairing_heuristics": [
+                "バッグ/小物1点で雰囲気を跳ねさせる（全身派手にしない）",
+                "艶のあるジャケット or 色トップスのどちらかを主役にする",
+                "“盛る日”と“引く日”を切り替えられるUI提案（トーン選択）"
+            ],
+            "avoid": [
+                "主役が複数（色+柄+艶を同時に盛る）",
+                "強配色の全身コーデ（リッチより雑に見える）",
+                "柄を入れた上でさらに装飾ディテールを盛る"
+            ]
+        },
+        "recommended_item_focus": [
+            "glossy_jacket",
+            "pattern_accessory",
+            "color_top"
+        ],
+        "best_scenes": [
+            "party",
+            "travel",
+            "city_walk",
+            "night_out"
+        ],
+        "emotion": [
+            "playful-glam",
+            "retro-energy",
+            "mood-lift",
+            "rich-pop"
+        ]
+    }
+}

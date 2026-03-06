@@ -1,0 +1,67 @@
+{
+    "slug": "balenciaga",
+    "name": "Balenciaga",
+    "concept": {
+        "catch": "彫刻的シルエット × 前衛モード",
+        "dna": "1917年に創設→約20年後にパリへ。技術の精度・比率感・構造的ボリュームで“シルエットを作り替える”メゾン。",
+        "for_who": [
+            "黒・グレーでも「無難」に見えたくない",
+            "服で“空気を変える”タイプ（エッジ/現代アート/都市感が好き）"
+        ]
+    },
+    "tags": [
+        "avant-garde",
+        "sculptural",
+        "architectural",
+        "paris"
+    ],
+    "culcept_guidance": {
+        "overview": "色や装飾より、肩の角度やボリュームの置き方で印象を設計する発想が核。ミニマルでも強く、ストリートでも上品に振れる“硬さ”が魅力。オーバーサイズでも計算されたラインで体をきれいに見せ、存在感だけが残る。Culceptでは、単色ベースに素材差（マット×微光沢）を混ぜたアイテムを優先すると世界観が安定する。おすすめアイテムは、構造のあるアウター、厚手のトップス、重みのあるパンツ。夜の街・ライブ・ギャラリーで映え、写真でも“圧”が出る。優しい可愛さより、輪郭の強さを出したい日に効く。細部は無地でも成立するので、アイテム数を増やさず“形”で勝ちたい人に。",
+        "culcept_rules": {
+            "palette": {
+                "base": [
+                    "black",
+                    "washed_black",
+                    "charcoal",
+                    "concrete_gray"
+                ],
+                "accent": [
+                    "mud_brown",
+                    "deep_navy",
+                    "off_white"
+                ],
+                "note": "単色ベースに素材差（マット×微光沢）でコントラストを作る"
+            },
+            "silhouette": [
+                "sharp_shoulder_angle",
+                "structured_volume",
+                "calculated_oversize"
+            ],
+            "materials": [
+                "heavy_cotton",
+                "dense_fleece",
+                "structured_wool",
+                "technical_shell"
+            ],
+            "avoid": [
+                "decorative_focus",
+                "cute_soft_focus"
+            ]
+        },
+        "recommended_item_focus": [
+            "structured_outer",
+            "heavyweight_top",
+            "weighted_pants"
+        ],
+        "best_scenes": [
+            "night_city",
+            "live",
+            "gallery"
+        ],
+        "emotion": [
+            "pressure",
+            "edge",
+            "urban_art"
+        ]
+    }
+}

@@ -1,0 +1,84 @@
+{
+    "slug": "loewe",
+    "name": "LOEWE",
+    "concept": {
+        "catch": "スペインの革 × アートとクラフトの融合",
+        "dna": "1846年マドリードで革職人の集団として創設。レザーの技巧を土台に、工芸とアートの距離が近い。",
+        "for_who": [
+            "“作家性”や“素材の表情”が好き（クラフト/工芸/美術館系）",
+            "きれいめだけど、どこか柔らかい遊びが欲しい"
+        ]
+    },
+    "tags": [
+        "spanish-leather",
+        "art-craft",
+        "museum-mood",
+        "sculptural-bag",
+        "quiet-intellectual",
+        "soft-playfulness",
+        "logo-free"
+    ],
+    "culcept_guidance": {
+        "overview": "上質なのに息苦しくない、軽やかな知性があるブランド。素材の良さが前に出るのに、形やディテールに遊びがあるから、ベーシック派でも印象を更新できる。Culceptでは、服を無地でまとめてバッグや小物の造形で“抜け”を作る提案が強い。おすすめは、造形のあるレザーバッグ、きれいなシャツ、柔らかなアウター。美術館や工芸の空気感が好きな人、シンプルだけど“何か違う”を探している人に刺さる。日常の装いを静かに格上げしつつ、堅く見せたくない人へ。派手ロゴが苦手でも、造形で“差”が出るので長く飽きにくい。一点で“作品感”が出る。",
+        "culcept_rules": {
+            "styling_core": "服は無地で整え、バッグ/小物の“造形”で抜けと作品感を作る",
+            "palette": {
+                "base": [
+                    "ivory",
+                    "sand",
+                    "taupe",
+                    "camel",
+                    "black",
+                    "navy"
+                ],
+                "accent": [
+                    "olive",
+                    "terracotta",
+                    "soft_yellow",
+                    "deep_brown"
+                ],
+                "note": "派手色は少量。素材の表情と立体感を主役にする"
+            },
+            "textures": [
+                "supple_leather",
+                "natural_grain",
+                "craft_stitch_detail",
+                "soft_wool_outer",
+                "clean_cotton_shirt"
+            ],
+            "silhouette": [
+                "clean_basic",
+                "soft_structure",
+                "relaxed_refined"
+            ],
+            "pairing_heuristics": [
+                "服はワントーン/同系色でまとめ、造形バッグを一点投入",
+                "主役はバッグ。服側はシャツや柔らかいアウターで品よく支える",
+                "ロゴに頼らず“形”で差を出す（彫刻的/工芸的フォルム優先）"
+            ],
+            "avoid": [
+                "派手ロゴ・強いモノグラム",
+                "柄×柄の盛りすぎ（造形の良さが埋もれる）",
+                "硬すぎるフルテーラードで息苦しく見せる"
+            ]
+        },
+        "recommended_item_focus": [
+            "sculptural_leather_bag",
+            "clean_shirt",
+            "soft_outer"
+        ],
+        "best_scenes": [
+            "museum",
+            "gallery",
+            "craft_fair",
+            "city_walk",
+            "smart-casual"
+        ],
+        "emotion": [
+            "quiet-intelligence",
+            "artful",
+            "effortless-elevated",
+            "soft-unique"
+        ]
+    }
+}

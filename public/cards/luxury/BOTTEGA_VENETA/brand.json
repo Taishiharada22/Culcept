@@ -1,0 +1,87 @@
+{
+    "slug": "bottega-veneta",
+    "name": "Bottega Veneta",
+    "concept": {
+        "catch": "ロゴではなく“手仕事”で分かる静かな贅沢",
+        "dna": "1966年創設。1975年にイントレチャート（編み込み）を導入し、ロゴに頼らない識別性を確立。",
+        "for_who": [
+            "“分かる人には分かる”が好き（静かな主張・素材主義）",
+            "派手さより、触れた時の質感・所作の美しさ重視"
+        ]
+    },
+    "tags": [
+        "quiet-luxury",
+        "craft",
+        "leather",
+        "intrecciato",
+        "minimal",
+        "texture-first"
+    ],
+    "culcept_guidance": {
+        "overview": "目立たせるのではなく、近づいたときに分かる上質さを選ぶブランド。編み込みの陰影、柔らかなレザー、控えめな金具など、ディテールの“密度”がサインになる。色やロゴで語らない分、コーデ全体が品よく整い、持つ人の余裕が出る。Culceptでは、ワントーンで質感だけ違うアイテム（同系色レザー×ウールなど）を軸にすると失敗しにくい。おすすめアイテムは、質感が伝わるレザーバッグ、きれいなニット、上質なコート。派手を足すより、形をシンプルにして“触感”を主役にすると一気にそれっぽくなる。ロゴで勝つより、静かに“品の層”を積みたい人向け。",
+        "culcept_rules": {
+            "palette": {
+                "base": [
+                    "black",
+                    "charcoal",
+                    "chocolate_brown",
+                    "taupe",
+                    "ivory",
+                    "deep_navy"
+                ],
+                "accent": [
+                    "muted_green",
+                    "warm_tan"
+                ],
+                "note": "ワントーン〜同系色でまとめ、色より“質感差”で奥行きを作る"
+            },
+            "textures": [
+                "woven_leather_shadow",
+                "buttery_soft_leather",
+                "fine_wool",
+                "cashmere_like_knit"
+            ],
+            "silhouette": [
+                "clean_simple_shape",
+                "refined_proportion",
+                "no_loud_details"
+            ],
+            "hardware": {
+                "style": [
+                    "subtle",
+                    "minimal",
+                    "matte_or_brushed"
+                ],
+                "avoid": [
+                    "flashy_gold",
+                    "oversized_buckles"
+                ]
+            },
+            "pairing_heuristics": [
+                "同系色で『レザー×ウール』など異素材ミックスを優先",
+                "装飾を足すより、形をシンプルにして“触感”を主役にする"
+            ],
+            "avoid": [
+                "logo_forward",
+                "high_contrast_color_blocking",
+                "busy_patterns"
+            ]
+        },
+        "recommended_item_focus": [
+            "textured_leather_bag",
+            "clean_knit",
+            "premium_coat"
+        ],
+        "best_scenes": [
+            "gallery",
+            "hotel_lounge",
+            "dinner",
+            "quiet_city_night"
+        ],
+        "emotion": [
+            "calm_confidence",
+            "quiet_presence",
+            "tactile_luxury"
+        ]
+    }
+}

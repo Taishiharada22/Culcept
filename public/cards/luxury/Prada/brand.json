@@ -1,0 +1,91 @@
+{
+    "slug": "prada",
+    "name": "PRADA",
+    "concept": {
+        "catch": "知性のミニマル × モダンユーティリティ",
+        "dna": "1913年ミラノで創業（トラベル用品が起点）。のちにナイロンなど工業素材をラグジュアリーへ接続し、知的違和感を作る。",
+        "for_who": [
+            "ミニマルが好き。でも普通は嫌（“冷たさ/ひねり”が欲しい）",
+            "黒・ネイビー・グレーを、最も格好よく着たい"
+        ]
+    },
+    "tags": [
+        "intellectual-minimal",
+        "modern-utility",
+        "milan",
+        "tech-materials",
+        "nylon-luxury",
+        "cool-sensual",
+        "tone-on-tone"
+    ],
+    "culcept_guidance": {
+        "overview": "装飾より、素材選びと構造で勝つスタイル。清潔感・都会性・温度低めの色気が出る。ユーティリティ要素があってもチープにならず、むしろ洗練に見えるのが強み。Culceptでは、ワントーンでまとめてシルエットと素材差だけを効かせる提案が最短で“PRADAらしさ”に着地する。おすすめはテック寄りのシャツ/ブルゾン、ハリのあるパンツ、無駄のないバッグ。ロゴや派手柄に頼らず“分かる人には分かる”差が出るので、ミニマル派ほどハマる。仕事→夜まで一着で回したい人にも。きれいめにもカジュアルにも振れるので、ミニマル派の万能枠。",
+        "culcept_rules": {
+            "styling_core": "ワントーンでまとめて、シルエット×素材差だけを効かせる（装飾で盛らない）",
+            "palette": {
+                "base": [
+                    "black",
+                    "charcoal",
+                    "cool_gray",
+                    "deep_navy",
+                    "optic_white"
+                ],
+                "accent": [
+                    "steel_gray",
+                    "muted_olive",
+                    "cool_sand"
+                ],
+                "note": "色は抑え、工業的な質感差（マット/微光沢）で“知的違和感”を作る"
+            },
+            "textures": [
+                "technical_nylon_like",
+                "crisp_poplin",
+                "compact_wool",
+                "matte_leather",
+                "subtle_sheen"
+            ],
+            "silhouette": [
+                "clean_lines",
+                "precise_proportion",
+                "structured_volume_minimal"
+            ],
+            "utility_details": {
+                "allowed": [
+                    "hidden_pockets",
+                    "clean_zips",
+                    "minimal_hardware"
+                ],
+                "note": "ユーティリティは“見せる”より“機能として内蔵”がPRADA寄り"
+            },
+            "pairing_heuristics": [
+                "トップスはテック寄りシャツ/ブルゾンで“機能美”を作る",
+                "パンツはハリ・センタープレス・直線で“冷たさ”を出す",
+                "バッグは無駄のない形（直方体/封筒型/ミニマル）を優先",
+                "仕事→夜の一着運用なら、色は黒/ネイビー固定で素材差だけ変える"
+            ],
+            "avoid": [
+                "派手柄・大ロゴ・過剰装飾",
+                "ギラつく強光沢（安っぽく見えやすい）",
+                "色数の増やしすぎ（ミニマルが崩れる）"
+            ]
+        },
+        "recommended_item_focus": [
+            "tech_shirt",
+            "tech_blouson",
+            "structured_pants",
+            "minimal_bag"
+        ],
+        "best_scenes": [
+            "work",
+            "after-hours",
+            "city",
+            "smart-casual"
+        ],
+        "emotion": [
+            "cool",
+            "clean",
+            "urban",
+            "intelligent-edge"
+        ]
+    }
+}

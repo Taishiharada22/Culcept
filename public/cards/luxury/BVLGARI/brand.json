@@ -1,0 +1,79 @@
+{
+    "slug": "bvlgari",
+    "name": "Bvlgari",
+    "concept": {
+        "catch": "ローマの美学 × 色気のあるハイジュエリー",
+        "dna": "1884年ローマで創業。ローマのルーツと、鮮やかな色・量感ある造形がシグネチャー。",
+        "for_who": [
+            "シンプル服に“決定打”が欲しい（艶・色気・主役感）",
+            "夜の場、ドレスアップ、強いアクセントが好き"
+        ]
+    },
+    "tags": [
+        "rome",
+        "high-jewelry",
+        "bold-volume",
+        "vivid-color",
+        "glow",
+        "statement-piece",
+        "night-scene"
+    ],
+    "culcept_guidance": {
+        "overview": "色とボリューム、光の反射まで計算した存在感が魅力。シンプルな黒や白の装いでも、一点で空気を変えて“自分の格”を引き上げる。直線的な服に曲線や輝きを足すとバランスが取りやすく、写真映えも強い。Culceptでは、服を削ってアクセを主役にする引き算コーデを基本にすると失敗しにくい。おすすめは、首元・手元の一点集中（ネックレス/リング）。Tシャツやニットなどラフな素材に合わせても、上品な“強さ”が出る。会食・イベント・ナイトシーンで「最後の仕上げ」を任せたい人に刺さる。控えめが似合わないタイプほど、潔く一点で魅せるとハマる。",
+        "culcept_rules": {
+            "styling_core": "引き算コーデ（服はミニマル、アクセを主役）",
+            "palette": {
+                "base": [
+                    "black",
+                    "white",
+                    "ivory",
+                    "charcoal"
+                ],
+                "accent": [
+                    "emerald",
+                    "ruby",
+                    "sapphire",
+                    "gold",
+                    "warm_bronze"
+                ],
+                "note": "服は無彩色で整え、色と輝きはアクセ1点に集中"
+            },
+            "silhouette_balance": [
+                "直線的な服（テーラード/ミニマル）に、曲線と輝きを足してバランスを取る",
+                "ボリュームは一点集中（首元 or 手元のどちらか）"
+            ],
+            "materials_pairing": [
+                "Tシャツ/ニットなどラフ素材 × ジュエリーで“上品な強さ”を作る",
+                "マット素材（ウール/コットン）× 高反射（メタル/ストーン）を優先"
+            ],
+            "pairing_heuristics": [
+                "ネックレスを主役にするなら、リングは細め/控えめにする",
+                "リングを主役にするなら、首元は抜いて服のラインで勝つ",
+                "2点以上盛る場合は『同系トーン』で統一して散らさない"
+            ],
+            "avoid": [
+                "アクセを複数点で主役化（主役の分散）",
+                "服側も派手（柄・強配色）で競合",
+                "過度なデコルテ装飾＋大ぶりジュエリーの同時盛り"
+            ]
+        },
+        "recommended_item_focus": [
+            "statement_necklace",
+            "bold_ring",
+            "sculptural_bracelet"
+        ],
+        "best_scenes": [
+            "business_dinner",
+            "event",
+            "night_out",
+            "party",
+            "hotel_bar"
+        ],
+        "emotion": [
+            "glam",
+            "confidence",
+            "final-touch",
+            "presence"
+        ]
+    }
+}

@@ -1,0 +1,86 @@
+{
+    "slug": "ralph-lauren",
+    "name": "Ralph Lauren",
+    "concept": {
+        "catch": "アメリカン・クラシックの完成形",
+        "dna": "1967年、ネクタイから事業を開始（Polo名義）。アイビー/プレップ/乗馬やカントリーの“理想のアメリカ”をスタイル化。",
+        "for_who": [
+            "清潔感・育ちの良さ・王道の品が欲しい",
+            "休日も仕事も“ちゃんとして見える”服が欲しい"
+        ]
+    },
+    "tags": [
+        "american-classic",
+        "ivy-prep",
+        "polo-origin",
+        "heritage",
+        "timeless-basics",
+        "clean-polish",
+        "work-to-weekend"
+    ],
+    "culcept_guidance": {
+        "overview": "流行より、人生の定番を積み上げるブランド。シンプルなアイテムでも、素材感とバランスで“育ちの良さ”がにじむ。盛らなくてもきれいに見えるから、コーデに悩む時間を減らしたい人にも向く。Culceptでは、シャツ＋ニット＋チノのように定番を重ねて、靴やベルトで締める提案が最も再現性が高い。おすすめは、オックスフォードシャツ、上質ニット、きれいなチノやブレザー。職場〜休日まで同じ軸で回せる“安心の王道”が欲しい人に。派手さより信頼感。年齢を重ねても似合い続ける軸を作れる。迷った朝の味方。清潔感と品を最短で作れる。",
+        "culcept_rules": {
+            "styling_core": "定番を重ねて、靴・ベルトで締める（シャツ＋ニット＋チノが鉄板）",
+            "palette": {
+                "base": [
+                    "navy",
+                    "white",
+                    "blue",
+                    "beige",
+                    "camel",
+                    "charcoal"
+                ],
+                "accent": [
+                    "burgundy",
+                    "forest_green",
+                    "tan_leather"
+                ],
+                "note": "強配色より、ネイビー/白/ベージュの清潔感を軸にする"
+            },
+            "textures": [
+                "oxford_cotton",
+                "fine_knit_wool",
+                "cotton_chino",
+                "tweed_like_blazer",
+                "smooth_leather_accessories"
+            ],
+            "silhouette": [
+                "clean_regular_fit",
+                "balanced_proportion",
+                "neat_layers"
+            ],
+            "pairing_heuristics": [
+                "迷ったら『オックスフォードシャツ + ニット + チノ』で組む",
+                "ブレザーを足すと仕事寄り、デニムに替えると休日寄り",
+                "足元とベルトは革で揃えて“育ちの良さ”を作る",
+                "主張は控えめ。素材の良さとサイズ感で整える"
+            ],
+            "avoid": [
+                "過度なトレンド要素の盛り込み",
+                "派手柄×派手色での主役競合",
+                "サイズ過大でだらしなく見えるフィット"
+            ]
+        },
+        "recommended_item_focus": [
+            "oxford_shirt",
+            "premium_knit",
+            "clean_chino",
+            "classic_blazer",
+            "leather_belt",
+            "clean_leather_shoes"
+        ],
+        "best_scenes": [
+            "office",
+            "weekend",
+            "smart-casual",
+            "travel"
+        ],
+        "emotion": [
+            "reliable",
+            "clean",
+            "trustworthy",
+            "morning-saver"
+        ]
+    }
+}
