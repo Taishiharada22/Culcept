@@ -1,0 +1,22 @@
+{
+  "canvas": { "width": 1536, "height": 1024 },
+  "viewportHints": {
+    "initialZoom": 0.72,
+    "minZoom": 0.48,
+    "maxZoom": 2.2
+  },
+  "nodes": [
+    { "chapter": 1, "type": "birth", "x": 1100, "y": 160 },
+    { "chapter": 2, "type": "childhood", "x": 1050, "y": 280 },
+    { "chapter": 3, "type": "elementary", "x": 960, "y": 390 },
+    { "chapter": 4, "type": "junior_high", "x": 870, "y": 480 },
+    { "chapter": 5, "type": "high_school", "x": 780, "y": 560 },
+    { "chapter": 6, "type": "higher_study", "x": 700, "y": 640 },
+    { "chapter": 7, "type": "career_start", "x": 630, "y": 710 },
+    { "chapter": 8, "type": "turning_point", "x": 560, "y": 770 },
+    { "chapter": 9, "type": "growth", "x": 480, "y": 820 },
+    { "chapter": 10, "type": "crossroads", "x": 400, "y": 860 },
+    { "chapter": 11, "type": "present", "x": 320, "y": 890 },
+    { "chapter": 12, "type": "future", "x": 240, "y": 910 }
+  ]
+}
