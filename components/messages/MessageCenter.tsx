@@ -15,7 +15,6 @@ export default function MessageCenter({ conversations, userId }: Props) {
     const [messageText, setMessageText] = React.useState("");
     const [loading, setLoading] = React.useState(false);
     const [sending, setSending] = React.useState(false);
-    const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
     const selectedConv = conversations.find((c) => c.id === selectedConversation);
 
@@ -34,11 +33,6 @@ export default function MessageCenter({ conversations, userId }: Props) {
             .catch((err) => console.error(err))
             .finally(() => setLoading(false));
     }, [selectedConversation]);
-
-    // Scroll to bottom when messages change
-    React.useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [messages]);
 
     const handleSend = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -70,33 +64,32 @@ export default function MessageCenter({ conversations, userId }: Props) {
     };
 
     return (
-        <div className="flex h-[calc(100vh-140px)] rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        <div className="flex h-[600px] rounded-2xl border-2 border-slate-200 bg-white overflow-hidden shadow-lg">
             {/* Conversations List */}
-            <div className="w-80 border-r border-white/[0.06] bg-white/[0.02] overflow-y-auto">
-                <div className="sticky top-0 bg-[#0a0a0f]/95 backdrop-blur-sm border-b border-white/[0.06] p-4">
-                    <h2 className="text-sm font-semibold text-white/80">
-                        会話一覧
+            <div className="w-80 border-r-2 border-slate-200 bg-slate-50 overflow-y-auto">
+                <div className="sticky top-0 bg-slate-50 border-b-2 border-slate-200 p-4">
+                    <h2 className="text-lg font-black text-slate-900">
+                        Messages
                     </h2>
                 </div>
 
                 {conversations.length === 0 ? (
                     <div className="p-8 text-center">
-                        <div className="text-4xl mb-3 opacity-30">💬</div>
-                        <p className="text-sm text-white/40">
-                            メッセージはありません
+                        <div className="text-4xl mb-2 opacity-20">💬</div>
+                        <p className="text-sm font-semibold text-slate-600">
+                            No messages yet
                         </p>
                     </div>
                 ) : (
-                    <div className="divide-y divide-white/[0.04]">
+                    <div className="divide-y divide-slate-200">
                         {conversations.map((conv) => (
                             <button
                                 key={conv.id}
                                 onClick={() => setSelectedConversation(conv.id)}
-                                className={`w-full p-4 text-left transition-all hover:bg-white/[0.04] ${
-                                    selectedConversation === conv.id
-                                        ? "bg-white/[0.06] border-l-2 border-white/30"
+                                className={`w-full p-4 text-left transition-all hover:bg-slate-100 ${selectedConversation === conv.id
+                                        ? "bg-white border-l-4 border-purple-500"
                                         : ""
-                                }`}
+                                    }`}
                             >
                                 <div className="flex items-center gap-3">
                                     {conv.other_user_avatar ? (
@@ -104,29 +97,35 @@ export default function MessageCenter({ conversations, userId }: Props) {
                                         <img
                                             src={conv.other_user_avatar}
                                             alt={conv.other_user_name || "User"}
-                                            className="h-10 w-10 rounded-full border border-white/10 object-cover"
+                                            className="h-12 w-12 rounded-full border-2 border-slate-200 object-cover"
                                         />
                                     ) : (
-                                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.08] text-sm font-medium text-white/60">
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-slate-200 bg-gradient-to-br from-purple-100 to-purple-200 text-lg font-black text-purple-600">
                                             {(conv.other_user_name || "?")[0].toUpperCase()}
                                         </div>
                                     )}
 
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-2 mb-0.5">
-                                            <span className="text-sm font-medium text-white/90 truncate">
+                                        <div className="flex items-center justify-between gap-2 mb-1">
+                                            <span className="text-sm font-black text-slate-900 truncate">
                                                 {conv.other_user_name || "User"}
                                             </span>
                                             {(conv.unread_count || 0) > 0 && (
-                                                <span className="flex h-5 min-w-5 px-1.5 items-center justify-center rounded-full bg-white text-xs font-medium text-black">
+                                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500 text-xs font-black text-white">
                                                     {conv.unread_count}
                                                 </span>
                                             )}
                                         </div>
 
                                         {conv.product_title && (
-                                            <div className="text-xs text-white/40 truncate">
-                                                {conv.product_title}
+                                            <div className="text-xs font-semibold text-slate-500 truncate mb-1">
+                                                Re: {conv.product_title}
+                                            </div>
+                                        )}
+
+                                        {conv.last_message && (
+                                            <div className="text-xs font-semibold text-slate-600 truncate">
+                                                {conv.last_message}
                                             </div>
                                         )}
                                     </div>
@@ -138,41 +137,41 @@ export default function MessageCenter({ conversations, userId }: Props) {
             </div>
 
             {/* Messages View */}
-            <div className="flex-1 flex flex-col bg-[#0a0a0f]">
+            <div className="flex-1 flex flex-col">
                 {!selectedConv ? (
                     <div className="flex-1 flex items-center justify-center">
                         <div className="text-center">
-                            <div className="text-5xl mb-4 opacity-20">💬</div>
-                            <p className="text-sm text-white/40">
-                                会話を選択してください
+                            <div className="text-6xl mb-4 opacity-20">💬</div>
+                            <p className="text-base font-semibold text-slate-600">
+                                Select a conversation to view messages
                             </p>
                         </div>
                     </div>
                 ) : (
                     <>
                         {/* Header */}
-                        <div className="border-b border-white/[0.06] bg-white/[0.02] p-4">
+                        <div className="border-b-2 border-slate-200 bg-white p-4">
                             <div className="flex items-center gap-3">
                                 {selectedConv.other_user_avatar ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                         src={selectedConv.other_user_avatar}
                                         alt={selectedConv.other_user_name || "User"}
-                                        className="h-10 w-10 rounded-full border border-white/10 object-cover"
+                                        className="h-10 w-10 rounded-full border-2 border-slate-200 object-cover"
                                     />
                                 ) : (
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.08] text-sm font-medium text-white/60">
+                                    <div className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-slate-200 bg-gradient-to-br from-purple-100 to-purple-200 text-base font-black text-purple-600">
                                         {(selectedConv.other_user_name || "?")[0].toUpperCase()}
                                     </div>
                                 )}
 
                                 <div className="flex-1">
-                                    <div className="text-sm font-medium text-white/90">
+                                    <div className="text-base font-black text-slate-900">
                                         {selectedConv.other_user_name || "User"}
                                     </div>
                                     {selectedConv.product_title && (
-                                        <div className="text-xs text-white/40">
-                                            {selectedConv.product_title}
+                                        <div className="text-xs font-semibold text-slate-500">
+                                            Re: {selectedConv.product_title}
                                         </div>
                                     )}
                                 </div>
@@ -180,20 +179,14 @@ export default function MessageCenter({ conversations, userId }: Props) {
                         </div>
 
                         {/* Messages */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
                             {loading ? (
-                                <div className="flex items-center justify-center py-8">
-                                    <div className="flex items-center gap-2 text-sm text-white/40">
-                                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                        </svg>
-                                        読み込み中...
-                                    </div>
+                                <div className="text-center text-sm font-semibold text-slate-600">
+                                    Loading...
                                 </div>
                             ) : messages.length === 0 ? (
-                                <div className="text-center py-8 text-sm text-white/40">
-                                    メッセージを送信して会話を始めましょう
+                                <div className="text-center text-sm font-semibold text-slate-600">
+                                    No messages yet. Start the conversation!
                                 </div>
                             ) : (
                                 messages.map((msg) => {
@@ -205,50 +198,41 @@ export default function MessageCenter({ conversations, userId }: Props) {
                                             className={`flex ${isMine ? "justify-end" : "justify-start"}`}
                                         >
                                             <div
-                                                className={`max-w-[70%] rounded-2xl px-4 py-2.5 ${
-                                                    isMine
-                                                        ? "bg-white text-black"
-                                                        : "bg-white/[0.08] text-white/90"
-                                                }`}
+                                                className={`max-w-[70%] rounded-2xl px-4 py-2 ${isMine
+                                                        ? "bg-gradient-to-br from-purple-500 to-purple-600 text-white"
+                                                        : "bg-white border-2 border-slate-200 text-slate-900"
+                                                    }`}
                                             >
-                                                <p className="text-sm break-words">
+                                                <p className="text-sm font-semibold break-words">
                                                     {msg.content}
                                                 </p>
-                                                <time className={`block mt-1 text-[10px] ${isMine ? "text-black/40" : "text-white/30"}`}>
-                                                    {new Date(msg.created_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                                                <time className={`mt-1 text-xs font-semibold ${isMine ? "text-purple-100" : "text-slate-500"}`}>
+                                                    {new Date(msg.created_at).toLocaleTimeString()}
                                                 </time>
                                             </div>
                                         </div>
                                     );
                                 })
                             )}
-                            <div ref={messagesEndRef} />
                         </div>
 
                         {/* Input */}
-                        <form onSubmit={handleSend} className="border-t border-white/[0.06] bg-white/[0.02] p-4">
+                        <form onSubmit={handleSend} className="border-t-2 border-slate-200 bg-white p-4">
                             <div className="flex gap-3">
                                 <input
                                     type="text"
                                     value={messageText}
                                     onChange={(e) => setMessageText(e.target.value)}
-                                    placeholder="メッセージを入力..."
+                                    placeholder="Type a message..."
                                     disabled={sending}
-                                    className="flex-1 rounded-xl bg-white/[0.05] border border-white/[0.08] px-4 py-3 text-sm text-white placeholder-white/30 focus:outline-none focus:border-white/20 disabled:opacity-50 transition-all"
+                                    className="flex-1 rounded-xl border-2 border-slate-200 px-4 py-3 text-sm font-semibold focus:border-purple-400 focus:outline-none disabled:opacity-50"
                                 />
                                 <button
                                     type="submit"
                                     disabled={!messageText.trim() || sending}
-                                    className="rounded-xl bg-white px-6 py-3 text-sm font-medium text-black hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    className="rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 px-6 py-3 text-sm font-black text-white transition-all hover:shadow-lg disabled:opacity-50"
                                 >
-                                    {sending ? (
-                                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                        </svg>
-                                    ) : (
-                                        "送信"
-                                    )}
+                                    {sending ? "..." : "Send"}
                                 </button>
                             </div>
                         </form>

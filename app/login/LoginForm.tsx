@@ -80,7 +80,7 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
                         <div className="text-center mb-8">
                             <Link href="/" className="inline-block">
                                 <h2 className="text-3xl font-bold text-slate-900" style={headingStyle}>
-                                    Welcome to Culcept
+                                    Welcome to Aneurasync
                                 </h2>
                             </Link>
                             <p className="text-slate-500 mt-2">

@@ -72,12 +72,11 @@ export default async function EditDropPage({
     params,
     searchParams,
 }: {
-    params: Promise<{ id: string }>;
-    searchParams?: Promise<SP>;
+    params: { id: string };
+    searchParams?: SP;
 }) {
-    const { id } = await params;
-    const sp = (await searchParams) ?? ({} as SP);
-    const dropId = spStr(id);
+    const dropId = spStr(params?.id);
+    const sp = searchParams ?? ({} as SP);
 
     const imp = spStr(sp.imp || sp.impressionId || sp.impression_id) || null;
 

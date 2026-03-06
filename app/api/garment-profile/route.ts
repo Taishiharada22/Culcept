@@ -47,6 +47,9 @@ export async function POST(request: NextRequest) {
 
         const fitProfile = body?.fit_profile ?? null;
         const colorProfile = body?.color_profile ?? null;
+
+        // Supabaseのクエリビルダーは thenable だが Promise 型ではないため、
+        // Promise.resolve(...) で本物の Promise に変換して tasks に積む。
         const tasks: Promise<any>[] = [];
 
         if (fitProfile) {
@@ -68,16 +71,18 @@ export async function POST(request: NextRequest) {
             }
 
             tasks.push(
-                supabase.from("garment_fit_profiles").upsert(
-                    {
-                        product_id: productId,
-                        category: fitProfile.category || null,
-                        intended_fit: fitProfile.intended_fit || null,
-                        pattern,
-                        fabric,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "product_id" }
+                Promise.resolve(
+                    supabase.from("garment_fit_profiles").upsert(
+                        {
+                            product_id: productId,
+                            category: fitProfile.category || null,
+                            intended_fit: fitProfile.intended_fit || null,
+                            pattern,
+                            fabric,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "product_id" }
+                    )
                 )
             );
         }
@@ -89,28 +94,34 @@ export async function POST(request: NextRequest) {
                     const coverage = toNum(c.coverage);
                     const lab = c.lab ?? {};
                     const lch = c.lch ?? {};
+
                     const L = toNum(lab.L);
                     const a = toNum(lab.a);
                     const b = toNum(lab.b);
+
                     const C = toNum(lch.C);
                     const h = toNum(lch.h);
+                    const lchL = toNum(lch.L);
+
                     return {
                         rgb: c.rgb || undefined,
                         lab: L != null && a != null && b != null ? { L, a, b } : undefined,
-                        lch: C != null && h != null && toNum(lch.L) != null ? { L: toNum(lch.L), C, h } : undefined,
+                        lch: lchL != null && C != null && h != null ? { L: lchL, C, h } : undefined,
                         coverage: coverage != null ? clamp(coverage, 0, 1) : undefined,
                     };
                 })
                 .filter((c: any) => c.lab || c.lch || c.rgb);
 
             tasks.push(
-                supabase.from("garment_color_profiles").upsert(
-                    {
-                        product_id: productId,
-                        dominant_colors: normalized,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "product_id" }
+                Promise.resolve(
+                    supabase.from("garment_color_profiles").upsert(
+                        {
+                            product_id: productId,
+                            dominant_colors: normalized,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "product_id" }
+                    )
                 )
             );
         }

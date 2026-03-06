@@ -2,7 +2,6 @@
 "use server";
 
 import { createDropAction as createDropActionImpl } from "@/app/_actions/drops";
-export type { DropActionState } from "@/app/_actions/drops";
 import type { DropActionState } from "@/app/_actions/drops";
 
 // ✅ "use server" ファイルでは re-export がNGなので、async関数としてラップする

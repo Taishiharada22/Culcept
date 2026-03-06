@@ -1,3 +1,4 @@
+// app/api/body-color/profile/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 
@@ -81,6 +82,7 @@ function normalizeCPV(cpv: any) {
     for (const key of CPV_KEYS) {
         const n = toNum(cpv?.[key]);
         if (n == null) continue;
+
         if (key === "undertone") out[key] = clamp(n, -1, 1);
         else if (key === "value_L") out[key] = clamp(n, 0, 100);
         else if (key === "chroma_C") out[key] = clamp(n, 0, 200);
@@ -129,7 +131,11 @@ export async function GET() {
 
         const [bodyRes, colorRes, measurementRes, avatarRes] = await Promise.all([
             supabase.from("user_body_profiles").select("*").eq("user_id", auth.user.id).maybeSingle(),
-            supabase.from("user_personal_color_profiles").select("*").eq("user_id", auth.user.id).maybeSingle(),
+            supabase
+                .from("user_personal_color_profiles")
+                .select("*")
+                .eq("user_id", auth.user.id)
+                .maybeSingle(),
             supabase
                 .from("user_body_measurements")
                 .select("*")
@@ -179,44 +185,52 @@ export async function POST(request: NextRequest) {
 
         const measurementData = normalizeMeasurements(measurements ?? {});
 
+        // Supabaseのクエリビルダーは thenable だが Promise 型ではないため、
+        // Promise.resolve(...) で本物の Promise に変換して tasks に積む。
         const tasks: Promise<any>[] = [];
 
         if (hasValues(cfv) || hasValues(display_labels) || hasValues(body_confidence)) {
             tasks.push(
-                supabase.from("user_body_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        cfv: cfv,
-                        display_labels,
-                        confidence: body_confidence,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_body_profiles").upsert(
+                        {
+                            user_id: auth.user.id,
+                            cfv,
+                            display_labels,
+                            confidence: body_confidence,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }
 
         if (hasValues(cpv) || hasValues(labels) || hasValues(palette)) {
             tasks.push(
-                supabase.from("user_personal_color_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        cpv,
-                        labels,
-                        palette,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_personal_color_profiles").upsert(
+                        {
+                            user_id: auth.user.id,
+                            cpv,
+                            labels,
+                            palette,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }
 
         if (hasValues(measurementData)) {
             tasks.push(
-                supabase.from("user_body_measurements").insert({
-                    user_id: auth.user.id,
-                    measurements: measurementData,
-                })
+                Promise.resolve(
+                    supabase.from("user_body_measurements").insert({
+                        user_id: auth.user.id,
+                        measurements: measurementData,
+                    })
+                )
             );
         }
 
@@ -228,19 +242,22 @@ export async function POST(request: NextRequest) {
                 .maybeSingle();
 
             const cleanAssets = cleanObject(avatarAssets);
+
             tasks.push(
-                supabase.from("user_body_avatar_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        views: existing?.data?.views ?? {},
-                        person_cutout_url: cleanAssets.person_cutout_url ?? null,
-                        clothes_cutout_url: cleanAssets.clothes_cutout_url ?? null,
-                        mask_clothes_url: cleanAssets.mask_clothes_url ?? null,
-                        turntable_gif_url: cleanAssets.turntable_gif_url ?? null,
-                        mesh_glb_url: cleanAssets.mesh_glb_url ?? null,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_body_avatar_profiles").upsert(
+                        {
+                            user_id: auth.user.id,
+                            views: existing?.data?.views ?? {},
+                            person_cutout_url: cleanAssets.person_cutout_url ?? null,
+                            clothes_cutout_url: cleanAssets.clothes_cutout_url ?? null,
+                            mask_clothes_url: cleanAssets.mask_clothes_url ?? null,
+                            turntable_gif_url: cleanAssets.turntable_gif_url ?? null,
+                            mesh_glb_url: cleanAssets.mesh_glb_url ?? null,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }

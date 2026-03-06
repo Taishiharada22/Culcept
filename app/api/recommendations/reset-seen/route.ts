@@ -96,7 +96,8 @@ async function deleteByIds(args: {
                 return { ok: true, total };
             }
             warnings.push(`${table} delete failed: ${res.error.message}`);
-            return { ok: false, error: res.error };
+            // ✅ total を必ず返す（型整合）
+            return { ok: false, total, error: res.error };
         }
 
         total += res.count ?? 0;
@@ -119,16 +120,14 @@ async function setResetMarker(args: {
     const expiresAt = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString();
 
     try {
-        const res = await supabaseAdmin
-            .from("recommendation_cache")
-            .upsert(
-                {
-                    cache_key: key,
-                    payload,
-                    expires_at: expiresAt,
-                } as any,
-                { onConflict: "cache_key" }
-            );
+        const res = await supabaseAdmin.from("recommendation_cache").upsert(
+            {
+                cache_key: key,
+                payload,
+                expires_at: expiresAt,
+            } as any,
+            { onConflict: "cache_key" }
+        );
 
         if (res.error) {
             if (isMissingRelationError(res.error)) {
@@ -155,9 +154,9 @@ async function handle(req: Request) {
     const url = new URL(req.url);
 
     // URL params (default)
-    let role = (String(url.searchParams.get("role") ?? "buyer") as Role);
+    let role = String(url.searchParams.get("role") ?? "buyer") as Role;
     let v = clampInt(url.searchParams.get("v"), 1, 2, 2);
-    let scope = (String(url.searchParams.get("scope") ?? "cards") as Scope);
+    let scope = String(url.searchParams.get("scope") ?? "cards") as Scope;
     const dryRun = parseBool(url.searchParams.get("dryRun"));
 
     // POST body override (optional)
@@ -274,7 +273,8 @@ async function handle(req: Request) {
 
     // reset marker が失敗し、削除も失敗している場合のみエラー扱い
     if (!resetOkAny && (!delActionsOk || !delRatingsOk || !delImpsOk)) {
-        const errMsg = delImps.error?.message ?? delRatings.error?.message ?? delActions.error?.message ?? "reset failed";
+        const errMsg =
+            delImps.error?.message ?? delRatings.error?.message ?? delActions.error?.message ?? "reset failed";
         return NextResponse.json({ ok: false, error: errMsg, warnings }, { status: 500 });
     }
 

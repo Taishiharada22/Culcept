@@ -37,9 +37,10 @@ type SP = { shop_id?: string; reset?: string; error?: string; saved?: string; no
 export default async function MyShopPage({
     searchParams,
 }: {
-    searchParams?: Promise<SP>;
+    searchParams?: Promise<SP> | SP;
 }) {
-    const sp = (await searchParams) ?? {};
+    // ✅ Next 16: searchParams が Promise のケースがある（エラーの原因）
+    const sp = (await (searchParams as any)) ?? {};
 
     const supabase = await supabaseServer();
     const { data } = await supabase.auth.getUser();

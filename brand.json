@@ -1,0 +1,1155 @@
+[
+    {
+        "slug": "balenciaga",
+        "name": "Balenciaga",
+        "description": "肩の角度や構造的ボリュームで“シルエットを作り替える”前衛モード。黒・グレーの単色でも無難に見せず、ミニマルなのに強い存在感（圧）を出せるのが核。",
+        "shop_url": "https://www.balenciaga.com/ja-jp/storelocator",
+        "concept": {
+            "catch": "彫刻的シルエット × 前衛モード",
+            "dna": "1917年に創設→約20年後にパリへ。技術の精度・比率感・構造的ボリュームで“シルエットを作り替える”メゾン。",
+            "for_who": [
+                "黒・グレーでも「無難」に見えたくない",
+                "服で“空気を変える”タイプ（エッジ/現代アート/都市感が好き）"
+            ]
+        },
+        "tags": [
+            "avant-garde",
+            "sculptural",
+            "architectural",
+            "paris"
+        ],
+        "culcept_guidance": {
+            "overview": "色や装飾より、肩の角度やボリュームの置き方で印象を設計する発想が核。ミニマルでも強く、ストリートでも上品に振れる“硬さ”が魅力。オーバーサイズでも計算されたラインで体をきれいに見せ、存在感だけが残る。Culceptでは、単色ベースに素材差（マット×微光沢）を混ぜたアイテムを優先すると世界観が安定する。おすすめアイテムは、構造のあるアウター、厚手のトップス、重みのあるパンツ。夜の街・ライブ・ギャラリーで映え、写真でも“圧”が出る。優しい可愛さより、輪郭の強さを出したい日に効く。細部は無地でも成立するので、アイテム数を増やさず“形”で勝ちたい人に。",
+            "culcept_rules": {
+                "palette": {
+                    "base": [
+                        "black",
+                        "washed_black",
+                        "charcoal",
+                        "concrete_gray"
+                    ],
+                    "accent": [
+                        "mud_brown",
+                        "deep_navy",
+                        "off_white"
+                    ],
+                    "note": "単色ベースに素材差（マット×微光沢）でコントラストを作る"
+                },
+                "silhouette": [
+                    "sharp_shoulder_angle",
+                    "structured_volume",
+                    "calculated_oversize"
+                ],
+                "materials": [
+                    "heavy_cotton",
+                    "dense_fleece",
+                    "structured_wool",
+                    "technical_shell"
+                ],
+                "avoid": [
+                    "decorative_focus",
+                    "cute_soft_focus"
+                ]
+            },
+            "recommended_item_focus": [
+                "structured_outer",
+                "heavyweight_top",
+                "weighted_pants"
+            ],
+            "best_scenes": [
+                "night_city",
+                "live",
+                "gallery"
+            ],
+            "emotion": [
+                "pressure",
+                "edge",
+                "urban_art"
+            ]
+        }
+    },
+    {
+        "slug": "bottega-veneta",
+        "name": "Bottega Veneta",
+        "description": "ロゴに頼らず、編み込みの陰影やレザーの触感、控えめな金具など“手仕事の密度”で分かる静かな贅沢。ワントーンでも素材差で奥行きが出て、品のある余裕を作れる。",
+        "shop_url": "https://www.bottegaveneta.com/ja-jp/storelocator",
+        "concept": {
+            "catch": "ロゴではなく“手仕事”で分かる静かな贅沢",
+            "dna": "1966年創設。1975年にイントレチャート（編み込み）を導入し、ロゴに頼らない識別性を確立。",
+            "for_who": [
+                "“分かる人には分かる”が好き（静かな主張・素材主義）",
+                "派手さより、触れた時の質感・所作の美しさ重視"
+            ]
+        },
+        "tags": [
+            "quiet-luxury",
+            "craft",
+            "leather",
+            "intrecciato",
+            "minimal",
+            "texture-first"
+        ],
+        "culcept_guidance": {
+            "overview": "目立たせるのではなく、近づいたときに分かる上質さを選ぶブランド。編み込みの陰影、柔らかなレザー、控えめな金具など、ディテールの“密度”がサインになる。色やロゴで語らない分、コーデ全体が品よく整い、持つ人の余裕が出る。Culceptでは、ワントーンで質感だけ違うアイテム（同系色レザー×ウールなど）を軸にすると失敗しにくい。おすすめアイテムは、質感が伝わるレザーバッグ、きれいなニット、上質なコート。派手を足すより、形をシンプルにして“触感”を主役にすると一気にそれっぽくなる。ロゴで勝つより、静かに“品の層”を積みたい人向け。",
+            "culcept_rules": {
+                "palette": {
+                    "base": [
+                        "black",
+                        "charcoal",
+                        "chocolate_brown",
+                        "taupe",
+                        "ivory",
+                        "deep_navy"
+                    ],
+                    "accent": [
+                        "muted_green",
+                        "warm_tan"
+                    ],
+                    "note": "ワントーン〜同系色でまとめ、色より“質感差”で奥行きを作る"
+                },
+                "textures": [
+                    "woven_leather_shadow",
+                    "buttery_soft_leather",
+                    "fine_wool",
+                    "cashmere_like_knit"
+                ],
+                "silhouette": [
+                    "clean_simple_shape",
+                    "refined_proportion",
+                    "no_loud_details"
+                ],
+                "hardware": {
+                    "style": [
+                        "subtle",
+                        "minimal",
+                        "matte_or_brushed"
+                    ],
+                    "avoid": [
+                        "flashy_gold",
+                        "oversized_buckles"
+                    ]
+                },
+                "pairing_heuristics": [
+                    "同系色で『レザー×ウール』など異素材ミックスを優先",
+                    "装飾を足すより、形をシンプルにして“触感”を主役にする"
+                ],
+                "avoid": [
+                    "logo_forward",
+                    "high_contrast_color_blocking",
+                    "busy_patterns"
+                ]
+            },
+            "recommended_item_focus": [
+                "textured_leather_bag",
+                "clean_knit",
+                "premium_coat"
+            ],
+            "best_scenes": [
+                "gallery",
+                "hotel_lounge",
+                "dinner",
+                "quiet_city_night"
+            ],
+            "emotion": [
+                "calm_confidence",
+                "quiet_presence",
+                "tactile_luxury"
+            ]
+        }
+    },
+    {
+        "slug": "bvlgari",
+        "name": "Bvlgari",
+        "description": "ローマの美学を背景に、鮮やかな色と量感ある造形で“決定打”を作るハイジュエリー。シンプル服に一点入れるだけで空気を変え、夜の艶と主役感を足せる。",
+        "shop_url": "https://www.bulgari.com/ja-jp/storelocator/",
+        "concept": {
+            "catch": "ローマの美学 × 色気のあるハイジュエリー",
+            "dna": "1884年ローマで創業。ローマのルーツと、鮮やかな色・量感ある造形がシグネチャー。",
+            "for_who": [
+                "シンプル服に“決定打”が欲しい（艶・色気・主役感）",
+                "夜の場、ドレスアップ、強いアクセントが好き"
+            ]
+        },
+        "tags": [
+            "rome",
+            "high-jewelry",
+            "bold-volume",
+            "vivid-color",
+            "glow",
+            "statement-piece",
+            "night-scene"
+        ],
+        "culcept_guidance": {
+            "overview": "色とボリューム、光の反射まで計算した存在感が魅力。シンプルな黒や白の装いでも、一点で空気を変えて“自分の格”を引き上げる。直線的な服に曲線や輝きを足すとバランスが取りやすく、写真映えも強い。Culceptでは、服を削ってアクセを主役にする引き算コーデを基本にすると失敗しにくい。おすすめは、首元・手元の一点集中（ネックレス/リング）。Tシャツやニットなどラフな素材に合わせても、上品な“強さ”が出る。会食・イベント・ナイトシーンで「最後の仕上げ」を任せたい人に刺さる。控えめが似合わないタイプほど、潔く一点で魅せるとハマる。",
+            "culcept_rules": {
+                "styling_core": "引き算コーデ（服はミニマル、アクセを主役）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "white",
+                        "ivory",
+                        "charcoal"
+                    ],
+                    "accent": [
+                        "emerald",
+                        "ruby",
+                        "sapphire",
+                        "gold",
+                        "warm_bronze"
+                    ],
+                    "note": "服は無彩色で整え、色と輝きはアクセ1点に集中"
+                },
+                "silhouette_balance": [
+                    "直線的な服（テーラード/ミニマル）に、曲線と輝きを足してバランスを取る",
+                    "ボリュームは一点集中（首元 or 手元のどちらか）"
+                ],
+                "materials_pairing": [
+                    "Tシャツ/ニットなどラフ素材 × ジュエリーで“上品な強さ”を作る",
+                    "マット素材（ウール/コットン）× 高反射（メタル/ストーン）を優先"
+                ],
+                "pairing_heuristics": [
+                    "ネックレスを主役にするなら、リングは細め/控えめにする",
+                    "リングを主役にするなら、首元は抜いて服のラインで勝つ",
+                    "2点以上盛る場合は『同系トーン』で統一して散らさない"
+                ],
+                "avoid": [
+                    "アクセを複数点で主役化（主役の分散）",
+                    "服側も派手（柄・強配色）で競合",
+                    "過度なデコルテ装飾＋大ぶりジュエリーの同時盛り"
+                ]
+            },
+            "recommended_item_focus": [
+                "statement_necklace",
+                "bold_ring",
+                "sculptural_bracelet"
+            ],
+            "best_scenes": [
+                "business_dinner",
+                "event",
+                "night_out",
+                "party",
+                "hotel_bar"
+            ],
+            "emotion": [
+                "glam",
+                "confidence",
+                "final-touch",
+                "presence"
+            ]
+        }
+    },
+    {
+        "slug": "dior",
+        "name": "Dior",
+        "description": "曲線美と精密な仕立てで“所作まで整って見える”正統派エレガンス。ベーシック配色でもシルエットの説得力で端正な華を作れ、頑張りすぎず品格を上げたい日に強い。",
+        "shop_url": "https://www.dior.com/fashion/stores/ja_jp/search",
+        "concept": {
+            "catch": "“夢”を仕立てる、正統派フェミニン",
+            "dna": "1946年創設。翌年の「New Look」で戦後の女性像を刷新し、エレガンスの基準になった。",
+            "for_who": [
+                "きれいめ・品格・所作まで整えたい",
+                "“可愛い”より“端正で華がある”が好き"
+            ]
+        },
+        "tags": [
+            "new-look",
+            "tailoring",
+            "feminine-elegance",
+            "grace",
+            "refined-glam",
+            "silhouette-first"
+        ],
+        "culcept_guidance": {
+            "overview": "曲線美と仕立ての良さで、所作まできれいに見せるブランド。可愛いより、凛とした華やかさを求める人に刺さる。主張は強すぎないのに、鏡の前で“整って見える”説得力がある。Culceptでは、ベーシック配色でシルエット勝負（ウエスト位置や肩の丸み）を重視して選ぶとDIORらしさが出る。おすすめアイテムは、ラインの美しいジャケット、上品なワンピ/スカート、きれいなバッグ。式典・会食・デートなど「きちんと華」を求める日に強く、やり過ぎずに印象を上げたい人向け。甘さが苦手でも、ラインの美しさで女性らしさ/品格を出せる。",
+            "culcept_rules": {
+                "styling_core": "ベーシック配色 × シルエット勝負（ウエスト位置・肩の丸み・曲線）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "ivory",
+                        "cream",
+                        "beige",
+                        "navy",
+                        "charcoal"
+                    ],
+                    "accent": [
+                        "soft_rose",
+                        "burgundy",
+                        "gold_hint"
+                    ],
+                    "note": "色で盛らず、ベーシックで整えて“形”の説得力を出す"
+                },
+                "silhouette_focus": [
+                    "ウエスト位置がきれいに決まる（絞り/切り替え）",
+                    "肩・袖の丸み、曲線の作り方が上品",
+                    "スカートは落ち感・広がりの“品”を優先"
+                ],
+                "materials": [
+                    "fine_wool",
+                    "structured_cotton",
+                    "silk_like",
+                    "tweed_like_refined"
+                ],
+                "pairing_heuristics": [
+                    "主役は『ラインの美しいジャケット』か『上品ワンピ/スカート』のどちらかに集中",
+                    "バッグはロゴより“形と質感”で格を合わせる",
+                    "甘さが苦手なら、色は抑えてカッティングで女性らしさを作る"
+                ],
+                "avoid": [
+                    "過度なフリル・甘さの盛り過ぎ（ラインが負ける）",
+                    "強いストリート要素の混ぜすぎ（品格が崩れる）",
+                    "派手柄×派手色での主役競合"
+                ]
+            },
+            "recommended_item_focus": [
+                "beautiful_line_jacket",
+                "refined_dress",
+                "elegant_skirt",
+                "clean_bag"
+            ],
+            "best_scenes": [
+                "ceremony",
+                "business_dinner",
+                "date",
+                "formal_event"
+            ],
+            "emotion": [
+                "composed",
+                "graceful",
+                "refined-flower",
+                "quiet-confidence"
+            ]
+        }
+    },
+    {
+        "slug": "gucci",
+        "name": "Gucci",
+        "description": "旅とクラフトの系譜を背景に、レトロなムードと現代のエネルギーで“主役感”を作るイタリアン・エクレクティック。無地ベースに一点（色・柄・艶）を足すだけで、気分とリッチさを一段引き上げられる。",
+        "shop_url": "https://www.gucci.com/jp/ja/st/storelocator",
+        "concept": {
+            "catch": "旅の起源 × レトロで遊ぶイタリア的豪華さ",
+            "dna": "1921年フィレンツェで創設。旅とクラフトの系譜を持ち、戦後にはBamboo 1947のような素材発想でも象徴を作ってきた。",
+            "for_who": [
+                "服で“気分”を上げたい（色、艶、レトロ、遊び）",
+                "きれいめだけじゃ物足りない、少しクセが欲しい"
+            ]
+        },
+        "tags": [
+            "italian-eclectic",
+            "retro-maximal",
+            "travel-heritage",
+            "craft",
+            "glam",
+            "color-play",
+            "pattern-accent"
+        ],
+        "culcept_guidance": {
+            "overview": "レトロなムードと現代のエネルギーを混ぜて、主役感を作るブランド。きれいめだけでは物足りない人、配色や柄で“らしさ”を出したい人に合う。全部を派手にしなくても、バッグや小物を一点足すだけで雰囲気が一段リッチに跳ねる。Culceptでは、ベースを無地で固めて“主役パーツ”を一つに絞る提案が鉄板。おすすめは、艶のあるジャケット、柄の小物、色の効いたトップス。柄を入れるなら他は引き算すると派手になりすぎず上品にまとまる。パーティー、旅行、街歩きなど、気分を上げたい日に強い。“盛る日”と“引く日”を使い分けられる人ほど、幅広く遊べる。",
+            "culcept_rules": {
+                "styling_core": "ベースは無地で固めて、主役パーツを「1つ」に絞る",
+                "palette": {
+                    "base": [
+                        "black",
+                        "ivory",
+                        "camel",
+                        "navy"
+                    ],
+                    "accent": [
+                        "emerald",
+                        "ruby",
+                        "sapphire",
+                        "burgundy",
+                        "mustard"
+                    ],
+                    "note": "色は足し算しすぎず、主役パーツに集約する"
+                },
+                "textures": [
+                    "glossy_satin_like",
+                    "velvet_like",
+                    "polished_leather",
+                    "rich_wool"
+                ],
+                "pattern_rules": [
+                    "柄を入れるなら他は引き算（無地で逃がす）",
+                    "柄×柄は避け、1点に固定して“品の派手さ”に寄せる"
+                ],
+                "pairing_heuristics": [
+                    "バッグ/小物1点で雰囲気を跳ねさせる（全身派手にしない）",
+                    "艶のあるジャケット or 色トップスのどちらかを主役にする",
+                    "“盛る日”と“引く日”を切り替えられるUI提案（トーン選択）"
+                ],
+                "avoid": [
+                    "主役が複数（色+柄+艶を同時に盛る）",
+                    "強配色の全身コーデ（リッチより雑に見える）",
+                    "柄を入れた上でさらに装飾ディテールを盛る"
+                ]
+            },
+            "recommended_item_focus": [
+                "glossy_jacket",
+                "pattern_accessory",
+                "color_top"
+            ],
+            "best_scenes": [
+                "party",
+                "travel",
+                "city_walk",
+                "night_out"
+            ],
+            "emotion": [
+                "playful-glam",
+                "retro-energy",
+                "mood-lift",
+                "rich-pop"
+            ]
+        }
+    },
+    {
+        "slug": "coach",
+        "name": "COACH",
+        "description": "NY発のクラフト精神を土台に、毎日使い倒せる耐久性と上質さを両立するレザーグッズブランド。ラフな服装でも“小物の質”で全体をきれいに締められ、通勤・旅行・休日まで同じ軸で回せる万能さが強い。",
+        "shop_url": "https://japan.coach.com/stores/search",
+        "concept": {
+            "catch": "NYクラフト × 毎日に強いレザー",
+            "dna": "1941年に革職人たちが始めたレザーグッズの系譜。1958年にグラブタン・レザーを採用し、耐久性と馴染みの良さを磨いた。",
+            "for_who": [
+                "ラグジュアリーを“日常で使い倒す”派",
+                "トレンドより、長く使える道具感・安心感が好き"
+            ]
+        },
+        "tags": [
+            "ny-craft",
+            "everyday-luxury",
+            "leather-goods",
+            "durable",
+            "functional",
+            "work-travel",
+            "casual-to-clean"
+        ],
+        "culcept_guidance": {
+            "overview": "一点豪華より、生活に溶け込む上質さを選ぶブランド。革の表情、縫製、使い勝手のバランスがよく、気負わず持てるのに安っぽく見えない。カジュアルに寄せてもきれいに締まり、通勤・旅行・休日のどれでも成立する万能さが強い。Culceptでは、デニムやスウェットなどラフな服を“小物の質”で整える提案が最も相性がいい。おすすめアイテムは、毎日使えるレザーバッグ、シンプルな財布やベルト。実用性重視でも、きちんと感が残るのが魅力。持ち物を“道具”として育てたい人にフィット。気負わず持てるのに、手元だけ確実に上質にしたい人に。",
+            "culcept_rules": {
+                "styling_core": "ラフ服（デニム/スウェット）を“小物の質”で整える",
+                "palette": {
+                    "base": [
+                        "black",
+                        "brown",
+                        "cognac",
+                        "tan",
+                        "taupe",
+                        "navy"
+                    ],
+                    "accent": [
+                        "oxblood",
+                        "forest_green"
+                    ],
+                    "note": "派手色より、革の色味と艶・シボ感で上質を出す"
+                },
+                "textures": [
+                    "natural_grain_leather",
+                    "glove_tanned_like",
+                    "matte_hardware",
+                    "clean_stitching"
+                ],
+                "functionality_priorities": [
+                    "毎日持てる容量・軽さ",
+                    "出し入れのしやすさ（開口/ポケット）",
+                    "傷が味になるレザー表情"
+                ],
+                "pairing_heuristics": [
+                    "デニム×白Tのようなベーシックに、バッグ/ベルト/財布で締める",
+                    "通勤/旅行/休日で使い回せる形を優先（過剰装飾は避ける）",
+                    "“道具として育つ”素材を優先（経年で馴染む系）"
+                ],
+                "avoid": [
+                    "一点豪華のギラつき（派手金具・過度な装飾）",
+                    "トレンド依存の短命ディテール",
+                    "実用性を削る極端なミニサイズ"
+                ]
+            },
+            "recommended_item_focus": [
+                "everyday_leather_bag",
+                "simple_wallet",
+                "clean_belt"
+            ],
+            "best_scenes": [
+                "commute",
+                "travel",
+                "weekend",
+                "everyday"
+            ],
+            "emotion": [
+                "reliable",
+                "effortless",
+                "grown-up-casual",
+                "tool-like-pride"
+            ]
+        }
+    },
+    {
+        "slug": "hermes",
+        "name": "Hermès",
+        "description": "馬具由来の機能美と耐久性を“美”に変える、究極のクラフツマンシップ。ロゴより手触り・縫い・角の処理など本質で差が出て、色数を絞った提案でも静かに“格”が上がる。",
+        "shop_url": "https://www.hermes.com/jp/ja/find-store/",
+        "concept": {
+            "catch": "馬具の起源 × 究極のクラフツマンシップ",
+            "dna": "1837年パリで馬具工房として始まる。機能美と耐久性を“美”に変える思想が核。",
+            "for_who": [
+                "派手さより、本物の作り・素材・手仕事に惹かれる",
+                "静かに“格”を上げたい（クワイエット・ラグジュアリー）"
+            ]
+        },
+        "tags": [
+            "equestrian-origin",
+            "craftsmanship",
+            "quiet-luxury",
+            "functional-beauty",
+            "durability",
+            "leather",
+            "heritage-paris"
+        ],
+        "culcept_guidance": {
+            "overview": "機能美と耐久性を、美しさに変える思想が核。目立つ記号より、手触りや縫い目、角の処理などで差が出る。使うほど馴染み、持つ人の振る舞いまで整う感覚がある。Culceptでは、色数を絞り“素材の良さ”が伝わるアイテムを優先して提案すると、世界観が崩れない。おすすめは、上質レザー小物、シンプルなバッグ、きれいなコート。ビジネス、上質な日常、特別な旅に強く、派手に盛らずに“質”だけで勝ちたい日に効く。物を長く愛し、手入れを楽しめるタイプほど相性がいい。記号より本質派。少数の良品で暮らしを整えたい人に刺さる。",
+            "culcept_rules": {
+                "styling_core": "色数を絞り、素材の良さで勝つ（記号より触感・縫製・仕立て）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "deep_navy",
+                        "chocolate_brown",
+                        "tan",
+                        "camel",
+                        "ecru"
+                    ],
+                    "accent": [
+                        "saddle_brown",
+                        "warm_orange_hint"
+                    ],
+                    "note": "派手色で語らず、革の色味と質感で“格”を作る"
+                },
+                "textures": [
+                    "premium_leather_grain",
+                    "hand_stitch_like_detail",
+                    "clean_edge_paint",
+                    "matte_to_subtle_sheen"
+                ],
+                "silhouette": [
+                    "clean_structure",
+                    "refined_proportion",
+                    "no_loud_details"
+                ],
+                "pairing_heuristics": [
+                    "色数は2〜3色に制限し、トーンを揃える",
+                    "小物は“手触りと縫製が伝わる”ものを優先（過剰装飾は避ける）",
+                    "派手に盛らず、少数の良品で全体の品格を上げる",
+                    "手入れ前提の素材（経年で馴染む）を優先"
+                ],
+                "avoid": [
+                    "ロゴ/モノグラムの主張",
+                    "派手な金具・過度な装飾",
+                    "色数の増やしすぎ（世界観が崩れる）"
+                ]
+            },
+            "recommended_item_focus": [
+                "premium_leather_small_goods",
+                "simple_bag",
+                "clean_coat"
+            ],
+            "best_scenes": [
+                "business",
+                "elevated_everyday",
+                "special_travel"
+            ],
+            "emotion": [
+                "quiet-class",
+                "composure",
+                "timeless",
+                "ritual-care"
+            ]
+        }
+    },
+    {
+        "slug": "louis-vuitton",
+        "name": "Louis Vuitton",
+        "description": "トランク由来の“壊れない美しさ”で、安心感と格を同時に作れる王道ラグジュアリー。ベーシック服に一点投入するだけでスタイルの軸が立ち、日常〜旅行まで再現性高くまとまる。",
+        "shop_url": "https://jp.louisvuitton.com/jpn-jp/stores",
+        "concept": {
+            "catch": "旅の道具から始まった、最強のラグジュアリー",
+            "dna": "1854年にトランク/ラゲージで創業。1896年にモノグラムを導入し、旅と耐久性の物語を“記号”にした。",
+            "for_who": [
+                "“強い定番”が欲しい（安心感と格の両立）",
+                "服も小物も、ストーリーと耐久性を重視"
+            ]
+        },
+        "tags": [
+            "travel-origin",
+            "trunk-heritage",
+            "durability",
+            "iconic-signature",
+            "strong-classic",
+            "everyday-to-travel",
+            "tool-to-luxury"
+        ],
+        "culcept_guidance": {
+            "overview": "移動の文化から磨かれた“壊れない美しさ”が魅力。持ち物に安心感と物語を求める人に合う。ウェアも小物も、実用性の上にデザインの説得力が乗るから、合わせるだけで全体が整う。Culceptでは、ベーシック服に一点投入して“軸”を作る提案が鉄板（バッグ/アウター/靴など）。おすすめアイテムは、容量と耐久性が分かるバッグ、形が崩れにくいアウター。旅行や出張が多い人、荷物の強さも見た目も両方ほしい人に特に向く。王道を自分流に落とし込み、長く使いながら更新していきたい人へ。初めての王道でも失敗しにくく、スタイルの土台を作れる。",
+            "culcept_rules": {
+                "styling_core": "ベーシック服に一点投入して“軸”を作る（バッグ/アウター/靴のいずれかを主役）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "navy",
+                        "charcoal",
+                        "camel",
+                        "ivory"
+                    ],
+                    "accent": [
+                        "warm_brown",
+                        "deep_green",
+                        "burgundy"
+                    ],
+                    "note": "色で盛るより、形と耐久性・素材感で“強い定番”を作る"
+                },
+                "durability_focus": [
+                    "容量・耐久性が一目で伝わるバッグ（構造・素材・底の強さ）",
+                    "形が崩れにくいアウター（ハリ・芯・構造）",
+                    "移動シーンに強い靴（安定感・耐久素材）"
+                ],
+                "pairing_heuristics": [
+                    "主役は1点（バッグ or アウター or 靴）に固定し、他はベーシックで支える",
+                    "旅行/出張が多い人には“容量×軽さ×丈夫さ”を優先",
+                    "王道を“自分流”に落とす：主役の形を変えて印象を更新する（例：同色で形違い）"
+                ],
+                "avoid": [
+                    "主役を複数にして散らす（バッグ+靴+アウターを同時に強くしない）",
+                    "繊細すぎて移動に弱い素材の多用",
+                    "過度な装飾で実用性を削る"
+                ]
+            },
+            "recommended_item_focus": [
+                "high_capacity_durable_bag",
+                "shape_holding_outer",
+                "travel_ready_shoe"
+            ],
+            "best_scenes": [
+                "travel",
+                "business_trip",
+                "commute",
+                "weekend_city"
+            ],
+            "emotion": [
+                "reliable",
+                "grounded-status",
+                "built-to-last",
+                "story-driven-classic"
+            ]
+        }
+    },
+    {
+        "slug": "fendi",
+        "name": "FENDI",
+        "description": "ローマの色気とファミリークラフトが同居する、艶っぽい実用性。モノトーンを土台に“艶素材”を一点だけ足すと、甘すぎず強すぎない大人のムードが出て、日常〜夜まで幅広くハマる。",
+        "shop_url": "https://www.fendi.com/ii-en/store-locator/japan",
+        "concept": {
+            "catch": "ローマの色気 × ファミリークラフト",
+            "dna": "1925年ローマで毛皮とレザー工房として始まる。家族と職人の蓄積が“艶っぽい実用性”に繋がる。",
+            "for_who": [
+                "きれいめだけじゃなく、少し強さ・艶が欲しい",
+                "上質で“女っぽい/男っぽい”を両立したい"
+            ]
+        },
+        "tags": [
+            "rome",
+            "family-craft",
+            "leather",
+            "fur-heritage",
+            "sensual-practical",
+            "monochrome-plus-sheen",
+            "city-night"
+        ],
+        "culcept_guidance": {
+            "overview": "素材の触感と、さりげない華の出し方が上手いブランド。きれいめに寄せても固くなり過ぎず、ストリートに振っても品が残る。甘すぎない艶、強すぎない色気が欲しい人に刺さる。Culceptでは、モノトーンに一点だけ艶やかな素材（レザー/サテン感）を足す提案が再現性高め。おすすめは、触感が伝わるバッグ、上質なニット、レザーのアウター。主張しすぎずに“ローマの温度”が出て、全体が急にリッチに見える。会食、街歩き、夜の予定にも強い。ムード重視で大人っぽく魅せたい人へ。“艶の分量”を調整しやすいので、日常から夜まで守備範囲が広い。",
+            "culcept_rules": {
+                "styling_core": "モノトーンを土台に、“艶素材”を一点だけ足す（艶の分量コントロール）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "charcoal",
+                        "ivory",
+                        "stone_gray"
+                    ],
+                    "accent": [
+                        "warm_brown",
+                        "deep_burgundy",
+                        "gold_hint"
+                    ],
+                    "note": "色は増やさず、素材の艶と触感で“温度”を出す"
+                },
+                "textures": [
+                    "supple_leather",
+                    "satin_like_sheen",
+                    "fine_knit",
+                    "matte_wool_base"
+                ],
+                "silhouette": [
+                    "clean_city_lines",
+                    "soft_strength_balance",
+                    "refined_street_mix"
+                ],
+                "pairing_heuristics": [
+                    "モノトーン（マット）× 艶（レザー/サテン感）を1点に集中",
+                    "バッグ or レザーアウターを主役にし、他は引き算で整える",
+                    "“女っぽい/男っぽい”は素材で調整（形はシンプルに保つ）"
+                ],
+                "avoid": [
+                    "艶素材を複数点で盛る（ギラつき）",
+                    "甘さ過多（フリル/パステルの積み上げ）",
+                    "強い色気×強いストリートの同時盛り"
+                ]
+            },
+            "recommended_item_focus": [
+                "tactile_bag",
+                "premium_knit",
+                "leather_outer"
+            ],
+            "best_scenes": [
+                "business_dinner",
+                "city_walk",
+                "night_out",
+                "event"
+            ],
+            "emotion": [
+                "rome-temperature",
+                "mature-mood",
+                "subtle-glam",
+                "polished-edge"
+            ]
+        }
+    },
+    {
+        "slug": "saint-laurent",
+        "name": "Saint Laurent",
+        "description": "黒を軸に“線”と質感で色気を作る、パリの夜のシャープさ。派手柄や装飾に頼らず、テーラリングとレザー/艶素材で輪郭を立てると最短で世界観に着地する。",
+        "shop_url": "https://www.ysl.com/ja-jp/stores",
+        "concept": {
+            "catch": "パリの夜 × シャープなテーラリング",
+            "dna": "1961年創設。1966年に女性にタキシード＝Le Smokingを提示し、色気のある中性的スタイルを定義。",
+            "for_who": [
+                "黒が好き（でも重くならず“夜の艶”が欲しい）",
+                "細身/直線/レザー/ジャケットで“強さ”を出したい"
+            ]
+        },
+        "tags": [
+            "paris-night",
+            "sharp-tailoring",
+            "le-smoking",
+            "androgynous",
+            "black-core",
+            "leather",
+            "sleek-glam"
+        ],
+        "culcept_guidance": {
+            "overview": "直線の美しさ、削ぎ落とした強さ、夜の空気感が魅力。黒を中心にまとめても重くならず、輪郭がすっと立つ。派手な柄や装飾に頼らず、シルエットと質感で勝てるので、コーデが簡単に決まる。Culceptでは、細身〜ストレートのパンツに、肩が立つジャケットで“線”を作る提案が鉄板。おすすめアイテムはレザージャケット、シャープなブーツ、艶のあるシャツ。バー/ライブ/ナイトアウトで映える一方、昼は白Tやデニムで抜けを作るとバランスが取れる。背筋が伸びる“自分を整える服”が欲しい人に。黒が好きなら最短。逆にカラフル派は一点投入からが安全。",
+            "culcept_rules": {
+                "styling_core": "細身〜ストレートパンツ × 肩が立つジャケットで“線”を作る（黒中心でも重くしない）",
+                "palette": {
+                    "base": [
+                        "deep_black",
+                        "charcoal",
+                        "midnight_navy",
+                        "ivory"
+                    ],
+                    "accent": [
+                        "burgundy",
+                        "smoke_gray"
+                    ],
+                    "note": "黒を主役にしつつ、白/アイボリーで抜けを作ると“夜の艶”が立つ"
+                },
+                "textures": [
+                    "matte_wool",
+                    "smooth_leather",
+                    "silk_or_satin_like_sheen",
+                    "polished_black_boot_leather"
+                ],
+                "silhouette_focus": [
+                    "sharp_shoulders",
+                    "slim_or_straight_lines",
+                    "clean_waistline",
+                    "minimal_details"
+                ],
+                "pairing_heuristics": [
+                    "パンツは細身〜ストレートで輪郭を出す（ワイドは控えめ）",
+                    "主役はレザージャケット or 艶シャツのどちらかに集中",
+                    "昼は白T/デニムで抜けを作り、夜は黒×艶で締める",
+                    "カラフル派は一点投入（靴 or ジャケット）から始める"
+                ],
+                "avoid": [
+                    "派手柄・過剰装飾",
+                    "ボリューム過多（線がぼやける）",
+                    "強い色を複数投入（夜の統一感が崩れる）"
+                ]
+            },
+            "recommended_item_focus": [
+                "leather_jacket",
+                "sharp_boots",
+                "sheen_shirt",
+                "tailored_jacket"
+            ],
+            "best_scenes": [
+                "bar",
+                "live",
+                "night_out",
+                "date",
+                "after-hours"
+            ],
+            "emotion": [
+                "sleek",
+                "confident",
+                "night-glam",
+                "self-assembled"
+            ]
+        }
+    },
+    {
+        "slug": "loewe",
+        "name": "LOEWE",
+        "description": "スペイン発のレザー技巧を土台に、工芸とアートの距離が近い“作品感”のあるクラフト。服は無地で整え、造形のあるバッグ/小物を一点入れるだけで、軽やかな知性と抜けが作れる。",
+        "shop_url": "https://www.loewe.com/jap/ja/stores",
+        "concept": {
+            "catch": "スペインの革 × アートとクラフトの融合",
+            "dna": "1846年マドリードで革職人の集団として創設。レザーの技巧を土台に、工芸とアートの距離が近い。",
+            "for_who": [
+                "“作家性”や“素材の表情”が好き（クラフト/工芸/美術館系）",
+                "きれいめだけど、どこか柔らかい遊びが欲しい"
+            ]
+        },
+        "tags": [
+            "spanish-leather",
+            "art-craft",
+            "museum-mood",
+            "sculptural-bag",
+            "quiet-intellectual",
+            "soft-playfulness",
+            "logo-free"
+        ],
+        "culcept_guidance": {
+            "overview": "上質なのに息苦しくない、軽やかな知性があるブランド。素材の良さが前に出るのに、形やディテールに遊びがあるから、ベーシック派でも印象を更新できる。Culceptでは、服を無地でまとめてバッグや小物の造形で“抜け”を作る提案が強い。おすすめは、造形のあるレザーバッグ、きれいなシャツ、柔らかなアウター。美術館や工芸の空気感が好きな人、シンプルだけど“何か違う”を探している人に刺さる。日常の装いを静かに格上げしつつ、堅く見せたくない人へ。派手ロゴが苦手でも、造形で“差”が出るので長く飽きにくい。一点で“作品感”が出る。",
+            "culcept_rules": {
+                "styling_core": "服は無地で整え、バッグ/小物の“造形”で抜けと作品感を作る",
+                "palette": {
+                    "base": [
+                        "ivory",
+                        "sand",
+                        "taupe",
+                        "camel",
+                        "black",
+                        "navy"
+                    ],
+                    "accent": [
+                        "olive",
+                        "terracotta",
+                        "soft_yellow",
+                        "deep_brown"
+                    ],
+                    "note": "派手色は少量。素材の表情と立体感を主役にする"
+                },
+                "textures": [
+                    "supple_leather",
+                    "natural_grain",
+                    "craft_stitch_detail",
+                    "soft_wool_outer",
+                    "clean_cotton_shirt"
+                ],
+                "silhouette": [
+                    "clean_basic",
+                    "soft_structure",
+                    "relaxed_refined"
+                ],
+                "pairing_heuristics": [
+                    "服はワントーン/同系色でまとめ、造形バッグを一点投入",
+                    "主役はバッグ。服側はシャツや柔らかいアウターで品よく支える",
+                    "ロゴに頼らず“形”で差を出す（彫刻的/工芸的フォルム優先）"
+                ],
+                "avoid": [
+                    "派手ロゴ・強いモノグラム",
+                    "柄×柄の盛りすぎ（造形の良さが埋もれる）",
+                    "硬すぎるフルテーラードで息苦しく見せる"
+                ]
+            },
+            "recommended_item_focus": [
+                "sculptural_leather_bag",
+                "clean_shirt",
+                "soft_outer"
+            ],
+            "best_scenes": [
+                "museum",
+                "gallery",
+                "craft_fair",
+                "city_walk",
+                "smart-casual"
+            ],
+            "emotion": [
+                "quiet-intelligence",
+                "artful",
+                "effortless-elevated",
+                "soft-unique"
+            ]
+        }
+    },
+    {
+        "slug": "chanel",
+        "name": "CHANEL",
+        "description": "派手に盛らず、動きやすさと洗練で“自由な上品さ”を作るタイムレスな基準。Culceptではベーシックに「輪郭がきれいな一点」を足して全体を整えると、頑張り過ぎずに格が出る。",
+        "shop_url": "https://www.chanel.com/jp/storelocator/",
+        "concept": {
+            "catch": "自由のエレガンス × 永遠の定番",
+            "dna": "1910年、パリで帽子店（Chanel Modes）からスタート。1926年のリトルブラックドレスのように、実用性と洗練で時代を変えた。",
+            "for_who": [
+                "“流行より基準”が欲しい（タイムレス、品、清潔感）",
+                "きちんと見せたいが、窮屈さは嫌（自由に動ける上品さ）"
+            ]
+        },
+        "tags": [
+            "paris",
+            "timeless-classic",
+            "free-elegance",
+            "little-black-dress",
+            "refined-practicality",
+            "clean-silhouette",
+            "wardrobe-core"
+        ],
+        "culcept_guidance": {
+            "overview": "飾り立てるのではなく、動きやすさと洗練を両立して“自由な上品さ”を形にする。派手さに頼らず、清潔感と格を残せるのが強い。Culceptでは、シンプルな装いに“きれいな輪郭”のアイテムを一点入れて全体を整える提案が相性◎。おすすめはツイード系の上品素材、きれいなラインのジャケット、控えめな小物。オケージョンだけでなく日常も底上げしたい人、流行より長く愛せる基準をワードローブに置きたい人にフィット。上品に見えるのに頑張って見えない、そのバランスが欲しい人へ。“良い普通”を作れるので、ワードローブの中心に置くと強い。",
+            "culcept_rules": {
+                "styling_core": "シンプルな装いに“きれいな輪郭”のアイテムを一点入れて全体を整える（頑張り過ぎず上品）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "ivory",
+                        "cream",
+                        "beige",
+                        "navy",
+                        "charcoal"
+                    ],
+                    "accent": [
+                        "soft_gold_hint",
+                        "pearl_white_hint",
+                        "dusty_pink"
+                    ],
+                    "note": "配色は控えめに。清潔感と輪郭の美しさを優先"
+                },
+                "textures": [
+                    "refined_tweed_like",
+                    "fine_wool",
+                    "structured_cotton",
+                    "matte_leather",
+                    "subtle_lustre"
+                ],
+                "silhouette_focus": [
+                    "clean_outline",
+                    "balanced_proportion",
+                    "mobility_and_structure",
+                    "refined_jacket_line"
+                ],
+                "pairing_heuristics": [
+                    "主役は『ラインのきれいなジャケット』or『上品ツイード素材』に集中",
+                    "小物は控えめで“質”を足す（盛り過ぎない）",
+                    "日常でも成立させるなら、服はベーシックで輪郭重視に寄せる",
+                    "“きちんと”を出したい日は、色数を2〜3色に絞る"
+                ],
+                "avoid": [
+                    "過度な装飾で“重さ”を出す",
+                    "派手柄・強配色で主張を増やしすぎる",
+                    "窮屈に見えるタイト過多（自由さが消える）"
+                ]
+            },
+            "recommended_item_focus": [
+                "tweed_like_refined_piece",
+                "clean_line_jacket",
+                "subtle_accessory"
+            ],
+            "best_scenes": [
+                "everyday-elevated",
+                "occasion",
+                "business_dinner",
+                "smart-casual"
+            ],
+            "emotion": [
+                "free-elegance",
+                "clean-class",
+                "timeless",
+                "effortless-polish"
+            ]
+        }
+    },
+    {
+        "slug": "ralph-lauren",
+        "name": "Ralph Lauren",
+        "description": "流行より“人生の定番”を積み上げるアメリカン・クラシック。シャツ＋ニット＋チノのような王道レイヤーを、靴・ベルトの革で締めると清潔感と品が最短で出る。",
+        "shop_url": "https://www.ralphlauren.co.jp/stores",
+        "concept": {
+            "catch": "アメリカン・クラシックの完成形",
+            "dna": "1967年、ネクタイから事業を開始（Polo名義）。アイビー/プレップ/乗馬やカントリーの“理想のアメリカ”をスタイル化。",
+            "for_who": [
+                "清潔感・育ちの良さ・王道の品が欲しい",
+                "休日も仕事も“ちゃんとして見える”服が欲しい"
+            ]
+        },
+        "tags": [
+            "american-classic",
+            "ivy-prep",
+            "polo-origin",
+            "heritage",
+            "timeless-basics",
+            "clean-polish",
+            "work-to-weekend"
+        ],
+        "culcept_guidance": {
+            "overview": "流行より、人生の定番を積み上げるブランド。シンプルなアイテムでも、素材感とバランスで“育ちの良さ”がにじむ。盛らなくてもきれいに見えるから、コーデに悩む時間を減らしたい人にも向く。Culceptでは、シャツ＋ニット＋チノのように定番を重ねて、靴やベルトで締める提案が最も再現性が高い。おすすめは、オックスフォードシャツ、上質ニット、きれいなチノやブレザー。職場〜休日まで同じ軸で回せる“安心の王道”が欲しい人に。派手さより信頼感。年齢を重ねても似合い続ける軸を作れる。迷った朝の味方。清潔感と品を最短で作れる。",
+            "culcept_rules": {
+                "styling_core": "定番を重ねて、靴・ベルトで締める（シャツ＋ニット＋チノが鉄板）",
+                "palette": {
+                    "base": [
+                        "navy",
+                        "white",
+                        "blue",
+                        "beige",
+                        "camel",
+                        "charcoal"
+                    ],
+                    "accent": [
+                        "burgundy",
+                        "forest_green",
+                        "tan_leather"
+                    ],
+                    "note": "強配色より、ネイビー/白/ベージュの清潔感を軸にする"
+                },
+                "textures": [
+                    "oxford_cotton",
+                    "fine_knit_wool",
+                    "cotton_chino",
+                    "tweed_like_blazer",
+                    "smooth_leather_accessories"
+                ],
+                "silhouette": [
+                    "clean_regular_fit",
+                    "balanced_proportion",
+                    "neat_layers"
+                ],
+                "pairing_heuristics": [
+                    "迷ったら『オックスフォードシャツ + ニット + チノ』で組む",
+                    "ブレザーを足すと仕事寄り、デニムに替えると休日寄り",
+                    "足元とベルトは革で揃えて“育ちの良さ”を作る",
+                    "主張は控えめ。素材の良さとサイズ感で整える"
+                ],
+                "avoid": [
+                    "過度なトレンド要素の盛り込み",
+                    "派手柄×派手色での主役競合",
+                    "サイズ過大でだらしなく見えるフィット"
+                ]
+            },
+            "recommended_item_focus": [
+                "oxford_shirt",
+                "premium_knit",
+                "clean_chino",
+                "classic_blazer",
+                "leather_belt",
+                "clean_leather_shoes"
+            ],
+            "best_scenes": [
+                "office",
+                "weekend",
+                "smart-casual",
+                "travel"
+            ],
+            "emotion": [
+                "reliable",
+                "clean",
+                "trustworthy",
+                "morning-saver"
+            ]
+        }
+    },
+    {
+        "slug": "rolex",
+        "name": "ROLEX",
+        "description": "精度・耐久・普遍性で“信頼”を積み上げる、腕元の王道。Culceptでは服をシンプルに整え、時計を一点主役にして全体の完成度と信用感を底上げする提案が強い。",
+        "shop_url": "https://www.rolex.com/ja/store-locator/japan",
+        "concept": {
+            "catch": "精密の信頼 × “一生モノ”の王道",
+            "dna": "1905年にロンドンで創業し、1919年にジュネーブへ拠点を移す。1926年に防水・防塵の「Oyster」を確立し、1931年に自動巻きの「Perpetual rotor」を発明・特許化して実用時計の基準を引き上げた。",
+            "for_who": [
+                "小物1点で“格”と信頼感を作りたい（腕元を軸にしたい）",
+                "派手さより、精度・耐久・普遍性で長く使える基準が欲しい"
+            ]
+        },
+        "tags": [
+            "heritage",
+            "precision",
+            "durability",
+            "tool-to-luxury",
+            "oyster",
+            "perpetual",
+            "geneva",
+            "one-watch-wardrobe"
+        ],
+        "culcept_guidance": {
+            "overview": "“目立つ装飾”ではなく、精度と耐久に裏打ちされた存在感で勝つブランド。ベーシックな黒白ネイビーの服でも、腕元に一点入るだけで全体の信頼感と完成度が上がる。Culceptでは、服をシンプルにして時計を“軸”にする引き算提案が最も再現性が高い。おすすめは、毎日つけられるスチール系、きれいめに寄せられる薄めのケース/シンプルダイヤル。仕事→休日→旅まで一本で回せる“安心の王道”が欲しい人向け。",
+            "culcept_rules": {
+                "styling_core": "服は無地・定番で整え、腕元を主役にして“軸”を作る（引き算コーデ）",
+                "palette": {
+                    "base": [
+                        "black",
+                        "white",
+                        "navy",
+                        "charcoal",
+                        "gray",
+                        "beige"
+                    ],
+                    "accent": [
+                        "silver",
+                        "gold_hint"
+                    ],
+                    "note": "色は増やしすぎず、腕元の金属光で締める"
+                },
+                "watch_balance": {
+                    "metal_tone_match": [
+                        "時計がシルバー系なら、ベルト金具/バッグ金具もシルバー寄りで統一",
+                        "時計がゴールド系なら、他の金属もゴールド寄りに寄せる（混ぜすぎない）"
+                    ],
+                    "dial_colors": [
+                        "black",
+                        "white",
+                        "navy",
+                        "dark_gray"
+                    ]
+                },
+                "pairing_heuristics": [
+                    "時計を主役にする日は、他アクセは控えめ（リングは細め1点まで）",
+                    "白T/ニット/シャツ + スラックス/デニムの“普通”に乗せるだけで完成度が上がる",
+                    "旅・出張提案では“丈夫さが伝わる一本”を軸に、服はミニマルにする"
+                ],
+                "avoid": [
+                    "時計＋派手アクセの同時盛り（主役が分散）",
+                    "柄・装飾の強い服で腕元の品格を潰す",
+                    "金属トーンを無秩序に混ぜる"
+                ]
+            },
+            "recommended_item_focus": [
+                "everyday_steel_watch",
+                "clean_dial_watch",
+                "travel_ready_watch"
+            ],
+            "best_scenes": [
+                "work",
+                "weekend",
+                "travel",
+                "business_dinner"
+            ],
+            "emotion": [
+                "reliable",
+                "timeless",
+                "quiet-status",
+                "composed"
+            ]
+        }
+    }
+]
