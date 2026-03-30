@@ -14,17 +14,44 @@ export default function OpenGraphImage() {
                     height: "100%",
                     display: "flex",
                     flexDirection: "column",
+                    alignItems: "center",
                     justifyContent: "center",
+                    background: "linear-gradient(160deg, #060510, #0a0a2a, #0f0520)",
                     padding: 72,
-                    background: "white",
                 }}
             >
-                <div style={{ fontSize: 64, fontWeight: 900, letterSpacing: -1 }}>Culcept</div>
-                <div style={{ marginTop: 16, fontSize: 28, opacity: 0.75 }}>
-                    Curated drops and styling ideas.
+                <div
+                    style={{
+                        fontSize: 72,
+                        fontWeight: 900,
+                        letterSpacing: -1,
+                        background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                        backgroundClip: "text",
+                        color: "transparent",
+                        marginBottom: 24,
+                    }}
+                >
+                    Aneurasync
                 </div>
-                <div style={{ marginTop: 40, fontSize: 18, opacity: 0.55 }}>
-                    culcept — drops / tags / share
+                <div
+                    style={{
+                        fontSize: 32,
+                        color: "rgba(255,255,255,0.85)",
+                        textAlign: "center",
+                        lineHeight: 1.5,
+                    }}
+                >
+                    自分でも気づいていない自分を、観測する。
+                </div>
+                <div
+                    style={{
+                        marginTop: 24,
+                        fontSize: 20,
+                        color: "rgba(255,255,255,0.4)",
+                        textAlign: "center",
+                    }}
+                >
+                    27 Archetypes — 深層自己観測
                 </div>
             </div>
         ),

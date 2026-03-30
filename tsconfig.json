@@ -19,6 +19,12 @@
     "incremental": true,
     "baseUrl": ".",
     "paths": {
+      "@/app/*": [
+        "./app/*",
+        "./app/(culcept)/*",
+        "./app/(immersive)/*",
+        "./app/(legal)/*"
+      ],
       "@/*": [
         "./*"
       ]
@@ -37,6 +43,7 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "scripts"
   ]
 }

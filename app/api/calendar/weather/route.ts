@@ -1,6 +1,7 @@
 // app/api/calendar/weather/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { normalizeOfficeCode } from "@/lib/weather/jma";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
                 temp_preference: "normal",
                 rain_sensitivity: "normal",
             },
+            office_code: normalizeOfficeCode(settings?.default_location),
         });
     } catch (err) {
         console.error("Weather settings GET API error:", err);
@@ -42,7 +44,9 @@ export async function POST(req: NextRequest) {
         }
 
         const body = await req.json();
-        const { default_location, temp_preference, rain_sensitivity } = body;
+        const requestedOfficeCode = normalizeOfficeCode(body?.office_code ?? body?.default_location);
+        const { temp_preference, rain_sensitivity } = body;
+        const default_location = requestedOfficeCode ?? (typeof body?.default_location === "string" ? body.default_location.trim() || null : null);
 
         const { data: settings, error } = await supabase
             .from("user_weather_settings")
@@ -62,7 +66,7 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Failed to save settings" }, { status: 500 });
         }
 
-        return NextResponse.json({ success: true, settings });
+        return NextResponse.json({ success: true, settings, office_code: normalizeOfficeCode(settings?.default_location) });
     } catch (err) {
         console.error("Weather settings POST API error:", err);
         return NextResponse.json({ error: "Internal server error" }, { status: 500 });

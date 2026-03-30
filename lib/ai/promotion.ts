@@ -16,7 +16,9 @@ function envBool(name: string, fallback: boolean): boolean {
 }
 
 function envNumber(name: string, fallback: number): number {
-  const value = Number((process.env[name] ?? "").trim());
+  const raw = (process.env[name] ?? "").trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return fallback;
   return value;
 }
@@ -350,7 +352,7 @@ export type PromotionReviewBatchSummary = {
 export async function runPromotionReviewBatch(args: {
   lookbackHours?: number;
 }): Promise<PromotionReviewBatchSummary> {
-  const enabled = envBool("AI_PROMOTION_CRON_ENABLED", false);
+  const enabled = envBool("AI_PROMOTION_CRON_ENABLED", true);
   if (!enabled) {
     return {
       enabled: false,

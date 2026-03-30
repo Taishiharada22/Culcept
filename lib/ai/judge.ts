@@ -1,6 +1,8 @@
 import "server-only";
 
 import { getAIServiceClient } from "./db";
+import { isStargazerStudentTask } from "@/lib/stargazer/studentTrack";
+import { evaluateStargazerRunDownstream } from "@/lib/stargazer/downstreamEval";
 
 function envBool(name: string, fallback: boolean): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
@@ -32,7 +34,7 @@ export async function runAutoEvalBatch(args: {
   allowReeval?: boolean;
   dryRun?: boolean;
 }): Promise<AutoEvalBatchSummary> {
-  const enabled = envBool("AI_AUTO_EVAL_ENABLED", false);
+  const enabled = envBool("AI_AUTO_EVAL_ENABLED", true);
   const dryRun = args.dryRun ?? false;
 
   if (!enabled) {
@@ -87,11 +89,24 @@ export async function runAutoEvalBatch(args: {
       const runIds = candidates.map((r) => r.id);
       const { data: existingEvals } = await client
         .from("ai_eval_runs")
-        .select("ai_run_id")
+        .select("ai_run_id, eval_type")
         .in("ai_run_id", runIds);
 
-      const evaluated = new Set((existingEvals ?? []).map((e) => e.ai_run_id));
-      const filtered = candidates.filter((r) => !evaluated.has(r.id));
+      const evaluated = new Map<string, Set<string>>();
+      for (const row of existingEvals ?? []) {
+        const set = evaluated.get(row.ai_run_id) ?? new Set<string>();
+        if (typeof row.eval_type === "string" && row.eval_type.trim()) {
+          set.add(row.eval_type);
+        }
+        evaluated.set(row.ai_run_id, set);
+      }
+
+      const filtered = candidates.filter((run) => {
+        const requiredEvalType = isStargazerStudentTask(run.task_type)
+          ? "stargazer_downstream"
+          : "auto";
+        return !(evaluated.get(run.id)?.has(requiredEvalType));
+      });
       candidates.length = 0;
       candidates.push(...filtered);
     }
@@ -100,6 +115,44 @@ export async function runAutoEvalBatch(args: {
 
     for (const run of candidates) {
       try {
+        if (isStargazerStudentTask(run.task_type)) {
+          const downstream = await evaluateStargazerRunDownstream({
+            aiRunId: run.id,
+            client,
+            dryRun,
+          });
+
+          if (!downstream.available) {
+            items.push({
+              aiRunId: run.id,
+              taskType: run.task_type,
+              score: null,
+              passed: false,
+              error: downstream.reason,
+            });
+            continue;
+          }
+
+          if (!dryRun) {
+            await client.from("ai_eval_runs").insert({
+              ai_run_id: run.id,
+              task_type: run.task_type,
+              eval_type: "stargazer_downstream",
+              score: downstream.score,
+              passed: downstream.passed,
+              metadata: downstream.metadata,
+            });
+          }
+
+          items.push({
+            aiRunId: run.id,
+            taskType: run.task_type,
+            score: downstream.score,
+            passed: downstream.passed,
+          });
+          continue;
+        }
+
         const score = evaluateResponse(run);
         const passed = score >= 0.5;
 

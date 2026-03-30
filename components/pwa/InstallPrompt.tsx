@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { safeLSSet } from "@/lib/safeLocalStorage";
 
 interface BeforeInstallPromptEvent extends Event {
     prompt: () => Promise<void>;
@@ -10,18 +11,16 @@ interface BeforeInstallPromptEvent extends Event {
 export function InstallPrompt() {
     const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
     const [showPrompt, setShowPrompt] = useState(false);
-    const [isIOS, setIsIOS] = useState(false);
-    const [isStandalone, setIsStandalone] = useState(false);
+    const [isIOS] = useState(() => {
+        if (typeof window === "undefined") return false;
+        return /iPad|iPhone|iPod/.test(navigator.userAgent);
+    });
+    const [isStandalone] = useState(() => {
+        if (typeof window === "undefined") return false;
+        return window.matchMedia("(display-mode: standalone)").matches;
+    });
 
     useEffect(() => {
-        // PWAとして起動済みか確認
-        const standalone = window.matchMedia("(display-mode: standalone)").matches;
-        setIsStandalone(standalone);
-
-        // iOS判定
-        const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
-        setIsIOS(ios);
-
         // インストールプロンプトをキャプチャ
         const handleBeforeInstall = (e: Event) => {
             e.preventDefault();
@@ -29,7 +28,7 @@ export function InstallPrompt() {
 
             // 初回訪問から3回目以降で表示
             const visitCount = parseInt(localStorage.getItem("visit_count") || "0", 10) + 1;
-            localStorage.setItem("visit_count", String(visitCount));
+            safeLSSet("visit_count", String(visitCount));
 
             // 既にdismissedなら表示しない
             const dismissed = localStorage.getItem("pwa_prompt_dismissed");
@@ -61,7 +60,7 @@ export function InstallPrompt() {
 
     const handleDismiss = () => {
         setShowPrompt(false);
-        localStorage.setItem("pwa_prompt_dismissed", "true");
+        safeLSSet("pwa_prompt_dismissed", "true");
     };
 
     // 既にインストール済みなら何も表示しない

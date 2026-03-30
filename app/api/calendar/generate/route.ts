@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
     generateDailyOutfit,
-    estimateDefaultTemp,
     WeatherInput,
     CalendarEvent,
+    loadStyleContextForUser,
 } from "@/lib/calendar/generator";
+import { fetchJmaDailyForecast, normalizeOfficeCode, toWeatherInput, type WeatherDaily } from "@/lib/weather/jma";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,22 @@ export async function POST(req: NextRequest) {
             .gte("date", startDate)
             .lte("date", endDate);
 
+        const { data: weatherSettings } = await supabase
+            .from("user_weather_settings")
+            .select("default_location")
+            .eq("user_id", auth.user.id)
+            .maybeSingle();
+
+        const officeCode = normalizeOfficeCode(weatherSettings?.default_location);
+        let liveForecast = new Map<string, WeatherDaily>();
+        if (officeCode) {
+            try {
+                liveForecast = await fetchJmaDailyForecast(officeCode);
+            } catch (weatherError) {
+                console.error("Error fetching JMA forecast:", weatherError);
+            }
+        }
+
         const eventMap = new Map<string, CalendarEvent>();
         for (const event of events ?? []) {
             eventMap.set(event.date, {
@@ -46,6 +63,9 @@ export async function POST(req: NextRequest) {
                 event_name: event.event_name,
             });
         }
+
+        // スタイルコンテキストを読み込み（骨格診断・PC・顔型・髪型）
+        const styleContext = await loadStyleContextForUser(supabase, auth.user.id);
 
         // 直近のコーデ（重複回避用）
         const recentCardIds: string[] = [];
@@ -56,10 +76,7 @@ export async function POST(req: NextRequest) {
             const date = new Date(dateStr);
 
             // 天気を取得（オーバーライドがあればそれを使用、なければ季節から推定）
-            const weather: WeatherInput = weatherOverrides[dateStr] ?? {
-                temp: estimateDefaultTemp(date),
-                condition: "sunny",
-            };
+            const weather: WeatherInput = weatherOverrides[dateStr] ?? toWeatherInput(date, liveForecast.get(dateStr) ?? null);
 
             // イベントを取得
             const event = eventMap.get(dateStr) ?? null;
@@ -71,7 +88,8 @@ export async function POST(req: NextRequest) {
                 date,
                 weather,
                 event,
-                recentCardIds.slice(-9) // 直近3日×3アイテム
+                recentCardIds.slice(-9), // 直近3日×3アイテム
+                styleContext
             );
 
             // 使用したカードIDを記録

@@ -185,7 +185,7 @@ async function createAlgorithmSwitcherUI() {
   console.log('🎛️  Phase 2-2: アルゴリズム切り替えUI');
   console.log('='.repeat(60));
 
-  const componentPath = '/Users/haradataishi/Culcept/app/components/AlgorithmSwitcher.tsx';
+  const componentPath = '/Users/haradataishi/Aneurasync/app/components/AlgorithmSwitcher.tsx';
 
   const componentCode = `'use client';
 
@@ -293,7 +293,7 @@ async function createMetricsDashboard() {
   console.log('='.repeat(60));
 
   // admin/metrics ディレクトリ作成
-  const metricsDir = '/Users/haradataishi/Culcept/app/admin/metrics';
+  const metricsDir = '/Users/haradataishi/Aneurasync/app/admin/metrics';
   if (!fs.existsSync(metricsDir)) {
     fs.mkdirSync(metricsDir, { recursive: true });
   }

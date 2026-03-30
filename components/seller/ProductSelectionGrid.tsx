@@ -47,15 +47,18 @@ export default function ProductSelectionGrid({ products }: Props) {
         <>
             {/* Header with Select All */}
             <div className="mb-6 flex items-center justify-between">
-                <h2 className="text-2xl font-black text-slate-900">
-                    My Products ({products.length})
-                </h2>
+                <div>
+                    <h2 className="text-2xl font-black text-slate-900">
+                        出品一覧 ({products.length})
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">各カードの「編集」から更新できます。</p>
+                </div>
 
                 <button
                     onClick={toggleAll}
                     className="rounded-lg border-2 border-slate-300 bg-white px-4 py-2 text-sm font-black text-slate-700 transition-all hover:bg-slate-50"
                 >
-                    {selectedIds.size === products.length ? "Deselect All" : "Select All"}
+                    {selectedIds.size === products.length ? "選択解除" : "すべて選択"}
                 </button>
             </div>
 
@@ -64,16 +67,16 @@ export default function ProductSelectionGrid({ products }: Props) {
                 <div className="rounded-2xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-white p-16 text-center">
                     <div className="text-7xl mb-4 opacity-20">📦</div>
                     <h3 className="text-2xl font-black text-slate-900 mb-2">
-                        No Products Yet
+                        まだ出品がありません
                     </h3>
                     <p className="text-base font-semibold text-slate-600 mb-6">
-                        Start listing your first product
+                        最初の商品を出品しましょう
                     </p>
                     <Link
                         href="/drops/new"
                         className="inline-block rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-6 py-3 text-sm font-black text-white shadow-lg transition-all hover:shadow-xl hover:scale-105 no-underline"
                     >
-                        + List Product
+                        + 新規出品
                     </Link>
                 </div>
             ) : (
@@ -147,19 +150,13 @@ export default function ProductSelectionGrid({ products }: Props) {
                                             href={`/drops/${product.id}/edit`}
                                             className="flex-1 rounded-lg border border-slate-300 bg-white py-1.5 text-center text-xs font-black text-slate-700 transition-all hover:bg-slate-50 no-underline"
                                         >
-                                            Edit
+                                            編集
                                         </Link>
                                         <Link
                                             href={`/drops/${product.id}`}
                                             className="flex-1 rounded-lg border border-slate-300 bg-white py-1.5 text-center text-xs font-black text-slate-700 transition-all hover:bg-slate-50 no-underline"
                                         >
-                                            View
-                                        </Link>
-                                        <Link
-                                            href={`/shops/me/products/${product.id}/fit-color`}
-                                            className="flex-1 rounded-lg border border-slate-300 bg-white py-1.5 text-center text-xs font-black text-slate-700 transition-all hover:bg-slate-50 no-underline"
-                                        >
-                                            Fit/Color
+                                            商品を見る
                                         </Link>
                                     </div>
                                 </div>

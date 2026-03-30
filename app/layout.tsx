@@ -1,11 +1,25 @@
 // app/layout.tsx
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { Noto_Sans_JP, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import SiteHeader from "@/app/components/SiteHeader";
-import { supabaseServer } from "@/lib/supabase/server";
-import { PWAProvider } from "@/components/pwa";
+import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
+import InstallPrompt from "@/components/pwa/InstallPrompt";
+import Providers from "./providers";
 
-export const dynamic = "force-dynamic";
+const fontSans = Noto_Sans_JP({
+    subsets: ["latin"],
+    weight: ["400", "500", "600", "700", "800", "900"],
+    display: "swap",
+    variable: "--font-sans",
+});
+
+const fontMono = JetBrains_Mono({
+    subsets: ["latin"],
+    weight: ["400", "500", "700"],
+    display: "swap",
+    variable: "--font-mono",
+});
+
 export const runtime = "nodejs";
 
 function getSiteUrl(): URL {
@@ -24,91 +38,48 @@ function getSiteUrl(): URL {
 
 export const metadata: Metadata = {
     metadataBase: getSiteUrl(),
-    title: { default: "Culcept", template: "%s | Culcept" },
-    description: "個人がブランドになる、新しい売買体験",
+    title: { default: "Aneurasync", template: "%s | Aneurasync" },
+    description: "あなたの本質を、観測しつづける。",
     manifest: "/manifest.json",
-    themeColor: "#8b5cf6",
-    appleWebApp: {
-        capable: true,
-        statusBarStyle: "default",
-        title: "Culcept",
-    },
-    formatDetection: {
-        telephone: false,
-    },
+    icons: { icon: "/favicon.ico" },
     openGraph: {
-        title: "Culcept",
-        description: "個人がブランドになる、新しい売買体験",
-        siteName: "Culcept",
+        title: "Aneurasync",
+        description: "あなたの本質を、観測しつづける。",
+        siteName: "Aneurasync",
         type: "website",
+    },
+    other: {
+        "apple-mobile-web-app-capable": "yes",
+        "apple-mobile-web-app-status-bar-style": "default",
+        "apple-mobile-web-app-title": "Aneurasync",
     },
 };
 
-export default async function RootLayout({
+export const viewport: Viewport = {
+    themeColor: "#8B5CF6",
+};
+
+export default function RootLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    const user = auth?.user ?? null;
-
-    const isAuthenticated = !!user;
-    const userName = user?.user_metadata?.name || user?.email || null;
-
-    /**
-     * ✅ 未読合計
-     * v_conversation_unread_counts は recipient_id, unread_count
-     */
-    let unreadCount = 0;
-    if (user) {
-        const { data: rows, error: unreadErr } = await supabase
-            .from("v_conversation_unread_counts")
-            .select("unread_count")
-            .eq("recipient_id", user.id);
-
-        if (unreadErr) {
-            console.warn("unread counts fetch error:", unreadErr.message);
-        } else {
-            unreadCount = (rows ?? []).reduce(
-                (sum: number, r: any) => sum + Number(r?.unread_count ?? 0),
-                0
-            );
-        }
-    }
-
     return (
-        <html lang="ja">
+        <html lang="ja" className={`${fontSans.variable} ${fontMono.variable}`}>
             <head>
-                <link rel="preconnect" href="https://fonts.googleapis.com" />
                 <link
                     rel="preconnect"
-                    href="https://fonts.gstatic.com"
+                    href={process.env.NEXT_PUBLIC_SUPABASE_URL}
                     crossOrigin="anonymous"
                 />
-                <link
-                    href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap"
-                    rel="stylesheet"
-                />
-                {/* PWA */}
-                <link rel="apple-touch-icon" href="/icons/icon.svg" />
-                <meta name="apple-mobile-web-app-capable" content="yes" />
-                <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-                <meta name="mobile-web-app-capable" content="yes" />
             </head>
 
-            <body>
-                <PWAProvider>
-                    <SiteHeader
-                        isAuthenticated={isAuthenticated}
-                        unreadCount={unreadCount}
-                        userName={userName}
-                    />
-
-                    <div className="mx-auto max-w-6xl px-4 py-8">
-                        {children}
-                    </div>
-                </PWAProvider>
+            <body className={fontSans.className}>
+                <Providers>
+                    {children}
+                </Providers>
+                <ServiceWorkerRegistration />
+                <InstallPrompt />
             </body>
         </html>
     );

@@ -1,0 +1,2 @@
+[   27627ms] [WARNING] Please ensure that the container has a non-static position, like 'relative', 'fixed', or 'absolute' to ensure scroll offset is calculated correctly. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:2297
+[   29073ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0

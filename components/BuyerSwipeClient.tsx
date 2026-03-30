@@ -217,7 +217,7 @@ export default function BuyerSwipeClient() {
     }, [idx]);
 
     useEffect(() => {
-        return () => api.stop();
+        return () => { api.stop(); };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

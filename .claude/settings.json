@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "preToolCall": [
+      {
+        "matcher": "Bash(npx supabase db push*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "⚠️ DB マイグレーション実行: CEO 承認が必要です。続行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git push*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "⚠️ リモートへの push: CEO 承認が必要です。続行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(npx next build*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "⚠️ 本番ビルド実行: CEO 確認してください。続行しますか？"
+          }
+        ]
+      }
+    ]
+  }
+}

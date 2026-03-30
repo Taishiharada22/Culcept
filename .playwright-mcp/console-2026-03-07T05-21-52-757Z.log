@@ -1,0 +1,8 @@
+[     788ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[    1074ms] [WARNING] Please ensure that the container has a non-static position, like 'relative', 'fixed', or 'absolute' to ensure scroll offset is calculated correctly. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:2297
+[  251209ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/stargazer?preview=1&_rsc=19911:0
+[  257257ms] [WARNING] Please ensure that the container has a non-static position, like 'relative', 'fixed', or 'absolute' to ensure scroll offset is calculated correctly. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:2297
+[  319884ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/stargazer?preview=1&_rsc=19911:0
+[  328334ms] [WARNING] Please ensure that the container has a non-static position, like 'relative', 'fixed', or 'absolute' to ensure scroll offset is calculated correctly. @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:2297
+[  493648ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/stargazer?preview=1&_rsc=19911:0
+[  496107ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:3000/stargazer?preview=1:0

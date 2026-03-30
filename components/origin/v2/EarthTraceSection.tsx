@@ -338,6 +338,7 @@ export default function EarthTraceSection() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- mount-time hydration from localStorage */
     const p = loadEarthTracePrefs();
     setPrefs(p);
 
@@ -347,6 +348,7 @@ export default function EarthTraceSection() {
     } catch { /* silent */ }
 
     setLoaded(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     if (p.gpsPermissionGranted && p.autoGrabOnOpen) {
       navigator.geolocation.getCurrentPosition(

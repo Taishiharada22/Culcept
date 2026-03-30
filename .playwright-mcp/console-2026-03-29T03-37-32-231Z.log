@@ -1,0 +1,448 @@
+[     869ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3000/:0
+[     937ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[    3124ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:3000/_next/image?url=%2Fsamples%2Ffigure%2Fcommander1.png&w=128&q=75:0
+[  263900ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  263900ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  264050ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  264050ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  271611ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  271611ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  281612ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  281612ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  285241ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  285241ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  291625ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  291625ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  301620ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  301620ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  305312ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  305312ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  311627ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  311628ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  321632ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  321632ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  331610ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  331610ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  341616ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  341617ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  351600ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:95:5
+Parsing ecmascript source code failed
+  93 |       },
+  94 |     });
+> 95 |   } catch (error) {
+     |     ^^^^^
+  96 |     console.error("[admin/home-alter] Error:", error);
+  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  98 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  351600ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:97:5
+Parsing ecmascript source code failed
+   95 |   } catch (error) {
+   96 |     console.error("[admin/home-alter] Error:", error);
+>  97 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   98 |   }
+   99 | }
+  100 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  361710ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  361710ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  365248ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  365248ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  371685ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  371685ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  371812ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  371813ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  381688ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  381688ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  382309ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  382309ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  391665ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:98:5
+Parsing ecmascript source code failed
+   96 |       },
+   97 |     });
+>  98 |   } catch (error) {
+      |     ^^^^^
+   99 |     console.error("[admin/home-alter] Error:", error);
+  100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  101 |   }
+
+Expected a semicolon @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  391666ms] [ERROR] ./app/api/stargazer/admin/home-alter/route.ts:100:5
+Parsing ecmascript source code failed
+   98 |   } catch (error) {
+   99 |     console.error("[admin/home-alter] Error:", error);
+> 100 |     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  101 |   }
+  102 | }
+  103 |
+
+Return statement is not allowed here @ http://localhost:3000/_next/static/chunks/node_modules_next_dist_f3530cac._.js:3127
+[  786854ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/?_rsc=1tii2:0
+[  787593ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/talk/unread:0
+[  794476ms] [WARNING] <meta name="apple-mobile-web-app-capable" content="yes"> is deprecated. Please include <meta name="mobile-web-app-capable" content="yes"> @ http://localhost:3000/:0
+[  803768ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/api/avatar-fitting/history?limit=5:0
+[  803825ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ http://localhost:3000/_next/image?url=%2Fsamples%2Ffigure%2Fcommander1.png&w=128&q=75:0

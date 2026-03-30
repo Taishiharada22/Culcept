@@ -3,10 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
     generateDailyOutfit,
-    estimateDefaultTemp,
     WeatherInput,
     CalendarEvent,
+    loadStyleContextForUser,
 } from "@/lib/calendar/generator";
+import { fetchJmaDailyForecast, normalizeOfficeCode, toWeatherInput, type WeatherDaily } from "@/lib/weather/jma";
 
 export const dynamic = "force-dynamic";
 
@@ -28,11 +29,25 @@ export async function POST(req: NextRequest) {
 
         const targetDate = new Date(date);
 
+        const { data: weatherSettings } = await supabase
+            .from("user_weather_settings")
+            .select("default_location")
+            .eq("user_id", auth.user.id)
+            .maybeSingle();
+
+        const officeCode = normalizeOfficeCode(weatherSettings?.default_location);
+        let liveDaily: WeatherDaily | null = null;
+        if (officeCode) {
+            try {
+                const liveForecast = await fetchJmaDailyForecast(officeCode);
+                liveDaily = liveForecast.get(date) ?? null;
+            } catch (weatherError) {
+                console.error("Error fetching JMA forecast:", weatherError);
+            }
+        }
+
         // 天気を取得
-        const weatherInput: WeatherInput = weather ?? {
-            temp: estimateDefaultTemp(targetDate),
-            condition: "sunny",
-        };
+        const weatherInput: WeatherInput = weather ?? toWeatherInput(targetDate, liveDaily);
 
         // イベントを取得
         const { data: events } = await supabase
@@ -69,6 +84,9 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // スタイルコンテキストを読み込み（骨格診断・PC・顔型・髪型）
+        const styleContext = await loadStyleContextForUser(supabase, auth.user.id);
+
         // 新しいコーデを生成
         const newOutfit = await generateDailyOutfit(
             supabase,
@@ -76,7 +94,8 @@ export async function POST(req: NextRequest) {
             targetDate,
             weatherInput,
             event,
-            recentCardIds
+            recentCardIds,
+            styleContext
         );
 
         // DBに保存

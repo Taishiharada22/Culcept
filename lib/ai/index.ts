@@ -5,10 +5,16 @@ import { maybeGenerateTeacherOutput } from "./eval";
 import { logAiRun } from "./logging";
 import { resolveModelSelection, toModelSelectionMetadata } from "./modelSelection";
 import { runGemini } from "./providers/gemini";
-import { runOllama } from "./providers/ollama";
 import { resolveRouterDecision } from "./router";
+import { isStargazerStudentTask } from "@/lib/stargazer/studentTrack";
+import { maybeRunStargazerShadow } from "@/lib/stargazer/shadowRun";
+import { isOrbiterStudentTask } from "@/lib/orbiter/studentTrack";
+import { maybeRunOrbiterShadow } from "@/lib/orbiter/shadowRun";
+import { isIdentityStudentTask } from "@/lib/identity/studentTrack";
+import { maybeRunIdentityShadow } from "@/lib/identity/shadowRun";
 import {
   AIProviderError,
+  PRIMARY_AI_PROVIDER,
   isAIProviderError,
   type AIRunResult,
   type AIProviderName,
@@ -20,6 +26,29 @@ function normalizeErrorMessage(error: unknown): string {
   if (isAIProviderError(error)) return `${error.code}: ${error.message}`;
   if (error instanceof Error) return error.message;
   return "unknown_error";
+}
+
+function extractProviderErrorContext(error: unknown): {
+  responseText: string | null;
+  structuredJson: Record<string, unknown> | unknown[] | null;
+  metadata: Record<string, unknown> | null;
+} {
+  if (!isAIProviderError(error)) {
+    return {
+      responseText: null,
+      structuredJson: null,
+      metadata: null,
+    };
+  }
+
+  return {
+    responseText:
+      typeof error.responseText === "string" && error.responseText.trim()
+        ? error.responseText
+        : null,
+    structuredJson: toStructuredOrNull(error.structured),
+    metadata: asRecordOrNull(error.metadata),
+  };
 }
 
 function asRecordOrNull(
@@ -57,29 +86,34 @@ async function executeProvider(
 
   const modelOverride = (options?.modelOverride ?? "").trim();
 
-  if (provider === "ollama") {
-    return runOllama(request, {
-      model: modelOverride || undefined,
-    });
-  }
-
-  if (provider === "gemini") {
+  if (provider === PRIMARY_AI_PROVIDER) {
     return runGemini(request, {
       model: modelOverride || undefined,
     });
   }
 
   throw new AIProviderError({
-    provider,
-    code: "unknown_provider",
+    provider: PRIMARY_AI_PROVIDER,
+    code: "provider_disabled",
     message: `Unsupported provider: ${provider}`,
     retryable: false,
   });
 }
 
-function toStructuredOrNull(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
+function toStructuredOrNull(
+  value: unknown,
+): Record<string, unknown> | unknown[] | null {
+  if (!value || typeof value !== "object") return null;
+  // object でも array でも通す
+  return value as Record<string, unknown> | unknown[];
+}
+
+function defaultModelForProvider(_provider: AIProviderName): string {
+  return (
+    process.env.GEMINI_MODEL_DEFAULT ??
+    process.env.GEMINI_MODEL ??
+    "gemini-2.5-flash"
+  ).trim();
 }
 
 export async function runAI(params: RunAIParams): Promise<AIRunResult> {
@@ -213,23 +247,29 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
 
   if (!output) {
     const errorMessage = normalizeErrorMessage(lastError);
+    const providerErrorContext = extractProviderErrorContext(lastError);
+    const failureModel =
+      (lastProvider === selectionDecision.preferredProvider
+        ? selectionDecision.modelOverride
+        : null) ?? defaultModelForProvider(lastProvider);
 
     const aiRunId = await logAiRun({
       userId: effectiveParams.userId,
       sessionId: effectiveParams.sessionId,
       taskType: effectiveParams.taskType,
       provider: lastProvider,
-      model: "",
+      model: failureModel,
       promptText: effectiveParams.prompt,
       systemPrompt: effectiveParams.systemPrompt,
-      responseText: null,
-      structuredJson: null,
+      responseText: providerErrorContext.responseText,
+      structuredJson: providerErrorContext.structuredJson,
       success: false,
       latencyMs,
       fallbackUsed,
       errorMessage,
       metadata: {
         ...effectiveMetadata,
+        ...(providerErrorContext.metadata ?? {}),
         routerReason: decision.reason,
         routerPrimary: decision.primary,
         routerFallback: decision.fallback,
@@ -241,12 +281,12 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
     });
 
     return {
-      text: "",
+      text: providerErrorContext.responseText ?? "",
       provider: lastProvider,
-      model: "",
+      model: failureModel,
       latencyMs,
       success: false,
-      structured: null,
+      structured: providerErrorContext.structuredJson,
       fallbackUsed,
       cacheHit: false,
       cacheKey: cacheLookup.cacheKey,
@@ -327,11 +367,39 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
   }
 
   if (aiRunId) {
-    void maybeGenerateTeacherOutput({
+    // All Gemini tasks generate teacher outputs for student learning
+    const teacherOutputPromise = maybeGenerateTeacherOutput({
       aiRunId,
       params: effectiveParams,
       result,
     });
+
+    // Domain-specific shadow runs still use their whitelists
+    if (isStargazerStudentTask(effectiveParams.taskType)) {
+      await teacherOutputPromise;
+      await maybeRunStargazerShadow({
+        params: effectiveParams,
+        primaryAiRunId: aiRunId,
+        primaryResult: result,
+      });
+    } else if (isOrbiterStudentTask(effectiveParams.taskType)) {
+      await teacherOutputPromise;
+      await maybeRunOrbiterShadow({
+        params: effectiveParams,
+        primaryAiRunId: aiRunId,
+        primaryResult: result,
+      });
+    } else if (isIdentityStudentTask(effectiveParams.taskType)) {
+      await teacherOutputPromise;
+      await maybeRunIdentityShadow({
+        params: effectiveParams,
+        primaryAiRunId: aiRunId,
+        primaryResult: result,
+      });
+    } else {
+      // For non-domain-specific tasks, still await teacher output (non-blocking OK)
+      void teacherOutputPromise;
+    }
   }
 
   return result;

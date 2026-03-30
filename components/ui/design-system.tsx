@@ -1,5 +1,5 @@
 // components/ui/design-system.tsx
-// Culcept Design System - 「使う上での美しさ」を追求
+// Aneurasync Design System - 「使う上での美しさ」を追求
 "use client";
 
 import { ReactNode, forwardRef } from "react";

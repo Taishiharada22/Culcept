@@ -3,6 +3,7 @@
 "use client";
 
 import { ReactNode, useEffect, useRef, useState, createContext, useContext } from "react";
+import { safeLSSet } from "@/lib/safeLocalStorage";
 import { motion, useScroll, useTransform, useSpring, useInView, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -18,17 +19,16 @@ const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-    const [theme, setTheme] = useState<Theme>("light");
-
-    useEffect(() => {
+    const [theme, setTheme] = useState<Theme>(() => {
+        if (typeof window === "undefined") return "light";
         const saved = localStorage.getItem("culcept-theme") as Theme;
-        if (saved) setTheme(saved);
-    }, []);
+        return saved || "light";
+    });
 
     const toggle = () => {
         const next = theme === "light" ? "dark" : "light";
         setTheme(next);
-        localStorage.setItem("culcept-theme", next);
+        safeLSSet("culcept-theme", next);
     };
 
     return (
@@ -125,6 +125,18 @@ export function LightBackground({ children, className }: { children: ReactNode; 
 }
 
 // =============================================================================
+// 余白の呼吸 - Breathing Whitespace Scale
+// =============================================================================
+// breathe-sm: 1.5rem (24px) — カード内の余白
+// breathe-md: 2.5rem (40px) — セクション間の余白
+// breathe-lg: 4rem (64px)   — 大セクション間の余白
+export const BREATHE = {
+    sm: "1.5rem",   // 24px
+    md: "2.5rem",   // 40px
+    lg: "4rem",     // 64px
+} as const;
+
+// =============================================================================
 // グラスカード - メインのカードコンポーネント
 // =============================================================================
 
@@ -133,9 +145,13 @@ interface GlassCardProps {
     className?: string;
     href?: string;
     onClick?: () => void;
+    onDragOver?: (e: React.DragEvent) => void;
+    onDragLeave?: () => void;
+    onDrop?: (e: React.DragEvent) => void;
     variant?: "default" | "elevated" | "bordered" | "gradient";
     hoverEffect?: boolean;
     padding?: "none" | "sm" | "md" | "lg";
+    style?: React.CSSProperties;
 }
 
 export function GlassCard({
@@ -143,30 +159,34 @@ export function GlassCard({
     className,
     href,
     onClick,
+    onDragOver,
+    onDragLeave,
+    onDrop,
     variant = "default",
     hoverEffect = true,
     padding = "md",
+    style,
 }: GlassCardProps) {
     const [isHovered, setIsHovered] = useState(false);
 
     const variants = {
-        default: "bg-white/60 backdrop-blur-xl border border-white/80 shadow-lg shadow-black/5",
-        elevated: "bg-white/80 backdrop-blur-2xl border border-white shadow-xl shadow-black/10",
-        bordered: "bg-white/40 backdrop-blur-lg border-2 border-slate-200/60",
-        gradient: "bg-gradient-to-br from-white/80 to-white/40 backdrop-blur-xl border border-white/60 shadow-lg",
+        default: "bg-white/72 backdrop-blur-xl border border-white/90 shadow-lg shadow-black/8",
+        elevated: "bg-white/88 backdrop-blur-2xl border border-white shadow-xl shadow-black/12",
+        bordered: "bg-white/50 backdrop-blur-lg border-2 border-slate-200/60",
+        gradient: "bg-gradient-to-br from-white/85 to-white/50 backdrop-blur-xl border border-white/70 shadow-lg shadow-black/8",
     };
 
     const paddings = {
         none: "",
         sm: "p-4",
-        md: "p-6",
-        lg: "p-8",
+        md: "p-7",
+        lg: "p-9",
     };
 
     const content = (
         <motion.div
             className={cn(
-                "rounded-3xl overflow-hidden transition-all duration-300",
+                "rounded-3xl overflow-hidden transition-all duration-200",
                 variants[variant],
                 paddings[padding],
                 hoverEffect && "hover:shadow-2xl hover:shadow-black/10 hover:bg-white/80",
@@ -174,8 +194,12 @@ export function GlassCard({
             )}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
             whileHover={hoverEffect ? { y: -4, scale: 1.01 } : {}}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            style={style}
         >
             {children}
         </motion.div>
@@ -185,7 +209,7 @@ export function GlassCard({
         return <Link href={href} className="block">{content}</Link>;
     }
     if (onClick) {
-        return <button onClick={onClick} className="block w-full text-left">{content}</button>;
+        return <button onClick={onClick} className="block w-full text-left" role="button">{content}</button>;
     }
     return content;
 }
@@ -211,7 +235,7 @@ export function GlassNavbar({ children, transparent = false }: GlassNavbarProps)
     return (
         <motion.header
             className={cn(
-                "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
+                "fixed top-0 left-0 right-0 z-50 transition-all duration-300",
                 scrolled || !transparent
                     ? "bg-white/70 backdrop-blur-2xl border-b border-slate-200/50 shadow-sm"
                     : "bg-transparent"
@@ -233,16 +257,17 @@ export function GlassNavbar({ children, transparent = false }: GlassNavbarProps)
 
 interface GlassButtonProps {
     children: ReactNode;
-    variant?: "primary" | "secondary" | "ghost" | "gradient" | "danger";
+    variant?: "default" | "primary" | "secondary" | "ghost" | "gradient" | "danger";
     size?: "xs" | "sm" | "md" | "lg";
     href?: string;
-    type?: "button" | "submit" | "reset";
     onClick?: () => void;
     className?: string;
     disabled?: boolean;
     loading?: boolean;
     icon?: ReactNode;
     fullWidth?: boolean;
+    type?: string;
+    style?: React.CSSProperties;
 }
 
 export function GlassButton({
@@ -250,15 +275,17 @@ export function GlassButton({
     variant = "primary",
     size = "md",
     href,
-    type,
     onClick,
     className,
     disabled,
     loading,
     icon,
     fullWidth,
+    type,
+    style,
 }: GlassButtonProps) {
     const variants = {
+        default: "bg-white/80 backdrop-blur-lg text-slate-700 border border-slate-200 hover:bg-white hover:border-slate-300",
         primary: "bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/20",
         secondary: "bg-white/80 backdrop-blur-lg text-slate-700 border border-slate-200 hover:bg-white hover:border-slate-300",
         ghost: "text-slate-600 hover:text-slate-900 hover:bg-slate-100/80",
@@ -274,7 +301,7 @@ export function GlassButton({
     };
 
     const buttonClasses = cn(
-        "inline-flex items-center justify-center gap-2 font-semibold rounded-2xl transition-all duration-300",
+        "inline-flex items-center justify-center gap-2 font-semibold rounded-2xl transition-all duration-100",
         variants[variant],
         sizes[size],
         disabled && "opacity-50 cursor-not-allowed",
@@ -285,7 +312,7 @@ export function GlassButton({
     const content = (
         <>
             {loading && (
-                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" aria-hidden="true">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
@@ -302,6 +329,7 @@ export function GlassButton({
                 className={buttonClasses}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
+                style={style}
             >
                 {content}
             </motion.a>
@@ -310,12 +338,15 @@ export function GlassButton({
 
     return (
         <motion.button
-            type={type}
+            type={type as "button" | "submit" | "reset" | undefined}
             onClick={onClick}
             disabled={disabled || loading}
             className={buttonClasses}
             whileHover={!disabled ? { scale: 1.02 } : {}}
             whileTap={!disabled ? { scale: 0.98 } : {}}
+            style={style}
+            aria-disabled={disabled || loading || undefined}
+            aria-busy={loading || undefined}
         >
             {content}
         </motion.button>
@@ -327,44 +358,38 @@ export function GlassButton({
 // =============================================================================
 
 interface GlassInputProps {
+    name?: string;
     placeholder?: string;
     value?: string;
     defaultValue?: string;
     onChange?: (value: string) => void;
     onSubmit?: (value: string) => void;
     type?: "text" | "email" | "password" | "search";
-    name?: string;
-    id?: string;
-    autoComplete?: string;
-    required?: boolean;
-    disabled?: boolean;
     icon?: ReactNode;
     className?: string;
     size?: "sm" | "md" | "lg";
+    required?: boolean;
+    autoComplete?: string;
+    disabled?: boolean;
 }
 
 export function GlassInput({
+    name,
     placeholder,
     value,
     defaultValue,
     onChange,
     onSubmit,
     type = "text",
-    name,
-    id,
-    autoComplete,
-    required,
-    disabled,
     icon,
     className,
     size = "md",
+    required,
+    autoComplete,
+    disabled,
 }: GlassInputProps) {
     const [focused, setFocused] = useState(false);
     const [internalValue, setInternalValue] = useState(value ?? defaultValue ?? "");
-
-    useEffect(() => {
-        if (value !== undefined) setInternalValue(value);
-    }, [value]);
 
     const sizes = {
         sm: "py-2 text-sm",
@@ -387,8 +412,8 @@ export function GlassInput({
             <div className="relative">
                 {icon && (
                     <div className={cn(
-                        "absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-300",
-                        focused ? "text-purple-500" : "text-slate-400"
+                        "absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-150",
+                        focused ? "text-purple-500" : "text-slate-500"
                     )}>
                         {icon}
                     </div>
@@ -396,12 +421,8 @@ export function GlassInput({
 
                 <input
                     type={type}
-                    value={internalValue}
                     name={name}
-                    id={id}
-                    autoComplete={autoComplete}
-                    required={required}
-                    disabled={disabled}
+                    value={internalValue}
                     onChange={(e) => {
                         setInternalValue(e.target.value);
                         onChange?.(e.target.value);
@@ -410,11 +431,14 @@ export function GlassInput({
                     onBlur={() => setFocused(false)}
                     onKeyDown={(e) => e.key === "Enter" && onSubmit?.(internalValue)}
                     placeholder={placeholder}
+                    required={required}
+                    autoComplete={autoComplete}
+                    disabled={disabled}
                     className={cn(
-                        "w-full rounded-2xl bg-white/80 backdrop-blur-lg border border-slate-200/80 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-purple-400 focus:bg-white transition-all duration-300",
+                        "w-full rounded-2xl bg-white/80 backdrop-blur-lg border border-slate-200/80 text-slate-800 placeholder-slate-400 focus:outline-none focus:border-purple-400 focus:bg-white transition-all duration-150",
                         icon ? "pl-12 pr-4" : "px-4",
                         sizes[size],
-                        disabled && "opacity-60 cursor-not-allowed"
+                        disabled && "opacity-50 cursor-not-allowed"
                     )}
                 />
             </div>
@@ -434,26 +458,43 @@ interface GlassTabsProps {
 }
 
 export function GlassTabs({ tabs, activeTab, onChange, className }: GlassTabsProps) {
+    const handleKeyDown = (e: React.KeyboardEvent, currentIdx: number) => {
+        let nextIdx = currentIdx;
+        if (e.key === "ArrowRight") nextIdx = (currentIdx + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") nextIdx = (currentIdx - 1 + tabs.length) % tabs.length;
+        else if (e.key === "Home") nextIdx = 0;
+        else if (e.key === "End") nextIdx = tabs.length - 1;
+        else return;
+        e.preventDefault();
+        onChange(tabs[nextIdx].id);
+    };
+
     return (
-        <div className={cn(
-            "inline-flex items-center gap-1 p-1.5 rounded-2xl bg-slate-100/80 backdrop-blur-lg border border-slate-200/50",
+        <div
+            role="tablist"
+            className={cn(
+            "inline-flex items-center gap-1 p-1.5 rounded-2xl bg-white/80 backdrop-blur-xl border border-slate-200/60 shadow-sm",
             className
         )}>
-            {tabs.map((tab) => (
+            {tabs.map((tab, idx) => (
                 <button
                     key={tab.id}
+                    role="tab"
+                    aria-selected={activeTab === tab.id}
+                    tabIndex={activeTab === tab.id ? 0 : -1}
                     onClick={() => onChange(tab.id)}
+                    onKeyDown={(e) => handleKeyDown(e, idx)}
                     className={cn(
-                        "relative px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2",
+                        "relative px-4 py-2 rounded-xl text-sm transition-all duration-150 flex items-center gap-2",
                         activeTab === tab.id
-                            ? "text-slate-900"
-                            : "text-slate-500 hover:text-slate-700"
+                            ? "text-violet-800 font-bold"
+                            : "text-slate-500 font-medium hover:text-slate-700"
                     )}
                 >
                     {activeTab === tab.id && (
                         <motion.div
                             layoutId="activeTab"
-                            className="absolute inset-0 bg-white rounded-xl shadow-sm"
+                            className="absolute inset-0 bg-white rounded-xl shadow-md shadow-violet-200/50 border border-violet-200/60 ring-1 ring-violet-100/40"
                             transition={{ type: "spring", stiffness: 300, damping: 30 }}
                         />
                     )}
@@ -480,6 +521,7 @@ interface GlassModalProps {
 }
 
 export function GlassModal({ isOpen, onClose, children, title, size = "md" }: GlassModalProps) {
+    const modalRef = useRef<HTMLDivElement>(null);
     const sizes = {
         sm: "max-w-md",
         md: "max-w-lg",
@@ -487,6 +529,41 @@ export function GlassModal({ isOpen, onClose, children, title, size = "md" }: Gl
         xl: "max-w-4xl",
         full: "max-w-[95vw] max-h-[95vh]",
     };
+
+    // Escape キーでモーダルを閉じる
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [isOpen, onClose]);
+
+    // フォーカストラップ: Tab/Shift+Tab でモーダル内を循環
+    useEffect(() => {
+        if (!isOpen || !modalRef.current) return;
+        const modal = modalRef.current;
+        const focusable = modal.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length > 0) focusable[0].focus();
+
+        const handleTab = (e: KeyboardEvent) => {
+            if (e.key !== "Tab" || focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        };
+        document.addEventListener("keydown", handleTab);
+        return () => document.removeEventListener("keydown", handleTab);
+    }, [isOpen]);
 
     return (
         <AnimatePresence>
@@ -498,11 +575,13 @@ export function GlassModal({ isOpen, onClose, children, title, size = "md" }: Gl
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         onClick={onClose}
+                        aria-hidden="true"
                         className="fixed inset-0 z-50 bg-slate-900/20 backdrop-blur-sm"
                     />
 
                     {/* モーダル */}
                     <motion.div
+                        ref={modalRef}
                         initial={{ opacity: 0, scale: 0.95, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -512,15 +591,16 @@ export function GlassModal({ isOpen, onClose, children, title, size = "md" }: Gl
                             sizes[size]
                         )}
                     >
-                        <div className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl shadow-black/10 border border-white overflow-hidden">
+                        <div role="dialog" aria-modal="true" aria-label={title ?? "ダイアログ"} className="bg-white/90 backdrop-blur-2xl rounded-3xl shadow-2xl shadow-black/10 border border-white overflow-hidden">
                             {title && (
                                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/50">
                                     <h2 className="text-xl font-bold text-slate-900">{title}</h2>
                                     <button
                                         onClick={onClose}
+                                        aria-label="閉じる"
                                         className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors"
                                     >
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
@@ -564,7 +644,7 @@ export function FadeInView({ children, delay = 0, direction = "up", className }:
             ref={ref}
             initial={{ opacity: 0, ...directions[direction] }}
             animate={isInView ? { opacity: 1, x: 0, y: 0 } : {}}
-            transition={{ duration: 0.6, delay, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.25, delay, ease: [0.22, 1, 0.36, 1] }}
             className={className}
         >
             {children}
@@ -578,7 +658,7 @@ export function FadeInView({ children, delay = 0, direction = "up", className }:
 
 interface GlassBadgeProps {
     children: ReactNode;
-    variant?: "default" | "success" | "warning" | "danger" | "info" | "gradient";
+    variant?: "default" | "secondary" | "success" | "warning" | "danger" | "info" | "gradient";
     size?: "sm" | "md";
     className?: string;
 }
@@ -586,6 +666,7 @@ interface GlassBadgeProps {
 export function GlassBadge({ children, variant = "default", size = "md", className }: GlassBadgeProps) {
     const variants = {
         default: "bg-slate-100 text-slate-700 border-slate-200",
+        secondary: "bg-slate-50 text-slate-600 border-slate-200",
         success: "bg-emerald-50 text-emerald-700 border-emerald-200",
         warning: "bg-amber-50 text-amber-700 border-amber-200",
         danger: "bg-red-50 text-red-700 border-red-200",
@@ -615,21 +696,23 @@ export function GlassBadge({ children, variant = "default", size = "md", classNa
 // =============================================================================
 
 interface FloatingNavLightProps {
-    items: { href: string; label: string; icon: ReactNode; active?: boolean }[];
+    items: { href: string; label: string; icon: ReactNode; active?: boolean; badge?: number }[];
     activeHref?: string;
 }
 
 export function FloatingNavLight({ items, activeHref }: FloatingNavLightProps) {
     return (
-        <div className="flex items-center gap-1 p-2 rounded-full bg-white/80 backdrop-blur-2xl border border-slate-200/50 shadow-xl shadow-black/10">
+        <nav aria-label="メインナビゲーション" className="flex items-center gap-1 p-2 rounded-full bg-white/80 backdrop-blur-2xl border border-slate-200/50 shadow-xl shadow-black/10">
             {items.map((item) => {
                 const isActive = activeHref ? item.href === activeHref : item.active;
                 return (
                     <Link
                         key={item.href}
                         href={item.href}
+                        aria-label={item.label}
+                        aria-current={isActive ? "page" : undefined}
                         className={cn(
-                            "relative px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-300 flex items-center gap-2",
+                            "relative px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-150 flex items-center gap-2",
                             isActive
                                 ? "bg-gradient-to-r from-violet-500 to-indigo-500 text-white shadow-lg shadow-violet-500/25"
                                 : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
@@ -637,10 +720,15 @@ export function FloatingNavLight({ items, activeHref }: FloatingNavLightProps) {
                     >
                         {item.icon}
                         <span className="hidden sm:inline">{item.label}</span>
+                        {item.badge != null && item.badge > 0 && (
+                            <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-rose-500 text-white text-[11px] font-bold leading-none px-1 shadow-lg shadow-rose-500/30">
+                                {item.badge > 99 ? "99+" : item.badge}
+                            </span>
+                        )}
                     </Link>
                 );
             })}
-        </div>
+        </nav>
     );
 }
 
@@ -859,6 +947,19 @@ export function LivePulse({ className }: { className?: string }) {
 // カウントダウンタイマー
 // =============================================================================
 
+function CountdownTimeUnit({ value, label }: { value: number; label: string }) {
+    return (
+        <div className="flex flex-col items-center">
+            <div className="w-16 h-16 rounded-2xl bg-white/80 backdrop-blur-lg border border-slate-200/50 shadow-lg flex items-center justify-center">
+                <span className="text-2xl font-bold text-slate-900">
+                    {String(value).padStart(2, "0")}
+                </span>
+            </div>
+            <span className="mt-2 text-xs font-medium text-slate-500 uppercase">{label}</span>
+        </div>
+    );
+}
+
 interface CountdownProps {
     targetDate: Date;
     onComplete?: () => void;
@@ -895,26 +996,15 @@ export function Countdown({ targetDate, onComplete, className }: CountdownProps)
         return () => clearInterval(timer);
     }, [targetDate, onComplete]);
 
-    const TimeUnit = ({ value, label }: { value: number; label: string }) => (
-        <div className="flex flex-col items-center">
-            <div className="w-16 h-16 rounded-2xl bg-white/80 backdrop-blur-lg border border-slate-200/50 shadow-lg flex items-center justify-center">
-                <span className="text-2xl font-bold text-slate-900">
-                    {String(value).padStart(2, "0")}
-                </span>
-            </div>
-            <span className="mt-2 text-xs font-medium text-slate-500 uppercase">{label}</span>
-        </div>
-    );
-
     return (
         <div className={cn("flex items-center gap-3", className)}>
-            <TimeUnit value={timeLeft.days} label="Days" />
+            <CountdownTimeUnit value={timeLeft.days} label="Days" />
             <span className="text-2xl font-bold text-slate-300">:</span>
-            <TimeUnit value={timeLeft.hours} label="Hours" />
+            <CountdownTimeUnit value={timeLeft.hours} label="Hours" />
             <span className="text-2xl font-bold text-slate-300">:</span>
-            <TimeUnit value={timeLeft.minutes} label="Mins" />
+            <CountdownTimeUnit value={timeLeft.minutes} label="Mins" />
             <span className="text-2xl font-bold text-slate-300">:</span>
-            <TimeUnit value={timeLeft.seconds} label="Secs" />
+            <CountdownTimeUnit value={timeLeft.seconds} label="Secs" />
         </div>
     );
 }

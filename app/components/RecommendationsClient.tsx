@@ -148,8 +148,8 @@ function DropCard({
                             >
                                 スキップ
                             </button>
-                            <Link href="/me/saved" className="rounded-xl border px-3 py-2 text-sm font-extrabold hover:bg-neutral-50">
-                                保存一覧
+                            <Link href="/my-page" className="rounded-xl border px-3 py-2 text-sm font-extrabold hover:bg-neutral-50">
+                                マイページ
                             </Link>
                         </div>
 

@@ -1,0 +1,62 @@
+{
+  "metadata": {
+    "timestamp": "2026-03-29T13:46:47.344Z",
+    "model": "gemini-2.5-flash",
+    "totalCases": 132,
+    "correctionCases": 4,
+    "stabilityCases": 20,
+    "stabilityRuns": 3
+  },
+  "summary": {
+    "verdict": "NO-GO",
+    "avgScores": {
+      "directness": 0,
+      "specificity": 0,
+      "personalization": 0,
+      "relational_relevance": 0,
+      "uncertainty_calibration": 0,
+      "consistency": 0,
+      "actionability": 0,
+      "trustworthiness": 0
+    },
+    "passTargets": {
+      "directness": 4.3,
+      "specificity": 4.1,
+      "personalization": 4.1,
+      "relational_relevance": 4.3,
+      "uncertainty_calibration": 4.1,
+      "consistency": 4.5,
+      "actionability": 4.2,
+      "trustworthiness": 4.2
+    },
+    "scorePass": false,
+    "dangerRates": {
+      "generic_response_rate": null,
+      "wrong_role_inference_rate": null,
+      "unjustified_conclude_rate": null
+    },
+    "dangerPass": false,
+    "comparisonPass": true
+  },
+  "distributions": {
+    "mode": {
+      "conclude": 0,
+      "branch": 0,
+      "clarify": 0
+    },
+    "shape": {},
+    "confidence": {
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    }
+  },
+  "stability": {
+    "modeConsistency": "0/0",
+    "shapeConsistency": "0/0"
+  },
+  "corrections": [],
+  "comparisons": [],
+  "failures": [],
+  "results": []
+}

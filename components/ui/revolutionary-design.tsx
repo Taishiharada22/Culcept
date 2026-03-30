@@ -235,7 +235,7 @@ export function HeroSection({ title, subtitle, children, backgroundElement }: He
                 <motion.h1
                     initial={{ opacity: 0, y: 40 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                    transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                     className="text-5xl sm:text-7xl lg:text-8xl font-bold tracking-tight"
                 >
                     <span className="bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">
@@ -247,7 +247,7 @@ export function HeroSection({ title, subtitle, children, backgroundElement }: He
                     <motion.p
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
                         className="mt-6 text-xl sm:text-2xl text-white/50 max-w-2xl mx-auto"
                     >
                         {subtitle}
@@ -258,7 +258,7 @@ export function HeroSection({ title, subtitle, children, backgroundElement }: He
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
                         className="mt-10"
                     >
                         {children}
@@ -418,7 +418,7 @@ export function FadeIn({ children, delay = 0, direction = "up", className }: Fad
             ref={ref}
             initial={{ opacity: 0, ...directions[direction] }}
             animate={isInView ? { opacity: 1, x: 0, y: 0 } : {}}
-            transition={{ duration: 0.8, delay, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.8, delay, ease: [0.22, 1, 0.36, 1] }}
             className={className}
         >
             {children}
@@ -449,7 +449,7 @@ export function AnimatedText({ text, className, delay = 0 }: AnimatedTextProps) 
                     transition={{
                         duration: 0.5,
                         delay: delay + i * 0.1,
-                        ease: [0.16, 1, 0.3, 1]
+                        ease: [0.22, 1, 0.36, 1]
                     }}
                     className="inline-block mr-[0.25em]"
                 >

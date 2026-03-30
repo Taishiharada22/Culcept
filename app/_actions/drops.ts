@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getMyShopId } from "@/lib/getMyShopId";
+import { upsertGarmentFitProfileFromFormData } from "@/lib/drops/fitProfileServer";
 
 export type DropActionState = {
     ok: boolean;
@@ -18,6 +19,7 @@ const BUCKET = process.env.SUPABASE_DROP_IMAGES_BUCKET ?? "drops";
 const MAX_IMAGES = 10;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+const SALE_MODE_SET = new Set(["fixed", "auction"]);
 
 function isColumnMissingError(err: any) {
     const code = String(err?.code ?? "");
@@ -60,12 +62,39 @@ function parsePrice(v: unknown): number | null {
 function parseTags(v: unknown): string[] {
     const s = String(v ?? "").trim();
     if (!s) return [];
+    if (s.startsWith("[")) {
+        try {
+            const arr = JSON.parse(s);
+            if (Array.isArray(arr)) {
+                return Array.from(
+                    new Set(
+                        arr
+                            .map((x) => String(x ?? "").trim().toLowerCase())
+                            .filter(Boolean)
+                    )
+                ).slice(0, 20);
+            }
+        } catch {
+            // JSON以外のケースは下のプレーンテキスト分岐で処理する
+        }
+    }
     const parts = s
         .split(/[,\n]/g)
         .flatMap((x) => x.split(/\s+/g))
         .map((x) => x.trim())
         .filter(Boolean);
     return Array.from(new Set(parts)).slice(0, 20);
+}
+
+function parseAuctionEndAtJST(raw: string): string | null {
+    const s = String(raw ?? "").trim();
+    if (!s) return null;
+    if (/[zZ]$/.test(s) || /[+-]\d\d:\d\d$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)) {
+        const withSec = s.length === 16 ? `${s}:00` : s;
+        return `${withSec}+09:00`;
+    }
+    return null;
 }
 
 function extFromMime(mime: string) {
@@ -167,8 +196,49 @@ export async function createDropAction(arg1: any, arg2?: any): Promise<DropActio
     const size = String(formData.get("size") ?? "").trim() || null;
     const condition = String(formData.get("condition") ?? "").trim() || null;
 
-    const price = parsePrice(formData.get("price"));
-    if (String(formData.get("price") ?? "").trim() && price == null) fieldErrors.price = "Price が不正。";
+    const saleModeRaw = String(formData.get("sale_mode") ?? "fixed").trim().toLowerCase();
+    const sale_mode = SALE_MODE_SET.has(saleModeRaw) ? (saleModeRaw as "fixed" | "auction") : "fixed";
+
+    const priceRaw = String(formData.get("price") ?? "").trim();
+    const buyNowRaw = String(formData.get("buy_now_price") ?? "").trim();
+    const auction_allow_buy_now = String(formData.get("auction_allow_buy_now") ?? "") === "on";
+
+    let price: number | null = null;
+    let buy_now_price: number | null = null;
+
+    if (sale_mode === "fixed") {
+        price = parsePrice(priceRaw);
+        if (price == null || price <= 0) fieldErrors.price = "価格は 1円以上で入力して。";
+    } else {
+        if (auction_allow_buy_now) {
+            const src = buyNowRaw || priceRaw;
+            if (!src) fieldErrors.buy_now_price = "即決価格を入力して。";
+            else {
+                buy_now_price = parsePrice(src);
+                if (buy_now_price == null || buy_now_price <= 0) fieldErrors.buy_now_price = "即決価格は 1円以上で入力して。";
+            }
+        }
+    }
+
+    const floorRaw = String(formData.get("auction_floor_price") ?? "").trim();
+    let auction_floor_price: number | null = null;
+    if (sale_mode === "auction") {
+        auction_floor_price = parsePrice(floorRaw);
+        if (auction_floor_price == null || auction_floor_price <= 0) fieldErrors.auction_floor_price = "オークション初値は 1円以上で入力して。";
+    }
+
+    const auctionEndRaw = String(formData.get("auction_end_at") ?? "").trim();
+    let auction_end_at: string | null = null;
+    if (sale_mode === "auction") {
+        const parsed = parseAuctionEndAtJST(auctionEndRaw);
+        if (!parsed) fieldErrors.auction_end_at = "終了時間が不正。";
+        else {
+            const ms = new Date(parsed).getTime();
+            if (!Number.isFinite(ms)) fieldErrors.auction_end_at = "終了時間が不正。";
+            else if (ms < Date.now() + 5 * 60 * 1000) fieldErrors.auction_end_at = "終了時間は今から5分以上先を指定して。";
+            else auction_end_at = parsed;
+        }
+    }
 
     const urlRaw = String(formData.get("url") ?? "").trim();
     const purchaseRaw = String(formData.get("purchase_url") ?? "").trim();
@@ -205,29 +275,51 @@ export async function createDropAction(arg1: any, arg2?: any): Promise<DropActio
     // ✅ shops の列差分（owner_user_id / owner_id / user_id）を吸収する“正規ルート”
     const shopId = await getMyShopId(uid).catch(() => null);
 
-    const { data: created, error: createErr } = await supabaseAdmin
-        .from("drops")
-        .insert({
-            title,
-            slug,
-            display_name,
-            user_id: uid,
-            shop_id: shopId,
-            brand,
-            size,
-            condition,
-            price,
-            url: url || null,
-            purchase_url: purchase_url || null,
-            description,
-            tags,
-            cover_image_url: null,
-        } as any)
-        .select("id")
-        .single();
+    const createPatch: Record<string, unknown> = {
+        title,
+        slug,
+        display_name,
+        user_id: uid,
+        shop_id: shopId,
+        brand,
+        size,
+        condition,
+        price,
+        url: url || null,
+        purchase_url: purchase_url || null,
+        description,
+        tags,
+        cover_image_url: null,
+        sale_mode,
+        auction_allow_buy_now: sale_mode === "auction" ? auction_allow_buy_now : true,
+        auction_floor_price: sale_mode === "auction" ? auction_floor_price : null,
+        auction_end_at: sale_mode === "auction" ? auction_end_at : null,
+        auction_status: sale_mode === "auction" ? "active" : "none",
+        buy_now_price: sale_mode === "auction" ? (auction_allow_buy_now ? buy_now_price : null) : null,
+    };
 
-    if (createErr || !created?.id) {
-        return { ok: false, error: createErr?.message ?? "Failed to create drop" };
+    let created: { id: string } | null = null;
+    const insertWithBuyNow = await supabaseAdmin.from("drops").insert(createPatch as any).select("id").single();
+
+    if (!insertWithBuyNow.error) {
+        created = insertWithBuyNow.data;
+    } else if (isColumnMissingError(insertWithBuyNow.error)) {
+        const fallbackPatch: Record<string, unknown> = { ...createPatch };
+        delete fallbackPatch.buy_now_price;
+        if (sale_mode === "auction") {
+            fallbackPatch.price = auction_allow_buy_now ? buy_now_price : null;
+        }
+        const insertFallback = await supabaseAdmin.from("drops").insert(fallbackPatch as any).select("id").single();
+        if (insertFallback.error) {
+            return { ok: false, error: insertFallback.error.message ?? "Failed to create drop" };
+        }
+        created = insertFallback.data;
+    } else {
+        return { ok: false, error: insertWithBuyNow.error?.message ?? "Failed to create drop" };
+    }
+
+    if (!created?.id) {
+        return { ok: false, error: "Failed to create drop" };
     }
 
     const dropId = String(created.id);
@@ -239,6 +331,8 @@ export async function createDropAction(arg1: any, arg2?: any): Promise<DropActio
     const insertedImages: { public_url: string; path: string; sort: number }[] = [];
 
     try {
+        await upsertGarmentFitProfileFromFormData(dropId, formData);
+
         for (let i = 0; i < files.length; i++) {
             const f = files[i];
             const mime = String(f.type || "application/octet-stream").toLowerCase();
@@ -293,6 +387,7 @@ export async function createDropAction(arg1: any, arg2?: any): Promise<DropActio
     }
 
     revalidatePath("/drops");
+    revalidatePath("/auction");
     revalidatePath("/shops/me");
     revalidatePath(`/drops/${dropId}`);
 

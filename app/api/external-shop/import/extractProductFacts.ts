@@ -94,7 +94,7 @@ async function fetchText(url: string, ms = 12000): Promise<{ text: string; final
         const res = await fetch(url, {
             signal: ac.signal,
             headers: {
-                "user-agent": "CulceptBot/1.0 (+contact: you@example.com)",
+                "user-agent": "AneurasyncBot/1.0 (+contact: you@example.com)",
                 accept: "text/html,application/xhtml+xml,*/*;q=0.8",
             },
             redirect: "follow",

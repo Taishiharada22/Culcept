@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { trackCronRun } from "@/lib/ceo/withSkillTelemetry";
 import { normalizeAIOpsError, toErrorBody } from "@/lib/ai/errors";
 import { runAutoEvalBatch } from "@/lib/ai/judge";
 import { authorizeInternalRequest } from "@/lib/ai/internalAuth";
@@ -33,9 +34,11 @@ function parseBool(raw: string | null): boolean | undefined {
 }
 
 export async function GET(request: Request) {
+  const t = await trackCronRun("ai-auto-eval");
   const auth = authorizeInternalRequest(request);
   if (!auth.ok) {
     const unauthorized = normalizeAIOpsError(auth.reason ?? "unauthorized", "unauthorized");
+    await t.finish({ ok: false, summary: "unauthorized" });
     return NextResponse.json(toErrorBody(unauthorized), { status: 401 });
   }
 
@@ -55,6 +58,7 @@ export async function GET(request: Request) {
       dryRun,
     });
 
+    await t.finish({ ok: true, summary: "ok" });
     return NextResponse.json({
       ok: true,
       authSource: auth.source,
@@ -62,6 +66,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("[api/cron/ai-auto-eval] execution failed:", error);
+    await t.finish({ ok: false, summary: error instanceof Error ? error.message : "fatal" });
     const normalized = normalizeAIOpsError(error, "auto_eval_failed");
     const status =
       normalized.code === "db_connectivity_error" ||

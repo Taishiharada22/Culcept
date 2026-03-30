@@ -2,8 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import fs from "node:fs";
-import path from "node:path";
+import { apiOk, apiUnauthorized, apiCatch } from "@/lib/api/response";
 
 export const runtime = "nodejs";
 
@@ -40,55 +39,6 @@ type SwipeCard = {
 function isoDaysAgo(days: number) {
     const d = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     return d.toISOString();
-}
-
-let localCardFilesCache: Set<string> | null = null;
-let cardUrlMapCache: Map<string, string> | null = null;
-
-function getLocalCardFiles(): Set<string> {
-    if (localCardFilesCache) return localCardFilesCache;
-    try {
-        const dir = path.join(process.cwd(), "public", "cards");
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        localCardFilesCache = new Set(
-            entries.filter((e) => e.isFile()).map((e) => `/cards/${e.name}`)
-        );
-    } catch {
-        localCardFilesCache = new Set();
-    }
-    return localCardFilesCache;
-}
-
-function getCardUrlMap(): Map<string, string> {
-    if (cardUrlMapCache) return cardUrlMapCache;
-    const map = new Map<string, string>();
-    try {
-        const mapPath = path.join(process.cwd(), "public", "db_urls.map.json");
-        const raw = fs.readFileSync(mapPath, "utf8");
-        const rows = JSON.parse(raw);
-        if (Array.isArray(rows)) {
-            for (const r of rows) {
-                const from = String(r?.from ?? "").trim();
-                const to = String(r?.to ?? "").trim();
-                if (from && to) map.set(from, to);
-            }
-        }
-    } catch {
-        // ignore
-    }
-    cardUrlMapCache = map;
-    return map;
-}
-
-function seenResetKey(args: {
-    userId: string;
-    role: Role;
-    targetType: TargetType;
-    recVersion: number;
-    recType?: string;
-}) {
-    const { userId, role, targetType, recVersion, recType } = args;
-    return `reco:seen_reset:${userId}:${role}:${targetType}:${recVersion}:${recType ?? "all"}`;
 }
 
 function moneyNum(v: any): number | null {
@@ -310,38 +260,6 @@ function normalizePublicImageUrl(u: any): string {
     return `/${s}`;
 }
 
-function resolveCardImageUrl(raw: any): string {
-    const norm = normalizePublicImageUrl(raw);
-    if (!norm) return "";
-    if (norm.startsWith("http://") || norm.startsWith("https://")) return norm;
-    if (!norm.startsWith("/cards/")) return norm;
-
-    const files = getLocalCardFiles();
-    const clean = norm.split("?")[0];
-    if (files.has(clean)) return clean;
-    try {
-        const abs = path.join(process.cwd(), "public", clean);
-        if (fs.existsSync(abs)) return clean;
-    } catch {
-        // ignore
-    }
-
-    const map = getCardUrlMap();
-    const mapped = map.get(clean) ?? map.get(clean.replace(/^\//, ""));
-    if (mapped) {
-        const mappedNorm = normalizePublicImageUrl(mapped);
-        if (files.has(mappedNorm)) return mappedNorm;
-        try {
-            const absMapped = path.join(process.cwd(), "public", mappedNorm);
-            if (fs.existsSync(absMapped)) return mappedNorm;
-        } catch {
-            // ignore
-        }
-    }
-
-    return "";
-}
-
 /**
  * ✅ buyer は v=2 をデフォに寄せる（?v= が無ければ fallback を採用）
  */
@@ -381,22 +299,7 @@ async function loadRecentlySeenSet(
     recVersion: number,
     recType?: string
 ) {
-    const sinceFloorTs = Date.now() - 14 * 24 * 60 * 60 * 1000;
-    let since = isoDaysAgo(14);
-
-    // ✅ reset marker があれば「そこから先」だけを seen にする
-    try {
-        const key = seenResetKey({ userId, role, targetType, recVersion, recType });
-        const reset = await cacheGetJson(key);
-        if (reset.hit) {
-            const ts = Date.parse(String((reset as any).value?.reset_at ?? (reset as any).value?.ts ?? ""));
-            if (Number.isFinite(ts) && ts > sinceFloorTs) {
-                since = new Date(ts).toISOString();
-            }
-        }
-    } catch {
-        // ignore
-    }
+    const since = isoDaysAgo(14);
 
     let q = supabaseAdmin
         .from("recommendation_impressions")
@@ -586,92 +489,6 @@ function priceBand(p: number | null): string {
     return ">=30k";
 }
 
-/**
- * Generate personalized recommendation reason
- */
-function generateRecommendationReason(
-    drop: any,
-    signals: any,
-    matchType: "brand" | "size" | "shop" | "price" | "trending" | "explore"
-): string {
-    const reasons: string[] = [];
-    const brand = drop.brand ? String(drop.brand) : "";
-    const size = drop.size ? String(drop.size) : "";
-    const shopSlug = drop.shop_slug ? String(drop.shop_slug) : "";
-    const price = moneyNum(drop.display_price ?? drop.price);
-
-    // Brand match
-    if (brand && signals.likedBrands?.includes(brand)) {
-        reasons.push(`お気に入りブランド「${brand}」`);
-    }
-
-    // Size match
-    if (size && signals.likedSizes?.includes(size)) {
-        reasons.push(`よく選ぶサイズ「${size}」`);
-    }
-
-    // Shop match
-    if (shopSlug && signals.likedShops?.includes(shopSlug)) {
-        reasons.push("お気に入りショップの商品");
-    }
-
-    // Price range match
-    if (price != null && signals.avgPrice != null) {
-        const lo = signals.avgPrice * 0.6;
-        const hi = signals.avgPrice * 1.4;
-        if (price >= lo && price <= hi) {
-            reasons.push("ご予算帯にマッチ");
-        }
-    }
-
-    // Fallback reasons based on match type
-    if (reasons.length === 0) {
-        switch (matchType) {
-            case "trending":
-                reasons.push("今注目のアイテム");
-                break;
-            case "explore":
-                reasons.push("新しいスタイルを発見");
-                break;
-            case "brand":
-                reasons.push(`人気ブランド「${brand}」`);
-                break;
-            case "price":
-                reasons.push("コスパ◎");
-                break;
-            default:
-                reasons.push("あなたにおすすめ");
-        }
-    }
-
-    return reasons.slice(0, 2).join(" • ");
-}
-
-/**
- * Generate reason for swipe card recommendation
- */
-function generateSwipeCardReason(
-    card: any,
-    likedTags: Map<string, number>,
-    dislikedTags: Map<string, number>
-): string {
-    const tags: string[] = Array.isArray(card.tags) ? card.tags : [];
-    const matchedLikedTags = tags.filter(t => likedTags.has(t));
-
-    if (matchedLikedTags.length > 0) {
-        const topTag = matchedLikedTags[0];
-        return `「${topTag}」がお好みのあなたに`;
-    }
-
-    // Check if this is exploration (no matches)
-    const hasDisliked = tags.some(t => dislikedTags.has(t));
-    if (!hasDisliked && tags.length > 0) {
-        return `新しいスタイル「${tags[0]}」を発見`;
-    }
-
-    return "あなたにおすすめ";
-}
-
 // なるべく同一brand/shopが固まらないように上位から間引く（MVPの分散）
 function pickDiversified<T>(sorted: T[], n: number, keys: Array<(x: T) => string>): T[] {
     const picked: T[] = [];
@@ -725,7 +542,7 @@ async function buildBuyerSwipeCardsV2(
         (sig as any).dislikedTagsTop?.map((x: any) => [String(x.tag), Number(x.c)]) ?? []
     );
 
-    // ✅ ①: “候補プール”をキャッシュ（1時間）
+    // ✅ ①: "候補プール"をキャッシュ（1時間）
     const poolKey = `reco:pool:${userId}:${recVersion}:buyer:cards:${algorithm}`;
     const poolCached = await cacheGetJson(poolKey);
 
@@ -769,7 +586,7 @@ async function buildBuyerSwipeCardsV2(
 
                 // ✅ スキーマ差を吸収して image を決める
                 const rawImg = pickImageUrl(c);
-                const img = resolveCardImageUrl(rawImg);
+                const img = normalizePublicImageUrl(rawImg);
                 if (!img) return null; // 画像が無いカードはスキップ（UIが壊れるのを防ぐ）
 
                 // === algoごとにスコアリングを変える（③） ===
@@ -780,7 +597,7 @@ async function buildBuyerSwipeCardsV2(
                     for (const t of tags) boost += Math.min(6, liked.get(t) ?? 0) * 2;
                     for (const t of tags) boost -= Math.min(6, disliked.get(t) ?? 0) * 3;
                 } else if (algorithm === "vector") {
-                    // “ベクトル類似っぽい”扱い：嗜好は弱め + 安定ノイズで探索寄り
+                    // "ベクトル類似っぽい"扱い：嗜好は弱め + 安定ノイズで探索寄り
                     for (const t of tags) boost += Math.min(3, liked.get(t) ?? 0) * 1;
                     for (const t of tags) boost -= Math.min(3, disliked.get(t) ?? 0) * 1;
                     boost += stableNoiseSigned(`${userId}:${cardId}`) * 2.0;
@@ -790,9 +607,6 @@ async function buildBuyerSwipeCardsV2(
                     for (const t of tags) boost -= Math.min(6, disliked.get(t) ?? 0) * 3;
                     boost += stableNoiseSigned(`${userId}:${cardId}`) * 1.0;
                 }
-
-                // Generate personalized reason for this card
-                const cardReason = generateSwipeCardReason({ tags }, liked, disliked);
 
                 const payload = attachAB(
                     {
@@ -804,7 +618,6 @@ async function buildBuyerSwipeCardsV2(
                         tags,
                         price_band: (c.price_band ?? "unknown") as SwipeCard["price_band"],
                         source: c.source ?? "curated",
-                        reason: cardReason, // ✅ 推薦理由を追加
                         credit: {
                             source_page_url: c.source_page_url ?? null,
                             photographer_name: c.photographer_name ?? null,
@@ -1155,15 +968,8 @@ async function buildBuyerDrops(
 
                 const p = moneyNum(d.display_price ?? d.price);
                 const score = base + boost;
-
-                // ✅ Enhanced explanation with personalized reason
-                let matchType: "brand" | "size" | "shop" | "price" | "trending" | "explore" = "trending";
-                if (brand && sig.likedBrands.includes(brand)) matchType = "brand";
-                else if (size && sig.likedSizes.includes(size)) matchType = "size";
-                else if (shop && sig.likedShops.includes(shop)) matchType = "shop";
-                else if (boost < 0) matchType = "explore";
-
-                const explain = generateRecommendationReason(d, sig, matchType);
+                const explain =
+                    boost >= 6 ? "最近の好みに近い（ブランド/サイズ/ショップ）" : base > 0 ? "いま人気（ホット上位）" : null;
 
                 const payload = attachAB(
                     {
@@ -1505,7 +1311,7 @@ async function buildSellerInsights(
                 targetType: "insight",
                 targetId: null,
                 rank: insights.length,
-                explain: "最近“保存”が集まりやすい傾向",
+                explain: "最近『保存』が集まりやすい傾向",
                 payload: attachAB({ kind: "waiting_buyers", combo: key, save_count_30d: n }, abGroup, algorithm),
             });
         }
@@ -1785,40 +1591,43 @@ async function insertImpressionsBestEffort(userId: string, role: Role, recVersio
 }
 
 export async function GET(req: Request) {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    const user = auth?.user;
-    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    try {
+        const supabase = await supabaseServer();
+        const { data: auth } = await supabase.auth.getUser();
+        const user = auth?.user;
+        if (!user) return apiUnauthorized();
 
-    const url = new URL(req.url);
-    const roleParam = String(url.searchParams.get("role") ?? "auto");
-    const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit") ?? "10") || 10));
+        const url = new URL(req.url);
+        const roleParam = String(url.searchParams.get("role") ?? "auto");
+        const limit = Math.min(30, Math.max(1, Number(url.searchParams.get("limit") ?? "10") || 10));
 
-    const role: Role = roleParam === "buyer" || roleParam === "seller" ? (roleParam as Role) : await detectRoleAuto(user.id);
+        const role: Role = roleParam === "buyer" || roleParam === "seller" ? (roleParam as Role) : await detectRoleAuto(user.id);
 
-    // ✅ buyer は v=2 をデフォにする（?v= があればそっち優先）
-    const recVersion = getRecVersion(req, role === "buyer" ? 2 : 1);
+        // ✅ buyer は v=2 をデフォにする（?v= があればそっち優先）
+        const recVersion = getRecVersion(req, role === "buyer" ? 2 : 1);
 
-    // ✅ ③: AB分岐（buyerのみ有効でOK。sellerでも付与はする）
-    const { group: abGroup, algorithm } = pickAlgorithmForUser(user.id);
+        // ✅ ③: AB分岐（buyerのみ有効でOK。sellerでも付与はする）
+        const { group: abGroup, algorithm } = pickAlgorithmForUser(user.id);
 
-    // ✅ ①: “最終レスポンス”はseenの影響があるので強キャッシュしない
-    // 代わりに build 内で「候補プール」をキャッシュしてる（重複回避できる）
-    const items = await buildItems(user.id, role, limit, recVersion, req, algorithm, abGroup);
+        // ✅ ①: "最終レスポンス"はseenの影響があるので強キャッシュしない
+        // 代わりに build 内で「候補プール」をキャッシュしてる（重複回避できる）
+        const items = await buildItems(user.id, role, limit, recVersion, req, algorithm, abGroup);
 
-    // best-effort insert
-    const { out } = await insertImpressionsBestEffort(user.id, role, recVersion, items);
+        // best-effort insert
+        const { out } = await insertImpressionsBestEffort(user.id, role, recVersion, items);
 
-    return NextResponse.json({ ok: true, role, recVersion, algorithm, abGroup, items: out });
+        return apiOk({ role, recVersion, algorithm, abGroup, items: out });
+    } catch (error) {
+        return apiCatch(error, "GET /api/recommendations");
+    }
 }
 
 /**
  * =========
  * Cron/Batch用（②で利用）
  * =========
- * - auth不要で “キャッシュ生成だけ” したい時に呼べる内部関数
+ * - auth不要で "キャッシュ生成だけ" したい時に呼べる内部関数
  */
-// 内部関数: route.tsからはエクスポートしない（Next.js制約）
 async function precomputeForUser(params: {
     userId: string;
     limit?: number;

@@ -265,8 +265,8 @@ function runTeacherEligibilityCheck(): SmokeCheckResult {
     },
     result: {
       text: "短い返答",
-      provider: "ollama",
-      model: "llama3.1",
+      provider: "gemini",
+      model: "gemini-2.5-flash",
       latencyMs: 5,
       success: true,
       fallbackUsed: false,

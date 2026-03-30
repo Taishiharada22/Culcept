@@ -1,8 +1,28 @@
 {
   "crons": [
     {
-      "path": "/api/cron/body-color-pipeline",
-      "schedule": "0 0 * * *"
+      "path": "/api/cron/stargazer-growth",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/rendezvous-notification-dispatch",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/stargazer-student-monitor?lookbackHours=168&sampleSize=50&limit=200",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/identity-student-monitor?lookbackHours=168&sampleSize=50&limit=200&backfillLimit=50&warmupMaxActions=5",
+      "schedule": "15 4 * * *"
+    },
+    {
+      "path": "/api/cron/orbiter-student-monitor?lookbackHours=168&sampleSize=50&limit=200&backfillLimit=50&warmupMaxActions=5",
+      "schedule": "30 4 * * *"
+    },
+    {
+      "path": "/api/cron/ai-auto-eval?batch=50&lookbackHours=168",
+      "schedule": "45 4 * * *"
     }
   ]
 }

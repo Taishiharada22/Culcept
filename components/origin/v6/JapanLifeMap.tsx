@@ -1873,7 +1873,7 @@ export default function JapanLifeMap() {
   if (!data) return null;
 
   return (
-    <div className="relative flex h-[100dvh] w-screen flex-col" style={{ background: "#e8dfc8" }}>
+    <div className="relative flex h-[100dvh] w-full flex-col" style={{ background: "#e8dfc8" }}>
       <SeaLayer />
       {/* Map canvas */}
       <div

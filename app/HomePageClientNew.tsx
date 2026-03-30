@@ -13,6 +13,8 @@ import {
     LivePulse,
     StatCard,
 } from "@/components/ui/glassmorphism-design";
+import { MAIN_NAV } from "@/lib/navigation";
+import TalkFab from "./_components/TalkFab";
 
 type Props = {
     isLoggedIn: boolean;
@@ -27,24 +29,24 @@ export default function HomePageClientNew({ isLoggedIn, userName }: Props) {
                 <section className="px-4 sm:px-6 max-w-6xl mx-auto text-center mb-16">
                     <FadeInView>
                         <GlassBadge variant="gradient" className="mb-4">
-                            ✨ AI-Powered Fashion Platform
+                            ✨ AI-Powered Self Discovery
                         </GlassBadge>
                     </FadeInView>
 
                     <FadeInView delay={0.1}>
                         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 tracking-tight mb-6">
-                            ファッションを、
+                            自分でも気づいていない
                             <br />
                             <span className="bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 bg-clip-text text-transparent">
-                                もっと自由に。
+                                自分を、観測する。
                             </span>
                         </h1>
                     </FadeInView>
 
                     <FadeInView delay={0.2}>
                         <p className="text-lg sm:text-xl text-slate-500 max-w-2xl mx-auto mb-8">
-                            AIがあなたの好みを学習し、最適なスタイルを提案。
-                            バーチャル試着、ライブオークション、AR体験で新しいファッションの楽しみ方を。
+                            毎日の質問に答えるだけで、AIがあなたの分身を育てていく。
+                            判断のクセ、矛盾、隠してる本音——もうひとりの自分が、全部見つけてくれる。
                         </p>
                     </FadeInView>
 
@@ -224,6 +226,7 @@ export default function HomePageClientNew({ isLoggedIn, userName }: Props) {
                             { href: "/products", icon: "👕", label: "商品一覧", desc: "全アイテム" },
                             { href: "/shops", icon: "🏪", label: "ショップ", desc: "出店者一覧" },
                             { href: "/ranking", icon: "🔥", label: "ランキング", desc: "今週の人気" },
+                            { href: "/genome-card", icon: "🧬", label: "Genome Card", desc: "カード交換" },
                         ].map((item, i) => (
                             <FadeInView key={item.href} delay={0.05 * i}>
                                 <Link href={item.href} className="block">
@@ -325,37 +328,30 @@ export default function HomePageClientNew({ isLoggedIn, userName }: Props) {
                     <FadeInView>
                         <GlassCard variant="default" padding="lg" className="text-center">
                             <p className="text-slate-500 mb-4">
-                                Culceptで、あなたらしいファッションを見つけよう
+                                Aneurasyncは、君の最大の理解者である。
                             </p>
-                            <div className="flex items-center justify-center gap-4">
-                                <Link href="/about" className="text-sm text-slate-600 hover:text-slate-900">
-                                    About
-                                </Link>
-                                <Link href="/terms" className="text-sm text-slate-600 hover:text-slate-900">
+                            <div className="flex items-center justify-center gap-4 flex-wrap">
+                                <Link href="/legal/terms" className="text-xs text-slate-500 hover:text-slate-700">
                                     利用規約
                                 </Link>
-                                <Link href="/privacy" className="text-sm text-slate-600 hover:text-slate-900">
-                                    プライバシー
+                                <Link href="/legal/privacy" className="text-xs text-slate-500 hover:text-slate-700">
+                                    プライバシーポリシー
                                 </Link>
-                                <Link href="/contact" className="text-sm text-slate-600 hover:text-slate-900">
-                                    お問い合わせ
+                                <Link href="/legal/commercial" className="text-xs text-slate-500 hover:text-slate-700">
+                                    特定商取引法に基づく表記
                                 </Link>
                             </div>
+                            <p className="mt-2 text-xs text-slate-400">&copy; 2026 Aneurasync</p>
                         </GlassCard>
                     </FadeInView>
                 </section>
             </main>
 
+            {/* Talk FAB（ログイン時のみ） */}
+            {isLoggedIn && <TalkFab />}
+
             {/* フローティングナビ */}
-            <FloatingNavLight
-                items={[
-                    { href: "/", label: "ホーム", icon: <span>🏠</span>, active: true },
-                    { href: "/products", label: "商品", icon: <span>👕</span> },
-                    { href: "/sns/profile", label: "Presence", icon: <span>🪞</span> },
-                    { href: "/social", label: "フィード", icon: <span>📱</span> },
-                    { href: "/my", label: "マイページ", icon: <span>👤</span> },
-                ]}
-            />
+            <FloatingNavLight items={MAIN_NAV} activeHref="/" />
         </LightBackground>
     );
 }

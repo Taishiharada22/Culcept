@@ -1,6 +1,8 @@
 import "server-only";
 
-export type AIProviderName = "gemini" | "ollama";
+export const PRIMARY_AI_PROVIDER = "gemini" as const;
+
+export type AIProviderName = typeof PRIMARY_AI_PROVIDER;
 
 export type AIProviderRequest = {
   prompt: string;
@@ -13,11 +15,14 @@ export type AIProviderRequest = {
   inputParts?: unknown[];
 };
 
+/** Structured JSON output — object or array (Gemini may return either) */
+export type StructuredOutput = Record<string, unknown> | unknown[];
+
 export type AIProviderResponse = {
   provider: AIProviderName;
   model: string;
   text: string;
-  structured: Record<string, unknown> | null;
+  structured: StructuredOutput | null;
   inputTokens: number | null;
   outputTokens: number | null;
   confidence: number | null;
@@ -46,7 +51,7 @@ export type AIRunResult = {
   model: string;
   latencyMs: number;
   success: boolean;
-  structured: Record<string, unknown> | null;
+  structured: StructuredOutput | null;
   fallbackUsed: boolean;
   cacheHit: boolean;
   cacheKey: string | null;
@@ -60,6 +65,9 @@ export class AIProviderError extends Error {
   code: string;
   retryable: boolean;
   status?: number;
+  responseText?: string | null;
+  structured?: StructuredOutput | null;
+  metadata?: Record<string, unknown>;
 
   constructor(args: {
     provider: AIProviderName;
@@ -67,6 +75,9 @@ export class AIProviderError extends Error {
     message: string;
     retryable: boolean;
     status?: number;
+    responseText?: string | null;
+    structured?: StructuredOutput | null;
+    metadata?: Record<string, unknown>;
   }) {
     super(args.message);
     this.name = "AIProviderError";
@@ -74,6 +85,9 @@ export class AIProviderError extends Error {
     this.code = args.code;
     this.retryable = args.retryable;
     this.status = args.status;
+    this.responseText = args.responseText ?? null;
+    this.structured = args.structured ?? null;
+    this.metadata = args.metadata;
   }
 }
 

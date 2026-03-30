@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { safeLSSet } from "@/lib/safeLocalStorage";
 
 export type Algorithm = 'diversity' | 'popularity' | 'random' | 'hybrid' | 'collaborative';
 
@@ -18,20 +19,17 @@ const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
 ];
 
 export function AlgorithmSwitcher({ onAlgorithmChange, className = '' }: AlgorithmSwitcherProps) {
-  const [currentAlgorithm, setCurrentAlgorithm] = useState<Algorithm>('hybrid');
-  const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    // ローカルストレージから復元
+  const [currentAlgorithm, setCurrentAlgorithm] = useState<Algorithm>(() => {
+    if (typeof window === "undefined") return 'hybrid';
     const saved = localStorage.getItem('rec_algorithm') as Algorithm | null;
-    if (saved && ALGORITHMS.some(a => a.value === saved)) {
-      setCurrentAlgorithm(saved);
-    }
-  }, []);
+    if (saved && ALGORITHMS.some(a => a.value === saved)) return saved;
+    return 'hybrid';
+  });
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleSelect = (algorithm: Algorithm) => {
     setCurrentAlgorithm(algorithm);
-    localStorage.setItem('rec_algorithm', algorithm);
+    safeLSSet('rec_algorithm', algorithm);
     setIsOpen(false);
     onAlgorithmChange?.(algorithm);
   };

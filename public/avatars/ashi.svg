@@ -1,0 +1,14 @@
+<svg width="1024" height="1536" viewBox="0 0 1024 1536" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1536" rx="48" fill="#F8FAFC"/>
+  <rect x="48" y="48" width="928" height="1440" rx="40" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="8"/>
+  <g opacity="0.9">
+    <text x="120" y="118" fill="#64748B" font-size="44" font-family="sans-serif" font-weight="700">側面</text>
+    <path d="M310 350C360 240 520 220 610 300C710 390 730 610 680 710C645 776 598 836 600 930H522C512 838 468 798 418 742C356 674 320 580 314 494C311 449 310 399 310 350Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="10"/>
+    <path d="M558 935C594 946 630 980 654 1022C674 1058 682 1098 660 1128C630 1168 562 1160 526 1132C490 1104 490 1056 510 1018C526 988 544 960 558 935Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="10"/>
+  </g>
+  <g opacity="0.96">
+    <text x="120" y="844" fill="#64748B" font-size="44" font-family="sans-serif" font-weight="700">真上</text>
+    <path d="M548 940C630 948 716 1000 756 1072C795 1142 774 1256 704 1324C642 1384 548 1418 478 1388C406 1356 360 1272 356 1182C352 1086 418 988 548 940Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="10"/>
+    <path d="M377 1190C330 1184 282 1162 250 1128C218 1092 206 1044 232 1018C262 988 312 994 350 1018C388 1042 410 1082 416 1124C422 1160 410 1196 377 1190Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="10"/>
+  </g>
+</svg>

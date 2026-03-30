@@ -2,6 +2,7 @@
 // LocalStorage persistence for Earth Trace preferences and anchors
 
 import type { EarthTracePrefs, LifeAnchor } from "./types";
+import { safeLSSet } from "@/lib/safeLocalStorage";
 
 const PREFS_KEY = "culcept_earth_trace_prefs_v1";
 const ANCHORS_KEY = "culcept_life_anchors_v2";
@@ -27,7 +28,7 @@ export function loadEarthTracePrefs(): EarthTracePrefs {
 
 export function saveEarthTracePrefs(prefs: EarthTracePrefs): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  safeLSSet(PREFS_KEY, JSON.stringify(prefs));
 }
 
 export function loadAnchors(): LifeAnchor[] {
@@ -43,5 +44,5 @@ export function loadAnchors(): LifeAnchor[] {
 
 export function saveAnchors(anchors: LifeAnchor[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(ANCHORS_KEY, JSON.stringify(anchors));
+  safeLSSet(ANCHORS_KEY, JSON.stringify(anchors));
 }

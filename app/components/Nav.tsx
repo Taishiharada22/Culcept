@@ -43,11 +43,10 @@ export default function Nav({ action }: { action: (fd: FormData) => Promise<void
     return (
         <header style={{ borderBottom: "1px solid #eee" }}>
             <div style={{ maxWidth: 860, margin: "0 auto", padding: 16, display: "flex", gap: 12, alignItems: "center" }}>
-                <Link href="/" style={{ fontWeight: 900 }}>Culcept</Link>
+                <Link href="/" style={{ fontWeight: 900 }}>Aneurasync</Link>
                 <nav style={{ display: "flex", gap: 10, marginLeft: 12 }}>
-                    {item("/match", t("match"))}
-                    {item("/shops", t("shops"))}
-                    {item("/drops", t("drops"))}
+                    {item("/stargazer", "Stargazer")}
+                    {item("/rendezvous", "Rendezvous")}
                 </nav>
 
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>

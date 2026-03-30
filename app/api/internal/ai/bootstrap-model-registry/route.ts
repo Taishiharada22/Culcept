@@ -15,11 +15,11 @@ export const dynamic = "force-dynamic";
 type BootstrapBody = {
   dryRun?: boolean;
   challengerEnabled?: boolean;
-  championProvider?: "gemini" | "ollama";
+  championProvider?: "gemini";
   championModelKey?: string;
   championModelVersion?: string;
   championTaskTypes?: string[] | string;
-  challengerProvider?: "gemini" | "ollama";
+  challengerProvider?: "gemini";
   challengerModelKey?: string;
   challengerModelVersion?: string;
   challengerTaskTypes?: string[] | string;
@@ -50,9 +50,9 @@ function parseText(value: unknown): string | undefined {
   return normalized ? normalized : undefined;
 }
 
-function parseProvider(value: unknown): "gemini" | "ollama" | undefined {
+function parseProvider(value: unknown): "gemini" | undefined {
   const normalized = parseText(value)?.toLowerCase();
-  if (normalized === "gemini" || normalized === "ollama") return normalized;
+  if (normalized === "gemini") return normalized;
   return undefined;
 }
 

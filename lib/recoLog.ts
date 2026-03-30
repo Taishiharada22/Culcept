@@ -16,6 +16,10 @@ export const WHERE = {
     // outbound
     OUTBOUND_BUY: "outbound_buy",
     OUTBOUND_LINK: "outbound_link",
+
+    // recommendation
+    RECO_CARD: "reco_card",
+    DROP_DETAIL: "drop_detail",
 } as const;
 
 export type RecoAction = "click" | "purchase" | "save" | "skip";

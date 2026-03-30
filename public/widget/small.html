@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aneurasync Widget</title>
+  <link rel="stylesheet" href="/widget/widget.css">
+</head>
+<body>
+  <div class="aneurasync-widget" id="widget">
+    <div class="widget-header">
+      <span class="widget-logo">✦</span>
+      <span class="widget-title">ANEURASYNC</span>
+    </div>
+    <div class="widget-weather">
+      <span class="weather-emoji" id="weather-emoji">☁️</span>
+      <span class="weather-label" id="weather-label">読込中</span>
+    </div>
+    <div class="widget-stats">
+      <div class="stat">
+        <span class="stat-value" id="streak-value">—</span>
+        <span class="stat-label">連続</span>
+      </div>
+      <div class="stat-divider"></div>
+      <div class="stat">
+        <span class="stat-value" id="sync-value">—</span>
+        <span class="stat-label">SYNC</span>
+      </div>
+    </div>
+    <a class="widget-cta" href="/" id="widget-cta">観測する →</a>
+  </div>
+  <script>
+    async function loadWidget() {
+      try {
+        const res = await fetch('/api/widget', { credentials: 'include' });
+        if (!res.ok) return;
+        const { widget } = await res.json();
+        if (!widget) return;
+
+        if (widget.weather) {
+          document.getElementById('weather-emoji').textContent = widget.weather.emoji || '☁️';
+          document.getElementById('weather-label').textContent = widget.weather.label || '不明';
+        }
+        document.getElementById('streak-value').textContent = widget.streak > 0 ? widget.streak + '日🔥' : '—';
+        document.getElementById('sync-value').textContent = widget.sync > 0 ? widget.sync + '%' : '—';
+      } catch {}
+    }
+    loadWidget();
+    // 5分ごとに更新
+    setInterval(loadWidget, 300000);
+  </script>
+</body>
+</html>

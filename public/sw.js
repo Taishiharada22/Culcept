@@ -1,5 +1,5 @@
-// Culcept Service Worker
-const CACHE_NAME = 'culcept-v1';
+// Aneurasync Service Worker
+const CACHE_NAME = 'aneurasync-v2';
 const OFFLINE_URL = '/offline';
 
 // キャッシュするアセット
@@ -7,8 +7,7 @@ const PRECACHE_ASSETS = [
   '/',
   '/offline',
   '/manifest.json',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png',
+  '/icons/icon.svg',
 ];
 
 // インストール時にアセットをキャッシュ
@@ -47,8 +46,35 @@ self.addEventListener('fetch', (event) => {
   // 同一オリジンのみ処理
   if (url.origin !== location.origin) return;
 
-  // APIリクエストはNetwork Only
+  // APIリクエスト: キャッシュ可能なエンドポイントはStale-While-Revalidate
   if (url.pathname.startsWith('/api/')) {
+    const CACHEABLE_APIS = {
+      '/api/stargazer/profile': 300,                    // 5分
+      '/api/stargazer/prophecy': 3600,                  // 1時間
+      '/api/stargazer/inner-weather': 3600,             // 1時間
+      '/api/aneurasync/home-identity-progress': 300,    // 5分
+      '/api/stargazer/blind-spot': 3600,                // 1時間
+      '/api/eye-profile': 86400,                        // 24時間
+      '/api/widget': 300,                               // 5分
+    };
+    const cacheTTL = CACHEABLE_APIS[url.pathname];
+    if (cacheTTL && request.method === 'GET') {
+      event.respondWith(
+        caches.match(request).then((cached) => {
+          // Stale-While-Revalidate: キャッシュを即座に返しつつ、バックグラウンドで更新
+          const fetchPromise = fetch(request).then((response) => {
+            if (response.ok) {
+              const clone = response.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
+            return response;
+          });
+          return cached || fetchPromise;
+        })
+      );
+      return;
+    }
+    // キャッシュ不可のAPIはNetwork Only
     return;
   }
 
@@ -118,11 +144,10 @@ self.addEventListener('fetch', (event) => {
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? {};
 
-  const title = data.title || 'Culcept';
+  const title = data.title || 'Aneurasync';
   const options = {
     body: data.body || '新しいお知らせがあります',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
+    icon: '/icons/icon.svg',
     tag: data.tag || 'default',
     data: {
       url: data.url || '/',
@@ -158,14 +183,75 @@ self.addEventListener('notificationclick', (event) => {
 
 // バックグラウンド同期
 self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-actions') {
-    event.waitUntil(syncPendingActions());
+  if (event.tag === 'sync-actions' || event.tag === 'sync-observations') {
+    event.waitUntil(syncPendingObservations());
   }
 });
 
-// オフライン時のアクションを同期
-async function syncPendingActions() {
-  // IndexedDBからペンディングアクションを取得して送信
-  // 実装は省略
-  console.log('[SW] Syncing pending actions');
+// オフライン時の観測データを同期
+async function syncPendingObservations() {
+  console.log('[SW] Syncing pending observations');
+  try {
+    const db = await openIndexedDB();
+    const tx = db.transaction('pending_answers', 'readonly');
+    const store = tx.objectStore('pending_answers');
+    const index = store.index('syncStatus');
+    const request = index.getAll('pending');
+
+    return new Promise((resolve, reject) => {
+      request.onsuccess = async () => {
+        const pending = request.result || [];
+        console.log('[SW] Found', pending.length, 'pending observations');
+
+        for (const answer of pending) {
+          try {
+            const response = await fetch('/api/stargazer/observations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                questionId: answer.questionId,
+                axisId: answer.axisId,
+                selectedOptionId: answer.selectedOptionId,
+                score: answer.score,
+                answeredAt: answer.answeredAt,
+                responseTimeMs: answer.responseTimeMs,
+                offlineSync: true,
+              }),
+            });
+
+            if (response.ok) {
+              // 同期成功: ステータス更新
+              const updateTx = db.transaction('pending_answers', 'readwrite');
+              const updateStore = updateTx.objectStore('pending_answers');
+              answer.syncStatus = 'synced';
+              updateStore.put(answer);
+            }
+          } catch (err) {
+            console.warn('[SW] Failed to sync observation:', err);
+          }
+        }
+        db.close();
+        resolve();
+      };
+      request.onerror = () => { db.close(); reject(request.error); };
+    });
+  } catch (err) {
+    console.warn('[SW] syncPendingObservations error:', err);
+  }
+}
+
+function openIndexedDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('aneurasync_offline_v1', 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('pending_answers')) {
+        const store = db.createObjectStore('pending_answers', { keyPath: 'id' });
+        store.createIndex('syncStatus', 'syncStatus', { unique: false });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }

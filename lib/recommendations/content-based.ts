@@ -131,27 +131,64 @@ export async function getContentBasedRecommendations(
 }
 
 /**
- * embedding類似度による推薦 (drop_embeddingsテーブルがある場合)
+ * embedding類似度による推薦 — pgvector未セットアップ時はタグ類似度フォールバック
+ *
+ * pgvector が利用可能な場合はベクトル類似検索を行う。
+ * 利用不可の場合は、ユーザーのインタラクション履歴からタグプロファイルを構築し、
+ * タグ重複数でスコアリングした結果を返す。
  */
 export async function getEmbeddingBasedRecommendations(
   userId: string,
   limit: number = 20
 ): Promise<string[]> {
-  // 注: この機能はdrop_embeddingsテーブルとpgvectorが必要
-  // 現状はプレースホルダーとして実装
-
   const profile = await buildUserProfile(userId);
 
   if (profile.likedCards.length === 0) return [];
 
-  // TODO: pgvector RPC呼び出しで類似アイテムを取得
-  // const { data } = await supabase.rpc('match_embeddings', {
-  //   query_embedding: averageEmbedding,
-  //   match_count: limit,
-  // });
+  // ── pgvector が使える場合（将来対応） ──
+  // try {
+  //   const { data } = await supabase.rpc('match_embeddings', {
+  //     query_embedding: averageEmbedding,
+  //     match_count: limit,
+  //   });
+  //   if (data && data.length > 0) return data.map(d => d.card_id);
+  // } catch {}
 
-  console.log('⚠️ Embedding推薦はpgvectorセットアップ後に有効化');
-  return [];
+  // ── タグ類似度フォールバック ──
+  // ユーザーが「いいね」したカードのタグ分布を元に、
+  // 未インタラクションのカードをタグ重複数でスコアリングする
+  try {
+    if (profile.tagPreferences.size === 0) return [];
+
+    const { data: allCards } = await supabase
+      .from('curated_cards')
+      .select('card_id, tags')
+      .eq('is_active', true);
+
+    if (!allCards || allCards.length === 0) return [];
+
+    const likedSet = new Set(profile.likedCards);
+
+    // 各カードのタグ重複スコアを計算
+    const scored = allCards
+      .filter((card) => !likedSet.has(card.card_id))
+      .map((card) => {
+        const tags: string[] = card.tags ?? [];
+        let score = 0;
+        for (const tag of tags) {
+          const weight = profile.tagPreferences.get(tag);
+          if (weight) score += weight;
+        }
+        return { cardId: card.card_id, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, limit).map((item) => item.cardId);
+  } catch (err) {
+    console.warn('[content-based] Tag-based fallback failed:', err);
+    return [];
+  }
 }
 
 export default {

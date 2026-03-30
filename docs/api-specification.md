@@ -1,4 +1,4 @@
-# Culcept API仕様書
+# Aneurasync API仕様書
 
 ## Base URL
 

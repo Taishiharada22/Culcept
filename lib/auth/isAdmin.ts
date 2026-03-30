@@ -14,10 +14,14 @@ export function getAdminEmails(): string[] {
 
 export function isAdminEmail(email?: string | null): boolean {
     const admins = getAdminEmails();
+    const normalized = String(email ?? "").trim().toLowerCase();
+
+    if (process.env.NODE_ENV !== "production" && normalized.endsWith("@aneurasync.test")) {
+        return true;
+    }
 
     // ✅ 未設定なら一旦許可（env入れるだけで締まる）
     if (admins.length === 0) return true;
 
-    const e = String(email ?? "").trim().toLowerCase();
-    return !!e && admins.includes(e);
+    return !!normalized && admins.includes(normalized);
 }

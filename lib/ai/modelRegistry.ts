@@ -67,7 +67,7 @@ function clampPercent(value: number | null | undefined, fallback = 0): number {
 }
 
 function normalizeProvider(value: unknown): AIProviderName | null {
-  if (value === "gemini" || value === "ollama") return value;
+  if (value === "gemini") return value;
   return null;
 }
 

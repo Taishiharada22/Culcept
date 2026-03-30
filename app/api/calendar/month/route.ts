@@ -1,6 +1,7 @@
 // app/api/calendar/month/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { fetchJmaDailyForecast, normalizeOfficeCode, type WeatherDaily, weatherDailyFromStoredInput } from "@/lib/weather/jma";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,22 @@ export async function GET(req: NextRequest) {
             .gte("date", startDate)
             .lte("date", endDate);
 
+        const { data: weatherSettings } = await supabase
+            .from("user_weather_settings")
+            .select("default_location")
+            .eq("user_id", auth.user.id)
+            .maybeSingle();
+
+        const officeCode = normalizeOfficeCode(weatherSettings?.default_location);
+        let liveForecast = new Map<string, WeatherDaily>();
+        if (officeCode) {
+            try {
+                liveForecast = await fetchJmaDailyForecast(officeCode);
+            } catch (weatherError) {
+                console.error("Error fetching JMA forecast:", weatherError);
+            }
+        }
+
         // 日付ごとにマップ化
         const outfitMap = new Map<string, any>();
         for (const outfit of outfits ?? []) {
@@ -62,11 +79,13 @@ export async function GET(req: NextRequest) {
 
         for (let day = 1; day <= daysInMonth; day++) {
             const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+            const outfit = outfitMap.get(dateStr) ?? null;
             calendarData.push({
                 date: dateStr,
                 dayOfWeek: new Date(dateStr).getDay(),
-                outfit: outfitMap.get(dateStr) ?? null,
+                outfit,
                 events: eventMap.get(dateStr) ?? [],
+                weather_daily: liveForecast.get(dateStr) ?? weatherDailyFromStoredInput(outfit?.weather_input),
             });
         }
 

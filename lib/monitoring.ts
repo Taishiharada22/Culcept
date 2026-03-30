@@ -39,7 +39,7 @@ export async function sendSlackAlert(message: string, channel?: string): Promise
       body: JSON.stringify({
         channel: channel || '#alerts',
         text: message,
-        username: 'Culcept Monitor',
+        username: 'Aneurasync Monitor',
         icon_emoji: ':warning:',
       }),
     });

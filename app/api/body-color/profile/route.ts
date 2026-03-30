@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+// app/api/body-color/profile/route.ts
+import { NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { resolveShoeWidthCodeServer } from "@/lib/shoeWidthServer";
+import { apiOk, apiUnauthorized, apiBadRequest, apiError, apiCatch } from "@/lib/api/response";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const CFV_KEYS = [
     "vertical_line",
@@ -55,6 +59,9 @@ const MEASURE_KEYS = [
     "calf",
     "armhole_depth",
     "torso_depth",
+    "foot_length_cm",
+    "foot_girth_cm",
+    "foot_width_cm",
 ];
 
 function toNum(v: any): number | null {
@@ -81,6 +88,7 @@ function normalizeCPV(cpv: any) {
     for (const key of CPV_KEYS) {
         const n = toNum(cpv?.[key]);
         if (n == null) continue;
+
         if (key === "undertone") out[key] = clamp(n, -1, 1);
         else if (key === "value_L") out[key] = clamp(n, 0, 100);
         else if (key === "chroma_C") out[key] = clamp(n, 0, 200);
@@ -119,17 +127,24 @@ function cleanObject(obj: Record<string, any>) {
     return out;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
         const supabase = await supabaseServer();
         const { data: auth } = await supabase.auth.getUser();
         if (!auth?.user) {
-            return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+            return apiUnauthorized();
         }
+
+        const { searchParams } = new URL(request.url);
+        const wantHistory = searchParams.get("history") === "true";
 
         const [bodyRes, colorRes, measurementRes, avatarRes] = await Promise.all([
             supabase.from("user_body_profiles").select("*").eq("user_id", auth.user.id).maybeSingle(),
-            supabase.from("user_personal_color_profiles").select("*").eq("user_id", auth.user.id).maybeSingle(),
+            supabase
+                .from("user_personal_color_profiles")
+                .select("user_id,cpv,labels,palette,photo_analysis,updated_at")
+                .eq("user_id", auth.user.id)
+                .maybeSingle(),
             supabase
                 .from("user_body_measurements")
                 .select("*")
@@ -141,17 +156,41 @@ export async function GET() {
 
         const measurement = measurementRes.data?.[0] ?? null;
 
-        return NextResponse.json({
-            ok: true,
+        // 計測履歴（オプション）
+        let measurementHistory: Array<{ measurements: Record<string, unknown>; measured_at: string }> | null = null;
+        if (wantHistory) {
+            const historyRes = await supabase
+                .from("user_body_measurements")
+                .select("measurements, measured_at")
+                .eq("user_id", auth.user.id)
+                .order("measured_at", { ascending: true })
+                .limit(50);
+            measurementHistory = (historyRes.data ?? []).map((row) => ({
+                measurements: (row.measurements ?? {}) as Record<string, unknown>,
+                measured_at: row.measured_at as string,
+            }));
+        }
+
+        // DEBUG: GET return直前 — DB row と返却JSONの photo_analysis を確認
+        const colorRow = colorRes.data;
+        console.info("[COLOR-TRACE] GET color_profile row:", {
+            hasRow: !!colorRow,
+            rowKeys: colorRow ? Object.keys(colorRow) : null,
+            hasPhotoAnalysis: !!colorRow?.photo_analysis,
+            photoAnalysisType: typeof colorRow?.photo_analysis,
+            photoAnalysisKeys: colorRow?.photo_analysis ? Object.keys(colorRow.photo_analysis as Record<string, unknown>) : null,
+        });
+
+        return apiOk({
             body_profile: bodyRes.data ?? null,
             color_profile: colorRes.data ?? null,
             measurement: measurement?.measurements ?? null,
             measured_at: measurement?.measured_at ?? null,
             avatar_profile: avatarRes.data ?? null,
+            ...(measurementHistory ? { measurement_history: measurementHistory } : {}),
         });
     } catch (error) {
-        console.error("body-color profile GET error:", error);
-        return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
+        return apiCatch(error, "GET /api/body-color/profile");
     }
 }
 
@@ -160,7 +199,7 @@ export async function POST(request: NextRequest) {
         const supabase = await supabaseServer();
         const { data: auth } = await supabase.auth.getUser();
         if (!auth?.user) {
-            return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+            return apiUnauthorized();
         }
 
         const payload = await request.json().catch(() => ({}));
@@ -168,55 +207,122 @@ export async function POST(request: NextRequest) {
         const colorProfile = payload?.color_profile ?? {};
         const measurements = payload?.measurements ?? {};
         const avatarAssets = payload?.avatar_assets ?? {};
+        const photoColorAnalysis = payload?.photo_color_analysis ?? null;
 
-        const cfv = normalizeCFV(bodyProfile.cfv ?? {});
-        const display_labels = cleanObject(bodyProfile.display_labels ?? {});
-        const body_confidence = cleanObject(bodyProfile.confidence ?? {});
+        const [existingBodyProfileRes, latestMeasurementRes, existingColorProfileRes] = await Promise.all([
+            supabase
+                .from("user_body_profiles")
+                .select("cfv,display_labels,confidence")
+                .eq("user_id", auth.user.id)
+                .maybeSingle(),
+            supabase
+                .from("user_body_measurements")
+                .select("measurements")
+                .eq("user_id", auth.user.id)
+                .order("measured_at", { ascending: false })
+                .limit(1),
+            supabase
+                .from("user_personal_color_profiles")
+                .select("cpv,labels,palette")
+                .eq("user_id", auth.user.id)
+                .maybeSingle(),
+        ]);
 
-        const cpv = normalizeCPV(colorProfile.cpv ?? {});
-        const labels = cleanObject(colorProfile.labels ?? {});
-        const palette = cleanObject(colorProfile.palette ?? {});
+        const existingBodyProfile = existingBodyProfileRes.data ?? null;
+        const latestMeasurement = latestMeasurementRes.data?.[0]?.measurements ?? {};
+        const existingColorProfile = existingColorProfileRes.data ?? null;
+
+        const cfv = {
+            ...(existingBodyProfile?.cfv ?? {}),
+            ...normalizeCFV(bodyProfile.cfv ?? {}),
+        };
+        const display_labels = {
+            ...(existingBodyProfile?.display_labels ?? {}),
+            ...cleanObject(bodyProfile.display_labels ?? {}),
+        };
+        const body_confidence = {
+            ...(existingBodyProfile?.confidence ?? {}),
+            ...cleanObject(bodyProfile.confidence ?? {}),
+        };
+
+        const cpv = {
+            ...(existingColorProfile?.cpv ?? {}),
+            ...normalizeCPV(colorProfile.cpv ?? {}),
+        };
+        const labels = {
+            ...(existingColorProfile?.labels ?? {}),
+            ...cleanObject(colorProfile.labels ?? {}),
+        };
+        const palette = {
+            ...(existingColorProfile?.palette ?? {}),
+            ...cleanObject(colorProfile.palette ?? {}),
+        };
 
         const measurementData = normalizeMeasurements(measurements ?? {});
+        const mergedMeasurements = {
+            ...(latestMeasurement ?? {}),
+            ...measurementData,
+        };
 
+        const derivedWidthResult = await resolveShoeWidthCodeServer({
+            audience: display_labels.derived_width_audience,
+            footLengthCm: mergedMeasurements.foot_length_cm,
+            footGirthCm: mergedMeasurements.foot_girth_cm,
+        }).catch(() => null);
+
+        if (derivedWidthResult?.widthCode) {
+            display_labels.derived_width_size = derivedWidthResult.widthCode;
+            display_labels.derived_width_audience = derivedWidthResult.audience;
+        }
+
+        // Supabaseのクエリビルダーは thenable だが Promise 型ではないため、
+        // Promise.resolve(...) で本物の Promise に変換して tasks に積む。
         const tasks: Promise<any>[] = [];
 
         if (hasValues(cfv) || hasValues(display_labels) || hasValues(body_confidence)) {
             tasks.push(
-                supabase.from("user_body_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        cfv: cfv,
-                        display_labels,
-                        confidence: body_confidence,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_body_profiles").upsert(
+                        {
+                            user_id: auth.user.id,
+                            cfv,
+                            display_labels,
+                            confidence: body_confidence,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }
 
-        if (hasValues(cpv) || hasValues(labels) || hasValues(palette)) {
+        if (hasValues(cpv) || hasValues(labels) || hasValues(palette) || photoColorAnalysis) {
+            const colorRow: Record<string, any> = {
+                user_id: auth.user.id,
+                updated_at: new Date().toISOString(),
+            };
+            if (hasValues(cpv)) colorRow.cpv = cpv;
+            if (hasValues(labels)) colorRow.labels = labels;
+            if (hasValues(palette)) colorRow.palette = palette;
+            if (photoColorAnalysis) colorRow.photo_analysis = photoColorAnalysis;
             tasks.push(
-                supabase.from("user_personal_color_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        cpv,
-                        labels,
-                        palette,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_personal_color_profiles").upsert(
+                        colorRow,
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }
 
         if (hasValues(measurementData)) {
             tasks.push(
-                supabase.from("user_body_measurements").insert({
-                    user_id: auth.user.id,
-                    measurements: measurementData,
-                })
+                Promise.resolve(
+                    supabase.from("user_body_measurements").insert({
+                        user_id: auth.user.id,
+                        measurements: measurementData,
+                    })
+                )
             );
         }
 
@@ -228,36 +334,51 @@ export async function POST(request: NextRequest) {
                 .maybeSingle();
 
             const cleanAssets = cleanObject(avatarAssets);
+
             tasks.push(
-                supabase.from("user_body_avatar_profiles").upsert(
-                    {
-                        user_id: auth.user.id,
-                        views: existing?.data?.views ?? {},
-                        person_cutout_url: cleanAssets.person_cutout_url ?? null,
-                        clothes_cutout_url: cleanAssets.clothes_cutout_url ?? null,
-                        mask_clothes_url: cleanAssets.mask_clothes_url ?? null,
-                        turntable_gif_url: cleanAssets.turntable_gif_url ?? null,
-                        mesh_glb_url: cleanAssets.mesh_glb_url ?? null,
-                        updated_at: new Date().toISOString(),
-                    },
-                    { onConflict: "user_id" }
+                Promise.resolve(
+                    supabase.from("user_body_avatar_profiles").upsert(
+                        {
+                            user_id: auth.user.id,
+                            views: existing?.data?.views ?? {},
+                            person_cutout_url: cleanAssets.person_cutout_url ?? null,
+                            clothes_cutout_url: cleanAssets.clothes_cutout_url ?? null,
+                            mask_clothes_url: cleanAssets.mask_clothes_url ?? null,
+                            turntable_gif_url: cleanAssets.turntable_gif_url ?? null,
+                            mesh_glb_url: cleanAssets.mesh_glb_url ?? null,
+                            updated_at: new Date().toISOString(),
+                        },
+                        { onConflict: "user_id" }
+                    )
                 )
             );
         }
 
         if (tasks.length === 0) {
-            return NextResponse.json({ ok: false, error: "No data to save" }, { status: 400 });
+            return apiBadRequest("No data to save");
         }
 
         const results = await Promise.all(tasks);
         const err = results.find((r) => r?.error)?.error;
         if (err) {
-            return NextResponse.json({ ok: false, error: String(err.message ?? err) }, { status: 400 });
+            return apiBadRequest(String(err.message ?? err));
         }
 
-        return NextResponse.json({ ok: true });
+        // DEBUG: POST直後にDBの photo_analysis 実値を確認
+        const verifyRow = await supabase
+            .from("user_personal_color_profiles")
+            .select("photo_analysis")
+            .eq("user_id", auth.user.id)
+            .maybeSingle();
+        console.info("[COLOR-TRACE] POST verify DB photo_analysis:", {
+            hasValue: !!verifyRow.data?.photo_analysis,
+            type: typeof verifyRow.data?.photo_analysis,
+            keys: verifyRow.data?.photo_analysis ? Object.keys(verifyRow.data.photo_analysis) : null,
+            error: verifyRow.error?.message ?? null,
+        });
+
+        return apiOk({ saved: true });
     } catch (error) {
-        console.error("body-color profile POST error:", error);
-        return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
+        return apiCatch(error, "POST /api/body-color/profile");
     }
 }

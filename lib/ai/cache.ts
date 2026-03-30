@@ -1,8 +1,80 @@
+/**
+ * AI Semantic Cache
+ *
+ * Supabase の `ai_semantic_cache` テーブルを使ったセマンティックキャッシュ。
+ * タスクタイプ・プロンプト・スキーマの組み合わせから SHA-256 キーを生成し、
+ * TTL 付きで結果を再利用する。
+ *
+ * ### キャッシュキーのバージョニング
+ * `CACHE_KEY_VERSION` を更新すると全キャッシュが無効化される。
+ * DB 側のレコードは TTL で自然に期限切れになるため、手動削除は不要。
+ *
+ * ### 統計情報
+ * `getCacheStats()` でヒット数・ミス数・エラー数・ヒット率を取得できる。
+ * モニタリングやヘルスチェックから利用する。
+ */
 import "server-only";
 
 import { createHash } from "crypto";
 import { getAIServiceClient } from "./db";
-import type { AIProviderName, RunAIParams } from "./types";
+import {
+  PRIMARY_AI_PROVIDER,
+  type AIProviderName,
+  type RunAIParams,
+} from "./types";
+
+// ---------------------------------------------------------------------------
+// Cache key version — bump to invalidate all cached entries
+// ---------------------------------------------------------------------------
+const CACHE_KEY_VERSION = "v2";
+
+// ---------------------------------------------------------------------------
+// Cache statistics (in-memory, reset on process restart)
+// ---------------------------------------------------------------------------
+
+/** Cache performance metrics tracked in-memory. */
+export interface CacheStats {
+  /** Number of successful cache hits */
+  hits: number;
+  /** Number of cache misses */
+  misses: number;
+  /** Number of lookup/write errors */
+  errors: number;
+  /** Hit rate as a ratio (0–1). Returns 0 when no requests have been made. */
+  hitRate: () => number;
+}
+
+const _stats: CacheStats = {
+  hits: 0,
+  misses: 0,
+  errors: 0,
+  hitRate() {
+    const total = this.hits + this.misses;
+    return total === 0 ? 0 : this.hits / total;
+  },
+};
+
+/**
+ * Return a snapshot of cache statistics.
+ * Values are cumulative since process start.
+ */
+export function getCacheStats(): Readonly<{
+  hits: number;
+  misses: number;
+  errors: number;
+  hitRate: number;
+}> {
+  return {
+    hits: _stats.hits,
+    misses: _stats.misses,
+    errors: _stats.errors,
+    hitRate: _stats.hitRate(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export type CacheEligibility = {
   enabled: boolean;
@@ -16,12 +88,16 @@ export type CacheLookupResult = {
   reason: string;
   cached: {
     text: string;
-    structured: Record<string, unknown> | null;
+    structured: Record<string, unknown> | unknown[] | null;
     provider: AIProviderName;
     model: string;
     sourceAiRunId: string | null;
   } | null;
 };
+
+function normalizeCachedProvider(value: unknown): AIProviderName | null {
+  return value === PRIMARY_AI_PROVIDER ? PRIMARY_AI_PROVIDER : null;
+}
 
 function envBool(name: string, fallback: boolean): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
@@ -32,7 +108,9 @@ function envBool(name: string, fallback: boolean): boolean {
 }
 
 function envNumber(name: string, fallback: number): number {
-  const value = Number((process.env[name] ?? "").trim());
+  const raw = (process.env[name] ?? "").trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
   if (!Number.isFinite(value) || value <= 0) return fallback;
   return value;
 }
@@ -75,7 +153,7 @@ export function buildAICacheKey(params: RunAIParams): string | null {
   });
 
   const hash = createHash("sha256").update(hashInput).digest("hex");
-  return `ai:semcache:v1:${hash}`;
+  return `ai:semcache:${CACHE_KEY_VERSION}:${hash}`;
 }
 
 export async function lookupSemanticCache(
@@ -117,6 +195,7 @@ export async function lookupSemanticCache(
 
     if (error) {
       console.warn("[ai/cache] lookup failed:", error.message);
+      _stats.errors += 1;
       return {
         cacheHit: false,
         cacheKey,
@@ -126,6 +205,7 @@ export async function lookupSemanticCache(
     }
 
     if (!data) {
+      _stats.misses += 1;
       return {
         cacheHit: false,
         cacheKey,
@@ -134,6 +214,18 @@ export async function lookupSemanticCache(
       };
     }
 
+    const provider = normalizeCachedProvider(data.provider);
+    if (!provider) {
+      _stats.misses += 1;
+      return {
+        cacheHit: false,
+        cacheKey,
+        reason: "unsupported_cached_provider",
+        cached: null,
+      };
+    }
+
+    _stats.hits += 1;
     return {
       cacheHit: true,
       cacheKey,
@@ -141,13 +233,14 @@ export async function lookupSemanticCache(
       cached: {
         text: data.response_text ?? "",
         structured: data.structured_json ?? null,
-        provider: data.provider as AIProviderName,
+        provider,
         model: data.model ?? "",
         sourceAiRunId: data.source_ai_run_id ?? null,
       },
     };
   } catch (error) {
     console.warn("[ai/cache] unexpected lookup error:", error);
+    _stats.errors += 1;
     return {
       cacheHit: false,
       cacheKey,
@@ -157,13 +250,16 @@ export async function lookupSemanticCache(
   }
 }
 
+// Schema-error suppression: avoid flooding logs when migration is pending
+let _schemaErrorLogged = false;
+
 export async function writeSemanticCache(args: {
   cacheKey: string;
   params: RunAIParams;
   sourceAiRunId: string;
   output: {
     text: string;
-    structured: Record<string, unknown> | null;
+    structured: Record<string, unknown> | unknown[] | null;
     provider: AIProviderName;
     model: string;
   };
@@ -191,9 +287,19 @@ export async function writeSemanticCache(args: {
       .upsert(row, { onConflict: "cache_key" });
 
     if (error) {
-      console.warn("[ai/cache] write failed:", error.message);
+      _stats.errors += 1;
+      // Schema mismatch (migration pending) — log once, then suppress
+      if (error.message.includes("schema cache") || error.message.includes("column")) {
+        if (!_schemaErrorLogged) {
+          console.warn("[ai/cache] write failed (schema mismatch — run migration 20260305113000):", error.message);
+          _schemaErrorLogged = true;
+        }
+      } else {
+        console.warn("[ai/cache] write failed:", error.message);
+      }
     }
   } catch (error) {
+    _stats.errors += 1;
     console.warn("[ai/cache] unexpected write error:", error);
   }
 }

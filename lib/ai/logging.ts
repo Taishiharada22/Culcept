@@ -12,7 +12,7 @@ export type LogAiRunParams = {
   promptText: string;
   systemPrompt?: string;
   responseText: string | null;
-  structuredJson: Record<string, unknown> | null;
+  structuredJson: Record<string, unknown> | unknown[] | null;
   success: boolean;
   latencyMs: number;
   inputTokens?: number | null;
@@ -22,6 +22,14 @@ export type LogAiRunParams = {
   metadata?: Record<string, unknown>;
 };
 
+function fallbackModelName(_provider: AIProviderName): string {
+  return (
+    process.env.GEMINI_MODEL_DEFAULT ??
+    process.env.GEMINI_MODEL ??
+    "gemini-2.5-flash"
+  ).trim();
+}
+
 export async function logAiRun(params: LogAiRunParams): Promise<string | null> {
   try {
     const client = getAIServiceClient();
@@ -30,12 +38,15 @@ export async function logAiRun(params: LogAiRunParams): Promise<string | null> {
       return null;
     }
 
+    const normalizedModel =
+      (params.model ?? "").trim() || fallbackModelName(params.provider);
+
     const row = {
       user_id: params.userId ?? null,
       session_id: params.sessionId ?? null,
       task_type: params.taskType,
       provider: params.provider,
-      model: params.model || null,
+      model: normalizedModel,
       prompt_text: params.promptText,
       system_prompt: params.systemPrompt ?? null,
       response_text: params.responseText,

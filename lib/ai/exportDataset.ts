@@ -46,7 +46,7 @@ export type DatasetExportFilters = {
 export async function exportAIDataset(
   filters: DatasetExportFilters,
 ): Promise<DatasetExportResult> {
-  const enabled = envBool("AI_EXPORT_ENABLED", false);
+  const enabled = envBool("AI_EXPORT_ENABLED", true);
   if (!enabled) {
     return { enabled: false, totalRunsScanned: 0, rows: [] };
   }

@@ -31,7 +31,7 @@ const ALGORITHMS: Algorithm[] = [
     "graph",
 ];
 
-// ✅ Culcept向け：重みはそのまま
+// ✅ Aneurasync向け：重みはそのまま
 const WEIGHTS: Record<Algorithm, number> = {
     collaborative: 0.35,
     vector: 0.3,
@@ -217,7 +217,7 @@ async function tryFetchSubroutes(
 }
 
 /**
- * ✅ フォールバック（Culcept用）
+ * ✅ フォールバック（Aneurasync用）
  * curated_cards.tags とユーザー履歴（存在すれば）で “確実に” 推薦を返す
  */
 async function fallbackByTags(

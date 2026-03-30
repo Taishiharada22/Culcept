@@ -135,6 +135,8 @@ async function handle(request: Request, body?: BodyShape) {
         normalized.code === "training_artifacts_disabled" ||
         normalized.code === "dataset_export_disabled"
           ? 403
+          : normalized.code === "no_data_available"
+            ? 409
           : normalized.code === "db_connectivity_error" ||
               normalized.code === "service_role_unavailable" ||
               normalized.code === "pending_migration_missing_table" ||

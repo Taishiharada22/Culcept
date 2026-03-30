@@ -153,6 +153,7 @@ function ResilientCardImage({
     const [tryIdx, setTryIdx] = useState(0);
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- reset on prop change
         setTryIdx(0);
     }, [src]);
 

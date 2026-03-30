@@ -19,7 +19,7 @@ function createCacheLayer() {
   console.log('⚡ Phase 4-1: パフォーマンス最適化');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib';
+  const libDir = '/Users/haradataishi/Aneurasync/lib';
 
   const cacheCode = `/**
  * キャッシュレイヤー
@@ -222,7 +222,7 @@ function createABTestFramework() {
   console.log('🧪 Phase 4-2: A/Bテスト基盤');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib';
+  const libDir = '/Users/haradataishi/Aneurasync/lib';
 
   const abTestCode = `/**
  * A/Bテスト基盤
@@ -426,7 +426,7 @@ CREATE INDEX IF NOT EXISTS idx_experiment_assignments_user
   ON experiment_assignments(user_id);
 `;
 
-  const migrationDir = '/Users/haradataishi/Culcept/supabase/migrations';
+  const migrationDir = '/Users/haradataishi/Aneurasync/supabase/migrations';
   if (!fs.existsSync(migrationDir)) {
     fs.mkdirSync(migrationDir, { recursive: true });
   }
@@ -447,7 +447,7 @@ function createMonitoring() {
   console.log('📡 Phase 4-3: モニタリング & アラート');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib';
+  const libDir = '/Users/haradataishi/Aneurasync/lib';
 
   const monitoringCode = `/**
  * モニタリング & アラート
@@ -490,7 +490,7 @@ export async function sendSlackAlert(message: string, channel?: string): Promise
       body: JSON.stringify({
         channel: channel || '#alerts',
         text: message,
-        username: 'Culcept Monitor',
+        username: 'Aneurasync Monitor',
         icon_emoji: ':warning:',
       }),
     });
@@ -604,7 +604,7 @@ export default {
   console.log(`✅ 作成: ${libDir}/monitoring.ts`);
 
   // APIエンドポイント作成
-  const apiDir = '/Users/haradataishi/Culcept/app/api/health';
+  const apiDir = '/Users/haradataishi/Aneurasync/app/api/health';
   if (!fs.existsSync(apiDir)) {
     fs.mkdirSync(apiDir, { recursive: true });
   }
@@ -644,17 +644,17 @@ function createDocumentation() {
   console.log('📚 Phase 4-4: ドキュメント整備');
   console.log('='.repeat(60));
 
-  const docsDir = '/Users/haradataishi/Culcept/docs';
+  const docsDir = '/Users/haradataishi/Aneurasync/docs';
   if (!fs.existsSync(docsDir)) {
     fs.mkdirSync(docsDir, { recursive: true });
   }
 
   // 推薦システムドキュメント
-  const recSystemDoc = `# Culcept 推薦システム
+  const recSystemDoc = `# Aneurasync 推薦システム
 
 ## 概要
 
-Culceptの推薦システムは、複数のアルゴリズムを組み合わせたハイブリッド推薦を提供します。
+Aneurasyncの推薦システムは、複数のアルゴリズムを組み合わせたハイブリッド推薦を提供します。
 
 ## アーキテクチャ
 
@@ -844,7 +844,7 @@ open http://localhost:3000/admin/metrics
   console.log(`✅ 作成: ${docsDir}/recommendation-system.md`);
 
   // API仕様書
-  const apiDoc = `# Culcept API仕様書
+  const apiDoc = `# Aneurasync API仕様書
 
 ## Base URL
 

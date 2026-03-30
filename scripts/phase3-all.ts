@@ -18,7 +18,7 @@ function createCollaborativeFiltering() {
   console.log('🤝 Phase 3-1: 協調フィルタリング実装');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib/recommendations';
+  const libDir = '/Users/haradataishi/Aneurasync/lib/recommendations';
   if (!fs.existsSync(libDir)) {
     fs.mkdirSync(libDir, { recursive: true });
   }
@@ -190,7 +190,7 @@ function createContentBasedRecommendation() {
   console.log('📝 Phase 3-2: コンテンツベース推薦');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib/recommendations';
+  const libDir = '/Users/haradataishi/Aneurasync/lib/recommendations';
 
   const code = `/**
  * コンテンツベース推薦エンジン
@@ -368,7 +368,7 @@ function createHybridRecommendation() {
   console.log('🔀 Phase 3-3: ハイブリッド推薦');
   console.log('='.repeat(60));
 
-  const libDir = '/Users/haradataishi/Culcept/lib/recommendations';
+  const libDir = '/Users/haradataishi/Aneurasync/lib/recommendations';
 
   const code = `/**
  * ハイブリッド推薦エンジン

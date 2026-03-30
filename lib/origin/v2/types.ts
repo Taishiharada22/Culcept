@@ -209,8 +209,8 @@ export const V2_DEPTH_META: Record<
     minAnchors: 1,
   },
   outline: {
-    label: "輪郭",
-    description: "あなたの輪郭が見え始めています",
+    label: "プロフィール",
+    description: "あなたのプロフィールが見え始めています",
     minAnchors: 3,
   },
   story: {

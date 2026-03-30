@@ -27,6 +27,19 @@ export interface GeneratedOutfit {
     style_notes: string;
 }
 
+// スタイルコンテキスト（骨格・パーソナルカラー・顔型・髪型）
+export interface StyleContext {
+    jp3type: string | null;
+    jp7type: string | null;
+    pcSeason: string | null;
+    styleRules: {
+        recommended: { materials?: string[]; silhouettes?: string[]; patterns?: string[]; colors?: string[]; necklines?: string[] };
+        avoid: { materials?: string[]; silhouettes?: string[]; patterns?: string[]; colors?: string[]; necklines?: string[] };
+    } | null;
+    faceType: string | null;
+    hairLength: string | null;
+}
+
 // 天気に基づく必須カテゴリを決定
 export function getRequiredCategories(weather: WeatherInput): string[] {
     const categories: string[] = ["tops", "bottoms"];
@@ -117,7 +130,8 @@ export function estimateDefaultTemp(date: Date): number {
 export function generateStyleNotes(
     weather: WeatherInput,
     event: CalendarEvent | null,
-    items: OutfitItem[]
+    items: OutfitItem[],
+    styleContext: StyleContext | null = null
 ): string {
     const notes: string[] = [];
 
@@ -142,12 +156,117 @@ export function generateStyleNotes(
         }
     }
 
+    // スタイルコンテキストに基づくノート
+    if (styleContext) {
+        if (styleContext.jp3type) {
+            const jp3Labels: Record<string, string> = {
+                straight: "ストレートタイプ",
+                wave: "ウェーブタイプ",
+                natural: "ナチュラルタイプ",
+            };
+            const label = jp3Labels[styleContext.jp3type] ?? styleContext.jp3type;
+            notes.push(`${label}に似合うシルエットを重視`);
+        }
+        if (styleContext.pcSeason) {
+            const pcLabels: Record<string, string> = {
+                spring: "スプリング",
+                summer: "サマー",
+                autumn: "オータム",
+                winter: "ウィンター",
+            };
+            const label = pcLabels[styleContext.pcSeason.toLowerCase()] ?? styleContext.pcSeason;
+            notes.push(`パーソナルカラー${label}に映える配色`);
+        }
+    }
+
     // アイテム数コメント
     if (items.length >= 3) {
         notes.push(`${items.length}アイテムでバランスの取れたコーデ`);
     }
 
     return notes.join("。") + "。";
+}
+
+// パーソナルカラーシーズン別の色タグ
+const PC_SEASON_COLOR_TAGS: Record<string, string[]> = {
+    spring: ["warm", "bright", "clear", "coral", "peach", "ivory", "camel", "yellow", "orange", "light-green"],
+    summer: ["cool", "soft", "muted", "lavender", "rose", "powder-blue", "mint", "mauve", "gray-blue", "pastel"],
+    autumn: ["warm", "deep", "rich", "terracotta", "olive", "burgundy", "rust", "mustard", "khaki", "brown"],
+    winter: ["cool", "vivid", "high-contrast", "black", "white", "navy", "red", "royal-blue", "emerald", "silver"],
+};
+
+// 髪の長さとネックラインの相性
+const HAIR_NECKLINE_AFFINITY: Record<string, string[]> = {
+    short: ["crew-neck", "boat-neck", "turtle-neck", "high-neck"],
+    bob: ["v-neck", "off-shoulder", "square-neck", "boat-neck"],
+    medium: ["v-neck", "round-neck", "scoop-neck"],
+    long: ["v-neck", "deep-v", "scoop-neck", "off-shoulder"],
+    "very-long": ["v-neck", "deep-v", "halter"],
+};
+
+// スタイルコンテキストに基づくスコア調整
+function applyStyleContextScore(tags: string[], ctx: StyleContext): number {
+    let bonus = 0;
+
+    // styleRules: recommended +20 / avoid -25
+    if (ctx.styleRules) {
+        const recBuckets = ctx.styleRules.recommended;
+        const avoidBuckets = ctx.styleRules.avoid;
+        const recAll = [
+            ...(recBuckets.materials ?? []),
+            ...(recBuckets.silhouettes ?? []),
+            ...(recBuckets.patterns ?? []),
+            ...(recBuckets.colors ?? []),
+            ...(recBuckets.necklines ?? []),
+        ];
+        const avoidAll = [
+            ...(avoidBuckets.materials ?? []),
+            ...(avoidBuckets.silhouettes ?? []),
+            ...(avoidBuckets.patterns ?? []),
+            ...(avoidBuckets.colors ?? []),
+            ...(avoidBuckets.necklines ?? []),
+        ];
+        for (const tag of tags) {
+            const tagLower = tag.toLowerCase();
+            if (recAll.some(r => tagLower.includes(r.toLowerCase()))) bonus += 20;
+            if (avoidAll.some(a => tagLower.includes(a.toLowerCase()))) bonus -= 25;
+        }
+    }
+
+    // パーソナルカラーシーズン +15
+    if (ctx.pcSeason) {
+        const seasonColors = PC_SEASON_COLOR_TAGS[ctx.pcSeason.toLowerCase()] ?? [];
+        for (const tag of tags) {
+            const tagLower = tag.toLowerCase();
+            if (seasonColors.some(c => tagLower.includes(c))) {
+                bonus += 15;
+                break; // 1アイテムにつき1回だけ
+            }
+        }
+    }
+
+    // 顔型に合うネックライン +10
+    if (ctx.faceType && ctx.styleRules?.recommended?.necklines) {
+        for (const tag of tags) {
+            if (ctx.styleRules.recommended.necklines.some(n => tag.toLowerCase().includes(n.toLowerCase()))) {
+                bonus += 10;
+                break;
+            }
+        }
+    }
+
+    // 髪の長さとネックラインの相性 +5
+    if (ctx.hairLength) {
+        const affinityNecklines = HAIR_NECKLINE_AFFINITY[ctx.hairLength.toLowerCase()] ?? [];
+        for (const tag of tags) {
+            if (affinityNecklines.some(n => tag.toLowerCase().includes(n))) {
+                bonus += 5;
+                break;
+            }
+        }
+    }
+
+    return bonus;
 }
 
 // コーディネート生成のメイン関数
@@ -157,7 +276,8 @@ export async function generateDailyOutfit(
     date: Date,
     weather: WeatherInput,
     event: CalendarEvent | null,
-    recentOutfitCardIds: string[] = []
+    recentOutfitCardIds: string[] = [],
+    styleContext: StyleContext | null = null
 ): Promise<GeneratedOutfit> {
     // 1. ユーザーの好みを取得
     const { data: userPrefs } = await supabase
@@ -226,6 +346,11 @@ export async function generateDailyOutfit(
                 if (seasonTags[season]?.includes(tag)) score += 5;
             }
 
+            // スタイルコンテキスト（骨格診断・PC・顔型・髪型）
+            if (styleContext) {
+                score += applyStyleContextScore(tags, styleContext);
+            }
+
             // ランダム性を少し追加
             score += Math.random() * 10;
 
@@ -275,7 +400,7 @@ export async function generateDailyOutfit(
     }
 
     // 6. スタイルノート生成
-    const styleNotes = generateStyleNotes(weather, event, selectedItems);
+    const styleNotes = generateStyleNotes(weather, event, selectedItems, styleContext);
 
     return {
         items: selectedItems,
@@ -304,4 +429,53 @@ function generateItemReason(
         return "デートにぴったり";
     }
     return "コーデのバランスを考えて";
+}
+
+// Supabase からスタイルコンテキストを読み込むヘルパー
+export async function loadStyleContextForUser(
+    supabase: SupabaseClient,
+    userId: string
+): Promise<StyleContext | null> {
+    const [styleVectorRes, styleSummaryRes, faceTypeRes, hairPhenotypeRes] = await Promise.all([
+        supabase.from("user_style_vector").select("jp_3type, jp_7type, pc_season").eq("user_id", userId).maybeSingle(),
+        supabase.from("user_style_summary").select("quiz_result").eq("user_id", userId).maybeSingle(),
+        supabase.from("face_type_classifications").select("primary_type").eq("user_id", userId).maybeSingle(),
+        supabase.from("hair_phenotype").select("length").eq("user_id", userId).maybeSingle(),
+    ]);
+
+    const sv = styleVectorRes.data;
+    if (!sv) return null;
+
+    const quizResult = styleSummaryRes.data?.quiz_result as Record<string, unknown> | null;
+    const diagnosis = quizResult?.myStyleDiagnosis as Record<string, unknown> | null;
+    const rawRules = diagnosis?.style_rules as {
+        recommended?: Record<string, string[]>;
+        avoid?: Record<string, string[]>;
+    } | null;
+
+    const styleRules = rawRules ? {
+        recommended: {
+            materials: rawRules.recommended?.materials,
+            silhouettes: rawRules.recommended?.silhouettes,
+            patterns: rawRules.recommended?.patterns,
+            colors: rawRules.recommended?.colors,
+            necklines: rawRules.recommended?.necklines,
+        },
+        avoid: {
+            materials: rawRules.avoid?.materials,
+            silhouettes: rawRules.avoid?.silhouettes,
+            patterns: rawRules.avoid?.patterns,
+            colors: rawRules.avoid?.colors,
+            necklines: rawRules.avoid?.necklines,
+        },
+    } : null;
+
+    return {
+        jp3type: sv.jp_3type ?? null,
+        jp7type: sv.jp_7type ?? null,
+        pcSeason: sv.pc_season ?? null,
+        styleRules,
+        faceType: faceTypeRes.data?.primary_type ?? null,
+        hairLength: hairPhenotypeRes.data?.length ?? null,
+    };
 }

@@ -38,6 +38,9 @@ export type BodyMeasurements = {
     calf?: number;
     armhole_depth?: number;
     torso_depth?: number;
+    foot_length_cm?: number;
+    foot_girth_cm?: number;
+    foot_width_cm?: number;
 };
 
 export type UserBodyProfile = {
@@ -69,12 +72,14 @@ export type GarmentFitPattern = {
     rise_cm?: number;
     inseam_cm?: number;
     thigh_cm?: number;
+    [key: string]: string | number | undefined;
 };
 
 export type GarmentFabricProfile = {
     stretch?: FabricScale;
     rigidity?: FabricScale;
     drape?: FabricScale;
+    [key: string]: string | number | undefined;
 };
 
 export type GarmentFitProfile = {

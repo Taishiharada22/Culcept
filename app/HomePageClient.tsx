@@ -12,19 +12,12 @@ import {
     FadeInView,
     FloatingNavLight,
 } from "@/components/ui/glassmorphism-design";
+import { MAIN_NAV } from "@/lib/navigation";
 
 interface Props {
     isLoggedIn: boolean;
     userName: string | null;
 }
-
-const NAV_ITEMS = [
-    { href: "/", label: "ホーム", icon: "🏠" },
-    { href: "/products", label: "商品", icon: "👕" },
-    { href: "/sns/profile", label: "Presence", icon: "🪞" },
-    { href: "/calendar", label: "カレンダー", icon: "📅" },
-    { href: "/my", label: "マイページ", icon: "👤" },
-];
 
 export default function HomePageClient({ isLoggedIn, userName }: Props) {
     const [searchQuery, setSearchQuery] = useState("");
@@ -56,11 +49,11 @@ export default function HomePageClient({ isLoggedIn, userName }: Props) {
                     <motion.div
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ duration: 1, ease: [0.22, 1, 0.36, 1] }}
                     >
                         <h1 className="text-6xl sm:text-8xl lg:text-9xl font-bold tracking-tighter">
                             <span className="bg-gradient-to-r from-gray-800 via-gray-700 to-gray-400 bg-clip-text text-transparent">
-                                Culcept
+                                Aneurasync
                             </span>
                         </h1>
                     </motion.div>
@@ -68,7 +61,7 @@ export default function HomePageClient({ isLoggedIn, userName }: Props) {
                     <motion.p
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ duration: 1, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
                         className="mt-6 text-xl sm:text-2xl text-gray-400 font-light"
                     >
                         古着との出会いを、再定義する
@@ -78,7 +71,7 @@ export default function HomePageClient({ isLoggedIn, userName }: Props) {
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ duration: 1, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
                         className="mt-12 max-w-2xl mx-auto"
                     >
                         <GlassInput
@@ -107,13 +100,6 @@ export default function HomePageClient({ isLoggedIn, userName }: Props) {
                             >
                                 <span className="text-lg">📷</span>
                                 <span>画像で検索</span>
-                            </Link>
-                            <Link
-                                href="/ai-hub"
-                                className="group inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-violet-500/10 to-cyan-500/10 backdrop-blur-sm border border-violet-300/50 text-sm text-violet-600 hover:from-violet-500/20 hover:to-cyan-500/20 hover:text-violet-700 transition-all duration-300"
-                            >
-                                <span className="text-lg">✨</span>
-                                <span>AIスタイリスト</span>
                             </Link>
                         </motion.div>
                     </motion.div>
@@ -356,7 +342,7 @@ export default function HomePageClient({ isLoggedIn, userName }: Props) {
                         transition={{ delay: 1, type: "spring", stiffness: 100 }}
                         className="pointer-events-auto"
                     >
-                        <FloatingNavLight items={NAV_ITEMS} activeHref="/" />
+                        <FloatingNavLight items={MAIN_NAV} activeHref="/" />
                     </motion.div>
                 </div>
             </footer>

@@ -769,6 +769,14 @@ export const PRODUCT_TAXONOMY: ProductCategory[] = [
                 tips: ["品", "きちんと", "大人"],
             },
             {
+                id: "subcategory.shoes.heal",
+                label: "ヒール",
+                img: "/samples/subcategory/shoes/heal.png",
+                descShort: "足元に高さとシャープさを足す",
+                desc: "パンプスやヒールサンダルのように、足元から姿勢と印象を引き上げる靴。ヒール高と甲まわりのフィット感で見え方が変わるため、サイズ選びは実寸確認が重要。",
+                tips: ["高さ", "シャープ", "上品"],
+            },
+            {
                 id: "subcategory.shoes.sandals",
                 label: "サンダル",
                 img: "/samples/subcategory/shoes/sandals.png",
