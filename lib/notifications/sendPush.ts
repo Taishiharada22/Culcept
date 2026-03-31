@@ -85,6 +85,7 @@ export async function sendPushToUser(
         image: payload.image,
         actions: payload.actions,
       }),
+      { timeout: 30_000 },
     );
 
     return { sent: true };

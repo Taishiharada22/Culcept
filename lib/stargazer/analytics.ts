@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { V4Feature } from "@/lib/stargazer/depthPhaseController";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -146,7 +147,6 @@ export async function getRetentionMetrics(
   days: number = 30,
 ): Promise<RetentionMetrics> {
   try {
-    const supabase = await supabaseServer();
     const now = new Date();
     const endStr = now.toISOString();
 
@@ -159,9 +159,8 @@ export async function getRetentionMetrics(
       now.getTime() - days * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    // We query all events in the `days` range and count unique users per window.
-    // This is an admin-only call so uses service role implicitly.
-    const { data, error } = await supabase
+    // 全ユーザー集計のためservice_roleでRLSバイパス
+    const { data, error } = await supabaseAdmin
       .from("stargazer_analytics")
       .select("user_id, created_at")
       .gte("created_at", monthAgo)
@@ -208,12 +207,12 @@ export async function getFeaturePopularity(
   days: number = 30,
 ): Promise<FeaturePopularity[]> {
   try {
-    const supabase = await supabaseServer();
     const since = new Date(
       Date.now() - days * 24 * 60 * 60 * 1000,
     ).toISOString();
 
-    const { data, error } = await supabase
+    // 全ユーザー集計のためservice_roleでRLSバイパス
+    const { data, error } = await supabaseAdmin
       .from("stargazer_analytics")
       .select("feature, user_id")
       .gte("created_at", since)

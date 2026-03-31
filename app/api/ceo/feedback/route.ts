@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCeoEmail } from "@/lib/auth/isCeo";
 
 export const runtime = "nodejs";
@@ -18,11 +19,15 @@ export const runtime = "nodejs";
  */
 export async function GET(request: NextRequest) {
   try {
+    // 認証: セッションからCEO判定
     const supabase = await supabaseServer();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !isCeoEmail(user.email ?? "")) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+
+    // データ取得: service_role でRLSバイパス（全ユーザーのデータを集計するため）
+    const db = supabaseAdmin;
 
     const url = new URL(request.url);
     const rangeDays = parseInt(url.searchParams.get("range") ?? "7", 10);
@@ -31,8 +36,8 @@ export async function GET(request: NextRequest) {
     since.setDate(since.getDate() - range);
     const sinceISO = since.toISOString();
 
-    // 1. フィードバック全件取得（期間内）
-    const { data: feedbacks, error: fbErr } = await supabase
+    // 1. フィードバック全件取得（期間内）— service_role でRLSバイパス
+    const { data: feedbacks, error: fbErr } = await db
       .from("stargazer_alter_feedback")
       .select("id, user_id, session_id, response_id, rating, free_text, target_feature, response_metadata, created_at")
       .gte("created_at", sinceISO)
@@ -50,7 +55,7 @@ export async function GET(request: NextRequest) {
     const totalFeedback = items.length;
 
     // 2. 同期間のAlter応答数（feedback率の分母）
-    const { count: totalResponses } = await supabase
+    const { count: totalResponses } = await db
       .from("stargazer_analytics")
       .select("id", { count: "exact", head: true })
       .eq("event", "home_alter_judgment")
@@ -94,7 +99,7 @@ export async function GET(request: NextRequest) {
 
     // 6. Gemini協調の昇格判断データ
     // Phase 0 成功率 + レイテンシ
-    const { data: readingEvents } = await supabase
+    const { data: readingEvents } = await db
       .from("stargazer_analytics")
       .select("metadata")
       .eq("event", "home_alter_judgment")
@@ -120,7 +125,7 @@ export async function GET(request: NextRequest) {
     const p95 = latencies.length > 0 ? latencies[Math.floor(latencies.length * 0.95)] : null;
 
     // Disagreement 一致率
-    const { data: disagreementEvents } = await supabase
+    const { data: disagreementEvents } = await db
       .from("stargazer_analytics")
       .select("metadata")
       .eq("event", "utterance_reading_disagreement")
@@ -156,11 +161,14 @@ export async function GET(request: NextRequest) {
       reading_sample_size: { value: readingTotal, threshold: 100, pass: readingTotal >= 100 },
     };
     const allPass = Object.values(promotionChecks).every(c => c.pass);
-    const hasStopSignal =
+    // サンプル不足時（n<10）は stop signal を発動しない（統計的に無意味）
+    const hasMinSample = totalFeedback >= 10 || readingTotal >= 10;
+    const hasStopSignal = hasMinSample && (
       (readingSuccessRate !== null && readingSuccessRate < 0.80) ||
       (p95 !== null && p95 > 5000) ||
       (negativeRate !== null && negativeRate > 0.30) ||
-      creepyCount >= 5;
+      creepyCount >= 5
+    );
 
     return NextResponse.json({
       range_days: range,

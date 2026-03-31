@@ -1,6 +1,7 @@
 // app/api/ceo/dashboard/route.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCeoEmail } from "@/lib/auth/isCeo";
 import { getRetentionMetrics, getFeaturePopularity } from "@/lib/stargazer/analytics";
 import {
@@ -38,6 +39,9 @@ export async function GET(req: NextRequest) {
   if (!auth?.user || !isCeoEmail(auth.user.email)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
   }
+
+  // データ取得: service_role でRLSバイパス（全ユーザーの集計データを取得するため）
+  const db = supabaseAdmin;
 
   const range = req.nextUrl.searchParams.get("range") === "30" ? 30 : 7;
   const skillRangeParam = req.nextUrl.searchParams.get("skillRange");
@@ -80,19 +84,19 @@ export async function GET(req: NextRequest) {
     fetch(new URL("/api/health", process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"), {
       cache: "no-store",
     }).then((r) => r.json()),
-    supabase.from("profiles").select("id", { count: "exact", head: true }),
-    supabase.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", todayStartISO()),
-    supabase.from("stargazer_answers").select("id", { count: "exact", head: true }),
-    supabase.from("rendezvous_profiles").select("id", { count: "exact", head: true }),
+    db.from("profiles").select("id", { count: "exact", head: true }),
+    db.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", todayStartISO()),
+    db.from("stargazer_observations").select("id", { count: "exact", head: true }),
+    db.from("rendezvous_profiles").select("id", { count: "exact", head: true }),
     getRetentionMetrics(30),
     getFeaturePopularity(range),
-    supabase.from("profiles").select("created_at").gte("created_at", sinceISO).order("created_at"),
-    supabase.from("stargazer_answers").select("created_at").gte("created_at", sinceISO).order("created_at"),
-    supabase.from("stargazer_analytics").select("user_id, created_at").gte("created_at", sinceISO).order("created_at"),
-    supabase.from("rendezvous_profiles").select("created_at").gte("created_at", sinceISO).order("created_at"),
-    supabase.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
-    supabase.from("stargazer_answers").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
-    supabase.from("rendezvous_profiles").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
+    db.from("profiles").select("created_at").gte("created_at", sinceISO).order("created_at"),
+    db.from("stargazer_observations").select("created_at").gte("created_at", sinceISO).order("created_at"),
+    db.from("stargazer_analytics").select("user_id, created_at").gte("created_at", sinceISO).order("created_at"),
+    db.from("rendezvous_profiles").select("created_at").gte("created_at", sinceISO).order("created_at"),
+    db.from("profiles").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
+    db.from("stargazer_observations").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
+    db.from("rendezvous_profiles").select("id", { count: "exact", head: true }).gte("created_at", prevSinceISO).lt("created_at", sinceISO),
     getRecentSkillRuns(30),
     getSkillSummary({ sinceISO: skillSinceISO }),
     getSkillSummary({ sinceISO: skillPrevSinceISO, untilISO: skillPrevUntilISO }),
@@ -176,9 +180,30 @@ export async function GET(req: NextRequest) {
   // Running skill detection (started > 10min ago, no finish)
   const runningRuns = recentRuns.filter((r) => r.status === "running");
   const staleThresholdMs = 10 * 60 * 1000;
+  const autoCloseThresholdMs = 30 * 60 * 1000;
   const staleRuns = runningRuns.filter(
     (r) => now.getTime() - new Date(r.executed_at).getTime() > staleThresholdMs,
   );
+
+  // 30分以上 running のジョブは自動クローズ（プロセスが死んで finish されなかった）
+  const zombieRuns = runningRuns.filter(
+    (r) => now.getTime() - new Date(r.executed_at).getTime() > autoCloseThresholdMs,
+  );
+  if (zombieRuns.length > 0) {
+    await Promise.allSettled(
+      zombieRuns.map((r) =>
+        db
+          .from("ceo_skill_runs")
+          .update({
+            status: "error",
+            summary: `自動クローズ: ${Math.round((now.getTime() - new Date(r.executed_at).getTime()) / 60000)}分間応答なし`,
+            finished_at: now.toISOString(),
+          })
+          .eq("id", r.id)
+          .eq("status", "running"),
+      ),
+    );
+  }
 
   // ── Engagement metrics ──
   const totalUsers = cnt(totalProfilesRes);
@@ -193,16 +218,27 @@ export async function GET(req: NextRequest) {
   if (!health.ok) {
     alerts.push({ level: "error", source: "system", message: "システムヘルスチェック異常" });
   }
+  // アラートは「最新 run が失敗しているスキル」のみ表示
+  // 過去に失敗があっても直近が成功していればアラート不要
   if (skillData.failureCount > 0) {
     for (const name of skillData.failedSkills) {
       const lastRun = lastRunBySkill[name];
-      alerts.push({
-        level: "error",
-        source: "skill",
-        message: `${name} 失敗`,
-        detail: lastRun?.summary ?? undefined,
-      });
+      if (lastRun?.status === "error") {
+        alerts.push({
+          level: "error",
+          source: "skill",
+          message: `${name} 失敗`,
+          detail: lastRun?.summary ?? undefined,
+        });
+      }
     }
+  }
+  if (skillData.autoCloseCount > 0) {
+    alerts.push({
+      level: "info",
+      source: "skill",
+      message: `${skillData.autoCloseCount}件のジョブを自動回収（応答なし）`,
+    });
   }
   if (staleRuns.length > 0) {
     for (const r of staleRuns) {

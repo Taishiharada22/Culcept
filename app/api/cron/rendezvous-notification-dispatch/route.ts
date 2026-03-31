@@ -66,6 +66,7 @@ export async function POST(request: NextRequest) {
       .limit(100);
 
     if (fetchErr) {
+      await t.finish({ ok: false, summary: `fetch_error: ${fetchErr.message}` });
       return NextResponse.json(
         { ok: false, error: fetchErr.message },
         { status: 500 },
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!notifications || notifications.length === 0) {
+      await t.finish({ ok: true, summary: "dispatched=0" });
       return NextResponse.json({ ok: true, dispatched: 0 });
     }
 

@@ -33,6 +33,7 @@ export async function trackCronRun(
 ): Promise<CronTracker> {
   const start = performance.now();
   let runId: string | null = null;
+  let finished = false;
 
   try {
     const supabase = await supabaseServer();
@@ -52,7 +53,8 @@ export async function trackCronRun(
 
   return {
     finish: async (result) => {
-      if (!runId) return;
+      if (!runId || finished) return;
+      finished = true;
       const durationMs = Math.round(performance.now() - start);
       try {
         const supabase = await supabaseServer();
@@ -65,9 +67,23 @@ export async function trackCronRun(
             finished_at: new Date().toISOString(),
           })
           .eq("id", runId);
-      } catch {
-        // best-effort
+      } catch (e) {
+        console.warn(`[skillTelemetry] finish() failed for ${skillName}:`, e);
       }
     },
   };
+}
+
+/**
+ * Promise に上限時間をつけるヘルパー。
+ * タイムアウトした場合は reject される。
+ */
+export function withTimeout<T>(promise: Promise<T>, ms: number, label = "operation"): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Timeout: ${label} exceeded ${ms}ms`)), ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
 }

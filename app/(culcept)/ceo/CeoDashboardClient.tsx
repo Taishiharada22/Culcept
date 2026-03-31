@@ -687,14 +687,25 @@ export default function CeoDashboardClient() {
                 "border-amber-200 bg-amber-50/60"
               }>
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold">Gemini協調 Phase {feedbackData.promotion.current_phase}</h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-xs font-bold">Gemini協調 Phase {feedbackData.promotion.current_phase}</h3>
+                    {(feedbackData.promotion.checks?.sample_size?.value ?? 0) < 50 && (
+                      <span className="rounded-full bg-gray-200 px-1.5 py-0.5 text-[8px] font-semibold text-gray-500">
+                        参考値（n={feedbackData.promotion.checks?.sample_size?.value ?? 0}）
+                      </span>
+                    )}
+                  </div>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                    feedbackData.promotion.recommendation === "stop" ? "bg-red-500 text-white" :
-                    feedbackData.promotion.recommendation === "promote" ? "bg-emerald-500 text-white" :
-                    "bg-amber-500 text-white"
+                    (feedbackData.promotion.checks?.sample_size?.value ?? 0) < 10
+                      ? "bg-gray-400 text-white"
+                      : feedbackData.promotion.recommendation === "stop" ? "bg-red-500 text-white"
+                      : feedbackData.promotion.recommendation === "promote" ? "bg-emerald-500 text-white"
+                      : "bg-amber-500 text-white"
                   }`}>
-                    {feedbackData.promotion.recommendation === "stop" ? "停止推奨" :
-                     feedbackData.promotion.recommendation === "promote" ? "昇格可能" : "保留"}
+                    {(feedbackData.promotion.checks?.sample_size?.value ?? 0) < 10
+                      ? "データ不足"
+                      : feedbackData.promotion.recommendation === "stop" ? "停止推奨"
+                      : feedbackData.promotion.recommendation === "promote" ? "昇格可能" : "保留"}
                   </span>
                 </div>
                 <div className="space-y-1">
@@ -844,7 +855,7 @@ function SkillMonitorCards({
         ) : (
           <>
             <p className="mt-0.5 text-xl font-bold tabular-nums text-gray-900">
-              {totalCount > 0 ? `${successCount} / ${totalCount} 成功` : "実行なし"}
+              {totalCount > 0 ? `${successCount} / ${totalCount - (data?.skills.runningCount ?? 0)} 成功` : "実行なし"}
             </p>
             <div className="mt-0.5 flex items-center gap-2">
               {totalCount > 0 && (
@@ -882,6 +893,11 @@ function SkillMonitorCards({
                   <p key={name} className="truncate text-[10px] font-medium text-red-500">{name}</p>
                 ))}
               </div>
+            )}
+            {(s?.autoCloseCount ?? 0) > 0 && (
+              <p className="mt-1 text-[10px] font-medium text-gray-400">
+                +{s?.autoCloseCount}件 自動回収済み
+              </p>
             )}
           </>
         )}

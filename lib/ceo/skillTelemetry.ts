@@ -121,6 +121,7 @@ export interface SkillSummaryResult {
   successRate: number;
   avgDurationMs: number;
   failureCount: number;
+  autoCloseCount: number;
   failedSkills: string[];
   bySkill: { skill_name: string; count: number; successCount: number; avgMs: number }[];
 }
@@ -130,6 +131,7 @@ const EMPTY_SUMMARY: SkillSummaryResult = {
   successCount: 0,
   successRate: 0,
   avgDurationMs: 0,
+  autoCloseCount: 0,
   failureCount: 0,
   failedSkills: [],
   bySkill: [],
@@ -165,15 +167,22 @@ export async function getSkillSummary(opts?: {
 
     if (error || !data) return { ...EMPTY_SUMMARY };
 
+    // 自動クローズ（ゾンビ回収）は実失敗と区別する
+    const isAutoClose = (r: { summary: string | null }) =>
+      r.summary?.startsWith("自動クローズ") ?? false;
+
     const total = data.length;
     const successes = data.filter((r) => r.status === "success").length;
-    const failures = data.filter((r) => r.status === "error").length;
+    const realFailures = data.filter((r) => r.status === "error" && !isAutoClose(r));
+    const autoCloseCount = data.filter((r) => r.status === "error" && isAutoClose(r)).length;
+    const failures = realFailures.length;
+    const completed = successes + failures; // running・自動クローズを除外した完了済み件数
     const durations = data.filter((r) => r.duration_ms != null).map((r) => r.duration_ms as number);
     const avgMs = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
 
-    // Failed skill names (deduplicated)
+    // Failed skill names (自動クローズは除外)
     const failedSkills = Array.from(
-      new Set(data.filter((r) => r.status === "error").map((r) => r.skill_name)),
+      new Set(realFailures.map((r) => r.skill_name)),
     );
 
     // Per-skill breakdown
@@ -201,9 +210,10 @@ export async function getSkillSummary(opts?: {
     return {
       totalCount: total,
       successCount: successes,
-      successRate: total > 0 ? Math.round((successes / total) * 100) : 0,
+      successRate: completed > 0 ? Math.round((successes / completed) * 100) : 0,
       avgDurationMs: avgMs,
       failureCount: failures,
+      autoCloseCount,
       failedSkills,
       bySkill,
     };

@@ -2247,10 +2247,15 @@ async function prepareTeacherArtifactWindow(args: {
     taskTypes: [...STARGAZER_STUDENT_TASK_TYPES],
   });
 
+  // 最大2回まで展開（72h→144h→288hで十分）
+  let expansions = 0;
+  const maxExpansions = 2;
   while (
     exportResult.rows.length < args.targetRows &&
-    resolvedLookbackHours < maxLookbackHours
+    resolvedLookbackHours < maxLookbackHours &&
+    expansions < maxExpansions
   ) {
+    expansions++;
     resolvedLookbackHours = Math.min(maxLookbackHours, resolvedLookbackHours * 2);
     resolvedLimit = Math.min(
       maxLimit,
@@ -2264,23 +2269,9 @@ async function prepareTeacherArtifactWindow(args: {
     });
   }
 
-  let backfill: StargazerTeacherBackfillSummary | null = null;
-  if (exportResult.rows.length < args.targetRows) {
-    backfill = await backfillStargazerTeacherOutputs({
-      client: args.client,
-      lookbackHours: resolvedLookbackHours,
-      limit: Math.min(
-        Math.max(args.targetRows * 2, 48),
-        Math.trunc(envNumber("STARGAZER_TEACHER_ARTIFACT_BACKFILL_LIMIT", 240)),
-      ),
-    });
-    exportResult = await exportStargazerTeacherDataset({
-      lookbackHours: resolvedLookbackHours,
-      limit: resolvedLimit,
-      onlySuccessful: false,
-      taskTypes: [...STARGAZER_STUDENT_TASK_TYPES],
-    });
-  }
+  // backfill は student-monitor の backfillStargazerTeacherOutputs ステップで実施済み。
+  // sampleChecks では既存データの検証のみ行う（AI呼び出しを避けて軽量化）。
+  const backfill: StargazerTeacherBackfillSummary | null = null;
 
   return {
     lookbackHours: resolvedLookbackHours,
