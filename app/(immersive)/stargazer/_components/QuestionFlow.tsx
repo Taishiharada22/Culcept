@@ -39,20 +39,53 @@ const FLASH_OFFSET = 2; // セット内の3番目 (0-indexed)
 
 // ビジュアル・チョイスの挿入タイミング（問番号）
 function getVisualChoiceIndex(totalQ: number): number[] {
-  // 全体の約55%地点に1つ挿入（35問なら約Q19付近）
-  // 100問なら Q20, Q40, Q60, Q80, Q95 あたり
-  if (totalQ <= 40) return [Math.floor(totalQ * 0.55)];
-  const step = Math.floor(totalQ / 5);
-  return [step, step * 2, step * 3, step * 4, Math.floor(totalQ * 0.95)].slice(0, 5);
+  // VCの挿入ポイント — answeredCount がこの値以上になったら次のVCを出す
+  // 厳密一致ではなく「到達したら」方式なので、CFや鏡の問いと競合しても
+  // 次の通常質問回答時に遅延発火する
+  const count = Math.min(5, totalQ);
+  const step = Math.max(1, Math.floor(totalQ / (count + 1)));
+  return Array.from({ length: count }, (_, i) => step * (i + 1));
 }
 
-// ビジュアル・チョイスペアの定義（coreフェーズはvc_01のみ。vc_02〜05はrendezvousフェーズで使用）
+// ビジュアル・チョイスペアの定義（vc_01〜05をコアフェーズで使用）
 const VISUAL_CHOICE_PAIRS: VisualChoicePair[] = [
   {
     id: "vc_01",
     axes: ["cautious_vs_bold", "stress_isolation_vs_social"],
     imageA: "/stargazer/visual-choice/vc_01_a.webp",
     imageB: "/stargazer/visual-choice/vc_01_b.webp",
+    axisWeightA: -0.5,
+    axisWeightB: 0.5,
+  },
+  {
+    id: "vc_02",
+    axes: ["introvert_vs_extrovert"],
+    imageA: "/stargazer/visual-choice/vc_02_a.webp",
+    imageB: "/stargazer/visual-choice/vc_02_b.webp",
+    axisWeightA: -0.5,
+    axisWeightB: 0.5,
+  },
+  {
+    id: "vc_03",
+    axes: ["analytical_vs_intuitive"],
+    imageA: "/stargazer/visual-choice/vc_03_a.webp",
+    imageB: "/stargazer/visual-choice/vc_03_b.webp",
+    axisWeightA: -0.5,
+    axisWeightB: 0.5,
+  },
+  {
+    id: "vc_04",
+    axes: ["individual_vs_social"],
+    imageA: "/stargazer/visual-choice/vc_04_a.webp",
+    imageB: "/stargazer/visual-choice/vc_04_b.webp",
+    axisWeightA: -0.5,
+    axisWeightB: 0.5,
+  },
+  {
+    id: "vc_05",
+    axes: ["tradition_vs_novelty"],
+    imageA: "/stargazer/visual-choice/vc_05_a.webp",
+    imageB: "/stargazer/visual-choice/vc_05_b.webp",
     axisWeightA: -0.5,
     axisWeightB: 0.5,
   },
@@ -205,8 +238,13 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
         }
       }
 
-      // ビジュアル・チョイスの挿入チェック
-      if (vcInsertionPoints.includes(answeredCount) && visualChoiceIdx < VISUAL_CHOICE_PAIRS.length) {
+      // ビジュアル・チョイスの挿入チェック（到達方式: ポイントを超えたら発火）
+      // CFや鏡の問いで厳密一致タイミングを逃しても、次の回答時に遅延発火する
+      if (
+        visualChoiceIdx < VISUAL_CHOICE_PAIRS.length &&
+        vcInsertionPoints[visualChoiceIdx] !== undefined &&
+        answeredCount >= vcInsertionPoints[visualChoiceIdx]
+      ) {
         setCurrentIndex(nextIdx);
         setFlowPhase("visual_choice");
         return;

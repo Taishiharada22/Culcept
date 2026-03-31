@@ -5,9 +5,6 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import ResonanceCards from "./ResonanceCards";
 import AvatarBirth from "./AvatarBirth";
-import PhotoRegistration from "./PhotoRegistration";
-import AppearancePreferences from "./AppearancePreferences";
-import type { AppearancePreferencesData } from "./AppearancePreferences";
 import FirstMission from "./FirstMission";
 import AvatarBirthCeremony from "./AvatarBirthCeremony";
 import type { ResonanceResult } from "@/lib/rendezvous/instantResonance";
@@ -15,9 +12,11 @@ import type { RendezvousCategory } from "@/lib/rendezvous/types";
 
 type Props = { userId: string };
 
-type Step = "resonance" | "resonance_burst" | "birth" | "birth_ceremony" | "photos" | "photos_orbit" | "appearance" | "appearance_wash" | "mission";
+// 共通オンボーディング: 18+確認 → ResonanceCards → AvatarBirth → FirstMission
+// 写真・外見好みは恋愛レーン入口で別途収集
+type Step = "resonance" | "resonance_burst" | "birth" | "birth_ceremony" | "mission";
 
-const DISPLAY_STEPS: string[] = ["resonance", "birth", "photos", "appearance", "mission"];
+const DISPLAY_STEPS: string[] = ["resonance", "birth", "mission"];
 
 // =============================================================================
 // Transition overlays between steps
@@ -93,153 +92,6 @@ function ParticleBurstTransition({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-/** Photo orbit transition */
-function PhotoOrbitTransition({
-  photos,
-  onComplete,
-}: {
-  photos: Record<string, string>;
-  onComplete: () => void;
-}) {
-  const photoUrls = Object.values(photos).slice(0, 4);
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{
-        background: "linear-gradient(180deg, #F8F7FF 0%, #FFF0F5 50%, #E8FFFE 100%)",
-      }}
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onAnimationComplete={() => {
-        setTimeout(onComplete, 1500);
-      }}
-    >
-      {/* Central avatar */}
-      <motion.div
-        className="w-20 h-20 rounded-full flex items-center justify-center"
-        style={{
-          background: "rgba(139,92,246,0.1)",
-          border: "2px solid rgba(139,92,246,0.2)",
-        }}
-        animate={{ scale: [1, 1.1, 1] }}
-        transition={{ duration: 1.5, repeat: Infinity }}
-      >
-        <span className="text-3xl">&#x1F47B;</span>
-      </motion.div>
-
-      {/* Orbiting photos */}
-      {photoUrls.map((url, i) => {
-        const startAngle = (i * 90 * Math.PI) / 180;
-        return (
-          <motion.div
-            key={`orbit-photo-${i}`}
-            className="absolute w-12 h-12 rounded-full overflow-hidden"
-            style={{
-              border: "2px solid rgba(139,92,246,0.3)",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-            }}
-            initial={{
-              x: 0,
-              y: 0,
-              opacity: 0,
-              scale: 0.5,
-            }}
-            animate={{
-              x: [0, Math.cos(startAngle) * 80, Math.cos(startAngle + Math.PI) * 80, Math.cos(startAngle + Math.PI * 2) * 80],
-              y: [0, Math.sin(startAngle) * 80, Math.sin(startAngle + Math.PI) * 80, Math.sin(startAngle + Math.PI * 2) * 80],
-              opacity: [0, 1, 1, 0],
-              scale: [0.5, 1, 1, 0.5],
-            }}
-            transition={{
-              duration: 1.5,
-              delay: i * 0.1,
-              ease: "easeInOut",
-            }}
-          >
-            <img src={url} alt="" className="w-full h-full object-cover" />
-          </motion.div>
-        );
-      })}
-
-      {/* No photos fallback */}
-      {photoUrls.length === 0 && (
-        <>
-          {[0, 1, 2].map((i) => (
-            <motion.div
-              key={`orbit-dot-${i}`}
-              className="absolute w-3 h-3 rounded-full"
-              style={{
-                background: i % 2 === 0 ? "#EC4899" : "#8B5CF6",
-              }}
-              animate={{
-                x: [
-                  Math.cos((i * 120 * Math.PI) / 180) * 60,
-                  Math.cos(((i * 120 + 360) * Math.PI) / 180) * 60,
-                ],
-                y: [
-                  Math.sin((i * 120 * Math.PI) / 180) * 60,
-                  Math.sin(((i * 120 + 360) * Math.PI) / 180) * 60,
-                ],
-                opacity: [0.5, 1, 0.5],
-              }}
-              transition={{
-                duration: 1.5,
-                ease: "linear",
-              }}
-            />
-          ))}
-        </>
-      )}
-    </motion.div>
-  );
-}
-
-/** Color wash transition after appearance preferences */
-function ColorWashTransition({ onComplete }: { onComplete: () => void }) {
-  return (
-    <motion.div
-      className="fixed inset-0 z-50"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onAnimationComplete={() => {
-        setTimeout(onComplete, 1200);
-      }}
-    >
-      {/* Color washes sweeping across the screen */}
-      <motion.div
-        className="absolute inset-0"
-        style={{
-          background: "linear-gradient(135deg, #FFF0F5, #F0E6FF)",
-        }}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: [0, 1, 1, 0] }}
-        transition={{ duration: 1.2, times: [0, 0.2, 0.8, 1] }}
-      />
-      <motion.div
-        className="absolute inset-0"
-        initial={{ x: "-100%" }}
-        animate={{ x: "100%" }}
-        transition={{ duration: 0.8, ease: "easeInOut" }}
-        style={{
-          background: "linear-gradient(90deg, transparent, rgba(233,30,99,0.15), rgba(123,97,255,0.15), transparent)",
-        }}
-      />
-      <motion.div
-        className="absolute inset-0 flex items-center justify-center"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: [0, 1, 0] }}
-        transition={{ duration: 1.2, delay: 0.3 }}
-      >
-        <p className="text-sm font-bold text-violet-600">
-          あなたの美意識を記録しました
-        </p>
-      </motion.div>
-    </motion.div>
-  );
-}
 
 // =============================================================================
 // OnboardingFlow (enhanced with dramatic transitions)
@@ -249,8 +101,6 @@ export default function OnboardingFlow({ userId }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("resonance");
   const [resonanceResult, setResonanceResult] = useState<ResonanceResult | null>(null);
-  const [appearanceData, setAppearanceData] = useState<AppearancePreferencesData | null>(null);
-  const [uploadedPhotos, setUploadedPhotos] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [showBirthCeremony, setShowBirthCeremony] = useState(false);
 
@@ -263,14 +113,8 @@ export default function OnboardingFlow({ userId }: Props) {
       case "birth":
       case "birth_ceremony":
         return 1;
-      case "photos":
-      case "photos_orbit":
-        return 2;
-      case "appearance":
-      case "appearance_wash":
-        return 3;
       case "mission":
-        return 4;
+        return 2;
       default:
         return 0;
     }
@@ -289,40 +133,9 @@ export default function OnboardingFlow({ userId }: Props) {
 
   const handleBirthCeremonyComplete = useCallback(() => {
     setShowBirthCeremony(false);
-    setStep("photos");
+    // 共通オンボーディング: birth ceremony → mission に直行
+    setStep("mission");
   }, []);
-
-  const handlePhotosComplete = useCallback((photos: Record<string, string>) => {
-    setUploadedPhotos(photos);
-    // Show orbit transition
-    setStep("photos_orbit");
-  }, []);
-
-  const handlePhotosSkip = useCallback(() => {
-    setStep("appearance");
-  }, []);
-
-  const handleAppearanceComplete = useCallback(
-    (data: AppearancePreferencesData) => {
-      setAppearanceData(data);
-      // Save appearance preferences in the background
-      fetch("/api/rendezvous/appearance-preferences", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category: "romantic",
-          matchingPriority: data.matchingPriority,
-          preferredBodyTypes: data.preferredBodyTypes,
-          preferredPersonalColorSeasons: data.preferredPersonalColorSeasons,
-          preferredHairFeatures: data.preferredHairFeatures,
-          appearancePriorityOrder: data.preferredFaceTypes,
-        }),
-      }).catch(() => {});
-      // Show color wash transition
-      setStep("appearance_wash");
-    },
-    [],
-  );
 
   const handleMissionComplete = useCallback(
     async (data: {
@@ -410,17 +223,6 @@ export default function OnboardingFlow({ userId }: Props) {
             onComplete={() => setStep("birth")}
           />
         )}
-        {step === "photos_orbit" && (
-          <PhotoOrbitTransition
-            photos={uploadedPhotos}
-            onComplete={() => setStep("appearance")}
-          />
-        )}
-        {step === "appearance_wash" && (
-          <ColorWashTransition
-            onComplete={() => setStep("mission")}
-          />
-        )}
       </AnimatePresence>
 
       {/* Avatar birth ceremony */}
@@ -456,43 +258,6 @@ export default function OnboardingFlow({ userId }: Props) {
           </motion.div>
         )}
 
-        {step === "photos" && (
-          <motion.div
-            key="photos"
-            initial={{ opacity: 0, scale: 1.05 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          >
-            <PhotoRegistration
-              category={resonanceResult?.discoveredAxes?.[0]?.axis ?? "romantic"}
-              onComplete={handlePhotosComplete}
-              onSkip={handlePhotosSkip}
-            />
-          </motion.div>
-        )}
-
-        {step === "appearance" && (
-          <motion.div
-            key="appearance"
-            initial={{ opacity: 0, scale: 1.05 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-            className="px-5 pt-14 pb-8"
-          >
-            <div className="text-center mb-6">
-              <h2 className="text-xl font-extrabold text-slate-900 mb-2">
-                理想の相手の外見
-              </h2>
-              <p className="text-sm text-slate-500">
-                あなたの好みを教えてください。後から変更もできます。
-              </p>
-            </div>
-            <AppearancePreferences onComplete={handleAppearanceComplete} />
-          </motion.div>
-        )}
-
         {step === "mission" && (
           <motion.div
             key="mission"
@@ -501,21 +266,6 @@ export default function OnboardingFlow({ userId }: Props) {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
-            {/* 本人確認案内（恋愛カテゴリの場合に表示） */}
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 0.4 }}
-              className="mx-5 mt-14 mb-2 p-3 rounded-xl"
-              style={{
-                background: "rgba(139, 92, 246, 0.08)",
-                border: "1px solid rgba(139, 92, 246, 0.15)",
-              }}
-            >
-              <p className="text-xs text-violet-700 leading-relaxed">
-                恋愛カテゴリをご利用の場合、本人確認が必要です。写真と身分証の提出後、確認が完了次第ランデブーが解放されます。
-              </p>
-            </motion.div>
             <FirstMission onComplete={handleMissionComplete} saving={saving} />
           </motion.div>
         )}

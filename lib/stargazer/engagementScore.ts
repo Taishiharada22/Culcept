@@ -2,6 +2,7 @@
 // Stargazer Daily Engagement Score — 日々のアクションを定量化する
 //
 // localStorage ベースで即座に動作。サーバー依存なし。
+import { safeSetItem } from "@/lib/stargazer/localStorageHelper";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -123,9 +124,9 @@ export function loadTodayEngagement(): DailyEngagement {
 export function saveTodayEngagement(engagement: DailyEngagement): void {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(getStorageKey(), JSON.stringify(engagement));
+    safeSetItem(getStorageKey(), JSON.stringify(engagement));
   } catch {
-    // quota exceeded — silently ignore
+    // safeSetItem handles quota cleanup internally
   }
 }
 

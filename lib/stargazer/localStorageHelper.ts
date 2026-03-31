@@ -7,8 +7,21 @@
  */
 
 const STARGAZER_PREFIX = "stargazer_";
+const SG_PREFIX = "sg_";
+const CULCEPT_SG_PREFIX = "culcept_sg_";
+const ANEURASYNC_SG_PREFIX = "aneurasync_sg_";
 const TIMESTAMP_SUFFIX = "__ts";
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Check if a key belongs to Stargazer (any prefix variant) */
+function isStargazerKey(k: string): boolean {
+  return (
+    k.startsWith(STARGAZER_PREFIX) ||
+    k.startsWith(SG_PREFIX) ||
+    k.startsWith(CULCEPT_SG_PREFIX) ||
+    k.startsWith(ANEURASYNC_SG_PREFIX)
+  );
+}
 
 /**
  * Try to set a localStorage item. On QuotaExceededError, purge old
@@ -56,7 +69,7 @@ export function purgeStaleKeys(): void {
     const k = localStorage.key(i);
     if (!k) continue;
     if (k.endsWith(TIMESTAMP_SUFFIX)) continue;
-    if (!k.startsWith(STARGAZER_PREFIX)) continue;
+    if (!isStargazerKey(k)) continue;
 
     const tsRaw = localStorage.getItem(k + TIMESTAMP_SUFFIX);
     if (!tsRaw) {
@@ -86,7 +99,7 @@ function removeOldStargazerKeys(exceptKey: string): void {
     if (!k) continue;
     if (k === exceptKey) continue;
     if (k.endsWith(TIMESTAMP_SUFFIX)) continue;
-    if (!k.startsWith(STARGAZER_PREFIX)) continue;
+    if (!isStargazerKey(k)) continue;
 
     const tsRaw = localStorage.getItem(k + TIMESTAMP_SUFFIX);
     candidates.push({ key: k, ts: tsRaw ? Number(tsRaw) : 0 });

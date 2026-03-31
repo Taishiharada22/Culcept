@@ -99,6 +99,11 @@ export async function POST(request: Request) {
       return handleStage2Probe(supabase, user.id, body);
     }
 
+    // ── 朝の一問 保存 ──
+    if (body.type === "morning_question") {
+      return handleMorningQuestion(supabase, user.id, body);
+    }
+
     // ── HOME ロボ経由の観測保存 ──
     if (body.type === "home_bridge") {
       return handleHomeBridge(supabase, user.id, body);
@@ -767,6 +772,56 @@ async function handleStage2Probe(
     message: `${themeId} の深層観測を保存しました`,
     dimensionsUpdated: Object.keys(axisDeltas),
     liveSkyChanged: true,
+  });
+}
+
+// ── 朝の一問 保存ハンドラ ──
+async function handleMorningQuestion(
+  supabase: any,
+  userId: string,
+  body: {
+    answers: {
+      variantId: string;
+      score: number;
+      responseTimeMs: number;
+      optionId: string;
+    }[];
+  }
+) {
+  const { answers } = body;
+  if (!answers?.length) {
+    return apiBadRequest("No answers provided");
+  }
+
+  const answeredAt = new Date().toISOString();
+  const rows = answers.map((a) =>
+    buildObservationRow(userId, {
+      question_id: a.variantId,
+      phase: "daily",
+      answered_at: answeredAt,
+      answer: a.optionId,
+      response_time_ms: a.responseTimeMs || 0,
+      stage: "morning_question",
+      answer_value: {
+        score: a.score,
+        optionId: a.optionId,
+      },
+    })
+  );
+
+  const { error: insertError } = await supabase
+    .from("stargazer_observations")
+    .insert(rows);
+
+  if (insertError) {
+    console.error("[Stargazer API] Failed to save morning_question:", insertError);
+    return apiError("Failed to save morning question", 500, { detail: describeDbError(insertError) });
+  }
+
+  return apiOk({
+    saved: true,
+    savedCount: rows.length,
+    message: "朝の一問を保存しました",
   });
 }
 

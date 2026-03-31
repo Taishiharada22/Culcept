@@ -70,6 +70,8 @@ export async function POST(request: NextRequest) {
     const primaryCategory = enabledCategories[0] ?? "friendship";
 
     // Upsert rendezvous profile
+    // verification_status / review_status を明示指定。
+    // DB DEFAULT が CHECK 制約と不整合の場合に備える。
     const { error: profileErr } = await supabaseAdmin
       .from("rendezvous_profiles")
       .upsert(
@@ -79,6 +81,8 @@ export async function POST(request: NextRequest) {
           is_paused: false,
           primary_category: primaryCategory,
           enabled_categories: enabledCategories,
+          verification_status: "unverified",
+          review_status: "not_submitted",
           onboarding_completed_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },

@@ -19,12 +19,12 @@ export interface FeatureIntroConfig {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Stargazer
+// 1. Stars
 // ---------------------------------------------------------------------------
 
 export const STARGAZER_INTRO: FeatureIntroConfig = {
   sectionKey: "stargazer",
-  introTitle: "Stargazer",
+  introTitle: "Stars",
   introIcon: "🔭",
   introDescription:
     "あなたの性格・判断特性を深層から観測するエンジンです。表面的な性格診断ではなく、判断原理・揺れ方・深層心理まで掴みます。",
@@ -98,7 +98,7 @@ export const ORIGIN_INTRO: FeatureIntroConfig = {
   introActions:
     "今日のタスク管理、ジャーナル記録、蓄積された傾向や法則の確認ができます。",
   introBenefit:
-    "続けるほど「自分ってこういう人間だったのか」という発見が増えていきます。Stargazerとも連動し、行動と性格の接点が見えてきます。",
+    "続けるほど「自分ってこういう人間だったのか」という発見が増えていきます。Starsとも連動し、行動と性格の接点が見えてきます。",
   tabs: [
     {
       key: "todo",
@@ -122,7 +122,7 @@ export const ORIGIN_INTRO: FeatureIntroConfig = {
       label: "プロフィール",
       title: "プロフィール — あなたの全体像",
       description:
-        "蓄積されたデータから見えてきた法則、テクスチャの変化、月次レポート、Stargazerとの接点、そして記憶の深層アーカイブ。あなたの取扱説明書がここに育ちます。",
+        "蓄積されたデータから見えてきた法則、テクスチャの変化、月次レポート、Starsとの接点、そして記憶の深層アーカイブ。あなたの取扱説明書がここに育ちます。",
     },
   ],
   startingTab: "todo",
@@ -241,7 +241,7 @@ export const MY_STYLE_INTRO: FeatureIntroConfig = {
       label: "アイデンティティ",
       title: "アイデンティティ — スタイルDNA",
       description:
-        "Stargazerのデータとスタイル履歴から導き出される、あなたのスタイルアイデンティティです。内面と外見の関係性が見えます。",
+        "Starsのデータとスタイル履歴から導き出される、あなたのスタイルアイデンティティです。内面と外見の関係性が見えます。",
     },
     {
       key: "insights",
@@ -285,7 +285,7 @@ export const BODY_COLOR_AVATAR_INTRO: FeatureIntroConfig = {
   introActions:
     "まずパーソナルカラー診断から始めましょう。写真をアップロードすると、AIが自動で顔・目・鼻・口の特徴も分析してくれます。",
   introBenefit:
-    "内面（Stargazer）と外見（Phenotype）の両面から自分を理解できます。スタイル提案やマッチングの精度も大きく向上します。",
+    "内面（Stars）と外見（Phenotype）の両面から自分を理解できます。スタイル提案やマッチングの精度も大きく向上します。",
   tabs: [
     {
       key: "color",
@@ -352,7 +352,7 @@ export const PRESENCE_INTRO: FeatureIntroConfig = {
       label: "深度",
       title: "深度 — 深層プロフィール",
       description:
-        "表面的なプロフィールの奥にある、あなたの深層的な特徴です。Stargazerやその他のデータが統合されて表示されます。",
+        "表面的なプロフィールの奥にある、あなたの深層的な特徴です。Starsやその他のデータが統合されて表示されます。",
     },
     {
       key: "change",

@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkOnboardingCompleted } from "@/lib/rendezvous/onboardingState";
 import RomanceSwipeClient from "@/components/rendezvous/RomanceSwipeClient";
 import IdentityGate from "@/components/rendezvous/IdentityGate";
+import AppearancePreferencesGate from "@/components/rendezvous/AppearancePreferencesGate";
 
 /**
  * 恋愛枠 — スワイプ式マッチング
@@ -48,7 +49,9 @@ export default async function RomancePage() {
       categories={["romantic"]}
       rejectionNote={rejectionNote}
     >
-      <RomanceSwipeClient />
+      <AppearancePreferencesGate>
+        <RomanceSwipeClient />
+      </AppearancePreferencesGate>
     </IdentityGate>
   );
 }

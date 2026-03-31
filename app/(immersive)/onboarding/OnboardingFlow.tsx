@@ -1376,50 +1376,62 @@ export default function OnboardingFlow() {
               ))}
             </motion.div>
 
-            {/* Primary CTA — 具体的メリット */}
-            <motion.button
-              className="mt-8 rounded-full px-8 py-4 text-sm font-medium tracking-wider"
-              style={{
-                background: "linear-gradient(135deg, rgba(100,120,255,0.25), rgba(160,100,255,0.2))",
-                border: "1px solid rgba(140,160,255,0.35)",
-                color: "rgba(220,225,255,0.95)",
-              }}
+            {/* Primary CTA — Stargazer誘導（強調） */}
+            <motion.div
+              className="mt-8 w-full flex flex-col items-center"
               initial={{ opacity: 0, y: 10 }}
-              animate={{
-                opacity: 1,
-                y: 0,
-                boxShadow: [
-                  "0 0 20px rgba(100,120,255,0.1)",
-                  "0 0 40px rgba(120,140,255,0.2)",
-                  "0 0 20px rgba(100,120,255,0.1)",
-                ],
-              }}
-              transition={{
-                opacity: { delay: 10.8, duration: 0.6 },
-                y: { delay: 10.8, duration: 0.6 },
-                boxShadow: { delay: 11.5, duration: 3, repeat: Infinity, ease: "easeInOut" },
-              }}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => {
-                trackInteraction("onboarding", "next_step_chosen", { choice: "primary_cta", href: "/stargazer", archetype: archetypeResult?.code ?? "unknown" });
-                finishOnboarding("/stargazer");
-              }}
-              onAnimationComplete={() => {
-                document.getElementById("insight-cta")?.scrollIntoView({ behavior: "smooth", block: "center" });
-              }}
-              id="insight-cta"
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 10.5, duration: 0.6 }}
             >
-              ✦ {(() => {
-                if (!archetypeResult) return "深層観測で、本当のあなたを解き明かす";
-                const l1 = archetypeResult.layer1.code;
-                if (l1 === "A") return "あなたの「設計図」の全体像を見る";
-                if (l1 === "N") return "あなたの「直感」がどこから来るか、突き止める";
-                return "あなたの「感覚」が何を捉えているか、言語化する";
-              })()}
-            </motion.button>
+              <motion.p
+                className="text-[11px] mb-3 text-center"
+                style={{ color: "rgba(180,190,255,0.7)" }}
+                animate={{ opacity: [0.5, 1, 0.5] }}
+                transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+              >
+                👇 ここをクリックすれば、深層観測が始まるよ
+              </motion.p>
+              <motion.button
+                className="rounded-full px-8 py-4 text-sm font-medium tracking-wider relative overflow-hidden"
+                style={{
+                  background: "linear-gradient(135deg, rgba(100,120,255,0.35), rgba(160,100,255,0.3))",
+                  border: "2px solid rgba(140,160,255,0.5)",
+                  color: "rgba(230,235,255,1)",
+                }}
+                animate={{
+                  boxShadow: [
+                    "0 0 20px rgba(100,120,255,0.15), 0 0 60px rgba(120,140,255,0.08)",
+                    "0 0 40px rgba(120,140,255,0.3), 0 0 80px rgba(140,160,255,0.15)",
+                    "0 0 20px rgba(100,120,255,0.15), 0 0 60px rgba(120,140,255,0.08)",
+                  ],
+                  scale: [1, 1.02, 1],
+                }}
+                transition={{
+                  boxShadow: { duration: 2.5, repeat: Infinity, ease: "easeInOut" },
+                  scale: { duration: 2.5, repeat: Infinity, ease: "easeInOut" },
+                }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  trackInteraction("onboarding", "next_step_chosen", { choice: "primary_cta", href: "/stargazer", archetype: archetypeResult?.code ?? "unknown" });
+                  finishOnboarding("/stargazer");
+                }}
+                onAnimationComplete={() => {
+                  document.getElementById("insight-cta")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                }}
+                id="insight-cta"
+              >
+                ✦ {(() => {
+                  if (!archetypeResult) return "深層観測で、本当のあなたを解き明かす";
+                  const l1 = archetypeResult.layer1.code;
+                  if (l1 === "A") return "あなたの「設計図」の全体像を見る";
+                  if (l1 === "N") return "あなたの「直感」がどこから来るか、突き止める";
+                  return "あなたの「感覚」が何を捉えているか、言語化する";
+                })()}
+              </motion.button>
+            </motion.div>
             <motion.p
-              className="mt-2 text-[10px] leading-relaxed"
+              className="mt-2 text-[10px] leading-relaxed text-center"
               style={{ color: "rgba(140,150,200,0.4)" }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}

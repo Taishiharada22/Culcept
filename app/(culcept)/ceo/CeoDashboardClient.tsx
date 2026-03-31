@@ -195,6 +195,8 @@ export default function CeoDashboardClient() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastFetchRef = useRef(Date.now());
+  // Alter Feedback + Gemini昇格判断
+  const [feedbackData, setFeedbackData] = useState<any>(null);
 
   // Persist collapsed state
   const toggle = (key: string) => {
@@ -223,6 +225,11 @@ export default function CeoDashboardClient() {
       setState("loaded");
       hasDataRef.current = true;
       lastFetchRef.current = Date.now();
+      // Feedback data fetch (non-blocking)
+      fetch(`/api/ceo/feedback?range=${range}`, { cache: "no-store" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setFeedbackData(d); })
+        .catch(() => {});
     } catch {
       setState("error");
     } finally {
@@ -659,6 +666,114 @@ export default function CeoDashboardClient() {
       </CollapsibleSection>
 
       {/* ════════════════════════════════════════════════════════
+          Alter フィードバック + Gemini 昇格判断
+          ════════════════════════════════════════════════════════ */}
+      <CollapsibleSection id="feedback" title="Alter フィードバック" collapsed={collapsed} toggle={toggle} defaultOpen>
+        {feedbackData ? (
+          <div className="space-y-4">
+            {/* サマリーカード */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MiniCard label="回答数" value={feedbackData.summary.total_responses} />
+              <MiniCard label="FB数" value={feedbackData.summary.total_feedback} sub={feedbackData.summary.feedback_rate != null ? `(${(feedbackData.summary.feedback_rate * 100).toFixed(1)}%)` : ""} />
+              <MiniCard label="👍率" value={feedbackData.summary.positive_rate != null ? `${(feedbackData.summary.positive_rate * 100).toFixed(0)}%` : "—"} color={feedbackData.summary.positive_rate >= 0.8 ? "text-emerald-600" : feedbackData.summary.positive_rate >= 0.6 ? "text-amber-600" : "text-red-600"} />
+              <MiniCard label="👎率" value={feedbackData.summary.negative_rate != null ? `${(feedbackData.summary.negative_rate * 100).toFixed(0)}%` : "—"} color={feedbackData.summary.negative_rate <= 0.15 ? "text-emerald-600" : feedbackData.summary.negative_rate <= 0.25 ? "text-amber-600" : "text-red-600"} />
+            </div>
+
+            {/* Gemini昇格判断パネル */}
+            {feedbackData.promotion && (
+              <Card className={
+                feedbackData.promotion.recommendation === "stop" ? "border-red-200 bg-red-50/60" :
+                feedbackData.promotion.recommendation === "promote" ? "border-emerald-200 bg-emerald-50/60" :
+                "border-amber-200 bg-amber-50/60"
+              }>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold">Gemini協調 Phase {feedbackData.promotion.current_phase}</h3>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                    feedbackData.promotion.recommendation === "stop" ? "bg-red-500 text-white" :
+                    feedbackData.promotion.recommendation === "promote" ? "bg-emerald-500 text-white" :
+                    "bg-amber-500 text-white"
+                  }`}>
+                    {feedbackData.promotion.recommendation === "stop" ? "停止推奨" :
+                     feedbackData.promotion.recommendation === "promote" ? "昇格可能" : "保留"}
+                  </span>
+                </div>
+                <div className="space-y-1">
+                  {Object.entries(feedbackData.promotion.checks).map(([key, check]: [string, any]) => (
+                    <div key={key} className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-600">{key.replace(/_/g, " ")}</span>
+                      <span className={`font-mono ${check.pass ? "text-emerald-600" : "text-red-500"}`}>
+                        {check.value != null ? (typeof check.value === "number" && check.value < 1 && check.value > 0 ? `${(check.value * 100).toFixed(1)}%` : String(check.value)) : "—"}
+                        {check.pass ? " ✓" : ` (要 ${typeof check.threshold === "number" && check.threshold < 1 && check.threshold > 0 ? `${(check.threshold * 100).toFixed(0)}%` : check.threshold})`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {feedbackData.promotion.reading_stats && (
+                  <div className="mt-2 pt-2 border-t border-black/5 text-[10px] text-gray-500">
+                    読解: {feedbackData.promotion.reading_stats.success_count}成功 / {feedbackData.promotion.reading_stats.fail_count}失敗
+                    {feedbackData.promotion.reading_stats.latency_p50 != null && ` · p50=${feedbackData.promotion.reading_stats.latency_p50}ms`}
+                    {feedbackData.promotion.reading_stats.latency_p95 != null && ` · p95=${feedbackData.promotion.reading_stats.latency_p95}ms`}
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* 機能別サマリー */}
+            {Object.keys(feedbackData.by_feature).length > 0 && (
+              <Card>
+                <h3 className="text-xs font-bold mb-2">機能別</h3>
+                <div className="space-y-1">
+                  {Object.entries(feedbackData.by_feature).map(([feature, stats]: [string, any]) => (
+                    <div key={feature} className="flex items-center justify-between text-[11px]">
+                      <span className="text-gray-600">{feature}</span>
+                      <span className="font-mono">
+                        👍{stats.positive} 👎{stats.negative} ({stats.total}件)
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* 危険シグナル */}
+            {Object.keys(feedbackData.danger_signals).length > 0 && (
+              <Card className="border-red-200 bg-red-50/40">
+                <h3 className="text-xs font-bold mb-1 text-red-700">危険シグナル</h3>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(feedbackData.danger_signals).map(([kw, count]: [string, any]) => (
+                    <span key={kw} className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                      {kw} ({count})
+                    </span>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* 自由記載一覧 */}
+            {feedbackData.recent_texts.length > 0 && (
+              <Card>
+                <h3 className="text-xs font-bold mb-2">自由記載（新着）</h3>
+                <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                  {feedbackData.recent_texts.map((t: any) => (
+                    <div key={t.id} className="rounded-lg border border-black/5 bg-white/40 px-3 py-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-gray-400">{t.rating === "positive" ? "👍" : "👎"} {t.feature}</span>
+                        <span className="text-[9px] text-gray-400">{new Date(t.created_at).toLocaleString("ja-JP", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>
+                      </div>
+                      <p className="text-[12px] text-gray-700">{t.text}</p>
+                      <p className="text-[9px] text-gray-300 mt-1">user: {t.user_id?.slice(0, 8)}… · session: {t.session_id?.slice(0, 12)}…</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <Skeleton />
+        )}
+      </CollapsibleSection>
+
+      {/* ════════════════════════════════════════════════════════
           Quick Actions
           ════════════════════════════════════════════════════════ */}
       <CollapsibleSection id="actions" title="機能ショートカット" collapsed={collapsed} toggle={toggle}>
@@ -969,6 +1084,15 @@ function StatusDot({ status }: { status: string }) {
         ? "bg-red-500"
         : "bg-amber-400 animate-pulse";
   return <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${c}`} />;
+}
+
+function MiniCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
+  return (
+    <div className="rounded-xl border border-black/5 bg-white/50 px-3 py-2.5 backdrop-blur">
+      <p className="text-[10px] text-gray-400">{label}</p>
+      <p className={`text-lg font-bold ${color ?? "text-gray-800"}`}>{value}{sub && <span className="text-[10px] font-normal text-gray-400 ml-1">{sub}</span>}</p>
+    </div>
+  );
 }
 
 function Skeleton({ h = "h-40" }: { h?: string }) {

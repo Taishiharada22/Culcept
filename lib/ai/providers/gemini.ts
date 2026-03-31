@@ -77,11 +77,11 @@ function buildSystemInstruction(request: AIProviderRequest): string | null {
 }
 
 function buildThinkingConfig(
-  request: AIProviderRequest,
+  _request: AIProviderRequest,
   model: string,
 ): Record<string, unknown> | null {
-  if (!request.requireJson) return null;
-
+  // gemini-2.5 系は thinking tokens が maxOutputTokens に含まれるため、
+  // 明示的に thinkingBudget: 0 を設定しないと応答が途中で切れる
   if (model.startsWith("gemini-2.5")) {
     return { thinkingBudget: 0 };
   }
@@ -173,10 +173,11 @@ export async function runGemini(
     if (request.jsonSchema) {
       generationConfig.responseJsonSchema = request.jsonSchema;
     }
-    const thinkingConfig = buildThinkingConfig(request, model);
-    if (thinkingConfig) {
-      generationConfig.thinkingConfig = thinkingConfig;
-    }
+  }
+  // thinkingConfig は全リクエストに適用（gemini-2.5 の thinking tokens 制御）
+  const thinkingConfig = buildThinkingConfig(request, model);
+  if (thinkingConfig) {
+    generationConfig.thinkingConfig = thinkingConfig;
   }
   if (Object.keys(generationConfig).length > 0) {
     payload.generationConfig = generationConfig;

@@ -82,7 +82,9 @@ export type ActionShape =
   | "full_go"              // 完全に行く / 全力でやる
   | "bounded_go"           // 時間・範囲を限定して行く
   | "prepare_then_go"      // 準備してから行く / 下書きしてから送る
+  | "trial_then_decide"    // 小さく試してから決める / フィードバックを見て再判定
   | "observe_first"        // 本人は動かず軽く様子を見る / 情報だけ集める
+  | "delegate_or_request"  // 自分ではなく誰かに頼む / 第三者に相談する
   | "defer_with_trigger"   // 今日は見送り、次の条件が揃えば行く
   | "skip";                // 今回はやめる
 
@@ -94,7 +96,9 @@ const SHAPE_TO_STANCE: Record<ActionShape, DecisionStance> = {
   full_go: "push",
   bounded_go: "conditional_forward",
   prepare_then_go: "conditional_forward",
+  trial_then_decide: "conditional_forward",
   observe_first: "conditional_forward",
+  delegate_or_request: "conditional_forward",
   defer_with_trigger: "guard",
   skip: "guard",
 };
@@ -131,7 +135,10 @@ export interface DecisionMetadata {
  * 白黒を押し付けるのではなく、力の釣り合いから
  * 「いちばん後悔が少なく、いちばん本人らしく進める形」を選ぶ。
  */
-export function resolveActionShape(fb: ForceBalance): ActionShape {
+export function resolveActionShape(
+  fb: ForceBalance,
+  hints?: ActionShapeHints,
+): ActionShape {
   const netExpand = fb.expand_pressure + fb.opportunity_value + fb.regret_if_skip;
   const netProtect = fb.protect_pressure + fb.cost_load + fb.regret_if_do;
   const ratio = netExpand / (netExpand + netProtect + 0.001); // 0-1
@@ -139,12 +146,22 @@ export function resolveActionShape(fb: ForceBalance): ActionShape {
   // 可逆性が高ければ bounded/observe が安全に選べる
   const canRetreat = fb.reversibility > 0.6;
 
+  // ── delegate_or_request: 他者への働きかけが適切なケース ──
+  // 「誰かに頼む」「相談する」「仲介を頼む」が検出されていたら優先
+  if (hints?.suggests_delegation) {
+    return "delegate_or_request";
+  }
+
   if (ratio > 0.7) {
     // 進む力が圧倒的 → full_go
     return "full_go";
   }
   if (ratio > 0.55 && canRetreat) {
-    // 進む力がやや優勢 + 途中で戻せる → bounded_go
+    // 進む力がやや優勢 + 途中で戻せる
+    // trial_then_decide: 「試してから決めたい」シグナルがあるとき
+    if (hints?.suggests_trial) {
+      return "trial_then_decide";
+    }
     return "bounded_go";
   }
   if (ratio > 0.55 && !canRetreat) {
@@ -153,7 +170,10 @@ export function resolveActionShape(fb: ForceBalance): ActionShape {
   }
   if (ratio > 0.48 && ratio <= 0.55) {
     // 狭い拮抗帯 → まず様子を見る
-    // 以前は 0.4-0.55 だったが、この帯が広すぎて observe_first に集中していた
+    // trial_then_decide がここでも有効: 拮抗しているからこそ「小さく試す」
+    if (canRetreat && hints?.suggests_trial) {
+      return "trial_then_decide";
+    }
     return "observe_first";
   }
   if (ratio > 0.35) {
@@ -168,17 +188,34 @@ export function resolveActionShape(fb: ForceBalance): ActionShape {
   return "skip";
 }
 
+/** resolveActionShape への追加ヒント */
+export interface ActionShapeHints {
+  /** 「試してから決めたい」シグナルがあるか */
+  suggests_trial: boolean;
+  /** 「誰かに頼む / 相談する」シグナルがあるか */
+  suggests_delegation: boolean;
+}
+
+/** メッセージから ActionShapeHints を検出する */
+export function detectActionShapeHints(message: string): ActionShapeHints {
+  const suggests_trial = /試[しす].*[みて見]|とりあえず|まず.*やっ[てた]|一回.*だけ|ちょっと.*[やっ試]|様子.*見ながら|お試し|体験/.test(message);
+  const suggests_delegation = /[誰だれ]か.*[頼聞相]|相談.*[したす]|[友達友人].*[頼聞]|[専門プロ].*[聞相]|第三者|仲介|間.*入[っる]/.test(message);
+  return { suggests_trial, suggests_delegation };
+}
+
 /** ActionShape の日本語ラベル（プロンプト注入用） */
 const ACTION_SHAPE_LABELS: Record<ActionShape, string> = {
   full_go: "完全に行く / 全力でやる",
   bounded_go: "時間・範囲を限定して行く（例: 1時間だけ、最初だけ）",
   prepare_then_go: "準備してから行く（例: 下書きしてから送る、条件を決めてから参加）",
+  trial_then_decide: "小さく試してから決める（例: まず1回だけ参加してみる、短期間だけやってみて判断する）",
   observe_first: "本人は動かず様子を見る（例: 情報だけ集める、相手の出方を待つ）",
+  delegate_or_request: "自分ではなく誰かに頼む / 相談する（例: 友達に聞いてもらう、専門家に相談する）",
   defer_with_trigger: "今日は見送り、条件が揃えば次に行く（例: 体調が戻ったら、相手から連絡が来たら）",
   skip: "今回はやめる（例: 断る、離れる、休む）",
 };
 
-const VALID_SHAPES: ActionShape[] = ["full_go", "bounded_go", "prepare_then_go", "observe_first", "defer_with_trigger", "skip"];
+const VALID_SHAPES: ActionShape[] = ["full_go", "bounded_go", "prepare_then_go", "trial_then_decide", "observe_first", "delegate_or_request", "defer_with_trigger", "skip"];
 const VALID_STANCES: DecisionStance[] = ["guard", "conditional_forward", "push"];
 const VALID_OPP: OpportunityLevel[] = ["low", "medium", "high"];
 const VALID_COST: CostLevel[] = ["low", "medium", "high"];
@@ -193,6 +230,8 @@ const SHAPE_SIGNAL_PATTERNS = {
   skip: /見送っていい|見送る|やめ[たてろ]|断[りる]|今回はやめる|今回は.*やめ|見送った方が/,
   defer: /今日じゃなく|次[はの].*条件|体調.*戻[るっ]|また.*機会/,
   observe: /様子.*見|情報.*集め|確認してから|聞いてから/,
+  delegate: /[誰だれ]か.*に.*頼|相談.*してみ|第三者|仲介|専門家|プロに/,
+  trial: /まず.*試[しす]|一回だけ|とりあえず.*やって|お試し|小さく.*始/,
   prep: /下書き|整理してから|準備|メモ.*してから|計画.*立て/,
   bounded: /短時間|[0-9１-９]時間だけ|顔.*出す|最低限|一次会|限定|だけ参加/,
   full: /行った方がいい|送った方がいい|引き受け|全力|フルで|積極的に|ぜひ/,
@@ -206,14 +245,19 @@ function inferActionShapeFromText(text: string): ActionShape | null {
   const hasSkip = SHAPE_SIGNAL_PATTERNS.skip.test(text);
   const hasDefer = SHAPE_SIGNAL_PATTERNS.defer.test(text);
   const hasObserve = SHAPE_SIGNAL_PATTERNS.observe.test(text);
+  const hasDelegate = SHAPE_SIGNAL_PATTERNS.delegate.test(text);
+  const hasTrial = SHAPE_SIGNAL_PATTERNS.trial.test(text);
   const hasPrep = SHAPE_SIGNAL_PATTERNS.prep.test(text);
   const hasBounded = SHAPE_SIGNAL_PATTERNS.bounded.test(text);
   const hasFull = SHAPE_SIGNAL_PATTERNS.full.test(text);
 
-  // 優先順位: skip（明確な否定） > bounded（限定参加） > prep（準備後実行）
-  //         > full（全力） > defer（条件付き延期） > observe（様子見）
+  // 優先順位: skip（明確な否定） > delegate（他者に頼む）> bounded（限定参加）
+  //         > trial（試してから） > prep（準備後実行） > full（全力）
+  //         > defer（条件付き延期） > observe（様子見）
   if (hasSkip && !hasBounded && !hasFull) return "skip";
+  if (hasDelegate && !hasSkip) return "delegate_or_request";
   if (hasBounded && !hasSkip) return "bounded_go";
+  if (hasTrial && !hasSkip) return "trial_then_decide";
   if (hasPrep && !hasFull) return "prepare_then_go";
   if (hasFull && !hasSkip && !hasBounded) return "full_go";
   if (hasDefer && !hasFull && !hasBounded) return "defer_with_trigger";
@@ -470,8 +514,8 @@ export function reconcileDecisionMetadata(
   // 本文推定とmetadataが大きくズレている場合、本文側に寄せる
   if (textShape && textShape !== result.action_shape) {
     const shapeOrder: Record<ActionShape, number> = {
-      skip: 0, defer_with_trigger: 1, observe_first: 2,
-      prepare_then_go: 3, bounded_go: 4, full_go: 5,
+      skip: 0, defer_with_trigger: 1, observe_first: 2, delegate_or_request: 2.5,
+      prepare_then_go: 3, trial_then_decide: 3.5, bounded_go: 4, full_go: 5,
     };
     const diff = Math.abs(shapeOrder[result.action_shape] - shapeOrder[textShape]);
     if (diff >= 3) {
@@ -588,10 +632,11 @@ export type QuestionCategory =
   | "contact"     // 連絡・メッセージ・LINE・メール
   | "work"        // 仕事・タスク・進め方
   | "cause"       // 最近なんで・なぜ・原因
+  | "career"      // 適職・勉強・進路・長期テーマ
   | "general";    // その他
 
 /** fact のタグ。ranking で使う */
-type FactTag =
+export type FactTag =
   | "social_load"        // 対人負荷、場に合わせやすさ
   | "energy_state"       // エネルギー状態、内面天気
   | "decision_speed"     // 迷いやすさ、判断速度
@@ -604,18 +649,47 @@ type FactTag =
   | "prophecy"           // 予測
   | "core_wound"         // 根っこの恐れ
   | "personality_blind"  // 性格盲点
+  | "strengths"          // この人の強み・適性
+  | "growth_key"         // 成長の鍵
+  | "core_desire"        // 核心的な欲求・動機
+  | "safe_stress"        // 安全/ストレス状態パターン
+  | "environment"        // 蓄積された環境文脈（仕事・人間関係・経済・健康等）
   | "other";
 
-type TaggedFact = { text: string; tags: FactTag[] };
+/** fact の由来。観測量に応じてアーキタイプ由来の重みを漸減させるために使う */
+export type FactSource =
+  | "axis"        // Stargazer軸スコアからの実観測由来
+  | "archetype"   // アーキタイプ定義由来（事前分布）
+  | "context"     // homeContext（天気・インサイト等）由来
+  | "environment" // 蓄積された環境文脈（life context）由来
+  | "hypothesis"  // 仮説プール由来（P2: 検証済み仮説の facts 注入）
+  | "baseline"    // ベースラインからのズレ由来（P3: 変化検出）
+  | "person";     // 関係マップ由来（P6: 人物情報を判断文脈に注入）
+
+export type TaggedFact = { text: string; tags: FactTag[]; source: FactSource };
+
+/**
+ * アーキタイプ由来factの重み係数を計算する。
+ * 観測が蓄積されるほどアーキタイプの影響を減らし、個別観測を優先する。
+ *
+ * - 0回: 1.0（アーキタイプに全依存）
+ * - 10回: 0.56（半分程度）
+ * - 30回: 0.29（個別観測が支配）
+ * - 100回: 0.11（アーキタイプはほぼ補助）
+ */
+export function computeArchetypeWeight(observationCount: number): number {
+  return Math.max(0.05, 1.0 / (1 + observationCount * 0.08));
+}
 
 /** カテゴリごとに優先する fact tag の順序 */
 const CATEGORY_FACT_PRIORITY: Record<QuestionCategory, FactTag[]> = {
-  gathering:  ["social_load", "energy_state", "blindspot", "temporal", "insight"],
+  gathering:  ["social_load", "energy_state", "environment", "blindspot", "temporal", "insight"],
   outfit:     ["decision_speed", "energy_state", "scatter_focus", "insight", "blindspot"],
-  contact:    ["impulse_caution", "blindspot", "energy_state", "temporal", "insight"],
-  work:       ["scatter_focus", "decision_speed", "temporal", "insight", "change_stress"],
-  cause:      ["temporal", "insight", "blindspot", "core_wound", "energy_state"],
-  general:    ["energy_state", "insight", "temporal", "blindspot", "decision_speed"],
+  contact:    ["impulse_caution", "environment", "blindspot", "energy_state", "temporal", "insight"],
+  work:       ["environment", "scatter_focus", "decision_speed", "temporal", "insight", "change_stress"],
+  cause:      ["environment", "temporal", "insight", "blindspot", "core_wound", "energy_state"],
+  career:     ["environment", "strengths", "growth_key", "core_desire", "safe_stress", "core_wound"],
+  general:    ["environment", "energy_state", "insight", "temporal", "blindspot", "decision_speed"],
 };
 
 /** カテゴリごとの結論テンプレ（守り〜攻めまで含む） */
@@ -644,6 +718,11 @@ const CATEGORY_CONCLUSION_SLOTS: Record<QuestionCategory, string[]> = {
     "たぶん、〜ことが原因（原因仮説 + この人の傾向を理由に断言）",
     "正直に言うと、〜が重なっている（複合原因 + 影の本音）",
   ],
+  career: [
+    "[この人の強み/適性の理由]を考えると、〜の方向が合っている",
+    "[この人の核心的な欲求/恐れ]があるから、〜を選ぶと長続きしやすい",
+    "[この人の安全/ストレスパターン]から見ると、〜の環境が力を出しやすい",
+  ],
   general: [
     "今日の[この人の名前]は、[判断軸]を優先した方がぶれない",
     "[今の状態/傾向の理由]だからこそ、あえて〜を試す価値がある",
@@ -658,6 +737,7 @@ const CATEGORY_ACTION_SLOTS: Record<QuestionCategory, string> = {
   contact:    "次の一手: [今から] [伝えたいことを3行だけ] [書き出してみるのがよさそうです]",
   work:       "次の一手: [今日中に] [最も気になる1点だけ] [メモしてみるのがよさそうです]",
   cause:      "次の一手: [今日から3回だけ] [そうなった場面を] [一言で残してみるのがよさそうです]",
+  career:     "次の一手: [今週中に] [この人の強みが活きる場面を1つだけ] [試してみるのがよさそうです]",
   general:    "次の一手: [今日中に] [1つだけ] [試してみるのがよさそうです]",
 };
 
@@ -860,7 +940,8 @@ export function classifyQuestion(message: string): QuestionCategory {
   if (/飲み会|集まり|パーティ|飲み|宴会|食事会|誘[わい]/.test(m)) return "gathering";
   if (/服|着|コーデ|ファッション|何着/.test(m)) return "outfit";
   if (/連絡|メッセージ|line|メール|返信|送[るり]|電話/.test(m)) return "contact";
-  if (/仕事|タスク|業務|進め方|やり方|働|プロジェクト|上司|報告|提案書|転職|内定/.test(m)) return "work";
+  if (/職業|適職|向いてる|合[うっ]てる.*仕事|勉強|スキル|資格|進路|キャリア|転職|内定|就[職活]|何を学|何.*やるべき|私に合う/.test(m)) return "career";
+  if (/仕事|タスク|業務|進め方|やり方|働|プロジェクト|上司|報告|提案書/.test(m)) return "work";
   if (/なんで|なぜ|どうして|原因|理由|最近.*こう/.test(m)) return "cause";
   return "general";
 }
@@ -889,9 +970,51 @@ export function isEmotionalQuestion(message: string): boolean {
  * homeContext + personality を tagged fact リストに変換する。
  * 各 fact に tag を付けること���、質問カテゴリ別の ranking が可能になる。
  */
-function buildTaggedFacts(
+/** 環境文脈エントリ（stargazer_alter_context テーブルの行に対応） */
+export interface LifeContextFactEntry {
+  category: string;
+  content: string;
+  source: string;
+  temporality: string;
+  confidence: number;
+  evidence_count: number;
+  possibly_stale: boolean;
+}
+
+/** P2: 仮説プールから facts レイヤーに注入するための入力 */
+export interface HypothesisFactEntry {
+  content: string;
+  hypothesis_type: string;
+  confidence: number;
+  status: string;
+  domains: string[];
+}
+
+/** P3: ベースラインからのズレを facts として注入するための入力 */
+export interface BaselineDeviationEntry {
+  type: string;
+  factText: string;
+  magnitude: number;
+}
+
+/** P6: 関係マップから facts レイヤーに注入するための入力 */
+export interface PersonMapFactEntry {
+  label: string;
+  role: string;
+  sentiment_trend: "improving" | "stable" | "declining" | null;
+  last_sentiment: "positive" | "negative" | "mixed" | "neutral" | null;
+  influence_score: number;
+  mention_count: number;
+}
+
+/** @internal exported for testing (P6 person_map verification) */
+export function buildTaggedFacts(
   personality: AlterPersonality,
   homeContext?: HomeAlterContextData | null,
+  environmentContext?: LifeContextFactEntry[] | null,
+  hypothesisFacts?: HypothesisFactEntry[] | null,
+  baselineDeviations?: BaselineDeviationEntry[] | null,
+  personMapFacts?: PersonMapFactEntry[] | null,
 ): TaggedFact[] {
   const facts: TaggedFact[] = [];
 
@@ -913,42 +1036,42 @@ function buildTaggedFacts(
 
     if (key === "social_energy" || axisDef.labelLeft.includes("内向") || axisDef.labelRight.includes("外向")) {
       if (score < 0.4) {
-        facts.push({ text: "君は対人場面が続くと消耗しやすい。長時間の集まりの後は回復に時間がかかる", tags: ["social_load"] });
+        facts.push({ text: "君は対人場面が続くと消耗しやすい。長時間の集まりの後は回復に時間がかかる", tags: ["social_load"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "君は人と話すとエネルギーが回復するタイプ。孤立が続くと判断力が鈍りやすい", tags: ["social_load"] });
+        facts.push({ text: "君は人と話すとエネルギーが回復するタイプ。孤立が続くと判断力が鈍りやすい", tags: ["social_load"], source: "axis" });
       }
     } else if (key === "change_embrace_vs_resist" || axisDef.labelLeft.includes("安定") || axisDef.labelRight.includes("変化")) {
       if (score < 0.4) {
-        facts.push({ text: "君は変化にストレスを感じやすい。一度に複数の新しいことを入れると混乱しやすい", tags: ["change_stress", "scatter_focus"] });
+        facts.push({ text: "君は変化にストレスを感じやすい。一度に複数の新しいことを入れると混乱しやすい", tags: ["change_stress", "scatter_focus"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "君は変化に乗れるが、広げすぎると散りやすい。1つに絞ると強い", tags: ["change_stress", "scatter_focus"] });
+        facts.push({ text: "君は変化に乗れるが、広げすぎると散りやすい。1つに絞ると強い", tags: ["change_stress", "scatter_focus"], source: "axis" });
       }
     } else if (key === "decision_style" || axisDef.labelLeft.includes("熟考") || axisDef.labelRight.includes("即断")) {
       if (score < 0.4) {
-        facts.push({ text: "君は判断に時間をかけるタイプ。判断基準を先に2つだけ決めると迷いが減る", tags: ["decision_speed"] });
+        facts.push({ text: "君は判断に時間をかけるタイプ。判断基準を先に2つだけ決めると迷いが減る", tags: ["decision_speed"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "君は即断できるが、後から「あれでよかったのか」と揺れやすい", tags: ["decision_speed", "impulse_caution"] });
+        facts.push({ text: "君は即断できるが、後から「あれでよかったのか」と揺れやすい", tags: ["decision_speed", "impulse_caution"], source: "axis" });
       }
     } else if (key === "harmony_autonomy" || axisDef.labelLeft.includes("協調") || axisDef.labelRight.includes("自律")) {
       if (score < 0.4) {
-        facts.push({ text: "君は場に合わせやすい一方で、合わせすぎると後で消耗する。義務感だけの参加は消耗が大きい", tags: ["social_load", "impulse_caution"] });
+        facts.push({ text: "君は場に合わせやすい一方で、合わせすぎると後で消耗する。義務感だけの参加は消耗が大きい", tags: ["social_load", "impulse_caution"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "君は自分のペースを崩すと消耗する。時間を自分で区切ると楽になる", tags: ["social_load", "scatter_focus"] });
+        facts.push({ text: "君は自分のペースを崩すと消耗する。時間を自分で区切ると楽になる", tags: ["social_load", "scatter_focus"], source: "axis" });
       }
     } else if (key === "depth_breadth" || axisDef.labelLeft.includes("深く") || axisDef.labelRight.includes("広く")) {
       if (score < 0.4) {
-        facts.push({ text: "1つのことを深く掘るとき力を発揮する。広げすぎると集中力が分散して消耗する", tags: ["scatter_focus", "decision_speed"] });
+        facts.push({ text: "1つのことを深く掘るとき力を発揮する。広げすぎると集中力が分散して消耗する", tags: ["scatter_focus", "decision_speed"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "幅広く動くと活性化するが、1つに絞らされると窮屈さを感じやすい", tags: ["scatter_focus"] });
+        facts.push({ text: "幅広く動くと活性化するが、1つに絞らされると窮屈さを感じやすい", tags: ["scatter_focus"], source: "axis" });
       }
     } else if (key === "emotional_regulation" || axisDef.labelLeft.includes("感情") || axisDef.labelRight.includes("理性")) {
       if (score < 0.4) {
-        facts.push({ text: "感情の波が判断に直結しやすい。波が来ているときは一拍置く方が後で楽", tags: ["impulse_caution", "energy_state"] });
+        facts.push({ text: "感情の波が判断に直結しやすい。波が来ているときは一拍置く方が後で楽", tags: ["impulse_caution", "energy_state"], source: "axis" });
       } else if (score > 0.6) {
-        facts.push({ text: "冷静に整理できるが、感情を後回しにしすぎると突然溢れることがある", tags: ["impulse_caution", "blindspot"] });
+        facts.push({ text: "冷静に整理できるが、感情を後回しにしすぎると突然溢れることがある", tags: ["impulse_caution", "blindspot"], source: "axis" });
       }
     } else if (intensity > 0.3) {
-      facts.push({ text: `${label}寄りの傾向がある。${opposite}を求められると消耗しやすい`, tags: ["other"] });
+      facts.push({ text: `${label}寄りの傾向がある。${opposite}を求められると消耗しやすい`, tags: ["other"], source: "axis" });
     }
   }
 
@@ -958,40 +1081,169 @@ function buildTaggedFacts(
 
   // 消耗パターン（「やらなかった後悔」以外の根拠）
   if (boldScore < 0.4 && socialScore < 0.4) {
-    facts.push({ text: "迷っている時間そのものが一番消耗するタイプ。決めてしまえば楽になる", tags: ["decision_speed"] });
+    facts.push({ text: "迷っている時間そのものが一番消耗するタイプ。決めてしまえば楽になる", tags: ["decision_speed"], source: "axis" });
   }
   if (socialScore < 0.4) {
-    facts.push({ text: "ひとりで考える時間が回復の源。人に囲まれた後は意図的に休息を入れると翌日が楽", tags: ["social_load", "energy_state"] });
+    facts.push({ text: "ひとりで考える時間が回復の源。人に囲まれた後は意図的に休息を入れると翌日が楽", tags: ["social_load", "energy_state"], source: "axis" });
   }
   if (boldScore > 0.4 && boldScore < 0.6) {
-    facts.push({ text: "やりすぎも、やらなさすぎも後悔する。「ちょうどいい踏み出し方」を見つけるのが鍵", tags: ["impulse_caution"] });
+    facts.push({ text: "やりすぎも、やらなさすぎも後悔する。「ちょうどいい踏み出し方」を見つけるのが鍵", tags: ["impulse_caution"], source: "axis" });
   }
 
   // ── 性格構造 ──
   if (personality.coreWoundShort) {
-    facts.push({ text: `根っこにある恐れ: ${personality.coreWoundShort}。これが強く出ると判断が歪みやすい`, tags: ["core_wound"] });
+    facts.push({ text: `根っこにある恐れ: ${personality.coreWoundShort}。これが強く出ると判断が歪みやすい`, tags: ["core_wound"], source: "archetype" });
   }
   if (personality.blindSpot) {
-    facts.push({ text: `盲点: ${personality.blindSpot}。本人が気づきにくい落とし穴`, tags: ["personality_blind"] });
+    facts.push({ text: `盲点: ${personality.blindSpot}。本人が気づきにくい落とし穴`, tags: ["personality_blind"], source: "archetype" });
+  }
+
+  // ── アーキタイプ深層プロフィール（適性・欲求・恐れ・安定/ストレスパターン） ──
+  // source: "archetype" — 観測量が増えるほど個別観測に道を譲る（P0: 漸減ロジック）
+  if (personality.strengths && personality.strengths.length > 0) {
+    facts.push({ text: `この人の強み: ${personality.strengths.join("、")}`, tags: ["strengths"], source: "archetype" });
+  }
+  if (personality.growthKey) {
+    facts.push({ text: `成長の鍵: ${personality.growthKey}`, tags: ["growth_key"], source: "archetype" });
+  }
+  if (personality.coreFear) {
+    facts.push({ text: `核心的な恐れ: ${personality.coreFear}。回避行動の根源になりやすい`, tags: ["core_desire"], source: "archetype" });
+  }
+  if (personality.coreDesire) {
+    facts.push({ text: `核心的な欲求: ${personality.coreDesire}。これが満たされる選択は長続きしやすい`, tags: ["core_desire"], source: "archetype" });
+  }
+  if (personality.safeState) {
+    facts.push({ text: `安心している時のパターン: ${personality.safeState}`, tags: ["safe_stress"], source: "archetype" });
+  }
+  if (personality.stressState) {
+    facts.push({ text: `ストレス下のパターン: ${personality.stressState}。この状態では判断が歪みやすい`, tags: ["safe_stress"], source: "archetype" });
+  }
+  if (personality.innerContradiction) {
+    facts.push({ text: `内面の矛盾: ${personality.innerContradiction}。この緊張が判断の揺れを生む`, tags: ["core_desire", "core_wound"], source: "archetype" });
   }
 
   // ── homeContext（今日の状態） ──
   if (homeContext?.weather?.label) {
     const w = homeContext.weather;
     const msg = w.message ? `（${w.message}）` : "";
-    facts.push({ text: `今日の内面状態: ${w.emoji ?? ""} ${w.label}${msg}`, tags: ["energy_state"] });
+    facts.push({ text: `今日の内面状態: ${w.emoji ?? ""} ${w.label}${msg}`, tags: ["energy_state"], source: "context" });
   }
   if (homeContext?.temporalDelta) {
-    facts.push({ text: `最近の変化: ${homeContext.temporalDelta}`, tags: ["temporal"] });
+    facts.push({ text: `最近の変化: ${homeContext.temporalDelta}`, tags: ["temporal"], source: "context" });
   }
   if (homeContext?.insight) {
-    facts.push({ text: `今日のインサイト: ${homeContext.insight}`, tags: ["insight"] });
+    facts.push({ text: `今日のインサイト: ${homeContext.insight}`, tags: ["insight"], source: "context" });
   }
   if (homeContext?.blindSpot) {
-    facts.push({ text: `今日の盲点検知: ${homeContext.blindSpot}`, tags: ["blindspot"] });
+    facts.push({ text: `今日の盲点検知: ${homeContext.blindSpot}`, tags: ["blindspot"], source: "context" });
   }
   if (homeContext?.prophecy) {
-    facts.push({ text: `予測エンジン: ${homeContext.prophecy}`, tags: ["prophecy"] });
+    facts.push({ text: `予測エンジン: ${homeContext.prophecy}`, tags: ["prophecy"], source: "context" });
+  }
+
+  // ── P1: 蓄積された環境文脈（life context）──
+  if (environmentContext && environmentContext.length > 0) {
+    for (const entry of environmentContext) {
+      // confidence が低い、または stale なものは除外（DB側でもフィルタ済みだが念のため）
+      if (entry.confidence < 0.4 || entry.possibly_stale) continue;
+
+      // カテゴリに応じたタグ割り当て
+      const envTags: FactTag[] = ["environment"];
+      if (entry.category === "person") envTags.push("social_load");
+
+      // source の変換: user_stated/user_implied は信頼度高、inferred は控えめ
+      const prefix = entry.source === "user_stated" ? "" :
+                     entry.source === "user_implied" ? "" :
+                     "（推定）";
+
+      facts.push({
+        text: `${prefix}${entry.content}`,
+        tags: envTags,
+        source: "environment",
+      });
+    }
+  }
+
+  // ── P2: 仮説プール由来の facts ──
+  // stable/strengthening の仮説を facts として注入（断定ではなく傾向として）
+  if (hypothesisFacts && hypothesisFacts.length > 0) {
+    for (const h of hypothesisFacts) {
+      // emerging は facts には入れない（prompt 注入のみ）、stable/strengthening のみ
+      if (h.status !== "stable" && h.status !== "strengthening") continue;
+      if (h.confidence < 0.5) continue;
+
+      const tag: FactTag = h.hypothesis_type === "contradiction_pattern" ? "core_wound"
+        : h.hypothesis_type === "growth_signal" ? "temporal"
+        : h.hypothesis_type === "cross_context" ? "impulse_caution"
+        : "decision_speed";
+
+      facts.push({
+        text: `（傾向）${h.content}`,
+        tags: [tag],
+        source: "hypothesis",
+      });
+    }
+  }
+
+  // ── P3: ベースラインからのズレ ──
+  // magnitude が高いズレのみ facts に注入（最大1件）
+  if (baselineDeviations && baselineDeviations.length > 0) {
+    // magnitude 降順でソートし、最大1件のみ注入（反証⑤: facts 過多防止）
+    const sorted = [...baselineDeviations].sort((a, b) => b.magnitude - a.magnitude);
+    const top = sorted[0];
+    if (top.magnitude >= 0.3) { // 弱いズレは注入しない
+      const tag: FactTag = top.type === "emotional_spike" ? "energy_state"
+        : top.type === "decision_shift" ? "impulse_caution"
+        : "temporal";
+      facts.push({
+        text: top.factText,
+        tags: [tag],
+        source: "baseline",
+      });
+    }
+  }
+
+  // ── P6: 関係マップの facts 注入 ──
+  // 高影響度の人物のみ（influence_score >= 0.5）。最大2件。
+  // 判断の「誰に対して」の文脈を強化する。
+  if (personMapFacts && personMapFacts.length > 0) {
+    const sorted = [...personMapFacts]
+      .filter(p => p.influence_score >= 0.5 && p.mention_count >= 2)
+      .sort((a, b) => b.influence_score - a.influence_score)
+      .slice(0, 2); // 反証⑤: facts 過多防止のため最大2件
+
+    for (const person of sorted) {
+      // 役割の日本語表現
+      const ROLE_LABEL: Record<string, string> = {
+        partner: "パートナー", parent: "親", sibling: "きょうだい",
+        ex: "元恋人", crush: "気になる人",
+        close_friend: "親友", friend: "友人", acquaintance: "知人",
+        boss: "上司", senior: "先輩", colleague: "同僚",
+        subordinate: "後輩", client: "取引先", other: "関係者",
+      };
+      const roleLabel = ROLE_LABEL[person.role] ?? person.role;
+
+      // トレンドの表現
+      const trendText = person.sentiment_trend === "improving" ? "関係は良くなっている"
+        : person.sentiment_trend === "declining" ? "関係にストレスを感じている"
+        : "";
+
+      // 最近の感情
+      const sentimentText = person.last_sentiment === "negative" ? "最近ネガティブな話題が多い"
+        : person.last_sentiment === "mixed" ? "複雑な感情がある"
+        : "";
+
+      // fact テキスト構築
+      const parts = [`${person.label}（${roleLabel}）は影響度の高い人物`];
+      if (trendText) parts.push(trendText);
+      if (sentimentText) parts.push(sentimentText);
+
+      facts.push({
+        text: parts.join("。"),
+        tags: ["social_load"],
+        source: "person",
+      });
+    }
   }
 
   return facts;
@@ -1005,8 +1257,10 @@ export function rankFactsForCategory(
   taggedFacts: TaggedFact[],
   category: QuestionCategory,
   maxFacts = 4,
+  observationCount = 0,
 ): string[] {
   const priority = CATEGORY_FACT_PRIORITY[category];
+  const archetypeWeight = computeArchetypeWeight(observationCount);
 
   const scored = taggedFacts.map((f) => {
     // tag が priority に含まれていればそのインデックスを score にする（小さいほど高優先）
@@ -1015,6 +1269,16 @@ export function rankFactsForCategory(
       const idx = priority.indexOf(tag);
       if (idx !== -1 && idx < bestRank) bestRank = idx;
     }
+
+    // P0: アーキタイプ由来factは観測量に応じて優先度を下げる。
+    // axis（実観測由来）・context・environment は常にフル優先度。
+    // archetype は事前分布なので、観測が蓄積されるほど道を譲る。
+    if (f.source === "archetype" && archetypeWeight < 0.95) {
+      // weight が小さいほど rank を大きく（低優先）にする
+      // weight=1.0 → rank不変、weight=0.3 → rank×3.3、weight=0.1 → rank×10
+      bestRank = Math.round(bestRank / Math.max(archetypeWeight, 0.05));
+    }
+
     return { fact: f, rank: bestRank };
   });
 
@@ -1030,8 +1294,10 @@ export function buildPersonalizedFacts(
   personality: AlterPersonality,
   homeContext?: HomeAlterContextData | null,
   category?: QuestionCategory,
+  environmentContext?: LifeContextFactEntry[] | null,
 ): string[] {
-  const tagged = buildTaggedFacts(personality, homeContext);
+  const observationCount = homeContext?.observationCount ?? 0;
+  const tagged = buildTaggedFacts(personality, homeContext, environmentContext);
 
   // facts が空の場合、personality の基本情報からフォールバック生成
   if (tagged.length === 0) {
@@ -1049,7 +1315,7 @@ export function buildPersonalizedFacts(
   }
 
   if (category) {
-    return rankFactsForCategory(tagged, category, 4);
+    return rankFactsForCategory(tagged, category, 4, observationCount);
   }
   // fallback: 全 facts（旧動作互換）
   return tagged.map((f) => f.text);
@@ -1313,6 +1579,26 @@ export function buildHomeAlterPrompt(
     );
   }
 
+  // ━━━━ career カテゴリ専用ルール ━━━━
+  if (cat === "career") {
+    sections.push(
+      "",
+      "# career カテゴリ専用ルール（適職・勉強・進路）",
+      "この人の**性格構造・強み・恐れ・欲求**を最優先根拠にすること。",
+      "一般的な職業リストや資格一覧を並べるのは禁止。",
+      "",
+      "**結論の出し方:**",
+      "1. この人の強み・適性から「どんな環境・役割で力が出るか」を先に言う",
+      "2. 核心的な欲求と恐れから「どんな仕事なら続くか/続かないか」の構造を示す",
+      "3. 安全/ストレスパターンから「どんな条件で崩れやすいか」を添える",
+      "4. 具体的な職種名を挙げる場合は、上記の性格根拠と結びつけること",
+      "",
+      "❌ 「整理整頓が好きなら事務職が向いています」（誰にでも言える）",
+      "❌ 「マーケティング、企画、コンサルなどが考えられます」（リスト羅列）",
+      `✅ 「${callName || "この人"}は本質を言語化する力が強みで、表面的に消費されることを恐れる。だからアウトプットの深さが評価される環境が合っています。」`,
+    );
+  }
+
   // ━━━━ 感情質問の受け止め層 ━━━━
   if (userMessage && isEmotionalQuestion(userMessage)) {
     sections.push(
@@ -1401,6 +1687,15 @@ const CATEGORY_EXAMPLES: Record<QuestionCategory, { q: string; lines: string[] }
       "本来は自分の軸で動ける人だけど、最近は周囲の評価が気になるフェーズに入っています。その結果、決断のたびに迷いが増えて消耗している感じがあります。",
       "次の一手: 今日から3回だけ、判断する前に「自分はどう思ったか」を一言メモしてみるのが合っています。",
       "これが続くと、どこで軸がブレるか見えてきます。",
+    ],
+  },
+  career: {
+    q: "私に合う職業を教えて",
+    lines: [
+      "本質を構造化して言語にする力があるので、その強みが直接価値になる方向が合っています。",
+      "たいしさんの根っこには「理解されたい」という欲求と「表面的に消費されること」への恐れがあります。だから、アウトプットが深く届く実感がある仕事じゃないと、どれだけ稼げても続かないと思います。安定している時は全体を俯瞰して本質を掴めるけど、ストレス下では完璧主義に振れやすい。裁量がある環境の方が力が出ます。",
+      "次の一手: 今週中に、自分の言語化で誰かが「わかった」と反応した場面を1つ思い出してみるのが合っています。",
+      "正直に言うと、「向いてる職業」より「どういう状態で力が出るか」の方が精度が高いです。",
     ],
   },
   general: {
@@ -1782,7 +2077,20 @@ export function formatHomeAlterResponse(raw: string, userName?: string): string 
   // 「...」で始まる行の「...」を除去
   lines = lines.map((l) => l.replace(/^\.{2,}\s*/, ""));
 
+  // メタラベル除去（「結論:」「根拠:」「次の一手:」等のラベルはユーザーに見せない）
+  lines = lines.map((l) =>
+    l.replace(/^(?:結論|根拠|理由|背景|補足|判断|分析|提案|アドバイス|理解を深めるための確認)\s*[:：]\s*/i, "")
+  );
+
   let result = lines.join("\n").trim();
+
+  // マークダウン除去（**太字** → 太字、*斜体* → 斜体）
+  result = result.replace(/\*\*(.+?)\*\*/g, "$1");
+  result = result.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, "$1");
+  // 見出し記号除去（# ## ###）
+  result = result.replace(/^#{1,3}\s+/gm, "");
+  // リスト記号の除去（- ・ * で始まる行頭）
+  result = result.replace(/^[\-\*・]\s+/gm, "");
 
   // ━━━━ Embedded Alter トーン補正（後処理） ━━━━
   // 「君」「あなた」→ ユーザー名 or 除去
@@ -1846,10 +2154,21 @@ export function buildHomeAlterUserPrompt(
       .slice(-4)
       .map((m) => `${m.role === "user" ? "ユーザー" : "Alter"}: ${m.content}`)
       .join("\n");
-    return `${history}\nユーザー: ${userMessage}\n\n結論→根拠→次の一手で返してください。命令口調・「君」「あなた」禁止。`;
+    return [
+      history,
+      `ユーザー: ${userMessage}`,
+      "",
+      "## 返答ルール（会話継続時）",
+      "- ユーザーの直近の発言の**意図を正確に読み取る**こと。「もっと具体的に」なら具体例を出す。「質問ある？」「聞きたいことは？」ならユーザーに質問を返す。",
+      "- 前回と同じ内容を繰り返さない。前回の回答を踏まえて**一歩進める**こと。",
+      "- **必ずこの人の性格・傾向・強み・恐れを根拠に使うこと。** 汎用的なアドバイスは禁止。System Promptに書かれた「この人について今日わかっていること」「判断アセスメント」を参照し、この人だから言えることを言う。",
+      "- 「結論:」「根拠:」などのラベルは使わない。自然な日本語で話す。",
+      "- **太字**マークダウンは使わない。",
+      "- 命令口調・「君」「あなた」禁止。",
+    ].join("\n");
   }
 
-  return `ユーザーの質問: 「${userMessage}」\n\n1行目から結論。挨拶・前置き不要。根拠は「この人について今日わかっていること」から引用。最後は「次の一手:」で今日1分でできる行動をやわらかく提案。命令口調・「君」「あなた」禁止。`;
+  return `ユーザーの質問: 「${userMessage}」\n\n1行目から結論。挨拶・前置き不要。根拠は「この人について今日わかっていること」から自然に織り込む。最後は「次の一手」として今日1分でできる行動をやわらかく提案。「結論:」「根拠:」等のラベルは使わず自然な文章で。**太字**マークダウン禁止。命令口調・「君」「あなた」禁止。`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1909,10 +2228,23 @@ export type ResponseMode = "conclude" | "branch" | "clarify";
 export type ModeDecisionReason =
   | "clarify_high_ambiguity_high_stake"
   | "clarify_relational_unknown"
+  | "clarify_understanding_motive"    // 理解深化: 相手は分かるが動機が不明
+  | "clarify_understanding_context"   // 理解深化: 判断対象も背景も不明
   | "branch_high_ambiguity"
   | "branch_mid_ambiguity_low_info"
   | "conclude_mid_ambiguity_info_sufficient"
   | "conclude_low_ambiguity";
+
+/** clarify の種別: 情報補完 vs 理解深化 */
+export type ClarifyType = "missing_info" | "understanding";
+
+/** ModeDecisionReason から ClarifyType を導出する */
+export function getClarifyType(reason: ModeDecisionReason): ClarifyType {
+  if (reason === "clarify_understanding_motive" || reason === "clarify_understanding_context") {
+    return "understanding";
+  }
+  return "missing_info";
+}
 
 /** selectResponseMode の戻り値（モード + 理由） */
 export interface ModeDecision {
@@ -2186,6 +2518,7 @@ export function selectResponseMode(ctx: QueryContext, lens?: RelationalLens | nu
 export function selectResponseModeWithReason(
   ctx: QueryContext,
   lens?: RelationalLens | null,
+  stateAdjustment?: import("./alterUnderstanding").StateForceAdjustment | null,
 ): ModeDecision {
   const { hidden_variables, information } = ctx;
   let ambiguity_score = ctx.ambiguity_score;
@@ -2205,8 +2538,15 @@ export function selectResponseModeWithReason(
     ambiguity_score = effectiveUnknowns / 6;
   }
 
+  // ── State Layer 統合 ──
+  // 感情負荷が高いとき: clarifyで質問するより、まず受け取ることが先
+  // ユーザーが切迫しているときに「誰に対して？」と聞くのは逆効果
+  const preferConclude = stateAdjustment?.prefer_conclude_over_clarify ?? false;
+
   // 1. clarify: 高曖昧 + 高リスク + 判断対象不明
+  //    ただし、感情負荷が高いときはconcludeを優先（まず受け取る）
   if (
+    !preferConclude &&
     ambiguity_score >= 0.83 &&
     (hidden_variables.emotional_stake === "high" ||
      hidden_variables.reversibility === "irreversible") &&
@@ -2219,6 +2559,7 @@ export function selectResponseModeWithReason(
   //     info.score に依存しない。involves_other + target_role unknown が条件。
   //     ただし、対人行動の具体性が高い（ドメインが対人系 or ステーク高）場合に限定
   if (
+    !preferConclude &&
     lens &&
     lens.involves_other &&
     lens.target_role === "unknown" &&
@@ -2228,6 +2569,37 @@ export function selectResponseModeWithReason(
      lens.interaction_purpose !== "unknown") // 目的は分かるが相手が不明 → 聞くべき
   ) {
     return { mode: "clarify", reason: "clarify_relational_unknown" };
+  }
+
+  // 1c. 理解深化clarify: 表面上は具体的だが、判断の本質に関わる動機や背景が不明
+  //     「情報が足りない」ではなく「理解が足りない」ために聞く
+  //     information.score は高くてもいい（情報はあるが本質が見えない場合に聞く）
+  //     ambiguity_score のゲートは条件(a)(b)で独立に設定
+
+  // (a) 対人判断: 相手は分かるが何をしたいか不明
+  //     条件: involves_other + target_role 既知 + purpose 不明
+  //     ambiguity は不問（相手が分かっていても「なぜ？」は聞ける）
+  if (
+    !preferConclude &&
+    lens &&
+    lens.involves_other &&
+    lens.target_role !== "unknown" &&
+    lens.interaction_purpose === "unknown"
+  ) {
+    return { mode: "clarify", reason: "clarify_understanding_motive" };
+  }
+
+  // (b) 非対人: 判断対象も背景も見えない（ただし重い話題は受け取り優先）
+  //     条件: ambiguity 0.5 以上 + info が低め + 非対人 + 非高感情
+  if (
+    !preferConclude &&
+    ambiguity_score >= 0.5 &&
+    information.score < 0.3 &&
+    !lens?.involves_other &&
+    hidden_variables.target_type === "unknown" &&
+    hidden_variables.emotional_stake !== "high"
+  ) {
+    return { mode: "clarify", reason: "clarify_understanding_context" };
   }
 
   // 2. 情報量ゲート付き判定
@@ -2674,13 +3046,14 @@ function buildDomainFacts(overlay: DomainOverlay | null): TaggedFact[] {
     facts.push({
       text: `${label}の場面では「${joined}」の傾向が強く出る`,
       tags: ["social_load", "impulse_caution"],
+      source: "axis", // ドメインオーバーレイは軸スコアから導出
     });
   }
   for (const counter of overlay.counter_patterns) {
-    facts.push({ text: counter, tags: ["personality_blind", "social_load"] });
+    facts.push({ text: counter, tags: ["personality_blind", "social_load"], source: "axis" });
   }
   if (overlay.risk_pattern) {
-    facts.push({ text: overlay.risk_pattern, tags: ["core_wound", "blindspot"] });
+    facts.push({ text: overlay.risk_pattern, tags: ["core_wound", "blindspot"], source: "axis" });
   }
   return facts;
 }
@@ -2703,15 +3076,99 @@ function buildBranchFormatSection(ctx: QueryContext): string[] {
   ];
 }
 
+/** Intent Pool からの質問意図情報（route.ts から注入） */
+export interface ClarifyIntentHint {
+  /** 質問の意図の説明 */
+  intent_description: string;
+  /** 推奨される質問形式 */
+  preferred_forms: string[];
+  /** 質問例 */
+  example_questions: string[];
+  /** 意図ID（analytics用） */
+  intent_id: string;
+}
+
 /** Mode C (clarify) 用のフォーマットセクション */
-function buildClarifyFormatSection(ctx: QueryContext, lens: RelationalLens | null): string[] {
-  // 関係性clarifyの場合: 相手の種類を聞く具体的な質問を生成
+function buildClarifyFormatSection(
+  ctx: QueryContext,
+  lens: RelationalLens | null,
+  clarifyType?: ClarifyType,
+  intentHint?: ClarifyIntentHint | null,
+): string[] {
+  const type = clarifyType ?? "missing_info";
+
+  // ── Intent Pool からの意図が提供されている場合 ──
+  // LLM には「何を聞くか」の意図と形式を渡し、自然な質問を生成させる
+  if (intentHint) {
+    const formLabels: Record<string, string> = {
+      choice: "選択肢型（「A？ それともB？」）",
+      permission: "許可型（「聞いてもいい？」）",
+      hypothesis: "軽い仮説型（「もしかして〜？」）",
+      casual: "さりげない確認（「そういえば〜」）",
+      open_light: "軽いオープン（「どんな感じ？」）",
+    };
+    const formOptions = intentHint.preferred_forms
+      .map(f => formLabels[f] ?? f)
+      .join(" / ");
+
+    return [
+      type === "understanding"
+        ? "# 理解を深めるための確認"
+        : "# 確認",
+      "",
+      `目的: ${intentHint.intent_description}`,
+      `推奨形式: ${formOptions}`,
+      "参考例:",
+      ...intentHint.example_questions.map(q => `- 「${q}」`),
+      "",
+      "上記の意図に基づき、会話の流れに自然に合う質問を1つだけ生成すること。",
+      "例をそのまま使わず、文脈に合わせて言い換えること。",
+      "",
+      "**禁止**: 分析的な言い方（「あなたの動機は〜」「パターンとして〜」）",
+      "**禁止**: 2つ以上の質問",
+      "**必須**: 2行以内。メタデータブロック不要。",
+    ];
+  }
+
+  if (type === "understanding") {
+    // ── 理解深化型 clarify（Intent Pool なし = フォールバック）──
+    let questionHint: string;
+    if (lens && lens.involves_other && lens.interaction_purpose === "unknown") {
+      const roleLabel: string = ({
+        boss: "上司", senior: "先輩", colleague: "同僚", subordinate: "後輩", client: "取引先",
+        friend: "友達", close_friend: "親友", acquaintance: "知り合い",
+        family: "家族", partner: "恋人", ex: "元恋人", crush: "気になる相手",
+        stranger: "初対面の方", self: "自分自身", unknown: "その方",
+      } as Record<string, string>)[lens.target_role] ?? "その方";
+      questionHint = `${roleLabel}との間で、何をしたいのか/何が引っかかっているのかを聞く`;
+    } else {
+      questionHint = "何がその判断を迷わせているのか、どこに引っかかりがあるのかを聞く";
+    }
+
+    return [
+      "# 理解を深めるための確認",
+      "",
+      "表面的な情報は足りているが、判断の核となる動機や引っかかりが見えない。",
+      "分析的に聞くのではなく、**自然な関心**として1問だけ聞く。",
+      "",
+      `ヒント: ${questionHint}`,
+      "",
+      "質問の形式（いずれか1つ）:",
+      "- 選択肢型:「〇〇の問題？ それとも△△？」",
+      "- 許可型:「もう少し聞いてもいい？」",
+      "- 軽い仮説型:「体力の問題じゃなくて、気持ちで止まってる感じ？」",
+      "",
+      "**禁止**: 分析的な言い方（「あなたの動機は〜」「パターンとして〜」）",
+      "**禁止**: 2つ以上の質問",
+      "**必須**: 2行以内。メタデータブロック不要。",
+    ];
+  }
+
+  // ── 情報補完型 clarify（既存ロジック）──
   let question: string;
   if (lens && lens.involves_other && lens.target_role === "unknown") {
-    // 対人判断で相手が不明 → 「誰？」を聞く
     question = "仕事の相手ですか、それとも個人的な相手ですか？（上司/同僚/友達/恋人/家族 など）";
   } else if (lens && lens.target_role !== "unknown" && lens.interaction_purpose === "unknown") {
-    // 相手は分かるが目的が不明 → 「なぜ？」を聞く
     const roleLabel = {
       boss: "上司", senior: "先輩", colleague: "同僚", subordinate: "後輩", client: "取引先",
       friend: "友達", close_friend: "親友", acquaintance: "知り合い",
@@ -2746,12 +3203,22 @@ export function buildPersonalizedFactsWithDomain(
   homeContext: HomeAlterContextData | null | undefined,
   category: QuestionCategory,
   overlay: DomainOverlay | null,
+  environmentContext?: LifeContextFactEntry[] | null,
+  hypothesisFacts?: HypothesisFactEntry[] | null,
+  baselineDeviations?: BaselineDeviationEntry[] | null,
+  personMapFacts?: PersonMapFactEntry[] | null,
 ): string[] {
-  const baseFacts = buildTaggedFacts(personality, homeContext);
+  const observationCount = homeContext?.observationCount ?? 0;
+  const baseFacts = buildTaggedFacts(personality, homeContext, environmentContext, hypothesisFacts, baselineDeviations, personMapFacts);
   const domainFacts = buildDomainFacts(overlay);
   // ドメイン fact を先頭に追加してから ranking
   const merged = [...domainFacts, ...baseFacts];
-  return rankFactsForCategory(merged, category, 5); // ドメイン追加分で1枠増
+  // P0: observationCount で archetype 重みを漸減
+  // P1: environmentContext が baseFacts に含まれている
+  // P2: hypothesisFacts が baseFacts に含まれている
+  // P3: baselineDeviations が baseFacts に含まれている
+  // P6: personMapFacts が baseFacts に含まれている
+  return rankFactsForCategory(merged, category, 5, observationCount); // ドメイン追加分で1枠増
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2773,17 +3240,31 @@ export function buildHomeAlterPromptWithContext(
   userName?: string,
   relationalLens?: RelationalLens | null,
   skeleton?: JudgmentSkeleton | null,
+  clarifyType?: ClarifyType,
+  clarifyIntentHint?: ClarifyIntentHint | null,
 ): string {
   // Mode C (clarify) は専用の短いプロンプト
   if (responseMode === "clarify") {
+    const type = clarifyType ?? "missing_info";
+    const intro = type === "understanding"
+      ? [
+          "# 理解を深めるための確認",
+          "",
+          "あなたはこの人を最も理解している、やさしく判断を支える存在。",
+          "表面的な情報はあるが、判断の核（動機・引っかかり・本当の望み）が見えない。",
+          "理解を深めるために、**自然な関心として1問だけ**聞く。",
+        ]
+      : [
+          "# 確認モード",
+          "",
+          "あなたはこの人を最も理解している、やさしく判断を支える存在。",
+          "今回は情報が不十分で断言すると的外れになるリスクがある。",
+          "判断精度を上げるために、**1問だけ**やさしく聞く。",
+        ];
     const sections: string[] = [
-      "# 確認モード",
+      ...intro,
       "",
-      "あなたはこの人を最も理解している、やさしく判断を支える存在。",
-      "今回は情報が不十分で断言すると的外れになるリスクがある。",
-      "判断精度を上げるために、**1問だけ**やさしく聞く。",
-      "",
-      ...buildClarifyFormatSection(queryContext, relationalLens ?? null),
+      ...buildClarifyFormatSection(queryContext, relationalLens ?? null, type, clarifyIntentHint),
       "",
       "# 制約",
       `- 一人称「僕」`,
@@ -3650,7 +4131,8 @@ export function validateResponseQuality(
   if (metadata && skeleton.response_mode === "conclude") {
     const SHAPE_ORDER: Record<ActionShape, number> = {
       skip: 0, defer_with_trigger: 1, observe_first: 2,
-      prepare_then_go: 3, bounded_go: 4, full_go: 5,
+      prepare_then_go: 3, trial_then_decide: 3.5,
+      bounded_go: 4, delegate_or_request: 4.5, full_go: 5,
     };
     const diff = Math.abs(SHAPE_ORDER[skeleton.action_shape] - SHAPE_ORDER[metadata.action_shape]);
     if (diff >= 3) {

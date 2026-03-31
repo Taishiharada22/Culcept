@@ -7,9 +7,9 @@
  */
 
 const BETA_TESTER_EMAILS: string[] = [
-  "th7328aish@outlook.com",
-  "th6193aish@outlook.com",
-  "th200122aish@icloud.com",
+  "aneurasync@outlook.com",
+  "hikariharada86@icloud.com",
+  "zawane0903@gmail.com",
 ];
 
 /**

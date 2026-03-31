@@ -244,13 +244,13 @@ export default function StargazerHero({
 
       {/* ── コンテンツ ── */}
       <motion.div
-        className="relative z-10 flex flex-col items-center justify-center px-4 pt-8 pb-6"
+        className="relative z-10 flex flex-col items-center justify-center px-4 pt-4 pb-3"
         style={{ opacity: starsOpacity }}
       >
         {/* 星座キャンバス */}
         <div
-          className="relative mb-4"
-          style={{ width: 140, height: 140 }}
+          className="relative mb-2"
+          style={{ width: 100, height: 100 }}
         >
           <canvas
             ref={canvasRef}

@@ -253,7 +253,7 @@ export default function TodaySummary({
       try {
         const now = new Date();
         const dateKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-        localStorage.setItem(`sg_morning_${dateKey}`, JSON.stringify({ questionId, answer, responseTimeMs, answeredAt: now.toISOString() }));
+        safeSetItem(`sg_morning_${dateKey}`, JSON.stringify({ questionId, answer, responseTimeMs, answeredAt: now.toISOString() }));
       } catch { /* silent */ }
 
       // Generate vanishing insight if none active

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { APPEARANCE_SHARED_CATEGORY } from "@/lib/rendezvous/appearanceShared";
 
 const VALID_PRIORITY_VALUES = new Set(["face", "style", "personality"]);
 
@@ -53,8 +54,8 @@ export async function GET(request: NextRequest) {
       );
 
     const userId = auth.user.id;
-    const category =
-      request.nextUrl.searchParams.get("category") ?? "romantic";
+    // 外見の好みは恋愛・パートナー共通。常に共通カテゴリから読む
+    const category = APPEARANCE_SHARED_CATEGORY;
 
     const { data, error } = await supabaseAdmin
       .from("rendezvous_ideal_partner_profiles")
@@ -120,7 +121,8 @@ export async function POST(request: NextRequest) {
     const userId = auth.user.id;
     const body = await request.json();
 
-    const category = body.category ?? "romantic";
+    // 外見の好みは恋愛・パートナー共通。常に共通カテゴリに保存
+    const category = APPEARANCE_SHARED_CATEGORY;
 
     // Validate matchingPriority if provided
     if (body.matchingPriority !== undefined) {

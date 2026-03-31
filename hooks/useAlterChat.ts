@@ -22,12 +22,12 @@ export type AlterChatState = {
   error: string | null;
   /** 今日の累計 Alter 応答数 */
   roundCount: number;
-  /** 1日3ラリー上限に達したか */
+  /** 1日5ラリー上限に達したか */
   limitReached: boolean;
 };
 
-/** 1日あたりの無料ラリー数 */
-const MAX_DAILY_ROUNDS = 3;
+/** 1日あたりの無料ラリー数（clarify は非消費のため、サーバー側とは別カウント） */
+const MAX_DAILY_ROUNDS = 5;
 
 /** localStorage key for daily usage tracking */
 const DAILY_USAGE_KEY = "aneurasync_alter_daily_v1";
@@ -71,8 +71,9 @@ type UseAlterChatOptions = {
 
 /**
  * Home 用の軽量 Alter チャット Hook。
- * 1日3ラリー（JST 0時リセット）まで Home 内で会話し、それ以上は Deep Alter に誘導。
+ * 1日5ラリー（JST 0時リセット、clarify非消費）まで Home 内で会話し、それ以上は Deep Alter に誘導。
  * localStorage で高速チェック + API 側 DB バリデーションの二重制御。
+ * βテスターは API レスポンスで判定し、クライアント側制限を完全バイパス。
  *
  * homeContext を渡すと、Alter がパーソナリティデータ + 今日の状態データに
  * 基づいて「判断AI」として応答する。
@@ -86,6 +87,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [lastActionShape, setLastActionShape] = useState<ActionShape | null>(null);
   const [lastDomain, setLastDomain] = useState<string | null>(null);
   const [lastIsEmotional, setLastIsEmotional] = useState(false);
+  const [lastResponseId, setLastResponseId] = useState<string | null>(null);
+  const [lastFeedbackMeta, setLastFeedbackMeta] = useState<Record<string, unknown> | null>(null);
+  /** βテスターフラグ（API レスポンスから取得、制限バイパス用） */
+  const [isBetaTester, setIsBetaTester] = useState(false);
   /** 今日の既存使用回数（localStorage から初期読み込み） */
   const [priorDailyCount, setPriorDailyCount] = useState<number>(() => readDailyUsage());
   const abortRef = useRef<AbortController | null>(null);
@@ -94,8 +99,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
-  const limitReached = roundCount >= MAX_DAILY_ROUNDS;
-  const remainingRounds = Math.max(0, MAX_DAILY_ROUNDS - roundCount);
+  // βテスターは制限なし
+  const limitReached = isBetaTester ? false : roundCount >= MAX_DAILY_ROUNDS;
+  const remainingRounds = isBetaTester
+    ? MAX_DAILY_ROUNDS // βテスターには常に最大値を表示（実質無制限）
+    : Math.max(0, MAX_DAILY_ROUNDS - roundCount);
 
   const sendMessage = useCallback(async (text: string) => {
     const trimmed = text.trim();
@@ -148,6 +156,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
       const data = await res.json();
 
+      // βテスターフラグを API レスポンスから取得（初回のみセット）
+      if (data.isBetaTester && !isBetaTester) {
+        setIsBetaTester(true);
+      }
+
       const alterMsg: AlterMessage = {
         id: `alter-${Date.now()}`,
         role: "alter",
@@ -173,8 +186,14 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       if (data.queryContext?.domain) {
         setLastDomain(data.queryContext.domain);
       }
+      if (data.responseId) {
+        setLastResponseId(data.responseId);
+      }
+      if (data.feedbackMeta) {
+        setLastFeedbackMeta(data.feedbackMeta);
+      }
 
-      // localStorage の日次カウントを更新
+      // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
       const newTotal = priorDailyCount + sessionAlterCount + 1;
       writeDailyUsage(newTotal);
 
@@ -185,7 +204,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId]);
+  }, [loading, limitReached, sessionId, isBetaTester]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -197,6 +216,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setLastActionShape(null);
     setLastDomain(null);
     setLastIsEmotional(false);
+    setLastResponseId(null);
+    setLastFeedbackMeta(null);
   }, []);
 
   return {
@@ -211,6 +232,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     sendMessage,
     reset,
     isActive: messages.length > 0,
+    /** βテスターか（制限バイパス中） */
+    isBetaTester,
     /** 直近の Alter 応答の推論根拠（WhyCard 連携用） */
     lastReasoningBasis,
     /** 直近の action_shape（体験接続CTA用） */
@@ -219,5 +242,9 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     lastDomain,
     /** 直近の質問が感情質問だったか */
     lastIsEmotional,
+    /** 直近のresponse_id（フィードバック紐付け用） */
+    lastResponseId,
+    /** 直近のフィードバック用メタデータ */
+    lastFeedbackMeta,
   } as const;
 }

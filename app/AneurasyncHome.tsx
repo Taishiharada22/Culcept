@@ -74,9 +74,9 @@ function FirstObservationCard() {
   ));
 
   return (
-    <section className="px-4 pb-3">
+    <section className="px-4 pb-3" style={{ breakInside: "avoid" }}>
       <HomeCard tier="primary" href="/stargazer">
-        <div className="absolute top-3 right-3 text-[9px] text-indigo/50 font-mono tracking-wide">
+        <div className="absolute top-3 right-3 text-[9px] text-indigo/50 font-mono tracking-wide whitespace-nowrap">
           {hoursLeft > 0 ? `${hoursLeft}h で消えます` : "まもなく消えます"}
         </div>
         <CardLabel tier="primary">YOUR FIRST OBSERVATION</CardLabel>
@@ -436,6 +436,8 @@ export default function AneurasyncHome() {
                 alterActionShape={alterChat.lastActionShape}
                 alterDomain={alterChat.lastDomain}
                 alterIsEmotional={alterChat.lastIsEmotional}
+                alterResponseId={alterChat.lastResponseId}
+                alterFeedbackMeta={alterChat.lastFeedbackMeta}
                 hideGreeting
                 hideContextWhisper
                 nudge={{
@@ -478,21 +480,23 @@ export default function AneurasyncHome() {
           )}
 
           {/* ─── 8. RENDEZVOUS — ★ 主役：観測が出会いになる ─── */}
-          <section className="px-4 pt-4 pb-1" data-tour="rendezvous">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px]" style={{ color: "#A855F7", opacity: 0.6 }}>∞</span>
-              <span className="text-[9px] font-mono tracking-wider" style={{ color: "#A855F7", opacity: 0.5 }}>
-                つながる
-              </span>
-              <div className="flex-1 h-px bg-black/[0.08]" />
-            </div>
-          </section>
-          <ZoneErrorBoundary zoneName="reality">
-            <RealityPort
-              observationCount={obsCount}
-              syncPercent={syncPercent}
-            />
-          </ZoneErrorBoundary>
+          <div data-tour="rendezvous">
+            <section className="px-4 pt-4 pb-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px]" style={{ color: "#A855F7", opacity: 0.6 }}>∞</span>
+                <span className="text-[9px] font-mono tracking-wider" style={{ color: "#A855F7", opacity: 0.5 }}>
+                  つながる
+                </span>
+                <div className="flex-1 h-px bg-black/[0.08]" />
+              </div>
+            </section>
+            <ZoneErrorBoundary zoneName="reality">
+              <RealityPort
+                observationCount={obsCount}
+                syncPercent={syncPercent}
+              />
+            </ZoneErrorBoundary>
+          </div>
 
           {/* ─── 9. DEEP IDENTITY — Genome / Card / Presence ─── */}
           <section className="px-4 pb-4" data-tour="deep-identity">

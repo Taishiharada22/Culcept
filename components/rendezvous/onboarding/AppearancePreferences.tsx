@@ -17,6 +17,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard, GlassButton, GlassBadge } from "@/components/ui/glassmorphism-design";
 import { FACE_TYPES, type FaceTypeId } from "@/lib/rendezvous/faceTypes";
+import { APPEARANCE_SHARED_CATEGORY } from "@/lib/rendezvous/appearanceShared";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,8 +120,10 @@ export default function AppearancePreferences({
   initialData,
   onComplete,
   standalone = false,
-  category = "romantic",
+  category: _categoryProp,
 }: Props) {
+  // 外見の好みは恋愛・パートナー共通。常に共通カテゴリを使う
+  const category = APPEARANCE_SHARED_CATEGORY;
   // --- State ---
   const [priorities, setPriorities] = useState<string[]>(
     initialData?.matchingPriority?.priorities ?? ["personality", "face", "style"],

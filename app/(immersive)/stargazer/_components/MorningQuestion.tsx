@@ -396,6 +396,18 @@ export default function MorningQuestion({
   const [typedInsight, setTypedInsight] = useState("");
   const startTimeRef = useRef<number>(Date.now());
 
+  // SSR hydration guard: re-check localStorage on client mount
+  useEffect(() => {
+    const existing = getStoredAnswer();
+    if (existing && state === "unanswered") {
+      const opt = question.options.find((o) => o.value === existing.answer) || null;
+      setSelectedOption(opt);
+      setStoredAnswer(existing);
+      setState("answered");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Typewriter effect for insight
   useEffect(() => {
     if (state !== "revealing" || !selectedOption) return;
@@ -444,7 +456,7 @@ export default function MorningQuestion({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.22 }}
-            className="rounded-3xl overflow-hidden"
+            className="rounded-2xl overflow-hidden"
             style={{
               background: "rgba(255,255,255,0.08)",
               backdropFilter: "blur(24px)",
@@ -452,14 +464,14 @@ export default function MorningQuestion({
             }}
           >
             {/* Header */}
-            <div className="px-6 pt-6 pb-3">
-              <div className="flex items-center gap-2 mb-3">
+            <div className="px-4 pt-4 pb-2">
+              <div className="flex items-center gap-2 mb-2">
                 <div
-                  className="w-2 h-2 rounded-full"
+                  className="w-1.5 h-1.5 rounded-full"
                   style={{ background: "rgba(190,170,110,0.8)" }}
                 />
                 <span
-                  className="text-xs font-medium tracking-wider uppercase"
+                  className="text-[10px] font-medium tracking-wider uppercase"
                   style={{ color: "rgba(190,170,110,0.9)" }}
                 >
                   朝の一問
@@ -469,7 +481,7 @@ export default function MorningQuestion({
                 className="font-bold leading-snug"
                 style={{
                   fontFamily: "var(--font-display)",
-                  fontSize: "1.3rem",
+                  fontSize: "0.95rem",
                   color: "rgba(24,30,48,0.95)",
                 }}
               >
@@ -478,18 +490,18 @@ export default function MorningQuestion({
             </div>
 
             {/* Options */}
-            <div className="px-6 pb-6 space-y-3">
+            <div className="px-4 pb-4 space-y-1.5">
               {question.options.map((opt, i) => (
                 <motion.button
                   key={opt.value}
                   aria-label={`${opt.label}を選択する`}
                   onClick={() => handleSelect(opt)}
-                  className="w-full text-left px-4 py-4 rounded-2xl transition-colors"
+                  className="w-full text-left px-3 py-2.5 rounded-xl transition-colors"
                   style={{
                     background: "rgba(255,255,255,0.5)",
                     backdropFilter: "blur(12px)",
                     border: "1px solid rgba(255,255,255,0.6)",
-                    minHeight: "48px",
+                    minHeight: "36px",
                   }}
                   initial={{ opacity: 0, x: -12 }}
                   animate={{ opacity: 1, x: 0 }}
@@ -501,7 +513,7 @@ export default function MorningQuestion({
                   }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <span className="text-sm font-semibold text-slate-800">
+                  <span className="text-xs font-semibold text-slate-800">
                     {opt.label}
                   </span>
                 </motion.button>
@@ -518,21 +530,21 @@ export default function MorningQuestion({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22 }}
-            className="rounded-3xl overflow-hidden"
+            className="rounded-2xl overflow-hidden"
             style={{
               background: "rgba(255,255,255,0.08)",
               backdropFilter: "blur(24px)",
               border: "1px solid rgba(190,170,110,0.35)",
             }}
           >
-            <div className="px-6 py-6">
-              <div className="flex items-center gap-2 mb-4">
+            <div className="px-4 py-4">
+              <div className="flex items-center gap-2 mb-2">
                 <div
-                  className="w-2 h-2 rounded-full animate-pulse"
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
                   style={{ background: "rgba(190,170,110,0.8)" }}
                 />
                 <span
-                  className="text-xs font-medium"
+                  className="text-[10px] font-medium"
                   style={{ color: "rgba(190,170,110,0.9)" }}
                 >
                   解析中...
@@ -541,22 +553,22 @@ export default function MorningQuestion({
 
               {/* Selected answer */}
               <div
-                className="px-4 py-2 rounded-xl mb-4 inline-block"
+                className="px-3 py-1 rounded-lg mb-3 inline-block"
                 style={{
                   background: "rgba(190,170,110,0.1)",
                   border: "1px solid rgba(190,170,110,0.3)",
                 }}
               >
-                <span className="text-sm font-medium text-slate-700">
+                <span className="text-xs font-medium text-slate-700">
                   {selectedOption.label}
                 </span>
               </div>
 
               {/* Typewriter insight */}
-              <p className="text-base font-medium text-slate-800 leading-relaxed min-h-[3.5rem]">
+              <p className="text-sm font-medium text-slate-800 leading-relaxed min-h-[2.5rem]">
                 {typedInsight}
                 <motion.span
-                  className="inline-block w-[3px] h-5 ml-0.5 align-middle rounded-full"
+                  className="inline-block w-[2px] h-4 ml-0.5 align-middle rounded-full"
                   style={{ background: "rgba(190,170,110,0.8)" }}
                   animate={{ opacity: [1, 0] }}
                   transition={{ duration: 0.6, repeat: Infinity }}
@@ -573,32 +585,32 @@ export default function MorningQuestion({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.22 }}
-            className="rounded-3xl overflow-hidden"
+            className="rounded-2xl overflow-hidden"
             style={{
               background: "rgba(255,255,255,0.06)",
               backdropFilter: "blur(24px)",
               border: "1px solid rgba(190,170,110,0.2)",
             }}
           >
-            <div className="px-6 py-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
+            <div className="px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
                   <div
-                    className="w-2 h-2 rounded-full"
+                    className="w-1.5 h-1.5 rounded-full"
                     style={{ background: "rgba(190,170,110,0.6)" }}
                   />
-                  <span className="text-xs font-medium text-slate-400">
-                    今日の回答済み
+                  <span className="text-[10px] font-medium text-slate-400">
+                    回答済み
                   </span>
                 </div>
-                <span className="text-xs text-slate-400">
+                <span className="text-[10px] text-slate-400 truncate max-w-[60%]">
                   {question.prompt}
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <div
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium"
+                  className="px-2 py-1 rounded-lg text-[11px] font-medium"
                   style={{
                     background: "rgba(190,170,110,0.1)",
                     color: "rgba(140,120,60,1)",
@@ -609,28 +621,9 @@ export default function MorningQuestion({
                 </div>
               </div>
 
-              <p className="text-sm text-slate-600 leading-relaxed mb-4">
+              <p className="text-xs text-slate-600 leading-relaxed">
                 {selectedOption.insight}
               </p>
-
-              {/* Vanishing insight tease */}
-              <div
-                className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                style={{
-                  background: "rgba(190,170,110,0.06)",
-                  border: "1px solid rgba(190,170,110,0.15)",
-                }}
-              >
-                <motion.div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: "rgba(190,170,110,0.7)" }}
-                  animate={{ opacity: [0.4, 1, 0.4] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-                <span className="text-xs text-slate-500">
-                  この回答をもとに、消えるインサイトが生成されます
-                </span>
-              </div>
             </div>
           </motion.div>
         )}

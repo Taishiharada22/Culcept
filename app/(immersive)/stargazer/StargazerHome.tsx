@@ -12,6 +12,7 @@ import type { TraitAxisKey } from "@/lib/stargazer/traitAxes";
 import FeatureIntroduction from "@/components/ui/FeatureIntroduction";
 import { STARGAZER_INTRO } from "@/lib/ui/featureIntroConfigs";
 import { safeLSSet } from "@/lib/safeLocalStorage";
+import { safeSetItem, purgeStaleKeys } from "@/lib/stargazer/localStorageHelper";
 import CrossFeatureRecoCards from "./_components/CrossFeatureRecoCards";
 import Stage1Flow from "./_components/Stage1Flow";
 import type { TypeDefLike } from "@/lib/stargazer/dailyInsightEngine";
@@ -291,6 +292,9 @@ export default function StargazerHome() {
     }
   }, [playDepthDive, haptics]);
 
+  // Proactively free stale localStorage keys on mount to prevent QuotaExceededError
+  useEffect(() => { purgeStaleKeys(); }, []);
+
   // Passive footprint tracking per tab
   useFootprintTracker({ feature: `stargazer:${activeTab}` });
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -361,7 +365,7 @@ export default function StargazerHome() {
       // Delay after celebrations/overlays
       const timer = setTimeout(() => {
         setShowStoryToast(true);
-        localStorage.setItem(STORY_TOAST_LS_KEY, "1");
+        safeSetItem(STORY_TOAST_LS_KEY, "1");
       }, 4000);
       return () => clearTimeout(timer);
     } catch { /* silent */ }
@@ -882,7 +886,7 @@ export default function StargazerHome() {
         }
         // 最大90日分保持
         while (stored.length > 90) stored.shift();
-        localStorage.setItem(HISTORY_KEY, JSON.stringify(stored));
+        safeSetItem(HISTORY_KEY, JSON.stringify(stored));
         setAxisHistory(stored);
       } catch { /* silent */ }
 
@@ -1401,7 +1405,14 @@ export default function StargazerHome() {
         const todayPred = previous.find(
           (p) => p.id === `pred_daily_${dateStr}`,
         );
-        if (todayPred) setTodayPrediction(todayPred);
+        if (todayPred) {
+          setTodayPrediction(todayPred);
+        } else {
+          // previous was limited to 10; reload all to find today's
+          const all = loadPredictions();
+          const found = all.find((p) => p.id === `pred_daily_${dateStr}`);
+          if (found) setTodayPrediction(found);
+        }
       }
 
       // Load pending verifications from previous days (exclude already verified)
@@ -1551,6 +1562,18 @@ export default function StargazerHome() {
     }, 1800);
     return () => clearTimeout(timer);
   }, []);
+
+  // Auto-scroll: ページロード時にタブナビ+コンテンツが画面最上部に来るようスクロール
+  useEffect(() => {
+    // ツアーが出る場合やまだデータ読み込み中の場合はスクロールしない
+    if (tabTourPendingRef.current) return;
+    const timer = setTimeout(() => {
+      if (tabBarRef.current) {
+        tabBarRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [hasData]); // hasData が確定したらスクロール
 
   // System connection summary
   const connectionSummary = hasData
@@ -1742,7 +1765,7 @@ export default function StargazerHome() {
         />
       )}
 
-      {/* Feature Unlock Toast — only when it's the active overlay AND no milestone showing */}
+      {/* Feature Unlock Toast */}
       {activeOverlay === "featureUnlock" && activeUnlock && activeMilestone === null && (
         <FeatureUnlockToast
           feature={activeUnlock}
@@ -1755,7 +1778,6 @@ export default function StargazerHome() {
             markUnlockNotified(activeUnlock.feature);
             setActiveUnlock(null);
             advanceOverlay();
-            // 機能名からルートへのマッピング
             const routeMap: Record<string, string> = {
               morning_question: "/stargazer",
               blind_spot: "/stargazer/blind-spot",
@@ -1827,20 +1849,20 @@ export default function StargazerHome() {
       )}
 
       {/* Header */}
-      <header className="px-4 pt-4 pb-4">
+      <header className="px-4 pt-2 pb-2">
         <div className="mx-auto max-w-6xl">
           <div
             className="card-hero"
             style={{ animation: "sg-fade-up 0.5s ease-out both" }}
           >
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div className="space-y-1.5">
                 <span className="sg-text-micro">個人観測所</span>
                 <div>
-                  <h1 className="sg-text-hero tracking-wide">
-                    Stargazer
+                  <h1 className="sg-text-hero tracking-wide" style={{ fontSize: "clamp(1.5rem, 5vw, 2rem)" }}>
+                    Stars
                   </h1>
-                  <p className="sg-text-caption mt-2" style={{ lineHeight: 1.8 }}>
+                  <p className="sg-text-caption mt-1" style={{ lineHeight: 1.6 }}>
                     答えるたびに、自分の輪郭が見えてくる
                   </p>
                 </div>
@@ -1918,6 +1940,121 @@ export default function StargazerHome() {
         </div>
       </header>
 
+      {/* ═══ Priority: MorningQuestion + Today's prediction — ヘッダー直下 ═══ */}
+      <div className="px-4 pb-1">
+        <div className="mx-auto max-w-6xl space-y-2">
+          <MorningQuestion
+            onAnswer={(questionId, answer, responseTimeMs) => {
+              updateEngagementField("morningQuestionAnswered", true);
+              fetch("/api/stargazer/observations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  type: "morning_question",
+                  answers: [{
+                    variantId: questionId,
+                    score: 0,
+                    responseTimeMs,
+                    optionId: answer,
+                  }],
+                }),
+              }).catch((e) => console.warn("[MorningQuestion] DB save failed (non-fatal):", e));
+            }}
+            totalObservations={totalObservations}
+          />
+
+          {todayPrediction && !todayPrediction.verified && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="card-info"
+              style={{ padding: "10px 14px" }}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-xs">🔮</span>
+                <span className="text-[10px] font-medium" style={{ color: "rgba(168,130,58,0.8)" }}>今日の予測</span>
+              </div>
+              <p className="text-xs leading-relaxed mb-2" style={{ color: "rgba(20,25,45,0.85)" }}>
+                {todayPrediction.prediction}
+              </p>
+              <div className="flex gap-2">
+                {(["correct", "partially", "wrong"] as const).map((fb) => (
+                  <motion.button
+                    key={fb}
+                    onClick={() => {
+                      try {
+                        updateEngagementField("predictionVerified", true);
+                        updatePredictionVerification(todayPrediction.id, fb);
+                        updateLearningFromFeedback(todayPrediction.id, fb);
+                        setTodayPrediction((prev) =>
+                          prev ? { ...prev, verified: true, userFeedback: fb, accurate: fb === "correct" } : null,
+                        );
+                        setPendingVerifications((prev) => prev.filter((p) => p.id !== todayPrediction.id));
+                        const updated = loadPredictions(10);
+                        const newAccRate = calculateAccuracy(updated).accuracyRate;
+                        setPredictionAccuracy(newAccRate);
+                      } catch { /* silent */ }
+                    }}
+                    className="flex-1 py-2 rounded-lg text-[11px] font-semibold transition-colors"
+                    style={{
+                      background: fb === "correct" ? "rgba(34,197,94,0.1)" : fb === "partially" ? "rgba(234,179,8,0.1)" : "rgba(239,68,68,0.1)",
+                      color: fb === "correct" ? "rgba(34,197,94,0.9)" : fb === "partially" ? "rgba(180,140,20,0.9)" : "rgba(220,60,60,0.9)",
+                      border: `1px solid ${fb === "correct" ? "rgba(34,197,94,0.2)" : fb === "partially" ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)"}`,
+                      minHeight: "32px",
+                    }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {fb === "correct" ? "的中" : fb === "partially" ? "部分的" : "外れ"}
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+          {/* RV（関係性観測）導線 — 累計30回以上 & 未完了 */}
+          {hasData && totalObservations >= 30 && (() => {
+            const rvDone = typeof window !== "undefined" && localStorage.getItem("culcept_sg_rv_completed_v1") === "true";
+            if (rvDone) return null;
+            return (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-2xl p-3"
+                style={{
+                  background: "rgba(160,150,210,0.06)",
+                  border: "1px solid rgba(160,150,210,0.15)",
+                }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-sm">🔭</span>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold" style={{ color: "rgba(30,35,55,0.85)" }}>
+                        関係性の深層観測
+                      </p>
+                      <p className="text-[10px] truncate" style={{ color: "rgba(60,65,85,0.5)" }}>
+                        恋愛・友情・共創 — もう一人の自分を観測
+                      </p>
+                    </div>
+                  </div>
+                  <motion.button
+                    onClick={() => { window.location.href = "/stargazer?rv=start"; }}
+                    className="flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold rounded-lg"
+                    style={{
+                      background: "rgba(160,150,210,0.12)",
+                      border: "1px solid rgba(160,150,210,0.2)",
+                      color: "rgba(80,75,110,0.9)",
+                    }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    始める
+                  </motion.button>
+                </div>
+              </motion.div>
+            );
+          })()}
+        </div>
+      </div>
+
       {/* Push Notification Permission Banner */}
       {totalObservations > 0 && (
         <PushPermissionBanner
@@ -1931,7 +2068,7 @@ export default function StargazerHome() {
       )}
 
       {/* Tab Navigation */}
-      <nav className="sticky top-0 z-30 px-4 pb-4">
+      <nav className="sticky top-0 z-30 px-4 pb-2">
         <div className="mx-auto max-w-6xl">
           <div
             ref={tabBarRef}
@@ -1955,8 +2092,8 @@ export default function StargazerHome() {
                   aria-selected={isActive}
                   aria-label={`${tab.label}タブ: ${tab.sublabel}`}
                   onClick={() => handleTabChange(tab.key)}
-                  className="relative flex-1 rounded-xl py-3.5 text-center transition-all duration-200"
-                  style={{ minHeight: 56 }}
+                  className="relative flex-1 rounded-xl py-2 text-center transition-all duration-200"
+                  style={{ minHeight: 44 }}
                 >
                   {/* Active background */}
                   <div
@@ -2520,61 +2657,7 @@ function ObserveTabShell({
         </motion.div>
       )}
 
-      {/* ═══ Priority 2: MorningQuestion + Today's key insight ═══ */}
-      <MorningQuestion
-        onAnswer={(questionId, answer, responseTimeMs) => {
-          updateEngagementField("morningQuestionAnswered", true);
-          fetch("/api/stargazer/observations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "morning_question",
-              answers: [{
-                variantId: questionId,
-                score: 0,
-                responseTimeMs,
-                optionId: answer,
-              }],
-            }),
-          }).catch((e) => console.warn("[MorningQuestion] DB save failed (non-fatal):", e));
-        }}
-        totalObservations={totalObservations}
-      />
-
-      {/* Today's prediction card */}
-      {todayPrediction && !todayPrediction.verified && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="card-info"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm">🔮</span>
-            <span className="text-xs font-medium" style={{ color: "rgba(168,130,58,0.8)" }}>今日の予測</span>
-          </div>
-          <p className="text-sm leading-relaxed" style={{ color: "rgba(20,25,45,0.85)" }}>
-            {todayPrediction.prediction}
-          </p>
-          <div className="flex gap-3 mt-3">
-            {(["correct", "partially", "wrong"] as const).map((fb) => (
-              <motion.button
-                key={fb}
-                onClick={() => onUpdatePredictionVerification(todayPrediction.id, fb)}
-                className="flex-1 py-3 rounded-xl text-xs font-semibold transition-colors"
-                style={{
-                  background: fb === "correct" ? "rgba(34,197,94,0.1)" : fb === "partially" ? "rgba(234,179,8,0.1)" : "rgba(239,68,68,0.1)",
-                  color: fb === "correct" ? "rgba(34,197,94,0.9)" : fb === "partially" ? "rgba(180,140,20,0.9)" : "rgba(220,60,60,0.9)",
-                  border: `1px solid ${fb === "correct" ? "rgba(34,197,94,0.2)" : fb === "partially" ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)"}`,
-                  minHeight: "44px",
-                }}
-                whileTap={{ scale: 0.95 }}
-              >
-                {fb === "correct" ? "的中" : fb === "partially" ? "部分的" : "外れ"}
-              </motion.button>
-            ))}
-          </div>
-        </motion.div>
-      )}
+      {/* MorningQuestion + Today's prediction moved to header area above tab bar */}
 
       {/* ═══ Priority 3: Main observation interface + scrollable content ═══ */}
       <div id="sg-observe-interface">

@@ -97,6 +97,20 @@ export interface AlterPersonality {
   shadowBlindSpot: string;
   /** 軸スコア（応答の微調整に使用） */
   axisScores: Partial<Record<TraitAxisKey, number>>;
+  /** この人の強み（archetypeDef.strengths由来） */
+  strengths: string[];
+  /** 成長の鍵（archetypeDef.growthKey由来） */
+  growthKey: string;
+  /** 核心的な恐れ（archetypeDef.coreFear由来） */
+  coreFear: string;
+  /** 核心的な欲求（archetypeDef.coreDesire由来） */
+  coreDesire: string;
+  /** 安全な状態の描写 */
+  safeState: string;
+  /** ストレス時の描写 */
+  stressState: string;
+  /** 内的矛盾 */
+  innerContradiction: string;
 }
 
 /** Alter 構築の入力データ */
@@ -536,6 +550,13 @@ export function buildAlterPersonality(input: AlterInput): AlterPersonality {
     blindSpot: mainDef?.blindSpots[0] ?? "",
     shadowBlindSpot: shadowDef?.blindSpots[0] ?? "",
     axisScores,
+    strengths: mainDef?.strengths ?? [],
+    growthKey: mainDef?.growthKey ?? "",
+    coreFear: mainDef?.coreFear ?? "",
+    coreDesire: mainDef?.coreDesire ?? "",
+    safeState: mainDef?.safeState ?? "",
+    stressState: mainDef?.stressState ?? "",
+    innerContradiction: mainDef?.innerContradiction ?? "",
   };
 }
 

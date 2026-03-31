@@ -160,7 +160,7 @@ export default function FeatureIntroduction({
 
           {/* Card */}
           <motion.div
-            className="relative mx-5 w-full max-w-sm rounded-2xl border border-white/40 bg-white/95 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50"
+            className="relative mx-5 w-full max-w-xs rounded-xl border border-white/40 bg-white/95 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50"
             initial={{ opacity: 0, scale: 0.92, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: 24 }}
@@ -170,57 +170,57 @@ export default function FeatureIntroduction({
             <button
               type="button"
               onClick={handleSkipIntro}
-              className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-slate-100/80 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+              className="absolute right-2.5 top-2.5 flex h-6 w-6 items-center justify-center rounded-full bg-slate-100/80 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
               aria-label="閉じる"
             >
-              <span className="text-sm">✕</span>
+              <span className="text-xs">✕</span>
             </button>
 
-            <div className="px-6 pb-6 pt-5 space-y-4">
+            <div className="px-4 pb-4 pt-3.5 space-y-2.5">
               {/* Header */}
-              <div className="flex items-center gap-3">
-                <span className="text-3xl">{introIcon}</span>
-                <h2 className="text-lg font-bold text-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{introIcon}</span>
+                <h2 className="text-base font-bold text-slate-800">
                   {introTitle}
                 </h2>
               </div>
 
               {/* Sections */}
-              <div className="space-y-3">
-                <div className="rounded-xl bg-slate-50/80 p-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              <div className="space-y-2">
+                <div className="rounded-lg bg-slate-50/80 p-2.5 space-y-0.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                     ここには何が？
                   </p>
-                  <p className="text-sm leading-relaxed text-slate-700">
+                  <p className="text-xs leading-relaxed text-slate-700">
                     {introDescription}
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-slate-50/80 p-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <div className="rounded-lg bg-slate-50/80 p-2.5 space-y-0.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                     できること
                   </p>
-                  <p className="text-sm leading-relaxed text-slate-700">
+                  <p className="text-xs leading-relaxed text-slate-700">
                     {introActions}
                   </p>
                 </div>
 
-                <div className="rounded-xl bg-gradient-to-br from-indigo-50/80 to-violet-50/80 p-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+                <div className="rounded-lg bg-gradient-to-br from-indigo-50/80 to-violet-50/80 p-2.5 space-y-0.5">
+                  <p className="text-[9px] font-bold uppercase tracking-wider text-indigo-400">
                     入力するとどうなる？
                   </p>
-                  <p className="text-sm leading-relaxed text-slate-700">
+                  <p className="text-xs leading-relaxed text-slate-700">
                     {introBenefit}
                   </p>
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-3 pt-1">
+              <div className="flex items-center gap-2 pt-0.5">
                 <button
                   type="button"
                   onClick={handleSkipIntro}
-                  className="text-sm text-slate-400 transition-colors hover:text-slate-600"
+                  className="text-xs text-slate-400 transition-colors hover:text-slate-600"
                 >
                   スキップ
                 </button>
@@ -228,7 +228,7 @@ export default function FeatureIntroduction({
                 {tabs.length > 0 ? (
                   <GlassButton
                     variant="primary"
-                    size="md"
+                    size="sm"
                     onClick={handleDismissIntro}
                   >
                     タブツアーへ →
@@ -236,7 +236,7 @@ export default function FeatureIntroduction({
                 ) : (
                   <GlassButton
                     variant="primary"
-                    size="md"
+                    size="sm"
                     onClick={handleSkipIntro}
                   >
                     はじめる
@@ -289,13 +289,13 @@ export default function FeatureIntroduction({
           exit={{ opacity: 0, y: -8 }}
           transition={{ type: "spring", damping: 24, stiffness: 280 }}
         >
-          <div className="w-full max-w-sm rounded-2xl border border-white/40 bg-white/95 px-5 py-5 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50 pointer-events-auto">
+          <div className="w-full max-w-xs rounded-xl border border-white/40 bg-white/95 px-4 py-3.5 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50 pointer-events-auto">
             {/* Step indicators */}
-            <div className="mb-4 flex items-center gap-1.5">
+            <div className="mb-2 flex items-center gap-1">
               {tabs.map((_, i) => (
                 <span
                   key={i}
-                  className={`inline-block h-1.5 w-1.5 rounded-full transition-colors ${
+                  className={`inline-block h-1 w-1 rounded-full transition-colors ${
                     i === tourStep
                       ? "bg-indigo-500"
                       : i < tourStep
@@ -304,39 +304,39 @@ export default function FeatureIntroduction({
                   }`}
                 />
               ))}
-              <span className="ml-auto text-[10px] text-slate-400">
-                {tourStep + 1} / {tabs.length}
+              <span className="ml-auto text-[9px] text-slate-400">
+                {tourStep + 1}/{tabs.length}
               </span>
             </div>
 
             {/* Tab icon + label */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-2xl">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-lg">
                 {currentTab.icon}
               </span>
-              <span className="text-sm font-bold text-indigo-600 uppercase tracking-wider">
+              <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
                 {currentTab.label}
               </span>
             </div>
 
-            <h3 className="text-base font-bold text-slate-800 mb-2">
+            <h3 className="text-sm font-bold text-slate-800 mb-1">
               {currentTab.title}
             </h3>
-            <p className="text-sm leading-relaxed text-slate-600">
+            <p className="text-xs leading-relaxed text-slate-600">
               {currentTab.description}
             </p>
 
             {/* Actions */}
-            <div className="mt-5 flex items-center gap-3">
+            <div className="mt-3 flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleTourSkip}
-                className="text-sm text-slate-400 transition-colors hover:text-slate-600"
+                className="text-xs text-slate-400 transition-colors hover:text-slate-600"
               >
                 スキップ
               </button>
               <div className="flex-1" />
-              <GlassButton variant="primary" size="md" onClick={handleTourNext}>
+              <GlassButton variant="primary" size="sm" onClick={handleTourNext}>
                 {isLast ? "はじめる" : "次へ"}
               </GlassButton>
             </div>

@@ -65,7 +65,7 @@ const TIERS: TierConfig[] = [
     colorGlow: "rgba(212,119,107,0.15)",
     colorSoft: "rgba(212,119,107,0.05)",
     path: "/rendezvous/partner",
-    badge: "本人確認必須",
+    badge: "恋愛クリア済みの方",
   },
 ];
 

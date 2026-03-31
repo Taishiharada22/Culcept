@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import type { AlterMessage } from "@/hooks/useAlterChat";
 import type { ActionShape } from "@/lib/stargazer/alterHomeAdapter";
+import { AlterFeedback } from "@/components/stargazer/AlterFeedback";
 
 const SUGGESTION_CHIPS = [
   { label: "今日どう動くのがいい？", icon: "⚡" },
@@ -21,7 +22,9 @@ const ACTION_SHAPE_CTA: Record<ActionShape, { label: string; icon: string }> = {
   full_go: { label: "今すぐやる", icon: "⚡" },
   bounded_go: { label: "15分だけやってみる", icon: "⏱" },
   prepare_then_go: { label: "まず下調べする", icon: "📋" },
+  trial_then_decide: { label: "小さく試してみる", icon: "🧪" },
   observe_first: { label: "少し様子を見る", icon: "👀" },
+  delegate_or_request: { label: "誰かに相談する", icon: "🤝" },
   defer_with_trigger: { label: "条件メモだけ残す", icon: "📌" },
   skip: { label: "今回は見送る", icon: "🛑" },
 };
@@ -46,13 +49,16 @@ const ACTION_SHAPE_DEST: Record<ActionShape, string | null> = {
   full_go: "/origin?from=alter&intent=action",
   bounded_go: "/origin?from=alter&intent=action",
   prepare_then_go: "/origin?from=alter&intent=action",
+  trial_then_decide: "/origin?from=alter&intent=action",
   observe_first: "/stargazer?from=alter&tab=observe",
+  delegate_or_request: "/origin?from=alter&intent=action",
   defer_with_trigger: "/origin?from=alter&intent=memo",
   skip: null, // 遷移なし
 };
 
 /** タイプライター風の例文ローテーション */
 const TYPEWRITER_EXAMPLES = [
+  "もう一人のあなたが何でも答えるよ",
   "今日どう動くのがベスト？",
   "最近モヤモヤするのはなぜ？",
   "この判断、自分らしい？",
@@ -61,14 +67,15 @@ const TYPEWRITER_EXAMPLES = [
   "今日何を着ればいい？",
 ];
 
-function useTypewriter(examples: string[], enabled: boolean) {
+function useTypewriter(examples: string[], enabled: boolean, options?: { loop?: boolean }) {
+  const loop = options?.loop ?? true;
   const [display, setDisplay] = useState("");
   const [exIdx, setExIdx] = useState(0);
   const [charIdx, setCharIdx] = useState(0);
-  const [phase, setPhase] = useState<"typing" | "pause" | "erasing">("typing");
+  const [phase, setPhase] = useState<"typing" | "pause" | "erasing" | "done">("typing");
 
   useEffect(() => {
-    if (!enabled) { setDisplay(""); return; }
+    if (!enabled) { setDisplay(""); setCharIdx(0); setPhase("typing"); return; }
     const text = examples[exIdx];
 
     if (phase === "typing") {
@@ -79,7 +86,8 @@ function useTypewriter(examples: string[], enabled: boolean) {
         }, 60 + Math.random() * 40); // 人間っぽいランダム速度
         return () => clearTimeout(t);
       }
-      setPhase("pause");
+      // 打ち終わり: loop=false なら done（カーソル点滅のみ）、loop=true なら pause→erase
+      setPhase(loop ? "pause" : "done");
     } else if (phase === "pause") {
       const t = setTimeout(() => setPhase("erasing"), 2000);
       return () => clearTimeout(t);
@@ -95,7 +103,8 @@ function useTypewriter(examples: string[], enabled: boolean) {
       setExIdx((i) => (i + 1) % examples.length);
       setPhase("typing");
     }
-  }, [enabled, exIdx, charIdx, phase, examples]);
+    // phase === "done" → 何もしない（カーソル点滅のみ）
+  }, [enabled, exIdx, charIdx, phase, examples, loop]);
 
   return display;
 }
@@ -169,6 +178,10 @@ type Props = {
   alterDomain?: string | null;
   /** 直近の質問が感情質問だったか */
   alterIsEmotional?: boolean;
+  /** 直近のresponse_id（フィードバック紐付け用） */
+  alterResponseId?: string | null;
+  /** 直近のフィードバック用メタデータ */
+  alterFeedbackMeta?: Record<string, unknown> | null;
   /** コンテキストナッジ用の状態 */
   nudge?: NudgeInput;
   /** true なら挨拶を非表示（親コンポーネントで表示する場合） */
@@ -192,6 +205,8 @@ export default function AskHero({
   alterActionShape,
   alterDomain,
   alterIsEmotional = false,
+  alterResponseId,
+  alterFeedbackMeta,
   nudge: nudgeInput,
   hideGreeting = false,
   hideContextWhisper = false,
@@ -205,6 +220,9 @@ export default function AskHero({
   const hasConversation = alterMessages.length > 0;
   const showTypewriter = !hasConversation && !focused && !query;
   const typewriterText = useTypewriter(TYPEWRITER_EXAMPLES, showTypewriter);
+  // フォローアップ時のタイプライター（会話中 + 未フォーカス + 未入力時）
+  const showFollowupTypewriter = hasConversation && !focused && !query && !alterLoading;
+  const followupTypewriterText = useTypewriter(["フォローアップ..."], showFollowupTypewriter, { loop: false });
   const nudges = nudgeInput ? deriveNudges(nudgeInput) : [];
   const nudge = useNudgeRotation(nudges);
 
@@ -288,9 +306,6 @@ export default function AskHero({
           >
             ALTER
           </span>
-          <span className="text-[10px] text-text3" style={{ opacity: 0.7 }}>
-            もう一人のあなたが何でも答えるよ
-          </span>
           {hasConversation ? (
             <span className="text-[8px] font-mono ml-auto" style={{ color: "#6366F1", opacity: 0.35 }}>
               あと{alterRemainingRounds}回
@@ -334,9 +349,9 @@ export default function AskHero({
           )}
         </div>
 
-        {/* Conversation thread */}
+        {/* Conversation thread — max-h でスクロール制限 */}
         {hasConversation && (
-          <div className="px-5 pt-3 pb-1 space-y-3">
+          <div className="px-5 pt-3 pb-1 space-y-3 max-h-[50vh] overflow-y-auto scroll-smooth">
             {alterMessages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === "user" ? (
@@ -353,6 +368,14 @@ export default function AskHero({
                     <p className="text-[14px] text-text1 leading-[1.8] font-medium">
                       {msg.content}
                     </p>
+                    {/* フィードバック: 最後のAlterメッセージにのみ表示 */}
+                    {msg === alterMessages[alterMessages.length - 1] && !alterLoading && alterSessionId && alterResponseId && (
+                      <AlterFeedback
+                        sessionId={alterSessionId}
+                        responseId={alterResponseId}
+                        feedbackMeta={alterFeedbackMeta ?? {}}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -502,12 +525,12 @@ export default function AskHero({
                 onFocus={() => setFocused(true)}
                 onBlur={() => setTimeout(() => setFocused(false), 200)}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                placeholder={hasConversation ? "フォローアップ…" : ""}
+                placeholder=""
                 aria-label="Alterに質問する"
                 className={`w-full bg-transparent text-text1 placeholder:text-text4 outline-none relative z-[1] ${hasConversation ? "text-[13px]" : "text-[16px]"}`}
                 disabled={alterLoading}
               />
-              {/* Typewriter overlay */}
+              {/* Typewriter overlay — 初期状態 */}
               {showTypewriter && (
                 <div
                   className="absolute inset-0 flex items-center pointer-events-none text-[16px]"
@@ -516,6 +539,22 @@ export default function AskHero({
                   {typewriterText}
                   <span
                     className="inline-block w-[2px] h-[18px] ml-[1px]"
+                    style={{
+                      background: "#6366F1",
+                      animation: "alter-cursor-blink 1s step-end infinite",
+                    }}
+                  />
+                </div>
+              )}
+              {/* Typewriter overlay — フォローアップ時 */}
+              {showFollowupTypewriter && (
+                <div
+                  className="absolute inset-0 flex items-center pointer-events-none text-[13px]"
+                  style={{ color: "#8888a0" }}
+                >
+                  {followupTypewriterText}
+                  <span
+                    className="inline-block w-[1.5px] h-[15px] ml-[1px]"
                     style={{
                       background: "#6366F1",
                       animation: "alter-cursor-blink 1s step-end infinite",

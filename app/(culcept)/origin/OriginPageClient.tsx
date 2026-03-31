@@ -161,7 +161,8 @@ function viewModeFromState(state: OriginClientState): ViewMode {
   if (state.primaryView === "resume") return "resume_prompt";
   if (state.primaryView === "generating") return "generating";
   // 初回ユーザー判定（SSR安全: windowチェックはuseEffect内で再判定）
-  if (isFirstTimeUser(state.save)) return "welcome";
+  // getOnboardedFlag() もチェックして、オンボーディング済みなら welcome を表示しない
+  if (isFirstTimeUser(state.save) && (typeof window === "undefined" || !getOnboardedFlag())) return "welcome";
   return "workspace";
 }
 
