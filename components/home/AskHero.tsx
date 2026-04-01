@@ -165,49 +165,8 @@ export default function AskHero({
   }, [alterMessages.length, alterLoading, scrollRef]);
 
   return (
-    <div className="pt-1">
-      {/* ALTER label + nudge */}
-      <div className="flex items-center gap-2 px-5 pb-2">
-        <div
-          className="w-[4px] h-6 rounded-full"
-          style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
-        />
-        <span
-          className="text-[18px] font-black tracking-[0.15em]"
-          style={{ color: "#4338CA" }}
-        >
-          ALTER
-        </span>
-        <span className="ml-auto flex-shrink-0">
-          {hasConversation ? (
-            <span className="text-[8px] font-mono" style={{ color: "#6366F1", opacity: 0.35 }}>
-              あと{alterRemainingRounds}回
-            </span>
-          ) : nudge ? (
-            <Link
-              href={nudge.href}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full transition-opacity active:opacity-60"
-              style={{
-                textDecoration: "none",
-                background: "rgba(99,102,241,0.06)",
-                border: "1px solid rgba(99,102,241,0.18)",
-              }}
-            >
-              <span className="text-[10px]" style={{ color: "#6366F1", opacity: 0.7 }}>
-                {nudge.text}
-              </span>
-              <span className="text-[8px]" style={{ color: "#6366F1", opacity: 0.4 }}>→</span>
-            </Link>
-          ) : (
-            <span className="text-[10px] font-medium" style={{ color: "#6366F1", opacity: 0.5 }}>
-              — あなたの影
-            </span>
-          )}
-        </span>
-      </div>
-
-      {/* ═══ Conversation transcript ═══
-          会話メッセージはページフローの一部。独自スクロールなし。 */}
+    <div>
+      {/* ═══ Conversation transcript ═══ */}
       <div
         className="px-5 space-y-3 transition-all duration-300"
         style={{
@@ -349,42 +308,18 @@ export default function AskHero({
         )}
       </div>
 
-      {/* Context whisper — 未会話時のみ表示 */}
-      <div
-        className="px-5 transition-all duration-300"
-        style={{
-          opacity: hasConversation ? 0 : 0.6,
-          maxHeight: hasConversation ? 0 : 40,
-          overflow: "hidden",
-        }}
-      >
-        <p className="text-[12px] leading-relaxed" style={{ color: "#4338CA" }}>
-          {observationCount >= 50
-            ? `${observationCount}回の観測に基づく、あなた専用の判断AI`
-            : observationCount > 0
-              ? `${observationCount}回の観測データを踏まえて、もうひとりのあなたが答えます`
-              : "観測データを踏まえて、もうひとりのあなた（Alter）が答えます"}
-        </p>
-      </div>
-
-      {/* Deep Alter link — 会話中のみ表示 */}
-      <div
-        className="flex justify-end px-5 transition-opacity duration-300"
-        style={{
-          opacity: (hasConversation && !isLimitReached && !alterLoading) ? 1 : 0,
-          pointerEvents: (hasConversation && !isLimitReached && !alterLoading) ? "auto" : "none",
-          height: (hasConversation && !isLimitReached && !alterLoading) ? "auto" : 0,
-          overflow: "hidden",
-        }}
-      >
-        <Link
-          href={`/stargazer/alter${alterSessionId ? `?session=${alterSessionId}` : ""}`}
-          className="text-[10px] font-medium px-2 py-1 rounded-lg transition-colors"
-          style={{ color: "#6366F1", opacity: 0.5 }}
-        >
-          もっと深く聞く →
-        </Link>
-      </div>
+      {/* Remaining rounds indicator — 会話中のみ */}
+      {hasConversation && !isLimitReached && !alterLoading && (
+        <div className="flex justify-end px-5 pt-1">
+          <Link
+            href={`/stargazer/alter${alterSessionId ? `?session=${alterSessionId}` : ""}`}
+            className="text-[9px] font-mono transition-colors"
+            style={{ color: "#6366F1", opacity: 0.4 }}
+          >
+            あと{alterRemainingRounds}回 · もっと深く聞く →
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

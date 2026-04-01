@@ -34,13 +34,40 @@ type Props = {
     label?: string;
     recorded?: boolean;
   } | null;
+  /** コンパクトモード: 上部バーに埋め込む小さい表示 */
+  compact?: boolean;
 };
 
-export default function InlineInnerWeather({ innerWeather }: Props) {
+export default function InlineInnerWeather({ innerWeather, compact = false }: Props) {
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [justRecorded, setJustRecorded] = useState(false);
 
   const isRecorded = innerWeather?.recorded || justRecorded;
+
+  // ─── Compact mode: 上部バー埋め込み用 ───
+  if (compact) {
+    if (isRecorded) {
+      return (
+        <Link
+          href="/stargazer/weather"
+          className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
+          style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
+        >
+          <span className="text-xs leading-none">{innerWeather?.emoji ?? "☀️"}</span>
+          <span className="text-[9px] text-text2">{innerWeather?.label ?? "記録済み"}</span>
+        </Link>
+      );
+    }
+    return (
+      <Link
+        href="/stargazer/weather"
+        className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
+        style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
+      >
+        <span className="text-[9px] text-text3">今の気分は？</span>
+      </Link>
+    );
+  }
 
   const handleQuickRecord = useCallback(async (preset: Preset) => {
     if (submitting) return;
