@@ -346,56 +346,55 @@ export default function AneurasyncHome() {
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   };
 
-  // ── Typewriter（composer placeholder用） ──
-  const TYPEWRITER_EXAMPLES = useMemo(() => [
-    "もう一人のあなたが何でも答えるよ",
-    "今日どう動くのがベスト？",
-    "最近モヤモヤするのはなぜ？",
-    "この判断、自分らしい？",
-  ], []);
+  // ── Alter 導入メッセージ（時間帯別、人間っぽく） ──
+  const alterGreeting = useMemo(() => {
+    const hour = new Date().getHours();
+    const name = greeting.split("、")[1]?.replace("さん", "") || "";
+    const nameStr = name ? `、${name}` : "";
+    const obs = sgData?.observationCount ?? 0;
+    const relationLine = obs >= 80
+      ? `${obs}回の対話から、${name || "あなた"}の考え方が見えてきた。`
+      : obs >= 30
+        ? `${name || "あなた"}のこと、だいぶ分かってきた。`
+        : obs > 0
+          ? `${name || "あなた"}のこと、もっと聞かせて。`
+          : "何でも聞いて。一緒に考えるよ。";
+    if (hour >= 5 && hour < 12) return { line1: `おはよう${nameStr}。`, line2: relationLine };
+    if (hour >= 12 && hour < 17) return { line1: `こんにちは${nameStr}。`, line2: relationLine };
+    if (hour >= 17 && hour < 23) return { line1: `お疲れさま${nameStr}。`, line2: relationLine };
+    return { line1: `まだ起きてるんだ${nameStr}。`, line2: relationLine };
+  }, [greeting, sgData?.observationCount]);
 
-  const showTypewriter = !composerHasConversation && !composerFocused && !composerQuery;
-
-  // Typewriter hook inline
-  const [twDisplay, setTwDisplay] = useState("");
-  const [twExIdx, setTwExIdx] = useState(0);
-  const [twCharIdx, setTwCharIdx] = useState(0);
-  const [twPhase, setTwPhase] = useState<"typing" | "pause" | "erasing">("typing");
+  // ── 導入メッセージのタイプライター（1日1回のみ） ──
+  const [greetTyped, setGreetTyped] = useState(false);
+  const [greetDisplay, setGreetDisplay] = useState("");
+  const [greetCharIdx, setGreetCharIdx] = useState(0);
+  const greetFullText = `${alterGreeting.line1}\n${alterGreeting.line2}`;
 
   useEffect(() => {
-    if (!showTypewriter) { setTwDisplay(""); setTwCharIdx(0); setTwPhase("typing"); return; }
-    const text = TYPEWRITER_EXAMPLES[twExIdx];
-    if (twPhase === "typing") {
-      if (twCharIdx <= text.length) {
-        const t = setTimeout(() => {
-          setTwDisplay(text.slice(0, twCharIdx));
-          setTwCharIdx((c) => c + 1);
-        }, 60 + Math.random() * 40);
-        return () => clearTimeout(t);
-      }
-      setTwPhase("pause");
-    } else if (twPhase === "pause") {
-      const t = setTimeout(() => setTwPhase("erasing"), 2000);
+    if (composerHasConversation) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const stored = sessionStorage.getItem("alter_greet_typed");
+      if (stored === today) { setGreetDisplay(greetFullText); setGreetTyped(true); return; }
+    } catch {}
+    if (greetCharIdx <= greetFullText.length) {
+      const t = setTimeout(() => {
+        setGreetDisplay(greetFullText.slice(0, greetCharIdx));
+        setGreetCharIdx((c) => c + 1);
+      }, 50 + Math.random() * 30);
       return () => clearTimeout(t);
-    } else if (twPhase === "erasing") {
-      if (twCharIdx > 0) {
-        const t = setTimeout(() => {
-          setTwCharIdx((c) => c - 1);
-          setTwDisplay(text.slice(0, twCharIdx - 1));
-        }, 25);
-        return () => clearTimeout(t);
-      }
-      setTwExIdx((i) => (i + 1) % TYPEWRITER_EXAMPLES.length);
-      setTwPhase("typing");
     }
-  }, [showTypewriter, twExIdx, twCharIdx, twPhase, TYPEWRITER_EXAMPLES]);
+    setGreetTyped(true);
+    try { sessionStorage.setItem("alter_greet_typed", new Date().toISOString().slice(0, 10)); } catch {}
+  }, [greetCharIdx, greetFullText, composerHasConversation]);
 
-  // ── Suggestion chips（4個に厳選） ──
+  // ── Suggestion chips（4個、コンパクトラベル） ──
   const SUGGESTION_CHIPS = useMemo(() => [
-    { label: "今日どう動くのがいい？", icon: "⚡" },
-    { label: "最近なんでこうなる？", icon: "🔍" },
-    { label: "今の仕事の進め方は合ってる？", icon: "💼" },
-    { label: "今日の服どうする？", icon: "👔" },
+    { label: "今日どう動く？", icon: "⚡" },
+    { label: "なんでこうなる？", icon: "🔍" },
+    { label: "仕事の進め方", icon: "💼" },
+    { label: "今日の服", icon: "👔" },
   ], []);
 
   return (
@@ -409,18 +408,27 @@ export default function AneurasyncHome() {
       {/* ═══ LOGIN INTRO ═══ */}
       <LoginIntroAnimation onComplete={() => setIntroComplete(true)} />
 
-      {/* ═══ SCROLL AREA — 1枚の会話キャンバス ═══
-          上部文脈は薄い浮遊レール。Alterの会話がメイン。
-          section区切り・大カード・境界線を排除。 */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto relative z-1">
+      {/* ═══ SCROLL AREA — 1枚の会話キャンバス ═══ */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div style={{ background: atmosphere.bgGradient, color: C.t1, transition: "background 2s ease", paddingTop: 56 }}>
 
-          {/* ── 文脈レール: 挨拶 ── */}
-          <div className="px-5 pt-2 pb-0.5 flex items-center gap-2.5">
-            <h2 className="text-lg font-bold text-text1">{greeting}</h2>
+          {/* ── 上部バー: ALTER + Sync + 内面天気 ── */}
+          <div className="px-5 pt-2 pb-1 flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-[3px] h-5 rounded-full"
+                style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+              />
+              <span
+                className="text-[14px] font-black tracking-[0.12em]"
+                style={{ color: "#4338CA" }}
+              >
+                ALTER
+              </span>
+            </div>
             {syncPercent > 0 && (
               <span
-                className="text-[9px] font-mono px-2 py-0.5 rounded-full"
+                className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
                 style={{
                   background: "rgba(99,102,241,0.08)",
                   color: "#6366F1",
@@ -430,10 +438,10 @@ export default function AneurasyncHome() {
                 Sync {syncPercent}%
               </span>
             )}
+            <div className="ml-auto">
+              <InlineInnerWeather innerWeather={innerWeather} compact />
+            </div>
           </div>
-
-          {/* ── 文脈レール: 内面天気 ── */}
-          <InlineInnerWeather innerWeather={innerWeather} />
 
           {/* ── 文脈レール: 今日の一手（compact） ── */}
           <ZoneErrorBoundary zoneName="answer">
@@ -451,7 +459,28 @@ export default function AneurasyncHome() {
             />
           </ZoneErrorBoundary>
 
-          {/* ═══ ALTER — 会話面（メインコンテンツ） ═══ */}
+          {/* ═══ 中央導入メッセージ（未会話時のみ） ═══ */}
+          {!composerHasConversation && (
+            <div className="flex flex-col items-center justify-center px-8 pt-12 pb-4">
+              <p
+                className="text-[16px] font-semibold text-text1 leading-relaxed text-center whitespace-pre-line"
+                style={{ minHeight: 48 }}
+              >
+                {greetDisplay}
+                {!greetTyped && (
+                  <span
+                    className="inline-block w-[2px] h-[16px] ml-[1px] align-middle"
+                    style={{
+                      background: "#6366F1",
+                      animation: "alter-cursor-blink 1s step-end infinite",
+                    }}
+                  />
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* ═══ 会話トランスクリプト ═══ */}
           <ZoneErrorBoundary zoneName="ask">
             <div data-tour="ask-hero">
               <AskHero
@@ -481,22 +510,19 @@ export default function AneurasyncHome() {
             </div>
           </ZoneErrorBoundary>
 
-          {/* ─── BOTTOM SPACER: composer + chips + QuickAccess の高さ分 ─── */}
-          <div style={{ height: 180 }} />
+          {/* ─── BOTTOM SPACER ─── */}
+          <div style={{ height: 200 }} />
         </div>
       </div>
 
-      {/* ══════ FIXED BOTTOM: chips → composer → QuickAccess ══════
-          入力欄はQuickAccessの直上に固定。
-          チップは入力の前段（未会話時のみ表示）。 */}
-      <div className="flex-shrink-0 relative z-60">
-        {/* ── Suggestion chips（未会話 & 未フォーカス時のみ） ── */}
+      {/* ══════ FIXED BOTTOM: chips → composer → QuickAccess ══════ */}
+      <div className="flex-shrink-0" style={{ position: "relative", zIndex: 60 }}>
+        {/* ── Suggestion chips（コンパクト、1行） ── */}
         <div
-          className="px-4 pb-2 flex flex-wrap gap-1.5 transition-all duration-200"
+          className="px-3 pb-1.5 flex gap-1.5 transition-all duration-200"
           style={{
             opacity: (composerHasConversation || composerFocused) ? 0 : 1,
-            maxHeight: (composerHasConversation || composerFocused) ? 0 : 100,
-            paddingBottom: (composerHasConversation || composerFocused) ? 0 : 8,
+            maxHeight: (composerHasConversation || composerFocused) ? 0 : 36,
             overflow: "hidden",
             pointerEvents: (composerHasConversation || composerFocused) ? "none" : "auto",
           }}
@@ -505,20 +531,20 @@ export default function AneurasyncHome() {
             <button
               key={chip.label}
               onClick={() => handleComposerSubmit(chip.label)}
-              className="flex items-center gap-1 px-3 py-2 rounded-full text-[11px] font-medium transition-all duration-150 active:scale-95"
+              className="flex items-center gap-0.5 px-2 py-1 rounded-full text-[10px] font-medium transition-all active:scale-95 whitespace-nowrap"
               style={{
-                background: "rgba(99,102,241,0.08)",
-                border: "1px solid rgba(99,102,241,0.18)",
-                color: "#3730A3",
+                background: "rgba(99,102,241,0.06)",
+                border: "1px solid rgba(99,102,241,0.14)",
+                color: "#4338CA",
               }}
             >
-              <span className="text-xs">{chip.icon}</span>
+              <span className="text-[10px]">{chip.icon}</span>
               {chip.label}
             </button>
           ))}
         </div>
 
-        {/* ── Composer — Alter色はここだけ ── */}
+        {/* ── Composer ── */}
         <div
           className="flex items-end gap-3 mx-3 mb-1.5 px-4 py-3 rounded-xl transition-all duration-200"
           style={{
@@ -551,28 +577,12 @@ export default function AneurasyncHome() {
                   handleComposerSubmit();
                 }
               }}
-              placeholder=""
+              placeholder="Alterに話しかける…"
               aria-label="Alterに質問する"
               className="w-full bg-transparent text-text1 placeholder:text-text4 outline-none text-[15px] resize-none leading-relaxed"
               style={{ maxHeight: 96 }}
               disabled={alterChat.loading || composerIsLimitReached}
             />
-            {/* Typewriter placeholder */}
-            {showTypewriter && (
-              <div
-                className="absolute inset-0 flex items-center pointer-events-none text-[15px]"
-                style={{ color: "#8888a0" }}
-              >
-                {twDisplay}
-                <span
-                  className="inline-block w-[2px] h-[18px] ml-[1px]"
-                  style={{
-                    background: "#6366F1",
-                    animation: "alter-cursor-blink 1s step-end infinite",
-                  }}
-                />
-              </div>
-            )}
           </div>
           <AnimatePresence>
             {composerQuery.trim() && !alterChat.loading && (
