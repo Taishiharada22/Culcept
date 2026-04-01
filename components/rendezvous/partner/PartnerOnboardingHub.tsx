@@ -102,10 +102,16 @@ export default function PartnerOnboardingHub() {
     );
   }
 
+  // 充足率 30% = RELATIONSHIP_AXES 35軸中 11軸以上。
+  // Four Horsemen 4次元 × 各2〜4入力軸 = 最低8〜10軸が必要で、
+  // 加えて Conflict Style に最低1軸必要なため 11軸（≈30%）を下限とした。
+  const SUFFICIENCY_THRESHOLD = 0.3;
+
   const allReady = progress &&
     progress.lifePlan.completionRate >= 0.5 &&
     progress.dealbreaker.filledCount >= 4 &&
-    progress.processProfile.synced;
+    progress.processProfile.synced &&
+    (progress.processProfile.axisCoverage ?? 0) >= SUFFICIENCY_THRESHOLD;
 
   return (
     <div
@@ -225,10 +231,19 @@ export default function PartnerOnboardingHub() {
                 number={3}
                 title="関係性プロファイルの同期"
                 description="Stargazer の観測データから、対話パターン・葛藤解決スタイル・修復力を自動算出します"
-                status={progress?.processProfile.synced ? "completed" : "pending"}
+                status={
+                  progress?.processProfile.synced
+                    ? (progress.processProfile.axisCoverage ?? 0) >= SUFFICIENCY_THRESHOLD ? "completed"
+                      : "in_progress"
+                    : "pending"
+                }
                 progressLabel={
                   progress?.processProfile.synced
-                    ? `同期済み（データ充足率 ${Math.round((progress.processProfile.axisCoverage ?? 0) * 100)}%）`
+                    ? (progress.processProfile.axisCoverage ?? 0) >= SUFFICIENCY_THRESHOLD
+                      ? `同期済み（データ充足率 ${Math.round((progress.processProfile.axisCoverage ?? 0) * 100)}%）`
+                      : (progress.processProfile.axisCoverage ?? 0) > 0
+                        ? `同期済み・観測不足（充足率 ${Math.round((progress.processProfile.axisCoverage ?? 0) * 100)}%）`
+                        : "同期済み・Stargazer 観測データなし"
                     : "未同期"
                 }
                 progressPercent={progress?.processProfile.axisCoverage ?? 0}

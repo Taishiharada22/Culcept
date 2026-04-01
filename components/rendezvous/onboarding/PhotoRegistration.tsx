@@ -149,6 +149,7 @@ export default function PhotoRegistration({
       const res = await fetch("/api/rendezvous/photos", {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       clearInterval(progressTimer);
@@ -170,6 +171,7 @@ export default function PhotoRegistration({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ [`photo_${slotId}`]: data.photo?.url }),
+          credentials: "include",
         }).catch(() => {});
       }
     } catch (err: unknown) {
@@ -202,6 +204,7 @@ export default function PhotoRegistration({
       const res = await fetch("/api/rendezvous/photos", {
         method: "POST",
         body: formData,
+        credentials: "include",
       });
 
       clearInterval(progressTimer);
@@ -222,6 +225,7 @@ export default function PhotoRegistration({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id_document: url }),
+        credentials: "include",
       }).catch(() => {});
     } catch (err: unknown) {
       setIdDocProgress(-1);

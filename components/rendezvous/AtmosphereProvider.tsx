@@ -42,16 +42,20 @@ function FloatingParticles({ color }: { color: string }) {
       duration: string;
       opacity: number;
     }> = [];
+    const r = (seed: number, decimals = 4) => {
+      const v = seededRandom(seed);
+      return Math.round(v * 10 ** decimals) / 10 ** decimals;
+    };
     for (let i = 0; i < 24; i++) {
       const s = daySeed + i;
       items.push({
         id: i,
-        left: `${seededRandom(s * 1) * 100}%`,
-        top: `${seededRandom(s * 2) * 100}%`,
-        size: 1.5 + seededRandom(s * 3) * 2.5,
-        delay: `${seededRandom(s * 4) * 8}s`,
-        duration: `${6 + seededRandom(s * 5) * 8}s`,
-        opacity: 0.15 + seededRandom(s * 6) * 0.35,
+        left: `${r(s * 1, 2) * 100}%`,
+        top: `${r(s * 2, 2) * 100}%`,
+        size: Math.round((1.5 + r(s * 3) * 2.5) * 100) / 100,
+        delay: `${r(s * 4, 2) * 8}s`,
+        duration: `${Math.round((6 + r(s * 5) * 8) * 100) / 100}s`,
+        opacity: Math.round((0.15 + r(s * 6) * 0.35) * 100) / 100,
       });
     }
     return items;

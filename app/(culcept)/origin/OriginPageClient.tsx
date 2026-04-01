@@ -114,7 +114,7 @@ import BottomSheet from "./_components/panels/BottomSheet";
 import FocusMode from "./_components/FocusMode";
 import OriginFAB from "./_components/OriginFAB";
 import MobileProgressBar from "./_components/MobileProgressBar";
-import { isFirstTimeUser, getOnboardedFlag } from "@/lib/origin/v7/onboarding";
+import { isFirstTimeUser, getOnboardedFlag, markOnboarded } from "@/lib/origin/v7/onboarding";
 import {
   getStreakMilestone,
   getDaysAbsent,
@@ -160,9 +160,7 @@ type Props = {
 function viewModeFromState(state: OriginClientState): ViewMode {
   if (state.primaryView === "resume") return "resume_prompt";
   if (state.primaryView === "generating") return "generating";
-  // 初回ユーザー判定（SSR安全: windowチェックはuseEffect内で再判定）
-  // getOnboardedFlag() もチェックして、オンボーディング済みなら welcome を表示しない
-  if (isFirstTimeUser(state.save) && (typeof window === "undefined" || !getOnboardedFlag())) return "welcome";
+  // 初回判定はuseEffectで行う（SSR/クライアント一致のため常にworkspaceを返す）
   return "workspace";
 }
 
@@ -259,12 +257,14 @@ export default function OriginPageClient({ initialState }: Props) {
       meta: initialState.meta,
     });
 
+    // オンボーディング判定: フラグ + セーブデータ内フラグの二重チェック
+    const onboarded = getOnboardedFlag() || mergedSave.onboarded === true;
     const newViewMode =
       resolved.primaryView === "resume"
         ? "resume_prompt"
         : resolved.primaryView === "generating"
           ? "generating"
-          : isFirstTimeUser(mergedSave) && !getOnboardedFlag()
+          : isFirstTimeUser(mergedSave) && !onboarded
             ? "welcome"
             : "workspace";
 
@@ -1068,11 +1068,16 @@ export default function OriginPageClient({ initialState }: Props) {
   }, [currentPosition, updateSaveState]);
 
   const handleWelcomeComplete = useCallback((selectedTab: TabKey) => {
+    markOnboarded();
+    // セーブデータにもフラグを埋め込む（localStorage単独キーが消えても復元可能）
+    setSaveState((prev) => ({ ...prev, onboarded: true }));
     setTab(selectedTab);
     setViewMode("workspace");
   }, []);
 
   const handleWelcomeSkip = useCallback(() => {
+    markOnboarded();
+    setSaveState((prev) => ({ ...prev, onboarded: true }));
     setViewMode("workspace");
   }, []);
 
@@ -1081,7 +1086,6 @@ export default function OriginPageClient({ initialState }: Props) {
     return (
       <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#f5f0e8]">
         <OriginWelcomeFlow
-          onStartExploration={handleWelcomeStartExploration}
           onComplete={handleWelcomeComplete}
           onSkip={handleWelcomeSkip}
           initialPhase={viewMode === "welcome_map" ? "map" : "intro"}

@@ -3,7 +3,6 @@
 // Pool優先 → フォールバックで既存ハードコード23問
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { TraitAxisKey } from "./traitAxes";
 import { type AdaptiveObservationPlan, getAdaptiveBoostMap } from "./adaptiveObservationTargeting";
 import {
   ALL_QUESTION_VARIANTS,
@@ -37,6 +36,13 @@ import {
   type QuestionEIGScore,
 } from "./informationGain";
 import type { BeliefSet } from "./bayesianAxisUpdater";
+import {
+  selectExpansionQuestion,
+  type ExpansionSelectionInput,
+  type ExpansionSelectionResult,
+} from "./expansionQuestionSelector";
+import type { ExpansionQuestion } from "./expansionQuestions";
+import { EXPANSION_AXIS_KEYS, isExpansionAxis, type TraitAxisKey } from "./traitAxes";
 
 export interface DeltaCheck {
   axisId: TraitAxisKey;
@@ -80,6 +86,10 @@ export interface DailyObservationPlan {
   framingEffectQuestion?: FramingEffectQuestion;
   /** Prochaska 変容ステージに基づく推奨質問タイプ */
   preferredQuestionType?: "awareness" | "conflict" | "behavioral_scenario" | "stability_check";
+  /** P4 Phase D: 拡張軸質問（1日最大1問。expansion軸のみ更新、core逆流なし） */
+  expansionQuestion?: ExpansionQuestion;
+  /** 拡張質問の選択理由（ログ用） */
+  expansionSelectionReason?: string;
   sessionLabel: string;                // UI表示用
   /** 後方互換: 旧フィールドアクセス用 */
   contextQuestion?: QuestionVariant;
@@ -273,6 +283,9 @@ export async function generateDailyPlan(
   // ── Prochaska Stage → preferredQuestionType ──
   const preferredQuestionType = mapChangeStageToQuestionType(poolOptions?.changeStage);
 
+  // ── P4 Phase D: 拡張軸質問（1日最大1問） ──
+  const expansionResult = await selectExpansionQuestionForPlan(poolOptions);
+
   return {
     stateQuestions,
     contextQuestions,
@@ -284,12 +297,112 @@ export async function generateDailyPlan(
     followUpProbes,
     framingEffectQuestion: framingEffectQuestion || undefined,
     preferredQuestionType,
+    expansionQuestion: expansionResult.question ?? undefined,
+    expansionSelectionReason: expansionResult.reason,
     sessionLabel,
     // 後方互換
     contextQuestion: contextQuestions[0],
     deepQuestion: deepQuestions[0],
     deltaCheck: deltaChecks[0],
   };
+}
+
+/**
+ * P4 Phase D: 拡張軸質問の選択
+ * CEO条件: 1日最大1問、発見済み/解放条件に近い軸にのみ出題
+ */
+async function selectExpansionQuestionForPlan(
+  poolOptions?: DailyPlanPoolOptions,
+): Promise<ExpansionSelectionResult> {
+  // beliefs がなければ拡張質問は出せない
+  if (!poolOptions?.beliefs || !poolOptions?.supabase || !poolOptions?.userId) {
+    return { question: null, reason: "beliefs/supabase/userId が未提供" };
+  }
+
+  // 拡張軸の信念を抽出
+  const expansionBeliefs: Partial<Record<TraitAxisKey, { mu: number; precision: number; confidence: number; credibleInterval: [number, number] }>> = {};
+  for (const key of EXPANSION_AXIS_KEYS) {
+    const belief = poolOptions.beliefs[key];
+    if (belief) {
+      expansionBeliefs[key] = belief;
+    }
+  }
+
+  // 最近14日以内の拡張質問出題履歴を取得
+  let recentExpansionQuestionIds = new Set<string>();
+  try {
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
+    const { data: recentSnapshots } = await poolOptions.supabase
+      .from("stargazer_axis_snapshots")
+      .select("variant_id")
+      .eq("user_id", poolOptions.userId)
+      .like("variant_id", "exp_%")
+      .gte("session_date", fourteenDaysAgo);
+    if (recentSnapshots) {
+      recentExpansionQuestionIds = new Set(
+        recentSnapshots.map((r: { variant_id: string }) => r.variant_id),
+      );
+    }
+  } catch { /* 取得失敗時は空セットで続行 */ }
+
+  // 今日既に出題されたか確認
+  let todayAlreadyAsked = false;
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const { count } = await poolOptions.supabase
+      .from("stargazer_axis_snapshots")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", poolOptions.userId)
+      .like("variant_id", "exp_%")
+      .eq("session_date", today);
+    todayAlreadyAsked = (count ?? 0) > 0;
+  } catch { /* 確認失敗時は false で続行 */ }
+
+  // ユーザー情報を取得（セッション数・日数）
+  let totalSessions = 0;
+  let daysSinceFirst = 0;
+  try {
+    const { data: profile } = await poolOptions.supabase
+      .from("profiles")
+      .select("total_sessions, created_at")
+      .eq("id", poolOptions.userId)
+      .maybeSingle();
+    totalSessions = profile?.total_sessions ?? 0;
+    if (profile?.created_at) {
+      daysSinceFirst = Math.floor(
+        (Date.now() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24),
+      );
+    }
+  } catch { /* 取得失敗時は 0 で続行（出題されない） */ }
+
+  // 矛盾カウント（現状は 0。Phase D+ で stargazer_contradictions から読み取り）
+  const contradictionCounts: Partial<Record<TraitAxisKey, number>> = {};
+
+  const input: ExpansionSelectionInput = {
+    expansionBeliefs,
+    contradictionCounts,
+    totalSessions,
+    daysSinceFirst,
+    recentExpansionQuestionIds,
+    todayAlreadyAsked,
+  };
+
+  const result = selectExpansionQuestion(input);
+
+  // ログ出力
+  if (result.question) {
+    console.log("[expansion-question-selected]", {
+      userId: poolOptions.userId,
+      questionId: result.question.id,
+      axisId: result.targetAxisId,
+      tier: result.currentTier,
+      reason: result.reason,
+    });
+  }
+
+  return result;
 }
 
 /**

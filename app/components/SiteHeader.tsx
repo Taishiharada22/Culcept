@@ -1,7 +1,7 @@
 // app/components/SiteHeader.tsx
 import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
-import { signOutAction } from "@/app/actions/auth";
+import { signOutAction } from "@/app/(culcept)/login/actions";
 
 export default async function SiteHeader() {
     const supabase = await supabaseServer();

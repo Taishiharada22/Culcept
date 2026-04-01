@@ -35,6 +35,7 @@ const CATEGORY_LABELS: Record<AxisCategory, string> = {
   relational_deep: "深層関係性",
   depth: "深層心理",
   cognitive: "認知スタイル",
+  expansion: "拡張観測",
 };
 
 const CATEGORY_COLORS: Record<AxisCategory, string> = {
@@ -47,6 +48,7 @@ const CATEGORY_COLORS: Record<AxisCategory, string> = {
   relational_deep: "from-fuchsia-400 to-pink-500",
   depth: "from-slate-400 to-zinc-500",
   cognitive: "from-sky-400 to-blue-500",
+  expansion: "from-gray-400 to-neutral-500",
 };
 
 const CATEGORY_GLOW: Record<AxisCategory, string> = {
@@ -59,6 +61,7 @@ const CATEGORY_GLOW: Record<AxisCategory, string> = {
   relational_deep: "rgba(232,121,249,0.3)",
   depth: "rgba(148,163,184,0.3)",
   cognitive: "rgba(56,189,248,0.3)",
+  expansion: "rgba(120,120,120,0.3)",
 };
 
 const TILE_STATES: TileState[] = ["fog", "outline", "partial", "clear", "deep", "mastered"];

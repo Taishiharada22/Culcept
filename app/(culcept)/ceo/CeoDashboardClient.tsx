@@ -197,6 +197,10 @@ export default function CeoDashboardClient() {
   const lastFetchRef = useRef(Date.now());
   // Alter Feedback + Gemini昇格判断
   const [feedbackData, setFeedbackData] = useState<any>(null);
+  // 本人確認 Verification summary
+  const [verificationSummary, setVerificationSummary] = useState<{
+    pending: number; todayNew: number; approved: number; rejected: number; frozen: number;
+  } | null>(null);
 
   // Persist collapsed state
   const toggle = (key: string) => {
@@ -229,6 +233,11 @@ export default function CeoDashboardClient() {
       fetch(`/api/ceo/feedback?range=${range}`, { cache: "no-store" })
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d) setFeedbackData(d); })
+        .catch(() => {});
+      // Verification summary fetch (non-blocking)
+      fetch("/api/ceo/verification-summary", { cache: "no-store" })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setVerificationSummary(d); })
         .catch(() => {});
     } catch {
       setState("error");
@@ -419,6 +428,77 @@ export default function CeoDashboardClient() {
           </div>
         </CollapsibleSection>
       )}
+
+      {/* ════════════════════════════════════════════════════════
+          本人確認 — パッと見で状況把握
+          ════════════════════════════════════════════════════════ */}
+      {verificationSummary && (
+        <Link href="/ceo/verifications" className="block">
+          <div className={`rounded-xl border-2 p-4 backdrop-blur transition-colors ${
+            verificationSummary.pending > 0
+              ? "border-amber-300 bg-amber-50/60 hover:bg-amber-50/90"
+              : "border-gray-200 bg-white/80 hover:bg-gray-50/90"
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🛡️</span>
+                <h3 className="text-sm font-bold">本人確認</h3>
+              </div>
+              {verificationSummary.pending > 0 ? (
+                <span className="animate-pulse rounded-full bg-amber-500 px-3 py-1 text-xs font-bold text-white">
+                  {verificationSummary.pending}件 要レビュー
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                  全件対応済み
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className={`rounded-lg px-2 py-1.5 ${verificationSummary.pending > 0 ? "bg-amber-100" : "bg-gray-100"}`}>
+                <div className={`text-lg font-bold ${verificationSummary.pending > 0 ? "text-amber-700" : "text-gray-400"}`}>
+                  {verificationSummary.pending}
+                </div>
+                <div className="text-[10px] text-gray-500">待ち</div>
+              </div>
+              <div className="rounded-lg bg-emerald-50 px-2 py-1.5">
+                <div className="text-lg font-bold text-emerald-600">{verificationSummary.approved}</div>
+                <div className="text-[10px] text-gray-500">承認</div>
+              </div>
+              <div className="rounded-lg bg-red-50 px-2 py-1.5">
+                <div className={`text-lg font-bold ${verificationSummary.rejected > 0 ? "text-red-600" : "text-gray-400"}`}>
+                  {verificationSummary.rejected}
+                </div>
+                <div className="text-[10px] text-gray-500">却下</div>
+              </div>
+              <div className="rounded-lg bg-blue-50 px-2 py-1.5">
+                <div className={`text-lg font-bold ${verificationSummary.frozen > 0 ? "text-blue-600" : "text-gray-400"}`}>
+                  {verificationSummary.frozen}
+                </div>
+                <div className="text-[10px] text-gray-500">凍結</div>
+              </div>
+            </div>
+            {verificationSummary.todayNew > 0 && (
+              <p className="mt-2 text-xs text-gray-500">本日 +{verificationSummary.todayNew}件 新規提出</p>
+            )}
+          </div>
+        </Link>
+      )}
+
+      {/* ════════════════════════════════════════════════════════
+          運営通知 — 全ユーザーへの一括通知送信
+          ════════════════════════════════════════════════════════ */}
+      <Link href="/ceo/notifications" className="block">
+        <div className="rounded-xl border-2 border-gray-200 bg-white/80 hover:bg-gray-50/90 p-4 backdrop-blur transition-colors">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📢</span>
+              <h3 className="text-sm font-bold">運営通知</h3>
+            </div>
+            <span className="text-xs text-gray-400">全ユーザーに通知を送信 →</span>
+          </div>
+        </div>
+      </Link>
 
       {/* ════════════════════════════════════════════════════════
           ユーザー概況 — ユーザー数・エンゲージメント全体像

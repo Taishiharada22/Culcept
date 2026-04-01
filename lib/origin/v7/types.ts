@@ -479,4 +479,6 @@ export type OriginV7Save = {
   microQuestionStreak?: MicroQuestionStreak;
   birthYear?: number;
   birthMonth?: number;
+  // ── オンボーディング完了フラグ（localStorage単独キーの補助） ──
+  onboarded?: boolean;
 };

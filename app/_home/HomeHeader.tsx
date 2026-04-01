@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { C, mono } from "./constants";
 
@@ -13,6 +14,17 @@ type HomeHeaderProps = {
  * On scroll: frosted glass background with subtle border.
  */
 export default function HomeHeader({ scrollAlpha: ha, onScrollTop }: HomeHeaderProps) {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/notifications/unread-count")
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setUnreadCount(d.count ?? 0); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <header
       style={{
@@ -85,13 +97,15 @@ export default function HomeHeader({ scrollAlpha: ha, onScrollTop }: HomeHeaderP
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
             <path d="M13.73 21a2 2 0 0 1-3.46 0" />
           </svg>
-          <div style={{
-            position: "absolute", top: -2, right: -2,
-            width: 8, height: 8, borderRadius: "50%",
-            background: C.rv,
-            border: "1.5px solid #f8f6f3",
-            boxShadow: `0 0 6px ${C.rv}50`,
-          }} />
+          {unreadCount > 0 && (
+            <div style={{
+              position: "absolute", top: -2, right: -2,
+              width: 8, height: 8, borderRadius: "50%",
+              background: C.rv,
+              border: "1.5px solid #f8f6f3",
+              boxShadow: `0 0 6px ${C.rv}50`,
+            }} />
+          )}
         </Link>
         <Link
           href="/my-page"

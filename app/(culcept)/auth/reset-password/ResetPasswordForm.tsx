@@ -20,18 +20,21 @@ export default function ResetPasswordForm() {
   const [saving, setSaving] = React.useState(false);
 
   // ── Step 1: hash fragment からセッションを確立 ──
+  // onAuthStateChange と getUser() の競合を resolved フラグで排他制御
   React.useEffect(() => {
+    let resolved = false;
+    const resolve = (next: Phase) => {
+      if (resolved) return;
+      resolved = true;
+      setPhase(next);
+    };
+
     const supabase = supabaseBrowser();
 
-    // Supabase JS は URL hash を自動検出して onAuthStateChange を発火する
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event: string) => {
-        if (event === "PASSWORD_RECOVERY") {
-          setPhase("form");
-        } else if (event === "SIGNED_IN") {
-          // recovery 以外の signed_in (すでにセッションがある場合)
-          // form を表示して updateUser を許可
-          setPhase("form");
+        if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") {
+          resolve("form");
         }
       },
     );
@@ -40,25 +43,23 @@ export default function ResetPasswordForm() {
     const checkExisting = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        setPhase("form");
+        resolve("form");
       } else {
-        // 1秒待っても onAuthStateChange が来なければエラー
-        setTimeout(() => {
-          setPhase((prev) => prev === "loading" ? "error" : prev);
-        }, 3000);
+        // onAuthStateChange を十分待ってからエラー判定
+        setTimeout(() => resolve("error"), 5000);
       }
     };
     checkExisting();
 
     // hash を URL から消す（履歴には残さない）
     if (typeof window !== "undefined" && window.location.hash) {
-      // hash の処理は Supabase が自動でやるので、少し待ってから消す
       setTimeout(() => {
         window.history.replaceState(null, "", window.location.pathname);
       }, 500);
     }
 
     return () => {
+      resolved = true; // cleanup 時も以降の発火を無視
       subscription.unsubscribe();
     };
   }, []);

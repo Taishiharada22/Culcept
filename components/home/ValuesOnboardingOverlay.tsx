@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { safeLSSet } from "@/lib/safeLocalStorage";
+import { markTourSeen } from "@/lib/tour/tourState";
 import {
   loadLifeProfileStore,
   saveLifeProfileStore,
@@ -244,13 +245,15 @@ const STEPS: StepDef[] = [
     title: "あなたのライフスタイルは？",
     sub: "生活リズムや好みを選ぶだけ。",
     type: "lifestyle",
+    required: true,
   },
   {
     key: "romantic",
     icon: "💫",
     title: "恋愛・パートナーについて",
-    sub: "今のあなたの気持ちに近いものを。スキップもOK。",
+    sub: "今のあなたの気持ちに近いものを。",
     type: "single-select-pair",
+    required: true,
   },
 ];
 
@@ -324,11 +327,22 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
   const canProceed = useCallback(() => {
     const s = STEPS[step];
     if (s.key === "values") return data.values.length > 0 || data.valuesCustom.trim().length > 0;
-    return true; // other steps are optional
+    if (s.key === "lifestyle") {
+      // 3軸 + 都道府県すべて選択必須
+      return data.lifestyleMorningNight != null
+        && data.lifestyleIndoorOutdoor != null
+        && data.lifestyleSoloSocial != null
+        && data.prefecture != null;
+    }
+    if (s.key === "romantic") {
+      // 結婚観・子ども観の両方必須
+      return data.marriageIntent != null && data.childrenPreference != null;
+    }
+    return true;
   }, [step, data]);
 
   // ── Save all ──
-  const saveAll = useCallback(() => {
+  const saveAll = useCallback(async () => {
     // 1. Life Profile store (values, passions, career)
     let store = loadLifeProfileStore();
     const now = new Date().toISOString();
@@ -396,11 +410,22 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
     }).catch(() => {});
 
     safeLSSet(DONE_KEY, "1");
+    await markTourSeen("home_values");
     onComplete();
   }, [data, onComplete]);
 
+  // ── Validation message ──
+  const validationMsg = (() => {
+    const s = STEPS[step];
+    if (!s.required || canProceed()) return null;
+    if (s.key === "values") return "1つ以上選択してください";
+    if (s.key === "lifestyle") return "すべての項目とエリアを選択してください";
+    if (s.key === "romantic") return "両方の項目を選択してください";
+    return "1つ選択してください";
+  })();
+
   // ── Next handler ──
-  const handleNext = useCallback(() => {
+  const handleNext = useCallback(async () => {
     if (!canProceed()) {
       setShake(true);
       setTimeout(() => setShake(false), 500);
@@ -601,6 +626,21 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
                 {isLast ? "始めよう" : "次へ"}
               </button>
             </div>
+
+            {/* Validation error */}
+            {validationMsg && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: "#ef4444",
+                  textAlign: "center",
+                  marginTop: 10,
+                  fontWeight: 600,
+                }}
+              >
+                {validationMsg}
+              </p>
+            )}
 
             {/* Helper text */}
             {step === 0 && (
@@ -955,7 +995,7 @@ function RomanticStep({
   );
 }
 
-/** 初期オンボーディング完了済みか */
+/** 初期オンボーディング完了済みか (legacy — AneurasyncHome は isTourSeen を使用) */
 export function isValuesOnboardingDone(): boolean {
   if (typeof window === "undefined") return true;
   return localStorage.getItem(DONE_KEY) === "1";

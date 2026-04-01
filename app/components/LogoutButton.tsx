@@ -1,4 +1,4 @@
-import { logoutAction } from "@/app/login/actions";
+import { logoutAction } from "@/app/(culcept)/login/actions";
 
 export default function LogoutButton() {
     return (

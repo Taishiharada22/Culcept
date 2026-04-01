@@ -162,7 +162,7 @@ export default function OnboardingFlow({ userId }: Props) {
         }
 
         // 心理学プロファイル自動生成（バックグラウンド）
-        fetch("/api/rendezvous/psychological-profile", { method: "POST" }).catch(() => {});
+        fetch("/api/rendezvous/psychological-profile", { method: "POST", credentials: "include" }).catch(() => {});
 
         // 恋愛カテゴリが含まれている場合、本人確認を pending として作成
         const needsVerification = data.enabledCategories.includes("romantic");
@@ -171,6 +171,7 @@ export default function OnboardingFlow({ userId }: Props) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({}),
+            credentials: "include",
           }).catch(() => {});
         }
 

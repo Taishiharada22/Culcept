@@ -41,6 +41,12 @@ import {
   computeFallbackDecisionMetadata,
   computeForceBalance,
   buildJudgmentFramework,
+  ALTER_IDENTITY_BLOCK,
+  detectDirectRequest,
+  detectCorrectionSignal,
+  detectGreeting,
+  computeResponseSimilarity,
+  extractConversationFacts,
   type HomeAlterContextData,
   type DecisionMetadata,
   type QueryContext,
@@ -780,7 +786,8 @@ export async function POST(req: NextRequest) {
           // Daily Guidance 専用システムプロンプト
           const nameLabel = userName ? `（相手の名前: ${userName}）` : "";
           const dgSystemPrompt = [
-            "あなたは Alter（ユーザーの内側にいるもう一人の自分）です。",
+            ALTER_IDENTITY_BLOCK,
+            "",
             `今日一日をどう過ごすか、具体的にガイドしてください。${nameLabel}`,
             "",
             "# ルール",
@@ -1054,9 +1061,31 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const modeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
-      responseMode = modeDecision.mode;
-      modeDecisionReason = modeDecision.reason;
+      // ── 会話OS基礎: direct_request / repair / greeting を最優先で検出 ──
+      // これらは ambiguity engine より上位。検出されたらパイプラインの大部分をスキップ。
+      const lastAlterMsg = conversationHistory.length > 0
+        ? conversationHistory[conversationHistory.length - 1]
+        : null;
+      const lastAlterContent = (lastAlterMsg?.role === "alter") ? lastAlterMsg.content : null;
+
+      if (detectCorrectionSignal(message, lastAlterContent)) {
+        responseMode = "repair";
+        modeDecisionReason = "correction_signal_detected";
+        console.info(`[home-alter] Correction signal detected → repair mode`);
+      } else if (detectGreeting(message)) {
+        responseMode = "direct_response";
+        modeDecisionReason = "direct_request_detected";
+        console.info(`[home-alter] Greeting detected → direct_response mode (light template)`);
+      } else if (detectDirectRequest(message)) {
+        responseMode = "direct_response";
+        modeDecisionReason = "direct_request_detected";
+        console.info(`[home-alter] Direct request detected → direct_response mode`);
+      } else {
+        // 通常パイプライン: ambiguity engine でモード選択
+        const modeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
+        responseMode = modeDecision.mode;
+        modeDecisionReason = modeDecision.reason;
+      }
 
       // ── State → Mode 降格: fatigue/load が高い時は branch → conclude ──
       // branch は複数選択肢を提示するが、疲労時はシンプルな結論の方が助かる
@@ -1546,9 +1575,7 @@ export async function POST(req: NextRequest) {
       // Clarify ループ防止: 前回の alter 応答が clarify（短い＋質問で終わる）なら
       // ユーザーが回答を返してきた場合は conclude を強制
       // ただし、ユーザーが全く別の質問をしている場合は新規扱い
-      const lastAlterMsg = conversationHistory.length > 0
-        ? conversationHistory[conversationHistory.length - 1]
-        : null;
+      // NOTE: lastAlterMsg は上部の会話OS基礎ブロックで取得済み
       const wasPreviousClarify = lastAlterMsg
         && lastAlterMsg.role === "alter"
         && lastAlterMsg.content.length < 200
@@ -2313,6 +2340,21 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      // ── P0-5: 会話内事実トラッキング — ユーザーが述べた事実をプロンプトに注入 ──
+      if (conversationHistory.length > 0) {
+        const conversationFacts = extractConversationFacts(
+          conversationHistory.map((m) => ({ role: m.role, content: m.content })),
+        );
+        if (conversationFacts.length > 0) {
+          homeSystemPrompt += `\n\n# ユーザーが今回の会話で述べた事実（確定情報として扱うこと）\n${conversationFacts.map((f) => `- ${f}`).join("\n")}\n\nこれらに矛盾する内容を応答に含めないこと。ユーザーが言及していない人物・状況を勝手に作らないこと。`;
+        }
+      }
+
+      // ── repair モード: 前回応答をプロンプトに注入（LLMが何を間違えたか把握するため） ──
+      if (responseMode === "repair" && lastAlterContent) {
+        homeSystemPrompt += `\n\n# 前回のALTERの応答（これが誤解の原因）\n「${lastAlterContent.slice(0, 300)}」\n\nユーザーの今の発言はこの応答への訂正。上記の何がズレていたかを把握した上で応答すること。`;
+      }
+
       // フォローアップ傾向をプロンプトに注入
       if (followupInsight) {
         homeSystemPrompt += `\n\n# 過去の提案に対するフィードバック傾向\n${followupInsight}\nこの傾向を考慮して、提案の粒度・ハードルを調整すること。`;
@@ -2344,8 +2386,8 @@ export async function POST(req: NextRequest) {
           prompt: homeUserPrompt,
           systemPrompt: homeSystemPrompt,
           requireJson: false,
-          temperature: responseMode === "clarify" ? 0.3 : 0.6,
-          maxOutputTokens: responseMode === "clarify" ? 512 : responseMode === "branch" ? 3072 : 2048,
+          temperature: (responseMode === "clarify" || responseMode === "repair") ? 0.3 : 0.6,
+          maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 512 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
           userId: userId,
           metadata: makeStargazerRunMetadata({
             feature: "alter",
@@ -2355,9 +2397,9 @@ export async function POST(req: NextRequest) {
           }),
         });
         if (aiResult.success && aiResult.text?.trim()) {
-          if (responseMode === "clarify") {
-            // clarify モードはメタデータなし
-            homeResponse = aiResult.text.trim();
+          if (responseMode === "clarify" || responseMode === "repair" || responseMode === "direct_response") {
+            // 軽量モードはメタデータなし、formatHomeAlterResponseで整形のみ
+            homeResponse = formatHomeAlterResponse(aiResult.text.trim(), userName);
           } else {
             const { responseText: stripped, metadata: meta } = parseDecisionMetadata(aiResult.text);
             homeResponse = formatHomeAlterResponse(stripped, userName);
@@ -2373,8 +2415,8 @@ export async function POST(req: NextRequest) {
         ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode)
         : { pass: false, failures: ["応答の生成に失敗"] };
 
-      // 不合格なら再生成（facts を明示して再試行）— clarify は再生成しない
-      if (!validation.pass && homeResponse && responseMode !== "clarify") {
+      // 不合格なら再生成（facts を明示して再試行）— clarify/repair/direct_response は軽量バリデーションなので再生成不要
+      if (!validation.pass && homeResponse && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response") {
         console.info("[home-alter] First response failed validation:", validation.failures);
         try {
           const retryPrompt = buildHomeAlterRetryPrompt(
@@ -2416,6 +2458,49 @@ export async function POST(req: NextRequest) {
           }
         } catch (retryError) {
           console.warn("[home-alter] Retry failed:", retryError);
+        }
+      }
+
+      // ── P0-4: 応答重複チェック — 前回と酷似なら再生成 ──
+      if (homeResponse && lastAlterContent) {
+        const similarity = computeResponseSimilarity(homeResponse, lastAlterContent);
+        if (similarity > 0.70) {
+          console.warn(`[home-alter] Response too similar to previous (similarity=${similarity.toFixed(2)}), regenerating`);
+          try {
+            const dedupPrompt = [
+              `ユーザーの質問: 「${message}」`,
+              "",
+              "## 重要な制約",
+              `前回の応答: 「${lastAlterContent.slice(0, 200)}」`,
+              "上記と同じ内容を繰り返してはならない。全く異なる切り口・表現で応答すること。",
+            ].join("\n");
+            const dedupResult = await runAI({
+              taskType: "stargazer_alter_response",
+              prompt: dedupPrompt,
+              systemPrompt: homeSystemPrompt,
+              requireJson: false,
+              temperature: 0.75,
+              maxOutputTokens: 2048,
+              userId: userId,
+              metadata: makeStargazerRunMetadata({
+                feature: "alter",
+                mode: "warm",
+                turnNumber: conversationHistory.length,
+                skipCache: true,
+                attempt: 2,
+              }),
+            });
+            if (dedupResult.success && dedupResult.text?.trim()) {
+              const dedupFormatted = formatHomeAlterResponse(dedupResult.text.trim(), userName);
+              const dedupSimilarity = computeResponseSimilarity(dedupFormatted, lastAlterContent);
+              if (dedupSimilarity < similarity) {
+                homeResponse = dedupFormatted;
+                console.info(`[home-alter] Dedup regeneration succeeded (new similarity=${dedupSimilarity.toFixed(2)})`);
+              }
+            }
+          } catch (e) {
+            console.warn("[home-alter] Dedup regeneration failed:", e);
+          }
         }
       }
 

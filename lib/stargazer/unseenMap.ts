@@ -396,6 +396,7 @@ const CATEGORY_LABELS: Record<AxisCategory, string> = {
   relational_deep: "深層関係性",
   depth: "深層心理",
   cognitive: "認知スタイル",
+  expansion: "拡張観測",
 };
 
 /**

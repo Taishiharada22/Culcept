@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassButton } from "@/components/ui/glassmorphism-design";
 import { safeLSSet } from "@/lib/safeLocalStorage";
+import { hydrateTourStates, isTourSeen, markTourSeen as markTourSeenDB } from "@/lib/tour/tourState";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,51 +83,76 @@ export default function FeatureIntroduction({
   onComplete,
   tabBarRef,
 }: FeatureIntroductionProps) {
-  const [phase, setPhase] = useState<Phase>(() => {
-    if (typeof window === "undefined") return "idle";
-    if (!hasSeenIntro(sectionKey)) return "intro";
-    if (tabs.length > 0 && !hasDoneTour(sectionKey)) return "tour";
-    return "done";
-  });
+  // Start idle — wait for DB hydrate before deciding phase
+  const [phase, setPhase] = useState<Phase>("idle");
   const [tourStep, setTourStep] = useState(0);
+
+  // Hydrate tour state from DB, then decide phase
+  useEffect(() => {
+    let cancelled = false;
+    hydrateTourStates().then(() => {
+      if (cancelled) return;
+      // DB-backed check: isTourSeen checks seen_version >= current_version
+      const seen = isTourSeen(sectionKey);
+      if (seen) {
+        setPhase("done");
+        return;
+      }
+      // Not seen — check if intro part was seen (localStorage legacy)
+      if (!hasSeenIntro(sectionKey)) {
+        setPhase("intro");
+      } else if (tabs.length > 0 && !hasDoneTour(sectionKey)) {
+        setPhase("tour");
+      } else {
+        // Legacy localStorage says seen but DB doesn't — show intro
+        setPhase("intro");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [sectionKey, tabs.length]);
 
   // -----------------------------------------------------------------------
   // Handlers
   // -----------------------------------------------------------------------
 
-  const handleDismissIntro = useCallback(() => {
+  const handleDismissIntro = useCallback(async () => {
     markIntroSeen(sectionKey);
     if (tabs.length > 0) {
       setPhase("tour");
       setTourStep(0);
     } else {
+      markTourDone(sectionKey);
+      await markTourSeenDB(sectionKey);
       setPhase("done");
       onComplete(startingTab);
     }
   }, [sectionKey, tabs.length, onComplete, startingTab]);
 
-  const handleSkipIntro = useCallback(() => {
+  const handleSkipIntro = useCallback(async () => {
     markIntroSeen(sectionKey);
     if (tabs.length > 0) {
       markTourDone(sectionKey);
     }
+    await markTourSeenDB(sectionKey);
     setPhase("done");
     onComplete(startingTab);
   }, [sectionKey, tabs.length, onComplete, startingTab]);
 
-  const handleTourNext = useCallback(() => {
+  const handleTourNext = useCallback(async () => {
     if (tourStep < tabs.length - 1) {
       setTourStep((s) => s + 1);
     } else {
       // Last step — complete
       markTourDone(sectionKey);
+      await markTourSeenDB(sectionKey);
       setPhase("done");
       onComplete(startingTab ?? tabs[tabs.length - 1]?.key);
     }
   }, [tourStep, tabs, sectionKey, onComplete, startingTab]);
 
-  const handleTourSkip = useCallback(() => {
+  const handleTourSkip = useCallback(async () => {
     markTourDone(sectionKey);
+    await markTourSeenDB(sectionKey);
     setPhase("done");
     onComplete(startingTab);
   }, [sectionKey, onComplete, startingTab]);
@@ -263,44 +289,47 @@ export default function FeatureIntroduction({
     <AnimatePresence>
       <motion.div
         key="tour-overlay"
-        className="fixed inset-0 z-[60]"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 60,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100dvh",
+        }}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
       >
-        {/* Dark overlay */}
-        <div className="absolute inset-0 bg-black/65 pointer-events-auto" onClick={handleTourNext} />
+        {/* Dark overlay — 薄め背景 */}
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={handleTourSkip} />
 
-        {/* Tab icon highlight */}
-        <TabHighlight
-          tabBarRef={tabBarRef}
-          tabIndex={tourStep}
-          totalTabs={tabs.length}
-        />
-
-        {/* Explanation card — positioned below tab bar */}
-        <motion.div
-          key={`explanation-${tourStep}`}
-          className="absolute left-0 right-0 z-[62] flex justify-center px-5 pointer-events-none"
-          style={{ top: tabBarRef?.current ? Math.min(tabBarRef.current.getBoundingClientRect().bottom + 20, window.innerHeight * 0.35) : 80 }}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ type: "spring", damping: 24, stiffness: 280 }}
-        >
-          <div className="w-full max-w-xs rounded-xl border border-white/40 bg-white/95 px-4 py-3.5 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50 pointer-events-auto">
+        {/* Explanation card — viewport 中央固定 */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={`card-${tourStep}`}
+            className="relative z-[62] mx-5 w-full max-w-xs rounded-xl border border-white/40 bg-white/95 px-4 py-4 shadow-2xl backdrop-blur-xl ring-1 ring-slate-200/50"
+            initial={{ opacity: 0, scale: 0.92, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.92, y: -10 }}
+            transition={{ type: "spring", damping: 24, stiffness: 280 }}
+          >
             {/* Step indicators */}
-            <div className="mb-2 flex items-center gap-1">
+            <div className="mb-2.5 flex items-center gap-1">
               {tabs.map((_, i) => (
                 <span
                   key={i}
-                  className={`inline-block h-1 w-1 rounded-full transition-colors ${
+                  className={`inline-block h-1 rounded-full transition-colors ${
                     i === tourStep
-                      ? "bg-indigo-500"
+                      ? "w-4 bg-indigo-500"
                       : i < tourStep
-                        ? "bg-indigo-300"
-                        : "bg-slate-200"
+                        ? "w-1 bg-indigo-300"
+                        : "w-1 bg-slate-200"
                   }`}
                 />
               ))}
@@ -340,128 +369,9 @@ export default function FeatureIntroduction({
                 {isLast ? "はじめる" : "次へ"}
               </GlassButton>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        </AnimatePresence>
       </motion.div>
     </AnimatePresence>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// TabHighlight — タブバー内の対象アイコンだけを光らせる
-// ---------------------------------------------------------------------------
-
-function TabHighlight({
-  tabBarRef,
-  tabIndex,
-  totalTabs,
-}: {
-  tabBarRef?: React.RefObject<HTMLElement | null>;
-  tabIndex: number;
-  totalTabs: number;
-}) {
-  const [rect, setRect] = useState<DOMRect | null>(null);
-  const rafRef = useRef(0);
-  const stableCountRef = useRef(0);
-  const prevRectRef = useRef<{ left: number; top: number } | null>(null);
-
-  useEffect(() => {
-    stableCountRef.current = 0;
-    prevRectRef.current = null;
-
-    const measure = () => {
-      if (!tabBarRef?.current) {
-        rafRef.current = requestAnimationFrame(measure);
-        return;
-      }
-      // Scroll the tab bar to ensure target button is visible
-      const buttons = tabBarRef.current.querySelectorAll("button");
-      const btn = buttons[tabIndex];
-      if (btn) {
-        // Ensure button is scrolled into view within the tab bar
-        btn.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-        const newRect = btn.getBoundingClientRect();
-        // Wait until position stabilizes (sticky positioning + scroll settle)
-        const prev = prevRectRef.current;
-        if (prev && Math.abs(prev.left - newRect.left) < 1 && Math.abs(prev.top - newRect.top) < 1) {
-          stableCountRef.current++;
-        } else {
-          stableCountRef.current = 0;
-        }
-        prevRectRef.current = { left: newRect.left, top: newRect.top };
-        // Only update state after position has been stable for a few frames
-        if (stableCountRef.current >= 3) {
-          setRect(newRect);
-        }
-      }
-      rafRef.current = requestAnimationFrame(measure);
-    };
-    // Delay initial measurement to let sticky positioning settle
-    const timer = setTimeout(() => {
-      measure();
-    }, 100);
-    return () => {
-      clearTimeout(timer);
-      cancelAnimationFrame(rafRef.current);
-    };
-  }, [tabBarRef, tabIndex, totalTabs]);
-
-  if (!rect) return null;
-
-  const pad = 8;
-
-  return (
-    <>
-      {/* Spotlight cutout — タブアイコンだけ切り抜き */}
-      <div
-        className="fixed inset-0 z-[61] pointer-events-none"
-        style={{
-          background: `radial-gradient(
-            ellipse ${rect.width / 2 + pad + 8}px ${rect.height / 2 + pad + 8}px
-            at ${rect.left + rect.width / 2}px ${rect.top + rect.height / 2}px,
-            transparent ${Math.max(rect.width, rect.height) / 2 + pad - 4}px,
-            rgba(0,0,0,0.01) ${Math.max(rect.width, rect.height) / 2 + pad + 4}px
-          )`,
-        }}
-      />
-
-      {/* Glow ring */}
-      <motion.div
-        className="pointer-events-none"
-        style={{
-          position: "fixed",
-          left: rect.left - pad,
-          top: rect.top - pad,
-          width: rect.width + pad * 2,
-          height: rect.height + pad * 2,
-          borderRadius: 16,
-          border: "2px solid rgba(99,102,241,0.6)",
-          zIndex: 61,
-          transition: "left 0.3s ease, top 0.3s ease, width 0.3s ease, height 0.3s ease",
-        }}
-        animate={{
-          boxShadow: [
-            "0 0 16px rgba(99,102,241,0.4), 0 0 40px rgba(99,102,241,0.15)",
-            "0 0 28px rgba(99,102,241,0.6), 0 0 60px rgba(99,102,241,0.25)",
-            "0 0 16px rgba(99,102,241,0.4), 0 0 40px rgba(99,102,241,0.15)",
-          ],
-        }}
-        transition={{ duration: 1.6, repeat: Infinity }}
-      />
-
-      {/* Arrow pointing down from glow to card */}
-      <div
-        className="pointer-events-none"
-        style={{
-          position: "fixed",
-          left: rect.left + rect.width / 2 - 1,
-          top: rect.bottom + pad + 2,
-          width: 2,
-          height: 12,
-          background: "linear-gradient(180deg, rgba(99,102,241,0.6), rgba(99,102,241,0.1))",
-          zIndex: 62,
-        }}
-      />
-    </>
   );
 }

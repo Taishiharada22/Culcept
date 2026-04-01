@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { normalizeOfficeCode } from "@/lib/weather/jma";
+import { prefectureToOfficeCode, officeCodeToPrefecture, PREFECTURES } from "@/lib/shared/location";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export async function GET() {
 
     const { data: settings, error } = await supabase
       .from("user_weather_settings")
-      .select("default_location, created_at")
+      .select("default_location, prefecture, created_at")
       .eq("user_id", auth.user.id)
       .maybeSingle();
 
@@ -24,10 +25,15 @@ export async function GET() {
       return NextResponse.json({ error: "Failed to fetch weather subscription" }, { status: 500 });
     }
 
+    const officeCode = normalizeOfficeCode(settings?.default_location);
+    // prefecture が未保存の場合、office_code から逆引き
+    const prefecture = settings?.prefecture ?? (officeCode ? officeCodeToPrefecture(officeCode) : null);
+
     return NextResponse.json({
       ok: true,
       subscription: {
-        office_code: normalizeOfficeCode(settings?.default_location),
+        office_code: officeCode,
+        prefecture: prefecture ?? null,
         updated_at: settings?.created_at ?? null,
       },
     });
@@ -47,10 +53,21 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const officeCode = normalizeOfficeCode(body?.office_code);
+
+    // prefecture または office_code のどちらかで受け付ける
+    let officeCode: string | null = null;
+    let prefecture: string | null = null;
+
+    if (body?.prefecture && PREFECTURES.includes(body.prefecture)) {
+      prefecture = body.prefecture as string;
+      officeCode = prefectureToOfficeCode(prefecture) ?? null;
+    } else if (body?.office_code) {
+      officeCode = normalizeOfficeCode(body.office_code);
+      prefecture = officeCode ? officeCodeToPrefecture(officeCode) : null;
+    }
 
     if (!officeCode) {
-      return NextResponse.json({ error: "office_code must be a 6-digit JMA office code" }, { status: 400 });
+      return NextResponse.json({ error: "都道府県を選択してください" }, { status: 400 });
     }
 
     const { data: existing, error: existingError } = await supabase
@@ -64,10 +81,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Failed to load weather settings" }, { status: 500 });
     }
 
+    const payload = {
+      default_location: officeCode,
+      prefecture,
+    };
+
     if (existing?.id) {
       const { error } = await supabase
         .from("user_weather_settings")
-        .update({ default_location: officeCode })
+        .update(payload)
         .eq("user_id", auth.user.id);
 
       if (error) {
@@ -79,7 +101,7 @@ export async function POST(req: NextRequest) {
         .from("user_weather_settings")
         .insert({
           user_id: auth.user.id,
-          default_location: officeCode,
+          ...payload,
           temp_preference: "normal",
           rain_sensitivity: "normal",
         });
@@ -92,7 +114,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      subscription: { office_code: officeCode },
+      subscription: { office_code: officeCode, prefecture },
     });
   } catch (err) {
     console.error("Weather subscription POST API error:", err);

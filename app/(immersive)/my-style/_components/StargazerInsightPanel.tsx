@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { GlassCard, GlassBadge, GlassButton, FadeInView } from "@/components/ui/glassmorphism-design";
 import type { SavedState } from "../_lib/types";
 import {
     getStargazerProfile,
@@ -220,40 +219,7 @@ function InsightCardItem({
 
 /* ── Empty State (Stargazer not used) ── */
 
-function StargazerCTA() {
-    return (
-        <GlassCard variant="gradient" className="relative overflow-hidden">
-            <StarParticles />
-            <div className="relative z-10 text-center py-6 px-4">
-                <div className="text-3xl mb-3">
-                    <motion.span
-                        animate={{ rotate: [0, 5, -5, 0] }}
-                        transition={{ duration: 3, repeat: Infinity }}
-                        className="inline-block"
-                    >
-                        &#x2B50;
-                    </motion.span>
-                </div>
-                <h3 className="text-base font-bold text-slate-800">
-                    Stargazer -- 深層観測
-                </h3>
-                <p className="mt-2 text-[12px] leading-relaxed text-slate-600 max-w-xs mx-auto">
-                    Stargazerを体験すると、性格とスタイルの深層インサイトが解放されます。
-                    あなたの判断パターンと服の選び方の間にある、隠された法則が見えてきます。
-                </p>
-                <div className="mt-4">
-                    <GlassButton
-                        href="/stargazer"
-                        variant="primary"
-                        size="sm"
-                    >
-                        Stargazerを始める
-                    </GlassButton>
-                </div>
-            </div>
-        </GlassCard>
-    );
-}
+/* StargazerCTA removed — using inline Link instead */
 
 /* ── Main Component ── */
 
@@ -321,7 +287,18 @@ export default function StargazerInsightPanel({
                 </Link>
             );
         }
-        return <StargazerCTA />;
+        return (
+            <Link href="/stargazer" className="block rounded-xl border border-indigo-200/40 bg-indigo-50/40 p-3 transition hover:bg-indigo-50/80">
+                <div className="flex items-center gap-2">
+                    <span>⭐</span>
+                    <div className="flex-1">
+                        <p className="text-[11px] font-bold text-slate-700">Stargazer深層観測</p>
+                        <p className="text-[10px] text-slate-500">性格 x スタイルのインサイトを解放</p>
+                    </div>
+                    <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </div>
+            </Link>
+        );
     }
 
     // Compact mode: abbreviated view
@@ -385,18 +362,9 @@ export default function StargazerInsightPanel({
     // No insights generated (data exists but no matches)
     if (insights.length === 0) {
         return (
-            <GlassCard className="p-4">
-                <div className="text-center py-4">
-                    <span className="text-2xl">&#x2B50;</span>
-                    <p className="mt-2 text-sm font-bold text-slate-700">
-                        Stargazerデータを検出しました
-                    </p>
-                    <p className="mt-1 text-[11px] text-slate-500 leading-relaxed max-w-xs mx-auto">
-                        まだスタイルとの明確な接点が見つかっていません。
-                        ワードローブやスタイル選択を増やすと、クロスドメインのインサイトが生まれます。
-                    </p>
-                </div>
-            </GlassCard>
+            <div className="rounded-xl border border-slate-200/40 bg-white/60 p-3 text-center">
+                <p className="text-[11px] text-slate-500">⭐ Stargazerデータ検出 — スタイル選択を増やすとインサイトが生まれます</p>
+            </div>
         );
     }
 
@@ -450,9 +418,9 @@ export default function StargazerInsightPanel({
                     {/* Observation stats */}
                     {profile.archetypeLabel && (
                         <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
-                            <GlassBadge variant="info" size="sm">
+                            <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-600">
                                 {profile.archetypeLabel}
-                            </GlassBadge>
+                            </span>
                             <span>
                                 / {profile.observationCount}回の観測
                             </span>

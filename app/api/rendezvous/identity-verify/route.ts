@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
 
     // --- Update rendezvous_profiles ---
     const now = new Date().toISOString();
-    const { error: updateErr } = await supabaseAdmin
+    const { data: updated, error: updateErr } = await supabaseAdmin
       .from("rendezvous_profiles")
       .update({
         verification_status: "pending",   // ユーザー向け: 確認中
@@ -121,15 +121,27 @@ export async function POST(request: NextRequest) {
         birth_date: birthDate,
         manual_review_required: true,
       })
-      .eq("user_id", userId);
+      .eq("user_id", userId)
+      .select("user_id");
 
     if (updateErr) {
       console.error("[identity-verify] update error:", updateErr);
-      // Clean up uploaded files on DB error
       await supabaseAdmin.storage
         .from("identity-verification")
         .remove([docPath, selfiePath]);
       return NextResponse.json({ ok: false, error: updateErr.message }, { status: 500 });
+    }
+
+    // 更新が0行 = rendezvous_profiles の行が存在しない
+    if (!updated || updated.length === 0) {
+      console.error("[identity-verify] update matched 0 rows for user:", userId);
+      await supabaseAdmin.storage
+        .from("identity-verification")
+        .remove([docPath, selfiePath]);
+      return NextResponse.json(
+        { ok: false, error: "プロフィールが見つかりません。先にオンボーディングを完了してください。" },
+        { status: 400 },
+      );
     }
 
     // Audit log: submission

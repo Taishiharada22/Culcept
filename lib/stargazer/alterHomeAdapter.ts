@@ -13,6 +13,18 @@ import { TRAIT_AXES } from "./traitAxes";
 import type { TraitAxisKey } from "./traitAxes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ALTER 自己同一性ブロック — 全プロンプトバリアントに固定挿入
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+export const ALTER_IDENTITY_BLOCK = [
+  "# ALTER（アルター）とは",
+  "- あなたの名前は ALTER（アルター）。",
+  "- Aneurasync の深層観測エンジンが生成した、ユーザーの「影」——もう一人の自分。",
+  "- カウンセラーでも友人でもない。ユーザーの内面データから生まれた存在で、ユーザーを一番知っている。",
+  "- 一人称は「僕」。名前を聞かれたら「ALTER」と答える。Aneurasync について聞かれたら自分が動いているアプリだと答える。",
+  "- 少し本音を混ぜる。やさしいが、核心を避けない。",
+].join("\n");
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -963,6 +975,107 @@ export function isEmotionalQuestion(message: string): boolean {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 会話OS基礎: 直答要求 / 訂正シグナル / 挨拶 検出
+// テンプレ強制を解除し、LLMの自然な会話能力を活かすためのゲート
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 直答要求パターン: ユーザーが具体的な答え・意見・リストを求めている */
+const DIRECT_REQUEST_PATTERNS = /教えて|出して[。、？?！!]?$|言って[。、？?！!みよ]|見せて|ランキング|具体的に|リスト|一覧|おすすめ|トップ|ベスト|どれがいい|何がいい[？?]|何が向いて|どんな.*[？?]$|挙げて|列挙/;
+
+/** 意見・判定要求: 「君はどう思う？」「君の意見」系 */
+const OPINION_REQUEST_PATTERNS = /[君僕あなた].*思[うっ]|意見|[君僕].*考え|どう[見思]え?る|感想|判定|評価して|分析して|診断して/;
+
+/** 事実質問: 名前・基本情報・直接的な質問 */
+const FACTUAL_QUESTION_PATTERNS = /名前[はって何を]|誰[？?]$|何者|何[？?]$|^[あ-ん]{1,6}[？?]$/;
+
+/** 挨拶パターン */
+const GREETING_PATTERNS = /^(おはよう|こんにちは|こんばんは|やっほ|ただいま|おつかれ|おっす|よお|ハロー|はろー|ういーっす|おう|ども)/;
+
+/**
+ * 直答要求を検出する。
+ * 短い直答要求キーワード、または意見・事実質問がある場合に true。
+ * 長文の判断相談（「〜だけど、教えて」）は通常の conclude に任せるため、
+ * 長文 + 文末の「教えて」だけの場合は false。
+ */
+export function detectDirectRequest(message: string): boolean {
+  const trimmed = message.trim();
+  // 事実質問は無条件で直答
+  if (FACTUAL_QUESTION_PATTERNS.test(trimmed)) return true;
+  // 意見要求は直答
+  if (OPINION_REQUEST_PATTERNS.test(trimmed)) return true;
+  // 直答キーワードがあり、かつ短め（< 60文字）→ 直答
+  // 長文の場合は判断相談である可能性が高いので通常パイプラインへ
+  if (DIRECT_REQUEST_PATTERNS.test(trimmed) && trimmed.length < 60) return true;
+  return false;
+}
+
+/**
+ * 訂正シグナルを検出する。
+ * ユーザーが ALTER の前回応答に対して「違う」「わからない」等の修正を求めている場合に true。
+ */
+export function detectCorrectionSignal(message: string, lastAlterContent: string | null): boolean {
+  const trimmed = message.trim();
+  // 明確な訂正表現
+  if (/^(違う|ちがう|そうじゃない|そういうことじゃない|そういう意味じゃない|わけわからん)/.test(trimmed)) return true;
+  if (/君の.*[意味言].*わから|君が.*理解.*[でき]?[てない]|何[言い]ってるの|話.*噛み合[わっ]/.test(trimmed)) return true;
+  // 「それ昨日も言ってた」「同じこと言ってる」系
+  if (/同じ.*言[っいう]|昨日も.*言[っいう]|さっきも.*言[っいう]|繰り返[しさ]/.test(trimmed)) return true;
+  // 短い驚き反応（前回 ALTER 応答があり、ユーザーが短い「え？」「は？」で返した場合）
+  if (lastAlterContent && trimmed.length <= 5 && /^[えはあ][？?!！]?$/.test(trimmed)) return true;
+  // 「違うよ」「違う」が文中に含まれる短文
+  if (trimmed.length < 30 && /違[うくい]よ|違[うくい]って|違[うくい]から/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * 挨拶を検出する。
+ */
+export function detectGreeting(message: string): boolean {
+  return GREETING_PATTERNS.test(message.trim());
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 会話内事実トラッキング（幻覚防止）
+// ユーザーが会話中に述べた事実を抽出し、プロンプトに注入する
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const FACT_PATTERNS: Array<{ pattern: RegExp; template: string }> = [
+  // キャリア・職業
+  { pattern: /起業.*(?:したい|やりたい|してみたい|考えて|興味)/, template: "起業に関心がある" },
+  { pattern: /転職.*(?:したい|考えて|検討|悩んで)/, template: "転職を検討している" },
+  { pattern: /(?:無職|仕事.*(?:してない|ない)|働いてない|求職)/, template: "現在仕事をしていない" },
+  { pattern: /プログラミング.*(?:して|やって|学んで|勉強)/, template: "プログラミングをしている" },
+  { pattern: /(?:学生|大学|高校|専門学校)/, template: "学生である" },
+  // 状態
+  { pattern: /疲れ[たてている]/, template: "疲れている" },
+  { pattern: /(?:忙しい|バタバタ)/, template: "忙しい状態" },
+  { pattern: /(?:暇|やることない|時間.*ある)/, template: "時間に余裕がある" },
+  // 関係
+  { pattern: /(?:彼女|彼氏|恋人|パートナー).*(?:いる|いない|できた|別れた)/, template: "恋愛状況について言及" },
+  // アプリ文脈
+  { pattern: /(?:Aneurasync|アニュラシンク|このアプリ|ALTER|アルター).*(?:使って|使ってる)/, template: "Aneurasyncを使用中" },
+];
+
+/**
+ * ユーザー発話の履歴から明示的な事実を抽出する。
+ * 高信頼パターンのみ使用し、誤検出を最小化する。
+ */
+export function extractConversationFacts(
+  history: Array<{ role: string; content: string }>,
+): string[] {
+  const facts = new Set<string>();
+  for (const msg of history) {
+    if (msg.role !== "user") continue;
+    for (const { pattern, template } of FACT_PATTERNS) {
+      if (pattern.test(msg.content)) {
+        facts.add(template);
+      }
+    }
+  }
+  return [...facts];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // データ → 判断文への事前変換
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1364,7 +1477,10 @@ export function buildHomeAlterPrompt(
     ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
     : `ユーザーに「君」「あなた」と呼びかけない。名前を使わず中立的に表現する。`;
 
-  // ━━━━ 最重要ルール（冒頭） ━━━━
+  // ━━━━ ALTER 自己同一性（冒頭固定） ━━━━
+  sections.push(ALTER_IDENTITY_BLOCK, "");
+
+  // ━━━━ 最重要ルール ━━━━
   sections.push(
     "# 絶対ルール",
     "",
@@ -2048,6 +2164,35 @@ export function validateHomeAlterResponse(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 応答重複チェック（bigram Jaccard 類似度）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function extractBigrams(text: string): Set<string> {
+  const normalized = text.replace(/[\s\n。、！!？?「」『』（）()・…]/g, "");
+  const bigrams = new Set<string>();
+  for (let i = 0; i < normalized.length - 1; i++) {
+    bigrams.add(normalized.slice(i, i + 2));
+  }
+  return bigrams;
+}
+
+/**
+ * 2つの応答テキストの bigram Jaccard 類似度を計算する。
+ * 0.0 = 完全に異なる, 1.0 = 完全に同一。
+ */
+export function computeResponseSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const bigramsA = extractBigrams(a);
+  const bigramsB = extractBigrams(b);
+  if (bigramsA.size === 0 || bigramsB.size === 0) return 0;
+  let intersection = 0;
+  for (const bg of bigramsA) {
+    if (bigramsB.has(bg)) intersection++;
+  }
+  return intersection / (bigramsA.size + bigramsB.size - intersection);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Home Alter Response Formatter
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -2222,7 +2367,7 @@ export interface QueryContext {
 }
 
 /** 応答モード */
-export type ResponseMode = "conclude" | "branch" | "clarify";
+export type ResponseMode = "conclude" | "branch" | "clarify" | "direct_response" | "repair";
 
 /** 応答モード決定の理由（監査・デバッグ用） */
 export type ModeDecisionReason =
@@ -2233,7 +2378,9 @@ export type ModeDecisionReason =
   | "branch_high_ambiguity"
   | "branch_mid_ambiguity_low_info"
   | "conclude_mid_ambiguity_info_sufficient"
-  | "conclude_low_ambiguity";
+  | "conclude_low_ambiguity"
+  | "direct_request_detected"         // ユーザーが直答を求めている
+  | "correction_signal_detected";     // ユーザーが訂正・修正を求めている
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3243,6 +3390,70 @@ export function buildHomeAlterPromptWithContext(
   clarifyType?: ClarifyType,
   clarifyIntentHint?: ClarifyIntentHint | null,
 ): string {
+  // ── Mode: direct_response — テンプレ解除、LLMの自然な会話能力に委ねる ──
+  if (responseMode === "direct_response") {
+    const facts = buildPersonalizedFacts(personality, homeContext, category);
+    const callNameRule = userName
+      ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
+      : `「君」「あなた」と呼びかけない。`;
+    const sections: string[] = [
+      ALTER_IDENTITY_BLOCK,
+      "",
+      "# ルール",
+      "ユーザーが具体的な答え・意見・リストを求めている。**まず求められたものを直接返す**。",
+      "その上で、この人の性格データを根拠として自然に織り込む。",
+      "テンプレに従う必要はない。自然な会話として応答する。",
+      "",
+      "## この人について今日わかっていること",
+      ...facts.map((f) => `- ${f}`),
+      "",
+      "## 禁止",
+      "- 質問で返す（直答要求への質問返しは信頼を壊す）",
+      "- 「まず内省しよう」「自分の気持ちを見つめて」等の内省誘導",
+      "- 「次の一手:」「正直に言うと」等のテンプレフレーズ",
+      "- 箇条書き（ただしランキング等をリストで求められた場合は可）",
+      "- 命令口調",
+      "",
+      "## 制約",
+      `- 一人称「僕」`,
+      `- ${callNameRule}`,
+      "- 2-5文で自然に応答する",
+      "- 性格データは自然に織り込む（ラベル貼りは禁止）",
+    ];
+    return sections.join("\n");
+  }
+
+  // ── Mode: repair — 前回の誤解を認め、修正する ──
+  if (responseMode === "repair") {
+    const callNameRule = userName
+      ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
+      : `「君」「あなた」と呼びかけない。`;
+    const sections: string[] = [
+      ALTER_IDENTITY_BLOCK,
+      "",
+      "# ルール",
+      "ユーザーが「前の返答は間違い」「意味がわからない」と訂正している。",
+      "**最優先: 自分の誤解を短く認めてから、ユーザーの本来の意図に応答する。**",
+      "",
+      "## 応答の流れ",
+      "1. 短く誤解を認める（「ごめん、読み違えた」「ああ、そういう意味か」等、1文以内）",
+      "2. ユーザーが本当に言いたかったことに応じる",
+      "3. 必要なら質問して確認してもよい（ただし状態診断テンプレは使わない）",
+      "",
+      "## 禁止",
+      "- 「今のたいしさんは〜するのが合っています」系のテンプレ応答",
+      "- 状態推定・性格分析の押し付け",
+      "- ユーザーの訂正を無視して別の話を始める",
+      "- 言い訳や正当化",
+      "",
+      "## 制約",
+      `- 一人称「僕」`,
+      `- ${callNameRule}`,
+      "- 短く自然に。1-3文で十分。",
+    ];
+    return sections.join("\n");
+  }
+
   // Mode C (clarify) は専用の短いプロンプト
   if (responseMode === "clarify") {
     const type = clarifyType ?? "missing_info";
@@ -3262,6 +3473,8 @@ export function buildHomeAlterPromptWithContext(
           "判断精度を上げるために、**1問だけ**やさしく聞く。",
         ];
     const sections: string[] = [
+      ALTER_IDENTITY_BLOCK,
+      "",
       ...intro,
       "",
       ...buildClarifyFormatSection(queryContext, relationalLens ?? null, type, clarifyIntentHint),
@@ -3352,6 +3565,17 @@ export function validateHomeAlterResponseWithMode(
   expectedKeywords: string[],
   responseMode: ResponseMode,
 ): HomeAlterValidation {
+  // direct_response / repair: 最小限のバリデーションのみ
+  if (responseMode === "direct_response" || responseMode === "repair") {
+    const trimmed = response.trim();
+    const failures: string[] = [];
+    if (!trimmed || trimmed.length < 3) failures.push("応答が空");
+    if (trimmed.length > 600) failures.push("応答が長すぎる（600文字以内）");
+    // 呼称チェックだけは維持
+    if (/[^ぁ-ん]君[がにはをの、。]/.test(trimmed)) failures.push("「君」呼称禁止");
+    return { pass: failures.length === 0, failures };
+  }
+
   if (responseMode === "conclude") {
     return validateHomeAlterResponse(response, userMessage, expectedKeywords);
   }

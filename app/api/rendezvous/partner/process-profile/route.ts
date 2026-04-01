@@ -100,6 +100,8 @@ export async function POST() {
         cognitiveProfile,
       },
       axisCoverage,
+      axisCoveragePercent: Math.round(axisCoverage * 100),
+      sufficient: axisCoverage >= 0.3,
       stargazerSnapshotId: stargazerData.id,
       updatedAt: new Date().toISOString(),
     });
@@ -147,6 +149,7 @@ export async function GET() {
         bidResponsiveness: profile.bid_responsiveness,
         growthVsDestiny: profile.growth_vs_destiny,
       },
+      axisCoverage: profile.axis_coverage ?? 0,
       stargazerSnapshotId: profile.source_snapshot_id,
       updatedAt: profile.updated_at,
     });

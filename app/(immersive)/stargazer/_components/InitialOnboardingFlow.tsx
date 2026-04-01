@@ -71,6 +71,7 @@ import {
   type SocialContext,
 } from "@/lib/stargazer/fluctuationEngine";
 import { generateZeroSecondMirror, generateServerMirror, recordMirrorReaction, type ZeroMirrorResult } from "@/lib/onboarding/zeroSecondMirror";
+import { isCurrentUserAnonymous } from "@/lib/auth/anonymousAuth";
 import { generateImpossibleAccuracy, type ImpossibleAccuracyInsight, type MicroObservationData } from "@/lib/onboarding/impossibleAccuracy";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -905,6 +906,15 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
   const [zeroMirror, setZeroMirror] = useState<ZeroMirrorResult>(() => generateServerMirror());
   const [zeroMirrorStartTime] = useState(() => Date.now());
   const [impossibleInsight, setImpossibleInsight] = useState<ImpossibleAccuracyInsight | null>(null);
+
+  // ── 匿名ユーザー検出（P2: 後ログイン型フロー） ──
+  const [isAnonymousUser, setIsAnonymousUser] = useState(false);
+  useEffect(() => {
+    isCurrentUserAnonymous().then(setIsAnonymousUser).catch(() => {});
+  }, []);
+  const handleLoginRedirect = useCallback(() => {
+    window.location.href = "/login?next=/stargazer";
+  }, []);
 
   // Upgrade to full client-side mirror with all browser signals
   useEffect(() => {
@@ -3642,6 +3652,8 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
         playInsightReveal={playInsightReveal}
         playStreakMilestone={playStreakMilestone}
         haptics={haptics}
+        isAnonymous={isAnonymousUser}
+        onLogin={handleLoginRedirect}
         onSave={() => {
           signalSaveSession();
           // Phase 1 完了として保存（RV なしで初回観測完了）
@@ -3731,6 +3743,24 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
         <p className="text-center text-xs" style={{ color: "rgba(100,105,125,0.5)" }}>
           関係性の観測は後からいつでも始められます
         </p>
+
+        {/* 匿名ユーザー向けアカウント作成リンク */}
+        {isAnonymousUser && (
+          <motion.button
+            onClick={handleLoginRedirect}
+            className="w-full py-3 mt-2 text-sm tracking-wide rounded-xl font-medium"
+            style={{
+              background: "linear-gradient(135deg, rgba(170,150,90,0.15), rgba(160,150,200,0.08))",
+              border: "1px solid rgba(190,170,110,0.25)",
+              color: "rgba(70,60,30,0.85)",
+            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.7 }}
+          >
+            アカウントを作成して結果を保存する
+          </motion.button>
+        )}
       </motion.div>
     );
   }
@@ -3750,6 +3780,8 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
         playInsightReveal={playInsightReveal}
         playStreakMilestone={playStreakMilestone}
         haptics={haptics}
+        isAnonymous={isAnonymousUser}
+        onLogin={handleLoginRedirect}
         onSave={() => {
           signalSaveSession();
           // Phase 2 込みの結果で上書き保存

@@ -48,6 +48,7 @@ import DepthLayerAccordion from "../_components/DepthLayerAccordion";
 import CoreWoundCard from "../_components/CoreWoundCard";
 import EmptyState from "../_shared/EmptyState";
 import { NoContradictionsYet, NoInsightsYet } from "../_components/EmptyStates";
+import ExpansionAxesSection, { type ExpansionAxisData } from "../_components/ExpansionAxesSection";
 import UnobservedSection from "../_components/UnobservedSection";
 import LiveSkyPanel from "../_components/LiveSkyPanel";
 import AxisOverviewPanel from "../_components/AxisOverviewPanel";
@@ -92,6 +93,8 @@ interface DeepTabProps {
   dataQuality?: DataQualityScore;
   traitEvolution?: TraitEvolutionSummary | null;
   isBetaTester?: boolean;
+  /** P4: 拡張軸データ（profile API から） */
+  expansionAxes?: ExpansionAxisData[];
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -494,6 +497,7 @@ export default function DeepTab({
   totalObservations, entropySignature, resonancePredictions, phantomChoices, metaInsights,
   judgmentArchaeology, whyInsights, archetypeResult, dualArchetypeResult, previousAxisScores,
   growthMilestones, behavioralInsights, dataQuality, traitEvolution, isBetaTester,
+  expansionAxes,
 }: DeepTabProps) {
   const [showAllAxes, setShowAllAxes] = useState(false);
   const [selfGap, setSelfGap] = useState<SelfGapResult | null>(null);
@@ -608,6 +612,10 @@ export default function DeepTab({
                 <NarrativeText>あなたの傾向を軸ごとに俯瞰します。中央が中間、左右に振れるほど傾向が強い軸です。</NarrativeText>
                 <AxisOverviewPanel axisScores={axisScores as Record<string, number>} lightMode />
               </motion.section>
+            )}
+            {/* P4: 拡張軸セクション — visible / displayTier を唯一の判定源とする */}
+            {expansionAxes && expansionAxes.length > 0 && (
+              <ExpansionAxesSection axes={expansionAxes} />
             )}
             {totalObservations >= 5 && (
               <motion.section initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} aria-label="リアルタイム軸ゲージ">

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { isBetaTesterEmail } from "@/lib/auth/betaTesters";
-import { createEmptyAxisScores, TRAIT_AXES, type TraitAxisKey } from "@/lib/stargazer/traitAxes";
+import { createEmptyAxisScores, TRAIT_AXES, EXPANSION_AXIS_KEYS, isExpansionAxis, type TraitAxisKey } from "@/lib/stargazer/traitAxes";
 import {
   computeAllDistributions,
   detectFluctuationPatterns,
@@ -21,6 +21,13 @@ import { deserializeBeliefs, serializeBeliefs, beliefsToScores, type BeliefSet }
 import { computeSyncPercentage } from "@/lib/stargazer/informationGain";
 import { computeOverallTypeConfidenceV2 } from "@/lib/stargazer/confidenceEngine";
 import { generateCrossAxisInsights } from "@/lib/stargazer/crossAxisPatterns";
+import {
+  getExpansionDisplayTier,
+  getExpansionOriginLabel,
+  EXPANSION_CONFIDENCE_CAP,
+  EXPANSION_PRECISION_MAX,
+  EXPANSION_INFERENCE_CONFIDENCE_CAP,
+} from "@/lib/stargazer/expansionDiscovery";
 
 type DailyRawAnswersPayload = {
   answers?: { responseTimeMs?: number }[];
@@ -812,6 +819,71 @@ export async function GET() {
       starMap.coreStar.archetypeEmoji = archetypeResult.emoji ?? undefined;
     }
 
+    // ── P2: 匿名ユーザーには制限付きレスポンス ──
+    // サーバーDBには全データ保存済み。クライアントに渡す情報のみ制限する。
+    if (user.is_anonymous) {
+      return NextResponse.json({
+        ok: true,
+        isAnonymous: true,
+        // archetype 基本情報（Card 0 表示用）
+        archetypeResult: archetypeResult ? {
+          code: archetypeResult.code,
+          name: archetypeResult.name,
+          emoji: archetypeResult.emoji,
+          tagline: archetypeResult.tagline,
+          confidence: archetypeResult.confidence,
+        } : null,
+        // 軸ラベルのみ（スコアなし — ロック一覧表示用）
+        dimensionDetails: dimensionDetails.map((d) => ({
+          id: d.id,
+          category: d.category,
+          labelLeft: d.labelLeft,
+          labelRight: d.labelRight,
+        })),
+        // 進捗情報（再訪時の状態表示用）
+        actualObservationCount,
+        hasCompletedInitialObservation,
+        todayObservationCount,
+        stageProgress,
+      }, {
+        headers: {
+          "Cache-Control": "private, max-age=60",
+        },
+      });
+    }
+
+    // ── P4: 拡張軸データの構築（非匿名のみ） ──
+    // expansion 軸は archetype 決定に影響しない。補助的な深層理解情報。
+    const expansionAxes = EXPANSION_AXIS_KEYS.map((axisId) => {
+      const score = axisScores[axisId] ?? 0;
+      const inferredData = inferredAxesMap[axisId];
+      const axisDef = TRAIT_AXES.find((a) => a.id === axisId);
+      // beliefs から precision/confidence を取得（あれば）
+      const belief = profile?.axis_beliefs
+        ? (profile.axis_beliefs as Record<string, { mu: number; precision: number }>)?.[axisId]
+        : null;
+      const precision = belief?.precision ?? 0.3;
+      // confidence は推論由来ならその値、belief由来なら飽和曲線で算出（上限 EXPANSION_CONFIDENCE_CAP）
+      const confidence = inferredData
+        ? Math.min(inferredData.confidence, EXPANSION_INFERENCE_CONFIDENCE_CAP)
+        : Math.min(EXPANSION_CONFIDENCE_CAP, EXPANSION_CONFIDENCE_CAP * (1 - Math.exp(-precision / 30)));
+      const displayTier = getExpansionDisplayTier(confidence);
+
+      return {
+        id: axisId,
+        labelLeft: axisDef?.labelLeft ?? "",
+        labelRight: axisDef?.labelRight ?? "",
+        score: displayTier.visible ? score : null, // hidden tier ではスコアを返さない
+        confidence,
+        precision,
+        source: inferredData ? ("inferred" as const) : ("observed" as const),
+        displayTier: displayTier.tier,
+        displayPrefix: displayTier.prefix,
+        visible: displayTier.visible,
+        originLabel: getExpansionOriginLabel(axisId),
+      };
+    });
+
     return NextResponse.json({
       ok: true,
       starMap,
@@ -856,6 +928,8 @@ export async function GET() {
         : undefined,
       scoringVersion: "v2",
       collinearityCorrected,
+      // ── P4: 拡張軸データ（archetype非影響・補助情報） ──
+      expansionAxes: expansionAxes.length > 0 ? expansionAxes : undefined,
       // ── Cross-Axis Insights（軸間パターン）──
       crossAxisInsights: hasAxisEvidence ? generateCrossAxisInsights(axisScores) : undefined,
       // ── Belief-based sync percentage（エントロピーベース同期率）──

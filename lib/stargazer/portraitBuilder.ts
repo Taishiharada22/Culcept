@@ -167,6 +167,7 @@ function findUnseenAreas(beliefs: BeliefSet): UnseenArea[] {
     relational_deep: "深い関係性",
     depth: "深層心理",
     cognitive: "認知スタイル",
+    expansion: "拡張観測",
   };
 
   const categoryStats = new Map<AxisCategory, { totalPrec: number; count: number }>();

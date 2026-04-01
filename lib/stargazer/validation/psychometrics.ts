@@ -899,6 +899,70 @@ export const AXIS_VALIDATION_MAP: Record<TraitAxisKey, PsychometricValidation> =
       citationKeys: ["costa_mccrae_1992"],
       relatedConstructs: ["Need for closure", "Exploration tendency"],
     },
+
+    // ========================================================================
+    // Expansion (6)
+    // ========================================================================
+    energy_rhythm: {
+      bigFiveMapping: {
+        factor: "Extraversion",
+        facet: "Activity (E4)",
+        loadingDirection: 1,
+      },
+      theoreticalBasis: "エネルギー充電パターン。静的回復 vs 活動的回復の個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Circadian preference", "Energy management"],
+    },
+    conflict_style: {
+      bigFiveMapping: {
+        factor: "Agreeableness",
+        facet: "Compliance (A4) x Tender-Mindedness (A6)",
+        loadingDirection: -1,
+      },
+      theoreticalBasis: "対立場面での対処スタイル。回避・対決・協調の個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Thomas-Kilmann conflict modes", "Assertiveness"],
+    },
+    novelty_threshold: {
+      bigFiveMapping: {
+        factor: "Openness",
+        facet: "Actions (O4)",
+        loadingDirection: 1,
+      },
+      theoreticalBasis: "新奇刺激への閾値。慣れた範囲の安心 vs 未知への探索欲求。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Sensation seeking", "Novelty seeking"],
+    },
+    self_disclosure_depth: {
+      bigFiveMapping: {
+        factor: "Extraversion",
+        facet: "Warmth (E1)",
+        loadingDirection: 1,
+      },
+      theoreticalBasis: "自己開示の深さ。核心を見せない傾向 vs 深く開示する傾向。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Self-disclosure", "Intimacy regulation"],
+    },
+    decision_regret: {
+      bigFiveMapping: {
+        factor: "Neuroticism",
+        facet: "Depression (N3) x Vulnerability (N6)",
+        loadingDirection: 1,
+      },
+      theoreticalBasis: "決断後の後悔傾向。振り返らない vs 反芻的に後悔する個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Regret scale", "Maximizing tendency"],
+    },
+    relational_investment: {
+      bigFiveMapping: {
+        factor: "Agreeableness",
+        facet: "Altruism (A3) x Tender-Mindedness (A6)",
+        loadingDirection: 1,
+      },
+      theoreticalBasis: "関係への投資パターン。広く薄く vs 狭く深くの個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Attachment breadth", "Social investment"],
+    },
   };
 
 // ---------------------------------------------------------------------------
@@ -1268,5 +1332,39 @@ export const AXIS_BEHAVIORAL_ANCHORS: Record<TraitAxisKey, BehavioralAnchor[]> =
       { score: -1.0, description: "素早く結論に到達したい。選択肢を絞り込むことを好む。" },
       { score: 0, description: "探索と絞り込みのバランスを取る。" },
       { score: 1.0, description: "可能性を広く探索することを好む。早期の絞り込みを避ける。" },
+    ],
+
+    // ========================================================================
+    // Expansion
+    // ========================================================================
+    energy_rhythm: [
+      { score: -1.0, description: "静かに一人で充電する時間が不可欠。活動的な回復は疲れる。" },
+      { score: 0, description: "静的回復と活動的回復を状況に応じて使い分ける。" },
+      { score: 1.0, description: "動くことでエネルギーが回復する。じっとしていると逆に疲れる。" },
+    ],
+    conflict_style: [
+      { score: -1.0, description: "対立を避け、距離を取ることで自分を守る。" },
+      { score: 0, description: "状況に応じて対立と回避を使い分ける。" },
+      { score: 1.0, description: "対立を恐れず正面から向き合い、解決を目指す。" },
+    ],
+    novelty_threshold: [
+      { score: -1.0, description: "慣れた範囲が安心。新しいことへの挑戦は慎重に進める。" },
+      { score: 0, description: "新しいことも慣れたことも状況次第で楽しめる。" },
+      { score: 1.0, description: "未知の体験を積極的に求める。マンネリを強く嫌う。" },
+    ],
+    self_disclosure_depth: [
+      { score: -1.0, description: "核心は見せない。表層的な会話で十分と感じる。" },
+      { score: 0, description: "相手との関係性に応じて開示の深さを調整する。" },
+      { score: 1.0, description: "深い話を好み、本音で語り合える関係を求める。" },
+    ],
+    decision_regret: [
+      { score: -1.0, description: "決めたら振り返らない。過去の決断を後悔しない。" },
+      { score: 0, description: "大きな決断は振り返るが、小さなことは気にしない。" },
+      { score: 1.0, description: "決断後に別の選択肢を考え続ける。後悔しやすい。" },
+    ],
+    relational_investment: [
+      { score: -1.0, description: "広く薄くつながる。多くの人と適度な距離を保つ。" },
+      { score: 0, description: "広い付き合いと深い付き合いの両方を持つ。" },
+      { score: 1.0, description: "少数の相手に深く投資する。狭く深い関係を好む。" },
     ],
   };

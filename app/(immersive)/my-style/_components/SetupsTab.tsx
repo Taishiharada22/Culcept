@@ -88,46 +88,7 @@ function Badge({ children, tone = "slate" }: { children: ReactNode; tone?: "slat
     return <span className={cx("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-bold tracking-wide", tones[tone])}>{children}</span>;
 }
 
-function EmptyState({ icon, text, action }: { icon: string; text: string; action?: { label: string; onClick: () => void } }) {
-    return (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-6 py-10 text-center">
-            <span className="text-3xl">{icon}</span>
-            <p className="max-w-xs text-sm leading-relaxed text-slate-500">{text}</p>
-            {action ? (
-                <button type="button" onClick={action.onClick} className="mt-1 rounded-full bg-slate-900 px-4 py-2 text-xs font-bold text-white">
-                    {action.label}
-                </button>
-            ) : null}
-        </div>
-    );
-}
-
-function SectionHeading({ title, sub, badge, children }: { title: string; sub?: string; badge?: ReactNode; children?: ReactNode }) {
-    return (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-                <h3 className="text-lg font-bold text-slate-900">{title}</h3>
-                {sub ? <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{sub}</p> : null}
-            </div>
-            <div className="flex items-center gap-2">
-                {badge}
-                {children}
-            </div>
-        </div>
-    );
-}
-
-function Chip({
-    label,
-    active,
-    onClick,
-    tone = "default",
-}: {
-    label: string;
-    active?: boolean;
-    onClick: () => void;
-    tone?: "default" | "sky" | "amber" | "rose";
-}) {
+function Chip({ label, active, onClick, tone = "default" }: { label: string; active?: boolean; onClick: () => void; tone?: "default" | "sky" | "amber" | "rose" }) {
     const styles = {
         default: active ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
         sky: active ? "border-sky-600 bg-sky-600 text-white" : "border-sky-200 bg-sky-50 text-sky-700 hover:border-sky-300",
@@ -141,39 +102,17 @@ function Chip({
     );
 }
 
-function ImageSurface({ image, label, gradient, ratio = "aspect-[4/5]", hint }: { image?: string; label: string; gradient: string; ratio?: string; hint?: string }) {
+function ImageSurface({ image, label, gradient, ratio = "aspect-[4/5]" }: { image?: string; label: string; gradient: string; ratio?: string }) {
     return (
         <div className={cx("overflow-hidden rounded-xl", ratio)}>
             {image ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={image} alt={label} className="h-full w-full object-cover" />
             ) : (
-                <div className={cx("relative flex h-full w-full items-end overflow-hidden bg-gradient-to-br p-3 text-white", gradient)}>
-                    <div className="absolute -right-4 top-2 h-16 w-16 rounded-full bg-white/10 blur-2xl" />
-                    <div className="relative">
-                        {hint ? <div className="text-[10px] font-bold uppercase tracking-widest text-white/60">{hint}</div> : null}
-                        <div className="mt-1 text-[13px] font-bold leading-tight">{label}</div>
-                    </div>
+                <div className={cx("relative flex h-full w-full items-end overflow-hidden bg-gradient-to-br p-2 text-white", gradient)}>
+                    <div className="text-[11px] font-bold leading-tight">{label}</div>
                 </div>
             )}
-        </div>
-    );
-}
-
-const SHELF_TONES = {
-    core: { shell: "border-slate-200/60 bg-white/80", chip: "border-slate-900 bg-slate-900 text-white", accent: "text-slate-500", badge: "ink" as const },
-    rare: { shell: "border-sky-200/60 bg-sky-50/50", chip: "border-sky-200 bg-sky-100 text-sky-800", accent: "text-sky-600", badge: "sky" as const },
-    secret: { shell: "border-amber-200/60 bg-amber-50/50", chip: "border-amber-200 bg-amber-100 text-amber-800", accent: "text-amber-600", badge: "amber" as const },
-    unexpected: { shell: "border-rose-200/60 bg-rose-50/50", chip: "border-rose-200 bg-rose-100 text-rose-800", accent: "text-rose-600", badge: "amber" as const },
-} as const;
-
-function SelectionPill({ label, onRemove, priority, tone = "core" }: { label: string; onRemove: () => void; priority?: number; tone?: keyof typeof SHELF_TONES }) {
-    const palette = SHELF_TONES[tone];
-    return (
-        <div className={cx("inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold transition hover:-translate-y-0.5", palette.chip)}>
-            {typeof priority === "number" ? <span className="grid h-5 w-5 place-items-center rounded-full bg-white/20 text-[10px]">{priority + 1}</span> : null}
-            <span>{label}</span>
-            <button type="button" onClick={onRemove} className="text-current/50 hover:text-current">×</button>
         </div>
     );
 }
@@ -181,13 +120,7 @@ function SelectionPill({ label, onRemove, priority, tone = "core" }: { label: st
 /* ─────────────────────── SetupsTab ─────────────────────── */
 
 export default function SetupsTab({
-    state,
-    setState,
-    pushNotice,
-    selectedItemIds,
-    setSelectedItemIds,
-    showBuilder,
-    setShowBuilder,
+    state, setState, pushNotice, selectedItemIds, setSelectedItemIds, showBuilder, setShowBuilder,
 }: {
     state: SavedState;
     setState: (updater: SetStateAction<SavedState>) => void;
@@ -276,163 +209,111 @@ export default function SetupsTab({
     };
 
     return (
-        <div className="space-y-5">
-            {/* Mood-based quick start */}
-            <section className="overflow-hidden rounded-2xl border border-indigo-200/40 bg-[linear-gradient(135deg,rgba(224,231,255,0.72),rgba(255,255,255,0.92)_48%,rgba(237,233,254,0.68))] p-5 shadow-sm">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                        <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-indigo-400">Setup studio</div>
-                        <SectionHeading title="どう見せたいかを試す" sub="気分と印象から、見せ方の組み合わせを一気に立ち上げる" />
-                    </div>
-                    <button type="button" onClick={() => setShowBuilder(true)} className="inline-flex items-center justify-center rounded-full bg-slate-950 px-5 py-2.5 text-[13px] font-bold text-white transition hover:bg-slate-800">
-                        + すぐ組み始める
-                    </button>
+        <div className="space-y-3">
+            {/* Setup Studio — compact 1-line heading */}
+            <section className="rounded-xl bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[14px] font-black text-slate-900">どう見せたいかを試す</h3>
+                    <button type="button" onClick={() => setShowBuilder(true)} className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white">+ 組む</button>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
+                <div className="mt-2 flex flex-wrap gap-1.5">
                     {SETUP_MOOD_OPTIONS.map((o) => (
                         <Chip key={o.id} label={o.label} active={focusedMood === o.id} onClick={() => setFocusedMood((c) => c === o.id ? null : o.id)} />
                     ))}
                 </div>
-                {derived.repeatedBecomeResults.length > 0 ? (
-                    <div className="mt-3">
-                        <div className="text-[11px] font-bold text-slate-400">I BECOME から</div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                            {derived.repeatedBecomeResults.map((l) => (
-                                <Chip key={l} label={l} active={focusedBecome === l} onClick={() => setFocusedBecome((c) => c === l ? null : l)} tone="amber" />
-                            ))}
-                        </div>
+                {derived.repeatedBecomeResults.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                        {derived.repeatedBecomeResults.map((l) => (
+                            <Chip key={l} label={l} active={focusedBecome === l} onClick={() => setFocusedBecome((c) => c === l ? null : l)} tone="amber" />
+                        ))}
                     </div>
-                ) : null}
-                {suggestedSetups.length > 0 ? (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                )}
+                {suggestedSetups.length > 0 && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         {suggestedSetups.map((setup) => {
                             const items = setup.itemIds.map((id) => state.wardrobe.find((item) => item.id === id)).filter((item): item is WardrobeItem => Boolean(item)).slice(0, 3);
                             return (
-                                <button
-                                    key={setup.id}
-                                    type="button"
-                                    onClick={() => applySuggestedSetup(setup)}
-                                    className="group overflow-hidden rounded-[24px] border border-white/70 bg-white/80 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
-                                >
-                                    <div className="grid grid-cols-3 gap-1 bg-[linear-gradient(135deg,rgba(99,102,241,0.12),rgba(255,255,255,0.2))] p-3">
+                                <button key={setup.id} type="button" onClick={() => applySuggestedSetup(setup)}
+                                    className="group overflow-hidden rounded-xl border border-slate-200/60 bg-white text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                                    <div className="grid grid-cols-3 gap-0.5 bg-slate-50/80 p-1.5">
                                         {items.length > 0 ? items.map((item) => (
-                                            <div key={item.id} className="overflow-hidden rounded-2xl">
-                                                <ImageSurface image={item.imageUrl} label={item.name} gradient="from-indigo-500 to-slate-900" ratio="aspect-[3/4]" />
+                                            <div key={item.id} className="overflow-hidden rounded-lg">
+                                                <ImageSurface image={item.imageUrl} label={item.name} gradient="from-indigo-500 to-slate-900" ratio="aspect-square" />
                                             </div>
                                         )) : (
                                             Array.from({ length: 3 }).map((_, index) => (
-                                                <div key={index} className="rounded-2xl bg-[linear-gradient(135deg,rgba(99,102,241,0.18),rgba(15,23,42,0.75))] p-3 text-white">
-                                                    <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/55">Look</div>
-                                                    <div className="mt-6 text-[12px] font-bold leading-tight">{setup.title}</div>
-                                                </div>
+                                                <div key={index} className="rounded-lg bg-slate-100 p-2 aspect-square" />
                                             ))
                                         )}
                                     </div>
-                                    <div className="p-4">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                                <div className="text-[14px] font-black tracking-[-0.02em] text-slate-900">{setup.title}</div>
-                                                <p className="mt-1 text-[12px] leading-relaxed text-slate-500">
-                                                    {setup.impressionTags[0] ?? buildSetupLaneHints(setup, state.wardrobe)[0] ?? "今日はどう見せるかを試すセットアップ"}
-                                                </p>
-                                            </div>
-                                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-500">
-                                                Try
-                                            </span>
-                                        </div>
-                                        <div className="mt-3 flex flex-wrap gap-1">
+                                    <div className="px-2.5 py-2">
+                                        <div className="text-[12px] font-bold text-slate-800">{setup.title}</div>
+                                        <div className="mt-1 flex flex-wrap gap-1">
                                             {setup.moodTags.slice(0, 2).map((tag) => <Badge key={tag} tone="sky">{getSetupMoodLabel(tag)}</Badge>)}
-                                            {buildSetupLaneHints(setup, state.wardrobe).slice(0, 2).map((label) => <Badge key={label}>{label}</Badge>)}
                                         </div>
                                     </div>
                                 </button>
                             );
                         })}
                     </div>
-                ) : (
-                    <div className="mt-4 rounded-[24px] border border-white/70 bg-white/70 p-4 shadow-sm">
-                        <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-indigo-400">Start point</div>
-                        <div className="mt-2 text-[15px] font-black tracking-[-0.03em] text-slate-900">最初の 1 セットを作ると、見せ方のログが動き始めます</div>
-                        <p className="mt-2 text-[13px] leading-relaxed text-slate-600">気分を 1 つ選んで、トップスとボトムスから試すだけで十分です。ここは完成品ではなく、見せ方の仮説を残す場所です。</p>
-                    </div>
                 )}
-                <button type="button" onClick={() => setShowBuilder(true)} className="mt-4 w-full rounded-[20px] border border-dashed border-indigo-300/60 bg-white/55 py-3 text-[13px] font-bold text-indigo-600 transition hover:border-indigo-400 hover:bg-white/80">
-                    + ゼロからセットアップを組む
-                </button>
             </section>
 
-            {/* Flat Lay Composer toggle */}
+            {/* Flat Lay toggle */}
             <div className="flex items-center gap-2">
-                <button
-                    type="button"
-                    onClick={() => setShowFlatLay(!showFlatLay)}
-                    className={cx(
-                        "flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition-all",
-                        showFlatLay
-                            ? "bg-violet-500 text-white shadow-md"
-                            : "bg-white/80 text-slate-600 border border-slate-200 hover:bg-violet-50 hover:text-violet-600"
-                    )}
-                >
-                    <span>🪞</span>
-                    <span>フラットレイ</span>
+                <button type="button" onClick={() => setShowFlatLay(!showFlatLay)}
+                    className={cx("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold transition",
+                        showFlatLay ? "bg-violet-500 text-white shadow-md" : "bg-white text-slate-600 border border-slate-200 hover:bg-violet-50")}>
+                    <span>🪞</span> フラットレイ
                 </button>
             </div>
             {showFlatLay && (
-                <section className="rounded-2xl border border-violet-200/40 bg-gradient-to-br from-violet-50/40 to-white/90 p-4 shadow-sm">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-violet-400 mb-3">Flat Lay Composer</div>
+                <section className="rounded-xl border border-violet-200/40 bg-violet-50/30 p-3">
                     <FlatLayComposer items={state.wardrobe} />
                 </section>
             )}
 
-            {selectedItems.length > 0 ? (
-                <section className="rounded-2xl border border-indigo-200/40 bg-white/92 p-4 shadow-sm backdrop-blur">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-indigo-400">Setup tray</div>
-                            <div className="mt-1 text-[15px] font-black tracking-[-0.03em] text-slate-900">編集中のセットアップ</div>
-                            <p className="mt-1 text-[12px] leading-relaxed text-slate-500">ワードローブから追加したアイテムをここでまとめてから、組み方を整えます。</p>
-                        </div>
-                        <button type="button" onClick={() => setShowBuilder(true)} className="rounded-full bg-slate-900 px-4 py-2 text-[12px] font-bold text-white transition hover:bg-slate-800">
-                            このまま組む
-                        </button>
+            {/* Setup tray (selected items) */}
+            {selectedItems.length > 0 && (
+                <section className="rounded-xl bg-white p-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[12px] font-bold text-slate-800">編集中 ({selectedItems.length})</span>
+                        <button type="button" onClick={() => setShowBuilder(true)} className="rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white">このまま組む</button>
                     </div>
-                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                    <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
                         {selectedItems.map((item) => (
-                            <div key={item.id} className="flex w-36 shrink-0 items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2.5 shadow-sm">
-                                <div className="w-10 shrink-0 overflow-hidden rounded-xl">
+                            <div key={item.id} className="flex w-28 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-1.5">
+                                <div className="w-8 shrink-0 overflow-hidden rounded-lg">
                                     <ImageSurface image={item.imageUrl} label={item.name} gradient="from-indigo-500 to-slate-900" ratio="aspect-square" />
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                    <div className="truncate text-[12px] font-bold text-slate-800">{item.name}</div>
-                                    <button type="button" onClick={() => toggleItem(item.id)} className="mt-1 text-[10px] font-bold text-slate-400 hover:text-red-400">
-                                        外す
-                                    </button>
+                                    <div className="truncate text-[10px] font-bold text-slate-800">{item.name}</div>
+                                    <button type="button" onClick={() => toggleItem(item.id)} className="text-[9px] text-slate-400 hover:text-red-400">外す</button>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </section>
-            ) : null}
+            )}
 
-            {/* Setup builder (collapsible) */}
-            {showBuilder ? (
-                <section className="rounded-2xl border border-indigo-200/40 bg-white/90 p-5 shadow-sm backdrop-blur" style={{ backgroundImage: "radial-gradient(circle, rgba(99,102,241,0.06) 1px, transparent 1px)", backgroundSize: "16px 16px" }}>
-                    <div className="flex items-start justify-between gap-3">
-                        <SectionHeading title="セットアップを組む" />
-                        <button type="button" onClick={() => setShowBuilder(false)} className="text-[12px] text-slate-400 hover:text-slate-600">閉じる</button>
+            {/* Builder */}
+            {showBuilder && (
+                <section className="rounded-xl bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-[13px] font-bold text-slate-900">セットアップを組む</h3>
+                        <button type="button" onClick={() => setShowBuilder(false)} className="text-[11px] text-slate-400 hover:text-slate-600">閉じる</button>
                     </div>
 
                     <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="セットアップ名（省略可）"
-                        className="mt-3 w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-2.5 text-[13px] text-slate-700 outline-none focus:border-slate-400" />
+                        className="mt-2 w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-[12px] text-slate-700 outline-none focus:border-slate-400" />
 
-                    {/* Item selection by category */}
-                    <div className="mt-4 space-y-3">
+                    <div className="mt-3 space-y-2">
                         {(Object.entries(grouped) as [WardrobeItem["category"], WardrobeItem[]][]).map(([cat, items]) => {
                             if (items.length === 0) return null;
                             return (
                                 <div key={cat}>
-                                    <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{CATEGORY_LABELS[cat]}</div>
-                                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{CATEGORY_LABELS[cat]}</div>
+                                    <div className="mt-1 flex flex-wrap gap-1">
                                         {items.map((item) => (
                                             <Chip key={item.id} label={item.name} active={selectedItemIds.includes(item.id)} onClick={() => toggleItem(item.id)} />
                                         ))}
@@ -442,47 +323,39 @@ export default function SetupsTab({
                         })}
                     </div>
 
-                    {/* Selected items preview */}
-                    {selectedItems.length > 0 ? (
-                        <div className="mt-4 rounded-xl border border-slate-200/60 bg-slate-50/50 p-3">
+                    {selectedItems.length > 0 && (
+                        <div className="mt-3 rounded-lg border border-slate-200/60 bg-slate-50/50 p-2.5">
                             <div className="flex items-center justify-between">
-                                <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">選択中</span>
-                                <span className="text-[13px] font-bold text-slate-600">{deriveSetupDirection(analysis, moodTags, focusedBecome)}</span>
+                                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">方向</span>
+                                <span className="text-[12px] font-bold text-slate-600">{deriveSetupDirection(analysis, moodTags, focusedBecome)}</span>
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                                {selectedItems.map((item) => (
-                                    <SelectionPill key={item.id} label={item.name} onRemove={() => toggleItem(item.id)} />
-                                ))}
-                            </div>
-                            {analysis.laneHints.length > 0 ? (
-                                <div className="mt-2 flex flex-wrap gap-1">{analysis.laneHints.map((l) => <Badge key={l}>{l}</Badge>)}</div>
-                            ) : null}
+                            {analysis.laneHints.length > 0 && (
+                                <div className="mt-1.5 flex flex-wrap gap-1">{analysis.laneHints.map((l) => <Badge key={l}>{l}</Badge>)}</div>
+                            )}
                         </div>
-                    ) : null}
+                    )}
 
-                    {/* Mood tags */}
-                    <div className="mt-4">
-                        <div className="text-[11px] font-bold uppercase tracking-widest text-slate-400">気分</div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    <div className="mt-3">
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">気分</div>
+                        <div className="mt-1 flex flex-wrap gap-1">
                             {SETUP_MOOD_OPTIONS.map((o) => <Chip key={o.id} label={o.label} active={moodTags.includes(o.id)} onClick={() => toggleMoodTag(o.id)} />)}
                         </div>
                     </div>
 
-                    {/* Memory note */}
-                    <textarea value={memoryNote} onChange={(e) => setMemoryNote(e.target.value)} placeholder="そのときの気持ちや理由をメモ"
-                        className="mt-4 min-h-[80px] w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-slate-400" />
+                    <textarea value={memoryNote} onChange={(e) => setMemoryNote(e.target.value)} placeholder="メモ（省略可）"
+                        className="mt-3 min-h-[60px] w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-[12px] leading-relaxed text-slate-700 outline-none focus:border-slate-400" />
 
                     <button type="button" onClick={saveSetup}
-                        className="mt-4 w-full rounded-xl bg-indigo-600 py-3 text-[13px] font-bold text-white transition hover:bg-indigo-700">
+                        className="mt-3 w-full rounded-lg bg-slate-900 py-2.5 text-[12px] font-bold text-white transition hover:bg-slate-800">
                         保存する
                     </button>
                 </section>
-            ) : null}
+            )}
 
-            {/* Saved setups */}
-            <section className="rounded-2xl border border-indigo-200/40 bg-white/90 p-5 shadow-sm backdrop-blur">
-                <div className="flex items-start justify-between gap-3">
-                    <SectionHeading title="保存済み" badge={<Badge tone="sky">{state.setups.length}</Badge>} />
+            {/* Saved setups — compact */}
+            <section className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-[13px] font-bold text-slate-800">保存済み <Badge tone="sky">{state.setups.length}</Badge></h3>
                     <div className="flex flex-wrap gap-1">
                         <Chip label="すべて" active={moodFilter === "all"} onClick={() => setMoodFilter("all")} />
                         {SETUP_MOOD_OPTIONS.slice(0, 4).map((o) => <Chip key={o.id} label={o.label} active={moodFilter === o.id} onClick={() => setMoodFilter(o.id)} />)}
@@ -490,37 +363,37 @@ export default function SetupsTab({
                 </div>
 
                 {filteredSetups.length === 0 ? (
-                    <div className="mt-4"><EmptyState icon="✨" text="まだセットアップがありません。上のボタンから作ってみましょう。" /></div>
+                    <p className="text-center text-[12px] text-slate-400 py-6">まだセットアップがありません</p>
                 ) : (
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {filteredSetups.map((setup) => {
                             const previewItems = setup.itemIds.map((id) => state.wardrobe.find((item) => item.id === id)).filter((item): item is WardrobeItem => Boolean(item)).slice(0, 3);
                             return (
-                            <div key={setup.id} className="overflow-hidden rounded-[22px] border border-slate-200/60 bg-white/80 shadow-sm">
-                                <div className="grid grid-cols-3 gap-1 bg-slate-50/80 p-3">
-                                    {previewItems.length > 0 ? previewItems.map((item) => (
-                                        <div key={item.id} className="overflow-hidden rounded-xl">
-                                            <ImageSurface image={item.imageUrl} label={item.name} gradient="from-slate-700 to-slate-900" ratio="aspect-[3/4]" />
-                                        </div>
-                                    )) : (
-                                        <div className="col-span-3 rounded-xl bg-slate-100 px-3 py-6 text-center text-[12px] font-medium text-slate-400">プレビュー画像なし</div>
-                                    )}
-                                </div>
-                                <div className="p-3.5">
-                                <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                        <div className="text-[13px] font-bold text-slate-800">{setup.title}</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-400">{formatDateLabel(setup.createdAt)}</div>
+                                <div key={setup.id} className="overflow-hidden rounded-xl border border-slate-200/60 bg-white shadow-sm">
+                                    <div className="grid grid-cols-3 gap-0.5 bg-slate-50/80 p-1.5">
+                                        {previewItems.length > 0 ? previewItems.map((item) => (
+                                            <div key={item.id} className="overflow-hidden rounded-lg">
+                                                <ImageSurface image={item.imageUrl} label={item.name} gradient="from-slate-700 to-slate-900" ratio="aspect-square" />
+                                            </div>
+                                        )) : (
+                                            <div className="col-span-3 rounded-lg bg-slate-100 px-3 py-4 text-center text-[11px] text-slate-400">プレビューなし</div>
+                                        )}
                                     </div>
-                                    <button type="button" onClick={() => setState((p) => ({ ...p, setups: p.setups.filter((e) => e.id !== setup.id) }))} className="text-[11px] text-slate-300 hover:text-red-400">削除</button>
+                                    <div className="px-2.5 py-2">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div>
+                                                <div className="text-[12px] font-bold text-slate-800">{setup.title}</div>
+                                                <div className="text-[10px] text-slate-400">{formatDateLabel(setup.createdAt)}</div>
+                                            </div>
+                                            <button type="button" onClick={() => setState((p) => ({ ...p, setups: p.setups.filter((e) => e.id !== setup.id) }))} className="text-[10px] text-slate-300 hover:text-red-400">削除</button>
+                                        </div>
+                                        <div className="mt-1 flex flex-wrap gap-1">
+                                            {setup.moodTags.map((t) => <Badge key={t} tone="sky">{getSetupMoodLabel(t)}</Badge>)}
+                                            {buildSetupLaneHints(setup, state.wardrobe).map((l) => <Badge key={l}>{l}</Badge>)}
+                                        </div>
+                                        {setup.memory?.note && <p className="mt-1 text-[11px] leading-relaxed text-slate-500 line-clamp-2">{setup.memory.note}</p>}
+                                    </div>
                                 </div>
-                                <div className="mt-2 flex flex-wrap gap-1">
-                                    {setup.moodTags.map((t) => <Badge key={t} tone="sky">{getSetupMoodLabel(t)}</Badge>)}
-                                    {buildSetupLaneHints(setup, state.wardrobe).map((l) => <Badge key={l}>{l}</Badge>)}
-                                </div>
-                                {setup.memory?.note ? <p className="mt-2 text-[12px] leading-relaxed text-slate-500">{setup.memory.note}</p> : null}
-                            </div>
-                            </div>
                             );
                         })}
                     </div>

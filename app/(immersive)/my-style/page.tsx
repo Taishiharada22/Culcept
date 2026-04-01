@@ -28,7 +28,7 @@ import type { CrossFeatureData } from "./_components/CrossFeaturePanel";
 import MyStyleHero from "./_components/MyStyleHero";
 import ShowcaseRail from "./_components/ShowcaseRail";
 import WorkspaceBand from "./_components/WorkspaceBand";
-import StyleDNA from "./_components/StyleDNAPanel";
+/* StyleDNA panel removed — integrated into nav chips */
 import SetupsTab from "./_components/SetupsTab";
 import StylesTab from "./_components/StylesTab";
 import IdentityTab from "./_components/IdentityTab";
@@ -85,9 +85,7 @@ const EngagementHub = dynamic(() => import("./_components/EngagementHub"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-64" label="Daily Briefing" />,
 });
-const ObservationLogButton = dynamic(() => import("./_components/ObservationLogButton"), {
-    ssr: false,
-});
+/* ObservationLogButton — merged into FloatingActions */
 const CostPerWearDashboard = dynamic(() => import("./_components/CostPerWearDashboard"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-48" />,
@@ -101,7 +99,7 @@ import { vibrateLight, vibrateSuccess } from "./_lib/haptics";
 import { isEmptyState } from "./_lib/demoData";
 import { loadLearningState } from "./_lib/swipeLearningEngine";
 import type { SwipeLearningState } from "./_lib/swipeLearningAxes";
-import { getStyleLaneLabel } from "./_lib/catalog";
+/* getStyleLaneLabel removed — no longer used in page */
 import {
     BACKUP_STORAGE_KEY,
     STORAGE_KEY,
@@ -136,14 +134,12 @@ import {
 const WardrobeOverviewTab = React.memo(function WardrobeOverviewTab({
     state,
     setState,
-    band,
     onAddToSetup,
     onSelectItem,
     pushNotice,
 }: {
     state: SavedState;
     setState: (updater: SetStateAction<SavedState>) => void;
-    band?: ReactNode;
     onAddToSetup: (itemId: string) => void;
     onSelectItem: (itemId: string) => void;
     pushNotice: (text: string) => void;
@@ -153,8 +149,7 @@ const WardrobeOverviewTab = React.memo(function WardrobeOverviewTab({
     const [showMaterials, setShowMaterials] = useState(false);
 
     return (
-        <div className="space-y-5">
-            {band ? <div>{band}</div> : null}
+        <div className="space-y-4">
 
             {/* Self-forming highlight */}
             {derived.selfFormingItems.length > 0 ? (
@@ -272,7 +267,7 @@ export default function MyStylePage() {
     const addItemToSetup = (itemId: string) => {
         setSetupComposerItemIds((current) => uniqueList([...current, itemId]));
         setSetupComposerOpen(true);
-        setTab("setups");
+        setTab("closet");
         pushNotice("セットアップ編集中に追加しました");
     };
 
@@ -387,12 +382,12 @@ export default function MyStylePage() {
         };
     }, [activeItemId, derived.selfFormingItems, state.setups, state.wardrobe]);
     const activeTabConfig = TAB_CONFIG.find((t) => t.id === tab) ?? TAB_CONFIG[0];
-    const [showDna, setShowDna] = useState(false);
+    /* showDna removed — Style DNA expandable removed */
     const { sparkling, sparkle, onComplete: onSparkleComplete } = useSparkle();
     const closeActiveItem = () => setActiveItemId(null);
 
     useEffect(() => {
-        if (tab !== "wardrobe") setActiveItemId(null);
+        if (tab !== "closet") setActiveItemId(null);
     }, [tab]);
 
     return (
@@ -404,38 +399,18 @@ export default function MyStylePage() {
                 <div className="absolute bottom-[-15%] left-[30%] h-[400px] w-[400px] rounded-full bg-[radial-gradient(circle,_rgba(16,185,129,0.05),_transparent_70%)]" />
             </div>
 
-            {/* ── Sticky Top Nav ── */}
-            <nav className="sticky top-0 z-40 border-b border-white/30 bg-white/80 backdrop-blur-2xl">
-                <div className="mx-auto max-w-5xl px-4 sm:px-6">
-                    <div className="flex items-center justify-between py-2.5">
-                        <div className="flex items-center gap-2.5">
-                            <Link href="/my-page" className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200/60 bg-white/80 text-slate-400 no-underline transition hover:bg-white">
-                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                            </Link>
-                            <div>
-                                <h1 className="text-[15px] font-bold tracking-tight text-slate-900">My Style</h1>
-                                <p className="text-[11px] text-slate-400">{activeTabConfig.label} を編集中</p>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <button type="button" onClick={() => setShowDna((v) => !v)} className="flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-white/60 px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:bg-white/90">
-                                {derived.coreLanes.length > 0
-                                    ? derived.coreLanes.map((l) => <span key={l} className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-bold text-white">{getStyleLaneLabel(l)}</span>)
-                                    : <span className="text-slate-400">Style DNA</span>}
-                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className={cx("transition", showDna && "rotate-180")}><path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                            </button>
-                        </div>
+            {/* ── Sticky Top Nav with integrated tabs ── */}
+            <nav className="sticky top-0 z-40 border-b border-slate-200/30 bg-white/85 backdrop-blur-2xl">
+                <div className="mx-auto max-w-5xl px-3 sm:px-5">
+                    <div className="flex items-center gap-3 py-2">
+                        <Link href="/my-page" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 no-underline transition hover:text-slate-600">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                        </Link>
+                        <h1 className="text-[14px] font-bold text-slate-900 shrink-0">My Style</h1>
+                        <div className="flex-1" />
+                        <WorkspaceBand tab={tab} setTab={setTab} tabBarRef={tabBarRef} />
                     </div>
                 </div>
-
-                {/* Expandable DNA detail */}
-                {showDna ? (
-                    <div className="border-t border-slate-200/40 bg-white/90 backdrop-blur-xl">
-                        <div className="mx-auto max-w-5xl px-4 py-4 sm:px-6">
-                            <StyleDNA state={state} syncStatus={syncStatus} syncedAt={syncedAt} />
-                        </div>
-                    </div>
-                ) : null}
             </nav>
 
             {/* ── Network status ── */}
@@ -461,7 +436,7 @@ export default function MyStylePage() {
                     ) : null}
                 </AnimatePresence>
 
-                <main className="relative mx-auto max-w-5xl px-4 pb-16 pt-5 sm:px-6">
+                <main className="relative mx-auto max-w-5xl px-3 pb-16 pt-3 sm:px-5">
                     {tab !== "today" && (
                         <MyStyleHero
                             state={state}
@@ -470,30 +445,16 @@ export default function MyStylePage() {
                             syncedAt={syncedAt}
                             swipeState={swipeLearningState}
                             secondaryPanel={
-                                tab === "wardrobe" ? (
+                                tab === "closet" ? (
                                     <ShowcaseRail state={state} activeItemId={activeItemId} onSelectItem={setActiveItemId} />
                                 ) : undefined
                             }
                         />
                     )}
 
-                    <div className="mb-4 mt-5 flex items-start justify-between gap-3">
-                        <div className="border-l-2 pl-4" style={{ borderColor: `${activeTabConfig.accentColor}66` }}>
-                            <div className="text-[11px] font-bold uppercase tracking-[0.22em]" style={{ color: activeTabConfig.accentColor }}>{activeTabConfig.personality}</div>
-                            <h2 className="mt-1 text-lg font-black tracking-[-0.03em] text-slate-900">{activeTabConfig.label}</h2>
-                            <p className="mt-1 max-w-2xl text-[12px] leading-relaxed text-slate-500">{activeTabConfig.sub}</p>
-                        </div>
-                        <div className="hidden rounded-xl border border-white/60 bg-white/65 px-3 py-2.5 text-right shadow-sm backdrop-blur lg:block">
-                            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">Current pull</div>
-                            <div className="mt-1 text-[13px] font-bold text-slate-800">{derived.dominantWorldviews[0] ?? derived.dominantImpressions[0] ?? "輪郭を育成中"}</div>
-                        </div>
-                    </div>
+                    {/* Section header removed — tab bar is sufficient */}
 
-                    {tab !== "wardrobe" && tab !== "today" ? (
-                        <div className="mb-5">
-                            <WorkspaceBand tab={tab} setTab={setTab} tabBarRef={tabBarRef} />
-                        </div>
-                    ) : null}
+                    {/* Tab bar is now in sticky nav */}
 
                     <ErrorBoundary>
                       <AnimatePresence mode="popLayout">
@@ -504,41 +465,64 @@ export default function MyStylePage() {
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                         >
+                            {/* ── Today tab ── */}
                             {tab === "today" && (
-                                <div className="space-y-5">
-                                    <WorkspaceBand tab={tab} setTab={setTab} tabBarRef={tabBarRef} />
+                                <div className="space-y-3">
                                     {state.wardrobe.length >= 1 ? (
-                                        <EngagementHub state={state} swipeState={swipeLearningState} />
+                                        <EngagementHub state={state} swipeState={swipeLearningState} onFirstAction={() => setShowQuickAdd(true)} />
                                     ) : (
                                         <WardrobeEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} />
                                     )}
                                 </div>
                             )}
-                            {tab === "wardrobe" && (
-                                <WardrobeOverviewTab
-                                    state={state}
-                                    setState={setState}
-                                    band={<WorkspaceBand tab={tab} setTab={setTab} tabBarRef={tabBarRef} />}
-                                    onAddToSetup={addItemToSetup}
-                                    onSelectItem={setActiveItemId}
-                                    pushNotice={pushNotice}
-                                />
-                            )}
-                            {tab === "setups" && (state.wardrobe.length < 2 ? <SetupsEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} /> : <SetupsTab state={state} setState={setState} pushNotice={pushNotice} selectedItemIds={setupComposerItemIds} setSelectedItemIds={setSetupComposerItemIds} showBuilder={setupComposerOpen} setShowBuilder={setSetupComposerOpen} />)}
-                            {tab === "styles" && <StylesTab state={state} setState={setState} pushNotice={pushNotice} />}
-                            {tab === "identity" && (state.wardrobe.length < 5 && !swipeLearningState ? <IdentityEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} /> : <IdentityTab state={state} setState={setState} mode={identityMode} setMode={setIdentityMode} pushNotice={pushNotice} crossFeature={crossFeature} bridgePulse={bridgePulse} />)}
-                            {tab === "insights" && (state.wardrobe.length < 3 ? <InsightsEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} /> : (
+
+                            {/* ── Closet tab (wardrobe + setups + cost-per-wear) ── */}
+                            {tab === "closet" && (
                                 <div className="space-y-6">
-                                    <InsightsTab state={state} swipeState={swipeLearningState} />
-                                    <StyleLogicPanel state={state} />
-                                    <AIInsightPanel
+                                    <WardrobeOverviewTab
                                         state={state}
-                                        pcSeason={bridgePulse?.pcSeason}
-                                        bodyType={bridgePulse?.bodyType}
-                                        archetypeCode={null}
+                                        setState={setState}
+                                        onAddToSetup={addItemToSetup}
+                                        onSelectItem={setActiveItemId}
+                                        pushNotice={pushNotice}
                                     />
+                                    {state.wardrobe.length >= 2 && (
+                                        <>
+                                            <div className="border-t border-slate-200/40 pt-6">
+                                                <h3 className="mb-4 text-[15px] font-black text-slate-900">どう組み合わせる？</h3>
+                                                <SetupsTab state={state} setState={setState} pushNotice={pushNotice} selectedItemIds={setupComposerItemIds} setSelectedItemIds={setSetupComposerItemIds} showBuilder={setupComposerOpen} setShowBuilder={setSetupComposerOpen} />
+                                            </div>
+                                        </>
+                                    )}
                                 </div>
-                            ))}
+                            )}
+
+                            {/* ── Me tab (styles + identity + insights) ── */}
+                            {tab === "me" && (
+                                <div className="space-y-6">
+                                    <StylesTab state={state} setState={setState} pushNotice={pushNotice} />
+
+                                    <div className="border-t border-slate-200/40 pt-6">
+                                        {state.wardrobe.length < 5 && !swipeLearningState
+                                            ? <IdentityEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} />
+                                            : <IdentityTab state={state} setState={setState} mode={identityMode} setMode={setIdentityMode} pushNotice={pushNotice} crossFeature={crossFeature} bridgePulse={bridgePulse} />
+                                        }
+                                    </div>
+
+                                    {state.wardrobe.length >= 3 && (
+                                        <div className="border-t border-slate-200/40 pt-6 space-y-6">
+                                            <InsightsTab state={state} swipeState={swipeLearningState} />
+                                            <StyleLogicPanel state={state} />
+                                            <AIInsightPanel
+                                                state={state}
+                                                pcSeason={bridgePulse?.pcSeason}
+                                                bodyType={bridgePulse?.bodyType}
+                                                archetypeCode={null}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </motion.div>
                       </AnimatePresence>
                     </ErrorBoundary>
@@ -597,20 +581,15 @@ export default function MyStylePage() {
                 </div>
             ) : null}
 
-            {/* Floating action buttons */}
+            {/* Floating action buttons — unified FAB */}
             {!showOnboarding && (
-                <>
-                    <FloatingActions
-                        showPhotoAdd={showPhotoAdd}
-                        showQuickAdd={showQuickAdd}
-                        wardrobeCount={state.wardrobe.length}
-                        onPhotoAdd={() => setShowPhotoAdd(true)}
-                        onQuickAdd={() => setShowQuickAdd(true)}
-                    />
-                    {state.wardrobe.length >= 1 && (
-                        <ObservationLogButton wardrobeItems={state.wardrobe} />
-                    )}
-                </>
+                <FloatingActions
+                    showPhotoAdd={showPhotoAdd}
+                    showQuickAdd={showQuickAdd}
+                    wardrobeCount={state.wardrobe.length}
+                    onPhotoAdd={() => setShowPhotoAdd(true)}
+                    onQuickAdd={() => setShowQuickAdd(true)}
+                />
             )}
 
             {/* Demo mode banner */}

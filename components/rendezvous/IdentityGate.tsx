@@ -7,6 +7,7 @@
  */
 
 import { useState, useEffect, type ReactNode, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import AvatarBirthFlow from "./AvatarBirthFlow";
 import {
@@ -35,18 +36,18 @@ type Props = {
   verificationLevel?: number;
   /** review_status（管理側審査状態） */
   reviewStatus?: RStatus;
+  /** 書類提出日（ISO string） */
+  submittedAt?: string | null;
+  /** アカウント凍結中か */
+  isFrozen?: boolean;
+  /** 凍結理由（内部用、ユーザーには非表示） */
+  frozenReason?: string | null;
 };
 
 const GATED_CATEGORIES = ["romantic", "orbiter", "partner"];
 
 /** Partner は L3 + review_status=approved が必要。Romance/Orbiter は L2(既存動作)。 */
 const PARTNER_REQUIRED_LEVEL = 3;
-
-const stages = [
-  { emoji: "\uD83D\uDCE4", label: "書類受領" },
-  { emoji: "\uD83D\uDD0D", label: "確認中" },
-  { emoji: "\u2728", label: "分身覚醒" },
-] as const;
 
 const overlayStyle: CSSProperties = {
   position: "fixed",
@@ -91,6 +92,9 @@ export default function IdentityGate({
   rejectionNote,
   verificationLevel = 0,
   reviewStatus = "not_submitted",
+  submittedAt,
+  isFrozen = false,
+  frozenReason: _frozenReason,
 }: Props) {
   const [showBirthFlow, setShowBirthFlow] = useState(false);
   const [status, setStatus] = useState<VStatus>(verificationStatus);
@@ -123,6 +127,11 @@ export default function IdentityGate({
   // No gate needed for non-gated categories
   if (!needsGate) return <>{children}</>;
 
+  // 凍結中: 全ゲート対象カテゴリをブロック
+  if (isFrozen) {
+    return <FrozenAccountScreen />;
+  }
+
   // Partner 用: L3 + review_status=approved が必要
   if (isPartner) {
     if (verificationLevel >= PARTNER_REQUIRED_LEVEL && reviewStatus === "approved") {
@@ -147,21 +156,9 @@ export default function IdentityGate({
     );
   }
 
-  // Pending: show progress + children with banner
+  // Pending: ロックされた恋愛レーン（期待を保ったままロック）
   if (status === "pending") {
-    return (
-      <>
-        {/* Progress overlay that can be dismissed */}
-        <PendingProgress />
-        {/* Children with locked banner */}
-        <div style={{ position: "relative" }}>
-          <div style={bannerStyle}>
-            本人確認の完了までマッチング機能はロックされています
-          </div>
-          {children}
-        </div>
-      </>
-    );
+    return <LockedRomanceLane submittedAt={submittedAt} />;
   }
 
   // Rejected
@@ -234,120 +231,238 @@ export default function IdentityGate({
 }
 
 // ---------------------------------------------------------------------------
-// Pending progress sub-component
+// FrozenAccountScreen — 凍結中のユーザーに表示
 // ---------------------------------------------------------------------------
-function PendingProgress() {
-  const currentStage = 1; // "確認中" for pending status
+function FrozenAccountScreen() {
+  const router = useRouter();
+
+  return (
+    <div style={overlayStyle}>
+      <div style={cardStyle}>
+        <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.7 }}>⏸</div>
+        <h2 style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 12 }}>
+          ご利用を一時停止しています
+        </h2>
+        <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginBottom: 24, lineHeight: 1.7 }}>
+          現在この機能はご利用いただけません。
+          <br />
+          詳細は通知をご確認ください。
+        </p>
+        <button
+          onClick={() => router.push("/rendezvous")}
+          style={{
+            width: "100%",
+            padding: "14px",
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.15)",
+            background: "rgba(255,255,255,0.06)",
+            color: "rgba(255,255,255,0.7)",
+            fontSize: 15,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Rendezvous に戻る
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LockedRomanceLane — 期待を保ったままロックする審査中画面
+// ---------------------------------------------------------------------------
+function LockedRomanceLane({ submittedAt }: { submittedAt?: string | null }) {
+  const router = useRouter();
+  const formattedDate = submittedAt
+    ? new Date(submittedAt).toLocaleDateString("ja-JP", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : null;
 
   return (
     <div
+      className="min-h-screen flex flex-col"
       style={{
-        background: "rgba(255,255,255,0.04)",
-        backdropFilter: "blur(16px)",
-        borderRadius: 20,
-        padding: "28px 24px",
-        border: "1px solid rgba(255,255,255,0.08)",
-        marginBottom: 16,
-        textAlign: "center",
+        background: "linear-gradient(180deg, rgba(233,30,99,0.03) 0%, rgba(10,10,25,1) 40%)",
       }}
     >
-      {/* 3-stage progress */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 12,
-          marginBottom: 24,
-        }}
-      >
-        {stages.map((s, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {/* ステータスカード */}
+      <div style={{ padding: "48px 24px 0" }}>
+        <div
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            backdropFilter: "blur(20px)",
+            borderRadius: 20,
+            padding: "28px 24px",
+            border: "1px solid rgba(255,255,255,0.08)",
+            textAlign: "center",
+          }}
+        >
+          {/* ステータスインジケータ */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 20 }}>
             <motion.div
-              animate={
-                i === currentStage
-                  ? { scale: [1, 1.15, 1], opacity: [0.8, 1, 0.8] }
-                  : {}
-              }
-              transition={
-                i === currentStage
-                  ? { duration: 2, repeat: Infinity, ease: "easeInOut" }
-                  : {}
-              }
+              animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 6,
-                opacity: i <= currentStage ? 1 : 0.3,
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "#FBBF24",
               }}
-            >
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: "50%",
-                  background:
-                    i < currentStage
-                      ? "rgba(99,102,241,0.3)"
-                      : i === currentStage
-                      ? "rgba(99,102,241,0.15)"
-                      : "rgba(255,255,255,0.05)",
-                  border:
-                    i === currentStage
-                      ? "2px solid rgba(99,102,241,0.5)"
-                      : "1px solid rgba(255,255,255,0.1)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 22,
-                }}
-              >
-                {s.emoji}
-              </div>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: i === currentStage ? 700 : 500,
-                  color:
-                    i === currentStage
-                      ? "#A5B4FC"
-                      : "rgba(255,255,255,0.5)",
-                }}
-              >
-                {s.label}
-              </span>
-            </motion.div>
-
-            {/* Arrow between stages */}
-            {i < stages.length - 1 && (
-              <span
-                style={{
-                  fontSize: 14,
-                  color: "rgba(255,255,255,0.2)",
-                  marginTop: -18,
-                }}
-              >
-                &rarr;
-              </span>
-            )}
+            />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24", letterSpacing: "0.04em" }}>
+              審査中
+            </span>
           </div>
-        ))}
+
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 8 }}>
+            書類を受け付けました
+          </h2>
+
+          {formattedDate && (
+            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>
+              提出日: {formattedDate}
+            </p>
+          )}
+
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.7 }}>
+            通常は24時間以内に確認しています。
+            <br />
+            混雑時はもう少しお時間をいただくことがあります。
+          </p>
+
+          {/* 3ステップ：受付済み → 審査中 → 完了 */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 0,
+              marginTop: 24,
+              padding: "16px 0 4px",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            {[
+              { label: "受付済み", done: true },
+              { label: "審査中", active: true },
+              { label: "完了", done: false },
+            ].map((s, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 64 }}>
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: s.done
+                        ? "rgba(99,102,241,0.4)"
+                        : s.active
+                        ? "rgba(251,191,36,0.2)"
+                        : "rgba(255,255,255,0.05)",
+                      border: s.active
+                        ? "1.5px solid rgba(251,191,36,0.5)"
+                        : s.done
+                        ? "1.5px solid rgba(99,102,241,0.5)"
+                        : "1px solid rgba(255,255,255,0.1)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 12,
+                    }}
+                  >
+                    {s.done ? "✓" : s.active ? "…" : ""}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: s.active ? 700 : 500,
+                      color: s.active ? "#FBBF24" : s.done ? "rgba(165,180,252,0.8)" : "rgba(255,255,255,0.3)",
+                    }}
+                  >
+                    {s.label}
+                  </span>
+                </div>
+                {i < 2 && (
+                  <div
+                    style={{
+                      width: 32,
+                      height: 1,
+                      background: s.done
+                        ? "rgba(99,102,241,0.3)"
+                        : "rgba(255,255,255,0.08)",
+                      marginBottom: 20,
+                    }}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
-      <p
-        style={{
-          fontSize: 14,
-          color: "rgba(255,255,255,0.7)",
-          fontWeight: 600,
-          marginBottom: 4,
-        }}
-      >
-        分身があなたを理解する準備をしています...
-      </p>
-      <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)" }}>
-        通常24時間以内に完了します
-      </p>
+      {/* 恋愛レーンの世界観プレビュー */}
+      <div style={{ padding: "32px 24px 0" }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(233,30,99,0.7)", letterSpacing: "0.08em", marginBottom: 16 }}>
+          承認後に待っている体験
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {[
+            { icon: "✦", title: "直感マッチング", desc: "写真とフィーリングで、運命の一瞬を掴む" },
+            { icon: "◈", title: "深層スコアリング", desc: "45軸の性格分析に基づく、本質的な相性判定" },
+            { icon: "◇", title: "AIカウンセラー", desc: "関係の深め方を、あなた専用に導く" },
+          ].map((item) => (
+            <div
+              key={item.title}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 14,
+                padding: "14px 16px",
+                borderRadius: 14,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <span style={{ fontSize: 16, color: "rgba(233,30,99,0.6)", flexShrink: 0, marginTop: 1 }}>
+                {item.icon}
+              </span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>
+                  {item.title}
+                </p>
+                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>
+                  {item.desc}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 控えめなつながり誘導 */}
+      <div style={{ padding: "32px 24px 48px", marginTop: "auto" }}>
+        <button
+          onClick={() => router.push("/rendezvous/connection")}
+          style={{
+            width: "100%",
+            padding: "12px",
+            borderRadius: 12,
+            border: "1px solid rgba(123,97,255,0.15)",
+            background: "rgba(123,97,255,0.05)",
+            color: "rgba(123,97,255,0.7)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          審査の間、つながりで出会いを広げる
+        </button>
+      </div>
     </div>
   );
 }

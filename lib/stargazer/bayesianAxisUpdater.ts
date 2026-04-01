@@ -18,7 +18,7 @@
 // 参考: Murphy (2012) — Machine Learning: A Probabilistic Perspective, Ch. 4
 //       Bishop (2006) — Pattern Recognition and Machine Learning, Ch. 2.3
 
-import { TRAIT_AXIS_KEYS, type TraitAxisKey } from "./traitAxes";
+import { TRAIT_AXIS_KEYS, isExpansionAxis, type TraitAxisKey } from "./traitAxes";
 import { QUESTIONS } from "./questions";
 import type { QuestionAnswer } from "./typeResolver";
 import { computeResponseTimeSignal, type ResponseTimeSignal } from "./responseTimeEngine";
@@ -30,6 +30,7 @@ import {
   type AxisAnswerAccumulator,
 } from "./contradictionEngine";
 import { propagateBeliefs } from "./informationGain";
+import { EXPANSION_PRECISION_MAX, EXPANSION_CONFIDENCE_CAP } from "./expansionDiscovery";
 
 // ── 型定義 ──
 
@@ -111,15 +112,20 @@ export function createEmptyBeliefSet(): BeliefSet {
  * @param prior           事前信念
  * @param evidenceValue   新しい証拠の値 (-1 ~ +1)
  * @param evidencePrecision 証拠の精度（質問weight × 回答時間信頼度 × 状態精度 × ソース乗数 × 弁別力）
+ * @param axisId          軸ID（拡張軸の precision/confidence 上限制御に使用）
  * @returns 更新された信念
  */
 export function updateAxisBelief(
   prior: AxisBelief,
   evidenceValue: number,
   evidencePrecision: number,
+  axisId?: TraitAxisKey,
 ): AxisBelief {
-  // 精度の更新（上限あり — MAX_PRECISION で硬直化を防止）
-  const newPrecision = Math.min(MAX_PRECISION, prior.precision + evidencePrecision);
+  // P4: 拡張軸は precision 上限が低い（EXPANSION_PRECISION_MAX = 40 < MAX_PRECISION = 50）
+  const precisionCap = axisId && isExpansionAxis(axisId) ? EXPANSION_PRECISION_MAX : MAX_PRECISION;
+
+  // 精度の更新（上限あり — 硬直化を防止）
+  const newPrecision = Math.min(precisionCap, prior.precision + evidencePrecision);
 
   // μ の更新（共役ガウス更新）
   const rawMu = (prior.precision * prior.mu + evidencePrecision * evidenceValue) / newPrecision;
@@ -132,8 +138,10 @@ export function updateAxisBelief(
     Math.min(1, mu + 1.96 * stddev),
   ];
 
-  // Confidence: precision → [0, HARD_CAP] の飽和曲線
-  const confidence = HARD_CAP * (1 - Math.exp(-newPrecision / CONFIDENCE_SATURATION));
+  // Confidence: precision → 飽和曲線
+  // P4: 拡張軸は confidence 上限が低い（EXPANSION_CONFIDENCE_CAP = 0.45 < HARD_CAP = 0.65）
+  const confidenceCap = axisId && isExpansionAxis(axisId) ? EXPANSION_CONFIDENCE_CAP : HARD_CAP;
+  const confidence = confidenceCap * (1 - Math.exp(-newPrecision / CONFIDENCE_SATURATION));
 
   return { mu, precision: newPrecision, confidence, credibleInterval };
 }
@@ -210,7 +218,7 @@ export function initializeFromOnboarding(
       });
 
       // ベイズ更新
-      beliefs[axis.key] = updateAxisBelief(beliefs[axis.key], effectiveScore, evidencePrecision);
+      beliefs[axis.key] = updateAxisBelief(beliefs[axis.key], effectiveScore, evidencePrecision, axis.key);
 
       // 矛盾検出用に蓄積
       accumulateForContradiction(contradictionAccum, axis.key, effectiveScore, Math.abs(axis.weight));
@@ -278,6 +286,7 @@ export function updateFromDailyObservation(
       updated[obs.axisId] ?? createEmptyBelief(),
       obs.score,
       evidencePrecision,
+      obs.axisId,
     );
 
     // 2. 相関軸への信念伝播（間接更新）
@@ -342,6 +351,7 @@ export function updateFromRvAnswers(
         updated[axis.key] ?? createEmptyBelief(),
         effectiveScore,
         evidencePrecision,
+        axis.key,
       );
     }
   }
@@ -378,6 +388,7 @@ export function updateFromMicroAxes(
       updated[axisKey] ?? createEmptyBelief(),
       score > 0 ? 1 : -1, // 方向のみ（スコアの大きさは weight で反映済み）
       evidencePrecision,
+      axisKey,
     );
   }
 

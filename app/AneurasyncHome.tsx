@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { startDrone as startHomeDrone } from "@/lib/ui/proceduralAudio";
 import { getTimeOfDayDetail } from "@/lib/shared/timeOfDay";
@@ -10,28 +11,25 @@ import { useImplicitSignals, readStoredSignals } from "@/hooks/useImplicitSignal
 import { useHomeDerivedState } from "./_home/useHomeDerivedState";
 import { useMicroInteractions } from "@/hooks/useMicroInteractions";
 import { isValuesOnboardingDone } from "@/components/home/ValuesOnboardingOverlay";
+import { hydrateTourStates, isTourSeen } from "@/lib/tour/tourState";
 import { useHomeData } from "@/hooks/useHomeData";
-import { C, HOME_FLOATING_LAYOUT } from "./_home/constants";
+import { C } from "./_home/constants";
 import { buildOrbitItems } from "./_home/orbitDockConfig";
 import { deriveAnswerData, deriveWhyData } from "./_home/deriveAnswerData";
 import { useAlterChat } from "@/hooks/useAlterChat";
+import { updatePredictionVerification, loadPredictions, calculateAccuracy } from "@/lib/stargazer/predictionEngine";
+import { updateLearningFromFeedback } from "@/lib/stargazer/predictionLearningLoop";
+import { safeSetItem, ensureStorageSpace } from "@/lib/stargazer/localStorageHelper";
 
 // ─── Core components (needed on first render) ───
 import HomeHeader from "./_home/HomeHeader";
-import HomeFooter from "./_home/HomeFooter";
 import ZoneErrorBoundary from "./_home/ZoneErrorBoundary";
 import LoginIntroAnimation from "@/components/home/LoginIntroAnimation";
-import BottomNav from "@/components/home/BottomNav";
-import OrbitDock from "@/components/home/OrbitDock";
 import AskHero from "@/components/home/AskHero";
 import AlterFollowup from "@/components/home/AlterFollowup";
 import AnswerCard from "@/components/home/AnswerCard";
 import InlineInnerWeather from "@/components/home/InlineInnerWeather";
-import CompactWhyStrip from "@/components/home/CompactWhyStrip";
-import RealityPort from "@/components/home/RealityPort";
-import Link from "next/link";
-import TalkFab from "./_components/TalkFab";
-import HomeCard, { CardLabel, CardTitle, CardBody } from "@/components/ui/HomeCard";
+import HomeQuickAccess from "@/components/home/HomeQuickAccess";
 
 // ─── Overlays ───
 const HomeTour = dynamic(() => import("@/components/home/HomeTour"), { ssr: false });
@@ -40,75 +38,6 @@ const InlineCelebration = dynamic(() => import("@/components/home/InlineCelebrat
 const PostObservationReveal = dynamic(() => import("@/components/home/PostObservationReveal"), { ssr: false });
 
 import "./home-animations.css";
-
-/* ═══ INLINE: First Observation Card (temporary, 24h) ═══ */
-function FirstObservationCard() {
-  const [data, setData] = useState<{
-    name: string;
-    englishName?: string;
-    emoji: string;
-    tagline: string;
-    blindSpot: string | null;
-    confidence: number;
-  } | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("aneurasync_first_archetype");
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      const createdAt = new Date(parsed.createdAt).getTime();
-      if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
-        localStorage.removeItem("aneurasync_first_archetype");
-        localStorage.removeItem("aneurasync_first_insight");
-        return;
-      }
-      setData(parsed);
-    } catch { /* noop */ }
-  }, []);
-
-  if (!data) return null;
-
-  const hoursLeft = Math.max(0, Math.ceil(
-    (24 - (Date.now() - new Date(localStorage.getItem("aneurasync_first_archetype") ? JSON.parse(localStorage.getItem("aneurasync_first_archetype")!).createdAt : "").getTime()) / (60 * 60 * 1000))
-  ));
-
-  return (
-    <section className="px-4 pb-3" style={{ breakInside: "avoid" }}>
-      <HomeCard tier="primary" href="/stargazer">
-        <div className="absolute top-3 right-3 text-[9px] text-indigo/50 font-mono tracking-wide whitespace-nowrap">
-          {hoursLeft > 0 ? `${hoursLeft}h で消えます` : "まもなく消えます"}
-        </div>
-        <CardLabel tier="primary">YOUR FIRST OBSERVATION</CardLabel>
-        <div className="flex items-center gap-2.5 mt-3 mb-2">
-          {data.englishName ? (
-            <img
-              src={`/samples/figure/${data.englishName.toLowerCase()}.png`}
-              alt={data.name}
-              className="w-12 h-12 object-contain"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
-          ) : (
-            <span className="text-[28px]">{data.emoji}</span>
-          )}
-          <div>
-            <CardTitle tier="primary">{data.name}</CardTitle>
-            <p className="text-[11px] text-text3 italic mt-0.5">{data.tagline}</p>
-          </div>
-        </div>
-        {data.blindSpot && (
-          <div className="mt-2.5 pt-2.5 border-t border-indigo/[0.08]">
-            <CardLabel tier="primary">BLIND SPOT</CardLabel>
-            <CardBody tier="primary">{data.blindSpot}</CardBody>
-          </div>
-        )}
-        <p className="mt-2.5 text-[11px] text-text4">
-          10問の回答から判定したよ。精度は{Math.round(data.confidence * 100)}%。答えるほど正確になるよ
-        </p>
-      </HomeCard>
-    </section>
-  );
-}
 
 
 /* ═══ MAIN COMPONENT ═══ */
@@ -149,6 +78,9 @@ export default function AneurasyncHome() {
       } catch {}
     })();
   }, []);
+
+  // ── localStorage 容量チェック（初回のみ） ──
+  useEffect(() => { try { ensureStorageSpace(); } catch {} }, []);
 
   // ── Data fetching ──
   const homeData = useHomeData();
@@ -202,6 +134,33 @@ export default function AneurasyncHome() {
   const whyData = useMemo(() => deriveWhyData({
     convergentInsight, temporalMirror, blindSpot, prophecy, innerWeather, sgData,
   }), [convergentInsight, temporalMirror, blindSpot, prophecy, innerWeather, sgData]);
+
+  // ── ALTER フィードバック状態 ──
+  const [alterFeedback, setAlterFeedback] = useState<"correct" | "partially" | "wrong" | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const raw = localStorage.getItem("alter_proposal_feedback");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed.date === today ? parsed.feedback : null;
+    } catch { return null; }
+  });
+
+  const handleAlterFeedback = (fb: "correct" | "partially" | "wrong") => {
+    const today = new Date().toISOString().slice(0, 10);
+    safeSetItem("alter_proposal_feedback", JSON.stringify({ date: today, feedback: fb }));
+    setAlterFeedback(fb);
+    // predictionEngine にも記録（todayPrediction があれば）
+    try {
+      const predictions = loadPredictions(5);
+      const todayPred = predictions.find(p => !p.verified);
+      if (todayPred) {
+        updatePredictionVerification(todayPred.id, fb);
+        updateLearningFromFeedback(todayPred.id, fb);
+      }
+    } catch { /* silent */ }
+  };
 
   // ── Alter の一言（観測ベースの状態表示） ──
   const alterOneLiner = useMemo(() => {
@@ -334,27 +293,113 @@ export default function AneurasyncHome() {
     return () => el.removeEventListener("scroll", fn);
   }, []);
 
-  // ── Home Tour trigger ──
+  // ── Home Tour trigger (DB hydrate → 判定) ──
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const done = localStorage.getItem("aneurasync_home_tour_done_v2");
-    if (done) {
-      if (!isValuesOnboardingDone()) {
-        const t = setTimeout(() => setShowValuesOnboarding(true), 800);
-        return () => clearTimeout(t);
+    let cancelled = false;
+    hydrateTourStates().then(() => {
+      if (cancelled) return;
+      const homeDone = isTourSeen("home_main");
+      const valuesDone = isTourSeen("home_values");
+      console.log("[tour] hydrated — home_main:", homeDone, "home_values:", valuesDone);
+      if (homeDone) {
+        if (!valuesDone) {
+          setTimeout(() => { if (!cancelled) setShowValuesOnboarding(true); }, 800);
+        }
+        return;
       }
-      return;
-    }
-    const timer = setTimeout(() => setShowHomeTour(true), 1500);
-    return () => clearTimeout(timer);
+      setTimeout(() => { if (!cancelled) setShowHomeTour(true); }, 1500);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   const ha = Math.min(scrollY / 150, 1);
   const syncPercent = Math.round((sgData?.confidence ?? 0) * 100);
   const obsCount = sgData?.observationCount ?? 0;
 
+  // ── Composer state（AskHeroから分離、fixed bottom に配置） ──
+  const [composerQuery, setComposerQuery] = useState("");
+  const [composerFocused, setComposerFocused] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+
+  // Hydration safety for composer chips
+  const [composerMounted, setComposerMounted] = useState(false);
+  useEffect(() => { setComposerMounted(true); }, []);
+
+  const composerHasConversation = composerMounted && alterChat.messages.length > 0;
+  const composerIsLimitReached = composerMounted && alterChat.limitReached;
+
+  const handleComposerSubmit = (text?: string) => {
+    const q = (text ?? composerQuery).trim();
+    if (!q || alterChat.loading || composerIsLimitReached) return;
+    alterChat.sendMessage(q);
+    setComposerQuery("");
+    if (composerRef.current) {
+      composerRef.current.style.height = "auto";
+    }
+  };
+
+  const handleComposerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setComposerQuery(e.target.value);
+    const el = e.target;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
+  };
+
+  // ── Typewriter（composer placeholder用） ──
+  const TYPEWRITER_EXAMPLES = useMemo(() => [
+    "もう一人のあなたが何でも答えるよ",
+    "今日どう動くのがベスト？",
+    "最近モヤモヤするのはなぜ？",
+    "この判断、自分らしい？",
+  ], []);
+
+  const showTypewriter = !composerHasConversation && !composerFocused && !composerQuery;
+
+  // Typewriter hook inline
+  const [twDisplay, setTwDisplay] = useState("");
+  const [twExIdx, setTwExIdx] = useState(0);
+  const [twCharIdx, setTwCharIdx] = useState(0);
+  const [twPhase, setTwPhase] = useState<"typing" | "pause" | "erasing">("typing");
+
+  useEffect(() => {
+    if (!showTypewriter) { setTwDisplay(""); setTwCharIdx(0); setTwPhase("typing"); return; }
+    const text = TYPEWRITER_EXAMPLES[twExIdx];
+    if (twPhase === "typing") {
+      if (twCharIdx <= text.length) {
+        const t = setTimeout(() => {
+          setTwDisplay(text.slice(0, twCharIdx));
+          setTwCharIdx((c) => c + 1);
+        }, 60 + Math.random() * 40);
+        return () => clearTimeout(t);
+      }
+      setTwPhase("pause");
+    } else if (twPhase === "pause") {
+      const t = setTimeout(() => setTwPhase("erasing"), 2000);
+      return () => clearTimeout(t);
+    } else if (twPhase === "erasing") {
+      if (twCharIdx > 0) {
+        const t = setTimeout(() => {
+          setTwCharIdx((c) => c - 1);
+          setTwDisplay(text.slice(0, twCharIdx - 1));
+        }, 25);
+        return () => clearTimeout(t);
+      }
+      setTwExIdx((i) => (i + 1) % TYPEWRITER_EXAMPLES.length);
+      setTwPhase("typing");
+    }
+  }, [showTypewriter, twExIdx, twCharIdx, twPhase, TYPEWRITER_EXAMPLES]);
+
+  // ── Suggestion chips（4個に厳選） ──
+  const SUGGESTION_CHIPS = useMemo(() => [
+    { label: "今日どう動くのがいい？", icon: "⚡" },
+    { label: "最近なんでこうなる？", icon: "🔍" },
+    { label: "今の仕事の進め方は合ってる？", icon: "💼" },
+    { label: "今日の服どうする？", icon: "👔" },
+  ], []);
+
   return (
-    <div className="fixed inset-0 w-full h-full overflow-hidden z-50 font-sans" style={{ background: "#f8f6f3", color: C.t1 }}>
+    <div className="fixed inset-0 w-full h-full overflow-hidden z-50 font-sans flex flex-col" style={{ background: "#f8f6f3", color: C.t1 }}>
       {/* ═══ HEADER ═══ */}
       <HomeHeader
         scrollAlpha={ha}
@@ -364,66 +409,52 @@ export default function AneurasyncHome() {
       {/* ═══ LOGIN INTRO ═══ */}
       <LoginIntroAnimation onComplete={() => setIntroComplete(true)} />
 
-      {/* ═══ SCROLLABLE CONTENT ═══ */}
-      <div ref={scrollRef} className="h-screen overflow-y-auto relative z-1">
+      {/* ═══ SCROLL AREA — 1枚の会話キャンバス ═══
+          上部文脈は薄い浮遊レール。Alterの会話がメイン。
+          section区切り・大カード・境界線を排除。 */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto relative z-1">
         <div style={{ background: atmosphere.bgGradient, color: C.t1, transition: "background 2s ease", paddingTop: 56 }}>
 
-          {/* ─── 1. ORBIT DOCK — 上部クイック導線 ─── */}
-          <ZoneErrorBoundary zoneName="orbit">
-            <div data-tour="orbit-dock">
-              <OrbitDock items={orbitItems} />
-            </div>
-          </ZoneErrorBoundary>
+          {/* ── 文脈レール: 挨拶 ── */}
+          <div className="px-5 pt-2 pb-0.5 flex items-center gap-2.5">
+            <h2 className="text-lg font-bold text-text1">{greeting}</h2>
+            {syncPercent > 0 && (
+              <span
+                className="text-[9px] font-mono px-2 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(99,102,241,0.08)",
+                  color: "#6366F1",
+                  border: "1px solid rgba(99,102,241,0.12)",
+                }}
+              >
+                Sync {syncPercent}%
+              </span>
+            )}
+          </div>
 
-          {/* ─── 2. GREETING + SYNC — 挨拶 ─── */}
-          <section className="px-4 pt-1 pb-1">
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-xl font-bold text-text1">{greeting}</h2>
-              {syncPercent > 0 && (
-                <span
-                  className="text-[9px] font-mono px-2 py-0.5 rounded-full"
-                  style={{
-                    background: "rgba(99,102,241,0.08)",
-                    color: "#6366F1",
-                    border: "1px solid rgba(99,102,241,0.12)",
-                  }}
-                >
-                  Sync {syncPercent}%
-                </span>
-              )}
-            </div>
-          </section>
-
-          {/* ─── 3. ALTER の一言 — 観測ベースの状態表示 ─── */}
-          <section className="px-4 pb-2" data-tour="alter-oneliner">
-            <p className="text-[13px] leading-relaxed" style={{ color: "#4338CA", opacity: 0.7 }}>
-              {alterOneLiner}
-            </p>
-          </section>
-
-          {/* ─── 4. INNER WEATHER — 1行圧縮の状態入力 ─── */}
+          {/* ── 文脈レール: 内面天気 ── */}
           <InlineInnerWeather innerWeather={innerWeather} />
 
-          {/* ─── 5. COMPACT WHY — なぜこの答えか（1行サマリー + 展開） ─── */}
-          <ZoneErrorBoundary zoneName="why">
-            <CompactWhyStrip
-              sources={whyData.sources}
-              shiftedAxis={whyData.shiftedAxis}
-              trendSummary={whyData.trendSummary}
-              observationCount={whyData.observationCount}
-              innerWeatherRecorded={!!innerWeather?.recorded}
+          {/* ── 文脈レール: 今日の一手（compact） ── */}
+          <ZoneErrorBoundary zoneName="answer">
+            <AlterFollowup />
+            <AnswerCard
+              proposal={answerData.proposal}
+              confidence={answerData.confidence}
+              alternative={answerData.alternative}
+              caution={answerData.caution}
+              sources={answerData.sources}
+              observationCount={answerData.observationCount}
+              onFeedback={handleAlterFeedback}
+              feedbackGiven={alterFeedback}
+              compact
             />
           </ZoneErrorBoundary>
 
-          {/* ─── 5.5. ALTER FOLLOWUP — 前回の提案フォローアップ ─── */}
-          <AlterFollowup />
-
-          {/* ─── 6. ASK HERO — ★★★ Alter 本体（格別な中核） ─── */}
+          {/* ═══ ALTER — 会話面（メインコンテンツ） ═══ */}
           <ZoneErrorBoundary zoneName="ask">
             <div data-tour="ask-hero">
               <AskHero
-                syncPercent={syncPercent}
-                greeting={greeting}
                 observationCount={sgData?.observationCount ?? 0}
                 alterMessages={alterChat.messages}
                 alterLoading={alterChat.loading}
@@ -432,14 +463,13 @@ export default function AneurasyncHome() {
                 alterLimitReached={alterChat.limitReached}
                 alterRemainingRounds={alterChat.remainingRounds}
                 alterSessionId={alterChat.sessionId}
-                onAsk={alterChat.sendMessage}
                 alterActionShape={alterChat.lastActionShape}
                 alterDomain={alterChat.lastDomain}
                 alterIsEmotional={alterChat.lastIsEmotional}
                 alterResponseId={alterChat.lastResponseId}
                 alterFeedbackMeta={alterChat.lastFeedbackMeta}
-                hideGreeting
-                hideContextWhisper
+                composerFocused={composerFocused}
+                scrollRef={scrollRef}
                 nudge={{
                   stargazerDoneToday: instrumentUsedToday.stargazer,
                   innerWeatherRecorded: !!innerWeather?.recorded,
@@ -451,158 +481,118 @@ export default function AneurasyncHome() {
             </div>
           </ZoneErrorBoundary>
 
-          {/* ─── First Observation Card (24h temporary) ─── */}
-          <FirstObservationCard />
-
-          {/* ══════ SCROLL 後 ══════ */}
-
-          {/* ─── 7. ALTER の視点 — 控えめな補助情報 ─── */}
-          {!alterChat.isActive && (
-            <ZoneErrorBoundary zoneName="answer">
-              <section className="px-4 pt-3 pb-1">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-[10px]" style={{ color: "#6366F1", opacity: 0.6 }}>✦</span>
-                  <span className="text-[9px] font-mono tracking-wider" style={{ color: "#6366F1", opacity: 0.5 }}>
-                    ALTER の視点
-                  </span>
-                  <div className="flex-1 h-px bg-black/[0.08]" />
-                </div>
-              </section>
-              <AnswerCard
-                proposal={answerData.proposal}
-                confidence={answerData.confidence}
-                alternative={answerData.alternative}
-                caution={answerData.caution}
-                sources={answerData.sources}
-                observationCount={answerData.observationCount}
-              />
-            </ZoneErrorBoundary>
-          )}
-
-          {/* ─── 8. RENDEZVOUS — ★ 主役：観測が出会いになる ─── */}
-          <div data-tour="rendezvous">
-            <section className="px-4 pt-4 pb-1">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px]" style={{ color: "#A855F7", opacity: 0.6 }}>∞</span>
-                <span className="text-[9px] font-mono tracking-wider" style={{ color: "#A855F7", opacity: 0.5 }}>
-                  つながる
-                </span>
-                <div className="flex-1 h-px bg-black/[0.08]" />
-              </div>
-            </section>
-            <ZoneErrorBoundary zoneName="reality">
-              <RealityPort
-                observationCount={obsCount}
-                syncPercent={syncPercent}
-              />
-            </ZoneErrorBoundary>
-          </div>
-
-          {/* ─── 9. DEEP IDENTITY — Genome / Card / Presence ─── */}
-          <section className="px-4 pb-4" data-tour="deep-identity">
-            <div className="flex items-center gap-2 mb-2.5 mt-1">
-              <span className="text-[9px] font-mono tracking-wider" style={{ color: "#8B5CF6", opacity: 0.5 }}>DEEP IDENTITY</span>
-              <div className="flex-1 h-px bg-black/[0.08]" />
-              <span className="text-[9px]" style={{ color: "#8B5CF6", opacity: 0.4 }}>深層プロファイル</span>
-            </div>
-
-            {/* Genome + Card + Presence — 3列 */}
-            <div className="flex gap-2 mb-2.5">
-              {/* Genome */}
-              <Link
-                href="/aneurasync/genome"
-                className="flex-1 rounded-xl p-3 transition-all active:scale-[0.97]"
-                style={{
-                  background: "linear-gradient(150deg, rgba(139,92,246,0.05), rgba(255,255,255,0.85))",
-                  border: "1px solid rgba(139,92,246,0.1)",
-                }}
-              >
-                <div className="flex flex-col items-center gap-1.5 text-center">
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{ background: "rgba(139,92,246,0.08)" }}
-                  >
-                    <span className="text-base">🧬</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-text1">Genome</span>
-                  <span className="text-[8px] text-text3 leading-tight">性格・価値観</span>
-                </div>
-              </Link>
-
-              {/* Card (archetype badge) */}
-              <Link
-                href="/genome-card"
-                className="flex-1 rounded-xl p-3 transition-all active:scale-[0.97]"
-                style={{
-                  background: "linear-gradient(150deg, rgba(139,92,246,0.05), rgba(255,255,255,0.85))",
-                  border: "1px solid rgba(139,92,246,0.1)",
-                }}
-              >
-                <div className="flex flex-col items-center gap-1.5 text-center">
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{ background: "rgba(139,92,246,0.08)" }}
-                  >
-                    <span className="text-base">{sgData?.emoji ?? "◇"}</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-text1">Card</span>
-                  <span className="text-[8px] text-text3 leading-tight">{sgData?.archetype ? sgData.archetype.slice(0, 5) : "カード交換"}</span>
-                </div>
-              </Link>
-
-              {/* Presence */}
-              <Link
-                href="/sns/profile"
-                className="flex-1 rounded-xl p-3 transition-all active:scale-[0.97]"
-                style={{
-                  background: "linear-gradient(150deg, rgba(59,130,246,0.05), rgba(255,255,255,0.85))",
-                  border: "1px solid rgba(59,130,246,0.1)",
-                }}
-              >
-                <div className="flex flex-col items-center gap-1.5 text-center">
-                  <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center"
-                    style={{ background: "rgba(59,130,246,0.08)" }}
-                  >
-                    <span className="text-base">🪞</span>
-                  </div>
-                  <span className="text-[10px] font-bold text-text1">Presence</span>
-                  <span className="text-[8px] text-text3 leading-tight">人物ミラー</span>
-                </div>
-              </Link>
-            </div>
-
-            {/* Genome completeness bar */}
-            {genomeCompleteness > 0 && genomeCompleteness < 100 && (
-              <div className="flex items-center gap-2 px-1">
-                <span className="text-[8px] text-text4 flex-shrink-0">解析 {genomeCompleteness}%</span>
-                <div className="flex-1 h-[2px] rounded-full overflow-hidden" style={{ background: "rgba(139,92,246,0.06)" }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${genomeCompleteness}%`,
-                      background: "linear-gradient(90deg, rgba(139,92,246,0.4), rgba(139,92,246,0.15))",
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* ─── FOOTER ─── */}
-          <div className="pb-[72px]" />
-          <HomeFooter />
+          {/* ─── BOTTOM SPACER: composer + chips + QuickAccess の高さ分 ─── */}
+          <div style={{ height: 180 }} />
         </div>
-
-        {/* Talk FAB (scroll 下部でも accessible) */}
-        <TalkFab
-          bottom={HOME_FLOATING_LAYOUT.talkFabBottom}
-          mobileBottom={HOME_FLOATING_LAYOUT.talkFabMobileBottom}
-        />
       </div>
 
-      {/* ═══ BOTTOM NAV ═══ */}
-      <BottomNav />
+      {/* ══════ FIXED BOTTOM: chips → composer → QuickAccess ══════
+          入力欄はQuickAccessの直上に固定。
+          チップは入力の前段（未会話時のみ表示）。 */}
+      <div className="flex-shrink-0 relative z-60">
+        {/* ── Suggestion chips（未会話 & 未フォーカス時のみ） ── */}
+        <div
+          className="px-4 pb-2 flex flex-wrap gap-1.5 transition-all duration-200"
+          style={{
+            opacity: (composerHasConversation || composerFocused) ? 0 : 1,
+            maxHeight: (composerHasConversation || composerFocused) ? 0 : 100,
+            paddingBottom: (composerHasConversation || composerFocused) ? 0 : 8,
+            overflow: "hidden",
+            pointerEvents: (composerHasConversation || composerFocused) ? "none" : "auto",
+          }}
+        >
+          {SUGGESTION_CHIPS.map((chip) => (
+            <button
+              key={chip.label}
+              onClick={() => handleComposerSubmit(chip.label)}
+              className="flex items-center gap-1 px-3 py-2 rounded-full text-[11px] font-medium transition-all duration-150 active:scale-95"
+              style={{
+                background: "rgba(99,102,241,0.08)",
+                border: "1px solid rgba(99,102,241,0.18)",
+                color: "#3730A3",
+              }}
+            >
+              <span className="text-xs">{chip.icon}</span>
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Composer — Alter色はここだけ ── */}
+        <div
+          className="flex items-end gap-3 mx-3 mb-1.5 px-4 py-3 rounded-xl transition-all duration-200"
+          style={{
+            background: "rgba(255,255,255,0.7)",
+            border: composerFocused
+              ? "1.5px solid rgba(99,102,241,0.4)"
+              : "1.5px solid rgba(99,102,241,0.18)",
+            boxShadow: composerFocused
+              ? "0 4px 16px rgba(99,102,241,0.12)"
+              : "0 1px 4px rgba(99,102,241,0.06)",
+          }}
+        >
+          <span
+            className="text-xl flex-shrink-0 transition-opacity duration-200"
+            style={{ color: "#6366F1", opacity: composerFocused ? 0.9 : 0.5 }}
+          >
+            ✦
+          </span>
+          <div className="flex-1 relative min-w-0">
+            <textarea
+              ref={composerRef}
+              rows={1}
+              value={composerQuery}
+              onChange={handleComposerChange}
+              onFocus={() => setComposerFocused(true)}
+              onBlur={() => setTimeout(() => setComposerFocused(false), 200)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleComposerSubmit();
+                }
+              }}
+              placeholder=""
+              aria-label="Alterに質問する"
+              className="w-full bg-transparent text-text1 placeholder:text-text4 outline-none text-[15px] resize-none leading-relaxed"
+              style={{ maxHeight: 96 }}
+              disabled={alterChat.loading || composerIsLimitReached}
+            />
+            {/* Typewriter placeholder */}
+            {showTypewriter && (
+              <div
+                className="absolute inset-0 flex items-center pointer-events-none text-[15px]"
+                style={{ color: "#8888a0" }}
+              >
+                {twDisplay}
+                <span
+                  className="inline-block w-[2px] h-[18px] ml-[1px]"
+                  style={{
+                    background: "#6366F1",
+                    animation: "alter-cursor-blink 1s step-end infinite",
+                  }}
+                />
+              </div>
+            )}
+          </div>
+          <AnimatePresence>
+            {composerQuery.trim() && !alterChat.loading && (
+              <motion.button
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0, opacity: 0 }}
+                onClick={() => handleComposerSubmit()}
+                className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs"
+                style={{ background: "linear-gradient(135deg, #6366F1, #8B5CF6)" }}
+              >
+                →
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* ── QuickAccess ── */}
+        <HomeQuickAccess />
+      </div>
 
       {/* ═══ OVERLAYS ═══ */}
       {celebration && (

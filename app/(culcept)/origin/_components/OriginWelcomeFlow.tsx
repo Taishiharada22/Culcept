@@ -2,10 +2,9 @@
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import BreathingTransition from "@/app/stargazer/_components/BreathingTransition";
 import { markOnboarded } from "@/lib/origin/v7/onboarding";
 
-type WelcomePhase = "intro" | "breathing" | "first_memory" | "map";
+type WelcomePhase = "intro" | "map";
 type TabKey = "todo" | "journal" | "profile" | "memory" | "calendar" | "orbit";
 
 interface Props {
@@ -19,51 +18,33 @@ interface Props {
   initialPhase?: WelcomePhase;
 }
 
-const INTRO_LINES = [
-  "あなたの記憶を",
-  "ここに刻みます。",
-];
-
 const MAP_CARDS: { key: TabKey; emoji: string; title: string; desc: string }[] = [
   {
     key: "todo",
     emoji: "✅",
     title: "今日やること",
-    desc: "今日のタスクを整えて、1日を始める",
+    desc: "タスクを記録して完了するだけ。続けると曜日別パターンや集中しやすい時間帯が見えてきます。",
   },
   {
     key: "journal",
     emoji: "📝",
     title: "ジャーナル",
-    desc: "今日の出来事と気持ちを言葉にして、1日を閉じる",
+    desc: "その日の感情や出来事を一言でも。感情の波や気分の変動パターンをOriginが読み取ります。",
   },
   {
     key: "profile",
     emoji: "👤",
-    title: "プロフィール",
-    desc: "家族、仕事、価値観——あなたのプロフィールを育てる場所",
+    title: "わたしの法則",
+    desc: "蓄積されたデータから浮かび上がる、あなた自身の行動法則と傾向。使うほど精度が上がります。",
   },
 ];
 
 export default function OriginWelcomeFlow({
-  onStartExploration,
   onComplete,
   onSkip,
   initialPhase = "intro",
 }: Props) {
   const [phase, setPhase] = useState<WelcomePhase>(initialPhase);
-
-  const handleIntroComplete = useCallback(() => {
-    setPhase("breathing");
-  }, []);
-
-  const handleBreathingComplete = useCallback(() => {
-    setPhase("first_memory");
-  }, []);
-
-  const handleStartMemory = useCallback(() => {
-    onStartExploration();
-  }, [onStartExploration]);
 
   const handleMapSelect = useCallback(
     (tab: TabKey) => {
@@ -81,11 +62,11 @@ export default function OriginWelcomeFlow({
   return (
     <div className="flex h-full items-center justify-center">
       <AnimatePresence mode="wait" initial={false}>
-        {/* ── Phase 1: シネマティックイントロ ── */}
+        {/* ── Phase 1: 機能紹介 ── */}
         {phase === "intro" && (
           <motion.div
             key="intro"
-            className="flex flex-col items-center justify-center gap-6 px-6"
+            className="flex flex-col items-center justify-center gap-5 px-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -115,115 +96,66 @@ export default function OriginWelcomeFlow({
               />
             </motion.div>
 
-            <div className="flex flex-col items-center gap-2">
-              {INTRO_LINES.map((line, i) => (
-                <motion.p
-                  key={i}
-                  className="text-center text-xl font-semibold tracking-wide"
-                  style={{ color: "#3a2a1a" }}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.8 + i * 0.5, duration: 0.7 }}
-                >
-                  {line}
-                </motion.p>
-              ))}
+            <div className="flex flex-col items-center gap-1">
+              <motion.p
+                className="text-center text-xl font-semibold tracking-wide"
+                style={{ color: "#3a2a1a" }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8, duration: 0.7 }}
+              >
+                毎日の記録が、
+              </motion.p>
+              <motion.p
+                className="text-center text-xl font-semibold tracking-wide"
+                style={{ color: "#3a2a1a" }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.3, duration: 0.7 }}
+              >
+                あなたの取扱説明書になる。
+              </motion.p>
             </div>
 
             <motion.p
-              className="mt-2 max-w-xs text-center text-sm leading-relaxed text-gray-400"
+              className="mt-1 max-w-xs text-center text-sm leading-relaxed text-gray-400"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 2.2, duration: 0.8 }}
             >
-              Originは、あなたの記憶を掘り起こし
+              タスク管理とジャーナルを日々使うだけで、
               <br />
-              「自分がどう形作られたか」を発見する場所です。
+              行動パターンや感情の法則が浮かび上がります。
             </motion.p>
 
             <motion.button
-              className="mt-6 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/20"
+              className="mt-4 rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/20"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 3.0, duration: 0.5 }}
+              transition={{ delay: 2.8, duration: 0.5 }}
               whileTap={{ scale: 0.97 }}
-              onClick={handleIntroComplete}
+              onClick={() => setPhase("map")}
             >
-              はじめる
+              どんなことができる？
             </motion.button>
 
             <motion.button
               className="text-xs text-gray-400 underline decoration-gray-300"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 3.5, duration: 0.5 }}
+              transition={{ delay: 3.2, duration: 0.5 }}
               onClick={handleSkip}
             >
-              スキップして自由に探索する
+              スキップして始める
             </motion.button>
           </motion.div>
         )}
 
-        {/* ── Phase 1.5: ブリージングトランジション ── */}
-        {phase === "breathing" && (
-          <motion.div
-            key="breathing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <BreathingTransition
-              durationMs={2800}
-              accentColor="rgba(190,170,110,0.5)"
-              onComplete={handleBreathingComplete}
-              message="最初の記憶を、ひとつ選んでみましょう"
-              lightMode
-            />
-          </motion.div>
-        )}
-
-        {/* ── Phase 2: 最初の記憶を作る ── */}
-        {phase === "first_memory" && (
-          <motion.div
-            key="first_memory"
-            className="flex flex-col items-center gap-6 px-6"
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <div className="flex flex-col items-center gap-3">
-              <span className="text-3xl">🪨</span>
-              <h2
-                className="text-lg font-semibold"
-                style={{ color: "#3a2a1a" }}
-              >
-                最初の記憶を刻む
-              </h2>
-              <p className="max-w-sm text-center text-sm leading-relaxed text-gray-500">
-                幼い頃、学生時代、社会に出てから——
-                <br />
-                どの時期でも構いません。
-                <br />
-                あなたの記憶をひとつ選んでください。
-              </p>
-            </div>
-
-            <motion.button
-              className="rounded-2xl bg-gradient-to-r from-amber-400 to-orange-400 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-amber-500/20"
-              whileTap={{ scale: 0.97 }}
-              onClick={handleStartMemory}
-            >
-              記憶探索を始める
-            </motion.button>
-          </motion.div>
-        )}
-
-        {/* ── Phase 3: Originの地図 ── */}
+        {/* ── Phase 2: 機能マップ ── */}
         {phase === "map" && (
           <motion.div
             key="map"
-            className="flex flex-col items-center gap-6 px-4 py-8"
+            className="flex flex-col items-center gap-5 px-4 py-8"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -235,44 +167,53 @@ export default function OriginWelcomeFlow({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
             >
-              <span className="text-2xl">✨</span>
               <h2
                 className="text-lg font-semibold"
                 style={{ color: "#3a2a1a" }}
               >
-                最初の記憶が刻まれました
+                3つの機能で、自分を知る
               </h2>
               <p className="mt-1 text-center text-sm text-gray-500">
-                Originには、まだ多くの機能があります。
-                <br />
-                気になるものから始めてみましょう。
+                気になるものをタップして始めましょう
               </p>
             </motion.div>
 
-            <div className="grid w-full max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid w-full max-w-md grid-cols-1 gap-3">
               {MAP_CARDS.map((card, i) => (
                 <motion.button
                   key={card.key}
-                  className="flex flex-col items-start gap-2 rounded-2xl border border-amber-200/40 bg-white/60 p-4 text-left backdrop-blur-sm transition-colors hover:bg-amber-50/60"
+                  className="flex items-start gap-3 rounded-2xl border border-amber-200/40 bg-white/60 p-4 text-left backdrop-blur-sm transition-colors hover:bg-amber-50/60"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.4 + i * 0.1, type: "spring", stiffness: 300, damping: 25 }}
+                  transition={{ delay: 0.3 + i * 0.1, type: "spring", stiffness: 300, damping: 25 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => handleMapSelect(card.key)}
                 >
-                  <span className="text-xl">{card.emoji}</span>
-                  <span
-                    className="text-sm font-semibold"
-                    style={{ color: "#3a2a1a" }}
-                  >
-                    {card.title}
-                  </span>
-                  <span className="text-xs leading-relaxed text-gray-500">
-                    {card.desc}
-                  </span>
+                  <span className="mt-0.5 text-xl">{card.emoji}</span>
+                  <div className="flex flex-col gap-1">
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: "#3a2a1a" }}
+                    >
+                      {card.title}
+                    </span>
+                    <span className="text-xs leading-relaxed text-gray-500">
+                      {card.desc}
+                    </span>
+                  </div>
                 </motion.button>
               ))}
             </div>
+
+            <motion.button
+              className="mt-2 text-xs text-gray-400 underline decoration-gray-300"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+              onClick={handleSkip}
+            >
+              あとで見る
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>

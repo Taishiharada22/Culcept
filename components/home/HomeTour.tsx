@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { safeLSSet } from "@/lib/safeLocalStorage";
+import { markTourSeen } from "@/lib/tour/tourState";
 
 /* ═══════════════════════════════════════════════════════════════════
    HomeTour — Home 画面のレイヤー（セクション）を順に説明するツアー
@@ -62,7 +62,6 @@ const TOUR_STEPS: TourStep[] = [
   },
 ];
 
-const STORAGE_KEY = "aneurasync_home_tour_done_v2";
 const SPOTLIGHT_PAD = 12;
 
 interface Props {
@@ -122,8 +121,8 @@ export default function HomeTour({ active, onComplete }: Props) {
     }
   }, [active, focusElement]);
 
-  const finish = useCallback(() => {
-    safeLSSet(STORAGE_KEY, "1");
+  const finish = useCallback(async () => {
+    await markTourSeen("home_main");
     onComplete();
   }, [onComplete]);
 

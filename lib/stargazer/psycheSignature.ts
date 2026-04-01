@@ -384,6 +384,7 @@ function calculateStateColor(scores: Record<string, number>): string {
     relational_deep: 280,
     depth: 300,
     cognitive: 190,
+    expansion: 160,
   };
 
   // カテゴリごとの平均絶対値を算出

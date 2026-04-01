@@ -7,6 +7,7 @@
 
 import type { WardrobeItem } from "./types";
 import { safeLSSet } from "@/lib/safeLocalStorage";
+import { PREFECTURE_COORDS } from "@/lib/shared/location";
 
 /* ── Types ── */
 
@@ -256,24 +257,49 @@ export async function fetchWeather(lat?: number, lon?: number): Promise<WeatherF
     }
 
     // 3. Determine coordinates
-    let useLat = lat ?? 35.6762; // Tokyo default
-    let useLon = lon ?? 139.6503;
+    // 優先順位: 引数 → shared location (居住地設定) → geolocation → エラー（未設定明示）
+    let useLat = lat;
+    let useLon = lon;
     let geoFailed = false;
 
-    if (lat == null && lon == null && typeof navigator !== "undefined" && navigator.geolocation) {
+    if (useLat == null || useLon == null) {
+        // shared location: 保存済みの居住地から座標を取得
         try {
-            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(resolve, reject, {
-                    timeout: 5000,
-                    maximumAge: 3600000,
+            const res = await fetch("/api/weather/subscription", { cache: "no-store" });
+            if (res.ok) {
+                const json = await res.json();
+                const pref = json?.subscription?.prefecture;
+                if (pref && PREFECTURE_COORDS[pref]) {
+                    useLat = PREFECTURE_COORDS[pref].lat;
+                    useLon = PREFECTURE_COORDS[pref].lon;
+                }
+            }
+        } catch { /* shared location unavailable, try geolocation */ }
+    }
+
+    if (useLat == null || useLon == null) {
+        // geolocation fallback
+        if (typeof navigator !== "undefined" && navigator.geolocation) {
+            try {
+                const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        timeout: 5000,
+                        maximumAge: 3600000,
+                    });
                 });
-            });
-            useLat = pos.coords.latitude;
-            useLon = pos.coords.longitude;
-        } catch {
+                useLat = pos.coords.latitude;
+                useLon = pos.coords.longitude;
+            } catch {
+                geoFailed = true;
+            }
+        } else {
             geoFailed = true;
-            // Use Tokyo defaults
         }
+    }
+
+    // 座標が確定しない場合は手動入力UIへ
+    if (useLat == null || useLon == null) {
+        throw new WeatherOfflineError();
     }
 
     // 4. API fetch

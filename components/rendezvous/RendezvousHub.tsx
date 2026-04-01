@@ -15,6 +15,13 @@ import {
 // 3枠定義
 // =============================================================================
 
+type VerificationBadge = {
+  label: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+};
+
 type TierConfig = {
   id: "romance" | "connection" | "partner";
   title: string;
@@ -27,6 +34,7 @@ type TierConfig = {
   badge?: string;
   modes?: string[];
   previewLabel?: string;
+  statusBadge?: VerificationBadge | null;
 };
 
 const TIERS: TierConfig[] = [
@@ -172,6 +180,19 @@ function TierCard({ tier, index }: { tier: TierConfig; index: number }) {
                 }}
               >
                 {tier.badge}
+              </span>
+            )}
+            {/* Dynamic status badge */}
+            {tier.statusBadge && (
+              <span
+                className="inline-block mt-2 ml-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-full"
+                style={{
+                  background: tier.statusBadge.bgColor,
+                  color: tier.statusBadge.color,
+                  border: `1px solid ${tier.statusBadge.borderColor}`,
+                }}
+              >
+                {tier.statusBadge.label}
               </span>
             )}
           </div>
@@ -494,10 +515,45 @@ function PremiumUnlockedBanner() {
 // RendezvousHub
 // =============================================================================
 
-export default function RendezvousHub() {
+type HubProps = {
+  /** ユーザーの本人確認ステータス */
+  verificationStatus?: "unverified" | "pending" | "verified" | "rejected" | "expired" | null;
+  /** アカウント凍結中か */
+  isFrozen?: boolean;
+};
+
+function getVerificationBadge(
+  status: HubProps["verificationStatus"],
+  isFrozen: boolean,
+): VerificationBadge | null {
+  // 凍結は他の状態より優先
+  if (isFrozen) {
+    return { label: "利用停止中", color: "#94A3B8", bgColor: "rgba(148,163,184,0.08)", borderColor: "rgba(148,163,184,0.2)" };
+  }
+  switch (status) {
+    case "pending":
+      return { label: "審査中", color: "#FBBF24", bgColor: "rgba(251,191,36,0.08)", borderColor: "rgba(251,191,36,0.2)" };
+    case "verified":
+      return { label: "利用可能", color: "#34D399", bgColor: "rgba(52,211,153,0.08)", borderColor: "rgba(52,211,153,0.2)" };
+    case "rejected":
+      return { label: "要再提出", color: "#F87171", bgColor: "rgba(248,113,113,0.08)", borderColor: "rgba(248,113,113,0.2)" };
+    default:
+      return null;
+  }
+}
+
+export default function RendezvousHub({ verificationStatus, isFrozen = false }: HubProps) {
   useEffect(() => {
     trackHubView();
   }, []);
+
+  // 恋愛カードに動的ステータスバッジを付与
+  const tiersWithStatus = TIERS.map((tier) => {
+    if (tier.id === "romance" && (verificationStatus || isFrozen)) {
+      return { ...tier, statusBadge: getVerificationBadge(verificationStatus, isFrozen) };
+    }
+    return tier;
+  });
 
   return (
     <div
@@ -578,7 +634,7 @@ export default function RendezvousHub() {
       {/* Three Tier Cards                                              */}
       {/* ============================================================= */}
       <div className="px-5 flex flex-col gap-5">
-        {TIERS.map((tier, i) => (
+        {tiersWithStatus.map((tier, i) => (
           <TierCard key={tier.id} tier={tier} index={i} />
         ))}
       </div>

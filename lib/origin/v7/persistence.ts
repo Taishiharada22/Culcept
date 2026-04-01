@@ -181,6 +181,8 @@ export function mergeOriginSaves(
     activities: mergeArrayById(remoteSave.activities, localSave.activities),
     turningPoints: mergeArrayById(remoteSave.turningPoints, localSave.turningPoints),
     residueBoard: mergeArrayById(remoteSave.residueBoard, localSave.residueBoard),
+    // ── オンボーディング完了フラグ（どちらかがtrueなら完了） ──
+    onboarded: remoteSave.onboarded || localSave.onboarded || undefined,
   };
 }
 

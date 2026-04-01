@@ -29,29 +29,38 @@ export default async function RomancePage() {
   }
 
   // 身元確認ゲート: romantic は L2以上が必要
-  const { data: profile } = await supabaseAdmin
+  const { data: profile, error: profileErr } = await supabaseAdmin
     .from("rendezvous_profiles")
-    .select("verification_status, review_status, verification_level, enabled_categories, rejection_note")
+    .select("verification_status, review_status, verification_level, enabled_categories, verification_reviewer_note, verification_submitted_at, frozen_at, frozen_reason")
     .eq("user_id", auth.user.id)
     .maybeSingle();
 
+  if (profileErr) {
+    console.error("[romance/page] profile query error:", profileErr);
+  }
   const verificationStatus = (profile?.verification_status as "unverified" | "pending" | "verified" | "rejected" | "expired") ?? "unverified";
   const reviewStatus = (profile?.review_status as "not_submitted" | "pending" | "approved" | "rejected") ?? "not_submitted";
   const verificationLevel: number = profile?.verification_level ?? 0;
-  const rejectionNote: string | null = profile?.rejection_note ?? null;
+  const rejectionNote: string | null = profile?.verification_reviewer_note ?? null;
+  const submittedAt: string | null = profile?.verification_submitted_at ?? null;
+  const isFrozen = !!profile?.frozen_at;
+  const frozenReason: string | null = profile?.frozen_reason ?? null;
 
   // romantic カテゴリとして IdentityGate に通す
   return (
-    <IdentityGate
-      verificationStatus={verificationStatus}
-      reviewStatus={reviewStatus}
-      verificationLevel={verificationLevel}
-      categories={["romantic"]}
-      rejectionNote={rejectionNote}
-    >
-      <AppearancePreferencesGate>
+    <AppearancePreferencesGate>
+      <IdentityGate
+        verificationStatus={verificationStatus}
+        reviewStatus={reviewStatus}
+        verificationLevel={verificationLevel}
+        categories={["romantic"]}
+        rejectionNote={rejectionNote}
+        submittedAt={submittedAt}
+        isFrozen={isFrozen}
+        frozenReason={frozenReason}
+      >
         <RomanceSwipeClient />
-      </AppearancePreferencesGate>
-    </IdentityGate>
+      </IdentityGate>
+    </AppearancePreferencesGate>
   );
 }

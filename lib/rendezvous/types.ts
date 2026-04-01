@@ -161,6 +161,8 @@ export type DealbreakerProfile = {
 
 // ---------- DB Row Types ----------
 
+export type Gender = "male" | "female" | "non_binary" | "prefer_not_to_say";
+
 export type RendezvousProfile = {
   id: string;
   user_id: string;
@@ -179,6 +181,8 @@ export type RendezvousProfile = {
   show_in_home: boolean;
   public_mood_summary: string | null;
   public_style_summary: string | null;
+  gender: Gender | null;
+  date_of_birth: string | null;
   created_at: string;
   updated_at: string;
 };

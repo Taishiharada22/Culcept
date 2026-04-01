@@ -9,7 +9,8 @@
 // 推論スコアの信頼度上限: 0.35（直接観測の 0.65 に対して）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-import type { TraitAxisKey } from "./traitAxes";
+import { isExpansionAxis, type TraitAxisKey } from "./traitAxes";
+import { EXPANSION_INFERENCE_CONFIDENCE_CAP } from "./expansionDiscovery";
 
 // ── 型定義 ──
 
@@ -187,6 +188,72 @@ const SAFETY_INFERENCE_RULES: InferenceRule[] = [
   },
 ];
 
+// ── P4: 拡張軸の推論ルール ──
+// 親軸スコアから拡張軸を推論。confidence 上限は EXPANSION_INFERENCE_CONFIDENCE_CAP = 0.25
+
+const EXPANSION_INFERENCE_RULES: InferenceRule[] = [
+  {
+    targetAxis: "energy_rhythm",
+    sources: [
+      { sourceAxis: "introvert_vs_extrovert", weight: 0.5, rationale: "外向性 → 活発なエネルギー消費パターン" },
+      { sourceAxis: "emotional_variability", weight: 0.3, rationale: "感情変動 → エネルギーリズムの振幅" },
+      { sourceAxis: "stress_isolation_vs_social", weight: -0.2, rationale: "孤立回復 → 静かな充電パターン" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: introvert_vs_extrovert, emotional_variability, stress_isolation_vs_social",
+  },
+  {
+    targetAxis: "conflict_style",
+    sources: [
+      { sourceAxis: "direct_vs_diplomatic", weight: 0.5, rationale: "率直さ → 正面から向き合うスタイル" },
+      { sourceAxis: "emotional_regulation", weight: 0.3, rationale: "感情調整力 → 冷静な対面力" },
+      { sourceAxis: "independence_vs_harmony", weight: -0.2, rationale: "調和志向 → 距離を取る傾向" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: direct_vs_diplomatic, emotional_regulation, independence_vs_harmony",
+  },
+  {
+    targetAxis: "novelty_threshold",
+    sources: [
+      { sourceAxis: "change_embrace_vs_resist", weight: -0.5, rationale: "変化歓迎 → 未知への耐性が高い" },
+      { sourceAxis: "tradition_vs_novelty", weight: 0.3, rationale: "新奇志向 → 未知の領域を許容" },
+      { sourceAxis: "cautious_vs_bold", weight: 0.2, rationale: "大胆さ → 未知を恐れない" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: change_embrace_vs_resist, tradition_vs_novelty, cautious_vs_bold",
+  },
+  {
+    targetAxis: "self_disclosure_depth",
+    sources: [
+      { sourceAxis: "intimacy_pace", weight: 0.4, rationale: "親密化速度 → 自己開示の深さ" },
+      { sourceAxis: "public_private_gap", weight: -0.4, rationale: "表裏一致 → 深い開示傾向" },
+      { sourceAxis: "boundary_awareness", weight: -0.2, rationale: "境界柔軟 → 開示に抵抗が低い" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: intimacy_pace, public_private_gap, boundary_awareness",
+  },
+  {
+    targetAxis: "decision_regret",
+    sources: [
+      { sourceAxis: "rumination_tendency", weight: 0.5, rationale: "反芻傾向 → 決定後も考え続ける" },
+      { sourceAxis: "locus_of_control", weight: 0.3, rationale: "外的統制 → 決定への後悔が強い" },
+      { sourceAxis: "perfectionist_vs_pragmatic", weight: -0.2, rationale: "完成度重視 → 決定の再評価" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: rumination_tendency, locus_of_control, perfectionist_vs_pragmatic",
+  },
+  {
+    targetAxis: "relational_investment",
+    sources: [
+      { sourceAxis: "quality_vs_quantity", weight: -0.5, rationale: "質重視 → 狭く深い投資" },
+      { sourceAxis: "individual_vs_social", weight: -0.3, rationale: "個人志向 → 少数に深く投資" },
+      { sourceAxis: "friend_mode_fit", weight: 0.2, rationale: "友達モード安定 → 関係への投資パターン" },
+    ],
+    maxConfidence: EXPANSION_INFERENCE_CONFIDENCE_CAP,
+    citation: "Parent axes: quality_vs_quantity, individual_vs_social, friend_mode_fit",
+  },
+];
+
 // ── メイン推論関数 ──
 
 /**
@@ -239,7 +306,18 @@ export function inferSafetyAxes(
 }
 
 /**
- * 全未観測軸を推論（深層 + 安全性 + 認知）
+ * P4: 拡張6軸を親軸スコアから推論
+ * confidence 上限: EXPANSION_INFERENCE_CONFIDENCE_CAP = 0.25
+ */
+export function inferExpansionAxes(
+  observedScores: Partial<Record<TraitAxisKey, number>>,
+  directlyObservedAxes: Set<TraitAxisKey>,
+): InferenceResult[] {
+  return runInferenceRules(EXPANSION_INFERENCE_RULES, observedScores, directlyObservedAxes);
+}
+
+/**
+ * 全未観測軸を推論（深層 + 安全性 + 拡張）
  */
 export function runFullInference(
   observedScores: Partial<Record<TraitAxisKey, number>>,
@@ -247,10 +325,11 @@ export function runFullInference(
 ): InferenceResult[] {
   const depthResults = inferDepthAxes(observedScores, directlyObservedAxes);
   const safetyResults = inferSafetyAxes(observedScores, directlyObservedAxes);
+  const expansionResults = inferExpansionAxes(observedScores, directlyObservedAxes);
 
-  // 重複排除（同一軸が depth と safety 両方に出る場合は confidence 高い方）
+  // 重複排除（同一軸が複数カテゴリに出る場合は confidence 高い方）
   const resultMap = new Map<TraitAxisKey, InferenceResult>();
-  for (const result of [...depthResults, ...safetyResults]) {
+  for (const result of [...depthResults, ...safetyResults, ...expansionResults]) {
     const existing = resultMap.get(result.axis);
     if (!existing || result.confidence > existing.confidence) {
       resultMap.set(result.axis, result);
@@ -317,4 +396,4 @@ function runInferenceRules(
 }
 
 // ── エクスポート: 推論ルールの参照用 ──
-export const ALL_INFERENCE_RULES = [...DEPTH_INFERENCE_RULES, ...SAFETY_INFERENCE_RULES];
+export const ALL_INFERENCE_RULES = [...DEPTH_INFERENCE_RULES, ...SAFETY_INFERENCE_RULES, ...EXPANSION_INFERENCE_RULES];

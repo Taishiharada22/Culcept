@@ -354,18 +354,44 @@ interface StoredAnswer {
   responseTimeMs: number;
 }
 
+/**
+ * 3層読み出し: localStorage → sessionStorage → null
+ * (サーバーフォールバックはuseEffect内で非同期に行う)
+ */
 function getStoredAnswer(): StoredAnswer | null {
   if (typeof window === "undefined") return null;
+  const key = getStorageKey();
+
+  // Layer 1: localStorage
   try {
-    const raw = localStorage.getItem(getStorageKey());
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch { /* QuotaExceeded or parse error */ }
+
+  // Layer 2: sessionStorage (survives reload within same tab)
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch { /* parse error */ }
+
+  return null;
 }
 
+/**
+ * 3層書き込み: localStorage (via safeSetItem) + sessionStorage + サーバー
+ * どれか1つでも成功すれば、リロード時に復元できる
+ */
 function storeAnswer(answer: StoredAnswer): void {
-  safeSetItem(getStorageKey(), JSON.stringify(answer));
+  const key = getStorageKey();
+  const json = JSON.stringify(answer);
+
+  // Layer 1: localStorage (may fail due to QuotaExceeded)
+  safeSetItem(key, json);
+
+  // Layer 2: sessionStorage (separate quota, survives tab reload)
+  try {
+    sessionStorage.setItem(key, json);
+  } catch { /* ignore */ }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -384,7 +410,7 @@ export default function MorningQuestion({
   });
 
   const [state, setState] = useState<"loading" | "unanswered" | "revealing" | "answered">(
-    initialData.existing ? "answered" : "unanswered"
+    initialData.existing ? "answered" : "loading"
   );
   const [question] = useState<MorningQuestionDef>(initialData.question);
   const [selectedOption, setSelectedOption] = useState<MorningQuestionOption | null>(
@@ -396,15 +422,51 @@ export default function MorningQuestion({
   const [typedInsight, setTypedInsight] = useState("");
   const startTimeRef = useRef<number>(Date.now());
 
-  // SSR hydration guard: re-check localStorage on client mount
+  // Hydration + server fallback: check localStorage first, then server
   useEffect(() => {
+    // 1. Re-check localStorage (SSR hydration guard)
     const existing = getStoredAnswer();
-    if (existing && state === "unanswered") {
+    if (existing) {
       const opt = question.options.find((o) => o.value === existing.answer) || null;
       setSelectedOption(opt);
       setStoredAnswer(existing);
       setState("answered");
+      return;
     }
+
+    // 2. localStorage + sessionStorage both empty → check server as source of truth
+    let cancelled = false;
+    const dateKey = getDateKey();
+    fetch(`/api/stargazer/morning-question?date=${dateKey}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.ok && data.answer) {
+          // Server has the answer — restore to local storage layers and show answered state
+          const serverAnswer: StoredAnswer = {
+            questionId: data.answer.questionId ?? question.id,
+            answer: data.answer.answer ?? "",
+            insight: data.answer.insight ?? "",
+            answeredAt: data.answer.answeredAt ? new Date(data.answer.answeredAt).getTime() : Date.now(),
+            responseTimeMs: data.answer.responseTimeMs ?? 0,
+          };
+          storeAnswer(serverAnswer); // writes to both localStorage + sessionStorage
+          const opt = question.options.find((o) => o.value === serverAnswer.answer) || null;
+          setSelectedOption(opt);
+          setStoredAnswer(serverAnswer);
+          setState("answered");
+        } else {
+          // Server also has no answer → truly unanswered
+          setState("unanswered");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Network error → fall back to unanswered
+        setState("unanswered");
+      });
+
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -439,11 +501,29 @@ export default function MorningQuestion({
     };
     storeAnswer(answer);
     setStoredAnswer(answer);
+
+    // Save to server (source of truth)
+    const dateKey = getDateKey();
+    fetch("/api/stargazer/morning-question", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        questionId: question.id,
+        answer: option.value,
+        insight: option.insight,
+        responseTimeMs,
+        date: dateKey,
+      }),
+    }).catch((e) => console.warn("[MorningQuestion] server save failed:", e));
+
     onAnswer?.(question.id, option.value, responseTimeMs);
     setState("revealing");
   };
 
   if (!question) return null;
+
+  // loading 状態: サーバー確認中は何も表示しない（フラッシュ防止）
+  if (state === "loading") return null;
 
   return (
     <div className="w-full">

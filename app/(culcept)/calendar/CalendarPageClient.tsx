@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/glassmorphism-design";
 import { MAIN_NAV } from "@/lib/navigation";
 import type { WardrobeItem } from "@/app/my-style/_lib/types";
+import { PREFECTURES, prefectureToOfficeCode } from "@/lib/shared/location";
 import type { CalendarData, DayData, DayProposal, WornRecord, SatisfactionProfile, WeatherDrift } from "./_lib/types";
 import { DAILY_WEATHER_ICONS, WEEKDAYS, SYNC_BAND_COLORS } from "./_lib/constants";
 import { generateDayProposal } from "./_lib/outfitEngine";
@@ -79,10 +80,12 @@ export default function CalendarPageClient() {
   const [wardrobeItems, setWardrobeItems] = React.useState<WardrobeItem[]>([]);
   const [showWeatherSettings, setShowWeatherSettings] = React.useState(false);
   const [officeCode, setOfficeCode] = React.useState("");
+  const [selectedPrefecture, setSelectedPrefecture] = React.useState("");
   const [officeOptions, setOfficeOptions] = React.useState<Array<{ code: string; name: string }>>([]);
   const [officeLoading, setOfficeLoading] = React.useState(true);
   const [officeSaving, setOfficeSaving] = React.useState(false);
   const [officeMessage, setOfficeMessage] = React.useState<string | null>(null);
+  const [locationNotSet, setLocationNotSet] = React.useState(false);
   const [personaProfile, setPersonaProfile] = React.useState<CalendarPersonaProfile | null>(null);
   const [satisfactionProfile, setSatisfactionProfile] = React.useState<SatisfactionProfile | null>(null);
   const [weatherDrifts, setWeatherDrifts] = React.useState<WeatherDrift[]>([]);
@@ -257,38 +260,50 @@ export default function CalendarPageClient() {
 
   React.useEffect(() => {
     let active = true;
-    const loadOffice = async () => {
+    const loadLocation = async () => {
       setOfficeLoading(true); setOfficeMessage(null);
       try {
-        const [subRes, officeRes] = await Promise.all([
-          fetch("/api/weather/subscription", { cache: "no-store" }),
-          fetch("/api/weather/offices", { cache: "no-store" }),
-        ]);
-        const subJson = await subRes.json().catch(() => ({}));
-        const officeJson = await officeRes.json().catch(() => ({}));
+        const res = await fetch("/api/weather/subscription", { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
         if (!active) return;
-        if (subJson?.subscription?.office_code) setOfficeCode(String(subJson.subscription.office_code));
-        if (Array.isArray(officeJson?.offices)) setOfficeOptions(officeJson.offices);
-      } catch { if (!active) return; setOfficeOptions([]); }
+        if (json?.subscription?.prefecture) {
+          setSelectedPrefecture(json.subscription.prefecture);
+          setOfficeCode(json.subscription.office_code ?? "");
+          setLocationNotSet(false);
+        } else if (json?.subscription?.office_code) {
+          // office_code はあるが prefecture 未保存（backfill前の既存ユーザー）
+          // API GET が逆引きした prefecture を返すはずだが、念のためフォールバック
+          setOfficeCode(json.subscription.office_code);
+          setLocationNotSet(false);
+        } else {
+          setLocationNotSet(true);
+        }
+      } catch { if (!active) return; setLocationNotSet(true); }
       finally { if (active) setOfficeLoading(false); }
     };
-    void loadOffice();
+    void loadLocation();
     return () => { active = false; };
   }, []);
 
   /* ── ハンドラー ── */
-  const handleSaveOffice = async () => {
-    if (!officeCode.trim()) return;
+  const handleSaveLocation = async () => {
+    if (!selectedPrefecture) return;
     setOfficeSaving(true); setOfficeMessage(null);
     try {
       const res = await fetch("/api/weather/subscription", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ office_code: officeCode.trim() }),
+        body: JSON.stringify({ prefecture: selectedPrefecture }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data?.ok) setOfficeMessage("天気設定の保存に失敗しました");
-      else { setOfficeMessage("天気設定を保存しました"); await fetchCalendar(); }
-    } catch { setOfficeMessage("天気設定の保存に失敗しました"); }
+      if (!res.ok || !data?.ok) {
+        setOfficeMessage("居住地の保存に失敗しました");
+      } else {
+        setOfficeMessage("居住地を保存しました");
+        setOfficeCode(data.subscription?.office_code ?? "");
+        setLocationNotSet(false);
+        await fetchCalendar();
+      }
+    } catch { setOfficeMessage("居住地の保存に失敗しました"); }
     finally { setOfficeSaving(false); }
   };
 
@@ -559,9 +574,17 @@ export default function CalendarPageClient() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/my-style?tab=closet"
+              className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center gap-1 px-3 text-gray-500 hover:bg-white/70 transition-all text-xs no-underline">
+              <span className="text-sm">👗</span>
+              <span className="text-[10px] font-medium">My Style</span>
+            </Link>
             <motion.button onClick={() => setShowWeatherSettings(v => !v)}
-              className="w-9 h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center text-gray-400 hover:bg-white/70 transition-all text-sm"
-              whileTap={{ scale: 0.9 }}>🌤️</motion.button>
+              className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center gap-1 px-3 text-gray-500 hover:bg-white/70 transition-all text-xs"
+              whileTap={{ scale: 0.9 }}>
+              <span className="text-sm">📍</span>
+              {selectedPrefecture ? <span className="text-[10px] font-medium">{selectedPrefecture}</span> : <span className="text-[10px] text-gray-400">未設定</span>}
+            </motion.button>
             <motion.button onClick={handleGenerate} disabled={generating}
               className="h-9 px-4 rounded-full bg-gradient-to-r from-violet-500/90 to-indigo-500/90 backdrop-blur-sm text-white text-xs font-semibold disabled:opacity-50 shadow-lg shadow-violet-500/20 border border-white/20"
               whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
@@ -574,28 +597,63 @@ export default function CalendarPageClient() {
       <div className="h-20" />
 
       <main className="max-w-6xl mx-auto px-4 pb-32">
-        {/* ── 天気設定 ── */}
+        {/* ── 居住地未設定オンボーディング ── */}
+        {locationNotSet && !officeLoading && (
+          <FadeInView>
+            <GlassCard className="p-5 mb-4 border-2 border-violet-200/60">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">📍</span>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-slate-800 mb-1">居住地を設定しましょう</p>
+                  <p className="text-[11px] text-slate-500 mb-3">お住まいの地域を選ぶと、天気予報に合わせたコーデ提案ができるようになります</p>
+                  <div className="flex gap-2">
+                    <select
+                      value={selectedPrefecture}
+                      onChange={e => setSelectedPrefecture(e.target.value)}
+                      className="flex-1 rounded-xl bg-white/80 border border-slate-200/60 px-3 py-2.5 text-sm text-slate-700 backdrop-blur-sm appearance-none"
+                    >
+                      <option value="">都道府県を選択</option>
+                      {PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <button
+                      onClick={handleSaveLocation}
+                      disabled={officeSaving || !selectedPrefecture}
+                      className="rounded-xl bg-gradient-to-r from-violet-500 to-indigo-500 text-white px-5 py-2.5 text-xs font-semibold disabled:opacity-40 transition shadow-lg shadow-violet-500/20"
+                    >
+                      {officeSaving ? "..." : "設定"}
+                    </button>
+                  </div>
+                  {officeMessage && <p className="mt-2 text-[11px] text-slate-500">{officeMessage}</p>}
+                </div>
+              </div>
+            </GlassCard>
+          </FadeInView>
+        )}
+
+        {/* ── 天気地域設定（設定済みユーザー向け変更UI） ── */}
         <AnimatePresence>
           {showWeatherSettings && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-4">
               <GlassCard className="p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-bold text-slate-700">天気地域設定（気象庁）</span>
-                  <span className="text-[9px] text-slate-400">保存した地域コードで最新予報を取得</span>
+                  <span className="text-xs font-bold text-slate-700">居住地設定</span>
+                  {selectedPrefecture && <span className="text-[10px] text-violet-500 font-medium">{selectedPrefecture}</span>}
                 </div>
                 <div className="flex gap-2">
-                  {officeOptions.length > 0 ? (
-                    <select value={officeCode} onChange={e => setOfficeCode(e.target.value)}
-                      className="flex-1 rounded-xl bg-white/80 border border-slate-200/60 px-3 py-2 text-xs text-slate-700 backdrop-blur-sm" disabled={officeLoading}>
-                      <option value="">地域を選択</option>
-                      {officeOptions.map(opt => <option key={opt.code} value={opt.code}>{opt.name}</option>)}
-                    </select>
-                  ) : (
-                    <input value={officeCode} onChange={e => setOfficeCode(e.target.value)} placeholder="地域コード（例: 130000）"
-                      className="flex-1 rounded-xl bg-white/80 border border-slate-200/60 px-3 py-2 text-xs text-slate-700 backdrop-blur-sm" disabled={officeLoading} />
-                  )}
-                  <button onClick={handleSaveOffice} disabled={officeSaving || officeLoading || !officeCode.trim()}
-                    className="rounded-xl bg-slate-800 text-white px-4 py-2 text-xs font-semibold hover:bg-slate-700 disabled:opacity-40 transition">
+                  <select
+                    value={selectedPrefecture}
+                    onChange={e => setSelectedPrefecture(e.target.value)}
+                    className="flex-1 rounded-xl bg-white/80 border border-slate-200/60 px-3 py-2 text-xs text-slate-700 backdrop-blur-sm appearance-none"
+                    disabled={officeLoading}
+                  >
+                    <option value="">都道府県を選択</option>
+                    {PREFECTURES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <button
+                    onClick={handleSaveLocation}
+                    disabled={officeSaving || officeLoading || !selectedPrefecture}
+                    className="rounded-xl bg-slate-800 text-white px-4 py-2 text-xs font-semibold hover:bg-slate-700 disabled:opacity-40 transition"
+                  >
                     {officeSaving ? "..." : "保存"}
                   </button>
                 </div>

@@ -21,17 +21,41 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
     const initial: AuthState = { ok: true, error: null, message: null };
     const [state, formAction, isPending] = React.useActionState(authAction, initial);
     const [mode, setMode] = React.useState<"signin" | "signup">("signin");
+    const [passwordError, setPasswordError] = React.useState<string | null>(null);
     const [resetEmail, setResetEmail] = React.useState("");
     const [resetSent, setResetSent] = React.useState(false);
     const [resetError, setResetError] = React.useState<string | null>(null);
     const [sendingReset, setSendingReset] = React.useState(false);
+    const [cooldownSec, setCooldownSec] = React.useState(0);
     const headingStyle = { fontFamily: "'Cormorant Garamond', serif" };
+
+    // ── パスワードリセット（60秒クールダウン付き） ──
+    const COOLDOWN_SEC = 60;
+    const cooldownRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+    const startCooldown = React.useCallback(() => {
+        setCooldownSec(COOLDOWN_SEC);
+        cooldownRef.current = setInterval(() => {
+            setCooldownSec((prev) => {
+                if (prev <= 1) {
+                    if (cooldownRef.current) clearInterval(cooldownRef.current);
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+    }, []);
+
+    React.useEffect(() => {
+        return () => { if (cooldownRef.current) clearInterval(cooldownRef.current); };
+    }, []);
 
     const handleForgotPassword = async () => {
         if (!resetEmail.trim()) {
             setResetError("メールアドレスを入力してください");
             return;
         }
+        if (cooldownSec > 0) return;
         setSendingReset(true);
         setResetError(null);
         const supabase = supabaseBrowser();
@@ -43,6 +67,7 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
             setResetError(error.message);
         } else {
             setResetSent(true);
+            startCooldown();
         }
     };
 
@@ -52,9 +77,9 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
     ];
 
     const features = [
-        { icon: "✨", title: "AIスタイル提案", desc: "好みを学習して最適なスタイルを提案" },
-        { icon: "🛍️", title: "セレクト体験", desc: "あなたに合うアイテムだけを届ける" },
-        { icon: "🔮", title: "体験型ショッピング", desc: "AR/バーチャルで試着体験" },
+        { icon: "🔭", title: "深層観測", desc: "判断パターンと内面傾向をAIが静かに観測" },
+        { icon: "🌱", title: "自己発見", desc: "「そういう人間だったのか」という気づきを届ける" },
+        { icon: "🤝", title: "深いつながり", desc: "自己理解が、理解し合える関係を生む" },
     ];
 
     return (
@@ -71,13 +96,13 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
                         <GlassCard className="p-10 flex flex-col justify-between">
                             <div>
                                 <GlassBadge variant="gradient" className="mb-4">
-                                    ✨ AI-Powered Fashion
+                                    🔭 Personal AI OS
                                 </GlassBadge>
                                 <h1 className="text-4xl font-bold text-slate-900 mb-4" style={headingStyle}>
                                     Aneurasync
                                 </h1>
                                 <p className="text-slate-500 text-lg mb-8">
-                                    古着との出会いを再定義。AIがあなたの好みを理解し、似合うスタイルを届けます。
+                                    あなたの判断パターン、揺れの法則、無自覚な傾向を深く観測。自分自身への理解が変わる体験を。
                                 </p>
                                 <div className="space-y-4">
                                     {features.map((item) => (
@@ -112,14 +137,35 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
                             </p>
                         </div>
 
-                        <form action={formAction} className="space-y-6">
+                        <form
+                            action={formAction}
+                            onSubmit={(e) => {
+                                if (mode === "signup") {
+                                    const fd = new FormData(e.currentTarget);
+                                    const pw = String(fd.get("password") ?? "");
+                                    const confirm = String(fd.get("passwordConfirm") ?? "");
+                                    if (pw.length < 6) {
+                                        e.preventDefault();
+                                        setPasswordError("パスワードは6文字以上で入力してください");
+                                        return;
+                                    }
+                                    if (pw !== confirm) {
+                                        e.preventDefault();
+                                        setPasswordError("パスワードが一致しません");
+                                        return;
+                                    }
+                                    setPasswordError(null);
+                                }
+                            }}
+                            className="space-y-6"
+                        >
                             <input type="hidden" name="next" value={nextPath} />
                             <input type="hidden" name="mode" value={mode} />
 
                             <GlassTabs
                                 tabs={tabs}
                                 activeTab={mode}
-                                onChange={(id) => setMode(id === "signup" ? "signup" : "signin")}
+                                onChange={(id) => { setMode(id === "signup" ? "signup" : "signin"); setPasswordError(null); }}
                                 className="w-full justify-center"
                             />
 
@@ -146,31 +192,58 @@ export default function LoginForm({ nextPath }: { nextPath: string }) {
                                         type="password"
                                         autoComplete={mode === "signin" ? "current-password" : "new-password"}
                                         required
-                                        placeholder="••••••••"
+                                        placeholder={mode === "signup" ? "6文字以上" : "••••••••"}
+                                        onChange={() => setPasswordError(null)}
                                     />
-                                    {mode === "signin" && (
-                                        <div className="mt-2 text-right">
-                                            <button
-                                                type="button"
-                                                onClick={handleForgotPassword}
-                                                disabled={sendingReset}
-                                                className="text-xs text-violet-500 hover:text-violet-700 underline underline-offset-2 transition-colors disabled:opacity-50"
-                                            >
-                                                {sendingReset ? "送信中..." : "パスワードを忘れた"}
-                                            </button>
-                                        </div>
-                                    )}
-                                    {resetSent && (
-                                        <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-600">
-                                            リセットメールを送信しました。メールのリンクから再設定してください。
-                                        </div>
-                                    )}
-                                    {resetError && (
+                                    {passwordError && (
                                         <div className="mt-2 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-600">
-                                            {resetError}
+                                            {passwordError}
                                         </div>
                                     )}
                                 </div>
+                                {mode === "signup" && (
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-600 mb-2">
+                                            パスワード確認
+                                        </label>
+                                        <GlassInput
+                                            name="passwordConfirm"
+                                            type="password"
+                                            autoComplete="new-password"
+                                            required
+                                            placeholder="もう一度入力"
+                                            onChange={() => setPasswordError(null)}
+                                        />
+                                    </div>
+                                )}
+                                {mode === "signin" && (
+                                    <div>
+                                        <div className="text-right">
+                                            <button
+                                                type="button"
+                                                onClick={handleForgotPassword}
+                                                disabled={sendingReset || cooldownSec > 0}
+                                                className="text-xs text-violet-500 hover:text-violet-700 underline underline-offset-2 transition-colors disabled:opacity-50"
+                                            >
+                                                {sendingReset
+                                                    ? "送信中..."
+                                                    : cooldownSec > 0
+                                                        ? `再送信まで ${cooldownSec}秒`
+                                                        : "パスワードを忘れた"}
+                                            </button>
+                                        </div>
+                                        {resetSent && (
+                                            <div className="mt-2 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-600">
+                                                リセットメールを送信しました。メールのリンクから再設定してください。
+                                            </div>
+                                        )}
+                                        {resetError && (
+                                            <div className="mt-2 rounded-xl bg-red-50 border border-red-200 p-3 text-xs text-red-600">
+                                                {resetError}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             {state.error && (

@@ -17,18 +17,18 @@ type Props = {
   onComplete: () => void;
 };
 
-type DocumentType = "drivers_license" | "passport" | "my_number";
+type DocumentType = "drivers_license" | "passport" | "my_number_card";
 
 const DOC_LABELS: Record<DocumentType, string> = {
   drivers_license: "運転免許証",
   passport: "パスポート",
-  my_number: "マイナンバーカード",
+  my_number_card: "マイナンバーカード",
 };
 
 const DOC_GUIDE: Record<DocumentType, string> = {
   drivers_license: "運転免許証の表面全体が枠内に収まるように撮影してください",
   passport: "パスポートの顔写真ページを開いて撮影してください",
-  my_number: "マイナンバーカードの表面全体が枠内に収まるように撮影してください",
+  my_number_card: "マイナンバーカードの表面全体が枠内に収まるように撮影してください",
 };
 
 const currentYear = new Date().getFullYear();
@@ -269,6 +269,7 @@ export default function AvatarBirthFlow({ onComplete }: Props) {
       const res = await fetch("/api/rendezvous/identity-verify", {
         method: "POST",
         body: fd,
+        credentials: "include",
       });
 
       if (!res.ok) {

@@ -58,6 +58,15 @@ export const TRAIT_AXIS_KEYS = [
   "decision_tempo",
   "social_modeling",
   "exploration_closure",
+
+  // ── P4: 拡張軸 (expansion tier) ──
+  // archetype 決定には使わない。観測が深まると浮かび上がる補助軸
+  "energy_rhythm",
+  "conflict_style",
+  "novelty_threshold",
+  "self_disclosure_depth",
+  "decision_regret",
+  "relational_investment",
 ] as const;
 
 export type TraitAxisKey = (typeof TRAIT_AXIS_KEYS)[number];
@@ -71,13 +80,21 @@ export type AxisCategory =
   | "safety"
   | "relational_deep"
   | "depth"
-  | "cognitive";
+  | "cognitive"
+  | "expansion";
+
+/** "core" = 初回45軸（archetype決定に使用）, "expansion" = P4拡張軸（補助情報） */
+export type AxisTier = "core" | "expansion";
 
 export interface TraitAxisDef {
   id: TraitAxisKey;
   labelLeft: string;
   labelRight: string;
   category: AxisCategory;
+  /** "core" | "expansion" — デフォルトは "core" */
+  tier?: AxisTier;
+  /** 拡張軸の推定元となる親軸 */
+  parentAxes?: TraitAxisKey[];
   /** 心理測定学的検証データへの参照キー (validation/psychometrics.ts) */
   validationKey?: string;
 }
@@ -369,6 +386,57 @@ export const TRAIT_AXES: TraitAxisDef[] = [
     labelRight: "素早く絞る",
     category: "cognitive",
   },
+
+  // ── P4: 拡張軸 (expansion tier) ──
+  // 既存45軸の「間」に存在し、archetype決定には影響しない
+  {
+    id: "energy_rhythm",
+    labelLeft: "静かに充電する",
+    labelRight: "活発に消費する",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["introvert_vs_extrovert", "emotional_variability", "stress_isolation_vs_social"],
+  },
+  {
+    id: "conflict_style",
+    labelLeft: "距離を取って守る",
+    labelRight: "正面から向き合う",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["direct_vs_diplomatic", "emotional_regulation", "independence_vs_harmony"],
+  },
+  {
+    id: "novelty_threshold",
+    labelLeft: "慣れた範囲が安心",
+    labelRight: "未知の領域も平気",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["change_embrace_vs_resist", "tradition_vs_novelty", "cautious_vs_bold"],
+  },
+  {
+    id: "self_disclosure_depth",
+    labelLeft: "核心は見せない",
+    labelRight: "深くまで開く",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["intimacy_pace", "public_private_gap", "boundary_awareness"],
+  },
+  {
+    id: "decision_regret",
+    labelLeft: "決めたら振り返らない",
+    labelRight: "決めた後も考え続ける",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["rumination_tendency", "locus_of_control", "perfectionist_vs_pragmatic"],
+  },
+  {
+    id: "relational_investment",
+    labelLeft: "広く薄くつながる",
+    labelRight: "狭く深くつながる",
+    category: "expansion",
+    tier: "expansion",
+    parentAxes: ["quality_vs_quantity", "individual_vs_social", "friend_mode_fit"],
+  },
 ];
 
 /** 軸IDからラベルを取得 */
@@ -379,10 +447,34 @@ export function getAxisLabels(
   return def ? { left: def.labelLeft, right: def.labelRight } : null;
 }
 
-/** 空の45軸スコアマップを生成（全て0.0） */
+/** core 45軸のキーのみを返す（archetype決定・マッチング用） */
+export const CORE_AXIS_KEYS = TRAIT_AXIS_KEYS.filter(
+  (k) => !TRAIT_AXES.find((a) => a.id === k)?.tier || TRAIT_AXES.find((a) => a.id === k)?.tier === "core"
+) as unknown as readonly TraitAxisKey[];
+
+/** expansion 軸のキーのみを返す */
+export const EXPANSION_AXIS_KEYS = TRAIT_AXIS_KEYS.filter(
+  (k) => TRAIT_AXES.find((a) => a.id === k)?.tier === "expansion"
+) as unknown as readonly TraitAxisKey[];
+
+/** 軸が expansion tier かどうか */
+export function isExpansionAxis(axisId: TraitAxisKey): boolean {
+  return TRAIT_AXES.find((a) => a.id === axisId)?.tier === "expansion";
+}
+
+/** 空の全軸スコアマップを生成（全て0.0） */
 export function createEmptyAxisScores(): Record<TraitAxisKey, number> {
   const scores = {} as Record<TraitAxisKey, number>;
   for (const key of TRAIT_AXIS_KEYS) {
+    scores[key] = 0;
+  }
+  return scores;
+}
+
+/** 空のcore軸のみスコアマップを生成（archetype計算用） */
+export function createEmptyCoreAxisScores(): Partial<Record<TraitAxisKey, number>> {
+  const scores = {} as Partial<Record<TraitAxisKey, number>>;
+  for (const key of CORE_AXIS_KEYS) {
     scores[key] = 0;
   }
   return scores;

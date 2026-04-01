@@ -1,5 +1,8 @@
 // lib/stargazer/milestoneDetector.ts
 // マイルストーン検知 — 観測回数に基づくセレブレーション判定
+// DB-backed seen state via tour_seen_states テーブル
+
+import { isTourSeen, markTourSeen, isHydrated } from "@/lib/tour/tourState";
 
 const MILESTONES = [7, 14, 30, 50, 100] as const;
 export type MilestoneNumber = (typeof MILESTONES)[number];
@@ -42,7 +45,12 @@ const MILESTONE_MAP: Record<MilestoneNumber, MilestoneInfo> = {
   },
 };
 
-function getShownMilestones(): Set<number> {
+/** Tour key for a milestone number */
+function milestoneKey(m: number): string {
+  return `milestone_${m}`;
+}
+
+function getShownMilestonesLS(): Set<number> {
   if (typeof window === "undefined") return new Set();
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -55,15 +63,31 @@ function getShownMilestones(): Set<number> {
 }
 
 /**
+ * Check if a milestone has been seen — uses DB-backed tour state if hydrated,
+ * falls back to localStorage.
+ */
+function isMilestoneSeen(m: number): boolean {
+  // DB-backed check (tour state system)
+  if (isHydrated()) {
+    return isTourSeen(milestoneKey(m));
+  }
+  // Fallback: localStorage
+  return getShownMilestonesLS().has(m);
+}
+
+/**
  * 現在の観測回数に対して、まだ表示していないマイルストーンがあるか確認する。
  * あれば最大のマイルストーン番号を返す。なければ null。
+ * hydrate 未完了の場合は null を返す（表示しない）。
  */
 export function checkMilestone(totalObservations: number): MilestoneNumber | null {
-  const shown = getShownMilestones();
+  // Not hydrated yet → don't show any milestones
+  if (!isHydrated()) return null;
+
   let highest: MilestoneNumber | null = null;
 
   for (const m of MILESTONES) {
-    if (totalObservations >= m && !shown.has(m)) {
+    if (totalObservations >= m && !isMilestoneSeen(m)) {
       highest = m;
     }
   }
@@ -72,14 +96,16 @@ export function checkMilestone(totalObservations: number): MilestoneNumber | nul
 }
 
 /**
- * マイルストーンを表示済みとして localStorage に記録する。
+ * マイルストーンを表示済みとして記録する。
+ * DB (tour_seen_states) + localStorage の両方に書き込む。
  * 該当マイルストーン以下の全マイルストーンもまとめて記録する（スキップ防止）。
  */
-export function markMilestoneShown(milestone: number): void {
+export async function markMilestoneShown(milestone: number): Promise<void> {
   if (typeof window === "undefined") return;
+
+  // localStorage (legacy)
   try {
-    const shown = getShownMilestones();
-    // 達成マイルストーン以下を全て記録
+    const shown = getShownMilestonesLS();
     for (const m of MILESTONES) {
       if (m <= milestone) {
         shown.add(m);
@@ -89,6 +115,15 @@ export function markMilestoneShown(milestone: number): void {
   } catch {
     // localStorage 書き込み失敗は無視
   }
+
+  // DB-backed: mark all milestones up to this one
+  const promises: Promise<void>[] = [];
+  for (const m of MILESTONES) {
+    if (m <= milestone) {
+      promises.push(markTourSeen(milestoneKey(m)));
+    }
+  }
+  await Promise.all(promises);
 }
 
 export function getMilestoneInfo(milestone: number): MilestoneInfo {

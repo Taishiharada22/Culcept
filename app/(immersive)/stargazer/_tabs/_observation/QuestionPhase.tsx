@@ -59,6 +59,16 @@ export type PlanStep =
       axisId: TraitAxisKey;
       previousScore: number;
       previousDate: string;
+    }
+  | {
+      kind: "expansion";
+      key: string;
+      label: string;
+      prompt: string;
+      note: string;
+      options: StepOption[];
+      expansionQuestionId: string;
+      axisId: TraitAxisKey;
     };
 
 const STEP_LABEL_MAP: Record<string, string> = {
@@ -69,6 +79,7 @@ const STEP_LABEL_MAP: Record<string, string> = {
   "再観測": "再観測",
   "差分確認": "差分確認",
   "深掘り観測": "深掘り観測",
+  "拡張観測": "拡張観測",
 };
 
 interface QuestionPhaseProps {

@@ -1,32 +1,98 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-    GlassCard,
-    GlassBadge,
-    GlassButton,
-    FadeInView,
-} from "@/components/ui/glassmorphism-design";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { WardrobeItem, SelectedStyleLane } from "../_lib/types";
 import {
     MOOD_OPTIONS,
     MOOD_COLORS,
     predictStyleFromMood,
-    validatePrediction,
     saveMoodEntry,
     getTodayEntry,
-    getStreakInfo,
-    getTimePhase,
     getWeeklyMoodDots,
     getMoodHistory,
-    getMoodPatterns,
     type MoodEntry,
-    type StylePrediction,
-    type MoodPattern,
-    type StreakInfo,
 } from "../_lib/todaysMirror";
+
+/* ── Wear log (localStorage) ── */
+
+const WEAR_LOG_KEY = "culcept_wear_log_v1";
+
+interface WearLogEntry {
+    itemId: string;
+    date: string;
+}
+
+function getWearLog(): WearLogEntry[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = localStorage.getItem(WEAR_LOG_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+}
+
+function addWearLogEntry(itemId: string) {
+    const log = getWearLog();
+    const today = new Date().toISOString().slice(0, 10);
+    // Don't duplicate same item same day
+    if (log.some((e) => e.itemId === itemId && e.date === today)) return log;
+    const next = [...log, { itemId, date: today }];
+    try { localStorage.setItem(WEAR_LOG_KEY, JSON.stringify(next.slice(-200))); } catch { /* */ }
+    return next;
+}
+
+function getDaysSinceWorn(itemId: string, log: WearLogEntry[]): number | null {
+    const entries = log.filter((e) => e.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
+    if (entries.length === 0) return null;
+    const last = new Date(entries[0].date);
+    return Math.round((Date.now() - last.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/* ── Daily insight (7 rotating lenses) ── */
+
+const DAILY_LENSES = [
+    (items: WardrobeItem[]) => {
+        const colors = items.map((i) => i.colorName ?? i.color).filter(Boolean);
+        const top = colors.sort((a, b) => colors.filter((c) => c === b).length - colors.filter((c) => c === a).length)[0];
+        return top ? `あなたが一番多く持っている色は「${top}」` : null;
+    },
+    (items: WardrobeItem[]) => {
+        const tops = items.filter((i) => i.category === "tops").length;
+        const bottoms = items.filter((i) => i.category === "bottoms").length;
+        if (tops === 0 && bottoms === 0) return null;
+        return tops > bottoms ? "トップスの方が多い — 上半身で印象を変えるタイプ" : "ボトムスの比率が高い — 足元から整えるタイプ";
+    },
+    (items: WardrobeItem[]) => {
+        const casuals = items.filter((i) => i.formality === "casual").length;
+        const ratio = items.length > 0 ? Math.round((casuals / items.length) * 100) : 0;
+        return ratio > 0 ? `カジュアル率 ${ratio}%` : null;
+    },
+    (items: WardrobeItem[]) => {
+        const outerwear = items.filter((i) => i.category === "outerwear").length;
+        return outerwear > 0 ? `アウター ${outerwear}着 — 上から整える力がある` : null;
+    },
+    (items: WardrobeItem[]) => {
+        const accessories = items.filter((i) => i.category === "accessories").length;
+        return accessories > 0 ? `アクセサリー ${accessories}点が印象を調律している` : null;
+    },
+    (items: WardrobeItem[]) => {
+        const dark = items.filter((i) => ["black", "navy", "charcoal", "dark_gray"].includes(i.color)).length;
+        const ratio = items.length > 0 ? Math.round((dark / items.length) * 100) : 0;
+        return ratio > 30 ? `ダーク系 ${ratio}% — 引き締め志向` : null;
+    },
+    (items: WardrobeItem[]) => {
+        const shoes = items.filter((i) => i.category === "shoes").length;
+        return shoes > 0 ? `靴 ${shoes}足 — 足元の選択肢は十分？` : null;
+    },
+];
+
+function getDailyInsight(items: WardrobeItem[]): string | null {
+    if (items.length === 0) return null;
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
+    const lens = DAILY_LENSES[dayOfYear % DAILY_LENSES.length];
+    return lens(items);
+}
 
 /* ── Props ── */
 
@@ -35,508 +101,113 @@ interface TodaysMirrorProps {
     styleSelections: SelectedStyleLane[];
 }
 
-/* ── Sub-components ── */
+/* ── Main component ── */
 
-function MoodPill({
-    mood,
-    selected,
-    onSelect,
-}: {
-    mood: (typeof MOOD_OPTIONS)[number];
-    selected: boolean;
-    onSelect: () => void;
-}) {
-    return (
-        <motion.button
-            type="button"
-            onClick={onSelect}
-            className={cn(
-                "rounded-full border px-4 py-2.5 text-sm font-semibold transition-all",
-                selected
-                    ? "border-slate-900 bg-slate-900 text-white shadow-lg"
-                    : "border-slate-200 bg-white/80 text-slate-700 hover:border-slate-300 hover:bg-white",
-            )}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-        >
-            <span className="mr-1.5">{mood.emoji}</span>
-            {mood.label}
-        </motion.button>
-    );
-}
+export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysMirrorProps) {
+    const [selectedMood, setSelectedMood] = useState<string | null>(null);
+    const [wearLog, setWearLog] = useState<WearLogEntry[]>([]);
+    const [mounted, setMounted] = useState(false);
 
-function WeeklyMoodChart() {
-    const dots = getWeeklyMoodDots();
+    useEffect(() => {
+        /* eslint-disable react-hooks/set-state-in-effect */
+        setMounted(true);
+        const entry = getTodayEntry();
+        if (entry) setSelectedMood(entry.morningMood);
+        setWearLog(getWearLog());
+        /* eslint-enable react-hooks/set-state-in-effect */
+    }, []);
 
-    return (
-        <div className="flex items-center gap-2">
-            {dots.map((dot) => (
-                <div key={dot.date} className="flex flex-col items-center gap-1">
-                    <motion.div
-                        className="h-3 w-3 rounded-full border border-white/50"
-                        style={{
-                            backgroundColor: dot.mood
-                                ? MOOD_COLORS[dot.mood] ?? "#94a3b8"
-                                : "#e2e8f0",
-                        }}
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        transition={{ delay: 0.05 * dots.indexOf(dot) }}
-                    />
-                    <span className="text-[10px] text-slate-400">{dot.dayLabel}</span>
-                </div>
-            ))}
-        </div>
-    );
-}
+    const handleMoodSelect = useCallback((moodId: string) => {
+        setSelectedMood(moodId);
+        const pastEntries = getMoodHistory(60);
+        const pred = predictStyleFromMood(moodId, wardrobeItems, styleSelections, pastEntries);
+        const today = new Date();
+        const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+        const entry: MoodEntry = { date: dateStr, morningMood: moodId, predictedStyle: pred };
+        saveMoodEntry(entry);
+    }, [wardrobeItems, styleSelections]);
 
-function StreakBadge({ streak }: { streak: StreakInfo }) {
-    if (streak.currentStreak === 0) return null;
-    return (
-        <GlassBadge variant="gradient" size="sm">
-            連続 {streak.currentStreak} 日目
-        </GlassBadge>
-    );
-}
+    const handleWearLog = useCallback((itemId: string) => {
+        const next = addWearLogEntry(itemId);
+        setWearLog(next);
+    }, []);
 
-function PredictionCard({ prediction }: { prediction: StylePrediction }) {
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="mt-5 space-y-4"
-        >
-            <div className="rounded-2xl border border-slate-200/60 bg-gradient-to-br from-white/90 to-slate-50/80 p-5">
-                <p className="text-sm leading-relaxed text-slate-600">
-                    {prediction.reason}
-                </p>
+    const dailyInsight = useMemo(() => getDailyInsight(wardrobeItems), [wardrobeItems]);
+    const weeklyDots = useMemo(() => { if (!mounted) return []; return getWeeklyMoodDots(); }, [mounted]);
 
-                <div className="mt-4 space-y-3">
-                    <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            おすすめスタイル
-                        </p>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                            {prediction.suggestedLanes.map((lane) => (
-                                <span
-                                    key={lane}
-                                    className="rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700"
-                                >
-                                    {lane}
-                                </span>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                            おすすめカラー
-                        </p>
-                        <div className="mt-1.5 flex gap-2">
-                            {prediction.suggestedColors.map((color) => (
-                                <div
-                                    key={color}
-                                    className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1"
-                                >
-                                    <span className="text-xs text-slate-600">
-                                        {color}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 pt-1">
-                        <div className="h-1.5 flex-1 rounded-full bg-slate-100">
-                            <motion.div
-                                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500"
-                                initial={{ width: 0 }}
-                                animate={{
-                                    width: `${Math.round(prediction.confidence * 100)}%`,
-                                }}
-                                transition={{ duration: 0.8, delay: 0.3 }}
-                            />
-                        </div>
-                        <span className="text-xs font-semibold text-slate-500">
-                            精度 {Math.round(prediction.confidence * 100)}%
-                        </span>
-                    </div>
-                </div>
-            </div>
-        </motion.div>
-    );
-}
-
-function EveningValidation({
-    todayEntry,
-    wardrobeItems,
-    onSave,
-}: {
-    todayEntry: MoodEntry;
-    wardrobeItems: WardrobeItem[];
-    onSave: (updated: MoodEntry) => void;
-}) {
-    const [selectedItems, setSelectedItems] = useState<string[]>(
-        todayEntry.eveningActual?.selectedItems ?? [],
-    );
-    const [feltMood, setFeltMood] = useState(
-        todayEntry.eveningActual?.feltMood ?? "",
-    );
-    const [saved, setSaved] = useState(!!todayEntry.eveningActual);
-
-    const toggleItem = (id: string) => {
-        setSelectedItems((prev) =>
-            prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id],
-        );
-    };
-
-    const handleSave = () => {
-        const actualWear = {
-            selectedItems,
-            feltMood,
-        };
-        const accuracy = validatePrediction(
-            todayEntry.predictedStyle,
-            actualWear,
-            wardrobeItems,
-        );
-        const updated: MoodEntry = {
-            ...todayEntry,
-            eveningActual: actualWear,
-            predictionAccuracy: accuracy,
-        };
-        saveMoodEntry(updated);
-        onSave(updated);
-        setSaved(true);
-    };
-
-    if (saved && todayEntry.predictionAccuracy != null) {
-        return (
-            <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-5 text-center"
-            >
-                <p className="text-lg font-bold text-emerald-800">
-                    今日の予測精度: {Math.round(todayEntry.predictionAccuracy * 100)}%
-                </p>
-                <p className="mt-1 text-sm text-emerald-600">
-                    記録完了! お疲れさまでした
-                </p>
-            </motion.div>
-        );
-    }
+    if (!mounted) return null;
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-4 space-y-4"
-        >
-            <div>
-                <p className="text-sm font-bold text-slate-700">
-                    今日着たアイテムを選んでください
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                    {wardrobeItems.slice(0, 20).map((item) => (
+        <div className="space-y-2">
+            {/* Heading + mood inline */}
+            <div className="flex items-center justify-between">
+                <h4 className="text-[13px] font-bold text-slate-700">今日、何を選んだ？</h4>
+                <div className="flex items-center gap-1">
+                    {MOOD_OPTIONS.map((mood) => (
                         <button
-                            key={item.id}
+                            key={mood.id}
                             type="button"
-                            onClick={() => toggleItem(item.id)}
+                            onClick={() => handleMoodSelect(mood.id)}
                             className={cn(
-                                "rounded-xl border px-3 py-2 text-xs font-medium transition-all",
-                                selectedItems.includes(item.id)
-                                    ? "border-slate-900 bg-slate-900 text-white"
-                                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                                "rounded-full w-7 h-7 text-[12px] transition",
+                                selectedMood === mood.id
+                                    ? "bg-slate-900 text-white ring-1 ring-slate-900/20"
+                                    : "text-slate-500 hover:bg-slate-100",
                             )}
                         >
-                            {item.imageUrl ? (
-                                <div className="flex items-center gap-2">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                        src={item.imageUrl}
-                                        alt={item.name}
-                                        className="h-6 w-6 rounded object-cover"
-                                    />
-                                    <span>{item.name}</span>
-                                </div>
-                            ) : (
-                                item.name
-                            )}
+                            {mood.emoji}
                         </button>
                     ))}
                 </div>
             </div>
 
-            <div>
-                <p className="text-sm font-bold text-slate-700">
-                    今日の気分はどうでしたか？
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                    {MOOD_OPTIONS.map((m) => (
-                        <MoodPill
-                            key={m.id}
-                            mood={m}
-                            selected={feltMood === m.id}
-                            onSelect={() => setFeltMood(m.id)}
-                        />
-                    ))}
+            {/* Compact thumbnail strip */}
+            {wardrobeItems.length > 0 && (
+                <div className="flex gap-1 overflow-x-auto scrollbar-hide">
+                    {wardrobeItems.slice(0, 16).map((item) => {
+                        const isToday = wearLog.some((e) => e.itemId === item.id && e.date === new Date().toISOString().slice(0, 10));
+                        return (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => handleWearLog(item.id)}
+                                className={cn(
+                                    "relative shrink-0 w-11 h-11 rounded-md overflow-hidden border transition",
+                                    isToday ? "border-slate-900" : "border-slate-200/60 hover:border-slate-300",
+                                )}
+                            >
+                                {item.imageUrl ? (
+                                    /* eslint-disable-next-line @next/next/no-img-element */
+                                    <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
+                                ) : (
+                                    <div className="h-full w-full" style={{ backgroundColor: item.colorHex ?? "#e2e8f0" }} />
+                                )}
+                                {isToday && (
+                                    <span className="absolute inset-0 bg-slate-900/40 flex items-center justify-center text-[8px] font-bold text-white">✓</span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
+            )}
+
+            {/* Weekly dots + daily insight — single line */}
+            <div className="flex items-center gap-2">
+                {weeklyDots.length > 0 && (
+                    <div className="flex items-center gap-1">
+                        {weeklyDots.map((dot) => (
+                            <div
+                                key={dot.date}
+                                className="h-1.5 w-1.5 rounded-full"
+                                style={{ backgroundColor: dot.mood ? MOOD_COLORS[dot.mood] ?? "#94a3b8" : "#e2e8f0" }}
+                            />
+                        ))}
+                    </div>
+                )}
+                {dailyInsight && (
+                    <p className="text-[10px] text-slate-400 truncate">{dailyInsight}</p>
+                )}
             </div>
-
-            <GlassButton
-                variant="primary"
-                size="sm"
-                onClick={handleSave}
-                disabled={selectedItems.length === 0 || !feltMood}
-                fullWidth
-            >
-                答え合わせを記録する
-            </GlassButton>
-        </motion.div>
-    );
-}
-
-function PatternsPanel({ patterns }: { patterns: MoodPattern[] }) {
-    if (patterns.length === 0) return null;
-
-    return (
-        <div className="mt-4 space-y-2">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                あなたのパターン
-            </p>
-            {patterns.map((p, i) => (
-                <motion.div
-                    key={p.label}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.1 }}
-                    className="rounded-xl border border-slate-200/60 bg-white/60 px-4 py-3"
-                >
-                    <p className="text-xs font-bold text-slate-700">{p.label}</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{p.description}</p>
-                </motion.div>
-            ))}
         </div>
-    );
-}
-
-/* ── Main component ── */
-
-export default function TodaysMirror({
-    wardrobeItems,
-    styleSelections,
-}: TodaysMirrorProps) {
-    const [phase, setPhase] = useState<"morning" | "between" | "evening">("between");
-    const [todayEntry, setTodayEntry] = useState<MoodEntry | null>(null);
-    const [selectedMood, setSelectedMood] = useState<string | null>(null);
-    const [prediction, setPrediction] = useState<StylePrediction | null>(null);
-    const [streak, setStreak] = useState<StreakInfo>({
-        currentStreak: 0,
-        longestStreak: 0,
-        totalDays: 0,
-    });
-    const [patterns, setPatterns] = useState<MoodPattern[]>([]);
-
-    useEffect(() => {
-        /* eslint-disable react-hooks/set-state-in-effect -- mount-time hydration from localStorage */
-        setPhase(getTimePhase());
-        const entry = getTodayEntry();
-        setTodayEntry(entry);
-        if (entry) {
-            setSelectedMood(entry.morningMood);
-            setPrediction(entry.predictedStyle);
-        }
-        setStreak(getStreakInfo());
-
-        const history = getMoodHistory(30);
-        setPatterns(getMoodPatterns(history));
-        /* eslint-enable react-hooks/set-state-in-effect */
-    }, []);
-
-    const handleMoodSelect = useCallback(
-        (moodId: string) => {
-            setSelectedMood(moodId);
-
-            const pastEntries = getMoodHistory(60);
-            const pred = predictStyleFromMood(
-                moodId,
-                wardrobeItems,
-                styleSelections,
-                pastEntries,
-            );
-            setPrediction(pred);
-
-            const today = new Date();
-            const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-            const entry: MoodEntry = {
-                date: dateStr,
-                morningMood: moodId,
-                predictedStyle: pred,
-                eveningActual: todayEntry?.eveningActual,
-                predictionAccuracy: todayEntry?.predictionAccuracy,
-            };
-            saveMoodEntry(entry);
-            setTodayEntry(entry);
-            setStreak(getStreakInfo());
-        },
-        [wardrobeItems, styleSelections, todayEntry],
-    );
-
-    const handleEveningSave = useCallback((updated: MoodEntry) => {
-        setTodayEntry(updated);
-    }, []);
-
-    const phaseTitle =
-        phase === "morning"
-            ? "おはようございます"
-            : phase === "evening"
-              ? "答え合わせの時間"
-              : "今日の予測";
-
-    const phaseSubtitle =
-        phase === "morning"
-            ? "今の気分を教えてください"
-            : phase === "evening"
-              ? "今日はどんな服を着ましたか？"
-              : todayEntry
-                ? "今日のスタイル方向をチェック"
-                : "朝の気分を記録しましょう";
-
-    return (
-        <FadeInView>
-            <GlassCard variant="gradient" padding="lg">
-                {/* Header */}
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h3 className="text-lg font-bold text-slate-900">
-                            毎日の鏡
-                        </h3>
-                        <p className="mt-0.5 text-sm text-slate-500">
-                            {phaseTitle} - {phaseSubtitle}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <StreakBadge streak={streak} />
-                    </div>
-                </div>
-
-                {/* Weekly mood mini chart */}
-                <div className="mt-4">
-                    <WeeklyMoodChart />
-                </div>
-
-                {/* Morning: mood selection */}
-                {(phase === "morning" || (phase === "between" && !todayEntry)) && (
-                    <div className="mt-5">
-                        <p className="mb-3 text-sm font-semibold text-slate-700">
-                            今の気分は？
-                        </p>
-                        <div className="flex flex-wrap gap-2">
-                            {MOOD_OPTIONS.map((mood) => (
-                                <MoodPill
-                                    key={mood.id}
-                                    mood={mood}
-                                    selected={selectedMood === mood.id}
-                                    onSelect={() => handleMoodSelect(mood.id)}
-                                />
-                            ))}
-                        </div>
-
-                        <AnimatePresence mode="wait">
-                            {prediction && (
-                                <PredictionCard
-                                    key="prediction"
-                                    prediction={prediction}
-                                />
-                            )}
-                        </AnimatePresence>
-                    </div>
-                )}
-
-                {/* Between: show today's prediction as reminder */}
-                {phase === "between" && todayEntry && prediction && (
-                    <div className="mt-5">
-                        <div className="flex items-center gap-2">
-                            <GlassBadge variant="info" size="sm">
-                                {MOOD_OPTIONS.find((m) => m.id === todayEntry.morningMood)
-                                    ?.emoji ?? ""}{" "}
-                                {MOOD_OPTIONS.find((m) => m.id === todayEntry.morningMood)
-                                    ?.label ?? todayEntry.morningMood}
-                            </GlassBadge>
-                        </div>
-                        <PredictionCard prediction={prediction} />
-                    </div>
-                )}
-
-                {/* Evening: validation */}
-                {phase === "evening" && todayEntry && (
-                    <EveningValidation
-                        todayEntry={todayEntry}
-                        wardrobeItems={wardrobeItems}
-                        onSave={handleEveningSave}
-                    />
-                )}
-
-                {/* Evening: no morning entry */}
-                {phase === "evening" && !todayEntry && (
-                    <div className="mt-5">
-                        <p className="text-sm text-slate-500">
-                            今朝の気分は記録されていません。明日の朝に試してみてください。
-                        </p>
-                        <p className="mt-2 text-sm font-semibold text-slate-700">
-                            今の気分を記録しておく？
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                            {MOOD_OPTIONS.map((mood) => (
-                                <MoodPill
-                                    key={mood.id}
-                                    mood={mood}
-                                    selected={selectedMood === mood.id}
-                                    onSelect={() => handleMoodSelect(mood.id)}
-                                />
-                            ))}
-                        </div>
-                        <AnimatePresence mode="wait">
-                            {prediction && (
-                                <PredictionCard
-                                    key="pred-evening"
-                                    prediction={prediction}
-                                />
-                            )}
-                        </AnimatePresence>
-                    </div>
-                )}
-
-                {/* Patterns section */}
-                <PatternsPanel patterns={patterns} />
-
-                {/* Stats footer */}
-                {streak.totalDays > 0 && (
-                    <div className="mt-4 flex items-center gap-4 border-t border-slate-200/40 pt-3">
-                        <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">
-                                {streak.totalDays}
-                            </p>
-                            <p className="text-[10px] text-slate-400">記録日数</p>
-                        </div>
-                        <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">
-                                {streak.longestStreak}
-                            </p>
-                            <p className="text-[10px] text-slate-400">最長連続</p>
-                        </div>
-                        <div className="text-center">
-                            <p className="text-lg font-bold text-slate-900">
-                                {streak.currentStreak}
-                            </p>
-                            <p className="text-[10px] text-slate-400">今の連続</p>
-                        </div>
-                    </div>
-                )}
-            </GlassCard>
-        </FadeInView>
     );
 }

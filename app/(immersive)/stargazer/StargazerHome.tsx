@@ -123,7 +123,7 @@ import MicroEMAPrompt from "./_components/MicroEMAPrompt";
 import PersistentStreakBar from "./_components/PersistentStreakBar";
 import { getAccuracyTrend, type AccuracyTrend } from "@/lib/stargazer/engagementScore";
 import {
-  shouldPrompt as microEMAShouldPrompt,
+  shouldPromptAndMark as microEMAShouldPromptAndMark,
   getNextQuestion as microEMAGetNextQuestion,
   type MicroEMAQuestion,
 } from "@/lib/stargazer/microEMA";
@@ -314,18 +314,32 @@ export default function StargazerHome() {
   const [hasCompletedInitialObservation, setHasCompletedInitialObservation] = useState(false);
   const [isBetaTester, setIsBetaTester] = useState(false);
   const [cognitiveFit, setCognitiveFit] = useState<Partial<Record<string, number>> | null>(null);
+  // P4: 拡張軸データ
+  const [expansionAxes, setExpansionAxes] = useState<Array<{
+    id: string; labelLeft: string; labelRight: string; score: number | null;
+    confidence: number; precision: number; source: "inferred" | "observed";
+    displayTier: "hidden" | "emerging" | "forming" | "visible";
+    displayPrefix: string; visible: boolean; originLabel: string;
+  }> | null>(null);
 
   // Milestone celebration state
   const [activeMilestone, setActiveMilestone] = useState<MilestoneNumber | null>(null);
 
-  // Check milestones when totalObservations changes
+  // Check milestones when totalObservations changes (wait for tour hydrate)
   useEffect(() => {
     if (totalObservations <= 0) return;
-    const hit = checkMilestone(totalObservations);
-    if (hit) {
-      setActiveMilestone(hit);
-      haptics.heavy();
-    }
+    let cancelled = false;
+    import("@/lib/tour/tourState").then(({ hydrateTourStates }) =>
+      hydrateTourStates()
+    ).then(() => {
+      if (cancelled) return;
+      const hit = checkMilestone(totalObservations);
+      if (hit) {
+        setActiveMilestone(hit);
+        haptics.heavy();
+      }
+    });
+    return () => { cancelled = true; };
   }, [totalObservations]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Feature unlock toast state
@@ -523,8 +537,7 @@ export default function StargazerHome() {
   const [overlayQueue, setOverlayQueue] = useState<Array<"microEMA" | "tabTour" | "featureUnlock">>([]);
   const [activeOverlay, setActiveOverlay] = useState<"microEMA" | "tabTour" | "featureUnlock" | null>(null);
   const pendingUnlockRef = useRef<FeatureGate | null>(null);
-  const microEMAPendingRef = useRef(false);
-  const tabTourPendingRef = useRef(false);
+  // microEMAPendingRef / tabTourPendingRef removed — checks moved into overlay queue timer
 
   // Advance to next overlay in queue
   const advanceOverlay = useCallback(() => {
@@ -842,6 +855,8 @@ export default function StargazerHome() {
       setHasCompletedInitialObservation(!!data.hasCompletedInitialObservation);
       if (data.isBetaTester) setIsBetaTester(true);
       if (data.cognitiveFit?.scores) setCognitiveFit(data.cognitiveFit.scores);
+      // P4: 拡張軸データ
+      if (data.expansionAxes) setExpansionAxes(data.expansionAxes);
 
       // 軸スコア履歴を localStorage に蓄積 + サーバーデータで補完 + state に反映
       try {
@@ -1525,35 +1540,31 @@ export default function StargazerHome() {
     }
   }, [hasData, axisScores, totalObservations, contradictions.length, predictionAccuracy]);
 
-  // Micro-EMA: check on mount — queued via overlay system
-  useEffect(() => {
-    try {
-      if (microEMAShouldPrompt()) {
-        microEMAPendingRef.current = true;
-        setMicroEMAQuestion(microEMAGetNextQuestion());
-      }
-    } catch {
-      // non-critical
-    }
-  }, []);
-
-  // Check if tab tour needs to show (first visit)
-  useEffect(() => {
-    try {
-      const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
-      const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
-      if (!introSeen || !tourDone) {
-        tabTourPendingRef.current = true;
-      }
-    } catch { /* silent */ }
-  }, []);
-
   // Build overlay queue after mount (delay for page settle)
+  // All overlay eligibility checks happen HERE, atomically inside the timer.
+  // This avoids React Strict Mode double-mount issues with refs going stale.
   useEffect(() => {
     const timer = setTimeout(() => {
       const queue: Array<"microEMA" | "tabTour" | "featureUnlock"> = [];
-      if (microEMAPendingRef.current) queue.push("microEMA");
-      if (tabTourPendingRef.current) queue.push("tabTour");
+
+      // Micro-EMA: check + mark atomically (max 2/day, 4h apart)
+      try {
+        const shouldShow = microEMAShouldPromptAndMark();
+        if (shouldShow) {
+          setMicroEMAQuestion(microEMAGetNextQuestion());
+          queue.push("microEMA");
+        }
+      } catch { /* non-critical */ }
+
+      // Tab tour: check if first visit
+      try {
+        const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
+        const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
+        if (!introSeen || !tourDone) {
+          queue.push("tabTour");
+        }
+      } catch { /* silent */ }
+
       // featureUnlock is added dynamically when triggered
       if (queue.length > 0) {
         setOverlayQueue(queue);
@@ -1566,7 +1577,11 @@ export default function StargazerHome() {
   // Auto-scroll: ページロード時にタブナビ+コンテンツが画面最上部に来るようスクロール
   useEffect(() => {
     // ツアーが出る場合やまだデータ読み込み中の場合はスクロールしない
-    if (tabTourPendingRef.current) return;
+    try {
+      const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
+      const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
+      if (!introSeen || !tourDone) return;
+    } catch { /* proceed with scroll */ }
     const timer = setTimeout(() => {
       if (tabBarRef.current) {
         tabBarRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1759,7 +1774,7 @@ export default function StargazerHome() {
         <MilestoneCelebration
           milestone={activeMilestone}
           onDismiss={() => {
-            markMilestoneShown(activeMilestone);
+            markMilestoneShown(activeMilestone).catch(() => {});
             setActiveMilestone(null);
           }}
         />
@@ -1963,53 +1978,6 @@ export default function StargazerHome() {
             totalObservations={totalObservations}
           />
 
-          {todayPrediction && !todayPrediction.verified && (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="card-info"
-              style={{ padding: "10px 14px" }}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-xs">🔮</span>
-                <span className="text-[10px] font-medium" style={{ color: "rgba(168,130,58,0.8)" }}>今日の予測</span>
-              </div>
-              <p className="text-xs leading-relaxed mb-2" style={{ color: "rgba(20,25,45,0.85)" }}>
-                {todayPrediction.prediction}
-              </p>
-              <div className="flex gap-2">
-                {(["correct", "partially", "wrong"] as const).map((fb) => (
-                  <motion.button
-                    key={fb}
-                    onClick={() => {
-                      try {
-                        updateEngagementField("predictionVerified", true);
-                        updatePredictionVerification(todayPrediction.id, fb);
-                        updateLearningFromFeedback(todayPrediction.id, fb);
-                        setTodayPrediction((prev) =>
-                          prev ? { ...prev, verified: true, userFeedback: fb, accurate: fb === "correct" } : null,
-                        );
-                        setPendingVerifications((prev) => prev.filter((p) => p.id !== todayPrediction.id));
-                        const updated = loadPredictions(10);
-                        const newAccRate = calculateAccuracy(updated).accuracyRate;
-                        setPredictionAccuracy(newAccRate);
-                      } catch { /* silent */ }
-                    }}
-                    className="flex-1 py-2 rounded-lg text-[11px] font-semibold transition-colors"
-                    style={{
-                      background: fb === "correct" ? "rgba(34,197,94,0.1)" : fb === "partially" ? "rgba(234,179,8,0.1)" : "rgba(239,68,68,0.1)",
-                      color: fb === "correct" ? "rgba(34,197,94,0.9)" : fb === "partially" ? "rgba(180,140,20,0.9)" : "rgba(220,60,60,0.9)",
-                      border: `1px solid ${fb === "correct" ? "rgba(34,197,94,0.2)" : fb === "partially" ? "rgba(234,179,8,0.2)" : "rgba(239,68,68,0.2)"}`,
-                      minHeight: "32px",
-                    }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {fb === "correct" ? "的中" : fb === "partially" ? "部分的" : "外れ"}
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          )}
           {/* RV（関係性観測）導線 — 累計30回以上 & 未完了 */}
           {hasData && totalObservations >= 30 && (() => {
             const rvDone = typeof window !== "undefined" && localStorage.getItem("culcept_sg_rv_completed_v1") === "true";
@@ -2351,6 +2319,7 @@ export default function StargazerHome() {
               behavioralInsights={behavioralInsights}
               dataQuality={dataQuality}
               isBetaTester={isBetaTester}
+              expansionAxes={expansionAxes ?? undefined}
             />
             </StargazerErrorBoundary>
 

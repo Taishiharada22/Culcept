@@ -177,6 +177,16 @@ type PlanStep =
       axisId: TraitAxisKey;
       previousScore: number;
       previousDate: string;
+    }
+  | {
+      kind: "expansion";
+      key: string;
+      label: string;
+      prompt: string;
+      note: string;
+      options: StepOption[];
+      expansionQuestionId: string;
+      axisId: TraitAxisKey;
     };
 
 const TIME_GREETINGS: Record<TimeOfDay, { emoji: string; text: string }> = {
@@ -392,6 +402,27 @@ function buildPlanSteps(plan: DailyObservationPlan): PlanStep[] {
     });
   }
 
+  // P4 Phase D: 拡張軸質問（1日最大1問、セッション末尾に配置）
+  if (plan.expansionQuestion) {
+    const eq = plan.expansionQuestion;
+    steps.push({
+      kind: "expansion",
+      key: `expansion-${eq.id}`,
+      label: "拡張観測",
+      prompt: eq.questionText,
+      note: "あなたの新しい側面を探る質問です。直感で答えてください。",
+      options: [
+        { id: `${eq.id}_1`, label: eq.leftLabel, score: 1 },
+        { id: `${eq.id}_2`, label: `やや ${eq.leftLabel.slice(0, 4)}…`, score: 2 },
+        { id: `${eq.id}_3`, label: "どちらとも言えない", score: 3 },
+        { id: `${eq.id}_4`, label: `やや ${eq.rightLabel.slice(0, 4)}…`, score: 4 },
+        { id: `${eq.id}_5`, label: eq.rightLabel, score: 5 },
+      ],
+      expansionQuestionId: eq.id,
+      axisId: eq.axisId,
+    });
+  }
+
   return steps;
 }
 
@@ -471,6 +502,12 @@ export default function ServerDailyObservationTab({
     score: number;
     responseTimeMs: number;
   }[]>([]);
+  // P4 Phase D: 拡張軸質問の回答（1日最大1問）
+  const [expansionAnswer, setExpansionAnswer] = useState<{
+    questionId: string;
+    value: number;
+    responseTimeMs: number;
+  } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [streakLevelUp, setStreakLevelUp] = useState<StreakState | null>(null);
 
@@ -724,6 +761,7 @@ export default function ServerDailyObservationTab({
       setDeltaAnswer(null);
       setSelectedDelta(null);
       setReobservationAnswer(null);
+      setExpansionAnswer(null);
       setAnswers([]);
       adaptiveQ2InsertedRef.current = false;
       adaptiveResponseTimesRef.current = [];
@@ -832,6 +870,7 @@ export default function ServerDailyObservationTab({
     finalDeltaValue: number | null,
     finalReobservationAnswer: typeof reobservationAnswer,
     finalShadowPlayAnswers?: typeof shadowPlayAnswers,
+    finalExpansionAnswer?: typeof expansionAnswer,
   ) {
     if (!capturedState) return;
 
@@ -872,6 +911,7 @@ export default function ServerDailyObservationTab({
           observationState: capturedState,
           reobservationAnswer: finalReobservationAnswer,
           shadowPlayAnswers: spAnswers.length > 0 ? spAnswers : undefined,
+          expansionAnswer: (finalExpansionAnswer ?? expansionAnswer) || undefined,
         }),
       });
 
@@ -1120,7 +1160,7 @@ export default function ServerDailyObservationTab({
     try {
       const stepAxisId = currentStep.kind === "shadow_play"
         ? currentStep.primaryAxis
-        : currentStep.kind === "variant"
+        : currentStep.kind === "variant" || currentStep.kind === "expansion"
         ? currentStep.axisId
         : undefined;
       if (stepAxisId) {
@@ -1159,7 +1199,7 @@ export default function ServerDailyObservationTab({
     try {
       const stepAxisId = currentStep.kind === "shadow_play"
         ? currentStep.primaryAxis
-        : currentStep.kind === "variant" ? currentStep.axisId : undefined;
+        : (currentStep.kind === "variant" || currentStep.kind === "expansion") ? currentStep.axisId : undefined;
 
       // Phantom Choice: 選択肢変更の記録
       if (optionClickLog.length > 0) {
@@ -1245,6 +1285,8 @@ export default function ServerDailyObservationTab({
             ? currentStep.variantId
             : currentStep.kind === "shadow_play"
             ? currentStep.shadowPlayId
+            : currentStep.kind === "expansion"
+            ? currentStep.expansionQuestionId
             : currentStep.key,
         optionId: selectedOption.id,
         responseTimeMs: elapsed,
@@ -1301,6 +1343,28 @@ export default function ServerDailyObservationTab({
           selectedDelta,
           reobservationAnswer,
           nextShadowPlayAnswers,
+        );
+        return;
+      }
+    } else if (currentStep.kind === "expansion") {
+      // ── P4 Phase D: 拡張軸質問の回答（core とは分離して管理）──
+      const nextExpansionAnswer = {
+        questionId: currentStep.expansionQuestionId,
+        value: selectedOption.score ?? 3,
+        responseTimeMs: elapsed,
+      };
+      setAnswers(nextVisualAnswers);
+      setExpansionAnswer(nextExpansionAnswer);
+
+      if (currentIdx === steps.length - 1) {
+        await submitObservation(
+          nextVisualAnswers,
+          apiAnswers,
+          deltaAnswer,
+          selectedDelta,
+          reobservationAnswer,
+          undefined,
+          nextExpansionAnswer,
         );
         return;
       }

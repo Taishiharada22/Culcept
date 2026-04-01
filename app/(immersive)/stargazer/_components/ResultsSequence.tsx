@@ -37,6 +37,18 @@ interface Props {
   playStreakMilestone: () => void;
   haptics: { light: () => void; medium: () => void; heavy: () => void };
   onSave: () => void;
+  /** 匿名ユーザーの場合 true — 制限付き4カード表示 */
+  isAnonymous?: boolean;
+  /** 匿名ユーザーがログインへ遷移するコールバック */
+  onLogin?: () => void;
+  /** P4: 新しく発見された拡張軸（発見カード表示用・最大1軸） */
+  discoveredExpansionAxis?: {
+    id: string;
+    labelLeft: string;
+    labelRight: string;
+    displayPrefix: string;
+    originLabel: string;
+  } | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -220,6 +232,9 @@ export default function ResultsSequence({
   playStreakMilestone,
   haptics,
   onSave,
+  isAnonymous = false,
+  onLogin,
+  discoveredExpansionAxis,
 }: Props) {
   const [cardIndex, setCardIndex] = useState(0);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -265,7 +280,10 @@ export default function ResultsSequence({
 
   const microInsights = microAnswers.map((a) => a.insight).filter(Boolean);
 
-  const TOTAL_CARDS = 8;
+  // 匿名: Card0(archetype) → Card1(ロック一覧) → Card2(ログインCTA) → Card3(save)
+  // 通常: Card0-7 の8枚フル表示（発見カードありなら9枚）
+  const hasDiscoveryCard = !isAnonymous && !!discoveredExpansionAxis;
+  const TOTAL_CARDS = isAnonymous ? 4 : (hasDiscoveryCard ? 9 : 8);
 
   // Sound/haptic triggers per card
   useEffect(() => {
@@ -300,7 +318,8 @@ export default function ResultsSequence({
       const t = setTimeout(() => haptics.light(), 300);
       return () => clearTimeout(t);
     }
-    if (cardIndex === 7) {
+    // Save & Share card (最終カード) のサウンド
+    if (cardIndex === TOTAL_CARDS - 1) {
       const t = setTimeout(() => playStreakMilestone(), 300);
       return () => clearTimeout(t);
     }
@@ -476,9 +495,210 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 1: 全体像 (Overall Summary) */}
+        {/* Anonymous Card 1: ロック中セクション一覧 */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 1 && (
+        {isAnonymous && cardIndex === 1 && (
+          <motion.div
+            key="anon-card1"
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="space-y-5 relative z-10 max-w-md mx-auto w-full"
+          >
+            <div className="text-center space-y-2">
+              <p
+                className="font-mono-sg text-[10px] tracking-[0.3em] uppercase"
+                style={{ color: "rgba(170,150,90,0.5)" }}
+              >
+                さらに深い観測結果
+              </p>
+              <h3
+                className="font-display text-xl"
+                style={{ color: "rgba(30,35,55,0.88)" }}
+              >
+                ログインで解放される結果
+              </h3>
+            </div>
+
+            <div className="space-y-3">
+              {[
+                { icon: "📊", label: "全体サマリ", desc: "あなたの傾向を一文で要約" },
+                { icon: "🗺️", label: "傾向マップ", desc: "45軸の傾向をビジュアルで表示" },
+                { icon: "🧠", label: "思考の型", desc: "認知スタイルのプロファイル" },
+                { icon: "🔮", label: "深層プロフィール", desc: "無意識のパターンと傾向" },
+                { icon: "🤝", label: "関係性スタイル", desc: "対人パターンの構造" },
+                { icon: "⚡", label: "反応タイプ", desc: "状況への反応パターン" },
+              ].map((item, i) => (
+                <motion.div
+                  key={item.label}
+                  className="flex items-center gap-3 p-3.5 rounded-xl"
+                  style={{
+                    background: "rgba(255,255,255,0.5)",
+                    border: "1px solid rgba(140,150,180,0.1)",
+                  }}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 0.6, x: 0 }}
+                  transition={{ delay: 0.2 + i * 0.08 }}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium" style={{ color: "rgba(30,35,55,0.7)" }}>
+                      {item.label}
+                    </p>
+                    <p className="text-[10px]" style={{ color: "rgba(80,85,105,0.5)" }}>
+                      {item.desc}
+                    </p>
+                  </div>
+                  <span className="text-sm" style={{ color: "rgba(100,105,130,0.4)" }}>🔒</span>
+                </motion.div>
+              ))}
+            </div>
+
+            <motion.p
+              className="text-center text-xs"
+              style={{ color: "rgba(100,105,130,0.45)" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.0 }}
+            >
+              無料アカウントで全ての結果を確認できます
+            </motion.p>
+          </motion.div>
+        )}
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {/* Anonymous Card 2: ログインCTA */}
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {isAnonymous && cardIndex === 2 && (
+          <motion.div
+            key="anon-card2"
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="text-center space-y-6 relative z-10 max-w-md mx-auto w-full"
+          >
+            <div className="space-y-3">
+              <motion.div
+                className="text-4xl"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", damping: 10 }}
+              >
+                {archDef?.emoji ?? "✦"}
+              </motion.div>
+              <h3
+                className="font-display text-xl"
+                style={{ color: "rgba(30,35,55,0.88)" }}
+              >
+                結果を保存しましょう
+              </h3>
+              <p className="text-sm" style={{ color: "rgba(60,65,85,0.65)" }}>
+                アカウントを作成すると、全ての観測結果が解放され、日々の観測で精度が深まり続けます。
+              </p>
+            </div>
+
+            <motion.button
+              onClick={(e) => {
+                e.stopPropagation();
+                onLogin?.();
+              }}
+              className="w-full py-4 rounded-xl font-display text-base tracking-wide font-semibold transition-all"
+              style={{
+                background: "linear-gradient(135deg, rgba(170,150,90,0.2), rgba(160,150,200,0.12))",
+                border: "1px solid rgba(190,170,110,0.3)",
+                color: "rgba(70,60,30,0.9)",
+              }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+            >
+              アカウント作成 / ログイン
+            </motion.button>
+
+            <motion.button
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardIndex(3); // skip to save card
+              }}
+              className="w-full py-3 text-sm tracking-wide rounded-xl"
+              style={{
+                background: "rgba(200,195,210,0.12)",
+                border: "1px solid rgba(160,155,175,0.15)",
+                color: "rgba(60,65,85,0.55)",
+              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6 }}
+            >
+              あとで登録する
+            </motion.button>
+
+            <motion.p
+              className="text-[10px]"
+              style={{ color: "rgba(100,105,130,0.4)" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+            >
+              観測データはすでに記録されています。ログイン後に自動で紐づきます。
+            </motion.p>
+          </motion.div>
+        )}
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {/* Anonymous Card 3: 簡易保存CTA（スキップ後） */}
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {isAnonymous && cardIndex === 3 && (
+          <motion.div
+            key="anon-card3"
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="text-center space-y-6 relative z-10 max-w-md mx-auto w-full"
+          >
+            <div className="space-y-3">
+              <h3 className="font-display text-xl" style={{ color: "rgba(30,35,55,0.88)" }}>
+                観測の出発点が記録されました
+              </h3>
+              <p className="text-sm" style={{ color: "rgba(60,65,85,0.6)" }}>
+                アカウントを作成すると、より深い結果と日常観測が始まります。
+              </p>
+            </div>
+
+            <motion.button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSave();
+              }}
+              className="w-full py-4 rounded-xl font-display text-base tracking-wide font-semibold transition-all"
+              style={{
+                background: "linear-gradient(135deg, rgba(170,150,90,0.15), rgba(160,150,200,0.08))",
+                border: "1px solid rgba(190,170,110,0.2)",
+                color: "rgba(70,60,30,0.8)",
+              }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+            >
+              一旦終了する
+            </motion.button>
+          </motion.div>
+        )}
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {/* Card 1: 全体像 (Overall Summary) — 非匿名のみ */}
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {!isAnonymous && cardIndex === 1 && (
           <motion.div
             key="card1"
             variants={cardVariants}
@@ -556,9 +776,9 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 2: 傾向マップ (Behavioral Tendencies) */}
+        {/* Card 2: 傾向マップ (Behavioral Tendencies) — 非匿名のみ */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 2 && (
+        {!isAnonymous && cardIndex === 2 && (
           <motion.div
             key="card2"
             variants={cardVariants}
@@ -639,9 +859,9 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 3: 思考の型 (Cognitive Style) */}
+        {/* Card 3: 思考の型 (Cognitive Style) — 非匿名のみ */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 3 && (
+        {!isAnonymous && cardIndex === 3 && (
           <motion.div
             key="card3"
             variants={cardVariants}
@@ -713,9 +933,9 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 4: 深層プロフィール (Deep Psychology) */}
+        {/* Card 4: 深層プロフィール (Deep Psychology) — 非匿名のみ */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 4 && (
+        {!isAnonymous && cardIndex === 4 && (
           <motion.div
             key="card4"
             variants={cardVariants}
@@ -788,9 +1008,9 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 5: 関係性スタイル (Relational Style) */}
+        {/* Card 5: 関係性スタイル (Relational Style) — 非匿名のみ */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 5 && (
+        {!isAnonymous && cardIndex === 5 && (
           <motion.div
             key="card5"
             variants={cardVariants}
@@ -870,9 +1090,9 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 6: 反応タイプ (Reaction Type) */}
+        {/* Card 6: 反応タイプ (Reaction Type) — 非匿名のみ */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 6 && (
+        {!isAnonymous && cardIndex === 6 && (
           <motion.div
             key="card6"
             variants={cardVariants}
@@ -981,9 +1201,91 @@ export default function ResultsSequence({
         )}
 
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {/* Card 7: Save & Share (CTA) */}
+        {/* P4: Discovery Card — 発見カード（条件付き・非匿名のみ） */}
+        {/* CEO条件4: 短く1軸だけ。既存結果の邪魔をしない */}
         {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-        {cardIndex === 7 && (
+        {hasDiscoveryCard && cardIndex === 7 && discoveredExpansionAxis && (
+          <motion.div
+            key="discovery-card"
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="text-center space-y-5 relative z-10 max-w-md mx-auto w-full"
+          >
+            <motion.div
+              className="text-2xl"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.2, type: "spring", damping: 12 }}
+            >
+              ✦
+            </motion.div>
+
+            <div className="space-y-2">
+              <p
+                className="font-mono-sg text-[10px] tracking-[0.3em] uppercase"
+                style={{ color: "rgba(170,150,90,0.5)" }}
+              >
+                新しい軸
+              </p>
+              <h3
+                className="font-display text-xl"
+                style={{ color: "rgba(30,35,55,0.88)" }}
+              >
+                新しい軸が見え始めています
+              </h3>
+            </div>
+
+            <motion.div
+              className="p-4 rounded-2xl space-y-2"
+              style={{
+                background: "rgba(170,150,90,0.04)",
+                border: "1px solid rgba(170,150,90,0.12)",
+              }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <p
+                className="font-display text-base font-semibold"
+                style={{ color: "rgba(30,35,55,0.8)" }}
+              >
+                {discoveredExpansionAxis.labelLeft} ↔ {discoveredExpansionAxis.labelRight}
+              </p>
+              <p
+                className="text-xs"
+                style={{ color: "rgba(60,65,85,0.55)" }}
+              >
+                {discoveredExpansionAxis.displayPrefix || "観測を重ねると、輪郭が見えてきます"}
+              </p>
+              {discoveredExpansionAxis.originLabel && (
+                <p
+                  className="text-[10px]"
+                  style={{ color: "rgba(100,105,130,0.4)" }}
+                >
+                  ↳ {discoveredExpansionAxis.originLabel}
+                </p>
+              )}
+            </motion.div>
+
+            <motion.p
+              className="text-[10px]"
+              style={{ color: "rgba(100,105,130,0.35)" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+            >
+              深層タブで詳しく確認できます
+            </motion.p>
+          </motion.div>
+        )}
+
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {/* Final Card: Save & Share (CTA) — 非匿名のみ */}
+        {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+        {!isAnonymous && cardIndex === (hasDiscoveryCard ? 8 : 7) && (
           <motion.div
             key="card7"
             variants={cardVariants}

@@ -23,7 +23,13 @@ import {
   serializeBeliefs,
   type DailyObservationInput,
 } from "@/lib/stargazer/bayesianAxisUpdater";
-import type { TraitAxisKey } from "@/lib/stargazer/traitAxes";
+import { isExpansionAxis, type TraitAxisKey } from "@/lib/stargazer/traitAxes";
+import {
+  getExpansionQuestionById,
+} from "@/lib/stargazer/expansionQuestions";
+import {
+  processExpansionAnswer,
+} from "@/lib/stargazer/expansionQuestionSelector";
 
 type DailyObservationStatePayload = {
   energy?: string;
@@ -60,6 +66,12 @@ type StoredDailyRawAnswers = {
     optionId: string;
     responseTimeMs?: number;
   }[] | null;
+  /** P4 Phase D: 拡張軸質問の回答（1日最大1問） */
+  expansionAnswer?: {
+    questionId: string;
+    value: number;
+    responseTimeMs?: number;
+  } | null;
   observationState?: DailyObservationStatePayload;
   isPartial?: boolean;
   completedAt?: string | null;
@@ -405,6 +417,7 @@ export async function POST(request: Request) {
       reobservationAnswer,
       shadowPlayAnswers,
       stage3Answers,
+      expansionAnswer,
       observationDate,
       isPartial,
       freeText,
@@ -446,6 +459,11 @@ export async function POST(request: Request) {
         optionId: string;
         responseTimeMs?: number;
       }[];
+      expansionAnswer?: {
+        questionId: string;
+        value: number;
+        responseTimeMs?: number;
+      };
       observationDate?: string;
       isPartial?: boolean;
       freeText?: string;
@@ -466,6 +484,7 @@ export async function POST(request: Request) {
       reobservationAnswer: reobservationAnswer || null,
       shadowPlayAnswers: shadowPlayAnswers || null,
       stage3Answers: stage3Answers || null,
+      expansionAnswer: expansionAnswer || null,
       observationState: observationState || null,
       isPartial: !!isPartial,
       completedAt: isPartial ? null : new Date().toISOString(),
@@ -706,6 +725,46 @@ export async function POST(request: Request) {
       }
     }
 
+    // 2.9. P4 Phase D: 拡張軸質問の回答を保存（expansion軸のみ、core逆流なし）
+    let expansionBeliefInput: DailyObservationInput | null = null;
+    if (expansionAnswer && expansionAnswer.questionId) {
+      const expQuestion = getExpansionQuestionById(expansionAnswer.questionId);
+      if (expQuestion) {
+        const processed = processExpansionAnswer({
+          question: expQuestion,
+          value: expansionAnswer.value,
+          responseTimeMs: expansionAnswer.responseTimeMs,
+        });
+        if (processed) {
+          // axis_snapshot として保存
+          await supabase.from("stargazer_axis_snapshots").insert({
+            user_id: user.id,
+            axis_id: processed.axisId,
+            score: processed.score,
+            confidence: 0.4,
+            observation_layer: "expansion",
+            variant_id: expansionAnswer.questionId,
+            session_date: today,
+            observation_state: observationState ?? null,
+          });
+          // 信念更新用に保持（後でベイズ更新に使う）
+          expansionBeliefInput = {
+            axisId: processed.axisId,
+            score: processed.score,
+            weight: processed.evidencePrecision,
+            responseTimeMs: expansionAnswer.responseTimeMs,
+            observationState: observationState ?? undefined,
+          };
+          console.log("[expansion-answer-saved]", {
+            userId: user.id,
+            questionId: expansionAnswer.questionId,
+            axisId: processed.axisId,
+            score: processed.score,
+          });
+        }
+      }
+    }
+
     // 3. daily_statesに集計保存
     const axisScores: Record<string, number[]> = {};
     for (const ans of answers) {
@@ -799,10 +858,23 @@ export async function POST(request: Request) {
           }
         }
 
-        if (dailyInputs.length > 0) {
+        // CEO条件: expansion 質問の回答は core 軸に逆流させない
+        // dailyInputs から expansion 軸を除外し、expansion は別経路で更新
+        const coreInputs = dailyInputs.filter(
+          (d) => !isExpansionAxis(d.axisId),
+        );
+
+        // expansion 質問があれば expansion 軸のみを更新
+        const expansionInputs: DailyObservationInput[] = [];
+        if (expansionBeliefInput) {
+          expansionInputs.push(expansionBeliefInput);
+        }
+
+        const allInputs = [...coreInputs, ...expansionInputs];
+        if (allInputs.length > 0) {
           const updatedBeliefs = updateFromDailyObservation(
             currentBeliefs,
-            dailyInputs,
+            allInputs,
             profileForBeliefs?.median_response_time_ms ?? undefined,
           );
           beliefsUpdate = { axis_beliefs: serializeBeliefs(updatedBeliefs) };

@@ -140,6 +140,14 @@ export default function DayDetailSheet({
                     date={day.date}
                   />
 
+                  {/* 提案カード下 CTA */}
+                  <Link href="/my-style?tab=closet"
+                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50/60 to-indigo-50/40 border border-violet-200/30 px-3.5 py-2.5 no-underline hover:from-violet-50/80 hover:to-indigo-50/60 transition">
+                    <span className="text-sm">✨</span>
+                    <span className="text-[11px] font-bold text-violet-600">アイテムを追加して提案の精度を上げる</span>
+                    <svg className="w-3.5 h-3.5 text-violet-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </Link>
+
                   {/* 体感温度・湿度・風速ヒント */}
                   {extWeather && <MaterialWeatherHint extWeather={extWeather} />}
 
@@ -230,6 +238,18 @@ export default function DayDetailSheet({
                     existingRecord={wornRecord}
                     onSave={onSaveWornRecord}
                   />
+
+                  {/* My-Style 導線 */}
+                  <div className="flex gap-2 mt-2">
+                    <Link href="/my-style?tab=closet"
+                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
+                      <span>👗</span> ワードローブを編集
+                    </Link>
+                    <Link href="/my-style?tab=me"
+                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
+                      <span>🧬</span> スタイルDNA
+                    </Link>
+                  </div>
                 </>
               ) : (
                 <div className="rounded-2xl bg-gray-50/50 border border-gray-200/30 p-6 text-center">
