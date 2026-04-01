@@ -1,5 +1,16 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/git-safety.sh"
+          }
+        ]
+      }
+    ],
     "preToolCall": [
       {
         "matcher": "Bash(npx supabase db push*)",

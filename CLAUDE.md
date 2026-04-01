@@ -75,6 +75,14 @@ Founder / CEO（Taishi）── 最終決裁者
 - ステータス: 🟢 順調 / 🟡 要注意 / 🔴 ブロック中
 - 各部門は担当領域の外に勝手に手を出さない
 
+### 7. State Safety Rule（変更消失防止 — 2026-04-02 制定）
+- **禁止操作**: `git stash`, `git reset --hard`, `git checkout --`, `git clean -f`, `git restore .` は使用禁止（Hook で機械的にブロック）
+- **コミット頻度**: 30分以上の作業、または3ファイル以上の変更後は必ずコミットする
+- **ファイル個別指定**: `git add -A` / `git add .` は禁止。必ず `git add <file1> <file2>` でファイルを個別指定する
+- **tsc/build 確認**: 型チェックやビルド確認のために stash を使わない。そのまま実行するか、WIPコミット後に実行する
+- **セッション終了時**: 未コミット変更がある場合は WIPコミット（`git commit -m "WIP: <内容>"`)を作成してから終了する
+- **根拠**: 2026-04-01 事故 — セッション8adff4baが `git stash → pop失敗 → stash drop` で3/31の全変更を消失
+
 ## Tech Stack（Build Unit 参照）
 - Next.js 15 App Router + Supabase + Tailwind CSS 4
 - Glassmorphism design system: `components/ui/glassmorphism-design.tsx`
