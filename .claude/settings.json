@@ -13,6 +13,51 @@
     ],
     "preToolCall": [
       {
+        "matcher": "Bash(git stash*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "🚫 git stash は禁止です。WIPコミットを使ってください。本当に実行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git reset --hard*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "🚫 git reset --hard は禁止です。未コミット変更が消失します。本当に実行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git checkout -- *)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "🚫 git checkout -- は禁止です。ファイル変更が破棄されます。本当に実行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git clean -f*)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "🚫 git clean -f は禁止です。未追跡ファイルが削除されます。本当に実行しますか？"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git restore *)",
+        "hooks": [
+          {
+            "type": "confirm",
+            "message": "🚫 git restore は禁止です。変更が破棄されます。本当に実行しますか？"
+          }
+        ]
+      },
+      {
         "matcher": "Bash(npx supabase db push*)",
         "hooks": [
           {
