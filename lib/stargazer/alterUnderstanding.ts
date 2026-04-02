@@ -2702,7 +2702,15 @@ export function checkCreepinessLine(
   }
 
   // Trust Level に対する開示量チェック
-  if (trustLevel <= 1 && contextEntriesUsed > 2) {
+  // P0修正: T0では全コンテキスト注入をcritical（ブロッキング）に昇格
+  // T0 = 反射のみ。知っている前提を混ぜると信頼を最も壊す
+  if (trustLevel === 0 && contextEntriesUsed > 0) {
+    violations.push({
+      type: "over_disclosure",
+      detail: `Trust Level 0 で ${contextEntriesUsed} 件のコンテキストを使用（T0は反射のみ）`,
+      severity: "critical",
+    });
+  } else if (trustLevel === 1 && contextEntriesUsed > 3) {
     violations.push({
       type: "over_disclosure",
       detail: `Trust Level ${trustLevel} で ${contextEntriesUsed} 件のコンテキストを使用`,

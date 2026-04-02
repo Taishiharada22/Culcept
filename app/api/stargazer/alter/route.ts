@@ -79,6 +79,8 @@ import {
   type HypothesisFactEntry,
   type BaselineDeviationEntry,
   type PersonMapFactEntry,
+  isEmotionalQuestion,
+  isSelfUnderstandingQuestion,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
   estimateUserState,
@@ -718,6 +720,10 @@ export async function POST(req: NextRequest) {
     // P0/P3/P5: ホイスト変数（Home Alter 内の複数ブロックで共有）
     let alterSessionCount = 0;
     let baselineDeviationsFull: BaselineDeviation[] = [];
+    // P0観測配線: judgment engine 内の変数を外部スコープに引き上げ
+    let p0ContextEntriesLoaded = 0;
+    let p0ValidationFailures: string[] = [];
+    let p0DiscreteTrustLevel = 0;
     // Gemini一次読解（Phase 0）: null = 読解未実施 or 失敗（graceful degradation）
     let utteranceReading: UtteranceReading | null = null;
     let utteranceReadingLatencyMs = 0;
@@ -1242,6 +1248,7 @@ export async function POST(req: NextRequest) {
 
         if (contextRows && contextRows.length > 0) {
           activeLifeContext = filterActiveContext(contextRows as LifeContextEntry[]);
+          p0ContextEntriesLoaded = activeLifeContext.length;
           console.info(`[life-context] ${activeLifeContext.length} active context entries loaded`);
         }
 
@@ -1265,6 +1272,7 @@ export async function POST(req: NextRequest) {
         growthState?.trustLevel ?? 0,
         growthState?.sessionsCompleted ?? 0,
       );
+      p0DiscreteTrustLevel = discreteTrustLevel;
 
       // ── 罠スキャン結果の取得（前回の fire-and-forget 結果を参照） ──
       // MI抑制 / Route C抑制 / prompt depth 低減 の判断に使う
@@ -1714,7 +1722,7 @@ export async function POST(req: NextRequest) {
         console.info(`[home-alter] Shape hints: trial=${shapeHints.suggests_trial} delegation=${shapeHints.suggests_delegation}`);
       }
 
-      console.info(`[home-alter] domain=${queryContext.domain}(${queryContext.domain_confidence.toFixed(2)}) ambiguity=${queryContext.ambiguity_score.toFixed(2)} info=${queryContext.information.score.toFixed(2)} mode=${responseMode} reason=${modeDecisionReason} role=${relationalLens?.target_role ?? "?"} purpose=${relationalLens?.interaction_purpose ?? "?"} temp=${relationalLens?.relational_temperature ?? "?"} risk=${relationalLens?.risk_direction ?? "?"} register=${relationalLens?.communication_register ?? "?"} shape=${judgmentSkeleton.action_shape} conf=${judgmentSkeleton.confidence_level} state={cap=${userState?.psychological_capacity.toFixed(2)},load=${userState?.emotional_load.toFixed(2)}}`);
+      console.info(`[home-alter] domain=${queryContext.domain}(${queryContext.domain_confidence.toFixed(2)}) ambiguity=${queryContext.ambiguity_score.toFixed(2)} info=${queryContext.information.score.toFixed(2)} mode=${responseMode} reason=${modeDecisionReason} role=${relationalLens?.target_role ?? "?"} purpose=${relationalLens?.interaction_purpose ?? "?"} temp=${relationalLens?.relational_temperature ?? "?"} risk=${relationalLens?.risk_direction ?? "?"} register=${relationalLens?.communication_register ?? "?"} shape=${judgmentSkeleton.action_shape} conf=${judgmentSkeleton.confidence_level} state={cap=${userState?.psychological_capacity.toFixed(2)},load=${userState?.emotional_load.toFixed(2)}} trust=T${discreteTrustLevel} emotional=${isEmotionalQuestion(message)} self_understanding=${isSelfUnderstandingQuestion(message)} ctx_loaded=${activeLifeContext.length}`);
 
       // P0: alterSessionCount を homeContext に注入（アーキタイプ重み漸減用）
       // 基準値 = Alter 対話回数（decision pattern の observation_count 合計）
@@ -1898,7 +1906,8 @@ export async function POST(req: NextRequest) {
 
       // State Layer をプロンプトに注入（LLMが状態を考慮した応答を生成するため）
       // Trust Level 1+ の場合のみ: 初回ユーザーに状態推定を適用しない
-      const hasMinTrust = (growthState?.trustLevel ?? 0) >= 0.15 || (growthState?.sessionsCompleted ?? 0) >= 2;
+      // P0修正: 信頼レベルと会話回数を同列に扱わない。deriveTrustLevel()の離散値を使用
+      const hasMinTrust = discreteTrustLevel >= 1;
       if (hasMinTrust && userState && (userState.psychological_capacity < 0.4 || userState.emotional_load > 0.6)) {
         const stateHints: string[] = [];
         if (userState.psychological_capacity < 0.4) {
@@ -2414,6 +2423,7 @@ export async function POST(req: NextRequest) {
       const validation = homeResponse
         ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode)
         : { pass: false, failures: ["応答の生成に失敗"] };
+      p0ValidationFailures = validation.failures;
 
       // 不合格なら再生成（facts を明示して再試行）— clarify/repair/direct_response は軽量バリデーションなので再生成不要
       if (!validation.pass && homeResponse && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response") {
@@ -3047,6 +3057,17 @@ export async function POST(req: NextRequest) {
             // 学習ループ用: フォローアップ傾向が判断に影響したか
             followup_insight_applied: !!followupInsight,
             question_category: questionCategory,
+            // P0観測配線: P2（意味づける知能）のための記録
+            p0_observation: {
+              trust_level_discrete: p0DiscreteTrustLevel,
+              trust_level_continuous: growthState?.trustLevel ?? 0,
+              sessions_completed: growthState?.sessionsCompleted ?? 0,
+              context_entries_loaded: p0ContextEntriesLoaded,
+              is_emotional: isEmotionalQuestion(message),
+              is_self_understanding: isSelfUnderstandingQuestion(message),
+              validation_failures: p0ValidationFailures,
+              used_fallback_metadata: !homeDecisionMeta,
+            },
             // Layer 2: 判断骨格
             judgment_skeleton: judgmentSkeleton ? {
               action_shape: judgmentSkeleton.action_shape,
