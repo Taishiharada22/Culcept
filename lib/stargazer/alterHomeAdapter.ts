@@ -982,9 +982,11 @@ export function isEmotionalQuestion(message: string): boolean {
   // 短い絶望・感情表現（15文字以下に拡張）
   if (trimmed.length <= 15 && /もう|わからない|無理|辛い|疲れた|しんどい|死|消えたい|泣|助けて|怖い|不安|きつい|だるい|限界/.test(trimmed)) return true;
   // 感情爆発系（長さ問わず）
-  if (/^(もうわからない|もう無理|人生って|なんなんだろう|もうやだ|もういい|どうしたらいい|どうすればいい)/.test(trimmed)) return true;
-  // 状態報告系（「しんどい1日だった」等）
-  if (/しんどい|つらい|辛かった|きつかった|疲れた|しんどかった|泣いた|やばい/.test(trimmed) && trimmed.length <= 25) return true;
+  if (/^(もうわからない|もう無理|もう信じられない|人生って|なんなんだろう|もうやだ|もういい|どうしたらいい|どうすればいい|いや.*もういい)/.test(trimmed)) return true;
+  // 状態報告系（「しんどい1日だった」「辛い」「凹んでる」等、25文字以下）
+  if (/しんどい|つらい|辛[いかくく]|きつ[いかく]|疲れた|しんどかった|泣いた|やばい|凹んで|凹む|裏切られ|信じられない/.test(trimmed) && trimmed.length <= 25) return true;
+  // 諦め・離脱系（感情が主体で判断要求がない）
+  if (/結局.*わか[らん]ない|もういい[よ。]|わかんないんでしょ/.test(trimmed)) return true;
   return false;
 }
 
@@ -995,12 +997,20 @@ export function isEmotionalQuestion(message: string): boolean {
  */
 export function isSelfUnderstandingQuestion(message: string): boolean {
   const trimmed = message.trim();
+  // ガード: 「どう〜すればいい」等の方法論要求が含まれる場合は strategy を優先
+  if (/どう.*(?:活かせ|見つけ|進め|攻め|準備|立て直|接す|伝え|切り出|アピール|臨|対策)/.test(trimmed)) return false;
+  if (/(?:もっと|さらに|今後).*(?:どうしたらいい|どうすればいい)/.test(trimmed)) return false;
+  // ガード: 外部情報要求（「教えて」「知りたい」+ 職種/職業/業界 等）は knowledge を優先
+  if (/(?:職種|職業|業界|企業|仕事).*(?:教えて|知りたい|出して)|(?:教えて|知りたい).*(?:職種|職業|業界|企業|仕事)/.test(trimmed)) return false;
   // 「俺/私/僕/自分 って + 何/どんな」型
   if (/[俺私僕自分](?:って|は|の)[、\s]*(?:何|どんな|どういう)/.test(trimmed)) return true;
   // 向き不向き・核・強み・弱み・特徴
   if (/何が向いて|何に向いて|何に合[うっ]て|[俺私僕]の.*核|[俺私僕]の.*強み|[俺私僕]の.*弱み|[俺私僕]の.*特徴/.test(trimmed)) return true;
-  // 「今の私に必要」「何が足りない」型
-  if (/[俺私僕今].*(?:に|には).*(?:何が|何を).*(?:必要|足りない|欠けて)/.test(trimmed)) return true;
+  // 「自分の強み」「自分に合う/合った」型（「自分」が主語）
+  if (/自分の.*(?:強み|弱み|特徴|核|長所|短所)|自分に合[うっ]/.test(trimmed)) return true;
+  // 「今の私に必要」「何が足りない」「欠けてるもの」型
+  if (/[俺私僕今].*(?:に|には).*(?:何が|何を|何は).*(?:必要|足りない|欠けて)/.test(trimmed)) return true;
+  if (/欠けてる.*(?:もの|こと)|足りてない|不足して/.test(trimmed)) return true;
   // 自分の本質を問う
   if (/どんな人間|どういう人|どんなタイプ|自分.*わからな/.test(trimmed)) return true;
   // Alterの理解度を試す
@@ -1009,6 +1019,12 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
   if (/何が得意|何が苦手|長所|短所|適性|素質/.test(trimmed)) return true;
   // 達成感・やりがいの核を問う
   if (/達成感.*(?:何|どんな|どこ)|やりがい.*(?:何|どんな|どこ)/.test(trimmed)) return true;
+  // 「俺/私みたいなタイプ」型（自分を主語にした外部情報要求 = 自己理解）
+  if (/[俺私僕]みたいな.*(?:タイプ|人)|[俺私僕].*(?:タイプ|傾向).*(?:何|どんな|どう)/.test(trimmed)) return true;
+  // どっちが向いてる/合ってる（自己理解としての比較）
+  if (/(?:どっち|どちら).*(?:向いて|合[うっ]て|が合|がいい)/.test(trimmed)) return true;
+  // 「俺に向いてる」「自分に向いてる」型
+  if (/[俺私僕自分]に.*向いて/.test(trimmed)) return true;
   return false;
 }
 
@@ -1019,6 +1035,8 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
 /** 知識要求: 外部世界の事実・具体例を求めている（自己理解ではない） */
 export function isKnowledgeQuestion(message: string): boolean {
   const trimmed = message.trim();
+  // 「俺/私に向いてる」が含まれる場合は自己理解（knowledge ではない）
+  if (/[俺私僕自分]に.*向いて/.test(trimmed)) return false;
   // 職業・企業・業界など外部エンティティの具体例要求
   if (/どんな.*職業|何の.*企業|具体的に.*(?:何|どの|どこ)|どこの.*会社/.test(trimmed)) return true;
   // 「例えば」+ 具体例要求
@@ -1029,22 +1047,34 @@ export function isKnowledgeQuestion(message: string): boolean {
   if (/業界.*(?:いい|合[うっ]|どれ)|業種|どの.*分野/.test(trimmed)) return true;
   // フォローアップ型:「日本だと？」「他には？」
   if (/日本.*だと|他には|他に.*ある|もっと.*具体/.test(trimmed)) return true;
-  // 「〜が知りたい」+ 外部エンティティ（「自分」を主語としない）
-  if (/職業.*知りたい|企業.*知りたい|会社.*知りたい/.test(trimmed)) return true;
+  // 「〜が知りたい」「〜を教えて」+ 外部エンティティ（「自分」を主語としない）
+  if (/(?:職業|職種|仕事|企業|会社).*(?:知りたい|教えて|出して)|(?:知りたい|教えて).*(?:職業|職種|仕事|企業|会社)/.test(trimmed)) return true;
+  // 「〜な人ってどんな仕事」「〜の人に向いてる職業」型（一般カテゴリの外部情報要求）
+  if (/(?:な人|の人|タイプ).*(?:どんな.*仕事|どういう.*仕事|向いてる.*職業|多い|してる)/.test(trimmed)) return true;
+  // MBTI/性格タイプの一般情報要求（「俺」が主語でない場合）
+  if (/(?:INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP|ISTJ|ISTP|ESTJ|ESTP|ISFJ|ISFP|ESFJ|ESFP).*(?:仕事|職業|特徴|どんな)/.test(trimmed)) return true;
+  // 「〜ってどんな種類」「どういう業界に多い」型
+  if (/どんな.*種類|どういう.*業界/.test(trimmed)) return true;
+  // 「〜に向いてる職業」（主語が一般名詞の場合 = 外部情報要求）
+  if (/(?:内向的|外向的|分析的|直感的|論理的|創造的).*(?:に向いて|に合[うっ]|の.*(?:仕事|職業|業界))/.test(trimmed)) return true;
   return false;
 }
 
 /** 戦略・方法論: やると決めた上でのアプローチを求めている */
 export function isStrategyQuestion(message: string): boolean {
   const trimmed = message.trim();
-  // 「どう攻める」「どう準備する」「どう進める」型
-  if (/どう.*(?:攻め|準備|進め|対策|アピール|臨|切り出|伝え)/.test(trimmed)) return true;
+  // 「どう攻める」「どう準備する」「どう進める」「どう立て直す」型
+  if (/どう.*(?:攻め|準備|進め|対策|アピール|臨|切り出|伝え|立て直|見つけ|活かせ|接す)/.test(trimmed)) return true;
   // 方法論キーワード:「やり方」「コツ」「ポイント」
-  if (/やり方|コツ|ポイント|テクニック|戦略|作戦|対策|秘訣/.test(trimmed)) return true;
+  if (/やり方|コツ|ポイント|テクニック|戦略|作戦|対策|秘訣|アドバイス/.test(trimmed)) return true;
   // 「どういう感じで」+ 動詞
   if (/どう[いう].*感じで|どんな感じで.*[すれるしけ]/.test(trimmed)) return true;
   // 面接・プレゼン・交渉の戦術
   if (/面接.*(?:どう|コツ|攻|準備)|プレゼン.*(?:どう|コツ)|交渉.*(?:どう|コツ)/.test(trimmed)) return true;
+  // 「どうしたらいい」「どうすればいい」型（感情が前提でない場合）
+  // 注意: 感情質問はisEmotionalQuestionで先にキャッチされるため、ここに来るのは戦略寄り
+  if (/(?:もっと|さらに|今後).*(?:どうしたらいい|どうすればいい)/.test(trimmed)) return true;
+  if (/(?:成長|向上|改善|上達).*(?:する|したい|できる).*(?:には|ため|方法)/.test(trimmed)) return true;
   return false;
 }
 
@@ -1079,6 +1109,13 @@ export function applyQuestionTypeOverride(
     (decision.mode === "clarify" || decision.mode === "branch")
   ) {
     return { mode: "conclude", reason: "conclude_type_override" };
+  }
+  // emotional: clarify/branch → direct_response（質問で返すのではなく受け止める）
+  if (
+    questionType === "emotional" &&
+    (decision.mode === "clarify" || decision.mode === "branch")
+  ) {
+    return { mode: "direct_response", reason: "conclude_type_override" };
   }
   return decision;
 }
@@ -3817,7 +3854,7 @@ export function buildHomeAlterPromptWithContext(
   // 「次の一手:」テンプレートを含む判断機構はLLMに強く記憶されるため、
   // knowledge/strategy では完全に別パスで生成する
   const qTypeForPrompt = userMessage ? classifyQuestionType(userMessage) : "judgment" as QuestionType;
-  if (qTypeForPrompt === "knowledge" || qTypeForPrompt === "strategy" || qTypeForPrompt === "self_understanding") {
+  if (qTypeForPrompt === "emotional" || qTypeForPrompt === "knowledge" || qTypeForPrompt === "strategy" || qTypeForPrompt === "self_understanding") {
     const facts = buildPersonalizedFacts(personality, homeContext, category ?? "general");
     const callNameRule = userName
       ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
@@ -3834,8 +3871,30 @@ export function buildHomeAlterPromptWithContext(
       "",
     ];
 
+    // ── emotional: 共感受容型（判断・宿題・質問 一切禁止） ──
+    if (qTypeForPrompt === "emotional") {
+      dedicatedPrompt.push(
+        "# 感情表出への応答ルール",
+        "ユーザーは感情を吐露している。判断要求ではない。**まず受け止める。行動提案はしない。**",
+        "",
+        "**応答構成:**",
+        `**1文目**: 受容 — ${callName || "この人"}の感情を自然な言葉で受け止める。「辛いよね」「それは重いね」等。テンプレ的な「大変だったね」は避け、この人の傾向に合った温度で。`,
+        "**2文目**: 共鳴 — なぜ辛い/しんどいのか、この人ならではの理由に触れる。「〜なタイプだからこそ、余計にきついよね」等。",
+        "**3文目（任意）**: 余白 — 話したくなったら聞く、という姿勢。問い返しではなく「ここにいるから」のニュアンス。",
+        "",
+        "**禁止（厳守）:**",
+        "- 行動提案・アドバイス（「まず〜してみよう」「休んだ方がいい」「整理してみる」「振り返ってみる」等）→ **絶対禁止**",
+        "- 宿題（「書き出して」「振り返って」「整理して」「メモして」等）→ **絶対禁止**",
+        "- 質問で返す（「何があったの？」「どうしたい？」「どうかな？」等）→ **絶対禁止**",
+        "- 「次の一手:」テンプレート",
+        "- 箇条書き",
+        "- 一般的な励まし（「大丈夫」「頑張って」「きっと良くなる」）",
+        "- 内省誘導（「考えてみて」「自分を見つめ直して」「感じていることを整理」等）",
+        "",
+        `✅ 「${callName || "それ"}は重いね。${callName ? callName + "は" : ""}一人で抱え込みやすいところがあるから、余計にしんどいだろうなと思う。話したくなったらいつでもここにいるよ。」`,
+      );
     // ── self_understanding: 見立て・仮説型（gap / identity） ──
-    if (qTypeForPrompt === "self_understanding") {
+    } else if (qTypeForPrompt === "self_understanding") {
       const isGapType = /(?:に|には).*(?:何が|何を).*(?:必要|足りない|欠けて)|何が不足|何が必要/.test(userMessage);
       if (isGapType) {
         dedicatedPrompt.push(
@@ -3912,7 +3971,7 @@ export function buildHomeAlterPromptWithContext(
         "",
         "**禁止（厳守）:**",
         "- 汎用テクニック（「準備をしっかり」「自信を持って」等）",
-        "- 宿題・内省誘導（「まず自分の強みを整理して」等）",
+        "- 宿題・内省誘導（「まず自分の強みを整理して」「整理してみる」「振り返って」「書き出して」等）",
         "- 箇条書き・番号付きリスト",
         "- 質問で返す",
         "",
