@@ -2083,15 +2083,17 @@ export function validateHomeAlterResponse(
     /重すぎる/, /早すぎる/, /遅すぎる/, /が先/,
   ];
   const hasConclusion = conclusionPatterns.some((p) => p.test(firstLine));
-  // 感情質問では1文目が「受け止め」なので結論チェックをスキップ
-  if (!emotional && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
+  // P0修正: selfUnderstanding判定を結論チェックの前に移動（3, 3b, 4で共有）
+  const selfUnderstanding = isSelfUnderstandingQuestion(userMessage);
+  // 感情質問では1文目が「受け止め」、自己理解質問では「見立て」なので結論チェックをスキップ
+  if (!emotional && !selfUnderstanding && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
     failures.push("1行目に結論（判断）がない");
   }
 
   // 3b. 1行目が「誰にでも言える結論」ではないか（理由が含まれているか）
-  // 感情質問ではスキップ（受け止め文に理由は不要）
+  // 感情質問・自己理解質問ではスキップ（受け止め文/見立て文に判断理由は不要）
   const hasPersonalReason = /今|最近|閉じ|広げ|重[くい]|霧|疲れ|考えすぎ|迷い|後回し|溜め|タイプ|傾向|だからこそ|なので|場合|さんは|たぶん|正直|慎重|消耗|ブレ/.test(firstLine);
-  if (!emotional && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
+  if (!emotional && !selfUnderstanding && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
     failures.push("1行目に「この人向けの理由」が含まれていない（誰にでも言える結論）");
   }
 
@@ -2100,7 +2102,6 @@ export function validateHomeAlterResponse(
   //  - 感情質問: 受け止め + 見立てだけで終わってよい
   //  - 自己理解質問: 見立て + 仮説だけで終わってよい
   //  宿題型の提案（「書き出して」「3つ挙げて」）は全ルートで禁止
-  const selfUnderstanding = isSelfUnderstandingQuestion(userMessage);
   const hasNextAction = /次の一手[:：]/.test(trimmed);
   if (emotional || selfUnderstanding) {
     // 感情・自己理解: アクション不要。見立てや仮説があれば合格
