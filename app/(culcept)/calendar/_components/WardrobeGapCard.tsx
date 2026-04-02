@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import type { GapAnalysis, WardrobeGap } from "../_lib/wardrobeGapDetector";
 
@@ -26,10 +27,9 @@ export default function WardrobeGapCard({ analysis }: { analysis: GapAnalysis })
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className="text-sm">🔍</span>
-          <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Wardrobe Analysis</span>
+          <span className="text-[10px] font-bold tracking-widest text-gray-400">ワードローブ分析</span>
         </div>
         <div className="flex items-center gap-2">
-          {/* ワードローブスコアリング */}
           <div className="relative w-8 h-8">
             <svg viewBox="0 0 36 36" className="w-8 h-8 transform -rotate-90">
               <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="3" />
@@ -79,14 +79,21 @@ export default function WardrobeGapCard({ analysis }: { analysis: GapAnalysis })
         )}
       </AnimatePresence>
 
-      {restGaps.length > 0 && (
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="mt-2 text-[10px] font-bold text-violet-500 hover:text-violet-600 transition"
-        >
-          {expanded ? "閉じる" : `他 ${restGaps.length} 件の改善ポイント`}
-        </button>
-      )}
+      <div className="flex items-center gap-2 mt-3">
+        {restGaps.length > 0 && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-[10px] font-bold text-violet-500 hover:text-violet-600 transition"
+          >
+            {expanded ? "閉じる" : `他 ${restGaps.length} 件の改善ポイント`}
+          </button>
+        )}
+        <Link href="/my-style?tab=closet"
+          className="ml-auto flex items-center gap-1 rounded-full bg-violet-50/80 border border-violet-200/40 px-3 py-1.5 text-[10px] font-bold text-violet-600 hover:bg-violet-100/80 transition no-underline">
+          手持ちを見る
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -105,7 +112,13 @@ function GapItem({ gap }: { gap: WardrobeGap }) {
             </span>
           </div>
           <p className="text-[10px] text-gray-500 mb-1">{gap.description}</p>
-          <p className="text-[10px] font-medium text-gray-600">💡 {gap.suggestion}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-medium text-gray-600">💡 {gap.suggestion}</p>
+            <Link href="/my-style?tab=closet"
+              className="shrink-0 text-[9px] font-bold text-violet-500 hover:text-violet-600 no-underline ml-2">
+              追加する →
+            </Link>
+          </div>
         </div>
       </div>
     </div>

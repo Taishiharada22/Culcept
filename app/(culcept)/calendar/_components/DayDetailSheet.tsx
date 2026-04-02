@@ -61,6 +61,7 @@ export default function DayDetailSheet({
   seasonalShift,
 }: DayDetailSheetProps) {
   const [activeTab, setActiveTab] = React.useState<DetailTab>(proposal ? "proposal" : "coordinate");
+  const [showDetails, setShowDetails] = React.useState(false);
 
   const daily = day.weather_daily;
   const weatherEmoji = daily ? DAILY_WEATHER_ICONS[daily.weather_icon] ?? "🌤️" : null;
@@ -131,6 +132,8 @@ export default function DayDetailSheet({
             <div className="space-y-4">
               {proposal ? (
                 <>
+                  {/* ── 初期表示ゾーン ── */}
+
                   {/* メイン提案 */}
                   <OutfitProposalCard
                     proposal={proposal.main}
@@ -140,89 +143,22 @@ export default function DayDetailSheet({
                     date={day.date}
                   />
 
-                  {/* 提案カード下 CTA */}
-                  <Link href="/my-style?tab=closet"
-                    className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50/60 to-indigo-50/40 border border-violet-200/30 px-3.5 py-2.5 no-underline hover:from-violet-50/80 hover:to-indigo-50/60 transition">
-                    <span className="text-sm">✨</span>
-                    <span className="text-[11px] font-bold text-violet-600">アイテムを追加して提案の精度を上げる</span>
-                    <svg className="w-3.5 h-3.5 text-violet-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-                  </Link>
-
-                  {/* 体感温度・湿度・風速ヒント */}
-                  {extWeather && <MaterialWeatherHint extWeather={extWeather} />}
-
-                  {/* SYNCスコア詳細 */}
-                  <SyncScoreDisplay sync={proposal.main.sync} />
-
-                  {/* 後悔予測 */}
-                  {regretPrediction && regretPrediction.level !== "safe" && (
-                    <RegretIndicator prediction={regretPrediction} />
-                  )}
-
-                  {/* リスク警告 */}
+                  {/* リスク警告（判断に直結するので初期表示） */}
                   {proposal.main.risks.length > 0 && (
                     <RiskWarningList risks={proposal.main.risks} />
                   )}
 
-                  {/* Outfit DNA */}
-                  {outfitDna && (
-                    <OutfitDnaCard
-                      dna={outfitDna}
-                      centroid={styleCentroid}
-                      adventureScore={adventureScore ?? undefined}
-                    />
+                  {/* 後悔予測（判断に直結するので初期表示） */}
+                  {regretPrediction && regretPrediction.level !== "safe" && (
+                    <RegretIndicator prediction={regretPrediction} />
                   )}
 
-                  {/* 深層時系列インテリジェンス */}
-                  <DeepTemporalCard
-                    conditionHint={conditionHint ?? null}
-                    rotationHighlights={rotationHighlights ?? []}
-                    seasonalShift={seasonalShift ?? null}
-                    itemNameMap={new Map(wardrobeItems.map(w => [w.id, w.name ?? w.category ?? ""]))}
-                  />
-
-                  {/* A/B比較選択 */}
-                  {proposal.alternatives.length > 0 && (
-                    <ABComparisonCard
-                      date={day.date}
-                      proposalA={proposal.main}
-                      proposalB={proposal.alternatives[0]}
-                      onChoice={() => {/* 学習は内部で自動記録 */}}
-                    />
-                  )}
-
-                  {/* 代替提案 */}
-                  {substitutions && substitutions.hasAlternatives && (
-                    <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm">🔄</span>
-                        <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Item Swap</span>
-                      </div>
-                      <div className="space-y-2">
-                        {substitutions.substitutions.map((sub, i) => (
-                          <div key={i} className="flex items-center gap-2 rounded-xl bg-white/50 border border-white/40 p-2.5">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[10px] text-gray-400 truncate">{sub.original.name ?? sub.original.category}</p>
-                              <p className="text-[10px] font-bold text-gray-600">→ {sub.substitute.name ?? sub.substitute.category}</p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <span className={`text-[9px] font-bold ${sub.syncImpact > 0 ? "text-emerald-500" : sub.syncImpact < 0 ? "text-red-400" : "text-gray-400"}`}>
-                                SYNC {sub.syncImpact > 0 ? "+" : ""}{sub.syncImpact}
-                              </span>
-                              <p className="text-[8px] text-gray-400">{sub.reason}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 代替提案 */}
+                  {/* 別案（最大2つ） */}
                   {proposal.alternatives.length > 0 && (
                     <div>
-                      <p className="text-[9px] font-bold tracking-widest text-gray-400 uppercase mb-2">Alternatives</p>
+                      <p className="text-[9px] font-bold tracking-widest text-gray-400 mb-2">別案</p>
                       <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 scrollbar-hide">
-                        {proposal.alternatives.map(alt => (
+                        {proposal.alternatives.slice(0, 2).map(alt => (
                           <div key={alt.id} className="shrink-0 w-[260px]">
                             <OutfitProposalCard proposal={alt} />
                           </div>
@@ -239,34 +175,135 @@ export default function DayDetailSheet({
                     onSave={onSaveWornRecord}
                   />
 
-                  {/* My-Style 導線 */}
-                  <div className="flex gap-2 mt-2">
+                  {/* 不足アイテム補完CTA */}
+                  {proposal.main.risks.length > 0 && (
                     <Link href="/my-style?tab=closet"
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
-                      <span>👗</span> ワードローブを編集
+                      className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-50/60 to-indigo-50/40 border border-violet-200/30 px-3.5 py-2.5 no-underline hover:from-violet-50/80 hover:to-indigo-50/60 transition">
+                      <span className="text-sm">✨</span>
+                      <span className="text-[11px] font-bold text-violet-600">不足アイテムを追加する</span>
+                      <svg className="w-3.5 h-3.5 text-violet-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </Link>
-                    <Link href="/my-style?tab=me"
-                      className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
-                      <span>🧬</span> スタイルDNA
-                    </Link>
-                  </div>
+                  )}
+
+                  {/* ── 詳しく見る（折りたたみ） ── */}
+                  <button
+                    onClick={() => setShowDetails(v => !v)}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-white/40 border border-white/40 py-2.5 text-[11px] font-bold text-gray-400 hover:bg-white/60 transition"
+                  >
+                    {showDetails ? "閉じる" : "詳しく見る"}
+                    <svg className={`w-3.5 h-3.5 transition-transform ${showDetails ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showDetails && (
+                    <div className="space-y-4">
+                      {/* 体感温度・湿度・風速ヒント */}
+                      {extWeather && <MaterialWeatherHint extWeather={extWeather} />}
+
+                      {/* SYNC スコア詳細 */}
+                      <SyncScoreDisplay sync={proposal.main.sync} />
+
+                      {/* コーデ DNA */}
+                      {outfitDna && (
+                        <OutfitDnaCard
+                          dna={outfitDna}
+                          centroid={styleCentroid}
+                          adventureScore={adventureScore ?? undefined}
+                        />
+                      )}
+
+                      {/* 深層時系列インテリジェンス */}
+                      <DeepTemporalCard
+                        conditionHint={conditionHint ?? null}
+                        rotationHighlights={rotationHighlights ?? []}
+                        seasonalShift={seasonalShift ?? null}
+                        itemNameMap={new Map(wardrobeItems.map(w => [w.id, w.name ?? w.category ?? ""]))}
+                      />
+
+                      {/* A/B比較選択 */}
+                      {proposal.alternatives.length > 0 && (
+                        <ABComparisonCard
+                          date={day.date}
+                          proposalA={proposal.main}
+                          proposalB={proposal.alternatives[0]}
+                          onChoice={() => {/* 学習は内部で自動記録 */}}
+                        />
+                      )}
+
+                      {/* 入れ替え候補 */}
+                      {substitutions && substitutions.hasAlternatives && (
+                        <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm">🔄</span>
+                            <span className="text-[10px] font-bold tracking-widest text-gray-400">入れ替え候補</span>
+                          </div>
+                          <div className="space-y-2">
+                            {substitutions.substitutions.map((sub, i) => (
+                              <div key={i} className="flex items-center gap-2 rounded-xl bg-white/50 border border-white/40 p-2.5">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] text-gray-400 truncate">{sub.original.name ?? sub.original.category}</p>
+                                  <p className="text-[10px] font-bold text-gray-600">→ {sub.substitute.name ?? sub.substitute.category}</p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <span className={`text-[9px] font-bold ${sub.syncImpact > 0 ? "text-emerald-500" : sub.syncImpact < 0 ? "text-red-400" : "text-gray-400"}`}>
+                                    SYNC {sub.syncImpact > 0 ? "+" : ""}{sub.syncImpact}
+                                  </span>
+                                  <p className="text-[8px] text-gray-400">{sub.reason}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* My-Style 導線 */}
+                      <div className="flex gap-2">
+                        <Link href="/my-style?tab=closet"
+                          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
+                          <span>👗</span> ワードローブを編集
+                        </Link>
+                        <Link href="/my-style?tab=me"
+                          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-white/50 backdrop-blur-sm border border-white/50 px-3 py-2.5 text-[11px] font-bold text-slate-600 hover:bg-white/80 transition no-underline">
+                          <span>🧬</span> スタイルDNA
+                        </Link>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
-                <div className="rounded-2xl bg-gray-50/50 border border-gray-200/30 p-6 text-center">
+                <div className="rounded-2xl bg-gray-50/50 border border-gray-200/30 p-6">
                   {wardrobeItems.length === 0 ? (
                     <>
-                      <p className="text-4xl mb-3">👗</p>
-                      <p className="text-sm text-gray-500 mb-3">ワードローブを登録してコーデ提案を受けましょう</p>
-                      <Link href="/my-style" className="inline-block rounded-full bg-gray-800 text-white px-5 py-2 text-xs font-bold hover:bg-gray-700 transition no-underline">
-                        My Styleへ
-                      </Link>
+                      <div className="text-center mb-4">
+                        <p className="text-4xl mb-3">👗</p>
+                        <p className="text-sm font-bold text-gray-700 mb-1">コーデ提案を受けるには</p>
+                        <p className="text-xs text-gray-400">ワードローブにアイテムを登録しましょう</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-xl bg-white/70 border border-white/50 p-3 no-underline hover:bg-white/90 transition group">
+                          <span>👕</span>
+                          <span className="text-xs font-bold text-gray-700 flex-1">トップスを登録</span>
+                          <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </Link>
+                        <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-xl bg-white/70 border border-white/50 p-3 no-underline hover:bg-white/90 transition group">
+                          <span>👖</span>
+                          <span className="text-xs font-bold text-gray-700 flex-1">ボトムスを登録</span>
+                          <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </Link>
+                        <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-xl bg-white/70 border border-white/50 p-3 no-underline hover:bg-white/90 transition group">
+                          <span>👟</span>
+                          <span className="text-xs font-bold text-gray-700 flex-1">靴を登録</span>
+                          <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </Link>
+                      </div>
                     </>
                   ) : (
-                    <>
+                    <div className="text-center">
                       <p className="text-4xl mb-3">📐</p>
                       <p className="text-sm text-gray-500">この日の提案を生成できません</p>
                       <p className="text-[10px] text-gray-400 mt-1">トップス・ボトムス・靴の登録が必要です</p>
-                    </>
+                    </div>
                   )}
                 </div>
               )}

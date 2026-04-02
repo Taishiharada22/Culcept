@@ -157,6 +157,31 @@
   50% { box-shadow: 0 8px 48px rgba(239,68,68,0.35), 0 4px 16px rgba(0,0,0,0.15); }
 }
 
+/* ── Composer textarea: 内側の枠を完全除去 ── */
+[data-composer-textarea],
+[data-composer-textarea]:focus,
+[data-composer-textarea]:focus-visible,
+[data-composer-textarea]:focus-within,
+[data-composer-textarea]:active {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  ring: none !important;
+  background: transparent !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+/* 内側wrapper も完全透明 */
+[data-composer-wrapper],
+[data-composer-wrapper]:focus-within {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
 /* ── Utility Classes ── */
 .hov {
   transition: all 0.3s cubic-bezier(.25,.46,.45,.94);

@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 export default function LegalFooter() {
+  const pathname = usePathname();
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     setIsDark(!!document.querySelector("[data-theme='dark']"));
   }, []);
+
+  // Home page uses fixed full-screen layout — footer would overlap and intercept clicks
+  if (pathname === "/") return null;
 
   return (
     <footer

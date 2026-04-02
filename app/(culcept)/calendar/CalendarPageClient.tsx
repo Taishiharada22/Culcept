@@ -569,8 +569,8 @@ export default function CalendarPageClient() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </Link>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-gray-800">Coordinate Calendar</h1>
-              <p className="text-[10px] text-gray-400 tracking-wide">SYNC-Powered Daily Styling</p>
+              <h1 className="text-lg font-bold tracking-tight text-gray-800">カレンダー</h1>
+              <p className="text-[10px] text-gray-400 tracking-wide">SYNC コーデ提案</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -585,11 +585,12 @@ export default function CalendarPageClient() {
               <span className="text-sm">📍</span>
               {selectedPrefecture ? <span className="text-[10px] font-medium">{selectedPrefecture}</span> : <span className="text-[10px] text-gray-400">未設定</span>}
             </motion.button>
-            <motion.button onClick={handleGenerate} disabled={generating}
-              className="h-9 px-4 rounded-full bg-gradient-to-r from-violet-500/90 to-indigo-500/90 backdrop-blur-sm text-white text-xs font-semibold disabled:opacity-50 shadow-lg shadow-violet-500/20 border border-white/20"
-              whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
-              {generating ? "..." : "AI生成"}
-            </motion.button>
+            {todayWeather && (
+              <div className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center gap-1.5 px-3">
+                <span className="text-sm">{DAILY_WEATHER_ICONS[todayWeather.weather_icon] ?? "🌤️"}</span>
+                <span className="text-[10px] font-bold text-gray-600">{todayWeather.temp_max ?? "-"}°</span>
+              </div>
+            )}
           </div>
         </div>
       </GlassNavbar>
@@ -670,7 +671,7 @@ export default function CalendarPageClient() {
             <p className="mt-4 text-sm text-gray-400">Loading...</p>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* ── オンボーディング ── */}
             <OnboardingTooltip />
 
@@ -692,38 +693,11 @@ export default function CalendarPageClient() {
               />
             )}
 
-            {/* ── 季節遷移ヒント ── */}
-            {(() => {
-              const blend = getSeasonBlend(todayStr);
-              const hints = getSeasonalRotationHints(todayStr);
-              const tempSplit = getDayTemperatureSplit(todayWeather);
-              const morningMsg = tempSplit.needsMorningLayer
-                ? `朝${tempSplit.morningTemp ?? "-"}°→午後${tempSplit.afternoonTemp ?? "-"}°。寒暖差${tempSplit.tempRange}°に対応したレイヤードを`
-                : undefined;
-              return <SeasonalTransitionHint blend={blend} hints={hints} morningAfternoonMessage={morningMsg} />;
-            })()}
+            {/* ══════════════════════════════════════
+               PRIMARY ZONE: 今日を決める
+               ══════════════════════════════════════ */}
 
-            {/* ── 学習ステータス ── */}
-            {(satisfactionProfile && satisfactionProfile.dataPoints >= 3) || (feedbackSummary && feedbackSummary.totalDataPoints >= 3) ? (
-              <div className="rounded-xl bg-emerald-50/40 border border-emerald-200/30 px-3 py-1.5 flex items-center gap-2">
-                <span className="text-xs">📊</span>
-                <p className="text-[9px] text-emerald-600 font-medium">
-                  着用データ{satisfactionProfile?.dataPoints ?? 0}日分
-                  {feedbackSummary && feedbackSummary.totalDataPoints > 0 && (
-                    <span className="text-[8px] text-emerald-500"> + フィードバック{feedbackSummary.totalDataPoints}件から学習中</span>
-                  )}
-                </p>
-              </div>
-            ) : null}
-
-            {/* ── ワードローブ分析 ── */}
-            {gapAnalysis && gapAnalysis.gaps.length > 0 && (
-              <FadeInView delay={0.03}>
-                <WardrobeGapCard analysis={gapAnalysis} />
-              </FadeInView>
-            )}
-
-            {/* ── ヒーロー：月ナビ + 天気（スワイプ対応） ── */}
+            {/* ── 月ナビ + 天気（スワイプ対応） ── */}
             <FadeInView>
               <motion.div
                 className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/60 via-white/40 to-white/20 backdrop-blur-2xl border border-white/50 shadow-[0_8px_60px_-20px_rgba(120,100,200,0.15)] p-5"
@@ -777,9 +751,9 @@ export default function CalendarPageClient() {
               </motion.div>
             </FadeInView>
 
-            {/* ── 今日のSYNC提案ヒーロー ── */}
+            {/* ── 今日の提案ヒーロー ── */}
             {todayProposal && (
-              <FadeInView delay={0.04}>
+              <FadeInView delay={0.02}>
                 <motion.button onClick={() => setSelectedDay(todayData!)}
                   className="w-full text-left relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/50 via-white/30 to-violet-50/20 backdrop-blur-2xl border border-white/40 shadow-[0_12px_50px_-15px_rgba(100,80,200,0.12)] p-4 sm:p-5 group"
                   whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }}>
@@ -804,7 +778,7 @@ export default function CalendarPageClient() {
 
                     <div className="flex-1 min-w-0 pt-1">
                       <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[9px] font-bold tracking-widest text-violet-500 uppercase">Today&apos;s Proposal</span>
+                        <span className="text-[9px] font-bold tracking-widest text-violet-500">今日の提案</span>
                         <span className={`text-[8px] font-bold rounded-full px-1.5 py-0.5 ${SYNC_BAND_COLORS[todayProposal.main.sync.band].bg} ${SYNC_BAND_COLORS[todayProposal.main.sync.band].text}`}>
                           {todayProposal.main.moodTag}
                         </span>
@@ -839,23 +813,48 @@ export default function CalendarPageClient() {
               </FadeInView>
             )}
 
-            {/* ── ワードローブ未登録フォールバック ── */}
+            {/* ── ワードローブ未登録 → My-Style導線 ── */}
             {!todayProposal && wardrobeItems.length === 0 && !loading && (
-              <FadeInView delay={0.04}>
-                <div className="rounded-3xl bg-gradient-to-br from-white/50 to-violet-50/20 backdrop-blur-2xl border border-white/40 p-6 text-center">
-                  <p className="text-4xl mb-3">👗</p>
-                  <p className="text-sm font-bold text-gray-700 mb-1">SYNC提案を受けるには</p>
-                  <p className="text-xs text-gray-400 mb-4">ワードローブにアイテムを登録すると、天気・予定・好みに合わせた毎日のコーデ提案が届きます</p>
-                  <Link href="/my-style" className="inline-block rounded-full bg-gray-800 text-white px-6 py-2.5 text-xs font-bold hover:bg-gray-700 transition no-underline">
-                    My Style でアイテムを登録
-                  </Link>
+              <FadeInView delay={0.02}>
+                <div className="rounded-3xl bg-gradient-to-br from-white/50 to-violet-50/20 backdrop-blur-2xl border border-white/40 p-6">
+                  <div className="text-center mb-5">
+                    <p className="text-4xl mb-3">👗</p>
+                    <p className="text-sm font-bold text-gray-700 mb-1">コーデ提案を受けるには</p>
+                    <p className="text-xs text-gray-400">まずワードローブにアイテムを登録しましょう</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-2xl bg-white/60 border border-white/50 p-3.5 no-underline hover:bg-white/80 transition group">
+                      <span className="text-xl">👕</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-gray-700">トップスを登録</p>
+                        <p className="text-[10px] text-gray-400">シャツ・Tシャツ・ニットなど</p>
+                      </div>
+                      <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </Link>
+                    <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-2xl bg-white/60 border border-white/50 p-3.5 no-underline hover:bg-white/80 transition group">
+                      <span className="text-xl">👖</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-gray-700">ボトムスを登録</p>
+                        <p className="text-[10px] text-gray-400">パンツ・スカート・デニムなど</p>
+                      </div>
+                      <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </Link>
+                    <Link href="/my-style?tab=closet" className="flex items-center gap-3 rounded-2xl bg-white/60 border border-white/50 p-3.5 no-underline hover:bg-white/80 transition group">
+                      <span className="text-xl">👟</span>
+                      <div className="flex-1">
+                        <p className="text-xs font-bold text-gray-700">靴を登録</p>
+                        <p className="text-[10px] text-gray-400">スニーカー・革靴・ブーツなど</p>
+                      </div>
+                      <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </Link>
+                  </div>
                 </div>
               </FadeInView>
             )}
 
             {/* ── 明日のプレビュー ── */}
             {tomorrowProposal && tomorrowData && (
-              <FadeInView delay={0.05}>
+              <FadeInView delay={0.03}>
                 <motion.button onClick={() => setSelectedDay(tomorrowData)}
                   className="w-full text-left rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3 group"
                   whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
@@ -874,7 +873,7 @@ export default function CalendarPageClient() {
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <span className="text-[9px] font-bold tracking-widest text-gray-400 uppercase">Tomorrow</span>
+                        <span className="text-[9px] font-bold tracking-widest text-gray-400">明日の提案</span>
                         <p className="text-xs font-bold text-gray-600 truncate">{tomorrowProposal.main.items.map(i => i.name).join(" + ")}</p>
                       </div>
                     </div>
@@ -889,64 +888,41 @@ export default function CalendarPageClient() {
               </FadeInView>
             )}
 
-            {/* ── スタイリングTip ── */}
-            {stylingTip && (
-              <FadeInView delay={0.06}>
-                <div className={`relative overflow-hidden rounded-2xl border backdrop-blur-xl p-3.5 ${tipColorMap[stylingTip.color] ?? tipColorMap.gray}`}>
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl shrink-0">{stylingTip.icon}</span>
-                    <div className="min-w-0">
-                      <p className="text-[9px] font-bold tracking-widest text-gray-400 uppercase mb-0.5">Styling Tip</p>
-                      <p className="text-xs text-gray-600 font-medium leading-relaxed">{stylingTip.text}</p>
-                    </div>
-                  </div>
-                </div>
-              </FadeInView>
-            )}
+            {/* ══════════════════════════════════════
+               SECONDARY ZONE: 日付を見る
+               ══════════════════════════════════════ */}
 
-            {/* ── 週間雰囲気 ── */}
-            {weekDays.length > 0 && (
-              <FadeInView delay={0.06}>
-                <WeekAtmosphereBar weekDays={weekDays} />
-              </FadeInView>
-            )}
-
-            {/* ── 月間サマリー ── */}
-            {monthSummary && (
-              <FadeInView delay={0.07}>
-                <div className="rounded-2xl bg-white/40 backdrop-blur-sm border border-white/50 p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Monthly Summary</span>
-                    <span className="text-[9px] font-bold text-violet-500">{currentYear}/{currentMonth}</span>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    <div className="text-center">
-                      <div className="relative w-10 h-10 mx-auto">
-                        <svg viewBox="0 0 36 36" className="w-10 h-10 transform -rotate-90">
-                          <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="3" />
-                          <circle cx="18" cy="18" r="15" fill="none"
-                            stroke={monthSummary.completionRate >= 70 ? "#10b981" : monthSummary.completionRate >= 40 ? "#f59e0b" : "#94a3b8"}
-                            strokeWidth="3" strokeLinecap="round"
-                            strokeDasharray={`${(monthSummary.completionRate / 100) * 94.2} 94.2`} />
-                        </svg>
-                        <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-gray-600">{monthSummary.completionRate}%</span>
-                      </div>
-                      <div className="text-[8px] font-bold text-gray-400 mt-1">コーデ率</div>
-                    </div>
-                    <div className="text-center"><div className="text-lg font-black text-violet-600">{monthSummary.wornDays}</div><div className="text-[8px] font-bold text-gray-400">着用日</div></div>
-                    <div className="text-center"><div className="text-lg font-black text-blue-600">{monthSummary.rainyDays}</div><div className="text-[8px] font-bold text-gray-400">雨の日</div></div>
-                    <div className="text-center"><div className="text-lg font-black text-amber-600">{monthSummary.avgTemp ?? "-"}°</div><div className="text-[8px] font-bold text-gray-400">平均気温</div></div>
-                  </div>
+            {/* ── カレンダーグリッド（主役） ── */}
+            <FadeInView delay={0.04}>
+              <div className="rounded-3xl bg-white/30 backdrop-blur-xl border border-white/40 shadow-[0_4px_40px_-15px_rgba(100,80,180,0.1)] p-3 sm:p-4">
+                <div className="grid grid-cols-7 mb-1.5">
+                  {WEEKDAYS.map((day, i) => (
+                    <div key={day} className={`text-center text-[10px] font-semibold py-1.5 tracking-widest uppercase ${
+                      i === 0 ? "text-rose-400" : i === 6 ? "text-blue-400" : "text-gray-400"
+                    }`}>{day}</div>
+                  ))}
                 </div>
-              </FadeInView>
-            )}
+                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                  {calendarGrid.map((day, i) => (
+                    <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.008, duration: 0.3 }}>
+                      {day ? (
+                        <DayCell day={day} isToday={day.date === todayStr} sync={dayProposals.get(day.date)?.main.sync ?? null} onClick={() => setSelectedDay(day)} />
+                      ) : (
+                        <div className="aspect-square" />
+                      )}
+                    </motion.div>
+                  ))}
+                </div>
+                <p className="mt-2 text-[9px] text-slate-300 text-right">出典: 気象庁</p>
+              </div>
+            </FadeInView>
 
             {/* ── 週間プランナー ── */}
             {weekDays.length > 0 && (
-              <FadeInView delay={0.08}>
+              <FadeInView delay={0.05}>
                 <div>
                   <div className="flex items-center justify-between mb-2 px-1">
-                    <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">This Week</span>
+                    <span className="text-[10px] font-bold tracking-widest text-gray-400">今週のコーデ</span>
                     {streak > 0 && (
                       <span className="text-[9px] font-bold text-orange-500 bg-orange-50/80 rounded-full px-2 py-0.5 flex items-center gap-1 border border-orange-200/30">
                         🔥 {streak}日連続コーデ
@@ -996,36 +972,85 @@ export default function CalendarPageClient() {
               </FadeInView>
             )}
 
-            {/* ── カレンダーグリッド ── */}
-            <FadeInView delay={0.09}>
-              <div className="rounded-3xl bg-white/30 backdrop-blur-xl border border-white/40 shadow-[0_4px_40px_-15px_rgba(100,80,180,0.1)] p-3 sm:p-4">
-                <div className="grid grid-cols-7 mb-1.5">
-                  {WEEKDAYS.map((day, i) => (
-                    <div key={day} className={`text-center text-[10px] font-semibold py-1.5 tracking-widest uppercase ${
-                      i === 0 ? "text-rose-400" : i === 6 ? "text-blue-400" : "text-gray-400"
-                    }`}>{day}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
-                  {calendarGrid.map((day, i) => (
-                    <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.008, duration: 0.3 }}>
-                      {day ? (
-                        <DayCell day={day} isToday={day.date === todayStr} sync={dayProposals.get(day.date)?.main.sync ?? null} onClick={() => setSelectedDay(day)} />
-                      ) : (
-                        <div className="aspect-square" />
-                      )}
-                    </motion.div>
-                  ))}
-                </div>
-                <p className="mt-2 text-[9px] text-slate-300 text-right">出典: 気象庁</p>
-              </div>
-            </FadeInView>
+            {/* ── 週間雰囲気 ── */}
+            {weekDays.length > 0 && (
+              <FadeInView delay={0.06}>
+                <WeekAtmosphereBar weekDays={weekDays} />
+              </FadeInView>
+            )}
 
-            {/* ── 月間レポート ── */}
+            {/* ══════════════════════════════════════
+               TERTIARY ZONE: 分析・補完
+               ══════════════════════════════════════ */}
+
+            {/* ── スタイリングヒント ── */}
+            {stylingTip && (
+              <FadeInView delay={0.07}>
+                <div className={`relative overflow-hidden rounded-2xl border backdrop-blur-xl p-3.5 ${tipColorMap[stylingTip.color] ?? tipColorMap.gray}`}>
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl shrink-0">{stylingTip.icon}</span>
+                    <div className="min-w-0">
+                      <p className="text-[9px] font-bold tracking-widest text-gray-400 mb-0.5">今日のヒント</p>
+                      <p className="text-xs text-gray-600 font-medium leading-relaxed">{stylingTip.text}</p>
+                    </div>
+                  </div>
+                </div>
+              </FadeInView>
+            )}
+
+            {/* ── 季節遷移ヒント ── */}
+            {(() => {
+              const blend = getSeasonBlend(todayStr);
+              const hints = getSeasonalRotationHints(todayStr);
+              const tempSplit = getDayTemperatureSplit(todayWeather);
+              const morningMsg = tempSplit.needsMorningLayer
+                ? `朝${tempSplit.morningTemp ?? "-"}°→午後${tempSplit.afternoonTemp ?? "-"}°。寒暖差${tempSplit.tempRange}°に対応したレイヤードを`
+                : undefined;
+              return <SeasonalTransitionHint blend={blend} hints={hints} morningAfternoonMessage={morningMsg} />;
+            })()}
+
+            {/* ── ワードローブ分析 ── */}
+            {gapAnalysis && gapAnalysis.gaps.length > 0 && (
+              <FadeInView delay={0.08}>
+                <WardrobeGapCard analysis={gapAnalysis} />
+              </FadeInView>
+            )}
+
+            {/* ── 月間まとめ ── */}
+            {monthSummary && (
+              <FadeInView delay={0.09}>
+                <div className="rounded-2xl bg-white/40 backdrop-blur-sm border border-white/50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold tracking-widest text-gray-400">月間まとめ</span>
+                    <span className="text-[9px] font-bold text-violet-500">{currentYear}/{currentMonth}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    <div className="text-center">
+                      <div className="relative w-10 h-10 mx-auto">
+                        <svg viewBox="0 0 36 36" className="w-10 h-10 transform -rotate-90">
+                          <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="15" fill="none"
+                            stroke={monthSummary.completionRate >= 70 ? "#10b981" : monthSummary.completionRate >= 40 ? "#f59e0b" : "#94a3b8"}
+                            strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={`${(monthSummary.completionRate / 100) * 94.2} 94.2`} />
+                        </svg>
+                        <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-gray-600">{monthSummary.completionRate}%</span>
+                      </div>
+                      <div className="text-[8px] font-bold text-gray-400 mt-1">コーデ率</div>
+                    </div>
+                    <div className="text-center"><div className="text-lg font-black text-violet-600">{monthSummary.wornDays}</div><div className="text-[8px] font-bold text-gray-400">着用日</div></div>
+                    <div className="text-center"><div className="text-lg font-black text-blue-600">{monthSummary.rainyDays}</div><div className="text-[8px] font-bold text-gray-400">雨の日</div></div>
+                    <div className="text-center"><div className="text-lg font-black text-amber-600">{monthSummary.avgTemp ?? "-"}°</div><div className="text-[8px] font-bold text-gray-400">平均気温</div></div>
+                  </div>
+                </div>
+              </FadeInView>
+            )}
+
+            {/* ── 月間レポート（着用データあり時のみ） ── */}
             {calendarData && (monthSummary?.wornDays ?? 0) > 0 && (
               <FadeInView delay={0.1}>
                 <div className="rounded-2xl bg-white/25 backdrop-blur-xl border border-white/30 p-4">
-                  <p className="text-[10px] font-bold tracking-widest text-gray-400 uppercase mb-3">Monthly Report</p>
+                  <p className="text-[10px] font-bold tracking-widest text-gray-400 mb-3">月間レポート</p>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="text-center rounded-xl bg-white/40 border border-white/50 p-3 backdrop-blur-sm">
                       <p className="text-2xl font-black text-violet-600">{monthSummary?.wornDays ?? 0}</p><p className="text-[9px] text-gray-400 mt-0.5">コーデ確定</p>
@@ -1040,19 +1065,16 @@ export default function CalendarPageClient() {
                   {/* ── 実績バッジ ── */}
                   {(() => {
                     const badges: Array<{ icon: string; label: string; color: string }> = [];
-                    // ストリークバッジ
                     if (streak >= 30) badges.push({ icon: "🏆", label: "30日連続", color: "text-amber-500 bg-amber-50/60 border-amber-200/40" });
                     else if (streak >= 14) badges.push({ icon: "💎", label: "14日連続", color: "text-violet-500 bg-violet-50/60 border-violet-200/40" });
                     else if (streak >= 7) badges.push({ icon: "🔥", label: "7日連続", color: "text-orange-500 bg-orange-50/60 border-orange-200/40" });
                     else if (streak >= 3) badges.push({ icon: "✨", label: "3日連続", color: "text-pink-500 bg-pink-50/60 border-pink-200/40" });
-                    // 多様性バッジ
                     const usedCategories = new Set<string>();
                     const usedColors = new Set<string>();
                     for (const d of calendarData.days) {
                       if (!d.outfit?.is_worn) continue;
                       for (const item of d.outfit.outfit_items) {
                         usedCategories.add(item.category);
-                        // 色推定（簡易）
                         const name = (item.title || "").toLowerCase();
                         for (const c of ["黒","白","紺","グレー","ベージュ","ブルー","レッド","グリーン","ピンク","ブラウン"]) {
                           if (name.includes(c)) usedColors.add(c);
@@ -1061,10 +1083,8 @@ export default function CalendarPageClient() {
                     }
                     if (usedCategories.size >= 4) badges.push({ icon: "🎯", label: "全カテゴリ制覇", color: "text-emerald-500 bg-emerald-50/60 border-emerald-200/40" });
                     if (usedColors.size >= 5) badges.push({ icon: "🎨", label: "カラバリマスター", color: "text-indigo-500 bg-indigo-50/60 border-indigo-200/40" });
-                    // SYNCバッジ
                     const allSyncs = Array.from(dayProposals.values()).map(p => p.main.sync.total);
                     if (allSyncs.some(s => s >= 90)) badges.push({ icon: "💫", label: "完璧な1日", color: "text-violet-500 bg-violet-50/60 border-violet-200/40" });
-                    // 満足度バッジ
                     if (satisfactionProfile && satisfactionProfile.dataPoints >= 10) {
                       const allAvgs = Array.from(satisfactionProfile.itemScores.values()).map(v => v.avg);
                       const overall = allAvgs.length > 0 ? allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length : 0;
@@ -1119,6 +1139,19 @@ export default function CalendarPageClient() {
                 </div>
               </FadeInView>
             )}
+
+            {/* ── 学習ステータス ── */}
+            {(satisfactionProfile && satisfactionProfile.dataPoints >= 3) || (feedbackSummary && feedbackSummary.totalDataPoints >= 3) ? (
+              <div className="rounded-xl bg-emerald-50/40 border border-emerald-200/30 px-3 py-1.5 flex items-center gap-2">
+                <span className="text-xs">📊</span>
+                <p className="text-[9px] text-emerald-600 font-medium">
+                  着用データ{satisfactionProfile?.dataPoints ?? 0}日分
+                  {feedbackSummary && feedbackSummary.totalDataPoints > 0 && (
+                    <span className="text-[8px] text-emerald-500"> + フィードバック{feedbackSummary.totalDataPoints}件から学習中</span>
+                  )}
+                </p>
+              </div>
+            ) : null}
 
             {/* ── スタイル進化タイムライン ── */}
             {(() => {
