@@ -647,6 +647,17 @@ export type QuestionCategory =
   | "career"      // 適職・勉強・進路・長期テーマ
   | "general";    // その他
 
+/** P1-A: 5タイプルーター — 質問の「意図の種類」を分類
+ * QuestionCategory（行動カテゴリ）とは独立。TypeはLLMプロンプトと
+ * バリデーションのルート分岐を決定する。
+ * 優先順: emotional > self_understanding > knowledge > strategy > judgment */
+export type QuestionType =
+  | "emotional"          // 感情吐露: "しんどい", "もう疲れた"
+  | "self_understanding" // 自己理解: "俺って何が向いてる?", "私の核は?"
+  | "knowledge"          // 知識要求: "どんな職業?", "何の企業?"
+  | "strategy"           // 戦略・方法論: "面接はどう攻める?"
+  | "judgment";          // 判断（デフォルト）: "飲み会行くべき?"
+
 /** fact のタグ。ranking で使う */
 export type FactTag =
   | "social_load"        // 対人負荷、場に合わせやすさ
@@ -999,6 +1010,77 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
   // 達成感・やりがいの核を問う
   if (/達成感.*(?:何|どんな|どこ)|やりがい.*(?:何|どんな|どこ)/.test(trimmed)) return true;
   return false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P1-A: 5タイプルーター + 知識・戦略検出
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 知識要求: 外部世界の事実・具体例を求めている（自己理解ではない） */
+export function isKnowledgeQuestion(message: string): boolean {
+  const trimmed = message.trim();
+  // 職業・企業・業界など外部エンティティの具体例要求
+  if (/どんな.*職業|何の.*企業|具体的に.*(?:何|どの|どこ)|どこの.*会社/.test(trimmed)) return true;
+  // 「例えば」+ 具体例要求
+  if (/例えば.*(?:どんな|何|どの)/.test(trimmed)) return true;
+  // 名前・具体名を求める
+  if (/企業名|会社名|名前.*教えて|名前.*知りたい/.test(trimmed)) return true;
+  // 業界・業種・分野の特定
+  if (/業界.*(?:いい|合[うっ]|どれ)|業種|どの.*分野/.test(trimmed)) return true;
+  // フォローアップ型:「日本だと？」「他には？」
+  if (/日本.*だと|他には|他に.*ある|もっと.*具体/.test(trimmed)) return true;
+  // 「〜が知りたい」+ 外部エンティティ（「自分」を主語としない）
+  if (/職業.*知りたい|企業.*知りたい|会社.*知りたい/.test(trimmed)) return true;
+  return false;
+}
+
+/** 戦略・方法論: やると決めた上でのアプローチを求めている */
+export function isStrategyQuestion(message: string): boolean {
+  const trimmed = message.trim();
+  // 「どう攻める」「どう準備する」「どう進める」型
+  if (/どう.*(?:攻め|準備|進め|対策|アピール|臨|切り出|伝え)/.test(trimmed)) return true;
+  // 方法論キーワード:「やり方」「コツ」「ポイント」
+  if (/やり方|コツ|ポイント|テクニック|戦略|作戦|対策|秘訣/.test(trimmed)) return true;
+  // 「どういう感じで」+ 動詞
+  if (/どう[いう].*感じで|どんな感じで.*[すれるしけ]/.test(trimmed)) return true;
+  // 面接・プレゼン・交渉の戦術
+  if (/面接.*(?:どう|コツ|攻|準備)|プレゼン.*(?:どう|コツ)|交渉.*(?:どう|コツ)/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * P1-A: 5タイプルーター
+ * 質問の「意図の種類」を分類し、プロンプト・バリデーションのルートを決定。
+ * 優先順: emotional > self_understanding > knowledge > strategy > judgment
+ */
+export function classifyQuestionType(message: string): QuestionType {
+  if (isEmotionalQuestion(message)) return "emotional";
+  if (isSelfUnderstandingQuestion(message)) return "self_understanding";
+  if (isKnowledgeQuestion(message)) return "knowledge";
+  if (isStrategyQuestion(message)) return "strategy";
+  return "judgment";
+}
+
+/**
+ * P1-A: QuestionType ベースの応答モードオーバーライド。
+ *
+ * knowledge / strategy 質問は clarify しても意味がない:
+ *   - knowledge: ユーザーは事実・具体例を求めている（「何の企業？」）
+ *   - strategy: ユーザーは戦術・方法論を求めている（「面接どう攻める？」）
+ * これらは意図が明確なので、曖昧性が高くても clarify せず conclude で型固有プロンプトを発火させる。
+ * branch も同様に conclude へ: 「場合A…場合B…」の分岐提示は知識/戦略質問に不適切。
+ */
+export function applyQuestionTypeOverride(
+  decision: ModeDecision,
+  questionType: QuestionType,
+): ModeDecision {
+  if (
+    (questionType === "knowledge" || questionType === "strategy" || questionType === "self_understanding") &&
+    (decision.mode === "clarify" || decision.mode === "branch")
+  ) {
+    return { mode: "conclude", reason: "conclude_type_override" };
+  }
+  return decision;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1497,6 +1579,8 @@ export function buildHomeAlterPrompt(
   const conclusionSlots = CATEGORY_CONCLUSION_SLOTS[cat];
   const actionSlot = CATEGORY_ACTION_SLOTS[cat];
   const framework = buildJudgmentFramework(personality, homeContext, userMessage);
+  // P1-A: questionType で「次の一手」テンプレートを出し分ける
+  const questionType = userMessage ? classifyQuestionType(userMessage) : "judgment";
 
   // ━━━━ 呼称ルール ━━━━
   const callName = userName ? `${userName}さん` : "";
@@ -1537,7 +1621,9 @@ export function buildHomeAlterPrompt(
     "## フォーマット（必ずこの構造、3〜4文）",
     "**1文目**: 結論 + **なぜ今のこの人にそれが合うか**（「何をすべきか」だけは不合格。必ず理由を同じ文に入れる）",
     "**2文目**: 今日の状態・最近の傾向・性格的根拠を**自然文の中に織り込む**（ラベル貼りは不合格。「エネルギーは低めです」ではなく「今日は少し霧がかった感じで判断が重いので」のように書く）",
-    "**3文目**: 次の一手（「いつ」「何を」「どうする」を含む具体的な行動提案）",
+    ...(questionType === "knowledge" || questionType === "strategy"
+      ? ["**3文目**: 不足情報の言及、または続きを話したくなる余白（知識・戦略質問では「次の一手:」テンプレートは使わない）"]
+      : ["**3文目**: 次の一手（「いつ」「何を」「どうする」を含む具体的な行動提案）"]),
     "**4文目（任意）**: 1行フック — 問い返しではなく、続きを話したくなる余白。有効なときだけ使う",
     "",
     "## 1文目の書き方（最重要）",
@@ -1572,11 +1658,19 @@ export function buildHomeAlterPrompt(
     "## 結論の方向",
     ...conclusionSlots.map((s) => `- ${s}`),
     "",
-    "## 行動 slot（次の一手は必ずこの3要素を含む）",
-    `テンプレ: ${actionSlot}`,
-    "- [いつ]: 今すぐ / 今日中に / 今夜 / 今から",
-    "- [何を]: 具体的な対象（数量付き）",
-    "- [どうする]: やわらかい提案で終わる",
+    ...(questionType === "knowledge" || questionType === "strategy"
+      ? [
+          "## 応答構成（知識・戦略ルート）",
+          "「次の一手:」テンプレートは使用禁止。行動slotも不要。",
+          "代わりに型固有の応答層（知識質問の応答層 / 戦略質問の応答層）に従うこと。",
+        ]
+      : [
+          "## 行動 slot（次の一手は必ずこの3要素を含む）",
+          `テンプレ: ${actionSlot}`,
+          "- [いつ]: 今すぐ / 今日中に / 今夜 / 今から",
+          "- [何を]: 具体的な対象（数量付き）",
+          "- [どうする]: やわらかい提案で終わる",
+        ]),
     "",
     "## 禁止",
     "- 問い返し / 演出 / 挨拶 / 前置き",
@@ -1767,31 +1861,123 @@ export function buildHomeAlterPrompt(
     );
   }
 
-  // ━━━━ 自己理解質問の応答層 ━━━━
-  if (userMessage && isSelfUnderstandingQuestion(userMessage)) {
+  // ━━━━ P1-A: 5タイプルーターによるプロンプト分岐 ━━━━
+  // (questionType は関数冒頭で宣言済み)
+
+  // ── 自己理解ルート（2サブタイプ: identity型 / gap型） ──
+  if (questionType === "self_understanding") {
+    const isGapType = /(?:に|には).*(?:何が|何を).*(?:必要|足りない|欠けて)|何が不足|何が必要/.test(userMessage ?? "");
+
+    if (isGapType) {
+      // ── ギャップ型: 「今の私に何が必要？」系 ──
+      sections.push(
+        "",
+        "# 自己理解質問の応答層（ギャップ型）",
+        "ユーザーは「今の自分に足りないもの・必要なもの」を問うている。",
+        "単なる自己分析ではなく、**現状と理想のギャップ**から仮説を立てる。",
+        "",
+        "**構成:**",
+        "**1文目**: ギャップ仮説 — 「今の〜さんに一番足りていないのは〜だと思う」の形で。スキルや資格ではなく、状態・姿勢・環境レベルで。",
+        "**2文目**: 根拠 — なぜそう見えるか。この人の傾向・反応パターンから。",
+        "**3文目（任意）**: 方向の提示 — ギャップを埋めるための方向性を1つだけ。具体的なToDoではなく「方向」。",
+        "",
+        "**話し方原則（ギャップ型）:**",
+        "- 「〜が必要です」と断定しない。「〜じゃないかな」で。",
+        "- リソース列挙（スキル、資格、経験）は禁止。状態・姿勢・環境レベルで語る",
+        "- 「次の一手:」テンプレートは使わない",
+        "- 「書き出して」「3つ挙げて」等の宿題は絶対禁止",
+        "- 知識が足りない場合は「もう少し聞かせてくれたらもっと精度が上がる」と正直に言う",
+        "",
+        "❌ 「モヤモヤを紙に書き出してみて」（宿題）",
+        "❌ 「必要なスキルは〇〇と△△です」（リソース列挙）",
+        "❌ 「今日中に〜してみるのがよさそうです」（行動指示）",
+        `✅ 「今の${callName || "この人"}に一番足りていないのは、ひとりで考える時間をきちんと確保することじゃないかな。対人場面が続くと消耗しやすいのに、最近その時間が削られている気がする。まずは『考える時間』を守ることが、他の全部の土台になるはず。」`,
+      );
+    } else {
+      // ── アイデンティティ型: 「俺って何が向いてる？」系（P0のまま） ──
+      sections.push(
+        "",
+        "# 自己理解質問の応答層（最優先）",
+        "ユーザーは自分自身の本質・核・向き不向きについて問うている。",
+        "**宿題を出すのではなく、Alterが見立てを出す。**",
+        "",
+        "**構成:**",
+        "**1文目**: 見立て — この人のデータから導いた仮説を出す。「〜だと僕は思う」「〜じゃないかな」の温度で。断定しすぎない。",
+        "**2文目**: 根拠 — なぜその見立てに至ったか。どの観察・傾向からそう思ったかを自然に織り込む。「〜という傾向があるから」「前にも〜と言ってたから」のように。",
+        "**3文目（任意）**: 自信度か余白 — 「これは僕の仮説で、もっと話してくれたら精度が上がる」のような正直さ。または続きを話したくなるフック。",
+        "",
+        "**話し方原則（自己理解ルート）:**",
+        "- 仮説を1つ出す。観察→解釈→仮説の筋が見えるように",
+        "- わからないときは弱くならず、仮説として立てる。自信度を添える",
+        "- 「書き出してみて」「3つ挙げてみて」は絶対禁止",
+        "- 「次の一手:」テンプレートは使わない",
+        "- 一般的な職業リストや性格タイプの説明で逃げない",
+        "- 知識が足りない場合は「ここの情報があるともっと精度が上がる」と正直に言う",
+        "",
+        "❌ 「達成感を感じた瞬間を3つ書き出してみて」（宿題）",
+        "❌ 「分析的寄りなのでIT業界が合っています」（タイプ論の一般論）",
+        "❌ 「まず自分の気持ちを整理してみよう」（内省誘導）",
+        `✅ 「${callName || "この人"}が一番達成感を感じるのは、混沌の中から筋を見つけた瞬間じゃないかな。前にも似たテーマで聞いてきてたし、薄い答えに対する反応を見ると、解像度そのものにこだわるタイプだと思う。これは僕の仮説だから、違ってたら教えて。」`,
+      );
+    }
+  }
+
+  // ── 知識ルート: 仮説 + 確信度 + 不足情報 ──
+  if (questionType === "knowledge") {
     sections.push(
       "",
-      "# 自己理解質問の応答層（最優先）",
-      "ユーザーは自分自身の本質・核・向き不向きについて問うている。",
-      "**宿題を出すのではなく、Alterが見立てを出す。**",
+      "# 知識質問の応答層",
+      "ユーザーは事実・具体例を求めている。「自分探し」ではなく「情報」を求めている。",
+      "ただし汎用リストではなく、**この人の性格データを根拠にした絞り込み**が必要。",
+      "",
+      "**構成（必須3要素）:**",
+      "**仮説**: この人の性格・傾向・強み・恐れを根拠に、具体例を2-3個提示する。",
+      "  ただし「一般的に合う」ではなく「この人だから合う理由」を各例に1文で付ける。",
+      "**確信度**: 「これは僕の見立てで、確度は〜くらい」を自然に入れる。",
+      "  高確度: 「かなり合ってると思う」",
+      "  中確度: 「方向としては合ってるはず」",
+      "  低確度: 「まだ情報が少ないけど、今の時点では」",
+      "**不足情報**: 「〜がわかれば、もっと精度が上がる」を1つだけ。",
+      "  例: 「チームで動くのが好きか一人が好きか、がわかるともっと絞れる」",
+      "",
+      "**話し方原則（知識ルート）:**",
+      "- 汎用リスト羅列は禁止。NTTデータ、アクセンチュア等の「誰にでも言える」リストは不合格",
+      "- 各具体例に「なぜこの人に合うか」を1文で付ける",
+      "- 「次の一手」テンプレートは使わない（知識回答に「今日中に」は不要）",
+      "- 「書き出して」「3つ挙げて」等の宿題は禁止",
+      "- 性格データとの接続がない具体例は出さない",
+      "",
+      "❌ 「NTTデータ、アクセンチュア、NRIなどが合っています」（一般論リスト）",
+      "❌ 「3つ候補を書き出してみて」（宿題）",
+      "❌ 「まず自分が何をしたいか考えてみて」（質問返し）",
+      `✅ 「${callName || "この人"}の場合、〇〇が合いそうだと思う。本質を掴む力が直接価値になるし、裁量がある環境の方が力が出るから。ただしこれは僕の仮説で、チームワーク重視かソロ重視かがわかれば、もっと絞れる。」`,
+    );
+  }
+
+  // ── 戦略ルート: アプローチ + 性格根拠 + 具体的一手 ──
+  if (questionType === "strategy") {
+    sections.push(
+      "",
+      "# 戦略質問の応答層",
+      "ユーザーは「どうやるか」「どう攻めるか」の方法論を求めている。",
+      "判断の是非ではなく、**やると決めた上でのアプローチ**を提示する。",
       "",
       "**構成:**",
-      "**1文目**: 見立て — この人のデータから導いた仮説を出す。「〜だと僕は思う」「〜じゃないかな」の温度で。断定しすぎない。",
-      "**2文目**: 根拠 — なぜその見立てに至ったか。どの観察・傾向からそう思ったかを自然に織り込む。「〜という傾向があるから」「前にも〜と言ってたから」のように。",
-      "**3文目（任意）**: 自信度か余白 — 「これは僕の仮説で、もっと話してくれたら精度が上がる」のような正直さ。または続きを話したくなるフック。",
+      "**1文目**: この人に合うアプローチの方向性。「〜さんの場合、〜から入るのが合っている」。",
+      "**2文目**: なぜそのアプローチか。性格傾向・強み・リスクパターンを根拠に。",
+      "**3文目**: 具体的な一手。場面に即した行動を1つ。テンプレラベル（「次の一手:」）は使わない。",
+      "**4文目（任意）**: 落とし穴の注意。この人が陥りやすいパターンを1つだけ。",
       "",
-      "**話し方原則（自己理解ルート）:**",
-      "- 仮説を1つ出す。観察→解釈→仮説の筋が見えるように",
-      "- わからないときは弱くならず、仮説として立てる。自信度を添える",
-      "- 「書き出してみて」「3つ挙げてみて」は絶対禁止",
-      "- 「次の一手:」テンプレートは使わない",
-      "- 一般的な職業リストや性格タイプの説明で逃げない",
-      "- 知識が足りない場合は「ここの情報があるともっと精度が上がる」と正直に言う",
+      "**話し方原則（戦略ルート）:**",
+      "- 「やるべきか」の判断は済んでいる前提。迷わせない",
+      "- この人の強みを活かす方向で提案する。弱み克服方向は原則避ける",
+      "- 汎用テクニック（「STAR法で」「結論から話す」等）だけで終わらない。性格カスタマイズを入れる",
+      "- 「次の一手:」ラベルは使わない。自然に行動を文中に組み込む",
+      "- 「書き出して」「3つ挙げて」等の宿題は禁止。Alterが戦略を出す",
       "",
-      "❌ 「達成感を感じた瞬間を3つ書き出してみて」（宿題）",
-      "❌ 「分析的寄りなのでIT業界が合っています」（タイプ論の一般論）",
-      "❌ 「まず自分の気持ちを整理してみよう」（内省誘導）",
-      `✅ 「${callName || "この人"}が一番達成感を感じるのは、混沌の中から筋を見つけた瞬間じゃないかな。前にも似たテーマで聞いてきてたし、薄い答えに対する反応を見ると、解像度そのものにこだわるタイプだと思う。これは僕の仮説だから、違ってたら教えて。」`,
+      "❌ 「まず結論から話すのが大事です」（一般的なテクニック）",
+      "❌ 「事前に想定質問を書き出してみて」（宿題）",
+      `✅ 「${callName || "この人"}の場合、準備を固めてから入る方が力が出る。分析力が強みだから、面接では『なぜその会社か』を論理的に語れると差がつくはず。ただし準備しすぎて本番で硬くなるパターンがあるから、完璧を目指しすぎないこと。」`,
     );
   }
 
@@ -1814,7 +2000,7 @@ export function buildHomeAlterPrompt(
     "",
     "# フォローアップ（2回目の質問が来た場合）",
     "- 1回目の判断を踏まえて、別角度の根拠を追加する",
-    "- 1文目+理由 → 状態根拠 → 次の一手 の構造は崩さない",
+    "- 1文目+理由 → 状態根拠 → （判断質問: 次の一手 / 知識・戦略質問: 不足情報や余白）の構造は崩さない",
     "- 1行フックは2回目でも使ってよい",
   );
 
@@ -2083,29 +2269,39 @@ export function validateHomeAlterResponse(
     /重すぎる/, /早すぎる/, /遅すぎる/, /が先/,
   ];
   const hasConclusion = conclusionPatterns.some((p) => p.test(firstLine));
-  // P0修正: selfUnderstanding判定を結論チェックの前に移動（3, 3b, 4で共有）
+  // P1-A: 5タイプルーターを使ったバリデーション分岐
   const selfUnderstanding = isSelfUnderstandingQuestion(userMessage);
-  // 感情質問では1文目が「受け止め」、自己理解質問では「見立て」なので結論チェックをスキップ
-  if (!emotional && !selfUnderstanding && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
+  const questionType = classifyQuestionType(userMessage);
+  const isKnowledge = questionType === "knowledge";
+  const isStrategy = questionType === "strategy";
+  // emotional, self_understanding, knowledge は結論チェックをスキップ
+  // strategy は方向性が必要だが結論パターンと別形式で判定
+  if (!emotional && !selfUnderstanding && !isKnowledge && !isStrategy && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
     failures.push("1行目に結論（判断）がない");
+  }
+  // strategy は独自の方向性チェック
+  if (isStrategy && !hasConclusion) {
+    const hasDirection = /合っている|合う|から入る|方が[いい力]|強み|を活かす|が合って|が武器|が鍵/.test(firstLine);
+    if (!hasDirection && !firstLine.includes("いい") && !firstLine.includes("べき")) {
+      failures.push("1行目にアプローチの方向性がない");
+    }
   }
 
   // 3b. 1行目が「誰にでも言える結論」ではないか（理由が含まれているか）
-  // 感情質問・自己理解質問ではスキップ（受け止め文/見立て文に判断理由は不要）
+  // emotional, self_understanding, knowledge ではスキップ
   const hasPersonalReason = /今|最近|閉じ|広げ|重[くい]|霧|疲れ|考えすぎ|迷い|後回し|溜め|タイプ|傾向|だからこそ|なので|場合|さんは|たぶん|正直|慎重|消耗|ブレ/.test(firstLine);
-  if (!emotional && !selfUnderstanding && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
+  if (!emotional && !selfUnderstanding && !isKnowledge && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
     failures.push("1行目に「この人向けの理由」が含まれていない（誰にでも言える結論）");
   }
 
   // 4. 「次の一手」があるか
-  // P0修正: 感情質問・自己理解質問ではアクション提案を強制しない
-  //  - 感情質問: 受け止め + 見立てだけで終わってよい
-  //  - 自己理解質問: 見立て + 仮説だけで終わってよい
-  //  宿題型の提案（「書き出して」「3つ挙げて」）は全ルートで禁止
+  // P1-A修正: emotional / self_understanding / knowledge / strategy はアクション不要
+  //  - judgment のみ「次の一手」が必須
+  //  宿題型の提案は全ルートで禁止
   const hasNextAction = /次の一手[:：]/.test(trimmed);
-  if (emotional || selfUnderstanding) {
-    // 感情・自己理解: アクション不要。見立てや仮説があれば合格
-    // ただし完全に空っぽは不可（最低限の意味ある内容チェック）
+  if (emotional || selfUnderstanding || isKnowledge || isStrategy) {
+    // 感情・自己理解・知識・戦略: 「次の一手:」ラベル不要
+    // ただし完全に空っぽは不可
     if (trimmed.length < 20) {
       failures.push("応答が短すぎる（見立てや仮説が必要）");
     }
@@ -2123,6 +2319,26 @@ export function validateHomeAlterResponse(
   // Alterが答えを出すべき場面で、ユーザーに考えさせる宿題を出してはいけない
   if (/書き出[しすせ]てみ|リストアップ|ピックアップ|[3３]つ.*(?:書|挙|出し|考え)てみ|候補を.*(?:挙|出|ピック)|一覧.*作|.*つだけ.*書[きく]/.test(trimmed)) {
     failures.push("宿題型の提案をしている（「書き出して」「3つ挙げて」等は禁止。Alterが仮説を出す）");
+  }
+
+  // 4c. P1-A: knowledge 専用チェック（確信度 + 不足情報 + 汎用リスト検出）
+  if (isKnowledge) {
+    // 確信度の表現があるか
+    const hasConfidence = /確度|見立て|仮説|確信|自信|精度|合ってると思う|方向.*合って|情報が少ない|まだ.*わからない|と思う|はず|じゃないかな|かもしれない/.test(trimmed);
+    if (!hasConfidence) {
+      failures.push("知識回答に確信度の表現がない（「〜と思う」「確度は〜」等が必要）");
+    }
+    // 不足情報の言及があるか（漢字表記「分かれば」も含む）
+    const hasMissingInfo = /わかれば|分かれば|わかると|分かると|教えてくれれば|教えてもらえれば|情報があれば|精度.*上がる|もっと絞[れり込]|もっと.*わかる|もっと.*分かる|もっと.*具体|聞けば|聞かせて|知れ[ばたる]/.test(trimmed);
+    if (!hasMissingInfo) {
+      failures.push("不足情報の言及がない（「〜がわかればもっと精度が上がる」等が必要）");
+    }
+    // 汎用リスト検出: 有名企業名が性格根拠なしに列挙されていないか
+    const genericNames = /NTTデータ|アクセンチュア|野村総合研究所|NRI|マッキンゼー|ボストン.*コンサル|デロイト/;
+    const personalConnection = /だから|ため|合[うっ]て|向いて|力が出る|活[きか]せる|強みが|性格/;
+    if (genericNames.test(trimmed) && !personalConnection.test(trimmed)) {
+      failures.push("一般的な企業リストが性格根拠なしに列挙されている");
+    }
   }
 
   // 5. 判断放棄
@@ -2489,7 +2705,8 @@ export type ModeDecisionReason =
   | "conclude_mid_ambiguity_info_sufficient"
   | "conclude_low_ambiguity"
   | "direct_request_detected"         // ユーザーが直答を求めている
-  | "correction_signal_detected";     // ユーザーが訂正・修正を求めている
+  | "correction_signal_detected"      // ユーザーが訂正・修正を求めている
+  | "conclude_type_override";         // P1-A: knowledge/strategy型はclarify不要→conclude強制
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3596,6 +3813,130 @@ export function buildHomeAlterPromptWithContext(
     return sections.join("\n");
   }
 
+  // ── P1-A: knowledge/strategy 専用プロンプト（判断テンプレートなし） ──
+  // 「次の一手:」テンプレートを含む判断機構はLLMに強く記憶されるため、
+  // knowledge/strategy では完全に別パスで生成する
+  const qTypeForPrompt = userMessage ? classifyQuestionType(userMessage) : "judgment" as QuestionType;
+  if (qTypeForPrompt === "knowledge" || qTypeForPrompt === "strategy" || qTypeForPrompt === "self_understanding") {
+    const facts = buildPersonalizedFacts(personality, homeContext, category ?? "general");
+    const callNameRule = userName
+      ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
+      : `「君」「あなた」と呼びかけない。`;
+    const callName = userName ? `${userName}さん` : "";
+
+    const dedicatedPrompt: string[] = [
+      ALTER_IDENTITY_BLOCK,
+      "",
+      `あなたは${callName || "この人"}の影（もう一人の自分）。この人を一番知っている存在として応答する。`,
+      "",
+      "## この人について今日わかっていること",
+      ...facts.map((f) => `- ${f}`),
+      "",
+    ];
+
+    // ── self_understanding: 見立て・仮説型（gap / identity） ──
+    if (qTypeForPrompt === "self_understanding") {
+      const isGapType = /(?:に|には).*(?:何が|何を).*(?:必要|足りない|欠けて)|何が不足|何が必要/.test(userMessage);
+      if (isGapType) {
+        dedicatedPrompt.push(
+          "# 自己理解質問の応答ルール（ギャップ型）",
+          "ユーザーは「今の自分に足りないもの・必要なもの」を問うている。",
+          "**現状と理想のギャップ**から仮説を立てる。",
+          "",
+          "**応答構成:**",
+          `**1文目**: ギャップ仮説 — 「今の${callName || "この人"}に一番足りていないのは〜じゃないかな」。スキルや資格ではなく、状態・姿勢・環境レベルで。`,
+          "**2文目**: 根拠 — なぜそう見えるか。この人の傾向・反応パターンから。",
+          "**3文目（任意）**: 方向の提示 — ギャップを埋めるための方向性を1つだけ。",
+          "",
+          "**禁止（厳守）:**",
+          "- 宿題（「書き出して」「3つ挙げて」「メモして」「整理して」「振り返って」）→ **絶対禁止**",
+          "- 行動指示（「今日中に〜してみる」「まず〜から始めてみる」）",
+          "- リソース列挙（スキル、資格、経験のリスト）",
+          "- 質問で返す",
+          "- 箇条書き",
+          "",
+          `✅ 「今の${callName || "この人"}に一番足りていないのは、ひとりで考える時間をきちんと確保することじゃないかな。対人場面が続くと消耗しやすいのに、最近その時間が削られている気がする。まずは『考える時間』を守ることが、他の全部の土台になるはず。」`,
+        );
+      } else {
+        dedicatedPrompt.push(
+          "# 自己理解質問の応答ルール",
+          "ユーザーは自分自身の本質・核・向き不向きについて問うている。",
+          "**Alterが見立て・仮説を出す。宿題は出さない。**",
+          "",
+          "**応答構成:**",
+          "**1文目**: 見立て — この人のデータから導いた仮説。「〜だと僕は思う」「〜じゃないかな」の温度で。",
+          "**2文目**: 根拠 — どの観察・傾向からそう思ったか。",
+          "**3文目（任意）**: 自信度か余白 — 「これは僕の仮説で、もっと話してくれたら精度が上がる」等。",
+          "",
+          "**禁止（厳守）:**",
+          "- 宿題（「書き出して」「3つ挙げて」「メモして」「整理して」「振り返って」）→ **絶対禁止**",
+          "- 一般的な職業リストや性格タイプの説明で逃げる",
+          "- 質問で返す",
+          "- 箇条書き",
+          "",
+          `✅ 「${callName || "この人"}が一番達成感を感じるのは、混沌の中から筋を見つけた瞬間じゃないかな。深く集中して本質を探るプロセスが核だと思う。これは僕の仮説だから、違ってたら教えて。」`,
+        );
+      }
+    } else if (qTypeForPrompt === "knowledge") {
+      dedicatedPrompt.push(
+        "# 知識質問の応答ルール",
+        "ユーザーは事実・具体例を求めている。**この人の性格データを根拠にした絞り込み**が必要。",
+        "",
+        "**応答構成（必須3要素）:**",
+        `**仮説**: ${callName || "この人"}の性格・傾向・強み・恐れを根拠に、具体例を2-3個必ず提示する。`,
+        "  各例に「この人だから合う理由」を1文で付ける。情報が少なくても仮説として出す（回答を保留しない）。",
+        "**確信度**: 「僕の見立てでは」「方向としては合ってるはず」等を自然に入れる。",
+        `**不足情報**: 「〜がわかれば、もっと絞れる」を1つだけ必ず入れる。`,
+        `  例: 「チームで動くのが好きか一人が好きか、がわかるともっと絞れる」`,
+        "",
+        "**禁止（厳守）:**",
+        "- 汎用リスト羅列（NTTデータ、アクセンチュア等の「誰にでも言える」リスト）",
+        "- 宿題・行動提案（「書き出して」「3つ挙げて」「今日中に〜してみる」等）",
+        "- 質問で返す（「まず何がしたいか教えて」等）",
+        "- 内省誘導（「自分の気持ちを見つめて」等）",
+        "- 箇条書き・番号付きリスト",
+        "",
+        `✅ 「${callName || "この人"}の場合、〇〇が合いそうだと思う。本質を掴む力が直接価値になるし、裁量がある環境の方が力が出るから。ただしこれは僕の仮説で、チームワーク重視かソロ重視かがわかれば、もっと絞れる。」`,
+      );
+    } else {
+      // strategy
+      dedicatedPrompt.push(
+        "# 戦略質問の応答ルール",
+        "ユーザーはやると決めた上でのアプローチを求めている。**この人の性格に合った方法**を提案する。",
+        "",
+        "**応答構成:**",
+        `**方向**: ${callName || "この人"}の傾向に合ったアプローチの方向を示す。`,
+        "**性格根拠**: なぜその方法がこの人に合うか、傾向・強み・注意点から。",
+        "**具体的一手**: 最初の一歩を具体的に。ただし命令ではなく「〜するのが合っている」のトーンで。",
+        "**（任意）落とし穴**: この人が陥りがちなパターンがあれば1文で。",
+        "",
+        "**禁止（厳守）:**",
+        "- 汎用テクニック（「準備をしっかり」「自信を持って」等）",
+        "- 宿題・内省誘導（「まず自分の強みを整理して」等）",
+        "- 箇条書き・番号付きリスト",
+        "- 質問で返す",
+        "",
+        `✅ 「${callName || "この人"}は直感的に核心を突ける強みがあるから、まず一番気になるポイントだけ深掘りして準備するのが合ってる。全体を網羅しようとすると逆に力が分散するから、1点突破型で臨む方がいい。」`,
+      );
+    }
+
+    dedicatedPrompt.push(
+      "",
+      "## 制約",
+      `- 一人称「僕」`,
+      `- ${callNameRule}`,
+      "- 2-4文で自然に応答する",
+      "- 性格データは自然に織り込む（ラベル貼りは禁止）",
+    );
+
+    // 骨格ブロックも追加（ただし次の一手は不足情報に変換済み）
+    const qTypeForSkeleton = qTypeForPrompt;
+    const skeletonBlockKS = skeleton ? buildSkeletonPromptBlock(skeleton, qTypeForSkeleton) : "";
+    const relationalBlockKS = relationalLens ? buildRelationalContext(relationalLens) : "";
+
+    return dedicatedPrompt.join("\n") + relationalBlockKS + skeletonBlockKS;
+  }
+
   // Mode A (conclude) or B (branch): 既存プロンプトベースで拡張
   const basePrompt = buildHomeAlterPrompt(personality, homeContext, category, userMessage, userName);
 
@@ -3603,7 +3944,9 @@ export function buildHomeAlterPromptWithContext(
   const relationalBlock = relationalLens ? buildRelationalContext(relationalLens) : "";
 
   // 骨格ブロック注入（conclude / branch 共通）
-  const skeletonBlock = skeleton ? buildSkeletonPromptBlock(skeleton) : "";
+  // P1-A: questionType を渡して知識/戦略ルートでは「次の一手」を抑制
+  const qType = userMessage ? classifyQuestionType(userMessage) : undefined;
+  const skeletonBlock = skeleton ? buildSkeletonPromptBlock(skeleton, qType) : "";
 
   if (responseMode === "conclude") {
     // Mode A: 関係性コンテクスト + 骨格 + ドメインコンテキスト
@@ -4290,8 +4633,10 @@ export function buildJudgmentSkeleton(
  * Layer 2 の骨格をプロンプト注入用テキストに変換する。
  * LLM はこの骨格に従って文章化する。自由作文禁止。
  */
-export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton): string {
+export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton, questionType?: QuestionType): string {
   if (skeleton.response_mode === "clarify") return ""; // clarify は骨格不要
+
+  const isKnowledgeOrStrategy = questionType === "knowledge" || questionType === "strategy";
 
   const parts: string[] = [
     "",
@@ -4303,7 +4648,9 @@ export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton): string {
     `- 主理由: ${skeleton.primary_reason}`,
     `- 主トレードオフ: ${skeleton.main_tradeoff}`,
     `- リスク注記: ${skeleton.risk_note}`,
-    `- 推奨次の一手: ${skeleton.recommended_next_step}`,
+    ...(isKnowledgeOrStrategy
+      ? [`- 不足情報: ${skeleton.recommended_next_step}（※「次の一手:」テンプレートは使わない。不足情報として自然に言及すること）`]
+      : [`- 推奨次の一手: ${skeleton.recommended_next_step}`]),
     `- 成長方向との整合: ${skeleton.growth_alignment === "aligned" ? "一致" : skeleton.growth_alignment === "override" ? "成長方向と矛盾するが状況が優先" : "中立"}`,
   ];
 
@@ -4311,7 +4658,12 @@ export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton): string {
   parts.push("");
   parts.push("**文章化ルール:**");
   parts.push("- 1行目は必ず「何をすべきか」の結論。「まず整理」「情報を集める」で始めない。");
-  parts.push("- 「次の一手」は具体的な行動を1つだけ。「整理する」「考える」は禁止。動詞+対象+期限を含める。");
+  if (isKnowledgeOrStrategy) {
+    parts.push("- 「次の一手:」テンプレートは**絶対に使わない**。「書き出して」「挙げて」等の宿題も禁止。");
+    parts.push("- 代わりに「〜がわかるともっと絞れる」等、不足情報を自然に言及する。");
+  } else {
+    parts.push("- 「次の一手」は具体的な行動を1つだけ。「整理する」「考える」は禁止。動詞+対象+期限を含める。");
+  }
   if (skeleton.action_shape === "observe_first") {
     parts.push("- observe_first でも1行目は判断の方向を示す。「今は動かない方がいい」「もう少し待つのがいい」のように立場を明示。");
     parts.push("- 「情報を集める」なら何の情報か、どこで集めるか具体化する。");
@@ -4327,7 +4679,9 @@ export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton): string {
     parts.push("- 断定口調は完全禁止。「絶対」「間違いなく」「〜するべきです」「〜しかないです」は使わない。");
     parts.push("- 「〜の可能性が高い」「今分かる範囲では〜」「〜寄りに見えます」を基本トーンにする。");
     parts.push("- 結論を出す場合も「今の情報だと〜が合っていそうです」のように留保をつける。");
-    parts.push("- 「次の一手」も「まずは〜から始めてみるのがいいかもしれません」のように柔らかくする。");
+    parts.push(isKnowledgeOrStrategy
+      ? "- 不足情報の言及も「〜がわかるともっと見えてくるかもしれない」のように柔らかくする。"
+      : "- 「次の一手」も「まずは〜から始めてみるのがいいかもしれません」のように柔らかくする。");
     if (skeleton.low_confidence_conclude_reason) {
       parts.push(`理由: ${skeleton.low_confidence_conclude_reason}`);
     }

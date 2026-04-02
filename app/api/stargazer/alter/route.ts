@@ -81,6 +81,9 @@ import {
   type PersonMapFactEntry,
   isEmotionalQuestion,
   isSelfUnderstandingQuestion,
+  classifyQuestionType,
+  applyQuestionTypeOverride,
+  type QuestionType,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
   estimateUserState,
@@ -745,6 +748,8 @@ export async function POST(req: NextRequest) {
 
       // 質問カテゴリ分類（行動カテゴリ: gathering/outfit/contact/work/cause/general）
       questionCategory = classifyQuestion(message);
+      // P1-A: 5タイプルーター（意図の種類: emotional/self_understanding/knowledge/strategy/judgment）
+      const questionType: QuestionType = classifyQuestionType(message);
 
       // ── Ambiguity Engine: ドメイン検出 + 曖昧性解析 + 応答モード選択 ──
       queryContext = analyzeQueryContext(message);
@@ -1088,9 +1093,14 @@ export async function POST(req: NextRequest) {
         console.info(`[home-alter] Direct request detected → direct_response mode`);
       } else {
         // 通常パイプライン: ambiguity engine でモード選択
-        const modeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
+        const rawModeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
+        // P1-A: knowledge/strategy 型は clarify/branch 不要 → conclude 強制
+        const modeDecision = applyQuestionTypeOverride(rawModeDecision, questionType);
         responseMode = modeDecision.mode;
         modeDecisionReason = modeDecision.reason;
+        if (rawModeDecision.mode !== modeDecision.mode) {
+          console.info(`[home-alter] P1-A type override: ${rawModeDecision.mode}→${modeDecision.mode} (questionType=${questionType})`);
+        }
       }
 
       // ── State → Mode 降格: fatigue/load が高い時は branch → conclude ──
@@ -1722,7 +1732,7 @@ export async function POST(req: NextRequest) {
         console.info(`[home-alter] Shape hints: trial=${shapeHints.suggests_trial} delegation=${shapeHints.suggests_delegation}`);
       }
 
-      console.info(`[home-alter] domain=${queryContext.domain}(${queryContext.domain_confidence.toFixed(2)}) ambiguity=${queryContext.ambiguity_score.toFixed(2)} info=${queryContext.information.score.toFixed(2)} mode=${responseMode} reason=${modeDecisionReason} role=${relationalLens?.target_role ?? "?"} purpose=${relationalLens?.interaction_purpose ?? "?"} temp=${relationalLens?.relational_temperature ?? "?"} risk=${relationalLens?.risk_direction ?? "?"} register=${relationalLens?.communication_register ?? "?"} shape=${judgmentSkeleton.action_shape} conf=${judgmentSkeleton.confidence_level} state={cap=${userState?.psychological_capacity.toFixed(2)},load=${userState?.emotional_load.toFixed(2)}} trust=T${discreteTrustLevel} emotional=${isEmotionalQuestion(message)} self_understanding=${isSelfUnderstandingQuestion(message)} ctx_loaded=${activeLifeContext.length}`);
+      console.info(`[home-alter] domain=${queryContext.domain}(${queryContext.domain_confidence.toFixed(2)}) ambiguity=${queryContext.ambiguity_score.toFixed(2)} info=${queryContext.information.score.toFixed(2)} mode=${responseMode} reason=${modeDecisionReason} role=${relationalLens?.target_role ?? "?"} purpose=${relationalLens?.interaction_purpose ?? "?"} temp=${relationalLens?.relational_temperature ?? "?"} risk=${relationalLens?.risk_direction ?? "?"} register=${relationalLens?.communication_register ?? "?"} shape=${judgmentSkeleton.action_shape} conf=${judgmentSkeleton.confidence_level} state={cap=${userState?.psychological_capacity.toFixed(2)},load=${userState?.emotional_load.toFixed(2)}} trust=T${discreteTrustLevel} question_type=${questionType} ctx_loaded=${activeLifeContext.length}`);
 
       // P0: alterSessionCount を homeContext に注入（アーキタイプ重み漸減用）
       // 基準値 = Alter 対話回数（decision pattern の observation_count 合計）
@@ -3063,8 +3073,9 @@ export async function POST(req: NextRequest) {
               trust_level_continuous: growthState?.trustLevel ?? 0,
               sessions_completed: growthState?.sessionsCompleted ?? 0,
               context_entries_loaded: p0ContextEntriesLoaded,
-              is_emotional: isEmotionalQuestion(message),
-              is_self_understanding: isSelfUnderstandingQuestion(message),
+              question_type: questionType,
+              is_emotional: questionType === "emotional",
+              is_self_understanding: questionType === "self_understanding",
               validation_failures: p0ValidationFailures,
               used_fallback_metadata: !homeDecisionMeta,
             },
