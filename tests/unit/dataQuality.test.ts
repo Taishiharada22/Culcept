@@ -18,12 +18,12 @@ describe("dataQuality", () => {
       });
       expect(result.overall).toBe(0);
       expect(result.level).toBe("low");
-      expect(result.levelLabel).toBe("低");
+      expect(result.levelLabel).toBe("観測開始直後");
     });
 
-    it("sampleSize は 200 観測で 1.0 に到達", () => {
+    it("sampleSize は 1000 観測で 1.0 に到達", () => {
       const result = computeDataQuality({
-        totalObservations: 200,
+        totalObservations: 1000,
         axisScores: { introvert_vs_extrovert: 0.5 } as never,
         observedAxesCount: 1,
         daysSinceFirstObservation: 1,
@@ -31,9 +31,9 @@ describe("dataQuality", () => {
       expect(result.dimensions.sampleSize).toBeCloseTo(1.0, 2);
     });
 
-    it("sampleSize は 100 観測で 0.5", () => {
+    it("sampleSize は 500 観測で 0.5", () => {
       const result = computeDataQuality({
-        totalObservations: 100,
+        totalObservations: 500,
         axisScores: {},
         observedAxesCount: 0,
         daysSinceFirstObservation: 1,
@@ -41,13 +41,13 @@ describe("dataQuality", () => {
       expect(result.dimensions.sampleSize).toBeCloseTo(0.5, 2);
     });
 
-    it("temporalCoverage は 90 日で 1.0 に到達", () => {
+    it("temporalCoverage は 365 日で 1.0 に到達", () => {
       const result = computeDataQuality({
-        totalObservations: 90,
+        totalObservations: 365,
         axisScores: {},
         observedAxesCount: 0,
-        daysSinceFirstObservation: 90,
-        observationDays: 90,
+        daysSinceFirstObservation: 365,
+        observationDays: 365,
       });
       expect(result.dimensions.temporalCoverage).toBeCloseTo(1.0, 2);
     });
@@ -77,21 +77,21 @@ describe("dataQuality", () => {
     });
 
     it("全パラメータが最大値で excellent を返す", () => {
-      // 十分なスコアのばらつきを持つ45軸のデータ
+      // 十分なスコアのばらつきを持つ33軸のデータ
       const axisScores: Record<string, number> = {};
       for (let i = 0; i < 33; i++) {
         axisScores[`axis_${i}`] = (i % 3 - 1) * 0.5; // -0.5, 0, 0.5 を繰り返す
       }
       const result = computeDataQuality({
-        totalObservations: 200,
+        totalObservations: 1000,
         axisScores: axisScores as never,
         observedAxesCount: 33,
-        daysSinceFirstObservation: 90,
-        observationDays: 90,
+        daysSinceFirstObservation: 365,
+        observationDays: 365,
       });
-      expect(result.overall).toBeGreaterThanOrEqual(0.8);
+      expect(result.overall).toBeGreaterThanOrEqual(0.75);
       expect(result.level).toBe("excellent");
-      expect(result.levelLabel).toBe("最高");
+      expect(result.levelLabel).toBe("十分");
     });
 
     it("overall は加重平均: 0.3*sample + 0.2*temporal + 0.25*axis + 0.25*consistency", () => {
@@ -111,21 +111,25 @@ describe("dataQuality", () => {
       expect(result.overall).toBeCloseTo(expected, 5);
     });
 
-    it("品質レベルの閾値が正しい: low < 0.3, moderate < 0.55, high < 0.8, excellent", () => {
-      const makeResult = (obs: number, axes: number, days: number) =>
-        computeDataQuality({
-          totalObservations: obs,
-          axisScores: { introvert_vs_extrovert: 0.5, cautious_vs_bold: -0.5 } as never,
-          observedAxesCount: axes,
-          daysSinceFirstObservation: days,
-          observationDays: days,
-        });
-      // 非常に少ないデータで low を確認
-      const lowResult = makeResult(5, 1, 2);
+    it("品質レベルの閾値が正しい: low < 0.25, moderate < 0.50, high < 0.75, excellent", () => {
+      // 非常に少ないデータで low を確認 (consistency = 0 にするため axisScores は空)
+      const lowResult = computeDataQuality({
+        totalObservations: 5,
+        axisScores: {} as never,
+        observedAxesCount: 1,
+        daysSinceFirstObservation: 2,
+        observationDays: 2,
+      });
       expect(lowResult.level).toBe("low");
-      // moderate: overall >= 0.3 && < 0.55
-      const modResult = makeResult(60, 10, 20);
-      expect(["low", "moderate"].includes(modResult.level)).toBe(true);
+      // moderate: overall >= 0.25 && < 0.50
+      const modResult = computeDataQuality({
+        totalObservations: 300,
+        axisScores: { introvert_vs_extrovert: 0.5, cautious_vs_bold: -0.5 } as never,
+        observedAxesCount: 10,
+        daysSinceFirstObservation: 100,
+        observationDays: 100,
+      });
+      expect(modResult.level).toBe("moderate");
     });
 
     it("advice は弱い次元に対して最大3件返す", () => {
@@ -145,11 +149,11 @@ describe("dataQuality", () => {
         axisScores[`axis_${i}`] = (i % 3 - 1) * 0.5;
       }
       const result = computeDataQuality({
-        totalObservations: 200,
+        totalObservations: 1000,
         axisScores: axisScores as never,
         observedAxesCount: 33,
-        daysSinceFirstObservation: 90,
-        observationDays: 90,
+        daysSinceFirstObservation: 365,
+        observationDays: 365,
       });
       expect(result.advice).toHaveLength(0);
     });

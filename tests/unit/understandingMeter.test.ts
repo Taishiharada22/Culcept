@@ -31,10 +31,10 @@ describe("understandingMeter", () => {
   // ── calculateUnderstanding ──
 
   describe("calculateUnderstanding", () => {
-    it("観測ゼロで最低の理解度（ベースライン5付近）を返す", () => {
+    it("観測ゼロで最低の理解度（ベースライン2付近）を返す", () => {
       const result = calculateUnderstanding(makeParams());
-      // rawOverall = 5 + 0 + 0 + 0 + 0 = 5
-      expect(result.overall).toBe(5);
+      // rawOverall = 2 + 0 + 0 + 0 + 0 = 2
+      expect(result.overall).toBe(2);
       expect(result.observationCount).toBe(0);
     });
 
@@ -46,9 +46,9 @@ describe("understandingMeter", () => {
           sessionCount: 3,
         })
       );
-      // sqrt(3)*4 + log(11)*1.5 + log(4)*1 + 0 + 5 ≈ 6.93 + 3.60 + 1.39 + 5 = 16.9
-      expect(result.overall).toBeGreaterThanOrEqual(15);
-      expect(result.overall).toBeLessThanOrEqual(25);
+      // sqrt(3)*2.5 + log(11)*0.8 + log(4)*0.5 + 0 + 2 ≈ 4.33 + 1.92 + 0.69 + 2 = 8.9
+      expect(result.overall).toBeGreaterThanOrEqual(7);
+      expect(result.overall).toBeLessThanOrEqual(12);
     });
 
     it("100観測・30日アクティブで中程度の理解度", () => {
@@ -60,10 +60,10 @@ describe("understandingMeter", () => {
           contradictionCount: 3,
         })
       );
-      // sqrt(30)*4 + log(101)*1.5 + log(26)*1 + log(4)*1.5 + 5
-      // ≈ 21.9 + 6.93 + 3.26 + 2.08 + 5 = 39.2
-      expect(result.overall).toBeGreaterThanOrEqual(35);
-      expect(result.overall).toBeLessThanOrEqual(50);
+      // sqrt(30)*2.5 + log(101)*0.8 + log(26)*0.5 + log(4)*0.6 + 2
+      // ≈ 13.69 + 3.69 + 1.63 + 0.83 + 2 = 21.8
+      expect(result.overall).toBeGreaterThanOrEqual(18);
+      expect(result.overall).toBeLessThanOrEqual(28);
     });
 
     it("200観測・90日アクティブで高い理解度", () => {
@@ -75,10 +75,10 @@ describe("understandingMeter", () => {
           contradictionCount: 10,
         })
       );
-      // sqrt(90)*4 + log(201)*1.5 + log(81)*1 + log(11)*1.5 + 5
-      // ≈ 37.9 + 7.96 + 4.39 + 3.60 + 5 = 58.9
-      expect(result.overall).toBeGreaterThanOrEqual(55);
-      expect(result.overall).toBeLessThanOrEqual(70);
+      // sqrt(90)*2.5 + log(201)*0.8 + log(81)*0.5 + log(11)*0.6 + 2
+      // ≈ 23.72 + 4.24 + 2.20 + 1.44 + 2 = 33.6
+      expect(result.overall).toBeGreaterThanOrEqual(30);
+      expect(result.overall).toBeLessThanOrEqual(40);
     });
 
     it("MAX_LEVEL 85% を超えない", () => {
@@ -90,7 +90,7 @@ describe("understandingMeter", () => {
           contradictionCount: 500,
         })
       );
-      expect(result.overall).toBeLessThanOrEqual(85);
+      expect(result.overall).toBeLessThanOrEqual(75);
     });
 
     it("overall は 0 未満にならない", () => {
@@ -187,7 +187,7 @@ describe("understandingMeter", () => {
       );
       expect(typeof result.overall).toBe("number");
       expect(Number.isNaN(result.overall)).toBe(false);
-      expect(result.overall).toBeLessThanOrEqual(85);
+      expect(result.overall).toBeLessThanOrEqual(75);
     });
   });
 
@@ -226,14 +226,14 @@ describe("understandingMeter", () => {
       expect(decayed.overall).toBe(40);
     });
 
-    it("MIN_LEVEL 5% を下回らない", () => {
+    it("MIN_LEVEL 2% を下回らない", () => {
       const level: UnderstandingLevel = {
         ...createInitialLevel(),
         overall: 10,
         lastObservationAt: Date.now() - 30 * 24 * 60 * 60 * 1000, // 30日前
       };
       const decayed = applyDecay(level);
-      expect(decayed.overall).toBeGreaterThanOrEqual(5);
+      expect(decayed.overall).toBeGreaterThanOrEqual(2);
     });
 
     it("lastObservationAt がゼロの場合は減衰しない", () => {
@@ -301,9 +301,9 @@ describe("understandingMeter", () => {
       expect(getReachedMilestones(0)).toHaveLength(0);
     });
 
-    it("理解度 50 で5つのマイルストーン達成", () => {
+    it("理解度 50 で6つのマイルストーン達成", () => {
       const reached = getReachedMilestones(50);
-      expect(reached.length).toBe(5); // 12, 20, 30, 40, 50
+      expect(reached.length).toBe(6); // 5, 10, 18, 28, 38, 50
       expect(reached[reached.length - 1].percentage).toBe(50);
     });
 

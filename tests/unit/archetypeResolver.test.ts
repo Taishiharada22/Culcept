@@ -4,6 +4,7 @@ import {
   calculateLayer1Scores,
   calculateLayer2Scores,
   calculateLayer3Scores,
+  calculateLayer4Scores,
 } from "@/lib/stargazer/archetypeResolver";
 import type { TraitAxisKey } from "@/lib/stargazer/traitAxes";
 
@@ -28,24 +29,24 @@ describe("archetypeResolver", () => {
     it("直感的な軸が高いと N (直感) が優位", () => {
       const scores = calculateLayer1Scores(
         makeAxes({
-          individual_vs_social: 0.9,
-          social_initiative: 0.8,
-          intimacy_pace: 0.7,
-          stress_isolation_vs_social: 0.8,
-          independence_vs_harmony: 0.8,
+          analytical_vs_intuitive: 0.9,  // intuitive → N
+          tradition_vs_novelty: 0.7,
+          cognitive_updating: 0.6,
+          exploration_closure: 0.5,
         })
       );
       expect(scores.N).toBeGreaterThan(scores.A);
       expect(scores.N).toBeGreaterThan(scores.S);
     });
 
-    it("慎重さが高く変化抵抗が高いと S (体感) が優位", () => {
+    it("体感的な軸が高いと S (体感) が優位", () => {
       const scores = calculateLayer1Scores(
         makeAxes({
-          cautious_vs_bold: -0.9,  // cautious
-          change_embrace_vs_resist: 0.9, // resist
-          control_tendency: 0.7,
-          boundary_awareness: 0.7,
+          function_vs_expression: 0.6,
+          minimal_vs_maximal: 0.5,
+          plan_vs_spontaneous: 0.5,
+          decision_tempo: 0.4,
+          abstract_structuring: -0.5,
         })
       );
       expect(scores.S).toBeGreaterThan(scores.A);
@@ -54,12 +55,12 @@ describe("archetypeResolver", () => {
   });
 
   describe("calculateLayer2Scores (Emotion: C/V)", () => {
-    it("分析的軸が高いと C (静) が優位", () => {
+    it("感情制御が高いと C (静) が優位", () => {
       const scores = calculateLayer2Scores(
         makeAxes({
-          analytical_vs_intuitive: -0.9, // analytical
-          plan_vs_spontaneous: -0.7,     // plan
-          quality_vs_quantity: -0.5,
+          emotional_regulation: 0.9,
+          emotional_variability: -0.8,
+          reassurance_need: -0.6,
         })
       );
       expect(scores.C).toBeGreaterThan(scores.V);
@@ -95,7 +96,7 @@ describe("archetypeResolver", () => {
   describe("resolveArchetype", () => {
     it("空入力でも有効なアーキタイプコードを返す", () => {
       const result = resolveArchetype({});
-      expect(result.code).toMatch(/^[PBH][EIS][AWD]$/);
+      expect(result.code).toMatch(/^[ANS][CV][IE][OX]$/);
       expect(result.topMatches).toHaveLength(3);
     });
 
@@ -173,22 +174,22 @@ describe("archetypeResolver", () => {
       ] as TraitAxisKey[];
       for (const k of keys) axes[k] = 0;
       const result = resolveArchetype(axes);
-      expect(result.code).toMatch(/^[PBH][EIS][AWD]$/);
+      expect(result.code).toMatch(/^[ANS][CV][IE][OX]$/);
     });
 
-    it("layer1/2/3 の scores が含まれる", () => {
+    it("layer1/2/3/4 の scores が含まれる", () => {
       const result = resolveArchetype(
         makeAxes({ introvert_vs_extrovert: 0.5 })
       );
-      expect(result.layer1.scores).toHaveProperty("P");
-      expect(result.layer1.scores).toHaveProperty("B");
-      expect(result.layer1.scores).toHaveProperty("H");
-      expect(result.layer2.scores).toHaveProperty("E");
-      expect(result.layer2.scores).toHaveProperty("I");
-      expect(result.layer2.scores).toHaveProperty("S");
-      expect(result.layer3.scores).toHaveProperty("A");
-      expect(result.layer3.scores).toHaveProperty("W");
-      expect(result.layer3.scores).toHaveProperty("D");
+      expect(result.layer1.scores).toHaveProperty("A");
+      expect(result.layer1.scores).toHaveProperty("N");
+      expect(result.layer1.scores).toHaveProperty("S");
+      expect(result.layer2.scores).toHaveProperty("C");
+      expect(result.layer2.scores).toHaveProperty("V");
+      expect(result.layer3.scores).toHaveProperty("I");
+      expect(result.layer3.scores).toHaveProperty("E");
+      expect(result.layer4.scores).toHaveProperty("O");
+      expect(result.layer4.scores).toHaveProperty("X");
     });
   });
 });
