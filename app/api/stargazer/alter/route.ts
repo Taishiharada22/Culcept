@@ -2429,14 +2429,67 @@ export async function POST(req: NextRequest) {
         console.warn("[home-alter] First attempt failed:", e);
       }
 
+      // ── P1-B: 空レスリトライ（最大1回、同一プロンプト再呼び出し） ──
+      // 空判定: 空文字・空白のみ・改行のみ・null/undefined を全て空とみなす
+      let emptyRetryAttempted = false;
+      let emptyRetrySucceeded = false;
+      if (!homeResponse?.trim()) {
+        emptyRetryAttempted = true;
+        console.warn("[home-alter] Empty response from LLM, retrying once with same prompt");
+        try {
+          const emptyRetryResult = await runAI({
+            taskType: "stargazer_alter_response",
+            prompt: homeUserPrompt,
+            systemPrompt: homeSystemPrompt,
+            requireJson: false,
+            temperature: (responseMode === "clarify" || responseMode === "repair") ? 0.3 : 0.6,
+            maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 512 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
+            userId: userId,
+            metadata: makeStargazerRunMetadata({
+              feature: "alter",
+              mode: "warm",
+              turnNumber: conversationHistory.length,
+              skipCache: true,
+              attempt: 1,
+            }),
+          });
+          if (emptyRetryResult.success && emptyRetryResult.text?.trim()) {
+            if (responseMode === "clarify" || responseMode === "repair" || responseMode === "direct_response") {
+              homeResponse = formatHomeAlterResponse(emptyRetryResult.text.trim(), userName);
+            } else {
+              const { responseText: stripped, metadata: meta } = parseDecisionMetadata(emptyRetryResult.text);
+              homeResponse = formatHomeAlterResponse(stripped, userName);
+              if (meta) homeDecisionMeta = meta;
+            }
+            emptyRetrySucceeded = true;
+            console.info("[home-alter] Empty response retry succeeded");
+          }
+        } catch (retryErr) {
+          console.warn("[home-alter] Empty response retry failed:", retryErr);
+        }
+        // analytics: 空レスリトライの結果を記録
+        supabase.from("stargazer_analytics").insert({
+          user_id: userId,
+          event: "home_alter_empty_retry",
+          feature: "alter",
+          metadata: {
+            attempted: true,
+            succeeded: emptyRetrySucceeded,
+            response_mode: responseMode,
+            question_type: questionType,
+          },
+        }).then(() => {}, () => {});
+      }
+
       // 検査（モード別バリデーション）
-      const validation = homeResponse
+      const validation = homeResponse?.trim()
         ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode)
         : { pass: false, failures: ["応答の生成に失敗"] };
       p0ValidationFailures = validation.failures;
 
-      // 不合格なら再生成（facts を明示して再試行）— clarify/repair/direct_response は軽量バリデーションなので再生成不要
-      if (!validation.pass && homeResponse && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response") {
+      // 不合格なら再生成（facts を明示して再試行）
+      // 条件: validation不合格 + 応答が空でない + clarify/repair/direct_responseでない + 空レスリトライ済みでない
+      if (!validation.pass && homeResponse?.trim() && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response" && !emptyRetryAttempted) {
         console.info("[home-alter] First response failed validation:", validation.failures);
         try {
           const retryPrompt = buildHomeAlterRetryPrompt(
@@ -2524,18 +2577,24 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // フォールバック: LLM 生成が失敗した場合、JudgmentFramework から文脈を活かす
-      if (!homeResponse) {
-        try {
-          const identity = framework.identityFit.split("。")[0] ?? "";
-          const growth = framework.growthVector.split("。")[0] ?? "";
-          const namePrefix = userName ? `${userName}さん、` : "";
-          homeResponse = `${namePrefix}${identity}。${growth}。\n次の一手: その方向で、今日ひとつだけ小さく試してみるのがよさそうです。`;
-        } catch {
-          // フォールバック生成も失敗した場合はデフォルトメッセージ
+      // フォールバック: LLM 生成が失敗した場合、質問タイプに合わせた安全な応答を生成
+      if (!homeResponse?.trim()) {
+        const namePrefix = userName ? `${userName}さん、` : "";
+        if (questionType === "emotional") {
+          homeResponse = `${namePrefix}今は無理に言葉にしなくても大丈夫。ここにいるから、話したくなったらいつでも。`;
+        } else {
+          try {
+            const identity = (framework.identityFit?.split("。")[0] ?? "").trim();
+            const growth = (framework.growthVector?.split("。")[0] ?? "").trim();
+            if (identity && growth) {
+              homeResponse = `${namePrefix}${identity}。${growth}。もう少し話を聞かせてもらえると、精度が上がるはず。`;
+            }
+          } catch {
+            // フォールバック生成失敗 → 下の最終デフォルトへ
+          }
         }
       }
-      alterResponseText = homeResponse || "判断に必要なデータを確認中です。もう少し観測を重ねると精度が上がります。";
+      alterResponseText = homeResponse || "もう少し話を聞かせてもらえると、より正確にお伝えできます。";
 
       // ── Layer 4: 応答品質検証 ──
       if (homeResponse && judgmentSkeleton && relationalLens && inputUnderstanding && responseMode !== "clarify") {
