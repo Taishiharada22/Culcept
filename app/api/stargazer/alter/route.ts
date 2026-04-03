@@ -192,6 +192,24 @@ import {
   saveAlterLetter,
   getLastLetterSessionCount,
 } from "@/lib/stargazer/alterLetters";
+import {
+  isThinSliceEnabled,
+  reconstructThinSliceState,
+  assessTurnValue,
+  generateInsight,
+  selectSharpBet,
+  determineClaimStrength,
+  evaluateBetOutcome,
+  buildBetPromptBlock,
+  buildRetractionPromptBlock,
+  buildThinSliceAnalytics,
+  type ThinSliceSessionState,
+  type TurnValueAssessment,
+  type GeneratedInsight,
+  type SharpBet,
+  type ClaimDecision,
+  type BetOutcome,
+} from "@/lib/stargazer/alterThinSlice";
 
 export const runtime = "nodejs";
 
@@ -724,6 +742,14 @@ export async function POST(req: NextRequest) {
     let insightPresented = false;
     // P5: ベースラインズレ由来の追加シグナル
     let baselineSignals: MicroSignal[] = [];
+    // P1.5 Thin-Slice: ホイスト変数
+    let thinSliceActive = false;
+    let thinSliceState: ThinSliceSessionState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0 };
+    let turnValue: TurnValueAssessment = { budget: "standard", reason: "not_home_alter", invoke_insight: false };
+    let thinSliceInsight: GeneratedInsight | null = null;
+    let thinSliceBet: SharpBet | null = null;
+    let thinSliceClaim: ClaimDecision | null = null;
+    let thinSliceBetOutcome: BetOutcome | null = null;
     // P0/P3/P5: ホイスト変数（Home Alter 内の複数ブロックで共有）
     let alterSessionCount = 0;
     let baselineDeviationsFull: BaselineDeviation[] = [];
@@ -739,6 +765,12 @@ export async function POST(req: NextRequest) {
     // HOME ALTER: 完全に別フロー（挨拶なし、判断特化、検査+再生成）
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (isHomeAlter) {
+      // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
+      thinSliceActive = isThinSliceEnabled(userId);
+      if (thinSliceActive) {
+        thinSliceState = await reconstructThinSliceState(supabase, userId, sessionId);
+      }
+
       // ━━━━ ユーザー表示名を取得（Embedded Alter の呼称に使用） ━━━━
       let userName: string | undefined;
       try {
@@ -1159,6 +1191,29 @@ export async function POST(req: NextRequest) {
           responseMode = "conclude";
           modeDecisionReason = "conclude_mid_ambiguity_info_sufficient";
           console.info(`[home-alter] State-driven mode downgrade: branch → conclude (fatigue=${userState.cognitive_fatigue.toFixed(2)}, load=${userState.emotional_load.toFixed(2)})`);
+        }
+      }
+
+      // ── P1.5 Thin-Slice: 差し込みA — High-Value Turn Detector ──
+      turnValue = assessTurnValue(
+        responseMode, questionType, detectedReaction, message,
+        conversationHistory.length, lastAlterContent,
+      );
+      if (turnValue.budget !== "standard") {
+        console.info(`[thin-slice] Turn value: ${turnValue.budget} (${turnValue.reason})`);
+      }
+
+      // ── P1.5: 前ターンの bet outcome を今の reaction で判定 ──
+      if (thinSliceActive && thinSliceState.last_bet && detectedReaction) {
+        thinSliceBetOutcome = evaluateBetOutcome(detectedReaction);
+        if (thinSliceBetOutcome === "miss") {
+          thinSliceState.rejected_bets.push(thinSliceState.last_bet.bet);
+          thinSliceState.consecutive_misses++;
+          thinSliceState.last_bet_outcome = "miss";
+        } else if (thinSliceBetOutcome === "hit") {
+          thinSliceState.accepted_bets.push(thinSliceState.last_bet.bet);
+          thinSliceState.consecutive_misses = 0;
+          thinSliceState.last_bet_outcome = "hit";
         }
       }
 
@@ -2460,6 +2515,49 @@ export async function POST(req: NextRequest) {
         homeSystemPrompt += `\n\n# 前回のALTERの応答（これが誤解の原因）\n「${lastAlterContent.slice(0, 300)}」\n\nユーザーの今の発言はこの応答への訂正。上記の何がズレていたかを把握した上で応答すること。`;
       }
 
+      // ── P1.5 Thin-Slice: 差し込みB — Insight + Bet + Claim + Prompt 注入 ──
+      if (thinSliceActive && turnValue.invoke_insight && growthState) {
+        try {
+          // Step 1: 前 bet miss → retraction prompt 注入
+          if (thinSliceBetOutcome === "miss" && thinSliceState.last_bet) {
+            homeSystemPrompt += buildRetractionPromptBlock(
+              thinSliceState.last_bet.bet,
+              "ちょっとズレてたかもしれない。",
+            );
+          }
+
+          // Step 2: Insight Generator（micro-LLM、hard timeout 700ms）
+          thinSliceInsight = await generateInsight(
+            message, conversationHistory.map(m => ({ role: m.role, content: m.content })),
+            growthState, longTermMemory,
+            hypothesisFactEntries ?? null, personality, discreteTrustLevel,
+          );
+
+          // Step 3: Sharp Bet 選定（ルールベース）
+          thinSliceBet = selectSharpBet(
+            thinSliceInsight, hypothesisFactEntries ?? null, growthState,
+            longTermMemory, thinSliceState,
+          );
+
+          // Step 4: Claim Strength（ルールベース）
+          thinSliceClaim = determineClaimStrength(
+            thinSliceBet, discreteTrustLevel, detectedReaction, thinSliceState,
+          );
+
+          // Step 5: プロンプト注入
+          if (thinSliceBet && thinSliceClaim && thinSliceClaim.strength !== "hold") {
+            homeSystemPrompt += buildBetPromptBlock(thinSliceBet, thinSliceClaim);
+            console.info(`[thin-slice] Bet injected: "${thinSliceBet.bet.slice(0, 60)}..." (${thinSliceClaim.strength}, conf=${thinSliceBet.confidence.toFixed(2)})`);
+          }
+        } catch (e) {
+          // fail-open: thin-slice 全体の失敗は既存フローへフォールバック
+          console.warn("[thin-slice] Insight/Bet/Claim pipeline failed (fail-open):", e);
+          thinSliceInsight = null;
+          thinSliceBet = null;
+          thinSliceClaim = null;
+        }
+      }
+
       // フォローアップ傾向をプロンプトに注入
       if (followupInsight) {
         homeSystemPrompt += `\n\n# 過去の提案に対するフィードバック傾向\n${followupInsight}\nこの傾向を考慮して、提案の粒度・ハードルを調整すること。`;
@@ -3218,6 +3316,11 @@ export async function POST(req: NextRequest) {
               communication_register: relationalLens.communication_register,
               involves_other: relationalLens.involves_other,
             } : undefined,
+            // P1.5 Thin-Slice metadata
+            thin_slice: buildThinSliceAnalytics(
+              thinSliceActive, turnValue, thinSliceInsight,
+              thinSliceBet, thinSliceClaim, thinSliceBetOutcome,
+            ),
             // 学習ループ用: フォローアップ傾向が判断に影響したか
             followup_insight_applied: !!followupInsight,
             question_category: questionCategory,
