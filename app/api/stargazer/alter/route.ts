@@ -2712,11 +2712,13 @@ export async function POST(req: NextRequest) {
       // ── Phase 5: 不気味ライン検知 ──
       // 応答が「見透かしている感」を超えていないかチェック
       if (homeResponse && discreteTrustLevel !== undefined) {
+        // T0 gate: prompt に注入していないなら contextEntriesUsed も 0
+        const contextEntriesForCreepiness = t0Gate ? activeLifeContext.length : 0;
         creepinessCheck = checkCreepinessLine(
           homeResponse,
           discreteTrustLevel,
           hypothesesInjectedCount,
-          activeLifeContext.length,
+          contextEntriesForCreepiness,
         );
         if (!creepinessCheck.pass) {
           console.warn("[creepiness] Critical violation detected:", creepinessCheck.violations);
@@ -2756,7 +2758,7 @@ export async function POST(req: NextRequest) {
               const safeFormatted = formatHomeAlterResponse(safeStripped, userName);
 
               // 再生成した応答も不気味ラインチェック
-              const safeCreepiness = checkCreepinessLine(safeFormatted, discreteTrustLevel, 0, activeLifeContext.length);
+              const safeCreepiness = checkCreepinessLine(safeFormatted, discreteTrustLevel, 0, contextEntriesForCreepiness);
               if (safeCreepiness.pass) {
                 homeResponse = safeFormatted;
                 alterResponseText = homeResponse;
