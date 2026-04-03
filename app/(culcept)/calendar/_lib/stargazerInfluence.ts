@@ -197,22 +197,21 @@ function buildSummary(
   dims: StargazerInfluence["dimensions"],
   activeCount: number,
 ): string {
-  if (activeCount === 0) return "パーソナルデータなし";
+  if (activeCount === 0) return "まだデータが少ないため、汎用的な提案です";
 
   // 最も影響の大きい軸を特定
   const sorted = Object.entries(dims)
     .filter(([, v]) => v > 5)
     .sort(([, a], [, b]) => b - a);
 
-  const labels: Record<string, string> = {
-    persona: "パーソナルカラー・スタイル軸",
-    satisfaction: "満足度学習",
-    adaptation: "心理状態",
-    gap: "クローゼット分析",
+  // 「なぜこの提案か」が伝わる説明可能性寄りの表現
+  const reasons: Record<string, string> = {
+    persona: "あなたの似合う色・スタイル傾向",
+    satisfaction: "過去に高評価だったアイテムの傾向",
+    adaptation: "今の気分・コンディション",
+    gap: "クローゼットの偏り",
   };
 
-  if (sorted.length === 1) {
-    return `${labels[sorted[0][0]]}が主に反映`;
-  }
-  return `${labels[sorted[0][0]]}と${labels[sorted[1][0]]}が反映`;
+  const top = sorted.slice(0, 2).map(([k]) => reasons[k]);
+  return `${top.join("と")}をもとに提案しています`;
 }

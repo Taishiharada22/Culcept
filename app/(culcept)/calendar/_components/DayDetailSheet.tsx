@@ -231,10 +231,10 @@ export default function DayDetailSheet({
                       {stargazerInfluence && stargazerInfluence.activeCount > 0 && (() => {
                         const level = getInfluenceLevel(stargazerInfluence.totalScore);
                         const levelConfig = {
-                          none: { color: "text-gray-300", bar: "bg-gray-200", label: "—" },
-                          low: { color: "text-gray-400", bar: "bg-gray-300", label: "低" },
-                          medium: { color: "text-violet-500", bar: "bg-violet-400", label: "中" },
-                          high: { color: "text-violet-600", bar: "bg-violet-500", label: "高" },
+                          none: { color: "text-gray-300", bar: "bg-gray-200/60", label: "—" },
+                          low: { color: "text-gray-400", bar: "bg-gray-300/60", label: "低" },
+                          medium: { color: "text-gray-500", bar: "bg-gray-400/50", label: "中" },
+                          high: { color: "text-gray-500", bar: "bg-gray-400/60", label: "高" },
                         }[level];
                         const dims = [
                           { key: "persona", label: "カラー・軸", value: stargazerInfluence.dimensions.persona },
@@ -247,8 +247,8 @@ export default function DayDetailSheet({
                           <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3">
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
-                                <span className="text-sm">🔭</span>
-                                <span className="text-[10px] font-bold tracking-widest text-gray-400">STARGAZER 影響度</span>
+                                <span className="text-[10px]">🔭</span>
+                                <span className="text-[9px] font-semibold tracking-widest text-gray-400">パーソナライズ度</span>
                               </div>
                               <span className={`text-[10px] font-bold ${levelConfig.color}`}>
                                 {stargazerInfluence.totalScore}% ({levelConfig.label})
@@ -266,7 +266,7 @@ export default function DayDetailSheet({
                                   <div key={d.key} className="flex items-center gap-1.5">
                                     <span className="text-[8px] text-gray-400 w-14 shrink-0">{d.label}</span>
                                     <div className="flex-1 h-1 rounded-full bg-gray-100/80 overflow-hidden">
-                                      <div className="h-full rounded-full bg-violet-300/60"
+                                      <div className="h-full rounded-full bg-gray-300/50"
                                         style={{ width: `${Math.min(100, d.value)}%` }} />
                                     </div>
                                     <span className="text-[8px] text-gray-400 w-6 text-right">{d.value}</span>

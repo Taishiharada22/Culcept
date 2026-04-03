@@ -33,20 +33,26 @@ export function buildProposalAxisChips(ctx: {
 }): AxisChip[] {
   const chips: AxisChip[] = [];
 
-  // 1. PCシーズン配色 — persona に pcSeason4 がある場合
-  if (ctx.persona?.pcSeason4) {
-    const SEASON_LABELS: Record<string, string> = {
-      spring: "スプリング",
-      summer: "サマー",
-      autumn: "オータム",
-      winter: "ウィンター",
-    };
-    const label = SEASON_LABELS[ctx.persona.pcSeason4];
-    if (label) {
-      chips.push({
-        label: `${label}向け配色`,
-        confidence: ctx.persona.completeness >= 60 ? "high" : "medium",
-      });
+  // ── 優先順位: 満足度 → スタイル軸 → 似合う色 → 心理適応 → ギャップ ──
+  // ヒーローでは上位3個のみ表示されるため、刺さる順に並べる
+
+  // 1. 直近満足度 — 学習データが十分な場合（最も"自分のデータ"感が強い）
+  if (ctx.satisfaction && ctx.satisfaction.dataPoints >= 7) {
+    let totalAvg = 0;
+    let count = 0;
+    for (const [, score] of ctx.satisfaction.itemScores) {
+      if (score.count >= 2) {
+        totalAvg += score.avg;
+        count++;
+      }
+    }
+    if (count > 0) {
+      const avg = totalAvg / count;
+      if (avg >= 3.8) {
+        chips.push({ label: "直近満足度高め", confidence: "high" });
+      } else if (avg <= 2.5) {
+        chips.push({ label: "満足度から改善中", confidence: "medium" });
+      }
     }
   }
 
@@ -72,24 +78,20 @@ export function buildProposalAxisChips(ctx: {
     }
   }
 
-  // 3. 直近満足度 — 学習データが十分な場合
-  if (ctx.satisfaction && ctx.satisfaction.dataPoints >= 7) {
-    // itemScores の平均を計算
-    let totalAvg = 0;
-    let count = 0;
-    for (const [, score] of ctx.satisfaction.itemScores) {
-      if (score.count >= 2) {
-        totalAvg += score.avg;
-        count++;
-      }
-    }
-    if (count > 0) {
-      const avg = totalAvg / count;
-      if (avg >= 3.8) {
-        chips.push({ label: "直近満足度高め", confidence: "high" });
-      } else if (avg <= 2.5) {
-        chips.push({ label: "満足度から改善中", confidence: "medium" });
-      }
+  // 3. PCシーズン配色 — persona に pcSeason4 がある場合
+  if (ctx.persona?.pcSeason4) {
+    const SEASON_LABELS: Record<string, string> = {
+      spring: "スプリング",
+      summer: "サマー",
+      autumn: "オータム",
+      winter: "ウィンター",
+    };
+    const label = SEASON_LABELS[ctx.persona.pcSeason4];
+    if (label) {
+      chips.push({
+        label: `${label}向け配色`,
+        confidence: ctx.persona.completeness >= 60 ? "high" : "medium",
+      });
     }
   }
 
