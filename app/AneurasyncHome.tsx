@@ -20,6 +20,7 @@ import { useAlterChat } from "@/hooks/useAlterChat";
 import { updatePredictionVerification, loadPredictions, calculateAccuracy } from "@/lib/stargazer/predictionEngine";
 import { updateLearningFromFeedback } from "@/lib/stargazer/predictionLearningLoop";
 import { safeSetItem, ensureStorageSpace } from "@/lib/stargazer/localStorageHelper";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 // ─── Core components (needed on first render) ───
 import HomeHeader from "./_home/HomeHeader";
@@ -31,6 +32,7 @@ import AnswerCard from "@/components/home/AnswerCard";
 import InlineInnerWeather from "@/components/home/InlineInnerWeather";
 import ContextReel from "@/components/home/ContextReel";
 import HomeQuickAccess from "@/components/home/HomeQuickAccess";
+import DailyFlowChip from "@/components/home/DailyFlowChip";
 
 // ─── Overlays ───
 const HomeTour = dynamic(() => import("@/components/home/HomeTour"), { ssr: false });
@@ -48,6 +50,7 @@ export default function AneurasyncHome() {
   const scrollRef = useRef<HTMLDivElement>(null);
   useImplicitSignals(scrollRef);
   const { trigger: triggerMicro } = useMicroInteractions();
+  const isMobile = useIsMobile();
 
   const [greeting, setGreeting] = useState(() => {
     const tod = getTimeOfDayDetail();
@@ -330,6 +333,51 @@ export default function AneurasyncHome() {
   const composerHasConversation = composerMounted && alterChat.messages.length > 0;
   const composerIsLimitReached = composerMounted && alterChat.limitReached;
 
+  // ── 会話モード（モバイル専用）: フォーカス中 or テキスト入力中 → ホームUIを消して会話に集中 ──
+  // デスクトップ(≥768px)では常に false → 通常UIのまま
+  // composerMounted ガード: SSR/hydration 時の不整合を防止
+  // hasText 継続仕様: テキストが残っている間は会話モードを維持（キーボード閉じても戻さない）
+  const isComposing = composerMounted && isMobile && (composerFocused || composerQuery.trim().length > 0);
+
+  // ── 入力モード時コンテキストライン（フォーカスイン時にロック、途中で切り替えない） ──
+  const prevIsComposingRef = useRef(false);
+  const [composingCtxLine, setComposingCtxLine] = useState("");
+
+  useEffect(() => {
+    // false → true の遷移時のみ計算
+    if (isComposing && !prevIsComposingRef.current) {
+      const WEATHER_CTX: Record<string, string> = {
+        // API返却ラベル
+        穏やか: "今日は落ち着いて考えやすい状態です",
+        エネルギッシュ: "今日は攻めの判断で考えます",
+        モヤモヤ: "今日は少し慎重寄りで考えます",
+        低空飛行: "今日はゆっくり整理して考えます",
+        イライラ: "今日は冷静に切り分けて考えます",
+        // クイックプリセットラベル
+        絶好調: "今日は勢いに乗って考えます",
+        元気: "今日は落ち着いて考えやすい状態です",
+        普通: "いつも通りの視点で考えます",
+        ダルい: "今日はゆっくり整理して考えます",
+        もうダメ: "今日は無理せず整理だけします",
+      };
+
+      if (innerWeather?.recorded && innerWeather.label) {
+        // P1: 内面天気あり → 今日の状態をふまえた文言
+        setComposingCtxLine(WEATHER_CTX[innerWeather.label] ?? "今日の状態をふまえて考えます");
+      } else if (alterChat.messages.length > 0) {
+        // P2: 同一会話で直前文脈あり → 継続感
+        setComposingCtxLine("前の流れもふまえて考えます");
+      } else if ((sgData?.observationCount ?? 0) > 0) {
+        // P3: 観測データあり → 個人化の証拠
+        setComposingCtxLine("あなたの判断パターンをもとに考えます");
+      } else {
+        // P4: フォールバック
+        setComposingCtxLine("あなた向けに整理します");
+      }
+    }
+    prevIsComposingRef.current = isComposing;
+  }, [isComposing, innerWeather, alterChat.messages.length, sgData?.observationCount]);
+
   const handleComposerSubmit = (text?: string) => {
     const q = (text ?? composerQuery).trim();
     if (!q || alterChat.loading || composerIsLimitReached) return;
@@ -457,98 +505,141 @@ export default function AneurasyncHome() {
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div style={{ color: C.t1, paddingTop: 56 }}>
 
-          {/* ── 上部バー: ALTER + Sync + 内面天気 ── */}
-          <div className="px-5 pt-2 pb-1 flex items-center gap-2">
-            <div className="flex items-center gap-1.5">
-              <div
-                className="w-[3px] h-5 rounded-full"
-                style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+          {/* ── 入力モード時（モバイル）: ALTER + コンテキスト1行のみ ── */}
+          {isComposing && (
+            <div className="px-5 pt-2 pb-1 flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-[3px] h-5 rounded-full"
+                  style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+                />
+                <span
+                  className="text-[14px] font-black tracking-[0.12em]"
+                  style={{ color: "#4338CA" }}
+                >
+                  ALTER
+                </span>
+              </div>
+              <span
+                className="text-[11px] leading-snug"
+                style={{ color: "rgba(99,102,241,0.5)" }}
+              >
+                {composingCtxLine}
+              </span>
+            </div>
+          )}
+
+          {/* ── 通常時: 上部バー + 天気 + AnswerCard ── */}
+          <div
+            className="transition-all duration-200 overflow-hidden"
+            style={{
+              opacity: isComposing ? 0 : 1,
+              maxHeight: isComposing ? 0 : 600,
+            }}
+          >
+            {/* ── 上部バー: ALTER + Sync + DailyFlowChip ── */}
+            <div className="px-5 pt-2 pb-1 flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-[3px] h-5 rounded-full"
+                  style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+                />
+                <span
+                  className="text-[14px] font-black tracking-[0.12em]"
+                  style={{ color: "#4338CA" }}
+                >
+                  ALTER
+                </span>
+              </div>
+              {syncPercent > 0 && (
+                <span
+                  className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                  style={{
+                    background: "rgba(99,102,241,0.08)",
+                    color: "#6366F1",
+                    border: "1px solid rgba(99,102,241,0.12)",
+                  }}
+                >
+                  Sync {syncPercent}%
+                </span>
+              )}
+              <div className="ml-auto">
+                <DailyFlowChip
+                  instrumentUsedToday={instrumentUsedToday}
+                  innerWeatherRecorded={!!innerWeather?.recorded}
+                  observationCount={sgData?.observationCount ?? 0}
+                />
+              </div>
+            </div>
+
+            {/* ── 心の天気（フル入力）── AnswerCardの上 ── */}
+            <InlineInnerWeather innerWeather={innerWeather} />
+
+            {/* ── 文脈レール: 今日の一手（compact） ── */}
+            <ZoneErrorBoundary zoneName="answer">
+              <AlterFollowup />
+              <AnswerCard
+                proposal={answerData.proposal}
+                confidence={answerData.confidence}
+                alternative={answerData.alternative}
+                caution={answerData.caution}
+                sources={answerData.sources}
+                observationCount={answerData.observationCount}
+                onFeedback={handleAlterFeedback}
+                feedbackGiven={alterFeedback}
+                compact
               />
-              <span
-                className="text-[14px] font-black tracking-[0.12em]"
-                style={{ color: "#4338CA" }}
-              >
-                ALTER
-              </span>
-            </div>
-            {syncPercent > 0 && (
-              <span
-                className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(99,102,241,0.08)",
-                  color: "#6366F1",
-                  border: "1px solid rgba(99,102,241,0.12)",
-                }}
-              >
-                Sync {syncPercent}%
-              </span>
-            )}
-            <div className="ml-auto">
-              <InlineInnerWeather innerWeather={innerWeather} compact />
-            </div>
+            </ZoneErrorBoundary>
           </div>
 
-          {/* ── 心の天気（フル入力）── AnswerCardの上 ── */}
-          <InlineInnerWeather innerWeather={innerWeather} />
-
-          {/* ── 文脈レール: 今日の一手（compact） ── */}
-          <ZoneErrorBoundary zoneName="answer">
-            <AlterFollowup />
-            <AnswerCard
-              proposal={answerData.proposal}
-              confidence={answerData.confidence}
-              alternative={answerData.alternative}
-              caution={answerData.caution}
-              sources={answerData.sources}
-              observationCount={answerData.observationCount}
-              onFeedback={handleAlterFeedback}
-              feedbackGiven={alterFeedback}
-              compact
-            />
-          </ZoneErrorBoundary>
-
-          {/* ═══ 中央エリア（未会話時のみ）: 挨拶 → 心の天気 → コンテキストリール ═══ */}
+          {/* ═══ 挨拶（未会話時のみ。入力モード中も残り、初メッセージで消える） ═══ */}
           {!composerHasConversation && (
-            <>
-              {/* ── 挨拶メッセージ（タイプライター） ── */}
-              <div className="flex flex-col items-center justify-center px-8 pt-10 pb-2">
-                <p
-                  className="text-[16px] font-semibold text-text1 leading-relaxed text-center whitespace-pre-line"
-                  style={{ minHeight: 48 }}
-                >
-                  {greetDisplay}
-                  {!greetTyped && (
-                    <span
-                      className="inline-block w-[2px] h-[16px] ml-[1px] align-middle"
-                      style={{
-                        background: "#6366F1",
-                        animation: "alter-cursor-blink 1s step-end infinite",
-                      }}
-                    />
-                  )}
-                </p>
-              </div>
+            <div
+              className="flex flex-col items-center justify-center px-8 pb-2 transition-all duration-200"
+              style={{
+                // 入力モード時: 上コンテンツが消えても画面中央を維持
+                minHeight: isComposing ? "calc(100dvh - 180px)" : undefined,
+                paddingTop: isComposing ? 0 : 40,
+              }}
+            >
+              <p
+                className="text-[16px] font-semibold text-text1 leading-relaxed text-center whitespace-pre-line"
+                style={{ minHeight: 48 }}
+              >
+                {greetDisplay}
+                {!greetTyped && (
+                  <span
+                    className="inline-block w-[2px] h-[16px] ml-[1px] align-middle"
+                    style={{
+                      background: "#6366F1",
+                      animation: "alter-cursor-blink 1s step-end infinite",
+                    }}
+                  />
+                )}
+              </p>
+            </div>
+          )}
 
-              {/* ── コンテキストリール（ユーザーインサイト巡回） ── */}
-              <ContextReel
-                observationCount={obsCount}
-                archetype={sgData?.archetype}
-                syncPercent={syncPercent}
-                blindSpot={blindSpot?.message}
-                convergentInsight={convergentInsight?.todayInsight?.unifiedInsight}
-                temporalDelta={temporalMirror?.delta?.deltaNarrative}
-                prophecy={prophecy?.prediction}
-                streakDays={streakDays}
-                percentileLabel={null}
-                identityInsights={
-                  identityLive
-                    ? Object.entries(identityLive)
-                        .filter(([, v]: [string, any]) => v?.insight)
-                        .map(([k, v]: [string, any]) => ({ zone: k, insight: v.insight }))
-                    : []
-                }
-              />
-            </>
+          {/* ═══ コンテキストリール（未会話時 & 非入力モード時のみ） ═══ */}
+          {!composerHasConversation && !isComposing && (
+            <ContextReel
+              observationCount={obsCount}
+              archetype={sgData?.archetype}
+              syncPercent={syncPercent}
+              blindSpot={blindSpot?.message}
+              convergentInsight={convergentInsight?.todayInsight?.unifiedInsight}
+              temporalDelta={temporalMirror?.delta?.deltaNarrative}
+              prophecy={prophecy?.prediction}
+              streakDays={streakDays}
+              percentileLabel={null}
+              identityInsights={
+                identityLive
+                  ? Object.entries(identityLive)
+                      .filter(([, v]: [string, any]) => v?.insight)
+                      .map(([k, v]: [string, any]) => ({ zone: k, insight: v.insight }))
+                  : []
+              }
+            />
           )}
 
           {/* ═══ 会話トランスクリプト ═══ */}
@@ -698,8 +789,17 @@ export default function AneurasyncHome() {
           </AnimatePresence>
         </div>
 
-        {/* ── QuickAccess ── */}
-        <HomeQuickAccess />
+        {/* ── QuickAccess（会話モード中は非表示） ── */}
+        <div
+          className="transition-all duration-200 overflow-hidden"
+          style={{
+            opacity: isComposing ? 0 : 1,
+            maxHeight: isComposing ? 0 : 80,
+            pointerEvents: isComposing ? "none" : "auto",
+          }}
+        >
+          <HomeQuickAccess />
+        </div>
       </div>
 
       {/* ═══ OVERLAYS ═══ */}
