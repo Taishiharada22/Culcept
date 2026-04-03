@@ -1155,9 +1155,105 @@ export function detectDirectRequest(message: string): boolean {
   return false;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P1-C: リアクション分類
+// ユーザーの発話が「Alterの前回応答へのリアクション」かどうかを高精度で分類。
+// 曖昧なものは null に倒す（高精度優先）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type ReactionType = "agree" | "disagree" | "deepen" | "redirect";
+export type DisagreeStrength = "strong" | "weak";
+export type RedirectSubtype = "correction" | "topic_change";
+
+export interface Reaction {
+  type: ReactionType;
+  disagree_strength?: DisagreeStrength;
+  redirect_subtype?: RedirectSubtype;
+  confidence: number; // 0-1
+}
+
+/**
+ * リアクション分類器。
+ * 直前のAlter応答がある場合のみ発火。null = リアクションではない（5タイプルーターへ）。
+ */
+export function classifyReaction(
+  message: string,
+  lastAlterContent: string | null,
+): Reaction | null {
+  if (!lastAlterContent) return null;
+
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  // ── agree: 仮説同意（短文 + 明確な同意語のみ） ──
+  // 「なるほど」「ふーん」等の中立相づちは含めない
+  if (trimmed.length <= 30) {
+    if (/^(?:そうそう|まさに(?:それ|そう)?|それそれ|それだ|当たってる|合ってる|その通り|ほんとそう|ほんとにそう|そうなんだよ|そうなの|それな)[。！!]?$/.test(trimmed)) {
+      return { type: "agree", confidence: 0.95 };
+    }
+    if (/^(?:そう|うん|ああ|はい)[、。！!]?(?:そう(?:なんだ|だね|だよね|です)|まさに|それ|当たって|合って)/.test(trimmed)) {
+      return { type: "agree", confidence: 0.9 };
+    }
+    // 「わかる！」「めっちゃわかる」— 共感同意（ただし「わかった」は acknowledge なので除外）
+    if (/^(?:めっちゃ|超|すごい?)?わかる[！!。]?$/.test(trimmed)) {
+      return { type: "agree", confidence: 0.85 };
+    }
+  }
+
+  // ── disagree: 仮説否定 ──
+  // strong: 明確な否定
+  if (/^(?:違う|ちがう|違います|全然違う|違うよ|違うって|いやいや|ないない|ありえない|絶対違う)[。！!]?$/.test(trimmed)) {
+    return { type: "disagree", disagree_strength: "strong", confidence: 0.95 };
+  }
+  if (trimmed.length <= 40 && /^(?:いや|うーん)?[、\s]*(?:そうじゃない|そういうことじゃない|それは違う|全然ピンとこない|全く違う)/.test(trimmed)) {
+    return { type: "disagree", disagree_strength: "strong", confidence: 0.9 };
+  }
+  // 文中の否定（短文限定）
+  if (trimmed.length <= 30 && /違[うくい](?:よ|って|から|けど|んだ)/.test(trimmed)) {
+    return { type: "disagree", disagree_strength: "strong", confidence: 0.85 };
+  }
+  // weak: やんわりした否定
+  if (trimmed.length <= 40) {
+    if (/ピンとこない|しっくりこない|しっくり来ない|微妙|ちょっと違う(?:かも)?|そうかなぁ?|うーん(?:、)?(?:そうかな|どうだろう|どうかな)|自分的にはちょっと/.test(trimmed)) {
+      return { type: "disagree", disagree_strength: "weak", confidence: 0.8 };
+    }
+  }
+
+  // ── deepen: 追加説明要求（賞賛・相づちは除外） ──
+  // 「もっと」「具体的に」「例えば」等の明示的な深掘り語彙のみ
+  if (/^(?:もっと(?:詳しく|教えて|知りたい|聞かせて)|具体的に(?:は|教えて|言うと)?|例えば[？?]?|どういうこと[？?]|どういう意味[？?]|もう少し(?:教えて|詳しく|聞かせて))/.test(trimmed)) {
+    return { type: "deepen", confidence: 0.9 };
+  }
+  // 「他には？」「続きは？」「それで？」— 会話継続要求
+  if (/^(?:他には[？?]?|他にある[？?]?|続き(?:は|を)?[？?]?|それで[？?]|で[？?])[。！!]?$/.test(trimmed)) {
+    return { type: "deepen", confidence: 0.85 };
+  }
+
+  // ── redirect (correction): 前回答の方向修正 ──
+  // 「そうじゃなくて」「聞きたいのは」等 — 前回答への言及がある
+  if (/^(?:いや[、\s]*)?(?:そうじゃなくて|そういうことじゃなくて|聞きたいのは|知りたいのは|言いたいのは|そうじゃなく)/.test(trimmed)) {
+    return { type: "redirect", redirect_subtype: "correction", confidence: 0.9 };
+  }
+  if (/^(?:いや[、\s]*)?(?:そういう(?:意味|話)じゃなく|そこじゃなくて|ポイントはそこじゃない|論点が違|そこが聞きたいんじゃない)/.test(trimmed)) {
+    return { type: "redirect", redirect_subtype: "correction", confidence: 0.85 };
+  }
+
+  // ── redirect (topic_change): 話題転換 ──
+  if (/^(?:話変わるけど|ところで|別の話|それはいいとして|それは置いといて|あ、そうだ|ちなみに|全然関係ない(?:けど|んだけど))/.test(trimmed)) {
+    return { type: "redirect", redirect_subtype: "topic_change", confidence: 0.9 };
+  }
+
+  // ── 曖昧なものは null に倒す ──
+  // 「なるほど」「へー」「ふーん」「すごい」「いいね」等は
+  // acknowledge/賞賛であり、リアクション分類の対象外
+  return null;
+}
+
 /**
  * 訂正シグナルを検出する。
  * ユーザーが ALTER の前回応答に対して「違う」「わからない」等の修正を求めている場合に true。
+ * NOTE: P1-C classifyReaction が上位で disagree/redirect(correction) をキャッチするため、
+ * この関数はフォールバック安全網として残す。
  */
 export function detectCorrectionSignal(message: string, lastAlterContent: string | null): boolean {
   const trimmed = message.trim();
@@ -2743,7 +2839,14 @@ export type ModeDecisionReason =
   | "conclude_low_ambiguity"
   | "direct_request_detected"         // ユーザーが直答を求めている
   | "correction_signal_detected"      // ユーザーが訂正・修正を求めている
-  | "conclude_type_override";         // P1-A: knowledge/strategy型はclarify不要→conclude強制
+  | "conclude_type_override"          // P1-A: knowledge/strategy型はclarify不要→conclude強制
+  // P1-C: リアクション分類器によるモード決定
+  | "reaction_agree"                  // 仮説同意 → acknowledge + 強化
+  | "reaction_disagree_strong"        // 仮説強否定 → repair（何がズレたか確認）
+  | "reaction_disagree_weak"          // 仮説やんわり否定 → soft probe
+  | "reaction_deepen"                 // 深掘り要求 → 前回話題を展開
+  | "reaction_redirect_correction"    // 方向修正 → repair（detectCorrectionSignal上位互換）
+  | "reaction_redirect_topic_change"; // 話題転換 → 通常パイプラインへ
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";

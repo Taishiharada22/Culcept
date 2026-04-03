@@ -83,6 +83,8 @@ import {
   isSelfUnderstandingQuestion,
   classifyQuestionType,
   applyQuestionTypeOverride,
+  classifyReaction,
+  type Reaction,
   type QuestionType,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
@@ -697,6 +699,7 @@ export async function POST(req: NextRequest) {
     let relationalLens: RelationalLens | null = null;
     let responseMode: ResponseMode = "conclude";
     let modeDecisionReason: ModeDecisionReason = "conclude_low_ambiguity";
+    let detectedReaction: Reaction | null = null; // P1-C: リアクション分類結果（analytics用）
     let questionCategory: QuestionCategory | null = null;
     let followupInsight = "";
     // Understanding System (Layer 2: State)
@@ -1072,34 +1075,79 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // ── 会話OS基礎: direct_request / repair / greeting を最優先で検出 ──
+      // ── 会話OS基礎: reaction / direct_request / repair / greeting を最優先で検出 ──
       // これらは ambiguity engine より上位。検出されたらパイプラインの大部分をスキップ。
       const lastAlterMsg = conversationHistory.length > 0
         ? conversationHistory[conversationHistory.length - 1]
         : null;
       const lastAlterContent = (lastAlterMsg?.role === "alter") ? lastAlterMsg.content : null;
 
-      if (detectCorrectionSignal(message, lastAlterContent)) {
-        responseMode = "repair";
-        modeDecisionReason = "correction_signal_detected";
-        console.info(`[home-alter] Correction signal detected → repair mode`);
-      } else if (detectGreeting(message)) {
-        responseMode = "direct_response";
-        modeDecisionReason = "direct_request_detected";
-        console.info(`[home-alter] Greeting detected → direct_response mode (light template)`);
-      } else if (detectDirectRequest(message)) {
-        responseMode = "direct_response";
-        modeDecisionReason = "direct_request_detected";
-        console.info(`[home-alter] Direct request detected → direct_response mode`);
-      } else {
-        // 通常パイプライン: ambiguity engine でモード選択
-        const rawModeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
-        // P1-A: knowledge/strategy 型は clarify/branch 不要 → conclude 強制
-        const modeDecision = applyQuestionTypeOverride(rawModeDecision, questionType);
-        responseMode = modeDecision.mode;
-        modeDecisionReason = modeDecision.reason;
-        if (rawModeDecision.mode !== modeDecision.mode) {
-          console.info(`[home-alter] P1-A type override: ${rawModeDecision.mode}→${modeDecision.mode} (questionType=${questionType})`);
+      // P1-C: リアクション分類器（detectCorrectionSignal より上位）
+      detectedReaction = classifyReaction(message, lastAlterContent);
+
+      if (detectedReaction) {
+        // リアクション検出 → タイプ別にモード決定
+        switch (detectedReaction.type) {
+          case "agree":
+            responseMode = "direct_response";
+            modeDecisionReason = "reaction_agree";
+            console.info(`[home-alter] P1-C reaction: agree (conf=${detectedReaction.confidence}) → direct_response`);
+            break;
+          case "disagree":
+            if (detectedReaction.disagree_strength === "strong") {
+              responseMode = "repair";
+              modeDecisionReason = "reaction_disagree_strong";
+              console.info(`[home-alter] P1-C reaction: disagree:strong (conf=${detectedReaction.confidence}) → repair`);
+            } else {
+              responseMode = "direct_response";
+              modeDecisionReason = "reaction_disagree_weak";
+              console.info(`[home-alter] P1-C reaction: disagree:weak (conf=${detectedReaction.confidence}) → direct_response`);
+            }
+            break;
+          case "deepen":
+            responseMode = "direct_response";
+            modeDecisionReason = "reaction_deepen";
+            console.info(`[home-alter] P1-C reaction: deepen (conf=${detectedReaction.confidence}) → direct_response`);
+            break;
+          case "redirect":
+            if (detectedReaction.redirect_subtype === "correction") {
+              responseMode = "repair";
+              modeDecisionReason = "reaction_redirect_correction";
+              console.info(`[home-alter] P1-C reaction: redirect:correction (conf=${detectedReaction.confidence}) → repair`);
+            } else {
+              // topic_change → 新しい話題なので通常パイプラインへフォールスルー
+              // modeDecisionReason だけ記録し、responseMode は下の else ブロックで上書き
+              modeDecisionReason = "reaction_redirect_topic_change";
+              console.info(`[home-alter] P1-C reaction: redirect:topic_change (conf=${detectedReaction.confidence}) → normal pipeline`);
+            }
+            break;
+        }
+      }
+
+      // topic_change 以外のリアクションが検出されなかった場合 → 既存の検出チェーン
+      if (!detectedReaction || detectedReaction.redirect_subtype === "topic_change") {
+        if (detectCorrectionSignal(message, lastAlterContent)) {
+          responseMode = "repair";
+          modeDecisionReason = "correction_signal_detected";
+          console.info(`[home-alter] Correction signal detected → repair mode`);
+        } else if (detectGreeting(message)) {
+          responseMode = "direct_response";
+          modeDecisionReason = "direct_request_detected";
+          console.info(`[home-alter] Greeting detected → direct_response mode (light template)`);
+        } else if (detectDirectRequest(message)) {
+          responseMode = "direct_response";
+          modeDecisionReason = "direct_request_detected";
+          console.info(`[home-alter] Direct request detected → direct_response mode`);
+        } else {
+          // 通常パイプライン: ambiguity engine でモード選択
+          const rawModeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
+          // P1-A: knowledge/strategy 型は clarify/branch 不要 → conclude 強制
+          const modeDecision = applyQuestionTypeOverride(rawModeDecision, questionType);
+          responseMode = modeDecision.mode;
+          modeDecisionReason = modeDecision.reason;
+          if (rawModeDecision.mode !== modeDecision.mode) {
+            console.info(`[home-alter] P1-A type override: ${rawModeDecision.mode}→${modeDecision.mode} (questionType=${questionType})`);
+          }
         }
       }
 
@@ -2369,8 +2417,32 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── repair モード: 前回応答をプロンプトに注入（LLMが何を間違えたか把握するため） ──
-      if (responseMode === "repair" && lastAlterContent) {
+      // ── P1-C: リアクション別プロンプト注入 ──
+      if (detectedReaction && lastAlterContent) {
+        const altSnippet = lastAlterContent.slice(0, 300);
+        switch (detectedReaction.type) {
+          case "agree":
+            homeSystemPrompt += `\n\n# ユーザーの反応: 同意（P1-C）\n前回のALTER応答:「${altSnippet}」\n\nユーザーはこの仮説に同意した。\n- まず同意を受け止める（「そうだよね」「うん、僕もそう思ってた」等）\n- その仮説をさらに一段深める（なぜそうなのか、どんな場面で特に顕著か）\n- 新しい情報や角度を1つだけ付け加える\n- 宿題・行動提案は出さない`;
+            break;
+          case "disagree":
+            if (detectedReaction.disagree_strength === "strong") {
+              homeSystemPrompt += `\n\n# ユーザーの反応: 強い否定（P1-C）\n前回のALTER応答:「${altSnippet}」\n\nユーザーはこの仮説を明確に否定した。\n- まず否定を素直に受け止める（「ごめん、そこはズレてた」「確かに違ったかも」）\n- 何がズレていたかをユーザーに聞く（「どのあたりが違う？」）\n- 言い訳・弁解はしない。こちらの読みが外れたことを認める\n- 前回の仮説を繰り返さない`;
+            } else {
+              homeSystemPrompt += `\n\n# ユーザーの反応: やんわり否定（P1-C）\n前回のALTER応答:「${altSnippet}」\n\nユーザーはこの仮説にしっくりきていない。\n- 否定を柔らかく受け止める（「うーん、ちょっと違ったか」）\n- どこが引っかかるかを優しく確認する（「どのへんがピンとこない？」）\n- 完全否定ではないので、仮説の一部は合っている可能性がある。その余地を残す\n- 押し付けない。ユーザーのペースで修正してもらう`;
+            }
+            break;
+          case "deepen":
+            homeSystemPrompt += `\n\n# ユーザーの反応: 深掘り要求（P1-C）\n前回のALTER応答:「${altSnippet}」\n\nユーザーはこの話題をもっと知りたがっている。\n- 前回の話題をそのまま掘り下げる（別の話題に飛ばない）\n- 具体例、背景、パターン、例外ケースなどで展開する\n- 前回と同じ内容を繰り返さない。新しい切り口で深める\n- 「他には？」には別の観点を提示する`;
+            break;
+          case "redirect":
+            if (detectedReaction.redirect_subtype === "correction") {
+              homeSystemPrompt += `\n\n# ユーザーの反応: 方向修正（P1-C）\n前回のALTER応答:「${altSnippet}」\n\nユーザーは前回の応答の方向性がずれていると感じている。\n- 方向のズレを認める\n- ユーザーが本当に聞きたいことにフォーカスし直す\n- 前回の応答を繰り返さない`;
+            }
+            // topic_change はここに来ない（通常パイプラインへフォールスルー済み）
+            break;
+        }
+      } else if (responseMode === "repair" && lastAlterContent) {
+        // P1-C以前の既存repair（detectCorrectionSignal由来）
         homeSystemPrompt += `\n\n# 前回のALTERの応答（これが誤解の原因）\n「${lastAlterContent.slice(0, 300)}」\n\nユーザーの今の発言はこの応答への訂正。上記の何がズレていたかを把握した上で応答すること。`;
       }
 
@@ -3114,6 +3186,13 @@ export async function POST(req: NextRequest) {
             response_mode: responseMode,
             mode_decision_reason: modeDecisionReason,
             mode_decision_version: "v4",
+            // P1-C: リアクション分類結果
+            reaction: detectedReaction ? {
+              type: detectedReaction.type,
+              disagree_strength: detectedReaction.disagree_strength ?? null,
+              redirect_subtype: detectedReaction.redirect_subtype ?? null,
+              confidence: detectedReaction.confidence,
+            } : null,
             // Relational Lens metadata
             relational_lens: relationalLens ? {
               target_role: relationalLens.target_role,
@@ -4144,6 +4223,7 @@ export async function POST(req: NextRequest) {
           response_mode: responseMode,
           mode_decision_reason: modeDecisionReason,
           mode_decision_version: "v4",
+          reaction: detectedReaction ? { type: detectedReaction.type, disagree_strength: detectedReaction.disagree_strength, redirect_subtype: detectedReaction.redirect_subtype } : undefined,
           relational_lens: relationalLens ?? undefined,
           judgment_skeleton: judgmentSkeleton ? {
             action_shape: judgmentSkeleton.action_shape,
