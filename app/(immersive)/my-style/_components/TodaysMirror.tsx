@@ -7,47 +7,12 @@ import type { WardrobeItem, SelectedStyleLane } from "../_lib/types";
 import {
     MOOD_OPTIONS,
     MOOD_COLORS,
-    predictStyleFromMood,
     saveMoodEntry,
     getTodayEntry,
     getWeeklyMoodDots,
-    getMoodHistory,
     type MoodEntry,
 } from "../_lib/todaysMirror";
-
-/* ── Wear log (localStorage) ── */
-
-const WEAR_LOG_KEY = "culcept_wear_log_v1";
-
-interface WearLogEntry {
-    itemId: string;
-    date: string;
-}
-
-function getWearLog(): WearLogEntry[] {
-    if (typeof window === "undefined") return [];
-    try {
-        const raw = localStorage.getItem(WEAR_LOG_KEY);
-        return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
-}
-
-function addWearLogEntry(itemId: string) {
-    const log = getWearLog();
-    const today = new Date().toISOString().slice(0, 10);
-    // Don't duplicate same item same day
-    if (log.some((e) => e.itemId === itemId && e.date === today)) return log;
-    const next = [...log, { itemId, date: today }];
-    try { localStorage.setItem(WEAR_LOG_KEY, JSON.stringify(next.slice(-200))); } catch { /* */ }
-    return next;
-}
-
-function getDaysSinceWorn(itemId: string, log: WearLogEntry[]): number | null {
-    const entries = log.filter((e) => e.itemId === itemId).sort((a, b) => b.date.localeCompare(a.date));
-    if (entries.length === 0) return null;
-    const last = new Date(entries[0].date);
-    return Math.round((Date.now() - last.getTime()) / (1000 * 60 * 60 * 24));
-}
+import { loadAllWearEvents, saveWearEvent } from "@/lib/shared/wearEvents";
 
 /* ── Daily insight (7 rotating lenses) ── */
 
@@ -105,7 +70,7 @@ interface TodaysMirrorProps {
 
 export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysMirrorProps) {
     const [selectedMood, setSelectedMood] = useState<string | null>(null);
-    const [wearLog, setWearLog] = useState<WearLogEntry[]>([]);
+    const [todayWornIds, setTodayWornIds] = useState<Set<string>>(new Set());
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -113,23 +78,40 @@ export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysM
         setMounted(true);
         const entry = getTodayEntry();
         if (entry) setSelectedMood(entry.morningMood);
-        setWearLog(getWearLog());
+        // Load worn item IDs for today from shared wearEvents
+        const today = new Date().toISOString().slice(0, 10);
+        const events = loadAllWearEvents();
+        const ids = new Set<string>();
+        for (const e of events) {
+            if (e.date === today) for (const id of e.itemIds) ids.add(id);
+        }
+        setTodayWornIds(ids);
         /* eslint-enable react-hooks/set-state-in-effect */
     }, []);
 
     const handleMoodSelect = useCallback((moodId: string) => {
         setSelectedMood(moodId);
-        const pastEntries = getMoodHistory(60);
-        const pred = predictStyleFromMood(moodId, wardrobeItems, styleSelections, pastEntries);
         const today = new Date();
         const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-        const entry: MoodEntry = { date: dateStr, morningMood: moodId, predictedStyle: pred };
+        const entry: MoodEntry = { date: dateStr, morningMood: moodId };
         saveMoodEntry(entry);
-    }, [wardrobeItems, styleSelections]);
+        try {
+            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                event: "mystyle_mood_selected",
+                feature: "my-style",
+                metadata: { mood_id: moodId },
+            }));
+        } catch { /* ignore */ }
+    }, []);
 
     const handleWearLog = useCallback((itemId: string) => {
-        const next = addWearLogEntry(itemId);
-        setWearLog(next);
+        const today = new Date().toISOString().slice(0, 10);
+        setTodayWornIds((prev) => {
+            if (prev.has(itemId)) return prev;
+            // Save to shared wearEvents (single-item event)
+            saveWearEvent({ date: today, itemIds: [itemId], source: "my-style" });
+            return new Set([...prev, itemId]);
+        });
     }, []);
 
     const dailyInsight = useMemo(() => getDailyInsight(wardrobeItems), [wardrobeItems]);
@@ -165,7 +147,7 @@ export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysM
             {wardrobeItems.length > 0 && (
                 <div className="flex gap-1 overflow-x-auto scrollbar-hide">
                     {wardrobeItems.slice(0, 16).map((item) => {
-                        const isToday = wearLog.some((e) => e.itemId === item.id && e.date === new Date().toISOString().slice(0, 10));
+                        const isToday = todayWornIds.has(item.id);
                         return (
                             <button
                                 key={item.id}

@@ -6,18 +6,19 @@ import { cn } from "@/lib/utils";
 import type { WardrobeItem } from "../_lib/types";
 import {
     fetchWeather,
-    suggestOutfitForWeather,
     getWeatherIcon,
     getConditionLabel,
-    getTemperatureCategory,
     saveWeatherFeedback,
     buildManualWeather,
+    weatherInfoToDaily,
+    generatePracticalNotes,
     WeatherOfflineError,
     type WeatherInfo,
     type WeatherCondition,
-    type WeatherOutfitSuggestion,
     type WeatherFetchResult,
-} from "../_lib/weatherOutfit";
+} from "../_lib/weatherService";
+import { generateTodayProposal, type TodayProposal } from "@/lib/shared/outfitEngine";
+import { saveWearEvent, updateWearSatisfaction, hasWearEventForDate, hasSatisfactionForDate } from "@/lib/shared/wearEvents";
 
 /* ── Props ── */
 
@@ -95,12 +96,24 @@ function ManualWeatherInput({ onSubmit }: { onSubmit: (weather: WeatherInfo) => 
 
 export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanelProps) {
     const [loading, setLoading] = useState(true);
-    const [suggestion, setSuggestion] = useState<WeatherOutfitSuggestion | null>(null);
+    const [weather, setWeather] = useState<WeatherInfo | null>(null);
+    const [proposal, setProposal] = useState<TodayProposal | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showManualInput, setShowManualInput] = useState(false);
     const [weatherSource, setWeatherSource] = useState<WeatherFetchResult["source"] | null>(null);
     const [locationName, setLocationName] = useState<string | null>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    /* ── Wear acceptance state (via shared wearEvents helpers) ── */
+    const [accepted, setAccepted] = useState(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        return hasWearEventForDate(today);
+    });
+    const [satisfactionRecorded, setSatisfactionRecorded] = useState(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        return hasSatisfactionForDate(today);
+    });
+    const [showSatisfaction, setShowSatisfaction] = useState(accepted && !satisfactionRecorded);
 
     // shared location から居住地名を取得
     useEffect(() => {
@@ -109,19 +122,35 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
         }).catch(() => {});
     }, []);
 
-    const applyWeather = useCallback((weather: WeatherInfo, source: WeatherFetchResult["source"]) => {
-        const result = suggestOutfitForWeather(weather, wardrobeItems);
-        setSuggestion(result);
+    const applyWeather = useCallback((weatherInfo: WeatherInfo, source: WeatherFetchResult["source"]) => {
+        setWeather(weatherInfo);
+        const daily = weatherInfoToDaily(weatherInfo);
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const result = generateTodayProposal({
+            wardrobe: wardrobeItems,
+            date: todayStr,
+            weather: daily,
+        });
+        setProposal(result);
         setWeatherSource(source);
         setShowManualInput(false);
+        if (result) {
+            try {
+                navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                    event: "mystyle_proposal_shown",
+                    feature: "my-style",
+                    metadata: { item_count: result.main.items.length, sync_score: result.syncScore },
+                }));
+            } catch { /* ignore */ }
+        }
     }, [wardrobeItems]);
 
     const loadWeather = useCallback(async () => {
         try {
             setLoading(true); setError(null); setShowManualInput(false);
-            const { weather, source } = await fetchWeather();
-            applyWeather(weather, source);
-            if (source === "stale_cache") {
+            const result = await fetchWeather();
+            applyWeather(result.weather, result.source);
+            if (result.source === "stale_cache") {
                 fetchWeather().then(({ weather: fresh, source: freshSource }) => { if (freshSource === "api") applyWeather(fresh, freshSource); }).catch(() => {});
             }
         } catch (err) {
@@ -172,11 +201,53 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
         );
     }
 
-    if (!suggestion) return null;
+    if (!weather) return null;
 
-    const weather = suggestion.weather;
     const icon = getWeatherIcon(weather.condition);
     const label = getConditionLabel(weather.condition);
+    const practicalNotes = generatePracticalNotes(weather);
+    const suggestedItems = proposal?.main.items ?? [];
+
+    const handleAcceptProposal = () => {
+        const t0 = performance.now();
+        setAccepted(true);
+
+        const today = new Date().toISOString().slice(0, 10);
+        const itemIds = suggestedItems.map((i) => i.id);
+
+        saveWearEvent({ date: today, itemIds, source: "my-style" });
+
+        const syncMs = performance.now() - t0;
+        console.log(`[WeatherOutfitPanel] accept sync: ${syncMs.toFixed(1)}ms`);
+        requestAnimationFrame(() => {
+            const paintMs = performance.now() - t0;
+            console.log(`[WeatherOutfitPanel] accept paint: ${paintMs.toFixed(1)}ms`);
+            try {
+                navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                    event: "mystyle_proposal_accepted",
+                    feature: "my-style",
+                    metadata: { item_count: itemIds.length, response_ms: Math.round(paintMs) },
+                }));
+            } catch { /* ignore */ }
+        });
+
+        setTimeout(() => setShowSatisfaction(true), 600);
+    };
+
+    const handleSatisfaction = (rating: number) => {
+        setSatisfactionRecorded(true);
+
+        const today = new Date().toISOString().slice(0, 10);
+        updateWearSatisfaction(today, rating);
+
+        try {
+            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                event: "mystyle_satisfaction_recorded",
+                feature: "my-style",
+                metadata: { rating },
+            }));
+        } catch { /* ignore */ }
+    };
 
     return (
         <div className="space-y-3">
@@ -187,15 +258,15 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
                 <span className="text-[12px] font-bold text-slate-500">{label}</span>
                 {locationName && <span className="text-[11px] text-slate-400 ml-auto">{locationName}</span>}
                 {weatherSource === "stale_cache" && <span className="text-[10px] text-amber-500 ml-auto">キャッシュ</span>}
-                <button type="button" onClick={loadWeather} className="ml-auto text-slate-400 hover:text-slate-600">
+                <button type="button" onClick={() => { if (proposal) { try { navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({ event: "mystyle_proposal_rejected", feature: "my-style", metadata: { reason: "reload" } })); } catch { /* ignore */ } } loadWeather(); }} className="ml-auto text-slate-400 hover:text-slate-600">
                     <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 </button>
             </div>
 
-            {/* Suggested items — compact horizontal strip */}
-            {suggestion.suggestedItems.length > 0 ? (
+            {/* Suggested items from shared engine */}
+            {suggestedItems.length > 0 ? (
                 <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-                    {suggestion.suggestedItems.map((item) => (
+                    {suggestedItems.map((item) => (
                         <div key={item.id} className="shrink-0 w-16">
                             <div className="overflow-hidden rounded-lg border border-slate-200/50">
                                 {item.imageUrl ? (
@@ -211,11 +282,75 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
                         </div>
                     ))}
                 </div>
-            ) : null}
+            ) : (
+                <div className="rounded-xl border border-dashed border-slate-300/60 bg-slate-50/50 p-4 text-center">
+                    <p className="text-[13px] font-bold text-slate-600">
+                        {wardrobeItems.length < 3
+                            ? `あと${3 - wardrobeItems.length}着で提案可能`
+                            : "今日の組み合わせが見つかりませんでした"}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-400">
+                        {wardrobeItems.length < 3
+                            ? "トップス・ボトムスを登録すると提案が始まります"
+                            : "別のカテゴリの服を追加すると提案の幅が広がります"}
+                    </p>
+                </div>
+            )}
+
+            {/* Accept proposal / Satisfaction */}
+            {suggestedItems.length > 0 && (
+                <>
+                    {!accepted ? (
+                        <button
+                            type="button"
+                            onClick={handleAcceptProposal}
+                            className="w-full rounded-xl bg-slate-900 py-2.5 text-[13px] font-bold text-white transition active:scale-[0.98]"
+                        >
+                            これ着る
+                        </button>
+                    ) : (
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-50 border border-emerald-200/50 py-2">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-emerald-600">
+                                    <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <span className="text-[12px] font-bold text-emerald-700">記録しました</span>
+                            </div>
+                            <AnimatePresence>
+                                {showSatisfaction && !satisfactionRecorded && (
+                                    <motion.div
+                                        initial={{ opacity: 0, height: 0 }}
+                                        animate={{ opacity: 1, height: "auto" }}
+                                        exit={{ opacity: 0, height: 0 }}
+                                        className="overflow-hidden"
+                                    >
+                                        <div className="flex items-center justify-center gap-3 py-1">
+                                            <span className="text-[10px] text-slate-400">満足度</span>
+                                            {[1, 2, 3, 4, 5].map((n) => (
+                                                <button
+                                                    key={n}
+                                                    type="button"
+                                                    onClick={() => handleSatisfaction(n)}
+                                                    className="text-lg text-slate-300 transition-colors hover:text-amber-400 active:text-amber-500"
+                                                >
+                                                    ★
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                            {satisfactionRecorded && (
+                                <p className="text-center text-[10px] text-slate-400">フィードバック記録済み</p>
+                            )}
+                        </div>
+                    )}
+                </>
+            )}
 
             {/* Single practical note line */}
-            {suggestion.practicalNotes.length > 0 && (
-                <p className="text-[10px] text-slate-400">{suggestion.practicalNotes.join(" · ")}</p>
+            {practicalNotes.length > 0 && (
+                <p className="text-[10px] text-slate-400">{practicalNotes.join(" · ")}</p>
             )}
         </div>
     );

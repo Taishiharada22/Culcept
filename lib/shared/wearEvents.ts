@@ -43,10 +43,52 @@ export interface WearSummary {
   setupIds: string[];
 }
 
-// ── 読み取りアダプター ──
+// ── ストレージキー ──
 
 const CALENDAR_WORN_KEY = "culcept_calendar_worn_v1";
 const MYSTYLE_WEAR_KEY = "culcept_wear_records_v1";
+
+// ── 書き込み ──
+
+/**
+ * 着用イベントを正本ストレージに保存する。
+ * 現時点では Calendar 互換形式 (culcept_calendar_worn_v1) に書き込む。
+ * 将来的に style_wear_events_v1 に統一予定。
+ */
+export function saveWearEvent(event: Omit<WearEvent, "source"> & { source?: WearEvent["source"] }): void {
+  if (typeof window === "undefined") return;
+  try {
+    const records: unknown[] = JSON.parse(localStorage.getItem(CALENDAR_WORN_KEY) ?? "[]");
+    records.push({
+      date: event.date,
+      itemIds: event.itemIds,
+      satisfaction: event.satisfaction,
+      note: event.note,
+      source: event.source ?? "my-style",
+    });
+    localStorage.setItem(CALENDAR_WORN_KEY, JSON.stringify(records));
+  } catch { /* ignore */ }
+}
+
+/**
+ * 既存の着用イベントの satisfaction を更新する。
+ * 同日の最新レコードを対象にする。
+ */
+export function updateWearSatisfaction(date: string, satisfaction: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    const records: { date: string; satisfaction?: number }[] = JSON.parse(localStorage.getItem(CALENDAR_WORN_KEY) ?? "[]");
+    for (let i = records.length - 1; i >= 0; i--) {
+      if (records[i].date === date) {
+        records[i].satisfaction = satisfaction;
+        break;
+      }
+    }
+    localStorage.setItem(CALENDAR_WORN_KEY, JSON.stringify(records));
+  } catch { /* ignore */ }
+}
+
+// ── 読み取りアダプター ──
 
 interface CalendarWornRecord {
   date: string;
@@ -70,18 +112,18 @@ export function loadAllWearEvents(): WearEvent[] {
 
   const events: WearEvent[] = [];
 
-  // Calendar source
+  // Calendar source (reads stored source field — may contain "my-style" entries saved via saveWearEvent)
   try {
     const raw = localStorage.getItem(CALENDAR_WORN_KEY);
     if (raw) {
-      const records: CalendarWornRecord[] = JSON.parse(raw);
+      const records: (CalendarWornRecord & { source?: WearEvent["source"] })[] = JSON.parse(raw);
       for (const r of records) {
         events.push({
           date: r.date,
           itemIds: r.itemIds ?? [],
           satisfaction: r.satisfaction,
           note: r.note,
-          source: "calendar",
+          source: r.source ?? "calendar",
         });
       }
     }
@@ -110,6 +152,38 @@ export function loadAllWearEvents(): WearEvent[] {
   } catch { /* ignore */ }
 
   return events.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+// ── 日付ベースの簡易チェック ──
+
+/**
+ * 指定日に着用イベントが存在するかチェック（read-only）
+ */
+export function hasWearEventForDate(date: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(CALENDAR_WORN_KEY);
+    if (!raw) return false;
+    const records: { date: string }[] = JSON.parse(raw);
+    return records.some((r) => r.date === date);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 指定日に satisfaction が記録済みかチェック（read-only）
+ */
+export function hasSatisfactionForDate(date: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const raw = localStorage.getItem(CALENDAR_WORN_KEY);
+    if (!raw) return false;
+    const records: { date: string; satisfaction?: number }[] = JSON.parse(raw);
+    return records.some((r) => r.date === date && r.satisfaction != null);
+  } catch {
+    return false;
+  }
 }
 
 /**
