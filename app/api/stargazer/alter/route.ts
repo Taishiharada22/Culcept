@@ -210,6 +210,44 @@ import {
   type ClaimDecision,
   type BetOutcome,
 } from "@/lib/stargazer/alterThinSlice";
+// v4.2 FULL: 全層パイプライン
+import {
+  selectAlterRole,
+  checkSemanticBans,
+  buildRoleContractBlock,
+  buildBurdenTransferBlock,
+  buildSemanticBansBlock,
+  buildContractAnalytics,
+  type RoleSelection,
+  type SemanticBanCheck,
+} from "@/lib/stargazer/alterContracts";
+import {
+  readTurnSignal,
+  buildSignalAnalytics,
+  type TurnSignal,
+} from "@/lib/stargazer/alterSignalReader";
+import {
+  projectSelfModel,
+  buildSelfModelPromptBlock,
+  buildSelfModelAnalytics,
+  type LivingSelfModel,
+} from "@/lib/stargazer/alterSelfModel";
+import {
+  runInterpretationArena,
+  buildArenaPromptBlock,
+  buildArenaAnalytics,
+  type WinningInterpretation,
+  type InterpretationLensId,
+} from "@/lib/stargazer/alterInterpretationArena";
+import {
+  checkStrategyCompliance,
+  assessRally,
+  buildRallyCriticBlock,
+  buildComplianceAnalytics,
+  buildRallyCriticAnalytics,
+  type ComplianceCheckResult,
+  type RallyCriticResult,
+} from "@/lib/stargazer/alterStrategyCompliance";
 
 export const runtime = "nodejs";
 
@@ -750,6 +788,15 @@ export async function POST(req: NextRequest) {
     let thinSliceBet: SharpBet | null = null;
     let thinSliceClaim: ClaimDecision | null = null;
     let thinSliceBetOutcome: BetOutcome | null = null;
+    // v4.2 FULL: パイプライン変数
+    let v42Signal: TurnSignal | null = null;
+    let v42SelfModel: LivingSelfModel | null = null;
+    let v42Arena: WinningInterpretation | null = null;
+    let v42ArenaHistory: InterpretationLensId[] = [];
+    let v42Role: RoleSelection | null = null;
+    let v42Compliance: ComplianceCheckResult | null = null;
+    let v42SemanticBanCheck: SemanticBanCheck | null = null;
+    let v42RallyCritic: RallyCriticResult | null = null;
     // P0/P3/P5: ホイスト変数（Home Alter 内の複数ブロックで共有）
     let alterSessionCount = 0;
     let baselineDeviationsFull: BaselineDeviation[] = [];
@@ -1201,6 +1248,24 @@ export async function POST(req: NextRequest) {
       );
       if (turnValue.budget !== "standard") {
         console.info(`[thin-slice] Turn value: ${turnValue.budget} (${turnValue.reason})`);
+      }
+
+      // ── v4.2 Phase A: Signal Reader (early — no data dependencies) ──
+      if (thinSliceActive) {
+        try {
+          v42Signal = readTurnSignal(
+            message, questionType, responseMode, detectedReaction,
+            lastAlterContent, conversationHistory.length,
+          );
+          // Role Selection: responseMode + questionType + reaction で決定（早期実行可）
+          v42Role = selectAlterRole(
+            responseMode, questionType, detectedReaction, conversationHistory.length,
+          );
+        } catch (e) {
+          console.warn("[v4.2] Signal/Role failed (fail-open):", e);
+          v42Signal = null;
+          v42Role = null;
+        }
       }
 
       // ── P1.5: 前ターンの bet outcome を今の reaction で判定 ──
@@ -2023,6 +2088,59 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── v4.2 Phase B+C: Self Model + Interpretation Arena + Rally Critic (late — after data loaded) ──
+      if (thinSliceActive && v42Signal) {
+        try {
+          // [C] Self Model: 全データ揃った状態で投影
+          v42SelfModel = projectSelfModel(
+            growthState, longTermMemory, hypothesisFactEntries ?? null,
+            personality, discreteTrustLevel,
+          );
+
+          // [B] Arena History: analytics から再構成（fail-open）
+          try {
+            const { data: recentArena } = await supabase
+              .from("stargazer_analytics")
+              .select("metadata")
+              .eq("user_id", userId)
+              .eq("event", "home_alter_judgment")
+              .filter("metadata->>session_id", "eq", sessionId)
+              .order("created_at", { ascending: false })
+              .limit(5);
+            if (recentArena) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              v42ArenaHistory = recentArena
+                .map((e: { metadata: any }) => e.metadata?.v42?.arena_primary_lens as InterpretationLensId | undefined)
+                .filter((l): l is InterpretationLensId => !!l)
+                .reverse();
+            }
+          } catch {
+            // fail-open: arena history 取得失敗は空配列で続行
+          }
+
+          // [B] Interpretation Arena: 11レンズで解釈を競わせる
+          v42Arena = runInterpretationArena(
+            message, v42Signal, v42SelfModel, thinSliceState, v42ArenaHistory,
+          );
+
+          // Rally Critic: ラリーの前進度評価
+          v42RallyCritic = assessRally(
+            conversationHistory.map(m => ({ role: m.role, content: m.content })),
+            v42ArenaHistory,
+            v42Signal,
+          );
+
+          if (v42Arena.primary.confidence > 0.3) {
+            console.info(`[v4.2] Arena: ${v42Arena.primary.lens} (${(v42Arena.primary.confidence * 100).toFixed(0)}%) | Role: ${v42Role?.role ?? "?"} | Model: ${(v42SelfModel.model_completeness * 100).toFixed(0)}% | Rally: ${v42RallyCritic.status}`);
+          }
+        } catch (e) {
+          console.warn("[v4.2] Self Model/Arena/Rally failed (fail-open):", e);
+          v42SelfModel = null;
+          v42Arena = null;
+          v42RallyCritic = null;
+        }
+      }
+
       // ── Layer 3: 骨格制約付きプロンプト構築 ──
       // P0/P1: homeContextWithObs を使い、observationCount + envContext を反映
       let homeSystemPrompt = buildHomeAlterPromptWithContext(
@@ -2515,6 +2633,28 @@ export async function POST(req: NextRequest) {
         homeSystemPrompt += `\n\n# 前回のALTERの応答（これが誤解の原因）\n「${lastAlterContent.slice(0, 300)}」\n\nユーザーの今の発言はこの応答への訂正。上記の何がズレていたかを把握した上で応答すること。`;
       }
 
+      // ── v4.2 FULL: プロンプト注入 — Role Contract + Self Model + Arena + Rally + Bans ──
+      if (thinSliceActive && v42Role && v42SelfModel && v42Arena) {
+        try {
+          // Role Contract: 行動許可/禁止
+          homeSystemPrompt += buildRoleContractBlock(v42Role);
+          // Burden Transfer: Alter vs User の責任分担
+          homeSystemPrompt += buildBurdenTransferBlock(v42Role.role);
+          // Semantic Bans: 禁止表現一覧
+          homeSystemPrompt += buildSemanticBansBlock();
+          // Self Model: この人の内的モデル
+          homeSystemPrompt += buildSelfModelPromptBlock(v42SelfModel);
+          // Interpretation Arena: 解釈結果
+          homeSystemPrompt += buildArenaPromptBlock(v42Arena);
+          // Rally Critic: 堂々巡り/停滞時のみ注入
+          if (v42RallyCritic) {
+            homeSystemPrompt += buildRallyCriticBlock(v42RallyCritic);
+          }
+        } catch (e) {
+          console.warn("[v4.2] Prompt injection failed (fail-open):", e);
+        }
+      }
+
       // ── P1.5 Thin-Slice: 差し込みB — Insight + Bet + Claim + Prompt 注入 ──
       if (thinSliceActive && turnValue.invoke_insight && growthState) {
         try {
@@ -2804,6 +2944,29 @@ export async function POST(req: NextRequest) {
               homeResponse, homeDecisionMeta, judgmentSkeleton, relationalLens, inputUnderstanding, personality,
             );
           }
+        }
+      }
+
+      // ── v4.2: Strategy Compliance Check + Semantic Bans ──
+      if (thinSliceActive && homeResponse) {
+        try {
+          // Semantic Ban Check
+          v42SemanticBanCheck = checkSemanticBans(homeResponse);
+          if (!v42SemanticBanCheck.passed) {
+            console.warn("[v4.2] Semantic ban violations:", v42SemanticBanCheck.violations.map(v => v.expression));
+          }
+
+          // Strategy Compliance Check
+          v42Compliance = checkStrategyCompliance(
+            homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
+          );
+          if (!v42Compliance.passed && v42Compliance.correction_prompt) {
+            console.info("[v4.2] Strategy compliance violation detected, correction prompt generated");
+            // Note: 再生成は既存の retry 機構に任せる（v4.2 は検知 + 記録のみ）
+            // 将来: v42Compliance.correction_prompt を使って再生成
+          }
+        } catch (e) {
+          console.warn("[v4.2] Compliance check failed (fail-open):", e);
         }
       }
 
@@ -3321,6 +3484,15 @@ export async function POST(req: NextRequest) {
               thinSliceActive, turnValue, thinSliceInsight,
               thinSliceBet, thinSliceClaim, thinSliceBetOutcome,
             ),
+            // v4.2 FULL metadata
+            v42: thinSliceActive ? {
+              ...(v42Signal ? buildSignalAnalytics(v42Signal) : {}),
+              ...(v42SelfModel ? buildSelfModelAnalytics(v42SelfModel) : {}),
+              ...(v42Arena ? { arena_primary_lens: v42Arena.primary.lens, ...buildArenaAnalytics(v42Arena) } : {}),
+              ...(v42Role ? buildContractAnalytics(v42Role, v42SemanticBanCheck) : {}),
+              ...(v42Compliance ? buildComplianceAnalytics(v42Compliance) : {}),
+              ...(v42RallyCritic ? buildRallyCriticAnalytics(v42RallyCritic) : {}),
+            } : undefined,
             // 学習ループ用: フォローアップ傾向が判断に影響したか
             followup_insight_applied: !!followupInsight,
             question_category: questionCategory,
