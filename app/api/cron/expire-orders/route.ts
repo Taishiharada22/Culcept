@@ -7,16 +7,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function isAuthed(req: Request) {
-    const url = new URL(req.url);
-
-    // どっちでも通るようにしておく（Dashboardやcurlが楽）
-    const q = url.searchParams.get("secret");
     const h = req.headers.get("x-cron-secret");
 
     const secret = process.env.CRON_SECRET || "";
     if (!secret) return false;
 
-    return q === secret || h === secret;
+    return h === secret;
 }
 
 export async function GET(req: Request) {

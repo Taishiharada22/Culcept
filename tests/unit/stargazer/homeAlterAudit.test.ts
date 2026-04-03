@@ -52,6 +52,7 @@ import {
   type AuditTrail,
   type ConfidenceLevel,
   type EvidenceSource,
+  type DecisionMetadata,
 } from "@/lib/stargazer/alterHomeAdapter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1268,12 +1269,15 @@ describe("C6: validateResponseQuality", () => {
     const { lens, iu, skeleton } = makeContext("飲み会に行くべき？");
     const meta = {
       action_shape: "skip" as ActionShape,
-      decision_stance: "guard" as any,
+      decision_stance: "guard",
       opportunity_value: "low",
       cost_load: "high",
       relation_value: "low",
       force_balance: null as any,
-    };
+      energy_adjustment: "protect",
+      regret_direction: "skip_regret",
+      growth_vector_override: false,
+    } as DecisionMetadata;
     const result = validateResponseQuality(
       "今回は行った方がいいと思います。体調が悪くても上司がいるなら参加した方がいい。",
       meta, skeleton, lens, iu,

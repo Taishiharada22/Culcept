@@ -156,7 +156,7 @@ describe("Phase 0: Prompt Builders", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("Phase A: readTurnSignal", () => {
-  function signal(msg: string, overrides: Partial<Parameters<typeof readTurnSignal>> = {}): TurnSignal {
+  function signal(msg: string, overrides: Partial<Parameters<typeof readTurnSignal>> = [] as any): TurnSignal {
     return readTurnSignal(
       msg,
       (overrides as any)[1] ?? "judgment",

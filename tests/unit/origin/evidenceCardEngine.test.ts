@@ -21,7 +21,7 @@ function makeEntryRecord(date: string, category: JudgmentCategory): EntryRecord 
 function makeOrbitEntry(date: string, opts?: Partial<DailyOrbitEntry>): DailyOrbitEntry {
   return {
     date,
-    tasks: [{ id: "t1", text: "task", nature: "obligation", completed: true, createdAt: date }],
+    tasks: [{ id: "t1", text: "task", nature: "obligation", completed: true, carryCount: 0, addedAt: date }],
     bodyEcho: null,
     dayState: null,
     shadowIntention: null,
@@ -41,9 +41,14 @@ function makeStore(entries: Record<string, DailyOrbitEntry>): DailyOrbitStore {
     version: 2,
     entries,
     orbitLaws: [],
-    selfResolution: { layers: [], updatedAt: "" },
+    selfResolution: { score: 0, updatedAt: "", history: [] },
     threads: [],
     turningPoints: [],
+    surpriseObservations: [],
+    discoveryUnlocked: {},
+    firstUsedAt: null,
+    lastUsedAt: null,
+    currentStreak: 0,
   };
 }
 
@@ -126,8 +131,8 @@ describe("generateEvidenceCards", () => {
       entries.push(makeEntryRecord(d, i < 7 ? "work_decision" : "self_care"));
       orbitEntries[d] = makeOrbitEntry(d, {
         tasks: [
-          { id: "t1", text: "a", nature: "obligation", completed: true, createdAt: d },
-          { id: "t2", text: "b", nature: "obligation", completed: i < 7, createdAt: d },
+          { id: "t1", text: "a", nature: "obligation", completed: true, carryCount: 0, addedAt: d },
+          { id: "t2", text: "b", nature: "obligation", completed: i < 7, carryCount: 0, addedAt: d },
         ],
       });
     }
@@ -326,8 +331,8 @@ describe("evaluateHypothesis", () => {
       entries.push(makeEntryRecord(d, "work_decision"));
       orbitEntries[d] = makeOrbitEntry(d, {
         tasks: [
-          { id: "t1", text: "a", nature: "obligation", completed: true, createdAt: d },
-          { id: "t2", text: "b", nature: "obligation", completed: true, createdAt: d },
+          { id: "t1", text: "a", nature: "obligation", completed: true, carryCount: 0, addedAt: d },
+          { id: "t2", text: "b", nature: "obligation", completed: true, carryCount: 0, addedAt: d },
         ],
       });
     }
@@ -337,8 +342,8 @@ describe("evaluateHypothesis", () => {
       entries.push(makeEntryRecord(d, "relationship"));
       orbitEntries[d] = makeOrbitEntry(d, {
         tasks: [
-          { id: "t1", text: "a", nature: "obligation", completed: true, createdAt: d },
-          { id: "t2", text: "b", nature: "obligation", completed: false, createdAt: d },
+          { id: "t1", text: "a", nature: "obligation", completed: true, carryCount: 0, addedAt: d },
+          { id: "t2", text: "b", nature: "obligation", completed: false, carryCount: 0, addedAt: d },
         ],
       });
     }

@@ -8,27 +8,24 @@ import {
   buildDailyGuidancePromptBlock,
   validateDailyGuidanceResponse,
   sanitizeTraitInversions,
-  type AlterPersonality,
   type DailyGuidanceFrame,
 } from "@/lib/stargazer/alterHomeAdapter";
+import type { AlterPersonality } from "@/lib/stargazer/alter";
 
 // ── テスト用 personality ──
-const basePersonality: AlterPersonality = {
+const basePersonality = {
   axisScores: {
     introvert_vs_extrovert: 0.4,
     decision_tempo: 0.5,
     decomposition: 0.5,
     growth_mindset: 0.6,
     perfectionist_vs_pragmatic: 0.5,
-    change_openness: 0.6,
+    change_embrace_vs_resist: 0.6,
     exploration_closure: 0.6,
     social_initiative: 0.4,
-    energy_recovery_style: 0.4,
+    energy_rhythm: 0.4,
   },
-  coreWound: null,
-  growthVector: "挑戦すること",
-  summary: "テスト用性格",
-};
+} as unknown as AlterPersonality;
 
 const introvertPersonality: AlterPersonality = {
   ...basePersonality,

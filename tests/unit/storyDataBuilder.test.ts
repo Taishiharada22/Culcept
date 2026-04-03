@@ -10,10 +10,13 @@ import type { TraitAxisKey } from "@/lib/stargazer/traitAxes";
 
 function makeArchetype(overrides?: Record<string, unknown>) {
   return {
-    code: "test_archetype",
-    score: 0.8,
-    layer1: { code: "guardian_anchor", score: 0.7 },
-    layer2: { code: "test_sub", score: 0.6 },
+    code: "ACIO" as const,
+    layer1: { code: "A" as const, score: 0.7, scores: { A: 0.7, N: 0.2, S: 0.1 } },
+    layer2: { code: "C" as const, score: 0.6, scores: { C: 0.6, V: 0.4 } },
+    layer3: { code: "I" as const, score: 0.5, scores: { I: 0.5, E: 0.5 } },
+    layer4: { code: "O" as const, score: 0.6, scores: { O: 0.6, X: 0.4 } },
+    confidence: 0.8,
+    topMatches: [{ code: "ACIO" as const, score: 2.4 }],
     name: "テスト型",
     emoji: "🔮",
     tagline: "テストのタグライン",
@@ -33,15 +36,21 @@ function makeContradictionMap() {
     entries: [
       {
         axisId: "introvert_vs_extrovert" as TraitAxisKey,
+        axisLabel: "内向-外向",
         axisLabelLeft: "内向的",
         axisLabelRight: "外向的",
+        divergenceType: "self_vs_footprint" as const,
         scores: { selfPortrait: 0.7, footprint: -0.3, shadowPlay: 0.1 },
         magnitude: 1.0,
+        meaning: "ideal_gap" as const,
         insight: "自分では外向的と思っているが行動は内向的",
+        explorationPrompt: "外向的に振る舞うとき、何を感じていますか？",
       },
     ],
     totalContradictions: 1,
-    maxMagnitude: 1.0,
+    alignedAxes: 0,
+    summary: "1つの軸で矛盾を検出",
+    primaryTheme: "理想と現実のギャップ",
   };
 }
 
@@ -127,7 +136,7 @@ describe("buildStoryData — Core 5 resilience", () => {
 
     expect(result).not.toBeNull();
     expect(result!.archetype.emoji).toBe("◆"); // fallback
-    expect(result!.archetype.archetypeLabel).toBe("test_archetype"); // falls back to code
+    expect(result!.archetype.archetypeLabel).toBe("ACIO"); // falls back to code
     expect(result!.archetype.familyTagline).toBeNull();
   });
 
@@ -135,7 +144,7 @@ describe("buildStoryData — Core 5 resilience", () => {
     const result = buildStoryData({
       archetypeResult: makeArchetype(),
       axisScores: makeMinimalAxisScores(),
-      contradictionMap: { entries: [], totalContradictions: 0, maxMagnitude: 0 },
+      contradictionMap: { entries: [], totalContradictions: 0, alignedAxes: 0, summary: "", primaryTheme: "" },
       totalObservations: 10,
       todayObservationCount: 0,
     });

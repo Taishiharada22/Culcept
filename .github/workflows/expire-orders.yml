@@ -12,7 +12,7 @@ jobs:
       - name: Call expire endpoint
         run: |
           set -e
-          URL="https://culcept.vercel.app/api/cron/expire-orders?secret=${{ secrets.CRON_SECRET }}"
+          URL="https://culcept.vercel.app/api/cron/expire-orders"
           echo "GET $URL"
-          curl -sS "$URL" | tee out.json
+          curl -sS -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "$URL" | tee out.json
           node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync('out.json','utf8')); if(!j.ok){console.error(j); process.exit(1)}"

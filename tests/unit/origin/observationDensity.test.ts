@@ -13,7 +13,7 @@ import type { DailyOrbitStore, DailyOrbitEntry } from "@/lib/origin/dailyOrbit/t
 function makeEntry(date: string, opts?: Partial<DailyOrbitEntry>): DailyOrbitEntry {
   return {
     date,
-    tasks: [{ id: "t1", text: "task", nature: "obligation", completed: false, createdAt: date }],
+    tasks: [{ id: "t1", text: "task", nature: "obligation", completed: false, carryCount: 0, addedAt: date }],
     bodyEcho: null,
     dayState: null,
     shadowIntention: null,
@@ -33,9 +33,14 @@ function makeStore(entries: Record<string, DailyOrbitEntry>): DailyOrbitStore {
     version: 2,
     entries,
     orbitLaws: [],
-    selfResolution: { layers: [], updatedAt: "" },
+    selfResolution: { score: 0, updatedAt: "", history: [] },
     threads: [],
     turningPoints: [],
+    surpriseObservations: [],
+    discoveryUnlocked: {},
+    firstUsedAt: null,
+    lastUsedAt: null,
+    currentStreak: 0,
   };
 }
 

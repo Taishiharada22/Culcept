@@ -69,10 +69,10 @@ describe("typeResolver", () => {
     it("constellation 関連フィールドが除去されている", () => {
       const result = resolveType([]);
       // ResolvedResult から除去された旧フィールドが存在しないことを確認
-      expect((result as Record<string, unknown>).resolvedType).toBeUndefined();
-      expect((result as Record<string, unknown>).topMatches).toBeUndefined();
-      expect((result as Record<string, unknown>).combinedIdentity).toBeUndefined();
-      expect((result as Record<string, unknown>).summary).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).resolvedType).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).topMatches).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).combinedIdentity).toBeUndefined();
+      expect((result as unknown as Record<string, unknown>).summary).toBeUndefined();
     });
   });
 

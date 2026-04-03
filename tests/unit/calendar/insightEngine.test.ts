@@ -66,8 +66,8 @@ const richPersona: CalendarPersonaProfile = {
   bodySubtype: "straight",
   silhouettePref: {},
   materialPref: {},
-  dominantColorAxis: 0.3,
-  dominantSilhouetteAxis: 0.1,
+  dominantColorAxis: "neutral",
+  dominantSilhouetteAxis: "neutral",
   styleAxis: {
     minimal_vs_maximal: -0.5,  // ミニマル寄り
     classic_vs_trendy: -0.3,   // クラシック寄り
@@ -79,15 +79,16 @@ const richPersona: CalendarPersonaProfile = {
 
 // 時間パターン: 平日満足度が高い
 const richTemporalProfile: TemporalProfile = {
-  dayOfWeekProfiles: {
-    0: { sampleCount: 2, avgSatisfaction: 3.5 },
-    1: { sampleCount: 8, avgSatisfaction: 4.5 }, // 月曜 — 発火条件（6回以上、4以上、conf=8/12=0.67>0.6）
-    2: { sampleCount: 6, avgSatisfaction: 4.2 },
-    3: { sampleCount: 4, avgSatisfaction: 3.8 },
-    4: { sampleCount: 9, avgSatisfaction: 4.6 }, // 木曜 — 発火条件
-    5: { sampleCount: 3, avgSatisfaction: 3.0 },
-    6: { sampleCount: 2, avgSatisfaction: 3.2 },
-  },
+  dayOfWeekProfiles: [
+    { dayOfWeek: 0, sampleCount: 2, avgSatisfaction: 3.5, preferredFormality: null, avgItemCount: 2 },
+    { dayOfWeek: 1, sampleCount: 8, avgSatisfaction: 4.5, preferredFormality: "smart", avgItemCount: 3 }, // 月曜 — 発火条件（6回以上、4以上、conf=8/12=0.67>0.6）
+    { dayOfWeek: 2, sampleCount: 6, avgSatisfaction: 4.2, preferredFormality: null, avgItemCount: 3 },
+    { dayOfWeek: 3, sampleCount: 4, avgSatisfaction: 3.8, preferredFormality: null, avgItemCount: 2 },
+    { dayOfWeek: 4, sampleCount: 9, avgSatisfaction: 4.6, preferredFormality: "smart", avgItemCount: 3 }, // 木曜 — 発火条件
+    { dayOfWeek: 5, sampleCount: 3, avgSatisfaction: 3.0, preferredFormality: "casual", avgItemCount: 2 },
+    { dayOfWeek: 6, sampleCount: 2, avgSatisfaction: 3.2, preferredFormality: null, avgItemCount: 2 },
+  ],
+  preEventPatterns: [],
   weekdayVsWeekend: { weekdayAvg: 4.3, weekendAvg: 3.3 },
   recentTrendDirection: "improving",
   recentAvgSatisfaction: 4.1,
@@ -96,10 +97,12 @@ const richTemporalProfile: TemporalProfile = {
 // コンボグラフ: top1×bot1が鉄板
 const richComboGraph: ComboGraph = {
   edges: new Map([
-    ["bot1|top1", { affinity: 80, wearCount: 4, avgSatisfaction: 4.8, seasons: { spring: 2, summer: 0, autumn: 1, winter: 1 }, weatherContexts: {} }],
+    ["bot1|top1", { itemA: "bot1", itemB: "top1", affinity: 80, wearCount: 4, avgSatisfaction: 4.8, lastWorn: "2026-03-29", seasonCounts: { ss: 2, aw: 2 }, weatherCounts: { sun: 3, cloud: 1 } }],
   ]),
+  itemDegree: new Map([["bot1", 1], ["top1", 1]]),
+  topAffinity: [],
+  toxicPairs: [],
   totalEdges: 6,
-  totalWearEvents: 14,
 };
 
 // ── rotationTracker のモック ──
