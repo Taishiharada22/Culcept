@@ -3,6 +3,11 @@ import { vi, describe, it, expect, beforeAll } from "vitest";
 // Mock server-only (not available in test environment)
 vi.mock("server-only", () => ({}));
 
+// Mock supabaseAdmin to avoid env var requirement
+vi.mock("@/lib/supabaseAdmin", () => ({
+  supabaseAdmin: {},
+}));
+
 // Mock supabase server to avoid actual DB calls
 vi.mock("@/lib/supabase/server", () => ({
   supabaseServer: vi.fn(() =>
@@ -705,7 +710,8 @@ describe("Subscription Tier Gating", () => {
   });
 
   it("free users cannot access premium-only features", () => {
-    const premiumFeatures = ["alter", "ghost_resonance", "decision_oracle", "psyche_signature"] as const;
+    // ベータ期間中、alter / ghost_resonance は free (limited) に開放
+    const premiumFeatures = ["decision_oracle", "psyche_signature"] as const;
     for (const f of premiumFeatures) {
       expect(isTierFeatureAvailable(freeTier, f)).toBe(false);
       const limits = getFeatureLimits(freeTier, f);
@@ -714,19 +720,29 @@ describe("Subscription Tier Gating", () => {
     }
   });
 
+  it("free users have limited access to alter and ghost_resonance (beta)", () => {
+    const betaFeatures = ["alter", "ghost_resonance"] as const;
+    for (const f of betaFeatures) {
+      expect(isTierFeatureAvailable(freeTier, f)).toBe(true);
+      const limits = getFeatureLimits(freeTier, f);
+      expect(limits.available).toBe(true);
+      expect(limits.limited).toBe(true);
+    }
+  });
+
   it("getPremiumOnlyFeatures returns correct set", () => {
     const premiumOnly = getPremiumOnlyFeatures();
-    expect(premiumOnly).toContain("alter");
-    expect(premiumOnly).toContain("ghost_resonance");
     expect(premiumOnly).toContain("decision_oracle");
     expect(premiumOnly).toContain("psyche_signature");
+    expect(premiumOnly).not.toContain("alter");
+    expect(premiumOnly).not.toContain("ghost_resonance");
     expect(premiumOnly).not.toContain("inner_weather");
     expect(premiumOnly).not.toContain("blind_spot");
   });
 
-  it("getAllFeatureGates returns all 8 features", () => {
+  it("getAllFeatureGates returns all 18 features", () => {
     const gates = getAllFeatureGates(freeTier);
-    expect(Object.keys(gates).length).toBe(8);
+    expect(Object.keys(gates).length).toBe(18);
   });
 
   it("free tier daily limits are present for limited features", () => {

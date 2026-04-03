@@ -387,12 +387,12 @@ describe("validateDailyGuidanceResponse", () => {
 
 const cautiousPersonality: AlterPersonality = {
   ...basePersonality,
-  axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.2, social_preference: 0.3 },
+  axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.2, individual_vs_social: 0.3 },
 };
 
 const boldPersonality: AlterPersonality = {
   ...basePersonality,
-  axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.8, social_preference: 0.8 },
+  axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.8, individual_vs_social: 0.8 },
 };
 
 describe("sanitizeTraitInversions", () => {
@@ -460,7 +460,7 @@ describe("sanitizeTraitInversions", () => {
   it("does not modify text for neutral scores", () => {
     const neutralPersonality: AlterPersonality = {
       ...basePersonality,
-      axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.5, social_preference: 0.5 },
+      axisScores: { ...basePersonality.axisScores, cautious_vs_bold: 0.5, individual_vs_social: 0.5 },
     };
     const text = "即断型のあなたは社交的です。";
     const result = sanitizeTraitInversions(text, neutralPersonality);

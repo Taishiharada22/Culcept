@@ -298,18 +298,18 @@ describe("A1b. selectResponseModeWithReason — 情報量ゲート検証", () =>
     });
   }
 
-  // ── branch にしてよい例（判断対象も不明な最短文）──
-  // 「〜すべき？」を含む短文は decision_target が検出されるため conclude になりうる
-  // branch に留まるのは判断対象すら不明な場合のみ
-  const BRANCH_CASES = [
-    { input: "どう思う？", note: "？マッチ→conclude（短文だが判断意図あり）", expected: "conclude" as const },
-    { input: "迷ってる", note: "迷ってる→conclude（判断意図明確）", expected: "conclude" as const },
-    { input: "告白するべき？", note: "判断対象あり（べき）→conclude可", expected: "conclude" as const },
-    { input: "辞めるべきかな", note: "判断対象あり（べき）→conclude可", expected: "conclude" as const },
-    { input: "連絡した方がいい？", note: "判断対象あり（した方が）→conclude可", expected: "conclude" as const },
+  // ── 短文モード判定 ──
+  // v2: clarify_understanding_context が追加され、情報不足+target不明+非高感情の短文は clarify に
+  // conclude に届くのは high_stake で 1c(b) をスキップできるケースのみ
+  const SHORT_INPUT_CASES = [
+    { input: "どう思う？", note: "？マッチ→clarify（文脈不足・target不明）", expected: "clarify" as const },
+    { input: "迷ってる", note: "迷ってる→clarify（文脈不足・target不明）", expected: "clarify" as const },
+    { input: "告白するべき？", note: "判断対象あり（べき）+ high_stake → conclude", expected: "conclude" as const },
+    { input: "辞めるべきかな", note: "判断対象あり（べき）→clarify（stake不明）", expected: "clarify" as const },
+    { input: "連絡した方がいい？", note: "判断対象あり（した方が）→clarify（stake不明）", expected: "clarify" as const },
   ];
 
-  for (const [i, tc] of BRANCH_CASES.entries()) {
+  for (const [i, tc] of SHORT_INPUT_CASES.entries()) {
     it(`mode #${i + 1}: ${tc.note}`, () => {
       const ctx = analyzeQueryContext(tc.input);
       const { mode } = selectResponseModeWithReason(ctx);
