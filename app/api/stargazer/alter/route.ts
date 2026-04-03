@@ -2947,7 +2947,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── v4.2: Strategy Compliance Check + Semantic Bans ──
+      // ── v4.2: Strategy Compliance Check + Semantic Bans + Closed-Loop Re-generation ──
       if (thinSliceActive && homeResponse) {
         try {
           // Semantic Ban Check
@@ -2960,10 +2960,94 @@ export async function POST(req: NextRequest) {
           v42Compliance = checkStrategyCompliance(
             homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
           );
-          if (!v42Compliance.passed && v42Compliance.correction_prompt) {
-            console.info("[v4.2] Strategy compliance violation detected, correction prompt generated");
-            // Note: 再生成は既存の retry 機構に任せる（v4.2 は検知 + 記録のみ）
-            // 将来: v42Compliance.correction_prompt を使って再生成
+
+          // ── Closed-Loop Re-generation: ban/compliance 違反 → 1回だけ再生成 ──
+          const needsRegeneration = !v42SemanticBanCheck.passed || (!v42Compliance.passed && v42Compliance.correction_prompt);
+          if (needsRegeneration && responseMode !== "clarify" && responseMode !== "repair") {
+            console.info("[v4.2] Triggering re-generation for ban/compliance violations");
+
+            // Build correction prompt: ban violations + compliance corrections
+            const banCorrections = v42SemanticBanCheck.violations.map(v =>
+              `- 「${v.expression}」を使ってはならない（${v.category === "delegation" ? "宿題化" : v.category === "evasion" ? "判断回避" : v.category === "hollow_empathy" ? "空虚な共感" : "過度な前置き"}）`
+            ).join("\n");
+            const complianceCorrections = v42Compliance.correction_prompt ?? "";
+
+            const v42RetryPrompt = [
+              `ユーザーの質問: 「${effectiveMessage}」`,
+              "",
+              "## 前回の応答（問題あり — 修正して再生成せよ）",
+              `「${homeResponse.slice(0, 400)}」`,
+              "",
+              "## 禁止表現（絶対に使うな）",
+              banCorrections || "（なし）",
+              "",
+              complianceCorrections,
+              "",
+              "## 修正ルール",
+              "- 上記の禁止表現を含まない応答を生成せよ",
+              "- 「考えてみて」「書き出してみて」「整理してみて」→ Alter（あなた）が考えた結果を渡せ",
+              "- 「状況による」「場合による」→ 仮説付きで「僕の読みだと〜」で入れ",
+              "- 構造を提供するのはあなたの仕事。ユーザーに宿題を出すな。",
+              "- 1行目から結論。前置き不要。",
+            ].join("\n");
+
+            try {
+              const v42RetryResult = await runAI({
+                taskType: "stargazer_alter_response",
+                prompt: v42RetryPrompt,
+                systemPrompt: homeSystemPrompt,
+                requireJson: false,
+                temperature: 0.4,
+                maxOutputTokens: responseMode === "branch" ? 3072 : 2048,
+                userId: userId,
+                metadata: makeStargazerRunMetadata({
+                  feature: "alter",
+                  mode: "warm",
+                  turnNumber: conversationHistory.length,
+                  skipCache: true,
+                  attempt: 3, // v4.2 compliance retry
+                }),
+              });
+
+              if (v42RetryResult.success && v42RetryResult.text?.trim()) {
+                const { responseText: v42RetryStripped, metadata: v42RetryMeta } = parseDecisionMetadata(v42RetryResult.text);
+                const v42RetryFormatted = formatHomeAlterResponse(v42RetryStripped, userName);
+
+                // Re-check the re-generated response
+                const v42RetryBanCheck = checkSemanticBans(v42RetryFormatted);
+
+                if (v42RetryBanCheck.passed) {
+                  // Re-generation succeeded — swap response
+                  homeResponse = v42RetryFormatted;
+                  alterResponseText = homeResponse;
+                  if (v42RetryMeta) homeDecisionMeta = v42RetryMeta;
+                  v42SemanticBanCheck = v42RetryBanCheck;
+                  console.info("[v4.2] Compliance re-generation succeeded — response replaced");
+
+                  // Re-run compliance on new response
+                  v42Compliance = checkStrategyCompliance(
+                    homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
+                  );
+                } else {
+                  console.warn("[v4.2] Compliance re-generation still has ban violations — keeping original");
+                }
+              }
+            } catch (retryErr) {
+              console.warn("[v4.2] Compliance re-generation failed (fail-open):", retryErr);
+            }
+
+            // Analytics: 再生成の結果を記録
+            supabase.from("stargazer_analytics").insert({
+              user_id: userId,
+              event: "v42_compliance_regeneration",
+              feature: "alter",
+              metadata: {
+                session_id: sessionId,
+                original_ban_violations: v42SemanticBanCheck.violations.length,
+                regeneration_succeeded: v42SemanticBanCheck.passed,
+                response_mode: responseMode,
+              },
+            }).then(() => {}, () => {});
           }
         } catch (e) {
           console.warn("[v4.2] Compliance check failed (fail-open):", e);
