@@ -1798,9 +1798,19 @@ export async function POST(req: NextRequest) {
         }
       } catch { /* first session — no patterns yet */ }
 
+      // T0 gate: insight/temporalDelta/blindSpot/prophecy は全て過去回答履歴からの推論。
+      // T0（sessionsCompleted < 3）ではプロンプトに入れない。天気（当日の状態ラベル）のみ残す。
+      const rawCtx = rawHomeContext ?? {};
       const homeContextWithObs = {
-        ...(rawHomeContext ?? {}),
+        ...rawCtx,
         observationCount: alterSessionCount,
+        ...(discreteTrustLevel < 1 ? {
+          insight: null,
+          temporalDelta: null,
+          blindSpot: null,
+          prophecy: null,
+          prophecyAccuracy: null,
+        } : {}),
       } as HomeAlterContextData;
 
       // P2: stable/strengthening 仮説を facts レイヤーに注入するために事前取得
