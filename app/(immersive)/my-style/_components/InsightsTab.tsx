@@ -1,9 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
-import EcosystemInsightsPanel from "./EcosystemInsightsPanel";
-import ResonanceFeed from "./ResonanceFeed";
-import StyleJourneyMap from "./StyleJourneyMap";
+import { useEffect, useMemo, type ReactNode } from "react";
 import { getStyleLaneLabel } from "../_lib/catalog";
 import { buildMyStyleProfile, deriveMyStyleSignals } from "../_lib/state";
 import type { SavedState } from "../_lib/types";
@@ -76,6 +73,16 @@ function SectionHeading({ title, sub, badge, children }: { title: string; sub?: 
 export default function InsightsTab({ state, swipeState }: { state: SavedState; swipeState: SwipeLearningState | null }) {
     const derived = useMemo(() => deriveMyStyleSignals(state), [state]);
     const profile = useMemo(() => buildMyStyleProfile(state), [state]);
+
+    useEffect(() => {
+        try {
+            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                event: "mystyle_weekly_insight_shown",
+                feature: "my-style",
+                metadata: { snapshot_count: derived.timelineSnapshots.length, discovery_count: derived.discoveries.length },
+            }));
+        } catch { /* ignore */ }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
     const latestSnapshot = derived.timelineSnapshots[0] ?? null;
     const previousSnapshot = derived.timelineSnapshots[1] ?? null;
     const primaryShift = latestSnapshot && previousSnapshot && latestSnapshot.primaryLanes[0] !== previousSnapshot.primaryLanes[0]
@@ -102,15 +109,6 @@ export default function InsightsTab({ state, swipeState }: { state: SavedState; 
         <div className="relative space-y-5 pl-8">
             {/* Timeline vertical line */}
             <div className="pointer-events-none absolute bottom-0 left-3 top-0 w-px bg-gradient-to-b from-blue-300/50 via-blue-200/30 to-transparent" />
-
-            {/* Ecosystem Bridge — 9機能統合インサイト */}
-            <section className="relative rounded-2xl border border-violet-200/30 bg-gradient-to-br from-violet-50/40 to-white/90 p-5 shadow-sm">
-                <div className="absolute -left-[29px] top-6 h-3 w-3 animate-pulse rounded-full border-2 border-violet-500 bg-violet-500" />
-                <SectionHeading title="エコシステム" sub="9機能がつながる全体像 — DNA・ペルソナ・考古学・素材・着回しの交差点" />
-                <div className="mt-3">
-                    <EcosystemInsightsPanel state={state} swipeState={swipeState} />
-                </div>
-            </section>
 
             {/* Current contour */}
             <section className="relative rounded-2xl border border-blue-200/30 bg-gradient-to-br from-blue-50/40 to-white/90 p-5 shadow-sm">
@@ -140,19 +138,19 @@ export default function InsightsTab({ state, swipeState }: { state: SavedState; 
             <div className="grid gap-3 lg:grid-cols-3">
                 <section className="relative rounded-2xl border border-blue-200/30 bg-white/92 p-5 shadow-sm backdrop-blur">
                     <div className="absolute -left-[29px] top-6 h-3 w-3 rounded-full border-2 border-blue-400 bg-white" />
-                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">Axis shift</div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">軸の変化</div>
                     <div className="mt-2 text-[16px] font-black tracking-[-0.03em] text-slate-900">何が変わったか</div>
                     <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{primaryShift}</p>
                 </section>
                 <section className="relative rounded-2xl border border-blue-200/30 bg-white/92 p-5 shadow-sm backdrop-blur">
                     <div className="absolute -left-[29px] top-6 h-3 w-3 rounded-full border-2 border-blue-400 bg-white" />
-                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">Emerging signal</div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">兆し</div>
                     <div className="mt-2 text-[16px] font-black tracking-[-0.03em] text-slate-900">何が見え始めたか</div>
                     <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{emergingSignal}</p>
                 </section>
                 <section className="relative rounded-2xl border border-blue-200/30 bg-white/92 p-5 shadow-sm backdrop-blur">
                     <div className="absolute -left-[29px] top-6 h-3 w-3 rounded-full border-2 border-blue-400 bg-white" />
-                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">Evidence</div>
+                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-blue-400">根拠</div>
                     <div className="mt-2 text-[16px] font-black tracking-[-0.03em] text-slate-900">変化の根拠</div>
                     <p className="mt-2 text-[13px] leading-relaxed text-slate-600">{evidenceLine}</p>
                 </section>
@@ -233,8 +231,8 @@ export default function InsightsTab({ state, swipeState }: { state: SavedState; 
                     <div className="mt-3 space-y-2 text-[13px] leading-relaxed text-slate-600">
                         {derived.selfFormingItems[0] ? (
                             <p>{state.wardrobe.find((i) => i.id === derived.selfFormingItems[0].itemId)?.name ?? "主力アイテム"} が「{derived.dominantImpressions[0] ?? "整い"}」と「{derived.dominantWorldviews[0] ?? "自然体"}」を支えている</p>
-                        ) : <p>Self-forming Items がまだ十分ではありません</p>}
-                        {derived.repeatedBecomeResults[0] ? <p>I BECOME で「{derived.repeatedBecomeResults[0]}」の変化が反復</p> : null}
+                        ) : <p>自分を形作るアイテムがまだ十分ではありません</p>}
+                        {derived.repeatedBecomeResults[0] ? <p>「{derived.repeatedBecomeResults[0]}」への変化が繰り返されている</p> : null}
                         {profile.self.wardrobeSignals.map((l) => <p key={l}>{l}</p>)}
                     </div>
                 </section>
@@ -246,23 +244,6 @@ export default function InsightsTab({ state, swipeState }: { state: SavedState; 
                 </section>
             </div>
 
-            {/* Style Archaeology — Journey Map */}
-            <section className="relative rounded-2xl border border-blue-200/30 bg-gradient-to-br from-amber-50/30 to-white/90 p-5 shadow-sm backdrop-blur">
-                <div className="absolute -left-[29px] top-6 h-3 w-3 rounded-full border-2 border-amber-400 bg-white" />
-                <SectionHeading title="スタイル考古学" sub="スタイルの旅路を俯瞰し、次の進化を予測する" />
-                <div className="mt-3">
-                    <StyleJourneyMap state={state} />
-                </div>
-            </section>
-
-            {/* Resonance Feed */}
-            <section className="relative rounded-2xl border border-blue-200/30 bg-gradient-to-br from-violet-50/30 to-white/90 p-5 shadow-sm backdrop-blur">
-                <div className="absolute -left-[29px] top-6 h-3 w-3 rounded-full border-2 border-violet-400 bg-white" />
-                <SectionHeading title="スタイル共鳴" sub="匿名のスタイルDNAで、感性の双子を探す" />
-                <div className="mt-3">
-                    <ResonanceFeed state={state} swipeState={swipeState} />
-                </div>
-            </section>
         </div>
     );
 }

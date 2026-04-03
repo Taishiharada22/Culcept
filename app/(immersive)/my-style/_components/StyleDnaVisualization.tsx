@@ -45,7 +45,7 @@ export default function StyleDnaVisualization({ state, swipeState, compact }: Pr
                     <path d={blobPath} fill={`url(#${gradientId}-sm)`} opacity={0.8} />
                 </svg>
                 <div className="text-left">
-                    <p className="text-[11px] font-semibold text-slate-500">Style DNA</p>
+                    <p className="text-[11px] font-semibold text-slate-500">スタイルDNA</p>
                     <p className="max-w-[180px] truncate text-[12px] font-medium leading-tight text-slate-700">
                         {dna.catchphrase}
                     </p>
@@ -128,7 +128,7 @@ export default function StyleDnaVisualization({ state, swipeState, compact }: Pr
                         fontWeight="800"
                         opacity={0.98}
                     >
-                        Style DNA
+                        スタイルDNA
                     </text>
                     <text
                         x={BLOB_CENTER}

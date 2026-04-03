@@ -15,9 +15,15 @@ import type {
     UnexpectedStyleLane,
     WardrobeItem,
 } from "./types";
-import type { CrossFeatureData } from "../_components/CrossFeaturePanel";
-
 /* ─────────────────────── types ─────────────────────── */
+
+/** Cross-feature data from bridge API (previously in CrossFeaturePanel) */
+export type CrossFeatureData = {
+    personalColor: { cpv: Record<string, number> | null; labels: Record<string, string> | null; palette: string[] | null } | null;
+    bodyProfile: { cfv: Record<string, number> | null; displayLabels: Record<string, string> | null } | null;
+    stargazer: { typeKey: string | null; dimensions: Record<string, number> | null } | null;
+    stargazerTypes: { archetypeCode: string | null; archetypeLabel: string | null; axisScores: Record<string, number> | null } | null;
+};
 
 export type TabId = "today" | "closet" | "me";
 

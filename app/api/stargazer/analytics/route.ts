@@ -22,6 +22,25 @@ const VALID_EVENTS: Set<string> = new Set<StargazerEvent>([
   "whisper_clicked",
   "phase_advance",
   "session_complete",
+  // ── my-style events ──
+  "mystyle_onboarding_start",
+  "mystyle_onboarding_photo_taken",
+  "mystyle_onboarding_item_confirmed",
+  "mystyle_onboarding_complete",
+  "mystyle_today_view",
+  "mystyle_proposal_shown",
+  "mystyle_proposal_accepted",
+  "mystyle_proposal_rejected",
+  "mystyle_satisfaction_recorded",
+  "mystyle_mood_selected",
+  "mystyle_item_added",
+  "mystyle_closet_view",
+  "mystyle_self_view",
+  "mystyle_weekly_insight_shown",
+  "mystyle_gap_shown",
+  "mystyle_rendezvous_bridge",
+  "mystyle_photo_ai_correction",
+  "mystyle_failure",
 ]);
 
 export async function POST(req: NextRequest) {

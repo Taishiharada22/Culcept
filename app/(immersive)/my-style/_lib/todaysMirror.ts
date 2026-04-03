@@ -31,7 +31,7 @@ export interface ActualWear {
 export interface MoodEntry {
     date: string; // YYYY-MM-DD
     morningMood: string;
-    predictedStyle: StylePrediction;
+    predictedStyle?: StylePrediction;
     eveningActual?: ActualWear;
     predictionAccuracy?: number; // 0-1
 }

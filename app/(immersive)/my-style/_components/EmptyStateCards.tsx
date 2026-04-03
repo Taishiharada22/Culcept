@@ -75,14 +75,17 @@ export function WardrobeEmptyState({ onAction, onDemo }: EmptyStateProps) {
     return (
         <Shell>
             <h3 className="text-[17px] font-black text-slate-900">
-                最初の一着で、何が始まる？
+                今日、何を着よう？
             </h3>
+            <p className="text-[13px] text-slate-500 leading-relaxed">
+                服を登録すると、天気や気分に合わせた<br />提案が毎朝届きます
+            </p>
             <FuturePreview items={[
-                "色と素材の傾向が自動で浮かぶ",
-                "天気に合わせたコーデ提案が始まる",
-                "着回しの法則が見えてくる",
+                "今日の天気に合うコーデを提案",
+                "持っている服の傾向を自動で分析",
+                "着回しのパターンが見えてくる",
             ]} />
-            <ActionButton label="アイテムを追加" onClick={onAction} />
+            <ActionButton label="服を登録する" onClick={onAction} />
             <DemoLink onDemo={onDemo} />
         </Shell>
     );
@@ -138,12 +141,12 @@ export function IdentityEmptyState({ onAction, onDemo }: EmptyStateProps) {
     return (
         <Shell>
             <h3 className="text-[17px] font-black text-slate-900">
-                12軸のスタイルDNAが待っている
+                あなたの好みの全体像が見える
             </h3>
             <FuturePreview items={[
-                "深層スタイル傾向を12軸で可視化",
+                "好みの傾向を多角的に可視化",
                 "内面と外見の関係性が見える",
-                "5着以上 + スワイプ学習で解放",
+                "5着以上の登録で解放",
             ]} />
             <ActionButton label="持ち物を登録" onClick={onAction} />
             <DemoLink onDemo={onDemo} />
@@ -159,12 +162,12 @@ export function InsightsEmptyState({ onAction, onDemo }: EmptyStateProps) {
     return (
         <Shell>
             <h3 className="text-[17px] font-black text-slate-900">
-                全機能が交差する場所
+                すべてがつながる場所
             </h3>
             <FuturePreview items={[
-                "DNA・ペルソナ・素材の全データが統合",
-                "あなただけのインサイトが生まれる",
-                "各機能のデータが揃うと解放",
+                "持ち物・好み・傾向のデータが統合される",
+                "あなただけの発見が生まれる",
+                "データが揃うと解放",
             ]} />
             <ActionButton label="データを育てる" onClick={onAction} />
             <DemoLink onDemo={onDemo} />

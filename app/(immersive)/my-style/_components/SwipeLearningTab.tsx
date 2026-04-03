@@ -362,7 +362,7 @@ function PhaseIndicator({
         </div>
         <div className="text-right">
           <div className="text-xl font-black text-slate-800">{totalSwipes}</div>
-          <div className="text-[10px] text-slate-400 uppercase tracking-wider">swipes</div>
+          <div className="text-[10px] text-slate-400 tracking-wider">スワイプ</div>
         </div>
       </div>
 
@@ -400,10 +400,10 @@ function LearningAxesPanel({
     <GlassCard className="p-4">
       <div className="mb-3">
         <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-          Learning Axes
+          学習軸
         </div>
         <div className="mt-0.5 text-xs text-slate-500">
-          Phase {phase} で学習中の軸
+          フェーズ {phase} で学習中の軸
         </div>
       </div>
       <div className="space-y-2.5">
@@ -573,7 +573,7 @@ function SwipeCardView({
               className="absolute top-8 right-8 px-5 py-1.5 border-4 border-green-500 rounded-xl"
               style={{ opacity: likeOpacity, rotate: 12 }}
             >
-              <span className="text-green-500 font-black text-2xl">LIKE</span>
+              <span className="text-green-500 font-black text-2xl">好き</span>
             </motion.div>
           )}
 
@@ -583,7 +583,7 @@ function SwipeCardView({
               className="absolute top-8 left-8 px-5 py-1.5 border-4 border-red-500 rounded-xl"
               style={{ opacity: nopeOpacity, rotate: -12 }}
             >
-              <span className="text-red-500 font-black text-2xl">NOPE</span>
+              <span className="text-red-500 font-black text-2xl">違う</span>
             </motion.div>
           )}
 
@@ -650,7 +650,7 @@ function LearningResultsSummary({
     <GlassCard className="p-5">
       <div className="mb-3">
         <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">
-          Learning Summary
+          学習サマリー
         </div>
         <div className="mt-0.5 text-sm font-bold text-slate-700">
           {totalSwipes}回のスワイプから学習した傾向

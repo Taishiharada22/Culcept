@@ -291,19 +291,19 @@ export default function AIInsightPanel({
                     >
                         <InsightSection
                             icon="💎"
-                            label="Core Reading"
+                            label="本質の読み取り"
                             text={insight.coreReading}
                             delay={0}
                         />
                         <InsightSection
                             icon="🔮"
-                            label="Hidden Potential"
+                            label="隠れた可能性"
                             text={insight.hiddenPotential}
                             delay={0.12}
                         />
                         <InsightSection
                             icon="🎯"
-                            label="Next Move"
+                            label="次の一歩"
                             text={insight.nextMove}
                             delay={0.24}
                         />

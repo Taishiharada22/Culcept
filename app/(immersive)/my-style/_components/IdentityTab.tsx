@@ -2,8 +2,7 @@
 
 import { useState, type ReactNode, type SetStateAction } from "react";
 import PersonaPanel from "./PersonaPanel";
-import CrossFeaturePanel from "./CrossFeaturePanel";
-import type { CrossFeatureData } from "./CrossFeaturePanel";
+import type { CrossFeatureData } from "../_lib/pageUtils";
 import {
     BECOME_RESULT_OPTIONS,
     BECOME_TRIGGER_OPTIONS,
@@ -220,8 +219,8 @@ function AccumulatingSelectionSection({
 
 /* ─────────────────────── IdentityTab ─────────────────────── */
 
-export default function IdentityTab({ state, setState, mode, setMode, pushNotice, crossFeature, bridgePulse }: {
-    state: SavedState; setState: (updater: SetStateAction<SavedState>) => void; mode: IdentityMode; setMode: (mode: IdentityMode) => void; pushNotice: (text: string) => void; crossFeature?: CrossFeatureData | null; bridgePulse?: BridgePulse;
+export default function IdentityTab({ state, setState, pushNotice, crossFeature, bridgePulse }: {
+    state: SavedState; setState: (updater: SetStateAction<SavedState>) => void; pushNotice: (text: string) => void; crossFeature?: CrossFeatureData | null; bridgePulse?: BridgePulse;
 }) {
     const [draftTriggerTags, setDraftTriggerTags] = useState<SelectedPreferenceTag[]>([]);
     const [draftResultTags, setDraftResultTags] = useState<SelectedPreferenceTag[]>([]);
@@ -243,7 +242,7 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
     };
 
     const saveBecomePair = () => {
-        if (draftTriggerTags.length === 0 || draftResultTags.length === 0) { pushNotice("trigger と result の両方を選んでください"); return; }
+        if (draftTriggerTags.length === 0 || draftResultTags.length === 0) { pushNotice("きっかけと変化の両方を選んでください"); return; }
         const now = new Date().toISOString();
         const nextPair: BecomePair = {
             id: `become_${Date.now().toString(36)}`,
@@ -279,31 +278,17 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
 
     return (
         <div className="space-y-5">
-            {/* Mode switcher */}
+            {/* Header */}
             <section className="rounded-2xl border border-amber-200/30 p-5 shadow-sm" style={{ backgroundColor: "rgba(255,253,247,0.92)" }}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="border-l-2 border-rose-300/40 pl-4">
-                        <h3 className="text-lg font-bold text-amber-900">アイデンティティ</h3>
-                        <p className="mt-0.5 text-[13px] text-amber-700/60">自分の深層を I AM / I SEEK / I BECOME の三層で育てる</p>
-                    </div>
-                    <div className="flex rounded-xl border border-amber-200/40 bg-white/60 p-1">
-                        {([
-                            { id: "iam" as const, label: "I AM", sub: "いまの自分" },
-                            { id: "iseek" as const, label: "I SEEK", sub: "惹かれる世界" },
-                            { id: "ibecome" as const, label: "I BECOME", sub: "変化の癖" },
-                        ]).map((e) => (
-                            <button key={e.id} type="button" onClick={() => setMode(e.id)}
-                                className={cx("rounded-lg px-4 py-2 text-center transition", mode === e.id ? "bg-amber-800 text-white shadow-sm" : "text-amber-700/50 hover:text-amber-800")}>
-                                <div className="text-[13px] font-bold">{e.label}</div>
-                                <div className="text-[10px] opacity-60">{e.sub}</div>
-                            </button>
-                        ))}
-                    </div>
+                <div className="border-l-2 border-rose-300/40 pl-4">
+                    <h3 className="text-lg font-bold text-amber-900">アイデンティティ</h3>
+                    <p className="mt-0.5 text-[13px] text-amber-700/60">好み・惹かれる世界・変化の癖を三つの視点で育てる</p>
                 </div>
             </section>
 
-            {mode === "iam" ? (
-                <>
+            {/* いまの自分 */}
+            <div className="space-y-5">
+                <h4 className="text-[13px] font-bold text-amber-800 border-b border-amber-200/30 pb-1">いまの自分 — 好みと自然体</h4>
                     <AccumulatingSelectionSection title="好きな要素" description="自分の根っこに近い好みを選ぶ"
                         selected={state.iam.likedTags} tone="core" max={8}
                         candidates={likedCandidates.flatMap((g) => g.options).filter((o) => !state.iam.likedTags.some((t) => t.code === o.code))}
@@ -331,11 +316,11 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
                             className="mt-3 min-h-[100px] w-full rounded-xl border border-amber-200/40 px-4 py-3 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-amber-400"
                             style={{ backgroundColor: "rgba(255,253,247,0.6)", backgroundImage: "repeating-linear-gradient(to bottom, transparent, transparent 27px, rgba(0,0,0,0.03) 27px, rgba(0,0,0,0.03) 28px)" }} />
                     </section>
-                </>
-            ) : null}
+            </div>
 
-            {mode === "iseek" ? (
-                <>
+            {/* 惹かれる世界 */}
+            <div className="space-y-5">
+                <h4 className="text-[13px] font-bold text-amber-800 border-b border-amber-200/30 pb-1">惹かれる世界 — 求める印象</h4>
                     <AccumulatingSelectionSection title="惹かれる世界観" description="どんな世界観に心が動くか"
                         selected={state.iseek.attractedWorldviews} tone="rare" max={8}
                         candidates={worldviewCandidates.filter((o) => !state.iseek.attractedWorldviews.some((t) => t.code === o.code))}
@@ -363,11 +348,11 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
                             className="mt-3 min-h-[100px] w-full rounded-xl border border-amber-200/40 px-4 py-3 text-[13px] leading-relaxed text-slate-700 outline-none focus:border-amber-400"
                             style={{ backgroundColor: "rgba(255,253,247,0.6)", backgroundImage: "repeating-linear-gradient(to bottom, transparent, transparent 27px, rgba(0,0,0,0.03) 27px, rgba(0,0,0,0.03) 28px)" }} />
                     </section>
-                </>
-            ) : null}
+            </div>
 
-            {mode === "ibecome" ? (
-                <>
+            {/* 変化の癖 */}
+            <div className="space-y-5">
+                <h4 className="text-[13px] font-bold text-amber-800 border-b border-amber-200/30 pb-1">変化の癖 — きっかけと結果</h4>
                     <AccumulatingSelectionSection title="トリガー" description="何に触れると変化が起きるか"
                         selected={draftTriggerTags} tone="rare" max={4}
                         candidates={BECOME_TRIGGER_OPTIONS.filter((o) => !draftTriggerTags.some((t) => t.code === o.code))}
@@ -393,14 +378,14 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
                         <Card className="border-amber-200/50 bg-gradient-to-br from-amber-50/50 to-white/80">
                             <div className="grid items-center gap-3 sm:grid-cols-[1fr_40px_1fr]">
                                 <div className="rounded-xl border border-sky-200/50 bg-white/80 p-3">
-                                    <div className="text-[10px] font-bold uppercase tracking-widest text-sky-400">Trigger</div>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-sky-400">きっかけ</div>
                                     <div className="mt-1.5 flex flex-wrap gap-1">
                                         {draftTriggerTags.length === 0 ? <span className="text-[12px] text-slate-400">触れるもの</span> : draftTriggerTags.map((t) => <Badge key={t.code} tone="sky">{getDisplayLabel(t.code)}</Badge>)}
                                     </div>
                                 </div>
                                 <div className="text-center text-2xl text-slate-300">→</div>
                                 <div className="rounded-xl border border-amber-200/50 bg-white/80 p-3">
-                                    <div className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Become</div>
+                                    <div className="text-[10px] font-bold uppercase tracking-widest text-amber-400">変化</div>
                                     <div className="mt-1.5 flex flex-wrap gap-1">
                                         {draftResultTags.length === 0 ? <span className="text-[12px] text-slate-400">現れる自分</span> : draftResultTags.map((t) => <Badge key={t.code} tone="amber">{getDisplayLabel(t.code)}</Badge>)}
                                     </div>
@@ -439,8 +424,7 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
                             </div>
                         </Card>
                     ) : null}
-                </>
-            ) : null}
+            </div>
 
             {/* Context Personas */}
             <section className="rounded-2xl border border-amber-200/30 bg-gradient-to-br from-amber-50/40 to-white/90 p-5 shadow-sm">
@@ -450,13 +434,6 @@ export default function IdentityTab({ state, setState, mode, setMode, pushNotice
                 </div>
             </section>
 
-            {/* Cross-Feature Bridge */}
-            <section className="rounded-2xl border border-violet-200/30 bg-gradient-to-br from-violet-50/20 to-white/90 p-5 shadow-sm backdrop-blur">
-                <SectionHeading title="クロス機能ブリッジ" sub="パーソナルカラー・骨格・性格分析とスタイルの交差点" />
-                <div className="mt-3">
-                    <CrossFeaturePanel state={state} crossFeature={crossFeature ?? null} pulse={bridgePulse ?? null} />
-                </div>
-            </section>
         </div>
     );
 }

@@ -126,8 +126,19 @@ export function extractDominantColors(file: File | Blob, topN = 3): Promise<Domi
 
         reader.onload = () => {
             const img = new Image();
+            let settled = false;
+            const timer = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                img.src = "";
+                reject(new Error("image_load_timeout"));
+            }, 8_000);
 
             img.onload = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+
                 const SIZE = 50;
                 const canvas = document.createElement("canvas");
                 canvas.width = SIZE;
@@ -171,7 +182,12 @@ export function extractDominantColors(file: File | Blob, topN = 3): Promise<Domi
                 resolve(result);
             };
 
-            img.onerror = () => reject(new Error("image load failed"));
+            img.onerror = () => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                reject(new Error("image_load_failed"));
+            };
             img.src = reader.result as string;
         };
 

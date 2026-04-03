@@ -221,9 +221,11 @@ export function GlassCard({
 interface GlassNavbarProps {
     children: ReactNode;
     transparent?: boolean;
+    /** Override inner container className (e.g. padding) */
+    innerClassName?: string;
 }
 
-export function GlassNavbar({ children, transparent = false }: GlassNavbarProps) {
+export function GlassNavbar({ children, transparent = false, innerClassName }: GlassNavbarProps) {
     const [scrolled, setScrolled] = useState(false);
 
     useEffect(() => {
@@ -244,7 +246,7 @@ export function GlassNavbar({ children, transparent = false }: GlassNavbarProps)
             animate={{ y: 0 }}
             transition={{ type: "spring", stiffness: 100, damping: 20 }}
         >
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+            <div className={innerClassName ?? "max-w-7xl mx-auto px-4 sm:px-6 py-4"}>
                 {children}
             </div>
         </motion.header>

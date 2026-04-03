@@ -205,7 +205,7 @@ export default function QuickAddWizard({ onSave, onClose, itemCount }: QuickAddW
 
     // Encouraging message
     const encourageMessage = useMemo(() => {
-        if (savedCount === 1) return "最初の一歩！あと2着でDNAが動き出します";
+        if (savedCount === 1) return "最初の一歩！あと2着で提案が動き出します";
         if (savedCount === 3) return "3着突破！スタイルの輪郭が見え始めます";
         if (savedCount === 5) return "5着達成！全機能が解放されました";
         return `${savedCount}着目を登録！`;

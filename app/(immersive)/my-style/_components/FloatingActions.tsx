@@ -11,6 +11,7 @@ export default function FloatingActions({
     onPhotoAdd,
     onQuickAdd,
     onObservation,
+    activeTab,
 }: {
     showPhotoAdd: boolean;
     showQuickAdd: boolean;
@@ -18,11 +19,33 @@ export default function FloatingActions({
     onPhotoAdd: () => void;
     onQuickAdd: () => void;
     onObservation?: () => void;
+    activeTab?: string;
 }) {
     const [open, setOpen] = useState(false);
 
     if (showPhotoAdd || showQuickAdd) return null;
     if (wardrobeCount >= 50) return null;
+    if (activeTab === "today") return null;
+
+    /* Closet tab: direct 📷 button only (no menu) */
+    if (activeTab === "closet") {
+        return (
+            <div className="fixed bottom-6 right-6 z-40">
+                <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={onPhotoAdd}
+                    className="grid h-14 w-14 place-items-center rounded-full bg-slate-900 text-white shadow-xl"
+                    aria-label="写真で追加"
+                >
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="2" />
+                    </svg>
+                </motion.button>
+            </div>
+        );
+    }
 
     return (
         <>

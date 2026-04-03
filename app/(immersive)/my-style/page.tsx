@@ -23,8 +23,6 @@ function LoadingSkeleton({ height = "h-40", label }: { height?: string; label?: 
 /* ── Static imports (always visible / above the fold) ── */
 import WardrobeTab from "./_components/WardrobeTab";
 import { WardrobeEmptyState, SetupsEmptyState, StylesEmptyState, IdentityEmptyState, InsightsEmptyState } from "./_components/EmptyStateCards";
-import SparkleEffect, { useSparkle } from "./_components/SparkleEffect";
-import type { CrossFeatureData } from "./_components/CrossFeaturePanel";
 import MyStyleHero from "./_components/MyStyleHero";
 import ShowcaseRail from "./_components/ShowcaseRail";
 import WorkspaceBand from "./_components/WorkspaceBand";
@@ -47,49 +45,35 @@ const QuickAddWizard = dynamic(() => import("./_components/QuickAddWizard"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-96" />,
 });
-const OnboardingWizard = dynamic(() => import("./_components/OnboardingWizard"), {
+const PhotoOnboarding = dynamic(() => import("./_components/PhotoOnboarding"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-64" />,
 });
-const OutfitIntelligencePanel = dynamic(() => import("./_components/OutfitIntelligencePanel"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-48" />,
-});
-const MaterialLiteracyPanel = dynamic(() => import("./_components/MaterialLiteracyPanel"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-48" />,
-});
+/* OutfitIntelligencePanel — moved out of Closet tab in P5 */
+/* MaterialLiteracyPanel — moved out of Closet tab in P5 */
 const FlatLayComposer = dynamic(() => import("./_components/FlatLayComposer"), {
     ssr: false,
     loading: () => <LoadingSkeleton height="h-48" />,
 });
-const CrossFeaturePanel = dynamic(() => import("./_components/CrossFeaturePanel"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-40" />,
-});
+import SmartEmptyState from "./_components/SmartEmptyState";
 import StyleLogicPanel from "./_components/StyleLogicPanel";
 import AIInsightPanel from "./_components/AIInsightPanel";
-const StyleJourneyMap = dynamic(() => import("./_components/StyleJourneyMap"), {
+import TodayHero from "./_components/TodayHero";
+import TodaysMirror from "./_components/TodaysMirror";
+import WeatherOutfitPanel from "./_components/WeatherOutfitPanel";
+const AssertionInsightCard = dynamic(() => import("./_components/AssertionInsightCard"), {
     ssr: false,
-    loading: () => <LoadingSkeleton height="h-56" />,
+    loading: () => <LoadingSkeleton height="h-32" />,
 });
-const ResonanceFeed = dynamic(() => import("./_components/ResonanceFeed"), {
+const ContradictionDialogue = dynamic(() => import("./_components/ContradictionDialogue"), {
     ssr: false,
-    loading: () => <LoadingSkeleton height="h-48" />,
-});
-const EcosystemInsightsPanel = dynamic(() => import("./_components/EcosystemInsightsPanel"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-48" />,
-});
-const EngagementHub = dynamic(() => import("./_components/EngagementHub"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-64" label="Daily Briefing" />,
+    loading: () => <LoadingSkeleton height="h-32" />,
 });
 /* ObservationLogButton — merged into FloatingActions */
-const CostPerWearDashboard = dynamic(() => import("./_components/CostPerWearDashboard"), {
-    ssr: false,
-    loading: () => <LoadingSkeleton height="h-48" />,
-});
+/* CostPerWearDashboard — replaced by wear-data sections in P5 */
+
+/* ── Shared domain imports ── */
+import { loadAllWearEvents, buildWearSummaries } from "@/lib/shared/wearEvents";
 
 /* ── Lib imports ── */
 import { isOnline, enqueueSync, processSyncQueue, cleanStaleSyncItems } from "./_lib/offlineManager";
@@ -99,7 +83,7 @@ import { vibrateLight, vibrateSuccess } from "./_lib/haptics";
 import { isEmptyState } from "./_lib/demoData";
 import { loadLearningState } from "./_lib/swipeLearningEngine";
 import type { SwipeLearningState } from "./_lib/swipeLearningAxes";
-/* getStyleLaneLabel removed — no longer used in page */
+import { getStyleLaneLabel } from "./_lib/catalog";
 import {
     BACKUP_STORAGE_KEY,
     STORAGE_KEY,
@@ -116,6 +100,7 @@ import {
     type IdentityMode,
     type SyncStatus,
     type BridgePayload,
+    type CrossFeatureData,
     type ItemInsight,
     VALID_TABS,
     CATEGORY_LABELS,
@@ -128,6 +113,401 @@ import {
     collectSetupTitlesForItem,
     buildWardrobeReasonLine,
 } from "./_lib/pageUtils";
+
+/* ── Today tab engines ── */
+import { computeStyleDna } from "./_lib/styleDna";
+import { detectContradictions } from "./_lib/contradictionDetector";
+import { generateAssertions, type AssertionInsight } from "./_lib/assertionEngine";
+import { buildAllPersonaProfiles, findCrossPersonaCommon } from "./_lib/personaEngine";
+
+/* ── Analytics helper (fire-and-forget, shared across page) ── */
+function trackMyStyle(event: string, metadata?: Record<string, unknown>) {
+    try {
+        const payload = JSON.stringify({ event, feature: "my-style", metadata: { ...metadata, ts: Date.now() } });
+        if (typeof navigator !== "undefined" && navigator.sendBeacon) {
+            navigator.sendBeacon("/api/stargazer/analytics", payload);
+        }
+    } catch { /* ignore */ }
+}
+
+/* ─────────────────────── Self View Section ─────────────────────── */
+
+const FORMALITY_SCALE: Record<string, number> = { casual: 0.33, smart: 0.66, dress: 1.0 };
+const FORMALITY_LABEL: Record<string, string> = { casual: "カジュアル", smart: "きれいめ", dress: "フォーマル" };
+
+const SelfViewSection = React.memo(function SelfViewSection({
+    state,
+    onToggleDetails,
+    detailsOpen,
+}: {
+    state: SavedState;
+    onToggleDetails?: () => void;
+    detailsOpen?: boolean;
+}) {
+    const wearEvents = useMemo(() => loadAllWearEvents(), []);
+    const wearMap = useMemo(() => buildWearSummaries(wearEvents), [wearEvents]);
+    const eventCount = wearEvents.length;
+
+    /* ── 主軸 (>= 7) ── */
+    const axis = useMemo(() => {
+        if (eventCount < 7) return null;
+
+        // カテゴリ分布
+        const catCount: Record<string, number> = {};
+        for (const [, s] of wearMap) {
+            const item = state.wardrobe.find(w => w.id === s.itemId);
+            if (item) catCount[item.category] = (catCount[item.category] ?? 0) + s.count;
+        }
+        const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0];
+
+        // フォーマリティ平均
+        const formalityVals: number[] = [];
+        for (const ev of wearEvents) {
+            for (const id of ev.itemIds) {
+                const item = state.wardrobe.find(w => w.id === id);
+                if (item?.formality && FORMALITY_SCALE[item.formality]) {
+                    formalityVals.push(FORMALITY_SCALE[item.formality]);
+                }
+            }
+        }
+        const avgFormality = formalityVals.length > 0
+            ? formalityVals.reduce((a, b) => a + b, 0) / formalityVals.length
+            : null;
+        const formalityLabel = avgFormality !== null
+            ? avgFormality >= 0.8 ? "フォーマル寄り"
+            : avgFormality >= 0.55 ? "きれいめ中心"
+            : avgFormality >= 0.4 ? "カジュアルときれいめの間"
+            : "カジュアル中心"
+            : null;
+
+        // よく着る色
+        const colorCount: Record<string, number> = {};
+        for (const [, s] of wearMap) {
+            const item = state.wardrobe.find(w => w.id === s.itemId);
+            if (item?.colorName) colorCount[item.colorName] = (colorCount[item.colorName] ?? 0) + s.count;
+        }
+        const topColors = Object.entries(colorCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name]) => name);
+
+        return { topCat, formalityLabel, topColors };
+    }, [eventCount, wearEvents, wearMap, state.wardrobe]);
+
+    /* ── 変化検出 (>= 14, diff >= 0.15) ── */
+    const change = useMemo(() => {
+        if (eventCount < 14) return null;
+        const half = Math.floor(eventCount / 2);
+        // events are sorted newest-first, so second half (older) = events.slice(half)
+        const recentEvents = wearEvents.slice(0, half);
+        const olderEvents = wearEvents.slice(half);
+
+        function avgFormality(events: typeof wearEvents) {
+            const vals: number[] = [];
+            for (const ev of events) {
+                for (const id of ev.itemIds) {
+                    const item = state.wardrobe.find(w => w.id === id);
+                    if (item?.formality && FORMALITY_SCALE[item.formality]) {
+                        vals.push(FORMALITY_SCALE[item.formality]);
+                    }
+                }
+            }
+            return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        }
+
+        const recentAvg = avgFormality(recentEvents);
+        const olderAvg = avgFormality(olderEvents);
+        if (recentAvg === null || olderAvg === null) return null;
+        const diff = recentAvg - olderAvg;
+        if (Math.abs(diff) < 0.15) return null;
+
+        const direction = diff > 0 ? "きれいめ方向" : "カジュアル方向";
+        return { diff, direction };
+    }, [eventCount, wearEvents, state.wardrobe]);
+
+    /* ── 広げたい方向 ── */
+    const expandDirections = useMemo(() => {
+        return state.styleSelections
+            .filter(s => s.bucket === "rare" || s.bucket === "secret")
+            .slice(0, 4)
+            .map(s => ({ code: s.laneCode, label: getStyleLaneLabel(s.laneCode), bucket: s.bucket }));
+    }, [state.styleSelections]);
+
+    /* ── 気づき ── */
+    const insights = useMemo(() => {
+        const list: { icon: string; text: string }[] = [];
+        if (eventCount < 7) return list;
+
+        // 着るカテゴリの偏り
+        const catSet = new Set<string>();
+        for (const [, s] of wearMap) {
+            const item = state.wardrobe.find(w => w.id === s.itemId);
+            if (item) catSet.add(item.category);
+        }
+        if (catSet.size <= 2 && state.wardrobe.length >= 5) {
+            list.push({ icon: "💡", text: "着ているカテゴリが少なめ。持っている服を広く使うと新しい発見があるかも" });
+        }
+
+        // 満足度の傾向
+        const rated = wearEvents.filter(e => e.satisfaction != null);
+        if (rated.length >= 5) {
+            const avg = rated.reduce((s, e) => s + (e.satisfaction ?? 0), 0) / rated.length;
+            if (avg >= 4) {
+                list.push({ icon: "✨", text: "満足度が高め。今の着こなしが自分に合っている証拠です" });
+            } else if (avg <= 2.5) {
+                list.push({ icon: "🔍", text: "満足度がやや低め。組み合わせや気分に合った服を試してみて" });
+            }
+        }
+
+        // 眠っている服が多い
+        const sleepCount = state.wardrobe.filter(item => {
+            const s = wearMap.get(item.id);
+            if (!s) return true;
+            const days = (Date.now() - new Date(s.lastWornAt).getTime()) / 86400000;
+            return days > 30;
+        }).length;
+        if (sleepCount >= 3) {
+            list.push({ icon: "💤", text: `${sleepCount}着が30日以上着ていない状態。クローゼットを見直す機会かも` });
+        }
+
+        return list.slice(0, 3);
+    }, [eventCount, wearEvents, wearMap, state.wardrobe]);
+
+    /* ── Quiet state (< 7) ── */
+    // Gate: need enough data for meaningful axis display
+    const hasAxisData = eventCount >= 7 && state.wardrobe.length >= 5 && (axis?.formalityLabel || (axis?.topColors && axis.topColors.length > 0));
+
+    if (eventCount < 7 || !hasAxisData) {
+        return (
+            <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200/40 bg-white/70 p-5">
+                    <p className="text-[13px] font-bold text-slate-800">あなたの輪郭</p>
+                    <p className="mt-1 text-[11px] text-slate-500 leading-relaxed">
+                        着用記録が増えると、あなたのスタイル傾向がここに浮かび上がります
+                    </p>
+                    <div className="mt-3">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                            <span>{eventCount} / 7 回</span>
+                            <span>あと{7 - eventCount}回</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                            <div
+                                className="h-full rounded-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-500"
+                                style={{ width: `${Math.round((eventCount / 7) * 100)}%` }}
+                            />
+                        </div>
+                    </div>
+                </div>
+                {expandDirections.length > 0 && (
+                    <div className="rounded-xl border border-slate-200/40 bg-white/70 p-4">
+                        <p className="text-[11px] font-bold text-slate-500 mb-2">広げたい方向</p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {expandDirections.map(d => (
+                                <span key={d.code} className={cx(
+                                    "rounded-full px-2.5 py-1 text-[11px] font-medium border",
+                                    d.bucket === "rare"
+                                        ? "border-sky-200 bg-sky-50 text-sky-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-700"
+                                )}>
+                                    {d.label}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    /* ── Main view (>= 7) ── */
+    return (
+        <div className="space-y-4">
+            {/* 着こなし傾向 */}
+            <div className="rounded-xl border border-slate-200/40 bg-white/70 p-5">
+                <p className="text-[13px] font-bold text-slate-800">着こなし傾向</p>
+                <div className="mt-3 space-y-2">
+                    {axis?.formalityLabel && (
+                        <div className="flex items-center gap-2">
+                            <span className="shrink-0 text-[10px] font-bold text-slate-400 w-16">テイスト</span>
+                            <span className="text-[12px] text-slate-700">{axis.formalityLabel}</span>
+                        </div>
+                    )}
+                    {axis?.topCat && (
+                        <div className="flex items-center gap-2">
+                            <span className="shrink-0 text-[10px] font-bold text-slate-400 w-16">よく着る</span>
+                            <span className="text-[12px] text-slate-700">{CATEGORY_LABELS[axis.topCat[0] as keyof typeof CATEGORY_LABELS] ?? axis.topCat[0]}</span>
+                        </div>
+                    )}
+                    {axis?.topColors && axis.topColors.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <span className="shrink-0 text-[10px] font-bold text-slate-400 w-16">色</span>
+                            <span className="text-[12px] text-slate-700">{axis.topColors.join("・")}</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* 変化 (>= 14 + diff >= 0.15) */}
+            {change && (
+                <div className="rounded-xl border border-teal-200/50 bg-teal-50/40 p-4">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm">↗</span>
+                        <p className="text-[12px] font-bold text-teal-800">変化の兆し</p>
+                    </div>
+                    <p className="mt-1 text-[11px] text-teal-700 leading-relaxed">
+                        最近の着用は<span className="font-bold">{change.direction}</span>にシフトしています
+                    </p>
+                </div>
+            )}
+
+            {/* 広げたい方向 */}
+            {expandDirections.length > 0 && (
+                <div className="rounded-xl border border-slate-200/40 bg-white/70 p-4">
+                    <p className="text-[11px] font-bold text-slate-500 mb-2">広げたい方向</p>
+                    <div className="flex flex-wrap gap-1.5">
+                        {expandDirections.map(d => (
+                            <span key={d.code} className={cx(
+                                "rounded-full px-2.5 py-1 text-[11px] font-medium border",
+                                d.bucket === "rare"
+                                    ? "border-sky-200 bg-sky-50 text-sky-700"
+                                    : "border-amber-200 bg-amber-50 text-amber-700"
+                            )}>
+                                {d.label}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 気づき */}
+            {insights.length > 0 && (
+                <div className="space-y-2">
+                    <p className="text-[11px] font-bold text-slate-500">気づき</p>
+                    {insights.map((ins, i) => (
+                        <div key={i} className="rounded-xl border border-slate-200/40 bg-white/70 p-3 flex items-start gap-2">
+                            <span className="text-sm shrink-0">{ins.icon}</span>
+                            <p className="text-[11px] text-slate-600 leading-relaxed">{ins.text}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* つながる導線 */}
+            <div className="grid grid-cols-2 gap-2">
+                <Link href="/rendezvous" onClick={() => trackMyStyle("mystyle_rendezvous_bridge")} className="group rounded-xl border border-slate-200/40 bg-white/70 p-3 transition hover:bg-white/90 hover:shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-base">🤝</span>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-slate-700">合う人を探す</p>
+                            <p className="text-[9px] text-slate-400 truncate">スタイルで出会う</p>
+                        </div>
+                    </div>
+                </Link>
+                <Link href="/genome-card" className="group rounded-xl border border-slate-200/40 bg-white/70 p-3 transition hover:bg-white/90 hover:shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <span className="text-base">🧬</span>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-slate-700">カードに反映</p>
+                            <p className="text-[9px] text-slate-400 truncate">Genome Card</p>
+                        </div>
+                    </div>
+                </Link>
+            </div>
+
+            {/* 詳細 (折りたたみ) */}
+            {onToggleDetails && (
+                <button
+                    type="button"
+                    onClick={onToggleDetails}
+                    className="w-full rounded-xl border border-slate-200/40 bg-white/60 px-4 py-2.5 text-left text-[11px] font-medium text-slate-500 transition hover:bg-white/80 flex items-center justify-between"
+                >
+                    <span>詳細な分析を見る</span>
+                    <motion.svg
+                        width="12" height="12" viewBox="0 0 12 12" fill="none"
+                        animate={{ rotate: detailsOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2 }}
+                    >
+                        <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </motion.svg>
+                </button>
+            )}
+        </div>
+    );
+});
+
+/* ─────────────────────── Me Tab Content ─────────────────────── */
+
+const MeTabContent = React.memo(function MeTabContent({
+    state,
+    setState,
+    pushNotice,
+    identityMode,
+    setIdentityMode,
+    crossFeature,
+    bridgePulse,
+    swipeLearningState,
+    onQuickAdd,
+    onDemo,
+}: {
+    state: SavedState;
+    setState: (updater: SetStateAction<SavedState>) => void;
+    pushNotice: (text: string) => void;
+    identityMode: IdentityMode;
+    setIdentityMode: (m: IdentityMode) => void;
+    crossFeature: CrossFeatureData | null;
+    bridgePulse: BridgePayload["pulse"] | null;
+    swipeLearningState: SwipeLearningState | null;
+    onQuickAdd: () => void;
+    onDemo: () => void;
+}) {
+    const [detailsOpen, setDetailsOpen] = useState(false);
+
+    return (
+        <div className="space-y-6">
+            {/* Primary: Self View */}
+            <SelfViewSection
+                state={state}
+                onToggleDetails={() => setDetailsOpen(v => !v)}
+                detailsOpen={detailsOpen}
+            />
+
+            {/* Collapsible detail panels */}
+            <AnimatePresence>
+                {detailsOpen && (
+                    <motion.div
+                        key="me-details"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                    >
+                        <div className="space-y-6 pt-2">
+                            <StylesTab state={state} setState={setState} pushNotice={pushNotice} />
+
+                            <div className="border-t border-slate-200/40 pt-6">
+                                {state.wardrobe.length < 5 && !swipeLearningState
+                                    ? <IdentityEmptyState onAction={onQuickAdd} onDemo={onDemo} />
+                                    : <IdentityTab state={state} setState={setState} pushNotice={pushNotice} crossFeature={crossFeature} bridgePulse={bridgePulse} />
+                                }
+                            </div>
+
+                            {state.wardrobe.length >= 3 && (
+                                <div className="border-t border-slate-200/40 pt-6 space-y-6">
+                                    <InsightsTab state={state} swipeState={swipeLearningState} />
+                                    <StyleLogicPanel state={state} />
+                                    <AIInsightPanel
+                                        state={state}
+                                        pcSeason={bridgePulse?.pcSeason}
+                                        bodyType={bridgePulse?.bodyType}
+                                        archetypeCode={null}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+});
 
 /* ─────────────────────── Wardrobe Overview Tab ─────────────────────── */
 
@@ -144,93 +524,217 @@ const WardrobeOverviewTab = React.memo(function WardrobeOverviewTab({
     onSelectItem: (itemId: string) => void;
     pushNotice: (text: string) => void;
 }) {
-    const derived = useMemo(() => deriveMyStyleSignals(state), [state]);
-    const [showIntelligence, setShowIntelligence] = useState(false);
-    const [showMaterials, setShowMaterials] = useState(false);
+    /* ── Wear data ── */
+    const wearEvents = useMemo(() => loadAllWearEvents(), []);
+    const wearMap = useMemo(() => buildWearSummaries(wearEvents), [wearEvents]);
+
+    const mostWorn = useMemo(() => {
+        return state.wardrobe
+            .map(item => ({ item, count: wearMap.get(item.id)?.count ?? 0 }))
+            .filter(x => x.count > 0)
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+    }, [state.wardrobe, wearMap]);
+
+    const sleeping = useMemo(() => {
+        const now = Date.now();
+        return state.wardrobe
+            .map(item => {
+                const summary = wearMap.get(item.id);
+                const daysSince = summary?.lastWornAt
+                    ? Math.floor((now - new Date(summary.lastWornAt).getTime()) / 86400000)
+                    : Infinity;
+                return { item, daysSince };
+            })
+            .filter(x => x.daysSince > 30)
+            .sort((a, b) => b.daysSince - a.daysSince)
+            .slice(0, 5);
+    }, [state.wardrobe, wearMap]);
+
+    /* ── Missing piece ── */
+    const missingPiece = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const item of state.wardrobe) counts[item.category] = (counts[item.category] ?? 0) + 1;
+        const essentials: { cat: string; label: string; why: string }[] = [
+            { cat: "outerwear", label: "アウター", why: "気温変化に対応しやすくなる" },
+            { cat: "tops", label: "トップス", why: "着回しの幅が広がる" },
+            { cat: "bottoms", label: "ボトムス", why: "コーデの土台が安定する" },
+            { cat: "shoes", label: "靴", why: "足元が変わると印象が変わる" },
+        ];
+        const weakest = essentials
+            .map(e => ({ ...e, count: counts[e.cat] ?? 0 }))
+            .sort((a, b) => a.count - b.count)[0];
+        if (!weakest || weakest.count >= 3) return null;
+        return weakest;
+    }, [state.wardrobe]);
+
+    // Track gap-shown event
+    useEffect(() => {
+        if (missingPiece) trackMyStyle("mystyle_gap_shown", { gap_category: missingPiece.cat });
+    }, [missingPiece]);
+
+    const totalWears = wearEvents.length;
+    const categoryCount = new Set(state.wardrobe.map(i => i.category)).size;
 
     return (
         <div className="space-y-4">
+            {/* ── Summary Bar ── */}
+            <div className="flex items-center gap-4 rounded-xl bg-white/70 border border-slate-200/40 px-4 py-2.5">
+                <span className="text-[13px] font-bold text-slate-800">{state.wardrobe.length}<span className="text-slate-400 font-normal text-[11px] ml-0.5">着</span></span>
+                <span className="text-[13px] font-bold text-slate-800">{totalWears}<span className="text-slate-400 font-normal text-[11px] ml-0.5">回着用</span></span>
+                <span className="text-[13px] font-bold text-slate-800">{categoryCount}<span className="text-slate-400 font-normal text-[11px] ml-0.5">カテゴリ</span></span>
+            </div>
 
-            {/* Self-forming highlight */}
-            {derived.selfFormingItems.length > 0 ? (
-                <section className="rounded-2xl border border-amber-200/40 bg-gradient-to-br from-amber-50/60 to-white/90 p-5 shadow-sm">
-                    <SectionHeading title="Self-forming Items" sub="あなたの輪郭づくりに最も効いている服" />
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                        {derived.selfFormingItems.slice(0, 3).map((entry) => {
-                            const item = state.wardrobe.find((w) => w.id === entry.itemId);
-                            if (!item) return null;
-                            return (
-                                <button
-                                    key={item.id}
-                                    type="button"
-                                    onClick={() => onSelectItem(item.id)}
-                                    className="group flex gap-3 rounded-xl border border-slate-200/60 bg-white/70 p-3 text-left transition hover:border-slate-300 hover:shadow-md"
-                                >
-                                    <div className="w-16 shrink-0">
-                                        <ImageSurface image={item.imageUrl} label={item.name} gradient="from-slate-700 to-slate-900" ratio="aspect-[3/4]" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-[13px] font-bold text-slate-900">{item.name}</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-500">{CATEGORY_LABELS[item.category]}</div>
-                                        <p className="mt-2 text-[12px] leading-relaxed text-slate-600">{buildWardrobeReasonLine(entry, derived)}</p>
-                                        <div className="mt-2 flex flex-wrap gap-1">
-                                            {entry.impressionLabels.slice(0, 2).map((label) => <Badge key={label} tone="sky">{label}</Badge>)}
+            {/* ── よく着る服 ── */}
+            {mostWorn.length > 0 && (
+                <section>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-2">よく着る服</p>
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                        {mostWorn.map(({ item, count }) => (
+                            <button key={item.id} type="button" onClick={() => onSelectItem(item.id)} className="shrink-0 w-16 text-center group">
+                                <div className="relative overflow-hidden rounded-lg border border-slate-200/50 transition group-hover:border-slate-300 group-hover:shadow-md">
+                                    {item.imageUrl ? (
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        <img src={item.imageUrl} alt={item.name} className="w-full aspect-square object-cover" />
+                                    ) : (
+                                        <div className="w-full aspect-square flex items-center justify-center" style={{ backgroundColor: item.colorHex ?? "#e2e8f0" }}>
+                                            <span className="text-white/80 text-[10px]">{CATEGORY_LABELS[item.category]}</span>
                                         </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
+                                    )}
+                                    <span className="absolute top-0.5 right-0.5 rounded-full bg-slate-900/70 px-1.5 py-0.5 text-[9px] font-bold text-white">{count}</span>
+                                </div>
+                                <p className="mt-0.5 truncate text-[9px] text-slate-500">{item.name}</p>
+                            </button>
+                        ))}
                     </div>
                 </section>
-            ) : null}
-
-            {/* Outfit Intelligence & Material toggle */}
-            <div className="flex items-center gap-2 mb-2">
-                <button
-                    type="button"
-                    onClick={() => { setShowIntelligence(!showIntelligence); if (!showIntelligence) setShowMaterials(false); }}
-                    className={cx(
-                        "flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition-all",
-                        showIntelligence
-                            ? "bg-orange-500 text-white shadow-md"
-                            : "bg-white/80 text-slate-600 border border-slate-200 hover:bg-orange-50 hover:text-orange-600"
-                    )}
-                >
-                    <span>🧠</span>
-                    <span>着回し分析</span>
-                </button>
-                <button
-                    type="button"
-                    onClick={() => { setShowMaterials(!showMaterials); if (!showMaterials) setShowIntelligence(false); }}
-                    className={cx(
-                        "flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition-all",
-                        showMaterials
-                            ? "bg-teal-500 text-white shadow-md"
-                            : "bg-white/80 text-slate-600 border border-slate-200 hover:bg-teal-50 hover:text-teal-600"
-                    )}
-                >
-                    <span>🧵</span>
-                    <span>素材図鑑</span>
-                </button>
-            </div>
-            {showIntelligence && (
-                <section className="rounded-2xl border border-orange-200/40 bg-gradient-to-br from-orange-50/60 to-white/90 p-4 shadow-sm">
-                    <OutfitIntelligencePanel state={state} setState={setState} pushNotice={pushNotice} />
-                </section>
             )}
-            {showMaterials && (
-                <section className="rounded-2xl border border-teal-200/40 bg-gradient-to-br from-teal-50/40 to-white/90 p-4 shadow-sm">
-                    <MaterialLiteracyPanel items={state.wardrobe} />
+
+            {/* ── 最近着てない服 ── */}
+            {sleeping.length > 0 && (
+                <section>
+                    <p className="text-[11px] font-bold text-amber-600 uppercase tracking-widest mb-2">最近着てない服</p>
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                        {sleeping.map(({ item, daysSince }) => (
+                            <button key={item.id} type="button" onClick={() => onSelectItem(item.id)} className="shrink-0 w-16 text-center group">
+                                <div className="relative overflow-hidden rounded-lg border border-slate-200/50 opacity-60 transition group-hover:opacity-100 group-hover:shadow-md">
+                                    {item.imageUrl ? (
+                                        /* eslint-disable-next-line @next/next/no-img-element */
+                                        <img src={item.imageUrl} alt={item.name} className="w-full aspect-square object-cover" />
+                                    ) : (
+                                        <div className="w-full aspect-square flex items-center justify-center" style={{ backgroundColor: item.colorHex ?? "#e2e8f0" }}>
+                                            <span className="text-white/80 text-[10px]">{CATEGORY_LABELS[item.category]}</span>
+                                        </div>
+                                    )}
+                                    <span className="absolute top-0.5 right-0.5 rounded-full bg-amber-500/80 px-1.5 py-0.5 text-[9px] font-bold text-white">
+                                        {daysSince === Infinity ? "未" : `${daysSince}日`}
+                                    </span>
+                                </div>
+                                <p className="mt-0.5 truncate text-[9px] text-slate-500">{item.name}</p>
+                            </button>
+                        ))}
+                    </div>
                 </section>
             )}
 
-            {/* Wardrobe management (add/edit) */}
+            {/* ── カテゴリ別 (WardrobeTab) ── */}
             <WardrobeTab state={state} setState={setState} onAddToSetup={onAddToSetup} />
 
-            {/* Cost-per-wear dashboard */}
-            {state.wardrobe.length >= 1 && (
-                <CostPerWearDashboard wardrobeItems={state.wardrobe} />
+            {/* ── 足りない1点 ── */}
+            {missingPiece && (
+                <div className="rounded-xl border border-indigo-200/40 bg-indigo-50/40 p-3">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-indigo-700">足りない1点</span>
+                        <span className="text-[10px] text-slate-400">|</span>
+                        <p className="text-[12px] text-slate-600">
+                            <span className="font-bold">{missingPiece.label}</span>
+                            {missingPiece.count === 0 ? "がまだありません" : `は${missingPiece.count}着のみ`}
+                            — {missingPiece.why}
+                        </p>
+                    </div>
+                </div>
             )}
+        </div>
+    );
+});
+
+/* ─────────────────────── Today Tab Content ─────────────────────── */
+
+const TodayTabContent = React.memo(function TodayTabContent({
+    state,
+    swipeState,
+    onFirstAction,
+}: {
+    state: SavedState;
+    swipeState: SwipeLearningState | null;
+    onFirstAction?: () => void;
+}) {
+    const [showContradictionDialogue, setShowContradictionDialogue] = useState(false);
+
+    const styleDna = useMemo(() => computeStyleDna(state, swipeState), [state, swipeState]);
+    const contradictions = useMemo(() => detectContradictions(swipeState, state), [state, swipeState]);
+    const personas = useMemo(() => buildAllPersonaProfiles(state), [state]);
+    const crossPersona = useMemo(() => findCrossPersonaCommon(personas), [personas]);
+
+    const assertions: AssertionInsight[] = useMemo(() => {
+        try {
+            return generateAssertions({ state, swipeState, styleDna, contradictions, personas, crossPersonaAnalysis: crossPersona });
+        } catch { return []; }
+    }, [state, swipeState, styleDna, contradictions, personas, crossPersona]);
+
+    return (
+        <div className="space-y-3">
+            <TodayHero state={state} swipeState={swipeState} onFirstAction={onFirstAction} />
+
+            <WeatherOutfitPanel wardrobeItems={state.wardrobe} />
+
+            <TodaysMirror wardrobeItems={state.wardrobe} styleSelections={state.styleSelections} />
+
+            {assertions.length > 0 && (
+                <Suspense fallback={<LoadingSkeleton height="h-32" />}>
+                    <AssertionInsightCard insights={assertions} />
+                </Suspense>
+            )}
+
+            {contradictions.length > 0 && (
+                <button
+                    type="button"
+                    className="w-full rounded-xl border border-amber-200/50 bg-amber-50/50 p-3 text-left"
+                    onClick={() => setShowContradictionDialogue(true)}
+                >
+                    <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[11px] font-bold text-amber-700">{contradictions.length}個の矛盾</span>
+                        <p className="text-[11px] text-amber-700 flex-1">あなたの中にある矛盾が発見されています</p>
+                        <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                    </div>
+                </button>
+            )}
+
+            <AnimatePresence>
+                {showContradictionDialogue && contradictions.length > 0 && (
+                    <div
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+                        onClick={() => setShowContradictionDialogue(false)}
+                    >
+                        <div
+                            className="w-full max-w-lg max-h-[85vh] overflow-auto rounded-2xl bg-white shadow-2xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between p-4 border-b border-slate-100">
+                                <h3 className="text-lg font-bold text-slate-900">矛盾の探究</h3>
+                                <button onClick={() => setShowContradictionDialogue(false)} className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                                </button>
+                            </div>
+                            <Suspense fallback={<LoadingSkeleton height="h-32" />}>
+                                <div className="p-4">
+                                    <ContradictionDialogue contradictions={contradictions} />
+                                </div>
+                            </Suspense>
+                        </div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 });
@@ -286,6 +790,7 @@ export default function MyStylePage() {
     const handleItemSave = (item: WardrobeItem) => {
         setState((prev) => ({ ...prev, wardrobe: [...prev.wardrobe, item] }));
         if (isDemo) { setIsDemo(false); }
+        trackMyStyle("mystyle_item_added", { category: item.category, has_image: !!item.imageUrl });
     };
 
     // Persist to localStorage + IndexedDB cache
@@ -305,6 +810,13 @@ export default function MyStylePage() {
     // Tab from URL
     useEffect(() => { const t = normalizeTabId(searchParams.get("tab")); if (t) setTab(t); }, [searchParams]);
     useEffect(() => { const url = new URL(window.location.href); url.searchParams.set("tab", tab); window.history.replaceState({}, "", `${url.pathname}${url.search}`); }, [tab]);
+
+    // Tab view tracking
+    useEffect(() => {
+        const eventMap: Record<TabId, string> = { today: "mystyle_today_view", closet: "mystyle_closet_view", me: "mystyle_self_view" };
+        const ev = eventMap[tab];
+        if (ev) trackMyStyle(ev, { wardrobe_count: state.wardrobe.length });
+    }, [tab, state.wardrobe.length]);
 
     // Notice auto-dismiss
     useEffect(() => { if (!notice) return; const t = window.setTimeout(() => setNotice(null), 2800); return () => window.clearTimeout(t); }, [notice]);
@@ -383,7 +895,6 @@ export default function MyStylePage() {
     }, [activeItemId, derived.selfFormingItems, state.setups, state.wardrobe]);
     const activeTabConfig = TAB_CONFIG.find((t) => t.id === tab) ?? TAB_CONFIG[0];
     /* showDna removed — Style DNA expandable removed */
-    const { sparkling, sparkle, onComplete: onSparkleComplete } = useSparkle();
     const closeActiveItem = () => setActiveItemId(null);
 
     useEffect(() => {
@@ -428,7 +939,6 @@ export default function MyStylePage() {
                             exit={toastVariants.exit}
                             transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                         >
-                            <SparkleEffect trigger={!!notice} />
                             <div className="flex items-center gap-2 rounded-xl border border-emerald-200/60 bg-emerald-50/80 px-4 py-2.5 text-[13px] font-medium text-emerald-700 backdrop-blur">
                                 <span>✓</span> {notice}
                             </div>
@@ -469,9 +979,9 @@ export default function MyStylePage() {
                             {tab === "today" && (
                                 <div className="space-y-3">
                                     {state.wardrobe.length >= 1 ? (
-                                        <EngagementHub state={state} swipeState={swipeLearningState} onFirstAction={() => setShowQuickAdd(true)} />
+                                        <TodayTabContent state={state} swipeState={swipeLearningState} onFirstAction={() => setShowQuickAdd(true)} />
                                     ) : (
-                                        <WardrobeEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} />
+                                        <SmartEmptyState onAddPhoto={() => setShowPhotoAdd(true)} onQuickAdd={() => setShowQuickAdd(true)} onDemo={triggerDemo} />
                                     )}
                                 </div>
                             )}
@@ -497,31 +1007,20 @@ export default function MyStylePage() {
                                 </div>
                             )}
 
-                            {/* ── Me tab (styles + identity + insights) ── */}
+                            {/* ── Me tab (self view + details) ── */}
                             {tab === "me" && (
-                                <div className="space-y-6">
-                                    <StylesTab state={state} setState={setState} pushNotice={pushNotice} />
-
-                                    <div className="border-t border-slate-200/40 pt-6">
-                                        {state.wardrobe.length < 5 && !swipeLearningState
-                                            ? <IdentityEmptyState onAction={() => setShowQuickAdd(true)} onDemo={triggerDemo} />
-                                            : <IdentityTab state={state} setState={setState} mode={identityMode} setMode={setIdentityMode} pushNotice={pushNotice} crossFeature={crossFeature} bridgePulse={bridgePulse} />
-                                        }
-                                    </div>
-
-                                    {state.wardrobe.length >= 3 && (
-                                        <div className="border-t border-slate-200/40 pt-6 space-y-6">
-                                            <InsightsTab state={state} swipeState={swipeLearningState} />
-                                            <StyleLogicPanel state={state} />
-                                            <AIInsightPanel
-                                                state={state}
-                                                pcSeason={bridgePulse?.pcSeason}
-                                                bodyType={bridgePulse?.bodyType}
-                                                archetypeCode={null}
-                                            />
-                                        </div>
-                                    )}
-                                </div>
+                                <MeTabContent
+                                    state={state}
+                                    setState={setState}
+                                    pushNotice={pushNotice}
+                                    identityMode={identityMode}
+                                    setIdentityMode={setIdentityMode}
+                                    crossFeature={crossFeature}
+                                    bridgePulse={bridgePulse}
+                                    swipeLearningState={swipeLearningState}
+                                    onQuickAdd={() => setShowQuickAdd(true)}
+                                    onDemo={triggerDemo}
+                                />
                             )}
                         </motion.div>
                       </AnimatePresence>
@@ -589,6 +1088,7 @@ export default function MyStylePage() {
                     wardrobeCount={state.wardrobe.length}
                     onPhotoAdd={() => setShowPhotoAdd(true)}
                     onQuickAdd={() => setShowQuickAdd(true)}
+                    activeTab={tab}
                 />
             )}
 
@@ -605,8 +1105,8 @@ export default function MyStylePage() {
             {/* Onboarding wizard */}
             {showOnboarding ? (
                 <ErrorBoundary fallbackMessage="オンボーディングの表示中にエラーが発生しました">
-                    <OnboardingWizard
-                        onStartAdding={() => { setShowOnboarding(false); setShowQuickAdd(true); }}
+                    <PhotoOnboarding
+                        onSave={handleItemSave}
                         onLoadDemo={handleLoadDemo}
                         onDismiss={() => setShowOnboarding(false)}
                     />
