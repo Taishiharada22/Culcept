@@ -16,6 +16,7 @@ import {
   AnimatePresence,
   type PanInfo,
 } from "framer-motion";
+import Link from "next/link";
 import { RV_COLORS, RV_CATEGORY_COLORS } from "@/components/ui/rendezvous-design";
 import { FadeInView } from "@/components/ui/glassmorphism-design";
 import { hapticLight, hapticMedium, hapticHeavy } from "@/lib/rendezvous/haptics";
@@ -449,13 +450,13 @@ export default function RomanceSwipeClient() {
         <div className="px-6 pt-5 pb-1">
           {/* Back + Title row */}
           <div className="flex items-center gap-3 mb-3">
-            <a
+            <Link
               href="/rendezvous"
               className="text-sm no-underline"
               style={{ color: RV_COLORS.textMuted }}
             >
               ←
-            </a>
+            </Link>
             <span
               className="text-[11px] font-bold tracking-[0.2em] uppercase"
               style={{ color: ROMANCE_COLOR }}

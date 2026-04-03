@@ -130,7 +130,7 @@ export default function VoiceSearch({ onClose }: VoiceSearchProps) {
                     {/* 認識結果 */}
                     {transcript && (
                         <div className="bg-white/10 rounded-2xl p-4 mb-6">
-                            <p className="text-white text-xl font-medium">"{transcript}"</p>
+                            <p className="text-white text-xl font-medium">{'"'}{transcript}{'"'}</p>
                         </div>
                     )}
 
@@ -148,7 +148,7 @@ export default function VoiceSearch({ onClose }: VoiceSearchProps) {
                                         }}
                                         className="px-4 py-2 bg-white/10 rounded-full text-white text-sm hover:bg-white/20 transition-colors"
                                     >
-                                        "{suggestion}"
+                                        {'"'}{suggestion}{'"'}
                                     </button>
                                 ))}
                             </div>

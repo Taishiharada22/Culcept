@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   RV_COLORS,
@@ -355,13 +356,13 @@ export default function ConnectionHome() {
       <FadeInView delay={0}>
         <div className="px-6 pt-6 pb-2">
           {/* Back link */}
-          <a
+          <Link
             href="/rendezvous"
             className="text-sm no-underline inline-block mb-4"
             style={{ color: RV_COLORS.textMuted }}
           >
             ←
-          </a>
+          </Link>
 
           {/* Title */}
           <h1

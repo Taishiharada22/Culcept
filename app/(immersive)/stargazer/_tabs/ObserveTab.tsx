@@ -773,6 +773,17 @@ export default function ObserveTab({
     }
   }, [stateEnergy, stateEmotion, stateSocial, completeStateCapture]);
 
+  // ── Compute accuracy decay for intro phase ──
+  const daysSinceLastObs = useMemo(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const lastDate = localStorage.getItem("culcept_sg_last_completed");
+      if (!lastDate) return totalObservations > 0 ? 7 : 0;
+      const diff = Date.now() - new Date(lastDate).getTime();
+      return Math.floor(diff / (1000 * 60 * 60 * 24));
+    } catch { return 0; }
+  }, [totalObservations]);
+
   // ── RV-only mode: User already completed Phase 1, entering RV via ?rv=start ──
   if (rvStartMode && hasData && existingProfile) {
     return (
@@ -1025,17 +1036,6 @@ export default function ObserveTab({
       />
     );
   }
-
-  // ── Compute accuracy decay for intro phase ──
-  const daysSinceLastObs = useMemo(() => {
-    if (typeof window === "undefined") return 0;
-    try {
-      const lastDate = localStorage.getItem("culcept_sg_last_completed");
-      if (!lastDate) return totalObservations > 0 ? 7 : 0;
-      const diff = Date.now() - new Date(lastDate).getTime();
-      return Math.floor(diff / (1000 * 60 * 60 * 24));
-    } catch { return 0; }
-  }, [totalObservations]);
   const decayPercentLost = Math.min(20, Math.max(0, (daysSinceLastObs - 2) * 4));
   const decayCurrentLevel = Math.max(10, 80 - decayPercentLost);
 

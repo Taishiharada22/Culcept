@@ -1683,6 +1683,12 @@ export default function DailyOrbitSection() {
     [entry, persist],
   );
 
+  // 適応的レイヤー: 層の表示判定ヘルパー
+  const isLayerVisible = useCallback((layerId: OrbitLayerId): boolean => {
+    if (showAllLayers || !adaptiveLayers) return true;
+    return adaptiveLayers.primary.some((l) => l.layerId === layerId);
+  }, [showAllLayers, adaptiveLayers]);
+
   // ── 描画準備 ──
   if (!entry) return null;
 
@@ -1710,12 +1716,6 @@ export default function DailyOrbitSection() {
 
   const currentHour = new Date().getHours();
   const isEvening = currentHour >= 18;
-
-  // 適応的レイヤー: 層の表示判定ヘルパー
-  const isLayerVisible = useCallback((layerId: OrbitLayerId): boolean => {
-    if (showAllLayers || !adaptiveLayers) return true;
-    return adaptiveLayers.primary.some((l) => l.layerId === layerId);
-  }, [showAllLayers, adaptiveLayers]);
 
   // フェーズ決定
   const showTemporal = yesterdayMsg && !temporalDone;

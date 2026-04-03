@@ -142,7 +142,7 @@ export default function DropsPageWrapper({
                                 )}
                                 {q && (
                                     <GlassBadge variant="info" size="sm">
-                                        Search: "{q}"
+                                        Search: {'"'}{q}{'"'}
                                     </GlassBadge>
                                 )}
                             </div>

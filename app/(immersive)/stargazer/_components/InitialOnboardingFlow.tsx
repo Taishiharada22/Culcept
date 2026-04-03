@@ -2785,7 +2785,7 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
                 animate={{ opacity: 1 }}
                 transition={{ delay: 3, duration: 0.25 }}
               >
-                「はじめまして。あなたの"影"です。
+                {`「はじめまして。あなたの"影"です。`}
               </motion.p>
               <motion.p
                 className="font-display text-sm leading-relaxed mt-2"

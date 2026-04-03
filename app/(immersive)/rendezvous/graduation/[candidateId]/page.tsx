@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
 import type { GraduationData } from "@/lib/rendezvous/graduationCeremony";
 import GraduationCeremonyClient from "./GraduationCeremonyClient";
@@ -66,12 +67,12 @@ export default async function GraduationCeremonyPage({
           <p className="text-sm text-white/40">
             関係データが見つからないか、権限がありません。
           </p>
-          <a
+          <Link
             href="/rendezvous"
             className="inline-block mt-6 px-4 py-2 rounded-full bg-white/10 text-white/70 hover:bg-white/20 transition-colors text-sm"
           >
             Rendezvous に戻る
-          </a>
+          </Link>
         </div>
       </div>
     );

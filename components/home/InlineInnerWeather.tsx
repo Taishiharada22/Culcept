@@ -44,31 +44,6 @@ export default function InlineInnerWeather({ innerWeather, compact = false }: Pr
 
   const isRecorded = innerWeather?.recorded || justRecorded;
 
-  // ─── Compact mode: 上部バー埋め込み用 ───
-  if (compact) {
-    if (isRecorded) {
-      return (
-        <Link
-          href="/stargazer/weather"
-          className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
-          style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
-        >
-          <span className="text-xs leading-none">{innerWeather?.emoji ?? "☀️"}</span>
-          <span className="text-[9px] text-text2">{innerWeather?.label ?? "記録済み"}</span>
-        </Link>
-      );
-    }
-    return (
-      <Link
-        href="/stargazer/weather"
-        className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
-        style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
-      >
-        <span className="text-[9px] text-text3">今の気分は？</span>
-      </Link>
-    );
-  }
-
   const handleQuickRecord = useCallback(async (preset: Preset) => {
     if (submitting) return;
     setSubmitting(preset.emoji);
@@ -94,6 +69,31 @@ export default function InlineInnerWeather({ innerWeather, compact = false }: Pr
     } catch { /* noop */ }
     setSubmitting(null);
   }, [submitting]);
+
+  // ─── Compact mode: 上部バー埋め込み用 ───
+  if (compact) {
+    if (isRecorded) {
+      return (
+        <Link
+          href="/stargazer/weather"
+          className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
+          style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
+        >
+          <span className="text-xs leading-none">{innerWeather?.emoji ?? "☀️"}</span>
+          <span className="text-[9px] text-text2">{innerWeather?.label ?? "記録済み"}</span>
+        </Link>
+      );
+    }
+    return (
+      <Link
+        href="/stargazer/weather"
+        className="flex items-center gap-1 px-2 py-1 rounded-full transition-all active:opacity-70"
+        style={{ background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.10)" }}
+      >
+        <span className="text-[9px] text-text3">今の気分は？</span>
+      </Link>
+    );
+  }
 
   // Recorded state: show compact result
   if (isRecorded) {
