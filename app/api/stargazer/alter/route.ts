@@ -700,6 +700,7 @@ export async function POST(req: NextRequest) {
     let responseMode: ResponseMode = "conclude";
     let modeDecisionReason: ModeDecisionReason = "conclude_low_ambiguity";
     let detectedReaction: Reaction | null = null; // P1-C: リアクション分類結果（analytics用）
+    let questionType: QuestionType = "judgment"; // P1-A: 5タイプルーター結果（analytics用にホイスト）
     let questionCategory: QuestionCategory | null = null;
     let followupInsight = "";
     // Understanding System (Layer 2: State)
@@ -752,7 +753,7 @@ export async function POST(req: NextRequest) {
       // 質問カテゴリ分類（行動カテゴリ: gathering/outfit/contact/work/cause/general）
       questionCategory = classifyQuestion(message);
       // P1-A: 5タイプルーター（意図の種類: emotional/self_understanding/knowledge/strategy/judgment）
-      const questionType: QuestionType = classifyQuestionType(message);
+      questionType = classifyQuestionType(message);
 
       // ── Ambiguity Engine: ドメイン検出 + 曖昧性解析 + 応答モード選択 ──
       queryContext = analyzeQueryContext(message);
