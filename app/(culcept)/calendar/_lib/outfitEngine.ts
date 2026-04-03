@@ -1,6 +1,6 @@
 import type { WardrobeItem } from "@/app/my-style/_lib/types";
 import type { WeatherDaily, DayProposal, OutfitProposal, ProposalVariant, MoodShift, SatisfactionProfile } from "./types";
-import { computeSyncScore } from "./syncScoring";
+import { computeSyncScore } from "@/lib/shared/outfitEngine/syncScoring";
 import { analyzeRisks } from "./riskAnalysis";
 import { getSeasonForMonth, getRecommendedThickness, TPO_FORMALITY_MAP, MOOD_TAGS } from "./constants";
 import type { CalendarPersonaProfile } from "./personaBoost";

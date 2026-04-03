@@ -1,14 +1,14 @@
 import type { WardrobeItem } from "@/app/my-style/_lib/types";
-import type { WeatherDaily, SyncScore, SyncBreakdown, SatisfactionProfile } from "./types";
-import { getSyncBand, TPO_FORMALITY_MAP, getRecommendedThickness, SILHOUETTE_HARMONY, getSeasonForMonth } from "./constants";
-import type { CalendarPersonaProfile } from "./personaBoost";
-import { computePcVisualBoost } from "./personaBoost";
-import { scorePersonalFit } from "./satisfactionLearner";
-import type { ExtendedWeatherContext } from "./materialWeather";
-import { scoreOutfitMaterials, buildExtendedWeatherContext } from "./materialWeather";
-import type { ComboGraph } from "./comboGraph";
-import { scoreCombosForOutfit } from "./comboGraph";
-import type { OutfitAdaptation } from "./aneurasyncIntegration";
+import type { WeatherDaily, SyncScore, SyncBreakdown, SatisfactionProfile } from "@/app/(culcept)/calendar/_lib/types";
+import { getSyncBand, TPO_FORMALITY_MAP, getRecommendedThickness, SILHOUETTE_HARMONY, getSeasonForMonth } from "@/app/(culcept)/calendar/_lib/constants";
+import type { CalendarPersonaProfile } from "@/app/(culcept)/calendar/_lib/personaBoost";
+import { computePcVisualBoost } from "@/app/(culcept)/calendar/_lib/personaBoost";
+import { scorePersonalFit } from "@/app/(culcept)/calendar/_lib/satisfactionLearner";
+import type { ExtendedWeatherContext } from "@/app/(culcept)/calendar/_lib/materialWeather";
+import { scoreOutfitMaterials, buildExtendedWeatherContext } from "@/app/(culcept)/calendar/_lib/materialWeather";
+import type { ComboGraph } from "@/app/(culcept)/calendar/_lib/comboGraph";
+import { scoreCombosForOutfit } from "@/app/(culcept)/calendar/_lib/comboGraph";
+import type { OutfitAdaptation } from "@/app/(culcept)/calendar/_lib/aneurasyncIntegration";
 
 /* ── 色変換（matchScore/color.ts から移植） ── */
 function hexToHsl(hex: string): { h: number; s: number; l: number } | null {
