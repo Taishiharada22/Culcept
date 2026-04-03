@@ -6,12 +6,11 @@ import { cn } from "@/lib/utils";
 import type { WardrobeItem, SelectedStyleLane } from "../_lib/types";
 import {
     MOOD_OPTIONS,
-    MOOD_COLORS,
     saveMoodEntry,
     getTodayEntry,
-    getWeeklyMoodDots,
     type MoodEntry,
 } from "../_lib/todaysMirror";
+import WeeklyInsight from "./WeeklyInsight";
 import { loadAllWearEvents, saveWearEvent } from "@/lib/shared/wearEvents";
 
 /* ── Daily insight (7 rotating lenses) ── */
@@ -115,7 +114,6 @@ export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysM
     }, []);
 
     const dailyInsight = useMemo(() => getDailyInsight(wardrobeItems), [wardrobeItems]);
-    const weeklyDots = useMemo(() => { if (!mounted) return []; return getWeeklyMoodDots(); }, [mounted]);
 
     if (!mounted) return null;
 
@@ -175,17 +173,7 @@ export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysM
 
             {/* Weekly dots + daily insight — single line */}
             <div className="flex items-center gap-2">
-                {weeklyDots.length > 0 && (
-                    <div className="flex items-center gap-1">
-                        {weeklyDots.map((dot) => (
-                            <div
-                                key={dot.date}
-                                className="h-1.5 w-1.5 rounded-full"
-                                style={{ backgroundColor: dot.mood ? MOOD_COLORS[dot.mood] ?? "#94a3b8" : "#e2e8f0" }}
-                            />
-                        ))}
-                    </div>
-                )}
+                <WeeklyInsight />
                 {dailyInsight && (
                     <p className="text-[10px] text-slate-400 truncate">{dailyInsight}</p>
                 )}
