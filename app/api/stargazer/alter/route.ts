@@ -1898,12 +1898,15 @@ export async function POST(req: NextRequest) {
       } catch { /* person_map table may not exist yet */ }
 
       // 固有データをカテゴリ別に ranked（P0:漸減 + P1:環境文脈 + P2:仮説 + P3:ベースラインズレ + P6:関係マップ）
+      // T0 gate: trust level 0 では過去セッション由来データ（context/hypotheses/baseline/person map）を一切注入しない
+      // DBに残っていること自体は問題ないが、T0で prompt に混ぜると「知りすぎている」体験になる
+      const t0Gate = discreteTrustLevel >= 1;
       const personalizedFacts = buildPersonalizedFactsWithDomain(
         personality, homeContextWithObs, questionCategory, domainOverlay,
-        activeLifeContext.length > 0 ? activeLifeContext : null,
-        hypothesisFactEntries,
-        baselineDeviationEntries,
-        personMapFactEntries,
+        t0Gate && activeLifeContext.length > 0 ? activeLifeContext : null,
+        t0Gate ? hypothesisFactEntries : null,
+        t0Gate ? baselineDeviationEntries : null,
+        t0Gate ? personMapFactEntries : null,
       );
       const expectedKeywords = extractExpectedKeywords(personalizedFacts);
 
