@@ -2,17 +2,7 @@
 // Bridge between calendar worn-history and my-style wearHistory
 
 import type { SavedState, WearRecord } from "./types";
-
-/* ── Calendar localStorage key (matches rotationTracker.ts) ── */
-const CALENDAR_WORN_KEY = "culcept_calendar_worn_v1";
-
-/* ── Calendar WornRecord shape (from calendar/_lib/types.ts) ── */
-interface CalendarWornRecord {
-    date: string;
-    itemIds: string[];
-    satisfaction: 1 | 2 | 3 | 4 | 5;
-    note?: string;
-}
+import { loadAllWearEvents } from "@/lib/shared/wearEvents";
 
 /* ── Public types ── */
 
@@ -74,16 +64,15 @@ export function syncCalendarWornHistory(
         merged[id] = { ...rec, setupIds: [...(rec.setupIds ?? [])] };
     }
 
-    // Read calendar records from localStorage (client-only)
-    let calendarRecords: CalendarWornRecord[] = [];
-    try {
-        if (typeof window === "undefined") return merged;
-        const raw = localStorage.getItem(CALENDAR_WORN_KEY);
-        if (!raw) return merged;
-        calendarRecords = JSON.parse(raw) as CalendarWornRecord[];
-    } catch {
-        return merged;
-    }
+    // Read all wear events via shared layer (not direct localStorage)
+    if (typeof window === "undefined") return merged;
+    const allEvents = loadAllWearEvents();
+    const calendarRecords = allEvents.map((e) => ({
+        date: e.date,
+        itemIds: e.itemIds,
+        satisfaction: (e.satisfaction ?? 3) as 1 | 2 | 3 | 4 | 5,
+        note: e.note,
+    }));
 
     // Build a set of (itemId, date) pairs already tracked by my-style so we
     // don't double-count the same day if it was already synced before.

@@ -11,10 +11,7 @@ import {
     type DataQuality,
 } from "../_lib/styleLogicMiner";
 import type { WornRecord } from "@/app/calendar/_lib/types";
-
-/* ── Constants ── */
-
-const WORN_KEY = "culcept_calendar_worn_v1";
+import { loadAllWearEvents } from "@/lib/shared/wearEvents";
 const CONFIRMATIONS_KEY = "culcept_style_logic_confirmations_v1";
 
 const TYPE_ICONS: Record<StyleRuleType, string> = {
@@ -254,14 +251,14 @@ export default function StyleLogicPanel({ state }: { state: SavedState }) {
     useEffect(() => {
         /* eslint-disable react-hooks/set-state-in-effect -- mount-time hydration from localStorage */
         setMounted(true);
-        try {
-            const raw = localStorage.getItem(WORN_KEY);
-            if (raw) {
-                setWornRecords(JSON.parse(raw) as WornRecord[]);
-            }
-        } catch {
-            // ignore
-        }
+        // Read worn records via shared wearEvents layer (not direct localStorage)
+        const events = loadAllWearEvents();
+        setWornRecords(events.map((e) => ({
+            date: e.date,
+            itemIds: e.itemIds,
+            satisfaction: (e.satisfaction ?? 3) as WornRecord["satisfaction"],
+            note: e.note,
+        })));
         try {
             const raw = localStorage.getItem(CONFIRMATIONS_KEY);
             if (raw) {

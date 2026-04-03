@@ -1,9 +1,14 @@
 /**
+ * @internal TodaysMirror.tsx 専用モジュール
+ *
  * Today's Mirror -- 毎日の鏡
  *
  * Daily mood-to-style prediction engine.
  * Morning: mood -> predicted style direction.
  * Evening: validate what was actually worn.
+ *
+ * このモジュールは TodaysMirror.tsx からのみ import される。
+ * mood 系ロジックを shared 層に移す必要が生じるのは MoodPicker 実装時のみ。
  */
 
 import type {
