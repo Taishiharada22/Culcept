@@ -260,3 +260,14 @@
   - 2週間: low_growth の有無 / responseTime / servedCount 偏り
   - 1ヶ月: visibleRate 軸間格差 / precision 育ち / healthGrades 全体
 - **前提**: 対象ユーザーが条件（20セッション+7日）に到達するまでは出題実績なしが正常
+
+### 2026-04-03 CI パイプライン復旧 (lint + test)
+- **部門**: Build
+- **決定内容**: `fix/ci-lint-errors` ブランチで CI 復旧し main に merge。4コミット、18ファイル変更。
+- **理由**: eslint-config-next v16 (react-hooks v7) 導入による 220+ lint errors、テスト28件失敗、Node 20/npm 10 の lockfile 非互換
+- **承認**: CEO
+- **ステータス**: 実行済
+- **暫定対応**: `homeAlterQualityAudit.test.ts` のモード精度閾値を 0.75→0.45 に暫定引き下げ（clarify パス追加後の expectedMode 未更新）
+- **残TODO**:
+  1. qualityAudit 106件の expectedMode 再分類 → 閾値 0.75 復元
+  2. package.json の `"latest"` 指定を固定バージョンに変更（再発防止）
