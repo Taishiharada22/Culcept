@@ -2,8 +2,263 @@
 -- 使い方: Supabase SQL Editor にコピーして実行
 -- 期間: デプロイ後 7日分のデータで判断
 
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  A. 体験 KPI（ユーザー体験が変わったか）                ║
+-- ╚══════════════════════════════════════════════════════════╝
+
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 1. Interpretation Arena: レンズ勝利分布
+-- A1. Aha率（目標: ≥20%）
+-- 定義: v4.2 応答後にユーザーが agree / deepen で返したターンの割合
+-- Aha = 「その通り」「もっと聞きたい」= 洞察が刺さった証拠
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WITH v42_turns AS (
+  SELECT
+    id,
+    user_id,
+    metadata->>'session_id' AS session_id,
+    created_at,
+    metadata->'v42'->>'role' AS v42_role,
+    LEAD(metadata->'reaction'->>'type') OVER (
+      PARTITION BY user_id, metadata->>'session_id'
+      ORDER BY created_at
+    ) AS next_reaction
+  FROM stargazer_analytics
+  WHERE event = 'home_alter_judgment'
+    AND feature = 'home_alter'
+    AND metadata->'v42'->>'role' IS NOT NULL
+    AND created_at >= NOW() - INTERVAL '7 days'
+)
+SELECT
+  COUNT(*) AS total_v42_turns,
+  COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) AS turns_with_followup,
+  COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen')) AS aha_turns,
+  ROUND(
+    COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS aha_rate_pct,
+  -- 内訳
+  COUNT(*) FILTER (WHERE next_reaction = 'agree') AS agree_count,
+  COUNT(*) FILTER (WHERE next_reaction = 'deepen') AS deepen_count,
+  COUNT(*) FILTER (WHERE next_reaction = 'disagree') AS disagree_count,
+  COUNT(*) FILTER (WHERE next_reaction = 'redirect') AS redirect_count
+FROM v42_turns;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- A2. 共同思考成功率（目標: ≥40%）
+-- 定義: co_thinker role で応答した後、ユーザーが agree/deepen した割合
+-- 失敗 = disagree/redirect（Alter の仮説がズレていた）
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WITH co_think_turns AS (
+  SELECT
+    id,
+    user_id,
+    metadata->>'session_id' AS session_id,
+    created_at,
+    LEAD(metadata->'reaction'->>'type') OVER (
+      PARTITION BY user_id, metadata->>'session_id'
+      ORDER BY created_at
+    ) AS next_reaction
+  FROM stargazer_analytics
+  WHERE event = 'home_alter_judgment'
+    AND feature = 'home_alter'
+    AND metadata->'v42'->>'role' = 'co_thinker'
+    AND created_at >= NOW() - INTERVAL '7 days'
+)
+SELECT
+  COUNT(*) AS co_thinker_total,
+  COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) AS with_followup,
+  COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen')) AS success,
+  COUNT(*) FILTER (WHERE next_reaction IN ('disagree', 'redirect')) AS failure,
+  ROUND(
+    COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS co_think_success_rate_pct
+FROM co_think_turns;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- A3. repair成功率（目標: ≥60%）
+-- 定義: repair role 発動後、ユーザーが agree/deepen（修復受容）した割合
+-- 失敗 = 再度 disagree（修復が不十分だった）
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WITH repair_turns AS (
+  SELECT
+    id,
+    user_id,
+    metadata->>'session_id' AS session_id,
+    created_at,
+    LEAD(metadata->'reaction'->>'type') OVER (
+      PARTITION BY user_id, metadata->>'session_id'
+      ORDER BY created_at
+    ) AS next_reaction,
+    LEAD(metadata->'reaction'->>'disagree_strength') OVER (
+      PARTITION BY user_id, metadata->>'session_id'
+      ORDER BY created_at
+    ) AS next_disagree_strength
+  FROM stargazer_analytics
+  WHERE event = 'home_alter_judgment'
+    AND feature = 'home_alter'
+    AND metadata->'v42'->>'role' = 'repair'
+    AND created_at >= NOW() - INTERVAL '7 days'
+)
+SELECT
+  COUNT(*) AS repair_total,
+  COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) AS with_followup,
+  COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen')) AS repair_accepted,
+  COUNT(*) FILTER (WHERE next_reaction = 'disagree') AS repair_rejected,
+  COUNT(*) FILTER (WHERE next_reaction = 'disagree' AND next_disagree_strength = 'strong') AS still_angry,
+  ROUND(
+    COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS repair_success_rate_pct
+FROM repair_turns;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- A4. 直接回答率（目標: ≥90%）
+-- 定義: conclude モードの応答のうち、evasion ban がなかったターンの割合
+-- evasion ban = 「状況による」「一概には言えない」等で逃げた応答
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SELECT
+  COUNT(*) AS conclude_total,
+  COUNT(*) FILTER (
+    WHERE metadata->'v42'->>'semantic_ban_passed' = 'true'
+       OR metadata->'v42'->>'semantic_ban_passed' IS NULL
+  ) AS no_evasion,
+  COUNT(*) FILTER (
+    WHERE metadata->'v42'->>'semantic_ban_passed' = 'false'
+      AND metadata->'v42'->'semantic_ban_categories' @> '"evasion"'
+  ) AS evasion_violations,
+  ROUND(
+    (COUNT(*) - COUNT(*) FILTER (
+      WHERE metadata->'v42'->>'semantic_ban_passed' = 'false'
+        AND metadata->'v42'->'semantic_ban_categories' @> '"evasion"'
+    ))::numeric
+    / NULLIF(COUNT(*), 0) * 100, 1
+  ) AS direct_answer_rate_pct
+FROM stargazer_analytics
+WHERE event = 'home_alter_judgment'
+  AND feature = 'home_alter'
+  AND metadata->>'response_mode' = 'conclude'
+  AND created_at >= NOW() - INTERVAL '7 days';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- A5. 責任転嫁率（目標: ≤5%）
+-- 定義: delegation ban（「考えてみて」「書き出してみて」等）が残った割合
+-- v4.2 の再生成ループで排除されるべきだが、漏れがないか確認
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SELECT
+  COUNT(*) FILTER (
+    WHERE metadata->'v42'->>'semantic_ban_passed' = 'false'
+      AND metadata->'v42'->'semantic_ban_categories' @> '"delegation"'
+  ) AS delegation_violations,
+  COUNT(*) AS total,
+  ROUND(
+    COUNT(*) FILTER (
+      WHERE metadata->'v42'->>'semantic_ban_passed' = 'false'
+        AND metadata->'v42'->'semantic_ban_categories' @> '"delegation"'
+    )::numeric
+    / NULLIF(COUNT(*), 0) * 100, 1
+  ) AS delegation_rate_pct,
+  -- 再生成が発動した回数（delegation が検出 → 再生成で排除されたケース）
+  (SELECT COUNT(*) FROM stargazer_analytics
+   WHERE event = 'v42_compliance_regeneration'
+     AND created_at >= NOW() - INTERVAL '7 days'
+  ) AS regeneration_count,
+  (SELECT COUNT(*) FROM stargazer_analytics
+   WHERE event = 'v42_compliance_regeneration'
+     AND (metadata->>'regeneration_succeeded')::boolean = true
+     AND created_at >= NOW() - INTERVAL '7 days'
+  ) AS regeneration_success_count
+FROM stargazer_analytics
+WHERE event = 'home_alter_judgment'
+  AND feature = 'home_alter'
+  AND metadata->'v42'->>'role' IS NOT NULL
+  AND created_at >= NOW() - INTERVAL '7 days';
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- A-SUMMARY. 体験 KPI 一覧（PASS/FAIL 判定用）
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WITH v42_with_next AS (
+  SELECT
+    metadata->'v42'->>'role' AS v42_role,
+    metadata->>'response_mode' AS response_mode,
+    metadata->'v42'->>'semantic_ban_passed' AS ban_passed,
+    metadata->'v42'->'semantic_ban_categories' AS ban_cats,
+    LEAD(metadata->'reaction'->>'type') OVER (
+      PARTITION BY user_id, metadata->>'session_id'
+      ORDER BY created_at
+    ) AS next_reaction
+  FROM stargazer_analytics
+  WHERE event = 'home_alter_judgment'
+    AND feature = 'home_alter'
+    AND metadata->'v42'->>'role' IS NOT NULL
+    AND created_at >= NOW() - INTERVAL '7 days'
+)
+SELECT
+  COUNT(*) AS total_v42_turns,
+
+  -- A1. Aha率（全ロール、follow-up ありのうち agree+deepen）
+  ROUND(
+    COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS aha_rate_pct,
+  CASE WHEN ROUND(
+    COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
+  ) >= 20 THEN 'PASS' ELSE 'FAIL' END AS aha_judgment,
+
+  -- A2. 共同思考成功率（co_thinker のうち agree+deepen）
+  ROUND(
+    COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS co_think_success_pct,
+  CASE WHEN ROUND(
+    COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL), 0) * 100, 1
+  ) >= 40 THEN 'PASS' ELSE 'FAIL' END AS co_think_judgment,
+
+  -- A3. repair成功率（repair のうち agree+deepen）
+  ROUND(
+    COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL), 0) * 100, 1
+  ) AS repair_success_pct,
+  CASE WHEN ROUND(
+    COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IN ('agree', 'deepen'))::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL), 0) * 100, 1
+  ) >= 60 THEN 'PASS' ELSE 'FAIL' END AS repair_judgment,
+
+  -- A4. 直接回答率（conclude のうち evasion ban なし）
+  ROUND(
+    (COUNT(*) FILTER (WHERE response_mode = 'conclude')
+     - COUNT(*) FILTER (WHERE response_mode = 'conclude' AND ban_passed = 'false' AND ban_cats @> '"evasion"')
+    )::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE response_mode = 'conclude'), 0) * 100, 1
+  ) AS direct_answer_pct,
+  CASE WHEN ROUND(
+    (COUNT(*) FILTER (WHERE response_mode = 'conclude')
+     - COUNT(*) FILTER (WHERE response_mode = 'conclude' AND ban_passed = 'false' AND ban_cats @> '"evasion"')
+    )::numeric
+    / NULLIF(COUNT(*) FILTER (WHERE response_mode = 'conclude'), 0) * 100, 1
+  ) >= 90 THEN 'PASS' ELSE 'FAIL' END AS direct_answer_judgment,
+
+  -- A5. 責任転嫁率（delegation ban 残存率）
+  ROUND(
+    COUNT(*) FILTER (WHERE ban_passed = 'false' AND ban_cats @> '"delegation"')::numeric
+    / NULLIF(COUNT(*), 0) * 100, 1
+  ) AS delegation_rate_pct,
+  CASE WHEN ROUND(
+    COUNT(*) FILTER (WHERE ban_passed = 'false' AND ban_cats @> '"delegation"')::numeric
+    / NULLIF(COUNT(*), 0) * 100, 1
+  ) <= 5 THEN 'PASS' ELSE 'FAIL' END AS delegation_judgment
+
+FROM v42_with_next;
+
+
+-- ╔══════════════════════════════════════════════════════════╗
+-- ║  B. 内部健全性 KPI（中で壊れていないか）                ║
+-- ╚══════════════════════════════════════════════════════════╝
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- B1. Interpretation Arena: レンズ勝利分布
 -- 確認: 特定レンズに偏っていないか（open_hypothesis が多すぎないか）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -19,7 +274,7 @@ GROUP BY 1
 ORDER BY cnt DESC;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 2. Role Selection 分布
+-- B2. Role Selection 分布
 -- 確認: repair が多すぎないか（10%以下が健全）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -36,7 +291,7 @@ GROUP BY 1, 2
 ORDER BY cnt DESC;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 3. Self Model 充実度分布
+-- B3. Self Model 充実度分布
 -- 確認: 新規ユーザーは低い（<0.3）、5セッション以上は高い（>0.5）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -57,7 +312,7 @@ GROUP BY 1
 ORDER BY 1;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 4. Signal Reader: Intent 分布
+-- B4. Signal Reader: Intent 分布
 -- 確認: neutral が多すぎないか（30%以下が健全）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -73,7 +328,7 @@ GROUP BY 1
 ORDER BY cnt DESC;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 5. Semantic Ban 違反率
+-- B5. Semantic Ban 違反率
 -- 合格基準: 5%以下
 -- ━━��━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -90,7 +345,7 @@ WHERE event = 'home_alter_judgment'
   AND created_at >= NOW() - INTERVAL '7 days';
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 6. Strategy Compliance 違反率
+-- B6. Strategy Compliance 違反率
 -- 合格基準: critical 0%, warning < 10%
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -108,7 +363,7 @@ WHERE event = 'home_alter_judgment'
   AND created_at >= NOW() - INTERVAL '7 days';
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 7. Rally Critic: ラリー状態分布
+-- B7. Rally Critic: ラリー状態分布
 -- 確認: looping が 10%以上なら堂々巡り対策が必要
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -125,7 +380,7 @@ GROUP BY 1
 ORDER BY cnt DESC;
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 8. Novelty Gate 発動率
+-- B8. Novelty Gate 発動率
 -- 確認: 5-15%が健全（低すぎ=多様性不足、高すぎ=不安定）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SELECT
@@ -142,7 +397,7 @@ WHERE event = 'home_alter_judgment'
   AND created_at >= NOW() - INTERVAL '7 days';
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
--- 9. v4.2 全 KPI サマリ（PASS/FAIL 判定用）
+-- B-SUMMARY. 内部健全性 KPI 一覧（PASS/FAIL 判定用）
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WITH base AS (
   SELECT metadata
