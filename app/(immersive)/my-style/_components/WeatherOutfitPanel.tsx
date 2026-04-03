@@ -316,17 +316,3 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
         </div>
     );
 }
-
-/* ── Feedback ── */
-
-function FeedbackRow({ onFeedback }: { onFeedback: (liked: boolean) => void }) {
-    const [submitted, setSubmitted] = useState(false);
-    if (submitted) return <p className="text-center text-[10px] text-slate-400">フィードバックありがとう</p>;
-    return (
-        <div className="flex items-center justify-center gap-3 pt-1">
-            <span className="text-[10px] text-slate-400">この提案どう？</span>
-            <button type="button" onClick={() => { onFeedback(true); setSubmitted(true); }} className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[12px]">👍</button>
-            <button type="button" onClick={() => { onFeedback(false); setSubmitted(true); }} className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-[12px]">👎</button>
-        </div>
-    );
-}
