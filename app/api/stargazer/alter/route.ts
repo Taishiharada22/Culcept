@@ -250,6 +250,7 @@ import {
 } from "@/lib/stargazer/alterStrategyCompliance";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const MAX_MESSAGE_LENGTH = 2000;
 const MAX_RESPONSE_LENGTH = 4000;
@@ -407,6 +408,8 @@ export async function GET() {
  * Body: { sessionId?: string, message: string, mode?: string }
  */
 export async function POST(req: NextRequest) {
+  const routeStart = Date.now();
+  let llmCallCount = 0;
   try {
     const tierCheck = await checkStargazerTier("alter");
     if (tierCheck instanceof NextResponse) return tierCheck;
@@ -899,6 +902,7 @@ export async function POST(req: NextRequest) {
 
           let dgResponse = "";
           try {
+            llmCallCount++;
             const aiResult = await runAI({
               taskType: "stargazer_alter_response",
               prompt: `質問: ${message}`,
@@ -936,6 +940,7 @@ export async function POST(req: NextRequest) {
                   "",
                   "上記の問題を修正して、もう一度応答を生成してください。",
                 ].join("\n");
+                llmCallCount++;
                 const retryResult = await runAI({
                   taskType: "stargazer_alter_response",
                   prompt: retryPrompt,
@@ -1016,6 +1021,7 @@ export async function POST(req: NextRequest) {
       // 失敗時は既存パイプラインがそのまま動く（graceful degradation）。
       try {
         const readingStart = Date.now();
+        llmCallCount++;
         const readingResult = await runAI({
           taskType: "stargazer_alter_utterance_reading",
           prompt: buildUtteranceReadingPrompt(
@@ -2724,6 +2730,7 @@ export async function POST(req: NextRequest) {
       // 実際の出力文字数の10倍程度のトークン予算が必要
       let homeResponse = "";
       try {
+        llmCallCount++;
         const aiResult = await runAI({
           taskType: "stargazer_alter_response",
           prompt: homeUserPrompt,
@@ -2761,6 +2768,7 @@ export async function POST(req: NextRequest) {
         emptyRetryAttempted = true;
         console.warn("[home-alter] Empty response from LLM, retrying once with same prompt");
         try {
+          llmCallCount++;
           const emptyRetryResult = await runAI({
             taskType: "stargazer_alter_response",
             prompt: homeUserPrompt,
@@ -2824,6 +2832,7 @@ export async function POST(req: NextRequest) {
             questionCategory,
             userName,
           );
+          llmCallCount++;
           const retryResult = await runAI({
             taskType: "stargazer_alter_response",
             prompt: retryPrompt,
@@ -2871,6 +2880,7 @@ export async function POST(req: NextRequest) {
               `前回の応答: 「${lastAlterContent.slice(0, 200)}」`,
               "上記と同じ内容を繰り返してはならない。全く異なる切り口・表現で応答すること。",
             ].join("\n");
+            llmCallCount++;
             const dedupResult = await runAI({
               taskType: "stargazer_alter_response",
               prompt: dedupPrompt,
@@ -2965,6 +2975,7 @@ export async function POST(req: NextRequest) {
           const needsRegeneration = !v42SemanticBanCheck.passed || (!v42Compliance.passed && v42Compliance.correction_prompt);
           if (needsRegeneration && responseMode !== "clarify" && responseMode !== "repair") {
             console.info("[v4.2] Triggering re-generation for ban/compliance violations");
+            const originalBanViolationCount = v42SemanticBanCheck.violations.length;
 
             // Build correction prompt: ban violations + compliance corrections
             const banCorrections = v42SemanticBanCheck.violations.map(v =>
@@ -2992,6 +3003,7 @@ export async function POST(req: NextRequest) {
             ].join("\n");
 
             try {
+              llmCallCount++;
               const v42RetryResult = await runAI({
                 taskType: "stargazer_alter_response",
                 prompt: v42RetryPrompt,
@@ -3043,8 +3055,9 @@ export async function POST(req: NextRequest) {
               feature: "alter",
               metadata: {
                 session_id: sessionId,
-                original_ban_violations: v42SemanticBanCheck.violations.length,
+                original_ban_violations: originalBanViolationCount,
                 regeneration_succeeded: v42SemanticBanCheck.passed,
+                final_ban_violations: v42SemanticBanCheck.violations.length,
                 response_mode: responseMode,
               },
             }).then(() => {}, () => {});
@@ -3076,6 +3089,7 @@ export async function POST(req: NextRequest) {
               .replace(/\n\n# 仮説的理解（断定禁止）[\s\S]*?(?=\n\n#|\n\n━|$)/, "")
               .replace(/\n\n## 禁止表現[\s\S]*?(?=\n\n#|\n\n━|$)/, "");
 
+            llmCallCount++;
             const safeResult = await runAI({
               taskType: "stargazer_alter_response",
               prompt: buildHomeAlterUserPrompt(
@@ -3266,6 +3280,7 @@ export async function POST(req: NextRequest) {
             "\nこの文脈を踏まえて、シャドウの一言の続きとして自然に会話を始めてください。" +
             "一言を繰り返すのではなく、そこから更に深い問いかけや気づきを投げかけてください。";
         }
+        llmCallCount++;
         const aiResult = await runAI({
           taskType: "stargazer_alter_response",
           prompt: greetingPrompt,
@@ -3320,6 +3335,7 @@ export async function POST(req: NextRequest) {
         let aiSuccess = false;
         for (let attempt = 0; attempt < 2 && !aiSuccess; attempt++) {
           try {
+            llmCallCount++;
             const aiResult = await runAI({
               taskType: "stargazer_alter_response",
               prompt,
@@ -3525,6 +3541,8 @@ export async function POST(req: NextRequest) {
           feature: "home_alter",
           metadata: {
             session_id: sessionId,
+            total_latency_ms: Date.now() - routeStart,
+            llm_call_count: llmCallCount,
             action_shape: decisionMetadata.action_shape,
             decision_stance: decisionMetadata.decision_stance,
             opportunity_value: decisionMetadata.opportunity_value,

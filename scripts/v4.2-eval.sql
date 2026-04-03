@@ -195,33 +195,44 @@ WITH v42_with_next AS (
 )
 SELECT
   COUNT(*) AS total_v42_turns,
+  COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) AS turns_with_followup,
+  CASE
+    WHEN COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) < 10 THEN 'LOW_N'
+    WHEN COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) < 30 THEN 'CAUTION'
+    ELSE 'OK'
+  END AS sample_size_warning,
 
   -- A1. Aha率（全ロール、follow-up ありのうち agree+deepen）
   ROUND(
     COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
   ) AS aha_rate_pct,
-  CASE WHEN ROUND(
+  CASE WHEN COUNT(*) FILTER (WHERE next_reaction IS NOT NULL) < 10 THEN 'LOW_N'
+       WHEN ROUND(
     COUNT(*) FILTER (WHERE next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE next_reaction IS NOT NULL), 0) * 100, 1
   ) >= 20 THEN 'PASS' ELSE 'FAIL' END AS aha_judgment,
 
   -- A2. 共同思考成功率（co_thinker のうち agree+deepen）
+  COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL) AS co_thinker_n,
   ROUND(
     COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL), 0) * 100, 1
   ) AS co_think_success_pct,
-  CASE WHEN ROUND(
+  CASE WHEN COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL) < 5 THEN 'LOW_N'
+       WHEN ROUND(
     COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'co_thinker' AND next_reaction IS NOT NULL), 0) * 100, 1
   ) >= 40 THEN 'PASS' ELSE 'FAIL' END AS co_think_judgment,
 
   -- A3. repair成功率（repair のうち agree+deepen）
+  COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL) AS repair_n,
   ROUND(
     COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL), 0) * 100, 1
   ) AS repair_success_pct,
-  CASE WHEN ROUND(
+  CASE WHEN COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL) < 3 THEN 'LOW_N'
+       WHEN ROUND(
     COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IN ('agree', 'deepen'))::numeric
     / NULLIF(COUNT(*) FILTER (WHERE v42_role = 'repair' AND next_reaction IS NOT NULL), 0) * 100, 1
   ) >= 60 THEN 'PASS' ELSE 'FAIL' END AS repair_judgment,
