@@ -77,7 +77,7 @@ describe("computeStargazerInfluence", () => {
 
     expect(result.totalScore).toBeGreaterThan(0);
     expect(result.activeCount).toBeGreaterThanOrEqual(3);
-    expect(result.summary).not.toBe("パーソナルデータなし");
+    expect(result.summary).toContain("をもとに提案しています");
   });
 
   it("全データなし → totalScore = 0, activeCount = 0", () => {
@@ -91,7 +91,7 @@ describe("computeStargazerInfluence", () => {
 
     expect(result.totalScore).toBe(0);
     expect(result.activeCount).toBe(0);
-    expect(result.summary).toBe("パーソナルデータなし");
+    expect(result.summary).toBe("まだデータが少ないため、汎用的な提案です");
   });
 
   it("persona のみ → persona dimension > 0, 他は 0", () => {
@@ -221,7 +221,7 @@ describe("computeStargazerInfluence", () => {
       satisfaction: null, adaptation: null, observation: null, gap: null,
     });
 
-    expect(result.summary).toContain("パーソナルカラー・スタイル軸");
+    expect(result.summary).toContain("似合う色・スタイル傾向");
   });
 });
 

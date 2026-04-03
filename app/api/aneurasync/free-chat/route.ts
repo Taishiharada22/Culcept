@@ -4,6 +4,7 @@
 
 import { NextResponse } from "next/server";
 import { runAI } from "@/lib/ai";
+import { supabaseServer } from "@/lib/supabase/server";
 
 /* ═══════════════════════════════════════════════
    Request / Response Types
@@ -115,6 +116,13 @@ inferredDeltasは、ユーザーの発言から特性軸の変動が推測でき
 
 export async function POST(request: Request) {
   try {
+    // 認証チェック — 未認証ユーザーの LLM 呼び出しを防止
+    const supabase = await supabaseServer();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = (await request.json()) as FreeChatRequest;
     const {
       message,

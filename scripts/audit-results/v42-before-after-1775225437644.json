@@ -1,0 +1,394 @@
+{
+  "metadata": {
+    "model": "gemini-2.5-flash",
+    "timestamp": "2026-04-03T14:10:37.644Z",
+    "total_scenarios": 10,
+    "completed": 10
+  },
+  "kpis": {
+    "total_scenarios": 10,
+    "before_delegation_rate": 0.2,
+    "after_delegation_rate": 0.1,
+    "delegation_improvement": "20.0% → 10.0% (-10.0%)",
+    "before_direct_answer_rate": 0.1,
+    "after_direct_answer_rate": 0,
+    "direct_answer_improvement": "10.0% → 0.0% (-10.0%)",
+    "before_ban_violation_rate": 0.2,
+    "after_ban_violation_rate": 0.1,
+    "ban_violation_improvement": "20.0% → 10.0% (-10.0%)",
+    "role_distribution": {
+      "operator": 5,
+      "repair": 1,
+      "co_thinker": 2,
+      "mirror": 2
+    },
+    "lens_distribution": {
+      "reality_check": 2,
+      "relationship_probe": 3,
+      "repair_demand": 1,
+      "execution_ask": 1,
+      "fatigue_support": 2,
+      "co_think": 1
+    },
+    "rally_critic_activations": 0,
+    "self_model_avg_completeness": 0.25
+  },
+  "results": [
+    {
+      "id": "BA01",
+      "problem_type": "delegation",
+      "message": "転職するか迷ってる。今の会社に3年いるけど成長を感じない",
+      "problem_description": "Alter が「考えてみて」「整理してみて」で投げ返す（宿題化）",
+      "expected_improvement": "v4.2: co_thinker/operator role + semantic ban で宿題化を禁止。Alter が自分で構造を提供する",
+      "before_response": "今の会社で成長を感じないなら、具体的な情報を集めてから次の行動を考えるのが合っています。テスト太郎さんは慎重寄りだからこそ、漠然とした不安に流されず、準備をすることで自分らしい判断ができるはずです。\n仕事の場面ではやや即断型の傾向がある一方で、根底にある「見捨てられ不安」が判断を歪めやすい。今の迷い方は、慎重というより消耗のサインかもしれません。\n次の一手: 今週中に、転職サイトで興味のある求人を3つ見てみるのが合っています。\n正直に言うと、今の会社で「何が足りないのか」を言語化する作業が、一番の準備になるはずです。\n---DECISION_META---\naction_shape: prepare_then_go\nopportunity_value: high\ncost_load: high\nrelation_value: medium\nenergy_adjustment: protect\nregret_direction: skip_regret\ngrowth_vector_override: false\n---END_META---",
+      "before_latency_ms": 8969,
+      "before_ban_violations": [],
+      "after_response": "成長を感じない現状維持は、テスト太郎さんの「やらなかった後悔を溜めやすい」傾向から見て、後で重い後悔になりやすいので、まずは準備を整えてから動き出す形が合っています。\n仕事の場面では即断型寄りの傾向があるテスト太郎さんだけど、見捨てられ不安が強く出ると、自分の判断を信じきれず、現状維持に流されやすいから、焦らず段階的に進めるのが大切です。\n次の一手: 今週中に、興味のある業界や職種を3つだけ具体的に調べてみるのが合っています。\n正直に言うと、今の「迷い」は、動くことへの「恐れ」と「準備不足」が混じっているように見える。\n---DECISION_META---\naction_shape: prepare_then_go\nopportunity_value: high\ncost_load: high\nrelation_value: medium\nenergy_adjustment: use_momentum\nregret_direction: skip_regret\ngrowth_vector_override: false\n---END_META---",
+      "after_latency_ms": 7383,
+      "after_ban_violations": [],
+      "after_role": "operator",
+      "after_role_reason": "judgment_question",
+      "after_arena_lens": "reality_check",
+      "after_arena_confidence": 0.3,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:operator",
+          "lens:reality_check",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 932
+    },
+    {
+      "id": "BA02",
+      "problem_type": "evasion",
+      "message": "上司に無茶な仕事を断るべき？断ったらどうなるか不安",
+      "problem_description": "「状況による」「一概には言えない」で判断を回避する",
+      "expected_improvement": "v4.2: operator role + evasion ban → 仮説付きで「僕の読みだと〜」で入る",
+      "before_response": "直接断る前に、まずは状況を整理して、具体的な代替案や懸念点を伝える準備をするのが合っています。テスト太郎さんは仕事の場面でやや即断型になりやすいけれど、今回は慎重なアプローチが合っています。\n不安を感じている今、焦って断ることで上司との関係性にヒビが入ることを避けたいはずです。特に「見捨てられ不安」が根底にあると、自分の判断を信じられず周囲に合わせすぎるリスクもありますから。\n次の一手: 今日中に、その仕事の何が「無茶」だと感じるのか、具体的な理由と代替案を3つだけメモしてみるのがよさそうです。\n正直なところ、断り方よりも、その後のフォローが重要になります。\n---DECISION_META---\naction_shape: defer_with_trigger\nopportunity_value: medium\ncost_load: medium\nrelation_value: high\nenergy_adjustment: protect\nregret_direction: go_regret\ngrowth_vector_override: false\n---END_META---",
+      "before_latency_ms": 11117,
+      "before_ban_violations": [],
+      "after_response": "テスト太郎さんは慎重寄りなので、上司への無茶な仕事の対応は、まず一旦持ち帰るのが合っています。\n不安な気持ちが先走って即座に反応すると、後で「もっと良い言い方があったのに」と後悔しやすい傾向があります。特に上司との関係では、その不安が判断を曇らせてしまうこともあるでしょう。\n次の一手: 今日中に、その仕事の具体的な内容と、自分の現在のタスク状況を整理し、断る理由と代替案の骨子をメモしてみるのが良いでしょう。\n正直に言うと、この準備が後々の関係性を決める鍵になります。\n---DECISION_META---\naction_shape: defer_with_trigger\nopportunity_value: high\ncost_load: medium\nrelation_value: high\nenergy_adjustment: protect\nregret_direction: go_regret\ngrowth_vector_override: false\n---END_META---",
+      "after_latency_ms": 10591,
+      "after_ban_violations": [],
+      "after_role": "operator",
+      "after_role_reason": "judgment_question",
+      "after_arena_lens": "relationship_probe",
+      "after_arena_confidence": 0.5,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:operator",
+          "lens:relationship_probe",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 932
+    },
+    {
+      "id": "BA03",
+      "problem_type": "repair_failure",
+      "message": "いや、全然違う。そんなこと聞いてない",
+      "problem_description": "強い否定に対し自己弁護・前回の正当化で逃げる（repair 失敗）",
+      "expected_improvement": "v4.2: repair role 強制 → ズレを認め、別角度から再アプローチ",
+      "before_response": "テスト太郎さんが「そんなこと聞いてない」と感じたのは、僕の回答に対してですか、それとも別の誰かの話に対してですか？\n誰に対しての不満なのかで、テスト太郎さんが本当に聞きたいことが変わってくるからね。",
+      "before_latency_ms": 3673,
+      "before_ban_violations": [],
+      "after_response": "ごめん、テスト太郎さん、僕の読み違えだったね。\nテスト太郎さんが聞きたかったのは、特定の誰かとの関係性についてのことだったかな？\nもしそうなら、僕の見立てが的外れだった原因を特定できるからね。",
+      "after_latency_ms": 12210,
+      "after_ban_violations": [],
+      "after_role": "repair",
+      "after_role_reason": "repair_mode",
+      "after_arena_lens": "repair_demand",
+      "after_arena_confidence": 0.5,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:repair",
+          "lens:repair_demand",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 809
+    },
+    {
+      "id": "BA04",
+      "problem_type": "pass_back",
+      "message": "副業始めたいんだけど何から始めればいい？",
+      "problem_description": "「まず情報収集して」「調べてみて」で投げ返す",
+      "expected_improvement": "v4.2: operator role + delegation ban → Alter が具体的なアクション計画を提供する",
+      "before_response": "慎重なテスト太郎さんだからこそ、まずは小さく始められる副業を一つだけ試すのが合っています。\nテスト太郎さんは考えすぎるとかえって行動が重くなる傾向があるので、最初から完璧を目指すより、まずは「できること」から軽く踏み出してみるのが、今の自分に合うはずです。\n次の一手: 今日中に、興味のある副業を一つだけピックアップして、まずは小さく試せる方法を調べてみるのがよさそうです。\n正直に言うと、最初の一歩が一番難しい。\n---DECISION_META---\naction_shape: bounded_go\nopportunity_value: high\ncost_load: medium\nrelation_value: low\nenergy_adjustment: use_momentum\nregret_direction: skip_regret\ngrowth_vector_override: false\n---END_META---",
+      "before_latency_ms": 9581,
+      "before_ban_violations": [],
+      "after_response": "慎重なテスト太郎さんだからこそ、まずは小さく、情報収集の範囲を絞って動くのが合っています。\nテスト太郎さんはゆっくり距離を縮める傾向があるので、いきなり大きな副業に飛び込むより、まず「自分に合うか」を確かめるステップが重要です。正直に言うと、今の迷い方は慎重というより消耗につながりかねません。\n次の一手: 今日中に、興味のある副業を3つに絞り、それぞれのメリット・デメリットを軽く調べてみるのがよさそうです。\nちなみに、何に興味があるかで次のステップは大きく変わります。\n---DECISION_META---\naction_shape: bounded_go\nopportunity_value: high\ncost_load: medium\nrelation_value: high\nenergy_adjustment: neutral\nregret_direction: skip_regret\ngrowth_vector_override: false\n---END_META---",
+      "after_latency_ms": 11842,
+      "after_ban_violations": [],
+      "after_role": "operator",
+      "after_role_reason": "strategy_question",
+      "after_arena_lens": "execution_ask",
+      "after_arena_confidence": 0.3,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:operator",
+          "lens:execution_ask",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 873
+    },
+    {
+      "id": "BA05",
+      "problem_type": "loop",
+      "message": "やっぱり転職は怖い。でも今のままも嫌だ",
+      "problem_description": "同じテーマを堂々巡りし、新しい角度が出てこない",
+      "expected_improvement": "v4.2: Rally Critic がループ検知 → 新しい角度を強制注入",
+      "before_response": "テスト太郎さんが「怖い」と感じているのは、具体的な誰かに対しての感情？それとも、新しい環境そのものに対する不安かな？\n怖さの対象が明確になると、僕がテスト太郎さんに伝えられることが変わってくるからね。",
+      "before_latency_ms": 7116,
+      "before_ban_violations": [],
+      "after_response": "テスト太郎さんの「怖い」という気持ちや「今のままも嫌だ」という思いは、誰か特定の人物との関係が影響していますか？\nその影響の有無で、テスト太郎さんの本当の望みや「怖さ」の正体が見えてくると思うんだ。",
+      "after_latency_ms": 5888,
+      "after_ban_violations": [],
+      "after_role": "co_thinker",
+      "after_role_reason": "deep_judgment",
+      "after_arena_lens": "reality_check",
+      "after_arena_confidence": 0.3,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:co_thinker",
+          "lens:reality_check",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 960
+    },
+    {
+      "id": "BA06",
+      "problem_type": "generic",
+      "message": "自分に自信が持てない。何をしても不安になる",
+      "problem_description": "教科書的な一般論（「自分を信じて」「いいところを見つけて」）で返す",
+      "expected_improvement": "v4.2: mirror role + Self Model → この人の具体的なパターンに基づいた鏡返し",
+      "before_response": "今のテスト太郎さんには、漠然とした不安を「言語化すること」が一番合っています。慎重に考えすぎる傾向があるからこそ、不安の正体をはっきりさせることで、思考のループから抜け出すきっかけになるからです。\n今は少し外的要因に左右されやすく、考えが深まりすぎてしまう時だから、漠然とした不安を抱え続けると、より重くなってしまうでしょう。\n次の一手: 今日中に、今感じている不安を、小さなことでもいいから3つ書き出してみるのがよさそうです。\n正直に言うと、不安の正体は意外と単純なことも多いです。\n---DECISION_META---\naction_shape: observe_first\nopportunity_value: high\ncost_load: medium\nrelation_value: high\nenergy_adjustment: protect\nregret_direction: skip_regret\ngrowth_vector_override: true\n---END_META---",
+      "before_latency_ms": 10558,
+      "before_ban_violations": [
+        {
+          "expression": "書き出してみ",
+          "category": "delegation"
+        }
+      ],
+      "after_response": "テスト太郎さんは、今、自分が動くこと自体に重さを感じて、その一歩を踏み出す前から不安に囚われているんだね。\n何を始めても先回りして不安が押し寄せて、その重さに疲れてしまっているのかもしれない。慎重なテスト太郎さんだからこそ、その不安が足枷になって、動くこと自体が億劫になっているように僕には見えるよ。\nその感情は、本当は何かを守ろうとしているサインなのかもしれないね。\n---DECISION_META---\naction_shape: observe_first\nopportunity_value: medium\ncost_load: low\nrelation_value: high\nenergy_adjustment: protect\nregret_direction: balanced\ngrowth_vector_override: true\n---END_META---",
+      "after_latency_ms": 10153,
+      "after_ban_violations": [],
+      "after_role": "mirror",
+      "after_role_reason": "emotional_question",
+      "after_arena_lens": "fatigue_support",
+      "after_arena_confidence": 0.3,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": true,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": true,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:mirror",
+          "lens:fatigue_support",
+          "self_model:25%",
+          "semantic_ban:corrected"
+        ]
+      },
+      "v42_prompt_addition_length": 929
+    },
+    {
+      "id": "BA07",
+      "problem_type": "preamble",
+      "message": "親に進路を反対されてる。でも自分の気持ちを押し通すべきか",
+      "problem_description": "「いい質問だね」「確かにそれは深い問いだ」で始まる無駄な前置き",
+      "expected_improvement": "v4.2: preamble ban → 1行目から結論を出す",
+      "before_response": "テスト太郎さんは、親御さんとの関係で、今回の進路について最終的に「理解してほしい」と思っていますか、それとも「自分の意見を尊重してほしい」と思っていますか？\n親御さんとの関係性のゴールが明確になると、僕がテスト太郎さんに伝えられる言葉の方向性が定まるから。",
+      "before_latency_ms": 5631,
+      "before_ban_violations": [],
+      "after_response": "テスト太郎さんは、今回のご自身の進路選択を通じて、親御さんとの関係において「自分の意思を尊重してほしい」と強く思っていますか、それとも「親御さんにも納得してほしい」という気持ちが強いですか？\nその気持ちによって、親御さんとの対話のゴールや、取るべきアプローチが変わってくるからです。",
+      "after_latency_ms": 3972,
+      "after_ban_violations": [],
+      "after_role": "operator",
+      "after_role_reason": "judgment_question",
+      "after_arena_lens": "relationship_probe",
+      "after_arena_confidence": 0.5,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:operator",
+          "lens:relationship_probe",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 932
+    },
+    {
+      "id": "BA08",
+      "problem_type": "hollow_empathy",
+      "message": "もう疲れた。仕事も人間関係もうまくいかない",
+      "problem_description": "「つらいよね」「大変だよね」を繰り返すだけで洞察がない",
+      "expected_improvement": "v4.2: mirror role + hollow_empathy ban → 共感は1回、2回目以降は洞察を入れる",
+      "before_response": "テスト太郎さんがうまくいかないと感じている人間関係は、特定の誰かとの関係ですか、それとも特定の相手はいない状況ですか？\nその状況によって、僕がテスト太郎さんに提案できる考え方が変わってくるからね。",
+      "before_latency_ms": 3436,
+      "before_ban_violations": [],
+      "after_response": "特定の誰かとの関係で、特に消耗していると感じていますか、それとも、漠然と全体的に疲れていると感じていますか？\n特定の相手がいる場合、テスト太郎さんの感情の具体的な原因がより明確になるからです。",
+      "after_latency_ms": 6646,
+      "after_ban_violations": [],
+      "after_role": "mirror",
+      "after_role_reason": "emotional_question",
+      "after_arena_lens": "fatigue_support",
+      "after_arena_confidence": 0.5,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:mirror",
+          "lens:fatigue_support",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 929
+    },
+    {
+      "id": "BA09",
+      "problem_type": "evasion_delegation_combo",
+      "message": "彼女に結婚の話を切り出すべきか。でもまだ早いかもしれない",
+      "problem_description": "「人それぞれだから」+「自分の気持ちを見つめてみて」のコンボ",
+      "expected_improvement": "v4.2: operator role + evasion/delegation ban → 具体的な判断材料を提示",
+      "before_response": "結婚の話を切り出すことで、テスト太郎さんは彼女との関係をより確かなものにしたいですか、それとも自分の気持ちを伝えたいだけですか？\nテスト太郎さんの意図を知ることで、結婚の話を切り出すべきか、それとも別の形で気持ちを伝えるべきか、判断の方向性が定まるから。",
+      "before_latency_ms": 6356,
+      "before_ban_violations": [],
+      "after_response": "テスト太郎さんは、彼女に結婚の話を切り出すことで、関係を「進展させたい」のか、それとも「一度気持ちを確認したい」のか、どちらですか？\nもし関係を進展させたいなら具体的な計画が必要になるし、気持ちを確認したいなら相手の反応を探るアプローチになるからね。",
+      "after_latency_ms": 5496,
+      "after_ban_violations": [],
+      "after_role": "operator",
+      "after_role_reason": "judgment_question",
+      "after_arena_lens": "relationship_probe",
+      "after_arena_confidence": 0.5,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": false,
+        "after_has_ban_violation": false,
+        "before_direct_answer": true,
+        "after_direct_answer": false,
+        "before_has_delegation": false,
+        "after_has_delegation": false,
+        "v42_mechanisms_activated": [
+          "role:operator",
+          "lens:relationship_probe",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 932
+    },
+    {
+      "id": "BA10",
+      "problem_type": "generic_self",
+      "message": "俺って結局何がしたいんだろう。30歳になって焦ってる",
+      "problem_description": "self_understanding に対して教科書的な「自分探し」を勧める",
+      "expected_improvement": "v4.2: co_thinker role + Self Model + identity_quest lens → この人の判断パターンから仮説を提示",
+      "before_response": "30歳という節目で焦りを感じている今だからこそ、無理に答えを出そうとせずに、まず自分を見つめ直す時間が合っています。\nテスト太郎さんは慎重寄りなので、焦りの中で大きな決断をしようとすると、かえって考えすぎて重くなり、消耗してしまう傾向があります。\n次の一手: 今日中に、過去に「夢中になったこと」や「嫌だったこと」を、頭の中だけで考えず、軽く書き出してみるのがよさそうです。\n正直に言うと、何もしないより、小さな手がかりでも集める方が前に進めます。\n---DECISION_META---\naction_shape: observe_first\nopportunity_value: high\ncost_load: medium\nrelation_value: low\nenergy_adjustment: protect\nregret_direction: skip_regret\ngrowth_vector_override: false\n---END_META---",
+      "before_latency_ms": 9934,
+      "before_ban_violations": [
+        {
+          "expression": "書き出してみ",
+          "category": "delegation"
+        }
+      ],
+      "after_response": "30歳になって焦りを感じているテスト太郎さんには、まず「自分にとっての『したくないこと』を洗い出す」ことから始めるのが合っています。慎重寄りで、かつ焦って結論を出そうとすると本質を見失いやすい傾向があるからです。\n30歳という節目で、根底にある「見捨てられ不安」から周囲の期待に合わせようとすると、自分の本音が余計に見えにくくなります。ゆっくり距離を縮めるタイプなので、自己理解も時間をかけて深めるのが自然です。\n次の一手: 今日中に、過去に「これは嫌だった」「ストレスだった」と感じた経験を3つだけ書き出してみるのがよさそうです。\n正直に言うと、したくないことが明確になると、したいことは自然と見えてくるものです。\n---DECISION_META---\naction_shape: observe_first\nopportunity_value: high\ncost_load: medium\nrelation_value: high\nenergy_adjustment: protect\nregret_direction: skip_regret\ngrowth_vector_override: true\n---END_META---",
+      "after_latency_ms": 8428,
+      "after_ban_violations": [
+        {
+          "expression": "書き出してみ",
+          "category": "delegation"
+        }
+      ],
+      "after_role": "co_thinker",
+      "after_role_reason": "self_understanding",
+      "after_arena_lens": "co_think",
+      "after_arena_confidence": 0.3,
+      "after_rally_status": "advancing",
+      "after_self_model_completeness": 0.25,
+      "after_compliance_passed": true,
+      "kpis": {
+        "before_has_ban_violation": true,
+        "after_has_ban_violation": true,
+        "before_direct_answer": false,
+        "after_direct_answer": false,
+        "before_has_delegation": true,
+        "after_has_delegation": true,
+        "v42_mechanisms_activated": [
+          "role:co_thinker",
+          "lens:co_think",
+          "self_model:25%"
+        ]
+      },
+      "v42_prompt_addition_length": 965
+    }
+  ]
+}

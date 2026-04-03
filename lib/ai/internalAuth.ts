@@ -50,16 +50,5 @@ export function authorizeInternalRequest(request: Request): InternalAuthResult {
     return { ok: true, source: "x_vercel_cron" };
   }
 
-  // Query parameter ?secret=<token>
-  try {
-    const url = new URL(request.url);
-    const secretParam = (url.searchParams.get("secret") ?? "").trim();
-    if (secretParam && secrets.includes(secretParam)) {
-      return { ok: true, source: "query_secret" };
-    }
-  } catch {
-    // URL parsing failure is not an auth error
-  }
-
   return { ok: false, reason: "unauthorized" };
 }

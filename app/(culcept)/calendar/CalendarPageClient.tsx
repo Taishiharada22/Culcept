@@ -866,7 +866,7 @@ export default function CalendarPageClient() {
                       {/* 効いている自分の軸（チップ） */}
                       {axisChips.length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
-                          {axisChips.map((chip, i) => (
+                          {axisChips.slice(0, 3).map((chip, i) => (
                             <span key={i} className={`text-[7px] px-1.5 py-0.5 rounded-full border ${
                               chip.confidence === "high"
                                 ? "bg-violet-50/60 border-violet-200/40 text-violet-500"
