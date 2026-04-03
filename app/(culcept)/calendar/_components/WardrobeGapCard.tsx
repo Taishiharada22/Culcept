@@ -22,9 +22,9 @@ export default function WardrobeGapCard({ analysis }: { analysis: GapAnalysis })
   const restGaps = analysis.gaps.slice(2);
 
   return (
-    <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-4">
+    <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3">
       {/* ヘッダー */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-sm">🔍</span>
           <span className="text-[10px] font-bold tracking-widest text-gray-400">ワードローブ分析</span>
@@ -45,7 +45,7 @@ export default function WardrobeGapCard({ analysis }: { analysis: GapAnalysis })
 
       {/* 強みポイント */}
       {analysis.strongPoints.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
+        <div className="flex flex-wrap gap-1 mb-2">
           {analysis.strongPoints.map((sp, i) => (
             <span key={i} className="text-[9px] font-medium text-emerald-600 bg-emerald-50/60 border border-emerald-200/30 rounded-full px-2 py-0.5">
               ✓ {sp}
@@ -79,7 +79,7 @@ export default function WardrobeGapCard({ analysis }: { analysis: GapAnalysis })
         )}
       </AnimatePresence>
 
-      <div className="flex items-center gap-2 mt-3">
+      <div className="flex items-center gap-2 mt-2">
         {restGaps.length > 0 && (
           <button
             onClick={() => setExpanded(!expanded)}

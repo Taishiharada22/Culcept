@@ -30,14 +30,24 @@ export type InsightType =
   | "temporal"
   | "combo"
   | "material"
-  | "aneurasync";
+  | "aneurasync"
+  | "impression"
+  | "genome_relationship";
+
+/** インサイトの層 */
+export type InsightTier =
+  | "practical"          // 実用（天候・素材・リスク） — 毎日表示
+  | "self-understanding" // 自己理解（傾向・パターン・学習） — データ裏付けが強い時だけ
+  | "impression";        // 印象示唆（イベント型に応じた表現） — イベントがある日だけ
 
 export interface Insight {
   type: InsightType;
+  tier: InsightTier;
   icon: string;
   label: string;
   text: string;
-  priority: number; // 0-100
+  priority: number;      // 0-100
+  confidence: number;    // 0-1 データ裏付けの強さ（表示判定に使用）
 }
 
 /* ── 季節遷移 ── */

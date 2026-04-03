@@ -14,19 +14,19 @@ import {
   GlassCard,
   GlassNavbar,
   FadeInView,
-  FloatingNavLight,
 } from "@/components/ui/glassmorphism-design";
-import { MAIN_NAV } from "@/lib/navigation";
+import HomeQuickAccess from "@/components/home/HomeQuickAccess";
 import type { WardrobeItem } from "@/app/my-style/_lib/types";
 import { PREFECTURES, prefectureToOfficeCode } from "@/lib/shared/location";
 import type { CalendarData, DayData, DayProposal, WornRecord, SatisfactionProfile, WeatherDrift } from "./_lib/types";
 import { DAILY_WEATHER_ICONS, WEEKDAYS, SYNC_BAND_COLORS } from "./_lib/constants";
-import { generateDayProposal } from "./_lib/outfitEngine";
+import { generateDayProposal } from "@/lib/shared/outfitEngine";
 import { getRecentlyWornItemIds, saveWornRecord, getWornRecordForDate, loadWornHistory } from "./_lib/rotationTracker";
 import type { CalendarPersonaProfile } from "./_lib/personaBoost";
 import { extractCalendarProfile } from "./_lib/personaBoost";
 import { buildSatisfactionProfile } from "./_lib/satisfactionLearner";
-import { generateInsights } from "./_lib/insightEngine";
+import { generateInsights, getInsightCandidateCount } from "./_lib/insightEngine";
+import { recordInsightShadow, getShadowSummary } from "./_lib/insightShadowLog";
 import { getSeasonBlend, getDayTemperatureSplit, getSeasonalRotationHints } from "./_lib/seasonalTransition";
 import { shouldCheckWeather, setLastWeatherCheck } from "./_lib/weatherDriftDetector";
 import { buildTemporalProfile } from "./_lib/temporalPatterns";
@@ -37,9 +37,11 @@ import { buildExtendedWeatherContext } from "./_lib/materialWeather";
 import type { ExtendedWeatherContext } from "./_lib/materialWeather";
 import { buildObservationContext, computeOutfitAdaptation } from "./_lib/aneurasyncIntegration";
 import type { ObservationContext, OutfitAdaptation } from "./_lib/aneurasyncIntegration";
+import { buildProposalAxisChips } from "./_lib/proposalAxisChips";
+import { computeStargazerInfluence } from "./_lib/stargazerInfluence";
 import { predictRegret } from "./_lib/regretPredictor";
 import type { RegretPrediction } from "./_lib/regretPredictor";
-import type { OutfitExtendedOptions } from "./_lib/outfitEngine";
+import type { OutfitExtendedOptions } from "@/lib/shared/outfitEngine";
 import { analyzeWardrobeGaps } from "./_lib/wardrobeGapDetector";
 import type { GapAnalysis } from "./_lib/wardrobeGapDetector";
 import { computeOutfitDna, computeStyleCentroid, computeAdventureScore } from "./_lib/outfitDna";
@@ -69,6 +71,13 @@ const passthroughLoader: ImageLoader = ({ src }) => src;
 export default function CalendarPageClient() {
   usePassiveSensor("calendar");
   useFootprintTracker({ feature: "calendar" });
+
+  // Shadow log: devtools console から getShadowSummary() で確認可能
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === "development" && typeof window !== "undefined") {
+      (window as unknown as Record<string, unknown>).__insightShadow = getShadowSummary;
+    }
+  }, []);
   const today = new Date();
   const todayStr = today.toISOString().split("T")[0];
   const [currentYear, setCurrentYear] = React.useState(today.getFullYear());
@@ -439,6 +448,14 @@ export default function CalendarPageClient() {
             dayOfWeek,
           },
         );
+        // Shadow log: 発火状況を裏で記録（UI非表示、開発者確認用）
+        recordInsightShadow(
+          day.date,
+          proposal.insights,
+          getInsightCandidateCount(proposal.insights),
+          day.events,
+          day.weather_daily?.weather_icon ?? null,
+        );
         // 朝/午後分割
         const tempSplit = getDayTemperatureSplit(day.weather_daily);
         if (tempSplit.needsMorningLayer && proposal.main.items.length >= 3) {
@@ -531,13 +548,6 @@ export default function CalendarPageClient() {
     return { icon: "🌤️", text: "過ごしやすい天気。好きなスタイルを楽しんで", color: "gray" as const };
   }, [todayWeather]);
 
-  const tipColorMap: Record<string, string> = {
-    blue: "bg-blue-50/30 border-blue-200/30", indigo: "bg-indigo-50/30 border-indigo-200/30",
-    amber: "bg-amber-50/30 border-amber-200/30", emerald: "bg-emerald-50/30 border-emerald-200/30",
-    orange: "bg-orange-50/30 border-orange-200/30", violet: "bg-violet-50/30 border-violet-200/30",
-    slate: "bg-slate-50/30 border-slate-200/30", gray: "bg-gray-50/30 border-gray-200/30",
-  };
-
   const streak = React.useMemo(() => {
     if (!calendarData) return 0;
     const sorted = [...calendarData.days].filter(d => d.date <= todayStr).sort((a, b) => b.date.localeCompare(a.date));
@@ -562,42 +572,42 @@ export default function CalendarPageClient() {
       <div className={`fixed inset-0 pointer-events-none bg-gradient-to-b ${seasonalGradient} z-0`} />
 
       {/* ── ヘッダー ── */}
-      <GlassNavbar>
+      <GlassNavbar innerClassName="max-w-7xl mx-auto px-4 sm:px-6 py-2.5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="w-9 h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center text-gray-400 hover:bg-white/70 transition-all">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          <div className="flex items-center gap-2.5">
+            <Link href="/" className="w-8 h-8 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center text-gray-400 hover:bg-white/70 transition-all">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </Link>
             <div>
-              <h1 className="text-lg font-bold tracking-tight text-gray-800">カレンダー</h1>
-              <p className="text-[10px] text-gray-400 tracking-wide">SYNC コーデ提案</p>
+              <h1 className="text-[15px] font-bold tracking-tight text-gray-800 leading-tight">カレンダー</h1>
+              <p className="text-[9px] text-gray-400 tracking-wide leading-tight">SYNC コーデ提案</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Link href="/my-style?tab=closet"
-              className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center gap-1 px-3 text-gray-500 hover:bg-white/70 transition-all text-xs no-underline">
-              <span className="text-sm">👗</span>
-              <span className="text-[10px] font-medium">My Style</span>
+              className="h-6 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center gap-0.5 px-2 text-gray-500 hover:bg-white/70 transition-all no-underline">
+              <span className="text-[10px]">👗</span>
+              <span className="text-[8px] font-medium">Style</span>
             </Link>
             <motion.button onClick={() => setShowWeatherSettings(v => !v)}
-              className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center justify-center gap-1 px-3 text-gray-500 hover:bg-white/70 transition-all text-xs"
+              className="h-6 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center gap-0.5 px-2 text-gray-500 hover:bg-white/70 transition-all"
               whileTap={{ scale: 0.9 }}>
-              <span className="text-sm">📍</span>
-              {selectedPrefecture ? <span className="text-[10px] font-medium">{selectedPrefecture}</span> : <span className="text-[10px] text-gray-400">未設定</span>}
+              <span className="text-[10px]">📍</span>
+              {selectedPrefecture ? <span className="text-[8px] font-medium">{selectedPrefecture}</span> : <span className="text-[8px] text-gray-400">未設定</span>}
             </motion.button>
             {todayWeather && (
-              <div className="h-9 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center gap-1.5 px-3">
-                <span className="text-sm">{DAILY_WEATHER_ICONS[todayWeather.weather_icon] ?? "🌤️"}</span>
-                <span className="text-[10px] font-bold text-gray-600">{todayWeather.temp_max ?? "-"}°</span>
+              <div className="h-6 rounded-full bg-white/40 backdrop-blur-sm border border-white/50 flex items-center gap-0.5 px-2">
+                <span className="text-[10px]">{DAILY_WEATHER_ICONS[todayWeather.weather_icon] ?? "🌤️"}</span>
+                <span className="text-[8px] font-bold text-gray-600">{todayWeather.temp_max ?? "-"}°</span>
               </div>
             )}
           </div>
         </div>
       </GlassNavbar>
 
-      <div className="h-20" />
+      <div className="h-14" />
 
-      <main className="max-w-6xl mx-auto px-4 pb-32">
+      <main className="max-w-6xl mx-auto px-4 pb-20">
         {/* ── 居住地未設定オンボーディング ── */}
         {locationNotSet && !officeLoading && (
           <FadeInView>
@@ -671,7 +681,7 @@ export default function CalendarPageClient() {
             <p className="mt-4 text-sm text-gray-400">Loading...</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-3">
             {/* ── オンボーディング ── */}
             <OnboardingTooltip />
 
@@ -700,7 +710,7 @@ export default function CalendarPageClient() {
             {/* ── 月ナビ + 天気（スワイプ対応） ── */}
             <FadeInView>
               <motion.div
-                className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/60 via-white/40 to-white/20 backdrop-blur-2xl border border-white/50 shadow-[0_8px_60px_-20px_rgba(120,100,200,0.15)] p-5"
+                className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-white/60 via-white/40 to-white/20 backdrop-blur-2xl border border-white/50 shadow-[0_8px_60px_-20px_rgba(120,100,200,0.15)] p-3"
                 drag="x"
                 dragConstraints={{ left: 0, right: 0 }}
                 dragElastic={0.15}
@@ -717,8 +727,8 @@ export default function CalendarPageClient() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
                     </motion.button>
                     <div className="text-center">
-                      <p className="text-2xl font-black tracking-tight text-gray-800">{currentMonth}<span className="text-base font-normal text-gray-400 ml-0.5">月</span></p>
-                      <p className="text-[10px] text-gray-400 -mt-0.5">{currentYear}</p>
+                      <p className="text-xl font-black tracking-tight text-gray-800">{currentMonth}<span className="text-sm font-normal text-gray-400 ml-0.5">月</span></p>
+                      <p className="text-[9px] text-gray-400 -mt-0.5">{currentYear}</p>
                     </div>
                     <motion.button onClick={goToNextMonth} className="w-8 h-8 rounded-full bg-white/40 border border-white/50 flex items-center justify-center text-gray-400 hover:bg-white/70 transition" whileTap={{ scale: 0.85 }}>
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
@@ -728,9 +738,9 @@ export default function CalendarPageClient() {
                     <div className="text-right">
                       {todayWeather && (
                         <>
-                          <div className="flex items-baseline gap-1.5 justify-end">
-                            <span className="text-3xl">{DAILY_WEATHER_ICONS[todayWeather.weather_icon] ?? "🌤️"}</span>
-                            <span className="text-lg font-bold text-gray-700">{todayWeather.temp_min ?? "-"}°/{todayWeather.temp_max ?? "-"}°</span>
+                          <div className="flex items-baseline gap-1 justify-end">
+                            <span className="text-2xl">{DAILY_WEATHER_ICONS[todayWeather.weather_icon] ?? "🌤️"}</span>
+                            <span className="text-sm font-bold text-gray-700">{todayWeather.temp_min ?? "-"}°/{todayWeather.temp_max ?? "-"}°</span>
                           </div>
                           {todayWeather.pop_max != null && <p className="text-[10px] text-blue-400 mt-0.5">降水確率 {todayWeather.pop_max}%</p>}
                         </>
@@ -752,15 +762,50 @@ export default function CalendarPageClient() {
             </FadeInView>
 
             {/* ── 今日の提案ヒーロー ── */}
-            {todayProposal && (
+            {todayProposal && (() => {
+              // ヒーロー主理由: practical を固定（insight リスト全体の順位とは独立）
+              // CEO指示: 毎朝3秒のヒーローでは practical を主理由に固定する
+              const practicalInsight = todayProposal.insights.find(i => i.tier === "practical");
+              const deepInsight = todayProposal.insights.find(i => i.tier === "self-understanding" || (i.tier === "impression" && i.type !== "genome_relationship"));
+              // 第3層: Genome relationship insight（条件成立日のみ存在）
+              const relationshipInsight = todayProposal.insights.find(i => i.type === "genome_relationship");
+              // 「この提案に効いている自分の軸」チップ
+              const todayAdaptation = observationContext
+                ? computeOutfitAdaptation(observationContext, todayData?.events ?? [])
+                : null;
+              const axisChips = buildProposalAxisChips({
+                persona: personaProfile,
+                satisfaction: satisfactionProfile,
+                gap: gapAnalysis,
+                adaptation: todayAdaptation,
+                observation: observationContext,
+              });
+              // practical が見つからない場合のヒーロー専用フォールバック
+              const heroReason = practicalInsight
+                ? `${practicalInsight.icon} ${practicalInsight.text}`
+                : todayWeather?.temp_max != null
+                  ? `🌡️ 最高${todayWeather.temp_max}°に合わせた構成`
+                  : todayProposal.main.reason;
+              return (
               <FadeInView delay={0.02}>
                 <motion.button onClick={() => setSelectedDay(todayData!)}
-                  className="w-full text-left relative overflow-hidden rounded-3xl bg-gradient-to-br from-white/50 via-white/30 to-violet-50/20 backdrop-blur-2xl border border-white/40 shadow-[0_12px_50px_-15px_rgba(100,80,200,0.12)] p-4 sm:p-5 group"
-                  whileHover={{ y: -3 }} whileTap={{ scale: 0.98 }}>
-                  <div className="pointer-events-none absolute -top-16 right-8 w-40 h-40 rounded-full bg-gradient-to-br from-violet-400/10 to-pink-400/5 blur-3xl group-hover:scale-110 transition-transform duration-700" />
-                  <div className="relative flex items-start gap-4">
+                  className="w-full text-left relative overflow-hidden rounded-2xl bg-gradient-to-br from-white/60 via-white/40 to-violet-50/30 backdrop-blur-2xl border border-violet-200/40 shadow-[0_12px_50px_-12px_rgba(100,80,200,0.18)] px-2.5 py-2 sm:px-3 sm:py-2.5 group"
+                  whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+                  {/* 第3層: relationship 特別帯 — 条件成立日のみ表示 */}
+                  {relationshipInsight && (
+                    <div className="mb-1.5 -mx-2.5 -mt-2 sm:-mx-3 sm:-mt-2.5 px-3 py-1.5 bg-gradient-to-r from-fuchsia-50/70 via-violet-50/50 to-indigo-50/40 border-b border-fuchsia-200/30">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs">{relationshipInsight.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[8px] font-bold text-fuchsia-500/80 uppercase tracking-wider mb-px">{relationshipInsight.label}</p>
+                          <p className="text-[9px] text-fuchsia-700/70 truncate leading-tight">{relationshipInsight.text}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="relative flex items-center gap-2.5">
                     {/* SYNCリング */}
-                    <div className="shrink-0 relative w-20 h-20 sm:w-24 sm:h-24">
+                    <div className="shrink-0 relative w-14 h-14 sm:w-16 sm:h-16">
                       <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
                         <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="6" />
                         <circle cx="50" cy="50" r="42" fill="none"
@@ -769,57 +814,90 @@ export default function CalendarPageClient() {
                           strokeDasharray={`${(todayProposal.main.sync.total / 100) * 264} 264`} />
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className={`text-xl font-black ${SYNC_BAND_COLORS[todayProposal.main.sync.band].text}`}>
+                        <span className={`text-lg font-black leading-none ${SYNC_BAND_COLORS[todayProposal.main.sync.band].text}`}>
                           {todayProposal.main.sync.total}
                         </span>
-                        <span className="text-[7px] text-gray-400 uppercase font-bold">SYNC</span>
+                        <span className="text-[6px] text-gray-400 uppercase font-bold">SYNC</span>
                       </div>
                     </div>
 
-                    <div className="flex-1 min-w-0 pt-1">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-[9px] font-bold tracking-widest text-violet-500">今日の提案</span>
-                        <span className={`text-[8px] font-bold rounded-full px-1.5 py-0.5 ${SYNC_BAND_COLORS[todayProposal.main.sync.band].bg} ${SYNC_BAND_COLORS[todayProposal.main.sync.band].text}`}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[8px] font-bold tracking-widest text-violet-500">今日の提案</span>
+                        <span className={`text-[7px] font-bold rounded-full px-1.5 py-px ${SYNC_BAND_COLORS[todayProposal.main.sync.band].bg} ${SYNC_BAND_COLORS[todayProposal.main.sync.band].text}`}>
                           {todayProposal.main.moodTag}
                         </span>
                       </div>
-                      <p className="text-sm font-bold text-gray-700 mb-1.5 truncate">
+                      <p className="text-xs font-bold text-gray-700 mb-0.5 truncate leading-tight">
                         {todayProposal.main.items.map(i => i.name).join(" + ")}
                       </p>
-                      <p className="text-[10px] text-gray-400 line-clamp-2 mb-2">
-                        {todayProposal.insights.length > 0
-                          ? `${todayProposal.insights[0].icon} ${todayProposal.insights[0].text}`
-                          : todayProposal.main.reason}
-                      </p>
-                      <div className="flex gap-1.5">
-                        {todayProposal.main.items.slice(0, 4).map((item, i) => (
-                          <div key={i} className="w-10 h-10 rounded-lg bg-white/60 border border-white/50 overflow-hidden shadow-sm flex items-center justify-center">
-                            {item.imageUrl ? (
-                              <Image src={item.imageUrl} alt="" width={40} height={40} className="w-full h-full object-contain p-0.5" loader={passthroughLoader} unoptimized />
-                            ) : (
-                              <span className="text-xs text-gray-300">{item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : "👟"}</span>
-                            )}
-                          </div>
-                        ))}
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex gap-0.5 shrink-0">
+                          {todayProposal.main.items.slice(0, 4).map((item, i) => (
+                            <div key={i} className="w-7 h-7 rounded-md bg-white/60 border border-white/50 overflow-hidden flex items-center justify-center">
+                              {item.imageUrl ? (
+                                <Image src={item.imageUrl} alt="" width={28} height={28} className="w-full h-full object-contain p-0.5" loader={passthroughLoader} unoptimized />
+                              ) : (
+                                <span className="text-[9px] text-gray-300">{item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : "👟"}</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* 実用理由（practical tier）を主役に — insight順位とは独立 */}
+                        <p className="text-[9px] text-gray-500 truncate leading-tight">
+                          {heroReason}
+                        </p>
                       </div>
+                      {/* リスク警告 */}
                       {todayProposal.main.risks.length > 0 && (
-                        <div className="mt-2 flex items-center gap-1 text-[9px] text-amber-500">
-                          <span>⚡</span><span>{todayProposal.main.risks[0].message}</span>
+                        <div className="mt-0.5 flex items-center gap-1 text-[8px] text-amber-500">
+                          <span>⚡</span><span className="truncate">{todayProposal.main.risks[0].message}</span>
+                        </div>
+                      )}
+                      {/* 自己理解 or 印象インサイト（条件付き・別スタイル） */}
+                      {deepInsight && !todayProposal.main.risks.length && (
+                        <div className="mt-1 flex items-center gap-1.5 rounded-lg bg-violet-50/40 border border-violet-200/20 px-2 py-1">
+                          <span className="text-[9px]">{deepInsight.icon}</span>
+                          <p className="text-[9px] text-violet-600/80 truncate leading-tight font-medium">
+                            {deepInsight.text}
+                          </p>
+                        </div>
+                      )}
+                      {/* 効いている自分の軸（チップ） */}
+                      {axisChips.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {axisChips.map((chip, i) => (
+                            <span key={i} className={`text-[7px] px-1.5 py-0.5 rounded-full border ${
+                              chip.confidence === "high"
+                                ? "bg-violet-50/60 border-violet-200/40 text-violet-500"
+                                : "bg-gray-50/60 border-gray-200/40 text-gray-400"
+                            }`}>
+                              {chip.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {/* ヒントインライン（インサイトもリスクも深層もない場合のみ） */}
+                      {stylingTip && !practicalInsight && !todayProposal.main.risks.length && !deepInsight && (
+                        <div className="mt-0.5 flex items-center gap-1 text-[8px] text-gray-400/70 truncate">
+                          <span className="text-[9px]">{stylingTip.icon}</span>
+                          <span className="truncate">{stylingTip.text}</span>
                         </div>
                       )}
                     </div>
                   </div>
                 </motion.button>
               </FadeInView>
-            )}
+              );
+            })()}
 
             {/* ── ワードローブ未登録 → My-Style導線 ── */}
             {!todayProposal && wardrobeItems.length === 0 && !loading && (
               <FadeInView delay={0.02}>
-                <div className="rounded-3xl bg-gradient-to-br from-white/50 to-violet-50/20 backdrop-blur-2xl border border-white/40 p-6">
-                  <div className="text-center mb-5">
-                    <p className="text-4xl mb-3">👗</p>
-                    <p className="text-sm font-bold text-gray-700 mb-1">コーデ提案を受けるには</p>
+                <div className="rounded-2xl bg-gradient-to-br from-white/50 to-violet-50/20 backdrop-blur-2xl border border-white/40 p-4">
+                  <div className="text-center mb-3">
+                    <p className="text-3xl mb-2">👗</p>
+                    <p className="text-sm font-bold text-gray-700 mb-0.5">コーデ提案を受けるには</p>
                     <p className="text-xs text-gray-400">まずワードローブにアイテムを登録しましょう</p>
                   </div>
                   <div className="space-y-2">
@@ -856,11 +934,11 @@ export default function CalendarPageClient() {
             {tomorrowProposal && tomorrowData && (
               <FadeInView delay={0.03}>
                 <motion.button onClick={() => setSelectedDay(tomorrowData)}
-                  className="w-full text-left rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3 group"
-                  whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
+                  className="w-full text-left rounded-xl bg-white/20 backdrop-blur-lg border border-white/30 px-3 py-2 group"
+                  whileHover={{ y: -1 }} whileTap={{ scale: 0.99 }}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="shrink-0 relative w-10 h-10">
+                    <div className="flex items-center gap-2.5">
+                      <div className="shrink-0 relative w-8 h-8">
                         <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
                           <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="6" />
                           <circle cx="50" cy="50" r="42" fill="none"
@@ -868,20 +946,20 @@ export default function CalendarPageClient() {
                             strokeWidth="6" strokeLinecap="round"
                             strokeDasharray={`${(tomorrowProposal.main.sync.total / 100) * 264} 264`} />
                         </svg>
-                        <span className={`absolute inset-0 flex items-center justify-center text-[10px] font-black ${SYNC_BAND_COLORS[tomorrowProposal.main.sync.band].text}`}>
+                        <span className={`absolute inset-0 flex items-center justify-center text-[8px] font-black ${SYNC_BAND_COLORS[tomorrowProposal.main.sync.band].text}`}>
                           {tomorrowProposal.main.sync.total}
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <span className="text-[9px] font-bold tracking-widest text-gray-400">明日の提案</span>
-                        <p className="text-xs font-bold text-gray-600 truncate">{tomorrowProposal.main.items.map(i => i.name).join(" + ")}</p>
+                        <span className="text-[8px] font-bold tracking-widest text-gray-400">明日の提案</span>
+                        <p className="text-[11px] font-bold text-gray-500 truncate">{tomorrowProposal.main.items.map(i => i.name).join(" + ")}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0">
                       {tomorrowData.weather_daily && (
-                        <span className="text-lg">{DAILY_WEATHER_ICONS[tomorrowData.weather_daily.weather_icon] ?? "🌤️"}</span>
+                        <span className="text-sm">{DAILY_WEATHER_ICONS[tomorrowData.weather_daily.weather_icon] ?? "🌤️"}</span>
                       )}
-                      <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                      <svg className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-400 transition" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                     </div>
                   </div>
                 </motion.button>
@@ -894,15 +972,15 @@ export default function CalendarPageClient() {
 
             {/* ── カレンダーグリッド（主役） ── */}
             <FadeInView delay={0.04}>
-              <div className="rounded-3xl bg-white/30 backdrop-blur-xl border border-white/40 shadow-[0_4px_40px_-15px_rgba(100,80,180,0.1)] p-3 sm:p-4">
-                <div className="grid grid-cols-7 mb-1.5">
+              <div className="rounded-2xl bg-white/25 backdrop-blur-xl border border-white/30 shadow-[0_4px_40px_-15px_rgba(100,80,180,0.06)] px-2.5 pt-2 pb-1.5 sm:px-3 sm:pt-2.5 sm:pb-2">
+                <div className="grid grid-cols-7 mb-1">
                   {WEEKDAYS.map((day, i) => (
-                    <div key={day} className={`text-center text-[10px] font-semibold py-1.5 tracking-widest uppercase ${
+                    <div key={day} className={`text-center text-[9px] font-semibold py-1 tracking-widest uppercase ${
                       i === 0 ? "text-rose-400" : i === 6 ? "text-blue-400" : "text-gray-400"
                     }`}>{day}</div>
                   ))}
                 </div>
-                <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
+                <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
                   {calendarGrid.map((day, i) => (
                     <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.008, duration: 0.3 }}>
                       {day ? (
@@ -913,7 +991,7 @@ export default function CalendarPageClient() {
                     </motion.div>
                   ))}
                 </div>
-                <p className="mt-2 text-[9px] text-slate-300 text-right">出典: 気象庁</p>
+                <p className="mt-1 text-[8px] text-slate-300 text-right">出典: 気象庁</p>
               </div>
             </FadeInView>
 
@@ -983,20 +1061,7 @@ export default function CalendarPageClient() {
                TERTIARY ZONE: 分析・補完
                ══════════════════════════════════════ */}
 
-            {/* ── スタイリングヒント ── */}
-            {stylingTip && (
-              <FadeInView delay={0.07}>
-                <div className={`relative overflow-hidden rounded-2xl border backdrop-blur-xl p-3.5 ${tipColorMap[stylingTip.color] ?? tipColorMap.gray}`}>
-                  <div className="flex items-start gap-3">
-                    <span className="text-2xl shrink-0">{stylingTip.icon}</span>
-                    <div className="min-w-0">
-                      <p className="text-[9px] font-bold tracking-widest text-gray-400 mb-0.5">今日のヒント</p>
-                      <p className="text-xs text-gray-600 font-medium leading-relaxed">{stylingTip.text}</p>
-                    </div>
-                  </div>
-                </div>
-              </FadeInView>
-            )}
+            {/* ── スタイリングヒント: 提案カード内にインライン化済み ── */}
 
             {/* ── 季節遷移ヒント ── */}
             {(() => {
@@ -1049,9 +1114,9 @@ export default function CalendarPageClient() {
             {/* ── 月間レポート（着用データあり時のみ） ── */}
             {calendarData && (monthSummary?.wornDays ?? 0) > 0 && (
               <FadeInView delay={0.1}>
-                <div className="rounded-2xl bg-white/25 backdrop-blur-xl border border-white/30 p-4">
-                  <p className="text-[10px] font-bold tracking-widest text-gray-400 mb-3">月間レポート</p>
-                  <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl bg-white/25 backdrop-blur-xl border border-white/30 p-3">
+                  <p className="text-[10px] font-bold tracking-widest text-gray-400 mb-2">月間レポート</p>
+                  <div className="grid grid-cols-3 gap-2">
                     <div className="text-center rounded-xl bg-white/40 border border-white/50 p-3 backdrop-blur-sm">
                       <p className="text-2xl font-black text-violet-600">{monthSummary?.wornDays ?? 0}</p><p className="text-[9px] text-gray-400 mt-0.5">コーデ確定</p>
                     </div>
@@ -1140,18 +1205,51 @@ export default function CalendarPageClient() {
               </FadeInView>
             )}
 
-            {/* ── 学習ステータス ── */}
-            {(satisfactionProfile && satisfactionProfile.dataPoints >= 3) || (feedbackSummary && feedbackSummary.totalDataPoints >= 3) ? (
-              <div className="rounded-xl bg-emerald-50/40 border border-emerald-200/30 px-3 py-1.5 flex items-center gap-2">
-                <span className="text-xs">📊</span>
-                <p className="text-[9px] text-emerald-600 font-medium">
-                  着用データ{satisfactionProfile?.dataPoints ?? 0}日分
-                  {feedbackSummary && feedbackSummary.totalDataPoints > 0 && (
-                    <span className="text-[8px] text-emerald-500"> + フィードバック{feedbackSummary.totalDataPoints}件から学習中</span>
-                  )}
-                </p>
-              </div>
-            ) : null}
+            {/* ── 学習ステータス（マイルストーン式） ── */}
+            {(() => {
+              const dp = satisfactionProfile?.dataPoints ?? 0;
+              const fb = feedbackSummary?.totalDataPoints ?? 0;
+              const total = dp + fb;
+              if (total < 3) return null;
+
+              // マイルストーン定義
+              const milestones = [
+                { threshold: 3,  label: "学習開始", desc: "好みの学習が始まりました", icon: "🌱" },
+                { threshold: 7,  label: "傾向把握", desc: "あなたの傾向が見え始めています", icon: "🌿" },
+                { threshold: 14, label: "パターン認識", desc: "曜日や天気との相関がわかってきました", icon: "🌳" },
+                { threshold: 30, label: "深い理解", desc: "コンビネーションの好みまで学習済み", icon: "🌲" },
+                { threshold: 60, label: "あなたの専門家", desc: "あなたのスタイルを熟知しています", icon: "✨" },
+              ];
+
+              const current = milestones.filter(m => dp >= m.threshold).pop() ?? milestones[0];
+              const next = milestones.find(m => dp < m.threshold);
+              const progress = next ? Math.min(100, Math.round((dp / next.threshold) * 100)) : 100;
+
+              return (
+                <FadeInView delay={0.09}>
+                  <div className="rounded-xl bg-gradient-to-r from-emerald-50/50 to-teal-50/30 border border-emerald-200/30 px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="text-sm">{current.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-emerald-700">{current.label}</span>
+                          <span className="text-[8px] text-emerald-500">{dp}日分のデータ</span>
+                        </div>
+                        <p className="text-[9px] text-emerald-600/80">{current.desc}</p>
+                      </div>
+                    </div>
+                    {next && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1 rounded-full bg-emerald-100/60 overflow-hidden">
+                          <div className="h-full rounded-full bg-emerald-400/60 transition-all duration-500" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="text-[8px] text-emerald-400 shrink-0">次: {next.label}（あと{next.threshold - dp}日）</span>
+                      </div>
+                    )}
+                  </div>
+                </FadeInView>
+              );
+            })()}
 
             {/* ── スタイル進化タイムライン ── */}
             {(() => {
@@ -1254,6 +1352,25 @@ export default function CalendarPageClient() {
             ? describeSeasonalShift(wornHistoryForRotation, wardrobeItems)
             : null;
 
+          // 効いている自分の軸
+          const selAxisChips = buildProposalAxisChips({
+            persona: personaProfile,
+            satisfaction: satisfactionProfile,
+            gap: gapAnalysis,
+            adaptation: selAdaptation,
+            observation: observationContext,
+          });
+
+          // Stargazer 影響度計測
+          const selInfluence = computeStargazerInfluence({
+            persona: personaProfile,
+            satisfaction: satisfactionProfile,
+            adaptation: selAdaptation,
+            observation: observationContext,
+            gap: gapAnalysis,
+            proposalItems: selProposal?.main.items,
+          });
+
           return (
             <DayDetailSheet
               day={selectedDay}
@@ -1271,12 +1388,16 @@ export default function CalendarPageClient() {
               conditionHint={selCondHint}
               rotationHighlights={selRotation}
               seasonalShift={selSeasonalShift}
+              axisChips={selAxisChips}
+              stargazerInfluence={selInfluence}
             />
           );
         })()}
       </AnimatePresence>
 
-      <FloatingNavLight items={MAIN_NAV} activeHref="/calendar" />
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        <HomeQuickAccess />
+      </div>
 
       <FeatureIntroduction
         {...CALENDAR_INTRO}

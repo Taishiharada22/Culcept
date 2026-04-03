@@ -20,6 +20,9 @@ import type { ExtendedWeatherContext } from "../_lib/materialWeather";
 import type { OutfitDnaVector } from "../_lib/outfitDna";
 import type { SubstitutionResult } from "../_lib/itemSubstitution";
 import type { ConditionStyleHint, ItemRotationProfile } from "../_lib/deepTemporalIntelligence";
+import type { AxisChip } from "../_lib/proposalAxisChips";
+import type { StargazerInfluence } from "../_lib/stargazerInfluence";
+import { getInfluenceLevel } from "../_lib/stargazerInfluence";
 import ABComparisonCard from "./ABComparisonCard";
 import DeepTemporalCard from "./DeepTemporalCard";
 
@@ -41,6 +44,8 @@ interface DayDetailSheetProps {
   conditionHint?: ConditionStyleHint | null;
   rotationHighlights?: ItemRotationProfile[];
   seasonalShift?: string | null;
+  axisChips?: AxisChip[];
+  stargazerInfluence?: StargazerInfluence | null;
 }
 
 export default function DayDetailSheet({
@@ -59,6 +64,8 @@ export default function DayDetailSheet({
   conditionHint,
   rotationHighlights,
   seasonalShift,
+  axisChips,
+  stargazerInfluence,
 }: DayDetailSheetProps) {
   const [activeTab, setActiveTab] = React.useState<DetailTab>(proposal ? "proposal" : "coordinate");
   const [showDetails, setShowDetails] = React.useState(false);
@@ -143,6 +150,22 @@ export default function DayDetailSheet({
                     date={day.date}
                   />
 
+                  {/* 効いている自分の軸 */}
+                  {axisChips && axisChips.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-[8px] text-gray-400 font-bold mr-0.5">効いている軸</span>
+                      {axisChips.map((chip, i) => (
+                        <span key={i} className={`text-[8px] px-2 py-0.5 rounded-full border ${
+                          chip.confidence === "high"
+                            ? "bg-violet-50/70 border-violet-200/40 text-violet-600"
+                            : "bg-gray-50/70 border-gray-200/40 text-gray-500"
+                        }`}>
+                          {chip.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* リスク警告（判断に直結するので初期表示） */}
                   {proposal.main.risks.length > 0 && (
                     <RiskWarningList risks={proposal.main.risks} />
@@ -203,6 +226,59 @@ export default function DayDetailSheet({
 
                       {/* SYNC スコア詳細 */}
                       <SyncScoreDisplay sync={proposal.main.sync} />
+
+                      {/* Stargazer 影響度 */}
+                      {stargazerInfluence && stargazerInfluence.activeCount > 0 && (() => {
+                        const level = getInfluenceLevel(stargazerInfluence.totalScore);
+                        const levelConfig = {
+                          none: { color: "text-gray-300", bar: "bg-gray-200", label: "—" },
+                          low: { color: "text-gray-400", bar: "bg-gray-300", label: "低" },
+                          medium: { color: "text-violet-500", bar: "bg-violet-400", label: "中" },
+                          high: { color: "text-violet-600", bar: "bg-violet-500", label: "高" },
+                        }[level];
+                        const dims = [
+                          { key: "persona", label: "カラー・軸", value: stargazerInfluence.dimensions.persona },
+                          { key: "satisfaction", label: "満足度学習", value: stargazerInfluence.dimensions.satisfaction },
+                          { key: "adaptation", label: "心理状態", value: stargazerInfluence.dimensions.adaptation },
+                          { key: "gap", label: "クローゼット", value: stargazerInfluence.dimensions.gap },
+                        ].filter(d => d.value > 5);
+
+                        return (
+                          <div className="rounded-2xl bg-white/30 backdrop-blur-xl border border-white/40 p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">🔭</span>
+                                <span className="text-[10px] font-bold tracking-widest text-gray-400">STARGAZER 影響度</span>
+                              </div>
+                              <span className={`text-[10px] font-bold ${levelConfig.color}`}>
+                                {stargazerInfluence.totalScore}% ({levelConfig.label})
+                              </span>
+                            </div>
+                            {/* 全体バー */}
+                            <div className="h-1.5 rounded-full bg-gray-100/80 overflow-hidden mb-2">
+                              <div className={`h-full rounded-full ${levelConfig.bar} transition-all`}
+                                style={{ width: `${Math.min(100, stargazerInfluence.totalScore)}%` }} />
+                            </div>
+                            {/* 内訳 */}
+                            {dims.length > 0 && (
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                                {dims.map(d => (
+                                  <div key={d.key} className="flex items-center gap-1.5">
+                                    <span className="text-[8px] text-gray-400 w-14 shrink-0">{d.label}</span>
+                                    <div className="flex-1 h-1 rounded-full bg-gray-100/80 overflow-hidden">
+                                      <div className="h-full rounded-full bg-violet-300/60"
+                                        style={{ width: `${Math.min(100, d.value)}%` }} />
+                                    </div>
+                                    <span className="text-[8px] text-gray-400 w-6 text-right">{d.value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {/* サマリー */}
+                            <p className="text-[8px] text-gray-400 mt-1.5">{stargazerInfluence.summary}</p>
+                          </div>
+                        );
+                      })()}
 
                       {/* コーデ DNA */}
                       {outfitDna && (

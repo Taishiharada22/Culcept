@@ -178,24 +178,33 @@ function buildReason(
   weather: WeatherDaily | null,
   events: Array<{ event_type: string }>,
 ): string {
-  const parts: string[] = [];
+  const EVENT_JA: Record<string, string> = {
+    work: "仕事", date: "デート", meeting: "ミーティング",
+    party: "パーティ", formal: "フォーマル", friends: "友達との予定",
+    outdoor: "アウトドア", sports: "スポーツ", travel: "旅行",
+    interview: "面接",
+  };
 
-  if (weather?.temp_max != null) {
-    parts.push(`最高${weather.temp_max}°の気温に合わせた構成`);
-  }
-
+  // イベントがある日は場面を軸に
   if (events.length > 0) {
-    const eventNames = events.map(e => e.event_type === "work" ? "仕事" : e.event_type === "date" ? "デート" : e.event_type === "meeting" ? "ミーティング" : e.event_type).slice(0, 2);
-    parts.push(`${eventNames.join("・")}に対応`);
+    const names = events.map(e => EVENT_JA[e.event_type] ?? e.event_type).slice(0, 2);
+    if (weather?.temp_max != null) {
+      return `${names.join("・")}の日。${weather.temp_max}°に合わせた構成`;
+    }
+    return `${names.join("・")}に合わせた構成`;
   }
 
-  const tops = items.find(i => categorize(i) === "tops");
-  const bottoms = items.find(i => categorize(i) === "bottoms");
-  if (tops?.silhouette && bottoms?.silhouette) {
-    parts.push(`${tops.silhouette}×${bottoms.silhouette}のバランス`);
+  // 気温がある日は気温を軸に
+  if (weather?.temp_max != null) {
+    const temp = weather.temp_max;
+    if (temp >= 28) return `${temp}°の暑さに合わせた涼しい構成`;
+    if (temp >= 20) return `${temp}°の過ごしやすい気温を活かした構成`;
+    if (temp >= 10) return `${temp}°に合わせた快適な重ね着構成`;
+    return `${temp}°の寒さに備えた暖かい構成`;
   }
 
-  return parts.join("。") || "ワードローブから最適な組み合わせを提案";
+  // フォールバック
+  return "手持ちのアイテムからバランスの良い組み合わせを選びました";
 }
 
 /* ── コンボ生成 ── */
