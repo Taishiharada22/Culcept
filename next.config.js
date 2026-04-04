@@ -13,7 +13,15 @@ const nextConfig = {
     images: {
         qualities: [75, 90, 95],
         remotePatterns: [
-            { protocol: "https", hostname: "**" },
+            // Supabase Storage — ユーザーアップロード画像（アバター、商品、ショップ等）
+            {
+                protocol: "https",
+                hostname: "aljavfujeqcwnqryjmhl.supabase.co",
+                pathname: "/storage/v1/object/public/**",
+            },
+            // QR コード生成 API
+            { protocol: "https", hostname: "api.qrserver.com" },
+            // ローカル開発
             { protocol: "http", hostname: "localhost" },
         ],
     },
