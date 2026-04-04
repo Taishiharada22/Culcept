@@ -43,6 +43,7 @@ import {
   buildJudgmentFramework,
   ALTER_IDENTITY_BLOCK,
   detectDirectRequest,
+  detectDirectDemand,
   detectCorrectionSignal,
   detectGreeting,
   computeResponseSimilarity,
@@ -91,7 +92,6 @@ import {
   estimateUserState,
   computeStateAdjustment,
   detectMicroSignals,
-  checkSignalConvergence,
   extractLifeContextSignals,
   extractExtendedContextSignals,
   extractPersonMentions,
@@ -221,6 +221,57 @@ import {
   type RoleSelection,
   type SemanticBanCheck,
 } from "@/lib/stargazer/alterContracts";
+// Output Governance Layer (RC1 + RC5 + Metrics)
+import {
+  extractUserBans,
+  checkUserBans,
+  buildUserBansPromptBlock,
+  assessFrustration,
+  buildFrustrationPromptBlock,
+  type UserBan,
+  type FrustrationState,
+  type UserBanViolation,
+} from "@/lib/stargazer/alterOutputGovernance";
+// Proactive Understanding Engine
+import {
+  runProactiveEngine,
+  DEFAULT_GATES,
+  createTrustEvent,
+  createPendingPayback,
+  markPaybackUsed,
+  findUnusedPaybacks,
+  addEvidenceToCausalLink,
+  addContradictionToCausalLink,
+  decayCausalLinkConfidence,
+  grantImplicitConsent,
+  setConsentCooldown,
+  isSensitiveSubdomain,
+  domainToDefaultSubdomain,
+  SENSITIVE_SUBDOMAINS,
+  type ProactiveEngineOutput,
+  type ProactiveEngineGates,
+  type ContextualAccess,
+  type SubdomainConsent,
+  type TrustEvent,
+  type CausalLink,
+  type TrustDomain,
+  type TrustEventType,
+  type PendingPayback,
+  type ConsentSubdomain,
+  type CurrentTopicContext,
+} from "@/lib/stargazer/proactiveUnderstanding";
+import {
+  checkCrossSessionConvergence,
+  updateConvergenceState,
+  detectImplicitSignals,
+  accumulateImplicitSignals,
+  promoteToMicroInsight,
+  type SessionMicroSignal,
+  type ConvergenceState,
+  type CrossSessionConvergenceResult,
+  type ImplicitSignal,
+  type ImplicitMicroInsightCandidate,
+} from "@/lib/stargazer/miConvergenceEngine";
 import {
   readTurnSignal,
   buildSignalAnalytics,
@@ -783,6 +834,8 @@ export async function POST(req: NextRequest) {
     let insightPresented = false;
     // P5: ベースラインズレ由来の追加シグナル
     let baselineSignals: MicroSignal[] = [];
+    let contradictedTopics: string[] = [];
+    let crossSessionResult: CrossSessionConvergenceResult | null = null;
     // P1.5 Thin-Slice: ホイスト変数
     let thinSliceActive = false;
     let thinSliceState: ThinSliceSessionState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0 };
@@ -800,6 +853,12 @@ export async function POST(req: NextRequest) {
     let v42Compliance: ComplianceCheckResult | null = null;
     let v42SemanticBanCheck: SemanticBanCheck | null = null;
     let v42RallyCritic: RallyCriticResult | null = null;
+    // Output Governance Layer: ホイスト変数
+    let govUserBans: UserBan[] = [];
+    let govFrustration: FrustrationState = { level: 0, triggers: [], unresolved_requests: [], repeated_correction_count: 0 };
+    let govUserBanViolation: UserBanViolation | null = null;
+    // Proactive Understanding Engine: ホイスト変数
+    let proactiveOutput: ProactiveEngineOutput | null = null;
     // P0/P3/P5: ホイスト変数（Home Alter 内の複数ブロックで共有）
     let alterSessionCount = 0;
     let baselineDeviationsFull: BaselineDeviation[] = [];
@@ -1225,8 +1284,13 @@ export async function POST(req: NextRequest) {
           modeDecisionReason = "direct_request_detected";
           console.info(`[home-alter] Direct request detected → direct_response mode`);
         } else {
+          // FIX-1: 直接要求の強シグナル検出（clarify 禁止フラグ）
+          const isDirectDemand = detectDirectDemand(message);
+          if (isDirectDemand) {
+            console.info(`[home-alter] Direct demand detected → clarify prohibited`);
+          }
           // 通常パイプライン: ambiguity engine でモード選択
-          const rawModeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment);
+          const rawModeDecision = selectResponseModeWithReason(queryContext, relationalLens, stateAdjustment, { directDemand: isDirectDemand });
           // P1-A: knowledge/strategy 型は clarify/branch 不要 → conclude 強制
           const modeDecision = applyQuestionTypeOverride(rawModeDecision, questionType);
           responseMode = modeDecision.mode;
@@ -1639,6 +1703,15 @@ export async function POST(req: NextRequest) {
           .map(d => d.metadata as MicroSignal)
           .filter(Boolean);
 
+        // Cross-session 用: session_id 付きシグナルを構築
+        const previousSessionSignals: SessionMicroSignal[] = (prevSignalData ?? [])
+          .map(d => {
+            const meta = d.metadata as (MicroSignal & { session_id?: string });
+            if (!meta || !meta.type) return null;
+            return { ...meta, session_id: meta.session_id ?? "unknown" } as SessionMicroSignal;
+          })
+          .filter((s): s is SessionMicroSignal => s !== null);
+
         const newSignals = detectMicroSignals(
           message,
           conversationHistory.map(m => ({ role: m.role, content: m.content })),
@@ -1648,12 +1721,12 @@ export async function POST(req: NextRequest) {
         // 新シグナルを保存（fire-and-forget: analytics + patterns 両方）
         if (newSignals.length > 0) {
           for (const signal of newSignals) {
-            // analytics テーブル（既存: 計測用）
+            // analytics テーブル（既存: 計測用）— session_id を付与して cross-session 収束に使う
             supabase.from("stargazer_analytics").insert({
               user_id: userId,
               event: "home_alter_micro_signal",
               feature: "micro_insight",
-              metadata: signal,
+              metadata: { ...signal, session_id: sessionId },
             }).then(({ error }) => {
               if (error) console.warn("[micro-insight] Failed to save signal to analytics:", error.message);
             });
@@ -1704,12 +1777,73 @@ export async function POST(req: NextRequest) {
           console.info(`[micro-insight] ${newSignals.length} new signal(s): ${newSignals.map(s => s.type).join(", ")}`);
         }
 
-        // 収束チェック（P5: ベースラインズレ由来シグナルは後から追加再評価）
-        const allSignals = [...previousSignals, ...newSignals];
-        microInsight = checkSignalConvergence(allSignals, discreteTrustLevel);
+        // 収束チェック（Cross-session 拡張版）
+        const newSessionSignals: SessionMicroSignal[] = newSignals.map(s => ({
+          ...s,
+          session_id: sessionId!,
+        }));
+        const allSessionSignals = [...previousSessionSignals, ...newSessionSignals];
+
+        const csCheck = checkCrossSessionConvergence(allSessionSignals, discreteTrustLevel);
+        microInsight = csCheck.insight;
+        crossSessionResult = csCheck.convergenceResult;
+        contradictedTopics = csCheck.contradictedTopics;
+
         if (microInsight) {
           const cs = microInsight.convergence_score;
-          console.info(`[micro-insight] Convergence detected: ${microInsight.presentation_type} (score=${cs?.combined ?? "?"}, sessions=${cs?.session_diversity ?? "?"}) — "${microInsight.suggested_prompt.slice(0, 50)}..."`);
+          console.info(`[micro-insight] Cross-session convergence: ${microInsight.presentation_type} (score=${cs?.combined ?? "?"}, trend=${crossSessionResult?.trend ?? "?"}, sessions=${cs?.session_diversity ?? "?"}) — "${microInsight.suggested_prompt.slice(0, 50)}..."`);
+        }
+        if (contradictedTopics.length > 0) {
+          console.info(`[micro-insight] Contradicted topics suppressed: ${contradictedTopics.join(", ")}`);
+        }
+
+        // Cross-session 収束状態を DB に永続化（fire-and-forget）
+        if (crossSessionResult && newSessionSignals.length > 0) {
+          (async () => {
+            try {
+              for (const sig of newSessionSignals) {
+                const topicKey = sig.related_topic ?? "__none__";
+                // 既存の convergence state を取得
+                const { data: existingRow } = await supabase
+                  .from("stargazer_mi_convergence_state")
+                  .select("session_history, total_sessions_with_signal, trend, trend_confidence, cross_session_continuity, last_convergence_score, last_convergence_at")
+                  .eq("user_id", userId)
+                  .eq("signal_type", sig.type)
+                  .eq("related_topic", topicKey)
+                  .single();
+
+                const existingState: ConvergenceState | null = existingRow ? {
+                  signal_type: sig.type,
+                  related_topic: sig.related_topic,
+                  session_history: (existingRow.session_history ?? {}) as ConvergenceState["session_history"],
+                  total_sessions_with_signal: existingRow.total_sessions_with_signal ?? 0,
+                  trend: existingRow.trend as ConvergenceState["trend"],
+                  trend_confidence: existingRow.trend_confidence ?? 0,
+                  cross_session_continuity: existingRow.cross_session_continuity ?? 0,
+                  last_convergence_score: existingRow.last_convergence_score as ConvergenceState["last_convergence_score"],
+                  last_convergence_at: existingRow.last_convergence_at ?? null,
+                } : null;
+
+                const updated = updateConvergenceState(existingState, [sig], sessionId!);
+
+                await supabase.from("stargazer_mi_convergence_state").upsert({
+                  user_id: userId,
+                  signal_type: sig.type,
+                  related_topic: topicKey,
+                  session_history: updated.session_history,
+                  total_sessions_with_signal: updated.total_sessions_with_signal,
+                  trend: updated.trend,
+                  trend_confidence: updated.trend_confidence,
+                  cross_session_continuity: updated.cross_session_continuity,
+                  last_convergence_score: crossSessionResult!.convergence_score,
+                  last_convergence_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }, { onConflict: "user_id,signal_type,related_topic" });
+              }
+            } catch (err) {
+              console.warn("[micro-insight] Convergence state save failed (non-fatal):", err);
+            }
+          })();
         }
       } catch (e) {
         console.warn("[micro-insight] Signal detection failed (non-fatal):", e);
@@ -2002,13 +2136,25 @@ export async function POST(req: NextRequest) {
               .eq("event", "home_alter_micro_signal")
               .order("created_at", { ascending: false })
               .limit(30);
-            const prevSignalsForReeval: MicroSignal[] = (prevSignalDataForReeval ?? [])
-              .map(d => d.metadata as MicroSignal)
-              .filter(Boolean);
-            const allSignalsWithBaseline = [...prevSignalsForReeval, ...baselineSignals];
-            microInsight = checkSignalConvergence(allSignalsWithBaseline, discreteTrustLevel);
+            const prevSessionSignalsForReeval: SessionMicroSignal[] = (prevSignalDataForReeval ?? [])
+              .map(d => {
+                const meta = d.metadata as (MicroSignal & { session_id?: string });
+                if (!meta || !meta.type) return null;
+                return { ...meta, session_id: meta.session_id ?? "unknown" } as SessionMicroSignal;
+              })
+              .filter((s): s is SessionMicroSignal => s !== null);
+            const baselineSessionSignals: SessionMicroSignal[] = baselineSignals.map(s => ({
+              ...s,
+              session_id: sessionId!,
+            }));
+            const allSignalsWithBaseline = [...prevSessionSignalsForReeval, ...baselineSessionSignals];
+            const csReeval = checkCrossSessionConvergence(allSignalsWithBaseline, discreteTrustLevel);
+            microInsight = csReeval.insight;
+            if (csReeval.contradictedTopics.length > 0) {
+              contradictedTopics = [...new Set([...contradictedTopics, ...csReeval.contradictedTopics])];
+            }
             if (microInsight) {
-              console.info(`[micro-insight] P5: Convergence detected after baseline signal injection`);
+              console.info(`[micro-insight] P5: Cross-session convergence after baseline injection (trend=${csReeval.convergenceResult?.trend ?? "?"})`);
             }
           }
         }
@@ -2154,6 +2300,27 @@ export async function POST(req: NextRequest) {
         responseMode, queryContext, domainOverlay, userName, relationalLens,
         judgmentSkeleton, clarifyType, clarifyIntentHint,
       );
+
+      // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──
+      // ガバナンスの後追い修正ではなく、最初の出力から正しくするための前段制約
+      const isBigQuestionForPrompt = proactiveOutput?.isBigQuestion ?? false;
+      const isDirectDemandForPrompt = detectDirectDemand(message);
+      if (isDirectDemandForPrompt || isBigQuestionForPrompt) {
+        const constraints: string[] = [];
+        constraints.push("[最上位制約 — 応答の最初の1文で必ず結論を述べること]");
+        if (isDirectDemandForPrompt) {
+          constraints.push("ユーザーは明確に「答え」を要求している。");
+          constraints.push("禁止: 「まず確認させて」「どういう文脈？」「もう少し教えて」等の質問返し。");
+          constraints.push("禁止: 「ごめん」で始まる応答。");
+          constraints.push("必須: 1文目で仮説でもいいから結論を述べる。その後に根拠を添える。");
+        }
+        if (isBigQuestionForPrompt) {
+          constraints.push("大問い検出。1文目で仮説的結論を述べること（「〜だと思う」「〜が合っている」）。");
+          constraints.push("禁止: 1文目が「ごめん」「まず」「なぜ」「情報を集め」で始まること。");
+        }
+        constraints.push("形式: [結論1文] + [根拠1-2文] + [補足・留保]");
+        homeSystemPrompt += `\n\n${constraints.join("\n")}`;
+      }
 
       // State Layer をプロンプトに注入（LLMが状態を考慮した応答を生成するため）
       // Trust Level 1+ の場合のみ: 初回ユーザーに状態推定を適用しない
@@ -2566,6 +2733,11 @@ export async function POST(req: NextRequest) {
               denied_pct: miGateDecision.accuracy.denied_count / Math.max(1, miGateDecision.accuracy.total_presented),
             } : null,
             baseline_signals_injected: baselineSignals.length,
+            // Cross-session MI metadata
+            cross_session_trend: crossSessionResult?.trend ?? null,
+            cross_session_trend_confidence: crossSessionResult?.trend_confidence ?? null,
+            cross_session_continuity: crossSessionResult?.cross_session_continuity ?? null,
+            cross_session_contradictions: contradictedTopics.length,
           },
         }).then(({ error }) => {
           if (error) console.warn("[reaction-learning] Marker save failed:", error.message);
@@ -2610,6 +2782,30 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Output Governance Layer: RC1 動的会話制約 + RC5 フラストレーション ──
+      {
+        const historyForGov = conversationHistory.map((m) => ({ role: m.role, content: m.content }));
+
+        // RC1: ユーザーが禁止した表現を抽出 → system prompt に最上位制約として注入
+        govUserBans = extractUserBans(historyForGov);
+        if (govUserBans.length > 0) {
+          homeSystemPrompt += buildUserBansPromptBlock(govUserBans);
+          console.info(`[governance] RC1: ${govUserBans.length} user ban(s) detected: ${govUserBans.map(b => b.expression).join(", ")}`);
+        }
+
+        // RC5: フラストレーション累積検出 → level 3+ で repair mode 強制
+        govFrustration = assessFrustration(historyForGov, message);
+        if (govFrustration.level >= 2) {
+          homeSystemPrompt += buildFrustrationPromptBlock(govFrustration);
+          console.info(`[governance] RC5: frustration level=${govFrustration.level}, triggers=${govFrustration.triggers.length}, unresolved=${govFrustration.unresolved_requests.length}`);
+        }
+        if (govFrustration.level >= 3 && responseMode !== "repair") {
+          console.info(`[governance] RC5: Forcing repair mode (frustration level=${govFrustration.level})`);
+          responseMode = "repair";
+          modeDecisionReason = "governance_frustration_escalation";
+        }
+      }
+
       // ── P1-C: リアクション別プロンプト注入 ──
       if (detectedReaction && lastAlterContent) {
         const altSnippet = lastAlterContent.slice(0, 300);
@@ -2639,15 +2835,30 @@ export async function POST(req: NextRequest) {
         homeSystemPrompt += `\n\n# 前回のALTERの応答（これが誤解の原因）\n「${lastAlterContent.slice(0, 300)}」\n\nユーザーの今の発言はこの応答への訂正。上記の何がズレていたかを把握した上で応答すること。`;
       }
 
-      // ── v4.2 FULL: プロンプト注入 — Role Contract + Self Model + Arena + Rally + Bans ──
-      if (thinSliceActive && v42Role && v42SelfModel && v42Arena) {
+      // ── RC4: Role Contract + Semantic Bans + Burden Transfer は常時有効（thinSlice非依存） ──
+      // v4.2 の中核契約層は全ユーザーに適用する。
+      // Self Model / Arena / Rally は引き続き thinSlice 依存。
+      {
+        // Role は thinSlice 有効時は v42Role を使い、無効時は独自算出
+        const effectiveRole = v42Role ?? selectAlterRole(
+          responseMode, questionType, detectedReaction, conversationHistory.length,
+        );
+        if (!v42Role) {
+          v42Role = effectiveRole; // analytics 用にホイスト
+        }
         try {
-          // Role Contract: 行動許可/禁止
-          homeSystemPrompt += buildRoleContractBlock(v42Role);
-          // Burden Transfer: Alter vs User の責任分担
-          homeSystemPrompt += buildBurdenTransferBlock(v42Role.role);
-          // Semantic Bans: 禁止表現一覧
+          homeSystemPrompt += buildRoleContractBlock(effectiveRole);
+          homeSystemPrompt += buildBurdenTransferBlock(effectiveRole.role);
           homeSystemPrompt += buildSemanticBansBlock();
+          console.info(`[governance] RC4: Role=${effectiveRole.role} (${effectiveRole.reason}), Semantic Bans + Burden Transfer injected (always-on)`);
+        } catch (e) {
+          console.warn("[governance] RC4 contract injection failed (fail-open):", e);
+        }
+      }
+
+      // ── v4.2 FULL: Self Model + Arena + Rally（thinSlice依存の高度機能） ──
+      if (thinSliceActive && v42SelfModel && v42Arena) {
+        try {
           // Self Model: この人の内的モデル
           homeSystemPrompt += buildSelfModelPromptBlock(v42SelfModel);
           // Interpretation Arena: 解釈結果
@@ -2657,7 +2868,7 @@ export async function POST(req: NextRequest) {
             homeSystemPrompt += buildRallyCriticBlock(v42RallyCritic);
           }
         } catch (e) {
-          console.warn("[v4.2] Prompt injection failed (fail-open):", e);
+          console.warn("[v4.2] Self Model/Arena/Rally injection failed (fail-open):", e);
         }
       }
 
@@ -2701,6 +2912,504 @@ export async function POST(req: NextRequest) {
           thinSliceInsight = null;
           thinSliceBet = null;
           thinSliceClaim = null;
+        }
+      }
+
+      // ── Proactive Understanding Engine ──
+      {
+        try {
+          const historyForProactive = conversationHistory.map(m => ({ role: m.role, content: m.content }));
+          const axisScoresObj: Partial<Record<string, number>> = {};
+          if (personality?.axisScores) {
+            for (const [k, v] of Object.entries(personality.axisScores)) {
+              if (typeof v === "number") axisScoresObj[k] = v;
+            }
+          }
+
+          // ── DB読み込み: Trust Events, Trust Budget, Consent, Causal Map, Payback ──
+          const [
+            { data: trustEventRows },
+            { data: trustBudgetRows },
+            { data: consentRows },
+            { data: causalMapRows },
+            { data: paybackRows },
+          ] = await Promise.all([
+            supabase
+              .from("stargazer_alter_trust_events")
+              .select("id, user_id, domain, event_type, weight, session_id, metadata, created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false })
+              .limit(200),
+            supabase
+              .from("stargazer_alter_trust_budget")
+              .select("domain, earned_score, contextual_level, contextual_last_active")
+              .eq("user_id", userId),
+            supabase
+              .from("stargazer_alter_consent")
+              .select("subdomain, status, updated_at, cooldown_until")
+              .eq("user_id", userId),
+            supabase
+              .from("stargazer_alter_causal_map")
+              .select("id, user_id, source_fact, target_axis, influence, hypothesis, origin, confidence, evidence_count, contradiction_count, last_confirmed_at, created_at, updated_at")
+              .eq("user_id", userId)
+              .order("confidence", { ascending: false })
+              .limit(50),
+            supabase
+              .from("stargazer_alter_payback")
+              .select("id, user_id, source_probe_id, fact_id, causal_link_ids, used_in_sessions, first_used_at, created_at")
+              .eq("user_id", userId)
+              .eq("first_used_at", null as unknown as string), // unused paybacks only
+          ]);
+
+          const dbTrustEvents: TrustEvent[] = (trustEventRows ?? []).map(r => ({
+            id: r.id,
+            user_id: r.user_id,
+            domain: r.domain as TrustDomain,
+            event_type: r.event_type as TrustEventType,
+            weight: r.weight,
+            session_id: r.session_id ?? "",
+            metadata: (r.metadata ?? {}) as Record<string, unknown>,
+            created_at: r.created_at,
+          }));
+
+          const dbContextualAccess: ContextualAccess[] = (trustBudgetRows ?? []).map(r => ({
+            domain: r.domain as TrustDomain,
+            level: r.contextual_level ?? 0,
+            last_active: r.contextual_last_active ?? new Date().toISOString(),
+          }));
+
+          const dbConsent: SubdomainConsent[] = (consentRows ?? []).map(r => ({
+            subdomain: r.subdomain as import("@/lib/stargazer/proactiveUnderstanding").ConsentSubdomain,
+            status: r.status as import("@/lib/stargazer/proactiveUnderstanding").ConsentStatus,
+            updated_at: r.updated_at,
+            cooldown_until: r.cooldown_until,
+          }));
+
+          const dbCausalLinks: CausalLink[] = (causalMapRows ?? []).map(r => ({
+            id: r.id,
+            user_id: r.user_id,
+            source_fact: r.source_fact,
+            target_axis: r.target_axis as import("@/lib/stargazer/traitAxes").TraitAxisKey,
+            influence: r.influence as "amplify" | "suppress" | "context",
+            hypothesis: r.hypothesis,
+            origin: r.origin as import("@/lib/stargazer/proactiveUnderstanding").CausalOrigin,
+            confidence: r.confidence,
+            evidence_count: r.evidence_count,
+            contradiction_count: r.contradiction_count,
+            last_confirmed_at: r.last_confirmed_at,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+          }));
+
+          // PRO-5: Causal link confidence decay（90日以上未確認のリンクを漸減）
+          const dbCausalLinksDecayed = dbCausalLinks.map(l => decayCausalLinkConfidence(l));
+          // 変更があったリンクを fire-and-forget で DB 更新
+          for (const [i, decayed] of dbCausalLinksDecayed.entries()) {
+            if (decayed.confidence !== dbCausalLinks[i].confidence) {
+              supabase.from("stargazer_alter_causal_map").update({
+                confidence: decayed.confidence,
+                updated_at: decayed.updated_at,
+              }).eq("id", decayed.id).then(({ error }) => {
+                if (error) console.warn("[proactive] Causal link decay update failed:", error.message);
+              });
+            }
+          }
+
+          const dbPaybacks: PendingPayback[] = (paybackRows ?? []).map(r => ({
+            source_probe_id: r.source_probe_id,
+            fact_id: r.fact_id,
+            causal_links: r.causal_link_ids ?? [],
+            used_in_sessions: r.used_in_sessions ?? [],
+            first_used_at: r.first_used_at,
+          }));
+
+          // probesThisSession: 今セッションで実行された probe 数
+          const probesThisSession = dbTrustEvents.filter(
+            e => e.session_id === sessionId && (e.event_type === "prediction_confirmed" || e.event_type === "prediction_rejected"),
+          ).length;
+
+          // lastProbeTimestamp: 直近の probe 実行時刻
+          const lastProbeEvent = dbTrustEvents.find(
+            e => e.event_type === "prediction_confirmed" || e.event_type === "prediction_rejected",
+          );
+
+          // sessionOfLastConsent: 最後にconsentが更新されたセッション数（近似値）
+          const latestConsent = dbConsent.length > 0
+            ? dbConsent.reduce((a, b) => new Date(a.updated_at) > new Date(b.updated_at) ? a : b)
+            : null;
+
+          console.info(
+            `[proactive-db] trustEvents=${dbTrustEvents.length}, budget=${dbContextualAccess.length}, consent=${dbConsent.length}, causal=${dbCausalLinks.length}, payback=${dbPaybacks.length}`,
+          );
+
+          // 感情温度: v42Signal > utteranceReading > fallback 0
+          const emotionalTemp = v42Signal?.emotional_temperature
+            ?? utteranceReading?.emotional_temperature
+            ?? 0;
+          // 直答コンテキスト: responseMode が direct_response または repair
+          const isDirectAnswer = responseMode === "direct_response" || responseMode === "repair";
+
+          proactiveOutput = runProactiveEngine({
+            sessions_completed: alterSessionCount,
+            continuous_trust: growthState?.trustLevel ?? 0,
+            axisScores: axisScoresObj as Partial<Record<import("@/lib/stargazer/traitAxes").TraitAxisKey, number>>,
+            lifeContextEntries: activeLifeContext,
+            conversationHistory: historyForProactive,
+            currentMessage: message,
+            alterPreviousMessage: lastAlterContent ?? "",
+            trustEvents: dbTrustEvents,
+            contextualAccess: dbContextualAccess,
+            consent: dbConsent,
+            causalLinks: dbCausalLinksDecayed,
+            probesThisSession,
+            lastProbeTimestamp: lastProbeEvent?.created_at ?? null,
+            currentSessionIndex: alterSessionCount,
+            sessionOfLastConsent: latestConsent ? Math.max(0, alterSessionCount - 1) : 0,
+            frustrationLevel: govFrustration.level,
+            detectedDomain: queryContext?.domain
+              ? ({ romance: "relationship", work: "career", friend: "relationship", family: "relationship", self: "identity", general: "daily", daily_guidance: "daily" } as Record<string, TrustDomain>)[queryContext.domain] ?? null
+              : null,
+            gates: DEFAULT_GATES,
+            emotionalTemperature: emotionalTemp,
+            isDirectAnswerContext: isDirectAnswer,
+            // GAP-1: personality + mood を渡し、computeStanceVector に実データを供給
+            personality: personality
+              ? { boldScore: personality.axisScores.cautious_vs_bold, socialScore: personality.axisScores.individual_vs_social }
+              : null,
+            mood: utteranceReading?.energy_direction === "retreating" ? "negative"
+              : utteranceReading?.energy_direction === "seeking" ? "positive"
+              : "neutral",
+          });
+
+          if (proactiveOutput.promptBlock) {
+            homeSystemPrompt += `\n\n${proactiveOutput.promptBlock}`;
+            console.info(
+              `[proactive] Phase=${proactiveOutput.phase}, probe=${proactiveOutput.selectedProbe ? "yes" : "no"}` +
+              (proactiveOutput.probeBlocked ? ` (blocked: ${proactiveOutput.probeBlockReason})` : "") +
+              `, gap=${proactiveOutput.gap.weakest_category}(${proactiveOutput.gap.weakest_confidence.toFixed(2)})`,
+            );
+          }
+
+          // GAP-1a: StanceVector → mode adjustment (boldness が高い場合、branch → conclude に昇格)
+          if (proactiveOutput.stance && responseMode === "branch") {
+            const boldness = proactiveOutput.stance.assumption_boldness;
+            const branchThreshold = 0.5 + boldness * 0.15;
+            // queryContext.ambiguity_score が調整後閾値を下回る場合、conclude に昇格
+            if (queryContext && queryContext.ambiguity_score <= branchThreshold) {
+              console.info(`[home-alter] StanceVector mode upgrade: branch→conclude (boldness=${boldness.toFixed(2)}, threshold=${branchThreshold.toFixed(2)})`);
+              responseMode = "conclude";
+              modeDecisionReason = "conclude_stance_boldness_upgrade";
+            }
+          }
+
+          // GAP-1c: StanceVector → prompt assertion 調整
+          if (proactiveOutput.stance) {
+            const s = proactiveOutput.stance;
+            const stanceLines: string[] = [];
+            if (s.assertion_intensity > 0.7) {
+              stanceLines.push("【断言指示】この回答では断言してよい。「〜だと思う」ではなく「〜だ」と言い切ること。");
+            } else if (s.assertion_intensity < 0.3) {
+              stanceLines.push("【控えめ指示】この回答は控えめに。「〜に見える」「〜かもしれない」を使い、断言を避けること。");
+            }
+            if (s.hedge_allowance < 0.3) {
+              stanceLines.push("【留保最小化】回りくどい留保表現は避け、端的に伝えること。");
+            }
+            if (stanceLines.length > 0) {
+              homeSystemPrompt += `\n\n${stanceLines.join("\n")}`;
+              console.info(`[home-alter] StanceVector prompt injection: ${stanceLines.length} directive(s) (assert=${s.assertion_intensity.toFixed(2)}, hedge=${s.hedge_allowance.toFixed(2)})`);
+            }
+          }
+
+          // ── Trust Event 自動検出 → DB書き込み ──
+          if (proactiveOutput.detectedTrustEvents.length > 0) {
+            const detectedDomain: TrustDomain = queryContext?.domain
+              ? ({ romance: "relationship", work: "career", friend: "relationship", family: "relationship", self: "identity", general: "daily", daily_guidance: "daily" } as Record<string, TrustDomain>)[queryContext.domain] ?? "daily"
+              : "daily";
+            const newTrustEvents = proactiveOutput.detectedTrustEvents.map(eventType =>
+              createTrustEvent({
+                user_id: userId,
+                domain: detectedDomain,
+                event_type: eventType,
+                session_id: sessionId,
+                metadata: { turn: conversationHistory.length },
+              }),
+            );
+            supabase
+              .from("stargazer_alter_trust_events")
+              .insert(newTrustEvents)
+              .then(({ error }) => {
+                if (error) console.warn("[proactive] Trust event insert failed:", error.message);
+                else console.info(`[proactive] ${newTrustEvents.length} trust event(s) recorded`);
+              });
+
+            // Trust Budget 更新（earned_score の累積更新）
+            for (const evt of newTrustEvents) {
+              supabase
+                .from("stargazer_alter_trust_budget")
+                .upsert(
+                  {
+                    user_id: userId,
+                    domain: evt.domain,
+                    earned_score: (trustBudgetRows?.find(r => r.domain === evt.domain)?.earned_score ?? 0) + evt.weight,
+                    contextual_level: trustBudgetRows?.find(r => r.domain === evt.domain)?.contextual_level ?? 0,
+                    contextual_last_active: new Date().toISOString(),
+                  },
+                  { onConflict: "user_id,domain" },
+                )
+                .then(({ error }) => {
+                  if (error) console.warn("[proactive] Trust budget upsert failed:", error.message);
+                });
+            }
+          }
+
+          // ── PRO-4: Causal Link 証拠/矛盾更新 ──
+          // prediction_confirmed → 関連リンクに evidence ��追加
+          // prediction_rejected → 関連リンクに contradiction を追加
+          if (proactiveOutput.detectedTrustEvents.length > 0 && dbCausalLinksDecayed.length > 0) {
+            const hasConfirmed = proactiveOutput.detectedTrustEvents.includes("prediction_confirmed");
+            const hasRejected = proactiveOutput.detectedTrustEvents.includes("prediction_rejected");
+            if (hasConfirmed || hasRejected) {
+              // probe の target_category に関連するリンクを更新
+              const probeCategory = proactiveOutput.selectedProbe?.target_category;
+              const relatedLinks = probeCategory
+                ? dbCausalLinksDecayed.filter(l => l.source_fact.includes(probeCategory))
+                : [];
+              for (const link of relatedLinks.slice(0, 5)) {
+                const updated = hasConfirmed
+                  ? addEvidenceToCausalLink(link)
+                  : addContradictionToCausalLink(link);
+                supabase.from("stargazer_alter_causal_map").update({
+                  confidence: updated.confidence,
+                  evidence_count: updated.evidence_count,
+                  contradiction_count: updated.contradiction_count,
+                  last_confirmed_at: updated.last_confirmed_at,
+                  updated_at: updated.updated_at,
+                }).eq("id", link.id).then(({ error }) => {
+                  if (error) console.warn("[proactive] Causal link update failed:", error.message);
+                  else console.info(`[proactive] Causal link ${link.id.slice(0, 8)} ${hasConfirmed ? "evidence" : "contradiction"} updated (conf=${updated.confidence.toFixed(2)})`);
+                });
+              }
+            }
+          }
+
+          // ── TASK-5: ImplicitSignal 検出 → 蓄積 → DB保存 → 昇格 → MI接続 ──
+          if (DEFAULT_GATES.implicit_signal_enabled && proactiveOutput) {
+            try {
+              // 平均メッセージ長の算出
+              const userMsgs = conversationHistory.filter(m => m.role === "user");
+              const avgMsgLen = userMsgs.length > 0
+                ? userMsgs.reduce((sum, m) => sum + m.content.length, 0) / userMsgs.length
+                : 100;
+
+              // 前回の probe の target_axis を取得
+              const prevProbeAxis = proactiveOutput.selectedProbe?.target_category
+                ? undefined  // selectedProbe は target_category しか持たない
+                : undefined;
+
+              // activeAxes を currentTopicContext から取得
+              const implicitActiveAxes = proactiveOutput.currentTopicContext?.active_axes;
+
+              // primaryAxis: active_axes の先頭、なければ gap の最弱カテゴリから推定
+              const primaryAxis = implicitActiveAxes?.[0] ?? undefined;
+
+              // 感情温度
+              const emotionalW = v42Signal?.emotional_temperature
+                ?? utteranceReading?.emotional_temperature
+                ?? undefined;
+
+              const newImplicitSignals = detectImplicitSignals({
+                currentMessage: message,
+                previousMessage: lastAlterContent ?? "",
+                sessionId: sessionId!,
+                conflictIndicator: undefined,  // RT Engine はまだ統合していない
+                previousProbeAxis: proactiveOutput.selectedProbe
+                  ? (proactiveOutput.selectedProbe.causal_connection.split("→")[0]?.trim() as import("@/lib/stargazer/traitAxes").TraitAxisKey | undefined)
+                  : undefined,
+                activeAxes: implicitActiveAxes,
+                averageMessageLength: avgMsgLen,
+                emotionalWeight: emotionalW,
+                primaryAxis,
+              });
+
+              if (newImplicitSignals.length > 0) {
+                console.info(`[implicit-signal] ${newImplicitSignals.length} signal(s) detected: ${newImplicitSignals.map(s => s.type).join(", ")}`);
+
+                // DB に保存（stargazer_implicit_signals テーブル）
+                for (const sig of newImplicitSignals) {
+                  supabase.from("stargazer_implicit_signals").insert({
+                    user_id: userId,
+                    session_id: sig.session_id,
+                    signal_type: sig.type,
+                    related_axis: sig.related_axis,
+                    confidence: sig.confidence,
+                    promoted_to_insight: false,
+                  }).then(({ error }) => {
+                    if (error) console.warn("[implicit-signal] DB insert failed:", error.message);
+                  });
+                }
+
+                // 既存シグナルをDBから読み込み + 蓄積 + 昇格チェック
+                const { data: existingSignalRows } = await supabase
+                  .from("stargazer_implicit_signals")
+                  .select("*")
+                  .eq("user_id", userId)
+                  .eq("promoted_to_insight", false)
+                  .order("created_at", { ascending: false })
+                  .limit(100);
+
+                if (existingSignalRows && existingSignalRows.length > 0) {
+                  const existingSignals: ImplicitSignal[] = existingSignalRows.map(r => ({
+                    type: r.signal_type as ImplicitSignal["type"],
+                    related_axis: r.related_axis as import("@/lib/stargazer/traitAxes").TraitAxisKey,
+                    session_id: r.session_id,
+                    confidence: r.confidence,
+                    timestamp: r.created_at,
+                    promoted_to_insight: r.promoted_to_insight,
+                  }));
+
+                  const allSignals = accumulateImplicitSignals(existingSignals, newImplicitSignals);
+                  const promotion = promoteToMicroInsight(allSignals);
+
+                  if (promotion) {
+                    console.info(`[implicit-signal] Promoted to MicroInsight: "${promotion.insight_text}" (axis=${promotion.related_axis}, count=${promotion.signal_count})`);
+
+                    // 昇格した insight を MI analytics に記録
+                    supabase.from("stargazer_analytics").insert({
+                      user_id: userId,
+                      event: "implicit_signal_promoted",
+                      feature: "micro_insight",
+                      metadata: {
+                        ...promotion,
+                        session_id: sessionId,
+                      },
+                    }).then(({ error }) => {
+                      if (error) console.warn("[implicit-signal] Promotion analytics insert failed:", error.message);
+                    });
+
+                    // promoted_to_insight を true に更新（昇格に使われたシグナル）
+                    const promotedKey = `${promotion.related_axis}::${promotion.signal_type}`;
+                    const idsToUpdate = existingSignalRows
+                      .filter(r => `${r.related_axis}::${r.signal_type}` === promotedKey && !r.promoted_to_insight)
+                      .map(r => r.id);
+
+                    if (idsToUpdate.length > 0) {
+                      supabase.from("stargazer_implicit_signals")
+                        .update({ promoted_to_insight: true })
+                        .in("id", idsToUpdate)
+                        .then(({ error }) => {
+                          if (error) console.warn("[implicit-signal] Promotion update failed:", error.message);
+                          else console.info(`[implicit-signal] ${idsToUpdate.length} signals marked as promoted`);
+                        });
+                    }
+
+                    // 昇格した insight を cross-session MI パイプラインに注入
+                    // SessionMicroSignal として構築し、convergence チェックを実行
+                    // ImplicitSignal type → MicroSignalType マッピング
+                    const implicitToMicroType: Record<string, import("@/lib/stargazer/alterUnderstanding").MicroSignalType> = {
+                      avoidance: "topic_absence",
+                      elaboration: "topic_repetition",
+                      deflection: "behavior_mismatch",
+                      hesitation: "energy_action_gap",
+                      topic_shift: "topic_absence",
+                      strong_affect: "sentiment_shift",
+                    };
+                    const mappedType = implicitToMicroType[promotion.signal_type] ?? "sentiment_shift";
+                    const promotedSessionSignal: SessionMicroSignal = {
+                      type: mappedType,
+                      observation: promotion.insight_text,
+                      related_topic: promotion.related_axis,
+                      strength: promotion.confidence,
+                      detected_at: new Date().toISOString(),
+                      session_id: sessionId!,
+                    };
+                    const promotedCsCheck = checkCrossSessionConvergence([promotedSessionSignal], discreteTrustLevel);
+                    if (promotedCsCheck.insight && !microInsight) {
+                      microInsight = promotedCsCheck.insight;
+                      crossSessionResult = promotedCsCheck.convergenceResult;
+                      console.info(`[implicit-signal] Promoted signal triggered new MI convergence`);
+                    }
+                  }
+                }
+              }
+            } catch (implicitErr) {
+              console.warn("[implicit-signal] Pipeline failed (non-fatal):", implicitErr);
+            }
+          }
+
+          // ── Payback Tracker: probe 実行時に payback 作成 ──
+          if (proactiveOutput.selectedProbe && !proactiveOutput.probeBlocked) {
+            const probeId = crypto.randomUUID();
+            supabase
+              .from("stargazer_alter_payback")
+              .insert({
+                user_id: userId,
+                source_probe_id: probeId,
+                fact_id: proactiveOutput.gap.weakest_category,
+                causal_link_ids: dbCausalLinks
+                  .filter(l => l.source_fact.includes(proactiveOutput!.selectedProbe!.target_category))
+                  .slice(0, 3)
+                  .map(l => l.id),
+              })
+              .then(({ error }) => {
+                if (error) console.warn("[proactive] Payback insert failed:", error.message);
+                else console.info(`[proactive] Payback created for probe ${probeId.slice(0, 8)}`);
+              });
+          }
+
+          // ── PRO-6: Consent 自動更新 ──
+          // probe が sensitive subdomain を対象にしていた場合、ユーザーの反応に応じて consent を更新
+          if (proactiveOutput.selectedProbe && !proactiveOutput.probeBlocked) {
+            const detectedDomain: TrustDomain = queryContext?.domain
+              ? ({ romance: "relationship", work: "career", friend: "relationship", family: "relationship", self: "identity", general: "daily", daily_guidance: "daily" } as Record<string, TrustDomain>)[queryContext.domain] ?? "daily"
+              : "daily";
+            const subdomain = domainToDefaultSubdomain(detectedDomain);
+            if (isSensitiveSubdomain(subdomain)) {
+              const hasConfirmed = proactiveOutput.detectedTrustEvents.includes("prediction_confirmed")
+                || proactiveOutput.detectedTrustEvents.includes("question_answered_detail")
+                || proactiveOutput.detectedTrustEvents.includes("voluntary_deep_disclosure");
+              const hasRejected = proactiveOutput.detectedTrustEvents.includes("question_ignored")
+                || proactiveOutput.detectedTrustEvents.includes("prediction_rejected");
+
+              if (hasConfirmed) {
+                const consent = grantImplicitConsent(subdomain);
+                supabase.from("stargazer_alter_consent").upsert({
+                  user_id: userId,
+                  subdomain: consent.subdomain,
+                  status: consent.status,
+                  cooldown_until: consent.cooldown_until,
+                  updated_at: consent.updated_at,
+                }, { onConflict: "user_id,subdomain" }).then(({ error }) => {
+                  if (error) console.warn("[proactive] Consent grant failed:", error.message);
+                  else console.info(`[proactive] Implicit consent granted for ${subdomain}`);
+                });
+              } else if (hasRejected) {
+                const consent = setConsentCooldown(subdomain);
+                supabase.from("stargazer_alter_consent").upsert({
+                  user_id: userId,
+                  subdomain: consent.subdomain,
+                  status: consent.status,
+                  cooldown_until: consent.cooldown_until,
+                  updated_at: consent.updated_at,
+                }, { onConflict: "user_id,subdomain" }).then(({ error }) => {
+                  if (error) console.warn("[proactive] Consent cooldown failed:", error.message);
+                  else console.info(`[proactive] Consent cooldown set for ${subdomain}`);
+                });
+              }
+            }
+          }
+
+          // ── Payback Tracker: 未使用 payback のプロンプト注入 ──
+          const unusedPaybacks = findUnusedPaybacks(dbPaybacks);
+          if (unusedPaybacks.length > 0 && proactiveOutput.phase >= 1) {
+            const paybackHint = unusedPaybacks.slice(0, 2).map(p =>
+              `前に「${p.fact_id}」について教えてもらった情報がある。自然な文脈で活かせるなら使うこと。`,
+            ).join("\n");
+            homeSystemPrompt += `\n\n[Payback — 過去の質問で得た情報]\n${paybackHint}`;
+            console.info(`[proactive] ${unusedPaybacks.length} unused payback(s) injected to prompt`);
+          }
+        } catch (e) {
+          console.warn("[proactive] Engine failed (fail-open):", e);
+          proactiveOutput = null;
         }
       }
 
@@ -2957,33 +3666,49 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── v4.2: Strategy Compliance Check + Semantic Bans + Closed-Loop Re-generation ──
-      if (thinSliceActive && homeResponse) {
+      // ── RC4: Semantic Bans + User Bans + Strategy Compliance — 常時有効 ──
+      // Semantic Bans と User Bans は thinSlice 非依存で全ユーザーに適用。
+      // Strategy Compliance は thinSlice 依存のまま。
+      if (homeResponse) {
         try {
-          // Semantic Ban Check
+          // Semantic Ban Check（常時有効）
           v42SemanticBanCheck = checkSemanticBans(homeResponse);
           if (!v42SemanticBanCheck.passed) {
-            console.warn("[v4.2] Semantic ban violations:", v42SemanticBanCheck.violations.map(v => v.expression));
+            console.warn("[governance] Semantic ban violations:", v42SemanticBanCheck.violations.map(v => v.expression));
           }
 
-          // Strategy Compliance Check
-          v42Compliance = checkStrategyCompliance(
-            homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
-          );
+          // User Ban Check — RC1 動的制約（常時有効）
+          govUserBanViolation = checkUserBans(homeResponse, govUserBans);
+          if (!govUserBanViolation.passed) {
+            console.warn("[governance] RC1: User ban violations:", govUserBanViolation.violations.map(v => v.expression));
+          }
 
-          // ── Closed-Loop Re-generation: ban/compliance 違反 → 1回だけ再生成 ──
-          const needsRegeneration = !v42SemanticBanCheck.passed || (!v42Compliance.passed && v42Compliance.correction_prompt);
+          // Strategy Compliance Check（thinSlice依存）
+          if (thinSliceActive) {
+            v42Compliance = checkStrategyCompliance(
+              homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
+            );
+          }
+
+          // ── Closed-Loop Re-generation: ban/compliance/user-ban 違反 → 1回だけ再生成 ──
+          const semanticFailed = !v42SemanticBanCheck.passed;
+          const userBanFailed = !govUserBanViolation.passed;
+          const complianceFailed = v42Compliance && !v42Compliance.passed && v42Compliance.correction_prompt;
+          const needsRegeneration = semanticFailed || userBanFailed || complianceFailed;
+
           if (needsRegeneration && responseMode !== "clarify" && responseMode !== "repair") {
-            console.info("[v4.2] Triggering re-generation for ban/compliance violations");
+            console.info("[governance] Triggering re-generation for violations (semantic=%s, userBan=%s, compliance=%s)",
+              semanticFailed, userBanFailed, !!complianceFailed);
             const originalBanViolationCount = v42SemanticBanCheck.violations.length;
 
-            // Build correction prompt: ban violations + compliance corrections
+            // Build correction prompt: semantic bans + user bans + compliance corrections
             const banCorrections = v42SemanticBanCheck.violations.map(v =>
               `- 「${v.expression}」を使ってはならない（${v.category === "delegation" ? "宿題化" : v.category === "evasion" ? "判断回避" : v.category === "hollow_empathy" ? "空虚な共感" : "過度な前置き"}）`
             ).join("\n");
-            const complianceCorrections = v42Compliance.correction_prompt ?? "";
+            const userBanCorrections = govUserBanViolation.passed ? "" : govUserBanViolation.correction_prompt;
+            const complianceCorrections = v42Compliance?.correction_prompt ?? "";
 
-            const v42RetryPrompt = [
+            const retryPrompt = [
               `ユーザーの質問: 「${effectiveMessage}」`,
               "",
               "## 前回の応答（問題あり — 修正して再生成せよ）",
@@ -2991,6 +3716,8 @@ export async function POST(req: NextRequest) {
               "",
               "## 禁止表現（絶対に使うな）",
               banCorrections || "（なし）",
+              "",
+              userBanCorrections,
               "",
               complianceCorrections,
               "",
@@ -3004,9 +3731,9 @@ export async function POST(req: NextRequest) {
 
             try {
               llmCallCount++;
-              const v42RetryResult = await runAI({
+              const retryResult = await runAI({
                 taskType: "stargazer_alter_response",
-                prompt: v42RetryPrompt,
+                prompt: retryPrompt,
                 systemPrompt: homeSystemPrompt,
                 requireJson: false,
                 temperature: 0.4,
@@ -3017,35 +3744,40 @@ export async function POST(req: NextRequest) {
                   mode: "warm",
                   turnNumber: conversationHistory.length,
                   skipCache: true,
-                  attempt: 3, // v4.2 compliance retry
+                  attempt: 3, // governance compliance retry
                 }),
               });
 
-              if (v42RetryResult.success && v42RetryResult.text?.trim()) {
-                const { responseText: v42RetryStripped, metadata: v42RetryMeta } = parseDecisionMetadata(v42RetryResult.text);
-                const v42RetryFormatted = formatHomeAlterResponse(v42RetryStripped, userName);
+              if (retryResult.success && retryResult.text?.trim()) {
+                const { responseText: retryStripped, metadata: retryMeta } = parseDecisionMetadata(retryResult.text);
+                const retryFormatted = formatHomeAlterResponse(retryStripped, userName);
 
-                // Re-check the re-generated response
-                const v42RetryBanCheck = checkSemanticBans(v42RetryFormatted);
+                // Re-check all bans on regenerated response
+                const retrySemanticCheck = checkSemanticBans(retryFormatted);
+                const retryUserBanCheck = checkUserBans(retryFormatted, govUserBans);
 
-                if (v42RetryBanCheck.passed) {
+                if (retrySemanticCheck.passed && retryUserBanCheck.passed) {
                   // Re-generation succeeded — swap response
-                  homeResponse = v42RetryFormatted;
+                  homeResponse = retryFormatted;
                   alterResponseText = homeResponse;
-                  if (v42RetryMeta) homeDecisionMeta = v42RetryMeta;
-                  v42SemanticBanCheck = v42RetryBanCheck;
-                  console.info("[v4.2] Compliance re-generation succeeded — response replaced");
+                  if (retryMeta) homeDecisionMeta = retryMeta;
+                  v42SemanticBanCheck = retrySemanticCheck;
+                  govUserBanViolation = retryUserBanCheck;
+                  console.info("[governance] Compliance re-generation succeeded — response replaced");
 
-                  // Re-run compliance on new response
-                  v42Compliance = checkStrategyCompliance(
-                    homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
-                  );
+                  // Re-run strategy compliance on new response
+                  if (thinSliceActive) {
+                    v42Compliance = checkStrategyCompliance(
+                      homeResponse, v42Role, thinSliceClaim, thinSliceBet, v42Arena,
+                    );
+                  }
                 } else {
-                  console.warn("[v4.2] Compliance re-generation still has ban violations — keeping original");
+                  console.warn("[governance] Re-generation still has violations (semantic=%s, userBan=%s) — keeping original",
+                    !retrySemanticCheck.passed, !retryUserBanCheck.passed);
                 }
               }
             } catch (retryErr) {
-              console.warn("[v4.2] Compliance re-generation failed (fail-open):", retryErr);
+              console.warn("[governance] Compliance re-generation failed (fail-open):", retryErr);
             }
 
             // Analytics: 再生成の結果を記録
@@ -3056,14 +3788,16 @@ export async function POST(req: NextRequest) {
               metadata: {
                 session_id: sessionId,
                 original_ban_violations: originalBanViolationCount,
-                regeneration_succeeded: v42SemanticBanCheck.passed,
+                user_ban_violations: govUserBanViolation.violations.length,
+                regeneration_succeeded: v42SemanticBanCheck.passed && govUserBanViolation.passed,
                 final_ban_violations: v42SemanticBanCheck.violations.length,
                 response_mode: responseMode,
+                governance_frustration_level: govFrustration.level,
               },
             }).then(() => {}, () => {});
           }
         } catch (e) {
-          console.warn("[v4.2] Compliance check failed (fail-open):", e);
+          console.warn("[governance] Compliance check failed (fail-open):", e);
         }
       }
 
@@ -3677,6 +4411,43 @@ export async function POST(req: NextRequest) {
             context_modifier: contextualizedScores && contextualizedScores.modified_axes.length > 0 ? {
               domain: contextualizedScores.domain,
               modified_axes: contextualizedScores.modified_axes,
+            } : undefined,
+            // Output Governance Layer metrics
+            governance: {
+              user_bans_count: govUserBans.length,
+              user_bans: govUserBans.map(b => b.expression),
+              user_ban_violation: govUserBanViolation ? !govUserBanViolation.passed : null,
+              frustration_level: govFrustration.level,
+              frustration_triggers: govFrustration.triggers.length,
+              unresolved_requests: govFrustration.unresolved_requests,
+              repeated_correction_count: govFrustration.repeated_correction_count,
+              forced_repair: modeDecisionReason === "governance_frustration_escalation",
+            },
+            // Proactive Understanding Engine metrics
+            proactive: proactiveOutput ? {
+              phase: proactiveOutput.phase,
+              probe_selected: !!proactiveOutput.selectedProbe,
+              probe_blocked: proactiveOutput.probeBlocked,
+              probe_block_reason: proactiveOutput.probeBlockReason,
+              weakest_category: proactiveOutput.gap.weakest_category,
+              weakest_confidence: proactiveOutput.gap.weakest_confidence,
+              weakest_quality_axis: proactiveOutput.gap.weakest_quality_axis,
+              detected_trust_events: proactiveOutput.detectedTrustEvents,
+              // TASK-2: Continuity metrics
+              extraction_confidence: proactiveOutput.currentTopicContext?.extraction_confidence ?? null,
+              continuity_total_candidates: proactiveOutput.continuity_total_candidates,
+              continuity_adopted_count: proactiveOutput.continuity_adopted_count,
+              continuity_rejection_signal: 0, // TODO: increment when prediction_rejected event detected for continuity-based probe
+              active_domains: proactiveOutput.currentTopicContext?.active_domains ?? [],
+              active_axes: proactiveOutput.currentTopicContext?.active_axes ?? [],
+              // TASK-1: StanceVector
+              stance: proactiveOutput.stance ?? null,
+              // TASK-5b: EmbeddedSensor
+              embedded_sensor: proactiveOutput.embeddedSensor ? {
+                target_axis: proactiveOutput.embeddedSensor.target_axis,
+                style: proactiveOutput.embeddedSensor.style,
+                confidence: proactiveOutput.embeddedSensor.confidence,
+              } : null,
             } : undefined,
             // Phase 0: Gemini一次読解メトリクス
             utterance_reading: utteranceReading ? {

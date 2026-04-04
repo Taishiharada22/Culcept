@@ -1134,6 +1134,13 @@ const OPINION_REQUEST_PATTERNS = /[君僕あなた].*思[うっ]|意見|[君僕]
 /** 事実質問: 名前・基本情報・直接的な質問 */
 const FACTUAL_QUESTION_PATTERNS = /名前[はって何を]|誰[？?]$|何者|何[？?]$|^[あ-ん]{1,6}[？?]$/;
 
+/**
+ * 直接要求の強シグナル: clarify 禁止を強制する。
+ * ユーザーが「お前に答えを求めている」と明示している場合。
+ * これが true のとき、selectResponseModeWithReason は clarify を選べない。
+ */
+const DIRECT_DEMAND_PATTERNS = /答えて|答え[をが]|[君お前あなた]に聞いて|聞いてるん[だよ]|理解[でし]きてる|ちゃんと答え|はっきり[言答]|結論[をだ出]|先[にず]結論|まず[答結]|逃げ[るな]|ごまかす|質問に答え|それで[？?]$|だから[？?]$|早く答え|早く教え|だから何|つまり何/;
+
 /** 挨拶パターン */
 const GREETING_PATTERNS = /^(おはよう|こんにちは|こんばんは|やっほ|ただいま|おつかれ|おっす|よお|ハロー|はろー|ういーっす|おう|ども)/;
 
@@ -1149,10 +1156,22 @@ export function detectDirectRequest(message: string): boolean {
   if (FACTUAL_QUESTION_PATTERNS.test(trimmed)) return true;
   // 意見要求は直答
   if (OPINION_REQUEST_PATTERNS.test(trimmed)) return true;
+  // 直接要求の強シグナル — 長さ関係なく直答（「答えて」「君に聞いてる」等）
+  if (DIRECT_DEMAND_PATTERNS.test(trimmed)) return true;
   // 直答キーワードがあり、かつ短め（< 60文字）→ 直答
   // 長文の場合は判断相談である可能性が高いので通常パイプラインへ
   if (DIRECT_REQUEST_PATTERNS.test(trimmed) && trimmed.length < 60) return true;
   return false;
+}
+
+/**
+ * 直接要求の強シグナルを検出する。
+ * clarify を絶対に選んではならない状況。
+ * 「答えて」「具体的に」「君に聞いてる」「理解できてる？」等。
+ * selectResponseModeWithReason で clarify を禁止するために使う。
+ */
+export function detectDirectDemand(message: string): boolean {
+  return DIRECT_DEMAND_PATTERNS.test(message.trim());
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1445,36 +1464,40 @@ export function buildTaggedFacts(
     facts.push({ text: "やりすぎも、やらなさすぎも後悔する。「ちょうどいい踏み出し方」を見つけるのが鍵", tags: ["impulse_caution"], source: "axis" });
   }
 
-  // ── 性格構造 ──
+  // ── 性格構造 → 予測文（RC3: ラベルではなく行動予測として記述） ──
+  // IMPORTANT: これらは「あなたはXXタイプ」と伝えるためではなく、
+  //            「この場面でどう反応するか」を予測するための内部パラメータ。
+  //            応答でそのまま引用しない。ユーザーへの直接言及は禁止。
   if (personality.coreWoundShort) {
-    facts.push({ text: `根っこにある恐れ: ${personality.coreWoundShort}。これが強く出ると判断が歪みやすい`, tags: ["core_wound"], source: "archetype" });
+    facts.push({ text: `判断の歪みトリガー: ${personality.coreWoundShort}に関連する話題では防御的になりやすい。この傾向を直接指摘せず、判断の材料提示で補う`, tags: ["core_wound"], source: "archetype" });
   }
   if (personality.blindSpot) {
-    facts.push({ text: `盲点: ${personality.blindSpot}。本人が気づきにくい落とし穴`, tags: ["personality_blind"], source: "archetype" });
+    facts.push({ text: `この人が見落としやすい点: ${personality.blindSpot}。質問で気づかせるのではなく、選択肢に自然に含める`, tags: ["personality_blind"], source: "archetype" });
   }
 
-  // ── アーキタイプ深層プロフィール（適性・欲求・恐れ・安定/ストレスパターン） ──
+  // ── アーキタイプ深層プロフィール → 行動予測（RC3） ──
   // source: "archetype" — 観測量が増えるほど個別観測に道を譲る（P0: 漸減ロジック）
+  // ★ これらは「この人はXXです」ではなく「XX場面でYYしやすい」として使う
   if (personality.strengths && personality.strengths.length > 0) {
-    facts.push({ text: `この人の強み: ${personality.strengths.join("、")}`, tags: ["strengths"], source: "archetype" });
+    facts.push({ text: `得意な場面: ${personality.strengths.join("、")}が活きる選択肢を優先提示する`, tags: ["strengths"], source: "archetype" });
   }
   if (personality.growthKey) {
-    facts.push({ text: `成長の鍵: ${personality.growthKey}`, tags: ["growth_key"], source: "archetype" });
+    facts.push({ text: `判断を前に進める鍵: ${personality.growthKey}。提案にこの要素を含めると実行されやすい`, tags: ["growth_key"], source: "archetype" });
   }
   if (personality.coreFear) {
-    facts.push({ text: `核心的な恐れ: ${personality.coreFear}。回避行動の根源になりやすい`, tags: ["core_desire"], source: "archetype" });
+    facts.push({ text: `回避傾向のトリガー: ${personality.coreFear}に触れる選択肢は、メリットを具体化しないと拒否されやすい`, tags: ["core_desire"], source: "archetype" });
   }
   if (personality.coreDesire) {
-    facts.push({ text: `核心的な欲求: ${personality.coreDesire}。これが満たされる選択は長続きしやすい`, tags: ["core_desire"], source: "archetype" });
+    facts.push({ text: `持続条件: ${personality.coreDesire}が満たされる選択は継続しやすい。提案時にこの要素への接続を示す`, tags: ["core_desire"], source: "archetype" });
   }
   if (personality.safeState) {
-    facts.push({ text: `安心している時のパターン: ${personality.safeState}`, tags: ["safe_stress"], source: "archetype" });
+    facts.push({ text: `安定時の行動予測: ${personality.safeState}。この状態なら踏み込んだ提案が通りやすい`, tags: ["safe_stress"], source: "archetype" });
   }
   if (personality.stressState) {
-    facts.push({ text: `ストレス下のパターン: ${personality.stressState}。この状態では判断が歪みやすい`, tags: ["safe_stress"], source: "archetype" });
+    facts.push({ text: `ストレス時の行動予測: ${personality.stressState}。この兆候があれば提案の粒度を下げ、選択肢を減らす`, tags: ["safe_stress"], source: "archetype" });
   }
   if (personality.innerContradiction) {
-    facts.push({ text: `内面の矛盾: ${personality.innerContradiction}。この緊張が判断の揺れを生む`, tags: ["core_desire", "core_wound"], source: "archetype" });
+    facts.push({ text: `判断の揺れの構造: ${personality.innerContradiction}。揺れを指摘するのではなく、両方を満たす選択肢を探す`, tags: ["core_desire", "core_wound"], source: "archetype" });
   }
 
   // ── homeContext（今日の状態） ──
@@ -2846,7 +2869,9 @@ export type ModeDecisionReason =
   | "reaction_disagree_weak"          // 仮説やんわり否定 → soft probe
   | "reaction_deepen"                 // 深掘り要求 → 前回話題を展開
   | "reaction_redirect_correction"    // 方向修正 → repair（detectCorrectionSignal上位互換）
-  | "reaction_redirect_topic_change"; // 話題転換 → 通常パイプラインへ
+  | "reaction_redirect_topic_change" // 話題転換 → 通常パイプラインへ
+  | "governance_frustration_escalation" // RC5: フラストレーション level 3+ → repair 強制
+  | "conclude_stance_boldness_upgrade"; // GAP-1a: StanceVector boldness が高く branch → conclude に昇格
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3132,9 +3157,18 @@ export function selectResponseModeWithReason(
   ctx: QueryContext,
   lens?: RelationalLens | null,
   stateAdjustment?: import("./alterUnderstanding").StateForceAdjustment | null,
+  options?: { directDemand?: boolean; assumptionBoldness?: number },
 ): ModeDecision {
   const { hidden_variables, information } = ctx;
   let ambiguity_score = ctx.ambiguity_score;
+
+  // ── FIX-1: 直接要求の強シグナル → clarify 完全禁止 ──
+  // 「答えて」「君に聞いてる」「具体的に」等が検出された場合、
+  // どの条件でも clarify を選ばない。conclude に強制。
+  const directDemand = options?.directDemand ?? false;
+  if (directDemand) {
+    return { mode: "conclude", reason: "conclude_type_override" };
+  }
 
   // ── P2-1: relationalLens で確認済みの変数は ambiguity から差し引く ──
   // hidden_variables(6変数)の unknown 率だけだと、lens で判明済みの情報が反映されない
@@ -3217,7 +3251,10 @@ export function selectResponseModeWithReason(
 
   // 2. 情報量ゲート付き判定
   //    ambiguity_score が高くても、入力文に十分な文脈があれば conclude
-  if (ambiguity_score > 0.5) {
+  //    StanceVector の assumption_boldness が高い場合、branch 閾値を上げて conclude に倒す
+  const boldness = options?.assumptionBoldness ?? 0;
+  const branchThreshold = 0.5 + boldness * 0.15; // boldness=1 で threshold=0.65
+  if (ambiguity_score > branchThreshold) {
     if (information.score >= 0.25) {
       return { mode: "conclude", reason: "conclude_mid_ambiguity_info_sufficient" };
     }
@@ -4802,8 +4839,9 @@ export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton, questionTyp
 
   const parts: string[] = [
     "",
-    "# 判断骨格（この構造に従って文章化すること）",
-    "**以下は事前計算された判断の構造。LLM はこれを文章化するだけ。**",
+    "# 判断骨格（出力制約 — この構造に絶対に従うこと）",
+    "**以下は事前計算された判断の結論。LLM が独自に覆すことは許されない。**",
+    "**骨格の結論を「参考」として扱うな。これが応答の骨子である。**",
     "**骨格にない新情報を勝手に足さない。骨格と矛盾する結論を出さない。**",
     "",
     `- 行動の形: ${ACTION_SHAPE_LABELS[skeleton.action_shape]}`,
@@ -4815,6 +4853,18 @@ export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton, questionTyp
       : [`- 推奨次の一手: ${skeleton.recommended_next_step}`]),
     `- 成長方向との整合: ${skeleton.growth_alignment === "aligned" ? "一致" : skeleton.growth_alignment === "override" ? "成長方向と矛盾するが状況が優先" : "中立"}`,
   ];
+
+  // Assertion Mode: 1文目拘束
+  parts.push("");
+  parts.push("# 1文目拘束（Skeleton Assertion — 最上位出力制約）");
+  parts.push("**応答の1文目は必ず骨格の結論を反映した具体的な判断文で始めること。**");
+  parts.push("以下は1文目として絶対に禁止:");
+  parts.push("- 「本当に知りたいのは〜では？」（解釈で返すな）");
+  parts.push("- 「もしかして〜」（推測で返すな）");
+  parts.push("- 「まず感情の根っこを」（心理に逃げるな）");
+  parts.push("- 「情報を集めるのが」（宿題で返すな）");
+  parts.push("- 「ごめん」で始まる謝罪（repair mode以外）");
+  parts.push("1文目の型: 「〜が合っています」「〜の方向がいい」「〜すべきです」等の結論断定。");
 
   // directness / specificity 補強
   parts.push("");

@@ -556,12 +556,33 @@ export default function ResultsSequence({
               ))}
             </div>
 
+            {/* §3.5 初回完了メッセージ */}
+            <motion.div
+              className="mt-4 p-4 rounded-xl text-center space-y-2"
+              style={{
+                background: "rgba(190,170,110,0.06)",
+                border: "1px solid rgba(190,170,110,0.12)",
+              }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.0 }}
+            >
+              <p className="text-sm leading-relaxed" style={{ color: "rgba(60,65,85,0.7)" }}>
+                45軸の観測が完了しました。
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: "rgba(80,85,105,0.5)" }}>
+                これは、いま見えているあなたの輪郭です。
+                でも、あなたはまだこれで終わりではありません。
+                毎日の問いを通じて、新しい軸が見つかっていきます。
+              </p>
+            </motion.div>
+
             <motion.p
               className="text-center text-xs"
               style={{ color: "rgba(100,105,130,0.45)" }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 1.0 }}
+              transition={{ delay: 1.2 }}
             >
               無料アカウントで全ての結果を確認できます
             </motion.p>

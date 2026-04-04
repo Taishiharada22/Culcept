@@ -133,7 +133,7 @@ export default function Stage1Flow({ onComplete, lightMode = false }: Props) {
         }
 
         setIsSubmitting(false);
-      }, 300);
+      }, 180);
     },
     [answers, currentIndex, currentCategory, onComplete]
   );

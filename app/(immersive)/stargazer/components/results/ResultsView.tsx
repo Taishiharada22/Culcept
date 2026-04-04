@@ -77,10 +77,30 @@ export default function ResultsView({
   if (isLocked) {
     return (
       <div className="relative min-h-[400px]">
-        <div className="pointer-events-none select-none filter blur-md opacity-40">
-          <ResultPlaceholder />
+        <div className="space-y-3 p-4">
+          {[
+            { icon: "📊", label: "全体サマリ" },
+            { icon: "🗺️", label: "傾向マップ" },
+            { icon: "🧠", label: "思考の型" },
+            { icon: "🔮", label: "深層プロフィール" },
+            { icon: "🤝", label: "関係性スタイル" },
+            { icon: "⚡", label: "反応タイプ" },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="flex items-center gap-3 p-3.5 rounded-xl"
+              style={{
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(140,150,180,0.08)",
+              }}
+            >
+              <span className="text-lg opacity-40">{item.icon}</span>
+              <span className="text-sm text-white/35 font-medium">{item.label}</span>
+              <span className="ml-auto text-sm text-white/25">🔒</span>
+            </div>
+          ))}
         </div>
-        <LockedOverlay />
+        <LockedOverlay message="アカウントを作成すると、全軸のスコアと解説が見られます" />
       </div>
     );
   }

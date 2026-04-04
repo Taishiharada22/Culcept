@@ -822,17 +822,52 @@ export default function StargazerHome() {
     applyEMAToAxisScores();
     autoCheckTransformationProgress();
     try {
-      const res = await fetch("/api/stargazer/profile", {
+      let res = await fetch("/api/stargazer/profile", {
         credentials: "include",
       });
       if (!res.ok) {
         if (res.status === 401) {
-          setLoadError("unauthorized");
+          // 未ログイン → 匿名セッション作成を試行
+          try {
+            const { ensureAnonymousSession } = await import("@/lib/auth/anonymousAuth");
+            const anonResult = await ensureAnonymousSession();
+            if (anonResult.ok) {
+              // 匿名セッション確立 → profile APIをリトライ
+              const retryRes = await fetch("/api/stargazer/profile", { credentials: "include" });
+              if (retryRes.ok) {
+                // リトライ成功 → 通常のデータ処理パスに合流
+                res = retryRes;
+              } else {
+                // リトライ失敗 → オンボーディング画面へ（匿名セッションは確立済み）
+                setHasCompletedInitialObservation(false);
+                setTotalObservations(0);
+                setIsLoading(false);
+                return;
+              }
+            } else if (anonResult.reason === "anonymous_disabled") {
+              // Feature flag OFF → 先ログイン型
+              setLoadError("unauthorized");
+              setIsLoading(false);
+              return;
+            } else {
+              // 匿名セッション作成失敗 → オンボーディング画面へ
+              setHasCompletedInitialObservation(false);
+              setTotalObservations(0);
+              setIsLoading(false);
+              return;
+            }
+          } catch (anonErr) {
+            // ensureAnonymousSession 失敗 → オンボーディング画面へ
+            setHasCompletedInitialObservation(false);
+            setTotalObservations(0);
+            setIsLoading(false);
+            return;
+          }
         } else {
           setLoadError("server");
+          setIsLoading(false);
+          return;
         }
-        setIsLoading(false);
-        return;
       }
       const data = await res.json();
       // Prefer live computed axis scores over stale resolvedType data

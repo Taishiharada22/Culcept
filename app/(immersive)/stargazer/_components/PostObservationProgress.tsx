@@ -144,7 +144,7 @@ function PostObservationProgress({
               className="mt-2 font-display text-xl leading-tight"
               style={{ color: "rgba(28,34,56,0.94)" }}
             >
-              {observedAxisCount > 0 ? `${observedAxisCount} / 45軸` : "観測中"}
+              {observedAxisCount > 0 ? `観測済み: ${observedAxisCount}軸` : "観測中"}
             </p>
             <p
               className="mt-1 text-sm"

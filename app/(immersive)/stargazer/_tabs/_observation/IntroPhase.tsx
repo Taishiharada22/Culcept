@@ -136,7 +136,7 @@ export default function IntroPhase({
             style={{ color: "rgba(120,105,68,0.35)" }}
           >
             {totalObservations}回目の観測
-            {observedAxisCount > 0 && ` · ${observedAxisCount}/45軸`}
+            {observedAxisCount > 0 && ` · 観測済み: ${observedAxisCount}軸`}
           </p>
         </motion.div>
 
@@ -214,7 +214,7 @@ export default function IntroPhase({
                       <span className="sg-stat-label">現在の輪郭</span>
                       <span className="sg-text-title mt-2 block">
                         {observedAxisCount > 0
-                          ? `${observedAxisCount} / 45軸`
+                          ? `観測済み: ${observedAxisCount}軸`
                           : "観測中"}
                       </span>
                     </div>

@@ -71,8 +71,47 @@ import {
   type SocialContext,
 } from "@/lib/stargazer/fluctuationEngine";
 import { generateZeroSecondMirror, generateServerMirror, recordMirrorReaction, type ZeroMirrorResult } from "@/lib/onboarding/zeroSecondMirror";
-import { isCurrentUserAnonymous } from "@/lib/auth/anonymousAuth";
+import { ensureAnonymousSession } from "@/lib/auth/anonymousAuth";
 import { generateImpossibleAccuracy, type ImpossibleAccuracyInsight, type MicroObservationData } from "@/lib/onboarding/impossibleAccuracy";
+import { QUESTIONS } from "@/lib/stargazer/questions";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Initial observation resume (localStorage-based)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const SG_INITIAL_PROGRESS_KEY = "culcept_sg_initial_progress_v1";
+
+interface InitialProgress {
+  currentIndex: number;
+  answers: QuestionAnswer[];
+  savedAt: number; // Date.now()
+}
+
+function saveInitialProgress(data: InitialProgress): void {
+  try { localStorage.setItem(SG_INITIAL_PROGRESS_KEY, JSON.stringify(data)); } catch { /* */ }
+}
+
+function loadInitialProgress(): InitialProgress | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(SG_INITIAL_PROGRESS_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as InitialProgress;
+    // 7日以上前のデータは破棄
+    if (Date.now() - data.savedAt > 7 * 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(SG_INITIAL_PROGRESS_KEY);
+      return null;
+    }
+    if (!data.answers || data.answers.length === 0) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function clearInitialProgress(): void {
+  try { localStorage.removeItem(SG_INITIAL_PROGRESS_KEY); } catch { /* */ }
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -902,15 +941,35 @@ function StepProgressIndicator({ phase }: { phase: OnboardingPhase }) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function InitialOnboardingFlow({ onComplete, startFromRv = false, existingProfile }: Props) {
-  const [phase, setPhase] = useState<OnboardingPhase>(startFromRv ? "rendezvous_transition" : "zero_mirror");
+  // ── 再訪復元チェック ──
+  const [resumeData, setResumeData] = useState<InitialProgress | null>(() => {
+    if (startFromRv) return null;
+    return loadInitialProgress();
+  });
+  const [phase, setPhase] = useState<OnboardingPhase>(() => {
+    if (startFromRv) return "rendezvous_transition";
+    // 再訪復元がある場合はプロンプトを表示するためにzero_mirrorから始める（下部で分岐）
+    return "zero_mirror";
+  });
   const [zeroMirror, setZeroMirror] = useState<ZeroMirrorResult>(() => generateServerMirror());
   const [zeroMirrorStartTime] = useState(() => Date.now());
   const [impossibleInsight, setImpossibleInsight] = useState<ImpossibleAccuracyInsight | null>(null);
 
-  // ── 匿名ユーザー検出（P2: 後ログイン型フロー） ──
+  // ── 匿名セッション確立（後ログイン型フロー） ──
+  // ページロード時に匿名セッションを作成。Feature flag OFF 時は /login にリダイレクト。
   const [isAnonymousUser, setIsAnonymousUser] = useState(false);
   useEffect(() => {
-    isCurrentUserAnonymous().then(setIsAnonymousUser).catch(() => {});
+    ensureAnonymousSession().then((result) => {
+      if (!result.ok && result.reason === "anonymous_disabled") {
+        // Feature flag OFF → 先ログイン型にフォールバック
+        window.location.href = "/login?next=/stargazer";
+        return;
+      }
+      if (result.ok) {
+        setIsAnonymousUser(result.isAnonymous ?? false);
+      }
+      // ok=false かつ reason=sign_in_failed → セッションなしで続行（ローカル保存にフォールバック）
+    }).catch(() => {});
   }, []);
   const handleLoginRedirect = useCallback(() => {
     window.location.href = "/login?next=/stargazer";
@@ -1113,6 +1172,83 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, glimpseSubPhase]);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PHASE: Resume Prompt（再訪復元プロンプト）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  if (phase === "zero_mirror" && resumeData && resumeData.answers.length > 0) {
+    const answeredCount = resumeData.answers.length;
+    const totalCount = QUESTIONS.length;
+    return (
+      <div className="relative min-h-[80vh] flex items-center justify-center overflow-hidden">
+        <motion.div
+          className="text-center px-6 max-w-md mx-auto"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8 }}
+        >
+          <motion.div
+            className="text-4xl mb-5"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+          >
+            🔭
+          </motion.div>
+          <motion.p
+            className="font-display text-lg leading-relaxed tracking-wide mb-2"
+            style={{ color: "rgba(50,55,75,0.75)" }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.8 }}
+          >
+            {answeredCount}問まで記録済み
+          </motion.p>
+          <motion.p
+            className="font-body text-sm leading-relaxed mb-8"
+            style={{ color: "rgba(80,85,105,0.5)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6, duration: 0.6 }}
+          >
+            前回の続きから再開できます
+          </motion.p>
+          <motion.div
+            className="space-y-3"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.9, duration: 0.5 }}
+          >
+            <button
+              onClick={() => setPhase("core_questions")}
+              className="w-full font-display text-sm tracking-[0.1em] px-8 py-3.5 rounded-xl transition-all"
+              style={{
+                background: "rgba(170,150,90,0.08)",
+                border: "1px solid rgba(170,150,90,0.15)",
+                color: "rgba(150,130,80,0.7)",
+              }}
+            >
+              続きから再開する（{answeredCount}/{totalCount}問）
+            </button>
+            <button
+              onClick={() => {
+                clearInitialProgress();
+                setResumeData(null);
+              }}
+              className="w-full font-body text-xs tracking-wide px-6 py-2.5 rounded-lg transition-all"
+              style={{
+                color: "rgba(100,105,130,0.45)",
+              }}
+            >
+              最初からやり直す
+            </button>
+          </motion.div>
+        </motion.div>
+      </div>
+    );
+  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // PHASE: Zero-Second Mirror（0秒ミラー）
@@ -3086,11 +3222,20 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
         </div>
         <QuestionFlow
           onComplete={(result: ResolvedResult, answers: QuestionAnswer[]) => {
+            clearInitialProgress();
             setCoreResult(result);
             setCoreAnswers(answers);
+            setResumeData(null);
             setPhase("core_report");
           }}
           onQuestionAnswered={(count, answers) => {
+            // localStorage に途中経過を保存（再訪復元用）
+            saveInitialProgress({
+              currentIndex: count, // 次に答える問のインデックス
+              answers,
+              savedAt: Date.now(),
+            });
+
             // 15問以上回答 かつ confidence > 0.15 の場合のみ仮説タイプを表示
             // 5問での推定は精度が低すぎてブレの原因になるため廃止
             if (count === 15 && !emergingTypeShown.current) {
@@ -3112,6 +3257,8 @@ export default function InitialOnboardingFlow({ onComplete, startFromRv = false,
               }
             }
           }}
+          resumeFromIndex={resumeData?.currentIndex}
+          resumeAnswers={resumeData?.answers}
         />
 
         {/* Emerging Type Preview overlay */}

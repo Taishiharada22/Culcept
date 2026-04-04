@@ -32,6 +32,9 @@ const MAX_DAILY_ROUNDS = 5;
 /** localStorage key for daily usage tracking */
 const DAILY_USAGE_KEY = "aneurasync_alter_daily_v1";
 
+/** localStorage key for β-tester flag (persisted across page loads) */
+const BETA_TESTER_KEY = "aneurasync_alter_beta_tester_v1";
+
 /** JST (UTC+9) での今日の日付を "YYYY-MM-DD" で返す */
 function getTodayJST(): string {
   const now = new Date();
@@ -89,8 +92,14 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [lastIsEmotional, setLastIsEmotional] = useState(false);
   const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [lastFeedbackMeta, setLastFeedbackMeta] = useState<Record<string, unknown> | null>(null);
-  /** βテスターフラグ（API レスポンスから取得、制限バイパス用） */
-  const [isBetaTester, setIsBetaTester] = useState(false);
+  /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
+  const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(BETA_TESTER_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   /** 今日の既存使用回数（localStorage から初期読み込み） */
   const [priorDailyCount, setPriorDailyCount] = useState<number>(() => readDailyUsage());
   const abortRef = useRef<AbortController | null>(null);
@@ -156,9 +165,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
       const data = await res.json();
 
-      // βテスターフラグを API レスポンスから取得（初回のみセット）
+      // βテスターフラグを API レスポンスから取得し localStorage に永続化
       if (data.isBetaTester && !isBetaTester) {
         setIsBetaTester(true);
+        try { localStorage.setItem(BETA_TESTER_KEY, "1"); } catch {}
       }
 
       const alterMsg: AlterMessage = {

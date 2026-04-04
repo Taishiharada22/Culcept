@@ -73,6 +73,7 @@ const PUBLIC_PREFIXES = [
     "/api/",        // API は各 route.ts 内で認証判断
     "/public/",     // 静的アセット
     "/type/",       // アーキタイプ公開ページ（SNSシェア用ランディング）
+    "/stargazer",   // 後ログイン型: 匿名セッションで利用可能（クライアント側で認証処理）
 ];
 
 // 拡張子付きの静的ファイルを public 扱いにする

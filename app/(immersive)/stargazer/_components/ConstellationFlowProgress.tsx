@@ -14,8 +14,10 @@ interface Props {
   chapterLabel?: string;
   /** セーブ確認メッセージ（~10問目） */
   showSaveHint?: boolean;
-  /** アカウント作成ヒント（~30問目） */
+  /** アカウント作成ヒント（~30問目、匿名ユーザーのみ表示） */
   showAccountHint?: boolean;
+  /** 匿名ユーザーかどうか（false の場合 showAccountHint を無視） */
+  isAnonymousUser?: boolean;
 }
 
 // 星座の星の位置（5チャプターを五角形に配置）
@@ -52,7 +54,10 @@ export default function ConstellationFlowProgress({
   chapterLabel,
   showSaveHint = false,
   showAccountHint = false,
+  isAnonymousUser = false,
 }: Props) {
+  // 30問目ヒントは匿名ユーザーのみ表示（既存ログイン済みユーザーには不要）
+  const effectiveShowAccountHint = showAccountHint && isAnonymousUser;
   const chapters = getChapterProgress(current);
   const overallProgress = Math.min(1, (current + 1) / total);
   const activeChapterIndex = chapters.findIndex((ch) => ch.active) ?? 0;
@@ -220,7 +225,7 @@ export default function ConstellationFlowProgress({
 
       {/* アカウントヒント (~30問目) */}
       <AnimatePresence>
-        {showAccountHint && (
+        {effectiveShowAccountHint && (
           <motion.div
             className="mt-2 flex items-center gap-1.5"
             initial={{ opacity: 0, y: -4 }}

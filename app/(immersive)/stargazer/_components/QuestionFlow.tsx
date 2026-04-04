@@ -12,14 +12,9 @@ import { resolveType, type QuestionAnswer, type ResolvedResult } from "@/lib/sta
 import { useSignalCollector } from "@/hooks/useSignalCollector";
 
 // Engagement components
-import MicroRevealCard from "./engagement/MicroRevealCard";
-import MirrorQuestionCard, { type MirrorResult } from "./engagement/MirrorQuestionCard";
 import VisualChoiceCard, { type VisualChoicePair, type VisualChoiceResult } from "./engagement/VisualChoiceCard";
-import DeepBreathTransition from "./engagement/DeepBreathTransition";
 import DepthMeter, { calculateDepth } from "./engagement/DepthMeter";
 import {
-  generateReveal,
-  generateMirrorProfile,
   getObservationTag,
   type ObservationTag,
 } from "./engagement/revealGenerator";
@@ -31,9 +26,6 @@ import {
 } from "@/lib/stargazer/cognitiveFitQuestions";
 
 // ── Event schedule config ──
-// 質問数に応じてイベントの発火タイミングを決定
-const REVEAL_INTERVAL = 5; // 5問ごとにマイクロ・リヴィール
-const MIRROR_INTERVAL = 15; // 15問ごとに鏡の問い
 const FLASH_INTERVAL = 5; // 5問ごとに速答フラッシュ（各セットの3問目）
 const FLASH_OFFSET = 2; // セット内の3番目 (0-indexed)
 
@@ -94,10 +86,7 @@ const VISUAL_CHOICE_PAIRS: VisualChoicePair[] = [
 // ── Flow phases ──
 type FlowPhase =
   | "chapter_intro"
-  | "deep_breath"
   | "questioning"
-  | "micro_reveal"
-  | "mirror_question"
   | "visual_choice"
   | "cognitive_fit"
   | "milestone"; // legacy compat
@@ -106,25 +95,52 @@ interface Props {
   onComplete: (result: ResolvedResult, answers: QuestionAnswer[], cfAnswers?: CfAnswer[]) => void;
   onQuestionAnswered?: (answeredCount: number, answers: QuestionAnswer[]) => void;
   lightMode?: boolean;
+  /** Resume from saved progress — start index */
+  resumeFromIndex?: number;
+  /** Resume from saved progress — previously answered questions */
+  resumeAnswers?: QuestionAnswer[];
 }
 
-function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Props) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<QuestionAnswer[]>([]);
-  const [flowPhase, setFlowPhase] = useState<FlowPhase>("chapter_intro");
+function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resumeFromIndex, resumeAnswers }: Props) {
+  const [currentIndex, setCurrentIndex] = useState(resumeFromIndex ?? 0);
+  const [answers, setAnswers] = useState<QuestionAnswer[]>(resumeAnswers ?? []);
+  const [flowPhase, setFlowPhase] = useState<FlowPhase>(resumeFromIndex ? "questioning" : "chapter_intro");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Engagement state
   const [currentObsTag, setCurrentObsTag] = useState<ObservationTag | null>(null);
-  const [visualChoiceIdx, setVisualChoiceIdx] = useState(0); // which VC pair to show next
-  const [mirrorResults, setMirrorResults] = useState<MirrorResult[]>([]);
+  // Resume mode: skip VC insertion points that were already passed
+  const [visualChoiceIdx, setVisualChoiceIdx] = useState(() => {
+    if (!resumeAnswers || resumeAnswers.length === 0) return 0;
+    const vcPoints = getVisualChoiceIndex(QUESTIONS.length);
+    let idx = 0;
+    for (const pt of vcPoints) {
+      if (resumeAnswers.length >= pt) idx++;
+      else break;
+    }
+    return idx;
+  });
   const [vcResults, setVcResults] = useState<VisualChoiceResult[]>([]);
 
   // Cognitive Fit state
   const [cfAnswers, setCfAnswers] = useState<CfAnswer[]>([]);
   const [cfPhaseQueue, setCfPhaseQueue] = useState<ReturnType<typeof getCfQuestionsByPhase>>([]);
   const [cfQueueIdx, setCfQueueIdx] = useState(0);
-  const cfTriggeredPhases = useRef<Set<string>>(new Set());
+  // Resume mode: mark CF phases that were already passed based on answer count
+  const cfTriggeredPhases = useRef<Set<string>>(
+    resumeAnswers && resumeAnswers.length > 0
+      ? new Set(
+          [
+            { count: CF_CORE_INSERTION_POINTS.early, phase: "core_early" },
+            { count: CF_CORE_INSERTION_POINTS.mid, phase: "core_mid" },
+            { count: CF_CORE_INSERTION_POINTS.phase1_mid, phase: "phase1_mid" },
+            { count: CF_CORE_INSERTION_POINTS.phase1_late, phase: "phase1_late" },
+          ]
+            .filter((cp) => resumeAnswers.length >= cp.count)
+            .map((cp) => cp.phase)
+        )
+      : new Set<string>()
+  );
 
   // Signal collection
   const responseTimes = useRef<number[]>([]);
@@ -196,7 +212,7 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
         const nextIdx = currentIndex + 1;
         decideNextPhase(nextIdx, newAnswers);
         setIsSubmitting(false);
-      }, 250);
+      }, 180);
     },
     [answers, currentIndex] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -250,25 +266,11 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
         return;
       }
 
-      // 鏡の問い（15問ごと）
-      if (answeredCount > 0 && answeredCount % MIRROR_INTERVAL === 0) {
-        setCurrentIndex(nextIdx);
-        setFlowPhase("mirror_question");
-        return;
-      }
-
-      // マイクロ・リヴィール（5問ごと、鏡の問いと被らない場合）
-      if (answeredCount > 0 && answeredCount % REVEAL_INTERVAL === 0) {
-        setCurrentIndex(nextIdx);
-        setFlowPhase("micro_reveal");
-        return;
-      }
-
-      // チャプター変更チェック → 深呼吸の間
+      // チャプター変更チェック → chapter_intro（短い区切り）
       const nextChapter = QUESTIONS[nextIdx]?.chapter;
       if (nextChapter !== currentChapter) {
         setCurrentIndex(nextIdx);
-        setFlowPhase("deep_breath");
+        setFlowPhase("chapter_intro");
         return;
       }
 
@@ -300,28 +302,11 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
     setFlowPhase("questioning");
   }, []);
 
-  const handleDeepBreathComplete = useCallback(() => {
-    setFlowPhase("chapter_intro");
-  }, []);
-
-  const handleRevealContinue = useCallback(() => {
-    setFlowPhase("questioning");
-  }, []);
-
-  const handleMirrorAnswer = useCallback(
-    (result: MirrorResult) => {
-      setMirrorResults((prev) => [...prev, result]);
-      setFlowPhase("questioning");
-    },
-    []
-  );
-
   const handleVisualChoiceAnswer = useCallback(
     (result: VisualChoiceResult) => {
       setVcResults((prev) => [...prev, result]);
       setVisualChoiceIdx((prev) => prev + 1);
-      // VC後はリヴィールを挟む
-      setFlowPhase("micro_reveal");
+      setFlowPhase("questioning");
     },
     []
   );
@@ -335,8 +320,8 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
         // まだこのフェーズにCF問題が残っている
         setCfQueueIdx(nextCfIdx);
       } else {
-        // CFフェーズ完了 → リヴィールを挟んでからcore質問に戻る
-        setFlowPhase("micro_reveal");
+        // CFフェーズ完了 → core質問に戻る
+        setFlowPhase("questioning");
       }
     },
     [cfQueueIdx, cfPhaseQueue.length]
@@ -347,52 +332,6 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false }: Pro
   const textSecondary = "rgba(55,60,80,0.7)";
   const textTertiary = "rgba(80,85,105,0.55)";
   const accent = "rgba(140,120,60,0.85)";
-
-  // ── 深呼吸の間 ──
-  if (flowPhase === "deep_breath") {
-    return (
-      <AnimatePresence mode="wait">
-        <DeepBreathTransition
-          key={`breath_${currentIndex}`}
-          message="少し、息を吸って。"
-          durationMs={5000}
-          onComplete={handleDeepBreathComplete}
-        />
-      </AnimatePresence>
-    );
-  }
-
-  // ── マイクロ・リヴィール ──
-  if (flowPhase === "micro_reveal") {
-    const reveal = generateReveal(answers, totalQuestions);
-
-    return (
-      <AnimatePresence mode="wait">
-        <MicroRevealCard
-          key={`reveal_${answers.length}`}
-          message={reveal.message}
-          phase={reveal.phase}
-          archetypeHint={reveal.archetypeHint}
-          onContinue={handleRevealContinue}
-        />
-      </AnimatePresence>
-    );
-  }
-
-  // ── 鏡の問い ──
-  if (flowPhase === "mirror_question") {
-    const profileText = generateMirrorProfile(answers);
-
-    return (
-      <AnimatePresence mode="wait">
-        <MirrorQuestionCard
-          key={`mirror_${answers.length}`}
-          profileText={profileText}
-          onAnswer={handleMirrorAnswer}
-        />
-      </AnimatePresence>
-    );
-  }
 
   // ── Cognitive Fit 質問 ──
   if (flowPhase === "cognitive_fit") {
