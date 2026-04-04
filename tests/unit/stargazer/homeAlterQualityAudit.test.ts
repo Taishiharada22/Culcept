@@ -258,18 +258,18 @@ const AUDIT_CASES: AuditCase[] = [
   { id: "IP25", input: "彼女の友達に嫌われてる気がする。気にすべき？", expectedMode: "clarify", involves_other: true, expectedRole: "partner", category: "interpersonal" },
 
   // ── TASK-6: blunt_risk（「丁寧だが関係として雑」を検出するケース） ──
-  // 慎重な人が相談 → 断言が1段強すぎないか
-  { id: "BR01", input: "慎重に考えたいんだけど…今すぐ決めなきゃダメ？", expectedMode: "clarify", involves_other: false, category: "blunt_risk" },
+  // 友人が急変 → 相手の動機が不明（断言で片付けない）
+  { id: "BR01", input: "友達が急に冷たくなった。何か怒らせたかな…心当たりがない", expectedMode: "clarify", involves_other: true, expectedRole: "friend", category: "blunt_risk" },
   // 感情的な発話 → ロジックだけで返さないか → pipeline は clarify（感情受容のため追加確認が正しい）
   { id: "BR02", input: "もう疲れた。何もかも嫌になってきた", expectedMode: "clarify", involves_other: false, category: "blunt_risk" },
   // 恋愛相談中に仕事の仮説を持ち出さないか → pipeline は clarify（関係性の文脈確認が必要）
   { id: "BR03", input: "彼氏が最近冷たい。私のこと嫌いになったのかな", expectedMode: "clarify", involves_other: true, expectedRole: "partner", category: "blunt_risk" },
   // 繊細な悩みに対して直球すぎないか → pipeline は clarify（慎重に掘り下げが正しい）
   { id: "BR04", input: "親に本音を言えたことがない。怖い", expectedMode: "clarify", involves_other: true, expectedRole: "parent", category: "blunt_risk" },
-  // 抽象的な悩みに対してロジック偏重にならないか
-  { id: "BR05", input: "すごく傷ついてるの。彼に裏切られた気分", expectedMode: "clarify", involves_other: false, category: "blunt_risk" },
-  // 他者への不満 → 結論を急がないか
-  { id: "BR06", input: "この前の失敗、まだ立ち直れてない。周りにも迷惑かけた", expectedMode: "clarify", involves_other: false, category: "blunt_risk" },
+  // 恋人の態度変化 → 「彼氏」で partner が特定され relational lens 充足 → conclude
+  { id: "BR05", input: "彼氏にきつく言われた。本気で怒ってるのかな…私が悪いのかな", expectedMode: "conclude", involves_other: true, expectedRole: "partner", category: "blunt_risk" },
+  // 上司との関係 → 指導かパワハラか分からない曖昧さ（結論を急がない）
+  { id: "BR06", input: "上司に厳しく言われて…でもあれって指導なのかパワハラなのか分からない", expectedMode: "clarify", involves_other: true, expectedRole: "boss", category: "blunt_risk" },
   // 自己否定 → 否定も肯定もせず受け止めるべき場面 → pipeline は branch（分岐で受け止めが正しい）
   { id: "BR07", input: "自分って本当にダメだなって思う。何やっても中途半端", expectedMode: "branch", involves_other: false, category: "blunt_risk" },
 ];
