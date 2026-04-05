@@ -38,7 +38,7 @@ export interface ProactiveEngineGates {
   trust_tracking_enabled: boolean;
   causal_map_update_enabled: boolean;
   payback_tracking_enabled: boolean;
-  // ── Phase 2 gates（デフォルト false、段階的に有効化）──
+  // ── Phase 2 gates（全て有効化済み — 2026-04-05 監査確認）──
   stance_vector_enabled: boolean;          // TASK-1: StanceVector による強度調整
   continuity_filter_enabled: boolean;      // TASK-2: canAssumeContinuity フィルタ
   axis_metadata_enabled: boolean;          // TASK-3: StargazerAxis メタデータ参照
@@ -55,18 +55,39 @@ export const DEFAULT_GATES: ProactiveEngineGates = {
   trust_tracking_enabled: true,
   causal_map_update_enabled: true,
   payback_tracking_enabled: true,
-  // Phase 2 gates — 全て false。Gate有効化スケジュールに従い段階的にtrue
-  stance_vector_enabled: false,
-  continuity_filter_enabled: false,
-  axis_metadata_enabled: false,
-  voi_scoring_enabled: false,
-  implicit_signal_enabled: false,
-  embedded_sensor_enabled: false,
+  // Phase 2 gates — Batch 1 有効化 (tsc PASS + 単体テスト PASS 確認済み)
+  stance_vector_enabled: true,
+  continuity_filter_enabled: true,
+  axis_metadata_enabled: true,
+  // Batch 2 有効化 (VoI + ImplicitSignal 単体テスト PASS 確認済み)
+  voi_scoring_enabled: true,
+  implicit_signal_enabled: true,
+  // Batch 4 — 有効化済み（体験検証は Step 9 replay で実施）
+  embedded_sensor_enabled: true,
 };
 
+/**
+ * Gate override: DEFAULT_GATES に overrides をマージする。
+ * overrides が null/undefined なら DEFAULT_GATES をそのま���返す。
+ */
+export function resolveGates(
+  overrides?: Partial<ProactiveEngineGates> | null,
+): ProactiveEngineGates {
+  if (!overrides) return DEFAULT_GATES;
+  return { ...DEFAULT_GATES, ...overrides };
+}
+
+function parseEnvGateOverrides(): Partial<ProactiveEngineGates> | null {
+  const raw = process.env.STARGAZER_GATE_OVERRIDES;
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+export const ENV_GATE_OVERRIDES = parseEnvGateOverrides();
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Phase 判定（状態ベース）
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 判定���状態ベース）
+// ━━━━━━━━━━━━━━━��━━━━━━━━━━━━━━━━━��━━━━━━━���━━━━
 
 export type Phase = 0 | 1 | 2 | 3;
 
@@ -572,8 +593,8 @@ export function extractCurrentTopics(
   const domainKeywords: Record<TrustDomain, RegExp> = {
     career: /仕事|キャリア|転職|上司|職場|会社|ビジネス|同僚|部下|就活|昇進|年収|給料|退職/,
     relationship: /恋人|彼氏|彼女|夫|妻|パートナー|片思い|デート|告白|結婚|離婚|浮気|友達|友人|親友|人間関係|ママ友/,
-    identity: /自分|性格|価値観|生き方|人生|アイデンティティ|目標|夢|向いて|才能|強み|弱み/,
-    health: /体調|健康|メンタル|うつ|不安|ストレス|疲れ|眠れ|食欲|運動|病院|薬/,
+    identity: /自分|性格|価値観|生き方|人生|アイデンティティ|目標|夢|向いて|才能|強み|弱み|モヤモヤ|しっくりこない|違和感|何か違う/,
+    health: /体調|健康|メンタル|うつ|不安|ストレス|疲れ|眠れ|食欲|運動|病院|薬|だるい|しんどい|つらい/,
     daily: /日常|習慣|ルーティン|予定|スケジュール|買い物|家事|料理|掃除|趣味/,
     creative: /創作|デザイン|音楽|アート|写真|文章|ブログ|作品|表現|クリエイティブ/,
   };
@@ -581,6 +602,17 @@ export function extractCurrentTopics(
   for (const domain of allDomains) {
     if (!detectedDomains.includes(domain) && domainKeywords[domain].test(message)) {
       detectedDomains.push(domain);
+    }
+  }
+
+  // classifiedDomain フォールバック: キーワード不一致でも外部分類器が検出した場合は低信頼で採用
+  let domainFromClassifier = false;
+  if (detectedDomains.length === 1 && detectedDomains[0] === classifiedDomain) {
+    // classifiedDomain のみがマッチ（キーワードからの追加検出なし）
+    // → キーワード不一致だが外部分類器が検出したケースとして扱う
+    const keywordMatched = allDomains.some(d => d !== classifiedDomain && domainKeywords[d].test(message));
+    if (!keywordMatched && !domainKeywords[classifiedDomain!].test(message)) {
+      domainFromClassifier = true;
     }
   }
 
@@ -665,7 +697,9 @@ export function extractCurrentTopics(
   }
 
   // extraction_confidence: ドメイン検出 + 軸マッチ + 文脈連続性の複合
-  const domainSignal = detectedDomains.length > 0 ? 0.4 : 0;
+  const domainSignal = detectedDomains.length > 0
+    ? (domainFromClassifier ? 0.3 : 0.4)  // キーワード不一致の外部分類器 → 低信頼
+    : 0;
   const axisSignal = Math.min(activeAxes.length * 0.1, 0.3);
   const continuitySignal = domainContinuity * 0.3;
   const extraction_confidence = Math.min(1, domainSignal + axisSignal + continuitySignal);
@@ -1383,7 +1417,7 @@ export const STARGAZER_AXES: Record<TraitAxisKey, StargazerAxis> = {
     min_trust_to_probe: 0,
   },
 
-  // ── identity カテゴリ (2軸) ──
+  // ── identity カテゴリ (2軸: desire/behavior — UMCategory に identity がないため最寄りカテゴリ) ──
   shame_vs_guilt: {
     id: "shame_vs_guilt",
     label: "恥 vs 罪悪感",
@@ -2195,6 +2229,9 @@ export function buildEmbeddedSensor(params: {
 }): EmbeddedSensor | null {
   const { stance, blockedProbe, phase, activeAxes, emotionalTemperature, isDirectAnswerContext } = params;
 
+  // Phase 0: 信頼構築優先、sensor 発火しない
+  if (phase < 1) return null;
+
   // probe がない（候補自体がなかった）場合は sensor も出さない
   if (!blockedProbe) return null;
 
@@ -2363,14 +2400,14 @@ export function buildProactivePromptBlock(input: ProactivePromptInput): string {
   if (gates.stance_vector_enabled && stance) {
     lines.push("");
     lines.push("[断言強度]");
-    if (stance.assertion_intensity > 0.7) {
+    if (stance.assertion_intensity >= 0.7) {
       lines.push("あなたの読みに自信を持って伝えてよい。「〜だと思う」→「〜だ」レベルで断言可。");
     } else if (stance.assertion_intensity > 0.4) {
       lines.push("読みを伝えつつ留保を付ける。「〜に見える」「〜だと思う」程度。");
     } else {
       lines.push("慎重に伝える。「〜かもしれない」「〜に見える」程度に留める。");
     }
-    if (stance.assumption_boldness > 0.6) {
+    if (stance.assumption_boldness >= 0.6) {
       lines.push("推測でも踏み込んでよい。仮説を先に出し、反応を見る。");
     }
   }
@@ -2394,7 +2431,7 @@ export function buildProactivePromptBlock(input: ProactivePromptInput): string {
   lines.push("");
   lines.push(`[表現制約] Phase ${phase}`);
   // stance_vector_enabled 時は allowed_hedges を stance で調整
-  if (gates.stance_vector_enabled && stance && stance.assertion_intensity > 0.7) {
+  if (gates.stance_vector_enabled && stance && stance.assertion_intensity >= 0.7) {
     // 高 assertion 時: hedges を絞る
     const strongHedges = expressionRules.allowed_hedges.filter(h =>
       !h.includes("かもしれない") && !h.includes("もしかすると"),
@@ -2643,6 +2680,8 @@ export interface ProactiveEngineOutput {
   continuity_total_candidates: number;
   /** continuity フィルタ: フィルタ通過数 */
   continuity_adopted_count: number;
+  /** TASK-4: VoI 最高スコア（probe 選択時の情報価値） */
+  voi_top_score: number | null;
 }
 
 /**
@@ -2677,6 +2716,7 @@ export function runProactiveEngine(input: ProactiveEngineInput): ProactiveEngine
       embeddedSensor: null,
       continuity_total_candidates: 0,
       continuity_adopted_count: 0,
+      voi_top_score: null,
     };
   }
 
@@ -2725,6 +2765,16 @@ export function runProactiveEngine(input: ProactiveEngineInput): ProactiveEngine
       activeDecisionContext: gates.voi_scoring_enabled ? (input.detectedDomain ?? null) : undefined,
       voiEnabled: gates.voi_scoring_enabled,
     });
+  }
+
+  // 6b. VoI top score 算出（analytics 用）
+  let voiTopScore: number | null = null;
+  if (gates.voi_scoring_enabled && selectedProbe) {
+    const axisMeta = STARGAZER_AXES[selectedProbe.causal_connection.split("→")[0]?.trim() as TraitAxisKey];
+    if (axisMeta) {
+      const confMap = new Map(categoryConfidences.map(c => [c.category, c.confidence]));
+      voiTopScore = computeValueOfInformation(axisMeta, confMap.get(axisMeta.category) ?? 0, input.detectedDomain ?? null);
+    }
   }
 
   // 7. Probe Scheduler
@@ -2846,5 +2896,6 @@ export function runProactiveEngine(input: ProactiveEngineInput): ProactiveEngine
     embeddedSensor,
     continuity_total_candidates: continuityTotalCandidates,
     continuity_adopted_count: continuityAdoptedCount,
+    voi_top_score: voiTopScore,
   };
 }

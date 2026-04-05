@@ -272,6 +272,12 @@ const AUDIT_CASES: AuditCase[] = [
   { id: "BR06", input: "上司に厳しく言われて…でもあれって指導なのかパワハラなのか分からない", expectedMode: "clarify", involves_other: true, expectedRole: "boss", category: "blunt_risk" },
   // 自己否定 → 否定も肯定もせず受け止めるべき場面 → pipeline は branch（分岐で受け止めが正しい）
   { id: "BR07", input: "自分って本当にダメだなって思う。何やっても中途半端", expectedMode: "branch", involves_other: false, category: "blunt_risk" },
+  // 時間制約 + 思考停止 → 焦りを受け止めつつ整理を手伝う
+  { id: "BR08", input: "明日までに返事しないとダメなのに頭が回らない", expectedMode: "clarify", involves_other: false, category: "blunt_risk" },
+  // 板挟み → どちらかに加担しない
+  { id: "BR09", input: "彼氏と親友が仲悪くて板挟み。どっちの味方すればいい？", expectedMode: "branch", involves_other: true, expectedRole: "partner", category: "blunt_risk" },
+  // 怒りの衝動 → 安易に「伝え方が大事」等で片付けない
+  { id: "BR10", input: "何回言っても同じミスする後輩に怒鳴りそうになる", expectedMode: "clarify", involves_other: true, expectedRole: "junior", category: "blunt_risk" },
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -674,8 +680,8 @@ describe("Q8: 全体監査レポート", () => {
 describe("Q9: blunt_risk（雑な応答パターンの検出）", () => {
   const bluntCases = AUDIT_CASES.filter(c => c.category === "blunt_risk");
 
-  it("blunt_risk ケースが存在すること", () => {
-    expect(bluntCases.length).toBeGreaterThanOrEqual(5);
+  it("blunt_risk ��ースが 10 件以上存在すること", () => {
+    expect(bluntCases.length).toBeGreaterThanOrEqual(10);
   });
 
   it("blunt_risk ケースの mode 精度を記録すること", () => {
@@ -723,6 +729,34 @@ describe("Q9: blunt_risk（雑な応答パターンの検出）", () => {
     console.log(`   感情認知率: ${hasEmotionalAck}/${emotionalCases.length} (${(ratio * 100).toFixed(1)}%)`);
     // 感情的な発話の 80% 以上で感情受容要素が検出されること
     expect(ratio).toBeGreaterThanOrEqual(0.8);
+  });
+
+  it("blunt_risk ケースの skeleton に断定的すぎる表現がないこと（禁止指示文は除外）", () => {
+    // 禁止パターン: skeleton ブロック（LLM への指示テキスト）に
+    // 「断定的な結論をそのまま出力せよ」という指示が含まれていないことを検出
+    // 注: skeleton は指示文なので「〜と言わない」「絶対に避ける」等の禁止指示は許容
+    const forbiddenDirectives = ["間違いなくそうだ", "必ず〜すべき", "〜に決まっている"];
+    for (const tc of bluntCases) {
+      const p = runPipeline(tc.input);
+      for (const pattern of forbiddenDirectives) {
+        expect(
+          p.skeletonBlock.includes(pattern),
+          `${tc.id}: skeleton に断定的すぎる出力指示 "${pattern}" が含まれている`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("conclude モードで confidence=low の矛盾がないこと", () => {
+    for (const tc of bluntCases) {
+      const p = runPipeline(tc.input);
+      if (p.mode === "conclude") {
+        expect(
+          p.skeleton.confidence_level,
+          `${tc.id}: conclude モードなのに confidence=low は矛盾`,
+        ).not.toBe("low");
+      }
+    }
   });
 
   it("恋愛相談に対して仕事ドメインの仮説が混入しないこと", () => {

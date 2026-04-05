@@ -221,6 +221,8 @@ import {
   type RoleSelection,
   type SemanticBanCheck,
 } from "@/lib/stargazer/alterContracts";
+// Response Time Engine (RT signal)
+import { computeResponseTimeSignal } from "@/lib/stargazer/responseTimeEngine";
 // Output Governance Layer (RC1 + RC5 + Metrics)
 import {
   extractUserBans,
@@ -236,6 +238,8 @@ import {
 import {
   runProactiveEngine,
   DEFAULT_GATES,
+  resolveGates,
+  ENV_GATE_OVERRIDES,
   createTrustEvent,
   createPendingPayback,
   markPaybackUsed,
@@ -259,6 +263,7 @@ import {
   type PendingPayback,
   type ConsentSubdomain,
   type CurrentTopicContext,
+  detectBigQuestion,
 } from "@/lib/stargazer/proactiveUnderstanding";
 import {
   checkCrossSessionConvergence,
@@ -483,6 +488,7 @@ export async function POST(req: NextRequest) {
       source,
       homeContext: rawHomeContext,
       handoffContext,
+      responseTimeMs: rawResponseTimeMs,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -498,6 +504,7 @@ export async function POST(req: NextRequest) {
         };
         axisScores?: Record<string, number>;
       };
+      responseTimeMs?: number;
     };
 
     const isHomeAlter = source === "home";
@@ -2303,7 +2310,7 @@ export async function POST(req: NextRequest) {
 
       // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──
       // ガバナンスの後追い修正ではなく、最初の出力から正しくするための前段制約
-      const isBigQuestionForPrompt = proactiveOutput?.isBigQuestion ?? false;
+      const isBigQuestionForPrompt = detectBigQuestion(message);
       const isDirectDemandForPrompt = detectDirectDemand(message);
       if (isDirectDemandForPrompt || isBigQuestionForPrompt) {
         const constraints: string[] = [];
@@ -3069,7 +3076,7 @@ export async function POST(req: NextRequest) {
             detectedDomain: queryContext?.domain
               ? ({ romance: "relationship", work: "career", friend: "relationship", family: "relationship", self: "identity", general: "daily", daily_guidance: "daily" } as Record<string, TrustDomain>)[queryContext.domain] ?? null
               : null,
-            gates: DEFAULT_GATES,
+            gates: resolveGates(ENV_GATE_OVERRIDES),
             emotionalTemperature: emotionalTemp,
             isDirectAnswerContext: isDirectAnswer,
             // GAP-1: personality + mood を渡し、computeStanceVector に実データを供給
@@ -3099,6 +3106,8 @@ export async function POST(req: NextRequest) {
               console.info(`[home-alter] StanceVector mode upgrade: branch→conclude (boldness=${boldness.toFixed(2)}, threshold=${branchThreshold.toFixed(2)})`);
               responseMode = "conclude";
               modeDecisionReason = "conclude_stance_boldness_upgrade";
+              // 骨格/モード不一致修正: prompt は branch mode で構築済みのため、conclude 上書き指示を注入
+              homeSystemPrompt += "\n\n【モード更新】応答モードが branch → conclude に昇格した。先行する骨格指示の「分岐」「選択肢」提示を上書きする。結論を一つに絞り、断定的に答えること。";
             }
           }
 
@@ -3106,18 +3115,36 @@ export async function POST(req: NextRequest) {
           if (proactiveOutput.stance) {
             const s = proactiveOutput.stance;
             const stanceLines: string[] = [];
-            if (s.assertion_intensity > 0.7) {
+            if (s.assertion_intensity >= 0.7) {
               stanceLines.push("【断言指示】この回答では断言してよい。「〜だと思う」ではなく「〜だ」と言い切ること。");
-            } else if (s.assertion_intensity < 0.3) {
+            } else if (s.assertion_intensity <= 0.4) {
               stanceLines.push("【控えめ指示】この回答は控えめに。「〜に見える」「〜かもしれない」を使い、断言を避けること。");
             }
-            if (s.hedge_allowance < 0.3) {
+            if (s.hedge_allowance <= 0.3) {
               stanceLines.push("【留保最小化】回りくどい留保表現は避け、端的に伝えること。");
             }
             if (stanceLines.length > 0) {
               homeSystemPrompt += `\n\n${stanceLines.join("\n")}`;
               console.info(`[home-alter] StanceVector prompt injection: ${stanceLines.length} directive(s) (assert=${s.assertion_intensity.toFixed(2)}, hedge=${s.hedge_allowance.toFixed(2)})`);
             }
+          }
+
+          // ── EmbeddedSensor 独立 analytics イベント ──
+          if (proactiveOutput?.embeddedSensor) {
+            supabase.from("stargazer_analytics").insert({
+              user_id: userId,
+              event: "embedded_sensor_injected",
+              feature: "proactive",
+              metadata: {
+                target_axis: proactiveOutput.embeddedSensor.target_axis,
+                style: proactiveOutput.embeddedSensor.style,
+                confidence: proactiveOutput.embeddedSensor.confidence,
+                session_id: sessionId,
+                phase: proactiveOutput.phase,
+              },
+            }).then(({ error }) => {
+              if (error) console.warn("[embedded-sensor] Analytics insert failed:", error.message);
+            });
           }
 
           // ── Trust Event 自動検出 → DB書き込み ──
@@ -3201,11 +3228,6 @@ export async function POST(req: NextRequest) {
                 ? userMsgs.reduce((sum, m) => sum + m.content.length, 0) / userMsgs.length
                 : 100;
 
-              // 前回の probe の target_axis を取得
-              const prevProbeAxis = proactiveOutput.selectedProbe?.target_category
-                ? undefined  // selectedProbe は target_category しか持たない
-                : undefined;
-
               // activeAxes を currentTopicContext から取得
               const implicitActiveAxes = proactiveOutput.currentTopicContext?.active_axes;
 
@@ -3217,11 +3239,18 @@ export async function POST(req: NextRequest) {
                 ?? utteranceReading?.emotional_temperature
                 ?? undefined;
 
+              // RT Signal: クライアントが responseTimeMs を送信している場合のみ算出
+              const rtSignal = rawResponseTimeMs
+                ? computeResponseTimeSignal(rawResponseTimeMs)
+                : undefined;
+
               const newImplicitSignals = detectImplicitSignals({
                 currentMessage: message,
                 previousMessage: lastAlterContent ?? "",
                 sessionId: sessionId!,
-                conflictIndicator: undefined,  // RT Engine はまだ統合していない
+                // RT Engine: クライアント未送信のため通常 undefined。
+                // body.responseTimeMs が送信された場合のみ computeResponseTimeSignal を接続。
+                conflictIndicator: rtSignal?.conflictIndicator,
                 previousProbeAxis: proactiveOutput.selectedProbe
                   ? (proactiveOutput.selectedProbe.causal_connection.split("→")[0]?.trim() as import("@/lib/stargazer/traitAxes").TraitAxisKey | undefined)
                   : undefined,
@@ -4437,9 +4466,14 @@ export async function POST(req: NextRequest) {
               extraction_confidence: proactiveOutput.currentTopicContext?.extraction_confidence ?? null,
               continuity_total_candidates: proactiveOutput.continuity_total_candidates,
               continuity_adopted_count: proactiveOutput.continuity_adopted_count,
-              continuity_rejection_signal: 0, // TODO: increment when prediction_rejected event detected for continuity-based probe
+              continuity_rejection_signal: (
+                proactiveOutput.detectedTrustEvents.includes("prediction_rejected") &&
+                proactiveOutput.continuity_adopted_count > 0
+              ) ? 1 : 0,
               active_domains: proactiveOutput.currentTopicContext?.active_domains ?? [],
               active_axes: proactiveOutput.currentTopicContext?.active_axes ?? [],
+              // TASK-4: VoI top score
+              voi_top_score: proactiveOutput.voi_top_score ?? null,
               // TASK-1: StanceVector
               stance: proactiveOutput.stance ?? null,
               // TASK-5b: EmbeddedSensor

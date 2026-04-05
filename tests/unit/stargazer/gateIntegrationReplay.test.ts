@@ -16,19 +16,24 @@ import { describe, it, expect } from "vitest";
 import {
   runProactiveEngine,
   DEFAULT_GATES,
+  resolveGates,
   extractCurrentTopics,
   canAssumeContinuity,
   selectRelevantCausalLinks,
   computeStanceVector,
   buildEmbeddedSensor,
+  buildProactivePromptBlock,
   computeValueOfInformation,
   STARGAZER_AXES,
   type ProactiveEngineGates,
+  type Phase,
   type CausalLink,
   type SubdomainConsent,
   type TrustEvent,
   type ContextualAccess,
   type CurrentTopicContext,
+  type GapAnalysis,
+  type ExpressionRules,
 } from "@/lib/stargazer/proactiveUnderstanding";
 import {
   detectImplicitSignals,
@@ -48,6 +53,8 @@ const MINIMAL_CAUSAL_LINKS: CausalLink[] = [
     user_id: "test-user",
     source_fact: "判断テンポが遅い/cautious_vs_bold",
     target_axis: "cautious_vs_bold" as TraitAxisKey,
+    influence: "amplify" as const,
+    hypothesis: "慎重な判断傾向がある",
     confidence: 0.7,
     origin: "conversation_observed" as const,
     evidence_count: 2,
@@ -61,6 +68,8 @@ const MINIMAL_CAUSAL_LINKS: CausalLink[] = [
     user_id: "test-user",
     source_fact: "感情コントロールが弱い/emotional_regulation",
     target_axis: "emotional_regulation" as TraitAxisKey,
+    influence: "suppress" as const,
+    hypothesis: "感情調整に課題がある",
     confidence: 0.4,  // canAssumeContinuity の条件1（<0.6）でフィルタされるべき
     origin: "conversation_observed" as const,
     evidence_count: 1,
@@ -396,10 +405,19 @@ describe("Gate: implicit_signal_enabled", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("Gate ON/OFF 差分テスト", () => {
-  it("全 gate OFF → デフォルトと同じ出力（新フィールドは全て null/0）", () => {
+  it("全 Phase 2 gate OFF → 新フィールドは全て null/0", () => {
+    const allPhase2Off: ProactiveEngineGates = {
+      ...DEFAULT_GATES,
+      stance_vector_enabled: false,
+      continuity_filter_enabled: false,
+      axis_metadata_enabled: false,
+      voi_scoring_enabled: false,
+      implicit_signal_enabled: false,
+      embedded_sensor_enabled: false,
+    };
     const output = runProactiveEngine({
       ...BASE_INPUT,
-      gates: DEFAULT_GATES, // 全 Phase 2 gate = false
+      gates: allPhase2Off,
     });
     expect(output.stance).toBeNull();
     expect(output.currentTopicContext).toBeNull();
@@ -442,5 +460,295 @@ describe("Gate ON/OFF 差分テスト", () => {
         `${key} が DEFAULT_GATES に存在しない`,
       ).toBe(true);
     }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// StanceVector Phase progression — 閾値が全 Phase で発火することを証明
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("StanceVector Phase progression", () => {
+  const personality = { boldScore: 0.5, socialScore: 0.5 };
+  const trust = 0.5;
+  const mood = "neutral" as const;
+
+  const stanceByPhase = ([0, 1, 2, 3] as Phase[]).map(phase => ({
+    phase,
+    stance: computeStanceVector(phase, personality, trust, mood),
+  }));
+
+  it("Phase 0→3 で assertion_intensity が単調増加", () => {
+    for (let i = 1; i < stanceByPhase.length; i++) {
+      expect(
+        stanceByPhase[i].stance.assertion_intensity,
+        `Phase ${stanceByPhase[i].phase} assertion should be > Phase ${stanceByPhase[i - 1].phase}`,
+      ).toBeGreaterThan(stanceByPhase[i - 1].stance.assertion_intensity);
+    }
+  });
+
+  it("Phase 0→3 で hedge_allowance が単調減少", () => {
+    for (let i = 1; i < stanceByPhase.length; i++) {
+      expect(
+        stanceByPhase[i].stance.hedge_allowance,
+        `Phase ${stanceByPhase[i].phase} hedge should be < Phase ${stanceByPhase[i - 1].phase}`,
+      ).toBeLessThan(stanceByPhase[i - 1].stance.hedge_allowance);
+    }
+  });
+
+  it("Phase 0→3 で assumption_boldness が単調増加", () => {
+    for (let i = 1; i < stanceByPhase.length; i++) {
+      expect(
+        stanceByPhase[i].stance.assumption_boldness,
+        `Phase ${stanceByPhase[i].phase} boldness should be > Phase ${stanceByPhase[i - 1].phase}`,
+      ).toBeGreaterThan(stanceByPhase[i - 1].stance.assumption_boldness);
+    }
+  });
+
+  // route.ts 閾値テスト（prompt injection シミュレーション）
+  it("Phase 0-1 → 控えめ指示が発火（assertion_intensity <= 0.4）", () => {
+    for (const { phase, stance } of stanceByPhase.filter(s => s.phase <= 1)) {
+      expect(
+        stance.assertion_intensity,
+        `Phase ${phase} assertion (${stance.assertion_intensity}) should be <= 0.4`,
+      ).toBeLessThanOrEqual(0.4);
+    }
+  });
+
+  it("Phase 2 → 中間帯（断言も控えめも発火しない）", () => {
+    const p2 = stanceByPhase.find(s => s.phase === 2)!;
+    expect(p2.stance.assertion_intensity).toBeGreaterThan(0.35);
+    expect(p2.stance.assertion_intensity).toBeLessThan(0.7);
+  });
+
+  it("Phase 3 → 断言指示 + 留保最小化が発火", () => {
+    const p3 = stanceByPhase.find(s => s.phase === 3)!;
+    expect(
+      p3.stance.assertion_intensity,
+      `Phase 3 assertion (${p3.stance.assertion_intensity}) should be >= 0.7`,
+    ).toBeGreaterThanOrEqual(0.7);
+    expect(
+      p3.stance.hedge_allowance,
+      `Phase 3 hedge (${p3.stance.hedge_allowance}) should be <= 0.3`,
+    ).toBeLessThanOrEqual(0.3);
+  });
+
+  it("Phase 3 → boldness >= 0.6 で推測踏込み発火", () => {
+    const p3 = stanceByPhase.find(s => s.phase === 3)!;
+    expect(
+      p3.stance.assumption_boldness,
+      `Phase 3 boldness (${p3.stance.assumption_boldness}) should be >= 0.6`,
+    ).toBeGreaterThanOrEqual(0.6);
+  });
+
+  // buildProactivePromptBlock 統合テスト
+  it("Phase 0 promptBlock → 慎重表現のみ（断言不可）", () => {
+    const p0 = stanceByPhase.find(s => s.phase === 0)!;
+    const block = buildProactivePromptBlock({
+      phase: 0,
+      gap: { weakest_category: "judgment", weakest_confidence: 0.3, weakest_quality_axis: "fact_diversity", second_weakest_category: null, second_weakest_confidence: null } as GapAnalysis,
+      probe: null,
+      relevantLinks: [],
+      expressionRules: { phase: 0, allowed_hedges: ["〜かもしれない", "〜に見える"], forbidden_patterns: [], forbidden_keywords: ["性格診断"], max_confidence_expression: "〜のように思える" } as ExpressionRules,
+      gates: DEFAULT_GATES,
+      currentMessage: "テスト",
+      stance: p0.stance,
+      embeddedSensor: null,
+    });
+    expect(block).toContain("慎重に伝える");
+    expect(block).not.toContain("断言可");
+  });
+
+  it("Phase 3 promptBlock → 断言可 + 推測踏込み", () => {
+    const p3 = stanceByPhase.find(s => s.phase === 3)!;
+    const block = buildProactivePromptBlock({
+      phase: 3,
+      gap: { weakest_category: "judgment", weakest_confidence: 0.3, weakest_quality_axis: "fact_diversity", second_weakest_category: null, second_weakest_confidence: null } as GapAnalysis,
+      probe: null,
+      relevantLinks: [],
+      expressionRules: { phase: 3, allowed_hedges: ["〜かもしれない", "〜に見える", "〜だと思う"], forbidden_patterns: [], forbidden_keywords: [], max_confidence_expression: "〜だ" } as ExpressionRules,
+      gates: DEFAULT_GATES,
+      currentMessage: "テスト",
+      stance: p3.stance,
+      embeddedSensor: null,
+    });
+    expect(block).toContain("断言可");
+    expect(block).toContain("推測でも踏み込んでよい");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// resolveGates テスト
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("resolveGates", () => {
+  it("null → DEFAULT_GATES と同一", () => {
+    expect(resolveGates(null)).toEqual(DEFAULT_GATES);
+  });
+
+  it("undefined → DEFAULT_GATES と同一", () => {
+    expect(resolveGates(undefined)).toEqual(DEFAULT_GATES);
+  });
+
+  it("部分的 override → 指定 gate のみ変更、他は DEFAULT", () => {
+    const result = resolveGates({ embedded_sensor_enabled: false });
+    expect(result.embedded_sensor_enabled).toBe(false);
+    expect(result.stance_vector_enabled).toBe(true);
+    expect(result.continuity_filter_enabled).toBe(true);
+    expect(result.voi_scoring_enabled).toBe(true);
+    expect(result.implicit_signal_enabled).toBe(true);
+    expect(result.engine_enabled).toBe(true);
+  });
+
+  it("全 Phase 2 gate OFF → Phase 1 gate は維持", () => {
+    const result = resolveGates({
+      stance_vector_enabled: false,
+      continuity_filter_enabled: false,
+      axis_metadata_enabled: false,
+      voi_scoring_enabled: false,
+      implicit_signal_enabled: false,
+      embedded_sensor_enabled: false,
+    });
+    expect(result.engine_enabled).toBe(true);
+    expect(result.probe_injection_enabled).toBe(true);
+    expect(result.trust_tracking_enabled).toBe(true);
+    expect(result.stance_vector_enabled).toBe(false);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// extractCurrentTopics 曖昧入力耐性
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("extractCurrentTopics 曖昧入力耐性", () => {
+  it("曖昧入力: モヤモヤする → extraction_confidence >= 0.3", () => {
+    const ctx = extractCurrentTopics("最近なんかモヤモヤする", [], {}, "identity");
+    expect(ctx.extraction_confidence).toBeGreaterThanOrEqual(0.3);
+    expect(ctx.active_domains).toContain("identity");
+  });
+
+  it("health + 曖昧: しんどくてモヤモヤ → health 優先", () => {
+    const ctx = extractCurrentTopics("体調悪くてモヤモヤする", [], {});
+    expect(ctx.active_domains).toContain("health");
+  });
+
+  it("classifiedDomain のみ（キーワード不一致）→ confidence >= 0.3", () => {
+    const ctx = extractCurrentTopics("なんとなく気になる", [], {}, "identity");
+    expect(ctx.extraction_confidence).toBeGreaterThanOrEqual(0.3);
+    expect(ctx.active_domains).toContain("identity");
+  });
+
+  it("明確なキーワード → confidence >= 0.4", () => {
+    const ctx = extractCurrentTopics("転職するか迷ってる", [], {});
+    expect(ctx.extraction_confidence).toBeGreaterThanOrEqual(0.4);
+    expect(ctx.active_domains).toContain("career");
+  });
+
+  it("完全に無関係な入力 → confidence = 0", () => {
+    const ctx = extractCurrentTopics("あ", [], {});
+    expect(ctx.extraction_confidence).toBe(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Gate ON/OFF 体験差分テスト
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Gate ON/OFF 体験差分", () => {
+  it("全 gate OFF → promptBlock が空文字列", () => {
+    const output = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: {
+        ...DEFAULT_GATES,
+        engine_enabled: false,
+      },
+    });
+    expect(output.promptBlock).toBe("");
+  });
+
+  it("全 gate ON → promptBlock に Phase or probe 情報が含まれる", () => {
+    const output = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: DEFAULT_GATES,
+    });
+    expect(output.promptBlock.length).toBeGreaterThan(0);
+    expect(output.promptBlock).toContain("Phase");
+  });
+
+  it("個別 gate OFF → 他 gate の output 不変", () => {
+    const baseOutput = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: DEFAULT_GATES,
+    });
+
+    // stance OFF → stance が null になるが、probe/gap は不変
+    const stanceOff = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, stance_vector_enabled: false },
+    });
+    expect(stanceOff.stance).toBeNull();
+    expect(stanceOff.gap.weakest_category).toBe(baseOutput.gap.weakest_category);
+    expect(stanceOff.phase).toBe(baseOutput.phase);
+
+    // continuity OFF → currentTopicContext が null になるが、stance/gap は不変
+    const continuityOff = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, continuity_filter_enabled: false },
+    });
+    expect(continuityOff.currentTopicContext).toBeNull();
+    expect(continuityOff.stance).not.toBeNull();
+    expect(continuityOff.gap.weakest_category).toBe(baseOutput.gap.weakest_category);
+  });
+});
+
+describe("Gate OFF→ON 遷移安全性", () => {
+  it("stance OFF→ON: null→非null、他フィールド安定", () => {
+    const off = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, stance_vector_enabled: false },
+    });
+    const on = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, stance_vector_enabled: true },
+    });
+    expect(off.stance).toBeNull();
+    expect(on.stance).not.toBeNull();
+    // phase / gap は遷移しない
+    expect(off.phase).toBe(on.phase);
+    expect(off.gap.weakest_category).toBe(on.gap.weakest_category);
+  });
+
+  it("continuity OFF→ON: 候補数が変化するが総 gap は不変", () => {
+    const off = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, continuity_filter_enabled: false },
+    });
+    const on = runProactiveEngine({
+      ...BASE_INPUT,
+      gates: { ...DEFAULT_GATES, continuity_filter_enabled: true },
+    });
+    // ON/OFF 問わず候補数は存在する（causalLinks から算出）
+    // OFF → adopted_count が変わる（フィルタ非適用で全採用 or 0）
+    // ON → フィルタ適用で adopted_count が変化する可能性
+    expect(on.continuity_total_candidates).toBeGreaterThan(0);
+    // gap は不変
+    expect(off.gap.weakest_category).toBe(on.gap.weakest_category);
+  });
+
+  it("EmbeddedSensor Phase 0 ゲート: Phase 0 → sensor null", () => {
+    // Phase 0 を模擬: 全信頼指標をゼロにして Phase 0 を確実に発生させる
+    const phase0Output = runProactiveEngine({
+      ...BASE_INPUT,
+      sessions_completed: 0,
+      continuous_trust: 0,
+      trustEvents: [],
+      causalLinks: [],
+      conversationHistory: [
+        { role: "user", content: "こんにちは" },
+      ],
+      gates: DEFAULT_GATES,
+    });
+    expect(phase0Output.phase).toBe(0);
+    // Phase 0 では sensor は発火しない
+    expect(phase0Output.embeddedSensor).toBeNull();
   });
 });
