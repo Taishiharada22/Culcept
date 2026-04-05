@@ -138,8 +138,10 @@ export interface DecisionMetadata {
   energy_adjustment: EnergyAdjustment;
   /** 後悔方向 */
   regret_direction: RegretDirection;
-  /** 成長方向と矛盾する判断をしたか */
+  /** 成長方向と矛盾する判断を���たか */
   growth_vector_override: boolean;
+  /** fallback（LLM 未抽出）フラグ — analytics 用 */
+  _is_fallback?: boolean;
 }
 
 /**
@@ -1636,9 +1638,13 @@ export function rankFactsForCategory(
   category: QuestionCategory,
   maxFacts = 4,
   observationCount = 0,
+  recentAlterMessages?: string[],
 ): string[] {
   const priority = CATEGORY_FACT_PRIORITY[category];
   const archetypeWeight = computeArchetypeWeight(observationCount);
+
+  // セッション内 dedup: 直近の alter メッセージに含まれる fact を検出
+  const recentText = (recentAlterMessages ?? []).join(" ");
 
   const scored = taggedFacts.map((f) => {
     // tag が priority に含まれていればそのインデックスを score にする（小さいほど高優先）
@@ -1655,6 +1661,19 @@ export function rankFactsForCategory(
       // weight が小さいほど rank を大きく（低優先）にする
       // weight=1.0 → rank不変、weight=0.3 → rank×3.3、weight=0.1 → rank×10
       bestRank = Math.round(bestRank / Math.max(archetypeWeight, 0.05));
+    }
+
+    // セッション内 dedup: fact のキーフレーズが直近 alter 応答に出現していたら大幅ペナルティ
+    // 同じ性格ラベルを連続ターンで繰り返さない
+    if (recentText && f.text.length >= 6) {
+      // fact テキストから特徴的な4文字以上の部分文字列を抽出してチェック
+      const keywords = f.text.match(/[ぁ-んァ-ヶ一-龥]{4,}/g) ?? [];
+      const hitCount = keywords.filter((kw) => recentText.includes(kw)).length;
+      if (hitCount >= 2) {
+        bestRank += 200; // 2キーワード以上一致 → ほぼ確実に同一 fact → 最低優先
+      } else if (hitCount === 1) {
+        bestRank += 50; // 1キーワード一致 → 類似の可能性 → 中ペナルティ
+      }
     }
 
     return { fact: f, rank: bestRank };
@@ -2806,7 +2825,7 @@ function extractRepetitionGuardBlock(lastAlterResponse: string): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** 質問のドメイン（行動カテゴリとは別の軸） */
-export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance";
+export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle";
 
 /** 隠れ変数の検出状態 */
 export interface HiddenVariables {
@@ -2931,8 +2950,16 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /自分[がはのを].*わから/, /どうしたらいい.*自分/,
   ],
   daily_guidance: [
-    /今日.*何/, /何し[たよ]/, /おすすめ.*今日/, /予定/, /スケジュール/,
+    /今日.{0,4}何[しす]/, /何し[たよ]/, /おすすめ.*今日/, /予定/, /スケジュール/,
     /やること/, /過ごし方/,
+  ],
+  lifestyle: [
+    /料理/, /レシピ/, /食[材事]/, /ご飯/, /ごはん/, /ランチ/, /ディナー/,
+    /晩[飯ごはん]/, /朝[食ごはん]/, /昼[食ごはん]/, /夕[食飯]/,
+    /作[るり].*[もの物]/, /メニュー/, /献立/, /食べ[たるよ]/,
+    /おかず/, /弁当/, /自炊/, /外食/,
+    /趣味/, /運動/, /散歩/, /読書/, /映画/, /音楽/,
+    /買い物/, /掃除/, /片付け/, /洗濯/,
   ],
   general: [], // fallback
 };
@@ -3561,7 +3588,7 @@ export function buildRelationalContext(lens: RelationalLens): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** ドメインごとに参照すべき軸の定義 */
-const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance">, {
+const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance" | "lifestyle">, {
   primary: TraitAxisKey[];
   secondary: TraitAxisKey[];
 }> = {
@@ -3607,7 +3634,7 @@ export function buildDomainOverlay(
   personality: AlterPersonality,
   domain: QueryDomain,
 ): DomainOverlay | null {
-  if (domain === "general" || domain === "daily_guidance") return null;
+  if (domain === "general" || domain === "daily_guidance" || domain === "lifestyle") return null;
 
   const mapping = DOMAIN_AXIS_MAP[domain];
   const scores = personality.axisScores;
@@ -3680,6 +3707,7 @@ const DOMAIN_LABELS: Record<QueryDomain, string> = {
   self: "自分自身",
   general: "",
   daily_guidance: "デイリーガイダンス",
+  lifestyle: "暮らし",
 };
 
 /**
@@ -3857,18 +3885,13 @@ export function buildPersonalizedFactsWithDomain(
   hypothesisFacts?: HypothesisFactEntry[] | null,
   baselineDeviations?: BaselineDeviationEntry[] | null,
   personMapFacts?: PersonMapFactEntry[] | null,
+  recentAlterMessages?: string[],
 ): string[] {
   const observationCount = homeContext?.observationCount ?? 0;
   const baseFacts = buildTaggedFacts(personality, homeContext, environmentContext, hypothesisFacts, baselineDeviations, personMapFacts);
   const domainFacts = buildDomainFacts(overlay);
-  // ドメイン fact を先頭に追加してから ranking
   const merged = [...domainFacts, ...baseFacts];
-  // P0: observationCount で archetype 重みを漸減
-  // P1: environmentContext が baseFacts に含まれている
-  // P2: hypothesisFacts が baseFacts に含まれている
-  // P3: baselineDeviations が baseFacts に含まれている
-  // P6: personMapFacts が baseFacts に含まれている
-  return rankFactsForCategory(merged, category, 5, observationCount); // ドメイン追加分で1枠増
+  return rankFactsForCategory(merged, category, 5, observationCount, recentAlterMessages);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

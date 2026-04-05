@@ -51,6 +51,7 @@ import {
   type HomeAlterContextData,
   type DecisionMetadata,
   type QueryContext,
+  type QueryDomain,
   type ResponseMode,
   type ModeDecisionReason,
   type QuestionCategory,
@@ -909,6 +910,14 @@ export async function POST(req: NextRequest) {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       // DAILY GUIDANCE: 判断エンジンとは完全に独立したパイプライン
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 食/料理/暮らし系キーワードが含まれる場合は daily_guidance ではなく通常パイプラインへ
+      const hasFoodIntent = /料理|レシピ|食[材事]|ご飯|ごはん|献立|作[るり].*[もの物]|食べ[たるよ]|おかず|弁当|自炊|外食/.test(message);
+      if (queryContext.domain === "daily_guidance" && hasFoodIntent) {
+        // 食/料理の質問は daily_guidance の recover に乗せない → lifestyle として通常処理
+        queryContext.domain = "lifestyle" as QueryDomain;
+        console.info(`[daily-guidance] Food intent detected → rerouted to lifestyle`);
+      }
+
       if (queryContext.domain === "daily_guidance") {
         // userName は外側の isHomeAlter ブロックで取得済み
 
@@ -1527,6 +1536,7 @@ export async function POST(req: NextRequest) {
       const discreteTrustLevel = deriveTrustLevel(
         growthState?.trustLevel ?? 0,
         growthState?.sessionsCompleted ?? 0,
+        conversationDepth,
       );
       p0DiscreteTrustLevel = discreteTrustLevel;
 
@@ -2190,12 +2200,18 @@ export async function POST(req: NextRequest) {
       // T0 gate: trust level 0 では過去セッション由来データ（context/hypotheses/baseline/person map）を一切注入しない
       // DBに残っていること自体は問題ないが、T0で prompt に混ぜると「知りすぎている」体験になる
       const t0Gate = discreteTrustLevel >= 1;
-      const personalizedFacts = buildPersonalizedFactsWithDomain(
+      // セッション内 fact dedup: 直近3ターンの alter メッセージを取得
+      const recentAlterMsgs = conversationHistory
+        .filter((m) => m.role === "alter")
+        .slice(-3)
+        .map((m) => m.content);
+      let personalizedFacts = buildPersonalizedFactsWithDomain(
         personality, homeContextWithObs, questionCategory, domainOverlay,
         t0Gate && activeLifeContext.length > 0 ? activeLifeContext : null,
         t0Gate ? hypothesisFactEntries : null,
         t0Gate ? baselineDeviationEntries : null,
         t0Gate ? personMapFactEntries : null,
+        recentAlterMsgs,
       );
       const expectedKeywords = extractExpectedKeywords(personalizedFacts);
 
@@ -2297,6 +2313,15 @@ export async function POST(req: NextRequest) {
           v42SelfModel = null;
           v42Arena = null;
           v42RallyCritic = null;
+        }
+
+        // Rally=disengaging/stalling → 性格 fact を最大2個に絞る（ラベル爆撃を防止）
+        if (v42RallyCritic && (v42RallyCritic.status === "user_disengaging" || v42RallyCritic.status === "stalling" || v42RallyCritic.status === "looping")) {
+          const maxFactsOnDisengage = v42RallyCritic.status === "user_disengaging" ? 1 : 2;
+          if (personalizedFacts.length > maxFactsOnDisengage) {
+            console.info(`[rally] Trimming facts ${personalizedFacts.length} → ${maxFactsOnDisengage} (rally=${v42RallyCritic.status})`);
+            personalizedFacts = personalizedFacts.slice(0, maxFactsOnDisengage);
+          }
         }
       }
 
@@ -3596,7 +3621,13 @@ export async function POST(req: NextRequest) {
               if (retryMeta) homeDecisionMeta = retryMeta;
             } else {
               console.warn("[home-alter] Retry also failed validation:", retryValidation.failures);
-              homeResponse = retryFormatted || homeResponse;
+              // 2回失敗 → 正直な不確実性モード: テンプレ応答ではなく「わからないので確認する」
+              // ユーザーの言葉を拾い直す短い応答に切り替える
+              const namePrefix = userName ? `${userName}さん、` : "";
+              const userKeyPhrase = message.slice(0, 30);
+              homeResponse = `${namePrefix}「${userKeyPhrase}」について、もう少し聞かせてほしい。具体的にはどういう状況？`;
+              responseMode = "clarify";
+              console.info("[home-alter] Double validation failure → honest uncertainty mode");
               if (retryMeta) homeDecisionMeta = retryMeta;
             }
           }
@@ -4209,6 +4240,7 @@ export async function POST(req: NextRequest) {
         rawMeta.relation_value = fallbackMeta.relation_value;
       } else {
         rawMeta = fallbackMeta;
+        rawMeta._is_fallback = true;
         console.info("[home-alter] Using fallback decision metadata");
       }
 
@@ -4371,7 +4403,7 @@ export async function POST(req: NextRequest) {
               is_emotional: questionType === "emotional",
               is_self_understanding: questionType === "self_understanding",
               validation_failures: p0ValidationFailures,
-              used_fallback_metadata: !homeDecisionMeta,
+              used_fallback_metadata: !homeDecisionMeta || !!decisionMetadata?._is_fallback,
             },
             // Layer 2: 判断骨格
             judgment_skeleton: judgmentSkeleton ? {

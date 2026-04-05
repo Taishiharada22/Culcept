@@ -205,11 +205,19 @@ export interface DisclosureStyle {
 export function deriveTrustLevel(
   continuousTrust: number,
   sessionsCompleted: number,
+  currentSessionTurnCount?: number,
 ): TrustLevel {
+  // Cross-session trust（複数セッション蓄積）
   if (continuousTrust >= 0.85 && sessionsCompleted >= 40) return 4;
   if (continuousTrust >= 0.7 && sessionsCompleted >= 20) return 3;
   if (continuousTrust >= 0.4 && sessionsCompleted >= 8) return 2;
   if (sessionsCompleted >= 3) return 1;
+
+  // Session-internal trust: 初回セッションでも会話が進めば T1 を付与
+  // 4ターン（user 2回 + alter 2回）以上 → 最低限の文脈共有を許可
+  // これにより初回長会話で「毎ターン初対面」問題を解消
+  if (currentSessionTurnCount !== undefined && currentSessionTurnCount >= 4) return 1;
+
   return 0;
 }
 

@@ -355,14 +355,40 @@ export function buildRallyCriticBlock(critic: RallyCriticResult): string {
     return ""; // 順調なら注入不要
   }
 
-  return [
+  const parts: string[] = [
     "",
-    "# ラリー評価（Rally Critic）",
+    "# ラリー評価（Rally Critic）— 必ず従うこと",
     `状態: ${critic.status}`,
     `推奨: ${critic.recommendation}`,
-    critic.loop_detected ? "⚠ 堂々巡りが検出されている。同じ内容を繰り返すな。" : "",
-    "",
-  ].filter(Boolean).join("\n");
+  ];
+
+  if (critic.status === "user_disengaging") {
+    parts.push(
+      "",
+      "## 離脱防止ルール（最優先）",
+      "- 性格分析ラベル（「分析的」「完璧主義」「慎重」等）を使うな。相手の言葉を拾って返せ",
+      "- 応答は2文以内に短くしろ。長い分析は逆効果",
+      "- 「〜の傾向がある」「〜しやすい」等の性格解説を入れるな",
+      "- 代わりに: 相手が最後に言った具体的な言葉に反応する、または1つだけ問いかける",
+    );
+  }
+
+  if (critic.status === "stalling") {
+    parts.push(
+      "",
+      "## 停滞打開ルール",
+      "- 同じテーマの繰り返しを止めろ。全く違う角度から1つだけ問いかける",
+      "- 性格ラベルの再利用禁止。今までの応答に出た分析フレーズは使わない",
+      "- 短く、具体的に。3文以内",
+    );
+  }
+
+  if (critic.loop_detected) {
+    parts.push("", "⚠ 堂々巡りが検出されている。同じ内容を繰り返すな。全く違う切り口で話せ。");
+  }
+
+  parts.push("");
+  return parts.filter(Boolean).join("\n");
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
