@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // GET /api/baseline — 現在のベースライン状態を返す
@@ -64,6 +65,7 @@ export async function POST(req: NextRequest) {
     gender?: string;
     dateOfBirth?: string;
     prefecture?: string;
+    city?: string;
   };
   try {
     body = await req.json();
@@ -99,15 +101,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid prefecture" }, { status: 400 });
   }
 
-  // ─── Update profiles ───
+  const { city } = body as { city?: string };
+  if (city && typeof city !== "string") {
+    return NextResponse.json({ ok: false, error: "invalid city" }, { status: 400 });
+  }
+
+  // ─── Update profiles (service role で RLS をバイパス) ───
   const updatePayload: Record<string, unknown> = {
     baseline_completed_at: new Date().toISOString(),
   };
   if (gender) updatePayload.gender = gender;
   if (dateOfBirth) updatePayload.date_of_birth = dateOfBirth;
   if (prefecture) updatePayload.prefecture = prefecture;
+  // city はマイグレーション実行後に有効化
+  // TODO: 20260407100000_profiles_add_city.sql 適用後にコメント解除
+  // if (city) updatePayload.city = city;
 
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from("profiles")
     .update(updatePayload)
     .eq("id", user.id);
@@ -119,12 +129,12 @@ export async function POST(req: NextRequest) {
 
   // ─── Sync prefecture to user_weather_settings ───
   if (prefecture) {
-    await supabase
+    const wsPayload: Record<string, unknown> = { user_id: user.id, prefecture };
+    // TODO: city はマイグレーション適用後に有効化
+    // if (city) wsPayload.city = city;
+    await supabaseAdmin
       .from("user_weather_settings")
-      .upsert(
-        { user_id: user.id, prefecture },
-        { onConflict: "user_id" },
-      )
+      .upsert(wsPayload, { onConflict: "user_id" })
       .then(({ error: wsError }) => {
         if (wsError) console.warn("[baseline] weather_settings sync failed (non-fatal):", wsError);
       });
@@ -137,7 +147,7 @@ export async function POST(req: NextRequest) {
     if (dateOfBirth) rvUpdate.date_of_birth = dateOfBirth;
     if (prefecture) rvUpdate.prefecture = prefecture;
 
-    await supabase
+    await supabaseAdmin
       .from("rendezvous_profiles")
       .update(rvUpdate)
       .eq("user_id", user.id)
