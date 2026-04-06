@@ -11,6 +11,8 @@
 import type { AlterPersonality } from "./alter";
 import { TRAIT_AXES } from "./traitAxes";
 import type { TraitAxisKey } from "./traitAxes";
+import type { BaselineContext, QueryDomainForBaseline } from "./baselineContext";
+import { scoreBaselineRelevance, buildBaselinePromptSection, shouldInjectBaseline } from "./baselineContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ALTER 自己同一性ブロック — 全プロンプトバリアントに固定挿入
@@ -3915,6 +3917,7 @@ export function buildHomeAlterPromptWithContext(
   skeleton?: JudgmentSkeleton | null,
   clarifyType?: ClarifyType,
   clarifyIntentHint?: ClarifyIntentHint | null,
+  baselineCtx?: BaselineContext | null,
 ): string {
   // ── Mode: direct_response — テンプレ解除、LLMの自然な会話能力に委ねる ──
   if (responseMode === "direct_response") {
@@ -4162,6 +4165,22 @@ export function buildHomeAlterPromptWithContext(
   // Mode A (conclude) or B (branch): 既存プロンプトベースで拡張
   const basePrompt = buildHomeAlterPrompt(personality, homeContext, category, userMessage, userName);
 
+  // ④-C: ベースラインコンテキスト注入（性別・年齢・地域の正規化済みデータ + teenセーフガード）
+  let baselineBlock = "";
+  if (baselineCtx) {
+    const domain = queryContext?.domain as QueryDomainForBaseline | undefined;
+    const baselineDomain: QueryDomainForBaseline = (domain && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(domain))
+      ? domain
+      : "general";
+    if (shouldInjectBaseline(baselineCtx, baselineDomain)) {
+      const relevance = scoreBaselineRelevance(baselineCtx, baselineDomain);
+      const baselineLines = buildBaselinePromptSection(baselineCtx, relevance, baselineDomain);
+      if (baselineLines.length > 0) {
+        baselineBlock = "\n" + baselineLines.join("\n");
+      }
+    }
+  }
+
   // 関係性コンテクスト注入（conclude / branch 共通）
   const relationalBlock = relationalLens ? buildRelationalContext(relationalLens) : "";
 
@@ -4171,8 +4190,8 @@ export function buildHomeAlterPromptWithContext(
   const skeletonBlock = skeleton ? buildSkeletonPromptBlock(skeleton, qType) : "";
 
   if (responseMode === "conclude") {
-    // Mode A: 関係性コンテクスト + 骨格 + ドメインコンテキスト
-    let prompt = basePrompt + relationalBlock + skeletonBlock;
+    // Mode A: 関係性コンテクスト + 骨格 + ベースライン + ドメインコンテキスト
+    let prompt = basePrompt + baselineBlock + relationalBlock + skeletonBlock;
     if (overlay && overlay.dominant_tendencies.length > 0) {
       const domainSection = [
         "",
@@ -4203,8 +4222,8 @@ export function buildHomeAlterPromptWithContext(
     replaced = basePrompt + "\n\n" + branchFormat;
   }
 
-  // 関係性コンテクスト + 骨格注入
-  replaced += relationalBlock + skeletonBlock;
+  // 関係性コンテクスト + 骨格 + ベースライン注入
+  replaced += baselineBlock + relationalBlock + skeletonBlock;
 
   // ドメインセクション追加
   if (overlay && overlay.dominant_tendencies.length > 0) {

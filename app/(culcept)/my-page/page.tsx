@@ -2,7 +2,9 @@
 import "server-only";
 import { supabaseServer } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { requireBaseline } from "@/lib/baseline/requireBaseline";
 import MyPageClient from "./MyPageClient";
+import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,12 @@ export default async function MyPage() {
   } = await supabase.auth.getUser();
 
   if (!user) redirect("/login?next=/my-page");
+
+  if (user.is_anonymous) {
+    return <AnonymousRegistrationPage featureName="マイページ" />;
+  }
+
+  await requireBaseline(supabase, user.id);
 
   // ── 並列でデータ取得 ──
   const [

@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useIsAnonymous } from "@/hooks/useIsAnonymous";
+import { useRequireBaseline } from "@/hooks/useRequireBaseline";
+import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 import {
     LightBackground,
     GlassNavbar,
@@ -54,8 +57,17 @@ const navItems = NAV_ITEMS;
    ════════════════════════════════════════════════════════ */
 
 export default function SNSProfilePage() {
+    const isAnonymous = useIsAnonymous();
+    const baselineStatus = useRequireBaseline();
     const searchParams = useSearchParams();
     const isDemo = searchParams.get("demo") === "1";
+
+    if (isAnonymous === true) {
+        return <AnonymousRegistrationPage featureName="Presence" />;
+    }
+    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
+        return null;
+    }
     const [tab, setTab] = useState<Tab>("mirror");
     const [retrying, setRetrying] = useState(false);
     const prefersReducedMotion = useReducedMotion();

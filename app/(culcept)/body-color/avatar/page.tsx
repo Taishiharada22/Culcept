@@ -22,6 +22,9 @@ import FeatureIntroduction from "@/components/ui/FeatureIntroduction";
 import { BODY_COLOR_AVATAR_INTRO } from "@/lib/ui/featureIntroConfigs";
 import type { UserBodyAvatarProfile } from "@/types/body-color";
 import { BODY_AXIS_DEFS, BODY_FIELD_DEFS } from "@/lib/my-style/diagnosisEngine";
+import { useIsAnonymous } from "@/hooks/useIsAnonymous";
+import { useRequireBaseline } from "@/hooks/useRequireBaseline";
+import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 
 // Shared modules
 import type {
@@ -94,8 +97,17 @@ function resolveView(searchParams: URLSearchParams): ViewId {
 }
 
 export default function BodyColorAvatarPage() {
+    const isAnonymous = useIsAnonymous();
+    const baselineStatus = useRequireBaseline();
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    if (isAnonymous === true) {
+        return <AnonymousRegistrationPage featureName="外見分析" />;
+    }
+    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
+        return null;
+    }
 
     const activeView = useMemo(() => resolveView(searchParams), [searchParams]);
     const requestedFaceSubTab = useMemo<AvatarFaceSubTab>(() => {
