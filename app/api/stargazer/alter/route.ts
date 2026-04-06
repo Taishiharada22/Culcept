@@ -98,10 +98,18 @@ import {
   isCreationVisionTheme,
   isCoreDemandQuestion,
   isHighAbstractionTheme,
+  isCareerAdviceQuestion,
+  isUnseenValueQuestion,
+  isGreetingOnly,
+  isScopeDisclosureQuestion,
   buildCreationModePromptBlock,
   buildCoreDemandPromptBlock,
   buildHighAbstractionPromptBlock,
   buildGenericLabelBanBlock,
+  buildGreetingPromptBlock,
+  buildScopeDisclosurePromptBlock,
+  buildCareerAdvicePromptBlock,
+  buildUnseenValuePromptBlock,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
   estimateUserState,
@@ -890,6 +898,10 @@ export async function POST(req: NextRequest) {
     let p0ContextEntriesLoaded = 0;
     let p0ValidationFailures: string[] = [];
     let p0DiscreteTrustLevel = 0;
+    // R3-#4: コンテキスト注入ログ（外部スコープに引き上げ）
+    let ctxLoaded = 0;
+    let ctxUsed = 0;
+    const ctxDroppedReasons: string[] = [];
     // Gemini一次読解（Phase 0）: null = 読解未実施 or 失敗（graceful degradation）
     let utteranceReading: UtteranceReading | null = null;
     let utteranceReadingLatencyMs = 0;
@@ -2509,8 +2521,10 @@ export async function POST(req: NextRequest) {
 
       // Phase 3: 段階的開示によるコンテキスト注入
       // Trust Level と情報の性質に応じて、開示レベル（silent/hint/reference/explicit）を決定
+      // R3-#4: ctx_loaded / ctx_used / ctx_dropped_reason ログ追加
       if (hasMinTrust && activeLifeContext.length > 0 && responseMode !== "clarify") {
         const contextTrustLevel = discreteTrustLevel;
+        ctxLoaded = activeLifeContext.length;
 
         const maxContextEntries = maxContextEntriesByTrust(contextTrustLevel);
         // 関連性の高いエントリを優先し、Trust Level に応じた上限を適用
@@ -2520,17 +2534,35 @@ export async function POST(req: NextRequest) {
           if (aRelevant !== bRelevant) return bRelevant - aRelevant;
           return b.confidence - a.confidence;
         });
+
+        // ログ: trust上限で切り落とされたエントリ
+        const droppedByTrust = sortedContext.slice(maxContextEntries);
+        for (const entry of droppedByTrust) {
+          ctxDroppedReasons.push(`trust_limit(T${contextTrustLevel},max=${maxContextEntries}): "${entry.content.slice(0, 30)}..."`);
+        }
+
         const disclosureInstructions: string[] = [];
         for (const entry of sortedContext.slice(0, maxContextEntries)) {
           const relevant = isContextRelevant(entry, message);
           const level = determineDisclosureLevel(entry, contextTrustLevel, relevant);
           const instruction = formatDisclosureInstruction(entry, level);
-          if (instruction) disclosureInstructions.push(instruction);
+          if (instruction) {
+            disclosureInstructions.push(instruction);
+            ctxUsed++;
+          } else {
+            ctxDroppedReasons.push(`disclosure_level_silent: "${entry.content.slice(0, 30)}..."`);
+          }
         }
 
         if (disclosureInstructions.length > 0) {
           homeSystemPrompt += `\n\n# 背景理解（段階的開示）\n${disclosureInstructions.join("\n")}\n※ 開示レベルに従うこと。「ほのめかし可」は直接言及しない。「参照可」は自然に触れてよい。`;
         }
+        console.info(`[ctx-injection] T${contextTrustLevel} ctx_loaded=${ctxLoaded} ctx_used=${ctxUsed} ctx_dropped=${ctxDroppedReasons.length} reasons=[${ctxDroppedReasons.slice(0, 3).join("; ")}]`);
+      } else if (activeLifeContext.length > 0) {
+        ctxLoaded = activeLifeContext.length;
+        const reason = !hasMinTrust ? "trust_too_low" : responseMode === "clarify" ? "clarify_mode" : "no_context";
+        ctxDroppedReasons.push(`all_dropped: ${reason}`);
+        console.info(`[ctx-injection] ctx_loaded=${ctxLoaded} ctx_used=0 reason=${reason}`);
       }
 
       // Phase 4: 仮説注入 — 蓄積された仮説をプロンプトに反映
@@ -2948,6 +2980,38 @@ export async function POST(req: NextRequest) {
         if (labelBan) {
           homeSystemPrompt += labelBan;
         }
+      }
+
+      // ── R3-#1: 挨拶のみ → 分析禁止、軽い返事のみ ──
+      if (questionType === "greeting") {
+        homeSystemPrompt += buildGreetingPromptBlock(userName);
+        console.info("[greeting] Greeting-only block injected");
+      }
+
+      // ── R3-#2: 範囲照会 → 知っていること/知らないこと/改善条件を提示 ──
+      if (questionType === "scope_disclosure") {
+        const knownFacts = personalizedFacts.slice(0, 5);
+        const contextFacts = activeLifeContext
+          .filter(e => e.confidence >= 0.5)
+          .slice(0, 3)
+          .map(e => e.content);
+        homeSystemPrompt += buildScopeDisclosurePromptBlock(
+          [...knownFacts, ...contextFacts],
+          userName,
+        );
+        console.info(`[scope-disclosure] Block injected (facts=${knownFacts.length}, context=${contextFacts.length})`);
+      }
+
+      // ── R3-#6: 職業提案 → 5段構造テンプレ ──
+      if (isCareerAdviceQuestion(message)) {
+        homeSystemPrompt += buildCareerAdvicePromptBlock(personalizedFacts, userName);
+        console.info("[career-advice] 5-part career block injected");
+      }
+
+      // ── R3-#7: 「まだない価値」→ 未充足ニーズ5段構造 ──
+      if (isUnseenValueQuestion(message)) {
+        homeSystemPrompt += buildUnseenValuePromptBlock(personalizedFacts, userName);
+        console.info("[unseen-value] Unseen-value block injected");
       }
 
       // ── Output Governance Layer: RC1 動的会話制約 + RC5 フラストレーション ──
@@ -3460,14 +3524,21 @@ export async function POST(req: NextRequest) {
                   const allSignals = accumulateImplicitSignals(existingSignals, newImplicitSignals);
                   const promotion = promoteToMicroInsight(allSignals);
 
-                  // #7: micro-insight 露出条件を厳格化
-                  // 感情的/存在的/創業的な会話で人間体験に関係ない軸を suppress する
+                  // #7+R3-#8: micro-insight 露出条件を厳格化
+                  // 感情的/存在的/創業的/自己理解/scope_disclosure な会話で人間体験に関係ない軸を suppress する
                   const suppressedAxes = new Set<string>();
-                  if (questionType === "emotional" || isCreationTheme || isHighAbstractionTheme(message)) {
-                    // tradition_vs_novelty, topic_shift 等のノイズ軸を suppress
+                  if (
+                    questionType === "emotional" ||
+                    questionType === "self_understanding" ||
+                    questionType === "scope_disclosure" ||
+                    isCreationTheme ||
+                    isHighAbstractionTheme(message) ||
+                    queryContext?.domain === "self"
+                  ) {
                     const noiseAxes = [
                       "tradition_vs_novelty", "planning_spontaneity",
                       "abstract_concrete", "detail_orientation",
+                      "topic_shift", "formality_preference",
                     ];
                     for (const axis of noiseAxes) suppressedAxes.add(axis);
                   }
@@ -3779,9 +3850,20 @@ export async function POST(req: NextRequest) {
               const isGenericFailure = retryValidation.failures.some((f: string) => f.includes("generic") || f.includes("固有"));
               const namePrefix = userName ? `${userName}さん、` : "";
 
-              if (isGenericFailure && personalizedFacts.length > 0) {
+              // R3-#5: fallback 優先チェーン改善
+              // creation/core-demand/factual_recall では再生成 > facts > 正直な不確実性 > fallback
+              const isHighPriorityType = questionType === "factual_recall" || isCoreDemandQuestion(message)
+                || queryContext?.domain === "creation" || isCreationVisionTheme(message, conversationHistory.filter(m => m.role === "user").slice(-4).map(m => m.content));
+
+              if (isHighPriorityType && personalizedFacts.length >= 2) {
+                // 高優先タイプ: facts を直接使った具体的応答を構成（clarify に逃げない）
+                const topFacts = personalizedFacts.slice(0, 3).map(f => f.replace(/^[【\[].+?[】\]]/, "").trim()).filter(Boolean);
+                const factsBlock = topFacts.join("。また、");
+                homeResponse = `${namePrefix}${factsBlock}。\nこれを踏まえると、「${message.slice(0, 20)}」に対する僕の読みはこうだ——`;
+                // clarify に落とさず conclude のまま維持
+                console.info(`[home-alter] High-priority double failure → facts-based response (type=${questionType}, domain=${queryContext?.domain})`);
+              } else if (isGenericFailure && personalizedFacts.length > 0) {
                 // generic で2回失敗 → facts から直接構成した応答にフォールバック
-                // テンプレ質問で逃げるのではなく、持っているデータを使って最低限の判断を返す
                 const topFact = personalizedFacts[0]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
                 const secondFact = personalizedFacts[1]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
                 const factBased = secondFact
@@ -3793,7 +3875,7 @@ export async function POST(req: NextRequest) {
               } else {
                 // 非 generic の2回失敗 → 正直な不確実性モード
                 const userKeyPhrase = message.slice(0, 30);
-                homeResponse = `${namePrefix}「${userKeyPhrase}」について、もう少し聞かせてほしい。具体的にはどういう状況？`;
+                homeResponse = `${namePrefix}「${userKeyPhrase}」について、正直に言うと今の情報だけでは確信が持てない。もう少し聞かせてほしい。具体的にはどういう状況？`;
                 responseMode = "clarify";
                 console.info("[home-alter] Double validation failure → honest uncertainty mode");
               }
@@ -4575,6 +4657,10 @@ export async function POST(req: NextRequest) {
               is_self_understanding: questionType === "self_understanding",
               validation_failures: p0ValidationFailures,
               used_fallback_metadata: !homeDecisionMeta || !!decisionMetadata?._is_fallback,
+              // R3-#4: コンテキスト注入の実態ログ
+              ctx_loaded: ctxLoaded,
+              ctx_used: ctxUsed,
+              ctx_dropped_reasons: ctxDroppedReasons.length > 0 ? ctxDroppedReasons.slice(0, 5) : undefined,
             },
             // Layer 2: 判断骨格
             judgment_skeleton: judgmentSkeleton ? {

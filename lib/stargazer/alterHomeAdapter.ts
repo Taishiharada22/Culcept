@@ -654,8 +654,10 @@ export type QuestionCategory =
 /** P1-A: 5タイプルーター — 質問の「意図の種類」を分類
  * QuestionCategory（行動カテゴリ）とは独立。TypeはLLMプロンプトと
  * バリデーションのルート分岐を決定する。
- * 優先順: emotional > self_understanding > factual_recall > knowledge > strategy > judgment */
+ * 優先順: greeting > scope_disclosure > emotional > self_understanding > factual_recall > knowledge > strategy > judgment */
 export type QuestionType =
+  | "greeting"           // 挨拶のみ: "こんばんは", "やあ"
+  | "scope_disclosure"   // 範囲照会: "俺のことどこまで知ってる?", "何がわかる?"
   | "emotional"          // 感情吐露: "しんどい", "もう疲れた"
   | "self_understanding" // 自己理解: "俺って何が向いてる?", "私の核は?"
   | "factual_recall"     // 事実照会: "今の仕事知ってる?", "俺が何してるかわかる?"
@@ -1038,6 +1040,32 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * #1: 挨拶のみの検出。分析・性格推定を禁止し、軽い受け+テーマ確認のみ返す。
+ */
+export function isGreetingOnly(message: string): boolean {
+  const trimmed = message.trim();
+  // 挨拶 + 短い（実質的な問いが含まれない）
+  if (trimmed.length > 20) return false;
+  return GREETING_PATTERNS.test(trimmed);
+}
+
+/**
+ * #2: scope disclosure — 「俺のことどこまで知ってる？」「何がわかる？」
+ * self_understanding ではなく、ALTERの知識範囲の照会。
+ * 人格ラベル推定を禁止し、知っていること/知らないこと/精度向上条件を返す。
+ */
+export function isScopeDisclosureQuestion(message: string): boolean {
+  const trimmed = message.trim();
+  // 「どこまで知ってる」「どのくらいわかる」「何がわかる」
+  if (/(?:どこまで|どのくらい|どれくらい|何が).*(?:知って|わかっ|理解して|見えて|把握)/.test(trimmed)) return true;
+  // 「俺のこと〜どう思ってる」（ALTERの認識を聞く）
+  if (/[俺私僕]のこと.*(?:どう[思見]|何[だが]と[思見])/.test(trimmed)) return true;
+  // 「何を知ってる？」「何がわかってる？」
+  if (/何[をが].*(?:知って|わかって|覚えて)/.test(trimmed)) return true;
+  return false;
+}
+
+/**
  * 事実照会: Alter が自分について何を知っているか確認する質問。
  * 「今の仕事知ってるよね？」「俺が何してるかわかる？」「覚えてる？」
  *
@@ -1153,6 +1181,8 @@ export function isStrategyQuestion(message: string): boolean {
  * 優先順: emotional > self_understanding > factual_recall > knowledge > strategy > judgment
  */
 export function classifyQuestionType(message: string): QuestionType {
+  if (isGreetingOnly(message)) return "greeting";
+  if (isScopeDisclosureQuestion(message)) return "scope_disclosure";
   if (isEmotionalQuestion(message)) return "emotional";
   if (isSelfUnderstandingQuestion(message)) return "self_understanding";
   if (isFactualRecallQuestion(message)) return "factual_recall";
@@ -1174,6 +1204,14 @@ export function applyQuestionTypeOverride(
   decision: ModeDecision,
   questionType: QuestionType,
 ): ModeDecision {
+  // greeting: 常に direct_response（分析禁止、軽い受けのみ）
+  if (questionType === "greeting" && decision.mode !== "direct_response") {
+    return { mode: "direct_response", reason: "greeting_override" };
+  }
+  // scope_disclosure: 常に direct_response（人格推定禁止、知識範囲の開示のみ）
+  if (questionType === "scope_disclosure" && decision.mode !== "direct_response") {
+    return { mode: "direct_response", reason: "scope_disclosure_override" };
+  }
   if (
     (questionType === "knowledge" || questionType === "strategy" || questionType === "self_understanding") &&
     (decision.mode === "clarify" || decision.mode === "branch")
@@ -2537,9 +2575,10 @@ export function validateHomeAlterResponse(
   const isKnowledge = questionType === "knowledge";
   const isStrategy = questionType === "strategy";
   const isFactualRecall = questionType === "factual_recall";
-  // emotional, factual_recall のみ結論チェックをスキップ
-  // self_understanding / knowledge / strategy / judgment は全て1行目に方向性が必要
-  const skipConclusionCheck = emotional || isFactualRecall;
+  const isGreeting = questionType === "greeting";
+  const isScopeDisclosure = questionType === "scope_disclosure";
+  // greeting, scope_disclosure, emotional, factual_recall は結論チェックをスキップ
+  const skipConclusionCheck = emotional || isFactualRecall || isGreeting || isScopeDisclosure;
   // 結論 or 方向性パターン（self_understanding/knowledge にも適用する拡張版）
   const hasDirectionOrConclusion = hasConclusion
     || /[方向合向].*[いてう]|[核本質].*は|ポイント.*は|結論.*は|答え.*は/.test(firstLine)
@@ -2579,6 +2618,11 @@ export function validateHomeAlterResponse(
     const lines = trimmed.split("\n").filter(l => l.trim());
     if (lines.length < 2) {
       failures.push("emotional応答が1文で終わっている（最低3文必要）");
+    }
+  } else if (isGreeting || isScopeDisclosure) {
+    // greeting / scope_disclosure: 短くてOK、分析不要
+    if (trimmed.length < 5) {
+      failures.push("応答が空");
     }
   } else if (selfUnderstanding || isKnowledge || isStrategy || isFactualRecall) {
     // 自己理解・知識・戦略・事実照会: 「次の一手:」ラベル不要
@@ -3041,6 +3085,123 @@ export function buildGenericLabelBanBlock(previousAlterMessages: string[]): stri
   ].join("\n");
 }
 
+/**
+ * #1: Greeting専用プロンプト。分析・性格推定を完全に禁止。
+ */
+export function buildGreetingPromptBlock(userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  return [
+    "",
+    "# 挨拶モード（最優先指示）",
+    "ユーザーは挨拶をしただけ。性格分析・判断提案・人格ラベルは一切禁止。",
+    "",
+    "応答ルール:",
+    `- 軽く受ける（「${name}、こんばんは」「やあ」等）`,
+    "- 何か聞きたいことがあるなら自然に促す（「何かあった？」「今日はどうした？」等）",
+    "- 1-2文で十分。長くしない。",
+    "- 性格データ・人格ラベル・状態推定は使用禁止。",
+  ].join("\n");
+}
+
+/**
+ * #2: Scope Disclosure専用プロンプト。人格ラベル推定を禁止。
+ */
+export function buildScopeDisclosurePromptBlock(
+  activeContextSummary: string[],
+  userName?: string,
+): string {
+  const name = userName ? `${userName}さん` : "この人";
+  const knownSection = activeContextSummary.length > 0
+    ? activeContextSummary.map(s => `- ${s}`).join("\n")
+    : "- まだ具体的な生活情報は聞けていない";
+  return [
+    "",
+    "# 範囲照会モード（最優先指示）",
+    `${name}はALTERが自分について何をどこまで知っているか確認している。`,
+    "人格ラベル推定（慎重傾向、感情の波等）は禁止。",
+    "",
+    "以下の3つだけを返すこと:",
+    "1. **今知っていること** — 過去の会話から得た具体的な情報:",
+    knownSection,
+    "2. **まだ知らないこと** — 例: 仕事の詳細、生活状況、人間関係など",
+    "3. **何を聞ければ精度が上がるか** — 例: 「今一番迷っていること」「普段の過ごし方」",
+    "",
+    "汎用的な性格分析の披露は禁止。具体的な事実情報のみ。",
+  ].join("\n");
+}
+
+/**
+ * #6: 職業提案モード — 5段構造専用化。
+ * 今ターンで出ていない文脈（経済状況、求職状況等）の混入を禁止。
+ */
+export function buildCareerAdvicePromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  return [
+    "",
+    "# 職業提案モード（5段構造必須）",
+    `${name}は自分に合う職業・方向を聞いている。`,
+    "",
+    "以下の5段構造で必ず返すこと:",
+    "1. **結論**: 合う方向を最初の1文で言い切る",
+    "2. **向く職業群3つ**: 具体的な職種・領域名を3つ挙げる",
+    "3. **根拠3つ**: 以下のデータから3つの固有根拠を出すこと:",
+    ...personalizedFacts.slice(0, 6).map(f => `   - ${f}`),
+    "4. **向かない環境**: 避けるべき環境・条件を1つ明示する",
+    "5. **次に確かめるべき現実条件**: 今の自分で確認すべきこと1つ",
+    "",
+    "禁止事項:",
+    "- ユーザーが今ターンで言及していない文脈（経済状況、求職中、転職活動中等）を前提にしない",
+    "- 汎用ラベルの列挙（慎重傾向、深く考えるタイプ等）だけで根拠にしない",
+    "- 「まず自分を見つめて」等の内省誘導",
+  ].join("\n");
+}
+
+/**
+ * #7: 「まだない価値」専用テンプレ。
+ * introspection に寄せず、未充足ニーズと実装方向で返す。
+ */
+export function buildUnseenValuePromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  return [
+    "",
+    "# 「まだない価値」モード（最優先指示）",
+    `${name}は「世の中にまだない価値」「新しい価値」を問うている。`,
+    "内省や自己分析に寄せない。構想と実装の方向で返すこと。",
+    "",
+    "以下の5つの軸で必ず返すこと:",
+    "1. **未充足ニーズ**: 今の世の中で満たされていない課題は何か",
+    `2. **今ない価値**: ${name}だから作れる、まだ存在しないもの`,
+    "3. **なぜ今できるか**: 技術・市場・個人の条件が揃っている理由",
+    "4. **最初の顧客候補**: 誰が最初に使うか（具体的に）",
+    "5. **最初のプロトタイプ**: 最小で何を作ればいいか",
+    "",
+    "根拠に使うデータ:",
+    ...personalizedFacts.slice(0, 4).map(f => `- ${f}`),
+    "",
+    "禁止:",
+    "- 「自分を見つめ直して」等の内省誘導",
+    "- 「何がしたいか考えて」等の宿題",
+    "- 抽象的な可能性の列挙（「無限の可能性が」等）",
+  ].join("\n");
+}
+
+/**
+ * 「まだない価値」テーマの検出。
+ */
+export function isUnseenValueQuestion(message: string): boolean {
+  return /まだない.*価値|新し[いく].*価値|世の中に.*ない|存在しない.*もの/.test(message)
+    || /誰も.*作って.*ない|まだ誰も|世界.*変[えわ].*もの/.test(message);
+}
+
+/**
+ * 職業相談の検出。
+ */
+export function isCareerAdviceQuestion(message: string): boolean {
+  return /[俺私僕自分].*(?:合[うっ]て|向いて|適して).*(?:職業|仕事|職種|キャリア)/.test(message)
+    || /(?:職業|仕事|職種).*(?:教えて|何[がは]|どんな|合[うっ])/.test(message)
+    || /何の仕事|どんな仕事|適職|天職/.test(message);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Ambiguity Engine — ドメイン検出 + 曖昧性解析 + 応答モード選択
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3112,7 +3273,9 @@ export type ModeDecisionReason =
   | "reaction_redirect_topic_change" // 話題転換 → 通常パイプラインへ
   | "governance_frustration_escalation" // RC5: フラストレーション level 3+ → repair 強制
   | "conclude_stance_boldness_upgrade" // GAP-1a: StanceVector boldness が高く branch → conclude に昇格
-  | "factual_recall_override";         // 事実照会: 知ってるか知らないかを正直に答える
+  | "factual_recall_override"          // 事実照会: 知ってるか知らないかを正直に答える
+  | "greeting_override"                // 挨拶のみ: 分析禁止、軽い受けのみ
+  | "scope_disclosure_override";       // 範囲照会: 知識範囲の開示のみ
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3162,10 +3325,16 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /構想/, /世界観/, /ビジョン/, /プロダクト/, /サービス.*作/,
     /社会実装/, /哲学/, /思想/, /研究/, /論文/,
     /AI.*作/, /アプリ.*作/, /開発.*し[たて]/, /実装/,
-    /広[がめ]/, /刺さ[るっ]/, /伝わ[るっ]/, /差別化/,
+    /広[がめ]/, /広め/, /刺さ[るっ]/, /伝わ[るっ]/, /差別化/,
     /核心/, /本質/, /市場/, /ユースケース/, /ターゲット/,
     /マネタイズ/, /資金/, /投資/, /事業/,
     /感情.*AI/, /感情.*持[つった]/, /自律.*AI/,
+    // R3追加: CEO語彙拡張
+    /作[るりっ]/, /作り[たて]/, /作ろう/, /価値/, /まだない/,
+    /届[けくか]/, /生み出/, /形にし/, /新し[いく].*もの/,
+    /仕組み/, /プラットフォーム/, /エコシステム/,
+    /共感/, /課題.*解決/, /ペイン/, /ニーズ/,
+    /プロトタイプ/, /MVP/, /ローンチ/, /リリース/,
   ],
   friend: [
     /友達/, /友人/, /仲間/, /サークル/, /グループ/,
@@ -3320,10 +3489,11 @@ export function analyzeQueryContext(message: string): QueryContext {
       bestDomain = domain;
     }
   }
-  // creation > work 優先: 起業/構想テーマが work と同時に検出されたら creation を採用
-  if (bestDomain === "work") {
+  // R3: creation 最優先 — work/general で creation シグナルが1つでもあれば creation に昇格
+  if (bestDomain === "work" || bestDomain === "general") {
     const creationHits = (DOMAIN_SIGNALS.creation ?? []).filter((s) => s.test(msg)).length;
-    if (creationHits >= 2) {
+    const threshold = bestDomain === "work" ? 1 : 2; // work からは1ヒットで昇格、general からは2ヒット
+    if (creationHits >= threshold) {
       bestDomain = "creation";
       bestScore = creationHits;
     }
