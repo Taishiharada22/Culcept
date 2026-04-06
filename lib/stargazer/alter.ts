@@ -18,6 +18,13 @@
 
 import type { TraitAxisKey } from "./traitAxes";
 import { TRAIT_AXES } from "./traitAxes";
+import { STARGAZER_FLAGS } from "./featureFlags";
+import {
+  generateDerivedFacts,
+  formatDerivedFactsForPrompt,
+  type DerivedFactSet,
+  type ContradictionInput,
+} from "./derivedFactGenerator";
 import type { ArchetypeCode } from "./archetypeTypes";
 import { LAYER1_DEFS, LAYER2_DEFS, LAYER3_DEFS, ARCHETYPE_DEFS, parseArchetypeCode } from "./archetypeTypes";
 import type {
@@ -1831,7 +1838,13 @@ export interface AlterDeepContext {
  * @param context - 全ての利用可能なユーザーデータ
  * @returns AI に渡すシステムプロンプト文字列
  */
-export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<string> {
+export interface DeepAlterPromptResult {
+  prompt: string;
+  /** 派生事実セット（STARGAZER_USE_DERIVED_FACTS=true時のみ値が入る） */
+  derivedFactSet?: DerivedFactSet;
+}
+
+export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<DeepAlterPromptResult> {
   const {
     personality,
     mode,
@@ -1883,30 +1896,42 @@ export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<s
     `  Layer3 [抑圧された対処法]: ${shadowLayers.layer3.label}`,
   );
 
-  // ━━━━ Axis Scores with Meaning ━━━━
-  const axisEntries = Object.entries(personality.axisScores)
-    .filter(([, v]) => v !== undefined && v !== null)
-    .sort(([, a], [, b]) => Math.abs((b as number) - 0.5) - Math.abs((a as number) - 0.5))
-    .slice(0, 8);
+  // ━━━━ Axis Scores / Derived Facts ━━━━
+  // Feature flag: useDerivedFacts → 派生事実5-8文、false → 旧top8ラベル
+  let _lastDerivedFactSet: DerivedFactSet | undefined;
 
-  if (axisEntries.length > 0) {
-    sections.push("", "### 軸スコア（具体的な数値と意味）");
-    sections.push("「データが示している」と引用する際に使う最も強力な証拠。");
-    for (const [key, value] of axisEntries) {
-      const axisDef = TRAIT_AXES.find((a) => a.id === key);
-      if (!axisDef || value === undefined) continue;
-      const score = value as number;
-      const side = score >= 0.5 ? "right" : "left";
-      const intensity = Math.abs(score - 0.5) * 2;
-      const intensityLabel =
-        intensity > 0.7 ? "極めて強い" :
-        intensity > 0.4 ? "明確な" :
-        intensity > 0.2 ? "やや" : "中立に近い";
-      sections.push(
-        `- ${axisDef.labelLeft}/${axisDef.labelRight}: ${score.toFixed(2)} ` +
-        `→ ${intensityLabel}「${side === "left" ? axisDef.labelLeft : axisDef.labelRight}」傾向`,
-      );
-    }
+  if (STARGAZER_FLAGS.useDerivedFacts) {
+    // ── 新: 派生事実生成器 ──
+    const contradictionInputs: ContradictionInput[] =
+      (personality.contradictions ?? []).map((c) => ({
+        axisA: (c as { axisA?: TraitAxisKey }).axisA ?? ("introvert_vs_extrovert" as TraitAxisKey),
+        axisB: (c as { axisB?: TraitAxisKey }).axisB ?? ("individual_vs_social" as TraitAxisKey),
+        insight: typeof c === "string" ? c : (c as { insight?: string }).insight ?? "",
+        tension: (c as { tension?: number }).tension ?? 0.5,
+      }));
+
+    const factSet = generateDerivedFacts({
+      axisScores: personality.axisScores,
+      contradictions: contradictionInputs,
+      blindSpots: [], // Phase 2で接続
+      queryDomain: null,
+    });
+
+    _lastDerivedFactSet = factSet;
+
+    // deviation上位3軸を生データ参照用に取得
+    const topExtremeAxes = Object.entries(personality.axisScores)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([key, value]) => ({ key: key as TraitAxisKey, score: value as number }))
+      .sort((a, b) => Math.abs(b.score - 0.5) - Math.abs(a.score - 0.5))
+      .slice(0, 3);
+
+    const derivedSection = formatDerivedFactsForPrompt(factSet, topExtremeAxes);
+    sections.push("", derivedSection);
+  } else {
+    // ── 旧: top8ラベル列挙（_legacyTop8） ──
+    const legacySection = _legacyTop8(personality.axisScores);
+    if (legacySection) sections.push("", legacySection);
   }
 
   // ━━━━ Core Wound with Evidence Trail ━━━━
@@ -2230,7 +2255,10 @@ export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<s
     "- 全ての発言に具体的なデータポイント（過去の発言、軸スコア、行動パターン）を最低1つ含める",
   );
 
-  return sections.join("\n");
+  return {
+    prompt: sections.join("\n"),
+    derivedFactSet: _lastDerivedFactSet,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2537,4 +2565,45 @@ export function generateMemoryProbe(
     default:
       return null;
   }
+}
+
+// ─── Legacy Top8 (feature flag OFF時の旧ロジック) ──────────
+
+/**
+ * 旧: deviation上位8軸のラベル+スコアをLLMプロンプト用に整形
+ * STARGAZER_USE_DERIVED_FACTS=false 時に使用
+ * Phase 3完了時にこの関数を削除し、派生事実に完全移行する
+ */
+function _legacyTop8(
+  axisScores: Partial<Record<TraitAxisKey, number>>,
+): string | null {
+  const axisEntries = Object.entries(axisScores)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .sort(([, a], [, b]) => Math.abs((b as number) - 0.5) - Math.abs((a as number) - 0.5))
+    .slice(0, 8);
+
+  if (axisEntries.length === 0) return null;
+
+  const lines: string[] = [
+    "### 軸スコア（具体的な数値と意味）",
+    "「データが示している」と引用する際に使う最も強力な証拠。",
+  ];
+
+  for (const [key, value] of axisEntries) {
+    const axisDef = TRAIT_AXES.find((a) => a.id === key);
+    if (!axisDef || value === undefined) continue;
+    const score = value as number;
+    const side = score >= 0.5 ? "right" : "left";
+    const intensity = Math.abs(score - 0.5) * 2;
+    const intensityLabel =
+      intensity > 0.7 ? "極めて強い" :
+      intensity > 0.4 ? "明確な" :
+      intensity > 0.2 ? "やや" : "中立に近い";
+    lines.push(
+      `- ${axisDef.labelLeft}/${axisDef.labelRight}: ${score.toFixed(2)} ` +
+      `→ ${intensityLabel}「${side === "left" ? axisDef.labelLeft : axisDef.labelRight}」傾向`,
+    );
+  }
+
+  return lines.join("\n");
 }

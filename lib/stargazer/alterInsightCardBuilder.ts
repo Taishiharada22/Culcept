@@ -40,6 +40,8 @@ export type AlterInsightCard = {
   priority: number;
   /** テーマタグ（theme dedup 用、UI非表示） */
   theme: string;
+  /** この洞察カードの生成に寄与した軸（トレーサビリティ用） */
+  sourceAxes?: import("./traitAxes").TraitAxisKey[];
 };
 
 /* ═══ Internal Types ═══ */
@@ -67,6 +69,8 @@ type CardCandidate = {
   basePriority: number;
   /** 元データソース */
   source: "session_summary" | "hypothesis" | "causal_map" | "pattern" | "prophecy" | "cross_feature" | "welcome" | "axis_insight" | "blind_spot_drop" | "inner_weather";
+  /** この候補の生成に寄与した軸（トレーサビリティ用） */
+  sourceAxes?: import("./traitAxes").TraitAxisKey[];
 };
 
 /** DB から取得した生データ群 */
@@ -262,6 +266,8 @@ type AxisInsightRule = {
   text: string;
   theme: string;
   priority: number;
+  /** このルールが参照する軸（sourceAxes自動付与用） */
+  referencedAxes: import("./traitAxes").TraitAxisKey[];
 };
 
 function axisScore(scores: Record<string, number>, key: string): number {
@@ -291,6 +297,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "仕事では理詰めで判断するのに、対人では直感で動きやすい — 自分でも気づきにくいズレかもしれない",
     theme: "自己理解",
     priority: 0.95,
+    referencedAxes: ["rational_vs_emotional_decision", "analytical_vs_intuitive"],
   },
   // 率直に見えて核心は隠す
   {
@@ -300,6 +307,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "率直に話しているように見えるのに、核心だけは飲み込みやすい — 周囲は気づいていないかもしれない",
     theme: "本音・回避",
     priority: 0.9,
+    referencedAxes: ["direct_vs_diplomatic", "public_private_gap"],
   },
   // 独立と承認欲求の同居
   {
@@ -309,6 +317,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "一人で決められるのに安心を確かめたくなる — この矛盾に自分では気づきにくい",
     theme: "人間関係",
     priority: 0.9,
+    referencedAxes: ["independence_vs_harmony", "reassurance_need"],
   },
   // 場面で人格が切り替わる
   {
@@ -318,6 +327,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "相手によって自分のモードが切り替わるのに、表に出す自分は一貫しているように見せている",
     theme: "人間関係",
     priority: 0.85,
+    referencedAxes: ["relationship_mode_split", "public_private_gap"],
   },
   // 崩れ時の過制御
   {
@@ -327,6 +337,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "感情が揺れるときほど場を仕切ろうとしやすい — 崩れかけのサインが支配欲に出るかもしれない",
     theme: "感情",
     priority: 0.85,
+    referencedAxes: ["control_tendency", "emotional_variability"],
   },
 
   // ═══ BLIND SPOT: 自分では見えにくい構造 ═══
@@ -339,6 +350,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "感情は抑えられるのに、頭の中では同じことを反芻しやすい — 外から見えない消耗がある",
     theme: "疲労",
     priority: 0.85,
+    referencedAxes: ["emotional_regulation", "rumination_tendency"],
   },
   // 恥型: 行動の失敗を人格に結びつける
   {
@@ -347,6 +359,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "失敗したとき「自分がダメだから」と感じやすい — 行動と人格を分けにくい盲点があるかもしれない",
     theme: "自己理解",
     priority: 0.85,
+    referencedAxes: ["shame_vs_guilt"],
   },
   // 努力しているのに外部帰属する
   {
@@ -356,6 +369,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "変わりたいのに「結局は状況次第」と感じやすい — 努力の方向が見えなくなるパターンがある",
     theme: "自己理解",
     priority: 0.8,
+    referencedAxes: ["growth_mindset", "locus_of_control"],
   },
 
   // ═══ TENSION: 内面の緊張・葛藤 ═══
@@ -368,6 +382,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "自分から距離を縮められるのに、相手が近づくと壁を作りやすい — この非対称に気づいているか",
     theme: "人間関係",
     priority: 0.8,
+    referencedAxes: ["social_initiative", "boundary_awareness"],
   },
   // 完璧主義なのに計画しない
   {
@@ -377,6 +392,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "仕上がりにはこだわるのに段取りは後回しにしやすい — 締切前に追い詰められるパターンがないか",
     theme: "仕事",
     priority: 0.75,
+    referencedAxes: ["perfectionist_vs_pragmatic", "plan_vs_spontaneous"],
   },
   // 社交的だけど一人回復
   {
@@ -386,6 +402,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "普段は人と一緒にいたいのに、疲れると急に一人になりやすい — 周囲には急な変化に見えているかもしれない",
     theme: "疲労",
     priority: 0.75,
+    referencedAxes: ["introvert_vs_extrovert", "stress_isolation_vs_social"],
   },
   // 安定志向だけど直感で判断
   {
@@ -395,6 +412,7 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     text: "安定を求めているはずなのに、いざ選ぶときは直感で飛びやすい — 判断の矛盾に気づきにくい",
     theme: "自己理解",
     priority: 0.8,
+    referencedAxes: ["change_embrace_vs_resist", "analytical_vs_intuitive"],
   },
 ];
 
@@ -512,6 +530,7 @@ function generateAxisCandidates(scores: Record<string, number> | null): CardCand
         theme: rule.theme,
         basePriority: rule.priority,
         source: "axis_insight",
+        sourceAxes: rule.referencedAxes,
       });
     }
   }
@@ -1099,5 +1118,6 @@ function toCard(c: CardCandidate, pinned: boolean): AlterInsightCard {
     pinned,
     priority: c.basePriority,
     theme: c.theme,
+    sourceAxes: c.sourceAxes,
   };
 }

@@ -355,10 +355,10 @@ function AxisRadarChart({ archetypeResult }: { archetypeResult: ArchetypeResult 
 
   // ユーザーの4軸スコアを0-1の強度に変換
   const userScores = [
-    archetypeResult.layer1.score, // cognition: 偏りの強さ
-    archetypeResult.layer2.score, // emotion
-    archetypeResult.layer3.score, // social
-    archetypeResult.layer4.score, // execution
+    archetypeResult.layer1?.score ?? 0, // cognition: 偏りの強さ
+    archetypeResult.layer2?.score ?? 0, // emotion
+    archetypeResult.layer3?.score ?? 0, // social
+    archetypeResult.layer4?.score ?? 0, // execution
   ].map((s) => Math.min(Math.abs(s) * 1.2 + 0.3, 1)); // 0.3-1.0 に正規化
 
   // 平均値（タイプ平均は偏りが少ない = 0.5前後）
@@ -366,10 +366,10 @@ function AxisRadarChart({ archetypeResult }: { archetypeResult: ArchetypeResult 
 
   // ユーザーの方向（＋/-）
   const userDirections = [
-    archetypeResult.layer1.code, // A/N/S
-    archetypeResult.layer2.code, // C/V
-    archetypeResult.layer3.code, // I/E
-    archetypeResult.layer4.code, // O/X
+    archetypeResult.layer1?.code ?? "A", // A/N/S
+    archetypeResult.layer2?.code ?? "C", // C/V
+    archetypeResult.layer3?.code ?? "I", // I/E
+    archetypeResult.layer4?.code ?? "O", // O/X
   ];
 
   const directionLabels: Record<string, string> = {

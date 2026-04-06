@@ -4024,8 +4024,11 @@ export async function POST(req: NextRequest) {
     };
 
     let systemPrompt: string;
+    let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
     try {
-      systemPrompt = await buildDeepAlterPrompt(deepContext);
+      const deepResult = await buildDeepAlterPrompt(deepContext);
+      systemPrompt = deepResult.prompt;
+      derivedFactSet = deepResult.derivedFactSet;
     } catch (e) {
       console.warn("[alter] Deep prompt build failed, falling back to standard:", e);
       systemPrompt = buildAlterSystemPrompt(
@@ -4549,6 +4552,23 @@ export async function POST(req: NextRequest) {
               latency_ms: utteranceReadingLatencyMs,
               phase: "failed",
             } : undefined,
+
+            // ── 派生事実トレーサビリティ（§7-A: home_alter_judgment経路） ──
+            ...(derivedFactSet ? {
+              derived_facts: derivedFactSet.facts.map((f) => ({
+                sourceType: f.sourceType,
+                sourceAxes: f.sourceAxes,
+                confidence: f.confidence,
+                generationRule: f.generationRule,
+                includedInPrompt: true,
+              })),
+              derived_facts_summary: {
+                totalGenerated: derivedFactSet.facts.length,
+                totalIncluded: derivedFactSet.facts.length,
+                uniqueAxesUsed: derivedFactSet.totalAxesUsed,
+              },
+              axis_registry_version: "1.0.0",
+            } : {}),
           },
         })
         .then(({ error }) => {
