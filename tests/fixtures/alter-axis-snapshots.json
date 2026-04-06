@@ -1,0 +1,185 @@
+{
+  "_meta": {
+    "description": "オフライン評価ゲート用テストフィクスチャ（設計書§12）",
+    "version": "1.0.0",
+    "generated": "2026-04-06",
+    "note": "Phase 1: 合成データ5件で骨格検証。本番ゲートは実ユーザー20人×5質問=100ケースが必要（CEO判断待ち）",
+    "status": "synthetic"
+  },
+  "snapshots": [
+    {
+      "id": "synthetic-user-001",
+      "description": "内向的×大胆×計画的（矛盾パターンあり）",
+      "axisScores": {
+        "introvert_vs_extrovert": 0.25,
+        "cautious_vs_bold": 0.78,
+        "analytical_vs_intuitive": 0.72,
+        "plan_vs_spontaneous": 0.18,
+        "independence_vs_harmony": 0.82,
+        "direct_vs_diplomatic": 0.28,
+        "emotional_variability": 0.75,
+        "stress_isolation_vs_social": 0.30,
+        "individual_vs_social": 0.40,
+        "change_embrace_vs_resist": 0.62,
+        "tradition_vs_novelty": 0.58,
+        "function_vs_expression": 0.52,
+        "minimal_vs_maximal": 0.50,
+        "perfectionist_vs_pragmatic": 0.47,
+        "quality_vs_quantity": 0.53,
+        "classic_vs_trendy": 0.49,
+        "consent_maturity": 0.70,
+        "control_tendency": 0.35,
+        "emotional_regulation": 0.65,
+        "rational_vs_emotional_decision": 0.30,
+        "efficiency_vs_process": 0.65,
+        "rumination_tendency": 0.75,
+        "locus_of_control": 0.72,
+        "growth_mindset": 0.68
+      },
+      "contradictions": [
+        { "axisA": "cautious_vs_bold", "axisB": "plan_vs_spontaneous", "tension": 0.85 },
+        { "axisA": "independence_vs_harmony", "axisB": "direct_vs_diplomatic", "tension": 0.72 }
+      ],
+      "questions": [
+        "転職しようか迷ってる",
+        "友達に本音を言うべきか",
+        "今の仕事を続けるべきか",
+        "恋人との距離感に悩んでる",
+        "新しいことを始めたいけど怖い"
+      ]
+    },
+    {
+      "id": "synthetic-user-002",
+      "description": "外向的×慎重×調和重視（バランス型）",
+      "axisScores": {
+        "introvert_vs_extrovert": 0.78,
+        "cautious_vs_bold": 0.30,
+        "analytical_vs_intuitive": 0.40,
+        "plan_vs_spontaneous": 0.65,
+        "independence_vs_harmony": 0.75,
+        "direct_vs_diplomatic": 0.72,
+        "emotional_variability": 0.35,
+        "stress_isolation_vs_social": 0.72,
+        "individual_vs_social": 0.68,
+        "change_embrace_vs_resist": 0.55,
+        "tradition_vs_novelty": 0.42,
+        "function_vs_expression": 0.60,
+        "minimal_vs_maximal": 0.55,
+        "perfectionist_vs_pragmatic": 0.62,
+        "quality_vs_quantity": 0.45,
+        "classic_vs_trendy": 0.58,
+        "consent_maturity": 0.65,
+        "control_tendency": 0.50,
+        "emotional_regulation": 0.72,
+        "rational_vs_emotional_decision": 0.65,
+        "efficiency_vs_process": 0.40,
+        "rumination_tendency": 0.30,
+        "locus_of_control": 0.62,
+        "growth_mindset": 0.55
+      },
+      "contradictions": [
+        { "axisA": "cautious_vs_bold", "axisB": "change_embrace_vs_resist", "tension": 0.55 }
+      ],
+      "questions": [
+        "チームのリーダーを引き受けるべき？",
+        "飲み会に行きたくないけど断れない",
+        "副業を始めるべきか",
+        "親との関係をどうすればいい",
+        "自分の意見をもっと言うべき？"
+      ]
+    },
+    {
+      "id": "synthetic-user-003",
+      "description": "中立傾向（スコアが0.5付近、fallback検証用）",
+      "axisScores": {
+        "introvert_vs_extrovert": 0.52,
+        "cautious_vs_bold": 0.48,
+        "analytical_vs_intuitive": 0.51,
+        "plan_vs_spontaneous": 0.49,
+        "independence_vs_harmony": 0.50,
+        "direct_vs_diplomatic": 0.53,
+        "emotional_variability": 0.47,
+        "stress_isolation_vs_social": 0.50,
+        "individual_vs_social": 0.51,
+        "change_embrace_vs_resist": 0.52,
+        "tradition_vs_novelty": 0.49,
+        "function_vs_expression": 0.50,
+        "minimal_vs_maximal": 0.51,
+        "perfectionist_vs_pragmatic": 0.48,
+        "quality_vs_quantity": 0.52,
+        "classic_vs_trendy": 0.50
+      },
+      "contradictions": [],
+      "questions": [
+        "何をしたいのかわからない",
+        "今の自分に満足してる？",
+        "将来のことを考えると不安",
+        "もっと頑張るべきなのかな",
+        "自分の強みがわからない"
+      ]
+    },
+    {
+      "id": "synthetic-user-004",
+      "description": "極端×多軸（多数の軸でdeviation大、多様性制約の検証用）",
+      "axisScores": {
+        "introvert_vs_extrovert": 0.10,
+        "cautious_vs_bold": 0.90,
+        "analytical_vs_intuitive": 0.85,
+        "plan_vs_spontaneous": 0.15,
+        "independence_vs_harmony": 0.20,
+        "direct_vs_diplomatic": 0.88,
+        "emotional_variability": 0.82,
+        "stress_isolation_vs_social": 0.15,
+        "individual_vs_social": 0.22,
+        "change_embrace_vs_resist": 0.80,
+        "tradition_vs_novelty": 0.78,
+        "function_vs_expression": 0.75,
+        "minimal_vs_maximal": 0.25,
+        "perfectionist_vs_pragmatic": 0.82,
+        "quality_vs_quantity": 0.20,
+        "classic_vs_trendy": 0.80,
+        "consent_maturity": 0.75,
+        "control_tendency": 0.30,
+        "emotional_regulation": 0.25,
+        "rational_vs_emotional_decision": 0.15,
+        "efficiency_vs_process": 0.80,
+        "rumination_tendency": 0.85,
+        "locus_of_control": 0.80,
+        "growth_mindset": 0.78,
+        "attachment_style": 0.25,
+        "shame_vs_guilt": 0.80
+      },
+      "contradictions": [
+        { "axisA": "cautious_vs_bold", "axisB": "plan_vs_spontaneous", "tension": 0.90 },
+        { "axisA": "introvert_vs_extrovert", "axisB": "direct_vs_diplomatic", "tension": 0.82 },
+        { "axisA": "independence_vs_harmony", "axisB": "individual_vs_social", "tension": 0.70 }
+      ],
+      "questions": [
+        "人生の方向性を変えたい",
+        "誰にも理解されない気がする",
+        "もっと自分らしく生きたい",
+        "怒りをコントロールできない",
+        "大きな決断を迫られている"
+      ]
+    },
+    {
+      "id": "synthetic-user-005",
+      "description": "少数軸のみ（データ不足シナリオ、fallback頼みの検証用）",
+      "axisScores": {
+        "introvert_vs_extrovert": 0.35,
+        "cautious_vs_bold": 0.60,
+        "analytical_vs_intuitive": 0.55,
+        "plan_vs_spontaneous": 0.45,
+        "independence_vs_harmony": 0.50
+      },
+      "contradictions": [],
+      "questions": [
+        "何から始めればいいかわからない",
+        "自分に合った仕事って？",
+        "人間関係がうまくいかない",
+        "もう少し自信を持ちたい",
+        "毎日が退屈に感じる"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,360 @@
+{
+  "summary": {
+    "totalCases": 25,
+    "fixtureStatus": "synthetic",
+    "avgDerivedAxesCoverage": 8,
+    "avgLegacyAxesCoverage": 7.4,
+    "axesCoverageRatio": 1.08,
+    "avgConfidence": 0.82,
+    "avgFactCount": 5,
+    "sourceTypeBreakdown": {
+      "contradiction": 25,
+      "personality": 100
+    },
+    "coveragePass": false,
+    "factCountPass": true,
+    "confidencePass": true
+  },
+  "cases": [
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "転職しようか迷ってる",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8673333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "友達に本音を言うべきか",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8673333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "今の仕事を続けるべきか",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8673333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "恋人との距離感に悩んでる",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8673333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "新しいことを始めたいけど怖い",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8673333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "チームのリーダーを引き受けるべき？",
+      "metrics": {
+        "derivedAxesCoverage": 8,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 4,
+          "contradiction": 1
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "飲み会に行きたくないけど断れない",
+      "metrics": {
+        "derivedAxesCoverage": 8,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 4,
+          "contradiction": 1
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "副業を始めるべきか",
+      "metrics": {
+        "derivedAxesCoverage": 8,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 4,
+          "contradiction": 1
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "親との関係をどうすればいい",
+      "metrics": {
+        "derivedAxesCoverage": 8,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 4,
+          "contradiction": 1
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "自分の意見をもっと言うべき？",
+      "metrics": {
+        "derivedAxesCoverage": 8,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 4,
+          "contradiction": 1
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "何をしたいのかわからない",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "今の自分に満足してる？",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "将来のことを考えると不安",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "もっと頑張るべきなのかな",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "自分の強みがわからない",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "人生の方向性を変えたい",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "誰にも理解されない気がする",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "もっと自分らしく生きたい",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "怒りをコントロールできない",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "大きな決断を迫られている",
+      "metrics": {
+        "derivedAxesCoverage": 9,
+        "legacyAxesCoverage": 8,
+        "avgConfidence": 0.8833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "contradiction": 2,
+          "personality": 3
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "何から始めればいいかわからない",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 5,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "自分に合った仕事って？",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 5,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "人間関係がうまくいかない",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 5,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "もう少し自信を持ちたい",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 5,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "毎日が退屈に感じる",
+      "metrics": {
+        "derivedAxesCoverage": 7,
+        "legacyAxesCoverage": 5,
+        "avgConfidence": 0.7833333333333334,
+        "factCount": 5,
+        "sourceTypeDistribution": {
+          "personality": 5
+        }
+      }
+    }
+  ]
+}
