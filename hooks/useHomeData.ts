@@ -11,6 +11,7 @@ import { computeHomeState, type HomeState, type HomeStateInput } from "@/lib/ui/
 import { getCurrentChapter } from "@/lib/stargazer/narrativeThreading";
 import { buildImplicitProfile, type SessionImplicitProfile } from "@/lib/stargazer/implicitSignalCapture";
 import { readStoredSignals } from "@/hooks/useImplicitSignals";
+import type { AlterInsightCard } from "@/lib/stargazer/alterInsightCardBuilder";
 
 /* ═══ Types ═══ */
 
@@ -152,6 +153,11 @@ export type CalendarFeedData = { month?: string; days?: CalendarDay[] } | null;
 
 export type TribesDataType = { tribes?: TribeItem[]; myTribes?: string[] } | null;
 
+export type AlterInsightsData = {
+  cards: AlterInsightCard[];
+  sessionsCompleted: number;
+} | null;
+
 export type HomeDataResult = {
   identityLive: IdentityLiveData;
   sgData: SgData;
@@ -172,6 +178,7 @@ export type HomeDataResult = {
   homeState: HomeState;
   narrativeChapter: any;
   implicitProfile: SessionImplicitProfile | null;
+  alterInsights: AlterInsightsData;
 };
 
 /* ═══ Query functions ═══ */
@@ -334,6 +341,12 @@ async function fetchTribes(): Promise<TribesDataType> {
   return fetchJson<any>("/api/tribes?limit=6");
 }
 
+async function fetchAlterInsights(): Promise<AlterInsightsData> {
+  const d = await fetchJson<any>("/api/stargazer/alter/home-insights");
+  if (!d?.ok) return null;
+  return { cards: d.cards ?? [], sessionsCompleted: d.sessionsCompleted ?? 0 };
+}
+
 async function fetchResonance() {
   const d = await fetchJson<any>("/api/stargazer/resonance");
   if (!d?.ok) return { narrative: null, primaryAction: null, streakDays: 0 };
@@ -465,6 +478,13 @@ export function useHomeData(): HomeDataResult {
   const streakDays = resonanceResult?.streakDays ?? 0;
   const resonanceNarrative = resonanceResult?.narrative ?? null;
 
+  // ── Alter Insights (ContextReel 用) ──
+  const { data: alterInsights = null } = useQuery({
+    queryKey: ["home", "alter-insights"],
+    queryFn: fetchAlterInsights,
+    staleTime: 60_000,
+  });
+
   // ── Home State Engine (integrates all signals) ──
   const homeState = useMemo<HomeState>(() => {
     const input: HomeStateInput = {
@@ -559,5 +579,6 @@ export function useHomeData(): HomeDataResult {
     homeState,
     narrativeChapter,
     implicitProfile,
+    alterInsights,
   };
 }

@@ -170,6 +170,7 @@ import {
   type UtteranceReading,
 } from "@/lib/stargazer/alterUtteranceReading";
 import { makeStargazerRunMetadata } from "@/lib/stargazer/studentTrack";
+import { deriveBaselineContext, type BaselineContext } from "@/lib/stargazer/baselineContext";
 import {
   loadAlterSessionSummaries,
   detectCrossSessionContradiction,
@@ -888,8 +889,9 @@ export async function POST(req: NextRequest) {
         thinSliceState = await reconstructThinSliceState(supabase, userId, sessionId);
       }
 
-      // ━━━━ ユーザー表示名を取得（Embedded Alter の呼称に使用） ━━━━
+      // ━━━━ ユーザー表示名 + ベースラインコンテキストを取得 ━━━━
       let userName: string | undefined;
+      let baselineCtx: BaselineContext | null = null;
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         const meta = authUser?.user_metadata;
@@ -897,6 +899,23 @@ export async function POST(req: NextRequest) {
         if (raw && raw !== "User") userName = raw;
       } catch {
         // Non-fatal: 名前取得に失敗しても処理は続行
+      }
+      // ④-C: ベースラインデータを profiles から取得し正規化
+      try {
+        const { data: baselineRow } = await supabase
+          .from("profiles")
+          .select("gender, date_of_birth, prefecture")
+          .eq("id", userId)
+          .maybeSingle();
+        if (baselineRow && (baselineRow.gender || baselineRow.date_of_birth || baselineRow.prefecture)) {
+          baselineCtx = deriveBaselineContext({
+            gender: baselineRow.gender ?? undefined,
+            dateOfBirth: baselineRow.date_of_birth ?? undefined,
+            prefecture: baselineRow.prefecture ?? undefined,
+          });
+        }
+      } catch {
+        // Non-fatal: ベースライン未取得でも Alter は動作する
       }
 
       // 質問カテゴリ分類（行動カテゴリ: gathering/outfit/contact/work/cause/general）
@@ -2330,7 +2349,7 @@ export async function POST(req: NextRequest) {
       let homeSystemPrompt = buildHomeAlterPromptWithContext(
         personality, homeContextWithObs, questionCategory, message,
         responseMode, queryContext, domainOverlay, userName, relationalLens,
-        judgmentSkeleton, clarifyType, clarifyIntentHint,
+        judgmentSkeleton, clarifyType, clarifyIntentHint, baselineCtx,
       );
 
       // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──
