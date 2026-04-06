@@ -61,13 +61,6 @@ export default function SNSProfilePage() {
     const baselineStatus = useRequireBaseline();
     const searchParams = useSearchParams();
     const isDemo = searchParams.get("demo") === "1";
-
-    if (isAnonymous === true) {
-        return <AnonymousRegistrationPage featureName="Presence" />;
-    }
-    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
-        return null;
-    }
     const [tab, setTab] = useState<Tab>("mirror");
     const [retrying, setRetrying] = useState(false);
     const prefersReducedMotion = useReducedMotion();
@@ -103,6 +96,14 @@ export default function SNSProfilePage() {
     }, [tab, handleTabChange]);
 
     const animDuration = prefersReducedMotion ? 0 : 0.2;
+
+    /* ── Gate: anonymous / baseline ── */
+    if (isAnonymous === true) {
+        return <AnonymousRegistrationPage featureName="Presence" />;
+    }
+    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
+        return null;
+    }
 
     return (
         <LightBackground>

@@ -102,13 +102,6 @@ export default function BodyColorAvatarPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
-    if (isAnonymous === true) {
-        return <AnonymousRegistrationPage featureName="外見分析" />;
-    }
-    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
-        return null;
-    }
-
     const activeView = useMemo(() => resolveView(searchParams), [searchParams]);
     const requestedFaceSubTab = useMemo<AvatarFaceSubTab>(() => {
         const raw = String(searchParams.get("sub") ?? "")
@@ -1018,6 +1011,14 @@ export default function BodyColorAvatarPage() {
             />
         </div>
     );
+
+    /* ── Gate: anonymous / baseline ── */
+    if (isAnonymous === true) {
+        return <AnonymousRegistrationPage featureName="外見分析" />;
+    }
+    if (baselineStatus === "loading" || baselineStatus === "redirecting") {
+        return null;
+    }
 
     // === RENDER ===
     return (
