@@ -20,12 +20,20 @@ export async function POST(request: NextRequest) {
       confidence,
       selectedQuestions,
       enabledCategories,
+      dealbreakers,
     } = body as {
       partialVector: Partial<MatchingVector>;
       discoveredAxes: { axis: string; label: string; value: number; confidence: number }[];
       confidence: Record<string, number>;
       selectedQuestions: string[];
       enabledCategories: RendezvousCategory[];
+      dealbreakers?: {
+        marriageIntent?: string;
+        childrenPreference?: string;
+        lifestyleMorningNight?: number;
+        smokingStatus?: string;
+        smokingTolerance?: string;
+      };
     };
 
     // Stargazerスコアを事前取得してベクトル融合に使用
@@ -92,6 +100,35 @@ export async function POST(request: NextRequest) {
     if (profileErr) {
       console.error("Profile upsert error:", profileErr);
       return NextResponse.json({ error: profileErr.message }, { status: 500 });
+    }
+
+    // ① Dealbreaker データを profile_details に保存（romantic/partner のみ）
+    if (dealbreakers && (enabledCategories.includes("romantic") || enabledCategories.includes("partner"))) {
+      const profileDetails: Record<string, unknown> = {
+        marriageIntent: dealbreakers.marriageIntent,
+        childrenPreference: dealbreakers.childrenPreference,
+      };
+      if (dealbreakers.lifestyleMorningNight !== undefined) {
+        profileDetails.lifestyleMorningNight = dealbreakers.lifestyleMorningNight;
+      }
+      if (dealbreakers.smokingStatus) {
+        profileDetails.smokingStatus = dealbreakers.smokingStatus;
+      }
+      if (dealbreakers.smokingTolerance) {
+        profileDetails.smokingTolerance = dealbreakers.smokingTolerance;
+      }
+
+      const { error: dealbreakerErr } = await supabaseAdmin
+        .from("rendezvous_profiles")
+        .update({
+          profile_details: profileDetails,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+
+      if (dealbreakerErr) {
+        console.warn("Dealbreaker save warning:", dealbreakerErr);
+      }
     }
 
     // Upsert rendezvous preferences with matching vector
