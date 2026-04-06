@@ -113,9 +113,7 @@ export async function POST(req: NextRequest) {
   if (gender) updatePayload.gender = gender;
   if (dateOfBirth) updatePayload.date_of_birth = dateOfBirth;
   if (prefecture) updatePayload.prefecture = prefecture;
-  // city はマイグレーション実行後に有効化
-  // TODO: 20260407100000_profiles_add_city.sql 適用後にコメント解除
-  // if (city) updatePayload.city = city;
+  if (city) updatePayload.city = city;
 
   const { error } = await supabaseAdmin
     .from("profiles")
@@ -130,8 +128,7 @@ export async function POST(req: NextRequest) {
   // ─── Sync prefecture to user_weather_settings ───
   if (prefecture) {
     const wsPayload: Record<string, unknown> = { user_id: user.id, prefecture };
-    // TODO: city はマイグレーション適用後に有効化
-    // if (city) wsPayload.city = city;
+    if (city) wsPayload.city = city;
     await supabaseAdmin
       .from("user_weather_settings")
       .upsert(wsPayload, { onConflict: "user_id" })
