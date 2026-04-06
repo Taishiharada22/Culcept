@@ -138,7 +138,7 @@ function StickyCTA({ visible }: { visible: boolean }) {
             justifyContent: "center",
           }}
         >
-          <Link href="/onboarding">
+          <Link href="/stargazer">
             <motion.button
               aria-label="もうひとりの自分に会う"
               whileHover={{ scale: 1.03 }}
@@ -434,7 +434,7 @@ export default function HeroSection() {
       {/* ═══ Final CTA ═══ */}
       <section style={{ padding: "40px 24px 120px", display: "flex", flexDirection: "column", alignItems: "center", background: "radial-gradient(ellipse at 50% 40%, rgba(139,92,246,0.08), transparent 50%), linear-gradient(180deg, #0a0618, #0c0a24, #08061a)" }}>
         <motion.div initial={{ opacity: 0, y: 16 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <Link href="/onboarding">
+          <Link href="/stargazer">
             <motion.button aria-label="もうひとりの自分に会う" whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{
               padding: "18px 48px", borderRadius: 30,
               background: "linear-gradient(135deg, #8B5CF6, #6366F1)", border: "none",
