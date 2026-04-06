@@ -19,22 +19,23 @@ interface TourStep {
   description: string;
 }
 
+// ② 現在の Home DOM に存在するセクションに合わせて再定義
 const TOUR_STEPS: TourStep[] = [
   {
-    selector: '[data-tour="orbit-dock"]',
-    icon: "⭐️",
-    label: "クイックアクセス",
-    title: "ここが毎日のメインフィールド",
+    selector: '[data-tour="inner-weather"]',
+    icon: "🌤️",
+    label: "心の天気",
+    title: "今日の気分を教えてね",
     description:
-      "Stargazer（思考）、Origin（記憶）、Phenotype（身体）、Style（好み）の4つを使うことで、AIがあなたの全部を学んでいくよ。毎日少しずつ教えてあげてね。",
+      "毎日の心の状態を記録すると、Alter があなたの傾向をもっと正確に掴めるようになるよ。軽い一言でOK。",
   },
   {
-    selector: '[data-tour="alter-oneliner"]',
+    selector: '[data-tour="answer-card"]',
     icon: "✦",
-    label: "Alterの一言",
-    title: "今日のあなたの状態を、Alterが一言で",
+    label: "今日の一手",
+    title: "Alter が今日のあなたに合った提案をするよ",
     description:
-      "観測データから今のあなたの傾向を読み取って、もうひとりのあなた（Alter）が毎日一言で伝えてくれるよ。",
+      "観測データと今の状態から、Alter が今日の行動を1つ提案してくれるよ。使うほど精度が上がるよ。",
   },
   {
     selector: '[data-tour="ask-hero"]',
@@ -42,23 +43,15 @@ const TOUR_STEPS: TourStep[] = [
     label: "Alter に聞く",
     title: "何でも聞いてみて。あなた専用の判断AIだよ",
     description:
-      "仕事・恋愛・服装…何でもOK。あなたの性格や判断傾向を踏まえて、もうひとりのあなたが答えるよ。1日3回まで、気軽に使ってみてね。",
+      "仕事・恋愛・服装…何でもOK。あなたの性格や判断傾向を踏まえて、もうひとりのあなたが答えるよ。気軽に使ってみてね。",
   },
   {
-    selector: '[data-tour="rendezvous"]',
-    icon: "∞",
-    label: "つながる",
-    title: "あなたの分身が、相性のいい人を探してくれるよ",
+    selector: '[data-tour="quick-access"]',
+    icon: "⭐️",
+    label: "ナビゲーション",
+    title: "ここから各機能にアクセスできるよ",
     description:
-      "あなたのAI分身が自動的に相性のいい人を見つけてくれる、新しいマッチングの仕組みだよ。恋愛・友達・ビジネスなど、いろんな出会いに対応してるよ。",
-  },
-  {
-    selector: '[data-tour="deep-identity"]',
-    icon: "🧬",
-    label: "Deep Identity",
-    title: "ここに、まだ知らない自分が現れるよ",
-    description:
-      "性格・外見・価値観をまとめたGenome Card。Stargazer、Origin、Styleなどの情報が反映されるよ。情報を入れるほど、自分でも驚くような発見があるよ。",
+      "Stargazer（思考観測）、Origin（記憶）、Genome（自分カード）、Rendezvous（つながり）。毎日少しずつ使うことで、AIがあなたの全部を学んでいくよ。",
   },
 ];
 

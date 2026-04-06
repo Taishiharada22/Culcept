@@ -1591,14 +1591,15 @@ export default function StargazerHome() {
         }
       } catch { /* non-critical */ }
 
-      // Tab tour: check if first visit
-      try {
-        const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
-        const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
-        if (!introSeen || !tourDone) {
-          queue.push("tabTour");
-        }
-      } catch { /* silent */ }
+      // ③ Stargazer tab tour は廃止（CEO指示 2026-04-04）
+      // FeatureIntroduction は他の機能ページでのみ使用する
+      // try {
+      //   const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
+      //   const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
+      //   if (!introSeen || !tourDone) {
+      //     queue.push("tabTour");
+      //   }
+      // } catch { /* silent */ }
 
       // featureUnlock is added dynamically when triggered
       if (queue.length > 0) {
@@ -1611,12 +1612,7 @@ export default function StargazerHome() {
 
   // Auto-scroll: ページロード時にタブナビ+コンテンツが画面最上部に来るようスクロール
   useEffect(() => {
-    // ツアーが出る場合やまだデータ読み込み中の場合はスクロールしない
-    try {
-      const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
-      const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
-      if (!introSeen || !tourDone) return;
-    } catch { /* proceed with scroll */ }
+    // ③ Stargazer tab tour 廃止済み — auto-scroll は常に実行
     const timer = setTimeout(() => {
       if (tabBarRef.current) {
         tabBarRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1683,6 +1679,23 @@ export default function StargazerHome() {
 
   if (isLoading) {
     return <StargazerLoading variant="observe" />;
+  }
+
+  // ── 初回ユーザー: シェルを表示せず ObserveTab（→ OnboardingOrchestrator）から直接開始 ──
+  if (!hasData && !loadError) {
+    return (
+      <ObserveTab
+        hasData={false}
+        axisScores={axisScores}
+        totalObservations={totalObservations}
+        typeDef={typeDef}
+        greeting={dailyGreeting}
+        whisper={dailyWhisper}
+        onDataRefresh={() => loadRealData()}
+        onFirstObservationSaved={handleFirstObservationSaved}
+        previewMode={previewMode}
+      />
+    );
   }
 
   if (loadError) {
@@ -2445,7 +2458,7 @@ export default function StargazerHome() {
       {/* Alter Letter Card — auto-fetches unread letters */}
       <AlterLetterCard autoFetch />
 
-      {/* Feature Introduction (first visit) — only when it's the active overlay or no queue, and no milestone */}
+      {/* ③ Stargazer tab tour は廃止（CEO指示 2026-04-04）
       {(activeOverlay === "tabTour" || activeOverlay === null) && activeMilestone === null && (
         <FeatureIntroduction
           {...STARGAZER_INTRO}
@@ -2456,6 +2469,7 @@ export default function StargazerHome() {
           }}
         />
       )}
+      */}
 
       {/* Cross-feature recommendation cards (after initial observation + 5min) */}
       <CrossFeatureRecoCards
