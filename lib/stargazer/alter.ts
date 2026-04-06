@@ -1903,11 +1903,11 @@ export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<D
   if (STARGAZER_FLAGS.useDerivedFacts) {
     // ── 新: 派生事実生成器 ──
     const contradictionInputs: ContradictionInput[] =
-      (personality.contradictions ?? []).map((c) => ({
-        axisA: (c as { axisA?: TraitAxisKey }).axisA ?? ("introvert_vs_extrovert" as TraitAxisKey),
-        axisB: (c as { axisB?: TraitAxisKey }).axisB ?? ("individual_vs_social" as TraitAxisKey),
-        insight: typeof c === "string" ? c : (c as { insight?: string }).insight ?? "",
-        tension: (c as { tension?: number }).tension ?? 0.5,
+      (personality.contradictionAxes ?? []).map((c: { axisA: TraitAxisKey; axisB: TraitAxisKey; tension: number }) => ({
+        axisA: c.axisA,
+        axisB: c.axisB,
+        insight: `${c.axisA}と${c.axisB}の間に矛盾（tension: ${c.tension}）`,
+        tension: c.tension,
       }));
 
     const factSet = generateDerivedFacts({

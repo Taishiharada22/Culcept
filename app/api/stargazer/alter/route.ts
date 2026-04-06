@@ -882,6 +882,8 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // HOME ALTER: 完全に別フロー（挨拶なし、判断特化、検査+再生成）
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 派生事実セット: Deep Alter branch内で生成、analytics insertで参照
+    let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -4024,11 +4026,10 @@ export async function POST(req: NextRequest) {
     };
 
     let systemPrompt: string;
-    let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
     try {
       const deepResult = await buildDeepAlterPrompt(deepContext);
       systemPrompt = deepResult.prompt;
-      derivedFactSet = deepResult.derivedFactSet;
+      derivedFactSet = deepResult.derivedFactSet; // outer scope variable
     } catch (e) {
       console.warn("[alter] Deep prompt build failed, falling back to standard:", e);
       systemPrompt = buildAlterSystemPrompt(
