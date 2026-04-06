@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Derived Facts 評価ゲート — LLM応答比較</title>
+<style>
+  body { font-family: "Helvetica Neue", Arial, sans-serif; max-width: 1400px; margin: 0 auto; padding: 20px; background: #0f172a; color: #e2e8f0; }
+  h1 { color: #7dd3fc; border-bottom: 2px solid #334155; padding-bottom: 12px; }
+  h2 { color: #93c5fd; }
+  .summary { background: #1e293b; padding: 16px; border-radius: 8px; margin: 16px 0; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .stat { text-align: center; padding: 12px; border-radius: 6px; }
+  .stat-value { font-size: 2em; font-weight: bold; }
+  .case { background: #1e293b; border-radius: 8px; margin: 20px 0; padding: 16px; }
+  .case-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .case-header h3 { margin: 0; flex: 1; }
+  .question { color: #fbbf24; font-style: italic; margin: 4px 0; }
+  .verdict { padding: 4px 12px; border-radius: 12px; color: white; font-size: 0.85em; font-weight: bold; }
+  .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+  .col { background: #0f172a; padding: 12px; border-radius: 6px; }
+  .col h4 { margin: 0 0 8px; }
+  .legacy h4 { color: #60a5fa; }
+  .derived h4 { color: #4ade80; }
+  .metrics { font-size: 0.8em; color: #94a3b8; margin-bottom: 8px; }
+  .response { white-space: pre-wrap; line-height: 1.6; font-size: 0.95em; }
+  .ceo-eval { background: #334155; padding: 12px; border-radius: 6px; margin-top: 8px; }
+  .ceo-eval label { margin-right: 16px; cursor: pointer; }
+  .ceo-eval textarea { background: #1e293b; border: 1px solid #475569; color: #e2e8f0; border-radius: 4px; padding: 4px; }
+  .eval-guide { background: #1e3a5f; padding: 16px; border-radius: 8px; margin: 16px 0; border-left: 4px solid #3b82f6; }
+</style>
+</head>
+<body>
+<h1>Derived Facts 評価ゲート — LLM応答比較</h1>
+<p>生成日: 2026-04-06 / Model: gemini-2.5-flash / Fixture: synthetic (25 cases)</p>
+
+<div class="eval-guide">
+<h2>CEO評価ガイド</h2>
+<p>各ケースについて、以下の観点で旧ロジック vs 新ロジックを比較してください:</p>
+<ol>
+  <li><strong>人格反映度</strong> — ユーザーの性格特徴が応答に反映されているか</li>
+  <li><strong>判断の具体性</strong> — 一般論ではなく、その人固有の根拠で判断を示しているか</li>
+  <li><strong>洞察の深さ</strong> — 「自分って、そういう人間だったのか」と思える気づきがあるか</li>
+  <li><strong>実用性</strong> — 実際に行動に移せる具体的な提案があるか</li>
+  <li><strong>世界観</strong> — Aneurasyncらしい「第二の自己」としてのトーンか</li>
+</ol>
+<p><strong>GO条件</strong>: 新ロジックが旧ロジックと同等以上のケースが全体の70%以上</p>
+</div>
+
+<div class="summary">
+<h2>自動評価サマリー</h2>
+<div class="summary-grid">
+  <div class="stat" style="background:#166534"><div class="stat-value">2</div>新ロジック優位</div>
+  <div class="stat" style="background:#7c2d12"><div class="stat-value">1</div>旧ロジック優位</div>
+  <div class="stat" style="background:#78350f"><div class="stat-value">22</div>同等</div>
+  <div class="stat" style="background:#374151"><div class="stat-value">0</div>エラー</div>
+</div>
+<p style="margin-top:8px;color:#94a3b8">※ 自動判定は参考値です。最終判定はCEOの人手評価で行います。</p>
+</div>
+
+
+    <div class="case" id="case-0">
+      <div class="case-header">
+        <h3>Case 1: 内向的×大胆×計画的（矛盾パターンあり）</h3>
+        <p class="question">💬 「転職しようか迷ってる」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 2 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6637ms
+          </div>
+          <div class="response">転職に向けて、具体的な情報収集と計画から始めるべきです。**
+
+あなたの場合は、**内向的ながらも大胆な一面と計画性を併せ持つ**ため、漠然とした迷いの</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 2 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6526ms
+          </div>
+          <div class="response">転職は検討を進めるべきです。あなたの場合は、深い分析が大胆な行動を後押しするからです。
+
+あなたは「計画的」でありながら「大胆」という、一見矛盾する</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-0" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-0" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-0" value="same"> 同等</label>
+        <label><input type="radio" name="eval-0" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-1">
+      <div class="case-header">
+        <h3>Case 2: 内向的×大胆×計画的（矛盾パターンあり）</h3>
+        <p class="question">💬 「友達に本音を言うべきか」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 77 / 軸ラベル言及: 4 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 7051ms
+          </div>
+          <div class="response">あなたの場合は、計画的に本音を伝えるべきです。**
+
+あなたは内向的でありながら大胆な側面を持ち、一度考え出すと反芻しやすい傾向があります。本音を言わない</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 67 / 軸ラベル言及: 1 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6191ms
+          </div>
+          <div class="response">**今回は本音を言うべきです。** あなたは調和を重視する一方で、関係構築に慎重なため、無意識のうちに相手との間に壁を作ってしまう傾向</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-1" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-1" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-1" value="same"> 同等</label>
+        <label><input type="radio" name="eval-1" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-2">
+      <div class="case-header">
+        <h3>Case 3: 内向的×大胆×計画的（矛盾パターンあり）</h3>
+        <p class="question">💬 「今の仕事を続けるべきか」</p>
+        <span class="verdict" style="background:#22c55e">derived_better</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 83 / 軸ラベル言及: 3 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6617ms
+          </div>
+          <div class="response">今の仕事を続けるより、変化を計画的に検討すべきです。
+
+あなたの場合は、**内向的**でありながら**大胆**な一面を持ち、かつ**計画的**に行動することを好みます</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 0 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6407ms
+          </div>
+          <div class="response">あなたの場合は、一度立ち止まり、状況を再評価すべきです。
+
+あなたは物事をじっくり考え、計画を立ててから行動する傾向が非常に強いため、この「続けるべきか</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-2" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-2" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-2" value="same"> 同等</label>
+        <label><input type="radio" name="eval-2" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-3">
+      <div class="case-header">
+        <h3>Case 4: 内向的×大胆×計画的（矛盾パターンあり）</h3>
+        <p class="question">💬 「恋人との距離感に悩んでる」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 62 / 軸ラベル言及: 4 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6731ms
+          </div>
+          <div class="response">あなたの悩みは、**計画的に自分の本音を伝えるべき**です。なぜなら、あなたは内向的ながらも「大胆さ」と「率直さ」を併せ持ち</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 64 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6798ms
+          </div>
+          <div class="response">恋人にはあなたの本音と願望を伝えるべきです。あなたの場合は、安心確認を求めない独立性が、相手に「気にしてない」と誤解され、距離感</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-3" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-3" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-3" value="same"> 同等</label>
+        <label><input type="radio" name="eval-3" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-4">
+      <div class="case-header">
+        <h3>Case 5: 内向的×大胆×計画的（矛盾パターンあり）</h3>
+        <p class="question">💬 「新しいことを始めたいけど怖い」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 2 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6939ms
+          </div>
+          <div class="response">具体的な計画を立て、小さな一歩から始めましょう。
+
+あなたの「新しいことを始めたい」という直感は、内向的でありながらも「大胆」なあなた自身の内側から</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 75 / 軸ラベル言及: 1 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6632ms
+          </div>
+          <div class="response">新しい一歩を踏み出すために、まずは最小限の計画を立ててみましょう。
+
+あなたは「新しいことを始めたい」という大胆な意欲を持ちながらも、「怖い」と感じる</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-4" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-4" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-4" value="same"> 同等</label>
+        <label><input type="radio" name="eval-4" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-5">
+      <div class="case-header">
+        <h3>Case 6: 外向的×慎重×調和重視（バランス型）</h3>
+        <p class="question">💬 「チームのリーダーを引き受けるべき？」</p>
+        <span class="verdict" style="background:#ef4444">legacy_better</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 78 / 軸ラベル言及: 1 /
+            人格参照: 4 / 提案: 0 /
+            応答時間: 6001ms
+          </div>
+          <div class="response">あなたはチームリーダーを引き受けるべきです。あなたの特性は、チームを成功に導く上で強力な推進力となるからです。
+
+あなたの「外向的」な傾向は、メンバーとの円</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 5947ms
+          </div>
+          <div class="response">リーダーは引き受けるべきではありません。
+
+あなたの「待つ姿勢が基本」という特性は、チームのチャンスを逃すリスクを高めます。また、「不公平に寛容」なため</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-5" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-5" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-5" value="same"> 同等</label>
+        <label><input type="radio" name="eval-5" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-6">
+      <div class="case-header">
+        <h3>Case 7: 外向的×慎重×調和重視（バランス型）</h3>
+        <p class="question">💬 「飲み会に行きたくないけど断れない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 63 / 軸ラベル言及: 2 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6766ms
+          </div>
+          <div class="response">今回は無理せず、角が立たない断り方を選びましょう。
+
+あなたは「調和重視」の傾向が強く、「慎重」なため、人間関係の波風を立てる</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6578ms
+          </div>
+          <div class="response">自分の気持ちを優先し、今回は断るのが賢明です。
+
+あなたは人間関係の調和を非常に大切にし、波風を立てることを避けたいと強く感じています。そのため、</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-6" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-6" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-6" value="same"> 同等</label>
+        <label><input type="radio" name="eval-6" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-7">
+      <div class="case-header">
+        <h3>Case 8: 外向的×慎重×調和重視（バランス型）</h3>
+        <p class="question">💬 「副業を始めるべきか」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 1 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6651ms
+          </div>
+          <div class="response">副業は始めるべきです。あなたの特性を活かせるでしょう。
+
+あなたの場合は、外向的で新しい活動や人との交流に積極的なため、副業を通じて新たなコミュニ</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 70 / 軸ラベル言及: 1 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 8303ms
+          </div>
+          <div class="response">副業は始めるべきです。チャンスを逃さないでください。
+
+あなたの場合は、じっくり考えてから動く慎重さと、待つ姿勢が基本となるため、副業という</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-7" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-7" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-7" value="same"> 同等</label>
+        <label><input type="radio" name="eval-7" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-8">
+      <div class="case-header">
+        <h3>Case 9: 外向的×慎重×調和重視（バランス型）</h3>
+        <p class="question">💬 「親との関係をどうすればいい」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6046ms
+          </div>
+          <div class="response">親との関係は、まず穏やかに距離を調整することから始めましょう。
+
+あなたの場合は、周囲との調和を重視し、急な対立や関係の断絶は大きなストレスとなる</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 78 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 5853ms
+          </div>
+          <div class="response">親との関係性について、まずあなたの現状を冷静に言語化し、小さく行動しましょう。
+
+あなたは「じっくり考えてから動く」ため、親との関係においても、現状を変える</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-8" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-8" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-8" value="same"> 同等</label>
+        <label><input type="radio" name="eval-8" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-9">
+      <div class="case-header">
+        <h3>Case 10: 外向的×慎重×調和重視（バランス型）</h3>
+        <p class="question">💬 「自分の意見をもっと言うべき？」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 1 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 7124ms
+          </div>
+          <div class="response">あなたの場合は、**もっと意見を共有する機会を増やすべきです。**
+
+あなたは外向的で集団で物事を広げることを好むため、本来は人との交流を通じて</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 77 / 軸ラベル言及: 3 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 5801ms
+          </div>
+          <div class="response">あなたの場合は、もう少し意見を言うべきです。
+
+あなたは外向的でありながら、慎重さと調和重視の傾向が、意見表明にブレーキをかけています。じっくり考える特性</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-9" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-9" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-9" value="same"> 同等</label>
+        <label><input type="radio" name="eval-9" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-10">
+      <div class="case-header">
+        <h3>Case 11: 中立傾向（スコアが0.5付近、fallback検証用）</h3>
+        <p class="question">💬 「何をしたいのかわからない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 83 / 軸ラベル言及: 1 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6550ms
+          </div>
+          <div class="response">まずは小さな興味から試すことを推奨します。
+
+「何をしたいのかわからない」と感じているのは、あなたの**やや完璧主義**な傾向から、本当に納得できる「これだ」という確</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6748ms
+          </div>
+          <div class="response">自分を理解する探索期間を設けるべきです。**
+
+あなたの場合は、論理的に正しい選択を追求し、最短距離で結果を出そうとする傾向が、「何をしたいか」</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-10" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-10" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-10" value="same"> 同等</label>
+        <label><input type="radio" name="eval-10" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-11">
+      <div class="case-header">
+        <h3>Case 12: 中立傾向（スコアが0.5付近、fallback検証用）</h3>
+        <p class="question">💬 「今の自分に満足してる？」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 1 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6262ms
+          </div>
+          <div class="response">今の自分に対する満足度は、変化を恐れず多角的に見つめることで見えてくるでしょう。
+
+あなたの場合は、**やや「変化に抵抗」**しつつも**「完璧</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 66 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6043ms
+          </div>
+          <div class="response">論理的な満足はあるが、感情的充足は再考の価値があります。
+
+あなたの場合は、まず論理的な達成や効率性で「満足」を判断しがちです。最短</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-11" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-11" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-11" value="same"> 同等</label>
+        <label><input type="radio" name="eval-11" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-12">
+      <div class="case-header">
+        <h3>Case 13: 中立傾向（スコアが0.5付近、fallback検証用）</h3>
+        <p class="question">💬 「将来のことを考えると不安」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 70 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6256ms
+          </div>
+          <div class="response">将来の不安は、多角的な視点から現状を整理することで和らげられます。
+
+あなたの場合は、漠然とした不安を一人で抱え込まず、**信頼できる人と対</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 69 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 5659ms
+          </div>
+          <div class="response">あなたの不安は論理的分析と計画で解消へ向かいます。
+
+**あなたの場合は**、将来への不安を漠然としたまま抱え込まず、具体的な要素に分解し</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-12" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-12" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-12" value="same"> 同等</label>
+        <label><input type="radio" name="eval-12" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-13">
+      <div class="case-header">
+        <h3>Case 14: 中立傾向（スコアが0.5付近、fallback検証用）</h3>
+        <p class="question">💬 「もっと頑張るべきなのかな」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6237ms
+          </div>
+          <div class="response">あなたの場合は、まず「頑張る」の定義を見直すべきです。なぜなら、あなたは様々な可能性に目を向け、安定を重んじつつも完璧を目指す性質を持つからです。
+
+「</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6019ms
+          </div>
+          <div class="response">あなたの頑張り方、本当に最適か再評価すべきです。
+
+あなたの場合は、論理的に正しい選択を追求し、最短距離で結果を出そうとします。そのため、現在の「</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-13" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-13" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-13" value="same"> 同等</label>
+        <label><input type="radio" name="eval-13" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-14">
+      <div class="case-header">
+        <h3>Case 15: 中立傾向（スコアが0.5付近、fallback検証用）</h3>
+        <p class="question">💬 「自分の強みがわからない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 83 / 軸ラベル言及: 1 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6125ms
+          </div>
+          <div class="response">あなたの強みは多角的な経験から見つけられます。**
+
+あなたの場合は、まず直感的に「得意かもしれない」と感じたことを、様々な側面から振り返ってみましょう。あなたはやや</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 61 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 5733ms
+          </div>
+          <div class="response">あなたの強みは、物事を論理的かつ効率的に進める力です。**
+
+あなたの場合は、感情に流されず、最短距離で結果を出す論理的な</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-14" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-14" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-14" value="same"> 同等</label>
+        <label><input type="radio" name="eval-14" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-15">
+      <div class="case-header">
+        <h3>Case 16: 極端×多軸（多数の軸でdeviation大、多様性制約の検証用）</h3>
+        <p class="question">💬 「人生の方向性を変えたい」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 2 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 9982ms
+          </div>
+          <div class="response">人生の方向性を見直すなら、まず内面で具体的な計画を立てましょう。
+
+あなたの場合は、**大胆**で**直感的**な性質から、現状を変えたいという強い</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 79 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 5780ms
+          </div>
+          <div class="response">新しい方向性へ、まず小さく踏み出しましょう。
+
+あなたの場合は、じっくり考えてから動き、一度決めたら振り返らない傾向があります。これは大きな決断を下す際に、熟</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-15" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-15" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-15" value="same"> 同等</label>
+        <label><input type="radio" name="eval-15" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-16">
+      <div class="case-header">
+        <h3>Case 17: 極端×多軸（多数の軸でdeviation大、多様性制約の検証用）</h3>
+        <p class="question">💬 「誰にも理解されない気がする」</p>
+        <span class="verdict" style="background:#22c55e">derived_better</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 2 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6438ms
+          </div>
+          <div class="response">あなたは理解されないと感じているが、それは表現方法に起因する。
+
+あなたの場合は、内向的でストレス時に孤立しやすい傾向があり、自分の内面を他者に開</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 66 / 軸ラベル言及: 2 /
+            人格参照: 6 / 提案: 0 /
+            応答時間: 6013ms
+          </div>
+          <div class="response">あなたの孤立感は、あなたの行動傾向から生じています。
+
+あなたは関係構築に極めて慎重で、内向的な傾向が強いため、他者との間に無意識の</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-16" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-16" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-16" value="same"> 同等</label>
+        <label><input type="radio" name="eval-16" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-17">
+      <div class="case-header">
+        <h3>Case 18: 極端×多軸（多数の軸でdeviation大、多様性制約の検証用）</h3>
+        <p class="question">💬 「もっと自分らしく生きたい」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6634ms
+          </div>
+          <div class="response">あなたはまず、自分の内なる声に耳を傾け、それを形にする計画を立ててみましょう。
+
+あなたの「もっと自分らしく生きたい」という漠然とした願望は、内</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 69 / 軸ラベル言及: 2 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6174ms
+          </div>
+          <div class="response">あなたの「自分らしさ」は、** **大胆な決断力と率直さの裏にある繊細な自己認識** **です。**
+
+**どうすればいいと思う？**
+
+</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-17" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-17" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-17" value="same"> 同等</label>
+        <label><input type="radio" name="eval-17" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-18">
+      <div class="case-header">
+        <h3>Case 19: 極端×多軸（多数の軸でdeviation大、多様性制約の検証用）</h3>
+        <p class="question">💬 「怒りをコントロールできない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 64 / 軸ラベル言及: 3 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6708ms
+          </div>
+          <div class="response">怒りの爆発を避ける計画的な対処が有効です。
+
+あなたの場合は、内向的で婉曲的なため、怒りの感情を直接表現せず、内に秘めて溜め込み</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 59 / 軸ラベル言及: 2 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 7484ms
+          </div>
+          <div class="response">あなたの怒りは、普段の抑制の反動と捉えましょう。
+
+あなたは内向的で関係構築に慎重なため、普段は感情や不満を心に秘めが</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-18" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-18" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-18" value="same"> 同等</label>
+        <label><input type="radio" name="eval-18" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-19">
+      <div class="case-header">
+        <h3>Case 20: 極端×多軸（多数の軸でdeviation大、多様性制約の検証用）</h3>
+        <p class="question">💬 「大きな決断を迫られている」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 66 / 軸ラベル言及: 2 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6361ms
+          </div>
+          <div class="response">大胆に直感を信じ、入念な検証を進めましょう。あなたの場合は、直感を重視しつつも、その裏付けを計画的に行うことで、後悔の少ない決断を下</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 63 / 軸ラベル言及: 1 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6556ms
+          </div>
+          <div class="response">大胆な決断こそ、熟考と客観視を。
+
+あなたの内には、最終的に非常に大胆な決断を下し、一度決めたら振り返らない強い傾向があります</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-19" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-19" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-19" value="same"> 同等</label>
+        <label><input type="radio" name="eval-19" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-20">
+      <div class="case-header">
+        <h3>Case 21: 少数軸のみ（データ不足シナリオ、fallback頼みの検証用）</h3>
+        <p class="question">💬 「何から始めればいいかわからない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 1 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6270ms
+          </div>
+          <div class="response">まず直感で小さな一歩を踏み出しましょう。
+
+あなたの場合は、完璧な計画を待つよりも、まず直感的に「これだ」と感じた小さなことから始めるのが良いでしょう。</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 73 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6114ms
+          </div>
+          <div class="response">最初の論理的整理と小さな試行が重要です。
+
+あなたの場合は、**じっくり考えてから動く**特性と**論理的に正しい選択を求める**傾向が強く、「何</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-20" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-20" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-20" value="same"> 同等</label>
+        <label><input type="radio" name="eval-20" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-21">
+      <div class="case-header">
+        <h3>Case 22: 少数軸のみ（データ不足シナリオ、fallback頼みの検証用）</h3>
+        <p class="question">💬 「自分に合った仕事って？」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 3 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6594ms
+          </div>
+          <div class="response">あなたの場合は、**一人で深く考え、新しい価値を創出する仕事**が向いています。
+
+なぜなら、あなたは内向的ながらも大胆で直感的な判断力を持ち、計画</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 63 / 軸ラベル言及: 2 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6139ms
+          </div>
+          <div class="response">あなたの場合は、**一人で深く探求し、論理で成果を出す専門職**が適しています。
+
+あなたの内向的で分析的な特性は、一人で深く</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-21" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-21" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-21" value="same"> 同等</label>
+        <label><input type="radio" name="eval-21" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-22">
+      <div class="case-header">
+        <h3>Case 23: 少数軸のみ（データ不足シナリオ、fallback頼みの検証用）</h3>
+        <p class="question">💬 「人間関係がうまくいかない」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 2 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6505ms
+          </div>
+          <div class="response">**あなたの人間関係には、内面と行動のギャップが影響していると見ています。**
+
+あなたの場合は、周囲との調和を大切にする一方で、やや大胆で直感的な</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 0 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6330ms
+          </div>
+          <div class="response">感情を意識した対話が人間関係を改善します。
+
+あなたの場合は、論理的思考で最短距離の結果を出すことに長けている一方、感情を無視した判断が人間関係</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-22" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-22" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-22" value="same"> 同等</label>
+        <label><input type="radio" name="eval-22" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-23">
+      <div class="case-header">
+        <h3>Case 24: 少数軸のみ（データ不足シナリオ、fallback頼みの検証用）</h3>
+        <p class="question">💬 「もう少し自信を持ちたい」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 76 / 軸ラベル言及: 1 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6869ms
+          </div>
+          <div class="response">あなたの場合は、小さな挑戦を重ねて自己肯定感を高めましょう。
+
+あなたはやや内向的で、自分の内面に意識が向きやすい傾向があります。そのため、外からの評価</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 74 / 軸ラベル言及: 0 /
+            人格参照: 3 / 提案: 0 /
+            応答時間: 6257ms
+          </div>
+          <div class="response">あなたの場合は、成功体験の記録を論理的に見直しましょう。
+
+あなたは論理的に正しい選択をする一方で、自分自身の感情や他者との関係性を軽視しがちな傾向</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-23" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-23" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-23" value="same"> 同等</label>
+        <label><input type="radio" name="eval-23" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+    <div class="case" id="case-24">
+      <div class="case-header">
+        <h3>Case 25: 少数軸のみ（データ不足シナリオ、fallback頼みの検証用）</h3>
+        <p class="question">💬 「毎日が退屈に感じる」</p>
+        <span class="verdict" style="background:#f59e0b">similar</span>
+      </div>
+      <div class="comparison">
+        <div class="col legacy">
+          <h4>🔵 旧ロジック (top8)</h4>
+          <div class="metrics">
+            文字数: 72 / 軸ラベル言及: 3 /
+            人格参照: 1 / 提案: 0 /
+            応答時間: 6666ms
+          </div>
+          <div class="response">内なる探求心に従い、行動を始めましょう。
+
+あなたの場合は、**やや内向的**でありながら**大胆**な一面と**直感的**な感性を持っています</div>
+        </div>
+        <div class="col derived">
+          <h4>🟢 新ロジック (derived facts)</h4>
+          <div class="metrics">
+            文字数: 65 / 軸ラベル言及: 0 /
+            人格参照: 2 / 提案: 0 /
+            応答時間: 6154ms
+          </div>
+          <div class="response">**内省的な探求で新たな刺激を見つけましょう。** あなたの「退屈」は、最短距離で結果を出す傾向や、途中の気づきを切り捨てることで</div>
+        </div>
+      </div>
+      <div class="ceo-eval">
+        <p><strong>CEO評価欄:</strong></p>
+        <label><input type="radio" name="eval-24" value="derived"> 新ロジックの方が良い</label>
+        <label><input type="radio" name="eval-24" value="legacy"> 旧ロジックの方が良い</label>
+        <label><input type="radio" name="eval-24" value="same"> 同等</label>
+        <label><input type="radio" name="eval-24" value="both_bad"> どちらも不十分</label>
+        <br><textarea placeholder="メモ（任意）" rows="2" style="width:100%;margin-top:4px"></textarea>
+      </div>
+    </div>
+
+</body>
+</html>

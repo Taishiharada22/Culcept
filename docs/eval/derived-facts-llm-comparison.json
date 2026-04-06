@@ -1,0 +1,443 @@
+{
+  "meta": {
+    "date": "2026-04-06T16:22:39.025Z",
+    "model": "gemini-2.5-flash",
+    "fixtureStatus": "synthetic",
+    "totalCases": 25
+  },
+  "summary": {
+    "derivedBetter": 2,
+    "legacyBetter": 1,
+    "similar": 22,
+    "errors": 0,
+    "passRate": 96,
+    "goCondition": "PASS"
+  },
+  "cases": [
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "転職しようか迷ってる",
+      "legacyCharCount": 76,
+      "derivedCharCount": 74,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -2,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "転職に向けて、具体的な情報収集と計画から始めるべきです。**\n\nあなたの場合は、**内向的ながらも大胆な一面と計画性を併せ持つ**ため、漠然とした迷いの",
+      "derivedResponsePreview": "転職は検討を進めるべきです。あなたの場合は、深い分析が大胆な行動を後押しするからです。\n\nあなたは「計画的」でありながら「大胆」という、一見矛盾する"
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "友達に本音を言うべきか",
+      "legacyCharCount": 77,
+      "derivedCharCount": 67,
+      "legacyPersonalityRefs": 3,
+      "derivedPersonalityRefs": 3,
+      "comparison": {
+        "charCountDelta": -10,
+        "axisLabelDelta": -3,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの場合は、計画的に本音を伝えるべきです。**\n\nあなたは内向的でありながら大胆な側面を持ち、一度考え出すと反芻しやすい傾向があります。本音を言わない",
+      "derivedResponsePreview": "**今回は本音を言うべきです。** あなたは調和を重視する一方で、関係構築に慎重なため、無意識のうちに相手との間に壁を作ってしまう傾向"
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "今の仕事を続けるべきか",
+      "legacyCharCount": 83,
+      "derivedCharCount": 76,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 3,
+      "comparison": {
+        "charCountDelta": -7,
+        "axisLabelDelta": -3,
+        "personalityRefDelta": 2,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "derived_better"
+      },
+      "legacyResponsePreview": "今の仕事を続けるより、変化を計画的に検討すべきです。\n\nあなたの場合は、**内向的**でありながら**大胆**な一面を持ち、かつ**計画的**に行動することを好みます",
+      "derivedResponsePreview": "あなたの場合は、一度立ち止まり、状況を再評価すべきです。\n\nあなたは物事をじっくり考え、計画を立ててから行動する傾向が非常に強いため、この「続けるべきか"
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "恋人との距離感に悩んでる",
+      "legacyCharCount": 62,
+      "derivedCharCount": 64,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": 2,
+        "axisLabelDelta": -4,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの悩みは、**計画的に自分の本音を伝えるべき**です。なぜなら、あなたは内向的ながらも「大胆さ」と「率直さ」を併せ持ち",
+      "derivedResponsePreview": "恋人にはあなたの本音と願望を伝えるべきです。あなたの場合は、安心確認を求めない独立性が、相手に「気にしてない」と誤解され、距離感"
+    },
+    {
+      "snapshotId": "synthetic-user-001",
+      "question": "新しいことを始めたいけど怖い",
+      "legacyCharCount": 74,
+      "derivedCharCount": 75,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": 1,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "具体的な計画を立て、小さな一歩から始めましょう。\n\nあなたの「新しいことを始めたい」という直感は、内向的でありながらも「大胆」なあなた自身の内側から",
+      "derivedResponsePreview": "新しい一歩を踏み出すために、まずは最小限の計画を立ててみましょう。\n\nあなたは「新しいことを始めたい」という大胆な意欲を持ちながらも、「怖い」と感じる"
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "チームのリーダーを引き受けるべき？",
+      "legacyCharCount": 78,
+      "derivedCharCount": 76,
+      "legacyPersonalityRefs": 4,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": -2,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": -3,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "legacy_better"
+      },
+      "legacyResponsePreview": "あなたはチームリーダーを引き受けるべきです。あなたの特性は、チームを成功に導く上で強力な推進力となるからです。\n\nあなたの「外向的」な傾向は、メンバーとの円",
+      "derivedResponsePreview": "リーダーは引き受けるべきではありません。\n\nあなたの「待つ姿勢が基本」という特性は、チームのチャンスを逃すリスクを高めます。また、「不公平に寛容」なため"
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "飲み会に行きたくないけど断れない",
+      "legacyCharCount": 63,
+      "derivedCharCount": 73,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": 10,
+        "axisLabelDelta": -2,
+        "personalityRefDelta": -1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "今回は無理せず、角が立たない断り方を選びましょう。\n\nあなたは「調和重視」の傾向が強く、「慎重」なため、人間関係の波風を立てる",
+      "derivedResponsePreview": "自分の気持ちを優先し、今回は断るのが賢明です。\n\nあなたは人間関係の調和を非常に大切にし、波風を立てることを避けたいと強く感じています。そのため、"
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "副業を始めるべきか",
+      "legacyCharCount": 73,
+      "derivedCharCount": 70,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": -3,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": -1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "副業は始めるべきです。あなたの特性を活かせるでしょう。\n\nあなたの場合は、外向的で新しい活動や人との交流に積極的なため、副業を通じて新たなコミュニ",
+      "derivedResponsePreview": "副業は始めるべきです。チャンスを逃さないでください。\n\nあなたの場合は、じっくり考えてから動く慎重さと、待つ姿勢が基本となるため、副業という"
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "親との関係をどうすればいい",
+      "legacyCharCount": 73,
+      "derivedCharCount": 78,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": 5,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "親との関係は、まず穏やかに距離を調整することから始めましょう。\n\nあなたの場合は、周囲との調和を重視し、急な対立や関係の断絶は大きなストレスとなる",
+      "derivedResponsePreview": "親との関係性について、まずあなたの現状を冷静に言語化し、小さく行動しましょう。\n\nあなたは「じっくり考えてから動く」ため、親との関係においても、現状を変える"
+    },
+    {
+      "snapshotId": "synthetic-user-002",
+      "question": "自分の意見をもっと言うべき？",
+      "legacyCharCount": 72,
+      "derivedCharCount": 77,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 3,
+      "comparison": {
+        "charCountDelta": 5,
+        "axisLabelDelta": 2,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの場合は、**もっと意見を共有する機会を増やすべきです。**\n\nあなたは外向的で集団で物事を広げることを好むため、本来は人との交流を通じて",
+      "derivedResponsePreview": "あなたの場合は、もう少し意見を言うべきです。\n\nあなたは外向的でありながら、慎重さと調和重視の傾向が、意見表明にブレーキをかけています。じっくり考える特性"
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "何をしたいのかわからない",
+      "legacyCharCount": 83,
+      "derivedCharCount": 72,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -11,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "まずは小さな興味から試すことを推奨します。\n\n「何をしたいのかわからない」と感じているのは、あなたの**やや完璧主義**な傾向から、本当に納得できる「これだ」という確",
+      "derivedResponsePreview": "自分を理解する探索期間を設けるべきです。**\n\nあなたの場合は、論理的に正しい選択を追求し、最短距離で結果を出そうとする傾向が、「何をしたいか」"
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "今の自分に満足してる？",
+      "legacyCharCount": 72,
+      "derivedCharCount": 66,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": -6,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "今の自分に対する満足度は、変化を恐れず多角的に見つめることで見えてくるでしょう。\n\nあなたの場合は、**やや「変化に抵抗」**しつつも**「完璧",
+      "derivedResponsePreview": "論理的な満足はあるが、感情的充足は再考の価値があります。\n\nあなたの場合は、まず論理的な達成や効率性で「満足」を判断しがちです。最短"
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "将来のことを考えると不安",
+      "legacyCharCount": 70,
+      "derivedCharCount": 69,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -1,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "将来の不安は、多角的な視点から現状を整理することで和らげられます。\n\nあなたの場合は、漠然とした不安を一人で抱え込まず、**信頼できる人と対",
+      "derivedResponsePreview": "あなたの不安は論理的分析と計画で解消へ向かいます。\n\n**あなたの場合は**、将来への不安を漠然としたまま抱え込まず、具体的な要素に分解し"
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "もっと頑張るべきなのかな",
+      "legacyCharCount": 76,
+      "derivedCharCount": 73,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -3,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの場合は、まず「頑張る」の定義を見直すべきです。なぜなら、あなたは様々な可能性に目を向け、安定を重んじつつも完璧を目指す性質を持つからです。\n\n「",
+      "derivedResponsePreview": "あなたの頑張り方、本当に最適か再評価すべきです。\n\nあなたの場合は、論理的に正しい選択を追求し、最短距離で結果を出そうとします。そのため、現在の「"
+    },
+    {
+      "snapshotId": "synthetic-user-003",
+      "question": "自分の強みがわからない",
+      "legacyCharCount": 83,
+      "derivedCharCount": 61,
+      "legacyPersonalityRefs": 3,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -22,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": -1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの強みは多角的な経験から見つけられます。**\n\nあなたの場合は、まず直感的に「得意かもしれない」と感じたことを、様々な側面から振り返ってみましょう。あなたはやや",
+      "derivedResponsePreview": "あなたの強みは、物事を論理的かつ効率的に進める力です。**\n\nあなたの場合は、感情に流されず、最短距離で結果を出す論理的な"
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "人生の方向性を変えたい",
+      "legacyCharCount": 74,
+      "derivedCharCount": 79,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": 5,
+        "axisLabelDelta": -2,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "人生の方向性を見直すなら、まず内面で具体的な計画を立てましょう。\n\nあなたの場合は、**大胆**で**直感的**な性質から、現状を変えたいという強い",
+      "derivedResponsePreview": "新しい方向性へ、まず小さく踏み出しましょう。\n\nあなたの場合は、じっくり考えてから動き、一度決めたら振り返らない傾向があります。これは大きな決断を下す際に、熟"
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "誰にも理解されない気がする",
+      "legacyCharCount": 73,
+      "derivedCharCount": 66,
+      "legacyPersonalityRefs": 3,
+      "derivedPersonalityRefs": 6,
+      "comparison": {
+        "charCountDelta": -7,
+        "axisLabelDelta": 0,
+        "personalityRefDelta": 3,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "derived_better"
+      },
+      "legacyResponsePreview": "あなたは理解されないと感じているが、それは表現方法に起因する。\n\nあなたの場合は、内向的でストレス時に孤立しやすい傾向があり、自分の内面を他者に開",
+      "derivedResponsePreview": "あなたの孤立感は、あなたの行動傾向から生じています。\n\nあなたは関係構築に極めて慎重で、内向的な傾向が強いため、他者との間に無意識の"
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "もっと自分らしく生きたい",
+      "legacyCharCount": 72,
+      "derivedCharCount": 69,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": -3,
+        "axisLabelDelta": 2,
+        "personalityRefDelta": -1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたはまず、自分の内なる声に耳を傾け、それを形にする計画を立ててみましょう。\n\nあなたの「もっと自分らしく生きたい」という漠然とした願望は、内",
+      "derivedResponsePreview": "あなたの「自分らしさ」は、** **大胆な決断力と率直さの裏にある繊細な自己認識** **です。**\n\n**どうすればいいと思う？**\n\n"
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "怒りをコントロールできない",
+      "legacyCharCount": 64,
+      "derivedCharCount": 59,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -5,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "怒りの爆発を避ける計画的な対処が有効です。\n\nあなたの場合は、内向的で婉曲的なため、怒りの感情を直接表現せず、内に秘めて溜め込み",
+      "derivedResponsePreview": "あなたの怒りは、普段の抑制の反動と捉えましょう。\n\nあなたは内向的で関係構築に慎重なため、普段は感情や不満を心に秘めが"
+    },
+    {
+      "snapshotId": "synthetic-user-004",
+      "question": "大きな決断を迫られている",
+      "legacyCharCount": 66,
+      "derivedCharCount": 63,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -3,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "大胆に直感を信じ、入念な検証を進めましょう。あなたの場合は、直感を重視しつつも、その裏付けを計画的に行うことで、後悔の少ない決断を下",
+      "derivedResponsePreview": "大胆な決断こそ、熟考と客観視を。\n\nあなたの内には、最終的に非常に大胆な決断を下し、一度決めたら振り返らない強い傾向があります"
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "何から始めればいいかわからない",
+      "legacyCharCount": 76,
+      "derivedCharCount": 73,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -3,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "まず直感で小さな一歩を踏み出しましょう。\n\nあなたの場合は、完璧な計画を待つよりも、まず直感的に「これだ」と感じた小さなことから始めるのが良いでしょう。",
+      "derivedResponsePreview": "最初の論理的整理と小さな試行が重要です。\n\nあなたの場合は、**じっくり考えてから動く**特性と**論理的に正しい選択を求める**傾向が強く、「何"
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "自分に合った仕事って？",
+      "legacyCharCount": 74,
+      "derivedCharCount": 63,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -11,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの場合は、**一人で深く考え、新しい価値を創出する仕事**が向いています。\n\nなぜなら、あなたは内向的ながらも大胆で直感的な判断力を持ち、計画",
+      "derivedResponsePreview": "あなたの場合は、**一人で深く探求し、論理で成果を出す専門職**が適しています。\n\nあなたの内向的で分析的な特性は、一人で深く"
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "人間関係がうまくいかない",
+      "legacyCharCount": 74,
+      "derivedCharCount": 72,
+      "legacyPersonalityRefs": 2,
+      "derivedPersonalityRefs": 1,
+      "comparison": {
+        "charCountDelta": -2,
+        "axisLabelDelta": -2,
+        "personalityRefDelta": -1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "**あなたの人間関係には、内面と行動のギャップが影響していると見ています。**\n\nあなたの場合は、周囲との調和を大切にする一方で、やや大胆で直感的な",
+      "derivedResponsePreview": "感情を意識した対話が人間関係を改善します。\n\nあなたの場合は、論理的思考で最短距離の結果を出すことに長けている一方、感情を無視した判断が人間関係"
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "もう少し自信を持ちたい",
+      "legacyCharCount": 76,
+      "derivedCharCount": 74,
+      "legacyPersonalityRefs": 3,
+      "derivedPersonalityRefs": 3,
+      "comparison": {
+        "charCountDelta": -2,
+        "axisLabelDelta": -1,
+        "personalityRefDelta": 0,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "あなたの場合は、小さな挑戦を重ねて自己肯定感を高めましょう。\n\nあなたはやや内向的で、自分の内面に意識が向きやすい傾向があります。そのため、外からの評価",
+      "derivedResponsePreview": "あなたの場合は、成功体験の記録を論理的に見直しましょう。\n\nあなたは論理的に正しい選択をする一方で、自分自身の感情や他者との関係性を軽視しがちな傾向"
+    },
+    {
+      "snapshotId": "synthetic-user-005",
+      "question": "毎日が退屈に感じる",
+      "legacyCharCount": 72,
+      "derivedCharCount": 65,
+      "legacyPersonalityRefs": 1,
+      "derivedPersonalityRefs": 2,
+      "comparison": {
+        "charCountDelta": -7,
+        "axisLabelDelta": -3,
+        "personalityRefDelta": 1,
+        "actionSuggestionDelta": 0,
+        "autoVerdict": "similar"
+      },
+      "legacyResponsePreview": "内なる探求心に従い、行動を始めましょう。\n\nあなたの場合は、**やや内向的**でありながら**大胆**な一面と**直感的**な感性を持っています",
+      "derivedResponsePreview": "**内省的な探求で新たな刺激を見つけましょう。** あなたの「退屈」は、最短距離で結果を出す傾向や、途中の気づきを切り捨てることで"
+    }
+  ]
+}
