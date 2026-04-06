@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import dynamic from "next/dynamic";
 import { startDrone as startHomeDrone } from "@/lib/ui/proceduralAudio";
@@ -21,13 +21,14 @@ import { updatePredictionVerification, loadPredictions, calculateAccuracy } from
 import { updateLearningFromFeedback } from "@/lib/stargazer/predictionLearningLoop";
 import { safeSetItem, ensureStorageSpace } from "@/lib/stargazer/localStorageHelper";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useIsAnonymous } from "@/hooks/useIsAnonymous";
 
 // ─── Core components (needed on first render) ───
 import HomeHeader from "./_home/HomeHeader";
 import ZoneErrorBoundary from "./_home/ZoneErrorBoundary";
 import LoginIntroAnimation from "@/components/home/LoginIntroAnimation";
 import AskHero from "@/components/home/AskHero";
-import AlterFollowup from "@/components/home/AlterFollowup";
+import type { AlterInsightCard } from "@/lib/stargazer/alterInsightCardBuilder";
 import AnswerCard from "@/components/home/AnswerCard";
 import InlineInnerWeather from "@/components/home/InlineInnerWeather";
 import ContextReel from "@/components/home/ContextReel";
@@ -51,6 +52,11 @@ export default function AneurasyncHome() {
   useImplicitSignals(scrollRef);
   const { trigger: triggerMicro } = useMicroInteractions();
   const isMobile = useIsMobile();
+  const isAnonymousResult = useIsAnonymous();
+  const isAnonymous = isAnonymousResult === true;
+
+  // 匿名ユーザーのラリー上限: 3回
+  const ANON_RALLY_LIMIT = 3;
 
   const [greeting, setGreeting] = useState(() => {
     const tod = getTimeOfDayDetail();
@@ -92,6 +98,7 @@ export default function AneurasyncHome() {
     identityLive, sgData, innerWeather, prophecy, blindSpot,
     ptData, calendarFeed,
     streakDays, atmosphere, homeState, implicitProfile,
+    alterInsights,
   } = homeData;
 
   // ── Derived state ──
@@ -331,6 +338,7 @@ export default function AneurasyncHome() {
   useEffect(() => { setComposerMounted(true); }, []);
 
   const composerHasConversation = composerMounted && alterChat.messages.length > 0;
+  const anonLimitReached = isAnonymous && alterChat.roundCount >= ANON_RALLY_LIMIT;
   const composerIsLimitReached = composerMounted && alterChat.limitReached;
 
   // ── 会話モード（モバイル専用）: フォーカス中 or テキスト入力中 → ホームUIを消して会話に集中 ──
@@ -381,12 +389,49 @@ export default function AneurasyncHome() {
   const handleComposerSubmit = (text?: string) => {
     const q = (text ?? composerQuery).trim();
     if (!q || alterChat.loading || composerIsLimitReached) return;
+
+    // 匿名ユーザーのラリー上限 → ユーザーメッセージ表示 + Alterがリミットメッセージで返答
+    if (anonLimitReached) {
+      // ユーザーメッセージをローカル注入（API呼ばない）
+      alterChat.injectMessage(q, "user");
+      setComposerQuery("");
+      if (composerRef.current) composerRef.current.style.height = "auto";
+      // Alterの返答をリミットメッセージとして注入
+      setTimeout(() => {
+        alterChat.injectMessage(
+          "ここまでの会話で、あなたのことが少し見えてきました。\n\n" +
+          "これ以上の会話を続けるには、無料のアカウント登録が必要です。\n" +
+          "ここまでの観測データや会話は、登録後にすべて引き継がれます。"
+        );
+      }, 1500);
+      return;
+    }
+
     alterChat.sendMessage(q);
     setComposerQuery("");
     if (composerRef.current) {
       composerRef.current.style.height = "auto";
     }
   };
+
+  // ── ContextReel カードタップ: composerSeed 即投入 + focus ──
+  const handleInsightCardAction = useCallback((card: AlterInsightCard) => {
+    if (card.composerSeed) {
+      setComposerQuery(card.composerSeed);
+      // 次 tick で focus + 高さ調整
+      requestAnimationFrame(() => {
+        if (composerRef.current) {
+          composerRef.current.focus();
+          composerRef.current.style.height = "auto";
+          composerRef.current.style.height = `${Math.min(composerRef.current.scrollHeight, 96)}px`;
+        }
+      });
+      return;
+    }
+    if (card.href) {
+      window.location.href = card.href;
+    }
+  }, []);
 
   const handleComposerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setComposerQuery(e.target.value);
@@ -573,22 +618,25 @@ export default function AneurasyncHome() {
             </div>
 
             {/* ── 心の天気（フル入力）── AnswerCardの上 ── */}
-            <InlineInnerWeather innerWeather={innerWeather} />
+            <div data-tour="inner-weather">
+              <InlineInnerWeather innerWeather={innerWeather} />
+            </div>
 
             {/* ── 文脈レール: 今日の一手（compact） ── */}
             <ZoneErrorBoundary zoneName="answer">
-              <AlterFollowup />
-              <AnswerCard
-                proposal={answerData.proposal}
-                confidence={answerData.confidence}
-                alternative={answerData.alternative}
-                caution={answerData.caution}
-                sources={answerData.sources}
-                observationCount={answerData.observationCount}
-                onFeedback={handleAlterFeedback}
-                feedbackGiven={alterFeedback}
-                compact
-              />
+              <div data-tour="answer-card">
+                <AnswerCard
+                  proposal={answerData.proposal}
+                  confidence={answerData.confidence}
+                  alternative={answerData.alternative}
+                  caution={answerData.caution}
+                  sources={answerData.sources}
+                  observationCount={answerData.observationCount}
+                  onFeedback={handleAlterFeedback}
+                  feedbackGiven={alterFeedback}
+                  compact
+                />
+              </div>
             </ZoneErrorBoundary>
           </div>
 
@@ -620,26 +668,38 @@ export default function AneurasyncHome() {
             </div>
           )}
 
-          {/* ═══ コンテキストリール（未会話時 & 非入力モード時のみ） ═══ */}
+          {/* ═══ コンテキストリール + 匿名ユーザー向け気づき/登録CTA ═══ */}
           {!composerHasConversation && !isComposing && (
-            <ContextReel
-              observationCount={obsCount}
-              archetype={sgData?.archetype}
-              syncPercent={syncPercent}
-              blindSpot={blindSpot?.message}
-              convergentInsight={convergentInsight?.todayInsight?.unifiedInsight}
-              temporalDelta={temporalMirror?.delta?.deltaNarrative}
-              prophecy={prophecy?.prediction}
-              streakDays={streakDays}
-              percentileLabel={null}
-              identityInsights={
-                identityLive
-                  ? Object.entries(identityLive)
-                      .filter(([, v]: [string, any]) => v?.insight)
-                      .map(([k, v]: [string, any]) => ({ zone: k, insight: v.insight }))
-                  : []
-              }
-            />
+            <>
+              {/* 匿名ユーザー: 気づきカード + 新規登録CTA */}
+              {isAnonymous && (
+                <div className="px-5 mb-3">
+                  <div className="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-4">
+                    <p className="mb-1 text-[10px] font-medium tracking-wide text-indigo-400">
+                      気づき
+                    </p>
+                    <p className="mb-3 text-xs leading-relaxed text-[#121830]">
+                      {alterInsights?.cards?.[0]?.text
+                        ?? "あなたの観測データから、まだ見えていない傾向が見つかりました。"}
+                    </p>
+                    <a
+                      href="/login?mode=signup&next=/"
+                      className="inline-flex items-center gap-1.5 rounded-full bg-[#121830] px-4 py-2 text-[11px] font-medium text-white shadow-sm transition-all hover:shadow-md active:scale-[0.98]"
+                    >
+                      無料で新規登録する
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* 気づきカード（登録済み: フル表示 / 匿名: CTAの下に表示） */}
+              {alterInsights?.cards && alterInsights.cards.length > 0 && (
+                <ContextReel
+                  cards={alterInsights.cards}
+                  onCardAction={handleInsightCardAction}
+                />
+              )}
+            </>
           )}
 
           {/* ═══ 会話トランスクリプト ═══ */}
@@ -798,7 +858,7 @@ export default function AneurasyncHome() {
             pointerEvents: isComposing ? "none" : "auto",
           }}
         >
-          <HomeQuickAccess />
+          <div data-tour="quick-access"><HomeQuickAccess /></div>
         </div>
       </div>
 
@@ -833,6 +893,7 @@ export default function AneurasyncHome() {
         active={showValuesOnboarding}
         onComplete={() => setShowValuesOnboarding(false)}
       />
+
     </div>
   );
 }

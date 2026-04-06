@@ -1,7 +1,7 @@
 // lib/stargazer/traitAxes.ts
-// Stargazer 45 trait axes — 観測の基礎軸
+// Stargazer 47 trait axes — 観測の基礎軸 (45 original + 2 rationality/efficiency)
 // スコア範囲: -1.0 〜 +1.0
-// 既存15軸 + Stage1用6軸 + Stage2用12軸 + Stage3用6軸 + CognitiveFit用6軸
+// 既存15軸 + Stage1用6軸 + Stage2用12軸 + Stage3用6軸 + CognitiveFit用6軸 + 判断合理性・効率性2軸
 
 export const TRAIT_AXIS_KEYS = [
   // ── 既存15軸 ──
@@ -59,6 +59,10 @@ export const TRAIT_AXIS_KEYS = [
   "social_modeling",
   "exploration_closure",
 
+  // ── 判断合理性・効率性軸 ──
+  "rational_vs_emotional_decision",
+  "efficiency_vs_process",
+
   // ── P4: 拡張軸 (expansion tier) ──
   // archetype 決定には使わない。観測が深まると浮かび上がる補助軸
   "energy_rhythm",
@@ -83,7 +87,7 @@ export type AxisCategory =
   | "cognitive"
   | "expansion";
 
-/** "core" = 初回45軸（archetype決定に使用）, "expansion" = P4拡張軸（補助情報） */
+/** "core" = 初回47軸（archetype決定に使用）, "expansion" = P4拡張軸（補助情報） */
 export type AxisTier = "core" | "expansion";
 
 export interface TraitAxisDef {
@@ -99,7 +103,7 @@ export interface TraitAxisDef {
   validationKey?: string;
 }
 
-/** 45軸の定義 — ラベルは日本語 */
+/** 47軸の定義 — ラベルは日本語（45 original + 2 rationality/efficiency） */
 export const TRAIT_AXES: TraitAxisDef[] = [
   // ── 既存15軸 ──
   {
@@ -387,6 +391,20 @@ export const TRAIT_AXES: TraitAxisDef[] = [
     category: "cognitive",
   },
 
+  // ── 判断合理性・効率性軸 ──
+  {
+    id: "rational_vs_emotional_decision",
+    labelLeft: "論理で判断する",
+    labelRight: "感情・直感で判断する",
+    category: "cognitive",
+  },
+  {
+    id: "efficiency_vs_process",
+    labelLeft: "最短距離を選ぶ",
+    labelRight: "過程を大事にする",
+    category: "cognitive",
+  },
+
   // ── P4: 拡張軸 (expansion tier) ──
   // 既存45軸の「間」に存在し、archetype決定には影響しない
   {
@@ -447,7 +465,7 @@ export function getAxisLabels(
   return def ? { left: def.labelLeft, right: def.labelRight } : null;
 }
 
-/** core 45軸のキーのみを返す（archetype決定・マッチング用） */
+/** core 47軸のキーのみを返す（archetype決定・マッチング用） */
 export const CORE_AXIS_KEYS = TRAIT_AXIS_KEYS.filter(
   (k) => !TRAIT_AXES.find((a) => a.id === k)?.tier || TRAIT_AXES.find((a) => a.id === k)?.tier === "core"
 ) as unknown as readonly TraitAxisKey[];

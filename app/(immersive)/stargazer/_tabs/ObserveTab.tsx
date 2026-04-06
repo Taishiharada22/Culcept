@@ -25,6 +25,7 @@ import {
 } from "@/lib/stargazer/dailyInsightEngine";
 import { getTimeOfDay, type TimeOfDay } from "@/lib/shared/timeOfDay";
 import InitialOnboardingFlow from "../_components/InitialOnboardingFlow";
+import OnboardingOrchestrator from "../_components/OnboardingOrchestrator";
 import MicroInsightOverlay from "./_observation/MicroInsightOverlay";
 import CelebrationOverlay from "./_observation/CelebrationOverlay";
 import type { ResolvedResult, QuestionAnswer } from "@/lib/stargazer/typeResolver";
@@ -1009,18 +1010,9 @@ export default function ObserveTab({
       );
     }
 
+    // V5 オンボーディング: 18問 → 中間結果 → 64問 → 完了
     return (
-      <div
-        className="rounded-2xl p-4 sm:p-6 -mx-1"
-        style={{
-          background: "rgba(255,255,255,0.85)",
-          backdropFilter: "blur(24px)",
-          boxShadow: "0 2px 12px rgba(0,0,0,0.04), 0 8px 40px rgba(0,0,0,0.06)",
-          border: "1px solid rgba(140,150,180,0.12)",
-        }}
-      >
-        <InitialOnboardingFlow onComplete={handleOnboardingComplete} />
-      </div>
+      <OnboardingOrchestrator onComplete={handleOnboardingComplete} />
     );
   }
 

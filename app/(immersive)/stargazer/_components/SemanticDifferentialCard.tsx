@@ -95,25 +95,17 @@ function SemanticDifferentialCard({
     };
   }, [question.id, flashMode]);
 
-  // Show observation tag when it arrives
-  useEffect(() => {
-    if (observationTag) {
-      setShowObsTag(true);
-      const t = setTimeout(() => setShowObsTag(false), 1200);
-      return () => clearTimeout(t);
-    }
-  }, [observationTag]);
+  // 観測タグは廃止 — 表示しない（遷移高速化のため）
+  // observationTag prop は互換性のため残すが、UIには出さない
 
   const handleSelect = useCallback(
     (value: number) => {
       if (confirmed || isSubmitting) return;
       setSelectedValue(value);
 
-      // 即時送信: 0.6秒後に自動で次へ（その間に変更可能）
+      // V5: 選択即確定（600ms待機を廃止）
       if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
-      autoAdvanceTimer.current = setTimeout(() => {
-        doSubmit(value);
-      }, 600);
+      doSubmit(value);
     },
     [confirmed, isSubmitting, question.id] // eslint-disable-line react-hooks/exhaustive-deps
   );
@@ -124,26 +116,17 @@ function SemanticDifferentialCard({
     if (autoAdvanceTimer.current) clearTimeout(autoAdvanceTimer.current);
     const responseTimeMs = Date.now() - shownAt.current;
 
-    // Particle burst
-    setShowParticles(true);
-    setTimeout(() => setShowParticles(false), 600);
-
-    // Fast answer detection
-    if (responseTimeMs < FAST_THRESHOLD_MS) {
-      setShowIntuitionSpark(true);
-      setFastStreak((s) => s + 1);
-      setTimeout(() => setShowIntuitionSpark(false), 800);
-    } else {
-      setFastStreak(0);
-    }
+    // V5: パーティクル演出を廃止（遷移高速化）
+    // V5: 直感スパークも廃止（視覚ノイズ削減）
 
     onAnswer(question.id, value, responseTimeMs);
 
+    // V5: 状態リセットを150msに短縮（旧250ms）
     setTimeout(() => {
       setSelectedValue(null);
       setConfirmed(false);
       shownAt.current = Date.now();
-    }, 250);
+    }, 150);
   }, [confirmed, isSubmitting, question.id, onAnswer]);
 
   const progress = ((questionIndex + 1) / totalQuestions) * 100;
@@ -191,51 +174,7 @@ function SemanticDifferentialCard({
       transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
       className="w-full max-w-lg mx-auto relative"
     >
-      {/* Confirmation particles */}
-      <AnimatePresence>
-        {showParticles && (
-          <>
-            {[0, 1].map((i) => (
-              <motion.div
-                key={`particle-${i}`}
-                className="absolute rounded-full pointer-events-none z-20"
-                style={{
-                  width: 4,
-                  height: 4,
-                  background: "rgba(190,170,110,0.7)",
-                  left: "50%",
-                  top: "60%",
-                }}
-                initial={{ x: 0, y: 0, opacity: 1 }}
-                animate={{
-                  x: (i === 0 ? -40 : 40) + (Math.random() * 20 - 10),
-                  y: -30 - Math.random() * 30,
-                  opacity: 0,
-                  scale: 0.3,
-                }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.22, ease: "easeOut" }}
-              />
-            ))}
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Intuition spark flash */}
-      <AnimatePresence>
-        {showIntuitionSpark && (
-          <motion.div
-            className="absolute inset-0 rounded-2xl pointer-events-none z-10"
-            style={{
-              background: "radial-gradient(circle at 50% 60%, rgba(190,170,110,0.15), transparent 70%)",
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.22 }}
-          />
-        )}
-      </AnimatePresence>
+      {/* V5: パーティクル・直感スパーク廃止 — 遷移高速化 */}
 
       {/* コンテキストバッジ */}
       {contextBadge && (

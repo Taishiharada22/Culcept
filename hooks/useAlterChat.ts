@@ -230,6 +230,18 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setLastFeedbackMeta(null);
   }, []);
 
+  /** メッセージを外部から注入（リミット通知などAPI不使用の返答） */
+  const injectMessage = useCallback((content: string, role: "user" | "alter" = "alter") => {
+    const msg: AlterMessage = {
+      id: `${role}-${Date.now()}`,
+      role,
+      content,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, msg]);
+    if (role === "alter") setLoading(false);
+  }, []);
+
   return {
     messages,
     loading,
@@ -240,6 +252,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     /** 今日の残りラリー数 */
     remainingRounds,
     sendMessage,
+    injectMessage,
     reset,
     isActive: messages.length > 0,
     /** βテスターか（制限バイパス中） */

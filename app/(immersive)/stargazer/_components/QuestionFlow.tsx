@@ -10,6 +10,7 @@ import SemanticDifferentialCard from "./SemanticDifferentialCard";
 import { QUESTIONS, CHAPTERS, type ChapterKey } from "@/lib/stargazer/questions";
 import { resolveType, type QuestionAnswer, type ResolvedResult } from "@/lib/stargazer/typeResolver";
 import { useSignalCollector } from "@/hooks/useSignalCollector";
+import { useClickSound } from "@/hooks/useClickSound";
 
 // Engagement components
 import VisualChoiceCard, { type VisualChoicePair, type VisualChoiceResult } from "./engagement/VisualChoiceCard";
@@ -107,6 +108,9 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
   const [flowPhase, setFlowPhase] = useState<FlowPhase>(resumeFromIndex ? "questioning" : "chapter_intro");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // V5: クリック音
+  const clickSound = useClickSound();
+
   // Engagement state
   const [currentObsTag, setCurrentObsTag] = useState<ObservationTag | null>(null);
   // Resume mode: skip VC insertion points that were already passed
@@ -187,9 +191,12 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
     [currentIndex, totalQuestions]
   );
 
-  // ── 回答ハンドラ ──
+  // ── 回答ハンドラ（V5: 高速遷移 + クリック音） ──
   const handleAnswer = useCallback(
     (questionId: string, value: number, responseTimeMs: number) => {
+      // V5: クリック音（haptics fallback込み）
+      clickSound.play();
+
       setIsSubmitting(true);
       recordAnswer(questionId, String(value));
       responseTimes.current.push(responseTimeMs);
@@ -201,20 +208,17 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
       // Notify parent of answered count
       onQuestionAnswered?.(newAnswers.length, newAnswers);
 
-      // 観測タグの判定
-      const tag = getObservationTag(newAnswer, newAnswers);
-      if (tag) {
-        setCurrentObsTag(tag);
-        setTimeout(() => setCurrentObsTag(null), 1500);
-      }
+      // V5: 観測タグの遅延表示を廃止（データは収集するがUIには出さない）
+      // getObservationTag はデータ品質に影響しないため呼び出しも省略
 
+      // V5: 遷移を180ms→150msに短縮
       setTimeout(() => {
         const nextIdx = currentIndex + 1;
         decideNextPhase(nextIdx, newAnswers);
         setIsSubmitting(false);
-      }, 180);
+      }, 150);
     },
-    [answers, currentIndex] // eslint-disable-line react-hooks/exhaustive-deps
+    [answers, currentIndex, clickSound] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── 次のフェーズを決定 ──

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { GlassButton } from "@/components/ui/glassmorphism-design";
 import { safeLSSet } from "@/lib/safeLocalStorage";
 import { hydrateTourStates, isTourSeen, markTourSeen as markTourSeenDB } from "@/lib/tour/tourState";
+import { useIsAnonymous } from "@/hooks/useIsAnonymous";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +32,8 @@ export interface FeatureIntroductionProps {
   startingTab?: string;
   onComplete: (startingTab?: string) => void;
   tabBarRef?: React.RefObject<HTMLElement | null>;
+  /** ③ 登録済みユーザーのみに表示（default: true） */
+  requireRegistered?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,13 +85,24 @@ export default function FeatureIntroduction({
   startingTab,
   onComplete,
   tabBarRef,
+  requireRegistered = true,
 }: FeatureIntroductionProps) {
+  // ③ 匿名ユーザーチェック — 登録済みのみ表示
+  const isAnonymousResult = useIsAnonymous();
+  const isAnonymous = isAnonymousResult === true;
+
   // Start idle — wait for DB hydrate before deciding phase
   const [phase, setPhase] = useState<Phase>("idle");
   const [tourStep, setTourStep] = useState(0);
 
   // Hydrate tour state from DB, then decide phase
   useEffect(() => {
+    // ③ 匿名ユーザーは tab tour をスキップ
+    if (requireRegistered && isAnonymous) {
+      setPhase("done");
+      return;
+    }
+
     let cancelled = false;
     hydrateTourStates().then(() => {
       if (cancelled) return;
@@ -109,7 +123,7 @@ export default function FeatureIntroduction({
       }
     });
     return () => { cancelled = true; };
-  }, [sectionKey, tabs.length]);
+  }, [sectionKey, tabs.length, requireRegistered, isAnonymous]);
 
   // -----------------------------------------------------------------------
   // Handlers

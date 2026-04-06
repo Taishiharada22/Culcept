@@ -963,6 +963,26 @@ export const AXIS_VALIDATION_MAP: Record<TraitAxisKey, PsychometricValidation> =
       citationKeys: ["costa_mccrae_1992"],
       relatedConstructs: ["Attachment breadth", "Social investment"],
     },
+    rational_vs_emotional_decision: {
+      bigFiveMapping: {
+        factor: "Agreeableness",
+        facet: "Tender-Mindedness (A6)",
+        loadingDirection: -1,
+      },
+      theoreticalBasis: "判断における理性と感情の比重。論理優先 vs 感情優先の個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Rational-Experiential Inventory", "Cognitive-Affective processing"],
+    },
+    efficiency_vs_process: {
+      bigFiveMapping: {
+        factor: "Conscientiousness",
+        facet: "Achievement Striving (C4) x Deliberation (C6)",
+        loadingDirection: -1,
+      },
+      theoreticalBasis: "結果効率と過程充実の優先度。最短経路 vs 過程重視の個人差。",
+      citationKeys: ["costa_mccrae_1992"],
+      relatedConstructs: ["Process vs Outcome orientation", "Task efficiency"],
+    },
   };
 
 // ---------------------------------------------------------------------------
@@ -1366,5 +1386,15 @@ export const AXIS_BEHAVIORAL_ANCHORS: Record<TraitAxisKey, BehavioralAnchor[]> =
       { score: -1.0, description: "広く薄くつながる。多くの人と適度な距離を保つ。" },
       { score: 0, description: "広い付き合いと深い付き合いの両方を持つ。" },
       { score: 1.0, description: "少数の相手に深く投資する。狭く深い関係を好む。" },
+    ],
+    rational_vs_emotional_decision: [
+      { score: -1.0, description: "判断は論理と根拠で行う。感情は意思決定から切り離す。" },
+      { score: 0, description: "論理と感情の両方を考慮してバランスよく判断する。" },
+      { score: 1.0, description: "直感や感情を信頼し、それに基づいて判断する。" },
+    ],
+    efficiency_vs_process: [
+      { score: -1.0, description: "最短経路で結果を出すことを重視する。無駄を嫌う。" },
+      { score: 0, description: "効率と過程のバランスを取る。状況に応じて使い分ける。" },
+      { score: 1.0, description: "過程そのものに価値を見出す。プロセスを楽しむ。" },
     ],
   };

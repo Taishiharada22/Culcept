@@ -452,7 +452,7 @@ export default async function ArchetypePublicPage({
         {/* ── CTA ── */}
         <section className="text-center pt-4">
           <Link
-            href="/onboarding"
+            href="/stargazer"
             className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full font-semibold text-sm transition-all hover:scale-105 active:scale-95"
             style={{
               background: `linear-gradient(135deg, ${colors.accent}, ${colors.accent}88)`,

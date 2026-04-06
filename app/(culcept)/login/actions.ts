@@ -77,7 +77,7 @@ export async function authAction(_prev: AuthState, formData: FormData): Promise<
             await supabase.from("profiles").upsert({ id: data.user.id, locale: "ja" });
         }
         await saveLocaleCookie("ja");
-        redirect(next !== "/" ? next : "/onboarding");
+        redirect(next);
     }
 
     // ━━ signin ━━

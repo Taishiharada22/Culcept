@@ -330,7 +330,7 @@ export default function TypeIndexPage() {
           />
 
           <Link
-            href="/onboarding"
+            href="/stargazer"
             className="group relative inline-flex items-center gap-3 rounded-full px-8 py-4 text-base font-semibold text-white transition-all duration-300 hover:scale-105 sm:text-lg"
             style={{
               background:

@@ -7,14 +7,15 @@ import ResonanceCards from "./ResonanceCards";
 import AvatarBirth from "./AvatarBirth";
 import FirstMission from "./FirstMission";
 import AvatarBirthCeremony from "./AvatarBirthCeremony";
+import DealbreakersStep, { type DealbreakersData } from "./DealbreakersStep";
 import type { ResonanceResult } from "@/lib/rendezvous/instantResonance";
 import type { RendezvousCategory } from "@/lib/rendezvous/types";
 
 type Props = { userId: string };
 
-// 共通オンボーディング: 18+確認 → ResonanceCards → AvatarBirth → FirstMission
-// 写真・外見好みは恋愛レーン入口で別途収集
-type Step = "resonance" | "resonance_burst" | "birth" | "birth_ceremony" | "mission";
+// ① 共通オンボーディング + romantic/partner 限定 dealbreakers ステップ
+// ResonanceCards → AvatarBirth → FirstMission → (Dealbreakers if romantic/partner)
+type Step = "resonance" | "resonance_burst" | "birth" | "birth_ceremony" | "mission" | "dealbreakers";
 
 const DISPLAY_STEPS: string[] = ["resonance", "birth", "mission"];
 
@@ -103,6 +104,11 @@ export default function OnboardingFlow({ userId }: Props) {
   const [resonanceResult, setResonanceResult] = useState<ResonanceResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [showBirthCeremony, setShowBirthCeremony] = useState(false);
+  // ① Dealbreakers: mission で選択されたカテゴリを保持
+  const [pendingMissionData, setPendingMissionData] = useState<{
+    selectedQuestions: string[];
+    enabledCategories: RendezvousCategory[];
+  } | null>(null);
 
   // Map to display step index for the progress indicator
   const displayStepIndex = (() => {
@@ -137,11 +143,43 @@ export default function OnboardingFlow({ userId }: Props) {
     setStep("mission");
   }, []);
 
+  // ① mission 完了: romantic/partner が含まれていれば dealbreakers へ、それ以外は直接保存
   const handleMissionComplete = useCallback(
-    async (data: {
+    (data: {
       selectedQuestions: string[];
       enabledCategories: RendezvousCategory[];
     }) => {
+      const needsDealbreakers =
+        data.enabledCategories.includes("romantic") ||
+        data.enabledCategories.includes("partner");
+
+      if (needsDealbreakers) {
+        setPendingMissionData(data);
+        setStep("dealbreakers");
+        return;
+      }
+
+      // romantic/partner なし → 直接保存
+      void finalizeOnboarding(data);
+    },
+    [],
+  );
+
+  // ① dealbreakers 完了後 + mission データを統合して保存
+  const handleDealbreakersComplete = useCallback(
+    (dealbreakers: DealbreakersData) => {
+      if (!pendingMissionData) return;
+      void finalizeOnboarding(pendingMissionData, dealbreakers);
+    },
+    [pendingMissionData],
+  );
+
+  // 最終保存処理（mission + optional dealbreakers）
+  const finalizeOnboarding = useCallback(
+    async (
+      data: { selectedQuestions: string[]; enabledCategories: RendezvousCategory[] },
+      dealbreakers?: DealbreakersData,
+    ) => {
       setSaving(true);
       try {
         const res = await fetch("/api/rendezvous/onboarding", {
@@ -153,6 +191,7 @@ export default function OnboardingFlow({ userId }: Props) {
             confidence: resonanceResult?.confidence ?? {},
             selectedQuestions: data.selectedQuestions,
             enabledCategories: data.enabledCategories,
+            dealbreakers: dealbreakers ?? undefined,
           }),
         });
 
@@ -268,6 +307,23 @@ export default function OnboardingFlow({ userId }: Props) {
             transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
             <FirstMission onComplete={handleMissionComplete} saving={saving} />
+          </motion.div>
+        )}
+
+        {/* ① Dealbreakers step: romantic/partner カテ��リ選択時のみ */}
+        {step === "dealbreakers" && pendingMissionData && (
+          <motion.div
+            key="dealbreakers"
+            initial={{ opacity: 0, scale: 1.05 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <DealbreakersStep
+              enabledCategories={pendingMissionData.enabledCategories}
+              onComplete={handleDealbreakersComplete}
+              saving={saving}
+            />
           </motion.div>
         )}
       </AnimatePresence>

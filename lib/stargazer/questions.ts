@@ -1,5 +1,5 @@
 // lib/stargazer/questions.ts
-// Stargazer 質問定義 — 51問 × 8章構成
+// Stargazer 質問定義 — 55問 × 8章構成
 // semantic differential 形式（5段階スライダー）
 // Ch1-5: 既存35問 (core 15軸 + stage1 一部)
 // Ch6: Inner Depth 5問 (attachment_style, locus_of_control, growth_mindset, rumination, shame_vs_guilt)
@@ -52,7 +52,7 @@ export const CHAPTERS: ChapterInfo[] = [
     key: "core_signal",
     label: "Core Signal",
     description: "安定核の観測 — 向き、判断、重心、反応速度の土台",
-    questionCount: 7,
+    questionCount: 11,
   },
   {
     key: "relational_distance",
@@ -771,6 +771,64 @@ export const QUESTIONS: QuestionDefinition[] = [
       { key: "exclusivity_pressure", weight: 0.2, invert: true },
     ],
     note: "拒否を成熟に受容できるほど排他的圧力は低い傾向",
+  },
+
+  // ── 判断合理性・効率性軸 (2問) ──
+  {
+    id: "q52",
+    chapter: "core_signal",
+    prompt: "論理で判断する ←→ 感情・直感で判断する",
+    leftLabel: "論理で判断する",
+    rightLabel: "感情・直感で判断する",
+    questionText:
+      "大きな決断をするとき、データや根拠を重視しますか？ 自分の直感や気持ちを信じますか？",
+    scale: 5,
+    axes: [
+      { key: "rational_vs_emotional_decision", weight: 1.0 },
+      { key: "analytical_vs_intuitive", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q53",
+    chapter: "core_signal",
+    prompt: "最短距離を選ぶ ←→ 過程を大事にする",
+    leftLabel: "最短距離を選ぶ",
+    rightLabel: "過程を大事にする",
+    questionText:
+      "目標に向かうとき、最短ルートで結果を出したいですか？ 遠回りでもプロセスを楽しみたいですか？",
+    scale: 5,
+    axes: [
+      { key: "efficiency_vs_process", weight: 1.0 },
+      { key: "perfectionist_vs_pragmatic", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q54",
+    chapter: "core_signal",
+    prompt: "理屈で納得する ←��� 気持ちで動く",
+    leftLabel: "理屈で納得する",
+    rightLabel: "気持ちで動く",
+    questionText:
+      "誰かに説得されるとき、筋の通った説明で納得しますか？ 相手の熱意や共感で心が動きますか？",
+    scale: 5,
+    axes: [
+      { key: "rational_vs_emotional_decision", weight: 0.8 },
+      { key: "direct_vs_diplomatic", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q55",
+    chapter: "core_signal",
+    prompt: "効率を最優先する ←→ 体験を重視する",
+    leftLabel: "効率を最優先する",
+    rightLabel: "体験を重視する",
+    questionText:
+      "旅行のとき、効率よく名所を回りたいですか？ 予定を決めず気の向くまま過ごしたいですか？",
+    scale: 5,
+    axes: [
+      { key: "efficiency_vs_process", weight: 0.8 },
+      { key: "plan_vs_spontaneous", weight: 0.3 },
+    ],
   },
 ];
 

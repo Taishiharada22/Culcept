@@ -525,7 +525,7 @@ export default function ResultsSequence({
             <div className="space-y-3">
               {[
                 { icon: "📊", label: "全体サマリ", desc: "あなたの傾向を一文で要約" },
-                { icon: "🗺️", label: "傾向マップ", desc: "45軸の傾向をビジュアルで表示" },
+                { icon: "🗺️", label: "傾向マップ", desc: "全軸の傾向をビジュアルで表示" },
                 { icon: "🧠", label: "思考の型", desc: "認知スタイルのプロファイル" },
                 { icon: "🔮", label: "深層プロフィール", desc: "無意識のパターンと傾向" },
                 { icon: "🤝", label: "関係性スタイル", desc: "対人パターンの構造" },
@@ -568,7 +568,7 @@ export default function ResultsSequence({
               transition={{ delay: 1.0 }}
             >
               <p className="text-sm leading-relaxed" style={{ color: "rgba(60,65,85,0.7)" }}>
-                45軸の観測が完了しました。
+                初回観測が完了しました。
               </p>
               <p className="text-xs leading-relaxed" style={{ color: "rgba(80,85,105,0.5)" }}>
                 これは、いま見えているあなたの輪郭です。

@@ -3,6 +3,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkOnboardingCompleted } from "@/lib/rendezvous/onboardingState";
 import RendezvousHub from "@/components/rendezvous/RendezvousHub";
+import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 
 /**
  * Rendezvous top page — 3枠選択ハブ
@@ -19,6 +20,10 @@ export default async function RendezvousPage() {
 
   if (!auth?.user) {
     redirect("/login");
+  }
+
+  if (auth.user.is_anonymous) {
+    return <AnonymousRegistrationPage featureName="Rendezvous" />;
   }
 
   const onboarding = await checkOnboardingCompleted(supabase, auth.user.id);

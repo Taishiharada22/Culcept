@@ -367,7 +367,7 @@ export default function MbtiFlashDiagnosis() {
                 <p style={{ fontSize: 15, color: "rgba(255,255,255,0.65)", lineHeight: 2, marginTop: 8 }}>MBTIの16個の箱じゃ足りない。<br />君は、もっと複雑で、もっと面白い人間。</p>
                 <p style={{ fontSize: 15, color: "rgba(167,139,250,0.9)", lineHeight: 2, marginTop: 12, fontWeight: 600 }}>じゃあ、本気で潜ったら？</p>
               </motion.div>
-              <Link href="/onboarding">
+              <Link href="/stargazer">
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                   style={{ padding: "18px 48px", borderRadius: 30, background: "linear-gradient(135deg, #8B5CF6, #6366F1)", border: "none", color: "white", fontSize: 17, fontWeight: 800,
                     cursor: "pointer", boxShadow: "0 8px 40px rgba(99,102,241,0.3)", letterSpacing: "0.5px" }}>
