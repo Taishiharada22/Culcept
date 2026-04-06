@@ -40,3 +40,9 @@ __pycache__/
 # python venv
 .venv/
 **/.venv/
+
+# Build cache
+*.tsbuildinfo
+
+# Debug/replay output
+scripts/output/
