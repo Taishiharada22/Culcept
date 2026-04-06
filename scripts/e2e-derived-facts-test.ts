@@ -25,7 +25,7 @@ dotenv.config({ path: path.resolve(__dirname, "../.env.local") });
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-const DEV_SERVER_URL = "http://localhost:3000";
+const DEV_SERVER_URL = "http://127.0.0.1:3000";
 
 // テストユーザー（.env.localまたは環境変数で指定）
 const TEST_EMAIL = process.env.TEST_USER_EMAIL;
@@ -72,13 +72,13 @@ async function main() {
   // ── Step 2: 開発サーバ確認 ──
   console.log("\n[Step 2] 開発サーバ確認...");
   try {
-    const healthCheck = await fetch(`${DEV_SERVER_URL}/api/health`, {
+    const healthCheck = await fetch(`${DEV_SERVER_URL}`, {
       signal: AbortSignal.timeout(5000),
+      redirect: "manual",
     }).catch(() => null);
 
     if (!healthCheck) {
-      console.log("⚠️  /api/health が応答しません。開発サーバが起動しているか確認してください");
-      console.log("   npm run dev で起動後、再実行してください");
+      console.log("⚠️  開発サーバが応答しません。npm run dev で起動後、再実行してください");
       process.exit(1);
     }
     console.log(`✅ 開発サーバ応答あり (status: ${healthCheck.status})`);
