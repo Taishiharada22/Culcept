@@ -1086,11 +1086,11 @@ export function filterActiveContext(entries: LifeContextEntry[]): LifeContextEnt
 export function maxContextEntriesByTrust(trustLevel: TrustLevel): number {
   switch (trustLevel) {
     case 0: return 0;
-    case 1: return 2;
-    case 2: return 3;
-    case 3: return 4;
+    case 1: return 1;  // CEO指示: T1では最大1件、質問に直接関係あるものだけ
+    case 2: return 2;
+    case 3: return 3;
     case 4: return 5;
-    default: return 2;
+    default: return 1;
   }
 }
 

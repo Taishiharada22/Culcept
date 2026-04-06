@@ -1059,6 +1059,48 @@ export function isFactualRecallQuestion(message: string): boolean {
   return false;
 }
 
+/**
+ * 創業/構想/世界観テーマの検出。
+ * これが true の場合、就職/転職/求職相談への誤変換を禁止する。
+ */
+export function isCreationVisionTheme(message: string, conversationHistory?: string[]): boolean {
+  const combined = conversationHistory
+    ? [message, ...conversationHistory.slice(-4)].join(" ")
+    : message;
+  // 直近の会話を含めてチェック（1メッセージだけだと文脈を逃す）
+  const creationSignals = [
+    /起業|創業|立ち上げ|スタートアップ/,
+    /構想|世界観|ビジョン|ミッション/,
+    /プロダクト.*作|サービス.*作|アプリ.*作|AI.*作/,
+    /社会実装|社会.*変[えわ]/,
+    /哲学|思想|研究|論文/,
+    /広[がめ].*世[の界]|刺さ[るっ]|伝わ[るっ]/,
+    /差別化|競争優位|ユースケース|市場.*入口/,
+    /感情.*AI|感情.*持[つった]|人間.*OS/,
+    /核心.*つい|核.*何|本質.*何/,
+    /事業|投資|資金調達/,
+    /実装.*どう|どう.*実装/,
+  ];
+  return creationSignals.filter(s => s.test(combined)).length >= 2;
+}
+
+/**
+ * 「核心をついて」「具体的に教えて」のような深掘り要求の検出。
+ */
+export function isCoreDemandQuestion(message: string): boolean {
+  return /核心.*つい|本質.*[教聞知言]|具体的に.*[教聞知言]|深[くい].*切り込|踏み込[んめ]/.test(message)
+    || /ズバッと|ズバリ|率直に|ストレートに|遠慮なく/.test(message);
+}
+
+/**
+ * 高抽象テーマの検出。抑制ではなく構造化で返す必要があるもの。
+ */
+export function isHighAbstractionTheme(message: string): boolean {
+  return /感情.*AI|AI.*感情|人間.*OS|意識.*(?:持[つった]|ある)|自律.*AI/.test(message)
+    || /世の中.*[変広伝届]|社会.*[変革実装]|人類.*[変進未来]/.test(message)
+    || /哲学|思想|存在意義|世界観.*(?:作|構築|設計)/.test(message);
+}
+
 /** 知識要求: 外部世界の事実・具体例を求めている（自己理解ではない） */
 export function isKnowledgeQuestion(message: string): boolean {
   const trimmed = message.trim();
@@ -2495,23 +2537,30 @@ export function validateHomeAlterResponse(
   const isKnowledge = questionType === "knowledge";
   const isStrategy = questionType === "strategy";
   const isFactualRecall = questionType === "factual_recall";
-  // emotional, self_understanding, knowledge, factual_recall は結論チェックをスキップ
-  // strategy は方向性が必要だが結論パターンと別形式で判定
-  if (!emotional && !selfUnderstanding && !isKnowledge && !isStrategy && !isFactualRecall && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
-    failures.push("1行目に結論（判断）がない");
-  }
-  // strategy は独自の方向性チェック
-  if (isStrategy && !hasConclusion) {
-    const hasDirection = /合っている|合う|から入る|方が[いい力]|強み|を活かす|が合って|が武器|が鍵/.test(firstLine);
-    if (!hasDirection && !firstLine.includes("いい") && !firstLine.includes("べき")) {
-      failures.push("1行目にアプローチの方向性がない");
+  // emotional, factual_recall のみ結論チェックをスキップ
+  // self_understanding / knowledge / strategy / judgment は全て1行目に方向性が必要
+  const skipConclusionCheck = emotional || isFactualRecall;
+  // 結論 or 方向性パターン（self_understanding/knowledge にも適用する拡張版）
+  const hasDirectionOrConclusion = hasConclusion
+    || /[方向合向].*[いてう]|[核本質].*は|ポイント.*は|結論.*は|答え.*は/.test(firstLine)
+    || firstLine.includes("いい") || firstLine.includes("べき");
+  if (!skipConclusionCheck && !hasDirectionOrConclusion) {
+    if (selfUnderstanding || isKnowledge) {
+      failures.push("1行目に方向性・結論がない（self/knowledgeでも最初に答えを出すこと）");
+    } else if (isStrategy) {
+      const hasDirection = /合っている|合う|から入る|方が[いい力]|強み|を活かす|が合って|が武器|が鍵/.test(firstLine);
+      if (!hasDirection) {
+        failures.push("1行目にアプローチの方向性がない");
+      }
+    } else {
+      failures.push("1行目に結論（判断）がない");
     }
   }
 
   // 3b. 1行目が「誰にでも言える結論」ではないか（理由が含まれているか）
   // emotional, self_understanding, knowledge ではスキップ
   const hasPersonalReason = /今|最近|閉じ|広げ|重[くい]|霧|疲れ|考えすぎ|迷い|後回し|溜め|タイプ|傾向|だからこそ|なので|場合|さんは|たぶん|正直|慎重|消耗|ブレ/.test(firstLine);
-  if (!emotional && !selfUnderstanding && !isKnowledge && !isFactualRecall && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
+  if (!skipConclusionCheck && hasDirectionOrConclusion && !hasPersonalReason && firstLine.length < 40) {
     failures.push("1行目に「この人向けの理由」が含まれていない（誰にでも言える結論）");
   }
 
@@ -2520,8 +2569,19 @@ export function validateHomeAlterResponse(
   //  - judgment のみ「次の一手」が必須
   //  宿題型の提案は全ルートで禁止
   const hasNextAction = /次の一手[:：]/.test(trimmed);
-  if (emotional || selfUnderstanding || isKnowledge || isStrategy || isFactualRecall) {
-    // 感情・自己理解・知識・戦略・事実照会: 「次の一手:」ラベル不要
+  if (emotional) {
+    // #9: emotional系でも4要素（状態言語化 + 核心仮説 + 方向 + 次の一手）が必要
+    // 「つらいんだね」「重いんだね」だけで終わるのは禁止
+    if (trimmed.length < 40) {
+      failures.push("emotional応答が浅すぎる（状態言語化+仮説+方向+次の一手が必要）");
+    }
+    // 空虚な励ましチェック
+    const lines = trimmed.split("\n").filter(l => l.trim());
+    if (lines.length < 2) {
+      failures.push("emotional応答が1文で終わっている（最低3文必要）");
+    }
+  } else if (selfUnderstanding || isKnowledge || isStrategy || isFactualRecall) {
+    // 自己理解・知識・戦略・事実照会: 「次の一手:」ラベル不要
     // ただし完全に空っぽは不可
     if (trimmed.length < 20) {
       failures.push("応答が短すぎる（見立てや仮説が必要）");
@@ -2867,11 +2927,126 @@ function extractRepetitionGuardBlock(lastAlterResponse: string): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CEO指示: 主題誤変換禁止 + 高抽象構造化 + 核心要求テンプレ
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 創業/構想テーマ検出時に注入する「主題誤変換禁止」プロンプトブロック。
+ * 就職/転職/求職相談への誤変換を明示的に禁止する。
+ */
+export function buildCreationModePromptBlock(userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  return [
+    "",
+    "# 主題誤変換禁止（最優先指示）",
+    `${name}は今、創業・構想・プロダクト・世界観・哲学の話をしている。`,
+    "**絶対にやってはいけないこと:**",
+    "- 就職/転職/求職活動の相談として扱うこと",
+    "- 「転職活動中だから」「求職中だから」等の文脈を前提にすること",
+    "- 「適職」「キャリア」「面接」「履歴書」等のフレーミングをすること",
+    "- 「まず安定した仕事を」「収入面を考えると」等の現実的抑制をかけること",
+    "",
+    "**代わりにやるべきこと:**",
+    "- 誰に刺さるか（ターゲット）",
+    "- 何が核か（コアバリュー）",
+    "- 何を切るべきか（スコープ）",
+    "- どこから実装すべきか（エントリーポイント）",
+    "- 何が市場の入口か（PMFの仮説）",
+    "- 何が差別化の本体か（競争優位）",
+    "を具体的に返すこと。",
+  ].join("\n");
+}
+
+/**
+ * 「核心をついて」「具体的に教えて」要求時の5段構造テンプレ。
+ * generic fallback を禁止し、必ず固有根拠で返す。
+ */
+export function buildCoreDemandPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 6).map(f => `- ${f}`).join("\n")
+    : "- （データ不足: 持っている情報から最大限具体的に返すこと）";
+  return [
+    "",
+    "# 核心要求モード（最優先指示）",
+    `${name}は「核心をついて」「具体的に教えて」と要求している。`,
+    "汎用的な一般論やgeneric fallbackは絶対禁止。",
+    "",
+    "以下の5段構造で必ず返すこと:",
+    "1. **結論**: 合う方向 / 合わない方向を最初の1文で言い切る",
+    "2. **方向の定義**: なぜその方向が合うのかを1文で定義する",
+    `3. **固有根拠3つ**: 以下のデータから最低3つの根拠を使うこと:\n${factsSection}`,
+    "4. **捨てるべき方向**: 今やらない方がいいことを1つ明示する",
+    "5. **次の一手**: 今日〜今週でできる具体的なアクション1つ",
+    "",
+    "注意: ラベル名（慎重傾向、深く集中する力等）をそのまま使わない。行動レベルの表現に変換すること。",
+  ].join("\n");
+}
+
+/**
+ * 高抽象テーマ（感情AI、社会実装、哲学）に対する構造化モード。
+ * 「やめた方がいい」「深追いしない」等の抑制応答を禁止。
+ */
+export function buildHighAbstractionPromptBlock(): string {
+  return [
+    "",
+    "# 高抽象テーマ: 構造化モード（抑制禁止）",
+    "ユーザーが抽象的・哲学的・構想的なテーマを持ち出している。",
+    "**絶対にやってはいけないこと:**",
+    "- 「今はやめた方がいい」「深追いしない方がいい」等の抑制・回避応答",
+    "- 「まず別のことに集中」等の目先の現実への引き戻し",
+    "- 「難しいテーマですね」で終わる思考停止応答",
+    "",
+    "**代わりに以下のどれかで返すこと:**",
+    "- 定義の明確化: 「感情を持つAI」の「感情」は何を指すか？",
+    "- 本質の言語化: そのテーマの核心は何か？",
+    "- 実用化の入口整理: 最初に実現すべき最小単位は？",
+    "- 競争優位の切り出し: この人がやる意味は何か？",
+    "- ユースケース分解: 誰のどんな問題を解くか？",
+    "- 伝わらない原因の特定: なぜ他人に伝わりにくいか？",
+  ].join("\n");
+}
+
+/**
+ * generic人格ラベルの検出リスト。
+ * これらが応答に含まれる場合、セッション内での重複使用をチェックする。
+ */
+export const GENERIC_PERSONALITY_LABELS = [
+  "慎重傾向", "慎重な", "慎重さ",
+  "感情の波が判断に直結", "感情の波",
+  "一人で深く集中する力", "深く集中する",
+  "状況に応じて目的が変わる",
+  "深く考えるタイプ", "深く考える",
+  "完璧主義", "完璧を求める",
+  "繊細", "繊細さ",
+  "直感的", "直感に従う",
+];
+
+/**
+ * 応答内のgenericラベル使用をチェックし、
+ * セッション内で既に使用済みのラベルを除去する指示を生成する。
+ */
+export function buildGenericLabelBanBlock(previousAlterMessages: string[]): string {
+  const usedLabels = GENERIC_PERSONALITY_LABELS.filter(label =>
+    previousAlterMessages.some(msg => msg.includes(label)),
+  );
+  if (usedLabels.length === 0) return "";
+  return [
+    "",
+    "# 使用済み人格ラベル（再利用禁止）",
+    "以下の表現はこのセッションで既に使った。同じラベルを繰り返すと「テンプレ読み上げAI」に見える。",
+    ...usedLabels.map(l => `- 「${l}」`),
+    "→ 代わりにその場の問いに効く派生事実を使うこと。",
+  ].join("\n");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Ambiguity Engine — ドメイン検出 + 曖昧性解析 + 応答モード選択
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** 質問のドメイン（行動カテゴリとは別の軸） */
-export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle";
+export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle" | "creation";
 
 /** 隠れ変数の検出状態 */
 export interface HiddenVariables {
@@ -2980,7 +3155,17 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /上司/, /同僚/, /クライアント|取引先/, /面接/, /プロジェクト/,
     /業務/, /職場/, /転職/, /キャリア/, /昇[進格]/, /会議/,
     /プレゼン/, /報告/, /納期/, /残業/, /部下/, /先輩.*仕事|仕事.*先輩/,
-    /ビジネス/, /起業/, /退職/,
+    /退職/,
+  ],
+  creation: [
+    /起業/, /創業/, /立ち上げ/, /スタートアップ/, /ビジネス/,
+    /構想/, /世界観/, /ビジョン/, /プロダクト/, /サービス.*作/,
+    /社会実装/, /哲学/, /思想/, /研究/, /論文/,
+    /AI.*作/, /アプリ.*作/, /開発.*し[たて]/, /実装/,
+    /広[がめ]/, /刺さ[るっ]/, /伝わ[るっ]/, /差別化/,
+    /核心/, /本質/, /市場/, /ユースケース/, /ターゲット/,
+    /マネタイズ/, /資金/, /投資/, /事業/,
+    /感情.*AI/, /感情.*持[つった]/, /自律.*AI/,
   ],
   friend: [
     /友達/, /友人/, /仲間/, /サークル/, /グループ/,
@@ -3133,6 +3318,14 @@ export function analyzeQueryContext(message: string): QueryContext {
     if (hits > bestScore) {
       bestScore = hits;
       bestDomain = domain;
+    }
+  }
+  // creation > work 優先: 起業/構想テーマが work と同時に検出されたら creation を採用
+  if (bestDomain === "work") {
+    const creationHits = (DOMAIN_SIGNALS.creation ?? []).filter((s) => s.test(msg)).length;
+    if (creationHits >= 2) {
+      bestDomain = "creation";
+      bestScore = creationHits;
     }
   }
   const domain_confidence = bestScore === 0 ? 0 : Math.min(1, bestScore * 0.35);
@@ -3659,6 +3852,10 @@ const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance" 
     primary: ["locus_of_control", "growth_mindset", "rumination_tendency"],
     secondary: ["emotional_regulation", "shame_vs_guilt", "exploration_closure"],
   },
+  creation: {
+    primary: ["exploration_closure", "decomposition", "perfectionist_vs_pragmatic"],
+    secondary: ["locus_of_control", "growth_mindset", "decision_tempo"],
+  },
 };
 
 /** 軸スコアから傾向文を生成する内部ヘルパー */
@@ -3755,6 +3952,7 @@ const DOMAIN_LABELS: Record<QueryDomain, string> = {
   general: "",
   daily_guidance: "デイリーガイダンス",
   lifestyle: "暮らし",
+  creation: "構想・創業",
 };
 
 /**

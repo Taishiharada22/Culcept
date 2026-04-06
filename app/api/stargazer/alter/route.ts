@@ -95,6 +95,13 @@ import {
   classifyReaction,
   type Reaction,
   type QuestionType,
+  isCreationVisionTheme,
+  isCoreDemandQuestion,
+  isHighAbstractionTheme,
+  buildCreationModePromptBlock,
+  buildCoreDemandPromptBlock,
+  buildHighAbstractionPromptBlock,
+  buildGenericLabelBanBlock,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
   estimateUserState,
@@ -2909,6 +2916,40 @@ export async function POST(req: NextRequest) {
         console.info(`[factual-recall] relevantContext=${relevantContext.length}/${activeLifeContext.length}`);
       }
 
+      // ── #1: 創業/構想テーマ → 主題誤変換禁止 ──
+      const recentUserMessages = conversationHistory
+        .filter(m => m.role === "user")
+        .slice(-4)
+        .map(m => m.content);
+      const isCreationTheme = isCreationVisionTheme(message, recentUserMessages);
+      if (isCreationTheme || queryContext?.domain === "creation") {
+        homeSystemPrompt += buildCreationModePromptBlock(userName);
+        console.info("[creation-mode] Anti-misconversion block injected");
+      }
+
+      // ── #4: 「核心をついて」「具体的に教えて」→ 5段構造テンプレ強制 ──
+      if (isCoreDemandQuestion(message)) {
+        homeSystemPrompt += buildCoreDemandPromptBlock(personalizedFacts, userName);
+        console.info("[core-demand] 5-part structure block injected");
+      }
+
+      // ── #5: 高抽象テーマ → 抑制禁止、構造化モード ──
+      if (isHighAbstractionTheme(message)) {
+        homeSystemPrompt += buildHighAbstractionPromptBlock();
+        console.info("[high-abstraction] Structurization block injected");
+      }
+
+      // ── #6: generic 人格ラベル連呼禁止 ──
+      {
+        const previousAlterMsgs = conversationHistory
+          .filter(m => m.role === "alter")
+          .map(m => m.content);
+        const labelBan = buildGenericLabelBanBlock(previousAlterMsgs);
+        if (labelBan) {
+          homeSystemPrompt += labelBan;
+        }
+      }
+
       // ── Output Governance Layer: RC1 動的会話制約 + RC5 フラストレーション ──
       {
         const historyForGov = conversationHistory.map((m) => ({ role: m.role, content: m.content }));
@@ -3419,7 +3460,26 @@ export async function POST(req: NextRequest) {
                   const allSignals = accumulateImplicitSignals(existingSignals, newImplicitSignals);
                   const promotion = promoteToMicroInsight(allSignals);
 
-                  if (promotion) {
+                  // #7: micro-insight 露出条件を厳格化
+                  // 感情的/存在的/創業的な会話で人間体験に関係ない軸を suppress する
+                  const suppressedAxes = new Set<string>();
+                  if (questionType === "emotional" || isCreationTheme || isHighAbstractionTheme(message)) {
+                    // tradition_vs_novelty, topic_shift 等のノイズ軸を suppress
+                    const noiseAxes = [
+                      "tradition_vs_novelty", "planning_spontaneity",
+                      "abstract_concrete", "detail_orientation",
+                    ];
+                    for (const axis of noiseAxes) suppressedAxes.add(axis);
+                  }
+                  const filteredPromotion = promotion && !suppressedAxes.has(promotion.related_axis)
+                    ? promotion
+                    : null;
+                  if (promotion && !filteredPromotion) {
+                    console.info(`[implicit-signal] Suppressed noisy promotion: axis=${promotion.related_axis} (question_type=${questionType}, isCreation=${isCreationTheme})`);
+                  }
+
+                  if (filteredPromotion) {
+                    const promotion = filteredPromotion;
                     console.info(`[implicit-signal] Promoted to MicroInsight: "${promotion.insight_text}" (axis=${promotion.related_axis}, count=${promotion.signal_count})`);
 
                     // 昇格した insight を MI analytics に記録
