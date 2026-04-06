@@ -73,6 +73,8 @@ export const mockAxisScores: Record<TraitAxisKey, number> = {
   self_disclosure_depth: 0,
   decision_regret: 0,
   relational_investment: 0,
+  rational_vs_emotional_decision: 0,
+  efficiency_vs_process: 0,
 };
 
 // ── ResolvedResult（typeResolver で算出したもののモック）──

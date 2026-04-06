@@ -58,6 +58,10 @@ export const AXIS_LABELS: Record<string, string> = {
   social_modeling: "行動から読む ⇔ 意図から読む",
   exploration_closure: "広く探索 ⇔ 素早く絞る",
 
+  // ── 判断合理性・効率性軸 ──
+  rational_vs_emotional_decision: "論理で判断 ⇔ 感情・直感で判断",
+  efficiency_vs_process: "最短距離を選ぶ ⇔ 過程を大事にする",
+
   // ── Legacy Big5 ──
   openness: "開放性",
   conscientiousness: "誠実性",

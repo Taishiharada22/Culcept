@@ -830,6 +830,8 @@ function categoryFromAxis(axis: TraitAxisKey): UMCategory {
     function_vs_expression: "behavior",
     self_disclosure_depth: "behavior",
     introvert_vs_extrovert: "behavior",
+    rational_vs_emotional_decision: "judgment",
+    efficiency_vs_process: "judgment",
   };
   return mapping[axis] ?? "behavior";
 }
@@ -1477,6 +1479,8 @@ export const STARGAZER_AXES: Record<TraitAxisKey, StargazerAxis> = {
   novelty_threshold: { id: "novelty_threshold", label: "新奇性閾値", category: "desire", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
   decision_regret: { id: "decision_regret", label: "判断の後悔", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
   relational_investment: { id: "relational_investment", label: "関係への投資", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  rational_vs_emotional_decision: { id: "rational_vs_emotional_decision", label: "理性vs感情判断", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  efficiency_vs_process: { id: "efficiency_vs_process", label: "効率vs過程重視", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
