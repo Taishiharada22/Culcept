@@ -1080,6 +1080,21 @@ export function filterActiveContext(entries: LifeContextEntry[]): LifeContextEnt
 }
 
 /**
+ * Trust Level に応じたコンテキスト注入上限。
+ * T1 は観察開始直後のため控えめ、T4 は十分な信頼があるため最大。
+ */
+export function maxContextEntriesByTrust(trustLevel: TrustLevel): number {
+  switch (trustLevel) {
+    case 0: return 0;
+    case 1: return 2;
+    case 2: return 3;
+    case 3: return 4;
+    case 4: return 5;
+    default: return 2;
+  }
+}
+
+/**
  * アクティブな Life Context を、プロンプトに注入する形式に変換する。
  * 断定を避け、仮説トーンで記述する。
  *
@@ -1092,10 +1107,11 @@ export function formatContextForPrompt(
   if (entries.length === 0) return "";
   if (trustLevel < 1) return "";
 
+  const maxEntries = maxContextEntriesByTrust(trustLevel);
   const lines: string[] = [];
   lines.push("【背景理解（参考情報・断定しないこと）】");
 
-  for (const entry of entries.slice(0, 5)) { // 最大5件に制限
+  for (const entry of entries.slice(0, maxEntries)) { // Trust Level に応じた上限
     const certainty = entry.confidence >= 0.7
       ? "以前の会話から"
       : "おそらく";

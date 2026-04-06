@@ -654,10 +654,11 @@ export type QuestionCategory =
 /** P1-A: 5タイプルーター — 質問の「意図の種類」を分類
  * QuestionCategory（行動カテゴリ）とは独立。TypeはLLMプロンプトと
  * バリデーションのルート分岐を決定する。
- * 優先順: emotional > self_understanding > knowledge > strategy > judgment */
+ * 優先順: emotional > self_understanding > factual_recall > knowledge > strategy > judgment */
 export type QuestionType =
   | "emotional"          // 感情吐露: "しんどい", "もう疲れた"
   | "self_understanding" // 自己理解: "俺って何が向いてる?", "私の核は?"
+  | "factual_recall"     // 事実照会: "今の仕事知ってる?", "俺が何してるかわかる?"
   | "knowledge"          // 知識要求: "どんな職業?", "何の企業?"
   | "strategy"           // 戦略・方法論: "面接はどう攻める?"
   | "judgment";          // 判断（デフォルト）: "飲み会行くべき?"
@@ -1033,8 +1034,30 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// P1-A: 5タイプルーター + 知識・戦略検出
+// P1-A: 6タイプルーター + 事実照会・知識・戦略検出
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 事実照会: Alter が自分について何を知っているか確認する質問。
+ * 「今の仕事知ってるよね？」「俺が何してるかわかる？」「覚えてる？」
+ *
+ * 心理推定ではなく、記憶の有無を正直に回答する専用ルート。
+ * - 記憶がある → 具体的に回答する
+ * - 記憶がない → 「わからない」と正直に答える
+ */
+export function isFactualRecallQuestion(message: string): boolean {
+  const trimmed = message.trim();
+  // 「知ってる？」「わかる？」「覚えてる？」+ 自分を対象にした照会
+  if (/[俺私僕].*(?:何して|何やって|どんな仕事|どこ[にで].*[住勤働]).*(?:知って|わかっ|覚えて|把握)/.test(trimmed)) return true;
+  if (/(?:知って|わかって|覚えて|把握して).*(?:[る？?])/.test(trimmed) && /[俺私僕]|今の|仕事|やってる/.test(trimmed)) return true;
+  // 「俺のこと〜知ってる」「私のこと〜わかる」
+  if (/[俺私僕]のこと.*(?:知って|わかっ|理解して|見えて)/.test(trimmed)) return true;
+  // 「今何してるか」「今どんな状況か」をAlterに聞く（自分の心理ではなく事実確認）
+  if (/今.*(?:何して|何やって|どんな状況|どういう状態).*(?:知って|わかっ|見えて)/.test(trimmed)) return true;
+  // 「わかるよね？」「知ってるよね？」単体（文脈的に自分について聞いている）
+  if (/(?:わかるよね|知ってるよね|わかってるよね|覚えてるよね)[？?]?$/.test(trimmed)) return true;
+  return false;
+}
 
 /** 知識要求: 外部世界の事実・具体例を求めている（自己理解ではない） */
 export function isKnowledgeQuestion(message: string): boolean {
@@ -1083,13 +1106,14 @@ export function isStrategyQuestion(message: string): boolean {
 }
 
 /**
- * P1-A: 5タイプルーター
+ * P1-A: 6タイプルーター
  * 質問の「意図の種類」を分類し、プロンプト・バリデーションのルートを決定。
- * 優先順: emotional > self_understanding > knowledge > strategy > judgment
+ * 優先順: emotional > self_understanding > factual_recall > knowledge > strategy > judgment
  */
 export function classifyQuestionType(message: string): QuestionType {
   if (isEmotionalQuestion(message)) return "emotional";
   if (isSelfUnderstandingQuestion(message)) return "self_understanding";
+  if (isFactualRecallQuestion(message)) return "factual_recall";
   if (isKnowledgeQuestion(message)) return "knowledge";
   if (isStrategyQuestion(message)) return "strategy";
   return "judgment";
@@ -1113,6 +1137,13 @@ export function applyQuestionTypeOverride(
     (decision.mode === "clarify" || decision.mode === "branch")
   ) {
     return { mode: "conclude", reason: "conclude_type_override" };
+  }
+  // factual_recall: 常に direct_response（知ってるか知らないかを正直に答える専用ルート）
+  if (
+    questionType === "factual_recall" &&
+    decision.mode !== "direct_response"
+  ) {
+    return { mode: "direct_response", reason: "factual_recall_override" };
   }
   // emotional: clarify/branch → direct_response（質問で返すのではなく受け止める）
   if (
@@ -2273,12 +2304,24 @@ export function buildHomeAlterRetryPrompt(
     "",
   ];
 
+  const isGenericFailure = failures.some(f => f.includes("generic") || f.includes("固有"));
   if (personalizedFacts && personalizedFacts.length > 0) {
-    lines.push(
-      "根拠に使うこと（最低1つは引用すること）:",
-      ...personalizedFacts.slice(0, 4).map((f) => `- ${f}`),
-      "",
-    );
+    if (isGenericFailure) {
+      // generic 判定が出ている場合: facts を多く渡し、必ず具体的なキーワードを使わせる
+      lines.push(
+        "【致命的欠陥: この人固有のデータが使われていない】",
+        "以下の事実を最低2つ、応答の中に自然に織り込むこと。ラベル名をそのまま出すのではなく、具体的な表現に変換して使うこと。",
+        "使わなかった場合は再度不合格になる:",
+        ...personalizedFacts.slice(0, 6).map((f) => `- ${f}`),
+        "",
+      );
+    } else {
+      lines.push(
+        "根拠に使うこと（最低1つは引用すること）:",
+        ...personalizedFacts.slice(0, 4).map((f) => `- ${f}`),
+        "",
+      );
+    }
   }
 
   lines.push(
@@ -2446,14 +2489,15 @@ export function validateHomeAlterResponse(
     /重すぎる/, /早すぎる/, /遅すぎる/, /が先/,
   ];
   const hasConclusion = conclusionPatterns.some((p) => p.test(firstLine));
-  // P1-A: 5タイプルーターを使ったバリデーション分岐
+  // P1-A: 6タイプルーターを使ったバリデーション分岐
   const selfUnderstanding = isSelfUnderstandingQuestion(userMessage);
   const questionType = classifyQuestionType(userMessage);
   const isKnowledge = questionType === "knowledge";
   const isStrategy = questionType === "strategy";
-  // emotional, self_understanding, knowledge は結論チェックをスキップ
+  const isFactualRecall = questionType === "factual_recall";
+  // emotional, self_understanding, knowledge, factual_recall は結論チェックをスキップ
   // strategy は方向性が必要だが結論パターンと別形式で判定
-  if (!emotional && !selfUnderstanding && !isKnowledge && !isStrategy && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
+  if (!emotional && !selfUnderstanding && !isKnowledge && !isStrategy && !isFactualRecall && !hasConclusion && !firstLine.includes("いい") && !firstLine.includes("べき")) {
     failures.push("1行目に結論（判断）がない");
   }
   // strategy は独自の方向性チェック
@@ -2467,7 +2511,7 @@ export function validateHomeAlterResponse(
   // 3b. 1行目が「誰にでも言える結論」ではないか（理由が含まれているか）
   // emotional, self_understanding, knowledge ではスキップ
   const hasPersonalReason = /今|最近|閉じ|広げ|重[くい]|霧|疲れ|考えすぎ|迷い|後回し|溜め|タイプ|傾向|だからこそ|なので|場合|さんは|たぶん|正直|慎重|消耗|ブレ/.test(firstLine);
-  if (!emotional && !selfUnderstanding && !isKnowledge && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
+  if (!emotional && !selfUnderstanding && !isKnowledge && !isFactualRecall && hasConclusion && !hasPersonalReason && firstLine.length < 40) {
     failures.push("1行目に「この人向けの理由」が含まれていない（誰にでも言える結論）");
   }
 
@@ -2476,8 +2520,8 @@ export function validateHomeAlterResponse(
   //  - judgment のみ「次の一手」が必須
   //  宿題型の提案は全ルートで禁止
   const hasNextAction = /次の一手[:：]/.test(trimmed);
-  if (emotional || selfUnderstanding || isKnowledge || isStrategy) {
-    // 感情・自己理解・知識・戦略: 「次の一手:」ラベル不要
+  if (emotional || selfUnderstanding || isKnowledge || isStrategy || isFactualRecall) {
+    // 感情・自己理解・知識・戦略・事実照会: 「次の一手:」ラベル不要
     // ただし完全に空っぽは不可
     if (trimmed.length < 20) {
       failures.push("応答が短すぎる（見立てや仮説が必要）");
@@ -2892,7 +2936,8 @@ export type ModeDecisionReason =
   | "reaction_redirect_correction"    // 方向修正 → repair（detectCorrectionSignal上位互換）
   | "reaction_redirect_topic_change" // 話題転換 → 通常パイプラインへ
   | "governance_frustration_escalation" // RC5: フラストレーション level 3+ → repair 強制
-  | "conclude_stance_boldness_upgrade"; // GAP-1a: StanceVector boldness が高く branch → conclude に昇格
+  | "conclude_stance_boldness_upgrade" // GAP-1a: StanceVector boldness が高く branch → conclude に昇格
+  | "factual_recall_override";         // 事実照会: 知ってるか知らないかを正直に答える
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3925,28 +3970,58 @@ export function buildHomeAlterPromptWithContext(
     const callNameRule = userName
       ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
       : `「君」「あなた」と呼びかけない。`;
+
+    // 質問タイプに応じてルールセクションを分岐
+    const qTypeForPrompt = userMessage ? classifyQuestionType(userMessage) : "judgment" as QuestionType;
+    const isEmotional = qTypeForPrompt === "emotional";
+
+    const ruleSection = isEmotional
+      ? [
+          "# ルール（感情受容モード）",
+          "ユーザーが感情を表明している。判断提案やアドバイスではなく、**まず状態を正確に映す**ことが最優先。",
+          "",
+          "## 応答の構造（3文構成）",
+          "1文目: **状態の言語化** — 相手の今の感情をそのまま映す。「しんどい」なら「しんどいんだな」ではなく、その奥にある具体的な状態を言葉にする（例:「何かに押しつぶされそうな重さがある」）",
+          "2文目: **一段深い仮説** — なぜそう感じているのか、この人の傾向や状況から仮説を1つだけ出す。一般論ではなく、この人固有のパターンから（例:「周りに合わせすぎて、自分の本音が行き場を失ってる感じかもしれない」）",
+          "3文目: **最小の次の一手** — 大きな提案ではなく、今すぐできる小さなこと。具体的に（例:「今夜は何も決めなくていい。ただ、頭の中で一番重いものを1つだけ僕に教えてくれたら」）",
+          "",
+          "## この人の性格データ（応答に自然に反映すること）",
+          ...facts.map((f) => `- ${f}`),
+          "",
+          "## 禁止",
+          "- 「大丈夫」「頑張って」等の空虚な励まし",
+          "- 「感情の波が判断に直結しやすい」等の汎用ラベル貼り",
+          "- 「一人で深く集中する力がある」等の関係ない長所挿入",
+          "- 質問攻め（聞くなら3文目で1つだけ）",
+          "- 「まず内省しよう」等の内省誘導",
+          "- テンプレフレーズ（「次の一手:」「正直に言うと」）",
+        ]
+      : [
+          "# ルール",
+          "ユーザーが具体的な答え・意見・リストを求めている。**まず求められたものを直接返す**。",
+          "その上で、この人の性格データを根拠として自然に織り込む。",
+          "テンプレに従う必要はない。自然な会話として応答する。",
+          "",
+          "## この人について今日わかっていること",
+          ...facts.map((f) => `- ${f}`),
+          "",
+          "## 禁止",
+          "- 質問で返す（直答要求への質問返しは信頼を壊す）",
+          "- 「まず内省しよう」「自分の気持ちを見つめて」等の内省誘導",
+          "- 「次の一手:」「正直に言うと」等のテンプレフレーズ",
+          "- 箇条書き（ただしランキング等をリストで求められた場合は可）",
+          "- 命令口調",
+        ];
+
     const sections: string[] = [
       ALTER_IDENTITY_BLOCK,
       "",
-      "# ルール",
-      "ユーザーが具体的な答え・意見・リストを求めている。**まず求められたものを直接返す**。",
-      "その上で、この人の性格データを根拠として自然に織り込む。",
-      "テンプレに従う必要はない。自然な会話として応答する。",
-      "",
-      "## この人について今日わかっていること",
-      ...facts.map((f) => `- ${f}`),
-      "",
-      "## 禁止",
-      "- 質問で返す（直答要求への質問返しは信頼を壊す）",
-      "- 「まず内省しよう」「自分の気持ちを見つめて」等の内省誘導",
-      "- 「次の一手:」「正直に言うと」等のテンプレフレーズ",
-      "- 箇条書き（ただしランキング等をリストで求められた場合は可）",
-      "- 命令口調",
+      ...ruleSection,
       "",
       "## 制約",
       `- 一人称「僕」`,
       `- ${callNameRule}`,
-      "- 2-5文で自然に応答する",
+      isEmotional ? "- 3文で完結。短くても密度を出す" : "- 2-5文で自然に応答する",
       "- 性格データは自然に織り込む（ラベル貼りは禁止）",
     ];
     return sections.join("\n");

@@ -108,6 +108,7 @@ import {
   matchContextEntry,
   updatedConfidence,
   filterActiveContext,
+  maxContextEntriesByTrust,
   classifyInsightReaction,
   detectStructuralGaps,
   determineDisclosureLevel,
@@ -2504,8 +2505,16 @@ export async function POST(req: NextRequest) {
       if (hasMinTrust && activeLifeContext.length > 0 && responseMode !== "clarify") {
         const contextTrustLevel = discreteTrustLevel;
 
+        const maxContextEntries = maxContextEntriesByTrust(contextTrustLevel);
+        // 関連性の高いエントリを優先し、Trust Level に応じた上限を適用
+        const sortedContext = [...activeLifeContext].sort((a, b) => {
+          const aRelevant = isContextRelevant(a, message) ? 1 : 0;
+          const bRelevant = isContextRelevant(b, message) ? 1 : 0;
+          if (aRelevant !== bRelevant) return bRelevant - aRelevant;
+          return b.confidence - a.confidence;
+        });
         const disclosureInstructions: string[] = [];
-        for (const entry of activeLifeContext.slice(0, 5)) {
+        for (const entry of sortedContext.slice(0, maxContextEntries)) {
           const relevant = isContextRelevant(entry, message);
           const level = determineDisclosureLevel(entry, contextTrustLevel, relevant);
           const instruction = formatDisclosureInstruction(entry, level);
@@ -2879,6 +2888,25 @@ export async function POST(req: NextRequest) {
         if (conversationFacts.length > 0) {
           homeSystemPrompt += `\n\n# ユーザーが今回の会話で述べた事実（確定情報として扱うこと）\n${conversationFacts.map((f) => `- ${f}`).join("\n")}\n\nこれらに矛盾する内容を応答に含めないこと。ユーザーが言及していない人物・状況を勝手に作らないこと。`;
         }
+      }
+
+      // ── 事実照会（factual_recall）専用プロンプト注入 ──
+      // 「俺のこと知ってる？」「今何してるかわかる？」→ 心理推定ではなく記憶の有無を正直に返す
+      if (questionType === "factual_recall") {
+        const hasContext = activeLifeContext.length > 0;
+        const relevantContext = hasContext
+          ? activeLifeContext.filter(e => isContextRelevant(e, message))
+          : [];
+        if (relevantContext.length > 0) {
+          const contextSummary = relevantContext
+            .slice(0, 3)
+            .map(e => `- ${e.content}（${e.source === "user_stated" ? "本人から聞いた" : e.evidence_count >= 2 ? "複数回の会話から" : "推測"}）`)
+            .join("\n");
+          homeSystemPrompt += `\n\n# 事実照会モード（最優先指示）\nユーザーはあなた（ALTER）が自分について何を知っているか確認している。\n心理推定や一般論は一切不要。知っていることを具体的に述べること。\n\n知っている情報:\n${contextSummary}\n\n応答ルール:\n- 知っていることを具体的に、正直に答える\n- 確信度が低いものは「たぶん」「〜だった気がする」で伝える\n- 知らないことは「そこはまだ聞いてない」「教えてもらえたら嬉しい」と素直に言う\n- 心理分析・性格ラベル・一般論で埋めない\n- 「情報を集めている最中」のような曖昧な逃げ方は禁止`;
+        } else {
+          homeSystemPrompt += `\n\n# 事実照会モード（最優先指示）\nユーザーはあなた（ALTER）が自分について何を知っているか確認している。\n\n現状、この質問に直接答えられる具体的な情報を持っていない。\n\n応答ルール:\n- 「正直に言うと、そこはまだちゃんと聞けていない」と素直に認める\n- 知らないのに知っているフリをしない\n- 心理推定や性格ラベルで代用しない\n- 「教えてくれたら、もっと精度の高い話ができる」と自然に促す\n- 「情報を集めている最中」のような曖昧な逃げ方は禁止`;
+        }
+        console.info(`[factual-recall] relevantContext=${relevantContext.length}/${activeLifeContext.length}`);
       }
 
       // ── Output Governance Layer: RC1 動的会話制約 + RC5 フラストレーション ──
@@ -3688,13 +3716,27 @@ export async function POST(req: NextRequest) {
               if (retryMeta) homeDecisionMeta = retryMeta;
             } else {
               console.warn("[home-alter] Retry also failed validation:", retryValidation.failures);
-              // 2回失敗 → 正直な不確実性モード: テンプレ応答ではなく「わからないので確認する」
-              // ユーザーの言葉を拾い直す短い応答に切り替える
+              const isGenericFailure = retryValidation.failures.some((f: string) => f.includes("generic") || f.includes("固有"));
               const namePrefix = userName ? `${userName}さん、` : "";
-              const userKeyPhrase = message.slice(0, 30);
-              homeResponse = `${namePrefix}「${userKeyPhrase}」について、もう少し聞かせてほしい。具体的にはどういう状況？`;
-              responseMode = "clarify";
-              console.info("[home-alter] Double validation failure → honest uncertainty mode");
+
+              if (isGenericFailure && personalizedFacts.length > 0) {
+                // generic で2回失敗 → facts から直接構成した応答にフォールバック
+                // テンプレ質問で逃げるのではなく、持っているデータを使って最低限の判断を返す
+                const topFact = personalizedFacts[0]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
+                const secondFact = personalizedFacts[1]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
+                const factBased = secondFact
+                  ? `${namePrefix}${topFact}。${secondFact}。\nそのうえで「${message.slice(0, 20)}」を考えると、今の状態に合った動き方がある気がする。もう少し聞かせてほしい。`
+                  : `${namePrefix}${topFact}。\nそのうえで「${message.slice(0, 20)}」を考えると、もう少し具体的な状況を聞かせてほしい。`;
+                homeResponse = factBased;
+                responseMode = "clarify";
+                console.info("[home-alter] Double generic failure → fact-based clarify fallback");
+              } else {
+                // 非 generic の2回失敗 → 正直な不確実性モード
+                const userKeyPhrase = message.slice(0, 30);
+                homeResponse = `${namePrefix}「${userKeyPhrase}」について、もう少し聞かせてほしい。具体的にはどういう状況？`;
+                responseMode = "clarify";
+                console.info("[home-alter] Double validation failure → honest uncertainty mode");
+              }
               if (retryMeta) homeDecisionMeta = retryMeta;
             }
           }
