@@ -25,6 +25,7 @@ import {
   type DerivedFactSet,
   type ContradictionInput,
 } from "./derivedFactGenerator";
+import { AXIS_REGISTRY } from "./axisRegistry";
 import type { ArchetypeCode } from "./archetypeTypes";
 import { LAYER1_DEFS, LAYER2_DEFS, LAYER3_DEFS, ARCHETYPE_DEFS, parseArchetypeCode } from "./archetypeTypes";
 import type {
@@ -1903,12 +1904,18 @@ export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<D
   if (STARGAZER_FLAGS.useDerivedFacts) {
     // ── 新: 派生事実生成器 ──
     const contradictionInputs: ContradictionInput[] =
-      (personality.contradictionAxes ?? []).map((c: { axisA: TraitAxisKey; axisB: TraitAxisKey; tension: number }) => ({
-        axisA: c.axisA,
-        axisB: c.axisB,
-        insight: `${c.axisA}と${c.axisB}の間に矛盾（tension: ${c.tension}）`,
-        tension: c.tension,
-      }));
+      (personality.contradictionAxes ?? []).map((c: { axisA: TraitAxisKey; axisB: TraitAxisKey; tension: number }) => {
+        const entryA = AXIS_REGISTRY.get(c.axisA);
+        const entryB = AXIS_REGISTRY.get(c.axisB);
+        const labelA = entryA ? `${entryA.labelLeft}/${entryA.labelRight}` : c.axisA;
+        const labelB = entryB ? `${entryB.labelLeft}/${entryB.labelRight}` : c.axisB;
+        return {
+          axisA: c.axisA,
+          axisB: c.axisB,
+          insight: `「${labelA}」と「${labelB}」の傾向が矛盾している`,
+          tension: c.tension,
+        };
+      });
 
     const factSet = generateDerivedFacts({
       axisScores: personality.axisScores,

@@ -131,12 +131,18 @@ function main() {
 
   // 各snapshot × 各question でケース生成
   for (const snapshot of fixture.snapshots) {
-    const contradictionInputs: ContradictionInput[] = snapshot.contradictions.map((c) => ({
-      axisA: c.axisA,
-      axisB: c.axisB,
-      insight: `${c.axisA}と${c.axisB}の間に矛盾（tension: ${c.tension}）`,
-      tension: c.tension,
-    }));
+    const contradictionInputs: ContradictionInput[] = snapshot.contradictions.map((c) => {
+      const entryA = AXIS_REGISTRY.get(c.axisA);
+      const entryB = AXIS_REGISTRY.get(c.axisB);
+      const labelA = entryA ? `${entryA.labelLeft}/${entryA.labelRight}` : c.axisA;
+      const labelB = entryB ? `${entryB.labelLeft}/${entryB.labelRight}` : c.axisB;
+      return {
+        axisA: c.axisA,
+        axisB: c.axisB,
+        insight: `「${labelA}」と「${labelB}」の傾向が矛盾している`,
+        tension: c.tension,
+      };
+    });
 
     const derivedInput: DerivedFactGeneratorInput = {
       axisScores: snapshot.axisScores,
