@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { checkStargazerTier } from "@/lib/stargazer/tierGuard";
+import { STARGAZER_FLAGS } from "@/lib/stargazer/featureFlags";
+import {
+  generateDerivedFacts,
+  formatDerivedFactsForPrompt,
+  type ContradictionInput,
+} from "@/lib/stargazer/derivedFactGenerator";
+import { AXIS_REGISTRY } from "@/lib/stargazer/axisRegistry";
 import {
   buildAlterPersonality,
   buildAlterSystemPrompt,
@@ -2353,6 +2360,45 @@ export async function POST(req: NextRequest) {
         responseMode, queryContext, domainOverlay, userName, relationalLens,
         judgmentSkeleton, clarifyType, clarifyIntentHint, baselineCtx,
       );
+
+      // ── Phase 1: 派生事実注入（Home Alter経路） ──
+      if (STARGAZER_FLAGS.useDerivedFacts && personality.axisScores) {
+        try {
+          const contradictionInputs: ContradictionInput[] =
+            (personality.contradictionAxes ?? []).map((c: { axisA: string; axisB: string; tension: number }) => {
+              const entryA = AXIS_REGISTRY.get(c.axisA as import("@/lib/stargazer/traitAxes").TraitAxisKey);
+              const entryB = AXIS_REGISTRY.get(c.axisB as import("@/lib/stargazer/traitAxes").TraitAxisKey);
+              const labelA = entryA ? `${entryA.labelLeft}/${entryA.labelRight}` : c.axisA;
+              const labelB = entryB ? `${entryB.labelLeft}/${entryB.labelRight}` : c.axisB;
+              return {
+                axisA: c.axisA as import("@/lib/stargazer/traitAxes").TraitAxisKey,
+                axisB: c.axisB as import("@/lib/stargazer/traitAxes").TraitAxisKey,
+                insight: `「${labelA}」と「${labelB}」の傾向が矛盾している`,
+                tension: c.tension,
+              };
+            });
+
+          const factSet = generateDerivedFacts({
+            axisScores: personality.axisScores,
+            contradictions: contradictionInputs,
+            blindSpots: [],
+            queryDomain: null,
+          });
+
+          derivedFactSet = factSet;
+
+          const topExtremeAxes = Object.entries(personality.axisScores)
+            .filter(([, v]) => v !== undefined && v !== null)
+            .map(([key, value]) => ({ key: key as import("@/lib/stargazer/traitAxes").TraitAxisKey, score: value as number }))
+            .sort((a, b) => Math.abs(b.score - 0.5) - Math.abs(a.score - 0.5))
+            .slice(0, 3);
+
+          const derivedSection = formatDerivedFactsForPrompt(factSet, topExtremeAxes);
+          homeSystemPrompt += `\n\n${derivedSection}`;
+        } catch (e) {
+          console.warn("[home-alter] Derived facts generation failed, continuing without:", e);
+        }
+      }
 
       // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──
       // ガバナンスの後追い修正ではなく、最初の出力から正しくするための前段制約
