@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { safeLSSet } from "@/lib/safeLocalStorage";
 import { markTourSeen } from "@/lib/tour/tourState";
@@ -16,18 +16,20 @@ import type { LifeProfileEntry } from "@/lib/origin/lifeProfile/types";
    InitialOnboardingOverlay（旧 ValuesOnboardingOverlay）
    ─────────────────────────────────────────────────────────────────
    HomeTour 完了直後に表示。
-   Rendezvous マッチングに必要な最重要データを選択式で素早く取得。
+   A ライン（共通ベースライン）データを選択式で素早く取得。
 
-   5ステップ:
-     1. 価値観・信念 (values)      → originFit 直結
-     2. 情熱・好きなこと (passions) → originFit 直結
-     3. 仕事・キャリア (career)     → パイプライン抽出
-     4. ライフスタイル + 都道府県   → profileBoost
-     5. 恋愛・パートナー (romantic)  → dealbreaker判定
+   4ステップ:
+     1. 価値観・信念 (values)      → A ライン (life_profile_entries DB)
+     2. 情熱・好きなこと (passions) → A ライン (life_profile_entries DB)
+     3. 仕事・キャリア (career)     → A ライン (life_profile_entries DB)
+     4. ライフスタイル + 都道府県   → A ライン (profiles + rendezvous_profiles)
+
+   ※ 恋愛・パートナー (romantic) は B ライン = Rendezvous onboarding のみで収集。
+     重複質問を避けるため、ここでは聞かない。
 
    結果保存先:
-     - values / passions / career → Life Profile store (localStorage)
-     - lifestyle / prefecture / romantic → localStorage + API sync
+     - values / passions / career → Life Profile store (localStorage) + life_profile_entries (DB)
+     - lifestyle / prefecture → localStorage + API sync
    ═══════════════════════════════════════════════════════════════════ */
 
 const DONE_KEY = "aneurasync_values_onboarding_done_v1";
@@ -188,20 +190,8 @@ const PREFECTURES = [
   "海外",
 ];
 
-// ── Step 5: 恋愛 ──
-const MARRIAGE_OPTIONS = [
-  "すぐにでも",
-  "2-3年以内",
-  "いい人がいれば",
-  "考えていない",
-];
-
-const CHILDREN_OPTIONS = [
-  "欲しい",
-  "いらない",
-  "相手に合わせる",
-  "未定",
-];
+// ── Step 5 (romantic) は B ライン = Rendezvous onboarding のみで収集 ──
+// 重複質問禁止のため、ValuesOnboardingOverlay からは除外済み
 
 // ═══ Step definitions ═══
 
@@ -247,14 +237,6 @@ const STEPS: StepDef[] = [
     type: "lifestyle",
     required: true,
   },
-  {
-    key: "romantic",
-    icon: "💫",
-    title: "恋愛・パートナーについて",
-    sub: "今のあなたの気持ちに近いものを。",
-    type: "single-select-pair",
-    required: true,
-  },
 ];
 
 // ═══ Types ═══
@@ -270,8 +252,6 @@ type OnboardingData = {
   lifestyleIndoorOutdoor: number | null;
   lifestyleSoloSocial: number | null;
   prefecture: string | null;
-  marriageIntent: string | null;
-  childrenPreference: string | null;
 };
 
 const INITIAL_DATA: OnboardingData = {
@@ -285,8 +265,6 @@ const INITIAL_DATA: OnboardingData = {
   lifestyleIndoorOutdoor: null,
   lifestyleSoloSocial: null,
   prefecture: null,
-  marriageIntent: null,
-  childrenPreference: null,
 };
 
 interface Props {
@@ -299,6 +277,77 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
   const [data, setData] = useState<OnboardingData>({ ...INITIAL_DATA });
   const [shake, setShake] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
+
+  // ④-D: 既回答プリフィル — server (life_profile_entries + rendezvous_profiles) → localStorage → empty
+  // 別端末でも既回答データがプリフィルされるようにする
+  const [prefilled, setPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (prefilled) return;
+
+    const applyUpdates = (updates: Partial<OnboardingData>) => {
+      if (Object.keys(updates).length > 0) {
+        setData(prev => ({ ...prev, ...updates }));
+      }
+    };
+
+    // localStorage fallback for lifestyle data
+    const applyLocalStorageFallback = () => {
+      try {
+        const raw = localStorage.getItem(DEALBREAKER_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          const u: Partial<OnboardingData> = {};
+          if (typeof parsed.lifestyleMorningNight === "number") u.lifestyleMorningNight = parsed.lifestyleMorningNight;
+          if (typeof parsed.lifestyleIndoorOutdoor === "number") u.lifestyleIndoorOutdoor = parsed.lifestyleIndoorOutdoor;
+          if (typeof parsed.lifestyleSoloSocial === "number") u.lifestyleSoloSocial = parsed.lifestyleSoloSocial;
+          if (typeof parsed.prefecture === "string") u.prefecture = parsed.prefecture;
+          applyUpdates(u);
+        }
+      } catch { /* ignore */ }
+    };
+
+    // Server truth: life_profile_entries (Steps 1-3) + rendezvous_profiles (Step 4 lifestyle)
+    Promise.all([
+      fetch("/api/origin/life-profile").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/rendezvous/settings").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([lpJson, rvJson]) => {
+      const updates: Partial<OnboardingData> = {};
+
+      // Steps 1-3: life_profile_entries から復元
+      if (lpJson?.entries && Array.isArray(lpJson.entries)) {
+        const entries = lpJson.entries as Array<{ category: string; title: string; active: boolean }>;
+        const activeByCategory = (cat: string) =>
+          entries.filter(e => e.category === cat && e.active !== false).map(e => e.title);
+        const vals = activeByCategory("values");
+        const pass = activeByCategory("passions");
+        const car = activeByCategory("career");
+        if (vals.length > 0) updates.values = vals;
+        if (pass.length > 0) updates.passions = pass;
+        if (car.length > 0) updates.career = car;
+      }
+
+      // Step 4: rendezvous_profiles.profile_details から lifestyle データ
+      const details = rvJson?.profile?.profile_details;
+      if (details && typeof details === "object") {
+        const d = details as Record<string, unknown>;
+        if (typeof d.lifestyleMorningNight === "number") updates.lifestyleMorningNight = d.lifestyleMorningNight;
+        if (typeof d.lifestyleIndoorOutdoor === "number") updates.lifestyleIndoorOutdoor = d.lifestyleIndoorOutdoor;
+        if (typeof d.lifestyleSoloSocial === "number") updates.lifestyleSoloSocial = d.lifestyleSoloSocial;
+        if (typeof d.prefecture === "string") updates.prefecture = d.prefecture;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        applyUpdates(updates);
+      } else {
+        applyLocalStorageFallback();
+      }
+    }).catch(() => {
+      applyLocalStorageFallback();
+    }).finally(() => {
+      setPrefilled(true);
+    });
+  }, [prefilled]);
 
   const currentStep = STEPS[step];
   const isLast = step === STEPS.length - 1;
@@ -333,10 +382,6 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
         && data.lifestyleIndoorOutdoor != null
         && data.lifestyleSoloSocial != null
         && data.prefecture != null;
-    }
-    if (s.key === "romantic") {
-      // 結婚観・子ども観の両方必須
-      return data.marriageIntent != null && data.childrenPreference != null;
     }
     return true;
   }, [step, data]);
@@ -391,22 +436,26 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
 
     saveLifeProfileStore(store);
 
-    // 2. DealbreakerProfile (lifestyle, prefecture, romantic)
-    const dealbreaker: Record<string, unknown> = {};
-    if (data.lifestyleMorningNight != null) dealbreaker.lifestyleMorningNight = data.lifestyleMorningNight;
-    if (data.lifestyleIndoorOutdoor != null) dealbreaker.lifestyleIndoorOutdoor = data.lifestyleIndoorOutdoor;
-    if (data.lifestyleSoloSocial != null) dealbreaker.lifestyleSoloSocial = data.lifestyleSoloSocial;
-    if (data.prefecture) dealbreaker.prefecture = data.prefecture;
-    if (data.marriageIntent) dealbreaker.marriageIntent = data.marriageIntent;
-    if (data.childrenPreference) dealbreaker.childrenPreference = data.childrenPreference;
+    // 2. DB sync — life_profile_entries に Steps 1-3 を永続化（A ライン サーバー真実化）
+    fetch("/api/origin/life-profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "sync_all", entries: store.entries }),
+    }).catch(() => {});
 
-    safeLSSet(DEALBREAKER_KEY, JSON.stringify(dealbreaker));
+    // 3. Lifestyle + prefecture (Step 4) → rendezvous_profiles.profile_details
+    const lifestyle: Record<string, unknown> = {};
+    if (data.lifestyleMorningNight != null) lifestyle.lifestyleMorningNight = data.lifestyleMorningNight;
+    if (data.lifestyleIndoorOutdoor != null) lifestyle.lifestyleIndoorOutdoor = data.lifestyleIndoorOutdoor;
+    if (data.lifestyleSoloSocial != null) lifestyle.lifestyleSoloSocial = data.lifestyleSoloSocial;
+    if (data.prefecture) lifestyle.prefecture = data.prefecture;
 
-    // API sync (fire-and-forget)
+    safeLSSet(DEALBREAKER_KEY, JSON.stringify(lifestyle));
+
     fetch("/api/rendezvous/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile_details: dealbreaker }),
+      body: JSON.stringify({ profile_details: lifestyle }),
     }).catch(() => {});
 
     safeLSSet(DONE_KEY, "1");
@@ -420,7 +469,6 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
     if (!s.required || canProceed()) return null;
     if (s.key === "values") return "1つ以上選択してください";
     if (s.key === "lifestyle") return "すべての項目とエリアを選択してください";
-    if (s.key === "romantic") return "両方の項目を選択してください";
     return "1つ選択してください";
   })();
 
@@ -562,12 +610,6 @@ export default function ValuesOnboardingOverlay({ active, onComplete }: Props) {
               />
             )}
 
-            {currentStep.type === "single-select-pair" && (
-              <RomanticStep
-                data={data}
-                onChange={(updates) => setData((prev) => ({ ...prev, ...updates }))}
-              />
-            )}
 
             {/* Buttons */}
             <div
@@ -907,108 +949,8 @@ function LifestyleStep({
   );
 }
 
-function RomanticStep({
-  data,
-  onChange,
-}: {
-  data: OnboardingData;
-  onChange: (updates: Partial<OnboardingData>) => void;
-}) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Marriage intent */}
-      <div>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
-          結婚について
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {MARRIAGE_OPTIONS.map((opt) => {
-            const isSelected = data.marriageIntent === opt;
-            return (
-              <motion.button
-                key={opt}
-                type="button"
-                onClick={() => onChange({ marriageIntent: isSelected ? null : opt })}
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  padding: "9px 16px",
-                  borderRadius: 12,
-                  border: isSelected
-                    ? "2px solid #8b5cf6"
-                    : "2px solid #e2e8f0",
-                  background: isSelected
-                    ? "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(6,182,212,0.06))"
-                    : "#f8fafc",
-                  color: isSelected ? "#6d28d9" : "#475569",
-                  fontSize: 13,
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {opt}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Children preference */}
-      <div>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#64748b", marginBottom: 6 }}>
-          子どもについて
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {CHILDREN_OPTIONS.map((opt) => {
-            const isSelected = data.childrenPreference === opt;
-            return (
-              <motion.button
-                key={opt}
-                type="button"
-                onClick={() =>
-                  onChange({ childrenPreference: isSelected ? null : opt })
-                }
-                whileTap={{ scale: 0.95 }}
-                style={{
-                  padding: "9px 16px",
-                  borderRadius: 12,
-                  border: isSelected
-                    ? "2px solid #8b5cf6"
-                    : "2px solid #e2e8f0",
-                  background: isSelected
-                    ? "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(6,182,212,0.06))"
-                    : "#f8fafc",
-                  color: isSelected ? "#6d28d9" : "#475569",
-                  fontSize: 13,
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {opt}
-              </motion.button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** 初期オンボーディング完了済みか (legacy — AneurasyncHome は isTourSeen を使用) */
 export function isValuesOnboardingDone(): boolean {
   if (typeof window === "undefined") return true;
   return localStorage.getItem(DONE_KEY) === "1";
-}
-
-/** ローカルに保存された DealbreakerProfile を取得 */
-export function getLocalDealbreakerProfile(): Record<string, unknown> | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(DEALBREAKER_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
 }

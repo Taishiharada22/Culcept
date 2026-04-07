@@ -250,6 +250,43 @@ const CROSS_AXIS_RULES: CrossAxisRule[] = [
     insightTemplate: "トレンドを追いかけるが、根本的な変化には抵抗する。表面的な新しさは好きだが、自分の根っこが変わることは怖い——新奇性追求と保守性の二層構造。",
     probeTemplate: "流行りのものに飛びつくけど、自分の考え方や価値観は昔からあまり変わっていない？",
   },
+
+  // ── Stage 3 深層心理軸 (P2-1) ──
+  {
+    axisA: "attachment_style",
+    axisB: "reassurance_need",
+    conflictCondition: (a, b) => a < -0.3 && b > 0.4,
+    insightTemplate: "回避的で距離を取りたがるのに、安心確認を強く求めている。表面は「一人で大丈夫」だが、深い部分では見捨てられへの恐怖がある——恐れ・回避型の愛着パターン。",
+    probeTemplate: "人と距離を取りたいのに、相手の気持ちを確かめたくなる瞬間がある。それはどんな時？ 特定の相手？",
+  },
+  {
+    axisA: "locus_of_control",
+    axisB: "emotional_regulation",
+    conflictCondition: (a, b) => a > 0.3 && b > 0.4,
+    insightTemplate: "「環境次第でどうにもならない」と感じているのに、感情は高度に抑制できている。無力感を感じつつ感情だけは制御する——学習性の過剰制御かもしれない。",
+    probeTemplate: "「自分じゃどうにもならない」と思うことが多いのに、感情は乱さない。それは強さ？ それとも諦めの一種？",
+  },
+  {
+    axisA: "growth_mindset",
+    axisB: "perfectionist_vs_pragmatic",
+    conflictCondition: (a, b) => a > 0.3 && b < -0.4,
+    insightTemplate: "「人は変われない」と感じているのに、完璧を追求する。変われないからこそ今の自分を完璧にしなければという固定的完璧主義の可能性がある。",
+    probeTemplate: "「どうせ変わらない」と思いつつ「ちゃんとやらなきゃ」と感じる。この二つは矛盾している自覚がある？",
+  },
+  {
+    axisA: "rumination_tendency",
+    axisB: "locus_of_control",
+    conflictCondition: (a, b) => a > 0.4 && b < -0.3,
+    insightTemplate: "考え続けてしまうのに「自分次第」と信じている。自分に原因を帰属するからこそ反芻が止まらない——責任感と自責の過剰ループ。",
+    probeTemplate: "あの時ああしていれば、と考え続けるのは「自分なら変えられたはず」と思っているから？ それとも後悔の癖？",
+  },
+  {
+    axisA: "fairness_sensitivity",
+    axisB: "direct_vs_diplomatic",
+    conflictCondition: (a, b) => a > 0.3 && b > 0.3,
+    insightTemplate: "不公平に強く反応するのに、外交的で直接言えない。怒りや違和感を内側に溜め込む——表面の穏やかさと内面の不満が乖離している。",
+    probeTemplate: "「これは不公平だ」と感じた時、その場で言える？ それとも後から一人でモヤモヤする方が多い？",
+  },
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -622,4 +659,12 @@ export function prioritizeContradictionAxes(
       contradictionCount: count,
     }))
     .sort((a, b) => b.totalSeverity - a.totalSeverity);
+}
+
+/**
+ * HealthCheck 用: CROSS_AXIS_RULES が参照する軸ペアのリストを返す
+ * （CROSS_AXIS_RULES 自体はモジュールプライベートのため、このヘルパーを経由する）
+ */
+export function getCrossAxisRulePairs(): Array<[TraitAxisKey, TraitAxisKey]> {
+  return CROSS_AXIS_RULES.map((r) => [r.axisA, r.axisB]);
 }

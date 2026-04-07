@@ -47,6 +47,23 @@ export async function POST(request: NextRequest) {
       ? response_metadata
       : {};
 
+    // §7-A: フィードバック時点のderived_factsスナップショットを取得
+    if (!metadata.derived_facts) {
+      const { data: recentJudgment } = await supabase
+        .from("stargazer_analytics")
+        .select("metadata")
+        .eq("user_id", user.id)
+        .eq("event", "home_alter_judgment")
+        .eq("metadata->>session_id", session_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      if (recentJudgment?.metadata?.derived_facts) {
+        metadata.derived_facts = recentJudgment.metadata.derived_facts;
+        metadata.derived_facts_summary = recentJudgment.metadata.derived_facts_summary;
+      }
+    }
+
     const { error: insertError } = await supabase
       .from("stargazer_alter_feedback")
       .insert({

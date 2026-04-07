@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("gender, date_of_birth, prefecture, baseline_completed_at")
+    .select("gender, date_of_birth, prefecture, city, baseline_completed_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -31,6 +31,7 @@ export async function GET() {
       gender: data?.gender ?? null,
       dateOfBirth: data?.date_of_birth ?? null,
       prefecture: data?.prefecture ?? null,
+      city: data?.city ?? null,
       completedAt: data?.baseline_completed_at ?? null,
     },
   });

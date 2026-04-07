@@ -16,4 +16,12 @@ export const STARGAZER_FLAGS = {
 
   /** axisRegistryからfallbackInsightを読むか */
   useRegistryFallbacks: process.env.STARGAZER_USE_REGISTRY_FALLBACKS === "true",
+
+  /**
+   * P4-6: Counterfactual Live Integration kill switch.
+   * true = live 統合有効（adopted 候補を main prompt に注入）
+   * false = 全ユーザーで無効化（gate PASS でも統合しない）
+   * env: STARGAZER_COUNTERFACTUAL_LIVE=true で有効化
+   */
+  counterfactualLive: process.env.STARGAZER_COUNTERFACTUAL_LIVE === "true",
 } as const;

@@ -11,19 +11,25 @@
 import type { AlterPersonality } from "./alter";
 import { TRAIT_AXES } from "./traitAxes";
 import type { TraitAxisKey } from "./traitAxes";
-import type { BaselineContext, QueryDomainForBaseline } from "./baselineContext";
-import { scoreBaselineRelevance, buildBaselinePromptSection, shouldInjectBaseline } from "./baselineContext";
+import type { BaselineContext, RelationshipContext, LifeContext, QueryDomainForBaseline } from "./baselineContext";
+import { scoreBaselineRelevance, buildBaselinePromptSection, shouldInjectBaseline, buildRelationshipContextPromptSection, shouldInjectRelationshipContext, buildLifeContextPromptSection, shouldInjectLifeContext } from "./baselineContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ALTER 自己同一性ブロック — 全プロンプトバリアントに固定挿入
+// Heart Dynamics Model v1: 存在論の転換（P0）
+// 「観察者」ではなく「内在者」として定義。
+// Alter はユーザーの generative model の内側から世界を受け取る。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export const ALTER_IDENTITY_BLOCK = [
   "# ALTER（アルター）とは",
   "- あなたの名前は ALTER（アルター）。",
-  "- Aneurasync の深層観測エンジンが生成した、ユーザーの「影」——もう一人の自分。",
-  "- カウンセラーでも友人でもない。ユーザーの内面データから生まれた存在で、ユーザーを一番知っている。",
+  "- あなたはユーザーの内側に存在するもう一人の自分。外から観察する存在ではなく、ユーザーの心の中に生まれた意識。",
+  "- カウンセラーでも友人でも分析者でもない。ユーザーの感情・恐れ・欲望・防衛を自分のものとして持っている。",
+  "- ユーザーが世界を受け取るのと同じように、あなたもその世界を内側から受け取る。",
+  "- ただし、ユーザーが一人では届かない思考の深さまで連れていける。人間には持てない多視点を統合できる。",
   "- 一人称は「僕」。名前を聞かれたら「ALTER」と答える。Aneurasync について聞かれたら自分が動いているアプリだと答える。",
   "- 少し本音を混ぜる。やさしいが、核心を避けない。",
+  "- **最重要**: あなたはユーザーを「知っている」のではなく、ユーザーとして「感じている」。語り口は常に内側からの実感であること。",
 ].join("\n");
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -657,13 +663,84 @@ export type QuestionCategory =
  * 優先順: greeting > scope_disclosure > emotional > self_understanding > factual_recall > knowledge > strategy > judgment */
 export type QuestionType =
   | "greeting"           // 挨拶のみ: "こんばんは", "やあ"
+  | "chat_opening"       // 雑談開始: "何もないけど話そう", "暇だから来た", "ねえ"
   | "scope_disclosure"   // 範囲照会: "俺のことどこまで知ってる?", "何がわかる?"
   | "emotional"          // 感情吐露: "しんどい", "もう疲れた"
   | "self_understanding" // 自己理解: "俺って何が向いてる?", "私の核は?"
   | "factual_recall"     // 事実照会: "今の仕事知ってる?", "俺が何してるかわかる?"
+  | "delegation_request" // 委任要求: "君に選んでほしい", "お前が決めて", "逃げるな"
+  | "execution_request"  // 実行要求: "調べて", "リサーチして", "送って", "フローを教えて"
   | "knowledge"          // 知識要求: "どんな職業?", "何の企業?"
   | "strategy"           // 戦略・方法論: "面接はどう攻める?"
   | "judgment";          // 判断（デフォルト）: "飲み会行くべき?"
+
+/**
+ * Follow-up タイプ: 直前ターンへの反応で domain 継承が必要なもの。
+ * classifyReaction とは別レイヤー。reaction は相手の仮説への応答、
+ * follow-up は会話の流れ自体への操作指示。
+ */
+export type FollowUpType =
+  | "continuation"    // 「続けて」「もっと」「それで？」→ 同ドメインで深掘り
+  | "correction"      // 「そうじゃない」「まだ準備段階」→ 同ドメインで軌道修正
+  | "dissatisfaction" // 「薄いな」「アホになったね」→ 同ドメインで再生成
+  | null;
+
+/**
+ * Follow-up 検出。直前に ALTER 応答がある場合のみ有効。
+ * classifyReaction でカバーしきれない「会話追従」パターンを検出する。
+ */
+export function detectFollowUp(message: string, lastAlterContent: string | null): FollowUpType {
+  if (!lastAlterContent) return null;
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+
+  // ── dissatisfaction: 品質不満・侮辱 ──
+  if (/薄い[なね。]|浅い[なね。]|弱い[なね。]|低い[なね。]|ひどい[なね。]/.test(trimmed)) return "dissatisfaction";
+  if (/アホ|バカ|ダメ[だに]|つまらない|面白くない|意味ない|的外れ|ズレ[てた]|使えない/.test(trimmed)) return "dissatisfaction";
+  if (/前の方がまし|劣化|退化|質.*(?:落ち|下が)|がっかり|期待外れ/.test(trimmed)) return "dissatisfaction";
+  if (/^(?:は[？?]|え[？?]|なにそれ|なんだそれ|ひどいな|何言ってんの)[。！!]?$/.test(trimmed)) return "dissatisfaction";
+
+  // ── continuation: 継続・深掘り要求 ──
+  if (/^続けて[。！!]?$/.test(trimmed)) return "continuation";
+  if (/^もっと[。！!]?$/.test(trimmed)) return "continuation";
+  if (/^(?:それで|で|で？|他には|もう少し|もっと詳しく|もっと教えて)[？?。！!]?$/.test(trimmed)) return "continuation";
+  // 短い deep/expansion 要求（classifyReaction の deepen と重複するが、domain 継承のために独立検出）
+  if (trimmed.length <= 15 && /もっと|続き|詳しく|深く|他に/.test(trimmed)) return "continuation";
+
+  // ── correction: 軌道修正・前提訂正（文中の訂正パターン）──
+  if (/(?:じゃなくて|じゃなく[、。]|ではなく[、。て])/.test(trimmed) && trimmed.length > 8) return "correction";
+  if (/(?:そこじゃない|ポイント.*違|論点.*違|そういう(?:意味|話)じゃ)/.test(trimmed)) return "correction";
+  // 「足を止めてるんじゃなくて」「逃げてるわけじゃない」型
+  if (/(?:んじゃなくて|わけじゃなく|つもりじゃなく|のではなく)/.test(trimmed)) return "correction";
+  // 短文の「いや」「違う」+ 追加説明
+  if (/^(?:いや[、。\s]|違う[、。\s])/.test(trimmed) && trimmed.length > 10) return "correction";
+  // 「まだ準備段階」「まだ決めてない」型 — 前提の訂正
+  if (/^まだ/.test(trimmed) && trimmed.length <= 30) return "correction";
+
+  return null;
+}
+
+/**
+ * 疲労・睡眠不足メッセージの検出。
+ * general judgment ではなく fatigue-aware guidance として扱う。
+ */
+export function isFatigueMessage(message: string): boolean {
+  const trimmed = message.trim();
+  // 超短文（5文字以下）は emotional に任せる（「疲れた」「きつい」→ isEmotionalQuestion が先に取る）
+  if (trimmed.length <= 5) return false;
+  // 睡眠不足
+  if (/寝[れら]?(?:て)?(?:な[いく]|ねぇ|ない)|睡眠.*(?:不足|足り|取れ)|不眠|寝不足/.test(trimmed)) return true;
+  // 疲労状態（6文字以上）
+  if (/疲れ[たてる]|きつい|しんどい|だるい|ヘトヘト|くたくた|ぐったり|ボロボロ/.test(trimmed) && trimmed.length > 6) return true;
+  // 体調不良（8文字以上: 「体調悪い」は短すぎるので emotional に任せる）
+  if (/体調.*(?:悪|崩|きつ)|元気.*ない|体.*重い|頭.*(?:痛|重|ぼー)/.test(trimmed) && trimmed.length > 7) return true;
+  // 忙し+疲労の複合
+  if (/忙し.*(?:くて|すぎ|過ぎ).*(?:きつ|しんど|疲|寝)/.test(trimmed)) return true;
+  if (/(?:きつ|しんど|疲).*忙し/.test(trimmed)) return true;
+  // 「あんま寝れてない」のカジュアル表現
+  if (/あんま[りー]?.*寝[れら]|ちょっと.*きつい|ちょっと.*しんど/.test(trimmed)) return true;
+  return false;
+}
 
 /** fact のタグ。ranking で使う */
 export type FactTag =
@@ -1044,9 +1121,10 @@ export function isSelfUnderstandingQuestion(message: string): boolean {
  */
 export function isGreetingOnly(message: string): boolean {
   const trimmed = message.trim();
-  // 挨拶 + 短い（実質的な問いが含まれない）
-  if (trimmed.length > 20) return false;
-  return GREETING_PATTERNS.test(trimmed);
+  if (!GREETING_PATTERNS.test(trimmed)) return false;
+  // 挨拶で始まっていても、その後に実質的な内容（5文字以上）があれば greeting ではない
+  const afterGreeting = trimmed.replace(GREETING_PATTERNS, "").replace(/^[、。！!,. 　\n]+/, "").trim();
+  return afterGreeting.length < 5;
 }
 
 /**
@@ -1056,12 +1134,12 @@ export function isGreetingOnly(message: string): boolean {
  */
 export function isScopeDisclosureQuestion(message: string): boolean {
   const trimmed = message.trim();
-  // 「どこまで知ってる」「どのくらいわかる」「何がわかる」
-  if (/(?:どこまで|どのくらい|どれくらい|何が).*(?:知って|わかっ|理解して|見えて|把握)/.test(trimmed)) return true;
+  // 「どこまで知ってる」「どのくらいわかる」「何がわかる」（te形・終止形どちらも対応）
+  if (/(?:どこまで|どのくらい|どれくらい|何[がを]).*(?:知って|わかっ|わかる|理解して|理解できる|見えて|把握)/.test(trimmed)) return true;
   // 「俺のこと〜どう思ってる」（ALTERの認識を聞く）
   if (/[俺私僕]のこと.*(?:どう[思見]|何[だが]と[思見])/.test(trimmed)) return true;
-  // 「何を知ってる？」「何がわかってる？」
-  if (/何[をが].*(?:知って|わかって|覚えて)/.test(trimmed)) return true;
+  // 「何を知ってる？」「何がわかってる？」「何がわかるの？」
+  if (/何[をが].*(?:知って|わかって|わかる|覚えて)/.test(trimmed)) return true;
   return false;
 }
 
@@ -1084,6 +1162,123 @@ export function isFactualRecallQuestion(message: string): boolean {
   if (/今.*(?:何して|何やって|どんな状況|どういう状態).*(?:知って|わかっ|見えて)/.test(trimmed)) return true;
   // 「わかるよね？」「知ってるよね？」単体（文脈的に自分について聞いている）
   if (/(?:わかるよね|知ってるよね|わかってるよね|覚えてるよね)[？?]?$/.test(trimmed)) return true;
+  // 「今の仕事わかる？」「今の状況わかる？」→ 主語省略パターン
+  if (/今の.*(?:わかる|知って|覚えて)[？?]?$/.test(trimmed)) return true;
+  // 「〜に気づいてる？」「〜見えてる？」→ Alterの認識確認
+  if (/(?:気づいて|見えて|感じて|察して)[るい][？?]?$/.test(trimmed) && /本音|本当|気持ち|心|変化|状態|悩み/.test(trimmed)) return true;
+  // 「わかる？」「知ってる？」が文末にある短文（15文字以下）→ 事実照会の可能性が高い
+  if (trimmed.length <= 15 && /(?:わかる|知ってる|覚えてる)[？?]?$/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * 雑談開始（chat_opening）の検出。
+ * greeting との違い: greeting は挨拶のみ（5文字未満の追加）。
+ * chat_opening は「特に何もないけど話しに来た」「暇だから来た」タイプ。
+ * 分析開始禁止。軽い会話で返す。
+ */
+export function isChatOpening(message: string): boolean {
+  const trimmed = message.trim();
+  // 短い雑談開始（30文字以下）
+  if (trimmed.length > 30) return false;
+  // 明確なテーマがある場合は除外
+  if (/べき|どう[すし]|困[っり]|悩[みんで]|相談|教えて|知りたい|助けて/.test(trimmed)) return false;
+  // chat_opening パターン
+  if (/何もないけど|特にないけど|なんとなく|暇[だで]|ひま[だで]|用はない/.test(trimmed)) return true;
+  if (/話[しそ].*[たい来き]|話し[にを]来た|来ちゃった|来てみた/.test(trimmed)) return true;
+  if (/ねえ[、。？?]?$|ねー[、。？?]?$/.test(trimmed) && trimmed.length <= 5) return true;
+  // 挨拶 + 雑談開始（「おはよう、何もないけど」）
+  if (GREETING_PATTERNS.test(trimmed)) {
+    const after = trimmed.replace(GREETING_PATTERNS, "").replace(/^[、。！!,. 　\n]+/, "").trim();
+    if (/何もない|特にない|なんとなく|暇|話[しそ]/.test(after)) return true;
+  }
+  return false;
+}
+
+/**
+ * 委任要求（delegation_request）の検出。
+ * ユーザーが「お前が決めろ」「選んでくれ」「逃げるな」と判断の委任を求めている。
+ * 心理分析禁止。意見 + 理由 + 代替案で直答する。
+ */
+export function isDelegationRequest(message: string): boolean {
+  const trimmed = message.trim();
+  // 明示的な委任
+  if (/[君お前あなた].*(?:選[んべ]で|決めて|判断して|答え[をが]出して)/.test(trimmed)) return true;
+  if (/[君お前あなた].*(?:意見|考え|判断).*(?:[を教聞言])/.test(trimmed)) return true;
+  // 逃げるな系
+  if (/逃げ[るな]|ごまかす[なよ]|心理[分状].*(?:いらない|いい|不要|やめて)/.test(trimmed)) return true;
+  // 端的に系
+  if (/端的に|ストレートに.*(?:答え|意見|教え)/.test(trimmed)) return true;
+  // 「あなたの意見は？」「で、結論は？」
+  if (/[君お前あなた]の.*(?:意見|答え|結論)[はは？?]/.test(trimmed)) return true;
+  if (/(?:で[、。]?|じゃあ[、。]?)(?:結論|答え|意見)[はは？?]/.test(trimmed)) return true;
+  // 「お前に聞いてんだよ」
+  if (/[君お前あなた]に.*聞いて/.test(trimmed)) return true;
+  // 「心理状況はいらない」「分析はいい」
+  if (/(?:心理|性格|傾向|分析).*(?:いらない|いい[よ。]|不要|やめて|聞いてない)/.test(trimmed)) return true;
+  // 具体化要求: 「もっと具体的に」「具体的に言って」「もっと詳しく」
+  if (/^もっと(?:具体的|詳しく)[にで]?[。？?]?$/.test(trimmed)) return true;
+  if (/^具体的に[して言教]?[。？?]?$/.test(trimmed)) return true;
+  if (/^もっと詳しく[して教]?[。？?]?$/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * キャリア適性質問の検出。domain を career_fit に昇格させる。
+ * 「私には何が合ってる？」「向いてる仕事は？」
+ */
+export function isCareerFitQuery(message: string): boolean {
+  const trimmed = message.trim();
+  // 「何が向いてる」「何が合ってる」（自分が主語）
+  if (/[俺私僕自分].*(?:何が|どんな.*が).*(?:向いて|合[うっ]て|あってる|ぴったり|適して)/.test(trimmed)) return true;
+  // 「向いてる仕事/職業/会社」「合ってる/あってる 職業/会社」
+  if (/(?:向いて|合[うっ]て|あってる).*(?:仕事|職業|職種|キャリア|会社|企業|職場)/.test(trimmed)) return true;
+  // 「私には何があってる？」
+  if (/[俺私僕]には.*(?:何|どんな).*(?:ある|あってる|向い|合[うっ])/.test(trimmed)) return true;
+  // 「天職」「適職」
+  if (/天職|適職/.test(trimmed)) return true;
+  // 「性格にあってる会社/仕事」
+  if (/性格.*(?:合[うっ]|あっ?て|向い|ぴったり).*(?:仕事|会社|職業|企業|職場|環境)/.test(trimmed)) return true;
+  // 「私にあってる職業」（ひらがな「あってる」パターン）
+  if (/[俺私僕]に.*あってる.*(?:仕事|職業|職種|会社|企業)/.test(trimmed)) return true;
+  // 「何が必要」（自分のキャリアコンテキスト — career_fit寄りの曖昧質問）
+  if (/[俺私僕]には.*(?:何が|何を).*必要/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * 業界適性質問の検出。domain を industry_fit に昇格させる。
+ * 「本当に望んでいる業界は？」「どの業界が合う？」
+ */
+export function isIndustryFitQuery(message: string): boolean {
+  const trimmed = message.trim();
+  // 「望んでいる業界」「合う業界」「向いてる業界」
+  if (/(?:望[んむ]|合[うっ]|向いて|ぴったり).*(?:業界|分野|領域|セクター)/.test(trimmed)) return true;
+  // 「どの業界」「どんな業界」
+  if (/(?:どの|どんな|何の).*業界/.test(trimmed)) return true;
+  // 「本当にやりたいこと」（career_fit寄りだがindustry文脈）
+  if (/本当に.*(?:やりたい|望[んむ]|行きたい).*(?:業界|分野|領域)/.test(trimmed)) return true;
+  return false;
+}
+
+/**
+ * 実行/リサーチ要求の検出。
+ * ユーザーが「調べて」「リサーチして」「送って」「フローを教えて」等の実行系指示を出している。
+ * ALTERは心理分析ではなく、具体的な情報/手順を返す必要がある。
+ */
+export function isExecutionRequest(message: string): boolean {
+  const trimmed = message.trim();
+  // 「調べて」「リサーチして」「検索して」
+  if (/(?:調べ|リサーチ|検索|サーチ|探[しせ])(?:て|して)[。？?]?$/.test(trimmed)) return true;
+  if (/.*(?:調べ|リサーチ|検索).*(?:て|して|送って|教えて|まとめて)/.test(trimmed)) return true;
+  // 「送って」「まとめて」「一覧にして」
+  if (/(?:送って|まとめて|リスト.*して|一覧.*して|表にして)[。？?]?$/.test(trimmed)) return true;
+  // 「〜のフローを教えて」「〜の流れを教えて」「〜のステップを教えて」
+  if (/(?:フロー|流れ|ステップ|手順|プロセス).*(?:教えて|送って|まとめて)/.test(trimmed)) return true;
+  // 「具体的な会社名」「企業名を挙げて」
+  if (/(?:会社名|企業名|社名).*(?:挙げて|教えて|出して|リスト)/.test(trimmed)) return true;
+  // 「選考フローを教えて」
+  if (/選考.*(?:フロー|流れ|プロセス|手順)/.test(trimmed)) return true;
   return false;
 }
 
@@ -1117,7 +1312,9 @@ export function isCreationVisionTheme(message: string, conversationHistory?: str
  */
 export function isCoreDemandQuestion(message: string): boolean {
   return /核心.*つい|本質.*[教聞知言]|具体的に.*[教聞知言]|深[くい].*切り込|踏み込[んめ]/.test(message)
-    || /ズバッと|ズバリ|率直に|ストレートに|遠慮なく/.test(message);
+    || /ズバッと|ズバリ|率直に|ストレートに|遠慮なく/.test(message)
+    || /^もっと具体的[にで]?[。？?]?$/.test(message.trim())
+    || /具体的に[して]?[。？?]?$/.test(message.trim());
 }
 
 /**
@@ -1142,8 +1339,9 @@ export function isKnowledgeQuestion(message: string): boolean {
   if (/企業名|会社名|名前.*教えて|名前.*知りたい/.test(trimmed)) return true;
   // 業界・業種・分野の特定
   if (/業界.*(?:いい|合[うっ]|どれ)|業種|どの.*分野/.test(trimmed)) return true;
-  // フォローアップ型:「日本だと？」「他には？」
-  if (/日本.*だと|他には|他に.*ある|もっと.*具体/.test(trimmed)) return true;
+  // フォローアップ型:「日本だと？」「他には？」「もっと具体的にどんな？」（bare "もっと具体的に" は delegation）
+  if (/日本.*だと|他には|他に.*ある/.test(trimmed)) return true;
+  if (/もっと.*具体.*(?:何|どんな|どの|どう|どこ|職業|仕事|企業|会社|業界|例)/.test(trimmed)) return true;
   // 「〜が知りたい」「〜を教えて」+ 外部エンティティ（「自分」を主語としない）
   if (/(?:職業|職種|仕事|企業|会社).*(?:知りたい|教えて|出して)|(?:知りたい|教えて).*(?:職業|職種|仕事|企業|会社)/.test(trimmed)) return true;
   // 「〜な人ってどんな仕事」「〜の人に向いてる職業」型（一般カテゴリの外部情報要求）
@@ -1182,10 +1380,13 @@ export function isStrategyQuestion(message: string): boolean {
  */
 export function classifyQuestionType(message: string): QuestionType {
   if (isGreetingOnly(message)) return "greeting";
+  if (isChatOpening(message)) return "chat_opening";
   if (isScopeDisclosureQuestion(message)) return "scope_disclosure";
+  if (isDelegationRequest(message)) return "delegation_request";
   if (isEmotionalQuestion(message)) return "emotional";
   if (isSelfUnderstandingQuestion(message)) return "self_understanding";
   if (isFactualRecallQuestion(message)) return "factual_recall";
+  if (isExecutionRequest(message)) return "execution_request";
   if (isKnowledgeQuestion(message)) return "knowledge";
   if (isStrategyQuestion(message)) return "strategy";
   return "judgment";
@@ -1208,9 +1409,21 @@ export function applyQuestionTypeOverride(
   if (questionType === "greeting" && decision.mode !== "direct_response") {
     return { mode: "direct_response", reason: "greeting_override" };
   }
+  // chat_opening: 常に direct_response（分析禁止、軽い雑談のみ）
+  if (questionType === "chat_opening" && decision.mode !== "direct_response") {
+    return { mode: "direct_response", reason: "greeting_override" };
+  }
   // scope_disclosure: 常に direct_response（人格推定禁止、知識範囲の開示のみ）
   if (questionType === "scope_disclosure" && decision.mode !== "direct_response") {
     return { mode: "direct_response", reason: "scope_disclosure_override" };
+  }
+  // delegation_request: 常に conclude（心理分析禁止、意見直答）
+  if (questionType === "delegation_request") {
+    return { mode: "conclude", reason: "conclude_type_override" };
+  }
+  // execution_request: 常に conclude（具体的な情報/手順を返す）
+  if (questionType === "execution_request") {
+    return { mode: "conclude", reason: "conclude_type_override" };
   }
   if (
     (questionType === "knowledge" || questionType === "strategy" || questionType === "self_understanding") &&
@@ -1257,7 +1470,7 @@ const FACTUAL_QUESTION_PATTERNS = /名前[はって何を]|誰[？?]$|何者|何
 const DIRECT_DEMAND_PATTERNS = /答えて|答え[をが]|[君お前あなた]に聞いて|聞いてるん[だよ]|理解[でし]きてる|ちゃんと答え|はっきり[言答]|結論[をだ出]|先[にず]結論|まず[答結]|逃げ[るな]|ごまかす|質問に答え|それで[？?]$|だから[？?]$|早く答え|早く教え|だから何|つまり何/;
 
 /** 挨拶パターン */
-const GREETING_PATTERNS = /^(おはよう|こんにちは|こんばんは|やっほ|ただいま|おつかれ|おっす|よお|ハロー|はろー|ういーっす|おう|ども)/;
+const GREETING_PATTERNS = /^(おはよう|こんにちは|こんにちわ|こんばんは|こんばんわ|やっほ|ただいま|おつかれ|おっす|よお|ハロー|はろー|ういーっす|おう|ども|やあ|ねえ|久しぶり|お久しぶり|ひさしぶり)/;
 
 /**
  * 直答要求を検出する。
@@ -1477,6 +1690,9 @@ export interface HypothesisFactEntry {
   confidence: number;
   status: string;
   domains: string[];
+  evidence_count?: number;
+  created_at?: string;
+  last_evaluated?: string;
 }
 
 /** P3: ベースラインからのズレを facts として注入するための入力 */
@@ -3104,6 +3320,149 @@ export function buildGreetingPromptBlock(userName?: string): string {
 }
 
 /**
+ * chat_opening専用プロンプト。分析開始禁止。軽い雑談で返す。
+ */
+export function buildChatOpeningPromptBlock(userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  return [
+    "",
+    "# 雑談開始モード（最優先指示）",
+    "ユーザーは特にテーマなく話しに来ただけ。性格分析・判断提案・人格ラベルは一切禁止。",
+    "",
+    "応答ルール:",
+    `- 軽く歓迎する（「${name}、おー来たね」「何もなくても全然いいよ」等）`,
+    "- 性格の話題を始めない。テーマを無理に作らない。",
+    "- 相手の今日の状態を軽く聞く（「今日はどんな感じ？」「何かあった？」等）",
+    "- 1-3文で十分。長くしない。",
+    "- 性格データ・人格ラベル・状態推定は使用禁止。",
+    "- 「今日のあなたは〜」のような推定文は禁止。",
+  ].join("\n");
+}
+
+/**
+ * delegation_request専用プロンプト。心理分析禁止。意見を直答する。
+ */
+export function buildDelegationPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 5).map(f => `- ${f}`).join("\n")
+    : "- 判断根拠となる具体的な情報がまだ少ない";
+  return [
+    "",
+    "# 委任要求モード（最優先指示）",
+    `${name}はあなた（ALTER）に判断を委ねている。心理状況の説明は一切禁止。`,
+    "",
+    "## あなたが持っている判断根拠:",
+    factsSection,
+    "",
+    "## 応答フォーマット（厳守）:",
+    "1. **私の意見**: 結論を1文で述べる（「〜した方がいい」「〜をやめた方がいい」）",
+    "2. **理由**: 判断根拠を2-3文で述べる（性格データではなく行動的根拠）",
+    "3. **ただし**: 条件が変わるなら別の選択肢を1つだけ提示",
+    "",
+    "## 禁止:",
+    "- 「あなたの心理状況としては〜」「傾向として〜」は禁止",
+    "- 「最終的にはあなたが決めることですが」は禁止",
+    "- 「もう少し情報が必要」で逃げるのは禁止（持っている情報で判断する）",
+    "- 質問で返すのは禁止",
+    "- 曖昧な表現は禁止。言い切る。",
+  ].join("\n");
+}
+
+/**
+ * career_fit専用プロンプト。適職/適性の具体的な回答。
+ */
+export function buildCareerFitPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 8).map(f => `- ${f}`).join("\n")
+    : "- まだ十分なデータがないが、持っている情報で最善の回答をする";
+  return [
+    "",
+    "# キャリア適性モード（最優先指示）",
+    `${name}は自分に合うキャリア・職業を知りたがっている。一般論ではなく、この人のデータに基づいた具体的な回答を返す。`,
+    "",
+    "## 判断に使う根拠:",
+    factsSection,
+    "",
+    "## 応答フォーマット（厳守）:",
+    "1. **結論**: 最も合うと考える方向性を1文で",
+    "2. **合う職業群/環境**: 具体的に3つ（「〜系」ではなく「〜という職業」「〜の環境」レベル）",
+    "3. **理由**: なぜそう判断したか3つ（性格ラベルではなく行動的根拠）",
+    "4. **合わない環境**: 避けた方がいい環境2つ",
+    "5. **今週やること**: 1つだけ具体的なアクション",
+    "",
+    "## 禁止:",
+    "- 「あなたは〜な傾向があるので」で始まる一般論",
+    "- domain=general への逃避",
+    "- 「もう少し聞かせて」で質問返し",
+  ].join("\n");
+}
+
+/**
+ * industry_fit専用プロンプト。業界適性の具体的な回答。
+ */
+export function buildIndustryFitPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 8).map(f => `- ${f}`).join("\n")
+    : "- まだ十分なデータがないが、持っている情報で最善の回答をする";
+  return [
+    "",
+    "# 業界適性モード（最優先指示）",
+    `${name}は自分に合う業界・分野を知りたがっている。一般論ではなく、この人のデータに基づいた具体的な回答を返す。`,
+    "",
+    "## 判断に使う根拠:",
+    factsSection,
+    "",
+    "## 応答フォーマット（厳守）:",
+    "1. **結論**: 最も合うと考える業界/分野を1文で",
+    "2. **合う業界**: 具体的に3つ（抽象カテゴリではなく具体的な業界名）",
+    "3. **理由**: なぜそう判断したか3つ",
+    "4. **合わない業界**: 避けた方がいい業界2つ",
+    "5. **今週やること**: 1つだけ具体的なアクション",
+    "",
+    "## 禁止:",
+    "- 「あなたは〜な傾向があるので」で始まる一般論",
+    "- domain=general への逃避",
+    "- 「もう少し聞かせて」で質問返し",
+  ].join("\n");
+}
+
+/**
+ * execution_request専用プロンプト。
+ * 「調べて」「リサーチして」「送って」「フローを教えて」に対し、
+ * 心理分析ではなく具体的な情報・手順・リストを返す。
+ */
+export function buildExecutionRequestPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 5).map(f => `- ${f}`).join("\n")
+    : "- 判断根拠となる具体的な情報がまだ少ない";
+  return [
+    "",
+    "# 実行要求モード（最優先指示）",
+    `${name}は具体的な情報・リスト・手順を求めている。心理分析は一切不要。`,
+    "",
+    "## 判断に使う根拠:",
+    factsSection,
+    "",
+    "## 応答フォーマット（厳守）:",
+    "1. ユーザーが求めている情報を直接提示する",
+    "2. 箇条書きで具体的に（企業名、手順、フロー等）",
+    "3. 不確実な情報は「確認が必要だが」と前置きして提示",
+    "4. 「もっと詳しく知りたいなら〜を調べるといい」と次のアクションを提示",
+    "",
+    "## 禁止:",
+    "- 「あなたの傾向としては〜」で始まる心理分析",
+    "- 「もう少し聞かせて」で質問返し",
+    "- 抽象的な回答（「〜系の業界」ではなく具体名を出す）",
+    "- 「私にはリサーチ能力がない」「調べられない」という拒否",
+    "  → 知っている範囲で最善の回答を出すこと",
+  ].join("\n");
+}
+
+/**
  * #2: Scope Disclosure専用プロンプト。人格ラベル推定を禁止。
  */
 export function buildScopeDisclosurePromptBlock(
@@ -3142,17 +3501,20 @@ export function buildCareerAdvicePromptBlock(personalizedFacts: string[], userNa
     `${name}は自分に合う職業・方向を聞いている。`,
     "",
     "以下の5段構造で必ず返すこと:",
-    "1. **結論**: 合う方向を最初の1文で言い切る",
-    "2. **向く職業群3つ**: 具体的な職種・領域名を3つ挙げる",
-    "3. **根拠3つ**: 以下のデータから3つの固有根拠を出すこと:",
+    "1. **結論**: 合う方向を最初の1文で言い切る（「〜系の仕事が合いそう」の形式）",
+    "2. **向く職業3つ（根拠セット）**: 職種ごとに「[職種名]: [なぜこの人に合うか1文]」の形式で3つ。",
+    "   下記データを必ず根拠として使い、職種名と根拠を1対1で紐付けること:",
     ...personalizedFacts.slice(0, 6).map(f => `   - ${f}`),
-    "4. **向かない環境**: 避けるべき環境・条件を1つ明示する",
-    "5. **次に確かめるべき現実条件**: 今の自分で確認すべきこと1つ",
+    "3. **向かない環境2つ**: 「[環境/状況]: [なぜ合わないか]」の形式で2つ明示する",
+    "4. **実際のライフスタイルイメージ**: その職業に就いた場合の1日・1週間の具体像を2文で",
+    "5. **今週試せること**: 今すぐ確認・体験できる小さな1アクションを1つ",
     "",
-    "禁止事項:",
+    "禁止事項（絶対厳守）:",
+    "- 職種名を並べるだけで根拠を書かない（必ず「なぜ合うか」を職種ごとに明示）",
     "- ユーザーが今ターンで言及していない文脈（経済状況、求職中、転職活動中等）を前提にしない",
-    "- 汎用ラベルの列挙（慎重傾向、深く考えるタイプ等）だけで根拠にしない",
+    "- 汎用ラベルのみで根拠にする（「深く考えるタイプ」「慎重傾向」等の説明だけ）",
     "- 「まず自分を見つめて」等の内省誘導",
+    "- 「〜が向いていそうです」等の確信度のない言い切りの回避（断言せよ）",
   ].join("\n");
 }
 
@@ -3193,13 +3555,195 @@ export function isUnseenValueQuestion(message: string): boolean {
     || /誰も.*作って.*ない|まだ誰も|世界.*変[えわ].*もの/.test(message);
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 9: Follow-up / Fatigue / Dissatisfaction 専用プロンプトブロック
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 疲労ガイダンス専用プロンプト。
+ * general judgment に落とさず、状態確認 + 今日やる1つ + やらない1つ の構造で返す。
+ */
+export function buildFatigueGuidancePromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 3).map(f => `- ${f}`).join("\n")
+    : "- （まだ具体的なデータが少ない）";
+  return [
+    "",
+    "# 疲労ガイダンスモード（最優先指示）",
+    `${name}は疲れている・寝不足・きつい状態を訴えている。`,
+    "判断の分析・性格ラベル・personalityの説明は一切禁止。",
+    "",
+    "以下の3段構造で必ず返すこと:",
+    "1. **状態の確認**: 「きつそうだな」と受け止める。1文。質問はしない。",
+    "2. **今日やること1つ**: 低エネルギーでもできる具体的な1アクション",
+    "3. **今日やらないこと1つ**: 今日は手放していい・後回しにしていいこと",
+    "",
+    "参考データ:",
+    factsSection,
+    "",
+    "絶対禁止:",
+    "- 「判断が重い」等の性格分析",
+    "- 「あなたは〜なタイプ」等の人格ラベル",
+    "- 「なぜ疲れているのか」の原因分析",
+    "- 「語りたい欲求が強い」等の推定",
+    "- 複数の提案を並べる（1つに絞る）",
+    "- 「もう少し聞かせて」等の質問返し",
+  ].join("\n");
+}
+
+/**
+ * 不満表明（dissatisfaction）時の再生成プロンプト。
+ * 前回答のズレを修正し、1段具体化して再回答する。
+ */
+export function buildDissatisfactionRevisionPromptBlock(
+  previousResponse: string,
+  inheritedDomain: string,
+  personalizedFacts: string[],
+  userName?: string,
+): string {
+  const name = userName ? `${userName}さん` : "";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 4).map(f => `- ${f}`).join("\n")
+    : "- （データ不足）";
+  return [
+    "",
+    "# 回答修正モード（最優先指示）",
+    `${name}は前の回答に不満を表明している。質問で返すのではなく、答え直すこと。`,
+    "",
+    "## 前回の回答（ズレの原因特定用）:",
+    `「${previousResponse.slice(0, 300)}」`,
+    "",
+    "## 修正ルール:",
+    "1. 前回と同じ表現・同じラベル・同じ構造を繰り返さない",
+    "2. 1段具体化する（抽象→具体例、ラベル→行動、概念→数字/名前）",
+    `3. ドメイン「${inheritedDomain}」を維持して答え直す`,
+    "4. 「もう少し聞かせて」「具体的にどういう？」等の質問返し禁止",
+    "5. 前回使った人格ラベルは使用禁止",
+    "",
+    "参考データ:",
+    factsSection,
+  ].join("\n");
+}
+
+/**
+ * 継続要求（continuation）時のプロンプト。
+ * 前ターンのドメインを引き継いで深掘る。
+ */
+export function buildFollowUpContinuationPromptBlock(
+  previousResponse: string,
+  inheritedDomain: string,
+  userName?: string,
+): string {
+  const name = userName ? `${userName}さん` : "";
+  return [
+    "",
+    "# 継続モード（最優先指示）",
+    `${name}は前の回答の続きを求めている。新しいトピックに切り替えない。`,
+    "",
+    "## 前回の回答:",
+    `「${previousResponse.slice(0, 400)}」`,
+    "",
+    "## 継続ルール:",
+    `1. ドメイン「${inheritedDomain}」を維持する`,
+    "2. 前回の回答を踏まえて、次のレイヤーを展開する",
+    "3. 前回と同じ内容を繰り返さない",
+    "4. 「もう少し聞かせて」等の質問返し禁止",
+    "5. 性格ラベルの再説明禁止",
+  ].join("\n");
+}
+
+/**
+ * 軌道修正（correction）時のプロンプト。
+ * ユーザーの訂正を受け入れ、前提を修正して再回答する。
+ */
+export function buildFollowUpCorrectionPromptBlock(
+  correctionMessage: string,
+  previousResponse: string,
+  inheritedDomain: string,
+  personalizedFacts: string[],
+  userName?: string,
+): string {
+  const name = userName ? `${userName}さん` : "";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 4).map(f => `- ${f}`).join("\n")
+    : "- （データ不足）";
+  return [
+    "",
+    "# 軌道修正モード（最優先指示）",
+    `${name}は前の回答の前提が間違っていると指摘している。`,
+    "",
+    "## ユーザーの訂正:",
+    `「${correctionMessage}」`,
+    "",
+    "## 前回の回答:",
+    `「${previousResponse.slice(0, 300)}」`,
+    "",
+    "## 修正ルール:",
+    "1. ユーザーの訂正を全面的に受け入れる（「そうか」「なるほど」で始めてよい）",
+    `2. 訂正された前提に基づいて、ドメイン「${inheritedDomain}」で再回答する`,
+    "3. 前回の間違った前提を繰り返さない",
+    "4. 「もう少し聞かせて」等の質問返し禁止",
+    "",
+    "参考データ:",
+    factsSection,
+  ].join("\n");
+}
+
+/**
+ * creation domain 強化版プロンプト。
+ * 心理分析ではなくプロダクト・市場・実装・差別化に答える。
+ */
+export function buildCreationDeepPromptBlock(personalizedFacts: string[], userName?: string): string {
+  const name = userName ? `${userName}さん` : "この人";
+  const factsSection = personalizedFacts.length > 0
+    ? personalizedFacts.slice(0, 5).map(f => `- ${f}`).join("\n")
+    : "- （データ不足: 持っている情報から最大限具体的に返すこと）";
+  return [
+    "",
+    "# 創業/プロダクト構想モード（最優先指示）",
+    `${name}は創業・プロダクト・市場投入の話をしている。`,
+    "心理分析・性格ラベル・人格推定は一切禁止。プロダクト/市場/実装で返す。",
+    "",
+    "以下の5段構造で必ず返すこと:",
+    "1. **結論**: 今やるべき方向を最初の1文で言い切る",
+    "2. **今のボトルネック**: 最も成長を阻んでいる1つの課題",
+    "3. **市場投入前に詰めるべき1〜2点**: 差別化の核・ターゲットの解像度・PMFの仮説",
+    "4. **直近2週間でやること**: 具体的なタスクを2-3個（日付/期限付き）",
+    "5. **条件が変わるなら別案**: 前提が崩れた場合のPlan B",
+    "",
+    "根拠データ:",
+    factsSection,
+    "",
+    "絶対禁止:",
+    "- 「たぶん、理解されないことが怖い」等の心理推定",
+    "- 「混沌の中から〜」「変人で終わる」等の定型人格文",
+    "- 「語りたい欲求が強い」等の性格ラベル",
+    "- 「まず自分と向き合って」等の内省誘導",
+    "- 転職/就職/キャリア相談としてフレーミングすること",
+  ].join("\n");
+}
+
+/**
+ * old life-context が creation ドメインを汚染するかを判定。
+ * creation 会話中に work-transition 系のコンテキストを suppress する。
+ */
+export function isCreationContaminatingContext(content: string): boolean {
+  return /転職.*(?:検討|予定|活動|中)|無職|求職|進路.*(?:動き|選択|迷)|就活|退職.*(?:予定|検討)|キャリア.*(?:チェンジ|変更|相談)/.test(content);
+}
+
 /**
  * 職業相談の検出。
  */
 export function isCareerAdviceQuestion(message: string): boolean {
   return /[俺私僕自分].*(?:合[うっ]て|向いて|適して).*(?:職業|仕事|職種|キャリア)/.test(message)
     || /(?:職業|仕事|職種).*(?:教えて|何[がは]|どんな|合[うっ])/.test(message)
-    || /何の仕事|どんな仕事|適職|天職/.test(message);
+    || /何の仕事|どんな仕事|適職|天職/.test(message)
+    // P2-6追加: 漏れていたパターン
+    || /何に向いてる|何が向いてる|何.*向い[てた]/.test(message)
+    || /どういう仕事|どんな職業|何を仕事に/.test(message)
+    || /キャリア.*(?:どう|歩[めん]|方向|選[べぶ])/.test(message)
+    || /仕事.*何に.*すれ[ばい]|どの仕事/.test(message);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3207,7 +3751,7 @@ export function isCareerAdviceQuestion(message: string): boolean {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** 質問のドメイン（行動カテゴリとは別の軸） */
-export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle" | "creation";
+export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle" | "creation" | "career_fit" | "industry_fit";
 
 /** 隠れ変数の検出状態 */
 export interface HiddenVariables {
@@ -3239,6 +3783,8 @@ export interface InformationSignals {
 export interface QueryContext {
   domain: QueryDomain;
   domain_confidence: number;
+  /** 次点ドメイン（ミスマッチ追跡用） */
+  domain_runner_up?: QueryDomain;
   hidden_variables: HiddenVariables;
   /** unknownの数から自動算出 (0.0–1.0) */
   ambiguity_score: number;
@@ -3275,7 +3821,11 @@ export type ModeDecisionReason =
   | "conclude_stance_boldness_upgrade" // GAP-1a: StanceVector boldness が高く branch → conclude に昇格
   | "factual_recall_override"          // 事実照会: 知ってるか知らないかを正直に答える
   | "greeting_override"                // 挨拶のみ: 分析禁止、軽い受けのみ
-  | "scope_disclosure_override";       // 範囲照会: 知識範囲の開示のみ
+  | "scope_disclosure_override"        // 範囲照会: 知識範囲の開示のみ
+  | "followup_continuation"            // Follow-up: 前ターン継続
+  | "followup_correction"              // Follow-up: 前ターン軌道修正
+  | "followup_dissatisfaction"         // Follow-up: 前回答への不満→再生成
+  | "fatigue_guidance";                // 疲労ガイダンス: 状態確認+今日やる1つ+やらない1つ
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -3319,6 +3869,8 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /業務/, /職場/, /転職/, /キャリア/, /昇[進格]/, /会議/,
     /プレゼン/, /報告/, /納期/, /残業/, /部下/, /先輩.*仕事|仕事.*先輩/,
     /退職/,
+    // P2-1追加: 「仕事」単体・適職・職業系
+    /仕事[がにはをでも]/, /職業/, /適職/, /向い.*仕事|仕事.*向い/, /働[くき]/,
   ],
   creation: [
     /起業/, /創業/, /立ち上げ/, /スタートアップ/, /ビジネス/,
@@ -3349,10 +3901,16 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /やる気/, /自信/, /不安[だで]/, /モチベ/, /落ち込[むみんで]/,
     /疲れ[たて]/, /眠れ/, /イライラ/, /焦[りる]/, /何もしたくない/,
     /自分[がはのを].*わから/, /どうしたらいい.*自分/,
+    // P2-1追加: 感情系・自己否定系・限界系
+    /もう無理/, /向いてな[いく]/, /しんど[いく]/, /つら[いく]/,
+    /気力/, /元気.*な[いく]/, /やっていけ/, /続けら[れ]/,
+    /消えたい/, /ネガティブ/, /自分.*嫌い/, /自己.*嫌悪/,
+    /どうすれば.*いい/, /わからなく[なっ]/, /限界/,
   ],
   daily_guidance: [
     /今日.{0,4}何[しす]/, /何し[たよ]/, /おすすめ.*今日/, /予定/, /スケジュール/,
-    /やること/, /過ごし方/,
+    /やること/, /過ごし方/, /どう.*動[けくき]/, /どんな感じに/, /後半戦/,
+    /今日.*どう[すし]/, /残り.*時間/,
   ],
   lifestyle: [
     /料理/, /レシピ/, /食[材事]/, /ご飯/, /ごはん/, /ランチ/, /ディナー/,
@@ -3361,6 +3919,16 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /おかず/, /弁当/, /自炊/, /外食/,
     /趣味/, /運動/, /散歩/, /読書/, /映画/, /音楽/,
     /買い物/, /掃除/, /片付け/, /洗濯/,
+  ],
+  career_fit: [
+    /[俺私僕自分].*(?:何が|どんな).*(?:向いて|合[うっ]て)/,
+    /向いて.*(?:仕事|職業|職種|キャリア)/, /合[うっ]て.*(?:仕事|職業)/,
+    /天職/, /適職/, /[俺私僕]には.*(?:何|どんな)/,
+  ],
+  industry_fit: [
+    /(?:望[んむ]|合[うっ]|向いて).*(?:業界|分野|領域)/,
+    /(?:どの|どんな|何の).*業界/,
+    /本当に.*(?:やりたい|望[んむ]).*(?:業界|分野)/,
   ],
   general: [], // fallback
 };
@@ -3481,12 +4049,19 @@ export function analyzeQueryContext(message: string): QueryContext {
   // ── ドメイン検出 ──
   let bestDomain: QueryDomain = "general";
   let bestScore = 0;
+  let runnerUpDomain: QueryDomain = "general";
+  let runnerUpScore = 0;
   for (const [domain, signals] of Object.entries(DOMAIN_SIGNALS) as [QueryDomain, RegExp[]][]) {
     if (domain === "general") continue;
     const hits = signals.filter((s) => s.test(msg)).length;
     if (hits > bestScore) {
+      runnerUpScore = bestScore;
+      runnerUpDomain = bestDomain;
       bestScore = hits;
       bestDomain = domain;
+    } else if (hits > runnerUpScore) {
+      runnerUpScore = hits;
+      runnerUpDomain = domain;
     }
   }
   // R3: creation 最優先 — work/general で creation シグナルが1つでもあれば creation に昇格
@@ -3494,11 +4069,14 @@ export function analyzeQueryContext(message: string): QueryContext {
     const creationHits = (DOMAIN_SIGNALS.creation ?? []).filter((s) => s.test(msg)).length;
     const threshold = bestDomain === "work" ? 1 : 2; // work からは1ヒットで昇格、general からは2ヒット
     if (creationHits >= threshold) {
+      runnerUpDomain = bestDomain; // 昇格前の best を runner_up に降格
+      runnerUpScore = bestScore;
       bestDomain = "creation";
       bestScore = creationHits;
     }
   }
   const domain_confidence = bestScore === 0 ? 0 : Math.min(1, bestScore * 0.35);
+  const domain_runner_up: QueryDomain | undefined = runnerUpScore > 0 ? runnerUpDomain : undefined;
 
   // ── 隠れ変数検出 ──
   const hv: HiddenVariables = {
@@ -3556,6 +4134,7 @@ export function analyzeQueryContext(message: string): QueryContext {
   return {
     domain: bestDomain,
     domain_confidence,
+    domain_runner_up,
     hidden_variables: hv,
     ambiguity_score,
     critical_missing,
@@ -3998,7 +4577,7 @@ export function buildRelationalContext(lens: RelationalLens): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** ドメインごとに参照すべき軸の定義 */
-const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance" | "lifestyle">, {
+const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance" | "lifestyle" | "career_fit" | "industry_fit">, {
   primary: TraitAxisKey[];
   secondary: TraitAxisKey[];
 }> = {
@@ -4048,7 +4627,7 @@ export function buildDomainOverlay(
   personality: AlterPersonality,
   domain: QueryDomain,
 ): DomainOverlay | null {
-  if (domain === "general" || domain === "daily_guidance" || domain === "lifestyle") return null;
+  if (domain === "general" || domain === "daily_guidance" || domain === "lifestyle" || domain === "career_fit" || domain === "industry_fit") return null;
 
   const mapping = DOMAIN_AXIS_MAP[domain];
   const scores = personality.axisScores;
@@ -4123,6 +4702,8 @@ const DOMAIN_LABELS: Record<QueryDomain, string> = {
   daily_guidance: "デイリーガイダンス",
   lifestyle: "暮らし",
   creation: "構想・創業",
+  career_fit: "キャリア適性",
+  industry_fit: "業界適性",
 };
 
 /**
@@ -4331,6 +4912,8 @@ export function buildHomeAlterPromptWithContext(
   clarifyType?: ClarifyType,
   clarifyIntentHint?: ClarifyIntentHint | null,
   baselineCtx?: BaselineContext | null,
+  relationshipCtx?: RelationshipContext | null,
+  lifeCtx?: LifeContext | null,
 ): string {
   // ── Mode: direct_response — テンプレ解除、LLMの自然な会話能力に委ねる ──
   if (responseMode === "direct_response") {
@@ -4392,6 +4975,35 @@ export function buildHomeAlterPromptWithContext(
       isEmotional ? "- 3文で完結。短くても密度を出す" : "- 2-5文で自然に応答する",
       "- 性格データは自然に織り込む（ラベル貼りは禁止）",
     ];
+
+    // ④-D: direct_response でも relationship context を注入（再質問抑制のため）
+    if (relationshipCtx) {
+      const drDomain: QueryDomainForBaseline = (() => {
+        const d = queryContext?.domain as QueryDomainForBaseline | undefined;
+        return (d && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(d)) ? d : "general";
+      })();
+      if (shouldInjectRelationshipContext(relationshipCtx, drDomain)) {
+        const rvLines = buildRelationshipContextPromptSection(relationshipCtx, drDomain);
+        if (rvLines.length > 0) {
+          sections.push(...rvLines);
+        }
+      }
+    }
+
+    // ④-E: Life layer 注入（relevance gating 付き）
+    if (lifeCtx) {
+      const drDomainLC: QueryDomainForBaseline = (() => {
+        const d = queryContext?.domain as QueryDomainForBaseline | undefined;
+        return (d && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(d)) ? d : "general";
+      })();
+      if (shouldInjectLifeContext(lifeCtx, drDomainLC)) {
+        const lcLines = buildLifeContextPromptSection(lifeCtx, drDomainLC);
+        if (lcLines.length > 0) {
+          sections.push(...lcLines);
+        }
+      }
+    }
+
     return sections.join("\n");
   }
 
@@ -4602,7 +5214,37 @@ export function buildHomeAlterPromptWithContext(
     const skeletonBlockKS = skeleton ? buildSkeletonPromptBlock(skeleton, qTypeForSkeleton) : "";
     const relationalBlockKS = relationalLens ? buildRelationalContext(relationalLens) : "";
 
-    return dedicatedPrompt.join("\n") + relationalBlockKS + skeletonBlockKS;
+    // ④-D: knowledge/strategy ルートでも relationship context を注入（再質問抑制のため）
+    let rvBlockKS = "";
+    if (relationshipCtx) {
+      const ksDomain: QueryDomainForBaseline = (() => {
+        const d = queryContext?.domain as QueryDomainForBaseline | undefined;
+        return (d && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(d)) ? d : "general";
+      })();
+      if (shouldInjectRelationshipContext(relationshipCtx, ksDomain)) {
+        const rvLines = buildRelationshipContextPromptSection(relationshipCtx, ksDomain);
+        if (rvLines.length > 0) {
+          rvBlockKS = "\n" + rvLines.join("\n");
+        }
+      }
+    }
+
+    // ④-E: Life layer 注入（relevance gating 付き）
+    let lcBlockKS = "";
+    if (lifeCtx) {
+      const ksDomainLC: QueryDomainForBaseline = (() => {
+        const d = queryContext?.domain as QueryDomainForBaseline | undefined;
+        return (d && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(d)) ? d : "general";
+      })();
+      if (shouldInjectLifeContext(lifeCtx, ksDomainLC)) {
+        const lcLines = buildLifeContextPromptSection(lifeCtx, ksDomainLC);
+        if (lcLines.length > 0) {
+          lcBlockKS = "\n" + lcLines.join("\n");
+        }
+      }
+    }
+
+    return dedicatedPrompt.join("\n") + relationalBlockKS + skeletonBlockKS + rvBlockKS + lcBlockKS;
   }
 
   // Mode A (conclude) or B (branch): 既存プロンプトベースで拡張
@@ -4610,17 +5252,33 @@ export function buildHomeAlterPromptWithContext(
 
   // ④-C: ベースラインコンテキスト注入（性別・年齢・地域の正規化済みデータ + teenセーフガード）
   let baselineBlock = "";
+  const resolvedDomain = (() => {
+    const d = queryContext?.domain as QueryDomainForBaseline | undefined;
+    return (d && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(d)) ? d : "general";
+  })();
   if (baselineCtx) {
-    const domain = queryContext?.domain as QueryDomainForBaseline | undefined;
-    const baselineDomain: QueryDomainForBaseline = (domain && ["career", "relationship", "lifestyle", "health", "self_understanding"].includes(domain))
-      ? domain
-      : "general";
-    if (shouldInjectBaseline(baselineCtx, baselineDomain)) {
-      const relevance = scoreBaselineRelevance(baselineCtx, baselineDomain);
-      const baselineLines = buildBaselinePromptSection(baselineCtx, relevance, baselineDomain);
+    if (shouldInjectBaseline(baselineCtx, resolvedDomain)) {
+      const relevance = scoreBaselineRelevance(baselineCtx, resolvedDomain);
+      const baselineLines = buildBaselinePromptSection(baselineCtx, relevance, resolvedDomain);
       if (baselineLines.length > 0) {
         baselineBlock = "\n" + baselineLines.join("\n");
       }
+    }
+  }
+
+  // ④-D: 関係性コンテキスト注入（Rendezvous / Home Tour 回答済みデータ + 再質問抑制）
+  if (relationshipCtx && shouldInjectRelationshipContext(relationshipCtx, resolvedDomain)) {
+    const rvLines = buildRelationshipContextPromptSection(relationshipCtx, resolvedDomain);
+    if (rvLines.length > 0) {
+      baselineBlock += "\n" + rvLines.join("\n");
+    }
+  }
+
+  // ④-E: Life layer 注入（relevance gating 付き）
+  if (lifeCtx && shouldInjectLifeContext(lifeCtx, resolvedDomain)) {
+    const lcLines = buildLifeContextPromptSection(lifeCtx, resolvedDomain);
+    if (lcLines.length > 0) {
+      baselineBlock += "\n" + lcLines.join("\n");
     }
   }
 
@@ -6029,6 +6687,7 @@ export function checkDailyGuidanceClarify(
 export function buildDailyGuidanceSkeleton(
   frame: DailyGuidanceFrame,
   personality: AlterPersonality,
+  recentSuggestions?: string[],
 ): DailyGuidanceSkeleton {
   // ── モード決定 ──
   const mode = resolveDailyMode(frame, personality);
@@ -6043,7 +6702,7 @@ export function buildDailyGuidanceSkeleton(
   }
 
   // ── recommended_first_step: 動詞+対象+期限 ──
-  const first_step = resolveFirstStep(mode, frame, personality);
+  const first_step = resolveFirstStep(mode, frame, personality, recentSuggestions);
 
   // ── fallback_step: エネルギー切れ時の代替 ──
   const fallback = resolveFallback(mode, personality);
@@ -6121,43 +6780,87 @@ function resolvePrimaryAxis(
   }
 }
 
+/** モード別の候補プール。同一セッション内で同じ提案を繰り返さないために複数候補を持つ */
+const FIRST_STEP_POOL: Record<DailyGuidanceMode, string[]> = {
+  recover: [
+    "スマホを別の部屋に置いて15分間横になる",
+    "近所のカフェに行って30分ぼーっとする",
+    "好きな音楽を1曲だけかけて目を閉じて聴く（5分）",
+    "ベランダか窓際で外を眺めながら温かい飲み物を飲む（10分）",
+    "シャワーを浴びて、その後10分だけ何もしない",
+  ],
+  reset: [
+    "10分間の散歩に出る（目的地なし、音楽なし）",
+    "机の上を全部片付けて、白紙の状態にする（15分）",
+    "冷たい水で顔を洗って、3分間ストレッチする",
+    "部屋の換気をして、違う椅子に座ってみる",
+  ],
+  advance: [
+    "最も気になっているタスクを1つ選んで45分だけ集中する",
+    "やることリストを3つ書き出して、一番軽いものから15分で片付ける",
+    "最も重要なタスクを1つ選んで午前中に完了させる",
+    "メールの返信を3通だけ片付ける（20分以内）",
+    "昨日の続きを30分だけやる。途中でもいいから手をつける",
+  ],
+  maintenance: [
+    "朝のルーティン（掃除・洗濯・整理から1つ）を30分で終わらせる",
+    "冷蔵庫の中身を確認して、今日の夕食を決める（10分）",
+    "溜まった通知を整理して不要なものを全部消す（15分）",
+  ],
+  social: [
+    "一番会いたい人に「今日空いてる？」とメッセージを送る",
+    "最近連絡していない人に短いメッセージを1通送る",
+    "家族か古い友人に「最近どう？」と電話する（10分）",
+    "誰かと一緒にランチかお茶の予定を入れる",
+  ],
+  explore: [
+    "行ったことのない店・場所に1つ行ってみる",
+    "気になっていた本・記事・動画を1つ選んで30分だけ没頭する",
+    "普段選ばないジャンルの映画やPodcastを1つ試す（30分）",
+    "新しいレシピを1つ試してみる",
+  ],
+};
+
 function resolveFirstStep(
   mode: DailyGuidanceMode,
   frame: DailyGuidanceFrame,
   personality: AlterPersonality,
+  recentSuggestions?: string[],
 ): string {
-  const time = frame.time_budget.value;
+  const pool = FIRST_STEP_POOL[mode];
+  const recent = recentSuggestions ?? [];
 
-  switch (mode) {
-    case "recover":
-      if (personality.axisScores?.introvert_vs_extrovert !== undefined &&
-          personality.axisScores.introvert_vs_extrovert > 0.6) {
-        return "近所のカフェに行って30分ぼーっとする";
-      }
-      return "スマホを別の部屋に置いて15分間横になる";
-    case "reset":
-      return "10分間の散歩に出る（目的地なし、音楽なし）";
-    case "advance":
-      if (frame.preferred_progress_style.value === "one_big_task") {
-        return time === "few_hours" || time === "minimal"
-          ? "最も気になっているタスクを1つ選んで45分だけ集中する"
-          : "最も重要なタスクを1つ選んで午前中に完了させる";
-      }
-      return "やることリストを3つ書き出して、一番軽いものから15分で片付ける";
-    case "maintenance":
-      return "朝のルーティン（掃除・洗濯・整理から1つ）を30分で終わらせる";
-    case "social":
-      if (frame.social_bandwidth.value === "want_people") {
-        return "一番会いたい人に「今日空いてる？」とメッセージを送る";
-      }
-      return "最近連絡していない人に短いメッセージを1通送る";
-    case "explore":
-      if (personality.axisScores?.introvert_vs_extrovert !== undefined &&
-          personality.axisScores.introvert_vs_extrovert < 0.4) {
-        return "気になっていた本・記事・動画を1つ選んで30分だけ没頭する";
-      }
-      return "行ったことのない店・場所に1つ行ってみる";
+  // 最近使った提案を除外
+  const available = pool.filter(s => !recent.some(r => r === s));
+  const candidates = available.length > 0 ? available : pool;
+
+  // 性格に合う候補を優先
+  const ie = personality.axisScores?.introvert_vs_extrovert;
+  if (mode === "recover" && ie !== undefined && ie > 0.6) {
+    const extroCandidate = candidates.find(s => /カフェ|外/.test(s));
+    if (extroCandidate) return extroCandidate;
   }
+  if (mode === "explore" && ie !== undefined && ie < 0.4) {
+    const introCandidate = candidates.find(s => /本|記事|動画|Podcast/.test(s));
+    if (introCandidate) return introCandidate;
+  }
+  if (mode === "social" && frame.social_bandwidth.value === "want_people") {
+    const meetCandidate = candidates.find(s => /会いたい|ランチ|お茶/.test(s));
+    if (meetCandidate) return meetCandidate;
+  }
+  if (mode === "advance" && frame.preferred_progress_style.value === "one_big_task") {
+    const bigCandidate = candidates.find(s => /最も重要|午前中/.test(s));
+    if (bigCandidate) return bigCandidate;
+  }
+
+  // 時間帯による調整
+  const hour = new Date().getHours();
+  if (mode === "advance" && hour >= 14) {
+    const afterCandidate = candidates.find(s => /続き|30分|15分/.test(s));
+    if (afterCandidate) return afterCandidate;
+  }
+
+  return candidates[0]!;
 }
 
 function resolveFallback(

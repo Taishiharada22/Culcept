@@ -1,5 +1,5 @@
 // lib/stargazer/questions.ts
-// Stargazer 質問定義 — 55問 × 8章構成
+// Stargazer 質問定義 — 87問 × 8章構成
 // semantic differential 形式（5段階スライダー）
 // Ch1-5: 既存35問 (core 15軸 + stage1 一部)
 // Ch6: Inner Depth 5問 (attachment_style, locus_of_control, growth_mindset, rumination, shame_vs_guilt)
@@ -76,25 +76,25 @@ export const CHAPTERS: ChapterInfo[] = [
     key: "aesthetic_expression",
     label: "Aesthetic & Expression",
     description: "表現欲と美意識 — 情報量耐性、形式感、新しさ",
-    questionCount: 9,
+    questionCount: 11,
   },
   {
     key: "inner_depth",
     label: "Inner Depth",
     description: "内なる深層 — 帰属意識、成長信念、感情処理の型",
-    questionCount: 5,
+    questionCount: 15,
   },
   {
     key: "relational_texture",
     label: "Relational Texture",
     description: "関係の質感 — 親密さ、境界線、公平感、居場所",
-    questionCount: 6,
+    questionCount: 16,
   },
   {
     key: "boundary_intelligence",
     label: "Boundary Intelligence",
     description: "境界の知性 — 合意形成、制御欲、一貫性、拒否耐性",
-    questionCount: 5,
+    questionCount: 15,
   },
 ];
 
@@ -772,6 +772,478 @@ export const QUESTIONS: QuestionDefinition[] = [
     ],
     note: "拒否を成熟に受容できるほど排他的圧力は低い傾向",
   },
+
+  // ── P2-2: 1問軸 追加質問（各軸+2問、計32問）──
+  // 優先順: safety軸 → relational軸 → aesthetic軸 → その他
+
+  // --- consent_maturity +2 ---
+  {
+    id: "q56",
+    chapter: "boundary_intelligence",
+    prompt: "相手の反応を気にせず提案する ←→ 相手の表情を見てから切り出す",
+    leftLabel: "気にせず提案",
+    rightLabel: "表情を見てから",
+    questionText:
+      "飲み会の二次会を提案するとき、場の空気を読まず「行こう！」と言えますか？ 相手の様子を見てから切り出しますか？",
+    scale: 5,
+    axes: [
+      { key: "consent_maturity", weight: 0.8 },
+      { key: "social_initiative", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q57",
+    chapter: "boundary_intelligence",
+    prompt: "断られたら即引く ←→ もう一回だけ聞いてみる",
+    leftLabel: "即引く",
+    rightLabel: "もう一回聞く",
+    questionText:
+      "何かを頼んで「ちょっと…」と言われたとき、すぐ引きますか？ 理由を聞いたり別の案を出したりしますか？",
+    scale: 5,
+    axes: [
+      { key: "consent_maturity", weight: 0.8, invert: true },
+      { key: "control_tendency", weight: 0.2 },
+    ],
+    note: "押しの強さ→合意成熟度の逆指標",
+  },
+
+  // --- control_tendency +2 ---
+  {
+    id: "q58",
+    chapter: "boundary_intelligence",
+    prompt: "結果が出れば過程は問わない ←→ 過程も自分の目が届いていてほしい",
+    leftLabel: "結果が出ればOK",
+    rightLabel: "過程も見ていたい",
+    questionText:
+      "チームで何かを進めるとき、結果が出れば途中経過は気にしませんか？ 途中も把握していないと落ち着きませんか？",
+    scale: 5,
+    axes: [
+      { key: "control_tendency", weight: 1.0 },
+      { key: "efficiency_vs_process", weight: 0.2, invert: true },
+    ],
+  },
+  {
+    id: "q59",
+    chapter: "boundary_intelligence",
+    prompt: "相手のやり方を尊重する ←→ 自分のやり方に合わせてほしい",
+    leftLabel: "相手のやり方を尊重",
+    rightLabel: "自分流に合わせてほしい",
+    questionText:
+      "一緒に料理をするとき、相手の切り方が気になっても黙っていますか？ つい「こうした方がいいよ」と言いますか？",
+    scale: 5,
+    axes: [
+      { key: "control_tendency", weight: 0.8 },
+      { key: "direct_vs_diplomatic", weight: 0.2 },
+    ],
+  },
+
+  // --- intent_stability +2 ---
+  {
+    id: "q60",
+    chapter: "boundary_intelligence",
+    prompt: "気分で予定を変える ←→ 決めた通りにやる",
+    leftLabel: "気分で変える",
+    rightLabel: "決めた通りに",
+    questionText:
+      "週末の計画を立てたのに当日やる気が出ないとき、別のことをしますか？ それでも予定通り動きますか？",
+    scale: 5,
+    axes: [
+      { key: "intent_stability", weight: 1.0 },
+      { key: "plan_vs_spontaneous", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q61",
+    chapter: "boundary_intelligence",
+    prompt: "目標を柔軟に修正する ←→ 最初の目標を変えない",
+    leftLabel: "柔軟に修正",
+    rightLabel: "最初を貫く",
+    questionText:
+      "年初に立てた目標が難しいとわかったとき、目標を下方修正しますか？ 何とか達成しようとしますか？",
+    scale: 5,
+    axes: [{ key: "intent_stability", weight: 1.0 }],
+  },
+
+  // --- long_term_shift_risk +2 ---
+  {
+    id: "q62",
+    chapter: "boundary_intelligence",
+    prompt: "同じ相手と深まるのが好き ←→ 新しい出会いの方がワクワクする",
+    leftLabel: "深まるのが好き",
+    rightLabel: "新しい出会いが好き",
+    questionText:
+      "5年来の友人との食事と、初対面の人が集まる場と、どちらにワクワクしますか？",
+    scale: 5,
+    axes: [
+      { key: "long_term_shift_risk", weight: 1.0 },
+      { key: "social_initiative", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q63",
+    chapter: "boundary_intelligence",
+    prompt: "マンネリも心地よい ←→ マンネリは耐えられない",
+    leftLabel: "心地よい安定",
+    rightLabel: "変化がほしい",
+    questionText:
+      "パートナーや親友とのいつもの過ごし方に、安心を感じますか？ もっと新しいことがしたくなりますか？",
+    scale: 5,
+    axes: [
+      { key: "long_term_shift_risk", weight: 0.8 },
+      { key: "change_embrace_vs_resist", weight: 0.2 },
+    ],
+  },
+
+  // --- rejection_response_maturity +2 ---
+  {
+    id: "q64",
+    chapter: "boundary_intelligence",
+    prompt: "批判を成長材料にできる ←→ 批判は自分への否定に感じる",
+    leftLabel: "成長材料にできる",
+    rightLabel: "自分への否定に感じる",
+    questionText:
+      "上司や先生に厳しく指摘されたとき、「次に活かそう」と思えますか？ 「自分を否定された」と感じますか？",
+    scale: 5,
+    axes: [
+      { key: "rejection_response_maturity", weight: 0.8 },
+      { key: "shame_vs_guilt", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q65",
+    chapter: "boundary_intelligence",
+    prompt: "失恋や別れを引きずらない ←→ 長く影響が残る",
+    leftLabel: "切り替えが早い",
+    rightLabel: "長く残る",
+    questionText:
+      "親しい人との関係が終わったとき、どれくらいで日常に戻れますか？ 長く引きずる方ですか？",
+    scale: 5,
+    axes: [
+      { key: "rejection_response_maturity", weight: 0.8, invert: true },
+      { key: "rumination_tendency", weight: 0.3 },
+    ],
+  },
+
+  // --- reassurance_need +2 ---
+  {
+    id: "q66",
+    chapter: "relational_texture",
+    prompt: "既読スルーが気にならない ←→ 既読スルーが気になる",
+    leftLabel: "気にならない",
+    rightLabel: "気になる",
+    questionText:
+      "大切な人にメッセージを送って既読がついたまま返事がないとき、気になりますか？ 「そのうち来るだろう」と待てますか？",
+    scale: 5,
+    axes: [
+      { key: "reassurance_need", weight: 1.0 },
+      { key: "attachment_style", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q67",
+    chapter: "relational_texture",
+    prompt: "褒められなくても平気 ←→ 認められると安心する",
+    leftLabel: "自分で評価できる",
+    rightLabel: "認められて安心する",
+    questionText:
+      "頑張った成果を誰にも気づかれなかったとき、自分で満足できますか？ 誰かに認めてもらいたくなりますか？",
+    scale: 5,
+    axes: [
+      { key: "reassurance_need", weight: 0.8 },
+      { key: "locus_of_control", weight: 0.2, invert: true },
+    ],
+  },
+
+  // --- boundary_awareness +2 ---
+  {
+    id: "q68",
+    chapter: "relational_texture",
+    prompt: "頼まれると断れない ←→ 自分の限界を伝えられる",
+    leftLabel: "断れない",
+    rightLabel: "限界を伝えられる",
+    questionText:
+      "忙しいのに友人から頼み事をされたとき、無理しても引き受けますか？ 正直に「今は難しい」と言えますか？",
+    scale: 5,
+    axes: [
+      { key: "boundary_awareness", weight: 1.0 },
+      { key: "independence_vs_harmony", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q69",
+    chapter: "relational_texture",
+    prompt: "プライベートに踏み込まれても平気 ←→ 立ち入られると不快",
+    leftLabel: "平気",
+    rightLabel: "不快に感じる",
+    questionText:
+      "初対面の人に年収や恋愛事情を聞かれたとき、普通に答えますか？ 「踏み込みすぎ」と感じますか？",
+    scale: 5,
+    axes: [
+      { key: "boundary_awareness", weight: 0.8 },
+      { key: "intimacy_pace", weight: 0.2, invert: true },
+    ],
+  },
+
+  // --- relationship_mode_split +2 ---
+  {
+    id: "q70",
+    chapter: "relational_texture",
+    prompt: "恋人の前でも友達の前と同じ ←→ 恋人の前だけ別人になる",
+    leftLabel: "基本同じ",
+    rightLabel: "全然違う自分が出る",
+    questionText:
+      "友達グループの中にパートナーがいるとき、普段通りでいられますか？ パートナーの前だけ違う自分が出ますか？",
+    scale: 5,
+    axes: [
+      { key: "relationship_mode_split", weight: 1.0 },
+      { key: "public_private_gap", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q71",
+    chapter: "relational_texture",
+    prompt: "上司と部下で態度が変わらない ←→ 立場で接し方が大きく変わる",
+    leftLabel: "態度は一貫",
+    rightLabel: "立場で大きく変わる",
+    questionText:
+      "上司と後輩のそれぞれと接するとき、言葉遣いや態度はどれくらい変わりますか？ ほぼ同じですか？",
+    scale: 5,
+    axes: [
+      { key: "relationship_mode_split", weight: 0.8 },
+      { key: "direct_vs_diplomatic", weight: 0.2 },
+    ],
+  },
+
+  // --- fairness_sensitivity +2 ---
+  {
+    id: "q72",
+    chapter: "relational_texture",
+    prompt: "割り勘のずれが気にならない ←→ きっちり分けたい",
+    leftLabel: "ざっくりでいい",
+    rightLabel: "きっちり分けたい",
+    questionText:
+      "友達との食事で自分だけ多く払った気がするとき、気にしますか？ 「まあいいか」と流せますか？",
+    scale: 5,
+    axes: [{ key: "fairness_sensitivity", weight: 0.8 }],
+  },
+  {
+    id: "q73",
+    chapter: "relational_texture",
+    prompt: "チームの手柄は皆のもの ←→ 個人の貢献は正当に評価されるべき",
+    leftLabel: "みんなの成果",
+    rightLabel: "個人の貢献を認めてほしい",
+    questionText:
+      "チームの成果が上司から褒められたとき、「みんなの力だ」と思えますか？ 「自分の貢献もちゃんと見てほしい」と思いますか？",
+    scale: 5,
+    axes: [
+      { key: "fairness_sensitivity", weight: 0.8 },
+      { key: "reassurance_need", weight: 0.2 },
+    ],
+  },
+
+  // --- friend_mode_fit +2 ---
+  {
+    id: "q74",
+    chapter: "relational_texture",
+    prompt: "大人数の集まりが好き ←→ 少人数が落ち着く",
+    leftLabel: "大人数が楽しい",
+    rightLabel: "少人数が落ち着く",
+    questionText:
+      "休日を過ごすなら、大勢のパーティと2-3人での食事、どちらに居心地を感じますか？",
+    scale: 5,
+    axes: [
+      { key: "friend_mode_fit", weight: 0.8 },
+      { key: "introvert_vs_extrovert", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q75",
+    chapter: "relational_texture",
+    prompt: "新しいグループにすぐ馴染める ←→ 慣れるまで時間がかかる",
+    leftLabel: "すぐ馴染む",
+    rightLabel: "時間がかかる",
+    questionText:
+      "知り合いがほとんどいない集まりに参加したとき、すぐ打ち解けますか？ 端の方にいる時間が長いですか？",
+    scale: 5,
+    axes: [
+      { key: "friend_mode_fit", weight: 0.8 },
+      { key: "social_initiative", weight: 0.3 },
+    ],
+  },
+
+  // --- attachment_style +2 ---
+  {
+    id: "q76",
+    chapter: "inner_depth",
+    prompt: "甘えるのが自然 ←→ 甘えるのが苦手",
+    leftLabel: "自然に甘えられる",
+    rightLabel: "甘えるのが苦手",
+    questionText:
+      "体調が悪いとき、パートナーや友達に素直に「助けて」と言えますか？ 一人で何とかしようとしますか？",
+    scale: 5,
+    axes: [
+      { key: "attachment_style", weight: 0.8, invert: true },
+      { key: "reassurance_need", weight: 0.2, invert: true },
+    ],
+    note: "右=回避傾向。invert: 甘えられる→不安型寄り, 甘えられない→回避型寄り",
+  },
+  {
+    id: "q77",
+    chapter: "inner_depth",
+    prompt: "離れていても信頼できる ←→ 近くにいないと不安",
+    leftLabel: "離れていても安心",
+    rightLabel: "近くにいないと不安",
+    questionText:
+      "パートナーが長期出張に行くとき、「頑張ってね」と送り出せますか？ 離れていることが不安になりますか？",
+    scale: 5,
+    axes: [
+      { key: "attachment_style", weight: 1.0 },
+      { key: "reassurance_need", weight: 0.3 },
+    ],
+  },
+
+  // --- locus_of_control +2 ---
+  {
+    id: "q78",
+    chapter: "inner_depth",
+    prompt: "運や縁を信じる ←→ 結果は行動で決まる",
+    leftLabel: "運や縁の力が大きい",
+    rightLabel: "行動で切り拓ける",
+    questionText:
+      "人生のターニングポイントを振り返ったとき、「運が良かった」と感じますか？ 「自分の選択の結果だ」と感じますか？",
+    scale: 5,
+    axes: [{ key: "locus_of_control", weight: 1.0 }],
+  },
+  {
+    id: "q79",
+    chapter: "inner_depth",
+    prompt: "失敗は自分の責任 ←→ 仕方がない面もある",
+    leftLabel: "自分の責任",
+    rightLabel: "環境の影響もある",
+    questionText:
+      "プロジェクトがうまくいかなかったとき、「もっとやれたはず」と思いますか？ 「状況的に厳しかった」と思いますか？",
+    scale: 5,
+    axes: [
+      { key: "locus_of_control", weight: 0.8, invert: true },
+      { key: "rumination_tendency", weight: 0.2 },
+    ],
+  },
+
+  // --- growth_mindset +2 ---
+  {
+    id: "q80",
+    chapter: "inner_depth",
+    prompt: "年齢に関係なく変われる ←→ ある程度の年齢で性格は固まる",
+    leftLabel: "いつでも変われる",
+    rightLabel: "性格は固まる",
+    questionText:
+      "40歳を過ぎても、人の性格や能力は大きく変われると思いますか？ ある程度の年齢で固まると思いますか？",
+    scale: 5,
+    axes: [{ key: "growth_mindset", weight: 1.0 }],
+  },
+  {
+    id: "q81",
+    chapter: "inner_depth",
+    prompt: "才能より努力が勝つ ←→ 努力では越えられない壁がある",
+    leftLabel: "努力で越えられる",
+    rightLabel: "才能の壁がある",
+    questionText:
+      "自分より才能がある人を見たとき、「努力で追いつける」と思えますか？ 「生まれ持ったものには敵わない」と感じますか？",
+    scale: 5,
+    axes: [
+      { key: "growth_mindset", weight: 0.8 },
+      { key: "locus_of_control", weight: 0.2, invert: true },
+    ],
+  },
+
+  // --- rumination_tendency +2 ---
+  {
+    id: "q82",
+    chapter: "inner_depth",
+    prompt: "過去の失言をふと思い出す ←→ 前のことはあまり振り返らない",
+    leftLabel: "ふと思い出す",
+    rightLabel: "振り返らない",
+    questionText:
+      "何年も前の恥ずかしい出来事がふと頭をよぎることがありますか？ 過去のことはほとんど思い出しませんか？",
+    scale: 5,
+    axes: [
+      { key: "rumination_tendency", weight: 1.0 },
+      { key: "shame_vs_guilt", weight: 0.2 },
+    ],
+  },
+  {
+    id: "q83",
+    chapter: "inner_depth",
+    prompt: "選んだ後に「あっちが良かったかも」と思う ←→ 選んだら振り返らない",
+    leftLabel: "後から迷う",
+    rightLabel: "選んだら前を向く",
+    questionText:
+      "レストランで注文した後、隣の人のメニューを見て「そっちにすればよかった」と思いますか？ 選んだものに満足できますか？",
+    scale: 5,
+    axes: [
+      { key: "rumination_tendency", weight: 0.8 },
+      { key: "cautious_vs_bold", weight: 0.2, invert: true },
+    ],
+  },
+
+  // --- shame_vs_guilt +2 ---
+  {
+    id: "q84",
+    chapter: "inner_depth",
+    prompt: "失敗で「自分はダメな人間だ」と思う ←→ 「あの判断がまずかった」と思う",
+    leftLabel: "自分がダメだと感じる",
+    rightLabel: "判断のミスと切り分ける",
+    questionText:
+      "約束を忘れてしまったとき、「自分は信頼できない人間だ」と落ち込みますか？ 「次から気をつけよう」と対策を考えますか？",
+    scale: 5,
+    axes: [{ key: "shame_vs_guilt", weight: 1.0 }],
+  },
+  {
+    id: "q85",
+    chapter: "inner_depth",
+    prompt: "恥ずかしい場面を避ける ←→ 恥をかいても挑戦する",
+    leftLabel: "恥を避ける",
+    rightLabel: "恥をかいても挑戦",
+    questionText:
+      "人前で発表する機会があったとき、失敗が怖くて避けたくなりますか？ 恥をかいてもやってみたいと思いますか？",
+    scale: 5,
+    axes: [
+      { key: "shame_vs_guilt", weight: 0.8 },
+      { key: "cautious_vs_bold", weight: 0.3, invert: true },
+    ],
+  },
+
+  // --- classic_vs_trendy +2 ---
+  {
+    id: "q86",
+    chapter: "aesthetic_expression",
+    prompt: "定番を選ぶ ←→ 今っぽいものを選ぶ",
+    leftLabel: "定番・王道",
+    rightLabel: "今っぽさ・旬",
+    questionText:
+      "カフェで注文するとき、いつもの定番メニューを頼みますか？ 季節限定や新メニューを試しますか？",
+    scale: 5,
+    axes: [
+      { key: "classic_vs_trendy", weight: 1.0 },
+      { key: "tradition_vs_novelty", weight: 0.3 },
+    ],
+  },
+  {
+    id: "q87",
+    chapter: "aesthetic_expression",
+    prompt: "長く使えるものを選ぶ ←→ 今の気分に合うものを選ぶ",
+    leftLabel: "長く使えるもの",
+    rightLabel: "今の気分に合うもの",
+    questionText:
+      "服を買うとき、5年後も着られるベーシックなものを選びますか？ 今の気分にぴったりなものを選びますか？",
+    scale: 5,
+    axes: [
+      { key: "classic_vs_trendy", weight: 0.8 },
+      { key: "quality_vs_quantity", weight: 0.2 },
+    ],
+  },
+
+  // ── P2-2 追加ここまで（q56-q87 = 32問）──
 
   // ── 判断合理性・効率性軸 (2問) ──
   {

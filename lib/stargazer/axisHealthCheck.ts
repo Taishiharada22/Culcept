@@ -52,11 +52,28 @@ export interface RuntimeHealth {
   runtimeScore: number;
 }
 
+/** P3-2: パイプライン接続カバレッジ（coverage-only, grade なし） */
+export interface AxisCoverage {
+  /** 観測層: 質問がマップされているか */
+  observation: boolean;
+  /** 矛盾検出層: CROSS_AXIS_RULES に含まれるか */
+  contradiction: boolean;
+  /** インサイト層: AXIS_INSIGHT_RULES に含まれるか */
+  insight: boolean;
+  /** フォールバック層: fallback テキストがあるか */
+  fallback: boolean;
+  /** 因果親和層: causalAffinity 2軸以上 */
+  causalAffinity: boolean;
+  /** 接続層数 (0-5) */
+  connectedLayers: number;
+}
+
 export interface AxisHealthReport {
   axisId: TraitAxisKey;
   domain: AxisDomain;
   tier: "core" | "expansion" | "frozen";
   structural: StructuralHealth | null;  // frozen軸はnull
+  coverage: AxisCoverage | null;        // frozen軸はnull
   runtime: RuntimeHealth | null;        // Phase 3まではnull
   status: "healthy" | "weak" | "ghost" | "frozen";
   statusReason: string;
@@ -165,6 +182,25 @@ export interface HealthCheckDataSources {
   fallbackTextAxes: Set<TraitAxisKey>;
 }
 
+// ─── P3-2: Coverage Builder ───────────────────────────────
+
+function buildCoverage(structural: StructuralHealth): AxisCoverage {
+  const observation = structural.questionCount > 0;
+  const contradiction = structural.contradictionRuleCount > 0;
+  const insight = structural.insightRuleCount > 0;
+  const fallback = structural.hasFallbackText;
+  const causalAffinity = structural.hasCausalAffinity;
+
+  const connectedLayers =
+    (observation ? 1 : 0) +
+    (contradiction ? 1 : 0) +
+    (insight ? 1 : 0) +
+    (fallback ? 1 : 0) +
+    (causalAffinity ? 1 : 0);
+
+  return { observation, contradiction, insight, fallback, causalAffinity, connectedLayers };
+}
+
 // ─── Layer 1: Structural Audit ─────────────────────────────
 
 /**
@@ -227,6 +263,7 @@ export function scanAllAxes(
         domain: "identity", // fallback
         tier: "core",
         structural: null,
+        coverage: null,
         runtime: null,
         status: "ghost",
         statusReason: `axisRegistryに未登録`,
@@ -241,6 +278,7 @@ export function scanAllAxes(
         domain: entry.domain,
         tier: "frozen",
         structural: null,
+        coverage: null,
         runtime: null,
         status: "frozen",
         statusReason: entry.frozenReason,
@@ -252,6 +290,7 @@ export function scanAllAxes(
 
     // 通常軸: 構造監査
     const structural = auditStructural(axisId, entry, sources);
+    const coverage = buildCoverage(structural);
     const domainReq = DOMAIN_REQUIREMENTS[entry.domain];
 
     let status: AxisHealthReport["status"];
@@ -280,6 +319,7 @@ export function scanAllAxes(
       domain: entry.domain,
       tier: entry.tier as "core" | "expansion",
       structural,
+      coverage,
       runtime: null, // Phase 3で実装
       status,
       statusReason,
@@ -291,6 +331,8 @@ export function scanAllAxes(
 
 // ─── Summary ───────────────────────────────────────────────
 
+export type CoverageLayerName = "observation" | "contradiction" | "insight" | "fallback" | "causalAffinity";
+
 export interface HealthSummary {
   total: number;
   healthy: number;
@@ -301,9 +343,19 @@ export interface HealthSummary {
   structuralConnectionRate: number;
   /** domain別内訳 */
   byDomain: Record<AxisDomain, { total: number; healthy: number; weak: number; ghost: number }>;
+  /** P3-2: レイヤー別カバレッジ（frozen軸除外） */
+  coverageByLayer: Record<CoverageLayerName, { connected: number; total: number; rate: number }>;
 }
 
 export function summarizeHealth(reports: AxisHealthReport[]): HealthSummary {
+  const layerNames: CoverageLayerName[] = [
+    "observation", "contradiction", "insight", "fallback", "causalAffinity",
+  ];
+  const coverageByLayer = {} as HealthSummary["coverageByLayer"];
+  for (const l of layerNames) {
+    coverageByLayer[l] = { connected: 0, total: 0, rate: 0 };
+  }
+
   const summary: HealthSummary = {
     total: reports.length,
     healthy: 0,
@@ -312,6 +364,7 @@ export function summarizeHealth(reports: AxisHealthReport[]): HealthSummary {
     frozen: 0,
     structuralConnectionRate: 0,
     byDomain: {} as HealthSummary["byDomain"],
+    coverageByLayer,
   };
 
   const domains: AxisDomain[] = [
@@ -336,6 +389,20 @@ export function summarizeHealth(reports: AxisHealthReport[]): HealthSummary {
       if (r.status === "weak") summary.byDomain[r.domain].weak++;
       if (r.status === "ghost") summary.byDomain[r.domain].ghost++;
     }
+
+    // P3-2: coverage 集計（frozen軸除外）
+    if (r.coverage) {
+      for (const l of layerNames) {
+        coverageByLayer[l].total++;
+        if (r.coverage[l]) coverageByLayer[l].connected++;
+      }
+    }
+  }
+
+  // coverage rate 計算
+  for (const l of layerNames) {
+    const entry = coverageByLayer[l];
+    entry.rate = entry.total > 0 ? entry.connected / entry.total : 0;
   }
 
   const nonFrozen = summary.total - summary.frozen;

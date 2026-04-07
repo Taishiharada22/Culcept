@@ -11,6 +11,8 @@
  */
 
 import type { TrustLevel } from "./alterUnderstanding";
+import { AXIS_REGISTRY, getActiveAxisKeys } from "./axisRegistry";
+import type { TraitAxisKey } from "./traitAxes";
 
 /* ═══ Public Types ═══ */
 
@@ -414,6 +416,177 @@ const AXIS_INSIGHT_RULES: AxisInsightRule[] = [
     priority: 0.8,
     referencedAxes: ["change_embrace_vs_resist", "analytical_vs_intuitive"],
   },
+
+  // ══════════════════════════════════════════════════════
+  // P2 追加: relational / emotional 系カバー
+  //
+  // 設計方針:
+  //   - 2軸以上の交差で発火（単軸ラベル禁止）
+  //   - text に SPECIFICITY_KEYWORDS を1つ以上含む
+  //   - 行動場面の描写 + 「気づきにくい構造」の指摘
+  //   - theme はドメイン固有（人間関係/感情/家族/仕事）
+  //   - priority は既存ルール(0.75-0.95)と同等。
+  //     行動に直結する洞察ほど高く設定
+  // ══════════════════════════════════════════════════════
+
+  // ═══ RELATIONAL: 対人判断の構造的矛盾 ═══
+
+  // 回避型なのに確認を求める（愛着×安心確認の非対称）
+  {
+    id: "ax_avoidant_reassurance",
+    check: (s) => axisScore(s, "attachment_style") < -0.3
+      && axisScore(s, "reassurance_need") > 0.3,
+    text: "距離を取りたがるのに、相手の反応だけは確かめたくなりやすい — 「放っておいて、でも見捨てないで」が同居している",
+    theme: "人間関係",
+    priority: 0.9,
+    referencedAxes: ["attachment_style", "reassurance_need"],
+  },
+  // 社交的なのに居場所が定まらない
+  {
+    id: "ax_social_unfit",
+    check: (s) => axisScore(s, "social_initiative") > 0.3
+      && axisScore(s, "friend_mode_fit") < -0.3,
+    text: "自分から声をかけられるのに、グループの中での居場所が揺らぎやすい — 始めるのは得意だけど定着に不安がある",
+    theme: "人間関係",
+    priority: 0.85,
+    referencedAxes: ["social_initiative", "friend_mode_fit"],
+  },
+  // 距離を縮めるのが早いのに拒否に弱い
+  {
+    id: "ax_fast_intimacy_rejection",
+    check: (s) => axisScore(s, "intimacy_pace") > 0.4
+      && axisScore(s, "rejection_response_maturity") < -0.3,
+    text: "距離を縮めるのが早いのに、断られると深く傷つきやすい — 近づくスピードと拒否耐性のギャップがリスクになる",
+    theme: "人間関係",
+    priority: 0.85,
+    referencedAxes: ["intimacy_pace", "rejection_response_maturity"],
+  },
+  // 一貫性が高いのにモード分裂もある
+  {
+    id: "ax_intent_mode_split",
+    check: (s) => axisScore(s, "intent_stability") > 0.4
+      && axisScore(s, "relationship_mode_split") > 0.4,
+    text: "自分の中では一貫しているつもりなのに、相手によって出る自分が違う — 「本心は一つだが見せ方を変える」戦略が無意識に働いている",
+    theme: "人間関係",
+    priority: 0.8,
+    referencedAxes: ["intent_stability", "relationship_mode_split"],
+  },
+  // 合意を重んじるのにストレス時は孤立する
+  {
+    id: "ax_consent_isolation",
+    check: (s) => axisScore(s, "consent_maturity") > 0.3
+      && axisScore(s, "stress_isolation_vs_social") < -0.3,
+    text: "普段は丁寧に合意を取れるのに、疲れると一人で抱え込みやすい — 余裕がある時ほど上手くいく関係は、余裕がない時ほど崩れやすい",
+    theme: "疲労",
+    priority: 0.85,
+    referencedAxes: ["consent_maturity", "stress_isolation_vs_social"],
+  },
+  // 率直なのに公正感度が高い（言えない不満が溜まる）
+  {
+    id: "ax_direct_fairness",
+    check: (s) => axisScore(s, "direct_vs_diplomatic") > 0.3
+      && axisScore(s, "fairness_sensitivity") > 0.3,
+    text: "外交的に振る舞えるのに、不公平に対しては内側でしっかり反応しやすい — 表の穏やかさと内面の不満が乖離する場面がある",
+    theme: "仕事",
+    priority: 0.8,
+    referencedAxes: ["direct_vs_diplomatic", "fairness_sensitivity"],
+  },
+  // 拒否成熟度が低い × 独立志向（一人で抱えて傷つく）
+  {
+    id: "ax_independent_rejection",
+    check: (s) => axisScore(s, "independence_vs_harmony") < -0.3
+      && axisScore(s, "rejection_response_maturity") < -0.3,
+    text: "自分で決めたいのに、断られるとひどく堪えやすい — 独立しているからこそ拒否が「自分への否定」に直結しやすい",
+    theme: "自己理解",
+    priority: 0.85,
+    referencedAxes: ["independence_vs_harmony", "rejection_response_maturity"],
+  },
+  // 長期変化リスク × 安心確認（飽きてるのに離れられない）
+  {
+    id: "ax_shift_reassurance",
+    check: (s) => axisScore(s, "long_term_shift_risk") > 0.3
+      && axisScore(s, "reassurance_need") > 0.3,
+    text: "関係に新鮮さを求めるのに、相手の気持ちを確認しないと不安になりやすい — 飽きと依存が同時に存在している",
+    theme: "人間関係",
+    priority: 0.8,
+    referencedAxes: ["long_term_shift_risk", "reassurance_need"],
+  },
+
+  // ═══ EMOTIONAL: 感情処理の盲点 ═══
+
+  // 恥意識 × 反芻（失敗を人格と結びつけて繰り返し再生）
+  {
+    id: "ax_shame_rumination",
+    check: (s) => axisScore(s, "shame_vs_guilt") < -0.3
+      && axisScore(s, "rumination_tendency") > 0.3,
+    text: "失敗を「自分がダメだから」と感じやすく、その記憶を繰り返し再生しやすい — 反芻と恥が結びつくと回復に時間がかかる",
+    theme: "感情",
+    priority: 0.9,
+    referencedAxes: ["shame_vs_guilt", "rumination_tendency"],
+  },
+  // 感情安定しているように見えるが愛着不安がある
+  {
+    id: "ax_regulate_attachment",
+    check: (s) => axisScore(s, "emotional_regulation") > 0.3
+      && axisScore(s, "attachment_style") > 0.4,
+    text: "普段は感情を安定させられるのに、親密な相手との関係になると急に不安定になりやすい — 表の冷静さと内側の愛着不安のギャップが大きい",
+    theme: "人間関係",
+    priority: 0.85,
+    referencedAxes: ["emotional_regulation", "attachment_style"],
+  },
+  // 感情変動 × 外向（テンション高い時と落ちた時の落差が大きい）
+  {
+    id: "ax_variability_extro",
+    check: (s) => axisScore(s, "emotional_variability") > 0.3
+      && axisScore(s, "introvert_vs_extrovert") > 0.3,
+    text: "テンションが高い時ほど人と一緒にいたいのに、落ちると急に引きこもりやすい — 周囲からは「さっきまで元気だったのに」に見える",
+    theme: "疲労",
+    priority: 0.8,
+    referencedAxes: ["emotional_variability", "introvert_vs_extrovert"],
+  },
+  // 反芻しやすいが内的統制（自責ループ）
+  {
+    id: "ax_rumination_internal",
+    check: (s) => axisScore(s, "rumination_tendency") > 0.4
+      && axisScore(s, "locus_of_control") < -0.3,
+    text: "「自分次第」と信じているからこそ、うまくいかなかったことを何度も頭の中で巻き戻しやすい — 責任感が自責ループの燃料になっている",
+    theme: "感情",
+    priority: 0.85,
+    referencedAxes: ["rumination_tendency", "locus_of_control"],
+  },
+
+  // ═══ JUDGMENT: 判断パターンの構造 ═══
+
+  // 分析的なのに効率を急ぐ
+  {
+    id: "ax_analytical_efficiency",
+    check: (s) => axisScore(s, "analytical_vs_intuitive") < -0.3
+      && axisScore(s, "efficiency_vs_process") < -0.3,
+    text: "分析的に考えられるのに結論を急ぎやすい — 途中で「もういいか」と打ち切るパターンがないか",
+    theme: "仕事",
+    priority: 0.8,
+    referencedAxes: ["analytical_vs_intuitive", "efficiency_vs_process"],
+  },
+  // 感情で決める × 成長志向が固定的
+  {
+    id: "ax_emotional_fixed",
+    check: (s) => axisScore(s, "rational_vs_emotional_decision") > 0.3
+      && axisScore(s, "growth_mindset") > 0.3,
+    text: "直感で決めるのに「人はそう変わらない」と思いやすい — 自分の判断を修正する機会を逃しやすい構造がある",
+    theme: "自己理解",
+    priority: 0.8,
+    referencedAxes: ["rational_vs_emotional_decision", "growth_mindset"],
+  },
+  // escalation_risk × direct_vs_diplomatic
+  {
+    id: "ax_escalation_diplomatic",
+    check: (s) => axisScore(s, "escalation_risk") > 0.3
+      && axisScore(s, "direct_vs_diplomatic") > 0.3,
+    text: "普段は外交的に振る舞えるのに、対立が起きると一気にヒートアップしやすい — 普段の穏やかさとは対照的に、スイッチが入ると止めにくい",
+    theme: "人間関係",
+    priority: 0.85,
+    referencedAxes: ["escalation_risk", "direct_vs_diplomatic"],
+  },
 ];
 
 /* ═══ Main Entry Point ═══ */
@@ -545,59 +718,47 @@ function generateAxisCandidates(scores: Record<string, number> | null): CardCand
   return candidates.slice(0, 3);
 }
 
-/** 軸名 → 偏りがあるときの盲点テキスト（左:-1寄り、右:+1寄り） */
-const AXIS_FALLBACK_TEXTS: Record<string, { left: string; right: string; theme: string }> = {
-  control_tendency: {
-    left: "主導権を手放しても気にならない — 逆に、必要なときに主張できなくなるリスクが見えにくい",
-    right: "場を仕切りたくなりやすい — 周囲からは「余裕がないとき」にそれが強まるように見えているかもしれない",
-    theme: "人間関係",
-  },
-  public_private_gap: {
-    left: "表裏が少ないぶん、隠したいことまで見えてしまいやすい — その自覚があるか",
-    right: "外に見せる自分と内側にズレがある — 本人は一貫しているつもりでも、周囲はそのギャップに気づいている",
-    theme: "本音・回避",
-  },
-  rumination_tendency: {
-    left: "切り替えが早いぶん、振り返りが浅くなることがある — 同じ失敗を繰り返していないか",
-    right: "一度考え始めると止まりにくい — 深く掘る力はあるが、外から見えない消耗が蓄積している",
-    theme: "疲労",
-  },
-  reassurance_need: {
-    left: "安心確認を求めない — そのぶん相手には「気にしてないのかな」と映りやすいかもしれない",
-    right: "安心を確かめたくなりやすい — 相手にとっては「また確認？」になっている可能性がある",
-    theme: "人間関係",
-  },
-  boundary_awareness: {
-    left: "距離感に鈍い — 踏み込みすぎて相手が引いているのに気づきにくいことがある",
-    right: "距離感に敏感 — 相手が近づこうとしているのに壁を作ってしまうことがある",
-    theme: "人間関係",
-  },
-  emotional_variability: {
-    left: "感情が安定しているように見えるが、動じなさすぎて周囲に「冷たい」と映ることがある",
-    right: "感情の振れ幅が大きい — エネルギッシュに見えるが、消耗の波も激しいかもしれない",
-    theme: "感情",
-  },
+/**
+ * 設計P2-4: AXIS_FALLBACK_TEXTS を axisRegistry に統合。
+ * 旧6軸ハードコード → 全50活性軸のfallbackInsightLeft/Rightを参照。
+ * domain→theme変換テーブルで既存のthemeフィールドとの互換性を維持。
+ */
+const DOMAIN_TO_THEME: Record<string, string> = {
+  judgment: "判断",
+  relational: "人間関係",
+  boundary: "人間関係",
+  emotional: "感情",
+  cognitive: "思考",
+  energy: "疲労",
+  identity: "本音・回避",
+  aesthetic: "表現",
 };
 
-/** ルールにヒットしなかった場合、最も偏った軸からフォールバックカードを生成 */
+/** ルールにヒットしなかった場合、最も偏った軸からフォールバックカードを生成（Registry参照） */
 function buildFallbackAxisInsight(scores: Record<string, number>): CardCandidate | null {
-  const fallbackKeys = Object.keys(AXIS_FALLBACK_TEXTS);
-  let bestKey = "";
-  let bestAbs = 0;
+  const activeKeys = getActiveAxisKeys();
+  let bestKey: TraitAxisKey | null = null;
+  let bestDev = 0;
 
-  for (const key of fallbackKeys) {
-    const abs = Math.abs(scores[key] ?? 0);
-    if (abs > bestAbs) {
-      bestAbs = abs;
+  for (const key of activeKeys) {
+    const score = scores[key];
+    if (score === undefined || score === null) continue;
+    const dev = Math.abs(score - 0.5);
+    if (dev > bestDev) {
+      bestDev = dev;
       bestKey = key;
     }
   }
 
-  // 偏りが小さすぎる場合は生成しない
-  if (bestAbs < 0.25 || !bestKey) return null;
+  // 偏りが小さすぎる場合は生成しない（0.5基準でdeviation 0.15以上）
+  if (bestDev < 0.15 || !bestKey) return null;
 
-  const entry = AXIS_FALLBACK_TEXTS[bestKey]!;
-  const text = (scores[bestKey] ?? 0) < 0 ? entry.left : entry.right;
+  const entry = AXIS_REGISTRY.get(bestKey);
+  if (!entry) return null;
+
+  const score = scores[bestKey] ?? 0.5;
+  const text = score < 0.5 ? entry.fallbackInsightLeft : entry.fallbackInsightRight;
+  if (!text) return null;
 
   return {
     id: `ax_fb_${bestKey}`,
@@ -607,9 +768,10 @@ function buildFallbackAxisInsight(scores: Record<string, number>): CardCandidate
     composerSeed: "これ、自分ではどう思う？",
     requiredTrust: 0,
     createdAt: new Date(),
-    theme: entry.theme,
+    theme: DOMAIN_TO_THEME[entry.domain] ?? "判断",
     basePriority: 0.55,
     source: "axis_insight",
+    sourceAxes: [bestKey],
   };
 }
 
@@ -1120,4 +1282,28 @@ function toCard(c: CardCandidate, pinned: boolean): AlterInsightCard {
     theme: c.theme,
     sourceAxes: c.sourceAxes,
   };
+}
+
+// ─── HealthCheck 用ヘルパー ──────────────────────────────
+
+/**
+ * HealthCheck 用: AXIS_INSIGHT_RULES が参照する軸のリスト
+ * （AXIS_INSIGHT_RULES 自体はモジュールプライベートのため、このヘルパーを経由する）
+ */
+export function getInsightRuleAxes(): TraitAxisKey[][] {
+  return AXIS_INSIGHT_RULES.map((r) => r.referencedAxes);
+}
+
+/**
+ * HealthCheck 用: axisRegistry の fallbackInsight がある軸のセット
+ */
+export function getFallbackTextAxes(): Set<TraitAxisKey> {
+  const axes = new Set<TraitAxisKey>();
+  for (const key of getActiveAxisKeys()) {
+    const entry = AXIS_REGISTRY.get(key);
+    if (entry && (entry.fallbackInsightLeft || entry.fallbackInsightRight)) {
+      axes.add(key);
+    }
+  }
+  return axes;
 }

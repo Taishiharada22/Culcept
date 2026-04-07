@@ -125,6 +125,11 @@ export async function POST(request: Request) {
         executed,
         satisfaction: executed ? (satisfaction ?? null) : null,
         skip_reason: !executed ? (skipReason ?? null) : null,
+        // §7-A: 元judgmentのderived_factsを継承（トレーサビリティ）
+        ...(judgment.metadata?.derived_facts ? {
+          derived_facts: judgment.metadata.derived_facts,
+          derived_facts_summary: judgment.metadata.derived_facts_summary,
+        } : {}),
       },
     });
 

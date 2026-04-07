@@ -105,6 +105,109 @@ export interface BaselineInput {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Life Layer: values / passions / career
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// A baseline（現実制約）でも B baseline（関係性）でもない第4層。
+// 意味的プロフィール — ユーザーが何を大切にし、何に没頭し、何をしているか。
+// 注入は relevance gating 付き: ドメインとの関連性が高いときだけ薄く注入。
+
+/** life_profile_entries から取得した Life layer データ */
+export interface LifeContextInput {
+  values?: string[];
+  passions?: string[];
+  career?: string[];
+}
+
+/** Alter が使う正規化済み Life layer コンテキスト */
+export interface LifeContext {
+  coreValues: string[];
+  passions: string[];
+  careerLabels: string[];
+  hasLifeContext: boolean;
+}
+
+/**
+ * life_profile_entries の生データを LifeContext に正規化する。
+ * 各カテゴリ上限 5 件に絞り、重複を除去する。
+ */
+export function deriveLifeContext(input: LifeContextInput): LifeContext {
+  const dedup = (arr?: string[]) => [...new Set((arr ?? []).filter(Boolean))].slice(0, 5);
+  const coreValues = dedup(input.values);
+  const passions = dedup(input.passions);
+  const careerLabels = dedup(input.career);
+  return {
+    coreValues,
+    passions,
+    careerLabels,
+    hasLifeContext: coreValues.length > 0 || passions.length > 0 || careerLabels.length > 0,
+  };
+}
+
+/**
+ * Life layer の relevance gating — ドメインに応じて注入する要素を選別する。
+ *
+ * - self_understanding: 全要素（values + passions + career）
+ * - career: career のみ
+ * - relationship: values のみ（価値観は関係性判断の補助になる）
+ * - lifestyle: passions のみ（趣味・活動はライフスタイル文脈に関連）
+ * - health: 注入しない
+ * - general: 注入しない（汎用質問にプロフィールを押し付けない）
+ */
+export function shouldInjectLifeContext(
+  ctx: LifeContext,
+  domain: QueryDomainForBaseline,
+): boolean {
+  if (!ctx.hasLifeContext) return false;
+  return domain === "self_understanding"
+    || (domain === "career" && ctx.careerLabels.length > 0)
+    || (domain === "relationship" && ctx.coreValues.length > 0)
+    || (domain === "lifestyle" && ctx.passions.length > 0);
+}
+
+/**
+ * LifeContext から Alter プロンプトに注入するセクションを生成する。
+ * ドメインに応じて注入する要素を絞る（relevance gating）。
+ */
+export function buildLifeContextPromptSection(
+  ctx: LifeContext,
+  domain: QueryDomainForBaseline,
+): string[] {
+  if (!shouldInjectLifeContext(ctx, domain)) return [];
+
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("# ライフコンテキスト（初期設定で回答済み — Life layer）");
+  lines.push("以下はユーザーが既に回答した情報。**同じ内容を再度聞くことは禁止**。");
+
+  // self_understanding: 全要素
+  // career: career のみ
+  // relationship: values のみ
+  // lifestyle: passions のみ
+  const includeValues = domain === "self_understanding" || domain === "relationship";
+  const includePassions = domain === "self_understanding" || domain === "lifestyle";
+  const includeCareer = domain === "self_understanding" || domain === "career";
+
+  if (includeValues && ctx.coreValues.length > 0) {
+    lines.push(`- 大切にしている価値観: ${ctx.coreValues.join("、")}`);
+  }
+  if (includePassions && ctx.passions.length > 0) {
+    lines.push(`- 夢中になれること: ${ctx.passions.join("、")}`);
+  }
+  if (includeCareer && ctx.careerLabels.length > 0) {
+    lines.push(`- 仕事・活動: ${ctx.careerLabels.join("、")}`);
+  }
+
+  lines.push("");
+  lines.push("## 使用制約（厳守）");
+  lines.push("- 上記項目を会話で再度聞かない（「何が好き？」「お仕事は？」等は禁止）");
+  lines.push("- ユーザーが自ら詳しく語り始めた場合のみ、深掘りしてよい");
+  lines.push("- これらは補助文脈として使う。性格・価値観の主軸は Stargazer データを使う");
+
+  return lines;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Constants
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -281,14 +384,15 @@ export function scoreBaselineRelevance(
   })();
 
   // area の relevance
+  // relationship では地域・移動・環境タグが過剰（C + Life と同時発火で重くなるため low に抑制）
   const areaRelevance: RelevanceLevel = (() => {
     if (context.areaType === "unknown") return "none";
     switch (domain) {
       case "lifestyle":
         return "high";
       case "career":
-      case "relationship":
         return "medium";
+      case "relationship":
       case "health":
       case "self_understanding":
       case "general":
@@ -620,5 +724,281 @@ function describeEnvironmentTag(tag: EnvironmentTag): string | null {
       return "活動の選択肢が豊富";
     default:
       return null;
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// C ライン: RelationshipContext — Rendezvous 収集値の正規化派生
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 関係性の志向（結婚意向から正規化）
+ * - serious        : すぐにでも / 2-3年以内
+ * - casual_romantic: いい人がいれば
+ * - not_considering: 考えていない
+ * - friendship_only: romantic/partner カテゴリ未選択
+ * - unknown        : データなし
+ */
+export type RelationshipIntent =
+  | "serious"
+  | "casual_romantic"
+  | "not_considering"
+  | "friendship_only"
+  | "unknown";
+
+/** 子どもへの開放性 */
+export type ParentingOpenness =
+  | "open"      // ほしい / 欲しい
+  | "closed"    // いらない
+  | "flexible"  // どちらでも / 相手に合わせる / 未定
+  | "unknown";
+
+/** 喫煙状況 */
+export type SubstanceBoundary =
+  | "non_smoker"
+  | "occasional"
+  | "smoker"
+  | "unknown";
+
+/** 朝型・夜型（0=朝型, 100=夜型 のスケールから正規化） */
+export type LifestyleAlignment =
+  | "morning_type"
+  | "neutral"
+  | "night_type"
+  | "unknown";
+
+/** Rendezvous onboarding / Home Tour から収集した生データ */
+export interface RelationshipBaselineInput {
+  marriageIntent?: string | null;
+  childrenPreference?: string | null;
+  smokingStatus?: string | null;
+  smokingTolerance?: string | null;
+  lifestyleMorningNight?: number | null;
+  enabledCategories?: string[];
+  /** rendezvous_profiles.updated_at — freshness 判定用 */
+  updatedAt?: string | null;
+}
+
+/**
+ * Freshness 閾値:
+ * - 90日以内: "fresh" — 再質問禁止
+ * - 90-180日: "aging" — 矛盾時 or 文脈変化時のみ穏やかに確認可
+ * - 180日超: "stale" — 一度だけ穏やかに確認してよい
+ */
+export type FreshnessLevel = "fresh" | "aging" | "stale" | "unknown";
+
+function computeFreshness(updatedAt?: string | null): FreshnessLevel {
+  if (!updatedAt) return "unknown";
+  const updated = new Date(updatedAt);
+  if (isNaN(updated.getTime())) return "unknown";
+  const daysSinceUpdate = (Date.now() - updated.getTime()) / (1000 * 60 * 60 * 24);
+  if (daysSinceUpdate <= 90) return "fresh";
+  if (daysSinceUpdate <= 180) return "aging";
+  return "stale";
+}
+
+/** Alter が使う正規化済み関係性コンテキスト */
+export interface RelationshipContext {
+  relationshipIntent: RelationshipIntent;
+  parentingOpenness: ParentingOpenness;
+  substanceBoundary: SubstanceBoundary;
+  lifestyleAlignment: LifestyleAlignment;
+  /** romantic または partner カテゴリが有効 */
+  isRomanticUser: boolean;
+  /** 最低 1 つ以上の relationship baseline データが存在する */
+  hasRelationshipBaseline: boolean;
+  /** データの鮮度 — 古いデータは soft refresh を許可する */
+  freshness: FreshnessLevel;
+}
+
+/**
+ * Rendezvous / Home Tour の生データを RelationshipContext に正規化する。
+ * raw をそのまま Alter に渡さず、判断補助として機能する形に変換する。
+ */
+export function deriveRelationshipContext(input: RelationshipBaselineInput): RelationshipContext {
+  const enabledCategories = input.enabledCategories ?? [];
+  const isRomanticUser = enabledCategories.some(c => c === "romantic" || c === "partner");
+
+  // relationship_intent
+  const relationshipIntent: RelationshipIntent = (() => {
+    if (enabledCategories.length > 0 && !isRomanticUser) return "friendship_only";
+    if (!input.marriageIntent) return "unknown";
+    switch (input.marriageIntent) {
+      case "すぐにでも": return "serious";
+      case "2-3年以内": return "serious";
+      case "いい人がいれば": return "casual_romantic";
+      case "考えていない": return "not_considering";
+      default: return "unknown";
+    }
+  })();
+
+  // parenting_openness — 2 つのコンポーネントで値が微妙に異なるため両方を受け入れる
+  const parentingOpenness: ParentingOpenness = (() => {
+    if (!input.childrenPreference) return "unknown";
+    const v = input.childrenPreference;
+    if (v === "ほしい" || v === "欲しい") return "open";
+    if (v === "いらない") return "closed";
+    if (v === "どちらでも" || v === "相手に合わせる" || v === "未定") return "flexible";
+    return "unknown";
+  })();
+
+  // substance_boundary
+  const substanceBoundary: SubstanceBoundary = (() => {
+    if (!input.smokingStatus) return "unknown";
+    switch (input.smokingStatus) {
+      case "non_smoker": return "non_smoker";
+      case "sometimes": return "occasional";
+      case "smoker": return "smoker";
+      default: return "unknown";
+    }
+  })();
+
+  // lifestyle_alignment (0=朝型, 100=夜型)
+  const lifestyleAlignment: LifestyleAlignment = (() => {
+    if (input.lifestyleMorningNight === null || input.lifestyleMorningNight === undefined) return "unknown";
+    const v = Number(input.lifestyleMorningNight);
+    if (v <= 30) return "morning_type";
+    if (v >= 70) return "night_type";
+    return "neutral";
+  })();
+
+  const hasRelationshipBaseline = !!(
+    input.marriageIntent ||
+    input.childrenPreference ||
+    input.smokingStatus ||
+    (input.lifestyleMorningNight !== null && input.lifestyleMorningNight !== undefined)
+  ) || (enabledCategories.length > 0);
+
+  const freshness = computeFreshness(input.updatedAt);
+
+  return {
+    relationshipIntent,
+    parentingOpenness,
+    substanceBoundary,
+    lifestyleAlignment,
+    isRomanticUser,
+    hasRelationshipBaseline,
+    freshness,
+  };
+}
+
+/**
+ * RelationshipContext をドメインに応じて Alter プロンプトに注入するかを判定する。
+ * - relationship ドメイン: 注入する
+ * - lifestyle ドメイン: lifestyle_alignment と substance_boundary のみ注入
+ * - それ以外: 注入しない
+ */
+export function shouldInjectRelationshipContext(
+  ctx: RelationshipContext,
+  domain: QueryDomainForBaseline,
+): boolean {
+  if (!ctx.hasRelationshipBaseline) return false;
+  return domain === "relationship" || domain === "lifestyle";
+}
+
+/**
+ * RelationshipContext から Alter プロンプトに注入するセクションを生成する。
+ *
+ * 設計原則:
+ * - raw 値ではなく正規化済みの意味を注入する
+ * - 「既知事実 = 再質問禁止」を明示的に宣言する
+ * - ドメインに応じて注入する要素を絞る（毎ターン全部は入れない）
+ * - 属性で人格を決めつけない（補助文脈として使うよう指示する）
+ */
+export function buildRelationshipContextPromptSection(
+  ctx: RelationshipContext,
+  domain: QueryDomainForBaseline,
+): string[] {
+  if (!shouldInjectRelationshipContext(ctx, domain)) return [];
+
+  const lines: string[] = [];
+  lines.push("");
+  lines.push("# 関係性コンテキスト（Rendezvous / 初期設定で回答済み）");
+  lines.push("以下はユーザーが既に回答した情報。**同じ内容を再度聞くことは禁止**。");
+
+  const isRelationship = domain === "relationship";
+  const isLifestyle = domain === "lifestyle";
+
+  // relationship / general ドメインのみ: 関係性の志向・子ども
+  if (isRelationship) {
+    if (ctx.relationshipIntent !== "unknown") {
+      lines.push(`- 関係性の志向: ${describeRelationshipIntent(ctx.relationshipIntent)}`);
+    }
+    if (ctx.parentingOpenness !== "unknown") {
+      lines.push(`- 子どもについての意向: ${describeParentingOpenness(ctx.parentingOpenness)}`);
+    }
+  }
+
+  // lifestyle / relationship ドメイン: ライフスタイル・喫煙
+  if (isRelationship || isLifestyle) {
+    if (ctx.lifestyleAlignment !== "unknown") {
+      lines.push(`- ライフスタイル傾向: ${describeLifestyleAlignment(ctx.lifestyleAlignment)}`);
+    }
+    if (ctx.substanceBoundary !== "unknown") {
+      lines.push(`- 喫煙状況: ${describeSubstanceBoundary(ctx.substanceBoundary)}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("## 使用制約（厳守）");
+  if (ctx.freshness === "stale") {
+    lines.push("- 上記は半年以上前の回答のため、変わっている可能性がある。会話の自然な流れの中で一度だけ穏やかに確認してよい");
+  } else if (ctx.freshness === "aging") {
+    lines.push("- 上記項目を会話で再度確認しない。ただし矛盾する発言や明確な状況変化（転職・引越し等）があった場合のみ、一度だけ穏やかに確認してよい");
+  } else if (ctx.freshness === "unknown") {
+    lines.push("- 上記項目を会話で再度確認しない。回答時期が不明なため鮮度は保証されないが、既知事実として扱う");
+    lines.push("- ただし会話中に明らかな矛盾が生じた場合、または判断に重大な影響を与える局面（結婚・転居等の大きな決断の相談）でのみ、一度だけ穏やかに確認してよい");
+  } else {
+    lines.push("- 上記項目を会話で再度確認しない（「結婚についてどう思いますか」「子どもはほしい？」等は禁止）");
+    lines.push("- ただし会話中にユーザーが上記と矛盾する発言をした場合のみ、一度だけ穏やかに確認してよい");
+  }
+  lines.push("- これらは補助文脈として使う。性格・価値観の主軸は Stargazer データを使う");
+  lines.push("- 「結婚したいから〜すべき」のように志向で人格を決めつけない");
+  if (ctx.relationshipIntent === "friendship_only") {
+    lines.push("- このユーザーのRendezvousはfriendship優先。マッチング文脈で恋愛・結婚を前提にした提案はしない。ただしユーザー自身が恋愛の話題を持ち出した場合は通常通り対応する");
+  }
+  if (ctx.relationshipIntent === "not_considering") {
+    lines.push("- 「結婚は？」「将来のパートナーは？」等の問いかけはユーザーが求めない限り行わない");
+  }
+
+  return lines;
+}
+
+// ─── Description helpers for RelationshipContext ───
+
+function describeRelationshipIntent(intent: RelationshipIntent): string {
+  switch (intent) {
+    case "serious": return "結婚を積極的に考えている";
+    case "casual_romantic": return "いい縁があれば恋愛・結婚も考える";
+    case "not_considering": return "現時点では結婚を考えていない";
+    case "friendship_only": return "friendship 優先（Rendezvousでロマンス系未選択）";
+    case "unknown": return "未回答";
+  }
+}
+
+function describeParentingOpenness(openness: ParentingOpenness): string {
+  switch (openness) {
+    case "open": return "子どもを望んでいる";
+    case "closed": return "子どもを望まない";
+    case "flexible": return "相手や状況による（どちらでも）";
+    case "unknown": return "未回答";
+  }
+}
+
+function describeLifestyleAlignment(alignment: LifestyleAlignment): string {
+  switch (alignment) {
+    case "morning_type": return "朝型（早起き・午前中が活動ピーク）";
+    case "night_type": return "夜型（夜間が活動ピーク）";
+    case "neutral": return "朝型・夜型の中間";
+    case "unknown": return "未回答";
+  }
+}
+
+function describeSubstanceBoundary(boundary: SubstanceBoundary): string {
+  switch (boundary) {
+    case "non_smoker": return "非喫煙者";
+    case "occasional": return "たまに吸う";
+    case "smoker": return "喫煙者";
+    case "unknown": return "未回答";
   }
 }

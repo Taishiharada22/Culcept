@@ -208,7 +208,14 @@ export async function GET() {
       const themeRecords = cards.map((c) => ({
         user_id: userId,
         event: "home_insight_displayed" as const,
-        metadata: { card_id: c.id, card_type: c.type, theme: c.theme, pinned: c.pinned },
+        metadata: {
+          card_id: c.id,
+          card_type: c.type,
+          theme: c.theme,
+          pinned: c.pinned,
+          // §7-A: sourceAxes トレーサビリティ
+          ...(c.sourceAxes && c.sourceAxes.length > 0 ? { source_axes: c.sourceAxes } : {}),
+        },
       }));
       supabase.from("stargazer_analytics").insert(themeRecords).then(() => {});
     }

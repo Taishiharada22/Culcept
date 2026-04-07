@@ -40,6 +40,8 @@ export interface DerivedFact {
 export interface DerivedFactSet {
   /** 最終的にLLMに渡す派生事実群（5-8文） */
   facts: DerivedFact[];
+  /** selectFacts前の全候補（フィルタ率計測用） */
+  allCandidates: DerivedFact[];
   /** 寄与した軸の総数 */
   totalAxesUsed: number;
   /** 生成日時 */
@@ -138,6 +140,7 @@ export function generateDerivedFacts(
 
   return {
     facts: selectedFacts,
+    allCandidates: allFacts,
     totalAxesUsed: allSourceAxes.size,
     generatedAt: new Date().toISOString(),
     inputScoresSnapshot: { ...resolvedScores },
@@ -438,16 +441,19 @@ export function serializeDerivedFactsForAnalytics(factSet: DerivedFactSet): {
     uniqueAxesUsed: number;
   };
 } {
+  const includedRules = new Set(factSet.facts.map((f) => f.generationRule));
+  const candidates = factSet.allCandidates ?? factSet.facts;
+
   return {
-    derived_facts: factSet.facts.map((f) => ({
+    derived_facts: candidates.map((f) => ({
       sourceType: f.sourceType,
       sourceAxes: f.sourceAxes,
       confidence: f.confidence,
       generationRule: f.generationRule,
-      includedInPrompt: true, // selectFacts通過済み = prompt採用
+      includedInPrompt: includedRules.has(f.generationRule),
     })),
     derived_facts_summary: {
-      totalGenerated: factSet.facts.length,
+      totalGenerated: candidates.length,
       totalIncluded: factSet.facts.length,
       uniqueAxesUsed: factSet.totalAxesUsed,
     },

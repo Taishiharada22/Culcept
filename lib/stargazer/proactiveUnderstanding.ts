@@ -106,6 +106,11 @@ export interface PhaseInputs {
  * セッション数は「必要条件」ではなく「十分条件の一部」。
  * 3回で深く信頼された場合は Phase 1 に早期遷移する。
  * repair_success_rate が 0.5 を下回ったら Phase を1つ下げる。
+ *
+ * @deprecated P3-3 (2026-04-07) 以降、正本は HDM Phase (`lib/stargazer/hdmPhase.ts`) に移行。
+ * HDM Phase は 6フェーズ (0-5) で、DB 保存 (`stargazer_alter_growth.hdm_phase_state`) を
+ * single source of truth とする。この関数は proactive engine 内部での後方互換のために残すが、
+ * 新規コードでは `computeAutoTransition()` を使用すること。
  */
 export function derivePhase(inputs: PhaseInputs): Phase {
   const {
@@ -159,6 +164,8 @@ export function derivePhase(inputs: PhaseInputs): Phase {
 /**
  * Phase → 既存 TrustLevel 互換変換。
  * 既存コードが discreteTrustLevel を参照する箇所のために維持。
+ *
+ * @deprecated P3-3 以降は `hdmPhaseToTrustLevel()` (`lib/stargazer/hdmPhase.ts`) を使用。
  */
 export function phaseToTrustLevel(phase: Phase): TrustLevel {
   switch (phase) {
@@ -1445,42 +1452,42 @@ export const STARGAZER_AXES: Record<TraitAxisKey, StargazerAxis> = {
     min_trust_to_probe: 1.0,
   },
 
-  // ── 残り軸（Phase 2 でフルメタデータ追加予定、暫定スタブ）──
-  individual_vs_social: { id: "individual_vs_social", label: "個人 vs 集団", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  plan_vs_spontaneous: { id: "plan_vs_spontaneous", label: "計画 vs 即興", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  tradition_vs_novelty: { id: "tradition_vs_novelty", label: "伝統 vs 新奇", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  direct_vs_diplomatic: { id: "direct_vs_diplomatic", label: "直接的 vs 外交的", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  function_vs_expression: { id: "function_vs_expression", label: "機能性 vs 表現性", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  minimal_vs_maximal: { id: "minimal_vs_maximal", label: "ミニマル vs マキシマル", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  perfectionist_vs_pragmatic: { id: "perfectionist_vs_pragmatic", label: "完璧主義 vs 実利主義", category: "livelihood", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  quality_vs_quantity: { id: "quality_vs_quantity", label: "質 vs 量", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  classic_vs_trendy: { id: "classic_vs_trendy", label: "クラシック vs トレンド", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  reassurance_need: { id: "reassurance_need", label: "安心欲求", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  emotional_variability: { id: "emotional_variability", label: "感情の振れ幅", category: "energy", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  social_initiative: { id: "social_initiative", label: "社交の主導性", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  relationship_mode_split: { id: "relationship_mode_split", label: "関係モード分裂", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  boundary_respect: { id: "boundary_respect", label: "境界線の尊重", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  consent_maturity: { id: "consent_maturity", label: "同意の成熟度", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  pressure_risk: { id: "pressure_risk", label: "圧力リスク", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  escalation_risk: { id: "escalation_risk", label: "エスカレーションリスク", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  friend_mode_fit: { id: "friend_mode_fit", label: "友人モード適合", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  intent_stability: { id: "intent_stability", label: "意図の安定性", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  rejection_response_maturity: { id: "rejection_response_maturity", label: "拒絶反応の成熟度", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  control_tendency: { id: "control_tendency", label: "支配傾向", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  exclusivity_pressure: { id: "exclusivity_pressure", label: "排他性圧力", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  long_term_shift_risk: { id: "long_term_shift_risk", label: "長期変化リスク", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  public_private_gap: { id: "public_private_gap", label: "公私ギャップ", category: "behavior", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  rumination_tendency: { id: "rumination_tendency", label: "反芻傾向", category: "energy", causal_affinity_prior: [], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
-  fairness_sensitivity: { id: "fairness_sensitivity", label: "公正感度", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  abstract_structuring: { id: "abstract_structuring", label: "抽象構造化", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  decomposition: { id: "decomposition", label: "分解能力", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  cognitive_updating: { id: "cognitive_updating", label: "認知更新", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  social_modeling: { id: "social_modeling", label: "社会的モデリング", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  novelty_threshold: { id: "novelty_threshold", label: "新奇性閾値", category: "desire", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  decision_regret: { id: "decision_regret", label: "判断の後悔", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  relational_investment: { id: "relational_investment", label: "関係への投資", category: "relationships", causal_affinity_prior: [], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
-  rational_vs_emotional_decision: { id: "rational_vs_emotional_decision", label: "理性vs感情判断", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
-  efficiency_vs_process: { id: "efficiency_vs_process", label: "効率vs過程重視", category: "judgment", causal_affinity_prior: [], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  // ── 設計P2-3: axisRegistry.causalAffinity から転写済み ──
+  individual_vs_social: { id: "individual_vs_social", label: "個人 vs 集団", category: "behavior", causal_affinity_prior: ["introvert_vs_extrovert", "independence_vs_harmony", "social_initiative"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  plan_vs_spontaneous: { id: "plan_vs_spontaneous", label: "計画 vs 即興", category: "behavior", causal_affinity_prior: ["cautious_vs_bold", "emotional_variability", "decision_tempo"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  tradition_vs_novelty: { id: "tradition_vs_novelty", label: "伝統 vs 新奇", category: "behavior", causal_affinity_prior: ["change_embrace_vs_resist", "novelty_threshold", "classic_vs_trendy"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  direct_vs_diplomatic: { id: "direct_vs_diplomatic", label: "直接的 vs 外交的", category: "behavior", causal_affinity_prior: ["public_private_gap", "conflict_style", "boundary_awareness"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  function_vs_expression: { id: "function_vs_expression", label: "機能性 vs 表現性", category: "behavior", causal_affinity_prior: ["minimal_vs_maximal", "quality_vs_quantity", "perfectionist_vs_pragmatic"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  minimal_vs_maximal: { id: "minimal_vs_maximal", label: "ミニマル vs マキシマル", category: "behavior", causal_affinity_prior: ["quality_vs_quantity", "function_vs_expression", "classic_vs_trendy"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  perfectionist_vs_pragmatic: { id: "perfectionist_vs_pragmatic", label: "完璧主義 vs 実利主義", category: "livelihood", causal_affinity_prior: ["quality_vs_quantity", "plan_vs_spontaneous", "efficiency_vs_process"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  quality_vs_quantity: { id: "quality_vs_quantity", label: "質 vs 量", category: "behavior", causal_affinity_prior: ["perfectionist_vs_pragmatic", "minimal_vs_maximal", "efficiency_vs_process"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  classic_vs_trendy: { id: "classic_vs_trendy", label: "クラシック vs トレンド", category: "behavior", causal_affinity_prior: ["tradition_vs_novelty", "change_embrace_vs_resist", "novelty_threshold"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  reassurance_need: { id: "reassurance_need", label: "安心欲求", category: "relationships", causal_affinity_prior: ["attachment_style", "emotional_variability", "independence_vs_harmony"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  emotional_variability: { id: "emotional_variability", label: "感情の振れ幅", category: "energy", causal_affinity_prior: ["emotional_regulation", "rumination_tendency", "stress_isolation_vs_social"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  social_initiative: { id: "social_initiative", label: "社交の主導性", category: "relationships", causal_affinity_prior: ["introvert_vs_extrovert", "cautious_vs_bold", "intimacy_pace"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  relationship_mode_split: { id: "relationship_mode_split", label: "関係モード分裂", category: "relationships", causal_affinity_prior: ["public_private_gap", "intent_stability", "direct_vs_diplomatic"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  boundary_respect: { id: "boundary_respect", label: "境界線の尊重", category: "relationships", causal_affinity_prior: ["boundary_awareness"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  consent_maturity: { id: "consent_maturity", label: "同意の成熟度", category: "relationships", causal_affinity_prior: ["boundary_awareness", "social_initiative", "control_tendency"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  pressure_risk: { id: "pressure_risk", label: "圧力リスク", category: "relationships", causal_affinity_prior: ["control_tendency"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  escalation_risk: { id: "escalation_risk", label: "エスカレーションリスク", category: "relationships", causal_affinity_prior: ["control_tendency", "emotional_regulation", "conflict_style"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  friend_mode_fit: { id: "friend_mode_fit", label: "友人モード適合", category: "relationships", causal_affinity_prior: ["intimacy_pace", "introvert_vs_extrovert", "self_disclosure_depth"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  intent_stability: { id: "intent_stability", label: "意図の安定性", category: "judgment", causal_affinity_prior: ["relationship_mode_split", "plan_vs_spontaneous", "locus_of_control"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  rejection_response_maturity: { id: "rejection_response_maturity", label: "拒絶反応の成熟度", category: "relationships", causal_affinity_prior: ["control_tendency", "emotional_regulation", "attachment_style"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  control_tendency: { id: "control_tendency", label: "支配傾向", category: "relationships", causal_affinity_prior: ["rejection_response_maturity", "emotional_regulation", "escalation_risk"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  exclusivity_pressure: { id: "exclusivity_pressure", label: "排他性圧力", category: "relationships", causal_affinity_prior: ["control_tendency"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  long_term_shift_risk: { id: "long_term_shift_risk", label: "長期変化リスク", category: "relationships", causal_affinity_prior: ["intent_stability", "attachment_style", "change_embrace_vs_resist"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  public_private_gap: { id: "public_private_gap", label: "公私ギャップ", category: "behavior", causal_affinity_prior: ["direct_vs_diplomatic", "relationship_mode_split", "self_disclosure_depth"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  rumination_tendency: { id: "rumination_tendency", label: "反芻傾向", category: "energy", causal_affinity_prior: ["emotional_regulation", "shame_vs_guilt", "energy_rhythm"], probe_seeds: [], sensitivity: "high", min_trust_to_probe: 2.0 },
+  fairness_sensitivity: { id: "fairness_sensitivity", label: "公正感度", category: "judgment", causal_affinity_prior: ["control_tendency", "emotional_regulation", "independence_vs_harmony"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  abstract_structuring: { id: "abstract_structuring", label: "抽象構造化", category: "judgment", causal_affinity_prior: ["analytical_vs_intuitive", "decomposition", "exploration_closure"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  decomposition: { id: "decomposition", label: "分解能力", category: "judgment", causal_affinity_prior: ["abstract_structuring", "analytical_vs_intuitive", "plan_vs_spontaneous"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  cognitive_updating: { id: "cognitive_updating", label: "認知更新", category: "judgment", causal_affinity_prior: ["change_embrace_vs_resist", "growth_mindset", "exploration_closure"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  social_modeling: { id: "social_modeling", label: "社会的モデリング", category: "relationships", causal_affinity_prior: ["direct_vs_diplomatic", "relationship_mode_split", "public_private_gap"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  novelty_threshold: { id: "novelty_threshold", label: "新奇性閾値", category: "desire", causal_affinity_prior: ["change_embrace_vs_resist", "tradition_vs_novelty", "exploration_closure"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  decision_regret: { id: "decision_regret", label: "判断の後悔", category: "judgment", causal_affinity_prior: ["rumination_tendency", "cautious_vs_bold", "locus_of_control"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  relational_investment: { id: "relational_investment", label: "関係への投資", category: "relationships", causal_affinity_prior: ["reassurance_need", "attachment_style", "friend_mode_fit"], probe_seeds: [], sensitivity: "medium", min_trust_to_probe: 1.0 },
+  rational_vs_emotional_decision: { id: "rational_vs_emotional_decision", label: "理性vs感情判断", category: "judgment", causal_affinity_prior: ["analytical_vs_intuitive", "emotional_regulation", "rumination_tendency"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
+  efficiency_vs_process: { id: "efficiency_vs_process", label: "効率vs過程重視", category: "judgment", causal_affinity_prior: ["perfectionist_vs_pragmatic", "quality_vs_quantity", "plan_vs_spontaneous"], probe_seeds: [], sensitivity: "low", min_trust_to_probe: 0 },
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
