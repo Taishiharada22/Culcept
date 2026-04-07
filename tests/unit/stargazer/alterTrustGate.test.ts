@@ -31,12 +31,12 @@ function makeAlterInput(overrides: Partial<AlterInput> = {}): AlterInput {
     axisScores: {
       introvert_vs_extrovert: 0.3,
       individual_vs_social: -0.3,
-      logic_vs_emotion: 0.15,
-      plan_vs_improvise: -0.24,
-      abstract_vs_concrete: 0.3,
-      optimism_vs_pessimism: 0.09,
-      risk_vs_safety: -0.18,
-      novelty_vs_tradition: 0.21,
+      analytical_vs_intuitive: 0.15,
+      plan_vs_spontaneous: -0.24,
+      cautious_vs_bold: 0.3,
+      tradition_vs_novelty: 0.09,
+      independence_vs_harmony: -0.18,
+      direct_vs_diplomatic: 0.21,
     },
     observationDepth: 50,
     ...overrides,
@@ -155,7 +155,7 @@ describe("generateAlterGreeting() Trust gate", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("generateAlterResponse() Trust gate", () => {
-  const history = [{ role: "user" as const, content: "辛い", mode: "warm" as const }];
+  const history = [{ role: "user" as const, content: "辛い", mode: "warm" as const, timestamp: new Date().toISOString() }];
 
   it("T0 response / warm: CoreWound trigger が出力に含まれない", () => {
     // "辛い" → pain emotion → uses mainWound.trigger
@@ -171,10 +171,10 @@ describe("generateAlterResponse() Trust gate", () => {
       personality,
       "自分がよく分からない",
       [
-        { role: "user", content: "話を聞いて", mode: "warm" },
-        { role: "assistant", content: "聞いてる", mode: "warm" },
-        { role: "user", content: "もっと深い話", mode: "provocative" },
-        { role: "assistant", content: "いいよ", mode: "provocative" },
+        { role: "user", content: "話を聞いて", mode: "warm", timestamp: new Date().toISOString() },
+        { role: "alter", content: "聞いてる", mode: "warm", timestamp: new Date().toISOString() },
+        { role: "user", content: "もっと深い話", mode: "provocative", timestamp: new Date().toISOString() },
+        { role: "alter", content: "いいよ", mode: "provocative", timestamp: new Date().toISOString() },
       ],
       "provocative",
       2,

@@ -197,6 +197,7 @@ import {
   type AxisContextModifier,
   type ContextualizedAxisScores,
   type ContextDomain,
+  type TrustLevel,
 } from "@/lib/stargazer/alterUnderstanding";
 import { runAI } from "@/lib/ai";
 import {
@@ -1119,6 +1120,7 @@ export async function POST(req: NextRequest) {
     // P5-3: After-Action Loop
     let p5AfterActionSignal: AfterActionSignal | null = null;
     let p5AfterActionInjected = false;
+    let p5AfterActionPromptBlock: string | null = null;
     // R3-#4: コンテキスト注入ログ（外部スコープに引き上げ）
     let ctxLoaded = 0;
     let ctxUsed = 0;
@@ -1958,7 +1960,7 @@ export async function POST(req: NextRequest) {
             if (p5AfterActionSignal !== "no_mention" && pending) {
               const followUpBlock = buildAfterActionPromptBlock(p5AfterActionSignal, pending);
               if (followUpBlock) {
-                homeSystemPrompt += "\n\n" + followUpBlock;
+                p5AfterActionPromptBlock = followUpBlock;
                 p5AfterActionInjected = true;
                 console.info(`[P5-3] After-action signal=${p5AfterActionSignal} for shape=${pending.actionShape}`);
               }
@@ -4180,7 +4182,7 @@ export async function POST(req: NextRequest) {
 
         p5GateResult = isRealityAnchoringAllowed(
           p3HdmPhaseState.currentPhase,
-          p0DiscreteTrustLevel,
+          p0DiscreteTrustLevel as TrustLevel,
           ruptureActive,
           dignityRisk,
           p2PartsState?.protective.activationLevel ?? 0,
@@ -4213,6 +4215,11 @@ export async function POST(req: NextRequest) {
           console.info(`[P5] Reality Anchoring injected: shape=${judgmentSkeleton.action_shape} values=${p5Context.knownValues.length} fears=${p5Context.knownFears.length}`);
         } else if (!p5GateResult.allowed) {
           console.info(`[P5] Gate BLOCKED: reasons=${p5GateResult.reasons.join(",")}`);
+        }
+
+        // P5-3: After-Action Loop — 蓄積した prompt block を homeSystemPrompt に結合
+        if (p5AfterActionPromptBlock) {
+          homeSystemPrompt += "\n\n" + p5AfterActionPromptBlock;
         }
 
         // P5/P5-3: pendingRealityAnchoring の変更を DB に永続化（fire-and-forget）

@@ -27,6 +27,8 @@ import {
   type NegativeCapabilityInput,
 } from "@/lib/stargazer/negativeCapability";
 
+import type { QuestionType, ResponseMode } from "@/lib/stargazer/alterHomeAdapter";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. Rupture Detection
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -86,8 +88,8 @@ describe("detectRupture()", () => {
         feedback_on_last_turn: "correction",
         emotional_temperature: 0.8,
         urgency: 0.5,
-        question_type: null,
-        response_mode: null,
+        question_type: null as unknown as QuestionType,
+        response_mode: null as unknown as ResponseMode,
         reaction: null,
       },
       rallyCritic: null,
@@ -122,8 +124,8 @@ describe("detectRupture()", () => {
         feedback_on_last_turn: "building_on",
         emotional_temperature: 0.5,
         urgency: 0.3,
-        question_type: null,
-        response_mode: null,
+        question_type: null as unknown as QuestionType,
+        response_mode: null as unknown as ResponseMode,
         reaction: null,
       },
       rallyCritic: { status: "advancing", depth: 0.6, turn_count: 3, same_theme_streak: 1, recommendation: "", loop_detected: false },
