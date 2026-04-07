@@ -367,20 +367,21 @@ describe("serializeDerivedFactsForAnalytics", () => {
 
     const serialized = serializeDerivedFactsForAnalytics(factSet);
 
-    // derived_facts配列
+    // derived_facts配列（allCandidates = 全候補を返す。facts = 選出分のみ）
+    const expectedLength = (factSet.allCandidates ?? factSet.facts).length;
     expect(serialized.derived_facts).toBeInstanceOf(Array);
-    expect(serialized.derived_facts.length).toBe(factSet.facts.length);
+    expect(serialized.derived_facts.length).toBe(expectedLength);
     for (const df of serialized.derived_facts) {
       expect(df).toHaveProperty("sourceType");
       expect(df).toHaveProperty("sourceAxes");
       expect(df).toHaveProperty("confidence");
       expect(df).toHaveProperty("generationRule");
       expect(df).toHaveProperty("includedInPrompt");
-      expect(df.includedInPrompt).toBe(true);
+      expect(typeof df.includedInPrompt).toBe("boolean"); // 候補全体を返すため true/false 混在
     }
 
     // summary
-    expect(serialized.derived_facts_summary.totalGenerated).toBe(factSet.facts.length);
+    expect(serialized.derived_facts_summary.totalGenerated).toBe(expectedLength);
     expect(serialized.derived_facts_summary.totalIncluded).toBe(factSet.facts.length);
     expect(serialized.derived_facts_summary.uniqueAxesUsed).toBe(factSet.totalAxesUsed);
   });

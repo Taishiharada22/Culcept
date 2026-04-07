@@ -332,11 +332,11 @@ describe("scoreBaselineRelevance", () => {
     expect(rel.area).toBe("medium");
   });
 
-  it("relationship: lifeStage=high, gender=high, area=medium", () => {
+  it("relationship: lifeStage=high, gender=high, area=low", () => {
     const rel = scoreBaselineRelevance(makeFullCtx(), "relationship");
     expect(rel.lifeStage).toBe("high");
     expect(rel.gender).toBe("high");
-    expect(rel.area).toBe("medium");
+    expect(rel.area).toBe("low"); // relationship では地域タグ過剰のため low に抑制（実装コメント参照）
   });
 
   it("lifestyle: lifeStage=medium, gender=low, area=high", () => {
