@@ -8,8 +8,10 @@ import {
 import { logAiRun } from "@/lib/ai/logging";
 import { maybeGenerateTeacherOutput } from "@/lib/ai/eval";
 import { runGemini } from "@/lib/ai/providers/gemini";
+import { runOpenAI } from "@/lib/ai/providers/openai";
 import type {
   AIRunResult,
+  AIProviderName,
   AIProviderResponse,
   RunAIParams,
   StructuredOutput,
@@ -222,7 +224,7 @@ function needsLegacyEvalStatus(message: string): boolean {
 
 async function executeShadowProvider(
   params: RunAIParams,
-  provider: "gemini",
+  provider: AIProviderName,
   modelOverride: string | null,
 ): Promise<AIProviderResponse> {
   const request = {
@@ -236,9 +238,10 @@ async function executeShadowProvider(
     inputParts: params.inputParts,
   };
 
-  return runGemini(request, {
-    model: modelOverride ?? undefined,
-  });
+  if (provider === "openai") {
+    return runOpenAI(request, { model: modelOverride ?? undefined });
+  }
+  return runGemini(request, { model: modelOverride ?? undefined });
 }
 
 function shouldRunShadowForRequest(args: {
@@ -247,7 +250,7 @@ function shouldRunShadowForRequest(args: {
   shadowModelConfigured: boolean;
 }): { enabled: boolean; reason?: string; samplePercent: number } {
   const explicitToggle = readEnvToggle("STARGAZER_SHADOW_ENABLED");
-  if (explicitToggle === false) {
+  if (explicitToggle !== true) {
     return {
       enabled: false,
       reason: "shadow_disabled",

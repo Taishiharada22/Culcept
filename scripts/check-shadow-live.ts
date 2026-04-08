@@ -85,12 +85,14 @@ async function main() {
 
   // ── 2. Primary runs (user-facing) ─────────────────────────────────────
   console.log("\n## 2. Primary runs（直近7日間）");
+  // PostgREST: metadata->>shadowPass が NULL（キー未設定）の行は .neq では除外されるため
+  // .is.null 条件で明示的に含める
   const { count: primaryCount } = await supabase
     .from("ai_runs")
     .select("*", { count: "exact", head: true })
     .eq("success", true)
-    .neq("metadata->>shadowPass", "true")
-    .gte("created_at", cutoff);
+    .gte("created_at", cutoff)
+    .or("metadata->>shadowPass.is.null,metadata->>shadowPass.neq.true");
 
   console.log(`  ${status((primaryCount ?? 0) > 0, (primaryCount ?? 0) < 10)} Primary runs: ${primaryCount ?? 0} 件`);
 

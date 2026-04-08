@@ -29,13 +29,15 @@ async function main() {
     (process.env.STARGAZER_SHADOW_MODEL_VERSION ?? "").trim() ||
     `shadow-${new Date().toISOString().slice(0, 10)}`;
   const provider = ((process.env.STARGAZER_SHADOW_PROVIDER ?? "").trim() ||
-    "gemini") as "gemini";
-  if (provider !== "gemini") {
-    throw new Error("STARGAZER_SHADOW_PROVIDER must be gemini");
+    "gemini") as "gemini" | "openai";
+  if (provider !== "gemini" && provider !== "openai") {
+    throw new Error("STARGAZER_SHADOW_PROVIDER must be gemini or openai");
   }
   const providerModel =
     (process.env.STARGAZER_SHADOW_PROVIDER_MODEL ?? "").trim() ||
-    (process.env.GEMINI_MODEL_DEFAULT ?? "gemini-2.5-flash").trim();
+    (provider === "openai"
+      ? (process.env.OPENAI_MODEL_DEFAULT ?? "gpt-4o-mini")
+      : (process.env.GEMINI_MODEL_DEFAULT ?? "gemini-2.5-flash").trim());
 
   const row = buildStargazerStudentRegistryDraft({
     modelVersion,
