@@ -268,6 +268,10 @@ import {
 } from "@/lib/stargazer/alterContracts";
 // Response Time Engine (RT signal)
 import { computeResponseTimeSignal } from "@/lib/stargazer/responseTimeEngine";
+// Heart Integration — 心の統合ブロック
+import { buildUnifiedHeartState, buildHeartStateAnalytics, type HeartStateInputs } from "@/lib/stargazer/heartIntegration";
+import { runPersonalizationTracking, type PersonalizationTrackingResult } from "@/lib/stargazer/personalizationTracker";
+import { buildSessionDiffPromptBlock, computeSessionDiff, buildSessionDiffAnalytics, type SessionDiffAnalytics } from "@/lib/stargazer/sessionDiff";
 // Output Governance Layer (RC1 + RC5 + Metrics)
 import {
   extractUserBans,
@@ -431,6 +435,9 @@ import {
   type RegressionContext,
   type RegressionOrchestratorResult,
   type PhaseResponseDepth,
+  evaluatePromotionReadiness,
+  updateTrackingBuffers,
+  type PromotionReadiness,
 } from "@/lib/stargazer/hdmPhase";
 import {
   isCounterfactualAllowed,
@@ -1059,7 +1066,7 @@ export async function POST(req: NextRequest) {
     let lifeCtx: LifeContext | null = null;
     // P1.5 Thin-Slice: ホイスト変数
     let thinSliceActive = false;
-    let thinSliceState: ThinSliceSessionState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0 };
+    let thinSliceState: ThinSliceSessionState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0, consecutive_same_bet_count: 0 };
     let turnValue: TurnValueAssessment = { budget: "standard", reason: "not_home_alter", invoke_insight: false };
     let thinSliceInsight: GeneratedInsight | null = null;
     let thinSliceBet: SharpBet | null = null;
@@ -1087,6 +1094,7 @@ export async function POST(req: NextRequest) {
     let p0ContextEntriesLoaded = 0;
     let p0ValidationFailures: string[] = [];
     let p0DiscreteTrustLevel = 0;
+    let trustResult: import("@/lib/stargazer/alterUnderstanding").TrustLevelResult | null = null;
     // P1: 検証層（HDM v1）
     let p1RuptureAssessment: RuptureAssessment | null = null;
     let p1AbstentionSignal: AbstentionSignal | null = null;
@@ -1107,8 +1115,15 @@ export async function POST(req: NextRequest) {
     let p2CascadeDecays: CascadeDecay[] = [];
     // P3: HDM Phase Controller（Heart Dynamics Model v1 フェーズ制御）
     let p3HdmPhaseState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
+    let hdmStateDirty = false; // 1ターン内の変更を最後に一括書き込み
     let p3HdmPhaseAnalytics: HdmPhaseAnalytics | null = null;
     let p3EffectiveDepth: PhaseResponseDepth | null = null;
+    // Heart Integration
+    let heartStateAnalytics: import("@/lib/stargazer/heartIntegration").HeartStateAnalytics | null = null;
+    // Personalization Tracking (Wall 1+6)
+    let personalizationResult: PersonalizationTrackingResult | null = null;
+    // Session Diff (Wall 5)
+    let sessionDiffAnalytics: SessionDiffAnalytics | null = null;
     // P4: Counterfactual Live Integration
     let p4LiveIntegrated = false;
     let p4Decision: IntegrationDecision | null = null;
@@ -1120,6 +1135,8 @@ export async function POST(req: NextRequest) {
     // P5-3: After-Action Loop
     let p5AfterActionSignal: AfterActionSignal | null = null;
     let p5AfterActionInjected = false;
+    // Stage 1: Shadow Promotion Recommendation
+    let promotionReadiness: PromotionReadiness | null = null;
     let p5AfterActionPromptBlock: string | null = null;
     // R3-#4: コンテキスト注入ログ（外部スコープに引き上げ）
     let ctxLoaded = 0;
@@ -1780,27 +1797,43 @@ export async function POST(req: NextRequest) {
           const insightType = meta?.presentation_type ?? "casual_check";
           const signalTypes = meta?.signal_types ?? [];
 
-          const reaction = classifyInsightReaction(message, insightPrompt);
-          console.info(`[reaction-learning] Reaction to insight "${insightPrompt.slice(0, 30)}...": ${reaction}`);
+          // ── 重複記録防止 (Fix 3-A): event_id による重複チェック ──
+          // fire-and-forget の delete が完了前に次リクエストが走ると同一 event を再取得する。
+          // まず stargazer_alter_reactions に同一 analytics_event_id が存在するか確認する。
+          const { data: existingReaction } = await supabase
+            .from("stargazer_alter_reactions")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("analytics_event_id", lastInsight.id)
+            .limit(1)
+            .maybeSingle();
 
-          // stargazer_alter_reactions に記録（fire-and-forget）
-          supabase.from("stargazer_alter_reactions").insert({
-            user_id: userId,
-            insight_type: insightType,
-            signal_types: signalTypes,
-            reaction,
-            response_summary: message.slice(0, 200),
-            analytics_event_id: lastInsight.id,
-          }).then(({ error }) => {
-            if (error) console.warn("[reaction-learning] Save failed (non-fatal):", error.message);
-          });
+          if (existingReaction) {
+            // 同一 event_id がすでに記録済み → 重複スキップ（Fix 3-A）
+            // fire-and-forget の delete が完了前に次リクエストが来た場合の二重記録を防ぐ
+            console.info(`[reaction-learning] Skipping duplicate reaction for event ${lastInsight.id} (already recorded)`);
+            // マーカーは await 削除して再取得を防ぐ
+            await supabase.from("stargazer_analytics").delete().eq("id", lastInsight.id);
+          } else {
+            const reaction = classifyInsightReaction(message, insightPrompt);
+            console.info(`[reaction-learning] Reaction to insight "${insightPrompt.slice(0, 30)}...": ${reaction}`);
 
-          // 前回のインサイト提示マーカーを削除（1回だけ反応を記録するため）
-          supabase.from("stargazer_analytics")
-            .delete()
-            .eq("id", lastInsight.id)
-            .then(({ error }) => {
-              if (error) console.warn("[reaction-learning] Marker cleanup failed:", error.message);
+            // マーカーを先に await 削除（根本修正）:
+            // 旧実装は fire-and-forget だったため、次リクエストが delete 完了前に
+            // 同一マーカーを再取得し "ignored" を重複記録していた。
+            // await で同期的に消費することで重複を構造レベルで防ぐ。
+            await supabase.from("stargazer_analytics").delete().eq("id", lastInsight.id);
+
+            // stargazer_alter_reactions に記録（fire-and-forget）
+            supabase.from("stargazer_alter_reactions").insert({
+              user_id: userId,
+              insight_type: insightType,
+              signal_types: signalTypes,
+              reaction,
+              response_summary: message.slice(0, 200),
+              analytics_event_id: lastInsight.id,
+            }).then(({ error }) => {
+              if (error) console.warn("[reaction-learning] Save failed (non-fatal):", error.message);
             });
 
           // Response Pattern 集約: insight_type 別の reaction 分布を蓄積
@@ -1841,6 +1874,7 @@ export async function POST(req: NextRequest) {
                 console.warn("[response-pattern] Aggregation failed (non-fatal):", e);
               }
             });
+          } // else (新規記録ブロック終了)
         }
       } catch {
         // テーブル未作成時等は静かにスキップ
@@ -1926,31 +1960,59 @@ export async function POST(req: NextRequest) {
         // テーブル未作成時等は静かにスキップ
       }
 
-      // ── Trust Level（離散値）: 全フェーズで共有 ──
-      const discreteTrustLevel = deriveTrustLevel(
+      // ── DB から hdm_phase_state を先にロード（Trust 導出に必要） ──
+      let loadedHdmState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
+      try {
+        const { data: growthRow } = await supabase
+          .from("stargazer_alter_growth")
+          .select("hdm_phase_state")
+          .eq("user_id", userId)
+          .single();
+        if (growthRow?.hdm_phase_state) {
+          loadedHdmState = growthRow.hdm_phase_state as HdmPhaseState;
+        }
+      } catch { /* hdm_phase_state カラム未追加時は default を使用 */ }
+      p3HdmPhaseState = loadedHdmState;
+
+      // ── Trust Level（離散値）: 関係性シグナル + Phase cap 付き ──
+      // 前ターンの HdmPhaseState から関係性シグナルを構築
+      const relationalSignals: import("@/lib/stargazer/alterUnderstanding").RelationalTrustSignals = {
+        defensePredictionStreak: loadedHdmState.defensePredictionStreak,
+        voluntaryTopicExpansionCount: loadedHdmState.voluntaryTopicExpansionCount,
+        consecutiveRuptureCount: (() => {
+          // recentRuptureFlags の末尾連続 true をカウント
+          const flags = loadedHdmState.recentRuptureFlags ?? [];
+          let count = 0;
+          for (let i = flags.length - 1; i >= 0; i--) {
+            if (flags[i]) count++;
+            else break;
+          }
+          return count;
+        })(),
+        trustDelta: loadedHdmState.priorSessionTrust !== null
+          ? (growthState?.trustLevel ?? 0) - loadedHdmState.priorSessionTrust
+          : 0,
+        // 以下は proactive engine 未実行のため 0/null（後段で更新される場合あり）
+        earnedTrustTotal: 0,
+        selfDisclosureDepth: 0,
+        repairSuccessRate: null,
+      };
+      const phaseTrustCap = hdmPhaseToTrustLevel(loadedHdmState.currentPhase);
+
+      trustResult = deriveTrustLevel(
         growthState?.trustLevel ?? 0,
         growthState?.sessionsCompleted ?? 0,
         conversationDepth,
+        relationalSignals,
+        phaseTrustCap,
       );
+      const discreteTrustLevel = trustResult.effectiveTrust;
       p0DiscreteTrustLevel = discreteTrustLevel;
 
       // ── P3: HDM Phase Controller — 6フェーズ制御 + Trust×Phase 交差 + Regression ──
       // Phase 0-2 自動遷移。Trust×Phase の交差制御で resolveAlterAccess() と矛盾しない。
       // 現段階は既存 discreteTrustLevel と並走（P3-3 完了で derivePhase deprecated）。
       try {
-        // DB から hdm_phase_state をロード（テーブル未作成時は default）
-        let loadedHdmState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
-        try {
-          const { data: growthRow } = await supabase
-            .from("stargazer_alter_growth")
-            .select("hdm_phase_state")
-            .eq("user_id", userId)
-            .single();
-          if (growthRow?.hdm_phase_state) {
-            loadedHdmState = growthRow.hdm_phase_state as HdmPhaseState;
-          }
-        } catch { /* hdm_phase_state カラム未追加時は default を使用 */ }
-        p3HdmPhaseState = loadedHdmState;
 
         // ── P5-3: After-Action Loop — 前回の P5 提案に対するユーザーの反応を受動検出 ──
         try {
@@ -1966,6 +2028,7 @@ export async function POST(req: NextRequest) {
               }
               // シグナル検出 → pending をクリア（ループ完了）
               p3HdmPhaseState = { ...p3HdmPhaseState, pendingRealityAnchoring: null };
+              hdmStateDirty = true;
             } else if (pending) {
               // no_mention → attempt をインクリメント
               p3HdmPhaseState = {
@@ -1975,6 +2038,7 @@ export async function POST(req: NextRequest) {
                   followUpAttempts: pending.followUpAttempts + 1,
                 },
               };
+              hdmStateDirty = true;
             }
           }
         } catch (e) {
@@ -1992,8 +2056,8 @@ export async function POST(req: NextRequest) {
           causalMapConfidence: 0, // proactive engine 接続後に埋まる
           repairSuccessRate: null, // proactive engine 接続後に埋まる
           understandingCoverage: 0, // proactive engine 接続後に埋まる
-          defensePredictionStreak: 0, // P2 レンズ追跡後に埋まる
-          voluntaryTopicExpansionCount: 0, // 会話分析追跡後に埋まる
+          defensePredictionStreak: p3HdmPhaseState.defensePredictionStreak,
+          voluntaryTopicExpansionCount: p3HdmPhaseState.voluntaryTopicExpansionCount,
         };
 
         const transitionResult = computeAutoTransition(p3HdmPhaseState, hdmInputs);
@@ -2019,7 +2083,7 @@ export async function POST(req: NextRequest) {
           p3HdmPhaseState, transitionResult, discreteTrustLevel, earlyRegSignal,
         );
 
-        // 遷移が発生した場合は DB を更新（fire-and-forget）
+        // 遷移が発生した場合はメモリ上の状態を更新（DB書き込みは最後に一括）
         if (transitionResult.transitioned) {
           const newState: HdmPhaseState = {
             ...p3HdmPhaseState,
@@ -2027,14 +2091,8 @@ export async function POST(req: NextRequest) {
             lastTransitionAt: new Date().toISOString(),
           };
           p3HdmPhaseState = newState;
-          supabase
-            .from("stargazer_alter_growth")
-            .update({ hdm_phase_state: newState })
-            .eq("user_id", userId)
-            .then(({ error }) => {
-              if (error) console.warn("[P3-hdm] Phase state update failed (non-fatal):", error.message);
-              else console.info(`[P3-hdm] Phase transitioned: ${loadedHdmState.currentPhase} → ${transitionResult.phase} (${transitionResult.transitionReason})`);
-            });
+          hdmStateDirty = true;
+          console.info(`[P3-hdm] Phase transitioned: ${loadedHdmState.currentPhase} → ${transitionResult.phase} (${transitionResult.transitionReason})`);
         }
       } catch (e) {
         console.warn("[P3-hdm] HDM Phase computation failed (fail-open):", e);
@@ -2042,14 +2100,17 @@ export async function POST(req: NextRequest) {
 
       // ── 罠スキャン結果の取得（前回の fire-and-forget 結果を参照） ──
       // MI抑制 / Route C抑制 / prompt depth 低減 の判断に使う
+      // 有効期限: 24時間。古いスキャン結果を新しい会話に持ち込まない。
       interface TrapScanSummary { should_suppress_mi?: boolean; should_suppress_route_c?: boolean; should_reduce_depth?: boolean }
       let lastTrapScan: TrapScanSummary | null = null;
       try {
+        const trapScanCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { data: trapScanRow } = await supabase
           .from("stargazer_analytics")
-          .select("metadata")
+          .select("metadata, created_at")
           .eq("user_id", userId)
           .eq("event", "phase5_trap_scan")
+          .gte("created_at", trapScanCutoff)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
@@ -2058,6 +2119,9 @@ export async function POST(req: NextRequest) {
           if (lastTrapScan?.should_suppress_mi || lastTrapScan?.should_suppress_route_c || lastTrapScan?.should_reduce_depth) {
             console.info(`[trap-scan] Previous scan active: suppress_mi=${lastTrapScan.should_suppress_mi}, suppress_route_c=${lastTrapScan.should_suppress_route_c}, reduce_depth=${lastTrapScan.should_reduce_depth}`);
           }
+        } else if (!trapScanRow) {
+          // 24h以内のスキャンなし → リセット扱い（前回の警戒状態を持ち込まない）
+          console.info("[trap-scan] No recent scan (>24h or none) — starting clean");
         }
       } catch {
         // 初回時等は静かにスキップ
@@ -2825,12 +2889,26 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Wall 2: 心の状態が骨格の強度を調整する ──
+      // heartInfluence を先に計算し、buildSkeletonPromptBlock に渡す
+      const preRtSignal = rawResponseTimeMs
+        ? computeResponseTimeSignal(rawResponseTimeMs)
+        : null;
+      const heartInfluence: import("@/lib/stargazer/alterHomeAdapter").HeartInfluence = {
+        conflictHigh: (preRtSignal?.conflictIndicator ?? 0) > 0.6,
+        emotionalLoadHigh: (userState?.emotional_load ?? 0) > 0.7,
+        cognitiveFatigueHigh: (userState?.cognitive_fatigue ?? 0) > 0.6,
+        defensiveActive: (p2PartsState?.protective.activationLevel ?? 0) > 0.5
+          || (p2PartsState?.reactive.activationLevel ?? 0) > 0.5,
+      };
+
       // ── Layer 3: 骨格制約付きプロンプト構築 ──
       // P0/P1: homeContextWithObs を使い、observationCount + envContext を反映
       let homeSystemPrompt = buildHomeAlterPromptWithContext(
         personality, homeContextWithObs, questionCategory, message,
         responseMode, queryContext, domainOverlay, userName, relationalLens,
         judgmentSkeleton, clarifyType, clarifyIntentHint, baselineCtx, relationshipCtx, lifeCtx,
+        heartInfluence,
       );
 
       // ── Phase 1: 派生事実注入（Home Alter経路） ──
@@ -2893,40 +2971,71 @@ export async function POST(req: NextRequest) {
         homeSystemPrompt += `\n\n${constraints.join("\n")}`;
       }
 
-      // State Layer をプロンプトに注入（LLMが状態を考慮した応答を生成するため）
-      // Trust Level 1+ の場合のみ: 初回ユーザーに状態推定を適用しない
-      // P0修正: 信頼レベルと会話回数を同列に扱わない。deriveTrustLevel()の離散値を使用
+      // ── Heart Integration: 心の統合ブロック ──
+      // 旧4ブロック（状態/罠/傷/経済）を統合 + responseTimeEngine の体感変換を追加
+      // Parts Lens は後段（P2-3 ブロック）で計算・注入されるため、ここでは null が渡る
+      // CEOビジョン: 「バラバラの部品ではなく1つの心として動く」
       const hasMinTrust = discreteTrustLevel >= 1;
-      if (hasMinTrust && userState && (userState.psychological_capacity < 0.4 || userState.emotional_load > 0.6)) {
-        const stateHints: string[] = [];
-        if (userState.psychological_capacity < 0.4) {
-          stateHints.push("相手の心理的余力は今低い。選択肢はシンプルに、実行のハードルは最小限にすること");
-          stateHints.push("→ 文体: 短文優先、「まずこれだけ」で始める。提案は1つだけ");
+      if (hasMinTrust) {
+        // responseTimeEngine: 回答時間から引っかかり/確信を早期算出
+        const earlyRtSignal = rawResponseTimeMs
+          ? computeResponseTimeSignal(rawResponseTimeMs)
+          : undefined;
+
+        const heartInputs: HeartStateInputs = {
+          emotionalLoad: userState?.emotional_load ?? 0,
+          psychologicalCapacity: userState?.psychological_capacity ?? 1,
+          cognitiveFatigue: userState?.cognitive_fatigue ?? 0,
+          partsState: p2PartsState,
+          conflictIndicator: earlyRtSignal?.conflictIndicator ?? null,
+          convictionIndicator: earlyRtSignal?.convictionIndicator ?? null,
+          isLateNight: new Date().getHours() >= 23 || new Date().getHours() < 5,
+          isHighFatigue: (userState?.cognitive_fatigue ?? 0) > 0.6,
+          woundCautionPrompts: woundActivationResult?.caution_prompts ?? [],
+          financialPressureHint: financialPressure?.prompt_hint ?? null,
+          shouldReduceDepth: !!lastTrapScan?.should_reduce_depth,
+        };
+
+        const heartBlock = buildUnifiedHeartState(heartInputs);
+        const heartInjected = heartBlock !== null;
+        if (heartBlock) {
+          homeSystemPrompt += `\n\n${heartBlock}`;
         }
-        if (userState.emotional_load > 0.6) {
-          stateHints.push("相手の感情的負荷が高い。まず受け取ること。分析より共感を先に");
-          stateHints.push("→ 文体: やさしく短く。「〜だよね」「無理しなくていい」。押さない");
-        }
-        if (userState.cognitive_fatigue > 0.6) {
-          stateHints.push("認知疲労が高い。短く、具体的に。抽象的な問いかけは避ける");
-          stateHints.push("→ 文体: 箇条書き禁止（疲れた人にリストは読めない）。1文で次の一手を示す");
-        }
-        homeSystemPrompt += `\n\n# 今の相手の状態\n${stateHints.join("\n")}\nこれは提示しない。内部的に調整するだけ。相手に「疲れてるんだね」等と言わない。`;
+        heartStateAnalytics = buildHeartStateAnalytics(heartInputs, heartInjected);
       }
 
-      // 罠スキャン結果による prompt depth 低減
-      if (lastTrapScan?.should_reduce_depth) {
-        homeSystemPrompt += `\n\n# 応答の粒度調整\n最近の判断の実行率が低い。提案はシンプルに、ハードルは最小限にすること。\n→ trial_then_decide を優先。大きな判断は分割。まず「今日できる小さな一歩」から。`;
-      }
+      // ── Wall 5: Session Diff — セッション間変化の気づき ──
+      // Phase 2+（differenceAccess: true）で前セッションとの軸変化を注入
+      try {
+        const currentAxisScores = personality?.axisScores ?? {};
+        if (
+          p3EffectiveDepth?.differenceAccess
+          && p3HdmPhaseState.previousSessionAxisScores
+          && Object.keys(currentAxisScores).length > 0
+        ) {
+          const prevScores = p3HdmPhaseState.previousSessionAxisScores as Partial<Record<import("@/lib/stargazer/traitAxes").TraitAxisKey, number>>;
+          const currScores = currentAxisScores as Partial<Record<import("@/lib/stargazer/traitAxes").TraitAxisKey, number>>;
+          const diffBlock = buildSessionDiffPromptBlock(prevScores, currScores);
+          const diffInjected = diffBlock !== null;
+          if (diffBlock) {
+            homeSystemPrompt += `\n\n${diffBlock}`;
+            console.info("[Wall5] Session diff injected");
+          }
+          const deltas = computeSessionDiff(prevScores, currScores);
+          sessionDiffAnalytics = buildSessionDiffAnalytics(deltas, diffInjected);
+        }
 
-      // Wound Activation による慎重化指示をプロンプトに注入
-      if (woundActivationResult && woundActivationResult.caution_prompts.length > 0) {
-        homeSystemPrompt += `\n\n# 心理的安全性の確保（内部指示・表示禁止）\n${woundActivationResult.caution_prompts.join("\n")}`;
-      }
-
-      // Financial Pressure による経済的制約プロンプト注入
-      if (financialPressure && financialPressure.prompt_hint) {
-        homeSystemPrompt += `\n\n# 経済的配慮（内部指示・表示禁止）\n${financialPressure.prompt_hint}`;
+        // セッション切り替わり検出: sessionId が変わったら現在のスコアを保存
+        if (sessionId && p3HdmPhaseState.lastSessionId !== sessionId) {
+          p3HdmPhaseState = {
+            ...p3HdmPhaseState,
+            previousSessionAxisScores: { ...currentAxisScores },
+            lastSessionId: sessionId,
+          };
+          hdmStateDirty = true;
+        }
+      } catch (e) {
+        console.warn("[Wall5] Session diff failed (fail-open):", e);
       }
 
       // Phase 2: Decision Pattern 活用 — 判断傾向をプロンプトに注入
@@ -3997,14 +4106,7 @@ export async function POST(req: NextRequest) {
           // Effective depth 再計算
           p3EffectiveDepth = resolveEffectiveDepth(regResult.newState.currentPhase, discreteTrustLevel);
 
-          // DB 更新（fire-and-forget）
-          supabase
-            .from("stargazer_alter_growth")
-            .update({ hdm_phase_state: regResult.newState })
-            .eq("user_id", userId)
-            .then(({ error }) => {
-              if (error) console.warn("[P3-4] Regression state update failed (non-fatal):", error.message);
-            });
+          hdmStateDirty = true;
 
           if (regResult.regressionApplied) {
             console.info(`[P3-4] Regression applied: Phase ${regResult.previousPhase} → ${regResult.newState.currentPhase} (cause=${regResult.detectedSignal?.cause})`);
@@ -4038,13 +4140,7 @@ export async function POST(req: NextRequest) {
           priorSessionTrust: currentTrust,
         };
         p3HdmPhaseState = stateWithTracking;
-        supabase
-          .from("stargazer_alter_growth")
-          .update({ hdm_phase_state: stateWithTracking })
-          .eq("user_id", userId)
-          .then(({ error }) => {
-            if (error) console.warn("[P3-cross] Cross-session tracking update failed (non-fatal):", error.message);
-          });
+        hdmStateDirty = true;
       } catch (e) {
         console.warn("[P3-4] Regression orchestrator failed (fail-open):", e);
       }
@@ -4222,16 +4318,8 @@ export async function POST(req: NextRequest) {
           homeSystemPrompt += "\n\n" + p5AfterActionPromptBlock;
         }
 
-        // P5/P5-3: pendingRealityAnchoring の変更を DB に永続化（fire-and-forget）
-        // cross-session tracking ブロックの後に P5 が pendingRealityAnchoring を更新するため、
-        // 最新の p3HdmPhaseState を再書き込みする必要がある
-        supabase
-          .from("stargazer_alter_growth")
-          .update({ hdm_phase_state: p3HdmPhaseState })
-          .eq("user_id", userId)
-          .then(({ error }) => {
-            if (error) console.warn("[P5] Pending anchoring state update failed (non-fatal):", error.message);
-          });
+        // P5 の状態変更は hdmStateDirty で追跡、最後に一括書き込み
+        hdmStateDirty = true;
       } catch (e) {
         console.warn("[P5] Reality Anchoring failed (fail-open):", e);
       }
@@ -4278,10 +4366,16 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          // Step 5: プロンプト注入
+          // Step 5: プロンプト注入 + 同一 bet 連続カウント更新
           if (thinSliceBet && thinSliceClaim && thinSliceClaim.strength !== "hold") {
             homeSystemPrompt += buildBetPromptBlock(thinSliceBet, thinSliceClaim);
-            console.info(`[thin-slice] Bet injected: "${thinSliceBet.bet.slice(0, 60)}..." (${thinSliceClaim.strength}, conf=${thinSliceBet.confidence.toFixed(2)})`);
+            // 同一 bet 連続カウントの更新（selectSharpBet の反復防止ガードの入力）
+            if (thinSliceState.last_bet && thinSliceBet.bet.slice(0, 30) === thinSliceState.last_bet.bet.slice(0, 30)) {
+              thinSliceState.consecutive_same_bet_count++;
+            } else {
+              thinSliceState.consecutive_same_bet_count = 1;
+            }
+            console.info(`[thin-slice] Bet injected: "${thinSliceBet.bet.slice(0, 60)}..." (${thinSliceClaim.strength}, conf=${thinSliceBet.confidence.toFixed(2)}, same_streak=${thinSliceState.consecutive_same_bet_count})`);
           }
         } catch (e) {
           // fail-open: thin-slice 全体の失敗は既存フローへフォールバック
@@ -4870,6 +4964,39 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Wall 1+6: Personalization Tracking ──
+      // Parts 推定 + proactive engine 出力の両方が揃った後に実行
+      try {
+        const userActiveDomains = proactiveOutput?.currentTopicContext?.active_domains ?? [];
+        const currentProbedDomains = proactiveOutput?.selectedProbe
+          ? [proactiveOutput.selectedProbe.target_category]
+          : [];
+
+        personalizationResult = runPersonalizationTracking(
+          p3HdmPhaseState,
+          p2PartsState,
+          userActiveDomains,
+          currentProbedDomains,
+        );
+
+        // HdmPhaseState に結果を書き戻す
+        p3HdmPhaseState = { ...p3HdmPhaseState, ...personalizationResult.stateUpdates };
+        hdmStateDirty = true;
+
+        if (personalizationResult.analytics.defense_prediction_hit !== null) {
+          console.info(
+            `[Wall1] Defense prediction: ${personalizationResult.analytics.defense_prediction_hit ? "HIT" : "MISS"}, streak=${personalizationResult.analytics.defense_prediction_streak}`,
+          );
+        }
+        if (personalizationResult.analytics.voluntary_expansion_detected) {
+          console.info(
+            `[Wall6] Voluntary expansion: new_domains=[${personalizationResult.analytics.voluntary_expansion_new_domains.join(",")}], total=${personalizationResult.analytics.voluntary_expansion_total}`,
+          );
+        }
+      } catch (e) {
+        console.warn("[Wall1+6] Personalization tracking failed (fail-open):", e);
+      }
+
       // フォローアップ傾向をプロンプトに注入
       if (followupInsight) {
         homeSystemPrompt += `\n\n# 過去の提案に対するフィードバック傾向\n${followupInsight}\nこの傾向を考慮して、提案の粒度・ハードルを調整すること。`;
@@ -4908,6 +5035,10 @@ export async function POST(req: NextRequest) {
           metadata: makeStargazerRunMetadata({
             feature: "alter",
             mode: "warm",
+            responseMode,
+            actionShape: judgmentSkeleton?.action_shape ?? null,
+            trustLevel: p0DiscreteTrustLevel,
+            hdmPhase: p3HdmPhaseState.currentPhase,
             turnNumber: conversationHistory.length,
             skipCache: true,
           }),
@@ -4946,6 +5077,10 @@ export async function POST(req: NextRequest) {
             metadata: makeStargazerRunMetadata({
               feature: "alter",
               mode: "warm",
+              responseMode,
+              actionShape: judgmentSkeleton?.action_shape ?? null,
+              trustLevel: p0DiscreteTrustLevel,
+              hdmPhase: p3HdmPhaseState.currentPhase,
               turnNumber: conversationHistory.length,
               skipCache: true,
               attempt: 1,
@@ -5010,6 +5145,10 @@ export async function POST(req: NextRequest) {
             metadata: makeStargazerRunMetadata({
               feature: "alter",
               mode: "warm",
+              responseMode,
+              actionShape: judgmentSkeleton?.action_shape ?? null,
+              trustLevel: p0DiscreteTrustLevel,
+              hdmPhase: p3HdmPhaseState.currentPhase,
               turnNumber: conversationHistory.length,
               skipCache: true,
               attempt: 1,
@@ -5026,6 +5165,21 @@ export async function POST(req: NextRequest) {
               console.warn("[home-alter] Retry also failed validation:", retryValidation.failures);
               const isGenericFailure = retryValidation.failures.some((f: string) => f.includes("generic") || f.includes("固有"));
               const namePrefix = userName ? `${userName}さん、` : "";
+
+              // 日本語の文節で自然に切断する（助詞・句読点で区切り、最大30文字）
+              const smartTruncate = (msg: string, maxLen = 30): string => {
+                if (msg.length <= 3) return "";
+                const max = Math.min(msg.length, maxLen);
+                const chunk = msg.slice(0, max);
+                const cutPoints = /[。、！!？?）\)」』\s]/g;
+                let lastCut = -1;
+                let m: RegExpExecArray | null;
+                while ((m = cutPoints.exec(chunk)) !== null) {
+                  if (m.index >= 10) { lastCut = m.index; }
+                }
+                const sliced = lastCut > 0 ? chunk.slice(0, lastCut) : chunk;
+                return sliced.replace(/[。、！!？?\s]+$/, "");
+              };
 
               // R3-#5: fallback 優先チェーン改善
               // creation/core-demand/factual_recall では再生成 > facts > 正直な不確実性 > fallback
@@ -5047,7 +5201,7 @@ export async function POST(req: NextRequest) {
                 if (questionType === "delegation_request") {
                   // 委任: 意見を言い切る
                   const basis = topFacts.slice(0, 2).join("、");
-                  homeResponse = `${namePrefix}僕の意見を言う。${basis}を踏まえると、「${message.slice(0, 20)}」に対しては——まず${topFacts[0] || "今わかっていること"}に従って動いた方がいい。`;
+                  homeResponse = `${namePrefix}僕の意見を言う。${basis}を踏まえると、「${smartTruncate(message)}」に対しては——まず${topFacts[0] || "今わかっていること"}に従って動いた方がいい。`;
                 } else if (queryContext?.domain === "career_fit") {
                   const basis = topFacts.join("。");
                   homeResponse = `${namePrefix}${basis}。\nこれらの傾向から見て、${namePrefix || "あなたに"}合う方向性は——`;
@@ -5057,7 +5211,7 @@ export async function POST(req: NextRequest) {
                 } else if (queryContext?.domain === "creation") {
                   // Phase 9: creation fallback — 結論+ボトルネック+2週間アクション
                   const basis = topFacts.slice(0, 2).join("。");
-                  homeResponse = `${namePrefix}${basis}。\n今のボトルネックは「${message.slice(0, 20)}」に直結する部分で、直近2週間でやるべきことは——`;
+                  homeResponse = `${namePrefix}${basis}。\n今のボトルネックは「${smartTruncate(message)}」に直結する部分で、直近2週間でやるべきことは——`;
                 } else if (isFatigue) {
                   // Phase 9: fatigue fallback — 状態確認+今日やる1つ+やらない1つ
                   homeResponse = `${namePrefix}きつそうだな。\n今日やること: エネルギーが残っているうちに、一番重要なタスクを1つだけ片付ける。\n今日やらないこと: 新しい判断を求められることは全部後回しにしていい。`;
@@ -5074,7 +5228,7 @@ export async function POST(req: NextRequest) {
                 // 高優先タイプ: facts を直接使った具体的応答を構成（clarify に逃げない）
                 const topFacts = personalizedFacts.slice(0, 3).map(f => f.replace(/^[【\[].+?[】\]]/, "").trim()).filter(Boolean);
                 const factsBlock = topFacts.join("。また、");
-                homeResponse = `${namePrefix}${factsBlock}。\nこれを踏まえると、「${message.slice(0, 20)}」に対する僕の読みはこうだ——`;
+                homeResponse = `${namePrefix}${factsBlock}。\nこれを踏まえると、「${smartTruncate(message)}」に対する僕の読みはこうだ——`;
                 // clarify に落とさず conclude のまま維持
                 console.info(`[home-alter] High-priority double failure → facts-based response (type=${questionType}, domain=${queryContext?.domain})`);
               } else if (isGenericFailure && personalizedFacts.length > 0) {
@@ -5082,14 +5236,14 @@ export async function POST(req: NextRequest) {
                 const topFact = personalizedFacts[0]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
                 const secondFact = personalizedFacts[1]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
                 const factBased = secondFact
-                  ? `${namePrefix}${topFact}。${secondFact}。\nそのうえで「${message.slice(0, 20)}」を考えると、今の状態に合った動き方がある気がする。もう少し聞かせてほしい。`
-                  : `${namePrefix}${topFact}。\nそのうえで「${message.slice(0, 20)}」を考えると、もう少し具体的な状況を聞かせてほしい。`;
+                  ? `${namePrefix}${topFact}。${secondFact}。\nそのうえで「${smartTruncate(message)}」を考えると、今の状態に合った動き方がある気がする。もう少し聞かせてほしい。`
+                  : `${namePrefix}${topFact}。\nそのうえで「${smartTruncate(message)}」を考えると、もう少し具体的な状況を聞かせてほしい。`;
                 homeResponse = factBased;
                 responseMode = "clarify";
                 console.info("[home-alter] Double generic failure → fact-based clarify fallback");
               } else {
                 // 非 generic の2回失敗 → 正直な不確実性モード
-                const userKeyPhrase = message.slice(0, 30);
+                const userKeyPhrase = smartTruncate(message);
                 homeResponse = `${namePrefix}「${userKeyPhrase}」について、正直に言うと今の情報だけでは確信が持てない。もう少し聞かせてほしい。具体的にはどういう状況？`;
                 responseMode = "clarify";
                 console.info("[home-alter] Double validation failure → honest uncertainty mode");
@@ -5146,24 +5300,49 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // フォールバック: LLM 生成が失敗した場合、質問タイプに合わせた安全な応答を生成
+      // フォールバック: LLM 生成が失敗した場合、質問タイプ・モードに合わせた安全な応答を生成
+      // 重要: trait summary（identityFit/growthVector の連結）は絶対に使わない。
+      //       「深い1対1の関係を重視する人」のような断定的ラベルは、
+      //       LLM失敗時に突然出てくると不自然で、観測精度を下げる。
       if (!homeResponse?.trim()) {
         const namePrefix = userName ? `${userName}さん、` : "";
+        // ユーザーの発話からキーフレーズを抽出（エコーバック用、文節で自然に切断）
+        const userKeyPhrase = message.length > 3 ? (() => {
+          const max = Math.min(message.length, 30);
+          const chunk = message.slice(0, max);
+          const cutPoints = /[。、！!？?）\)」』\s]/g;
+          let lastCut = -1;
+          let m: RegExpExecArray | null;
+          while ((m = cutPoints.exec(chunk)) !== null) {
+            if (m.index >= 10) { lastCut = m.index; }
+          }
+          const sliced = lastCut > 0 ? chunk.slice(0, lastCut) : chunk;
+          return sliced.replace(/[。、！!？?\s]+$/, "");
+        })() : "";
         if (questionType === "emotional") {
           homeResponse = `${namePrefix}今は無理に言葉にしなくても大丈夫。ここにいるから、話したくなったらいつでも。`;
+        } else if (questionType === "greeting" || questionType === "chat_opening") {
+          // 挨拶・雑談開始: 軽い受けのみ。分析禁止。
+          homeResponse = `${namePrefix}来てくれてよかった。何か話したいことあった？`;
+        } else if (responseMode === "repair") {
+          // rupture 検出時のフォールバック: 修復姿勢を示す（分析・深掘り禁止）
+          homeResponse = `${namePrefix}ごめん、ちょっとうまく受け取れなかったかもしれない。${userKeyPhrase ? `「${userKeyPhrase}」` : "さっきの話"}、もう一回聞かせてもらえる？`;
+        } else if (questionType === "self_understanding") {
+          // 自己理解質問: 断定ラベルは出さず、聞く姿勢を維持
+          homeResponse = `${namePrefix}${userKeyPhrase ? `「${userKeyPhrase}」か。` : ""}それ、ちゃんと考えたいから、もう少し聞かせてくれる？`;
+        } else if (responseMode === "clarify") {
+          // clarify モードのフォールバック: 直近の発話だけを受けて短く聞く
+          homeResponse = `${namePrefix}もう少し教えてもらえると一緒に考えられるかな。`;
+        } else if (userKeyPhrase) {
+          // judgment / strategy / knowledge 等: ユーザー発話をエコーして文脈を維持
+          homeResponse = `${namePrefix}「${userKeyPhrase}」、なるほど。もう少し聞かせてもらえる？`;
         } else {
-          try {
-            const identity = (framework.identityFit?.split("。")[0] ?? "").trim();
-            const growth = (framework.growthVector?.split("。")[0] ?? "").trim();
-            if (identity && growth) {
-              homeResponse = `${namePrefix}${identity}。${growth}。もう少し話を聞かせてもらえると、精度が上がるはず。`;
-            }
-          } catch {
-            // フォールバック生成失敗 → 下の最終デフォルトへ
-          }
+          // 最終フォールバック: 文脈なし
+          homeResponse = `${namePrefix}なるほど。もう少し聞かせてもらえる？`;
         }
+        console.info(`[home-alter] Fallback response generated (type=${questionType}, mode=${responseMode})`);
       }
-      alterResponseText = homeResponse || "もう少し話を聞かせてもらえると、より正確にお伝えできます。";
+      alterResponseText = homeResponse || "もう少し教えてもらえると、一緒に考えられると思う。";
 
       // ── Layer 4: 応答品質検証 ──
       if (homeResponse && judgmentSkeleton && relationalLens && inputUnderstanding && responseMode !== "clarify") {
@@ -5530,7 +5709,7 @@ export async function POST(req: NextRequest) {
 
     } else {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // DEEP ALTER: 既存ロジック（変更なし）
+    // DEEP ALTER: 既存ロジック + 心の統合（Wall 3+7 Deep拡張）
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     // Deep system prompt の構築
@@ -5564,6 +5743,36 @@ export async function POST(req: NextRequest) {
 
     if (contradictionHint) {
       systemPrompt += `\n\n## セッション間の矛盾検出\n${contradictionHint}\nこの過去の発言との矛盾を、好奇心を持って対話に織り込んでください。判断ではなく、好奇心で。`;
+    }
+
+    // ── Wall 3+7: Deep Alter にも心の統合ブロックを注入 ──
+    try {
+      // Deep Alter では userState が未計算 → ここで軽量推定
+      const deepUserState = estimateUserState(message);
+      const deepRtSignal = rawResponseTimeMs
+        ? computeResponseTimeSignal(rawResponseTimeMs)
+        : null;
+
+      const deepHeartInputs: HeartStateInputs = {
+        emotionalLoad: deepUserState?.emotional_load ?? 0,
+        psychologicalCapacity: deepUserState?.psychological_capacity ?? 1,
+        cognitiveFatigue: deepUserState?.cognitive_fatigue ?? 0,
+        partsState: null, // Deep Alter では Parts Lens 未計算（将来統合可能）
+        conflictIndicator: deepRtSignal?.conflictIndicator ?? null,
+        convictionIndicator: deepRtSignal?.convictionIndicator ?? null,
+        isLateNight: new Date().getHours() >= 23 || new Date().getHours() < 5,
+        isHighFatigue: (deepUserState?.cognitive_fatigue ?? 0) > 0.6,
+        woundCautionPrompts: [], // Deep Alter では wound activation 未計算
+        financialPressureHint: null,
+        shouldReduceDepth: false,
+      };
+      const deepHeartBlock = buildUnifiedHeartState(deepHeartInputs);
+      if (deepHeartBlock) {
+        systemPrompt += deepHeartBlock;
+      }
+    } catch (e) {
+      // fail-open: 心の統合が失敗しても Deep Alter は動く
+      console.warn("[alter] Deep heart integration failed (fail-open):", e);
     }
 
     if (conversationHistory.length === 0) {
@@ -5951,6 +6160,10 @@ export async function POST(req: NextRequest) {
             p0_observation: {
               trust_level_discrete: p0DiscreteTrustLevel,
               trust_level_continuous: growthState?.trustLevel ?? 0,
+              trust_base: trustResult?.baseTrust ?? p0DiscreteTrustLevel,
+              trust_signal_adjusted: trustResult?.signalAdjustedTrust ?? p0DiscreteTrustLevel,
+              trust_phase_capped: trustResult?.phaseCapped ?? false,
+              trust_adjustment_reason: trustResult?.adjustmentReason ?? null,
               sessions_completed: growthState?.sessionsCompleted ?? 0,
               context_entries_loaded: p0ContextEntriesLoaded,
               question_type: questionType,
@@ -5987,6 +6200,12 @@ export async function POST(req: NextRequest) {
             p2_memory_policy: p2MemoryPolicyResult
               ? buildMemoryPolicyAnalytics(p2MemoryPolicyResult, p2CascadeDecays)
               : undefined,
+            // Heart Integration
+            heart_state: heartStateAnalytics ?? undefined,
+            // Wall 1+6: Personalization Tracking
+            personalization: personalizationResult?.analytics ?? undefined,
+            // Wall 5: Session Diff
+            session_diff: sessionDiffAnalytics ?? undefined,
             // P3-1: HDM Phase Controller
             p3_hdm_phase: p3HdmPhaseAnalytics ?? undefined,
             // P4-6: Counterfactual Live Integration
@@ -6001,6 +6220,13 @@ export async function POST(req: NextRequest) {
             // P5-3: After-Action Loop
             p5_after_action_signal: p5AfterActionSignal,
             p5_after_action_injected: p5AfterActionInjected,
+            // Stage 1: Shadow Promotion Recommendation
+            promotion_recommendation: promotionReadiness ? {
+              recommend: promotionReadiness.recommend,
+              transition: promotionReadiness.transition,
+              met: promotionReadiness.metConditions,
+              missing: promotionReadiness.missingConditions,
+            } : undefined,
             // Layer 2: 判断骨格
             judgment_skeleton: judgmentSkeleton ? {
               action_shape: judgmentSkeleton.action_shape,
@@ -6239,6 +6465,62 @@ export async function POST(req: NextRequest) {
           // non-fatal
         }
       }
+    }
+
+    // ── Stage 1: Shadow Promotion Recommendation（応答確定後） ──
+    if (isHomeAlter) {
+      try {
+        const dignityViolation = !!(p1AbstentionSignal?.reason === "dignity_risk" && p1AbstentionSignal.shouldAbstain);
+        const protectiveSpike = (p2PartsState?.protective.activationLevel ?? 0) >= 0.8;
+
+        p3HdmPhaseState = updateTrackingBuffers(
+          p3HdmPhaseState,
+          dignityViolation,
+          protectiveSpike,
+          p4LiveIntegrated,
+        );
+
+        const promotionInputs: HdmPhaseInputs = {
+          sessionsCompleted: growthState?.sessionsCompleted ?? 0,
+          currentSessionTurnCount: conversationDepth,
+          totalTurnCount: (growthState?.sessionsCompleted ?? 0) * 8 + conversationDepth,
+          continuousTrust: growthState?.trustLevel ?? 0,
+          earnedTrustTotal: 0,
+          selfDisclosureDepth: 0,
+          causalMapConfidence: 0,
+          repairSuccessRate: null,
+          understandingCoverage: 0,
+          defensePredictionStreak: p3HdmPhaseState.defensePredictionStreak,
+          voluntaryTopicExpansionCount: p3HdmPhaseState.voluntaryTopicExpansionCount,
+        };
+        promotionReadiness = evaluatePromotionReadiness(
+          p3HdmPhaseState,
+          promotionInputs,
+          p0DiscreteTrustLevel,
+        );
+
+        if (promotionReadiness?.recommend) {
+          console.info(`[Stage1] Promotion recommended: ${promotionReadiness.transition} met=[${promotionReadiness.metConditions.join(",")}]`);
+        }
+
+        hdmStateDirty = true;
+      } catch (e) {
+        console.warn("[Stage1] Promotion readiness evaluation failed (fail-open):", e);
+      }
+    }
+
+    // ── HDM Phase State 一括書き込み ──
+    // 1ターン内の全変更（auto-transition / regression / cross-session / P5 / Stage 1）を
+    // メモリ上で集約し、最後に1回だけ DB に書き込む。競合なし。
+    if (isHomeAlter && hdmStateDirty) {
+      supabase
+        .from("stargazer_alter_growth")
+        .update({ hdm_phase_state: p3HdmPhaseState })
+        .eq("user_id", userId)
+        .then(({ error }) => {
+          if (error) console.warn("[HDM] Consolidated state write failed (non-fatal):", error.message);
+          else console.info("[HDM] State written (consolidated)");
+        });
     }
 
     // ── Phase 2: State Pattern 蓄積 ──
