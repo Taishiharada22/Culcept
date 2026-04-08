@@ -46,3 +46,6 @@ __pycache__/
 
 # Debug/replay output
 scripts/output/
+
+# Fine-tuning exports (training data — do not commit)
+exports/
