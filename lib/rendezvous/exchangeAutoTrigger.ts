@@ -5,6 +5,7 @@ import type { ExchangePayload } from "./exchangeProtocol";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { detectSafetyTopics } from "./counselor/safetyLayer";
 import { detectTemperatureGap } from "./temperatureGapDetector";
+import { buildContagionProfile } from "./emotionalContagion";
 
 // ============================================================
 // Exchange Auto-Trigger
@@ -43,20 +44,23 @@ export async function tryAutoCreateExchange(params: {
   // sentiment → 温度感スコアに変換
   const temperatureScore = sentimentToTemperature(sentiment);
 
-  // Safety Layer + Topic extraction: 直近メッセージを取得して分析
+  // Safety Layer + Topic extraction + Emotional Contagion: 直近メッセージを取得して分析
   let hasAnxietySignal = sentiment === "negative";
   let topicCategories: string[] = [];
+  let contagionTemperature: number | null = null;
+  let contagionFlow: string | null = null;
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: recentMsgs } = await supabaseAdmin
       .from("rendezvous_messages")
-      .select("body")
+      .select("body, sender_id, created_at")
       .eq("candidate_id", candidateId)
       .gte("created_at", sevenDaysAgo)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    const bodies = (recentMsgs ?? []).map((m) => m.body ?? "").filter(Boolean);
+    const msgData = recentMsgs ?? [];
+    const bodies = msgData.map((m) => m.body ?? "").filter(Boolean);
     if (bodies.length > 0) {
       // Safety check（discussion以上のみ反映 — mention は無視）
       const safetyResult = detectSafetyTopics(bodies.join(" "));
@@ -65,6 +69,21 @@ export async function tryAutoCreateExchange(params: {
       }
       // Topic extraction
       topicCategories = extractTopicCategories(bodies);
+    }
+
+    // 感情共鳴分析 → temperatureScore の補正
+    if (msgData.length >= 10) {
+      // ascending 順に変換（contagionProfile は時系列順を期待）
+      const chronological = [...msgData].reverse().map((m) => ({
+        text: m.body ?? "",
+        sender_id: m.sender_id,
+        created_at: m.created_at,
+      }));
+      const profile = buildContagionProfile(chronological, userId);
+      if (profile.contagionEvents.length > 0) {
+        contagionTemperature = Math.round(profile.currentTemperature * 10);
+        contagionFlow = profile.dominantFlow;
+      }
     }
   } catch {
     // fail-open: メッセージ取得失敗時はデフォルト値を使用
@@ -85,8 +104,33 @@ export async function tryAutoCreateExchange(params: {
     // fail-open
   }
 
+  // sentiment 単体よりも感情共鳴の温度を加味して精度向上
+  //
+  // ⚠️ 暫定ウェイト（設計根拠は仮置き）:
+  //   sentiment (自己報告) : contagion (行動観測) = 60 : 40
+  //
+  //   根拠: 自己報告は意図的バイアスがあるが、本人の主観も無視できない。
+  //   行動観測は客観性が高いが、キーワード検出精度に依存するため過信は危険。
+  //   → 自己報告をやや優先しつつ、行動データで補正する。
+  //
+  //   将来の監査ポイント:
+  //   - ズレが大きいペアで、どちら側がより正確だったかを実地データで検証
+  //   - sentiment=positive + contagionTemp<3 のケースで結果がどうなるか追跡
+  //   - 必要に応じてウェイトを調整、またはズレ自体を別シグナルとして扱う
+  let finalTemperature = temperatureScore;
+  if (contagionTemperature !== null) {
+    finalTemperature = Math.round(temperatureScore * 0.6 + contagionTemperature * 0.4);
+    finalTemperature = Math.max(1, Math.min(10, finalTemperature));
+  }
+
+  // 感情の流れが独立的な場合は compatibilityNote に追記
+  if (contagionFlow === "independent" && !compatibilityNote) {
+    compatibilityNote =
+      "感情的な連動が弱い状態です。会話の中で相手の感情に反応するやり取りを増やすと、関係が深まる可能性があります。";
+  }
+
   const payload: ExchangePayload = {
-    temperatureScore,
+    temperatureScore: finalTemperature,
     topicCategories,
     hasAnxietySignal,
     nextRecommendedAction: sentimentToRecommendation(sentiment),

@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getUserTendencies } from "./tendencyTracker";
 import { detectTemperatureGap } from "../temperatureGapDetector";
 import { detectSafetyTopics } from "./safetyLayer";
+import { collectCounselorAssets, formatAssetContextForPrompt } from "./assetCollector";
 
 // ============================================================
 // Weekly Briefing Generator
@@ -213,6 +214,31 @@ async function generateWeeklyBriefing(userId: string): Promise<WeeklyBriefing> {
     // fail-open: 温度差検出/Safety検出失敗時はスキップ
   }
 
+  // 3.6. 感情共鳴 + テンション応答パターン（既存資産統合）
+  let assetContext: string | null = null;
+  try {
+    const { data: activeCandidatesForAssets } = await supabaseAdmin
+      .from("rendezvous_candidates")
+      .select("id, user_a, user_b")
+      .or(`user_a.eq.${userId},user_b.eq.${userId}`)
+      .in("state", ["chat_opened", "mutual_liked"])
+      .limit(3); // 最もアクティブな3ペアまで
+
+    for (const cand of (activeCandidatesForAssets ?? [])) {
+      const assets = await collectCounselorAssets({
+        candidateId: cand.id,
+        userId,
+      });
+      const formatted = formatAssetContextForPrompt(assets);
+      if (formatted) {
+        assetContext = (assetContext ? assetContext + "\n\n" : "") + formatted;
+        break; // briefingが長くなりすぎないため、最初の有意な結果のみ
+      }
+    }
+  } catch {
+    // fail-open
+  }
+
   // 4. 成長スコアを簡易計算
   const growthScore = calculateLightGrowthScore(
     tendencies.length,
@@ -233,6 +259,7 @@ async function generateWeeklyBriefing(userId: string): Promise<WeeklyBriefing> {
     temperatureGapNote,
     safetyAlert,
     stargazerContext,
+    assetContext,
   });
 
   return {
@@ -307,6 +334,7 @@ type GenerateCounselorMessageParams = {
   temperatureGapNote: string | null;
   safetyAlert: string | null;
   stargazerContext: string | null;
+  assetContext: string | null;
 };
 
 type CounselorMessageOutput = {
@@ -330,6 +358,7 @@ async function generateCounselorMessage(
     temperatureGapNote,
     safetyAlert,
     stargazerContext,
+    assetContext,
   } = params;
 
   const contextSummary = buildContextSummary({
@@ -388,6 +417,7 @@ function buildContextSummary(params: {
   temperatureGapNote?: string | null;
   safetyAlert?: string | null;
   stargazerContext?: string | null;
+  assetContext?: string | null;
 }): string {
   const lines: string[] = [
     `- アクティブな接続数: ${params.activeConnectionCount}件`,
@@ -416,6 +446,10 @@ function buildContextSummary(params: {
 
   if (params.safetyAlert) {
     lines.push(`\n【安全注記】\n${params.safetyAlert}\nこの話題に関するアドバイスは慎重に行ってください。`);
+  }
+
+  if (params.assetContext) {
+    lines.push(`\n${params.assetContext}`);
   }
 
   return lines.join("\n");

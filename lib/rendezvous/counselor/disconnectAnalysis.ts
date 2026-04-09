@@ -8,6 +8,7 @@ import type {
   TendencyInsight,
 } from "./types";
 import { DISCONNECT_REASON_LABELS as REASON_LABELS } from "./types";
+import { collectCounselorAssets, formatAssetContextForPrompt } from "./assetCollector";
 
 // ============================================================
 // 切断分析エンジン
@@ -102,6 +103,7 @@ export function buildDisconnectPrompt(params: {
   reasonDetail?: string;
   reasonCodes: string[];
   cautionCodes: string[];
+  assetContext?: string | null;
 }): string {
   const {
     disconnectedProfile,
@@ -110,6 +112,7 @@ export function buildDisconnectPrompt(params: {
     reasonDetail,
     reasonCodes,
     cautionCodes,
+    assetContext,
   } = params;
 
   const reasonLabel = REASON_LABELS[reasonCode] ?? reasonCode;
@@ -155,7 +158,7 @@ ${disconnectedAxes}
 - 軸スコア:
 ${disconnectorAxes}
 
-## 出力
+${assetContext ? `## 関係性の行動観測データ\n${assetContext}\n` : ""}## 出力
 上記を踏まえて、以下を JSON で返してください:
 - mismatchPoints: 噛み合わなかったポイント（1-3個）
 - communicationGap: コミュニケーションスタイルの違い（あれば）
@@ -200,6 +203,19 @@ export async function analyzeDisconnect(
     fetchStargazerProfile(supabase, disconnectedByUserId),
   ]);
 
+  // 2.5. 既存資産（感情共鳴 + テンション応答）を収集
+  let assetContextText: string | null = null;
+  try {
+    const assets = await collectCounselorAssets({
+      candidateId,
+      userId: disconnectedUserId,
+    });
+    const formatted = formatAssetContextForPrompt(assets);
+    if (formatted) assetContextText = formatted;
+  } catch {
+    // fail-open
+  }
+
   // 3. AI 分析
   const prompt = buildDisconnectPrompt({
     disconnectedProfile,
@@ -208,6 +224,7 @@ export async function analyzeDisconnect(
     reasonDetail,
     reasonCodes: (candidate.reason_codes ?? []) as string[],
     cautionCodes: (candidate.caution_codes ?? []) as string[],
+    assetContext: assetContextText,
   });
 
   const aiResult = await runAI({

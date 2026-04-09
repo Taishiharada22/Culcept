@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { tryAutoCreateExchange } from "@/lib/rendezvous/exchangeAutoTrigger";
 import { collectBehaviorSignals } from "@/lib/rendezvous/behaviorSignalCollector";
 import { generateSelfDiscoveryFeedback } from "@/lib/rendezvous/counselor/selfDiscoveryFeedback";
+import { collectCounselorAssets } from "@/lib/rendezvous/counselor/assetCollector";
 
 export const runtime = "nodejs";
 
@@ -91,10 +92,11 @@ export async function POST(
     // fire-and-forget: フィードバック応答を遅延させない
     void (async () => {
       try {
-        const behaviorSignals = await collectBehaviorSignals({
-          candidateId,
-          userId: user.id,
-        });
+        // 行動シグナル + 感情共鳴を並列収集
+        const [behaviorSignals, assets] = await Promise.all([
+          collectBehaviorSignals({ candidateId, userId: user.id }),
+          collectCounselorAssets({ candidateId, userId: user.id }).catch(() => null),
+        ]);
 
         // sentiment → selfReportedFeeling に変換
         const feelingMap: Record<string, string> = {
@@ -103,12 +105,21 @@ export async function POST(
           negative: "ちょっと違うかも",
         };
 
+        // 感情共鳴の流れを EmotionalFlowContext に変換
+        const emotionalFlow = assets?.emotionalResonance
+          ? {
+              dominantFlow: assets.emotionalResonance.dominantFlow,
+              resonanceScore: assets.emotionalResonance.resonanceScore,
+            }
+          : undefined;
+
         await generateSelfDiscoveryFeedback({
           userId: user.id,
           candidateId,
           interactionKind: "chat",
           selfReportedFeeling: feelingMap[sentiment] ?? sentiment,
           behaviorSignals: behaviorSignals ?? undefined,
+          emotionalFlow,
         });
       } catch (err) {
         console.error("[feedback] self-discovery feedback error:", err);

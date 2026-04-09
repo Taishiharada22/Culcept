@@ -66,6 +66,13 @@ export type SelfDiscoveryFeedback = {
   generatedAt: string;
 };
 
+// ── 感情共鳴コンテキスト（asset integration） ──
+
+export type EmotionalFlowContext = {
+  dominantFlow: "self_to_other" | "other_to_self" | "mutual" | "independent";
+  resonanceScore: number;
+};
+
 // ── 公開API ──
 
 /**
@@ -74,6 +81,7 @@ export type SelfDiscoveryFeedback = {
  * @param interactionKind chat / call / date
  * @param selfReportedFeeling ユーザーの自己報告感想
  * @param behaviorSignals 行動観測データ（あれば）
+ * @param emotionalFlow 感情共鳴の流れ（あれば）
  */
 export async function generateSelfDiscoveryFeedback(params: {
   userId: string;
@@ -81,14 +89,20 @@ export async function generateSelfDiscoveryFeedback(params: {
   interactionKind: InteractionKind;
   selfReportedFeeling: string;
   behaviorSignals?: BehaviorSignals;
+  emotionalFlow?: EmotionalFlowContext;
 }): Promise<SelfDiscoveryFeedback> {
-  const { userId, candidateId, interactionKind, selfReportedFeeling, behaviorSignals } = params;
+  const { userId, candidateId, interactionKind, selfReportedFeeling, behaviorSignals, emotionalFlow } = params;
   const now = new Date().toISOString();
 
   // 行動データがある場合はズレ検出を行う
   let gapDetection: GapDetection | null = null;
   if (behaviorSignals) {
     gapDetection = detectGap(selfReportedFeeling, behaviorSignals);
+  }
+
+  // 感情共鳴からのズレ検出（行動シグナルで検出できなかった場合の補完）
+  if (!gapDetection?.hasGap && emotionalFlow) {
+    gapDetection = detectEmotionalFlowGap(selfReportedFeeling, emotionalFlow);
   }
 
   // AI で問いを生成
@@ -188,6 +202,56 @@ function detectGap(
         "「微妙だった」との印象ですが、あなたは積極的に会話をリードしていました。",
       gapQuestion:
         "『微妙』と感じた部分と、自分から話を広げた部分、それぞれ何が動機だった？",
+    };
+  }
+
+  return { hasGap: false, gapDescription: null, gapQuestion: null };
+}
+
+/**
+ * 感情共鳴の流れ vs 自己報告のズレを検出する。
+ *
+ * 核心的なパターン:
+ *   - ポジティブ報告 + 感情が一方通行（other_to_self）→ 受動的に楽しんでいるだけかも
+ *   - ネガティブ報告 + 双方向共鳴が高い → 認知と実態のズレ
+ *   - ポジティブ報告 + 独立的（感情が連動しない）→ 表面的な楽しさの可能性
+ */
+function detectEmotionalFlowGap(
+  selfReportedFeeling: string,
+  flow: EmotionalFlowContext,
+): GapDetection {
+  const positiveReport = isPositiveReport(selfReportedFeeling);
+
+  // ズレパターン4: ポジティブ報告だが感情的には一方通行（相手の感情に引きずられている）
+  if (positiveReport && flow.dominantFlow === "other_to_self" && flow.resonanceScore > 0.4) {
+    return {
+      hasGap: true,
+      gapDescription:
+        "楽しかったとのことですが、感情の流れを見ると、相手の雰囲気に引っ張られている傾向がありました。",
+      gapQuestion:
+        "「楽しい」と感じたのは、自分から湧き上がった感覚？それとも相手の雰囲気に乗った感覚？",
+    };
+  }
+
+  // ズレパターン5: ポジティブ報告だが感情的に独立（表面的な交流の可能性）
+  if (positiveReport && flow.dominantFlow === "independent" && flow.resonanceScore < 0.2) {
+    return {
+      hasGap: true,
+      gapDescription:
+        "楽しかったとのことですが、会話の中で感情が噛み合う瞬間が少なかったようです。",
+      gapQuestion:
+        "会話の中で、「この人と通じ合えた」と感じた瞬間はあった？",
+    };
+  }
+
+  // ズレパターン6: ネガティブ報告だが実は双方向で感情が共鳴していた
+  if (!positiveReport && flow.dominantFlow === "mutual" && flow.resonanceScore > 0.5) {
+    return {
+      hasGap: true,
+      gapDescription:
+        "微妙だったとの印象ですが、会話の中では実は感情が共鳴している瞬間が多くありました。",
+      gapQuestion:
+        "「微妙」と感じた理由は、会話の内容？それとも会話以外の何か？",
     };
   }
 
