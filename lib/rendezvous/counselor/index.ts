@@ -35,6 +35,7 @@ export {
   recommendAction,
   selectGameForRecommendation,
   selectMissionForRecommendation,
+  buildPacingGuidance,
   dispatchNudge,
 } from "./orchestrator";
 

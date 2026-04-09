@@ -386,3 +386,44 @@ export async function dispatchNudge(params: {
     scheduledFor: result.scheduledFor,
   };
 }
+
+// ── ペーシング調整ディスパッチ ──
+
+export type PacingGuidance = {
+  severity: "significant" | "critical";
+  delta: number;
+  guidance: string;
+  suggestedAction: string;
+};
+
+/**
+ * adjust_pacing 推薦から表示用ガイダンスを生成する。
+ * Counselor のトーンで温度差を説明し、具体的な行動提案を付与。
+ */
+export function buildPacingGuidance(
+  recommendation: CounselorRecommendation,
+): PacingGuidance | null {
+  if (recommendation.type !== "adjust_pacing") return null;
+
+  const gap = recommendation.payload.temperatureGap as {
+    severity: string;
+    delta: number;
+    coolerSide: string;
+  } | undefined;
+
+  if (!gap) return null;
+
+  const isCritical = gap.severity === "critical";
+  const delta = gap.delta ?? 0;
+
+  return {
+    severity: isCritical ? "critical" : "significant",
+    delta,
+    guidance: isCritical
+      ? "二人の間のペースに大きな差があります。一方が前のめりで、もう一方が様子を見ている状態です。"
+      : "ペースに少し差が出ています。焦らず、相手のリズムを尊重する時期かもしれません。",
+    suggestedAction: isCritical
+      ? "少し間を置いて、相手が自然に戻ってくるのを待つことをお勧めします。沈黙は関係の敵ではなく、呼吸です。"
+      : "メッセージの頻度を少し下げて、相手が返しやすい空気を作ってみましょう。",
+  };
+}

@@ -5,8 +5,10 @@ import {
   recommendAction,
   selectGameForRecommendation,
   selectMissionForRecommendation,
+  buildPacingGuidance,
   dispatchNudge,
 } from "@/lib/rendezvous/counselor/orchestrator";
+import type { PacingGuidance } from "@/lib/rendezvous/counselor/orchestrator";
 import type { CoupleGame } from "@/lib/rendezvous/coupleGames";
 import type { MissionTemplate } from "@/lib/rendezvous/missionTemplates";
 
@@ -27,6 +29,7 @@ export type RecommendationResponse = {
     priority: string;
     game: CoupleGame | null;
     mission: MissionTemplate | null;
+    pacing: PacingGuidance | null;
   }>;
 };
 
@@ -65,6 +68,7 @@ export async function GET() {
         const rec = recommendAction(state);
         const game = selectGameForRecommendation(rec);
         const mission = selectMissionForRecommendation(rec);
+        const pacing = buildPacingGuidance(rec);
 
         return {
           candidateId: c.id,
@@ -74,6 +78,7 @@ export async function GET() {
           priority: rec.priority,
           game,
           mission,
+          pacing,
         };
       }),
     );

@@ -33,6 +33,13 @@ interface CounselorDashboardProps {
 
 type ConsultState = "idle" | "open" | "sending" | "replied";
 
+type PacingGuidance = {
+  severity: "significant" | "critical";
+  delta: number;
+  guidance: string;
+  suggestedAction: string;
+};
+
 type CounselorRecommendationItem = {
   candidateId: string;
   counterpartUserId: string;
@@ -41,6 +48,7 @@ type CounselorRecommendationItem = {
   priority: string;
   game: CoupleGame | null;
   mission: MissionTemplate | null;
+  pacing: PacingGuidance | null;
 };
 
 type SelfDiscoveryFeedbackEntry = {
@@ -649,6 +657,27 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       </p>
                       <p className="text-[10px] text-slate-400 mt-1">
                         {rec.mission.turnsRequired}ターン · {Math.round(rec.mission.timeoutMinutes / 60)}時間制限
+                      </p>
+                    </div>
+                  )}
+                  {/* ペーシングガイダンス */}
+                  {rec.pacing && (
+                    <div
+                      className="rounded-lg p-3 mt-1 space-y-1.5"
+                      style={{
+                        background: rec.pacing.severity === "critical"
+                          ? "rgba(239,68,68,0.05)"
+                          : "rgba(251,191,36,0.05)",
+                        border: rec.pacing.severity === "critical"
+                          ? "1px solid rgba(239,68,68,0.15)"
+                          : "1px solid rgba(251,191,36,0.15)",
+                      }}
+                    >
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {rec.pacing.guidance}
+                      </p>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {rec.pacing.suggestedAction}
                       </p>
                     </div>
                   )}
