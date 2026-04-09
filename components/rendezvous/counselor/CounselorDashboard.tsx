@@ -13,6 +13,7 @@ import type { ActiveConnectionItem, GrowthInsight, GrowthPattern } from "@/lib/r
 import type { ExchangeRecord } from "@/lib/rendezvous/exchangeProtocol";
 import type { RendezvousAccessLevel } from "@/lib/rendezvous/phaseGate";
 import type { CoupleGame } from "@/lib/rendezvous/coupleGames";
+import type { MissionTemplate } from "@/lib/rendezvous/missionTemplates";
 
 // ============================================================
 // Counselor Dashboard
@@ -39,6 +40,7 @@ type CounselorRecommendationItem = {
   reason: string;
   priority: string;
   game: CoupleGame | null;
+  mission: MissionTemplate | null;
 };
 
 type SelfDiscoveryFeedbackEntry = {
@@ -624,6 +626,29 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       </p>
                       <p className="text-[10px] text-slate-400 mt-1">
                         {rec.game.duration}分 · {rec.game.format === "simultaneous_answer" ? "同時回答" : rec.game.format === "turn_based" ? "交互" : rec.game.format === "collaborative" ? "共同作業" : "チャレンジ"}
+                      </p>
+                    </div>
+                  )}
+                  {/* ミッション推薦がある場合 */}
+                  {rec.mission && (
+                    <div
+                      className="rounded-lg p-3 mt-1"
+                      style={{
+                        background: "rgba(99,102,241,0.06)",
+                        border: "1px solid rgba(99,102,241,0.12)",
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base">{rec.mission.icon}</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          {rec.mission.title}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {rec.mission.description}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {rec.mission.turnsRequired}ターン · {Math.round(rec.mission.timeoutMinutes / 60)}時間制限
                       </p>
                     </div>
                   )}

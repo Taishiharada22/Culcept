@@ -4,9 +4,11 @@ import {
   evaluateRelationshipState,
   recommendAction,
   selectGameForRecommendation,
+  selectMissionForRecommendation,
   dispatchNudge,
 } from "@/lib/rendezvous/counselor/orchestrator";
 import type { CoupleGame } from "@/lib/rendezvous/coupleGames";
+import type { MissionTemplate } from "@/lib/rendezvous/missionTemplates";
 
 // ============================================================
 // Counselor Recommendation API
@@ -24,6 +26,7 @@ export type RecommendationResponse = {
     reason: string;
     priority: string;
     game: CoupleGame | null;
+    mission: MissionTemplate | null;
   }>;
 };
 
@@ -61,6 +64,7 @@ export async function GET() {
         });
         const rec = recommendAction(state);
         const game = selectGameForRecommendation(rec);
+        const mission = selectMissionForRecommendation(rec);
 
         return {
           candidateId: c.id,
@@ -69,16 +73,14 @@ export async function GET() {
           reason: rec.reason,
           priority: rec.priority,
           game,
+          mission,
         };
       }),
     );
 
     const recommendations = results
-      .filter(
-        (r): r is PromiseFulfilledResult<RecommendationResponse["recommendations"][0]> =>
-          r.status === "fulfilled",
-      )
-      .map((r) => r.value)
+      .filter((r) => r.status === "fulfilled")
+      .map((r) => (r as PromiseFulfilledResult<RecommendationResponse["recommendations"][0]>).value)
       // no_action は除外、priority でソート
       .filter((r) => r.type !== "no_action")
       .sort((a, b) => {

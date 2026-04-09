@@ -18,6 +18,8 @@ import { getUserTendencies } from "./tendencyTracker";
 import { detectSafetyTopics, type SafetyDetectionResult } from "./safetyLayer";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getAvailableGames, type CoupleGame, type GameCategory, type RelationshipPhase } from "../coupleGames";
+import { selectMissionForCategory, type MissionTemplate } from "../missionTemplates";
+import type { RendezvousCategory } from "../types";
 
 // ── 型定義 ──
 
@@ -266,7 +268,24 @@ export function recommendAction(state: RelationshipState): CounselorRecommendati
     };
   }
 
-  // 6. 結晶ハイライト — 直近に新しい結晶が生まれている
+  // 6. ミッション提案 — glow以上 + warm/hot + 安定して続いている
+  if (
+    (state.relationshipPhase === "glow" || state.relationshipPhase === "constellation") &&
+    (state.climateState === "warm" || state.climateState === "vibrant") &&
+    state.daysSinceLastActivity <= 2
+  ) {
+    return {
+      type: "suggest_mission",
+      reason: "関係が深まっている — 協同ミッションで新しい側面を発見するタイミング",
+      priority: "low",
+      payload: {
+        relationshipPhase: state.relationshipPhase,
+        climateState: state.climateState,
+      },
+    };
+  }
+
+  // 7. 結晶ハイライト — 直近に新しい結晶が生まれている
   if (state.recentCrystalCount > 0) {
     return {
       type: "highlight_crystal",
@@ -315,6 +334,25 @@ export function selectGameForRecommendation(
 
   // ランダム選定（将来: ユーザー履歴で重複回避）
   return available[Math.floor(Math.random() * available.length)];
+}
+
+// ── ミッション推薦ディスパッチ ──
+
+/**
+ * Counselorの判断に基づき、最適なミッションを1つ選定する。
+ * 関係フェーズから RendezvousCategory を推定して選択する。
+ */
+export function selectMissionForRecommendation(
+  recommendation: CounselorRecommendation,
+): MissionTemplate | null {
+  if (recommendation.type !== "suggest_mission") return null;
+
+  const phase = recommendation.payload.relationshipPhase as RelationshipPhase | undefined;
+  // フェーズ→カテゴリ変換: glow以上=partner, それ以外=friendship
+  const category: RendezvousCategory =
+    phase === "glow" || phase === "constellation" ? "partner" : "friendship";
+
+  return selectMissionForCategory(category);
 }
 
 // ── ナッジ送信ディスパッチ ──
