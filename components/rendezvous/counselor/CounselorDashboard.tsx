@@ -776,17 +776,32 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                   )}
                   {/* マイルストーン祝福 */}
                   {rec.type === "celebrate_milestone" && (
-                    <div
-                      className="rounded-lg p-3 mt-1 text-center"
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className="rounded-xl p-4 mt-1 text-center space-y-2"
                       style={{
-                        background: "linear-gradient(135deg, rgba(251,191,36,0.08), rgba(245,158,11,0.04))",
-                        border: "1px solid rgba(251,191,36,0.2)",
+                        background: "linear-gradient(135deg, rgba(251,191,36,0.1), rgba(245,158,11,0.05), rgba(252,211,77,0.08))",
+                        border: "1px solid rgba(251,191,36,0.25)",
+                        boxShadow: "0 2px 12px rgba(251,191,36,0.08)",
                       }}
                     >
-                      <p className="text-sm font-medium text-amber-700">
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+                        className="text-2xl"
+                      >
+                        ✦
+                      </motion.div>
+                      <p className="text-sm font-medium text-amber-700 leading-relaxed">
                         {rec.reason}
                       </p>
-                    </div>
+                      <p className="text-[10px] text-amber-500/70">
+                        Counselor が二人の歩みを祝福しています
+                      </p>
+                    </motion.div>
                   )}
                   {/* ペーシングガイダンス */}
                   {rec.pacing && (
