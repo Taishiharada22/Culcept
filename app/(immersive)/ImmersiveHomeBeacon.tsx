@@ -3,12 +3,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-/** ホームビーコン — オンボーディング中は非表示 */
+/**
+ * ホームビーコン — immersive ページ左上の「ホーム」ボタン
+ *
+ * 表示制御はサーバーサイドゲート（page.tsx）に一本化。
+ * / への到達可否は DB (stargazer_star_maps) で判定済みなので、
+ * クライアント側では「/stargazer ページ上では常に非表示」のみ適用。
+ * （/stargazer に到達できるユーザーは全員 stargazer フロー継続中）
+ */
 export default function ImmersiveHomeBeacon() {
   const pathname = usePathname();
 
-  // オンボーディング中は非表示
+  // /onboarding 中・/stargazer 中は非表示（サーバーゲートと整合）
   if (pathname === "/onboarding") return null;
+  if (pathname === "/stargazer") return null;
 
   return (
     <Link

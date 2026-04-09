@@ -73,6 +73,41 @@ const SHORT_MESSAGE_CHARS = 15;
 // Withdrawal キーワード（表面的同意・回避）
 const WITHDRAWAL_PATTERNS = /^(うん|そうだね|まあ|別に|いいよ|はい|ふーん|そう|わかった|ok|おk)$/i;
 
+/**
+ * 短文でもエンゲージメント（質問・意思表明・話題提供）を示すメッセージか判定。
+ * true → withdrawal の根拠として使わない。
+ *
+ * 例:
+ *  - 「俺起業したいんだよ。」(11文字) → 意思表明 → true
+ *  - 「私にあってる職業って何？」(14文字) → 質問 → true
+ *  - 「今日は結構進展があった。」(12文字) → 話題提供 → true
+ *  - 「うん」(2文字) → 表面的同意 → false
+ *  - 「まあ」(2文字) → 回避 → false
+ */
+function isEngagedShortMessage(content: string): boolean {
+  const trimmed = content.trim();
+  // 挨拶メッセージは短くてもエンゲージメントの証拠（ruptureDetection は "server-only" のため alterHomeAdapter をインポートできない。パターンを独立定義）
+  const GREETING_SHORT = /^(おはよう?|こんにち[はわ]|こんばん[はわw]|やっほ|ただいま|おつ[かー]|お疲れ|おっす|よお|ども|やあ|ねえ|ひさしぶり|久しぶり|おう|はろー|ハロー|ういーっす|ちわ|ばんわ|おつです)/;
+  if (GREETING_SHORT.test(trimmed)) return true;
+  // 疑問符で終わる → 質問している = engaged
+  if (/[？?]$/.test(trimmed)) return true;
+  // 意思・願望の表明（「〜したい」「〜するつもり」「〜しようと思って」等）
+  if (/(?:したい|やりたい|なりたい|ほしい|つもり|しようと|するつもり|始め[たよ]|決め[たよ])/.test(trimmed)) return true;
+  // 話題提供・報告（「〜があった」「〜した」「〜だった」「〜なんだ」等）
+  if (/(?:があった|してきた|だった|なんだ[よけ]|んだよ[ね。]?|できた|進展|変化|出来事)/.test(trimmed)) return true;
+  // 感情の表出（「嬉しい」「つらい」「疲れた」等） — 短くても離脱ではない
+  if (/(?:嬉し|楽し|つら|辛|悲し|疲れ|しんどい|きつい|怖い|不安|心配|イライラ|ムカつ|腹立)/.test(trimmed)) return true;
+  // 命令・要求（「教えて」「聞いて」「答えて」等）
+  // 注意: 「して」「やって」単独は広すぎる（「好きにして」「勝手にやって」は拒絶）。
+  // 「〜を教えて」「〜を考えて」等、動詞+て の具体的要求パターンのみ対象。
+  if (/(?:教えて|聞いて|答えて|考えて|見て)[。！!]?$/.test(trimmed)) return true;
+  // 拒絶的な「〜にして」「〜にやって」を除外するガード
+  // 「好きにして」「勝手にして」「放っといてやって」は engaged ではない
+  if (/(?:好き|勝手|放って?おい|ほっとい|黙って)/.test(trimmed)) return false;
+  if (/(?:して|やって)[。！!]?$/.test(trimmed) && trimmed.length <= 8) return true;
+  return false;
+}
+
 // Confrontation キーワード（Alter への否定・怒り）
 const CONFRONTATION_PATTERNS =
   /違う|そうじゃない|わかってない|的外れ|ずれてる|全然違う|やめて|うざい|しつこい|黙って|意味不明|何も分かってない|知ったかぶり|勝手に決めるな/;
@@ -108,11 +143,22 @@ export function detectRupture(input: RuptureDetectionInput): RuptureAssessment {
   let wScore = 0;
 
   // 1. 直近のユーザーメッセージの短さ
+  // ガード: 総メッセージ数が6未満（会話開始直後）は短文を rupture 根拠にしない。
+  // 挨拶・近況・雑談開始は自然に短く、断裂の証拠にならない。
+  // ガード2: 短くても質問・意思表明・話題提供・感情表出はエンゲージメントの証拠。
+  //   「俺起業したいんだよ。」(11文字) は withdrawal ではない。
   const recentUserMsgs = recentMessages.filter(m => m.role === "user");
   const lastTwoUser = recentUserMsgs.slice(-2);
-  if (lastTwoUser.length >= 2 && lastTwoUser.every(m => m.content.length < SHORT_MESSAGE_CHARS)) {
-    wScore += 0.3;
-    wSignals.push("consecutive_short_messages");
+  const isSessionOpening = recentMessages.length < 6;
+  if (!isSessionOpening && lastTwoUser.length >= 2) {
+    // 文字数が短い AND エンゲージメントシグナルがない場合のみ withdrawal 根拠とする
+    const disengagedShortMessages = lastTwoUser.filter(
+      m => m.content.length < SHORT_MESSAGE_CHARS && !isEngagedShortMessage(m.content)
+    );
+    if (disengagedShortMessages.length >= 2) {
+      wScore += 0.3;
+      wSignals.push("consecutive_short_messages");
+    }
   }
 
   // 2. 表面的同意パターン

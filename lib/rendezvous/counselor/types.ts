@@ -313,3 +313,19 @@ export type PostReviewRow = {
   ai_insight: string | null;
   created_at: string;
 };
+
+// ---------- Active Connection ----------
+
+export type ActiveConnectionItem = {
+  candidateId: string;
+  /** 相手のユーザーID（アバター参照に使用） */
+  counterpartUserId: string;
+  /** 接続状態 */
+  state: string;
+  /** Counselorが付けるステータスラベル */
+  statusLabel: string;
+  /** 最後のやり取りから経過日数（概算） */
+  daysSinceLastActivity: number | null;
+  /** 接続開始日 */
+  startedAt: string;
+};

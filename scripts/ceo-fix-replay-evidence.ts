@@ -99,10 +99,10 @@ function replayFix2_TrustProgression() {
   const turnCounts = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12];
   const results = turnCounts.map(turns => {
     // BEFORE: currentSessionTurnCount パラメータなし → 常にT0
-    const beforeTrust = deriveTrustLevel(0.1, 0);
+    const beforeTrust = deriveTrustLevel(0.1, 0).effectiveTrust;
 
     // AFTER: currentSessionTurnCount 反映 → 4ターン以降T1
-    const afterTrust = deriveTrustLevel(0.1, 0, turns);
+    const afterTrust = deriveTrustLevel(0.1, 0, turns).effectiveTrust;
 
     return {
       turn_count: turns,

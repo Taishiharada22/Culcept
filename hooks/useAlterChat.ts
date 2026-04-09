@@ -92,6 +92,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [lastIsEmotional, setLastIsEmotional] = useState(false);
   const [lastResponseId, setLastResponseId] = useState<string | null>(null);
   const [lastFeedbackMeta, setLastFeedbackMeta] = useState<Record<string, unknown> | null>(null);
+  const [lastCounselorSoftLink, setLastCounselorSoftLink] = useState<{
+    show: boolean;
+    message: string;
+    destination: string;
+  } | null>(null);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
     try {
@@ -202,6 +207,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       if (data.feedbackMeta) {
         setLastFeedbackMeta(data.feedbackMeta);
       }
+      // Alter→Counselor ソフト導線（恋愛ドメイン時にAPIが返す）
+      if (data.counselorSoftLink) {
+        setLastCounselorSoftLink(data.counselorSoftLink);
+      } else {
+        setLastCounselorSoftLink(null);
+      }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
       const newTotal = priorDailyCount + sessionAlterCount + 1;
@@ -228,6 +239,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setLastIsEmotional(false);
     setLastResponseId(null);
     setLastFeedbackMeta(null);
+    setLastCounselorSoftLink(null);
   }, []);
 
   /** メッセージを外部から注入（リミット通知などAPI不使用の返答） */
@@ -269,5 +281,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     lastResponseId,
     /** 直近のフィードバック用メタデータ */
     lastFeedbackMeta,
+    /** Alter→Counselor ソフト導線（恋愛ドメイン時） */
+    lastCounselorSoftLink,
   } as const;
 }

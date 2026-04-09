@@ -165,7 +165,7 @@ export async function GET() {
     // D0 安全弁: growth が壊れていても既存ユーザーを初回扱いしない
     const sessionsCompleted = Math.max(growthSessions, summariesCount);
     const continuousTrust = growth?.trust_level ?? 0;
-    const trustLevel = deriveTrustLevel(continuousTrust, sessionsCompleted);
+    const trustLevel = deriveTrustLevel(continuousTrust, sessionsCompleted).effectiveTrust;
 
     // D4: 直近3日の表示テーマを抽出
     const recentDisplayedThemes: string[] = (recentThemesResult.data ?? [])

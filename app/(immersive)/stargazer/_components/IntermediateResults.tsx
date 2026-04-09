@@ -292,7 +292,7 @@ export default function IntermediateResults({
                   Alterは、あなたの本音を見抜いている。
                 </p>
                 <p className="mt-1.5 text-xs leading-relaxed text-[rgba(18,24,44,0.55)]">
-                  「あなたをもっと知りたい？」をタップすると、
+                  「あなたのことをもっと知りたい？」をタップすると、
                   Alterがあなたのために動き出す。
                 </p>
 
@@ -481,7 +481,7 @@ export default function IntermediateResults({
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
-                <span>あなたをもっと知りたい？</span>
+                <span>あなたのことをもっと知りたい？</span>
                 <span className="text-base">→</span>
               </motion.button>
 

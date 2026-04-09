@@ -1,21 +1,24 @@
 /**
  * run-baseline-eval.ts
  *
- * Held-out 198件 (student_eval_cases) に対して gpt-4o-mini (素の状態) を実行し、
- * 6軸評価メトリクスのベースラインを計測する。
+ * Held-out eval set (student_eval_cases) に対して任意のモデルを実行し、
+ * タスクタイプ別 rubric で 6軸評価メトリクスを計測する。
  *
- * Zero Next.js dependency — pure Node + @supabase/supabase-js + raw OpenAI fetch
+ * Zero Next.js dependency — pure Node + @supabase/supabase-js + raw fetch
+ *
+ * Providers:
+ *   PROVIDER=openai   MODEL=gpt-4o-mini          (default)
+ *   PROVIDER=together  MODEL=Qwen/Qwen2.5-7B-Instruct  TOGETHER_API_KEY=...
+ *   PROVIDER=local     ENDPOINT=http://localhost:8000/v1  MODEL=qwen2.5-7b
  *
  * Output:
- *   exports/baseline-eval-{date}.json   ← 全結果
- *   stdout にサマリーレポート
+ *   exports/baseline-eval-{date}-{model}.json
  *
  * Usage:
  *   npx tsx scripts/run-baseline-eval.ts
- *   LIMIT=20 npx tsx scripts/run-baseline-eval.ts          # 小規模テスト
+ *   LIMIT=20 npx tsx scripts/run-baseline-eval.ts
  *   DOMAIN=utterance_reading npx tsx scripts/run-baseline-eval.ts
- *   MODEL=gpt-4o npx tsx scripts/run-baseline-eval.ts       # モデル変更
- *   CONCURRENCY=3 npx tsx scripts/run-baseline-eval.ts      # 並列数
+ *   PROVIDER=together MODEL=Qwen/Qwen2.5-7B-Instruct npx tsx scripts/run-baseline-eval.ts
  */
 
 import * as fs from "fs";
@@ -29,15 +32,82 @@ dotenv.config({ path: ".env.local" });
 const LIMIT = Number(process.env.LIMIT ?? "10000");
 const DOMAIN_FILTER = process.env.DOMAIN ?? null;
 const STUDENT_MODEL = process.env.MODEL ?? "gpt-4o-mini";
+const PROVIDER = (process.env.PROVIDER ?? "openai") as "openai" | "together" | "local";
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? "5");
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? "30000");
+const LORA_MODEL = process.env.LORA ?? null; // Together LoRA adapter name
 const OUT_DIR = process.env.OUT_DIR ?? path.join(process.cwd(), "exports");
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Task-type aware rubric
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+type TaskCategory = "structured" | "generation";
+
+/** Classify a task_type into structured (classification/JSON) or generation (free text). */
+function classifyTask(taskType: string): TaskCategory {
+  const structuredPatterns = [
+    "utterance_reading", "prediction", "question_generation", "question_expansion",
+    "lens_discovery", "adaptive_q2", "observation_analysis", "free_text_analysis",
+    "partner_dynamic_questions", "observation_reaction",
+  ];
+  for (const p of structuredPatterns) {
+    if (taskType.includes(p)) return "structured";
+  }
+  return "generation";
+}
+
+type MetricWeights = {
+  personalityConsistency: number;
+  validatorPass: number;
+  genericRate: number;
+  specificity: number;
+  taskMatch: number;
+  modeMatch: number;
+  directness: number;
+};
+
+/**
+ * Rubric weights by task category.
+ *
+ * Structured tasks: task_match + validator are primary; personality/mode/directness
+ * are near-zero because output is JSON, not Alter's voice.
+ *
+ * Generation tasks: personality consistency is the dominant axis.
+ */
+const RUBRIC: Record<TaskCategory, { weights: MetricWeights; passThreshold: number }> = {
+  structured: {
+    weights: {
+      taskMatch:               0.40,  // Core: does the classification match?
+      validatorPass:           0.30,  // Core: is the JSON valid and well-formed?
+      specificity:             0.15,  // Does output have expected detail level?
+      genericRate:             0.05,  // Minor for structured output
+      personalityConsistency:  0.05,  // Near-irrelevant for JSON classification
+      modeMatch:               0.00,  // Determined by Judgment OS, not LLM
+      directness:              0.05,
+    },
+    passThreshold: 0.70,
+  },
+  generation: {
+    weights: {
+      personalityConsistency:  0.30,  // Dominant: must sound like Alter
+      validatorPass:           0.15,  // Basic quality
+      genericRate:             0.20,  // Must be personalized, not template
+      specificity:             0.10,  // Concrete, not abstract
+      taskMatch:               0.05,  // Structural fields matter less for free text
+      modeMatch:               0.05,  // Judgment OS decides this
+      directness:              0.15,  // Alter's communication style
+    },
+    passThreshold: 0.70,
+  },
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 6-axis evaluation (inlined from studentEvaluation.ts — no server-only dep)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 type StudentComparisonMetrics = {
+  taskCategory: TaskCategory;
   taskMatch: boolean;
   modeMatch: boolean;
   validatorPassed: boolean;
@@ -50,18 +120,6 @@ type StudentComparisonMetrics = {
   overallScore: number;
   pass: boolean;
 };
-
-const METRIC_WEIGHTS = {
-  personalityConsistency: 0.25,
-  validatorPass: 0.20,
-  genericRate: 0.15,
-  specificity: 0.15,
-  taskMatch: 0.10,
-  modeMatch: 0.10,
-  directness: 0.05,
-} as const;
-
-const PASS_THRESHOLD = 0.70;
 
 function compareTaskJudgment(
   teacher: Record<string, unknown> | null,
@@ -175,6 +233,10 @@ function compareStudentToTeacher(args: {
   taskType: string;
 }): StudentComparisonMetrics {
   const { teacherResponse, studentResponse, teacherStructured, studentStructured, taskType } = args;
+  const taskCategory = classifyTask(taskType);
+  const rubric = RUBRIC[taskCategory];
+  const w = rubric.weights;
+
   const taskMatch = compareTaskJudgment(teacherStructured, studentStructured);
   const modeMatch = compareModeSelection(teacherStructured, studentStructured);
   const validatorPassed = checkValidatorCompliance(studentResponse, studentStructured, taskType);
@@ -184,34 +246,59 @@ function compareStudentToTeacher(args: {
   const specificityScore = scoreSpecificity(studentResponse, teacherResponse);
   const personalizationScore = scorePersonalization(studentResponse);
   const actionabilityScore = scoreActionability(studentResponse);
+
   const overallScore =
-    (personalityConsistent ? 1 : 0) * METRIC_WEIGHTS.personalityConsistency +
-    (validatorPassed ? 1 : 0) * METRIC_WEIGHTS.validatorPass +
-    (isGeneric ? 0 : 1) * METRIC_WEIGHTS.genericRate +
-    specificityScore * METRIC_WEIGHTS.specificity +
-    (taskMatch ? 1 : 0) * METRIC_WEIGHTS.taskMatch +
-    (modeMatch ? 1 : 0) * METRIC_WEIGHTS.modeMatch +
-    directnessScore * METRIC_WEIGHTS.directness;
-  const pass = overallScore >= PASS_THRESHOLD;
+    (personalityConsistent ? 1 : 0) * w.personalityConsistency +
+    (validatorPassed ? 1 : 0) * w.validatorPass +
+    (isGeneric ? 0 : 1) * w.genericRate +
+    specificityScore * w.specificity +
+    (taskMatch ? 1 : 0) * w.taskMatch +
+    (modeMatch ? 1 : 0) * w.modeMatch +
+    directnessScore * w.directness;
+
+  const pass = overallScore >= rubric.passThreshold;
+
   return {
-    taskMatch, modeMatch, validatorPassed, isGeneric, personalityConsistent,
+    taskCategory, taskMatch, modeMatch, validatorPassed, isGeneric, personalityConsistent,
     directnessScore, specificityScore, personalizationScore, actionabilityScore,
     overallScore, pass,
   };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// OpenAI call (raw fetch — no SDK, no server-only deps)
+// Multi-provider inference
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function callOpenAI(args: {
+type InferenceResult = { text: string; structured: Record<string, unknown> | null; latencyMs: number };
+
+function getProviderConfig(): { endpoint: string; apiKey: string; providerName: string } {
+  switch (PROVIDER) {
+    case "openai": {
+      const key = (process.env.OPENAI_API_KEY ?? "").trim();
+      if (!key) throw new Error("OPENAI_API_KEY is not set");
+      return { endpoint: "https://api.openai.com/v1/chat/completions", apiKey: key, providerName: "openai" };
+    }
+    case "together": {
+      const key = (process.env.TOGETHER_API_KEY ?? "").trim();
+      if (!key) throw new Error("TOGETHER_API_KEY is not set. Get one at https://api.together.xyz");
+      return { endpoint: "https://api.together.xyz/v1/chat/completions", apiKey: key, providerName: "together" };
+    }
+    case "local": {
+      const ep = (process.env.ENDPOINT ?? "http://localhost:8000/v1").trim();
+      return { endpoint: `${ep}/chat/completions`, apiKey: "local", providerName: "local" };
+    }
+    default:
+      throw new Error(`Unknown PROVIDER: ${PROVIDER}. Use openai, together, or local`);
+  }
+}
+
+async function callModel(args: {
   systemPrompt: string | null;
   userPrompt: string;
   requireJson: boolean;
   model: string;
-}): Promise<{ text: string; structured: Record<string, unknown> | null; latencyMs: number }> {
-  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+}): Promise<InferenceResult> {
+  const { endpoint, apiKey, providerName } = getProviderConfig();
 
   const messages: Array<{ role: string; content: string }> = [];
   if (args.systemPrompt?.trim()) {
@@ -229,40 +316,64 @@ async function callOpenAI(args: {
     temperature: 0.3,
     max_tokens: 2048,
   };
-  if (args.requireJson) {
+  if (args.requireJson && providerName !== "together") {
     payload.response_format = { type: "json_object" };
+  }
+  if (LORA_MODEL && providerName === "together") {
+    payload.lora = LORA_MODEL;
   }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const start = Date.now();
 
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+  const reqHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey !== "local") reqHeaders["Authorization"] = `Bearer ${apiKey}`;
+  const bodyStr = JSON.stringify(payload);
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`OpenAI ${res.status}: ${body.slice(0, 300)}`);
+  const MAX_RETRIES = 3;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: reqHeaders,
+        body: bodyStr,
+        signal: controller.signal,
+      });
+
+      if (res.status === 429 && attempt < MAX_RETRIES) {
+        const wait = (attempt + 1) * 2000;
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`${providerName} ${res.status}: ${body.slice(0, 300)}`);
+      }
+
+      const raw = await res.json();
+      const text = raw?.choices?.[0]?.message?.content?.trim() ?? "";
+      const latencyMs = Date.now() - start;
+
+      let structured: Record<string, unknown> | null = null;
+      if (args.requireJson && text) {
+        try {
+          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+          structured = JSON.parse(jsonMatch ? jsonMatch[1].trim() : text);
+        } catch { /* non-JSON response */ }
+      }
+
+      return { text, structured, latencyMs };
+    } catch (err) {
+      if (attempt < MAX_RETRIES && err instanceof Error && err.name === "AbortError") {
+        continue;
+      }
+      throw err;
     }
-
-    const raw = await res.json();
-    const text = raw?.choices?.[0]?.message?.content?.trim() ?? "";
-    const latencyMs = Date.now() - start;
-
-    let structured: Record<string, unknown> | null = null;
-    if (args.requireJson && text) {
-      try { structured = JSON.parse(text); } catch { /* non-JSON response */ }
-    }
-
-    return { text, structured, latencyMs };
-  } finally {
-    clearTimeout(timer);
   }
+  clearTimeout(timer);
+  throw new Error(`${providerName}: max retries exceeded`);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -272,6 +383,7 @@ async function callOpenAI(args: {
 type EvalCaseResult = {
   evalCaseId: string;
   taskType: string;
+  taskCategory: TaskCategory;
   domain: string;
   difficulty: string;
   studentResponse: string;
@@ -280,12 +392,49 @@ type EvalCaseResult = {
   metrics: StudentComparisonMetrics | null;
 };
 
+type DomainStats = {
+  count: number;
+  passRate: number;
+  personalityConsistencyRate: number;
+  genericRate: number;
+  taskMatchRate: number;
+  modeMatchRate: number;
+  avgOverallScore: number;
+};
+
+type TaskTypeStats = {
+  count: number;
+  taskCategory: TaskCategory;
+  passRate: number;
+  avgOverallScore: number;
+  taskMatchRate: number;
+  validatorPassRate: number;
+};
+
 type EvalReport = {
   model: string;
+  provider: string;
+  rubricVersion: "v2-task-aware";
   evaluatedAt: string;
   totalCases: number;
   completedCases: number;
   errorCases: number;
+  // Aggregate by task category
+  structured: {
+    count: number;
+    passRate: number;
+    taskMatchRate: number;
+    validatorPassRate: number;
+    avgOverallScore: number;
+  };
+  generation: {
+    count: number;
+    passRate: number;
+    personalityConsistencyRate: number;
+    genericRate: number;
+    avgOverallScore: number;
+  };
+  // Overall (for backward compat)
   overallPassRate: number;
   personalityConsistencyRate: number;
   genericRate: number;
@@ -293,25 +442,9 @@ type EvalReport = {
   modeMatchRate: number;
   validatorPassRate: number;
   avgOverallScore: number;
-  avgDirectness: number;
-  avgSpecificity: number;
-  avgPersonalization: number;
-  avgActionability: number;
   avgLatencyMs: number;
-  byDomain: Record<string, {
-    count: number;
-    passRate: number;
-    personalityConsistencyRate: number;
-    genericRate: number;
-    taskMatchRate: number;
-    modeMatchRate: number;
-    avgOverallScore: number;
-  }>;
-  byTaskType: Record<string, {
-    count: number;
-    passRate: number;
-    avgOverallScore: number;
-  }>;
+  byDomain: Record<string, DomainStats>;
+  byTaskType: Record<string, TaskTypeStats>;
   cases: EvalCaseResult[];
 };
 
@@ -322,14 +455,12 @@ async function runWithConcurrency<T, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let cursor = 0;
-
   async function worker() {
     while (cursor < items.length) {
       const idx = cursor++;
       results[idx] = await fn(items[idx], idx);
     }
   }
-
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
   return results;
 }
@@ -339,15 +470,15 @@ async function main() {
   const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!supabaseUrl || !serviceRole) throw new Error("missing: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY");
 
-  const apiKey = (process.env.OPENAI_API_KEY ?? "").trim();
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
+  // Validate provider config early
+  getProviderConfig();
 
   const supabase = createClient(supabaseUrl, serviceRole, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
   // ── Step 1: Load held-out eval cases ──────────────────────────────────────
-  console.log(`[eval] Loading held-out eval cases (model=${STUDENT_MODEL})...`);
+  console.log(`[eval] Loading held-out eval cases (provider=${PROVIDER} model=${STUDENT_MODEL})...`);
 
   let query = supabase
     .from("student_eval_cases")
@@ -367,18 +498,23 @@ async function main() {
     process.exit(0);
   }
 
-  console.log(`[eval] Loaded ${cases.length} cases. Running ${STUDENT_MODEL}...`);
+  // Count by category
+  const structuredCount = cases.filter((c) => classifyTask(c.task_type) === "structured").length;
+  const generationCount = cases.length - structuredCount;
+  console.log(`[eval] Loaded ${cases.length} cases (structured: ${structuredCount}, generation: ${generationCount})`);
+  console.log(`[eval] Running ${STUDENT_MODEL} via ${PROVIDER}...`);
 
   // ── Step 2: Run student model on each case ────────────────────────────────
   let completed = 0;
 
   const results = await runWithConcurrency(
     cases,
-    async (c, idx): Promise<EvalCaseResult> => {
-      const isStructured = c.task_type.includes("utterance_reading") || c.task_type.includes("prediction");
+    async (c): Promise<EvalCaseResult> => {
+      const taskCategory = classifyTask(c.task_type);
+      const isStructured = taskCategory === "structured";
 
       try {
-        const { text, structured, latencyMs } = await callOpenAI({
+        const { text, structured, latencyMs } = await callModel({
           systemPrompt: c.system_prompt,
           userPrompt: c.prompt_text,
           requireJson: isStructured,
@@ -400,33 +536,23 @@ async function main() {
         }
 
         return {
-          evalCaseId: c.id,
-          taskType: c.task_type,
-          domain: c.domain,
-          difficulty: c.difficulty,
-          studentResponse: text,
-          studentLatencyMs: latencyMs,
-          studentError: null,
-          metrics,
+          evalCaseId: c.id, taskType: c.task_type, taskCategory, domain: c.domain,
+          difficulty: c.difficulty, studentResponse: text, studentLatencyMs: latencyMs,
+          studentError: null, metrics,
         };
       } catch (err) {
         completed++;
         return {
-          evalCaseId: c.id,
-          taskType: c.task_type,
-          domain: c.domain,
-          difficulty: c.difficulty,
-          studentResponse: "",
-          studentLatencyMs: 0,
-          studentError: err instanceof Error ? err.message : String(err),
-          metrics: null,
+          evalCaseId: c.id, taskType: c.task_type, taskCategory, domain: c.domain,
+          difficulty: c.difficulty, studentResponse: "", studentLatencyMs: 0,
+          studentError: err instanceof Error ? err.message : String(err), metrics: null,
         };
       }
     },
     CONCURRENCY,
   );
 
-  console.log(""); // newline after progress
+  console.log("");
 
   // ── Step 3: Aggregate metrics ─────────────────────────────────────────────
   const completedResults = results.filter((r) => r.metrics !== null);
@@ -444,9 +570,13 @@ async function main() {
     return valid.reduce((sum, r) => sum + fn(r.metrics!), 0) / valid.length;
   }
 
+  // Split by category
+  const structuredResults = results.filter((r) => r.taskCategory === "structured");
+  const generationResults = results.filter((r) => r.taskCategory === "generation");
+
   // Domain breakdown
   const domains = [...new Set(results.map((r) => r.domain))];
-  const byDomain: EvalReport["byDomain"] = {};
+  const byDomain: Record<string, DomainStats> = {};
   for (const d of domains) {
     const subset = results.filter((r) => r.domain === d);
     byDomain[d] = {
@@ -462,22 +592,41 @@ async function main() {
 
   // Task type breakdown
   const taskTypes = [...new Set(results.map((r) => r.taskType))];
-  const byTaskType: EvalReport["byTaskType"] = {};
+  const byTaskType: Record<string, TaskTypeStats> = {};
   for (const tt of taskTypes) {
     const subset = results.filter((r) => r.taskType === tt);
     byTaskType[tt] = {
       count: subset.length,
+      taskCategory: classifyTask(tt),
       passRate: rate(subset, (m) => m.pass),
       avgOverallScore: avg(subset, (m) => m.overallScore),
+      taskMatchRate: rate(subset, (m) => m.taskMatch),
+      validatorPassRate: rate(subset, (m) => m.validatorPassed),
     };
   }
 
   const report: EvalReport = {
     model: STUDENT_MODEL,
+    provider: PROVIDER,
+    rubricVersion: "v2-task-aware",
     evaluatedAt: new Date().toISOString(),
     totalCases: results.length,
     completedCases: completedResults.length,
     errorCases: errorResults.length,
+    structured: {
+      count: structuredResults.length,
+      passRate: rate(structuredResults, (m) => m.pass),
+      taskMatchRate: rate(structuredResults, (m) => m.taskMatch),
+      validatorPassRate: rate(structuredResults, (m) => m.validatorPassed),
+      avgOverallScore: avg(structuredResults, (m) => m.overallScore),
+    },
+    generation: {
+      count: generationResults.length,
+      passRate: rate(generationResults, (m) => m.pass),
+      personalityConsistencyRate: rate(generationResults, (m) => m.personalityConsistent),
+      genericRate: rate(generationResults, (m) => m.isGeneric),
+      avgOverallScore: avg(generationResults, (m) => m.overallScore),
+    },
     overallPassRate: rate(results, (m) => m.pass),
     personalityConsistencyRate: rate(results, (m) => m.personalityConsistent),
     genericRate: rate(results, (m) => m.isGeneric),
@@ -485,10 +634,6 @@ async function main() {
     modeMatchRate: rate(results, (m) => m.modeMatch),
     validatorPassRate: rate(results, (m) => m.validatorPassed),
     avgOverallScore: avg(results, (m) => m.overallScore),
-    avgDirectness: avg(results, (m) => m.directnessScore),
-    avgSpecificity: avg(results, (m) => m.specificityScore),
-    avgPersonalization: avg(results, (m) => m.personalizationScore),
-    avgActionability: avg(results, (m) => m.actionabilityScore),
     avgLatencyMs: completedResults.length > 0
       ? completedResults.reduce((s, r) => s + r.studentLatencyMs, 0) / completedResults.length
       : 0,
@@ -510,7 +655,8 @@ async function main() {
   const f2 = (v: number) => v.toFixed(2);
 
   console.log("\n" + "=".repeat(65));
-  console.log(`  Baseline Eval Report — ${STUDENT_MODEL}`);
+  console.log(`  Eval Report — ${STUDENT_MODEL} via ${PROVIDER}`);
+  console.log(`  Rubric: v2-task-aware (structured vs generation)`);
   console.log("=".repeat(65));
   console.log(`  Evaluated at:        ${report.evaluatedAt}`);
   console.log(`  Total cases:         ${report.totalCases}`);
@@ -518,33 +664,37 @@ async function main() {
   console.log(`  Errors:              ${report.errorCases}`);
   console.log(`  Avg latency:         ${report.avgLatencyMs.toFixed(0)}ms`);
 
-  console.log("\n── Core Metrics ──────────────────────────────────────────");
-  console.log(`  Overall pass rate:          ${pct(report.overallPassRate)}`);
-  console.log(`  Avg overall score:          ${f2(report.avgOverallScore)}`);
-  console.log(`  Personality consistency:    ${pct(report.personalityConsistencyRate)}`);
-  console.log(`  Generic rate:               ${pct(report.genericRate)}`);
-  console.log(`  Task match:                 ${pct(report.taskMatchRate)}`);
-  console.log(`  Mode match:                 ${pct(report.modeMatchRate)}`);
-  console.log(`  Validator pass:             ${pct(report.validatorPassRate)}`);
+  console.log("\n── Structured Tasks (classification/JSON) ────────────────");
+  console.log(`  Cases:               ${report.structured.count}`);
+  console.log(`  Pass rate:           ${pct(report.structured.passRate)}`);
+  console.log(`  Task match:          ${pct(report.structured.taskMatchRate)}`);
+  console.log(`  Validator pass:      ${pct(report.structured.validatorPassRate)}`);
+  console.log(`  Avg score:           ${f2(report.structured.avgOverallScore)}`);
 
-  console.log("\n── Granular Scores ───────────────────────────────────────");
-  console.log(`  Avg directness:             ${f2(report.avgDirectness)}`);
-  console.log(`  Avg specificity:            ${f2(report.avgSpecificity)}`);
-  console.log(`  Avg personalization:        ${f2(report.avgPersonalization)}`);
-  console.log(`  Avg actionability:          ${f2(report.avgActionability)}`);
+  console.log("\n── Generation Tasks (free text / Alter voice) ────────────");
+  console.log(`  Cases:               ${report.generation.count}`);
+  console.log(`  Pass rate:           ${pct(report.generation.passRate)}`);
+  console.log(`  Personality:         ${pct(report.generation.personalityConsistencyRate)}`);
+  console.log(`  Generic rate:        ${pct(report.generation.genericRate)}`);
+  console.log(`  Avg score:           ${f2(report.generation.avgOverallScore)}`);
+
+  console.log("\n── Overall ───────────────────────────────────────────────");
+  console.log(`  Pass rate:           ${pct(report.overallPassRate)}`);
+  console.log(`  Avg score:           ${f2(report.avgOverallScore)}`);
 
   console.log("\n── By Domain ─────────────────────────────────────────────");
-  console.log(`  ${"Domain".padEnd(22)} ${"N".padStart(4)}  ${"Pass".padStart(6)}  ${"Person".padStart(6)}  ${"Generic".padStart(7)}  ${"Task".padStart(6)}  ${"Mode".padStart(6)}  ${"Score".padStart(6)}`);
+  console.log(`  ${"Domain".padEnd(22)} ${"N".padStart(4)}  ${"Pass".padStart(6)}  ${"Person".padStart(6)}  ${"Task".padStart(6)}  ${"Score".padStart(6)}`);
   for (const [d, s] of Object.entries(byDomain).sort((a, b) => b[1].count - a[1].count)) {
     console.log(
-      `  ${d.padEnd(22)} ${String(s.count).padStart(4)}  ${pct(s.passRate).padStart(6)}  ${pct(s.personalityConsistencyRate).padStart(6)}  ${pct(s.genericRate).padStart(7)}  ${pct(s.taskMatchRate).padStart(6)}  ${pct(s.modeMatchRate).padStart(6)}  ${f2(s.avgOverallScore).padStart(6)}`,
+      `  ${d.padEnd(22)} ${String(s.count).padStart(4)}  ${pct(s.passRate).padStart(6)}  ${pct(s.personalityConsistencyRate).padStart(6)}  ${pct(s.taskMatchRate).padStart(6)}  ${f2(s.avgOverallScore).padStart(6)}`,
     );
   }
 
   console.log("\n── By Task Type ──────────────────────────────────────────");
-  console.log(`  ${"Task Type".padEnd(45)} ${"N".padStart(4)}  ${"Pass".padStart(6)}  ${"Score".padStart(6)}`);
+  console.log(`  ${"Task Type".padEnd(45)} ${"Cat".padStart(5)} ${"N".padStart(4)}  ${"Pass".padStart(6)}  ${"Task".padStart(6)}  ${"Score".padStart(6)}`);
   for (const [tt, s] of Object.entries(byTaskType).sort((a, b) => b[1].count - a[1].count)) {
-    console.log(`  ${tt.padEnd(45)} ${String(s.count).padStart(4)}  ${pct(s.passRate).padStart(6)}  ${f2(s.avgOverallScore).padStart(6)}`);
+    const cat = s.taskCategory === "structured" ? "STR" : "GEN";
+    console.log(`  ${tt.padEnd(45)} ${cat.padStart(5)} ${String(s.count).padStart(4)}  ${pct(s.passRate).padStart(6)}  ${pct(s.taskMatchRate).padStart(6)}  ${f2(s.avgOverallScore).padStart(6)}`);
   }
 
   if (errorResults.length > 0) {
@@ -552,9 +702,7 @@ async function main() {
     for (const r of errorResults.slice(0, 5)) {
       console.log(`  ${r.evalCaseId.slice(0, 8)} ${r.taskType}: ${r.studentError}`);
     }
-    if (errorResults.length > 5) {
-      console.log(`  ... and ${errorResults.length - 5} more`);
-    }
+    if (errorResults.length > 5) console.log(`  ... and ${errorResults.length - 5} more`);
   }
 
   console.log("\n" + "=".repeat(65));

@@ -1171,7 +1171,7 @@ describe("C3: buildJudgmentSkeleton", () => {
 
 // ── C4: Layer 2b — buildSkeletonPromptBlock ──
 describe("C4: buildSkeletonPromptBlock", () => {
-  it("conclude 骨格はプロンプトブロックに変換される", () => {
+  it("conclude 骨格は内面語ブロックに変換される", () => {
     const msg = "上司に報告すべき？";
     const qc = analyzeQueryContext(msg);
     const lens = extractRelationalLens(msg);
@@ -1180,10 +1180,10 @@ describe("C4: buildSkeletonPromptBlock", () => {
     const skeleton = buildJudgmentSkeleton(framework, qc, lens, iu, "conclude");
     const block = buildSkeletonPromptBlock(skeleton);
 
-    expect(block).toContain("判断骨格");
-    expect(block).toContain("行動の形");
-    expect(block).toContain("主理由");
-    expect(block).toContain("骨格にない新情報を勝手に足さない");
+    expect(block).toContain("僕の中で動いているもの");
+    expect(block).toContain("感覚の根拠");
+    expect(block).toContain("引っかかっているところ");
+    expect(block).toContain("この感覚と矛盾する方向に応答しない");
   });
 
   it("clarify 骨格は空文字列を返す", () => {
@@ -1198,7 +1198,7 @@ describe("C4: buildSkeletonPromptBlock", () => {
     expect(block).toBe("");
   });
 
-  it("low confidence 骨格は断定禁止の警告を含む", () => {
+  it("low confidence 骨格は柔らかい文体ルールを含む", () => {
     const msg = "どうしたらいい";
     const qc = analyzeQueryContext(msg);
     const lens = extractRelationalLens(msg);
@@ -1208,10 +1208,9 @@ describe("C4: buildSkeletonPromptBlock", () => {
     const skeleton = buildJudgmentSkeleton(framework, qc, lens, iu, "conclude");
     const block = buildSkeletonPromptBlock(skeleton);
 
-    expect(block).toContain("確信度: LOW");
-    expect(block).toContain("断定口調は完全禁止");
-    expect(block).toContain("絶対");
-    expect(block).toContain("間違いなく");
+    expect(block).toContain("まだ掴みきれていない");
+    expect(block).toContain("断定は避ける");
+    expect(block).toContain("可能性が高い");
   });
 
   it("medium confidence 骨格は断定しすぎない文体ルールを含む", () => {
@@ -1224,10 +1223,10 @@ describe("C4: buildSkeletonPromptBlock", () => {
     const skeleton = buildJudgmentSkeleton(framework, qc, lens, iu, "conclude");
     const block = buildSkeletonPromptBlock(skeleton);
 
-    expect(block).toContain("確信度: MEDIUM");
+    expect(block).toContain("まだ全部は見えていない");
     expect(block).toContain("断定しすぎない");
     expect(block).toContain("今の情報だと");
-    expect(block).toContain("よさそうです");
+    expect(block).toContain("よさそう");
   });
 });
 

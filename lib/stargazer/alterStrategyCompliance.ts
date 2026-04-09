@@ -274,11 +274,29 @@ export function assessRally(
   }
 
   // ── ユーザー離脱兆候 ──
+  // ガード: 会話開始直後（ユーザー発話4ターン未満）は短文=離脱と判定しない。
+  // 挨拶・雑談開始・近況報告は自然に短いため、会話が十分積み重なってから判定する。
+  // ガード2: 短文でも質問・意思表明・話題提供はエンゲージメントの証拠。
+  //   「明日は何をすればいいかな？」(14文字) は離脱ではない。
   let disengaging = false;
-  if (userTurns.length >= 2) {
+  if (userTurns.length >= 4) {
     const lastTwo = userTurns.slice(-2).map(t => t.content);
-    const shortening = lastTwo.every(t => t.length < 15);
-    if (shortening) disengaging = true;
+    const disengagedShort = lastTwo.filter(t => {
+      if (t.length >= 15) return false; // 短くない → disengaging 根拠にならない
+      // 短いが質問・意思表明・話題提供 → engaged
+      if (/[？?]$/.test(t.trim())) return false;
+      if (/(?:したい|やりたい|なりたい|ほしい|つもり|しようと|するつもり|始め[たよ]|決め[たよ])/.test(t)) return false;
+      if (/(?:があった|してきた|だった|なんだ[よけ]|んだよ[ね。]?|できた|進展|変化|出来事)/.test(t)) return false;
+      if (/(?:嬉し|楽し|つら|辛|悲し|疲れ|しんどい|きつい|怖い|不安|心配|イライラ|ムカつ|腹立)/.test(t)) return false;
+      // 挨拶は短くても離脱ではない
+      if (/^(おはよう?|こんにち[はわ]|こんばん[はわw]|やっほ|ただいま|おつ[かー]|お疲れ|おっす|よお|ども|やあ|ねえ|ひさしぶり|久しぶり|おう|はろー|ハロー|ういーっす|ちわ|ばんわ|おつです)/.test(t.trim())) return false;
+      // 命令・要求: 「教えて」「聞いて」等は engaged。ただし「好きにして」「勝手にやって」は拒絶
+      if (/(?:教えて|聞いて|答えて|考えて|見て)[。！!]?$/.test(t.trim())) return false;
+      if (/(?:好き|勝手|放って?おい|ほっとい|黙って)/.test(t)) return true; // 拒絶 → disengaging
+      if (/(?:して|やって)[。！!]?$/.test(t.trim()) && t.length <= 8) return false;
+      return true; // 短くてエンゲージメントシグナルもない → disengaging 根拠
+    });
+    if (disengagedShort.length >= 2) disengaging = true;
   }
 
   // ── 同一テーマ継続 ──

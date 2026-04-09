@@ -560,20 +560,20 @@ describe("Q6: 不確実性キャリブレーション", () => {
     expect(rate).toBeGreaterThanOrEqual(0.7);
   });
 
-  it("low confidence の骨格ブロックには「断定口調は禁止」が入る", () => {
+  it("low confidence の骨格ブロックには柔らかい文体指示が入る", () => {
     let lowConfCases = 0;
     let withWarning = 0;
     for (const tc of AUDIT_CASES) {
       const p = runPipeline(tc.input);
       if (p.skeleton.confidence_level === "low" && p.mode === "conclude") {
         lowConfCases++;
-        if (p.skeletonBlock.includes("断定口調は完全禁止")) withWarning++;
+        if (p.skeletonBlock.includes("まだ掴みきれていない")) withWarning++;
       }
     }
     if (lowConfCases > 0) {
       expect(withWarning).toBe(lowConfCases);
     }
-    console.log(`[Q6] Low confidence + warning: ${withWarning}/${lowConfCases}`);
+    console.log(`[Q6] Low confidence + soft tone: ${withWarning}/${lowConfCases}`);
   });
 });
 

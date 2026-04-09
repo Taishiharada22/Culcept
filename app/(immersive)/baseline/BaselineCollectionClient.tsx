@@ -7,11 +7,12 @@ import { useRouter } from "next/navigation";
 /**
  * ④-A: ベースライン収集 UI
  *
- * 4 ステップ:
+ * 5 ステップ:
  * 1. 生年月日（ライフステージ導出用）
  * 2. 性別（4択 + prefer_not_to_say）
  * 3. 居住地（都道府県 + 市区町村）
- * 4. 確認
+ * 4. 職業（10カテゴリ + 詳細任意入力）
+ * 5. 確認
  *
  * 設計原則:
  * - 全項目「答えない」を選択可能
@@ -39,8 +40,118 @@ const REGION_GROUPS: { label: string; prefectures: string[] }[] = [
   { label: "九州・沖縄", prefectures: ["福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"] },
 ];
 
-type Step = "dob" | "gender" | "location" | "confirm";
-const STEPS: Step[] = ["dob", "gender", "location", "confirm"];
+const OCCUPATION_CATEGORIES = [
+  {
+    category: "leadership",
+    label: "経営・マネジメント",
+    icon: "👑",
+    jobs: [
+      { id: "ceo", label: "経営者・社長" },
+      { id: "manager", label: "マネージャー・管理職" },
+      { id: "project_manager", label: "プロジェクトマネージャー" },
+    ],
+  },
+  {
+    category: "creative",
+    label: "クリエイティブ",
+    icon: "🎨",
+    jobs: [
+      { id: "designer", label: "デザイナー" },
+      { id: "writer", label: "ライター・編集者" },
+      { id: "content_creator", label: "コンテンツクリエイター" },
+      { id: "musician_artist", label: "アーティスト・音楽家" },
+      { id: "ux_designer", label: "UXデザイナー" },
+    ],
+  },
+  {
+    category: "analytical",
+    label: "分析・研究",
+    icon: "🔬",
+    jobs: [
+      { id: "researcher", label: "研究者・アナリスト" },
+      { id: "data_scientist", label: "データサイエンティスト" },
+      { id: "strategist", label: "戦略コンサルタント" },
+    ],
+  },
+  {
+    category: "social",
+    label: "対人・コミュニケーション",
+    icon: "🤝",
+    jobs: [
+      { id: "sales", label: "営業" },
+      { id: "marketing", label: "マーケティング" },
+      { id: "hr", label: "人事・採用" },
+      { id: "public_relations", label: "広報・PR" },
+      { id: "community_manager", label: "コミュニティマネージャー" },
+    ],
+  },
+  {
+    category: "operational",
+    label: "実務・管理",
+    icon: "📋",
+    jobs: [
+      { id: "admin", label: "事務・総務" },
+      { id: "accountant", label: "経理・財務" },
+      { id: "legal", label: "法務・コンプライアンス" },
+    ],
+  },
+  {
+    category: "technical",
+    label: "技術・専門",
+    icon: "⚙️",
+    jobs: [
+      { id: "engineer", label: "エンジニア・開発者" },
+      { id: "product_manager", label: "プロダクトマネージャー" },
+      { id: "ai_ml_engineer", label: "AI・機械学習エンジニア" },
+      { id: "craftsperson", label: "職人・技術者" },
+      { id: "growth_hacker", label: "グロースハッカー" },
+    ],
+  },
+  {
+    category: "care",
+    label: "ケア・教育",
+    icon: "🌱",
+    jobs: [
+      { id: "teacher", label: "教師・講師" },
+      { id: "counselor", label: "カウンセラー・相談員" },
+      { id: "nurse_care", label: "看護・介護" },
+    ],
+  },
+  {
+    category: "independent",
+    label: "独立・フリーランス",
+    icon: "🦅",
+    jobs: [
+      { id: "entrepreneur", label: "起業家・スタートアップ" },
+      { id: "freelancer", label: "フリーランス・個人事業主" },
+      { id: "investor", label: "投資家・トレーダー" },
+    ],
+  },
+  {
+    category: "specialist",
+    label: "専門職・士業",
+    icon: "📜",
+    jobs: [
+      { id: "doctor", label: "医師" },
+      { id: "lawyer", label: "弁護士" },
+      { id: "tax_accountant", label: "税理士・公認会計士" },
+    ],
+  },
+  {
+    category: "other",
+    label: "その他",
+    icon: "💼",
+    jobs: [
+      { id: "student", label: "学生" },
+      { id: "homemaker", label: "主婦・主夫" },
+      { id: "job_seeking", label: "求職中・休職中" },
+      { id: "other", label: "その他" },
+    ],
+  },
+] as const;
+
+type Step = "dob" | "gender" | "location" | "occupation" | "confirm";
+const STEPS: Step[] = ["dob", "gender", "location", "occupation", "confirm"];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Component
@@ -64,6 +175,9 @@ export default function BaselineCollectionClient({ userName }: Props) {
   const [prefecture, setPrefecture] = useState<string | null>(null);
   const [city, setCity] = useState("");
   const [skipLocation, setSkipLocation] = useState(false);
+  const [occupation, setOccupation] = useState<string | null>(null);
+  const [occupationDetail, setOccupationDetail] = useState("");
+  const [skipOccupation, setSkipOccupation] = useState(false);
 
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => {
@@ -77,6 +191,7 @@ export default function BaselineCollectionClient({ userName }: Props) {
   const dobValid = skipDob || (birthYear !== null && birthMonth !== null && birthDay !== null);
   const genderValid = gender !== null;
   const locationValid = skipLocation || prefecture !== null;
+  const occupationValid = skipOccupation || occupation !== null;
 
   const stepIndex = STEPS.indexOf(step);
 
@@ -93,6 +208,10 @@ export default function BaselineCollectionClient({ userName }: Props) {
       if (!skipLocation && prefecture) {
         payload.prefecture = prefecture;
         if (city.trim()) payload.city = city.trim();
+      }
+      if (!skipOccupation && occupation) {
+        payload.occupation = occupation;
+        if (occupationDetail.trim()) payload.occupationDetail = occupationDetail.trim();
       }
 
       const res = await fetch("/api/baseline", {
@@ -113,13 +232,14 @@ export default function BaselineCollectionClient({ userName }: Props) {
         return;
       }
 
-      router.push("/");
+      // baseline完了後はStargazer質問フローへ（18問が既完了なら QuestionFlow から、未完了なら頭から）
+      router.push("/stargazer");
       router.refresh();
     } catch (err) {
       console.error("[baseline] submit error:", err);
       setSaving(false);
     }
-  }, [skipDob, birthYear, birthMonth, birthDay, gender, skipLocation, prefecture, city, router]);
+  }, [skipDob, birthYear, birthMonth, birthDay, gender, skipLocation, prefecture, city, skipOccupation, occupation, occupationDetail, router]);
 
   const goNext = useCallback(() => {
     const i = STEPS.indexOf(step);
@@ -177,8 +297,8 @@ export default function BaselineCollectionClient({ userName }: Props) {
               width: step === s ? 24 : 8,
               background:
                 i < stepIndex ? "rgba(139,92,246,0.5)"
-                : step === s ? "linear-gradient(90deg, #8b5cf6, #06b6d4)"
-                : "rgba(0,0,0,0.1)",
+                  : step === s ? "linear-gradient(90deg, #8b5cf6, #06b6d4)"
+                    : "rgba(0,0,0,0.1)",
             }}
             layout
             transition={{ duration: 0.3 }}
@@ -193,7 +313,7 @@ export default function BaselineCollectionClient({ userName }: Props) {
           {step === "dob" && (
             <StepContainer key="dob">
               <GlassPanel>
-                <StepTitle>{greeting}あなたのことを少し教えてください</StepTitle>
+                <StepTitle>{greeting}まずは、あなた自身のことを少し教えてください</StepTitle>
                 <StepDescription>
                   Alter があなたの判断を支えるために、ライフステージを理解する必要があります。
                   年齢が分かれば、キャリア・人間関係・健康の文脈がより正確になります。
@@ -362,7 +482,88 @@ export default function BaselineCollectionClient({ userName }: Props) {
             </StepContainer>
           )}
 
-          {/* ──────────── Step 4: 確認 ──────────── */}
+          {/* ──────────── Step 4: 職業 ──────────── */}
+          {step === "occupation" && (
+            <StepContainer key="occupation">
+              <GlassPanel>
+                <StepTitle>お仕事を教えてください</StepTitle>
+                <StepDescription>
+                  あなたの職業を理解することで、キャリア適性やストレス要因の分析がより正確になります。
+                </StepDescription>
+
+                {!skipOccupation ? (
+                  <>
+                    <div className="mt-5 max-h-[300px] overflow-y-auto rounded-xl bg-slate-50/50 scrollbar-thin">
+                      {OCCUPATION_CATEGORIES.map((group) => (
+                        <div key={group.category}>
+                          <div className="sticky top-0 z-10 bg-slate-50/90 px-4 py-1.5 text-[10px] font-bold tracking-widest text-violet-500/70 uppercase backdrop-blur-sm">
+                            {group.icon} {group.label}
+                          </div>
+                          <div className="grid grid-cols-2 gap-1 px-2 pb-2">
+                            {group.jobs.map((job) => (
+                              <button
+                                key={job.id}
+                                type="button"
+                                onClick={() => setOccupation(job.id)}
+                                className={`
+                                  rounded-lg px-2 py-2.5 text-xs font-medium transition-all duration-150
+                                  ${occupation === job.id
+                                    ? "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700 font-bold border border-violet-300 shadow-sm"
+                                    : "text-slate-400 hover:bg-white hover:text-slate-600 border border-transparent"
+                                  }
+                                `}
+                              >
+                                {job.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Detail input after selection */}
+                    <AnimatePresence>
+                      {occupation && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-4">
+                            <label className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+                              具体的な役職・専門分野（任意）
+                            </label>
+                            <input
+                              type="text"
+                              value={occupationDetail}
+                              onChange={(e) => setOccupationDetail(e.target.value)}
+                              placeholder="例: フロントエンド / 小児科 / 税務"
+                              className="mt-2 w-full rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-700 placeholder-slate-300 outline-none backdrop-blur-sm transition-all focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </>
+                ) : (
+                  <SkippedBadge />
+                )}
+
+                <SkipToggle active={skipOccupation} onToggle={() => {
+                  setSkipOccupation(!skipOccupation);
+                  if (!skipOccupation) { setOccupation(null); setOccupationDetail(""); }
+                }} />
+
+                <div className="mt-4 flex gap-2">
+                  <SecondaryButton onClick={goBack}>戻る</SecondaryButton>
+                  <PrimaryButton disabled={!occupationValid} onClick={goNext} className="flex-1">次へ</PrimaryButton>
+                </div>
+              </GlassPanel>
+            </StepContainer>
+          )}
+
+          {/* ──────────── Step 5: 確認 ──────────── */}
           {step === "confirm" && (
             <StepContainer key="confirm">
               <GlassPanel>
@@ -384,6 +585,17 @@ export default function BaselineCollectionClient({ userName }: Props) {
                     skipLocation ? "未入力" : (
                       prefecture
                         ? city.trim() ? `${prefecture} ${city.trim()}` : prefecture
+                        : "未入力"
+                    )
+                  } />
+                  <SummaryRow label="職業" value={
+                    skipOccupation ? "未入力" : (
+                      occupation
+                        ? (() => {
+                          const job = OCCUPATION_CATEGORIES.flatMap(g => g.jobs).find(j => j.id === occupation);
+                          const label = job?.label ?? "未入力";
+                          return occupationDetail.trim() ? `${label}（${occupationDetail.trim()}）` : label;
+                        })()
                         : "未入力"
                     )
                   } />

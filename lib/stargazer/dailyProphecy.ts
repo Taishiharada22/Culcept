@@ -1141,7 +1141,8 @@ export function generatePrediction(
 ): { text: string; basis: ProphecyBasis; alternative: string; scenarioId: string } {
   const weekday = WEEKDAY_CONTEXTS[dayOfWeek ?? new Date().getDay()] ?? WEEKDAY_CONTEXTS[1];
   const archMod = getArchetypeModifier(archetype);
-  const scenarios = SCENARIO_MAP[category];
+  // Guard: category が SCENARIO_MAP に存在しない場合（例: "impulse"）は "decision" にフォールバック
+  const scenarios = SCENARIO_MAP[category] ?? SCENARIO_MAP["decision"];
 
   // Date-dependent deterministic selection
   const dateStr = targetDate ?? toISODate(new Date());

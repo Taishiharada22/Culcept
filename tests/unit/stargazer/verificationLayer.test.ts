@@ -36,6 +36,8 @@ import type { QuestionType, ResponseMode } from "@/lib/stargazer/alterHomeAdapte
 describe("detectRupture()", () => {
   const baseInput: RuptureDetectionInput = {
     recentMessages: [
+      { role: "assistant", content: "最初の話題について話そう" },
+      { role: "user", content: "最近ちょっと悩んでることがあって" },
       { role: "assistant", content: "君の中に矛盾が見えるよ" },
       { role: "user", content: "そうだね" },
       { role: "assistant", content: "もう少し深く話してみよう" },
@@ -46,15 +48,35 @@ describe("detectRupture()", () => {
     recentFeedbacks: [],
   };
 
-  it("短い同意メッセージ + neutral streak → withdrawal 検出", () => {
+  it("短い同意メッセージ + neutral streak + ignoring → withdrawal 検出", () => {
+    // 注意: session opening ガード (recentMessages.length < 6) を超える6メッセージ
+    // + compliance_word ("うん") + neutral streak + ignoring で閾値超え
     const result = detectRupture({
       ...baseInput,
-      recentFeedbacks: ["neutral", "neutral"],
+      recentFeedbacks: ["ignoring", "neutral"],
     });
     expect(result.type).toBe("withdrawal");
     expect(result.severity).toBeGreaterThan(0);
     expect(result.repairStrategy).not.toBeNull();
     expect(result.triggers.length).toBeGreaterThan(0);
+  });
+
+  it("短くてもエンゲージメントのあるメッセージは withdrawal にならない", () => {
+    const result = detectRupture({
+      recentMessages: [
+        { role: "assistant", content: "最初の話題について話そう" },
+        { role: "user", content: "仕事どうしよう" },
+        { role: "assistant", content: "もう少し教えて" },
+        { role: "user", content: "起業したい" },
+        { role: "assistant", content: "それは面白いね" },
+        { role: "user", content: "何がいい？" },
+      ],
+      turnSignal: null,
+      rallyCritic: null,
+      recentFeedbacks: ["neutral", "neutral"],
+    });
+    // 短文だが質問・意思表明 → engaged → consecutive_short_messages が発火しない
+    expect(result.type).toBe("none");
   });
 
   it("user_disengaging + ignoring → withdrawal (高 severity)", () => {

@@ -5,6 +5,7 @@ import { maybeGenerateTeacherOutput } from "./eval";
 import { logAiRun } from "./logging";
 import { resolveModelSelection, toModelSelectionMetadata } from "./modelSelection";
 import { runGemini } from "./providers/gemini";
+import { runOpenAI } from "./providers/openai";
 import { resolveRouterDecision } from "./router";
 import { isStargazerStudentTask } from "@/lib/stargazer/studentTrack";
 import { maybeRunStargazerShadow } from "@/lib/stargazer/shadowRun";
@@ -92,6 +93,12 @@ async function executeProvider(
     });
   }
 
+  if (provider === "openai") {
+    return runOpenAI(request, {
+      model: modelOverride || undefined,
+    });
+  }
+
   throw new AIProviderError({
     provider: PRIMARY_AI_PROVIDER,
     code: "provider_disabled",
@@ -108,7 +115,10 @@ function toStructuredOrNull(
   return value as Record<string, unknown> | unknown[];
 }
 
-function defaultModelForProvider(_provider: AIProviderName): string {
+function defaultModelForProvider(provider: AIProviderName): string {
+  if (provider === "openai") {
+    return (process.env.OPENAI_MODEL_DEFAULT ?? "gpt-4o-mini").trim();
+  }
   return (
     process.env.GEMINI_MODEL_DEFAULT ??
     process.env.GEMINI_MODEL ??
@@ -367,39 +377,43 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
   }
 
   if (aiRunId) {
-    // All Gemini tasks generate teacher outputs for student learning
+    // Universal student learning: ALL AI calls generate teacher outputs
+    // so the student LLM can learn from every Gemini/OpenAI interaction.
+    // Fire-and-forget: teacher eval + shadow runs do not block the response.
     const teacherOutputPromise = maybeGenerateTeacherOutput({
       aiRunId,
       params: effectiveParams,
       result,
-    });
+    }).catch(err => console.warn("[ai/eval] teacher generation failed (background):", err));
 
-    // Domain-specific shadow runs still use their whitelists
+    // Domain-specific shadow runs compare primary vs shadow model outputs
+    // Chained via .then() so they run after teacher output completes, but never block runAI()
     if (isStargazerStudentTask(effectiveParams.taskType)) {
-      await teacherOutputPromise;
-      await maybeRunStargazerShadow({
-        params: effectiveParams,
-        primaryAiRunId: aiRunId,
-        primaryResult: result,
-      });
+      teacherOutputPromise.then(() =>
+        maybeRunStargazerShadow({
+          params: effectiveParams,
+          primaryAiRunId: aiRunId,
+          primaryResult: result,
+        }),
+      ).catch(err => console.warn("[ai/eval] stargazer shadow failed (background):", err));
     } else if (isOrbiterStudentTask(effectiveParams.taskType)) {
-      await teacherOutputPromise;
-      await maybeRunOrbiterShadow({
-        params: effectiveParams,
-        primaryAiRunId: aiRunId,
-        primaryResult: result,
-      });
+      teacherOutputPromise.then(() =>
+        maybeRunOrbiterShadow({
+          params: effectiveParams,
+          primaryAiRunId: aiRunId,
+          primaryResult: result,
+        }),
+      ).catch(err => console.warn("[ai/eval] orbiter shadow failed (background):", err));
     } else if (isIdentityStudentTask(effectiveParams.taskType)) {
-      await teacherOutputPromise;
-      await maybeRunIdentityShadow({
-        params: effectiveParams,
-        primaryAiRunId: aiRunId,
-        primaryResult: result,
-      });
-    } else {
-      // For non-domain-specific tasks, still await teacher output (non-blocking OK)
-      void teacherOutputPromise;
+      teacherOutputPromise.then(() =>
+        maybeRunIdentityShadow({
+          params: effectiveParams,
+          primaryAiRunId: aiRunId,
+          primaryResult: result,
+        }),
+      ).catch(err => console.warn("[ai/eval] identity shadow failed (background):", err));
     }
+    // Non-domain tasks: teacher output already fire-and-forget above
   }
 
   return result;

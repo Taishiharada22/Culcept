@@ -1,44 +1,60 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 import AneurasyncHome from "../AneurasyncHome";
 
+/**
+ * / の役割を1つに固定:
+ *   "ログイン済み & baseline済み & stargazer初回観測済み" のユーザーのみ表示
+ *
+ * それ以外は全て以下の単一ルールで分岐:
+ *   未ログイン + 登録済みcookie → /login（登録済みユーザーを静かにログインへ）
+ *   未ログイン + cookie なし   → /stargazer（新規ユーザーをオンボーディングへ）
+ *   匿名ユーザー               → /stargazer（初回観測完了まで）
+ *   baseline 未完了            → /baseline
+ *   stargazer 初回観測未完了   → /stargazer（QuestionFlowまたは最初から）
+ */
 export default async function HomePage() {
-    let isLoggedIn = false;
-    let isAnonymous = true;
-    let baselineCompleted = false;
-
     try {
         const supabase = await supabaseServer();
         const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            isLoggedIn = true;
-            isAnonymous = user.is_anonymous ?? true;
 
-            // 登録済みユーザーのベースライン完了チェック
-            if (!isAnonymous) {
-                const { data: profile } = await supabase
-                    .from("profiles")
-                    .select("baseline_completed_at")
-                    .eq("id", user.id)
-                    .maybeSingle();
-                baselineCompleted = !!profile?.baseline_completed_at;
-            }
+        // ── 未ログイン ──
+        if (!user) {
+            const cookieStore = await cookies();
+            const isRegistered = cookieStore.get("aneurasync_registered")?.value === "1";
+            // 登録済みユーザー → ログイン画面へ（素直に）
+            if (isRegistered) redirect("/login");
+            // 新規ユーザー → Stargazer オンボーディングへ
+            redirect("/stargazer");
         }
+
+        // ── 匿名ユーザー（Stargazer初回観測未完了） ──
+        if (user.is_anonymous) redirect("/stargazer");
+
+        // ── 登録済みユーザー: baseline チェック ──
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("baseline_completed_at")
+            .eq("id", user.id)
+            .maybeSingle();
+
+        if (!profile?.baseline_completed_at) redirect("/baseline");
+
+        // ── Stargazer 初回観測完了チェック（DB一本化） ──
+        // stargazer_star_maps にレコードがあれば初回観測完了とみなす
+        const { data: starMapRow } = await supabase
+            .from("stargazer_star_maps")
+            .select("user_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+
+        if (!starMapRow) redirect("/stargazer");
+
+        return <AneurasyncHome />;
     } catch (e: any) {
-        // redirect() throws NEXT_REDIRECT — rethrow it
         if (e?.digest?.includes("NEXT_REDIRECT")) throw e;
-        // auth errors are non-fatal; show home page anyway
+        // auth errors は非致命的 — fallback として Home を表示
+        return <AneurasyncHome />;
     }
-
-    // 未ログイン → Stargazer V5 オンボーディングへ直接遷移
-    if (!isLoggedIn) {
-        redirect("/stargazer");
-    }
-
-    // ④-A: 登録済みだがベースライン未完了 → ベースライン収集ページへ
-    if (!isAnonymous && !baselineCompleted) {
-        redirect("/baseline");
-    }
-
-    return <AneurasyncHome />;
 }

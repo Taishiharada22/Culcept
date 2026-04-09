@@ -61,7 +61,9 @@ export type BootstrapResult = {
 };
 
 function normalizeProvider(value: unknown, fallback: AIProviderName): AIProviderName {
-  return value === PRIMARY_AI_PROVIDER ? PRIMARY_AI_PROVIDER : fallback;
+  if (value === "gemini") return "gemini";
+  if (value === "openai") return "openai";
+  return fallback;
 }
 
 function defaultProvider(): AIProviderName {

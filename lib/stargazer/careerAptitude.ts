@@ -1383,3 +1383,234 @@ const AXIS_DISPLAY_LABELS: Partial<Record<TraitAxisKey, string>> = {
 export function getAxisDisplayLabel(axis: TraitAxisKey): string {
   return AXIS_DISPLAY_LABELS[axis] ?? axis.replace(/_/g, " ");
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 仕事適性レイヤー — ユーザーの実職業 × Stargazer 軸スコアの照合
+//
+// 目的: 断定ではなく「相性を見る」。
+// 主役: 役割適性 / 働き方適性 / 環境相性
+// 補助: 職業方向群（ランキングではなく方向の示唆）
+// ═══════════════════════════════════════════════════════════════════
+
+/** 役割タイプ */
+export type WorkRoleType =
+  | "front"       // フロント型（対外折衝・プレゼン）
+  | "back"        // バック型（分析・基盤構築）
+  | "solo"        // 個人完結型
+  | "coordinator" // チーム調整型
+  | "deep"        // 深掘り専門型
+  | "kaizen";     // 改善運用型
+
+/** 働き方スタイル */
+export type WorkStyleFit = {
+  stabilityPreference: number;  // -1=変化志向, 1=安定志向
+  autonomyNeed: number;         // -1=指示適応, 1=高裁量
+  evaluationClarity: number;    // -1=曖昧OK, 1=明確な評価軸必要
+  interpersonalDensity: number; // -1=低密度, 1=高密度
+  creativeFreedom: number;      // -1=ルーチン, 1=創造的自由
+};
+
+/** 苦しくなりやすい条件 */
+export type StrainCondition = {
+  id: string;
+  label: string;
+  severity: number; // 0-1
+};
+
+/** 仕事適性レポート — 主役は役割・働き方・環境。職業群は補助情報 */
+export interface CareerFitReport {
+  // ═══ 主役: 役割・働き方・環境 ═══
+  /** 向いている役割タイプ（上位2つ） */
+  fittingRoles: { type: WorkRoleType; label: string; reason: string }[];
+  /** 向いている働き方（5軸の連続値） */
+  workStyleFit: WorkStyleFit;
+  /** 苦しくなりやすい条件（上位4つ） */
+  strainConditions: StrainCondition[];
+
+  // ═══ 補助: 職業方向群（ランキングではなく方向の示唆） ═══
+  /** 相性の高い方向群（有力候補。順位ではなく「この方向は合いやすい」程度） */
+  affinityCluster: CareerMatch[];
+  /** 現時点で負荷が高そうな方向群 */
+  strainCluster: CareerMatch[];
+
+  // ═══ 現職との差分比較（主軸ではなく参考情報） ═══
+  /** ユーザーの現職（A baseline） */
+  currentJob: JobRole | null;
+  /** 現職との相性スコア (0-100)。差分比較用であり適性判定ではない */
+  currentJobFitScore: number | null;
+  /** 現職と適性のギャップ分析テキスト */
+  gapAnalysis: string | null;
+}
+
+const ROLE_LABELS: Record<WorkRoleType, string> = {
+  front: "フロント型（対外折衝・プレゼン）",
+  back: "バック型（分析・基盤構築）",
+  solo: "個人完結型",
+  coordinator: "チーム調整型",
+  deep: "深掘り専門型",
+  kaizen: "改善運用型",
+};
+
+/**
+ * ユーザーの実職業と Stargazer 軸スコアを照合し、仕事適性レポートを生成。
+ *
+ * @param occupationId - profiles.occupation（A baseline で収集した job role ID）
+ * @param axisScores - Stargazer の性格軸スコア
+ * @param cfScores - 認知適性軸スコア（任意）
+ */
+export function computeCareerFitReport(
+  occupationId: string | null,
+  axisScores: Partial<Record<TraitAxisKey, number>>,
+  cfScores?: Partial<Record<CognitiveAxisKey, number>> | null,
+): CareerFitReport {
+  const allMatches = computeCareerMatches(axisScores, cfScores);
+
+  // 現職の照合
+  const currentJob = occupationId
+    ? JOB_ROLES.find(j => j.id === occupationId) ?? null
+    : null;
+  const currentJobMatch = currentJob
+    ? allMatches.find(m => m.job.id === currentJob.id) ?? null
+    : null;
+
+  // 役割タイプ推定（軸スコアから）
+  const roleScores: { type: WorkRoleType; score: number; reason: string }[] = [
+    {
+      type: "front",
+      score: (axisScores.introvert_vs_extrovert ?? 0) * 0.4
+        + (axisScores.social_initiative ?? 0) * 0.4
+        + (axisScores.direct_vs_diplomatic ?? 0) * 0.2,
+      reason: "対人積極性と外向性が高い",
+    },
+    {
+      type: "back",
+      score: -(axisScores.introvert_vs_extrovert ?? 0) * 0.3
+        + (axisScores.analytical_vs_intuitive ?? 0) * -0.4
+        + (axisScores.perfectionist_vs_pragmatic ?? 0) * -0.3,
+      reason: "分析力と正確さへのこだわりが強い",
+    },
+    {
+      type: "solo",
+      score: (axisScores.independence_vs_harmony ?? 0) * 0.5
+        + -(axisScores.individual_vs_social ?? 0) * 0.3
+        + (axisScores.plan_vs_spontaneous ?? 0) * -0.2,
+      reason: "自律性が高く、自分のペースで力を発揮する",
+    },
+    {
+      type: "coordinator",
+      score: (axisScores.direct_vs_diplomatic ?? 0) * -0.3
+        + (axisScores.emotional_regulation ?? 0) * 0.3
+        + (axisScores.boundary_awareness ?? 0) * 0.4,
+      reason: "調整力と共感のバランスが取れている",
+    },
+    {
+      type: "deep",
+      score: (axisScores.quality_vs_quantity ?? 0) * -0.4
+        + (axisScores.perfectionist_vs_pragmatic ?? 0) * -0.3
+        + -(axisScores.introvert_vs_extrovert ?? 0) * 0.3,
+      reason: "一つのことに没頭する集中力がある",
+    },
+    {
+      type: "kaizen",
+      score: (axisScores.plan_vs_spontaneous ?? 0) * -0.4
+        + (axisScores.change_embrace_vs_resist ?? 0) * -0.3
+        + (axisScores.perfectionist_vs_pragmatic ?? 0) * -0.3,
+      reason: "安定的に改善を積み重ねる粘り強さがある",
+    },
+  ];
+  roleScores.sort((a, b) => b.score - a.score);
+
+  // 働き方スタイル
+  const workStyleFit: WorkStyleFit = {
+    stabilityPreference: -(axisScores.change_embrace_vs_resist ?? 0),
+    autonomyNeed: (axisScores.independence_vs_harmony ?? 0) * 0.6
+      + (axisScores.plan_vs_spontaneous ?? 0) * 0.4,
+    evaluationClarity: -(axisScores.cautious_vs_bold ?? 0) * 0.5
+      + (axisScores.perfectionist_vs_pragmatic ?? 0) * -0.5,
+    interpersonalDensity: (axisScores.introvert_vs_extrovert ?? 0) * 0.6
+      + (axisScores.social_initiative ?? 0) * 0.4,
+    creativeFreedom: (axisScores.tradition_vs_novelty ?? 0) * 0.5
+      + (axisScores.function_vs_expression ?? 0) * 0.5,
+  };
+
+  // 苦しくなりやすい条件
+  const strainConditions: StrainCondition[] = [];
+  const ax = axisScores;
+
+  if ((ax.introvert_vs_extrovert ?? 0) < -0.3) {
+    strainConditions.push({
+      id: "high_interpersonal",
+      label: "人間関係の密度が高すぎる環境",
+      severity: Math.abs(ax.introvert_vs_extrovert ?? 0),
+    });
+  }
+  if ((ax.change_embrace_vs_resist ?? 0) < -0.3) {
+    strainConditions.push({
+      id: "rapid_change",
+      label: "変化が激しすぎる環境",
+      severity: Math.abs(ax.change_embrace_vs_resist ?? 0),
+    });
+  }
+  if ((ax.change_embrace_vs_resist ?? 0) > 0.4 && (ax.plan_vs_spontaneous ?? 0) > 0.3) {
+    strainConditions.push({
+      id: "monotony",
+      label: "変化がなく単調すぎる環境",
+      severity: ((ax.change_embrace_vs_resist ?? 0) + (ax.plan_vs_spontaneous ?? 0)) / 2,
+    });
+  }
+  if ((ax.cautious_vs_bold ?? 0) < -0.3) {
+    strainConditions.push({
+      id: "snap_decisions",
+      label: "即断即決を求められすぎる環境",
+      severity: Math.abs(ax.cautious_vs_bold ?? 0),
+    });
+  }
+  if ((ax.emotional_regulation ?? 0) < -0.2 && (ax.reassurance_need ?? 0) > 0.2) {
+    strainConditions.push({
+      id: "emotional_labor",
+      label: "感情労働が重すぎる環境",
+      severity: (Math.abs(ax.emotional_regulation ?? 0) + (ax.reassurance_need ?? 0)) / 2,
+    });
+  }
+  if ((ax.independence_vs_harmony ?? 0) > 0.4) {
+    strainConditions.push({
+      id: "micromanagement",
+      label: "裁量が少なく細かく管理される環境",
+      severity: ax.independence_vs_harmony ?? 0,
+    });
+  }
+
+  strainConditions.sort((a, b) => b.severity - a.severity);
+
+  // ギャップ分析
+  let gapAnalysis: string | null = null;
+  if (currentJob && currentJobMatch) {
+    if (currentJobMatch.score < 40) {
+      gapAnalysis = `現在の${currentJob.name}は、あなたの特性との相性が控えめです（${currentJobMatch.score}%）。${currentJob.watchOut}に注意しつつ、${roleScores[0].reason}を活かせる役割を探すと楽になるかもしれません。`;
+    } else if (currentJobMatch.score >= 70) {
+      gapAnalysis = `${currentJob.name}はあなたの特性と高い相性があります（${currentJobMatch.score}%）。${currentJob.whyGoodFit}。さらに伸ばすなら、${currentJob.growthPrediction}。`;
+    } else {
+      gapAnalysis = `${currentJob.name}との相性は中程度です（${currentJobMatch.score}%）。${roleScores[0].reason}を活かせる場面を増やすと、自然に力を発揮しやすくなります。`;
+    }
+  }
+
+  return {
+    // 主役: 役割・働き方・環境
+    fittingRoles: roleScores.slice(0, 2).map(r => ({
+      type: r.type,
+      label: ROLE_LABELS[r.type],
+      reason: r.reason,
+    })),
+    workStyleFit,
+    strainConditions: strainConditions.slice(0, 4),
+
+    // 補助: 職業方向群（ランキングではなく方向の示唆）
+    affinityCluster: allMatches.slice(0, 5),
+    strainCluster: allMatches.slice(-3).reverse(),
+
+    // 現職との差分比較（参考情報）
+    currentJob,
+    currentJobFitScore: currentJobMatch?.score ?? null,
+    gapAnalysis,
+  };
+}

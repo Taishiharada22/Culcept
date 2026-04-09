@@ -16,7 +16,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("gender, date_of_birth, prefecture, city, baseline_completed_at")
+    .select("gender, date_of_birth, prefecture, city, occupation, occupation_detail, baseline_completed_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -32,6 +32,8 @@ export async function GET() {
       dateOfBirth: data?.date_of_birth ?? null,
       prefecture: data?.prefecture ?? null,
       city: data?.city ?? null,
+      occupation: data?.occupation ?? null,
+      occupationDetail: data?.occupation_detail ?? null,
       completedAt: data?.baseline_completed_at ?? null,
     },
   });
@@ -41,6 +43,19 @@ export async function GET() {
 // POST /api/baseline — ベースラインデータを保存
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const VALID_GENDERS = ["male", "female", "non_binary", "prefer_not_to_say"] as const;
+
+const VALID_OCCUPATIONS = [
+  "ceo", "manager", "project_manager",
+  "designer", "writer", "content_creator", "musician_artist", "ux_designer",
+  "researcher", "data_scientist", "strategist",
+  "sales", "marketing", "hr", "public_relations", "community_manager",
+  "admin", "accountant", "legal",
+  "engineer", "product_manager", "ai_ml_engineer", "craftsperson", "growth_hacker",
+  "teacher", "counselor", "nurse_care",
+  "entrepreneur", "freelancer", "investor",
+  "doctor", "lawyer", "tax_accountant",
+  "student", "homemaker", "job_seeking", "other",
+] as const;
 
 const PREFECTURES = [
   "北海道", "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
@@ -67,6 +82,8 @@ export async function POST(req: NextRequest) {
     dateOfBirth?: string;
     prefecture?: string;
     city?: string;
+    occupation?: string;
+    occupationDetail?: string;
   };
   try {
     body = await req.json();
@@ -107,6 +124,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid city" }, { status: 400 });
   }
 
+  const { occupation, occupationDetail } = body;
+  if (occupation && !VALID_OCCUPATIONS.includes(occupation as typeof VALID_OCCUPATIONS[number])) {
+    return NextResponse.json({ ok: false, error: "invalid occupation" }, { status: 400 });
+  }
+  if (occupationDetail && typeof occupationDetail !== "string") {
+    return NextResponse.json({ ok: false, error: "invalid occupationDetail" }, { status: 400 });
+  }
+
   // ─── Update profiles (service role で RLS をバイパス) ───
   const updatePayload: Record<string, unknown> = {
     baseline_completed_at: new Date().toISOString(),
@@ -115,6 +140,8 @@ export async function POST(req: NextRequest) {
   if (dateOfBirth) updatePayload.date_of_birth = dateOfBirth;
   if (prefecture) updatePayload.prefecture = prefecture;
   if (city) updatePayload.city = city;
+  if (occupation) updatePayload.occupation = occupation;
+  if (occupationDetail) updatePayload.occupation_detail = occupationDetail;
 
   const { error } = await supabaseAdmin
     .from("profiles")

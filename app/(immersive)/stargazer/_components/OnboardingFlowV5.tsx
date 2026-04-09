@@ -55,6 +55,10 @@ interface Props {
     axisScores: Partial<Record<TraitAxisKey, number>>,
   ) => void;
   ensureSession?: () => Promise<void>;
+  /** サーバーから復元した途中回答（resume用）*/
+  initialAnswers?: OnboardingAnswer[];
+  /** 再開インデックス（0-based, 指定がなければ0）*/
+  initialIndex?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,9 +322,9 @@ function getFeedbackMessage(
 // Component
 // ---------------------------------------------------------------------------
 
-export default function OnboardingFlowV5({ onComplete, ensureSession }: Props) {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<OnboardingAnswer[]>([]);
+export default function OnboardingFlowV5({ onComplete, ensureSession, initialAnswers, initialIndex }: Props) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex ?? 0);
+  const [answers, setAnswers] = useState<OnboardingAnswer[]>(initialAnswers ?? []);
   const [showTransition, setShowTransition] = useState(false);
   const [transitionStage, setTransitionStage] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -372,6 +376,14 @@ export default function OnboardingFlowV5({ onComplete, ensureSession }: Props) {
       const newAnswers = [...answers, answer];
       setAnswers(newAnswers);
       setIsAnimating(true);
+
+      // サーバーに進捗を保存（fire-and-forget。失敗しても続行）
+      const nextIndex = currentIndex + 1;
+      fetch("/api/stargazer/onboarding-progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: newAnswers, nextIndex }),
+      }).catch(() => { /* non-fatal */ });
 
       if (currentQuestion.showFeedbackAfter) {
         const fb = getFeedbackMessage(currentQuestion.id, newAnswers);
@@ -437,6 +449,8 @@ export default function OnboardingFlowV5({ onComplete, ensureSession }: Props) {
           finalScores[key] = finalScores[key]! / counts[key]!;
         }
 
+        // 完了時にサーバーの進捗を削除（クリーンアップ）
+        fetch("/api/stargazer/onboarding-progress", { method: "DELETE" }).catch(() => { });
         onComplete(currentAnswers, clusterResult, finalScores);
         return;
       }
@@ -496,7 +510,7 @@ export default function OnboardingFlowV5({ onComplete, ensureSession }: Props) {
             }}
             transition={{ duration: 0.8, ease: "easeOut" }}
           >
-            あなたが欲しいもの、
+            あなたが欲しいもの
             <br />
             ここで全て叶えられる。
           </motion.p>

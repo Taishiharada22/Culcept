@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { tryAutoCreateExchange } from "@/lib/rendezvous/exchangeAutoTrigger";
+import { collectBehaviorSignals } from "@/lib/rendezvous/behaviorSignalCollector";
+import { generateSelfDiscoveryFeedback } from "@/lib/rendezvous/counselor/selfDiscoveryFeedback";
 
 export const runtime = "nodejs";
 
@@ -71,6 +74,46 @@ export async function POST(
         milestone: milestone ?? "manual",
       },
     });
+
+    // Exchange auto-trigger: フィードバック提出時にExchange自動生成を試みる
+    // Phase 4+ のペアのみ実行される（Phase Gate 内蔵）
+    void tryAutoCreateExchange({
+      candidateId,
+      userId: user.id,
+      sentiment,
+      candidate,
+    }).catch((err) => {
+      console.error("[feedback] exchange auto-trigger error:", err);
+    });
+
+    // Self-Discovery Feedback auto-trigger:
+    // 行動シグナルを収集し、sentiment と合わせて自己発見の問いを自動生成する。
+    // fire-and-forget: フィードバック応答を遅延させない
+    void (async () => {
+      try {
+        const behaviorSignals = await collectBehaviorSignals({
+          candidateId,
+          userId: user.id,
+        });
+
+        // sentiment → selfReportedFeeling に変換
+        const feelingMap: Record<string, string> = {
+          positive: "楽しかった",
+          neutral: "まだわからない",
+          negative: "ちょっと違うかも",
+        };
+
+        await generateSelfDiscoveryFeedback({
+          userId: user.id,
+          candidateId,
+          interactionKind: "chat",
+          selfReportedFeeling: feelingMap[sentiment] ?? sentiment,
+          behaviorSignals: behaviorSignals ?? undefined,
+        });
+      } catch (err) {
+        console.error("[feedback] self-discovery feedback error:", err);
+      }
+    })();
 
     return NextResponse.json({ ok: true });
   } catch (err: unknown) {

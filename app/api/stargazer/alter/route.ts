@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkStargazerTier } from "@/lib/stargazer/tierGuard";
 import { STARGAZER_FLAGS } from "@/lib/stargazer/featureFlags";
 import {
@@ -465,6 +466,8 @@ import {
   type PendingRealityAnchoring,
   type AfterActionSignal,
 } from "@/lib/stargazer/realityAnchoring";
+import { SessionFactAccumulator, detectDrillDown } from "@/lib/stargazer/sessionContext";
+import { validateAgainstContract, repairResponse, buildContractPromptBlock, getContract, type ContractValidation } from "@/lib/stargazer/outputContract";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1052,6 +1055,14 @@ export async function POST(req: NextRequest) {
     let auditTrail: AuditTrail | null = null;
     // Phase 5: 継続的検証
     let hypothesesInjectedCount = 0;
+    // Session Context: 3-layer fact accumulator
+    const sessionFactAccumulator = new SessionFactAccumulator();
+    // Populate session facts from all prior user messages in this conversation
+    const userMessages = conversationHistory.filter(m => m.role === "user").map(m => m.content);
+    userMessages.forEach((msg, i) => sessionFactAccumulator.addTurn(msg, i));
+    // Add current message
+    sessionFactAccumulator.addTurn(message, userMessages.length);
+    let contractValidationResult: ContractValidation | null = null;
     let creepinessCheck: ReturnType<typeof checkCreepinessLine> | null = null;
     // D: MI 頻度制限
     let lastInsightPresentedAt: Date | null = null;
@@ -1115,6 +1126,7 @@ export async function POST(req: NextRequest) {
     let p2CascadeDecays: CascadeDecay[] = [];
     // P3: HDM Phase Controller（Heart Dynamics Model v1 フェーズ制御）
     let p3HdmPhaseState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
+    let hdmPhaseAtLoad = 0; // DBロード時のPhase（招待ポイント遷移検出用）
     let hdmStateDirty = false; // 1ターン内の変更を最後に一括書き込み
     let p3HdmPhaseAnalytics: HdmPhaseAnalytics | null = null;
     let p3EffectiveDepth: PhaseResponseDepth | null = null;
@@ -1667,6 +1679,27 @@ export async function POST(req: NextRequest) {
             if (queryContext) queryContext.domain = inheritedDomain;
             console.info(`[follow-up] Domain inherited from previous turn: ${inheritedDomain} (followUp=${followUpType}, reaction=${detectedReaction?.type})`);
           }
+
+          // Session fact chain: 前ターンが general でも、セッション内の事実チェーンから
+          // founder_team_fit や creation 等の意図を復元する
+          if (prevContext.domain === "general" || !inheritedDomain) {
+            const sessionFacts = sessionFactAccumulator.getExplicitFacts();
+            const drillDown = detectDrillDown(message, sessionFacts);
+            if (drillDown) {
+              // ドリルダウン検出: 親意図のドメインを推定
+              const hasGoal = sessionFacts.some(f => f.category === "goal");
+              const hasNeed = sessionFacts.some(f => f.category === "need" && /チーム|人|仲間|メンバー/.test(f.content));
+              if (hasGoal && hasNeed) {
+                inheritedDomain = "founder_team_fit";
+              } else if (hasGoal) {
+                inheritedDomain = "creation";
+              }
+              if (inheritedDomain && queryContext) {
+                queryContext.domain = inheritedDomain;
+                console.info(`[follow-up] Domain recovered from session facts: ${inheritedDomain} (drillDown=${drillDown.type}, constraint=${drillDown.constraint})`);
+              }
+            }
+          }
         }
 
         // follow-up タイプに応じたモード設定
@@ -1973,6 +2006,7 @@ export async function POST(req: NextRequest) {
         }
       } catch { /* hdm_phase_state カラム未追加時は default を使用 */ }
       p3HdmPhaseState = loadedHdmState;
+      hdmPhaseAtLoad = loadedHdmState.currentPhase;
 
       // ── Trust Level（離散値）: 関係性シグナル + Phase cap 付き ──
       // 前ターンの HdmPhaseState から関係性シグナルを構築
@@ -3080,6 +3114,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ━━━ Session Explicit Facts — Trust Gate 非依存 ━━━
+      // 同一会話でユーザーが明言した事実は Phase/Trust に関係なく参照可能
+      const sessionPromptBlock = sessionFactAccumulator.buildPromptInjection();
+      if (sessionPromptBlock) {
+        homeSystemPrompt += `\n\n${sessionPromptBlock}`;
+        console.info(`[session-ctx] ${sessionFactAccumulator.getExplicitFacts().length} explicit + ${sessionFactAccumulator.getInferredFacts().length} inferred facts injected (trust-independent)`);
+      }
+
       // Phase 3: 段階的開示によるコンテキスト注入
       // Trust Level と情報の性質に応じて、開示レベル（silent/hint/reference/explicit）を決定
       // R3-#4: ctx_loaded / ctx_used / ctx_dropped_reason ログ追加
@@ -3665,6 +3707,15 @@ export async function POST(req: NextRequest) {
         homeSystemPrompt += buildIndustryFitPromptBlock(personalizedFacts, userName);
         if (queryContext) queryContext.domain = "industry_fit";
         console.info("[industry_fit] Industry-fit block injected");
+      }
+
+      // ━━━ Contract-based prompt injection ━━━
+      if (queryContext?.domain === "founder_team_fit") {
+        const contractBlock = buildContractPromptBlock("founder_team_fit");
+        if (contractBlock) {
+          homeSystemPrompt += `\n\n${contractBlock}`;
+          console.info("[founder-team-fit] Contract prompt block injected");
+        }
       }
 
       // ── R3-#2: 範囲照会 → 知っていること/知らないこと/改善条件を提示 ──
@@ -5120,6 +5171,28 @@ export async function POST(req: NextRequest) {
         : { pass: false, failures: ["応答の生成に失敗"] };
       p0ValidationFailures = validation.failures;
 
+            // Contract-based validation: ドメイン固有の出力契約で検証
+            const contractDomain = queryContext?.domain ?? "general";
+            contractValidationResult = homeResponse?.trim()
+              ? validateAgainstContract(homeResponse, contractDomain, questionType)
+              : null;
+
+            if (contractValidationResult && !contractValidationResult.pass && validation.pass) {
+              // 旧バリデーションは通ったが契約は不足 → repair 試行
+              const sessionFacts = sessionFactAccumulator.getExplicitFacts().map(f => f.content);
+              const repairResult = repairResponse(
+                homeResponse!,
+                getContract(contractDomain),
+                contractValidationResult.missing,
+                personalizedFacts,
+                sessionFacts,
+              );
+              if (repairResult) {
+                homeResponse = repairResult.repaired;
+                console.info(`[contract-repair] ${repairResult.fieldsRepaired.length} fields repaired: ${repairResult.fieldsRepaired.join(", ")}`);
+              }
+            }
+
       // 不合格なら再生成（facts を明示して再試行）
       // 条件: validation不合格 + 応答が空でない + clarify/repair/direct_responseでない + 空レスリトライ済みでない
       if (!validation.pass && homeResponse?.trim() && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response" && !emptyRetryAttempted) {
@@ -5184,7 +5257,8 @@ export async function POST(req: NextRequest) {
               // R3-#5: fallback 優先チェーン改善
               // creation/core-demand/factual_recall では再生成 > facts > 正直な不確実性 > fallback
               const isHighPriorityType = questionType === "factual_recall" || isCoreDemandQuestion(message)
-                || queryContext?.domain === "creation" || isCreationVisionTheme(message, conversationHistory.filter(m => m.role === "user").slice(-4).map(m => m.content));
+                || queryContext?.domain === "creation" || queryContext?.domain === "founder_team_fit"
+                || isCreationVisionTheme(message, conversationHistory.filter(m => m.role === "user").slice(-4).map(m => m.content));
 
               // H: 専用テンプレ型の generic 失敗 → テンプレ駆動 facts ベース応答
               const isSpecializedType =
@@ -5193,6 +5267,7 @@ export async function POST(req: NextRequest) {
                 queryContext?.domain === "career_fit" ||
                 queryContext?.domain === "industry_fit" ||
                 queryContext?.domain === "creation" || // Phase 9: creation 追加
+                queryContext?.domain === "founder_team_fit" ||
                 isFatigue || // Phase 9: fatigue 追加
                 followUpType === "dissatisfaction"; // Phase 9: dissatisfaction 追加
               if (isSpecializedType && personalizedFacts.length >= 1) {
@@ -5212,6 +5287,10 @@ export async function POST(req: NextRequest) {
                   // Phase 9: creation fallback — 結論+ボトルネック+2週間アクション
                   const basis = topFacts.slice(0, 2).join("。");
                   homeResponse = `${namePrefix}${basis}。\n今のボトルネックは「${smartTruncate(message)}」に直結する部分で、直近2週間でやるべきことは——`;
+                } else if (queryContext?.domain === "founder_team_fit") {
+                  const basis = topFacts.slice(0, 2).join("。");
+                  const sessionFacts = sessionFactAccumulator.getExplicitFacts().map(f => f.content).join("。");
+                  homeResponse = `${namePrefix}${basis}。${sessionFacts ? sessionFacts + "。" : ""}\nこの特性から考えると、チームに必要なのは——`;
                 } else if (isFatigue) {
                   // Phase 9: fatigue fallback — 状態確認+今日やる1つ+やらない1つ
                   homeResponse = `${namePrefix}きつそうだな。\n今日やること: エネルギーが残っているうちに、一番重要なタスクを1つだけ片付ける。\n今日やらないこと: 新しい判断を求められることは全部後回しにしていい。`;
@@ -6521,6 +6600,60 @@ export async function POST(req: NextRequest) {
           if (error) console.warn("[HDM] Consolidated state write failed (non-fatal):", error.message);
           else console.info("[HDM] State written (consolidated)");
         });
+
+      // ── 招待トークン: Phase到達によるポイント付与 ──
+      // Phase 0→1 または →2 への遷移を検出し、招待者にポイントを付与する。
+      // fire-and-forget: Alter応答を遅延させない。admin権限で実行（RLSバイパス）。
+      const oldPhase = hdmPhaseAtLoad;
+      const newPhase = p3HdmPhaseState.currentPhase;
+      if (newPhase > oldPhase && (newPhase === 1 || newPhase === 2)) {
+        const phaseToAward = newPhase as 1 | 2;
+        const phaseField = phaseToAward === 1 ? "invitee_phase1" : "invitee_phase2";
+        const awardedField = phaseToAward === 1 ? "points_awarded_phase1" : "points_awarded_phase2";
+        const pointsAmount = phaseToAward === 1 ? 25 : 50;
+
+        supabaseAdmin
+          .from("rendezvous_invitations")
+          .select("id, inviter_user_id")
+          .eq("invitee_user_id", userId)
+          .eq(awardedField, false)
+          .then(async ({ data: invitations, error: lookupErr }) => {
+            if (lookupErr) {
+              console.warn("[invitation-token] Phase reward lookup failed (non-fatal):", lookupErr.message);
+              return;
+            }
+            if (!invitations || invitations.length === 0) return;
+            for (const inv of invitations) {
+              try {
+                await supabaseAdmin
+                  .from("rendezvous_invitations")
+                  .update({ [phaseField]: true, [awardedField]: true })
+                  .eq("id", inv.id);
+
+                // ポイント付与
+                const { data: bal } = await supabaseAdmin
+                  .from("rendezvous_token_balances")
+                  .select("id, points")
+                  .eq("user_id", inv.inviter_user_id)
+                  .maybeSingle();
+
+                if (bal) {
+                  await supabaseAdmin
+                    .from("rendezvous_token_balances")
+                    .update({ points: bal.points + pointsAmount, updated_at: new Date().toISOString() })
+                    .eq("id", bal.id);
+                } else {
+                  await supabaseAdmin
+                    .from("rendezvous_token_balances")
+                    .insert({ user_id: inv.inviter_user_id, points: pointsAmount });
+                }
+                console.info(`[invitation-token] Phase ${phaseToAward} reward: ${pointsAmount}pt to inviter ${inv.inviter_user_id}`);
+              } catch (e: unknown) {
+                console.warn("[invitation-token] Phase reward failed (non-fatal):", e);
+              }
+            }
+          });
+      }
     }
 
     // ── Phase 2: State Pattern 蓄積 ──
@@ -7448,13 +7581,17 @@ export async function POST(req: NextRequest) {
       const domainOverridden = initialDomain !== undefined && initialDomain !== finalDomain;
       const typeOverridden = initialQuestionType !== undefined && initialQuestionType !== questionType;
       console.info(
-        `[route-trace] msg="${message.slice(0, 30)}" | ` +
+        `[route-trace] msg="${message.slice(0, 50)}" | ` +
         `type: ${initialQuestionType ?? "?"}${typeOverridden ? `→${questionType}` : ""} | ` +
         `domain: ${initialDomain ?? "?"}${domainOverridden ? `→${finalDomain}` : ""} | ` +
         `mode: ${responseMode} (${modeDecisionReason})` +
         (followUpType ? ` | followUp: ${followUpType}` : "") +
         (inheritedDomain ? ` | inherited: ${inheritedDomain}` : "") +
-        (isFatigue ? ` | fatigue: true` : "")
+        (isFatigue ? ` | fatigue: true` : "") +
+        ` | session_facts=${sessionFactAccumulator.getExplicitFacts().length}` +
+        ` | ctx_used=${ctxUsed}` +
+        ` | trap_effect=${insightSuppressedReason ? "mi_suppressed" : "none"}` +
+        (contractValidationResult ? ` | contract=${contractValidationResult.pass ? "PASS" : `FAIL(${contractValidationResult.missing.join(",")})`}` : "")
       );
     }
 
@@ -7511,6 +7648,16 @@ export async function POST(req: NextRequest) {
         inherited_domain: inheritedDomain ?? null,
         is_fatigue: isFatigue,
       },
+      // Alter→Counselor ソフト導線（Part 1 §3.3 CEO決定）
+      // 恋愛系話題の場合のみ、「カウンセラーにも相談できます」を提示。
+      // 強制ではなく提示のみ。Alterでそのまま自己理解として話したい人もいる。
+      ...(queryContext?.domain === "romance" ? {
+        counselorSoftLink: {
+          show: true,
+          message: "この話題について、カウンセラーにも相談できますよ。",
+          destination: "/rendezvous/partner",
+        },
+      } : {}),
       // フィードバック用メタデータ（クライアントがfeedback APIに渡す）
       feedbackMeta: {
         domain: queryContext?.domain ?? null,

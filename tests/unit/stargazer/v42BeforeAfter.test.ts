@@ -59,6 +59,7 @@ const RETURNING_USER_MODEL: LivingSelfModel = {
 const SESSION_STATE = {
   last_bet: null, last_bet_outcome: null,
   rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0,
+  consecutive_same_bet_count: 0,
 };
 
 /**

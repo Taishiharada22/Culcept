@@ -9,7 +9,8 @@
 import type { TraitAxisKey } from "./traitAxes";
 
 export type ChapterKey =
-  | "core_signal"
+  | "core_foundation"
+  | "decision_logic"
   | "relational_distance"
   | "context_faces"
   | "motion_tension"
@@ -49,10 +50,16 @@ export interface ChapterInfo {
 
 export const CHAPTERS: ChapterInfo[] = [
   {
-    key: "core_signal",
-    label: "Core Signal",
-    description: "安定核の観測 — 向き、判断、重心、反応速度の土台",
-    questionCount: 11,
+    key: "core_foundation",
+    label: "Core Foundation",
+    description: "安定核の観測 — 向き、重心、感情の波、行動スタイルの土台",
+    questionCount: 7,
+  },
+  {
+    key: "decision_logic",
+    label: "Decision Logic",
+    description: "判断様式の観測 — 論理・感情・効率・過程のどこに重心を置くか",
+    questionCount: 4,
   },
   {
     key: "relational_distance",
@@ -103,7 +110,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   // ── Chapter 1: Core Signal (7問) ──
   {
     id: "q01",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "一人で深める ←→ 人と交わりながら広げる",
     leftLabel: "一人で深める",
     rightLabel: "人と交わりながら広げる",
@@ -116,7 +123,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q02",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "慎重に見極める ←→ まず飛び込んで動く",
     leftLabel: "慎重に見極める",
     rightLabel: "まず飛び込んで動く",
@@ -126,7 +133,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q03",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "構造や筋道から理解する ←→ 直感や空気から掴む",
     leftLabel: "構造や筋道から理解する",
     rightLabel: "直感や空気から掴む",
@@ -136,7 +143,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q04",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "変化は慎重に扱いたい ←→ 変化はむしろ歓迎したい",
     leftLabel: "変化は慎重に扱いたい",
     rightLabel: "変化はむしろ歓迎したい",
@@ -147,7 +154,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q05",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "全体像を組んでから進む ←→ 進みながら形にしていく",
     leftLabel: "全体像を組んでから進む",
     rightLabel: "進みながら形にしていく",
@@ -160,7 +167,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q25",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "気分の波は小さい ←→ 気分の波は大きい",
     leftLabel: "気分の波は小さい",
     rightLabel: "気分の波は大きい",
@@ -173,7 +180,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q26",
-    chapter: "core_signal",
+    chapter: "core_foundation",
     prompt: "困った時は自力で解決 ←→ 困った時はすぐ相談",
     leftLabel: "困った時は自力で解決",
     rightLabel: "困った時はすぐ相談",
@@ -1245,10 +1252,10 @@ export const QUESTIONS: QuestionDefinition[] = [
 
   // ── P2-2 追加ここまで（q56-q87 = 32問）──
 
-  // ── 判断合理性・効率性軸 (2問) ──
+  // ── Decision Logic: 判断様式 (4問) ──
   {
     id: "q52",
-    chapter: "core_signal",
+    chapter: "decision_logic",
     prompt: "論理で判断する ←→ 感情・直感で判断する",
     leftLabel: "論理で判断する",
     rightLabel: "感情・直感で判断する",
@@ -1262,7 +1269,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q53",
-    chapter: "core_signal",
+    chapter: "decision_logic",
     prompt: "最短距離を選ぶ ←→ 過程を大事にする",
     leftLabel: "最短距離を選ぶ",
     rightLabel: "過程を大事にする",
@@ -1276,7 +1283,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q54",
-    chapter: "core_signal",
+    chapter: "decision_logic",
     prompt: "理屈で納得する ←��� 気持ちで動く",
     leftLabel: "理屈で納得する",
     rightLabel: "気持ちで動く",
@@ -1290,7 +1297,7 @@ export const QUESTIONS: QuestionDefinition[] = [
   },
   {
     id: "q55",
-    chapter: "core_signal",
+    chapter: "decision_logic",
     prompt: "効率を最優先する ←→ 体験を重視する",
     leftLabel: "効率を最優先する",
     rightLabel: "体験を重視する",

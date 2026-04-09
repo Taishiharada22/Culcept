@@ -1550,7 +1550,7 @@ export function buildAlterSystemPrompt(
   // ── HDM v1 P0: Trust-gated information access (共通アクセサ経由) ──
   const continuousTrust = longTermMemory?.trustLevel ?? 0;
   const sessionCount = longTermMemory?.sessionCount ?? 0;
-  const tLevel: TrustLevel = deriveTrustLevel(continuousTrust, sessionCount);
+  const tLevel: TrustLevel = deriveTrustLevel(continuousTrust, sessionCount).effectiveTrust;
   const gate = resolveAlterAccess(tLevel, "prompt");
 
   const sections: string[] = [];
@@ -2064,7 +2064,7 @@ export async function buildDeepAlterPrompt(context: AlterDeepContext): Promise<D
   // ── HDM v1 P0: Trust-gated information access (共通アクセサ経由) ──
   const continuousTrust = growthState?.trustLevel ?? longTermMemory?.trustLevel ?? 0;
   const sessionsCompleted = growthState?.sessionsCompleted ?? longTermMemory?.sessionCount ?? 0;
-  const tLevel: TrustLevel = deriveTrustLevel(continuousTrust, sessionsCompleted);
+  const tLevel: TrustLevel = deriveTrustLevel(continuousTrust, sessionsCompleted).effectiveTrust;
   const gate = resolveAlterAccess(tLevel, "prompt");
 
   const sections: string[] = [];

@@ -47,6 +47,15 @@ export async function POST(req: Request) {
     }
 
     const { candidate } = result;
+
+    // Idempotency guard: 既に dismissed ならば二重処理を防止
+    if (candidate.state === "dismissed") {
+      return NextResponse.json(
+        { error: "この候補は既に切断されています" },
+        { status: 409 },
+      );
+    }
+
     const counterpartId = getCounterpartId(candidate, userId);
 
     // Analyze disconnect (AI-powered)

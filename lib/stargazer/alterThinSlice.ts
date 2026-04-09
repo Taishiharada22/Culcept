@@ -89,6 +89,8 @@ export interface ThinSliceSessionState {
   accepted_bets: string[];
   bet_history: BetHistoryEntry[];
   consecutive_misses: number;
+  /** 同一テキストの bet が連続で注入された回数（反復防止用） */
+  consecutive_same_bet_count: number;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -132,6 +134,7 @@ const EMPTY_STATE: ThinSliceSessionState = {
   accepted_bets: [],
   bet_history: [],
   consecutive_misses: 0,
+  consecutive_same_bet_count: 0,
 };
 
 /**
@@ -191,6 +194,25 @@ export async function reconstructThinSliceState(
       if (h.outcome === "miss") state.consecutive_misses++;
       else break;
     }
+
+    // 同一 bet 連続注入回数の再構成
+    // recentEvents は新しい順に並んでいるので、先頭から同じ bet テキストが続く回数を数える
+    let sameBetCount = 0;
+    let firstBetText: string | null = null;
+    for (const event of recentEvents) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ts = (event.metadata as any)?.thin_slice;
+      if (!ts?.bet) continue;
+      if (firstBetText === null) {
+        firstBetText = ts.bet;
+        sameBetCount = 1;
+      } else if (ts.bet.slice(0, 30) === firstBetText.slice(0, 30)) {
+        sameBetCount++;
+      } else {
+        break;
+      }
+    }
+    state.consecutive_same_bet_count = sameBetCount;
 
     return state;
   } catch (e) {
@@ -546,6 +568,24 @@ export function selectSharpBet(
   }
 
   if (candidates.length === 0) return null;
+
+  // ── 同一 bet 連続注入ガード ──
+  // 同じ bet テキストが MAX_CONSECUTIVE_SAME_BET ターン連続で注入された場合、
+  // その bet を候補から除外する。「慎重傾向が強い」が毎ターン出るのを防ぐ。
+  const MAX_CONSECUTIVE_SAME_BET = 2; // 2回目まで許容、3回目以降は別 bet に切り替え
+  if (sessionState.last_bet && sessionState.consecutive_same_bet_count >= MAX_CONSECUTIVE_SAME_BET) {
+    const lastBetPrefix = sessionState.last_bet.bet.slice(0, 30);
+    const filteredCandidates = candidates.filter(c => !c.bet.startsWith(lastBetPrefix));
+    if (filteredCandidates.length > 0) {
+      // 別の bet があるならそちらを使う
+      candidates.length = 0;
+      candidates.push(...filteredCandidates);
+    }
+    // 別の bet がない場合は hold（null を返す）
+    else {
+      return null;
+    }
+  }
 
   // Insight Generator の出力がある場合は最優先（value_if_right = transformative）
   // それ以外は confidence × source_weight でスコアリング

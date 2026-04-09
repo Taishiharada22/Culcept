@@ -5,16 +5,21 @@ import { motion } from "framer-motion";
 import type { RendezvousCategory } from "@/lib/rendezvous/types";
 
 /**
- * ① DealbreakersStep — Rendezvous オンボーディング内の dealbreaker 収集
+ * ① DealbreakersStep — Rendezvous オンボーディング内の B baseline 収集
  *
  * romantic/partner カテゴリ選択時のみ表示。
- * romantic: 結婚意欲 + 子どもの希望（必須）
- * partner: 結婚意欲 + 子どもの希望 + ライフスタイル + 喫煙（全必須）
+ * 共通: 結婚意欲 + 子どもの希望 + 価値観(values) + 情熱(passions)
+ * partner追加: ライフスタイル + 喫煙
+ *
+ * ※ values/passions は旧 ValuesOnboardingOverlay から移設。
+ *   Home ツアー後ではなく、恋愛オンボーディング時に収集する。
  */
 
 export interface DealbreakersData {
   marriageIntent: string;
   childrenPreference: string;
+  values?: string[];
+  passions?: string[];
   lifestyleMorningNight?: number;
   smokingStatus?: string;
   smokingTolerance?: string;
@@ -41,6 +46,26 @@ const CHILDREN_OPTIONS = [
   { value: "どちらでも", label: "どちらでも", icon: "🤔" },
 ] as const;
 
+// ── B baseline: 価値観・情熱（恋愛オンボーディングで収集） ──
+const VALUES_OPTIONS = [
+  "誠実さ", "自由", "家族", "挑戦", "安定", "成長", "創造性", "思いやり",
+  "独立", "正義", "信頼", "楽しさ", "感謝", "尊重", "努力", "好奇心",
+  "責任感", "調和", "情熱", "優しさ", "勇気", "忍耐", "つながり", "美意識",
+  "健康", "学び", "平和", "多様性", "自己表現", "貢献", "ユーモア", "素直さ",
+];
+
+const PASSIONS_OPTIONS = [
+  "音楽", "映画・ドラマ", "読書", "旅行", "料理", "ゲーム", "スポーツ",
+  "アート・デザイン", "写真・カメラ", "ファッション", "テクノロジー",
+  "アウトドア・キャンプ", "カフェ巡り", "ヨガ・フィットネス", "ペット・動物",
+  "アニメ・漫画", "ダンス", "DIY・ものづくり", "ガーデニング", "サウナ・温泉",
+  "お酒・ワイン", "ボードゲーム", "ドライブ", "釣り", "登山・ハイキング",
+  "ランニング・マラソン", "筋トレ", "美容・スキンケア", "推し活・アイドル",
+  "語学・留学", "投資・資産運用", "ボランティア", "インテリア",
+  "食べ歩き・グルメ", "サーフィン・マリンスポーツ", "スノーボード・スキー",
+  "瞑想・マインドフルネス", "ポッドキャスト", "プログラミング", "歴史・文化",
+];
+
 const SMOKING_STATUS_OPTIONS = [
   { value: "non_smoker", label: "吸わない" },
   { value: "sometimes", label: "たまに吸う" },
@@ -59,12 +84,28 @@ export default function DealbreakersStep({ enabledCategories, onComplete, saving
 
   const [marriageIntent, setMarriageIntent] = useState<string | null>(null);
   const [childrenPref, setChildrenPref] = useState<string | null>(null);
+  const [selectedValues, setSelectedValues] = useState<string[]>([]);
+  const [selectedPassions, setSelectedPassions] = useState<string[]>([]);
   const [lifestyle, setLifestyle] = useState<number>(50); // 0=朝型, 100=夜型
   const [smokingStatus, setSmokingStatus] = useState<string | null>(null);
   const [smokingTolerance, setSmokingTolerance] = useState<string | null>(null);
 
+  const toggleValue = useCallback((v: string) => {
+    setSelectedValues(prev =>
+      prev.includes(v) ? prev.filter(x => x !== v)
+        : prev.length >= 5 ? prev : [...prev, v]
+    );
+  }, []);
+
+  const togglePassion = useCallback((v: string) => {
+    setSelectedPassions(prev =>
+      prev.includes(v) ? prev.filter(x => x !== v) : [...prev, v]
+    );
+  }, []);
+
   const canSubmit = (() => {
     if (!marriageIntent || !childrenPref) return false;
+    if (selectedValues.length === 0) return false;
     if (isPartner && (!smokingStatus || !smokingTolerance)) return false;
     return true;
   })();
@@ -74,6 +115,8 @@ export default function DealbreakersStep({ enabledCategories, onComplete, saving
     const data: DealbreakersData = {
       marriageIntent,
       childrenPreference: childrenPref,
+      values: selectedValues.length > 0 ? selectedValues : undefined,
+      passions: selectedPassions.length > 0 ? selectedPassions : undefined,
     };
     if (isPartner) {
       data.lifestyleMorningNight = lifestyle;
@@ -81,7 +124,7 @@ export default function DealbreakersStep({ enabledCategories, onComplete, saving
       data.smokingTolerance = smokingTolerance ?? undefined;
     }
     onComplete(data);
-  }, [canSubmit, marriageIntent, childrenPref, isPartner, lifestyle, smokingStatus, smokingTolerance, onComplete]);
+  }, [canSubmit, marriageIntent, childrenPref, selectedValues, selectedPassions, isPartner, lifestyle, smokingStatus, smokingTolerance, onComplete]);
 
   return (
     <div className="min-h-[100dvh] flex flex-col items-center px-4 pt-16 pb-8">
@@ -129,6 +172,73 @@ export default function DealbreakersStep({ enabledCategories, onComplete, saving
                 label={opt.label}
               />
             ))}
+          </div>
+        </Section>
+
+        {/* Values — 恋愛で大切にしている価値観（B baseline） */}
+        <Section title="人生で大切にしていること" delay={0.25}>
+          <p className="text-[11px] text-slate-400 mb-2">
+            1〜5つ選んでね（{selectedValues.length}/5）
+          </p>
+          <div className="flex flex-wrap gap-1.5 max-h-[160px] overflow-y-auto">
+            {VALUES_OPTIONS.map((v) => {
+              const sel = selectedValues.includes(v);
+              const disabled = !sel && selectedValues.length >= 5;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => !disabled && toggleValue(v)}
+                  className="py-1.5 px-3 rounded-full text-xs font-medium transition-all"
+                  style={{
+                    background: sel
+                      ? "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(236,72,153,0.08))"
+                      : disabled ? "rgba(241,245,249,0.5)" : "rgba(241,245,249,0.8)",
+                    border: sel
+                      ? "1.5px solid rgba(139,92,246,0.4)"
+                      : "1.5px solid rgba(226,232,240,0.6)",
+                    color: sel ? "#6d28d9" : disabled ? "#cbd5e1" : "#64748b",
+                    opacity: disabled ? 0.5 : 1,
+                    cursor: disabled ? "default" : "pointer",
+                  }}
+                >
+                  {sel && <span className="mr-0.5 text-[10px]">✓</span>}
+                  {v}
+                </button>
+              );
+            })}
+          </div>
+        </Section>
+
+        {/* Passions — 好きなこと（B baseline） */}
+        <Section title="時間を忘れて夢中になれるもの" delay={0.3}>
+          <p className="text-[11px] text-slate-400 mb-2">
+            いくつでもOK（任意）
+          </p>
+          <div className="flex flex-wrap gap-1.5 max-h-[160px] overflow-y-auto">
+            {PASSIONS_OPTIONS.map((p) => {
+              const sel = selectedPassions.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => togglePassion(p)}
+                  className="py-1.5 px-3 rounded-full text-xs font-medium transition-all"
+                  style={{
+                    background: sel
+                      ? "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(236,72,153,0.08))"
+                      : "rgba(241,245,249,0.8)",
+                    border: sel
+                      ? "1.5px solid rgba(139,92,246,0.4)"
+                      : "1.5px solid rgba(226,232,240,0.6)",
+                    color: sel ? "#6d28d9" : "#64748b",
+                  }}
+                >
+                  {sel && <span className="mr-0.5 text-[10px]">✓</span>}
+                  {p}
+                </button>
+              );
+            })}
           </div>
         </Section>
 

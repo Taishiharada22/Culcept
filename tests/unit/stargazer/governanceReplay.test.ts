@@ -214,16 +214,17 @@ describe("PROOF 3: RC2 — Skeleton Assertion Mode", () => {
     confidence_level: "medium",
   };
 
-  it("「出力制約」の表記が含まれる（「参考」ではない）", () => {
+  it("内面語ブロックとして注入される（外側の分析ではない）", () => {
     const block = buildSkeletonPromptBlock(skeleton);
-    expect(block).toContain("出力制約");
-    expect(block).not.toContain("参考として");
+    expect(block).toContain("僕の中で動いているもの");
+    expect(block).not.toContain("事前計算された判断の結論");
+    expect(block).not.toContain("覆すことは許されない");
   });
 
-  it("1文目拘束が明記されている", () => {
+  it("応答の入り方ルールが明記されている", () => {
     const block = buildSkeletonPromptBlock(skeleton);
-    expect(block).toContain("1文目拘束");
-    expect(block).toContain("Skeleton Assertion");
+    expect(block).toContain("応答の入り方");
+    expect(block).toContain("自然に出てくる具体的な一言");
   });
 
   it("禁止パターン5つが列挙されている", () => {
@@ -236,18 +237,17 @@ describe("PROOF 3: RC2 — Skeleton Assertion Mode", () => {
   });
 
   it("実際の失敗応答パターンが禁止リストに含まれている", () => {
-    // 実会話でAlterが実際にやった失敗パターン
     const block = buildSkeletonPromptBlock(skeleton);
-    // 「まず情報を集めるのが」— ターン9, 13, 35 で繰り返された
     expect(block).toContain("情報を集めるのが");
-    // 「ごめん」— ターン21, 27, 29 で謝罪ループ
     expect(block).toContain("ごめん");
   });
 
-  it("結論断定の型が指定されている", () => {
+  it("内面の力のバランスが体感言語で描写されている", () => {
     const block = buildSkeletonPromptBlock(skeleton);
-    expect(block).toContain("〜が合っています");
-    expect(block).toContain("結論断定");
+    // ForceBalance の体感描写が含まれる
+    expect(block).toMatch(/進みたい力|守りたい力|拮抗/);
+    // 確からしさの体感が含まれる
+    expect(block).toContain("確からしさ");
   });
 });
 

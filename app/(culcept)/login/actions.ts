@@ -26,6 +26,19 @@ async function saveLocaleCookie(locale: string = "ja") {
     } catch { /* non-fatal */ }
 }
 
+// ── 登録済みフラグ cookie（登録済みユーザーをログイン画面に誘導するため） ──
+async function saveRegisteredCookie() {
+    try {
+        const store = await (cookies() as any);
+        store?.set?.("aneurasync_registered", "1", {
+            path: "/",
+            maxAge: ONE_YEAR * 5, // 5年間保持
+            sameSite: "lax",
+            secure: process.env.NODE_ENV === "production",
+        });
+    } catch { /* non-fatal */ }
+}
+
 // ── ログイン / 新規登録（LoginForm が利用） ──
 export async function authAction(_prev: AuthState, formData: FormData): Promise<AuthState> {
     const mode = String(formData.get("mode") ?? "signin");
@@ -44,15 +57,35 @@ export async function authAction(_prev: AuthState, formData: FormData): Promise<
         // 匿名ユーザーの昇格チェック（Stargazer 後ログイン型フロー対応）
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         if (currentUser?.is_anonymous) {
-            // Case 1: 匿名→正式アカウントに昇格（user_id 維持）
-            const { error: updateErr } = await supabase.auth.updateUser({
+            // Case 1: 匿名→新規アカウントで signUp（updateUser だと "email change" メールになるため使用禁止）
+            // 匿名データのマージは signin 時の Case 2 ロジック（mergeAnonymousIntoExistingUser）が担う。
+            // signUp 後にメール確認リンクを踏むと auth/callback → next= にリダイレクトされる。
+            const { data, error: signUpErr } = await supabase.auth.signUp({
                 email,
                 password,
-                data: { locale: "ja" },
+                options: {
+                    data: { locale: "ja", anonymous_id: currentUser.id },
+                    emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? ""}/auth/callback?next=${encodeURIComponent(next)}`,
+                },
             });
-            if (updateErr) return { ok: false, error: updateErr.message };
-            await supabase.from("profiles").upsert({ id: currentUser.id, locale: "ja" });
+            if (signUpErr) return { ok: false, error: signUpErr.message };
+
+            // email confirm ON → session なし → 確認メール案内
+            if (!data.session) {
+                return {
+                    ok: true,
+                    error: null,
+                    message: "確認メールを送信しました。メールのリンクをクリックするとアカウントが有効になります。",
+                };
+            }
+
+            // email confirm ON → 確認メール案内（registered cookie はメール確認後のcallbackで）
+            // email confirm OFF（開発環境など）→ 即時セッション確立
+            if (data.user) {
+                await supabase.from("profiles").upsert({ id: data.user.id, locale: "ja" });
+            }
             await saveLocaleCookie("ja");
+            await saveRegisteredCookie();
             redirect(next);
         }
 
@@ -64,7 +97,7 @@ export async function authAction(_prev: AuthState, formData: FormData): Promise<
         });
         if (error) return { ok: false, error: error.message };
 
-        // email confirm ON → session なし → 確認メール案内
+        // email confirm ON → session なし → 確認メール案内（registered cookie はcallbackで設定）
         if (!data.session) {
             return {
                 ok: true,
@@ -77,6 +110,7 @@ export async function authAction(_prev: AuthState, formData: FormData): Promise<
             await supabase.from("profiles").upsert({ id: data.user.id, locale: "ja" });
         }
         await saveLocaleCookie("ja");
+        await saveRegisteredCookie();
         redirect(next);
     }
 

@@ -14,10 +14,14 @@ export const STARGAZER_STUDENT_TASK_TYPES = [
   "stargazer_pattern_narrative",
   // Alter/reflection tasks
   "stargazer_alter_response",
+  "stargazer_alter_utterance_reading",
+  "stargazer_alter_home",
   "stargazer_alter_letter",
   "stargazer_alter_letter_insight",
   "stargazer_alter_self_report",
   "stargazer_alter_session_summary",
+  // Counterfactual (P4)
+  "stargazer_counterfactual_live",
   // Infrastructure tasks
   "stargazer_adaptive_q2",
   "stargazer_notification_copy",

@@ -10,7 +10,6 @@ import { buildImplicitProfile } from "@/lib/stargazer/implicitSignalCapture";
 import { useImplicitSignals, readStoredSignals } from "@/hooks/useImplicitSignals";
 import { useHomeDerivedState } from "./_home/useHomeDerivedState";
 import { useMicroInteractions } from "@/hooks/useMicroInteractions";
-import { isValuesOnboardingDone } from "@/components/home/ValuesOnboardingOverlay";
 import { hydrateTourStates, isTourSeen } from "@/lib/tour/tourState";
 import { useHomeData } from "@/hooks/useHomeData";
 import { C } from "./_home/constants";
@@ -37,7 +36,6 @@ import DailyFlowChip from "@/components/home/DailyFlowChip";
 
 // ─── Overlays ───
 const HomeTour = dynamic(() => import("@/components/home/HomeTour"), { ssr: false });
-const ValuesOnboardingOverlay = dynamic(() => import("@/components/home/ValuesOnboardingOverlay"), { ssr: false });
 const InlineCelebration = dynamic(() => import("@/components/home/InlineCelebration"), { ssr: false });
 const PostObservationReveal = dynamic(() => import("@/components/home/PostObservationReveal"), { ssr: false });
 
@@ -241,7 +239,6 @@ export default function AneurasyncHome() {
 
   // ── Tour / Onboarding ──
   const [showHomeTour, setShowHomeTour] = useState(false);
-  const [showValuesOnboarding, setShowValuesOnboarding] = useState(false);
 
   // ── Celebrations ──
   const [celebration, setCelebration] = useState<"weather" | "observation" | null>(null);
@@ -311,12 +308,8 @@ export default function AneurasyncHome() {
     hydrateTourStates().then(() => {
       if (cancelled) return;
       const homeDone = isTourSeen("home_main");
-      const valuesDone = isTourSeen("home_values");
-      console.log("[tour] hydrated — home_main:", homeDone, "home_values:", valuesDone);
+      console.log("[tour] hydrated — home_main:", homeDone);
       if (homeDone) {
-        if (!valuesDone) {
-          setTimeout(() => { if (!cancelled) setShowValuesOnboarding(true); }, 800);
-        }
         return;
       }
       setTimeout(() => { if (!cancelled) setShowHomeTour(true); }, 1500);
@@ -547,7 +540,7 @@ export default function AneurasyncHome() {
       <LoginIntroAnimation onComplete={() => setIntroComplete(true)} />
 
       {/* ═══ SCROLL AREA — 1枚の会話キャンバス ═══ */}
-      <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
+      <div ref={scrollRef} data-tour="ask-hero" className="flex-1 min-h-0 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
         <div style={{ color: C.t1, paddingTop: 56 }}>
 
           {/* ── 入力モード時（モバイル）: ALTER + コンテキスト1行のみ ── */}
@@ -704,7 +697,7 @@ export default function AneurasyncHome() {
 
           {/* ═══ 会話トランスクリプト ═══ */}
           <ZoneErrorBoundary zoneName="ask">
-            <div data-tour="ask-hero">
+            <div>
               <AskHero
                 observationCount={sgData?.observationCount ?? 0}
                 alterMessages={alterChat.messages}
@@ -719,6 +712,7 @@ export default function AneurasyncHome() {
                 alterIsEmotional={alterChat.lastIsEmotional}
                 alterResponseId={alterChat.lastResponseId}
                 alterFeedbackMeta={alterChat.lastFeedbackMeta}
+                alterCounselorSoftLink={alterChat.lastCounselorSoftLink}
                 composerFocused={composerFocused}
                 scrollRef={scrollRef}
                 nudge={{
@@ -884,14 +878,7 @@ export default function AneurasyncHome() {
         active={showHomeTour}
         onComplete={() => {
           setShowHomeTour(false);
-          if (!isValuesOnboardingDone()) {
-            setTimeout(() => setShowValuesOnboarding(true), 600);
-          }
         }}
-      />
-      <ValuesOnboardingOverlay
-        active={showValuesOnboarding}
-        onComplete={() => setShowValuesOnboarding(false)}
       />
 
     </div>

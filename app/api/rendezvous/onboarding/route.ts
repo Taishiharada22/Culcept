@@ -30,6 +30,8 @@ export async function POST(request: NextRequest) {
       dealbreakers?: {
         marriageIntent?: string;
         childrenPreference?: string;
+        values?: string[];
+        passions?: string[];
         lifestyleMorningNight?: number;
         smokingStatus?: string;
         smokingTolerance?: string;
@@ -128,6 +130,31 @@ export async function POST(request: NextRequest) {
 
       if (dealbreakerErr) {
         console.warn("Dealbreaker save warning:", dealbreakerErr);
+      }
+
+      // values/passions → life_profile_entries (B baseline → Life layer DB)
+      const lifeEntries: { id: string; user_id: string; category: string; title: string; active: boolean; depth_responses: never[]; impact: number; created_at: string; updated_at: string }[] = [];
+      const now = new Date().toISOString();
+      const makeId = () => `lp_${crypto.randomUUID().slice(0, 8)}`;
+
+      if (dealbreakers.values && Array.isArray(dealbreakers.values)) {
+        for (const v of dealbreakers.values) {
+          lifeEntries.push({ id: makeId(), user_id: userId, category: "values", title: v, active: true, depth_responses: [], impact: 3, created_at: now, updated_at: now });
+        }
+      }
+      if (dealbreakers.passions && Array.isArray(dealbreakers.passions)) {
+        for (const p of dealbreakers.passions) {
+          lifeEntries.push({ id: makeId(), user_id: userId, category: "passions", title: p, active: true, depth_responses: [], impact: 3, created_at: now, updated_at: now });
+        }
+      }
+
+      if (lifeEntries.length > 0) {
+        const { error: lifeErr } = await supabaseAdmin
+          .from("life_profile_entries")
+          .upsert(lifeEntries, { onConflict: "id" });
+        if (lifeErr) {
+          console.warn("Life profile entries save warning:", lifeErr);
+        }
       }
     }
 

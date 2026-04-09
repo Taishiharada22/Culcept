@@ -80,7 +80,7 @@ export type UnderstandingCategory =
  */
 export type TrustLevel = 0 | 1 | 2 | 3 | 4;
 
-/** Trust Gate の計算に使うシグナル */
+/** Trust Gate の計算に使うシグナル（旧 TrustSignals — 後方互換用） */
 export interface TrustSignals {
   /** 完了セッション数 */
   session_count: number;
@@ -95,53 +95,66 @@ export interface TrustSignals {
 }
 
 /**
- * Trust Level を計算する（TrustSignals ベース版）。
- * 量（セッション数）だけでなく、質（開示の深さ、安全性の証拠）を重視する。
- *
- * 現在は TrustSignals の全フィールドが蓄積されていないため、
- * route.ts では deriveTrustLevel() を使用。
- * Phase 5 で stargazer_alter_reactions のデータが十分蓄積された時点で
- * こちらに移行する。
+ * @deprecated Wall 4 で deriveTrustLevel() に統合。直接使用禁止。
  */
 export function calculateTrustLevel(signals: TrustSignals): TrustLevel {
   const { session_count, deep_disclosure_count, insight_acceptance_rate, correction_count } = signals;
-
-  // T4: 明確な信頼関係が確立されている
-  // セッション数だけでなく、開示の深さと安全性の両方が必要
   if (
     session_count >= 40 &&
     deep_disclosure_count >= 10 &&
     insight_acceptance_rate >= 0.6 &&
-    correction_count >= 3 // 「違う」と言えることが安全性の証拠
-  ) {
-    return 4;
-  }
-
-  // T3: クロスコンテキストの接続を提示できる
-  if (
-    session_count >= 20 &&
-    deep_disclosure_count >= 5 &&
-    insight_acceptance_rate >= 0.5
-  ) {
-    return 3;
-  }
-
-  // T2: 仮説を提示できる
-  if (
-    session_count >= 8 &&
-    deep_disclosure_count >= 2 &&
-    insight_acceptance_rate >= 0.3
-  ) {
-    return 2;
-  }
-
-  // T1: パターンを提示できる
-  if (session_count >= 3) {
-    return 1;
-  }
-
-  // T0: 反映のみ
+    correction_count >= 3
+  ) return 4;
+  if (session_count >= 20 && deep_disclosure_count >= 5 && insight_acceptance_rate >= 0.5) return 3;
+  if (session_count >= 8 && deep_disclosure_count >= 2 && insight_acceptance_rate >= 0.3) return 2;
+  if (session_count >= 3) return 1;
   return 0;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Wall 4: 関係性ベース Trust
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * deriveTrustLevel に渡す関係性シグナル。
+ * 全て optional — 未蓄積のシグナルがあっても baseline で動作する。
+ */
+export interface RelationalTrustSignals {
+  // ── 正シグナル（上昇要因）──
+  /** 累計獲得信頼ポイント（proactive engine の earnedTrustTotal） */
+  earnedTrustTotal?: number;
+  /** 自己開示深度 (0-1) */
+  selfDisclosureDepth?: number;
+  /** 防衛パターン予測の連続正解数 */
+  defensePredictionStreak?: number;
+  /** ユーザーが自発的に話題を展開した累計回数 */
+  voluntaryTopicExpansionCount?: number;
+  /** 修復成功率 (0-1)。null = まだ rupture 発生なし */
+  repairSuccessRate?: number | null;
+
+  // ── 負シグナル（下降要因）──
+  /** 直近ターンの連続 rupture 回数 */
+  consecutiveRuptureCount?: number;
+  /** 明示的な拒絶が検出されたか */
+  explicitRejection?: boolean;
+  /** 尊厳違反が検出されたか */
+  dignityViolation?: boolean;
+  /** 前ターンとの信頼差分（負 = 低下） */
+  trustDelta?: number;
+}
+
+/** deriveTrustLevel の返却値（analytics 用の詳細付き） */
+export interface TrustLevelResult {
+  /** 最終的な TrustLevel（下流で使う正本） */
+  effectiveTrust: TrustLevel;
+  /** セッション数ベースの baseline */
+  baseTrust: TrustLevel;
+  /** シグナル調整後（Phase cap 前） */
+  signalAdjustedTrust: TrustLevel;
+  /** Phase cap が適用されたか */
+  phaseCapped: boolean;
+  /** 上昇/下降の理由（analytics 用） */
+  adjustmentReason: string | null;
 }
 
 /**
@@ -196,29 +209,116 @@ export interface DisclosureStyle {
 }
 
 /**
- * growthState の連続 trustLevel (0-1) と sessionsCompleted から
- * 離散 TrustLevel (0-4) を導出する。
+ * Trust Level を導出する（Wall 4: 関係性ベース移行版）。
  *
- * 将来 TrustSignals（deep_disclosure_count, insight_acceptance_rate 等）が
- * 十分蓄積されたら calculateTrustLevel() に移行する（Phase 5 の範囲）。
+ * 3ステップ:
+ * 1. Baseline: セッション数 + continuousTrust から出発点を計算（旧ロジック）
+ * 2. シグナル調整: 関係性シグナルで加速/減速（非対称: 上昇遅く、下降速く）
+ * 3. Phase cap: 現在の Phase から導出される Trust 上限で制限
+ *
+ * 設計原則:
+ * - 上昇は慎重に: 複数の正シグナルが揃って初めて +1。一気に +2 しない
+ * - 下降は安全側に速く: rupture / rejection で即 -1〜-2
+ * - Phase cap: effectiveTrust <= hdmPhaseToTrustLevel(currentPhase)
+ *
+ * 後方互換: relationalSignals / phaseTrustCap を省略すると旧ロジックと同等。
  */
 export function deriveTrustLevel(
   continuousTrust: number,
   sessionsCompleted: number,
   currentSessionTurnCount?: number,
-): TrustLevel {
-  // Cross-session trust（複数セッション蓄積）
-  if (continuousTrust >= 0.85 && sessionsCompleted >= 40) return 4;
-  if (continuousTrust >= 0.7 && sessionsCompleted >= 20) return 3;
-  if (continuousTrust >= 0.4 && sessionsCompleted >= 8) return 2;
-  if (sessionsCompleted >= 3) return 1;
+  relationalSignals?: RelationalTrustSignals,
+  phaseTrustCap?: TrustLevel,
+): TrustLevelResult {
+  // ── Step 1: Baseline（セッション数ベース — 旧ロジック）──
+  let baseTrust: TrustLevel = 0;
+  if (continuousTrust >= 0.85 && sessionsCompleted >= 40) baseTrust = 4;
+  else if (continuousTrust >= 0.7 && sessionsCompleted >= 20) baseTrust = 3;
+  else if (continuousTrust >= 0.4 && sessionsCompleted >= 8) baseTrust = 2;
+  else if (sessionsCompleted >= 3) baseTrust = 1;
+  else if (currentSessionTurnCount !== undefined && currentSessionTurnCount >= 4) baseTrust = 1;
 
-  // Session-internal trust: 初回セッションでも会話が進めば T1 を付与
-  // 4ターン（user 2回 + alter 2回）以上 → 最低限の文脈共有を許可
-  // これにより初回長会話で「毎ターン初対面」問題を解消
-  if (currentSessionTurnCount !== undefined && currentSessionTurnCount >= 4) return 1;
+  // シグナルがない場合は baseline をそのまま返す
+  if (!relationalSignals) {
+    const effective = phaseTrustCap !== undefined
+      ? Math.min(baseTrust, phaseTrustCap) as TrustLevel
+      : baseTrust;
+    return {
+      effectiveTrust: effective,
+      baseTrust,
+      signalAdjustedTrust: baseTrust,
+      phaseCapped: effective < baseTrust,
+      adjustmentReason: null,
+    };
+  }
 
-  return 0;
+  // ── Step 2: シグナル調整（非対称）──
+  let adjusted: number = baseTrust;
+  const reasons: string[] = [];
+
+  // ── 2a. 下降（速い）──
+  // rupture 3連続 → -2（hard regression 相当）
+  if ((relationalSignals.consecutiveRuptureCount ?? 0) >= 3) {
+    adjusted -= 2;
+    reasons.push("consecutive_rupture_3");
+  }
+  // rupture 1-2回 → -1
+  else if ((relationalSignals.consecutiveRuptureCount ?? 0) >= 1) {
+    adjusted -= 1;
+    reasons.push("rupture_detected");
+  }
+
+  // 明示的拒絶 → -1
+  if (relationalSignals.explicitRejection) {
+    adjusted -= 1;
+    reasons.push("explicit_rejection");
+  }
+
+  // 尊厳違反 → -1
+  if (relationalSignals.dignityViolation) {
+    adjusted -= 1;
+    reasons.push("dignity_violation");
+  }
+
+  // trustDelta が大きく負 → -1
+  if ((relationalSignals.trustDelta ?? 0) < -0.3) {
+    adjusted -= 1;
+    reasons.push("trust_delta_drop");
+  }
+
+  // ── 2b. 上昇（遅い: 複数条件を満たして初めて +1）──
+  // 条件: 3つ以上の正シグナルが閾値を超えている → +1（最大）
+  let positiveSignalCount = 0;
+
+  if ((relationalSignals.earnedTrustTotal ?? 0) >= 3.0) positiveSignalCount++;
+  if ((relationalSignals.selfDisclosureDepth ?? 0) >= 0.3) positiveSignalCount++;
+  if ((relationalSignals.defensePredictionStreak ?? 0) >= 2) positiveSignalCount++;
+  if ((relationalSignals.voluntaryTopicExpansionCount ?? 0) >= 2) positiveSignalCount++;
+  if (relationalSignals.repairSuccessRate !== undefined
+    && relationalSignals.repairSuccessRate !== null
+    && relationalSignals.repairSuccessRate >= 0.7) positiveSignalCount++;
+
+  if (positiveSignalCount >= 3) {
+    adjusted += 1;
+    reasons.push(`positive_signals_${positiveSignalCount}`);
+  }
+
+  // クランプ: 0-4 の範囲に収める
+  adjusted = Math.max(0, Math.min(4, adjusted));
+  const signalAdjusted = adjusted as TrustLevel;
+
+  // ── Step 3: Phase cap ──
+  const capped = phaseTrustCap !== undefined
+    ? Math.min(signalAdjusted, phaseTrustCap) as TrustLevel
+    : signalAdjusted;
+
+  return {
+    effectiveTrust: capped,
+    baseTrust,
+    signalAdjustedTrust: signalAdjusted,
+    phaseCapped: capped < signalAdjusted,
+    adjustmentReason: reasons.length > 0 ? reasons.join(",") : null,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1914,8 +2014,17 @@ export function updateHypothesisStatus(
   // 新しい証拠が既存の信頼度より低い → 弱化方向
   const evidenceDirection = newEvidence.confidence - oldConfidence;
 
-  // strengthening: 新証拠が現在より高い + 十分な累積証拠
-  if (evidenceDirection > 0.15 && totalEvidence >= 5) {
+  // weakening からの回復: 通常より厳しい条件で strengthening に戻す
+  if (current.status === "weakening" && evidenceDirection > 0.25 && totalEvidence >= 8) {
+    newStatus = "strengthening";
+    growthSignal = {
+      type: "pattern_shift",
+      description: `仮説「${current.content}」が回復（weakening → strengthening）`,
+      evidence: `evidenceDirection: ${evidenceDirection.toFixed(2)}, totalEvidence: ${totalEvidence}, confidence: ${(oldConfidence * 100).toFixed(0)}% → ${(newConfidence * 100).toFixed(0)}%`,
+    };
+  }
+  // strengthening: 新証拠が現在より高い + 十分な累積証拠（weakening 以外）
+  else if (current.status !== "weakening" && evidenceDirection > 0.15 && totalEvidence >= 5) {
     newStatus = "strengthening";
   }
   // weakening: 新証拠が現在より大幅に低い
@@ -2924,7 +3033,7 @@ export interface TrapScanInput {
 // ── 罠①: 監視罠 ──
 // MI提示後の沈黙・話題転換率が20%超で warning、40%超で critical
 
-function detectSurveillanceTrap(input: TrapScanInput): TrapDetection {
+function detectSurveillanceTrap(input: TrapScanInput, currentDomain?: string): TrapDetection {
   const { reactions } = input;
   if (reactions.length < 5) {
     return { trap_type: "surveillance", detected: false, severity: "none", indicators: [], recommendation: "" };
@@ -2933,20 +3042,36 @@ function detectSurveillanceTrap(input: TrapScanInput): TrapDetection {
   const ignoreCount = reactions.filter(r => r.reaction === "ignored").length;
   const topicChangeCount = reactions.filter(r => r.reaction === "denied").length; // denied ≒ 話題転換・不快
   const silenceRate = ignoreCount / reactions.length;
-  const avoidanceRate = (ignoreCount + topicChangeCount) / reactions.length;
+  const rawAvoidanceRate = (ignoreCount + topicChangeCount) / reactions.length;
+
+  // Session recency weighting: last 10 reactions carry 2x weight
+  const recentSlice = reactions.slice(-10);
+  const recentIgnore = recentSlice.filter(r => r.reaction === "ignored").length;
+  const recentDenied = recentSlice.filter(r => r.reaction === "denied").length;
+  const recentAvoidanceRate = (recentIgnore + recentDenied) / recentSlice.length;
+  const avoidanceRate = Math.min(rawAvoidanceRate, (rawAvoidanceRate + recentAvoidanceRate) / 2);
+
+  // Domain-sensitive relaxation: exploratory/strategic domains get higher threshold
+  const exploratoryDomains = ["creation", "work", "career_fit", "founder_team_fit"];
+  const avoidanceThreshold = currentDomain && exploratoryDomains.includes(currentDomain) ? 0.6 : 0.4;
 
   const indicators: TrapIndicator[] = [
     { name: "silence_rate", value: silenceRate, threshold: 0.2, breached: silenceRate >= 0.2 },
-    { name: "avoidance_rate", value: avoidanceRate, threshold: 0.4, breached: avoidanceRate >= 0.4 },
+    { name: "avoidance_rate", value: avoidanceRate, threshold: avoidanceThreshold, breached: avoidanceRate >= avoidanceThreshold },
   ];
 
-  if (avoidanceRate >= 0.4) {
+  // Warmup period: < 10 reactions caps severity at "warning"
+  const inWarmup = reactions.length < 10;
+
+  if (avoidanceRate >= avoidanceThreshold) {
     return {
       trap_type: "surveillance",
       detected: true,
-      severity: "critical",
+      severity: inWarmup ? "warning" : "critical",
       indicators,
-      recommendation: "MI の提示を一時停止し、Trust Gate 閾値を引き上げる。提示間隔を倍にする。",
+      recommendation: inWarmup
+        ? "MI の提示頻度を下げる。casual_check 以外の提示を控える。（warmup 期間中）"
+        : "MI の提示を一時停止し、Trust Gate 閾値を引き上げる。提示間隔を倍にする。",
     };
   }
   if (silenceRate >= 0.2) {

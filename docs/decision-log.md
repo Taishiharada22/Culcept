@@ -14,6 +14,46 @@
 
 ---
 
+### 2026-04-08 safe-merge 完了 + pre-existing test 失敗2件の固定記録
+- **部門**: Build
+- **決定内容**: ローカル全変更を main に安全合流・push 完了。pre-existing テスト失敗2件を正式記録。
+- **承認**: CEO
+- **ステータス**: 記録固定済み
+
+#### 保全結果サマリ
+| 項目 | 値 |
+|---|---|
+| 退避ブランチ | `backup/safe-merge-20260408-023040` |
+| WIP SHA | `34602480` |
+| main push SHA | `72d813a9` |
+| push 範囲 | `882704ed..72d813a9` |
+| build | PASS |
+| typecheck | PASS |
+| tests | 2031/2033 PASS（2件 pre-existing） |
+| migration 追加 | 6件 |
+| 変更消失 | なし |
+
+#### 失敗テスト固定記録（pre-existing・今回起因ではない）
+
+**1. `tests/unit/stargazer/baselineContext.test.ts:339`**
+- テスト名: `scoreBaselineRelevance > relationship: lifeStage=high, gender=high, area=medium`
+- 失敗内容: `rel.area` が `"medium"` を期待するが実装は `"low"` を返す
+- 根本原因: `scoreBaselineRelevance` の area スコアリングロジックと期待値の乖離
+- 対処方針: 実装側の意図を確認してからテスト or 実装を修正（CEO 判断待ち）
+
+**2. `tests/unit/stargazer/derivedFactGenerator.test.ts:372`**
+- テスト名: `serializeDerivedFactsForAnalytics > analytics用のシリアライズ形式が正しい`
+- 失敗内容: `serialized.derived_facts.length` が `5` を期待するが `4` が返る
+- 根本原因: `serializeDerivedFactsForAnalytics` がファクト1件をフィルタ/スキップしている
+- 対処方針: シリアライズ関数のフィルタ条件を確認（CEO 判断待ち）
+
+#### Migration 命名規則メモ
+- 今回追加の `20260407300000`/`400000`/`500000` は時刻表現として不自然（秒が00000等）
+- 実害なし（文字列順ソートで並び順は正しい）
+- 今後は 実時刻ベース14桁（例: `20260408143022`）に統一する
+
+---
+
 ### 2026-03-14 AI 運営 OS 初期構築
 - **部門**: Chief of Staff
 - **決定内容**: Claude Code 上で AI 執行部の運営基盤を構築。5 部門体制で開始。

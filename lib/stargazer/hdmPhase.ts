@@ -117,6 +117,37 @@ export interface HdmPhaseState {
     suggestedAt: string;
     followUpAttempts: number;
   } | null;
+  // ── Stage 1: Shadow Recommendation 追跡フィールド ──
+  /** 直近ターンの dignity 違反履歴（最大10件の固定長バッファ） */
+  recentDignityViolations: boolean[];
+  /** 直近ターンの protective spike 履歴（最大10件の固定長バッファ） */
+  recentProtectiveSpikes: boolean[];
+  /** Phase 3 に到達した日時（Phase 3 滞在ターン数の起点） */
+  phase3EnteredAt: string | null;
+  /** Phase 4 に到達した日時 */
+  phase4EnteredAt: string | null;
+  /** Phase 3 滞在中に経過したターン数 */
+  phase3TurnCount: number;
+  /** Phase 4 滞在中に経過したターン数 */
+  phase4TurnCount: number;
+  /** P4 counterfactual 発火回数（累計） */
+  p4FireCount: number;
+
+  // ── Wall 1+6: 本人化追跡フィールド ──
+  /** 前ターンで Alter が予測した dominant defense パート（次ターンで検証） */
+  lastDefensePrediction: string | null;
+  /** 防衛パターン予測の連続正解数（Phase 1→2 主条件） */
+  defensePredictionStreak: number;
+  /** ユーザーが自発的に話題を展開した累計回数（Phase 0→1 主条件） */
+  voluntaryTopicExpansionCount: number;
+  /** 前ターンで Alter が probe した domains（自発展開検出の基準） */
+  lastProbedDomains: string[];
+
+  // ── Wall 5: Session Diff ──
+  /** 前セッション終了時の軸スコアスナップショット（session diff 用） */
+  previousSessionAxisScores: Record<string, number> | null;
+  /** 現セッションのセッションID（セッション切り替わり検出用） */
+  lastSessionId: string | null;
 }
 
 /** デフォルトの初期状態 */
@@ -131,6 +162,19 @@ export const DEFAULT_HDM_PHASE_STATE: HdmPhaseState = {
   recentRuptureFlags: [],
   priorSessionTrust: null,
   pendingRealityAnchoring: null,
+  recentDignityViolations: [],
+  recentProtectiveSpikes: [],
+  phase3EnteredAt: null,
+  phase4EnteredAt: null,
+  phase3TurnCount: 0,
+  phase4TurnCount: 0,
+  p4FireCount: 0,
+  lastDefensePrediction: null,
+  defensePredictionStreak: 0,
+  voluntaryTopicExpansionCount: 0,
+  lastProbedDomains: [],
+  previousSessionAxisScores: null,
+  lastSessionId: null,
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -200,6 +244,11 @@ function meetsPhase1Metrics(inputs: HdmPhaseInputs): boolean {
   return false;
 }
 
+/** Phase 0→1 が主条件で達成されたか */
+function isPhase1PrimaryPath(inputs: HdmPhaseInputs): boolean {
+  return inputs.voluntaryTopicExpansionCount >= 2;
+}
+
 /**
  * Phase 1→2 の metric 条件:
  * 「防衛パターンを3回連続で正確に予測」（HDM 設計書 5.2）
@@ -221,9 +270,20 @@ function meetsPhase2Metrics(inputs: HdmPhaseInputs): boolean {
   return false;
 }
 
+/** Phase 1→2 が主条件で達成されたか */
+function isPhase2PrimaryPath(inputs: HdmPhaseInputs): boolean {
+  return inputs.defensePredictionStreak >= 3;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 自動遷移判定
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 遷移を駆動した経路 */
+export type TransitionPath =
+  | "primary_metric"  // 主条件で遷移（voluntaryTopicExpansion / defensePredictionStreak）
+  | "fallback"        // 代替パスで遷移（earnedTrustTotal / selfDisclosureDepth 等）
+  | null;             // 遷移なし
 
 export interface PhaseTransitionResult {
   /** 遷移後の Phase */
@@ -234,6 +294,8 @@ export interface PhaseTransitionResult {
   transitionReason: string | null;
   /** 遷移がブロックされた理由（null = ブロックなし） */
   blockedReason: string | null;
+  /** 遷移を駆動した経路（primary_metric / fallback / null） */
+  transitionPath: TransitionPath;
   /** Phase 1 の metric 達成度 */
   phase1MetricsMet: boolean;
   /** Phase 1 の floor 達成度 */
@@ -258,6 +320,7 @@ export function computeAutoTransition(
     transitioned: false,
     transitionReason: null,
     blockedReason: null,
+    transitionPath: null,
     phase1MetricsMet: meetsPhase1Metrics(inputs),
     phase1FloorMet: state.currentPhase >= 1 || meetsFloor(1, inputs),
     phase2MetricsMet: meetsPhase2Metrics(inputs),
@@ -291,6 +354,7 @@ export function computeAutoTransition(
       result.phase = 1;
       result.transitioned = true;
       result.transitionReason = "floor_and_metrics_met_for_phase_1";
+      result.transitionPath = isPhase1PrimaryPath(inputs) ? "primary_metric" : "fallback";
       return result;
     }
     // floor は満たしたが metric が足りない、またはその逆
@@ -308,6 +372,7 @@ export function computeAutoTransition(
       result.phase = 2;
       result.transitioned = true;
       result.transitionReason = "floor_and_metrics_met_for_phase_2";
+      result.transitionPath = isPhase2PrimaryPath(inputs) ? "primary_metric" : "fallback";
       return result;
     }
     if (result.phase2FloorMet && !result.phase2MetricsMet) {
@@ -1053,6 +1118,8 @@ export interface HdmPhaseAnalytics {
   transitioned: boolean;
   transitionReason: string | null;
   blockedReason: string | null;
+  /** 遷移を駆動した経路（primary_metric / fallback / null） */
+  transitionPath: TransitionPath;
   trustLevelDerived: TrustLevel;
   /** Phase 単体の応答深度 */
   responseDepth: PhaseResponseDepth;
@@ -1081,6 +1148,7 @@ export function buildHdmPhaseAnalytics(
     transitioned: transitionResult.transitioned,
     transitionReason: transitionResult.transitionReason,
     blockedReason: transitionResult.blockedReason,
+    transitionPath: transitionResult.transitionPath,
     trustLevelDerived: hdmPhaseToTrustLevel(phase),
     responseDepth: getPhaseResponseDepth(phase),
     effectiveDepth: trustLevel !== undefined
@@ -1092,5 +1160,208 @@ export function buildHdmPhaseAnalytics(
     phase1FloorMet: transitionResult.phase1FloorMet,
     phase2MetricsMet: transitionResult.phase2MetricsMet,
     phase2FloorMet: transitionResult.phase2FloorMet,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Stage 1: Shadow Recommendation（Phase 3→4→5 昇格判定）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 固定長バッファの最大サイズ */
+const TRACKING_BUFFER_SIZE = 10;
+
+/** 昇格候補の遷移 */
+export type PromotionTransition = "3→4" | "4→5";
+
+export interface PromotionReadiness {
+  /** 昇格を推奨するか */
+  recommend: boolean;
+  /** 対象の遷移 */
+  transition: PromotionTransition;
+  /** 満たしている条件 */
+  metConditions: string[];
+  /** 未達の条件 */
+  missingConditions: string[];
+}
+
+/** 3→4 の仮閾値 */
+const PROMOTION_3_4 = {
+  minSessions: 15,
+  minTotalTurns: 100,
+  minPhase3Turns: 30,
+  minTrustLevel: 3 as TrustLevel,
+  maxRecentRuptures: 0,        // 直近 recentRuptureFlags で連続 rupture 0
+  maxRecentDignity: 0,         // 直近バッファで dignity 違反 0
+  maxRecentProtectiveSpikes: 0, // 直近バッファで protective spike 0
+};
+
+/** 4→5 の仮閾値 */
+const PROMOTION_4_5 = {
+  minSessions: 40,
+  minPhase4Turns: 20,
+  minP4FireCount: 3,
+  minTrustLevel: 4 as TrustLevel,
+  maxRecentRuptures: 0,
+  maxRecentDignity: 0,
+};
+
+/**
+ * Phase 3→4 または 4→5 の昇格準備状態を評価する（Stage 1: Shadow Recommendation）。
+ *
+ * Phase を変更しない。analytics 出力用の判定のみ。
+ * 応答確定後に呼び出す（毎ターンではなく、応答が完成した後）。
+ */
+export function evaluatePromotionReadiness(
+  state: HdmPhaseState,
+  inputs: HdmPhaseInputs,
+  trustLevel: TrustLevel,
+): PromotionReadiness | null {
+  // Phase 3 → 4 の判定
+  if (state.currentPhase === 3) {
+    return evaluate3to4(state, inputs, trustLevel);
+  }
+  // Phase 4 → 5 の判定
+  if (state.currentPhase === 4) {
+    return evaluate4to5(state, inputs, trustLevel);
+  }
+  // Phase 0-2 は自動遷移、Phase 5 は最上位 → 判定不要
+  return null;
+}
+
+function evaluate3to4(
+  state: HdmPhaseState,
+  inputs: HdmPhaseInputs,
+  trustLevel: TrustLevel,
+): PromotionReadiness {
+  const t = PROMOTION_3_4;
+  const met: string[] = [];
+  const missing: string[] = [];
+
+  // Floor
+  if (inputs.sessionsCompleted >= t.minSessions) met.push(`sessions≥${t.minSessions}`);
+  else missing.push(`sessions≥${t.minSessions} (now=${inputs.sessionsCompleted})`);
+
+  if (inputs.totalTurnCount >= t.minTotalTurns) met.push(`turns≥${t.minTotalTurns}`);
+  else missing.push(`turns≥${t.minTotalTurns} (now=${inputs.totalTurnCount})`);
+
+  if (state.phase3TurnCount >= t.minPhase3Turns) met.push(`phase3Turns≥${t.minPhase3Turns}`);
+  else missing.push(`phase3Turns≥${t.minPhase3Turns} (now=${state.phase3TurnCount})`);
+
+  // Metric
+  if (trustLevel >= t.minTrustLevel) met.push(`trust≥${t.minTrustLevel}`);
+  else missing.push(`trust≥${t.minTrustLevel} (now=${trustLevel})`);
+
+  const recentRuptureCount = countTrailing(state.recentRuptureFlags, true);
+  if (recentRuptureCount <= t.maxRecentRuptures) met.push("no_recent_rupture");
+  else missing.push(`recent_rupture=${recentRuptureCount}`);
+
+  const recentDignity = countTrue(state.recentDignityViolations ?? []);
+  if (recentDignity <= t.maxRecentDignity) met.push("no_recent_dignity_violation");
+  else missing.push(`recent_dignity_violations=${recentDignity}`);
+
+  const recentSpikes = countTrue(state.recentProtectiveSpikes ?? []);
+  if (recentSpikes <= t.maxRecentProtectiveSpikes) met.push("no_recent_protective_spike");
+  else missing.push(`recent_protective_spikes=${recentSpikes}`);
+
+  return {
+    recommend: missing.length === 0,
+    transition: "3→4",
+    metConditions: met,
+    missingConditions: missing,
+  };
+}
+
+function evaluate4to5(
+  state: HdmPhaseState,
+  inputs: HdmPhaseInputs,
+  trustLevel: TrustLevel,
+): PromotionReadiness {
+  const t = PROMOTION_4_5;
+  const met: string[] = [];
+  const missing: string[] = [];
+
+  // Floor
+  if (inputs.sessionsCompleted >= t.minSessions) met.push(`sessions≥${t.minSessions}`);
+  else missing.push(`sessions≥${t.minSessions} (now=${inputs.sessionsCompleted})`);
+
+  if (state.phase4TurnCount >= t.minPhase4Turns) met.push(`phase4Turns≥${t.minPhase4Turns}`);
+  else missing.push(`phase4Turns≥${t.minPhase4Turns} (now=${state.phase4TurnCount})`);
+
+  if ((state.p4FireCount ?? 0) >= t.minP4FireCount) met.push(`p4Fire≥${t.minP4FireCount}`);
+  else missing.push(`p4Fire≥${t.minP4FireCount} (now=${state.p4FireCount ?? 0})`);
+
+  // Metric
+  if (trustLevel >= t.minTrustLevel) met.push(`trust≥${t.minTrustLevel}`);
+  else missing.push(`trust≥${t.minTrustLevel} (now=${trustLevel})`);
+
+  const recentRuptureCount = countTrailing(state.recentRuptureFlags, true);
+  if (recentRuptureCount <= t.maxRecentRuptures) met.push("no_recent_rupture");
+  else missing.push(`recent_rupture=${recentRuptureCount}`);
+
+  const recentDignity = countTrue(state.recentDignityViolations ?? []);
+  if (recentDignity <= t.maxRecentDignity) met.push("no_recent_dignity_violation");
+  else missing.push(`recent_dignity_violations=${recentDignity}`);
+
+  return {
+    recommend: missing.length === 0,
+    transition: "4→5",
+    metConditions: met,
+    missingConditions: missing,
+  };
+}
+
+/** 配列末尾から連続して target と一致する要素数 */
+function countTrailing(arr: boolean[], target: boolean): number {
+  let count = 0;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] === target) count++;
+    else break;
+  }
+  return count;
+}
+
+/** 配列中の true の個数 */
+function countTrue(arr: boolean[]): number {
+  return arr.filter(Boolean).length;
+}
+
+/**
+ * 追跡バッファを更新する（固定長バッファ、最大 TRACKING_BUFFER_SIZE）。
+ * 応答確定後に呼び出す。
+ */
+export function updateTrackingBuffers(
+  state: HdmPhaseState,
+  dignityViolation: boolean,
+  protectiveSpike: boolean,
+  p4Fired: boolean,
+): HdmPhaseState {
+  const dignityBuf = [...(state.recentDignityViolations ?? []), dignityViolation].slice(-TRACKING_BUFFER_SIZE);
+  const spikeBuf = [...(state.recentProtectiveSpikes ?? []), protectiveSpike].slice(-TRACKING_BUFFER_SIZE);
+
+  // Phase 滞在ターンカウント
+  let phase3TurnCount = state.phase3TurnCount ?? 0;
+  let phase4TurnCount = state.phase4TurnCount ?? 0;
+  let phase3EnteredAt = state.phase3EnteredAt ?? null;
+  let phase4EnteredAt = state.phase4EnteredAt ?? null;
+  const p4FireCount = (state.p4FireCount ?? 0) + (p4Fired ? 1 : 0);
+
+  if (state.currentPhase === 3) {
+    phase3TurnCount++;
+    if (!phase3EnteredAt) phase3EnteredAt = new Date().toISOString();
+  }
+  if (state.currentPhase === 4) {
+    phase4TurnCount++;
+    if (!phase4EnteredAt) phase4EnteredAt = new Date().toISOString();
+  }
+
+  return {
+    ...state,
+    recentDignityViolations: dignityBuf,
+    recentProtectiveSpikes: spikeBuf,
+    phase3EnteredAt,
+    phase4EnteredAt,
+    phase3TurnCount,
+    phase4TurnCount,
+    p4FireCount,
   };
 }

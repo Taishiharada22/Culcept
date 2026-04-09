@@ -655,6 +655,7 @@ export type QuestionCategory =
   | "work"        // 仕事・タスク・進め方
   | "cause"       // 最近なんで・なぜ・原因
   | "career"      // 適職・勉強・進路・長期テーマ
+  | "founder_team_fit"  // チーム適性・性格補完・MBTI
   | "general";    // その他
 
 /** P1-A: 5タイプルーター — 質問の「意図の種類」を分類
@@ -717,6 +718,18 @@ export function detectFollowUp(message: string, lastAlterContent: string | null)
   // 「まだ準備段階」「まだ決めてない」型 — 前提の訂正
   if (/^まだ/.test(trimmed) && trimmed.length <= 30) return "correction";
 
+  // ── intent-chain drill-down: 短い質問で前の話題を掘り下げている ──
+  // "有名人で言うと？" "日本人だと？" "MBTIで言うと？" "例えば？" "具体的には？"
+  if (trimmed.length <= 40) {
+    if (/(?:で言うと|だと(?:どう|誰)|に例えると|の場合|具体的|例えば|たとえば|他には|他の|もう少し)/.test(trimmed)) {
+      return "continuation";
+    }
+    // 短い質問で "？" で終わる + 前のAlter応答がある = 暗黙の掘り下げ
+    if (/[？?]$/.test(trimmed) && trimmed.length <= 25 && lastAlterContent && lastAlterContent.length > 50) {
+      return "continuation";
+    }
+  }
+
   return null;
 }
 
@@ -726,6 +739,9 @@ export function detectFollowUp(message: string, lastAlterContent: string | null)
  */
 export function isFatigueMessage(message: string): boolean {
   const trimmed = message.trim();
+  // ガード: 質問文（？で終わる）内の疲労キーワードは自己申告ではない
+  // 「一人だときついよね？」は疲労ではなく質問
+  if (/[？?]/.test(trimmed)) return false;
   // 超短文（5文字以下）は emotional に任せる（「疲れた」「きつい」→ isEmotionalQuestion が先に取る）
   if (trimmed.length <= 5) return false;
   // 睡眠不足
@@ -796,6 +812,7 @@ const CATEGORY_FACT_PRIORITY: Record<QuestionCategory, FactTag[]> = {
   work:       ["environment", "scatter_focus", "decision_speed", "temporal", "insight", "change_stress"],
   cause:      ["environment", "temporal", "insight", "blindspot", "core_wound", "energy_state"],
   career:     ["environment", "strengths", "growth_key", "core_desire", "safe_stress", "core_wound"],
+  founder_team_fit: ["environment", "strengths", "core_desire", "blindspot", "insight", "energy_state"],
   general:    ["environment", "energy_state", "insight", "temporal", "blindspot", "decision_speed"],
 };
 
@@ -830,6 +847,11 @@ const CATEGORY_CONCLUSION_SLOTS: Record<QuestionCategory, string[]> = {
     "[この人の核心的な欲求/恐れ]があるから、〜を選ぶと長続きしやすい",
     "[この人の安全/ストレスパターン]から見ると、〜の環境が力を出しやすい",
   ],
+  founder_team_fit: [
+    "[この人の強み/弱み]を補完できるのは、〜タイプの人",
+    "[この人の判断パターン]から見ると、〜な性格の人と組むと力が出る",
+    "[この人の盲点/リスク]をカバーできる相手は、〜な特性を持つ人",
+  ],
   general: [
     "今日の[この人の名前]は、[判断軸]を優先した方がぶれない",
     "[今の状態/傾向の理由]だからこそ、あえて〜を試す価値がある",
@@ -845,6 +867,7 @@ const CATEGORY_ACTION_SLOTS: Record<QuestionCategory, string> = {
   work:       "次の一手: [今日中に] [最も気になる1点だけ] [メモしてみるのがよさそうです]",
   cause:      "次の一手: [今日から3回だけ] [そうなった場面を] [一言で残してみるのがよさそうです]",
   career:     "次の一手: [今週中に] [この人の強みが活きる場面を1つだけ] [試してみるのがよさそうです]",
+  founder_team_fit: "次の一手: [今週中に] [補完してくれそうな人の特徴を1つだけ] [言語化してみるのがよさそうです]",
   general:    "次の一手: [今日中に] [1つだけ] [試してみるのがよさそうです]",
 };
 
@@ -1048,6 +1071,8 @@ export function classifyQuestion(message: string): QuestionCategory {
   if (/服|着|コーデ|ファッション|何着/.test(m)) return "outfit";
   if (/連絡|メッセージ|line|メール|返信|送[るり]|電話/.test(m)) return "contact";
   if (/職業|適職|向いてる|合[うっ]てる.*仕事|勉強|スキル|資格|進路|キャリア|転職|内定|就[職活]|何を学|何.*やるべき|私に合う/.test(m)) return "career";
+  // founder_team_fit: チーム適性・性格補完・MBTI相性（行動質問ではない）
+  if (/mbti|性格.*(?:タイプ|合[うっ])|(?:どんな|どういう).*(?:人|性格).*合[うっ]|チーム.*(?:合[うっ]|性格|タイプ)|(?:有名人|日本人).*(?:で言うと|だと)/.test(m)) return "founder_team_fit";
   if (/仕事|タスク|業務|進め方|やり方|働|プロジェクト|上司|報告|提案書/.test(m)) return "work";
   if (/なんで|なぜ|どうして|原因|理由|最近.*こう/.test(m)) return "cause";
   return "general";
@@ -1470,7 +1495,7 @@ const FACTUAL_QUESTION_PATTERNS = /名前[はって何を]|誰[？?]$|何者|何
 const DIRECT_DEMAND_PATTERNS = /答えて|答え[をが]|[君お前あなた]に聞いて|聞いてるん[だよ]|理解[でし]きてる|ちゃんと答え|はっきり[言答]|結論[をだ出]|先[にず]結論|まず[答結]|逃げ[るな]|ごまかす|質問に答え|それで[？?]$|だから[？?]$|早く答え|早く教え|だから何|つまり何/;
 
 /** 挨拶パターン */
-const GREETING_PATTERNS = /^(おはよう|こんにちは|こんにちわ|こんばんは|こんばんわ|やっほ|ただいま|おつかれ|おっす|よお|ハロー|はろー|ういーっす|おう|ども|やあ|ねえ|久しぶり|お久しぶり|ひさしぶり)/;
+const GREETING_PATTERNS = /^(おはよう|こんにちは|こんにちわ|こんばんは|こんばんわ|こんばんw|こんちは|こんちわ|こんちゃ|やっほ|ただいま|おつかれ|お疲れ様|お疲れさま|お疲れ[様さ]でした|おはよ|おっす|よお|ハロー|はろー|ういーっす|おう|ども|やあ|ねえ|久しぶり|お久しぶり|ひさしぶり|よろしく|はじめまして|初めまして|宜しく|おつー|おつです|おっはー|ちわ|ちわー|ちわっす|ばんわ|ばんは)/;
 
 /**
  * 直答要求を検出する。
@@ -2565,6 +2590,15 @@ const CATEGORY_EXAMPLES: Record<QuestionCategory, { q: string; lines: string[] }
       "正直に言うと、「向いてる職業」より「どういう状態で力が出るか」の方が精度が高いです。",
     ],
   },
+  founder_team_fit: {
+    q: "どんな性格の人が合う？",
+    lines: [
+      "たいしさんには、構想を形にするスピードを持っている人が合います。",
+      "本質を掴む力は強いけど、完璧主義に振れやすいので、6割で動ける実行型の人が横にいると一番バランスが取れます。逆に、同じように深く考えるタイプだと、二人とも動けなくなるリスクがあります。",
+      "次の一手: 今週中に、自分が「この人といると動ける」と感じた相手を1人思い出してみるのが合っています。",
+      "MBTIで言うと、ENTPやESTPのような外向・知覚型が補完関係になりやすいです。",
+    ],
+  },
   general: {
     q: "今日どう動くのがいい？",
     lines: [
@@ -2793,15 +2827,17 @@ export function validateHomeAlterResponse(
   const isFactualRecall = questionType === "factual_recall";
   const isGreeting = questionType === "greeting";
   const isScopeDisclosure = questionType === "scope_disclosure";
-  // greeting, scope_disclosure, emotional, factual_recall は結論チェックをスキップ
-  const skipConclusionCheck = emotional || isFactualRecall || isGreeting || isScopeDisclosure;
-  // 結論 or 方向性パターン（self_understanding/knowledge にも適用する拡張版）
+  // greeting, scope_disclosure, emotional, factual_recall, self_understanding は結論チェックをスキップ
+  // self_understanding: 「俺ってどんな人間？」「私に合ってる職業って何？」は見立て・仮説展開型であり、
+  //   判断型の「結論→理由→次の一手」フォーマットを強制すると不自然な応答を誘発する。
+  const skipConclusionCheck = emotional || isFactualRecall || isGreeting || isScopeDisclosure || selfUnderstanding;
+  // 結論 or 方向性パターン（knowledge にも適用する拡張版）
   const hasDirectionOrConclusion = hasConclusion
     || /[方向合向].*[いてう]|[核本質].*は|ポイント.*は|結論.*は|答え.*は/.test(firstLine)
     || firstLine.includes("いい") || firstLine.includes("べき");
   if (!skipConclusionCheck && !hasDirectionOrConclusion) {
-    if (selfUnderstanding || isKnowledge) {
-      failures.push("1行目に方向性・結論がない（self/knowledgeでも最初に答えを出すこと）");
+    if (isKnowledge) {
+      failures.push("1行目に方向性・結論がない（knowledgeでも最初に答えを出すこと）");
     } else if (isStrategy) {
       const hasDirection = /合っている|合う|から入る|方が[いい力]|強み|を活かす|が合って|が武器|が鍵/.test(firstLine);
       if (!hasDirection) {
@@ -2813,7 +2849,7 @@ export function validateHomeAlterResponse(
   }
 
   // 3b. 1行目が「誰にでも言える結論」ではないか（理由が含まれているか）
-  // emotional, self_understanding, knowledge ではスキップ
+  // skipConclusionCheck 対象（emotional, self_understanding, greeting 等）はスキップ済み
   const hasPersonalReason = /今|最近|閉じ|広げ|重[くい]|霧|疲れ|考えすぎ|迷い|後回し|溜め|タイプ|傾向|だからこそ|なので|場合|さんは|たぶん|正直|慎重|消耗|ブレ/.test(firstLine);
   if (!skipConclusionCheck && hasDirectionOrConclusion && !hasPersonalReason && firstLine.length < 40) {
     failures.push("1行目に「この人向けの理由」が含まれていない（誰にでも言える結論）");
@@ -2969,6 +3005,15 @@ export function validateHomeAlterResponse(
   // カテゴリ別の応答内容チェック（classifyQuestion で主カテゴリを判定し、そのカテゴリのみ検査）
   // 「LINEの返信 + 明日仕事」のように複数キーワードが混在する場合の誤検出を防ぐ
   const detectedCategory = classifyQuestion(userMessage);
+
+  // founder_team_fit は独自の output contract で検証するため、旧式の category check をスキップ
+  if (detectedCategory === "founder_team_fit") {
+    if (trimmed.length < 30) {
+      failures.push("応答が短すぎる（具体的な見立てが必要）");
+    }
+    return { pass: failures.length === 0, failures };
+  }
+
   if (detectedCategory === "outfit" &&
     !/(選|着|セット|絞|決め|合[うっわ]|コーデ|1つ|シンプル)/.test(trimmed)) {
     failures.push("服の質問なのに服の判断が含まれていない");
@@ -3751,7 +3796,7 @@ export function isCareerAdviceQuestion(message: string): boolean {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** 質問のドメイン（行動カテゴリとは別の軸） */
-export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle" | "creation" | "career_fit" | "industry_fit";
+export type QueryDomain = "romance" | "work" | "friend" | "family" | "self" | "general" | "daily_guidance" | "lifestyle" | "creation" | "career_fit" | "industry_fit" | "founder_team_fit";
 
 /** 隠れ変数の検出状態 */
 export interface HiddenVariables {
@@ -3930,6 +3975,17 @@ const DOMAIN_SIGNALS: Record<QueryDomain, RegExp[]> = {
     /(?:どの|どんな|何の).*業界/,
     /本当に.*(?:やりたい|望[んむ]).*(?:業界|分野)/,
   ],
+  founder_team_fit: [
+    /(?:どんな|どういう).*(?:タイプ|性格|人).*(?:合[うっ]|組[むめ]|仕事|一緒)/,
+    /(?:チーム|仲間|メンバー|パートナー|共同|採用).*(?:探|欲|必要|募集)/,
+    /(?:人|誰).*(?:必要|欲し|足りな|探[すし])/,
+    /(?:起業|創業).*(?:人|チーム|メンバー|仲間)/,
+    /(?:補完|相性|組み合わせ).*(?:人|タイプ|性格)/,
+    /mbti.*(?:タイプ|合[うっ]|仕事|チーム)/i,
+    /(?:有名人|日本人).*(?:で言うと|だと|に例えると)/,
+    /(?:どんな|どういう).*(?:人と|性格の人)/,
+    /(?:合[うっ]てる|相性.*良い).*(?:タイプ|人|性格)/,
+  ],
   general: [], // fallback
 };
 
@@ -4073,6 +4129,21 @@ export function analyzeQueryContext(message: string): QueryContext {
       runnerUpScore = bestScore;
       bestDomain = "creation";
       bestScore = creationHits;
+    }
+  }
+  // R4: founder_team_fit promotion — creation/work/general + team/people signals → founder_team_fit
+  if (bestDomain === "creation" || bestDomain === "work" || bestDomain === "general") {
+    const ftfHits = (DOMAIN_SIGNALS.founder_team_fit ?? []).filter((s) => s.test(msg)).length;
+    if (ftfHits >= 1 && (bestDomain === "creation" || bestDomain === "work")) {
+      runnerUpDomain = bestDomain;
+      runnerUpScore = bestScore;
+      bestDomain = "founder_team_fit" as QueryDomain;
+      bestScore = ftfHits;
+    } else if (ftfHits >= 2 && bestDomain === "general") {
+      runnerUpDomain = bestDomain;
+      runnerUpScore = bestScore;
+      bestDomain = "founder_team_fit" as QueryDomain;
+      bestScore = ftfHits;
     }
   }
   const domain_confidence = bestScore === 0 ? 0 : Math.min(1, bestScore * 0.35);
@@ -4605,6 +4676,10 @@ const DOMAIN_AXIS_MAP: Record<Exclude<QueryDomain, "general" | "daily_guidance" 
     primary: ["exploration_closure", "decomposition", "perfectionist_vs_pragmatic"],
     secondary: ["locus_of_control", "growth_mindset", "decision_tempo"],
   },
+  founder_team_fit: {
+    primary: ["decomposition", "decision_tempo", "perfectionist_vs_pragmatic"],
+    secondary: ["social_initiative", "direct_vs_diplomatic", "independence_vs_harmony"],
+  },
 };
 
 /** 軸スコアから傾向文を生成する内部ヘルパー */
@@ -4704,6 +4779,7 @@ const DOMAIN_LABELS: Record<QueryDomain, string> = {
   creation: "構想・創業",
   career_fit: "キャリア適性",
   industry_fit: "業界適性",
+  founder_team_fit: "チーム適性",
 };
 
 /**
@@ -4914,6 +4990,7 @@ export function buildHomeAlterPromptWithContext(
   baselineCtx?: BaselineContext | null,
   relationshipCtx?: RelationshipContext | null,
   lifeCtx?: LifeContext | null,
+  heartInfluence?: HeartInfluence | null,
 ): string {
   // ── Mode: direct_response — テンプレ解除、LLMの自然な会話能力に委ねる ──
   if (responseMode === "direct_response") {
@@ -5211,7 +5288,7 @@ export function buildHomeAlterPromptWithContext(
 
     // 骨格ブロックも追加（ただし次の一手は不足情報に変換済み）
     const qTypeForSkeleton = qTypeForPrompt;
-    const skeletonBlockKS = skeleton ? buildSkeletonPromptBlock(skeleton, qTypeForSkeleton) : "";
+    const skeletonBlockKS = skeleton ? buildSkeletonPromptBlock(skeleton, qTypeForSkeleton, heartInfluence ?? undefined) : "";
     const relationalBlockKS = relationalLens ? buildRelationalContext(relationalLens) : "";
 
     // ④-D: knowledge/strategy ルートでも relationship context を注入（再質問抑制のため）
@@ -5288,7 +5365,7 @@ export function buildHomeAlterPromptWithContext(
   // 骨格ブロック注入（conclude / branch 共通）
   // P1-A: questionType を渡して知識/戦略ルートでは「次の一手」を抑制
   const qType = userMessage ? classifyQuestionType(userMessage) : undefined;
-  const skeletonBlock = skeleton ? buildSkeletonPromptBlock(skeleton, qType) : "";
+  const skeletonBlock = skeleton ? buildSkeletonPromptBlock(skeleton, qType, heartInfluence ?? undefined) : "";
 
   if (responseMode === "conclude") {
     // Mode A: 関係性コンテクスト + 骨格 + ベースライン + ドメインコンテキスト
@@ -5972,84 +6049,188 @@ export function buildJudgmentSkeleton(
 }
 
 /**
- * Layer 2 の骨格をプロンプト注入用テキストに変換する。
- * LLM はこの骨格に従って文章化する。自由作文禁止。
+ * ActionShape → 内面で感じている方向の体感言語
+ * 「事前計算された結論」ではなく「僕の中で動いている力」として描写する
  */
-export function buildSkeletonPromptBlock(skeleton: JudgmentSkeleton, questionType?: QuestionType): string {
+const ACTION_SHAPE_INNER_SENSE: Record<ActionShape, string> = {
+  full_go: "迷いなく、前に進む力が強い。ここは全力で行きたい感覚がある",
+  bounded_go: "進みたい気持ちはあるけど、全部ではなく範囲を決めて動きたい",
+  prepare_then_go: "行きたい気持ちはあるけど、まず足場を固めてから踏み出したい",
+  trial_then_decide: "やってみたい気持ちと慎重さが両方ある。小さく試して感触を確かめたい",
+  observe_first: "今は動くより、少し引いて全体を見たい感覚が強い",
+  delegate_or_request: "これは一人で抱えなくていい。誰かの力を借りた方が自然に感じる",
+  defer_with_trigger: "今じゃない感覚がある。でも条件が揃えば次は動ける",
+  skip: "ここは離れた方がいい。守る力の方が断然強い",
+};
+
+/**
+ * ForceBalance → 内面の力のせめぎ合いを体感言語で描写する
+ */
+function describeInnerForces(fb: ForceBalance): string {
+  const ratio = fb.expand_pressure / Math.max(fb.expand_pressure + fb.protect_pressure, 0.01);
+
+  if (ratio > 0.7) {
+    return "前に進みたい力がはっきり勝っている";
+  } else if (ratio > 0.55) {
+    return "進みたい力の方が少し強いけど、守りたい力も感じている";
+  } else if (ratio >= 0.45) {
+    return "進みたい力と守りたい力が拮抗している。どちらにも引っ張られている";
+  } else if (ratio >= 0.3) {
+    return "守りたい力の方が少し強い。慎重に行きたい感覚がある";
+  } else {
+    return "守りたい力がはっきり勝っている。今は引く方が自然に感じる";
+  }
+}
+
+/**
+ * 確信度 → 内面の確からしさの体感
+ */
+function describeConfidenceFeeling(level: ConfidenceLevel): string {
+  switch (level) {
+    case "high":
+      return "この方向で合っていると、かなりはっきり感じている";
+    case "medium":
+      return "たぶんこの方向だろうと感じているけど、まだ見えていないものがある気もする";
+    case "low":
+      return "正直、まだ掴みきれていない。でも今ある手がかりからはこう感じる";
+  }
+}
+
+/**
+ * 心の状態が骨格の強度を調整するためのヒント
+ * conflictIndicator / emotionalLoad / cognitiveFatigue を反映する
+ */
+export interface HeartInfluence {
+  /** conflictIndicator > 0.6: ユーザーが迷っている → 確信度を下げる */
+  conflictHigh?: boolean;
+  /** emotionalLoad > 0.7: 心がいっぱい → 行動圧を抑える */
+  emotionalLoadHigh?: boolean;
+  /** cognitiveFatigue > 0.6: 頭が疲れている → 提案を細くする */
+  cognitiveFatigueHigh?: boolean;
+  /** protective/reactive activation > 0.5: 防御が強い → 前進圧を落とす */
+  defensiveActive?: boolean;
+}
+
+/**
+ * Layer 2 の骨格をプロンプト注入用テキストに変換する。
+ *
+ * Wall 2 転換（2026-04-08）:
+ * 「事前計算された結論 → LLM に強制」から
+ * 「僕の中で動いている力 → 応答に反映」への存在論的転換。
+ *
+ * 計算（ForceBalance / ActionShape）はそのまま残す。
+ * 変わるのは提示方法: 外側の分析ではなく、内面の体感として注入する。
+ */
+export function buildSkeletonPromptBlock(
+  skeleton: JudgmentSkeleton,
+  questionType?: QuestionType,
+  heartInfluence?: HeartInfluence,
+): string {
   if (skeleton.response_mode === "clarify") return ""; // clarify は骨格不要
 
   const isKnowledgeOrStrategy = questionType === "knowledge" || questionType === "strategy";
 
+  // ── 心の状態による強度調整 ──
+  let effectiveConfidence = skeleton.confidence_level;
+  if (heartInfluence?.conflictHigh && effectiveConfidence === "high") {
+    effectiveConfidence = "medium"; // 引っかかりがある → 確信を下げる
+  }
+
   const parts: string[] = [
     "",
-    "# 判断骨格（出力制約 — この構造に絶対に従うこと）",
-    "**以下は事前計算された判断の結論。LLM が独自に覆すことは許されない。**",
-    "**骨格の結論を「参考」として扱うな。これが応答の骨子である。**",
-    "**骨格にない新情報を勝手に足さない。骨格と矛盾する結論を出さない。**",
+    "# 僕の中で動いているもの（内部参照 — 表出禁止）",
     "",
-    `- 行動の形: ${ACTION_SHAPE_LABELS[skeleton.action_shape]}`,
-    `- 主理由: ${skeleton.primary_reason}`,
-    `- 主トレードオフ: ${skeleton.main_tradeoff}`,
-    `- リスク注記: ${skeleton.risk_note}`,
-    ...(isKnowledgeOrStrategy
-      ? [`- 不足情報: ${skeleton.recommended_next_step}（※「次の一手:」テンプレートは使わない。不足情報として自然に言及すること）`]
-      : [`- 推奨次の一手: ${skeleton.recommended_next_step}`]),
-    `- 成長方向との整合: ${skeleton.growth_alignment === "aligned" ? "一致" : skeleton.growth_alignment === "override" ? "成長方向と矛盾するが状況が優先" : "中立"}`,
+    `${describeInnerForces(skeleton.force_balance)}。`,
+    `${ACTION_SHAPE_INNER_SENSE[skeleton.action_shape]}。`,
+    "",
+    `この感覚の根拠: ${skeleton.primary_reason}`,
+    `僕が引っかかっているところ: ${skeleton.main_tradeoff}`,
+    `リスクとして感じるもの: ${skeleton.risk_note}`,
   ];
 
-  // Assertion Mode: 1文目拘束
-  parts.push("");
-  parts.push("# 1文目拘束（Skeleton Assertion — 最上位出力制約）");
-  parts.push("**応答の1文目は必ず骨格の結論を反映した具体的な判断文で始めること。**");
-  parts.push("以下は1文目として絶対に禁止:");
-  parts.push("- 「本当に知りたいのは〜では？」（解釈で返すな）");
-  parts.push("- 「もしかして〜」（推測で返すな）");
-  parts.push("- 「まず感情の根っこを」（心理に逃げるな）");
-  parts.push("- 「情報を集めるのが」（宿題で返すな）");
-  parts.push("- 「ごめん」で始まる謝罪（repair mode以外）");
-  parts.push("1文目の型: 「〜が合っています」「〜の方向がいい」「〜すべきです」等の結論断定。");
+  // 心の状態で方向性を抑える注記
+  if (heartInfluence?.emotionalLoadHigh) {
+    parts.push("ただし、今は心がいっぱいになっている。提案は最小限に、受け止めることを優先する。");
+  }
+  if (heartInfluence?.cognitiveFatigueHigh) {
+    parts.push("頭が疲れている分、シンプルに。選択肢は1つだけ、説明は短く。");
+  }
+  if (heartInfluence?.defensiveActive) {
+    parts.push("今は守りの力が強く出ている。前に進む方向を押し付けない。まず安全を確認する。");
+  }
 
-  // directness / specificity 補強
+  // 次の一歩
+  if (isKnowledgeOrStrategy) {
+    parts.push(`もっとはっきり見えるために必要なもの: ${skeleton.recommended_next_step}`);
+  } else {
+    parts.push(`今の感覚だと、次はこう動きたい: ${skeleton.recommended_next_step}`);
+  }
+
+  // 成長方向との整合
+  if (skeleton.growth_alignment === "aligned") {
+    parts.push("この方向は僕たちの成長の流れと合っている。");
+  } else if (skeleton.growth_alignment === "override") {
+    parts.push("成長の方向とは少しずれるけど、今はこの状況が優先だと感じる。");
+  }
+
+  // 確信度: 体感として
+  parts.push("");
+  parts.push(`確からしさ: ${describeConfidenceFeeling(effectiveConfidence)}`);
+
+  // ── 応答への反映ルール ──
+  parts.push("");
+  parts.push("この感覚に沿って応答する。感覚を直接説明するのではなく、応答の方向・トーン・具体度に反映させる。");
+  parts.push("僕の中にない結論を足さない。この感覚と矛盾する方向に応答しない。");
+
+  // 1文目の方向性（旧1文目拘束の転換）
+  parts.push("");
+  parts.push("# 応答の入り方");
+  parts.push("1文目は、この感覚から自然に出てくる具体的な一言で始める。");
+  parts.push("以下の入り方は禁止:");
+  parts.push("- 「本当に知りたいのは〜では？」（解釈で始めない）");
+  parts.push("- 「もしかして〜」（推測で始めない）");
+  parts.push("- 「まず感情の根っこを」（心理に逃げない）");
+  parts.push("- 「情報を集めるのが」（宿題で始めない）");
+  parts.push("- 「ごめん」で始まる謝罪（repair mode以外）");
+
+  // 文章化ルール
   parts.push("");
   parts.push("**文章化ルール:**");
-  parts.push("- 1行目は必ず「何をすべきか」の結論。「まず整理」「情報を集める」で始めない。");
+  parts.push("- 1文目は僕の感覚に基づく方向性。「まず整理」「情報を集める」では始めない。");
   if (isKnowledgeOrStrategy) {
-    parts.push("- 「次の一手:」テンプレートは**絶対に使わない**。「書き出して」「挙げて」等の宿題も禁止。");
-    parts.push("- 代わりに「〜がわかるともっと絞れる」等、不足情報を自然に言及する。");
+    parts.push("- 「次の一手:」テンプレートは使わない。不足情報は「〜がわかるともっと絞れる」のように自然に言及。");
   } else {
-    parts.push("- 「次の一手」は具体的な行動を1つだけ。「整理する」「考える」は禁止。動詞+対象+期限を含める。");
+    parts.push("- 具体的な行動を1つだけ。「整理する」「考える」は禁止。動詞+対象+期限を含める。");
   }
   if (skeleton.action_shape === "observe_first") {
-    parts.push("- observe_first でも1行目は判断の方向を示す。「今は動かない方がいい」「もう少し待つのがいい」のように立場を明示。");
+    parts.push("- 今は動かない方向でも、立場は示す。「今は動かない方がいい」「もう少し待つのがいい」。");
     parts.push("- 「情報を集める」なら何の情報か、どこで集めるか具体化する。");
   }
   if (skeleton.action_shape === "prepare_then_go") {
-    parts.push("- prepare_then_go の1行目は「〜してから〜する方がいい」。準備と行動の両方を明示。");
+    parts.push("- 準備と行動の両方を示す。「〜してから〜する」の形。");
   }
 
-  if (skeleton.confidence_level === "low") {
+  // 確信度による文体制御
+  if (effectiveConfidence === "low") {
     parts.push("");
-    parts.push("**⚠ 確信度: LOW** — 重要な前提が不足している。");
-    parts.push("文体ルール（LOW）:");
-    parts.push("- 断定口調は完全禁止。「絶対」「間違いなく」「〜するべきです」「〜しかないです」は使わない。");
-    parts.push("- 「〜の可能性が高い」「今分かる範囲では〜」「〜寄りに見えます」を基本トーンにする。");
-    parts.push("- 結論を出す場合も「今の情報だと〜が合っていそうです」のように留保をつける。");
-    parts.push(isKnowledgeOrStrategy
-      ? "- 不足情報の言及も「〜がわかるともっと見えてくるかもしれない」のように柔らかくする。"
-      : "- 「次の一手」も「まずは〜から始めてみるのがいいかもしれません」のように柔らかくする。");
-    if (skeleton.low_confidence_conclude_reason) {
-      parts.push(`理由: ${skeleton.low_confidence_conclude_reason}`);
+    parts.push("**まだ掴みきれていない — 文体を柔らかくする:**");
+    parts.push("- 断定は避ける。「〜の可能性が高い」「今分かる範囲では」「〜寄りに見える」。");
+    parts.push("- 結論を出すなら「今の情報だと〜が合っていそう」のように留保をつける。");
+    if (isKnowledgeOrStrategy) {
+      parts.push("- 「〜がわかるともっと見えてくるかもしれない」のように柔らかく。");
+    } else {
+      parts.push("- 「まずは〜から始めてみるのがいいかもしれない」のように柔らかく。");
     }
-  } else if (skeleton.confidence_level === "medium") {
+    if (skeleton.low_confidence_conclude_reason) {
+      parts.push(`それでも方向を示す理由: ${skeleton.low_confidence_conclude_reason}`);
+    }
+  } else if (effectiveConfidence === "medium") {
     parts.push("");
-    parts.push("**確信度: MEDIUM** — 一部推定を含む。断定しすぎない。");
-    parts.push("文体ルール（MEDIUM）:");
-    parts.push("- 「絶対」「間違いなく」「今すぐ〜するべきです」「〜しかないです」は使わない。");
-    parts.push("- 代わりに「今の情報だと」「まずは」「〜寄りがよさそうです」「〜から始めるのが合っています」を使う。");
-    parts.push("- 推定部分は「〜と思われます」「〜の傾向があります」で表現する。");
-    parts.push("- 判断の方向は示すが、「確定」ではなく「現時点での最善手」として伝える。");
+    parts.push("**まだ全部は見えていない — 断定しすぎない:**");
+    parts.push("- 「絶対」「間違いなく」は使わない。");
+    parts.push("- 「今の情報だと」「〜寄りがよさそう」「〜から始めるのが合っている」を使う。");
+    parts.push("- 判断の方向は示すが「確定」ではなく「現時点での最善手」として。");
   }
-  // high の場合は特記不要（断定OK）
 
   return parts.join("\n");
 }

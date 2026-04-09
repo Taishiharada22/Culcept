@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { randomBytes } from "crypto";
 
 /**
@@ -83,7 +84,61 @@ export async function POST(request: NextRequest) {
       .eq("referral_code", code.toUpperCase())
       .maybeSingle();
 
-    if (error || !referral) {
+    // ── 招待トークン制: rendezvous_invitations もフォールバック検索 ──
+    // 招待コード（8文字英数）と紹介コード（RDV-XXXXXXXX）は形式が異なるが、
+    // ユーザーはどちらも同じ入力欄に入力するため、両テーブルを検索する。
+    if (!referral) {
+      const { data: invitation } = await supabaseAdmin
+        .from("rendezvous_invitations")
+        .select("id, inviter_user_id, invite_code, invitee_registered")
+        .eq("invite_code", code.toUpperCase())
+        .eq("invitee_registered", false)
+        .maybeSingle();
+
+      if (invitation) {
+        if (invitation.inviter_user_id === auth.user.id) {
+          return NextResponse.json({ ok: false, error: "自分のコードは使えません" }, { status: 400 });
+        }
+
+        // 招待レコードを更新 + ポイント付与（admin で実行: RLS をバイパス）
+        await supabaseAdmin
+          .from("rendezvous_invitations")
+          .update({
+            invitee_user_id: auth.user.id,
+            invitee_registered: true,
+            points_awarded_register: true,
+          })
+          .eq("id", invitation.id);
+
+        // 招待者にポイント付与（25pt）
+        const { data: existingBalance } = await supabaseAdmin
+          .from("rendezvous_token_balances")
+          .select("id, points")
+          .eq("user_id", invitation.inviter_user_id)
+          .maybeSingle();
+
+        if (existingBalance) {
+          await supabaseAdmin
+            .from("rendezvous_token_balances")
+            .update({
+              points: existingBalance.points + 25,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", existingBalance.id);
+        } else {
+          await supabaseAdmin.from("rendezvous_token_balances").insert({
+            user_id: invitation.inviter_user_id,
+            points: 25,
+          });
+        }
+
+        return NextResponse.json({ ok: true, message: "招待コードを適用しました（25pt付与）" });
+      }
+
+      return NextResponse.json({ ok: false, error: "無効なコードです" }, { status: 404 });
+    }
+
+    if (error) {
       return NextResponse.json({ ok: false, error: "無効なコードです" }, { status: 404 });
     }
 

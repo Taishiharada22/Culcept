@@ -1662,8 +1662,10 @@ export function buildPredictiveProbe(params: {
   activeDecisionContext?: string | null;
   /** VoI gate */
   voiEnabled?: boolean;
+  /** Wall 8: カテゴリ別の仮説経過日数（refutation bonus 用） */
+  hypothesisAges?: Map<string, number>;
 }): PredictiveProbe | null {
-  const { gap, axisScores, phase, causalLinks, categoryConfidences, activeDecisionContext, voiEnabled } = params;
+  const { gap, axisScores, phase, causalLinks, categoryConfidences, activeDecisionContext, voiEnabled, hypothesisAges } = params;
   const allowedScopes = PHASE_SCOPE_LIMITS[phase];
 
   // gap の最弱カテゴリに関連する軸を探す
@@ -1695,7 +1697,8 @@ export function buildPredictiveProbe(params: {
         if (pred) {
           const axisMeta = STARGAZER_AXES[link.target_axis];
           const axisConf = confidenceMap.get(axisMeta.category) ?? 0;
-          const voi = computeValueOfInformation(axisMeta, axisConf, activeDecisionContext ?? null);
+          const ageDays = hypothesisAges?.get(axisMeta.category);
+          const voi = computeValueOfInformation(axisMeta, axisConf, activeDecisionContext ?? null, ageDays);
           candidates.push({ axisKey: link.target_axis, pred, voi });
         }
       }
@@ -1709,7 +1712,8 @@ export function buildPredictiveProbe(params: {
         if (pred) {
           const axisMeta = STARGAZER_AXES[axisKey];
           const axisConf = confidenceMap.get(axisMeta.category) ?? 0;
-          const voi = computeValueOfInformation(axisMeta, axisConf, activeDecisionContext ?? null);
+          const ageDays = hypothesisAges?.get(axisMeta.category);
+          const voi = computeValueOfInformation(axisMeta, axisConf, activeDecisionContext ?? null, ageDays);
           candidates.push({ axisKey, pred, voi });
         }
       }
@@ -1850,11 +1854,18 @@ function generateProbeText(
 /**
  * 軸の「聞く価値」を定量化する。
  * gap（未知度）× causalReach（因果接続数）× contextBonus（今の会話との関連性）
+ *
+ * Wall 8 拡張: hypothesisAgeDays が STALENESS_REFUTATION_THRESHOLD 以上 かつ
+ * 高確信（confidence > 0.6）の場合、refutation bonus を加算する。
+ * 「確信が高くて古い仮説こそ積極的に揺さぶるべき」という設計原則。
  */
+export const STALENESS_REFUTATION_THRESHOLD = 14; // days
+
 export function computeValueOfInformation(
   axis: StargazerAxis,
   currentConfidence: number,
   activeDecisionContext: string | null,
+  hypothesisAgeDays?: number,
 ): number {
   const gap = 1 - Math.max(0, Math.min(1, currentConfidence));
   const causalReach = axis.causal_affinity_prior.length;
@@ -1862,7 +1873,25 @@ export function computeValueOfInformation(
     && axis.causal_affinity_prior.some(a => a.includes(activeDecisionContext))
     ? 1.5
     : 1.0;
-  return gap * (causalReach / 10) * contextBonus;
+
+  let baseVoI = gap * (causalReach / 10) * contextBonus;
+
+  // Wall 8: 古い高確信仮説の refutation bonus
+  // 通常の VoI は高確信 = gap 小 = 低スコアだが、
+  // 仮説が古い場合は逆に「揺さぶる価値」が高い
+  if (
+    hypothesisAgeDays !== undefined
+    && hypothesisAgeDays >= STALENESS_REFUTATION_THRESHOLD
+    && currentConfidence > 0.6
+  ) {
+    // staleness に比例し、confidence に比例するボーナス
+    // 最大で baseVoI と同程度（元のスコアを2倍まで引き上げる）
+    const stalenessRatio = Math.min(hypothesisAgeDays / 30, 1); // 30日で飽和
+    const refutationBonus = stalenessRatio * currentConfidence * (causalReach / 10) * 0.5;
+    baseVoI += refutationBonus;
+  }
+
+  return baseVoI;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2667,6 +2696,10 @@ export interface ProactiveEngineInput {
   emotionalTemperature?: number;
   /** ユーザーが直答を求めている場合 true */
   isDirectAnswerContext?: boolean;
+
+  // Wall 8: Refutation probe 用
+  /** カテゴリ別の仮説経過日数（最終更新からの日数） */
+  hypothesisAges?: Map<string, number>;
 }
 
 export interface ProactiveEngineOutput {
@@ -2775,6 +2808,7 @@ export function runProactiveEngine(input: ProactiveEngineInput): ProactiveEngine
       categoryConfidences: gates.voi_scoring_enabled ? categoryConfidences : undefined,
       activeDecisionContext: gates.voi_scoring_enabled ? (input.detectedDomain ?? null) : undefined,
       voiEnabled: gates.voi_scoring_enabled,
+      hypothesisAges: input.hypothesisAges,
     });
   }
 

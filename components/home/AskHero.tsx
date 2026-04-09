@@ -103,6 +103,11 @@ type Props = {
   alterIsEmotional?: boolean;
   alterResponseId?: string | null;
   alterFeedbackMeta?: Record<string, unknown> | null;
+  alterCounselorSoftLink?: {
+    show: boolean;
+    message: string;
+    destination: string;
+  } | null;
   nudge?: NudgeInput;
   /** 親のcomposerがフォーカス中か（体験接続の静音化用） */
   composerFocused?: boolean;
@@ -124,6 +129,7 @@ export default function AskHero({
   alterIsEmotional = false,
   alterResponseId,
   alterFeedbackMeta,
+  alterCounselorSoftLink,
   nudge: nudgeInput,
   composerFocused = false,
   scrollRef,
@@ -197,6 +203,23 @@ export default function AskHero({
                     responseId={alterResponseId}
                     feedbackMeta={alterFeedbackMeta ?? {}}
                   />
+                )}
+                {/* Alter→Counselor ソフト導線（恋愛ドメイン時） */}
+                {msg === alterMessages[alterMessages.length - 1] && !alterLoading && alterCounselorSoftLink?.show && (
+                  <Link
+                    href={`${alterCounselorSoftLink.destination}?from=alter`}
+                    className="flex items-center gap-2 mt-2 px-3 py-2 rounded-lg transition-all active:scale-[0.97]"
+                    style={{
+                      background: "rgba(5,150,105,0.06)",
+                      border: "1px solid rgba(5,150,105,0.15)",
+                    }}
+                  >
+                    <span className="text-xs">◆</span>
+                    <span className="text-[11px] font-medium flex-1" style={{ color: "#059669", opacity: 0.85 }}>
+                      {alterCounselorSoftLink.message}
+                    </span>
+                    <span className="text-[9px]" style={{ color: "#059669", opacity: 0.4 }}>→</span>
+                  </Link>
                 )}
               </div>
             )}

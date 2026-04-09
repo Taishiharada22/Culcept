@@ -301,7 +301,7 @@ describe("Phase B: runInterpretationArena", () => {
     response_style: { avg_length: 0, emotional_richness: 0, disagreement_tendency: 0, self_referencing_depth: 0 },
     model_completeness: 0,
   };
-  const emptyState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0 };
+  const emptyState = { last_bet: null, last_bet_outcome: null, rejected_bets: [], accepted_bets: [], bet_history: [], consecutive_misses: 0, consecutive_same_bet_count: 0 };
 
   function arena(msg: string, intent: string = "ask_judgment"): WinningInterpretation {
     const signal: TurnSignal = {
@@ -444,10 +444,12 @@ describe("Phase F: assessRally", () => {
     expect(result.status).toBe("looping");
   });
 
-  it("short responses → user_disengaging", () => {
+  it("short disengaged responses → user_disengaging (4ターン以上 + コンテンツフィルター)", () => {
     const result = assessRally(
       [
         { role: "user", content: "長い最初のメッセージで転職について相談したい" },
+        { role: "alter", content: "..." },
+        { role: "user", content: "そうかもね" },
         { role: "alter", content: "..." },
         { role: "user", content: "うーん" },
         { role: "alter", content: "..." },
@@ -456,6 +458,22 @@ describe("Phase F: assessRally", () => {
       [], null,
     );
     expect(result.status).toBe("user_disengaging");
+  });
+
+  it("short but engaged responses → NOT user_disengaging (質問・意思表明は離脱ではない)", () => {
+    const result = assessRally(
+      [
+        { role: "user", content: "長い最初のメッセージで転職について相談したい" },
+        { role: "alter", content: "..." },
+        { role: "user", content: "起業したい" },
+        { role: "alter", content: "..." },
+        { role: "user", content: "何がいいかな？" },
+        { role: "alter", content: "..." },
+        { role: "user", content: "どう思う？" },
+      ],
+      [], null,
+    );
+    expect(result.status).not.toBe("user_disengaging");
   });
 
   it("stalling block is empty for advancing", () => {

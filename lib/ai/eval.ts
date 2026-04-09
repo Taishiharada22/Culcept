@@ -82,6 +82,7 @@ function defaultMaxOutputTokensForTask(taskType: string): number | undefined {
 
 function normalizeProviderName(value: string): AIProviderName | null {
   if (value === "gemini") return value;
+  if (value === "openai") return value;
   return null;
 }
 
@@ -372,16 +373,10 @@ export function shouldGenerateTeacherOutput(args: {
   if (args.result.cacheHit) return false;
   if (args.params.metadata?.suppressTeacher === true) return false;
 
-  // All Gemini tasks are student-learnable — generate teacher outputs for everything
-  if (args.result.provider === "gemini") return true;
-
-  const teacherEnabled = envBool("AI_TEACHER_ENABLED", false);
-  if (!teacherEnabled) return false;
-
-  if (TEACHER_ELIGIBLE_TASK_TYPES.has(args.params.taskType)) return true;
-  if (args.params.metadata?.needsTeacher === true) return true;
-
-  return false;
+  // Universal learning: ALL successful AI calls (Gemini, OpenAI, future providers)
+  // generate teacher outputs. The student LLM learns from every interaction
+  // to eventually become Aneurasync's own specialized model.
+  return true;
 }
 
 export async function maybeGenerateTeacherOutput(args: {

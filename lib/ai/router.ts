@@ -36,6 +36,21 @@ const LOW_COST_TASK_TYPES = new Set([
   "short_answer",
 ]);
 
+/** Task prefixes eligible for OpenAI failover */
+const FAILOVER_ELIGIBLE_PREFIXES = [
+  "stargazer_",  // All Stargazer tasks (Alter, prophecy, prediction, etc.)
+  "orbiter_",    // Orbiter tasks
+  "identity_",   // Identity tasks
+];
+
+function isOpenAIFallbackAvailable(): boolean {
+  return (process.env.OPENAI_API_KEY ?? "").trim().length > 0;
+}
+
+function isFailoverEligible(taskType: string): boolean {
+  return FAILOVER_ELIGIBLE_PREFIXES.some((prefix) => taskType.startsWith(prefix));
+}
+
 export function resolveRouterDecision(params: RunAIParams): RouterDecision {
   const longPromptThresholdChars = envNumber("AI_LONG_PROMPT_THRESHOLD_CHARS", 3500);
   const promptLength = (params.prompt ?? "").length + (params.systemPrompt ?? "").length;
@@ -43,8 +58,11 @@ export function resolveRouterDecision(params: RunAIParams): RouterDecision {
   let reason = "gemini_only_default";
   if (params.preferredProvider === PRIMARY_AI_PROVIDER) {
     reason = "preferred_provider";
-  } else if (params.preferredProvider && params.preferredProvider !== PRIMARY_AI_PROVIDER) {
-    reason = "preferred_provider_disabled";
+  } else if (params.preferredProvider) {
+    // preferredProvider is set but not the primary → currently only "openai" reaches here
+    reason = params.preferredProvider === "openai"
+      ? "preferred_openai"
+      : "preferred_provider_disabled";
   } else if (isLongPrompt) {
     reason = "long_prompt_prefers_gemini";
   } else if (HIGH_QUALITY_TASK_TYPES.has(params.taskType)) {
@@ -53,11 +71,20 @@ export function resolveRouterDecision(params: RunAIParams): RouterDecision {
     reason = "low_cost_route_removed_gemini_only";
   }
 
+  // OpenAI fallback for latency-sensitive Alter tasks
+  const fallbackAvailable = isOpenAIFallbackAvailable();
+  const eligible = isFailoverEligible(params.taskType);
+  const fallbackEnabled = fallbackAvailable && eligible;
+
+  if (fallbackEnabled) {
+    reason = reason === "gemini_only_default" ? "gemini_primary_openai_fallback" : reason;
+  }
+
   return {
     primary: PRIMARY_AI_PROVIDER,
-    fallback: null,
+    fallback: fallbackEnabled ? "openai" : null,
     reason,
     longPromptThresholdChars,
-    fallbackEnabled: false,
+    fallbackEnabled,
   };
 }

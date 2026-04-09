@@ -64,20 +64,105 @@ export default function OnboardingOrchestrator({ onComplete }: Props) {
   const [allAnswers, setAllAnswers] = useState<QuestionAnswer[]>([]);
   const [cfAnswers, setCfAnswers] = useState<CfAnswer[]>([]);
 
-  // 匿名ユーザー判定
+  // 匿名ユーザー判定 + baseline後の18q状態復元
   const [isAnonymous, setIsAnonymous] = useState(true);
+  // 18問途中再開用（未完了位置から再開）
+  const [resumeAnswers, setResumeAnswers] = useState<OnboardingAnswer[] | undefined>(undefined);
+  const [resumeIndex, setResumeIndex] = useState<number | undefined>(undefined);
+
   useEffect(() => {
     (async () => {
       try {
         const { supabaseBrowser } = await import("@/lib/supabase/client");
         const supabase = supabaseBrowser();
         const { data: { user } } = await supabase.auth.getUser();
-        setIsAnonymous(!user || user.is_anonymous === true);
+        const anon = !user || user.is_anonymous === true;
+        setIsAnonymous(anon);
+
+        // ━━ 優先1: サーバー（DB）から進捗を復元 ━━
+        // 匿名・登録済み問わず、anonymous セッションがあれば読める
+        const res = await fetch("/api/stargazer/onboarding-progress").catch(() => null);
+        if (res?.ok) {
+          const json = await res.json().catch(() => null);
+          const progress = json?.progress as {
+            answers: OnboardingAnswer[];
+            nextIndex: number;
+            savedAt: string;
+          } | null;
+
+          if (progress && Array.isArray(progress.answers)) {
+            const answeredCount = progress.answers.length;
+            const totalQuestions = 18; // OnboardingFlowV5 の問数
+
+            if (answeredCount >= totalQuestions) {
+              // Case 1: 18問完了済み → 18問で得た中間状態を復元してQuestionFlow（53問）へ
+              // localStorageから18問完了後の中間結果を補完
+              const lsRaw = localStorage.getItem("sg_18q_intermediate_v1");
+              if (lsRaw) {
+                const parsed = JSON.parse(lsRaw) as {
+                  clusterResult: typeof clusterResult;
+                  axisScores: typeof onboardingAxisScores;
+                  answers: typeof onboardingAnswers;
+                  savedAt: number;
+                };
+                if (Date.now() - parsed.savedAt < 48 * 60 * 60 * 1000) {
+                  setOnboardingAnswers(parsed.answers ?? []);
+                  setClusterResult(parsed.clusterResult);
+                  setOnboardingAxisScores(parsed.axisScores ?? {});
+                  if (parsed.axisScores) {
+                    beliefSetRef.current = updateFromMicroAxes(
+                      createEmptyBeliefSet(),
+                      parsed.axisScores as Partial<Record<TraitAxisKey, number>>,
+                    );
+                  }
+                  localStorage.removeItem("sg_18q_intermediate_v1");
+                  setPhase("stargazer");
+                  return;
+                }
+              }
+              // localStorageがなくてもDBに完了記録があれば最初から（安全フォールバック）
+            } else if (answeredCount > 0) {
+              // Case 2: 18問途中 → 未完了位置から再開
+              setResumeAnswers(progress.answers as OnboardingAnswer[]);
+              setResumeIndex(progress.nextIndex);
+              // phase="onboarding"のまま（OnboardingFlowV5にresumeデータを渡す）
+            }
+            // answeredCount === 0 は新規として通常フロー
+            return;
+          }
+        }
+
+        // ━━ 優先2: localStorage フォールバック（同一ブラウザ補助）━━
+        if (!anon) {
+          const lsRaw = localStorage.getItem("sg_18q_intermediate_v1");
+          if (lsRaw) {
+            const parsed = JSON.parse(lsRaw) as {
+              clusterResult: typeof clusterResult;
+              axisScores: typeof onboardingAxisScores;
+              answers: typeof onboardingAnswers;
+              savedAt: number;
+            };
+            if (Date.now() - parsed.savedAt < 48 * 60 * 60 * 1000) {
+              setOnboardingAnswers(parsed.answers ?? []);
+              setClusterResult(parsed.clusterResult);
+              setOnboardingAxisScores(parsed.axisScores ?? {});
+              if (parsed.axisScores) {
+                beliefSetRef.current = updateFromMicroAxes(
+                  createEmptyBeliefSet(),
+                  parsed.axisScores as Partial<Record<TraitAxisKey, number>>,
+                );
+              }
+              localStorage.removeItem("sg_18q_intermediate_v1");
+              setPhase("stargazer");
+            }
+          }
+        }
       } catch {
         setIsAnonymous(true);
       }
     })();
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mount once — intentionally no deps
 
   // サウンド & 触覚フィードバック（ResultsSequence用）
   const { playStarBorn, playInsightReveal, playStreakMilestone } = useStargazerSounds();
@@ -170,9 +255,19 @@ export default function OnboardingOrchestrator({ onComplete }: Props) {
   }, [finalResult, allAnswers, cfAnswers, onComplete]);
 
   const handleLogin = useCallback(() => {
-    // ログインページへ遷移（結果はlocalStorageに保存済み）
-    window.location.href = "/login?next=/stargazer";
-  }, []);
+    // 18問の中間結果をlocalStorageに保存（baseline完了後に /stargazer に戻ってきたとき再開するため）
+    if (clusterResult) {
+      try {
+        localStorage.setItem("sg_18q_intermediate_v1", JSON.stringify({
+          clusterResult,
+          axisScores: onboardingAxisScores,
+          answers: onboardingAnswers,
+          savedAt: Date.now(),
+        }));
+      } catch { /* QuotaExceeded 等は無視 */ }
+    }
+    window.location.href = "/login?next=/";
+  }, [clusterResult, onboardingAxisScores, onboardingAnswers]);
 
   // ━━━ Render ━━━
   return (
@@ -187,6 +282,8 @@ export default function OnboardingOrchestrator({ onComplete }: Props) {
           <OnboardingFlowV5
             onComplete={handleOnboardingComplete}
             ensureSession={ensureSession}
+            initialAnswers={resumeAnswers}
+            initialIndex={resumeIndex}
           />
         </motion.div>
       )}
