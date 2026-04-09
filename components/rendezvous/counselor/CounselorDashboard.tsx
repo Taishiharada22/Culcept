@@ -660,6 +660,20 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       </p>
                     </div>
                   )}
+                  {/* マイルストーン祝福 */}
+                  {rec.type === "celebrate_milestone" && (
+                    <div
+                      className="rounded-lg p-3 mt-1 text-center"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(251,191,36,0.08), rgba(245,158,11,0.04))",
+                        border: "1px solid rgba(251,191,36,0.2)",
+                      }}
+                    >
+                      <p className="text-sm font-medium text-amber-700">
+                        {rec.reason}
+                      </p>
+                    </div>
+                  )}
                   {/* ペーシングガイダンス */}
                   {rec.pacing && (
                     <div

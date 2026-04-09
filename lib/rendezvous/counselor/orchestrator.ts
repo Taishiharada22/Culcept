@@ -46,6 +46,14 @@ export type RelationshipState = {
   tendencyPatternCount: number;
   /** 直近7日の未ハイライト結晶数 */
   recentCrystalCount: number;
+  /** 未祝福のマイルストーン（あれば） */
+  pendingMilestone: MilestoneInfo | null;
+};
+
+export type MilestoneInfo = {
+  type: "message_count" | "days_connected" | "phase_transition" | "crystal_count";
+  label: string;
+  value: number;
 };
 
 export type RecommendationType =
@@ -181,6 +189,9 @@ export async function evaluateRelationshipState(params: {
     daysSinceStart >= 3 && messageCount >= 10 ? "flame" :
     "spark";
 
+  // 8. マイルストーン検出
+  const pendingMilestone = detectPendingMilestone(messageCount, daysSinceStart, crystalCount ?? 0);
+
   return {
     candidateId,
     userId,
@@ -195,6 +206,7 @@ export async function evaluateRelationshipState(params: {
     relationshipPhase,
     tendencyPatternCount: tendencies.length,
     recentCrystalCount: crystalCount ?? 0,
+    pendingMilestone,
   };
 }
 
@@ -295,7 +307,17 @@ export function recommendAction(state: RelationshipState): CounselorRecommendati
     };
   }
 
-  // 7. spark フェーズ + 初期 — icebreaker推薦
+  // 8. マイルストーン祝福
+  if (state.pendingMilestone) {
+    return {
+      type: "celebrate_milestone",
+      reason: state.pendingMilestone.label,
+      priority: "low",
+      payload: { milestone: state.pendingMilestone },
+    };
+  }
+
+  // 9. spark フェーズ + 初期 — icebreaker推薦
   if (state.relationshipPhase === "spark" && state.messageCount >= 3 && state.messageCount < 15) {
     return {
       type: "suggest_game",
@@ -426,4 +448,55 @@ export function buildPacingGuidance(
       ? "少し間を置いて、相手が自然に戻ってくるのを待つことをお勧めします。沈黙は関係の敵ではなく、呼吸です。"
       : "メッセージの頻度を少し下げて、相手が返しやすい空気を作ってみましょう。",
   };
+}
+
+// ── マイルストーン検出 ──
+
+const MESSAGE_MILESTONES = [
+  { threshold: 50, label: "50通のメッセージを交わしました" },
+  { threshold: 100, label: "100通目のメッセージ — 会話が根付いています" },
+  { threshold: 250, label: "250通 — 二人の言葉の森が育っています" },
+  { threshold: 500, label: "500通 — 深い対話の歴史が刻まれています" },
+];
+
+const DAY_MILESTONES = [
+  { threshold: 7, label: "接続から1週間が経ちました" },
+  { threshold: 14, label: "2週間 — お互いのリズムが見えてきた頃" },
+  { threshold: 30, label: "1ヶ月 — 関係が安定した土台を持ち始めています" },
+  { threshold: 60, label: "2ヶ月 — 季節をまたいで続く接続" },
+  { threshold: 90, label: "3ヶ月 — 二人の間に確かな絆が生まれています" },
+];
+
+/**
+ * メッセージ数・接続日数・結晶数からマイルストーンを検出。
+ * 最も近いマイルストーンを返す（ちょうど到達したものを優先）。
+ */
+function detectPendingMilestone(
+  messageCount: number,
+  daysSinceStart: number,
+  crystalCount: number,
+): MilestoneInfo | null {
+  // メッセージ数マイルストーン（±5 の範囲で検出）
+  for (const m of MESSAGE_MILESTONES) {
+    if (messageCount >= m.threshold && messageCount < m.threshold + 5) {
+      return { type: "message_count", label: m.label, value: m.threshold };
+    }
+  }
+
+  // 接続日数マイルストーン（当日のみ）
+  for (const d of DAY_MILESTONES) {
+    if (daysSinceStart === d.threshold) {
+      return { type: "days_connected", label: d.label, value: d.threshold };
+    }
+  }
+
+  // 結晶数マイルストーン
+  if (crystalCount === 5) {
+    return { type: "crystal_count", label: "5つ目の結晶 — 特別な瞬間がたくさん生まれています", value: 5 };
+  }
+  if (crystalCount === 10) {
+    return { type: "crystal_count", label: "10個の結晶 — 二人の物語は宝石のように輝いています", value: 10 };
+  }
+
+  return null;
 }
