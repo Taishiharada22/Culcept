@@ -20,6 +20,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { getAvailableGames, type CoupleGame, type GameCategory, type RelationshipPhase } from "../coupleGames";
 import { selectMissionForCategory, type MissionTemplate } from "../missionTemplates";
 import type { RendezvousCategory } from "../types";
+import { collectCounselorAssets, type CounselorAssetContext } from "./assetCollector";
 
 // ── 型定義 ──
 
@@ -48,6 +49,8 @@ export type RelationshipState = {
   recentCrystalCount: number;
   /** 未祝福のマイルストーン（あれば） */
   pendingMilestone: MilestoneInfo | null;
+  /** 既存資産コンテキスト（emotionalContagion + tensionArchitecture） */
+  assetContext: CounselorAssetContext | null;
 };
 
 export type MilestoneInfo = {
@@ -189,7 +192,26 @@ export async function evaluateRelationshipState(params: {
     daysSinceStart >= 3 && messageCount >= 10 ? "flame" :
     "spark";
 
-  // 8. マイルストーン検出
+  // 8. 既存資産コンテキスト収集（emotionalContagion + tensionArchitecture）
+  let assetContext: CounselorAssetContext | null = null;
+  if (messageCount >= 10) {
+    try {
+      const existingMessages = msgs.map((m) => ({
+        body: m.content ?? "",
+        sender_id: m.sender_id,
+        created_at: m.created_at,
+      }));
+      assetContext = await collectCounselorAssets({
+        candidateId,
+        userId,
+        existingMessages,
+      });
+    } catch {
+      // fail-open
+    }
+  }
+
+  // 9. マイルストーン検出
   const pendingMilestone = detectPendingMilestone(messageCount, daysSinceStart, crystalCount ?? 0);
 
   return {
@@ -207,6 +229,7 @@ export async function evaluateRelationshipState(params: {
     tendencyPatternCount: tendencies.length,
     recentCrystalCount: crystalCount ?? 0,
     pendingMilestone,
+    assetContext,
   };
 }
 
@@ -251,30 +274,49 @@ export function recommendAction(state: RelationshipState): CounselorRecommendati
   }
 
   // 4. 会話が冷えている — cool状態 + 一定メッセージ数以上
+  //    emotionalContagion: 共鳴が低い場合はさらに優先度UP
+  //    tensionArchitecture: deferred傾向が強い場合はcreativeカテゴリで迂回
   if (state.climateState === "cool" && state.messageCount >= 10) {
+    const er = state.assetContext?.emotionalResonance;
+    const tp = state.assetContext?.tensionPattern;
+    const lowResonance = er && er.resonanceScore < 0.3;
+    const deferTendency = tp && tp.deferredCount > tp.facedCount;
+
+    // deferred傾向 → 直接深掘りより creative で迂回
+    const category: GameCategory = deferTendency ? "creative" : "deepening";
+    const reason = lowResonance
+      ? "会話の感情的つながりが薄い — ゲームで共鳴を生むタイミング"
+      : "会話が表面的になっている — ゲームで本音を引き出すタイミング";
+
     return {
       type: "suggest_game",
-      reason: "会話が表面的になっている — ゲームで本音を引き出すタイミング",
-      priority: "medium",
+      reason,
+      priority: lowResonance ? "high" : "medium",
       payload: {
-        suggestedCategory: "deepening" as GameCategory,
+        suggestedCategory: category,
         relationshipPhase: state.relationshipPhase,
+        emotionalResonanceScore: er?.resonanceScore ?? null,
       },
     };
   }
 
   // 5. 関係が停滞 — flame以上 + 3日以上無進展
+  //    tensionArchitecture: reflected傾向 → challenge で刺激
   if (
     state.relationshipPhase !== "spark" &&
     state.daysSinceLastActivity >= 3 &&
     state.messageCount >= 20
   ) {
+    const tp = state.assetContext?.tensionPattern;
+    const reflectTendency = tp && tp.reflectedCount > tp.facedCount;
+    const category: GameCategory = reflectTendency ? "challenge" : "playful";
+
     return {
       type: "suggest_game",
       reason: "関係が停滞気味 — 新しい切り口で刺激",
       priority: "low",
       payload: {
-        suggestedCategory: "playful" as GameCategory,
+        suggestedCategory: category,
         relationshipPhase: state.relationshipPhase,
       },
     };
