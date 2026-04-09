@@ -134,6 +134,22 @@ export async function POST(req: NextRequest) {
 
       // trigger_nudge の場合のみ実行
       if (rec.type === "trigger_nudge") {
+        // 重複防止: 同一 candidate で直近24時間以内に nudge 済みならスキップ
+        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const { count: recentNudge } = await supabase
+          .from("rendezvous_notification_queue")
+          .select("id", { count: "exact", head: true })
+          .eq("notification_type", "nudge")
+          .eq("user_id", counterpartId)
+          .gte("created_at", oneDayAgo);
+
+        if ((recentNudge ?? 0) > 0) {
+          return NextResponse.json({
+            dispatched: false,
+            reason: "直近24時間以内にナッジ済みです",
+          });
+        }
+
         const result = await dispatchNudge({
           userId: counterpartId,
           candidateId: body.candidateId,

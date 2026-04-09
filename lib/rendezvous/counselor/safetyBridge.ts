@@ -33,11 +33,24 @@ export type CounselorSafetyAlert = {
  *
  * orbiter_signals に `counselor_safety_alert` タイプで挿入。
  * CounselorDashboard がこの signal_type をクエリして警告表示に使う。
+ *
+ * 重複防止: 同一 candidateId + action で直近1時間以内に通知済みならスキップ。
  */
 export async function notifyCounselorSafety(
   supabase: SupabaseClient,
   alert: CounselorSafetyAlert,
 ): Promise<void> {
+  // 重複チェック: 直近1時間以内に同一 candidate + action の通知があればスキップ
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { count } = await supabase
+    .from("orbiter_signals")
+    .select("id", { count: "exact", head: true })
+    .eq("candidate_id", alert.candidateId)
+    .eq("signal_type", "counselor_safety_alert")
+    .gte("created_at", oneHourAgo);
+
+  if ((count ?? 0) > 0) return; // 既に通知済み
+
   await supabase.from("orbiter_signals").insert({
     user_id: alert.protectedUserId,
     candidate_id: alert.candidateId,
