@@ -26,6 +26,19 @@ export { generateAvatarIntro } from "./avatarMediation";
 // 成長インサイト
 export { generateGrowthInsights } from "./growthInsights";
 
+// オーケストレーター（既存資産の上位制御層）
+export {
+  evaluateRelationshipState,
+  recommendAction,
+  selectGameForRecommendation,
+} from "./orchestrator";
+
+export type {
+  RelationshipState,
+  RecommendationType,
+  CounselorRecommendation,
+} from "./orchestrator";
+
 // 型定義
 export type {
   // 切断理由
