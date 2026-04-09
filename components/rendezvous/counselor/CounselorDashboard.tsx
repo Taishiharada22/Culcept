@@ -657,6 +657,7 @@ const RECOMMENDATION_TYPE_LABELS: Record<string, string> = {
   flag_escalation: "要注意",
   celebrate_milestone: "マイルストーン",
   highlight_crystal: "結晶発見",
+  suggest_ceremony: "セレモニー",
 };
 
 const RECOMMENDATION_PRIORITY_STYLES: Record<string, { bg: string; border: string; badge: "warning" | "danger" | "info" | "secondary" }> = {
@@ -801,6 +802,33 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       <p className="text-[10px] text-amber-500/70">
                         Counselor が二人の歩みを祝福しています
                       </p>
+                    </motion.div>
+                  )}
+                  {/* セレモニー提案 */}
+                  {rec.type === "suggest_ceremony" && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.6, ease: "easeOut" }}
+                      className="rounded-xl p-4 mt-1 text-center space-y-2"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(236,72,153,0.05))",
+                        border: "1px solid rgba(139,92,246,0.2)",
+                        boxShadow: "0 2px 16px rgba(139,92,246,0.08)",
+                      }}
+                    >
+                      <p className="text-sm font-medium text-violet-700 leading-relaxed">
+                        {rec.reason}
+                      </p>
+                      <a
+                        href={`/rendezvous/${rec.candidateId}/graduation`}
+                        className="inline-block mt-1 text-xs font-medium px-4 py-2 rounded-lg text-white"
+                        style={{
+                          background: "linear-gradient(135deg, #8B5CF6, #EC4899)",
+                        }}
+                      >
+                        セレモニーを始める
+                      </a>
                     </motion.div>
                   )}
                   {/* ペーシングガイダンス */}

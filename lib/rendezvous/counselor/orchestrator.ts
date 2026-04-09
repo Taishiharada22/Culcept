@@ -359,7 +359,25 @@ export function recommendAction(state: RelationshipState): CounselorRecommendati
     };
   }
 
-  // 9. spark フェーズ + 初期 — icebreaker推薦
+  // 9. 卒業セレモニー提案 — constellation + 安定 + 活発
+  if (
+    state.relationshipPhase === "constellation" &&
+    state.climateState !== "cool" &&
+    state.daysSinceLastActivity <= 3
+  ) {
+    return {
+      type: "suggest_ceremony",
+      reason: "二人の関係は深く安定しています — これまでの旅路を振り返るセレモニーの準備ができています",
+      priority: "low",
+      payload: {
+        daysSinceStart: state.daysSinceStart,
+        messageCount: state.messageCount,
+        relationshipPhase: state.relationshipPhase,
+      },
+    };
+  }
+
+  // 10. spark フェーズ + 初期 — icebreaker推薦
   if (state.relationshipPhase === "spark" && state.messageCount >= 3 && state.messageCount < 15) {
     return {
       type: "suggest_game",
