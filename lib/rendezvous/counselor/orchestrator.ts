@@ -42,6 +42,8 @@ export type RelationshipState = {
   relationshipPhase: RelationshipPhase;
   /** 傾向パターン数 */
   tendencyPatternCount: number;
+  /** 直近7日の未ハイライト結晶数 */
+  recentCrystalCount: number;
 };
 
 export type RecommendationType =
@@ -161,6 +163,15 @@ export async function evaluateRelationshipState(params: {
   // 6. 傾向パターン
   const tendencies = await getUserTendencies(userId);
 
+  // 6.5. 直近の結晶（7日以内、Counselor未ハイライト分）
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { count: crystalCount } = await supabase
+    .from("rendezvous_memory_crystals")
+    .select("id", { count: "exact", head: true })
+    .eq("candidate_id", candidateId)
+    .gte("created_at", sevenDaysAgo)
+    .is("counselor_highlighted_at", null);
+
   // 7. 関係フェーズの推定
   const relationshipPhase: RelationshipPhase =
     daysSinceStart >= 30 && messageCount >= 100 ? "constellation" :
@@ -181,6 +192,7 @@ export async function evaluateRelationshipState(params: {
     daysSinceLastActivity,
     relationshipPhase,
     tendencyPatternCount: tendencies.length,
+    recentCrystalCount: crystalCount ?? 0,
   };
 }
 
@@ -254,7 +266,17 @@ export function recommendAction(state: RelationshipState): CounselorRecommendati
     };
   }
 
-  // 6. spark フェーズ + 初期 — icebreaker推薦
+  // 6. 結晶ハイライト — 直近に新しい結晶が生まれている
+  if (state.recentCrystalCount > 0) {
+    return {
+      type: "highlight_crystal",
+      reason: `新しい結晶が${state.recentCrystalCount}個生まれています — 二人の間に特別な瞬間がありました`,
+      priority: "low",
+      payload: { recentCrystalCount: state.recentCrystalCount },
+    };
+  }
+
+  // 7. spark フェーズ + 初期 — icebreaker推薦
   if (state.relationshipPhase === "spark" && state.messageCount >= 3 && state.messageCount < 15) {
     return {
       type: "suggest_game",
