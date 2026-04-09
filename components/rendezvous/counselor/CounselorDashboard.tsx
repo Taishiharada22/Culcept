@@ -1294,11 +1294,11 @@ function ExchangeSection({
   unacknowledgedCount,
   onAcknowledge,
 }: ExchangeSectionProps) {
-  // 受信した Exchange（自分宛て）のみ表示
-  const receivedExchanges = exchanges.filter(
-    (ex) => !ex.acknowledged || true, // 全件表示、未確認は強調
+  // 未確認を先に、確認済みを後に並べる
+  const sortedExchanges = [...exchanges].sort((a, b) =>
+    a.acknowledged === b.acknowledged ? 0 : a.acknowledged ? 1 : -1,
   );
-  const hasExchanges = receivedExchanges.length > 0;
+  const hasExchanges = sortedExchanges.length > 0;
 
   return (
     <FadeInView direction="up" delay={0.4}>
@@ -1324,7 +1324,7 @@ function ExchangeSection({
               </span>
             </div>
             {unacknowledgedCount > 0 && (
-              <GlassBadge variant="primary" size="sm">
+              <GlassBadge variant="info" size="sm">
                 {unacknowledgedCount}件 未確認
               </GlassBadge>
             )}
@@ -1332,11 +1332,11 @@ function ExchangeSection({
 
           {!hasExchanges ? (
             <p className="text-xs text-slate-400">
-              相手のCounselorからの更新はありません
+              まだ相互フィードバックはありません。接続が深まると、お互いの Counselor が観測結果を交換します。
             </p>
           ) : (
             <div className="space-y-2">
-              {receivedExchanges.slice(0, 5).map((ex) => (
+              {sortedExchanges.slice(0, 5).map((ex) => (
                 <ExchangeCard
                   key={ex.id}
                   exchange={ex}
@@ -1427,7 +1427,7 @@ function ExchangeCard({
         {!exchange.acknowledged && (
           <button
             onClick={() => onAcknowledge(exchange.id)}
-            className="text-xs text-emerald-600 hover:text-emerald-700 transition-colors flex-shrink-0 mt-0.5"
+            className="text-xs text-emerald-600 hover:text-emerald-700 transition-colors flex-shrink-0 px-2 py-1.5 rounded-md hover:bg-emerald-50 active:bg-emerald-100"
           >
             確認
           </button>
