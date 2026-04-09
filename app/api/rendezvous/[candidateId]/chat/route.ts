@@ -325,6 +325,22 @@ export async function POST(
             .eq("user_id", user.id),
         ]);
       }
+
+      // ── Counselor 通知フック（C7）──
+      // warn/hold/block いずれもCounselorに通知し、Dashboard で警告表示可能にする
+      const { buildCounselorAlert, notifyCounselorSafety } = await import(
+        "@/lib/rendezvous/counselor/safetyBridge"
+      );
+      const alert = buildCounselorAlert({
+        candidateId,
+        triggeredByUserId: user.id,
+        protectedUserId: counterpartId,
+        signals,
+        action: action as "warn" | "hold" | "block",
+      });
+      await notifyCounselorSafety(supabaseAdmin, alert).catch(() => {
+        // fail-open: Counselor通知の失敗でチャットを止めない
+      });
     }
   }).catch((err) => {
     console.error("[chat] Safety signal evaluation error:", err);

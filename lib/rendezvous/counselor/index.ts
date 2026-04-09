@@ -26,6 +26,9 @@ export { generateAvatarIntro } from "./avatarMediation";
 // 成長インサイト
 export { generateGrowthInsights } from "./growthInsights";
 
+// 安全ブリッジ（行動シグナル → Counselor通知）
+export { notifyCounselorSafety, buildCounselorAlert } from "./safetyBridge";
+
 // オーケストレーター（既存資産の上位制御層）
 export {
   evaluateRelationshipState,
@@ -38,6 +41,8 @@ export type {
   RecommendationType,
   CounselorRecommendation,
 } from "./orchestrator";
+
+export type { CounselorSafetyAlert } from "./safetyBridge";
 
 // 型定義
 export type {
