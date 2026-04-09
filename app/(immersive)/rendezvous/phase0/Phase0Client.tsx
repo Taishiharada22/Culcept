@@ -52,19 +52,13 @@ type FeedbackScores = {
   freeText: string;
 };
 
-// 既知ペアのメールアドレス（Phase 0 固定）
-const KNOWN_PAIRS: Record<string, string> = {
-  "th6193aish@outlook.com": "zawane0903@gmail.com",
-  "th7328aish@outlook.com": "zawane0903@gmail.com",
-  "zawane0903@gmail.com": "th7328aish@outlook.com",
-};
+// KNOWN_PAIRS は Phase 0 テスト用に使用していたが、
+// B1b 汎用化により任意のペアに対応。削除済み。
 
 export default function Phase0Client({
   userId,
-  userEmail,
 }: {
   userId: string;
-  userEmail: string;
 }) {
   const [insight, setInsight] = useState<InsightData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,9 +66,7 @@ export default function Phase0Client({
   const [phase, setPhase] = useState<
     "loading" | "followup" | "idle" | "insight" | "done"
   >("loading");
-  const [partnerInput, setPartnerInput] = useState(
-    KNOWN_PAIRS[userEmail] ?? "",
-  );
+  const [partnerInput, setPartnerInput] = useState("");
   // フォローアップ状態
   const [followup, setFollowup] = useState<{
     feedbackId: string;
@@ -351,10 +343,16 @@ export default function Phase0Client({
           >
             <Card>
               <p
-                className="mb-4 text-center text-sm"
+                className="mb-2 text-center text-sm"
                 style={{ color: "var(--rv-text-secondary, #8A829A)" }}
               >
-                既知の相手との間にある関係性を、Stargazerのデータから照らします。
+                知っている相手との間にある関係性を、Stargazerのデータから照らします。
+              </p>
+              <p
+                className="mb-4 text-center text-[11px]"
+                style={{ color: "var(--rv-text-secondary, #A8A0B8)" }}
+              >
+                相手もAneurasyncで観測を進めている必要があります（最低5軸）
               </p>
               <div className="mb-4">
                 <p

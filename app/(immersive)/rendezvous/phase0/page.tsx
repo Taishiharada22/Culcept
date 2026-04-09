@@ -10,5 +10,5 @@ export default async function Phase0Page() {
 
   if (!user) redirect("/login");
 
-  return <Phase0Client userId={user.id} userEmail={user.email ?? ""} />;
+  return <Phase0Client userId={user.id} />;
 }
