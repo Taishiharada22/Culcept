@@ -103,6 +103,23 @@ export async function GET() {
           (order[b.priority as keyof typeof order] ?? 4);
       });
 
+    // highlight_crystal の既読化: 表示した結晶を counselor_highlighted_at で更新
+    const crystalRecs = recommendations.filter((r) => r.type === "highlight_crystal");
+    if (crystalRecs.length > 0) {
+      const now = new Date().toISOString();
+      const sevenDaysAgoCrystal = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      // 該当 candidate の未ハイライト結晶を一括更新（fire-and-forget）
+      for (const cr of crystalRecs) {
+        supabase
+          .from("rendezvous_memory_crystals")
+          .update({ counselor_highlighted_at: now })
+          .eq("candidate_id", cr.candidateId)
+          .gte("created_at", sevenDaysAgoCrystal)
+          .is("counselor_highlighted_at", null)
+          .then(() => {/* fire-and-forget */});
+      }
+    }
+
     // 安全警告: 直近7日の counselor_safety_alert を取得
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: alertRows } = await supabase
