@@ -12,6 +12,7 @@ import type { WeeklyBriefing } from "@/lib/rendezvous/counselor/weeklyBriefing";
 import type { ActiveConnectionItem, GrowthInsight, GrowthPattern } from "@/lib/rendezvous/counselor/types";
 import type { ExchangeRecord } from "@/lib/rendezvous/exchangeProtocol";
 import type { RendezvousAccessLevel } from "@/lib/rendezvous/phaseGate";
+import type { CoupleGame } from "@/lib/rendezvous/coupleGames";
 
 // ============================================================
 // Counselor Dashboard
@@ -30,6 +31,15 @@ interface CounselorDashboardProps {
 }
 
 type ConsultState = "idle" | "open" | "sending" | "replied";
+
+type CounselorRecommendationItem = {
+  candidateId: string;
+  counterpartUserId: string;
+  type: string;
+  reason: string;
+  priority: string;
+  game: CoupleGame | null;
+};
 
 type SelfDiscoveryFeedbackEntry = {
   questions?: Array<{
@@ -64,6 +74,9 @@ export default function CounselorDashboard({
   // Self-Discovery Feedback（直近の問い）
   const [recentFeedbacks, setRecentFeedbacks] = useState<SelfDiscoveryFeedbackEntry[]>([]);
 
+  // Counselor推薦アクション
+  const [recommendations, setRecommendations] = useState<CounselorRecommendationItem[]>([]);
+
   // Honest Exit Rate
   const [honestExitRate, setHonestExitRate] = useState<{
     ratePercent: number;
@@ -78,7 +91,7 @@ export default function CounselorDashboard({
 
   const fetchData = useCallback(async (forceRegenerate = false) => {
     try {
-      const [briefingRes, connectionsRes, growthRes, exchangeRes, sdFeedbackRes, exitRateRes] = await Promise.all([
+      const [briefingRes, connectionsRes, growthRes, exchangeRes, sdFeedbackRes, exitRateRes, recRes] = await Promise.all([
         fetch(
           `/api/rendezvous/counselor/weekly-briefing${forceRegenerate ? "?forceRegenerate=true" : ""}`,
         ),
@@ -87,6 +100,7 @@ export default function CounselorDashboard({
         fetch("/api/rendezvous/counselor/exchange"),
         fetch("/api/rendezvous/counselor/self-discovery-feedback"),
         fetch("/api/rendezvous/counselor/honest-exit-rate"),
+        fetch("/api/rendezvous/counselor/recommendation"),
       ]);
 
       const briefingData = await briefingRes.json() as { briefing: WeeklyBriefing };
@@ -97,6 +111,7 @@ export default function CounselorDashboard({
       const exitRateData = await exitRateRes.json() as {
         metrics: { ratePercent: number; totalDisconnects: number; honestExits: number };
       };
+      const recData = await recRes.json() as { recommendations: CounselorRecommendationItem[] };
 
       setBriefing(briefingData.briefing ?? null);
       setConnections(connectionsData.connections ?? []);
@@ -104,6 +119,7 @@ export default function CounselorDashboard({
       setExchanges(exchangeData.exchanges ?? []);
       setUnacknowledgedCount(exchangeData.unacknowledgedCount ?? 0);
       setRecentFeedbacks(sdFeedbackData.feedbacks ?? []);
+      setRecommendations(recData.recommendations ?? []);
       if (exitRateData?.metrics) {
         setHonestExitRate(exitRateData.metrics);
       }
@@ -185,6 +201,11 @@ export default function CounselorDashboard({
       {/* ── アクティブ接続カード ── */}
       {connections.length > 0 && (
         <ActiveConnectionsSection connections={connections} />
+      )}
+
+      {/* ── Counselor推薦アクション ── */}
+      {recommendations.length > 0 && (
+        <RecommendationSection recommendations={recommendations} />
       )}
 
       {/* ── 自己発見フィードバック ── */}
@@ -499,6 +520,98 @@ function ConnectionCard({ connection }: { connection: ActiveConnectionItem }) {
         )}
       </div>
     </GlassCard>
+  );
+}
+
+// ── Counselor推薦アクション ──
+
+const RECOMMENDATION_TYPE_LABELS: Record<string, string> = {
+  suggest_game: "ゲーム提案",
+  suggest_mission: "ミッション提案",
+  trigger_nudge: "きっかけ作り",
+  adjust_pacing: "ペース調整",
+  flag_escalation: "要注意",
+  celebrate_milestone: "マイルストーン",
+  highlight_crystal: "結晶発見",
+};
+
+const RECOMMENDATION_PRIORITY_STYLES: Record<string, { bg: string; border: string; badge: "warning" | "danger" | "info" | "secondary" }> = {
+  critical: { bg: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.2)", badge: "danger" },
+  high: { bg: "rgba(251,191,36,0.05)", border: "1px solid rgba(251,191,36,0.2)", badge: "warning" },
+  medium: { bg: "rgba(16,185,129,0.05)", border: "1px solid rgba(16,185,129,0.15)", badge: "info" },
+  low: { bg: "rgba(148,163,184,0.05)", border: "1px solid rgba(148,163,184,0.15)", badge: "secondary" },
+};
+
+function RecommendationSection({ recommendations }: { recommendations: CounselorRecommendationItem[] }) {
+  return (
+    <FadeInView direction="up" delay={0.25}>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide px-1">
+          カウンセラーの提案
+        </p>
+        <div className="space-y-2">
+          {recommendations.map((rec) => {
+            const style = RECOMMENDATION_PRIORITY_STYLES[rec.priority] ?? RECOMMENDATION_PRIORITY_STYLES.low;
+            return (
+              <GlassCard
+                key={rec.candidateId}
+                padding="none"
+                hoverEffect={false}
+                className="overflow-hidden"
+                style={{ background: style.bg, border: style.border }}
+              >
+                <div className="px-4 py-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                        style={{
+                          background: "linear-gradient(135deg, #059669, #0d9488)",
+                        }}
+                      >
+                        <span className="text-white text-[10px] font-bold">C</span>
+                      </div>
+                      <span className="text-xs font-medium text-slate-600">
+                        {RECOMMENDATION_TYPE_LABELS[rec.type] ?? rec.type}
+                      </span>
+                    </div>
+                    <GlassBadge variant={style.badge} size="sm">
+                      {rec.priority === "critical" ? "緊急" : rec.priority === "high" ? "重要" : rec.priority === "medium" ? "推奨" : "参考"}
+                    </GlassBadge>
+                  </div>
+                  <p className="text-sm text-slate-700 leading-relaxed">
+                    {rec.reason}
+                  </p>
+                  {/* ゲーム推薦がある場合 */}
+                  {rec.game && (
+                    <div
+                      className="rounded-lg p-3 mt-1"
+                      style={{
+                        background: "rgba(16,185,129,0.06)",
+                        border: "1px solid rgba(16,185,129,0.12)",
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-base">{rec.game.icon}</span>
+                        <span className="text-sm font-medium text-slate-700">
+                          {rec.game.titleJa}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        {rec.game.descriptionJa}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        {rec.game.duration}分 · {rec.game.format === "simultaneous_answer" ? "同時回答" : rec.game.format === "turn_based" ? "交互" : rec.game.format === "collaborative" ? "共同作業" : "チャレンジ"}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+            );
+          })}
+        </div>
+      </div>
+    </FadeInView>
   );
 }
 
