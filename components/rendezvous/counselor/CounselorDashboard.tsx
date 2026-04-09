@@ -87,6 +87,15 @@ export default function CounselorDashboard({
   // Counselor推薦アクション
   const [recommendations, setRecommendations] = useState<CounselorRecommendationItem[]>([]);
 
+  // 安全警告
+  const [safetyAlerts, setSafetyAlerts] = useState<Array<{
+    candidateId: string;
+    action: string;
+    signalTypes: string[];
+    maxSeverity: number;
+    detectedAt: string;
+  }>>([]);
+
   // Honest Exit Rate
   const [honestExitRate, setHonestExitRate] = useState<{
     ratePercent: number;
@@ -121,7 +130,16 @@ export default function CounselorDashboard({
       const exitRateData = await exitRateRes.json() as {
         metrics: { ratePercent: number; totalDisconnects: number; honestExits: number };
       };
-      const recData = await recRes.json() as { recommendations: CounselorRecommendationItem[] };
+      const recData = await recRes.json() as {
+        recommendations: CounselorRecommendationItem[];
+        safetyAlerts: Array<{
+          candidateId: string;
+          action: string;
+          signalTypes: string[];
+          maxSeverity: number;
+          detectedAt: string;
+        }>;
+      };
 
       setBriefing(briefingData.briefing ?? null);
       setConnections(connectionsData.connections ?? []);
@@ -130,6 +148,7 @@ export default function CounselorDashboard({
       setUnacknowledgedCount(exchangeData.unacknowledgedCount ?? 0);
       setRecentFeedbacks(sdFeedbackData.feedbacks ?? []);
       setRecommendations(recData.recommendations ?? []);
+      setSafetyAlerts(recData.safetyAlerts ?? []);
       if (exitRateData?.metrics) {
         setHonestExitRate(exitRateData.metrics);
       }
@@ -199,6 +218,11 @@ export default function CounselorDashboard({
     <div className="space-y-4">
       {/* ── ヘッダー ── */}
       <CounselorHeader />
+
+      {/* ── 安全警告（最優先表示） ── */}
+      {safetyAlerts.length > 0 && (
+        <SafetyAlertSection alerts={safetyAlerts} />
+      )}
 
       {/* ── 今週のブリーフィング ── */}
       <WeeklyBriefingSection
@@ -289,6 +313,96 @@ function CounselorHeader() {
             専属カウンセラー
           </h2>
         </div>
+      </div>
+    </FadeInView>
+  );
+}
+
+// ── 安全警告セクション ──
+
+const SIGNAL_TYPE_LABELS: Record<string, string> = {
+  message_escalation: "メッセージ頻度の急増",
+  rapid_like_all: "大量一括いいね",
+  multiple_reports: "複数ユーザーからの通報",
+  ghosting_pattern: "ゴースティング傾向",
+  boundary_violation: "境界線の逸脱",
+  obsessive_viewing: "反復閲覧",
+};
+
+const ACTION_LABELS: Record<string, { label: string; severity: "warning" | "danger" }> = {
+  warn: { label: "注意", severity: "warning" },
+  hold: { label: "一時停止中", severity: "danger" },
+  block: { label: "ブロック済み", severity: "danger" },
+};
+
+function SafetyAlertSection({ alerts }: { alerts: Array<{
+  candidateId: string;
+  action: string;
+  signalTypes: string[];
+  maxSeverity: number;
+  detectedAt: string;
+}> }) {
+  return (
+    <FadeInView direction="down" delay={0.05}>
+      <div className="space-y-2">
+        {alerts.map((alert, i) => {
+          const actionInfo = ACTION_LABELS[alert.action] ?? ACTION_LABELS.warn;
+          return (
+            <GlassCard
+              key={`${alert.candidateId}-${i}`}
+              padding="none"
+              hoverEffect={false}
+              className="overflow-hidden"
+              style={{
+                background: actionInfo.severity === "danger"
+                  ? "rgba(239,68,68,0.06)"
+                  : "rgba(251,191,36,0.06)",
+                border: actionInfo.severity === "danger"
+                  ? "1px solid rgba(239,68,68,0.2)"
+                  : "1px solid rgba(251,191,36,0.2)",
+              }}
+            >
+              <div className="px-4 py-3 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{
+                        background: actionInfo.severity === "danger"
+                          ? "rgba(239,68,68,0.15)"
+                          : "rgba(251,191,36,0.15)",
+                      }}
+                    >
+                      <span className="text-[10px]">
+                        {actionInfo.severity === "danger" ? "!" : "⚠"}
+                      </span>
+                    </div>
+                    <span className="text-xs font-medium text-slate-600">
+                      安全シグナル検出
+                    </span>
+                  </div>
+                  <GlassBadge variant={actionInfo.severity} size="sm">
+                    {actionInfo.label}
+                  </GlassBadge>
+                </div>
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  {alert.signalTypes
+                    .map((t) => SIGNAL_TYPE_LABELS[t] ?? t)
+                    .join("、")}
+                  が検出されました。
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {new Date(alert.detectedAt).toLocaleString("ja-JP", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+            </GlassCard>
+          );
+        })}
       </div>
     </FadeInView>
   );

@@ -20,6 +20,14 @@ import type { MissionTemplate } from "@/lib/rendezvous/missionTemplates";
 // suggest_game の場合は具体的なゲーム情報も付与する。
 // ============================================================
 
+export type SafetyAlertItem = {
+  candidateId: string;
+  action: string;
+  signalTypes: string[];
+  maxSeverity: number;
+  detectedAt: string;
+};
+
 export type RecommendationResponse = {
   recommendations: Array<{
     candidateId: string;
@@ -31,6 +39,7 @@ export type RecommendationResponse = {
     mission: MissionTemplate | null;
     pacing: PacingGuidance | null;
   }>;
+  safetyAlerts: SafetyAlertItem[];
 };
 
 export async function GET() {
@@ -94,7 +103,29 @@ export async function GET() {
           (order[b.priority as keyof typeof order] ?? 4);
       });
 
-    return NextResponse.json({ recommendations });
+    // 安全警告: 直近7日の counselor_safety_alert を取得
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: alertRows } = await supabase
+      .from("orbiter_signals")
+      .select("candidate_id, payload, created_at")
+      .eq("user_id", userId)
+      .eq("signal_type", "counselor_safety_alert")
+      .gte("created_at", sevenDaysAgo)
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    const safetyAlerts: SafetyAlertItem[] = (alertRows ?? []).map((r) => {
+      const p = r.payload as Record<string, unknown> | null;
+      return {
+        candidateId: r.candidate_id as string,
+        action: (p?.action as string) ?? "warn",
+        signalTypes: (p?.signalTypes as string[]) ?? [],
+        maxSeverity: (p?.maxSeverity as number) ?? 0,
+        detectedAt: (p?.detectedAt as string) ?? r.created_at,
+      };
+    });
+
+    return NextResponse.json({ recommendations, safetyAlerts });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[counselor/recommendation] error:", err);
