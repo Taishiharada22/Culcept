@@ -34,6 +34,7 @@ export {
   evaluateRelationshipState,
   recommendAction,
   selectGameForRecommendation,
+  dispatchNudge,
 } from "./orchestrator";
 
 export type {

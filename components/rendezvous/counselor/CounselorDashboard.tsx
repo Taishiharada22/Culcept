@@ -543,6 +543,28 @@ const RECOMMENDATION_PRIORITY_STYLES: Record<string, { bg: string; border: strin
 };
 
 function RecommendationSection({ recommendations }: { recommendations: CounselorRecommendationItem[] }) {
+  const [nudgeSent, setNudgeSent] = useState<Record<string, boolean>>({});
+  const [nudgeSending, setNudgeSending] = useState<Record<string, boolean>>({});
+
+  const handleNudge = async (candidateId: string) => {
+    setNudgeSending((prev) => ({ ...prev, [candidateId]: true }));
+    try {
+      const res = await fetch("/api/rendezvous/counselor/recommendation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "trigger_nudge", candidateId }),
+      });
+      const data = await res.json() as { dispatched: boolean };
+      if (data.dispatched) {
+        setNudgeSent((prev) => ({ ...prev, [candidateId]: true }));
+      }
+    } catch {
+      // fail silently
+    } finally {
+      setNudgeSending((prev) => ({ ...prev, [candidateId]: false }));
+    }
+  };
+
   return (
     <FadeInView direction="up" delay={0.25}>
       <div className="space-y-2">
@@ -603,6 +625,26 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       <p className="text-[10px] text-slate-400 mt-1">
                         {rec.game.duration}分 · {rec.game.format === "simultaneous_answer" ? "同時回答" : rec.game.format === "turn_based" ? "交互" : rec.game.format === "collaborative" ? "共同作業" : "チャレンジ"}
                       </p>
+                    </div>
+                  )}
+                  {/* ナッジ送信ボタン */}
+                  {rec.type === "trigger_nudge" && (
+                    <div className="pt-1">
+                      {nudgeSent[rec.candidateId] ? (
+                        <p className="text-xs text-emerald-600 font-medium">
+                          きっかけメッセージを予約しました
+                        </p>
+                      ) : (
+                        <GlassButton
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleNudge(rec.candidateId)}
+                          disabled={nudgeSending[rec.candidateId]}
+                          className="!text-xs"
+                        >
+                          {nudgeSending[rec.candidateId] ? "送信中..." : "きっかけを送る"}
+                        </GlassButton>
+                      )}
                     </div>
                   )}
                 </div>

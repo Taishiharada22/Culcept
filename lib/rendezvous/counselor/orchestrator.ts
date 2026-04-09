@@ -294,3 +294,35 @@ export function selectGameForRecommendation(
   // ランダム選定（将来: ユーザー履歴で重複回避）
   return available[Math.floor(Math.random() * available.length)];
 }
+
+// ── ナッジ送信ディスパッチ ──
+
+/**
+ * Counselorの trigger_nudge 推薦を実行する。
+ * notificationScheduler 経由で遅延通知をキューに入れる。
+ */
+export async function dispatchNudge(params: {
+  userId: string;
+  candidateId: string;
+  recommendation: CounselorRecommendation;
+}): Promise<{ scheduled: boolean; scheduledFor?: string }> {
+  if (params.recommendation.type !== "trigger_nudge") {
+    return { scheduled: false };
+  }
+
+  const { scheduleDelayedNotification } = await import("../notificationScheduler");
+
+  const result = await scheduleDelayedNotification(params.userId, "nudge", {
+    candidateId: params.candidateId,
+    payload: {
+      source: "counselor_orchestrator",
+      reason: params.recommendation.reason,
+      daysSinceLastActivity: params.recommendation.payload.daysSinceLastActivity,
+    },
+  });
+
+  return {
+    scheduled: result.scheduled,
+    scheduledFor: result.scheduledFor,
+  };
+}

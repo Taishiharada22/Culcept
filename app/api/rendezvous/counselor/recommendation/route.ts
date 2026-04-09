@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   evaluateRelationshipState,
   recommendAction,
   selectGameForRecommendation,
+  dispatchNudge,
 } from "@/lib/rendezvous/counselor/orchestrator";
 import type { CoupleGame } from "@/lib/rendezvous/coupleGames";
 
@@ -90,6 +91,68 @@ export async function GET() {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal error";
     console.error("[counselor/recommendation] error:", err);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+// ── POST: Counselor推薦アクションの実行（nudge送信等） ──
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = await supabaseServer();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const body = (await req.json()) as {
+      action: string;
+      candidateId: string;
+    };
+
+    if (body.action === "trigger_nudge" && body.candidateId) {
+      // 対象接続を再評価してnudgeが妥当か検証
+      const { data: candidate } = await supabase
+        .from("rendezvous_candidates")
+        .select("id, user_a, user_b")
+        .eq("id", body.candidateId)
+        .or(`user_a.eq.${user.id},user_b.eq.${user.id}`)
+        .maybeSingle();
+
+      if (!candidate) {
+        return NextResponse.json({ error: "Candidate not found" }, { status: 404 });
+      }
+
+      const counterpartId = candidate.user_a === user.id ? candidate.user_b : candidate.user_a;
+      const state = await evaluateRelationshipState({
+        candidateId: body.candidateId,
+        userId: user.id,
+        counterpartId,
+      });
+      const rec = recommendAction(state);
+
+      // trigger_nudge の場合のみ実行
+      if (rec.type === "trigger_nudge") {
+        const result = await dispatchNudge({
+          userId: counterpartId,
+          candidateId: body.candidateId,
+          recommendation: rec,
+        });
+        return NextResponse.json({ dispatched: true, ...result });
+      }
+
+      return NextResponse.json({
+        dispatched: false,
+        reason: "現在の状態では nudge は不要です",
+        currentRecommendation: rec.type,
+      });
+    }
+
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal error";
+    console.error("[counselor/recommendation] POST error:", err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
