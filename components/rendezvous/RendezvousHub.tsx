@@ -648,19 +648,34 @@ export default function RendezvousHub({ verificationStatus, isFrozen = false }: 
       {/* Bottom Section                                                */}
       {/* ============================================================= */}
       <FadeInView delay={0.6} className="px-6 mt-6 flex flex-col items-center gap-4">
-        {/* Settings button */}
-        <motion.a
-          href="/rendezvous/settings"
-          whileHover={{ opacity: 0.7 }}
-          whileTap={{ scale: 0.97 }}
-          className="text-xs font-medium px-4 py-2 rounded-lg transition-colors"
-          style={{
-            color: RV_COLORS.textMuted,
-            background: RV_COLORS.surfaceMuted,
-          }}
-        >
-          Rendezvous 設定
-        </motion.a>
+        {/* Action buttons */}
+        <div className="flex items-center gap-3">
+          <motion.a
+            href="/rendezvous/invite"
+            whileHover={{ opacity: 0.7 }}
+            whileTap={{ scale: 0.97 }}
+            className="text-xs font-medium px-4 py-2 rounded-lg transition-colors"
+            style={{
+              color: RV_COLORS.accent,
+              background: `${RV_COLORS.accent}12`,
+              border: `1px solid ${RV_COLORS.accent}30`,
+            }}
+          >
+            友達を招待
+          </motion.a>
+          <motion.a
+            href="/rendezvous/settings"
+            whileHover={{ opacity: 0.7 }}
+            whileTap={{ scale: 0.97 }}
+            className="text-xs font-medium px-4 py-2 rounded-lg transition-colors"
+            style={{
+              color: RV_COLORS.textMuted,
+              background: RV_COLORS.surfaceMuted,
+            }}
+          >
+            Rendezvous 設定
+          </motion.a>
+        </div>
 
         {/* Footer attribution */}
         <p

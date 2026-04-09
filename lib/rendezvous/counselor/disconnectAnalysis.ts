@@ -163,9 +163,9 @@ ${assetContext ? `## 関係性の行動観測データ\n${assetContext}\n` : ""}
 - mismatchPoints: 噛み合わなかったポイント（1-3個）
 - communicationGap: コミュニケーションスタイルの違い（あれば）
 - deeperInsight: 深層的な理由の推論（1文）
-- tendency: 切られた側の傾向（1文、「あなたは〜」で始める）
-- explanation: その傾向の説明（2-3文、共感的トーン）
-- reframe: この傾向は欠点ではないという補足（1-2文）
+- tendency: 切られた側に見える傾向の仮説（1文、「あなたには〜かもしれない傾向が見えます」のように仮説として提示）
+- explanation: その傾向の説明（2-3文、共感的トーン、断定を避け「〜の可能性があります」等の表現）
+- reframe: この傾向の強みと活かし方（1-2文、肯定的に）
 - relatedAxes: 関連する Stargazer 軸名（1-3個）
 `.trim();
 }
