@@ -631,6 +631,34 @@ export default function RendezvousHub({ verificationStatus, isFrozen = false }: 
       </FadeInView>
 
       {/* ============================================================= */}
+      {/* Phase 0 — 既知ペア検証（コールドスタート起点）                 */}
+      {/* ============================================================= */}
+      <FadeInView delay={0.52} className="px-5 mb-4">
+        <motion.a
+          href="/rendezvous/phase0"
+          whileHover={{ opacity: 0.9 }}
+          whileTap={{ scale: 0.98 }}
+          className="block rounded-2xl p-4 transition-all"
+          style={{
+            background: "linear-gradient(135deg, rgba(59,130,246,0.06), rgba(99,102,241,0.04))",
+            border: "1px solid rgba(59,130,246,0.12)",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[13px] font-semibold" style={{ color: "#3B82F6" }}>
+                知っている人との関係を理解する
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: `${RV_COLORS.textMuted}cc` }}>
+                既知ペアの相性を深掘りして、自分の関係パターンを知る
+              </p>
+            </div>
+            <span className="text-[10px]" style={{ color: "#3B82F6", opacity: 0.5 }}>→</span>
+          </div>
+        </motion.a>
+      </FadeInView>
+
+      {/* ============================================================= */}
       {/* Three Tier Cards                                              */}
       {/* ============================================================= */}
       <div className="px-5 flex flex-col gap-5">
