@@ -24,4 +24,13 @@ export const STARGAZER_FLAGS = {
    * env: STARGAZER_COUNTERFACTUAL_LIVE=true で有効化
    */
   counterfactualLive: process.env.STARGAZER_COUNTERFACTUAL_LIVE === "true",
+
+  /**
+   * Perspective Engine: Web検索統合 kill switch.
+   * true = 検索統合有効（Gate通過時に外部視点を取得・注入）
+   * false = 全ユーザーで無効化（Gate判定自体をスキップ）
+   * env: STARGAZER_PERSPECTIVE_ENGINE_LIVE=true で有効化
+   * @see docs/alter-perspective-engine-design.md v2
+   */
+  perspectiveEngineLive: process.env.STARGAZER_PERSPECTIVE_ENGINE_LIVE === "true",
 } as const;

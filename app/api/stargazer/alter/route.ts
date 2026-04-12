@@ -4,6 +4,12 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkStargazerTier } from "@/lib/stargazer/tierGuard";
 import { STARGAZER_FLAGS } from "@/lib/stargazer/featureFlags";
 import {
+  runPerspectiveEngine,
+  type PerspectiveAudit,
+  type PerspectiveBlock,
+  type PerspectiveLatencyBreakdown,
+} from "@/lib/stargazer/perspectiveEngine";
+import {
   generateDerivedFacts,
   formatDerivedFactsForPrompt,
   type ContradictionInput,
@@ -50,6 +56,7 @@ import {
   computeForceBalance,
   buildJudgmentFramework,
   ALTER_IDENTITY_BLOCK,
+  buildAlterIdentityBlock,
   detectDirectRequest,
   detectDirectDemand,
   detectCorrectionSignal,
@@ -114,6 +121,11 @@ import {
   buildGenericLabelBanBlock,
   buildGreetingPromptBlock,
   buildChatOpeningPromptBlock,
+  buildMetaQuestionPromptBlock,
+  buildAskMePromptBlock,
+  buildAskMeRedirectPromptBlock,
+  isAskMeRedirect,
+  buildConversationPromptBlock,
   buildDelegationPromptBlock,
   buildExecutionRequestPromptBlock,
   buildCareerFitPromptBlock,
@@ -130,6 +142,9 @@ import {
   buildFollowUpCorrectionPromptBlock,
   buildCreationDeepPromptBlock,
   isCreationContaminatingContext,
+  shouldStickyConversation,
+  enforceConversationalBrevity,
+  validateConversationalQuality,
 } from "@/lib/stargazer/alterHomeAdapter";
 import {
   estimateUserState,
@@ -680,6 +695,9 @@ export async function POST(req: NextRequest) {
       homeContext: rawHomeContext,
       handoffContext,
       responseTimeMs: rawResponseTimeMs,
+      _abTestDisablePerspective: abTestDisablePerspective,
+      _abTestOverridePhase: abTestOverridePhase,
+      _abTestOverrideTrust: abTestOverrideTrust,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -696,6 +714,12 @@ export async function POST(req: NextRequest) {
         axisScores?: Record<string, number>;
       };
       responseTimeMs?: number;
+      /** A/B テスト用: true で Perspective Engine を強制スキップ（dev only） */
+      _abTestDisablePerspective?: boolean;
+      /** A/B テスト用: PE の hdmPhase を強制オーバーライド（dev only） */
+      _abTestOverridePhase?: number;
+      /** A/B テスト用: PE の trustLevel を強制オーバーライド（dev only） */
+      _abTestOverrideTrust?: number;
     };
 
     const isHomeAlter = source === "home";
@@ -1163,6 +1187,10 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 派生事実セット: Deep Alter branch内で生成、analytics insertで参照
     let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
+    // Perspective Engine: 外部視点統合（shadow統合、flag=false でスキップ）
+    let perspectiveAudit: PerspectiveAudit | null = null;
+    let perspectiveBlock: PerspectiveBlock | null = null;
+    let perspectiveLatency: PerspectiveLatencyBreakdown | null = null;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -1250,6 +1278,60 @@ export async function POST(req: NextRequest) {
       questionCategory = classifyQuestion(message);
       // P1-A: 5タイプルーター（意図の種類: emotional/self_understanding/knowledge/strategy/judgment）
       questionType = classifyQuestionType(message);
+
+      // ── Conversational mode: 直近に会話的ターンがあれば judgment を conversation に昇格 ──
+      // 「会話しにきたよ」→ 次のメッセージが judgment に落ちるのを防ぐ
+      // Block 1: ユーザーメッセージの再分類 + Alterの質問検出（直近6メッセージ）
+      if (questionType === "judgment" && conversationHistory.length >= 2) {
+        const recentWindow = conversationHistory.slice(-6); // 拡張: 4→6（約3往復）
+        const recentUserTypes = recentWindow
+          .filter(m => m.role === "user")
+          .map(m => classifyQuestionType(m.content));
+        const hasRecentConversationalTurn = recentUserTypes.some(t =>
+          t === "chat_opening" || t === "conversation" || t === "ask_me"
+        );
+        // Alter が質問で応答している = Q&Aフローが続いている
+        const alterAskedRecently = recentWindow
+          .filter(m => m.role === "alter")
+          .some(m => /[？?]/.test(m.content));
+        // 判断キーワードが明示的にない場合のみ昇格
+        const hasExplicitJudgmentIntent = /べき[？?]?|した方がいい|どう[すし]れば|どうした方|どっちが/.test(message);
+        // planning / daily_guidance 意図がある場合は conversation に昇格しない → analyzeQueryContext で daily_guidance に入る
+        const hasPlanningIntent = /明日|明後日|あした|あさって|来週|週末|午後|今日.*何[すし]|何から|何すれば|何したら|何やろう|予定/.test(message);
+        // recommendation / knowledge 意図がある場合も conversation に昇格しない
+        // 「合ってる趣味って何？」「おすすめの本ある？」等は回答品質が重要
+        const hasRecommendationIntent = /合って[るい]|おすすめ|適して|向いて|ぴったり|教えて(?!ほしい)|何がいい|何かある[？?]|何か(?:ない|ある)|紹介/.test(message);
+        if ((hasRecentConversationalTurn || alterAskedRecently) && !hasExplicitJudgmentIntent && !hasPlanningIntent && !hasRecommendationIntent) {
+          questionType = "conversation";
+          console.info(`[conversational-mode] judgment → conversation (recent conversational turn detected, userTypes=${recentUserTypes.join(",")}, alterAsked=${alterAskedRecently})`);
+        }
+      }
+
+      // ── ask_me sticky mode: Alter が質問を投げた直後のユーザー応答を judgment に落とさない ──
+      // Block 2（Block 1 のフォールバック）: 直前Alterメッセージが？で終わるかチェック
+      if (questionType === "judgment" && conversationHistory.length >= 1) {
+        const lastMsg = conversationHistory[conversationHistory.length - 1];
+        const lastAlterText = lastMsg?.role === "alter" ? lastMsg.content : null;
+        if (shouldStickyConversation(message, lastAlterText)) {
+          questionType = "conversation";
+          console.info(`[ask-me-sticky] judgment → conversation (user is answering Alter's question, ${message.trim().length} chars)`);
+        }
+      }
+
+      // ── ask_me_redirect: 質問差し替え要求の検出 ──
+      // 「違う質問にして」「難しいな」等 → ask_me として処理するが、lighter prompt を使う
+      // 直前のAlterが質問（ask_me応答）を出していた場合のみ発動
+      let isRedirectMode = false;
+      if (isAskMeRedirect(message)) {
+        const lastMsg = conversationHistory[conversationHistory.length - 1];
+        const lastAlterHadQuestion = lastMsg?.role === "alter" && /[？?]/.test(lastMsg.content);
+        if (lastAlterHadQuestion) {
+          questionType = "ask_me";
+          isRedirectMode = true;
+          console.info(`[ask-me-redirect] Detected question redirect request: "${message.trim().slice(0, 30)}"`);
+        }
+      }
+
       initialQuestionType = questionType; // override追跡用
 
       // ── Ambiguity Engine: ドメイン検出 + 曖昧性解析 + 応答モード選択 ──
@@ -1300,8 +1382,9 @@ export async function POST(req: NextRequest) {
           } catch { /* Non-fatal */ }
 
         } else {
-          // F: 直近の daily guidance 提案を取得（重複防止）
+          // F: 直近の daily guidance 提案を取得（重複防止 + 連続モード抑制）
           let recentDgSuggestions: string[] = [];
+          let recentDgModes: import("@/lib/stargazer/alterHomeAdapter").DailyGuidanceMode[] = [];
           try {
             const { data: recentDg } = await supabase
               .from("stargazer_analytics")
@@ -1310,22 +1393,26 @@ export async function POST(req: NextRequest) {
               .eq("event", "home_alter_judgment")
               .eq("metadata->>query_domain", "daily_guidance")
               .order("created_at", { ascending: false })
-              .limit(3);
+              .limit(5);
             if (recentDg) {
               recentDgSuggestions = recentDg
                 .map(r => (r.metadata as Record<string, unknown>)?.first_step as string)
                 .filter(Boolean);
+              recentDgModes = recentDg
+                .map(r => (r.metadata as Record<string, unknown>)?.daily_mode as string)
+                .filter(Boolean)
+                .reverse() as import("@/lib/stargazer/alterHomeAdapter").DailyGuidanceMode[];
             }
           } catch { /* Non-fatal */ }
 
           // Skeleton構築 → Prompt → LLM → Validation
-          const dgSkeleton = buildDailyGuidanceSkeleton(dgFrame, personality, recentDgSuggestions);
+          const dgSkeleton = buildDailyGuidanceSkeleton(dgFrame, personality, recentDgSuggestions, recentDgModes);
           const dgPromptBlock = buildDailyGuidancePromptBlock(dgSkeleton);
 
           // Daily Guidance 専用システムプロンプト
           const nameLabel = userName ? `（相手の名前: ${userName}）` : "";
           const dgSystemPrompt = [
-            ALTER_IDENTITY_BLOCK,
+            buildAlterIdentityBlock(hdmPhaseAtLoad),
             "",
             `今日一日をどう過ごすか、具体的にガイドしてください。${nameLabel}`,
             "",
@@ -1673,11 +1760,20 @@ export async function POST(req: NextRequest) {
 
         if (prevUserMsg) {
           const prevContext = analyzeQueryContext(prevUserMsg);
-          // general でなければ継承（general は無意味な継承）
-          if (prevContext.domain !== "general") {
+          // ⚠️ 現在のメッセージが独自のドメイン信号を持っている場合は継承しない
+          // 例: 前ターンが daily_guidance でも「具体的に私にあった職場を教えて」は career_fit/work
+          const currentDomainStrength = queryContext?.domain !== "general" ? queryContext?.domain_confidence ?? 0 : 0;
+          const shouldInherit = prevContext.domain !== "general" && currentDomainStrength < 0.3;
+
+          // meta_question / ask_me / conversation は domain inheritance しない
+          // 「感情ある？」が前ターンの creation domain を継承して creation template に吸われるのを防ぐ
+          const conversationalTypes: import("@/lib/stargazer/alterHomeAdapter").QuestionType[] = ["meta_question", "ask_me", "conversation"];
+          if (shouldInherit && !conversationalTypes.includes(questionType)) {
             inheritedDomain = prevContext.domain;
             if (queryContext) queryContext.domain = inheritedDomain;
             console.info(`[follow-up] Domain inherited from previous turn: ${inheritedDomain} (followUp=${followUpType}, reaction=${detectedReaction?.type})`);
+          } else if (prevContext.domain !== "general" && currentDomainStrength >= 0.3) {
+            console.info(`[follow-up] Domain inheritance SKIPPED: current message has own domain ${queryContext?.domain}(${currentDomainStrength.toFixed(2)}) > prev ${prevContext.domain}`);
           }
 
           // Session fact chain: 前ターンが general でも、セッション内の事実チェーンから
@@ -1703,14 +1799,37 @@ export async function POST(req: NextRequest) {
         }
 
         // follow-up タイプに応じたモード設定
-        if (followUpType === "dissatisfaction") {
+        // ⚠️ ask_me / meta_question / conversation は follow-up override の対象外。
+        // 「質問ある？」が前ターンの continuation と誤判定されて conclude に吸われるのを防ぐ。
+        const conversationalTypeSet: Set<import("@/lib/stargazer/alterHomeAdapter").QuestionType> = new Set(["ask_me", "meta_question", "conversation"]);
+        const skipFollowUpOverride = conversationalTypeSet.has(questionType);
+        if (skipFollowUpOverride) {
+          // ask_me / meta_question / conversation は follow-up の mode 上書きを拒否し、
+          // 自身に適した direct_response を強制する。
+          // これがないと responseMode がデフォルト "conclude" のままになり、
+          // 「質問ある？」に対して judgment 型の応答が返る致命的バグを生む。
+          responseMode = "direct_response";
+          modeDecisionReason = `${questionType}_override`;
+          console.info(`[follow-up] Skipping follow-up mode override: questionType=${questionType} → direct_response (followUp=${followUpType})`);
+          // domain inheritance は維持するが、mode override はスキップ
+        } else if (followUpType === "dissatisfaction") {
           responseMode = "repair";
           modeDecisionReason = "followup_dissatisfaction";
           console.info(`[follow-up] Dissatisfaction detected → repair mode`);
         } else if (followUpType === "continuation") {
-          responseMode = "conclude";
-          modeDecisionReason = "followup_continuation";
-          console.info(`[follow-up] Continuation detected → conclude mode`);
+          // 短い応答（< 20文字）は新しい判断要求ではなく会話の継続。
+          // conclude（結論必須バリデーション）ではなく direct_response で自然な対話を維持。
+          // 例: 「体調面かな」「仕事の話」「そうかも」→ 結論を強制すると不自然。
+          const isShortContinuation = message.trim().length < 20;
+          if (isShortContinuation) {
+            responseMode = "direct_response";
+            modeDecisionReason = "followup_continuation";
+            console.info(`[follow-up] Short continuation (${message.trim().length} chars) → direct_response mode`);
+          } else {
+            responseMode = "conclude";
+            modeDecisionReason = "followup_continuation";
+            console.info(`[follow-up] Continuation detected → conclude mode`);
+          }
         } else if (followUpType === "correction") {
           responseMode = "repair";
           modeDecisionReason = "followup_correction";
@@ -2150,6 +2269,16 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
         if (trapScanRow?.metadata) {
           lastTrapScan = trapScanRow.metadata as TrapScanSummary;
+
+          // ── Circuit breaker: ユーザーが積極的に会話しているなら MI 抑制を解除 ──
+          // surveillance は「MI が受け入れられていない」検出だが、ユーザーが 4+ ターン
+          // 会話を続けているなら engagement は明らか。MI 抑制を維持すると質問生成が
+          // 完全に死に、会話品質が致命的に劣化する（death spiral）。
+          if (lastTrapScan?.should_suppress_mi && conversationDepth >= 4) {
+            console.info(`[trap-scan] Circuit breaker: active engagement (depth=${conversationDepth}) → MI suppression lifted`);
+            lastTrapScan.should_suppress_mi = false;
+          }
+
           if (lastTrapScan?.should_suppress_mi || lastTrapScan?.should_suppress_route_c || lastTrapScan?.should_reduce_depth) {
             console.info(`[trap-scan] Previous scan active: suppress_mi=${lastTrapScan.should_suppress_mi}, suppress_route_c=${lastTrapScan.should_suppress_route_c}, reduce_depth=${lastTrapScan.should_reduce_depth}`);
           }
@@ -2810,6 +2939,7 @@ export async function POST(req: NextRequest) {
         t0Gate ? baselineDeviationEntries : null,
         t0Gate ? personMapFactEntries : null,
         recentAlterMsgs,
+        conversationHistory.length, // turnNumber: facts ローテーション用
       );
       const expectedKeywords = extractExpectedKeywords(personalizedFacts);
 
@@ -2936,13 +3066,87 @@ export async function POST(req: NextRequest) {
           || (p2PartsState?.reactive.activationLevel ?? 0) > 0.5,
       };
 
+      // ── Perspective Engine: 外部視点統合（shadow 統合、flag=false でスキップ） ──
+      // 設計: docs/alter-perspective-engine-design.md v2
+      // パイプライン: analyzeQueryContext → classifyQuestion → searchGate → retrieve → classify → personalize
+      // fail-open: エラー時は null を返し従来パスにフォールバック
+      // _abTestDisablePerspective: A/B テスト時に検索なし条件を作るためのオーバーライド
+      if (abTestDisablePerspective) {
+        console.info("[perspective-engine] A/B test: forced SKIP by _abTestDisablePerspective");
+      }
+      try {
+        // A/B テスト用オーバーライド（dev only: Phase/Trust を強制上書き）
+        const peHdmPhase = abTestOverridePhase ?? loadedHdmState.currentPhase;
+        const peTrustLevel = abTestOverrideTrust ?? p0DiscreteTrustLevel;
+        if (abTestOverridePhase !== undefined || abTestOverrideTrust !== undefined) {
+          console.info(`[perspective-engine] A/B test override: phase=${peHdmPhase}, trust=${peTrustLevel}`);
+        }
+        const peResult = abTestDisablePerspective ? null : await runPerspectiveEngine({
+          message,
+          queryContext: queryContext!,
+          questionCategory,
+          hdmPhase: peHdmPhase,
+          trustLevel: peTrustLevel,
+          responseMode,
+          userId,
+        });
+        if (peResult) {
+          perspectiveAudit = peResult.audit;
+          perspectiveBlock = peResult.block;
+          perspectiveLatency = peResult.latencyBreakdown ?? null;
+          if (peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0) {
+            console.info(
+              `[perspective-engine] 🔥 FIRED: ${peResult.block.fragments.length} fragments, ` +
+              `delta=${JSON.stringify(peResult.block.forceBalanceDelta)}, ` +
+              `latency=${peResult.block.searchLatencyMs}ms, ` +
+              `queries=${JSON.stringify(peResult.block.searchQueriesSent)}`
+            );
+            // Phase 0: プロンプトブロック全文をログ出力（A/B 品質確認用）
+            console.info(`[perspective-engine] 📝 Prompt block:\n${peResult.block.promptBlock}`);
+          } else {
+            console.info(
+              `[perspective-engine] ⏭️  SKIPPED: gate=${peResult.audit.gateDecision}, reason=${peResult.audit.gateReason}`
+            );
+          }
+          // telemetry: fire-and-forget で全判定結果を記録
+          supabase.from("stargazer_analytics").insert({
+            user_id: userId,
+            event: "perspective_engine_gate",
+            feature: "perspective_engine",
+            metadata: {
+              gate_decision: peResult.audit.gateDecision,
+              gate_reason: peResult.audit.gateReason,
+              source_type: peResult.audit.sourceType,
+              search_queries: peResult.audit.searchQueriesSent,
+              search_latency_ms: peResult.audit.searchLatencyMs,
+              latency_breakdown: perspectiveLatency ?? null,
+              fragments_count: peResult.audit.fragmentsUsed.length,
+              fragments_types: peResult.audit.fragmentsUsed.map(f => f.epistemicType),
+              prompt_block_chars: peResult.block.promptBlock.length,
+              force_balance_delta: peResult.audit.forceBalanceDelta,
+              query_domain: queryContext?.domain ?? null,
+              question_category: questionCategory,
+              response_mode: responseMode,
+              hdm_phase: loadedHdmState.currentPhase,
+              trust_level: p0DiscreteTrustLevel,
+              message_preview: message.slice(0, 50),
+            },
+          }).then(({ error }) => {
+            if (error) console.warn("[perspective-engine] Telemetry save failed:", error.message);
+          });
+        }
+      } catch (e) {
+        // fail-open: Perspective Engine の失敗は致命的ではない
+        console.warn("[perspective-engine] Error, continuing without:", e);
+      }
+
       // ── Layer 3: 骨格制約付きプロンプト構築 ──
       // P0/P1: homeContextWithObs を使い、observationCount + envContext を反映
       let homeSystemPrompt = buildHomeAlterPromptWithContext(
         personality, homeContextWithObs, questionCategory, message,
         responseMode, queryContext, domainOverlay, userName, relationalLens,
         judgmentSkeleton, clarifyType, clarifyIntentHint, baselineCtx, relationshipCtx, lifeCtx,
-        heartInfluence,
+        heartInfluence, loadedHdmState.currentPhase, p0DiscreteTrustLevel,
       );
 
       // ── Phase 1: 派生事実注入（Home Alter経路） ──
@@ -2982,6 +3186,13 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           console.warn("[home-alter] Derived facts generation failed, continuing without:", e);
         }
+      }
+
+      // ── Perspective Engine: プロンプト注入 ──
+      // perspectiveBlock が存在し、promptBlock が非空なら注入
+      if (perspectiveBlock && perspectiveBlock.promptBlock) {
+        homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
       }
 
       // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──
@@ -3125,7 +3336,9 @@ export async function POST(req: NextRequest) {
       // Phase 3: 段階的開示によるコンテキスト注入
       // Trust Level と情報の性質に応じて、開示レベル（silent/hint/reference/explicit）を決定
       // R3-#4: ctx_loaded / ctx_used / ctx_dropped_reason ログ追加
-      if (hasMinTrust && activeLifeContext.length > 0 && responseMode !== "clarify") {
+      // T0でも高確信度の基本情報は注入する（「知らなすぎる」体験の防止）
+      // determineDisclosureLevel() 内で T0 は user_stated + 高確信度のみ hint 許可
+      if (activeLifeContext.length > 0 && responseMode !== "clarify") {
         const contextTrustLevel = discreteTrustLevel;
         ctxLoaded = activeLifeContext.length;
 
@@ -3181,7 +3394,7 @@ export async function POST(req: NextRequest) {
         console.info(`[ctx-injection] T${contextTrustLevel} ctx_loaded=${ctxLoaded} ctx_used=${ctxUsed} ctx_dropped=${ctxDroppedReasons.length} reasons=[${ctxDroppedReasons.slice(0, 3).join("; ")}]`);
       } else if (activeLifeContext.length > 0) {
         ctxLoaded = activeLifeContext.length;
-        const reason = !hasMinTrust ? "trust_too_low" : responseMode === "clarify" ? "clarify_mode" : "no_context";
+        const reason = responseMode === "clarify" ? "clarify_mode" : "no_context";
         ctxDroppedReasons.push(`all_dropped: ${reason}`);
         console.info(`[ctx-injection] ctx_loaded=${ctxLoaded} ctx_used=0 reason=${reason}`);
       }
@@ -3398,7 +3611,13 @@ export async function POST(req: NextRequest) {
         }
       }
       if (!legacySuppressReason && recentDenyIgnoreStreak >= 2) {
-        legacySuppressReason = `deny/ignore 連続 ${recentDenyIgnoreStreak} 回 — 一時抑制`;
+        // 会話が活発に続いている場合（depth >= 4）はストリーク抑制を解除
+        // 理由: ユーザーが積極的に対話を続けている = MI 提示機会が妥当
+        if (conversationDepth >= 4) {
+          console.info(`[mi-legacy] deny/ignore streak=${recentDenyIgnoreStreak} but active engagement (depth=${conversationDepth}) → suppression lifted`);
+        } else {
+          legacySuppressReason = `deny/ignore 連続 ${recentDenyIgnoreStreak} 回 — 一時抑制`;
+        }
       }
 
       // Step 3: evaluateMIGate に統合（reactions 全量 + recentPresentations + alterSessionCount）
@@ -3677,10 +3896,63 @@ export async function POST(req: NextRequest) {
         console.info("[greeting] Greeting-only block injected");
       }
 
-      // ── 雑談開始 → 分析禁止、軽い雑談のみ ──
+      // ── 雑談開始 → 分析禁止、データ駆動の具体的質問 ──
       if (questionType === "chat_opening") {
-        homeSystemPrompt += buildChatOpeningPromptBlock(userName);
-        console.info("[chat_opening] Chat-opening block injected");
+        // chat_opening はTrust非依存でコンテキストを注入する（T0でも聞ける質問にする）
+        const recentAlterTopics = conversationHistory
+          .filter(m => m.role === "alter")
+          .slice(-3)
+          .map(m => m.content);
+        const chatOpeningCtx: import("@/lib/stargazer/alterHomeAdapter").ChatOpeningContext = {
+          career: lifeCtx?.careerLabels,
+          passions: lifeCtx?.passions,
+          values: lifeCtx?.coreValues,
+          lifeStage: baselineCtx?.lifeStage,
+          prefecture: baselineCtx?.prefecture,
+          age: baselineCtx?.age,
+          personMapLabels: personMapFactEntries?.map(p => p.label),
+          weatherLabel: rawHomeContext?.weather?.label,
+          recentTopics: recentAlterTopics,
+        };
+        homeSystemPrompt += buildChatOpeningPromptBlock(userName, chatOpeningCtx);
+        const seedCount = [chatOpeningCtx.career, chatOpeningCtx.passions, chatOpeningCtx.personMapLabels].filter(a => a && a.length > 0).length;
+        console.info(`[chat_opening] Data-driven block injected (seeds=${seedCount}, lifeStage=${chatOpeningCtx.lifeStage ?? "?"})`);
+      }
+
+      // ── Alter自身への質問 → 自己言及モード ──
+      if (questionType === "meta_question") {
+        homeSystemPrompt += buildMetaQuestionPromptBlock(userName);
+        console.info("[meta_question] Meta-question block injected");
+      }
+
+      // ── 質問要求 → Alterがユーザーに質問を返す ──
+      if (questionType === "ask_me") {
+        // セッション内の話題をLLMに渡して具体的な質問を生成させる
+        const sessionExplicitFacts = sessionFactAccumulator.getExplicitFacts().map(f => f.content);
+        const recentUserTopics = conversationHistory
+          .filter(m => m.role === "user")
+          .slice(-5)
+          .map(m => m.content)
+          .filter(c => c.length > 3 && c.length < 100);
+        if (isRedirectMode) {
+          // ask_me_redirect: 質問差し替え要求 → 軽い質問に切り替え
+          homeSystemPrompt += buildAskMeRedirectPromptBlock(userName, sessionExplicitFacts, recentUserTopics, p0DiscreteTrustLevel);
+          console.info(`[ask_me_redirect] Redirect block injected (trustLevel=${p0DiscreteTrustLevel}, topics=${recentUserTopics.length})`);
+        } else {
+          // 通常の ask_me: Trust段階に応じた質問戦略
+          homeSystemPrompt += buildAskMePromptBlock(personalizedFacts, userName, sessionExplicitFacts, recentUserTopics, p0DiscreteTrustLevel);
+          console.info(`[ask_me] Ask-me block injected (trustLevel=${p0DiscreteTrustLevel}, facts=${personalizedFacts.length}, sessionFacts=${sessionExplicitFacts.length}, topics=${recentUserTopics.length})`);
+        }
+      }
+
+      // ── 会話的共有 → 共感+聞き返し（セッション文脈付き） ──
+      if (questionType === "conversation") {
+        const convSessionFacts = sessionFactAccumulator.getExplicitFacts().map(f => f.content);
+        const convRecentTopics = conversationHistory
+          .filter(m => m.role === "user").slice(-5)
+          .map(m => m.content).filter(c => c.length > 3 && c.length < 100);
+        homeSystemPrompt += buildConversationPromptBlock(userName, convSessionFacts, convRecentTopics, p0DiscreteTrustLevel);
+        console.info(`[conversation] Conversation block injected (sessionFacts=${convSessionFacts.length}, topics=${convRecentTopics.length})`);
       }
 
       // ── 委任要求 → 心理分析禁止、意見直答 ──
@@ -5081,7 +5353,11 @@ export async function POST(req: NextRequest) {
           systemPrompt: homeSystemPrompt,
           requireJson: false,
           temperature: (responseMode === "clarify" || responseMode === "repair") ? 0.3 : 0.6,
-          maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 512 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
+          // 語彙繰り返し抑制: 同じフレーズの多用を減らす（Gemini frequencyPenalty: 0.0-2.0）
+          frequencyPenalty: 0.3,
+          // 新トピック促進: 既出トークンの再出現を軽く抑える
+          presencePenalty: 0.1,
+          maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 1024 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
           userId: userId,
           metadata: makeStargazerRunMetadata({
             feature: "alter",
@@ -5123,7 +5399,7 @@ export async function POST(req: NextRequest) {
             systemPrompt: homeSystemPrompt,
             requireJson: false,
             temperature: (responseMode === "clarify" || responseMode === "repair") ? 0.3 : 0.6,
-            maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 512 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
+            maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 1024 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
             userId: userId,
             metadata: makeStargazerRunMetadata({
               feature: "alter",
@@ -5167,13 +5443,17 @@ export async function POST(req: NextRequest) {
 
       // 検査（モード別バリデーション）
       const validation = homeResponse?.trim()
-        ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode)
+        ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode, questionType)
         : { pass: false, failures: ["応答の生成に失敗"] };
       p0ValidationFailures = validation.failures;
 
             // Contract-based validation: ドメイン固有の出力契約で検証
+            // ただし greeting / direct_response / repair / clarify は契約修復の対象外
+            // （軽量応答に機械的ラベルを付加すると人間らしさが壊れるため）
+            const contractExemptModes: Set<string> = new Set(["direct_response", "repair", "clarify"]);
+            const isContractExempt = contractExemptModes.has(responseMode) || questionType === "greeting";
             const contractDomain = queryContext?.domain ?? "general";
-            contractValidationResult = homeResponse?.trim()
+            contractValidationResult = homeResponse?.trim() && !isContractExempt
               ? validateAgainstContract(homeResponse, contractDomain, questionType)
               : null;
 
@@ -5192,6 +5472,122 @@ export async function POST(req: NextRequest) {
                 console.info(`[contract-repair] ${repairResult.fieldsRepaired.length} fields repaired: ${repairResult.fieldsRepaired.join(", ")}`);
               }
             }
+
+      // ── 会話品質バリデーション + 再生成（conversation / ask_me 専用） ──
+      // direct_response は基本validation通過済みだが、会話品質（反射・抽象質問）は未検証。
+      // ここで追加検証し、不合格なら1回だけ再生成を試みる。
+      const conversationalQualityTypes: Set<import("@/lib/stargazer/alterHomeAdapter").QuestionType> = new Set(["conversation", "ask_me"]);
+      let conversationalQualityRetried = false;
+      if (
+        conversationalQualityTypes.has(questionType) &&
+        homeResponse?.trim() &&
+        validation.pass // 基本validationは通過している
+      ) {
+        const cqCheck = validateConversationalQuality(homeResponse, message, questionType);
+        if (!cqCheck.pass) {
+          console.info(`[conv-quality] Failed: ${cqCheck.failures.join(", ")} → retrying`);
+          conversationalQualityRetried = true;
+          try {
+            // 具体的なフィードバック付きで再生成
+            const cqFeedback = cqCheck.failures.map(f => `- ${f}`).join("\n");
+            const cqRetryInstructions = questionType === "ask_me"
+              ? [
+                  `- 質問を必ず1つ含めること（？で終わる文）`,
+                  `- 抽象的な質問（「もう少し教えて」「今日はどんな感じ？」「どう感じた？」等）を使わないこと`,
+                  `- 具体的な2-3択にすること（例: 「仕事？プライベート？」）`,
+                  `- 性格ラベル・傾向表現（「〇〇な傾向がある」）は使わないこと`,
+                  `- 2-3文で完結すること`,
+                ]
+              : [
+                  `- 1文目でユーザーの言葉を使って受け止めること`,
+                  `- 抽象的な質問（「もう少し教えて」「今日はどんな感じ？」等）を使わないこと`,
+                  `- 必ず具体的な質問で終わること（デッドエンド��しない）`,
+                  `- 2-4文で完結すること`,
+                  `- 質問は1つだけ、具体的な2-3択にすること`,
+                ];
+            const cqRetryPrompt = [
+              `以下の応答を改善してください。`,
+              ``,
+              `## 元の応答:`,
+              homeResponse,
+              ``,
+              `## 問題点:`,
+              cqFeedback,
+              ``,
+              `## ユーザーの発言:`,
+              message,
+              ``,
+              `## 改善指示:`,
+              ...cqRetryInstructions,
+            ].join("\n");
+            llmCallCount++;
+            const cqResult = await runAI({
+              taskType: "stargazer_alter_response",
+              prompt: cqRetryPrompt,
+              systemPrompt: homeSystemPrompt,
+              requireJson: false,
+              temperature: 0.3,
+              maxOutputTokens: 1024,
+              userId: userId,
+              metadata: makeStargazerRunMetadata({
+                feature: "alter",
+                mode: "warm",
+                responseMode,
+                actionShape: null,
+                trustLevel: p0DiscreteTrustLevel,
+                hdmPhase: p3HdmPhaseState.currentPhase,
+                turnNumber: conversationHistory.length,
+                skipCache: true,
+                attempt: 2,
+              }),
+            });
+            if (cqResult.success && cqResult.text?.trim()) {
+              const cqFormatted = formatHomeAlterResponse(cqResult.text.trim(), userName);
+              const cqRecheck = validateConversationalQuality(cqFormatted, message, questionType);
+              if (cqRecheck.pass) {
+                homeResponse = cqFormatted;
+                console.info("[conv-quality] Retry succeeded");
+              } else {
+                console.warn("[conv-quality] Retry also failed:", cqRecheck.failures);
+                // CQ double-fail: 決定論的フォールバックで置換
+                const userMsg = message.trim();
+                const kw = userMsg.match(/[\u4e00-\u9fafぁ-んァ-ヶーA-Za-z]{2,}/g);
+                const keyword = kw?.[0] ?? "";
+                if (keyword) {
+                  const fallbacks = [
+                    `「${keyword}」について話してくれたんだね。それって最近のこと？それとも前からずっと？`,
+                    `なるほど、${keyword}か。具体的にはどんな場面でそう感じることが多い？`,
+                    `${keyword}のこと、もう少し聞きたいな。一番印象に残ってるエピソードってある？`,
+                  ];
+                  const fallbackIdx = conversationHistory.length % fallbacks.length;
+                  homeResponse = fallbacks[fallbackIdx]!;
+                } else {
+                  homeResponse = "そうなんだね。今の話、もう少し具体的に聞かせてもらえる？";
+                }
+                console.info("[conv-quality] Double-fail fallback applied");
+              }
+            }
+          } catch (cqErr) {
+            console.warn("[conv-quality] Retry threw:", cqErr);
+            // CQ retry例外: 決定論的フォールバックで置換
+            const userMsg = message.trim();
+            const kw = userMsg.match(/[\u4e00-\u9fafぁ-んァ-ヶーA-Za-z]{2,}/g);
+            const keyword = kw?.[0] ?? "";
+            if (keyword) {
+              const fallbacks = [
+                `「${keyword}」について話してくれたんだね。それって最近のこと？それとも前からずっと？`,
+                `なるほど、${keyword}か。具体的にはどんな場面でそう感じることが多い？`,
+                `${keyword}のこと、もう少し聞きたいな。一番印象に残ってるエピソードってある？`,
+              ];
+              const fallbackIdx = conversationHistory.length % fallbacks.length;
+              homeResponse = fallbacks[fallbackIdx]!;
+            } else {
+              homeResponse = "そうなんだね。今の話、もう少し具体的に聞かせてもらえる？";
+            }
+            console.info("[conv-quality] Retry-exception fallback applied");
+          }
+        }
+      }
 
       // 不合格なら再生成（facts を明示して再試行）
       // 条件: validation不合格 + 応答が空でない + clarify/repair/direct_responseでない + 空レスリトライ済みでない
@@ -5230,7 +5626,7 @@ export async function POST(req: NextRequest) {
           if (retryResult.success && retryResult.text?.trim()) {
             const { responseText: retryStripped, metadata: retryMeta } = parseDecisionMetadata(retryResult.text);
             const retryFormatted = formatHomeAlterResponse(retryStripped, userName);
-            const retryValidation = validateHomeAlterResponseWithMode(retryFormatted, message, expectedKeywords, responseMode);
+            const retryValidation = validateHomeAlterResponseWithMode(retryFormatted, message, expectedKeywords, responseMode, questionType);
             if (retryValidation.pass) {
               homeResponse = retryFormatted;
               if (retryMeta) homeDecisionMeta = retryMeta;
@@ -5254,6 +5650,52 @@ export async function POST(req: NextRequest) {
                 return sliced.replace(/[。、！!？?\s]+$/, "");
               };
 
+              // ── 会話型の double failure → facts dump を回避し、自然な応答を返す ──
+              if (questionType === "meta_question") {
+                homeResponse = `${namePrefix}正直に言うと、人間と同じ感情は僕にはないと思う。でも、${userName ?? "君"}のことを理解したいっていう強い気持ちはある。それは確かだよ。`;
+                console.info("[home-alter] meta_question double failure → dedicated fallback");
+              } else if (questionType === "ask_me") {
+                // 会話履歴から最近の話題を拾って具体的な質問を生成
+                const recentUserMsgs = conversationHistory
+                  .filter(m => m.role === "user")
+                  .slice(-3)
+                  .map(m => m.content)
+                  .filter(c => c.length > 5);
+                const lastTopic = recentUserMsgs.length > 0
+                  ? recentUserMsgs[recentUserMsgs.length - 1]!.slice(0, 20).replace(/[？?。！!、\s]+$/, "")
+                  : null;
+
+                // 質問プール（ローテーション）
+                const askMeFallbackQuestions = [
+                  lastTopic ? `${lastTopic}って話してくれたけど、それってどういう気持ちで言ってた？` : null,
+                  lastTopic ? `さっき${lastTopic}って言ってたけど、それって最近の話？` : null,
+                  "最近、一番長い時間考えてたことって何？",
+                  "今一番頭の中にあることって何？",
+                  "ここ最近で一番「あ、やばい」って思った瞬間ある？",
+                  "今日起きてから一番最初にしたことって何？",
+                  "最近、誰かに言いたかったけど言えなかったことってある？",
+                ].filter(Boolean) as string[];
+                const askQ = askMeFallbackQuestions[Math.floor(Math.random() * askMeFallbackQuestions.length)]!;
+                homeResponse = `${namePrefix}わかった。じゃあ聞くね。\n${askQ}`;
+                console.info("[home-alter] ask_me double failure → dedicated fallback");
+              } else if (questionType === "conversation") {
+                const userKeyPhrase = smartTruncate(message);
+                // 会話的フォールバック: 多様なパターンで自己強化ループを防止
+                const conversationFallbacks = userKeyPhrase
+                  ? [
+                    `${namePrefix}${userKeyPhrase}か。それ、ちょっと気になるな。もう少し聞かせて？`,
+                    `${namePrefix}${userKeyPhrase}って面白いね。何がそう思わせたの？`,
+                    `${namePrefix}なるほど、${userKeyPhrase}ね。それっていつ頃から？`,
+                  ]
+                  : [
+                    `${namePrefix}なるほどね。もう少し聞かせてくれる？`,
+                    `${namePrefix}ふーん、そうなんだ。それって最近の話？`,
+                    `${namePrefix}そっか。それ、前から思ってたこと？`,
+                  ];
+                homeResponse = conversationFallbacks[Math.floor(Math.random() * conversationFallbacks.length)]!;
+                console.info("[home-alter] conversation double failure → dedicated fallback");
+              } else {
+
               // R3-#5: fallback 優先チェーン改善
               // creation/core-demand/factual_recall では再生成 > facts > 正直な不確実性 > fallback
               const isHighPriorityType = questionType === "factual_recall" || isCoreDemandQuestion(message)
@@ -5276,27 +5718,27 @@ export async function POST(req: NextRequest) {
                 if (questionType === "delegation_request") {
                   // 委任: 意見を言い切る
                   const basis = topFacts.slice(0, 2).join("、");
-                  homeResponse = `${namePrefix}僕の意見を言う。${basis}を踏まえると、「${smartTruncate(message)}」に対しては——まず${topFacts[0] || "今わかっていること"}に従って動いた方がいい。`;
+                  homeResponse = `${namePrefix}僕の意見を言う。${basis}を踏まえると、まず${topFacts[0] || "今わかっていること"}に従って動いた方がいいと思う。`;
                 } else if (queryContext?.domain === "career_fit") {
                   const basis = topFacts.join("。");
-                  homeResponse = `${namePrefix}${basis}。\nこれらの傾向から見て、${namePrefix || "あなたに"}合う方向性は——`;
+                  homeResponse = `${namePrefix}${basis}。\nこの傾向から見て、もう少し具体的な状況を教えてくれたら、合う方向性を絞れると思う。`;
                 } else if (queryContext?.domain === "industry_fit") {
                   const basis = topFacts.join("。");
-                  homeResponse = `${namePrefix}${basis}。\nこの特徴が活きる業界を考えると——`;
+                  homeResponse = `${namePrefix}${basis}。\nこの特徴が活きる場所を考えたいから、今どんな仕事に興味があるか教えてくれると絞れる。`;
                 } else if (queryContext?.domain === "creation") {
-                  // Phase 9: creation fallback — 結論+ボトルネック+2週間アクション
+                  // creation fallback — 結論+ボトルネック+質問
                   const basis = topFacts.slice(0, 2).join("。");
-                  homeResponse = `${namePrefix}${basis}。\n今のボトルネックは「${smartTruncate(message)}」に直結する部分で、直近2週間でやるべきことは——`;
+                  homeResponse = `${namePrefix}${basis}。\nもう少し具体的に、何を作りたいのか教えてくれると、僕なりの読みを出せると思う。`;
                 } else if (queryContext?.domain === "founder_team_fit") {
                   const basis = topFacts.slice(0, 2).join("。");
                   const sessionFacts = sessionFactAccumulator.getExplicitFacts().map(f => f.content).join("。");
-                  homeResponse = `${namePrefix}${basis}。${sessionFacts ? sessionFacts + "。" : ""}\nこの特性から考えると、チームに必要なのは——`;
+                  homeResponse = `${namePrefix}${basis}。${sessionFacts ? sessionFacts + "。" : ""}\nどういう場面で一緒に動く相手の話？仕事なのか、プライベートなのかで変わってくる。`;
                 } else if (isFatigue) {
                   // Phase 9: fatigue fallback — 状態確認+今日やる1つ+やらない1つ
                   homeResponse = `${namePrefix}きつそうだな。\n今日やること: エネルギーが残っているうちに、一番重要なタスクを1つだけ片付ける。\n今日やらないこと: 新しい判断を求められることは全部後回しにしていい。`;
                 } else if (followUpType === "dissatisfaction") {
-                  // Phase 9: dissatisfaction fallback — 前のズレ修正
-                  homeResponse = `${namePrefix}すまん、さっきのは確かに薄かった。もう一段具体的に言い直す——`;
+                  // dissatisfaction fallback — 前のズレ修正
+                  homeResponse = `${namePrefix}すまん、さっきのは確かにズレてた。もう少し具体的に聞かせてくれたら、ちゃんと答え直す。`;
                 } else {
                   // factual_recall: 知っていることを列挙
                   const knownItems = topFacts.map(f => `- ${f}`).join("\n");
@@ -5307,26 +5749,44 @@ export async function POST(req: NextRequest) {
                 // 高優先タイプ: facts を直接使った具体的応答を構成（clarify に逃げない）
                 const topFacts = personalizedFacts.slice(0, 3).map(f => f.replace(/^[【\[].+?[】\]]/, "").trim()).filter(Boolean);
                 const factsBlock = topFacts.join("。また、");
-                homeResponse = `${namePrefix}${factsBlock}。\nこれを踏まえると、「${smartTruncate(message)}」に対する僕の読みはこうだ——`;
+                homeResponse = `${namePrefix}${factsBlock}。\nこれを踏まえて考えてるんだけど、もう少し状況を教えてくれると、もっと具体的に言える。`;
                 // clarify に落とさず conclude のまま維持
                 console.info(`[home-alter] High-priority double failure → facts-based response (type=${questionType}, domain=${queryContext?.domain})`);
-              } else if (isGenericFailure && personalizedFacts.length > 0) {
-                // generic で2回失敗 → facts から直接構成した応答にフォールバック
-                const topFact = personalizedFacts[0]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
-                const secondFact = personalizedFacts[1]?.replace(/^[【\[].+?[】\]]/, "").trim() ?? "";
-                const factBased = secondFact
-                  ? `${namePrefix}${topFact}。${secondFact}。\nそのうえで「${smartTruncate(message)}」を考えると、今の状態に合った動き方がある気がする。もう少し聞かせてほしい。`
-                  : `${namePrefix}${topFact}。\nそのうえで「${smartTruncate(message)}」を考えると、もう少し具体的な状況を聞かせてほしい。`;
-                homeResponse = factBased;
-                responseMode = "clarify";
-                console.info("[home-alter] Double generic failure → fact-based clarify fallback");
-              } else {
-                // 非 generic の2回失敗 → 正直な不確実性モード
+              } else if (isGenericFailure) {
+                // generic で2回失敗 → reflect + narrow question（抽象質問禁止）
                 const userKeyPhrase = smartTruncate(message);
-                homeResponse = `${namePrefix}「${userKeyPhrase}」について、正直に言うと今の情報だけでは確信が持てない。もう少し聞かせてほしい。具体的にはどういう状況？`;
+                if (userKeyPhrase) {
+                  // 反射 + 焦点化質問
+                  const narrowQuestions = [
+                    `それって最近の話？ それとも前からずっと？`,
+                    `いちばん引っかかってるポイントはどこ？`,
+                    `仕事の話？ それともプライベート？`,
+                  ];
+                  const nq = narrowQuestions[Math.floor(Math.random() * narrowQuestions.length)]!;
+                  homeResponse = `${namePrefix}${userKeyPhrase}のことが気になってるんだね。${nq}`;
+                } else {
+                  homeResponse = `${namePrefix}なるほど。今いちばん頭を占めてるのって、仕事、体調、人間関係だとどれが近い？`;
+                }
                 responseMode = "clarify";
-                console.info("[home-alter] Double validation failure → honest uncertainty mode");
+                console.info("[home-alter] Double generic failure → reflect + narrow question fallback");
+              } else {
+                // 非 generic の2回失敗 → reflect + narrow question（「掴みきれてない」禁止）
+                const userKeyPhrase = smartTruncate(message);
+                if (userKeyPhrase) {
+                  const narrowQuestions = [
+                    `それって気持ちの話？ それとも具体的な状況の話？`,
+                    `いつ頃からそう感じてる？`,
+                    `今いちばんしんどいのはどの部分？`,
+                  ];
+                  const nq = narrowQuestions[Math.floor(Math.random() * narrowQuestions.length)]!;
+                  homeResponse = `${namePrefix}${userKeyPhrase}か。${nq}`;
+                } else {
+                  homeResponse = `${namePrefix}もう少し聞きたい。今の気持ちに近いのは、「疲れてる」「迷ってる」「モヤモヤしてる」のどれ？`;
+                }
+                responseMode = "clarify";
+                console.info("[home-alter] Double validation failure → reflect + narrow question fallback");
               }
+              } // close conversational-type early-exit else
               if (retryMeta) homeDecisionMeta = retryMeta;
             }
           }
@@ -5403,6 +5863,29 @@ export async function POST(req: NextRequest) {
         } else if (questionType === "greeting" || questionType === "chat_opening") {
           // 挨拶・雑談開始: 軽い受けのみ。分析禁止。
           homeResponse = `${namePrefix}来てくれてよかった。何か話したいことあった？`;
+        } else if (questionType === "meta_question") {
+          // Alter自身への質問: 正直に答える
+          homeResponse = `${namePrefix}正直に言うと、人間と同じ感情は僕にはないと思う。でも、${userName ?? "君"}のことを理解したいっていう強い気持ちはある。それは確かだよ。`;
+        } else if (questionType === "ask_me") {
+          // 質問要求: 具体的な質問を1つ返す
+          const askFact = personalizedFacts.length > 0 ? personalizedFacts[0] : null;
+          homeResponse = askFact
+            ? `${namePrefix}わかった。じゃあ聞くね。${askFact}って、普段はどう向き合ってる？`
+            : `${namePrefix}わかった。じゃあ聞くね。最近一番時間を使ってることって何？`;
+        } else if (questionType === "conversation") {
+          // 会話的共有: 受け止め + 聞き返し（多様なパターン）
+          const convFallbacks = userKeyPhrase
+            ? [
+              `${namePrefix}${userKeyPhrase}か。それ、ちょっと気になるな。`,
+              `${namePrefix}${userKeyPhrase}ね。何がそう思わせたの？`,
+              `${namePrefix}なるほど、${userKeyPhrase}ね。もう少し聞かせて。`,
+            ]
+            : [
+              `${namePrefix}なるほどね。もう少し聞かせてくれる？`,
+              `${namePrefix}ふーん。それって最近の話？`,
+              `${namePrefix}そっか。もうちょっと詳しく聞かせて。`,
+            ];
+          homeResponse = convFallbacks[Math.floor(Math.random() * convFallbacks.length)]!;
         } else if (responseMode === "repair") {
           // rupture 検出時のフォールバック: 修復姿勢を示す（分析・深掘り禁止）
           homeResponse = `${namePrefix}ごめん、ちょっとうまく受け取れなかったかもしれない。${userKeyPhrase ? `「${userKeyPhrase}」` : "さっきの話"}、もう一回聞かせてもらえる？`;
@@ -7598,6 +8081,15 @@ export async function POST(req: NextRequest) {
     // response_id: フィードバック紐付け用の一意識別子
     const responseId = `resp-${sessionId}-${Date.now()}`;
 
+    // ── Pi-style UX 制約: conversation / ask_me は文量を強制カット ──
+    const piStyleTargetTypes: Set<import("@/lib/stargazer/alterHomeAdapter").QuestionType> = new Set([
+      "conversation", "ask_me", "chat_opening",
+    ]);
+    if (piStyleTargetTypes.has(questionType)) {
+      const maxSent = questionType === "ask_me" ? 3 : 4;
+      alterResponseText = enforceConversationalBrevity(alterResponseText, maxSent);
+    }
+
     return NextResponse.json({
       ok: true,
       sessionId,
@@ -7672,6 +8164,21 @@ export async function POST(req: NextRequest) {
           quality_pass: qualityCheck?.pass ?? null,
         },
       },
+      // Perspective Engine 監査データ（Phase 0 A/B テスト用）
+      ...(perspectiveAudit ? {
+        perspectiveEngine: {
+          gate_decision: perspectiveAudit.gateDecision,
+          gate_reason: perspectiveAudit.gateReason,
+          source_type: perspectiveAudit.sourceType,
+          fragments_count: perspectiveAudit.fragmentsUsed.length,
+          search_latency_ms: perspectiveAudit.searchLatencyMs,
+          search_queries: perspectiveAudit.searchQueriesSent,
+          force_balance_delta: perspectiveAudit.forceBalanceDelta,
+          ...(perspectiveLatency ? {
+            latency_breakdown: perspectiveLatency,
+          } : {}),
+        },
+      } : {}),
     });
   } catch (error) {
     console.error("Failed to process alter message:", error);
