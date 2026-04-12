@@ -8,6 +8,8 @@ import {
   type PerspectiveAudit,
   type PerspectiveBlock,
   type PerspectiveLatencyBreakdown,
+  type QualityGateResult,
+  detectExplicitSearchIntent,
 } from "@/lib/stargazer/perspectiveEngine";
 import {
   generateDerivedFacts,
@@ -483,6 +485,16 @@ import {
 } from "@/lib/stargazer/realityAnchoring";
 import { SessionFactAccumulator, detectDrillDown } from "@/lib/stargazer/sessionContext";
 import { validateAgainstContract, repairResponse, buildContractPromptBlock, getContract, type ContractValidation } from "@/lib/stargazer/outputContract";
+// Morning Protocol — Alter統合ハブ（Todo/予定/コーデ）
+import {
+  isMorningProtocolQuery,
+  detectMorningIntent,
+  buildSoftBridgeMessage,
+  isSoftBridgeConfirm,
+  createSession as createMorningSession,
+  processMorningMessage,
+} from "@/lib/alter-morning/morningProtocol";
+import type { MorningSession, MorningProtocolResponse } from "@/lib/alter-morning/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -524,6 +536,163 @@ function finalizeAlterResponse(value: string, fallback: string): string {
   if (looksIncompleteAlterResponse(trimmed)) return fallback;
   if (/[。！？?…」』】]$/.test(trimmed)) return trimmed;
   return `${trimmed} ...どう思う？`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CQ Double-Fail フォールバック — LLM 再生成が2回失敗した時の最終手段
+// 文脈を読んで意図カテゴリを判定し、それに応じた自然な応答を返す。
+// テンプレ的だが「ユーザーの直前の言葉」と「Alterの直前の言葉」を参照して
+// 会話として最低限成立する応答を生成する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+type AlterHistoryEntry = { role: string; content: string };
+
+function buildContextAwareFallback(
+  userMessage: string,
+  conversationHistory: AlterHistoryEntry[],
+): string {
+  const msg = userMessage.trim();
+  const lastAlter = [...conversationHistory]
+    .reverse()
+    .find((m) => m.role === "alter");
+  const lastAlterText = lastAlter?.content?.trim() ?? "";
+
+  // ── ユーザーの意図カテゴリを判定 ──
+
+  // 1. 肯定応答（「はい」「うん」「そう」「そういうこと」「いいよ」）
+  //    → Alterの直前発言を踏まえて前進させる
+  const isAffirmation = /^(はい|うん|ええ|そう(だ(ね|よ)?)?|そういうこと|いい(よ|ね)|OK|ok|おk|分かった|わかった|了解|おけ|オッケー|りょ)[\s。！!、]*$/i.test(msg)
+    || (msg.length <= 6 && /^(はい|うん|そう|いいよ|おk)/i.test(msg));
+
+  // 2. 否定・批判（「違う」「おかしい」「それは違う」「いや」）
+  //    → 謝罪＋聞き直し
+  const isNegation = /^(いや|違う|ちがう|それは違|おかしい|なんか違|そうじゃな|そうじゃない|ちょっと違)/.test(msg)
+    || /おかしい|間違[えっ]|ずれて/.test(msg);
+
+  // 3. 能力外リクエスト（「検索して」「調べて」「WEBから」「持ってきて」）
+  //    → 正直に能力境界を伝える
+  const isCapabilityRequest = /検索して|調べて|ネットで|WEBから|ウェブから|持ってきて|画像|写真|リンク|URL|サイト|ググ/.test(msg);
+
+  // 4. 挨拶・開始（「おはよう」「こんにちは」「ただいま」「おつかれ」）
+  const isGreeting = /^(おはよう|こんにちは|こんばんは|ただいま|おつかれ|おかえり|ヤッホー|やあ|やぁ|ひさしぶり|久しぶり)/i.test(msg);
+
+  // 5. 感情吐露（「つらい」「疲れた」「だるい」「やばい」「しんどい」）
+  const isEmotionalVent = /つら[いく]|疲れ[たてる]|だる[いく]|やばい|しんど[いく]|むかつ|イライラ|不安|怖[いく]|泣[いき]|悲し|寂し|辛[いく]|嫌[だに]|最悪/.test(msg);
+
+  // 6. 質問（「？」で終わる）
+  const isQuestion = /[？?]\s*$/.test(msg);
+
+  // 7. 情報提供・報告（「〜だった」「〜した」「〜があった」「〜だよ」）
+  const isReport = /[たてる](よ|ね|んだ|の)?[\s。！!]*$/.test(msg) || /があった|だった|してきた|行ってきた/.test(msg);
+
+  // ── 直前のAlter発言から文脈を抽出 ──
+  const alterAskedQuestion = /[？?]\s*$/.test(lastAlterText);
+  // Alterが質問してユーザーが答えた場合は、その回答を受け止めるのが最重要
+  const alterKeyPhrase = (() => {
+    if (!lastAlterText || lastAlterText.length < 5) return null;
+    // Alterの最後の文を取得
+    const sentences = lastAlterText.split(/[。！!？?\n]+/).filter((s) => s.trim().length > 3);
+    const last = sentences[sentences.length - 1]?.trim();
+    if (!last || last.length > 40) return null;
+    return last.replace(/[？?。！!、\s]+$/, "").slice(0, 25);
+  })();
+
+  // ── カテゴリ別応答生成 ──
+
+  if (isAffirmation) {
+    // Alterが質問していた → 肯定回答として受け止めて次に進む
+    if (alterAskedQuestion && alterKeyPhrase) {
+      const opts = [
+        `そっか、${alterKeyPhrase}ってことだね。もう少し聞いていい？ どんな感じだった？`,
+        `なるほどね。じゃあ、それについてもう少し教えて。具体的にはどういうこと？`,
+        `うん、わかった。${alterKeyPhrase}か。それ、いつ頃の話？`,
+      ];
+      return opts[Math.floor(Math.random() * opts.length)]!;
+    }
+    // Alterが質問してない → ユーザーの同意を受けて次の話題を引き出す
+    const opts = [
+      "うん、そうだね。他に何か気になってることある？",
+      "了解。じゃあ、最近で一番印象に残ってることって何？",
+      "わかった。他に話しておきたいことがあれば聞くよ。",
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  if (isNegation) {
+    const opts = [
+      "ごめん、ちょっとずれてたね。もう一回聞かせてくれる？ どういうこと？",
+      "あ、違ったか。ごめん。正しくはどういう感じ？",
+      "すまん、読み違えた。もう少し詳しく教えてくれると助かる。",
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  if (isCapabilityRequest) {
+    return "ごめん、Web検索とかリンクの取得は今の僕にはできないんだ。ただ、知ってる範囲で考えることはできるから、気になってることがあれば聞いて。";
+  }
+
+  if (isGreeting) {
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return "おはよう。今日はどんな感じ？";
+    if (hour >= 12 && hour < 17) return "やあ。午後はどんな予定？";
+    if (hour >= 17 && hour < 23) return "おつかれ。今日はどんな1日だった？";
+    return "おつかれ。遅い時間だね。何かあった？";
+  }
+
+  if (isEmotionalVent) {
+    // 感情吐露 → まず受容、判断しない
+    const emotionWord = msg.match(/つら[いく]|疲れ[たてる]|だる[いく]|やばい|しんど[いく]|むかつ|イライラ|不安|怖[いく]|泣[いき]|悲し|寂し|辛[いく]|嫌[だに]|最悪/)?.[0] ?? "";
+    const opts = [
+      `${emotionWord}か。それは大変だったね。何があったの？`,
+      `そっか、${emotionWord}んだ。無理しなくていいよ。話せる範囲で教えて。`,
+      `${emotionWord}って感じてるんだね。何かきっかけがあった？`,
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  if (isQuestion) {
+    // ユーザーが質問してきた → 正直に答えようとする姿勢
+    const userQ = msg.replace(/[？?]+$/, "").trim();
+    if (userQ.length > 3 && userQ.length <= 30) {
+      return `${userQ}か。いい質問だね。正直、確信はないけど、一緒に考えてみようか。`;
+    }
+    return "面白い質問だね。ちょっと考えさせて。どういう文脈で気になった？";
+  }
+
+  if (isReport) {
+    // ユーザーが出来事を報告 → 受け止め + 掘り下げ
+    const shortMsg = msg.length > 25 ? msg.slice(0, 25).replace(/[。、！!？?\s]+$/, "") : msg.replace(/[。、！!？?\s]+$/, "");
+    const opts = [
+      `${shortMsg}か。それ、どう感じた？`,
+      `へぇ、${shortMsg}んだ。詳しく聞いていい？`,
+      `そうだったんだ。${shortMsg}って、良い意味？ それとも微妙？`,
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  // ── デフォルト：Alterの直前発言があれば文脈接続、なければオープン ──
+  if (alterAskedQuestion && alterKeyPhrase) {
+    // Alterが質問してユーザーが何か答えた → 受け止めて掘り下げ
+    const opts = [
+      `なるほどね。${alterKeyPhrase}のこと、もう少し聞かせて。`,
+      `うん、わかった。それってどういう気持ちから来てるの？`,
+      `そっか。それ、結構大事なことだと思う。もうちょっと教えて。`,
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  // 最終フォールバック — ユーザーの発言を短く引用して反応
+  const shortRef = msg.length > 20 ? msg.slice(0, 20).replace(/[。、！!？?\s]+$/, "") : msg.replace(/[。、！!？?\s]+$/, "");
+  if (shortRef.length >= 3) {
+    const opts = [
+      `${shortRef}か。もう少し聞かせて。どういうこと？`,
+      `${shortRef}って、面白いね。もうちょっと詳しく教えて。`,
+      `うん、${shortRef}ね。それってどういう背景があるの？`,
+    ];
+    return opts[Math.floor(Math.random() * opts.length)]!;
+  }
+
+  return "うん、聞いてるよ。もう少し教えてくれる？";
 }
 
 /**
@@ -698,6 +867,8 @@ export async function POST(req: NextRequest) {
       _abTestDisablePerspective: abTestDisablePerspective,
       _abTestOverridePhase: abTestOverridePhase,
       _abTestOverrideTrust: abTestOverrideTrust,
+      morningSession: rawMorningSession,
+      softBridgePending: rawSoftBridgePending,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -720,6 +891,10 @@ export async function POST(req: NextRequest) {
       _abTestOverridePhase?: number;
       /** A/B テスト用: PE の trustLevel を強制オーバーライド（dev only） */
       _abTestOverrideTrust?: number;
+      /** Morning Protocol: クライアントから送信される進行中セッション状態 */
+      morningSession?: { sessionId?: string; phase: string; plan?: any };
+      /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
+      softBridgePending?: boolean;
     };
 
     const isHomeAlter = source === "home";
@@ -1187,10 +1362,16 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 派生事実セット: Deep Alter branch内で生成、analytics insertで参照
     let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
-    // Perspective Engine: 外部視点統合（shadow統合、flag=false でスキップ）
+    // Perspective Engine: 外部視点統合（v3: explicit/implicit 分離、Quality Gate 統合）
     let perspectiveAudit: PerspectiveAudit | null = null;
     let perspectiveBlock: PerspectiveBlock | null = null;
     let perspectiveLatency: PerspectiveLatencyBreakdown | null = null;
+    let perspectiveQualityGate: QualityGateResult | null = null;
+    // Morning Protocol: 外部スコープに引き上げ（response objectで参照するため）
+    let morningSession: MorningSession | undefined;
+    let morningResponse: MorningProtocolResponse | undefined;
+    // Soft Bridge: レスポンスでフラグを返すため外部スコープ
+    let isSoftBridgeResponse = false;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -1337,6 +1518,95 @@ export async function POST(req: NextRequest) {
       // ── Ambiguity Engine: ドメイン検出 + 曖昧性解析 + 応答モード選択 ──
       queryContext = analyzeQueryContext(message);
       initialDomain = queryContext.domain; // override追跡用
+
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // MORNING PROTOCOL: Alter統合ハブ（Todo/予定/コーデ）
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // Morning Protocolはdaily_guidanceの上位概念。
+      // 具体的なタスク/予定管理 → Morning Protocol
+      // 抽象的な「今日どうしよう」 → 既存Daily Guidance
+      // morningSession / morningResponse は外部スコープで宣言済み
+
+      // クライアントから進行中のMorningSessionを復元
+      const hasExistingMorningSession = rawMorningSession?.phase &&
+        !["completed", "skipped"].includes(rawMorningSession.phase);
+
+      // 3段階判定: strong（直接発火）/ soft（確認を挟む）/ none（対象外）
+      let morningIntent = hasExistingMorningSession
+        ? "strong" as const
+        : detectMorningIntent(message);
+
+      // Soft Bridge 確認への肯定応答 → strong に昇格
+      // ※ 直前のAlter返答がSoft Bridgeだった場合のみ（「はい」等の汎用肯定の誤発火防止）
+      if (morningIntent === "none" && rawSoftBridgePending === true && isSoftBridgeConfirm(message)) {
+        morningIntent = "strong";
+        console.info(`[morning-protocol] soft-bridge confirmed by user`);
+      }
+
+      // ── Soft Bridge: 確信が弱い時は確認を1回挟む ──
+      // isSoftBridgeResponse は外部スコープで宣言済み
+      if (morningIntent === "soft") {
+        alterResponseText = buildSoftBridgeMessage();
+        responseMode = "conclude";
+        modeDecisionReason = "conclude_low_ambiguity";
+        isSoftBridgeResponse = true;
+        console.info(`[morning-protocol] soft-bridge: asking confirmation`);
+      }
+
+      // ── Strong: 直接 Morning Protocol に入る ──
+      if (morningIntent === "strong") {
+        // 既存セッション復元 or 新規作成
+        if (hasExistingMorningSession) {
+          morningSession = {
+            sessionId: rawMorningSession!.sessionId ?? `ms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            phase: rawMorningSession!.phase as MorningSession["phase"],
+            rawInputs: [],
+            personalizeHints: [],
+            startedAt: new Date().toISOString(),
+            plan: rawMorningSession!.plan ?? undefined,
+          };
+        } else {
+          morningSession = createMorningSession();
+        }
+        const result = processMorningMessage(message, morningSession);
+        morningSession = result.session;
+        morningResponse = result.response;
+
+        if (morningResponse.phase !== "skipped") {
+          // Morning Protocol がハンドリング → alterResponseText に設定
+          alterResponseText = morningResponse.message;
+          responseMode = "conclude";
+          modeDecisionReason = "conclude_low_ambiguity";
+
+          console.info(`[morning-protocol] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0}`);
+
+          // analytics 永続化（fire-and-forget）
+          try {
+            await supabase.from("stargazer_analytics").insert({
+              user_id: userId,
+              event: "morning_protocol",
+              feature: "morning_protocol",
+              metadata: {
+                phase: morningResponse.phase,
+                item_count: morningResponse.plan?.items?.length ?? 0,
+                has_fixed: morningResponse.plan?.items?.some(i => i.kind === "fixed") ?? false,
+                personalize_hints: morningResponse.personalizeHints?.length ?? 0,
+                query_domain: "morning_protocol",
+              },
+            });
+          } catch { /* Non-fatal */ }
+
+          // Morning Protocol 完了時は judgment pipeline をスキップ
+          // → 下の else ブロックに入らない
+        } else {
+          // skipped → 通常の daily_guidance or judgment pipeline に戻す
+          morningSession = undefined;
+          morningResponse = undefined;
+        }
+      }
+
+      // Morning Protocol / Soft Bridge が処理しなかった場合のみ既存パイプラインへ
+      if (morningIntent !== "soft" && (!morningResponse || morningResponse.phase === "skipped")) {
 
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       // DAILY GUIDANCE: 判断エンジンとは完全に独立したパイプライン
@@ -3066,11 +3336,11 @@ export async function POST(req: NextRequest) {
           || (p2PartsState?.reactive.activationLevel ?? 0) > 0.5,
       };
 
-      // ── Perspective Engine: 外部視点統合（shadow 統合、flag=false でスキップ） ──
-      // 設計: docs/alter-perspective-engine-design.md v2
-      // パイプライン: analyzeQueryContext → classifyQuestion → searchGate → retrieve → classify → personalize
+      // ── Perspective Engine v3: 外部視点統合 ──
+      // 設計: docs/alter-perspective-engine-design.md
+      // v3: L0 explicit ask を Phase/Trust の外に分離 + Quality Gate 追加
+      // パイプライン: L0-L6 Gate → Privacy Gate → Search → Classify → Quality Gate → Personalize → Inject
       // fail-open: エラー時は null を返し従来パスにフォールバック
-      // _abTestDisablePerspective: A/B テスト時に検索なし条件を作るためのオーバーライド
       if (abTestDisablePerspective) {
         console.info("[perspective-engine] A/B test: forced SKIP by _abTestDisablePerspective");
       }
@@ -3094,21 +3364,25 @@ export async function POST(req: NextRequest) {
           perspectiveAudit = peResult.audit;
           perspectiveBlock = peResult.block;
           perspectiveLatency = peResult.latencyBreakdown ?? null;
+          perspectiveQualityGate = peResult.qualityGate ?? null;
+
           if (peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0) {
             console.info(
               `[perspective-engine] 🔥 FIRED: ${peResult.block.fragments.length} fragments, ` +
               `delta=${JSON.stringify(peResult.block.forceBalanceDelta)}, ` +
               `latency=${peResult.block.searchLatencyMs}ms, ` +
-              `queries=${JSON.stringify(peResult.block.searchQueriesSent)}`
+              `queries=${JSON.stringify(peResult.block.searchQueriesSent)}` +
+              (peResult.qualityGate ? `, quality=${peResult.qualityGate.action}` : "")
             );
-            // Phase 0: プロンプトブロック全文をログ出力（A/B 品質確認用）
             console.info(`[perspective-engine] 📝 Prompt block:\n${peResult.block.promptBlock}`);
           } else {
             console.info(
-              `[perspective-engine] ⏭️  SKIPPED: gate=${peResult.audit.gateDecision}, reason=${peResult.audit.gateReason}`
+              `[perspective-engine] ⏭️  SKIPPED: gate=${peResult.audit.gateDecision}, reason=${peResult.audit.gateReason}` +
+              (peResult.audit.isExplicitAsk ? ", explicit_ask=true" : "") +
+              (peResult.audit.explicitAskBlocked ? ", BLOCKED" : "")
             );
           }
-          // telemetry: fire-and-forget で全判定結果を記録
+          // telemetry: fire-and-forget（v3: explicit ask + quality gate フィールド追加）
           supabase.from("stargazer_analytics").insert({
             user_id: userId,
             event: "perspective_engine_gate",
@@ -3130,6 +3404,12 @@ export async function POST(req: NextRequest) {
               hdm_phase: loadedHdmState.currentPhase,
               trust_level: p0DiscreteTrustLevel,
               message_preview: message.slice(0, 50),
+              // v3 新フィールド
+              is_explicit_ask: peResult.audit.isExplicitAsk,
+              explicit_ask_blocked: peResult.audit.explicitAskBlocked,
+              quality_gate_action: peResult.qualityGate?.action ?? null,
+              quality_gate_reason: peResult.qualityGate?.reason ?? null,
+              quality_gate_hedge: peResult.qualityGate?.needsHedge ?? null,
             },
           }).then(({ error }) => {
             if (error) console.warn("[perspective-engine] Telemetry save failed:", error.message);
@@ -3188,9 +3468,31 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Perspective Engine: プロンプト注入 ──
-      // perspectiveBlock が存在し、promptBlock が非空なら注入
-      if (perspectiveBlock && perspectiveBlock.promptBlock) {
+      // ── Perspective Engine v3: プロンプト注入 + 直答パス ──
+      if (perspectiveAudit?.explicitAskBlocked) {
+        // P1-3: Explicit ask が検出されたが検索不可 → 通常会話に流さず直答
+        // Acceptance Criteria: 「WEBで」「調べて」等が入ったら通常会話に流さない
+        homeSystemPrompt += `\n\n[最上位制約 — 検索能力への直答]
+ユーザーはWeb検索を明示的に要求したが、今この機能はまだ有効化されていない。
+必ず最初の1文で「今はまだ外の情報を引っ張ってくる機能を使えない状態なんだ」と正直に伝えること。
+その上で、自分の内部モデルから答えられる範囲で回答してよい。
+禁止: この事実に触れずに通常会話に流すこと。`;
+        console.info("[perspective-engine] 🚫 Explicit ask blocked → direct answer path injected");
+      } else if (perspectiveQualityGate?.action === "discard" && perspectiveAudit?.isExplicitAsk) {
+        // 検索したが品質が低かった場合 → 正直に伝える
+        homeSystemPrompt += `\n\n[検索結果の品質不足]
+ユーザーの検索要求に応じて外部情報を取得したが、信頼できる情報が見つからなかった。
+「調べてみたけど、確実な情報は見つからなかった」と正直に伝えた上で、自分の知識から答えられる範囲で回答すること。`;
+        console.info("[perspective-engine] ⚠️ Explicit ask + quality discard → honest fallback injected");
+      } else if (perspectiveQualityGate?.canClarify && perspectiveAudit?.isExplicitAsk) {
+        // 検索したが不十分 → clarify で1問聞く余地（CEO方針: 検索後に不十分なら1問確認）
+        if (perspectiveBlock && perspectiveBlock.promptBlock) {
+          homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+          homeSystemPrompt += `\n- ※ 情報が不十分な場合、1問だけ確認を挟んでよい（例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」）`;
+          console.info(`[perspective-engine] Prompt block injected with clarify option (${perspectiveBlock.promptBlock.length} chars)`);
+        }
+      } else if (perspectiveBlock && perspectiveBlock.promptBlock) {
+        // 通常の検索結果注入
         homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
         console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
       }
@@ -5549,42 +5851,15 @@ export async function POST(req: NextRequest) {
                 console.info("[conv-quality] Retry succeeded");
               } else {
                 console.warn("[conv-quality] Retry also failed:", cqRecheck.failures);
-                // CQ double-fail: 決定論的フォールバックで置換
-                const userMsg = message.trim();
-                const kw = userMsg.match(/[\u4e00-\u9fafぁ-んァ-ヶーA-Za-z]{2,}/g);
-                const keyword = kw?.[0] ?? "";
-                if (keyword) {
-                  const fallbacks = [
-                    `「${keyword}」について話してくれたんだね。それって最近のこと？それとも前からずっと？`,
-                    `なるほど、${keyword}か。具体的にはどんな場面でそう感じることが多い？`,
-                    `${keyword}のこと、もう少し聞きたいな。一番印象に残ってるエピソードってある？`,
-                  ];
-                  const fallbackIdx = conversationHistory.length % fallbacks.length;
-                  homeResponse = fallbacks[fallbackIdx]!;
-                } else {
-                  homeResponse = "そうなんだね。今の話、もう少し具体的に聞かせてもらえる？";
-                }
-                console.info("[conv-quality] Double-fail fallback applied");
+                // CQ double-fail: 文脈認識型フォールバック
+                homeResponse = buildContextAwareFallback(message, conversationHistory);
+                console.info("[conv-quality] Double-fail fallback applied (context-aware)");
               }
             }
           } catch (cqErr) {
             console.warn("[conv-quality] Retry threw:", cqErr);
-            // CQ retry例外: 決定論的フォールバックで置換
-            const userMsg = message.trim();
-            const kw = userMsg.match(/[\u4e00-\u9fafぁ-んァ-ヶーA-Za-z]{2,}/g);
-            const keyword = kw?.[0] ?? "";
-            if (keyword) {
-              const fallbacks = [
-                `「${keyword}」について話してくれたんだね。それって最近のこと？それとも前からずっと？`,
-                `なるほど、${keyword}か。具体的にはどんな場面でそう感じることが多い？`,
-                `${keyword}のこと、もう少し聞きたいな。一番印象に残ってるエピソードってある？`,
-              ];
-              const fallbackIdx = conversationHistory.length % fallbacks.length;
-              homeResponse = fallbacks[fallbackIdx]!;
-            } else {
-              homeResponse = "そうなんだね。今の話、もう少し具体的に聞かせてもらえる？";
-            }
-            console.info("[conv-quality] Retry-exception fallback applied");
+            homeResponse = buildContextAwareFallback(message, conversationHistory);
+            console.info("[conv-quality] Retry-exception fallback applied (context-aware)");
           }
         }
       }
@@ -6268,6 +6543,8 @@ export async function POST(req: NextRequest) {
       }
 
       } // end of judgment engine else block
+
+      } // end of morning protocol wrapper (if !morningResponse)
 
     } else {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -8101,6 +8378,18 @@ export async function POST(req: NextRequest) {
       ...(isBetaTester ? { isBetaTester: true } : {}),
       ...(reasoningBasis ? { reasoningBasis } : {}),
       ...(decisionMetadata ? { decisionMetadata } : {}),
+      // Soft Bridge: 次ターンで確認応答を受け付けるフラグ
+      ...(isSoftBridgeResponse ? { softBridgePending: true } : {}),
+      // Morning Protocol: プランデータをフロントに返す
+      ...(morningResponse && morningResponse.phase !== "skipped" ? {
+        morningProtocol: {
+          sessionId: morningSession?.sessionId ?? null,
+          phase: morningResponse.phase,
+          plan: morningResponse.plan ?? null,
+          clarifyQuestion: morningResponse.clarifyQuestion ?? null,
+          personalizeHints: morningResponse.personalizeHints ?? [],
+        },
+      } : {}),
       ...(queryContext ? {
         queryContext: {
           domain: queryContext.domain,
@@ -8164,7 +8453,7 @@ export async function POST(req: NextRequest) {
           quality_pass: qualityCheck?.pass ?? null,
         },
       },
-      // Perspective Engine 監査データ（Phase 0 A/B テスト用）
+      // Perspective Engine v3 監査データ
       ...(perspectiveAudit ? {
         perspectiveEngine: {
           gate_decision: perspectiveAudit.gateDecision,
@@ -8174,8 +8463,18 @@ export async function POST(req: NextRequest) {
           search_latency_ms: perspectiveAudit.searchLatencyMs,
           search_queries: perspectiveAudit.searchQueriesSent,
           force_balance_delta: perspectiveAudit.forceBalanceDelta,
+          is_explicit_ask: perspectiveAudit.isExplicitAsk,
+          explicit_ask_blocked: perspectiveAudit.explicitAskBlocked,
           ...(perspectiveLatency ? {
             latency_breakdown: perspectiveLatency,
+          } : {}),
+          ...(perspectiveQualityGate ? {
+            quality_gate: {
+              action: perspectiveQualityGate.action,
+              reason: perspectiveQualityGate.reason,
+              needs_hedge: perspectiveQualityGate.needsHedge,
+              can_clarify: perspectiveQualityGate.canClarify,
+            },
           } : {}),
         },
       } : {}),

@@ -73,13 +73,62 @@ export interface PerspectiveAudit {
   searchLatencyMs: number;
   gateDecision: "fired" | "skipped";
   gateReason: string;
+  /** L0 explicit ask が検出されたか */
+  isExplicitAsk: boolean;
+  /** explicit ask が検出されたが検索不可だったか（直答パス用） */
+  explicitAskBlocked: boolean;
+}
+
+/** Quality Gate の判定結果 */
+export type QualityAction = "use" | "supplement" | "discard" | "abstain";
+
+export interface QualityGateResult {
+  action: QualityAction;
+  filteredFragments: PerspectiveFragment[];
+  reason: string;
+  /** 不十分な場合にAlterに「確信は持てないけど」修飾を付けるか */
+  needsHedge: boolean;
+  /** quality gate が discard/abstain の場合、clarify で1問聞く余地があるか */
+  canClarify: boolean;
 }
 
 // ─── Search Gate ──────────────────────────────────────────────────────────
 
 /**
- * 検索が必要かどうかを判定する。
- * analyzeQueryContext と classifyQuestion の結果を受け取り、searchNeed スコアを算出。
+ * 明示的検索要求を検出する。Phase/Trust の外で動作する。
+ *
+ * Acceptance Criteria:
+ * 1. 「WEBで」「ネットで」「調べて」「検索して」が入ったら通常会話に流さない
+ * 2. 検索可能なら、そのまま検索に入る
+ * 3. 検索不可なら、短く能力直答して終える（「今は検索をまだ有効化していない」）
+ *
+ * @see UAR (Chen, EMNLP 2024) — explicit intent を独立レイヤーに
+ * @see Know Your Limits (TACL 2025) — explicit ask を潰すのは over-abstention
+ */
+export function detectExplicitSearchIntent(message: string): boolean {
+  const explicitPatterns =
+    /調べ(て|たい|よう|る|てみ)|検索(し|して|する)|WEB(で|から|検索)|ウェブ(で|から)|ネット(で|から|検索)|探し(て|たい|てみ)|引っ張って|持って(き|来)|ググ(って|る|れ)|サーチ(し|して)/i;
+  return explicitPatterns.test(message);
+}
+
+/**
+ * 検索が必要かどうかを判定する（再設計版）。
+ *
+ * 7層アーキテクチャ:
+ *   L0: Explicit Intent — Phase/Trust 不問で検索ルートへ
+ *   L1: External Knowledge Need — 実在エンティティ/事実密度/比較
+ *   L2: Freshness / Recency — 時間修飾/市場/制度
+ *   L3: High-Stakes Domain — career/medical/legal/financial
+ *   L4: Uncertainty — パーソナルモデル外/ニッチ情報
+ *   L5: Suppression — 感情/内面完結/挨拶
+ *   L6: Threshold — 合成スコアで SEARCH / SKIP / (gray zone)
+ *
+ * 文献基盤:
+ *   - UAR (Chen, EMNLP 2024): 4軸直交基準（意図/知識/時間/不確実性）
+ *   - Adaptive-RAG (Jeong, NAACL 2024): クエリ複雑度ルーティング
+ *   - Self-RAG (Asai, NeurIPS 2023): 不要な検索は逆効果
+ *   - Mallen (ACL 2023): ニッチ情報は検索必須、一般常識は不要
+ *   - Know Your Limits (TACL 2025): explicit ask を潰すのは over-abstention
  */
 export function evaluateSearchGate(
   message: string,
@@ -88,51 +137,94 @@ export function evaluateSearchGate(
   hdmPhase: number,
   trustLevel: number,
   responseMode: string,
-): { shouldSearch: boolean; searchNeed: number; reason: string } {
-  // Kill switch
-  if (!STARGAZER_FLAGS.perspectiveEngineLive) {
-    return { shouldSearch: false, searchNeed: 0, reason: "kill_switch_off" };
+): {
+  shouldSearch: boolean;
+  searchNeed: number;
+  reason: string;
+  isExplicitAsk: boolean;
+  explicitAskBlocked: boolean;
+} {
+  const isExplicitAsk = detectExplicitSearchIntent(message);
+
+  // ── L0: Explicit Search Intent ──────────────────────────────────
+  // Phase/Trust の前に判定。明示要求は常に honor する。
+  // 検索不可なら「今は検索をまだ有効化していない」と直答（通常会話に流さない）。
+  if (isExplicitAsk) {
+    if (!STARGAZER_FLAGS.explicitSearchLive) {
+      // 検索不可 → 直答パスへ（route.ts で処理）
+      return {
+        shouldSearch: false,
+        searchNeed: 1.0,
+        reason: "explicit_ask_blocked",
+        isExplicitAsk: true,
+        explicitAskBlocked: true,
+      };
+    }
+    // 検索可能 → Phase/Trust をバイパスして検索実行
+    return {
+      shouldSearch: true,
+      searchNeed: 1.0,
+      reason: "explicit_ask",
+      isExplicitAsk: true,
+      explicitAskBlocked: false,
+    };
   }
 
-  // Phase/Trust gate
-  if (hdmPhase < 2) {
-    return { shouldSearch: false, searchNeed: 0, reason: "phase_too_low" };
-  }
-  if (trustLevel < 3) {
-    return { shouldSearch: false, searchNeed: 0, reason: "trust_too_low" };
+  // ── Implicit Search: Kill switch ──────────────────────────────
+  if (!STARGAZER_FLAGS.implicitSearchLive) {
+    return { shouldSearch: false, searchNeed: 0, reason: "implicit_search_off", isExplicitAsk: false, explicitAskBlocked: false };
   }
 
-  // Response mode exclusions
+  // ── L0b: Response mode / greeting exclusions ──────────────────
   if (responseMode === "clarify" || responseMode === "repair") {
-    return { shouldSearch: false, searchNeed: 0, reason: `mode_${responseMode}` };
+    return { shouldSearch: false, searchNeed: 0, reason: `mode_${responseMode}`, isExplicitAsk: false, explicitAskBlocked: false };
   }
 
-  // Greeting / ask_me exclusions
   const greetingPatterns = /^(おはよう|こんにちは|こんばんは|ただいま|やあ|よう|ひさしぶり)/;
   const askMePatterns = /(質問して|聞いて|何か聞いて)/;
   if (greetingPatterns.test(message)) {
-    return { shouldSearch: false, searchNeed: 0, reason: "greeting" };
+    return { shouldSearch: false, searchNeed: 0, reason: "greeting", isExplicitAsk: false, explicitAskBlocked: false };
   }
   if (askMePatterns.test(message)) {
-    return { shouldSearch: false, searchNeed: 0, reason: "ask_me" };
+    return { shouldSearch: false, searchNeed: 0, reason: "ask_me", isExplicitAsk: false, explicitAskBlocked: false };
   }
 
-  // Score components
+  // ── Phase/Trust gate（暗黙判定にのみ適用）──────────────────────
+  // 緩和: >= 2 → >= 1（Phase 1 から暗黙検索を許可）
+  // 緩和: >= 3 → >= 2（Trust 2 から暗黙検索を許可）
+  if (hdmPhase < 1) {
+    return { shouldSearch: false, searchNeed: 0, reason: "phase_too_low", isExplicitAsk: false, explicitAskBlocked: false };
+  }
+  if (trustLevel < 2) {
+    return { shouldSearch: false, searchNeed: 0, reason: "trust_too_low", isExplicitAsk: false, explicitAskBlocked: false };
+  }
+
+  // ── L1: External Knowledge Need ─────────────────────────────────
   let searchNeed = 0;
 
-  // 1. Temporal signals (時間的新しさへの言及)
-  const temporalPatterns = /今|最近|2026|2025|最新|トレンド|今後|将来|動向/;
-  if (temporalPatterns.test(message)) searchNeed += 0.2;
-
-  // 2. Factual density (事実確認の密度)
-  const factualPatterns = /って(本当|ほんと)|って(何|なに)|とは|意味|定義|割合|%|パーセント|統計|データ|研究|科学的/;
-  if (factualPatterns.test(message)) searchNeed += 0.25;
-
-  // 3. Entity mentions (固有名詞)
-  const entityPatterns = /[A-Z][a-z]+|[A-Z]{2,}|HSP|ADHD|MBTI|エニアグラム|ストレングスファインダー/;
+  // 実在エンティティ（固有名詞 + ニッチ度推定）
+  // Mallen (ACL 2023): ニッチ情報は検索必須
+  const entityPatterns = /[A-Z][a-z]+|[A-Z]{2,}|HSP|ADHD|MBTI|エニアグラム|ストレングスファインダー|株式会社|Inc\.|Co\./;
   if (entityPatterns.test(message)) searchNeed += 0.15;
 
-  // 4. Domain external relevance
+  // 事実密度
+  const factualPatterns = /って(本当|ほんと)|って(何|なに)|とは|意味|定義|割合|%|パーセント|統計|データ|研究|科学的|何(円|万|人|年|件|%)/;
+  if (factualPatterns.test(message)) searchNeed += 0.25;
+
+  // 比較・選択
+  const comparisonPatterns = /どっち|どちらが|比較|他に(ある|ない)|おすすめ|選択肢|候補|一覧|ランキング|違い/;
+  if (comparisonPatterns.test(message)) searchNeed += 0.2;
+
+  // ── L2: Freshness / Recency ─────────────────────────────────────
+  // UAR (Chen, EMNLP 2024): Time-Sensitive-aware
+  const temporalPatterns = /今(の|は)|最近|2025|2026|最新|トレンド|動向|今後|将来|ニュース/;
+  if (temporalPatterns.test(message)) searchNeed += 0.25;
+
+  // 市場・業界（本質的に時間依存）
+  const marketPatterns = /市場|相場|年収|給与|給料|求人|転職市場|業界(動向|事情)|採用|募集/;
+  if (marketPatterns.test(message)) searchNeed += 0.2;
+
+  // ── L3: High-Stakes Domain ──────────────────────────────────────
   const highExternalDomains: string[] = [
     "career_fit", "industry_fit", "creation", "lifestyle", "founder_team_fit",
   ];
@@ -143,43 +235,83 @@ export function evaluateSearchGate(
     searchNeed += 0.15;
   }
 
-  // 5. Self-understanding with external value (内省×外部視点)
-  // 「自分の性質」について外部の知見が有効なケース
+  // 医療・法律・金融キーワード
+  const highStakesKeywords = /病気|症状|治療|診断|薬|法律|権利|義務|契約|保険|年金|税金|投資|ローン|慰謝料|損害賠償/;
+  if (highStakesKeywords.test(message)) searchNeed += 0.25;
+
+  // ── L4: Uncertainty ─────────────────────────────────────────────
+  // パーソナルモデル外の質問（外部世界についての質問）
+  const externalWorldPatterns = /会社|企業|サービス|アプリ|ツール|場所|お店|地域|国|制度|法改正|価格|料金|費用/;
+  if (externalWorldPatterns.test(message)) searchNeed += 0.2;
+
+  // 自分×外部視点（「自分の性質」+「普通かどうか」の外部基準）
   const selfExternalPatterns = /って(甘え|普通|おかしい|変|異常)|みんなは|一般的|他の人|タイプの人|こういう(性格|人|タイプ)|な人って|損してる|得してる/;
   if (queryContext.domain === "self" && selfExternalPatterns.test(message)) {
     searchNeed += 0.3;
   }
 
-  // 5b. Decision-seeking questions (判断を求める質問は外部視点が有効)
+  // 判断支援
   const decisionPatterns = /すべき|した(ほう|方)がいい|どうすれば|何から始め|どう(受け止め|対処|対応|向き合)|迷って/;
   if (decisionPatterns.test(message)) {
     searchNeed += 0.15;
   }
 
-  // 5c. How-to / practical questions (実用的な質問)
+  // 実用的（how-to）
   const practicalPatterns = /準備|方法|やり方|手順|コツ|ポイント|始め(たい|よう|る)|何を(準備|用意)/;
   if (practicalPatterns.test(message)) {
     searchNeed += 0.15;
   }
 
-  // 6. Pure emotional — suppress search
+  // ── L5: Suppression ─────────────────────────────────────────────
+  // Self-RAG (Asai, NeurIPS 2023): 不要な検索は逆効果
   const pureEmotionalPatterns = /^(しんどい|つらい|疲れた|泣きたい|もう(無理|だめ|やだ)|きつい|消えたい)/;
   if (pureEmotionalPatterns.test(message)) {
     searchNeed = Math.max(0, searchNeed - 0.4);
   }
 
-  // 7. Personal model coverage (パーソナルモデルで十分な場合)
   const pureInternalPatterns = /^(僕|私|俺|自分)(の|って)(強み|弱み|特徴|性格|いいところ|課題)/;
   if (pureInternalPatterns.test(message) && !selfExternalPatterns.test(message)) {
     searchNeed = Math.max(0, searchNeed - 0.3);
   }
 
-  const shouldSearch = searchNeed >= 0.3;
-  const reason = shouldSearch
-    ? `searchNeed=${searchNeed.toFixed(2)}_domain=${queryContext.domain}`
-    : `searchNeed=${searchNeed.toFixed(2)}_below_threshold`;
+  // ── L6: Threshold ───────────────────────────────────────────────
+  // Adaptive-RAG (Jeong, NAACL 2024): 3段階ルーティング
+  if (searchNeed >= 0.5) {
+    return {
+      shouldSearch: true,
+      searchNeed,
+      reason: `implicit_high_${searchNeed.toFixed(2)}_domain=${queryContext.domain}`,
+      isExplicitAsk: false,
+      explicitAskBlocked: false,
+    };
+  }
+  if (searchNeed >= 0.3) {
+    // グレーゾーン: 高リスクドメインなら検索する
+    if (highExternalDomains.includes(queryContext.domain)) {
+      return {
+        shouldSearch: true,
+        searchNeed,
+        reason: `implicit_gray_domain_boost_${queryContext.domain}`,
+        isExplicitAsk: false,
+        explicitAskBlocked: false,
+      };
+    }
+    return {
+      shouldSearch: false,
+      searchNeed,
+      reason: `implicit_gray_skip_${searchNeed.toFixed(2)}`,
+      isExplicitAsk: false,
+      explicitAskBlocked: false,
+    };
+  }
 
-  return { shouldSearch, searchNeed, reason };
+  return {
+    shouldSearch: false,
+    searchNeed,
+    reason: `below_threshold_${searchNeed.toFixed(2)}`,
+    isExplicitAsk: false,
+    explicitAskBlocked: false,
+  };
 }
 
 // ─── Privacy Gate ─────────────────────────────────────────────────────────
@@ -488,14 +620,104 @@ export function calculateForceBalanceDelta(
   return delta;
 }
 
+// ─── Retrieval Quality Gate ──────────────────────────────────────────────
+
+/**
+ * 検索後の品質ゲート。CRAG 3段階判定 + Sufficient Context 判定。
+ *
+ * 検索結果を受け取り、4つのアクションのいずれかを返す:
+ *   use       — 十分な品質。そのまま Alter のプロンプトに注入
+ *   supplement — 不十分だが使える。hedge 修飾付きで注入
+ *   discard   — 品質が低い。破棄して内部知識で回答
+ *   abstain   — 結果なし。棄権（clarify で1問聞く余地あり）
+ *
+ * 文献基盤:
+ *   - CRAG (Yan, 2024): 3段階（Correct/Ambiguous/Incorrect）
+ *   - Sufficient Context (Google, ICLR 2025): 十分性判定
+ *   - Yoran (ICLR 2024): NLI フィルタ
+ *   - Du & Tian (EMNLP Findings 2025): 注入量の最小化
+ */
+export function retrievalQualityGate(
+  fragments: PerspectiveFragment[],
+  message: string,
+): QualityGateResult {
+  // 結果なし → abstain
+  if (fragments.length === 0) {
+    return {
+      action: "abstain",
+      filteredFragments: [],
+      reason: "no_fragments",
+      needsHedge: false,
+      canClarify: true,
+    };
+  }
+
+  // Step 1: Confidence-based relevance filter
+  // 各 fragment のタイプ別 confidence 閾値は classifySearchResults() で既に適用済み。
+  // ここでは追加の品質チェックを行う。
+
+  // Step 2: ハードネガティブ検出（Cuconasu, SIGIR 2024）
+  // 信頼度が中途半端（0.5-0.6）で stance が neutral ばかりのフラグメントは
+  // 「似ているが実は関連が薄い」可能性が高い
+  const highQuality = fragments.filter(
+    (f) => f.confidence >= 0.7 || f.stanceTowardQuery !== "neutral",
+  );
+  const mediumQuality = fragments.filter(
+    (f) => f.confidence >= 0.5 && f.confidence < 0.7 && f.stanceTowardQuery === "neutral",
+  );
+
+  // 高品質 fragment がゼロ → discard
+  if (highQuality.length === 0 && mediumQuality.length > 0) {
+    return {
+      action: "discard",
+      filteredFragments: [],
+      reason: "only_medium_quality_neutral",
+      needsHedge: false,
+      canClarify: true,
+    };
+  }
+
+  // Step 3: Sufficient Context 判定（Google, ICLR 2025）
+  // 高品質 fragment が1件以上 or 合計2件以上 → sufficient
+  const filteredFragments = highQuality.length > 0 ? highQuality : fragments;
+  const isSufficient =
+    highQuality.length >= 2 ||
+    (highQuality.length >= 1 && filteredFragments.some((f) => f.confidence >= 0.8));
+
+  if (!isSufficient) {
+    // 使えるが不十分 → supplement（hedge 修飾付き）
+    // CEO方針: 検索後に不十分だったら1問だけ確認する余地を残す
+    return {
+      action: "supplement",
+      filteredFragments,
+      reason: "insufficient_context",
+      needsHedge: true,
+      canClarify: true,
+    };
+  }
+
+  // Step 4: Correct（十分な品質）
+  return {
+    action: "use",
+    filteredFragments,
+    reason: "sufficient_quality",
+    needsHedge: false,
+    canClarify: false,
+  };
+}
+
 // ─── Prompt Block Generation ──────────────────────────────────────────────
 
 /**
  * 分類済みフラグメントから、Alter のシステムプロンプトに注入するブロックを生成する。
+ *
+ * @param needsHedge - Quality Gate が supplement と判定した場合 true。
+ *                     Alter に「確信は持てないけど」修飾を指示する。
  */
 export function buildPerspectivePromptBlock(
   fragments: PerspectiveFragment[],
   forceBalanceDelta: Partial<ForceBalance>,
+  needsHedge: boolean = false,
 ): string {
   if (fragments.length === 0) return "";
 
@@ -506,6 +728,10 @@ export function buildPerspectivePromptBlock(
   lines.push("- 自分の言葉で語る：「こういう見方もあるんだけど」「実はね」「面白いのが」");
   lines.push("- 必ず結論を出す。「いろんな意見があるね」で終わることは禁止");
   lines.push("- 外部視点を入れても、あなたの結論はパーソナルモデルから導出すること");
+  if (needsHedge) {
+    lines.push("- ※ 以下の情報は確定的ではない。「確実ではないけど」「俺の知る限りだと」等の修飾を付けて語ること");
+    lines.push("- 情報量が多い場合は「一番面白いのは…」で1点に絞って語ってよい");
+  }
   lines.push("");
 
   for (const f of fragments) {
@@ -544,18 +770,35 @@ export function buildPerspectivePromptBlock(
 // ─── Main Orchestrator ────────────────────────────────────────────────────
 
 /**
- * Perspective Engine のメインエントリポイント。
- * Gate → Privacy Gate → Search → Classify → Personalize → Prompt Block
+ * Perspective Engine のメインエントリポイント（再設計版）。
+ *
+ * パイプライン:
+ *   L0-L6 Gate → Privacy Gate → Search → Classify → Quality Gate → Personalize → Prompt Block
+ *
+ * 変更点（v2 → v3）:
+ *   - L0 explicit ask を Phase/Trust の外に分離
+ *   - Quality Gate（CRAG 3段階 + Sufficient Context）を追加
+ *   - hedge 修飾（不十分な検索結果の場合）
+ *   - explicit_search_live / implicit_search_live フラグ分離
  *
  * fail-open: どこで失敗しても null を返し、従来パスにフォールバックする。
  */
-/** 各ステップのレイテンシ分解（Phase 0 計測用） */
+
+/** 各ステップのレイテンシ分解 */
 export interface PerspectiveLatencyBreakdown {
   queryGenerationMs: number;
   searchMs: number;
   classificationMs: number;
+  qualityGateMs: number;
   promptBuildMs: number;
   totalMs: number;
+}
+
+export interface PerspectiveEngineResult {
+  block: PerspectiveBlock;
+  audit: PerspectiveAudit;
+  qualityGate?: QualityGateResult;
+  latencyBreakdown?: PerspectiveLatencyBreakdown;
 }
 
 export async function runPerspectiveEngine(params: {
@@ -566,10 +809,10 @@ export async function runPerspectiveEngine(params: {
   trustLevel: number;
   responseMode: string;
   userId?: string;
-}): Promise<{ block: PerspectiveBlock; audit: PerspectiveAudit; latencyBreakdown?: PerspectiveLatencyBreakdown } | null> {
+}): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
 
-  // 1. Gate
+  // 1. Gate（L0-L6）
   const gate = evaluateSearchGate(
     params.message,
     params.queryContext,
@@ -578,6 +821,18 @@ export async function runPerspectiveEngine(params: {
     params.trustLevel,
     params.responseMode,
   );
+
+  const baseAudit: PerspectiveAudit = {
+    sourceType: "internal",
+    fragmentsUsed: [],
+    forceBalanceDelta: {},
+    searchQueriesSent: [],
+    searchLatencyMs: 0,
+    gateDecision: "skipped",
+    gateReason: gate.reason,
+    isExplicitAsk: gate.isExplicitAsk,
+    explicitAskBlocked: gate.explicitAskBlocked,
+  };
 
   if (!gate.shouldSearch) {
     return {
@@ -588,15 +843,7 @@ export async function runPerspectiveEngine(params: {
         searchQueriesSent: [],
         searchLatencyMs: 0,
       },
-      audit: {
-        sourceType: "internal",
-        fragmentsUsed: [],
-        forceBalanceDelta: {},
-        searchQueriesSent: [],
-        searchLatencyMs: 0,
-        gateDecision: "skipped",
-        gateReason: gate.reason,
-      },
+      audit: baseAudit,
     };
   }
 
@@ -620,12 +867,13 @@ export async function runPerspectiveEngine(params: {
     const searchMs = Date.now() - searchStart;
 
     if (searchResults.length === 0) {
+      console.info("[perspective-engine] Search returned 0 results, fail-open");
       return null; // fail-open
     }
 
-    // 4. Classification
+    // 4. Epistemic Classification
     const classifyStart = Date.now();
-    const fragments = await classifySearchResults(
+    const classifiedFragments = await classifySearchResults(
       searchResults,
       params.queryContext,
       params.message,
@@ -633,16 +881,56 @@ export async function runPerspectiveEngine(params: {
     );
     const classificationMs = Date.now() - classifyStart;
 
-    if (fragments.length === 0) {
-      return null; // fail-open
+    // 5. Quality Gate（CRAG 3段階 + Sufficient Context）
+    const qualityGateStart = Date.now();
+    const qualityResult = retrievalQualityGate(
+      classifiedFragments,
+      params.message,
+    );
+    const qualityGateMs = Date.now() - qualityGateStart;
+
+    console.info(
+      `[perspective-engine] 🔍 Quality gate: action=${qualityResult.action}, reason=${qualityResult.reason}, ` +
+      `fragments=${classifiedFragments.length}→${qualityResult.filteredFragments.length}, hedge=${qualityResult.needsHedge}`
+    );
+
+    // Quality Gate が discard/abstain → 検索結果を使わない
+    if (qualityResult.action === "discard" || qualityResult.action === "abstain") {
+      const totalMs = Date.now() - startTime;
+      return {
+        block: {
+          fragments: [],
+          promptBlock: "",
+          forceBalanceDelta: {},
+          searchQueriesSent: queries,
+          searchLatencyMs: totalMs,
+        },
+        audit: {
+          sourceType: "internal",
+          fragmentsUsed: [],
+          forceBalanceDelta: {},
+          searchQueriesSent: queries,
+          searchLatencyMs: totalMs,
+          gateDecision: "fired",
+          gateReason: `${gate.reason}_quality_${qualityResult.action}`,
+          isExplicitAsk: gate.isExplicitAsk,
+          explicitAskBlocked: false,
+        },
+        qualityGate: qualityResult,
+      };
     }
 
-    // 5. ForceBalance Delta
+    // 6. ForceBalance Delta（品質ゲート通過後の fragment のみ使用）
     const promptBuildStart = Date.now();
+    const fragments = qualityResult.filteredFragments;
     const forceBalanceDelta = calculateForceBalanceDelta(fragments);
 
-    // 6. Prompt Block
-    const promptBlock = buildPerspectivePromptBlock(fragments, forceBalanceDelta);
+    // 7. Prompt Block（hedge 対応）
+    const promptBlock = buildPerspectivePromptBlock(
+      fragments,
+      forceBalanceDelta,
+      qualityResult.needsHedge,
+    );
     const promptBuildMs = Date.now() - promptBuildStart;
 
     const totalMs = Date.now() - startTime;
@@ -651,15 +939,15 @@ export async function runPerspectiveEngine(params: {
       queryGenerationMs,
       searchMs,
       classificationMs,
+      qualityGateMs,
       promptBuildMs,
       totalMs,
     };
 
-    // Phase 0: レイテンシ分解ログ
     console.info(
       `[perspective-engine] ⏱️  Latency breakdown: ` +
       `queryGen=${queryGenerationMs}ms, search=${searchMs}ms, classify=${classificationMs}ms, ` +
-      `promptBuild=${promptBuildMs}ms, total=${totalMs}ms`
+      `qualityGate=${qualityGateMs}ms, promptBuild=${promptBuildMs}ms, total=${totalMs}ms`
     );
 
     const block: PerspectiveBlock = {
@@ -678,9 +966,11 @@ export async function runPerspectiveEngine(params: {
       searchLatencyMs: totalMs,
       gateDecision: "fired",
       gateReason: gate.reason,
+      isExplicitAsk: gate.isExplicitAsk,
+      explicitAskBlocked: false,
     };
 
-    return { block, audit, latencyBreakdown };
+    return { block, audit, qualityGate: qualityResult, latencyBreakdown };
   } catch (error) {
     console.warn("[PerspectiveEngine] Error in pipeline, falling back:", error);
     return null; // fail-open: 全てのエラーでフォールバック
