@@ -9,6 +9,7 @@ import {
   type PerspectiveBlock,
   type PerspectiveLatencyBreakdown,
   type QualityGateResult,
+  type SearchTask,
   detectExplicitSearchIntent,
 } from "@/lib/stargazer/perspectiveEngine";
 import {
@@ -1362,11 +1363,12 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 派生事実セット: Deep Alter branch内で生成、analytics insertで参照
     let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
-    // Perspective Engine: 外部視点統合（v3: explicit/implicit 分離、Quality Gate 統合）
+    // Perspective Engine: 外部視点統合（v4: Task-Aware + explicit/implicit 分離 + Quality Gate 統合）
     let perspectiveAudit: PerspectiveAudit | null = null;
     let perspectiveBlock: PerspectiveBlock | null = null;
     let perspectiveLatency: PerspectiveLatencyBreakdown | null = null;
     let perspectiveQualityGate: QualityGateResult | null = null;
+    let perspectiveSearchTask: SearchTask | null = null;
     // Morning Protocol: 外部スコープに引き上げ（response objectで参照するため）
     let morningSession: MorningSession | undefined;
     let morningResponse: MorningProtocolResponse | undefined;
@@ -3376,6 +3378,7 @@ export async function POST(req: NextRequest) {
           perspectiveBlock = peResult.block;
           perspectiveLatency = peResult.latencyBreakdown ?? null;
           perspectiveQualityGate = peResult.qualityGate ?? null;
+          perspectiveSearchTask = peResult.searchTask ?? null;
 
           if (peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0) {
             console.info(
@@ -3421,6 +3424,10 @@ export async function POST(req: NextRequest) {
               quality_gate_action: peResult.qualityGate?.action ?? null,
               quality_gate_reason: peResult.qualityGate?.reason ?? null,
               quality_gate_hedge: peResult.qualityGate?.needsHedge ?? null,
+              // v4 新フィールド: SearchTask
+              search_task_type: peResult.searchTask?.type ?? null,
+              search_task_fitness: peResult.searchTask?.searchFitness ?? null,
+              search_task_description: peResult.searchTask?.description ?? null,
             },
           }).then(({ error }) => {
             if (error) console.warn("[perspective-engine] Telemetry save failed:", error.message);
@@ -3479,14 +3486,17 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Perspective Engine v3: プロンプト注入 + 直答パス ──
+      // ── Perspective Engine v4: プロンプト注入 + 直答パス + listing_search honest limitation ──
       // 条件分岐の優先順位:
       //   1. Flag で検索不可 → 「まだ有効化していない」
-      //   2. 検索したが結果なし/品質不足 (discard OR abstain) → 「確実な情報が見つからなかった」
-      //   3. 検索したが不十分 (supplement + canClarify) → hedge 付き注入 + 1問確認OK
-      //   4. 検索成功 → 通常注入
+      //   2. listing_search + explicit ask → honest limitation（周辺情報あれば併用）
+      //   3. 検索したが結果なし/品質不足 (discard OR abstain) → 「確実な情報が見つからなかった」
+      //   4. 検索したが不十分 (supplement + canClarify) → hedge 付き注入 + 1問確認OK
+      //   5. listing_search + supplement（暗黙 or 非explicit） → 周辺情報 hedge 付き注入 + limitation
+      //   6. 検索成功 → 通常注入
       const peIsExplicit = perspectiveAudit?.isExplicitAsk ?? false;
       const peQualityAction = perspectiveQualityGate?.action ?? null;
+      const peTaskType = perspectiveSearchTask?.type ?? null;
 
       if (perspectiveAudit?.explicitAskBlocked) {
         // Case 1: Explicit ask が検出されたが Flag OFF → 通常会話に流さず直答
@@ -3496,8 +3506,31 @@ export async function POST(req: NextRequest) {
 その上で、自分の内部モデルから答えられる範囲で回答してよい。
 禁止: この事実に触れずに通常会話に流すこと。`;
         console.info("[perspective-engine] 🚫 Explicit ask blocked → direct answer path injected");
+      } else if (peIsExplicit && peTaskType === "listing_search") {
+        // Case 2: listing_search + explicit ask → honest limitation
+        // Exa.ai は求人一覧・店舗一覧等のリスト検索ができない。正直に伝える。
+        // ただし周辺情報（業界レポート、年収データ等）があれば併用する。
+        const hasPeripheralInfo = perspectiveBlock != null && perspectiveBlock.promptBlock.length > 0 && perspectiveBlock.fragments.length > 0;
+        if (hasPeripheralInfo && perspectiveBlock) {
+          homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        }
+        homeSystemPrompt += `\n\n[最上位制約 — リスト検索の能力限界への直答]
+ユーザーは具体的な一覧・リスト（求人一覧、お店一覧等）を求めているが、
+今の検索機能では実際のリスト・一覧を直接引っ張ってくることはできない。
+${hasPeripheralInfo
+  ? `ただし関連する周辺情報（業界動向、統計データ等）は見つかったので、上記の外界の視点として活用すること。`
+  : ""}
+必ず回答の中で以下の2点を含めること:
+1. 「実際の${perspectiveSearchTask?.description?.includes("求人") ? "求人サイト" : "一覧サイト"}を直接見に行く機能はまだないんだ」と正直に伝える
+2. 自分のパーソナルモデルから「${perspectiveSearchTask?.description?.includes("求人") ? "たいしさんの判断傾向を考えると、こういう軸で探すといいかも" : "こういう方向で探してみるのがいいかも"}」と助言する
+禁止: リスト検索ができるかのように振る舞うこと。
+禁止: 検索した事実に触れずに通常会話に流すこと。`;
+        console.info(
+          `[perspective-engine] 📋 listing_search honest limitation injected` +
+          (hasPeripheralInfo ? ` (with ${perspectiveBlock!.fragments.length} peripheral fragments)` : " (no peripheral info)")
+        );
       } else if (peIsExplicit && (peQualityAction === "discard" || peQualityAction === "abstain")) {
-        // Case 2: 検索したが結果なし or 品質不足 → 正直に伝える
+        // Case 3: 検索したが結果なし or 品質不足 → 正直に伝える
         // abstain = fragments ゼロ（検索失敗・プロバイダ 503 等）
         // discard = fragments あるが品質不足
         homeSystemPrompt += `\n\n[最上位制約 — 検索結果の不足への直答]
@@ -3508,7 +3541,7 @@ export async function POST(req: NextRequest) {
 禁止: 「検索する機能がない」と嘘をつくこと（検索は試みた）。`;
         console.info(`[perspective-engine] ⚠️ Explicit ask + quality ${peQualityAction} → honest fallback injected`);
       } else if (peIsExplicit && perspectiveQualityGate?.canClarify) {
-        // Case 3: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
+        // Case 4: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
         if (perspectiveBlock && perspectiveBlock.promptBlock) {
           homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
         }
@@ -3517,8 +3550,15 @@ export async function POST(req: NextRequest) {
 自分の知識と取得できた情報を組み合わせて回答した上で、1問だけ確認を挟んでよい。
 例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」`;
         console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(perspectiveBlock?.promptBlock?.length ?? 0)} chars)`);
+      } else if (peTaskType === "listing_search" && perspectiveBlock && perspectiveBlock.promptBlock) {
+        // Case 5: listing_search + 暗黙検索 → 周辺情報 hedge 付き + limitation 注記
+        homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        homeSystemPrompt += `\n\n[注記 — リスト型情報の限界]
+上記の外部情報は周辺的な参考データであり、実際のリスト・一覧ではない。
+具体的なリストが必要な場合は、ユーザーに適切なサイト（求人サイト等）を案内してよい。`;
+        console.info(`[perspective-engine] listing_search implicit → peripheral info with limitation note`);
       } else if (perspectiveBlock && perspectiveBlock.promptBlock) {
-        // Case 4: 通常の検索結果注入
+        // Case 6: 通常の検索結果注入
         homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
         console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
       }
@@ -8500,6 +8540,14 @@ export async function POST(req: NextRequest) {
               reason: perspectiveQualityGate.reason,
               needs_hedge: perspectiveQualityGate.needsHedge,
               can_clarify: perspectiveQualityGate.canClarify,
+            },
+          } : {}),
+          ...(perspectiveSearchTask ? {
+            search_task: {
+              type: perspectiveSearchTask.type,
+              fitness: perspectiveSearchTask.searchFitness,
+              description: perspectiveSearchTask.description,
+              required_info_type: perspectiveSearchTask.requiredInfoType,
             },
           } : {}),
         },

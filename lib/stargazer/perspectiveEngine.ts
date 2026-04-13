@@ -92,6 +92,66 @@ export interface QualityGateResult {
   canClarify: boolean;
 }
 
+// ─── Search Task Types ───────────────────────────────────────────────────
+// GPT feedback (CEO endorsed): 「検索前の思考設計」— 検索エンジンの強さではなく、
+// WHAT を検索すべきかの定義が先。会話文脈からタスクを理解し、タスクに適したクエリと
+// 品質基準を動的に決定する。
+
+/**
+ * 検索タスクの種別。検索「前」に何を探すべきかを定義する。
+ *
+ * 各タイプは Exa.ai での検索適性（searchFitness）が異なる:
+ * - factual_lookup: 高 (0.9) — 事実確認は Web 検索の得意領域
+ * - market_intel: 高 (0.85) — 業界レポート、統計記事は豊富
+ * - entity_research: 高 (0.85) — 企業・サービス情報は充実
+ * - comparison: 中 (0.7) — 比較記事はあるが質にばらつき
+ * - perspective_seek: 中 (0.7) — 意見・視点は見つかるが多様性に限界
+ * - how_to: 中 (0.7) — 手順記事は見つかるが個別事情に弱い
+ * - listing_search: 低 (0.2) — 求人一覧、店舗一覧は Exa.ai の弱点
+ */
+export type SearchTaskType =
+  | "factual_lookup"     // 事実確認（「〜って本当？」「〜とは」「定義」「割合」）
+  | "market_intel"       // 市場・業界情報（年収、求人動向、業界トレンド、相場）
+  | "entity_research"    // 特定エンティティの調査（企業、サービス、制度、人物）
+  | "listing_search"     // 一覧・リスト型検索（求人一覧、お店一覧、ランキング）
+  | "comparison"         // 比較・選択肢（AとBどっち、おすすめ、違い）
+  | "perspective_seek"   // 多視点収集（どう思う、世間では、一般的に、普通は）
+  | "how_to";            // 方法・手順（やり方、コツ、始め方、準備）
+
+export interface SearchTask {
+  type: SearchTaskType;
+  /** タスクの簡潔な記述（LLM 生成） */
+  description: string;
+  /** Exa.ai での検索適性（0.0-1.0）。listing_search は 0.2 */
+  searchFitness: number;
+  /** タスク遂行に必要な情報の種類 */
+  requiredInfoType: "factual" | "statistical" | "experiential" | "listings" | "mixed";
+  /** 生成されたクエリ（タスクに最適化済み） */
+  queries: string[];
+}
+
+/** タスク種別ごとのデフォルト検索適性 */
+const TASK_SEARCH_FITNESS: Record<SearchTaskType, number> = {
+  factual_lookup: 0.9,
+  market_intel: 0.85,
+  entity_research: 0.85,
+  comparison: 0.7,
+  perspective_seek: 0.7,
+  how_to: 0.7,
+  listing_search: 0.2,
+};
+
+/** タスク種別ごとの必要情報タイプ */
+const TASK_REQUIRED_INFO: Record<SearchTaskType, SearchTask["requiredInfoType"]> = {
+  factual_lookup: "factual",
+  market_intel: "statistical",
+  entity_research: "factual",
+  comparison: "mixed",
+  perspective_seek: "experiential",
+  how_to: "mixed",
+  listing_search: "listings",
+};
+
 // ─── Search Gate ──────────────────────────────────────────────────────────
 
 /**
@@ -314,41 +374,66 @@ export function evaluateSearchGate(
   };
 }
 
-// ─── Privacy Gate ─────────────────────────────────────────────────────────
+// ─── Task-Aware Query Builder ────────────────────────────────────────────
 
 /**
- * ユーザーの質問から、パーソナルモデル情報を除去した検索クエリを生成する。
- * 性格タイプ、感情状態、関係性情報は検索エンジンに送信しない。
+ * タスク分類 + クエリ生成の統合関数（v4）。
  *
- * v3 変更: conversationSummary を追加。
- * 短い explicit ask（「WEBから見つけてきて」「調べて」等）の場合、
- * 直前の会話文脈からクエリを生成する。
- * これがないと「WEB検索」「情報検索」のようなメタクエリが生成されてしまう。
+ * v3 の generateSafeSearchQueries を置き換え。
+ * **単一 LLM 呼び出し**でタスク種別の判定とクエリ生成を同時に行う。
+ *
+ * 設計思想（GPT feedback, CEO endorsed）:
+ *   「検索エンジンの強さではなく、検索前の思考設計が足りない」
+ *   → 会話文脈からユーザーが本当に必要としている情報タスクを理解し、
+ *     そのタスクに適したクエリを生成する。
+ *
+ * Privacy Gate を兼ねる:
+ *   - 性格タイプ、感情状態、関係性情報は検索エンジンに送信しない
+ *   - パーソナルモデル情報を除去したクエリのみを生成
+ *
+ * @returns SearchTask（タスク種別 + 適性 + クエリ）。失敗時は null。
  */
-export async function generateSafeSearchQueries(
+export async function classifyTaskAndGenerateQueries(
   message: string,
   queryContext: QueryContext,
   userId?: string,
   conversationSummary?: string,
-): Promise<string[]> {
-  // 短い explicit ask の場合、会話文脈がないとまともなクエリを生成できない
+): Promise<SearchTask | null> {
+  // 短い explicit ask（「WEBから見つけてきて」「調べて」等）の場合、
+  // 直前の会話文脈がないとまともなタスク定義ができない
   const isShortExplicit = message.length < 30 && detectExplicitSearchIntent(message);
   const contextSection = (isShortExplicit && conversationSummary)
     ? `\n## 直前の会話の話題（検索対象の特定に使用）\n${conversationSummary}`
-    : "";
+    : (conversationSummary ? `\n## 会話の文脈（参考）\n${conversationSummary}` : "");
 
   const result = await runAI({
-    taskType: "perspective_privacy_gate",
-    prompt: `ユーザーの質問から、Web検索用のクエリを1〜2個生成してください。
+    taskType: "perspective_task_query",
+    prompt: `ユーザーの質問を分析し、(1) 検索タスクの種別を判定し、(2) そのタスクに最適な検索クエリを生成してください。
 
-## ルール
+## タスク種別の定義
+- factual_lookup: 事実確認（「〜って本当？」「〜とは」「割合は？」「統計」）
+- market_intel: 市場・業界情報（年収、転職市場、業界トレンド、相場、動向）
+- entity_research: 特定エンティティの調査（「〇〇社ってどう？」「△△サービスの評判」「制度の詳細」）
+- listing_search: 一覧・リスト型（「求人を探して」「おすすめのお店」「ランキング」— ※実際のリスト検索は苦手）
+- comparison: 比較・選択肢（「AとBどっち」「違いは？」「おすすめ」）
+- perspective_seek: 多視点収集（「世間ではどう思われてる？」「一般的に」「普通は」）
+- how_to: 方法・手順（「やり方」「コツ」「始め方」「何を準備」）
+
+## 判定のポイント
+- ユーザーの質問だけでなく、会話の文脈全体からタスクを判定すること
+- 「WEBから見つけてきて」のような短い指示の場合、直前の会話の話題がタスクの本質
+- 「転職先を探して」→ listing_search（求人一覧が欲しい）
+- 「転職市場ってどうなの？」→ market_intel（市場動向が欲しい）
+- 「〇〇社の評判は？」→ entity_research（特定企業の情報）
+- 迷ったら、ユーザーが最終的に欲しい成果物で判断する
+
+## クエリ生成ルール
 - 個人的な情報（性格、感情、関係性、名前）は絶対に含めない
-- 一般的な知識・事実・専門家見解を検索できるクエリにする
-- 日本語で検索クエリを生成する
-- 各クエリは簡潔に（10語以内）
-- 「調べて」「検索して」「WEBで」等の検索指示語自体はクエリに含めない
-- ユーザーが「WEBから見つけてきて」のような短い指示の場合、直前の会話の話題を元にクエリを生成すること
+- 「調べて」「検索して」「WEBで」等の検索指示語はクエリに含めない
 - 「WEB検索」「ネット検索」「情報検索」のようなメタクエリは絶対に生成しない
+- 日本語で簡潔に（各クエリ10語以内）
+- listing_search の場合: 直接のリスト検索ではなく、関連する有用情報（業界レポート、評判、給与データ等）を検索するクエリに変換すること
+- 1〜2個のクエリを生成
 
 ## ユーザーの質問
 ${message}
@@ -357,30 +442,84 @@ ${contextSection}
 ${queryContext.domain}
 
 ## 出力形式（JSON）
-{"queries": ["検索クエリ1", "検索クエリ2"]}`,
-    systemPrompt: "あなたはWeb検索クエリを生成する専門家です。個人情報を一切含まない、ユーザーが実際に知りたい内容に即した検索クエリを生成してください。「検索」「WEB」等のメタワードは絶対に含めないこと。",
+{"task_type": "market_intel", "task_description": "IT業界の転職市場動向を調査", "queries": ["IT業界 転職市場 2026", "エンジニア 年収 トレンド"]}`,
+    systemPrompt: "あなたは検索タスク設計の専門家です。ユーザーの本当の情報ニーズを会話文脈から理解し、(1) 最適なタスク種別を判定し、(2) そのタスクに合ったクエリを生成します。個人情報を一切含まないこと。メタワード（「検索」「WEB」等）を含めないこと。",
     requireJson: true,
     temperature: 0.3,
-    maxOutputTokens: 200,
+    maxOutputTokens: 300,
     userId,
-    metadata: { feature: "perspective_engine", step: "privacy_gate" },
+    metadata: { feature: "perspective_engine", step: "task_query_builder" },
   });
 
   const structured = result.structured as Record<string, unknown> | null;
-  if (structured && Array.isArray(structured.queries)) {
-    const queries = (structured.queries as string[]).slice(0, 2);
+  if (structured) {
+    const taskType = (structured.task_type as string) ?? "factual_lookup";
+    const validTypes: SearchTaskType[] = [
+      "factual_lookup", "market_intel", "entity_research",
+      "listing_search", "comparison", "perspective_seek", "how_to",
+    ];
+    const resolvedType: SearchTaskType = validTypes.includes(taskType as SearchTaskType)
+      ? (taskType as SearchTaskType)
+      : "factual_lookup";
+
+    const rawQueries = Array.isArray(structured.queries)
+      ? (structured.queries as string[]).slice(0, 2)
+      : [];
+
     // メタクエリフィルタ: 「WEB検索」「ネット検索」等のゴミクエリを排除
-    const filtered = queries.filter(q =>
+    const filtered = rawQueries.filter(q =>
       !/^(WEB|ウェブ|ネット|インターネット|情報)(検索|サーチ)$/i.test(q.trim())
     );
-    if (filtered.length > 0) return filtered;
-    // フィルタで全部消えた場合、ドメインベースのフォールバック
-    if (queryContext.domain && queryContext.domain !== "self" && queryContext.domain !== "general") {
-      return [queryContext.domain.replace(/_/g, " ") + " 最新情報"];
-    }
+
+    const queries = filtered.length > 0
+      ? filtered
+      : fallbackQueryExtraction(message, queryContext);
+
+    if (queries.length === 0) return null;
+
+    const description = (structured.task_description as string) ?? `${resolvedType} search`;
+
+    console.info(
+      `[perspective-engine] 🎯 Task classified: type=${resolvedType}, ` +
+      `fitness=${TASK_SEARCH_FITNESS[resolvedType]}, ` +
+      `queries=${JSON.stringify(queries)}, desc="${description}"`
+    );
+
+    return {
+      type: resolvedType,
+      description,
+      searchFitness: TASK_SEARCH_FITNESS[resolvedType],
+      requiredInfoType: TASK_REQUIRED_INFO[resolvedType],
+      queries,
+    };
   }
 
-  // Fallback: 質問からキーワードを抽出（検索指示語を除外）
+  // LLM fallback: 構造化出力失敗
+  const queries = fallbackQueryExtraction(message, queryContext);
+  if (queries.length === 0) return null;
+
+  return {
+    type: "factual_lookup",
+    description: "fallback query extraction",
+    searchFitness: 0.5,
+    requiredInfoType: "mixed",
+    queries,
+  };
+}
+
+/**
+ * LLM 失敗時のフォールバック: メッセージからキーワードを抽出してクエリを生成。
+ * @internal
+ */
+function fallbackQueryExtraction(
+  message: string,
+  queryContext: QueryContext,
+): string[] {
+  // ドメインベースフォールバック
+  if (queryContext.domain && queryContext.domain !== "self" && queryContext.domain !== "general") {
+    return [queryContext.domain.replace(/_/g, " ") + " 最新情報"];
+  }
+  // キーワード抽出（検索指示語を除外）
   const keywords = message
     .replace(/[？?！!。、]/g, " ")
     .replace(/(調べ|検索|WEB|ウェブ|ネット|探し|見つけ|持って|引っ張)[てたるるよい来き]/gi, " ")
@@ -388,6 +527,19 @@ ${queryContext.domain}
     .filter((w) => w.length >= 2)
     .slice(0, 3);
   return keywords.length > 0 ? [keywords.join(" ")] : [];
+}
+
+/**
+ * @deprecated v4 で classifyTaskAndGenerateQueries に統合。後方互換のためエイリアスを残す。
+ */
+export async function generateSafeSearchQueries(
+  message: string,
+  queryContext: QueryContext,
+  userId?: string,
+  conversationSummary?: string,
+): Promise<string[]> {
+  const task = await classifyTaskAndGenerateQueries(message, queryContext, userId, conversationSummary);
+  return task?.queries ?? [];
 }
 
 // ─── Search Execution ─────────────────────────────────────────────────────
@@ -661,7 +813,12 @@ export function calculateForceBalanceDelta(
 // ─── Retrieval Quality Gate ──────────────────────────────────────────────
 
 /**
- * 検索後の品質ゲート。CRAG 3段階判定 + Sufficient Context 判定。
+ * 検索後の品質ゲート。CRAG 3段階判定 + Sufficient Context + Task Fitness。
+ *
+ * v4: SearchTask の種別に応じて品質基準を動的に調整する。
+ *   - listing_search (fitness=0.2): 有用な周辺情報があれば supplement、なければ discard
+ *   - factual_lookup (fitness=0.9): 高品質 fragment が必須
+ *   - perspective_seek: 多様な stance が揃っているかも評価
  *
  * 検索結果を受け取り、4つのアクションのいずれかを返す:
  *   use       — 十分な品質。そのまま Alter のプロンプトに注入
@@ -678,9 +835,20 @@ export function calculateForceBalanceDelta(
 export function retrievalQualityGate(
   fragments: PerspectiveFragment[],
   message: string,
+  searchTask?: SearchTask | null,
 ): QualityGateResult {
   // 結果なし → abstain
   if (fragments.length === 0) {
+    // listing_search で結果ゼロ: これは想定内。honest limitation パスへ
+    if (searchTask?.type === "listing_search") {
+      return {
+        action: "discard",
+        filteredFragments: [],
+        reason: "listing_search_no_results",
+        needsHedge: false,
+        canClarify: false, // clarify ではなく honest limitation を route.ts で出す
+      };
+    }
     return {
       action: "abstain",
       filteredFragments: [],
@@ -715,9 +883,73 @@ export function retrievalQualityGate(
     };
   }
 
-  // Step 3: Sufficient Context 判定（Google, ICLR 2025）
-  // 高品質 fragment が1件以上 or 合計2件以上 → sufficient
   const filteredFragments = highQuality.length > 0 ? highQuality : fragments;
+
+  // Step 3: Task Fitness 判定（v4 新設）
+  // タスク種別ごとに品質基準を調整する
+  if (searchTask) {
+    const fitness = searchTask.searchFitness;
+
+    // listing_search (fitness=0.2): 直接のリストは見つからない想定。
+    // 周辺情報（業界レポート、給与データ等）が見つかれば supplement として活用。
+    if (searchTask.type === "listing_search") {
+      if (filteredFragments.length > 0) {
+        return {
+          action: "supplement",
+          filteredFragments,
+          reason: "listing_search_peripheral_info",
+          needsHedge: true,
+          canClarify: false, // clarify ではなく honest limitation を route.ts で出す
+        };
+      }
+      return {
+        action: "discard",
+        filteredFragments: [],
+        reason: "listing_search_no_useful_info",
+        needsHedge: false,
+        canClarify: false,
+      };
+    }
+
+    // perspective_seek: 多様性も評価する
+    if (searchTask.type === "perspective_seek") {
+      const stances = new Set(filteredFragments.map(f => f.stanceTowardQuery));
+      if (stances.size >= 2 && filteredFragments.length >= 2) {
+        return {
+          action: "use",
+          filteredFragments,
+          reason: "perspective_diverse_stances",
+          needsHedge: false,
+          canClarify: false,
+        };
+      }
+      // 視点が偏っている → hedge 付きで supplement
+      if (filteredFragments.length > 0) {
+        return {
+          action: "supplement",
+          filteredFragments,
+          reason: "perspective_limited_diversity",
+          needsHedge: true,
+          canClarify: true,
+        };
+      }
+    }
+
+    // 低 fitness タスクは、一般的な基準を緩和する
+    // fitness < 0.5 なら highQuality 1件でも supplement → use に昇格
+    if (fitness < 0.5 && highQuality.length >= 1) {
+      return {
+        action: "supplement",
+        filteredFragments,
+        reason: `low_fitness_${searchTask.type}_hedged`,
+        needsHedge: true,
+        canClarify: true,
+      };
+    }
+  }
+
+  // Step 4: Sufficient Context 判定（Google, ICLR 2025）
+  // 高品質 fragment が1件以上 or 合計2件以上 → sufficient
   const isSufficient =
     highQuality.length >= 2 ||
     (highQuality.length >= 1 && filteredFragments.some((f) => f.confidence >= 0.8));
@@ -734,7 +966,7 @@ export function retrievalQualityGate(
     };
   }
 
-  // Step 4: Correct（十分な品質）
+  // Step 5: Correct（十分な品質）
   return {
     action: "use",
     filteredFragments,
@@ -836,9 +1068,26 @@ export interface PerspectiveEngineResult {
   block: PerspectiveBlock;
   audit: PerspectiveAudit;
   qualityGate?: QualityGateResult;
+  /** v4: 検索タスク分類結果 */
+  searchTask?: SearchTask | null;
   latencyBreakdown?: PerspectiveLatencyBreakdown;
 }
 
+/**
+ * Perspective Engine のメインエントリポイント（v4: Task-Aware）。
+ *
+ * パイプライン:
+ *   L0-L6 Gate → Task Classification + Query Generation → Search → Classify → Task-Fitness Quality Gate → Personalize → Prompt Block
+ *
+ * v3 → v4 変更:
+ *   - generateSafeSearchQueries → classifyTaskAndGenerateQueries（タスク分類+クエリ生成統合）
+ *   - Quality Gate に SearchTask を渡してタスク種別ごとの品質判定
+ *   - listing_search の honest limitation パス（結果に searchTask を含めて route.ts で判定）
+ *   - searchResults が 0 件でも explicit ask 時は fail-open せず quality gate に通す
+ *     （listing_search 等で意味のある fallback を出すため）
+ *
+ * fail-open: どこで失敗しても null を返し、従来パスにフォールバックする。
+ */
 export async function runPerspectiveEngine(params: {
   message: string;
   queryContext: QueryContext;
@@ -847,7 +1096,7 @@ export async function runPerspectiveEngine(params: {
   trustLevel: number;
   responseMode: string;
   userId?: string;
-  /** 直前の会話の話題要約（短い explicit ask 時に Privacy Gate がクエリ生成に使う） */
+  /** 直前の会話の話題要約（タスク分類 + クエリ生成に使う） */
   conversationSummary?: string;
 }): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
@@ -888,9 +1137,9 @@ export async function runPerspectiveEngine(params: {
   }
 
   try {
-    // 2. Privacy Gate + Query Generation
+    // 2. Task Classification + Query Generation（統合 — 単一 LLM 呼び出し）
     const queryGenStart = Date.now();
-    const queries = await generateSafeSearchQueries(
+    const searchTask = await classifyTaskAndGenerateQueries(
       params.message,
       params.queryContext,
       params.userId,
@@ -898,40 +1147,52 @@ export async function runPerspectiveEngine(params: {
     );
     const queryGenerationMs = Date.now() - queryGenStart;
 
-    if (queries.length === 0) {
+    if (!searchTask || searchTask.queries.length === 0) {
       return null; // fail-open
     }
+
+    const queries = searchTask.queries;
+
+    // v4: listing_search で fitness が極端に低い場合、検索自体をスキップして
+    // honest limitation パスに直行する選択肢もある。
+    // ただし、周辺情報（業界レポート等）は有用なので、検索は実行する。
 
     // 3. Search Execution (並列化: 全クエリを同時実行)
     const searchStart = Date.now();
     const searchResults = await executeSearch(queries);
     const searchMs = Date.now() - searchStart;
 
-    if (searchResults.length === 0) {
+    // v4: explicit ask 時は検索結果 0 でも quality gate に通す
+    // （listing_search 等で honest limitation を返すため）
+    if (searchResults.length === 0 && !gate.isExplicitAsk) {
       console.info("[perspective-engine] Search returned 0 results, fail-open");
-      return null; // fail-open
+      return null; // fail-open（暗黙検索で結果ゼロは静かに落とす）
     }
 
     // 4. Epistemic Classification
     const classifyStart = Date.now();
-    const classifiedFragments = await classifySearchResults(
-      searchResults,
-      params.queryContext,
-      params.message,
-      params.userId,
-    );
+    const classifiedFragments = searchResults.length > 0
+      ? await classifySearchResults(
+          searchResults,
+          params.queryContext,
+          params.message,
+          params.userId,
+        )
+      : [];
     const classificationMs = Date.now() - classifyStart;
 
-    // 5. Quality Gate（CRAG 3段階 + Sufficient Context）
+    // 5. Quality Gate（CRAG 3段階 + Sufficient Context + Task Fitness）
     const qualityGateStart = Date.now();
     const qualityResult = retrievalQualityGate(
       classifiedFragments,
       params.message,
+      searchTask,
     );
     const qualityGateMs = Date.now() - qualityGateStart;
 
     console.info(
       `[perspective-engine] 🔍 Quality gate: action=${qualityResult.action}, reason=${qualityResult.reason}, ` +
+      `task=${searchTask.type}(fitness=${searchTask.searchFitness}), ` +
       `fragments=${classifiedFragments.length}→${qualityResult.filteredFragments.length}, hedge=${qualityResult.needsHedge}`
     );
 
@@ -958,6 +1219,7 @@ export async function runPerspectiveEngine(params: {
           explicitAskBlocked: false,
         },
         qualityGate: qualityResult,
+        searchTask,
       };
     }
 
@@ -1011,7 +1273,7 @@ export async function runPerspectiveEngine(params: {
       explicitAskBlocked: false,
     };
 
-    return { block, audit, qualityGate: qualityResult, latencyBreakdown };
+    return { block, audit, qualityGate: qualityResult, searchTask, latencyBreakdown };
   } catch (error) {
     console.warn("[PerspectiveEngine] Error in pipeline, falling back:", error);
     return null; // fail-open: 全てのエラーでフォールバック
