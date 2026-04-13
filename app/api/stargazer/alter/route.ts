@@ -3351,6 +3351,16 @@ export async function POST(req: NextRequest) {
         if (abTestOverridePhase !== undefined || abTestOverrideTrust !== undefined) {
           console.info(`[perspective-engine] A/B test override: phase=${peHdmPhase}, trust=${peTrustLevel}`);
         }
+        // v3: 短い explicit ask の場合、直前の会話文脈をクエリ生成に渡す
+        // 「WEBから見つけてきて」だけでは Privacy Gate がまともなクエリを生成できないため
+        const peConversationSummary = (() => {
+          const recentUserMsgs = conversationHistory
+            .filter(m => m.role === "user")
+            .slice(-3)
+            .map(m => m.content.slice(0, 100));
+          return recentUserMsgs.length > 0 ? recentUserMsgs.join(" → ") : undefined;
+        })();
+
         const peResult = abTestDisablePerspective ? null : await runPerspectiveEngine({
           message,
           queryContext: queryContext!,
@@ -3359,6 +3369,7 @@ export async function POST(req: NextRequest) {
           trustLevel: peTrustLevel,
           responseMode,
           userId,
+          conversationSummary: peConversationSummary,
         });
         if (peResult) {
           perspectiveAudit = peResult.audit;
@@ -3469,30 +3480,45 @@ export async function POST(req: NextRequest) {
       }
 
       // ── Perspective Engine v3: プロンプト注入 + 直答パス ──
+      // 条件分岐の優先順位:
+      //   1. Flag で検索不可 → 「まだ有効化していない」
+      //   2. 検索したが結果なし/品質不足 (discard OR abstain) → 「確実な情報が見つからなかった」
+      //   3. 検索したが不十分 (supplement + canClarify) → hedge 付き注入 + 1問確認OK
+      //   4. 検索成功 → 通常注入
+      const peIsExplicit = perspectiveAudit?.isExplicitAsk ?? false;
+      const peQualityAction = perspectiveQualityGate?.action ?? null;
+
       if (perspectiveAudit?.explicitAskBlocked) {
-        // P1-3: Explicit ask が検出されたが検索不可 → 通常会話に流さず直答
-        // Acceptance Criteria: 「WEBで」「調べて」等が入ったら通常会話に流さない
+        // Case 1: Explicit ask が検出されたが Flag OFF → 通常会話に流さず直答
         homeSystemPrompt += `\n\n[最上位制約 — 検索能力への直答]
 ユーザーはWeb検索を明示的に要求したが、今この機能はまだ有効化されていない。
 必ず最初の1文で「今はまだ外の情報を引っ張ってくる機能を使えない状態なんだ」と正直に伝えること。
 その上で、自分の内部モデルから答えられる範囲で回答してよい。
 禁止: この事実に触れずに通常会話に流すこと。`;
         console.info("[perspective-engine] 🚫 Explicit ask blocked → direct answer path injected");
-      } else if (perspectiveQualityGate?.action === "discard" && perspectiveAudit?.isExplicitAsk) {
-        // 検索したが品質が低かった場合 → 正直に伝える
-        homeSystemPrompt += `\n\n[検索結果の品質不足]
-ユーザーの検索要求に応じて外部情報を取得したが、信頼できる情報が見つからなかった。
-「調べてみたけど、確実な情報は見つからなかった」と正直に伝えた上で、自分の知識から答えられる範囲で回答すること。`;
-        console.info("[perspective-engine] ⚠️ Explicit ask + quality discard → honest fallback injected");
-      } else if (perspectiveQualityGate?.canClarify && perspectiveAudit?.isExplicitAsk) {
-        // 検索したが不十分 → clarify で1問聞く余地（CEO方針: 検索後に不十分なら1問確認）
+      } else if (peIsExplicit && (peQualityAction === "discard" || peQualityAction === "abstain")) {
+        // Case 2: 検索したが結果なし or 品質不足 → 正直に伝える
+        // abstain = fragments ゼロ（検索失敗・プロバイダ 503 等）
+        // discard = fragments あるが品質不足
+        homeSystemPrompt += `\n\n[最上位制約 — 検索結果の不足への直答]
+ユーザーの検索要求に応じて外部情報を取得しようとしたが、信頼できる情報が見つからなかった。
+必ず最初の1文で「調べてみたんだけど、今回は確実な情報を引っ張ってこれなかった」と正直に伝えること。
+その上で、自分の内部モデル（ユーザーの性格・判断傾向）から答えられる範囲で最善の回答をすること。
+禁止: 検索失敗に触れずに通常会話に流すこと。
+禁止: 「検索する機能がない」と嘘をつくこと（検索は試みた）。`;
+        console.info(`[perspective-engine] ⚠️ Explicit ask + quality ${peQualityAction} → honest fallback injected`);
+      } else if (peIsExplicit && perspectiveQualityGate?.canClarify) {
+        // Case 3: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
         if (perspectiveBlock && perspectiveBlock.promptBlock) {
           homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
-          homeSystemPrompt += `\n- ※ 情報が不十分な場合、1問だけ確認を挟んでよい（例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」）`;
-          console.info(`[perspective-engine] Prompt block injected with clarify option (${perspectiveBlock.promptBlock.length} chars)`);
         }
+        homeSystemPrompt += `\n\n[検索結果が不十分 — 追加確認OK]
+外部情報を取得したが、十分な精度の情報が揃わなかった。
+自分の知識と取得できた情報を組み合わせて回答した上で、1問だけ確認を挟んでよい。
+例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」`;
+        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(perspectiveBlock?.promptBlock?.length ?? 0)} chars)`);
       } else if (perspectiveBlock && perspectiveBlock.promptBlock) {
-        // 通常の検索結果注入
+        // Case 4: 通常の検索結果注入
         homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
         console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
       }

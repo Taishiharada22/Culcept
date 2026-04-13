@@ -319,12 +319,24 @@ export function evaluateSearchGate(
 /**
  * ユーザーの質問から、パーソナルモデル情報を除去した検索クエリを生成する。
  * 性格タイプ、感情状態、関係性情報は検索エンジンに送信しない。
+ *
+ * v3 変更: conversationSummary を追加。
+ * 短い explicit ask（「WEBから見つけてきて」「調べて」等）の場合、
+ * 直前の会話文脈からクエリを生成する。
+ * これがないと「WEB検索」「情報検索」のようなメタクエリが生成されてしまう。
  */
 export async function generateSafeSearchQueries(
   message: string,
   queryContext: QueryContext,
   userId?: string,
+  conversationSummary?: string,
 ): Promise<string[]> {
+  // 短い explicit ask の場合、会話文脈がないとまともなクエリを生成できない
+  const isShortExplicit = message.length < 30 && detectExplicitSearchIntent(message);
+  const contextSection = (isShortExplicit && conversationSummary)
+    ? `\n## 直前の会話の話題（検索対象の特定に使用）\n${conversationSummary}`
+    : "";
+
   const result = await runAI({
     taskType: "perspective_privacy_gate",
     prompt: `ユーザーの質問から、Web検索用のクエリを1〜2個生成してください。
@@ -334,16 +346,19 @@ export async function generateSafeSearchQueries(
 - 一般的な知識・事実・専門家見解を検索できるクエリにする
 - 日本語で検索クエリを生成する
 - 各クエリは簡潔に（10語以内）
+- 「調べて」「検索して」「WEBで」等の検索指示語自体はクエリに含めない
+- ユーザーが「WEBから見つけてきて」のような短い指示の場合、直前の会話の話題を元にクエリを生成すること
+- 「WEB検索」「ネット検索」「情報検索」のようなメタクエリは絶対に生成しない
 
 ## ユーザーの質問
 ${message}
-
+${contextSection}
 ## 検出されたドメイン
 ${queryContext.domain}
 
 ## 出力形式（JSON）
 {"queries": ["検索クエリ1", "検索クエリ2"]}`,
-    systemPrompt: "あなたはWeb検索クエリを生成する専門家です。個人情報を一切含まない、一般的な知識検索クエリを生成してください。",
+    systemPrompt: "あなたはWeb検索クエリを生成する専門家です。個人情報を一切含まない、ユーザーが実際に知りたい内容に即した検索クエリを生成してください。「検索」「WEB」等のメタワードは絶対に含めないこと。",
     requireJson: true,
     temperature: 0.3,
     maxOutputTokens: 200,
@@ -353,12 +368,22 @@ ${queryContext.domain}
 
   const structured = result.structured as Record<string, unknown> | null;
   if (structured && Array.isArray(structured.queries)) {
-    return (structured.queries as string[]).slice(0, 2);
+    const queries = (structured.queries as string[]).slice(0, 2);
+    // メタクエリフィルタ: 「WEB検索」「ネット検索」等のゴミクエリを排除
+    const filtered = queries.filter(q =>
+      !/^(WEB|ウェブ|ネット|インターネット|情報)(検索|サーチ)$/i.test(q.trim())
+    );
+    if (filtered.length > 0) return filtered;
+    // フィルタで全部消えた場合、ドメインベースのフォールバック
+    if (queryContext.domain && queryContext.domain !== "self" && queryContext.domain !== "general") {
+      return [queryContext.domain.replace(/_/g, " ") + " 最新情報"];
+    }
   }
 
-  // Fallback: 質問からキーワードを抽出
+  // Fallback: 質問からキーワードを抽出（検索指示語を除外）
   const keywords = message
     .replace(/[？?！!。、]/g, " ")
+    .replace(/(調べ|検索|WEB|ウェブ|ネット|探し|見つけ|持って|引っ張)[てたるるよい来き]/gi, " ")
     .split(/\s+/)
     .filter((w) => w.length >= 2)
     .slice(0, 3);
@@ -481,6 +506,7 @@ ${resultsText}
 
 ## 分類ルール
 各結果について以下を判定:
+- relevance_to_question: 0.0-1.0（**最重要**。この結果がユーザーの質問に直接関連するか。質問と全く関係ない情報は 0.0。例: ユーザーが求人を聞いているのに検索エンジンの使い方が返ってきた場合は 0.0）
 - epistemic_type: empirical_fact / statistical_claim / expert_analysis / normative_claim / opinion / personal_experience / anecdote
 - confidence: 0.0-1.0（情報の信頼性）
 - source_authority: academic / government / industry / media / personal
@@ -494,9 +520,13 @@ ${resultsText}
   - growth: 成長に関わるか
 - key_insight: この結果から得られる最も重要な洞察（1文）
 
+## ハードネガティブに注意
+検索結果が「事実として正確」でも「ユーザーの質問と無関係」なら relevance_to_question を低くすること。
+例: 楽天ウェブ検索のポイント情報は事実だが、求人の質問には無関連 → relevance=0.0
+
 ## 出力形式（JSON）
-{"fragments": [{"index": 1, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "..."}]}`,
-    systemPrompt: "あなたは情報の認識論的分類の専門家です。各情報片が事実か意見か体験談かを正確に判定し、判断に関わる力への関連度を評価してください。",
+{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "..."}]}`,
+    systemPrompt: "あなたは情報の認識論的分類と関連性判定の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。質問と無関連な情報は relevance_to_question=0.0 としてください。",
     requireJson: true,
     temperature: 0.2,
     maxOutputTokens: 1000,
@@ -512,6 +542,14 @@ ${resultsText}
       const idx = (f.index as number) - 1;
       const source = searchResults[idx];
       if (!source) continue;
+
+      // v3: ハードネガティブ除去（Cuconasu, SIGIR 2024）
+      // 質問との関連性が低い結果は、confidence が高くても除外
+      const relevance = (f.relevance_to_question as number) ?? 1.0; // 未指定時は互換のため 1.0
+      if (relevance < 0.3) {
+        console.info(`[perspective-engine] 🗑️ Hard negative filtered: [${(f.index as number)}] relevance=${relevance.toFixed(2)}`);
+        continue;
+      }
 
       const epistemicType = f.epistemic_type as EpistemicType;
       const confidence = f.confidence as number;
@@ -809,6 +847,8 @@ export async function runPerspectiveEngine(params: {
   trustLevel: number;
   responseMode: string;
   userId?: string;
+  /** 直前の会話の話題要約（短い explicit ask 時に Privacy Gate がクエリ生成に使う） */
+  conversationSummary?: string;
 }): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
 
@@ -854,6 +894,7 @@ export async function runPerspectiveEngine(params: {
       params.message,
       params.queryContext,
       params.userId,
+      params.conversationSummary,
     );
     const queryGenerationMs = Date.now() - queryGenStart;
 
