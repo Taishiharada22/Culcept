@@ -45,10 +45,10 @@ import PostOnboardingFeedback, { hasSubmittedFeedback } from "../_components/Pos
 import FeedbackToast from "../_components/FeedbackToast";
 import { NoObservationsYet } from "../_components/EmptyStates";
 import { ObserveSkeleton } from "../_components/SkeletonLoaders";
-import AccuracyDecayWarning from "../_components/AccuracyDecayWarning";
+// AccuracyDecayWarning 廃止（CEO指示 2026-04-14）— Alter→Stargazer パイプラインに移行
 import DeepProbeUnlockCard from "../_components/DeepProbeUnlockCard";
 import ServerDailyObservationTab from "./ServerDailyObservationTab";
-import DailyInsightCard, { type DailyInsightData } from "../_components/DailyInsightCard";
+// DailyInsightCard 廃止（CEO指示 #7 2026-04-11）
 import { useHaptics } from "@/hooks/useHaptics";
 import { useStargazerSounds } from "@/hooks/useStargazerSounds";
 import { updateEngagementField } from "@/lib/stargazer/engagementScore";
@@ -733,15 +733,20 @@ export default function ObserveTab({
       // Notify parent that first observation was saved (for cross-feature reco)
       onFirstObservationSaved?.();
 
-      // Persist completion flag
+      // Persist completion flag & clean up intermediate data
       try {
         localStorage.setItem(
           SG_ONBOARDING_DONE_KEY,
           JSON.stringify({ completedAt: new Date().toISOString(), resolvedType: result.reactionType })
         );
-        // Clean up unsaved result
+        // Clean up unsaved result and orchestrator completed state
         localStorage.removeItem(SG_ONBOARDING_RESULT_KEY);
+        localStorage.removeItem("sg_orchestrator_completed_v1");
+        localStorage.removeItem("sg_18q_intermediate_v1");
       } catch { /* localStorage quota — non-critical */ }
+
+      // サーバーの onboarding-progress も削除（completed 回答データが不要になる）
+      void fetch("/api/stargazer/onboarding-progress", { method: "DELETE" }).catch(() => { /* non-critical */ });
 
       // Refresh parent data after short delay for visual feedback
       setTimeout(() => {
@@ -896,6 +901,25 @@ export default function ObserveTab({
                     初回の感想を聞かせてください →
                   </motion.button>
                 )}
+                {/* 観測トップへ進むボタン */}
+                <motion.button
+                  onClick={() => {
+                    onDataRefresh?.();
+                    // Force re-mount by reloading with clean state
+                    window.location.reload();
+                  }}
+                  className="mt-2 w-full py-3 rounded-xl font-display text-sm font-semibold"
+                  style={{
+                    background: "linear-gradient(135deg, rgba(100,70,220,0.15), rgba(80,120,220,0.10))",
+                    border: "1px solid rgba(100,70,220,0.25)",
+                    color: "rgba(20,25,45,0.9)",
+                  }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: hasSubmittedFeedback() ? 0.8 : 2.5 }}
+                >
+                  観測を始める →
+                </motion.button>
               </motion.div>
             )}
             {saveState === "success" && showFeedback && (
@@ -1028,24 +1052,11 @@ export default function ObserveTab({
       />
     );
   }
-  const decayPercentLost = Math.min(20, Math.max(0, (daysSinceLastObs - 2) * 4));
-  const decayCurrentLevel = Math.max(10, 80 - decayPercentLost);
 
   // ── Intro Phase ──
   if (phase === "intro") {
     return (
       <div className="space-y-5">
-        {daysSinceLastObs >= 3 && totalObservations > 0 && (
-          <AccuracyDecayWarning
-            daysSinceLastObservation={daysSinceLastObs}
-            percentageLost={decayPercentLost}
-            currentLevel={decayCurrentLevel}
-            onResumeObservation={() => {
-              // scroll to scenario start
-              scenarioCardRef.current?.scrollIntoView({ behavior: "smooth" });
-            }}
-          />
-        )}
         <motion.div
           className="card-section flex items-start gap-4"
           initial={{ opacity: 0, y: 10 }}
@@ -1242,65 +1253,7 @@ export default function ObserveTab({
           </motion.div>
         </div>
 
-        {/* ── Daily Insight Card — 今日の気づき ── */}
-        {hasData && totalObservations >= 3 && (() => {
-          // Generate a daily insight based on available data
-          const insightPool: DailyInsightData[] = [
-            {
-              text: "あなたの判断パターンは、エネルギーが高い時と低い時で違う傾向があります。今日はどちらでしょう？",
-              category: "discovery",
-              surpriseScore: 0.6,
-              relatedFeature: "/stargazer",
-            },
-            {
-              text: "前回の観測では、普段と少し違う回答が見られました。状況の変化が影響しているかもしれません。",
-              category: "warning",
-              surpriseScore: 0.4,
-            },
-            {
-              text: `${totalObservations}回の観測で、あなたの核となる傾向が安定してきています。今日の観測でさらに精度が上がります。`,
-              category: "affirmation",
-              surpriseScore: 0.3,
-            },
-            {
-              text: "ある場面では慎重に、別の場面では大胆に。あなたの中の矛盾が、実は適応力の証かもしれません。",
-              category: "contradiction",
-              surpriseScore: 0.7,
-              relatedFeature: "/stargazer",
-            },
-          ];
-          // Pick one based on the day
-          const dayIdx = new Date().getDate() % insightPool.length;
-          const insight = insightPool[dayIdx];
-
-          // Calculate streak from localStorage
-          let streak = 0;
-          try {
-            const today = new Date();
-            for (let i = 0; i < 30; i++) {
-              const d = new Date(today);
-              d.setDate(d.getDate() - i);
-              const key = `culcept_sg_observe_v1_${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-              if (typeof window !== "undefined" && localStorage.getItem(key)) {
-                streak++;
-              } else if (i > 0) break;
-            }
-          } catch { /* ignore */ }
-
-          return (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              <DailyInsightCard
-                insight={insight}
-                streak={streak}
-                todayPattern={whisper?.text}
-              />
-            </motion.div>
-          );
-        })()}
+        {/* DailyInsightCard 廃止 — Alter代替（CEO指示 #7 2026-04-11） */}
       </div>
     );
   }

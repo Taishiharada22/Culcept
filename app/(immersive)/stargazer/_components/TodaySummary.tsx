@@ -459,21 +459,7 @@ export default function TodaySummary({
       });
     }
 
-    // Decay warning as a status item
-    if (daysSince >= 3 && totalObservations > 0) {
-      const decayPercent = Math.min(20, (daysSince - 2) * 4);
-      items.push({
-        id: "decay-warning",
-        priority: "action",
-        order: 2.5,
-        icon: "\u26A0\uFE0F", // warning
-        label: `\u7CBE\u5EA6-${decayPercent}%`,
-        indicator: "red",
-        render: () => (
-          <DecayWarningCard days={daysSince} decayPercent={decayPercent} />
-        ),
-      });
-    }
+    // DecayWarningCard 廃止 — Alter代替（CEO指示 #7 2026-04-11）
 
     // Sort by priority then order
     items.sort((a, b) => {

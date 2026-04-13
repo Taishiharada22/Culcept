@@ -419,7 +419,7 @@ export default function OnboardingFlowV5({ onComplete, ensureSession, initialAns
   );
 
   const advanceToNext = useCallback(
-    (currentAnswers: OnboardingAnswer[]) => {
+    async (currentAnswers: OnboardingAnswer[]) => {
       const nextIndex = currentIndex + 1;
 
       if (nextIndex >= QUESTIONS.length) {
@@ -449,8 +449,29 @@ export default function OnboardingFlowV5({ onComplete, ensureSession, initialAns
           finalScores[key] = finalScores[key]! / counts[key]!;
         }
 
-        // 完了時にサーバーの進捗を削除（クリーンアップ）
-        fetch("/api/stargazer/onboarding-progress", { method: "DELETE" }).catch(() => { });
+        // 完了時にサーバーに完了状態を保存（await + 1回リトライ）
+        // 保存完了を待ってから onComplete を呼ぶ（サーバーに確実にデータを残す）
+        // 最終的に失敗しても onComplete は呼ぶ（localStorage にバックアップがあるため）
+        const savePayload = {
+          answers: currentAnswers,
+          nextIndex: currentAnswers.length,
+          completed: true,
+          clusterResult,
+          axisScores: finalScores,
+        };
+        const doPost = () => fetch("/api/stargazer/onboarding-progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(savePayload),
+        });
+        try {
+          const res = await doPost();
+          if (!res.ok) throw new Error(`status ${res.status}`);
+        } catch {
+          // 1回リトライ
+          try { await doPost(); } catch { /* 最終的に失敗 — localStorage フォールバック */ }
+        }
+        // サーバー保存の試行完了後に遷移
         onComplete(currentAnswers, clusterResult, finalScores);
         return;
       }

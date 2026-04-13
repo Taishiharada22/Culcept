@@ -9,7 +9,7 @@
  *   PROOF 2: RC5 — 会話後半のフラストレーション累積が level 3+ と判定され repair 強制
  *   PROOF 3: RC2 — buildSkeletonPromptBlock が1文目拘束・曖昧前置き禁止を含む
  *   PROOF 4: RC4 — selectAlterRole が thinSlice 無しで動作する
- *   PROOF 5: RC3 — buildTaggedFacts が行動予測形式のfact を生成する
+ *   PROOF 5: RC3→RC4 — buildTaggedFacts が一人称自己知識形式のfact を生成する
  *   PROOF 6: Metrics — 実会話の3指標が「悪い」と正しく計測される
  */
 
@@ -319,9 +319,8 @@ describe("PROOF 4: RC4 — thinSlice 非依存で常時有効", () => {
 // PROOF 5: RC3 — Personality Facts → Predictive Claims
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("PROOF 5: RC3 — Personality Facts が行動予測形式", () => {
-  // AlterPersonality 型に準拠��た完全なフィクスチャ
-  // axisScores は TraitAxisKey、archetypeCode は ArchetypeCode を使用
+describe("PROOF 5: RC3→RC4 — Personality Facts が一人称自己知識形式", () => {
+  // AlterPersonality 型に準拠したフィクスチャ
   const personality = {
     archetypeCode: "AVIO" as const,
     shadowCode: "NCEX" as const,
@@ -354,83 +353,95 @@ describe("PROOF 5: RC3 — Personality Facts が行動予測形式", () => {
     innerContradiction: "独立したいが、認められたい",
   } as unknown as AlterPersonality;
 
-  it("coreFear が「回避傾向のトリガー」形式（旧: 核心的な恐れ）", () => {
+  // RC4: ファクトは一人称の自己知識（「僕は〜」）。操作指示は混ぜない。
+  // 旧RC3の三人称ラベル（「判断の歪みトリガー:」「この人が見落としやすい点:」等）が消えていること。
+
+  it("coreFear → 一人称の恐れ（旧: 回避傾向のトリガー + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const fearFact = facts.find(f => f.text.includes("回避傾向のトリガー"));
+    const fearFact = facts.find(f => f.text.includes("怖くて") && f.text.includes("拒否"));
     expect(fearFact).toBeDefined();
-    expect(fearFact!.text).toContain("メリットを具体化しないと拒否されやすい");
-    // 旧形式「核心的な恐れ」が存在しないことを確認
-    const oldFormat = facts.find(f => f.text.includes("核心的な恐れ"));
+    expect(fearFact!.text).toContain("凡庸であること");
+    // 旧形式の三人称ラベルが消えていること
+    const oldFormat = facts.find(f => f.text.includes("回避傾向のトリガー"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("coreDesire が「持続条件」形式（旧: 核心的な欲求）", () => {
+  it("coreDesire → 一人称の持続条件（旧: 持続条件 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const desireFact = facts.find(f => f.text.includes("持続条件"));
+    const desireFact = facts.find(f => f.text.includes("満たされるとき") && f.text.includes("続けたい"));
     expect(desireFact).toBeDefined();
-    expect(desireFact!.text).toContain("提案時にこの要素への接続を示す");
-    const oldFormat = facts.find(f => f.text.includes("核心的な欲求"));
+    expect(desireFact!.text).toContain("唯一無二の存在であること");
+    const oldFormat = facts.find(f => f.text.includes("持続条件:"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("strengths が「得意な場面」形式（旧: この人の強み）", () => {
+  it("strengths → 一人称の得意領域（旧: 得意な場面 + 優先提示指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const strengthFact = facts.find(f => f.text.includes("得意な場面"));
+    const strengthFact = facts.find(f => f.text.includes("得意領域"));
     expect(strengthFact).toBeDefined();
-    expect(strengthFact!.text).toContain("優先提示する");
-    const oldFormat = facts.find(f => f.text.includes("この人の強み"));
-    expect(oldFormat).toBeUndefined();
+    expect(strengthFact!.text).toContain("ゼロからの構想力");
+    // 旧形式の操作指示が消えていること
+    expect(strengthFact!.text).not.toContain("優先提示する");
   });
 
-  it("coreWoundShort が「判断の歪みトリガー」形式（旧: 根っこにある恐れ）", () => {
+  it("coreWoundShort → 一人称の防御傾向（旧: 判断の歪みトリガー + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const woundFact = facts.find(f => f.text.includes("判断の歪みトリガー"));
+    const woundFact = facts.find(f => f.text.includes("防御的になりやすい"));
     expect(woundFact).toBeDefined();
-    expect(woundFact!.text).toContain("直接指摘せず");
-    const oldFormat = facts.find(f => f.text.includes("根っこにある恐れ"));
+    expect(woundFact!.text).toContain("自分の価値が認められないこと");
+    // 旧形式の操作指示が消えていること
+    expect(woundFact!.text).not.toContain("直接指摘せず");
+    const oldFormat = facts.find(f => f.text.includes("判断の歪みトリガー"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("blindSpot が「見落としやすい点」形式（旧: 盲点）", () => {
+  it("blindSpot → 一人称の気づきにくさ（旧: この人が見落としやすい点 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const blindFact = facts.find(f => f.text.includes("見落としやすい点"));
+    const blindFact = facts.find(f => f.text.includes("気づきにくい"));
     expect(blindFact).toBeDefined();
-    expect(blindFact!.text).toContain("選択肢に自然に含める");
+    expect(blindFact!.text).toContain("僕は");
+    // 旧形式の三人称ラベル・操作指示が消えていること
+    expect(blindFact!.text).not.toContain("この人が見落としやすい点");
+    expect(blindFact!.text).not.toContain("選択肢に自然に含める");
   });
 
-  it("safeState が「安定時の行動予測」形式（旧: 安心している時のパターン）", () => {
+  it("safeState → 一人称の挑戦条件（旧: 安定時の行動予測 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const safeFact = facts.find(f => f.text.includes("安定時の行動予測"));
+    const safeFact = facts.find(f => f.text.includes("挑戦的な選択に乗りやすい"));
     expect(safeFact).toBeDefined();
-    expect(safeFact!.text).toContain("踏み込んだ提案が通りやすい");
-    const oldFormat = facts.find(f => f.text.includes("安心している時のパターン"));
+    expect(safeFact!.text).toContain("自由に創造できている時");
+    const oldFormat = facts.find(f => f.text.includes("安定時の行動予測"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("stressState が「ストレス時の行動予測」形式（旧: ストレス下のパターン）", () => {
+  it("stressState → 一人称のストレス反応（旧: ストレス時の行動予測 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const stressFact = facts.find(f => f.text.includes("ストレス時の行動予測"));
+    const stressFact = facts.find(f => f.text.includes("ストレス状態だと") && f.text.includes("シンプルな選択肢"));
     expect(stressFact).toBeDefined();
-    expect(stressFact!.text).toContain("粒度を下げ");
-    const oldFormat = facts.find(f => f.text.includes("ストレス下のパターン"));
+    expect(stressFact!.text).toContain("引きこもりがち");
+    const oldFormat = facts.find(f => f.text.includes("ストレス時の行動予測"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("innerContradiction が「判断の揺れの構造」形式（旧: 内面の矛盾）", () => {
+  it("innerContradiction → 一人称の揺れ（旧: 判断の揺れの構造 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const contradictionFact = facts.find(f => f.text.includes("判断の揺れの構造"));
+    const contradictionFact = facts.find(f => f.text.includes("相反する想い") && f.text.includes("揺れやすい"));
     expect(contradictionFact).toBeDefined();
-    expect(contradictionFact!.text).toContain("両方を満たす選択肢を探す");
-    const oldFormat = facts.find(f => f.text.includes("内面の矛盾"));
+    expect(contradictionFact!.text).toContain("独立したいが、認められたい");
+    // 旧形式の操作指示が消えていること
+    expect(contradictionFact!.text).not.toContain("両方を満たす選択肢を探す");
+    const oldFormat = facts.find(f => f.text.includes("判断の揺れの構造"));
     expect(oldFormat).toBeUndefined();
   });
 
-  it("growthKey が「判断を前に進める鍵」形式（旧: 成長の鍵）", () => {
+  it("growthKey → 一人称の動力源（旧: 判断を前に進める鍵 + 操作指示）", () => {
     const facts = buildTaggedFacts(personality, null, []);
-    const growthFact = facts.find(f => f.text.includes("判断を前に進める鍵"));
+    const growthFact = facts.find(f => f.text.includes("動きやすくなる"));
     expect(growthFact).toBeDefined();
-    expect(growthFact!.text).toContain("実行されやすい");
-    const oldFormat = facts.find(f => f.text.includes("成長の鍵"));
+    expect(growthFact!.text).toContain("小さな成功体験の積み重ね");
+    // 旧形式の操作指示が消えていること
+    expect(growthFact!.text).not.toContain("実行されやすい");
+    const oldFormat = facts.find(f => f.text.includes("判断を前に進める鍵"));
     expect(oldFormat).toBeUndefined();
   });
 });

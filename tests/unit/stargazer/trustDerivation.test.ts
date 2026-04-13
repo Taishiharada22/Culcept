@@ -240,3 +240,37 @@ describe("deriveTrustLevel — 上昇+下降の競合", () => {
     expect(result.effectiveTrust).toBe(1); // 2 + 1 - 2 = 1
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase floor 再適用（シグナル調整後の T0 落ち防止）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("deriveTrustLevel — Phase floor 再適用", () => {
+  it("Phase 2+ でシグナル調整後に T0 に落ちた場合、T1 に復帰する", () => {
+    // sessionsCompleted=2 → baseTrust=0, Phase floor → baseTrust=1
+    // rupture 1回 → adjusted = 1 - 1 = 0 → phase floor 再適用 → 1
+    const result = deriveTrustLevel(0.1, 2, undefined, signals({
+      consecutiveRuptureCount: 1,
+    }), 2 as TrustLevel);
+    expect(result.baseTrust).toBe(1); // Phase floor applied at Step 1b
+    expect(result.signalAdjustedTrust).toBe(1); // Re-applied after signal adjustment
+    expect(result.adjustmentReason).toContain("phase_floor_reapplied");
+  });
+
+  it("Phase 2+ + rupture 3連続でも T1 を下回らない", () => {
+    // baseTrust=1 (phase floor), rupture 3x → -2 → clamped 0 → floor re-applied → 1
+    const result = deriveTrustLevel(0.1, 2, undefined, signals({
+      consecutiveRuptureCount: 3,
+    }), 2 as TrustLevel);
+    expect(result.signalAdjustedTrust).toBe(1);
+    expect(result.adjustmentReason).toContain("phase_floor_reapplied");
+  });
+
+  it("Phase 0-1 ではシグナル調整後の floor 再適用なし", () => {
+    // Phase 1 → phaseTrustCap=1, baseTrust=1 (session=3), rupture → 0
+    const result = deriveTrustLevel(0.1, 3, undefined, signals({
+      consecutiveRuptureCount: 1,
+    }), 1 as TrustLevel);
+    expect(result.signalAdjustedTrust).toBe(0); // Phase 1 は floor 再適用なし
+  });
+});

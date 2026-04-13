@@ -64,20 +64,20 @@ const STORY_CARDS: StoryCard[] = [
   // Part 2: 理解する — Alter
   {
     id: "alter",
-    title: "4つの観測が重なるとき、Alterが目を覚ます。",
-    body: "あなたが言葉にする前の気持ちまで、先にわかってしまう存在。\nもうひとりのあなた。",
+    title: "Alterはあなたの最大の理解者であり、あなた自身。",
+    body: "話せば話すほど、あなたの思考や性格、癖を学び、あなた自身になっていく\nAlterは常にあなたのそばにいる。",
     accent: "#8B5CF6",
   },
   // Part 3: 現実に還元する
   {
     id: "daily",
     title: "Alterがあなたの毎日を変える。",
-    body: "カレンダーが最適なコーデを組む。\nRendezvousが、あなたに合う人を見つける。\n友達も、恋人も、ビジネスも、人生のパートナーも。",
+    body: "あなた専用のコーディネーターが毎日の予定、会う人、環境に合わせたベストコーデを組む。\nランデブーが、あなたに合う人を見つける。\n友達も、恋人も、ビジネスも、人生のパートナーも。",
     accent: "#F59E0B",
   },
   {
     id: "closing",
-    title: "理解は、現実になる。",
+    title: "Alterは常にあなたの友であり、専用のアドバイザーであり、あなた自身になる。",
     body: "",
     accent: "#121830",
   },
@@ -170,13 +170,12 @@ export default function PostResultsStory({ onSave, isAnonymous, onLogin }: Props
         {STORY_CARDS.map((_, i) => (
           <div
             key={i}
-            className={`h-1 rounded-full transition-all duration-300 ${
-              i === currentCardIndex
-                ? "w-6 bg-[#b09050]"
-                : i < currentCardIndex
-                  ? "w-1.5 bg-[rgba(18,24,44,0.15)]"
-                  : "w-1.5 bg-[rgba(18,24,44,0.08)]"
-            }`}
+            className={`h-1 rounded-full transition-all duration-300 ${i === currentCardIndex
+              ? "w-6 bg-[#b09050]"
+              : i < currentCardIndex
+                ? "w-1.5 bg-[rgba(18,24,44,0.15)]"
+                : "w-1.5 bg-[rgba(18,24,44,0.08)]"
+              }`}
           />
         ))}
       </div>

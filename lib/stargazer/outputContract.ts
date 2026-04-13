@@ -285,22 +285,22 @@ function isRepairable(fieldName: string, domain: string): boolean {
 /** Templates for repairing missing fields. Placeholders: {fact} */
 const REPAIR_TEMPLATES: Record<string, Record<string, string>> = {
   founder_team_fit: {
-    next_action: "次の一手: {fact}",
+    next_action: "まず{fact}から始めてみるといい。",
     clash_warning:
-      "注意すべきタイプ: あなたの性格上、{fact}と衝突するリスクがある。",
-    complement_reason: "理由: あなたは{fact}ため、それを補う人が必要。",
+      "ちなみに、あなたの性格だと{fact}と衝突しやすいから気をつけて。",
+    complement_reason: "あなたは{fact}から、それを補う人がいると強い。",
   },
   career_fit: {
-    next_action: "次の一手: {fact}",
-    anti_fit: "合わない方向: あなたの性格上、{fact}は消耗しやすい。",
+    next_action: "まず{fact}から試してみるのが合ってる。",
+    anti_fit: "逆に、あなたの性格だと{fact}は消耗しやすいと思う。",
   },
   creation: {
-    risk_pattern: "あなたが陥りやすい罠: {fact}",
-    two_week_action: "この2週間でまず: {fact}",
+    risk_pattern: "あなたが陥りやすい罠としては、{fact}がある。",
+    two_week_action: "この2週間でまず{fact}からやってみない？",
   },
   general: {
-    next_action: "次の一手: {fact}",
-    personal_reason: "あなただからこそ: {fact}",
+    next_action: "まず{fact}から始めてみるのが合ってると思う。",
+    personal_reason: "あなたの場合は特に、{fact}。",
   },
 };
 

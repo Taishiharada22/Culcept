@@ -11,6 +11,8 @@ import { QUESTIONS, CHAPTERS, type ChapterKey } from "@/lib/stargazer/questions"
 import { resolveType, type QuestionAnswer, type ResolvedResult } from "@/lib/stargazer/typeResolver";
 import { useSignalCollector } from "@/hooks/useSignalCollector";
 import { useClickSound } from "@/hooks/useClickSound";
+import { retryFetch } from "@/lib/retryFetch";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 // Engagement components
 import VisualChoiceCard, { type VisualChoicePair, type VisualChoiceResult } from "./engagement/VisualChoiceCard";
@@ -100,9 +102,13 @@ interface Props {
   resumeFromIndex?: number;
   /** Resume from saved progress — previously answered questions */
   resumeAnswers?: QuestionAnswer[];
+  /** Resume from saved progress — previously answered CF questions */
+  resumeCfAnswers?: CfAnswer[];
+  /** localStorage 保存用 userId（クロスユーザー汚染防止） */
+  userId?: string | null;
 }
 
-function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resumeFromIndex, resumeAnswers }: Props) {
+function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resumeFromIndex, resumeAnswers, resumeCfAnswers, userId }: Props) {
   const [currentIndex, setCurrentIndex] = useState(resumeFromIndex ?? 0);
   const [answers, setAnswers] = useState<QuestionAnswer[]>(resumeAnswers ?? []);
   const [flowPhase, setFlowPhase] = useState<FlowPhase>(resumeFromIndex ? "questioning" : "chapter_intro");
@@ -110,6 +116,9 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
 
   // V5: クリック音
   const clickSound = useClickSound();
+
+  // 保存トースト
+  const { showError } = useSaveToast();
 
   // Engagement state
   const [currentObsTag, setCurrentObsTag] = useState<ObservationTag | null>(null);
@@ -126,8 +135,8 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
   });
   const [vcResults, setVcResults] = useState<VisualChoiceResult[]>([]);
 
-  // Cognitive Fit state
-  const [cfAnswers, setCfAnswers] = useState<CfAnswer[]>([]);
+  // Cognitive Fit state — resume 時は復元データから初期化
+  const [cfAnswers, setCfAnswers] = useState<CfAnswer[]>(resumeCfAnswers ?? []);
   const [cfPhaseQueue, setCfPhaseQueue] = useState<ReturnType<typeof getCfQuestionsByPhase>>([]);
   const [cfQueueIdx, setCfQueueIdx] = useState(0);
   // Resume mode: mark CF phases that were already passed based on answer count
@@ -191,6 +200,37 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
     [currentIndex, totalQuestions]
   );
 
+  // ── 進捗保存（localStorage + サーバー） ──
+  const saveProgress = useCallback(
+    (newAnswers: QuestionAnswer[], nextIdx: number, latestCfAnswers: CfAnswer[]) => {
+      // localStorage: 毎回答保存（即時、信頼性が高い）
+      try {
+        localStorage.setItem("sg_questionflow_progress_v1", JSON.stringify({
+          answers: newAnswers,
+          nextIndex: nextIdx,
+          savedAt: Date.now(),
+          userId: userId ?? null,
+          ...(latestCfAnswers.length > 0 ? { cfAnswers: latestCfAnswers } : {}),
+        }));
+      } catch { /* QuotaExceeded 等は無視 */ }
+
+      // サーバー: 毎回保存（リトライ付き、await不要）— リフレッシュ時の復元信頼性を担保
+      void retryFetch("/api/stargazer/onboarding-progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phase: "questionflow",
+          answers: newAnswers,
+          nextIndex: nextIdx,
+          ...(latestCfAnswers.length > 0 ? { cfAnswers: latestCfAnswers } : {}),
+        }),
+      }).then((res) => {
+        if (!res.ok) console.warn("[QF saveProgress] server save failed after retries:", res.error);
+      });
+    },
+    [totalQuestions, userId],
+  );
+
   // ── 回答ハンドラ（V5: 高速遷移 + クリック音） ──
   const handleAnswer = useCallback(
     (questionId: string, value: number, responseTimeMs: number) => {
@@ -205,6 +245,9 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
       const newAnswers = [...answers, newAnswer];
       setAnswers(newAnswers);
 
+      // 進捗を保存（cfAnswers は closure から最新値を取得）
+      saveProgress(newAnswers, currentIndex + 1, cfAnswers);
+
       // Notify parent of answered count
       onQuestionAnswered?.(newAnswers.length, newAnswers);
 
@@ -218,7 +261,7 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
         setIsSubmitting(false);
       }, 150);
     },
-    [answers, currentIndex, clickSound] // eslint-disable-line react-hooks/exhaustive-deps
+    [answers, currentIndex, clickSound, saveProgress] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // ── 次のフェーズを決定 ──
@@ -230,6 +273,19 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
       if (nextIdx >= totalQuestions) {
         saveSession();
         const result = resolveType(currentAnswers);
+        // サーバーに完了状態 + 回答データを保存（リフレッシュ時の結果フェーズ復元用）
+        // 回答データを保持することで、結果表示中にリフレッシュされても再計算できる
+        retryFetch("/api/stargazer/onboarding-progress", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phase: "questionflow", answers: currentAnswers, nextIndex: nextIdx, completed: true, ...(cfAnswers.length > 0 ? { cfAnswers } : {}) }),
+        }).then((res) => {
+          if (res.ok) {
+            try { localStorage.removeItem("sg_questionflow_progress_v1"); } catch { /* noop */ }
+          } else {
+            showError("観測データの保存に失敗しました。データはローカルに保持されています。");
+          }
+        });
         onComplete(result, currentAnswers, cfAnswers);
         return;
       }
@@ -289,6 +345,7 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
       visualChoiceIdx,
       saveSession,
       onComplete,
+      showError,
     ]
   );
 
@@ -318,17 +375,18 @@ function QuestionFlow({ onComplete, onQuestionAnswered, lightMode = false, resum
   // ── Cognitive Fit 回答ハンドラ ──
   const handleCfAnswer = useCallback(
     (answer: CfAnswer) => {
-      setCfAnswers((prev) => [...prev, answer]);
+      const updatedCf = [...cfAnswers, answer];
+      setCfAnswers(updatedCf);
+      // CF回答もlocalStorage+サーバーに保存（リフレッシュ時の消失を防止）
+      saveProgress(answers, currentIndex, updatedCf);
       const nextCfIdx = cfQueueIdx + 1;
       if (nextCfIdx < cfPhaseQueue.length) {
-        // まだこのフェーズにCF問題が残っている
         setCfQueueIdx(nextCfIdx);
       } else {
-        // CFフェーズ完了 → core質問に戻る
         setFlowPhase("questioning");
       }
     },
-    [cfQueueIdx, cfPhaseQueue.length]
+    [cfAnswers, answers, currentIndex, cfQueueIdx, cfPhaseQueue.length, saveProgress]
   );
 
   // ── テーマカラー ──

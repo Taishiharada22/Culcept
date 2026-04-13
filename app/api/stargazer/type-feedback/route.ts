@@ -49,36 +49,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "fitScore は 1-5 の数値で指定してください" }, { status: 400 });
     }
 
-    // stargazer_resolved_types の axis_scores JSONB に _fit_feedback を保存
-    const { data: existing, error: fetchError } = await supabase
-      .from("stargazer_resolved_types")
-      .select("id, axis_scores")
-      .eq("user_id", user.id)
-      .single();
-
-    if (fetchError || !existing) {
-      console.error("[type-feedback] No resolved type found for user:", fetchError?.message);
-      return NextResponse.json({ error: "まだタイプが確定していません" }, { status: 404 });
-    }
-
     const metadata = {
       fit_score: fitScore,
       fit_alternative: alternativeCode || null,
       fit_feedback_text: freeText ? freeText.slice(0, 500) : null,
       fit_feedback_at: new Date().toISOString(),
     };
-    const updatedScores = {
-      ...(existing.axis_scores as Record<string, unknown> ?? {}),
-      _fit_feedback: metadata,
-    };
 
-    const { error: saveError } = await supabase
+    // stargazer_resolved_types の axis_scores JSONB に _fit_feedback を保存
+    // オンボーディング結果画面ではDB保存より先にフィードバックが送られるケースがあるため、
+    // レコードがなければ最小限のレコードを upsert で作成する
+    const { data: existing, error: fetchError } = await supabase
       .from("stargazer_resolved_types")
-      .update({ axis_scores: updatedScores })
-      .eq("id", existing.id);
+      .select("id, axis_scores")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error("[type-feedback] DB fetch error for user:", user.id.slice(0, 8), fetchError.message);
+      return NextResponse.json({ error: "データ取得に失敗しました" }, { status: 500 });
+    }
+
+    let saveError: { message: string } | null = null;
+
+    if (existing) {
+      // 既存レコードがある場合: axis_scores にマージ
+      const updatedScores = {
+        ...(existing.axis_scores as Record<string, unknown> ?? {}),
+        _fit_feedback: metadata,
+      };
+      const { error } = await supabase
+        .from("stargazer_resolved_types")
+        .update({ axis_scores: updatedScores })
+        .eq("id", existing.id);
+      saveError = error;
+    } else {
+      // レコードがまだない場合: フィードバックだけで最小レコードを作成
+      // 後で observations API が完全データで upsert する際に axis_scores がマージされる
+      console.info("[type-feedback] No resolved type yet for user:", user.id.slice(0, 8), "— creating minimal record");
+      const { error } = await supabase
+        .from("stargazer_resolved_types")
+        .upsert({
+          user_id: user.id,
+          archetype_code: typeCode,
+          axis_scores: { _fit_feedback: metadata },
+          confidence: 0,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+      saveError = error;
+    }
 
     if (saveError) {
-      console.error("[type-feedback] Save failed:", saveError.message);
+      console.error("[type-feedback] Save failed for user:", user.id.slice(0, 8), saveError.message);
       return NextResponse.json({ error: "保存に失敗しました" }, { status: 500 });
     }
 
@@ -87,6 +109,7 @@ export async function POST(request: NextRequest) {
       typeCode,
       fitScore,
       alternativeCode: alternativeCode || "none",
+      hadExistingRecord: !!existing,
     });
 
     // 全ユーザーの統計（しっくり率）を返す — 将来のUI表示用

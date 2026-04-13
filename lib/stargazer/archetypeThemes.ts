@@ -85,7 +85,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(30, 58, 95, 0.06)",
     glow: "rgba(37, 99, 235, 0.10)",
     text: "rgba(15, 23, 42, 0.88)",
-    textMuted: "rgba(71, 85, 105, 0.60)",
+    textMuted: "rgba(71, 85, 105, 0.80)",
     textLabel: "rgba(29, 78, 216, 0.72)",
     surface: "rgba(240, 244, 250, 0.85)",
     surfaceElevated: "rgba(245, 248, 255, 0.90)",
@@ -102,7 +102,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(157, 23, 77, 0.06)",
     glow: "rgba(219, 39, 119, 0.10)",
     text: "rgba(45, 15, 30, 0.88)",
-    textMuted: "rgba(120, 70, 95, 0.60)",
+    textMuted: "rgba(120, 70, 95, 0.80)",
     textLabel: "rgba(190, 24, 93, 0.72)",
     surface: "rgba(253, 242, 248, 0.85)",
     surfaceElevated: "rgba(255, 246, 251, 0.90)",
@@ -119,7 +119,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(67, 56, 202, 0.06)",
     glow: "rgba(99, 102, 241, 0.10)",
     text: "rgba(30, 27, 75, 0.88)",
-    textMuted: "rgba(100, 95, 145, 0.60)",
+    textMuted: "rgba(100, 95, 145, 0.80)",
     textLabel: "rgba(79, 70, 229, 0.72)",
     surface: "rgba(238, 242, 255, 0.85)",
     surfaceElevated: "rgba(243, 246, 255, 0.90)",
@@ -136,7 +136,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(194, 65, 12, 0.07)",
     glow: "rgba(234, 88, 12, 0.12)",
     text: "rgba(50, 30, 10, 0.88)",
-    textMuted: "rgba(130, 90, 55, 0.60)",
+    textMuted: "rgba(130, 90, 55, 0.80)",
     textLabel: "rgba(194, 65, 12, 0.72)",
     surface: "rgba(255, 247, 237, 0.85)",
     surfaceElevated: "rgba(255, 250, 243, 0.90)",
@@ -153,7 +153,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(4, 120, 87, 0.06)",
     glow: "rgba(16, 185, 129, 0.10)",
     text: "rgba(6, 40, 30, 0.88)",
-    textMuted: "rgba(55, 110, 90, 0.60)",
+    textMuted: "rgba(55, 110, 90, 0.80)",
     textLabel: "rgba(5, 150, 105, 0.72)",
     surface: "rgba(236, 253, 245, 0.85)",
     surfaceElevated: "rgba(242, 255, 248, 0.90)",
@@ -170,7 +170,7 @@ const COLOR_PALETTES: Record<ColorGroupKey, ColorPalette> = {
     nebulaColor: "rgba(180, 83, 9, 0.07)",
     glow: "rgba(245, 158, 11, 0.12)",
     text: "rgba(45, 35, 15, 0.88)",
-    textMuted: "rgba(120, 100, 55, 0.60)",
+    textMuted: "rgba(120, 100, 55, 0.80)",
     textLabel: "rgba(217, 119, 6, 0.72)",
     surface: "rgba(255, 251, 235, 0.85)",
     surfaceElevated: "rgba(255, 253, 243, 0.90)",
@@ -242,10 +242,13 @@ function buildGradients(palette: ColorPalette): GradientSet {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export function getArchetypeTheme(code: ArchetypeCode | string): ArchetypeTheme {
-  const { cognition, emotion, execution } = parseArchetypeCode(code);
+  const parsed = parseArchetypeCode(code);
+  const cognition = parsed?.cognition ?? "N";
+  const emotion = parsed?.emotion ?? "C";
+  const execution = parsed?.execution ?? "O";
   const groupKey = `${cognition}_${emotion}` as ColorGroupKey;
 
-  const palette = COLOR_PALETTES[groupKey];
+  const palette = COLOR_PALETTES[groupKey] ?? COLOR_PALETTES["N_C"];
 
   return {
     code: code as ArchetypeCode,

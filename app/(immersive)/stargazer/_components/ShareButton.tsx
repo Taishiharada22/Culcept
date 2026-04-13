@@ -1,8 +1,8 @@
 // app/stargazer/_components/ShareButton.tsx
-// シェアボタン — Web Share API + クリップボードフォールバック
+// シェアボタン — Web Share API + Clipboard + execCommand 3段階フォールバック
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { ShareableCard } from "@/lib/stargazer/shareCardGenerator";
 
@@ -44,7 +44,7 @@ function ShareIcon({ size = 16 }: { size?: number }) {
 // Toast
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function CopiedToast({ show }: { show: boolean }) {
+function ShareToast({ show, message, isError }: { show: boolean; message: string; isError?: boolean }) {
   return (
     <AnimatePresence>
       {show && (
@@ -55,17 +55,40 @@ function CopiedToast({ show }: { show: boolean }) {
           transition={{ duration: 0.2 }}
           className="absolute -top-10 left-1/2 -translate-x-1/2 whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium z-50"
           style={{
-            background: "rgba(255,255,255,0.15)",
+            background: isError ? "rgba(220,80,80,0.15)" : "rgba(255,255,255,0.15)",
             backdropFilter: "blur(16px)",
-            color: "rgba(255,255,255,0.9)",
-            border: "1px solid rgba(255,255,255,0.12)",
+            color: isError ? "rgba(255,200,200,0.95)" : "rgba(255,255,255,0.9)",
+            border: `1px solid ${isError ? "rgba(220,80,80,0.2)" : "rgba(255,255,255,0.12)"}`,
           }}
         >
-          コピーしました
+          {message}
         </motion.div>
       )}
     </AnimatePresence>
   );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Legacy copy fallback
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function legacyCopy(text: string): boolean {
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "-9999px";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const success = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return success;
+  } catch {
+    return false;
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -78,15 +101,22 @@ export default function ShareButton({
   compact = false,
   className = "",
 }: ShareButtonProps) {
-  const [showCopied, setShowCopied] = useState(false);
+  const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null);
   const [ripple, setRipple] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  const showToast = useCallback((message: string, isError = false) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, isError });
+    toastTimer.current = setTimeout(() => setToast(null), 2500);
+  }, []);
 
   const handleShare = useCallback(async () => {
     // Visual feedback
     setRipple(true);
     setTimeout(() => setRipple(false), 300);
 
-    // Try Web Share API first (mobile)
+    // 1. Web Share API (mobile)
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({
@@ -95,23 +125,36 @@ export default function ShareButton({
         });
         return;
       } catch {
-        // User cancelled or API failed — fall through to clipboard
+        // User cancelled or API failed — fall through
       }
     }
 
-    // Clipboard fallback
+    // 2. Clipboard API
     try {
       await navigator.clipboard.writeText(shareData.shareText);
-      setShowCopied(true);
-      setTimeout(() => setShowCopied(false), 2000);
+      showToast("コピーしました");
+      return;
     } catch {
-      // Clipboard API not available
+      // Permission denied or unavailable — fall through
     }
-  }, [shareData]);
+
+    // 3. Legacy execCommand fallback
+    if (legacyCopy(shareData.shareText)) {
+      showToast("コピーしました");
+      return;
+    }
+
+    // 4. All methods failed — show error
+    showToast("コピーできませんでした", true);
+  }, [shareData, showToast]);
 
   return (
     <div className={`relative inline-flex ${className}`}>
-      <CopiedToast show={showCopied} />
+      <ShareToast
+        show={!!toast}
+        message={toast?.message ?? ""}
+        isError={toast?.isError}
+      />
 
       <motion.button
         onClick={handleShare}

@@ -206,7 +206,7 @@ const LAYER_MAP: Record<InsightCardType, InsightLayer> = {
 
 const ICON_MAP: Record<InsightLayer, string> = {
   memory: "💡",
-  understanding: "🧩",
+  understanding: "＊",
   prediction: "🔮",
 };
 
