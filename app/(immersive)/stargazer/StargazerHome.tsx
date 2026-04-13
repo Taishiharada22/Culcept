@@ -120,15 +120,8 @@ import { checkMilestone, markMilestoneShown, type MilestoneNumber } from "@/lib/
 import FeatureUnlockToast from "./_components/FeatureUnlockToast";
 import { getJustUnlocked, markUnlockNotified, type FeatureGate } from "@/lib/stargazer/featureUnlock";
 import PushPermissionBanner from "./_components/PushPermissionBanner";
-import MicroEMAPrompt from "./_components/MicroEMAPrompt";
 import PersistentStreakBar from "./_components/PersistentStreakBar";
 import { getAccuracyTrend, type AccuracyTrend } from "@/lib/stargazer/engagementScore";
-import {
-  shouldPromptAndMark as microEMAShouldPromptAndMark,
-  getNextQuestion as microEMAGetNextQuestion,
-  type MicroEMAQuestion,
-} from "@/lib/stargazer/microEMA";
-import { applyEMAToAxisScores, autoCheckTransformationProgress } from "@/lib/stargazer/microEMABridge";
 
 // Weekly Report
 import {
@@ -172,7 +165,6 @@ import type { V4Feature } from "@/lib/stargazer/depthPhaseController";
 import TodaySummary from "./_components/TodaySummary";
 import TodaySummaryCard from "./_components/TodaySummaryCard";
 import TodaySummaryMini from "./_components/TodaySummaryMini";
-import MorningQuestion from "./_components/MorningQuestion";
 import DailyEngagementSection from "./_components/DailyEngagementSection";
 import StargazerHero from "./_components/StargazerHero";
 import Stage2Flow from "./_components/Stage2Flow";
@@ -355,14 +347,7 @@ export default function StargazerHome() {
       const delay = activeMilestone ? 3000 : 500;
       const timer = setTimeout(() => {
         pendingUnlockRef.current = justUnlocked;
-        // If no overlay is active, show immediately
-        if (!activeOverlay && overlayQueue.length === 0) {
-          setActiveOverlay("featureUnlock");
-          setActiveUnlock(justUnlocked);
-        } else {
-          // Queue it after current overlays
-          setOverlayQueue((prev) => [...prev, "featureUnlock"]);
-        }
+        setActiveUnlock(justUnlocked);
       }, delay);
       return () => clearTimeout(timer);
     }
@@ -529,36 +514,8 @@ export default function StargazerHome() {
     consecutiveHits: number;
   } | null>(null);
 
-  // Micro-EMA state
-  const [showMicroEMA, setShowMicroEMA] = useState(false);
-  const [microEMAQuestion, setMicroEMAQuestion] = useState<MicroEMAQuestion | null>(null);
-
-  // Overlay queue: ensure only one overlay shows at a time
-  // Order: microEMA → tabTour → featureUnlock
-  const [overlayQueue, setOverlayQueue] = useState<Array<"microEMA" | "tabTour" | "featureUnlock">>([]);
-  const [activeOverlay, setActiveOverlay] = useState<"microEMA" | "tabTour" | "featureUnlock" | null>(null);
+  // Overlay state for feature unlock
   const pendingUnlockRef = useRef<FeatureGate | null>(null);
-  // microEMAPendingRef / tabTourPendingRef removed — checks moved into overlay queue timer
-
-  // Advance to next overlay in queue
-  const advanceOverlay = useCallback(() => {
-    setOverlayQueue((prev) => {
-      const next = prev.slice(1);
-      if (next.length > 0) {
-        setTimeout(() => {
-          const nextOverlay = next[0];
-          setActiveOverlay(nextOverlay);
-          // If advancing to featureUnlock, set the pending unlock
-          if (nextOverlay === "featureUnlock" && pendingUnlockRef.current) {
-            setActiveUnlock(pendingUnlockRef.current);
-          }
-        }, 400);
-      } else {
-        setActiveOverlay(null);
-      }
-      return next;
-    });
-  }, []);
 
   function loadPreviewData() {
     const scores = mockAxisScores;
@@ -820,8 +777,7 @@ export default function StargazerHome() {
   }
 
   async function loadRealData() {
-    applyEMAToAxisScores();
-    autoCheckTransformationProgress();
+    // Micro-EMA 廃止（2026-04-14）— Alter→Stargazer パイプラインに移行
     try {
       let res = await fetch("/api/stargazer/profile", {
         credentials: "include",
@@ -1580,37 +1536,8 @@ export default function StargazerHome() {
   // Build overlay queue after mount (delay for page settle)
   // All overlay eligibility checks happen HERE, atomically inside the timer.
   // This avoids React Strict Mode double-mount issues with refs going stale.
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const queue: Array<"microEMA" | "tabTour" | "featureUnlock"> = [];
-
-      // Micro-EMA: check + mark atomically (max 2/day, 4h apart)
-      try {
-        const shouldShow = microEMAShouldPromptAndMark();
-        if (shouldShow) {
-          setMicroEMAQuestion(microEMAGetNextQuestion());
-          queue.push("microEMA");
-        }
-      } catch { /* non-critical */ }
-
-      // ③ Stargazer tab tour は廃止（CEO指示 2026-04-04）
-      // FeatureIntroduction は他の機能ページでのみ使用する
-      // try {
-      //   const introSeen = localStorage.getItem("aneurasync_guide_stargazer_seen") === "1";
-      //   const tourDone = localStorage.getItem("aneurasync_tabtour_stargazer_done") === "1";
-      //   if (!introSeen || !tourDone) {
-      //     queue.push("tabTour");
-      //   }
-      // } catch { /* silent */ }
-
-      // featureUnlock is added dynamically when triggered
-      if (queue.length > 0) {
-        setOverlayQueue(queue);
-        setActiveOverlay(queue[0]);
-      }
-    }, 1800);
-    return () => clearTimeout(timer);
-  }, []);
+  // Micro-EMA / tab tour 廃止済み（CEO指示 2026-04-14）
+  // Alter→Stargazer パイプラインに移行。直接的な観測UIは不要
 
   // Auto-scroll: ページロード時にタブナビ+コンテンツが画面最上部に来るようスクロール
   useEffect(() => {
@@ -1808,15 +1735,6 @@ export default function StargazerHome() {
         />
       )}
 
-      {/* Micro-EMA Overlay — only when it's the active overlay */}
-      {activeOverlay === "microEMA" && microEMAQuestion && (
-        <MicroEMAPrompt
-          question={microEMAQuestion}
-          onComplete={() => advanceOverlay()}
-          onDismiss={() => advanceOverlay()}
-        />
-      )}
-
       {/* Milestone Celebration Overlay */}
       {activeMilestone !== null && (
         <MilestoneCelebration
@@ -1829,18 +1747,16 @@ export default function StargazerHome() {
       )}
 
       {/* Feature Unlock Toast */}
-      {activeOverlay === "featureUnlock" && activeUnlock && activeMilestone === null && (
+      {activeUnlock && activeMilestone === null && (
         <FeatureUnlockToast
           feature={activeUnlock}
           onDismiss={() => {
             markUnlockNotified(activeUnlock.feature);
             setActiveUnlock(null);
-            advanceOverlay();
           }}
           onNavigate={(featureName) => {
             markUnlockNotified(activeUnlock.feature);
             setActiveUnlock(null);
-            advanceOverlay();
             const routeMap: Record<string, string> = {
               morning_question: "/stargazer",
               blind_spot: "/stargazer/blind-spot",
@@ -1946,29 +1862,9 @@ export default function StargazerHome() {
         </div>
       </header>
 
-      {/* ═══ Priority: MorningQuestion + Today's prediction — ヘッダー直下 ═══ */}
+      {/* ═══ ヘッダー直下コンテンツ ═══ */}
       <div className="px-4 pb-1">
         <div className="mx-auto max-w-6xl space-y-2">
-          <MorningQuestion
-            onAnswer={(questionId, answer, responseTimeMs) => {
-              updateEngagementField("morningQuestionAnswered", true);
-              fetch("/api/stargazer/observations", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  type: "morning_question",
-                  answers: [{
-                    variantId: questionId,
-                    score: 0,
-                    responseTimeMs,
-                    optionId: answer,
-                  }],
-                }),
-              }).catch((e) => console.warn("[MorningQuestion] DB save failed (non-fatal):", e));
-            }}
-            totalObservations={totalObservations}
-          />
-
           {/* RV（関係性観測）導線 — 累計30回以上 & 未完了 */}
           {hasData && totalObservations >= 30 && (() => {
             const rvDone = typeof window !== "undefined" && localStorage.getItem("culcept_sg_rv_completed_v1") === "true";

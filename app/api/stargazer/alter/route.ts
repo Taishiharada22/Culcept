@@ -260,6 +260,7 @@ import {
   detectReadiness,
   generateAlterSelfReport,
 } from "@/lib/stargazer/alterGrowth";
+import { syncAlterSignalsToStargazer } from "@/lib/stargazer/alterToStargazerPipeline";
 import {
   shouldGenerateLetter,
   generateAlterLetter,
@@ -984,6 +985,13 @@ export async function POST(req: NextRequest) {
           summary,
           messages,
         );
+
+        // ━━━━ Alter → Stargazer 信号パイプライン ━━━━
+        // Alter 会話から観測された特性信号を Stargazer の axis_snapshots に反映
+        syncAlterSignalsToStargazer(userId, updatedGrowth, summary).catch((e) => {
+          console.warn("[alter] Stargazer signal pipeline failed (non-fatal):", e);
+        });
+
         // 5セッションごとのセルフレポート生成
         selfReport = await generateAlterSelfReport(updatedGrowth, userId);
 

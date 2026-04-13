@@ -45,7 +45,7 @@ import PostOnboardingFeedback, { hasSubmittedFeedback } from "../_components/Pos
 import FeedbackToast from "../_components/FeedbackToast";
 import { NoObservationsYet } from "../_components/EmptyStates";
 import { ObserveSkeleton } from "../_components/SkeletonLoaders";
-import AccuracyDecayWarning from "../_components/AccuracyDecayWarning";
+// AccuracyDecayWarning 廃止（CEO指示 2026-04-14）— Alter→Stargazer パイプラインに移行
 import DeepProbeUnlockCard from "../_components/DeepProbeUnlockCard";
 import ServerDailyObservationTab from "./ServerDailyObservationTab";
 // DailyInsightCard 廃止（CEO指示 #7 2026-04-11）
@@ -1052,14 +1052,11 @@ export default function ObserveTab({
       />
     );
   }
-  const decayPercentLost = Math.min(20, Math.max(0, (daysSinceLastObs - 2) * 4));
-  const decayCurrentLevel = Math.max(10, 80 - decayPercentLost);
 
   // ── Intro Phase ──
   if (phase === "intro") {
     return (
       <div className="space-y-5">
-        {/* AccuracyDecayWarning 廃止（CEO指示 2026-04-11） */}
         <motion.div
           className="card-section flex items-start gap-4"
           initial={{ opacity: 0, y: 10 }}
