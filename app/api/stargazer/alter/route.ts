@@ -10,7 +10,15 @@ import {
   type PerspectiveLatencyBreakdown,
   type QualityGateResult,
   type SearchTask,
+  type ExplorationState,
+  type ExplorationPhase,
+  type CandidateEntity,
+  type ExplorationOutputTemplate,
+  EXPLORATION_OUTPUT_TEMPLATES,
   detectExplicitSearchIntent,
+  shouldResumeExploration,
+  buildResumeAnchors,
+  createExplorationState,
 } from "@/lib/stargazer/perspectiveEngine";
 import {
   generateDerivedFacts,
@@ -1369,6 +1377,8 @@ export async function POST(req: NextRequest) {
     let perspectiveLatency: PerspectiveLatencyBreakdown | null = null;
     let perspectiveQualityGate: QualityGateResult | null = null;
     let perspectiveSearchTask: SearchTask | null = null;
+    let perspectiveExplorationState: ExplorationState | null = null;
+    let perspectiveExplorationTemplate: ExplorationOutputTemplate | null = null;
     // Morning Protocol: 外部スコープに引き上げ（response objectで参照するため）
     let morningSession: MorningSession | undefined;
     let morningResponse: MorningProtocolResponse | undefined;
@@ -3379,6 +3389,9 @@ export async function POST(req: NextRequest) {
           perspectiveLatency = peResult.latencyBreakdown ?? null;
           perspectiveQualityGate = peResult.qualityGate ?? null;
           perspectiveSearchTask = peResult.searchTask ?? null;
+          // v5: マルチターン探索の状態
+          perspectiveExplorationState = peResult.explorationState ?? null;
+          perspectiveExplorationTemplate = peResult.explorationTemplate ?? null;
 
           if (peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0) {
             console.info(
@@ -3428,6 +3441,11 @@ export async function POST(req: NextRequest) {
               search_task_type: peResult.searchTask?.type ?? null,
               search_task_fitness: peResult.searchTask?.searchFitness ?? null,
               search_task_description: peResult.searchTask?.description ?? null,
+              // v5 新フィールド: Exploration
+              exploration_depth: peResult.searchTask?.explorationDepth ?? null,
+              exploration_id: peResult.explorationState?.explorationId ?? null,
+              exploration_phase: peResult.explorationState?.currentPhase ?? null,
+              exploration_turn: peResult.explorationState?.turnCount ?? null,
             },
           }).then(({ error }) => {
             if (error) console.warn("[perspective-engine] Telemetry save failed:", error.message);
@@ -3561,6 +3579,56 @@ ${hasPeripheralInfo
         // Case 6: 通常の検索結果注入
         homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
         console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
+      }
+
+      // ── v5: マルチターン探索の出力制約 ──
+      // iterative タスクの Turn 1 では、出力テンプレートに沿った応答を生成する。
+      // Alterの通常会話を壊さず、探索結果を自然に提示するための制約。
+      if (perspectiveExplorationState && perspectiveExplorationTemplate) {
+        const tmpl = perspectiveExplorationTemplate;
+        const isNewExploration = perspectiveExplorationState.turnCount === 0;
+
+        if (isNewExploration) {
+          // Turn 1: 候補提示 + 選択促し
+          homeSystemPrompt += `\n\n[探索モード — Turn 1: 候補提示]
+あなたは今、ユーザーのために外部情報を調べて候補を見つけた。
+以下の構造で応答すること:
+
+1. ${tmpl.directionFormat}
+2. 具体的な候補を${tmpl.candidateCount.min}〜${tmpl.candidateCount.max}件提示
+   - 各候補: ${tmpl.candidateFormat}
+3. 制約: ${tmpl.limitation}
+4. 最後に: 「${tmpl.selectionPrompt}」
+
+重要:
+- 候補は上記の外界の視点から見つけたものを使う
+- 各候補になぜこのユーザーに合うかの理由を付ける（パーソナルモデルから導出）
+- ${tmpl.candidateCount.max}件を超えない。多すぎると選べない
+- 見つからなかった場合は正直に言い、パーソナルモデルから方向性だけ提案する`;
+          console.info(
+            `[perspective-engine] 🆕 Exploration Turn 1 template injected: ` +
+            `type=${perspectiveExplorationState.taskType}, id=${perspectiveExplorationState.explorationId}`
+          );
+        } else {
+          // Turn 2+: 深掘りリサーチ結果の提示
+          const selectedNames = perspectiveExplorationState.candidatesSelected;
+          homeSystemPrompt += `\n\n[探索モード — Turn ${perspectiveExplorationState.turnCount + 1}: 深掘りリサーチ]
+ユーザーが${selectedNames.length > 0 ? `「${selectedNames.join("」「")}」に興味を示した` : "前回の候補について続きを求めている"}。
+上記の外界の視点の情報を使い、${selectedNames.length > 0 ? "選ばれた候補について" : "候補について"}深掘りした結果を提示すること。
+
+応答に含めること:
+- 候補の具体的な情報（概要、特徴、実績等）
+- パーソナルモデルの視点からの適合分析（なぜ合う/合わない）
+- 引っかかりそうな点があれば正直に言う
+- 次のアクション提案（もしあれば）
+
+禁止:
+- 検索で見つからなかった情報を捏造すること
+- 「どうしますか？」で終わること（具体的な次ステップを提案する）`;
+          console.info(
+            `[perspective-engine] 🔄 Exploration Turn ${perspectiveExplorationState.turnCount + 1} template injected`
+          );
+        }
       }
 
       // ── FIX-4: 直接要求・大問いの生成制約を最上位に配置 ──

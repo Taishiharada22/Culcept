@@ -128,6 +128,246 @@ export interface SearchTask {
   requiredInfoType: "factual" | "statistical" | "experiential" | "listings" | "mixed";
   /** 生成されたクエリ（タスクに最適化済み） */
   queries: string[];
+  /**
+   * 探索深度: single（1回検索で完結）/ iterative（マルチターン探索）。
+   *
+   * iterative になるのは以下のパターンのみ:
+   *   - company_fit: 適性仮説 → 候補探索 → ユーザー選択 → 深掘り
+   *   - listing_search + 適性依存度 high: 場所探索、候補絞り込み
+   *   - comparison + 適性依存度 high: サービス選定、選択肢評価
+   *
+   * iterative の場合、ExplorationState が生成され、ターンをまたいで保持される。
+   */
+  explorationDepth: "single" | "iterative";
+}
+
+// ─── Exploration State（マルチターン探索） ──────────────────────────────
+// 「探索」の進行状態のみを管理する。感情・広い会話文脈は既存システム
+// （HdmPhaseState, AlterUnderstanding, sessionContext）の責務。
+//
+// 設計原則:
+//   - ExplorationState は「検索探索の状態」であって「会話のすべて」ではない
+//   - 検索が Alter の通常会話を飲み込まないようにする
+//   - 迷ったら通常会話優先。探索は明示的再開 or 候補名一致のみで復帰
+//   - Alter は汎用 AI チャットではない。ネットから常に検索をかける必要はない
+
+export type ExplorationPhase =
+  | "hypothesis"        // Turn 1: 適性仮説の提示 + 広い候補探索
+  | "user_selection"    // Turn 2 待ち: ユーザーの候補選択
+  | "deep_research"     // Turn 3: 選択された候補の深掘りリサーチ
+  | "synthesis"         // Turn 4+: 統合・結論・次のアクション提案
+  | "complete";         // 探索完了
+
+export interface CandidateEntity {
+  name: string;           // 「株式会社〇〇」「A社」等
+  category: string;       // 業界・カテゴリ
+  fitReason: string;      // なぜこの候補がユーザーに合うか（パーソナルモデル由来）
+  source: string;         // どこで見つけたか
+  userSelected: boolean;  // ユーザーが選択したか
+}
+
+export interface EntityResearch {
+  name: string;
+  overview: string;        // 企業概要、サービス概要
+  fitAnalysis: string;     // パーソナルモデル視点での適合分析
+  concerns: string[];      // 引っかかりそうな点
+  actionableInfo: string;  // 採用ページURL、応募方法等
+  searchQueries: string[]; // このリサーチで使った検索クエリ
+}
+
+export interface ExplorationState {
+  // 探索の定義
+  explorationId: string;
+  taskType: SearchTaskType;
+  domain: string;
+  userIntent: string;         // 「転職先を探したい」等
+
+  // フェーズ管理
+  currentPhase: ExplorationPhase;
+  turnCount: number;
+
+  // アクティブ / 休眠管理
+  // isActive: 今まさに探索中（直前ターンが探索に関連した）
+  // isDormant: ユーザーが別の話題に移った。候補名一致 or 明示的再開で復帰
+  isActive: boolean;
+  isDormant: boolean;
+
+  // 探索復帰アンカー: candidatesProposed から自動生成される候補名リスト。
+  // ユーザーの発話にこれらの文字列が含まれていれば、dormant → active に復帰。
+  // LLMによる「意味連続性判定」はやらない。文字列マッチのみ。
+  resumeAnchors: string[];
+
+  // 蓄積されたコンテキスト
+  fitHypotheses: string[];           // 適性仮説（パーソナルモデルから）
+  candidatesProposed: CandidateEntity[]; // Alter が提案した候補
+  candidatesSelected: string[];       // ユーザーが選んだ候補名
+  researchCompleted: EntityResearch[];// リサーチ完了済み
+
+  // 品質追跡
+  totalSearchQueries: string[];
+  limitations: string[];     // 「求人一覧の直接取得はできない」等
+
+  // 有効期限
+  createdAt: string;
+  lastUpdatedAt: string;
+  expiresAt: string;          // 7日で自動破棄
+}
+
+// ─── Exploration Output Templates ────────────────────────────────────────
+// Turn 1 の出力契約をタスクタイプ別に定義。共通骨格:
+//   1. 方向性の一言（パーソナルモデルから導出）
+//   2. 具体的な候補（3-5件、多すぎない）
+//   3. 各候補に「なぜこの人に合うか」の理由（1行）
+//   4. honest limitation（「公開Webから調べた範囲」等）
+//   5. 選択促し（「気になるところがあれば教えて」）
+
+export interface ExplorationOutputTemplate {
+  directionFormat: string;
+  candidateCount: { min: number; max: number };
+  candidateFormat: string;
+  limitation: string;
+  selectionPrompt: string;
+}
+
+export const EXPLORATION_OUTPUT_TEMPLATES: Partial<Record<SearchTaskType, ExplorationOutputTemplate>> = {
+  listing_search: {
+    directionFormat: "パーソナルモデルから導いた適性仮説を1文で提示",
+    candidateCount: { min: 3, max: 5 },
+    candidateFormat: "候補名 + 合う理由1行 + 注意点がある場合は1行",
+    limitation: "公開Webから調べた範囲の候補です。一覧サイトの完全取得はできないので、見つかった中からの提案です",
+    selectionPrompt: "この中で気になるところ、もう少し見てみたいところがあれば教えて",
+  },
+  comparison: {
+    directionFormat: "比較の軸を先に提示（何を基準に比べるか）",
+    candidateCount: { min: 2, max: 4 },
+    candidateFormat: "選択肢名 + 軸ごとの評価 + この人にとっての意味",
+    limitation: "公開情報ベースの比較です",
+    selectionPrompt: "どっちが気になる？もう少し掘ってみようか",
+  },
+};
+
+// company_fit は listing_search + entity_research の複合。
+// listing_search テンプレートをベースにしつつ、entity_research の深掘り要素を含む。
+// ※ company_fit は SearchTaskType には含めない（listing_search + entity_research の組み合わせで表現）
+
+// ─── Exploration Depth Classification ────────────────────────────────────
+
+/**
+ * SearchTask の探索深度を判定する。
+ *
+ * iterative になる条件:
+ *   1. listing_search — 候補群からの絞り込みが必要
+ *   2. comparison + 適性依存度が高い — サービス選定等
+ *   3. entity_research + 適性文脈あり — 会社探し（company_fit パターン）
+ *
+ * 判定にはメッセージとドメインを使用。LLM は使わない（高速判定のため）。
+ */
+export function classifyExplorationDepth(
+  taskType: SearchTaskType,
+  message: string,
+  domain: string,
+): "single" | "iterative" {
+  // listing_search は原則 iterative（候補群 → 選択 → 深掘り）
+  if (taskType === "listing_search") {
+    return "iterative";
+  }
+
+  // comparison + 適性が主役のドメイン → iterative
+  if (taskType === "comparison") {
+    const fitDomains = ["career_fit", "industry_fit", "lifestyle", "work"];
+    if (fitDomains.includes(domain)) return "iterative";
+    // 「自分に合うのは」「向いてるのは」等の適性ワード
+    if (/自分に(合|向|適)|私に(合|向|適)|俺に(合|向)/.test(message)) return "iterative";
+  }
+
+  // entity_research + 適性文脈（company_fit パターン）
+  // 「自分に合う会社」「向いてる職場」等
+  if (taskType === "entity_research") {
+    if (/自分に(合|向)|私に(合|向)|俺に(合|向)|(転職|就職|仕事)(先|探|見つけ)/.test(message)) {
+      return "iterative";
+    }
+  }
+
+  return "single";
+}
+
+/**
+ * 探索復帰を判定する。
+ *
+ * ExplorationState が isDormant の場合、ユーザーの発話に以下が含まれていれば復帰:
+ *   1. 明示的再開（「さっきの続き」「もう少し調べて」「候補の件」等）
+ *   2. resumeAnchors への文字列マッチ（候補名への直接参照）
+ *
+ * 迷ったら通常会話優先。この原則は絶対。
+ */
+export function shouldResumeExploration(
+  message: string,
+  state: ExplorationState,
+): boolean {
+  if (!state.isDormant) return false;
+  if (state.currentPhase === "complete") return false;
+
+  // 有効期限チェック
+  if (new Date(state.expiresAt) < new Date()) return false;
+
+  // 1. 明示的再開パターン
+  const resumePatterns = /さっき(の|調べ|の続き|の候補)|もう少し(調べ|探し|見|教え)|候補(の|について|は？|は$)|続き(を|は|から)|あの(会社|候補|店|サービス)/;
+  if (resumePatterns.test(message)) return true;
+
+  // 2. 候補名アンカー一致（文字列マッチのみ、LLM不使用）
+  for (const anchor of state.resumeAnchors) {
+    if (anchor.length >= 2 && message.includes(anchor)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * ExplorationState から resumeAnchors を自動生成する。
+ * candidatesProposed の名前から抽出。
+ */
+export function buildResumeAnchors(candidates: CandidateEntity[]): string[] {
+  const anchors: string[] = [];
+  for (const c of candidates) {
+    anchors.push(c.name);
+    // 「株式会社〇〇」→「〇〇」も追加
+    const shortName = c.name.replace(/^(株式会社|合同会社|有限会社)\s*/, "");
+    if (shortName !== c.name && shortName.length >= 2) anchors.push(shortName);
+  }
+  return [...new Set(anchors)]; // 重複除去
+}
+
+/**
+ * 新しい ExplorationState を生成する。
+ */
+export function createExplorationState(
+  taskType: SearchTaskType,
+  domain: string,
+  userIntent: string,
+  fitHypotheses: string[],
+): ExplorationState {
+  const now = new Date();
+  const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7日
+  return {
+    explorationId: `exp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    taskType,
+    domain,
+    userIntent,
+    currentPhase: "hypothesis",
+    turnCount: 0,
+    isActive: true,
+    isDormant: false,
+    resumeAnchors: [],
+    fitHypotheses,
+    candidatesProposed: [],
+    candidatesSelected: [],
+    researchCompleted: [],
+    totalSearchQueries: [],
+    limitations: [],
+    createdAt: now.toISOString(),
+    lastUpdatedAt: now.toISOString(),
+    expiresAt: expires.toISOString(),
+  };
 }
 
 /** タスク種別ごとのデフォルト検索適性 */
@@ -479,9 +719,11 @@ ${queryContext.domain}
 
     const description = (structured.task_description as string) ?? `${resolvedType} search`;
 
+    const depth = classifyExplorationDepth(resolvedType, message, queryContext.domain);
+
     console.info(
       `[perspective-engine] 🎯 Task classified: type=${resolvedType}, ` +
-      `fitness=${TASK_SEARCH_FITNESS[resolvedType]}, ` +
+      `fitness=${TASK_SEARCH_FITNESS[resolvedType]}, depth=${depth}, ` +
       `queries=${JSON.stringify(queries)}, desc="${description}"`
     );
 
@@ -491,6 +733,7 @@ ${queryContext.domain}
       searchFitness: TASK_SEARCH_FITNESS[resolvedType],
       requiredInfoType: TASK_REQUIRED_INFO[resolvedType],
       queries,
+      explorationDepth: depth,
     };
   }
 
@@ -504,6 +747,7 @@ ${queryContext.domain}
     searchFitness: 0.5,
     requiredInfoType: "mixed",
     queries,
+    explorationDepth: "single",
   };
 }
 
@@ -1070,6 +1314,10 @@ export interface PerspectiveEngineResult {
   qualityGate?: QualityGateResult;
   /** v4: 検索タスク分類結果 */
   searchTask?: SearchTask | null;
+  /** v5: マルチターン探索の状態（iterative の場合のみ） */
+  explorationState?: ExplorationState | null;
+  /** v5: Turn 1 の出力テンプレート（iterative の場合のみ） */
+  explorationTemplate?: ExplorationOutputTemplate | null;
   latencyBreakdown?: PerspectiveLatencyBreakdown;
 }
 
@@ -1098,6 +1346,8 @@ export async function runPerspectiveEngine(params: {
   userId?: string;
   /** 直前の会話の話題要約（タスク分類 + クエリ生成に使う） */
   conversationSummary?: string;
+  /** v5: 既存の ExplorationState（マルチターン探索の継続時） */
+  existingExploration?: ExplorationState | null;
 }): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
 
@@ -1273,7 +1523,51 @@ export async function runPerspectiveEngine(params: {
       explicitAskBlocked: false,
     };
 
-    return { block, audit, qualityGate: qualityResult, searchTask, latencyBreakdown };
+    // v5: iterative タスクの場合、ExplorationState を生成/更新
+    let explorationState: ExplorationState | null = null;
+    let explorationTemplate: ExplorationOutputTemplate | null = null;
+
+    if (searchTask && searchTask.explorationDepth === "iterative") {
+      if (params.existingExploration && !params.existingExploration.isDormant) {
+        // 既存の探索を継続（deep_research フェーズへ遷移等）
+        explorationState = {
+          ...params.existingExploration,
+          turnCount: params.existingExploration.turnCount + 1,
+          totalSearchQueries: [
+            ...params.existingExploration.totalSearchQueries,
+            ...queries,
+          ],
+          lastUpdatedAt: new Date().toISOString(),
+          isActive: true,
+        };
+        console.info(
+          `[perspective-engine] 🔄 Exploration continued: phase=${explorationState.currentPhase}, turn=${explorationState.turnCount}`
+        );
+      } else {
+        // 新規探索を開始（Turn 1: hypothesis フェーズ）
+        explorationState = createExplorationState(
+          searchTask.type,
+          params.queryContext.domain,
+          searchTask.description,
+          [], // fitHypotheses は route.ts でパーソナルモデルから生成
+        );
+        explorationState.totalSearchQueries = [...queries];
+        explorationState.currentPhase = "user_selection"; // Turn 1 完了後は候補選択待ち
+
+        // タスクタイプ別出力テンプレートを取得
+        explorationTemplate = EXPLORATION_OUTPUT_TEMPLATES[searchTask.type] ?? null;
+
+        console.info(
+          `[perspective-engine] 🆕 Exploration started: type=${searchTask.type}, ` +
+          `template=${explorationTemplate ? "found" : "default"}, id=${explorationState.explorationId}`
+        );
+      }
+    }
+
+    return {
+      block, audit, qualityGate: qualityResult, searchTask,
+      explorationState, explorationTemplate, latencyBreakdown,
+    };
   } catch (error) {
     console.warn("[PerspectiveEngine] Error in pipeline, falling back:", error);
     return null; // fail-open: 全てのエラーでフォールバック
