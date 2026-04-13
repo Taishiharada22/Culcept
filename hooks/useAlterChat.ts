@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from "react";
 import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMetadata } from "@/lib/stargazer/alterHomeAdapter";
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
+import type { MorningPlan, MorningPhase } from "@/lib/alter-morning/types";
 
 export type AlterMessage = {
   id: string;
@@ -97,6 +98,17 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     message: string;
     destination: string;
   } | null>(null);
+  /** Morning Protocol: プランデータ */
+  const [morningPlan, setMorningPlan] = useState<MorningPlan | null>(null);
+  const [morningPhase, setMorningPhase] = useState<MorningPhase | null>(null);
+  const [morningSessionId, setMorningSessionId] = useState<string | null>(null);
+  /** P0-1: ターン間で保持する追加セッション状態 */
+  const [morningRawInputs, setMorningRawInputs] = useState<string[]>([]);
+  const [morningParsedIntent, setMorningParsedIntent] = useState<any>(null);
+  const [morningSufficiency, setMorningSufficiency] = useState<any>(null);
+  const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>([]);
+  /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
+  const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
     try {
@@ -154,6 +166,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           mode: "warm",
           source: "home",
           ...(homeCtx ? { homeContext: homeCtx } : {}),
+          // Morning Protocol: 進行中セッションの状態を送信
+          // P0-1: parsedIntent / rawInputs / sufficiency もターン間で保持する
+          ...(morningPhase && !["completed", "skipped"].includes(morningPhase) ? {
+            morningSession: {
+              sessionId: morningSessionId ?? undefined,
+              phase: morningPhase,
+              plan: morningPlan ?? undefined,
+              rawInputs: morningRawInputs,
+              personalizeHints: morningPersonalizeHints,
+              parsedIntent: morningParsedIntent ?? undefined,
+              sufficiency: morningSufficiency ?? undefined,
+            },
+          } : {}),
+          // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
+          ...(softBridgePending ? { softBridgePending: true } : {}),
         }),
       });
 
@@ -213,6 +240,39 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       } else {
         setLastCounselorSoftLink(null);
       }
+      // Soft Bridge: レスポンスにフラグがあれば次ターンで確認応答を受け付ける
+      setSoftBridgePending(!!data.softBridgePending);
+
+      // Morning Protocol: プランデータ
+      // P0-1: parsedIntent / rawInputs / sufficiency もターン間で保持する
+      if (data.morningProtocol) {
+        setMorningPhase(data.morningProtocol.phase);
+        if (data.morningProtocol.sessionId) {
+          setMorningSessionId(data.morningProtocol.sessionId);
+        }
+        if (data.morningProtocol.plan) {
+          setMorningPlan(data.morningProtocol.plan);
+          // Conversation Starter: 途中状態のアイテムを永続化（途中離脱復帰用）
+          if (!data.morningProtocol.plan.confirmed && data.morningProtocol.plan.items?.length > 0) {
+            import("@/lib/alter-morning/conversationStarter").then(({ savePartialItems }) => {
+              savePartialItems(data.morningProtocol.plan.items);
+            });
+          }
+        }
+        // P0-1: 追加セッション状態の保存
+        if (data.morningProtocol.rawInputs) {
+          setMorningRawInputs(data.morningProtocol.rawInputs);
+        }
+        if (data.morningProtocol.parsedIntent !== undefined) {
+          setMorningParsedIntent(data.morningProtocol.parsedIntent);
+        }
+        if (data.morningProtocol.sufficiency !== undefined) {
+          setMorningSufficiency(data.morningProtocol.sufficiency);
+        }
+        if (data.morningProtocol.personalizeHints) {
+          setMorningPersonalizeHints(data.morningProtocol.personalizeHints);
+        }
+      }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
       const newTotal = priorDailyCount + sessionAlterCount + 1;
@@ -225,7 +285,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -240,6 +300,14 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setLastResponseId(null);
     setLastFeedbackMeta(null);
     setLastCounselorSoftLink(null);
+    setMorningPlan(null);
+    setMorningPhase(null);
+    setMorningSessionId(null);
+    // P0-1: 追加状態もリセット
+    setMorningRawInputs([]);
+    setMorningParsedIntent(null);
+    setMorningSufficiency(null);
+    setMorningPersonalizeHints([]);
   }, []);
 
   /** メッセージを外部から注入（リミット通知などAPI不使用の返答） */
@@ -266,6 +334,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     sendMessage,
     injectMessage,
     reset,
+    /** 思考中のリクエストを中断 */
+    abort: () => { abortRef.current?.abort(); },
     isActive: messages.length > 0,
     /** βテスターか（制限バイパス中） */
     isBetaTester,
@@ -283,5 +353,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     lastFeedbackMeta,
     /** Alter→Counselor ソフト導線（恋愛ドメイン時） */
     lastCounselorSoftLink,
+    /** Morning Protocol: プランデータ */
+    morningPlan,
+    /** Morning Protocol: 現在フェーズ */
+    morningPhase,
+    /** Morning Protocol: プランを更新（UI操作後） */
+    setMorningPlan,
   } as const;
 }

@@ -1,0 +1,426 @@
+/**
+ * Alter Morning Protocol — 型定義
+ *
+ * Alter画面でTodo/予定/コーデを統合管理するための型群。
+ * 既存の OrbitTask (Origin) / EventContext (Calendar) と接続する。
+ */
+
+import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(culcept)/calendar/_lib/vcTypes";
+import type { ActivityCategory } from "./activityVocabulary";
+import type { PlaceCategory } from "./placeTable";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MainLocation — 場所はプラン生成の中核フィールド
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface MainLocation {
+  /** 正規化ID（placeTable の id） */
+  canonicalId: string;
+  /** 表示ラベル（「マクドナルド」「図書館」等） */
+  label: string;
+  /** 場所カテゴリ */
+  category?: PlaceCategory;
+  /** 場所の取得元 */
+  source: "user_explicit" | "user_inferred" | "alter_suggested";
+  /** 場所の特性（placeTable から取得） */
+  traits?: {
+    indoor?: boolean;
+    workFriendly?: boolean;
+    studyFriendly?: boolean;
+    noisy?: boolean;
+    longStayOk?: boolean;
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// FlowContext — 1日の流れの文脈（「外で作業」「1日中」等）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface FlowContext {
+  /** 外出するか */
+  goOut?: boolean;
+  /** 時間的な規模感 */
+  durationHint?: "short" | "half_day" | "all_day";
+  /** 確度（「多分」「たぶん」→ low） */
+  certainty?: "high" | "medium" | "low";
+  /** 開始タイミング（「これから」「午後から」等） */
+  startWindow?: "now" | "morning" | "afternoon" | "evening" | "later";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LocationStop — 場所列（経由地・訪問先・メイン場所）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface LocationStop {
+  /** 場所ラベル（正規化済みまたはユーザー入力そのまま） */
+  label: string;
+  /** placeTableのID（解決できた場合） */
+  canonicalId?: string;
+  /** 場所の役割 */
+  kind: "visit" | "stop" | "main";
+  /** 順序 */
+  order: number;
+  /** placeTable のカテゴリ */
+  category?: PlaceCategory;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ParsedDayIntent — 構造化された1日の意図
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface ParsedTask {
+  /** 正規化されたタスク名 */
+  text: string;
+  /** アクティビティカテゴリ */
+  category?: ActivityCategory;
+  /** 推定所要時間（分） */
+  estimatedDurationMin: number;
+  /** 元テキスト内でのマッチ位置（sequenceOrder 決定用） */
+  textPosition?: number;
+}
+
+export interface ParsedFixedEvent {
+  /** タイトル */
+  title: string;
+  /** 開始時刻（HH:mm） */
+  startTime?: string;
+  /** 一緒にいる人 */
+  companion?: string;
+  /** 予定の種別（コーデ提案用） */
+  eventType?: EventType;
+  /** 元テキスト内でのマッチ位置（sequenceOrder 決定用） */
+  textPosition?: number;
+}
+
+export interface ParsedDayIntent {
+  /** 主タスク（やること） */
+  primaryTasks: ParsedTask[];
+  /** 時間固定の予定 */
+  fixedEvents: ParsedFixedEvent[];
+  /** 1日の流れの文脈 */
+  flowContext: FlowContext;
+  /** メインの場所 */
+  mainLocation?: MainLocation;
+  /** 場所が各タスクに紐づく場合 */
+  taskLocations?: Array<{ taskIndex: number; location: MainLocation }>;
+  /** 場所の訪問順序（visit=経由 → main=滞在場所） */
+  locationSequence?: LocationStop[];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PlanItem — プランの1項目（予定 or Todo）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type PlanItemKind = "fixed" | "todo" | "travel";
+
+export interface PlanItem {
+  id: string;
+  /** "fixed" = 時間が決まっている予定、"todo" = 柔軟に配置できるタスク、"travel" = 移動 */
+  kind: PlanItemKind;
+  /** 表示テキスト（ユーザーが書いた内容） */
+  text: string;
+  /** 開始時刻（HH:mm）。fixedは必須、todoはプランニング後に付与 */
+  startTime?: string;
+  /** 所要時間（分）。Alterが仮置き or ユーザー修正後の値 */
+  durationMin: number;
+  /** 予定の種別（コーデ提案用）。fixed予定から推定 */
+  eventType?: EventType;
+  /** 誰と（予定テキストから自動推定 or ユーザー回答） */
+  withWhom?: string;
+  /** Origin OrbitTask と同期する場合のID */
+  orbitTaskId?: string;
+  /** 完了状態 */
+  completed: boolean;
+  /** 場所（タスクごとに紐づく場合） */
+  location?: MainLocation;
+  /** アクティビティカテゴリ（語彙テーブルからの正規化結果） */
+  activityCategory?: ActivityCategory;
+  /**
+   * 順序制約（locationSequence 由来）。
+   * 0 始まりの整数。visit=0,1,... → main task=最後。
+   * buildDayPlan は duration ソートの前にこの値でソートする。
+   */
+  sequenceOrder?: number;
+  // ── travel 用フィールド ──
+  /** 移動の出発地ラベル（kind: "travel" のみ） */
+  travelFrom?: string;
+  /** 移動の到着地ラベル（kind: "travel" のみ） */
+  travelTo?: string;
+  /** 移動手段（kind: "travel" のみ） */
+  travelTransport?: TransportMode;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// MorningPlan — 1日のプラン全体
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface MorningPlan {
+  date: string; // YYYY-MM-DD
+  items: PlanItem[];
+  /** 1日を通しての条件（コーデ提案用） */
+  dayConditions: DayConditions;
+  /** プラン作成時刻 */
+  createdAt: string;
+  /** ユーザーが確定したか */
+  confirmed: boolean;
+  /** メインの場所（プラン生成の中核フィールド） */
+  mainLocation?: MainLocation;
+  /** 1日の流れの文脈 */
+  flowContext?: FlowContext;
+  /** 構造化された元の意図（パース結果の保持用） */
+  parsedIntent?: ParsedDayIntent;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DayConditions — 1日を通しての条件（EventContextへの変換元）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface DayConditions {
+  /** 主な移動手段 */
+  mainTransport?: TransportMode;
+  /** 場所の傾向 */
+  venue?: VenueType;
+  /** 雰囲気の希望（自由テキスト → formality / attention 等に変換） */
+  moodText?: string;
+  /** 誰と会うか（全体的に） */
+  withWhom?: string;
+  /** 複数イベントの比重（"work" | "date" | "balanced" 等） */
+  eventWeight?: EventType | "balanced";
+  /** 歩き量の推定 */
+  estimatedWalkLevel?: "low" | "medium" | "high";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Sufficiency Gate — 情報充足判定
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type SufficiencyLevel = "sufficient" | "partial" | "insufficient" | "no_plan";
+
+export interface SufficiencyResult {
+  level: SufficiencyLevel;
+  /** 推定できた項目 */
+  resolved: {
+    hasItems: boolean;
+    transport: boolean;
+    venue: boolean;
+    mood: boolean;
+    withWhom: boolean;
+  };
+  /** 不足している項目のリスト（Alterが聞くべきもの） */
+  missingFields: MissingField[];
+}
+
+export type MissingField =
+  | "transport"
+  | "venue"
+  | "mood"
+  | "withWhom";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TaskDurationMemory — タスク所要時間の学習
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface DurationPattern {
+  /** 最後に設定された時間（分） */
+  lastDuration: number;
+  /** 設定回数 */
+  count: number;
+  /** 平均時間（分） */
+  avgDuration: number;
+}
+
+export interface TaskDurationStore {
+  patterns: Record<string, DurationPattern>;
+  /** ストアバージョン */
+  version: number;
+  updatedAt: string;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Follow-up / Journal — 頻度制御
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface FollowUpThrottle {
+  /** 今日のフォロー回数 */
+  dailyFollowUpCount: number;
+  /** 最後にフォローした時刻（ISO） */
+  lastFollowUpAt: string | null;
+  /** 連続スキップ数 */
+  consecutiveSkips: number;
+  /** 今日の日付（リセット判定用） */
+  date: string;
+}
+
+export interface JournalPromptState {
+  /** 曜日別の記録頻度（0=日〜6=土、値は0-1の頻度） */
+  journalDayPattern: number[];
+  /** 連続辞退数 */
+  consecutiveDeclines: number;
+  /** 最後に誘導した日（YYYY-MM-DD） */
+  lastPromptDate: string | null;
+  /** 今日プランを作ったか */
+  planCreatedToday: boolean;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Weekday Patterns — 曜日別パターン学習（Phase 4）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface WeekdayRecord {
+  /** この曜日にプランを作った回数 */
+  planCount: number;
+  /** この曜日のタスク総数 */
+  taskTotal: number;
+  /** 完了タスク数 */
+  taskCompleted: number;
+  /** 途中タスク数 */
+  taskPartial: number;
+  /** 中止タスク数 */
+  taskSkipped: number;
+}
+
+export interface WeekdayPatternStore {
+  /** 曜日別レコード（index 0=日, 1=月, ..., 6=土） */
+  weekdays: [WeekdayRecord, WeekdayRecord, WeekdayRecord, WeekdayRecord, WeekdayRecord, WeekdayRecord, WeekdayRecord];
+  /** プラン作成総数（最小データ閾値の判定用） */
+  totalPlans: number;
+  /** 連続プラン作成日数（ストリーク） */
+  currentStreak: number;
+  /** 最後にプランを作った日（YYYY-MM-DD） */
+  lastPlanDate: string | null;
+  version: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Proactive Insights — プロアクティブ・インサイト（Phase 4）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type InsightType =
+  | "weekday_strength"     // 調子がいい曜日の検出
+  | "weekday_caution"      // 完了率が低い曜日の注意喚起
+  | "streak"               // 連続プラン作成の称賛
+  | "gentle_suggestion";   // タスク過多の検出
+
+export interface ProactiveInsight {
+  type: InsightType;
+  message: string;
+}
+
+export interface InsightThrottleStore {
+  /** インサイトタイプ別の最終表示日（YYYY-MM-DD） */
+  lastShown: Partial<Record<InsightType, string>>;
+  /** 今日インサイトを出したか */
+  shownToday: string | null; // YYYY-MM-DD
+  version: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Morning Protocol — オーケストレーション用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type MorningPhase =
+  | "greeting"           // 朝の挨拶
+  | "collecting"         // やること・予定を収集中
+  | "clarifying"         // 不足情報を聞いている
+  | "plan_presented"     // プラン提示済み（確認待ち）
+  | "plan_confirmed"     // プラン確定
+  | "outfit_offered"     // コーデ提案オファー
+  | "outfit_clarifying"  // コーデ用の不足情報を聞いている
+  | "outfit_presented"   // コーデ表示済み
+  | "completed"          // 朝のフロー完了
+  | "skipped";           // planning不要（通常Alterフロー）
+
+export interface MorningSession {
+  /** セッションID */
+  sessionId: string;
+  /** 現在のフェーズ */
+  phase: MorningPhase;
+  /** 収集したユーザー入力（生テキスト） */
+  rawInputs: string[];
+  /** 構造化されたプラン */
+  plan?: MorningPlan;
+  /** 構造化された意図（パース結果） */
+  parsedIntent?: ParsedDayIntent;
+  /** 充足判定結果 */
+  sufficiency?: SufficiencyResult;
+  /** パーソナライズメッセージ（「前回は90分で組んでたよ」等） */
+  personalizeHints: string[];
+  /** セッション開始時刻 */
+  startedAt: string;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Outfit Bridge — コーデ接続用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface OutfitBridgeInput {
+  plan: MorningPlan;
+  /** 天気情報（APIから取得済み） */
+  weather?: {
+    tempMax: number | null;
+    tempMin: number | null;
+    condition: "sunny" | "cloudy" | "rain" | "snow";
+    pop: number | null; // 降水確率
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// API Response — Alter APIからフロントへ返すデータ
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface MorningProtocolResponse {
+  /** 現在のフェーズ */
+  phase: MorningPhase;
+  /** Alterのテキスト返答 */
+  message: string;
+  /** プランデータ（plan_presented以降で付与） */
+  plan?: MorningPlan;
+  /** 追加質問（clarifyingフェーズ用） */
+  clarifyQuestion?: string;
+  /** パーソナライズヒント */
+  personalizeHints?: string[];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// カテゴリ別デフォルト所要時間（分）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export const DEFAULT_DURATION_MAP: Record<string, number> = {
+  // 仕事・学習系
+  仕事: 120,
+  作業: 60,
+  資料: 60,
+  ミーティング: 60,
+  会議: 60,
+  勉強: 60,
+  英語: 45,
+  読書: 45,
+  レポート: 90,
+  // 生活系
+  買い物: 30,
+  掃除: 30,
+  洗濯: 20,
+  料理: 45,
+  片付け: 30,
+  // 通院・外出系
+  歯医者: 60,
+  病院: 90,
+  美容院: 90,
+  銀行: 30,
+  役所: 60,
+  // 運動・リフレッシュ
+  ジム: 90,
+  ランニング: 40,
+  散歩: 30,
+  ヨガ: 60,
+  // 娯楽
+  映画: 150,
+  カフェ: 60,
+  // 食事
+  ランチ: 60,
+  ディナー: 90,
+  飲み会: 120,
+  食事: 60,
+  // デフォルト
+  _default: 45,
+};

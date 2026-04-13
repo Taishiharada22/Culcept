@@ -5,11 +5,13 @@ import { checkStargazerTier } from "@/lib/stargazer/tierGuard";
 import { STARGAZER_FLAGS } from "@/lib/stargazer/featureFlags";
 import {
   runPerspectiveEngine,
+  type PerspectiveEngineResult,
   type PerspectiveAudit,
   type PerspectiveBlock,
   type PerspectiveLatencyBreakdown,
   type QualityGateResult,
   type SearchTask,
+  type SearchTaskClassification,
   type ExplorationState,
   type ExplorationPhase,
   type CandidateEntity,
@@ -901,7 +903,16 @@ export async function POST(req: NextRequest) {
       /** A/B テスト用: PE の trustLevel を強制オーバーライド（dev only） */
       _abTestOverrideTrust?: number;
       /** Morning Protocol: クライアントから送信される進行中セッション状態 */
-      morningSession?: { sessionId?: string; phase: string; plan?: any };
+      morningSession?: {
+        sessionId?: string;
+        phase: string;
+        plan?: any;
+        // P0-1: ターン間で保持する追加フィールド
+        rawInputs?: string[];
+        personalizeHints?: string[];
+        parsedIntent?: any;
+        sufficiency?: any;
+      };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
     };
@@ -1371,12 +1382,14 @@ export async function POST(req: NextRequest) {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 派生事実セット: Deep Alter branch内で生成、analytics insertで参照
     let derivedFactSet: import("@/lib/stargazer/derivedFactGenerator").DerivedFactSet | undefined;
-    // Perspective Engine: 外部視点統合（v4: Task-Aware + explicit/implicit 分離 + Quality Gate 統合）
+    // Perspective Engine: 外部視点統合（v6: PerspectiveEngineResult top-level fields）
+    let peResult: PerspectiveEngineResult | null = null;
+    // Legacy vars — backward compat for analytics + gradual migration. Will be removed.
     let perspectiveAudit: PerspectiveAudit | null = null;
     let perspectiveBlock: PerspectiveBlock | null = null;
     let perspectiveLatency: PerspectiveLatencyBreakdown | null = null;
     let perspectiveQualityGate: QualityGateResult | null = null;
-    let perspectiveSearchTask: SearchTask | null = null;
+    let perspectiveSearchTask: SearchTaskClassification | null = null;
     let perspectiveExplorationState: ExplorationState | null = null;
     let perspectiveExplorationTemplate: ExplorationOutputTemplate | null = null;
     // Morning Protocol: 外部スコープに引き上げ（response objectで参照するため）
@@ -1494,20 +1507,31 @@ export async function POST(req: NextRequest) {
         // recommendation / knowledge 意図がある場合も conversation に昇格しない
         // 「合ってる趣味って何？」「おすすめの本ある？」等は回答品質が重要
         const hasRecommendationIntent = /合って[るい]|おすすめ|適して|向いて|ぴったり|教えて(?!ほしい)|何がいい|何かある[？?]|何か(?:ない|ある)|紹介/.test(message);
-        if ((hasRecentConversationalTurn || alterAskedRecently) && !hasExplicitJudgmentIntent && !hasPlanningIntent && !hasRecommendationIntent) {
+        // PE Fix: 明示的検索要求（「調べて」「WEBから」等）は conversation に昇格させない
+        // 昇格すると direct_response + conversationBlock が PE 出力を完全に上書きする
+        const hasExplicitSearchIntent = detectExplicitSearchIntent(message);
+        if ((hasRecentConversationalTurn || alterAskedRecently) && !hasExplicitJudgmentIntent && !hasPlanningIntent && !hasRecommendationIntent && !hasExplicitSearchIntent) {
           questionType = "conversation";
           console.info(`[conversational-mode] judgment → conversation (recent conversational turn detected, userTypes=${recentUserTypes.join(",")}, alterAsked=${alterAskedRecently})`);
+        }
+        if (hasExplicitSearchIntent && (hasRecentConversationalTurn || alterAskedRecently)) {
+          console.info(`[conversational-mode] Explicit search intent detected → keeping ${questionType} (skipping conversation override)`);
         }
       }
 
       // ── ask_me sticky mode: Alter が質問を投げた直後のユーザー応答を judgment に落とさない ──
       // Block 2（Block 1 のフォールバック）: 直前Alterメッセージが？で終わるかチェック
+      // PE Fix: 明示的検索要求は ask-me-sticky でも conversation に昇格させない
       if (questionType === "judgment" && conversationHistory.length >= 1) {
         const lastMsg = conversationHistory[conversationHistory.length - 1];
         const lastAlterText = lastMsg?.role === "alter" ? lastMsg.content : null;
-        if (shouldStickyConversation(message, lastAlterText)) {
+        const stickySearchGuard = detectExplicitSearchIntent(message);
+        if (shouldStickyConversation(message, lastAlterText) && !stickySearchGuard) {
           questionType = "conversation";
           console.info(`[ask-me-sticky] judgment → conversation (user is answering Alter's question, ${message.trim().length} chars)`);
+        }
+        if (stickySearchGuard && shouldStickyConversation(message, lastAlterText)) {
+          console.info(`[ask-me-sticky] Explicit search intent → keeping ${questionType} (skipping sticky override)`);
         }
       }
 
@@ -1568,14 +1592,19 @@ export async function POST(req: NextRequest) {
       // ── Strong: 直接 Morning Protocol に入る ──
       if (morningIntent === "strong") {
         // 既存セッション復元 or 新規作成
+        // P0-1: parsedIntent / rawInputs / sufficiency をクライアントから復元する。
+        // これがないと2ターン目で intent がゼロリセットされ、
+        // legacy parser がゴミタスクを追加し、travel items が消失する。
         if (hasExistingMorningSession) {
           morningSession = {
             sessionId: rawMorningSession!.sessionId ?? `ms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
             phase: rawMorningSession!.phase as MorningSession["phase"],
-            rawInputs: [],
-            personalizeHints: [],
+            rawInputs: rawMorningSession!.rawInputs ?? [],
+            personalizeHints: rawMorningSession!.personalizeHints ?? [],
             startedAt: new Date().toISOString(),
             plan: rawMorningSession!.plan ?? undefined,
+            parsedIntent: rawMorningSession!.parsedIntent ?? undefined,
+            sufficiency: rawMorningSession!.sufficiency ?? undefined,
           };
         } else {
           morningSession = createMorningSession();
@@ -3363,17 +3392,82 @@ export async function POST(req: NextRequest) {
         if (abTestOverridePhase !== undefined || abTestOverrideTrust !== undefined) {
           console.info(`[perspective-engine] A/B test override: phase=${peHdmPhase}, trust=${peTrustLevel}`);
         }
-        // v3: 短い explicit ask の場合、直前の会話文脈をクエリ生成に渡す
-        // 「WEBから見つけてきて」だけでは Privacy Gate がまともなクエリを生成できないため
+        // v3→P1.5: クエリ生成に渡す会話文脈を充実化
+        // 直前の会話文脈 + パーソナリティ特性 + ライフコンテキスト を組み合わせて
+        // 「この人向き」の候補を引き出すクエリ生成を支援する。
+        // ※ 個人情報（名前・メール等）は含めない。検索クエリ自体への混入は
+        //   classifyTaskAndGenerateQueries の LLM プロンプトで禁止されている。
         const peConversationSummary = (() => {
+          const parts: string[] = [];
+
+          // (1) 直前の会話文脈（従来通り）
           const recentUserMsgs = conversationHistory
             .filter(m => m.role === "user")
             .slice(-3)
             .map(m => m.content.slice(0, 100));
-          return recentUserMsgs.length > 0 ? recentUserMsgs.join(" → ") : undefined;
+          if (recentUserMsgs.length > 0) {
+            parts.push(`会話の流れ: ${recentUserMsgs.join(" → ")}`);
+          }
+
+          // (2) パーソナリティ特性（判断軸の極端なものだけ。検索候補の方向付けに使う）
+          if (personality?.axisScores) {
+            const axes = personality.axisScores;
+            const traitHints: string[] = [];
+            // 仕事・キャリア検索に影響する主要軸のみ抽出（|score-0.5| > 0.2 = 明確な傾向）
+            const axisLabels: Record<string, [string, string]> = {
+              cautious_vs_bold: ["慎重", "大胆"],
+              individual_vs_social: ["個人主義", "チーム志向"],
+              plan_vs_spontaneous: ["計画的", "柔軟"],
+              independence_vs_harmony: ["自律重視", "協調重視"],
+              change_embrace_vs_resist: ["変化歓迎", "安定重視"],
+              analytical_vs_intuitive: ["分析型", "直感型"],
+              growth_mindset: ["成長志向", "安定志向"],
+            };
+            for (const [key, [lowLabel, highLabel]] of Object.entries(axisLabels)) {
+              const score = axes[key as keyof typeof axes];
+              if (score !== undefined && score !== null) {
+                const deviation = (score as number) - 0.5;
+                if (Math.abs(deviation) > 0.2) {
+                  traitHints.push(deviation > 0 ? highLabel : lowLabel);
+                }
+              }
+            }
+            if (traitHints.length > 0) {
+              parts.push(`この人の傾向: ${traitHints.slice(0, 4).join("、")}`);
+            }
+          }
+
+          // (3) ライフコンテキスト（キャリア・価値観・情熱 — listing_search で特に有効）
+          if (lifeCtx) {
+            const lifeParts: string[] = [];
+            if (lifeCtx.careerLabels?.length) {
+              lifeParts.push(`職種: ${lifeCtx.careerLabels.slice(0, 2).join("・")}`);
+            }
+            if (lifeCtx.coreValues?.length) {
+              lifeParts.push(`価値観: ${lifeCtx.coreValues.slice(0, 2).join("・")}`);
+            }
+            if (lifeCtx.passions?.length) {
+              lifeParts.push(`関心: ${lifeCtx.passions.slice(0, 2).join("・")}`);
+            }
+            if (lifeParts.length > 0) {
+              parts.push(lifeParts.join("、"));
+            }
+          }
+
+          // (4) ベースライン（年代・地域 — 地域性のある検索で有効）
+          if (baselineCtx) {
+            const baseParts: string[] = [];
+            if (baselineCtx.lifeStage) baseParts.push(`ライフステージ: ${baselineCtx.lifeStage}`);
+            if (baselineCtx.prefecture) baseParts.push(`地域: ${baselineCtx.prefecture}`);
+            if (baseParts.length > 0) {
+              parts.push(baseParts.join("、"));
+            }
+          }
+
+          return parts.length > 0 ? parts.join("\n") : undefined;
         })();
 
-        const peResult = abTestDisablePerspective ? null : await runPerspectiveEngine({
+        peResult = abTestDisablePerspective ? null : await runPerspectiveEngine({
           message,
           queryContext: queryContext!,
           questionCategory,
@@ -3382,14 +3476,18 @@ export async function POST(req: NextRequest) {
           responseMode,
           userId,
           conversationSummary: peConversationSummary,
+          // P1.5: パーソナリティコンテキストをフラグメントランキングに渡す
+          personalityCtx: personality?.axisScores
+            ? { axisScores: personality.axisScores }
+            : null,
         });
         if (peResult) {
-          perspectiveAudit = peResult.audit;
-          perspectiveBlock = peResult.block;
+          perspectiveAudit = peResult.audit;  // keep for analytics backward compat
+          perspectiveBlock = peResult.block;  // keep for backward compat (will remove later)
           perspectiveLatency = peResult.latencyBreakdown ?? null;
-          perspectiveQualityGate = peResult.qualityGate ?? null;
-          perspectiveSearchTask = peResult.searchTask ?? null;
-          // v5: マルチターン探索の状態
+          perspectiveQualityGate = peResult.qualityGate ?? null;  // keep for analytics backward compat
+          perspectiveSearchTask = peResult.searchTaskClassification ?? null;  // keep for analytics backward compat
+          // NEW: use top-level fields instead of deprecated
           perspectiveExplorationState = peResult.explorationState ?? null;
           perspectiveExplorationTemplate = peResult.explorationTemplate ?? null;
 
@@ -3437,12 +3535,16 @@ export async function POST(req: NextRequest) {
               quality_gate_action: peResult.qualityGate?.action ?? null,
               quality_gate_reason: peResult.qualityGate?.reason ?? null,
               quality_gate_hedge: peResult.qualityGate?.needsHedge ?? null,
-              // v4 新フィールド: SearchTask
-              search_task_type: peResult.searchTask?.type ?? null,
-              search_task_fitness: peResult.searchTask?.searchFitness ?? null,
-              search_task_description: peResult.searchTask?.description ?? null,
+              // v4 新フィールド: SearchTaskClassification (internal)
+              search_task_type: peResult.searchTaskClassification?.type ?? null,
+              search_task_fitness: peResult.searchTaskClassification?.searchFitness ?? null,
+              search_task_description: peResult.searchTaskClassification?.description ?? null,
+              // v6 新フィールド: SearchTask (downstream)
+              downstream_task_type: peResult.searchTask?.type ?? null,
+              downstream_task_explicit: peResult.searchTask?.explicit ?? null,
+              downstream_task_confidence: peResult.searchTask?.confidence ?? null,
               // v5 新フィールド: Exploration
-              exploration_depth: peResult.searchTask?.explorationDepth ?? null,
+              exploration_depth: peResult.searchTaskClassification?.explorationDepth ?? null,
               exploration_id: peResult.explorationState?.explorationId ?? null,
               exploration_phase: peResult.explorationState?.currentPhase ?? null,
               exploration_turn: peResult.explorationState?.turnCount ?? null,
@@ -3504,7 +3606,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Perspective Engine v4: プロンプト注入 + 直答パス + listing_search honest limitation ──
+      // ── Perspective Engine v6: プロンプト注入 + 直答パス + listing_search honest limitation ──
       // 条件分岐の優先順位:
       //   1. Flag で検索不可 → 「まだ有効化していない」
       //   2. listing_search + explicit ask → honest limitation（周辺情報あれば併用）
@@ -3512,11 +3614,13 @@ export async function POST(req: NextRequest) {
       //   4. 検索したが不十分 (supplement + canClarify) → hedge 付き注入 + 1問確認OK
       //   5. listing_search + supplement（暗黙 or 非explicit） → 周辺情報 hedge 付き注入 + limitation
       //   6. 検索成功 → 通常注入
-      const peIsExplicit = perspectiveAudit?.isExplicitAsk ?? false;
-      const peQualityAction = perspectiveQualityGate?.action ?? null;
-      const peTaskType = perspectiveSearchTask?.type ?? null;
+      // P1: peResult top-level fields をソースオブトゥルースとして使用
+      const peIsExplicit = peResult?.searchTask?.explicit ?? false;
+      const peQualityAction = peResult?.qualityGate?.action ?? null;
+      const peTaskType = peResult?.searchTask?.type ?? null;
+      const peSearchTask = peResult?.searchTask ?? null;
 
-      if (perspectiveAudit?.explicitAskBlocked) {
+      if (peResult?.gateDecision === "blocked") {
         // Case 1: Explicit ask が検出されたが Flag OFF → 通常会話に流さず直答
         homeSystemPrompt += `\n\n[最上位制約 — 検索能力への直答]
 ユーザーはWeb検索を明示的に要求したが、今この機能はまだ有効化されていない。
@@ -3528,9 +3632,9 @@ export async function POST(req: NextRequest) {
         // Case 2: listing_search + explicit ask → honest limitation
         // Exa.ai は求人一覧・店舗一覧等のリスト検索ができない。正直に伝える。
         // ただし周辺情報（業界レポート、年収データ等）があれば併用する。
-        const hasPeripheralInfo = perspectiveBlock != null && perspectiveBlock.promptBlock.length > 0 && perspectiveBlock.fragments.length > 0;
-        if (hasPeripheralInfo && perspectiveBlock) {
-          homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        const hasPeripheralInfo = peResult != null && (peResult.promptBlock?.length ?? 0) > 0 && peResult.fragments.length > 0;
+        if (hasPeripheralInfo && peResult?.promptBlock) {
+          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
         }
         homeSystemPrompt += `\n\n[最上位制約 — リスト検索の能力限界への直答]
 ユーザーは具体的な一覧・リスト（求人一覧、お店一覧等）を求めているが、
@@ -3539,13 +3643,13 @@ ${hasPeripheralInfo
   ? `ただし関連する周辺情報（業界動向、統計データ等）は見つかったので、上記の外界の視点として活用すること。`
   : ""}
 必ず回答の中で以下の2点を含めること:
-1. 「実際の${perspectiveSearchTask?.description?.includes("求人") ? "求人サイト" : "一覧サイト"}を直接見に行く機能はまだないんだ」と正直に伝える
-2. 自分のパーソナルモデルから「${perspectiveSearchTask?.description?.includes("求人") ? "たいしさんの判断傾向を考えると、こういう軸で探すといいかも" : "こういう方向で探してみるのがいいかも"}」と助言する
+1. 「実際の${peSearchTask?.userNeed?.includes("求人") ? "求人サイト" : "一覧サイト"}を直接見に行く機能はまだないんだ」と正直に伝える
+2. 自分のパーソナルモデルから「${peSearchTask?.userNeed?.includes("求人") ? "たいしさんの判断傾向を考えると、こういう軸で探すといいかも" : "こういう方向で探してみるのがいいかも"}」と助言する
 禁止: リスト検索ができるかのように振る舞うこと。
 禁止: 検索した事実に触れずに通常会話に流すこと。`;
         console.info(
           `[perspective-engine] 📋 listing_search honest limitation injected` +
-          (hasPeripheralInfo ? ` (with ${perspectiveBlock!.fragments.length} peripheral fragments)` : " (no peripheral info)")
+          (hasPeripheralInfo ? ` (with ${peResult!.fragments.length} peripheral fragments)` : " (no peripheral info)")
         );
       } else if (peIsExplicit && (peQualityAction === "discard" || peQualityAction === "abstain")) {
         // Case 3: 検索したが結果なし or 品質不足 → 正直に伝える
@@ -3558,27 +3662,79 @@ ${hasPeripheralInfo
 禁止: 検索失敗に触れずに通常会話に流すこと。
 禁止: 「検索する機能がない」と嘘をつくこと（検索は試みた）。`;
         console.info(`[perspective-engine] ⚠️ Explicit ask + quality ${peQualityAction} → honest fallback injected`);
-      } else if (peIsExplicit && perspectiveQualityGate?.canClarify) {
+      } else if (peIsExplicit && peResult?.qualityGate?.canClarify) {
         // Case 4: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
-        if (perspectiveBlock && perspectiveBlock.promptBlock) {
-          homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        if (peResult?.promptBlock) {
+          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
         }
         homeSystemPrompt += `\n\n[検索結果が不十分 — 追加確認OK]
 外部情報を取得したが、十分な精度の情報が揃わなかった。
 自分の知識と取得できた情報を組み合わせて回答した上で、1問だけ確認を挟んでよい。
 例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」`;
-        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(perspectiveBlock?.promptBlock?.length ?? 0)} chars)`);
-      } else if (peTaskType === "listing_search" && perspectiveBlock && perspectiveBlock.promptBlock) {
+        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(peResult?.promptBlock?.length ?? 0)} chars)`);
+      } else if (peTaskType === "listing_search" && peResult?.promptBlock) {
         // Case 5: listing_search + 暗黙検索 → 周辺情報 hedge 付き + limitation 注記
-        homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
+        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
         homeSystemPrompt += `\n\n[注記 — リスト型情報の限界]
 上記の外部情報は周辺的な参考データであり、実際のリスト・一覧ではない。
 具体的なリストが必要な場合は、ユーザーに適切なサイト（求人サイト等）を案内してよい。`;
         console.info(`[perspective-engine] listing_search implicit → peripheral info with limitation note`);
-      } else if (perspectiveBlock && perspectiveBlock.promptBlock) {
+      } else if (peResult?.promptBlock) {
         // Case 6: 通常の検索結果注入
-        homeSystemPrompt += `\n\n${perspectiveBlock.promptBlock}`;
-        console.info(`[perspective-engine] Prompt block injected (${perspectiveBlock.promptBlock.length} chars)`);
+        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
+        console.info(`[perspective-engine] Prompt block injected (${peResult.promptBlock.length} chars)`);
+      }
+
+      // ── P1: 検索タスク別 response contract ──
+      // searchTask.type に応じて、LLM への出力指示を追加する。
+      // これにより downstream が fragments から search type を逆算する必要がなくなる。
+      if (peResult?.gateDecision === "fired" && peSearchTask) {
+        if (peSearchTask.type === "market_intel") {
+          homeSystemPrompt += `\n\n[検索応答契約 — market_intel]
+応答に含めること:
+- 取得した情報の要点（数値・統計があれば具体的に）
+- 情報の根拠（「〜によると」ではなく自分の言葉で）
+- パーソナルモデルの視点からの解釈
+禁止:
+- 「いろんな意見がある」で終わること
+- 情報の羅列だけで結論を出さないこと`;
+        } else if (peSearchTask.type === "listing_search") {
+          const hasEntities = (peSearchTask.candidateEntities?.length ?? 0) > 0;
+          if (hasEntities) {
+            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補あり）]
+応答に含めること:
+- 見つかった候補の名前を必ず明記すること（${peSearchTask.candidateEntities?.join("、") ?? ""}）
+- 各候補について1-2文の説明
+- パーソナルモデルの視点からなぜ合う/合わないかの解釈
+- 「気になるところがあれば教えて」で次のアクションを促す
+禁止:
+- 候補名を省略すること
+- 「いくつかの企業」等の曖昧な表現で候補を隠すこと`;
+          } else {
+            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補なし）]
+応答に含めること:
+- 直接的なリスト検索ができなかったことを正直に伝える
+- 見つかった周辺情報（業界動向等）があれば活用する
+- パーソナルモデルの視点から探し方のアドバイス
+禁止:
+- リストが見つかったかのように振る舞うこと`;
+          }
+        } else if (peSearchTask.type === "company_research") {
+          homeSystemPrompt += `\n\n[検索応答契約 — company_research]
+応答に含めること:
+- 対象企業/サービスの具体的な情報
+- パーソナルモデルの視点からの適合分析
+- 引っかかりそうな点があれば正直に
+禁止:
+- 検索結果にない情報を捏造すること`;
+        } else if (peSearchTask.type === "factual_lookup") {
+          homeSystemPrompt += `\n\n[検索応答契約 — factual_lookup]
+応答に含めること:
+- 事実の端的な回答（1-2文）
+- 確信度の表現（「確実ではないけど」等）
+禁止:
+- 事実確認なのに長い分析を展開すること`;
+        }
       }
 
       // ── v5: マルチターン探索の出力制約 ──
@@ -3628,6 +3784,28 @@ ${hasPeripheralInfo
           console.info(
             `[perspective-engine] 🔄 Exploration Turn ${perspectiveExplorationState.turnCount + 1} template injected`
           );
+        }
+      }
+
+      // ── PE Fix-1b: PE 発火時の mode/questionType 安全ネット ──
+      // PE がコンテンツを注入した場合、conversation モードの制約が PE 出力を上書きするのを防ぐ。
+      // Fix-1（早期検出）が効かなかった場合のフォールバック。
+      const peHasFiredWithContent = peResult?.gateDecision === "fired" &&
+        (peResult?.promptBlock || perspectiveExplorationTemplate);
+      if (peHasFiredWithContent) {
+        if (questionType === "conversation") {
+          const prevQType = questionType;
+          questionType = "knowledge"; // conversation block 注入 + conv-quality enforcement を回避
+          console.info(`[perspective-engine] 🔄 questionType override: ${prevQType}→knowledge (PE fired with content)`);
+        }
+        // PE が検索結果を注入した場合、direct_response / clarify は PE 出力を無視する。
+        // clarify は心理分析的な質問返しを生成し、検索結果を完全にスルーする。
+        // repair のみ例外（ユーザーが訂正を求めている場合は PE より修復が優先）。
+        if (responseMode === "direct_response" || responseMode === "clarify") {
+          const prevMode = responseMode;
+          responseMode = "conclude";
+          modeDecisionReason = "pe_search_override";
+          console.info(`[perspective-engine] 🔄 responseMode override: ${prevMode}→conclude (PE fired with content)`);
         }
       }
 
@@ -5878,16 +6056,28 @@ ${hasPeripheralInfo
       }
 
       // 検査（モード別バリデーション）
+      // P0-1: PE fired 時は validation をバイパスする。
+      // 理由: conclude モードは「具体的な行動提案」を要求するが、PE 応答は検索結果の提示であり
+      //       judgment 応答とは根本的に構造が異なる。validation fail → retry → double failure fallback
+      //       のチェーンが PE の検索結果（企業名・データ等）を完全に破壊していた。
       const validation = homeResponse?.trim()
-        ? validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode, questionType)
+        ? (peHasFiredWithContent
+          ? { pass: true, failures: [] as string[] }
+          : validateHomeAlterResponseWithMode(homeResponse, message, expectedKeywords, responseMode, questionType))
         : { pass: false, failures: ["応答の生成に失敗"] };
+      if (peHasFiredWithContent && homeResponse?.trim()) {
+        console.info("[perspective-engine] ✅ Validation bypassed (PE fired with content — search-result format, not judgment format)");
+      }
       p0ValidationFailures = validation.failures;
 
             // Contract-based validation: ドメイン固有の出力契約で検証
             // ただし greeting / direct_response / repair / clarify は契約修復の対象外
             // （軽量応答に機械的ラベルを付加すると人間らしさが壊れるため）
+            // PE fired 時も免除: 検索結果の提示ターンに通常会話の next_action 契約を
+            // 当てると、ゴミ末尾（無関係な性格アドバイス）が付加される
             const contractExemptModes: Set<string> = new Set(["direct_response", "repair", "clarify"]);
-            const isContractExempt = contractExemptModes.has(responseMode) || questionType === "greeting";
+            const isContractExempt = contractExemptModes.has(responseMode) || questionType === "greeting"
+              || !!peHasFiredWithContent;
             const contractDomain = queryContext?.domain ?? "general";
             contractValidationResult = homeResponse?.trim() && !isContractExempt
               ? validateAgainstContract(homeResponse, contractDomain, questionType)
@@ -6000,7 +6190,10 @@ ${hasPeripheralInfo
 
       // 不合格なら再生成（facts を明示して再試行）
       // 条件: validation不合格 + 応答が空でない + clarify/repair/direct_responseでない + 空レスリトライ済みでない
-      if (!validation.pass && homeResponse?.trim() && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response" && !emptyRetryAttempted) {
+      // P0-2: PE fired 時は retry/fallback ループを完全にスキップ。
+      // PE 応答は検索結果ベースであり、judgment validation の基準で再生成すると
+      // 検索で取得した企業名・データ等が double failure fallback のテンプレ応答に置換される。
+      if (!validation.pass && homeResponse?.trim() && responseMode !== "clarify" && responseMode !== "repair" && responseMode !== "direct_response" && !emptyRetryAttempted && !peHasFiredWithContent) {
         console.info("[home-alter] First response failed validation:", validation.failures);
         try {
           const retryPrompt = buildHomeAlterRetryPrompt(
@@ -6254,6 +6447,23 @@ ${hasPeripheralInfo
       //       LLM失敗時に突然出てくると不自然で、観測精度を下げる。
       if (!homeResponse?.trim()) {
         const namePrefix = userName ? `${userName}さん、` : "";
+
+        // P0-2b: PE fired だが LLM が空応答を返した場合 → fragments から直接構成
+        if (peHasFiredWithContent && peResult?.fragments?.length) {
+          const topFragments = peResult.fragments.slice(0, 3);
+          const fragmentTexts = topFragments
+            .map(f => f.text.trim())
+            .filter(t => t.length > 10)
+            .map(t => t.length > 120 ? t.slice(0, 120) + "…" : t);
+          if (fragmentTexts.length > 0) {
+            homeResponse = `${namePrefix}調べてみた。\n\n${fragmentTexts.join("\n\n")}\n\nまだ十分じゃないかもしれないけど、ここから深掘りしたい部分があれば教えて。`;
+            console.info("[perspective-engine] 🔧 Empty response PE fallback: used fragments directly");
+          } else {
+            homeResponse = `${namePrefix}調べてみたんだけど、今回はうまく情報を引き出せなかった。もう少し具体的に教えてくれると、別のアプローチで探せると思う。`;
+            console.info("[perspective-engine] 🔧 Empty response PE fallback: fragments too short, honest limitation");
+          }
+        } else {
+
         // ユーザーの発話からキーフレーズを抽出（エコーバック用、文節で自然に切断）
         const userKeyPhrase = message.length > 3 ? (() => {
           const max = Math.min(message.length, 30);
@@ -6312,6 +6522,7 @@ ${hasPeripheralInfo
           homeResponse = `${namePrefix}なるほど。もう少し聞かせてもらえる？`;
         }
         console.info(`[home-alter] Fallback response generated (type=${questionType}, mode=${responseMode})`);
+        } // close P0-2b else block
       }
       alterResponseText = homeResponse || "もう少し教えてもらえると、一緒に考えられると思う。";
 
@@ -6349,6 +6560,28 @@ ${hasPeripheralInfo
         try {
           // Semantic Ban Check（常時有効）
           v42SemanticBanCheck = checkSemanticBans(homeResponse);
+
+          // P0-3: PE fired → delegation ban を免除。
+          // 通常ターンでは「調べてみて」「考えてみて」等はユーザーへの宿題出し（禁止）。
+          // しかし PE ターンでは Alter 自身が検索を実行した結果を報告しており、
+          // 「調べてみた」「見つけた」等の表現が自然に発生する。
+          // delegation カテゴリのみ免除し、evasion/hollow_empathy/preamble は維持。
+          if (peHasFiredWithContent && !v42SemanticBanCheck.passed) {
+            const beforeCount = v42SemanticBanCheck.violations.length;
+            const nonDelegationViolations = v42SemanticBanCheck.violations.filter(
+              v => v.category !== "delegation"
+            );
+            v42SemanticBanCheck = {
+              passed: nonDelegationViolations.length === 0,
+              violations: nonDelegationViolations,
+            };
+            if (nonDelegationViolations.length < beforeCount) {
+              console.info(
+                `[perspective-engine] 🔄 Semantic ban delegation exemption: ${beforeCount - nonDelegationViolations.length} delegation ban(s) exempted for PE turn`
+              );
+            }
+          }
+
           if (!v42SemanticBanCheck.passed) {
             console.warn("[governance] Semantic ban violations:", v42SemanticBanCheck.violations.map(v => v.expression));
           }
@@ -8515,6 +8748,7 @@ ${hasPeripheralInfo
       // Soft Bridge: 次ターンで確認応答を受け付けるフラグ
       ...(isSoftBridgeResponse ? { softBridgePending: true } : {}),
       // Morning Protocol: プランデータをフロントに返す
+      // P0-1: parsedIntent / rawInputs / sufficiency もターン間で保持する
       ...(morningResponse && morningResponse.phase !== "skipped" ? {
         morningProtocol: {
           sessionId: morningSession?.sessionId ?? null,
@@ -8522,6 +8756,10 @@ ${hasPeripheralInfo
           plan: morningResponse.plan ?? null,
           clarifyQuestion: morningResponse.clarifyQuestion ?? null,
           personalizeHints: morningResponse.personalizeHints ?? [],
+          // ── P0-1: セッション状態の完全保持 ──
+          rawInputs: morningSession?.rawInputs ?? [],
+          parsedIntent: morningSession?.parsedIntent ?? null,
+          sufficiency: morningSession?.sufficiency ?? null,
         },
       } : {}),
       ...(queryContext ? {
@@ -8587,7 +8825,7 @@ ${hasPeripheralInfo
           quality_pass: qualityCheck?.pass ?? null,
         },
       },
-      // Perspective Engine v3 監査データ
+      // Perspective Engine v3 監査データ（backward compat for existing dashboards）
       ...(perspectiveAudit ? {
         perspectiveEngine: {
           gate_decision: perspectiveAudit.gateDecision,
@@ -8618,6 +8856,14 @@ ${hasPeripheralInfo
               required_info_type: perspectiveSearchTask.requiredInfoType,
             },
           } : {}),
+          // P1: downstream searchTask (source of truth)
+          downstream_search_task: peResult?.searchTask ? {
+            type: peResult.searchTask.type,
+            explicit: peResult.searchTask.explicit,
+            confidence: peResult.searchTask.confidence,
+            candidate_entities: peResult.searchTask.candidateEntities,
+          } : null,
+          gate_decision_v6: peResult?.gateDecision ?? null,
         },
       } : {}),
     });
