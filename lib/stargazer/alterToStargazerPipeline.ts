@@ -1,5 +1,3 @@
-"use server";
-
 // lib/stargazer/alterToStargazerPipeline.ts
 // Alter → Stargazer 信号パイプライン
 //
