@@ -283,11 +283,11 @@ export default function RendezvousDetailClient({ detail }: Props) {
       if (durationMs > 2000) {
         navigator.sendBeacon(
           "/api/orbiter/signal",
-          JSON.stringify({
+          new Blob([JSON.stringify({
             candidateId: detail.candidateId,
             signalType: "detail_view_end",
             payload: { durationMs },
-          }),
+          })], { type: "application/json" }),
         );
       }
     };

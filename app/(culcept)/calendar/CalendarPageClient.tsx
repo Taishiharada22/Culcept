@@ -21,7 +21,7 @@ import { PREFECTURES, prefectureToOfficeCode } from "@/lib/shared/location";
 import type { CalendarData, DayData, DayProposal, WornRecord, SatisfactionProfile, WeatherDrift } from "./_lib/types";
 import { DAILY_WEATHER_ICONS, WEEKDAYS, SYNC_BAND_COLORS } from "./_lib/constants";
 import { generateDayProposal } from "@/lib/shared/outfitEngine";
-import { getRecentlyWornItemIds, saveWornRecord, getWornRecordForDate, loadWornHistory } from "./_lib/rotationTracker";
+import { getRecentlyWornItemIds, saveWornRecord, getWornRecordForDate, loadWornHistory, isMemoryOnlyMode, wasHistoryTruncated } from "./_lib/rotationTracker";
 import type { CalendarPersonaProfile } from "./_lib/personaBoost";
 import { extractCalendarProfile } from "./_lib/personaBoost";
 import { buildSatisfactionProfile } from "./_lib/satisfactionLearner";
@@ -61,9 +61,11 @@ import OnboardingTooltip from "./_components/OnboardingTooltip";
 import StyleEvolutionCard from "./_components/StyleEvolutionCard";
 import FeatureIntroduction from "@/components/ui/FeatureIntroduction";
 import { CALENDAR_INTRO } from "@/lib/ui/featureIntroConfigs";
+import { retryFetch } from "@/lib/retryFetch";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 /* ── 定数 ── */
-const WARDROBE_KEY = "culcept_my_style_v2";
+const WARDROBE_KEY = "culcept_my_style_v3";
 const passthroughLoader: ImageLoader = ({ src }) => src;
 
 
@@ -71,6 +73,20 @@ const passthroughLoader: ImageLoader = ({ src }) => src;
 export default function CalendarPageClient() {
   usePassiveSensor("calendar");
   useFootprintTracker({ feature: "calendar" });
+  const { showError } = useSaveToast();
+  const storageWarningShown = React.useRef(false);
+
+  // ── ストレージ劣化の検知・通知 (C4 + H3) ──
+  const checkStorageHealth = React.useCallback(() => {
+    if (storageWarningShown.current) return;
+    if (isMemoryOnlyMode) {
+      storageWarningShown.current = true;
+      showError("ストレージが使用できないため、データはこのタブ内のみに保持されています");
+    } else if (wasHistoryTruncated) {
+      storageWarningShown.current = true;
+      showError("ストレージ容量不足のため着用履歴を短縮しました");
+    }
+  }, [showError]);
 
   // Shadow log: devtools console から getShadowSummary() で確認可能
   React.useEffect(() => {
@@ -241,9 +257,22 @@ export default function CalendarPageClient() {
       if (!active) return;
       try {
         const raw = localStorage.getItem(WARDROBE_KEY);
-        if (!raw) return;
-        const data = JSON.parse(raw);
-        setWardrobeItems(data.wardrobe ?? []);
+        if (raw) {
+          const data = JSON.parse(raw);
+          if (Array.isArray(data.wardrobe) && data.wardrobe.length > 0) {
+            setWardrobeItems(data.wardrobe);
+            return;
+          }
+        }
+      } catch { /* continue to IndexedDB */ }
+      // 3. フォールバック: IndexedDB（localStorage容量超過時）
+      if (!active) return;
+      try {
+        const { loadCachedState } = await import("@/app/(immersive)/my-style/_lib/stateCache");
+        const cached = await loadCachedState<{ wardrobe?: WardrobeItem[] }>("my-style-state");
+        if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0 && active) {
+          setWardrobeItems(cached.wardrobe as WardrobeItem[]);
+        }
       } catch { setWardrobeItems([]); }
     })();
     return () => { active = false; };
@@ -330,6 +359,7 @@ export default function CalendarPageClient() {
 
   const handleSaveWornRecord = async (record: WornRecord) => {
     saveWornRecord(record);
+    checkStorageHealth();
 
     // 拒否トラッキング: 提案と実際着用の差分を記録
     const dayProposal = dayProposals.get(record.date);
@@ -379,7 +409,7 @@ export default function CalendarPageClient() {
     }
 
     try {
-      await fetch("/api/calendar/day", {
+      const result = await retryFetch("/api/calendar/day", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -391,8 +421,13 @@ export default function CalendarPageClient() {
           },
         }),
       });
+      if (!result.ok) {
+        console.error("Failed to save worn record to server:", result.error);
+        showError("着用記録の保存に失敗しました");
+      }
     } catch (err) {
       console.error("Failed to save worn record to server:", err);
+      showError("着用記録の保存に失敗しました");
     }
   };
 

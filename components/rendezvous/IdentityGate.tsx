@@ -282,185 +282,341 @@ function LockedRomanceLane({ submittedAt }: { submittedAt?: string | null }) {
       })
     : null;
 
+  // Step definitions for progress stepper
+  const steps = [
+    { label: "受付済み", done: true, active: false },
+    { label: "審査中", done: false, active: true },
+    { label: "完了", done: false, active: false },
+  ];
+
   return (
     <div
       className="min-h-screen flex flex-col"
       style={{
-        background: "linear-gradient(180deg, rgba(233,30,99,0.03) 0%, rgba(10,10,25,1) 40%)",
+        background:
+          "linear-gradient(180deg, #FFF0F3 0%, #FFE0E8 25%, #F8C8D4 50%, #F0B4C4 75%, #E8A0B0 100%)",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      {/* ステータスカード */}
-      <div style={{ padding: "48px 24px 0" }}>
+      {/* ===== Layer 1: STATUS HERO + Layer 2: PROGRESS STEPS ===== */}
+      <div style={{ padding: "56px 24px 0" }}>
         <div
           style={{
-            background: "rgba(255,255,255,0.05)",
-            backdropFilter: "blur(20px)",
+            background: "rgba(255,255,255,0.85)",
             borderRadius: 20,
-            padding: "28px 24px",
-            border: "1px solid rgba(255,255,255,0.08)",
+            padding: 24,
+            boxShadow: "0 8px 32px rgba(0,0,0,0.08)",
             textAlign: "center",
           }}
         >
-          {/* ステータスインジケータ */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 20 }}>
+          {/* Animated status ring */}
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <div style={{ position: "relative", width: 80, height: 80 }}>
+              {/* Background ring (inactive) */}
+              <svg
+                width={80}
+                height={80}
+                viewBox="0 0 80 80"
+                style={{ position: "absolute", top: 0, left: 0 }}
+              >
+                <circle
+                  cx={40}
+                  cy={40}
+                  r={35}
+                  fill="none"
+                  stroke="rgba(0,0,0,0.06)"
+                  strokeWidth={3}
+                />
+              </svg>
+              {/* Active ring (animated, shows 2/3 progress) */}
+              <motion.svg
+                width={80}
+                height={80}
+                viewBox="0 0 80 80"
+                style={{ position: "absolute", top: 0, left: 0 }}
+                animate={{ rotate: 360 }}
+                transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+              >
+                <circle
+                  cx={40}
+                  cy={40}
+                  r={35}
+                  fill="none"
+                  stroke="#E91E63"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 35 * 0.55} ${2 * Math.PI * 35 * 0.45}`}
+                  style={{ filter: "drop-shadow(0 0 6px rgba(233,30,99,0.35))" }}
+                />
+              </motion.svg>
+              {/* Center content */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: 80,
+                  height: 80,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1025", lineHeight: 1 }}>
+                  2
+                </span>
+                <span style={{ fontSize: 9, color: "#A8A0B8", marginTop: 1 }}>
+                  / 3
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status badge */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 20px",
+              borderRadius: 20,
+              background: "#E91E63",
+              marginBottom: 16,
+            }}
+          >
             <motion.div
-              animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+              animate={{ scale: [1, 1.4, 1], opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               style={{
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: "#FBBF24",
+                background: "#fff",
               }}
             />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24", letterSpacing: "0.04em" }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "#fff", letterSpacing: "0.06em" }}>
               審査中
             </span>
-          </div>
+          </motion.div>
 
-          <h2 style={{ fontSize: 18, fontWeight: 800, color: "#fff", marginBottom: 8 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: "#1A1025", marginBottom: 6, letterSpacing: "-0.01em" }}>
             書類を受け付けました
           </h2>
 
           {formattedDate && (
-            <p style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginBottom: 12 }}>
+            <p style={{ fontSize: 12, color: "#A8A0B8", marginBottom: 0 }}>
               提出日: {formattedDate}
             </p>
           )}
 
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.7 }}>
-            通常は24時間以内に確認しています。
-            <br />
-            混雑時はもう少しお時間をいただくことがあります。
-          </p>
-
-          {/* 3ステップ：受付済み → 審査中 → 完了 */}
+          {/* --- Progress stepper (inside the same white card) --- */}
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 0,
               marginTop: 24,
-              padding: "16px 0 4px",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
+              paddingTop: 20,
+              borderTop: "1px solid rgba(0,0,0,0.06)",
             }}
           >
-            {[
-              { label: "受付済み", done: true },
-              { label: "審査中", active: true },
-              { label: "完了", done: false },
-            ].map((s, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 64 }}>
+            {/* Horizontal stepper */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                justifyContent: "center",
+                gap: 0,
+              }}
+            >
+              {steps.map((s, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center" }}>
                   <div
                     style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: "50%",
-                      background: s.done
-                        ? "rgba(99,102,241,0.4)"
-                        : s.active
-                        ? "rgba(251,191,36,0.2)"
-                        : "rgba(255,255,255,0.05)",
-                      border: s.active
-                        ? "1.5px solid rgba(251,191,36,0.5)"
-                        : s.done
-                        ? "1.5px solid rgba(99,102,241,0.5)"
-                        : "1px solid rgba(255,255,255,0.1)",
                       display: "flex",
+                      flexDirection: "column",
                       alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
+                      gap: 8,
+                      minWidth: 72,
                     }}
                   >
-                    {s.done ? "✓" : s.active ? "…" : ""}
+                    {/* Circle indicator */}
+                    <div
+                      style={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: "50%",
+                        background: s.done
+                          ? "#E91E63"
+                          : s.active
+                          ? "#E91E63"
+                          : "rgba(0,0,0,0.08)",
+                        border: s.active
+                          ? "2px solid rgba(233,30,99,0.3)"
+                          : "none",
+                        boxShadow: s.active
+                          ? "0 0 10px rgba(233,30,99,0.3)"
+                          : s.done
+                          ? "0 0 6px rgba(233,30,99,0.2)"
+                          : "none",
+                      }}
+                    />
+                    {/* Label */}
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: s.active ? 700 : 500,
+                        color: s.active
+                          ? "#E91E63"
+                          : s.done
+                          ? "#6B6580"
+                          : "#A8A0B8",
+                      }}
+                    >
+                      {s.label}
+                    </span>
                   </div>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: s.active ? 700 : 500,
-                      color: s.active ? "#FBBF24" : s.done ? "rgba(165,180,252,0.8)" : "rgba(255,255,255,0.3)",
-                    }}
-                  >
-                    {s.label}
-                  </span>
+                  {/* Connector line */}
+                  {i < 2 && (
+                    <div
+                      style={{
+                        width: 40,
+                        height: 2,
+                        borderRadius: 1,
+                        background: s.done
+                          ? "rgba(233,30,99,0.4)"
+                          : "rgba(0,0,0,0.08)",
+                        marginBottom: 24,
+                      }}
+                    />
+                  )}
                 </div>
-                {i < 2 && (
-                  <div
-                    style={{
-                      width: 32,
-                      height: 1,
-                      background: s.done
-                        ? "rgba(99,102,241,0.3)"
-                        : "rgba(255,255,255,0.08)",
-                      marginBottom: 20,
-                    }}
-                  />
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
+
+            {/* Estimated time */}
+            <p
+              style={{
+                fontSize: 12,
+                color: "#A8A0B8",
+                textAlign: "center",
+                marginTop: 14,
+                lineHeight: 1.6,
+              }}
+            >
+              通常24時間以内に完了します
+            </p>
           </div>
         </div>
       </div>
 
-      {/* 恋愛レーンの世界観プレビュー */}
-      <div style={{ padding: "32px 24px 0" }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: "rgba(233,30,99,0.7)", letterSpacing: "0.08em", marginBottom: 16 }}>
-          承認後に待っている体験
+      {/* ===== Layer 3: VALUE PREVIEW ===== */}
+      <div style={{ padding: "28px 24px 0" }}>
+        <p
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: "#1A1025",
+            letterSpacing: "0.04em",
+            marginBottom: 14,
+          }}
+        >
+          承認後にできること
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {[
-            { icon: "✦", title: "直感マッチング", desc: "写真とフィーリングで、運命の一瞬を掴む" },
-            { icon: "◈", title: "深層スコアリング", desc: "45軸の性格分析に基づく、本質的な相性判定" },
-            { icon: "◇", title: "AIカウンセラー", desc: "関係の深め方を、あなた専用に導く" },
-          ].map((item) => (
-            <div
+            {
+              icon: "✦",
+              color: "#E91E63",
+              title: "直感マッチング",
+              desc: "写真とフィーリングで、運命の一瞬を掴む",
+            },
+            {
+              icon: "◈",
+              color: "#7C4DFF",
+              title: "深層スコアリング",
+              desc: "45軸の性格分析に基づく、本質的な相性判定",
+            },
+            {
+              icon: "◇",
+              color: "#00BCD4",
+              title: "AIカウンセラー",
+              desc: "関係の深め方を、あなた専用に導く",
+            },
+          ].map((item, i) => (
+            <motion.div
               key={item.title}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.1 * i }}
               style={{
                 display: "flex",
                 alignItems: "flex-start",
                 gap: 14,
-                padding: "14px 16px",
-                borderRadius: 14,
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid rgba(255,255,255,0.05)",
+                padding: 16,
+                borderRadius: 16,
+                background: "rgba(255,255,255,0.75)",
+                border: "1px solid rgba(255,255,255,0.9)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
               }}
             >
-              <span style={{ fontSize: 16, color: "rgba(233,30,99,0.6)", flexShrink: 0, marginTop: 1 }}>
+              <span
+                style={{
+                  fontSize: 24,
+                  color: item.color,
+                  flexShrink: 0,
+                  lineHeight: 1,
+                  marginTop: 0,
+                }}
+              >
                 {item.icon}
               </span>
               <div>
-                <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.8)", marginBottom: 2 }}>
+                <p
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "#1A1025",
+                    marginBottom: 3,
+                  }}
+                >
                   {item.title}
                 </p>
-                <p style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", lineHeight: 1.6 }}>
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#6B6580",
+                    lineHeight: 1.6,
+                  }}
+                >
                   {item.desc}
                 </p>
               </div>
-            </div>
+            </motion.div>
           ))}
         </div>
       </div>
 
-      {/* 控えめなつながり誘導 */}
-      <div style={{ padding: "32px 24px 48px", marginTop: "auto" }}>
+      {/* ===== Layer 4: ALTERNATIVE ACTION ===== */}
+      <div style={{ padding: "28px 24px 48px", marginTop: "auto" }}>
         <button
           onClick={() => router.push("/rendezvous/connection")}
           style={{
             width: "100%",
             padding: "12px",
             borderRadius: 12,
-            border: "1px solid rgba(123,97,255,0.15)",
-            background: "rgba(123,97,255,0.05)",
-            color: "rgba(123,97,255,0.7)",
+            border: "1px solid rgba(0,0,0,0.15)",
+            background: "transparent",
+            color: "#6B6580",
             fontSize: 13,
             fontWeight: 600,
             cursor: "pointer",
           }}
         >
-          審査の間、つながりで出会いを広げる
+          つながりを探す
         </button>
       </div>
     </div>

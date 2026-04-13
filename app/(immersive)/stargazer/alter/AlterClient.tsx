@@ -278,15 +278,14 @@ function AlterBubble({
         {/* Mode indicator */}
         <div className="flex items-center gap-1.5 mb-1.5">
           <div
-            className={`w-1.5 h-1.5 rounded-full ${
-              message.mode === "warm"
+            className={`w-1.5 h-1.5 rounded-full ${message.mode === "warm"
                 ? "bg-amber-400"
                 : message.mode === "provocative"
                   ? "bg-rose-400"
                   : message.mode === "parts"
                     ? "bg-purple-400"
                     : "bg-blue-400"
-            }`}
+              }`}
           />
           <span className={`text-[10px] font-medium ${modeConfig.accent}`}>
             {modeConfig.label}
@@ -376,15 +375,14 @@ function SystemBubble({ message }: { message: ChatMessage }) {
         }}
       >
         <motion.div
-          className={`w-1.5 h-1.5 rounded-full ${
-            message.mode === "warm"
+          className={`w-1.5 h-1.5 rounded-full ${message.mode === "warm"
               ? "bg-amber-400"
               : message.mode === "provocative"
                 ? "bg-rose-400"
                 : message.mode === "parts"
                   ? "bg-purple-400"
                   : "bg-blue-400"
-          }`}
+            }`}
           animate={{ scale: [1, 1.4, 1] }}
           transition={{ duration: 1, repeat: 2 }}
         />
@@ -400,8 +398,62 @@ function SystemBubble({ message }: { message: ChatMessage }) {
 // Typing Indicator
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+const THINKING_PHRASES = [
+  "うーん...",
+  "そうだなあ...",
+  "そうですね...",
+  "考えますね...",
+  "ちょっと待って...",
+  "なるほど..!.",
+  "ふむふむ...",
+  "えっとー...",
+  "ちょっと考えさせて下さい...",
+  "そうだなあ...",
+];
+
 function TypingIndicator({ mode }: { mode: AlterMode }) {
   const modeConfig = MODE_CONFIG[mode];
+  const [text, setText] = useState("");
+  const phraseIdxRef = useRef(Math.floor(Math.random() * THINKING_PHRASES.length));
+
+  useEffect(() => {
+    let charIdx = 0;
+    let currentPhraseIdx = phraseIdxRef.current;
+    let phrase = THINKING_PHRASES[currentPhraseIdx];
+    let phase: "typing" | "pause" | "erasing" = "typing";
+    let cancelled = false;
+
+    function tick() {
+      if (cancelled) return;
+      if (phase === "typing") {
+        if (charIdx <= phrase.length) {
+          setText(phrase.slice(0, charIdx));
+          charIdx++;
+          setTimeout(tick, 80 + Math.random() * 60);
+        } else {
+          phase = "pause";
+          setTimeout(tick, 1200 + Math.random() * 600);
+        }
+      } else if (phase === "pause") {
+        phase = "erasing";
+        setTimeout(tick, 40);
+      } else if (phase === "erasing") {
+        if (charIdx > 0) {
+          charIdx--;
+          setText(phrase.slice(0, charIdx));
+          setTimeout(tick, 30);
+        } else {
+          currentPhraseIdx = (currentPhraseIdx + 1) % THINKING_PHRASES.length;
+          phrase = THINKING_PHRASES[currentPhraseIdx];
+          phase = "typing";
+          setTimeout(tick, 300);
+        }
+      }
+    }
+
+    tick();
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <motion.div
@@ -417,28 +469,15 @@ function TypingIndicator({ mode }: { mode: AlterMode }) {
           bg-gradient-to-br ${modeConfig.bgTint} ${modeConfig.borderColor}
         `}
       >
-        <div className="flex items-center gap-1.5">
-          {[0, 1, 2].map((i) => (
-            <motion.div
-              key={i}
-              className={`w-2 h-2 rounded-full ${
-                mode === "warm"
-                  ? "bg-amber-400"
-                  : mode === "provocative"
-                    ? "bg-rose-400"
-                    : mode === "parts"
-                      ? "bg-purple-400"
-                      : "bg-blue-400"
-              }`}
-              animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
-              transition={{
-                duration: 1.2,
-                delay: i * 0.2,
-                repeat: Infinity,
-              }}
-            />
-          ))}
-        </div>
+        <span className={`text-sm ${modeConfig.accent}`}>
+          {text}
+          <motion.span
+            className="inline-block w-[2px] h-[14px] ml-[1px] align-middle"
+            style={{ background: "currentColor" }}
+            animate={{ opacity: [1, 0, 1] }}
+            transition={{ duration: 0.8, repeat: Infinity }}
+          />
+        </span>
       </div>
     </motion.div>
   );
@@ -693,7 +732,7 @@ export default function AlterClient() {
           role: "system" as const,
           content: res.status === 401 ? "セッションが切れました。ページを更新してください。"
             : res.status === 400 ? "観測データが不足しています。先に観測を行ってください。"
-            : "サーバーエラーが発生しました。もう一度お試しください。",
+              : "サーバーエラーが発生しました。もう一度お試しください。",
           mode: currentMode,
           timestamp: new Date().toISOString(),
         };
@@ -961,15 +1000,14 @@ export default function AlterClient() {
                 </svg>
               </div>
               <motion.div
-                className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${
-                  currentMode === "warm"
+                className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white ${currentMode === "warm"
                     ? "bg-amber-400"
                     : currentMode === "provocative"
                       ? "bg-rose-400"
                       : currentMode === "parts"
                         ? "bg-purple-400"
                         : "bg-blue-400"
-                }`}
+                  }`}
                 animate={{ scale: [1, 1.2, 1] }}
                 transition={{ duration: 2, repeat: Infinity }}
               />
@@ -980,15 +1018,14 @@ export default function AlterClient() {
               </h1>
               <div className="flex items-center gap-1.5">
                 <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    currentMode === "warm"
+                  className={`w-1.5 h-1.5 rounded-full ${currentMode === "warm"
                       ? "bg-amber-400"
                       : currentMode === "provocative"
                         ? "bg-rose-400"
                         : currentMode === "parts"
                           ? "bg-purple-400"
                           : "bg-blue-400"
-                  }`}
+                    }`}
                 />
                 <span className={`text-xs ${modeConfig.accent}`}>
                   {currentMode === "parts" && activePartKey
@@ -1048,11 +1085,13 @@ export default function AlterClient() {
             <div className="text-center mb-6 px-4">
               <motion.div
                 className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-400 via-indigo-500 to-blue-500 mx-auto mb-3 flex items-center justify-center shadow-lg shadow-purple-300/30"
-                animate={{ boxShadow: [
-                  "0 10px 25px rgba(168,85,247,0.2)",
-                  "0 10px 40px rgba(168,85,247,0.35)",
-                  "0 10px 25px rgba(168,85,247,0.2)",
-                ]}}
+                animate={{
+                  boxShadow: [
+                    "0 10px 25px rgba(168,85,247,0.2)",
+                    "0 10px 40px rgba(168,85,247,0.35)",
+                    "0 10px 25px rgba(168,85,247,0.2)",
+                  ]
+                }}
                 transition={{ duration: 3, repeat: Infinity }}
               >
                 <svg className="w-10 h-10 text-white/90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1205,22 +1244,20 @@ export default function AlterClient() {
               return (
                 <div
                   key={mode}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] transition-all ${
-                    isActive
+                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] transition-all ${isActive
                       ? `bg-white/60 border border-slate-200/50 font-semibold ${cfg.accent}`
                       : "text-slate-400"
-                  }`}
+                    }`}
                 >
                   <div
-                    className={`w-1.5 h-1.5 rounded-full transition-all ${
-                      isActive
+                    className={`w-1.5 h-1.5 rounded-full transition-all ${isActive
                         ? mode === "warm"
                           ? "bg-amber-400"
                           : mode === "provocative"
                             ? "bg-rose-400"
                             : "bg-blue-400"
                         : "bg-slate-300"
-                    }`}
+                      }`}
                   />
                   {cfg.label}
                 </div>
@@ -1234,11 +1271,10 @@ export default function AlterClient() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.22 }}
                 onClick={() => setShowPartsSelector((v) => !v)}
-                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] transition-all border ${
-                  currentMode === "parts"
+                className={`flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] transition-all border ${currentMode === "parts"
                     ? "bg-purple-100/80 border-purple-300/60 font-semibold text-purple-600"
                     : "bg-white/50 border-purple-200/40 text-purple-500 hover:bg-purple-50/60"
-                }`}
+                  }`}
               >
                 <span>🎭</span>
                 <span>{activePartKey ? PART_PERSONAS[activePartKey].name : "パーツと話す"}</span>
@@ -1267,11 +1303,10 @@ export default function AlterClient() {
                         <button
                           key={key}
                           onClick={() => handleSelectPart(key)}
-                          className={`flex items-start gap-2.5 px-3 py-2 rounded-xl text-left transition-all hover:bg-purple-50/80 active:scale-[0.98] ${
-                            activePartKey === key
+                          className={`flex items-start gap-2.5 px-3 py-2 rounded-xl text-left transition-all hover:bg-purple-50/80 active:scale-[0.98] ${activePartKey === key
                               ? "bg-purple-50/80 border border-purple-200/60"
                               : "border border-transparent"
-                          }`}
+                            }`}
                         >
                           <div
                             className="w-2.5 h-2.5 rounded-full mt-0.5 shrink-0"

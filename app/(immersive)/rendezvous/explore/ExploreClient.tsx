@@ -14,6 +14,7 @@ import {
   type CandidateSignals,
   type SwipeDirection,
 } from "@/lib/rendezvous/swipeFeedback";
+import { retryFetch } from "@/lib/retryFetch";
 import { RV_COLORS, RV_CATEGORY_COLORS, RV_CATEGORY_LABELS, RvButton } from "@/components/ui/rendezvous-design";
 import type { RendezvousCategory } from "@/lib/rendezvous/types";
 
@@ -153,17 +154,19 @@ export default function ExploreClient({ userId }: ExploreClientProps) {
           body: JSON.stringify({ candidateId, direction }),
         });
 
-        // swipe-outcome API: 適応ウェイト学習用データ記録（fire-and-forget）
-        fetch(`/api/rendezvous/${candidateId}/swipe-outcome`, {
+        // swipe-outcome API: 適応ウェイト学習用データ記録（リトライ付き、await不要）
+        void retryFetch(`/api/rendezvous/${candidateId}/swipe-outcome`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             direction: direction === "right" ? "like" : direction === "up" ? "super_like" : "pass",
             category: signals?.category ?? "romantic",
           }),
-        }).catch(() => {});
+        }).then((res) => {
+          if (!res.ok) console.warn("[swipe-outcome] save failed after retries:", res.error);
+        });
       } catch {
-        // fire-and-forget
+        // explore API failure — non-blocking
       }
     },
     [],

@@ -324,7 +324,7 @@ export default function TodayTab({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
             >
-              <Link href="/rendezvous/explore" className="no-underline">
+              <Link href="/rendezvous/connection" className="no-underline">
                 <motion.button
                   className="px-8 py-3 rounded-full text-sm font-bold text-white border-none cursor-pointer"
                   style={{

@@ -80,6 +80,8 @@ async function executeProvider(
     jsonSchema: params.jsonSchema,
     requireJson: params.requireJson,
     temperature: params.temperature,
+    frequencyPenalty: params.frequencyPenalty,
+    presencePenalty: params.presencePenalty,
     maxOutputTokens: params.maxOutputTokens,
     timeoutMs: params.timeoutMs,
     inputParts: params.inputParts,

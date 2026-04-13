@@ -76,11 +76,11 @@ export default function InsightsTab({ state, swipeState }: { state: SavedState; 
 
     useEffect(() => {
         try {
-            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+            navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({
                 event: "mystyle_weekly_insight_shown",
                 feature: "my-style",
                 metadata: { snapshot_count: derived.timelineSnapshots.length, discovery_count: derived.discoveries.length },
-            }));
+            })], { type: "application/json" }));
         } catch { /* ignore */ }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
     const latestSnapshot = derived.timelineSnapshots[0] ?? null;

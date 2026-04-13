@@ -202,7 +202,7 @@ export default function TraitMapSubView({
           </motion.div>
 
       {/* ═══ Archetype Layer Chart ═══ */}
-      {archetypeResult && (
+      {archetypeResult && archetypeResult.layer1 && archetypeResult.layer2 && archetypeResult.layer3 && archetypeResult.layer4 && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}

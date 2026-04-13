@@ -33,10 +33,16 @@ import {
   shouldResumeExploration,
   buildResumeAnchors,
   createExplorationState,
+  peAssembleResponseContract,
+  extractCandidateEntityNames,
+  rankFragmentsByFit,
+  preFilterSearchResults,
+  buildPerspectivePromptBlock,
   type PerspectiveFragment,
-  type SearchTask,
+  type SearchTaskClassification,
   type ExplorationState,
   type CandidateEntity,
+  type PersonalityContext,
 } from "@/lib/stargazer/perspectiveEngine";
 import type { QueryContext, QuestionCategory } from "@/lib/stargazer/alterHomeAdapter";
 
@@ -71,7 +77,7 @@ function makeFragment(overrides: Partial<PerspectiveFragment> = {}): Perspective
   };
 }
 
-function makeSearchTask(overrides: Partial<SearchTask> = {}): SearchTask {
+function makeSearchTaskClassification(overrides: Partial<SearchTaskClassification> = {}): SearchTaskClassification {
   return {
     type: "factual_lookup",
     description: "test task",
@@ -297,7 +303,7 @@ describe("retrievalQualityGate", () => {
     const fragments = [
       makeFragment({ confidence: 0.8, stanceTowardQuery: "support" }),
     ];
-    const task = makeSearchTask({
+    const task = makeSearchTaskClassification({
       type: "listing_search",
       searchFitness: 0.2,
     });
@@ -308,8 +314,27 @@ describe("retrievalQualityGate", () => {
     expect(result.canClarify).toBe(false); // honest limitation パスへ
   });
 
+  it("listing_search + candidate entity あり → use にアップグレード", () => {
+    const fragments = [
+      makeFragment({
+        confidence: 0.8,
+        stanceTowardQuery: "support",
+        text: "Maple SRI はリモートワーク推進企業として注目されている。SHIFT社もIT業界で成長中。",
+      }),
+    ];
+    const task = makeSearchTaskClassification({
+      type: "listing_search",
+      searchFitness: 0.2,
+    });
+    const result = retrievalQualityGate(fragments, "自分に合う会社を探して", task);
+    expect(result.action).toBe("use");
+    expect(result.reason).toContain("listing_search_with_entities");
+    expect(result.needsHedge).toBe(true); // hedge は維持
+    expect(result.canClarify).toBe(false);
+  });
+
   it("listing_search + fragment なし → discard (honest limitation)", () => {
-    const task = makeSearchTask({
+    const task = makeSearchTaskClassification({
       type: "listing_search",
       searchFitness: 0.2,
     });
@@ -326,7 +351,7 @@ describe("retrievalQualityGate", () => {
       makeFragment({ confidence: 0.8, stanceTowardQuery: "support" }),
       makeFragment({ confidence: 0.75, stanceTowardQuery: "oppose" }),
     ];
-    const task = makeSearchTask({
+    const task = makeSearchTaskClassification({
       type: "perspective_seek",
       searchFitness: 0.7,
     });
@@ -340,7 +365,7 @@ describe("retrievalQualityGate", () => {
       makeFragment({ confidence: 0.8, stanceTowardQuery: "support" }),
       makeFragment({ confidence: 0.75, stanceTowardQuery: "support" }),
     ];
-    const task = makeSearchTask({
+    const task = makeSearchTaskClassification({
       type: "perspective_seek",
       searchFitness: 0.7,
     });
@@ -502,5 +527,359 @@ describe("createExplorationState", () => {
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
     expect(expires).toBeGreaterThanOrEqual(before + sevenDays - 1000);
     expect(expires).toBeLessThanOrEqual(after + sevenDays + 1000);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. extractCandidateEntityNames（v6）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("extractCandidateEntityNames", () => {
+  it("法人名マーカーからエンティティ名を抽出する", () => {
+    const fragments = [
+      makeFragment({
+        text: "株式会社テスト は注目されている。SHIFT社も成長中。",
+      }),
+    ];
+    const names = extractCandidateEntityNames(fragments);
+    expect(names.length).toBeGreaterThanOrEqual(1);
+    expect(names.some(n => n.includes("テスト"))).toBe(true);
+  });
+
+  it("ASCII大文字エンティティを抽出する", () => {
+    const fragments = [
+      makeFragment({ text: "Maple SRI はリモートワーク推進企業だ。NTT も注目。" }),
+    ];
+    const names = extractCandidateEntityNames(fragments);
+    expect(names).toContain("Maple SRI");
+    expect(names).toContain("NTT");
+  });
+
+  it("カタカナ3文字以上をエンティティとして抽出（ブラックリスト除外）", () => {
+    const fragments = [
+      makeFragment({ text: "ビズリーチ でキャリアを探す。サービス も良い。" }),
+    ];
+    const names = extractCandidateEntityNames(fragments);
+    expect(names).toContain("ビズリーチ");
+    // 「サービス」はブラックリストなので含まれない
+    expect(names).not.toContain("サービス");
+  });
+
+  it("fragment なしの場合は空配列を返す", () => {
+    expect(extractCandidateEntityNames([])).toEqual([]);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 9. peAssembleResponseContract（v6 Stage 6）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("peAssembleResponseContract", () => {
+  it("内部 entity_research を downstream company_research にマッピングする", () => {
+    const classification = makeSearchTaskClassification({
+      type: "entity_research",
+      description: "A社の調査",
+      searchFitness: 0.85,
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [makeFragment()],
+      reason: "sufficient_quality",
+      needsHedge: false,
+      canClarify: false,
+    };
+    const fragments = [makeFragment()];
+    const { searchTask } = peAssembleResponseContract(
+      classification, qualityResult, fragments, {}, false,
+    );
+    expect(searchTask.type).toBe("company_research");
+    expect(searchTask.explicit).toBe(false);
+    expect(searchTask.confidence).toBe(0.85);
+    expect(searchTask.rationale).toBe("A社の調査");
+  });
+
+  it("explicit ask の場合 searchTask.explicit が true になる", () => {
+    const classification = makeSearchTaskClassification({
+      type: "market_intel",
+      description: "エンジニア年収",
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [makeFragment()],
+      reason: "sufficient_quality",
+      needsHedge: false,
+      canClarify: false,
+    };
+    const { searchTask } = peAssembleResponseContract(
+      classification, qualityResult, [makeFragment()], {}, true,
+    );
+    expect(searchTask.explicit).toBe(true);
+    expect(searchTask.type).toBe("market_intel");
+  });
+
+  it("fragment にエンティティがある場合 candidateEntities が設定される", () => {
+    const classification = makeSearchTaskClassification({
+      type: "listing_search",
+      description: "転職先探し",
+      searchFitness: 0.2,
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [],
+      reason: "listing_search_with_entities(2)",
+      needsHedge: true,
+      canClarify: false,
+    };
+    const fragments = [
+      makeFragment({
+        text: "株式会社メイプル はリモート推進企業。SHIFT社 も成長中。",
+      }),
+    ];
+    const { searchTask, candidateEntities } = peAssembleResponseContract(
+      classification, qualityResult, fragments, {}, true,
+    );
+    expect(searchTask.type).toBe("listing_search");
+    expect(searchTask.candidateEntities).toBeDefined();
+    expect(searchTask.candidateEntities!.length).toBeGreaterThanOrEqual(1);
+    expect(candidateEntities.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("perspective_seek は downstream market_intel にマッピングされる", () => {
+    const classification = makeSearchTaskClassification({
+      type: "perspective_seek",
+      description: "HSPの世間の評価",
+      searchFitness: 0.7,
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [makeFragment()],
+      reason: "perspective_diverse_stances",
+      needsHedge: false,
+      canClarify: false,
+    };
+    const { searchTask } = peAssembleResponseContract(
+      classification, qualityResult, [makeFragment()], {}, false,
+    );
+    expect(searchTask.type).toBe("market_intel");
+  });
+
+  it("how_to は downstream factual_lookup にマッピングされる", () => {
+    const classification = makeSearchTaskClassification({
+      type: "how_to",
+      description: "起業の方法",
+      searchFitness: 0.7,
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [makeFragment()],
+      reason: "sufficient_quality",
+      needsHedge: false,
+      canClarify: false,
+    };
+    const { searchTask } = peAssembleResponseContract(
+      classification, qualityResult, [makeFragment()], {}, false,
+    );
+    expect(searchTask.type).toBe("factual_lookup");
+  });
+
+  it("personalityCtx が渡された場合、ランキングが適用される", () => {
+    const opportunityFragment = makeFragment({
+      text: "成長中のスタートアップ企業",
+      confidence: 0.8,
+      forceRelevance: { opportunity: 0.9, cost: 0.1, relationship: 0.1, value: 0.2, fear: 0.0, growth: 0.8 },
+    });
+    const riskFragment = makeFragment({
+      text: "大手企業の安定した給与体系",
+      confidence: 0.85,
+      forceRelevance: { opportunity: 0.2, cost: 0.8, relationship: 0.3, value: 0.5, fear: 0.6, growth: 0.1 },
+    });
+    const classification = makeSearchTaskClassification({
+      type: "listing_search",
+      description: "IT企業を探す",
+      searchFitness: 0.2,
+    });
+    const qualityResult = {
+      action: "use" as const,
+      filteredFragments: [riskFragment, opportunityFragment], // risk first by default
+      reason: "listing_search_with_entities(2)",
+      needsHedge: true,
+      canClarify: false,
+    };
+
+    // Bold + growth-oriented person → opportunity fragment should rank higher
+    const boldPersonality: PersonalityContext = {
+      axisScores: {
+        cautious_vs_bold: 0.85,
+        growth_mindset: 0.9,
+        independence_vs_harmony: 0.7,
+      },
+    };
+    const { promptBlock } = peAssembleResponseContract(
+      classification, qualityResult, [riskFragment, opportunityFragment], {}, true, boldPersonality,
+    );
+    // The prompt block should exist (ranking doesn't filter)
+    expect(promptBlock).toContain("成長中のスタートアップ企業");
+    expect(promptBlock).toContain("大手企業の安定した給与体系");
+  });
+});
+
+// ─── 10. rankFragmentsByFit（P1.5 パーソナリティランキング）───────────────
+
+describe("rankFragmentsByFit", () => {
+  it("personalityCtx なしの場合、元の順序を維持する", () => {
+    const f1 = makeFragment({ text: "A" });
+    const f2 = makeFragment({ text: "B" });
+    const result = rankFragmentsByFit([f1, f2], null);
+    expect(result[0].text).toBe("A");
+    expect(result[1].text).toBe("B");
+  });
+
+  it("1件のみの場合、そのまま返す", () => {
+    const f1 = makeFragment({ text: "Single" });
+    const result = rankFragmentsByFit([f1], { axisScores: { cautious_vs_bold: 0.9 } });
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe("Single");
+  });
+
+  it("大胆な人にはopportunity/growth高のfragmentが上位に来る", () => {
+    const cautionFragment = makeFragment({
+      text: "安全な選択肢",
+      confidence: 0.8,
+      forceRelevance: { opportunity: 0.1, cost: 0.8, relationship: 0.2, value: 0.3, fear: 0.7, growth: 0.1 },
+    });
+    const boldFragment = makeFragment({
+      text: "挑戦的な選択肢",
+      confidence: 0.8,
+      forceRelevance: { opportunity: 0.9, cost: 0.1, relationship: 0.1, value: 0.2, fear: 0.0, growth: 0.9 },
+    });
+
+    const boldPerson: PersonalityContext = {
+      axisScores: {
+        cautious_vs_bold: 0.9,
+        growth_mindset: 0.85,
+        change_embrace_vs_resist: 0.8,
+        independence_vs_harmony: 0.7,
+        plan_vs_spontaneous: 0.6,
+      },
+    };
+
+    // caution first → bold person should rerank to bold first
+    const result = rankFragmentsByFit([cautionFragment, boldFragment], boldPerson);
+    expect(result[0].text).toBe("挑戦的な選択肢");
+  });
+
+  it("慎重な人にはcost/fear高のfragmentが上位に来る", () => {
+    const boldFragment = makeFragment({
+      text: "挑戦的な選択肢",
+      confidence: 0.8,
+      forceRelevance: { opportunity: 0.9, cost: 0.1, relationship: 0.1, value: 0.2, fear: 0.0, growth: 0.9 },
+    });
+    const cautionFragment = makeFragment({
+      text: "安全な選択肢",
+      confidence: 0.8,
+      forceRelevance: { opportunity: 0.1, cost: 0.8, relationship: 0.2, value: 0.3, fear: 0.7, growth: 0.1 },
+    });
+
+    const cautiousPerson: PersonalityContext = {
+      axisScores: {
+        cautious_vs_bold: 0.15,
+        growth_mindset: 0.2,
+        change_embrace_vs_resist: 0.2,
+        independence_vs_harmony: 0.3,
+      },
+    };
+
+    // bold first → cautious person should rerank to caution first
+    const result = rankFragmentsByFit([boldFragment, cautionFragment], cautiousPerson);
+    expect(result[0].text).toBe("安全な選択肢");
+  });
+});
+
+// ── P1-3: buildPerspectivePromptBlock ─────────────────────────────────
+describe("buildPerspectivePromptBlock", () => {
+  it("fragments ゼロの場合は空文字を返す", () => {
+    expect(buildPerspectivePromptBlock([], {}, false, false)).toBe("");
+  });
+
+  it("暗黙検索では外部視点の応答織り込みを必須指示にする（P1-3 修正）", () => {
+    const f = makeFragment({ text: "統計データ: 年収500万の中央値" });
+    const result = buildPerspectivePromptBlock([f], {}, false, false);
+    // 必須指示が入っていること（旧: 「語ってよい」→ 新: 「必ず織り込む」）
+    expect(result).toContain("必ず織り込む");
+    expect(result).toContain("無視して内部知識だけで答えることは禁止");
+    // 「記事によると」は使わない指示
+    expect(result).toContain("「記事によると」「研究では」とは言わない");
+  });
+
+  it("explicit 検索ではユーザーに検索したことを伝える指示が入る", () => {
+    const f = makeFragment({ text: "最新の業界動向" });
+    const result = buildPerspectivePromptBlock([f], {}, false, true);
+    expect(result).toContain("検索を依頼した");
+    expect(result).toContain("調べてみた");
+  });
+
+  it("hedge 付きの場合は修飾指示が含まれる", () => {
+    const f = makeFragment({ text: "不確実なデータ" });
+    const result = buildPerspectivePromptBlock([f], {}, true, false);
+    expect(result).toContain("確実ではないけど");
+  });
+});
+
+// ─── 12. preFilterSearchResults（P1.6 ノイズ除去）─────────────────────
+
+describe("preFilterSearchResults", () => {
+  function makeSearchResult(overrides: Partial<{ title: string; url: string; text: string; highlights: string[] }> = {}) {
+    return {
+      title: "テスト記事タイトル",
+      url: "https://example.com/article",
+      text: "これは十分な長さのテスト記事のテキストです。30文字以上あるので通過するはずです。",
+      highlights: [],
+      ...overrides,
+    };
+  }
+
+  it("正常な結果はそのまま通す", () => {
+    const results = [makeSearchResult()];
+    const { kept, droppedCount } = preFilterSearchResults(results);
+    expect(kept).toHaveLength(1);
+    expect(droppedCount).toBe(0);
+  });
+
+  it("テキストが30文字未満の結果を除外する", () => {
+    const results = [
+      makeSearchResult({ text: "短すぎるテキスト" }), // <30文字
+      makeSearchResult({ text: "これは十分な長さの記事テキストです。IT業界の最新動向について解説します。" }),
+    ];
+    const { kept, droppedCount } = preFilterSearchResults(results);
+    expect(kept).toHaveLength(1);
+    expect(droppedCount).toBe(1);
+    expect(kept[0].text).toContain("十分な長さ");
+  });
+
+  it("ノイズURLドメインの結果を除外する", () => {
+    const results = [
+      makeSearchResult({ url: "https://point.rakuten.co.jp/campaign" }),
+      makeSearchResult({ url: "https://example.com/good-article" }),
+    ];
+    const { kept, droppedCount } = preFilterSearchResults(results);
+    expect(kept).toHaveLength(1);
+    expect(droppedCount).toBe(1);
+  });
+
+  it("検索UI断片のテキストを除外する", () => {
+    const results = [
+      makeSearchResult({ text: "検索結果 約1,200,000件 (0.32秒)" }),
+      makeSearchResult({ text: "ログインして続きを読む このコンテンツはプレミアム会員限定です" }),
+      makeSearchResult(),
+    ];
+    const { kept, droppedCount } = preFilterSearchResults(results);
+    expect(kept).toHaveLength(1);
+    expect(droppedCount).toBe(2);
+  });
+
+  it("空の入力には空の結果を返す", () => {
+    const { kept, droppedCount } = preFilterSearchResults([]);
+    expect(kept).toHaveLength(0);
+    expect(droppedCount).toBe(0);
   });
 });

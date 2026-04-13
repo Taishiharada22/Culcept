@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   } catch (e) {
     console.error("[entry-records] GET unexpected:", e);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "エントリーレコードの取得に失敗しました" },
       { status: 500 },
     );
   }
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[entry-records] POST unexpected:", e);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "エントリーレコードの同期に失敗しました" },
       { status: 500 },
     );
   }

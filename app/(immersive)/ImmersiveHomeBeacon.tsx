@@ -14,9 +14,14 @@ import { usePathname } from "next/navigation";
 export default function ImmersiveHomeBeacon() {
   const pathname = usePathname();
 
-  // /onboarding 中・/stargazer 中は非表示（サーバーゲートと整合）
+  // /onboarding 中・/stargazer 中は非表示
   if (pathname === "/onboarding") return null;
   if (pathname === "/stargazer") return null;
+  if (pathname.startsWith("/stargazer")) return null;
+  // Rendezvous は独自ナビゲーション（layout.tsx 内の /aneurasync リンク）を使用
+  if (pathname.startsWith("/rendezvous")) return null;
+  // My Style は独自ナビゲーション（ページ内の back link + QuickAccessBar）を使用
+  if (pathname.startsWith("/my-style")) return null;
 
   return (
     <Link

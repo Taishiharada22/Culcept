@@ -300,11 +300,25 @@ async function handleSemanticDifferential(
   };
   logPayload("Semantic profile payload", profilePayload);
 
+  // 既存の _fit_feedback を保持するため、resolved_types の axis_scores をマージ
+  let mergedAxisScores: Record<string, unknown> = axisScores;
+  {
+    const { data: existingRT } = await supabase
+      .from("stargazer_resolved_types")
+      .select("axis_scores")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const existingFeedback = (existingRT?.axis_scores as Record<string, unknown>)?._fit_feedback;
+    if (existingFeedback) {
+      mergedAxisScores = { ...axisScores, _fit_feedback: existingFeedback };
+    }
+  }
+
   const resolvedTypePayload = {
     user_id: userId,
     ...(resolvedType ? { archetype_code: resolvedType } : {}),
     top_matches: topMatches ?? [],
-    axis_scores: axisScores,
+    axis_scores: mergedAxisScores,
     confidence,
     updated_at: new Date().toISOString(),
   };
@@ -340,6 +354,19 @@ async function handleSemanticDifferential(
       serializeForLog(starMapPayload)
     );
     criticalErrors.push(`star_map: ${describeDbError(mapError)}`);
+  }
+
+  // 2.5. profiles.baseline_completed_at を自動セット（オンボーディング完了 = baseline完了）
+  // mapError に関わらず実行（baseline_completed_at がユーザーの /baseline リダイレクトを防ぐ）
+  {
+    const { error: baselineErr } = await supabase
+      .from("profiles")
+      .update({ baseline_completed_at: new Date().toISOString() })
+      .eq("id", userId)
+      .is("baseline_completed_at", null);
+    if (baselineErr) {
+      console.warn("[Stargazer API] baseline_completed_at update failed (non-critical):", baselineErr.message);
+    }
   }
 
   // 3. stargazer_profiles を upsert [CRITICAL]
@@ -537,6 +564,18 @@ async function handleStage1MultiChoice(
     criticalErrors.push(`star_map: ${describeDbError(mapError)}`);
   }
 
+  // 2.5. profiles.baseline_completed_at を自動セット（Stage1完了 = baseline完了）
+  {
+    const { error: baselineErr } = await supabase
+      .from("profiles")
+      .update({ baseline_completed_at: new Date().toISOString() })
+      .eq("id", userId)
+      .is("baseline_completed_at", null);
+    if (baselineErr) {
+      console.warn("[Stargazer API] baseline_completed_at update failed (stage1, non-critical):", baselineErr.message);
+    }
+  }
+
   // 3. stargazer_profiles を upsert (with stage_progress) [CRITICAL]
   const { error: profileError } = await supabase
     .from("stargazer_profiles")
@@ -565,6 +604,19 @@ async function handleStage1MultiChoice(
   }
 
   // 4. stargazer_resolved_types を upsert
+  // 既存の _fit_feedback を保持するためマージ
+  let stage1MergedAxisScores: Record<string, unknown> = axisScores;
+  {
+    const { data: existingRT } = await supabase
+      .from("stargazer_resolved_types")
+      .select("axis_scores")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const existingFeedback = (existingRT?.axis_scores as Record<string, unknown>)?._fit_feedback;
+    if (existingFeedback) {
+      stage1MergedAxisScores = { ...axisScores, _fit_feedback: existingFeedback };
+    }
+  }
   const { error: typeError } = await supabase
     .from("stargazer_resolved_types")
     .upsert(
@@ -572,7 +624,7 @@ async function handleStage1MultiChoice(
         user_id: userId,
         ...(resolvedType ? { archetype_code: resolvedType } : {}),
         top_matches: topMatches ?? [],
-        axis_scores: axisScores,
+        axis_scores: stage1MergedAxisScores,
         confidence,
         updated_at: new Date().toISOString(),
       },

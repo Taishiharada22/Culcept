@@ -11,6 +11,8 @@ import {
   RV_CATEGORY_COLORS,
   type RvCategory,
 } from "@/components/ui/rendezvous-design";
+import { retryFetch } from "@/lib/retryFetch";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 // =============================================================================
 // TopicAnswerClient — お題回答入力UI
@@ -27,6 +29,7 @@ type TopicData = {
 
 export function TopicAnswerClient({ category }: { category: string }) {
   const router = useRouter();
+  const { showError } = useSaveToast();
   const [topic, setTopic] = useState<TopicData | null>(null);
   const [answer, setAnswer] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -61,7 +64,7 @@ export function TopicAnswerClient({ category }: { category: string }) {
     if (!topic || !answer.trim() || submitting) return;
     setSubmitting(true);
     try {
-      const res = await fetch("/api/rendezvous/topic/answer", {
+      const res = await retryFetch<{ ok: boolean }>("/api/rendezvous/topic/answer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -70,10 +73,13 @@ export function TopicAnswerClient({ category }: { category: string }) {
           category,
         }),
       });
-      const data = await res.json();
-      if (data.ok) {
+      if (res.ok && res.data?.ok) {
         setSubmitted(true);
+      } else {
+        showError("回答の保存に失敗しました");
       }
+    } catch {
+      showError("回答の保存に失敗しました");
     } finally {
       setSubmitting(false);
     }

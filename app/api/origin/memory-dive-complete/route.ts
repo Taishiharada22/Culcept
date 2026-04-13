@@ -87,7 +87,7 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error("[memory-dive-complete]", err);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "メモリーダイブの完了処理に失敗しました" },
       { status: 500 },
     );
   }

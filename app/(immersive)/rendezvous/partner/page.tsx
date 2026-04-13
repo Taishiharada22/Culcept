@@ -28,13 +28,15 @@ export default async function PartnerPage() {
   // Partner プロフィールの存在チェック（MVP: category=partnerで判定）
   const { data: partnerProfile } = await supabase
     .from("rendezvous_profiles")
-    .select("primary_category, is_enabled")
+    .select("primary_category, is_enabled, review_status")
     .eq("user_id", user.id)
     .maybeSingle();
 
   const hasPartnerTier =
     partnerProfile?.primary_category === "partner" &&
     partnerProfile?.is_enabled === true;
+
+  const reviewStatus = (partnerProfile?.review_status as "not_submitted" | "pending" | "approved" | "rejected") ?? "not_submitted";
 
   // Phase Gate チェック（Stargazer 深層観測の進行度による機能ゲート）
   const phaseGate = await checkPhaseGate(user.id);
@@ -68,13 +70,13 @@ export default async function PartnerPage() {
               Partner準備 / 候補
             </p>
           </div>
-          <PartnerOnboardingHub />
+          <PartnerOnboardingHub reviewStatus={reviewStatus} />
         </section>
       )}
 
       {!hasPartnerTier && (
         <section>
-          <PartnerOnboardingHub />
+          <PartnerOnboardingHub reviewStatus={reviewStatus} />
         </section>
       )}
     </div>

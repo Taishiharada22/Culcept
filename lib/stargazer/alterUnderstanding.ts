@@ -238,6 +238,13 @@ export function deriveTrustLevel(
   else if (sessionsCompleted >= 3) baseTrust = 1;
   else if (currentSessionTurnCount !== undefined && currentSessionTurnCount >= 4) baseTrust = 1;
 
+  // ── Step 1b: Phase floor（Phase が進んでいるのに T0 は矛盾）──
+  // Phase 2+ まで到達 = 相応の対話蓄積がある。Trust floor で底上げする。
+  // Phase cap は ceiling（上限）、Phase floor は下限。両方必要。
+  if (phaseTrustCap !== undefined && phaseTrustCap >= 2 && baseTrust < 1) {
+    baseTrust = 1;
+  }
+
   // シグナルがない場合は baseline をそのまま返す
   if (!relationalSignals) {
     const effective = phaseTrustCap !== undefined
@@ -305,6 +312,14 @@ export function deriveTrustLevel(
 
   // クランプ: 0-4 の範囲に収める
   adjusted = Math.max(0, Math.min(4, adjusted));
+
+  // Phase floor 再適用: シグナル調整で T0 に落ちた場合、Phase 2+ なら T1 を下限とする
+  // （Step 1b の floor は baseTrust にのみ適用されるため、調整後にも再適用が必要）
+  if (phaseTrustCap !== undefined && phaseTrustCap >= 2 && adjusted < 1) {
+    adjusted = 1;
+    reasons.push("phase_floor_reapplied");
+  }
+
   const signalAdjusted = adjusted as TrustLevel;
 
   // ── Step 3: Phase cap ──
@@ -1185,12 +1200,12 @@ export function filterActiveContext(entries: LifeContextEntry[]): LifeContextEnt
  */
 export function maxContextEntriesByTrust(trustLevel: TrustLevel): number {
   switch (trustLevel) {
-    case 0: return 0;
-    case 1: return 1;  // CEO指示: T1では最大1件、質問に直接関係あるものだけ
-    case 2: return 2;
-    case 3: return 3;
+    case 0: return 2;  // T0でも高確信度の基本情報は2件まで開示（知らなすぎると退化する）
+    case 1: return 2;  // CEO指示: T1では最大2件、質問に直接関係あるものだけ
+    case 2: return 3;
+    case 3: return 4;
     case 4: return 5;
-    default: return 1;
+    default: return 2;
   }
 }
 
@@ -1205,7 +1220,6 @@ export function formatContextForPrompt(
   trustLevel: TrustLevel,
 ): string {
   if (entries.length === 0) return "";
-  if (trustLevel < 1) return "";
 
   const maxEntries = maxContextEntriesByTrust(trustLevel);
   const lines: string[] = [];
@@ -1581,9 +1595,6 @@ export function determineDisclosureLevel(
   trustLevel: TrustLevel,
   isRelevantToCurrentMessage: boolean,
 ): DisclosureLevel {
-  // Trust Level 0: 全て silent
-  if (trustLevel < 1) return "silent";
-
   // 古い情報は silent
   if (entry.possibly_stale) return "silent";
 
@@ -1598,6 +1609,12 @@ export function determineDisclosureLevel(
 
   // contradicted → silent（矛盾した情報は出さない）
   if (entry.source === "contradicted") return "silent";
+
+  // Trust Level 0: 高確信度 + user_stated のみ hint（知らなすぎると退化する）
+  if (trustLevel < 1) {
+    if (entry.source === "user_stated" && entry.confidence >= 0.7 && entry.evidence_count >= 2) return "hint";
+    return "silent";
+  }
 
   // Trust Level 1: hint まで
   if (trustLevel === 1) {
@@ -3035,46 +3052,53 @@ export interface TrapScanInput {
 
 function detectSurveillanceTrap(input: TrapScanInput, currentDomain?: string): TrapDetection {
   const { reactions } = input;
-  if (reactions.length < 5) {
+  // 最低5件のセッション内 reaction がなければスキップ
+  // ⚠️ 重要: all-time データではなく直近セッション（last 15）を PRIMARY に使う。
+  //    旧実装は all-time 50件の ignore/denied 率を使っていたため、一度 CRITICAL になると
+  //    永久に復帰不能な「死のスパイラル」に陥っていた。
+  const recentWindow = 15; // 直近15件をセッション相当とみなす
+  const recentSlice = reactions.slice(-recentWindow);
+
+  if (recentSlice.length < 5) {
     return { trap_type: "surveillance", detected: false, severity: "none", indicators: [], recommendation: "" };
   }
 
-  const ignoreCount = reactions.filter(r => r.reaction === "ignored").length;
-  const topicChangeCount = reactions.filter(r => r.reaction === "denied").length; // denied ≒ 話題転換・不快
-  const silenceRate = ignoreCount / reactions.length;
-  const rawAvoidanceRate = (ignoreCount + topicChangeCount) / reactions.length;
-
-  // Session recency weighting: last 10 reactions carry 2x weight
-  const recentSlice = reactions.slice(-10);
+  // PRIMARY: 直近セッション（last 15）の率
   const recentIgnore = recentSlice.filter(r => r.reaction === "ignored").length;
   const recentDenied = recentSlice.filter(r => r.reaction === "denied").length;
+  const recentSilenceRate = recentIgnore / recentSlice.length;
   const recentAvoidanceRate = (recentIgnore + recentDenied) / recentSlice.length;
-  const avoidanceRate = Math.min(rawAvoidanceRate, (rawAvoidanceRate + recentAvoidanceRate) / 2);
+
+  // SECONDARY: all-time の率（参考値、severity 判定の補助に使う）
+  const allIgnore = reactions.filter(r => r.reaction === "ignored").length;
+  const allDenied = reactions.filter(r => r.reaction === "denied").length;
+  const allAvoidanceRate = reactions.length > 0 ? (allIgnore + allDenied) / reactions.length : 0;
 
   // Domain-sensitive relaxation: exploratory/strategic domains get higher threshold
   const exploratoryDomains = ["creation", "work", "career_fit", "founder_team_fit"];
   const avoidanceThreshold = currentDomain && exploratoryDomains.includes(currentDomain) ? 0.6 : 0.4;
 
   const indicators: TrapIndicator[] = [
-    { name: "silence_rate", value: silenceRate, threshold: 0.2, breached: silenceRate >= 0.2 },
-    { name: "avoidance_rate", value: avoidanceRate, threshold: avoidanceThreshold, breached: avoidanceRate >= avoidanceThreshold },
+    { name: "silence_rate", value: recentSilenceRate, threshold: 0.2, breached: recentSilenceRate >= 0.2 },
+    { name: "avoidance_rate", value: recentAvoidanceRate, threshold: avoidanceThreshold, breached: recentAvoidanceRate >= avoidanceThreshold },
   ];
 
-  // Warmup period: < 10 reactions caps severity at "warning"
-  const inWarmup = reactions.length < 10;
-
-  if (avoidanceRate >= avoidanceThreshold) {
+  // CRITICAL になるのは直近セッションでも高い場合のみ
+  // all-time が高くても直近が低ければ warning に留める（ユーザーが改善している可能性）
+  if (recentAvoidanceRate >= avoidanceThreshold) {
+    // 直近もall-timeも高い場合のみ critical
+    const severity = allAvoidanceRate >= avoidanceThreshold ? "critical" : "warning";
     return {
       trap_type: "surveillance",
       detected: true,
-      severity: inWarmup ? "warning" : "critical",
+      severity,
       indicators,
-      recommendation: inWarmup
-        ? "MI の提示頻度を下げる。casual_check 以外の提示を控える。（warmup 期間中）"
-        : "MI の提示を一時停止し、Trust Gate 閾値を引き上げる。提示間隔を倍にする。",
+      recommendation: severity === "critical"
+        ? "MI の提示を一時停止し、Trust Gate 閾値を引き上げる。提示間隔を倍にする。"
+        : "MI の提示頻度を下げる。casual_check 以外の提示を控える。",
     };
   }
-  if (silenceRate >= 0.2) {
+  if (recentSilenceRate >= 0.2) {
     return {
       trap_type: "surveillance",
       detected: true,

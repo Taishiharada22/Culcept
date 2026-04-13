@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       // template fallback also failed
     }
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "記憶の復元処理に失敗しました" },
       { status: 500 },
     );
   }

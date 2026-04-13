@@ -14,6 +14,7 @@ import { STARGAZER_INTRO } from "@/lib/ui/featureIntroConfigs";
 import { safeLSSet } from "@/lib/safeLocalStorage";
 import { safeSetItem, purgeStaleKeys } from "@/lib/stargazer/localStorageHelper";
 import CrossFeatureRecoCards from "./_components/CrossFeatureRecoCards";
+import StargazerQuickAccess from "./_components/StargazerQuickAccess";
 import Stage1Flow from "./_components/Stage1Flow";
 import type { TypeDefLike } from "@/lib/stargazer/dailyInsightEngine";
 import {
@@ -41,7 +42,7 @@ import {
 } from "./_utils/mockData";
 import type { PartnerProfile, PartnerCategory } from "@/lib/stargazer/partnerTypes";
 
-import { getSystemConnectionSummary } from "@/lib/stargazer/crossSystemBridge";
+// getSystemConnectionSummary 廃止（CEO指示 #6 2026-04-11）
 
 // v3 Archetype System
 import {
@@ -824,6 +825,7 @@ export default function StargazerHome() {
     try {
       let res = await fetch("/api/stargazer/profile", {
         credentials: "include",
+        cache: "no-store",
       });
       if (!res.ok) {
         if (res.status === 401) {
@@ -1622,9 +1624,7 @@ export default function StargazerHome() {
   }, [hasData]); // hasData が確定したらスクロール
 
   // System connection summary
-  const connectionSummary = hasData
-    ? getSystemConnectionSummary(axisScores, totalObservations)
-    : null;
+  // connectionSummary 廃止（CEO指示 #6 2026-04-11 — システム接続バッジ削除）
   const activeTabDef = TABS.find((tab) => tab.key === activeTab) ?? TABS[0];
 
   // Build TodayPrioritizerInput for TodaySummaryCard
@@ -1900,104 +1900,47 @@ export default function StargazerHome() {
         )}
       </AnimatePresence>
 
-      {/* Hero Section — shows archetype for returning users, onboarding prompt for new users */}
-      {totalObservations <= 3 && (
-        <StargazerHero
-          coreStar={null}
-          archetypeInfo={null}
-          observationCount={totalObservations}
-          phase={hasData ? "daily" : "initial"}
-          totalSessions={totalObservations}
-        />
-      )}
+      {/* Hero Section — 廃止（CEO指示 2026-04-11） */}
 
-      {/* Header */}
-      <header className="px-4 pt-2 pb-2">
+      {/* Header — 縮小版（CEO指示 #6 2026-04-11） */}
+      <header className="px-4 pt-2 pb-1">
         <div className="mx-auto max-w-6xl">
           <div
             className="card-hero"
-            style={{ animation: "sg-fade-up 0.5s ease-out both" }}
+            style={{ animation: "sg-fade-up 0.5s ease-out both", padding: "0.75rem 1rem" }}
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-1.5">
-                <span className="sg-text-micro">個人観測所</span>
-                <div>
-                  <h1 className="sg-text-hero tracking-wide" style={{ fontSize: "clamp(1.5rem, 5vw, 2rem)" }}>
-                    Stars
-                  </h1>
-                  <p className="sg-text-caption mt-1" style={{ lineHeight: 1.6 }}>
-                    答えるたびに、自分の輪郭が見えてくる
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <span className="sg-badge sg-badge-silver">
-                    <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
-                      現在
-                    </span>
-                    {activeTabDef.icon} {activeTabDef.label}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="sg-badge sg-badge-silver">
+                <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
+                  現在
+                </span>
+                {activeTabDef.icon} {activeTabDef.label}
+              </span>
+              <span className="sg-badge sg-badge-silver">
+                <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
+                  累計
+                </span>
+                {totalObservations} 観測
+              </span>
+              {archetypeDef && (
+                <Link href={`/type/${archetypeDef.code}`} className="sg-badge sg-badge-gold hover:ring-2 hover:ring-amber-400/30 transition-all active:scale-95">
+                  <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
+                    原型
                   </span>
-                  <span className="sg-badge sg-badge-silver">
-                    <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
-                      累計
-                    </span>
-                    {totalObservations} 観測
-                  </span>
-                  {archetypeDef && (
-                    <Link href={`/type/${archetypeDef.code}`} className="sg-badge sg-badge-gold hover:ring-2 hover:ring-amber-400/30 transition-all active:scale-95">
-                      <span className="sg-text-micro" style={{ fontSize: "0.62rem" }}>
-                        原型
-                      </span>
-                      <ArchetypeFigure
-                        englishName={archetypeDef.englishName}
-                        emoji={archetypeDef.emoji}
-                        alt={archetypeDef.name}
-                        containerClassName="h-4 w-4"
-                        fallbackClassName="text-sm"
-                        sizes="16px"
-                      />
-                      {archetypeDef.name}
-                      <svg className="w-3 h-3 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </Link>
-                  )}
-                </div>
-              </div>
-
-              <div
-                className="flex flex-col items-start gap-3 lg:items-end"
-                style={{ animation: "sg-fade-up 0.5s ease-out 0.2s both" }}
-              >
-                {/* 今日の重要事項 — コンパクトカード */}
-                {hasData && todayPrioritizerInput && (
-                  <TodaySummaryMini
-                    input={todayPrioritizerInput}
-                    onNavigateTab={handleTabChange as (tabKey: string) => void}
+                  <ArchetypeFigure
+                    englishName={archetypeDef.englishName}
+                    emoji={archetypeDef.emoji}
+                    alt={archetypeDef.name}
+                    containerClassName="h-4 w-4"
+                    fallbackClassName="text-sm"
+                    sizes="16px"
                   />
-                )}
-
-                {/* システム接続バッジ */}
-                {connectionSummary && hasData && (
-                  <div className="flex flex-wrap items-center justify-start gap-2 lg:max-w-sm lg:justify-end">
-                    {[
-                      { label: "ゲノム", icon: "🧬", connected: connectionSummary.genome.connected },
-                      { label: "存在感", icon: "👁️", connected: connectionSummary.presence.connected },
-                      { label: "日常観測", icon: "🤖", connected: connectionSummary.dailyObservation.connected },
-                      { label: "出会い", icon: "💫", connected: connectionSummary.rendezvous.connected },
-                      { label: "起源", icon: "📖", connected: connectionSummary.origin.connected },
-                    ].map((sys) => (
-                      <span
-                        key={sys.label}
-                        className={`sg-badge ${sys.connected ? "sg-badge-green" : "sg-badge-silver"}`}
-                        style={{ fontSize: "0.75rem" }}
-                      >
-                        <span>{sys.icon}</span>
-                        {sys.label}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  {archetypeDef.name}
+                  <svg className="w-3 h-3 opacity-40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -2090,13 +2033,11 @@ export default function StargazerHome() {
             ref={tabBarRef}
             role="tablist"
             aria-label="Stargazer ナビゲーションタブ"
-            className="flex rounded-2xl p-1.5"
+            className="flex rounded-2xl p-1"
             style={{
-              background: "rgba(248,250,255,0.92)",
-              border: "1px solid rgba(160,170,200,0.12)",
-              boxShadow: "0 12px 30px rgba(24,32,64,0.06)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
+              background: "#ffffff",
+              border: "1px solid rgba(140,150,180,0.20)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.08), 0 1px 3px rgba(0,0,0,0.04)",
             }}
           >
             {TABS.map((tab) => {
@@ -2116,22 +2057,22 @@ export default function StargazerHome() {
                     className="absolute inset-0 rounded-xl transition-all duration-200"
                     style={{
                       background: isActive
-                        ? "linear-gradient(135deg, rgba(255,255,255,0.98), rgba(248,244,232,0.85))"
+                        ? "linear-gradient(135deg, #f8f5ee, #faf8f2)"
                         : "transparent",
                       border: isActive
-                        ? "1px solid rgba(190,170,110,0.22)"
+                        ? "1px solid rgba(154,123,58,0.30)"
                         : "1px solid transparent",
                       boxShadow: isActive
-                        ? "0 4px 16px rgba(34,40,62,0.06), 0 1px 2px rgba(190,170,110,0.08)"
+                        ? "0 2px 8px rgba(0,0,0,0.08), 0 1px 2px rgba(154,123,58,0.12)"
                         : "none",
                     }}
                   />
                   {/* Gold underline for active */}
                   {isActive && (
                     <div
-                      className="absolute bottom-1.5 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full"
+                      className="absolute bottom-1 left-1/2 -translate-x-1/2 h-[2.5px] w-10 rounded-full"
                       style={{
-                        background: "linear-gradient(90deg, rgba(190,170,110,0.4), rgba(190,170,110,0.7), rgba(190,170,110,0.4))",
+                        background: "linear-gradient(90deg, rgba(154,123,58,0.5), rgba(154,123,58,0.85), rgba(154,123,58,0.5))",
                       }}
                     />
                   )}
@@ -2139,8 +2080,8 @@ export default function StargazerHome() {
                   <span
                     className="relative z-10 block text-base mb-0.5"
                     style={{
-                      opacity: isActive ? 1 : 0.5,
-                      filter: isActive ? "none" : "grayscale(0.3)",
+                      opacity: isActive ? 1 : 0.55,
+                      filter: isActive ? "none" : "grayscale(0.4)",
                     }}
                   >
                     {tab.icon}
@@ -2150,8 +2091,9 @@ export default function StargazerHome() {
                     className="relative z-10 font-display text-[0.9rem] font-medium block leading-none"
                     style={{
                       color: isActive
-                        ? "rgba(22,28,48,0.95)"
-                        : "rgba(74,80,104,0.82)",
+                        ? "rgba(16,22,42,0.98)"
+                        : "rgba(60,66,90,0.72)",
+                      fontWeight: isActive ? 600 : 500,
                     }}
                   >
                     {tab.label}
@@ -2162,8 +2104,8 @@ export default function StargazerHome() {
                       fontSize: "0.64rem",
                       letterSpacing: "0.12em",
                       color: isActive
-                        ? "rgba(118,96,54,0.88)"
-                        : "rgba(90,96,120,0.62)",
+                        ? "rgba(100,80,38,0.92)"
+                        : "rgba(80,86,110,0.52)",
                     }}
                   >
                     {tab.sublabel}
@@ -2479,6 +2421,11 @@ export default function StargazerHome() {
           setCrossRecoShown(true);
         }}
       />
+
+    </div>
+    {/* ── クイックアクセス（sg-scroll-container の外に配置 — contain:paint回避） ── */}
+    <div className="fixed bottom-0 left-0 right-0 z-40">
+      <StargazerQuickAccess />
     </div>
     </ArchetypeThemeProvider>
   );
@@ -2583,60 +2530,8 @@ function ObserveTabShell({
   return (
     <div className="space-y-5">
 
-      {/* ═══ Priority 1: Hero CTA / Completion badge ═══ */}
-      {!observationDoneToday ? (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
-          className="relative overflow-hidden rounded-2xl p-5 sm:p-6 cursor-pointer active:scale-[0.98] transition-transform"
-          style={{
-            background: "linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(170,150,90,0.06) 50%, rgba(255,255,255,0.85) 100%)",
-            border: "1px solid rgba(139,92,246,0.18)",
-            boxShadow: "0 4px 24px rgba(139,92,246,0.08), 0 1px 4px rgba(0,0,0,0.04)",
-          }}
-          onClick={() => {
-            const obsEl = document.getElementById("sg-observe-interface");
-            obsEl?.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
-        >
-          {/* Pulsing border overlay */}
-          <motion.div
-            className="absolute inset-0 rounded-2xl pointer-events-none"
-            style={{ border: "2px solid rgba(139,92,246,0.25)" }}
-            animate={{ opacity: [0.4, 1, 0.4] }}
-            transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <div className="relative z-10 flex items-center gap-4">
-            <div
-              className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
-              style={{
-                background: "linear-gradient(135deg, rgba(139,92,246,0.15), rgba(170,150,90,0.12))",
-                border: "1px solid rgba(139,92,246,0.2)",
-                boxShadow: "0 4px 16px rgba(139,92,246,0.1)",
-              }}
-            >
-              <span className="text-2xl">🔭</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xl font-display font-bold leading-tight" style={{ color: "rgba(20,25,45,0.92)" }}>
-                今日の観測を始める
-              </p>
-              <p className="text-sm mt-1" style={{ color: "rgba(80,86,108,0.7)" }}>
-                1日1回、今日の自分を見つめる時間
-              </p>
-            </div>
-            <motion.div
-              animate={{ x: [0, 4, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="rgba(139,92,246,0.6)" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </motion.div>
-          </div>
-        </motion.div>
-      ) : (
+      {/* ═══ Priority 1: Completion badge (観測未完了時のHero CTAは廃止 — 重複排除) ═══ */}
+      {observationDoneToday && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -2675,7 +2570,13 @@ function ObserveTabShell({
         </motion.div>
       )}
 
-      {/* MorningQuestion + Today's prediction moved to header area above tab bar */}
+      {/* TodaySummaryMini — ヘッダーから移動（CEO指示 #6 2026-04-11） */}
+      {hasData && todayPrioritizerInput && (
+        <TodaySummaryMini
+          input={todayPrioritizerInput}
+          onNavigateTab={onNavigateTab as (tabKey: string) => void}
+        />
+      )}
 
       {/* ═══ Priority 3: Main observation interface + scrollable content ═══ */}
       <div id="sg-observe-interface">

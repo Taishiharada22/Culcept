@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { migrateStorageKeys } from "@/lib/storageMigration";
+import SaveToastProvider from "@/components/ui/SaveToastProvider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -25,7 +26,9 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <SaveToastProvider>
+        {children}
+      </SaveToastProvider>
     </QueryClientProvider>
   );
 }

@@ -5,67 +5,67 @@
    ═══════════════════════════════════════════════════ */
 
 :root {
-  --sg-bg: #f6f7fb;
-  --sg-surface: rgba(255,255,255,0.38);           /* Tier3: 背景に溶け込む */
-  --sg-surface-elevated: rgba(255,255,255,0.92);  /* Tier2: はっきり浮き上がる */
-  --sg-surface-hero: rgba(255,255,255,0.72);       /* Section用 */
+  --sg-bg: #ffffff;
+  --sg-surface: rgba(255,255,255,0.92);           /* Tier3: しっかり見える */
+  --sg-surface-elevated: #ffffff;                  /* Tier2: 完全な白 */
+  --sg-surface-hero: rgba(255,255,255,0.96);       /* Section用 */
 
   --sg-text-primary: rgba(20,25,45,0.95);
-  --sg-text-secondary: rgba(60,65,85,0.7);
-  --sg-text-muted: rgba(100,105,130,0.55);
-  --sg-text-heading: rgba(16,22,42,0.99);
-  --sg-text-body: rgba(32,38,58,0.92);
-  --sg-text-caption: rgba(70,76,100,0.84);
-  --sg-text-narrative: rgba(24,30,48,0.93);
-  --sg-text-whisper: rgba(72,78,102,0.86);
-  --sg-text-readable: rgba(24,30,48,0.92);
-  --sg-text-secondary-sg: rgba(78,84,108,0.76);
+  --sg-text-secondary: rgba(40,45,65,0.88);
+  --sg-text-muted: rgba(60,65,90,0.82);
+  --sg-text-heading: rgba(16,22,42,1);
+  --sg-text-body: rgba(28,34,54,0.94);
+  --sg-text-caption: rgba(50,56,80,0.90);
+  --sg-text-narrative: rgba(20,26,44,0.95);
+  --sg-text-whisper: rgba(52,58,82,0.90);
+  --sg-text-readable: rgba(20,26,44,0.94);
+  --sg-text-secondary-sg: rgba(60,66,90,0.88);
 
-  --sg-gold: #b09050;
-  --sg-gold-text: rgba(100,85,30,0.95);
-  --sg-gold-muted: rgba(118,96,54,0.88);
-  --sg-gold-header: rgba(112,92,52,0.9);
-  --sg-gold-stat: rgba(112,92,52,0.82);
-  --sg-gold-ghost: rgba(132,112,66,0.8);
+  --sg-gold: #9a7b3a;
+  --sg-gold-text: rgba(80,65,20,0.98);
+  --sg-gold-muted: rgba(100,80,38,0.92);
+  --sg-gold-header: rgba(90,74,38,0.95);
+  --sg-gold-stat: rgba(82,66,30,0.92);
+  --sg-gold-ghost: rgba(90,74,36,0.92);
 
-  --sg-border: rgba(152,162,194,0.22);              /* Tier2: 見える境界線 */
-  --sg-border-light: rgba(160,170,200,0.06);       /* Tier3: ほぼ透明 */
-  --sg-border-gold: rgba(190,170,110,0.35);         /* Tier1: はっきり見える */
-  --sg-border-gold-strong: rgba(190,170,110,0.45);  /* Hero corner reticle */
+  --sg-border: rgba(140,150,180,0.28);              /* Tier2: はっきり見える境界線 */
+  --sg-border-light: rgba(150,160,190,0.14);       /* Tier3: 軽く見える */
+  --sg-border-gold: rgba(170,145,80,0.45);         /* Tier1: しっかり見える */
+  --sg-border-gold-strong: rgba(170,145,80,0.55);  /* Hero corner reticle */
 
-  --sg-card-gradient-start: rgba(190,170,110,0.12);
-  --sg-card-gradient-mid: rgba(255,255,255,0.88);
-  --sg-card-gradient-end: rgba(190,170,110,0.06);
-  --sg-card-star-start: rgba(190,170,110,0.18);     /* Hero-star: 暖かみ強調 */
-  --sg-card-star-mid: rgba(255,255,255,0.92);
-  --sg-card-star-end: rgba(190,170,110,0.08);
+  --sg-card-gradient-start: rgba(170,145,80,0.14);
+  --sg-card-gradient-mid: rgba(255,255,255,0.98);
+  --sg-card-gradient-end: rgba(170,145,80,0.06);
+  --sg-card-star-start: rgba(170,145,80,0.18);     /* Hero-star: 暖かみ強調 */
+  --sg-card-star-mid: #ffffff;
+  --sg-card-star-end: rgba(170,145,80,0.08);
 
-  --sg-shadow-glow: rgba(190,170,110,0.12);          /* Hero glow: 3x stronger */
-  --sg-shadow-card: rgba(0,0,0,0.09);                /* Card shadow: Tier2の浮き */
-  --sg-shadow-hero: rgba(0,0,0,0.10);                /* Hero only: deeper shadow */
-  --sg-shadow-inset: rgba(255,255,255,0.8);
+  --sg-shadow-glow: rgba(170,145,80,0.16);          /* Hero glow */
+  --sg-shadow-card: rgba(0,0,0,0.12);                /* Card shadow: しっかり浮く */
+  --sg-shadow-hero: rgba(0,0,0,0.14);                /* Hero only: deeper shadow */
+  --sg-shadow-inset: rgba(255,255,255,0.9);
 
-  --sg-btn-secondary-bg: rgba(255,255,255,0.72);
-  --sg-btn-secondary-hover: rgba(255,255,255,0.88);
-  --sg-btn-ghost-hover: rgba(190,170,110,0.06);
+  --sg-btn-secondary-bg: #ffffff;
+  --sg-btn-secondary-hover: #fafafa;
+  --sg-btn-ghost-hover: rgba(170,145,80,0.08);
 
-  --sg-badge-silver-bg: rgba(255,255,255,0.68);
+  --sg-badge-silver-bg: rgba(255,255,255,0.92);
 
-  --sg-divider-gold: rgba(190,170,110,0.18);
-  --sg-divider-silver: rgba(160,170,200,0.1);
+  --sg-divider-gold: rgba(170,145,80,0.24);
+  --sg-divider-silver: rgba(150,160,190,0.15);
 
-  --sg-progress-track: rgba(160,170,200,0.1);
+  --sg-progress-track: rgba(150,160,190,0.15);
 
-  --sg-stat-bg: rgba(255,255,255,0.82);
-  --sg-stat-value: rgba(20,26,44,0.97);
+  --sg-stat-bg: #ffffff;
+  --sg-stat-value: rgba(16,22,40,0.98);
 
-  --sg-card-narrative-bg: rgba(255,255,255,0.65);    /* Narrative: 軽い */
-  --sg-card-mystery-bg: rgba(255,255,255,0.58);      /* Mystery: 最も軽い */
-  --sg-card-mystery-border: rgba(144,154,186,0.34);
-  --sg-card-contradiction-start: rgba(190,170,110,0.08);
-  --sg-card-contradiction-end: rgba(160,150,200,0.08);
+  --sg-card-narrative-bg: rgba(255,255,255,0.95);    /* Narrative */
+  --sg-card-mystery-bg: rgba(248,249,252,0.95);      /* Mystery */
+  --sg-card-mystery-border: rgba(130,140,170,0.40);
+  --sg-card-contradiction-start: rgba(170,145,80,0.10);
+  --sg-card-contradiction-end: rgba(140,130,180,0.10);
 
-  --sg-blur-card: 16px;
+  --sg-blur-card: 12px;
 }
 
 /* Dark mode: only page background changes. Cards/text stay light for readability. */
@@ -255,24 +255,22 @@
   border-bottom-right-radius: 1.25rem;
 }
 
-/* Tier 2: Instrument — main content card, moderate weight */
+/* Tier 2: Instrument — main content card, solid white */
 .card-instrument {
-  background: var(--sg-surface-elevated);
+  background: #ffffff;
   border: 1px solid var(--sg-border);
   border-radius: 1rem;
   padding: 1.5rem;
-  backdrop-filter: blur(var(--sg-blur-card));
-  -webkit-backdrop-filter: blur(var(--sg-blur-card));
-  box-shadow: 0 2px 12px var(--sg-shadow-card);
+  box-shadow: 0 2px 16px var(--sg-shadow-card), 0 0 1px rgba(0,0,0,0.06);
 }
 
-/* Tier 3: Info — lightweight, nearly invisible container */
+/* Tier 3: Info — lightweight but visible container */
 .card-info {
   background: var(--sg-surface);
   border: 1px solid var(--sg-border-light);
   border-radius: 0.75rem;
   padding: 1rem;
-  /* No shadow, no blur — deliberately flat and recessive */
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
 }
 
 /* Core Star hero — warm gold gradient, strongest visual weight */

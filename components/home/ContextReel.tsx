@@ -90,9 +90,20 @@ function CardRow({
       className="w-full text-left transition-opacity active:opacity-70 focus:outline-none"
     >
       <div className="flex items-start gap-2.5 px-6 py-2.5">
-        <span className="text-sm leading-none flex-shrink-0 mt-0.5">
+        <motion.span
+          className="text-sm leading-none flex-shrink-0 mt-0.5 inline-block"
+          animate={card.icon === "＊" ? {
+            rotate: [0, 90, 180, 270, 360],
+            scale: [1, 1.15, 1, 1.15, 1],
+          } : undefined}
+          transition={card.icon === "＊" ? {
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut",
+          } : undefined}
+        >
           {card.icon}
-        </span>
+        </motion.span>
         <div className="flex-1 min-w-0">
           <p className="text-[13px] text-text1 leading-relaxed line-clamp-2">
             {card.text}

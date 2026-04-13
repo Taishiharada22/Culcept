@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[origin/events] unexpected:", e);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Originイベントの記録に失敗しました" },
       { status: 500 },
     );
   }

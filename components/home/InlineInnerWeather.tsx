@@ -21,11 +21,11 @@ type Preset = {
 };
 
 const QUICK_PRESETS: Preset[] = [
-  { emoji: "😁", label: "絶好調", params: { energy: 0.9, stress: 0.05, emotionalTone: "excited", socialBattery: 0.8 } },
+  { emoji: "🤩", label: "パーフェクト", params: { energy: 0.9, stress: 0.05, emotionalTone: "excited", socialBattery: 0.8 } },
   { emoji: "😊", label: "元気", params: { energy: 0.6, stress: 0.1, emotionalTone: "calm", socialBattery: 0.6 } },
   { emoji: "😐", label: "普通", params: { energy: 0.4, stress: 0.3, emotionalTone: "neutral", socialBattery: 0.4 } },
-  { emoji: "🫩", label: "ダルい", params: { energy: 0.15, stress: 0.4, emotionalTone: "numb", socialBattery: 0.2 } },
-  { emoji: "😵", label: "もうダメ", params: { energy: 0.05, stress: 0.9, emotionalTone: "anxious", socialBattery: 0.1 } },
+  { emoji: "😮‍💨", label: "だるい", params: { energy: 0.15, stress: 0.4, emotionalTone: "numb", socialBattery: 0.2 } },
+  { emoji: "😩", label: "最悪", params: { energy: 0.05, stress: 0.9, emotionalTone: "anxious", socialBattery: 0.1 } },
 ];
 
 type Props = {

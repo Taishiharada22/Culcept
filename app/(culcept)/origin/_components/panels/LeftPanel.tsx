@@ -238,6 +238,8 @@ export default function LeftPanel({
           onStartExploration={onStartExploration}
         />
       </div>
+
+      <p className="text-xs text-white/40 mt-1 px-1">このデータは端末にのみ保存されています</p>
     </div>
   );
 }

@@ -851,6 +851,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const routeStart = Date.now();
   let llmCallCount = 0;
+  // P1.7: 全体レイテンシ分解トラッカー
+  const latencyTracker: Record<string, number> = {};
 
   try {
     const tierCheck = await checkStargazerTier("alter");
@@ -1404,86 +1406,83 @@ export async function POST(req: NextRequest) {
         thinSliceState = await reconstructThinSliceState(supabase, userId, sessionId);
       }
 
-      // ━━━━ ユーザー表示名 + ベースラインコンテキストを取得 ━━━━
+      // ━━━━ P1.7: ユーザー表示名 + ベースラインコンテキストを並列取得 ━━━━
+      // 4つの独立したDBクエリを Promise.allSettled で並列実行（6-9秒→~2秒）
       let userName: string | undefined;
       let baselineCtx: BaselineContext | null = null;
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
-        const meta = authUser?.user_metadata;
-        const raw = String(meta?.display_name ?? meta?.name ?? "").trim();
-        if (raw && raw !== "User") userName = raw;
-      } catch {
-        // Non-fatal: 名前取得に失敗しても処理は続行
+      const [authResult, baselineResult, rvResult, lpResult] = await Promise.allSettled([
+        // (1) auth.getUser
+        supabase.auth.getUser(),
+        // (2) ④-C: profiles ベースライン
+        supabase.from("profiles").select("gender, date_of_birth, prefecture").eq("id", userId).maybeSingle(),
+        // (3) ④-D: rendezvous_profiles 関係性ベースライン
+        supabase.from("rendezvous_profiles").select("profile_details, enabled_categories, updated_at").eq("user_id", userId).maybeSingle(),
+        // (4) ④-E: life_profile_entries 値・情熱・キャリア
+        supabase.from("life_profile_entries").select("category, title").eq("user_id", userId).in("category", ["values", "passions", "career"]).eq("active", true),
+      ]);
+      // (1) userName 抽出
+      if (authResult.status === "fulfilled") {
+        try {
+          const meta = authResult.value?.data?.user?.user_metadata;
+          const raw = String(meta?.display_name ?? meta?.name ?? "").trim();
+          if (raw && raw !== "User") userName = raw;
+        } catch { /* Non-fatal */ }
       }
-      // ④-C: ベースラインデータを profiles から取得し正規化
-      try {
-        const { data: baselineRow } = await supabase
-          .from("profiles")
-          .select("gender, date_of_birth, prefecture")
-          .eq("id", userId)
-          .maybeSingle();
-        if (baselineRow && (baselineRow.gender || baselineRow.date_of_birth || baselineRow.prefecture)) {
-          baselineCtx = deriveBaselineContext({
-            gender: baselineRow.gender ?? undefined,
-            dateOfBirth: baselineRow.date_of_birth ?? undefined,
-            prefecture: baselineRow.prefecture ?? undefined,
-          });
-        }
-      } catch {
-        // Non-fatal: ベースライン未取得でも Alter は動作する
-      }
-
-      // ④-D: Rendezvous / Home Tour の関係性ベースラインを取得し正規化（B ライン）
-      try {
-        const { data: rvRow } = await supabase
-          .from("rendezvous_profiles")
-          .select("profile_details, enabled_categories, updated_at")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (rvRow) {
-          const details = (rvRow.profile_details as Record<string, unknown>) ?? {};
-          const categories = Array.isArray(rvRow.enabled_categories) ? rvRow.enabled_categories as string[] : [];
-          relationshipCtx = deriveRelationshipContext({
-            marriageIntent: (details.marriageIntent as string) || null,
-            childrenPreference: (details.childrenPreference as string) || null,
-            smokingStatus: (details.smokingStatus as string) || null,
-            smokingTolerance: (details.smokingTolerance as string) || null,
-            lifestyleMorningNight: typeof details.lifestyleMorningNight === "number" ? details.lifestyleMorningNight : null,
-            enabledCategories: categories,
-            updatedAt: (rvRow.updated_at as string) || null,
-          });
-          if (relationshipCtx.hasRelationshipBaseline) {
-            console.info(`[relationship-baseline] loaded: intent=${relationshipCtx.relationshipIntent}, parenting=${relationshipCtx.parentingOpenness}, lifestyle=${relationshipCtx.lifestyleAlignment}`);
+      // (2) baselineCtx 抽出
+      if (baselineResult.status === "fulfilled") {
+        try {
+          const baselineRow = baselineResult.value?.data;
+          if (baselineRow && (baselineRow.gender || baselineRow.date_of_birth || baselineRow.prefecture)) {
+            baselineCtx = deriveBaselineContext({
+              gender: baselineRow.gender ?? undefined,
+              dateOfBirth: baselineRow.date_of_birth ?? undefined,
+              prefecture: baselineRow.prefecture ?? undefined,
+            });
           }
-        }
-      } catch {
-        // Non-fatal: rendezvous_profiles が存在しない場合も Alter は動作する
+        } catch { /* Non-fatal */ }
       }
-
-      // ④-E: life_profile_entries から values/passions/career を取得（A ライン拡張）
-      try {
-        const { data: lpRows } = await supabase
-          .from("life_profile_entries")
-          .select("category, title")
-          .eq("user_id", userId)
-          .in("category", ["values", "passions", "career"])
-          .eq("active", true);
-        if (lpRows && lpRows.length > 0) {
-          const byCategory = (cat: string) => lpRows.filter(r => r.category === cat).map(r => r.title);
-          lifeCtx = deriveLifeContext({
-            values: byCategory("values"),
-            passions: byCategory("passions"),
-            career: byCategory("career"),
-          });
-        }
-      } catch {
-        // Non-fatal
+      // (3) relationshipCtx 抽出
+      if (rvResult.status === "fulfilled") {
+        try {
+          const rvRow = rvResult.value?.data;
+          if (rvRow) {
+            const details = (rvRow.profile_details as Record<string, unknown>) ?? {};
+            const categories = Array.isArray(rvRow.enabled_categories) ? rvRow.enabled_categories as string[] : [];
+            relationshipCtx = deriveRelationshipContext({
+              marriageIntent: (details.marriageIntent as string) || null,
+              childrenPreference: (details.childrenPreference as string) || null,
+              smokingStatus: (details.smokingStatus as string) || null,
+              smokingTolerance: (details.smokingTolerance as string) || null,
+              lifestyleMorningNight: typeof details.lifestyleMorningNight === "number" ? details.lifestyleMorningNight : null,
+              enabledCategories: categories,
+              updatedAt: (rvRow.updated_at as string) || null,
+            });
+            if (relationshipCtx.hasRelationshipBaseline) {
+              console.info(`[relationship-baseline] loaded: intent=${relationshipCtx.relationshipIntent}, parenting=${relationshipCtx.parentingOpenness}, lifestyle=${relationshipCtx.lifestyleAlignment}`);
+            }
+          }
+        } catch { /* Non-fatal */ }
+      }
+      // (4) lifeCtx 抽出
+      if (lpResult.status === "fulfilled") {
+        try {
+          const lpRows = lpResult.value?.data;
+          if (lpRows && lpRows.length > 0) {
+            const byCategory = (cat: string) => lpRows.filter((r: { category: string; title: string }) => r.category === cat).map((r: { category: string; title: string }) => r.title);
+            lifeCtx = deriveLifeContext({
+              values: byCategory("values"),
+              passions: byCategory("passions"),
+              career: byCategory("career"),
+            });
+          }
+        } catch { /* Non-fatal */ }
       }
 
       // 質問カテゴリ分類（行動カテゴリ: gathering/outfit/contact/work/cause/general）
       questionCategory = classifyQuestion(message);
       // P1-A: 5タイプルーター（意図の種類: emotional/self_understanding/knowledge/strategy/judgment）
       questionType = classifyQuestionType(message);
+      latencyTracker.dbInitMs = Date.now() - routeStart; // P1.7: DB初期化完了
 
       // ── Conversational mode: 直近に会話的ターンがあれば judgment を conversation に昇格 ──
       // 「会話しにきたよ」→ 次のメッセージが judgment に落ちるのを防ぐ
@@ -1874,7 +1873,8 @@ export async function POST(req: NextRequest) {
           requireJson: true,
           jsonSchema: UTTERANCE_READING_SCHEMA,
           temperature: 0.2,
-          maxOutputTokens: 1024,
+          // P1.7: 実出力は~200トークン。1024→512でGemini思考時間を短縮
+          maxOutputTokens: 512,
           userId: userId,
           metadata: makeStargazerRunMetadata({
             feature: "alter_utterance_reading",
@@ -1906,6 +1906,8 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.warn("[utterance-reading] Phase 0: exception, falling back to existing pipeline:", e);
       }
+      latencyTracker.geminiReadingMs = utteranceReadingLatencyMs; // P1.7: Gemini Phase 0 読解時間
+      latencyTracker.postGeminiStartMs = Date.now() - routeStart; // P1.7: Signal処理開始
 
       // ── State Layer (Layer 2): 今この瞬間の心理的状態推定 ──
       userState = estimateUserState(message);
@@ -3377,6 +3379,9 @@ export async function POST(req: NextRequest) {
           || (p2PartsState?.reactive.activationLevel ?? 0) > 0.5,
       };
 
+      // P1.7: PE 前の前処理レイテンシを記録
+      latencyTracker.preProcessingMs = Date.now() - routeStart;
+
       // ── Perspective Engine v3: 外部視点統合 ──
       // 設計: docs/alter-perspective-engine-design.md
       // v3: L0 explicit ask を Phase/Trust の外に分離 + Quality Gate 追加
@@ -3614,7 +3619,11 @@ export async function POST(req: NextRequest) {
       //   4. 検索したが不十分 (supplement + canClarify) → hedge 付き注入 + 1問確認OK
       //   5. listing_search + supplement（暗黙 or 非explicit） → 周辺情報 hedge 付き注入 + limitation
       //   6. 検索成功 → 通常注入
+      //   7. P1-3: peResult 存在するがどの注入分岐にも該当しない → 診断ログ
       // P1: peResult top-level fields をソースオブトゥルースとして使用
+      if (!peResult) {
+        console.info("[perspective-engine] 💤 PE returned null (not invoked / fail-open / AB-test disabled)");
+      }
       const peIsExplicit = peResult?.searchTask?.explicit ?? false;
       const peQualityAction = peResult?.qualityGate?.action ?? null;
       const peTaskType = peResult?.searchTask?.type ?? null;
@@ -3683,6 +3692,15 @@ ${hasPeripheralInfo
         // Case 6: 通常の検索結果注入
         homeSystemPrompt += `\n\n${peResult.promptBlock}`;
         console.info(`[perspective-engine] Prompt block injected (${peResult.promptBlock.length} chars)`);
+      } else if (peResult) {
+        // P1-3 Fix: No injection branch matched — diagnostic logging
+        // This catches: implicit abstain, skipped with no explicit ask, or unexpected edge cases
+        console.info(
+          `[perspective-engine] ⚡ NO_INJECTION: gate=${peResult.gateDecision}, ` +
+          `explicit=${peIsExplicit}, quality=${peQualityAction}, ` +
+          `taskType=${peTaskType}, promptBlock=${peResult.promptBlock?.length ?? 0} chars, ` +
+          `fragments=${peResult.fragments?.length ?? 0}`
+        );
       }
 
       // ── P1: 検索タスク別 response contract ──
@@ -3734,6 +3752,16 @@ ${hasPeripheralInfo
 - 確信度の表現（「確実ではないけど」等）
 禁止:
 - 事実確認なのに長い分析を展開すること`;
+        } else if (peSearchTask.type === "comparison") {
+          // P1-3: comparison タスク用 response contract（欠落していた）
+          homeSystemPrompt += `\n\n[検索応答契約 — comparison]
+応答に含めること:
+- 比較軸を明確にする（何と何を、どの観点で比較しているか）
+- 外部情報から得た具体的な違い・特徴を提示する
+- パーソナルモデルの視点から「このユーザーにはどちらが合うか」の結論を出す
+禁止:
+- 「どちらもいい面がある」で終わること
+- 結論を出さず並列提示だけすること`;
         }
       }
 
@@ -5955,6 +5983,10 @@ ${hasPeripheralInfo
           : undefined,
       );
 
+      // P1.7: prompt構築完了 → main LLM call 開始の境界
+      latencyTracker.promptBuildMs = Date.now() - routeStart;
+      const mainLlmStart = Date.now();
+
       // 1回目の生成
       // NOTE: gemini-2.5-flash は thinking tokens が maxOutputTokens に含まれるため、
       // 実際の出力文字数の10倍程度のトークン予算が必要
@@ -5971,7 +6003,13 @@ ${hasPeripheralInfo
           frequencyPenalty: 0.3,
           // 新トピック促進: 既出トークンの再出現を軽く抑える
           presencePenalty: 0.1,
-          maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 1024 : responseMode === "direct_response" ? 1536 : responseMode === "branch" ? 3072 : 2048,
+          // P1.7: PE fired ターンは検索結果提示に必要なトークン量が少ない（2048→1280）
+          // Gemini thinking tokens が maxOutputTokens に含まれるため、過大な予算は生成時間を伸ばす
+          maxOutputTokens: (responseMode === "clarify" || responseMode === "repair") ? 1024
+            : responseMode === "direct_response" ? 1536
+            : responseMode === "branch" ? 3072
+            : peHasFiredWithContent ? 1280
+            : 2048,
           userId: userId,
           metadata: makeStargazerRunMetadata({
             feature: "alter",
@@ -6054,6 +6092,9 @@ ${hasPeripheralInfo
           },
         }).then(() => {}, () => {});
       }
+
+      // P1.7: main LLM + empty retry のレイテンシ
+      latencyTracker.mainLlmMs = Date.now() - mainLlmStart;
 
       // 検査（モード別バリデーション）
       // P0-1: PE fired 時は validation をバイパスする。
@@ -6525,6 +6566,9 @@ ${hasPeripheralInfo
         } // close P0-2b else block
       }
       alterResponseText = homeResponse || "もう少し教えてもらえると、一緒に考えられると思う。";
+
+      // P1.7: validation+retry サイクル完了
+      latencyTracker.validationRetryMs = Date.now() - (mainLlmStart + (latencyTracker.mainLlmMs ?? 0));
 
       // ── Layer 4: 応答品質検証 ──
       if (homeResponse && judgmentSkeleton && relationalLens && inputUnderstanding && responseMode !== "clarify") {
@@ -8734,6 +8778,11 @@ ${hasPeripheralInfo
       alterResponseText = enforceConversationalBrevity(alterResponseText, maxSent);
     }
 
+    // P1.7: 全体レイテンシ分解を完成
+    latencyTracker.postProcessingMs = Date.now() - routeStart - (latencyTracker.promptBuildMs ?? 0) - (latencyTracker.mainLlmMs ?? 0) - (latencyTracker.validationRetryMs ?? 0);
+    latencyTracker.totalMs = Date.now() - routeStart;
+    latencyTracker.peMs = peResult?.latencyBreakdown?.totalMs ?? 0;
+
     return NextResponse.json({
       ok: true,
       sessionId,
@@ -8866,6 +8915,8 @@ ${hasPeripheralInfo
           gate_decision_v6: peResult?.gateDecision ?? null,
         },
       } : {}),
+      // P1.7: 全体レイテンシ分解
+      _latencyBreakdown: latencyTracker,
     });
   } catch (error) {
     console.error("Failed to process alter message:", error);

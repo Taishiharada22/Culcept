@@ -138,9 +138,12 @@ export default function ProfileEditClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [optionalExpanded, setOptionalExpanded] = useState(false);
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     fetch("/api/rendezvous/profile", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
@@ -155,9 +158,15 @@ export default function ProfileEditClient() {
           }));
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setLoadError("プロフィールの読み込みに失敗しました");
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -207,6 +216,19 @@ export default function ProfileEditClient() {
             style={{ background: RV_COLORS.surfaceMuted }}
           />
         ))}
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="px-5 py-8 pb-28 flex flex-col items-center justify-center gap-4">
+        <p className="text-sm" style={{ color: RV_COLORS.primary }}>
+          {loadError}
+        </p>
+        <RvButton variant="secondary" onClick={loadProfile}>
+          再試行
+        </RvButton>
       </div>
     );
   }

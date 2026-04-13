@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RV_COLORS, RV_CATEGORY_COLORS, RvCard, RvButton } from "@/components/ui/rendezvous-design";
 import { FadeInView } from "@/components/ui/glassmorphism-design";
+import {
+  PARTNER_DOCUMENTS,
+  computePartnerTrustScore,
+  areRequiredDocumentsApproved,
+  type PartnerDocumentType,
+  type PartnerDocumentStatus,
+  type PartnerDocumentStatuses,
+} from "@/lib/rendezvous/verificationLevel";
 
 /**
  * Partner オンボーディング Hub
@@ -29,11 +37,51 @@ const STATUS_LABELS: Record<string, string> = {
   completed: "完了",
 };
 
-export default function PartnerOnboardingHub() {
+type ReviewStatus = "not_submitted" | "pending" | "approved" | "rejected";
+
+type PartnerOnboardingHubProps = {
+  reviewStatus?: ReviewStatus;
+};
+
+type DocumentStatusMap = Record<PartnerDocumentType, PartnerDocumentStatus>;
+
+export default function PartnerOnboardingHub({ reviewStatus = "not_submitted" }: PartnerOnboardingHubProps) {
   const [progress, setProgress] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncingProcess, setSyncingProcess] = useState(false);
   const [activeStep, setActiveStep] = useState<"hub" | "lifeplan" | "dealbreaker">("hub");
+  const [docStatuses, setDocStatuses] = useState<DocumentStatusMap>({
+    identity: reviewStatus === "approved" ? "approved" : reviewStatus === "pending" ? "pending" : reviewStatus === "rejected" ? "rejected" : "not_submitted",
+    single_status: "not_submitted",
+    income: "not_submitted",
+    education: "not_submitted",
+    employment: "not_submitted",
+  });
+
+  const fetchDocumentStatuses = useCallback(async () => {
+    try {
+      const res = await fetch("/api/rendezvous/partner/documents");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.documents) {
+        const map: DocumentStatusMap = {
+          identity: "not_submitted",
+          single_status: "not_submitted",
+          income: "not_submitted",
+          education: "not_submitted",
+          employment: "not_submitted",
+        };
+        for (const doc of data.documents) {
+          if (doc.type in map) {
+            map[doc.type as PartnerDocumentType] = doc.status;
+          }
+        }
+        setDocStatuses(map);
+      }
+    } catch (err) {
+      console.error("[PartnerHub] document status fetch error:", err);
+    }
+  }, []);
 
   const fetchProgress = useCallback(async () => {
     try {
@@ -76,7 +124,8 @@ export default function PartnerOnboardingHub() {
 
   useEffect(() => {
     fetchProgress();
-  }, [fetchProgress]);
+    fetchDocumentStatuses();
+  }, [fetchProgress, fetchDocumentStatuses]);
 
   const handleSyncProcess = async () => {
     setSyncingProcess(true);
@@ -107,11 +156,30 @@ export default function PartnerOnboardingHub() {
   // 加えて Conflict Style に最低1軸必要なため 11軸（≈30%）を下限とした。
   const SUFFICIENCY_THRESHOLD = 0.3;
 
+  const partnerDocStatuses: PartnerDocumentStatuses = {
+    single_status: docStatuses.single_status,
+    income: docStatuses.income,
+    education: docStatuses.education,
+    employment: docStatuses.employment,
+  };
+  const requiredDocsApproved = areRequiredDocumentsApproved(
+    docStatuses.identity === "approved" ? "approved"
+      : docStatuses.identity === "pending" ? "pending"
+      : docStatuses.identity === "rejected" ? "rejected"
+      : "not_submitted",
+    partnerDocStatuses,
+  );
+  const trustScore = computePartnerTrustScore(
+    docStatuses.identity === "approved" ? "approved" : "not_submitted",
+    partnerDocStatuses,
+  );
+
   const allReady = progress &&
     progress.lifePlan.completionRate >= 0.5 &&
     progress.dealbreaker.filledCount >= 4 &&
     progress.processProfile.synced &&
-    (progress.processProfile.axisCoverage ?? 0) >= SUFFICIENCY_THRESHOLD;
+    (progress.processProfile.axisCoverage ?? 0) >= SUFFICIENCY_THRESHOLD &&
+    requiredDocsApproved;
 
   return (
     <div
@@ -174,7 +242,7 @@ export default function PartnerOnboardingHub() {
                 margin: "0 auto 24px",
               }}
             >
-              人生を共にする人との出会いを、3つのステップで準備する
+              人生を共にする人との出会いを、4つのステップで準備する
             </p>
           </div>
         </FadeInView>
@@ -253,8 +321,17 @@ export default function PartnerOnboardingHub() {
               />
             </FadeInView>
 
-            {/* Trust explanation */}
+            {/* Step 4: 本人確認・書類提出 */}
             <FadeInView delay={0.35}>
+              <PartnerDocumentChecklist
+                docStatuses={docStatuses}
+                trustScore={trustScore}
+                onRefresh={fetchDocumentStatuses}
+              />
+            </FadeInView>
+
+            {/* Trust explanation */}
+            <FadeInView delay={0.4}>
               <div
                 style={{
                   marginTop: 8,
@@ -317,10 +394,10 @@ export default function PartnerOnboardingHub() {
             </FadeInView>
 
             {/* CTA */}
-            <FadeInView delay={0.4}>
+            <FadeInView delay={0.45}>
               <div style={{ marginTop: 8, textAlign: "center", paddingBottom: 16 }}>
                 {allReady ? (
-                  <Link href="/rendezvous" style={{ textDecoration: "none" }}>
+                  <Link href="/rendezvous/partner/candidates" style={{ textDecoration: "none" }}>
                     <RvButton
                       className="w-full"
                       onClick={() => {}}
@@ -335,8 +412,9 @@ export default function PartnerOnboardingHub() {
                     lineHeight: 1.6,
                     fontFamily: '"Noto Serif JP", serif',
                   }}>
-                    ステップ1〜3を進めると、パートナー候補が生成されます。<br />
-                    Life Plan は50%以上、絶対条件は4項目以上が必要です。
+                    ステップ1〜4を全て完了すると、パートナー候補が生成されます。<br />
+                    Life Plan は50%以上、絶対条件は4項目以上、<br />
+                    本人確認書類と独身証明書の承認が必要です。
                   </p>
                 )}
               </div>
@@ -344,6 +422,532 @@ export default function PartnerOnboardingHub() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── PartnerDocumentChecklist ──
+
+const DOC_ICONS: Record<PartnerDocumentType, string> = {
+  identity: "\u{1F4CB}",   // clipboard
+  single_status: "\u{1F4CB}",
+  income: "\u{1F4B0}",     // money bag
+  education: "\u{1F393}",  // graduation cap
+  employment: "\u{1F4BC}", // briefcase
+};
+
+function PartnerDocumentChecklist({
+  docStatuses,
+  trustScore,
+  onRefresh,
+}: {
+  docStatuses: DocumentStatusMap;
+  trustScore: number;
+  onRefresh: () => void;
+}) {
+  const [uploadingType, setUploadingType] = useState<PartnerDocumentType | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingTypeRef = useRef<PartnerDocumentType | null>(null);
+
+  // Compute required docs progress
+  const requiredDocs = PARTNER_DOCUMENTS.filter((d) => d.required);
+  const optionalDocs = PARTNER_DOCUMENTS.filter((d) => !d.required);
+  const requiredApprovedCount = requiredDocs.filter((d) => docStatuses[d.type] === "approved").length;
+  const allRequiredApproved = requiredDocs.every((d) => docStatuses[d.type] === "approved");
+  const anyInProgress = PARTNER_DOCUMENTS.some(
+    (d) => docStatuses[d.type] === "pending" || (d.required && docStatuses[d.type] !== "not_submitted" && docStatuses[d.type] !== "approved"),
+  );
+  const hasRequiredMissing = requiredDocs.some(
+    (d) => docStatuses[d.type] === "not_submitted" || docStatuses[d.type] === "rejected",
+  );
+
+  const stepStatus: "pending" | "in_progress" | "completed" = allRequiredApproved
+    ? "completed"
+    : anyInProgress
+      ? "in_progress"
+      : "pending";
+
+  const stepColor = stepStatus === "completed" ? "#00C853" : stepStatus === "in_progress" ? PARTNER_COLOR : RV_COLORS.textMuted;
+  const requiredProgressPercent = requiredApprovedCount / requiredDocs.length;
+
+  const handleUploadClick = (type: PartnerDocumentType) => {
+    if (type === "identity") {
+      window.location.href = "/rendezvous/romance";
+      return;
+    }
+    pendingTypeRef.current = type;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const type = pendingTypeRef.current;
+    if (!file || !type) return;
+
+    setUploadingType(type);
+    try {
+      const fd = new FormData();
+      fd.append("documentType", type);
+      fd.append("documentImage", file);
+
+      const res = await fetch("/api/rendezvous/partner/documents", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+
+      if (res.ok) {
+        onRefresh();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        console.error("[PartnerDocChecklist] upload error:", data.error);
+      }
+    } catch (err) {
+      console.error("[PartnerDocChecklist] upload error:", err);
+    } finally {
+      setUploadingType(null);
+      pendingTypeRef.current = null;
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{
+        background: RV_COLORS.surface,
+        border: stepStatus !== "pending"
+          ? `1px solid ${stepColor}25`
+          : `1px solid ${RV_COLORS.border}`,
+        boxShadow: `0 4px 20px ${RV_COLORS.shadow}`,
+      }}
+    >
+      <div className="flex">
+        {/* Accent bar */}
+        <div
+          style={{
+            width: 3,
+            flexShrink: 0,
+            background: stepStatus === "completed"
+              ? `linear-gradient(180deg, #00C853 0%, #00C85340 100%)`
+              : stepStatus === "in_progress"
+                ? `linear-gradient(180deg, ${PARTNER_COLOR} 0%, ${PARTNER_COLOR}40 100%)`
+                : RV_COLORS.surfaceMuted,
+            borderRadius: "3px 0 0 3px",
+          }}
+        />
+
+        <div style={{ flex: 1, padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+            {/* Number circle */}
+            <div style={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              background: stepStatus === "completed"
+                ? "#00C853"
+                : stepStatus === "in_progress"
+                  ? PARTNER_COLOR
+                  : RV_COLORS.surfaceMuted,
+              color: stepStatus !== "pending" ? "#fff" : RV_COLORS.textMuted,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: stepStatus === "completed" ? 15 : 14,
+              fontWeight: 700,
+              fontFamily: '"Noto Serif JP", serif',
+              flexShrink: 0,
+            }}>
+              {stepStatus === "completed" ? "\u2713" : 4}
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Title */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <h3 style={{
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: RV_COLORS.text,
+                  fontFamily: '"Noto Serif JP", serif',
+                  margin: 0,
+                }}>
+                  本人確認・書類提出
+                </h3>
+              </div>
+
+              <p style={{
+                fontSize: 12,
+                color: RV_COLORS.textSub,
+                lineHeight: 1.7,
+                marginBottom: 16,
+              }}>
+                結婚相談所水準の書類確認で、安全な出会いを保証します
+              </p>
+
+              {/* ===== Alert banner when required docs are missing ===== */}
+              {hasRequiredMissing && (
+                <div
+                  style={{
+                    padding: "10px 14px",
+                    borderRadius: 10,
+                    background: "rgba(239,68,68,0.06)",
+                    border: "1px solid rgba(239,68,68,0.18)",
+                    marginBottom: 16,
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
+                  }}
+                >
+                  <span style={{
+                    fontSize: 14,
+                    flexShrink: 0,
+                    marginTop: 1,
+                    color: "#EF4444",
+                  }}>!</span>
+                  <span style={{
+                    fontSize: 12,
+                    color: "#EF4444",
+                    lineHeight: 1.6,
+                    fontWeight: 500,
+                  }}>
+                    必須書類が未提出です — 候補閲覧には全ての必須書類の承認が必要です
+                  </span>
+                </div>
+              )}
+
+              {/* ===== Required documents section ===== */}
+              <div style={{ marginBottom: 20 }}>
+                {/* Required header with progress */}
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 8,
+                }}>
+                  <span style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: PARTNER_COLOR,
+                    letterSpacing: "0.04em",
+                  }}>
+                    必須書類 ({requiredApprovedCount}/{requiredDocs.length} 完了)
+                  </span>
+                </div>
+
+                {/* Required progress bar */}
+                <div style={{
+                  height: 3,
+                  borderRadius: 2,
+                  background: RV_COLORS.surfaceMuted,
+                  overflow: "hidden",
+                  marginBottom: 12,
+                }}>
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${requiredProgressPercent * 100}%` }}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                    style={{
+                      height: "100%",
+                      borderRadius: 2,
+                      background: allRequiredApproved ? "#00C853" : PARTNER_COLOR,
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {requiredDocs.map((doc) => (
+                    <DocumentRow
+                      key={doc.type}
+                      doc={doc}
+                      status={docStatuses[doc.type]}
+                      uploading={uploadingType === doc.type}
+                      onAction={() => handleUploadClick(doc.type)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* ===== Divider ===== */}
+              <div style={{
+                height: 1,
+                background: RV_COLORS.border,
+                marginBottom: 16,
+              }} />
+
+              {/* ===== Optional documents section ===== */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: RV_COLORS.textMuted,
+                  letterSpacing: "0.04em",
+                  marginBottom: 4,
+                }}>
+                  任意書類 — 提出すると信頼度が上がります
+                </div>
+                <div style={{
+                  fontSize: 10,
+                  color: RV_COLORS.textMuted,
+                  marginBottom: 12,
+                  lineHeight: 1.5,
+                }}>
+                  候補者に優先表示されます
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {optionalDocs.map((doc) => (
+                    <DocumentRow
+                      key={doc.type}
+                      doc={doc}
+                      status={docStatuses[doc.type]}
+                      uploading={uploadingType === doc.type}
+                      onAction={() => handleUploadClick(doc.type)}
+                      muted
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* ===== Divider ===== */}
+              <div style={{
+                height: 1,
+                background: RV_COLORS.border,
+                marginBottom: 16,
+              }} />
+
+              {/* ===== Trust score ===== */}
+              <div style={{
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: RV_COLORS.surfaceMuted,
+              }}>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginBottom: 6,
+                }}>
+                  <span style={{ fontSize: 12, color: RV_COLORS.textSub, fontWeight: 700 }}>
+                    信頼スコア
+                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          fontSize: 16,
+                          color: i < trustScore ? "#F59E0B" : "#D1D5DB",
+                        }}
+                      >
+                        {i < trustScore ? "\u2605" : "\u2606"}
+                      </span>
+                    ))}
+                    <span style={{ fontSize: 12, color: RV_COLORS.textMuted, marginLeft: 6, fontWeight: 700 }}>
+                      {trustScore}/5
+                    </span>
+                  </div>
+                </div>
+                <p style={{
+                  fontSize: 11,
+                  color: RV_COLORS.textMuted,
+                  lineHeight: 1.5,
+                  margin: 0,
+                }}>
+                  書類を多く提出するほど、相手からの信頼度が上がります
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hidden file input for document uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelect}
+        style={{ display: "none" }}
+      />
+    </div>
+  );
+}
+
+// ── DocumentRow ──
+
+function DocumentRow({
+  doc,
+  status,
+  uploading,
+  onAction,
+  muted,
+}: {
+  doc: { type: PartnerDocumentType; label: string; description: string; required: boolean };
+  status: PartnerDocumentStatus;
+  uploading: boolean;
+  onAction: () => void;
+  muted?: boolean;
+}) {
+  const isActionable = (status === "not_submitted" || status === "rejected") && !uploading;
+
+  // Status badge config
+  const badgeConfig: Record<PartnerDocumentStatus, { label: string; color: string; bg: string; border: string }> = {
+    not_submitted: {
+      label: "\u672A\u63D0\u51FA",
+      color: "#EF4444",
+      bg: "transparent",
+      border: "1px solid #EF4444",
+    },
+    pending: {
+      label: "\u5BE9\u67FB\u4E2D",
+      color: "#F59E0B",
+      bg: "rgba(245,158,11,0.1)",
+      border: "1px solid rgba(245,158,11,0.2)",
+    },
+    approved: {
+      label: "\u2713 \u627F\u8A8D\u6E08\u307F",
+      color: "#10B981",
+      bg: "rgba(16,185,129,0.1)",
+      border: "1px solid rgba(16,185,129,0.2)",
+    },
+    rejected: {
+      label: "\u518D\u63D0\u51FA",
+      color: "#EF4444",
+      bg: "rgba(239,68,68,0.1)",
+      border: "1px solid rgba(239,68,68,0.2)",
+    },
+  };
+  const badge = badgeConfig[status];
+
+  // Card background/border per status
+  const cardBg = status === "approved"
+    ? "rgba(16,185,129,0.04)"
+    : status === "rejected"
+      ? "rgba(239,68,68,0.04)"
+      : status === "pending"
+        ? "rgba(245,158,11,0.04)"
+        : muted
+          ? "rgba(0,0,0,0.015)"
+          : "rgba(255,255,255,0.06)";
+
+  const cardBorder = status === "approved"
+    ? "1px solid rgba(16,185,129,0.15)"
+    : status === "rejected"
+      ? "1px solid rgba(239,68,68,0.15)"
+      : status === "pending"
+        ? "1px solid rgba(245,158,11,0.15)"
+        : `1px solid ${RV_COLORS.border}`;
+
+  return (
+    <div
+      style={{
+        padding: muted ? "12px 14px" : "14px 16px",
+        borderRadius: 12,
+        background: cardBg,
+        border: cardBorder,
+      }}
+    >
+      {/* Top row: icon + name + badge */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        marginBottom: 6,
+      }}>
+        <span style={{ fontSize: muted ? 14 : 16, flexShrink: 0 }}>
+          {DOC_ICONS[doc.type]}
+        </span>
+        <span style={{
+          fontSize: muted ? 13 : 14,
+          fontWeight: 700,
+          color: muted && status === "not_submitted" ? RV_COLORS.textSub : RV_COLORS.text,
+          fontFamily: '"Noto Serif JP", serif',
+          flex: 1,
+          minWidth: 0,
+        }}>
+          {doc.label}
+        </span>
+
+        {/* Status badge */}
+        <span style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: badge.color,
+          padding: "3px 10px",
+          borderRadius: 8,
+          background: badge.bg,
+          border: badge.border,
+          flexShrink: 0,
+          whiteSpace: "nowrap",
+        }}>
+          {badge.label}
+        </span>
+      </div>
+
+      {/* Description */}
+      <p style={{
+        fontSize: 12,
+        color: RV_COLORS.textMuted,
+        lineHeight: 1.5,
+        margin: 0,
+        paddingLeft: muted ? 24 : 26,
+      }}>
+        {doc.description}
+      </p>
+
+      {/* Action button row */}
+      {(isActionable || uploading) && (
+        <div style={{ paddingLeft: muted ? 24 : 26, marginTop: 10 }}>
+          {uploading ? (
+            <span style={{
+              display: "inline-block",
+              fontSize: 12,
+              fontWeight: 600,
+              color: PARTNER_COLOR,
+              padding: "6px 16px",
+              borderRadius: 8,
+              background: `${PARTNER_COLOR}0C`,
+              border: `1px solid ${PARTNER_COLOR}20`,
+            }}>
+              送信中...
+            </span>
+          ) : status === "rejected" ? (
+            <button
+              onClick={onAction}
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#EF4444",
+                padding: "7px 18px",
+                borderRadius: 8,
+                background: "transparent",
+                border: "1px solid rgba(239,68,68,0.4)",
+                cursor: "pointer",
+                fontFamily: '"Noto Serif JP", serif',
+              }}
+            >
+              再提出する
+            </button>
+          ) : (
+            <button
+              onClick={onAction}
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#fff",
+                padding: "7px 18px",
+                borderRadius: 8,
+                background: PARTNER_COLOR,
+                border: "none",
+                cursor: "pointer",
+                fontFamily: '"Noto Serif JP", serif',
+                boxShadow: `0 2px 8px ${PARTNER_COLOR}40`,
+              }}
+            >
+              提出する
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -71,7 +71,7 @@ export interface PerspectiveAudit {
   forceBalanceDelta: Partial<ForceBalance>;
   searchQueriesSent: string[];
   searchLatencyMs: number;
-  gateDecision: "fired" | "skipped";
+  gateDecision: "fired" | "skipped" | "blocked" | "abstain" | "error";
   gateReason: string;
   /** L0 explicit ask が検出されたか */
   isExplicitAsk: boolean;
@@ -98,7 +98,7 @@ export interface QualityGateResult {
 // 品質基準を動的に決定する。
 
 /**
- * 検索タスクの種別。検索「前」に何を探すべきかを定義する。
+ * 内部パイプライン用タスク種別。classifyTaskAndGenerateQueries が返す。
  *
  * 各タイプは Exa.ai での検索適性（searchFitness）が異なる:
  * - factual_lookup: 高 (0.9) — 事実確認は Web 検索の得意領域
@@ -109,7 +109,7 @@ export interface QualityGateResult {
  * - how_to: 中 (0.7) — 手順記事は見つかるが個別事情に弱い
  * - listing_search: 低 (0.2) — 求人一覧、店舗一覧は Exa.ai の弱点
  */
-export type SearchTaskType =
+export type SearchTaskClassificationType =
   | "factual_lookup"     // 事実確認（「〜って本当？」「〜とは」「定義」「割合」）
   | "market_intel"       // 市場・業界情報（年収、求人動向、業界トレンド、相場）
   | "entity_research"    // 特定エンティティの調査（企業、サービス、制度、人物）
@@ -118,8 +118,8 @@ export type SearchTaskType =
   | "perspective_seek"   // 多視点収集（どう思う、世間では、一般的に、普通は）
   | "how_to";            // 方法・手順（やり方、コツ、始め方、準備）
 
-export interface SearchTask {
-  type: SearchTaskType;
+export interface SearchTaskClassification {
+  type: SearchTaskClassificationType;
   /** タスクの簡潔な記述（LLM 生成） */
   description: string;
   /** Exa.ai での検索適性（0.0-1.0）。listing_search は 0.2 */
@@ -139,6 +139,45 @@ export interface SearchTask {
    * iterative の場合、ExplorationState が生成され、ターンをまたいで保持される。
    */
   explorationDepth: "single" | "iterative";
+}
+
+// ─── Downstream-Facing Search Task (CEO spec) ──────────────────────────
+// route.ts が参照する source of truth。内部 SearchTaskClassification を
+// 下流向けに正規化したもの。
+
+/** Downstream-facing search task type (CEO spec) */
+export type SearchTaskType =
+  | "market_intel"
+  | "listing_search"
+  | "company_research"  // was entity_research
+  | "comparison"
+  | "factual_lookup"
+  | "none";
+
+/** Downstream-facing SearchTask — route.ts の source of truth */
+export interface SearchTask {
+  type: SearchTaskType;
+  explicit: boolean;
+  confidence: number;
+  rationale?: string;
+  queryIntent?: string;
+  candidateEntities?: string[];
+  userNeed?: string;
+}
+
+export interface PerspectiveRetrievalResult {
+  rawResults: SearchResult[];
+  classifiedFragments: PerspectiveFragment[];
+  queriesSent: string[];
+  searchLatencyMs: number;
+}
+
+export interface PerspectiveQualityGateResult {
+  action: QualityAction;
+  reason: string;
+  needsHedge: boolean;
+  canClarify: boolean;
+  filteredFragments: PerspectiveFragment[];
 }
 
 // ─── Exploration State（マルチターン探索） ──────────────────────────────
@@ -178,7 +217,7 @@ export interface EntityResearch {
 export interface ExplorationState {
   // 探索の定義
   explorationId: string;
-  taskType: SearchTaskType;
+  taskType: SearchTaskClassificationType;
   domain: string;
   userIntent: string;         // 「転職先を探したい」等
 
@@ -229,7 +268,7 @@ export interface ExplorationOutputTemplate {
   selectionPrompt: string;
 }
 
-export const EXPLORATION_OUTPUT_TEMPLATES: Partial<Record<SearchTaskType, ExplorationOutputTemplate>> = {
+export const EXPLORATION_OUTPUT_TEMPLATES: Partial<Record<SearchTaskClassificationType, ExplorationOutputTemplate>> = {
   listing_search: {
     directionFormat: "パーソナルモデルから導いた適性仮説を1文で提示",
     candidateCount: { min: 3, max: 5 },
@@ -263,7 +302,7 @@ export const EXPLORATION_OUTPUT_TEMPLATES: Partial<Record<SearchTaskType, Explor
  * 判定にはメッセージとドメインを使用。LLM は使わない（高速判定のため）。
  */
 export function classifyExplorationDepth(
-  taskType: SearchTaskType,
+  taskType: SearchTaskClassificationType,
   message: string,
   domain: string,
 ): "single" | "iterative" {
@@ -341,7 +380,7 @@ export function buildResumeAnchors(candidates: CandidateEntity[]): string[] {
  * 新しい ExplorationState を生成する。
  */
 export function createExplorationState(
-  taskType: SearchTaskType,
+  taskType: SearchTaskClassificationType,
   domain: string,
   userIntent: string,
   fitHypotheses: string[],
@@ -371,7 +410,7 @@ export function createExplorationState(
 }
 
 /** タスク種別ごとのデフォルト検索適性 */
-const TASK_SEARCH_FITNESS: Record<SearchTaskType, number> = {
+const TASK_SEARCH_FITNESS: Record<SearchTaskClassificationType, number> = {
   factual_lookup: 0.9,
   market_intel: 0.85,
   entity_research: 0.85,
@@ -382,7 +421,7 @@ const TASK_SEARCH_FITNESS: Record<SearchTaskType, number> = {
 };
 
 /** タスク種別ごとの必要情報タイプ */
-const TASK_REQUIRED_INFO: Record<SearchTaskType, SearchTask["requiredInfoType"]> = {
+const TASK_REQUIRED_INFO: Record<SearchTaskClassificationType, SearchTaskClassification["requiredInfoType"]> = {
   factual_lookup: "factual",
   market_intel: "statistical",
   entity_research: "factual",
@@ -638,13 +677,24 @@ export async function classifyTaskAndGenerateQueries(
   queryContext: QueryContext,
   userId?: string,
   conversationSummary?: string,
-): Promise<SearchTask | null> {
+): Promise<SearchTaskClassification | null> {
   // 短い explicit ask（「WEBから見つけてきて」「調べて」等）の場合、
   // 直前の会話文脈がないとまともなタスク定義ができない
   const isShortExplicit = message.length < 30 && detectExplicitSearchIntent(message);
-  const contextSection = (isShortExplicit && conversationSummary)
-    ? `\n## 直前の会話の話題（検索対象の特定に使用）\n${conversationSummary}`
-    : (conversationSummary ? `\n## 会話の文脈（参考）\n${conversationSummary}` : "");
+
+  // P1.5: conversationSummary にパーソナリティ/ライフコンテキストが含まれる場合、
+  // 「会話の文脈」と「ユーザーの特性」を分離して提示する
+  const hasPersonaContext = conversationSummary && /この人の傾向:|職種:|価値観:|関心:|ライフステージ:/.test(conversationSummary);
+  const contextSection = (() => {
+    if (!conversationSummary) return "";
+    if (isShortExplicit) {
+      return `\n## 直前の会話の話題 + ユーザー特性（検索対象の特定に使用）\n${conversationSummary}\n※ ユーザー特性はクエリの「方向付け」に使え。クエリ文字列に個人情報を含めるな。`;
+    }
+    if (hasPersonaContext) {
+      return `\n## 会話の文脈 + ユーザー特性（参考）\n${conversationSummary}\n※ listing_search / entity_research の場合: ユーザー特性から「この人に合いそうな候補」を特定するクエリを生成せよ。ただしクエリ文字列に性格・価値観の語を直接入れるな。特性から推測される具体的な属性（例:「自律重視」→「リモートワーク」「少人数」）に変換してクエリに含めよ。`;
+    }
+    return `\n## 会話の文脈（参考）\n${conversationSummary}`;
+  })();
 
   const result = await runAI({
     taskType: "perspective_task_query",
@@ -672,7 +722,15 @@ export async function classifyTaskAndGenerateQueries(
 - 「調べて」「検索して」「WEBで」等の検索指示語はクエリに含めない
 - 「WEB検索」「ネット検索」「情報検索」のようなメタクエリは絶対に生成しない
 - 日本語で簡潔に（各クエリ10語以内）
-- listing_search の場合: 直接のリスト検索ではなく、関連する有用情報（業界レポート、評判、給与データ等）を検索するクエリに変換すること
+- listing_search の場合（最重要 — 厳守）:
+  - 目的: 具体的な候補名・エンティティ名が検索結果に含まれるクエリを生成すること
+  - 求人系の良い例: 「データ分析 企業 採用 2026」「リモートワーク推進 IT企業」「少人数 技術会社 エンジニア」
+  - サービス系の良い例: 「転職エージェント 比較 エンジニア向け」「プログラミングスクール 評判」
+  - 場所系の良い例: 「渋谷 カフェ 静か 作業」「京都 町家 宿泊」
+  - ❌ 絶対禁止: how-to/アドバイス系（「選び方」「コツ」「方法」「ポイント」「特徴」「見つけ方」「見極め方」）
+  - ❌ 絶対禁止: 抽象クエリ（「自分に合う〇〇」「〇〇 おすすめ」だけの漠然とした形）
+  - ❌ 絶対禁止: ランキング記事だけを狙うクエリ（「年収ランキング」「ホワイト企業ランキング」→周辺情報にしかならない）
+  - ✅ 必須: 業界 + 規模/特性 + 具体ワード の組み合わせにすること
 - 1〜2個のクエリを生成
 
 ## ユーザーの質問
@@ -694,12 +752,12 @@ ${queryContext.domain}
   const structured = result.structured as Record<string, unknown> | null;
   if (structured) {
     const taskType = (structured.task_type as string) ?? "factual_lookup";
-    const validTypes: SearchTaskType[] = [
+    const validTypes: SearchTaskClassificationType[] = [
       "factual_lookup", "market_intel", "entity_research",
       "listing_search", "comparison", "perspective_seek", "how_to",
     ];
-    const resolvedType: SearchTaskType = validTypes.includes(taskType as SearchTaskType)
-      ? (taskType as SearchTaskType)
+    const resolvedType: SearchTaskClassificationType = validTypes.includes(taskType as SearchTaskClassificationType)
+      ? (taskType as SearchTaskClassificationType)
       : "factual_lookup";
 
     const rawQueries = Array.isArray(structured.queries)
@@ -870,8 +928,69 @@ const CONFIDENCE_THRESHOLDS: Record<EpistemicType, number> = {
 };
 
 /**
+ * P1.6: Rule-based ノイズ除去。LLM 前に明らかなゴミ結果を落とす。
+ *
+ * 除去基準:
+ *   1. テキスト長が極端に短い（<30文字 → タイトルのみ/空結果）
+ *   2. URL がノイズドメイン（ポイントサイト、広告集約等）
+ *   3. テキストに検索エンジンUIの断片が含まれる
+ *
+ * @internal
+ */
+const NOISE_URL_PATTERNS = [
+  /point\.rakuten/i,       // 楽天ポイント
+  /ad\.(google|yahoo)/i,   // 広告
+  /search\.(yahoo|google)/i, // 検索結果ページ自体
+  /\.pdf$/i,               // PDF（テキスト取得が不完全）
+];
+
+const NOISE_TEXT_PATTERNS = [
+  /^(ログイン|会員登録|お気に入り|ブックマーク|シェア)/,
+  /検索結果.*件/,
+  /cookie.*同意/i,
+];
+
+export function preFilterSearchResults(results: SearchResult[]): { kept: SearchResult[]; droppedCount: number } {
+  const kept: SearchResult[] = [];
+  let droppedCount = 0;
+
+  for (const r of results) {
+    const text = r.text || r.highlights?.join(" ") || "";
+    // Drop 1: テキスト極短
+    if (text.length < 30) {
+      droppedCount++;
+      continue;
+    }
+    // Drop 2: ノイズURL
+    if (NOISE_URL_PATTERNS.some(p => p.test(r.url))) {
+      droppedCount++;
+      continue;
+    }
+    // Drop 3: 検索UI断片
+    if (NOISE_TEXT_PATTERNS.some(p => p.test(text))) {
+      droppedCount++;
+      continue;
+    }
+    kept.push(r);
+  }
+
+  return { kept, droppedCount };
+}
+
+/**
  * 検索結果を認識論的に分類し、PerspectiveFragment に変換する。
  * LLM の構造化出力を使用。
+ *
+ * P1.6 最適化:
+ *   - Rule-based ノイズ除去（LLM呼び出し前に明らかなゴミを落とす）
+ *   - 入力を最大3件に制限（MAX_FRAGMENTS=3 と一致。5→3で入力トークン40%減）
+ *   - テキストを200文字に制限（300→200。LLM入力トークン33%減）
+ *   - 出力JSONを簡素化:
+ *     - source_authority を削除（downstream で "media" デフォルト、分類精度にほぼ寄与しない）
+ *     - force_relevance を3軸に集約（opp/cost/growth のみ。relationship/value/fear は
+ *       downstream の rankFragmentsByFit で使うが、opp/cost/growth からの推定で代替可能）
+ *     - key_insight を「1文15字以内」に制限（fragment text の長さを制御）
+ *   - maxOutputTokens: 800→400（出力簡素化に合わせて削減）
  */
 export async function classifySearchResults(
   searchResults: SearchResult[],
@@ -881,51 +1000,43 @@ export async function classifySearchResults(
 ): Promise<PerspectiveFragment[]> {
   if (searchResults.length === 0) return [];
 
-  // 検索結果をまとめてLLMに分類させる
-  const resultsText = searchResults
-    .slice(0, 5)
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.text?.slice(0, 300) || r.highlights?.join(" ") || ""}`)
+  // P1.6-1: Rule-based ノイズ除去
+  const { kept: cleanResults, droppedCount } = preFilterSearchResults(searchResults);
+  if (droppedCount > 0) {
+    console.info(`[perspective-engine] 🧹 Pre-filter: ${droppedCount} noise results dropped, ${cleanResults.length} kept`);
+  }
+  if (cleanResults.length === 0) return [];
+
+  // P1.6-2: 入力を最大3件に制限（MAX_FRAGMENTS と一致）
+  const MAX_CLASSIFY_INPUT = 3;
+  const resultsText = cleanResults
+    .slice(0, MAX_CLASSIFY_INPUT)
+    .map((r, i) => `[${i + 1}] ${r.title}\n${r.text?.slice(0, 200) || r.highlights?.join(" ") || ""}`)
     .join("\n\n");
 
+  // P1.6-3: 簡素化プロンプト
   const result = await runAI({
     taskType: "perspective_classify",
-    prompt: `以下のWeb検索結果を分類してください。
+    prompt: `検索結果を分類。
 
-## ユーザーの質問
-${message}
+質問: ${message}
+ドメイン: ${queryContext.domain}
 
-## ドメイン
-${queryContext.domain}
-
-## 検索結果
 ${resultsText}
 
-## 分類ルール
-各結果について以下を判定:
-- relevance_to_question: 0.0-1.0（**最重要**。この結果がユーザーの質問に直接関連するか。質問と全く関係ない情報は 0.0。例: ユーザーが求人を聞いているのに検索エンジンの使い方が返ってきた場合は 0.0）
-- epistemic_type: empirical_fact / statistical_claim / expert_analysis / normative_claim / opinion / personal_experience / anecdote
-- confidence: 0.0-1.0（情報の信頼性）
-- source_authority: academic / government / industry / media / personal
-- stance: support / oppose / neutral / nuanced（質問に対する立場）
-- force_relevance: 各力への関連度 (0.0-1.0)
-  - opportunity: 機会・チャンスを示すか
-  - cost: コスト・リスクを示すか
-  - relationship: 関係性に関わるか
-  - value: 価値観に関わるか
-  - fear: 恐れに関わるか
-  - growth: 成長に関わるか
-- key_insight: この結果から得られる最も重要な洞察（1文）
+各結果を判定:
+- rel: 0.0-1.0（質問との関連度。無関係なら0）
+- type: fact/stat/expert/opinion/experience
+- conf: 0.0-1.0（信頼性）
+- stance: support/oppose/neutral
+- opp: 0-1（機会）, cost: 0-1（リスク）, grow: 0-1（成長）
+- insight: 要点1文（15字以内）
 
-## ハードネガティブに注意
-検索結果が「事実として正確」でも「ユーザーの質問と無関係」なら relevance_to_question を低くすること。
-例: 楽天ウェブ検索のポイント情報は事実だが、求人の質問には無関連 → relevance=0.0
-
-## 出力形式（JSON）
-{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "..."}]}`,
-    systemPrompt: "あなたは情報の認識論的分類と関連性判定の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。質問と無関連な情報は relevance_to_question=0.0 としてください。",
+出力: {"f":[{"i":1,"rel":0.8,"type":"stat","conf":0.8,"stance":"support","opp":0.5,"cost":0.1,"grow":0.7,"insight":"要点"}]}`,
+    systemPrompt: "検索結果の関連性と信頼性を判定するJSON分類器。無関連はrel=0。簡潔に。",
     requireJson: true,
     temperature: 0.2,
-    maxOutputTokens: 1000,
+    maxOutputTokens: 400, // P1.6: 800→400（出力簡素化）
     userId,
     metadata: { feature: "perspective_engine", step: "classify" },
   });
@@ -933,52 +1044,92 @@ ${resultsText}
   const fragments: PerspectiveFragment[] = [];
 
   const classifyStructured = result.structured as Record<string, unknown> | null;
-  if (classifyStructured && Array.isArray(classifyStructured.fragments)) {
-    for (const f of classifyStructured.fragments as Array<Record<string, unknown>>) {
-      const idx = (f.index as number) - 1;
-      const source = searchResults[idx];
+  // P1.6: 新旧2形式に対応（"f" 配列 or "fragments" 配列）
+  const rawFragments = classifyStructured
+    ? (Array.isArray(classifyStructured.f)
+        ? classifyStructured.f
+        : Array.isArray(classifyStructured.fragments)
+          ? classifyStructured.fragments
+          : null)
+    : null;
+
+  if (rawFragments) {
+    for (const f of rawFragments as Array<Record<string, unknown>>) {
+      // P1.6: "i" or "index" 両対応
+      const rawIdx = (f.i as number) ?? (f.index as number);
+      const idx = rawIdx - 1;
+      const source = cleanResults[idx];
       if (!source) continue;
 
-      // v3: ハードネガティブ除去（Cuconasu, SIGIR 2024）
-      // 質問との関連性が低い結果は、confidence が高くても除外
-      const relevance = (f.relevance_to_question as number) ?? 1.0; // 未指定時は互換のため 1.0
+      // ハードネガティブ除去（Cuconasu, SIGIR 2024）
+      const relevance = (f.rel as number) ?? (f.relevance_to_question as number) ?? 1.0;
       if (relevance < 0.3) {
-        console.info(`[perspective-engine] 🗑️ Hard negative filtered: [${(f.index as number)}] relevance=${relevance.toFixed(2)}`);
+        console.info(`[perspective-engine] 🗑️ Hard negative filtered: [${rawIdx}] relevance=${relevance.toFixed(2)}`);
         continue;
       }
 
-      const epistemicType = f.epistemic_type as EpistemicType;
-      const confidence = f.confidence as number;
+      // P1.6: 短縮型 type → フル型への展開
+      const typeMap: Record<string, EpistemicType> = {
+        fact: "empirical_fact",
+        stat: "statistical_claim",
+        expert: "expert_analysis",
+        opinion: "opinion",
+        experience: "personal_experience",
+        // フル型もそのまま通す
+        empirical_fact: "empirical_fact",
+        statistical_claim: "statistical_claim",
+        expert_analysis: "expert_analysis",
+        normative_claim: "normative_claim",
+        personal_experience: "personal_experience",
+        anecdote: "anecdote",
+      };
+      const rawType = (f.type as string) ?? (f.epistemic_type as string) ?? "opinion";
+      const epistemicType = typeMap[rawType] ?? "opinion";
+      const confidence = (f.conf as number) ?? (f.confidence as number) ?? 0.7;
 
       // タイプ別 confidence 閾値でフィルタ
       const threshold = CONFIDENCE_THRESHOLDS[epistemicType] ?? 0.7;
       if (confidence < threshold) continue;
 
+      // P1.6: 3軸 → 6軸への展開（opp/cost/grow から残り3軸を推定）
+      const opp = (f.opp as number) ?? 0;
+      const cost = (f.cost as number) ?? 0;
+      const grow = (f.grow as number) ?? 0;
+      // 旧形式のフル force_relevance もフォールバック
       const forceRel = f.force_relevance as Record<string, number> | undefined;
 
       fragments.push({
-        text: (f.key_insight as string) || source.text?.slice(0, 200) || "",
+        text: (f.insight as string) || (f.key_insight as string) || source.text?.slice(0, 200) || "",
         sourceUrl: source.url,
         sourceTitle: source.title,
         epistemicType,
         confidence,
         sourceAuthority: (f.source_authority as SourceAuthority) || "media",
-        stanceTowardQuery: (f.stance as StanceDirection) || "neutral",
-        forceRelevance: {
-          opportunity: forceRel?.opportunity ?? 0,
-          cost: forceRel?.cost ?? 0,
-          relationship: forceRel?.relationship ?? 0,
-          value: forceRel?.value ?? 0,
-          fear: forceRel?.fear ?? 0,
-          growth: forceRel?.growth ?? 0,
+        stanceTowardQuery: ((f.stance as string) || "neutral") as StanceDirection,
+        forceRelevance: forceRel ? {
+          opportunity: forceRel.opportunity ?? 0,
+          cost: forceRel.cost ?? 0,
+          relationship: forceRel.relationship ?? 0,
+          value: forceRel.value ?? 0,
+          fear: forceRel.fear ?? 0,
+          growth: forceRel.growth ?? 0,
+        } : {
+          // P1.6: 3軸から残り3軸を推定
+          // relationship ≈ 1 - (opp + cost)/2（機会/リスクが高いと関係性は低め）
+          // value ≈ grow * 0.6（成長関連は価値観にも関連しやすい）
+          // fear ≈ cost * 0.7（コスト/リスクは恐れにも関連しやすい）
+          opportunity: opp,
+          cost: cost,
+          relationship: Math.max(0, 1 - (opp + cost) / 2) * 0.3,
+          value: grow * 0.6,
+          fear: cost * 0.7,
+          growth: grow,
         },
       });
     }
   }
 
   // Diversity floor: 対立視点が含まれているか確認
-  const hasOppose = fragments.some((f) => f.stanceTowardQuery === "oppose");
-  const hasSupport = fragments.some((f) => f.stanceTowardQuery === "support");
   // 片方しかない場合は neutral/nuanced を補完役として残す（削除しない）
 
   // トークン予算制: 圧縮後 300 tokens 上限（≈ 日本語150文字 × fragments数）
@@ -991,10 +1142,9 @@ ${resultsText}
 
   // Diversity floor: support と oppose を優先して含める
   const sorted = [...fragments].sort((a, b) => {
-    // oppose > support > その他 の順で優先
-    const priority = (f: PerspectiveFragment) =>
-      f.stanceTowardQuery === "oppose" ? 2
-      : f.stanceTowardQuery === "support" ? 1
+    const priority = (fp: PerspectiveFragment) =>
+      fp.stanceTowardQuery === "oppose" ? 2
+      : fp.stanceTowardQuery === "support" ? 1
       : 0;
     return priority(b) - priority(a);
   });
@@ -1008,7 +1158,7 @@ ${resultsText}
   }
 
   console.info(
-    `[perspective-engine] 📊 Fragments: ${fragments.length} classified → ${budgetedFragments.length} budgeted (${totalTokens} tokens est.)`
+    `[perspective-engine] 📊 Fragments: ${searchResults.length} raw → ${cleanResults.length} clean → ${fragments.length} classified → ${budgetedFragments.length} budgeted (${totalTokens} tokens est.)`
   );
 
   return budgetedFragments;
@@ -1076,10 +1226,96 @@ export function calculateForceBalanceDelta(
  *   - Yoran (ICLR 2024): NLI フィルタ
  *   - Du & Tian (EMNLP Findings 2025): 注入量の最小化
  */
+
+/**
+ * P1-1: listing_search の fragment から候補エンティティ（固有名詞）を検出する。
+ *
+ * 候補エンティティ = 企業名・サービス名・人名等の固有名詞。
+ * 検出ヒューリスティック:
+ *   1. カタカナ3文字以上の連続（例: メイプル、シフト）
+ *   2. ASCII大文字2文字以上の連続（例: SHIFT, SRI, NTT）
+ *   3. アルファベット+カタカナの混合パターン（例: Maple SRI）
+ *   4. 「株式会社」「(株)」「Inc.」「Ltd.」等の法人接尾辞
+ *
+ * 一般名詞を除外するため、よく出る汎用語はブラックリストで弾く。
+ */
+const ENTITY_BLACKLIST = new Set([
+  "データ", "サービス", "システム", "プロジェクト", "エンジニア", "マネージャー",
+  "リモート", "フリーランス", "スタートアップ", "ベンチャー", "コンサル",
+  "キャリア", "スキル", "マーケット", "テクノロジー", "アプリ", "ツール",
+  "ポイント", "レベル", "カテゴリ", "プラン", "モデル", "メソッド",
+  "リスト", "ガイド", "チェック", "ステップ", "フロー", "プロセス",
+  "テスト", "パフォーマンス", "コスト", "リスク", "メリット", "デメリット",
+  "トレンド", "インパクト", "アドバイス", "サポート", "バランス", "パターン",
+  "ワーク", "ライフ", "ストレス", "モチベーション", "コミュニケーション",
+  "ネットワーク", "プログラミング", "マネジメント", "コーチング",
+  "IT", "AI", "DX", "HR", "PM", "UX", "UI",
+]);
+
+/**
+ * Fragment テキストから候補エンティティ名を抽出する（内部共通ロジック）。
+ *
+ * 検出ヒューリスティック:
+ *   1. 法人名マーカー（株式会社、Inc. 等）
+ *   2. ASCII 大文字2文字以上（SHIFT, SRI, NTT 等）
+ *   3. カタカナ3文字以上（メイプル、ビズリーチ等）
+ *   4. 「〇〇社」「〇〇会社」パターン
+ *
+ * ブラックリストで一般名詞を除外。
+ */
+function collectCandidateEntities(fragments: PerspectiveFragment[]): Set<string> {
+  const allText = fragments.map(f => f.text).join(" ");
+  const entities = new Set<string>();
+
+  // Pattern 1: 法人名マーカー（最も確実）
+  const corpPatterns = /(?:株式会社|(?:\(株\))|(?:Inc\.|Ltd\.|Corp\.|LLC|Co\.))\s*[\w\u30A0-\u30FFー]+|[\w\u30A0-\u30FFー]+\s*(?:株式会社|(?:\(株\)))/g;
+  for (const m of allText.matchAll(corpPatterns)) {
+    entities.add(m[0].trim());
+  }
+
+  // Pattern 2: ASCII 大文字2文字以上（SHIFT, SRI, NTT 等）— ブラックリスト除外
+  const asciiUpper = /\b[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*)*\b/g;
+  for (const m of allText.matchAll(asciiUpper)) {
+    const word = m[0].trim();
+    if (word.length >= 2 && !ENTITY_BLACKLIST.has(word)) {
+      entities.add(word);
+    }
+  }
+
+  // Pattern 3: カタカナ3文字以上（メイプル、ビズリーチ等）— ブラックリスト除外
+  const katakana = /[ァ-ヶー]{3,}/g;
+  for (const m of allText.matchAll(katakana)) {
+    const word = m[0];
+    if (!ENTITY_BLACKLIST.has(word)) {
+      entities.add(word);
+    }
+  }
+
+  // Pattern 4: 「〇〇社」「〇〇会社」パターン
+  const shaPattern = /[\u4E00-\u9FFF\u30A0-\u30FF]{2,}(?:社|会社)/g;
+  for (const m of allText.matchAll(shaPattern)) {
+    entities.add(m[0]);
+  }
+
+  return entities;
+}
+
+function countCandidateEntities(fragments: PerspectiveFragment[]): number {
+  return collectCandidateEntities(fragments).size;
+}
+
+/**
+ * Fragment テキストから候補エンティティ名を抽出して重複除去した配列で返す。
+ * countCandidateEntities と同じヒューリスティックを使用。
+ */
+export function extractCandidateEntityNames(fragments: PerspectiveFragment[]): string[] {
+  return [...collectCandidateEntities(fragments)];
+}
+
 export function retrievalQualityGate(
   fragments: PerspectiveFragment[],
   message: string,
-  searchTask?: SearchTask | null,
+  searchTask?: SearchTaskClassification | null,
 ): QualityGateResult {
   // 結果なし → abstain
   if (fragments.length === 0) {
@@ -1136,8 +1372,22 @@ export function retrievalQualityGate(
 
     // listing_search (fitness=0.2): 直接のリストは見つからない想定。
     // 周辺情報（業界レポート、給与データ等）が見つかれば supplement として活用。
+    // P1-1: ただし fragment に候補エンティティ（固有名詞・企業名等）が含まれる場合、
+    //        supplement → use にアップグレードする。Maple SRI / SHIFT 等の具体名が
+    //        PE 内部にあるのに supplement 判定で hedge 付きになり、最終応答から消えるのを防ぐ。
     if (searchTask.type === "listing_search") {
       if (filteredFragments.length > 0) {
+        const entityCount = countCandidateEntities(filteredFragments);
+        if (entityCount >= 1) {
+          // 具体的な候補名が見つかった → use にアップグレード
+          return {
+            action: "use",
+            filteredFragments,
+            reason: `listing_search_with_entities(${entityCount})`,
+            needsHedge: true, // hedge は維持（リスト検索の不完全性は伝える）
+            canClarify: false,
+          };
+        }
         return {
           action: "supplement",
           filteredFragments,
@@ -1232,16 +1482,31 @@ export function buildPerspectivePromptBlock(
   fragments: PerspectiveFragment[],
   forceBalanceDelta: Partial<ForceBalance>,
   needsHedge: boolean = false,
+  isExplicitAsk: boolean = false,
 ): string {
   if (fragments.length === 0) return "";
 
   const lines: string[] = [];
-  lines.push("## 外界の視点（参考材料）");
-  lines.push("以下の視点を自分のレンズで消化して語ってよい。ただし:");
-  lines.push("- 「調べた」「記事によると」「研究では」とは言わない");
-  lines.push("- 自分の言葉で語る：「こういう見方もあるんだけど」「実はね」「面白いのが」");
-  lines.push("- 必ず結論を出す。「いろんな意見があるね」で終わることは禁止");
-  lines.push("- 外部視点を入れても、あなたの結論はパーソナルモデルから導出すること");
+
+  if (isExplicitAsk) {
+    // ユーザーが明示的に検索を依頼した → 検索したことを正直に伝える
+    lines.push("## 外界の視点（検索結果）");
+    lines.push("ユーザーが検索を依頼した。以下の情報を使って応答すること:");
+    lines.push("- 「調べてみた」「見つけた情報だと」等、検索したことを自然に伝えてよい");
+    lines.push("- 検索結果に含まれる固有名詞（企業名・サービス名・人名等）は必ず応答に含めること");
+    lines.push("- 必ず結論を出す。「いろんな情報があるね」で終わることは禁止");
+    lines.push("- 情報が不十分な場合は正直に「ここまでしか見つからなかった」と伝え、次の一手を提案する");
+    lines.push("- パーソナルモデルの視点も添えて、本人にとっての意味を解釈する");
+  } else {
+    // 暗黙的な検索 → 自分の知見として自然に語る（P1-3: 必ず応答に織り込む）
+    lines.push("## 外界の視点（参考材料）");
+    lines.push("以下の視点を自分のレンズで消化して応答に必ず織り込むこと。ただし:");
+    lines.push("- 「記事によると」「研究では」とは言わない");
+    lines.push("- 自分の言葉で語る：「こういう見方もあるんだけど」「実はね」「面白いのが」");
+    lines.push("- 必ず結論を出す。「いろんな意見があるね」で終わることは禁止");
+    lines.push("- 外部視点を入れても、あなたの結論はパーソナルモデルから導出すること");
+    lines.push("- 重要: 以下の情報を無視して内部知識だけで答えることは禁止。必ず1つ以上の外部視点を応答に反映させること");
+  }
   if (needsHedge) {
     lines.push("- ※ 以下の情報は確定的ではない。「確実ではないけど」「俺の知る限りだと」等の修飾を付けて語ること");
     lines.push("- 情報量が多い場合は「一番面白いのは…」で1点に絞って語ってよい");
@@ -1283,21 +1548,6 @@ export function buildPerspectivePromptBlock(
 
 // ─── Main Orchestrator ────────────────────────────────────────────────────
 
-/**
- * Perspective Engine のメインエントリポイント（再設計版）。
- *
- * パイプライン:
- *   L0-L6 Gate → Privacy Gate → Search → Classify → Quality Gate → Personalize → Prompt Block
- *
- * 変更点（v2 → v3）:
- *   - L0 explicit ask を Phase/Trust の外に分離
- *   - Quality Gate（CRAG 3段階 + Sufficient Context）を追加
- *   - hedge 修飾（不十分な検索結果の場合）
- *   - explicit_search_live / implicit_search_live フラグ分離
- *
- * fail-open: どこで失敗しても null を返し、従来パスにフォールバックする。
- */
-
 /** 各ステップのレイテンシ分解 */
 export interface PerspectiveLatencyBreakdown {
   queryGenerationMs: number;
@@ -1309,30 +1559,283 @@ export interface PerspectiveLatencyBreakdown {
 }
 
 export interface PerspectiveEngineResult {
-  block: PerspectiveBlock;
-  audit: PerspectiveAudit;
-  qualityGate?: QualityGateResult;
-  /** v4: 検索タスク分類結果 */
-  searchTask?: SearchTask | null;
-  /** v5: マルチターン探索の状態（iterative の場合のみ） */
-  explorationState?: ExplorationState | null;
-  /** v5: Turn 1 の出力テンプレート（iterative の場合のみ） */
+  gateDecision: "skipped" | "blocked" | "fired" | "abstain" | "error";
+  searchTask: SearchTask | null;
+  query?: string;
+  retrieval?: PerspectiveRetrievalResult | null;
+  qualityGate?: PerspectiveQualityGateResult | null;
+  promptBlock?: string;
   explorationTemplate?: ExplorationOutputTemplate | null;
+  fragments: PerspectiveFragment[];
+  needsHedge: boolean;
+  audit: PerspectiveAudit;
+  // Keep backward compat for route.ts migration
+  /** @deprecated Use fragments/promptBlock directly. Will be removed. */
+  block: PerspectiveBlock;
+  /** @deprecated Use qualityGate directly. Will be removed. */
+  searchTaskClassification?: SearchTaskClassification | null;
+  explorationState?: ExplorationState | null;
   latencyBreakdown?: PerspectiveLatencyBreakdown;
 }
 
+// ─── 7-Stage Pipeline Helpers ───────────────────────────────────────────
+
+/** Stage 1: peGate — evaluateSearchGate ラッパー */
+function peGate(params: {
+  message: string;
+  queryContext: QueryContext;
+  questionCategory: QuestionCategory;
+  hdmPhase: number;
+  trustLevel: number;
+  responseMode: string;
+}) {
+  return evaluateSearchGate(
+    params.message,
+    params.queryContext,
+    params.questionCategory,
+    params.hdmPhase,
+    params.trustLevel,
+    params.responseMode,
+  );
+}
+
+/** Stage 2: peClassify — タスク分類 + クエリ生成 */
+async function peClassify(
+  message: string,
+  queryContext: QueryContext,
+  userId?: string,
+  conversationSummary?: string,
+): Promise<{ classification: SearchTaskClassification | null; queryGenerationMs: number }> {
+  const queryGenStart = Date.now();
+  const classification = await classifyTaskAndGenerateQueries(
+    message,
+    queryContext,
+    userId,
+    conversationSummary,
+  );
+  const queryGenerationMs = Date.now() - queryGenStart;
+  return { classification, queryGenerationMs };
+}
+
+/** Stage 3: peBuildQueries — classify 結果からクエリを抽出（既に生成済み） */
+function peBuildQueries(classification: SearchTaskClassification): string[] {
+  return classification.queries;
+}
+
+/** Stage 4: peRetrieve — 検索実行 + 認識論的分類 */
+async function peRetrieve(
+  queries: string[],
+  queryContext: QueryContext,
+  message: string,
+  userId?: string,
+): Promise<{ searchResults: SearchResult[]; classifiedFragments: PerspectiveFragment[]; searchMs: number; classificationMs: number }> {
+  const searchStart = Date.now();
+  const searchResults = await executeSearch(queries);
+  const searchMs = Date.now() - searchStart;
+
+  const classifyStart = Date.now();
+  const classifiedFragments = searchResults.length > 0
+    ? await classifySearchResults(searchResults, queryContext, message, userId)
+    : [];
+  const classificationMs = Date.now() - classifyStart;
+
+  return { searchResults, classifiedFragments, searchMs, classificationMs };
+}
+
+/** Stage 5: peQualityGate — 品質ゲート */
+function peQualityGate(
+  classifiedFragments: PerspectiveFragment[],
+  message: string,
+  classification: SearchTaskClassification,
+): { qualityResult: QualityGateResult; qualityGateMs: number } {
+  const qualityGateStart = Date.now();
+  const qualityResult = retrievalQualityGate(classifiedFragments, message, classification);
+  const qualityGateMs = Date.now() - qualityGateStart;
+  return { qualityResult, qualityGateMs };
+}
+
 /**
- * Perspective Engine のメインエントリポイント（v4: Task-Aware）。
+ * P1.5: パーソナリティ適性でフラグメントをランキングする。
+ *
+ * 4次元スコア:
+ *   1. personalityFit  — ユーザーの性格軸とフラグメントの力学的関連度の一致
+ *   2. workStyleFit    — 働き方（自律/協調、計画/柔軟）との合致
+ *   3. growthAlignment — 成長志向/安定志向との合致
+ *   4. originalRelevance — 元の分類品質（confidence × relevance by position）
+ *
+ * ランキングはフラグメント順序の並べ替えのみ。フィルタリング（除外）はしない。
+ * MAX_FRAGMENTS=3 の制約は classifySearchResults で既に適用済み。
+ */
+export interface PersonalityContext {
+  axisScores?: Partial<Record<string, number>>;
+}
+
+export function rankFragmentsByFit(
+  fragments: PerspectiveFragment[],
+  personalityCtx?: PersonalityContext | null,
+): PerspectiveFragment[] {
+  if (!personalityCtx?.axisScores || fragments.length <= 1) return fragments;
+
+  const axes = personalityCtx.axisScores;
+
+  // ユーザーの働き方ベクトルを構築（-1〜+1 の軸スコアを 0〜1 に正規化して使用）
+  const autonomy = (axes.independence_vs_harmony ?? 0.5); // 高い = 自律重視
+  const boldness = (axes.cautious_vs_bold ?? 0.5);        // 高い = 大胆
+  const growthOrientation = (axes.growth_mindset ?? 0.5);  // 高い = 成長志向
+  const flexibility = (axes.plan_vs_spontaneous ?? 0.5);   // 高い = 柔軟
+  const changeEmbracement = (axes.change_embrace_vs_resist ?? 0.5); // 高い = 変化歓迎
+
+  const scored = fragments.map((f, idx) => {
+    const fr = f.forceRelevance;
+
+    // 1. personalityFit: opportunity/growth はbold/growth-oriented人に加点、cost/fearはcautious人に加点
+    const personalityFit =
+      (fr.opportunity * boldness) +
+      (fr.growth * growthOrientation) +
+      (fr.cost * (1 - boldness) * 0.5) +   // cautious人はリスク情報を重視
+      (fr.fear * (1 - changeEmbracement) * 0.3);
+
+    // 2. workStyleFit: relationship は social人に、value は autonomy人に加点
+    const workStyleFit =
+      (fr.relationship * (1 - autonomy)) +
+      (fr.value * autonomy * 0.8);
+
+    // 3. growthAlignment: growthが高いfragmentは成長志向の人に加点
+    const growthAlignment = fr.growth * growthOrientation;
+
+    // 4. originalRelevance: confidence + position bonus（元の順序を尊重）
+    const positionBonus = Math.max(0, 1 - idx * 0.15);
+    const originalRelevance = f.confidence * 0.7 + positionBonus * 0.3;
+
+    // 重み付き合計
+    const totalScore =
+      personalityFit * 0.35 +
+      workStyleFit * 0.20 +
+      growthAlignment * 0.15 +
+      originalRelevance * 0.30;
+
+    return { fragment: f, score: totalScore };
+  });
+
+  // スコア降順でソート
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.map(s => s.fragment);
+}
+
+/**
+ * Stage 6: peAssembleResponseContract — promptBlock + SearchTask 生成。
+ *
+ * 内部 SearchTaskClassification を下流向け SearchTask に正規化し、
+ * promptBlock を構築する。
+ *
+ * P1.5: personalityCtx が渡された場合、フラグメントをパーソナリティ適性で
+ * ランキングしてから promptBlock を構築する。
+ */
+export function peAssembleResponseContract(
+  classificationResult: SearchTaskClassification,
+  qualityResult: QualityGateResult,
+  fragments: PerspectiveFragment[],
+  forceBalanceDelta: Partial<ForceBalance>,
+  isExplicitAsk: boolean,
+  personalityCtx?: PersonalityContext | null,
+): { promptBlock: string; searchTask: SearchTask; candidateEntities: string[] } {
+  // P1.5: パーソナリティ適性でフラグメントをランキング
+  const rankedFragments = rankFragmentsByFit(fragments, personalityCtx);
+
+  // Build prompt block (ranked order)
+  const promptBlock = buildPerspectivePromptBlock(
+    rankedFragments,
+    forceBalanceDelta,
+    qualityResult.needsHedge,
+    isExplicitAsk,
+  );
+
+  // Detect candidate entities from ranked fragments
+  const candidateEntityNames = extractCandidateEntityNames(rankedFragments);
+
+  // Map internal classification type to downstream type
+  const typeMap: Record<SearchTaskClassificationType, SearchTaskType> = {
+    factual_lookup: "factual_lookup",
+    market_intel: "market_intel",
+    entity_research: "company_research",
+    listing_search: "listing_search",
+    comparison: "comparison",
+    perspective_seek: "market_intel",  // perspective seeking maps to market intel
+    how_to: "factual_lookup",         // how-to maps to factual lookup
+  };
+
+  const searchTask: SearchTask = {
+    type: typeMap[classificationResult.type] ?? "none",
+    explicit: isExplicitAsk,
+    confidence: classificationResult.searchFitness,
+    rationale: classificationResult.description,
+    queryIntent: classificationResult.queries[0],
+    candidateEntities: candidateEntityNames.length > 0 ? candidateEntityNames : undefined,
+    userNeed: classificationResult.description,
+  };
+
+  return { promptBlock, searchTask, candidateEntities: candidateEntityNames };
+}
+
+/** Stage 7: peFinalize — PerspectiveEngineResult を組み立てる */
+function peFinalize(opts: {
+  gateDecision: PerspectiveEngineResult["gateDecision"];
+  searchTask: SearchTask | null;
+  searchTaskClassification: SearchTaskClassification | null;
+  fragments: PerspectiveFragment[];
+  needsHedge: boolean;
+  promptBlock: string;
+  forceBalanceDelta: Partial<ForceBalance>;
+  queries: string[];
+  totalMs: number;
+  audit: PerspectiveAudit;
+  qualityResult?: QualityGateResult;
+  retrieval?: PerspectiveRetrievalResult | null;
+  qualityGate?: PerspectiveQualityGateResult | null;
+  explorationState?: ExplorationState | null;
+  explorationTemplate?: ExplorationOutputTemplate | null;
+  latencyBreakdown?: PerspectiveLatencyBreakdown;
+}): PerspectiveEngineResult {
+  const block: PerspectiveBlock = {
+    fragments: opts.fragments,
+    promptBlock: opts.promptBlock,
+    forceBalanceDelta: opts.forceBalanceDelta,
+    searchQueriesSent: opts.queries,
+    searchLatencyMs: opts.totalMs,
+  };
+
+  return {
+    gateDecision: opts.gateDecision,
+    searchTask: opts.searchTask,
+    query: opts.queries[0],
+    retrieval: opts.retrieval ?? null,
+    qualityGate: opts.qualityGate ?? null,
+    promptBlock: opts.promptBlock,
+    explorationTemplate: opts.explorationTemplate ?? null,
+    fragments: opts.fragments,
+    needsHedge: opts.needsHedge,
+    audit: opts.audit,
+    block,
+    searchTaskClassification: opts.searchTaskClassification,
+    explorationState: opts.explorationState ?? null,
+    latencyBreakdown: opts.latencyBreakdown,
+  };
+}
+
+// ─── runPerspectiveEngine ───────────────────────────────────────────────
+
+/**
+ * Perspective Engine のメインエントリポイント（v6: 7-Stage Pipeline）。
  *
  * パイプライン:
- *   L0-L6 Gate → Task Classification + Query Generation → Search → Classify → Task-Fitness Quality Gate → Personalize → Prompt Block
- *
- * v3 → v4 変更:
- *   - generateSafeSearchQueries → classifyTaskAndGenerateQueries（タスク分類+クエリ生成統合）
- *   - Quality Gate に SearchTask を渡してタスク種別ごとの品質判定
- *   - listing_search の honest limitation パス（結果に searchTask を含めて route.ts で判定）
- *   - searchResults が 0 件でも explicit ask 時は fail-open せず quality gate に通す
- *     （listing_search 等で意味のある fallback を出すため）
+ *   1. peGate        — L0-L6 検索ゲート
+ *   2. peClassify    — タスク分類 + クエリ生成（単一 LLM 呼び出し）
+ *   3. peBuildQueries — classify 結果からクエリ抽出
+ *   4. peRetrieve    — 検索実行 + 認識論的分類
+ *   5. peQualityGate — CRAG 3段階 + Sufficient Context + Task Fitness
+ *   6. peAssembleResponseContract — promptBlock + SearchTask(downstream) 生成
+ *   7. peFinalize    — PerspectiveEngineResult 組み立て
  *
  * fail-open: どこで失敗しても null を返し、従来パスにフォールバックする。
  */
@@ -1348,18 +1851,13 @@ export async function runPerspectiveEngine(params: {
   conversationSummary?: string;
   /** v5: 既存の ExplorationState（マルチターン探索の継続時） */
   existingExploration?: ExplorationState | null;
+  /** P1.5: パーソナリティコンテキスト（フラグメントランキングに使う） */
+  personalityCtx?: PersonalityContext | null;
 }): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
 
-  // 1. Gate（L0-L6）
-  const gate = evaluateSearchGate(
-    params.message,
-    params.queryContext,
-    params.questionCategory,
-    params.hdmPhase,
-    params.trustLevel,
-    params.responseMode,
-  );
+  // ── Stage 1: peGate ──────────────────────────────────────────────
+  const gate = peGate(params);
 
   const baseAudit: PerspectiveAudit = {
     sourceType: "internal",
@@ -1367,50 +1865,49 @@ export async function runPerspectiveEngine(params: {
     forceBalanceDelta: {},
     searchQueriesSent: [],
     searchLatencyMs: 0,
-    gateDecision: "skipped",
+    gateDecision: gate.explicitAskBlocked ? "blocked" : "skipped",
     gateReason: gate.reason,
     isExplicitAsk: gate.isExplicitAsk,
     explicitAskBlocked: gate.explicitAskBlocked,
   };
 
   if (!gate.shouldSearch) {
-    return {
-      block: {
-        fragments: [],
-        promptBlock: "",
-        forceBalanceDelta: {},
-        searchQueriesSent: [],
-        searchLatencyMs: 0,
-      },
+    const gateDecision: PerspectiveEngineResult["gateDecision"] =
+      gate.explicitAskBlocked ? "blocked" : "skipped";
+
+    return peFinalize({
+      gateDecision,
+      searchTask: null,
+      searchTaskClassification: null,
+      fragments: [],
+      needsHedge: false,
+      promptBlock: "",
+      forceBalanceDelta: {},
+      queries: [],
+      totalMs: 0,
       audit: baseAudit,
-    };
+    });
   }
 
   try {
-    // 2. Task Classification + Query Generation（統合 — 単一 LLM 呼び出し）
-    const queryGenStart = Date.now();
-    const searchTask = await classifyTaskAndGenerateQueries(
+    // ── Stage 2: peClassify ──────────────────────────────────────────
+    const { classification, queryGenerationMs } = await peClassify(
       params.message,
       params.queryContext,
       params.userId,
       params.conversationSummary,
     );
-    const queryGenerationMs = Date.now() - queryGenStart;
 
-    if (!searchTask || searchTask.queries.length === 0) {
+    if (!classification || classification.queries.length === 0) {
       return null; // fail-open
     }
 
-    const queries = searchTask.queries;
+    // ── Stage 3: peBuildQueries ──────────────────────────────────────
+    const queries = peBuildQueries(classification);
 
-    // v4: listing_search で fitness が極端に低い場合、検索自体をスキップして
-    // honest limitation パスに直行する選択肢もある。
-    // ただし、周辺情報（業界レポート等）は有用なので、検索は実行する。
-
-    // 3. Search Execution (並列化: 全クエリを同時実行)
-    const searchStart = Date.now();
-    const searchResults = await executeSearch(queries);
-    const searchMs = Date.now() - searchStart;
+    // ── Stage 4: peRetrieve ──────────────────────────────────────────
+    const { searchResults, classifiedFragments, searchMs, classificationMs } =
+      await peRetrieve(queries, params.queryContext, params.message, params.userId);
 
     // v4: explicit ask 時は検索結果 0 でも quality gate に通す
     // （listing_search 等で honest limitation を返すため）
@@ -1419,71 +1916,85 @@ export async function runPerspectiveEngine(params: {
       return null; // fail-open（暗黙検索で結果ゼロは静かに落とす）
     }
 
-    // 4. Epistemic Classification
-    const classifyStart = Date.now();
-    const classifiedFragments = searchResults.length > 0
-      ? await classifySearchResults(
-          searchResults,
-          params.queryContext,
-          params.message,
-          params.userId,
-        )
-      : [];
-    const classificationMs = Date.now() - classifyStart;
+    const retrievalResult: PerspectiveRetrievalResult = {
+      rawResults: searchResults,
+      classifiedFragments,
+      queriesSent: queries,
+      searchLatencyMs: searchMs,
+    };
 
-    // 5. Quality Gate（CRAG 3段階 + Sufficient Context + Task Fitness）
-    const qualityGateStart = Date.now();
-    const qualityResult = retrievalQualityGate(
+    // ── Stage 5: peQualityGate ───────────────────────────────────────
+    const { qualityResult, qualityGateMs } = peQualityGate(
       classifiedFragments,
       params.message,
-      searchTask,
+      classification,
     );
-    const qualityGateMs = Date.now() - qualityGateStart;
 
     console.info(
-      `[perspective-engine] 🔍 Quality gate: action=${qualityResult.action}, reason=${qualityResult.reason}, ` +
-      `task=${searchTask.type}(fitness=${searchTask.searchFitness}), ` +
-      `fragments=${classifiedFragments.length}→${qualityResult.filteredFragments.length}, hedge=${qualityResult.needsHedge}`
+      `[perspective-engine] Quality gate: action=${qualityResult.action}, reason=${qualityResult.reason}, ` +
+      `task=${classification.type}(fitness=${classification.searchFitness}), ` +
+      `fragments=${classifiedFragments.length}->${qualityResult.filteredFragments.length}, hedge=${qualityResult.needsHedge}`
     );
+
+    const qualityGateResult: PerspectiveQualityGateResult = {
+      action: qualityResult.action,
+      reason: qualityResult.reason,
+      needsHedge: qualityResult.needsHedge,
+      canClarify: qualityResult.canClarify,
+      filteredFragments: qualityResult.filteredFragments,
+    };
 
     // Quality Gate が discard/abstain → 検索結果を使わない
     if (qualityResult.action === "discard" || qualityResult.action === "abstain") {
       const totalMs = Date.now() - startTime;
-      return {
-        block: {
-          fragments: [],
-          promptBlock: "",
-          forceBalanceDelta: {},
-          searchQueriesSent: queries,
-          searchLatencyMs: totalMs,
-        },
+      const gateDecision: PerspectiveEngineResult["gateDecision"] = "abstain";
+
+      // Still build a downstream SearchTask for route.ts context
+      const { searchTask: downstreamTask } = peAssembleResponseContract(
+        classification, qualityResult, [], {}, gate.isExplicitAsk,
+      );
+
+      return peFinalize({
+        gateDecision,
+        searchTask: downstreamTask,
+        searchTaskClassification: classification,
+        fragments: [],
+        needsHedge: false,
+        promptBlock: "",
+        forceBalanceDelta: {},
+        queries,
+        totalMs,
         audit: {
           sourceType: "internal",
           fragmentsUsed: [],
           forceBalanceDelta: {},
           searchQueriesSent: queries,
           searchLatencyMs: totalMs,
-          gateDecision: "fired",
+          gateDecision: "abstain",
           gateReason: `${gate.reason}_quality_${qualityResult.action}`,
           isExplicitAsk: gate.isExplicitAsk,
           explicitAskBlocked: false,
         },
-        qualityGate: qualityResult,
-        searchTask,
-      };
+        qualityResult,
+        retrieval: retrievalResult,
+        qualityGate: qualityGateResult,
+      });
     }
 
-    // 6. ForceBalance Delta（品質ゲート通過後の fragment のみ使用）
+    // ── Stage 6: peAssembleResponseContract ──────────────────────────
     const promptBuildStart = Date.now();
     const fragments = qualityResult.filteredFragments;
     const forceBalanceDelta = calculateForceBalanceDelta(fragments);
 
-    // 7. Prompt Block（hedge 対応）
-    const promptBlock = buildPerspectivePromptBlock(
-      fragments,
-      forceBalanceDelta,
-      qualityResult.needsHedge,
-    );
+    const { promptBlock, searchTask: downstreamSearchTask, candidateEntities } =
+      peAssembleResponseContract(
+        classification,
+        qualityResult,
+        fragments,
+        forceBalanceDelta,
+        gate.isExplicitAsk,
+        params.personalityCtx,
+      );
     const promptBuildMs = Date.now() - promptBuildStart;
 
     const totalMs = Date.now() - startTime;
@@ -1498,18 +2009,10 @@ export async function runPerspectiveEngine(params: {
     };
 
     console.info(
-      `[perspective-engine] ⏱️  Latency breakdown: ` +
+      `[perspective-engine] Latency breakdown: ` +
       `queryGen=${queryGenerationMs}ms, search=${searchMs}ms, classify=${classificationMs}ms, ` +
       `qualityGate=${qualityGateMs}ms, promptBuild=${promptBuildMs}ms, total=${totalMs}ms`
     );
-
-    const block: PerspectiveBlock = {
-      fragments,
-      promptBlock,
-      forceBalanceDelta,
-      searchQueriesSent: queries,
-      searchLatencyMs: totalMs,
-    };
 
     const audit: PerspectiveAudit = {
       sourceType: fragments.length > 0 ? "external_augmented" : "internal",
@@ -1527,7 +2030,14 @@ export async function runPerspectiveEngine(params: {
     let explorationState: ExplorationState | null = null;
     let explorationTemplate: ExplorationOutputTemplate | null = null;
 
-    if (searchTask && searchTask.explorationDepth === "iterative") {
+    // v5: iterative タスクの Exploration 開始条件:
+    //   - 既存 Exploration の継続: 常に OK
+    //   - 新規開始: quality gate が "use" の場合のみ。
+    //     "supplement" (peripheral_info のみ) で開始すると、候補エンティティが無い状態を
+    //     跨いで持つだけになる。候補が取れて初めて Exploration の価値がある。
+    const canStartNewExploration = qualityResult.action === "use";
+
+    if (classification && classification.explorationDepth === "iterative") {
       if (params.existingExploration && !params.existingExploration.isDormant) {
         // 既存の探索を継続（deep_research フェーズへ遷移等）
         explorationState = {
@@ -1541,33 +2051,54 @@ export async function runPerspectiveEngine(params: {
           isActive: true,
         };
         console.info(
-          `[perspective-engine] 🔄 Exploration continued: phase=${explorationState.currentPhase}, turn=${explorationState.turnCount}`
+          `[perspective-engine] Exploration continued: phase=${explorationState.currentPhase}, turn=${explorationState.turnCount}`
         );
-      } else {
+      } else if (canStartNewExploration) {
         // 新規探索を開始（Turn 1: hypothesis フェーズ）
         explorationState = createExplorationState(
-          searchTask.type,
+          classification.type,
           params.queryContext.domain,
-          searchTask.description,
+          classification.description,
           [], // fitHypotheses は route.ts でパーソナルモデルから生成
         );
         explorationState.totalSearchQueries = [...queries];
         explorationState.currentPhase = "user_selection"; // Turn 1 完了後は候補選択待ち
 
         // タスクタイプ別出力テンプレートを取得
-        explorationTemplate = EXPLORATION_OUTPUT_TEMPLATES[searchTask.type] ?? null;
+        explorationTemplate = EXPLORATION_OUTPUT_TEMPLATES[classification.type] ?? null;
 
         console.info(
-          `[perspective-engine] 🆕 Exploration started: type=${searchTask.type}, ` +
+          `[perspective-engine] Exploration started: type=${classification.type}, ` +
           `template=${explorationTemplate ? "found" : "default"}, id=${explorationState.explorationId}`
+        );
+      } else {
+        console.info(
+          `[perspective-engine] Exploration deferred: quality=${qualityResult.action} ` +
+          `(need "use" to start, got "${qualityResult.reason}"). ` +
+          `Search results will be delivered as single-turn.`
         );
       }
     }
 
-    return {
-      block, audit, qualityGate: qualityResult, searchTask,
-      explorationState, explorationTemplate, latencyBreakdown,
-    };
+    // ── Stage 7: peFinalize ──────────────────────────────────────────
+    return peFinalize({
+      gateDecision: "fired",
+      searchTask: downstreamSearchTask,
+      searchTaskClassification: classification,
+      fragments,
+      needsHedge: qualityResult.needsHedge,
+      promptBlock,
+      forceBalanceDelta,
+      queries,
+      totalMs,
+      audit,
+      qualityResult,
+      retrieval: retrievalResult,
+      qualityGate: qualityGateResult,
+      explorationState,
+      explorationTemplate,
+      latencyBreakdown,
+    });
   } catch (error) {
     console.warn("[PerspectiveEngine] Error in pipeline, falling back:", error);
     return null; // fail-open: 全てのエラーでフォールバック

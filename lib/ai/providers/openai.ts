@@ -113,6 +113,12 @@ export async function runOpenAI(
   if (request.temperature !== undefined) {
     payload.temperature = request.temperature;
   }
+  if (request.frequencyPenalty !== undefined) {
+    payload.frequency_penalty = request.frequencyPenalty;
+  }
+  if (request.presencePenalty !== undefined) {
+    payload.presence_penalty = request.presencePenalty;
+  }
   if (request.maxOutputTokens !== undefined) {
     payload.max_tokens = request.maxOutputTokens;
   }

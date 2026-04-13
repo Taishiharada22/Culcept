@@ -44,14 +44,15 @@ export function enqueueSync(endpoint: string, method: "POST" | "PUT", body: obje
 }
 
 /** Process the sync queue - attempt to send all pending items */
-export async function processSyncQueue(): Promise<{ success: number; failed: number }> {
-  if (!isOnline()) return { success: 0, failed: 0 };
+export async function processSyncQueue(): Promise<{ success: number; failed: number; needsReauth: boolean }> {
+  if (!isOnline()) return { success: 0, failed: 0, needsReauth: false };
 
   const queue = loadSyncQueue();
-  if (queue.length === 0) return { success: 0, failed: 0 };
+  if (queue.length === 0) return { success: 0, failed: 0, needsReauth: false };
 
   let success = 0;
   let failed = 0;
+  let needsReauth = false;
   const remaining: SyncQueueItem[] = [];
 
   for (const item of queue) {
@@ -61,8 +62,13 @@ export async function processSyncQueue(): Promise<{ success: number; failed: num
         headers: { "Content-Type": "application/json" },
         body: item.body,
       });
-      if (res.ok || res.status === 401) {
+      if (res.ok) {
         success++;
+      } else if (res.status === 401) {
+        // 認証切れ — キューに残して再認証後にリトライ
+        console.warn("[offlineManager] 401: 再認証が必要です");
+        remaining.push(item);
+        needsReauth = true;
       } else {
         item.retries++;
         if (item.retries < 5) remaining.push(item);
@@ -76,7 +82,7 @@ export async function processSyncQueue(): Promise<{ success: number; failed: num
   }
 
   saveSyncQueue(remaining);
-  return { success, failed };
+  return { success, failed, needsReauth };
 }
 
 /** Get pending sync count */

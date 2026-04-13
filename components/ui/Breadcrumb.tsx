@@ -91,6 +91,9 @@ export function Breadcrumb({
   // Don't show on home
   if (hideOnHome && pathname === "/") return null;
 
+  // Rendezvous has its own navigation — breadcrumb is noise there
+  if (pathname.startsWith("/rendezvous")) return null;
+
   const crumbs = items ?? generateBreadcrumbs(pathname);
   if (crumbs.length <= 1) return null;
 

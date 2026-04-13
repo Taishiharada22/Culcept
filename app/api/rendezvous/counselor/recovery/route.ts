@@ -76,10 +76,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // Trigger next suggestion search asynchronously (fire-and-forget)
-    triggerNextSuggestionSearch(session.id, userId, analysis.tendency_insight as TendencyInsight).catch((err) => {
-      console.error("[counselor/recovery] async suggestion search error:", err);
-    });
+    // Trigger next suggestion search and await its result
+    try {
+      await triggerNextSuggestionSearch(session.id, userId, analysis.tendency_insight as TendencyInsight);
+    } catch (err) {
+      console.error("[counselor/recovery] suggestion search failed, setting pending_suggestions:", err);
+      // Set session state to pending_suggestions so client can poll/retry
+      await supabaseAdmin
+        .from("rendezvous_counselor_sessions")
+        .update({
+          state: "pending_suggestions" as CounselorSessionState,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", session.id);
+    }
 
     return NextResponse.json({
       success: true,

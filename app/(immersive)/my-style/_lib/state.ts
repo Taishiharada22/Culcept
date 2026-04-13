@@ -923,7 +923,8 @@ export function readJsonStorage(key: string): unknown | null {
     try {
         const raw = localStorage.getItem(key);
         return raw ? JSON.parse(raw) : null;
-    } catch {
+    } catch (err) {
+        console.error(`[my-style] readJsonStorage failed for key="${key}":`, err);
         return null;
     }
 }
@@ -1326,21 +1327,66 @@ export function deriveSyncSignals(state: SavedState) {
     };
 }
 
+/**
+ * Strip base64 data: URLs from wardrobe imageUrl fields.
+ * Keeps external URLs (https:// etc.) under 2048 chars; drops everything else.
+ */
+function stripHeavyImageUrls(wardrobe: WardrobeItem[]): WardrobeItem[] {
+    return wardrobe.map((item) => ({
+        ...item,
+        imageUrl:
+            typeof item.imageUrl === "string" &&
+            item.imageUrl.trim() &&
+            !item.imageUrl.startsWith("data:") &&
+            item.imageUrl.length < 2048
+                ? item.imageUrl
+                : undefined,
+    }));
+}
+
+/**
+ * Legacy field names that are fully derivable from canonical fields
+ * (styleSelections, iam, iseek, ibecome, etc.) via finalizeSavedState.
+ * Stripping them from the portable snapshot saves significant bytes
+ * without information loss — loadStateBundle normalizes on load.
+ */
+const LEGACY_SNAPSHOT_KEYS: ReadonlySet<string> = new Set([
+    "styles",
+    "primaryLanes",
+    "secondaryLanes",
+    "exploringLanes",
+    "iAmLanes",
+    "favoriteElements",
+    "avoidElements",
+    "likedElements",
+    "dislikedElements",
+    "moodKeywords",
+    "silhouettePrefs",
+    "colorTones",
+    "materialPrefs",
+    "desiredImpressions",
+    "iAmNote",
+    "iSeekNote",
+    "seekPersonas",
+    "seekCategories",
+    "seekSubcategories",
+]);
+
 export function createPortableStateSnapshot(state: SavedState) {
     const normalized = normalizeSavedState(state);
-    return {
-        ...normalized,
-        wardrobe: normalized.wardrobe.map((item) => ({
-            ...item,
-            imageUrl:
-                typeof item.imageUrl === "string" &&
-                item.imageUrl.trim() &&
-                !item.imageUrl.startsWith("data:") &&
-                item.imageUrl.length < 2048
-                    ? item.imageUrl
-                    : undefined,
-        })),
-    };
+
+    // Build snapshot without legacy duplicate fields
+    const snapshot: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(normalized)) {
+        if (!LEGACY_SNAPSHOT_KEYS.has(key)) {
+            snapshot[key] = value;
+        }
+    }
+
+    // Overwrite wardrobe with image-stripped version
+    snapshot.wardrobe = stripHeavyImageUrls(normalized.wardrobe);
+
+    return snapshot as Omit<SavedState, "styles" | "primaryLanes" | "secondaryLanes" | "exploringLanes" | "iAmLanes" | "favoriteElements" | "avoidElements" | "likedElements" | "dislikedElements" | "moodKeywords" | "silhouettePrefs" | "colorTones" | "materialPrefs" | "desiredImpressions" | "iAmNote" | "iSeekNote" | "seekPersonas" | "seekCategories" | "seekSubcategories">;
 }
 
 export type LoadBundle = {

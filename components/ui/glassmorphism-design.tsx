@@ -393,6 +393,13 @@ export function GlassInput({
     const [focused, setFocused] = useState(false);
     const [internalValue, setInternalValue] = useState(value ?? defaultValue ?? "");
 
+    // Sync internal state when controlled value prop changes (e.g. parent clears input)
+    useEffect(() => {
+        if (value !== undefined) {
+            setInternalValue(value);
+        }
+    }, [value]);
+
     const sizes = {
         sm: "py-2 text-sm",
         md: "py-3 text-base",

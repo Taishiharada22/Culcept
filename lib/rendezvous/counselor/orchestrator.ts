@@ -62,6 +62,7 @@ export type MilestoneInfo = {
 export type RecommendationType =
   | "suggest_game"
   | "suggest_mission"
+  | "suggest_ceremony"
   | "trigger_nudge"
   | "adjust_pacing"
   | "flag_escalation"

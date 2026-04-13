@@ -91,6 +91,52 @@ export async function mergeAnonymousIntoExistingUser(
     (existingObs ?? []).map((o) => [o.question_id, o.answered_at])
   );
 
+  // ── 2.5. 並行実行ガード（is_merging フラグ） ──
+  const { data: mergingCheck } = await supabaseAdmin
+    .from("profiles")
+    .select("is_merging")
+    .eq("id", anonymousUserId)
+    .maybeSingle();
+
+  if (mergingCheck?.is_merging) {
+    console.warn(`[mergeAnonymousData] merge already in progress for ${anonymousUserId}, skipping`);
+    return {
+      success: true,
+      mergedObservations: 0,
+      conflictResolved: 0,
+      totalObservations: await countObservations(existingUserId),
+      error: "Merge already in progress",
+    };
+  }
+
+  // is_merging フラグを立てる
+  const { error: lockErr } = await supabaseAdmin
+    .from("profiles")
+    .update({ is_merging: true })
+    .eq("id", anonymousUserId);
+
+  if (lockErr) {
+    console.error(`[mergeAnonymousData] failed to set is_merging lock:`, lockErr.message);
+  }
+
+  // ── 2.6. 冪等再チェック: 匿名データがまだ存在するか確認 ──
+  const { count: remainingAnonObs } = await supabaseAdmin
+    .from("stargazer_observations")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", anonymousUserId);
+
+  if ((remainingAnonObs ?? 0) === 0 && anonObs.length > 0) {
+    // 別プロセスが既にマージ完了している
+    console.warn(`[mergeAnonymousData] anonymous observations already moved for ${anonymousUserId}`);
+    await markAsMerged(anonymousUserId);
+    return {
+      success: true,
+      mergedObservations: 0,
+      conflictResolved: 0,
+      totalObservations: await countObservations(existingUserId),
+    };
+  }
+
   // ── 3. 競合解決して移管 ──
   let mergedCount = 0;
   let conflictCount = 0;
@@ -100,11 +146,17 @@ export async function mergeAnonymousIntoExistingUser(
 
     if (!existingAnsweredAt) {
       // 既存に回答なし → 匿名の回答を移管（user_id を書き換え）
-      await supabaseAdmin
+      const { error: updateErr, count: moveCount } = await supabaseAdmin
         .from("stargazer_observations")
         .update({ user_id: existingUserId })
         .eq("id", obs.id);
-      mergedCount++;
+      if (updateErr) {
+        console.error(`[mergeAnonymousData] failed to move observation ${obs.id}:`, updateErr.message);
+      } else if (moveCount === 0) {
+        console.warn(`[mergeAnonymousData] observation move matched 0 rows for id=${obs.id}`);
+      } else {
+        mergedCount++;
+      }
     } else {
       // 両方に回答あり → answered_at が新しい方を優先
       const anonTime = new Date(obs.answered_at).getTime();
@@ -113,56 +165,244 @@ export async function mergeAnonymousIntoExistingUser(
       if (anonTime >= existingTime) {
         // 匿名の方が新しい（同時刻の場合も匿名優先）
         // 既存を削除して匿名を移管
-        await supabaseAdmin
+        const { error: delErr } = await supabaseAdmin
           .from("stargazer_observations")
           .delete()
           .eq("user_id", existingUserId)
           .eq("question_id", obs.question_id);
+        if (delErr) {
+          console.error(`[mergeAnonymousData] failed to delete existing observation for question ${obs.question_id}:`, delErr.message);
+          continue;
+        }
 
-        await supabaseAdmin
+        const { error: moveErr, count: conflictMoveCount } = await supabaseAdmin
           .from("stargazer_observations")
           .update({ user_id: existingUserId })
           .eq("id", obs.id);
-
-        conflictCount++;
-        mergedCount++;
+        if (moveErr) {
+          console.error(`[mergeAnonymousData] failed to move conflicting observation ${obs.id}:`, moveErr.message);
+        } else if (conflictMoveCount === 0) {
+          console.warn(`[mergeAnonymousData] conflict observation move matched 0 rows for id=${obs.id}`);
+        } else {
+          conflictCount++;
+          mergedCount++;
+        }
       } else {
         // 既存の方が新しい → 匿名の回答を削除
-        await supabaseAdmin
+        const { error: delErr } = await supabaseAdmin
           .from("stargazer_observations")
           .delete()
           .eq("id", obs.id);
+        if (delErr) {
+          console.error(`[mergeAnonymousData] failed to delete stale observation ${obs.id}:`, delErr.message);
+        }
       }
     }
   }
 
   // ── 4. 関連テーブルの移管 ──
-  // stargazer_profiles: 匿名のプロフィールは使わない（既存を維持）
-  // ただし、既存にプロフィールがない場合は匿名のものを移管
+  // stargazer_profiles: 既存profileがなければ丸ごと移管。
+  // 既存profileがある場合でも、匿名側の stage_progress をマージする
+  // （18問/53問のオンボーディング進捗が匿名IDに紐づいているため）
   const { data: existingProfile } = await supabaseAdmin
     .from("stargazer_profiles")
-    .select("user_id")
+    .select("user_id, stage_progress")
     .eq("user_id", existingUserId)
     .maybeSingle();
 
   if (!existingProfile) {
-    await supabaseAdmin
+    // 既存profileなし → 匿名profileを丸ごと移管
+    const { error: profileMoveErr, count: profileMoveCount } = await supabaseAdmin
       .from("stargazer_profiles")
       .update({ user_id: existingUserId })
+      .eq("user_id", anonymousUserId);
+    if (profileMoveErr) {
+      console.error(`[mergeAnonymousData] failed to move stargazer_profiles:`, profileMoveErr.message);
+    } else if (profileMoveCount === 0) {
+      console.warn(`[mergeAnonymousData] stargazer_profiles move matched 0 rows for anon=${anonymousUserId}`);
+    }
+  } else {
+    // 既存profileあり → 匿名側の stage_progress + dimensions をマージ
+    const { data: anonStargazerProfile } = await supabaseAdmin
+      .from("stargazer_profiles")
+      .select("stage_progress, dimensions, archetype_code, confidence, tags")
+      .eq("user_id", anonymousUserId)
+      .maybeSingle();
+
+    if (anonStargazerProfile) {
+      const updatePayload: Record<string, unknown> = {};
+
+      // stage_progress マージ
+      if (anonStargazerProfile.stage_progress) {
+        const anonProgress = anonStargazerProfile.stage_progress as Record<string, unknown>;
+        const existingStageProgress = (existingProfile.stage_progress as Record<string, unknown>) ?? {};
+        const mergedStageProgress: Record<string, unknown> = { ...existingStageProgress };
+        for (const [key, anonValue] of Object.entries(anonProgress)) {
+          const existingValue = existingStageProgress[key];
+          if (
+            existingValue &&
+            typeof existingValue === "object" &&
+            !Array.isArray(existingValue) &&
+            anonValue &&
+            typeof anonValue === "object" &&
+            !Array.isArray(anonValue)
+          ) {
+            mergedStageProgress[key] = {
+              ...(existingValue as Record<string, unknown>),
+              ...(anonValue as Record<string, unknown>),
+            };
+          } else {
+            mergedStageProgress[key] = anonValue;
+          }
+        }
+        updatePayload.stage_progress = mergedStageProgress;
+      }
+
+      // dimensions マージ（匿名側にデータがあり、既存側が空の場合に上書き）
+      const anonDims = anonStargazerProfile.dimensions as Record<string, number> | null;
+      if (anonDims && Object.values(anonDims).some((v) => typeof v === "number" && Math.abs(v) > 0.001)) {
+        updatePayload.dimensions = anonDims;
+        if (anonStargazerProfile.archetype_code) {
+          updatePayload.archetype_code = anonStargazerProfile.archetype_code;
+        }
+        if (anonStargazerProfile.confidence) {
+          updatePayload.confidence = anonStargazerProfile.confidence;
+        }
+        if (anonStargazerProfile.tags) {
+          updatePayload.tags = anonStargazerProfile.tags;
+        }
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const { error: mergeErr } = await supabaseAdmin
+          .from("stargazer_profiles")
+          .update(updatePayload)
+          .eq("user_id", existingUserId);
+        if (mergeErr) {
+          console.error(`[mergeAnonymousData] failed to merge stargazer_profiles:`, mergeErr.message);
+        }
+      }
+    }
+    // 匿名のstargazer_profilesは削除（孤立防止）
+    const { error: anonProfileDelErr } = await supabaseAdmin
+      .from("stargazer_profiles")
+      .delete()
+      .eq("user_id", anonymousUserId);
+    if (anonProfileDelErr) {
+      console.error(`[mergeAnonymousData] failed to delete anon stargazer_profiles:`, anonProfileDelErr.message);
+    }
+  }
+
+  // stargazer_star_maps: 匿名のスターマップを移管（アーキタイプ表示に必須）
+  const { data: existingStarMap } = await supabaseAdmin
+    .from("stargazer_star_maps")
+    .select("user_id")
+    .eq("user_id", existingUserId)
+    .maybeSingle();
+
+  if (!existingStarMap) {
+    const { error: starMapErr } = await supabaseAdmin
+      .from("stargazer_star_maps")
+      .update({ user_id: existingUserId })
+      .eq("user_id", anonymousUserId);
+    if (starMapErr) {
+      console.error(`[mergeAnonymousData] failed to move stargazer_star_maps:`, starMapErr.message);
+    }
+  } else {
+    // 既存あり → 匿名側を削除（孤立防止）
+    await supabaseAdmin
+      .from("stargazer_star_maps")
+      .delete()
+      .eq("user_id", anonymousUserId);
+  }
+
+  // stargazer_resolved_types: 匿名のアーキタイプ結果を移管（archetype_code + axis_scores）
+  const { data: existingResolvedType } = await supabaseAdmin
+    .from("stargazer_resolved_types")
+    .select("user_id")
+    .eq("user_id", existingUserId)
+    .maybeSingle();
+
+  if (!existingResolvedType) {
+    const { error: rtErr } = await supabaseAdmin
+      .from("stargazer_resolved_types")
+      .update({ user_id: existingUserId })
+      .eq("user_id", anonymousUserId);
+    if (rtErr) {
+      console.error(`[mergeAnonymousData] failed to move stargazer_resolved_types:`, rtErr.message);
+    }
+  } else {
+    await supabaseAdmin
+      .from("stargazer_resolved_types")
+      .delete()
+      .eq("user_id", anonymousUserId);
+  }
+
+  // stargazer_personality_profile: 匿名のパーソナリティプロフィールを移管
+  const { data: existingPersonality } = await supabaseAdmin
+    .from("stargazer_personality_profile")
+    .select("user_id")
+    .eq("user_id", existingUserId)
+    .maybeSingle();
+
+  if (!existingPersonality) {
+    const { error: ppErr } = await supabaseAdmin
+      .from("stargazer_personality_profile")
+      .update({ user_id: existingUserId })
+      .eq("user_id", anonymousUserId);
+    if (ppErr) {
+      console.error(`[mergeAnonymousData] failed to move stargazer_personality_profile:`, ppErr.message);
+    }
+  } else {
+    await supabaseAdmin
+      .from("stargazer_personality_profile")
+      .delete()
       .eq("user_id", anonymousUserId);
   }
 
   // stargazer_axis_snapshots: 匿名のスナップショットを移管
-  await supabaseAdmin
+  const { error: snapshotErr, count: snapshotCount } = await supabaseAdmin
     .from("stargazer_axis_snapshots")
     .update({ user_id: existingUserId })
     .eq("user_id", anonymousUserId);
+  if (snapshotErr) {
+    console.error(`[mergeAnonymousData] failed to move stargazer_axis_snapshots:`, snapshotErr.message);
+  } else if (snapshotCount === 0) {
+    console.warn(`[mergeAnonymousData] stargazer_axis_snapshots move matched 0 rows for anon=${anonymousUserId}`);
+  }
 
   // stargazer_context_profiles: 匿名のコンテキストプロフィールを移管
-  await supabaseAdmin
+  const { error: contextErr, count: contextCount } = await supabaseAdmin
     .from("stargazer_context_profiles")
     .update({ user_id: existingUserId })
     .eq("user_id", anonymousUserId);
+  if (contextErr) {
+    console.error(`[mergeAnonymousData] failed to move stargazer_context_profiles:`, contextErr.message);
+  } else if (contextCount === 0) {
+    console.warn(`[mergeAnonymousData] stargazer_context_profiles move matched 0 rows for anon=${anonymousUserId}`);
+  }
+
+  // user_style_summary: ワードローブデータの移管（Calendar連携に必須）
+  const { data: existingStyleSummary } = await supabaseAdmin
+    .from("user_style_summary")
+    .select("user_id")
+    .eq("user_id", existingUserId)
+    .maybeSingle();
+
+  if (!existingStyleSummary) {
+    const { error: ssErr } = await supabaseAdmin
+      .from("user_style_summary")
+      .update({ user_id: existingUserId })
+      .eq("user_id", anonymousUserId);
+    if (ssErr) {
+      console.error(`[mergeAnonymousData] failed to move user_style_summary:`, ssErr.message);
+    }
+  } else {
+    await supabaseAdmin
+      .from("user_style_summary")
+      .delete()
+      .eq("user_id", anonymousUserId);
+  }
 
   // ── 5. merged フラグを立てる ──
   await markAsMerged(anonymousUserId);
@@ -184,10 +424,10 @@ export async function mergeAnonymousIntoExistingUser(
 // ─── ヘルパー ─────────────────────────────────────
 
 async function markAsMerged(anonymousUserId: string): Promise<void> {
-  // profiles テーブルに is_merged カラムがない場合はメタデータで対応
+  // is_merging を false に戻しつつ is_merged を true にする
   await supabaseAdmin
     .from("profiles")
-    .update({ is_merged: true, merged_at: new Date().toISOString() })
+    .update({ is_merged: true, is_merging: false, merged_at: new Date().toISOString() })
     .eq("id", anonymousUserId);
 }
 

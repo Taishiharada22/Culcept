@@ -1941,12 +1941,13 @@ export function scheduleProbe(input: ProbeSchedulerInput): ProbeSchedulerResult 
   }
 
   // G1: Earned Trust >= ドメイン別閾値
-  // FIX-2: 浅いプローブ (utterance_local) は earned trust ゼロでも許可
+  // FIX-2: 浅いプローブ (utterance_local, session_pattern) は earned trust ゼロでも許可
   // 新規ユーザーでも「予測付き直答」を出せるようにする
+  // FIX-3: Alterが「ユーザーを知ろうとする」ためには T0 でも基本的なプローブが必要
   const domainTrust = earnedTrust.find(t => t.domain === probe.target_domain);
-  const isShallowScope = probe.scope === "utterance_local";
-  const trustThreshold = probe.requires_consent ? 3.0 : isShallowScope ? 0 : 1.0;
-  if (!domainTrust && !isShallowScope) {
+  const isBasicScope = probe.scope === "utterance_local" || probe.scope === "session_pattern";
+  const trustThreshold = probe.requires_consent ? 3.0 : isBasicScope ? 0 : 0.5;
+  if (!domainTrust && !isBasicScope) {
     return { approved: false, blocked_by: "G1_earned_trust", probe: null };
   }
   if (domainTrust && domainTrust.score < trustThreshold) {
@@ -1955,7 +1956,7 @@ export function scheduleProbe(input: ProbeSchedulerInput): ProbeSchedulerResult 
 
   // G2: Contextual Access が有効 OR 質問の深度が浅い
   const domainAccess = contextualAccess.find(a => a.domain === probe.target_domain);
-  const isShallowProbe = probe.scope === "utterance_local" || probe.scope === "session_pattern";
+  const isShallowProbe = isBasicScope;
   if (domainAccess && domainAccess.level < 0.1 && !isShallowProbe) {
     return { approved: false, blocked_by: "G2_contextual_access", probe: null };
   }

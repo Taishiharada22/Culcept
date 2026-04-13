@@ -147,9 +147,14 @@ function pickDraft(
   if (!isDraftStarted(remoteDraft)) return isDraftStarted(localDraft) ? localDraft : null;
   if (!isDraftStarted(localDraft)) return remoteDraft;
 
-  return Date.parse(remoteUpdatedAt) >= Date.parse(localUpdatedAt)
-    ? remoteDraft
-    : localDraft;
+  const remoteTime = Date.parse(remoteUpdatedAt);
+  const localTime = Date.parse(localUpdatedAt);
+
+  // サーバー優先: タイムスタンプが等しいか、ローカル側が不正値ならサーバーを採用
+  if (Number.isNaN(localTime) || remoteTime >= localTime) return remoteDraft;
+  if (Number.isNaN(remoteTime)) return localDraft;
+
+  return localDraft;
 }
 
 export function mergeOriginSaves(
@@ -176,7 +181,13 @@ export function mergeOriginSaves(
     createdAt: olderTimestamp(remoteSave.createdAt, localSave.createdAt),
     updatedAt: newerTimestamp(remoteSave.updatedAt, localSave.updatedAt),
     // ── ワークスペースデータ（updatedAtが新しい方を採用） ──
-    rootProfile: remoteSave.rootProfile ?? localSave.rootProfile,
+    rootProfile: (() => {
+      // サーバー優先: タイムスタンプが等しいかサーバーが新しければサーバーを採用
+      const rTime = Date.parse(remoteSave.updatedAt);
+      const lTime = Date.parse(localSave.updatedAt);
+      if (Number.isNaN(lTime) || rTime >= lTime) return remoteSave.rootProfile ?? localSave.rootProfile;
+      return localSave.rootProfile ?? remoteSave.rootProfile;
+    })(),
     eraAffiliations: mergeArrayById(remoteSave.eraAffiliations, localSave.eraAffiliations),
     activities: mergeArrayById(remoteSave.activities, localSave.activities),
     turningPoints: mergeArrayById(remoteSave.turningPoints, localSave.turningPoints),

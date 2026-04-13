@@ -95,11 +95,11 @@ export default function TodaysMirror({ wardrobeItems, styleSelections }: TodaysM
         const entry: MoodEntry = { date: dateStr, morningMood: moodId };
         saveMoodEntry(entry);
         try {
-            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+            navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({
                 event: "mystyle_mood_selected",
                 feature: "my-style",
                 metadata: { mood_id: moodId },
-            }));
+            })], { type: "application/json" }));
         } catch { /* ignore */ }
     }, []);
 

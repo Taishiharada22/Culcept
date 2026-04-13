@@ -2,18 +2,7 @@
 
 import type { CurrentPosition, DraftChapter, ExplorationStep, MemoryChapter } from "./types";
 import type { OriginSessionStatus } from "./persistence";
-
-function extractError(payload: unknown, fallback: string): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    "error" in payload &&
-    typeof (payload as { error?: unknown }).error === "string"
-  ) {
-    return (payload as { error: string }).error;
-  }
-  return fallback;
-}
+import { retryFetch } from "@/lib/retryFetch";
 
 export async function persistOriginSessionState(input: {
   sessionId?: string | null;
@@ -22,17 +11,17 @@ export async function persistOriginSessionState(input: {
   draft?: DraftChapter | null;
   currentPosition?: CurrentPosition | null;
 }): Promise<{ sessionId: string | null; status: OriginSessionStatus | null }> {
-  const response = await fetch("/api/origin/state", {
+  const result = await retryFetch<{ sessionId?: string; status?: string }>("/api/origin/state", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
 
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(extractError(data, `HTTP ${response.status}`));
+  if (!result.ok) {
+    throw new Error(result.error ?? "Session state sync failed");
   }
 
+  const data = result.data;
   return {
     sessionId:
       data && typeof data === "object" && "sessionId" in data && typeof data.sessionId === "string"
@@ -53,17 +42,17 @@ export async function completeOriginChapter(input: {
   chapter: MemoryChapter;
   currentPosition?: CurrentPosition | null;
 }): Promise<{ sessionId: string; recordId: string }> {
-  const response = await fetch("/api/origin/complete", {
+  const result = await retryFetch<{ sessionId?: string; recordId?: string }>("/api/origin/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
 
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(extractError(data, `HTTP ${response.status}`));
+  if (!result.ok) {
+    throw new Error(result.error ?? "Chapter completion sync failed");
   }
 
+  const data = result.data;
   if (
     !data ||
     typeof data !== "object" ||

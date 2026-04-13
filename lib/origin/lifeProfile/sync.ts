@@ -2,24 +2,24 @@
 // #3 Supabase同期 — localStorage ↔ Supabase の双方向同期
 
 import type { LifeProfileStore } from "./types";
+import { retryFetch } from "@/lib/retryFetch";
 
 /**
  * localStorageの全データをSupabaseに一括同期
  * ログイン後の初回同期に使う
  */
 export async function syncToSupabase(store: LifeProfileStore): Promise<void> {
-  try {
-    await fetch("/api/origin/life-profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        action: "sync_all",
-        entries: store.entries,
-        rendezvousConsentAt: store.rendezvousConsentAt,
-      }),
-    });
-  } catch {
-    // オフライン時は無視（次回同期）
+  const result = await retryFetch("/api/origin/life-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "sync_all",
+      entries: store.entries,
+      rendezvousConsentAt: store.rendezvousConsentAt,
+    }),
+  });
+  if (!result.ok) {
+    throw new Error(result.error ?? "プロフィール一括同期に失敗しました");
   }
 }
 
@@ -29,14 +29,13 @@ export async function syncToSupabase(store: LifeProfileStore): Promise<void> {
 export async function upsertEntryToSupabase(
   entry: LifeProfileStore["entries"][number],
 ): Promise<void> {
-  try {
-    await fetch("/api/origin/life-profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "upsert_entry", entry }),
-    });
-  } catch {
-    // offline silent
+  const result = await retryFetch("/api/origin/life-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "upsert_entry", entry }),
+  });
+  if (!result.ok) {
+    throw new Error(result.error ?? "エントリ保存に失敗しました");
   }
 }
 
@@ -44,14 +43,13 @@ export async function upsertEntryToSupabase(
  * エントリ削除をSupabaseに反映
  */
 export async function deleteEntryFromSupabase(entryId: string): Promise<void> {
-  try {
-    await fetch("/api/origin/life-profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "delete_entry", entryId }),
-    });
-  } catch {
-    // offline silent
+  const result = await retryFetch("/api/origin/life-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "delete_entry", entryId }),
+  });
+  if (!result.ok) {
+    throw new Error(result.error ?? "エントリ削除に失敗しました");
   }
 }
 
@@ -59,14 +57,13 @@ export async function deleteEntryFromSupabase(entryId: string): Promise<void> {
  * Rendezvous同意をSupabaseに反映
  */
 export async function syncConsentToSupabase(): Promise<void> {
-  try {
-    await fetch("/api/origin/life-profile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "set_consent" }),
-    });
-  } catch {
-    // offline silent
+  const result = await retryFetch("/api/origin/life-profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "set_consent" }),
+  });
+  if (!result.ok) {
+    throw new Error(result.error ?? "同意の保存に失敗しました");
   }
 }
 

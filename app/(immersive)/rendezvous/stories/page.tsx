@@ -183,8 +183,8 @@ function ChatList({
             ここにチャットが表示されます
           </p>
           <div className="mt-4">
-            <Link href="/rendezvous/explore" className="no-underline">
-              <RvButton variant="primary">出会いを探す</RvButton>
+            <Link href="/rendezvous/connection" className="no-underline">
+              <RvButton variant="primary">つながりを探す</RvButton>
             </Link>
           </div>
         </div>

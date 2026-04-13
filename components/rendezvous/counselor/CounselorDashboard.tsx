@@ -831,6 +831,39 @@ function RecommendationSection({ recommendations }: { recommendations: Counselor
                       </a>
                     </motion.div>
                   )}
+                  {/* 結晶ハイライト */}
+                  {rec.type === "highlight_crystal" && (
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.5, ease: "easeOut" }}
+                      className="rounded-xl p-4 mt-1 space-y-2"
+                      style={{
+                        background: "linear-gradient(135deg, rgba(14,165,233,0.06), rgba(16,185,129,0.04))",
+                        border: "1px solid rgba(14,165,233,0.2)",
+                        boxShadow: "0 2px 12px rgba(14,165,233,0.06)",
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <motion.span
+                          className="text-sky-500 text-lg"
+                          animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
+                          transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
+                        >
+                          ◇
+                        </motion.span>
+                        <span className="text-sm font-medium text-sky-700">
+                          結晶発見
+                        </span>
+                      </div>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {rec.reason}
+                      </p>
+                      <p className="text-[10px] text-sky-500/70">
+                        二人の会話から特別な瞬間が結晶化しました
+                      </p>
+                    </motion.div>
+                  )}
                   {/* ペーシングガイダンス */}
                   {rec.pacing && (
                     <div
@@ -1522,6 +1555,12 @@ function HonestExitRateSection({ metrics }: HonestExitRateSectionProps) {
 // ── Partnerアップグレードプロンプト ──
 
 function UpgradePrompt() {
+  const benefits = [
+    "24時間365日の専属カウンセラー",
+    "行動観測による客観的フィードバック",
+    "撤退判断あり（成婚バイアスなし）",
+  ];
+
   return (
     <FadeInView direction="up" delay={0.1}>
       <GlassCard
@@ -1530,44 +1569,115 @@ function UpgradePrompt() {
         className="overflow-hidden"
         style={{
           background:
-            "linear-gradient(135deg, rgba(255,255,255,0.8) 0%, rgba(236,253,245,0.5) 100%)",
-          border: "1px solid rgba(16,185,129,0.2)",
+            "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+          border: "1px solid rgba(212,165,116,0.2)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.2)",
+          borderRadius: 16,
         }}
       >
-        <div className="h-1 bg-gradient-to-r from-emerald-400/40 via-teal-400/30 to-emerald-400/40" />
-        <div className="p-6 text-center space-y-4">
-          <div
-            className="w-14 h-14 rounded-full flex items-center justify-center mx-auto"
-            style={{
-              background: "linear-gradient(135deg, #ecfdf5, #d1fae5)",
-              border: "1px solid rgba(16,185,129,0.2)",
-            }}
-          >
-            <span className="text-emerald-600 text-2xl">◆</span>
+        {/* Top accent — gold shimmer */}
+        <div
+          className="h-[2px]"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 0%, #D4A574 30%, #C9A96E 50%, #D4A574 70%, transparent 100%)",
+          }}
+        />
+
+        <div className="p-6 text-center space-y-5">
+          {/* Icon — large with animated glow pulse */}
+          <div className="flex justify-center pt-1">
+            <motion.div
+              className="w-14 h-14 rounded-full flex items-center justify-center"
+              style={{
+                background:
+                  "linear-gradient(135deg, #059669, #10B981)",
+                boxShadow:
+                  "0 0 24px rgba(16,185,129,0.3), 0 4px 12px rgba(0,0,0,0.2)",
+              }}
+              animate={{
+                boxShadow: [
+                  "0 0 24px rgba(16,185,129,0.3), 0 4px 12px rgba(0,0,0,0.2)",
+                  "0 0 36px rgba(16,185,129,0.5), 0 4px 12px rgba(0,0,0,0.2)",
+                  "0 0 24px rgba(16,185,129,0.3), 0 4px 12px rgba(0,0,0,0.2)",
+                ],
+              }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <svg
+                width="26"
+                height="26"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 2L14.09 8.26L20.18 8.63L15.54 12.74L16.81 19.02L12 15.77L7.19 19.02L8.46 12.74L3.82 8.63L9.91 8.26L12 2Z"
+                  fill="white"
+                  fillOpacity={0.9}
+                />
+              </svg>
+            </motion.div>
           </div>
-          <div className="space-y-1.5">
-            <h3 className="text-base font-semibold text-slate-800">
+
+          {/* Title & description */}
+          <div className="space-y-2">
+            <h3
+              className="text-lg font-bold"
+              style={{ color: "rgba(255,255,255,0.95)" }}
+            >
               専属Counselorを持つ
             </h3>
-            <p className="text-sm text-slate-500 leading-relaxed">
-              Partnerプランで、あなただけの関係判断AIカウンセラーが伴走します。
-              結婚相談所では不可能な、データに基づく構造的な支援。
+            <p
+              className="text-sm leading-relaxed mx-auto max-w-[280px]"
+              style={{ color: "rgba(255,255,255,0.6)" }}
+            >
+              あなただけの関係判断AIカウンセラーが伴走。
+              結婚相談所では不可能な、構造的支援を。
             </p>
           </div>
-          <div className="space-y-2">
-            <div className="text-xs text-slate-400 space-y-1">
-              <p>✓ 24時間365日の専属カウンセラー</p>
-              <p>✓ 行動観測による客観的フィードバック</p>
-              <p>✓ 撤退判断あり（成婚バイアスなし）</p>
-            </div>
+
+          {/* Benefits list — gold checkmarks */}
+          <div
+            className="rounded-xl px-4 py-3.5 text-left space-y-2.5"
+            style={{
+              background: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            {benefits.map((benefit) => (
+              <div key={benefit} className="flex items-start gap-2.5">
+                <span
+                  className="text-sm font-bold flex-shrink-0 mt-[1px]"
+                  style={{ color: "#D4A574" }}
+                >
+                  &#10003;
+                </span>
+                <span
+                  className="text-[13px] leading-relaxed"
+                  style={{ color: "rgba(255,255,255,0.7)" }}
+                >
+                  {benefit}
+                </span>
+              </div>
+            ))}
           </div>
-          <GlassButton
-            variant="primary"
-            fullWidth
-            className="!bg-gradient-to-r !from-emerald-600 !to-teal-700 !shadow-emerald-600/20"
+
+          {/* CTA button — warm gold */}
+          <button
+            className="w-full py-3.5 rounded-xl text-[15px] font-bold transition-all duration-200 hover:brightness-110 active:scale-[0.98]"
+            style={{
+              background:
+                "linear-gradient(135deg, #D4A574, #C9A96E)",
+              color: "white",
+              boxShadow:
+                "0 4px 20px rgba(212,165,116,0.3), 0 2px 4px rgba(0,0,0,0.1)",
+              border: "none",
+              letterSpacing: "0.02em",
+            }}
           >
             Partner プランを見る
-          </GlassButton>
+          </button>
         </div>
       </GlassCard>
     </FadeInView>

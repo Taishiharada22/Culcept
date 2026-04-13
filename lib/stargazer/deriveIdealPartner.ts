@@ -403,7 +403,6 @@ export function toIdealPartnerRow(
     relationship_qualities: derived.relationshipQualities,
     value_alignment_importance: derived.valueAlignmentImportance,
     source: "stargazer_derived",
-    derived_from_axis_count: derived.sourceAxisCount,
     updated_at: new Date().toISOString(),
   };
 }

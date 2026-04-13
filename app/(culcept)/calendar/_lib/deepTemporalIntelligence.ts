@@ -10,6 +10,7 @@
 
 import type { WardrobeItem } from "@/app/my-style/_lib/types";
 import type { WornRecord } from "./types";
+import { retryFetch } from "@/lib/retryFetch";
 
 /* ── ストレージキー ── */
 const MOOD_RECORD_KEY = "culcept_calendar_mood_records_v1";
@@ -28,7 +29,7 @@ export interface MoodRecord {
 
 /** サーバーに mood record を保存（calendar_outfits.sync_snapshot.mood に格納） */
 function syncMoodToServer(record: MoodRecord): void {
-  fetch("/api/calendar/day", {
+  void retryFetch("/api/calendar/day", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -37,7 +38,9 @@ function syncMoodToServer(record: MoodRecord): void {
         syncSnapshot: { mood: record },
       },
     }),
-  }).catch(() => { /* silent — localStorage がフォールバック */ });
+  }).then((res) => {
+    if (!res.ok) console.warn("[mood-sync] save failed after retries:", res.error);
+  });
 }
 
 /** サーバーから mood records を復元（calendar_outfits.sync_snapshot.mood を集約） */

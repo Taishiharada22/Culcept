@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { FloatingNavLight } from "@/components/ui/glassmorphism-design";
-import { MAIN_NAV } from "@/lib/navigation";
+import { HOME_MORE_NAV } from "@/lib/navigation";
+import { useCeoCheck } from "@/hooks/useCeoCheck";
+import QuickAccessBar from "@/components/home/QuickAccessBar";
+import GenomeCardModal from "@/components/genome/GenomeCardModal";
 import type { TalkThreadItem } from "@/lib/genome/cardTypes";
 
 const C = {
@@ -14,44 +16,52 @@ const C = {
   neural: "#8B5CF6", pulse: "#EC4899",
 };
 
+/** Talk 用クイックアクセス（トーク→ホームに置換） */
+const TALK_QUICK_NAV = [
+  { href: "/calendar", label: "コーデ" },
+  { href: "/stargazer", label: "観測" },
+  { href: "/", label: "ホーム" },
+  { href: "/origin", label: "日記" },
+  { href: "/rendezvous", label: "出会う" },
+];
+
 export default function TalkPageClient() {
   const [threads, setThreads] = useState<TalkThreadItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const isCeo = useCeoCheck();
 
   useEffect(() => {
-    const fetchThreads = async () => {
+    (async () => {
       try {
-        const res = await fetch("/api/talk/threads");
-        if (!res.ok) return;
-        const data = await res.json().catch(() => null);
-        if (data?.ok) setThreads(data.threads);
-      } catch { /* ignore */ } finally {
+        const res = await fetch("/api/genome/talk/threads");
+        if (!res.ok) throw new Error("fetch failed");
+        const data = await res.json();
+        setThreads(data.threads ?? []);
+      } catch {
+        setThreads([]);
+      } finally {
         setLoading(false);
       }
-    };
-    fetchThreads();
-    // 10秒ごとにスレッドリスト更新（新メッセージ検出）
-    const interval = setInterval(fetchThreads, 10000);
-    return () => clearInterval(interval);
+    })();
   }, []);
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
     const now = new Date();
-    const diff = now.getTime() - d.getTime();
-    if (diff < 60000) return "たった今";
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}分前`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}時間前`;
-    if (d.toDateString() === new Date(now.getTime() - 86400000).toDateString()) return "昨日";
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    }
+    return d.toLocaleDateString("ja-JP", { month: "short", day: "numeric" });
   };
 
+  const moreItems = isCeo
+    ? [...HOME_MORE_NAV, { href: "/ceo", label: "CEO", icon: "⚙" }]
+    : HOME_MORE_NAV;
+
   return (
-    <div className="min-h-screen relative" style={{ background: C.bg }}>
-      <main className="relative z-10 max-w-lg mx-auto px-4 pt-8 pb-32">
-        {/* ヘッダー */}
-        <motion.div
-          className="flex items-baseline justify-between mb-6"
+    <div className="min-h-screen pb-24" style={{ background: C.bg }}>
+      <main className="max-w-xl mx-auto px-4 pt-6 pb-4 space-y-4">
+        <motion.div className="flex items-center justify-between"
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -62,9 +72,26 @@ export default function TalkPageClient() {
               つながった人たち
             </h1>
           </div>
-          <Link href="/genome-card" style={{ fontSize: 10, color: C.neural }}>
-            カード交換 →
-          </Link>
+          {/* Genome Card: 友達追加アイコン（LINE風） */}
+          <button
+            onClick={() => {
+              const event = new CustomEvent("open-genome-card-modal");
+              window.dispatchEvent(event);
+            }}
+            className="flex items-center justify-center w-10 h-10 rounded-2xl transition-all active:scale-90"
+            style={{
+              background: "rgba(139,92,246,0.08)",
+              border: "1px solid rgba(139,92,246,0.15)",
+            }}
+            aria-label="カード交換"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M16 21v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1" />
+              <circle cx="9" cy="8" r="3" />
+              <line x1="19" y1="8" x2="19" y2="14" />
+              <line x1="16" y1="11" x2="22" y2="11" />
+            </svg>
+          </button>
         </motion.div>
 
         {loading ? (
@@ -93,11 +120,15 @@ export default function TalkPageClient() {
               まだ会話相手がいません。<br />
               Genome Card を交換すると、ここに会話が生まれます。
             </p>
-            <Link href="/genome-card"
+            <button
+              onClick={() => {
+                const event = new CustomEvent("open-genome-card-modal");
+                window.dispatchEvent(event);
+              }}
               className="inline-block mt-4 px-5 py-2.5 rounded-xl text-sm font-medium"
               style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`, color: "white" }}>
               カード交換を始める
-            </Link>
+            </button>
           </motion.div>
         ) : (
           <div className="space-y-1.5">
@@ -107,36 +138,18 @@ export default function TalkPageClient() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.04 }}>
                 <Link href={`/talk/${thread.threadId}`}
-                  className="flex items-center gap-3 rounded-2xl p-3.5 transition-all"
-                  style={{
-                    background: thread.unreadCount > 0 ? "rgba(255,255,255,0.95)" : C.s1,
-                    border: `1px solid ${thread.unreadCount > 0 ? `${C.neural}15` : C.s2}`,
-                    boxShadow: thread.unreadCount > 0 ? `0 2px 8px ${C.neural}08` : "none",
-                  }}>
-                  {/* アバター */}
-                  <div className="relative flex-shrink-0">
+                  className="flex items-center gap-3 rounded-2xl p-3.5 transition-all active:scale-[0.98]"
+                  style={{ background: C.s1, border: `1px solid ${C.s2}` }}>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, #f0eaf8, #e6e0f4)" }}>
                     {thread.counterpart.avatarUrl ? (
-                      <img src={thread.counterpart.avatarUrl}
-                        alt={`${thread.counterpart.displayName ?? "ユーザー"}のアバター`}
-                        className="w-11 h-11 rounded-full object-cover" />
+                      <img src={thread.counterpart.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-11 h-11 rounded-full flex items-center justify-center"
-                        style={{ background: `linear-gradient(135deg, ${C.neural}20, ${C.pulse}20)`,
-                          fontSize: 14, fontWeight: 600, color: C.t2 }}>
-                        {thread.counterpart.displayName?.[0] ?? "?"}
-                      </div>
-                    )}
-                    {/* オンラインっぽいインジケーター（未読があればアクセントで光る） */}
-                    {thread.unreadCount > 0 && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                        style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`,
-                          border: "2px solid white", fontSize: 7, fontWeight: 700, color: "white" }}>
-                        {thread.unreadCount > 9 ? "9+" : thread.unreadCount}
-                      </div>
+                      <span style={{ fontSize: 20, color: C.t3 }}>
+                        {(thread.counterpart.displayName ?? "?")[0]}
+                      </span>
                     )}
                   </div>
-
-                  {/* テキスト */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
                       <p style={{ fontSize: 13, fontWeight: thread.unreadCount > 0 ? 600 : 500, color: C.t1 }}
@@ -164,7 +177,13 @@ export default function TalkPageClient() {
         )}
       </main>
 
-      <FloatingNavLight items={MAIN_NAV} activeHref="/talk" />
+      {/* Genome Card 交換モーダル */}
+      <GenomeCardModal />
+
+      {/* QuickAccess（トーク→ホームに置換） */}
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        <QuickAccessBar items={TALK_QUICK_NAV} moreItems={moreItems} />
+      </div>
     </div>
   );
 }

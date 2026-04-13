@@ -17,6 +17,7 @@ import { getOnThisDay, type OnThisDayEntry } from "@/lib/origin/dailyOrbit/onThi
 import MarkdownToolbar from "./MarkdownToolbar";
 import MarkdownRenderer from "./MarkdownRenderer";
 import { useInnerWeather } from "@/hooks/useInnerWeather";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 const EMOTION_TAGS = [
   "達成感", "集中できた", "穏やか", "楽しかった", "もやもや",
@@ -76,6 +77,7 @@ export default function JournalSection({ onStartMemoryDive, jumpToDate, onJumpHa
   const [saving, setSaving] = useState(false);
   const [aiDrafting, setAiDrafting] = useState(false);
   const innerWeather = useInnerWeather();
+  const { showError: showSaveError } = useSaveToast();
   const [pastEntries, setPastEntries] = useState<JournalEntry[]>([]);
   const [surprise, setSurprise] = useState<SurpriseObservation | null>(null);
   const [journalTitle, setJournalTitle] = useState("");
@@ -234,7 +236,9 @@ export default function JournalSection({ onStartMemoryDive, jumpToDate, onJumpHa
       });
       const data = await res.json();
       if (!data.ok) {
+        setSaved(false);
         setSaveFeedback("保存に失敗しました。もう一度お試しください");
+        showSaveError("ジャーナル保存に失敗しました");
         setSaving(false);
         return;
       }
@@ -289,10 +293,12 @@ export default function JournalSection({ onStartMemoryDive, jumpToDate, onJumpHa
         }
       }
     } catch {
+      setSaved(false);
       setSaveFeedback("保存に失敗しました。もう一度お試しください");
+      showSaveError("ジャーナル保存に失敗しました");
     }
     setSaving(false);
-  }, [today, journalTitle, journalBody, emotionTags, tomorrowNote, innerWeather, completedTasks, bodyMemo, shadowText, store]);
+  }, [today, journalTitle, journalBody, emotionTags, tomorrowNote, innerWeather, completedTasks, bodyMemo, shadowText, store, showSaveError]);
 
   // Photo upload (supports multiple photos, max 5)
   const handlePhotoUpload = useCallback(async (file: File) => {

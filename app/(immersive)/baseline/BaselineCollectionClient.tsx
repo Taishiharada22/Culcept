@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { retryFetch } from "@/lib/retryFetch";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 /**
  * ④-A: ベースライン収集 UI
@@ -153,6 +155,49 @@ const OCCUPATION_CATEGORIES = [
 type Step = "dob" | "gender" | "location" | "occupation" | "confirm";
 const STEPS: Step[] = ["dob", "gender", "location", "occupation", "confirm"];
 
+const BASELINE_DRAFT_KEY = "baseline_draft";
+
+interface BaselineDraft {
+  step: Step;
+  birthYear: number | null;
+  birthMonth: number | null;
+  birthDay: number | null;
+  skipDob: boolean;
+  gender: string | null;
+  prefecture: string | null;
+  city: string;
+  skipLocation: boolean;
+  occupation: string | null;
+  occupationDetail: string;
+  skipOccupation: boolean;
+}
+
+function loadDraft(): BaselineDraft | null {
+  try {
+    const raw = sessionStorage.getItem(BASELINE_DRAFT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as BaselineDraft;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(draft: BaselineDraft): void {
+  try {
+    sessionStorage.setItem(BASELINE_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+function clearDraft(): void {
+  try {
+    sessionStorage.removeItem(BASELINE_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -163,21 +208,34 @@ interface Props {
 
 export default function BaselineCollectionClient({ userName }: Props) {
   const router = useRouter();
-  const [step, setStep] = useState<Step>("dob");
+  const { showError } = useSaveToast();
   const [saving, setSaving] = useState(false);
 
-  // Form state
-  const [birthYear, setBirthYear] = useState<number | null>(null);
-  const [birthMonth, setBirthMonth] = useState<number | null>(null);
-  const [birthDay, setBirthDay] = useState<number | null>(null);
-  const [skipDob, setSkipDob] = useState(false);
-  const [gender, setGender] = useState<string | null>(null);
-  const [prefecture, setPrefecture] = useState<string | null>(null);
-  const [city, setCity] = useState("");
-  const [skipLocation, setSkipLocation] = useState(false);
-  const [occupation, setOccupation] = useState<string | null>(null);
-  const [occupationDetail, setOccupationDetail] = useState("");
-  const [skipOccupation, setSkipOccupation] = useState(false);
+  // Restore draft from sessionStorage on mount
+  const [draft] = useState(() => loadDraft());
+  const [step, setStep] = useState<Step>(draft?.step ?? "dob");
+
+  // Form state (restored from draft if available)
+  const [birthYear, setBirthYear] = useState<number | null>(draft?.birthYear ?? null);
+  const [birthMonth, setBirthMonth] = useState<number | null>(draft?.birthMonth ?? null);
+  const [birthDay, setBirthDay] = useState<number | null>(draft?.birthDay ?? null);
+  const [skipDob, setSkipDob] = useState(draft?.skipDob ?? false);
+  const [gender, setGender] = useState<string | null>(draft?.gender ?? null);
+  const [prefecture, setPrefecture] = useState<string | null>(draft?.prefecture ?? null);
+  const [city, setCity] = useState(draft?.city ?? "");
+  const [skipLocation, setSkipLocation] = useState(draft?.skipLocation ?? false);
+  const [occupation, setOccupation] = useState<string | null>(draft?.occupation ?? null);
+  const [occupationDetail, setOccupationDetail] = useState(draft?.occupationDetail ?? "");
+  const [skipOccupation, setSkipOccupation] = useState(draft?.skipOccupation ?? false);
+
+  // Persist draft to sessionStorage on every step transition or form change
+  useEffect(() => {
+    saveDraft({
+      step, birthYear, birthMonth, birthDay, skipDob,
+      gender, prefecture, city, skipLocation,
+      occupation, occupationDetail, skipOccupation,
+    });
+  }, [step, birthYear, birthMonth, birthDay, skipDob, gender, prefecture, city, skipLocation, occupation, occupationDetail, skipOccupation]);
 
   const currentYear = new Date().getFullYear();
   const yearOptions = useMemo(() => {
@@ -214,32 +272,36 @@ export default function BaselineCollectionClient({ userName }: Props) {
         if (occupationDetail.trim()) payload.occupationDetail = occupationDetail.trim();
       }
 
-      const res = await fetch("/api/baseline", {
+      const result = await retryFetch("/api/baseline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data.error === "must_be_13_or_older") {
+      if (!result.ok) {
+        if (result.error === "must_be_13_or_older") {
           alert("13歳以上である必要があります");
           setSaving(false);
           return;
         }
-        console.error("[baseline] submit error:", data);
+        console.error("[baseline] submit error:", result.error);
+        showError("ベースライン保存に失敗しました");
         setSaving(false);
         return;
       }
+
+      // Clear draft on successful submission
+      clearDraft();
 
       // baseline完了後はStargazer質問フローへ（18問が既完了なら QuestionFlow から、未完了なら頭から）
       router.push("/stargazer");
       router.refresh();
     } catch (err) {
       console.error("[baseline] submit error:", err);
+      showError("ベースライン保存に失敗しました");
       setSaving(false);
     }
-  }, [skipDob, birthYear, birthMonth, birthDay, gender, skipLocation, prefecture, city, skipOccupation, occupation, occupationDetail, router]);
+  }, [skipDob, birthYear, birthMonth, birthDay, gender, skipLocation, prefecture, city, skipOccupation, occupation, occupationDetail, router, showError]);
 
   const goNext = useCallback(() => {
     const i = STEPS.indexOf(step);

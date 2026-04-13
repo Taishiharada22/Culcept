@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { generateAbsenceNarrative } from "@/lib/rendezvous/absenceTracker";
 
 // =============================================================================
 // GET /api/rendezvous/absence-journal-tracker
 // Returns absence journal using the absenceTracker narrative engine
+// Also records the visit server-side in rendezvous_activity_log
 // =============================================================================
 
 export async function GET(req: NextRequest) {
@@ -23,7 +25,29 @@ export async function GET(req: NextRequest) {
 
     const userId = user.id;
     const url = new URL(req.url);
-    const lastVisit = url.searchParams.get("lastVisit");
+    let lastVisit = url.searchParams.get("lastVisit");
+
+    // Server-side fallback: if no lastVisit from client, check rendezvous_activity_log
+    if (!lastVisit) {
+      const { data: lastRow } = await supabaseAdmin
+        .from("rendezvous_activity_log")
+        .select("created_at")
+        .eq("user_id", userId)
+        .eq("action", "rendezvous_visit")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (lastRow && lastRow.length > 0) {
+        lastVisit = lastRow[0].created_at;
+      }
+    }
+
+    // Record current visit server-side (fire-and-forget, non-blocking)
+    supabaseAdmin
+      .from("rendezvous_activity_log")
+      .insert({ user_id: userId, action: "rendezvous_visit", created_at: new Date().toISOString() })
+      .then(({ error: logErr }) => {
+        if (logErr) console.warn("[absence-journal-tracker] visit log failed (non-fatal):", logErr);
+      });
 
     if (!lastVisit) {
       return NextResponse.json({ ok: true, journal: null });

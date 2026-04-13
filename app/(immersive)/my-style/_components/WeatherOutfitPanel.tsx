@@ -137,11 +137,11 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
         setShowManualInput(false);
         if (result) {
             try {
-                navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({
                     event: "mystyle_proposal_shown",
                     feature: "my-style",
                     metadata: { item_count: result.main.items.length, sync_score: result.syncScore },
-                }));
+                })], { type: "application/json" }));
             } catch { /* ignore */ }
         }
     }, [wardrobeItems]);
@@ -224,11 +224,11 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
             const paintMs = performance.now() - t0;
             console.log(`[WeatherOutfitPanel] accept paint: ${paintMs.toFixed(1)}ms`);
             try {
-                navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+                navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({
                     event: "mystyle_proposal_accepted",
                     feature: "my-style",
                     metadata: { item_count: itemIds.length, response_ms: Math.round(paintMs) },
-                }));
+                })], { type: "application/json" }));
             } catch { /* ignore */ }
         });
 
@@ -242,11 +242,11 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
         updateWearSatisfaction(today, rating);
 
         try {
-            navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({
+            navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({
                 event: "mystyle_satisfaction_recorded",
                 feature: "my-style",
                 metadata: { rating },
-            }));
+            })], { type: "application/json" }));
         } catch { /* ignore */ }
     };
 
@@ -259,7 +259,7 @@ export default function WeatherOutfitPanel({ wardrobeItems }: WeatherOutfitPanel
                 <span className="text-[12px] font-bold text-slate-500">{label}</span>
                 {locationName && <span className="text-[11px] text-slate-400 ml-auto">{locationName}</span>}
                 {weatherSource === "stale_cache" && <span className="text-[10px] text-amber-500 ml-auto">キャッシュ</span>}
-                <button type="button" onClick={() => { if (proposal) { try { navigator.sendBeacon("/api/stargazer/analytics", JSON.stringify({ event: "mystyle_proposal_rejected", feature: "my-style", metadata: { reason: "reload" } })); } catch { /* ignore */ } } loadWeather(); }} className="ml-auto text-slate-400 hover:text-slate-600">
+                <button type="button" onClick={() => { if (proposal) { try { navigator.sendBeacon("/api/stargazer/analytics", new Blob([JSON.stringify({ event: "mystyle_proposal_rejected", feature: "my-style", metadata: { reason: "reload" } })], { type: "application/json" })); } catch { /* ignore */ } } loadWeather(); }} className="ml-auto text-slate-400 hover:text-slate-600">
                     <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 </button>
             </div>

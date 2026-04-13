@@ -205,18 +205,21 @@ export default function DailyMicroQuestion({
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            className="flex items-center justify-center py-4"
+            className="flex flex-col items-center justify-center py-4"
           >
-            <motion.span
-              className="text-3xl"
-              initial={{ rotate: -20 }}
-              animate={{ rotate: 0 }}
-            >
-              {"\u2728"}
-            </motion.span>
-            <p className="ml-2 text-sm font-medium text-amber-700">
-              記録しました
-            </p>
+            <div className="flex items-center">
+              <motion.span
+                className="text-3xl"
+                initial={{ rotate: -20 }}
+                animate={{ rotate: 0 }}
+              >
+                {"\u2728"}
+              </motion.span>
+              <p className="ml-2 text-sm font-medium text-amber-700">
+                記録しました
+              </p>
+            </div>
+            <p className="text-xs text-white/40 mt-1">このデータは端末にのみ保存されています</p>
           </motion.div>
         )}
       </AnimatePresence>

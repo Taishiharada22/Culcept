@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     const { error } = await supabase.from("stargazer_observations").insert({
       user_id: user.id,
       observation_type: "feedback",
-      answers: {
+      question_id: `feedback_${type}`,
+      answer_value: {
         feedbackType: type,
         ...data,
       },

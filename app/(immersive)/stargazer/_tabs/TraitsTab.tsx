@@ -486,7 +486,7 @@ export default function TraitsTab({
           })()}
 
           {/* Confidence indicator — what we still don't know */}
-          {archetypeResult && (
+          {archetypeResult && archetypeResult.layer1 && archetypeResult.layer2 && archetypeResult.layer3 && archetypeResult.layer4 && (
             <ConfidenceIndicator
               archetypeResult={archetypeResult}
               totalObservations={totalObservations}
