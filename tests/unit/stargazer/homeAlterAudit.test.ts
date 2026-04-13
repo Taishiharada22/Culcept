@@ -437,7 +437,7 @@ describe("A4. formatHomeAlterResponse — トーン補正", () => {
 
 describe("A5. validateHomeAlterResponse — 出力品質検査", () => {
   it("正常な出力はパスする", () => {
-    const good = "消耗しやすいタイプだからこそ、短時間だけ顔を出すのが合っています。\n今回は上司の目もあり、顔を見せる価値がある。\n次の一手: [今日] [1時間だけ] [一次会で帰る前提で参加してみるのがよさそうです]";
+    const good = "消耗しやすいタイプだからこそ、短時間だけ顔を出すのが合っています。\n今回は上司の目もあり、顔を見せる価値がある。\nまず一次会で帰る前提で参加してみるのがよさそう。";
     const result = validateHomeAlterResponse(good, "飲み会行くべき？");
     expect(result.pass).toBe(true);
   });
@@ -456,11 +456,11 @@ describe("A5. validateHomeAlterResponse — 出力品質検査", () => {
     expect(result.failures.some((f) => f.includes("結論"))).toBe(true);
   });
 
-  it("「次の一手」がないと不合格", () => {
+  it("具体的な行動提案がないと不合格", () => {
     const bad = "行った方がいい。\n消耗しやすいが、今回は価値がある。";
     const result = validateHomeAlterResponse(bad, "飲み会行くべき？");
     expect(result.pass).toBe(false);
-    expect(result.failures).toContain("「次の一手:」がない");
+    expect(result.failures).toContain("具体的な行動提案がない（「今日〜してみない？」等の自然な提案が必要）");
   });
 
   it("400文字超は不合格", () => {

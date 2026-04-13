@@ -27,42 +27,34 @@ export default function StargazerLayout({
               --font-display: 'Cormorant Garamond', 'Noto Serif JP', 'Georgia', serif;
               --font-body: 'IBM Plex Sans', system-ui, sans-serif;
               --font-mono: 'IBM Plex Mono', 'Menlo', monospace;
-              --sg-gold: #b09050;
-              --sg-gold-light: #c9b88a;
+              --sg-gold: #9a7b3a;
+              --sg-gold-light: #b89e64;
               --sg-warm-white: #f8f6f2;
-              --sg-page-bg: #fafbfe;
-              --sg-layer0: radial-gradient(ellipse 130% 70% at 50% 0%, rgba(230,238,255,0.7) 0%, transparent 55%),
-                radial-gradient(ellipse 80% 60% at 85% 15%, rgba(215,225,250,0.35) 0%, transparent 50%),
-                radial-gradient(ellipse 70% 50% at 10% 55%, rgba(225,235,255,0.25) 0%, transparent 50%),
-                radial-gradient(ellipse 100% 50% at 50% 100%, rgba(245,240,230,0.3) 0%, transparent 50%),
-                linear-gradient(180deg, #fafbfe 0%, #f5f7fc 30%, #f2f4fb 60%, #f7f8fc 100%);
-              --sg-nebula1: radial-gradient(circle, rgba(180,200,240,0.12) 0%, rgba(190,210,250,0.06) 40%, transparent 70%);
-              --sg-nebula2: radial-gradient(circle, rgba(200,195,230,0.08) 0%, rgba(190,195,230,0.04) 40%, transparent 70%);
-              --sg-nebula3: radial-gradient(circle, rgba(220,200,150,0.07) 0%, rgba(210,190,140,0.03) 40%, transparent 70%);
-              --sg-aurora: linear-gradient(90deg, transparent 5%, rgba(180,195,220,0.15) 30%, rgba(200,190,210,0.1) 50%, rgba(180,195,220,0.15) 70%, transparent 95%);
-              --sg-grid-fine: rgba(160,170,200,0.03);
-              --sg-grid-coarse: rgba(160,170,200,0.05);
-              --sg-crosshair: rgba(160,170,200,0.08);
-              --sg-crosshair-ring: rgba(160,170,200,0.05);
+              --sg-page-bg: #f5f6fa;
+              --sg-layer0: linear-gradient(180deg, #f5f6fa 0%, #f2f3f8 40%, #f5f6fa 100%);
+              --sg-nebula1: radial-gradient(circle, rgba(180,200,240,0.06) 0%, transparent 60%);
+              --sg-nebula2: radial-gradient(circle, rgba(200,195,230,0.04) 0%, transparent 60%);
+              --sg-nebula3: radial-gradient(circle, rgba(220,200,150,0.03) 0%, transparent 60%);
+              --sg-aurora: linear-gradient(90deg, transparent 10%, rgba(180,195,220,0.06) 40%, rgba(200,190,210,0.04) 60%, transparent 90%);
+              --sg-grid-fine: rgba(160,170,200,0.015);
+              --sg-grid-coarse: rgba(160,170,200,0.025);
+              --sg-crosshair: rgba(160,170,200,0.04);
+              --sg-crosshair-ring: rgba(160,170,200,0.025);
               --sg-scrollbar: rgba(120,120,150,0.12);
               --sg-scrollbar-hover: rgba(120,120,150,0.2);
             }
             @media (prefers-color-scheme: dark) {
               :root {
                 --sg-page-bg: #080b12;
-                --sg-layer0: radial-gradient(ellipse 130% 70% at 50% 0%, rgba(15,25,60,0.7) 0%, transparent 55%),
-                  radial-gradient(ellipse 80% 60% at 85% 15%, rgba(20,30,65,0.4) 0%, transparent 50%),
-                  radial-gradient(ellipse 70% 50% at 10% 55%, rgba(15,20,55,0.3) 0%, transparent 50%),
-                  radial-gradient(ellipse 100% 50% at 50% 100%, rgba(30,25,15,0.3) 0%, transparent 50%),
-                  linear-gradient(180deg, #080b12 0%, #0a0e18 30%, #0c1020 60%, #080b12 100%);
-                --sg-nebula1: radial-gradient(circle, rgba(60,80,160,0.2) 0%, rgba(70,90,180,0.08) 40%, transparent 70%);
-                --sg-nebula2: radial-gradient(circle, rgba(100,80,180,0.12) 0%, rgba(90,80,170,0.05) 40%, transparent 70%);
-                --sg-nebula3: radial-gradient(circle, rgba(160,130,60,0.1) 0%, rgba(140,110,50,0.04) 40%, transparent 70%);
-                --sg-aurora: linear-gradient(90deg, transparent 5%, rgba(100,130,200,0.12) 30%, rgba(140,100,180,0.08) 50%, rgba(100,130,200,0.12) 70%, transparent 95%);
-                --sg-grid-fine: rgba(80,90,130,0.04);
-                --sg-grid-coarse: rgba(80,90,130,0.06);
-                --sg-crosshair: rgba(100,110,150,0.1);
-                --sg-crosshair-ring: rgba(100,110,150,0.06);
+                --sg-layer0: linear-gradient(180deg, #080b12 0%, #0a0e18 40%, #080b12 100%);
+                --sg-nebula1: radial-gradient(circle, rgba(60,80,160,0.1) 0%, transparent 60%);
+                --sg-nebula2: radial-gradient(circle, rgba(100,80,180,0.06) 0%, transparent 60%);
+                --sg-nebula3: radial-gradient(circle, rgba(160,130,60,0.05) 0%, transparent 60%);
+                --sg-aurora: linear-gradient(90deg, transparent 10%, rgba(100,130,200,0.06) 40%, rgba(140,100,180,0.04) 60%, transparent 90%);
+                --sg-grid-fine: rgba(80,90,130,0.02);
+                --sg-grid-coarse: rgba(80,90,130,0.035);
+                --sg-crosshair: rgba(100,110,150,0.05);
+                --sg-crosshair-ring: rgba(100,110,150,0.03);
                 --sg-scrollbar: rgba(100,110,150,0.15);
                 --sg-scrollbar-hover: rgba(100,110,150,0.25);
               }

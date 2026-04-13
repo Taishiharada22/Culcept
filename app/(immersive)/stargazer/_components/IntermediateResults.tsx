@@ -41,10 +41,6 @@ interface Props {
   onStartStargazer: () => void;
   /** ここで止める */
   onStop?: () => void;
-  /** 匿名ユーザーか */
-  isAnonymous?: boolean;
-  /** ログインページへ遷移 */
-  onLogin?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +148,6 @@ export default function IntermediateResults({
   axisScores,
   onStartStargazer,
   onStop,
-  isAnonymous = false,
-  onLogin,
 }: Props) {
   const [revealStep, setRevealStep] = useState(0);
   const ctaRef = useRef<HTMLDivElement>(null);
@@ -435,35 +429,6 @@ export default function IntermediateResults({
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* ━━━ 匿名ユーザー向けログイン誘導 ━━━ */}
-        {isAnonymous && onLogin && (
-          <AnimatePresence>
-            {revealStep >= 10 && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: 0.2 }}
-                className="mb-6 rounded-xl border border-[rgba(139,92,246,0.15)] bg-[rgba(139,92,246,0.04)] p-4 text-center"
-              >
-                <p className="mb-2 text-xs font-medium text-[rgba(18,24,44,0.6)]">
-                  観測結果を確実に保存するには
-                </p>
-                <motion.button
-                  onClick={onLogin}
-                  className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-[rgba(139,92,246,0.3)] bg-white px-5 py-2 text-xs font-medium text-[#6D28D9] shadow-sm transition-all hover:border-[rgba(139,92,246,0.5)] hover:shadow-md"
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  アカウント作成 / ログイン
-                </motion.button>
-                <p className="text-[10px] text-[rgba(18,24,44,0.3)]">
-                  ここまでのデータは自動保存済み。ログイン後に自動で紐づきます
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
 
         {/* ━━━ CTA: 2ボタン ━━━ */}
         <AnimatePresence>

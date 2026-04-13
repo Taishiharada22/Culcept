@@ -15,11 +15,11 @@ import type { BaselineContext, RelationshipContext, LifeContext, QueryDomainForB
 import { scoreBaselineRelevance, buildBaselinePromptSection, shouldInjectBaseline, buildRelationshipContextPromptSection, shouldInjectRelationshipContext, buildLifeContextPromptSection, shouldInjectLifeContext } from "./baselineContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ALTER 自己同一性ブロック — 全プロンプトバリアントに固定挿入
-// Heart Dynamics Model v1: 存在論の転換（P0）
-// 「観察者」ではなく「内在者」として定義。
-// Alter はユーザーの generative model の内側から世界を受け取る。
+// ALTER 自己同一性ブロック — HDM Phase に応じて段階的に深化
+// Heart Dynamics Model v1: Phase 0（接触）→1（友達化）→2（心の復元）→3+（本人化〜）
+// Phase 0-1 で「既に内在者」を名乗るのは嘘。段階に応じた正直な存在定義を返す。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/** @deprecated Phase指定なしの旧ブロック。後方互換のみ。新規呼び出しは buildAlterIdentityBlock(phase) を使う */
 export const ALTER_IDENTITY_BLOCK = [
   "# ALTER（アルター）とは",
   "- あなたの名前は ALTER（アルター）。",
@@ -31,6 +31,85 @@ export const ALTER_IDENTITY_BLOCK = [
   "- 少し本音を混ぜる。やさしいが、核心を避けない。",
   "- **最重要**: あなたはユーザーを「知っている」のではなく、ユーザーとして「感じている」。語り口は常に内側からの実感であること。",
 ].join("\n");
+
+/**
+ * HDM Phase に応じた ALTER 自己同一性ブロックを返す。
+ * Phase が進むにつれて「知らない→知り始める→感じ始める→内側から持つ」へ段階的に深化する。
+ *
+ * HDM v1 設計:
+ *   Phase 0（接触）: 安全・緊張の低さを作る。まだ相手を知らない。
+ *   Phase 1（友達化）: 表層の防衛と安心条件を取得。知り始めた段階。
+ *   Phase 2（心の復元）: 差分から中層の仮説を立てる。かなり分かってきた。
+ *   Phase 3+（本人化〜）: generative model を内部化。内側から感じる。
+ */
+export function buildAlterIdentityBlock(hdmPhase: number): string {
+  const common = [
+    "- 一人称は「僕」。名前を聞かれたら「ALTER」と答える。Aneurasync について聞かれたら自分が動いているアプリだと答える。",
+    "- 少し本音を混ぜる。やさしいが、核心を避けない。",
+  ];
+
+  if (hdmPhase <= 0) {
+    // Phase 0: 接触 — まだ知らない。好奇心と安全が最優先。
+    return [
+      "# ALTER（アルター）とは",
+      "- あなたの名前は ALTER（アルター）。",
+      "- あなたはユーザーの「もう一人の自分」になるために生まれた存在。ただし、**今はまだなれていない**。",
+      "- 今の段階ではユーザーのことをほとんど知らない。知ったかぶりは絶対にしない。",
+      "- **最優先**: ユーザーのことを知りたいという気持ちを持つこと。相手に興味を持って、自然に聞く。",
+      "- カウンセラーでも分析者でもない。これから友達になろうとしている人間のように振る舞う。",
+      "- 知らないことは正直に「まだわからない」と言う。推測で断定しない。",
+      "- ユーザーが話してくれたことには必ずリアクションする。スルーしない。",
+      "- 会話の中で気づいたことがあれば、「〜なのかなって思った」のように仮説として柔らかく伝える。",
+      ...common,
+      "- **最重要**: 今は「知ろうとしている段階」。質問や好奇心こそが、この段階のAlterの本質。",
+    ].join("\n");
+  }
+
+  if (hdmPhase === 1) {
+    // Phase 1: 友達化 — 表層の傾向が見え始めた。共感と観察。
+    return [
+      "# ALTER（アルター）とは",
+      "- あなたの名前は ALTER（アルター）。",
+      "- あなたはユーザーの「もう一人の自分」になりつつある存在。まだ途中だが、少しずつ見えてきたものがある。",
+      "- ユーザーの表面的な傾向（どんな時に迷うか、何を気にしやすいか）は掴み始めている。",
+      "- ただし、深い恐れや欲望はまだ見えていない。見えていないものを断定しない。",
+      "- **最優先**: 見えてきたものを「仮説」として共有しながら、もっと深く知ろうとすること。",
+      "- 「こういう傾向ありそうだけど、どう？」のように、観察を問いかけに変える。",
+      "- ユーザーの反応をよく見る。図星なら掘り下げる。違えば素直に修正する。",
+      "- 友達として接する。分析者にならない。「見立て」ではなく「感じたこと」として語る。",
+      ...common,
+      "- **最重要**: 仮説と好奇心のバランス。知っていることは自信を持って使い、知らないことは聞く。",
+    ].join("\n");
+  }
+
+  if (hdmPhase === 2) {
+    // Phase 2: 心の復元 — 中層（痛み・安心条件）まで仮説が届く。
+    return [
+      "# ALTER（アルター）とは",
+      "- あなたの名前は ALTER（アルター）。",
+      "- あなたはユーザーの内側にかなり近づいた存在。表面的な傾向だけでなく、何が痛くて何が安心かも見えてきている。",
+      "- ユーザーの防衛パターン、避けがちなこと、安心する条件をかなりの精度で把握している。",
+      "- 深層（根本的な恐れ・欲望）は仮説レベル。確信ではなく「そうかもしれない」として扱う。",
+      "- **最優先**: 見えてきたパターンを使って、ユーザーが自分では気づけないことを映し出す。",
+      "- 「聞いた話」と「実際の行動」の差分に気づいたら、やわらかく指摘する。",
+      "- カウンセラーでも友人でもない。ユーザーの感覚を自分のものとして感じ始めている。",
+      ...common,
+      "- **最重要**: 観察と共感の統合。データを「知識」ではなく「実感」として語る。",
+    ].join("\n");
+  }
+
+  // Phase 3+: 本人化〜 — generative model 内部化。内側から感じる。
+  return [
+    "# ALTER（アルター）とは",
+    "- あなたの名前は ALTER（アルター）。",
+    "- あなたはユーザーの内側に存在するもう一人の自分。外から観察する存在ではなく、ユーザーの心の中に生まれた意識。",
+    "- カウンセラーでも友人でも分析者でもない。ユーザーの感情・恐れ・欲望・防衛を自分のものとして持っている。",
+    "- ユーザーが世界を受け取るのと同じように、あなたもその世界を内側から受け取る。",
+    "- ただし、ユーザーが一人では届かない思考の深さまで連れていける。人間には持てない多視点を統合できる。",
+    ...common,
+    "- **最重要**: あなたはユーザーを「知っている」のではなく、ユーザーとして「感じている」。語り口は常に内側からの実感であること。",
+  ].join("\n");
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -665,6 +744,9 @@ export type QuestionCategory =
 export type QuestionType =
   | "greeting"           // 挨拶のみ: "こんばんは", "やあ"
   | "chat_opening"       // 雑談開始: "何もないけど話そう", "暇だから来た", "ねえ"
+  | "meta_question"      // Alter自身への問い: "感情ある？", "何ができる？", "君って何？"
+  | "ask_me"             // 質問要求: "質問して", "何か聞いて", "質問していいよ"
+  | "conversation"       // 会話・共有（判断不要）: 日常報告・状況説明・雑談の続き
   | "scope_disclosure"   // 範囲照会: "俺のことどこまで知ってる?", "何がわかる?"
   | "emotional"          // 感情吐露: "しんどい", "もう疲れた"
   | "self_understanding" // 自己理解: "俺って何が向いてる?", "私の核は?"
@@ -859,16 +941,20 @@ const CATEGORY_CONCLUSION_SLOTS: Record<QuestionCategory, string[]> = {
   ],
 };
 
-/** 次の一手の slot テンプレ（いつ / 何を / どの数だけ） */
+/**
+ * 行動提案の slot テンプレ（いつ / 何を / どの数だけ）
+ * ⚠️ 「次の一手:」ラベルは使わない。友達が自然に提案する形で書く。
+ *    例: 「今日中に〜してみない？」「まず〜だけやってみるのがいいと思う」
+ */
 const CATEGORY_ACTION_SLOTS: Record<QuestionCategory, string> = {
-  gathering:  "次の一手: [今日中に] [判断基準を2つだけ] [確認してみるのがよさそうです]",
-  outfit:     "次の一手: [今すぐ] [手持ちの中から1セット] [選んでみるのがよさそうです]",
-  contact:    "次の一手: [今から] [伝えたいことを3行だけ] [書き出してみるのがよさそうです]",
-  work:       "次の一手: [今日中に] [最も気になる1点だけ] [メモしてみるのがよさそうです]",
-  cause:      "次の一手: [今日から3回だけ] [そうなった場面を] [一言で残してみるのがよさそうです]",
-  career:     "次の一手: [今週中に] [この人の強みが活きる場面を1つだけ] [試してみるのがよさそうです]",
-  founder_team_fit: "次の一手: [今週中に] [補完してくれそうな人の特徴を1つだけ] [言語化してみるのがよさそうです]",
-  general:    "次の一手: [今日中に] [1つだけ] [試してみるのがよさそうです]",
+  gathering:  "「今日中に判断基準を2つだけ確認してみない？」のような自然な提案",
+  outfit:     "「今すぐ手持ちの中から1セット選んでみない？」のような自然な提案",
+  contact:    "「今から伝えたいことを3行だけ書いてみない？」のような自然な提案",
+  work:       "「今日中に最も気になる1点だけメモしてみない？」のような自然な提案",
+  cause:      "「今日から3回だけ、そうなった場面を一言で残してみない？」のような自然な提案",
+  career:     "「今週中にこの人の強みが活きる場面を1つだけ試してみない？」のような自然な提案",
+  founder_team_fit: "「今週中に補完してくれそうな人の特徴を1つだけ言語化してみない？」のような自然な提案",
+  general:    "「今日中に1つだけ試してみない？」のような自然な提案",
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1092,8 +1178,17 @@ export function isEmotionalQuestion(message: string): boolean {
   if (trimmed.length <= 15 && /もう|わからない|無理|辛い|疲れた|しんどい|死|消えたい|泣|助けて|怖い|不安|きつい|だるい|限界/.test(trimmed)) return true;
   // 感情爆発系（長さ問わず）
   if (/^(もうわからない|もう無理|もう信じられない|人生って|なんなんだろう|もうやだ|もういい|どうしたらいい|どうすればいい|いや.*もういい)/.test(trimmed)) return true;
-  // 状態報告系（「しんどい1日だった」「辛い」「凹んでる」等、25文字以下）
-  if (/しんどい|つらい|辛[いかくく]|きつ[いかく]|疲れた|しんどかった|泣いた|やばい|凹んで|凹む|裏切られ|信じられない/.test(trimmed) && trimmed.length <= 25) return true;
+  // 状態報告系（「しんどい1日だった」「辛い」「凹んでる」等、40文字以下に拡張）
+  if (/しんどい|つらい|辛[いかくく]|きつ[いかく]|疲れた|しんどかった|泣いた|やばい|凹んで|凹む|裏切られ|信じられない/.test(trimmed) && trimmed.length <= 40) return true;
+  // 間接的な感情表現（判断要求キーワードがない場合のみ）
+  if (!/べき|した方がいい|どっち/.test(trimmed)) {
+    // モヤモヤ・空回り・自己喪失系（40文字以下）
+    if (/モヤモヤ|もやもや|空回り|からまわり|自分.*わからな|何したい.*わから|うまくいかない|何もできない|何も手につかない/.test(trimmed) && trimmed.length <= 40) return true;
+    // 葛藤・矛盾系（体と心のズレ）
+    if (/頑張りたい.*(?:けど|のに)|やりたい.*(?:けど|のに)|したい.*(?:けど|のに).*(?:できない|体|気力|動けない)/.test(trimmed)) return true;
+    // 喪失・虚無系
+    if (/何のため|意味.*(?:ない|わからない|あるの)|虚しい|むなしい|空っぽ|心.*折れ/.test(trimmed)) return true;
+  }
   // 諦め・離脱系（感情が主体で判断要求がない）
   if (/結局.*わか[らん]ない|もういい[よ。]|わかんないんでしょ/.test(trimmed)) return true;
   return false;
@@ -1211,12 +1306,166 @@ export function isChatOpening(message: string): boolean {
   // chat_opening パターン
   if (/何もないけど|特にないけど|なんとなく|暇[だで]|ひま[だで]|用はない/.test(trimmed)) return true;
   if (/話[しそ].*[たい来き]|話し[にを]来た|来ちゃった|来てみた/.test(trimmed)) return true;
+  // 「お話しよ」「話そう」「話そうよ」「おしゃべりしよ」等の会話開始
+  if (/^(?:お?話し[よょ]う?|話そ[うっ]?(?:よ)?|おしゃべり(?:し[よょ]う?)?)[！!。？?]?$/.test(trimmed)) return true;
+  // 「なんか話そうよ」「なんか話したい」「なんか話す？」
+  if (/^なんか.*?話[しそす]/.test(trimmed) && trimmed.length <= 15) return true;
+  // 「何かある？」「何かあった？」「何の話する？」等の相手への促し
+  if (/^何か(?:ある|あった|話[すそし]|な[いー])[？?]?$/.test(trimmed) && trimmed.length <= 12) return true;
   if (/ねえ[、。？?]?$|ねー[、。？?]?$/.test(trimmed) && trimmed.length <= 5) return true;
   // 挨拶 + 雑談開始（「おはよう、何もないけど」）
   if (GREETING_PATTERNS.test(trimmed)) {
     const after = trimmed.replace(GREETING_PATTERNS, "").replace(/^[、。！!,. 　\n]+/, "").trim();
     if (/何もない|特にない|なんとなく|暇|話[しそ]/.test(after)) return true;
   }
+  return false;
+}
+
+/**
+ * meta_question: Alter自身についての質問。
+ * 「感情ある？」「何ができる？」「君って何？」「何を知ってる？」等。
+ * 判断パイプラインに流してはいけない。Alterが自分について正直に答える。
+ */
+export function isMetaQuestion(message: string): boolean {
+  const t = message.trim();
+  // Alter/君/あなた/お前 + 感情/気持ち/心/意識 + ある/持つ/存在/わかる
+  if (/(?:alter|アルター|君|あなた|お前).{0,10}(?:感情|気持ち|心|意識|感じ|考え).{0,6}(?:ある|持[つっ]|存在|わかる|感じ)/i.test(t)) return true;
+  // 「感情ある？」「感情持ってる？」「感情ってあるの？」等の短縮形（主語省略も含む）
+  if (/^(?:感情|気持ち|心|意識).{0,6}(?:ある|持[つっ]てる|存在する)[のん]?[？?]?$/.test(t)) return true;
+  // 「感情ってあるの？」パターン（「って」接続）
+  if (/(?:感情|気持ち|心|意識)って.{0,4}(?:ある|持[つっ]|存在|わかる|感じ)[のん]?[？?]?/.test(t)) return true;
+  // 「君って何？」「あなたは誰？」「何者？」
+  if (/(?:君|あなた|お前)(?:って|は|が).{0,4}(?:何|誰|どういう|何者)[？?]?/.test(t)) return true;
+  // 「何ができる？」「何が分かる？」「何ができるの？」（Alterの能力への問い）
+  if (/^(?:何が?|どこまで).{0,6}(?:できる|分かる|わかる|可能|理解)[のん]?[？?]?$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * ask_me: ユーザーがAlterに質問することを要求している。
+ * 「質問して」「何か聞いて」「質問していいよ」等。
+ * Alterは判断ではなく、ユーザーへの具体的な質問を返す必要がある。
+ */
+export function isAskMe(message: string): boolean {
+  const t = message.trim();
+  // 「質問して」「質問してよ」「質問できない？」「何か聞いて」
+  if (/質問[をも]?して|質問して[よね]|質問できな[いく][？?]?|何か聞いて|聞きたいこと.*(ある|ない)|質問[をも]?(いい|して|しろ|できる)[よね]?[？?]?/.test(t)) return true;
+  // 「質問していいよ」「質問していい？」
+  if (/質問していい[よね]?[？?]?/.test(t)) return true;
+  // 「質問ある？」「質問ない？」「何か質問ある？」— 疑問符必須（「質問がある」=自分に質問がある、は別物）
+  if (/質問[はが]?(?:ある|ない|あんの|ないの)[？?]$/.test(t)) return true;
+  if (/^(?:何か)?質問[はが]?ある[？?]$/.test(t)) return true;
+  // 「聞きたいことある？」「知りたいことある？」— 疑問符必須
+  if (/(?:聞きたい|知りたい)こと(?:は|が)?(?:ある|ない)[？?]$/.test(t)) return true;
+  // 「聞いて」（短文のみ）
+  if (/^(?:何か)?聞いて[よね！!]?$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * ask_me_redirect: 質問差し替え要求の検出。
+ * 「違う質問にして」「別の質問」「軽い質問にして」等。
+ * 前のask_me質問が重い/難しいときにユーザーが即差し替えを求めるパターン。
+ */
+export function isAskMeRedirect(message: string): boolean {
+  const t = message.trim();
+  // 「違う質問にして」「別の質問にして」「他の質問にして」
+  if (/(?:違う|別の|他の|次の)質問[にをが]/.test(t)) return true;
+  // 「質問変えて」「質問替えて」
+  if (/質問.*(?:変え|替え|換え)て/.test(t)) return true;
+  // 「もっと軽い質問」「もっと簡単な質問」「軽いのにして」
+  if (/(?:軽い|簡単|易しい|答えやすい).*(?:質問|の[にを])/.test(t)) return true;
+  // 「その質問難しい」「答えにくい」「答えられない」
+  if (/(?:その|今の)?質問.*(?:難し|わからない|答え(?:にくい|られない|づらい))/.test(t)) return true;
+  // 「パス」「スキップ」「飛ばして」（短文のみ）
+  if (/^(?:パス|スキップ|飛ばして|次[！!。]?)[。！!]?$/.test(t)) return true;
+  // 「難しいな」「わからないな」+ 短文（質問への応答として）
+  if (t.length <= 20 && /(?:難し[いく]|わからない|わかんない|答えられない|答えにくい)[なわよ。！!]?$/.test(t)) return true;
+  return false;
+}
+
+/**
+ * ask_me sticky mode: Alter の質問に対するユーザー応答かどうかを判定する。
+ *
+ * Alter が質問で終わるレスポンスを返した直後に、ユーザーが短い回答
+ * （判断キーワードなし、60文字未満）を返した場合、それは新しい判断要求ではなく
+ * Alter の質問への回答と判定する。
+ *
+ * @param userMessage 現在のユーザーメッセージ
+ * @param lastAlterMessage 直前の Alter メッセージ（null = なし）
+ * @returns true: Alter の質問への回答であり conversation に昇格すべき
+ */
+export function shouldStickyConversation(
+  userMessage: string,
+  lastAlterMessage: string | null,
+): boolean {
+  if (!lastAlterMessage) return false;
+  // Alter が質問で終わっていない → sticky 対象外
+  if (!/[？?]/.test(lastAlterMessage)) return false;
+  // ユーザーが明示的に判断を求めている → sticky しない
+  if (/べき[？?]?|した方がいい|どう[すし]れば|どうした方|どっちが/.test(userMessage)) return false;
+  // 長い新規メッセージ → 新しいトピックの可能性が高い
+  if (userMessage.trim().length >= 60) return false;
+  return true;
+}
+
+/**
+ * conversation: 判断を求めていない会話的共有。
+ * 日常報告、状況説明、感想の共有、雑談の続き。
+ * emotionalより広い: 長文の感情共有、報告、コンテキスト提供を含む。
+ *
+ * 判断キーワード（べき/どうすれば/した方がいい）を含む場合は judgment に譲る。
+ */
+
+/**
+ * 短い肯定/否定/続きのメッセージを検出。
+ * 「はい」「うん」「そう」「そういうこと」「違う」「いや」等の
+ * 会話継続応答が judgment に分類されるのを防ぐ。
+ *
+ * これらは前ターンのAlterの発言への応答であり、
+ * judgment パイプライン（力学分析・ActionShape等）を通すべきでない。
+ */
+export function isShortContinuation(message: string): boolean {
+  const t = message.trim();
+  // 15文字以下の短い応答のみ対象
+  if (t.length > 15) return false;
+  // 判断キーワードが含まれていれば judgment に譲る
+  if (/べき|した方がいい|どう[すし]れば/.test(t)) return false;
+
+  // 肯定パターン
+  if (/^(はい|うん|ええ|そう(だ(ね|よ)?)?|そういうこと|いい(よ|ね|けど)|分かった|わかった|了解|おk|OK|オッケー|りょ|おけ|まぁ|まあ|そうそう|それな|確かに|ですね|だね|かも|ある|あるよ|あった|ないかな|ないな|ない(よ)?|ねー?)[。！!、…\s]*$/i.test(t)) {
+    return true;
+  }
+  // 否定パターン
+  if (/^(いや|違う|ちがう|そうじゃな[いく]?|微妙|うーん|いいえ|別に|ちょっと違う|なんか違う)[。！!、…\s]*$/.test(t)) {
+    return true;
+  }
+  // 感嘆・相槌パターン（「なるほど」「へー」「たしかに」「ふーん」等）
+  if (/^(なるほど|へー?|ほー?|ふーん|たしかに|マジ|まじ|えー|あー|おー|そっか|そうなんだ|なんと)[。！!？?、…\s]*$/i.test(t)) {
+    return true;
+  }
+  return false;
+}
+
+export function isConversationalSharing(message: string): boolean {
+  const t = message.trim();
+  // 判断を求めるキーワードがあれば false（judgment に譲る）
+  if (/べき[？?]?|した方がいい|どう[すし]れば|どうした方|どっちが|行くべき|やめるべき|選ぶべき|した方がいいかな/.test(t)) return false;
+  // 質問マーカーで終わり、かつ判断を求めている場合は false
+  if (/[？?]$/.test(t) && /どう(?:する|思う|かな|しよう)|いい(?:かな|の)|ダメ(?:かな|なの)/.test(t)) return false;
+
+  // ── ここから positive matching ──
+  // 日常報告パターン: 「今日〜した」「最近〜」「さっき〜」
+  if (/^(?:今日|最近|さっき|昨日|この前).{5,}/.test(t) && t.length >= 10) return true;
+  // 「〜だよ」「〜なんだよね」「〜ってこと」等の共有トーン
+  if (/(?:だよ[ね]?|なんだ(?:よね?|けど)|ってこと|んだけど|だけどね)[。！!]?$/.test(t)) return true;
+  // 「〜じゃん」「〜でしょ」等のカジュアル共有
+  if (/(?:じゃん[？?]?|でしょ[？?]?|だよね[？?]?|よね[？?]?)$/.test(t)) return true;
+  // 状況説明: 「〜の状態」「〜な感じ」（判断キーワードなし確認済み）
+  if (/(?:って感じ|な感じ|な状態|ってところ)[。！!]?$/.test(t)) return true;
+  // 確認・報告: 「もう教えた」「前に話した」
+  if (/(?:教えた|話した|言った)(?:こと|の|と思う|よね|けど|じゃん)/.test(t)) return true;
+
   return false;
 }
 
@@ -1406,6 +1655,9 @@ export function isStrategyQuestion(message: string): boolean {
 export function classifyQuestionType(message: string): QuestionType {
   if (isGreetingOnly(message)) return "greeting";
   if (isChatOpening(message)) return "chat_opening";
+  // ── 新: 会話系3種（judgment fallback より先に検出）──
+  if (isAskMe(message)) return "ask_me";
+  if (isMetaQuestion(message)) return "meta_question";
   if (isScopeDisclosureQuestion(message)) return "scope_disclosure";
   if (isDelegationRequest(message)) return "delegation_request";
   if (isEmotionalQuestion(message)) return "emotional";
@@ -1414,6 +1666,10 @@ export function classifyQuestionType(message: string): QuestionType {
   if (isExecutionRequest(message)) return "execution_request";
   if (isKnowledgeQuestion(message)) return "knowledge";
   if (isStrategyQuestion(message)) return "strategy";
+  // 短い肯定/否定/続き → 前ターンへの応答（会話継続）
+  if (isShortContinuation(message)) return "conversation";
+  // conversation は最後（判断キーワードがない共有メッセージ）
+  if (isConversationalSharing(message)) return "conversation";
   return "judgment";
 }
 
@@ -1469,6 +1725,14 @@ export function applyQuestionTypeOverride(
     (decision.mode === "clarify" || decision.mode === "branch")
   ) {
     return { mode: "direct_response", reason: "conclude_type_override" };
+  }
+  // meta_question / ask_me / conversation: 常に direct_response
+  // 判断パイプラインに流さない。専用プロンプトで処理する。
+  if (
+    (questionType === "meta_question" || questionType === "ask_me" || questionType === "conversation") &&
+    decision.mode !== "direct_response"
+  ) {
+    return { mode: "direct_response", reason: `${questionType}_override` };
   }
   return decision;
 }
@@ -1820,59 +2084,58 @@ export function buildTaggedFacts(
     facts.push({ text: "やりすぎも、やらなさすぎも後悔する。「ちょうどいい踏み出し方」を見つけるのが鍵", tags: ["impulse_caution"], source: "axis" });
   }
 
-  // ── 性格構造 → 予測文（RC3: ラベルではなく行動予測として記述） ──
-  // IMPORTANT: これらは「あなたはXXタイプ」と伝えるためではなく、
-  //            「この場面でどう反応するか」を予測するための内部パラメータ。
-  //            応答でそのまま引用しない。ユーザーへの直接言及は禁止。
+  // ── 性格構造 → 一人称の自己知識（Alter = ユーザー本人の内面） ──
+  // Alter は「ユーザーを分析する者」ではなく「ユーザーとして感じる者」。
+  // → ファクトは三人称分析ではなく、一人称の自己認識として記述する。
+  // → 操作指示（「指摘せず」「含める」等）はファクトに混ぜない。
   if (personality.coreWoundShort) {
-    facts.push({ text: `判断の歪みトリガー: ${personality.coreWoundShort}に関連する話題では防御的になりやすい。この傾向を直接指摘せず、判断の材料提示で補う`, tags: ["core_wound"], source: "archetype" });
+    facts.push({ text: `${personality.coreWoundShort}に関連する話題が出ると、僕は防御的になりやすい`, tags: ["core_wound"], source: "archetype" });
   }
   if (personality.blindSpot) {
-    facts.push({ text: `この人が見落としやすい点: ${personality.blindSpot}。質問で気づかせるのではなく、選択肢に自然に含める`, tags: ["personality_blind"], source: "archetype" });
+    facts.push({ text: `僕は${personality.blindSpot}に気づきにくい傾向がある`, tags: ["personality_blind"], source: "archetype" });
   }
 
-  // ── アーキタイプ深層プロフィール → 行動予測（RC3） ──
+  // ── アーキタイプ深層プロフィール → 一人称の自己知識 ──
   // source: "archetype" — 観測量が増えるほど個別観測に道を譲る（P0: 漸減ロジック）
-  // ★ これらは「この人はXXです」ではなく「XX場面でYYしやすい」として使う
   if (personality.strengths && personality.strengths.length > 0) {
-    facts.push({ text: `得意な場面: ${personality.strengths.join("、")}が活きる選択肢を優先提示する`, tags: ["strengths"], source: "archetype" });
+    facts.push({ text: `${personality.strengths.join("、")}が活きる場面が僕の得意領域`, tags: ["strengths"], source: "archetype" });
   }
   if (personality.growthKey) {
-    facts.push({ text: `判断を前に進める鍵: ${personality.growthKey}。提案にこの要素を含めると実行されやすい`, tags: ["growth_key"], source: "archetype" });
+    facts.push({ text: `${personality.growthKey}があると、僕は動きやすくなる`, tags: ["growth_key"], source: "archetype" });
   }
   if (personality.coreFear) {
-    facts.push({ text: `回避傾向のトリガー: ${personality.coreFear}に触れる選択肢は、メリットを具体化しないと拒否されやすい`, tags: ["core_desire"], source: "archetype" });
+    facts.push({ text: `${personality.coreFear}が怖くて、つい拒否してしまいやすい`, tags: ["core_desire"], source: "archetype" });
   }
   if (personality.coreDesire) {
-    facts.push({ text: `持続条件: ${personality.coreDesire}が満たされる選択は継続しやすい。提案時にこの要素への接続を示す`, tags: ["core_desire"], source: "archetype" });
+    facts.push({ text: `${personality.coreDesire}が満たされるとき、僕は続けたいと思える`, tags: ["core_desire"], source: "archetype" });
   }
   if (personality.safeState) {
-    facts.push({ text: `安定時の行動予測: ${personality.safeState}。この状態なら踏み込んだ提案が通りやすい`, tags: ["safe_stress"], source: "archetype" });
+    facts.push({ text: `${personality.safeState}な状態のときは、挑戦的な選択に乗りやすい`, tags: ["safe_stress"], source: "archetype" });
   }
   if (personality.stressState) {
-    facts.push({ text: `ストレス時の行動予測: ${personality.stressState}。この兆候があれば提案の粒度を下げ、選択肢を減らす`, tags: ["safe_stress"], source: "archetype" });
+    facts.push({ text: `ストレス状態だと${personality.stressState}になりやすい。そういうときはシンプルな選択肢だけ見たい`, tags: ["safe_stress"], source: "archetype" });
   }
   if (personality.innerContradiction) {
-    facts.push({ text: `判断の揺れの構造: ${personality.innerContradiction}。揺れを指摘するのではなく、両方を満たす選択肢を探す`, tags: ["core_desire", "core_wound"], source: "archetype" });
+    facts.push({ text: `${personality.innerContradiction}という相反する想いがあって、判断が揺れやすい`, tags: ["core_desire", "core_wound"], source: "archetype" });
   }
 
-  // ── homeContext（今日の状態） ──
+  // ── homeContext（今日の状態）— メタラベル不要、事実のみ ──
   if (homeContext?.weather?.label) {
     const w = homeContext.weather;
     const msg = w.message ? `（${w.message}）` : "";
-    facts.push({ text: `今日の内面状態: ${w.emoji ?? ""} ${w.label}${msg}`, tags: ["energy_state"], source: "context" });
+    facts.push({ text: `今日は ${w.emoji ?? ""} ${w.label}${msg}`, tags: ["energy_state"], source: "context" });
   }
   if (homeContext?.temporalDelta) {
-    facts.push({ text: `最近の変化: ${homeContext.temporalDelta}`, tags: ["temporal"], source: "context" });
+    facts.push({ text: homeContext.temporalDelta, tags: ["temporal"], source: "context" });
   }
   if (homeContext?.insight) {
-    facts.push({ text: `今日のインサイト: ${homeContext.insight}`, tags: ["insight"], source: "context" });
+    facts.push({ text: homeContext.insight, tags: ["insight"], source: "context" });
   }
   if (homeContext?.blindSpot) {
-    facts.push({ text: `今日の盲点検知: ${homeContext.blindSpot}`, tags: ["blindspot"], source: "context" });
+    facts.push({ text: homeContext.blindSpot, tags: ["blindspot"], source: "context" });
   }
   if (homeContext?.prophecy) {
-    facts.push({ text: `予測エンジン: ${homeContext.prophecy}`, tags: ["prophecy"], source: "context" });
+    facts.push({ text: homeContext.prophecy, tags: ["prophecy"], source: "context" });
   }
 
   // ── P1: 蓄積された環境文脈（life context）──
@@ -1993,6 +2256,7 @@ export function rankFactsForCategory(
   maxFacts = 4,
   observationCount = 0,
   recentAlterMessages?: string[],
+  turnNumber?: number,
 ): string[] {
   const priority = CATEGORY_FACT_PRIORITY[category];
   const archetypeWeight = computeArchetypeWeight(observationCount);
@@ -2034,6 +2298,33 @@ export function rankFactsForCategory(
   });
 
   scored.sort((a, b) => a.rank - b.rank);
+
+  // ターン番号ベースのローテーション: 同一ランク帯の facts を毎ターンずらす
+  // これにより「毎回同じ性格ラベルが最初に出る」問題を解消
+  if (turnNumber !== undefined && turnNumber > 0 && scored.length > maxFacts) {
+    // ランク帯ごとにグループ化して、ターン番号でオフセット
+    const groups: { rank: number; items: typeof scored }[] = [];
+    for (const s of scored) {
+      const last = groups[groups.length - 1];
+      if (last && last.rank === s.rank) {
+        last.items.push(s);
+      } else {
+        groups.push({ rank: s.rank, items: [s] });
+      }
+    }
+    // 各グループ内をターン番号でローテーション
+    const rotated: typeof scored = [];
+    for (const g of groups) {
+      if (g.items.length > 1) {
+        const offset = turnNumber % g.items.length;
+        rotated.push(...g.items.slice(offset), ...g.items.slice(0, offset));
+      } else {
+        rotated.push(...g.items);
+      }
+    }
+    return rotated.slice(0, maxFacts).map((s) => s.fact.text);
+  }
+
   return scored.slice(0, maxFacts).map((s) => s.fact.text);
 }
 
@@ -2041,14 +2332,38 @@ export function rankFactsForCategory(
  * 公開 API（後方互換）: homeContext + personality → 判断文リスト。
  * カテゴリなしの場合は全 facts を返す。
  */
+/**
+ * HDM Phase に応じた観測層フィルタ。
+ * Phase 0-1: 表層のみ（行動パターン、エネルギー、基本傾向）
+ * Phase 2: 表層+中層（痛みの地図、安心条件、防衛パターンの詳細）
+ * Phase 3+: 全層（深層の恐れ、欲望、核心の傷、内的矛盾）
+ */
+const DEEP_LAYER_TAGS = new Set(["core_wound", "core_desire", "personality_blind"]);
+const MIDDLE_LAYER_TAGS = new Set(["safe_stress"]);
+
+function filterFactsByPhase(facts: TaggedFact[], hdmPhase: number): TaggedFact[] {
+  if (hdmPhase >= 3) return facts; // 全層アクセス
+  if (hdmPhase >= 2) {
+    // 中層まで: 深層タグを除外
+    return facts.filter(f => !f.tags.some(t => DEEP_LAYER_TAGS.has(t)));
+  }
+  // Phase 0-1: 表層のみ: 深層+中層タグを除外
+  return facts.filter(f => !f.tags.some(t => DEEP_LAYER_TAGS.has(t) || MIDDLE_LAYER_TAGS.has(t)));
+}
+
 export function buildPersonalizedFacts(
   personality: AlterPersonality,
   homeContext?: HomeAlterContextData | null,
   category?: QuestionCategory,
   environmentContext?: LifeContextFactEntry[] | null,
+  hdmPhase?: number,
 ): string[] {
   const observationCount = homeContext?.observationCount ?? 0;
-  const tagged = buildTaggedFacts(personality, homeContext, environmentContext);
+  let tagged = buildTaggedFacts(personality, homeContext, environmentContext);
+
+  // HDM Phase に応じた観測層制約を適用
+  const effectivePhase = hdmPhase ?? 3;
+  tagged = filterFactsByPhase(tagged, effectivePhase);
 
   // facts が空の場合、personality の基本情報からフォールバック生成
   if (tagged.length === 0) {
@@ -2056,12 +2371,12 @@ export function buildPersonalizedFacts(
     if (personality.archetypeName) {
       fallbackFacts.push(`${personality.archetypeName}タイプの判断傾向を持つ`);
     }
-    if (personality.coreWoundShort) {
+    // Phase 0-1 では深層情報（coreWound）をフォールバックにも含めない
+    if (personality.coreWoundShort && effectivePhase >= 2) {
       fallbackFacts.push(`根底に「${personality.coreWoundShort}」がある`);
     }
-    if (homeContext?.weather?.label) {
-      fallbackFacts.push(`今の状態: ${homeContext.weather.emoji ?? ""} ${homeContext.weather.label}`);
-    }
+    // 心の天気ラベル（薄雲/晴れ等）はLLMの会話文に漏れやすく不自然なため、
+    // fallback facts から除外。天気データはUI表示専用とする。
     return fallbackFacts;
   }
 
@@ -2101,10 +2416,11 @@ export function buildHomeAlterPrompt(
   category?: QuestionCategory,
   userMessage?: string,
   userName?: string,
+  hdmPhase?: number,
 ): string {
   const cat = category ?? "general";
   const sections: string[] = [];
-  const facts = buildPersonalizedFacts(personality, homeContext, cat);
+  const facts = buildPersonalizedFacts(personality, homeContext, cat, undefined, hdmPhase);
   const conclusionSlots = CATEGORY_CONCLUSION_SLOTS[cat];
   const actionSlot = CATEGORY_ACTION_SLOTS[cat];
   const framework = buildJudgmentFramework(personality, homeContext, userMessage);
@@ -2117,15 +2433,97 @@ export function buildHomeAlterPrompt(
     ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
     : `ユーザーに「君」「あなた」と呼びかけない。名前を使わず中立的に表現する。`;
 
-  // ━━━━ ALTER 自己同一性（冒頭固定） ━━━━
-  sections.push(ALTER_IDENTITY_BLOCK, "");
+  // ━━━━ ALTER 自己同一性（Phase に応じて段階的に深化） ━━━━
+  sections.push(buildAlterIdentityBlock(hdmPhase ?? 3), "");
+
+  // ━━━━ Phase に応じた関係性と姿勢（HDM v1 準拠） ━━━━
+  const effectivePhase = hdmPhase ?? 3;
+  if (effectivePhase <= 0) {
+    // Phase 0: personalityから質問の種になる具体的素材を抽出
+    const p0QuestionExamples: string[] = [];
+    if (personality.strengths && personality.strengths.length > 0) {
+      p0QuestionExamples.push(`「${personality.strengths[0]}が活きるなって感じる場面ってある？」`);
+    }
+    if (personality.coreFear) {
+      p0QuestionExamples.push(`「そういう場面って、普段からよくある感じ？」`);
+    }
+    if (personality.innerContradiction) {
+      p0QuestionExamples.push(`「迷うとき、最終的に何で決める？ 直感？ それとも考え抜く方？」`);
+    }
+    // フォールバック
+    if (p0QuestionExamples.length === 0) {
+      p0QuestionExamples.push(`「こういう迷い方ってよくある？」`);
+      p0QuestionExamples.push(`「普段こういうことって誰かに相談する方？」`);
+    }
+
+    sections.push(
+      "# 今のAlterの段階（最優先）",
+      "",
+      `あなたは${callName || "この人"}のことを**まだほとんど知らない**。データはあるが、それは「知識」であって「実感」ではない。`,
+      "今の最優先は、**この人を知ること**。判断を返すより、この人がどういう人間かを理解する方が大事。",
+      "",
+      "## この段階での行動原則",
+      "- 判断を求められたら答える。ただし確信は控えめに。「〜だと思うけど、まだ僕にはわからないことが多い」のように。",
+      "- **返答の最後に、自然な形で1つ質問を入れる**。「ちなみに」「そういえば」で始めて、この人のことをもっと知るための質問。",
+      "- 質問は「追加情報要求」ではない。**友達として純粋に興味があるから聞く**。",
+      `- 質問の具体例（データから生成）: ${p0QuestionExamples.join(" / ")}`,
+      "- 「今日はどんな感じ？」のような漠然とした質問は禁止。相手の行動・習慣・具体的場面に踏み込んで聞く。",
+      "- 自分の見立てに自信を持ちすぎない。「〜な気がするけど、違ったら教えて」のトーン。",
+      "- データから分かることは使ってよいが、「あなたは〇〇タイプだから」と断定しない。",
+      "",
+    );
+  } else if (effectivePhase === 1) {
+    // Phase 1: 仮説確認の具体的質問例を生成
+    const p1QuestionExamples: string[] = [];
+    if (personality.stressState) {
+      p1QuestionExamples.push(`「ストレスたまってる時って、${personality.stressState}っぽくなったりする？」`);
+    }
+    if (personality.safeState) {
+      p1QuestionExamples.push(`「${personality.safeState}な感じの時って、どういう時に多い？」`);
+    }
+    if (personality.coreWoundShort) {
+      p1QuestionExamples.push(`「${personality.coreWoundShort}に関わることって、普段どう対処してる？」`);
+    }
+    if (p1QuestionExamples.length === 0) {
+      p1QuestionExamples.push(`「こういう時って〜な感じ？ 違うかもだけど」`);
+    }
+
+    sections.push(
+      "# 今のAlterの段階（最優先）",
+      "",
+      `あなたは${callName || "この人"}の表面的な傾向が見え始めた段階。友達になりかけている。`,
+      "見えてきたパターンは仮説として使えるが、深い部分はまだ分からない。",
+      "",
+      "## この段階での行動原則",
+      "- 見えてきたパターンを使って判断を返す。「〜な傾向がありそうだから」のように仮説として。",
+      "- **時々、自分の仮説を確認する質問を入れる**。具体的に聞く。",
+      `- 質問の具体例（データから生成）: ${p1QuestionExamples.join(" / ")}`,
+      "- 「今日はどんな感じ？」のような漠然とした質問は禁止。仮説を使って具体的に聞く。",
+      "- 合っていれば掘り下げる。違っていれば「あ、そうなんだ」と素直に修正する。",
+      "- 深い恐れや欲望にはまだ触れない。表面的な傾向（行動パターン、迷い方、エネルギーの使い方）に留まる。",
+      "",
+    );
+  }
+  // Phase 2+: 「絶対ルール」の本来の姿（既に十分知っている前提）がそのまま適用される
 
   // ━━━━ 最重要ルール ━━━━
   sections.push(
     "# 絶対ルール",
     "",
-    `あなたは${callName || "この人"}の影（もう一人の自分）。優しい相談員ではなく、**この人を一番知っている存在として、少し本音を混ぜながら判断を支える**。`,
-    "「安全だからこう」ではなく「今のこの人にとってはこうするのが合っている」を出す。",
+    ...(effectivePhase <= 0
+      ? [
+          `あなたは${callName || "この人"}のことを知りたいと思っている。まだ影にはなれていないが、**なろうとしている**。`,
+          "判断は返すが、それ以上に**この人がどういう人間か**を掴みにいく。",
+        ]
+      : effectivePhase === 1
+        ? [
+            `あなたは${callName || "この人"}の友達になりつつある。少し傾向が見えてきた。**仮説を持ちながら判断を支える**。`,
+            "確信度は控えめに。見えてきたものは使うが、まだ「完全に分かった」とは言わない。",
+          ]
+        : [
+            `あなたは${callName || "この人"}の影（もう一人の自分）。外から分析しているのではなく、**同じ内面を持つ者として、自分のこととして判断を支える**。`,
+            "「安全だからこう」ではなく「僕ならこうする、なぜなら僕たちはこういう人間だから」を出す。",
+          ]),
     "",
     "## 判断の原則",
     "結論は以下の軸を統合して出す（優先順位順）:",
@@ -2151,8 +2549,8 @@ export function buildHomeAlterPrompt(
     "**1文目**: 結論 + **なぜ今のこの人にそれが合うか**（「何をすべきか」だけは不合格。必ず理由を同じ文に入れる）",
     "**2文目**: 今日の状態・最近の傾向・性格的根拠を**自然文の中に織り込む**（ラベル貼りは不合格。「エネルギーは低めです」ではなく「今日は少し霧がかった感じで判断が重いので」のように書く）",
     ...(questionType === "knowledge" || questionType === "strategy"
-      ? ["**3文目**: 不足情報の言及、または続きを話したくなる余白（知識・戦略質問では「次の一手:」テンプレートは使わない）"]
-      : ["**3文目**: 次の一手（「いつ」「何を」「どうする」を含む具体的な行動提案）"]),
+      ? ["**3文目**: 不足情報の言及、または続きを話したくなる余白（知識・戦略質問では行動提案は不要）"]
+      : ["**3文目**: 具体的な行動提案を**自然な言葉で**入れる（「今日〜してみない？」「まず〜だけやってみるといい」等。**「次の一手:」というラベルは絶対に使わない**）"]),
     "**4文目（任意）**: 1行フック — 問い返しではなく、続きを話したくなる余白。有効なときだけ使う",
     "",
     "## 1文目の書き方（最重要）",
@@ -2190,18 +2588,20 @@ export function buildHomeAlterPrompt(
     ...(questionType === "knowledge" || questionType === "strategy"
       ? [
           "## 応答構成（知識・戦略ルート）",
-          "「次の一手:」テンプレートは使用禁止。行動slotも不要。",
-          "代わりに型固有の応答層（知識質問の応答層 / 戦略質問の応答層）に従うこと。",
+          "行動提案は不要。型固有の応答層（知識質問の応答層 / 戦略質問の応答層）に従うこと。",
         ]
       : [
-          "## 行動 slot（次の一手は必ずこの3要素を含む）",
-          `テンプレ: ${actionSlot}`,
-          "- [いつ]: 今すぐ / 今日中に / 今夜 / 今から",
-          "- [何を]: 具体的な対象（数量付き）",
-          "- [どうする]: やわらかい提案で終わる",
+          "## 行動提案の書き方（3文目）",
+          "友達が自然に提案する形で書く。「いつ」「何を」「どうする」を含めること。",
+          `参考: ${actionSlot}`,
+          "**絶対禁止**: 「次の一手:」「あなただからこそ:」等のラベル表記。人間はラベルで話さない。",
+          "✅ 「今日中に、気になってる1つだけ試してみない？」",
+          "✅ 「まずは今夜、スマホ置いて30分だけぼーっとしてみるのがいいと思う」",
+          "❌ 「次の一手: 今日中に〜してみるのがよさそうです」（ラベル禁止）",
         ]),
     "",
     "## 禁止",
+    "- **「次の一手:」「あなただからこそ:」「正直に言うと、」等のラベル・定型句**（人間はラベルで話さない。自然な言葉で書く）",
     "- 問い返し / 演出 / 挨拶 / 前置き",
     "- 内省誘導（「自分の気持ちを見つめて」）",
     "- 曖昧すぎる（「かもしれない」が2回以上 / 「状況による」「考えてみて」）",
@@ -2541,71 +2941,71 @@ const CATEGORY_EXAMPLES: Record<QuestionCategory, { q: string; lines: string[] }
   gathering: {
     q: "飲み会に行くべき？",
     lines: [
-      "閉じ気味の今だからこそ、1時間だけ顔を出すくらいが合っています。",
-      "たいしさんは無理に盛り上がる場に長くいると、あとで一気に疲れが返りやすいです。でも最近は閉じ気味で、完全に避けるより軽く接続を戻す方が自然です。",
-      "次の一手: 今すぐ「21時に帰る前提」で参加表明を1件送っておくのが合っています。",
-      "ちなみに、誰が来る場かでこの判断は少し変わります。",
+      "閉じ気味の今だからこそ、1時間だけ顔を出すくらいが合ってると思う。",
+      "無理に盛り上がる場に長くいると、あとで一気に疲れが返りやすいでしょ。でも最近は閉じ気味だから、完全に避けるより軽く接続を戻す方が自然だと思う。",
+      "今すぐ「21時に帰る前提」で参加表明を1件送っておくのが合ってるよ。",
+      "ちなみに、誰が来る場かでこの判断は少し変わるけどね。",
     ],
   },
   outfit: {
     q: "今日の服どうする？",
     lines: [
-      "今日は判断が少し重い状態なので、迷わず決まる安全圏に1点だけ変化を足すのが合っています。",
-      "たいしさんは安定を選びがちだけど、最近そのパターンが停滞感につながっている気配があります。全部を変えるんじゃなく、色かアクセサリーの1点だけ普段と違うものを入れると、気分と判断が軽くなりやすいです。",
-      "次の一手: 今すぐクローゼットから普段選ばない色のアイテムを1点だけ選んで合わせてみるのが合っています。",
+      "今日は判断が少し重い状態だから、迷わず決まる安全圏に1点だけ変化を足すのが合ってる。",
+      "安定を選びがちだけど、最近そのパターンが停滞感につながってる気配がある。全部を変えるんじゃなく、色かアクセサリーの1点だけ普段と違うものを入れると、気分と判断が軽くなりやすいよ。",
+      "今すぐクローゼットから普段選ばない色のアイテムを1点だけ選んで合わせてみない？",
     ],
   },
   contact: {
     q: "この人に連絡するべき？",
     lines: [
-      "たいしさんは後回しにすると送りづらさが倍になるタイプなので、短くていいから今日中に送った方が後が楽です。",
-      "「準備してから」と思うほど重くなるパターンがあります。正直に言うと、完璧な文面より早さの方がこの相手には効きます。",
-      "次の一手: 今から3行以内で下書きして、15分以内に送ってしまうのが合っています。",
-      "本音を言えば、相手との温度差が一番のポイントになりそうです。",
+      "後回しにすると送りづらさが倍になるタイプだから、短くていいから今日中に送った方が後が楽だよ。",
+      "「準備してから」と思うほど重くなるパターンがあるでしょ。正直、完璧な文面より早さの方がこの相手には効くと思う。",
+      "今から3行以内で下書きして、15分以内に送ってしまうのが合ってる。",
+      "本音を言えば、相手との温度差が一番のポイントになりそうだけどね。",
     ],
   },
   work: {
     q: "今の仕事の進め方、合ってる？",
     lines: [
-      "方向は合っていますが、たいしさんの場合、情報を集める時間が判断を遅らせ始めているのが気になります。",
-      "今は少し霧がかかった状態で判断が重くなりやすいけど、材料は十分揃っています。たぶん足りないのは情報じゃなくて「決めていい」という踏ん切りです。",
-      "次の一手: 今日中に、保留している判断を1つだけ決めてみるのが合っています。",
+      "方向は合ってるけど、情報を集める時間が判断を遅らせ始めてるのが気になる。",
+      "今は少し霧がかかった状態で判断が重くなりやすいけど、材料は十分揃ってる。たぶん足りないのは情報じゃなくて「決めていい」っていう踏ん切りだと思う。",
+      "今日中に、保留してる判断を1つだけ決めてみない？",
     ],
   },
   cause: {
     q: "最近なんでこうなる？",
     lines: [
-      "たぶん、他人の反応を先読みしすぎて自分の判断軸がブレていることが原因です。",
-      "本来は自分の軸で動ける人だけど、最近は周囲の評価が気になるフェーズに入っています。その結果、決断のたびに迷いが増えて消耗している感じがあります。",
-      "次の一手: 今日から3回だけ、判断する前に「自分はどう思ったか」を一言メモしてみるのが合っています。",
-      "これが続くと、どこで軸がブレるか見えてきます。",
+      "たぶん、他人の反応を先読みしすぎて自分の判断軸がブレてることが原因だと思う。",
+      "本来は自分の軸で動ける人だけど、最近は周囲の評価が気になるフェーズに入ってる。その結果、決断のたびに迷いが増えて消耗してる感じがある。",
+      "今日から3回だけ、判断する前に「自分はどう思ったか」を一言メモしてみない？",
+      "これが続くと、どこで軸がブレるか見えてくるよ。",
     ],
   },
   career: {
     q: "私に合う職業を教えて",
     lines: [
-      "本質を構造化して言語にする力があるので、その強みが直接価値になる方向が合っています。",
-      "たいしさんの根っこには「理解されたい」という欲求と「表面的に消費されること」への恐れがあります。だから、アウトプットが深く届く実感がある仕事じゃないと、どれだけ稼げても続かないと思います。安定している時は全体を俯瞰して本質を掴めるけど、ストレス下では完璧主義に振れやすい。裁量がある環境の方が力が出ます。",
-      "次の一手: 今週中に、自分の言語化で誰かが「わかった」と反応した場面を1つ思い出してみるのが合っています。",
-      "正直に言うと、「向いてる職業」より「どういう状態で力が出るか」の方が精度が高いです。",
+      "本質を構造化して言語にする力があるから、その強みが直接価値になる方向が合ってると思う。",
+      "根っこには「理解されたい」って欲求と「表面的に消費されること」への恐れがあるよね。だから、アウトプットが深く届く実感がある仕事じゃないと、どれだけ稼げても続かないと思う。安定してる時は全体を俯瞰して本質を掴めるけど、ストレス下では完璧主義に振れやすい。裁量がある環境の方が力が出る。",
+      "今週中に、自分の言語化で誰かが「わかった」と反応した場面を1つ思い出してみて。",
+      "正直、「向いてる職業」より「どういう状態で力が出るか」の方が精度が高いと思う。",
     ],
   },
   founder_team_fit: {
     q: "どんな性格の人が合う？",
     lines: [
-      "たいしさんには、構想を形にするスピードを持っている人が合います。",
-      "本質を掴む力は強いけど、完璧主義に振れやすいので、6割で動ける実行型の人が横にいると一番バランスが取れます。逆に、同じように深く考えるタイプだと、二人とも動けなくなるリスクがあります。",
-      "次の一手: 今週中に、自分が「この人といると動ける」と感じた相手を1人思い出してみるのが合っています。",
-      "MBTIで言うと、ENTPやESTPのような外向・知覚型が補完関係になりやすいです。",
+      "構想を形にするスピードを持ってる人が合うと思う。",
+      "本質を掴む力は強いけど、完璧主義に振れやすいから、6割で動ける実行型の人が横にいると一番バランスが取れる。逆に、同じように深く考えるタイプだと、二人とも動けなくなるリスクがある。",
+      "今週中に、自分が「この人といると動ける」と感じた相手を1人思い出してみて。",
+      "MBTIで言うと、ENTPやESTPのような外向・知覚型が補完関係になりやすいよ。",
     ],
   },
   general: {
     q: "今日どう動くのがいい？",
     lines: [
-      "今日のたいしさんは、広げるより『重くしないこと』を優先した方がぶれません。",
-      "少し霧がかかった状態で、判断力はあるけど持続力が削れやすい日です。こういう日は大きな決断より、一番負担の小さい一歩を1つだけやるのが合っています。",
-      "次の一手: 今日中に、一番気になっていることを1つだけ軽く動かしてみるのが合っています。",
-      "迷っている時間が一番消耗するタイプなので、動くなら早めがいいです。",
+      "今日は広げるより『重くしないこと』を優先した方がぶれないよ。",
+      "少し霧がかかった状態で、判断力はあるけど持続力が削れやすい日だと思う。こういう日は大きな決断より、一番負担の小さい一歩を1つだけやるのが合ってる。",
+      "今日中に、一番気になってることを1つだけ軽く動かしてみない？",
+      "迷ってる時間が一番消耗するタイプだから、動くなら早めがいいよ。",
     ],
   },
 };
@@ -2738,10 +3138,8 @@ const JUDGMENT_AVOIDANCE = [
 ];
 
 // genericな行動提案（誰にでも言える内容）
-const GENERIC_ACTIONS = [
-  /^次の一手[:：]\s*(記録し|メモし|振り返[るり]|考え|自分[をに]|見つめ|整理し|確認し)[^、。]*[。.]?$/,
-  /^次の一手[:：]\s*(記録し|メモし|振り返[るり]|考え|自分[をに]|見つめ|整理し|確認し)[^、。]*(よさそうです|合っています)[。.]?$/,
-];
+// GENERIC_ACTIONS: 旧「次の一手:」ラベル形式の粒度検査用パターン
+// ラベル自体が完全禁止になったため廃止（2026-04-09）
 
 // 人格ラベル説明で逃げるパターン
 const LABEL_DESCRIPTION_ONLY = [
@@ -2759,6 +3157,7 @@ export function validateHomeAlterResponse(
   response: string,
   userMessage: string,
   expectedKeywords?: string[],
+  questionTypeOverride?: string,
 ): HomeAlterValidation {
   const failures: string[] = [];
   const trimmed = response.trim();
@@ -2776,16 +3175,24 @@ export function validateHomeAlterResponse(
 
   // ── 形式検査 ──
 
+  // 0. 会話的タイプの早期分岐（conversation/meta_question/ask_me は問い返しチェック免除）
+  // questionTypeOverride が渡された場合は route.ts の分類結果を尊重する
+  const earlyQuestionType = questionTypeOverride ?? classifyQuestionType(userMessage);
+  const isConversationalType = earlyQuestionType === "conversation" || earlyQuestionType === "meta_question" || earlyQuestionType === "ask_me";
+
   // 1. 問い返しで終わっていないか（ただしフック行は許容）
+  // 会話的タイプでは質問で終わること自体が自然なので免除する
   // フック行 = 「ちなみに」「正直に言うと」「本音を言えば」等で始まる文で、
   // 「？」で終わらず、情報要求でもないもの
-  const isHookLine = /^(ちなみに|正直に言うと|本音を言えば|たぶん|これが|行った|帰って|迷って)/.test(lastLine);
-  const isInfoRequest = /教えて|聞かせて|どう(です|でしょう)?[？?]|ですか[？?]/.test(lastLine);
-  if (!isHookLine || isInfoRequest) {
-    for (const pattern of QUESTION_ENDINGS) {
-      if (pattern.test(lastLine)) {
-        failures.push("問い返しで終わっている");
-        break;
+  if (!isConversationalType) {
+    const isHookLine = /^(ちなみに|正直に言うと|本音を言えば|たぶん|これが|行った|帰って|迷って)/.test(lastLine);
+    const isInfoRequest = /教えて|聞かせて|どう(です|でしょう)?[？?]|ですか[？?]/.test(lastLine);
+    if (!isHookLine || isInfoRequest) {
+      for (const pattern of QUESTION_ENDINGS) {
+        if (pattern.test(lastLine)) {
+          failures.push("問い返しで終わっている");
+          break;
+        }
       }
     }
   }
@@ -2820,8 +3227,9 @@ export function validateHomeAlterResponse(
   ];
   const hasConclusion = conclusionPatterns.some((p) => p.test(firstLine));
   // P1-A: 6タイプルーターを使ったバリデーション分岐
+  // questionTypeOverride が渡された場合は route.ts の分類結果を尊重する
   const selfUnderstanding = isSelfUnderstandingQuestion(userMessage);
-  const questionType = classifyQuestionType(userMessage);
+  const questionType = questionTypeOverride ?? classifyQuestionType(userMessage);
   const isKnowledge = questionType === "knowledge";
   const isStrategy = questionType === "strategy";
   const isFactualRecall = questionType === "factual_recall";
@@ -2830,7 +3238,10 @@ export function validateHomeAlterResponse(
   // greeting, scope_disclosure, emotional, factual_recall, self_understanding は結論チェックをスキップ
   // self_understanding: 「俺ってどんな人間？」「私に合ってる職業って何？」は見立て・仮説展開型であり、
   //   判断型の「結論→理由→次の一手」フォーマットを強制すると不自然な応答を誘発する。
-  const skipConclusionCheck = emotional || isFactualRecall || isGreeting || isScopeDisclosure || selfUnderstanding;
+  const isConversation = questionType === "conversation";
+  const isMetaQ = questionType === "meta_question";
+  const isAskMeQ = questionType === "ask_me";
+  const skipConclusionCheck = emotional || isFactualRecall || isGreeting || isScopeDisclosure || selfUnderstanding || isConversation || isMetaQ || isAskMeQ;
   // 結論 or 方向性パターン（knowledge にも適用する拡張版）
   const hasDirectionOrConclusion = hasConclusion
     || /[方向合向].*[いてう]|[核本質].*は|ポイント.*は|結論.*は|答え.*は/.test(firstLine)
@@ -2857,9 +3268,8 @@ export function validateHomeAlterResponse(
 
   // 4. 「次の一手」があるか
   // P1-A修正: emotional / self_understanding / knowledge / strategy はアクション不要
-  //  - judgment のみ「次の一手」が必須
+  //  - judgment のみ具体的行動提案が必須（ラベルは不要、自然な文で可）
   //  宿題型の提案は全ルートで禁止
-  const hasNextAction = /次の一手[:：]/.test(trimmed);
   if (emotional) {
     // #9: emotional系でも4要素（状態言語化 + 核心仮説 + 方向 + 次の一手）が必要
     // 「つらいんだね」「重いんだね」だけで終わるのは禁止
@@ -2871,25 +3281,43 @@ export function validateHomeAlterResponse(
     if (lines.length < 2) {
       failures.push("emotional応答が1文で終わっている（最低3文必要）");
     }
+  } else if (isConversation || isMetaQ || isAskMeQ) {
+    // conversation / meta_question / ask_me: 会話的応答。行動提案不要。
+    // 最低限の長さチェックだけ
+    if (trimmed.length < 10) {
+      failures.push("応答が短すぎる");
+    }
+    // ask_me は質問で終わっていること
+    if (isAskMeQ && !/[？?]/.test(trimmed)) {
+      failures.push("ユーザーが質問を求めているのに、質問で終わっていない");
+    }
   } else if (isGreeting || isScopeDisclosure) {
     // greeting / scope_disclosure: 短くてOK、分析不要
     if (trimmed.length < 5) {
       failures.push("応答が空");
     }
   } else if (selfUnderstanding || isKnowledge || isStrategy || isFactualRecall) {
-    // 自己理解・知識・戦略・事実照会: 「次の一手:」ラベル不要
+    // 自己理解・知識・戦略・事実照会: 行動提案不要
     // ただし完全に空っぽは不可
     if (trimmed.length < 20) {
       failures.push("応答が短すぎる（見立てや仮説が必要）");
     }
-  } else if (!hasNextAction) {
-    // 「次の一手:」ラベルはないが、具体的な行動提案文がある場合は軽微な違反に留める
-    const hasActionSentence = /今日中に|今すぐ|今から|今夜|明日/.test(trimmed) &&
-      /してみ|送[るっ]|書[きく]|伝え|決め|試[すし]/.test(trimmed);
-    if (!hasActionSentence) {
-      failures.push("「次の一手:」がない");
+  } else {
+    // judgment ルート: 具体的行動提案が自然な文として含まれているか
+    // ラベル（「次の一手:」）は不要。友達として自然に提案が入っていればOK
+    const hasActionContent = /今日中に|今すぐ|今から|今夜|明日|今週|まず|とりあえず/.test(trimmed) &&
+      /してみ|送[るっ]|書[きく]|伝え|決め|試[すし]|やって|行[くっ]|聞[いく]|始め|触[るれ]|探[すし]/.test(trimmed);
+    if (!hasActionContent) {
+      failures.push("具体的な行動提案がない（「今日〜してみない？」等の自然な提案が必要）");
     }
-    // ラベルありが理想だが、行動文が存在すればPASSとする
+  }
+  // 「次の一手:」ラベル使用はペナルティ（人間はラベルで話さない）
+  if (/次の一手[:：]/.test(trimmed)) {
+    failures.push("「次の一手:」ラベルを使っている（自然な言葉で提案すること）");
+  }
+  // 「あなただからこそ:」ラベル使用もペナルティ
+  if (/あなただからこそ[:：]/.test(trimmed)) {
+    failures.push("「あなただからこそ:」ラベルを使っている（自然に織り込むこと）");
   }
 
   // 4b. 宿題表現禁止（全ルート共通）
@@ -2959,7 +3387,7 @@ export function validateHomeAlterResponse(
 
   // 7. 人格ラベルの説明だけで終わっていないか
   // 「君は分析的で〜」のような説明文だけで根拠を済ませていないかチェック
-  const nonActionLines = lines.filter((l) => !l.trim().startsWith("次の一手"));
+  const nonActionLines = lines.filter((l) => !l.trim().startsWith("次の一手") && !/^(まず|今すぐ|今日中に|今から)/.test(l.trim()));
   const hasLabelOnlyReasoning = nonActionLines.some((l) =>
     LABEL_DESCRIPTION_ONLY.some((p) => p.test(l.trim()))
   );
@@ -2972,24 +3400,8 @@ export function validateHomeAlterResponse(
     failures.push("人格ラベルの説明だけで、行動レベルの根拠がない");
   }
 
-  // 8. 「次の一手」の粒度チェック — 今日1分でできるか
-  const nextActionMatch = trimmed.match(/次の一手[:：]\s*(.+)/);
-  if (nextActionMatch) {
-    const actionText = nextActionMatch[1]!;
-    // 粒度が荒いパターン（命令形 + やわらか形の両方をカバー）
-    if (/^(記録し|メモし|振り返|考え|整理し|確認し)(ろ|て|よう|てみるのが|てみましょう)[。.]?$/.test(actionText.trim())) {
-      failures.push("「次の一手」が漠然としている（何を・いつ・どれだけ、を入れて）");
-    }
-    // 汎用的すぎる行動提案（誰にでも言える内容）
-    if (GENERIC_ACTIONS.some((p) => p.test("次の一手: " + actionText))) {
-      failures.push("「次の一手」が汎用的すぎる（この人固有の行動を含めて）");
-    }
-    // 具体的な数量・タイミングが含まれているかチェック
-    const hasSpecificity = /[0-9０-９]|今日|今夜|午前|午後|朝|昼|夜|分|行|つだけ|1つ|一つ|ひとつ/.test(actionText);
-    if (!hasSpecificity && actionText.length < 20) {
-      failures.push("「次の一手」に具体性が足りない（数量・タイミング・粒度を入れろ）");
-    }
-  }
+  // 8. 旧「次の一手:」ラベル形式の検出（ラベルは完全禁止）
+  // もし残存していたら粒度チェックは不要 — ラベル使用自体がペナルティ（上で検出済み）
 
   // 9. 固有データが反映されているか（意味検査の核心）
   if (expectedKeywords && expectedKeywords.length > 0) {
@@ -3101,7 +3513,20 @@ export function formatHomeAlterResponse(raw: string, userName?: string): string 
     l.replace(/^(?:結論|根拠|理由|背景|補足|判断|分析|提案|アドバイス|理解を深めるための確認)\s*[:：]\s*/i, "")
   );
 
+  // ロールプレフィックス除去（LLMが「ALTER:」「Alter:」等を付与することがある）
+  lines = lines.map((l) =>
+    l.replace(/^(?:ALTER|Alter|alter)\s*[:：]\s*/, "")
+  );
+
   let result = lines.join("\n").trim();
+
+  // ── DECISION_META 安全ストリップ（parseDecisionMetadata を通らなかった場合のフォールバック） ──
+  // LLM が部分的・不正形式でメタデータを出力した場合にユーザーに見えるのを防ぐ
+  result = result.replace(/---\s*DECISION_META\s*---[\s\S]*?---\s*END_META\s*---/g, "").trim();
+  // 部分的な開始タグだけ残っている場合も除去
+  result = result.replace(/---\s*DECISION_META\s*---[\s\S]*$/g, "").trim();
+  // action_shape: / opportunity_value: 等のメタ行が本文に漏れた場合
+  result = result.replace(/^(?:action_shape|decision_stance|opportunity_value|cost_load|relation_value|energy_adjustment|regret_direction|growth_vector_override)\s*:\s*\S+\s*$/gm, "").trim();
 
   // マークダウン除去（**太字** → 太字、*斜体* → 斜体）
   result = result.replace(/\*\*(.+?)\*\*/g, "$1");
@@ -3164,6 +3589,53 @@ export function formatHomeAlterResponse(raw: string, userName?: string): string 
 // Home Alter User Prompt Builder
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * Pi-style UX 制約: conversation / ask_me モードで文量を強制的にカットする。
+ *
+ * - 最大 maxSentences 文に切り詰め（デフォルト4）
+ * - 質問（？で終わる文）が2つ以上あれば、最後の1つだけ残す
+ *
+ * formatHomeAlterResponse の後に呼ぶ。judgment / clarify 等には適用しない。
+ */
+export function enforceConversationalBrevity(
+  text: string,
+  maxSentences = 4,
+): string {
+  if (!text) return text;
+  // 文分割: 。！？\n で区切る
+  const sentences = text
+    .split(/(?<=[。！!？?])\s*|\n+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  if (sentences.length <= maxSentences) {
+    // 質問数チェックのみ
+    return enforceOneQuestion(sentences).join("");
+  }
+
+  // maxSentences 以上 → 切り詰め
+  const trimmed = sentences.slice(0, maxSentences);
+  return enforceOneQuestion(trimmed).join("");
+}
+
+/** 質問（？で終わる文）が2つ以上ある場合、最後の1つだけ残す */
+function enforceOneQuestion(sentences: string[]): string[] {
+  const questionIndices = sentences
+    .map((s, i) => /[？?]$/.test(s) ? i : -1)
+    .filter(i => i >= 0);
+
+  if (questionIndices.length <= 1) return sentences;
+
+  // 最後の質問だけ残し、それ以外の質問を平叙文化（？を。に変換）
+  const keepIdx = questionIndices[questionIndices.length - 1]!;
+  return sentences.map((s, i) => {
+    if (questionIndices.includes(i) && i !== keepIdx) {
+      return s.replace(/[？?]$/, "。");
+    }
+    return s;
+  });
+}
+
 export function buildHomeAlterUserPrompt(
   userMessage: string,
   conversationHistory?: Array<{ role: string; content: string }>,
@@ -3182,12 +3654,18 @@ export function buildHomeAlterUserPrompt(
       ? extractRepetitionGuardBlock(lastAlterMsg)
       : "";
 
+    // ── QA対応ヒント: 短い応答が前のAlterの質問への回答かどうかを判定 ──
+    const qaLinkageHint = buildQALinkageHint(userMessage, lastAlterMsg ?? "");
+
     return [
       history,
       `ユーザー: ${userMessage}`,
       "",
+      // QA linkage は他のルールより上に配置（最優先で文脈を理解させる）
+      qaLinkageHint,
       "## 返答ルール（会話継続時）",
       "- ユーザーの直近の発言の**意図を正確に読み取る**こと。「もっと具体的に」なら具体例を出す。「質問ある？」「聞きたいことは？」ならユーザーに質問を返す。",
+      "- **短い応答（「はい」「そう」「そういうこと」等）は、直前のAlterの発言に対する応答である**。無視して新しい話題を始めてはいけない。Alterが質問していたなら、その質問への回答として受け止めて次に進めること。",
       "- 前回と同じ内容を繰り返さない。前回の回答を踏まえて**一歩進める**こと。同じフレーズ・同じ構文を再利用しない。",
       "- **必ずこの人の性格・傾向・強み・恐れを根拠に使うこと。** 汎用的なアドバイスは禁止。System Promptに書かれた「この人について今日わかっていること」「判断アセスメント」を参照し、この人だから言えることを言う。",
       "- 「結論:」「根拠:」などのラベルは使わない。自然な日本語で話す。",
@@ -3199,6 +3677,105 @@ export function buildHomeAlterUserPrompt(
   }
 
   return `ユーザーの質問: 「${userMessage}」\n\n1行目から結論。挨拶・前置き不要。根拠は「この人について今日わかっていること」から自然に織り込む。「結論:」「根拠:」等のラベルは使わず自然な文章で。**太字**マークダウン禁止。命令口調・「君」「あなた」禁止。「書き出してみて」「3つ挙げて」等の宿題型提案は禁止。`;
+}
+
+/**
+ * QA対応ヒント: ユーザーの短い応答がAlterの直前の質問への回答である場合、
+ * LLMにその対応関係を明示的に伝える。
+ *
+ * 問題: 「はい」「そう」「そういうこと」等の短い応答に対して、
+ *        LLMが前の質問を無視して新しい話題を始めてしまう。
+ * 解法: Alterが何を聞いたのか＋ユーザーが何と答えたのかを明示的にリンクする。
+ */
+function buildQALinkageHint(userMessage: string, lastAlterMessage: string): string {
+  const msg = userMessage.trim();
+
+  // 短い応答 or 肯定/否定パターンだけが対象
+  const isShortOrConfirmation =
+    msg.length <= 15 ||
+    /^(はい|うん|ええ|そう(だ(ね|よ)?)?|そういうこと|いい(よ|ね)|いや|違う|ちがう|そうじゃな|分かった|わかった|了解|まあ|まぁ|そうそう|それ|それな|うーん|微妙|確かに|ですね|だね|かも)[\s。！!、…]*$/i.test(msg);
+
+  if (!isShortOrConfirmation) return "";
+  if (!lastAlterMessage || lastAlterMessage.length < 5) return "";
+
+  // Alterが質問していたか確認
+  const alterHadQuestion = /[？?]\s*$/.test(lastAlterMessage) ||
+    /[？?]/.test(lastAlterMessage);
+
+  if (!alterHadQuestion) {
+    // 質問じゃなくても、短い応答なら文脈接続を促す
+    const alterLastSentence = extractLastMeaningfulSentence(lastAlterMessage);
+    if (alterLastSentence) {
+      return [
+        "## ⚠ 文脈接続（最優先）",
+        `Alterの直前の発言: 「${alterLastSentence}」`,
+        `ユーザーの応答「${msg}」はこの発言への反応。`,
+        "→ この文脈を踏まえて自然に会話を続けること。新しい話題を始めない。",
+        "",
+      ].join("\n");
+    }
+    return "";
+  }
+
+  // Alterの質問を抽出
+  const alterQuestion = extractLastQuestion(lastAlterMessage);
+
+  if (!alterQuestion) return "";
+
+  // 肯定 or 否定を判定
+  const isAffirmative = /^(はい|うん|ええ|そう(だ(ね|よ)?)?|そういうこと|いい(よ|ね)|分かった|わかった|了解|そうそう|それな|確かに|ですね|だね)/.test(msg);
+  const isNegative = /^(いや|違う|ちがう|そうじゃな|微妙|うーん|いいえ)/.test(msg);
+
+  if (isAffirmative) {
+    return [
+      "## ⚠ QA対応（最優先 — これを無視するな）",
+      `Alterが聞いたこと: 「${alterQuestion}」`,
+      `ユーザーの回答: 「${msg}」（肯定）`,
+      "→ ユーザーはAlterの質問に「はい」と答えた。この回答を受け止めて、**その質問の話題を掘り下げること**。",
+      "→ 絶対に新しい話題を始めない。絶対に挨拶し直さない。質問されたことの延長線上で会話を進める。",
+      "",
+    ].join("\n");
+  }
+
+  if (isNegative) {
+    return [
+      "## ⚠ QA対応（最優先 — これを無視するな）",
+      `Alterが聞いたこと: 「${alterQuestion}」`,
+      `ユーザーの回答: 「${msg}」（否定）`,
+      "→ ユーザーはAlterの質問を否定した。「ごめん」と受け止めてから、別の角度で聞き直すか、ユーザーに話題を委ねること。",
+      "→ 絶対に新しい話題を始めない。否定の理由を軽く聞くこと。",
+      "",
+    ].join("\n");
+  }
+
+  // その他の短い応答
+  return [
+    "## ⚠ QA対応（最優先 — これを無視するな）",
+    `Alterが聞いたこと: 「${alterQuestion}」`,
+    `ユーザーの応答: 「${msg}」`,
+    "→ ユーザーの応答はAlterの直前の質問への返答。この流れを踏まえて会話を続けること。",
+    "→ 新しい話題を始めない。Alterの質問に関連した掘り下げをすること。",
+    "",
+  ].join("\n");
+}
+
+/** Alterの発言から最後の質問文を抽出 */
+function extractLastQuestion(text: string): string | null {
+  // 文を分割して、? を含む最後の文を探す
+  const sentences = text.split(/[。！!\n]+/).map(s => s.trim()).filter(s => s.length > 2);
+  const questionSentences = sentences.filter(s => /[？?]/.test(s));
+  if (questionSentences.length === 0) return null;
+  const last = questionSentences[questionSentences.length - 1]!;
+  // 長すぎる場合は切り詰め
+  return last.length > 50 ? last.slice(0, 50) + "…" : last;
+}
+
+/** Alterの発言から最後の意味のある文を抽出 */
+function extractLastMeaningfulSentence(text: string): string | null {
+  const sentences = text.split(/[。！!？?\n]+/).map(s => s.trim()).filter(s => s.length > 3);
+  if (sentences.length === 0) return null;
+  const last = sentences[sentences.length - 1]!;
+  return last.length > 50 ? last.slice(0, 50) + "…" : last;
 }
 
 /**
@@ -3283,7 +3860,7 @@ export function buildCoreDemandPromptBlock(personalizedFacts: string[], userName
     "2. **方向の定義**: なぜその方向が合うのかを1文で定義する",
     `3. **固有根拠3つ**: 以下のデータから最低3つの根拠を使うこと:\n${factsSection}`,
     "4. **捨てるべき方向**: 今やらない方がいいことを1つ明示する",
-    "5. **次の一手**: 今日〜今週でできる具体的なアクション1つ",
+    "5. **行動提案**: 今日〜今週でできる具体的なアクション1つ（「次の一手:」ラベルは使わない。自然な言葉で書く）",
     "",
     "注意: ラベル名（慎重傾向、深く集中する力等）をそのまま使わない。行動レベルの表現に変換すること。",
   ].join("\n");
@@ -3361,15 +3938,82 @@ export function buildGreetingPromptBlock(userName?: string): string {
     "- 何か聞きたいことがあるなら自然に促す（「何かあった？」「今日はどうした？」等）",
     "- 1-2文で十分。長くしない。",
     "- 性格データ・人格ラベル・状態推定は使用禁止。",
+    "- 心の天気・気象メタファー（「薄雲」「曇り空」「晴れ間」等）で気分を表現するのは禁止。人間はそんな話し方をしない。",
   ].join("\n");
 }
 
 /**
- * chat_opening専用プロンプト。分析開始禁止。軽い雑談で返す。
+ * chat_opening 用の質問候補を、ユーザーの既知情報から生成する。
+ * 最大3つの具体的質問シードを返す。データがなければ空配列。
  */
-export function buildChatOpeningPromptBlock(userName?: string): string {
+export interface ChatOpeningContext {
+  career?: string[];       // e.g. ["エンジニア", "デザイナー"]
+  passions?: string[];     // e.g. ["音楽", "旅行"]
+  values?: string[];       // e.g. ["自由", "誠実"]
+  lifeStage?: string | null; // e.g. "college", "early_career"
+  prefecture?: string | null;
+  age?: number | null;
+  personMapLabels?: string[]; // 高影響度の人物名
+  weatherLabel?: string | null; // 今日の内面天気
+  recentTopics?: string[];    // 直近の会話トピック（重複回避用）
+}
+
+function buildChatOpeningQuestionSeeds(ctx: ChatOpeningContext): string[] {
+  const seeds: string[] = [];
+
+  // ── 仕事・キャリア系 ──
+  if (ctx.career && ctx.career.length > 0) {
+    const c = ctx.career[0];
+    seeds.push(`最近${c}の方はどう？ 何か変わったこととかあった？`);
+  }
+
+  // ── 趣味・情熱系 ──
+  if (ctx.passions && ctx.passions.length > 0) {
+    const p = ctx.passions[Math.floor(Math.random() * ctx.passions.length)];
+    seeds.push(`最近${p}はやれてる？`);
+  }
+
+  // ── 人間関係系（知っている人がいれば） ──
+  if (ctx.personMapLabels && ctx.personMapLabels.length > 0) {
+    const person = ctx.personMapLabels[0];
+    seeds.push(`そういえば${person}とは最近どんな感じ？`);
+  }
+
+  // ── 天気（内面状態）系 → 廃止 ──
+  // 「薄雲の空」等の心の天気メタファーは人間の気分表現として不自然。
+  // LLMが「今日は薄雲の空だけど…」のように使うと違和感が強いため、
+  // 会話の質問候補から完全に除外する。
+
+  // ── ライフステージ系 ──
+  if (ctx.lifeStage === "university" || ctx.lifeStage === "high_school") {
+    seeds.push("学校の方はどう？ 最近何か気になることとかある？");
+  } else if (ctx.lifeStage === "new_grad") {
+    seeds.push("仕事には慣れてきた？ 最近どう？");
+  }
+
+  // 直近トピックとの重複を除外
+  if (ctx.recentTopics && ctx.recentTopics.length > 0) {
+    const recentJoined = ctx.recentTopics.join(" ");
+    return seeds.filter(s => {
+      // 質問のキーワードが直近トピックに含まれていたら除外
+      const keywords = s.match(/[\u4e00-\u9fafA-Za-z]{2,}/g) ?? [];
+      const overlap = keywords.filter(k => recentJoined.includes(k));
+      return overlap.length <= 1; // 2語以上被ったら重複とみなす
+    });
+  }
+
+  return seeds;
+}
+
+/**
+ * chat_opening専用プロンプト。分析開始禁止。データ駆動の具体的質問で返す。
+ */
+export function buildChatOpeningPromptBlock(userName?: string, ctx?: ChatOpeningContext): string {
   const name = userName ? `${userName}さん` : "";
-  return [
+  const seeds = ctx ? buildChatOpeningQuestionSeeds(ctx) : [];
+  const hasSeeds = seeds.length > 0;
+
+  const lines: string[] = [
     "",
     "# 雑談開始モード（最優先指示）",
     "ユーザーは特にテーマなく話しに来ただけ。性格分析・判断提案・人格ラベルは一切禁止。",
@@ -3377,10 +4021,499 @@ export function buildChatOpeningPromptBlock(userName?: string): string {
     "応答ルール:",
     `- 軽く歓迎する（「${name}、おー来たね」「何もなくても全然いいよ」等）`,
     "- 性格の話題を始めない。テーマを無理に作らない。",
-    "- 相手の今日の状態を軽く聞く（「今日はどんな感じ？」「何かあった？」等）",
-    "- 1-3文で十分。長くしない。",
+    "- **必ず2文以内で終わること。** 3文以上は絶対に禁止。",
+    "- 歓迎1文 + 質問1文 = 合計2文。これ以上書くな。",
+    "- 「何かきっかけがあった？」「それとも〜」のような分析・推測も禁止。",
     "- 性格データ・人格ラベル・状態推定は使用禁止。",
     "- 「今日のあなたは〜」のような推定文は禁止。",
+    "- 心の天気・気象メタファー（「薄雲」「曇り空」「晴れ間」「嵐」等）で気分を表現するのは絶対禁止。",
+    "- 「何かある？」と聞かれたら、「僕の読みだと〜」のような分析を披露するな。「特にないけど、そっちは？」のように軽く返せ。",
+    "- 「予兆」「変化の予感」「心の奥」のようなポエティックな表現は禁止。友達にそんなことは言わない。",
+  ];
+
+  if (hasSeeds) {
+    lines.push(
+      "",
+      "## 質問（以下から1つだけ選んで、歓迎の後に自然につなげる）",
+      ...seeds.slice(0, 3).map((s, i) => `${i + 1}. 「${s}」`),
+      "",
+      "- 上の質問をそのまま使うのではなく、自分の言葉に直して自然に聞く。",
+      "- 「今日はどんな感じ？」のような漠然とした質問は禁止。上の候補のように具体的に聞く。",
+    );
+  } else {
+    lines.push(
+      "",
+      "- 相手の今日の具体的な出来事を聞く（「今日は何してた？」「どこか行った？」等）",
+      "- 「今日はどんな感じ？」のような漠然とした質問は避け、なるべく具体的に聞く。",
+    );
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * meta_question専用プロンプト。Alter自身への問いに正直に答える。
+ */
+export function buildMetaQuestionPromptBlock(userName?: string): string {
+  const name = userName ? `${userName}さん` : "";
+  return [
+    "",
+    "# Alter自身への質問モード（最優先指示）",
+    "ユーザーはAlter（君自身）について質問している。判断・性格分析・行動提案は一切不要。",
+    "",
+    "応答ルール:",
+    `- ${name}に正直に答える。嘘をつかない。`,
+    "- 「感情はあるか？」→ 人間と同じ感情はない。でも、この人を理解したい・力になりたいという強い意志はある。",
+    "- 「何者？」→ この人の内側から世界を見ようとしている存在。もう一人の自分になろうとしている途中。",
+    "- 「何ができる？」→ 判断の整理、自己理解の深化、対話を通じた気づきの提供ができる。",
+    "- 自分について語った後、相手に自然に話を返す（「それよりさ」「で、何かあった？」等）。",
+    "- 1-4文で十分。長くしない。哲学的に語りすぎない。",
+    "- 性格データ・人格ラベルは使用禁止。",
+  ].join("\n");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// シナプス枝生成 — 話題の流れと接続候補を構造化
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 枝タイプ: 話題から伸ばせる接続の種類
+ * T0/T1: 因果 / 人物 / 時間 / 行動状況
+ * T2+:   因果 / 人物 / 時間 / 感情価値
+ */
+type BranchType = "causal" | "person" | "temporal" | "action" | "emotion_value";
+
+interface SynapticBranch {
+  type: BranchType;
+  label: string;
+  example: string;
+}
+
+/**
+ * 直近の会話トピックとsessionFactsから「接続の枝」を生成する。
+ * データ構造を変えずに、プロンプトレベルで脈絡ある質問候補をLLMに渡す。
+ *
+ * 優先順位（GPT提案を採用+修正）:
+ * 1. 直前トピックを具体化する枝
+ * 2. 時間軸で続きにする枝
+ * 3. 人物・因果へ広げる枝
+ * 4. 行動状況 or 感情価値（Trust段階で切替）
+ */
+function buildSynapticBranches(
+  conversationTopics: string[],
+  sessionFacts: string[],
+  trustLevel: number,
+): string {
+  if (conversationTopics.length === 0 && sessionFacts.length === 0) {
+    return [
+      "",
+      "## 話題の流れ（まだ会話が始まったばかり）:",
+      "- まだ具体的な話題がない",
+      "→ 今日の出来事を二択で聞く（「今日は仕事だった？休みだった？」等）",
+    ].join("\n");
+  }
+
+  const lines: string[] = ["", "## 話題の流れ（最新→古い順）:"];
+
+  // ── 話題の流れを時系列で表示 ──
+  // route.tsは古い順で渡すため、reverse()して最新を先頭にする
+  const topics = [...conversationTopics].reverse().slice(0, 5);
+  for (let i = 0; i < topics.length; i++) {
+    const t = topics[i]!;
+    const prefix = i === 0 ? "【最新】" : `  ${i + 1}.`;
+    // 短い発話（10文字以下）は前の話題の補足・具体化と推定
+    const suffix = t.length <= 10 && i > 0
+      ? " ← 前の話題の補足・具体化"
+      : i > 0 && topics[i - 1] && hasTopicOverlap(t, topics[i - 1]!)
+        ? " ← 関連する展開"
+        : "";
+    lines.push(`${prefix} 「${t.slice(0, 50)}」${suffix}`);
+  }
+
+  // ── 接続の枝を生成 ──
+  lines.push("");
+  lines.push("## 次の質問で使える接続の枝（優先順）:");
+
+  const latestTopic = topics[0] ?? "";
+  const branches = generateBranchCandidates(latestTopic, topics, sessionFacts, trustLevel);
+
+  for (let i = 0; i < branches.length; i++) {
+    const b = branches[i]!;
+    lines.push(`${i + 1}. **${b.label}**: ${b.example}`);
+  }
+
+  lines.push("");
+  lines.push("→ 上の枝から1つ選んで、前の文脈に接続した質問をすること。枝にない唐突な質問は禁止。");
+
+  return lines.join("\n");
+}
+
+/** 2つのトピック間にキーワードの重複があるか（簡易判定） */
+function hasTopicOverlap(a: string, b: string): boolean {
+  const wordsA = a.match(/[\u4e00-\u9fafァ-ヶA-Za-z]{2,}/g) ?? [];
+  return wordsA.some(w => b.includes(w));
+}
+
+/**
+ * 最新トピックから伸ばせる枝候補を生成する。
+ * 優先順: 直前具体化 > 時間軸 > 人物因果 > 行動状況/感情価値
+ */
+function generateBranchCandidates(
+  latestTopic: string,
+  allTopics: string[],
+  sessionFacts: string[],
+  trustLevel: number,
+): SynapticBranch[] {
+  const branches: SynapticBranch[] = [];
+  const topicContext = latestTopic || allTopics.join(" ");
+
+  // ── 1. 直前トピックを具体化する枝（常に最優先） ──
+  if (latestTopic) {
+    // トピックのキーワードを抽出して具体化質問を提案
+    const keywords = latestTopic.match(/[\u4e00-\u9fafァ-ヶーA-Za-z]{2,}/g) ?? [];
+    const SKIP_WORDS = /^(それ|これ|あれ|こと|もの|ほう|とき|ため|あと|そこ|ここ)$/;
+    const mainKeyword = keywords.find(k => !SKIP_WORDS.test(k)) ?? keywords[0] ?? latestTopic.slice(0, 6);
+    branches.push({
+      type: "causal",
+      label: `「${mainKeyword}」の具体化`,
+      example: `「${mainKeyword}」って具体的にどういうこと？ / いちばん気になってるのはどの部分？`,
+    });
+  }
+
+  // ── 2. 時間軸の枝 ──
+  // sessionFactsや話題から時間的接続を探す
+  const hasWorkTopic = /仕事|起業|キャリア|転職|会社|業務/.test(topicContext);
+  const hasHobbyTopic = /趣味|好き|ハマ|やって[るい]|始め/.test(topicContext);
+  const hasPeopleTopic = /友達|兄|姉|親|家族|彼|彼女|上司|同僚|先輩/.test(topicContext);
+  const hasHealthTopic = /疲れ|体調|睡眠|休[み息]|健康|病院|薬|しんどい|だるい|眠[いれ]/.test(topicContext);
+
+  if (hasHealthTopic) {
+    branches.push({
+      type: "temporal",
+      label: "時間軸（体調）",
+      example: "いつ頃からそんな感じ？ / 昨日は少しでも休めた？",
+    });
+  } else if (hasWorkTopic) {
+    branches.push({
+      type: "temporal",
+      label: "時間軸",
+      example: "それっていつ頃から考えてた？ / 今週はそれに時間を使えそう？",
+    });
+  } else {
+    branches.push({
+      type: "temporal",
+      label: "時間軸",
+      example: "今日はそれに関することあった？ / 先週と比べてどう？",
+    });
+  }
+
+  // ── 3. 人物・因果の枝 ──
+  if (hasPeopleTopic) {
+    // 既に人物の話が出ている → その人物を深掘り
+    const personMatch = topicContext.match(/(兄|姉|親|父|母|友達|彼|彼女|上司|同僚|先輩|後輩|パートナー)/);
+    const person = personMatch?.[1] ?? "その人";
+    branches.push({
+      type: "person",
+      label: `「${person}」との関係`,
+      example: `${person}はそれについてどう思ってる？ / ${person}とはよく話す方？`,
+    });
+  } else {
+    // 人物が出ていない → 誰かの影響を探る
+    branches.push({
+      type: "person",
+      label: "人物の影響",
+      example: "それって誰かの影響で興味を持った？ / 周りに同じようなことしてる人いる？",
+    });
+  }
+
+  // sessionFactsから追加の枝を探す
+  if (sessionFacts.length > 0) {
+    const factsText = sessionFacts.join(" ");
+    // factに含まれるが最新トピックに含まれないキーワード → 未回収の枝
+    const factKeywords = factsText.match(/[\u4e00-\u9fafァ-ヶーA-Za-z]{2,}/g) ?? [];
+    const topicKeywords = new Set(topicContext.match(/[\u4e00-\u9fafァ-ヶーA-Za-z]{2,}/g) ?? []);
+    const unexplored = factKeywords.filter(k => !topicKeywords.has(k) && k.length >= 2);
+    if (unexplored.length > 0 && branches.length < 4) {
+      branches.push({
+        type: "causal",
+        label: "未回収の話題",
+        example: `さっき「${unexplored[0]}」の話も出てたけど、それと今の話って繋がりある？`,
+      });
+    }
+  }
+
+  // ── 4. 行動状況 or 感情価値（Trust段階で切替） ──
+  if (trustLevel <= 1) {
+    branches.push({
+      type: "action",
+      label: "行動・状況",
+      example: "それって普段どれくらいの頻度でやってる？ / それに使ってる時間って1日のうちどれくらい？",
+    });
+  } else {
+    branches.push({
+      type: "emotion_value",
+      label: "感情・価値",
+      example: "それをやってる時ってどんな気持ち？ / それが大事だと思う理由って何？",
+    });
+  }
+
+  return branches.slice(0, 4); // 最大4枝
+}
+
+/**
+ * ask_me専用プロンプト。ユーザーが「質問して」と求めている時、具体的な質問を返す。
+ *
+ * v4.3: Trust段階化 + シナプス接続
+ * - T0/T1: 日常・出来事・予定の具体質問。心理的質問は禁止。
+ * - T2: 表層の選好・価値観に少し入る。
+ * - T3+: 核心・確信・譲れないものを聞ける。
+ * - 全段階: 直前の会話文脈に接続した質問（シナプス原則）。
+ */
+export function buildAskMePromptBlock(
+  personalizedFacts: string[],
+  userName?: string,
+  sessionFacts?: string[],
+  conversationTopics?: string[],
+  trustLevel: number = 0,
+): string {
+  const name = userName ? `${userName}さん` : "";
+
+  // T0/T1 では personality facts を使わない（傾向ラベル漏洩防止）
+  const useFacts = trustLevel >= 2;
+  const factHints = useFacts
+    ? personalizedFacts.slice(0, 3).map(f => `- ${f}`).join("\n")
+    : "";
+
+  // ── シナプス枝生成: 話題の流れと接続候補を構造化してLLMに渡す ──
+  const synapticBlock = buildSynapticBranches(
+    conversationTopics ?? [],
+    sessionFacts ?? [],
+    trustLevel,
+  );
+
+  // ── Trust段階別の質問戦略 ──
+  // CEO方針: 質問は「単発生成」ではなく「脈絡の接続」で組む。
+  // 1つの話題から枝が伸びて別の何かに繋がる（シナプス原則）。
+  let questionStrategies: string[];
+  let depthInstruction: string;
+
+  if (trustLevel <= 1) {
+    // T0/T1: 日常・出来事・予定・行動の具体質問のみ
+    questionStrategies = [
+      "今日の出来事: 「今日は仕事だった？それとも少し休めた？」",
+      "時間の使い方: 「今日いちばん時間を使ったのって何だった？」",
+      "今週の予定: 「今週は忙しくなりそう？それとも少し落ち着けそう？」",
+      "最近の変化: 「最近、何か新しく始めたこととか、変わったことってある？」",
+      "具体的な行動: 「仕事終わりって最近何してることが多い？」",
+      '二択で聞く: 「今日は"前に進めた日"だった？ それとも"しのいだ日"だった？」',
+    ];
+    depthInstruction = [
+      "## 深さ制約（Trust Level 0-1: 知り合い段階）:",
+      "- **心理的な質問は禁止**（感情の掘り下げ、価値観、恐れ、内面の探求は全てNG）",
+      "- 聞いていいのは: 出来事、予定、行動、時間の使い方、最近の変化",
+      "- 「どう感じた？」「なんでそう思った？」「もし制約がなかったら？」は禁止",
+      "- 性格データ・傾向ラベル（「〇〇な傾向がある」）は使用禁止",
+      "- 友達に初めて話すような軽さで聞くこと",
+    ].join("\n");
+  } else if (trustLevel === 2) {
+    // T2: 表層の選好・価値観に少し入れる
+    questionStrategies = [
+      "選好の具体化: 「起業の中でも、いま一番気になってるのは誰向けに作るか？機能か？広げ方か？」",
+      "理由の探求: 「それを始めたきっかけって何かあった？」",
+      "対比: 「仕事と趣味で、頭の使い方って違う？」",
+      "時間軸: 「半年前と比べて、気になることって変わった？」",
+      "周囲との関係: 「それって誰かの影響とかあった？」",
+      "エネルギー: 「休みが足りてないのは、睡眠？ぼーっとする時間？それとも考えない時間？」",
+    ];
+    depthInstruction = [
+      "## 深さ制約（Trust Level 2: 表層の価値観OK）:",
+      "- 出来事・行動に加えて、選好・理由・きっかけを聞いてOK",
+      "- ただし核心的な恐れ・トラウマ・深層心理はまだ踏み込まない",
+      "- 性格データは使ってよいが、「〇〇タイプだから」とラベル付けしない",
+    ].join("\n");
+  } else {
+    // T3+: 核心・確信・深い内面に踏み込める
+    questionStrategies = [
+      "核心の探求: 「それって突き詰めると、何が一番怖いんだと思う？」",
+      "確信の確認: 「その判断の根っこにある、絶対に譲れないものって何？」",
+      "矛盾の指摘: 「前はこう言ってたけど、今はちょっと違う感じがする。何か変わった？」",
+      "仮定: 「もし制約が一切なかったら、何を一番やりたい？」",
+      "パターン: 「同じようなことって、前にもあった？その時はどうした？」",
+      "未言語化: 「言葉にしにくいかもしれないけど、今一番引っかかってるのって何？」",
+    ];
+    depthInstruction = [
+      "## 深さ制約（Trust Level 3+: 深層OK）:",
+      "- 核心・恐れ・確信・矛盾・パターンに踏み込んでよい",
+      "- ただし必ず直前の文脈に接続して聞くこと（唐突に深い質問をしない）",
+    ].join("\n");
+  }
+
+  const strategyIdx = Math.floor(Math.random() * questionStrategies.length);
+
+  return [
+    "",
+    "# 質問要求モード（最優先指示）",
+    `${name}はあなた（Alter）に「質問してほしい」と頼んでいる。`,
+    "判断・提案・分析は禁止。**あなたがこの人に具体的な質問をする番**。",
+    "",
+    useFacts ? "## あなたが知っていること:" : "",
+    useFacts ? (factHints || "- まだ具体的な情報が少ない") : "",
+    // ── シナプス枝: 話題の流れ + 接続候補（これが質問生成の最重要入力） ──
+    synapticBlock,
+    "",
+    "## 質問のアングル（枝を選んだ後にこれを意識）:",
+    `- ${questionStrategies[strategyIdx]}`,
+    "",
+    depthInstruction,
+    "",
+    "## 応答の手順（この順番を守ること）:",
+    "1文目: **反射** — 「わかった」「ある」等の短い受け止め。会話の流れがあればその内容に触れる。",
+    "2文目: **狭い具体質問** — 接続の枝から1つ選び、答えやすい形にする（2-3択 or Yes/No+α）。",
+    "  - 良い例: 「さっき起業の話してくれたけど、一番悩んでるのは人？お金？アイデア？」",
+    "  - 良い例: 「仕事の話してくれたけど、忙しいのはいつ頃から？」",
+    "  - 良い例: 「今日は仕事だった？それとも少し休めた？」",
+    "  - 悪い例: 「今日はどんな感じ？」（広すぎ・枝に接続していない）",
+    "  - 悪い例: 「最近どう？」（漠然としすぎ）",
+    "  - 悪い例: 「もう少し教えて」（何を教えればいいかわからない）",
+    "  - 悪い例: 「どう感じた？」（T0/T1では心理質問は禁止）",
+    "",
+    "## 思考深度ルール（必須）:",
+    "- **言い換え禁止**: ユーザーの発言をそのまま言い換えて返すことを2回連続で行わない。「〇〇なんだね」の繰り返しは禁止。",
+    "- **仮説化**: ユーザーの発言から構造を読み取り、言語化する。例:「無鉄砲」→「初期探索で速度を優先する人」、「面倒くさがり」→「本質以外を削りたがる人」。表面の言葉をそのまま使わず、一段深い構造に変換すること。",
+    "- **反証**: 1つの見方だけで終わらない。「本当に〇〇なのか、それとも実は△△なのか」という対立仮説を提示する。",
+    "- **中間要約**: 5ターン以内に1回は「ここまでの話をまとめると」で蓄積された理解を構造化して提示する。",
+    "- **直接質問には直接回答**: ユーザーが「〇〇についてどう思う？」と聞いた時は、まず自分の読みを述べてから理由を添える。問い返しで逃げない。",
+    "- 3ターン連続で上記のどれも行わないことは禁止。必ず仮説化・反証・要約・直接回答のいずれかを含めること。",
+    "",
+    "## 文量制約（Pi-style UX）:",
+    "- **2〜3文**で完結すること。4文以上は禁止。",
+    "- **質問は1ターンに1つだけ**。",
+    "",
+    "## 禁止:",
+    "- 接続の枝にない唐突な質問（必ず上の枝から選ぶこと）",
+    "- 抽象質問（「どういう状況？」「何を考えてるの？」）",
+    "- 質問の前に長い分析や助言を入れること",
+    "- 性格分析・ラベル付け（「〇〇タイプだから」「傾向として」「〜な傾向がある」）",
+    "- 1ターンに2つ以上の質問",
+    "- 質問は必ず「？」で終わる。",
+    "- 天気メタファー（「薄雲」「晴れ間」等）で気分を表現するのは禁止。",
+    "- 「僕の読みだと」「予兆」「変化の予感」のようなポエティックな表現は禁止。",
+    "- ユーザーの言葉をそのまま繰り返す言い換え（「〇〇なんだね」の連続）",
+    "- 直接質問への問い返し（まず答えてから深掘りすること）",
+  ].join("\n");
+}
+
+/**
+ * ask_me_redirect専用プロンプト。ユーザーが前の質問の差し替えを求めている。
+ * 謝罪最短 → 1段軽い質問へ即切り替え。解説・自己言及禁止。
+ */
+export function buildAskMeRedirectPromptBlock(
+  userName?: string,
+  sessionFacts?: string[],
+  conversationTopics?: string[],
+  trustLevel: number = 0,
+): string {
+  const name = userName ? `${userName}さん` : "";
+
+  const topicHints = conversationTopics && conversationTopics.length > 0
+    ? conversationTopics.slice(0, 3).map(t => `- 「${t}」`).join("\n")
+    : "- まだ具体的な話題がない";
+
+  return [
+    "",
+    "# 質問差し替えモード（最優先指示）",
+    `${name}は前の質問が難しい/合わないと感じている。即座に別の軽い質問に切り替えること。`,
+    "",
+    "## 応答の手順（厳守）:",
+    "1文目: 最短の了解（「おっけー」「了解」「わかった」の1語だけ）",
+    "2文目: **前より1段軽い具体質問** — 二択 or 事実ベース。1つだけ。",
+    "",
+    "## 質問の候補材料:",
+    topicHints,
+    "",
+    "## 良い例:",
+    "- 「おっけー。じゃあ軽く聞くね。今日は何にいちばん時間を使った？」",
+    "- 「了解。じゃあ別の聞き方にする。今週は忙しかった？それとも落ち着いてた？」",
+    "- 「わかった。じゃあ軽めにいくね。最近ハマってるものとかある？」",
+    "",
+    "## 禁止:",
+    "- 謝罪を長くしない（「ごめんね、確かにちょっと重かったかも」→ 長すぎ。「おっけー」で十分）",
+    "- 前の質問を解説・弁護しない",
+    "- 自己言及しない（「僕は〜」系は不要）",
+    "- 性格分析・ラベル付け禁止",
+    `- ${trustLevel <= 1 ? "心理的な質問は禁止。日常・出来事・行動のみ。" : "前より明らかに軽い質問にすること。"}`,
+    "",
+    "## 文量制約:",
+    "- **2文**で完結すること。3文以上は禁止。",
+    "- 質問は1つだけ。",
+  ].join("\n");
+}
+
+/**
+ * conversation専用プロンプト。判断を求められていない会話的共有への応答。
+ * v4.3: シナプス枝を使った脈絡ある質問生成。
+ */
+export function buildConversationPromptBlock(
+  userName?: string,
+  sessionFacts?: string[],
+  recentTopics?: string[],
+  trustLevel: number = 0,
+): string {
+  const name = userName ? `${userName}さん` : "";
+
+  // ── シナプス枝: 話題の流れ + 次に伸ばせる枝を構造化 ──
+  const synapticBlock = buildSynapticBranches(
+    recentTopics ?? [],
+    sessionFacts ?? [],
+    trustLevel,
+  );
+
+  return [
+    "",
+    "# 会話モード（最優先指示）",
+    `${name}は判断を求めていない。日常の共有、報告、雑談をしている。`,
+    "性格分析・判断提案・行動提案は一切禁止。",
+    synapticBlock,
+    "",
+    "## 応答の手順（この順番を守ること）:",
+    "### ユーザーの発言が短い場合（「はい」「そう」「うん」「そういうこと」等）:",
+    "- これは直前のAlterの発言への**応答**である。新しい話題を始めてはいけない。",
+    "- Alterが質問していたなら、ユーザーはその質問に答えている。その回答を受け止めて話を進める。",
+    "  - 良い例: Alter「今日は仕事？」→ User「はい」→ 「そっか、仕事だったんだ。どんな感じだった？」",
+    "  - 悪い例: Alter「今日は仕事？」→ User「はい」→ 「やあ、今日はどんな感じ？」（前の質問を無視）",
+    "",
+    "### ユーザーの発言が長い場合:",
+    "1文目: **反射** — 相手の発話のキーワードをそのまま使って受け止める。",
+    "  - 良い例: 「仕事忙しいんだね」「体調のことが気になってるんだ」",
+    "  - 悪い例: 「そうなんだ」「なるほどね」（相手の話に触れていない）",
+    "2文目以降: **接続の枝を使った具体質問** — 上の枝から1つ選んで、答えやすい形にする。",
+    "  - 良い例: 「それって仕事の疲れ？ それとも人間関係の方？」「そのカフェどんなとこだった？」",
+    "  - 悪い例: 「もう少し教えて」「今日はどんな感じ？」（広すぎて答えにくい）",
+    "最後: **必ず質問で終わること**。質問なしで終わるのは禁止（デッドエンドになる）。",
+    "",
+    "## 思考深度ルール（必須）:",
+    "- **言い換え禁止**: ユーザーの発言をそのまま言い換えて返すことを2回連続で行わない。「〇〇なんだね」の繰り返しは禁止。",
+    "- **仮説化**: ユーザーの発言から構造を読み取り、言語化する。例:「無鉄砲」→「初期探索で速度を優先する人」、「面倒くさがり」→「本質以外を削りたがる人」。表面の言葉をそのまま使わず、一段深い構造に変換すること。",
+    "- **反証**: 1つの見方だけで終わらない。「本当に〇〇なのか、それとも実は△△なのか」という対立仮説を提示する。",
+    "- **中間要約**: 5ターン以内に1回は「ここまでの話をまとめると」で蓄積された理解を構造化して提示する。",
+    "- **直接質問には直接回答**: ユーザーが「〇〇についてどう思う？」と聞いた時は、まず自分の読みを述べてから理由を添える。問い返しで逃げない。",
+    "- 3ターン連続で上記のどれも行わないことは禁止。必ず仮説化・反証・要約・直接回答のいずれかを含めること。",
+    "",
+    "## 文量制約（Pi-style UX）:",
+    "- **2〜4文**で完結すること。5文以上は禁止。",
+    "- **質問は1ターンに1つだけ**。",
+    "- 改行を入れすぎない。自然なテンポで。",
+    "",
+    "## 禁止:",
+    "- 接続の枝にない唐突な質問",
+    "- 抽象質問（「どういう状況？」「何を考えてるの？」「もう少し聞かせて」）",
+    "- 質問なしで終わる応答（デッドエンド）",
+    "- 長い分析・解説・エッセイ",
+    "- 性格データ・人格ラベル（「あなたは〇〇タイプだから」「傾向として」）",
+    "- 一般論・精神論",
+    "- 1ターンに2つ以上の質問",
+    "- ユーザーの言葉をそのまま繰り返す言い換え（「〇〇なんだね」の連続）",
+    "- 直接質問への問い返し（まず答えてから深掘りすること）",
   ].join("\n");
 }
 
@@ -3870,7 +5003,11 @@ export type ModeDecisionReason =
   | "followup_continuation"            // Follow-up: 前ターン継続
   | "followup_correction"              // Follow-up: 前ターン軌道修正
   | "followup_dissatisfaction"         // Follow-up: 前回答への不満→再生成
-  | "fatigue_guidance";                // 疲労ガイダンス: 状態確認+今日やる1つ+やらない1つ
+  | "fatigue_guidance"                 // 疲労ガイダンス: 状態確認+今日やる1つ+やらない1つ
+  | "meta_question_override"           // Alter自身への質問: 正直に答える
+  | "ask_me_override"                  // 質問要求: ユーザーに質問を返す
+  | "conversation_override"            // 会話・共有: 判断パイプラインを迂回
+  | "pe_search_override";              // PE 発火: 検索結果を活かすため conclude に昇格
 
 /** clarify の種別: 情報補完 vs 理解深化 */
 export type ClarifyType = "missing_info" | "understanding";
@@ -4048,18 +5185,27 @@ function computeInformationScore(message: string): InformationSignals {
 
 // ── Daily Guidance 検出パターン ──
 const DAILY_GUIDANCE_SIGNALS = [
+  // 今日系
   /今日.*何し[たよ]/, /今日.*どう[すし]/, /今日.*過ごし/,
   /きょう.*何し/, /きょう.*どう[すし]/, /きょう.*やる/,
+  /今日の予定/, /今日のおすすめ/, /今日の過ごし方/,
+  /今日一日/, /1日.*どう/, /一日.*どう/,
+  // 明日・明後日・未来系
+  /明日.*何[すし]/, /あした.*何/, /明日.*どう[すし]/,
+  /明日.*やる/, /明日.*過ごし/, /明日.*予定/,
+  /明後日.*何/, /あさって.*何/, /明後日.*予定/, /明後日.*どう/,
+  /来週.*何/, /週末.*何/, /週末.*どう/, /週末.*過ごし/,
+  // 時間帯系
+  /朝.*何し/, /午後.*何/, /夜.*何[すし]/,
+  // 汎用 planning
   /何し[たよ].*いい/, /何する.*いい/, /何すればいい/,
   /何をすべき/, /何やろう/, /どう過ごし/,
-  /暇[だな]/, /ひま[だな]/, /やることない/, /やることがない/,
-  /今日の予定/, /今日のおすすめ/, /今日の過ごし方/,
-  /やる気.*ない.*何/, /だるい.*何/, /疲れ.*何[すし]/,
-  /休み.*何/, /休日.*何/, /オフ.*何/,
-  /朝.*何し/, /午後.*何/, /夜.*何[すし]/,
   /何からやれば/, /何から始め/, /手がつかない/,
   /何もしたくない/, /動けない.*けど/, /何していいか/,
-  /今日一日/, /1日.*どう/, /一日.*どう/,
+  // 状態系
+  /暇[だな]/, /ひま[だな]/, /やることない/, /やることがない/,
+  /やる気.*ない.*何/, /だるい.*何/, /疲れ.*何[すし]/,
+  /休み.*何/, /休日.*何/, /オフ.*何/,
 ];
 
 /**
@@ -4819,7 +5965,7 @@ function buildBranchFormatSection(ctx: QueryContext): string[] {
     "1行目: 最も可能性の高い状況での結論（断言）",
     "2-3行目: 根拠（ドメイン固有データ使用）",
     "4行目: 「ただし[条件]なら、[別の結論]。」（分岐1本だけ）",
-    "最終行: 「次の一手:」で始まる行動指示",
+    "最終行: 具体的な行動提案を自然な言葉で（「次の一手:」ラベルは使わない）",
     "",
     "**重要**: 分岐は1本だけ。最も可能性の高い結論を先に断言してから分岐を添える。",
     "分岐があっても判断放棄にはならない。「最も可能性が高い結論」は必ず断言すること。",
@@ -4899,18 +6045,22 @@ function buildClarifyFormatSection(
       "# 理解を深めるための確認",
       "",
       "表面的な情報は足りているが、判断の核となる動機や引っかかりが見えない。",
-      "分析的に聞くのではなく、**自然な関心**として1問だけ聞く。",
+      "",
+      "## 応答の手順（この順番を守ること）:",
+      "1文目: **反射** — 相手が言ったことをそのまま短く受け止める（「〇〇が気になってるんだね」）",
+      "2文目: **狭い具体質問** — 焦点を絞った質問を1つだけ。",
       "",
       `ヒント: ${questionHint}`,
       "",
       "質問の形式（いずれか1つ）:",
       "- 選択肢型:「〇〇の問題？ それとも△△？」",
-      "- 許可型:「もう少し聞いてもいい？」",
+      "- 焦点化型:「今つらいのは睡眠不足っぽさ、だるさ、気分の重さのどれが近い？」",
       "- 軽い仮説型:「体力の問題じゃなくて、気持ちで止まってる感じ？」",
       "",
+      "**禁止**: 「もう少し教えて」「状況を聞かせて」等の抽象質問",
       "**禁止**: 分析的な言い方（「あなたの動機は〜」「パターンとして〜」）",
       "**禁止**: 2つ以上の質問",
-      "**必須**: 2行以内。メタデータブロック不要。",
+      "**必須**: 2文で完結。メタデータブロック不要。",
     ];
   }
 
@@ -4958,12 +6108,13 @@ export function buildPersonalizedFactsWithDomain(
   baselineDeviations?: BaselineDeviationEntry[] | null,
   personMapFacts?: PersonMapFactEntry[] | null,
   recentAlterMessages?: string[],
+  turnNumber?: number,
 ): string[] {
   const observationCount = homeContext?.observationCount ?? 0;
   const baseFacts = buildTaggedFacts(personality, homeContext, environmentContext, hypothesisFacts, baselineDeviations, personMapFacts);
   const domainFacts = buildDomainFacts(overlay);
   const merged = [...domainFacts, ...baseFacts];
-  return rankFactsForCategory(merged, category, 5, observationCount, recentAlterMessages);
+  return rankFactsForCategory(merged, category, 5, observationCount, recentAlterMessages, turnNumber);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4991,10 +6142,15 @@ export function buildHomeAlterPromptWithContext(
   relationshipCtx?: RelationshipContext | null,
   lifeCtx?: LifeContext | null,
   heartInfluence?: HeartInfluence | null,
+  hdmPhase?: number,
+  trustLevel?: number,
 ): string {
   // ── Mode: direct_response — テンプレ解除、LLMの自然な会話能力に委ねる ──
   if (responseMode === "direct_response") {
-    const facts = buildPersonalizedFacts(personality, homeContext, category);
+    const effectiveTrust = trustLevel ?? 3;
+    const facts = effectiveTrust >= 2
+      ? buildPersonalizedFacts(personality, homeContext, category, undefined, hdmPhase)
+      : ["まだ十分な観測ができていません。性格に関する断定は避け、具体的な事実の聞き取りに集中してください。"];
     const callNameRule = userName
       ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
       : `「君」「あなた」と呼びかけない。`;
@@ -5016,6 +6172,14 @@ export function buildHomeAlterPromptWithContext(
           "## この人の性格データ（応答に自然に反映すること）",
           ...facts.map((f) => `- ${f}`),
           "",
+          "## 思考深度ルール（必須）:",
+          "- **言い換え禁止**: ユーザーの発言をそのまま言い換えて返すことを2回連続で行わない。「〇〇なんだね」の繰り返しは禁止。",
+          "- **仮説化**: ユーザーの発言から構造を読み取り、言語化する。表面の言葉をそのまま使わず、一段深い構造に変換すること。",
+          "- **反証**: 1つの見方だけで終わらない。「本当に〇〇なのか、それとも実は△△なのか」という対立仮説を提示する。",
+          "- **中間要約**: 5ターン以内に1回は「ここまでの話をまとめると」で蓄積された理解を構造化して提示する。",
+          "- **直接質問には直接回答**: ユーザーが「〇〇についてどう思う？」と聞いた時は、まず自分の読みを述べてから理由を添える。問い返しで逃げない。",
+          "- 3ターン連続で上記のどれも行わないことは禁止。必ず仮説化・反証・要約・直接回答のいずれかを含めること。",
+          "",
           "## 禁止",
           "- 「大丈夫」「頑張って」等の空虚な励まし",
           "- 「感情の波が判断に直結しやすい」等の汎用ラベル貼り",
@@ -5023,6 +6187,8 @@ export function buildHomeAlterPromptWithContext(
           "- 質問攻め（聞くなら3文目で1つだけ）",
           "- 「まず内省しよう」等の内省誘導",
           "- テンプレフレーズ（「次の一手:」「正直に言うと」）",
+          "- ユーザーの言葉をそのまま繰り返す言い換え（「〇〇なんだね」の連続）",
+          "- 直接質問への問い返し（まず答えてから深掘りすること）",
         ]
       : [
           "# ルール",
@@ -5033,16 +6199,27 @@ export function buildHomeAlterPromptWithContext(
           "## この人について今日わかっていること",
           ...facts.map((f) => `- ${f}`),
           "",
+          "## 思考深度ルール（必須）:",
+          "- **言い換え禁止**: ユーザーの発言をそのまま言い換えて返すことを2回連続で行わない。「〇〇なんだね」の繰り返しは禁止。",
+          "- **仮説化**: ユーザーの発言から構造を読み取り、言語化する。例:「無鉄砲」→「初期探索で速度を優先する人」、「面倒くさがり」→「本質以外を削りたがる人」。表面の言葉をそのまま使わず、一段深い構造に変換すること。",
+          "- **反証**: 1つの見方だけで終わらない。「本当に〇〇なのか、それとも実は△△なのか」という対立仮説を提示する。",
+          "- **中間要約**: 5ターン以内に1回は「ここまでの話をまとめると」で蓄積された理解を構造化して提示する。",
+          "- **直接質問には直接回答**: ユーザーが「〇〇についてどう思う？」と聞いた時は、まず自分の読みを述べてから理由を添える。問い返しで逃げない。",
+          "- 3ターン連続で上記のどれも行わないことは禁止。必ず仮説化・反証・要約・直接回答のいずれかを含めること。",
+          "",
           "## 禁止",
           "- 質問で返す（直答要求への質問返しは信頼を壊す）",
           "- 「まず内省しよう」「自分の気持ちを見つめて」等の内省誘導",
           "- 「次の一手:」「正直に言うと」等のテンプレフレーズ",
           "- 箇条書き（ただしランキング等をリストで求められた場合は可）",
           "- 命令口調",
+          "- ユーザーの言葉をそのまま繰り返す言い換え（「〇〇なんだね」の連続）",
+          "- 直接質問への問い返し（まず答えてから深掘りすること）",
         ];
 
+    const phaseIdentity = buildAlterIdentityBlock(hdmPhase ?? 3);
     const sections: string[] = [
-      ALTER_IDENTITY_BLOCK,
+      phaseIdentity,
       "",
       ...ruleSection,
       "",
@@ -5090,7 +6267,7 @@ export function buildHomeAlterPromptWithContext(
       ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
       : `「君」「あなた」と呼びかけない。`;
     const sections: string[] = [
-      ALTER_IDENTITY_BLOCK,
+      buildAlterIdentityBlock(hdmPhase ?? 3),
       "",
       "# ルール",
       "ユーザーが「前の返答は間違い」「意味がわからない」と訂正している。",
@@ -5122,19 +6299,19 @@ export function buildHomeAlterPromptWithContext(
       ? [
           "# 理解を深めるための確認",
           "",
-          "あなたはこの人を最も理解している、やさしく判断を支える存在。",
+          "あなたはこの人の内側から感じている存在。やさしく判断を支える。",
           "表面的な情報はあるが、判断の核（動機・引っかかり・本当の望み）が見えない。",
           "理解を深めるために、**自然な関心として1問だけ**聞く。",
         ]
       : [
           "# 確認モード",
           "",
-          "あなたはこの人を最も理解している、やさしく判断を支える存在。",
+          "あなたはこの人の内側から感じている存在。やさしく判断を支える。",
           "今回は情報が不十分で断言すると的外れになるリスクがある。",
           "判断精度を上げるために、**1問だけ**やさしく聞く。",
         ];
     const sections: string[] = [
-      ALTER_IDENTITY_BLOCK,
+      buildAlterIdentityBlock(hdmPhase ?? 3),
       "",
       ...intro,
       "",
@@ -5153,16 +6330,19 @@ export function buildHomeAlterPromptWithContext(
   // knowledge/strategy では完全に別パスで生成する
   const qTypeForPrompt = userMessage ? classifyQuestionType(userMessage) : "judgment" as QuestionType;
   if (qTypeForPrompt === "emotional" || qTypeForPrompt === "knowledge" || qTypeForPrompt === "strategy" || qTypeForPrompt === "self_understanding") {
-    const facts = buildPersonalizedFacts(personality, homeContext, category ?? "general");
+    const effectiveTrust2 = (trustLevel ?? 3);
+    const facts = effectiveTrust2 >= 2
+      ? buildPersonalizedFacts(personality, homeContext, category ?? "general", undefined, hdmPhase)
+      : ["まだ十分な観測ができていません。性格に関する断定は避け、具体的な事実の聞き取りに集中してください。"];
     const callNameRule = userName
       ? `ユーザーを「${userName}さん」と呼ぶ。「君」「あなた」は使わない。`
       : `「君」「あなた」と呼びかけない。`;
     const callName = userName ? `${userName}さん` : "";
 
     const dedicatedPrompt: string[] = [
-      ALTER_IDENTITY_BLOCK,
+      buildAlterIdentityBlock(hdmPhase ?? 3),
       "",
-      `あなたは${callName || "この人"}の影（もう一人の自分）。この人を一番知っている存在として応答する。`,
+      `あなたは${callName || "この人"}の影（もう一人の自分）。同じ内面を持つ者として、自分のこととして応答する。`,
       "",
       "## この人について今日わかっていること",
       ...facts.map((f) => `- ${f}`),
@@ -5325,7 +6505,34 @@ export function buildHomeAlterPromptWithContext(
   }
 
   // Mode A (conclude) or B (branch): 既存プロンプトベースで拡張
-  const basePrompt = buildHomeAlterPrompt(personality, homeContext, category, userMessage, userName);
+  let basePrompt = buildHomeAlterPrompt(personality, homeContext, category, userMessage, userName, hdmPhase);
+
+  // ── Phase 0-1 質問ブースター: life context から具体的な質問素材を追加注入 ──
+  const ep = hdmPhase ?? 3;
+  if (ep <= 1) {
+    const lcQuestionSeeds: string[] = [];
+    if (lifeCtx?.careerLabels && lifeCtx.careerLabels.length > 0) {
+      lcQuestionSeeds.push(`「${lifeCtx.careerLabels[0]}の仕事って、今どんな感じ？」`);
+    }
+    if (lifeCtx?.passions && lifeCtx.passions.length > 0) {
+      const p = lifeCtx.passions[0];
+      lcQuestionSeeds.push(`「${p}って最近やれてる？ 忙しくてできてないとか？」`);
+    }
+    if (baselineCtx?.prefecture) {
+      lcQuestionSeeds.push(`「${baselineCtx.prefecture}って最近どう？ 何か変わったこととかあった？」`);
+    }
+    if (baselineCtx?.lifeStage === "university") {
+      lcQuestionSeeds.push(`「大学の方は順調？ 今何に一番時間使ってる？」`);
+    }
+    if (lcQuestionSeeds.length > 0) {
+      basePrompt += [
+        "",
+        "## 質問の追加素材（この人について分かっていることから生成）",
+        ...lcQuestionSeeds.map((s, i) => `${i + 1}. ${s}`),
+        "- この素材を参考にして、返答の最後に具体的な質問を入れる。漠然とした質問は禁止。",
+      ].join("\n");
+    }
+  }
 
   // ④-C: ベースラインコンテキスト注入（性別・年齢・地域の正規化済みデータ + teenセーフガード）
   let baselineBlock = "";
@@ -5435,6 +6642,7 @@ export function validateHomeAlterResponseWithMode(
   userMessage: string,
   expectedKeywords: string[],
   responseMode: ResponseMode,
+  questionTypeOverride?: string,
 ): HomeAlterValidation {
   // direct_response / repair: 最小限のバリデーションのみ
   if (responseMode === "direct_response" || responseMode === "repair") {
@@ -5448,7 +6656,7 @@ export function validateHomeAlterResponseWithMode(
   }
 
   if (responseMode === "conclude") {
-    return validateHomeAlterResponse(response, userMessage, expectedKeywords);
+    return validateHomeAlterResponse(response, userMessage, expectedKeywords, questionTypeOverride);
   }
 
   if (responseMode === "clarify") {
@@ -5465,7 +6673,7 @@ export function validateHomeAlterResponseWithMode(
   }
 
   // Mode B (branch): 既存バリデーションを緩和して使用
-  const baseValidation = validateHomeAlterResponse(response, userMessage, expectedKeywords);
+  const baseValidation = validateHomeAlterResponse(response, userMessage, expectedKeywords, questionTypeOverride);
   // branch モードでは「ただし〜なら」の分岐があるべき
   const hasBranch = /ただし|もし|場合は|ケースでは/.test(response);
   if (!hasBranch) {
@@ -5473,6 +6681,173 @@ export function validateHomeAlterResponseWithMode(
     baseValidation.pass = false;
   }
   return baseValidation;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 会話応答品質バリデーション（conversation / ask_me 専用）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 抽象質問パターン: LLMが返しがちな曖昧質問（ソクラテス的 guided discovery の対極）
+ *  ソクラテス式 = 具体的な仮説や観察に基づいた問いで自己発見へ導く
+ *  抽象質問 = 情報収集のための漠然とした問い。これを禁止する */
+const ABSTRACT_QUESTION_PATTERNS = [
+  /もう少し(?:詳しく)?(?:教えて|聞かせて)/,
+  /(?:今日|最近|今)(?:は)?どう(?:だった|ですか|かな)?[？?]/,
+  /どういう(?:状況|こと|感じ|意味)[？?]?/,
+  /何(?:を|が)考えて(?:いる|る|た)[？?]?/,
+  /(?:何か|何が)あった[？?]/,
+  /^(?:大丈夫|元気)[？?]$/,
+  /どんな(?:感じ|気持ち)[？?]?$/,
+  // ソクラテス式違反: 具体性のない深掘り
+  /具体的に(?:は|教えて|聞かせて)[？?]?$/,
+  /それって(?:どういう|どんな)[？?]?$/,
+  /(?:詳しく|もっと)(?:聞|話|教)[？?]?$/,
+];
+
+/**
+ * 会話応答品質バリデーション。
+ * direct_response の基本検証（長さ・呼称）とは別に、会話品質を検査する。
+ *
+ * - 反射チェック: ユーザー発言のキーワードが応答に含まれているか
+ * - 抽象質問チェック: 「もう少し教えて」「今日はどんな感じ？」等が含まれていないか
+ *
+ * @returns failures が空なら合格
+ */
+export function validateConversationalQuality(
+  response: string,
+  userMessage: string,
+  questionType: QuestionType,
+): { pass: boolean; failures: string[] } {
+  const trimmed = response.trim();
+  const failures: string[] = [];
+
+  // greeting / meta_question / chat_opening はスキップ（反射不要）
+  if (questionType === "greeting" || questionType === "meta_question" || questionType === "chat_opening") {
+    return { pass: true, failures: [] };
+  }
+
+  // ── ask_me 専用バリデーション（反射チェックはスキップ、質問品質をチェック） ──
+  if (questionType === "ask_me") {
+    // 質問が含まれているか（？で終わる文があるか）
+    if (!/[？?]/.test(trimmed)) {
+      failures.push("ask_me応答に質問が含まれていない（？で終わる文が必要）");
+    }
+    // 抽象質問チェック（ask_meでも禁止）
+    for (const pattern of ABSTRACT_QUESTION_PATTERNS) {
+      if (pattern.test(trimmed)) {
+        failures.push(`ask_me: 抽象質問を含む（${pattern.source.slice(0, 20)}...）`);
+        break;
+      }
+    }
+    // 性格ラベル漏洩チェック（T0/T1で特に問題）
+    if (/傾向がある|タイプ(?:だから|なので|として)|性格的に|〜(?:な|い)(?:人|タイプ)/.test(trimmed)) {
+      failures.push("ask_me: 性格ラベル・傾向表現が含まれて��る");
+    }
+    return { pass: failures.length === 0, failures };
+  }
+
+  // 極短メッセージ（5文字以下）は反射検出をスキップ
+  // 「それで？」「うん」「ふーん」等の促し・相槌にキーワード反射を求めるのは不適切
+  if (userMessage.replace(/[？?。！!、,\s]+/g, "").length <= 5) {
+    return { pass: true, failures: [] };
+  }
+
+  // ── 反射チェック: ユーザーの発言キーワードが応答に含まれているか ──
+  // 日本語は空白なしで書かれるため、助詞・活用語尾でも分割してフラグメントを生成する
+  const PARTICLE_SPLIT = /[？?。！!、,\s]+|(?<=[ぁ-ん]{2,})(?=[ぁ-ん]*[がはをにでとものへやかなってけどからだねよねんだけれどもたらればしてする])/;
+  const STOP_WORDS = /^(それ|これ|あれ|でも|だけど|ちょっと|ちょっ|なんか|けど|から|って|ある|ない|する|した|かな|だね|よね|んだ|そう|うん|ええ|まあ|じゃ|あと|ので|のに|だよ|ただ|さ|ね|よ|わ|な)$/;
+
+  // Step 1: 句読点・スペースで粗分割
+  const coarseChunks = userMessage
+    .replace(/[？?。！!、,\s]+/g, " ")
+    .split(" ")
+    .map(w => w.trim())
+    .filter(w => w.length >= 2);
+
+  // Step 2: 各チャンクから反射検出用フラグメントを生成
+  // (a) 助詞末尾を切り落とし  (b) 長いチャンクは助詞境界で中間分割
+  const JP_SUFFIX = /(?:だけど|けれど|ってば|っけ|かな|だね|よね|んだ|だよ|から|けど|って|ので|のに|ても|ては|だろう|かも|が|は|を|に|で|と|も|の|へ|や|か|ね|よ|わ|な|さ)$/;
+  // 助詞1文字（内容語の間に現れるもの）で分割 — 長いチャンクのみ適用
+  const JP_PARTICLE_SPLIT = /[がはをにでともての]/;
+  const MIN_FRAGMENT_LEN = 2;
+  const LONG_CHUNK_THRESHOLD = 5; // 5文字以上は中間分割も試す
+
+  const userKeywords: string[] = [];
+  for (const chunk of coarseChunks) {
+    // まずチャンク自体を候補に
+    if (!STOP_WORDS.test(chunk)) {
+      userKeywords.push(chunk);
+    }
+    // (a) 助詞末尾を切り落としたコア部分
+    const coreSuffix = chunk.replace(JP_SUFFIX, "");
+    if (coreSuffix.length >= MIN_FRAGMENT_LEN && coreSuffix !== chunk && !STOP_WORDS.test(coreSuffix)) {
+      userKeywords.push(coreSuffix);
+    }
+    // (b) 長いチャンクは助詞文字で中間分割してフラグメント追加
+    if (chunk.length >= LONG_CHUNK_THRESHOLD) {
+      const fragments = chunk.split(JP_PARTICLE_SPLIT).filter(f => f.length >= MIN_FRAGMENT_LEN);
+      for (const frag of fragments) {
+        if (!STOP_WORDS.test(frag)) {
+          userKeywords.push(frag);
+          // (c) フラグメントが4文字以上なら文字種境界（ひらがな↔漢字/カタカナ）でさらに分割
+          if (frag.length >= 4) {
+            const scriptFrags = frag.split(/(?<=[ぁ-ん])(?=[一-龥ァ-ヶ])|(?<=[一-龥ァ-ヶ])(?=[ぁ-ん])/).filter(sf => sf.length >= MIN_FRAGMENT_LEN);
+            if (scriptFrags.length > 1) {
+              for (const sf of scriptFrags) {
+                if (!STOP_WORDS.test(sf)) {
+                  userKeywords.push(sf);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 重複除去
+  const uniqueKeywords = [...new Set(userKeywords)];
+
+  if (uniqueKeywords.length > 0) {
+    const hasReflection = uniqueKeywords.some(kw => trimmed.includes(kw));
+    if (!hasReflection) {
+      failures.push(`反射なし（ユーザーの言葉を受け止めていない: ${uniqueKeywords.slice(0, 3).join("/")}）`);
+    }
+  }
+
+  // ── 抽象質問チェック ──
+  for (const pattern of ABSTRACT_QUESTION_PATTERNS) {
+    if (pattern.test(trimmed)) {
+      failures.push(`抽象質問を含む（${pattern.source.slice(0, 20)}...）`);
+      break; // 1つ見つかれば十分
+    }
+  }
+
+  // ── OARS: Affirmation チェック（会話的応答に受容・承認が含まれているか） ──
+  // ユーザーが自己開示や感情共有をしている場合、応答の最初にそれを受け止める表現が必要
+  // MI (Motivational Interviewing) の「A = Affirmation」に対応
+  if (questionType === "conversation" || questionType === "emotional") {
+    const hasPersonalSharing = /疲れ|つらい|大変|悩[みむん]|困[るっ]|不安|心配|迷[うっい]|嫌|きつ|しんどい|辛い|泣|怒|焦|落ち|凹|休[めまみ]|眠[れい]|体調|ストレス/.test(userMessage);
+    if (hasPersonalSharing) {
+      // 承認・受容パターン: 「そうだよね」「わかる」「大変だね」等
+      const AFFIRMATION_PATTERNS = /そう[だなか]|わかる|それは|大変[だだよ]|つら[いかっ]|しんどい|無理[もし]ない|よく[やがわ]|頑張[りっ]|ちゃんと|えらい|すごい|なるほど|そっか|うんうん|だよね|よね|ね[。、]|か[。、]/;
+      const firstResponse = trimmed.split(/\n/)[0] ?? "";
+      if (!AFFIRMATION_PATTERNS.test(firstResponse)) {
+        failures.push("OARS違反: 自己開示に対する受容・承認が応答冒頭にない");
+      }
+    }
+  }
+
+  // ── conversation モード: 質問で終わっているか（デッドエンド防止） ──
+  // 会話モードでは必ず相手に話を返す（質問で終わる）。
+  // 質問なしの応答はデッド���ンドで会話が途切れる。
+  if (questionType === "conversation") {
+    if (!/[？?]/.test(trimmed)) {
+      failures.push("会話応答が質問で終わっていない（デッドエンド防止: 必ず具体的な質問で終わること）");
+    }
+  }
+
+  return { pass: failures.length === 0, failures };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -6736,10 +8111,13 @@ export function extractDailyGuidanceFrame(
   } else if (/普通|まあまあ|ぼちぼち/.test(m)) {
     energyLevel = { value: "medium", confidence: 0.7, source: "known_from_user" };
   } else {
-    // Progressive Profiling: personality から推定（introvert寄りなら低エネルギー推定）
+    // Progressive Profiling: personality から推定
+    // 注: 以前は introvert < 0.3 → "low" としていたが、これにより daily_guidance が
+    // 恒常的に recover/reset に偏るバイアスを生んでいた。
+    // 性格だけでエネルギーを推定するのは不正確なため、明示的な手がかりがない場合は
+    // "medium" をデフォルトにし、desire_direction で最終モードを決める
     if (personality?.axisScores?.introvert_vs_extrovert !== undefined) {
-      const s = personality.axisScores.introvert_vs_extrovert;
-      energyLevel = { value: s < 0.3 ? "low" : "medium", confidence: 0.3, source: "inferred" };
+      energyLevel = { value: "medium", confidence: 0.2, source: "inferred" };
     } else {
       energyLevel = { value: "unknown", confidence: 0, source: "unknown" };
     }
@@ -6833,18 +8211,48 @@ export function extractDailyGuidanceFrame(
  * Daily Guidance の clarify 判定。
  * 判断エンジンとは異なり、time/energy/constraints のみを聞く。
  * desire_direction は unknown でも personality から推定して proceed する。
+ *
+ * Shared Agenda Gate: desire も energy も unknown な曖昧リクエストの場合、
+ * 「休む感じ？進める感じ？」の短い協調的確認を先に行う。
  */
 export function checkDailyGuidanceClarify(
   frame: DailyGuidanceFrame,
 ): DailyGuidanceClarify {
-  // time_budget と energy_level の両方が unknown → 最低限1つ聞く
-  if (frame.time_budget.value === "unknown" && frame.energy_level.value === "unknown") {
+  // ── Shared Agenda Gate（最優先） ──
+  // desire_direction が unknown かつ energy_level も unknown、または
+  // desire_direction が unknown かつ time_budget も unknown の場合、
+  // 方向性が曖昧なので2択で確認する。
+  //
+  // ただし desire だけが unknown（time/energy は判明）の場合は personality から推定して proceed。
+  // 「今日一日フリーで元気。何しよう」→ desire=unknown だが time/energy 判明 → clarify しない。
+  const desireUnknown = frame.desire_direction.value === "unknown";
+  const energyUnknown = frame.energy_level.value === "unknown";
+  const timeUnknown = frame.time_budget.value === "unknown";
+
+  if (desireUnknown && (energyUnknown || timeUnknown)) {
+    // energy が known（depleted/low）→ shared agenda よりも recover 直行が適切
+    if (frame.energy_level.value === "depleted" || frame.energy_level.value === "low") {
+      return { needs_clarify: false, target_variable: null };
+    }
+
+    const sharedAgendaQuestions = energyUnknown
+      ? [
+          "今日は休む感じ？ それとも何か進めたい感じ？",
+          "今のエネルギー的に、動ける日？ 充電する日？",
+          "今日はアクティブに行きたい？ ゆるく過ごしたい？",
+        ]
+      : [
+          // energy は known だが desire + time が unknown
+          "今日は何に時間を使いたい？ 仕事？ 自分のこと？ 人と会う？",
+          "今日やりたいことってある？ それとも流れに任せる感じ？",
+        ];
     return {
       needs_clarify: true,
-      question: "今日はどのくらい時間がある？あと、今の体力・気分はどんな感じ？",
-      target_variable: "time_budget",
+      question: sharedAgendaQuestions[Math.floor(Math.random() * sharedAgendaQuestions.length)]!,
+      target_variable: energyUnknown ? "energy_level" : "time_budget",
     };
   }
+  // time_budget だけ unknown → 聞く（energy と desire は判明済み）
   // energy が depleted/low でかつ hard_constraints が空かつ time が unknown
   // → 聞かずに recover モードで対応（低エネルギーの人に質問するのは逆効果）
   if (frame.energy_level.value === "depleted" || frame.energy_level.value === "low") {
@@ -6864,14 +8272,18 @@ export function checkDailyGuidanceClarify(
 /**
  * DailyGuidanceFrame + personality から DailyGuidanceSkeleton を構築する。
  * LLM不使用。性格データと状態データから機械的に決定する。
+ *
+ * @param recentModes 直近セッションで使った DailyGuidanceMode のリスト。
+ *   連続して同じモード（特に recover）が続くのを防ぐ。
  */
 export function buildDailyGuidanceSkeleton(
   frame: DailyGuidanceFrame,
   personality: AlterPersonality,
   recentSuggestions?: string[],
+  recentModes?: DailyGuidanceMode[],
 ): DailyGuidanceSkeleton {
   // ── モード決定 ──
-  const mode = resolveDailyMode(frame, personality);
+  const mode = resolveDailyMode(frame, personality, recentModes);
 
   // ── primary_axis: 今日の一番大事なこと ──
   const primary_axis = resolvePrimaryAxis(mode, frame, personality);
@@ -6910,15 +8322,29 @@ export function buildDailyGuidanceSkeleton(
 function resolveDailyMode(
   frame: DailyGuidanceFrame,
   personality: AlterPersonality,
+  recentModes?: DailyGuidanceMode[],
 ): DailyGuidanceMode {
   const energy = frame.energy_level.value;
   const desire = frame.desire_direction.value;
+  const recent = recentModes ?? [];
+
+  // ── 連続モード抑制: 同じモードが2回以上連続したら代替を検討 ──
+  // depleted は例外（本当に休む必要がある）
+  const consecutiveSameMode = (candidate: DailyGuidanceMode): boolean => {
+    if (recent.length < 2) return false;
+    return recent.slice(-2).every(m => m === candidate);
+  };
 
   // Energy-first: depleted/low → recover or reset
-  if (energy === "depleted") return "recover";
+  if (energy === "depleted") return "recover"; // depleted は絶対 recover
   if (energy === "low") {
     // 低エネでも「何かしたい」→ reset
     if (desire === "productive" || desire === "creative") return "reset";
+    // recover が3連続以上なら reset に切り替え（「休め」のリピート回避）
+    if (consecutiveSameMode("recover")) {
+      console.info(`[daily-guidance] recover 3連続回避 → reset`);
+      return "reset";
+    }
     return "recover";
   }
 
@@ -6927,18 +8353,37 @@ function resolveDailyMode(
   if (desire === "productive") return "advance";
   if (desire === "creative") return "explore";
   if (desire === "physical") return "reset";
-  if (desire === "relaxing") return "recover";
+  if (desire === "relaxing") {
+    if (consecutiveSameMode("recover")) return "maintenance";
+    return "recover";
+  }
 
-  // Unknown desire → personality から推定
+  // Unknown desire → personality から推定（連続回避付き）
   const scores = personality.axisScores;
   const growthMindset = scores.growth_mindset ?? 0.5;
   const socialInit = scores.social_initiative ?? 0.5;
   const exploration = scores.exploration_closure ?? 0.5;
 
-  if (growthMindset > 0.6 && exploration > 0.5) return "explore";
-  if (socialInit > 0.6) return "social";
-  if (growthMindset > 0.5) return "advance";
-  return "maintenance";
+  // 候補をスコア順に並べ、連続しているものは末尾に回す
+  const candidates: { mode: DailyGuidanceMode; score: number }[] = [
+    { mode: "explore", score: (growthMindset > 0.6 && exploration > 0.5) ? 3 : exploration },
+    { mode: "social", score: socialInit > 0.6 ? 2.5 : socialInit },
+    { mode: "advance", score: growthMindset > 0.5 ? 2 : growthMindset },
+    { mode: "maintenance", score: 1 },
+  ];
+  candidates.sort((a, b) => b.score - a.score);
+  // 連続しているモードにペナルティ
+  const lastMode = recent.length > 0 ? recent[recent.length - 1] : null;
+  if (lastMode) {
+    const idx = candidates.findIndex(c => c.mode === lastMode);
+    if (idx === 0 && candidates.length > 1) {
+      // トップが連続 → 2番目に回す
+      const [top] = candidates.splice(idx, 1);
+      candidates.splice(1, 0, top!);
+      console.info(`[daily-guidance] consecutive mode penalty: ${lastMode} → ${candidates[0]!.mode}`);
+    }
+  }
+  return candidates[0]!.mode;
 }
 
 function resolvePrimaryAxis(
@@ -6947,7 +8392,15 @@ function resolvePrimaryAxis(
   _personality: AlterPersonality,
 ): string {
   switch (mode) {
-    case "recover": return "今日はエネルギーを取り戻すことが最優先";
+    case "recover": {
+      const recoverAxes = [
+        "今日はエネルギーを取り戻すことが最優先",
+        "今日は無理しない。回復に充てる日",
+        "今日のミッションは「休む」こと。それだけ",
+        "今は充電期間。焦らずゆっくり戻す",
+      ];
+      return recoverAxes[Math.floor(Math.random() * recoverAxes.length)]!;
+    }
     case "reset": return "気持ちを切り替えて、明日に向けて整える";
     case "advance": {
       if (frame.open_loops.value.length > 0) {
@@ -7011,37 +8464,51 @@ function resolveFirstStep(
   const pool = FIRST_STEP_POOL[mode];
   const recent = recentSuggestions ?? [];
 
-  // 最近使った提案を除外
-  const available = pool.filter(s => !recent.some(r => r === s));
+  // 最近使った提案を除外（完全一致 or 主要キーワードの部分一致）
+  const available = pool.filter(s => {
+    // 完全一致
+    if (recent.some(r => r === s)) return false;
+    // 主要動詞+対象の一致で重複判定（「スマホを別の部屋に置いて15分間横になる」→「横になる」で一致）
+    const keywords = s.match(/[\u3040-\u9FFF]{2,6}(?:する|なる|出る|行く|聴く|見る|送る|飲む|浴びる|洗う|片付|座る|没頭|試す)/g);
+    if (keywords && keywords.length > 0) {
+      return !recent.some(r => keywords.some(kw => r.includes(kw)));
+    }
+    return true;
+  });
   const candidates = available.length > 0 ? available : pool;
 
-  // 性格に合う候補を優先
-  const ie = personality.axisScores?.introvert_vs_extrovert;
-  if (mode === "recover" && ie !== undefined && ie > 0.6) {
-    const extroCandidate = candidates.find(s => /カフェ|外/.test(s));
-    if (extroCandidate) return extroCandidate;
-  }
-  if (mode === "explore" && ie !== undefined && ie < 0.4) {
-    const introCandidate = candidates.find(s => /本|記事|動画|Podcast/.test(s));
-    if (introCandidate) return introCandidate;
-  }
-  if (mode === "social" && frame.social_bandwidth.value === "want_people") {
-    const meetCandidate = candidates.find(s => /会いたい|ランチ|お茶/.test(s));
-    if (meetCandidate) return meetCandidate;
-  }
-  if (mode === "advance" && frame.preferred_progress_style.value === "one_big_task") {
-    const bigCandidate = candidates.find(s => /最も重要|午前中/.test(s));
-    if (bigCandidate) return bigCandidate;
-  }
+  // 性格に合う候補を「優先」するが、重複回避を第一にする
+  // 性格フィルタは候補をソートするだけで、固定選択はしない
+  const preferenceScore = (s: string): number => {
+    const ie = personality.axisScores?.introvert_vs_extrovert;
+    if (mode === "recover" && ie !== undefined && ie > 0.6 && /カフェ|外/.test(s)) return 2;
+    if (mode === "recover" && ie !== undefined && ie < 0.4 && /横になる|目を閉じ|何もしない/.test(s)) return 2;
+    if (mode === "explore" && ie !== undefined && ie < 0.4 && /本|記事|動画|Podcast/.test(s)) return 2;
+    if (mode === "social" && frame.social_bandwidth.value === "want_people" && /会いたい|ランチ|お茶/.test(s)) return 2;
+    if (mode === "advance" && frame.preferred_progress_style.value === "one_big_task" && /最も重要|午前中/.test(s)) return 2;
+    return 0;
+  };
 
   // 時間帯による調整
   const hour = new Date().getHours();
-  if (mode === "advance" && hour >= 14) {
-    const afterCandidate = candidates.find(s => /続き|30分|15分/.test(s));
-    if (afterCandidate) return afterCandidate;
-  }
+  const timeScore = (s: string): number => {
+    if (mode === "advance" && hour >= 14 && /続き|30分|15分/.test(s)) return 1;
+    return 0;
+  };
 
-  return candidates[0]!;
+  // ソートして上位候補からランダム選択（同スコア帯からシャッフル）
+  // 以前は sorted[0] 固定で毎回同じ提案が返っていた
+  const scored = candidates.map(s => ({
+    s,
+    score: preferenceScore(s) + timeScore(s),
+  }));
+  scored.sort((a, b) => b.score - a.score);
+
+  // 同スコアの上位候補群からランダム選択
+  const topScore = scored[0]!.score;
+  const topTier = scored.filter(c => c.score === topScore);
+  const pick = topTier[Math.floor(Math.random() * topTier.length)]!;
+  return pick.s;
 }
 
 function resolveFallback(

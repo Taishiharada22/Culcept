@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isBetaTesterEmail } from "@/lib/auth/betaTesters";
 import { createEmptyAxisScores, TRAIT_AXES, EXPANSION_AXIS_KEYS, isExpansionAxis, type TraitAxisKey } from "@/lib/stargazer/traitAxes";
 import {
@@ -157,27 +158,27 @@ export async function GET() {
         .from("stargazer_star_maps")
         .select("*")
         .eq("user_id", user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("stargazer_core_star")
         .select("*")
         .eq("user_id", user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("stargazer_profiles")
         .select("*")
         .eq("user_id", user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("stargazer_resolved_types")
         .select("*")
         .eq("user_id", user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("stargazer_personality_profile")
         .select("*")
         .eq("user_id", user.id)
-        .single(),
+        .maybeSingle(),
       supabase
         .from("stargazer_observations")
         .select("response_time_ms, hesitation_level")
@@ -261,9 +262,78 @@ export async function GET() {
       }
     }
 
-    const hasAxisEvidence = Object.values(axisScores).some(
+    let hasAxisEvidence = Object.values(axisScores).some(
       (value) => Math.abs(value) > 0.001,
     );
+
+    // ━━ 自動修復: 観測データはあるが軸スコアがない → マージ漏れを修復 ━━
+    // マージ後に star_maps/resolved_types が旧匿名IDに残っているケースを修復
+    if (!hasAxisEvidence && (observations?.length ?? 0) > 0) {
+      console.warn(
+        `[profile] Auto-repair: user=${user.id.slice(0, 8)} has ${observations?.length} observations but no axis evidence.`,
+      );
+      try {
+        // profiles テーブルで is_merged=true かつ stargazer_star_maps を持つ匿名IDを探す
+        // supabaseAdmin を使用（RLS をバイパスして全データにアクセス）
+        const { data: orphanedStarMaps } = await supabaseAdmin
+          .from("stargazer_star_maps")
+          .select("user_id, core_star")
+          .not("user_id", "eq", user.id)
+          .limit(20);
+
+        if (orphanedStarMaps) {
+          for (const sm of orphanedStarMaps) {
+            // この star_map の owner が is_merged=true か確認
+            const { data: ownerProfile } = await supabaseAdmin
+              .from("profiles")
+              .select("is_merged")
+              .eq("id", sm.user_id)
+              .maybeSingle();
+            if (!ownerProfile?.is_merged) continue;
+
+            // この匿名ユーザーの observations がこのユーザーに移管済みか確認
+            const { count: anonObsCount } = await supabaseAdmin
+              .from("stargazer_observations")
+              .select("id", { count: "exact", head: true })
+              .eq("user_id", sm.user_id);
+            if ((anonObsCount ?? 0) > 0) continue; // まだ移管されていない
+
+            // star_map を移管
+            await supabaseAdmin
+              .from("stargazer_star_maps")
+              .upsert({ ...(sm as Record<string, unknown>), user_id: user.id }, { onConflict: "user_id" });
+            await supabaseAdmin
+              .from("stargazer_star_maps")
+              .delete()
+              .eq("user_id", sm.user_id);
+            mergeAxisScores(axisScores, (sm.core_star as Record<string, unknown>)?.coreTraits ?? null);
+            console.log(`[profile] Auto-repair: recovered star_maps from anon=${sm.user_id.slice(0, 8)}`);
+
+            // resolved_types も移管
+            const { data: anonRT } = await supabaseAdmin
+              .from("stargazer_resolved_types")
+              .select("*")
+              .eq("user_id", sm.user_id)
+              .maybeSingle();
+            if (anonRT) {
+              await supabaseAdmin
+                .from("stargazer_resolved_types")
+                .upsert({ ...(anonRT as Record<string, unknown>), user_id: user.id }, { onConflict: "user_id" });
+              await supabaseAdmin
+                .from("stargazer_resolved_types")
+                .delete()
+                .eq("user_id", sm.user_id);
+              mergeAxisScores(axisScores, (anonRT as Record<string, unknown>)?.axis_scores ?? null);
+            }
+
+            hasAxisEvidence = Object.values(axisScores).some((v) => Math.abs(v) > 0.001);
+            if (hasAxisEvidence) break;
+          }
+        }
+      } catch (repairErr) {
+        console.error(`[profile] Auto-repair failed:`, repairErr);
+      }
+    }
 
     // ━━━ Scoring Pipeline v2: 多重共線性補正 → 推論 → カスケード検証 ━━━
 
@@ -578,72 +648,147 @@ export async function GET() {
 
     // ── v3 Archetype Resolution (with Hysteresis) ──
     // 45軸スコアから4層アーキタイプを判定
-    // 安定化: オンボーディング基盤スコアと現在のブレンドスコアの両方から判定し、
-    // 差分が明確な場合のみ変更する（ヒステリシス）
+    // ━━ Source of Truth 方針（2026-04-11 CEO承認）━━
+    // - 表示の権威は stargazer_resolved_types.archetype_code
+    // - 日次観測が0件（オンボーディング直後）の場合: stored archetype をそのまま返す
+    // - 日次観測が1件以上ある場合のみ: live スコアから再計算（ヒステリシス付き）
+    // - 再計算結果が異なる場合は stored archetype_code を更新（write時更新）
     let archetypeResult: (ReturnType<typeof resolveArchetype> & {
       name?: string;
       emoji?: string;
       tagline?: string;
     }) | null = null;
-    if (hasAxisEvidence) {
-      // 本番: 従来の resolveArchetype をメインで使用
+
+    const hasDailyObservations = (dailyStates ?? []).length > 0;
+    const storedArchetypeCode = (resolvedTypeRow as Record<string, unknown>)?.archetype_code as string | undefined;
+
+    // ━━ アーキタイプ解決 ━━
+    // 方針: stored archetype_code が DB に存在する限り、必ずそれを返す
+    // 日次観測がある場合のみ再計算し、結果が異なればDBを更新（write時更新）
+    if (storedArchetypeCode) {
+      const storedDef = getArchetypeByCode(storedArchetypeCode);
+
+      if (!hasDailyObservations || !hasAxisEvidence) {
+        // ── Case 1: 日次観測なし or スコア不十分 → stored archetype をそのまま返す ──
+        const storedScores = createEmptyAxisScores();
+        mergeAxisScores(storedScores, resolvedTypeRow?.axis_scores ?? null);
+        const hasStoredScores = Object.values(storedScores).some((v) => Math.abs(v) > 0.001);
+        const storedResolved = hasStoredScores ? resolveArchetype(storedScores) : null;
+        const interactionResult = storedResolved ? applyLayerInteractions(storedResolved) : null;
+        archetypeResult = {
+          ...(storedResolved ?? { code: storedArchetypeCode, confidence: 0.5, layer1: { code: storedArchetypeCode[0], scores: {} }, layer2: { code: storedArchetypeCode[1], scores: {} }, layer3: { code: storedArchetypeCode[2], scores: {} }, layer4: { code: storedArchetypeCode[3], scores: {} } } as any),
+          code: storedArchetypeCode as ReturnType<typeof resolveArchetype>["code"],
+          name: storedDef?.name,
+          emoji: storedDef?.emoji,
+          tagline: storedDef?.tagline,
+          interactionInsights: interactionResult?.insights ?? [],
+        };
+      } else {
+        // ── Case 2: 日次観測あり + スコア十分 → live スコアから再計算 ──
+        const raw = resolveArchetype(axisScores);
+
+        // 段階投入: 不確実性加重版の比較ログ
+        const beliefs = profile?.axis_beliefs
+          ? deserializeBeliefs(profile.axis_beliefs as Record<string, { mu: number; precision: number }>)
+          : null;
+        if (beliefs) {
+          try {
+            const uncertaintyRaw = resolveArchetypeWithUncertainty(axisScores, beliefs);
+            if (uncertaintyRaw.code !== raw.code) {
+              console.log(
+                `[archetype-comparison] user=${user.id.slice(0, 8)} old=${raw.code}(conf=${raw.confidence.toFixed(3)}) new=${uncertaintyRaw.code}(conf=${uncertaintyRaw.confidence.toFixed(3)}) sessions=${profile?.total_sessions ?? 0}`,
+              );
+            }
+          } catch { /* 比較ログ失敗は無視 */ }
+        }
+
+        // ヒステリシス: オンボーディング基盤のアーキタイプと比較
+        const baselineScores = createEmptyAxisScores();
+        mergeAxisScores(baselineScores, profile?.dimensions ?? null);
+        mergeAxisScores(baselineScores, coreStar?.core_traits ?? null);
+        mergeAxisScores(baselineScores, starMapRow?.core_star?.coreTraits ?? null);
+        mergeAxisScores(baselineScores, resolvedTypeRow?.axis_scores ?? null);
+        const hasBaseline = Object.values(baselineScores).some((v) => Math.abs(v) > 0.001);
+
+        let finalArchetype = raw;
+        if (hasBaseline) {
+          const baselineArchetype = resolveArchetype(baselineScores);
+          if (raw.code !== baselineArchetype.code) {
+            const HYSTERESIS_THRESHOLD = 0.25;
+            const layerMargins = [raw.layer1, raw.layer2, raw.layer3, raw.layer4].map((l) => {
+              const sorted = Object.values(l.scores).sort((a, b) => b - a);
+              const denom = Math.max(Math.abs(sorted[0]), 0.01);
+              return (sorted[0] - sorted[1]) / denom;
+            });
+            const minMargin = Math.min(...layerMargins);
+            if (minMargin < HYSTERESIS_THRESHOLD) {
+              finalArchetype = baselineArchetype;
+            }
+          }
+        }
+
+        // write時更新: 再計算結果が stored と異なる場合、DB を更新
+        if (finalArchetype.code !== storedArchetypeCode) {
+          console.log(
+            `[archetype-update] user=${user.id.slice(0, 8)} ${storedArchetypeCode} → ${finalArchetype.code} (dailyObs=${(dailyStates ?? []).length})`,
+          );
+          supabase
+            .from("stargazer_resolved_types")
+            .update({ archetype_code: finalArchetype.code })
+            .eq("user_id", user.id)
+            .then(({ error }) => {
+              if (error) console.warn("[archetype-update] Failed:", error.message);
+            });
+        }
+
+        const def = getArchetypeByCode(finalArchetype.code);
+        const interactionResult = applyLayerInteractions(finalArchetype);
+        archetypeResult = {
+          ...finalArchetype,
+          name: def?.name,
+          emoji: def?.emoji,
+          tagline: def?.tagline,
+          interactionInsights: interactionResult.insights,
+        };
+      }
+    } else if (hasAxisEvidence) {
+      // ── Case 3: stored archetype なし → スコアから初回計算して保存 ──
       const raw = resolveArchetype(axisScores);
-
-      // ── 段階投入: 不確実性加重版の比較ログ ──
-      // 新方式はログ出力のみ。差異があるユーザーのパターンを分析し、
-      // 安全を確認してから全量切替する。
-      const beliefs = profile?.axis_beliefs
-        ? deserializeBeliefs(profile.axis_beliefs as Record<string, { mu: number; precision: number }>)
-        : null;
-
-      if (beliefs) {
-        try {
-          const uncertaintyRaw = resolveArchetypeWithUncertainty(axisScores, beliefs);
-          if (uncertaintyRaw.code !== raw.code) {
-            console.log(
-              `[archetype-comparison] user=${user.id.slice(0, 8)} old=${raw.code}(conf=${raw.confidence.toFixed(3)}) new=${uncertaintyRaw.code}(conf=${uncertaintyRaw.confidence.toFixed(3)}) sessions=${profile?.total_sessions ?? 0}`,
-            );
-          }
-        } catch {
-          // 比較ログ失敗は無視
-        }
-      }
-
-      // ヒステリシス: オンボーディング基盤のアーキタイプと比較
-      const baselineScores = createEmptyAxisScores();
-      mergeAxisScores(baselineScores, profile?.dimensions ?? null);
-      mergeAxisScores(baselineScores, coreStar?.core_traits ?? null);
-      mergeAxisScores(baselineScores, starMapRow?.core_star?.coreTraits ?? null);
-      mergeAxisScores(baselineScores, resolvedTypeRow?.axis_scores ?? null);
-      const hasBaseline = Object.values(baselineScores).some((v) => Math.abs(v) > 0.001);
-
-      let finalArchetype = raw;
-      if (hasBaseline) {
-        const baselineArchetype = resolveArchetype(baselineScores);
-        if (raw.code !== baselineArchetype.code) {
-          const HYSTERESIS_THRESHOLD = 0.25;
-          const layerMargins = [raw.layer1, raw.layer2, raw.layer3, raw.layer4].map((l) => {
-            const sorted = Object.values(l.scores).sort((a, b) => b - a);
-            const denom = Math.max(Math.abs(sorted[0]), 0.01);
-            return (sorted[0] - sorted[1]) / denom;
-          });
-          const minMargin = Math.min(...layerMargins);
-
-          if (minMargin < HYSTERESIS_THRESHOLD) {
-            finalArchetype = baselineArchetype;
-          }
-        }
-      }
-
-      const def = getArchetypeByCode(finalArchetype.code);
-      const interactionResult = applyLayerInteractions(finalArchetype);
+      const def = getArchetypeByCode(raw.code);
+      const interactionResult = applyLayerInteractions(raw);
       archetypeResult = {
-        ...finalArchetype,
+        ...raw,
         name: def?.name,
         emoji: def?.emoji,
         tagline: def?.tagline,
         interactionInsights: interactionResult.insights,
       };
+      // 初回計算結果を DB に保存（write時更新）
+      // 既存の _fit_feedback を保持するためマージ
+      supabase
+        .from("stargazer_resolved_types")
+        .select("axis_scores")
+        .eq("user_id", user.id)
+        .maybeSingle()
+        .then(({ data: existingRT }) => {
+          const existingFeedback = (existingRT?.axis_scores as Record<string, unknown>)?._fit_feedback;
+          const mergedScores = existingFeedback
+            ? { ...axisScores, _fit_feedback: existingFeedback }
+            : axisScores;
+          return supabase
+            .from("stargazer_resolved_types")
+            .upsert({
+              user_id: user.id,
+              archetype_code: raw.code,
+              axis_scores: mergedScores,
+              confidence: raw.confidence,
+              updated_at: new Date().toISOString(),
+            }, { onConflict: "user_id" });
+        })
+        .then(({ error }: { error: { message: string } | null }) => {
+          if (error) console.warn("[archetype-init] Failed to store initial archetype:", error.message);
+          else console.log(`[archetype-init] user=${user.id.slice(0, 8)} code=${raw.code}`);
+        });
     }
 
     // ── 時系列データ: metamorphosisLaw / entropySignature / temporalDiff 用 ──
@@ -737,11 +882,10 @@ export async function GET() {
       const r = row as Record<string, unknown>;
       if (typeof r.observation_date === "string" && (r.observation_date as string).startsWith(todayStr)) {
         const rawAnswers = r.raw_answers as { answers?: unknown[] } | null;
-        if (rawAnswers?.answers && Array.isArray(rawAnswers.answers)) {
+        if (rawAnswers?.answers && Array.isArray(rawAnswers.answers) && rawAnswers.answers.length > 0) {
           todayObservationCount += rawAnswers.answers.length;
-        } else {
-          todayObservationCount += 1;
         }
+        // raw_answers が空 / null の行はカウントしない（部分保存・未完了を除外）
       }
     }
 
@@ -833,6 +977,8 @@ export async function GET() {
           tagline: archetypeResult.tagline,
           confidence: archetypeResult.confidence,
         } : null,
+        // 軸スコア（アーキタイプ表示のクライアントフォールバック用）
+        liveAxisScores: axisScores,
         // 軸ラベルのみ（スコアなし — ロック一覧表示用）
         dimensionDetails: dimensionDetails.map((d) => ({
           id: d.id,
@@ -847,7 +993,7 @@ export async function GET() {
         stageProgress,
       }, {
         headers: {
-          "Cache-Control": "private, max-age=60",
+          "Cache-Control": "private, no-cache, no-store, must-revalidate",
         },
       });
     }
@@ -939,7 +1085,7 @@ export async function GET() {
       isBetaTester: isBetaTesterEmail(user.email),
     }, {
       headers: {
-        "Cache-Control": "private, max-age=300, stale-while-revalidate=600",
+        "Cache-Control": "private, no-cache, no-store, must-revalidate",
       },
     });
   } catch (error) {

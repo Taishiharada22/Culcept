@@ -157,14 +157,14 @@ const WEATHER_EMOJI: Record<WeatherType, string> = {
 };
 
 const WEATHER_LABEL: Record<WeatherType, string> = {
-  sunny: "快晴",
-  cloudy: "曇り",
-  rainy: "雨",
-  stormy: "嵐",
-  foggy: "霧",
-  windy: "風",
-  snow: "雪",
-  aurora: "オーロラ",
+  sunny: "元気",
+  cloudy: "普通",
+  rainy: "だるい",
+  stormy: "ダウン",
+  foggy: "もやもや",
+  windy: "そわそわ",
+  snow: "静か",
+  aurora: "パーフェクト",
 };
 
 /** Time-of-day categories */

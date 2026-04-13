@@ -15,8 +15,9 @@ export async function GET() {
     try {
       const result = await supabase
         .from("personality_insights")
-        .select("id, insight_type, title, description, dimension, confidence")
+        .select("id, insight_type, content, source, dimension, confidence, extracted_at")
         .eq("user_id", user.id)
+        .order("extracted_at", { ascending: false })
         .limit(20);
       insights = result.data;
       if (result.error) {
@@ -29,11 +30,11 @@ export async function GET() {
     const cards = (insights || []).map((ins) => ({
       id: ins.id,
       type: ins.insight_type || "pattern",
-      title: ins.title || "",
-      description: ins.description || "",
+      title: (ins.content as string) || "",
+      description: "",
       dimension: ins.dimension as string | undefined,
       confidence: ins.confidence,
-      createdAt: (ins.created_at as string) ?? null,
+      createdAt: (ins.extracted_at as string) ?? null,
     }));
 
     // Get top dimensions
