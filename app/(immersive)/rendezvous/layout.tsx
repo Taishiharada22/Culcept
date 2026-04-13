@@ -20,7 +20,7 @@ export default function RendezvousLayout({
     <>
       <AtmosphereProvider>
         <RendezvousLayoutClient>
-          {/* Top nav bar — ライトガラス */}
+          {/* Top nav bar — ミニマル */}
           <nav
             style={{
               position: "sticky",
@@ -28,11 +28,8 @@ export default function RendezvousLayout({
               zIndex: 40,
               display: "flex",
               alignItems: "center",
-              padding: "14px 20px",
-              background: "rgba(255,255,255,0.82)",
-              backdropFilter: "blur(20px)",
-              WebkitBackdropFilter: "blur(20px)",
-              borderBottom: "1px solid rgba(26,16,37,0.06)",
+              padding: "6px 16px",
+              background: "transparent",
             }}
           >
             <Link
@@ -58,7 +55,7 @@ export default function RendezvousLayout({
               >
                 <path d="M15 18l-6-6 6-6" />
               </svg>
-              戻る
+              ホーム
             </Link>
 
             <span
@@ -75,27 +72,43 @@ export default function RendezvousLayout({
               Rendezvous
             </span>
 
-            <div style={{ width: 40 }} />
+            <Link
+              href="/rendezvous/mirror"
+              style={{
+                position: "absolute",
+                right: 16,
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(26,16,37,0.05)",
+                textDecoration: "none",
+                fontSize: 14,
+              }}
+              aria-label="マイページ"
+            >
+              <svg
+                width={16}
+                height={16}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#6B6580"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </Link>
           </nav>
 
           {children}
         </RendezvousLayoutClient>
 
-        <footer style={{
-          padding: "24px 16px",
-          textAlign: "center",
-          fontSize: 11,
-          color: "#A8A0B8",
-          position: "relative",
-          zIndex: 2,
-        }}>
-          <div style={{ display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" }}>
-            <a href="/legal/terms" style={{ color: "#6B6580", textDecoration: "none" }}>利用規約</a>
-            <a href="/legal/privacy" style={{ color: "#6B6580", textDecoration: "none" }}>プライバシーポリシー</a>
-            <a href="/legal/commercial" style={{ color: "#6B6580", textDecoration: "none" }}>特定商取引法に基づく表記</a>
-          </div>
-          <p style={{ marginTop: 8 }}>&copy; 2026 Aneurasync</p>
-        </footer>
+        {/* Legal links removed from layout — accessible via マイページ/settings */}
       </AtmosphereProvider>
     </>
   );

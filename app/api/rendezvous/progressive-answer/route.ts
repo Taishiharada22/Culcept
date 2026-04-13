@@ -79,15 +79,26 @@ export async function POST(req: NextRequest) {
       vector_after: updatedVector,
     });
 
-    // 心理学プロファイルも再計算（fire-and-forget）
-    fetch(new URL("/api/rendezvous/psychological-profile", req.url), {
-      method: "POST",
-      headers: { cookie: req.headers.get("cookie") ?? "" },
-    }).catch(() => {});
+    // 心理学プロファイルも再計算
+    let warning: string | undefined;
+    try {
+      const profileRes = await fetch(new URL("/api/rendezvous/psychological-profile", req.url), {
+        method: "POST",
+        headers: { cookie: req.headers.get("cookie") ?? "" },
+      });
+      if (!profileRes.ok) {
+        console.error("[progressive-answer] psychological-profile returned", profileRes.status);
+        warning = "一部の保存に失敗しました";
+      }
+    } catch (e) {
+      console.error("[progressive-answer] psychological-profile fetch failed:", e);
+      warning = "一部の保存に失敗しました";
+    }
 
     return NextResponse.json({
       ok: true,
       updatedVector,
+      ...(warning && { warning }),
     });
   } catch (err) {
     console.error("[progressive-answer] Error:", err);

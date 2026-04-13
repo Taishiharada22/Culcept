@@ -10,6 +10,58 @@ type NoteMode = "full" | "tags" | "none";
 
 let memoryWornHistory: WornRecord[] = [];
 
+/** ブラウザストレージが使用不可で、メモリのみにフォールバックしている場合 true */
+export let isMemoryOnlyMode = false;
+
+/** ストレージ容量不足のため履歴が短縮された場合 true */
+export let wasHistoryTruncated = false;
+
+// ── オンライン復帰時同期キュー ──
+// メモリフォールバック中に保存された WornRecord をキューに積み、
+// オンライン復帰時にサーバーへ同期する
+
+let pendingSyncQueue: WornRecord[] = [];
+let syncListenerAttached = false;
+
+function attachSyncListener(): void {
+  if (syncListenerAttached || typeof window === "undefined") return;
+  syncListenerAttached = true;
+
+  const flush = async () => {
+    if (pendingSyncQueue.length === 0) return;
+    const batch = [...pendingSyncQueue];
+    pendingSyncQueue = [];
+    try {
+      const res = await fetch("/api/calendar/day", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records: batch }),
+      });
+      if (!res.ok) {
+        // 失敗時はキューに戻す
+        pendingSyncQueue.unshift(...batch);
+        console.warn("[rotationTracker] オンライン同期失敗、キューに戻しました");
+      }
+    } catch {
+      pendingSyncQueue.unshift(...batch);
+      console.warn("[rotationTracker] オンライン同期失敗（ネットワークエラー）、キューに戻しました");
+    }
+  };
+
+  window.addEventListener("online", flush);
+  // visibilitychange でも試行（タブ復帰時）
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && navigator.onLine) {
+      flush();
+    }
+  });
+}
+
+/** 現在の同期キュー件数（テスト・UI用） */
+export function getPendingSyncCount(): number {
+  return pendingSyncQueue.length;
+}
+
 function getStorage(kind: "local" | "session"): Storage | null {
   if (typeof window === "undefined") return null;
   try {
@@ -156,12 +208,17 @@ export function saveWornRecord(record: WornRecord): void {
   const localStorageRef = getStorage("local");
   const sessionStorageRef = getStorage("session");
 
-  for (const strategy of strategies) {
+  for (let si = 0; si < strategies.length; si++) {
+    const strategy = strategies[si];
     const compacted = sanitizeHistory(history, strategy);
     try {
       if (writeStoredHistory(localStorageRef, WORN_KEY, compacted)) {
         sessionStorageRef?.removeItem(SESSION_WORN_KEY);
         memoryWornHistory = compacted;
+        if (si > 0) {
+          wasHistoryTruncated = true;
+          console.warn(`[rotationTracker] ストレージ容量不足のため履歴を短縮しました (${strategy.maxEntries}件, noteMode=${strategy.noteMode})`);
+        }
         return;
       }
     } catch (error) {
@@ -171,6 +228,9 @@ export function saveWornRecord(record: WornRecord): void {
       }
     }
   }
+
+  wasHistoryTruncated = true;
+  console.warn("[rotationTracker] ストレージ容量不足のため履歴を短縮しました (fallback)");
 
   const fallbackHistory = sanitizeHistory(history, strategies[strategies.length - 1]);
 
@@ -192,7 +252,12 @@ export function saveWornRecord(record: WornRecord): void {
   }
 
   memoryWornHistory = fallbackHistory;
-  console.warn("Stored worn history only in memory because browser storage is full.");
+  isMemoryOnlyMode = true;
+  console.warn("[rotationTracker] ブラウザストレージが使用不可のため、メモリのみで動作中。ページ離脱時にデータが失われます。");
+
+  // メモリのみモードではオンライン復帰時同期キューに積む
+  pendingSyncQueue.push(record);
+  attachSyncListener();
 }
 
 export function getRecentlyWornItemIds(days: number = 7): string[] {

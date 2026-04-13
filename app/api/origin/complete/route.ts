@@ -55,6 +55,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[origin/complete]", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Originセッションの完了処理に失敗しました" }, { status: 500 });
   }
 }

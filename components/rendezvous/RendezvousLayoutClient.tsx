@@ -38,6 +38,7 @@ export default function RendezvousLayoutClient({ children, activeTab }: Props) {
             color: "#1A1025",
             fontFamily: "'Noto Sans JP', -apple-system, sans-serif",
             paddingTop: "env(safe-area-inset-top, 0px)",
+            background: "transparent",
           }}
         >
           {ageVerified !== null && (

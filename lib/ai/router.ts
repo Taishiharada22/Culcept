@@ -38,9 +38,10 @@ const LOW_COST_TASK_TYPES = new Set([
 
 /** Task prefixes eligible for OpenAI failover */
 const FAILOVER_ELIGIBLE_PREFIXES = [
-  "stargazer_",  // All Stargazer tasks (Alter, prophecy, prediction, etc.)
-  "orbiter_",    // Orbiter tasks
-  "identity_",   // Identity tasks
+  "stargazer_",    // All Stargazer tasks (Alter, prophecy, prediction, etc.)
+  "orbiter_",      // Orbiter tasks
+  "identity_",     // Identity tasks
+  "perspective_",  // Perspective Engine tasks (task_query, classify) — PE critical path
 ];
 
 function isOpenAIFallbackAvailable(): boolean {

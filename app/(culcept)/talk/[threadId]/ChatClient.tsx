@@ -184,6 +184,187 @@ function MessageActionMenu({ onReaction, onReply, onEdit, onDelete, isMine, onCl
 }
 
 /* ═══════════════════════════════════════════════
+   🔮 意図チェックパネル — 送信前の伝わり方チェック
+   ═══════════════════════════════════════════════ */
+function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
+  result: {
+    misreadRisk: number;
+    interventionLevel: string;
+    gapDetected: boolean;
+    gapType: string | null;
+    rewriteSuggestion: string | null;
+    senderIntent: { reading: string } | null;
+    receiverInterpretations: Array<{ reading: string; probability: number }>;
+  };
+  onClose: () => void;
+  onApplyRewrite: (text: string) => void;
+}) {
+  const riskPercent = Math.round(result.misreadRisk * 100);
+  const riskColor = riskPercent >= 60 ? "#ef4444" : riskPercent >= 30 ? "#f59e0b" : "#22c55e";
+  const riskLabel = riskPercent >= 60 ? "伝わりにくい" : riskPercent >= 30 ? "少し注意" : "伝わりやすい";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, height: 0 }}
+      animate={{ opacity: 1, y: 0, height: "auto" }}
+      exit={{ opacity: 0, y: 8, height: 0 }}
+      className="overflow-hidden"
+    >
+      <div className="px-4 py-3 space-y-2" style={{ background: "rgba(255,255,255,0.95)", borderTop: `1px solid ${C.s2}` }}>
+        {/* ヘッダー */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 14 }}>🔮</span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: riskColor }}>{riskLabel}</span>
+            <span style={{ fontSize: 9, color: C.t4 }}>
+              誤読リスク {riskPercent}%
+            </span>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 10, color: C.t4, padding: 4 }}>✕</button>
+        </div>
+
+        {/* 受信者がどう読むか */}
+        {result.receiverInterpretations.length > 0 && (
+          <div className="space-y-1">
+            <p style={{ fontSize: 8, color: C.t4, letterSpacing: "0.1em" }}>相手にどう読まれるか</p>
+            {result.receiverInterpretations.slice(0, 2).map((interp, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span style={{ fontSize: 8, color: C.t4, marginTop: 2, whiteSpace: "nowrap" }}>
+                  {Math.round(interp.probability * 100)}%
+                </span>
+                <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>
+                  {interp.reading}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 言い換え提案 */}
+        {result.rewriteSuggestion && (
+          <button
+            onClick={() => onApplyRewrite(result.rewriteSuggestion!)}
+            className="w-full text-left rounded-xl px-3 py-2 transition-all"
+            style={{ background: `${C.neural}08`, border: `1px solid ${C.neural}15` }}
+          >
+            <p style={{ fontSize: 8, color: C.neural, letterSpacing: "0.1em", marginBottom: 2 }}>
+              言い換え提案（タップで適用）
+            </p>
+            <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.5 }}>
+              {result.rewriteSuggestion}
+            </p>
+          </button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   💭 バブルヒント — 受信メッセージの意図翻訳
+   ═══════════════════════════════════════════════ */
+function BubbleHint({ hint, onTap }: {
+  hint: { hintText: string; confidence: number; misreadRisk: number };
+  onTap: () => void;
+}) {
+  return (
+    <motion.button
+      initial={{ opacity: 0, scale: 0.8 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.8 }}
+      onClick={onTap}
+      className="mt-1 text-left rounded-xl px-3 py-2 max-w-[90%]"
+      style={{
+        background: `${C.neural}06`,
+        border: `1px solid ${C.neural}12`,
+      }}
+    >
+      <div className="flex items-start gap-1.5">
+        <span style={{ fontSize: 12, flexShrink: 0 }}>💭</span>
+        <p style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>
+          {hint.hintText}
+        </p>
+      </div>
+    </motion.button>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   共同Alter 仲介パネル
+   ═══════════════════════════════════════════════ */
+function MediationPanel({ result, onClose, isSender }: {
+  result: {
+    forSender: { reframe: string; insight: string; actionHint: string } | null;
+    forReceiver: { reframe: string; insight: string; actionHint: string } | null;
+    sharedInsight: string | null;
+    decision: { shouldMediate: boolean; reason: string; urgency: string };
+  };
+  onClose: () => void;
+  isSender: boolean;
+}) {
+  const suggestion = isSender ? result.forSender : result.forReceiver;
+  if (!result.decision.shouldMediate) {
+    return (
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}
+        className="px-4 py-3" style={{ background: "rgba(255,255,255,0.95)", borderTop: `1px solid ${C.s2}` }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 14 }}>🤝</span>
+            <p style={{ fontSize: 11, color: C.t3 }}>会話は安定しています</p>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 10, color: C.t4, padding: 4 }}>✕</button>
+        </div>
+      </motion.div>
+    );
+  }
+
+  const urgencyColor = result.decision.urgency === "high" ? "#ef4444"
+    : result.decision.urgency === "medium" ? "#f59e0b" : C.neural;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, height: 0 }}
+      animate={{ opacity: 1, y: 0, height: "auto" }}
+      exit={{ opacity: 0, y: 8, height: 0 }}
+      className="overflow-hidden"
+    >
+      <div className="px-4 py-3 space-y-2.5" style={{
+        background: "rgba(255,255,255,0.95)", borderTop: `1px solid ${C.s2}`,
+      }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 14 }}>🤝</span>
+            <span style={{ fontSize: 10, fontWeight: 600, color: urgencyColor }}>共同Alter</span>
+          </div>
+          <button onClick={onClose} style={{ fontSize: 10, color: C.t4, padding: 4 }}>✕</button>
+        </div>
+
+        {/* 共有インサイト */}
+        {result.sharedInsight && (
+          <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.6, fontStyle: "italic" }}>
+            {result.sharedInsight}
+          </p>
+        )}
+
+        {/* 個別提案 */}
+        {suggestion && (
+          <div className="space-y-2">
+            <div className="rounded-xl px-3 py-2" style={{ background: `${C.neural}06` }}>
+              <p style={{ fontSize: 8, color: C.neural, letterSpacing: "0.1em", marginBottom: 3 }}>相手の状態</p>
+              <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>{suggestion.insight}</p>
+            </div>
+            <div className="rounded-xl px-3 py-2" style={{ background: `${C.neural}06` }}>
+              <p style={{ fontSize: 8, color: C.neural, letterSpacing: "0.1em", marginBottom: 3 }}>こうしてみては</p>
+              <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>{suggestion.actionHint}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+/* ═══════════════════════════════════════════════
    会話インサイトパネル — Aneurasyncだけの武器
    ═══════════════════════════════════════════════ */
 function InsightPanel({ insight, onClose }: { insight: ConversationInsight; onClose: () => void }) {
@@ -297,7 +478,10 @@ function ConversationStarters({ counterpartName, archetypeLabel, deepeningTopics
    ═══════════════════════════════════════════════ */
 export default function ChatClient({ threadId }: Props) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try { return sessionStorage.getItem(`talk_draft_${threadId}`) ?? ""; } catch { return ""; }
+  });
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -316,11 +500,50 @@ export default function ChatClient({ threadId }: Props) {
   const [showNewMsgBanner, setShowNewMsgBanner] = useState(false);
   const [isConnected, setIsConnected] = useState(true);
   const [imagePreview, setImagePreview] = useState<{ file: File; url: string } | null>(null);
+  // ── 意図翻訳エンジン状態 ──
+  const [intentCheck, setIntentCheck] = useState<{
+    checking: boolean;
+    result: {
+      misreadRisk: number;
+      interventionLevel: string;
+      gapDetected: boolean;
+      gapType: string | null;
+      rewriteSuggestion: string | null;
+      senderIntent: { reading: string } | null;
+      receiverInterpretations: Array<{ reading: string; probability: number }>;
+    } | null;
+    visible: boolean;
+  }>({ checking: false, result: null, visible: false });
+  const [bubbleHints, setBubbleHints] = useState<Map<string, {
+    hintText: string;
+    confidence: number;
+    misreadRisk: number;
+  }>>(new Map());
+  const [bubbleFetching, setBubbleFetching] = useState<Set<string>>(new Set());
+  const [mediationState, setMediationState] = useState<{
+    loading: boolean;
+    result: {
+      forSender: { reframe: string; insight: string; actionHint: string } | null;
+      forReceiver: { reframe: string; insight: string; actionHint: string } | null;
+      sharedInsight: string | null;
+      decision: { shouldMediate: boolean; reason: string; urgency: string };
+    } | null;
+    visible: boolean;
+  }>({ loading: false, result: null, visible: false });
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const prevMsgCountRef = useRef(0);
+
+  // ── 下書き保存（sessionStorage） ──
+  useEffect(() => {
+    const key = `talk_draft_${threadId}`;
+    try {
+      if (input) { sessionStorage.setItem(key, input); }
+      else { sessionStorage.removeItem(key); }
+    } catch { /* noop */ }
+  }, [input, threadId]);
 
   // ── 会話インサイト（Aneurasyncの核心）──
   // Step 1: ルールベースで即座に表示（フォールバック）
@@ -337,7 +560,7 @@ export default function ChatClient({ threadId }: Props) {
     fetch(`/api/talk/insight?targetUserId=${cpId}`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.ok && d.insight) setLlmInsight(d.insight); })
-      .catch(() => {});
+      .catch((err) => { console.warn("[talk/insight] fetch failed:", err); });
   }, [counterpart.card]);
   const insight = llmInsight ?? ruleBasedInsight;
 
@@ -584,6 +807,75 @@ export default function ChatClient({ threadId }: Props) {
     textareaRef.current?.focus();
   };
 
+  // ── 🔮 意図チェック（送信前） ──
+  const handleIntentCheck = useCallback(async () => {
+    if (!input.trim() || intentCheck.checking) return;
+    setIntentCheck(prev => ({ ...prev, checking: true, visible: true }));
+    try {
+      const res = await fetch("/api/talk/intent-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, message: input.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setIntentCheck({ checking: false, result: data, visible: true });
+          return;
+        }
+      }
+      setIntentCheck(prev => ({ ...prev, checking: false }));
+    } catch {
+      setIntentCheck(prev => ({ ...prev, checking: false }));
+    }
+  }, [input, threadId, intentCheck.checking]);
+
+  // ── 💭 バブルヒント（受信メッセージ） ──
+  const fetchBubbleHint = useCallback(async (messageId: string) => {
+    if (bubbleHints.has(messageId) || bubbleFetching.has(messageId)) return;
+    setBubbleFetching(prev => new Set(prev).add(messageId));
+    try {
+      const res = await fetch("/api/talk/intent-translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, messageId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok && data.bubbleHint?.show) {
+          setBubbleHints(prev => new Map(prev).set(messageId, {
+            hintText: data.bubbleHint.hintText,
+            confidence: data.bubbleHint.confidence,
+            misreadRisk: data.bubbleHint.misreadRisk,
+          }));
+        }
+      }
+    } catch { /* silent */ }
+    setBubbleFetching(prev => { const n = new Set(prev); n.delete(messageId); return n; });
+  }, [threadId, bubbleHints, bubbleFetching]);
+
+  // ── 共同Alter 仲介リクエスト ──
+  const requestMediation = useCallback(async (messageId?: string) => {
+    setMediationState(prev => ({ ...prev, loading: true, visible: true }));
+    try {
+      const res = await fetch("/api/talk/mediate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, messageId }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setMediationState({ loading: false, result: data, visible: true });
+          return;
+        }
+      }
+      setMediationState(prev => ({ ...prev, loading: false }));
+    } catch {
+      setMediationState(prev => ({ ...prev, loading: false }));
+    }
+  }, [threadId]);
+
   // ── 検索 ──
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -721,6 +1013,15 @@ export default function ChatClient({ threadId }: Props) {
             aria-label="メッセージを検索"
           >
             <span style={{ fontSize: 14 }}>🔍</span>
+          </button>
+          {/* 共同Alter */}
+          <button
+            onClick={() => requestMediation()}
+            className="w-9 h-9 rounded-full flex items-center justify-center min-h-[44px]"
+            style={{ background: mediationState.visible ? `${C.neural}12` : C.s2 }}
+            aria-label="共同Alter（すれ違い翻訳）"
+          >
+            <span style={{ fontSize: 14 }}>🤝</span>
           </button>
           {/* インサイトトグル */}
           {insight && (
@@ -1021,6 +1322,29 @@ export default function ChatClient({ threadId }: Props) {
                             onReacted={fetchMessages}
                           />
                         )}
+                        {/* 💭 バブルヒント（相手のメッセージにのみ） */}
+                        {!group.isMine && isLast && !isOptimistic && (
+                          <AnimatePresence>
+                            {bubbleHints.has(msg.id) ? (
+                              <BubbleHint
+                                hint={bubbleHints.get(msg.id)!}
+                                onTap={() => setBubbleHints(prev => { const n = new Map(prev); n.delete(msg.id); return n; })}
+                              />
+                            ) : !bubbleFetching.has(msg.id) && (
+                              <motion.button
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 0.5 }}
+                                onClick={() => fetchBubbleHint(msg.id)}
+                                className="mt-1 flex items-center gap-1 px-2 py-1 rounded-lg"
+                                style={{ background: "transparent" }}
+                                aria-label="意図を翻訳"
+                              >
+                                <span style={{ fontSize: 10 }}>💭</span>
+                                <span style={{ fontSize: 8, color: C.t4 }}>意図を見る</span>
+                              </motion.button>
+                            )}
+                          </AnimatePresence>
+                        )}
                         {/* 長押しアクションメニュー */}
                         <AnimatePresence>
                           {pickerMsgId === msg.id && (
@@ -1150,6 +1474,30 @@ export default function ChatClient({ threadId }: Props) {
               </motion.div>
             )}
           </AnimatePresence>
+          {/* 🔮 意図チェック結果パネル */}
+          <AnimatePresence>
+            {intentCheck.visible && intentCheck.result && (
+              <IntentCheckPanel
+                result={intentCheck.result}
+                onClose={() => setIntentCheck(prev => ({ ...prev, visible: false }))}
+                onApplyRewrite={(text) => {
+                  setInput(text);
+                  setIntentCheck(prev => ({ ...prev, visible: false }));
+                  textareaRef.current?.focus();
+                }}
+              />
+            )}
+          </AnimatePresence>
+          {/* 🤝 仲介パネル */}
+          <AnimatePresence>
+            {mediationState.visible && mediationState.result && (
+              <MediationPanel
+                result={mediationState.result}
+                onClose={() => setMediationState(prev => ({ ...prev, visible: false }))}
+                isSender={true}
+              />
+            )}
+          </AnimatePresence>
           <div className="flex items-end gap-2">
             {/* 画像添付ボタン */}
             <label className="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer min-h-[44px] flex-shrink-0"
@@ -1186,6 +1534,19 @@ export default function ChatClient({ threadId }: Props) {
                 </span>
               )}
             </div>
+            {/* 🔮 意図チェックボタン */}
+            <button
+              onClick={handleIntentCheck}
+              disabled={!input.trim() || intentCheck.checking}
+              aria-label="伝わり方チェック"
+              className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px] flex-shrink-0"
+              style={{
+                background: intentCheck.checking ? `${C.neural}20` : input.trim() ? `${C.neural}10` : "transparent",
+                opacity: input.trim() ? 1 : 0.3,
+              }}
+            >
+              <span style={{ fontSize: 16 }}>{intentCheck.checking ? "⏳" : "🔮"}</span>
+            </button>
             <button
               onClick={handleSend}
               disabled={!input.trim() || sending}

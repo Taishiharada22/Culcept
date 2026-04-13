@@ -5,6 +5,11 @@ import { safeLSSet } from "@/lib/safeLocalStorage";
 import AlterContextBanner from "@/components/home/AlterContextBanner";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import { HOME_MORE_NAV } from "@/lib/navigation";
+import { useCeoCheck } from "@/hooks/useCeoCheck";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
+import { retryFetch } from "@/lib/retryFetch";
+import QuickAccessBar from "@/components/home/QuickAccessBar";
 import {
   clearDraft,
   getChapters,
@@ -165,6 +170,7 @@ function viewModeFromState(state: OriginClientState): ViewMode {
 }
 
 export default function OriginPageClient({ initialState }: Props) {
+  const { showError } = useSaveToast();
   const [tab, setTab] = useState<TabKey>(() => {
     // Default tab based on time of day
     const hour = new Date().getHours();
@@ -806,8 +812,21 @@ export default function OriginPageClient({ initialState }: Props) {
     (year: number, month: number) => {
       storeBirthDate(year, month);
       updateSaveState((prev) => ({ ...prev, birthYear: year, birthMonth: month }));
+
+      // Server sync: persist birth date to Baseline API
+      const m = String(month).padStart(2, "0");
+      void retryFetch("/api/baseline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateOfBirth: `${year}-${m}-01` }),
+      }).then((res) => {
+        if (!res.ok) {
+          console.warn("[origin/birthdate] サーバー同期失敗:", res.error);
+          showError("生年月日のサーバー保存に失敗しました");
+        }
+      });
     },
-    [updateSaveState],
+    [updateSaveState, showError],
   );
 
   const handleCalendarCellClick = useCallback(
@@ -907,7 +926,7 @@ export default function OriginPageClient({ initialState }: Props) {
   }, [sessionMeta.activeSessionId, updateSaveState]);
 
   const handleExplorationComplete = useCallback(
-    (chapter: MemoryChapter) => {
+    async (chapter: MemoryChapter) => {
       const nextChapters = getChapters();
       persistSignatureRef.current = "";
       updateSaveState((prev) => ({
@@ -922,44 +941,43 @@ export default function OriginPageClient({ initialState }: Props) {
       if (newInsights.length > 0) setPendingInsight(newInsights[0]);
       prevSaveRef.current = nextSave;
 
-      // Welcome flowからの探索完了時はマップ画面へ
-      if (fromWelcomeRef.current) {
-        fromWelcomeRef.current = false;
-        setViewMode("welcome_map");
-      } else {
-        // セレモニー表示
-        setCeremonyChapter({ count: nextChapters.length, title: chapter.title ?? "記憶の断片" });
-        setViewMode("ceremony");
-      }
-      setSessionMeta((prev) => ({
-        ...prev,
-        activeSessionStatus: null,
-        latestRecordId: chapter.id,
-        latestSessionCompleted: true,
-        latestSessionResultGenerated: true,
-      }));
-
-      void completeOriginChapter({
-        sessionId: sessionMeta.activeSessionId,
-        chapter,
-        currentPosition,
-      })
-        .then((result) => {
-          setSessionMeta((prev) => ({
-            ...prev,
-            activeSessionId: null,
-            activeSessionStatus: null,
-            latestSessionId: result.sessionId,
-            latestSessionCompleted: true,
-            latestSessionResultGenerated: true,
-            latestRecordId: result.recordId,
-          }));
-        })
-        .catch((error) => {
-          console.error("[origin] completion sync failed:", error);
+      try {
+        const result = await completeOriginChapter({
+          sessionId: sessionMeta.activeSessionId,
+          chapter,
+          currentPosition,
         });
+        setSessionMeta((prev) => ({
+          ...prev,
+          activeSessionId: null,
+          activeSessionStatus: null,
+          latestSessionId: result.sessionId,
+          latestSessionCompleted: true,
+          latestSessionResultGenerated: true,
+          latestRecordId: result.recordId,
+        }));
+        // サーバー確認後にセレモニー表示
+        if (fromWelcomeRef.current) {
+          fromWelcomeRef.current = false;
+          setViewMode("welcome_map");
+        } else {
+          setCeremonyChapter({ count: nextChapters.length, title: chapter.title ?? "記憶の断片" });
+          setViewMode("ceremony");
+        }
+      } catch (error) {
+        console.error("[origin] completion sync failed:", error);
+        showError("チャプター保存に失敗しました");
+        // 失敗時: ドラフトデータは保持、セレモニーは表示しない
+        setSessionMeta((prev) => ({
+          ...prev,
+          activeSessionStatus: null,
+          latestRecordId: chapter.id,
+          latestSessionCompleted: true,
+          latestSessionResultGenerated: true,
+        }));
+      }
     },
-    [currentPosition, sessionMeta.activeSessionId, updateSaveState],
+    [currentPosition, sessionMeta.activeSessionId, updateSaveState, showError],
   );
 
   const handleExplorationCancel = useCallback(() => {
@@ -967,7 +985,7 @@ export default function OriginPageClient({ initialState }: Props) {
   }, [chapters.length, currentDraft]);
 
   const handleFlowStateChange = useCallback(
-    (snapshot: {
+    async (snapshot: {
       draft: DraftChapter;
       step: ExplorationStep;
       status: "in_progress" | "generating";
@@ -989,27 +1007,27 @@ export default function OriginPageClient({ initialState }: Props) {
       if (persistSignatureRef.current === signature) return;
       persistSignatureRef.current = signature;
 
-      void persistOriginSessionState({
-        sessionId: sessionMeta.activeSessionId,
-        status: snapshot.status,
-        currentStep: snapshot.step,
-        draft: snapshot.draft,
-        currentPosition,
-      })
-        .then((result) => {
-          if (!result.sessionId) return;
-          setSessionMeta((prev) => ({
-            ...prev,
-            activeSessionId: result.sessionId,
-            activeSessionStatus: result.status ?? snapshot.status,
-            latestSessionId: result.sessionId,
-          }));
-        })
-        .catch((error) => {
-          console.error("[origin] session sync failed:", error);
+      try {
+        const result = await persistOriginSessionState({
+          sessionId: sessionMeta.activeSessionId,
+          status: snapshot.status,
+          currentStep: snapshot.step,
+          draft: snapshot.draft,
+          currentPosition,
         });
+        if (!result.sessionId) return;
+        setSessionMeta((prev) => ({
+          ...prev,
+          activeSessionId: result.sessionId,
+          activeSessionStatus: result.status ?? snapshot.status,
+          latestSessionId: result.sessionId,
+        }));
+      } catch (error) {
+        console.error("[origin] session sync failed:", error);
+        showError("セッション保存に失敗しました");
+      }
     },
-    [currentPosition, sessionMeta.activeSessionId, updateSaveState],
+    [currentPosition, sessionMeta.activeSessionId, updateSaveState, showError],
   );
 
   /** フルスクリーンオーバーレイ判定 */
@@ -1095,7 +1113,7 @@ export default function OriginPageClient({ initialState }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#f5f0e8]">
+    <div className="fixed inset-0 flex flex-col overflow-hidden bg-[#f5f0e8]" style={{ paddingBottom: 60 }}>
       <Suspense fallback={null}><AlterContextBanner page="origin" /></Suspense>
       {/* ── Navbar ── */}
       <nav
@@ -1855,8 +1873,29 @@ export default function OriginPageClient({ initialState }: Props) {
           if (tab) setTab(tab as TabKey);
         }}
       />
+
+      {/* QuickAccess（日記→ホームに置換） */}
+      <div className="fixed bottom-0 left-0 right-0 z-40">
+        <OriginQuickAccess />
+      </div>
     </div>
   );
+}
+
+/** Origin 用 QuickAccess（日記→ホームに置換） */
+function OriginQuickAccess() {
+  const isCeo = useCeoCheck();
+  const moreItems = isCeo
+    ? [...HOME_MORE_NAV, { href: "/ceo", label: "CEO", icon: "⚙" }]
+    : HOME_MORE_NAV;
+  const items = [
+    { href: "/calendar", label: "コーデ" },
+    { href: "/stargazer", label: "観測" },
+    { href: "/", label: "ホーム" },
+    { href: "/talk", label: "トーク" },
+    { href: "/rendezvous", label: "出会う" },
+  ];
+  return <QuickAccessBar items={items} moreItems={moreItems} />;
 }
 
 /* ── Resume Banner (shared between desktop/mobile) ── */

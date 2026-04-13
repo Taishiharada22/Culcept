@@ -33,6 +33,7 @@ import InlineInnerWeather from "@/components/home/InlineInnerWeather";
 import ContextReel from "@/components/home/ContextReel";
 import HomeQuickAccess from "@/components/home/HomeQuickAccess";
 import DailyFlowChip from "@/components/home/DailyFlowChip";
+import RendezvousQuickStatus from "@/components/rendezvous/RendezvousQuickStatus";
 
 // ─── Overlays ───
 const HomeTour = dynamic(() => import("@/components/home/HomeTour"), { ssr: false });
@@ -83,12 +84,12 @@ export default function AneurasyncHome() {
           nameAppended.current = true;
           setGreeting((prev) => `${prev}、${name}さん`);
         }
-      } catch {}
+      } catch { }
     })();
   }, []);
 
   // ── localStorage 容量チェック（初回のみ） ──
-  useEffect(() => { try { ensureStorageSpace(); } catch {} }, []);
+  useEffect(() => { try { ensureStorageSpace(); } catch { } }, []);
 
   // ── Data fetching ──
   const homeData = useHomeData();
@@ -289,7 +290,7 @@ export default function AneurasyncHome() {
       if (profile.signalQuality > 0.3) {
         console.log("[Aneurasync] Implicit signals:", profile.impliedTraits.length, "traits detected, quality:", profile.signalQuality.toFixed(2));
       }
-    } catch {}
+    } catch { }
   }, [sgData]);
 
   // ── Scroll tracking ──
@@ -325,10 +326,48 @@ export default function AneurasyncHome() {
   const [composerQuery, setComposerQuery] = useState("");
   const [composerFocused, setComposerFocused] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // 送信済みテキスト追跡（再注入防止用）
+  const lastSentTextRef = useRef<string | null>(null);
+  // Conversation Starter: focus重複発火ガード（1時間帯で1回だけ）
+  const starterFiredRef = useRef<string | null>(null);
 
   // Hydration safety for composer chips
   const [composerMounted, setComposerMounted] = useState(false);
   useEffect(() => { setComposerMounted(true); }, []);
+
+  // ── Follow-up / Journal prompt / Insight state ──
+  const [followUpData, setFollowUpData] = useState<{
+    targetItem: import("@/lib/alter-morning/types").PlanItem;
+    message: string;
+  } | null>(null);
+  const [journalData, setJournalData] = useState<{ message: string } | null>(null);
+  const [insightData, setInsightData] = useState<import("@/lib/alter-morning/types").ProactiveInsight | null>(null);
+
+  // Proactive Insight: Home表示時に1回だけ生成（Phase 4）
+  useEffect(() => {
+    import("@/lib/alter-morning/proactiveInsights").then(({ generateMorningInsight }) => {
+      const insight = generateMorningInsight();
+      if (insight) setInsightData(insight);
+    });
+  }, []);
+
+  // Follow-up / Journal をプランがある時にチェック
+  useEffect(() => {
+    if (!alterChat.morningPlan?.confirmed) return;
+    // 動的import（バンドルサイズ最適化）
+    import("@/lib/alter-morning/followUpTracker").then(({ checkFollowUp }) => {
+      const decision = checkFollowUp(alterChat.morningPlan!);
+      if (decision.shouldFollowUp && decision.targetItem && decision.message) {
+        setFollowUpData({ targetItem: decision.targetItem, message: decision.message });
+      }
+    });
+    import("@/lib/alter-morning/journalPrompt").then(({ checkJournalPrompt }) => {
+      const decision = checkJournalPrompt();
+      if (decision.shouldPrompt && decision.message) {
+        setJournalData({ message: decision.message });
+      }
+    });
+  }, [alterChat.morningPlan?.confirmed]);
 
   const composerHasConversation = composerMounted && alterChat.messages.length > 0;
   const anonLimitReached = isAnonymous && alterChat.roundCount >= ANON_RALLY_LIMIT;
@@ -379,17 +418,28 @@ export default function AneurasyncHome() {
     prevIsComposingRef.current = isComposing;
   }, [isComposing, innerWeather, alterChat.messages.length, sgData?.observationCount]);
 
+  // ── 入力欄を確実にクリアするヘルパー ──
+  const forceClearComposer = () => {
+    setComposerQuery("");
+    // React の制御コンポーネントに加え、DOM 値も直接クリア
+    // （iOS Safari + IME で React state と DOM が不整合になるケースへの防御）
+    if (composerRef.current) {
+      composerRef.current.value = "";
+      composerRef.current.style.height = "auto";
+    }
+  };
+
   const handleComposerSubmit = (text?: string) => {
     const q = (text ?? composerQuery).trim();
     if (!q || alterChat.loading || composerIsLimitReached) return;
 
+    // 送信テキストをスナップショットとして記録（再注入防止用）
+    lastSentTextRef.current = q;
+
     // 匿名ユーザーのラリー上限 → ユーザーメッセージ表示 + Alterがリミットメッセージで返答
     if (anonLimitReached) {
-      // ユーザーメッセージをローカル注入（API呼ばない）
       alterChat.injectMessage(q, "user");
-      setComposerQuery("");
-      if (composerRef.current) composerRef.current.style.height = "auto";
-      // Alterの返答をリミットメッセージとして注入
+      forceClearComposer();
       setTimeout(() => {
         alterChat.injectMessage(
           "ここまでの会話で、あなたのことが少し見えてきました。\n\n" +
@@ -400,11 +450,9 @@ export default function AneurasyncHome() {
       return;
     }
 
+    // 送信用スナップショットを確定し、入力欄を即時クリア
     alterChat.sendMessage(q);
-    setComposerQuery("");
-    if (composerRef.current) {
-      composerRef.current.style.height = "auto";
-    }
+    forceClearComposer();
   };
 
   // ── ContextReel カードタップ: composerSeed 即投入 + focus ──
@@ -427,11 +475,35 @@ export default function AneurasyncHome() {
   }, []);
 
   const handleComposerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setComposerQuery(e.target.value);
+    const newValue = e.target.value;
+    // 送信済みテキストが onChange で再注入されるのを防止
+    // （ブラウザ autocomplete / IME 確定 / undo で復活するケース）
+    if (lastSentTextRef.current && newValue === lastSentTextRef.current) {
+      // ユーザーが意図的に同じ文を再入力した場合は許容（ref をクリア済みのため通る）
+      return;
+    }
+    // ユーザーが新しい文字を打ち始めたら送信テキスト追跡をリセット
+    if (lastSentTextRef.current && newValue !== lastSentTextRef.current) {
+      lastSentTextRef.current = null;
+    }
+    setComposerQuery(newValue);
     const el = e.target;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   };
+
+  // ── 送信済みテキスト再注入の最終防御 ──
+  // loading 開始直後（sendMessage 内で setLoading(true) 後）に
+  // composerQuery がまだ送信テキストと同一なら強制クリア
+  useEffect(() => {
+    if (alterChat.loading && lastSentTextRef.current && composerQuery === lastSentTextRef.current) {
+      forceClearComposer();
+    }
+    // loading が false に戻ったら追跡をリセット（次の送信に備える）
+    if (!alterChat.loading && lastSentTextRef.current) {
+      lastSentTextRef.current = null;
+    }
+  }, [alterChat.loading, composerQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Alter 導入メッセージ（時間帯別、人間っぽく） ──
   const alterGreeting = useMemo(() => {
@@ -465,7 +537,7 @@ export default function AneurasyncHome() {
       const today = new Date().toISOString().slice(0, 10);
       const stored = sessionStorage.getItem("alter_greet_typed");
       if (stored === today) { setGreetDisplay(greetFullText); setGreetTyped(true); return; }
-    } catch {}
+    } catch { }
     if (greetCharIdx <= greetFullText.length) {
       const t = setTimeout(() => {
         setGreetDisplay(greetFullText.slice(0, greetCharIdx));
@@ -474,7 +546,7 @@ export default function AneurasyncHome() {
       return () => clearTimeout(t);
     }
     setGreetTyped(true);
-    try { sessionStorage.setItem("alter_greet_typed", new Date().toISOString().slice(0, 10)); } catch {}
+    try { sessionStorage.setItem("alter_greet_typed", new Date().toISOString().slice(0, 10)); } catch { }
   }, [greetCharIdx, greetFullText, composerHasConversation]);
 
   // ── Suggestion chips（4個、コンパクトラベル） ──
@@ -539,35 +611,63 @@ export default function AneurasyncHome() {
       {/* ═══ LOGIN INTRO ═══ */}
       <LoginIntroAnimation onComplete={() => setIntroComplete(true)} />
 
+      {/* ═══ ALTER HEADER BAR — スクロール外に固定 ═══ */}
+      <div
+        className="flex-shrink-0 px-5 pt-2 pb-1 flex items-center gap-2"
+        style={{ background: "#f8f6f3", paddingTop: 56, position: "relative", zIndex: 10 }}
+      >
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-[3px] h-5 rounded-full"
+            style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
+          />
+          <span
+            className="text-[14px] font-black tracking-[0.12em]"
+            style={{ color: "#4338CA" }}
+          >
+            ALTER
+          </span>
+        </div>
+        {/* 入力モード時: コンテキストライン */}
+        {isComposing && (
+          <span
+            className="text-[11px] leading-snug"
+            style={{ color: "rgba(99,102,241,0.5)" }}
+          >
+            {composingCtxLine}
+          </span>
+        )}
+        {/* 通常時: Sync + DailyFlowChip */}
+        {!isComposing && (
+          <>
+            {syncPercent > 0 && (
+              <span
+                className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(99,102,241,0.08)",
+                  color: "#6366F1",
+                  border: "1px solid rgba(99,102,241,0.12)",
+                }}
+              >
+                Sync {syncPercent}%
+              </span>
+            )}
+            <div className="ml-auto">
+              <DailyFlowChip
+                instrumentUsedToday={instrumentUsedToday}
+                innerWeatherRecorded={!!innerWeather?.recorded}
+                observationCount={sgData?.observationCount ?? 0}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
       {/* ═══ SCROLL AREA — 1枚の会話キャンバス ═══ */}
       <div ref={scrollRef} data-tour="ask-hero" className="flex-1 min-h-0 overflow-y-auto" style={{ position: "relative", zIndex: 1 }}>
-        <div style={{ color: C.t1, paddingTop: 56 }}>
+        <div style={{ color: C.t1 }}>
 
-          {/* ── 入力モード時（モバイル）: ALTER + コンテキスト1行のみ ── */}
-          {isComposing && (
-            <div className="px-5 pt-2 pb-1 flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <div
-                  className="w-[3px] h-5 rounded-full"
-                  style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
-                />
-                <span
-                  className="text-[14px] font-black tracking-[0.12em]"
-                  style={{ color: "#4338CA" }}
-                >
-                  ALTER
-                </span>
-              </div>
-              <span
-                className="text-[11px] leading-snug"
-                style={{ color: "rgba(99,102,241,0.5)" }}
-              >
-                {composingCtxLine}
-              </span>
-            </div>
-          )}
-
-          {/* ── 通常時: 上部バー + 天気 + AnswerCard ── */}
+          {/* ── 通常時: 天気 + AnswerCard（スクロール内） ── */}
           <div
             className="transition-all duration-200 overflow-hidden"
             style={{
@@ -575,41 +675,6 @@ export default function AneurasyncHome() {
               maxHeight: isComposing ? 0 : 600,
             }}
           >
-            {/* ── 上部バー: ALTER + Sync + DailyFlowChip ── */}
-            <div className="px-5 pt-2 pb-1 flex items-center gap-2">
-              <div className="flex items-center gap-1.5">
-                <div
-                  className="w-[3px] h-5 rounded-full"
-                  style={{ background: "linear-gradient(180deg, #6366F1, #8B5CF6)" }}
-                />
-                <span
-                  className="text-[14px] font-black tracking-[0.12em]"
-                  style={{ color: "#4338CA" }}
-                >
-                  ALTER
-                </span>
-              </div>
-              {syncPercent > 0 && (
-                <span
-                  className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
-                  style={{
-                    background: "rgba(99,102,241,0.08)",
-                    color: "#6366F1",
-                    border: "1px solid rgba(99,102,241,0.12)",
-                  }}
-                >
-                  Sync {syncPercent}%
-                </span>
-              )}
-              <div className="ml-auto">
-                <DailyFlowChip
-                  instrumentUsedToday={instrumentUsedToday}
-                  innerWeatherRecorded={!!innerWeather?.recorded}
-                  observationCount={sgData?.observationCount ?? 0}
-                />
-              </div>
-            </div>
-
             {/* ── 心の天気（フル入力）── AnswerCardの上 ── */}
             <div data-tour="inner-weather">
               <InlineInnerWeather innerWeather={innerWeather} />
@@ -632,6 +697,11 @@ export default function AneurasyncHome() {
               </div>
             </ZoneErrorBoundary>
           </div>
+
+          {/* ═══ Rendezvous ステータス（コンパクト通知） ═══ */}
+          {!isComposing && !composerHasConversation && !isAnonymous && (
+            <RendezvousQuickStatus />
+          )}
 
           {/* ═══ 挨拶（未会話時のみ。入力モード中も残り、初メッセージで消える） ═══ */}
           {!composerHasConversation && (
@@ -713,6 +783,72 @@ export default function AneurasyncHome() {
                 alterResponseId={alterChat.lastResponseId}
                 alterFeedbackMeta={alterChat.lastFeedbackMeta}
                 alterCounselorSoftLink={alterChat.lastCounselorSoftLink}
+                morningPlan={alterChat.morningPlan}
+                morningPhase={alterChat.morningPhase}
+                onMorningPlanConfirm={(plan) => {
+                  alterChat.setMorningPlan(plan);
+                  // プラン確定後、コーデ提案を聞く
+                  alterChat.sendMessage("これでいく");
+                  // ジャーナル誘導の優先度を上げる
+                  import("@/lib/alter-morning/journalPrompt").then(({ markPlanCreatedToday }) => {
+                    markPlanCreatedToday();
+                  });
+                  // 曜日パターンに記録（Phase 4）
+                  import("@/lib/alter-morning/weekdayPatterns").then(({ recordPlanCreated }) => {
+                    recordPlanCreated(plan.items.length);
+                  });
+                  // Conversation Starter: プラン確定を記録
+                  import("@/lib/alter-morning/conversationStarter").then(({ markPlanConfirmed }) => {
+                    markPlanConfirmed();
+                  });
+                }}
+                onMorningPlanChange={() => {
+                  alterChat.sendMessage("変更する");
+                }}
+                morningWeather={(() => {
+                  // calendarFeed から今日の天気を抽出（JST基準）
+                  const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+                  const today = jst.toISOString().slice(0, 10);
+                  const todayDay = calendarFeed?.days?.find((d: any) => d.date === today);
+                  if (!todayDay?.weather) return null;
+                  const w = todayDay.weather;
+                  const icon = (w.icon ?? "").toLowerCase();
+                  const condition: "sunny" | "cloudy" | "rain" | "snow" =
+                    icon.includes("rain") ? "rain" :
+                    icon.includes("snow") ? "snow" :
+                    icon.includes("cloud") ? "cloudy" : "sunny";
+                  return {
+                    tempMax: typeof w.temp === "number" ? w.temp + 3 : null,
+                    tempMin: typeof w.temp === "number" ? w.temp - 3 : null,
+                    condition,
+                    pop: null,
+                  };
+                })()}
+                followUp={followUpData}
+                onFollowUpRespond={(itemId, status) => {
+                  import("@/lib/alter-morning/followUpTracker").then(({ recordFollowUp }) => {
+                    recordFollowUp();
+                  });
+                  // 曜日パターンにタスク結果を記録（Phase 4）
+                  import("@/lib/alter-morning/weekdayPatterns").then(({ recordTaskOutcome }) => {
+                    recordTaskOutcome(status);
+                  });
+                  setFollowUpData(null);
+                  // タスク完了を反映
+                  if (status === "done" && alterChat.morningPlan) {
+                    alterChat.setMorningPlan({
+                      ...alterChat.morningPlan,
+                      items: alterChat.morningPlan.items.map((item) =>
+                        item.id === itemId ? { ...item, completed: true } : item
+                      ),
+                    });
+                  }
+                }}
+                onFollowUpDismiss={() => setFollowUpData(null)}
+                journalPrompt={journalData}
+                onJournalDismiss={() => setJournalData(null)}
+                morningInsight={insightData}
+                onInsightDismiss={() => setInsightData(null)}
                 composerFocused={composerFocused}
                 scrollRef={scrollRef}
                 nudge={{
@@ -764,13 +900,13 @@ export default function AneurasyncHome() {
         <div
           className="flex items-center gap-3 mx-3 mb-1.5 px-4 rounded-2xl transition-all duration-200 cursor-text"
           style={{
-            background: composerFocused ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.7)",
+            background: composerFocused ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.88)",
             border: composerFocused
-              ? "1.5px solid rgba(99,102,241,0.4)"
-              : "1.5px solid rgba(99,102,241,0.18)",
+              ? "1.5px solid rgba(99,102,241,0.5)"
+              : "1.5px solid rgba(99,102,241,0.25)",
             boxShadow: composerFocused
-              ? "0 4px 16px rgba(99,102,241,0.12)"
-              : "0 1px 4px rgba(99,102,241,0.06)",
+              ? "0 4px 20px rgba(99,102,241,0.15)"
+              : "0 2px 8px rgba(0,0,0,0.06)",
           }}
           onClick={() => composerRef.current?.focus()}
         >
@@ -790,7 +926,23 @@ export default function AneurasyncHome() {
               rows={1}
               value={composerQuery}
               onChange={handleComposerChange}
-              onFocus={() => setComposerFocused(true)}
+              onFocus={() => {
+                setComposerFocused(true);
+                // Conversation Starter: 時間帯×プラン状態に応じた先行メッセージを注入
+                // useRef ガードで同一時間帯の重複発火を防止
+                import("@/lib/alter-morning/conversationStarter").then(
+                  ({ getStarterDecision, markStarterShown }) => {
+                    const decision = getStarterDecision();
+                    if (!decision.shouldShow) return;
+                    // ref + localStorage の二重ガード: 同一slot内では1回のみ
+                    const key = `${decision.slot}_${decision.planStatus}`;
+                    if (starterFiredRef.current === key) return;
+                    starterFiredRef.current = key;
+                    markStarterShown(decision.slot);
+                    alterChat.injectMessage(decision.message);
+                  }
+                );
+              }}
               onBlur={() => setTimeout(() => setComposerFocused(false), 200)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -814,7 +966,7 @@ export default function AneurasyncHome() {
                 appearance: "none",
                 WebkitTapHighlightColor: "transparent",
               }}
-              disabled={alterChat.loading || composerIsLimitReached}
+              disabled={composerIsLimitReached}
             />
             {/* タイプライター placeholder（textareaが空のとき表示） */}
             {!composerQuery && !composerFocused && (
@@ -827,9 +979,23 @@ export default function AneurasyncHome() {
               </span>
             )}
           </div>
-          <AnimatePresence>
-            {composerQuery.trim() && !alterChat.loading && (
+          <AnimatePresence mode="wait">
+            {alterChat.loading ? (
               <motion.button
+                key="stop"
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0, opacity: 0 }}
+                onClick={() => alterChat.abort?.()}
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <span className="block w-3 h-3 rounded-sm" style={{ background: "rgba(239,68,68,0.8)" }} />
+              </motion.button>
+            ) : composerQuery.trim() ? (
+              <motion.button
+                key="send"
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0, opacity: 0 }}
@@ -839,17 +1005,18 @@ export default function AneurasyncHome() {
               >
                 →
               </motion.button>
-            )}
+            ) : null}
           </AnimatePresence>
         </div>
 
         {/* ── QuickAccess（会話モード中は非表示） ── */}
         <div
-          className="transition-all duration-200 overflow-hidden"
+          className="transition-all duration-200 relative"
           style={{
             opacity: isComposing ? 0 : 1,
             maxHeight: isComposing ? 0 : 80,
             pointerEvents: isComposing ? "none" : "auto",
+            overflow: isComposing ? "hidden" : "visible",
           }}
         >
           <div data-tour="quick-access"><HomeQuickAccess /></div>

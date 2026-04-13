@@ -22,7 +22,7 @@ export async function GET() {
     return NextResponse.json({ ok: true, state });
   } catch (error) {
     console.error("[origin/state:get]", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Origin状態の取得に失敗しました" }, { status: 500 });
   }
 }
 
@@ -62,6 +62,6 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[origin/state:post]", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "Origin状態の保存に失敗しました" }, { status: 500 });
   }
 }

@@ -23,7 +23,7 @@ export async function cacheState(key: string, value: unknown): Promise<void> {
     const tx = db.transaction(STORE_NAME, "readwrite");
     tx.objectStore(STORE_NAME).put(value, key);
     await new Promise<void>((res, rej) => { tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); });
-  } catch { /* fallback: localStorage handles it */ }
+  } catch (err) { console.error("[my-style] cacheState IndexedDB write failed:", err); }
 }
 
 export async function loadCachedState<T>(key: string): Promise<T | null> {
@@ -32,7 +32,7 @@ export async function loadCachedState<T>(key: string): Promise<T | null> {
     const tx = db.transaction(STORE_NAME, "readonly");
     const req = tx.objectStore(STORE_NAME).get(key);
     return new Promise((res, rej) => { req.onsuccess = () => res(req.result ?? null); req.onerror = () => rej(req.error); });
-  } catch { return null; }
+  } catch (err) { console.error("[my-style] loadCachedState IndexedDB read failed:", err); return null; }
 }
 
 export async function clearCache(): Promise<void> {

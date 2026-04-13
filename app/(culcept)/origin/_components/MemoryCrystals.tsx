@@ -57,9 +57,10 @@ export default function MemoryCrystals({ onStartNewDive }: Props) {
   return (
     <div className="mx-auto max-w-lg px-4 py-4">
       <h2 className="mb-2 text-sm font-semibold text-gray-700">💎 記憶の結晶</h2>
-      <p className="mb-4 text-xs text-gray-400">
+      <p className="mb-1 text-xs text-gray-400">
         振り返った記憶が結晶になって残ります
       </p>
+      <p className="text-xs text-white/40 mb-4">このデータは端末にのみ保存されています</p>
 
       {gems.length === 0 ? (
         <div className="rounded-2xl bg-white/50 p-6 text-center">

@@ -33,7 +33,7 @@ function trackEvent(event: string, metadata?: Record<string, unknown>) {
             metadata: { ...metadata, ts: Date.now() },
         });
         if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-            navigator.sendBeacon("/api/stargazer/analytics", payload);
+            navigator.sendBeacon("/api/stargazer/analytics", new Blob([payload], { type: "application/json" }));
         }
     } catch { /* ignore */ }
 }

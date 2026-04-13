@@ -7,7 +7,8 @@ import { isCeoEmail } from "@/lib/auth/isCeo";
 /**
  * GET /api/admin/rendezvous/verifications — 本人確認キュー
  *   ?status=pending (default) | approved | rejected | frozen | all
- * PATCH /api/admin/rendezvous/verifications — 審査処理（approve / reject / freeze / unfreeze）
+ *   ?section=identity (default) | partner_documents
+ * PATCH /api/admin/rendezvous/verifications — 審査処理（approve / reject / freeze / unfreeze / approve_document / reject_document）
  */
 export async function GET(request: NextRequest) {
   try {
@@ -18,11 +19,56 @@ export async function GET(request: NextRequest) {
     }
 
     const filterStatus = request.nextUrl.searchParams.get("status") ?? "pending";
+    const section = request.nextUrl.searchParams.get("section") ?? "identity";
 
+    // ── Partner Documents セクション ──
+    if (section === "partner_documents") {
+      const { data: profiles, error: pdErr } = await supabaseAdmin
+        .from("rendezvous_profiles")
+        .select("user_id, display_name, partner_document_statuses, verification_level")
+        .not("partner_document_statuses", "is", null)
+        .limit(100);
+
+      if (pdErr) {
+        console.error("[admin/verifications] partner_documents GET error:", pdErr);
+        return NextResponse.json({ ok: true, partner_documents: [] });
+      }
+
+      // partner_document_statuses JSONB をフラットなリストに展開
+      type PartnerDocEntry = {
+        user_id: string;
+        display_name: string | null;
+        verification_level: number;
+        document_type: string;
+        status: string;
+      };
+      const entries: PartnerDocEntry[] = [];
+      const DOC_TYPES = ["single_status", "income", "education", "employment"];
+
+      for (const p of profiles ?? []) {
+        const statuses = (p.partner_document_statuses ?? {}) as Record<string, string>;
+        for (const dt of DOC_TYPES) {
+          const st = statuses[dt];
+          if (!st || st === "not_submitted") continue;
+          if (filterStatus !== "all" && st !== filterStatus) continue;
+          entries.push({
+            user_id: p.user_id,
+            display_name: p.display_name,
+            verification_level: p.verification_level ?? 0,
+            document_type: dt,
+            status: st,
+          });
+        }
+      }
+
+      return NextResponse.json({ ok: true, partner_documents: entries });
+    }
+
+    // ── Identity セクション（既存） ──
     let query = supabaseAdmin
       .from("rendezvous_profiles")
       .select(
-        "user_id, display_name, verification_status, review_status, verification_level, verification_submitted_at, verification_reviewed_at, verification_reviewer_note, document_type, id_document_path, selfie_path, birth_date, frozen_at, frozen_reason, manual_review_required",
+        "user_id, display_name, verification_status, review_status, verification_level, verification_submitted_at, verification_reviewed_at, verification_reviewer_note, document_type, id_document_path, selfie_path, birth_date, frozen_at, frozen_reason, manual_review_required, partner_document_statuses",
       )
       .order("verification_submitted_at", { ascending: true })
       .limit(50);
@@ -55,7 +101,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-const VALID_ACTIONS = ["approve", "reject", "request_resubmit", "freeze", "unfreeze"] as const;
+const VALID_ACTIONS = ["approve", "reject", "request_resubmit", "freeze", "unfreeze", "approve_document", "reject_document"] as const;
+
+const VALID_PARTNER_DOC_TYPES = ["single_status", "income", "education", "employment"] as const;
 
 export async function PATCH(request: NextRequest) {
   try {
@@ -66,10 +114,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { userId, action, note } = body as {
+    const { userId, action, note, documentType } = body as {
       userId?: string;
       action?: string;
       note?: string;
+      documentType?: string;
     };
 
     if (!userId || !action || !VALID_ACTIONS.includes(action as typeof VALID_ACTIONS[number])) {
@@ -77,6 +126,54 @@ export async function PATCH(request: NextRequest) {
         { ok: false, error: `userId and action (${VALID_ACTIONS.join("/")}) required` },
         { status: 400 },
       );
+    }
+
+    // ── Partner Document 審査（approve_document / reject_document） ──
+    if (action === "approve_document" || action === "reject_document") {
+      if (!documentType || !(VALID_PARTNER_DOC_TYPES as readonly string[]).includes(documentType)) {
+        return NextResponse.json(
+          { ok: false, error: `documentType (${VALID_PARTNER_DOC_TYPES.join("/")}) required` },
+          { status: 400 },
+        );
+      }
+
+      const newStatus = action === "approve_document" ? "approved" : "rejected";
+      const adminId = auth.user.id;
+
+      // 現在の partner_document_statuses を取得
+      const { data: current } = await supabaseAdmin
+        .from("rendezvous_profiles")
+        .select("partner_document_statuses")
+        .eq("user_id", userId)
+        .single();
+
+      const currentStatuses = (current?.partner_document_statuses ?? {}) as Record<string, string>;
+      const oldStatus = currentStatuses[documentType] ?? "not_submitted";
+
+      const updatedStatuses = {
+        ...currentStatuses,
+        [documentType]: newStatus,
+      };
+
+      const { error } = await supabaseAdmin
+        .from("rendezvous_profiles")
+        .update({ partner_document_statuses: updatedStatuses })
+        .eq("user_id", userId);
+
+      if (error) {
+        console.error(`[admin/verifications] ${action} error:`, error);
+        return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+      }
+
+      await writeAuditLog(userId, action, adminId, {
+        document_type: documentType,
+        status: oldStatus,
+      }, {
+        document_type: documentType,
+        status: newStatus,
+      }, note);
+
+      return NextResponse.json({ ok: true });
     }
 
     const now = new Date().toISOString();

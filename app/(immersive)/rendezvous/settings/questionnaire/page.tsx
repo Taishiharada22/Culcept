@@ -9,6 +9,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { MatchingVector } from "@/lib/rendezvous/types";
+import { retryFetch } from "@/lib/retryFetch";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 
 // ────────────────────────────────────────────
 // 10次元の質問定義
@@ -235,6 +237,7 @@ const DEFAULT_VECTOR: MatchingVector = {
 
 export default function QuestionnairePage() {
   const router = useRouter();
+  const { showError, showSuccess } = useSaveToast();
   const [vector, setVector] = useState<MatchingVector>({ ...DEFAULT_VECTOR });
   const [stargazerHints, setStargazerHints] = useState<Partial<MatchingVector>>({});
   const [saving, setSaving] = useState(false);
@@ -311,21 +314,24 @@ export default function QuestionnairePage() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/rendezvous/settings", {
+      const res = await retryFetch("/api/rendezvous/settings", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ matchingVector: vector }),
       });
       if (res.ok) {
+        showSuccess("ベクトルを保存しました");
         router.push("/rendezvous/settings");
+      } else {
+        showError("ベクトルの保存に失敗しました");
       }
     } catch {
-      // ignore
+      showError("ベクトルの保存に失敗しました");
     } finally {
       setSaving(false);
     }
-  }, [vector, router]);
+  }, [vector, router, showError, showSuccess]);
 
   // Count dimensions that differ from default
   const completionCount = Object.values(vector).filter((v) => v !== 0.5).length;

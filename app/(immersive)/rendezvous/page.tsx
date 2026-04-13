@@ -2,12 +2,14 @@ import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkOnboardingCompleted } from "@/lib/rendezvous/onboardingState";
-import RendezvousHub from "@/components/rendezvous/RendezvousHub";
+import RendezvousEntryRouter from "@/components/rendezvous/RendezvousEntryRouter";
 import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
 
 /**
- * Rendezvous top page — 3枠選択ハブ
- * 恋愛 / つながり / パートナー を選択するエントリポイント。
+ * Rendezvous top page — last-used tab redirect / first-time selection
+ *
+ * Returning users: client-side redirect to their last-used tab via localStorage.
+ * First-time users: 3-card selection screen (connection / romance / partner).
  */
 
 export const metadata = {
@@ -43,5 +45,5 @@ export default async function RendezvousPage() {
     | null) ?? null;
   const isFrozen = !!profile?.frozen_at;
 
-  return <RendezvousHub verificationStatus={verificationStatus} isFrozen={isFrozen} />;
+  return <RendezvousEntryRouter verificationStatus={verificationStatus} isFrozen={isFrozen} />;
 }

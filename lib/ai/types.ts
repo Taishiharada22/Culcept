@@ -10,6 +10,8 @@ export type AIProviderRequest = {
   jsonSchema?: Record<string, unknown>;
   requireJson?: boolean;
   temperature?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
   maxOutputTokens?: number;
   timeoutMs?: number;
   inputParts?: unknown[];
@@ -35,6 +37,8 @@ export type RunAIParams = {
   jsonSchema?: Record<string, unknown>;
   requireJson?: boolean;
   temperature?: number;
+  frequencyPenalty?: number;
+  presencePenalty?: number;
   maxOutputTokens?: number;
   timeoutMs?: number;
   inputParts?: unknown[];

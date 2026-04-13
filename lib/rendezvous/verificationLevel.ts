@@ -9,6 +9,91 @@
 //   L4: L3 + 追加証明承認
 // ============================================================
 
+// ── Partner 書類定義（結婚相談所水準） ──
+
+export type PartnerDocumentType =
+  | "identity"        // 本人確認書類（L2-L3 で既存）
+  | "single_status"   // 独身証明書
+  | "income"          // 収入証明書
+  | "education"       // 学歴証明書
+  | "employment";     // 勤務先証明
+
+export type PartnerDocumentStatus = "not_submitted" | "pending" | "approved" | "rejected";
+
+export type DocumentRequirement = {
+  type: PartnerDocumentType;
+  label: string;
+  description: string;
+  required: boolean; // true = 必須, false = 任意
+};
+
+export const PARTNER_DOCUMENTS: DocumentRequirement[] = [
+  {
+    type: "identity",
+    label: "本人確認書類",
+    description: "運転免許証・パスポート・マイナンバーカード",
+    required: true,
+  },
+  {
+    type: "single_status",
+    label: "独身証明書",
+    description: "市区町村発行の独身証明書（3ヶ月以内）",
+    required: true,
+  },
+  {
+    type: "income",
+    label: "収入証明書",
+    description: "源泉徴収票・確定申告書・給与明細",
+    required: false,
+  },
+  {
+    type: "education",
+    label: "学歴証明書",
+    description: "卒業証明書・学位記",
+    required: false,
+  },
+  {
+    type: "employment",
+    label: "勤務先証明",
+    description: "在職証明書・社員証コピー",
+    required: false,
+  },
+];
+
+/** Partner 書類ステータスの JSONB 型（rendezvous_profiles.partner_document_statuses） */
+export type PartnerDocumentStatuses = Partial<Record<PartnerDocumentType, PartnerDocumentStatus>>;
+
+/** 書類ステータスから信頼スコア（0-5）を算出 */
+export function computePartnerTrustScore(
+  identityReviewStatus: ReviewStatus,
+  documentStatuses: PartnerDocumentStatuses,
+): number {
+  let score = 0;
+  // 本人確認書類 = 1点
+  if (identityReviewStatus === "approved") score += 1;
+  // 独身証明書 = 1点
+  if (documentStatuses.single_status === "approved") score += 1;
+  // 収入証明書 = 1点
+  if (documentStatuses.income === "approved") score += 1;
+  // 学歴証明書 = 1点
+  if (documentStatuses.education === "approved") score += 1;
+  // 勤務先証明 = 1点
+  if (documentStatuses.employment === "approved") score += 1;
+  return score;
+}
+
+/** 必須書類が全て承認済みかチェック */
+export function areRequiredDocumentsApproved(
+  identityReviewStatus: ReviewStatus,
+  documentStatuses: PartnerDocumentStatuses,
+): boolean {
+  // 本人確認書類（identity）= reviewStatus で管理
+  if (identityReviewStatus !== "approved") return false;
+  // 独身証明書 = 必須
+  if (documentStatuses.single_status !== "approved") return false;
+  return true;
+}
+
 /**
  * 本人確認フロー全体の到達状態（ユーザー向け）。
  * - unverified: 未確認（未提出）

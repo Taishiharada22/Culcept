@@ -17,11 +17,11 @@ interface OptimizedImage {
 }
 
 /**
- * data URL をサーバーサイドで最適化
+ * data URL をサーバーサイドで最適化（内部実装）
  * - 最大 2000px にリサイズ
  * - WebP 変換を試行、失敗時は JPEG
  */
-export async function optimizeImageForUpload(dataUrl: string): Promise<OptimizedImage | null> {
+async function optimizeImageCore(dataUrl: string): Promise<OptimizedImage | null> {
     const match = /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.*)$/.exec(dataUrl);
     if (!match) return null;
 
@@ -80,5 +80,23 @@ export async function optimizeImageForUpload(dataUrl: string): Promise<Optimized
             originalSize,
             optimizedSize: originalSize,
         };
+    }
+}
+
+/**
+ * data URL をサーバーサイドで最適化（1回リトライ付き）
+ * sharp の一時的な失敗に対応するため、失敗時に1回だけ再試行する
+ */
+export async function optimizeImageForUpload(dataUrl: string): Promise<OptimizedImage | null> {
+    try {
+        return await optimizeImageCore(dataUrl);
+    } catch (err) {
+        console.warn("[imageOptimization] first attempt failed, retrying once:", err);
+        try {
+            return await optimizeImageCore(dataUrl);
+        } catch (retryErr) {
+            console.error("[imageOptimization] retry also failed:", retryErr);
+            return null;
+        }
     }
 }

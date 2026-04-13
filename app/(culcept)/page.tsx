@@ -32,15 +32,6 @@ export default async function HomePage() {
         // ── 匿名ユーザー（Stargazer初回観測未完了） ──
         if (user.is_anonymous) redirect("/stargazer");
 
-        // ── 登録済みユーザー: baseline チェック ──
-        const { data: profile } = await supabase
-            .from("profiles")
-            .select("baseline_completed_at")
-            .eq("id", user.id)
-            .maybeSingle();
-
-        if (!profile?.baseline_completed_at) redirect("/baseline");
-
         // ── Stargazer 初回観測完了チェック（DB一本化） ──
         // stargazer_star_maps にレコードがあれば初回観測完了とみなす
         const { data: starMapRow } = await supabase
@@ -48,6 +39,17 @@ export default async function HomePage() {
             .select("user_id")
             .eq("user_id", user.id)
             .maybeSingle();
+
+        // ── baseline チェック ──
+        // star_maps が存在する = Stargazer オンボーディング完了 = baseline も完了済み
+        // baseline_completed_at が null の既存ユーザーも star_maps で救済
+        const { data: profile } = await supabase
+            .from("profiles")
+            .select("baseline_completed_at")
+            .eq("id", user.id)
+            .maybeSingle();
+
+        if (!profile?.baseline_completed_at && !starMapRow) redirect("/baseline");
 
         if (!starMapRow) redirect("/stargazer");
 

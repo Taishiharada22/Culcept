@@ -3,30 +3,38 @@
 import { usePathname, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { RV_COLORS } from "@/components/ui/rendezvous-design";
+import { saveLastTab } from "@/lib/rendezvous/useLastTab";
 
 // =============================================================================
-// Tab definitions
+// Tab definitions — 5カテゴリ（つながり / 恋愛 / パートナー / トーク / ライブ）
 // =============================================================================
 
-export type RendezvousTab = "home" | "explore" | "talk" | "live" | "my";
+export type RendezvousTab = "connection" | "romance" | "partner" | "talk" | "live";
 
 type TabDef = {
   key: RendezvousTab;
   label: string;
   icon: string;
   path: string;
+  activeColor: string;
 };
 
 const TABS: TabDef[] = [
-  { key: "home", label: "ホーム", icon: "\u{1F3E0}", path: "/rendezvous" },
-  { key: "explore", label: "探索", icon: "\u{1F50D}", path: "/rendezvous/explore" },
-  { key: "talk", label: "トーク", icon: "\u{1F4AC}", path: "/rendezvous/stories" },
-  { key: "live", label: "ライブ", icon: "\u2728", path: "/rendezvous/live" },
-  { key: "my", label: "マイ", icon: "\u{1F464}", path: "/rendezvous/mirror" },
+  { key: "connection", label: "つながり", icon: "\u{1F91D}", path: "/rendezvous/connection", activeColor: "#14B8A6" },
+  { key: "romance", label: "恋愛", icon: "\u2764\uFE0F", path: "/rendezvous/romance", activeColor: "#E91E63" },
+  { key: "partner", label: "パートナー", icon: "\u267E\uFE0F", path: "/rendezvous/partner", activeColor: "#10B981" },
+  { key: "talk", label: "トーク", icon: "\u{1F4AC}", path: "/rendezvous/stories", activeColor: "#6366F1" },
+  { key: "live", label: "ライブ", icon: "\u26A1", path: "/rendezvous/live", activeColor: "#F59E0B" },
 ];
 
 export function deriveActiveTab(pathname: string): RendezvousTab {
-  if (pathname === "/rendezvous" || pathname === "/rendezvous/") return "home";
+  // Partner (also match /rendezvous/partner/*)
+  if (pathname.startsWith("/rendezvous/partner")) return "partner";
+  // Romance
+  if (pathname.startsWith("/rendezvous/romance")) return "romance";
+  // Connection
+  if (pathname.startsWith("/rendezvous/connection")) return "connection";
+  // Live cluster
   if (
     pathname.startsWith("/rendezvous/live") ||
     pathname.startsWith("/rendezvous/session") ||
@@ -34,19 +42,19 @@ export function deriveActiveTab(pathname: string): RendezvousTab {
     pathname.startsWith("/rendezvous/constellation")
   )
     return "live";
-  if (pathname.startsWith("/rendezvous/mirror") || pathname.startsWith("/rendezvous/settings") || pathname.startsWith("/rendezvous/universe"))
-    return "my";
-  if (pathname.includes("/chat") || pathname.startsWith("/rendezvous/conversations"))
+  // Talk
+  if (
+    pathname.startsWith("/rendezvous/stories") ||
+    pathname.includes("/chat") ||
+    pathname.startsWith("/rendezvous/conversations")
+  )
     return "talk";
-  if (pathname.startsWith("/rendezvous/explore") || pathname.startsWith("/rendezvous/invite"))
-    return "explore";
-  if (pathname.startsWith("/rendezvous/stories"))
-    return "talk";
-  return "home";
+  // Default to connection
+  return "connection";
 }
 
 // =============================================================================
-// Component — ライトウォームタブバー
+// Component — カテゴリ別カラータブバー
 // =============================================================================
 
 type Props = {
@@ -59,6 +67,7 @@ export default function RendezvousTabBar({ activeTab: propActiveTab }: Props) {
   const activeTab = propActiveTab ?? deriveActiveTab(pathname);
 
   const activeIndex = TABS.findIndex((t) => t.key === activeTab);
+  const activeColor = TABS[activeIndex]?.activeColor ?? "#14B8A6";
 
   return (
     <nav
@@ -71,15 +80,17 @@ export default function RendezvousTabBar({ activeTab: propActiveTab }: Props) {
         paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}
     >
-      {/* Sliding indicator — ワインレッド〜オレンジグラデーション */}
+      {/* Sliding indicator — カテゴリ別カラー */}
       <div className="relative">
         <motion.div
           className="absolute top-0 h-[2px] rounded-full"
           style={{
-            background: RV_COLORS.gradient,
             width: `${100 / TABS.length}%`,
           }}
-          animate={{ left: `${(activeIndex / TABS.length) * 100}%` }}
+          animate={{
+            left: `${(activeIndex / TABS.length) * 100}%`,
+            backgroundColor: activeColor,
+          }}
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
         />
       </div>
@@ -90,7 +101,13 @@ export default function RendezvousTabBar({ activeTab: propActiveTab }: Props) {
           return (
             <button
               key={tab.key}
-              onClick={() => router.push(tab.path)}
+              onClick={() => {
+                // 前回タブを記憶（connection/romance/partner のみ保存）
+                if (tab.key === "connection" || tab.key === "romance" || tab.key === "partner") {
+                  saveLastTab(tab.key);
+                }
+                router.push(tab.path);
+              }}
               className="flex flex-col items-center gap-0.5 min-w-0 flex-1 bg-transparent border-none cursor-pointer outline-none py-1"
             >
               <motion.span
@@ -110,7 +127,7 @@ export default function RendezvousTabBar({ activeTab: propActiveTab }: Props) {
               <span
                 className="text-[10px] font-semibold transition-colors duration-200"
                 style={{
-                  color: isActive ? RV_COLORS.primary : RV_COLORS.textMuted,
+                  color: isActive ? tab.activeColor : RV_COLORS.textMuted,
                 }}
               >
                 {tab.label}

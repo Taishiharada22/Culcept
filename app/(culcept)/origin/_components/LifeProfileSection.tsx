@@ -38,6 +38,7 @@ import {
   endSession,
 } from "@/lib/origin/lifeProfile/passiveObserver";
 import { compressImage } from "@/lib/origin/lifeProfile/imageUtils";
+import { useSaveToast } from "@/components/ui/SaveToastProvider";
 import {
   startVoiceCapture,
   isSpeechRecognitionSupported,
@@ -1399,6 +1400,7 @@ function RendezvousTransparencyPanel({
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function LifeProfileSection() {
+  const { showError } = useSaveToast();
   const [store, setStore] = useState<LifeProfileStore | null>(null);
   const [selectedCategory, setSelectedCategory] =
     useState<LifeProfileCategory | null>(null);
@@ -1453,7 +1455,9 @@ export default function LifeProfileSection() {
     /* eslint-enable react-hooks/set-state-in-effect */
     // #3 Supabase同期（バックグラウンド、非ブロッキング）
     if (loaded.entries.length > 0) {
-      syncToSupabase(loaded).catch(() => {});
+      syncToSupabase(loaded).catch(() => {
+        showError("プロフィール同期に失敗しました");
+      });
     }
   }, []);
 
@@ -1496,18 +1500,22 @@ export default function LifeProfileSection() {
       };
       const updated = addEntry(store, entry);
       persist(updated);
-      upsertEntryToSupabase(entry).catch(() => {});
+      upsertEntryToSupabase(entry).catch(() => {
+        showError("エントリ保存に失敗しました");
+      });
     },
-    [store, persist],
+    [store, persist, showError],
   );
 
   const handleDeleteEntry = useCallback(
     (id: string) => {
       if (!store) return;
       persist(removeEntry(store, id));
-      deleteEntryFromSupabase(id).catch(() => {});
+      deleteEntryFromSupabase(id).catch(() => {
+        showError("エントリ削除に失敗しました");
+      });
     },
-    [store, persist],
+    [store, persist, showError],
   );
 
   const handleDepthAnswer = useCallback(
@@ -1521,16 +1529,20 @@ export default function LifeProfileSection() {
       const updated = addDepthResponse(store, entryId, response);
       persist(updated);
       const entry = updated.entries.find((e) => e.id === entryId);
-      if (entry) upsertEntryToSupabase(entry).catch(() => {});
+      if (entry) upsertEntryToSupabase(entry).catch(() => {
+        showError("回答の保存に失敗しました");
+      });
     },
-    [store, persist],
+    [store, persist, showError],
   );
 
   const handleRendezvousConsent = useCallback(() => {
     if (!store) return;
     persist(setRendezvousConsent(store));
-    syncConsentToSupabase().catch(() => {});
-  }, [store, persist]);
+    syncConsentToSupabase().catch(() => {
+      showError("同意の保存に失敗しました");
+    });
+  }, [store, persist, showError]);
 
   // #4 Onboarding complete
   const handleOnboardingComplete = useCallback(

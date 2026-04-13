@@ -358,10 +358,20 @@ export async function POST(request: NextRequest) {
             return apiBadRequest("No data to save");
         }
 
-        const results = await Promise.all(tasks);
-        const err = results.find((r) => r?.error)?.error;
-        if (err) {
-            return apiBadRequest(String(err.message ?? err));
+        const settled = await Promise.allSettled(tasks);
+        const failures: string[] = [];
+        for (let i = 0; i < settled.length; i++) {
+            const r = settled[i];
+            if (r.status === "rejected") {
+                console.error(`[body-color/profile] POST task ${i} rejected:`, r.reason);
+                failures.push(`task_${i}: ${String(r.reason)}`);
+            } else if (r.value?.error) {
+                console.error(`[body-color/profile] POST task ${i} error:`, r.value.error.message);
+                failures.push(`task_${i}: ${String(r.value.error.message)}`);
+            }
+        }
+        if (failures.length === settled.length) {
+            return apiBadRequest(`All save operations failed: ${failures.join("; ")}`);
         }
 
         // DEBUG: POST直後にDBの photo_analysis 実値を確認
@@ -377,7 +387,7 @@ export async function POST(request: NextRequest) {
             error: verifyRow.error?.message ?? null,
         });
 
-        return apiOk({ saved: true });
+        return apiOk({ saved: true, ...(failures.length > 0 ? { partialFailures: failures } : {}) });
     } catch (error) {
         return apiCatch(error, "POST /api/body-color/profile");
     }

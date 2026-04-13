@@ -6,7 +6,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import type { AlterMessage } from "@/hooks/useAlterChat";
 import type { ActionShape } from "@/lib/stargazer/alterHomeAdapter";
+import type { MorningPlan, MorningPhase } from "@/lib/alter-morning/types";
 import { AlterFeedback } from "@/components/stargazer/AlterFeedback";
+import MorningPlanCard from "@/components/home/morning/MorningPlanCard";
+import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
+import FollowUpChip from "@/components/home/morning/FollowUpChip";
+import JournalPromptChip from "@/components/home/morning/JournalPromptChip";
+import MorningInsightChip from "@/components/home/morning/MorningInsightChip";
 
 /** action_shape → 主CTA テキスト（返答の次の1歩をそのまま押せる形で） */
 const ACTION_SHAPE_CTA: Record<ActionShape, { label: string; icon: string }> = {
@@ -108,12 +114,115 @@ type Props = {
     message: string;
     destination: string;
   } | null;
+  /** Morning Protocol: プランデータ */
+  morningPlan?: MorningPlan | null;
+  /** Morning Protocol: 現在フェーズ */
+  morningPhase?: MorningPhase | null;
+  /** Morning Protocol: プラン確定コールバック */
+  onMorningPlanConfirm?: (plan: MorningPlan) => void;
+  /** Morning Protocol: 変更リクエストコールバック */
+  onMorningPlanChange?: () => void;
+  /** Morning Protocol: 天気データ（コーデ提案用） */
+  morningWeather?: {
+    tempMax: number | null;
+    tempMin: number | null;
+    condition: "sunny" | "cloudy" | "rain" | "snow";
+    pop: number | null;
+  } | null;
+  /** Follow-up: フォロー対象 */
+  followUp?: { targetItem: import("@/lib/alter-morning/types").PlanItem; message: string } | null;
+  /** Follow-up: 応答コールバック */
+  onFollowUpRespond?: (itemId: string, status: "done" | "partial" | "skipped") => void;
+  /** Follow-up: 閉じたコールバック */
+  onFollowUpDismiss?: () => void;
+  /** Journal: 誘導メッセージ */
+  journalPrompt?: { message: string } | null;
+  /** Journal: 閉じたコールバック */
+  onJournalDismiss?: () => void;
+  /** Proactive Insight: Alterの観測（Phase 4） */
+  morningInsight?: import("@/lib/alter-morning/types").ProactiveInsight | null;
+  /** Proactive Insight: 閉じたコールバック */
+  onInsightDismiss?: () => void;
   nudge?: NudgeInput;
   /** 親のcomposerがフォーカス中か（体験接続の静音化用） */
   composerFocused?: boolean;
   /** 親のスクロールコンテナへの参照（自動スクロール用） */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
 };
+
+const THINKING_PHRASES = [
+  "うーん...",
+  "そうだなあ...",
+  "そうですね...",
+  "考えますね...",
+  "ちょっと待って...",
+  "なるほど...",
+  "ふむふむ...",
+  "えっとー...",
+  "ちょっと考えさせて下さい...",
+  "そうだなあ...",
+];
+
+function AlterThinkingText() {
+  const [text, setText] = useState("");
+  const phraseIdxRef = useRef(Math.floor(Math.random() * THINKING_PHRASES.length));
+
+  useEffect(() => {
+    let charIdx = 0;
+    let currentPhraseIdx = phraseIdxRef.current;
+    let phrase = THINKING_PHRASES[currentPhraseIdx];
+    let phase: "typing" | "pause" | "erasing" = "typing";
+    let cancelled = false;
+
+    function tick() {
+      if (cancelled) return;
+
+      if (phase === "typing") {
+        if (charIdx <= phrase.length) {
+          setText(phrase.slice(0, charIdx));
+          charIdx++;
+          setTimeout(tick, 80 + Math.random() * 60);
+        } else {
+          phase = "pause";
+          setTimeout(tick, 1200 + Math.random() * 600);
+        }
+      } else if (phase === "pause") {
+        phase = "erasing";
+        setTimeout(tick, 40);
+      } else if (phase === "erasing") {
+        if (charIdx > 0) {
+          charIdx--;
+          setText(phrase.slice(0, charIdx));
+          setTimeout(tick, 30);
+        } else {
+          // Next phrase
+          currentPhraseIdx = (currentPhraseIdx + 1) % THINKING_PHRASES.length;
+          phrase = THINKING_PHRASES[currentPhraseIdx];
+          phase = "typing";
+          setTimeout(tick, 300);
+        }
+      }
+    }
+
+    tick();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
+      <span className="text-[13px] font-medium" style={{ color: "#6366F1", opacity: 0.7 }}>
+        {text}
+        <motion.span
+          className="inline-block w-[2px] h-[13px] ml-[1px] align-middle"
+          style={{ background: "#6366F1" }}
+          animate={{ opacity: [1, 0, 1] }}
+          transition={{ duration: 0.8, repeat: Infinity }}
+        />
+      </span>
+    </div>
+  );
+}
 
 export default function AskHero({
   observationCount = 0,
@@ -130,6 +239,18 @@ export default function AskHero({
   alterResponseId,
   alterFeedbackMeta,
   alterCounselorSoftLink,
+  morningPlan,
+  morningPhase,
+  onMorningPlanConfirm,
+  onMorningPlanChange,
+  morningWeather,
+  followUp,
+  onFollowUpRespond,
+  onFollowUpDismiss,
+  journalPrompt,
+  onJournalDismiss,
+  morningInsight,
+  onInsightDismiss,
   nudge: nudgeInput,
   composerFocused = false,
   scrollRef,
@@ -184,9 +305,9 @@ export default function AskHero({
         {alterMessages.map((msg) => (
           <div key={msg.id}>
             {msg.role === "user" ? (
-              <div className="flex items-start gap-2">
-                <span className="text-[9px] font-mono mt-0.5" style={{ color: "#8888a0" }}>You</span>
-                <p className="text-[13px] text-text1 leading-relaxed flex-1">{msg.content}</p>
+              <div className="flex items-start gap-2 justify-end">
+                <p className="text-[13px] text-text1 leading-relaxed text-right">{msg.content}</p>
+                <span className="text-[9px] font-mono mt-0.5 shrink-0" style={{ color: "#8888a0" }}>You</span>
               </div>
             ) : (
               <div className="pl-0">
@@ -194,7 +315,7 @@ export default function AskHero({
                   <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
                   <span className="text-[9px] font-mono" style={{ color: "#6366F1", opacity: 0.5 }}>Alter</span>
                 </div>
-                <p className="text-[14px] text-text1 leading-[1.8] font-medium">
+                <p className="text-[14px] text-text1 leading-[1.8] font-medium whitespace-pre-wrap">
                   {msg.content}
                 </p>
                 {msg === alterMessages[alterMessages.length - 1] && !alterLoading && alterSessionId && alterResponseId && (
@@ -226,22 +347,52 @@ export default function AskHero({
           </div>
         ))}
 
+        {/* Morning Protocol: プランカード（会話内にインライン表示） */}
+        {morningPlan && (morningPhase === "plan_presented" || morningPhase === "plan_confirmed" || morningPhase === "outfit_offered" || morningPhase === "outfit_clarifying" || morningPhase === "completed") && (
+          <MorningPlanCard
+            plan={morningPlan}
+            onConfirm={onMorningPlanConfirm ?? (() => {})}
+            onRequestChange={onMorningPlanChange ?? (() => {})}
+          />
+        )}
+
+        {/* Morning Protocol: コーデ提案カード（ユーザーが「見る」と応答後に表示） */}
+        {morningPlan && (morningPhase === "outfit_presented" || morningPhase === "completed") && (
+          <MorningOutfitCard
+            plan={morningPlan}
+            weather={morningWeather ?? undefined}
+          />
+        )}
+
+        {/* Proactive Insight: Alterの観測（Phase 4） */}
+        {morningInsight && onInsightDismiss && (
+          <MorningInsightChip
+            insight={morningInsight}
+            onDismiss={onInsightDismiss}
+          />
+        )}
+
+        {/* Follow-up: 日中フォロー */}
+        {followUp && onFollowUpRespond && onFollowUpDismiss && (
+          <FollowUpChip
+            targetItem={followUp.targetItem}
+            message={followUp.message}
+            onRespond={onFollowUpRespond}
+            onDismiss={onFollowUpDismiss}
+          />
+        )}
+
+        {/* Journal Prompt: 夜ジャーナル誘導 */}
+        {journalPrompt && onJournalDismiss && (
+          <JournalPromptChip
+            message={journalPrompt.message}
+            onDismiss={onJournalDismiss}
+          />
+        )}
+
         {/* Loading */}
         {alterLoading && (
-          <div className="flex items-center gap-2 py-1">
-            <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
-            <motion.div className="flex gap-1" initial={false} animate={{ opacity: 1 }}>
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: "#6366F1" }}
-                  animate={{ opacity: [0.2, 0.7, 0.2] }}
-                  transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.2 }}
-                />
-              ))}
-            </motion.div>
-          </div>
+          <AlterThinkingText />
         )}
 
         {/* Error */}
@@ -252,65 +403,65 @@ export default function AskHero({
         {/* ─── 体験接続: 返答直後の3要素 ─── */}
         {!alterLoading && !isLimitReached && alterMessages.length > 0 &&
           alterMessages[alterMessages.length - 1]?.role === "alter" && alterActionShape && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: composerFocused ? 0.3 : 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.4 }}
-            className="space-y-2 mt-2 mb-1"
-            style={{ pointerEvents: composerFocused ? "none" : "auto" }}
-          >
-            {!ctaDismissed && (() => {
-              const cta = alterIsEmotional
-                ? { label: "今は何もしなくていい", icon: "🫂" }
-                : ACTION_SHAPE_CTA[alterActionShape];
-              const dest = alterIsEmotional ? null : ACTION_SHAPE_DEST[alterActionShape];
-              return (
-                <button
-                  onClick={() => {
-                    if (dest) { router.push(dest); } else { setCtaDismissed(true); }
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all active:scale-[0.97]"
-                  style={{
-                    background: "rgba(99,102,241,0.05)",
-                    border: "1px solid rgba(99,102,241,0.12)",
-                  }}
-                >
-                  <span className="text-xs">{cta.icon}</span>
-                  <span className="text-[11px] font-medium" style={{ color: "#4338CA", opacity: 0.8 }}>
-                    {cta.label}
-                  </span>
-                </button>
-              );
-            })()}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: composerFocused ? 0.3 : 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.4 }}
+              className="space-y-2 mt-2 mb-1"
+              style={{ pointerEvents: composerFocused ? "none" : "auto" }}
+            >
+              {!ctaDismissed && (() => {
+                const cta = alterIsEmotional
+                  ? { label: "今は何もしなくていい", icon: "🫂" }
+                  : ACTION_SHAPE_CTA[alterActionShape];
+                const dest = alterIsEmotional ? null : ACTION_SHAPE_DEST[alterActionShape];
+                return (
+                  <button
+                    onClick={() => {
+                      if (dest) { router.push(dest); } else { setCtaDismissed(true); }
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg transition-all active:scale-[0.97]"
+                    style={{
+                      background: "rgba(99,102,241,0.05)",
+                      border: "1px solid rgba(99,102,241,0.12)",
+                    }}
+                  >
+                    <span className="text-xs">{cta.icon}</span>
+                    <span className="text-[11px] font-medium" style={{ color: "#4338CA", opacity: 0.8 }}>
+                      {cta.label}
+                    </span>
+                  </button>
+                );
+              })()}
 
-            {!alterIsEmotional && (() => {
-              const bridge = (alterDomain && DOMAIN_BRIDGE[alterDomain]) || DEFAULT_BRIDGE;
-              const bridgeHref = bridge.href.includes("?")
-                ? `${bridge.href}&from=alter`
-                : `${bridge.href}?from=alter`;
-              return (
-                <Link
-                  href={bridgeHref}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all active:opacity-70"
-                  style={{
-                    background: "rgba(99,102,241,0.04)",
-                    border: "1px solid rgba(99,102,241,0.10)",
-                  }}
-                >
-                  <span className="text-xs">{bridge.icon}</span>
-                  <span className="text-[11px] font-medium flex-1" style={{ color: "#4338CA", opacity: 0.7 }}>
-                    {bridge.label}
-                  </span>
-                  <span className="text-[9px]" style={{ color: "#6366F1", opacity: 0.4 }}>→</span>
-                </Link>
-              );
-            })()}
+              {!alterIsEmotional && (() => {
+                const bridge = (alterDomain && DOMAIN_BRIDGE[alterDomain]) || DEFAULT_BRIDGE;
+                const bridgeHref = bridge.href.includes("?")
+                  ? `${bridge.href}&from=alter`
+                  : `${bridge.href}?from=alter`;
+                return (
+                  <Link
+                    href={bridgeHref}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all active:opacity-70"
+                    style={{
+                      background: "rgba(99,102,241,0.04)",
+                      border: "1px solid rgba(99,102,241,0.10)",
+                    }}
+                  >
+                    <span className="text-xs">{bridge.icon}</span>
+                    <span className="text-[11px] font-medium flex-1" style={{ color: "#4338CA", opacity: 0.7 }}>
+                      {bridge.label}
+                    </span>
+                    <span className="text-[9px]" style={{ color: "#6366F1", opacity: 0.4 }}>→</span>
+                  </Link>
+                );
+              })()}
 
-            <p className="text-[10px] text-center py-0.5" style={{ color: "#6366F1", opacity: 0.45 }}>
-              {alterIsEmotional ? "そばにいるよ" : "明日、やったか聞くね"}
-            </p>
-          </motion.div>
-        )}
+              <p className="text-[10px] text-center py-0.5" style={{ color: "#6366F1", opacity: 0.45 }}>
+                {alterIsEmotional ? "そばにいるよ" : "明日、やったか聞くね"}
+              </p>
+            </motion.div>
+          )}
 
         {/* Limit reached → Deep Alter CTA */}
         {isLimitReached && (

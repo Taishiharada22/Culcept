@@ -6,6 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import dynamic from "next/dynamic";
 import { useFootprintTracker } from "@/hooks/useFootprintTracker";
+import { useCeoCheck } from "@/hooks/useCeoCheck";
+import QuickAccessBar from "@/components/home/QuickAccessBar";
+import { HOME_MORE_NAV } from "@/lib/navigation";
 import FeatureIntroduction from "@/components/ui/FeatureIntroduction";
 import { MY_STYLE_INTRO } from "@/lib/ui/featureIntroConfigs";
 
@@ -77,7 +80,8 @@ import { loadAllWearEvents, buildWearSummaries } from "@/lib/shared/wearEvents";
 
 /* ── Lib imports ── */
 import { isOnline, enqueueSync, processSyncQueue, cleanStaleSyncItems } from "./_lib/offlineManager";
-import { cacheState } from "./_lib/stateCache";
+import { cacheState, loadCachedState } from "./_lib/stateCache";
+import { ensureStorageSpace } from "@/lib/stargazer/localStorageHelper";
 import { toastVariants } from "./_lib/animations";
 import { vibrateLight, vibrateSuccess } from "./_lib/haptics";
 import { isEmptyState } from "./_lib/demoData";
@@ -125,7 +129,7 @@ function trackMyStyle(event: string, metadata?: Record<string, unknown>) {
     try {
         const payload = JSON.stringify({ event, feature: "my-style", metadata: { ...metadata, ts: Date.now() } });
         if (typeof navigator !== "undefined" && navigator.sendBeacon) {
-            navigator.sendBeacon("/api/stargazer/analytics", payload);
+            navigator.sendBeacon("/api/stargazer/analytics", new Blob([payload], { type: "application/json" }));
         }
     } catch { /* ignore */ }
 }
@@ -744,17 +748,26 @@ const TodayTabContent = React.memo(function TodayTabContent({
 export default function MyStylePage() {
     useFootprintTracker({ feature: "my-style" });
     const searchParams = useSearchParams();
-    const [initialBundle] = useState(() => (typeof window === "undefined" ? { state: normalizeSavedState({}), recoveryMessage: null } : loadStateBundle()));
+    // ── 初期化: SSR/CSR で同じ値を返し hydration mismatch を防ぐ ──
+    // localStorage/IndexedDB の読み取りは mount 後の useEffect で行う
+    const [initialBundle] = useState(() => {
+        if (typeof window === "undefined") return { state: normalizeSavedState({}), recoveryMessage: null };
+        return loadStateBundle();
+    });
     const [state, rawSetState] = useState<SavedState>(initialBundle.state);
     const [tab, setTab] = useState<TabId>("today");
     const [identityMode, setIdentityMode] = useState<IdentityMode>("iam");
-    const [notice, setNotice] = useState<string | null>(initialBundle.recoveryMessage);
+    const [notice, setNotice] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
     const [syncedAt, setSyncedAt] = useState<string | null>(null);
     const [setupComposerItemIds, setSetupComposerItemIds] = useState<string[]>([]);
     const [setupComposerOpen, setSetupComposerOpen] = useState(false);
     const [swipeLearningState] = useState(() => typeof window === "undefined" ? null : loadLearningState());
-    const [showOnboarding, setShowOnboarding] = useState(() => typeof window === "undefined" ? false : isEmptyState(initialBundle.state));
+    // hydration 安全: SSR では常に false（mount 後に useEffect で更新）
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [hydrated, setHydrated] = useState(false);
+    // 復元完了フラグ: true になるまで Bridge POST を禁止
+    const [restorationResolved, setRestorationResolved] = useState(false);
     const [showQuickAdd, setShowQuickAdd] = useState(false);
     const [showPhotoAdd, setShowPhotoAdd] = useState(false);
     const [isDemo, setIsDemo] = useState(false);
@@ -794,18 +807,69 @@ export default function MyStylePage() {
     };
 
     // Persist to localStorage + IndexedDB cache
+    // 復元完了前は書き込み禁止（空 state で上書きしない）
     useEffect(() => {
+        if (!restorationResolved) return;
         const snapshot = createPortableStateSnapshot(state);
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-            if (hasMeaningfulState(state)) localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(snapshot));
-        } catch { /* ignore */ }
-        // Also cache to IndexedDB for large wardrobes
+        const json = JSON.stringify(snapshot);
+        // Always cache to IndexedDB first (no size limit)
         void cacheState("my-style-state", snapshot);
-    }, [state]);
+        // localStorage: try but don't block if quota exceeded — IndexedDB is the primary store
+        try {
+            localStorage.setItem(STORAGE_KEY, json);
+        } catch {
+            ensureStorageSpace();
+            try {
+                localStorage.setItem(STORAGE_KEY, json);
+            } catch {
+                // Quota still exceeded — rely on IndexedDB as primary store
+                // Remove stale localStorage entry to prevent reading outdated data on next load
+                try { localStorage.removeItem(STORAGE_KEY); } catch { /* noop */ }
+                console.warn("[my-style] localStorage quota exceeded — using IndexedDB as primary store");
+            }
+        }
+        // Backup is expendable — write only if quota allows
+        if (hasMeaningfulState(state)) {
+            try { localStorage.setItem(BACKUP_STORAGE_KEY, json); } catch { /* expendable */ }
+        }
+    }, [state, restorationResolved]);
 
     // Clean stale sync items on mount
     useEffect(() => { cleanStaleSyncItems(); }, []);
+
+    // ── Hydration 完了後の初期化 ──
+    // SSR と一致させるため、mount 後に localStorage/IndexedDB の状態を反映
+    useEffect(() => {
+        setHydrated(true);
+        // initialBundle のリカバリーメッセージを反映
+        if (initialBundle.recoveryMessage) {
+            setNotice(initialBundle.recoveryMessage);
+        }
+
+        // localStorage から読み込んだ state が空の場合、IndexedDB フォールバック
+        if (isEmptyState(initialBundle.state)) {
+            void (async () => {
+                try {
+                    const cached = await loadCachedState<SavedState>("my-style-state");
+                    if (cached && !isEmptyState(normalizeSavedState(cached))) {
+                        setState(normalizeSavedState(cached));
+                        setShowOnboarding(false);
+                        pushNotice("IndexedDB からデータを復元しました");
+                        setRestorationResolved(true);
+                        return;
+                    }
+                } catch { /* IndexedDB unavailable */ }
+                // どちらも空 → onboarding 表示
+                setShowOnboarding(isEmptyState(initialBundle.state));
+                setRestorationResolved(true);
+            })();
+        } else {
+            // localStorage にデータあり → そのまま
+            setShowOnboarding(false);
+            setRestorationResolved(true);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Tab from URL
     useEffect(() => { const t = normalizeTabId(searchParams.get("tab")); if (t) setTab(t); }, [searchParams]);
@@ -844,7 +908,9 @@ export default function MyStylePage() {
     }, [initialBundle.state]);
 
     // Remote sync (save) — with offline queue fallback
+    // 復元完了前は POST を禁止（空 state でサーバーを上書きしない）
     useEffect(() => {
+        if (!restorationResolved) return;
         if (!hasMeaningfulState(state)) return;
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
         syncTimerRef.current = window.setTimeout(async () => {
@@ -874,7 +940,7 @@ export default function MyStylePage() {
             }
         }, 1500);
         return () => { if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current); };
-    }, [state]);
+    }, [state, restorationResolved]);
 
     const derived = useMemo(() => deriveMyStyleSignals(state), [state]);
     const activeItem = useMemo<ItemInsight | null>(() => {
@@ -914,7 +980,7 @@ export default function MyStylePage() {
             <nav className="sticky top-0 z-40 border-b border-slate-200/30 bg-white/85 backdrop-blur-2xl">
                 <div className="mx-auto max-w-5xl px-3 sm:px-5">
                     <div className="flex items-center gap-3 py-2">
-                        <Link href="/my-page" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 no-underline transition hover:text-slate-600">
+                        <Link href="/calendar" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-400 no-underline transition hover:text-slate-600">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                         </Link>
                         <h1 className="text-[14px] font-bold text-slate-900 shrink-0">My Style</h1>
@@ -1142,6 +1208,27 @@ export default function MyStylePage() {
                     if (tab) setTab(tab as TabId);
                 }}
             />
+
+            {/* QuickAccess（My Style用 — コーデ/スタイルを入れ替え） */}
+            <div className="fixed bottom-0 left-0 right-0 z-40">
+                <MyStyleQuickAccess />
+            </div>
         </div>
     );
+}
+
+/** My Style 用 QuickAccess（スタイル→ホームに置換） */
+function MyStyleQuickAccess() {
+    const isCeo = useCeoCheck();
+    const moreItems = isCeo
+        ? [...HOME_MORE_NAV, { href: "/ceo", label: "CEO", icon: "⚙" }]
+        : HOME_MORE_NAV;
+    const items = [
+        { href: "/calendar", label: "コーデ" },
+        { href: "/stargazer", label: "観測" },
+        { href: "/", label: "ホーム" },
+        { href: "/origin", label: "日記" },
+        { href: "/rendezvous", label: "出会う" },
+    ];
+    return <QuickAccessBar items={items} moreItems={moreItems} />;
 }

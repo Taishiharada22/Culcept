@@ -215,6 +215,7 @@ export type CounselorSessionState =
   | "analyzing"           // 分析中
   | "showing_insight"     // 傾向表示中
   | "searching"           // 次の候補を探し中
+  | "pending_suggestions" // 候補検索に失敗、再試行待ち
   | "suggesting"          // 候補を提案中
   | "choosing_intro"      // 挨拶方法を選択中
   | "avatar_introducing"  // アバターが挨拶中

@@ -211,13 +211,27 @@ export async function POST(request: NextRequest) {
             pattern: derived.prefProfile.pattern,
         };
 
-        const [styleSummaryWrite, prefProfileWrite] = await Promise.all([
+        const results = await Promise.allSettled([
             upsertUserStyleSummary(supabase, styleSummaryPayload),
             supabase.from("pref_profile").upsert(prefProfilePayload, { onConflict: "user_id" }),
         ]);
 
-        if (styleSummaryWrite.error) throw styleSummaryWrite.error;
-        if (prefProfileWrite.error) throw prefProfileWrite.error;
+        const labels = ["styleSummary", "prefProfile"] as const;
+        const failures: string[] = [];
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            if (r.status === "rejected") {
+                console.error(`[my-style/bridge] POST ${labels[i]} rejected:`, r.reason);
+                failures.push(labels[i]);
+            } else if (r.value?.error) {
+                console.error(`[my-style/bridge] POST ${labels[i]} error:`, r.value.error);
+                failures.push(labels[i]);
+            }
+        }
+
+        if (failures.length === labels.length) {
+            return NextResponse.json({ error: "All bridge writes failed", failures }, { status: 500 });
+        }
 
         return NextResponse.json({
             ok: true,
@@ -225,6 +239,7 @@ export async function POST(request: NextRequest) {
             summary: derived.summary,
             profile: derived.profile,
             selfProfile: derived.profile.exportProfile,
+            ...(failures.length > 0 ? { partialFailures: failures } : {}),
         });
     } catch (error) {
         console.error("my-style bridge POST error:", error);

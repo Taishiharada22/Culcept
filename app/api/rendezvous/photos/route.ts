@@ -126,7 +126,8 @@ export async function POST(request: NextRequest) {
       ? SLOT_DISCLOSURE_PHASE[slotType as SlotType]
       : 0;
 
-    // If a slot type photo already exists, replace it (delete old record + file)
+    // Look up existing slot photo (if any) BEFORE insert — deletion happens AFTER new record succeeds
+    let existingSlotPhoto: { id: string; storage_path: string } | null = null;
     if (slotType && VALID_SLOTS.includes(slotType as SlotType)) {
       const { data: existing } = await supabaseAdmin
         .from("rendezvous_photos")
@@ -135,14 +136,15 @@ export async function POST(request: NextRequest) {
         .eq("slot_type", slotType)
         .maybeSingle();
 
-      if (existing) {
-        await supabaseAdmin.storage
-          .from("rendezvous-photos")
-          .remove([existing.storage_path]);
+      existingSlotPhoto = existing ?? null;
+
+      // Delete old DB record first (to avoid unique constraint issues),
+      // but keep the storage file until new photo is confirmed saved
+      if (existingSlotPhoto) {
         await supabaseAdmin
           .from("rendezvous_photos")
           .delete()
-          .eq("id", existing.id);
+          .eq("id", existingSlotPhoto.id);
       }
     }
 
@@ -166,6 +168,13 @@ export async function POST(request: NextRequest) {
       // Cleanup uploaded file
       await supabaseAdmin.storage.from("rendezvous-photos").remove([storagePath]);
       return NextResponse.json({ ok: false, error: dbErr.message }, { status: 500 });
+    }
+
+    // New photo saved successfully — now clean up old slot storage file
+    if (existingSlotPhoto) {
+      await supabaseAdmin.storage
+        .from("rendezvous-photos")
+        .remove([existingSlotPhoto.storage_path]);
     }
 
     const { data: urlData } = supabaseAdmin.storage

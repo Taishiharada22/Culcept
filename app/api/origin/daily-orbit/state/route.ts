@@ -33,7 +33,7 @@ export async function GET() {
   } catch (err) {
     console.error("[daily-orbit/state] GET error:", err);
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: "Daily Orbit状態の取得に失敗しました" },
       { status: 500 },
     );
   }
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[daily-orbit/state] POST error:", err);
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: "Daily Orbit状態の保存に失敗しました" },
       { status: 500 },
     );
   }

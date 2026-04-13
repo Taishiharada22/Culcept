@@ -95,6 +95,22 @@ type ActiveChat = {
   category: string;
 };
 
+type FriendPreview = {
+  userId: string;
+  displayName: string;
+  avatarUrl: string | null;
+  /** Stargazer 観測進捗 0-100 */
+  stargazerProgress: number;
+  /** 相性分析が完了しているか */
+  compatibilityReady: boolean;
+  /** 新しく分析が出たか */
+  isNew: boolean;
+  /** 相性のキャッチコピー */
+  compatibilityLabel: string | null;
+  /** シンク率 */
+  syncPercent: number | null;
+};
+
 // =============================================================================
 // Atmospheric SubMode Pills
 // =============================================================================
@@ -130,6 +146,181 @@ function SubModePills({
         );
       })}
     </div>
+  );
+}
+
+// =============================================================================
+// FriendCard — 友達カード（グリッド表示用）
+// =============================================================================
+
+function FriendCard({
+  friend,
+  color,
+  delay,
+  onTap,
+}: {
+  friend: FriendPreview;
+  color: string;
+  delay: number;
+  onTap: (friend: FriendPreview) => void;
+}) {
+  const ready = friend.compatibilityReady;
+  const isNew = friend.isNew;
+
+  return (
+    <FadeInView delay={delay}>
+      <motion.button
+        whileTap={{ scale: 0.96 }}
+        whileHover={{ y: -2 }}
+        onClick={() => onTap(friend)}
+        className="w-full text-left rounded-2xl overflow-hidden border-none cursor-pointer p-4"
+        style={{
+          background: ready
+            ? `linear-gradient(135deg, ${color}08 0%, ${RV_COLORS.surface} 100%)`
+            : RV_COLORS.surface,
+          border: `1px solid ${ready ? `${color}25` : RV_COLORS.border}`,
+          boxShadow: ready ? `0 2px 12px ${color}08` : "none",
+        }}
+      >
+        {/* Avatar */}
+        <div
+          className="w-12 h-12 rounded-xl mx-auto mb-2.5 flex items-center justify-center"
+          style={{
+            background: friend.avatarUrl
+              ? undefined
+              : `linear-gradient(135deg, ${color}12 0%, ${RV_COLORS.surfaceMuted} 100%)`,
+            overflow: "hidden",
+          }}
+        >
+          {friend.avatarUrl ? (
+            <img src={friend.avatarUrl} alt={friend.displayName} className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-xl font-light" style={{ color: `${color}60` }}>
+              {friend.displayName.charAt(0)}
+            </span>
+          )}
+        </div>
+
+        {/* Name */}
+        <p className="text-xs font-semibold text-center truncate mb-1" style={{ color: RV_COLORS.text }}>
+          {friend.displayName}
+        </p>
+
+        {/* Status badge */}
+        {ready ? (
+          <p className="text-[10px] text-center font-semibold" style={{ color }}>
+            {isNew ? "★NEW 分析出た" : "★相性分析 ready!"}
+          </p>
+        ) : (
+          <p className="text-[10px] text-center" style={{ color: RV_COLORS.textMuted }}>
+            観測中... ({friend.stargazerProgress}/100)
+          </p>
+        )}
+      </motion.button>
+    </FadeInView>
+  );
+}
+
+// =============================================================================
+// InviteCard — 招待するカード
+// =============================================================================
+
+function InviteCard({ color, delay }: { color: string; delay: number }) {
+  const router = useRouter();
+
+  return (
+    <FadeInView delay={delay}>
+      <motion.button
+        whileTap={{ scale: 0.96 }}
+        onClick={() => router.push("/rendezvous/invite")}
+        className="w-full rounded-2xl overflow-hidden border-none cursor-pointer p-4 flex flex-col items-center justify-center min-h-[120px]"
+        style={{
+          background: RV_COLORS.surface,
+          border: `1px dashed ${RV_COLORS.border}`,
+        }}
+      >
+        <span className="text-2xl mb-2" style={{ color: RV_COLORS.textMuted }}>+</span>
+        <p className="text-xs font-medium" style={{ color: RV_COLORS.textSub }}>
+          招待する
+        </p>
+      </motion.button>
+    </FadeInView>
+  );
+}
+
+// =============================================================================
+// CompatibilityCard — 関係性カード（相性分析の入口）
+// =============================================================================
+
+function CompatibilityCard({
+  friend,
+  color,
+  delay,
+}: {
+  friend: FriendPreview;
+  color: string;
+  delay: number;
+}) {
+  const router = useRouter();
+
+  if (!friend.compatibilityReady || !friend.compatibilityLabel) return null;
+
+  return (
+    <FadeInView delay={delay}>
+      <motion.button
+        whileTap={{ scale: 0.98 }}
+        whileHover={{ y: -2 }}
+        onClick={() => router.push(`/rendezvous/${friend.userId}?from=compatibility`)}
+        className="w-full text-left rounded-2xl overflow-hidden border-none cursor-pointer"
+        style={{
+          background: `linear-gradient(135deg, ${color}06 0%, ${RV_COLORS.surface} 100%)`,
+          border: `1px solid ${color}20`,
+          boxShadow: `0 4px 20px ${color}06`,
+          padding: 0,
+        }}
+      >
+        <div className="px-5 py-5">
+          {/* Header */}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-medium" style={{ color: RV_COLORS.textSub }}>
+              あなた × {friend.displayName}
+            </span>
+            {friend.syncPercent != null && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                style={{ background: `${color}12`, color }}
+              >
+                {friend.syncPercent}%
+              </span>
+            )}
+          </div>
+
+          {/* Label */}
+          <p
+            className="text-sm leading-relaxed mb-3"
+            style={{
+              color: RV_COLORS.text,
+              fontFamily: '"Noto Serif JP", serif',
+              letterSpacing: "0.02em",
+            }}
+          >
+            &ldquo;{friend.compatibilityLabel}&rdquo;
+          </p>
+
+          {/* CTA */}
+          <span
+            className="text-xs font-medium"
+            style={{
+              color,
+              borderBottom: `1px solid ${color}30`,
+              paddingBottom: 1,
+            }}
+          >
+            詳しく見る
+          </span>
+        </div>
+      </motion.button>
+    </FadeInView>
   );
 }
 
@@ -288,9 +479,11 @@ function ChatItem({ chat, color }: { chat: ActiveChat; color: string }) {
 // =============================================================================
 
 export default function ConnectionHome() {
+  const router = useRouter();
   const [subMode, setSubMode] = useState<ConnectionSubMode>("friendship");
   const [candidates, setCandidates] = useState<CandidatePreview[]>([]);
   const [chats, setChats] = useState<ActiveChat[]>([]);
+  const [friends, setFriends] = useState<FriendPreview[]>([]);
   const [loading, setLoading] = useState(true);
 
   const currentConfig = SUB_MODES.find((m) => m.id === subMode)!;
@@ -300,6 +493,12 @@ export default function ConnectionHome() {
     trackSubModeSwitch(mode as TrackSubMode);
     setSubMode(mode);
   }, []);
+
+  const handleFriendTap = useCallback((friend: FriendPreview) => {
+    if (friend.compatibilityReady) {
+      router.push(`/rendezvous/${friend.userId}?from=compatibility`);
+    }
+  }, [router]);
 
   useEffect(() => {
     trackListView("connection", subMode as TrackSubMode);
@@ -313,8 +512,11 @@ export default function ConnectionHome() {
       fetch(`/api/rendezvous/conversations?category=${category}`).then((r) =>
         r.ok ? r.json() : null,
       ),
+      fetch("/api/rendezvous/friends").then((r) =>
+        r.ok ? r.json() : null,
+      ),
     ])
-      .then(([exploreData, chatData]) => {
+      .then(([exploreData, chatData, friendData]) => {
         if (exploreData?.ok) {
           setCandidates(
             (exploreData.candidates ?? []).map((c: any) => ({
@@ -337,10 +539,17 @@ export default function ConnectionHome() {
         } else {
           setChats([]);
         }
+
+        if (friendData?.ok) {
+          setFriends(friendData.friends ?? []);
+        } else {
+          setFriends([]);
+        }
       })
       .catch(() => {
         setCandidates([]);
         setChats([]);
+        setFriends([]);
       })
       .finally(() => setLoading(false));
   }, [subMode, currentConfig.dbCategory]);
@@ -430,6 +639,43 @@ export default function ConnectionHome() {
             exit={{ opacity: 0, x: -16 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
           >
+            {/* ===== 友達リスト ===== */}
+            {(friends.length > 0 || subMode === "friendship") && (
+              <div className="px-6 mb-8 mt-4">
+                <RvSectionTitle accent={color} className="mb-4">
+                  友達
+                </RvSectionTitle>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {friends.map((f, i) => (
+                    <FriendCard
+                      key={f.userId}
+                      friend={f}
+                      color={color}
+                      delay={0.05 * i}
+                      onTap={handleFriendTap}
+                    />
+                  ))}
+                  <InviteCard color={color} delay={0.05 * friends.length} />
+                </div>
+              </div>
+            )}
+
+            {/* ===== 関係性カード ===== */}
+            {friends.some((f) => f.compatibilityReady) && (
+              <div className="px-6 mb-8">
+                <RvSectionTitle accent={color} className="mb-4">
+                  関係性カード
+                </RvSectionTitle>
+                <div className="flex flex-col gap-3">
+                  {friends
+                    .filter((f) => f.compatibilityReady && f.compatibilityLabel)
+                    .map((f, i) => (
+                      <CompatibilityCard key={f.userId} friend={f} color={color} delay={0.08 * i} />
+                    ))}
+                </div>
+              </div>
+            )}
+
             {/* ===== Active Chats ===== */}
             {chats.length > 0 && (
               <div className="px-6 mb-8 mt-4">

@@ -41,7 +41,7 @@ async function ensureBucket() {
     } catch (err) {
         if (err instanceof BodyColorError) throw err;
         console.error(`[real-face-submit] bucket check error:`, err);
-        // バケット確認に失敗してもアップロードは試行する
+        throw new BodyColorError("UPLOAD_FAILED", "ストレージの初期化に失敗しました");
     }
 }
 

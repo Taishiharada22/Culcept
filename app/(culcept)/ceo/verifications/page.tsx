@@ -34,6 +34,17 @@ interface Verification {
   birth_date: string | null;
 }
 
+type PartnerDocType = "single_status" | "income" | "education" | "employment";
+
+interface PartnerDocument {
+  user_id: string;
+  display_name: string | null;
+  verification_level: number;
+  document_type: PartnerDocType;
+  status: string;
+}
+
+type SectionTab = "identity" | "partner_documents";
 type FilterTab = "pending" | "approved" | "rejected" | "frozen";
 
 /* ── Constants ── */
@@ -44,11 +55,29 @@ const DOC_TYPE_LABELS: Record<DocType, string> = {
   my_number_card: "マイナンバーカード",
 };
 
+const PARTNER_DOC_TYPE_LABELS: Record<PartnerDocType, string> = {
+  single_status: "独身証明書",
+  income: "収入証明書",
+  education: "学歴証明書",
+  employment: "勤務先証明",
+};
+
+const SECTION_TABS: { key: SectionTab; label: string }[] = [
+  { key: "identity", label: "本人確認" },
+  { key: "partner_documents", label: "パートナー書類" },
+];
+
 const FILTER_TABS: { key: FilterTab; label: string }[] = [
   { key: "pending", label: "確認待ち" },
   { key: "approved", label: "承認済み" },
   { key: "rejected", label: "却下" },
   { key: "frozen", label: "凍結中" },
+];
+
+const PARTNER_FILTER_TABS: { key: "pending" | "approved" | "rejected"; label: string }[] = [
+  { key: "pending", label: "確認待ち" },
+  { key: "approved", label: "承認済み" },
+  { key: "rejected", label: "却下" },
 ];
 
 const LEVEL_LABELS: Record<number, string> = {
@@ -78,6 +107,7 @@ export default function CeoVerificationsPage() {
   const [verifications, setVerifications] = useState<Verification[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [section, setSection] = useState<SectionTab>("identity");
   const [filter, setFilter] = useState<FilterTab>("pending");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [signedUrls, setSignedUrls] = useState<
@@ -90,6 +120,16 @@ export default function CeoVerificationsPage() {
   >(null);
   const [noteText, setNoteText] = useState("");
   const [removingIds, setRemovingIds] = useState<Set<string>>(new Set());
+
+  // Partner documents state
+  const [partnerDocs, setPartnerDocs] = useState<PartnerDocument[]>([]);
+  const [partnerFilter, setPartnerFilter] = useState<"pending" | "approved" | "rejected">("pending");
+  const [partnerLoading, setPartnerLoading] = useState(false);
+  const [partnerError, setPartnerError] = useState<string | null>(null);
+  const [partnerExpandedKey, setPartnerExpandedKey] = useState<string | null>(null);
+  const [partnerSignedUrls, setPartnerSignedUrls] = useState<Record<string, string | null>>({});
+  const [partnerActionLoadingKey, setPartnerActionLoadingKey] = useState<string | null>(null);
+  const [partnerRemovingKeys, setPartnerRemovingKeys] = useState<Set<string>>(new Set());
 
   /* ── Fetch verifications ── */
 
@@ -123,6 +163,41 @@ export default function CeoVerificationsPage() {
   useEffect(() => {
     fetchVerifications();
   }, [fetchVerifications]);
+
+  /* ── Fetch partner documents ── */
+
+  const fetchPartnerDocs = useCallback(async () => {
+    setPartnerError(null);
+    setPartnerLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/rendezvous/verifications?section=partner_documents&status=all`,
+      );
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`);
+        console.error("[Verifications] Partner docs API error:", res.status, errText);
+        setPartnerError(`API エラー: ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      if (data.ok) {
+        setPartnerDocs(data.partner_documents ?? []);
+      } else {
+        setPartnerError(data.error ?? "データ取得に失敗しました");
+      }
+    } catch (err) {
+      console.error("[Verifications] Partner docs fetch error:", err);
+      setPartnerError("通信エラーが発生しました");
+    } finally {
+      setPartnerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (section === "partner_documents") {
+      fetchPartnerDocs();
+    }
+  }, [section, fetchPartnerDocs]);
 
   /* ── Signed URL fetching ── */
 
@@ -167,6 +242,87 @@ export default function CeoVerificationsPage() {
     } else {
       setExpandedId(v.user_id);
       fetchSignedUrl(v.user_id, v.id_document_path, v.selfie_path);
+    }
+  };
+
+  /* ── Partner document: expand + signed URL ── */
+
+  const fetchPartnerDocSignedUrl = useCallback(
+    async (userId: string, docType: string) => {
+      const cacheKey = `${userId}:${docType}`;
+      if (partnerSignedUrls[cacheKey] !== undefined) return;
+
+      // Storage pattern: {userId}/partner_{docType}_{timestamp}.jpg
+      // List files matching the prefix and use the latest one
+      try {
+        const listRes = await fetch(
+          `/api/ceo/verification-list-files?prefix=${encodeURIComponent(`${userId}/partner_${docType}_`)}`,
+        );
+        const listData = await listRes.json();
+        const files: string[] = listData.ok ? (listData.files ?? []) : [];
+
+        if (files.length > 0) {
+          // Use the latest file (sorted by created_at ascending, so last = latest)
+          const latestPath = files[files.length - 1];
+          const urlRes = await fetch(
+            `/api/ceo/verification-signed-url?path=${encodeURIComponent(latestPath)}`,
+          );
+          const urlData = await urlRes.json();
+          setPartnerSignedUrls((prev) => ({
+            ...prev,
+            [cacheKey]: urlData.ok ? urlData.url : null,
+          }));
+        } else {
+          setPartnerSignedUrls((prev) => ({ ...prev, [cacheKey]: null }));
+        }
+      } catch {
+        setPartnerSignedUrls((prev) => ({ ...prev, [cacheKey]: null }));
+      }
+    },
+    [partnerSignedUrls],
+  );
+
+  const togglePartnerExpand = (doc: PartnerDocument) => {
+    const key = `${doc.user_id}:${doc.document_type}`;
+    if (partnerExpandedKey === key) {
+      setPartnerExpandedKey(null);
+    } else {
+      setPartnerExpandedKey(key);
+      fetchPartnerDocSignedUrl(doc.user_id, doc.document_type);
+    }
+  };
+
+  /* ── Partner document: approve / reject ── */
+
+  const handlePartnerDocAction = async (
+    userId: string,
+    documentType: string,
+    action: "approve_document" | "reject_document",
+  ) => {
+    const key = `${userId}:${documentType}`;
+    setPartnerActionLoadingKey(key);
+    try {
+      const res = await fetch("/api/admin/rendezvous/verifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, action, documentType }),
+      });
+      if (res.ok) {
+        setPartnerRemovingKeys((prev) => new Set(prev).add(key));
+        setTimeout(() => {
+          fetchPartnerDocs();
+          setPartnerRemovingKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(key);
+            return next;
+          });
+          setPartnerExpandedKey(null);
+        }, 400);
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setPartnerActionLoadingKey(null);
     }
   };
 
@@ -226,6 +382,14 @@ export default function CeoVerificationsPage() {
     (v) => v.review_status === "pending",
   ).length;
 
+  const filteredPartnerDocs = partnerDocs.filter(
+    (d) => d.status === partnerFilter,
+  );
+
+  const partnerPendingCount = partnerDocs.filter(
+    (d) => d.status === "pending",
+  ).length;
+
   /* ── Render ── */
 
   if (loading) {
@@ -250,39 +414,34 @@ export default function CeoVerificationsPage() {
           <h1 className="text-xl font-bold tracking-tight">
             本人確認レビュー
           </h1>
-          {pendingCount > 0 && (
+          {(pendingCount + partnerPendingCount) > 0 && (
             <span className="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-amber-500 px-2 text-xs font-bold text-white">
-              {pendingCount}
+              {pendingCount + partnerPendingCount}
             </span>
           )}
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex gap-2">
-        {FILTER_TABS.map((tab) => {
-          const active = filter === tab.key;
-          const count =
-            tab.key === "pending"
-              ? pendingCount
-              : tab.key === "frozen"
-                ? verifications.filter((v) => !!v.frozen_at).length
-                : verifications.filter((v) => v.review_status === tab.key)
-                    .length;
+      {/* Section Tabs */}
+      <div className="flex gap-1 rounded-xl border border-gray-200 bg-white/60 p-1 backdrop-blur">
+        {SECTION_TABS.map((tab) => {
+          const active = section === tab.key;
+          const badge =
+            tab.key === "identity" ? pendingCount : partnerPendingCount;
           return (
             <button
               key={tab.key}
-              onClick={() => setFilter(tab.key)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+              onClick={() => setSection(tab.key)}
+              className={`relative rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 active
-                  ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                  : "border-gray-200 bg-white/60 text-gray-500 hover:bg-white/80"
+                  ? "bg-white text-gray-800 shadow-sm"
+                  : "text-gray-400 hover:text-gray-600"
               }`}
             >
               {tab.label}
-              {count > 0 && (
-                <span className="ml-1.5 text-[10px] opacity-60">
-                  ({count})
+              {badge > 0 && (
+                <span className="ml-1.5 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">
+                  {badge}
                 </span>
               )}
             </button>
@@ -290,8 +449,254 @@ export default function CeoVerificationsPage() {
         })}
       </div>
 
+      {/* Filter Tabs — shown for identity section */}
+      {section === "identity" && (
+        <div className="flex gap-2">
+          {FILTER_TABS.map((tab) => {
+            const active = filter === tab.key;
+            const count =
+              tab.key === "pending"
+                ? pendingCount
+                : tab.key === "frozen"
+                  ? verifications.filter((v) => !!v.frozen_at).length
+                  : verifications.filter((v) => v.review_status === tab.key)
+                      .length;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white/60 text-gray-500 hover:bg-white/80"
+                }`}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span className="ml-1.5 text-[10px] opacity-60">
+                    ({count})
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Filter Tabs — shown for partner_documents section */}
+      {section === "partner_documents" && (
+        <div className="flex gap-2">
+          {PARTNER_FILTER_TABS.map((tab) => {
+            const active = partnerFilter === tab.key;
+            const count = partnerDocs.filter((d) => d.status === tab.key).length;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setPartnerFilter(tab.key)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                  active
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white/60 text-gray-500 hover:bg-white/80"
+                }`}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span className="ml-1.5 text-[10px] opacity-60">
+                    ({count})
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Partner Documents Section ── */}
+      {section === "partner_documents" && (
+        <>
+          {partnerError && (
+            <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 text-center text-sm text-red-600 backdrop-blur">
+              {partnerError}
+              <button
+                onClick={() => fetchPartnerDocs()}
+                className="ml-2 underline"
+              >
+                再試行
+              </button>
+            </div>
+          )}
+
+          {partnerLoading ? (
+            <div className="flex min-h-[30vh] items-center justify-center text-sm text-gray-400">
+              読み込み中...
+            </div>
+          ) : filteredPartnerDocs.length === 0 && !partnerError ? (
+            <div className="rounded-xl border border-gray-200 bg-white/50 p-10 text-center text-sm text-gray-400 backdrop-blur">
+              該当するパートナー書類はありません
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredPartnerDocs.map((doc) => {
+                const key = `${doc.user_id}:${doc.document_type}`;
+                const isRemoving = partnerRemovingKeys.has(key);
+                const isExpanded = partnerExpandedKey === key;
+                const isActionLoading = partnerActionLoadingKey === key;
+                const signedUrl = partnerSignedUrls[key];
+
+                return (
+                  <div
+                    key={key}
+                    className={`rounded-2xl border border-gray-200 bg-white/70 backdrop-blur transition-all duration-300 ${
+                      isRemoving ? "translate-x-16 opacity-0" : ""
+                    }`}
+                  >
+                    {/* Summary row */}
+                    <button
+                      onClick={() => togglePartnerExpand(doc)}
+                      className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-500">
+                          {(doc.display_name ?? "?")[0]}
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-gray-800">
+                            {doc.display_name ?? "不明"}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-gray-400">
+                            <span>
+                              {PARTNER_DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                            doc.verification_level >= 3
+                              ? "bg-emerald-50 text-emerald-600"
+                              : "bg-indigo-50 text-indigo-500"
+                          }`}
+                        >
+                          {LEVEL_LABELS[doc.verification_level] ??
+                            `L${doc.verification_level}`}
+                        </span>
+
+                        <span
+                          className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
+                            doc.status === "approved"
+                              ? "bg-emerald-50 text-emerald-600"
+                              : doc.status === "rejected"
+                                ? "bg-red-50 text-red-500"
+                                : "bg-amber-50 text-amber-600"
+                          }`}
+                        >
+                          {doc.status === "approved"
+                            ? "承認済み"
+                            : doc.status === "rejected"
+                              ? "却下"
+                              : "審査中"}
+                        </span>
+
+                        <span
+                          className={`text-gray-300 transition-transform ${
+                            isExpanded ? "rotate-180" : ""
+                          }`}
+                        >
+                          &#9662;
+                        </span>
+                      </div>
+                    </button>
+
+                    {/* Expanded detail */}
+                    {isExpanded && (
+                      <div className="border-t border-gray-100 px-5 pb-5 pt-4">
+                        {/* Document image */}
+                        <div className="mb-4">
+                          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                            {PARTNER_DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type}
+                          </div>
+                          <div className="relative aspect-[4/3] max-w-sm overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                            {signedUrl ? (
+                              <img
+                                src={signedUrl}
+                                alt={PARTNER_DOC_TYPE_LABELS[doc.document_type]}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : signedUrl === undefined ? (
+                              <div className="flex h-full items-center justify-center text-xs text-gray-400">
+                                読み込み中...
+                              </div>
+                            ) : (
+                              <div className="flex h-full items-center justify-center text-xs text-amber-400">
+                                ファイル未検出
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Meta info */}
+                        <div className="mb-4 grid grid-cols-2 gap-x-6 gap-y-2 rounded-xl bg-gray-50 px-4 py-3 text-xs">
+                          <div>
+                            <span className="text-gray-400">書類種別: </span>
+                            <span className="font-medium text-gray-700">
+                              {PARTNER_DOC_TYPE_LABELS[doc.document_type] ?? doc.document_type}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-400">ステータス: </span>
+                            <span className="font-medium text-gray-700">
+                              {doc.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        {doc.status === "pending" && (
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() =>
+                                handlePartnerDocAction(
+                                  doc.user_id,
+                                  doc.document_type,
+                                  "approve_document",
+                                )
+                              }
+                              disabled={isActionLoading}
+                              className="rounded-lg bg-emerald-500 px-4 py-2 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
+                            >
+                              {isActionLoading ? "処理中..." : "承認"}
+                            </button>
+                            <button
+                              onClick={() =>
+                                handlePartnerDocAction(
+                                  doc.user_id,
+                                  doc.document_type,
+                                  "reject_document",
+                                )
+                              }
+                              disabled={isActionLoading}
+                              className="rounded-lg bg-red-100 px-4 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-200 disabled:opacity-40"
+                            >
+                              {isActionLoading ? "処理中..." : "却下"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Identity Section ── */}
+
       {/* Error */}
-      {fetchError && (
+      {section === "identity" && fetchError && (
         <div className="rounded-xl border border-red-200 bg-red-50/80 p-4 text-center text-sm text-red-600 backdrop-blur">
           {fetchError}
           <button
@@ -304,7 +709,7 @@ export default function CeoVerificationsPage() {
       )}
 
       {/* List */}
-      {filtered.length === 0 && !fetchError ? (
+      {section === "identity" && filtered.length === 0 && !fetchError ? (
         <div className="rounded-xl border border-gray-200 bg-white/50 p-10 text-center text-sm text-gray-400 backdrop-blur">
           該当する確認申請はありません
           {verifications.length === 0 && (
@@ -313,7 +718,7 @@ export default function CeoVerificationsPage() {
             </p>
           )}
         </div>
-      ) : (
+      ) : section === "identity" ? (
         <div className="space-y-3">
           {filtered.map((v) => {
             const isRemoving = removingIds.has(v.user_id);
@@ -613,7 +1018,7 @@ export default function CeoVerificationsPage() {
             );
           })}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

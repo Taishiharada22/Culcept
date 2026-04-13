@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence, PanInfo } from "framer-motion";
 import {
   RV_COLORS,
@@ -84,6 +85,7 @@ type Phase = "questions" | "complete";
  * 回答はリアルタイムで /api/rendezvous/partner/life-plan に POST。
  */
 export default function LifePlanQuestionnaire() {
+  const router = useRouter();
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [axisCoverage, setAxisCoverage] = useState<AxisCoverage>({});
@@ -96,6 +98,7 @@ export default function LifePlanQuestionnaire() {
   const [showCategoryInterstitial, setShowCategoryInterstitial] = useState(false);
   const [interstitialCategory, setInterstitialCategory] = useState("");
   const [justAnswered, setJustAnswered] = useState(false);
+  const [showReviewAnswers, setShowReviewAnswers] = useState(false);
   const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ordered questions by category
@@ -479,16 +482,184 @@ export default function LifePlanQuestionnaire() {
           );
         })()}
 
+        {/* Primary action: back to partner settings */}
         <FadeInView delay={0.8}>
           <div style={{ marginTop: 40 }}>
             <RvButton
               onClick={() => {
-                setPhase("questions");
-                setCurrentIndex(0);
+                router.push("/rendezvous/partner");
               }}
             >
-              結果を確認する
+              パートナー設定に戻る
             </RvButton>
+          </div>
+        </FadeInView>
+
+        {/* Secondary: review answers (expandable) */}
+        <FadeInView delay={1.0}>
+          <div style={{ marginTop: 24, width: "100%", maxWidth: 400 }}>
+            <button
+              onClick={() => setShowReviewAnswers((prev) => !prev)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 500,
+                color: RV_COLORS.textMuted,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                width: "100%",
+                padding: "8px 0",
+                transition: "color 0.2s",
+              }}
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  transform: showReviewAnswers
+                    ? "rotate(90deg)"
+                    : "rotate(0deg)",
+                  transition: "transform 0.2s",
+                  fontSize: 10,
+                }}
+              >
+                {"\u25B6"}
+              </span>
+              回答を見直す
+            </button>
+
+            <AnimatePresence>
+              {showReviewAnswers && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div
+                    style={{
+                      marginTop: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    {CATEGORY_ORDER.map((cat) => {
+                      const catQuestions = orderedQuestions.filter(
+                        (q) => q.category === cat
+                      );
+                      if (catQuestions.length === 0) return null;
+                      return (
+                        <div
+                          key={cat}
+                          style={{
+                            padding: "12px 16px",
+                            borderRadius: 12,
+                            background: RV_COLORS.surface,
+                            border: `1px solid ${RV_COLORS.border}`,
+                          }}
+                        >
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: PARTNER_COLOR,
+                              marginBottom: 8,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            <span>{CATEGORY_ICONS[cat]}</span>
+                            {CATEGORY_LABELS[cat]}
+                          </div>
+                          {catQuestions.map((q) => {
+                            const ans = answers[q.id];
+                            return (
+                              <div
+                                key={q.id}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  alignItems: "center",
+                                  padding: "6px 0",
+                                  borderBottom: `1px solid ${RV_COLORS.border}40`,
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: RV_COLORS.textSub,
+                                    flex: 1,
+                                    lineHeight: 1.5,
+                                    paddingRight: 12,
+                                  }}
+                                >
+                                  {q.questionText}
+                                </span>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 4,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: RV_COLORS.textMuted,
+                                    }}
+                                  >
+                                    {q.leftLabel}
+                                  </span>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      gap: 2,
+                                    }}
+                                  >
+                                    {Array.from(
+                                      { length: q.scale },
+                                      (_, i) => (
+                                        <div
+                                          key={i}
+                                          style={{
+                                            width: 6,
+                                            height: 6,
+                                            borderRadius: "50%",
+                                            background:
+                                              ans && ans.value === i + 1
+                                                ? PARTNER_COLOR
+                                                : RV_COLORS.surfaceMuted,
+                                          }}
+                                        />
+                                      )
+                                    )}
+                                  </div>
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: RV_COLORS.textMuted,
+                                    }}
+                                  >
+                                    {q.rightLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </FadeInView>
       </div>

@@ -168,6 +168,9 @@ export async function runGemini(
   if (request.maxOutputTokens !== undefined) {
     generationConfig.maxOutputTokens = request.maxOutputTokens;
   }
+  // 注意: gemini-2.5-flash は frequencyPenalty / presencePenalty を
+  // サポートしていない（400 INVALID_ARGUMENT になる）。
+  // penalty は OpenAI fallback 側でのみ適用する。
   if (request.requireJson) {
     generationConfig.responseMimeType = "application/json";
     if (request.jsonSchema) {
