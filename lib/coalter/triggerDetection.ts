@@ -27,7 +27,7 @@ const STRONG_TRIGGERS: Array<{ pattern: RegExp; name: string }> = [
 /** 決定膠着パターン */
 const DECISION_STALL_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   // 「何にする？」「何見る？」「何食べる？」系
-  { pattern: /何(に|を)(する|しよう|見る|見よう|食べる|食べよう|行く|行こう)/, name: "what_to_do" },
+  { pattern: /何(に|を)?(する|しよう|見る|見よう|食べる|食べよう|行く|行こう)/, name: "what_to_do" },
   // 「どこ行く？」「どこにする？」系
   { pattern: /(どこ|何処)(に|へ)?(行く|行こう|にする|にしよう)/, name: "where_to_go" },
   // 「決まらない」「決められない」系
@@ -40,7 +40,7 @@ const DECISION_STALL_PATTERNS: Array<{ pattern: RegExp; name: string }> = [
   // 「何がいい？」「何かいい（の）ある？」系
   { pattern: /何(か|が)いい/, name: "whats_good" },
   // 「どうする？」（汎用的な膠着）
-  { pattern: /どうする\??$/, name: "what_do_we_do" },
+  { pattern: /どうする[？?]?$/, name: "what_do_we_do" },
   { pattern: /どうしよう/, name: "what_should_we_do" },
 ];
 
