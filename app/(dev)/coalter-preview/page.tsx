@@ -166,7 +166,7 @@ export default function CoAlterPreviewPage() {
       </div>
 
       {/* ── モック会話 ── */}
-      <div style={{ padding: "16px 20px", maxWidth: 420, margin: "0 auto" }}>
+      <div style={{ padding: "16px 20px 240px", maxWidth: 420, margin: "0 auto" }}>
         {scenario.messages.map((msg, i) => (
           <div key={i} style={{ display: "flex", justifyContent: msg.isMine ? "flex-end" : "flex-start", marginBottom: 12 }}>
             <div style={{

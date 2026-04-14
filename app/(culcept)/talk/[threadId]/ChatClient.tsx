@@ -1496,6 +1496,7 @@ export default function ChatClient({ threadId }: Props) {
               pairState={coalter.pairState}
               sessionState={coalter.sessionState}
               loading={coalter.loading}
+              error={coalter.error}
               onActivate={coalter.activate}
               onInvoke={() => coalter.invoke(null)}
             />

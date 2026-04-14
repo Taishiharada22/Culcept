@@ -53,42 +53,32 @@ export function useCoAlter(threadId: string) {
   const [state, setState] = useState<CoAlterState>(INITIAL_STATE);
   const abortRef = useRef<AbortController | null>(null);
 
-  // ── ペア状態の初期ロード ──
+  // ── ペア状態の初期ロード（GET /api/coalter/status — 副作用なし） ──
   useEffect(() => {
     let cancelled = false;
 
     async function loadPairState() {
       try {
-        const res = await fetch(`/api/coalter/activate`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ threadId }),
-        });
-
-        // 404 = まだactivateされていない → inactive
-        if (res.status === 404) {
-          if (!cancelled) {
-            setState((prev) => ({ ...prev, pairState: "inactive" }));
-          }
+        const res = await fetch(`/api/coalter/status?threadId=${encodeURIComponent(threadId)}`);
+        if (!res.ok) {
+          if (!cancelled) setState((prev) => ({ ...prev, pairState: "inactive" }));
           return;
         }
-
-        // activate APIはGETがないので、状態確認のためにPOSTを叩くと副作用がある。
-        // Phase 1では初回ロード時はinactiveから始める。
-        // ペア状態の永続的な確認はChatClient統合時にsupabaseから直接読む。
-        if (!cancelled) {
-          setState((prev) => ({ ...prev, pairState: "inactive" }));
+        const data = await res.json();
+        if (!cancelled && data.ok && data.data) {
+          const d = data.data as { state: string; pairStateId: string | null; initiatedBy: string | null; isInitiator?: boolean };
+          setState((prev) => ({
+            ...prev,
+            pairState: (d.state === "inactive" ? "inactive" : d.state) as CoAlterPairState,
+            pairStateId: d.pairStateId,
+          }));
         }
       } catch {
-        if (!cancelled) {
-          setState((prev) => ({ ...prev, pairState: "inactive" }));
-        }
+        if (!cancelled) setState((prev) => ({ ...prev, pairState: "inactive" }));
       }
     }
 
-    // Phase 1: 初回はinactiveから始める。
-    // TODO: supabaseから直接pair_stateを読む（ChatClient統合時）
-    setState((prev) => ({ ...prev, pairState: "inactive" }));
+    loadPairState();
 
     return () => {
       cancelled = true;

@@ -26,6 +26,12 @@ const C = {
 
 const RANK_EMOJI = ["🥇", "🥈", "🥉"];
 
+/** 文字数超過時にtruncate */
+function clamp(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
+}
+
 interface Props {
   proposal: ProposalCard;
   onDismiss: () => void;
@@ -69,8 +75,8 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
 
       {/* ═══ ① ここまでの要点 ═══ */}
       <div className="px-4 pt-3 pb-2">
-        <p style={{ fontSize: 12, color: C.t2, lineHeight: 1.6 }}>
-          {proposal.summary}
+        <p style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
+          {clamp(proposal.summary, 100)}
         </p>
       </div>
 
@@ -143,8 +149,8 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
 
       {/* ═══ ④ なぜこの候補か ═══ */}
       <div className="px-4 py-2">
-        <p style={{ fontSize: 11, color: C.t3, lineHeight: 1.6, fontStyle: "italic" }}>
-          {proposal.reasoning}
+        <p style={{ fontSize: 11, color: C.t3, lineHeight: 1.5, fontStyle: "italic" }}>
+          {clamp(proposal.reasoning, 100)}
         </p>
       </div>
 

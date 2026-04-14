@@ -66,7 +66,15 @@ function buildSystemPrompt(): string {
 }
 
 候補は2-3個。4つ以上は出さない。
-全体で200-400文字に収める。`;
+
+## 文字数制約（厳守）
+- summary: 最大80文字（2文以内）
+- priorities.userA / userB: 各最大40文字（1文）
+- priorities.common: 最大30文字（1文。なければnull）
+- candidates[].oneLiner: 各最大30文字
+- reasoning: 最大80文字（2文以内）
+- closing: 最大25文字（1文）
+全体で200-350文字に収める。長いと邪魔になる。短く、軽く。`;
 }
 
 function buildUserPrompt(

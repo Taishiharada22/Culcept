@@ -27,6 +27,7 @@ interface Props {
   pairState: CoAlterPairState;
   sessionState: CoAlterSessionState | null;
   loading: boolean;
+  error: string | null;
   onActivate: () => void;
   onInvoke: () => void;
 }
@@ -35,11 +36,29 @@ export default function CoAlterButton({
   pairState,
   sessionState,
   loading,
+  error,
   onActivate,
   onInvoke,
 }: Props) {
   // disabled → 非表示
   if (pairState === "disabled") return null;
+
+  // エラー時 → リトライ可能なボタン
+  if (error) {
+    return (
+      <motion.button
+        onClick={onInvoke}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all"
+        style={{
+          background: "#FEE2E2",
+          border: "1px solid #FECACA",
+        }}
+        whileTap={{ scale: 0.95 }}
+      >
+        <span style={{ fontSize: 11, color: "#DC2626" }}>もう一度試す</span>
+      </motion.button>
+    );
+  }
 
   // active / loading → スピナー
   if (sessionState === "active" || loading) {
