@@ -7,6 +7,10 @@ import type { TalkMessage, GenomeCardData, GenomeReactionType } from "@/lib/geno
 import { generateConversationInsights, type ConversationInsight } from "@/lib/genome/conversationIntelligence";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getCardTheme } from "@/lib/genome/archetypeThemes";
+import { useCoAlter } from "@/hooks/useCoAlter";
+import CoAlterButton from "@/components/coalter/CoAlterButton";
+import CoAlterConsent from "@/components/coalter/CoAlterConsent";
+import CoAlterCard from "@/components/coalter/CoAlterCard";
 
 const C = {
   bg: "#f8f6f3", s1: "#ffffff", s2: "#f5f6fa",
@@ -535,6 +539,9 @@ export default function ChatClient({ threadId }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const prevMsgCountRef = useRef(0);
+
+  // ── CoAlter ──
+  const coalter = useCoAlter(threadId);
 
   // ── 下書き保存（sessionStorage） ──
   useEffect(() => {
@@ -1390,6 +1397,32 @@ export default function ChatClient({ threadId }: Props) {
             })}
           </>
           )}
+          {/* ── CoAlter 同意カード ── */}
+          <AnimatePresence>
+            {coalter.isPending && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterConsent
+                  requesterName={cpName ?? "相手"}
+                  onAccept={coalter.accept}
+                  onDecline={() => coalter.end("opt_out")}
+                  loading={coalter.loading}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* ── CoAlter 提案カード ── */}
+          <AnimatePresence>
+            {coalter.hasProposal && coalter.currentProposal && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterCard
+                  proposal={coalter.currentProposal}
+                  onDismiss={coalter.dismissProposal}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* タイピングインジケーター */}
           <AnimatePresence>
             {isTyping && (
@@ -1457,6 +1490,16 @@ export default function ChatClient({ threadId }: Props) {
         borderTop: `1px solid ${C.s2}`,
       }}>
         <div className="max-w-lg mx-auto px-4 py-2.5">
+          {/* ── CoAlter ボタン ── */}
+          <div className="flex justify-end mb-1.5">
+            <CoAlterButton
+              pairState={coalter.pairState}
+              sessionState={coalter.sessionState}
+              loading={coalter.loading}
+              onActivate={coalter.activate}
+              onInvoke={() => coalter.invoke(null)}
+            />
+          </div>
           {/* 引用返信プレビュー */}
           <AnimatePresence>
             {replyTo && (
