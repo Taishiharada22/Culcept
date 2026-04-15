@@ -205,8 +205,10 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
   onApplyRewrite: (text: string) => void;
 }) {
   const riskPercent = Math.round(result.misreadRisk * 100);
-  const riskColor = riskPercent >= 60 ? "#ef4444" : riskPercent >= 30 ? "#f59e0b" : "#22c55e";
-  const riskLabel = riskPercent >= 60 ? "伝わりにくい" : riskPercent >= 30 ? "少し注意" : "伝わりやすい";
+  const isHigh = riskPercent >= 60;
+  const isMid = riskPercent >= 30;
+  const riskColor = isHigh ? "#ef4444" : isMid ? "#f59e0b" : "#22c55e";
+  const riskLabel = isHigh ? "伝わりにくい" : isMid ? "少し注意" : "伝わりやすい";
 
   return (
     <motion.div
@@ -215,29 +217,87 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
       exit={{ opacity: 0, y: 8, height: 0 }}
       className="overflow-hidden"
     >
-      <div className="px-4 py-3 space-y-2" style={{ background: "rgba(255,255,255,0.95)", borderTop: `1px solid ${C.s2}` }}>
-        {/* ヘッダー */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span style={{ fontSize: 14 }}>🔮</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: riskColor }}>{riskLabel}</span>
-            <span style={{ fontSize: 9, color: C.t4 }}>
-              誤読リスク {riskPercent}%
-            </span>
+      <div className="mx-3 mb-2 rounded-2xl overflow-hidden" style={{
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(20px) saturate(1.4)",
+        boxShadow: "0 2px 16px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03)",
+      }}>
+        {/* ── ヘッダー ── */}
+        <div className="px-4 py-2.5 flex items-center justify-between" style={{
+          borderBottom: "1px solid rgba(0,0,0,0.04)",
+        }}>
+          <div className="flex items-center gap-2.5">
+            {/* リスクインジケーター — 微細なアニメーション付き */}
+            <div className="relative flex items-center justify-center" style={{ width: 28, height: 28 }}>
+              <svg width="28" height="28" viewBox="0 0 28 28">
+                <circle cx="14" cy="14" r="12" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="2" />
+                <motion.circle
+                  cx="14" cy="14" r="12" fill="none"
+                  stroke={riskColor} strokeWidth="2" strokeLinecap="round"
+                  strokeDasharray={`${(1 - result.misreadRisk) * 75.4} 75.4`}
+                  strokeDashoffset="18.85"
+                  initial={{ strokeDasharray: "0 75.4" }}
+                  animate={{ strokeDasharray: `${(1 - result.misreadRisk) * 75.4} 75.4` }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: riskColor }} />
+              </div>
+            </div>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: C.t1, lineHeight: 1 }}>{riskLabel}</p>
+              {riskPercent > 0 && (
+                <p style={{ fontSize: 9, color: C.t4, marginTop: 2 }}>
+                  誤読リスク {riskPercent}%
+                </p>
+              )}
+            </div>
           </div>
-          <button onClick={onClose} style={{ fontSize: 10, color: C.t4, padding: 4 }}>✕</button>
+          <button onClick={onClose} className="rounded-full flex items-center justify-center transition-colors"
+            style={{
+              width: 26, height: 26,
+              background: "rgba(0,0,0,0.04)",
+              color: C.t4, fontSize: 10,
+            }}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 1l8 8M9 1l-8 8" />
+            </svg>
+          </button>
         </div>
 
-        {/* 受信者がどう読むか */}
+        {/* ── 受信者がどう読むか ── */}
         {result.receiverInterpretations.length > 0 && (
-          <div className="space-y-1">
-            <p style={{ fontSize: 8, color: C.t4, letterSpacing: "0.1em" }}>相手にどう読まれるか</p>
+          <div className="px-4 py-2.5 space-y-1.5">
+            <p style={{ fontSize: 9, color: C.t4, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              相手の読み取り方
+            </p>
             {result.receiverInterpretations.slice(0, 2).map((interp, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span style={{ fontSize: 8, color: C.t4, marginTop: 2, whiteSpace: "nowrap" }}>
-                  {Math.round(interp.probability * 100)}%
-                </span>
-                <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>
+              <div key={i} className="flex items-start gap-2.5">
+                {/* 確率バー */}
+                <div className="flex-shrink-0 mt-1.5" style={{ width: 32 }}>
+                  <div style={{ height: 3, borderRadius: 2, background: "rgba(0,0,0,0.04)", overflow: "hidden" }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${interp.probability * 100}%` }}
+                      transition={{ duration: 0.6, delay: i * 0.15, ease: "easeOut" }}
+                      style={{
+                        height: "100%", borderRadius: 2,
+                        background: i === 0 ? C.neural : C.t4,
+                      }}
+                    />
+                  </div>
+                  <p style={{
+                    fontSize: 8, color: i === 0 ? C.neural : C.t4, marginTop: 1,
+                    fontVariantNumeric: "tabular-nums", textAlign: "center",
+                  }}>
+                    {Math.round(interp.probability * 100)}%
+                  </p>
+                </div>
+                <p style={{
+                  fontSize: 12, color: i === 0 ? C.t1 : C.t3,
+                  lineHeight: 1.6, fontWeight: i === 0 ? 500 : 400,
+                }}>
                   {interp.reading}
                 </p>
               </div>
@@ -245,20 +305,31 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
           </div>
         )}
 
-        {/* 言い換え提案 */}
+        {/* ── 言い換え提案 ── */}
         {result.rewriteSuggestion && (
-          <button
-            onClick={() => onApplyRewrite(result.rewriteSuggestion!)}
-            className="w-full text-left rounded-xl px-3 py-2 transition-all"
-            style={{ background: `${C.neural}08`, border: `1px solid ${C.neural}15` }}
-          >
-            <p style={{ fontSize: 8, color: C.neural, letterSpacing: "0.1em", marginBottom: 2 }}>
-              言い換え提案（タップで適用）
-            </p>
-            <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.5 }}>
-              {result.rewriteSuggestion}
-            </p>
-          </button>
+          <div className="px-3 pb-3">
+            <button
+              onClick={() => onApplyRewrite(result.rewriteSuggestion!)}
+              className="w-full text-left rounded-xl px-3.5 py-3 transition-all active:scale-[0.99]"
+              style={{
+                background: `linear-gradient(135deg, ${C.neural}08, ${C.pulse}05)`,
+                border: `1px solid ${C.neural}10`,
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M9 1.5L10.5 3L4.5 9L2 9.5L2.5 7L8.5 1L9 1.5Z" stroke={C.neural} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <p style={{ fontSize: 9, color: C.neural, fontWeight: 600, letterSpacing: "0.05em" }}>
+                  言い換え提案
+                </p>
+                <span style={{ fontSize: 8, color: C.t4, marginLeft: "auto" }}>タップで適用</span>
+              </div>
+              <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.6 }}>
+                {result.rewriteSuggestion}
+              </p>
+            </button>
+          </div>
         )}
       </div>
     </motion.div>
@@ -274,19 +345,24 @@ function BubbleHint({ hint, onTap }: {
 }) {
   return (
     <motion.button
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
+      initial={{ opacity: 0, scale: 0.95, y: 4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: 4 }}
       onClick={onTap}
-      className="mt-1 text-left rounded-xl px-3 py-2 max-w-[90%]"
+      className="mt-1.5 text-left rounded-2xl px-3.5 py-2.5 max-w-[90%]"
       style={{
-        background: `${C.neural}06`,
-        border: `1px solid ${C.neural}12`,
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(8px)",
+        border: "1px solid rgba(139,92,246,0.1)",
+        boxShadow: "0 2px 12px rgba(30,30,60,0.06)",
       }}
     >
-      <div className="flex items-start gap-1.5">
-        <span style={{ fontSize: 12, flexShrink: 0 }}>💭</span>
-        <p style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>
+      <div className="flex items-start gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+          <circle cx="12" cy="12" r="8" stroke={C.neural} strokeWidth="1.5" opacity="0.4" />
+          <circle cx="12" cy="12" r="3" fill={C.neural} opacity="0.5" />
+        </svg>
+        <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.6 }}>
           {hint.hintText}
         </p>
       </div>
@@ -853,15 +929,11 @@ export default function ChatClient({ threadId }: Props) {
       }
       // skipped = プロファイル不足 → ミニ観測ボトムシートを表示
       if (data.skipped) {
-        console.info("[intent-check] skipped:", data.skipReason, {
-          selfHasProfile: data.selfHasProfile,
-          counterpartHasProfile: data.counterpartHasProfile,
-        });
+        console.info("[intent-check] skipped:", data.skipReason);
         setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
         if (data.skipReason === "profile_incomplete") {
-          // selfHasProfile=false → 自分の観測が必要
-          // selfHasProfile=true, counterpartHasProfile=false → 相手の観測待ち
-          const reason = data.selfHasProfile === false
+          const selfOk = data.selfHasProfile === true;
+          const reason = !selfOk
             ? "self_incomplete" as const
             : "counterpart_incomplete" as const;
           setObservationSheet({ open: true, reason });
@@ -894,12 +966,30 @@ export default function ChatClient({ threadId }: Props) {
         console.warn(`[intent-translate] ${res.status}`, data);
       } else if (data.skipped) {
         console.info("[intent-translate] skipped:", data.skipReason);
+        // プロファイル不足 → ミニ観測ボトムシートを表示
+        if (data.skipReason === "profile_incomplete") {
+          const selfOk = data.selfHasProfile === true;
+          const reason = !selfOk
+            ? "self_incomplete" as const
+            : "counterpart_incomplete" as const;
+          setObservationSheet({ open: true, reason });
+        }
       } else if (data.bubbleHint?.show) {
         setBubbleHints(prev => new Map(prev).set(messageId, {
           hintText: data.bubbleHint.hintText,
           confidence: data.bubbleHint.confidence,
           misreadRisk: data.bubbleHint.misreadRisk,
         }));
+      } else {
+        // show=false でも primaryIntent があれば表示する（ユーザーが明示的にタップした）
+        const reading = data.primaryIntent?.reading;
+        if (reading && typeof reading === "string") {
+          setBubbleHints(prev => new Map(prev).set(messageId, {
+            hintText: reading,
+            confidence: data.primaryIntent?.confidence ?? data.confidence ?? 0.5,
+            misreadRisk: 0,
+          }));
+        }
       }
     } catch (e) {
       console.warn("[intent-translate] fetch error", e);
@@ -1394,8 +1484,11 @@ export default function ChatClient({ threadId }: Props) {
                                 style={{ background: "transparent" }}
                                 aria-label="意図を翻訳"
                               >
-                                <span style={{ fontSize: 10 }}>💭</span>
-                                <span style={{ fontSize: 8, color: C.t4 }}>意図を見る</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
+                                  <circle cx="12" cy="12" r="8" stroke={C.neural} strokeWidth="1.5" />
+                                  <circle cx="12" cy="12" r="3" fill={C.neural} opacity="0.5" />
+                                </svg>
+                                <span style={{ fontSize: 9, color: C.t4 }}>意図を見る</span>
                               </motion.button>
                             )}
                           </AnimatePresence>
@@ -1640,7 +1733,30 @@ export default function ChatClient({ threadId }: Props) {
                     opacity: hasText ? 1 : 0.3,
                   }}
                 >
-                  <span style={{ fontSize: 16 }}>{intentCheck.checking ? "⏳" : "🔮"}</span>
+                  {intentCheck.checking ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="9" stroke={C.neural} strokeWidth="2" strokeDasharray="20 40" strokeLinecap="round" />
+                      </svg>
+                    </motion.div>
+                  ) : (
+                    /* 2つの吹き出しが重なるアイコン — 「伝わり方」を表現 */
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      {/* 送信側吹き出し */}
+                      <path d="M4 4h10c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2H8l-3 2.5V13H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+                        stroke={hasText ? C.neural : C.t4} strokeWidth="1.5" strokeLinejoin="round"
+                        fill={hasText ? `${C.neural}10` : "none"} opacity={hasText ? 1 : 0.4} />
+                      {/* 受信側吹き出し（少しずらして重ねる） */}
+                      <path d="M10 9h10c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2h-1v2.5L16 18h-6c-1.1 0-2-.9-2-2v-5c0-1.1.9-2 2-2z"
+                        stroke={hasText ? C.pulse : C.t4} strokeWidth="1.5" strokeLinejoin="round"
+                        fill={hasText ? `${C.pulse}08` : "none"} opacity={hasText ? 0.8 : 0.3} />
+                      {/* 中央のリンクドット — 通じ合いを表現 */}
+                      <circle cx="12" cy="12.5" r="1.5" fill={hasText ? C.neural : C.t4} opacity={hasText ? 0.7 : 0.2} />
+                    </svg>
+                  )}
                 </button>
               );
             })()}

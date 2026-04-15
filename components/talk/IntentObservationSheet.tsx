@@ -5,11 +5,15 @@
  *
  * トーク画面で intent 機能（🔮送信前チェック / 💭バブルヒント）を使おうとした際、
  * 自分の対話スタイル観測が不足していると表示される。
- * 5問に答えるだけで intent 用の軸スコアが生成され、機能が有効になる。
+ * 30問（約2分）に答えるだけで intent 用の11軸スコアが生成され、機能が有効になる。
+ *
+ * 学術基盤: ECR-S / ROCI-II / ERQ / Self-Monitoring Scale / BFI-2-XS
+ * 各軸2-3専用問 + クロスローディング5問 = 計30問
  */
 
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { QUESTIONS } from "@/lib/talk/quickObserveQuestions";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 定数・型
@@ -24,70 +28,6 @@ const C = {
   s1: "#ffffff",
   s2: "#f5f6fa",
 };
-
-interface QuestionOption {
-  id: string;
-  label: string;
-}
-
-interface Question {
-  id: string;
-  text: string;
-  options: QuestionOption[];
-}
-
-const QUESTIONS: Question[] = [
-  {
-    id: "q1",
-    text: "伝えにくいことがあるとき、どうすることが多い？",
-    options: [
-      { id: "q1_a", label: "はっきり伝える" },
-      { id: "q1_b", label: "言い方を工夫して柔らかく" },
-      { id: "q1_c", label: "相手の様子を見て判断する" },
-      { id: "q1_d", label: "なるべく言わずに済ませたい" },
-    ],
-  },
-  {
-    id: "q2",
-    text: "相手からの返信が遅いとき、どう感じる？",
-    options: [
-      { id: "q2_a", label: "特に気にならない" },
-      { id: "q2_b", label: "忙しいのかなと思う程度" },
-      { id: "q2_c", label: "少し気になって理由を考える" },
-      { id: "q2_d", label: "何か悪いこと言ったかなと不安になる" },
-    ],
-  },
-  {
-    id: "q3",
-    text: "意見が合わないとき、自然な反応は？",
-    options: [
-      { id: "q3_a", label: "その場で話し合いたい" },
-      { id: "q3_b", label: "少し間を置いてから伝える" },
-      { id: "q3_c", label: "相手に合わせることが多い" },
-      { id: "q3_d", label: "モヤモヤするが言わないことが多い" },
-    ],
-  },
-  {
-    id: "q4",
-    text: "自分の気持ちの波について、一番近いのは？",
-    options: [
-      { id: "q4_a", label: "わりと安定している方" },
-      { id: "q4_b", label: "波はあるが、表には出さない" },
-      { id: "q4_c", label: "気分が態度に出やすい" },
-      { id: "q4_d", label: "自分でもコントロールしにくい" },
-    ],
-  },
-  {
-    id: "q5",
-    text: "親しくなりたい人がいるとき、どうする？",
-    options: [
-      { id: "q5_a", label: "自分から積極的に連絡を取る" },
-      { id: "q5_b", label: "相手のペースに合わせて少しずつ" },
-      { id: "q5_c", label: "自分のことを話して、相手にも聞く" },
-      { id: "q5_d", label: "相手から来てくれるのを待つ方" },
-    ],
-  },
-];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -231,7 +171,7 @@ export default function IntentObservationSheet({ open, reason, onClose, onComple
                         対話スタイルの観測
                       </h3>
                       <p style={{ fontSize: 13, color: C.t2, lineHeight: 1.7 }}>
-                        5つの質問に答えるだけで、<br />
+                        30の質問に答えるだけで、<br />
                         やり取りの補助精度が上がります。
                       </p>
                     </div>
@@ -281,7 +221,7 @@ export default function IntentObservationSheet({ open, reason, onClose, onComple
                           boxShadow: `0 4px 16px ${C.coalter}40`,
                         }}
                       >
-                        観測を始める（30秒）
+                        観測を始める（約2分）
                       </button>
                     </div>
                   </motion.div>
@@ -336,22 +276,24 @@ export default function IntentObservationSheet({ open, reason, onClose, onComple
                     exit={{ opacity: 0, x: -40 }}
                     transition={{ type: "spring", damping: 25, stiffness: 300 }}
                   >
-                    {/* Progress */}
-                    <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
-                      {QUESTIONS.map((_, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            flex: 1,
-                            height: 3,
-                            borderRadius: 2,
-                            background: i <= questionIndex
-                              ? `linear-gradient(90deg, ${C.coalter}, ${C.neural})`
-                              : C.s2,
-                            transition: "background 0.3s",
-                          }}
-                        />
-                      ))}
+                    {/* Progress bar */}
+                    <div style={{
+                      height: 3,
+                      borderRadius: 2,
+                      background: C.s2,
+                      marginBottom: 16,
+                      overflow: "hidden",
+                    }}>
+                      <motion.div
+                        style={{
+                          height: "100%",
+                          borderRadius: 2,
+                          background: `linear-gradient(90deg, ${C.coalter}, ${C.neural})`,
+                        }}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${((questionIndex + 1) / QUESTIONS.length) * 100}%` }}
+                        transition={{ type: "spring", damping: 20, stiffness: 200 }}
+                      />
                     </div>
 
                     {/* Question number */}

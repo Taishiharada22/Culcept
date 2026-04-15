@@ -17,6 +17,8 @@ import type {
   CoAlterSession,
   RelationshipContext,
   FairnessEntry,
+  SearchCandidate,
+  ProposalCard,
 } from "./types";
 import { loadPairProfiles } from "./profileLoader";
 import { fetchRecentMessages, analyzeConversation } from "./conversationParser";
@@ -132,7 +134,7 @@ export async function runCoAlterPipeline(
     : [];
 
   // ── L5: 提案生成 ──
-  const proposalCard = await generateProposal(
+  const rawProposal = await generateProposal(
     profileA,
     profileB,
     analysis,
@@ -140,6 +142,9 @@ export async function runCoAlterPipeline(
     relationship,
     input.userMessage,
   );
+
+  // ── URL付与: LLMが生成した候補に検索結果のURLを紐付け ──
+  const proposalCard = attachUrlsToCandidates(rawProposal, searchCandidates);
 
   // ── 公平性スコアの推定 ──
   // 簡易版: Caring Intensityの差から推定
@@ -170,4 +175,71 @@ export async function runCoAlterPipeline(
       processingTimeMs: Date.now() - startTime,
     },
   };
+}
+
+// ─────────────────────────────────────────────
+// URL付与: 検索結果のURLをLLM候補にマッチング
+// ─────────────────────────────────────────────
+
+/**
+ * LLMが生成した候補タイトルを検索結果のタイトルとファジーマッチして
+ * URLを自動付与する。ワンクリックで確認できるリンクを提供するため。
+ */
+function attachUrlsToCandidates(
+  proposal: ProposalCard,
+  searchCandidates: SearchCandidate[],
+): ProposalCard {
+  if (searchCandidates.length === 0) return proposal;
+
+  const updatedCandidates = proposal.candidates.map((c) => {
+    if (c.url) return c; // 既にURLがある場合はスキップ
+
+    // タイトルの類似度でマッチング
+    const match = findBestUrlMatch(c.title, searchCandidates);
+    return match ? { ...c, url: match } : { ...c, url: null };
+  });
+
+  return { ...proposal, candidates: updatedCandidates };
+}
+
+/** 候補タイトルに最も近い検索結果のURLを返す */
+function findBestUrlMatch(
+  candidateTitle: string,
+  searchCandidates: SearchCandidate[],
+): string | null {
+  const normalizedTitle = candidateTitle.toLowerCase().replace(/[\s　]/g, "");
+
+  let bestUrl: string | null = null;
+  let bestScore = 0;
+
+  for (const sc of searchCandidates) {
+    if (!sc.url) continue;
+    const normalizedSearch = sc.title.toLowerCase().replace(/[\s　]/g, "");
+
+    // 完全一致 or 部分一致でスコアリング
+    if (normalizedSearch === normalizedTitle) {
+      return sc.url; // 完全一致
+    }
+
+    // 部分一致: 候補タイトルが検索タイトルに含まれる、またはその逆
+    let score = 0;
+    if (normalizedSearch.includes(normalizedTitle)) {
+      score = normalizedTitle.length / normalizedSearch.length;
+    } else if (normalizedTitle.includes(normalizedSearch)) {
+      score = normalizedSearch.length / normalizedTitle.length;
+    } else {
+      // 単語レベルでの一致度（2文字以上の共通部分）
+      const titleChars = new Set(normalizedTitle.split(""));
+      const searchChars = new Set(normalizedSearch.split(""));
+      const intersection = [...titleChars].filter((c) => searchChars.has(c));
+      score = intersection.length / Math.max(titleChars.size, searchChars.size) * 0.5;
+    }
+
+    if (score > bestScore && score > 0.3) {
+      bestScore = score;
+      bestUrl = sc.url;
+    }
+  }
+
+  return bestUrl;
 }

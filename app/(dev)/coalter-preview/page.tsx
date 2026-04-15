@@ -51,8 +51,8 @@ const SCENARIOS: Scenario[] = [
         common: "アクション好き、長すぎないのがベスト",
       },
       candidates: [
-        { rank: 1, title: "ミッション: インポッシブル 8", oneLiner: "安定のアクション。鉄板", practicalInfo: "上映中 / 2h12m / 評価4.2" },
-        { rank: 2, title: "ブレードランナー 2099", oneLiner: "冒険枠。映像美が話題", practicalInfo: "上映中 / 1h58m / 評価3.9" },
+        { rank: 1, title: "ミッション: インポッシブル 8", oneLiner: "安定のアクション。鉄板", practicalInfo: "上映中 / 2h12m / 評価4.2", url: "https://eiga.com/movie/12345/" },
+        { rank: 2, title: "ブレードランナー 2099", oneLiner: "冒険枠。映像美が話題", practicalInfo: "上映中 / 1h58m / 評価3.9", url: "https://eiga.com/movie/67890/" },
       ],
       reasoning: "外したくない傾向があるから安定型中心に。冒険枠も1つ入れたよ。",
       closing: "二人で話してみてね！",
@@ -74,8 +74,8 @@ const SCENARIOS: Scenario[] = [
         common: "渋谷エリア、今夜",
       },
       candidates: [
-        { rank: 1, title: "TRATTORIA GRANDE", oneLiner: "和の素材を使ったイタリアン", practicalInfo: "渋谷 / ¥3,500 / 食べログ3.6" },
-        { rank: 2, title: "割烹 みやこ", oneLiner: "カジュアル和食、個室あり", practicalInfo: "渋谷 / ¥4,000 / 食べログ3.7" },
+        { rank: 1, title: "TRATTORIA GRANDE", oneLiner: "和の素材を使ったイタリアン", practicalInfo: "渋谷 / ¥3,500 / 食べログ3.6", url: "https://tabelog.com/tokyo/A1303/A130301/13012345/" },
+        { rank: 2, title: "割烹 みやこ", oneLiner: "カジュアル和食、個室あり", practicalInfo: "渋谷 / ¥4,000 / 食べログ3.7", url: "https://tabelog.com/tokyo/A1303/A130301/13067890/" },
       ],
       reasoning: "和×伊の折衷で「和素材イタリアン」を筆頭に。安心の和食も候補に。",
       closing: "気になる方を二人で選んでね！",
@@ -97,8 +97,8 @@ const SCENARIOS: Scenario[] = [
         common: "来週のどこか",
       },
       candidates: [
-        { rank: 1, title: "金曜の夜", oneLiner: "翌日休みでゆっくりできる", practicalInfo: null },
-        { rank: 2, title: "水曜の夕方", oneLiner: "週の真ん中でリフレッシュ", practicalInfo: null },
+        { rank: 1, title: "金曜の夜", oneLiner: "翌日休みでゆっくりできる", practicalInfo: null, url: null },
+        { rank: 2, title: "水曜の夕方", oneLiner: "週の真ん中でリフレッシュ", practicalInfo: null, url: null },
       ],
       reasoning: "翌日に余裕がある金曜が二人とも楽しめそう。",
       closing: "どっちがいいか二人で決めてね！",

@@ -100,6 +100,27 @@ function extractMentionedCandidates(text: string): string[] {
   return [...new Set(candidates)];
 }
 
+/** 会話テキストからアクティビティのサブカテゴリを検出 */
+function detectActivitySubcategory(text: string): string | null {
+  const subcategories: Array<{ keywords: RegExp; label: string }> = [
+    { keywords: /美術館|アート|ギャラリー|個展|企画展|現代アート|西洋|日本画|印象派/, label: "美術館 展覧会" },
+    { keywords: /博物館|科学館|歴史/, label: "博物館" },
+    { keywords: /水族館/, label: "水族館" },
+    { keywords: /動物園|ズー/, label: "動物園" },
+    { keywords: /遊園地|テーマパーク/, label: "遊園地" },
+    { keywords: /ボウリング|カラオケ|ゲーセン/, label: "屋内アクティビティ" },
+    { keywords: /運動|スポーツ|ジム|テニス|バドミントン/, label: "スポーツ" },
+    { keywords: /ライブ|コンサート|フェス/, label: "ライブ コンサート" },
+    { keywords: /舞台|演劇|ミュージカル/, label: "舞台 演劇" },
+    { keywords: /散歩|公園|ピクニック/, label: "散歩 公園" },
+  ];
+
+  for (const { keywords, label } of subcategories) {
+    if (keywords.test(text)) return label;
+  }
+  return null;
+}
+
 /** テーマと制約から検索クエリを生成 */
 function buildSearchQueries(
   analysis: ConversationAnalysis,
@@ -107,6 +128,7 @@ function buildSearchQueries(
 ): string[] {
   const queries: string[] = [];
   const { theme, extractedConstraints: c } = analysis;
+  const combined = analysis.recentMessages.map((m) => m.body).join(" ");
 
   // 具体的な候補が言及されていたらそれを検索
   for (const candidate of mentionedCandidates.slice(0, 2)) {
@@ -138,11 +160,24 @@ function buildSearchQueries(
         `${datePart}${locationPart}旅行 おすすめ カップル`.trim() || "おすすめ 旅行先 カップル",
       );
       break;
-    case "activity":
-      queries.push(
-        `${datePart}${locationPart}デート おすすめ`.trim() || "おすすめ デートスポット",
-      );
+    case "activity": {
+      // アクティビティはサブカテゴリで検索クエリを細分化
+      const subcategory = detectActivitySubcategory(combined);
+      if (subcategory) {
+        queries.push(
+          `${datePart}${locationPart}${subcategory} おすすめ 開催中 2026`.trim(),
+        );
+        // 嗜好キーワードがあれば追加クエリ
+        for (const pref of c.preferences.slice(0, 1)) {
+          queries.push(`${locationPart}${subcategory} ${pref}`.trim());
+        }
+      } else {
+        queries.push(
+          `${datePart}${locationPart}デート おすすめ`.trim() || "おすすめ デートスポット",
+        );
+      }
       break;
+    }
   }
 
   // 重複除去、最大3クエリ
@@ -185,6 +220,7 @@ export async function searchAndFilter(
       externalRating: extractRating(r.text),
       practicalInfo: extractPracticalInfo(r.text),
       source: new URL(r.url).hostname,
+      url: r.url,
     }))
     // 重複タイトルを除去
     .filter(

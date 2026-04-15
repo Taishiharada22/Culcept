@@ -2,16 +2,18 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { reconstructIntent } from "@/lib/talk/intentTranslation";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  reconstructIntent,
+  fetchIntentProfile,
+} from "@/lib/talk/intentTranslation";
 import type {
-  IntentTranslationProfile,
   ConversationTurn,
   SenderPastPattern,
   BubbleHintDecision,
   RelationshipMeta,
 } from "@/lib/talk/intentTranslation";
 import {
-  INTENT_TRANSLATION_AXES,
   MAX_BUBBLE_HINTS_PER_DAY,
   BUBBLE_HINT_COOLDOWN_MS,
 } from "@/lib/talk/intentTranslation";
@@ -101,8 +103,8 @@ export async function POST(request: NextRequest) {
     ? (Date.now() - new Date(bubbleState.lastHintAt).getTime()) < BUBBLE_HINT_COOLDOWN_MS
     : false;
 
-  // ── 受信メッセージ本文を取得 ──
-  const { data: messageRow, error: msgError } = await supabase
+  // ── 受信メッセージ本文を取得（admin: RLSバイパス） ──
+  const { data: messageRow, error: msgError } = await supabaseAdmin
     .from("talk_messages")
     .select("body, sender_id")
     .eq("id", messageId)
@@ -139,10 +141,10 @@ export async function POST(request: NextRequest) {
     }, { status: 422 });
   }
 
-  // ── プロファイル取得（送信者 + 受信者=自分） ──
+  // ── プロファイル取得（RLSバイパス: 他ユーザーのプロファイルも読む必要あり） ──
   const [senderProfile, receiverProfile] = await Promise.all([
-    fetchIntentProfile(supabase, senderUserId),
-    fetchIntentProfile(supabase, user.id),
+    fetchIntentProfile(supabaseAdmin, senderUserId),
+    fetchIntentProfile(supabaseAdmin, user.id),
   ]);
 
   if (!senderProfile || !receiverProfile) {
@@ -159,14 +161,14 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // ── 会話履歴（直近5ターン） ──
-  const conversationContext = await fetchRecentTurns(supabase, threadId, 5);
+  // ── 会話履歴（直近5ターン）— admin でRLSバイパス ──
+  const conversationContext = await fetchRecentTurns(supabaseAdmin, threadId, 5);
 
   // ── 送信者の過去パターン（同一スレッド内の類似短文） ──
-  const senderPastPatterns = await fetchSenderPatterns(supabase, threadId, senderUserId);
+  const senderPastPatterns = await fetchSenderPatterns(supabaseAdmin, threadId, senderUserId);
 
   // ── 関係メタデータ — 温度差+rupture を実データから算出 ──
-  const relationshipMeta = await computeRelationshipMeta(supabase, threadId, senderUserId, user.id);
+  const relationshipMeta = await computeRelationshipMeta(supabaseAdmin, threadId, senderUserId, user.id);
 
   // ── Intent Reconstruction 実行 ──
   const result = await reconstructIntent({
@@ -209,100 +211,6 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/**
- * 指定ユーザーの intent 用プロファイルの実在状況を詳細診断する。
- * profile_incomplete エラーの details に使う。
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function diagnoseProfileData(supabase: any, userId: string) {
-  // profiles テーブル
-  const { data: profileRow } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  // personality_dimensions — 実在する軸を列挙
-  const { data: dimRows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-  const dimAxes: string[] = (dimRows ?? []).map((r: { dimension: string }) => r.dimension);
-
-  // stargazer_axis_snapshots — 実在する軸を列挙（重複排除）
-  const { data: snapRows } = await supabase
-    .from("stargazer_axis_snapshots")
-    .select("axis_id")
-    .eq("user_id", userId)
-    .in("axis_id", INTENT_TRANSLATION_AXES)
-    .order("created_at", { ascending: false });
-  const snapAxes: string[] = Array.from(new Set((snapRows ?? []).map((r: { axis_id: string }) => r.axis_id)));
-
-  // 欠損軸を算出
-  const allPresent = new Set([...dimAxes, ...snapAxes]);
-  const missingAxes = INTENT_TRANSLATION_AXES.filter(a => !allPresent.has(a));
-
-  return {
-    hasProfilesRow: !!profileRow,
-    personalityDimensions: { count: dimAxes.length, axes: dimAxes },
-    axisSnapshots: { count: snapAxes.length, axes: snapAxes },
-    missingAxes,
-    meetsMinimum: allPresent.size >= 5,
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {
-  // personality_dimensions → stargazer_axis_snapshots にフォールバック
-  const { data: rows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension, score")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-
-  let scores: Record<string, number> = {};
-
-  if (rows && rows.length >= 5) {
-    for (const row of rows as Array<{ dimension: string; score: number }>) {
-      scores[row.dimension] = row.score;
-    }
-  } else {
-    // フォールバック: stargazer_axis_snapshots から最新スコアを取得
-    const { data: snapshots } = await supabase
-      .from("stargazer_axis_snapshots")
-      .select("axis_id, score")
-      .eq("user_id", userId)
-      .in("axis_id", INTENT_TRANSLATION_AXES)
-      .order("created_at", { ascending: false });
-
-    if (!snapshots || snapshots.length === 0) return null;
-
-    // 各軸の最新スコアのみ採用（重複排除）
-    for (const s of snapshots as Array<{ axis_id: string; score: number }>) {
-      if (!(s.axis_id in scores)) {
-        scores[s.axis_id] = s.score;
-      }
-    }
-    if (Object.keys(scores).length < 5) return null;
-  }
-
-  return {
-    userId,
-    direct_vs_diplomatic: scores.direct_vs_diplomatic ?? 0,
-    attachment_style: scores.attachment_style ?? 0,
-    reassurance_need: scores.reassurance_need ?? 0,
-    emotional_variability: scores.emotional_variability ?? 0,
-    conflict_style: scores.conflict_style ?? 0,
-    public_private_gap: scores.public_private_gap ?? 0,
-    intimacy_pace: scores.intimacy_pace ?? 0,
-    boundary_awareness: scores.boundary_awareness ?? 0,
-    self_disclosure_depth: scores.self_disclosure_depth ?? 0,
-    emotional_regulation: scores.emotional_regulation ?? 0,
-    relational_investment: scores.relational_investment ?? 0,
-  };
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchRecentTurns(supabase: any, threadId: string, limit: number): Promise<ConversationTurn[]> {

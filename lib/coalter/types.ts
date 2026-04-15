@@ -210,6 +210,8 @@ export interface SearchCandidate {
   practicalInfo: string | null;
   /** 情報ソース */
   source: string;
+  /** 元URL（クリック可能なリンクとして提示） */
+  url: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -240,6 +242,8 @@ export interface ProposalCandidate {
   title: string;
   oneLiner: string; // 一言説明
   practicalInfo: string | null; // 現実情報（場所・時間・評価等）
+  /** ワンクリックで確認できるURL（検索結果から自動付与） */
+  url: string | null;
 }
 
 // ─────────────────────────────────────────────

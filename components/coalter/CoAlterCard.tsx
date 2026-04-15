@@ -125,9 +125,26 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
               {RANK_EMOJI[i] ?? "•"}
             </span>
             <div className="flex-1 min-w-0">
-              <p style={{ fontSize: 12, color: C.t1, fontWeight: 600 }}>
-                {c.title}
-              </p>
+              {c.url ? (
+                <a
+                  href={c.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    fontSize: 12,
+                    color: C.coalter,
+                    fontWeight: 600,
+                    textDecoration: "underline",
+                    textUnderlineOffset: 2,
+                  }}
+                >
+                  {c.title} ↗
+                </a>
+              ) : (
+                <p style={{ fontSize: 12, color: C.t1, fontWeight: 600 }}>
+                  {c.title}
+                </p>
+              )}
               <p style={{ fontSize: 11, color: C.t3, marginTop: 1 }}>
                 {c.oneLiner}
               </p>

@@ -22,7 +22,6 @@ const THEME_PATTERNS: Array<{ theme: ConversationTheme; patterns: RegExp[] }> =
       theme: "movie",
       patterns: [
         /映画|シネマ|上映|ムービー|film|movie/i,
-        /見(る|よう|たい|に行)/,
         /Netflix|ネトフリ|アマプラ|Amazon.*Prime|Disney/i,
       ],
     },
@@ -63,28 +62,56 @@ const THEME_PATTERNS: Array<{ theme: ConversationTheme; patterns: RegExp[] }> =
     {
       theme: "activity",
       patterns: [
+        /美術館|博物館|展覧会|アート|ギャラリー|個展|企画展/,
+        /遊園地|テーマパーク|水族館|動物園|プラネタリウム/,
+        /ボウリング|カラオケ|ジム|スポーツ|ヨガ|散歩|ピクニック/,
         /デート|遊び|遊ぼ|遊ぶ/,
         /何(する|しよう|し(たい|たいね))/,
         /週末|休日|休み(の日)?/,
-        /イベント|フェス|ライブ|コンサート/,
+        /イベント|フェス|ライブ|コンサート|舞台|演劇|ミュージカル/,
+        /運動|見る系|体験|ワークショップ/,
+        /現代アート|西洋|日本画|印象派|浮世絵/,
       ],
     },
   ];
 
 /**
  * 会話テーマを検出する。
- * 直近メッセージを走査し、最も多くマッチしたテーマを返す。
+ *
+ * 重要: 直近メッセージを重み付きで走査する。
+ * 会話中に話題が変わることがあるため（映画→美術館など）、
+ * 直近5件のメッセージを3倍の重みで評価し、最新のテーマを正しく検出する。
  */
 function detectTheme(messages: ConversationTurn[]): ConversationTheme {
-  const combined = messages.map((m) => m.body).join(" ");
+  if (messages.length === 0) return "general";
+
+  // 直近5件（最重要）と残りを分離
+  const recentCount = Math.min(5, messages.length);
+  const recentMessages = messages.slice(-recentCount);
+  const olderMessages = messages.slice(0, -recentCount);
+
   const counts = new Map<ConversationTheme, number>();
 
+  // 直近5件: 重み3倍
+  const recentText = recentMessages.map((m) => m.body).join(" ");
   for (const { theme, patterns } of THEME_PATTERNS) {
     let matchCount = 0;
     for (const p of patterns) {
-      if (p.test(combined)) matchCount++;
+      if (p.test(recentText)) matchCount += 3; // 重み3倍
     }
-    if (matchCount > 0) counts.set(theme, matchCount);
+    if (matchCount > 0) counts.set(theme, (counts.get(theme) ?? 0) + matchCount);
+  }
+
+  // 古いメッセージ: 重み1倍
+  if (olderMessages.length > 0) {
+    const olderText = olderMessages.map((m) => m.body).join(" ");
+    for (const { theme, patterns } of THEME_PATTERNS) {
+      let matchCount = 0;
+      for (const p of patterns) {
+        if (p.test(olderText)) matchCount += 1;
+      }
+      if (matchCount > 0) counts.set(theme, (counts.get(theme) ?? 0) + matchCount);
+    }
   }
 
   if (counts.size === 0) return "general";
@@ -225,6 +252,12 @@ function extractConstraints(
   if (/テラス|屋外|外/.test(combined)) preferences.push("屋外・テラス");
   if (/新しい|新規|初めて/.test(combined)) preferences.push("新しいところ");
   if (/いつもの|定番|安心/.test(combined)) preferences.push("定番・安心感");
+  // アクティビティ系のジャンル希望
+  if (/現代アート|現代美術/.test(combined)) preferences.push("現代アート");
+  if (/西洋|西洋美術|印象派/.test(combined)) preferences.push("西洋美術");
+  if (/日本画|浮世絵|和/.test(combined)) preferences.push("日本画・和の美術");
+  if (/体験|ワークショップ/.test(combined)) preferences.push("体験型");
+  if (/写真|フォトジェニック|映え/.test(combined)) preferences.push("写真映え");
 
   return {
     date: dateMatch?.[1] ?? null,

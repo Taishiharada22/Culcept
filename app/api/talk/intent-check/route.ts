@@ -2,20 +2,20 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   simulateReading,
   resolveInterventionLevel,
   updateCooldownAfterActive,
   resetConsecutiveActive,
   createFreshCooldownState,
+  fetchIntentProfile,
 } from "@/lib/talk/intentTranslation";
 import type {
-  IntentTranslationProfile,
   ConversationTurn,
   RelationshipMeta,
   InterventionCooldownState,
 } from "@/lib/talk/intentTranslation";
-import { INTENT_TRANSLATION_AXES } from "@/lib/talk/intentTranslation";
 
 // ============================================================
 // POST /api/talk/intent-check
@@ -77,10 +77,10 @@ export async function POST(request: NextRequest) {
   // Cooldown 状態: クライアントから受け取るか、新規作成
   const cooldown: InterventionCooldownState = body.cooldownState ?? createFreshCooldownState();
 
-  // ── プロファイル取得 ──
+  // ── プロファイル取得（RLSバイパス: 他ユーザーのプロファイルも読む必要あり） ──
   const [senderProfile, receiverProfile] = await Promise.all([
-    fetchIntentProfile(supabase, user.id),
-    fetchIntentProfile(supabase, receiverUserId),
+    fetchIntentProfile(supabaseAdmin, user.id),
+    fetchIntentProfile(supabaseAdmin, receiverUserId),
   ]);
 
   if (!senderProfile || !receiverProfile) {
@@ -97,11 +97,11 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // ── 会話履歴取得（直近5ターン） ──
-  const conversationContext = await fetchRecentTurns(supabase, threadId, 5);
+  // ── 会話履歴取得（直近5ターン）— admin でRLSバイパス ──
+  const conversationContext = await fetchRecentTurns(supabaseAdmin, threadId, 5);
 
   // ── 関係メタデータ — 温度差+rupture を実データから算出 ──
-  const relationshipMeta = await computeRelationshipMeta(supabase, threadId, user.id, receiverUserId);
+  const relationshipMeta = await computeRelationshipMeta(supabaseAdmin, threadId, user.id, receiverUserId);
 
   // ── Reading Simulation 実行 ──
   const result = await simulateReading({
@@ -139,99 +139,6 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-/**
- * 指定ユーザーの intent 用プロファイルの実在状況を詳細診断する。
- * profile_incomplete エラーの details に使う。
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function diagnoseProfileData(supabase: any, userId: string) {
-  // profiles テーブル
-  const { data: profileRow } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  // personality_dimensions — 実在する軸を列挙
-  const { data: dimRows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-  const dimAxes: string[] = (dimRows ?? []).map((r: { dimension: string }) => r.dimension);
-
-  // stargazer_axis_snapshots — 実在する軸を列挙（重複排除）
-  const { data: snapRows } = await supabase
-    .from("stargazer_axis_snapshots")
-    .select("axis_id")
-    .eq("user_id", userId)
-    .in("axis_id", INTENT_TRANSLATION_AXES)
-    .order("created_at", { ascending: false });
-  const snapAxes: string[] = Array.from(new Set((snapRows ?? []).map((r: { axis_id: string }) => r.axis_id)));
-
-  // 欠損軸を算出
-  const allPresent = new Set([...dimAxes, ...snapAxes]);
-  const missingAxes = INTENT_TRANSLATION_AXES.filter(a => !allPresent.has(a));
-
-  return {
-    hasProfilesRow: !!profileRow,
-    personalityDimensions: { count: dimAxes.length, axes: dimAxes },
-    axisSnapshots: { count: snapAxes.length, axes: snapAxes },
-    missingAxes,
-    meetsMinimum: allPresent.size >= 5,
-  };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {
-  // personality_dimensions → stargazer_axis_snapshots にフォールバック
-  const { data: rows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension, score")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-
-  let scores: Record<string, number> = {};
-
-  if (rows && rows.length >= 5) {
-    for (const row of rows as Array<{ dimension: string; score: number }>) {
-      scores[row.dimension] = row.score;
-    }
-  } else {
-    // フォールバック: stargazer_axis_snapshots から最新スコアを取得
-    const { data: snapshots } = await supabase
-      .from("stargazer_axis_snapshots")
-      .select("axis_id, score")
-      .eq("user_id", userId)
-      .in("axis_id", INTENT_TRANSLATION_AXES)
-      .order("created_at", { ascending: false });
-
-    if (!snapshots || snapshots.length === 0) return null;
-
-    for (const s of snapshots as Array<{ axis_id: string; score: number }>) {
-      if (!(s.axis_id in scores)) {
-        scores[s.axis_id] = s.score;
-      }
-    }
-    if (Object.keys(scores).length < 5) return null;
-  }
-
-  return {
-    userId,
-    direct_vs_diplomatic: scores.direct_vs_diplomatic ?? 0,
-    attachment_style: scores.attachment_style ?? 0,
-    reassurance_need: scores.reassurance_need ?? 0,
-    emotional_variability: scores.emotional_variability ?? 0,
-    conflict_style: scores.conflict_style ?? 0,
-    public_private_gap: scores.public_private_gap ?? 0,
-    intimacy_pace: scores.intimacy_pace ?? 0,
-    boundary_awareness: scores.boundary_awareness ?? 0,
-    self_disclosure_depth: scores.self_disclosure_depth ?? 0,
-    emotional_regulation: scores.emotional_regulation ?? 0,
-    relational_investment: scores.relational_investment ?? 0,
-  };
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchRecentTurns(supabase: any, threadId: string, limit: number): Promise<ConversationTurn[]> {

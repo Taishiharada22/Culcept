@@ -1,9 +1,12 @@
 /**
  * GET /api/coalter/status?threadId=xxx — CoAlterのペア状態を取得（副作用なし）
+ *
+ * ペアが enabled の場合、アクティブなセッション + 提案カードも返す。
+ * これにより、相手が起動した提案を両方のクライアントで表示できる。
  */
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import type { CoAlterApiResponse } from "@/lib/coalter/types";
+import type { CoAlterApiResponse, ProposalCard } from "@/lib/coalter/types";
 
 export async function GET(request: Request) {
   try {
@@ -35,6 +38,39 @@ export async function GET(request: Request) {
       });
     }
 
+    // ── enabled の場合、アクティブなセッション + 提案カードを探す ──
+    let activeProposal: ProposalCard | null = null;
+    let activeSessionId: string | null = null;
+
+    if (pairState.state === "enabled") {
+      // 最新のアクティブ or 完了セッションを取得（cancelled 以外）
+      const { data: session } = await supabase
+        .from("coalter_sessions")
+        .select("id, state")
+        .eq("pair_state_id", pairState.id)
+        .in("state", ["active", "completed"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (session) {
+        activeSessionId = session.id;
+        // セッションの提案カードを取得
+        const { data: msg } = await supabase
+          .from("coalter_messages")
+          .select("metadata")
+          .eq("session_id", session.id)
+          .eq("role", "coalter")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (msg?.metadata?.proposalCard) {
+          activeProposal = msg.metadata.proposalCard as ProposalCard;
+        }
+      }
+    }
+
     return NextResponse.json<CoAlterApiResponse>({
       ok: true,
       data: {
@@ -42,6 +78,9 @@ export async function GET(request: Request) {
         pairStateId: pairState.id,
         initiatedBy: pairState.initiated_by,
         isInitiator: pairState.initiated_by === user.id,
+        // 提案カード（両方のクライアントで表示するため）
+        activeSessionId,
+        activeProposal,
       },
     });
   } catch (e) {

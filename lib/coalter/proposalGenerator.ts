@@ -56,25 +56,33 @@ function buildSystemPrompt(): string {
   "candidates": [
     {
       "rank": 1,
-      "title": "候補名",
-      "oneLiner": "一言説明",
-      "practicalInfo": "現実情報（場所・時間・評価等。あればnull以外）"
+      "title": "具体的な候補名（作品名・店名・スポット名）",
+      "oneLiner": "なぜこの二人に合いそうか（性格・好み・会話文脈を踏まえた理由）",
+      "practicalInfo": "現実情報（場所・時間・評価・料金等。あればnull以外）"
     }
   ],
-  "reasoning": "なぜこの候補か（関係性文脈に基づく理由。2-3文）",
+  "reasoning": "全体としてなぜこの候補群を選んだか（関係性文脈に基づく理由。2-3文）",
   "closing": "退出シグナル（1文）"
 }
 
 候補は2-3個。4つ以上は出さない。
 
+## 候補の品質基準（重要）
+- title は必ず具体名（「映画」「美術館」ではなく「窓ぎわのトットちゃん」「森美術館」のような固有名詞）
+- ランキングページや一覧サイトを候補にしない（「Filmarks 恋愛映画ランキング」は候補ではない）
+- oneLiner は「なぜこの二人に合うか」を書く（「安定のアクション」ではなく「二人とも冒険より安心派だから、評判の良いこれが合いそう」）
+- 検索結果がある場合は、検索結果の中から具体的な候補を選ぶ
+- 検索結果がない・足りない場合は、会話の文脈から具体的な候補を提案する
+
 ## 文字数制約（厳守）
 - summary: 最大80文字（2文以内）
-- priorities.userA / userB: 各最大40文字（1文）
+- priorities.userA / userB: 各最大50文字（1文）
 - priorities.common: 最大30文字（1文。なければnull）
-- candidates[].oneLiner: 各最大30文字
-- reasoning: 最大80文字（2文以内）
+- candidates[].title: 最大30文字（固有名詞）
+- candidates[].oneLiner: 最大60文字（理由付き）
+- reasoning: 最大100文字（2-3文）
 - closing: 最大25文字（1文）
-全体で200-350文字に収める。長いと邪魔になる。短く、軽く。`;
+全体で250-450文字に収める。`;
 }
 
 function buildUserPrompt(
@@ -224,6 +232,7 @@ function buildUserPrompt(
       if (sc.externalRating) line += ` (${sc.externalRating})`;
       if (sc.practicalInfo) line += ` — ${sc.practicalInfo}`;
       line += `: ${sc.description.slice(0, 100)}`;
+      if (sc.url) line += ` [${sc.source}]`;
       parts.push(line);
     }
     parts.push("");
@@ -345,7 +354,7 @@ function validateAndNormalize(
   if (candidates.length > 3) candidates = candidates.slice(0, 3);
   if (candidates.length < 1) {
     candidates = [
-      { rank: 1, title: "情報が足りないかも", oneLiner: "もう少し教えてくれると候補を出せそう", practicalInfo: null },
+      { rank: 1, title: "情報が足りないかも", oneLiner: "もう少し教えてくれると候補を出せそう", practicalInfo: null, url: null },
     ];
   }
 
@@ -364,6 +373,7 @@ function validateAndNormalize(
         title: String(c.title || `候補${i + 1}`),
         oneLiner: String(c.oneLiner || ""),
         practicalInfo: c.practicalInfo ? String(c.practicalInfo) : null,
+        url: c.url ? String(c.url) : null,
       }),
     ),
     reasoning: sanitize(String(raw.reasoning || ""), nameA, nameB),
@@ -426,6 +436,7 @@ function parseFallback(
         title: "もう少し教えて",
         oneLiner: "いつ、どこで、どんな気分かを教えてくれると候補を出せるよ",
         practicalInfo: null,
+        url: null,
       },
     ],
     reasoning: "まだ情報が足りないので、もう少し話してみてね",

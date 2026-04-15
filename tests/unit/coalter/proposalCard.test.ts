@@ -108,12 +108,14 @@ describe("ProposalCard バリデーション", () => {
         title: "ミッション: インポッシブル 8",
         oneLiner: "安定のアクション",
         practicalInfo: "上映中 / 2h12m",
+        url: null,
       },
       {
         rank: 2,
         title: "ブレードランナー 2099",
         oneLiner: "SF好きなら冒険する価値あり",
         practicalInfo: "上映中 / 1h58m",
+        url: null,
       },
     ],
     reasoning:
@@ -167,8 +169,8 @@ describe("ProposalCard バリデーション", () => {
       ...VALID_CARD,
       candidates: [
         ...VALID_CARD.candidates,
-        { rank: 3, title: "C", oneLiner: "c", practicalInfo: null },
-        { rank: 4, title: "D", oneLiner: "d", practicalInfo: null },
+        { rank: 3, title: "C", oneLiner: "c", practicalInfo: null, url: null },
+        { rank: 4, title: "D", oneLiner: "d", practicalInfo: null, url: null },
       ],
     };
     const errors = validateProposalCard(card);
@@ -185,7 +187,7 @@ describe("ProposalCard バリデーション", () => {
       ...VALID_CARD,
       candidates: [
         ...VALID_CARD.candidates,
-        { rank: 3, title: "怪物の木こり", oneLiner: "邦画", practicalInfo: null },
+        { rank: 3, title: "怪物の木こり", oneLiner: "邦画", practicalInfo: null, url: null },
       ],
     };
     const errors = validateProposalCard(card);

@@ -9,9 +9,15 @@
  * - currentProposal: 最新の提案カード
  * - lastTrigger: 直近のsoft trigger情報
  * - loading: API呼び出し中フラグ
+ *
+ * 共有表示:
+ * - status API から既存の提案カードを取得（初期ロード時に両方のクライアントで表示）
+ * - Supabase Realtime で coalter_sessions の変更を監視
+ * - dismissProposal は end API を呼び出し、DB更新 → Realtime で相手にも反映
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { supabaseBrowser } from "@/lib/supabase/client";
 import type {
   CoAlterPairState,
   CoAlterSessionState,
@@ -52,8 +58,9 @@ const INITIAL_STATE: CoAlterState = {
 export function useCoAlter(threadId: string) {
   const [state, setState] = useState<CoAlterState>(INITIAL_STATE);
   const abortRef = useRef<AbortController | null>(null);
+  const realtimeChannelRef = useRef<ReturnType<ReturnType<typeof supabaseBrowser>["channel"]> | null>(null);
 
-  // ── ペア状態の初期ロード（GET /api/coalter/status — 副作用なし） ──
+  // ── ペア状態の初期ロード + 既存の提案カード取得 ──
   useEffect(() => {
     let cancelled = false;
 
@@ -66,11 +73,23 @@ export function useCoAlter(threadId: string) {
         }
         const data = await res.json();
         if (!cancelled && data.ok && data.data) {
-          const d = data.data as { state: string; pairStateId: string | null; initiatedBy: string | null; isInitiator?: boolean };
+          const d = data.data as {
+            state: string;
+            pairStateId: string | null;
+            initiatedBy: string | null;
+            isInitiator?: boolean;
+            activeSessionId?: string | null;
+            activeProposal?: ProposalCard | null;
+          };
           setState((prev) => ({
             ...prev,
             pairState: (d.state === "inactive" ? "inactive" : d.state) as CoAlterPairState,
             pairStateId: d.pairStateId,
+            // 既存の提案カードがあれば表示（相手が起動した提案も含む）
+            ...(d.activeProposal ? {
+              sessionState: "completed" as CoAlterSessionState,
+              currentProposal: d.activeProposal,
+            } : {}),
           }));
         }
       } catch {
@@ -82,6 +101,83 @@ export function useCoAlter(threadId: string) {
 
     return () => {
       cancelled = true;
+    };
+  }, [threadId]);
+
+  // ── Supabase Realtime: coalter_sessions の変更を監視 ──
+  useEffect(() => {
+    const sb = supabaseBrowser();
+
+    const channel = sb.channel(`coalter:${threadId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "coalter_sessions",
+          filter: `thread_id=eq.${threadId}`,
+        },
+        async () => {
+          // 新しいセッションが作成された → 提案カードを取得
+          try {
+            const res = await fetch(`/api/coalter/status?threadId=${encodeURIComponent(threadId)}`);
+            const data = await res.json();
+            if (data.ok && data.data?.activeProposal) {
+              setState((prev) => ({
+                ...prev,
+                sessionState: "completed",
+                currentProposal: data.data.activeProposal,
+                loading: false,
+              }));
+            }
+          } catch {
+            // silent — フォールバックはポーリングに任せる
+          }
+        },
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "coalter_sessions",
+          filter: `thread_id=eq.${threadId}`,
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        async (payload: any) => {
+          const newState = (payload.new as { state?: string })?.state;
+          if (newState === "cancelled") {
+            // セッションが終了された（相手がdismissした） → 提案カードを閉じる
+            setState((prev) => ({
+              ...prev,
+              sessionState: null,
+              currentProposal: null,
+            }));
+          } else if (newState === "completed") {
+            // パイプラインが完了 → 提案カードを取得して表示
+            try {
+              const res = await fetch(`/api/coalter/status?threadId=${encodeURIComponent(threadId)}`);
+              const data = await res.json();
+              if (data.ok && data.data?.activeProposal) {
+                setState((prev) => ({
+                  ...prev,
+                  sessionState: "completed",
+                  currentProposal: data.data.activeProposal,
+                  loading: false,
+                }));
+              }
+            } catch {
+              // silent
+            }
+          }
+        },
+      )
+      .subscribe();
+
+    realtimeChannelRef.current = channel;
+
+    return () => {
+      channel.unsubscribe();
     };
   }, [threadId]);
 
@@ -247,14 +343,23 @@ export function useCoAlter(threadId: string) {
     [threadId],
   );
 
-  // ── dismiss: 提案カードを閉じる（セッション終了） ──
+  // ── dismiss: 提案カードを閉じる（セッション終了 — DB更新 → Realtime で相手にも反映） ──
   const dismissProposal = useCallback(() => {
+    // まずローカルで即座に閉じる（UXのため）
     setState((prev) => ({
       ...prev,
       sessionState: null,
       currentProposal: null,
     }));
-  }, []);
+    // DB更新: end API を呼び出し → Realtime で相手のクライアントにも反映
+    fetch("/api/coalter/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, action: "end_session" }),
+    }).catch(() => {
+      // silent — ローカルでは既に閉じている
+    });
+  }, [threadId]);
 
   // ── soft trigger の通知（ChatClientから呼ばれる） ──
   const notifySoftTrigger = useCallback(

@@ -63,12 +63,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // end_session: アクティブなセッションのみ終了
+    // end_session: アクティブ or 完了セッションを終了（両ユーザーからの dismiss 対応）
     const { error } = await supabase
       .from("coalter_sessions")
       .update({ state: "cancelled", ended_at: new Date().toISOString() })
       .eq("pair_state_id", pairState.id)
-      .eq("state", "active");
+      .in("state", ["active", "completed"]);
 
     if (error) {
       console.error("[CoAlter] Failed to end session:", error);

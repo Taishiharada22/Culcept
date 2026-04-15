@@ -157,3 +157,14 @@ CREATE POLICY "coalter_fairness_insert" ON coalter_fairness_ledger
         AND auth.uid() IN (ps.user_a, ps.user_b)
     )
   );
+
+-- ─────────────────────────────────────────────
+-- Realtime: coalter_sessions の変更をリアルタイムで配信
+-- （相手がCoAlterを起動/終了した時に両方のクライアントに通知）
+-- ─────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+    EXECUTE 'ALTER PUBLICATION supabase_realtime ADD TABLE public.coalter_sessions';
+  END IF;
+END $$;
