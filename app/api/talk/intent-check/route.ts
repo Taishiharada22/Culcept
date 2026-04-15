@@ -84,11 +84,11 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
-    // どちらのプロファイルが欠けているか特定
-    const senderSnapshotCount = await countAxisSnapshots(supabase, user.id);
-    const receiverSnapshotCount = await countAxisSnapshots(supabase, receiverUserId);
-    const senderDimCount = await countPersonalityDimensions(supabase, user.id);
-    const receiverDimCount = await countPersonalityDimensions(supabase, receiverUserId);
+    // 欠けている側の詳細診断を実行
+    const [senderDiag, receiverDiag] = await Promise.all([
+      !senderProfile ? diagnoseProfileData(supabase, user.id) : null,
+      !receiverProfile ? diagnoseProfileData(supabase, receiverUserId) : null,
+    ]);
 
     return NextResponse.json({
       ok: false,
@@ -99,11 +99,11 @@ export async function POST(request: NextRequest) {
         receiverUserId,
         hasSenderProfile: !!senderProfile,
         hasReceiverProfile: !!receiverProfile,
-        senderPersonalityDimensions: senderDimCount,
-        senderAxisSnapshots: senderSnapshotCount,
-        receiverPersonalityDimensions: receiverDimCount,
-        receiverAxisSnapshots: receiverSnapshotCount,
-        requiredAxes: INTENT_TRANSLATION_AXES,
+        // 欠けている側のみ詳細を返す
+        ...(senderDiag && { sender: senderDiag }),
+        ...(receiverDiag && { receiver: receiverDiag }),
+        requiredMinimumAxes: 5,
+        totalAxes: INTENT_TRANSLATION_AXES.length,
       },
     }, { status: 422 });
   }
@@ -151,24 +151,47 @@ export async function POST(request: NextRequest) {
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * 指定ユーザーの intent 用プロファイルの実在状況を詳細診断する。
+ * profile_incomplete エラーの details に使う。
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function countAxisSnapshots(supabase: any, userId: string): Promise<number> {
-  const { count } = await supabase
-    .from("stargazer_axis_snapshots")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .in("axis_id", INTENT_TRANSLATION_AXES);
-  return count ?? 0;
-}
+async function diagnoseProfileData(supabase: any, userId: string) {
+  // profiles テーブル
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", userId)
+    .maybeSingle();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function countPersonalityDimensions(supabase: any, userId: string): Promise<number> {
-  const { count } = await supabase
+  // personality_dimensions — 実在する軸を列挙
+  const { data: dimRows } = await supabase
     .from("personality_dimensions")
-    .select("id", { count: "exact", head: true })
+    .select("dimension")
     .eq("user_id", userId)
     .in("dimension", INTENT_TRANSLATION_AXES);
-  return count ?? 0;
+  const dimAxes: string[] = (dimRows ?? []).map((r: { dimension: string }) => r.dimension);
+
+  // stargazer_axis_snapshots — 実在する軸を列挙（重複排除）
+  const { data: snapRows } = await supabase
+    .from("stargazer_axis_snapshots")
+    .select("axis_id")
+    .eq("user_id", userId)
+    .in("axis_id", INTENT_TRANSLATION_AXES)
+    .order("created_at", { ascending: false });
+  const snapAxes: string[] = Array.from(new Set((snapRows ?? []).map((r: { axis_id: string }) => r.axis_id)));
+
+  // 欠損軸を算出
+  const allPresent = new Set([...dimAxes, ...snapAxes]);
+  const missingAxes = INTENT_TRANSLATION_AXES.filter(a => !allPresent.has(a));
+
+  return {
+    hasProfilesRow: !!profileRow,
+    personalityDimensions: { count: dimAxes.length, axes: dimAxes },
+    axisSnapshots: { count: snapAxes.length, axes: snapAxes },
+    missingAxes,
+    meetsMinimum: allPresent.size >= 5,
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
