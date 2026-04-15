@@ -219,6 +219,7 @@ export default function CoAlterPreviewPage() {
               pairState={pairState}
               sessionState={sessionState}
               loading={loading}
+              error={null}
               onActivate={simulateActivate}
               onInvoke={simulateInvoke}
             />

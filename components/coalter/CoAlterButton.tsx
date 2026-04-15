@@ -40,8 +40,25 @@ export default function CoAlterButton({
   onActivate,
   onInvoke,
 }: Props) {
-  // disabled → 非表示
-  if (pairState === "disabled") return null;
+  // disabled → 再有効化ボタン（常に画面に待機）
+  if (pairState === "disabled") {
+    return (
+      <motion.button
+        onClick={onActivate}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all"
+        style={{
+          background: `${C.coalter}06`,
+          border: `1px solid ${C.coalter}15`,
+        }}
+        whileTap={{ scale: 0.95 }}
+      >
+        <span style={{ fontSize: 12, opacity: 0.6 }}>✦</span>
+        <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>
+          CoAlterを使ってみる
+        </span>
+      </motion.button>
+    );
+  }
 
   // エラー時 → リトライ可能なボタン
   if (error) {
@@ -77,16 +94,23 @@ export default function CoAlterButton({
     );
   }
 
-  // pending_consent → 承認待ち表示
+  // pending_consent → activate が即 enabled にするので、ここに来たら activate を再呼び出し
   if (pairState === "pending_consent") {
     return (
-      <div
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-        style={{ background: `${C.coalter}10`, border: `1px dashed ${C.coalter}30` }}
+      <motion.button
+        onClick={onActivate}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all"
+        style={{
+          background: `${C.coalter}08`,
+          border: `1px solid ${C.coalter}20`,
+        }}
+        whileTap={{ scale: 0.95 }}
       >
         <span style={{ fontSize: 12 }}>✦</span>
-        <span style={{ fontSize: 11, color: C.t3 }}>承認待ち</span>
-      </div>
+        <span style={{ fontSize: 11, color: C.coalter, fontWeight: 500 }}>
+          CoAlterを有効にする
+        </span>
+      </motion.button>
     );
   }
 

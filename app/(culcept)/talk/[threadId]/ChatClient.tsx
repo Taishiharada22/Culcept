@@ -482,17 +482,15 @@ function ConversationStarters({ counterpartName, archetypeLabel, deepeningTopics
    ═══════════════════════════════════════════════ */
 export default function ChatClient({ threadId }: Props) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
-  const [input, setInput] = useState(() => {
-    if (typeof window === "undefined") return "";
-    try { return sessionStorage.getItem(`talk_draft_${threadId}`) ?? ""; } catch { return ""; }
-  });
+  const [input, setInput] = useState("");
+  const [mounted, setMounted] = useState(false);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [counterpart, setCounterpart] = useState<{
-    displayName: string | null; avatarUrl: string | null;
+    userId: string | null; displayName: string | null; avatarUrl: string | null;
     archetypeLabel: string | null; card: GenomeCardData | null;
-  }>({ displayName: null, avatarUrl: null, archetypeLabel: null, card: null });
+  }>({ userId: null, displayName: null, avatarUrl: null, archetypeLabel: null, card: null });
   const [myCard, setMyCard] = useState<GenomeCardData | null>(null);
   const [showInsight, setShowInsight] = useState(true);
   const [showThreadInfo, setShowThreadInfo] = useState(false);
@@ -543,14 +541,24 @@ export default function ChatClient({ threadId }: Props) {
   // ── CoAlter ──
   const coalter = useCoAlter(threadId);
 
+  // ── mount 検出 + 下書き復元（hydration 完了後） ──
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const draft = sessionStorage.getItem(`talk_draft_${threadId}`);
+      if (draft) setInput(draft);
+    } catch { /* noop */ }
+  }, [threadId]);
+
   // ── 下書き保存（sessionStorage） ──
   useEffect(() => {
+    if (!mounted) return;
     const key = `talk_draft_${threadId}`;
     try {
       if (input) { sessionStorage.setItem(key, input); }
       else { sessionStorage.removeItem(key); }
     } catch { /* noop */ }
-  }, [input, threadId]);
+  }, [input, threadId, mounted]);
 
   // ── 会話インサイト（Aneurasyncの核心）──
   // Step 1: ルールベースで即座に表示（フォールバック）
@@ -702,6 +710,7 @@ export default function ChatClient({ threadId }: Props) {
             const cpCardRes = await fetch(`/api/genome-card/${cpId}`).catch(() => null);
             const cpCardData = cpCardRes ? await cpCardRes.json().catch(() => null) : null;
             setCounterpart({
+              userId: cpId,
               displayName: thread.counterpart.displayName,
               avatarUrl: thread.counterpart.avatarUrl,
               archetypeLabel: cpCardData?.ok ? cpCardData.card?.archetypeLabel : null,
@@ -822,7 +831,7 @@ export default function ChatClient({ threadId }: Props) {
       const res = await fetch("/api/talk/intent-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, message: input.trim() }),
+        body: JSON.stringify({ threadId, message: input.trim(), receiverUserId: counterpart.userId ?? "" }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -845,7 +854,7 @@ export default function ChatClient({ threadId }: Props) {
       const res = await fetch("/api/talk/intent-translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, messageId }),
+        body: JSON.stringify({ threadId, messageId, senderUserId: counterpart.userId ?? "" }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -976,16 +985,18 @@ export default function ChatClient({ threadId }: Props) {
   const cpName = counterpart.displayName ?? "ユーザー";
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: C.bg }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: C.bg }}>
       {/* ═══ ヘッダー ═══ */}
       <div className="sticky top-0 z-20" style={{
         background: "rgba(248,246,243,0.88)", backdropFilter: "blur(16px) saturate(1.5)",
         borderBottom: `1px solid ${C.s2}`,
       }}>
         <div className="max-w-lg mx-auto px-4 py-2.5 flex items-center gap-3">
-          <Link href="/talk" className="flex items-center justify-center w-9 h-9 rounded-full min-h-[44px] min-w-[44px]"
-            style={{ background: C.s2 }} aria-label="トーク一覧に戻る">
-            <span style={{ fontSize: 14, color: C.t2 }}>←</span>
+          <Link href="/talk?tab=talk" className="flex items-center justify-center w-9 h-9 rounded-full min-h-[44px] min-w-[44px]"
+            style={{ background: C.s2 }} aria-label="戻る">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a4a68" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
           </Link>
           <button className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
             onClick={() => setShowThreadInfo(true)} aria-label="スレッド情報を表示">
@@ -1579,34 +1590,44 @@ export default function ChatClient({ threadId }: Props) {
               )}
             </div>
             {/* 🔮 意図チェックボタン */}
-            <button
-              onClick={handleIntentCheck}
-              disabled={!input.trim() || intentCheck.checking}
-              aria-label="伝わり方チェック"
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px] flex-shrink-0"
-              style={{
-                background: intentCheck.checking ? `${C.neural}20` : input.trim() ? `${C.neural}10` : "transparent",
-                opacity: input.trim() ? 1 : 0.3,
-              }}
-            >
-              <span style={{ fontSize: 16 }}>{intentCheck.checking ? "⏳" : "🔮"}</span>
-            </button>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-              aria-label="送信"
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px]"
-              style={{
-                background: input.trim() ? `linear-gradient(135deg, ${C.neural}, ${C.pulse})` : C.s2,
-                color: input.trim() ? "white" : C.t4,
-                opacity: sending ? 0.5 : 1,
-                transform: input.trim() ? "scale(1)" : "scale(0.95)",
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
-              </svg>
-            </button>
+            {(() => {
+              const hasText = mounted && !!input.trim();
+              return (
+                <button
+                  onClick={handleIntentCheck}
+                  disabled={!hasText || intentCheck.checking}
+                  aria-label="伝わり方チェック"
+                  className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px] flex-shrink-0"
+                  style={{
+                    background: intentCheck.checking ? `${C.neural}20` : hasText ? `${C.neural}10` : "transparent",
+                    opacity: hasText ? 1 : 0.3,
+                  }}
+                >
+                  <span style={{ fontSize: 16 }}>{intentCheck.checking ? "⏳" : "🔮"}</span>
+                </button>
+              );
+            })()}
+            {(() => {
+              const hasText = mounted && !!input.trim();
+              return (
+                <button
+                  onClick={handleSend}
+                  disabled={!hasText || sending}
+                  aria-label="送信"
+                  className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px]"
+                  style={{
+                    background: hasText ? `linear-gradient(135deg, ${C.neural}, ${C.pulse})` : C.s2,
+                    color: hasText ? "white" : C.t4,
+                    opacity: sending ? 0.5 : 1,
+                    transform: hasText ? "scale(1)" : "scale(0.95)",
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+                  </svg>
+                </button>
+              );
+            })()}
           </div>
         </div>
       </div>

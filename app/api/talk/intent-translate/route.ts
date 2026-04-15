@@ -140,17 +140,37 @@ export async function POST(request: NextRequest) {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {
+  // personality_dimensions → stargazer_axis_snapshots にフォールバック
   const { data: rows } = await supabase
     .from("personality_dimensions")
     .select("dimension, score")
     .eq("user_id", userId)
     .in("dimension", INTENT_TRANSLATION_AXES);
 
-  if (!rows || rows.length < 5) return null;
+  let scores: Record<string, number> = {};
 
-  const scores: Record<string, number> = {};
-  for (const row of rows as Array<{ dimension: string; score: number }>) {
-    scores[row.dimension] = row.score;
+  if (rows && rows.length >= 5) {
+    for (const row of rows as Array<{ dimension: string; score: number }>) {
+      scores[row.dimension] = row.score;
+    }
+  } else {
+    // フォールバック: stargazer_axis_snapshots から最新スコアを取得
+    const { data: snapshots } = await supabase
+      .from("stargazer_axis_snapshots")
+      .select("axis_id, score")
+      .eq("user_id", userId)
+      .in("axis_id", INTENT_TRANSLATION_AXES)
+      .order("created_at", { ascending: false });
+
+    if (!snapshots || snapshots.length === 0) return null;
+
+    // 各軸の最新スコアのみ採用（重複排除）
+    for (const s of snapshots as Array<{ axis_id: string; score: number }>) {
+      if (!(s.axis_id in scores)) {
+        scores[s.axis_id] = s.score;
+      }
+    }
+    if (Object.keys(scores).length < 5) return null;
   }
 
   return {

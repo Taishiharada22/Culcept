@@ -576,6 +576,26 @@ async function handleStage1MultiChoice(
     }
   }
 
+  // 2.8. axisScores を stargazer_axis_snapshots に保存 [IMPORTANT]
+  {
+    const axisRows = Object.entries(axisScores).map(([axisId, score]) => ({
+      user_id: userId,
+      axis_id: axisId,
+      score,
+      confidence: confidence ?? 0.4,
+      observation_layer: "stage1",
+      session_date: new Date().toISOString().slice(0, 10),
+    }));
+    if (axisRows.length > 0) {
+      const { error: axisErr } = await supabase
+        .from("stargazer_axis_snapshots")
+        .insert(axisRows);
+      if (axisErr) {
+        console.warn("[Stargazer API] axis_snapshots insert failed (stage1, non-critical):", axisErr.message);
+      }
+    }
+  }
+
   // 3. stargazer_profiles を upsert (with stage_progress) [CRITICAL]
   const { error: profileError } = await supabase
     .from("stargazer_profiles")

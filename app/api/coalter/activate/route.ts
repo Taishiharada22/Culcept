@@ -70,17 +70,23 @@ export async function POST(request: Request) {
         });
       }
       if (existing.state === "pending_consent") {
+        // 即 enabled に昇格
+        await supabase
+          .from("coalter_pair_states")
+          .update({ state: "enabled", accepted_at: new Date().toISOString() })
+          .eq("id", existing.id);
         return NextResponse.json<CoAlterApiResponse>({
           ok: true,
-          data: { pairStateId: existing.id, state: "pending_consent" },
+          data: { pairStateId: existing.id, state: "enabled" },
         });
       }
-      // disabled → 再度 pending_consent
+      // disabled → 即 enabled
       await supabase
         .from("coalter_pair_states")
         .update({
-          state: "pending_consent",
+          state: "enabled",
           initiated_by: user.id,
+          accepted_at: new Date().toISOString(),
           disabled_at: null,
           disabled_by: null,
         })
@@ -88,11 +94,11 @@ export async function POST(request: Request) {
 
       return NextResponse.json<CoAlterApiResponse>({
         ok: true,
-        data: { pairStateId: existing.id, state: "pending_consent" },
+        data: { pairStateId: existing.id, state: "enabled" },
       });
     }
 
-    // 新規作成
+    // 新規作成 — 即 enabled（同意フロー不要）
     const { data: created, error } = await supabase
       .from("coalter_pair_states")
       .insert({
@@ -100,8 +106,9 @@ export async function POST(request: Request) {
         thread_type: "talk",
         user_a: userA,
         user_b: userB,
-        state: "pending_consent",
+        state: "enabled",
         initiated_by: user.id,
+        accepted_at: new Date().toISOString(),
       })
       .select("id")
       .single();
@@ -113,7 +120,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json<CoAlterApiResponse>({
       ok: true,
-      data: { pairStateId: created.id, state: "pending_consent" },
+      data: { pairStateId: created.id, state: "enabled" },
     });
   } catch (e) {
     console.error("[CoAlter] Activate error:", e);
