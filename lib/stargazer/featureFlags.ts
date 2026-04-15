@@ -53,4 +53,13 @@ export const STARGAZER_FLAGS = {
    */
   implicitSearchLive: process.env.STARGAZER_IMPLICIT_SEARCH_LIVE === "true"
     || process.env.STARGAZER_PERSPECTIVE_ENGINE_LIVE === "true",
+
+  /**
+   * Chained Exploration: L1 Deep Dive 有効化.
+   * L0 の Quality Gate が supplement を返した場合に、
+   * 情報ギャップ分析 → 追加クエリ生成 → 追加検索 → マージを実行する。
+   * env: PE_L1_ENABLED=true で有効化（デフォルト false）
+   * @see docs/chained-exploration-design.md
+   */
+  peL1Enabled: process.env.PE_L1_ENABLED === "true",
 } as const;

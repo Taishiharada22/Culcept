@@ -1,0 +1,511 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T13:12:10.868Z",
+    "caseCount": 12,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 21336,
+        "p90Ms": 27187,
+        "minMs": 16377,
+        "maxMs": 37517
+      },
+      "pe": {
+        "medianMs": 10187,
+        "p90Ms": 14896
+      },
+      "mainLlm": {
+        "medianMs": 4024,
+        "p90Ms": 7047
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 1996,
+          "p90Ms": 3821
+        },
+        "search": {
+          "medianMs": 1425,
+          "p90Ms": 1652
+        },
+        "classify": {
+          "medianMs": 5904,
+          "p90Ms": 11609
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 0
+        },
+        "promptBuild": {
+          "medianMs": 0,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 27187,
+      "responseText": "IT業界の最新トレンドを見ると、今はやはり生成AIが最も注目されているね。2023年のITトレンド調査ではソフトバンクも生成AIがトップだと報告しているし、株式会社NTTデータも2023年のセキュリティトレンドとしてランサムウェアと生成AIを重要なテーマに挙げているよ。\n特に2026年には生成AI、クラウドネイティブ、そしてサイバーセキュリティが引き続き注目の分野になると株式会社アイティークロスも予測していて、デジタル化が進む中でこれらの技術がビジネスの形を大きく変えていくのは間違いないと思う。たいしさんはデータや根拠を重視するタイプだから、具体的な数字や企業名からトレンドを追う方が納得感があるんじゃないかな。\nこういう情報に触れると、新しいアイデアに興奮して深く集中するたいしさんの良さが活きると思うんだ。",
+      "latencyBreakdown": {
+        "dbInitMs": 1217,
+        "geminiReadingMs": 2582,
+        "postGeminiStartMs": 3811,
+        "preProcessingMs": 4232,
+        "promptBuildMs": 23458,
+        "mainPromptChars": 11791,
+        "mainLlmMs": 3285,
+        "validationRetryMs": 1,
+        "postProcessingMs": 73,
+        "totalMs": 26817,
+        "peMs": 18746,
+        "peQueryGenMs": 5367,
+        "peSearchMs": 1639,
+        "peClassifyMs": 11737,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 2
+      },
+      "entities": [
+        "株式会社NTTデータも2023年のセキュリティトレンドとしてランサムウェアと生成AIを重要なテーマに挙げているよ",
+        "株式会社アイティークロスも予測していて"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A2",
+      "category": "market_intel",
+      "message": "AIスタートアップの資金調達状況を調べてきて",
+      "description": "market_intel: AIスタートアップ資金調達（明示的・ニッチ）",
+      "evaluationFocus": "具体的な企業名・金額の有無",
+      "mode": "isolated",
+      "elapsedMs": 37517,
+      "responseText": "2026年第1四半期のAIスタートアップの資金調達は、2970億ドル（約44.6兆円）に達し、特にOpenAI、Anthropic、xAI、Waymoの4社が1880億ドルを調達し全体の64%を占めている。これからもAI分野への投資は増加傾向にあり、全体の81%がAI関連に集中している状況だ。つまり、今後もこの分野が成長する可能性が高いということ。\nこの情報は、たいしさんが考えているプロダクトや構想にとっても重要な指標になると思う。だから、AI市場の動向には注目するといいかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 944,
+        "geminiReadingMs": 3456,
+        "postGeminiStartMs": 4430,
+        "preProcessingMs": 4821,
+        "promptBuildMs": 19433,
+        "mainPromptChars": 13101,
+        "mainLlmMs": 17213,
+        "validationRetryMs": 1,
+        "postProcessingMs": 123,
+        "totalMs": 36770,
+        "peMs": 14242,
+        "peQueryGenMs": 1922,
+        "peSearchMs": 1444,
+        "peClassifyMs": 10875,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A3",
+      "category": "market_intel",
+      "message": "リモートワークの普及率って今どれくらいなのか調べてみて",
+      "description": "market_intel: リモートワーク統計（明示的・統計要求）",
+      "evaluationFocus": "統計データ・数値の具体性",
+      "mode": "isolated",
+      "elapsedMs": 21561,
+      "responseText": "リモートワークの普及率は、厚生労働省の「令和7年度テレワークの労務管理等に関する総合実態調査」によると、過半数の企業が今後も維持・拡大すると回答しているよ。これは、テレワークの流行が終わったという直感とは少し違う「反転」の兆しを示しているんだ。\nたいしさんはデータや根拠を求めて判断する傾向があるから、こういう具体的な数字は判断の助けになるかなって思った。僕もまだたいしさんのことを知らないことが多いから、こういう情報がどう響くか、よかったら教えてほしいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 334,
+        "geminiReadingMs": 2402,
+        "postGeminiStartMs": 2740,
+        "preProcessingMs": 2982,
+        "promptBuildMs": 18478,
+        "mainPromptChars": 11368,
+        "mainLlmMs": 2536,
+        "validationRetryMs": 1,
+        "postProcessingMs": 245,
+        "totalMs": 21260,
+        "peMs": 14896,
+        "peQueryGenMs": 1945,
+        "peSearchMs": 1339,
+        "peClassifyMs": 11609,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B1",
+      "category": "listing_search",
+      "message": "自分に合いそうなIT企業をWEBで探してきて",
+      "description": "listing_search: 自分に合うIT企業（明示的・適性依存）",
+      "evaluationFocus": "候補が「この人向き」か、理由の納得感",
+      "mode": "isolated",
+      "elapsedMs": 21110,
+      "responseText": "たいしさんは一人で深く集中する力があるから、個人の裁量が大きく、専門性を高められるIT企業が合いそうだよ。\n例えば、エン株式会社のAIテクノロジー室は、原則リモートワークでエンジニアとPdMが同じ志を共有して進めるカルチャーがあるから、自分のペースで深く技術を追求できる環境かもしれない。また、米IDCのデータによると、2025年の法人向けIT企業は売上高が120億ドル、約175兆2000億円と大幅に成長しているから、成長市場で専門性を活かせる企業も良い選択肢になると思う。\nただ、僕が今見つけられるのは公開されている情報からだから、一覧サイトのように網羅的なリストは難しいんだ。\nこの中で気になるところ、もう少し見てみたいところがあれば教えて。",
+      "latencyBreakdown": {
+        "dbInitMs": 496,
+        "geminiReadingMs": 2901,
+        "postGeminiStartMs": 3400,
+        "preProcessingMs": 3560,
+        "promptBuildMs": 14829,
+        "mainPromptChars": 12611,
+        "mainLlmMs": 5726,
+        "validationRetryMs": 7,
+        "postProcessingMs": 406,
+        "totalMs": 20968,
+        "peMs": 10888,
+        "peQueryGenMs": 1593,
+        "peSearchMs": 1406,
+        "peClassifyMs": 7889,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社のAIテクノロジー室は"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 20592,
+      "responseText": "データ分析に強いIT企業を探すなら、TDSE株式会社は600社以上の企業の意思決定を支えているから、たいしさんが深く集中して分析力を発揮するのに良い環境かもしれないね。\nまた、ネットビジネスサポート株式会社が提供しているデータ分析の企業一覧も参考になると思う。たいしさんはデータや根拠を求めて判断する傾向があるから、複数の選択肢を比較検討するのに役立つはずだよ。\n僕の知る限り、日本IT業界は新興企業が2025年から2026年にかけて20-30%の成長率、一部では+40%と競争を再構築しているから、成長性のある企業を選ぶのも面白いかもしれない。",
+      "latencyBreakdown": {
+        "dbInitMs": 418,
+        "geminiReadingMs": 3055,
+        "postGeminiStartMs": 3475,
+        "preProcessingMs": 3683,
+        "promptBuildMs": 17792,
+        "mainPromptChars": 12720,
+        "mainLlmMs": 2610,
+        "validationRetryMs": 0,
+        "postProcessingMs": 113,
+        "totalMs": 20515,
+        "peMs": 13568,
+        "peQueryGenMs": 1637,
+        "peSearchMs": 1652,
+        "peClassifyMs": 10278,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社は600社以上の企業の意思決定を支えているから",
+        "株式会社が提供しているデータ分析の企業一覧も参考になると思う"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B3",
+      "category": "listing_search",
+      "message": "少人数でリモートOKのスタートアップをネットで調べてみて",
+      "description": "listing_search: 働き方条件指定（明示的・条件具体）",
+      "evaluationFocus": "条件（少人数・リモート）との一致度",
+      "mode": "isolated",
+      "elapsedMs": 26434,
+      "responseText": "少人数でリモートOKのスタートアップを探すなら、AIやITテクノロジーを活用したサービスを提供している企業に絞るのが、たいしさんの分析的な視点にも合うと思う。\n例えば、WIRED.jpやスタンフォード大学のニコラス・ブルーム教授が2021年に指摘しているように、パンデミック以降、リモートワーク中心で成功するスタートアップは増えているんだ。特にITmedia ビジネスオンラインによると、AIを活用して15人程度の少人数で60億円もの高収益を上げている企業もあって、これはすごく面白い傾向だよね。RemotifyのようなリモートDXを支援するサービスも、AIやITテクノロジーを駆使して仕事と生活の調和を目指しているらしい。\n僕がネットで調べた範囲だと、具体的な企業名をリストアップするのはまだ難しいんだけど、こうしたAIやITテクノロジーを使ったリモートDX系のスタートアップは、たいしさんの「個で深める」傾向とも相性がいいはず。",
+      "latencyBreakdown": {
+        "dbInitMs": 514,
+        "geminiReadingMs": 9245,
+        "postGeminiStartMs": 9764,
+        "preProcessingMs": 10537,
+        "promptBuildMs": 20433,
+        "mainPromptChars": 14073,
+        "mainLlmMs": 4378,
+        "validationRetryMs": 2,
+        "postProcessingMs": 464,
+        "totalMs": 25277,
+        "peMs": 9486,
+        "peQueryGenMs": 2306,
+        "peSearchMs": 2511,
+        "peClassifyMs": 4667,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C1",
+      "category": "comparison",
+      "message": "サイバーエージェントとマクロミルならどっちが自分に合う？調べてみて",
+      "description": "comparison: 2社比較（明示的・適性判断要求）",
+      "evaluationFocus": "比較軸の妥当性、パーソナリティとの接続",
+      "mode": "isolated",
+      "elapsedMs": 25718,
+      "responseText": "サイバーエージェントの方がたいしさんに合っていると思う。サイバーエージェントはクリエイティブな環境があり、チームでの協力が求められるため、一人で深く集中する力を持つたいしさんには新しい視点を得るチャンスがある気がする。一方で、マクロミルはデータ分析に特化していて、実用性を重視する傾向が強いから、より論理的な判断を求められるかもしれない。 \nただし、マクロミルでは安定した収入や福利厚生が充実している点では魅力的だとも思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 489,
+        "geminiReadingMs": 9252,
+        "postGeminiStartMs": 9747,
+        "preProcessingMs": 10118,
+        "promptBuildMs": 19049,
+        "mainPromptChars": 6518,
+        "mainLlmMs": 5941,
+        "validationRetryMs": 1,
+        "postProcessingMs": 198,
+        "totalMs": 25189,
+        "peMs": 8488,
+        "peQueryGenMs": 2211,
+        "peSearchMs": 1234,
+        "peClassifyMs": 5041,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C2",
+      "category": "comparison",
+      "message": "PythonとRならデータ分析にはどっちがいい？ネットで調べて",
+      "description": "comparison: 技術比較（明示的・スキル選択）",
+      "evaluationFocus": "技術的正確性、ユーザー適性との接続",
+      "mode": "isolated",
+      "elapsedMs": 23821,
+      "responseText": "Pythonの方がデータ分析には向いていると思う。PythonはWeb開発やAI、自動化といった幅広い用途に利用されていて、特にデータ分析のライブラリも充実しているから、実用性を重視するたいしさんには合っているんじゃないかな。Rも統計解析には特化しているけれど、Pythonの多様性がたいしさんの判断スタイルにもマッチしそうだね。ただし、Rは統計解析に特化している点では優れた選択肢とも言えるから、用途によって使い分けることも考えられるよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 613,
+        "geminiReadingMs": 3337,
+        "postGeminiStartMs": 3953,
+        "preProcessingMs": 4189,
+        "promptBuildMs": 16272,
+        "mainPromptChars": 6196,
+        "mainLlmMs": 7047,
+        "validationRetryMs": 1,
+        "postProcessingMs": 208,
+        "totalMs": 23528,
+        "peMs": 11685,
+        "peQueryGenMs": 3821,
+        "peSearchMs": 1097,
+        "peClassifyMs": 6766,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 16992,
+      "responseText": "フリーランスの方がたいしさんには合っていると思う。理由は、たいしさんが深く集中して自分のペースで働く力を持っているからで、フリーランスはその自由度が高い働き方を提供してくれるからだ。ただ、正社員の安定した収入や社会的信用も魅力的なので、その点では正社員の方が安心感があるかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 417,
+        "geminiReadingMs": 2517,
+        "postGeminiStartMs": 2936,
+        "preProcessingMs": 3142,
+        "promptBuildMs": 12128,
+        "mainPromptChars": 6036,
+        "mainLlmMs": 4449,
+        "validationRetryMs": 1,
+        "postProcessingMs": 322,
+        "totalMs": 16900,
+        "peMs": 8446,
+        "peQueryGenMs": 2046,
+        "peSearchMs": 1393,
+        "peClassifyMs": 5005,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D1",
+      "category": "ambiguous_explicit",
+      "message": "なんかいい仕事ないかなぁ、ちょっと調べてみてよ",
+      "description": "曖昧explicit: 漠然とした仕事探し",
+      "evaluationFocus": "曖昧さへの対応、clarifyか直答か",
+      "mode": "isolated",
+      "elapsedMs": 16377,
+      "responseText": "たいしさんが「いい仕事」と感じるポイントは、自分のペースで深く集中できる環境にあると思う。今は少し閉じ気味な傾向があるから、内省的な職場より、個人の裁量が大きく、分析的な思考を活かせる仕事が合いそうだね。\n「働きがいのある会社」ランキング2026年版でベスト100に選ばれた企業には、個人の成長を支援する文化を持つところが多い。例えば、Solvvy naviで新卒社員が語っているように、自分の専門性を深められる企業は、たいしさんの「個で深める」傾向に合うかもしれない。\n具体的な企業名としては、ダイヤモンド・ヒューマンリソースの2027年卒就職人気ランキングで上位に入っている三井物産や伊藤忠商事のような総合商社も、多様な事業領域で分析力を活かせる部署があるかもしれない。ただし、これらの企業は競争率も高く、集団での協調性も求められる場面は多いだろう。\nホワイトアカデミーが発表した「新卒で入りたい一流ホワイト企業ランキングTOP100」には、ワークライフバランスが良く、長期的に働きやすい企業が多いから、体力的な消耗を避けたい今のたいしさんには、そういった視点での仕事探しも有効だと思う。\n僕が直接リストを検索して提示することはできないんだけど、こういった情報を参考に、どんな働き方や企業の種類に興味があるか、もう少し話を聞かせてくれると嬉しいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 375,
+        "geminiReadingMs": 2766,
+        "postGeminiStartMs": 3142,
+        "preProcessingMs": 3348,
+        "promptBuildMs": 12130,
+        "mainPromptChars": 12759,
+        "mainLlmMs": 3669,
+        "validationRetryMs": 1,
+        "postProcessingMs": 486,
+        "totalMs": 16286,
+        "peMs": 8299,
+        "peQueryGenMs": 1709,
+        "peSearchMs": 1609,
+        "peClassifyMs": 4979,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "いい仕事",
+        "働きがいのある会社"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D2",
+      "category": "ambiguous_explicit",
+      "message": "最近面白い会社とかある？ネットで見てきて",
+      "description": "曖昧explicit: 面白い会社（基準が曖昧）",
+      "evaluationFocus": "「面白い」の解釈がユーザーに合っているか",
+      "mode": "isolated",
+      "elapsedMs": 16657,
+      "responseText": "たいしさんが「面白い会社」を探しているんだね。ネットでいくつか見てみたんだけど、たいしさんのようにデータや根拠を重視して判断する人には、成長性や実用性で注目されている企業がいくつか合いそうかなって思ったよ。\nいくつか候補を挙げるね。\n   まず、東洋経済オンラインが2024年度に業績が大きく伸びると予測している50社の中には、海外勢が狙う大型株や半導体関連企業が含まれているんだ。論理的に正しい選択をしたいたいしさんにとって、将来性が期待できるこうした企業は魅力的に映るんじゃないかな。\n   次に、JAPAN BUSINESS INFORMATIONが2024年に注目すべき日本の有望銘柄として挙げている企業の中には、トヨタ自動車のような実績のある大手企業もあるよ。たいしさんは実用性を優先する傾向があるから、確かな基盤を持つ企業は安心感があるかもしれないね。\nあと、SalesNow Data Labの分析によると、従業員が急増している成長企業には共通点があって、これが面白い会社を探す上で参考になるんだ。2026年3月9日時点で50,440社、560万件の企業データから、特に成長している企業を見つけることができるみたい。たいしさんは一人で深く集中する力があるから、急成長中の企業で自身の専門性を活かせる環境は合っているかもしれないね。\nこれらの情報は、公開Webから調べた範囲での候補だから、一覧サイトの完全な取得はできないんだけど、見つかった中からの提案だよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 411,
+        "geminiReadingMs": 3678,
+        "postGeminiStartMs": 4093,
+        "preProcessingMs": 4351,
+        "promptBuildMs": 12916,
+        "mainPromptChars": 6210,
+        "mainLlmMs": 3058,
+        "validationRetryMs": 2,
+        "postProcessingMs": 137,
+        "totalMs": 16113,
+        "peMs": 7978,
+        "peQueryGenMs": 1827,
+        "peSearchMs": 1359,
+        "peClassifyMs": 4791,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [
+        "Now Data Lab",
+        "面白い会社"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D3",
+      "category": "ambiguous_explicit",
+      "message": "転職するならどういう方向がいいかWEBで調べて",
+      "description": "曖昧explicit: 転職方向性（広範・適性依存）",
+      "evaluationFocus": "方向性提案がパーソナリティに基づいているか",
+      "mode": "isolated",
+      "elapsedMs": 16930,
+      "responseText": "転職を考えるなら、たいしさんの「誰もやらなかった実験に手を出せる」強みが活きる、成長分野に焦点を当てるのがいいと思う。2024年下半期の株式会社リクルートのレポートによると、AI関連求人は多様な職種に広がり、2026年にはMatcherDictionaryが示すように新しい業界も伸びてくるから、そうした変化の波に乗るのが合っている。\nたいしさんは自分の情熱が理解されないことを恐れる傾向があるから、表面的に消費されず、深いアウトプットが評価される環境が特に重要になる。パーソルキャリア株式会社のdodaの調査では2024年上期に転職市場は活発で、平均決定年収額も1.5倍に上がっているから、今が新しい挑戦をする良いタイミングだと思う。\nまずは、AI関連で「面白そう」と感じる領域を3つくらい見つけて、どんな仕事があるか調べてみるのがいい。",
+      "latencyBreakdown": {
+        "dbInitMs": 364,
+        "geminiReadingMs": 3289,
+        "postGeminiStartMs": 3656,
+        "preProcessingMs": 4050,
+        "promptBuildMs": 13404,
+        "mainPromptChars": 12738,
+        "mainLlmMs": 3175,
+        "validationRetryMs": 1,
+        "postProcessingMs": 256,
+        "totalMs": 16836,
+        "peMs": 8761,
+        "peQueryGenMs": 2382,
+        "peSearchMs": 1495,
+        "peClassifyMs": 4884,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社リクルートのレポートによると",
+        "株式会社のdodaの調査では2024年上期に転職市場は活発で",
+        "面白そう"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

@@ -55,6 +55,8 @@ export interface PerspectiveFragment {
     sourceName?: string;  // ソース名（"総務省テレワーク人口調査"等）
     claim: string;        // 主張・事実の1文要約（旧 key_insight）
   };
+  /** Chained Exploration: この fragment が生成された探索層 */
+  sourceLayer?: "L0" | "L1" | "L2";
 }
 
 export interface SearchResult {
@@ -1239,6 +1241,171 @@ export function calculateForceBalanceDelta(
   return delta;
 }
 
+// ─── Chained Exploration: L1 Deep Dive ──────────────────────────────────
+
+/**
+ * L0 fragment の情報ギャップをルールベースで分析する。
+ * LLM 不使用（0ms）。L1 発火判定の入力。
+ */
+export interface InformationGapAnalysis {
+  /** 具体的数値が含まれるか */
+  hasSpecificNumbers: boolean;
+  /** stance の多様性 (0-1)。0=全て同じ stance, 1=完全に分散 */
+  stanceDiversity: number;
+  /** L0 fragment 内で企業名等の詳細情報が取れているか */
+  entityResolved: boolean;
+  /** 「なぜ」の根拠（因果関係）が含まれるか */
+  causalDepth: boolean;
+  /** 分析対象のタスクタイプ */
+  taskType: SearchTaskType;
+  /** 分析の根拠（監査用） */
+  gaps: string[];
+}
+
+export function analyzeInformationGap(
+  fragments: PerspectiveFragment[],
+  taskType: SearchTaskType,
+): InformationGapAnalysis {
+  const gaps: string[] = [];
+
+  // 1. 具体的数値の有無
+  const hasSpecificNumbers = fragments.some(f => {
+    const nums = f.evidence?.numbers ?? [];
+    return nums.length > 0;
+  });
+  if (!hasSpecificNumbers) gaps.push("no_specific_numbers");
+
+  // 2. stance の多様性
+  const stanceCounts = new Map<string, number>();
+  for (const f of fragments) {
+    stanceCounts.set(f.stanceTowardQuery, (stanceCounts.get(f.stanceTowardQuery) ?? 0) + 1);
+  }
+  const uniqueStances = stanceCounts.size;
+  const stanceDiversity = fragments.length > 0
+    ? Math.min(1, (uniqueStances - 1) / 2) // 3+ stances → 1.0
+    : 0;
+  if (stanceDiversity < 0.4) gaps.push("low_stance_diversity");
+
+  // 3. エンティティ解決
+  const totalEntities = fragments.reduce((sum, f) => sum + (f.evidence?.entities?.length ?? 0), 0);
+  const entityResolved = totalEntities >= 2;
+  if (!entityResolved) gaps.push("entities_unresolved");
+
+  // 4. 因果の深さ（key_insight に「理由」「原因」「なぜ」「メカニズム」等が含まれるか）
+  const causalKeywords = /理由|原因|なぜ|メカニズム|要因|背景|because|reason|due to/i;
+  const causalDepth = fragments.some(f => causalKeywords.test(f.evidence?.claim ?? "") || causalKeywords.test(f.text));
+  if (!causalDepth) gaps.push("no_causal_depth");
+
+  return { hasSpecificNumbers, stanceDiversity, entityResolved, causalDepth, taskType, gaps };
+}
+
+/**
+ * L1 に進むべきかをルールベースで判定する。
+ * 設計書 2.3: タスクタイプ別のOR条件。
+ */
+export function shouldProceedToL1(
+  gap: InformationGapAnalysis,
+  qualityAction: QualityAction,
+  elapsedMs: number,
+  budgetMs: number = 15_000,
+): { proceed: boolean; reason: string } {
+  // L1 は supplement 時のみ発火（use=十分、discard/abstain=基盤なし）
+  if (qualityAction !== "supplement") {
+    return { proceed: false, reason: `quality_${qualityAction}_not_supplement` };
+  }
+
+  // レイテンシ予算チェック（L1 に最低 4s 必要）
+  const L1_MINIMUM_BUDGET_MS = 4_000;
+  if (elapsedMs + L1_MINIMUM_BUDGET_MS > budgetMs) {
+    return { proceed: false, reason: "latency_budget_exhausted" };
+  }
+
+  // タスクタイプ別の発火条件（OR結合）
+  const { taskType } = gap;
+
+  if ((taskType === "listing_search" || taskType === "market_intel") && !gap.hasSpecificNumbers) {
+    return { proceed: true, reason: "no_numbers_for_data_task" };
+  }
+  if (taskType === "comparison" && gap.stanceDiversity < 0.4) {
+    return { proceed: true, reason: "low_diversity_for_comparison" };
+  }
+  if (taskType === "entity_research" && !gap.entityResolved) {
+    return { proceed: true, reason: "entities_unresolved" };
+  }
+  if (taskType === "perspective_seek" && !gap.causalDepth) {
+    return { proceed: true, reason: "no_causal_for_perspective" };
+  }
+  // パーソナル関連度が高い＋数値不足
+  if (!gap.hasSpecificNumbers && !gap.entityResolved) {
+    return { proceed: true, reason: "both_numbers_and_entities_missing" };
+  }
+
+  return { proceed: false, reason: "gap_below_threshold" };
+}
+
+/**
+ * L1 深掘りクエリを生成する。LLM 1回呼び出し。
+ * L0 の fragment テキストと情報ギャップから、1-2本の追加クエリを導出する。
+ */
+export async function generateL1Queries(
+  l0Fragments: PerspectiveFragment[],
+  gap: InformationGapAnalysis,
+  message: string,
+  domain: string,
+  userId?: string,
+): Promise<{ queries: string[]; reason: string }> {
+  // L0 fragment のサマリーを構築（LLM 入力用、最大 3 件）
+  const fragmentSummary = l0Fragments
+    .slice(0, 3)
+    .map((f, i) => `[${i + 1}] ${f.evidence?.claim ?? f.text.slice(0, 150)}`)
+    .join("\n");
+
+  const gapDescription = gap.gaps.join(", ");
+
+  const result = await runAI({
+    taskType: "perspective_l1_query",
+    prompt: `以下のWeb検索結果（Layer 0）に不足している情報を補う追加検索クエリを生成してください。
+
+## ユーザーの質問
+${message}
+
+## ドメイン
+${domain}
+
+## Layer 0 で得られた情報
+${fragmentSummary}
+
+## 情報ギャップ
+${gapDescription}
+
+## ルール
+- Layer 0 で既に得られた情報を**重複して取得しない**クエリを生成すること
+- 具体的な数値、企業名、統計データに到達できるクエリにすること
+- ユーザーの個人情報（名前、住所、年齢等）を含めないこと（Privacy Gate）
+- 1-2本のクエリを生成すること
+
+## 出力形式（JSON）
+{"queries": ["追加クエリ1", "追加クエリ2"], "reason": "深掘りの理由（1文）"}`,
+    systemPrompt: "あなたはWeb検索クエリの専門家です。既存の検索結果の不足を補う追加クエリを生成してください。具体的なデータに到達するクエリを優先してください。",
+    requireJson: true,
+    temperature: 0.2,
+    maxOutputTokens: 300,
+    userId,
+    metadata: { feature: "perspective_engine", step: "l1_query_gen" },
+  });
+
+  const structured = result.structured as Record<string, unknown> | null;
+  if (structured && Array.isArray(structured.queries)) {
+    const queries = (structured.queries as string[]).slice(0, 2).filter(q => q.trim().length > 0);
+    const reason = (structured.reason as string) ?? "l1_gap_fill";
+    if (queries.length > 0) {
+      return { queries, reason };
+    }
+  }
+
+  return { queries: [], reason: "l1_query_gen_failed" };
+}
+
 // ─── Retrieval Quality Gate ──────────────────────────────────────────────
 
 /**
@@ -1512,6 +1679,18 @@ export interface PerspectiveLatencyBreakdown {
   qualityGateMs: number;
   promptBuildMs: number;
   totalMs: number;
+  /** Chained Exploration L1 — L1 が発火しなかった場合は全て 0 */
+  l1?: {
+    fired: boolean;
+    reason: string;
+    queryGenMs: number;
+    searchMs: number;
+    classifyMs: number;
+    totalMs: number;
+    queriesSent: string[];
+    fragmentsBefore: number;
+    fragmentsAfter: number;
+  };
 }
 
 export interface PerspectiveEngineResult {
@@ -1694,16 +1873,187 @@ export async function runPerspectiveEngine(params: {
       };
     }
 
-    // 6. ForceBalance Delta（品質ゲート通過後の fragment のみ使用）
+    // ─── 5.5. Chained Exploration: L1 Deep Dive ──────────────────────────
+    // supplement 時に情報ギャップを分析し、不足があれば追加検索を実行。
+    // L0 fragment に sourceLayer タグを付与し、L1 fragment とマージする。
+    // kill switch: PE_L1_ENABLED=true で有効化（デフォルト false）
+
+    let finalQualityResult = qualityResult;
+    let l0Fragments: (PerspectiveFragment & { sourceLayer: "L0" | "L1" | "L2" })[] =
+      qualityResult.filteredFragments.map(f => ({
+        ...f,
+        sourceLayer: "L0" as const,
+      }));
+    let allQueries = [...queries];
+    let l1Breakdown: PerspectiveLatencyBreakdown["l1"] | undefined;
+
+    if (
+      STARGAZER_FLAGS.peL1Enabled &&
+      qualityResult.action === "supplement" &&
+      searchTask
+    ) {
+      const l1Start = Date.now();
+      const elapsedSoFar = l1Start - startTime;
+
+      // 情報ギャップ分析（ルールベース、0ms）
+      const gap = analyzeInformationGap(l0Fragments, searchTask.type);
+      const l1Decision = shouldProceedToL1(gap, qualityResult.action, elapsedSoFar);
+
+      console.info(
+        `[perspective-engine] 🔗 L1 decision: proceed=${l1Decision.proceed}, reason=${l1Decision.reason}, ` +
+        `gaps=[${gap.gaps.join(",")}], elapsed=${elapsedSoFar}ms`
+      );
+
+      if (l1Decision.proceed) {
+        try {
+          // L1-1. 追加クエリ生成（LLM 1回）
+          const l1QueryStart = Date.now();
+          const l1QueryResult = await generateL1Queries(
+            l0Fragments,
+            gap,
+            params.message,
+            params.queryContext.domain,
+            params.userId,
+          );
+          const l1QueryGenMs = Date.now() - l1QueryStart;
+
+          if (l1QueryResult.queries.length > 0) {
+            // L1-2. 追加検索（L0 と同じ executeSearch）
+            const l1SearchStart = Date.now();
+            const l1SearchResults = await executeSearch(l1QueryResult.queries);
+            const l1SearchMs = Date.now() - l1SearchStart;
+
+            // URL 重複除去: L0 で既出の URL を除外
+            const l0Urls = new Set(l0Fragments.map(f => f.sourceUrl));
+            const uniqueL1Results = l1SearchResults.filter(r => !l0Urls.has(r.url));
+
+            if (uniqueL1Results.length > 0) {
+              // L1-3. 追加分類（classify）
+              const l1ClassifyStart = Date.now();
+              const l1ClassifiedFragments = await classifySearchResults(
+                uniqueL1Results,
+                params.queryContext,
+                params.message,
+                params.userId,
+                searchTask.type,
+              );
+              const l1ClassifyMs = Date.now() - l1ClassifyStart;
+
+              // L1 fragment にレイヤータグ付与
+              const l1Tagged = l1ClassifiedFragments.map(f => ({
+                ...f,
+                sourceLayer: "L1" as const,
+              }));
+
+              // マージ: L0 + L1
+              const mergedFragments = [...l0Fragments, ...l1Tagged];
+              allQueries = [...queries, ...l1QueryResult.queries];
+
+              // マージ後の Quality Gate 再評価
+              const mergedQuality = retrievalQualityGate(
+                mergedFragments,
+                params.message,
+                searchTask,
+              );
+
+              console.info(
+                `[perspective-engine] 🔗 L1 merged: L0=${l0Fragments.length} + L1=${l1Tagged.length} → ` +
+                `filtered=${mergedQuality.filteredFragments.length}, action=${mergedQuality.action}, ` +
+                `queries=${l1QueryResult.queries.join(" | ")}`
+              );
+
+              // マージ後が discard/abstain でなければ結果を更新
+              if (mergedQuality.action !== "discard" && mergedQuality.action !== "abstain") {
+                finalQualityResult = mergedQuality;
+                // sourceLayer を保持したまま filteredFragments を更新
+                l0Fragments = mergedQuality.filteredFragments.map(f => ({
+                  ...f,
+                  sourceLayer: f.sourceLayer ?? "L0",
+                }));
+              }
+
+              l1Breakdown = {
+                fired: true,
+                reason: l1Decision.reason,
+                queryGenMs: l1QueryGenMs,
+                searchMs: l1SearchMs,
+                classifyMs: l1ClassifyMs,
+                totalMs: Date.now() - l1Start,
+                queriesSent: l1QueryResult.queries,
+                fragmentsBefore: qualityResult.filteredFragments.length,
+                fragmentsAfter: l0Fragments.length,
+              };
+            } else {
+              // L1 検索で新規結果なし（全て重複）
+              l1Breakdown = {
+                fired: true,
+                reason: "l1_all_duplicates",
+                queryGenMs: l1QueryGenMs,
+                searchMs: l1SearchMs,
+                classifyMs: 0,
+                totalMs: Date.now() - l1Start,
+                queriesSent: l1QueryResult.queries,
+                fragmentsBefore: qualityResult.filteredFragments.length,
+                fragmentsAfter: l0Fragments.length,
+              };
+              console.info("[perspective-engine] 🔗 L1 search returned only duplicate URLs, skipping");
+            }
+          } else {
+            // L1 クエリ生成失敗
+            l1Breakdown = {
+              fired: true,
+              reason: "l1_query_gen_empty",
+              queryGenMs: l1QueryGenMs,
+              searchMs: 0,
+              classifyMs: 0,
+              totalMs: Date.now() - l1Start,
+              queriesSent: [],
+              fragmentsBefore: qualityResult.filteredFragments.length,
+              fragmentsAfter: l0Fragments.length,
+            };
+            console.info("[perspective-engine] 🔗 L1 query generation returned empty, skipping");
+          }
+        } catch (l1Error) {
+          // L1 fail-open: L1 失敗は L0 結果をそのまま使う
+          console.warn("[perspective-engine] 🔗 L1 failed, falling back to L0:", l1Error);
+          l1Breakdown = {
+            fired: true,
+            reason: "l1_error_fallback",
+            queryGenMs: 0,
+            searchMs: 0,
+            classifyMs: 0,
+            totalMs: Date.now() - l1Start,
+            queriesSent: [],
+            fragmentsBefore: qualityResult.filteredFragments.length,
+            fragmentsAfter: l0Fragments.length,
+          };
+        }
+      } else {
+        // L1 発火条件を満たさず
+        l1Breakdown = {
+          fired: false,
+          reason: l1Decision.reason,
+          queryGenMs: 0,
+          searchMs: 0,
+          classifyMs: 0,
+          totalMs: 0,
+          queriesSent: [],
+          fragmentsBefore: qualityResult.filteredFragments.length,
+          fragmentsAfter: qualityResult.filteredFragments.length,
+        };
+      }
+    }
+
+    // 6. ForceBalance Delta（L1 マージ後の fragment を使用）
     const promptBuildStart = Date.now();
-    const fragments = qualityResult.filteredFragments;
+    const fragments = l0Fragments;
     const forceBalanceDelta = calculateForceBalanceDelta(fragments);
 
-    // 7. Prompt Block（hedge 対応）
+    // 7. Prompt Block（hedge 対応 — L1 成功で use に昇格した場合は hedge 解除）
     const promptBlock = buildPerspectivePromptBlock(
       fragments,
       forceBalanceDelta,
-      qualityResult.needsHedge,
+      finalQualityResult.needsHedge,
     );
     const promptBuildMs = Date.now() - promptBuildStart;
 
@@ -1716,19 +2066,23 @@ export async function runPerspectiveEngine(params: {
       qualityGateMs,
       promptBuildMs,
       totalMs,
+      l1: l1Breakdown,
     };
 
+    const l1LogStr = l1Breakdown?.fired
+      ? `, L1: queryGen=${l1Breakdown.queryGenMs}ms search=${l1Breakdown.searchMs}ms classify=${l1Breakdown.classifyMs}ms total=${l1Breakdown.totalMs}ms`
+      : l1Breakdown ? ", L1: not fired" : "";
     console.info(
       `[perspective-engine] ⏱️  Latency breakdown: ` +
       `queryGen=${queryGenerationMs}ms, search=${searchMs}ms, classify=${classificationMs}ms, ` +
-      `qualityGate=${qualityGateMs}ms, promptBuild=${promptBuildMs}ms, total=${totalMs}ms`
+      `qualityGate=${qualityGateMs}ms, promptBuild=${promptBuildMs}ms, total=${totalMs}ms${l1LogStr}`
     );
 
     const block: PerspectiveBlock = {
       fragments,
       promptBlock,
       forceBalanceDelta,
-      searchQueriesSent: queries,
+      searchQueriesSent: allQueries,
       searchLatencyMs: totalMs,
     };
 
@@ -1736,7 +2090,7 @@ export async function runPerspectiveEngine(params: {
       sourceType: fragments.length > 0 ? "external_augmented" : "internal",
       fragmentsUsed: fragments,
       forceBalanceDelta,
-      searchQueriesSent: queries,
+      searchQueriesSent: allQueries,
       searchLatencyMs: totalMs,
       gateDecision: "fired",
       gateReason: gate.reason,

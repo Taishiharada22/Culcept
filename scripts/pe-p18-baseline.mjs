@@ -105,6 +105,37 @@ const TEST_CASES = [
     evaluationFocus: "パーソナリティとの接続、具体的根拠",
   },
 
+  // ━━ L1: Chained Exploration 発火検証ケース（4ケース） ━━
+  // L0 品質が意図的に低くなるシナリオで L1 proceed=true を狙う
+  {
+    id: "L1A",
+    category: "l1_comparison",
+    message: "NUROとeo光ってどっちがいい？調べて",
+    description: "L1: ニッチ比較（片側情報薄）",
+    evaluationFocus: "L1発火有無、stance diversity 改善、比較軸の補強",
+  },
+  {
+    id: "L1B",
+    category: "l1_comparison",
+    message: "NotionとObsidian、自分にはどっちが合う？調べて",
+    description: "L1: ツール比較（一般的だがstance偏りやすい）",
+    evaluationFocus: "L1発火有無、stance diversity 改善",
+  },
+  {
+    id: "L1C",
+    category: "l1_market_intel",
+    message: "地方移住して転職する流れって今どうなってる？調べてみて",
+    description: "L1: ニッチ市場（数値が薄い）",
+    evaluationFocus: "L1発火有無、数値データの補強",
+  },
+  {
+    id: "L1D",
+    category: "l1_listing_search",
+    message: "自分に合うBtoB SaaS企業をネットで探してきて",
+    description: "L1: ニッチリスト（entity 解決困難）",
+    evaluationFocus: "L1発火有無、entity 補強",
+  },
+
   // ━━ D: 曖昧な explicit ask（3ケース） ━━
   {
     id: "D1",
@@ -304,6 +335,18 @@ async function main() {
         if (lb.peQueryGenMs != null) {
           console.log(`   🔬 PE内訳: queryGen=${fmt("peQueryGenMs")} search=${fmt("peSearchMs")} classify=${fmt("peClassifyMs")} qGate=${fmt("peQualityGateMs")} pBuild=${fmt("pePromptBuildMs")}`);
         }
+        // L1: Chained Exploration breakdown
+        if (lb.peL1) {
+          const l1 = lb.peL1;
+          if (l1.fired) {
+            console.log(`   🔗 L1: fired=${l1.fired} reason=${l1.reason} queryGen=${(l1.queryGenMs/1000).toFixed(1)}s search=${(l1.searchMs/1000).toFixed(1)}s classify=${(l1.classifyMs/1000).toFixed(1)}s total=${(l1.totalMs/1000).toFixed(1)}s frags=${l1.fragmentsBefore}→${l1.fragmentsAfter}`);
+            if (l1.queriesSent?.length > 0) {
+              console.log(`   🔗 L1 queries: ${l1.queriesSent.join(" | ")}`);
+            }
+          } else {
+            console.log(`   🔗 L1: not fired (${l1.reason})`);
+          }
+        }
         // S3: プロンプトサイズ追跡
         if (lb.mainPromptChars != null) {
           console.log(`   📏 プロンプト: ${(lb.mainPromptChars / 1000).toFixed(1)}K chars`);
@@ -379,6 +422,28 @@ async function main() {
     console.log(`  classify:    median=${Math.round(median(peInternal.classify))}ms, p90=${Math.round(p90(peInternal.classify))}ms`);
     console.log(`  qualityGate: median=${Math.round(median(peInternal.qualityGate))}ms, p90=${Math.round(p90(peInternal.qualityGate))}ms`);
     console.log(`  promptBuild: median=${Math.round(median(peInternal.promptBuild))}ms, p90=${Math.round(p90(peInternal.promptBuild))}ms`);
+  }
+
+  // L1 stats
+  const l1Fired = results.filter(r => r.latencyBreakdown?.peL1?.fired);
+  const l1NotFired = results.filter(r => r.latencyBreakdown?.peL1 && !r.latencyBreakdown.peL1.fired);
+  if (l1Fired.length > 0 || l1NotFired.length > 0) {
+    console.log(`\n🔗 L1 Chained Exploration:`);
+    console.log(`  fired: ${l1Fired.length}/${l1Fired.length + l1NotFired.length} cases`);
+    if (l1Fired.length > 0) {
+      const l1Totals = l1Fired.map(r => r.latencyBreakdown.peL1.totalMs);
+      const l1FragGains = l1Fired.map(r => r.latencyBreakdown.peL1.fragmentsAfter - r.latencyBreakdown.peL1.fragmentsBefore);
+      console.log(`  L1 total: median=${Math.round(median(l1Totals))}ms, p90=${Math.round(p90(l1Totals))}ms`);
+      console.log(`  fragment gain: median=${median(l1FragGains).toFixed(1)}, total=${l1FragGains.reduce((a,b)=>a+b,0)}`);
+    }
+    if (l1NotFired.length > 0) {
+      const reasons = {};
+      for (const r of l1NotFired) {
+        const reason = r.latencyBreakdown.peL1.reason;
+        reasons[reason] = (reasons[reason] || 0) + 1;
+      }
+      console.log(`  skip reasons: ${Object.entries(reasons).map(([k,v])=>`${k}(${v})`).join(", ")}`);
+    }
   }
 
   // ── JSON保存 ──

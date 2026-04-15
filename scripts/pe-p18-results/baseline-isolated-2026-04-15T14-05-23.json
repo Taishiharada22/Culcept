@@ -1,0 +1,730 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T14:05:23.279Z",
+    "caseCount": 16,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 19609,
+        "p90Ms": 28161,
+        "minMs": 7330,
+        "maxMs": 31470
+      },
+      "pe": {
+        "medianMs": 9860,
+        "p90Ms": 18520
+      },
+      "mainLlm": {
+        "medianMs": 3291,
+        "p90Ms": 6329
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 1843,
+          "p90Ms": 3746
+        },
+        "search": {
+          "medianMs": 1504,
+          "p90Ms": 1860
+        },
+        "classify": {
+          "medianMs": 5420,
+          "p90Ms": 14154
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 1
+        },
+        "promptBuild": {
+          "medianMs": 0,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 11785,
+      "responseText": "IT業界の最新トレンドを調べてみたよ。2026年を見据えると、生成AI、クラウドネイティブ、サイバーセキュリティが特に注目されているみたいだね。\nNTTデータが毎年策定している「NTT DATA Technology Foresight」の2023年版でも、生成AIのような新しいAIが登場したことが提言されていて、株式会社アイティークロスの予測では、2026年には生成AIの企業導入が本格化したり、クラウドネイティブ化が加速することで、エンジニアの年収相場や業界構造が大きく変わると見られているんだ。たいしさんはデータや根拠を重視する傾向があるから、こういう具体的な予測は特に役立つんじゃないかな。\nこういう大きな変化の波が来ている時だからこそ、たいしさんが得意な「個で深く集中する力」を活かして、まずはこの中のどれか一つ、特に興味を引かれる分野を深掘りしてみるのがいいと思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 511,
+        "geminiReadingMs": 3051,
+        "postGeminiStartMs": 3564,
+        "preProcessingMs": 3799,
+        "promptBuildMs": 8224,
+        "mainPromptChars": 12029,
+        "mainLlmMs": 3357,
+        "validationRetryMs": 0,
+        "postProcessingMs": 51,
+        "totalMs": 11632,
+        "peMs": 4185,
+        "peQueryGenMs": 2933,
+        "peSearchMs": 1021,
+        "peClassifyMs": 230,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社アイティークロスの予測では",
+        "Technology Foresight",
+        "個で深く集中する力"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A2",
+      "category": "market_intel",
+      "message": "AIスタートアップの資金調達状況を調べてきて",
+      "description": "market_intel: AIスタートアップ資金調達（明示的・ニッチ）",
+      "evaluationFocus": "具体的な企業名・金額の有無",
+      "mode": "isolated",
+      "elapsedMs": 17983,
+      "responseText": "AIスタートアップの資金調達状況を見ると、今は攻めるべきタイミングだと僕には思えるよ。2026年Q1にはスタートアップ投資が史上最高の2,970億ドル、日本円で約44.6兆円に達していて、その81%がAI分野に集中しているんだ。特にOpenAI、Anthropic、xAI、Waymoの4社だけで1,880億ドル、全体の64%を占めているとKAGIYA TechScoopやRefly.aiのデータが示しているから、この勢いは本物だね。\nたいしさんは構想・創業の場面で広く探索し、完成度を重視する傾向があるから、この大きな波に乗るための情報収集と戦略構築に集中するのがいい。市場投入前に、誰に刺さるのか、何が核になるのかを詰めることが、この熱狂的な市場で埋もれないために重要だよ。\n直近2週間で、まずはターゲットとなる顧客層を3つに絞り込み、それぞれのニーズを具体的にリストアップしてみるのはどうかな。そして、そのニーズに対して自分のプロダクトが提供できる核となる価値を、それぞれ1文で言語化してみよう。もしこの市場の勢いが鈍化するような兆候が見えたら、すぐに戦略を見直す準備もしておくといい。",
+      "latencyBreakdown": {
+        "dbInitMs": 472,
+        "geminiReadingMs": 1944,
+        "postGeminiStartMs": 2418,
+        "preProcessingMs": 2683,
+        "promptBuildMs": 10291,
+        "mainPromptChars": 13296,
+        "mainLlmMs": 3681,
+        "validationRetryMs": 1,
+        "postProcessingMs": 3920,
+        "totalMs": 17893,
+        "peMs": 7309,
+        "peQueryGenMs": 1862,
+        "peSearchMs": 1555,
+        "peClassifyMs": 3892,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A3",
+      "category": "market_intel",
+      "message": "リモートワークの普及率って今どれくらいなのか調べてみて",
+      "description": "market_intel: リモートワーク統計（明示的・統計要求）",
+      "evaluationFocus": "統計データ・数値の具体性",
+      "mode": "isolated",
+      "elapsedMs": 23326,
+      "responseText": "リモートワークの普及率は、厚生労働省が実施した「令和7年度テレワークの労務管理等に関する総合実態調査」によると、過半数の企業が今後も維持・拡大すると回答しているよ。これは、テレワークの流行が終わったという直感とは少し違って、むしろ「反転」の兆しがあるとも言われているんだ。\nたいしさんはデータや根拠を求めて判断する傾向があるから、こういう具体的な数字は判断材料になるかなって思ったんだ。分析的な視点で見ると、単純な増減だけじゃない背景が見えてくるかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 432,
+        "geminiReadingMs": 5714,
+        "postGeminiStartMs": 6147,
+        "preProcessingMs": 6336,
+        "promptBuildMs": 19988,
+        "mainPromptChars": 11368,
+        "mainLlmMs": 2849,
+        "validationRetryMs": 1,
+        "postProcessingMs": 405,
+        "totalMs": 23243,
+        "peMs": 13081,
+        "peQueryGenMs": 1797,
+        "peSearchMs": 1369,
+        "peClassifyMs": 9914,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B1",
+      "category": "listing_search",
+      "message": "自分に合いそうなIT企業をWEBで探してきて",
+      "description": "listing_search: 自分に合うIT企業（明示的・適性依存）",
+      "evaluationFocus": "候補が「この人向き」か、理由の納得感",
+      "mode": "isolated",
+      "elapsedMs": 31470,
+      "responseText": "今のたいしさんには、個で深める力を活かせるIT企業が合いそうだと思う。特に、安定した環境で自分のペースで働ける職場が向いているんじゃないかな。そういう意味では、リモートワークを取り入れている企業や小規模でアットホームな文化を持つ企業が魅力的かもしれない。\n具体的には、例えば「株式会社アイティークロス」は2026年に生成AIやクラウドネイティブ技術を学ぶことで将来性が期待できる企業だし、自分の専門性を高められそうだね。また、「株式会社フューチャー」も個々の成長を重視しているため、たいしさんの傾向に合うと思う。どちらも安定感がありつつ、新しい技術に挑戦できる環境が魅力的だね。\nこの中で気になるところや、もう少し見てみたいところがあれば教えて。",
+      "latencyBreakdown": {
+        "dbInitMs": 913,
+        "geminiReadingMs": 3013,
+        "postGeminiStartMs": 3931,
+        "preProcessingMs": 4306,
+        "promptBuildMs": 23278,
+        "mainPromptChars": 12290,
+        "mainLlmMs": 7829,
+        "validationRetryMs": 1,
+        "postProcessingMs": 236,
+        "totalMs": 31344,
+        "peMs": 18520,
+        "peQueryGenMs": 3746,
+        "peSearchMs": 1494,
+        "peClassifyMs": 13278,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0,
+        "peL1": {
+          "fired": false,
+          "reason": "latency_budget_exhausted",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 2,
+          "fragmentsAfter": 2
+        }
+      },
+      "entities": [
+        "株式会社アイティークロス」は2026年に生成AIやクラウドネイティブ技術を学ぶことで将来性が期待できる企業だし",
+        "株式会社フューチャー」も個々の成長を重視しているため",
+        "株式会社アイティークロス",
+        "株式会社フューチャー"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 25524,
+      "responseText": "データ分析に強いIT企業をいくつか挙げると、株式会社エンジニアのミカタや株式会社SiNCEがあるよ。エンジニアのミカタはデータサイエンティストを400万円で募集していて、データ分析に特化したプロジェクトを展開しているから、たいしさんの分析的な傾向に合っていると思う。SiNCEも同様に、データ基盤×AI導入をリードする企業で、同じく400万円でデータエンジニアを募集しているから、実用的な経験が得られるかもしれない。\nもっと詳しく知りたいなら、各企業の公式サイトをチェックするといいと思うよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 486,
+        "geminiReadingMs": 2762,
+        "postGeminiStartMs": 3249,
+        "preProcessingMs": 3530,
+        "promptBuildMs": 19290,
+        "mainPromptChars": 12746,
+        "mainLlmMs": 5737,
+        "validationRetryMs": 2,
+        "postProcessingMs": 448,
+        "totalMs": 25477,
+        "peMs": 15323,
+        "peQueryGenMs": 1641,
+        "peSearchMs": 1324,
+        "peClassifyMs": 12356,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0,
+        "peL1": {
+          "fired": false,
+          "reason": "latency_budget_exhausted",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 4,
+          "fragmentsAfter": 4
+        }
+      },
+      "entities": [
+        "株式会社エンジニアのミカタや株式会社SiNCEがあるよ"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B3",
+      "category": "listing_search",
+      "message": "少人数でリモートOKのスタートアップをネットで調べてみて",
+      "description": "listing_search: 働き方条件指定（明示的・条件具体）",
+      "evaluationFocus": "条件（少人数・リモート）との一致度",
+      "mode": "isolated",
+      "elapsedMs": 20051,
+      "responseText": "少人数でリモートOKのスタートアップをいくつか見てみたよ。たいしさんは分析的で個で深める傾向があるから、リモートワークで集中できる環境は合っていると思う。\n株式会社リモートワーククラウドは、中小企業向けのDXソリューションを提供するSaaS企業で、楽しく働けるリモートワーク環境を重視しているとあるね。社員15人で売上60億円超を達成している“タイニーチーム”の事例がITmedia ビジネスオンラインで紹介されていて、少人数で高収益を上げているスタートアップの可能性を示唆しているよ。リモラボも在宅で働きたい女性向けのオンラインスクールだけど、代表のこもりん自身もリモートワークで人生を変えた経験を持つと語っている。\nLQUOMという量子通信のスタートアップは、代表の新関和哉さんが日本の研究者が世界に伍するテクノロジーを生み出すことに挑戦していて、こういう技術志向の企業も、たいしさんが深く集中して取り組むのに良い環境かもしれない。残念ながら、僕の今の機能だと、直接的なリスト検索まではできないんだ。",
+      "latencyBreakdown": {
+        "dbInitMs": 404,
+        "geminiReadingMs": 3343,
+        "postGeminiStartMs": 3749,
+        "preProcessingMs": 3973,
+        "promptBuildMs": 16351,
+        "mainPromptChars": 14141,
+        "mainLlmMs": 3225,
+        "validationRetryMs": 0,
+        "postProcessingMs": 336,
+        "totalMs": 19912,
+        "peMs": 11988,
+        "peQueryGenMs": 3763,
+        "peSearchMs": 1786,
+        "peClassifyMs": 6436,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0,
+        "peL1": {
+          "fired": false,
+          "reason": "latency_budget_exhausted",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 4,
+          "fragmentsAfter": 4
+        }
+      },
+      "entities": [
+        "株式会社リモートワーククラウドは"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C1",
+      "category": "comparison",
+      "message": "サイバーエージェントとマクロミルならどっちが自分に合う？調べてみて",
+      "description": "comparison: 2社比較（明示的・適性判断要求）",
+      "evaluationFocus": "比較軸の妥当性、パーソナリティとの接続",
+      "mode": "isolated",
+      "elapsedMs": 19167,
+      "responseText": "今のたいしさんの情報だと、マクロミルの方が合っているんじゃないかなと僕は思うよ。\n働き方や文化の面では、サイバーエージェントはONE CAREER PLUSのクチコミを見ると、産休・育休制度が充実していて、残業も多いけれどやりがいを感じる人が多いみたいだね。一方でマクロミルは、キャリア・エックスで年収の詳細情報が提供されているから、成果に対する評価がクリアで実用性を重視するたいしさんには、より予測しやすい環境かもしれない。業務内容や技術で比べると、サイバーエージェントが幅広いデジタル領域を扱うのに対して、マクロミルはデータ分析に特化しているから、たいしさんが一人で深く集中してデータや根拠を求める働き方には、マクロミルの方がフィットしそうに感じるんだ。\nたいしさんが一番達成感を感じるのは、混沌の中から筋を見つけた瞬間じゃないかな。深く集中して本質を探るプロセスが核だと思うから、データ分析に特化したマクロミルの方が、その探求心を満たせる場になるんじゃないかな。\nもちろん、サイバーエージェントも成長性や多様な経験を積める点では魅力的だと思うけれど、今のたいしさんにはマクロミルのような環境で、じっくりと自分の専門性を深めていく方が合っているんじゃないかなって僕は思うよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 336,
+        "geminiReadingMs": 9033,
+        "postGeminiStartMs": 9376,
+        "preProcessingMs": 10248,
+        "promptBuildMs": 15806,
+        "mainPromptChars": 6518,
+        "mainLlmMs": 3009,
+        "validationRetryMs": 2,
+        "postProcessingMs": 239,
+        "totalMs": 19056,
+        "peMs": 5055,
+        "peQueryGenMs": 2180,
+        "peSearchMs": 2397,
+        "peClassifyMs": 474,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C2",
+      "category": "comparison",
+      "message": "PythonとRならデータ分析にはどっちがいい？ネットで調べて",
+      "description": "comparison: 技術比較（明示的・スキル選択）",
+      "evaluationFocus": "技術的正確性、ユーザー適性との接続",
+      "mode": "isolated",
+      "elapsedMs": 26369,
+      "responseText": "Pythonの方がデータ分析には合っていると思う。PythonはWeb開発やAI、データ分析など幅広い分野で利用されているから、実用性が高いんじゃないかな。特に、たいしさんはデータや根拠を求める傾向があるから、Pythonの柔軟性や多様なライブラリが役立つと思う。ただし、Rは統計に特化しているため、特定の分析には優れた選択肢かもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 840,
+        "geminiReadingMs": 5481,
+        "postGeminiStartMs": 6322,
+        "preProcessingMs": 6601,
+        "promptBuildMs": 20072,
+        "mainPromptChars": 6149,
+        "mainLlmMs": 5724,
+        "validationRetryMs": 1,
+        "postProcessingMs": 251,
+        "totalMs": 26048,
+        "peMs": 13047,
+        "peQueryGenMs": 1921,
+        "peSearchMs": 1816,
+        "peClassifyMs": 9309,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 26887,
+      "responseText": "たいしさんには、今は正社員として働く方が合っていると僕は思う。働き方という軸で見ると、フリーランスは柔軟な働き方ができる反面、収入の安定性に波がある。例えば、株式会社LiKGのフリーランス実態調査では、フリーランスの平均年収は425万円と報告されていて、これは会社員の平均年収478万円（国税庁のデータ）と近いように見えるけど、実際には300万円台が中央値で、1,000万円を超える人もいるというように、かなり幅があるんだ。社会保障や福利厚生の面でも、全国個人事業主支援協会が指摘するように、会社員の方が手厚い。\n業務内容や技術の軸で考えると、フリーランスは特定の技術や専門性を深く追求しやすいけど、案件獲得から契約、経理まで全て自分で管理する必要がある。たいしさんはデータや根拠を求めて判断する傾向があるから、今は少し引いて全体を見たい感覚が強いんじゃないかな。正社員であれば、そういった外部要因に左右されずに、一つのテーマに深く集中する力を活かせる場面が多いと思うんだ。\nもちろん、フリーランスには自分の情熱をダイレクトに仕事にできる魅力もある。ただ、今は「慎重」という傾向が強く出ているし、自分の情熱が誰にも理解されず、ただの変人で終わってしまうことを嫌う気持ちも感じられるから、まずは安定した環境で力を蓄えるのがいいんじゃないかな。",
+      "latencyBreakdown": {
+        "dbInitMs": 477,
+        "geminiReadingMs": 3194,
+        "postGeminiStartMs": 3673,
+        "preProcessingMs": 3955,
+        "promptBuildMs": 23299,
+        "mainPromptChars": 6039,
+        "mainLlmMs": 3222,
+        "validationRetryMs": 1,
+        "postProcessingMs": 242,
+        "totalMs": 26764,
+        "peMs": 19045,
+        "peQueryGenMs": 1823,
+        "peSearchMs": 1471,
+        "peClassifyMs": 15749,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社LiKGのフリーランス実態調査では"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "L1A",
+      "category": "l1_comparison",
+      "message": "NUROとeo光ってどっちがいい？調べて",
+      "description": "L1: ニッチ比較（片側情報薄）",
+      "evaluationFocus": "L1発火有無、stance diversity 改善、比較軸の補強",
+      "mode": "isolated",
+      "elapsedMs": 11309,
+      "responseText": "たいしさんの場合は、NURO光の方が合っていると僕は思うよ。\n働き方や文化を考えると、NURO光は新しい技術への挑戦や高速通信を求めるユーザーに強く支持されているから、たいしさんが混沌から筋を見つけ出すように深く集中して本質を探るプロセスを重視するなら、その環境は合うんじゃないかな。\n一方でeo光は、特に近畿地方での地域密着型サービスに強みがあるから、安定性や手厚いサポートを重視するならいい選択肢ではあるんだ。でも、たいしさんがデータや根拠を求めて判断する傾向があることを考えると、NURO光の下り最大10Gbpsという速度は、実用性を優先するたいしさんのニーズに響くと思う。\nただ、eo光も地域によってはNURO光とほぼ同等の料金プランを提供しているし、auやUQモバイルのスマホを使っているならセット割が適用されることもあるから、その点は魅力的かもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 426,
+        "geminiReadingMs": 4809,
+        "postGeminiStartMs": 5237,
+        "preProcessingMs": 5637,
+        "promptBuildMs": 8037,
+        "mainPromptChars": 6039,
+        "mainLlmMs": 2994,
+        "validationRetryMs": 1,
+        "postProcessingMs": 167,
+        "totalMs": 11199,
+        "peMs": 1989,
+        "peQueryGenMs": 167,
+        "peSearchMs": 1505,
+        "peClassifyMs": 316,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "L1B",
+      "category": "l1_comparison",
+      "message": "NotionとObsidian、自分にはどっちが合う？調べて",
+      "description": "L1: ツール比較（一般的だがstance偏りやすい）",
+      "evaluationFocus": "L1発火有無、stance diversity 改善",
+      "mode": "isolated",
+      "elapsedMs": 7330,
+      "responseText": "たいしさんにはObsidianの方が合っていると僕は思うよ。特に、深く集中して本質を探るたいしさんの核と、混沌の中から筋を見つけ出す達成感が、Obsidianの柔軟なノートリンク機能やグラフビューと相性がいいんじゃないかな。例えば、Obsidianは2025.03.10時点でiPhoneでも利用可能で、メモをシームレスに連携できるから、思いついたことをすぐに記録して後でじっくり構造化するのに向いていると思うんだ。\nただし、チームで情報を共有したり、データベースのような整理を重視するならNotionの方が便利かもしれないね。Notionも2026年には「自作.com」で最適なナレッジツールの選び方として紹介されていて、汎用性の高さが評価されているから。",
+      "latencyBreakdown": {
+        "dbInitMs": 314,
+        "geminiReadingMs": 3321,
+        "postGeminiStartMs": 3638,
+        "preProcessingMs": 3929,
+        "promptBuildMs": 4761,
+        "mainPromptChars": 6059,
+        "mainLlmMs": 2350,
+        "validationRetryMs": 0,
+        "postProcessingMs": 124,
+        "totalMs": 7235,
+        "peMs": 525,
+        "peQueryGenMs": 149,
+        "peSearchMs": 188,
+        "peClassifyMs": 186,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "自作.com"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "L1C",
+      "category": "l1_market_intel",
+      "message": "地方移住して転職する流れって今どうなってる？調べてみて",
+      "description": "L1: ニッチ市場（数値が薄い）",
+      "evaluationFocus": "L1発火有無、数値データの補強",
+      "mode": "isolated",
+      "elapsedMs": 14221,
+      "responseText": "転職を視野に入れた地方移住は、2025年に相談件数が過去最多を更新していて、特に群馬が2年連続で移住希望地のトップになるなど、かなり活発な動きがあるみたいだね。たいしさんは混沌の中から新しいものを取り出すのが得意だから、この変化の波は面白く映るんじゃないかな。\n産経ニュースと富山県の連携セミナーのように、移住者の体験談からリアルな情報が得られる場も増えているし、26歳でメディアプランナーに転職した細川さんの事例みたいに、新しいキャリアを築くチャンスも広がっている。ただ、たいしさんは自分の情熱が理解されないことを恐れる傾向があるから、移住先のコミュニティや仕事内容がフィットするかは事前にしっかり見極めるのが大事だと思う。\nまずは、ふるさと回帰・移住交流推進機構が発表した2025年のデータで、どんな地域が人気なのか、もう少し具体的に見てみるのがいいかもしれない。",
+      "latencyBreakdown": {
+        "dbInitMs": 357,
+        "geminiReadingMs": 4103,
+        "postGeminiStartMs": 4463,
+        "preProcessingMs": 4833,
+        "promptBuildMs": 11021,
+        "mainPromptChars": 12461,
+        "mainLlmMs": 2963,
+        "validationRetryMs": 1,
+        "postProcessingMs": 136,
+        "totalMs": 14121,
+        "peMs": 5851,
+        "peQueryGenMs": 228,
+        "peSearchMs": 1451,
+        "peClassifyMs": 4170,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "L1D",
+      "category": "l1_listing_search",
+      "message": "自分に合うBtoB SaaS企業をネットで探してきて",
+      "description": "L1: ニッチリスト（entity 解決困難）",
+      "evaluationFocus": "L1発火有無、entity 補強",
+      "mode": "isolated",
+      "elapsedMs": 12627,
+      "responseText": "たいしさんが一番達成感を感じるのは、混沌の中から筋を見つけた瞬間じゃないかな。深く集中して本質を探るプロセスが核だと思う。これは僕の仮説だから、違ってたら教えて。\ntaiCさんのことを考えると、株式会社TOKIUMやmiiboみたいなBtoB SaaS企業は面白そうだと僕は思うよ。株式会社TOKIUMは、2024年2月2日時点で人事部長がバリューワークショップの価値について語っていて、企業の文化や組織課題解決への取り組みを深く理解できる点が、たいしさんの「一人で深く集中する力」と合いそう。miiboもAIドリブン経営を実践するBtoB SaaS企業で、2026年1月19日時点での1人目の正社員の働き方から企業の文化や事業モデルを理解できるのは、たいしさんが実用性を優先して本質を探るのに向いているんじゃないかな。\n他には、SaaSハンターが2025年に海外SaaSランキングで時価総額やARR、成長率で注目企業を紹介しているし、Earliestが2026年3月17日に日本のBtoB SaaS注目企業25選を挙げているけど、これらはまだ具体的な企業名というよりは市場の動向を見るための情報かな。\n今はまだ、僕が直接的にすべての企業をリストアップすることはできないんだけど、この中で気になるところ、もう少し見てみたいところがあれば教えてくれると嬉しいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 308,
+        "geminiReadingMs": 2717,
+        "postGeminiStartMs": 3027,
+        "preProcessingMs": 3240,
+        "promptBuildMs": 9430,
+        "mainPromptChars": 6927,
+        "mainLlmMs": 3007,
+        "validationRetryMs": 2,
+        "postProcessingMs": 114,
+        "totalMs": 12553,
+        "peMs": 5768,
+        "peQueryGenMs": 184,
+        "peSearchMs": 1736,
+        "peClassifyMs": 3845,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1,
+        "peL1": {
+          "fired": false,
+          "reason": "gap_below_threshold",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 4,
+          "fragmentsAfter": 4
+        }
+      },
+      "entities": [
+        "株式会社TOKIUMやmiiboみたいなBtoB",
+        "株式会社TOKIUMは",
+        "一人で深く集中する力"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D1",
+      "category": "ambiguous_explicit",
+      "message": "なんかいい仕事ないかなぁ、ちょっと調べてみてよ",
+      "description": "曖昧explicit: 漠然とした仕事探し",
+      "evaluationFocus": "曖昧さへの対応、clarifyか直答か",
+      "mode": "isolated",
+      "elapsedMs": 27585,
+      "responseText": "今のタイミングで、IT系の企業やスタートアップが合いそうだと思う。特に、個で深く集中できる環境があれば、力を発揮しやすいから。例えば、株式会社スタメンや株式会社Solvvyは新卒向けの成長環境が整っていて、たいしさんにとって魅力的かもしれない。これらの企業は急成長しているので、成長機会も多いと思う。\nもっと詳しく知りたいなら、各企業の公式サイトを調べてみるといいかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 348,
+        "geminiReadingMs": 8240,
+        "postGeminiStartMs": 8589,
+        "preProcessingMs": 9028,
+        "promptBuildMs": 21794,
+        "mainPromptChars": 12376,
+        "mainLlmMs": 5195,
+        "validationRetryMs": 1,
+        "postProcessingMs": 503,
+        "totalMs": 27493,
+        "peMs": 12294,
+        "peQueryGenMs": 2155,
+        "peSearchMs": 1503,
+        "peClassifyMs": 8633,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1,
+        "peL1": {
+          "fired": false,
+          "reason": "latency_budget_exhausted",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 4,
+          "fragmentsAfter": 4
+        }
+      },
+      "entities": [
+        "株式会社スタメンや株式会社Solvvyは新卒向けの成長環境が整っていて"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D2",
+      "category": "ambiguous_explicit",
+      "message": "最近面白い会社とかある？ネットで見てきて",
+      "description": "曖昧explicit: 面白い会社（基準が曖昧）",
+      "evaluationFocus": "「面白い」の解釈がユーザーに合っているか",
+      "mode": "isolated",
+      "elapsedMs": 18750,
+      "responseText": "最近注目される面白い会社として、トヨタ自動車やMicrosoftが挙げられるよ。トヨタは2024年度に業績が大きく伸びると予測されていて、特に自動運転技術や電動化の分野での革新が期待されているんだ。Microsoftも同様に、AI技術を活用した新しいサービス展開が進んでいて、これからの成長が見込まれている。\nたいしさんは実用性を重視する傾向があるから、こうした企業の革新性や実用的なアプローチが魅力的に映るかもしれないね。他にも興味深い企業があれば教えて。",
+      "latencyBreakdown": {
+        "dbInitMs": 482,
+        "geminiReadingMs": 3208,
+        "postGeminiStartMs": 3692,
+        "preProcessingMs": 3925,
+        "promptBuildMs": 12077,
+        "mainPromptChars": 6157,
+        "mainLlmMs": 6329,
+        "validationRetryMs": 2,
+        "postProcessingMs": 173,
+        "totalMs": 18581,
+        "peMs": 7731,
+        "peQueryGenMs": 1745,
+        "peSearchMs": 1580,
+        "peClassifyMs": 4404,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0,
+        "peL1": {
+          "fired": false,
+          "reason": "gap_below_threshold",
+          "queryGenMs": 0,
+          "searchMs": 0,
+          "classifyMs": 0,
+          "totalMs": 0,
+          "queriesSent": [],
+          "fragmentsBefore": 4,
+          "fragmentsAfter": 4
+        }
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D3",
+      "category": "ambiguous_explicit",
+      "message": "転職するならどういう方向がいいかWEBで調べて",
+      "description": "曖昧explicit: 転職方向性（広範・適性依存）",
+      "evaluationFocus": "方向性提案がパーソナリティに基づいているか",
+      "mode": "isolated",
+      "elapsedMs": 28161,
+      "responseText": "転職するなら、情熱を活かせるクリエイティブな職場環境が合っていると思う。失敗から学ぶ力が強いから、挑戦的なプロジェクトに取り組むことで成長できるし、自分のアイデアを実現できる場が向いているはずだよね。また、感情が判断に直結しやすいから、ストレスの少ない環境で自由に表現できる仕事が理想的だと思う。今週中に、自分の情熱を活かせそうな業界や職種を1つ考えてみるといいかもしれない。どんな仕事に魅力を感じているのかな？",
+      "latencyBreakdown": {
+        "dbInitMs": 406,
+        "geminiReadingMs": 2980,
+        "postGeminiStartMs": 3388,
+        "preProcessingMs": 3835,
+        "promptBuildMs": 22274,
+        "mainPromptChars": 12765,
+        "mainLlmMs": 5353,
+        "validationRetryMs": 0,
+        "postProcessingMs": 450,
+        "totalMs": 28077,
+        "peMs": 17984,
+        "peQueryGenMs": 1969,
+        "peSearchMs": 1860,
+        "peClassifyMs": 14154,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T07:20:47.044Z",
+    "caseCount": 1,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 23535,
+        "p90Ms": 23535,
+        "minMs": 23535,
+        "maxMs": 23535
+      },
+      "pe": {
+        "medianMs": 10131,
+        "p90Ms": 10131
+      },
+      "mainLlm": {
+        "medianMs": 2761,
+        "p90Ms": 2761
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 23535,
+      "responseText": "たいしさんには、フリーランスよりも正社員の方が合っていると僕は思うよ。\n働き方と収入の安定性で比較すると、フリーランスは自由度が高いけれど、収入が不安定になりがちで、平均年収425万円とされているフリーランスも中央値は300万円台と、年収の幅がかなり広いんだ。正社員であれば、毎月の給与が安定していて、社会保険や年金制度も手厚いから、将来への不安を感じにくい。特に、たいしさんは何かを深く集中して探求する力がある一方で、新しい環境や不確実性に対しては慎重な傾向があるから、収入の安定は心の余裕に繋がりやすいんじゃないかな。\nもちろん、フリーランスは自分の情熱を追求しやすい働き方だけど、たいしさんが一番達成感を感じるのは、混沌の中から筋を見つけた瞬間で、深く集中して本質を探るプロセスが核だと思うから、安定した基盤の上でその力を発揮する方が、より充実感を得られるんじゃないかな。",
+      "latencyBreakdown": {
+        "dbInitMs": 1710,
+        "geminiReadingMs": 3342,
+        "postGeminiStartMs": 5059,
+        "preProcessingMs": 7456,
+        "promptBuildMs": 18193,
+        "mainLlmMs": 2761,
+        "validationRetryMs": 1,
+        "postProcessingMs": 521,
+        "totalMs": 21476,
+        "peMs": 10131
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}
