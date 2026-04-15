@@ -16,6 +16,7 @@
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import type { PlanItem, MainLocation } from "./types";
 import type { PlaceCategory } from "./placeTable";
+import { lookupTravelTime, isSamePoint } from "./travelTimeTable";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 距離区分
@@ -225,7 +226,8 @@ export function estimateTravelTime(
 export function insertTravelItems(
   items: PlanItem[],
   transport: TransportMode | string | undefined,
-  goOut: boolean
+  goOut: boolean,
+  returnDestination?: string,
 ): PlanItem[] {
   // 在宅なら移動なし
   if (!goOut) return items;
@@ -253,20 +255,28 @@ export function insertTravelItems(
       const toCategory = item.location?.category;
       const isFromHome = prevLocation === "home";
 
-      const estimate = estimateTravelTime(
-        transport,
-        fromCategory,
-        toCategory,
-        isFromHome
+      // Layer 0/2: travelTimeTable で推定を試みる
+      const tableLookup = lookupTravelTime(
+        fromLabel, toLabel,
+        prevLocation, currentLocation,
       );
 
-      if (estimate) {
+      // travelTimeTable にヒット → その値を使用、なければ Layer 1 フォールバック
+      const durationMin = tableLookup !== null
+        ? roundTo15(tableLookup + (isFromHome ? HOME_DEPARTURE_OVERHEAD : 0))
+        : estimateTravelTime(transport, fromCategory, toCategory, isFromHome)?.durationMin;
+
+      if (durationMin) {
         const travelIcon = getTravelIcon(transport);
         result.push({
           id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
           kind: "travel",
           text: `${travelIcon} ${fromLabel}→${toLabel}`,
-          durationMin: estimate.durationMin,
+          what: null,
+          durationMin,
+          fixedStart: false,
+          orderHint: 0,
+          sourceTurnIndex: 0,
           completed: false,
           travelFrom: fromLabel,
           travelTo: toLabel,
@@ -282,28 +292,33 @@ export function insertTravelItems(
     result.push(item);
   }
 
-  // 帰路: 最終目的地 → 自宅
+  // 帰路: 最終目的地 → 帰り先（デフォルト: 自宅。ホテル等もあり得る）
   if (prevLocation && prevLocation !== "home") {
     const fromLabel = findLabelById(items, prevLocation);
     const fromCategory = findCategoryById(items, prevLocation);
+    const returnLabel = returnDestination ?? "自宅";
+    const returnCategory = returnDestination ? "other" : "home";
 
-    const estimate = estimateTravelTime(
-      transport,
-      fromCategory,
-      "home",
-      false
-    );
+    // Layer 0/2 → Layer 1 フォールバック
+    const tableLookup = lookupTravelTime(fromLabel, returnLabel, prevLocation, "home");
+    const durationMin = tableLookup !== null
+      ? roundTo15(tableLookup)
+      : estimateTravelTime(transport, fromCategory, returnCategory, false)?.durationMin;
 
-    if (estimate) {
+    if (durationMin) {
       const travelIcon = getTravelIcon(transport);
       result.push({
         id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         kind: "travel",
-        text: `${travelIcon} ${fromLabel}→自宅`,
-        durationMin: estimate.durationMin,
+        text: `${travelIcon} ${fromLabel}→${returnLabel}`,
+        what: null,
+        durationMin,
+        fixedStart: false,
+        orderHint: 0,
+        sourceTurnIndex: 0,
         completed: false,
         travelFrom: fromLabel,
-        travelTo: "自宅",
+        travelTo: returnLabel,
         travelTransport: normalizeTransport(transport) as TransportMode,
       });
     }

@@ -45,6 +45,8 @@ export interface FlowContext {
   certainty?: "high" | "medium" | "low";
   /** 開始タイミング（「これから」「午後から」等） */
   startWindow?: "now" | "morning" | "afternoon" | "evening" | "later";
+  /** 主な移動手段（intent 段階で検出） */
+  transport?: TransportMode;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,6 +64,40 @@ export interface LocationStop {
   order: number;
   /** placeTable のカテゴリ */
   category?: PlaceCategory;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EndpointAnchor — 終点アンカー（「帰る」先の構造化）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * プランの終点を表す構造化アンカー。
+ *
+ * CEO方針:
+ * - home固定禁止。ホテル、友人宅、パートナー宅等もあり得る
+ * - 非自宅系は市区町村レベルで確認するルールを入れる
+ * - 終点アンカーは次回プランの始点候補に継承する
+ */
+export type EndpointType =
+  | "home"
+  | "hotel"
+  | "friend_home"
+  | "partner_home"
+  | "family_home"
+  | "office"
+  | "other";
+
+export interface EndpointAnchor {
+  /** 終点タイプ */
+  type: EndpointType;
+  /** 場所ラベル（「ホテルオークラ」「田中さんの家」等） */
+  label: string;
+  /** 市区町村レベルのエリア（非自宅系で移動時間計算に使う。「渋谷区」「新宿」等） */
+  area?: string;
+  /** placeTable のID（解決できた場合） */
+  canonicalId?: string;
+  /** 非自宅系で市区町村が未確認のとき true（clarify が必要） */
+  needsAreaConfirm: boolean;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,6 +141,12 @@ export interface ParsedDayIntent {
   taskLocations?: Array<{ taskIndex: number; location: MainLocation }>;
   /** 場所の訪問順序（visit=経由 → main=滞在場所） */
   locationSequence?: LocationStop[];
+  /** 対象日（「明日」→ +1、「明後日」→ +2 等。未指定なら today） */
+  targetDate?: string;
+  /** 終点アンカー（「帰る」が検出された場合）。プランの最終移動の到着地を構造化 */
+  endpointAnchor?: EndpointAnchor;
+  /** @deprecated returnDestination は EndpointAnchor に移行。後方互換用 */
+  returnDestination?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,12 +159,20 @@ export interface PlanItem {
   id: string;
   /** "fixed" = 時間が決まっている予定、"todo" = 柔軟に配置できるタスク、"travel" = 移動 */
   kind: PlanItemKind;
-  /** 表示テキスト（ユーザーが書いた内容） */
+  /** 表示テキスト — what/who/where から自動生成。raw text を直接保存しない */
   text: string;
+  /** 純粋なアクション名（「仕事」「買い物」「ミーティング」等） */
+  what: string | null;
   /** 開始時刻（HH:mm）。fixedは必須、todoはプランニング後に付与 */
   startTime?: string;
   /** 所要時間（分）。Alterが仮置き or ユーザー修正後の値 */
   durationMin: number;
+  /** 明示的な時間指定があるか（true = アンカー、スケジュール再計算で動かさない） */
+  fixedStart: boolean;
+  /** 入力順序（discourse marker 由来。0始まり連番） */
+  orderHint: number;
+  /** どのユーザー入力ターンで生成されたか（差分追加の判定用。0始まり） */
+  sourceTurnIndex: number;
   /** 予定の種別（コーデ提案用）。fixed予定から推定 */
   eventType?: EventType;
   /** 誰と（予定テキストから自動推定 or ユーザー回答） */
@@ -169,6 +219,8 @@ export interface MorningPlan {
   flowContext?: FlowContext;
   /** 構造化された元の意図（パース結果の保持用） */
   parsedIntent?: ParsedDayIntent;
+  /** 終点アンカー（次回プランの始点候補に継承される） */
+  endpointAnchor?: EndpointAnchor;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -214,7 +266,41 @@ export type MissingField =
   | "transport"
   | "venue"
   | "mood"
-  | "withWhom";
+  | "withWhom"
+  | "location_area"; // 場所の市区町村レベルの確認が必要
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LocationClarify — 場所未指定時の暗黙補完 / 質問ルール
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 場所未指定アイテムに対する clarify 判定結果。
+ *
+ * CEO方針:
+ * - 前後が同エリアなら暗黙補完可
+ * - 前後が別エリアなら質問
+ * - 共同プラン化を見据えて participants / shared constraints に拡張しやすい構造
+ */
+export type LocationClarifyAction = "implicit_fill" | "ask" | "skip";
+
+export interface LocationClarifyResult {
+  /** 判定対象のアイテムID */
+  itemId: string;
+  /** アクション */
+  action: LocationClarifyAction;
+  /** 暗黙補完する場合のエリア名 */
+  implicitArea?: string;
+  /** 暗黙補完する場合の場所情報 */
+  implicitLocation?: MainLocation;
+  /** 質問する場合のテキスト */
+  askQuestion?: string;
+  /** 将来拡張: 共同プランの参加者制約 */
+  participantConstraints?: Array<{
+    participantId: string;
+    constraintType: "must_be_at" | "prefer" | "avoid";
+    location?: string;
+  }>;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TaskDurationMemory — タスク所要時間の学習

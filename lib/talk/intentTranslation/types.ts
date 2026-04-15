@@ -547,6 +547,8 @@ export type MediationInput = {
   conversationContext: ConversationTurn[];
   /** 関係メタデータ */
   relationshipMeta?: RelationshipMeta;
+  /** Phase 1 の介入レベル（P1→P3 連携用、任意） */
+  phase1InterventionLevel?: InterventionLevel;
 };
 
 /**

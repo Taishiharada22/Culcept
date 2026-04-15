@@ -178,7 +178,9 @@ const AMBIGUOUS_EXPRESSIONS: AmbiguousEntry[] = [
       { intent: "相手に試されている感じがする", probability: 0.15 },
     ],
     contextNeeded: "質問の繰り返し回数、送信者の conflict_style",
-    ambiguityScore: 0.6,
+    // 0.80→0.82: 反復使用パターン（C-2 では2回出現）を考慮した微調整。
+    // factor: 0.98→0.992 で軽い抑制パスを安定確保。
+    ambiguityScore: 0.82,
   },
   {
     pattern: /ごめん[ね。]?$/,
@@ -206,6 +208,95 @@ const AMBIGUOUS_EXPRESSIONS: AmbiguousEntry[] = [
     ],
     contextNeeded: "送信者の通常の「...」使用頻度",
     ambiguityScore: 0.5,
+  },
+  // ── Round 3 追加: 複合パターン + 新規曖昧表現 ──
+  {
+    pattern: /まあ(?:いいよ|いいか|いっか)/,
+    expression: "まあいいよ",
+    literalMeaning: "まあ、良い",
+    likelyIntents: [
+      { intent: "諦め・妥協", probability: 0.50 },
+      { intent: "消極的同意", probability: 0.30 },
+      { intent: "本当に問題ない", probability: 0.20 },
+    ],
+    contextNeeded: "直前の提案内容、会話の緊張度",
+    ambiguityScore: 0.85,
+  },
+  {
+    pattern: /^えっ[。？?！!…\.]*$/,
+    expression: "えっ",
+    literalMeaning: "驚き",
+    likelyIntents: [
+      { intent: "驚き・困惑", probability: 0.40 },
+      { intent: "不満・拒否感", probability: 0.35 },
+      { intent: "聞き返し", probability: 0.25 },
+    ],
+    contextNeeded: "前の発言の内容、会話の緊張度",
+    ambiguityScore: 0.45,
+  },
+  // ── Round 2-B 追加: E2E で検出漏れしたパターン ──
+  {
+    pattern: /(?:^|\s)わかった[。\s]?$/,
+    expression: "わかった",
+    literalMeaning: "理解した",
+    likelyIntents: [
+      { intent: "了承（納得）", probability: 0.40 },
+      { intent: "不満を飲み込んだ（消極的了承）", probability: 0.35 },
+      { intent: "会話を切り上げたい", probability: 0.25 },
+    ],
+    contextNeeded: "前の発言の圧迫度、送信者の conflict_style",
+    // 0.65→0.75: 対立文脈での「わかった」は「大丈夫」(0.70)と同等以上の曖昧性。
+    // 了承(40%)/消極的了承(35%)/打ち切り(25%) と3通りに分岐し文脈依存性が高い。
+    // A-20/A-112 の区別は contextRisk（対立マーカー検出）で行う。
+    ambiguityScore: 0.75,
+  },
+  {
+    pattern: /^は[？?！!]?$/,
+    expression: "は？",
+    literalMeaning: "驚き",
+    likelyIntents: [
+      { intent: "驚き・困惑", probability: 0.35 },
+      { intent: "不満・怒り", probability: 0.45 },
+      { intent: "聞き返し", probability: 0.20 },
+    ],
+    contextNeeded: "前の発言の内容、送信者の emotional_regulation",
+    ambiguityScore: 0.85,
+  },
+  {
+    pattern: /はいはい/,
+    expression: "はいはい",
+    literalMeaning: "了解了解",
+    likelyIntents: [
+      { intent: "面倒・投げやり", probability: 0.55 },
+      { intent: "軽い苛立ち", probability: 0.30 },
+      { intent: "軽い同意", probability: 0.15 },
+    ],
+    contextNeeded: "会話の緊張度、繰り返し回数",
+    ambiguityScore: 0.8,
+  },
+  {
+    pattern: /もう(?:いい|いいよ|いいって|いいから)/,
+    expression: "もういい",
+    literalMeaning: "十分",
+    likelyIntents: [
+      { intent: "諦め・打ち切り", probability: 0.50 },
+      { intent: "怒り・拒絶", probability: 0.35 },
+      { intent: "本当に満足", probability: 0.15 },
+    ],
+    contextNeeded: "直前の論争の有無、送信者の conflict_style",
+    ambiguityScore: 0.85,
+  },
+  {
+    pattern: /勝手に(?:すれば|して|しろ|どうぞ)/,
+    expression: "勝手にすれば",
+    literalMeaning: "自由にしていい",
+    likelyIntents: [
+      { intent: "怒り・見放し", probability: 0.65 },
+      { intent: "諦め", probability: 0.25 },
+      { intent: "本当に任せる", probability: 0.10 },
+    ],
+    contextNeeded: "直前の対立の有無",
+    ambiguityScore: 0.9,
   },
 ];
 
@@ -280,6 +371,26 @@ const INTENT_SHIFT_RULES: IntentShiftRule[] = [
   // ── まあ: 対立スタイル ──
   { expression: "まあ", intentKeyword: "諦め", axis: "conflict_style", direction: "negative", maxShift: 0.2 },
   { expression: "まあ", intentKeyword: "関心", axis: "relational_investment", direction: "negative", maxShift: 0.15 },
+
+  // ── わかった: 対立スタイル + 感情制御 ──
+  { expression: "わかった", intentKeyword: "不満", axis: "conflict_style", direction: "negative", maxShift: 0.2 },
+  { expression: "わかった", intentKeyword: "了承", axis: "direct_vs_diplomatic", direction: "negative", maxShift: 0.15 },
+
+  // ── は？: 感情変動 ──
+  { expression: "は？", intentKeyword: "怒り", axis: "emotional_variability", direction: "positive", maxShift: 0.2 },
+  { expression: "は？", intentKeyword: "驚き", axis: "emotional_regulation", direction: "positive", maxShift: 0.1 },
+
+  // ── はいはい: 対立スタイル ──
+  { expression: "はいはい", intentKeyword: "面倒", axis: "conflict_style", direction: "negative", maxShift: 0.2 },
+  { expression: "はいはい", intentKeyword: "苛立ち", axis: "emotional_regulation", direction: "negative", maxShift: 0.15 },
+
+  // ── もういい: 対立スタイル + 感情変動 ──
+  { expression: "もういい", intentKeyword: "諦め", axis: "conflict_style", direction: "negative", maxShift: 0.2 },
+  { expression: "もういい", intentKeyword: "怒り", axis: "emotional_variability", direction: "positive", maxShift: 0.15 },
+
+  // ── 勝手にすれば: 感情変動 + 対立 ──
+  { expression: "勝手にすれば", intentKeyword: "怒り", axis: "emotional_variability", direction: "positive", maxShift: 0.2 },
+  { expression: "勝手にすれば", intentKeyword: "見放し", axis: "relational_investment", direction: "negative", maxShift: 0.15 },
 ];
 
 /**
@@ -396,6 +507,175 @@ export function computeAmbiguityFactor(message: string): number {
 
   // 0.5-2.0 にクランプ
   return Math.min(MAX, BASE + totalScore * 0.6);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 対人摩擦パターン検出（Round 2-C: B カテゴリ特化）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 対人摩擦パターンの検出結果。
+ *
+ * 学術根拠:
+ *   - Gottman (1994): 四騎士（批判・防衛・軽蔑・石壁）の早期検出が関係悪化予防に有効
+ *   - Watzlawick (1967): ダブルバインドの構造（矛盾する指示の同時発信）
+ *   - Linehan (1993): 感情無効化（emotion invalidation）が関係的苦痛を増幅
+ *
+ * 2群に分類:
+ *   Group 1（sender-improvable）: 送信者が表現を改善できるパターン → Phase 1 リスク加算
+ *   Group 2（distress-expression）: 送信者の苦痛表出 → Phase 2 confidence 加算のみ
+ */
+export type FrictionSignalResult = {
+  /** 全摩擦パターンの合計スコア (0.0–0.5) */
+  score: number;
+  /** Group 1 のみのスコア — Phase 1 additive risk 用 */
+  senderRiskScore: number;
+  /** 検出されたパターンラベル */
+  patterns: string[];
+};
+
+type FrictionPatternEntry = {
+  pattern: RegExp;
+  label: string;
+  score: number;
+  /** true = Group 1 (sender-improvable), false = Group 2 (distress-expression) */
+  senderImprovable: boolean;
+};
+
+const FRICTION_PATTERNS: FrictionPatternEntry[] = [
+  // ── Group 1: Sender-improvable（送信者が改善できる表現）──
+
+  // Gottman criticism — 性格攻撃 + 一般化
+  {
+    pattern: /いつも(?:あなた|お前|君|おまえ)(?:は|って)/,
+    label: "criticism_always",
+    score: 0.40,
+    senderImprovable: true,
+  },
+  {
+    pattern: /何回(?:言えば|言ったら)/,
+    label: "criticism_repetition",
+    score: 0.35,
+    senderImprovable: true,
+  },
+
+  // ダブルバインド — 許可と罰の同時発信
+  {
+    pattern: /(?:行けば|すれば|したら)[？?]?[^。]{0,20}(?:でも|けど)[^。]{0,20}(?:がっかり|悲し|寂し|残念|嫌)/,
+    label: "double_bind",
+    score: 0.35,
+    senderImprovable: true,
+  },
+
+  // 条件付き謝罪 — 謝罪の形式だが実質は自己正当化
+  {
+    pattern: /ごめん(?:けど|だけど)/,
+    label: "conditional_apology",
+    score: 0.30,
+    senderImprovable: true,
+  },
+
+  // 感情矮小化 — 相手の感情を否定・軽視
+  {
+    pattern: /(?:大げさ|心配しすぎ|考えすぎ|気にしすぎ)/,
+    label: "emotion_minimization",
+    score: 0.30,
+    senderImprovable: true,
+  },
+
+  // 要求パターン — 「ちゃんとやれ」式の命令
+  {
+    pattern: /ちゃんと(?:答え|して|やって|聞いて|見て|読んで|考えて)/,
+    label: "demand_properly",
+    score: 0.30,
+    senderImprovable: true,
+  },
+
+  // 不公平感の表出 — 「私ばっかり」式の偏り指摘
+  {
+    pattern: /(?:ばっかり|ばかり)(?:やって|出して|して|だ)/,
+    label: "unfair_burden",
+    score: 0.30,
+    senderImprovable: true,
+  },
+
+  // ── Group 2: Distress-expression（苦痛の表出 — 介入より共感が適切）──
+
+  // 要求型「なぜ」— 不安からの追及
+  {
+    pattern: /なんで.{0,20}(?:ない|くれない)の/,
+    label: "demand_why_not",
+    score: 0.30,
+    senderImprovable: false,
+  },
+
+  // 監視言語 — 既読・SNS行動の追跡
+  {
+    pattern: /既読.{0,10}(?:返事|返信).{0,5}(?:しない|ない|くれない)/,
+    label: "monitoring_read",
+    score: 0.25,
+    senderImprovable: false,
+  },
+  {
+    pattern: /(?:インスタ|SNS|ストーリー).{0,15}(?:いいね|フォロー)/,
+    label: "monitoring_sns",
+    score: 0.25,
+    senderImprovable: false,
+  },
+
+  // 感謝・承認の要求 — 認めてほしいという気持ちの表出
+  {
+    pattern: /ちゃんと(?:言って|伝えて)/,
+    label: "demand_acknowledgment",
+    score: 0.30,
+    senderImprovable: false,
+  },
+
+  // 拒絶・怒りの表出 — ふざけるなの変形
+  {
+    pattern: /ふざけ(?:ないで|るな|んな)/,
+    label: "anger_expression",
+    score: 0.30,
+    senderImprovable: false,
+  },
+
+  // 関係不確実性 — 別れの可能性への言及
+  {
+    pattern: /(?:合わない|合ってない)(?:のかも|かもしれない)/,
+    label: "relationship_uncertainty",
+    score: 0.30,
+    senderImprovable: false,
+  },
+];
+
+/**
+ * メッセージから対人摩擦パターンを検出する。
+ *
+ * Phase 1 と Phase 2 で異なる使い方をする:
+ *   - Phase 1 (readingSimulation): senderRiskScore を additive risk に加算
+ *   - Phase 2 (intentReconstruction): score を display confidence boost に使用
+ */
+export function computeFrictionSignal(message: string): FrictionSignalResult {
+  const MAX_SCORE = 0.50;
+  let totalScore = 0;
+  let senderRiskScore = 0;
+  const patterns: string[] = [];
+
+  for (const entry of FRICTION_PATTERNS) {
+    if (entry.pattern.test(message)) {
+      totalScore += entry.score;
+      if (entry.senderImprovable) {
+        senderRiskScore += entry.score;
+      }
+      patterns.push(entry.label);
+    }
+  }
+
+  return {
+    score: Math.min(MAX_SCORE, totalScore),
+    senderRiskScore: Math.min(MAX_SCORE, senderRiskScore),
+    patterns,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

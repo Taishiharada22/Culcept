@@ -276,6 +276,53 @@ function applySocial(intent: Intent, ev: EventContext) {
 }
 
 /* ═══════════════════════════════════════════════
+   6.5. Mood 補正（moodText → Intent）
+   ユーザーが「きれいめ」「ラフ」などのムードを指定した場合に
+   主観系軸を nudge する。天候・安全・ドレスコード軸は触らない。
+   ※ DressCode / Weather は Mood の後に適用されるため、
+     hard constraint が自然に mood を上書きする。
+   ═══════════════════════════════════════════════ */
+
+type NumericIntentKey = (typeof KEYS)[number];
+
+/**
+ * ムードパターン → Intent 軸補正テーブル
+ * - 主観軸のみ（formality, attention, minimalism, romance, trust, comfort, tightAvoid, wrinkleSafe, breathable, mobility）
+ * - 天候軸（warmthNeed, rainNeed, windNeed, uvNeed）は触らない
+ * - 安全軸（dirtySafe, splashSafe）は触らない
+ * - デルタは ±0.05〜±0.25 の範囲（nudge であり override ではない）
+ */
+const MOOD_CORRECTIONS: Record<string, Partial<Record<NumericIntentKey, number>>> = {
+  "きれいめ":   { formality: 0.15, attention: 0.10, minimalism: 0.10, trust: 0.05 },
+  "カジュアル": { formality: -0.15, comfort: 0.10, tightAvoid: 0.10 },
+  "ラフ":       { formality: -0.20, comfort: 0.15, tightAvoid: 0.15, minimalism: -0.10 },
+  "かっちり":   { formality: 0.20, trust: 0.10, wrinkleSafe: 0.10 },
+  "フォーマル": { formality: 0.25, trust: 0.10, attention: 0.10, wrinkleSafe: 0.10 },
+  "楽":         { comfort: 0.20, tightAvoid: 0.15, formality: -0.15 },
+  "おしゃれ":   { attention: 0.15, minimalism: 0.10, formality: 0.05 },
+  "リラックス": { comfort: 0.15, tightAvoid: 0.10, formality: -0.10, breathable: 0.05 },
+  "スポーティ": { mobility: 0.15, comfort: 0.10, breathable: 0.10, formality: -0.15 },
+  "シンプル":   { minimalism: 0.15, attention: -0.10 },
+  "動きやすい": { mobility: 0.15, walkNeed: 0.10, comfort: 0.10, tightAvoid: 0.10 },
+  "大人っぽい": { formality: 0.10, attention: 0.10, minimalism: 0.10, trust: 0.10 },
+};
+
+/** ムード補正を Intent に加算する。未知のムード文字列はスキップ。 */
+export function applyMoodCorrection(intent: Intent, moodText: string): void {
+  const corrections = MOOD_CORRECTIONS[moodText];
+  if (!corrections) return;
+
+  for (const [key, delta] of Object.entries(corrections)) {
+    intent[key as NumericIntentKey] += delta;
+  }
+}
+
+/** テスト・診断用: 利用可能なムードパターン一覧を返す */
+export function getAvailableMoodPatterns(): string[] {
+  return Object.keys(MOOD_CORRECTIONS);
+}
+
+/* ═══════════════════════════════════════════════
    7. DressCode 補正
    ═══════════════════════════════════════════════ */
 function applyDressCode(intent: Intent, dc: NonNullable<EventContext["dressCode"]>) {
@@ -398,7 +445,7 @@ export function computePrimaryEvent(events: EventContext[]): EventContext | null
 /* ═══════════════════════════════════════════════
    Intent 生成（メイン）
    ═══════════════════════════════════════════════ */
-export function computeIntent(primary: EventContext, weather?: WeatherContext): Intent {
+export function computeIntent(primary: EventContext, weather?: WeatherContext, moodText?: string): Intent {
   const base = BASE[primary.type];
   const intent: Intent = {
     // 数値コピー
@@ -420,6 +467,7 @@ export function computeIntent(primary: EventContext, weather?: WeatherContext): 
   applyTransport(intent, primary);
   applyEnvironment(intent, primary);
   applySocial(intent, primary);
+  if (moodText) applyMoodCorrection(intent, moodText);
   if (primary.dressCode && primary.dressCode !== "none") applyDressCode(intent, primary.dressCode);
   if (weather) applyWeather(intent, weather);
 

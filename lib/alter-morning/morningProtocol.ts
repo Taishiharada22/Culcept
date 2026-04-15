@@ -30,6 +30,8 @@ import {
 import type { MissingField } from "./types";
 import { parseUserInput, buildDayPlan } from "./planningEngine";
 import { parseIntent, intentToPlanItems, buildIntentConfirmMessage } from "./intentParser";
+import { applyPlanEdit, addDifferentialItems } from "./planEditor";
+import { applyImplicitLocationFill, buildLocationClarifyQuestion } from "./locationClarify";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Morning Protocol 検出
@@ -75,6 +77,8 @@ const SOFT_BRIDGE_CONFIRM = [
 // ── 弱い確信: 確認を挟んでから Morning Protocol ──
 /** ファッション/コーデ系キーワード（Morning Protocol 誤発火防止用） */
 const FASHION_KEYWORDS = /アウタ|コーデ|服|着る|ファッション|スタイル|コーディネート|トップス|ボトムス|靴|アクセサリ/;
+/** P1.8-fix: Web検索・比較判断の明示的要求（PE が処理すべき — Morning Protocol 除外） */
+const SEARCH_INTENT_KEYWORDS = /調べ(て|てみて|てきて)|ネットで|WEBで|webで|検索して|探して(きて|みて)|どっち.*(合う|いい|向い)|比較して/;
 
 const SOFT_TRIGGERS = [
   /今日.*(どうし|何す|何や|何し)/,     // 「今日どうしよう」「今日何する」— プラン系のみ
@@ -109,6 +113,10 @@ export function detectMorningIntent(
 
   // ファッション/コーデ系の質問は Morning Protocol 対象外
   if (FASHION_KEYWORDS.test(message)) return "none";
+
+  // P1.8-fix: Web検索の明示的要求・比較判断要求は Morning Protocol 対象外
+  // 「調べて」「ネットで」「WEBで」「どっちが合う」等は PE が処理すべき
+  if (SEARCH_INTENT_KEYWORDS.test(message)) return "none";
 
   if (STRONG_TRIGGERS.some((pattern) => pattern.test(message))) return "strong";
   if (SOFT_TRIGGERS.some((pattern) => pattern.test(message))) return "soft";
@@ -303,15 +311,47 @@ function handleCollectingPhase(
   if (intake.autoInferred.venue && !dayConditions.venue) {
     dayConditions.venue = intake.autoInferred.venue as DayConditions["venue"];
   }
+  // intent の transport → DayConditions に引き継ぎ（未設定の場合）
+  if (mergedIntent.flowContext.transport && !dayConditions.mainTransport) {
+    dayConditions.mainTransport = mergedIntent.flowContext.transport;
+  }
 
   // ── Step 2: Plan Intake Gate の結果で分岐 ──
 
   if (intake.level === "sufficient" || intake.level === "partial") {
+    // ── 場所 clarify: 暗黙補完 + 質問候補の抽出 ──
+    const { updatedItems: locFilledItems, pendingClarify } = applyImplicitLocationFill(allItems);
+
     // 5W1H の必須項目が揃っている → Tour Builder → プラン提示
-    const plan = buildDayPlan(allItems, dayConditions as DayConditions, undefined, { goOut: intake.goingOut });
+    const plan = buildDayPlan(locFilledItems, dayConditions as DayConditions, undefined, {
+      goOut: intake.goingOut,
+      endpointAnchor: mergedIntent.endpointAnchor,
+      returnDestination: mergedIntent.returnDestination,
+    });
     plan.mainLocation = mergedIntent.mainLocation;
     plan.flowContext = mergedIntent.flowContext;
     plan.parsedIntent = mergedIntent;
+
+    // 場所の clarify が必要なアイテムがある → clarify フェーズに回す
+    if (pendingClarify.length > 0) {
+      const locQuestion = buildLocationClarifyQuestion(pendingClarify);
+      const confirmMsg = buildIntentConfirmMessage(mergedIntent);
+      return {
+        session: {
+          ...session,
+          phase: "clarifying",
+          plan,
+          parsedIntent: mergedIntent,
+          sufficiency: { ...rawSufficiency, level: "insufficient", missingFields: [...intake.missingFields, "location_area"] },
+        },
+        response: {
+          phase: "clarifying",
+          message: `${confirmMsg}\n\n${locQuestion}`,
+          clarifyQuestion: locQuestion ?? undefined,
+          plan,
+        },
+      };
+    }
 
     const confirmMsg = buildIntentConfirmMessage(mergedIntent);
 
@@ -335,7 +375,7 @@ function handleCollectingPhase(
   if (intake.level === "insufficient" && intake.missingFields.length > 0) {
     // プラン成立に必要な情報が不足 → 不足分を 1 問に束ねて聞く
     const plan: MorningPlan = {
-      date: todayJST(),
+      date: mergedIntent.targetDate ?? todayJST(),
       items: allItems,
       dayConditions: dayConditions as DayConditions,
       createdAt: new Date().toISOString(),
@@ -415,7 +455,11 @@ function handleClarifyingPhase(
     mergedIntent.flowContext.goOut === true ||
     (mergedIntent.locationSequence ?? []).some(ls => ls.category !== "home") ||
     (mergedIntent.mainLocation != null && mergedIntent.mainLocation.category !== "home");
-  const plan = buildDayPlan(finalItems, mergedConditions, undefined, { goOut: goingOutClarify });
+  const plan = buildDayPlan(finalItems, mergedConditions, undefined, {
+    goOut: goingOutClarify,
+    endpointAnchor: mergedIntent.endpointAnchor,
+    returnDestination: mergedIntent.returnDestination,
+  });
   plan.mainLocation = mergedIntent.mainLocation ?? session.plan?.mainLocation;
   plan.flowContext = mergedIntent.flowContext;
   plan.parsedIntent = mergedIntent;
@@ -478,38 +522,60 @@ function handlePlanPresentedPhase(
     };
   }
 
-  // 変更リクエスト → 再パース & 再構築
-  const newIntent = parseIntent(message);
-  const { items: newItems, personalizeHints } = parseUserInput(message);
-  if ((newItems.length > 0 || newIntent.primaryTasks.length > 0 || newIntent.fixedEvents.length > 0) && session.plan) {
-    // 新しいintentアイテムも含めてマージ
-    const intentItems = intentToPlanItems(newIntent);
-    const existingTexts = new Set([...session.plan.items.map(i => i.text), ...intentItems.map(i => i.text)]);
-    const extraLegacy = newItems.filter(i => !existingTexts.has(i.text));
-    // travel アイテムを除外してからマージ（travel は buildDayPlan で再挿入する）
-    const existingNonTravel = session.plan.items.filter(i => i.kind !== "travel");
-    const mergedItems = [...existingNonTravel, ...intentItems, ...extraLegacy];
+  // 変更リクエスト → planEditor で編集を試行
+  if (session.plan) {
+    const editResult = applyPlanEdit(message, session.plan);
 
-    const mergedFlow = { ...session.plan.flowContext, ...newIntent.flowContext };
-    const goOutForRebuild =
-      mergedFlow?.goOut === true ||
-      (newIntent.mainLocation != null && newIntent.mainLocation.category !== "home") ||
-      (session.plan.mainLocation != null && session.plan.mainLocation.category !== "home");
-    const plan = buildDayPlan(mergedItems, session.plan.dayConditions, undefined, { goOut: goOutForRebuild });
-    // プランメタデータを復元（mainLocation / flowContext / parsedIntent）
-    plan.mainLocation = newIntent.mainLocation ?? session.plan.mainLocation;
-    plan.flowContext = mergedFlow;
-    plan.parsedIntent = mergeIntents(session.parsedIntent, newIntent);
-    session.personalizeHints.push(...personalizeHints);
+    if (editResult.applied) {
+      // 編集が成功 → プランを再構築
+      const goOutForRebuild =
+        session.plan.flowContext?.goOut === true ||
+        (session.plan.mainLocation != null && session.plan.mainLocation.category !== "home");
+      const plan = buildDayPlan(editResult.items, session.plan.dayConditions, undefined, { goOut: goOutForRebuild });
+      plan.mainLocation = session.plan.mainLocation;
+      plan.flowContext = session.plan.flowContext;
+      plan.parsedIntent = session.parsedIntent;
 
-    return {
-      session: { ...session, plan, parsedIntent: plan.parsedIntent },
-      response: {
-        phase: "plan_presented",
-        message: buildPlanMessage(plan, session.personalizeHints),
-        plan,
-      },
-    };
+      return {
+        session: { ...session, plan, parsedIntent: plan.parsedIntent },
+        response: {
+          phase: "plan_presented",
+          message: editResult.message,
+          plan,
+        },
+      };
+    }
+
+    // planEditor で編集できなかった場合 → 差分追加（全量再パース禁止）
+    const turnIndex = session.rawInputs.length - 1; // 現在のターン番号
+    const diffResult = addDifferentialItems(message, session.plan, turnIndex);
+
+    if (diffResult.applied) {
+      // 新しいアイテムの intent 情報もマージ
+      const newIntent = parseIntent(message);
+      const mergedFlow = { ...session.plan.flowContext, ...newIntent.flowContext };
+      const goOutForRebuild =
+        mergedFlow?.goOut === true ||
+        (newIntent.mainLocation != null && newIntent.mainLocation.category !== "home") ||
+        (session.plan.mainLocation != null && session.plan.mainLocation.category !== "home");
+      const plan = buildDayPlan(diffResult.items, session.plan.dayConditions, undefined, {
+        goOut: goOutForRebuild,
+        endpointAnchor: newIntent.endpointAnchor ?? session.parsedIntent?.endpointAnchor,
+        returnDestination: newIntent.returnDestination ?? session.parsedIntent?.returnDestination,
+      });
+      plan.mainLocation = newIntent.mainLocation ?? session.plan.mainLocation;
+      plan.flowContext = mergedFlow;
+      plan.parsedIntent = mergeIntents(session.parsedIntent, newIntent);
+
+      return {
+        session: { ...session, plan, parsedIntent: plan.parsedIntent },
+        response: {
+          phase: "plan_presented",
+          message: diffResult.message,
+          plan,
+        },
+      };
+    }
   }
 
   // 変更の意図はあるが具体的でない場合
@@ -517,7 +583,7 @@ function handlePlanPresentedPhase(
     session,
     response: {
       phase: "plan_presented",
-      message: "どこを変えたい？ 時間の長さ？ 順番？ それとも追加する？",
+      message: "どこを変えたい？\n・タスクの追加や削除\n・開始時間の変更\n・時間の長さ\n・順番の入れ替え\nなんでも言ってね。",
       plan: session.plan,
     },
   };
@@ -665,6 +731,8 @@ function mergeIntents(
       ...(incoming.taskLocations ?? []),
     ],
     locationSequence: mergedLocs.length > 0 ? mergedLocs : undefined,
+    endpointAnchor: incoming.endpointAnchor ?? existing.endpointAnchor,
+    returnDestination: incoming.returnDestination ?? existing.returnDestination,
   };
 }
 

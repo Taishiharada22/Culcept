@@ -6,7 +6,7 @@
  * 3. 固定予定を軸にTodoを最適配置
  */
 
-import type { PlanItem, MorningPlan, DayConditions, FlowContext } from "./types";
+import type { PlanItem, MorningPlan, DayConditions, FlowContext, EndpointAnchor } from "./types";
 import type { EventType } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import { todayJST } from "./dateUtils";
 import {
@@ -185,7 +185,8 @@ export function parseUserInput(text: string): ParseResult {
       .replace(TIME_REGEX, "")
       .replace(PERIOD_REGEX, "")
       .replace(/^\s*に?\s*/, "")
-      .replace(/^今日[はも]?\s*/, "")
+      .replace(/^(明日|明後日|あさって|今日|昨日|一昨日|おととい)[はも]?\s*/, "")
+      .replace(/^(朝|朝から|朝一で)\s*/, "")
       // 文末の意志表現を除去してアクション名に正規化
       .replace(/(よう|おう)と思[うっ]て(る|い[るた])?$/, "る")
       .replace(/(し|やり|行き|出)たいと思[うっ]て?$/, "$1たい")
@@ -204,8 +205,12 @@ export function parseUserInput(text: string): ParseResult {
       id: `mp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       kind: time ? "fixed" : "todo",
       text: cleanText,
+      what: cleanText,
       startTime: time ?? undefined,
       durationMin: estimate.minutes,
+      fixedStart: !!time,
+      orderHint: items.length,
+      sourceTurnIndex: 0,
       eventType,
       completed: false,
     });
@@ -247,7 +252,7 @@ export function buildDayPlan(
   items: PlanItem[],
   dayConditions: DayConditions,
   now?: Date,
-  options?: { goOut?: boolean }
+  options?: { goOut?: boolean; returnDestination?: string; endpointAnchor?: EndpointAnchor }
 ): MorningPlan {
   const currentTime = now ?? new Date();
   const currentHour = currentTime.getHours();
@@ -331,10 +336,13 @@ export function buildDayPlan(
   //   2. 帰宅時間が明示される
   //   3. コーデ提案の歩き量推定精度が向上する
   const goOut = options?.goOut ?? hasOutboundLocations(scheduled);
+  // EndpointAnchor のラベルを帰路の到着地として使用
+  const returnLabel = options?.endpointAnchor?.label ?? options?.returnDestination;
   const withTravel = insertTravelItems(
     scheduled,
     dayConditions.mainTransport,
-    goOut
+    goOut,
+    returnLabel,
   );
 
   // ── Phase 3: 移動アイテム込みで時刻を再計算 ──
@@ -348,6 +356,7 @@ export function buildDayPlan(
     dayConditions,
     createdAt: currentTime.toISOString(),
     confirmed: false,
+    endpointAnchor: options?.endpointAnchor,
   };
 }
 
@@ -410,19 +419,65 @@ function hasOutboundLocations(items: PlanItem[]): boolean {
 
 /**
  * ユーザーがプランの特定アイテムの所要時間を変更した時に呼ぶ。
- * TaskDurationMemoryの学習もここでトリガーする。
+ * 変更後、後続アイテムの開始時刻をカスケードで再計算する。
+ * fixedStart=true のアイテムは動かさない（アンカー）。
  */
 export function updateItemDuration(
   plan: MorningPlan,
   itemId: string,
   newDurationMin: number
 ): MorningPlan {
+  const updatedItems = plan.items.map((item) =>
+    item.id === itemId ? { ...item, durationMin: newDurationMin } : item
+  );
   return {
     ...plan,
-    items: plan.items.map((item) =>
-      item.id === itemId ? { ...item, durationMin: newDurationMin } : item
-    ),
+    items: recalculateSchedule(updatedItems),
   };
+}
+
+/**
+ * スケジュール再計算 — 時間カスケードエンジン。
+ *
+ * アイテムの duration 変更時に、後続の非 fixedStart アイテムの
+ * startTime を前から順に詰め直す。
+ *
+ * ルール:
+ * - fixedStart=true のアイテムは startTime を動かさない（アンカー）
+ * - fixedStart=false のアイテムは、直前のアイテムの endTime に配置
+ * - fixed アンカーより前に配置されたアイテムは、アンカー開始に食い込まない
+ */
+export function recalculateSchedule(items: PlanItem[]): PlanItem[] {
+  if (items.length === 0) return items;
+
+  const result: PlanItem[] = [];
+  let cursor = 0;
+
+  // 最初のアイテムの startTime から cursor を初期化
+  const first = items[0];
+  if (first.startTime) {
+    cursor = timeToMinutes(first.startTime);
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+
+    if (item.fixedStart && item.startTime) {
+      // アンカー: startTime を維持。cursor をその endTime に更新
+      result.push(item);
+      cursor = timeToMinutes(item.startTime) + item.durationMin;
+    } else if (item.startTime) {
+      // 非アンカーで startTime がある → cursor に基づいて再配置
+      const newStart = Math.max(cursor, 0);
+      result.push({ ...item, startTime: minutesToTime(newStart) });
+      cursor = newStart + item.durationMin;
+    } else {
+      // startTime なし → そのまま保持
+      result.push(item);
+    }
+  }
+
+  return result;
 }
 
 /**

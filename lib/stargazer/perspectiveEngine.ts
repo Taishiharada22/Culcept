@@ -47,6 +47,14 @@ export interface PerspectiveFragment {
     fear: number;
     growth: number;
   };
+  /** P1.11: 構造化エビデンス — prompt block 構築に使用 */
+  evidence?: {
+    entities: string[];   // 企業名・サービス名・固有名詞
+    numbers: string[];    // 数値データ（"27.4%", "2970億ドル"等）
+    date?: string;        // 年度・時点（"2026年Q1", "2025年版"等）
+    sourceName?: string;  // ソース名（"総務省テレワーク人口調査"等）
+    claim: string;        // 主張・事実の1文要約（旧 key_insight）
+  };
 }
 
 export interface SearchResult {
@@ -91,6 +99,77 @@ export interface QualityGateResult {
   /** quality gate が discard/abstain の場合、clarify で1問聞く余地があるか */
   canClarify: boolean;
 }
+
+// ─── P1.10 Step 1: 情報密度基準（CEO承認 2026-04-14）──────────────────────
+// ChatGPT級の情報密度を担保するための最低基準。
+// 出力契約（route.ts）と入力設計（クエリ役割分担）の両方がこの基準を参照する。
+export const DENSITY_STANDARDS: Record<SearchTaskType, {
+  /** クエリの役割分担テンプレート */
+  queryRoles: string[];
+  /** 最大クエリ数 */
+  maxQueries: number;
+  /** fragment 最大数（密度を上げるため listing/market は多め） */
+  maxFragments: number;
+  /** fragment トークン予算 */
+  tokenBudget: number;
+}> = {
+  listing_search: {
+    queryRoles: [
+      "候補名・企業名が出やすいクエリ（ランキング、注目企業、おすすめ）",
+      "働き方・文化・制度が出やすいクエリ（リモート、福利厚生、社風）",
+      "職種・業務内容・スキルが出やすいクエリ（募集職種、技術スタック）",
+    ],
+    maxQueries: 3,
+    maxFragments: 4,
+    tokenBudget: 600, // P1.11: evidence構造化分の増枠
+  },
+  market_intel: {
+    queryRoles: [
+      "市場規模・投資額・成長率など数値系クエリ",
+      "業界トレンド・動向・注目分野系クエリ",
+      "採用・職種需要・給与系クエリ",
+    ],
+    maxQueries: 3,
+    maxFragments: 4,
+    tokenBudget: 600, // P1.11: evidence構造化分の増枠
+  },
+  comparison: {
+    queryRoles: [
+      "比較対象Aの特徴・評判クエリ",
+      "比較対象Bの特徴・評判クエリ",
+    ],
+    maxQueries: 2,
+    maxFragments: 4, // P1.11: 多軸比較に必要なfragment数を増加
+    tokenBudget: 500, // P1.11: evidence構造化分の増枠
+  },
+  entity_research: {
+    queryRoles: [
+      "エンティティの基本情報・評判クエリ",
+      "エンティティの特徴・強み・弱みクエリ",
+    ],
+    maxQueries: 2,
+    maxFragments: 3,
+    tokenBudget: 350,
+  },
+  factual_lookup: {
+    queryRoles: ["事実確認の直接クエリ"],
+    maxQueries: 2,
+    maxFragments: 3,
+    tokenBudget: 300,
+  },
+  perspective_seek: {
+    queryRoles: ["多視点収集クエリ"],
+    maxQueries: 2,
+    maxFragments: 3,
+    tokenBudget: 300,
+  },
+  how_to: {
+    queryRoles: ["方法・手順クエリ"],
+    maxQueries: 2,
+    maxFragments: 3,
+    tokenBudget: 300,
+  },
+};
 
 // ─── Search Task Types ───────────────────────────────────────────────────
 // GPT feedback (CEO endorsed): 「検索前の思考設計」— 検索エンジンの強さではなく、
@@ -643,8 +722,8 @@ export async function classifyTaskAndGenerateQueries(
   // 直前の会話文脈がないとまともなタスク定義ができない
   const isShortExplicit = message.length < 30 && detectExplicitSearchIntent(message);
   const contextSection = (isShortExplicit && conversationSummary)
-    ? `\n## 直前の会話の話題（検索対象の特定に使用）\n${conversationSummary}`
-    : (conversationSummary ? `\n## 会話の文脈（参考）\n${conversationSummary}` : "");
+    ? `\n## 直前の会話の話題（検索対象の特定に使用。ただしここの情報をそのままクエリに使わないこと）\n${conversationSummary}`
+    : (conversationSummary ? `\n## 会話の文脈（意図理解の参考のみ。性格情報等をクエリに含めないこと）\n${conversationSummary}` : "");
 
   const result = await runAI({
     taskType: "perspective_task_query",
@@ -668,12 +747,25 @@ export async function classifyTaskAndGenerateQueries(
 - 迷ったら、ユーザーが最終的に欲しい成果物で判断する
 
 ## クエリ生成ルール
+- **最重要: 性格特性語（「自律重視」「変化歓迎」「個人主義」「大胆」「慎重」等）をクエリに絶対に含めない**。これらはユーザーの背景情報であり検索キーワードではない。検索エンジンは性格用語で有用な結果を返さない
 - 個人的な情報（性格、感情、関係性、名前）は絶対に含めない
 - 「調べて」「検索して」「WEBで」等の検索指示語はクエリに含めない
 - 「WEB検索」「ネット検索」「情報検索」のようなメタクエリは絶対に生成しない
 - 日本語で簡潔に（各クエリ10語以内）
-- listing_search の場合: 直接のリスト検索ではなく、関連する有用情報（業界レポート、評判、給与データ等）を検索するクエリに変換すること
-- 1〜2個のクエリを生成
+- **クエリは「検索エンジンで情報が見つかるキーワード」のみ使用すること**。具体的な業界名・職種名・制度名・トレンド名を使う
+- listing_search の場合: 直接のリスト検索ではなく、具体的な企業名・サービス名が記事中に登場しやすいクエリに変換すること。例: 「注目企業 ランキング」「おすすめ企業 特徴」「企業 比較 評判」等。業界レポート・評判記事・ランキング記事を狙う
+- 地域名（都道府県）はクエリに含めない — 地域は絞り込みの最後の条件であり、まず職種・スキル・働き方で候補を出すこと
+- **クエリ役割分担**: 各クエリは異なる種類の情報を狙うこと（同じ情報源を複数クエリで重複して狙わない）
+- listing_search / market_intel は 2〜3個のクエリを生成（情報密度のため多め）。それ以外は 1〜2個。
+- listing_search のクエリ役割: ①候補名が出やすいクエリ ②働き方・文化が出やすいクエリ ③職種・スキルが出やすいクエリ
+- market_intel のクエリ役割: ①数値・市場規模系 ②トレンド・動向系 ③採用・需要系
+- comparison のクエリ役割: ①「A vs B 比較」「A B 違い」等のA対Bの直接比較記事を狙うクエリ ②数値データ裏付け（市場シェア・利用率・年収差・統計・ランキング等の具体数値が出やすいクエリ）
+
+## 悪い例（絶対に生成しないこと）
+- ❌ 「キャリアプラン 自律重視 変化歓迎」← 性格語がクエリに入っている
+- ❌ 「個人主義 働き方 企業文化」← 性格語がクエリに入っている
+- ✅ 「転職 キャリアチェンジ 方向性 2026」← 具体的な情報を狙っている
+- ✅ 「成長業界 将来性 職種 トレンド」← 検索エンジンで有用な結果が出るキーワード
 
 ## ユーザーの質問
 ${message}
@@ -682,7 +774,7 @@ ${contextSection}
 ${queryContext.domain}
 
 ## 出力形式（JSON）
-{"task_type": "market_intel", "task_description": "IT業界の転職市場動向を調査", "queries": ["IT業界 転職市場 2026", "エンジニア 年収 トレンド"]}`,
+{"task_type": "market_intel", "task_description": "IT業界の転職市場動向を調査", "queries": ["IT業界 市場規模 成長率 2026", "IT業界 注目トレンド AI", "エンジニア 年収 採用需要"]}`,
     systemPrompt: "あなたは検索タスク設計の専門家です。ユーザーの本当の情報ニーズを会話文脈から理解し、(1) 最適なタスク種別を判定し、(2) そのタスクに合ったクエリを生成します。個人情報を一切含まないこと。メタワード（「検索」「WEB」等）を含めないこと。",
     requireJson: true,
     temperature: 0.3,
@@ -702,8 +794,12 @@ ${queryContext.domain}
       ? (taskType as SearchTaskType)
       : "factual_lookup";
 
+    // P1.10: タスクタイプ別の maxQueries でスライス
+    const taskTypeForLimit = (structured.task_type as string) ?? "factual_lookup";
+    const densityStandard = DENSITY_STANDARDS[taskTypeForLimit as SearchTaskType];
+    const maxQ = densityStandard?.maxQueries ?? 2;
     const rawQueries = Array.isArray(structured.queries)
-      ? (structured.queries as string[]).slice(0, 2)
+      ? (structured.queries as string[]).slice(0, maxQ)
       : [];
 
     // メタクエリフィルタ: 「WEB検索」「ネット検索」等のゴミクエリを排除
@@ -808,8 +904,8 @@ export async function executeSearch(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // 並列化: 全クエリを同時に実行（従来はシリアルで2倍の時間がかかっていた）
-    const fetchPromises = queries.slice(0, 2).map(async (query): Promise<SearchResult[]> => {
+    // P1.10: 全クエリを並列実行（最大3本）
+    const fetchPromises = queries.slice(0, 3).map(async (query): Promise<SearchResult[]> => {
       try {
         const response = await fetch(EXA_API_URL, {
           method: "POST",
@@ -878,6 +974,7 @@ export async function classifySearchResults(
   queryContext: QueryContext,
   message: string,
   userId?: string,
+  taskType?: SearchTaskType,
 ): Promise<PerspectiveFragment[]> {
   if (searchResults.length === 0) return [];
 
@@ -889,7 +986,7 @@ export async function classifySearchResults(
 
   const result = await runAI({
     taskType: "perspective_classify",
-    prompt: `以下のWeb検索結果を分類してください。
+    prompt: `以下のWeb検索結果を分類し、エビデンスを構造化抽出してください。
 
 ## ユーザーの質問
 ${message}
@@ -916,16 +1013,24 @@ ${resultsText}
   - growth: 成長に関わるか
 - key_insight: この結果から得られる最も重要な洞察（1文）
 
+## エビデンス抽出ルール（**最重要 — 情報を落とさないこと**）
+各結果から以下を**元テキストに忠実に**抽出:
+- entities: 企業名・サービス名・組織名・固有名詞の配列（例: ["株式会社SmartHR", "ブレインパッド", "OpenAI"]）。一般用語（IT, AI, DX等）は含めない
+- numbers: 具体的な数値データの配列（例: ["27.4%", "2970億ドル", "年収650万円"]）。元テキストにある数値を全て拾うこと
+- date: 年度・時点・調査年（例: "2026年Q1", "2025年版調査"）。なければ null
+- source_name: 調査名・レポート名・機関名（例: "総務省テレワーク人口実態調査"）。なければ null
+- claim: 主張・事実の1文要約
+
 ## ハードネガティブに注意
 検索結果が「事実として正確」でも「ユーザーの質問と無関係」なら relevance_to_question を低くすること。
 例: 楽天ウェブ検索のポイント情報は事実だが、求人の質問には無関連 → relevance=0.0
 
 ## 出力形式（JSON）
-{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "..."}]}`,
-    systemPrompt: "あなたは情報の認識論的分類と関連性判定の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。質問と無関連な情報は relevance_to_question=0.0 としてください。",
+{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "...", "entities": ["企業A", "企業B"], "numbers": ["27.4%", "300億円"], "date": "2026年", "source_name": "○○調査"}]}`,
+    systemPrompt: "あなたは情報の認識論的分類とエビデンス抽出の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。**特に重要**: 元テキストに含まれる具体的な数値・企業名・年度・調査名を漏れなく entities/numbers/date/source_name に抽出すること。情報を落とさないことが最優先です。",
     requireJson: true,
     temperature: 0.2,
-    maxOutputTokens: 1000,
+    maxOutputTokens: 1500,
     userId,
     metadata: { feature: "perspective_engine", step: "classify" },
   });
@@ -956,8 +1061,26 @@ ${resultsText}
 
       const forceRel = f.force_relevance as Record<string, number> | undefined;
 
+      // P1.11: evidence 構造を抽出
+      const rawEntities = Array.isArray(f.entities) ? (f.entities as string[]) : [];
+      const rawNumbers = Array.isArray(f.numbers) ? (f.numbers as string[]) : [];
+      const rawDate = typeof f.date === "string" ? f.date : undefined;
+      const rawSourceName = typeof f.source_name === "string" ? f.source_name : undefined;
+      const claim = (f.key_insight as string) || "";
+
+      // P1.11: evidence-rich snippet — claim + 具体データを結合
+      // key_insight だけだと数値・企業名が落ちるので、evidence から復元する
+      const evidenceParts: string[] = [claim];
+      if (rawEntities.length > 0 && !rawEntities.every(e => claim.includes(e))) {
+        evidenceParts.push(`（${rawEntities.join("、")}）`);
+      }
+      if (rawNumbers.length > 0 && !rawNumbers.every(n => claim.includes(n))) {
+        evidenceParts.push(`[${rawNumbers.join(", ")}]`);
+      }
+      const evidenceText = evidenceParts.join(" ");
+
       fragments.push({
-        text: (f.key_insight as string) || source.text?.slice(0, 200) || "",
+        text: evidenceText || source.text?.slice(0, 200) || "",
         sourceUrl: source.url,
         sourceTitle: source.title,
         epistemicType,
@@ -972,6 +1095,13 @@ ${resultsText}
           fear: forceRel?.fear ?? 0,
           growth: forceRel?.growth ?? 0,
         },
+        evidence: {
+          entities: rawEntities,
+          numbers: rawNumbers,
+          date: rawDate,
+          sourceName: rawSourceName,
+          claim,
+        },
       });
     }
   }
@@ -981,22 +1111,39 @@ ${resultsText}
   const hasSupport = fragments.some((f) => f.stanceTowardQuery === "support");
   // 片方しかない場合は neutral/nuanced を補完役として残す（削除しない）
 
-  // トークン予算制: 圧縮後 300 tokens 上限（≈ 日本語150文字 × fragments数）
-  // 最大 3 fragments（多すぎると Alter の声が薄まる）
-  const TOKEN_BUDGET = 300;
-  const MAX_FRAGMENTS = 3;
+  // P1.10: タスクタイプ別の fragment 予算（情報密度優先）
+  const density = taskType ? DENSITY_STANDARDS[taskType] : null;
+  const TOKEN_BUDGET = density?.tokenBudget ?? 300;
+  const MAX_FRAGMENTS = density?.maxFragments ?? 3;
   const estimateTokens = (text: string) => Math.ceil(text.length / 1.5); // 日本語近似
   let totalTokens = 0;
   const budgetedFragments: PerspectiveFragment[] = [];
 
-  // Diversity floor: support と oppose を優先して含める
+  // P1.10: 情報密度優先ソート — 固有名詞・数値を含む fragment を優先しつつ、diversity を維持
+  const infoDensityScore = (text: string): number => {
+    let score = 0;
+    // 企業名（株式会社〇〇 or 英語固有名詞）
+    const corpMatches = text.match(/株式会社[^\s、。,]+|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+/g) || [];
+    score += corpMatches.length * 3;
+    // 数値データ（金額・割合・年など）
+    const numMatches = text.match(/[0-9]+[%％万億兆ドル円]|[0-9]{4}年/g) || [];
+    score += numMatches.length * 2;
+    // 具体的名詞（カタカナ語3文字以上）
+    const kataMatches = text.match(/[ァ-ヶー]{3,}/g) || [];
+    score += kataMatches.length;
+    return score;
+  };
+
   const sorted = [...fragments].sort((a, b) => {
-    // oppose > support > その他 の順で優先
-    const priority = (f: PerspectiveFragment) =>
+    // 一次: 情報密度スコア（固有名詞・数値の含有率）
+    const densityDiff = infoDensityScore(b.text) - infoDensityScore(a.text);
+    if (densityDiff !== 0) return densityDiff;
+    // 二次: stance diversity（oppose > support > other）
+    const stancePriority = (f: PerspectiveFragment) =>
       f.stanceTowardQuery === "oppose" ? 2
       : f.stanceTowardQuery === "support" ? 1
       : 0;
-    return priority(b) - priority(a);
+    return stancePriority(b) - stancePriority(a);
   });
 
   for (const f of sorted) {
@@ -1242,6 +1389,8 @@ export function buildPerspectivePromptBlock(
   lines.push("- 自分の言葉で語る：「こういう見方もあるんだけど」「実はね」「面白いのが」");
   lines.push("- 必ず結論を出す。「いろんな意見があるね」で終わることは禁止");
   lines.push("- 外部視点を入れても、あなたの結論はパーソナルモデルから導出すること");
+  lines.push("- **最重要: 以下の「データ:」行に含まれる数値・企業名・年度を省略せず回答本文に含めること。「数値:」にあるデータを1つも使わないのは契約違反**");
+  lines.push("- **以下にない企業名・サービス名・数値を捏造しないこと。プレースホルダー（「○○社」「XYZ」「ABC社」）は絶対禁止**");
   if (needsHedge) {
     lines.push("- ※ 以下の情報は確定的ではない。「確実ではないけど」「俺の知る限りだと」等の修飾を付けて語ること");
     lines.push("- 情報量が多い場合は「一番面白いのは…」で1点に絞って語ってよい");
@@ -1262,7 +1411,26 @@ export function buildPerspectivePromptBlock(
       : f.epistemicType === "anecdote" ? "事例"
       : "意見";
 
-    lines.push(`- [${typeLabel}/${stanceLabel}] ${f.text}`);
+    // P1.11: 構造化エビデンス付き prompt block
+    if (f.evidence && (f.evidence.entities.length > 0 || f.evidence.numbers.length > 0)) {
+      lines.push(`- [${typeLabel}/${stanceLabel}] ${f.evidence.claim}`);
+      const dataParts: string[] = [];
+      if (f.evidence.entities.length > 0) {
+        dataParts.push(`企業/名称: ${f.evidence.entities.join("、")}`);
+      }
+      if (f.evidence.numbers.length > 0) {
+        dataParts.push(`数値: ${f.evidence.numbers.join("、")}`);
+      }
+      if (f.evidence.date) {
+        dataParts.push(`時点: ${f.evidence.date}`);
+      }
+      if (f.evidence.sourceName) {
+        dataParts.push(`出典: ${f.evidence.sourceName}`);
+      }
+      lines.push(`  → データ: ${dataParts.join(" / ")}`);
+    } else {
+      lines.push(`- [${typeLabel}/${stanceLabel}] ${f.text}`);
+    }
   }
 
   // ForceBalance delta hint
@@ -1374,6 +1542,13 @@ export async function runPerspectiveEngine(params: {
   };
 
   if (!gate.shouldSearch) {
+    // P1.8: Gate skip visibility — skip reason を常にログ出力
+    console.info(
+      `[perspective-engine] 🚧 Gate SKIP: reason=${gate.reason}, ` +
+      `searchNeed=${gate.searchNeed.toFixed(2)}, explicit=${gate.isExplicitAsk}, ` +
+      `phase=${params.hdmPhase}, trust=${params.trustLevel}, mode=${params.responseMode}, ` +
+      `msg="${params.message.slice(0, 40)}"`,
+    );
     return {
       block: {
         fragments: [],
@@ -1385,6 +1560,13 @@ export async function runPerspectiveEngine(params: {
       audit: baseAudit,
     };
   }
+
+  // P1.8: Gate FIRED visibility
+  console.info(
+    `[perspective-engine] ✅ Gate FIRED: reason=${gate.reason}, ` +
+    `searchNeed=${gate.searchNeed.toFixed(2)}, explicit=${gate.isExplicitAsk}, ` +
+    `phase=${params.hdmPhase}, trust=${params.trustLevel}`,
+  );
 
   try {
     // 2. Task Classification + Query Generation（統合 — 単一 LLM 呼び出し）
@@ -1427,6 +1609,7 @@ export async function runPerspectiveEngine(params: {
           params.queryContext,
           params.message,
           params.userId,
+          searchTask.type,
         )
       : [];
     const classificationMs = Date.now() - classifyStart;

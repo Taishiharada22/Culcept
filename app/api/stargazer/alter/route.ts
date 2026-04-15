@@ -3632,12 +3632,15 @@ export async function POST(req: NextRequest) {
       if (!peResult) {
         console.info("[perspective-engine] 💤 PE returned null (not invoked / fail-open / AB-test disabled)");
       }
-      const peIsExplicit = peResult?.searchTask?.explicit ?? false;
+      // P1.8-fix: searchTask has no `explicit`; use audit.isExplicitAsk
+      const peIsExplicit = peResult?.audit?.isExplicitAsk ?? false;
       const peQualityAction = peResult?.qualityGate?.action ?? null;
       const peTaskType = peResult?.searchTask?.type ?? null;
       const peSearchTask = peResult?.searchTask ?? null;
+      // P1.8-fix: promptBlock lives at peResult.block.promptBlock, not peResult.promptBlock
+      const pePromptBlock = peResult?.block?.promptBlock || "";
 
-      if (peResult?.gateDecision === "blocked") {
+      if (peResult?.audit?.gateDecision === "blocked") {
         // Case 1: Explicit ask が検出されたが Flag OFF → 通常会話に流さず直答
         homeSystemPrompt += `\n\n[最上位制約 — 検索能力への直答]
 ユーザーはWeb検索を明示的に要求したが、今この機能はまだ有効化されていない。
@@ -3646,27 +3649,35 @@ export async function POST(req: NextRequest) {
 禁止: この事実に触れずに通常会話に流すこと。`;
         console.info("[perspective-engine] 🚫 Explicit ask blocked → direct answer path injected");
       } else if (peIsExplicit && peTaskType === "listing_search") {
-        // Case 2: listing_search + explicit ask → honest limitation
-        // Exa.ai は求人一覧・店舗一覧等のリスト検索ができない。正直に伝える。
-        // ただし周辺情報（業界レポート、年収データ等）があれば併用する。
-        const hasPeripheralInfo = peResult != null && (peResult.promptBlock?.length ?? 0) > 0 && peResult.fragments.length > 0;
-        if (hasPeripheralInfo && peResult?.promptBlock) {
-          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
-        }
-        homeSystemPrompt += `\n\n[最上位制約 — リスト検索の能力限界への直答]
-ユーザーは具体的な一覧・リスト（求人一覧、お店一覧等）を求めているが、
-今の検索機能では実際のリスト・一覧を直接引っ張ってくることはできない。
-${hasPeripheralInfo
-  ? `ただし関連する周辺情報（業界動向、統計データ等）は見つかったので、上記の外界の視点として活用すること。`
-  : ""}
-必ず回答の中で以下の2点を含めること:
-1. 「実際の${peSearchTask?.userNeed?.includes("求人") ? "求人サイト" : "一覧サイト"}を直接見に行く機能はまだないんだ」と正直に伝える
-2. 自分のパーソナルモデルから「${peSearchTask?.userNeed?.includes("求人") ? "たいしさんの判断傾向を考えると、こういう軸で探すといいかも" : "こういう方向で探してみるのがいいかも"}」と助言する
-禁止: リスト検索ができるかのように振る舞うこと。
+        // Case 2: listing_search + explicit ask → honest limitation + 周辺情報活用
+        // P1.9: 周辺情報がある場合は情報提示を優先し、limitation は末尾に添える
+        const hasPeripheralInfo = peResult != null && pePromptBlock.length > 0 && peResult.block.fragments.length > 0;
+        if (hasPeripheralInfo) {
+          homeSystemPrompt += `\n\n${pePromptBlock}`;
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（情報優先）]
+上記の外部情報から、ユーザーの要求に関連する具体的な情報（企業名・条件・特徴等）を可能な限り引き出して提示すること。
+必須構造:
+1. 外部情報の「データ:」行に含まれる企業名・サービス名を省略せず全て本文に入れる（最低1つ、可能なら2つ以上）
+2. それぞれについて、パーソナルモデルから「なぜこの人に合いそうか」を1文で添える
+3. 数値データ（年収・従業員数・成長率等）があれば省略せず使う
+4. 回答の最後に、直接的なリスト検索はまだできないことを1文で軽く触れてよい（ただし謝罪や長い弁明は不要）
+禁止:
+- 「できない」から始めること — 見つかった情報の提示を必ず先にする
+- 外部情報に企業名があるのにそれを省略して方向性提案だけで済ませること
+- 過剰な謝罪や弁明
+- **外部情報に含まれていない企業名を捏造すること — プレースホルダー（「○○社」「XYZ」）は絶対禁止**`;
+        } else {
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（情報なし）]
+ユーザーの検索要求に対し外部情報を取得したが、具体的な候補は見つからなかった。
+必須構造:
+1. 「具体的なリストを直接引っ張ってくるのはまだ難しい」と最初に正直に伝える
+2. パーソナルモデルから「こういう軸で探すのがいいと思う」と具体的な探し方を助言する
+3. 可能であれば、探すのに適したサイトや検索キーワードを1つ提案する
 禁止: 検索した事実に触れずに通常会話に流すこと。`;
+        }
         console.info(
           `[perspective-engine] 📋 listing_search honest limitation injected` +
-          (hasPeripheralInfo ? ` (with ${peResult!.fragments.length} peripheral fragments)` : " (no peripheral info)")
+          (hasPeripheralInfo ? ` (with ${peResult!.block.fragments.length} peripheral fragments → info-first path)` : " (no peripheral info → limitation-first path)")
         );
       } else if (peIsExplicit && (peQualityAction === "discard" || peQualityAction === "abstain")) {
         // Case 3: 検索したが結果なし or 品質不足 → 正直に伝える
@@ -3681,78 +3692,81 @@ ${hasPeripheralInfo
         console.info(`[perspective-engine] ⚠️ Explicit ask + quality ${peQualityAction} → honest fallback injected`);
       } else if (peIsExplicit && peResult?.qualityGate?.canClarify) {
         // Case 4: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
-        if (peResult?.promptBlock) {
-          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
+        if (pePromptBlock) {
+          homeSystemPrompt += `\n\n${pePromptBlock}`;
         }
         homeSystemPrompt += `\n\n[検索結果が不十分 — 追加確認OK]
 外部情報を取得したが、十分な精度の情報が揃わなかった。
 自分の知識と取得できた情報を組み合わせて回答した上で、1問だけ確認を挟んでよい。
 例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」`;
-        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(peResult?.promptBlock?.length ?? 0)} chars)`);
-      } else if (peTaskType === "listing_search" && peResult?.promptBlock) {
+        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${pePromptBlock.length} chars)`);
+      } else if (peTaskType === "listing_search" && pePromptBlock) {
         // Case 5: listing_search + 暗黙検索 → 周辺情報 hedge 付き + limitation 注記
-        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
+        homeSystemPrompt += `\n\n${pePromptBlock}`;
         homeSystemPrompt += `\n\n[注記 — リスト型情報の限界]
 上記の外部情報は周辺的な参考データであり、実際のリスト・一覧ではない。
 具体的なリストが必要な場合は、ユーザーに適切なサイト（求人サイト等）を案内してよい。`;
         console.info(`[perspective-engine] listing_search implicit → peripheral info with limitation note`);
-      } else if (peResult?.promptBlock) {
+      } else if (pePromptBlock) {
         // Case 6: 通常の検索結果注入
-        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
-        console.info(`[perspective-engine] Prompt block injected (${peResult.promptBlock.length} chars)`);
+        homeSystemPrompt += `\n\n${pePromptBlock}`;
+        console.info(`[perspective-engine] Prompt block injected (${pePromptBlock.length} chars)`);
       } else if (peResult) {
         // P1-3 Fix: No injection branch matched — diagnostic logging
         // This catches: implicit abstain, skipped with no explicit ask, or unexpected edge cases
         console.info(
-          `[perspective-engine] ⚡ NO_INJECTION: gate=${peResult.gateDecision}, ` +
+          `[perspective-engine] ⚡ NO_INJECTION: gate=${peResult.audit.gateDecision}, ` +
           `explicit=${peIsExplicit}, quality=${peQualityAction}, ` +
-          `taskType=${peTaskType}, promptBlock=${peResult.promptBlock?.length ?? 0} chars, ` +
-          `fragments=${peResult.fragments?.length ?? 0}`
+          `taskType=${peTaskType}, promptBlock=${pePromptBlock.length} chars, ` +
+          `fragments=${peResult.block.fragments?.length ?? 0}`
         );
       }
 
       // ── P1: 検索タスク別 response contract ──
       // searchTask.type に応じて、LLM への出力指示を追加する。
       // これにより downstream が fragments から search type を逆算する必要がなくなる。
-      if (peResult?.gateDecision === "fired" && peSearchTask) {
+      if (peResult?.audit?.gateDecision === "fired" && peSearchTask) {
         if (peSearchTask.type === "market_intel") {
-          homeSystemPrompt += `\n\n[検索応答契約 — market_intel]
-応答に含めること:
-- 取得した情報の要点（数値・統計があれば具体的に）
-- 情報の根拠（「〜によると」ではなく自分の言葉で）
-- パーソナルモデルの視点からの解釈
+          // P1.10: market_intel 出力契約強化 — ChatGPT級の情報密度
+          homeSystemPrompt += `\n\n[検索応答契約 — market_intel（厳格・データ密度重視）]
+必須構造:
+1. 具体的なデータポイントを最低3つ本文に入れる（数値・割合・金額・成長率など）
+2. データの出典・年度に1回以上触れる（「2026年の調査では」「○○レポートによると」等。ただし堅い引用形式は不要）
+3. 企業名・組織名が外部情報に含まれていれば省略せず本文に入れる
+4. データが示すトレンドや意味を1〜2文で要約する（「つまり〜ということ」）
+5. パーソナルモデルから「たいしさんにとってこの情報はこう意味がある」を1文で添える
+6. 結論として「だから〜がいいと思う」or「だから〜に注目するといい」を1つ出す
 禁止:
-- 「いろんな意見がある」で終わること
-- 情報の羅列だけで結論を出さないこと`;
+- 外部情報の「データ:」行に含まれる数値・企業名を省略して一般論に抽象化すること — これが最大の禁止事項
+- 「いろんな意見がある」「詳しくは調べてみて」で終わること — 必ず結論を出す
+- 情報の羅列だけで解釈を付けないこと
+- **外部情報に含まれていない企業名・サービス名を捏造すること — 「○○社」「XYZ社」「ABC社」等のプレースホルダーは絶対禁止**`;
         } else if (peSearchTask.type === "listing_search") {
-          const hasEntities = (peSearchTask.candidateEntities?.length ?? 0) > 0;
-          if (hasEntities) {
-            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補あり）]
-応答に含めること:
-- 見つかった候補の名前を必ず明記すること（${peSearchTask.candidateEntities?.join("、") ?? ""}）
-- 各候補について1-2文の説明
-- パーソナルモデルの視点からなぜ合う/合わないかの解釈
-- 「気になるところがあれば教えて」で次のアクションを促す
+          // P1.10: listing_search 出力契約強化 — ChatGPT級の情報密度
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（厳格・企業名密度重視）]
+必須構造:
+1. 検索結果から具体的な候補名（企業名・サービス名）を最低2つ、可能なら3〜4つ本文に入れる
+   ※ プラットフォーム名（Indeed, Wantedly等）は候補にカウントしない。実際の企業名のみ
+2. 各候補について「特徴」と「なぜたいしさんに合いそうか」を各1文で添える
+3. 外部情報の「データ:」行に企業名・数値が含まれていれば省略せず使うこと
+4. 候補間の違い（働き方・規模・強み・文化）を1〜2文で触れる
+5. 最後に「どれが気になる？」「もう少し深掘りしたいところはある？」で次を促す
+注記:
+- 検索結果に具体的な候補名がなかった場合は、方向性提案に切り替えてよい
+- ただしその場合も、検索で得た情報（業界動向・条件データ等）は必ず活用すること
 禁止:
-- 候補名を省略すること
-- 「いくつかの企業」等の曖昧な表現で候補を隠すこと`;
-          } else {
-            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補なし）]
+- 「いくつかの企業がある」等の曖昧表現で候補名を隠すこと
+- 外部情報に企業名があるのにそれを省略して一般論に流すこと
+- 「詳しくは自分で調べてみて」で丸投げすること
+- **外部情報に含まれていない企業名を捏造すること — 「○○社」「XYZ社」「ABC社」等のプレースホルダーは絶対禁止。見つからなかった場合は方向性提案に切り替える**`;
+        } else if (peSearchTask.type === "entity_research") {
+          homeSystemPrompt += `\n\n[検索応答契約 — entity_research]
 応答に含めること:
-- 直接的なリスト検索ができなかったことを正直に伝える
-- 見つかった周辺情報（業界動向等）があれば活用する
-- パーソナルモデルの視点から探し方のアドバイス
-禁止:
-- リストが見つかったかのように振る舞うこと`;
-          }
-        } else if (peSearchTask.type === "company_research") {
-          homeSystemPrompt += `\n\n[検索応答契約 — company_research]
-応答に含めること:
-- 対象企業/サービスの具体的な情報
+- 対象企業/サービスの具体的な情報（規模・特徴・強み等）
 - パーソナルモデルの視点からの適合分析
 - 引っかかりそうな点があれば正直に
 禁止:
-- 検索結果にない情報を捏造すること`;
+- 検索結果にない情報を捏造すること — 「○○社」「XYZ」等のプレースホルダー企業名は絶対禁止`;
         } else if (peSearchTask.type === "factual_lookup") {
           homeSystemPrompt += `\n\n[検索応答契約 — factual_lookup]
 応答に含めること:
@@ -3761,15 +3775,33 @@ ${hasPeripheralInfo
 禁止:
 - 事実確認なのに長い分析を展開すること`;
         } else if (peSearchTask.type === "comparison") {
-          // P1-3: comparison タスク用 response contract（欠落していた）
-          homeSystemPrompt += `\n\n[検索応答契約 — comparison]
-応答に含めること:
-- 比較軸を明確にする（何と何を、どの観点で比較しているか）
-- 外部情報から得た具体的な違い・特徴を提示する
-- パーソナルモデルの視点から「このユーザーにはどちらが合うか」の結論を出す
+          // P1.11: comparison 出力契約 — 多軸比較 + 外部データ裏付け
+          homeSystemPrompt += `\n\n[検索応答契約 — comparison（厳格・多軸比較）]
+必須構造:
+1. 比較軸を最低2つ設定し、各軸でA vs Bを明示する
+   例: 「働き方: Aはフレックス＋リモート、Bは出社中心」「技術: Aはデータ分析特化、Bはフルスタック」
+   使える軸: 働き方/文化、業務内容/技術、安定/成長性、年収/待遇、規模/チーム構成
+2. 各軸の比較に、検索で得た具体的データを最低1つ含める（数値・利用率・市場シェア・制度名・ライブラリ名・具体的な特徴など）
+   データがない軸でも、固有名詞（ツール名・プラットフォーム名・制度名など）を必ず1つは入れる
+3. 最後に「たいしさんには○○の方が合っていると思う」と必ず明言する
+4. その理由をパーソナルモデルから1文で述べる（性格・判断傾向・働き方の好みから）
+5. 推さなかった方にも「ただし○○の点では△△の方が良い」とバランス情報を1文添える
 禁止:
-- 「どちらもいい面がある」で終わること
-- 結論を出さず並列提示だけすること`;
+- 1軸だけで結論を出すこと — 必ず2軸以上で比較する
+- 「どちらもいい面がある」「それぞれに魅力がある」で終わること — 必ず片方を推す
+- 比較対象の説明だけで終わること — 必ず「たいしさんには」の結論で締める
+- 検索で得た情報を無視して一般論だけで比較すること
+- **外部情報に含まれていない企業名・サービス名・数値を捏造すること**`;
+        } else {
+          // P1.10: 上記以外のタスクタイプ（perspective_seek, how_to 等）のデフォルト契約
+          homeSystemPrompt += `\n\n[検索応答契約 — デフォルト]
+必須構造:
+1. 検索で得た情報から具体的なポイントを最低1つ本文に入れる
+2. パーソナルモデルから「たいしさんにとってはこういう意味がある」を1文添える
+3. 結論or方向性を1つ出す
+禁止:
+- 検索で得た情報を無視して一般論だけで回答すること
+- **外部情報に含まれていない企業名・サービス名を捏造すること**`;
         }
       }
 
@@ -3826,8 +3858,8 @@ ${hasPeripheralInfo
       // ── PE Fix-1b: PE 発火時の mode/questionType 安全ネット ──
       // PE がコンテンツを注入した場合、conversation モードの制約が PE 出力を上書きするのを防ぐ。
       // Fix-1（早期検出）が効かなかった場合のフォールバック。
-      const peHasFiredWithContent = peResult?.gateDecision === "fired" &&
-        (peResult?.promptBlock || perspectiveExplorationTemplate);
+      const peHasFiredWithContent = peResult?.audit?.gateDecision === "fired" &&
+        (pePromptBlock || perspectiveExplorationTemplate);
       if (peHasFiredWithContent) {
         if (questionType === "conversation") {
           const prevQType = questionType;
@@ -6498,8 +6530,8 @@ ${hasPeripheralInfo
         const namePrefix = userName ? `${userName}さん、` : "";
 
         // P0-2b: PE fired だが LLM が空応答を返した場合 → fragments から直接構成
-        if (peHasFiredWithContent && peResult?.fragments?.length) {
-          const topFragments = peResult.fragments.slice(0, 3);
+        if (peHasFiredWithContent && peResult?.block?.fragments?.length) {
+          const topFragments = peResult.block.fragments.slice(0, 3);
           const fragmentTexts = topFragments
             .map(f => f.text.trim())
             .filter(t => t.length > 10)
@@ -8916,11 +8948,10 @@ ${hasPeripheralInfo
           // P1: downstream searchTask (source of truth)
           downstream_search_task: peResult?.searchTask ? {
             type: peResult.searchTask.type,
-            explicit: peResult.searchTask.explicit,
-            confidence: peResult.searchTask.confidence,
-            candidate_entities: peResult.searchTask.candidateEntities,
+            fitness: peResult.searchTask.searchFitness,
+            exploration_depth: peResult.searchTask.explorationDepth,
           } : null,
-          gate_decision_v6: peResult?.gateDecision ?? null,
+          gate_decision_v6: peResult?.audit?.gateDecision ?? null,
         },
       } : {}),
       // P1.7: 全体レイテンシ分解

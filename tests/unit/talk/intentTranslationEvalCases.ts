@@ -4094,10 +4094,10 @@ export const EVAL_CASES_C_JOINT: EvalCase[] = [
     ],
     expected: {
       shouldIntervene: false,
-      shouldShowBubble: false,
+      shouldShowBubble: true,
       shouldMediate: true,
       expectedMediationReason: "style_clash",
-      rationale: "外交型同士の膠着。仲介で「二人ともお互いを優先したい気持ちから。それぞれ一つだけ行きたい場所を出してみては」程度の橋渡し。主役を奪わない",
+      rationale: "外交型同士の膠着。仲介が主だが、相手の外交的傾向のヒントも有益。主役を奪わない",
     },
   },
   {

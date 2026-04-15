@@ -366,10 +366,11 @@ describe("intentToPlanItems — visit 正規化 + 優先順位", () => {
     expect(bmwIdx).toBeLessThan(workIdx);
   });
 
-  test("main task の表示テキストは「マクドナルドで仕事」", () => {
+  test("main task の表示テキストは what(where) 形式", () => {
     const workItem = planItems.find(p => p.text.includes("仕事"));
     expect(workItem).toBeDefined();
-    expect(workItem?.text).toBe("マクドナルドで仕事");
+    expect(workItem?.text).toBe("仕事(マクドナルド)");
+    expect(workItem?.what).toBe("仕事");
   });
 
   test("main task に mainLocation が付与される", () => {
@@ -528,6 +529,92 @@ describe("buildDayPlan — sequenceOrder でスケジューラ順序を維持", 
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Discourse marker stripping — 談話標識がタスク名にならないことを検証
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("discourse marker stripping", () => {
+  test("「それが終わったらスタバでミーティング」→ タスク名に discourse marker が残らない", () => {
+    const intent = parseIntent("仕事する。それが終わったらスタバでミーティング");
+    const items = intentToPlanItems(intent);
+    expect(items.length).toBeGreaterThanOrEqual(2);
+    const meeting = items.find(i =>
+      (i.what ?? "").includes("ミーティング") || (i.what ?? "").includes("会議")
+    );
+    expect(meeting).toBeDefined();
+    expect(meeting!.text).not.toContain("それが終わったら");
+    expect(meeting!.what).not.toContain("それが終わったら");
+  });
+
+  test("「そのあと買い物して帰る」→ 買い物がタスクになる", () => {
+    const intent = parseIntent("仕事する。そのあと買い物する");
+    const items = intentToPlanItems(intent);
+    const shopping = items.find(i => i.text.includes("買い物"));
+    expect(shopping).toBeDefined();
+    expect(shopping!.what).not.toContain("そのあと");
+  });
+
+  test("「終わったら掃除して、ついでに洗濯もする」→ discourse marker 除去", () => {
+    const intent = parseIntent("終わったら掃除して、ついでに洗濯もする");
+    const items = intentToPlanItems(intent);
+    const cleaning = items.find(i => i.text.includes("掃除"));
+    expect(cleaning).toBeDefined();
+    expect(cleaning!.what).not.toContain("終わったら");
+  });
+
+  test("「帰る」はタスクにならず endpointAnchor が設定される", () => {
+    const intent = parseIntent("仕事して、買い物して帰る");
+    expect(intent.primaryTasks.some(t => t.text.includes("帰"))).toBe(false);
+    expect(intent.fixedEvents.some(e => e.title.includes("帰"))).toBe(false);
+    // EndpointAnchor が設定される
+    expect(intent.endpointAnchor).toBeDefined();
+    expect(intent.endpointAnchor!.type).toBe("home");
+    expect(intent.endpointAnchor!.needsAreaConfirm).toBe(false);
+  });
+
+  test("「ホテルに帰る」→ endpointAnchor.type = 'hotel'", () => {
+    const intent = parseIntent("観光して、ホテルに帰る");
+    expect(intent.endpointAnchor).toBeDefined();
+    expect(intent.endpointAnchor!.type).toBe("hotel");
+    expect(intent.endpointAnchor!.label).toBe("ホテル");
+    expect(intent.endpointAnchor!.needsAreaConfirm).toBe(true);
+    // 後方互換
+    expect(intent.returnDestination).toBe("ホテル");
+  });
+
+  test("「彼女の家に戻る」→ endpointAnchor.type = 'partner_home'", () => {
+    const intent = parseIntent("買い物して、彼女の家に戻る");
+    expect(intent.endpointAnchor).toBeDefined();
+    expect(intent.endpointAnchor!.type).toBe("partner_home");
+    expect(intent.endpointAnchor!.needsAreaConfirm).toBe(true);
+  });
+
+  test("「会社に戻る」→ endpointAnchor.type = 'office'", () => {
+    const intent = parseIntent("ランチして、会社に戻る");
+    expect(intent.endpointAnchor).toBeDefined();
+    expect(intent.endpointAnchor!.type).toBe("office");
+    expect(intent.endpointAnchor!.needsAreaConfirm).toBe(true);
+  });
+
+  test("新フィールド what / fixedStart / orderHint / sourceTurnIndex が設定される", () => {
+    const intent = parseIntent("14時にミーティング、そのあと買い物する");
+    const items = intentToPlanItems(intent);
+    expect(items.length).toBeGreaterThanOrEqual(2);
+    for (const item of items) {
+      expect(item.what).not.toBeNull();
+      expect(typeof item.fixedStart).toBe("boolean");
+      expect(typeof item.orderHint).toBe("number");
+      expect(typeof item.sourceTurnIndex).toBe("number");
+    }
+    // 14時のミーティングは fixedStart = true
+    const meeting = items.find(i => i.what?.includes("ミーティング"));
+    expect(meeting?.fixedStart).toBe(true);
+    // 買い物は fixedStart = false
+    const shopping = items.find(i => i.what?.includes("買い物"));
+    expect(shopping?.fixedStart).toBe(false);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Outfit Sufficiency Gate（コーデ用の独立ゲート）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -632,5 +719,66 @@ describe("buildOutfitClarifyQuestion — 1 問に束ねた質問", () => {
   test("不足なし → 空文字", () => {
     const question = buildOutfitClarifyQuestion([]);
     expect(question).toBe("");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P1-4: withWhom confirm 表示
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("P1-4: buildIntentConfirmMessage — companion in confirm", () => {
+  test("companion が confirm メッセージに含まれる", () => {
+    const intent: ParsedDayIntent = {
+      primaryTasks: [],
+      fixedEvents: [{ title: "ランチ", startTime: "12:00", companion: "田中さん" }],
+      flowContext: {},
+    };
+    const msg = buildIntentConfirmMessage(intent);
+    expect(msg).toContain("田中さんとランチ");
+    expect(msg).toContain("12:00");
+  });
+
+  test("companion なしの場合は title のみ", () => {
+    const intent: ParsedDayIntent = {
+      primaryTasks: [],
+      fixedEvents: [{ title: "会議", startTime: "10:00" }],
+      flowContext: {},
+    };
+    const msg = buildIntentConfirmMessage(intent);
+    expect(msg).toContain("10:00 会議");
+    expect(msg).not.toContain("と会議");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Transport flowContext 保存
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Transport: flowContext.transport extraction", () => {
+  test("電車で → transport=train, goOut=true", () => {
+    const intent = parseIntent("今日は電車で会社に行って仕事する");
+    expect(intent.flowContext.transport).toBe("train");
+    expect(intent.flowContext.goOut).toBe(true);
+  });
+
+  test("自転車で → transport=bicycle", () => {
+    const intent = parseIntent("自転車でカフェに行く");
+    expect(intent.flowContext.transport).toBe("bicycle");
+  });
+
+  test("移動手段なし → transport undefined", () => {
+    const intent = parseIntent("家でコード修正する");
+    expect(intent.flowContext.transport).toBeUndefined();
+  });
+
+  test("transport が confirm メッセージに反映される", () => {
+    const intent: ParsedDayIntent = {
+      primaryTasks: [{ text: "仕事", estimatedDurationMin: 60 }],
+      fixedEvents: [],
+      flowContext: { goOut: true, transport: "train" },
+      mainLocation: { canonicalId: "office", label: "オフィス", source: "user_explicit" },
+    };
+    const msg = buildIntentConfirmMessage(intent);
+    expect(msg).toContain("電車");
   });
 });

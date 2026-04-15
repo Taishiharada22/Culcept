@@ -9,7 +9,7 @@
  * - 確定 / 変更ボタン
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
@@ -18,6 +18,7 @@ import {
   loadDurationStore,
   saveDurationStore,
 } from "@/lib/alter-morning/taskDurationMemory";
+import { recalculateSchedule } from "@/lib/alter-morning/planningEngine";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -39,6 +40,23 @@ function formatDuration(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m > 0 ? `${h}時間${m}分` : `${h}時間`;
+}
+
+/** plan.date を今日/明日/日付 に変換する */
+function formatPlanDateLabel(planDate: string): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const todayStr = jst.toISOString().slice(0, 10);
+  // 明日
+  const tomorrow = new Date(jst);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+  if (planDate === todayStr) return "☀️ 今日のプラン";
+  if (planDate === tomorrowStr) return "🌙 明日のプラン";
+  // それ以外: 月/日表示
+  const [, m, d] = planDate.split("-");
+  return `📅 ${parseInt(m)}/${parseInt(d)}のプラン`;
 }
 
 function getItemEmoji(item: PlanItem): string {
@@ -244,18 +262,13 @@ function PlanItemRow({
       {/* 絵文字 */}
       <span className="text-[14px] flex-shrink-0">{getItemEmoji(item)}</span>
 
-      {/* テキスト + 場所 */}
+      {/* テキスト（what(where) は text に統合済み） */}
       <span
         className={`text-[13px] flex-1 ${
           item.completed ? "line-through text-gray-400" : "text-gray-800"
         }`}
       >
         {item.text}
-        {item.location && (
-          <span className="text-[10px] text-blue-400 ml-1">
-            ({item.location.label})
-          </span>
-        )}
       </span>
 
       {/* 所要時間（タップで変更） */}
@@ -301,15 +314,20 @@ export default function MorningPlanCard({
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
 
+  // Sync when parent passes a new plan (e.g. after planEditor edit)
+  useEffect(() => {
+    setPlan(initialPlan);
+  }, [initialPlan]);
+
   const handleDurationChange = useCallback(
     (itemId: string, newDuration: number) => {
       setPlan((prev) => {
-        const updated = {
-          ...prev,
-          items: prev.items.map((item) =>
-            item.id === itemId ? { ...item, durationMin: newDuration } : item
-          ),
-        };
+        // 1. 対象アイテムの duration を更新
+        const updatedItems = prev.items.map((item) =>
+          item.id === itemId ? { ...item, durationMin: newDuration } : item
+        );
+        // 2. 後続アイテムの startTime をカスケード再計算
+        const cascaded = recalculateSchedule(updatedItems);
 
         // TaskDurationMemory に学習
         const item = prev.items.find((i) => i.id === itemId);
@@ -319,7 +337,7 @@ export default function MorningPlanCard({
           saveDurationStore(newStore);
         }
 
-        return updated;
+        return { ...prev, items: cascaded };
       });
     },
     []
@@ -357,7 +375,7 @@ export default function MorningPlanCard({
         {/* ヘッダー */}
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-[14px] font-semibold text-gray-800 flex items-center gap-1.5">
-            ☀️ 今日のプラン
+            {formatPlanDateLabel(plan.date)}
           </h3>
           <span className="text-[11px] text-gray-400">
             合計 {formatDuration(totalMinutes)}

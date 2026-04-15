@@ -21,8 +21,11 @@ import type {
   LocationStop,
   PlanItem,
   DayConditions,
+  EndpointAnchor,
+  EndpointType,
 } from "./types";
 import type { EventType } from "@/app/(culcept)/calendar/_lib/vcTypes";
+import { detectTransport } from "./sufficiencyGate";
 import { todayJST } from "./dateUtils";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -163,6 +166,60 @@ const FLOW_CONDITION_PATTERNS = [
   /^(電車|バス|車|チャリ|自転車|タクシー|徒歩|歩き)で$/,
 ];
 
+/**
+ * 「帰る」パターン — end-point trigger（タスクではない）。
+ * 「帰る」は常に自宅とは限らない（ホテル、友人宅等もあり得る）。
+ *
+ * CEO方針:
+ * - 「帰る」はタスクではなく終了トリガー。プランの最終移動の到着地を決定する
+ * - home固定禁止: hotel / friend_home / partner_home / family_home / office / other を持てる
+ * - 非自宅系は市区町村レベルで確認するルールを入れる
+ * - 終点アンカーは次回プランの始点候補に継承する
+ */
+const RETURN_HOME_RE =
+  /^(.+?)?(?:に|へ)?(?:帰る|帰宅する?|帰ろう|帰ります?|戻る|戻ろう)(よ|ね|さ|かな)?$/;
+const RETURN_SIMPLE_RE =
+  /^(?:そして|それで|最後に?)?\s*(?:帰る|帰宅する?|帰ろう|帰ります?|家に帰る)(よ|ね|さ|かな)?$/;
+
+/**
+ * テキストから終点タイプを推定する。
+ * 「ホテルに帰る」→ hotel、「彼女の家に戻る」→ partner_home、etc.
+ */
+const ENDPOINT_TYPE_PATTERNS: Array<{ pattern: RegExp; type: EndpointType }> = [
+  { pattern: /ホテル|旅館|宿/, type: "hotel" },
+  { pattern: /友達の(家|うち|部屋)|友人宅/, type: "friend_home" },
+  { pattern: /彼女の(家|うち|部屋)|彼氏の(家|うち|部屋)|彼の(家|うち|部屋)|恋人の(家|うち|部屋)|パートナーの/, type: "partner_home" },
+  { pattern: /実家|親の(家|うち)|家族の/, type: "family_home" },
+  { pattern: /会社|オフィス|職場/, type: "office" },
+  { pattern: /家|自宅|うち/, type: "home" },
+];
+
+function detectEndpointType(text: string): EndpointType {
+  for (const { pattern, type } of ENDPOINT_TYPE_PATTERNS) {
+    if (pattern.test(text)) return type;
+  }
+  return "other";
+}
+
+/**
+ * テキストからEndpointAnchorを生成する。
+ * @param destination 帰り先テキスト（undefined = 自宅デフォルト）
+ */
+function buildEndpointAnchor(destination?: string): EndpointAnchor {
+  if (!destination) {
+    return { type: "home", label: "自宅", needsAreaConfirm: false };
+  }
+
+  const type = detectEndpointType(destination);
+  const needsAreaConfirm = type !== "home"; // 非自宅系は市区町村レベルで確認が必要
+
+  return {
+    type,
+    label: destination,
+    needsAreaConfirm,
+  };
+}
+
 /** 同伴者のパターン */
 const COMPANION_PATTERNS: Record<string, string> = {
   友達: "friend",
@@ -230,7 +287,7 @@ function isAffirmationSegment(text: string): boolean {
  * P0-2 修正: 「明日」系が "マクドナルドで明日" にタスク化される問題の根治。
  */
 const TEMPORAL_REFERENCE_RE =
-  /^(明日|明日[はも]|今日[はも]?|明後日|明後日[はも]|昨日|来週|再来週|今週|今週[はも]|週末)$/;
+  /^(明日|明日[はも]|今日[はも]?|明後日|明後日[はも]|あさって|あさって[はも]|昨日|昨日[はも]|一昨日|一昨日[はも]|おととい|おととい[はも]|来週|再来週|今週|今週[はも]|週末)$/;
 
 /** 時間マーカー → startWindow 変換テーブル */
 const TIME_MARKER_MAP: Array<{ pattern: RegExp; window: NonNullable<FlowContext["startWindow"]> }> = [
@@ -356,6 +413,14 @@ const META_SPEECH_PATTERNS = [
   /^(とりあえず|まず|まずは)$/,
   /^(ちなみに|ところで)$/,
 ];
+
+/**
+ * Discourse marker（談話標識）— 順序を示す接続表現。
+ * セグメント先頭にあればタスク名から除去し、順序ヒントとして扱う。
+ * cleanTaskText とは別に、セグメント前処理で早期に除去する。
+ */
+const DISCOURSE_MARKER_RE =
+  /^(それが終わったら|終わったら|それ(が|を)?済んだら|それ(が|を)?片付いたら|その(あと|後)(に|で|は)?|そのあとで|そしたら|したら|それから|それで|その次(に|は)?|次(に|は)|あとは|あと|最後(に|は)|まず(は)?|とりあえず|ついでに|帰りに|行きがけに|じゃ(あ)?)\s*/;
 
 function isMetaSpeech(text: string): boolean {
   const clean = text.replace(/[。、！!？?…]+$/g, "").trim();
@@ -503,6 +568,9 @@ export function parseIntent(text: string): ParsedDayIntent {
     locationSequence: [],
   };
 
+  // ── Step 0.5: targetDate 抽出（「明日」「明後日」等 → YYYY-MM-DD） ──
+  result.targetDate = extractTargetDate(text);
+
   // ── Step 1: 全体テキストから FlowContext を抽出 ──
   result.flowContext = extractFlowContext(text);
 
@@ -570,12 +638,41 @@ export function parseIntent(text: string): ParsedDayIntent {
       continue;
     }
 
-    // (e) ノイズ / メタ発話
-    if (isNoise(trimmed)) continue;
-    if (isMetaSpeech(trimmed)) continue;
+    // (d-2) 「帰る」パターン — end-point trigger（タスクではない）
+    if (RETURN_SIMPLE_RE.test(trimmed)) {
+      // 帰り先指定なし → 自宅デフォルト
+      if (!result.endpointAnchor) {
+        result.endpointAnchor = buildEndpointAnchor(undefined);
+        result.returnDestination = undefined;
+      }
+      continue;
+    }
+    const returnMatch = trimmed.match(RETURN_HOME_RE);
+    if (returnMatch) {
+      const dest = returnMatch[1]?.trim();
+      // 動詞活用語尾（して、って、って等）で終わる場合は destination ではなくアクションの残り
+      const isActionResidue = dest && /[てでしるたいけげせめねれべ]$/.test(dest);
+      if (dest && dest.length >= 1 && !NON_PLACE_WORDS.test(dest) && !isActionResidue) {
+        result.endpointAnchor = buildEndpointAnchor(dest);
+        result.returnDestination = dest; // 後方互換
+      } else if (!result.endpointAnchor) {
+        result.endpointAnchor = buildEndpointAnchor(undefined);
+        result.returnDestination = undefined;
+      }
+      continue;
+    }
+
+    // (e-pre) discourse marker を先に除去（ノイズ判定より前）
+    //   「それが終わったらスタバでミーティング」→「スタバでミーティング」にしてからノイズ判定
+    let stripped = trimmed.replace(DISCOURSE_MARKER_RE, "").trim();
+    if (stripped.length < 2) continue;
+
+    // (e) ノイズ / メタ発話（discourse marker 除去後のテキストで判定）
+    if (isNoise(stripped)) continue;
+    if (isMetaSpeech(stripped)) continue;
 
     // ── 残り → タスク候補 ──
-    taskCandidates.push({ text: trimmed, textPosition: segTextPosition });
+    taskCandidates.push({ text: stripped, textPosition: segTextPosition });
   }
 
   // ── Step 4: タスク候補を処理 ──
@@ -781,6 +878,40 @@ export function parseIntent(text: string): ParsedDayIntent {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// targetDate 抽出
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const TARGET_DATE_MAP: Array<{ pattern: RegExp; offset: number }> = [
+  { pattern: /一昨日|おととい/, offset: -2 },
+  { pattern: /昨日/, offset: -1 },
+  { pattern: /今日/, offset: 0 },
+  { pattern: /明日/, offset: 1 },
+  { pattern: /明後日|あさって/, offset: 2 },
+  { pattern: /明明後日|しあさって/, offset: 3 },
+];
+
+/**
+ * テキストから対象日を抽出し YYYY-MM-DD で返す。
+ * 「明日」→ today + 1、「明後日」→ today + 2、未指定 → undefined（= today 扱い）。
+ */
+function extractTargetDate(text: string): string | undefined {
+  for (const { pattern, offset } of TARGET_DATE_MAP) {
+    if (pattern.test(text)) {
+      if (offset === 0) return undefined; // 「今日」は明示的に today → undefined で十分
+      const d = new Date();
+      // JST (UTC+9)
+      d.setHours(d.getHours() + 9);
+      d.setDate(d.getDate() + offset);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+  return undefined;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FlowContext 抽出
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -817,6 +948,13 @@ function extractFlowContext(text: string): FlowContext {
       ctx.startWindow = window;
       break;
     }
+  }
+
+  // 移動手段
+  const transport = detectTransport(text);
+  if (transport) {
+    ctx.transport = transport as FlowContext["transport"];
+    if (ctx.goOut === undefined) ctx.goOut = true;
   }
 
   return ctx;
@@ -883,7 +1021,7 @@ function cleanFixedEventTitle(text: string): string {
     .replace(TIME_REGEX, "")
     .replace(PERIOD_REGEX, "")
     .replace(/^\s*に?\s*/, "")
-    .replace(/^(明日|明後日|今日)[はも]?\s*/, "")
+    .replace(/^(明日|明後日|あさって|今日|昨日|一昨日|おととい)[はも]?\s*/, "")
     // 末尾の「と」を除去（列挙の区切り残り）
     .replace(/と$/, "")
     .trim();
@@ -894,9 +1032,9 @@ function cleanTaskText(text: string): string {
     .replace(TIME_REGEX, "")
     .replace(PERIOD_REGEX, "")
     .replace(/^\s*に?\s*/, "")
-    .replace(/^(明日|明後日|今日)[はも]?\s*/, "")
-    // 接続語プレフィックスを除去
-    .replace(/^(そのあと|その後|あとは|それから|次は|次に|あと|とりあえず|まず|まずは|じゃあ)\s*/, "")
+    .replace(/^(明日|明後日|あさって|今日|昨日|一昨日|おととい)[はも]?\s*/, "")
+    // discourse marker（談話標識）プレフィックスを除去
+    .replace(DISCOURSE_MARKER_RE, "")
     // 時間量表現を除去（タスク名ではない）
     .replace(/(1日中|一日中|終日|ずっと|半日)\s*/, "")
     // 予定・つもり表現を除去（確度情報は FlowContext に抽出済み）
@@ -925,6 +1063,18 @@ function generateId(): string {
 }
 
 /**
+ * what / who / where から表示用 text を自動生成する。
+ * 例: what="仕事", who="田中さん", where="スタバ" → "田中さんと仕事(スタバ)"
+ *     what="買い物", who=null, where="スーパー" → "買い物(スーパー)"
+ *     what="作業", who=null, where=null → "作業"
+ */
+function buildDisplayText(what: string, who?: string, where?: string): string {
+  let text = who ? `${who}と${what}` : what;
+  if (where) text += `(${where})`;
+  return text;
+}
+
+/**
  * ParsedDayIntent から PlanItem[] に変換する。
  * 既存の buildDayPlan/MorningPlanCard と互換性を保つ。
  *
@@ -935,8 +1085,9 @@ function generateId(): string {
  *
  * これにより visit → main task の実行順序がプランに反映される。
  */
-export function intentToPlanItems(intent: ParsedDayIntent): PlanItem[] {
+export function intentToPlanItems(intent: ParsedDayIntent, sourceTurnIndex: number = 0): PlanItem[] {
   const items: PlanItem[] = [];
+  let orderCounter = 0;
 
   // ── Visit アイテム（経由地 — locationSequence から生成） ──
   // 「BMWいって」→「BMWに寄る」に正規化して追加。
@@ -945,11 +1096,16 @@ export function intentToPlanItems(intent: ParsedDayIntent): PlanItem[] {
   if (intent.locationSequence) {
     for (const ls of intent.locationSequence) {
       if (ls.kind === "visit") {
+        const what = `${ls.label}に寄る`;
         items.push({
           id: generateId(),
           kind: "todo",
-          text: `${ls.label}に寄る`,  // 正規化された表示テキスト
+          text: what,  // visit 項目は what 自体が場所を含むので where 不要
+          what,
           durationMin: 30,             // visit のデフォルト所要時間
+          fixedStart: false,
+          orderHint: orderCounter++,
+          sourceTurnIndex,
           eventType: "errand" as any,
           completed: false,
           sequenceOrder: ls.order,     // locationSequence の順序を維持
@@ -996,15 +1152,18 @@ export function intentToPlanItems(intent: ParsedDayIntent): PlanItem[] {
 
     if (entry.type === "fixed") {
       const ev = entry.ev;
-      const displayTitle = ev.companion
-        ? `${ev.companion}と${ev.title}`
-        : ev.title;
+      const what = ev.title;
+      const hasExplicitTime = !!ev.startTime;
       items.push({
         id: generateId(),
-        kind: ev.startTime ? "fixed" : "todo",
-        text: displayTitle,
+        kind: hasExplicitTime ? "fixed" : "todo",
+        text: buildDisplayText(what, ev.companion),
+        what,
         startTime: ev.startTime,
         durationMin: getDefaultDurationSync(ev.title),
+        fixedStart: hasExplicitTime,
+        orderHint: orderCounter++,
+        sourceTurnIndex,
         eventType: ev.eventType,
         withWhom: ev.companion,
         completed: false,
@@ -1016,13 +1175,17 @@ export function intentToPlanItems(intent: ParsedDayIntent): PlanItem[] {
       const task = entry.task;
       const taskLoc = intent.taskLocations?.find(tl => tl.taskIndex === entry.index);
       const loc = taskLoc?.location ?? intent.mainLocation;
-      const displayText = loc ? `${loc.label}で${task.text}` : task.text;
+      const where = loc?.label;
 
       items.push({
         id: generateId(),
         kind: "todo",
-        text: displayText,
+        text: buildDisplayText(task.text, undefined, where),
+        what: task.text,
         durationMin: task.estimatedDurationMin,
+        fixedStart: false,
+        orderHint: orderCounter++,
+        sourceTurnIndex,
         eventType: detectEventType(task.text),
         completed: false,
         sequenceOrder: seqOrder,
@@ -1120,9 +1283,22 @@ export function buildIntentConfirmMessage(intent: ParsedDayIntent): string {
   // 固定予定
   if (intent.fixedEvents.length > 0) {
     const eventList = intent.fixedEvents
-      .map(e => e.startTime ? `${e.startTime} ${e.title}` : e.title)
+      .map(e => {
+        const title = e.companion ? `${e.companion}と${e.title}` : e.title;
+        return e.startTime ? `${e.startTime} ${title}` : title;
+      })
       .join("、");
     parts.push(`予定は${eventList}。`);
+  }
+
+  // 移動手段
+  if (intent.flowContext.transport) {
+    const labels: Record<string, string> = {
+      train: "電車", car: "車", bus: "バス", walk: "徒歩",
+      bicycle: "自転車", taxi: "タクシー", motorcycle: "バイク", plane: "飛行機",
+    };
+    const label = labels[intent.flowContext.transport] ?? intent.flowContext.transport;
+    parts.push(`移動は${label}だね。`);
   }
 
   // 時間感

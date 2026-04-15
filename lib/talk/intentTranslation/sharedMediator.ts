@@ -38,6 +38,7 @@ import {
   detectFourHorsemen,
   assessEscalation,
 } from "./nvcAnalysis";
+import { computeAmbiguityFactor } from "./japanesePragmatics";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 仲介判定
@@ -77,6 +78,19 @@ function decideMediationNeed(
     if (significantHits.length > 0) {
       const maxSeverity = Math.max(...significantHits.map(h => h.severity));
 
+      // Gate 1.5: 圧倒的シグナル — severity≥0.8 は文脈不要で即仲介
+      // 「いつもあなたは」(0.8), 「もう話したくない」(0.8), 「バカ」(0.9) 等は
+      // 文脈なしでも明確に危険な表現。detectFourHorsemen は同一パターンを重複除去するため
+      // 複数 criticism ヒットが1件に集約される → length ではなく severity で判定する。
+      const overwhelmingSignal = maxSeverity >= 0.8;
+      if (overwhelmingSignal) {
+        return {
+          shouldMediate: true,
+          reason: "four_horsemen_detected",
+          urgency: "high",
+        };
+      }
+
       // Gate 2: 会話履歴 — 単発メッセージでは四騎士仲介しない
       // 文脈なしで「ふーん」「知らない」に仲介するのは過剰介入
       const hasConversation = escalation.withdrawalStreak > 0
@@ -84,16 +98,17 @@ function decideMediationNeed(
         || (escalation.reciprocalEscalation?.exchangeCount ?? 0) > 0
         || escalation.temperatureGap > 0;
 
-      // Gate 3: 複数パターン or カスケード or 高severity
-      // 単一パターンの単発ヒットは、即仲介ではなく通常の escalation scoring に委ねる
+      // Gate 3: 複数パターン or カスケード or severity≥0.6
+      // Gate 1(≥0.5) を通過した上で、会話文脈がある場合は 0.6 以上を仲介対象にする。
+      // 0.5 のパターン（「いつもそうだ」等）は escalation scoring に委ねる。
+      // 0.6 以上（「はいはい」contempt, 「はぁ？」contempt 等）は文脈ありなら仲介。
       const distinctPatterns = new Set(significantHits.map(h => h.pattern)).size;
-      const strongSignal = maxSeverity >= 0.7
+      const strongSignal = maxSeverity >= 0.6
         || distinctPatterns >= 2
         || cascadeDetected;
 
       // カスケードは会話履歴ベースなので文脈は保証済み
       // それ以外は strongSignal であっても会話文脈が必要
-      // （「何回言えば」が文脈0ターンで仲介するのは過剰）
       if (cascadeDetected || (strongSignal && hasConversation)) {
         const urgency = cascadeDetected || maxSeverity >= 0.7 ? "high" : "medium";
         return {
@@ -372,12 +387,92 @@ export async function mediate(input: MediationInput): Promise<MediationResult> {
   const nvcAnalysis = analyzeNVCRuleBased(input.latestMessage.body);
   const currentHorsemen = detectFourHorsemen(input.latestMessage.body);
   const escalation = assessEscalation(input.conversationContext, currentHorsemen);
-  const decision = decideMediationNeed(
+  let decision = decideMediationNeed(
     nvcAnalysis,
     escalation,
     input.profileA,
     input.profileB,
   );
+
+  // ── P1 連携仲介（施策B）──
+  // Phase 1 が介入判定済み（送信者に「伝わり方注意」と判断）+
+  // 高曖昧性の短文 + 十分な会話文脈 → 撤退・諦めパターンとして仲介。
+  // 条件:
+  //   - P1 が non-silent（P1 ルール層が「リスクあり」と判断済み）
+  //   - メッセージ ≤ 4文字（"別に" "もういい" 等の撤退表現）
+  //   - ambiguityFactor ≥ 0.95（明確に曖昧な表現）
+  //   - 会話文脈 ≥ 2ターン（単発メッセージでは発火しない）
+  // 安全弁:
+  //   - msgLen > 4 で "まあいいよ"(5chars, shouldMediate=false) を除外
+  //   - 撤退パターン限定で "もういいって"(6chars) を捕捉しつつ
+  //     "勝手にすれば"(6chars, shouldMediate=false) は除外
+  //   - context < 2 で A-3 "別に"(context=1, shouldMediate=false) を除外
+  if (
+    !decision.shouldMediate
+    && input.phase1InterventionLevel
+    && input.phase1InterventionLevel !== "silent"
+  ) {
+    const msgLen = input.latestMessage.body.length;
+    const ambiguityFactor = computeAmbiguityFactor(input.latestMessage.body);
+    // 撤退表現の検出: "もういい" 系は打ち切り・諦めパターン
+    // "勝手にすれば" 等の怒り表現は含めない（shouldMediate=false のケースがある）
+    const isWithdrawalExpr = /もう(?:いい|いいよ|いいって|いいから)/.test(
+      input.latestMessage.body,
+    );
+    const isShortAmbiguous = msgLen <= 4 && ambiguityFactor >= 0.95;
+    const isWithdrawalAmbiguous = isWithdrawalExpr && ambiguityFactor >= 0.95;
+    if ((isShortAmbiguous || isWithdrawalAmbiguous) && input.conversationContext.length >= 2) {
+      decision = {
+        shouldMediate: true,
+        reason: "rupture_risk",
+        urgency: input.phase1InterventionLevel === "active" ? "medium" : "low",
+      };
+    }
+  }
+
+  // ── Demand-Withdraw 検出（施策C）──
+  // 一方が追い詰め（長文・要求）、他方が逃げる（短文化）パターン。
+  // escalation.level は低いが関係にダメージが大きい。
+  // 条件:
+  //   - P1 が non-silent（最新メッセージにリスクあり）
+  //   - 会話文脈 ≥ 3ターン（パターン判定に最低限必要）
+  //   - 片方の直近2メッセージが短文（≤ 5 chars）= withdrawing
+  //   - もう片方に長文（> 10 chars）メッセージがある = demanding
+  //   - temperatureGap > 0.5（メッセージ投資量に明確な非対称性がある）
+  //     B-93 回帰で確認: 両者の長さが近い場合（gap≈0.39）は
+  //     demand-withdraw ではなく自然な会話パターン
+  if (
+    !decision.shouldMediate
+    && input.phase1InterventionLevel
+    && input.phase1InterventionLevel !== "silent"
+    && input.conversationContext.length >= 3
+    && escalation.temperatureGap > 0.5
+  ) {
+    const senderIds = [...new Set(input.conversationContext.map(t => t.senderId))];
+    if (senderIds.length >= 2) {
+      for (const withdrawerId of senderIds) {
+        const withdrawerMsgs = input.conversationContext
+          .filter(t => t.senderId === withdrawerId);
+        const lastTwo = withdrawerMsgs.slice(-2);
+        if (lastTwo.length >= 2 && lastTwo.every(m => m.body.length <= 5)) {
+          // この話者は引いている → 相手が追い詰めているか確認
+          const demanderId = senderIds.find(id => id !== withdrawerId);
+          if (demanderId) {
+            const demanderMsgs = input.conversationContext
+              .filter(t => t.senderId === demanderId);
+            if (demanderMsgs.some(m => m.body.length > 10)) {
+              decision = {
+                shouldMediate: true,
+                reason: "escalation_detected",
+                urgency: "low",
+              };
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
 
   // ── 仲介不要の場合 ──
   if (!decision.shouldMediate) {

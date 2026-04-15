@@ -37,6 +37,7 @@ import {
   computeAmbiguityFactor,
   computeTopicWeight,
   detectKeigoShift,
+  computeFrictionSignal,
 } from "./japanesePragmatics";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -139,6 +140,26 @@ function computeContextRisk(
     risk += 0.2; // 深夜帯: 感情的増幅
   }
 
+  // ── 会話コンテキストの対立パターン検出 ──
+  // 直近の会話に対立・口論の言語マーカーがある場合、contextRisk を加算。
+  // 学術根拠: Gottman & Levenson (2000): 対立の開始3分で結末が予測可能。
+  //   対立マーカーの存在は、後続の短文メッセージが「諦め撤退」である確率を高める。
+  // パターン:
+  //   だからさ — 繰り返し要求の苛立ち
+  //   ^だから — 文頭「だから」= 既出論点の繰り返し要求（説明的用法と区別）
+  //   そうじゃない(って) — 否定・修正
+  //   いい加減 — 限界の表明
+  //   いつもそう — Gottman criticism（一般化批判）
+  //   事実でしょ — 感情の否定・論理的押し付け
+  //   早く決めて/して — 時間圧力による要求
+  const CONFRONTATION_MARKERS = /だからさ|^だから|そう(?:いう(?:こと|意味|話))?じゃない(?:ん|って)|いい加減|いつもそう|事実でしょ|早く(?:決めて|して)/;
+  if (context.length >= 2) {
+    const hasConfrontation = context.some(t => CONFRONTATION_MARKERS.test(t.body));
+    if (hasConfrontation) {
+      risk += 0.3;
+    }
+  }
+
   // ── 返信遅延パターン ──
   // Byron (2008): 通常より遅い返信 → ネガティブ帰属
   if (context.length >= 2) {
@@ -190,8 +211,62 @@ function computeMisreadRisk(
   // base_risk = 0.08 (中程度のメッセージのベースライン)
   const rawRisk = 0.08 * ambiguityFactor * receiverSensitivity * contextRisk * topicWeight;
 
+  // ── 短文曖昧性の加算リスク ──
+  // 乗算構造だけでは contextRisk=0.5(平穏) × sensitivity=0.5(標準) で
+  // risk が 0.01-0.03 に圧縮され、短文曖昧メッセージが検出できない。
+  // 短文 + 高曖昧性の場合、加算成分でリスクを底上げする。
+  //
+  // 学術根拠: Walther & D'Addario (2001)
+  //   短い曖昧テキストは受信者の既存の感情状態に沿って解釈される
+  //   → 誤読リスクがメッセージ長に反比例して増大
+  let additiveRisk = 0;
+  const msgLen = input.message.trim().length;
+  if (msgLen <= 15 && ambiguityFactor >= 0.85) {
+    // 短文 + 曖昧表現検出 → 加算リスク
+    // ambiguityFactor 0.8(低) → +0.10, 1.0(中) → +0.16, 1.5(高) → +0.32
+    additiveRisk = (ambiguityFactor - 0.5) * 0.32;
+
+    // 超短文(≤5文字) はさらにブースト: 「は？」「うん」等
+    if (msgLen <= 5) {
+      additiveRisk += 0.08;
+    }
+
+    // プロファイル差が大きい場合の追加ブースト
+    const styleDelta = Math.abs(
+      input.senderProfile.direct_vs_diplomatic - input.receiverProfile.direct_vs_diplomatic,
+    );
+    if (styleDelta > 0.3) {
+      additiveRisk += styleDelta * 0.12;
+    }
+
+    // contextRisk が平穏(BASE=0.5)の場合、additive を抑制
+    // 緊張状態(>0.7)なら full 適用
+    // 超短文(≤10) + 高曖昧性(≥0.98) は抑制を緩和（「別に」「勝手にすれば」等の確実な曖昧表現）
+    // 0.95→0.98: score≥0.80 の確実な曖昧表現のみ軽い抑制。
+    //   "わかった"(0.75→factor=0.95) は標準抑制で文脈依存を保つ。
+    if (contextRisk < 0.7) {
+      if (msgLen <= 10 && ambiguityFactor >= 0.98) {
+        additiveRisk *= 0.9; // 確実な曖昧表現: 軽い抑制のみ
+      } else {
+        additiveRisk *= 0.7; // 標準抑制
+      }
+    }
+  }
+
+  // ── 対人摩擦パターンの加算リスク（Round 2-C: B カテゴリ特化）──
+  // 長文の摩擦パターン（criticism, double bind, conditional apology 等）を検出し、
+  // 送信者が表現を改善できるパターン（Group 1）のみ Phase 1 リスクに加算する。
+  // Group 2（苦痛の表出）は Phase 2 confidence boost にのみ使用。
+  //
+  // contextRisk 抑制は適用しない: パターン自体がリスクシグナルであり、
+  // 平穏な文脈でも「いつもあなたは…」は問題表現。
+  const frictionSignal = computeFrictionSignal(input.message);
+  if (frictionSignal.senderRiskScore > 0) {
+    additiveRisk += frictionSignal.senderRiskScore;
+  }
+
   // 0-1 にクランプ
-  const risk = Math.max(0, Math.min(1, rawRisk));
+  const risk = Math.max(0, Math.min(1, rawRisk + additiveRisk));
 
   return {
     risk,

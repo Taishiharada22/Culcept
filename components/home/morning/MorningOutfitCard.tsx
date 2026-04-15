@@ -10,13 +10,16 @@
  * - ワードローブ未登録時は My-Style への案内
  */
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan } from "@/lib/alter-morning/types";
 import {
   generateOutfitFromPlan,
+  detectOutfitInvalidation,
+  refreshReasonLabel,
   type OutfitBridgeResult,
+  type OutfitInvalidation,
 } from "@/lib/alter-morning/outfitBridge";
 import type { WardrobeItem } from "@/app/(immersive)/my-style/_lib/types";
 import type { Slot } from "@/app/(culcept)/calendar/_lib/vcTypes";
@@ -177,13 +180,34 @@ export default function MorningOutfitCard({
 }: MorningOutfitCardProps) {
   const [result, setResult] = useState<OutfitBridgeResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [staleInfo, setStaleInfo] = useState<OutfitInvalidation | null>(null);
+  const generatedPlanRef = useRef<MorningPlan | null>(null);
 
-  useEffect(() => {
+  /** コーデを（再）生成する */
+  const generate = useCallback(() => {
     const wardrobe = loadWardrobeFromLocal();
     const bridgeResult = generateOutfitFromPlan(plan, wardrobe, weather);
     setResult(bridgeResult);
     setLoading(false);
+    setStaleInfo(null);
+    generatedPlanRef.current = plan;
   }, [plan, weather]);
+
+  useEffect(() => {
+    // 初回 or 天気変更 → 即生成
+    if (!generatedPlanRef.current) {
+      generate();
+      return;
+    }
+
+    // プラン変更 → structured diff で invalidation 判定
+    const invalidation = detectOutfitInvalidation(generatedPlanRef.current, plan);
+    if (invalidation.needsRefresh) {
+      // 自動再生成せず、ユーザーに確認を求める
+      setStaleInfo(invalidation);
+    }
+    // outfit に影響しないプラン変更（text のみ等）→ 何もしない
+  }, [plan, weather, generate]);
 
   if (loading) {
     return (
@@ -262,6 +286,37 @@ export default function MorningOutfitCard({
             詳しく見る →
           </a>
         </div>
+
+        {/* プラン変更バナー */}
+        {staleInfo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            className="mb-2 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200/60"
+          >
+            <p className="text-[11px] text-amber-700 font-medium mb-1">
+              プランが変わりました
+            </p>
+            <div className="space-y-0.5 mb-2">
+              {staleInfo.reasons.slice(0, 3).map((reason, i) => (
+                <p key={i} className="text-[10px] text-amber-600">
+                  ・{refreshReasonLabel(reason)}
+                </p>
+              ))}
+              {staleInfo.reasons.length > 3 && (
+                <p className="text-[10px] text-amber-500">
+                  他 {staleInfo.reasons.length - 3} 件
+                </p>
+              )}
+            </div>
+            <button
+              onClick={generate}
+              className="w-full py-1.5 rounded-md bg-amber-500/90 text-white text-[11px] font-medium hover:bg-amber-600/90 transition-all"
+            >
+              コーデを更新する
+            </button>
+          </motion.div>
+        )}
 
         {/* Intent バッジ */}
         {result.badges.length > 0 && (
