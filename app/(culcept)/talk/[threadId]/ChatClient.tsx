@@ -11,6 +11,7 @@ import { useCoAlter } from "@/hooks/useCoAlter";
 import CoAlterButton from "@/components/coalter/CoAlterButton";
 import CoAlterConsent from "@/components/coalter/CoAlterConsent";
 import CoAlterCard from "@/components/coalter/CoAlterCard";
+import IntentObservationSheet from "@/components/talk/IntentObservationSheet";
 
 const C = {
   bg: "#f8f6f3", s1: "#ffffff", s2: "#f5f6fa",
@@ -532,6 +533,13 @@ export default function ChatClient({ threadId }: Props) {
     } | null;
     visible: boolean;
   }>({ loading: false, result: null, visible: false });
+
+  // ── ミニ観測ボトムシート ──
+  const [observationSheet, setObservationSheet] = useState<{
+    open: boolean;
+    reason: "self_incomplete" | "counterpart_incomplete";
+  }>({ open: false, reason: "self_incomplete" });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -843,10 +851,16 @@ export default function ChatClient({ threadId }: Props) {
         setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
         return;
       }
-      // skipped = プロファイル不足等で機能利用不可 → UIに何も出さない
+      // skipped = プロファイル不足 → ミニ観測ボトムシートを表示
       if (data.skipped) {
-        console.info("[intent-check] skipped:", data.skipReason);
+        console.info("[intent-check] skipped:", data.skipReason, data.details);
         setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
+        if (data.skipReason === "profile_incomplete") {
+          const reason = data.details?.hasSenderProfile === false
+            ? "self_incomplete" as const
+            : "counterpart_incomplete" as const;
+          setObservationSheet({ open: true, reason });
+        }
         return;
       }
       setIntentCheck({ checking: false, result: data, visible: true });
@@ -1649,6 +1663,18 @@ export default function ChatClient({ threadId }: Props) {
           </div>
         </div>
       </div>
+
+      {/* ── ミニ観測ボトムシート ── */}
+      <IntentObservationSheet
+        open={observationSheet.open}
+        reason={observationSheet.reason}
+        onClose={() => setObservationSheet(prev => ({ ...prev, open: false }))}
+        onComplete={() => {
+          setObservationSheet(prev => ({ ...prev, open: false }));
+          // 観測完了 → intent-check を自動リトライ
+          console.info("[observation] complete — intent features should now be available");
+        }}
+      />
     </div>
   );
 }
