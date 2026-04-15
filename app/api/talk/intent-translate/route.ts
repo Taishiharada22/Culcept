@@ -146,18 +146,16 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
-    // プロファイル不足 → 422 ではなく 200 + skipped で graceful skip
-    // 相手が Stargazer 未実施の場合、intent 機能は使えないが、エラーにはしない
+    // プロファイル不足 → 200 + skipped で graceful skip
+    // intent-translate: sender = 相手(senderUserId), receiver = 自分(user.id)
     return NextResponse.json({
       ok: true,
       skipped: true,
       skipReason: "profile_incomplete",
       bubbleHint: { show: false, skipReason: "profile_incomplete" },
       bubbleState: body.bubbleState ?? { hintsShownToday: 0, lastHintAt: null },
-      details: {
-        hasSenderProfile: !!senderProfile,
-        hasReceiverProfile: !!receiverProfile,
-      },
+      selfHasProfile: !!receiverProfile,       // receiver = 自分
+      counterpartHasProfile: !!senderProfile,   // sender = 相手
     });
   }
 

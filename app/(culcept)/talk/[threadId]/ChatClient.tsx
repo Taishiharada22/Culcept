@@ -853,10 +853,15 @@ export default function ChatClient({ threadId }: Props) {
       }
       // skipped = プロファイル不足 → ミニ観測ボトムシートを表示
       if (data.skipped) {
-        console.info("[intent-check] skipped:", data.skipReason, data.details);
+        console.info("[intent-check] skipped:", data.skipReason, {
+          selfHasProfile: data.selfHasProfile,
+          counterpartHasProfile: data.counterpartHasProfile,
+        });
         setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
         if (data.skipReason === "profile_incomplete") {
-          const reason = data.details?.hasSenderProfile === false
+          // selfHasProfile=false → 自分の観測が必要
+          // selfHasProfile=true, counterpartHasProfile=false → 相手の観測待ち
+          const reason = data.selfHasProfile === false
             ? "self_incomplete" as const
             : "counterpart_incomplete" as const;
           setObservationSheet({ open: true, reason });

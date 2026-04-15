@@ -84,18 +84,16 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
-    // プロファイル不足 → 422 ではなく 200 + skipped で graceful skip
-    // 相手が Stargazer 未実施の場合、intent 機能は使えないが、エラーにはしない
+    // プロファイル不足 → 200 + skipped で graceful skip
+    // intent-check: sender = 自分(user.id), receiver = 相手(receiverUserId)
     return NextResponse.json({
       ok: true,
       skipped: true,
       skipReason: "profile_incomplete",
       interventionLevel: "none" as const,
       misreadRisk: 0,
-      details: {
-        hasSenderProfile: !!senderProfile,
-        hasReceiverProfile: !!receiverProfile,
-      },
+      selfHasProfile: !!senderProfile,
+      counterpartHasProfile: !!receiverProfile,
     });
   }
 
