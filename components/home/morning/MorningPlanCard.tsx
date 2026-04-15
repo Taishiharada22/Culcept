@@ -19,6 +19,7 @@ import {
   saveDurationStore,
 } from "@/lib/alter-morning/taskDurationMemory";
 import { recalculateSchedule } from "@/lib/alter-morning/planningEngine";
+import { insertTravelItems } from "@/lib/alter-morning/travelTimeEngine";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -385,14 +386,21 @@ function PlanItemRow({
       {/* 絵文字 */}
       <span className="text-[14px] flex-shrink-0">{getItemEmoji(item)}</span>
 
-      {/* テキスト */}
-      <span
-        className={`text-[13px] flex-1 ${
-          item.completed ? "line-through text-gray-400" : "text-gray-800"
-        }`}
-      >
-        {item.text}
-      </span>
+      {/* テキスト + 同伴者 */}
+      <div className="flex-1 min-w-0">
+        <span
+          className={`text-[13px] ${
+            item.completed ? "line-through text-gray-400" : "text-gray-800"
+          }`}
+        >
+          {item.text}
+        </span>
+        {item.withWhom && (
+          <span className="block text-[10px] text-purple-400/80 mt-0.5 truncate">
+            👤 {item.withWhom}
+          </span>
+        )}
+      </div>
 
       {/* 所要時間（タップで変更） */}
       <div className="relative flex-shrink-0">
@@ -479,36 +487,44 @@ export default function MorningPlanCard({
     []
   );
 
+  /** 並べ替え後に移動アイテムをA→Bの新しい順序で再生成する */
+  const regenerateTravel = useCallback((nonTravelItems: PlanItem[], prevPlan: MorningPlan): PlanItem[] => {
+    // 既存の travel から transport を推定
+    const existingTravel = prevPlan.items.find(i => i.kind === "travel");
+    const transport = existingTravel?.travelTransport
+      ?? prevPlan.flowContext?.transport
+      ?? prevPlan.dayConditions?.mainTransport
+      ?? "car";
+    const goOut = prevPlan.flowContext?.goOut ?? nonTravelItems.some(i => i.location);
+    // insertTravelItems で場所変化を検出し移動アイテムを挿入
+    const withTravel = insertTravelItems(nonTravelItems, transport, goOut);
+    return recalculateSchedule(withTravel);
+  }, []);
+
   const handleMoveUp = useCallback((itemId: string) => {
     setPlan((prev) => {
-      // travel 以外のアイテムのみ並べ替え対象
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
-      const travelItems = prev.items.filter(i => i.kind === "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
       if (idx <= 0) return prev;
-      // swap
       const reordered = [...nonTravel];
       [reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]];
-      // travel items を含めて再計算
-      const merged = [...reordered, ...travelItems];
-      const cascaded = recalculateSchedule(merged);
-      return { ...prev, items: cascaded };
+      // 移動アイテムを新しい順序で再生成
+      const items = regenerateTravel(reordered, prev);
+      return { ...prev, items };
     });
-  }, []);
+  }, [regenerateTravel]);
 
   const handleMoveDown = useCallback((itemId: string) => {
     setPlan((prev) => {
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
-      const travelItems = prev.items.filter(i => i.kind === "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
       if (idx < 0 || idx >= nonTravel.length - 1) return prev;
       const reordered = [...nonTravel];
       [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
-      const merged = [...reordered, ...travelItems];
-      const cascaded = recalculateSchedule(merged);
-      return { ...prev, items: cascaded };
+      const items = regenerateTravel(reordered, prev);
+      return { ...prev, items };
     });
-  }, []);
+  }, [regenerateTravel]);
 
   const handleToggleComplete = useCallback((itemId: string) => {
     setPlan((prev) => ({

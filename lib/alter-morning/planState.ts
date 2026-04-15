@@ -156,6 +156,7 @@ export interface LLMExtractResult {
   endAction?: string | null;
   transport?: string | null;
   goOut?: boolean | null;
+  startPlace?: string | null;
 }
 
 export interface LLMDeltaResult {
@@ -197,6 +198,7 @@ export const LLM_EXTRACT_SCHEMA = {
     endAction: { type: ["string", "null"] },
     transport: { type: ["string", "null"] },
     goOut: { type: ["boolean", "null"] },
+    startPlace: { type: ["string", "null"], description: "出発地点: 自宅 | ホテル | 実家 | 会社 等" },
   },
   required: ["targetDate", "segments"],
 } as const;

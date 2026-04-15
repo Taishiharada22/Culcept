@@ -101,6 +101,25 @@ function tryDirectClarifyResponse(
   };
   const descriptions: string[] = [];
 
+  // ── Departure Time: 「9時」「朝9時から」「10:00」等 ──
+  if (updated.missingFields.includes("departureTime")) {
+    // "9時" "09:00" "朝9時" "10時半" "9時30分" 等のパターン
+    const timeRe = /(?:朝|午前)?(\d{1,2})[時:](\d{0,2})?(?:分|半)?/;
+    const match = message.match(timeRe);
+    if (match) {
+      const h = parseInt(match[1], 10);
+      const rawM = match[2];
+      const m = /半/.test(message) ? 30 : (rawM ? parseInt(rawM, 10) : 0);
+      const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      // 最初のセグメントに startTime を設定
+      if (updated.segments.length > 0 && !updated.segments[0].startTime) {
+        updated.segments[0].startTime = timeStr;
+      }
+      updated.missingFields = updated.missingFields.filter(f => f !== "departureTime");
+      descriptions.push(`${timeStr}頃から開始`);
+    }
+  }
+
   // ── Transport ──
   if (updated.missingFields.includes("transport")) {
     for (const [re, mode] of TRANSPORT_PATTERNS) {
@@ -833,13 +852,23 @@ function buildV2DayPlan(
   planState: PlanState,
 ): MorningPlan {
   const goOut = planState.goOut ?? planState.segments.some(s => s.place);
+  // startPoint: LLM が「ホテル」「実家」等を検出していれば出発地として使う
+  const returnDest = planState.startPoint && planState.startPoint !== "自宅"
+    ? planState.startPoint
+    : undefined;
   const plan = buildDayPlan(items, dayConditions, undefined, {
     goOut,
+    returnDestination: returnDest,
     targetDate: planState.targetDate,
     endTimeConstraint: planState.endTime,
   });
   // targetDate を反映
   plan.date = planState.targetDate;
+  // startPlace をフロー情報に格納
+  if (planState.startPoint) {
+    if (!plan.flowContext) plan.flowContext = {};
+    (plan.flowContext as any).startPlace = planState.startPoint;
+  }
   return plan;
 }
 

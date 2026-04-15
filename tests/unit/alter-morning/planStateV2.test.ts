@@ -131,11 +131,27 @@ describe("normalizeLLMOutput — CEO scenario Turn 1", () => {
     expect(state.missingFields).toContain("transport");
   });
 
+  test("startTime 未指定 → missingFields に departureTime", () => {
+    const state = normalizeLLMOutput(ceoInput);
+    expect(state.missingFields).toContain("departureTime");
+  });
+
   test("打ち合わせ place なし → missingFields に segmentPlace", () => {
     const state = normalizeLLMOutput(ceoInput);
     const placeField = state.missingFields.find(f => f.startsWith("segmentPlace:"));
     expect(placeField).toBeDefined();
     expect(placeField).toContain("打ち合わせ");
+  });
+
+  test("startTime あり → departureTime は missing にならない", () => {
+    const state = normalizeLLMOutput({
+      ...ceoInput,
+      segments: [
+        { order: 1, timeHint: "morning", startTime: "09:00", activity: "仕事", place: "マック", companions: [] },
+        { order: 2, timeHint: "noon", activity: "食事", place: "レストラン", companions: [] },
+      ],
+    });
+    expect(state.missingFields).not.toContain("departureTime");
   });
 
   test("全 segment に場所あり → segmentPlace は missing にならない", () => {
@@ -199,7 +215,7 @@ describe("buildPlanConfirmMessage — Turn 1", () => {
     expect(msg).not.toContain("通勤");
   });
 
-  test("CEO シナリオ — 開始時刻 + 場所の質問も含まれる", () => {
+  test("CEO シナリオ — 出発時刻 + 移動手段 + 場所の質問が含まれる", () => {
     const state = normalizeLLMOutput({
       targetDate: "tomorrow",
       segments: [
@@ -214,6 +230,8 @@ describe("buildPlanConfirmMessage — Turn 1", () => {
 
     const msg = buildPlanConfirmMessage(state);
 
+    // 出発時刻の質問
+    expect(msg).toContain("何時頃から動き出す");
     // 移動手段の質問
     expect(msg).toContain("移動手段");
     // 打ち合わせ場所の質問（activityCanonical = "打ち合わせ"）
@@ -432,5 +450,33 @@ describe("planStateToPlanItems", () => {
     expect(items[0].what).toBe("仕事");
     expect(items[0].text).toContain("マクドナルド");
     expect(items[1].what).toBe("食事");
+  });
+
+  test("companions → withWhom に変換される", () => {
+    const state = normalizeLLMOutput({
+      targetDate: "tomorrow",
+      segments: [
+        { order: 1, activity: "ディナー", place: "レストラン", companions: ["Aさん"] },
+        { order: 2, activity: "打ち合わせ", place: "カフェ", companions: ["田中さん", "佐藤さん"] },
+      ],
+      transport: "car",
+    });
+
+    const items = planStateToPlanItems(state);
+    expect(items[0].withWhom).toBe("Aさん");
+    expect(items[1].withWhom).toBe("田中さん、佐藤さん");
+  });
+
+  test("companions 空配列 → withWhom は undefined", () => {
+    const state = normalizeLLMOutput({
+      targetDate: "today",
+      segments: [
+        { order: 1, activity: "仕事", place: "マック", companions: [] },
+      ],
+      transport: "car",
+    });
+
+    const items = planStateToPlanItems(state);
+    expect(items[0].withWhom).toBeUndefined();
   });
 });
