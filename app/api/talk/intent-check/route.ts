@@ -36,7 +36,11 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({
+      ok: false,
+      code: "unauthorized",
+      details: { reason: "No authenticated user session" },
+    }, { status: 401 });
   }
 
   let body: {
@@ -48,13 +52,26 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "invalid_body",
+      details: { reason: "Request body is not valid JSON" },
+    }, { status: 400 });
   }
 
   const { message, threadId, receiverUserId } = body;
 
   if (!message?.trim() || !threadId || !receiverUserId) {
-    return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "missing_fields",
+      details: {
+        hasMessage: !!message?.trim(),
+        hasThreadId: !!threadId,
+        hasReceiverUserId: !!receiverUserId,
+        receivedKeys: Object.keys(body),
+      },
+    }, { status: 400 });
   }
 
   // Cooldown 状態: クライアントから受け取るか、新規作成
@@ -67,9 +84,27 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
+    // どちらのプロファイルが欠けているか特定
+    const senderSnapshotCount = await countAxisSnapshots(supabase, user.id);
+    const receiverSnapshotCount = await countAxisSnapshots(supabase, receiverUserId);
+    const senderDimCount = await countPersonalityDimensions(supabase, user.id);
+    const receiverDimCount = await countPersonalityDimensions(supabase, receiverUserId);
+
     return NextResponse.json({
-      error: "profile_incomplete",
-      detail: "双方の Stargazer プロファイルが必要です",
+      ok: false,
+      code: "profile_incomplete",
+      details: {
+        threadId,
+        senderUserId: user.id,
+        receiverUserId,
+        hasSenderProfile: !!senderProfile,
+        hasReceiverProfile: !!receiverProfile,
+        senderPersonalityDimensions: senderDimCount,
+        senderAxisSnapshots: senderSnapshotCount,
+        receiverPersonalityDimensions: receiverDimCount,
+        receiverAxisSnapshots: receiverSnapshotCount,
+        requiredAxes: INTENT_TRANSLATION_AXES,
+      },
     }, { status: 422 });
   }
 
@@ -95,6 +130,7 @@ export async function POST(request: NextRequest) {
     : resetConsecutiveActive(cooldown);
 
   return NextResponse.json({
+    ok: true,
     misreadRisk: result.misreadRisk,
     interventionLevel: finalLevel,
     rawInterventionLevel: result.interventionLevel,
@@ -114,6 +150,26 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function countAxisSnapshots(supabase: any, userId: string): Promise<number> {
+  const { count } = await supabase
+    .from("stargazer_axis_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("axis_id", INTENT_TRANSLATION_AXES);
+  return count ?? 0;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function countPersonalityDimensions(supabase: any, userId: string): Promise<number> {
+  const { count } = await supabase
+    .from("personality_dimensions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("dimension", INTENT_TRANSLATION_AXES);
+  return count ?? 0;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {

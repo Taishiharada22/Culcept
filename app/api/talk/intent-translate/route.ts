@@ -35,7 +35,11 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({
+      ok: false,
+      code: "unauthorized",
+      details: { reason: "No authenticated user session" },
+    }, { status: 401 });
   }
 
   let body: {
@@ -48,13 +52,46 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "invalid_body",
+      details: { reason: "Request body is not valid JSON" },
+    }, { status: 400 });
   }
 
   const { messageId, threadId, senderUserId } = body;
 
   if (!messageId || !threadId || !senderUserId) {
-    return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "missing_fields",
+      details: {
+        hasMessageId: !!messageId,
+        hasThreadId: !!threadId,
+        hasSenderUserId: !!senderUserId,
+        receivedKeys: Object.keys(body),
+        receivedValues: {
+          messageId: messageId ?? null,
+          threadId: threadId ?? null,
+          senderUserId: senderUserId ?? null,
+        },
+      },
+    }, { status: 400 });
+  }
+
+  // 自分自身のメッセージに対して呼ばれていないか確認
+  if (senderUserId === user.id) {
+    return NextResponse.json({
+      ok: false,
+      code: "self_message_translate",
+      details: {
+        reason: "Cannot translate own message — intent-translate is for received messages only",
+        senderUserId,
+        currentUserId: user.id,
+        messageId,
+        threadId,
+      },
+    }, { status: 422 });
   }
 
   // 💭表示の日次制限・cooldown チェック
@@ -65,14 +102,41 @@ export async function POST(request: NextRequest) {
     : false;
 
   // ── 受信メッセージ本文を取得 ──
-  const { data: messageRow } = await supabase
+  const { data: messageRow, error: msgError } = await supabase
     .from("talk_messages")
-    .select("body")
+    .select("body, sender_id")
     .eq("id", messageId)
     .single();
 
   if (!messageRow?.body) {
-    return NextResponse.json({ error: "message_not_found" }, { status: 404 });
+    return NextResponse.json({
+      ok: false,
+      code: "message_not_found",
+      details: {
+        messageId,
+        threadId,
+        dbError: msgError?.message ?? null,
+        hasRow: !!messageRow,
+        hasBody: !!messageRow?.body,
+        actualSenderId: messageRow?.sender_id ?? null,
+        expectedSenderId: senderUserId,
+      },
+    }, { status: 404 });
+  }
+
+  // sender_id 整合性チェック（DB上の送信者 ≠ リクエストの senderUserId なら不整合）
+  if (messageRow.sender_id && messageRow.sender_id !== senderUserId) {
+    return NextResponse.json({
+      ok: false,
+      code: "sender_mismatch",
+      details: {
+        reason: "Message sender_id does not match provided senderUserId",
+        messageId,
+        actualSenderId: messageRow.sender_id,
+        providedSenderUserId: senderUserId,
+        currentUserId: user.id,
+      },
+    }, { status: 422 });
   }
 
   // ── プロファイル取得（送信者 + 受信者=自分） ──
@@ -82,9 +146,28 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
+    // どちらのプロファイルが欠けているか特定
+    const senderSnapshotCount = await countAxisSnapshots(supabase, senderUserId);
+    const receiverSnapshotCount = await countAxisSnapshots(supabase, user.id);
+    const senderDimCount = await countPersonalityDimensions(supabase, senderUserId);
+    const receiverDimCount = await countPersonalityDimensions(supabase, user.id);
+
     return NextResponse.json({
-      error: "profile_incomplete",
-      detail: "双方の Stargazer プロファイルが必要です",
+      ok: false,
+      code: "profile_incomplete",
+      details: {
+        messageId,
+        threadId,
+        senderUserId,
+        receiverUserId: user.id,
+        hasSenderProfile: !!senderProfile,
+        hasReceiverProfile: !!receiverProfile,
+        senderPersonalityDimensions: senderDimCount,
+        senderAxisSnapshots: senderSnapshotCount,
+        receiverPersonalityDimensions: receiverDimCount,
+        receiverAxisSnapshots: receiverSnapshotCount,
+        requiredAxes: INTENT_TRANSLATION_AXES,
+      },
     }, { status: 422 });
   }
 
@@ -121,6 +204,7 @@ export async function POST(request: NextRequest) {
     : bubbleState;
 
   return NextResponse.json({
+    ok: true,
     primaryIntent: result.primaryIntent,
     alternativeIntents: result.alternativeIntents,
     contextNote: result.contextNote,
@@ -137,6 +221,26 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function countAxisSnapshots(supabase: any, userId: string): Promise<number> {
+  const { count } = await supabase
+    .from("stargazer_axis_snapshots")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("axis_id", INTENT_TRANSLATION_AXES);
+  return count ?? 0;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function countPersonalityDimensions(supabase: any, userId: string): Promise<number> {
+  const { count } = await supabase
+    .from("personality_dimensions")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .in("dimension", INTENT_TRANSLATION_AXES);
+  return count ?? 0;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {

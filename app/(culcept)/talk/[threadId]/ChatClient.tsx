@@ -826,49 +826,59 @@ export default function ChatClient({ threadId }: Props) {
   // ── 🔮 意図チェック（送信前） ──
   const handleIntentCheck = useCallback(async () => {
     if (!input.trim() || intentCheck.checking) return;
+    if (!counterpart.userId) {
+      console.warn("[intent-check] counterpart.userId is missing — skipping");
+      return;
+    }
     setIntentCheck(prev => ({ ...prev, checking: true, visible: true }));
     try {
       const res = await fetch("/api/talk/intent-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, message: input.trim(), receiverUserId: counterpart.userId ?? "" }),
+        body: JSON.stringify({ threadId, message: input.trim(), receiverUserId: counterpart.userId }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) {
-          setIntentCheck({ checking: false, result: data, visible: true });
-          return;
-        }
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.warn(`[intent-check] ${res.status}`, data);
+        setIntentCheck(prev => ({ ...prev, checking: false }));
+        return;
       }
-      setIntentCheck(prev => ({ ...prev, checking: false }));
-    } catch {
+      setIntentCheck({ checking: false, result: data, visible: true });
+    } catch (e) {
+      console.warn("[intent-check] fetch error", e);
       setIntentCheck(prev => ({ ...prev, checking: false }));
     }
-  }, [input, threadId, intentCheck.checking]);
+  }, [input, threadId, intentCheck.checking, counterpart.userId]);
 
   // ── 💭 バブルヒント（受信メッセージ） ──
   const fetchBubbleHint = useCallback(async (messageId: string) => {
     if (bubbleHints.has(messageId) || bubbleFetching.has(messageId)) return;
+    if (!counterpart.userId) {
+      console.warn("[intent-translate] counterpart.userId is missing — skipping", { messageId });
+      return;
+    }
     setBubbleFetching(prev => new Set(prev).add(messageId));
     try {
       const res = await fetch("/api/talk/intent-translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, messageId, senderUserId: counterpart.userId ?? "" }),
+        body: JSON.stringify({ threadId, messageId, senderUserId: counterpart.userId }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok && data.bubbleHint?.show) {
-          setBubbleHints(prev => new Map(prev).set(messageId, {
-            hintText: data.bubbleHint.hintText,
-            confidence: data.bubbleHint.confidence,
-            misreadRisk: data.bubbleHint.misreadRisk,
-          }));
-        }
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.warn(`[intent-translate] ${res.status}`, data);
+      } else if (data.bubbleHint?.show) {
+        setBubbleHints(prev => new Map(prev).set(messageId, {
+          hintText: data.bubbleHint.hintText,
+          confidence: data.bubbleHint.confidence,
+          misreadRisk: data.bubbleHint.misreadRisk,
+        }));
       }
-    } catch { /* silent */ }
+    } catch (e) {
+      console.warn("[intent-translate] fetch error", e);
+    }
     setBubbleFetching(prev => { const n = new Set(prev); n.delete(messageId); return n; });
-  }, [threadId, bubbleHints, bubbleFetching]);
+  }, [threadId, bubbleHints, bubbleFetching, counterpart.userId]);
 
   // ── 共同Alter 仲介リクエスト ──
   const requestMediation = useCallback(async (messageId?: string) => {
