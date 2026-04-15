@@ -23,6 +23,10 @@ const ALTER_API_URL = "http://localhost:3000/api/stargazer/alter";
 
 const MODE = process.argv.includes("--shared") ? "shared" : "isolated";
 
+// --case C3 or --case C1,C2,C3 で特定ケースのみ実行
+const caseArg = process.argv.find((_, i, a) => a[i - 1] === "--case");
+const CASE_FILTER = caseArg ? new Set(caseArg.split(",").map(s => s.trim())) : null;
+
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !TEST_PASSWORD) {
   console.error("❌ Missing env vars: NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, TEST_USER_PASSWORD");
   process.exit(1);
@@ -234,10 +238,18 @@ async function main() {
   const results = [];
   let sharedSessionId = null;
 
-  for (let i = 0; i < TEST_CASES.length; i++) {
-    const tc = TEST_CASES[i];
+  const filteredCases = CASE_FILTER
+    ? TEST_CASES.filter(tc => CASE_FILTER.has(tc.id))
+    : TEST_CASES;
+
+  if (CASE_FILTER) {
+    console.log(`🎯 Case filter: ${[...CASE_FILTER].join(", ")} (${filteredCases.length} cases)`);
+  }
+
+  for (let i = 0; i < filteredCases.length; i++) {
+    const tc = filteredCases[i];
     console.log(`\n${"─".repeat(60)}`);
-    console.log(`[${i + 1}/${TEST_CASES.length}] ${tc.id}: ${tc.description}`);
+    console.log(`[${i + 1}/${filteredCases.length}] ${tc.id}: ${tc.description}`);
     console.log(`   メッセージ: "${tc.message}"`);
     console.log(`   モード: ${MODE === "isolated" ? "独立セッション" : "共有セッション"}`);
 
@@ -288,6 +300,14 @@ async function main() {
         const lb = response._latencyBreakdown;
         const fmt = (k) => lb[k] != null ? `${(lb[k] / 1000).toFixed(1)}s` : "-";
         console.log(`   ⏱️ preProc=${fmt("preProcessingMs")} PE=${fmt("peMs")} mainLLM=${fmt("mainLlmMs")} total=${fmt("totalMs")}`);
+        // S1: PE内部breakdown
+        if (lb.peQueryGenMs != null) {
+          console.log(`   🔬 PE内訳: queryGen=${fmt("peQueryGenMs")} search=${fmt("peSearchMs")} classify=${fmt("peClassifyMs")} qGate=${fmt("peQualityGateMs")} pBuild=${fmt("pePromptBuildMs")}`);
+        }
+        // S3: プロンプトサイズ追跡
+        if (lb.mainPromptChars != null) {
+          console.log(`   📏 プロンプト: ${(lb.mainPromptChars / 1000).toFixed(1)}K chars`);
+        }
       }
       console.log(`   エンティティ: ${result.entities.length > 0 ? result.entities.join(", ") : "(なし)"}`);
       console.log(`   応答(先頭150文字): ${text.slice(0, 150)}`);
@@ -344,6 +364,23 @@ async function main() {
     console.log(`mainLLM: median=${Math.round(median(llmLatencies))}ms, p90=${Math.round(p90(llmLatencies))}ms`);
   }
 
+  // S1: PE内部breakdown統計
+  const peInternal = {
+    queryGen: results.filter(r => r.latencyBreakdown?.peQueryGenMs != null).map(r => r.latencyBreakdown.peQueryGenMs),
+    search: results.filter(r => r.latencyBreakdown?.peSearchMs != null).map(r => r.latencyBreakdown.peSearchMs),
+    classify: results.filter(r => r.latencyBreakdown?.peClassifyMs != null).map(r => r.latencyBreakdown.peClassifyMs),
+    qualityGate: results.filter(r => r.latencyBreakdown?.peQualityGateMs != null).map(r => r.latencyBreakdown.peQualityGateMs),
+    promptBuild: results.filter(r => r.latencyBreakdown?.pePromptBuildMs != null).map(r => r.latencyBreakdown.pePromptBuildMs),
+  };
+  if (peInternal.queryGen.length > 0) {
+    console.log(`\n🔬 PE内部breakdown:`);
+    console.log(`  queryGen:    median=${Math.round(median(peInternal.queryGen))}ms, p90=${Math.round(p90(peInternal.queryGen))}ms`);
+    console.log(`  search:      median=${Math.round(median(peInternal.search))}ms, p90=${Math.round(p90(peInternal.search))}ms`);
+    console.log(`  classify:    median=${Math.round(median(peInternal.classify))}ms, p90=${Math.round(p90(peInternal.classify))}ms`);
+    console.log(`  qualityGate: median=${Math.round(median(peInternal.qualityGate))}ms, p90=${Math.round(p90(peInternal.qualityGate))}ms`);
+    console.log(`  promptBuild: median=${Math.round(median(peInternal.promptBuild))}ms, p90=${Math.round(p90(peInternal.promptBuild))}ms`);
+  }
+
   // ── JSON保存 ──
   const outputDir = "scripts/pe-p18-results";
   mkdirSync(outputDir, { recursive: true });
@@ -370,6 +407,13 @@ async function main() {
         mainLlm: llmLatencies.length > 0 ? {
           medianMs: Math.round(median(llmLatencies)),
           p90Ms: Math.round(p90(llmLatencies)),
+        } : null,
+        peInternal: peInternal.queryGen.length > 0 ? {
+          queryGen: { medianMs: Math.round(median(peInternal.queryGen)), p90Ms: Math.round(p90(peInternal.queryGen)) },
+          search: { medianMs: Math.round(median(peInternal.search)), p90Ms: Math.round(p90(peInternal.search)) },
+          classify: { medianMs: Math.round(median(peInternal.classify)), p90Ms: Math.round(p90(peInternal.classify)) },
+          qualityGate: { medianMs: Math.round(median(peInternal.qualityGate)), p90Ms: Math.round(p90(peInternal.qualityGate)) },
+          promptBuild: { medianMs: Math.round(median(peInternal.promptBuild)), p90Ms: Math.round(p90(peInternal.promptBuild)) },
         } : null,
         failureRate: `${((totalErrors / results.length) * 100).toFixed(1)}%`,
       },

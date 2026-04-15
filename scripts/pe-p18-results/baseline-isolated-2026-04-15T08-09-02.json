@@ -1,0 +1,123 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T08:09:02.056Z",
+    "caseCount": 2,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 33042,
+        "p90Ms": 40454,
+        "minMs": 25630,
+        "maxMs": 40454
+      },
+      "pe": {
+        "medianMs": 14610,
+        "p90Ms": 19092
+      },
+      "mainLlm": {
+        "medianMs": 7732,
+        "p90Ms": 11587
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 1131,
+          "p90Ms": 1967
+        },
+        "search": {
+          "medianMs": 1192,
+          "p90Ms": 1280
+        },
+        "classify": {
+          "medianMs": 12286,
+          "p90Ms": 15843
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 0
+        },
+        "promptBuild": {
+          "medianMs": 1,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 40454,
+      "responseText": "最近のIT業界のトレンドとして、生成AIが注目されている。2024年のITトレンド調査では、生成AIが30%の企業で導入されており、特に日本の企業ではその導入率が80%を超えているというデータもある。このように、生成AIはビジネスプロセスの効率化や新しいサービスの創出に寄与していると考えられるので、たいしさんにとってもこの分野は興味深いかもしれない。\nだから、生成AIに関連する最新情報をチェックするといいと思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 2358,
+        "geminiReadingMs": 3333,
+        "postGeminiStartMs": 5698,
+        "preProcessingMs": 7774,
+        "promptBuildMs": 27643,
+        "mainLlmMs": 11587,
+        "validationRetryMs": 0,
+        "postProcessingMs": 229,
+        "totalMs": 39459,
+        "peMs": 19092,
+        "peQueryGenMs": 1967,
+        "peSearchMs": 1280,
+        "peClassifyMs": 15843,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 25630,
+      "responseText": "今のたいしさんには、フリーランスよりも正社員として働く方が合っていると僕は思うよ。\nフリーランスの平均年収は425万円だけど、中央値は300万円台で、1,000万円を超えるには特定の条件が必要になるんだ。たいしさんはデータや根拠を求めて判断する傾向が強く、さらに動くより少し引いて全体を見たい感覚があるから、収入の安定性や社会保障が手厚い正社員の方が、今は安心して力を発揮できるんじゃないかな。\nもちろん、フリーランスには働き方や業務内容の自由度が高いという魅力もある。例えば、株式会社LiKGの調査ではフリーランスの年収・収入不安・生成AIの影響が分析されていて、年収1,000〜2,000万円を超えるフリーランスの特徴や年収アップのコツも紹介されているんだ。でも、今は守りたい気持ちも強く感じているように見えるから、まずは正社員として基盤を固めるのが、たいしさんには合っている気がするな。",
+      "latencyBreakdown": {
+        "dbInitMs": 685,
+        "geminiReadingMs": 7639,
+        "postGeminiStartMs": 8328,
+        "preProcessingMs": 10269,
+        "promptBuildMs": 21209,
+        "mainLlmMs": 3876,
+        "validationRetryMs": 1,
+        "postProcessingMs": 439,
+        "totalMs": 25525,
+        "peMs": 10128,
+        "peQueryGenMs": 294,
+        "peSearchMs": 1104,
+        "peClassifyMs": 8729,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社LiKGの調査ではフリーランスの年収・収入不安・生成AIの影響が分析されていて"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

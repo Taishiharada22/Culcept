@@ -47,6 +47,8 @@ export type RunAIParams = {
   preferredProvider?: AIProviderName;
   allowFallback?: boolean;
   metadata?: Record<string, unknown>;
+  /** S2a: 呼び出し元からモデルを直接指定（model selection をバイパス） */
+  modelOverride?: string;
 };
 
 export type AIRunResult = {

@@ -759,13 +759,16 @@ export async function classifyTaskAndGenerateQueries(
 - listing_search / market_intel は 2〜3個のクエリを生成（情報密度のため多め）。それ以外は 1〜2個。
 - listing_search のクエリ役割: ①候補名が出やすいクエリ ②働き方・文化が出やすいクエリ ③職種・スキルが出やすいクエリ
 - market_intel のクエリ役割: ①数値・市場規模系 ②トレンド・動向系 ③採用・需要系
-- comparison のクエリ役割: ①「A vs B 比較」「A B 違い」等のA対Bの直接比較記事を狙うクエリ ②数値データ裏付け（市場シェア・利用率・年収差・統計・ランキング等の具体数値が出やすいクエリ）
+- comparison のクエリ役割: ①「A vs B 比較」「A B 違い」等のA対Bの直接比較記事を狙うクエリ ②数値・制度・統計の裏付け（年収差・社会保険・税制・利用率・市場シェア・調査データ等の具体数値が出やすいクエリ。必ず「統計」「年収」「調査」「制度」のいずれかをクエリに含めること）
 
 ## 悪い例（絶対に生成しないこと）
 - ❌ 「キャリアプラン 自律重視 変化歓迎」← 性格語がクエリに入っている
 - ❌ 「個人主義 働き方 企業文化」← 性格語がクエリに入っている
+- ❌ 「フリーランス 正社員 メリット デメリット」← 意見記事ばかりヒットし、数値が出ない
 - ✅ 「転職 キャリアチェンジ 方向性 2026」← 具体的な情報を狙っている
 - ✅ 「成長業界 将来性 職種 トレンド」← 検索エンジンで有用な結果が出るキーワード
+- ✅ 「フリーランス 正社員 年収 比較 統計」← 数値データが出やすいキーワード
+- ✅ 「フリーランス 社会保険 税金 制度 比較」← 制度差のデータが出やすいキーワード
 
 ## ユーザーの質問
 ${message}
@@ -978,15 +981,16 @@ export async function classifySearchResults(
 ): Promise<PerspectiveFragment[]> {
   if (searchResults.length === 0) return [];
 
-  // 検索結果をまとめてLLMに分類させる
-  const resultsText = searchResults
-    .slice(0, 5)
-    .map((r, i) => `[${i + 1}] ${r.title}\n${r.text?.slice(0, 300) || r.highlights?.join(" ") || ""}`)
-    .join("\n\n");
+  const capped = searchResults.slice(0, 5);
+  const classifyModelOverride = (process.env.PE_CLASSIFY_MODEL ?? "").trim() || undefined;
 
-  const result = await runAI({
-    taskType: "perspective_classify",
-    prompt: `以下のWeb検索結果を分類し、エビデンスを構造化抽出してください。
+  // ── S2b: classify prompt builder（バッチ単位） ──
+  const buildClassifyBatchPrompt = (batchResults: SearchResult[]): string => {
+    const resultsText = batchResults
+      .map((r, i) => `[${i + 1}] ${r.title}\n${r.text?.slice(0, 300) || r.highlights?.join(" ") || ""}`)
+      .join("\n\n");
+
+    return `以下のWeb検索結果を分類し、エビデンスを構造化抽出してください。
 
 ## ユーザーの質問
 ${message}
@@ -1026,84 +1030,118 @@ ${resultsText}
 例: 楽天ウェブ検索のポイント情報は事実だが、求人の質問には無関連 → relevance=0.0
 
 ## 出力形式（JSON）
-{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "...", "entities": ["企業A", "企業B"], "numbers": ["27.4%", "300億円"], "date": "2026年", "source_name": "○○調査"}]}`,
-    systemPrompt: "あなたは情報の認識論的分類とエビデンス抽出の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。**特に重要**: 元テキストに含まれる具体的な数値・企業名・年度・調査名を漏れなく entities/numbers/date/source_name に抽出すること。情報を落とさないことが最優先です。",
-    requireJson: true,
-    temperature: 0.2,
-    maxOutputTokens: 1500,
-    userId,
-    metadata: { feature: "perspective_engine", step: "classify" },
-  });
+{"fragments": [{"index": 1, "relevance_to_question": 0.8, "epistemic_type": "...", "confidence": 0.8, "source_authority": "...", "stance": "...", "force_relevance": {"opportunity": 0.0, "cost": 0.0, "relationship": 0.0, "value": 0.0, "fear": 0.0, "growth": 0.0}, "key_insight": "...", "entities": ["企業A", "企業B"], "numbers": ["27.4%", "300億円"], "date": "2026年", "source_name": "○○調査"}]}`;
+  };
+
+  const CLASSIFY_SYSTEM_PROMPT =
+    "あなたは情報の認識論的分類とエビデンス抽出の専門家です。まず各情報片がユーザーの質問に直接関連するかを判定し（relevance_to_question）、その上で事実か意見か体験談かを分類してください。**特に重要**: 元テキストに含まれる具体的な数値・企業名・年度・調査名を漏れなく entities/numbers/date/source_name に抽出すること。情報を落とさないことが最優先です。";
+
+  const fireClassifyBatch = (batchResults: SearchResult[]) =>
+    runAI({
+      taskType: "perspective_classify",
+      prompt: buildClassifyBatchPrompt(batchResults),
+      systemPrompt: CLASSIFY_SYSTEM_PROMPT,
+      requireJson: true,
+      temperature: 0.2,
+      // バッチサイズに応じた出力トークン上限（1結果≈300tok + 余白200tok）
+      maxOutputTokens: Math.min(1500, batchResults.length * 350 + 200),
+      userId,
+      metadata: { feature: "perspective_engine", step: "classify", batchSize: batchResults.length },
+      modelOverride: classifyModelOverride,
+    });
+
+  type RawFragment = Record<string, unknown>;
+  const extractRawFragments = (result: { structured: unknown }): RawFragment[] => {
+    const s = result.structured as Record<string, unknown> | null;
+    return s && Array.isArray(s.fragments) ? (s.fragments as RawFragment[]) : [];
+  };
+
+  // ── S2b: 4件以上 → 2バッチ並列分類（密度保持のまま classify 高速化） ──
+  let classifyRawFragments: RawFragment[];
+
+  if (capped.length >= 4) {
+    const mid = Math.ceil(capped.length / 2);
+    const [r1, r2] = await Promise.all([
+      fireClassifyBatch(capped.slice(0, mid)),
+      fireClassifyBatch(capped.slice(mid)),
+    ]);
+    const frags1 = extractRawFragments(r1);
+    const frags2 = extractRawFragments(r2);
+    // batch2 のインデックスを元の capped 配列位置にオフセット
+    classifyRawFragments = [
+      ...frags1,
+      ...frags2.map(f => ({ ...f, index: ((f.index as number) ?? 0) + mid })),
+    ];
+  } else {
+    classifyRawFragments = extractRawFragments(await fireClassifyBatch(capped));
+  }
 
   const fragments: PerspectiveFragment[] = [];
 
-  const classifyStructured = result.structured as Record<string, unknown> | null;
-  if (classifyStructured && Array.isArray(classifyStructured.fragments)) {
-    for (const f of classifyStructured.fragments as Array<Record<string, unknown>>) {
-      const idx = (f.index as number) - 1;
-      const source = searchResults[idx];
-      if (!source) continue;
+  for (const f of classifyRawFragments) {
+    const idx = (f.index as number) - 1;
+    const source = capped[idx];
+    if (!source) continue;
 
-      // v3: ハードネガティブ除去（Cuconasu, SIGIR 2024）
-      // 質問との関連性が低い結果は、confidence が高くても除外
-      const relevance = (f.relevance_to_question as number) ?? 1.0; // 未指定時は互換のため 1.0
-      if (relevance < 0.3) {
-        console.info(`[perspective-engine] 🗑️ Hard negative filtered: [${(f.index as number)}] relevance=${relevance.toFixed(2)}`);
-        continue;
-      }
-
-      const epistemicType = f.epistemic_type as EpistemicType;
-      const confidence = f.confidence as number;
-
-      // タイプ別 confidence 閾値でフィルタ
-      const threshold = CONFIDENCE_THRESHOLDS[epistemicType] ?? 0.7;
-      if (confidence < threshold) continue;
-
-      const forceRel = f.force_relevance as Record<string, number> | undefined;
-
-      // P1.11: evidence 構造を抽出
-      const rawEntities = Array.isArray(f.entities) ? (f.entities as string[]) : [];
-      const rawNumbers = Array.isArray(f.numbers) ? (f.numbers as string[]) : [];
-      const rawDate = typeof f.date === "string" ? f.date : undefined;
-      const rawSourceName = typeof f.source_name === "string" ? f.source_name : undefined;
-      const claim = (f.key_insight as string) || "";
-
-      // P1.11: evidence-rich snippet — claim + 具体データを結合
-      // key_insight だけだと数値・企業名が落ちるので、evidence から復元する
-      const evidenceParts: string[] = [claim];
-      if (rawEntities.length > 0 && !rawEntities.every(e => claim.includes(e))) {
-        evidenceParts.push(`（${rawEntities.join("、")}）`);
-      }
-      if (rawNumbers.length > 0 && !rawNumbers.every(n => claim.includes(n))) {
-        evidenceParts.push(`[${rawNumbers.join(", ")}]`);
-      }
-      const evidenceText = evidenceParts.join(" ");
-
-      fragments.push({
-        text: evidenceText || source.text?.slice(0, 200) || "",
-        sourceUrl: source.url,
-        sourceTitle: source.title,
-        epistemicType,
-        confidence,
-        sourceAuthority: (f.source_authority as SourceAuthority) || "media",
-        stanceTowardQuery: (f.stance as StanceDirection) || "neutral",
-        forceRelevance: {
-          opportunity: forceRel?.opportunity ?? 0,
-          cost: forceRel?.cost ?? 0,
-          relationship: forceRel?.relationship ?? 0,
-          value: forceRel?.value ?? 0,
-          fear: forceRel?.fear ?? 0,
-          growth: forceRel?.growth ?? 0,
-        },
-        evidence: {
-          entities: rawEntities,
-          numbers: rawNumbers,
-          date: rawDate,
-          sourceName: rawSourceName,
-          claim,
-        },
-      });
+    // v3: ハードネガティブ除去（Cuconasu, SIGIR 2024）
+    // 質問との関連性が低い結果は、confidence が高くても除外
+    const relevance = (f.relevance_to_question as number) ?? 1.0; // 未指定時は互換のため 1.0
+    if (relevance < 0.3) {
+      console.info(`[perspective-engine] 🗑️ Hard negative filtered: [${(f.index as number)}] relevance=${relevance.toFixed(2)}`);
+      continue;
     }
+
+    const epistemicType = f.epistemic_type as EpistemicType;
+    const confidence = f.confidence as number;
+
+    // タイプ別 confidence 閾値でフィルタ
+    const threshold = CONFIDENCE_THRESHOLDS[epistemicType] ?? 0.7;
+    if (confidence < threshold) continue;
+
+    const forceRel = f.force_relevance as Record<string, number> | undefined;
+
+    // P1.11: evidence 構造を抽出
+    const rawEntities = Array.isArray(f.entities) ? (f.entities as string[]) : [];
+    const rawNumbers = Array.isArray(f.numbers) ? (f.numbers as string[]) : [];
+    const rawDate = typeof f.date === "string" ? f.date : undefined;
+    const rawSourceName = typeof f.source_name === "string" ? f.source_name : undefined;
+    const claim = (f.key_insight as string) || "";
+
+    // P1.11: evidence-rich snippet — claim + 具体データを結合
+    // key_insight だけだと数値・企業名が落ちるので、evidence から復元する
+    const evidenceParts: string[] = [claim];
+    if (rawEntities.length > 0 && !rawEntities.every(e => claim.includes(e))) {
+      evidenceParts.push(`（${rawEntities.join("、")}）`);
+    }
+    if (rawNumbers.length > 0 && !rawNumbers.every(n => claim.includes(n))) {
+      evidenceParts.push(`[${rawNumbers.join(", ")}]`);
+    }
+    const evidenceText = evidenceParts.join(" ");
+
+    fragments.push({
+      text: evidenceText || source.text?.slice(0, 200) || "",
+      sourceUrl: source.url,
+      sourceTitle: source.title,
+      epistemicType,
+      confidence,
+      sourceAuthority: (f.source_authority as SourceAuthority) || "media",
+      stanceTowardQuery: (f.stance as StanceDirection) || "neutral",
+      forceRelevance: {
+        opportunity: forceRel?.opportunity ?? 0,
+        cost: forceRel?.cost ?? 0,
+        relationship: forceRel?.relationship ?? 0,
+        value: forceRel?.value ?? 0,
+        fear: forceRel?.fear ?? 0,
+        growth: forceRel?.growth ?? 0,
+      },
+      evidence: {
+        entities: rawEntities,
+        numbers: rawNumbers,
+        date: rawDate,
+        sourceName: rawSourceName,
+        claim,
+      },
+    });
   }
 
   // Diversity floor: 対立視点が含まれているか確認

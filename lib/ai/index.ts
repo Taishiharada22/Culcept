@@ -213,10 +213,13 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
     lastProvider = provider;
 
     try {
+      // S2a: params.modelOverride は呼び出し元の直接指定（env var ベース）。
+      // model selection よりも優先する。
       const modelOverride =
-        provider === selectionDecision.preferredProvider
+        effectiveParams.modelOverride ??
+        (provider === selectionDecision.preferredProvider
           ? selectionDecision.modelOverride
-          : null;
+          : null);
 
       const result = await executeProvider(provider, effectiveParams, {
         modelOverride,

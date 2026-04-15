@@ -1863,6 +1863,28 @@ export async function POST(req: NextRequest) {
       // JUDGMENT ENGINE: 既存の対人判断パイプライン
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+      // ── S4: SignalProc DB クエリを Gemini 読解と並列実行 ──
+      // 15 個の独立 DB クエリを Promise 化して即座に発射。
+      // Gemini 読解 (3-7s) の間に全て完了する。各結果は元のコード位置で await する。
+      const _spTrapCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const _sp = {
+        statePattern: Promise.resolve(supabase.from("stargazer_alter_patterns").select("pattern_data, observation_count").eq("user_id", userId).eq("pattern_type", "state").eq("pattern_key", "time_capacity").maybeSingle()),
+        lastInsight: Promise.resolve(supabase.from("stargazer_analytics").select("id, metadata, created_at").eq("user_id", userId).eq("event", "home_alter_insight_presented").order("created_at", { ascending: false }).limit(1).single()),
+        miFreqInsights: Promise.resolve(supabase.from("stargazer_analytics").select("created_at").eq("user_id", userId).eq("event", "home_alter_insight_presented").order("created_at", { ascending: false }).limit(1)),
+        denyStreak: Promise.resolve(supabase.from("stargazer_alter_reactions").select("reaction").eq("user_id", userId).order("created_at", { ascending: false }).limit(5)),
+        lifeContext: Promise.resolve(supabase.from("stargazer_alter_context").select("id, category, content, source, temporality, confidence, evidence_count, last_confirmed, possibly_stale").eq("user_id", userId).eq("possibly_stale", false).gte("confidence", 0.4).order("confidence", { ascending: false }).limit(10)),
+        hdmState: Promise.resolve(supabase.from("stargazer_alter_growth").select("hdm_phase_state").eq("user_id", userId).single()),
+        trapScan: Promise.resolve(supabase.from("stargazer_analytics").select("metadata, created_at").eq("user_id", userId).eq("event", "phase5_trap_scan").gte("created_at", _spTrapCutoff).order("created_at", { ascending: false }).limit(1).maybeSingle()),
+        woundDefs: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "wound_definition").order("created_at", { ascending: false }).limit(10)),
+        financialCount: Promise.resolve(supabase.from("stargazer_analytics").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("event", "financial_signal_detected")),
+        microSignals: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "home_alter_micro_signal").order("created_at", { ascending: false }).limit(20)),
+        followups: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "home_alter_followup").order("created_at", { ascending: false }).limit(30)),
+        sessionCount: Promise.resolve(supabase.from("stargazer_alter_patterns").select("observation_count").eq("user_id", userId).eq("pattern_type", "decision")),
+        hypotheses: Promise.resolve(supabase.from("stargazer_alter_hypotheses").select("content, hypothesis_type, confidence, status, domains, evidence_count, created_at, last_evaluated").eq("user_id", userId).in("status", ["stable", "strengthening"]).gte("confidence", 0.5).order("confidence", { ascending: false }).limit(5)),
+        allPatterns: Promise.resolve(supabase.from("stargazer_alter_patterns").select("pattern_type, pattern_key, observation_count, pattern_data, confidence").eq("user_id", userId)),
+        personMap: Promise.resolve(supabase.from("stargazer_alter_person_map").select("label, role, sentiment_trend, last_sentiment, influence_score, mention_count").eq("user_id", userId).gte("influence_score", 0.5).gte("mention_count", 2).order("influence_score", { ascending: false }).limit(5)),
+      };
+
       // ── Phase 0: Gemini一次読解（構造化JSON） ──
       // Geminiは「候補を出す役」。意味の確定はAneurasync側で行う。
       // 失敗時は既存パイプラインがそのまま動く（graceful degradation）。
@@ -1923,13 +1945,7 @@ export async function POST(req: NextRequest) {
       // Phase 2: State Pattern をベイズ事前確率として統合
       // time_block 別の蓄積パターンがあれば、ルールベース推定と 70:30 で統合
       try {
-        const { data: statePattern } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("pattern_data, observation_count")
-          .eq("user_id", userId)
-          .eq("pattern_type", "state")
-          .eq("pattern_key", "time_capacity")
-          .maybeSingle();
+        const { data: statePattern } = await _sp.statePattern; // S4: pre-fired
 
         if (statePattern && userState) {
           const hour = new Date().getHours();
@@ -2254,14 +2270,7 @@ export async function POST(req: NextRequest) {
 
       // ── Phase 2: Reaction Learning — 前回 Micro Insight への反応を記録 ──
       try {
-        const { data: lastInsight } = await supabase
-          .from("stargazer_analytics")
-          .select("id, metadata, created_at")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_insight_presented")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+        const { data: lastInsight } = await _sp.lastInsight; // S4: pre-fired
 
         if (lastInsight) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2356,13 +2365,7 @@ export async function POST(req: NextRequest) {
       // ── D: MI 頻度制限データ取得 ──
       try {
         // 直近の MI 提示時刻を取得（まだマーカーが残っていれば提示直後）
-        const { data: recentInsights } = await supabase
-          .from("stargazer_analytics")
-          .select("created_at")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_insight_presented")
-          .order("created_at", { ascending: false })
-          .limit(1);
+        const { data: recentInsights } = await _sp.miFreqInsights; // S4: pre-fired
 
         if (recentInsights && recentInsights.length > 0) {
           lastInsightPresentedAt = new Date(recentInsights[0].created_at);
@@ -2380,12 +2383,7 @@ export async function POST(req: NextRequest) {
         }
 
         // 直近の deny/ignored 連続数を取得
-        const { data: recentReactionRows } = await supabase
-          .from("stargazer_alter_reactions")
-          .select("reaction")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(5);
+        const { data: recentReactionRows } = await _sp.denyStreak; // S4: pre-fired
         if (recentReactionRows) {
           recentDenyIgnoreStreak = 0;
           for (const r of recentReactionRows) {
@@ -2403,14 +2401,7 @@ export async function POST(req: NextRequest) {
       // ── Life Context v2: 既存コンテキスト取得 ──
       let activeLifeContext: LifeContextEntry[] = [];
       try {
-        const { data: contextRows } = await supabase
-          .from("stargazer_alter_context")
-          .select("id, category, content, source, temporality, confidence, evidence_count, last_confirmed, possibly_stale")
-          .eq("user_id", userId)
-          .eq("possibly_stale", false)
-          .gte("confidence", 0.4)
-          .order("confidence", { ascending: false })
-          .limit(10);
+        const { data: contextRows } = await _sp.lifeContext; // S4: pre-fired
 
         if (contextRows && contextRows.length > 0) {
           activeLifeContext = filterActiveContext(contextRows as LifeContextEntry[]);
@@ -2436,11 +2427,7 @@ export async function POST(req: NextRequest) {
       // ── DB から hdm_phase_state を先にロード（Trust 導出に必要） ──
       let loadedHdmState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
       try {
-        const { data: growthRow } = await supabase
-          .from("stargazer_alter_growth")
-          .select("hdm_phase_state")
-          .eq("user_id", userId)
-          .single();
+        const { data: growthRow } = await _sp.hdmState; // S4: pre-fired
         if (growthRow?.hdm_phase_state) {
           loadedHdmState = growthRow.hdm_phase_state as HdmPhaseState;
         }
@@ -2578,16 +2565,7 @@ export async function POST(req: NextRequest) {
       interface TrapScanSummary { should_suppress_mi?: boolean; should_suppress_route_c?: boolean; should_reduce_depth?: boolean }
       let lastTrapScan: TrapScanSummary | null = null;
       try {
-        const trapScanCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: trapScanRow } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata, created_at")
-          .eq("user_id", userId)
-          .eq("event", "phase5_trap_scan")
-          .gte("created_at", trapScanCutoff)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data: trapScanRow } = await _sp.trapScan; // S4: pre-fired
         if (trapScanRow?.metadata) {
           lastTrapScan = trapScanRow.metadata as TrapScanSummary;
 
@@ -2616,13 +2594,7 @@ export async function POST(req: NextRequest) {
       try {
         // 1. DB から登録済みの傷定義を取得
         let woundDefs: WoundDefinition[] = [];
-        const { data: woundRows } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "wound_definition")
-          .order("created_at", { ascending: false })
-          .limit(10);
+        const { data: woundRows } = await _sp.woundDefs; // S4: pre-fired
         if (woundRows && woundRows.length > 0) {
           woundDefs = woundRows.map(r => {
             const m = r.metadata as any;
@@ -2712,11 +2684,7 @@ export async function POST(req: NextRequest) {
         // 過去の経済シグナル蓄積数を取得
         let historicalCount = 0;
         try {
-          const { count } = await supabase
-            .from("stargazer_analytics")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", userId)
-            .eq("event", "financial_signal_detected");
+          const { count } = await _sp.financialCount; // S4: pre-fired
           historicalCount = count ?? 0;
         } catch {
           // 初回時等は静かにスキップ
@@ -2756,13 +2724,7 @@ export async function POST(req: NextRequest) {
       // ── Micro Insight Engine: シグナル検知 ──
       try {
         // 過去のシグナルを取得（analytics から）
-        const { data: prevSignalData } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_micro_signal")
-          .order("created_at", { ascending: false })
-          .limit(20);
+        const { data: prevSignalData } = await _sp.microSignals; // S4: pre-fired
 
         const previousSignals: MicroSignal[] = (prevSignalData ?? [])
           .map(d => d.metadata as MicroSignal)
@@ -2916,13 +2878,7 @@ export async function POST(req: NextRequest) {
 
       // ━━━━ フォローアップ履歴を取得（判断精度の向上に使用） ━━━━
       try {
-        const { data: recentFollowups } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_followup")
-          .order("created_at", { ascending: false })
-          .limit(30);
+        const { data: recentFollowups } = await _sp.followups; // S4: pre-fired
 
         if (recentFollowups && recentFollowups.length >= 5) {
           // ドメイン別にフィルタ（ドメイン横断の汚染を防ぐ）
@@ -3113,11 +3069,7 @@ export async function POST(req: NextRequest) {
       // ※ Stargazer の total_sessions ではなく、Alter が実際に観測した判断回数を使う
       alterSessionCount = 0;
       try {
-        const { data: decisionCounts } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("observation_count")
-          .eq("user_id", userId)
-          .eq("pattern_type", "decision");
+        const { data: decisionCounts } = await _sp.sessionCount; // S4: pre-fired
         if (decisionCounts) {
           alterSessionCount = decisionCounts.reduce((sum, r) => sum + (r.observation_count ?? 0), 0);
         }
@@ -3141,14 +3093,7 @@ export async function POST(req: NextRequest) {
       // P2: stable/strengthening 仮説を facts レイヤーに注入するために事前取得
       let hypothesisFactEntries: HypothesisFactEntry[] | null = null;
       try {
-        const { data: stableHypotheses } = await supabase
-          .from("stargazer_alter_hypotheses")
-          .select("content, hypothesis_type, confidence, status, domains, evidence_count, created_at, last_evaluated")
-          .eq("user_id", userId)
-          .in("status", ["stable", "strengthening"])
-          .gte("confidence", 0.5)
-          .order("confidence", { ascending: false })
-          .limit(5);
+        const { data: stableHypotheses } = await _sp.hypotheses; // S4: pre-fired
         if (stableHypotheses && stableHypotheses.length > 0) {
           hypothesisFactEntries = stableHypotheses as HypothesisFactEntry[];
         }
@@ -3159,10 +3104,7 @@ export async function POST(req: NextRequest) {
       let baselineDeviationEntries: BaselineDeviationEntry[] | null = null;
       baselineDeviationsFull = [];
       try {
-        const { data: allPatterns } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("pattern_type, pattern_key, observation_count, pattern_data, confidence")
-          .eq("user_id", userId);
+        const { data: allPatterns } = await _sp.allPatterns; // S4: pre-fired
 
         if (allPatterns && allPatterns.length > 0) {
           const userBaseline = computeUserBaseline(allPatterns);
@@ -3230,14 +3172,7 @@ export async function POST(req: NextRequest) {
       // ── P6: 関係マップ読み出し ──
       let personMapFactEntries: PersonMapFactEntry[] | null = null;
       try {
-        const { data: personMapRows } = await supabase
-          .from("stargazer_alter_person_map")
-          .select("label, role, sentiment_trend, last_sentiment, influence_score, mention_count")
-          .eq("user_id", userId)
-          .gte("influence_score", 0.5)
-          .gte("mention_count", 2)
-          .order("influence_score", { ascending: false })
-          .limit(5);
+        const { data: personMapRows } = await _sp.personMap; // S4: pre-fired
         if (personMapRows && personMapRows.length > 0) {
           personMapFactEntries = personMapRows as PersonMapFactEntry[];
           console.info(`[person-map] P6: ${personMapRows.length} high-influence person(s) loaded: ${personMapRows.map(p => `${p.label}(${p.influence_score.toFixed(2)})`).join(", ")}`);
@@ -3780,14 +3715,16 @@ export async function POST(req: NextRequest) {
 必須構造:
 1. 比較軸を最低2つ設定し、各軸でA vs Bを明示する
    例: 「働き方: Aはフレックス＋リモート、Bは出社中心」「技術: Aはデータ分析特化、Bはフルスタック」
-   使える軸: 働き方/文化、業務内容/技術、安定/成長性、年収/待遇、規模/チーム構成
-2. 各軸の比較に、検索で得た具体的データを最低1つ含める（数値・利用率・市場シェア・制度名・ライブラリ名・具体的な特徴など）
-   データがない軸でも、固有名詞（ツール名・プラットフォーム名・制度名など）を必ず1つは入れる
+   使える軸: 働き方/文化、業務内容/技術、安定/成長性、年収/待遇、規模/チーム構成、収入安定性、社会保障/税・保険、案件獲得/市場需要
+2. 各軸の比較に、検索で得た具体的データを最低1つ含める（数値・利用率・年収額・制度名・調査名・統計データなど）
+   データがない軸でも、固有名詞（制度名・ツール名・プラットフォーム名など）を必ず1つは入れる
+   ※ 外部情報の「データ:」行に数値・制度名があれば、省略せず必ず回答本文に使うこと
 3. 最後に「たいしさんには○○の方が合っていると思う」と必ず明言する
 4. その理由をパーソナルモデルから1文で述べる（性格・判断傾向・働き方の好みから）
 5. 推さなかった方にも「ただし○○の点では△△の方が良い」とバランス情報を1文添える
 禁止:
 - 1軸だけで結論を出すこと — 必ず2軸以上で比較する
+- 外部情報に数値や制度名があるのに省略して性格分析だけで結論を出すこと
 - 「どちらもいい面がある」「それぞれに魅力がある」で終わること — 必ず片方を推す
 - 比較対象の説明だけで終わること — 必ず「たいしさんには」の結論で締める
 - 検索で得た情報を無視して一般論だけで比較すること
@@ -6025,6 +5962,8 @@ export async function POST(req: NextRequest) {
 
       // P1.7: prompt構築完了 → main LLM call 開始の境界
       latencyTracker.promptBuildMs = Date.now() - routeStart;
+      // S3: プロンプトサイズ追跡（mainLLM外れ値の原因特定用）
+      latencyTracker.mainPromptChars = (homeSystemPrompt?.length ?? 0) + (homeUserPrompt?.length ?? 0);
       const mainLlmStart = Date.now();
 
       // 1回目の生成
@@ -8822,6 +8761,14 @@ export async function POST(req: NextRequest) {
     latencyTracker.postProcessingMs = Date.now() - routeStart - (latencyTracker.promptBuildMs ?? 0) - (latencyTracker.mainLlmMs ?? 0) - (latencyTracker.validationRetryMs ?? 0);
     latencyTracker.totalMs = Date.now() - routeStart;
     latencyTracker.peMs = peResult?.latencyBreakdown?.totalMs ?? 0;
+    // S1: PE内部breakdown（速度最適化分析用）
+    if (peResult?.latencyBreakdown) {
+      latencyTracker.peQueryGenMs = peResult.latencyBreakdown.queryGenerationMs;
+      latencyTracker.peSearchMs = peResult.latencyBreakdown.searchMs;
+      latencyTracker.peClassifyMs = peResult.latencyBreakdown.classificationMs;
+      latencyTracker.peQualityGateMs = peResult.latencyBreakdown.qualityGateMs;
+      latencyTracker.pePromptBuildMs = peResult.latencyBreakdown.promptBuildMs;
+    }
 
     return NextResponse.json({
       ok: true,

@@ -1,0 +1,158 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T09:28:03.262Z",
+    "caseCount": 3,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 15640,
+        "p90Ms": 16524,
+        "minMs": 15311,
+        "maxMs": 16524
+      },
+      "pe": {
+        "medianMs": 7470,
+        "p90Ms": 8528
+      },
+      "mainLlm": {
+        "medianMs": 2605,
+        "p90Ms": 3019
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 912,
+          "p90Ms": 1616
+        },
+        "search": {
+          "medianMs": 1582,
+          "p90Ms": 1797
+        },
+        "classify": {
+          "medianMs": 5504,
+          "p90Ms": 5544
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 0
+        },
+        "promptBuild": {
+          "medianMs": 1,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 16524,
+      "responseText": "たいしさん、IT業界の最新トレンドをWEBで調べてか。今いちばんしんどいのはどの部分？",
+      "latencyBreakdown": {
+        "dbInitMs": 1708,
+        "geminiReadingMs": 1976,
+        "postGeminiStartMs": 3691,
+        "preProcessingMs": 4100,
+        "promptBuildMs": 10044,
+        "mainPromptChars": 11204,
+        "mainLlmMs": 2605,
+        "validationRetryMs": 2445,
+        "postProcessingMs": 126,
+        "totalMs": 15220,
+        "peMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 15311,
+      "responseText": "データ分析に強いIT企業について、いくつか候補を調べてみたよ。たいしさんは分析的寄りの傾向があるから、データや根拠を重視する企業文化は合うと思う。\nまず、イプロスでデータ分析のメーカー・企業ランキング1位に挙がっているネットビジネスサポート株式会社があるね。こういう実績が明確なところは、たいしさんの判断基準に合いそう。次に、TDSE株式会社はAI導入からデータ分析基盤構築、DX推進まで幅広く手掛けていて、600社以上の企業の意思決定を支援しているんだ。個で深く集中する力があるたいしさんなら、専門性の高い分野で力を発揮できるんじゃないかな。\n他には、GBase GTM インサイトのレポートにもあるように、日本IT業界はAIやクラウド、SaaSといった新興企業が競争を再構築している時期だから、そういった新しい技術に強い企業も選択肢になると思う。\n僕が調べられる範囲ではこれらが具体的な候補として出てきたけど、この中で気になる企業や、もう少し深掘りしたいところがあれば教えてほしいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 442,
+        "geminiReadingMs": 3185,
+        "postGeminiStartMs": 3638,
+        "preProcessingMs": 4089,
+        "promptBuildMs": 11995,
+        "mainPromptChars": 12922,
+        "mainLlmMs": 3019,
+        "validationRetryMs": 4,
+        "postProcessingMs": 149,
+        "totalMs": 15167,
+        "peMs": 7470,
+        "peQueryGenMs": 207,
+        "peSearchMs": 1797,
+        "peClassifyMs": 5464,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [
+        "株式会社があるね",
+        "株式会社はAI導入からデータ分析基盤構築"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 15640,
+      "responseText": "たいしさんにはフリーランスの方が合っていると僕は思うよ。特に、混沌の中から筋を見つけて深く集中して本質を探るプロセスに達成感を感じるたいしさんにとって、フリーランスは自分のペースで仕事を選び、その探求に没頭できる環境を作りやすいんじゃないかな。\n働き方としては、フリーランスはフレックスやリモートワークがしやすく、自分の集中できる時間帯に合わせて働ける自由度が高い一方で、正社員は出社中心で働くことが多いよね。年収面では、フリーランスの平均年収は425万円とされているけれど、中央値は300万円台で、中には1,000万円を超える人もいるように、働き方や職種によってかなり幅があるんだ。正社員は安定した収入が得やすい反面、年収アップの幅は会社の制度に縛られることが多い。\nただし、正社員には社会保障や税金、インボイスの面で会社がサポートしてくれる安心感があるから、その点はフリーランスだと自分で管理する必要があるよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 378,
+        "geminiReadingMs": 2335,
+        "postGeminiStartMs": 2715,
+        "preProcessingMs": 3001,
+        "promptBuildMs": 12508,
+        "mainPromptChars": 6151,
+        "mainLlmMs": 2564,
+        "validationRetryMs": 0,
+        "postProcessingMs": 462,
+        "totalMs": 15534,
+        "peMs": 8528,
+        "peQueryGenMs": 1616,
+        "peSearchMs": 1367,
+        "peClassifyMs": 5544,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}
