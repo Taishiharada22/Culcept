@@ -32,6 +32,124 @@ import { parseUserInput, buildDayPlan } from "./planningEngine";
 import { parseIntent, intentToPlanItems, buildIntentConfirmMessage } from "./intentParser";
 import { applyPlanEdit, addDifferentialItems } from "./planEditor";
 import { applyImplicitLocationFill, buildLocationClarifyQuestion } from "./locationClarify";
+import { generateProactiveSuggestion } from "./proactiveSuggestions";
+import type { PlanState } from "./planState";
+import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
+
+// ── v2 LLM モジュールの遅延ロード（server-only の循環回避 + テスト互換） ──
+let _extractPlanFromText: typeof import("./llmPlanExtractor").extractPlanFromText | null = null;
+let _buildPlanConfirmMessage: typeof import("./llmPlanExtractor").buildPlanConfirmMessage | null = null;
+let _buildDeltaConfirmMessage: typeof import("./llmPlanExtractor").buildDeltaConfirmMessage | null = null;
+let _planStateToPlanItems: typeof import("./llmPlanExtractor").planStateToPlanItems | null = null;
+let _removeMissingField: typeof import("./llmPlanExtractor").removeMissingField | null = null;
+let _detectDelta: typeof import("./llmDeltaParser").detectDelta | null = null;
+let _applyDelta: typeof import("./llmDeltaParser").applyDelta | null = null;
+
+async function ensureV2Modules(): Promise<boolean> {
+  if (_extractPlanFromText && _detectDelta) return true;
+  try {
+    if (!_extractPlanFromText) {
+      const ext = await import("./llmPlanExtractor");
+      _extractPlanFromText = ext.extractPlanFromText;
+      _buildPlanConfirmMessage = ext.buildPlanConfirmMessage;
+      _buildDeltaConfirmMessage = ext.buildDeltaConfirmMessage;
+      _planStateToPlanItems = ext.planStateToPlanItems;
+      _removeMissingField = ext.removeMissingField;
+    }
+    if (!_detectDelta) {
+      const delta = await import("./llmDeltaParser");
+      _detectDelta = delta.detectDelta;
+      _applyDelta = delta.applyDelta;
+    }
+    return true;
+  } catch {
+    // テスト環境等で server-only モジュールが利用できない場合は v1 フォールバック
+    return false;
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 決定論的 clarify-response ハンドラー
+// (LLM を呼ばずに missingFields への回答を直接適用)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const TRANSPORT_PATTERNS: [RegExp, TransportMode][] = [
+  [/車/, "car"],
+  [/電車/, "train"],
+  [/バス/, "bus"],
+  [/徒歩|歩[いき]/, "walk"],
+  [/自転車|チャリ/, "bicycle"],
+  [/タクシー/, "taxi"],
+  [/バイク|オートバイ/, "motorcycle"],
+];
+
+/**
+ * missingFields への直接回答を決定論的に検出・適用する。
+ * LLM を呼ばずに PlanState を更新できる場合は更新済み state を返す。
+ * 適用できない場合は null を返す（LLM delta にフォールバック）。
+ */
+function tryDirectClarifyResponse(
+  message: string,
+  state: PlanState,
+): { updatedState: PlanState; descriptions: string[] } | null {
+  if (state.missingFields.length === 0) return null;
+
+  let updated: PlanState = {
+    ...state,
+    segments: state.segments.map(s => ({ ...s, companions: [...s.companions] })),
+    missingFields: [...state.missingFields],
+  };
+  const descriptions: string[] = [];
+
+  // ── Transport ──
+  if (updated.missingFields.includes("transport")) {
+    for (const [re, mode] of TRANSPORT_PATTERNS) {
+      if (re.test(message)) {
+        updated.transport = mode;
+        updated.missingFields = updated.missingFields.filter(f => f !== "transport");
+        const labels: Record<string, string> = {
+          car: "車", train: "電車", bus: "バス", walk: "徒歩",
+          bicycle: "自転車", taxi: "タクシー", motorcycle: "バイク",
+        };
+        descriptions.push(`移動は${labels[mode] ?? mode}`);
+        break;
+      }
+    }
+  }
+
+  // ── Segment place: "打ち合わせはA社で" 等 ──
+  const placeFields = updated.missingFields.filter(f => f.startsWith("segmentPlace:"));
+  if (placeFields.length > 0) {
+    for (const field of placeFields) {
+      const parts = field.split(":");
+      const segId = parts[1];
+      const actLabel = parts.slice(2).join(":");
+      // 表記揺れ対応: "打ち合わせ"→"打ち?合わ?せ" / "ミーティング"→そのまま
+      const fuzzyLabel = actLabel
+        .replace(/打ち合わせ/, "打ち?合わ?せ")
+        .replace(/会議/, "会議")
+        .replace(/面談/, "面談");
+      // "打ち合わせは〜で" / "打合せは〜で" パターン
+      // で(?:[やす]|$) で「カフェで」末尾の「で」をターミネーターとして消費（キャプチャに含めない）
+      const placeRe = new RegExp(`${fuzzyLabel}[はの](.+?)(?:で(?:[やす]|$)|にて|$)`);
+      const match = message.match(placeRe);
+      if (match) {
+        const place = match[1].trim().replace(/で$/, ""); // 安全策: 残留「で」も除去
+        const seg = updated.segments.find(s => s.id === segId);
+        if (seg) {
+          seg.place = place;
+          seg.placeCanonical = place;
+          updated.missingFields = updated.missingFields.filter(f => f !== field);
+          descriptions.push(`${actLabel}は${place}で`);
+        }
+      }
+    }
+  }
+
+  if (descriptions.length === 0) return null;
+
+  return { updatedState: updated, descriptions };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Morning Protocol 検出
@@ -174,37 +292,46 @@ export function createSession(): MorningSession {
  * Morning Protocolのメインエントリーポイント。
  * セッションの現在フェーズに応じて処理を分岐する。
  */
-export function processMorningMessage(
+export async function processMorningMessage(
   message: string,
   session: MorningSession
-): { session: MorningSession; response: MorningProtocolResponse } {
+): Promise<{ session: MorningSession; response: MorningProtocolResponse }> {
   session.rawInputs.push(message);
+
+  let result: { session: MorningSession; response: MorningProtocolResponse };
 
   switch (session.phase) {
     case "greeting":
-      return handleGreetingPhase(message, session);
+      result = await handleGreetingPhase(message, session);
+      break;
 
     case "collecting":
-      return handleCollectingPhase(message, session);
+      result = await handleCollectingPhase(message, session);
+      break;
 
     case "clarifying":
-      return handleClarifyingPhase(message, session);
+      result = await handleClarifyingPhase(message, session);
+      break;
 
     case "plan_presented":
-      return handlePlanPresentedPhase(message, session);
+      result = await handlePlanPresentedPhase(message, session);
+      break;
 
     case "plan_confirmed":
-      return handlePlanConfirmedPhase(message, session);
+      result = handlePlanConfirmedPhase(message, session);
+      break;
 
     case "outfit_offered":
-      return handleOutfitOfferedPhase(message, session);
+      result = handleOutfitOfferedPhase(message, session);
+      break;
 
     case "outfit_clarifying":
-      return handleOutfitClarifyingPhase(message, session);
+      result = handleOutfitClarifyingPhase(message, session);
+      break;
 
     default:
       // 完了済みのセッション → 通常フローへ
-      return {
+      result = {
         session: { ...session, phase: "completed" },
         response: {
           phase: "completed",
@@ -212,16 +339,37 @@ export function processMorningMessage(
         },
       };
   }
+
+  // ── プロアクティブ提案: plan_presented 初回のみ注入 ──
+  if (
+    result.response.phase === "plan_presented" &&
+    result.response.plan &&
+    session.personalityContext
+  ) {
+    const suggestion = generateProactiveSuggestion(
+      result.response.plan,
+      session.personalityContext,
+    );
+    if (suggestion) {
+      result.session.personalizeHints.push(suggestion);
+      if (!result.response.personalizeHints) {
+        result.response.personalizeHints = [];
+      }
+      result.response.personalizeHints.push(suggestion);
+    }
+  }
+
+  return result;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // フェーズ別ハンドラー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function handleGreetingPhase(
+async function handleGreetingPhase(
   message: string,
   session: MorningSession
-): { session: MorningSession; response: MorningProtocolResponse } {
+): Promise<{ session: MorningSession; response: MorningProtocolResponse }> {
   // ユーザーの最初の入力を処理
   // メッセージ自体にタスク情報が含まれている場合はそのまま処理
   const hasContent = message.length > 10 || /[、。\n]/.test(message);
@@ -241,11 +389,19 @@ function handleGreetingPhase(
   };
 }
 
-function handleCollectingPhase(
+async function handleCollectingPhase(
   message: string,
   session: MorningSession
-): { session: MorningSession; response: MorningProtocolResponse } {
-  // ── Step 1: 新しい構造化パーサーでインテントを抽出 ──
+): Promise<{ session: MorningSession; response: MorningProtocolResponse }> {
+  // ── v2: LLM ベースの構造化抽出を試行 ──
+  const v2Ready = await ensureV2Modules();
+  const planState = v2Ready ? await _extractPlanFromText!(message).catch(() => null) : null;
+
+  if (planState && planState.segments.length > 0) {
+    return handleCollectingPhaseV2(planState, message, session);
+  }
+
+  // ── v1 フォールバック: regex パーサー ──
   const intent = parseIntent(message);
 
   // 既存のインテントとマージ
@@ -415,11 +571,141 @@ function handleCollectingPhase(
   };
 }
 
-function handleClarifyingPhase(
+/** v2 パイプライン: LLM抽出成功時の collecting 処理 */
+function handleCollectingPhaseV2(
+  planState: PlanState,
+  message: string,
+  session: MorningSession,
+): { session: MorningSession; response: MorningProtocolResponse } {
+  const allItems = _planStateToPlanItems!(planState);
+  const dayConditions = extractDayConditions(session.rawInputs.join(" "));
+
+  if (planState.transport && !dayConditions.mainTransport) {
+    dayConditions.mainTransport = planState.transport;
+  }
+
+  if (allItems.length === 0) {
+    return {
+      session: { ...session, phase: "collecting", planStateV2: planState },
+      response: {
+        phase: "collecting",
+        message: "今日はどんなことする予定？\nやりたいこと、決まってる予定、なんでも教えて",
+      },
+    };
+  }
+
+  // 不足フィールドで clarify 判定
+  if (planState.missingFields.length > 0) {
+    const confirmMsg = _buildPlanConfirmMessage!(planState);
+    const plan: MorningPlan = {
+      date: planState.targetDate,
+      items: allItems,
+      dayConditions: dayConditions as DayConditions,
+      createdAt: new Date().toISOString(),
+      confirmed: false,
+    };
+
+    return {
+      session: {
+        ...session,
+        phase: "clarifying",
+        plan,
+        planStateV2: planState,
+      },
+      response: {
+        phase: "clarifying",
+        message: confirmMsg,
+        plan,
+      },
+    };
+  }
+
+  // 場所 clarify
+  const { updatedItems: locFilledItems, pendingClarify } = applyImplicitLocationFill(allItems);
+
+  const plan = buildV2DayPlan(locFilledItems, dayConditions as DayConditions, planState);
+
+  if (pendingClarify.length > 0) {
+    const locQuestion = buildLocationClarifyQuestion(pendingClarify);
+    const confirmMsg = _buildPlanConfirmMessage!(planState);
+    return {
+      session: {
+        ...session,
+        phase: "clarifying",
+        plan,
+        planStateV2: planState,
+      },
+      response: {
+        phase: "clarifying",
+        message: `${confirmMsg}\n\n${locQuestion}`,
+        clarifyQuestion: locQuestion ?? undefined,
+        plan,
+      },
+    };
+  }
+
+  const confirmMsg = _buildPlanConfirmMessage!(planState);
+
+  return {
+    session: {
+      ...session,
+      phase: "plan_presented",
+      plan,
+      planStateV2: planState,
+    },
+    response: {
+      phase: "plan_presented",
+      message: confirmMsg,
+      plan,
+      personalizeHints: session.personalizeHints,
+    },
+  };
+}
+
+async function handleClarifyingPhase(
   message: string,
   session: MorningSession
-): { session: MorningSession; response: MorningProtocolResponse } {
-  // clarify回答から条件を追加抽出
+): Promise<{ session: MorningSession; response: MorningProtocolResponse }> {
+  // ── v2: PlanState がある場合 ──
+  if (session.planStateV2 && await ensureV2Modules()) {
+    // Step 1: 決定論的に clarify 回答を適用（LLM 不要）
+    const directResult = tryDirectClarifyResponse(message, session.planStateV2);
+    if (directResult) {
+      return buildClarifyV2Response(directResult.updatedState, directResult.descriptions, session, message);
+    }
+
+    // Step 2: LLM delta 検出
+    const delta = await _detectDelta!(message, session.planStateV2).catch(() => null);
+    if (delta && delta.changes.length > 0) {
+      const updatedState = _applyDelta!(session.planStateV2, delta);
+      delta.confirmSummary = _buildDeltaConfirmMessage!(updatedState, delta).replace(/^了解。/, "");
+      const confirmMsg = _buildDeltaConfirmMessage!(updatedState, delta);
+
+      return buildClarifyV2Response(updatedState, null, session, message, confirmMsg);
+    }
+
+    // Step 3: LLM も失敗 → v2 state をそのまま使い「わかった」で返す（v1 フォールバック禁止）
+    const allItems = _planStateToPlanItems!(session.planStateV2);
+    const dayConditions = buildV2DayConditions(session, message);
+    const plan = buildV2DayPlan(allItems, dayConditions, session.planStateV2);
+
+    return {
+      session: {
+        ...session,
+        phase: session.planStateV2.missingFields.length > 0 ? "clarifying" : "plan_presented",
+        plan,
+        planStateV2: session.planStateV2,
+      },
+      response: {
+        phase: session.planStateV2.missingFields.length > 0 ? "clarifying" : "plan_presented",
+        message: _buildPlanConfirmMessage!(session.planStateV2),
+        plan,
+        personalizeHints: session.personalizeHints,
+      },
+    };
+  }
+
+  // ── v1 フォールバック（planStateV2 が無いセッション向け） ──
   const newConditions = extractDayConditions(message);
   const existingConditions = session.plan?.dayConditions ?? {};
   const mergedConditions: DayConditions = {
@@ -427,21 +713,17 @@ function handleClarifyingPhase(
     ...newConditions,
   };
 
-  // 追加のインテントを解析
   const newIntent = parseIntent(message);
   const mergedIntent = mergeIntents(session.parsedIntent, newIntent);
 
-  // 追加のアイテムがあるかチェック
   const { items: additionalItems, personalizeHints } = parseUserInput(message);
   const intentItems = intentToPlanItems(mergedIntent);
   session.personalizeHints.push(...personalizeHints);
 
-  // intentItems（構造化パーサー由来）を優先。旧パーサーは intentItems が空の時のみ使用
   let finalItems: PlanItem[];
   if (intentItems.length > 0) {
     finalItems = intentItems;
   } else if (additionalItems.length > 0) {
-    // 旧パーサーの新規アイテム + 既存プランアイテム
     const existingTexts = new Set((session.plan?.items ?? []).map(i => i.text));
     const extraItems = additionalItems.filter(i => !existingTexts.has(i.text));
     finalItems = [...(session.plan?.items ?? []), ...extraItems];
@@ -449,8 +731,6 @@ function handleClarifyingPhase(
     finalItems = session.plan?.items ?? [];
   }
 
-  // プラン生成 → 即提示（clarify後は必ずプラン提示）
-  // goOut 判定: intent の flowContext または場所情報から推定（home カテゴリを除外）
   const goingOutClarify =
     mergedIntent.flowContext.goOut === true ||
     (mergedIntent.locationSequence ?? []).some(ls => ls.category !== "home") ||
@@ -482,10 +762,91 @@ function handleClarifyingPhase(
   };
 }
 
-function handlePlanPresentedPhase(
+/** v2 clarify 回答後の共通レスポンス生成 */
+function buildClarifyV2Response(
+  updatedState: PlanState,
+  descriptions: string[] | null,
+  session: MorningSession,
+  message: string,
+  overrideMessage?: string,
+): { session: MorningSession; response: MorningProtocolResponse } {
+  const allItems = _planStateToPlanItems!(updatedState);
+  const dayConditions = buildV2DayConditions(session, message);
+
+  if (updatedState.transport && !dayConditions.mainTransport) {
+    dayConditions.mainTransport = updatedState.transport;
+  }
+
+  const plan = buildV2DayPlan(allItems, dayConditions, updatedState);
+
+  const confirmMsg = overrideMessage ??
+    (descriptions
+      ? `了解。${descriptions.join("、")}${descriptions[descriptions.length - 1].endsWith("で") ? "" : "で"}更新したよ。`
+      : _buildPlanConfirmMessage!(updatedState));
+
+  if (updatedState.missingFields.length > 0) {
+    // まだ不足あり → clarifying 続行
+    const remainClarify = _buildPlanConfirmMessage!(updatedState);
+    return {
+      session: {
+        ...session,
+        phase: "clarifying",
+        plan,
+        planStateV2: updatedState,
+      },
+      response: {
+        phase: "clarifying",
+        message: `${confirmMsg}\n${remainClarify.replace(/^了解。.+?だね。\n?/, "")}`.trim(),
+        plan,
+      },
+    };
+  }
+
+  return {
+    session: {
+      ...session,
+      phase: "plan_presented",
+      plan,
+      planStateV2: updatedState,
+    },
+    response: {
+      phase: "plan_presented",
+      message: confirmMsg,
+      plan,
+      personalizeHints: session.personalizeHints,
+    },
+  };
+}
+
+/** v2 用 DayConditions マージ */
+function buildV2DayConditions(session: MorningSession, message: string): DayConditions {
+  return {
+    ...(session.plan?.dayConditions ?? {}),
+    ...extractDayConditions(message),
+  };
+}
+
+/** v2 用 buildDayPlan ラッパー（targetDate / endTime を反映） */
+function buildV2DayPlan(
+  items: PlanItem[],
+  dayConditions: DayConditions,
+  planState: PlanState,
+): MorningPlan {
+  const goOut = planState.goOut ?? planState.segments.some(s => s.place);
+  const plan = buildDayPlan(items, dayConditions, undefined, {
+    goOut,
+    targetDate: planState.targetDate,
+    endTimeConstraint: planState.endTime,
+  });
+  // targetDate を反映
+  plan.date = planState.targetDate;
+  return plan;
+}
+
+async function handlePlanPresentedPhase(
   message: string,
   session: MorningSession
-): { session: MorningSession; response: MorningProtocolResponse } {
+): Promise<{ session: MorningSession; response: MorningProtocolResponse }> {
   const trimMsg = message.trim();
   const isConfirm = /^(これ|ok|おk|いい|いく|決定|確定|大丈夫|了解|りょ)/i.test(trimMsg);
 
@@ -522,7 +883,36 @@ function handlePlanPresentedPhase(
     };
   }
 
-  // 変更リクエスト → planEditor で編集を試行
+  // ── v2: PlanState がある場合は LLM delta で処理 ──
+  if (session.planStateV2 && session.plan && await ensureV2Modules()) {
+    const delta = await _detectDelta!(message, session.planStateV2).catch(() => null);
+
+    if (delta && delta.changes.length > 0) {
+      const updatedState = _applyDelta!(session.planStateV2, delta);
+      delta.confirmSummary = _buildDeltaConfirmMessage!(updatedState, delta).replace(/^了解。/, "");
+
+      const allItems = _planStateToPlanItems!(updatedState);
+      const dayConditions = session.plan.dayConditions;
+
+      if (updatedState.transport && !dayConditions.mainTransport) {
+        dayConditions.mainTransport = updatedState.transport;
+      }
+
+      const plan = buildV2DayPlan(allItems, dayConditions, updatedState);
+
+      const confirmMsg = _buildDeltaConfirmMessage!(updatedState, delta);
+      return {
+        session: { ...session, plan, planStateV2: updatedState },
+        response: {
+          phase: "plan_presented",
+          message: confirmMsg,
+          plan,
+        },
+      };
+    }
+  }
+
+  // ── v1: 変更リクエスト → planEditor で編集を試行 ──
   if (session.plan) {
     const editResult = applyPlanEdit(message, session.plan);
 

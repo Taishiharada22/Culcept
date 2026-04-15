@@ -47,6 +47,8 @@ export interface FlowContext {
   startWindow?: "now" | "morning" | "afternoon" | "evening" | "later";
   /** 主な移動手段（intent 段階で検出） */
   transport?: TransportMode;
+  /** 終了・帰宅時刻（「18時に帰宅」→ "18:00"） */
+  endTime?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -416,6 +418,30 @@ export type MorningPhase =
   | "completed"          // 朝のフロー完了
   | "skipped";           // planning不要（通常Alterフロー）
 
+/**
+ * ユーザーの性格軸スコア（プロアクティブ提案に使用）
+ * alter route で解決済みの axisScores から、プラン提案に関連する軸だけ抽出して渡す。
+ * 値域: -1.0（左極）〜 +1.0（右極）。0 = 未観測 or 中間。
+ */
+export interface PersonalityContext {
+  /** 内向的(-1) ↔ 外向的(+1) */
+  introvert_vs_extrovert?: number;
+  /** 計画的(-1) ↔ 即興的(+1) */
+  plan_vs_spontaneous?: number;
+  /** 完成度重視(-1) ↔ 実用・前進重視(+1) */
+  perfectionist_vs_pragmatic?: number;
+  /** 一人で整理(-1) ↔ 人と回復(+1) */
+  stress_isolation_vs_social?: number;
+  /** 機能・合理(-1) ↔ 表現・情緒(+1) */
+  function_vs_expression?: number;
+  /** 慎重(-1) ↔ 大胆(+1) */
+  cautious_vs_bold?: number;
+  /** エネルギーリズム: 朝型(-1) ↔ 夜型(+1) — expansion 軸 */
+  energy_rhythm?: number;
+  /** 決断テンポ: 即断(-1) ↔ 熟慮(+1) — cognitive 軸 */
+  decision_tempo?: number;
+}
+
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
@@ -427,12 +453,16 @@ export interface MorningSession {
   plan?: MorningPlan;
   /** 構造化された意図（パース結果） */
   parsedIntent?: ParsedDayIntent;
+  /** v2 PlanState（LLMベースの構造化状態） */
+  planStateV2?: import("./planState").PlanState;
   /** 充足判定結果 */
   sufficiency?: SufficiencyResult;
   /** パーソナライズメッセージ（「前回は90分で組んでたよ」等） */
   personalizeHints: string[];
   /** セッション開始時刻 */
   startedAt: string;
+  /** ユーザーの性格コンテキスト（alter route から注入） */
+  personalityContext?: PersonalityContext;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

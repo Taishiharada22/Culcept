@@ -785,6 +785,7 @@ export default function AneurasyncHome() {
                 alterCounselorSoftLink={alterChat.lastCounselorSoftLink}
                 morningPlan={alterChat.morningPlan}
                 morningPhase={alterChat.morningPhase}
+                morningPersonalizeHints={alterChat.morningPersonalizeHints}
                 onMorningPlanConfirm={(plan) => {
                   alterChat.setMorningPlan(plan);
                   // プラン確定後、コーデ提案を聞く

@@ -83,6 +83,8 @@ interface PersistedMorningSession {
   parsedIntent: ParsedDayIntent | null;
   sufficiency: SufficiencyResult | null;
   personalizeHints: string[];
+  // v2: PlanState ラウンドトリップ
+  planStateV2?: any;
 }
 
 function saveMorningSession(session: PersistedMorningSession): void {
@@ -179,6 +181,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningParsedIntent, setMorningParsedIntent] = useState<ParsedDayIntent | null>(restoredSession?.parsedIntent ?? null);
   const [morningSufficiency, setMorningSufficiency] = useState<SufficiencyResult | null>(restoredSession?.sufficiency ?? null);
   const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>(restoredSession?.personalizeHints ?? []);
+  // v2: PlanState ラウンドトリップ
+  const [morningPlanStateV2, setMorningPlanStateV2] = useState<any>(restoredSession?.planStateV2 ?? null);
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -207,8 +211,9 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       parsedIntent: morningParsedIntent,
       sufficiency: morningSufficiency,
       personalizeHints: morningPersonalizeHints,
+      planStateV2: morningPlanStateV2,
     });
-  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints]);
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -264,6 +269,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               personalizeHints: morningPersonalizeHints,
               parsedIntent: morningParsedIntent ?? undefined,
               sufficiency: morningSufficiency ?? undefined,
+              planStateV2: morningPlanStateV2 ?? undefined,
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
@@ -359,6 +365,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (data.morningProtocol.personalizeHints) {
           setMorningPersonalizeHints(data.morningProtocol.personalizeHints);
         }
+        // v2: PlanState ラウンドトリップ
+        if (data.morningProtocol.planStateV2 !== undefined) {
+          setMorningPlanStateV2(data.morningProtocol.planStateV2);
+        }
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -372,7 +382,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -448,5 +458,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     morningPhase,
     /** Morning Protocol: プランを更新（UI操作後） */
     setMorningPlan,
+    /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */
+    morningPersonalizeHints,
   } as const;
 }

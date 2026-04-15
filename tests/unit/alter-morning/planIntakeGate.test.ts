@@ -195,11 +195,11 @@ describe("buildPlanClarifyQuestion", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("E2E: morningProtocol Plan Intake Gate", () => {
-  test("外出 + transport 不明 → clarifying フェーズへ遷移し、transport を聞く", () => {
+  test("外出 + transport 不明 → clarifying フェーズへ遷移し、transport を聞く", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "マックで仕事する予定",
       session
     );
@@ -210,11 +210,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion).toContain("移動");
   });
 
-  test("社会的活動 + withWhom 不明 → clarifying で withWhom を聞く", () => {
+  test("社会的活動 + withWhom 不明 → clarifying で withWhom を聞く", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "車でカフェに行ってミーティングする",
       session
     );
@@ -224,11 +224,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion).toContain("誰か");
   });
 
-  test("transport + withWhom 両方不明 → 1問に束ねて聞く", () => {
+  test("transport + withWhom 両方不明 → 1問に束ねて聞く", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "カフェでミーティングする",
       session
     );
@@ -239,11 +239,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion).toContain("誰か");
   });
 
-  test("全て揃っている → plan_presented へ直行", () => {
+  test("全て揃っている → plan_presented へ直行", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "車で友達とスタバに行ってランチする",
       session
     );
@@ -252,11 +252,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.plan).toBeDefined();
   });
 
-  test("在宅プラン → transport 不要で plan_presented へ直行", () => {
+  test("在宅プラン → transport 不要で plan_presented へ直行", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "家にいるよ。掃除と洗濯する",
       session
     );
@@ -264,18 +264,18 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(updated.phase).toBe("plan_presented");
   });
 
-  test("clarify 回答後 → plan_presented へ遷移", () => {
+  test("clarify 回答後 → plan_presented へ遷移", async () => {
     // Step 1: 外出 + transport 不明 → clarifying
     const session = createSession();
     session.phase = "collecting";
-    const { session: s1 } = processMorningMessage(
+    const { session: s1 } = await processMorningMessage(
       "マックで仕事する予定",
       session
     );
     expect(s1.phase).toBe("clarifying");
 
     // Step 2: transport 回答 → plan_presented
-    const { session: s2, response: r2 } = processMorningMessage(
+    const { session: s2, response: r2 } = await processMorningMessage(
       "車で行くよ",
       s1
     );
@@ -287,11 +287,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
   // CEO 指定 4ケース（2026-04-13 生活導線E2E）
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  test("CEO Case 1: 「田中さんと打ち合わせ」→ withWhom を聞くか", () => {
+  test("CEO Case 1: 「田中さんと打ち合わせ」→ withWhom を聞くか", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "田中さんと打ち合わせする",
       session
     );
@@ -306,11 +306,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     }
   });
 
-  test("CEO Case 2: 「家にいるよ。読書する」→ goOut=false で transport 不問", () => {
+  test("CEO Case 2: 「家にいるよ。読書する」→ goOut=false で transport 不問", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "家にいるよ。読書する",
       session
     );
@@ -322,11 +322,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion ?? "").not.toContain("移動");
   });
 
-  test("CEO Case 3: 「車で公園に行って散歩する」→ transport=car（walk に寄らない）", () => {
+  test("CEO Case 3: 「車で公園に行って散歩する」→ transport=car（walk に寄らない）", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "車で公園に行って散歩する",
       session
     );
@@ -339,11 +339,11 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion ?? "").not.toContain("移動");
   });
 
-  test("CEO Case 4: 「マックで仕事して、そのあとAさんと会う」→ who/where/transport が自然に揃うか", () => {
+  test("CEO Case 4: 「マックで仕事して、そのあとAさんと会う」→ who/where/transport が自然に揃うか", async () => {
     const session = createSession();
     session.phase = "collecting";
 
-    const { session: updated, response } = processMorningMessage(
+    const { session: updated, response } = await processMorningMessage(
       "マックで仕事して、そのあとAさんと会う",
       session
     );
@@ -359,7 +359,7 @@ describe("E2E: morningProtocol Plan Intake Gate", () => {
     expect(response.clarifyQuestion).not.toContain("誰か");
 
     // Step 2: transport 回答 → plan_presented
-    const { session: s2, response: r2 } = processMorningMessage(
+    const { session: s2, response: r2 } = await processMorningMessage(
       "車で行くよ",
       updated
     );

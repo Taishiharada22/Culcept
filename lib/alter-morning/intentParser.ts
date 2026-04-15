@@ -499,7 +499,7 @@ function detectCompanion(text: string): string | undefined {
  * 「して、そのあとAさん」のような誤捕獲を防ぐ。
  */
 const COMPANION_ACTIVITY_RE =
-  /([^、。\n\s]{1,10}?)と(食事|ご飯|ランチ|ディナー|飲み|会う|遊ぶ|ミーティング|会議|打ち合わせ|面談|面接|商談|相談)(する|した|して|しよう|の予定)?/g;
+  /([^、。\n\s]{1,10}?)と(?:仕事の|お?)?(食事|ご飯|ランチ|ディナー|飲み|会う|遊ぶ|ミーティング|会議|打ち合わせ|面談|面接|商談|相談)(する|した|して|しよう|の予定)?/g;
 
 function detectCompanionActivities(text: string): Array<{
   companion: string;
@@ -521,12 +521,14 @@ function detectCompanionActivities(text: string): Array<{
     // companion が空、または明らかに companion ではないパターンを除外
     if (!companion || companion.length < 1) continue;
 
-    // 接続語プレフィックスを除去（「そのあとAさん」→「Aさん」）
-    companion = companion.replace(/^(そのあと|その後|あとは|それから|次は|次に|そして|あと)/, "").trim();
+    // 接続語・時間帯プレフィックスを除去（「そのあとAさん」→「Aさん」「午後からA君」→「A君」）
+    companion = companion.replace(/^(そのあと|その後|あとは|それから|次は|次に|そして|あと|午前中?|午後|朝|夕方|夜|昼)(から|に|は)?/, "").trim();
     if (!companion || companion.length < 1) continue;
 
     // 「思う」「言う」等の動詞接続は除外
     if (/[てでしるたいけげせめねれべ]$/.test(companion)) continue;
+    // 否定コンテキスト（「〜以外に〜」）のマッチは除外
+    if (/以外/.test(match[0]) || /以外/.test(companion)) continue;
     // 代名詞・時間語は除外
     if (NON_PLACE_WORDS.test(companion)) continue;
 
@@ -677,9 +679,18 @@ export function parseIntent(text: string): ParsedDayIntent {
 
   // ── Step 4: タスク候補を処理 ──
   for (const { text: seg, textPosition: candTextPos } of taskCandidates) {
-    // 時刻付き → fixedEvent
+    // 時刻付き → fixedEvent（ただし帰宅パターンは endpoint に変換）
     const time = extractTime(seg);
     if (time) {
+      // 帰宅・終了パターン — fixedEvent ではなく endpointAnchor にする
+      if (/帰宅|帰[るり]|終了|終わ[るり]|撤収|上がり|上がる/.test(seg)) {
+        if (!result.endpointAnchor) {
+          result.endpointAnchor = buildEndpointAnchor(undefined);
+        }
+        result.endpointAnchor.fixedStart = time;
+        result.flowContext.endTime = time;
+        continue;
+      }
       const cleanTitle = cleanFixedEventTitle(seg);
       if (cleanTitle.length >= 2) {
         result.fixedEvents.push({
@@ -966,7 +977,7 @@ function extractFlowContext(text: string): FlowContext {
 
 /** 保護パターン: 「〜と思う」等は「と」で分割しない */
 const TO_PROTECT_SUFFIX = /と(思[うっ]|考え|感じ|言[うっ]|聞[いく]|言わ|思っ)/;
-const TO_PROTECT_COMPANION = /(友達|友人|彼[女氏]|家族|同僚|先輩|後輩|上司|部下|子供|親|母|父|妻|夫|旦那|嫁)と/;
+const TO_PROTECT_COMPANION = /(友達|友人|彼[女氏]|家族|同僚|先輩|後輩|上司|部下|子供|親|母|父|妻|夫|旦那|嫁|.{1,5}[君さちゃん様氏]|[A-Za-z][君さちゃん様氏]?)と/;
 /** 「そのあと〜」は「と」で分割しない（ただし先頭の「あとは」は除外 — 列挙の前置詞） */
 const TO_PROTECT_CONJUNCTION = /(そのあと|のあと|んあと)/;
 
@@ -1009,10 +1020,17 @@ const NOISE_PATTERNS = [
   /^(まぁ|まあ|ちなみに|ただ|でも|けど)/,
   /^(と思[うっ]|って感じ|みたいな|的な)/,
   /^(そのあ|あとは|それから)$/,  // 接続語が分割で孤立した場合
+  /^(明日|今日|明後日|あさって)?の?予定(だけど|なんだけど|は|が|を)/, // 前置き：「明日の予定だけど」
+  /^(こんな|そんな|あんな|この|その)感じ(で|かな)?$/,
+  /^(以上|こんなもん|そんな感じ|って感じ|ざっくり)$/,
 ];
+
+/** 否定文パターン — 「〜以外に〜ない」「予定はない」等はタスクではない */
+const NEGATION_RE = /(?:以外に|しか).{0,20}(?:ない|いない|ません)|予定[はが]?(?:特に)?ない|(?:会[わう]|行か)ない/;
 
 function isNoise(text: string): boolean {
   if (text.length < 2) return true;
+  if (NEGATION_RE.test(text)) return true;
   return NOISE_PATTERNS.some(p => p.test(text));
 }
 
@@ -1038,7 +1056,7 @@ function cleanTaskText(text: string): string {
     // 時間量表現を除去（タスク名ではない）
     .replace(/(1日中|一日中|終日|ずっと|半日)\s*/, "")
     // 予定・つもり表現を除去（確度情報は FlowContext に抽出済み）
-    .replace(/(する|やる|行く)(予定|つもり)(だ|です)?(よ|ね|さ)?$/, "")
+    .replace(/(する|やる|行く)?(の)?(予定|つもり)(だ|です)?(よ|ね|さ)?$/, "")
     // 文末の意志表現を正規化
     .replace(/(よう|おう)と思[うっ]て(る|い[るた])?$/, "る")
     .replace(/(し|やり|行き|出)たいと思[うっ]て?$/, "$1たい")
@@ -1289,6 +1307,11 @@ export function buildIntentConfirmMessage(intent: ParsedDayIntent): string {
       })
       .join("、");
     parts.push(`予定は${eventList}。`);
+  }
+
+  // 終了時刻
+  if (intent.flowContext.endTime) {
+    parts.push(`${intent.flowContext.endTime}頃に終了する想定だね。`);
   }
 
   // 移動手段

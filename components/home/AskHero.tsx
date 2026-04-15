@@ -118,6 +118,8 @@ type Props = {
   morningPlan?: MorningPlan | null;
   /** Morning Protocol: 現在フェーズ */
   morningPhase?: MorningPhase | null;
+  /** Morning Protocol: パーソナライズヒント */
+  morningPersonalizeHints?: string[];
   /** Morning Protocol: プラン確定コールバック */
   onMorningPlanConfirm?: (plan: MorningPlan) => void;
   /** Morning Protocol: 変更リクエストコールバック */
@@ -241,6 +243,7 @@ export default function AskHero({
   alterCounselorSoftLink,
   morningPlan,
   morningPhase,
+  morningPersonalizeHints,
   onMorningPlanConfirm,
   onMorningPlanChange,
   morningWeather,
@@ -351,6 +354,7 @@ export default function AskHero({
         {morningPlan && (morningPhase === "plan_presented" || morningPhase === "plan_confirmed" || morningPhase === "outfit_offered" || morningPhase === "outfit_clarifying" || morningPhase === "completed") && (
           <MorningPlanCard
             plan={morningPlan}
+            personalizeHints={morningPersonalizeHints}
             onConfirm={onMorningPlanConfirm ?? (() => {})}
             onRequestChange={onMorningPlanChange ?? (() => {})}
           />

@@ -252,16 +252,34 @@ export function buildDayPlan(
   items: PlanItem[],
   dayConditions: DayConditions,
   now?: Date,
-  options?: { goOut?: boolean; returnDestination?: string; endpointAnchor?: EndpointAnchor }
+  options?: {
+    goOut?: boolean;
+    returnDestination?: string;
+    endpointAnchor?: EndpointAnchor;
+    targetDate?: string;         // "YYYY-MM-DD" — 未来日の場合は朝始まり
+    endTimeConstraint?: string;  // "HH:MM" — この時刻を超えないようスケジュール制限
+  }
 ): MorningPlan {
   const currentTime = now ?? new Date();
-  const currentHour = currentTime.getHours();
-  const currentMinute = currentTime.getMinutes();
 
-  // 開始時刻: 現在時刻を30分単位で切り上げ、最低9:00
-  const nowMinutes = currentHour * 60 + currentMinute;
-  const roundedNow = Math.ceil(nowMinutes / 30) * 30;
-  const dayStart = Math.max(roundedNow, 9 * 60); // 9:00 以降
+  // ── 未来日判定: targetDate が今日より後なら朝 9:00 始まり ──
+  const isFutureDate = options?.targetDate && options.targetDate > todayJST();
+
+  let dayStart: number;
+  if (isFutureDate) {
+    dayStart = 9 * 60; // 未来の予定は 9:00 AM 始まり
+  } else {
+    const currentHour = currentTime.getHours();
+    const currentMinute = currentTime.getMinutes();
+    const nowMinutes = currentHour * 60 + currentMinute;
+    const roundedNow = Math.ceil(nowMinutes / 30) * 30;
+    dayStart = Math.max(roundedNow, 9 * 60); // 9:00 以降
+  }
+
+  // ── endTime 制約: 終了時刻が設定されていればそれを上限にする ──
+  const dayEnd = options?.endTimeConstraint
+    ? timeToMinutes(options.endTimeConstraint)
+    : 23 * 60;
 
   // travel を除外して fixed / todo を分離（travel は後で再挿入する）
   const fixedItems = items
@@ -302,7 +320,7 @@ export function buildDayPlan(
 
       const slotEnd = i < fixedItems.length
         ? timeToMinutes(fixedItems[i].startTime!)
-        : 23 * 60; // 23:00まで
+        : dayEnd;
 
       if (slotEnd - slotStart >= todo.durationMin && slotStart >= cursor) {
         scheduled.push({ ...todo, startTime: minutesToTime(slotStart) });
@@ -346,12 +364,10 @@ export function buildDayPlan(
   );
 
   // ── Phase 3: 移動アイテム込みで時刻を再計算 ──
-  const finalItems = reassignTimes(withTravel, dayStart, fixedItems);
-
-  const today = todayJST();
+  const finalItems = reassignTimes(withTravel, dayStart, fixedItems, dayEnd);
 
   return {
-    date: today,
+    date: options?.targetDate ?? todayJST(),
     items: finalItems,
     dayConditions,
     createdAt: currentTime.toISOString(),
@@ -369,7 +385,8 @@ export function buildDayPlan(
 function reassignTimes(
   items: PlanItem[],
   dayStart: number,
-  fixedItems: PlanItem[]
+  fixedItems: PlanItem[],
+  _dayEnd?: number,
 ): PlanItem[] {
   // fixed予定はそのまま保持。travel/todo は詰め直す
   const result: PlanItem[] = [];

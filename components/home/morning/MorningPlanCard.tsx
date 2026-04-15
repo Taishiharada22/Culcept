@@ -176,21 +176,102 @@ function DurationPicker({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 開始時刻編集ポップオーバー
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function StartTimePicker({
+  current,
+  onSelect,
+  onClose,
+}: {
+  current: string | undefined;
+  onSelect: (time: string) => void;
+  onClose: () => void;
+}) {
+  const [hours, setHours] = useState(() => {
+    if (!current) return 9;
+    return parseInt(current.split(":")[0], 10);
+  });
+  const [minutes, setMinutes] = useState(() => {
+    if (!current) return 0;
+    return parseInt(current.split(":")[1], 10);
+  });
+
+  const handleConfirm = () => {
+    const time = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    onSelect(time);
+    onClose();
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-20" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 8 }}
+        className="absolute left-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[180px]"
+      >
+        <div className="text-[11px] text-gray-400 mb-2 font-medium">開始時刻を変更</div>
+        <div className="flex items-center gap-2 justify-center">
+          <select
+            value={hours}
+            onChange={(e) => setHours(parseInt(e.target.value, 10))}
+            className="px-2 py-1.5 rounded-lg border border-purple-200 text-[13px] focus:outline-none focus:border-purple-400 bg-white"
+          >
+            {Array.from({ length: 24 }, (_, i) => (
+              <option key={i} value={i}>{String(i).padStart(2, "0")}</option>
+            ))}
+          </select>
+          <span className="text-gray-400 text-[14px] font-bold">:</span>
+          <select
+            value={minutes}
+            onChange={(e) => setMinutes(parseInt(e.target.value, 10))}
+            className="px-2 py-1.5 rounded-lg border border-purple-200 text-[13px] focus:outline-none focus:border-purple-400 bg-white"
+          >
+            {[0, 15, 30, 45].map((m) => (
+              <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleConfirm}
+            className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-[12px] font-medium"
+          >
+            決定
+          </button>
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // プランアイテム行
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function PlanItemRow({
   item,
   onDurationChange,
+  onStartTimeChange,
   onToggleComplete,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
   confirmed,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
+  onStartTimeChange: (id: string, newTime: string) => void;
   onToggleComplete: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
   confirmed: boolean;
 }) {
-  const [showPicker, setShowPicker] = useState(false);
+  const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // ── 移動アイテム: 専用の軽量表示 ──
   if (item.kind === "travel") {
@@ -203,6 +284,8 @@ function PlanItemRow({
       >
         {/* 確定後のスペーサー（チェックボックス幅に合わせる） */}
         {confirmed && <div className="w-5 flex-shrink-0" />}
+        {/* 未確定: 並べ替えスペーサー */}
+        {!confirmed && <div className="w-5 flex-shrink-0" />}
 
         {/* 時刻 */}
         <span className="text-[11px] text-gray-300 w-[42px] flex-shrink-0 font-mono">
@@ -228,7 +311,7 @@ function PlanItemRow({
       layout
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`flex items-center gap-3 py-2.5 px-3 rounded-xl transition-all ${
+      className={`flex items-center gap-2 py-2.5 px-3 rounded-xl transition-all ${
         item.completed
           ? "opacity-50"
           : item.kind === "fixed"
@@ -254,15 +337,55 @@ function PlanItemRow({
         </button>
       )}
 
-      {/* 時刻 */}
-      <span className="text-[12px] text-gray-400 w-[42px] flex-shrink-0 font-mono">
-        {item.startTime ?? "──"}
-      </span>
+      {/* 並べ替えボタン（未確定時のみ） */}
+      {!confirmed && (
+        <div className="flex flex-col gap-0 flex-shrink-0">
+          <button
+            onClick={() => canMoveUp && onMoveUp(item.id)}
+            disabled={!canMoveUp}
+            className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+            title="上に移動"
+          >
+            ▲
+          </button>
+          <button
+            onClick={() => canMoveDown && onMoveDown(item.id)}
+            disabled={!canMoveDown}
+            className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+            title="下に移動"
+          >
+            ▼
+          </button>
+        </div>
+      )}
+
+      {/* 開始時刻（タップで変更） */}
+      <div className="relative flex-shrink-0 w-[42px]">
+        <button
+          onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
+          className={`text-[12px] font-mono w-full text-left ${
+            confirmed
+              ? "text-gray-400 cursor-default"
+              : "text-gray-500 hover:text-purple-600 cursor-pointer"
+          }`}
+        >
+          {item.startTime ?? "──"}
+        </button>
+        <AnimatePresence>
+          {showTimePicker && (
+            <StartTimePicker
+              current={item.startTime}
+              onSelect={(time) => onStartTimeChange(item.id, time)}
+              onClose={() => setShowTimePicker(false)}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* 絵文字 */}
       <span className="text-[14px] flex-shrink-0">{getItemEmoji(item)}</span>
 
-      {/* テキスト（what(where) は text に統合済み） */}
+      {/* テキスト */}
       <span
         className={`text-[13px] flex-1 ${
           item.completed ? "line-through text-gray-400" : "text-gray-800"
@@ -274,7 +397,7 @@ function PlanItemRow({
       {/* 所要時間（タップで変更） */}
       <div className="relative flex-shrink-0">
         <button
-          onClick={() => !confirmed && setShowPicker(!showPicker)}
+          onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
           className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
             confirmed
               ? "text-gray-400 bg-gray-50/50 cursor-default"
@@ -284,17 +407,17 @@ function PlanItemRow({
           {formatDuration(item.durationMin)}
         </button>
         <AnimatePresence>
-          {showPicker && (
+          {showDurationPicker && (
             <DurationPicker
               current={item.durationMin}
               onSelect={(min) => onDurationChange(item.id, min)}
-              onClose={() => setShowPicker(false)}
+              onClose={() => setShowDurationPicker(false)}
             />
           )}
         </AnimatePresence>
       </div>
 
-      {/* 固定予定マーク（getItemEmoji で表示済み。eventType指定時のみ追加表示） */}
+      {/* 固定予定マーク */}
       {item.kind === "fixed" && item.eventType && (
         <span className="text-[10px] text-purple-400" title="固定予定">📌</span>
       )}
@@ -342,6 +465,50 @@ export default function MorningPlanCard({
     },
     []
   );
+
+  const handleStartTimeChange = useCallback(
+    (itemId: string, newTime: string) => {
+      setPlan((prev) => {
+        const updatedItems = prev.items.map((item) =>
+          item.id === itemId ? { ...item, startTime: newTime, kind: "fixed" as const, fixedStart: true } : item
+        );
+        const cascaded = recalculateSchedule(updatedItems);
+        return { ...prev, items: cascaded };
+      });
+    },
+    []
+  );
+
+  const handleMoveUp = useCallback((itemId: string) => {
+    setPlan((prev) => {
+      // travel 以外のアイテムのみ並べ替え対象
+      const nonTravel = prev.items.filter(i => i.kind !== "travel");
+      const travelItems = prev.items.filter(i => i.kind === "travel");
+      const idx = nonTravel.findIndex(i => i.id === itemId);
+      if (idx <= 0) return prev;
+      // swap
+      const reordered = [...nonTravel];
+      [reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]];
+      // travel items を含めて再計算
+      const merged = [...reordered, ...travelItems];
+      const cascaded = recalculateSchedule(merged);
+      return { ...prev, items: cascaded };
+    });
+  }, []);
+
+  const handleMoveDown = useCallback((itemId: string) => {
+    setPlan((prev) => {
+      const nonTravel = prev.items.filter(i => i.kind !== "travel");
+      const travelItems = prev.items.filter(i => i.kind === "travel");
+      const idx = nonTravel.findIndex(i => i.id === itemId);
+      if (idx < 0 || idx >= nonTravel.length - 1) return prev;
+      const reordered = [...nonTravel];
+      [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
+      const merged = [...reordered, ...travelItems];
+      const cascaded = recalculateSchedule(merged);
+      return { ...prev, items: cascaded };
+    });
+  }, []);
 
   const handleToggleComplete = useCallback((itemId: string) => {
     setPlan((prev) => ({
@@ -413,24 +580,38 @@ export default function MorningPlanCard({
           </div>
         )}
 
-        {/* パーソナライズヒント */}
+        {/* パーソナライズヒント（最大2件: タスク学習 + プロアクティブ提案） */}
         {personalizeHints && personalizeHints.length > 0 && !plan.confirmed && (
-          <div className="text-[11px] text-purple-500/80 mb-2 px-1">
-            💡 {personalizeHints[0]}
+          <div className="space-y-1 mb-2 px-1">
+            {personalizeHints.slice(0, 2).map((hint, i) => (
+              <div key={i} className="text-[11px] text-purple-500/80">
+                💡 {hint}
+              </div>
+            ))}
           </div>
         )}
 
         {/* アイテムリスト */}
         <div className="space-y-0.5">
-          {plan.items.map((item) => (
-            <PlanItemRow
-              key={item.id}
-              item={item}
-              onDurationChange={handleDurationChange}
-              onToggleComplete={handleToggleComplete}
-              confirmed={plan.confirmed}
-            />
-          ))}
+          {plan.items.map((item) => {
+            // 並べ替え対象: travel 以外
+            const nonTravel = plan.items.filter(i => i.kind !== "travel");
+            const ntIdx = nonTravel.findIndex(i => i.id === item.id);
+            return (
+              <PlanItemRow
+                key={item.id}
+                item={item}
+                onDurationChange={handleDurationChange}
+                onStartTimeChange={handleStartTimeChange}
+                onToggleComplete={handleToggleComplete}
+                onMoveUp={handleMoveUp}
+                onMoveDown={handleMoveDown}
+                canMoveUp={item.kind !== "travel" && ntIdx > 0}
+                canMoveDown={item.kind !== "travel" && ntIdx < nonTravel.length - 1}
+                confirmed={plan.confirmed}
+              />
+            );
+          })}
         </div>
 
         {/* アクションボタン */}

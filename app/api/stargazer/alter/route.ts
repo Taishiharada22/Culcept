@@ -506,7 +506,7 @@ import {
   createSession as createMorningSession,
   processMorningMessage,
 } from "@/lib/alter-morning/morningProtocol";
-import type { MorningSession, MorningProtocolResponse } from "@/lib/alter-morning/types";
+import type { MorningSession, MorningProtocolResponse, PersonalityContext } from "@/lib/alter-morning/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -915,6 +915,8 @@ export async function POST(req: NextRequest) {
         personalizeHints?: string[];
         parsedIntent?: any;
         sufficiency?: any;
+        // v2: PlanState ラウンドトリップ
+        planStateV2?: any;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1598,6 +1600,18 @@ export async function POST(req: NextRequest) {
 
       // ── Strong: 直接 Morning Protocol に入る ──
       if (morningIntent === "strong") {
+        // 性格コンテキストを構築（プロアクティブ提案用）
+        const personalityCtx: PersonalityContext = {
+          introvert_vs_extrovert: axisScores.introvert_vs_extrovert ?? 0,
+          plan_vs_spontaneous: axisScores.plan_vs_spontaneous ?? 0,
+          perfectionist_vs_pragmatic: axisScores.perfectionist_vs_pragmatic ?? 0,
+          stress_isolation_vs_social: axisScores.stress_isolation_vs_social ?? 0,
+          function_vs_expression: axisScores.function_vs_expression ?? 0,
+          cautious_vs_bold: axisScores.cautious_vs_bold ?? 0,
+          energy_rhythm: axisScores.energy_rhythm ?? 0,
+          decision_tempo: axisScores.decision_tempo ?? 0,
+        };
+
         // 既存セッション復元 or 新規作成
         // P0-1: parsedIntent / rawInputs / sufficiency をクライアントから復元する。
         // これがないと2ターン目で intent がゼロリセットされ、
@@ -1612,11 +1626,14 @@ export async function POST(req: NextRequest) {
             plan: rawMorningSession!.plan ?? undefined,
             parsedIntent: rawMorningSession!.parsedIntent ?? undefined,
             sufficiency: rawMorningSession!.sufficiency ?? undefined,
+            planStateV2: rawMorningSession!.planStateV2 ?? undefined,
+            personalityContext: personalityCtx,
           };
         } else {
           morningSession = createMorningSession();
+          morningSession.personalityContext = personalityCtx;
         }
-        const result = processMorningMessage(message, morningSession);
+        const result = await processMorningMessage(message, morningSession);
         morningSession = result.session;
         morningResponse = result.response;
 
@@ -8768,6 +8785,10 @@ export async function POST(req: NextRequest) {
       latencyTracker.peClassifyMs = peResult.latencyBreakdown.classificationMs;
       latencyTracker.peQualityGateMs = peResult.latencyBreakdown.qualityGateMs;
       latencyTracker.pePromptBuildMs = peResult.latencyBreakdown.promptBuildMs;
+      // L1 breakdown（Chained Exploration）
+      if (peResult.latencyBreakdown.l1) {
+        latencyTracker.peL1 = peResult.latencyBreakdown.l1;
+      }
     }
 
     return NextResponse.json({
@@ -8796,6 +8817,8 @@ export async function POST(req: NextRequest) {
           rawInputs: morningSession?.rawInputs ?? [],
           parsedIntent: morningSession?.parsedIntent ?? null,
           sufficiency: morningSession?.sufficiency ?? null,
+          // ── v2: PlanState ラウンドトリップ ──
+          planStateV2: morningSession?.planStateV2 ?? null,
         },
       } : {}),
       ...(queryContext ? {

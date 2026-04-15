@@ -1149,7 +1149,7 @@ export const ACTIVITY_TABLE: ActivityEntry[] = [
     venue: "outdoor",
   },
   {
-    canonical: "食事会",
+    canonical: "食事",
     aliases: ["食事会", "食事", "ご飯食べに行く", "外食", "食べに行く"],
     category: "social_meal",
     defaultDurationMin: 60,
