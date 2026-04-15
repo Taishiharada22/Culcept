@@ -840,7 +840,13 @@ export default function ChatClient({ threadId }: Props) {
       const data = await res.json();
       if (!res.ok || !data.ok) {
         console.warn(`[intent-check] ${res.status}`, data);
-        setIntentCheck(prev => ({ ...prev, checking: false }));
+        setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
+        return;
+      }
+      // skipped = プロファイル不足等で機能利用不可 → UIに何も出さない
+      if (data.skipped) {
+        console.info("[intent-check] skipped:", data.skipReason);
+        setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
         return;
       }
       setIntentCheck({ checking: false, result: data, visible: true });
@@ -867,6 +873,8 @@ export default function ChatClient({ threadId }: Props) {
       const data = await res.json();
       if (!res.ok || !data.ok) {
         console.warn(`[intent-translate] ${res.status}`, data);
+      } else if (data.skipped) {
+        console.info("[intent-translate] skipped:", data.skipReason);
       } else if (data.bubbleHint?.show) {
         setBubbleHints(prev => new Map(prev).set(messageId, {
           hintText: data.bubbleHint.hintText,

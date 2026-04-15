@@ -146,29 +146,19 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (!senderProfile || !receiverProfile) {
-    // 欠けている側の詳細診断を実行
-    const [senderDiag, receiverDiag] = await Promise.all([
-      !senderProfile ? diagnoseProfileData(supabase, senderUserId) : null,
-      !receiverProfile ? diagnoseProfileData(supabase, user.id) : null,
-    ]);
-
+    // プロファイル不足 → 422 ではなく 200 + skipped で graceful skip
+    // 相手が Stargazer 未実施の場合、intent 機能は使えないが、エラーにはしない
     return NextResponse.json({
-      ok: false,
-      code: "profile_incomplete",
+      ok: true,
+      skipped: true,
+      skipReason: "profile_incomplete",
+      bubbleHint: { show: false, skipReason: "profile_incomplete" },
+      bubbleState: body.bubbleState ?? { hintsShownToday: 0, lastHintAt: null },
       details: {
-        messageId,
-        threadId,
-        senderUserId,
-        receiverUserId: user.id,
         hasSenderProfile: !!senderProfile,
         hasReceiverProfile: !!receiverProfile,
-        // 欠けている側のみ詳細を返す
-        ...(senderDiag && { sender: senderDiag }),
-        ...(receiverDiag && { receiver: receiverDiag }),
-        requiredMinimumAxes: 5,
-        totalAxes: INTENT_TRANSLATION_AXES.length,
       },
-    }, { status: 422 });
+    });
   }
 
   // ── 会話履歴（直近5ターン） ──
