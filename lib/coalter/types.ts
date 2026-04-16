@@ -162,6 +162,8 @@ export interface ConversationAnalysis {
   caringIntensityB: number;
   /** 会話から抽出された制約（日時、場所、予算等） */
   extractedConstraints: ExtractedConstraints;
+  /** 条件充足度（0.0〜1.0）— 推薦に必要な条件がどれだけ揃っているか */
+  constraintScore: number;
 }
 
 export type ConversationTheme =

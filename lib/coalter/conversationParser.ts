@@ -298,6 +298,75 @@ export async function fetchRecentMessages(
     }));
 }
 
+// ─────────────────────────────────────────────
+// 条件充足度スコア
+// ─────────────────────────────────────────────
+
+/**
+ * テーマごとに「推薦に必要な条件がどれだけ揃っているか」を0.0〜1.0で返す。
+ *
+ * 条件充足度が高い → CoAlterが自動提案する根拠。
+ * 話題転換ではなく、トピック内の情報が揃ったタイミングで出す。
+ */
+function computeConstraintScore(
+  theme: ConversationTheme,
+  constraints: ExtractedConstraints,
+  messages: ConversationTurn[],
+): number {
+  // テーマ別の必要条件と重み
+  const requirements: Record<ConversationTheme, Array<{ check: () => boolean; weight: number }>> = {
+    food: [
+      { check: () => constraints.location !== null, weight: 0.25 },      // エリア
+      { check: () => constraints.budget !== null, weight: 0.15 },        // 予算
+      { check: () => constraints.timeSlot !== null, weight: 0.15 },      // 時間帯
+      { check: () => constraints.preferences.length > 0, weight: 0.25 }, // 雰囲気・ジャンル
+      { check: () => messages.length >= 4, weight: 0.2 },                // 会話量
+    ],
+    movie: [
+      { check: () => constraints.date !== null, weight: 0.2 },           // いつ
+      { check: () => constraints.location !== null, weight: 0.15 },      // エリア
+      { check: () => constraints.preferences.length > 0, weight: 0.3 },  // ジャンル希望
+      { check: () => messages.length >= 3, weight: 0.2 },                // 会話量
+      { check: () => constraints.timeSlot !== null, weight: 0.15 },      // 時間帯
+    ],
+    travel: [
+      { check: () => constraints.date !== null, weight: 0.25 },
+      { check: () => constraints.location !== null, weight: 0.2 },
+      { check: () => constraints.budget !== null, weight: 0.2 },
+      { check: () => constraints.preferences.length > 0, weight: 0.2 },
+      { check: () => messages.length >= 4, weight: 0.15 },
+    ],
+    activity: [
+      { check: () => constraints.location !== null, weight: 0.2 },
+      { check: () => constraints.date !== null, weight: 0.2 },
+      { check: () => constraints.preferences.length > 0, weight: 0.3 },
+      { check: () => messages.length >= 3, weight: 0.15 },
+      { check: () => constraints.timeSlot !== null, weight: 0.15 },
+    ],
+    schedule: [
+      { check: () => constraints.date !== null, weight: 0.4 },
+      { check: () => constraints.timeSlot !== null, weight: 0.3 },
+      { check: () => messages.length >= 3, weight: 0.3 },
+    ],
+    gift: [
+      { check: () => constraints.budget !== null, weight: 0.25 },
+      { check: () => constraints.preferences.length > 0, weight: 0.35 },
+      { check: () => messages.length >= 3, weight: 0.2 },
+      { check: () => constraints.date !== null, weight: 0.2 },
+    ],
+    general: [
+      { check: () => messages.length >= 4, weight: 1.0 },
+    ],
+  };
+
+  const reqs = requirements[theme] ?? requirements.general;
+  let score = 0;
+  for (const req of reqs) {
+    if (req.check()) score += req.weight;
+  }
+  return Math.min(1, score);
+}
+
 /**
  * 会話を分析し、CoAlterに必要なコンテキストを生成する。
  */
@@ -306,12 +375,15 @@ export function analyzeConversation(
   userAId: string,
   userBId: string,
 ): ConversationAnalysis {
+  const theme = detectTheme(messages);
+  const constraints = extractConstraints(messages);
   return {
-    theme: detectTheme(messages),
+    theme,
     stalemate: detectStalemate(messages),
     recentMessages: messages,
     caringIntensityA: estimateCaringIntensity(messages, userAId),
     caringIntensityB: estimateCaringIntensity(messages, userBId),
-    extractedConstraints: extractConstraints(messages),
+    extractedConstraints: constraints,
+    constraintScore: computeConstraintScore(theme, constraints, messages),
   };
 }

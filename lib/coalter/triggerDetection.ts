@@ -155,6 +155,43 @@ export function detectCoAlterTrigger(
   return NONE_RESULT(trimmed);
 }
 
+/**
+ * 条件充足度ベースのトリガー判定（Phase 1.5）。
+ *
+ * テーマ検出 + 条件充足度スコアから、CoAlterの自動提案タイミングを判定。
+ * 「話題転換」ではなく「トピック内の情報が揃った」ことがトリガー。
+ *
+ * @param constraintScore - 0.0〜1.0（computeConstraintScore の結果）
+ * @param theme - 検出されたテーマ
+ * @param context - 除外条件
+ * @returns TriggerInfo（soft or none）
+ */
+export function detectConstraintTrigger(
+  constraintScore: number,
+  theme: string,
+  context: TriggerContext,
+): TriggerInfo {
+  // 除外条件
+  if (!context.isEnabled) return NONE_RESULT("");
+  if (context.recentProposalWithin5Min) return NONE_RESULT("");
+  if (!context.bothParticipated) return NONE_RESULT("");
+
+  // general テーマでは自動提案しない
+  if (theme === "general" || theme === "schedule") return NONE_RESULT("");
+
+  // 充足度閾値: 0.6以上で自動提案
+  const THRESHOLD = 0.6;
+  if (constraintScore >= THRESHOLD) {
+    return {
+      confidence: "soft",
+      matchedPattern: `constraint_fulfilled_${theme}`,
+      message: `条件充足度 ${Math.round(constraintScore * 100)}%`,
+    };
+  }
+
+  return NONE_RESULT("");
+}
+
 function NONE_RESULT(message: string): TriggerInfo {
   return { confidence: "none", matchedPattern: null, message };
 }

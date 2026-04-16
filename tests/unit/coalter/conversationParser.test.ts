@@ -146,4 +146,52 @@ describe("conversationParser", () => {
       expect(r.stalemate).toBeNull();
     });
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 条件充足度スコア
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  describe("条件充足度（constraintScore）", () => {
+    it("食事: エリア+ジャンル+予算+時間帯 → 高い充足度", () => {
+      const msgs = turns(
+        [USER_A, "渋谷で今夜ディナー行こう"],
+        [USER_B, "フレンチがいいな"],
+        [USER_A, "1万円以内で"],
+        [USER_B, "落ち着いたところがいい"],
+        [USER_A, "いいね"],
+      );
+      const r = analyzeConversation(msgs, USER_A, USER_B);
+      expect(r.theme).toBe("food");
+      expect(r.constraintScore).toBeGreaterThanOrEqual(0.6);
+    });
+
+    it("食事: エリアだけ → 低い充足度", () => {
+      const msgs = turns(
+        [USER_A, "渋谷で何か食べよう"],
+        [USER_B, "いいね"],
+      );
+      const r = analyzeConversation(msgs, USER_A, USER_B);
+      expect(r.constraintScore).toBeLessThan(0.6);
+    });
+
+    it("映画: ジャンル+日時 → 中程度", () => {
+      const msgs = turns(
+        [USER_A, "今週末映画見よう"],
+        [USER_B, "アクション系がいい"],
+        [USER_A, "いいね"],
+      );
+      const r = analyzeConversation(msgs, USER_A, USER_B);
+      expect(r.theme).toBe("movie");
+      expect(r.constraintScore).toBeGreaterThan(0.3);
+    });
+
+    it("雑談 → constraintScoreが低い", () => {
+      const msgs = turns(
+        [USER_A, "おはよう"],
+        [USER_B, "おはよー"],
+      );
+      const r = analyzeConversation(msgs, USER_A, USER_B);
+      expect(r.constraintScore).toBeLessThan(0.5);
+    });
+  });
 });
