@@ -62,8 +62,19 @@ function buildSystemPrompt(): string {
     }
   ],
   "reasoning": "全体としてなぜこの候補群を選んだか（関係性文脈に基づく理由。2-3文）",
-  "closing": "退出シグナル（1文）"
+  "closing": "退出シグナル（1文）",
+  "missingConstraints": [
+    {
+      "key": "条件キー（price_range, atmosphere, time_slot, area, genre, duration等）",
+      "question": "ユーザーに聞く質問（例: '予算はどれくらい？'）",
+      "priority": 1
+    }
+  ]
 }
+
+missingConstraintsは「まだ候補を絞りきれていない条件」を洗い出す。
+会話から読み取れなかった情報を最大3つ、優先度順に列挙する。
+全て揃っていると感じたら空配列[]を返す。
 
 候補は2-3個。4つ以上は出さない。
 
@@ -282,6 +293,18 @@ const PROPOSAL_SCHEMA = {
     },
     reasoning: { type: "string" },
     closing: { type: "string" },
+    missingConstraints: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          question: { type: "string" },
+          priority: { type: "number" },
+        },
+        required: ["key", "question", "priority"],
+      },
+    },
   },
   required: ["summary", "priorities", "candidates", "reasoning", "closing"],
 };
@@ -378,9 +401,29 @@ function validateAndNormalize(
     ),
     reasoning: sanitize(String(raw.reasoning || ""), nameA, nameB),
     closing: String(raw.closing || "あとは二人で決めてね！"),
+    missingConstraints: parseMissingConstraints(raw.missingConstraints),
   };
 
   return card;
+}
+
+/** missingConstraintsをパースし、優先度順にソート */
+function parseMissingConstraints(
+  raw: unknown,
+): ProposalCard["missingConstraints"] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
+
+  return raw
+    .filter((item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null && "key" in item && "question" in item,
+    )
+    .map((item) => ({
+      key: String(item.key || "unknown"),
+      question: String(item.question || ""),
+      priority: typeof item.priority === "number" ? item.priority : 99,
+    }))
+    .sort((a, b) => a.priority - b.priority)
+    .slice(0, 3); // 最大3つ
 }
 
 /** 禁止表現を除去し、名前を置換 */

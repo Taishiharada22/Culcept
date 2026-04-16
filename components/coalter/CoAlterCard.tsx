@@ -10,7 +10,8 @@
  * ⑤ あとは二人で決めてね
  */
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { ProposalCard } from "@/lib/coalter/types";
 import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
@@ -43,6 +44,11 @@ interface Props {
 }
 
 export default function CoAlterCard({ proposal, onDismiss, onAdopt, onRefine }: Props) {
+  const [showRefine, setShowRefine] = useState(false);
+
+  // refine時に表示するmissing constraint（最優先の1つ）
+  const topMissing = proposal.missingConstraints?.[0] ?? null;
+  const hasMissing = (proposal.missingConstraints?.length ?? 0) > 0;
   return (
     <motion.div
       className="mx-auto max-w-sm rounded-2xl overflow-hidden"
@@ -198,37 +204,89 @@ export default function CoAlterCard({ proposal, onDismiss, onAdopt, onRefine }: 
           borderTop: `1px solid ${C.coalter}08`,
         }}
       >
+        {/* Refine パネル（追加質問表示） */}
+        <AnimatePresence>
+          {showRefine && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden"
+            >
+              <div
+                className="rounded-xl px-3 py-2.5 mb-2"
+                style={{ background: `${C.coalter}08`, border: `1px solid ${C.coalter}15` }}
+              >
+                {topMissing ? (
+                  <>
+                    <p style={{ fontSize: 10, color: C.coalter, fontWeight: 600, marginBottom: 4 }}>
+                      もう少し教えてくれると絞れそう
+                    </p>
+                    <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.5 }}>
+                      {topMissing.question}
+                    </p>
+                    {(proposal.missingConstraints?.length ?? 0) > 1 && (
+                      <p style={{ fontSize: 10, color: C.t4, marginTop: 4 }}>
+                        他にも: {proposal.missingConstraints!.slice(1).map(m => m.question).join("、")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ fontSize: 11, color: C.t3, lineHeight: 1.5 }}>
+                    条件はだいたい揃ってるけど、ピンとこなかったら二人で話を続けてみてね。
+                    もう一度呼んでくれたら新しい候補を出すよ。
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* 退出シグナル */}
-        <p style={{ fontSize: 11, color: C.coalter, fontWeight: 500, textAlign: "center", marginBottom: onRefine ? 8 : 0 }}>
-          {proposal.closing}
-        </p>
-        {/* アクションボタン */}
-        {onRefine && (
-          <div className="flex gap-2">
-            <button
-              onClick={onRefine}
-              className="flex-1 py-2 rounded-xl text-xs transition-all"
-              style={{
-                background: `${C.coalter}08`,
-                color: C.coalter,
-                border: `1px solid ${C.coalter}15`,
-                fontWeight: 500,
-              }}
-            >
-              もう少し聞かせて
-            </button>
-            <button
-              onClick={onDismiss}
-              className="px-3 py-2 rounded-xl text-xs transition-all"
-              style={{
-                background: C.s2,
-                color: C.t4,
-              }}
-            >
-              閉じる
-            </button>
-          </div>
+        {!showRefine && (
+          <p style={{ fontSize: 11, color: C.coalter, fontWeight: 500, textAlign: "center", marginBottom: 8 }}>
+            {proposal.closing}
+          </p>
         )}
+
+        {/* アクションボタン */}
+        <div className="flex gap-2">
+          {!showRefine ? (
+            <>
+              <button
+                onClick={() => {
+                  setShowRefine(true);
+                }}
+                className="flex-1 py-2 rounded-xl text-xs transition-all"
+                style={{
+                  background: `${C.coalter}08`,
+                  color: C.coalter,
+                  border: `1px solid ${C.coalter}15`,
+                  fontWeight: 500,
+                }}
+              >
+                もう少し聞かせて
+              </button>
+              <button
+                onClick={onDismiss}
+                className="px-3 py-2 rounded-xl text-xs transition-all"
+                style={{ background: C.s2, color: C.t4 }}
+              >
+                閉じる
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => {
+                onRefine?.();
+              }}
+              className="flex-1 py-2 rounded-xl text-xs transition-all"
+              style={{ background: C.s2, color: C.t3 }}
+            >
+              わかった、話を続ける
+            </button>
+          )}
+        </div>
       </div>
     </motion.div>
   );

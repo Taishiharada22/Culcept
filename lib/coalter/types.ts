@@ -236,6 +236,18 @@ export interface ProposalCard {
   reasoning: string;
   /** ⑤ 退出シグナル（1文） */
   closing: string;
+  /** まだ足りない条件（refine時に追加質問として使用） */
+  missingConstraints?: MissingConstraint[];
+}
+
+/** 不足している条件 */
+export interface MissingConstraint {
+  /** 条件名（例: "price_range", "atmosphere", "time_slot"） */
+  key: string;
+  /** ユーザー向けの質問文（例: "予算はどれくらい？"） */
+  question: string;
+  /** 優先度（1=最も重要） */
+  priority: number;
 }
 
 /** 提案候補 */
