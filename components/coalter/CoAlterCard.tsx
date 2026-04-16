@@ -12,6 +12,7 @@
 
 import { motion } from "framer-motion";
 import type { ProposalCard } from "@/lib/coalter/types";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 const C = {
   coalter: "#6366F1",
@@ -35,9 +36,13 @@ function clamp(text: string, max: number): string {
 interface Props {
   proposal: ProposalCard;
   onDismiss: () => void;
+  /** 候補を採用（Plan Shelfに追加） */
+  onAdopt?: (candidate: ProposalCard["candidates"][number]) => void;
+  /** 条件を変えて再提案 */
+  onRefine?: () => void;
 }
 
-export default function CoAlterCard({ proposal, onDismiss }: Props) {
+export default function CoAlterCard({ proposal, onDismiss, onAdopt, onRefine }: Props) {
   return (
     <motion.div
       className="mx-auto max-w-sm rounded-2xl overflow-hidden"
@@ -59,14 +64,14 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
         }}
       >
         <div className="flex items-center gap-2">
-          <span style={{ fontSize: 13 }}>✦</span>
+          <AneurasyncLogo size={17} color={C.coalter} />
           <span style={{ fontSize: 12, color: C.coalter, fontWeight: 600 }}>
             CoAlter
           </span>
         </div>
         <button
           onClick={onDismiss}
-          style={{ fontSize: 11, color: C.t4, padding: 4 }}
+          style={{ fontSize: 10, color: C.t4, padding: 4, opacity: 0.5 }}
           aria-label="閉じる"
         >
           ✕
@@ -125,40 +130,54 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
               {RANK_EMOJI[i] ?? "•"}
             </span>
             <div className="flex-1 min-w-0">
-              {c.url ? (
-                <a
-                  href={c.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    fontSize: 12,
-                    color: C.coalter,
-                    fontWeight: 600,
-                    textDecoration: "underline",
-                    textUnderlineOffset: 2,
-                  }}
-                >
-                  {c.title} ↗
-                </a>
-              ) : (
-                <p style={{ fontSize: 12, color: C.t1, fontWeight: 600 }}>
-                  {c.title}
-                </p>
-              )}
-              <p style={{ fontSize: 11, color: C.t3, marginTop: 1 }}>
-                {c.oneLiner}
-              </p>
-              {c.practicalInfo && (
-                <p
-                  style={{
-                    fontSize: 10,
-                    color: C.t4,
-                    marginTop: 2,
-                  }}
-                >
-                  {c.practicalInfo}
-                </p>
-              )}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  {c.url ? (
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: 12,
+                        color: C.coalter,
+                        fontWeight: 600,
+                        textDecoration: "underline",
+                        textUnderlineOffset: 2,
+                      }}
+                    >
+                      {c.title} ↗
+                    </a>
+                  ) : (
+                    <p style={{ fontSize: 12, color: C.t1, fontWeight: 600 }}>
+                      {c.title}
+                    </p>
+                  )}
+                  <p style={{ fontSize: 11, color: C.t3, marginTop: 1 }}>
+                    {c.oneLiner}
+                  </p>
+                  {c.practicalInfo && (
+                    <p style={{ fontSize: 10, color: C.t4, marginTop: 2 }}>
+                      {c.practicalInfo}
+                    </p>
+                  )}
+                </div>
+                {onAdopt && (
+                  <motion.button
+                    onClick={() => onAdopt(c)}
+                    className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs"
+                    style={{
+                      background: `${C.coalter}10`,
+                      color: C.coalter,
+                      border: `1px solid ${C.coalter}20`,
+                      fontWeight: 500,
+                      marginTop: 2,
+                    }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    採用
+                  </motion.button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -171,17 +190,45 @@ export default function CoAlterCard({ proposal, onDismiss }: Props) {
         </p>
       </div>
 
-      {/* ═══ ⑤ あとは二人で決めてね ═══ */}
+      {/* ═══ ⑤ アクションバー + 退出シグナル ═══ */}
       <div
-        className="px-4 py-2.5 text-center"
+        className="px-4 py-2.5"
         style={{
           background: `${C.coalter}04`,
           borderTop: `1px solid ${C.coalter}08`,
         }}
       >
-        <p style={{ fontSize: 11, color: C.coalter, fontWeight: 500 }}>
+        {/* 退出シグナル */}
+        <p style={{ fontSize: 11, color: C.coalter, fontWeight: 500, textAlign: "center", marginBottom: onRefine ? 8 : 0 }}>
           {proposal.closing}
         </p>
+        {/* アクションボタン */}
+        {onRefine && (
+          <div className="flex gap-2">
+            <button
+              onClick={onRefine}
+              className="flex-1 py-2 rounded-xl text-xs transition-all"
+              style={{
+                background: `${C.coalter}08`,
+                color: C.coalter,
+                border: `1px solid ${C.coalter}15`,
+                fontWeight: 500,
+              }}
+            >
+              もう少し聞かせて
+            </button>
+            <button
+              onClick={onDismiss}
+              className="px-3 py-2 rounded-xl text-xs transition-all"
+              style={{
+                background: C.s2,
+                color: C.t4,
+              }}
+            >
+              閉じる
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );

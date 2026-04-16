@@ -1560,6 +1560,8 @@ export default function ChatClient({ threadId }: Props) {
                 <CoAlterCard
                   proposal={coalter.currentProposal}
                   onDismiss={coalter.dismissProposal}
+                  onAdopt={coalter.adoptCandidate}
+                  onRefine={coalter.refine}
                 />
               </motion.div>
             )}

@@ -361,6 +361,44 @@ export function useCoAlter(threadId: string) {
     });
   }, [threadId]);
 
+  // ── adopt: 候補を採用（Plan Shelfに追加） ──
+  const adoptCandidate = useCallback(
+    async (candidate: { rank: number; title: string; oneLiner: string; practicalInfo: string | null }) => {
+      // Phase 1.5: Plan Shelf APIが実装されたらここで呼ぶ
+      // 今はローカルで採用完了をマーク + dismiss
+      console.info("[CoAlter] Candidate adopted:", candidate.title);
+      setState((prev) => ({
+        ...prev,
+        sessionState: null,
+        currentProposal: null,
+      }));
+      // DB更新
+      fetch("/api/coalter/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId, action: "end_session" }),
+      }).catch(() => {});
+    },
+    [threadId],
+  );
+
+  // ── refine: もう少し聞かせて（条件変更して再提案） ──
+  const refine = useCallback(() => {
+    // 提案カードを閉じて、再度invokeを誘導
+    setState((prev) => ({
+      ...prev,
+      sessionState: null,
+      currentProposal: null,
+    }));
+    // DB更新
+    fetch("/api/coalter/end", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, action: "end_session" }),
+    }).catch(() => {});
+    // refineは「カードを閉じて会話を続ける」。再invokeはユーザーの次の発言後に。
+  }, [threadId]);
+
   // ── soft trigger の通知（ChatClientから呼ばれる） ──
   const notifySoftTrigger = useCallback(
     (confidence: TriggerConfidence, pattern: string | null) => {
@@ -393,6 +431,8 @@ export function useCoAlter(threadId: string) {
     invoke,
     end,
     dismissProposal,
+    adoptCandidate,
+    refine,
     notifySoftTrigger,
     dismissTrigger,
     // 便利な派生値
