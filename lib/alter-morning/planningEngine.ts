@@ -8,13 +8,16 @@
 
 import type { PlanItem, MorningPlan, DayConditions, FlowContext, EndpointAnchor } from "./types";
 import type { EventType } from "@/app/(culcept)/calendar/_lib/vcTypes";
+import { TIME_WINDOWS } from "./planState";
 import { todayJST } from "./dateUtils";
 import {
   loadDurationStore,
   estimateDuration,
   type DurationEstimate,
 } from "./taskDurationMemory";
-import { insertTravelItems } from "./travelTimeEngine";
+import { insertTravelItems, insertTravelItemsAsync } from "./travelTimeEngine";
+import { fillGaps, type GapFillOptions } from "./gapFillEngine";
+import type { LatLng } from "./routesApiClient";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 時刻パターン
@@ -258,6 +261,9 @@ export function buildDayPlan(
     endpointAnchor?: EndpointAnchor;
     targetDate?: string;         // "YYYY-MM-DD" — 未来日の場合は朝始まり
     endTimeConstraint?: string;  // "HH:MM" — この時刻を超えないようスケジュール制限
+    departureTime?: string;      // "HH:MM" — 出発時刻（「8時に家を出る」等のプラン起点アンカー）
+    /** Gap Fill に渡す天気情報 */
+    gapFill?: GapFillOptions;
   }
 ): MorningPlan {
   const currentTime = now ?? new Date();
@@ -266,14 +272,37 @@ export function buildDayPlan(
   const isFutureDate = options?.targetDate && options.targetDate > todayJST();
 
   let dayStart: number;
-  if (isFutureDate) {
+  if (options?.departureTime) {
+    // 出発時刻が明示されている場合: それをプランの起点にする
+    // 「8時に家を出る」→ dayStart = 480（最初のtravelがここから開始）
+    dayStart = timeToMinutes(options.departureTime);
+  } else if (isFutureDate) {
     dayStart = 9 * 60; // 未来の予定は 9:00 AM 始まり
   } else {
-    const currentHour = currentTime.getHours();
-    const currentMinute = currentTime.getMinutes();
-    const nowMinutes = currentHour * 60 + currentMinute;
-    const roundedNow = Math.ceil(nowMinutes / 30) * 30;
-    dayStart = Math.max(roundedNow, 9 * 60); // 9:00 以降
+    // ── Morning-aware default ──
+    // fixed item の最も早い startTime があればその1時間前を起点にする。
+    // なければ「今から」を使うが、夜間（21時以降）は翌朝プラン扱いで 9:00 起点。
+    const earliestFixed = items
+      .filter(i => i.fixedStart && i.startTime)
+      .map(i => timeToMinutes(i.startTime!))
+      .sort((a, b) => a - b)[0];
+
+    if (earliestFixed !== undefined) {
+      // fixed item の1時間前（移動+準備）を dayStart に。最低 7:00。
+      dayStart = Math.max(earliestFixed - 60, 7 * 60);
+    } else {
+      const currentHour = currentTime.getHours();
+      const currentMinute = currentTime.getMinutes();
+      const nowMinutes = currentHour * 60 + currentMinute;
+
+      if (nowMinutes >= 21 * 60) {
+        // 21時以降: 翌朝プランとして 9:00 起点
+        dayStart = 9 * 60;
+      } else {
+        const roundedNow = Math.ceil(nowMinutes / 30) * 30;
+        dayStart = Math.max(roundedNow, 9 * 60);
+      }
+    }
   }
 
   // ── endTime 制約: 終了時刻が設定されていればそれを上限にする ──
@@ -281,68 +310,89 @@ export function buildDayPlan(
     ? timeToMinutes(options.endTimeConstraint)
     : 23 * 60;
 
-  // travel を除外して fixed / todo を分離（travel は後で再挿入する）
-  const fixedItems = items
-    .filter((i) => i.kind === "fixed" && i.startTime)
-    .sort((a, b) => timeToMinutes(a.startTime!) - timeToMinutes(b.startTime!));
+  // ── Phase 1: sequenceOrder を真実源とする統合配置 ──
+  //
+  // 旧設計: fixed/todo に二分してスロット配置 → segment order が壊れる
+  // 新設計: sequenceOrder 順に全アイテムを走査し、カーソルを前進させる
+  //         fixed item はアンカー（startTime 優先）、todo は直前の位置に配置
+  //
+  // travel を除外（後で Phase 2 で再挿入する）
+  const nonTravel = items.filter(i => i.kind !== "travel");
 
-  const todoItems = items
-    .filter((i) => i.kind === "todo")
-    .sort((a, b) => {
-      // sequenceOrder がある場合は順序制約を最優先する（visit → main task）
-      const aSeq = a.sequenceOrder ?? 9999;
-      const bSeq = b.sequenceOrder ?? 9999;
-      if (aSeq !== bSeq) return aSeq - bSeq;
-      // 同じ sequenceOrder（or 両方なし）→ 長いものから
-      return b.durationMin - a.durationMin;
-    });
+  // sequenceOrder → orderHint → 入力順 でソート
+  const sorted = [...nonTravel].sort((a, b) => {
+    const aSeq = a.sequenceOrder ?? a.orderHint ?? 9999;
+    const bSeq = b.sequenceOrder ?? b.orderHint ?? 9999;
+    if (aSeq !== bSeq) return aSeq - bSeq;
+    return 0; // 安定ソート
+  });
 
-  // ── Phase 1: タスク配置（移動なし） ──
+  // fixed items のアンカー時刻リスト（overlap 検出用）
+  const fixedAnchors = sorted
+    .filter(i => i.kind === "fixed" && i.startTime)
+    .map(i => ({
+      start: timeToMinutes(i.startTime!),
+      end: timeToMinutes(i.startTime!) + i.durationMin,
+    }));
+
   const scheduled: PlanItem[] = [];
-
-  // 1. fixed予定を配置
-  for (const item of fixedItems) {
-    scheduled.push(item);
-  }
-
-  // 2. 空き時間を計算してtodoを配置
   let cursor = dayStart;
 
-  for (const todo of todoItems) {
-    // 次のfixed予定までの空き時間を探す
-    let placed = false;
+  for (const item of sorted) {
+    if (item.kind === "fixed" && item.startTime) {
+      // fixed item: アンカー時刻を使用
+      scheduled.push(item);
+      cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
+    } else {
+      // todo item: cursor 位置に配置。ただしウィンドウ制約 / fixed 衝突を考慮
+      let placedAt = cursor;
 
-    for (let i = 0; i <= fixedItems.length; i++) {
-      const slotStart = i === 0 ? cursor : (() => {
-        const prev = fixedItems[i - 1];
-        return timeToMinutes(prev.startTime!) + prev.durationMin;
-      })();
-
-      const slotEnd = i < fixedItems.length
-        ? timeToMinutes(fixedItems[i].startTime!)
-        : dayEnd;
-
-      if (slotEnd - slotStart >= todo.durationMin && slotStart >= cursor) {
-        scheduled.push({ ...todo, startTime: minutesToTime(slotStart) });
-        cursor = slotStart + todo.durationMin;
-        placed = true;
-        break;
+      // ウィンドウ制約: timeConstraintType が window_* なら、windowStart 以降に配置
+      if (item.timeConstraintType?.startsWith("window_")) {
+        const window = TIME_WINDOWS[item.timeConstraintType];
+        if (window) {
+          // ウィンドウの最早開始以降に配置
+          placedAt = Math.max(placedAt, window.start);
+        }
       }
-    }
 
-    // どこにも入らない場合は末尾に追加（時刻なし）
-    if (!placed) {
-      scheduled.push({ ...todo });
+      // 次の fixed anchor と衝突するかチェック
+      for (const anchor of fixedAnchors) {
+        if (placedAt < anchor.start && placedAt + item.durationMin > anchor.start) {
+          // 衝突: fixed の後に配置
+          placedAt = anchor.end;
+        }
+      }
+
+      // dayEnd チェック
+      if (placedAt + item.durationMin > dayEnd) {
+        // 時間内に収まらない → 時刻なしで末尾配置
+        scheduled.push({ ...item });
+      } else {
+        scheduled.push({ ...item, startTime: minutesToTime(placedAt) });
+        cursor = placedAt + item.durationMin;
+      }
     }
   }
 
-  // 時刻順にソート
+  // 最終ソート: startTime 順（ただし startTime なしは末尾）
   scheduled.sort((a, b) => {
     if (!a.startTime && !b.startTime) return 0;
     if (!a.startTime) return 1;
     if (!b.startTime) return -1;
     return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
   });
+
+  // ── Phase 1.5: Location forward inheritance（CEO 2026-04-17 実機検証 fix）──
+  //
+  // 「明日朝サドヤでランチ、そのあと仕事」パターンで 仕事 に location が無いと、
+  // UI カードは「仕事」単独表示 → 「仕事どこでやってるんだ？」という違和感。
+  // insertTravelItems は内部的に prevLocation を継続していて、サドヤ→自宅 の帰路は正しく出る
+  // のに、その仕事が結局どこだったか見えないのは欠陥。
+  //
+  // ここで前の item から location を継承する（"user_inferred" マーク）。
+  // 明示的に home/自宅 の item には継承しない（帰宅を途中扱いしないため）。
+  applyForwardLocationInheritance(scheduled);
 
   // ── Phase 2: ツアー構造の移動アイテムを挿入 ──
   //
@@ -364,15 +414,197 @@ export function buildDayPlan(
   );
 
   // ── Phase 3: 移動アイテム込みで時刻を再計算 ──
-  const finalItems = reassignTimes(withTravel, dayStart, fixedItems, dayEnd);
+  //
+  // CEO方針: departureTime / arrivalTime を exact anchor として渡す
+  //   - 最初の travel from home → departureTime exactly
+  //   - 最後の return travel → arrivalTime に到着（逆算）
+  const fixedForReassign = scheduled.filter(i => i.kind === "fixed" && i.startTime);
+  const departureMin = options?.departureTime ? timeToMinutes(options.departureTime) : undefined;
+  const arrivalMin = options?.endTimeConstraint ? timeToMinutes(options.endTimeConstraint) : undefined;
+  const finalItems = reassignTimes(withTravel, dayStart, fixedForReassign, dayEnd, {
+    departureTime: departureMin,
+    arrivalTime: arrivalMin,
+  });
+
+  // ── Phase 4: Gap filling — 空き時間にAlter提案を差し込む ──
+  const filledItems = fillGaps(finalItems, options?.gapFill);
 
   return {
     date: options?.targetDate ?? todayJST(),
-    items: finalItems,
+    items: filledItems,
     dayConditions,
     createdAt: currentTime.toISOString(),
     confirmed: false,
     endpointAnchor: options?.endpointAnchor,
+    // ── UI anchor 伝播: recalculateSchedule が departure/arrival を尊重するために保存 ──
+    departureTime: options?.departureTime,
+    arrivalTime: options?.endTimeConstraint,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase C-6: Async版（Routes API 統合）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** Routes API 統合のための追加オプション */
+export interface AsyncPlanOptions {
+  goOut?: boolean;
+  returnDestination?: string;
+  endpointAnchor?: EndpointAnchor;
+  targetDate?: string;
+  endTimeConstraint?: string;
+  departureTime?: string;
+  gapFill?: GapFillOptions;
+  /** セグメント ID/ラベル → 座標マッピング（Routes API 用） */
+  coordsMap?: Record<string, LatLng>;
+  /** 出発地の座標（locationResolver で解決済み） */
+  originCoords?: LatLng | null;
+  /** 出発時刻 ISO 8601（Routes API の departureTime、TRANSIT 精度向上用） */
+  departureTimeIso?: string;
+}
+
+/**
+ * buildDayPlan の async 版 — Routes API 統合。
+ *
+ * Phase 1/3/4 は sync の buildDayPlan と同一。
+ * Phase 2 のみ insertTravelItemsAsync（Routes API 統合版）を使用。
+ *
+ * coordsMap / originCoords が未提供の場合は sync 版にフォールバック。
+ */
+export async function buildDayPlanAsync(
+  items: PlanItem[],
+  dayConditions: DayConditions,
+  now?: Date,
+  options?: AsyncPlanOptions,
+): Promise<MorningPlan> {
+  // coordsMap がなければ sync 版にフォールバック（後方互換）
+  if (!options?.coordsMap || Object.keys(options.coordsMap).length === 0) {
+    return buildDayPlan(items, dayConditions, now, options);
+  }
+
+  const currentTime = now ?? new Date();
+
+  const isFutureDate = options?.targetDate && options.targetDate > todayJST();
+
+  let dayStart: number;
+  if (options?.departureTime) {
+    dayStart = timeToMinutes(options.departureTime);
+  } else if (isFutureDate) {
+    dayStart = 9 * 60;
+  } else {
+    // ── Morning-aware default (async 版も同一ロジック) ──
+    const earliestFixed = items
+      .filter(i => i.fixedStart && i.startTime)
+      .map(i => timeToMinutes(i.startTime!))
+      .sort((a, b) => a - b)[0];
+
+    if (earliestFixed !== undefined) {
+      dayStart = Math.max(earliestFixed - 60, 7 * 60);
+    } else {
+      const currentHour = currentTime.getHours();
+      const currentMinute = currentTime.getMinutes();
+      const nowMinutes = currentHour * 60 + currentMinute;
+
+      if (nowMinutes >= 21 * 60) {
+        dayStart = 9 * 60;
+      } else {
+        const roundedNow = Math.ceil(nowMinutes / 30) * 30;
+        dayStart = Math.max(roundedNow, 9 * 60);
+      }
+    }
+  }
+
+  const dayEnd = options?.endTimeConstraint
+    ? timeToMinutes(options.endTimeConstraint)
+    : 23 * 60;
+
+  // ── Phase 1: sequenceOrder を真実源とする統合配置（sync 版と同一）──
+  const nonTravel = items.filter(i => i.kind !== "travel");
+  const sorted = [...nonTravel].sort((a, b) => {
+    const aSeq = a.sequenceOrder ?? a.orderHint ?? 9999;
+    const bSeq = b.sequenceOrder ?? b.orderHint ?? 9999;
+    if (aSeq !== bSeq) return aSeq - bSeq;
+    return 0;
+  });
+
+  const fixedAnchors = sorted
+    .filter(i => i.kind === "fixed" && i.startTime)
+    .map(i => ({
+      start: timeToMinutes(i.startTime!),
+      end: timeToMinutes(i.startTime!) + i.durationMin,
+    }));
+
+  const scheduled: PlanItem[] = [];
+  let cursor = dayStart;
+
+  for (const item of sorted) {
+    if (item.kind === "fixed" && item.startTime) {
+      scheduled.push(item);
+      cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
+    } else {
+      let placedAt = cursor;
+      if (item.timeConstraintType?.startsWith("window_")) {
+        const window = TIME_WINDOWS[item.timeConstraintType];
+        if (window) placedAt = Math.max(placedAt, window.start);
+      }
+      for (const anchor of fixedAnchors) {
+        if (placedAt < anchor.start && placedAt + item.durationMin > anchor.start) {
+          placedAt = anchor.end;
+        }
+      }
+      if (placedAt + item.durationMin > dayEnd) {
+        scheduled.push({ ...item });
+      } else {
+        scheduled.push({ ...item, startTime: minutesToTime(placedAt) });
+        cursor = placedAt + item.durationMin;
+      }
+    }
+  }
+
+  scheduled.sort((a, b) => {
+    if (!a.startTime && !b.startTime) return 0;
+    if (!a.startTime) return 1;
+    if (!b.startTime) return -1;
+    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+  });
+
+  // Phase 1.5: Location forward inheritance（sync 版と同一ロジック）
+  applyForwardLocationInheritance(scheduled);
+
+  // ── Phase 2: ツアー構造の移動アイテム（Routes API 統合版） ──
+  const goOut = options?.goOut ?? hasOutboundLocations(scheduled);
+  const returnLabel = options?.endpointAnchor?.label ?? options?.returnDestination;
+  const withTravel = await insertTravelItemsAsync(
+    scheduled,
+    dayConditions.mainTransport,
+    goOut,
+    options.coordsMap,
+    options.originCoords ?? null,
+    returnLabel,
+    options.departureTimeIso,
+  );
+
+  // ── Phase 3: 移動アイテム込みで時刻を再計算（sync 版と同一） ──
+  const fixedForReassign = scheduled.filter(i => i.kind === "fixed" && i.startTime);
+  const departureMin = options?.departureTime ? timeToMinutes(options.departureTime) : undefined;
+  const arrivalMin = options?.endTimeConstraint ? timeToMinutes(options.endTimeConstraint) : undefined;
+  const finalItems = reassignTimes(withTravel, dayStart, fixedForReassign, dayEnd, {
+    departureTime: departureMin,
+    arrivalTime: arrivalMin,
+  });
+
+  // ── Phase 4: Gap filling（sync 版と同一） ──
+  const filledItems = fillGaps(finalItems, options?.gapFill);
+
+  return {
+    date: options?.targetDate ?? todayJST(),
+    items: filledItems,
+    dayConditions,
+    createdAt: currentTime.toISOString(),
+    confirmed: false,
+    endpointAnchor: options?.endpointAnchor,
+    departureTime: options?.departureTime,
+    arrivalTime: options?.endTimeConstraint,
   };
 }
 
@@ -380,38 +612,98 @@ export function buildDayPlan(
  * 移動アイテムを含むリストに対して時刻を再割り当てする。
  *
  * fixed 予定の時刻は固定。travel と todo は前から順に積む。
- * travel は直前のタスクの終了時刻に自動配置される。
+ *
+ * CEO方針: 時間の意味を尊重する
+ *   - departureTime → 最初の travel from home は exactly この時刻に開始
+ *   - arrivalTime → 最後の return travel は この時刻に到着（逆算配置）
+ *   - window_* → todo item はウィンドウ開始以降に配置
+ *   - travel before fixed → fixed 開始から逆算（ただし departure anchor を下回らない）
  */
 function reassignTimes(
   items: PlanItem[],
   dayStart: number,
-  fixedItems: PlanItem[],
+  _fixedItems: PlanItem[],
   _dayEnd?: number,
+  anchors?: {
+    departureTime?: number;  // 出発アンカー（分）— 最初の travel を exactly ここに配置
+    arrivalTime?: number;    // 到着アンカー（分）— 最後の return travel の到着時刻
+  },
 ): PlanItem[] {
-  // fixed予定はそのまま保持。travel/todo は詰め直す
   const result: PlanItem[] = [];
   let cursor = dayStart;
 
-  for (const item of items) {
-    if (item.kind === "fixed" && item.startTime) {
-      // fixed はそのまま
+  // 最初/最後の travel を特定（departure/arrival anchor 用）
+  const firstTravelIdx = items.findIndex(i => i.kind === "travel");
+  let lastTravelIdx = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === "travel") { lastTravelIdx = i; break; }
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+
+    if (item.kind === "fixed" && item.startTime && item.fixedStart) {
+      // fixed はアンカー: そのまま配置
       result.push(item);
       cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
-    } else {
-      // travel or todo → cursor の位置に配置
-      // ただし fixed 予定とぶつからないように調整
-      const nextFixed = fixedItems.find(
-        (f) => f.startTime && timeToMinutes(f.startTime) > cursor
-      );
-      if (nextFixed && nextFixed.startTime) {
-        const fixedStart = timeToMinutes(nextFixed.startTime);
-        if (cursor + item.durationMin > fixedStart) {
-          // fixedの後に回す場合 — ここでは単純にcursorで配置
-          // （固定予定を超えないよう、後ほどソートで調整）
+    } else if (item.kind === "travel") {
+      // ── CEO 8:00出発 exactly: 最初の travel に departure anchor ──
+      if (i === firstTravelIdx && anchors?.departureTime != null) {
+        const depTime = anchors.departureTime;
+        result.push({ ...item, startTime: minutesToTime(depTime) });
+        cursor = depTime + item.durationMin;
+      }
+      // ── CEO 18:00帰宅 exactly: 最後の travel に arrival anchor ──
+      else if (i === lastTravelIdx && anchors?.arrivalTime != null) {
+        const arrivalTime = anchors.arrivalTime;
+        const travelStart = arrivalTime - item.durationMin;
+        // cursor より前には配置しない（overlap 防止）
+        const finalStart = Math.max(travelStart, cursor);
+        result.push({ ...item, startTime: minutesToTime(finalStart) });
+        cursor = finalStart + item.durationMin;
+      }
+      // ── 通常 travel: 直後が fixed なら逆算、そうでなければ cursor ──
+      else {
+        const nextItem = items[i + 1];
+        if (nextItem && nextItem.kind === "fixed" && nextItem.startTime && nextItem.fixedStart) {
+          const fixedStart = timeToMinutes(nextItem.startTime);
+          const travelStart = fixedStart - item.durationMin;
+          // departure anchor より前には配置しない
+          const floor = anchors?.departureTime ?? 0;
+          result.push({ ...item, startTime: minutesToTime(Math.max(travelStart, floor)) });
+          // cursor は更新しない（fixed が自分で cursor を設定する）
+        } else {
+          result.push({ ...item, startTime: minutesToTime(cursor) });
+          cursor += item.durationMin;
         }
       }
-      result.push({ ...item, startTime: minutesToTime(cursor) });
-      cursor += item.durationMin;
+    } else {
+      // todo: cursor 位置に配置。ウィンドウ制約 + fixed 衝突を考慮
+      let placedAt = cursor;
+
+      // ウィンドウ制約: window_* なら windowStart 以降に配置
+      if (item.timeConstraintType?.startsWith("window_")) {
+        const window = TIME_WINDOWS[item.timeConstraintType];
+        if (window) {
+          placedAt = Math.max(placedAt, window.start);
+        }
+      }
+
+      // 次の fixed item を前方探索
+      for (let j = i + 1; j < items.length; j++) {
+        const future = items[j];
+        if (future.kind === "fixed" && future.startTime && future.fixedStart) {
+          const fixedStart = timeToMinutes(future.startTime);
+          if (placedAt < fixedStart && placedAt + item.durationMin > fixedStart) {
+            // 衝突: fixed の後に移動
+            placedAt = timeToMinutes(future.startTime) + future.durationMin;
+          }
+          break; // 直近の fixed だけチェック
+        }
+      }
+
+      result.push({ ...item, startTime: minutesToTime(placedAt) });
+      cursor = placedAt + item.durationMin;
     }
   }
 
@@ -428,6 +720,36 @@ function hasOutboundLocations(items: PlanItem[]): boolean {
       item.location != null &&
       item.location.category !== "home"
   );
+}
+
+/**
+ * Forward inheritance: 位置の無いアイテムに直前のアイテムの location を継承させる。
+ * （CEO 2026-04-17 実機検証 — 「ランチ(サドヤ)→仕事」で仕事が場所不明になる問題の対策）
+ *
+ * ルール:
+ *   - travel は対象外
+ *   - item.location が既に設定されていれば上書きしない
+ *   - 直前 non-travel item に location があれば継承、source="user_inferred"
+ *   - 自宅/home カテゴリは継承しない（帰宅を途中扱いにしないため）
+ *
+ * 破壊的変更: items の各要素を直接ミューテート（buildDayPlan 内の scheduled 配列なので安全）。
+ */
+function applyForwardLocationInheritance(items: PlanItem[]): void {
+  let prev: PlanItem["location"] | undefined = undefined;
+  for (const item of items) {
+    if (item.kind === "travel") continue;
+    if (item.location) {
+      prev = item.location;
+      continue;
+    }
+    if (!prev) continue;
+    if (prev.category === "home") continue;
+    // 継承（新しい location オブジェクトとして — 共有参照を避ける）
+    item.location = {
+      ...prev,
+      source: "user_inferred",
+    };
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -449,22 +771,37 @@ export function updateItemDuration(
   );
   return {
     ...plan,
-    items: recalculateSchedule(updatedItems),
+    items: recalculateSchedule(updatedItems, {
+      departureTime: plan.departureTime,
+      arrivalTime: plan.arrivalTime,
+    }),
   };
 }
 
 /**
  * スケジュール再計算 — 時間カスケードエンジン。
  *
- * アイテムの duration 変更時に、後続の非 fixedStart アイテムの
+ * アイテムの duration 変更 / reorder 時に、後続の非 fixedStart アイテムの
  * startTime を前から順に詰め直す。
  *
  * ルール:
  * - fixedStart=true のアイテムは startTime を動かさない（アンカー）
  * - fixedStart=false のアイテムは、直前のアイテムの endTime に配置
+ * - window_* 制約のアイテムは、ウィンドウ開始以降に配置（reorder でも保持）
  * - fixed アンカーより前に配置されたアイテムは、アンカー開始に食い込まない
+ *
+ * CEO P0: departure/arrival アンカー対応（2026-04-16）
+ *   - departureTime → 最初の travel を exactly この時刻に配置
+ *   - arrivalTime → 最後の travel の到着がこの時刻になるよう逆算配置
+ *   - reassignTimes と同一のロジックで UI/サーバー間の不一致を解消
  */
-export function recalculateSchedule(items: PlanItem[]): PlanItem[] {
+export function recalculateSchedule(
+  items: PlanItem[],
+  anchors?: {
+    departureTime?: string;  // "HH:mm" — 最初の travel の開始時刻
+    arrivalTime?: string;    // "HH:mm" — 最後の travel の到着時刻
+  },
+): PlanItem[] {
   if (items.length === 0) return items;
 
   const result: PlanItem[] = [];
@@ -476,6 +813,16 @@ export function recalculateSchedule(items: PlanItem[]): PlanItem[] {
     cursor = timeToMinutes(first.startTime);
   }
 
+  // departure/arrival anchor 用: 最初/最後の travel を特定
+  const firstTravelIdx = items.findIndex(i => i.kind === "travel");
+  let lastTravelIdx = -1;
+  for (let j = items.length - 1; j >= 0; j--) {
+    if (items[j].kind === "travel") { lastTravelIdx = j; break; }
+  }
+
+  const departureMin = anchors?.departureTime ? timeToMinutes(anchors.departureTime) : undefined;
+  const arrivalMin = anchors?.arrivalTime ? timeToMinutes(anchors.arrivalTime) : undefined;
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
 
@@ -483,9 +830,46 @@ export function recalculateSchedule(items: PlanItem[]): PlanItem[] {
       // アンカー: startTime を維持。cursor をその endTime に更新
       result.push(item);
       cursor = timeToMinutes(item.startTime) + item.durationMin;
+    } else if (item.kind === "travel") {
+      // ── travel: departure/arrival anchor を尊重 ──
+      if (i === firstTravelIdx && departureMin != null) {
+        // 最初の travel: departure anchor exactly
+        result.push({ ...item, startTime: minutesToTime(departureMin) });
+        cursor = departureMin + item.durationMin;
+      } else if (i === lastTravelIdx && arrivalMin != null) {
+        // 最後の travel: arrival anchor 逆算
+        const travelStart = arrivalMin - item.durationMin;
+        const finalStart = Math.max(travelStart, cursor);
+        result.push({ ...item, startTime: minutesToTime(finalStart) });
+        cursor = finalStart + item.durationMin;
+      } else if (item.startTime) {
+        // 通常 travel: 直後が fixed なら逆算、そうでなければ cursor
+        const nextItem = items[i + 1];
+        if (nextItem && nextItem.kind === "fixed" && nextItem.startTime && nextItem.fixedStart) {
+          const fixedStart = timeToMinutes(nextItem.startTime);
+          const travelStart = fixedStart - item.durationMin;
+          const floor = departureMin ?? 0;
+          result.push({ ...item, startTime: minutesToTime(Math.max(travelStart, floor)) });
+          // cursor は fixed が自分で設定する
+        } else {
+          result.push({ ...item, startTime: minutesToTime(cursor) });
+          cursor += item.durationMin;
+        }
+      } else {
+        result.push(item);
+      }
     } else if (item.startTime) {
-      // 非アンカーで startTime がある → cursor に基づいて再配置
-      const newStart = Math.max(cursor, 0);
+      // 非アンカー非travel で startTime がある → cursor に基づいて再配置
+      let newStart = Math.max(cursor, 0);
+
+      // ウィンドウ制約: reorder 後もウィンドウ開始を下回らない
+      if (item.timeConstraintType?.startsWith("window_")) {
+        const window = TIME_WINDOWS[item.timeConstraintType];
+        if (window) {
+          newStart = Math.max(newStart, window.start);
+        }
+      }
+
       result.push({ ...item, startTime: minutesToTime(newStart) });
       cursor = newStart + item.durationMin;
     } else {

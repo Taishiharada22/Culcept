@@ -148,15 +148,20 @@ const SAFE_CLARIFY_PLAN_EDIT_MESSAGE =
  * plan の対象日ラベルを返す。P4 date audit (CEO 2026-04-17):
  * 今日/明日/明後日/その他 を targetDate ベースで判定し、UI 文字列に使う。
  * plan 未定義 or 日付不明なら "今日" を返す（既存挙動維持）。
+ *
+ * 実装注意: todayJST() と同じ「UTC時刻に +9h オフセットを加えてからISO slice」方式で +1/+2 を計算する。
+ * `new Date("YYYY-MM-DDT00:00:00+09:00").toISOString()` は UTC 日付文字列を返すため、
+ * 2026-04-17 00:00 JST を 24h 進めても同じ UTC日 (2026-04-17T15:00Z → slice=2026-04-17) になり「明日」が「今日」扱いに落ちる。
  */
+const JST_OFFSET_MS_ = 9 * 60 * 60 * 1000;
 function planDateLabel(plan: { date?: string } | undefined | null): string {
   if (!plan?.date) return "今日";
   const today = todayJST();
   if (plan.date === today) return "今日";
-  // JST ベースで +1 / +2 を計算
-  const d = new Date(`${today}T00:00:00+09:00`);
-  const plus1 = new Date(d.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10);
-  const plus2 = new Date(d.getTime() + 48 * 3600 * 1000).toISOString().slice(0, 10);
+  // JST ベースで +1 / +2 を計算（todayJST と同じ方式で）
+  const nowJstMs = Date.now() + JST_OFFSET_MS_;
+  const plus1 = new Date(nowJstMs + 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const plus2 = new Date(nowJstMs + 48 * 3600 * 1000).toISOString().slice(0, 10);
   if (plan.date === plus1) return "明日";
   if (plan.date === plus2) return "明後日";
   return plan.date; // それより先は日付そのものを出す（稀）
