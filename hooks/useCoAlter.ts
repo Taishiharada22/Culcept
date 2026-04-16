@@ -25,7 +25,11 @@ import type {
   TriggerConfidence,
   CoAlterApiResponse,
   CoAlterOutput,
+  PendingAxisDeltas,
+  AxisKey,
+  AxisDelta,
 } from "@/lib/coalter/types";
+import { candidateKey } from "@/lib/coalter/axes";
 
 // ─────────────────────────────────────────────
 // State Types
@@ -34,21 +38,30 @@ import type {
 export interface CoAlterState {
   pairState: CoAlterPairState;
   pairStateId: string | null;
+  /** 直近のセッションID（Plan Shelf保存の監査用、invokeで更新） */
+  currentSessionId: string | null;
   sessionState: CoAlterSessionState | null;
   currentProposal: ProposalCard | null;
   lastTrigger: { confidence: TriggerConfidence; pattern: string | null } | null;
   loading: boolean;
   error: string | null;
+  /** Phase 1.5: 次の reroll に渡す軸操作（memory only） */
+  pendingAxisDeltas: PendingAxisDeltas;
+  /** Phase 1.5: 既出候補キー（memory only） */
+  seenCandidateKeys: string[];
 }
 
 const INITIAL_STATE: CoAlterState = {
   pairState: "inactive",
   pairStateId: null,
+  currentSessionId: null,
   sessionState: null,
   currentProposal: null,
   lastTrigger: null,
   loading: false,
   error: null,
+  pendingAxisDeltas: {},
+  seenCandidateKeys: [],
 };
 
 // ─────────────────────────────────────────────
@@ -89,6 +102,7 @@ export function useCoAlter(threadId: string) {
             ...(d.activeProposal ? {
               sessionState: "completed" as CoAlterSessionState,
               currentProposal: d.activeProposal,
+              currentSessionId: d.activeSessionId ?? prev.currentSessionId,
             } : {}),
           }));
         }
@@ -282,11 +296,21 @@ export function useCoAlter(threadId: string) {
         const data: CoAlterApiResponse<CoAlterOutput> = await res.json();
 
         if (data.ok && data.data) {
+          const serverKeys = data.data.seenCandidateKeys ?? [];
+          const localKeys = data.data.proposalCard.candidates.map((c) =>
+            candidateKey({ title: c.title, url: c.url }),
+          );
+          const newKeys = serverKeys.length > 0 ? serverKeys : localKeys;
           setState((prev) => ({
             ...prev,
             sessionState: "completed",
             currentProposal: data.data!.proposalCard,
+            currentSessionId: data.data!.sessionId ?? prev.currentSessionId,
             loading: false,
+            seenCandidateKeys: Array.from(
+              new Set([...prev.seenCandidateKeys, ...newKeys]),
+            ),
+            pendingAxisDeltas: {},
           }));
         } else {
           setState((prev) => ({
@@ -308,6 +332,87 @@ export function useCoAlter(threadId: string) {
     },
     [threadId, state.pairState, state.sessionState],
   );
+
+  // ── Phase 1.5: toggleAxisDelta — 軸の ± を押す（同方向再タップで解除） ──
+  const toggleAxisDelta = useCallback((key: AxisKey, direction: AxisDelta) => {
+    setState((prev) => {
+      const current = prev.pendingAxisDeltas[key];
+      const next = { ...prev.pendingAxisDeltas };
+      if (current === direction) {
+        // 同じ方向を再タップ → 解除
+        delete next[key];
+      } else {
+        next[key] = direction;
+      }
+      return { ...prev, pendingAxisDeltas: next };
+    });
+  }, []);
+
+  // ── Phase 1.5: reroll — pendingDeltas + avoidKeys を使って再生成 ──
+  const reroll = useCallback(async () => {
+    if (state.pairState !== "enabled") return;
+    if (state.sessionState === "active") return;
+
+    setState((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+      sessionState: "active",
+    }));
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/coalter/invoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId,
+          message: null,
+          pendingDeltas: state.pendingAxisDeltas,
+          avoidKeys: state.seenCandidateKeys,
+        }),
+        signal: controller.signal,
+      });
+      const data: CoAlterApiResponse<CoAlterOutput> = await res.json();
+
+      if (data.ok && data.data) {
+        const serverKeys = data.data.seenCandidateKeys ?? [];
+        const localKeys = data.data.proposalCard.candidates.map((c) =>
+          candidateKey({ title: c.title, url: c.url }),
+        );
+        const newKeys = serverKeys.length > 0 ? serverKeys : localKeys;
+        setState((prev) => ({
+          ...prev,
+          sessionState: "completed",
+          currentProposal: data.data!.proposalCard,
+          currentSessionId: data.data!.sessionId ?? prev.currentSessionId,
+          loading: false,
+          seenCandidateKeys: Array.from(
+            new Set([...prev.seenCandidateKeys, ...newKeys]),
+          ),
+          pendingAxisDeltas: {}, // 使い切ったのでクリア
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          sessionState: "completed", // 失敗時も前のカードは残す
+          loading: false,
+          error: data.error ?? "候補の組み直しに失敗しました",
+        }));
+      }
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      setState((prev) => ({
+        ...prev,
+        sessionState: "completed",
+        loading: false,
+        error: "通信エラー",
+      }));
+    }
+  }, [threadId, state.pairState, state.sessionState, state.pendingAxisDeltas, state.seenCandidateKeys]);
 
   // ── end: セッション終了 or opt-out ──
   const end = useCallback(
@@ -366,13 +471,24 @@ export function useCoAlter(threadId: string) {
     async (candidate: { rank: number; title: string; oneLiner: string; practicalInfo: string | null; url?: string | null }) => {
       // Plan Shelf に追加
       const today = new Date().toISOString().slice(0, 10);
+      const sessionId = state.currentSessionId;
+      if (!sessionId) {
+        // セッションIDが無い場合は Plan Shelf 保存できない（FK違反回避）
+        // 既存UI挙動を壊さないよう、カードだけ閉じる
+        setState((prev) => ({
+          ...prev,
+          sessionState: null,
+          currentProposal: null,
+        }));
+        return;
+      }
       try {
         await fetch("/api/coalter/plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             threadId,
-            sessionId: state.pairStateId, // セッションIDの代わりにpairStateIdを使用
+            sessionId,
             targetDate: today, // TODO: 会話から日付を抽出
             title: candidate.title,
             description: candidate.oneLiner,
@@ -398,25 +514,14 @@ export function useCoAlter(threadId: string) {
         body: JSON.stringify({ threadId, action: "end_session" }),
       }).catch(() => {});
     },
-    [threadId, state.pairStateId],
+    [threadId, state.currentSessionId],
   );
 
-  // ── refine: もう少し聞かせて（条件変更して再提案） ──
+  // ── refine（deprecated）: Phase 1.5 で reroll + toggleAxisDelta に置き換わった ──
+  // 後方互換のため関数は残す。新しいコンポーネントは呼び出さない。
   const refine = useCallback(() => {
-    // 提案カードを閉じて、再度invokeを誘導
-    setState((prev) => ({
-      ...prev,
-      sessionState: null,
-      currentProposal: null,
-    }));
-    // DB更新
-    fetch("/api/coalter/end", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ threadId, action: "end_session" }),
-    }).catch(() => {});
-    // refineは「カードを閉じて会話を続ける」。再invokeはユーザーの次の発言後に。
-  }, [threadId]);
+    // no-op（Phase 1.5 以降 reroll を使う）
+  }, []);
 
   // ── soft trigger の通知（ChatClientから呼ばれる） ──
   const notifySoftTrigger = useCallback(
@@ -452,6 +557,8 @@ export function useCoAlter(threadId: string) {
     dismissProposal,
     adoptCandidate,
     refine,
+    reroll,
+    toggleAxisDelta,
     notifySoftTrigger,
     dismissTrigger,
     // 便利な派生値

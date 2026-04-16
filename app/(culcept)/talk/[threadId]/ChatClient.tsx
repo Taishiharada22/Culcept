@@ -1562,6 +1562,10 @@ export default function ChatClient({ threadId }: Props) {
                   onDismiss={coalter.dismissProposal}
                   onAdopt={coalter.adoptCandidate}
                   onRefine={coalter.refine}
+                  pendingAxisDeltas={coalter.pendingAxisDeltas}
+                  onAxisToggle={coalter.toggleAxisDelta}
+                  onReroll={coalter.reroll}
+                  onCloseRefine={() => { /* ローカルで閉じるだけ */ }}
                 />
               </motion.div>
             )}

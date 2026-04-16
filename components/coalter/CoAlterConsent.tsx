@@ -8,6 +8,7 @@
  */
 
 import { motion } from "framer-motion";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 const C = {
   coalter: "#6366F1",
@@ -53,7 +54,7 @@ export default function CoAlterConsent({
           borderBottom: `1px solid ${C.coalter}10`,
         }}
       >
-        <span style={{ fontSize: 14 }}>✦</span>
+        <AneurasyncLogo size={18} color={C.coalter} />
         <span
           style={{ fontSize: 12, color: C.coalter, fontWeight: 600 }}
         >

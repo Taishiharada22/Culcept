@@ -60,6 +60,8 @@ export async function addPlanItem(
     practicalInfo: string | null;
     url: string | null;
     category: string;
+    /** 採用したユーザーのID（RLS `auth.uid() = created_by` を通すため必須） */
+    createdBy: string;
   },
 ): Promise<PlanItem | null> {
   // 同じスレッド+日付の既存アイテム数で sortOrder を決定
@@ -82,6 +84,7 @@ export async function addPlanItem(
       url: params.url,
       category: params.category,
       sort_order: (count ?? 0) + 1,
+      created_by: params.createdBy,
     })
     .select("*")
     .single();

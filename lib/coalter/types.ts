@@ -26,6 +26,63 @@ export type CoAlterSessionState =
   | "completed" // 提案完了で自然終了
   | "cancelled"; // ユーザーが手動終了
 
+/**
+ * Phase 1.5: セッションの意思決定状態
+ *
+ * - draft: 初回提案（まだ動かしてない）
+ * - pivoting: refine/reroll で軸を動かしている最中
+ * - decided: ユーザーが採用ボタンを押して Plan Shelf に保存された
+ *
+ * 自動判定はしない。UI イベントで遷移する。
+ */
+export type SessionDecisionState = "draft" | "pivoting" | "decided";
+
+// ─────────────────────────────────────────────
+// Phase 1.5: 評価軸
+// ─────────────────────────────────────────────
+
+/**
+ * 評価軸のキー。
+ * 共通軸（price, access, novelty）はテーマ非依存。
+ * それ以外はテーマ固有軸。
+ */
+export type AxisKey =
+  | "price"
+  | "access"
+  | "novelty"
+  // food
+  | "quietness"
+  | "atmosphere"
+  // movie
+  | "tone"
+  | "runtime"
+  // travel
+  | "activity"
+  | "relaxation"
+  // schedule
+  | "flexibility"
+  | "effort";
+
+/** 軸のメタ情報（UI 表示用） */
+export interface Axis {
+  key: AxisKey;
+  /** 日本語ラベル（例: "静かさ"） */
+  label: string;
+  /** 0側の意味（例: "賑やか"） */
+  lowLabel: string;
+  /** 3側の意味（例: "静か"） */
+  highLabel: string;
+}
+
+/** 軸スコア（0-3 の4段階） */
+export type AxisScores = Partial<Record<AxisKey, 0 | 1 | 2 | 3>>;
+
+/** refine 時の軸の ± 操作（+1=上げる / -1=下げる） */
+export type AxisDelta = -1 | 1;
+
+/** 次の reroll に一度だけ渡す軸の操作（memory only） */
+export type PendingAxisDeltas = Partial<Record<AxisKey, AxisDelta>>;
+
 /** CoAlterの動作モード */
 export type CoAlterMode =
   | "decision"   // Phase 1: 共同意思決定支援
@@ -238,6 +295,12 @@ export interface ProposalCard {
   closing: string;
   /** まだ足りない条件（refine時に追加質問として使用） */
   missingConstraints?: MissingConstraint[];
+  /** Phase 1.5: このテーマで操作可能な軸（共通軸＋テーマ固有軸） */
+  availableAxes?: AxisKey[];
+  /** Phase 1.5: 関係性メタ指標（表示のみ。操作対象外） */
+  pairFitScore?: 0 | 1 | 2 | 3;
+  /** Phase 1.5: セッションの意思決定状態 */
+  decisionState?: SessionDecisionState;
 }
 
 /** 不足している条件 */
@@ -258,6 +321,8 @@ export interface ProposalCandidate {
   practicalInfo: string | null; // 現実情報（場所・時間・評価等）
   /** ワンクリックで確認できるURL（検索結果から自動付与） */
   url: string | null;
+  /** Phase 1.5: 各軸のスコア（0-3。操作軸の現在値） */
+  axisScores?: AxisScores;
 }
 
 // ─────────────────────────────────────────────
@@ -277,6 +342,8 @@ export interface CoAlterInput {
 export interface CoAlterOutput {
   sessionId: string;
   proposalCard: ProposalCard;
+  /** Phase 1.5: このカードに含まれる候補の一意キー（次回の avoidKeys 用） */
+  seenCandidateKeys: string[];
   /** 内部メトリクス（analytics用） */
   _internal: {
     searchDecision: SearchDecision;
@@ -305,6 +372,10 @@ export interface AcceptRequest {
 export interface InvokeRequest {
   threadId: string;
   message: string | null; // 「映画決めて」等。ボタン起動時はnull
+  /** Phase 1.5: 次の reroll に一度だけ渡す軸の操作（memory only） */
+  pendingDeltas?: PendingAxisDeltas;
+  /** Phase 1.5: reroll 時に避けたい既出候補キー（seenCandidateKeys） */
+  avoidKeys?: string[];
 }
 
 /** POST /api/coalter/end リクエスト */

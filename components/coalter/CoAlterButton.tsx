@@ -13,6 +13,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import type { CoAlterPairState, CoAlterSessionState } from "@/lib/coalter/types";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 const C = {
   neural: "#8B5CF6",
@@ -52,7 +53,7 @@ export default function CoAlterButton({
         }}
         whileTap={{ scale: 0.95 }}
       >
-        <span style={{ fontSize: 12, opacity: 0.6 }}>✦</span>
+        <AneurasyncLogo size={16} color={C.t3} animate={false} />
         <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>
           CoAlterを使ってみる
         </span>
@@ -86,7 +87,7 @@ export default function CoAlterButton({
         animate={{ opacity: [0.5, 1, 0.5] }}
         transition={{ duration: 1.5, repeat: Infinity }}
       >
-        <span style={{ fontSize: 12 }}>✦</span>
+        <AneurasyncLogo size={16} color={C.coalter} animate />
         <span style={{ fontSize: 11, color: C.coalter, fontWeight: 500 }}>
           考え中...
         </span>
@@ -106,7 +107,7 @@ export default function CoAlterButton({
         }}
         whileTap={{ scale: 0.95 }}
       >
-        <span style={{ fontSize: 12 }}>✦</span>
+        <AneurasyncLogo size={16} color={C.coalter} />
         <span style={{ fontSize: 11, color: C.coalter, fontWeight: 500 }}>
           CoAlterを有効にする
         </span>
@@ -126,7 +127,7 @@ export default function CoAlterButton({
         }}
         whileTap={{ scale: 0.95 }}
       >
-        <span style={{ fontSize: 12 }}>✦</span>
+        <AneurasyncLogo size={16} color={C.coalter} />
         <span style={{ fontSize: 11, color: C.coalter, fontWeight: 500 }}>
           CoAlterを使ってみる
         </span>
@@ -146,7 +147,7 @@ export default function CoAlterButton({
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.95 }}
     >
-      <span style={{ fontSize: 12 }}>✦</span>
+      <AneurasyncLogo size={16} color={C.coalter} />
       <span style={{ fontSize: 11, color: C.coalter, fontWeight: 600 }}>
         CoAlter
       </span>

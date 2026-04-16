@@ -19,11 +19,13 @@ import type {
   FairnessEntry,
   SearchCandidate,
   ProposalCard,
+  PendingAxisDeltas,
 } from "./types";
 import { loadPairProfiles } from "./profileLoader";
 import { fetchRecentMessages, analyzeConversation } from "./conversationParser";
 import { decideSearch, searchAndFilter } from "./webConnector";
 import { generateProposal } from "./proposalGenerator";
+import { candidateKey } from "./axes";
 
 // ─────────────────────────────────────────────
 // L2: 関係理解（簡易版。Phase 1では最小限）
@@ -109,6 +111,10 @@ export async function runCoAlterPipeline(
   pairStateId: string,
   userAId: string,
   userBId: string,
+  options?: {
+    pendingDeltas?: PendingAxisDeltas;
+    avoidKeys?: string[];
+  },
 ): Promise<CoAlterOutput> {
   const startTime = Date.now();
 
@@ -141,10 +147,24 @@ export async function runCoAlterPipeline(
     searchCandidates,
     relationship,
     input.userMessage,
+    options,
   );
 
   // ── URL付与: LLMが生成した候補に検索結果のURLを紐付け ──
-  const proposalCard = attachUrlsToCandidates(rawProposal, searchCandidates);
+  const withUrls = attachUrlsToCandidates(rawProposal, searchCandidates);
+
+  // ── Phase 1.5: decisionState を付与 ──
+  // options があれば pivoting（既に軸を動かしている最中）、なければ draft（初回）
+  const decisionState: "draft" | "pivoting" =
+    options?.pendingDeltas && Object.keys(options.pendingDeltas).length > 0
+      ? "pivoting"
+      : "draft";
+  const proposalCard: ProposalCard = { ...withUrls, decisionState };
+
+  // ── Phase 1.5: seenCandidateKeys を算出 ──
+  const seenCandidateKeys = proposalCard.candidates.map((c) =>
+    candidateKey({ title: c.title, url: c.url }),
+  );
 
   // ── 公平性スコアの推定 ──
   // 簡易版: Caring Intensityの差から推定
@@ -167,6 +187,7 @@ export async function runCoAlterPipeline(
   return {
     sessionId: session.id,
     proposalCard,
+    seenCandidateKeys,
     _internal: {
       searchDecision,
       caringIntensityA: analysis.caringIntensityA,

@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as InvokeRequest;
-    const { threadId, message } = body;
+    const { threadId, message, pendingDeltas, avoidKeys } = body;
 
     if (!threadId) {
       return NextResponse.json({ ok: false, error: "threadId is required" }, { status: 400 });
@@ -109,6 +109,7 @@ export async function POST(request: Request) {
       pairState.id,
       pairState.user_a,
       pairState.user_b,
+      { pendingDeltas, avoidKeys },
     );
 
     // CoAlterメッセージをDBに保存

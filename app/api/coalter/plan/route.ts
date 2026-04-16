@@ -59,6 +59,7 @@ export async function POST(request: Request) {
       practicalInfo: practicalInfo ?? null,
       url: url ?? null,
       category: category ?? "other",
+      createdBy: user.id,
     });
 
     if (!item) {

@@ -8,8 +8,19 @@
  * - 強い断定文（禁止表現）が入らない
  */
 
-import { describe, it, expect } from "vitest";
-import type { ProposalCard } from "@/lib/coalter/types";
+import { describe, it, expect, vi } from "vitest";
+
+// server-only は Next.js の RSC 検出用。Node 環境では空モジュールに差し替える
+vi.mock("server-only", () => ({}));
+
+import type {
+  ProposalCard,
+  ConversationAnalysis,
+  CoAlterPersonProfile,
+  RelationshipContext,
+  SearchCandidate,
+} from "@/lib/coalter/types";
+import { buildUserPrompt } from "@/lib/coalter/proposalGenerator";
 
 // ── テスト対象の型バリデーション関数 ──
 
@@ -254,5 +265,133 @@ describe("ProposalCard バリデーション", () => {
     };
     const errors = validateProposalCard(card);
     expect(errors).toEqual([]);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 1.5: buildUserPrompt — pendingDeltas / avoidKeys
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildUserPrompt (Phase 1.5)", () => {
+  const profileA: CoAlterPersonProfile = {
+    userId: "a",
+    displayName: "たいし",
+    communicationStyle: {
+      directVsDiplomatic: null,
+      conflictStyle: null,
+      attachmentStyle: null,
+      reassuranceNeed: null,
+      emotionalVariability: null,
+    },
+    decisionStyle: {
+      noveltyPreference: null,
+      decisionSpeed: null,
+      riskTolerance: null,
+    },
+    interests: [],
+    values: [],
+    archetypeCode: null,
+    coreFear: null,
+    coreDesire: null,
+  };
+  const profileB: CoAlterPersonProfile = {
+    ...profileA,
+    userId: "b",
+    displayName: "あいさん",
+  };
+  const analysis: ConversationAnalysis = {
+    theme: "food",
+    stalemate: null,
+    recentMessages: [],
+    caringIntensityA: 0.5,
+    caringIntensityB: 0.5,
+    extractedConstraints: {
+      date: null,
+      location: null,
+      budget: null,
+      timeSlot: null,
+      preferences: [],
+    },
+    constraintScore: 0.5,
+  };
+  const relationship: RelationshipContext = {
+    commonGround: [],
+    frictionPoints: [],
+    fairnessLedger: [],
+    pastSessionCount: 0,
+  };
+  const searchCandidates: SearchCandidate[] = [];
+
+  it("pendingDeltas なしなら調整セクションが出ない", () => {
+    const prompt = buildUserPrompt(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      null,
+    );
+    expect(prompt).not.toContain("前回からの調整方向");
+  });
+
+  it("pendingDeltas ありなら調整セクションと軸名が入る", () => {
+    const prompt = buildUserPrompt(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      null,
+      { pendingDeltas: { quietness: 1, novelty: -1 } },
+    );
+    expect(prompt).toContain("前回からの調整方向");
+    expect(prompt).toContain("静かさ");
+    expect(prompt).toContain("新しさ");
+    expect(prompt).toContain("上げる");
+    expect(prompt).toContain("下げる");
+  });
+
+  it("avoidKeys ありなら既出候補セクションにキーが入る", () => {
+    const prompt = buildUserPrompt(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      null,
+      { avoidKeys: ["url:eiga.com/movie/123", "title:abc"] },
+    );
+    expect(prompt).toContain("避けるべき既出候補");
+    expect(prompt).toContain("url:eiga.com/movie/123");
+    expect(prompt).toContain("title:abc");
+  });
+
+  it("avoidKeys なしなら既出候補セクションが出ない", () => {
+    const prompt = buildUserPrompt(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      null,
+    );
+    expect(prompt).not.toContain("避けるべき既出候補");
+  });
+
+  it("avoidKeys は最大20件に制限", () => {
+    const keys = Array.from({ length: 30 }, (_, i) => `title:k${i}`);
+    const prompt = buildUserPrompt(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      null,
+      { avoidKeys: keys },
+    );
+    expect(prompt).toContain("title:k0");
+    expect(prompt).toContain("title:k19");
+    expect(prompt).not.toContain("title:k20");
+    expect(prompt).not.toContain("title:k29");
   });
 });
