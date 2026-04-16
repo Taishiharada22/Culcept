@@ -497,6 +497,7 @@ import {
 } from "@/lib/stargazer/realityAnchoring";
 import { SessionFactAccumulator, detectDrillDown } from "@/lib/stargazer/sessionContext";
 import { validateAgainstContract, repairResponse, buildContractPromptBlock, getContract, type ContractValidation } from "@/lib/stargazer/outputContract";
+import { runEpisodicRecall, type RecallResult } from "@/lib/stargazer/episodicRecall";
 // Morning Protocol — Alter統合ハブ（Todo/予定/コーデ）
 import {
   isMorningProtocolQuery,
@@ -1200,16 +1201,25 @@ export async function POST(req: NextRequest) {
     let behavioralEvidence: AlterBehavioralEvidence[] = [];
     let longTermMemory: Awaited<ReturnType<typeof buildMemoryContext>> | undefined;
     let growthState: Awaited<ReturnType<typeof loadAlterGrowthState>> | undefined;
+    let episodicRecallResult: RecallResult | null = null;
+    let episodicRecallLatencyMs = 0;
     try {
-      const [summaries, patterns, memory, growth] = await Promise.all([
+      const episodicRecallStart = Date.now();
+      const [summaries, patterns, memory, growth, episodicResult] = await Promise.all([
         loadAlterSessionSummaries(userId, 10),
         fetchPatternsForUser(supabase, userId).catch(() => []),
         buildMemoryContext(userId, 20).catch(() => undefined),
         loadAlterGrowthState(userId).catch(() => undefined),
+        runEpisodicRecall(message, userId).catch((e) => {
+          console.warn("[episodic-recall] Failed (fail-open):", e);
+          return null;
+        }),
       ]);
+      episodicRecallLatencyMs = Date.now() - episodicRecallStart;
       pastSummaries = summaries;
       longTermMemory = memory;
       growthState = growth;
+      episodicRecallResult = episodicResult;
       if (pastSummaries.length > 0) {
         contradictionHint = await detectCrossSessionContradiction(
           message,
@@ -1420,11 +1430,13 @@ export async function POST(req: NextRequest) {
       // 4つの独立したDBクエリを Promise.allSettled で並列実行（6-9秒→~2秒）
       let userName: string | undefined;
       let baselineCtx: BaselineContext | null = null;
+      let userPrefecture: string | undefined;
+      let userCity: string | undefined;
       const [authResult, baselineResult, rvResult, lpResult] = await Promise.allSettled([
         // (1) auth.getUser
         supabase.auth.getUser(),
         // (2) ④-C: profiles ベースライン
-        supabase.from("profiles").select("gender, date_of_birth, prefecture").eq("id", userId).maybeSingle(),
+        supabase.from("profiles").select("gender, date_of_birth, prefecture, city").eq("id", userId).maybeSingle(),
         // (3) ④-D: rendezvous_profiles 関係性ベースライン
         supabase.from("rendezvous_profiles").select("profile_details, enabled_categories, updated_at").eq("user_id", userId).maybeSingle(),
         // (4) ④-E: life_profile_entries 値・情熱・キャリア
@@ -1449,6 +1461,9 @@ export async function POST(req: NextRequest) {
               prefecture: baselineRow.prefecture ?? undefined,
             });
           }
+          // Morning Protocol 用: baseline 住所をセッションに注入
+          if (baselineRow?.prefecture) userPrefecture = baselineRow.prefecture;
+          if (baselineRow?.city) userCity = baselineRow.city;
         } catch { /* Non-fatal */ }
       }
       // (3) relationshipCtx 抽出
@@ -1576,6 +1591,36 @@ export async function POST(req: NextRequest) {
       const hasExistingMorningSession = rawMorningSession?.phase &&
         !["completed", "skipped"].includes(rawMorningSession.phase);
 
+      // P2 routing lock (CEO 2026-04-17):
+      // Morning session が plan_presented / clarifying 中の発話は本質的に
+      // 「プラン編集/確認」以外ありえない。PE や汎用 Alter 判断ルートに
+      // 漏れると「判断質問」扱いで返答が崩れるため、
+      //  - queryContext.domain を daily_guidance に寄せ（最も近い既存ドメイン）
+      //  - ambiguity_score を 0 に落として clarify/branch 昇格を抑止
+      //  - questionType を conversation に固定（judgment/ask_me/PE 派生を遮断）
+      //  - responseMode を direct_response に固定（Alter 返答を morning protocol の
+      //    生成文字列でそのまま返す経路を維持）
+      // ※ 下流の morning protocol 自体は hasExistingMorningSession により
+      //    常に strong intent で発火済。この lock は「万一 morning を抜けて
+      //    通常パイプラインに落ちた場合の保険」+「同ターン内の PE/判断側副作用防止」。
+      if (
+        hasExistingMorningSession &&
+        (rawMorningSession!.phase === "plan_presented" ||
+          rawMorningSession!.phase === "clarifying")
+      ) {
+        queryContext = {
+          ...queryContext,
+          domain: "daily_guidance",
+          ambiguity_score: 0,
+        };
+        questionType = "conversation";
+        responseMode = "direct_response";
+        modeDecisionReason = "conclude_low_ambiguity";
+        console.info(
+          `[morning-protocol] routing lock: phase=${rawMorningSession!.phase} → domain=daily_guidance, questionType=conversation, responseMode=direct_response`,
+        );
+      }
+
       // 3段階判定: strong（直接発火）/ soft（確認を挟む）/ none（対象外）
       let morningIntent = hasExistingMorningSession
         ? "strong" as const
@@ -1628,10 +1673,14 @@ export async function POST(req: NextRequest) {
             sufficiency: rawMorningSession!.sufficiency ?? undefined,
             planStateV2: rawMorningSession!.planStateV2 ?? undefined,
             personalityContext: personalityCtx,
+            userPrefecture: rawMorningSession!.userPrefecture ?? userPrefecture,
+            userCity: rawMorningSession!.userCity ?? userCity,
           };
         } else {
           morningSession = createMorningSession();
           morningSession.personalityContext = personalityCtx;
+          if (userPrefecture) morningSession.userPrefecture = userPrefecture;
+          if (userCity) morningSession.userCity = userCity;
         }
         const result = await processMorningMessage(message, morningSession);
         morningSession = result.session;
@@ -3445,6 +3494,8 @@ export async function POST(req: NextRequest) {
           personalityCtx: personality?.axisScores
             ? { axisScores: personality.axisScores }
             : null,
+          // P1.9: 外部知識バイパス判定用
+          questionType,
         });
         if (peResult) {
           perspectiveAudit = peResult.audit;  // keep for analytics backward compat
@@ -5960,6 +6011,16 @@ export async function POST(req: NextRequest) {
       if (followupInsight) {
         homeSystemPrompt += `\n\n# 過去の提案に対するフィードバック傾向\n${followupInsight}\nこの傾向を考慮して、提案の粒度・ハードルを調整すること。`;
       }
+
+      // ── Episodic Recall: 過去の会話想起ブロック注入（Home Alter パス） ──
+      if (episodicRecallResult && episodicRecallResult.promptBlock) {
+        homeSystemPrompt += `\n\n${episodicRecallResult.promptBlock}`;
+        console.info(
+          `[alter-home] Episodic recall injected: mode=${episodicRecallResult.mode}, ` +
+          `matches=${episodicRecallResult.matches.length}, blockLen=${episodicRecallResult.promptBlock.length}`,
+        );
+      }
+
       // clarify follow-up: 元の質問 + 追加情報を統合してプロンプトに渡す
       let effectiveMessage = message;
       if (wasPreviousClarify && conversationHistory.length >= 2) {
@@ -6991,6 +7052,15 @@ export async function POST(req: NextRequest) {
       systemPrompt += `\n\n## セッション間の矛盾検出\n${contradictionHint}\nこの過去の発言との矛盾を、好奇心を持って対話に織り込んでください。判断ではなく、好奇心で。`;
     }
 
+    // ── Episodic Recall: 過去の会話想起ブロック注入 ──
+    if (episodicRecallResult && episodicRecallResult.promptBlock) {
+      systemPrompt += `\n\n${episodicRecallResult.promptBlock}`;
+      console.info(
+        `[alter] Episodic recall injected: mode=${episodicRecallResult.mode}, ` +
+        `matches=${episodicRecallResult.matches.length}, blockLen=${episodicRecallResult.promptBlock.length}`,
+      );
+    }
+
     // ── Wall 3+7: Deep Alter にも心の統合ブロックを注入 ──
     try {
       // Deep Alter では userState が未計算 → ここで軽量推定
@@ -7599,6 +7669,20 @@ export async function POST(req: NextRequest) {
               phase: "failed",
             } : undefined,
 
+            // Episodic Recall — 常に3フィールド記録（Phase 1 実運用判断用）
+            episodic_recall_detected: !!episodicRecallResult,
+            episodic_recall_mode: episodicRecallResult?.mode ?? "none",
+            episodic_recall_latency_ms: episodicRecallLatencyMs,
+            episodic_recall: episodicRecallResult ? {
+              signal_type: episodicRecallResult.signal.type,
+              time_hint: episodicRecallResult.signal.timeHint,
+              topic_hint: episodicRecallResult.signal.topicHint,
+              person_hint: episodicRecallResult.signal.personHint,
+              needs_specific_quote: episodicRecallResult.signal.needsSpecificQuote,
+              matches_count: episodicRecallResult.matches.length,
+              core_exchanges_count: episodicRecallResult.coreExchanges.length,
+              block_length: episodicRecallResult.promptBlock.length,
+            } : undefined,
             // ── 派生事実トレーサビリティ（§7-A: home_alter_judgment経路） ──
             ...(derivedFactSet ? (() => {
               const includedRules = new Set(derivedFactSet.facts.map((f) => f.generationRule));
@@ -8884,6 +8968,22 @@ export async function POST(req: NextRequest) {
           quality_pass: qualityCheck?.pass ?? null,
         },
       },
+      // P1.9: PE 出典データ（Alter発言下に小さく表示）
+      // CEO承認: 2026-04-16 — 「視点: URL」形式で目立たなく出す
+      ...(peResult && peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0 ? {
+        perspectiveSources: peResult.block.fragments
+          .filter((f: { sourceUrl: string; sourceTitle: string }) => f.sourceUrl && f.sourceTitle)
+          .map((f: { sourceUrl: string; sourceTitle: string; evidence?: { date?: string } }) => ({
+            title: f.sourceTitle,
+            url: f.sourceUrl,
+            date: f.evidence?.date ?? null,
+          }))
+          // URL重複排除
+          .filter((s: { url: string }, i: number, arr: { url: string }[]) =>
+            arr.findIndex((x: { url: string }) => x.url === s.url) === i
+          )
+          .slice(0, 4), // 最大4件
+      } : {}),
       // Perspective Engine v3 監査データ（backward compat for existing dashboards）
       ...(perspectiveAudit ? {
         perspectiveEngine: {
