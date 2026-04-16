@@ -363,10 +363,29 @@ export function useCoAlter(threadId: string) {
 
   // ── adopt: 候補を採用（Plan Shelfに追加） ──
   const adoptCandidate = useCallback(
-    async (candidate: { rank: number; title: string; oneLiner: string; practicalInfo: string | null }) => {
-      // Phase 1.5: Plan Shelf APIが実装されたらここで呼ぶ
-      // 今はローカルで採用完了をマーク + dismiss
-      console.info("[CoAlter] Candidate adopted:", candidate.title);
+    async (candidate: { rank: number; title: string; oneLiner: string; practicalInfo: string | null; url?: string | null }) => {
+      // Plan Shelf に追加
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        await fetch("/api/coalter/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            threadId,
+            sessionId: state.pairStateId, // セッションIDの代わりにpairStateIdを使用
+            targetDate: today, // TODO: 会話から日付を抽出
+            title: candidate.title,
+            description: candidate.oneLiner,
+            practicalInfo: candidate.practicalInfo,
+            url: candidate.url ?? null,
+            category: "other", // TODO: テーマから自動判定
+          }),
+        });
+      } catch {
+        // Plan Shelf保存失敗は許容（採用自体は成功させる）
+      }
+
+      // カードを閉じる
       setState((prev) => ({
         ...prev,
         sessionState: null,
@@ -379,7 +398,7 @@ export function useCoAlter(threadId: string) {
         body: JSON.stringify({ threadId, action: "end_session" }),
       }).catch(() => {});
     },
-    [threadId],
+    [threadId, state.pairStateId],
   );
 
   // ── refine: もう少し聞かせて（条件変更して再提案） ──
