@@ -463,6 +463,8 @@ export interface ProposalCard {
     fallbackToClarify?: boolean;
     /** 適用された hard constraint の数 */
     hardConstraintsCount?: number;
+    /** P0-4: 両 provider 失敗 / 検索結果ゼロで絞り込み要請に倒したか */
+    providerFailure?: boolean;
   };
 }
 

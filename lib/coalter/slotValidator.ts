@@ -146,17 +146,37 @@ function looksLikeMovieTitle(label: string): boolean {
   }
 
   // 抽象ジャンル名だけの場合は NG（最優先でチェック）
-  const GENRE_ONLY = [
-    "恋愛映画", "恋愛", "アクション", "サスペンス", "ホラー",
+  const GENRE_WORDS = [
+    "恋愛", "アクション", "サスペンス", "ホラー",
     "コメディ", "SF", "ファンタジー", "ドキュメンタリー", "ミステリー",
-    "話題の", "話題作", "新作", "最新作", "人気作",
-    "ロマンス", "青春", "感動", "泣ける",
-    "話題の新作", "話題の映画", "最新作", "人気の映画",
+    "ロマンス", "青春", "感動", "泣ける", "ラブストーリー", "ラブコメ",
+    "ヒューマン", "アニメ", "邦画", "洋画", "実写",
   ];
-  if (GENRE_ONLY.some((g) => trimmed === g)) return false;
+  const ADJECTIVE_WORDS = [
+    "話題の", "話題", "話題作", "最新", "最新の", "最新作",
+    "人気", "人気の", "人気作", "おすすめ", "おすすめの",
+    "新作", "新しい", "過去の", "昔の", "定番の", "定番", "名作",
+    "感動", "話題の新作", "今", "今話題", "今期",
+    "公開中の", "公開中", "上映中の", "上映中",
+  ];
+  const GENRE_ONLY_LITERAL = GENRE_WORDS.flatMap((g) => [g, `${g}映画`, `${g}作品`]);
+  if (GENRE_ONLY_LITERAL.some((g) => trimmed === g)) return false;
   // ジャンル名 + 「映画」で終わるだけ（「恋愛映画」等）
-  if (GENRE_ONLY.some((g) => trimmed.replace(g, "").replace("映画", "").trim() === "")) {
+  if (GENRE_WORDS.some((g) => {
+    const stripped = trimmed.replace(g, "").replace(/映画|作品/g, "").trim();
+    return stripped.length === 0;
+  })) {
     return false;
+  }
+  // 形容詞接頭 + (ジャンル|空) + (映画|作品|もの) → NG
+  // 例: 「過去の話題作恋愛映画」「新作恋愛映画」「話題の新作」「定番の感動作品」
+  for (const adj of ADJECTIVE_WORDS) {
+    if (!trimmed.includes(adj)) continue;
+    let residual = trimmed.split(adj).join("");
+    for (const g of GENRE_WORDS) residual = residual.split(g).join("");
+    for (const adj2 of ADJECTIVE_WORDS) residual = residual.split(adj2).join("");
+    residual = residual.replace(/映画|作品|もの|の|・|系|風/g, "").trim();
+    if (residual.length === 0) return false;
   }
   // 「話題の X」「最新作 X」などジャンル接頭 + 一般名詞
   const GENRE_PREFIXES = ["話題の", "最新の", "人気の", "おすすめの"];
@@ -420,6 +440,10 @@ function validateThemeMinimum(
 /**
  * 1 候補の validation。
  *
+ * @param searchTitleSet - movie テーマで「検索結果から拾った title 集合」。あれば
+ *                        candidate.slots.what.label がその中に fuzzy match しないと reject。
+ *                        LLM が作品名を発明するのを防ぐ。
+ *
  * @returns { ok, reasons, violatedConstraints }
  *   - ok: reject せず採用可能か
  *   - reasons: reject 理由（re-prompt や admin dashboard 表示に使う）
@@ -429,6 +453,7 @@ export function validateCandidate(
   candidate: ProposalCandidate,
   theme: ConversationTheme,
   agreedConstraints: AgreedConstraint[] = [],
+  searchTitleSet?: string[],
 ): CandidateValidationResult {
   const reasons: ValidationReasonCode[] = [];
   const violated: string[] = [];
@@ -452,6 +477,15 @@ export function validateCandidate(
   );
   reasons.push(...violationCheck.reasons);
   violated.push(...violationCheck.violated);
+
+  // 3.5. movie テーマで search title set が与えられたら、what.label がそこに含まれているか確認
+  //      → LLM が映画名を発明するのを防ぐ
+  if (theme === "movie" && searchTitleSet && searchTitleSet.length > 0) {
+    const what = candidate.slots?.what?.label?.trim();
+    if (what && !whatLabelMatchesSearchTitles(what, searchTitleSet)) {
+      reasons.push("missing_movie_title");
+    }
+  }
 
   // 4. practicalInfo 密度チェック（movie/food/travel は具体数値3項目以上を期待）
   if (theme === "movie" || theme === "food" || theme === "travel") {
@@ -479,6 +513,7 @@ export function validateCandidates(
   candidates: ProposalCandidate[],
   theme: ConversationTheme,
   agreedConstraints: AgreedConstraint[] = [],
+  searchTitleSet?: string[],
 ): {
   accepted: ProposalCandidate[];
   rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>;
@@ -487,7 +522,7 @@ export function validateCandidates(
   const rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }> = [];
 
   for (const c of candidates) {
-    const result = validateCandidate(c, theme, agreedConstraints);
+    const result = validateCandidate(c, theme, agreedConstraints, searchTitleSet);
     if (result.ok) {
       accepted.push(c);
     } else {
@@ -523,16 +558,45 @@ export function reasonCodeToText(code: ValidationReasonCode): string {
 }
 
 // ─────────────────────────────────────────────
+// 検索結果 title 集合との fuzzy match
+// ─────────────────────────────────────────────
+
+/**
+ * 候補の what.label が「検索結果のタイトル集合」に含まれているか fuzzy 判定。
+ *
+ * 完全一致 / 検索 title が候補 label に含まれる / 候補 label が検索 title に含まれる
+ * のいずれかで OK。汎用ジャンル名（「映画」のみ）は無視する。
+ *
+ * @returns true = 検索集合に存在する作品らしい / false = LLM の発明っぽい
+ */
+function whatLabelMatchesSearchTitles(label: string, searchTitles: string[]): boolean {
+  const norm = (s: string) =>
+    s
+      .replace(/[\s\u3000・〜～\-−ー!?！？「」『』【】（）()「」]+/g, "")
+      .toLowerCase();
+  const target = norm(label);
+  if (target.length < 2) return true; // 判定できないので通す
+  for (const t of searchTitles) {
+    const tn = norm(t);
+    if (tn.length < 2) continue;
+    if (target === tn) return true;
+    if (tn.includes(target) && target.length >= 3) return true;
+    if (target.includes(tn) && tn.length >= 3) return true;
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────
 // 3案差分 validator（候補間の意味的差異をチェック）
 // ─────────────────────────────────────────────
 
 /**
  * 3つ（以上）の候補が「意味的に違う」かチェック。
  *
- * 判定基準（1つでも引っかかれば too_similar）:
- *  - 全候補の coreSlot.label が同一 or 全部空
- *  - 全候補の axisScores が実質同一（差のある軸が 2 未満）
- *  - 全候補の title が同一
+ * 判定方針:
+ *  - 軸の差を「次元」として数える：title / where / when / axisScores
+ *  - 3 件並べたとき、最低 2 次元で差がついていないと "意味的に同じ" とみなす
+ *  - core slot label が全部同じ or 全部空 は即 NG（最低限の同一性）
  *
  * @returns true = 意味的に違う（OK） / false = 類似しすぎ（reject）
  */
@@ -545,7 +609,7 @@ export function validateCandidatesDiversity(
   const rule = getThemeRule(theme);
   const coreKey = rule?.core;
 
-  // 1. core slot の label が全部同じ or 全部空 → NG
+  // ── 即 NG: core slot label が全部同じ or 全部空 ──
   if (coreKey) {
     const coreLabels = candidates.map((c) => {
       const slot = c.slots?.[coreKey];
@@ -557,27 +621,48 @@ export function validateCandidatesDiversity(
     }
     const uniqueCoreLabels = new Set(nonEmptyLabels);
     if (uniqueCoreLabels.size === 1 && candidates.length >= 2) {
-      // 全候補が同じ作品 / 同じ店
       return { ok: false, reason: "candidates_too_similar" };
     }
   }
 
-  // 2. title 全部同じ → NG
+  // ── 2件のみは緩く: 1 次元差で OK ──
+  if (candidates.length < 3) return { ok: true };
+
+  // ── 3 件以上は「最低 2 次元差」 ──
+  let dimensions = 0;
+
+  // dim 1: title が全部 unique か（部分一致は同一視）
   const titles = candidates.map((c) => c.title?.trim() ?? "");
-  const uniqueTitles = new Set(titles.filter((t) => t.length > 0));
-  if (uniqueTitles.size === 1 && candidates.length >= 2) {
-    return { ok: false, reason: "candidates_too_similar" };
+  const nonEmptyTitles = titles.filter((t) => t.length > 0);
+  // 共通サブストリング多すぎは「実質同じ」扱い: 60% 重なりで同一視
+  const titlePairs: Array<[string, string]> = [];
+  for (let i = 0; i < nonEmptyTitles.length; i++) {
+    for (let j = i + 1; j < nonEmptyTitles.length; j++) {
+      titlePairs.push([nonEmptyTitles[i], nonEmptyTitles[j]]);
+    }
+  }
+  const titleSimilarPair = titlePairs.some(([a, b]) => stringOverlapRatio(a, b) >= 0.6);
+  if (new Set(nonEmptyTitles).size === nonEmptyTitles.length && !titleSimilarPair) {
+    dimensions += 1;
   }
 
-  // 3. axisScores: 軸ごとに「2つ以上の異なる値があるか」カウント
-  //    差のある軸が 2 未満なら too_similar
+  // dim 2: where slot label の差
+  const wheres = candidates.map((c) => c.slots?.where?.label?.trim() ?? "");
+  const uniqueWheres = new Set(wheres.filter((w) => w.length > 0));
+  if (uniqueWheres.size >= 2) dimensions += 1;
+
+  // dim 3: when slot label の差（時間帯バリエーション）
+  const whens = candidates.map((c) => c.slots?.when?.label?.trim() ?? "");
+  const uniqueWhens = new Set(whens.filter((w) => w.length > 0));
+  if (uniqueWhens.size >= 2) dimensions += 1;
+
+  // dim 4: axisScores で 2 軸以上の差
   const allAxisKeys = new Set<string>();
   for (const c of candidates) {
     if (c.axisScores) {
       for (const k of Object.keys(c.axisScores)) allAxisKeys.add(k);
     }
   }
-
   if (allAxisKeys.size > 0) {
     let variedAxisCount = 0;
     for (const k of allAxisKeys) {
@@ -588,13 +673,25 @@ export function validateCandidatesDiversity(
       const unique = new Set(values);
       if (unique.size >= 2) variedAxisCount += 1;
     }
-    // 3案の場合、軸で2つ以上違いがないと「全部同じ方向」になる
-    if (candidates.length >= 3 && variedAxisCount < 2) {
-      return { ok: false, reason: "candidates_too_similar" };
-    }
+    if (variedAxisCount >= 2) dimensions += 1;
+  }
+
+  // 最低 2 次元差を要求
+  if (dimensions < 2) {
+    return { ok: false, reason: "candidates_too_similar" };
   }
 
   return { ok: true };
+}
+
+/** 2 文字列の文字種重なり率（簡易類似度）。0.0〜1.0。 */
+function stringOverlapRatio(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let overlap = 0;
+  for (const c of setA) if (setB.has(c)) overlap += 1;
+  return overlap / Math.max(setA.size, setB.size);
 }
 
 /** テスト用の内部 export */

@@ -559,6 +559,19 @@ export async function generateProposal(
   const agreedConstraints =
     options?.agreedConstraints ?? analysis.agreedConstraints ?? [];
 
+  // ── Phase 1.5.4.5 / P0-1: 検索結果から「実在 title 集合」を作る ──
+  // movie テーマでは LLM が作品名を発明するのを防ぐため、
+  // candidate.what.label が searchTitleSet に fuzzy match しないと reject。
+  const searchTitleSet = searchCandidates
+    .map((sc) => sc.title?.trim() ?? "")
+    .filter((t) => t.length > 0);
+
+  // ── P0-4: latency budget — 全体予算 28s。経過時間で retry/早期終了を判断 ──
+  const PIPELINE_BUDGET_MS = 28000;
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+  const remaining = () => Math.max(0, PIPELINE_BUDGET_MS - elapsed());
+
   const systemPrompt = buildSystemPrompt(theme);
   const prompt = buildUserPrompt(
     profileA,
@@ -571,16 +584,24 @@ export async function generateProposal(
   );
 
   // ── 第1回 LLM 呼び出し ──
-  const result = await runAI({
-    taskType: "coalter_proposal",
-    prompt,
-    systemPrompt,
-    jsonSchema: PROPOSAL_SCHEMA,
-    requireJson: true,
-    temperature: 0.7,
-    maxOutputTokens: 1536,
-    timeoutMs: 15000,
-  });
+  // 残り予算が極端に薄ければ短めの timeout に切り詰める
+  const firstTimeoutMs = Math.min(15000, Math.max(8000, remaining() - 2000));
+  let result;
+  try {
+    result = await runAI({
+      taskType: "coalter_proposal",
+      prompt,
+      systemPrompt,
+      jsonSchema: PROPOSAL_SCHEMA,
+      requireJson: true,
+      temperature: 0.7,
+      maxOutputTokens: 1536,
+      timeoutMs: firstTimeoutMs,
+    });
+  } catch {
+    // 1回目から例外（両 provider 失敗等） → clarify フォールバック
+    return buildProviderFailureClarify(theme, agreedConstraints);
+  }
 
   const raw = result.structured as Record<string, unknown> | null;
   const firstCard = raw
@@ -598,6 +619,7 @@ export async function generateProposal(
     firstCard.candidates,
     theme,
     agreedConstraints,
+    theme === "movie" ? searchTitleSet : undefined,
   );
 
   // 目標: 3 候補（スワイプ UI 前提）。accepted が 3 件揃っており、かつ意味的に違うなら即確定。
@@ -622,24 +644,32 @@ export async function generateProposal(
     tooSimilar,
   );
 
+  // ── P0-4: 残り予算が薄い場合は retry をスキップ ──
+  // retry には最低 6 秒（LLM 呼び出し + 余白）必要。それを切ったら現状で確定。
+  const RETRY_MIN_BUDGET_MS = 6000;
+  const canRetry = remaining() >= RETRY_MIN_BUDGET_MS;
+
   let retryCard: ProposalCard | null = null;
-  try {
-    const retryResult = await runAI({
-      taskType: "coalter_proposal",
-      prompt: retryPrompt,
-      systemPrompt,
-      jsonSchema: PROPOSAL_SCHEMA,
-      requireJson: true,
-      temperature: 0.6, // 少し下げて堅めに
-      maxOutputTokens: 1536,
-      timeoutMs: 15000,
-    });
-    const retryRaw = retryResult.structured as Record<string, unknown> | null;
-    retryCard = retryRaw
-      ? validateAndNormalize(retryRaw, profileA, profileB, theme, options)
-      : parseFallback(retryResult.text, profileA, profileB, theme, options);
-  } catch {
-    retryCard = null;
+  if (canRetry) {
+    const retryTimeoutMs = Math.min(15000, Math.max(6000, remaining() - 1500));
+    try {
+      const retryResult = await runAI({
+        taskType: "coalter_proposal",
+        prompt: retryPrompt,
+        systemPrompt,
+        jsonSchema: PROPOSAL_SCHEMA,
+        requireJson: true,
+        temperature: 0.6, // 少し下げて堅めに
+        maxOutputTokens: 1536,
+        timeoutMs: retryTimeoutMs,
+      });
+      const retryRaw = retryResult.structured as Record<string, unknown> | null;
+      retryCard = retryRaw
+        ? validateAndNormalize(retryRaw, profileA, profileB, theme, options)
+        : parseFallback(retryResult.text, profileA, profileB, theme, options);
+    } catch {
+      retryCard = null;
+    }
   }
 
   if (retryCard) {
@@ -647,6 +677,7 @@ export async function generateProposal(
       retryCard.candidates,
       theme,
       agreedConstraints,
+      theme === "movie" ? searchTitleSet : undefined,
     );
     const retryDiversity =
       retryCheck.accepted.length >= 3
@@ -667,19 +698,84 @@ export async function generateProposal(
     }
   }
 
-  // 1回目の accepted が 1-2 件あれば、clarify ではなくその分で返す（UX 優先）
-  // 3件揃いで類似の場合もそのまま採用（clarify にするほどではない）
-  if (firstCheck.accepted.length >= 1) {
-    return rebuildWithAccepted(firstCard, firstCheck.accepted.slice(0, 3), firstCheck.rejected);
+  // ── retry 後も accepted=0 → 通常の clarify（rejected 理由付き） ──
+  if (firstCheck.accepted.length === 0) {
+    return buildClarifyFallback(
+      firstCard,
+      theme,
+      firstCheck.rejected,
+      agreedConstraints,
+    );
   }
 
-  // ── 2回目も全滅 → clarify フォールバック ──
-  return buildClarifyFallback(
-    firstCard,
+  // 1回目の accepted が 1-2 件あれば、clarify ではなくその分で返す（UX 優先）
+  // 3件揃いで類似の場合もそのまま採用（clarify にするほどではない）
+  return rebuildWithAccepted(firstCard, firstCheck.accepted.slice(0, 3), firstCheck.rejected);
+}
+
+/**
+ * P0-4: provider 失敗 / 検索結果ゼロ時のフォールバック。
+ * 弱い 3 件を返さず、明示的に「絞り込み要請」だけを返す。
+ */
+function buildProviderFailureClarify(
+  theme: ConversationTheme,
+  agreedConstraints: AgreedConstraint[],
+): ProposalCard {
+  const themeLabel =
+    theme === "movie" ? "映画"
+      : theme === "food" ? "ご飯"
+        : theme === "travel" ? "旅行"
+          : "予定";
+
+  return {
+    summary: `${themeLabel}の候補を出すために、もう少し情報がほしい`,
+    priorities: {
+      userA: "まだ判断材料が少ない",
+      userB: "まだ判断材料が少ない",
+      common: null,
+    },
+    candidates: [
+      {
+        rank: 1,
+        title: "もう少し絞らせて",
+        oneLiner:
+          theme === "movie"
+            ? "見たいジャンル・気分や上映場所が分かると、実在する作品から候補を絞れるよ"
+            : "希望のエリア・予算・時間帯が分かると、具体的な候補を出せそう",
+        practicalInfo: null,
+        url: null,
+      },
+    ],
+    reasoning:
+      "今ある情報だけだと、二人に合う具体候補を自信を持って出せない。曖昧な3案を出すより、もう少し条件を聞かせてほしい。",
+    closing: "条件が見えたらまた呼んでね！",
+    availableAxes: getAxesForTheme(theme),
+    pairFitScore: undefined,
     theme,
-    firstCheck.rejected,
-    agreedConstraints,
-  );
+    missingConstraints:
+      theme === "movie"
+        ? [
+            { key: "genre", question: "見たいジャンルや気分は？", priority: 1, slot: "what" as SlotKey },
+            { key: "area", question: "どの映画館エリアで探す？", priority: 2, slot: "where" as SlotKey },
+            { key: "time_slot", question: "時間帯はだいたいいつごろ？", priority: 3, slot: "when" as SlotKey },
+          ]
+        : theme === "food"
+          ? [
+              { key: "area", question: "どのあたりで探す？", priority: 1, slot: "where" as SlotKey },
+              { key: "budget", question: "予算の目安は？", priority: 2, slot: "how" as SlotKey },
+              { key: "genre", question: "ジャンルの希望は？", priority: 3, slot: "what" as SlotKey },
+            ]
+          : [
+              { key: "scope", question: "希望をもう少し聞かせて", priority: 1, slot: "what" as SlotKey },
+            ],
+    validation: {
+      rejectedCount: 0,
+      rejectReasons: [],
+      fallbackToClarify: true,
+      hardConstraintsCount: agreedConstraints.filter((c) => c.strength === "hard").length,
+      providerFailure: true,
+    },
+  };
 }
 
 /**
