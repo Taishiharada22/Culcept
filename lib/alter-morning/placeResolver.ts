@@ -1030,7 +1030,19 @@ export async function resolveChainBrand(
 
   // CEO方針 2026-04-17 P1-b: 二重防御（chain_brand でも anchor 近傍を優先）
   //   「近くのマック」「サドヤ付近のスタバ」のような near-anchor プレフィクス表記に備える。
-  const nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+  let nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+
+  // CEO方針 2026-04-18 Bug A Step 4: 暗黙チェーン（chain_brand 版）
+  //   「サドヤでランチ → マック」のように prefix 無しチェーン。
+  //   prevAnchor があれば自動で locationBias に乗せる。userArea 明示時は尊重。
+  if (!nearAnchorBias && context.prevAnchor?.coords && !context.userArea) {
+    const radius = getNearAnchorRadius(placeName);
+    nearAnchorBias = {
+      lat: context.prevAnchor.coords.lat,
+      lng: context.prevAnchor.coords.lng,
+      radius,
+    };
+  }
   const query = nearAnchorBias
     ? normalizedBrand
     : context.userArea
@@ -1135,7 +1147,26 @@ export async function resolveGenericPlace(
   //   context.resolvedAnchors に coords 付きの anchor があれば、userArea より
   //   anchor 座標を優先して locationBias を組む。
   //   → parser 側（llmPlanExtractor）が hint 化に失敗しても、resolver 側で救済。
-  const nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+  let nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+
+  // CEO方針 2026-04-18 Bug A Step 4: 暗黙チェーン
+  //   「サドヤでランチ → カフェ」のように placeName に「近く」が含まれず
+  //   placeSearchHint も無い generic_place でも、prevAnchor（同プランの直前確定地点）
+  //   があれば、それを locationBias に使う。ユーザーの実機フィードバック:
+  //     「場所から1500mとか、そういう決まりがあったはずです。今の状態だと、
+  //      現在地からの測定になってます」
+  //   対応: prevAnchor coords を採用し、カテゴリ別 radius（カフェ=1500m 等）で絞る。
+  //   条件: prevAnchor.coords があり、既存 nearAnchorBias が無い場合のみ。
+  //   安全弁: userArea が明示されている時は優先する（ユーザー意図尊重）。
+  if (!nearAnchorBias && context.prevAnchor?.coords && !context.userArea) {
+    const radius = getNearAnchorRadius(placeName);
+    nearAnchorBias = {
+      lat: context.prevAnchor.coords.lat,
+      lng: context.prevAnchor.coords.lng,
+      radius,
+    };
+  }
+
   const query = nearAnchorBias
     ? searchTerm // bias があるときは userArea を query に混ぜない（anchor エリアを汚染しないため）
     : context.userArea

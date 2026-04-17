@@ -859,6 +859,101 @@ describe("resolveGenericPlace", () => {
     expect(result.confidence).toBe("unresolved");
     expect(mockPlacesTextSearch).not.toHaveBeenCalled();
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO方針 2026-04-18 Bug A Step 4: 暗黙チェーン
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  test("暗黙チェーン: prevAnchor あり + userArea なし → prevAnchor coords で locationBias", async () => {
+    // 「サドヤでランチ → カフェ」想定: 直前 anchor の座標から 1500m 円で探す
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_cafe1",
+        displayName: { text: "カフェ A", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        location: { latitude: 35.6635, longitude: 138.5685 },
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    const result = await resolveGenericPlace(
+      "カフェ",
+      {
+        // userArea は意図的に空 — 「現在地 / baseline 漏れ防止」の状態を再現
+        resolvedAnchors: [],
+        prevAnchor: {
+          segmentId: "seg_lunch",
+          order: 1,
+          anchorScore: 5,
+          coords: { lat: 35.6630, lng: 138.5680 },
+          label: "サドヤ",
+          startTime: "12:00",
+        },
+      },
+      "user1",
+    );
+
+    expect(result.bestCandidate).toBeDefined();
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    // locationBias が prevAnchor 座標で組まれている
+    expect(callArg.locationBias?.lat).toBeCloseTo(35.6630, 4);
+    expect(callArg.locationBias?.lng).toBeCloseTo(138.5680, 4);
+    // カフェのデフォルト半径 = 1500m
+    expect(callArg.locationBias?.radius).toBe(1500);
+    // query は純粋に searchTerm のみ（userArea 混入なし）
+    expect(callArg.textQuery).toBe("カフェ");
+  });
+
+  test("暗黙チェーン: userArea 明示時は優先（チェーンで上書きしない）", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_cafe2",
+        displayName: { text: "カフェ B", languageCode: "ja" },
+        formattedAddress: "東京都",
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    await resolveGenericPlace(
+      "カフェ",
+      {
+        userArea: "渋谷区", // ユーザー明示
+        prevAnchor: {
+          segmentId: "seg_lunch",
+          order: 1,
+          anchorScore: 5,
+          coords: { lat: 35.6630, lng: 138.5680 }, // 甲府座標
+          label: "サドヤ",
+          startTime: "12:00",
+        },
+      },
+      "user1",
+    );
+
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    // userArea が優先されて locationBias は組まれない
+    expect(callArg.locationBias).toBeUndefined();
+    // query に userArea が混ざる
+    expect(callArg.textQuery).toContain("渋谷区");
+  });
+
+  test("暗黙チェーン: prevAnchor なし → userArea なしでも locationBias なし（従来通り）", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_cafe3",
+        displayName: { text: "カフェ C", languageCode: "ja" },
+        formattedAddress: "somewhere",
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    await resolveGenericPlace("カフェ", {}, "user1");
+
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    expect(callArg.locationBias).toBeUndefined();
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
