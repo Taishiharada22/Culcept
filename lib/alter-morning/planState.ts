@@ -205,6 +205,44 @@ export interface PlanState {
   endpointType?: EndpointType;
   /** 出発地点 */
   startPoint?: string;
+
+  /**
+   * CEO方針 2026-04-18 Bug 6+1: セッション内で確定した「今日の起点」。
+   *
+   * 目的: startPoint はターンごとに消える可能性があるが、
+   * 一度「ホテルから出発」などで起点が確定したらセッション中は保持したい。
+   * resolveOrigin は baseline home より優先する（=「今日の起点」として尊重）。
+   *
+   * 優先順位 (locationResolver.resolveOrigin):
+   *   1. explicit startPoint（現ターンで明示）
+   *   2. currentLocation（GPS / 近傍推定 — 未実装プレースホルダ）
+   *   3. todayOrigin（このフィールド）
+   *   4. baseline home（savedBase の prefecture/city）
+   *
+   * 書き込みタイミング: startPoint が座標付きで解決された時にスナップショット
+   * （将来実装）。現状は手動設定可能な受け皿として追加。
+   */
+  todayOrigin?: {
+    label: string;
+    coords?: { lat: number; lng: number };
+    source: "user_declared" | "inferred_from_segment";
+  };
+
+  /**
+   * CEO方針 2026-04-18 Bug 6+1: 現在地（GPS or 近傍セグメント推定）。
+   *
+   * 目的: baseline home を「常時そこにいる」と誤解しない。
+   * 例: 自宅住所は甲府でも、今朝ホテルから出発する場合は currentLocation が優先される。
+   *
+   * 現時点で GPS 未接続のため、将来拡張用のプレースホルダとして追加。
+   * 手動テスト / future GPS hook 経由で populate される想定。
+   */
+  currentLocation?: {
+    label: string;
+    coords?: { lat: number; lng: number };
+    source: "gps" | "recent_segment";
+  };
+
   /** 出発時刻 "HH:MM" — 「8時に家を出る」等のプラン起点アンカー */
   departureTime?: string;
   /** 出発時刻の制約（固定出発/ウィンドウ等の意味情報） */
