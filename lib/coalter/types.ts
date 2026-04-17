@@ -381,7 +381,10 @@ export type ValidationReasonCode =
   | "missing_core_slot"           // テーマの core slot が埋まってない
   // その他
   | "duplicate_candidate"         // 既出候補と重複
-  | "empty_slots";                // slots そのものが空
+  | "empty_slots"                 // slots そのものが空
+  // Phase 1.5.4.6+: 3案差分 + 密度
+  | "candidates_too_similar"      // 3案が実質同じ（axisScores/slot/title のいずれでも差がない）
+  | "thin_practical_info";        // practicalInfo が薄い（数字項目不足）
 
 /**
  * 1 候補の validation 結果。

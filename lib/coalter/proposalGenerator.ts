@@ -38,6 +38,7 @@ import {
 } from "./slots";
 import {
   validateCandidates,
+  validateCandidatesDiversity,
   reasonCodeToText,
 } from "./slotValidator";
 
@@ -599,20 +600,26 @@ export async function generateProposal(
     agreedConstraints,
   );
 
-  // 目標: 3 候補（スワイプ UI 前提）。accepted が 3 件揃っていれば即確定。
-  // accepted が 1-2 件でも retry を試みて3件に近づける（ただし最悪の場合は accepted を返す）
-  if (firstCheck.accepted.length >= 3) {
+  // 目標: 3 候補（スワイプ UI 前提）。accepted が 3 件揃っており、かつ意味的に違うなら即確定。
+  // accepted が 1-2 件 or 3 件でも類似 → retry を試みて改善する
+  const firstDiversity =
+    firstCheck.accepted.length >= 3
+      ? validateCandidatesDiversity(firstCheck.accepted.slice(0, 3), theme)
+      : { ok: true as const };
+
+  if (firstCheck.accepted.length >= 3 && firstDiversity.ok) {
     return rebuildWithAccepted(firstCard, firstCheck.accepted.slice(0, 3), firstCheck.rejected);
   }
 
-  // ── 1回だけ retry: reject 理由を再プロンプトに乗せる ──
-  // 候補数不足の場合も retry 対象とする
+  // ── 1回だけ retry: reject 理由 + 類似警告を再プロンプトに乗せる ──
   const needMoreCandidates = firstCheck.accepted.length < 3;
+  const tooSimilar = !firstDiversity.ok;
   const retryPrompt = buildRetryPrompt(
     prompt,
     firstCheck.rejected,
     agreedConstraints,
     needMoreCandidates ? firstCheck.accepted.length : undefined,
+    tooSimilar,
   );
 
   let retryCard: ProposalCard | null = null;
@@ -641,18 +648,29 @@ export async function generateProposal(
       theme,
       agreedConstraints,
     );
-    // retry で 3件以上揃ったら採用、1-2件でも retry の方が多ければ採用
-    if (retryCheck.accepted.length >= 3) {
+    const retryDiversity =
+      retryCheck.accepted.length >= 3
+        ? validateCandidatesDiversity(retryCheck.accepted.slice(0, 3), theme)
+        : { ok: true as const };
+
+    // retry で 3件以上かつ多様性OK → 採用
+    if (retryCheck.accepted.length >= 3 && retryDiversity.ok) {
       return rebuildWithAccepted(retryCard, retryCheck.accepted.slice(0, 3), retryCheck.rejected);
     }
+    // 件数が増えた or 1回目が類似で retry が違うなら retry 優先
     if (retryCheck.accepted.length > firstCheck.accepted.length) {
       return rebuildWithAccepted(retryCard, retryCheck.accepted, retryCheck.rejected);
+    }
+    // 1回目が類似だった場合、retry が 3件（類似でも）揃っていれば retry を優先採用
+    if (tooSimilar && retryCheck.accepted.length >= 3) {
+      return rebuildWithAccepted(retryCard, retryCheck.accepted.slice(0, 3), retryCheck.rejected);
     }
   }
 
   // 1回目の accepted が 1-2 件あれば、clarify ではなくその分で返す（UX 優先）
+  // 3件揃いで類似の場合もそのまま採用（clarify にするほどではない）
   if (firstCheck.accepted.length >= 1) {
-    return rebuildWithAccepted(firstCard, firstCheck.accepted, firstCheck.rejected);
+    return rebuildWithAccepted(firstCard, firstCheck.accepted.slice(0, 3), firstCheck.rejected);
   }
 
   // ── 2回目も全滅 → clarify フォールバック ──
@@ -694,6 +712,7 @@ function buildRetryPrompt(
   rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>,
   agreedConstraints: AgreedConstraint[],
   acceptedShortfallCount?: number,
+  tooSimilar?: boolean,
 ): string {
   const rejectSection: string[] = [];
   rejectSection.push("");
@@ -703,6 +722,13 @@ function buildRetryPrompt(
   if (typeof acceptedShortfallCount === "number" && acceptedShortfallCount < 3) {
     rejectSection.push(
       `（前回 accepted: ${acceptedShortfallCount} 件 — 必ず **3 件** 出すこと。スワイプで選ぶ UI 前提）`,
+    );
+  }
+
+  // 3案類似の警告
+  if (tooSimilar) {
+    rejectSection.push(
+      "（前回 3 案が意味的にほぼ同じだった — 3 案は **価格帯・エリア・ジャンル・雰囲気** のうち最低 2 軸で明確に差をつけ、axisScores も候補間で違いを付けること）",
     );
   }
 
@@ -723,6 +749,8 @@ function buildRetryPrompt(
   rejectSection.push("- 会話で合意された除外・予算・ジャンル条件を必ず守る");
   rejectSection.push("- core slot（テーマの主軸）を必ず埋める");
   rejectSection.push("- **必ず 3 候補**。2個や1個では不合格");
+  rejectSection.push("- **3 案は違う選択肢を示す**: 🥇バランス / 🥈Aの優先軸寄り / 🥉Bの優先軸寄り。または 安全 / 冒険 / 発見 の 3 方向");
+  rejectSection.push("- **practicalInfo には数字を最低 3 つ**（評価・時刻・料金・徒歩分・所要時間のうち 3 項目以上）");
 
   // agreedConstraints を再掲
   const hardConstraints = agreedConstraints.filter((c) => c.strength === "hard");
@@ -764,6 +792,8 @@ function buildClarifyFallback(
     missing_core_slot: { key: "core", question: "まず何を決めたい？", slot: theme === "food" ? "where" : theme === "travel" ? "where" : "what" },
     duplicate_candidate: { key: "dup", question: "前回と違う方向の候補が欲しい？", slot: "what" },
     empty_slots: { key: "any", question: "もう少し希望を教えてもらえる？", slot: "what" },
+    candidates_too_similar: { key: "variety", question: "3案の軸（価格・エリア・ジャンル等）で何を重視する？", slot: "what" },
+    thin_practical_info: { key: "details_ok", question: "評価・料金・時刻などの現実情報は重視する？", slot: "how" },
   };
 
   const newMissing = allReasons

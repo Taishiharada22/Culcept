@@ -114,26 +114,32 @@ describe("proposalGenerator retry — 3件 accepted なら runAI 1回で確定",
           {
             rank: 1,
             oneLiner: "二人にぴったり",
+            practicalInfo: "★4.2 / 19:00〜 / ¥1800 / 徒歩5分",
             slots: {
               what: { label: "ラストマイル", status: "proposed" },
               where: { label: "渋谷ストリーム", status: "confirmed" },
             },
+            axisScores: { price: 1, access: 2, novelty: 1 },
           },
           {
             rank: 2,
             oneLiner: "2本目",
+            practicalInfo: "★4.0 / 15:00〜 / ¥1500 / 徒歩2分",
             slots: {
               what: { label: "アナログ", status: "proposed" },
               where: { label: "109シネマズ二子玉川", status: "confirmed" },
             },
+            axisScores: { price: 2, access: 1, novelty: 2 },
           },
           {
             rank: 3,
             oneLiner: "3本目",
+            practicalInfo: "★4.5 / 21:00〜 / ¥2000 / 徒歩7分",
             slots: {
               what: { label: "PERFECT DAYS", status: "proposed" },
               where: { label: "新宿ピカデリー", status: "confirmed" },
             },
+            axisScores: { price: 0, access: 3, novelty: 3 },
           },
         ],
         reasoning: "r",
@@ -168,6 +174,7 @@ describe("proposalGenerator retry — 3件 accepted なら runAI 1回で確定",
           {
             rank: 1,
             oneLiner: "良い候補",
+            practicalInfo: "★4.2 / 19:00〜 / ¥1800",
             slots: {
               what: { label: "ラストマイル", status: "proposed" },
               where: { label: "渋谷ストリーム", status: "confirmed" },
@@ -176,6 +183,7 @@ describe("proposalGenerator retry — 3件 accepted なら runAI 1回で確定",
           {
             rank: 2,
             oneLiner: "2本目",
+            practicalInfo: "★4.0 / 15:00〜 / ¥1500",
             slots: {
               what: { label: "アナログ", status: "proposed" },
               where: { label: "109シネマズ", status: "confirmed" },
@@ -273,6 +281,7 @@ describe("proposalGenerator retry — 1回目で全 reject なら retry する",
           {
             rank: 1,
             oneLiner: "具体的な候補",
+            practicalInfo: "★4.2 / 19:00〜 / ¥1800",
             slots: {
               what: { label: "ラストマイル", status: "proposed" },
               where: { label: "渋谷ストリーム", status: "confirmed" },
@@ -407,6 +416,7 @@ describe("proposalGenerator × agreedConstraints (hard)", () => {
           {
             rank: 1,
             oneLiner: "離れた場所のイタリアン",
+            practicalInfo: "★4.0 / 18:00〜23:00 / ¥6000",
             slots: {
               where: { label: "渋谷イタリアーノ", status: "confirmed" },
               what: { label: "イタリアン", status: "proposed" },

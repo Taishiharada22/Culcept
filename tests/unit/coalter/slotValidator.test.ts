@@ -95,6 +95,7 @@ describe("looksLikeMovieTitle", () => {
 describe("validateCandidate — movie", () => {
   it("具体作品名 + 具体館名 → OK", () => {
     const c = cand({
+      practicalInfo: "★4.2 / 19:00〜 / ¥1800 / 徒歩5分",
       slots: {
         what: { label: "ラストマイル", status: "proposed" },
         where: { label: "渋谷ストリーム", status: "confirmed" },
@@ -151,6 +152,7 @@ describe("validateCandidate — movie", () => {
 describe("validateCandidate — food", () => {
   it("具体店名 + 料理 → OK", () => {
     const c = cand({
+      practicalInfo: "★3.8 / 18:00〜23:00 / ¥5000 / 徒歩3分",
       slots: {
         where: { label: "銀座バル", status: "confirmed" },
         what: { label: "イタリアン", status: "proposed" },
@@ -176,6 +178,7 @@ describe("validateCandidate — food", () => {
 describe("validateCandidate — travel", () => {
   it("固有地名 + 時期 → OK", () => {
     const c = cand({
+      practicalInfo: "新宿から90分 / 1泊 ¥15000 / 徒歩10分",
       slots: {
         where: { label: "箱根", status: "proposed" },
         when: { label: "今週末", status: "confirmed" },
@@ -254,7 +257,7 @@ describe("validateCandidate × agreedConstraints (hard)", () => {
     const c = cand({
       title: "銀座フレンチ店",
       oneLiner: "x",
-      practicalInfo: "ランチ 5500円",
+      practicalInfo: "★3.8 / ランチ 5500円 / 12:00〜14:00",
       slots: {
         where: { label: "銀座フレンチ店", status: "confirmed" },
         what: { label: "フレンチ", status: "proposed" },
@@ -301,6 +304,7 @@ describe("validateCandidate × agreedConstraints (hard)", () => {
     const c = cand({
       title: "銀座イタリアン",
       oneLiner: "本格イタリアン",
+      practicalInfo: "★4.0 / 18:00〜23:00 / ¥6000",
       slots: {
         where: { label: "銀座イタリアン", status: "confirmed" },
         what: { label: "イタリアン", status: "proposed" },
@@ -322,7 +326,7 @@ describe("validateCandidate × agreedConstraints (hard)", () => {
   it("soft constraint は validator で reject されない", () => {
     const c = cand({
       title: "高級フレンチ店",
-      practicalInfo: "コース 15000円",
+      practicalInfo: "★4.5 / コース 15000円 / 18:00〜22:00",
       slots: {
         where: { label: "銀座フレンチ店", status: "confirmed" },
         what: { label: "フレンチ", status: "proposed" },
@@ -351,6 +355,7 @@ describe("validateCandidates", () => {
       cand({
         rank: 1,
         title: "良い候補",
+        practicalInfo: "★4.2 / 19:00〜 / ¥1800",
         slots: {
           what: { label: "ラストマイル", status: "proposed" },
           where: { label: "渋谷ストリーム", status: "confirmed" },
@@ -379,6 +384,7 @@ describe("validateCandidates", () => {
   it("全候補 accepted なら rejected は空配列", () => {
     const candidates: ProposalCandidate[] = [
       cand({
+        practicalInfo: "★4.2 / 19:00〜 / ¥1800",
         slots: {
           what: { label: "ラストマイル", status: "proposed" },
           where: { label: "渋谷ストリーム", status: "confirmed" },

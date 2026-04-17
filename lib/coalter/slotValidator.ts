@@ -185,6 +185,63 @@ function looksLikeMovieTitle(label: string): boolean {
 }
 
 // ─────────────────────────────────────────────
+// 密度チェック（practicalInfo / slot detail が薄すぎないか）
+// ─────────────────────────────────────────────
+
+/**
+ * practicalInfo が「数字が含まれる具体情報」を最低2項目持っているか。
+ *
+ * 数字項目の種類:
+ *  - 評価スコア（★/点/4.2 のような小数）
+ *  - 時刻（15:00〜 / 19:00 等）
+ *  - 料金（1,500円 / ¥1500 / 大人 1900 等）
+ *  - 所要・上映時間（118分 / 2時間 等）
+ *  - 徒歩分（駅徒歩5分 等）
+ *
+ * practicalInfo が null の場合でも、slot.detail に密度があれば救済。
+ */
+function hasDensePracticalInfo(
+  candidate: ProposalCandidate,
+  _theme: ConversationTheme,
+): boolean {
+  // practicalInfo + 全 slot の detail を結合
+  const text = [
+    candidate.practicalInfo ?? "",
+    ...Object.values(candidate.slots ?? {}).flatMap((s) =>
+      s ? [s.detail ?? ""] : [],
+    ),
+  ].join(" ");
+
+  if (text.trim().length === 0) return false;
+
+  // 数字を含む情報項目を数える
+  let score = 0;
+  // 評価系
+  if (/★\s*\d|\d\.\d{1,2}\s*点|\d\.\d{1,2}\s*\/\s*5|Filmarks?[^\n]{0,6}\d\.\d/.test(text)) {
+    score += 1;
+  }
+  // 時刻
+  if (/\b\d{1,2}:\d{2}/.test(text)) {
+    score += 1;
+  }
+  // 料金
+  if (/(¥|\\)?\s?[\d,]{3,6}\s*円|\bprice|\d{3,5}\s*〜|\d{3,5}\s*-\s*\d{3,5}/.test(text)) {
+    score += 1;
+  }
+  // 所要・上映時間
+  if (/\d{2,3}\s*分|\d\s*時間|\d+h\b/.test(text)) {
+    score += 1;
+  }
+  // 徒歩分 / 距離
+  if (/徒歩\s*\d|駅\s*\d\s*分|\d\s*km/.test(text)) {
+    score += 1;
+  }
+
+  // テーマ別に要求数を変える余地があるが、共通で「2項目以上」を最低ラインに
+  return score >= 2;
+}
+
+// ─────────────────────────────────────────────
 // slot 単位の validation
 // ─────────────────────────────────────────────
 
@@ -396,6 +453,13 @@ export function validateCandidate(
   reasons.push(...violationCheck.reasons);
   violated.push(...violationCheck.violated);
 
+  // 4. practicalInfo 密度チェック（movie/food/travel は具体数値3項目以上を期待）
+  if (theme === "movie" || theme === "food" || theme === "travel") {
+    if (!hasDensePracticalInfo(candidate, theme)) {
+      reasons.push("thin_practical_info");
+    }
+  }
+
   // 重複除去
   const uniqReasons = [...new Set(reasons)];
 
@@ -452,8 +516,85 @@ export function reasonCodeToText(code: ValidationReasonCode): string {
     missing_core_slot: "テーマの主軸スロットが埋まってない",
     duplicate_candidate: "既出候補と重複",
     empty_slots: "5W1H slots が空",
+    candidates_too_similar: "3案が実質同じ（差分が無い）",
+    thin_practical_info: "現実情報（時間/料金/評価等）が薄い",
   };
   return map[code] ?? code;
+}
+
+// ─────────────────────────────────────────────
+// 3案差分 validator（候補間の意味的差異をチェック）
+// ─────────────────────────────────────────────
+
+/**
+ * 3つ（以上）の候補が「意味的に違う」かチェック。
+ *
+ * 判定基準（1つでも引っかかれば too_similar）:
+ *  - 全候補の coreSlot.label が同一 or 全部空
+ *  - 全候補の axisScores が実質同一（差のある軸が 2 未満）
+ *  - 全候補の title が同一
+ *
+ * @returns true = 意味的に違う（OK） / false = 類似しすぎ（reject）
+ */
+export function validateCandidatesDiversity(
+  candidates: ProposalCandidate[],
+  theme: ConversationTheme,
+): { ok: boolean; reason?: ValidationReasonCode } {
+  if (candidates.length < 2) return { ok: true };
+
+  const rule = getThemeRule(theme);
+  const coreKey = rule?.core;
+
+  // 1. core slot の label が全部同じ or 全部空 → NG
+  if (coreKey) {
+    const coreLabels = candidates.map((c) => {
+      const slot = c.slots?.[coreKey];
+      return slot?.label?.trim() ?? "";
+    });
+    const nonEmptyLabels = coreLabels.filter((l) => l.length > 0);
+    if (nonEmptyLabels.length === 0) {
+      return { ok: false, reason: "candidates_too_similar" };
+    }
+    const uniqueCoreLabels = new Set(nonEmptyLabels);
+    if (uniqueCoreLabels.size === 1 && candidates.length >= 2) {
+      // 全候補が同じ作品 / 同じ店
+      return { ok: false, reason: "candidates_too_similar" };
+    }
+  }
+
+  // 2. title 全部同じ → NG
+  const titles = candidates.map((c) => c.title?.trim() ?? "");
+  const uniqueTitles = new Set(titles.filter((t) => t.length > 0));
+  if (uniqueTitles.size === 1 && candidates.length >= 2) {
+    return { ok: false, reason: "candidates_too_similar" };
+  }
+
+  // 3. axisScores: 軸ごとに「2つ以上の異なる値があるか」カウント
+  //    差のある軸が 2 未満なら too_similar
+  const allAxisKeys = new Set<string>();
+  for (const c of candidates) {
+    if (c.axisScores) {
+      for (const k of Object.keys(c.axisScores)) allAxisKeys.add(k);
+    }
+  }
+
+  if (allAxisKeys.size > 0) {
+    let variedAxisCount = 0;
+    for (const k of allAxisKeys) {
+      const values = candidates
+        .map((c) => c.axisScores?.[k as keyof typeof c.axisScores])
+        .filter((v): v is 0 | 1 | 2 | 3 => typeof v === "number");
+      if (values.length < 2) continue;
+      const unique = new Set(values);
+      if (unique.size >= 2) variedAxisCount += 1;
+    }
+    // 3案の場合、軸で2つ以上違いがないと「全部同じ方向」になる
+    if (candidates.length >= 3 && variedAxisCount < 2) {
+      return { ok: false, reason: "candidates_too_similar" };
+    }
+  }
+
+  return { ok: true };
 }
 
 /** テスト用の内部 export */
@@ -463,4 +604,6 @@ export const __internal = {
   validateSlot,
   validateThemeMinimum,
   checkAgreedConstraintsViolation,
+  hasDensePracticalInfo,
+  validateCandidatesDiversity,
 };

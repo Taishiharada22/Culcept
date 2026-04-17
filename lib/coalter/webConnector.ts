@@ -202,23 +202,53 @@ function buildSearchQueries(
   // ── theme × core slot × constraints ──
   const rule = getThemeRule(theme as ConversationTheme);
   const locationPart = c.location ? `${c.location} ` : "";
-  const datePart = c.date ? `${c.date} ` : "";
+  // date: 曜日だけ（「木曜日」「来週木曜」）は映画検索の役に立たないので捨てる
+  const rawDate = c.date ?? "";
+  const dateIsUseful = rawDate && !/^(来週|今週|来月|今月)?(月|火|水|木|金|土|日)曜日?$/.test(rawDate.trim());
+  const datePart = dateIsUseful ? `${rawDate} ` : "";
   const budgetPart = budgetHint || (c.budget ? `${c.budget} ` : "");
+
+  // 現在の年月（検索で最新作を拾うため）
+  const now = new Date();
+  const yearMonth = `${now.getFullYear()}年${now.getMonth() + 1}月`;
 
   switch (theme) {
     case "movie": {
-      // core=what → 「上映中」「公開中」「評価」
-      const q = [
-        datePart.trim(),
-        locationPart.trim(),
+      // core=what → 複数角度から「上映中の具体作品」を引き出す
+      //  (1) 映画.com の上映中ページ相当
+      //  (2) Filmarks 新作ランキング
+      //  (3) 地域 × 映画館スケジュール（場所がある場合のみ）
+      const q1 = [
         styleHint,
-        "映画 上映中 2026 評価",
+        "映画.com 上映中",
+        yearMonth,
+        "作品",
         exclusionHint,
       ]
         .filter(Boolean)
         .join(" ")
         .trim();
-      queries.push(q);
+      queries.push(q1);
+
+      const q2 = [
+        styleHint,
+        "Filmarks ランキング",
+        yearMonth,
+        "新作 評価",
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      queries.push(q2);
+
+      if (locationPart.trim()) {
+        queries.push(
+          `${locationPart.trim()} 映画館 上映スケジュール ${yearMonth}`.trim(),
+        );
+      } else {
+        // location が無い場合は公開中の話題作に寄せる
+        queries.push(`公開中 映画 話題作 ${yearMonth} 評価`);
+      }
       break;
     }
     case "food": {
