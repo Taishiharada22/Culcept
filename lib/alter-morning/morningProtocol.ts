@@ -1835,7 +1835,8 @@ function cleanupPendingPlaceConfirmations(
  *   - medium → 「○○でどう？」と軽く提案（anchor近傍のチェーン店含む）
  *   - low → 候補提示 or 追加質問
  */
-function buildPlaceConfirmQuestions(
+/** @internal test export — buildPlaceConfirmQuestions */
+export function buildPlaceConfirmQuestions(
   confirmations: NonNullable<MorningSession["pendingPlaceConfirmations"]>,
 ): string {
   if (confirmations.length === 0) return "";
@@ -1863,6 +1864,14 @@ function buildPlaceConfirmQuestions(
         questions.push(
           `${pc.originalText}ってどこのこと？\n${candidateList}`,
         );
+      } else if (pc.nearAnchorContext) {
+        // GPT rule 4 UI side: near-anchor 検索で 0 件
+        //   「サドヤ近くでカフェは見つからなかった。範囲を広げる？ 別カテゴリで探す？」
+        //   ボタンは最小 2 つ + 必要なら「場所を変える」3 つ目。
+        const { anchorLabel, searchCategory } = pc.nearAnchorContext;
+        questions.push(
+          `${anchorLabel}近くで${searchCategory}は見つからなかった。\n・範囲を広げる？\n・別カテゴリで探す？\n・場所を変える？`,
+        );
       } else {
         // low + 候補なし: 場所を聞く
         questions.push(`${pc.originalText}ってどこにあるお店？`);
@@ -1882,7 +1891,8 @@ function buildPlaceConfirmQuestions(
  * 「1」「2」「3」→ low 候補から選択
  * 具体的な場所名 → セグメントに直接設定
  */
-function tryDirectPlaceConfirmResponse(
+/** @internal test export — tryDirectPlaceConfirmResponse */
+export function tryDirectPlaceConfirmResponse(
   message: string,
   state: PlanState,
   pendingConfirmations: NonNullable<MorningSession["pendingPlaceConfirmations"]>,
@@ -1946,6 +1956,61 @@ function tryDirectPlaceConfirmResponse(
           );
         }
       }
+    } else if (pc.confidence === "low" && pc.nearAnchorContext) {
+      // GPT rule 4 UI side: near-anchor 0 件時の 3 ボタン応答
+      const ctx = pc.nearAnchorContext;
+
+      // 1. 「広げる」「範囲」 → radiusOverrideM を書き込み、次パスで再検索
+      if (/広げ|もっと(広|遠)|範囲|遠く|周辺広|もう少し広/.test(trimmed)) {
+        const newRadius = Math.min(ctx.radiusM * 2, 5000); // 2× (上限 5km)
+        seg.placeSearchHint = {
+          ...(seg.placeSearchHint ?? {}),
+          nearAnchorLabel: ctx.anchorLabel,
+          searchCategory: ctx.searchCategory,
+          radiusOverrideM: newRadius,
+        };
+        // resolved* は 0 件時点で undefined のまま。
+        // missingFields の placeAsk を除去（再検索で確認を作り直す）
+        updated.missingFields = updated.missingFields.filter(
+          f => !f.startsWith(`placeAsk:${pc.segmentId}`) &&
+               !f.startsWith(`placeConfirm:${pc.segmentId}`),
+        );
+        descriptions.push(`${ctx.anchorLabel}近くの${ctx.searchCategory}を ${newRadius}m 圏で再検索`);
+        resolvedConfirmations.push(pc.segmentId);
+      }
+      // 2. 「別カテゴリ」「他のジャンル」「違うカテゴリ」「違うジャンル」→ searchCategory をクリア、ユーザーに新カテゴリを聞く
+      else if (/別(の)?(カテゴリ|ジャンル|種類)|他(の)?(カテゴリ|ジャンル)|違う(カテゴリ|ジャンル)|カテゴリ(変|を)|ジャンル(変|を)/.test(trimmed)) {
+        seg.placeSearchHint = {
+          ...(seg.placeSearchHint ?? {}),
+          nearAnchorLabel: ctx.anchorLabel,
+          searchCategory: undefined,
+          radiusOverrideM: undefined,
+        };
+        // placeCategoryAsk: カテゴリを聞く専用 missingField（既存 placeAsk と区別）
+        updated.missingFields = updated.missingFields.filter(
+          f => !f.startsWith(`placeAsk:${pc.segmentId}`) &&
+               !f.startsWith(`placeConfirm:${pc.segmentId}`),
+        );
+        updated.missingFields.push(
+          `placeCategoryAsk:${pc.segmentId}:${ctx.anchorLabel}`,
+        );
+        descriptions.push(`${ctx.anchorLabel}近くで別カテゴリを探す`);
+        resolvedConfirmations.push(pc.segmentId);
+      }
+      // 3. 「場所を変える」「違う場所」「他の場所」→ placeSearchHint 全クリア、普通の placeAsk に戻す
+      else if (/場所(変|を|と)|違う場所|他の場所|別の場所|ここじゃ|ここは/.test(trimmed)) {
+        seg.placeSearchHint = undefined;
+        updated.missingFields = updated.missingFields.filter(
+          f => !f.startsWith(`placeAsk:${pc.segmentId}`) &&
+               !f.startsWith(`placeConfirm:${pc.segmentId}`),
+        );
+        updated.missingFields.push(
+          `segmentPlace:${pc.segmentId}:${seg.activityCanonical ?? seg.activity}`,
+        );
+        descriptions.push(`場所を変更する（${ctx.anchorLabel} 近くの検索を中止）`);
+        resolvedConfirmations.push(pc.segmentId);
+      }
+      // それ以外 → 未解決（次の LLM delta / clarify に委ねる）
     }
   }
 

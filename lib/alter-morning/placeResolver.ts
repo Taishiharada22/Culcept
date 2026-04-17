@@ -1421,7 +1421,8 @@ export async function resolveNearAnchorPlaces(
     if (anchor.confidence !== "high") continue;
 
     const anchorCoords = anchor.coords;
-    const radiusM = getNearAnchorRadius(hint.searchCategory);
+    // GPT rule 4 UI side: ユーザーが「広げる」と応えた結果 radiusOverrideM が乗っていれば優先
+    const radiusM = hint.radiusOverrideM ?? getNearAnchorRadius(hint.searchCategory);
 
     // 2) Places API 呼び出し
     let apiResults: PlacesApiPlace[] = [];

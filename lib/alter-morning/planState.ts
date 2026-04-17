@@ -153,6 +153,15 @@ export interface PlanSegment {
     searchCategory?: string;
     /** 元の疑問文（デバッグ / ログ用） */
     originalQuery?: string;
+    /**
+     * 半径オーバーライド（メートル）。
+     *
+     * GPT追加ルール 2026-04-17 UI side:
+     *   候補 0 件時にユーザーが「広げる」と応えた場合、次回検索の半径を
+     *   ここに書き込む。placeResolver.resolveNearAnchorPlaces は
+     *   radiusOverrideM が設定されていればカテゴリデフォルトではなくこちらを使う。
+     */
+    radiusOverrideM?: number;
   };
 
   // ── Who ──
