@@ -14,6 +14,7 @@ import { runAI } from "@/lib/ai";
 import { resolvePlaceFromText } from "./placeTable";
 import { resolveActivity, getDefaultDuration } from "./activityVocabulary";
 import { todayJST } from "./dateUtils";
+import { PersonRegistry } from "./personAlias";
 import {
   type PlanState,
   type PlanSegment,
@@ -225,9 +226,24 @@ export function mergeLocationActivitySegments(segments: LLMRawSegment[]): LLMRaw
 export function normalizeLLMOutput(raw: LLMExtractResult): PlanState {
   // LLMが場所+活動を2セグメントに分割した場合の防御マージ
   const mergedRaw = mergeLocationActivitySegments(raw.segments);
+
+  // CEO方針 2026-04-18 Bug B Phase 1: plan 全体で人名表記の一貫性を保つため、
+  //   normalizeLLMOutput スコープで 1 つの PersonRegistry を共有する。
+  //   segment ごとの companions を通すことで「仙洞田 / 仙洞田さん」等の表記ゆれを
+  //   canonical に揃える（敬称つき形式が displayName に格上げされる）。
+  const personRegistry = new PersonRegistry();
+
   const segments: PlanSegment[] = mergedRaw.map((seg) =>
-    normalizeSegment(seg),
+    normalizeSegment(seg, personRegistry),
   );
+
+  // 2-pass rewrite: segment A で「仙洞田」しか出ず、segment B で「仙洞田さん」が出た場合、
+  //   A の表記も「仙洞田さん」に揃える。
+  for (const seg of segments) {
+    if (seg.companions.length > 0) {
+      seg.companions = personRegistry.dedupeDisplay(seg.companions);
+    }
+  }
 
   // CEO方針 2026-04-17 P1-a: 平叙文 near-anchor（「近くのカフェで…」）を hint 化
   //   疑問形（?）のない declarative でも、前セグメントの place を nearAnchorLabel に
@@ -515,7 +531,10 @@ export function applyDeclarativeNearAnchorHints(segments: PlanSegment[]): void {
   }
 }
 
-function normalizeSegment(seg: LLMRawSegment): PlanSegment {
+function normalizeSegment(
+  seg: LLMRawSegment,
+  personRegistry?: PersonRegistry,
+): PlanSegment {
   // CEO方針 Block 1 (a) 安全弁: 疑問文 place を scrub
   const scrub = scrubQuestionPlace(seg.place);
 
@@ -526,10 +545,17 @@ function normalizeSegment(seg: LLMRawSegment): PlanSegment {
   const nonPlaceScrub = scrubNonPlaceContent(scrub.place, seg.companions ?? []);
   // 検出時 null、非検出時は trimmed place が入っている
   const effectivePlace: string | null = nonPlaceScrub.place;
-  const mergedCompanions = [
+  const rawCompanions = [
     ...(seg.companions ?? []),
     ...nonPlaceScrub.addedCompanions,
   ];
+
+  // CEO方針 2026-04-18 Bug B Phase 1: 敬称ゆれ（仙洞田 / 仙洞田さん）を統一。
+  //   レジストリが渡されていればそれを使って表記を揃える。
+  //   渡されていない場合は局所的に dedupe だけ行う（テスト経路等の単体呼び出し向け）。
+  const mergedCompanions = personRegistry
+    ? personRegistry.dedupeDisplay(rawCompanions)
+    : new PersonRegistry().dedupeDisplay(rawCompanions);
 
   // 場所の正規化
   const placeResult = effectivePlace ? resolvePlaceFromText(effectivePlace) : null;
