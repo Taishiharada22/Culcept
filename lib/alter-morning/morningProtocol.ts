@@ -58,6 +58,10 @@ let _detectDelta: typeof import("./llmDeltaParser").detectDelta | null = null;
 let _applyDelta: typeof import("./llmDeltaParser").applyDelta | null = null;
 let _resolveAnchors: typeof import("./placeResolver").resolveAnchors | null = null;
 let _resolveNearAnchorPlaces: typeof import("./placeResolver").resolveNearAnchorPlaces | null = null;
+let _attachNearbyPlacesToProposals:
+  | typeof import("./gapFillPlaceEnricher").attachNearbyPlacesToProposals
+  | null = null;
+let _extractHardAnchors: typeof import("./objectiveFunction").extractHardAnchors | null = null;
 
 /** test export: v2 モジュール強制ロード */
 export async function ensureV2Modules(): Promise<boolean> {
@@ -80,6 +84,14 @@ export async function ensureV2Modules(): Promise<boolean> {
       const pr = await import("./placeResolver");
       _resolveAnchors = pr.resolveAnchors;
       _resolveNearAnchorPlaces = pr.resolveNearAnchorPlaces;
+    }
+    if (!_attachNearbyPlacesToProposals) {
+      const en = await import("./gapFillPlaceEnricher");
+      _attachNearbyPlacesToProposals = en.attachNearbyPlacesToProposals;
+    }
+    if (!_extractHardAnchors) {
+      const obj = await import("./objectiveFunction");
+      _extractHardAnchors = obj.extractHardAnchors;
     }
     return true;
   } catch {
@@ -1446,6 +1458,25 @@ async function buildV2DayPlanAsync(
       ? `${planState.targetDate}T${planState.departureTime}:00+09:00`
       : undefined,
   });
+
+  // ── Block 2-(b) CEO方針 2026-04-17: gapFillEngine × Places Nearby ──
+  // gap-fill 提案（proposal=true）に近傍 Places 候補を添付。
+  // 原則:
+  //   1. anchor が高確信（anchorScore>=4 + resolvedLat/lng）の時だけ発動
+  //   2. 勝手に採用しない → proposedPlaceCandidates のみ。resolved* は触らない
+  //   3. objective function（距離・近傍・往復）をそのまま効かせる
+  //   4. gap fill の主題を壊さない（非 proposal / 対象外 category は不変）
+  // fail-open: API 未設定 / anchor 無し / API 失敗はすべて静かにスキップ
+  if (_attachNearbyPlacesToProposals && _extractHardAnchors) {
+    try {
+      const hardAnchors = _extractHardAnchors(planState.segments);
+      if (hardAnchors.length > 0) {
+        plan.items = await _attachNearbyPlacesToProposals(plan.items, hardAnchors);
+      }
+    } catch (e) {
+      console.warn("[morning-protocol] attachNearbyPlacesToProposals failed (fail-open):", e);
+    }
+  }
 
   plan.date = planState.targetDate;
   if (planState.startPoint) {

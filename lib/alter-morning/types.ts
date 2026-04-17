@@ -277,6 +277,32 @@ export interface PlanItem {
    * bottom sheet で表示される。リコメンドではない場合は undefined。
    */
   recommendReason?: string;
+
+  // ── Block 2-(b): gapFillEngine × Places Nearby（CEO方針 2026-04-17）──
+  /**
+   * Gap-fill 提案（proposal=true）に対して Places API が返した近傍候補。
+   *
+   * 発動条件 (gapFillPlaceEnricher):
+   *   - item.proposal === true かつ activityCategory が life_rest / social_meal
+   *   - 近傍の hard anchor（anchorScore>=4 かつ resolvedLat/lng 有り）が存在
+   *   - Places API キー有り
+   *
+   * 原則:
+   *   - 勝手に採用しない（medium 相当）→ resolvedPlaceName はセットしない
+   *   - 距離/近傍/往復ペナルティは objective function を流用（adjustCandidateScore）
+   *   - top 1-3 件、placeId → address → name で dedupe
+   *   - ユーザーが確認 / 選択するまで単なる添え物
+   *
+   * UI 側は「近くにこんなカフェあるよ」等の追加表示に使う。
+   */
+  proposedPlaceCandidates?: Array<{
+    name: string;
+    address?: string;
+    placeId?: string;
+    lat?: number;
+    lng?: number;
+    matchScore: number;
+  }>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
