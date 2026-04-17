@@ -658,14 +658,22 @@ export function analyzeConversation(
   if (topicAnchor?.detectedScope.placeRef && !constraints.location) {
     constraints.location = topicAnchor.detectedScope.placeRef;
   }
-  // anchor が時間表現を持つ場合も同様
-  if (topicAnchor?.detectedScope.timeRef && !constraints.date) {
-    // date か timeSlot か判断: 曜日・日付系は date、時間帯は timeSlot
+  // anchor が時間表現を持つ場合は優先（anchor の timeRef は
+  // 「来週木曜日」のように既存 regex の「来週」だけより具体的なことが多い）
+  if (topicAnchor?.detectedScope.timeRef) {
     const t = topicAnchor.detectedScope.timeRef;
-    if (/(月曜|火曜|水曜|木曜|金曜|土曜|日曜|今日|明日|明後日|今週末|来週|来週末|週末|休み|休日|\d{1,2}月\d{1,2}日)/.test(t)) {
-      constraints.date = t;
-    } else if (!constraints.timeSlot) {
-      constraints.timeSlot = t;
+    const isDateLike = /(月曜|火曜|水曜|木曜|金曜|土曜|日曜|今日|明日|明後日|今週末|来週|来週末|週末|休み|休日|\d{1,2}月\d{1,2}日)/.test(t);
+    const isTimeSlotLike = /(朝|昼|夕方|夜|午前|午後|ランチ|ディナー)/.test(t);
+    if (isDateLike) {
+      // anchor の方が長い（より具体）、または既存が未設定なら上書き
+      if (!constraints.date || t.length > constraints.date.length) {
+        constraints.date = t;
+      }
+    }
+    if (isTimeSlotLike && !constraints.timeSlot) {
+      // anchor に時間帯が含まれる場合（「木曜のランチ」→ 時間帯=ランチ も拾う）
+      const timeSlotMatch = t.match(/(朝|昼|夕方|夜|午前|午後|ランチ|ディナー)/);
+      if (timeSlotMatch) constraints.timeSlot = timeSlotMatch[0];
     }
   }
 
