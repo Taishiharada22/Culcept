@@ -302,6 +302,16 @@ export interface PlanItem {
     lat?: number;
     lng?: number;
     matchScore: number;
+    /**
+     * なぜこの場所が候補か（UI 表示用の短い理由）。
+     * 例: 「ランチの近く・徒歩200m」「動線が自然」。
+     * anchor ラベル + 距離 + 往復の自然さから生成される（speculation なし）。
+     */
+    recommendReason?: string;
+    /** この候補を紐づけた anchor のラベル（表示用、例: 「ランチ」「打ち合わせ」） */
+    anchorLabel?: string;
+    /** anchor からの直線距離（m）。丸め済み。UI の「徒歩約 Xm」に使う。 */
+    distanceM?: number;
   }>;
 }
 

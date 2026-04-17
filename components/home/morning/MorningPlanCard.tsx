@@ -337,6 +337,8 @@ function PlanItemRow({
   canMoveDown,
   confirmed,
   onPlaceClick,
+  onSelectCandidate,
+  onDismissCandidates,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
@@ -348,6 +350,8 @@ function PlanItemRow({
   canMoveDown: boolean;
   confirmed: boolean;
   onPlaceClick: (item: PlanItem) => void;
+  onSelectCandidate: (itemId: string, candidateIndex: number) => void;
+  onDismissCandidates: (itemId: string) => void;
 }) {
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -387,42 +391,95 @@ function PlanItemRow({
 
   // ── Alter提案アイテム: 淡い色 + 「提案」タグ ──
   if (item.proposal) {
+    const candidates = (item.proposedPlaceCandidates ?? []).slice(0, 3);
+    const hasCandidates = candidates.length > 0 && !confirmed;
     return (
       <motion.div
         layout
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
-        className="flex items-center gap-2 py-2 px-3 rounded-xl border border-dashed border-purple-200/50 bg-purple-50/20"
+        className="rounded-xl border border-dashed border-purple-200/50 bg-purple-50/20"
       >
-        {/* スペーサー */}
-        <div className="w-5 flex-shrink-0" />
+        {/* メイン行 */}
+        <div className="flex items-center gap-2 py-2 px-3">
+          {/* スペーサー */}
+          <div className="w-5 flex-shrink-0" />
 
-        {/* 時刻 */}
-        <span className="text-[11px] text-purple-300 w-[42px] flex-shrink-0 font-mono">
-          {item.startTime ?? "──"}
-        </span>
-
-        {/* 提案タグ + テキスト */}
-        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100/60 text-purple-500 border border-purple-200/40 flex-shrink-0">
-            提案
+          {/* 時刻 */}
+          <span className="text-[11px] text-purple-300 w-[42px] flex-shrink-0 font-mono">
+            {item.startTime ?? "──"}
           </span>
-          <span className="text-[12px] text-purple-400/80 truncate">
-            {item.text}
+
+          {/* 提案タグ + テキスト */}
+          <div className="flex-1 min-w-0 flex items-center gap-1.5">
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100/60 text-purple-500 border border-purple-200/40 flex-shrink-0">
+              提案
+            </span>
+            <span className="text-[12px] text-purple-400/80 truncate">
+              {item.text}
+            </span>
+          </div>
+
+          {/* 理由 */}
+          {item.proposalReason && (
+            <span className="text-[9px] text-purple-300/70 flex-shrink-0 hidden sm:inline">
+              {item.proposalReason}
+            </span>
+          )}
+
+          {/* 時間 */}
+          <span className="text-[10px] text-purple-300 flex-shrink-0">
+            {formatDuration(item.durationMin)}
           </span>
         </div>
 
-        {/* 理由 */}
-        {item.proposalReason && (
-          <span className="text-[9px] text-purple-300/70 flex-shrink-0 hidden sm:inline">
-            {item.proposalReason}
-          </span>
+        {/* 候補場所（1〜3件）— Block 2-(b) Phase 2 */}
+        {hasCandidates && (
+          <div className="px-3 pb-2.5 pt-0.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[9px] text-purple-400/70 uppercase tracking-wide">
+                近くの候補
+              </span>
+              <button
+                onClick={() => onDismissCandidates(item.id)}
+                className="text-[9px] text-purple-300/70 hover:text-purple-500 transition-colors"
+                title="候補を閉じる"
+              >
+                閉じる
+              </button>
+            </div>
+            <div className="space-y-1">
+              {candidates.map((c, idx) => (
+                <button
+                  key={`${c.placeId ?? c.name}-${idx}`}
+                  onClick={() => onSelectCandidate(item.id, idx)}
+                  className="w-full text-left px-2.5 py-2 rounded-lg bg-white/60 hover:bg-white/90 border border-purple-100/60 transition-all"
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[12px] text-gray-800 font-medium truncate">
+                      {c.name}
+                    </span>
+                    {c.distanceM !== undefined && (
+                      <span className="text-[9px] text-purple-500/70 flex-shrink-0">
+                        約{c.distanceM}m
+                      </span>
+                    )}
+                  </div>
+                  {c.address && (
+                    <div className="text-[10px] text-gray-400 mt-0.5 truncate">
+                      {c.address}
+                    </div>
+                  )}
+                  {c.recommendReason && (
+                    <div className="text-[10px] text-purple-500/80 mt-0.5 truncate">
+                      {c.recommendReason}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
-
-        {/* 時間 */}
-        <span className="text-[10px] text-purple-300 flex-shrink-0">
-          {formatDuration(item.durationMin)}
-        </span>
       </motion.div>
     );
   }
@@ -698,6 +755,76 @@ export default function MorningPlanCard({
     }));
   }, []);
 
+  /**
+   * Block 2-(b) Phase 2: 候補場所を選択して提案に確定させる。
+   *
+   * - proposedPlaceCandidates から指定インデックスの候補を取り出す
+   * - MainLocation を構築（source: "alter_suggested"）
+   * - item.location にセット、proposal=false、proposedPlaceCandidates をクリア
+   * - recommendReason を引き継ぐ（bottom sheet で表示）
+   * - 場所が追加されたので travel アイテムを再生成
+   */
+  const handleSelectCandidate = useCallback(
+    (itemId: string, candidateIndex: number) => {
+      setPlan((prev) => {
+        const target = prev.items.find((i) => i.id === itemId);
+        if (!target || !target.proposedPlaceCandidates) return prev;
+        const candidate = target.proposedPlaceCandidates[candidateIndex];
+        if (!candidate) return prev;
+
+        const canonicalId = candidate.placeId
+          ? `places:${candidate.placeId}`
+          : `alter_suggested:${candidate.name}`;
+
+        const location: MainLocation = {
+          canonicalId,
+          label: candidate.name,
+          source: "alter_suggested",
+          resolvedName: candidate.name,
+          address: candidate.address,
+          placeId: candidate.placeId,
+          lat: candidate.lat,
+          lng: candidate.lng,
+        };
+
+        // travel 以外を更新（対象アイテム: proposal を外し、場所をセット）
+        const nonTravel = prev.items
+          .filter((i) => i.kind !== "travel")
+          .map((item) =>
+            item.id === itemId
+              ? {
+                  ...item,
+                  proposal: false as const,
+                  proposalReason: undefined,
+                  proposedPlaceCandidates: undefined,
+                  location,
+                  recommendReason: candidate.recommendReason,
+                }
+              : item
+          );
+        // 場所が変わったので travel を再生成
+        const items = regenerateTravel(nonTravel, prev);
+        return { ...prev, items };
+      });
+    },
+    [regenerateTravel]
+  );
+
+  /**
+   * Block 2-(b) Phase 2: 候補場所を非表示にする。
+   * 提案自体は残す（ユーザーは提案を受け入れるが場所だけ後で決めたいケース）。
+   */
+  const handleDismissCandidates = useCallback((itemId: string) => {
+    setPlan((prev) => ({
+      ...prev,
+      items: prev.items.map((item) =>
+        item.id === itemId
+          ? { ...item, proposedPlaceCandidates: undefined }
+          : item
+      ),
+    }));
+  }, []);
+
   const handleConfirm = useCallback(() => {
     const confirmed = { ...plan, confirmed: true };
     setPlan(confirmed);
@@ -789,6 +916,8 @@ export default function MorningPlanCard({
                 canMoveDown={item.kind !== "travel" && !item.proposal && ntIdx < nonTravel.length - 1}
                 confirmed={plan.confirmed}
                 onPlaceClick={handlePlaceClick}
+                onSelectCandidate={handleSelectCandidate}
+                onDismissCandidates={handleDismissCandidates}
               />
             );
           })}

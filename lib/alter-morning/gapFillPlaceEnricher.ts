@@ -129,7 +129,7 @@ function findSurroundingAnchors(
   return { nearest, prev, next };
 }
 
-/** CLOSED_PERMANENTLY を除外し、distance-based matchScore を計算 */
+/** CLOSED_PERMANENTLY を除外し、distance-based matchScore と距離メタを計算 */
 function placesApiToProposalCandidate(
   p: PlacesApiPlace,
   anchorCoords: LatLng,
@@ -141,14 +141,17 @@ function placesApiToProposalCandidate(
   lat?: number;
   lng?: number;
   matchScore: number;
+  distanceM?: number;
 } {
   const lat = p.location?.latitude;
   const lng = p.location?.longitude;
   // 距離ベースのベーススコア: 1.0 at 0m → 0.5 at radius → 0.0 at 2×radius
   let matchScore = 0.5;
+  let distanceM: number | undefined;
   if (lat !== undefined && lng !== undefined) {
     const distM = haversineKm(anchorCoords, { lat, lng }) * 1000;
     matchScore = Math.max(0, 1 - distM / (radiusM * 2));
+    distanceM = Math.round(distM / 50) * 50; // 50m 刻みに丸め（UI 表示を安定させる）
   }
   return {
     name: p.displayName?.text ?? "",
@@ -157,7 +160,42 @@ function placesApiToProposalCandidate(
     lat,
     lng,
     matchScore,
+    distanceM,
   };
+}
+
+/**
+ * recommendReason を生成する。
+ *
+ * 原則: speculation しない（「静か」「おすすめ」等の検証不能な形容は使わない）。
+ *       幾何学的事実 + anchor ラベルから言えることだけ。
+ *
+ * 出力例:
+ *   - 「ランチの近く・徒歩約200m」
+ *   - 「打ち合わせの近く・徒歩約450m」
+ *   - 「予定の近く・徒歩約300m」（anchor ラベル無し）
+ *   - 「動線が自然」（往復ペナルティ 0 + 近傍ボーナス有り時）
+ *   - 「ランチの近く」（distanceM 不明時）
+ */
+function buildRecommendReason(opts: {
+  anchorLabel?: string;
+  distanceM?: number;
+  roundTripPenalty: number;
+  proximityBonus: number;
+}): string {
+  const { anchorLabel, distanceM, roundTripPenalty, proximityBonus } = opts;
+  const label = anchorLabel ? `${anchorLabel}の近く` : "予定の近く";
+
+  // 動線が特に自然（往復ペナルティ無し + 近傍ボーナス有り）
+  if (roundTripPenalty === 0 && proximityBonus > 0.1 && distanceM !== undefined) {
+    if (distanceM <= 300) return `${label}・徒歩約${distanceM}m`;
+    return `動線が自然・${label}から約${distanceM}m`;
+  }
+
+  if (distanceM !== undefined) {
+    return `${label}・徒歩約${distanceM}m`;
+  }
+  return label;
 }
 
 /**
@@ -264,22 +302,44 @@ export async function attachNearbyPlacesToProposals(
 
     if (raw.length === 0) continue;
 
-    // 4) objective function でスコア補正
+    // 4) objective function でスコア補正 + recommendReason 生成
     //    - distance penalty: 遠い候補を減点
     //    - proximity bonus: 近い anchor を優遇
     //    - round-trip penalty: prev → cand → next が逆走なら減点
+    //    - recommendReason: anchor ラベル + 距離 + 動線自然さから生成（speculation なし）
+    const anchorLabel = surrounding.nearest.label;
     const scored = raw.map(c => {
-      if (c.lat === undefined || c.lng === undefined) return c;
-      const adj = adjustCandidateScore(
-        { coords: { lat: c.lat, lng: c.lng }, baseScore: c.matchScore, label: c.name },
-        {
-          anchors: hardAnchors,
-          prevAnchor: surrounding.prev,
-          nextAnchor: surrounding.next,
-        },
-      );
-      const newScore = Math.max(0, Math.min(1, c.matchScore + adj.adjustment));
-      return { ...c, matchScore: newScore };
+      let proximityBonus = 0;
+      let roundTripPenalty = 0;
+      let adjustedScore = c.matchScore;
+
+      if (c.lat !== undefined && c.lng !== undefined) {
+        const adj = adjustCandidateScore(
+          { coords: { lat: c.lat, lng: c.lng }, baseScore: c.matchScore, label: c.name },
+          {
+            anchors: hardAnchors,
+            prevAnchor: surrounding.prev,
+            nextAnchor: surrounding.next,
+          },
+        );
+        adjustedScore = Math.max(0, Math.min(1, c.matchScore + adj.adjustment));
+        proximityBonus = adj.breakdown.proximityBonus;
+        roundTripPenalty = adj.breakdown.roundTripPenalty;
+      }
+
+      const recommendReason = buildRecommendReason({
+        anchorLabel,
+        distanceM: c.distanceM,
+        roundTripPenalty,
+        proximityBonus,
+      });
+
+      return {
+        ...c,
+        matchScore: adjustedScore,
+        anchorLabel,
+        recommendReason,
+      };
     });
 
     // 5) スコア降順 → dedupe → top N

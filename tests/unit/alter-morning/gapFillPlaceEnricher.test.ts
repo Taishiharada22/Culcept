@@ -432,6 +432,84 @@ describe("attachNearbyPlacesToProposals — objective function 連携", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// recommendReason 生成（Phase 2: UI 合流の下支え）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("attachNearbyPlacesToProposals — recommendReason", () => {
+  test("anchor ラベル + 距離が recommendReason に反映される", async () => {
+    // 甲府駅から約 100m の候補（徒歩圏）
+    mockTextSearch.mockResolvedValue([
+      makePlace("c", "駅前カフェ", 35.6649, 138.5691), // ~100m
+    ]);
+
+    const items = [
+      makeFixedItem("m", "10:00", "打ち合わせ"),
+      makeProposal("prop", "11:00", "life_rest"),
+    ];
+    const anchors = [
+      makeAnchor("seg_a", 1, "10:00", KOFU_STATION, "打ち合わせ"),
+    ];
+
+    const result = await attachNearbyPlacesToProposals(items, anchors);
+    const cand = result.find(i => i.id === "prop")!.proposedPlaceCandidates![0];
+
+    expect(cand.anchorLabel).toBe("打ち合わせ");
+    expect(cand.recommendReason).toBeDefined();
+    expect(cand.recommendReason).toContain("打ち合わせ");
+    expect(cand.distanceM).toBeDefined();
+    // distanceM は 50m 刻みで丸められる
+    expect(cand.distanceM! % 50).toBe(0);
+  });
+
+  test("anchor ラベル無し → 「予定の近く」にフォールバック", async () => {
+    mockTextSearch.mockResolvedValue([
+      makePlace("c", "カフェ", 35.6645, 138.5695),
+    ]);
+
+    const items = [
+      makeFixedItem("m", "10:00", "仕事"),
+      makeProposal("prop", "11:00", "life_rest"),
+    ];
+    // label 無しの anchor
+    const anchors: HardAnchor[] = [
+      {
+        segmentId: "seg",
+        order: 1,
+        anchorScore: 5,
+        coords: KOFU_STATION,
+        startTime: "10:00",
+        // label: undefined
+      },
+    ];
+
+    const result = await attachNearbyPlacesToProposals(items, anchors);
+    const cand = result.find(i => i.id === "prop")!.proposedPlaceCandidates![0];
+
+    expect(cand.recommendReason).toContain("予定の近く");
+  });
+
+  test("距離が丸められ、recommendReason に距離表記が乗る", async () => {
+    // 甲府駅から約 1.5km の候補
+    mockTextSearch.mockResolvedValue([
+      makePlace("c", "遠めカフェ", 35.677, 138.569),
+    ]);
+
+    const items = [
+      makeFixedItem("m", "10:00", "仕事"),
+      makeProposal("prop", "11:00", "life_rest"),
+    ];
+    const anchors = [
+      makeAnchor("seg_a", 1, "10:00", KOFU_STATION, "仕事"),
+    ];
+
+    const result = await attachNearbyPlacesToProposals(items, anchors);
+    const cand = result.find(i => i.id === "prop")!.proposedPlaceCandidates![0];
+
+    expect(cand.recommendReason).toMatch(/(徒歩|約).*m/);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 不変条件: resolved* は触らない / 主題は壊さない
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
