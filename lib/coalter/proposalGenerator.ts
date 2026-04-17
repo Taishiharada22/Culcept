@@ -13,6 +13,7 @@ import "server-only";
 
 import { runAI } from "@/lib/ai";
 import type {
+  AgreedConstraint,
   ConversationAnalysis,
   ConversationTheme,
   CoAlterPersonProfile,
@@ -23,6 +24,8 @@ import type {
   AxisKey,
   AxisScores,
   PendingAxisDeltas,
+  ValidationReasonCode,
+  CandidateValidationResult,
 } from "./types";
 import { deltasToTemplate, getAxesForTheme, getAxisMeta } from "./axes";
 import {
@@ -33,6 +36,10 @@ import {
   isSlotKey,
   type SlotKey,
 } from "./slots";
+import {
+  validateCandidates,
+  reasonCodeToText,
+} from "./slotValidator";
 
 // ─────────────────────────────────────────────
 // プロンプト構築
@@ -186,6 +193,7 @@ export function buildUserPrompt(
   options?: {
     pendingDeltas?: PendingAxisDeltas;
     avoidKeys?: string[];
+    agreedConstraints?: AgreedConstraint[];
   },
 ): string {
   const parts: string[] = [];
@@ -358,6 +366,27 @@ export function buildUserPrompt(
     parts.push("前回の候補と比べて、上記の方向に寄せた候補を組み直してください。");
   }
 
+  // ── Phase 1.5.4.5: agreedConstraints（会話で合意された hard/soft constraint） ──
+  const agreedConstraints = options?.agreedConstraints ?? analysis.agreedConstraints ?? [];
+  if (agreedConstraints.length > 0) {
+    const hard = agreedConstraints.filter((c) => c.strength === "hard");
+    const soft = agreedConstraints.filter((c) => c.strength === "soft");
+    if (hard.length > 0) {
+      parts.push("");
+      parts.push("## 会話で合意された絶対条件（hard constraint — 必ず守る）");
+      for (const c of hard) {
+        parts.push(`- [${c.kind}] ${c.sourceText}  → normalized: ${c.normalizedValue}`);
+      }
+    }
+    if (soft.length > 0) {
+      parts.push("");
+      parts.push("## 会話で合意された希望条件（soft — 可能な限り寄せる）");
+      for (const c of soft) {
+        parts.push(`- [${c.kind}] ${c.sourceText}`);
+      }
+    }
+  }
+
   // ── Phase 1.5: avoidKeys（既出候補の再提示回避） ──
   const avoidKeys = options?.avoidKeys ?? [];
   if (avoidKeys.length > 0) {
@@ -458,9 +487,14 @@ export async function generateProposal(
   options?: {
     pendingDeltas?: PendingAxisDeltas;
     avoidKeys?: string[];
+    /** Phase 1.5.4.5: hard constraints（会話から抽出した合意事項） */
+    agreedConstraints?: AgreedConstraint[];
   },
 ): Promise<ProposalCard> {
   const theme = analysis.theme;
+  const agreedConstraints =
+    options?.agreedConstraints ?? analysis.agreedConstraints ?? [];
+
   const systemPrompt = buildSystemPrompt(theme);
   const prompt = buildUserPrompt(
     profileA,
@@ -469,9 +503,10 @@ export async function generateProposal(
     searchCandidates,
     relationship,
     userMessage,
-    options,
+    { ...options, agreedConstraints },
   );
 
+  // ── 第1回 LLM 呼び出し ──
   const result = await runAI({
     taskType: "coalter_proposal",
     prompt,
@@ -483,14 +518,191 @@ export async function generateProposal(
     timeoutMs: 15000,
   });
 
-  // structured output をパース
   const raw = result.structured as Record<string, unknown> | null;
-  if (!raw) {
-    // フォールバック: テキストからJSONを抽出
-    return parseFallback(result.text, profileA, profileB, theme, options);
+  const firstCard = raw
+    ? validateAndNormalize(raw, profileA, profileB, theme, options)
+    : parseFallback(result.text, profileA, profileB, theme, options);
+
+  // ── slotValidator による機械的 reject ──
+  const themeRule = getThemeRule(theme);
+  if (!themeRule) {
+    // 5W1H 対象外テーマは検証しない（従来挙動）
+    return firstCard;
   }
 
-  return validateAndNormalize(raw, profileA, profileB, theme, options);
+  const firstCheck = validateCandidates(
+    firstCard.candidates,
+    theme,
+    agreedConstraints,
+  );
+
+  // 最低 1 候補は残ってほしい。accepted が 0 の場合 or 既出候補除外後 0 の場合のみ retry
+  if (firstCheck.accepted.length >= 1) {
+    // 採用候補で上書き（rejected は捨てる）
+    return rebuildWithAccepted(firstCard, firstCheck.accepted, firstCheck.rejected);
+  }
+
+  // ── 1回だけ retry: reject 理由を再プロンプトに乗せる ──
+  const retryPrompt = buildRetryPrompt(prompt, firstCheck.rejected, agreedConstraints);
+
+  let retryCard: ProposalCard | null = null;
+  try {
+    const retryResult = await runAI({
+      taskType: "coalter_proposal",
+      prompt: retryPrompt,
+      systemPrompt,
+      jsonSchema: PROPOSAL_SCHEMA,
+      requireJson: true,
+      temperature: 0.6, // 少し下げて堅めに
+      maxOutputTokens: 1024,
+      timeoutMs: 15000,
+    });
+    const retryRaw = retryResult.structured as Record<string, unknown> | null;
+    retryCard = retryRaw
+      ? validateAndNormalize(retryRaw, profileA, profileB, theme, options)
+      : parseFallback(retryResult.text, profileA, profileB, theme, options);
+  } catch {
+    retryCard = null;
+  }
+
+  if (retryCard) {
+    const retryCheck = validateCandidates(
+      retryCard.candidates,
+      theme,
+      agreedConstraints,
+    );
+    if (retryCheck.accepted.length >= 1) {
+      return rebuildWithAccepted(retryCard, retryCheck.accepted, retryCheck.rejected);
+    }
+  }
+
+  // ── 2回目も失敗 → clarify フォールバック ──
+  return buildClarifyFallback(
+    firstCard,
+    theme,
+    firstCheck.rejected,
+    agreedConstraints,
+  );
+}
+
+/**
+ * 候補配列を accepted のみに置き換え、rejected を validation 用メタとして保持。
+ */
+function rebuildWithAccepted(
+  card: ProposalCard,
+  accepted: ProposalCandidate[],
+  rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>,
+): ProposalCard {
+  return {
+    ...card,
+    candidates: accepted.map((c, i) => ({ ...c, rank: i + 1 })),
+    validation: rejected.length > 0
+      ? {
+          rejectedCount: rejected.length,
+          rejectReasons: [
+            ...new Set(rejected.flatMap((r) => r.result.reasons)),
+          ],
+        }
+      : undefined,
+  };
+}
+
+/**
+ * retry 用プロンプト: 元プロンプト + 明示的な reject 理由。
+ */
+function buildRetryPrompt(
+  basePrompt: string,
+  rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>,
+  agreedConstraints: AgreedConstraint[],
+): string {
+  const rejectSection: string[] = [];
+  rejectSection.push("");
+  rejectSection.push("## 再提案リクエスト（前回の候補は以下の理由で却下された）");
+
+  for (const { candidate, result } of rejected) {
+    const reasons = result.reasons.map((r) => reasonCodeToText(r)).join(" / ");
+    rejectSection.push(`- 「${candidate.title}」: ${reasons}`);
+    if (result.violatedConstraints.length > 0) {
+      rejectSection.push(`  違反した合意: ${result.violatedConstraints.join(" / ")}`);
+    }
+  }
+
+  rejectSection.push("");
+  rejectSection.push("### 今回の修正方針");
+  rejectSection.push("- 抽象的な候補（「駅周辺」「人気店」等）は出さず、固有名詞で答える");
+  rejectSection.push("- 会話で合意された除外・予算・ジャンル条件を必ず守る");
+  rejectSection.push("- core slot（テーマの主軸）を必ず埋める");
+
+  // agreedConstraints を再掲
+  const hardConstraints = agreedConstraints.filter((c) => c.strength === "hard");
+  if (hardConstraints.length > 0) {
+    rejectSection.push("");
+    rejectSection.push("### 絶対に守る合意事項（hard constraint）");
+    for (const c of hardConstraints) {
+      rejectSection.push(`- [${c.kind}] ${c.sourceText} (normalized: ${c.normalizedValue})`);
+    }
+  }
+
+  return basePrompt + "\n" + rejectSection.join("\n");
+}
+
+/**
+ * 2回目も失敗した場合の clarify フォールバック。
+ * missingConstraints を埋め、具体候補の代わりに「情報不足」を明示。
+ */
+function buildClarifyFallback(
+  firstCard: ProposalCard,
+  theme: ConversationTheme,
+  rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>,
+  agreedConstraints: AgreedConstraint[],
+): ProposalCard {
+  const allReasons = [...new Set(rejected.flatMap((r) => r.result.reasons))];
+
+  // reason code → 質問 に変換
+  const questionsByReason: Record<ValidationReasonCode, { key: string; question: string; slot?: SlotKey }> = {
+    abstract_where: { key: "venue", question: "もう少し具体的な場所の希望は？（駅名・店名等）", slot: "where" },
+    abstract_what: { key: "genre", question: "どんな内容のものがいい？（具体的なジャンルや作品名）", slot: "what" },
+    missing_movie_title: { key: "movie_title", question: "気になる作品名はある？", slot: "what" },
+    missing_venue_proper_noun: { key: "venue_name", question: "候補の店名・場所はある？", slot: "where" },
+    missing_station_or_area: { key: "area", question: "どのあたりで探す？（駅やエリア）", slot: "where" },
+    missing_budget_band: { key: "budget", question: "予算の目安は？", slot: "how" },
+    violates_exclusion: { key: "exclusion_confirm", question: "避けたい条件があれば教えて", slot: "what" },
+    violates_budget: { key: "budget_band", question: "予算の幅はどれくらい？", slot: "how" },
+    violates_companions: { key: "companions", question: "誰と行く予定？", slot: "who" },
+    violates_style: { key: "style", question: "ジャンルの希望をもう一度聞かせて", slot: "what" },
+    missing_core_slot: { key: "core", question: "まず何を決めたい？", slot: theme === "food" ? "where" : theme === "travel" ? "where" : "what" },
+    duplicate_candidate: { key: "dup", question: "前回と違う方向の候補が欲しい？", slot: "what" },
+    empty_slots: { key: "any", question: "もう少し希望を教えてもらえる？", slot: "what" },
+  };
+
+  const newMissing = allReasons
+    .map((r) => questionsByReason[r])
+    .filter((v): v is NonNullable<typeof v> => !!v)
+    .map((q, i) => ({ ...q, priority: i + 1 }));
+
+  const clarifyCandidate: ProposalCandidate = {
+    rank: 1,
+    title: "もう少し教えて",
+    oneLiner:
+      "2人の希望に合う具体的な候補を出すために、いくつか教えてほしいことがあるよ",
+    practicalInfo: null,
+    url: null,
+  };
+
+  return {
+    ...firstCard,
+    candidates: [clarifyCandidate],
+    missingConstraints:
+      newMissing.length > 0
+        ? newMissing.slice(0, 3)
+        : firstCard.missingConstraints,
+    validation: {
+      rejectedCount: rejected.length,
+      rejectReasons: allReasons,
+      fallbackToClarify: true,
+      hardConstraintsCount: agreedConstraints.filter((c) => c.strength === "hard").length,
+    },
+  };
 }
 
 // ─────────────────────────────────────────────

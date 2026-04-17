@@ -9,11 +9,14 @@
  */
 
 import type {
+  AgreedConstraint,
   ConversationAnalysis,
   CoAlterPersonProfile,
+  ConversationTheme,
   SearchCandidate,
   SearchDecision,
 } from "./types";
+import { getThemeRule } from "./slots";
 
 // Perspective Engine の検索関数を転用
 import { executeSearch } from "@/lib/stargazer/perspectiveEngine";
@@ -62,8 +65,12 @@ export function decideSearch(
   // 具体的な候補が既に挙がっている場合 → その候補を検索
   const specificCandidates = extractMentionedCandidates(combined);
 
-  // 検索クエリを生成
-  const queries = buildSearchQueries(analysis, specificCandidates);
+  // 検索クエリを生成（Phase 1.5.4.5: theme × slot × agreedConstraints 駆動）
+  const queries = buildSearchQueries(
+    analysis,
+    specificCandidates,
+    analysis.agreedConstraints ?? [],
+  );
 
   return {
     shouldSearch: queries.length > 0,
@@ -121,53 +128,140 @@ function detectActivitySubcategory(text: string): string | null {
   return null;
 }
 
-/** テーマと制約から検索クエリを生成 */
+/**
+ * テーマと制約から検索クエリを生成。
+ *
+ * Phase 1.5.4.5: theme × core slot × agreedConstraints 駆動。
+ *  - movie の core=what → 「上映中」を含める
+ *  - food の core=where → 店舗固有のキーワードを含める
+ *  - travel の core=where → 体験・観光地キーワード
+ *  - agreedConstraints の exclusion/style/budget をクエリに反映
+ */
 function buildSearchQueries(
   analysis: ConversationAnalysis,
   mentionedCandidates: string[],
+  agreedConstraints: AgreedConstraint[] = [],
 ): string[] {
   const queries: string[] = [];
   const { theme, extractedConstraints: c } = analysis;
   const combined = analysis.recentMessages.map((m) => m.body).join(" ");
 
-  // 具体的な候補が言及されていたらそれを検索
+  // ── agreedConstraints を検索語に ──
+  const hardConstraints = agreedConstraints.filter((cc) => cc.strength === "hard");
+  const stylePositives: string[] = [];
+  const exclusionNegatives: string[] = [];
+  let budgetHint = "";
+
+  for (const cc of hardConstraints) {
+    if (cc.kind === "style") {
+      if (cc.normalizedValue.startsWith("style_or:")) {
+        // style_or:イタリアン|フレンチ → 先頭を使う
+        const first = cc.normalizedValue.slice("style_or:".length).split("|")[0];
+        if (first) stylePositives.push(first);
+      } else if (cc.normalizedValue.startsWith("style:")) {
+        const s = cc.normalizedValue.slice("style:".length);
+        if (s) stylePositives.push(s);
+      }
+    } else if (cc.kind === "exclusion") {
+      if (cc.normalizedValue.startsWith("exclude:")) {
+        const t = cc.normalizedValue.slice("exclude:".length);
+        if (t && t !== "attached_venue" && t.length <= 8) {
+          exclusionNegatives.push(`-${t}`);
+        }
+      }
+    } else if (cc.kind === "budget") {
+      if (cc.normalizedValue.startsWith("budget_max:")) {
+        const v = cc.normalizedValue.split(":")[1];
+        if (v) budgetHint = `${v}円以下`;
+      } else if (cc.normalizedValue.startsWith("budget_around:")) {
+        const v = cc.normalizedValue.split(":")[1];
+        if (v) budgetHint = `${v}円前後`;
+      } else if (cc.normalizedValue.startsWith("budget_per_person:")) {
+        const v = cc.normalizedValue.split(":")[1];
+        if (v) budgetHint = `1人${v}円`;
+      }
+    }
+  }
+
+  const styleHint = stylePositives.slice(0, 1).join(" ");
+  const exclusionHint = exclusionNegatives.slice(0, 2).join(" ");
+
+  // ── mentioned candidates を優先的に検索 ──
   for (const candidate of mentionedCandidates.slice(0, 2)) {
     if (theme === "movie") {
-      queries.push(`${candidate} 映画 評価 上映`);
+      queries.push(`${candidate} 映画 評価 上映中`);
     } else if (theme === "food") {
       queries.push(`${candidate} レストラン 口コミ 予約`);
+    } else if (theme === "travel") {
+      queries.push(`${candidate} 旅行 体験 おすすめ`);
     } else {
       queries.push(`${candidate} 口コミ おすすめ`);
     }
   }
 
-  // テーマベースの汎用クエリ
+  // ── theme × core slot × constraints ──
+  const rule = getThemeRule(theme as ConversationTheme);
   const locationPart = c.location ? `${c.location} ` : "";
   const datePart = c.date ? `${c.date} ` : "";
-  const budgetPart = c.budget ? `${c.budget} ` : "";
+  const budgetPart = budgetHint || (c.budget ? `${c.budget} ` : "");
 
   switch (theme) {
-    case "movie":
-      queries.push(`${datePart}${locationPart}映画 上映中 おすすめ 2026`.trim());
+    case "movie": {
+      // core=what → 「上映中」「公開中」「評価」
+      const q = [
+        datePart.trim(),
+        locationPart.trim(),
+        styleHint,
+        "映画 上映中 2026 評価",
+        exclusionHint,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      queries.push(q);
       break;
-    case "food":
-      queries.push(
-        `${locationPart}${budgetPart}レストラン おすすめ デート`.trim() || "おすすめ レストラン デート",
-      );
+    }
+    case "food": {
+      // core=where → 店舗名を引き出すため「食べログ」「レストラン」「個室」等のキーワード
+      const q = [
+        locationPart.trim(),
+        budgetPart,
+        styleHint,
+        "レストラン 食べログ デート",
+        exclusionHint,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      queries.push(q || "おすすめ レストラン デート");
+
+      // 2本目: 雰囲気/style 単独
+      if (styleHint) {
+        queries.push(`${locationPart}${styleHint} 人気店`.trim());
+      }
       break;
-    case "travel":
-      queries.push(
-        `${datePart}${locationPart}旅行 おすすめ カップル`.trim() || "おすすめ 旅行先 カップル",
-      );
+    }
+    case "travel": {
+      // core=where → 観光地 / 体験 + when（時期）
+      const q = [
+        datePart.trim(),
+        locationPart.trim(),
+        styleHint,
+        "旅行 観光 モデルコース カップル",
+        exclusionHint,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      queries.push(q || "おすすめ 旅行先 カップル");
       break;
+    }
     case "activity": {
-      // アクティビティはサブカテゴリで検索クエリを細分化
       const subcategory = detectActivitySubcategory(combined);
       if (subcategory) {
         queries.push(
           `${datePart}${locationPart}${subcategory} おすすめ 開催中 2026`.trim(),
         );
-        // 嗜好キーワードがあれば追加クエリ
         for (const pref of c.preferences.slice(0, 1)) {
           queries.push(`${locationPart}${subcategory} ${pref}`.trim());
         }
@@ -180,8 +274,13 @@ function buildSearchQueries(
     }
   }
 
+  // rule 未定義テーマでも空にならないよう保険
+  if (queries.length === 0 && rule) {
+    queries.push(`${theme} おすすめ デート`);
+  }
+
   // 重複除去、最大3クエリ
-  return [...new Set(queries)].slice(0, 3);
+  return [...new Set(queries.map((q) => q.replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 3);
 }
 
 // ─────────────────────────────────────────────

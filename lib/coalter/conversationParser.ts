@@ -6,6 +6,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  AgreedConstraint,
+  AgreedConstraintKind,
+  AgreedConstraintStrength,
   ConversationAnalysis,
   ConversationTheme,
   ConversationTurn,
@@ -269,6 +272,249 @@ function extractConstraints(
 }
 
 // ─────────────────────────────────────────────
+// Phase 1.5.4.5: Agreed Constraints 抽出
+// ─────────────────────────────────────────────
+
+/**
+ * 会話から「二人の合意制約」を抽出する。
+ *
+ * 設計原則:
+ *  - preferences との違い: preferences は片方の希望。agreedConstraints は「共有認識」
+ *  - hard/soft を最初から分離（validator で参照される）
+ *  - sourceText（元発話）を保持（誤抽出監査のため）
+ *  - 構造の安定性を優先（精度は後で LLM ブーストで上げる）
+ *
+ * Phase 1.5.4.5 では regex 抽出のみ。Phase 1.6 で軽量 LLM 抽出に置き換える想定。
+ */
+function extractAgreedConstraints(
+  messages: ConversationTurn[],
+): AgreedConstraint[] {
+  const result: AgreedConstraint[] = [];
+  const seen = new Set<string>(); // normalizedValue 重複防止
+
+  for (const msg of messages) {
+    const body = msg.body;
+
+    // ── exclusion (hard): 否定・除外 ──
+    // 「併設じゃない」「チェーンは避けて」「○○以外で」
+    const exclusionPatterns: Array<{
+      re: RegExp;
+      normalize: (m: RegExpMatchArray) => string;
+    }> = [
+      // 「併設(じゃなく|ではなく|ではない)」特化（映画 × 食事でよくある）— 汎用より先
+      {
+        re: /(併設|一緒|同じ場所)(じゃなく|ではなく|ではない|を避け|は別)/,
+        normalize: () => "exclude:attached_venue",
+      },
+      // 「X じゃなく(て|別で)」「X ではなく」
+      {
+        re: /(.{1,20})(じゃなく(て|別で|別の)|ではなく|ではなくて)/,
+        normalize: (m) => `exclude:${m[1].trim()}`,
+      },
+      // 「X 以外(で|の)」
+      {
+        re: /(.{1,15})以外(で|の)/,
+        normalize: (m) => `exclude:${m[1].trim()}`,
+      },
+      // 「X 避けて」「X は避け(たい|る)」
+      {
+        re: /(.{1,20})(は)?避け(て|たい|る)/,
+        normalize: (m) => `exclude:${m[1].trim()}`,
+      },
+      // 「X はなし」「X は無し」
+      {
+        re: /(.{1,15})(は)?(なし|無し)/,
+        normalize: (m) => `exclude:${m[1].trim()}`,
+      },
+    ];
+    for (const { re, normalize } of exclusionPatterns) {
+      const m = body.match(re);
+      if (m) {
+        const normalized = normalize(m);
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push({
+            kind: "exclusion",
+            normalizedValue: normalized,
+            sourceText: m[0],
+            confidence: 0.75,
+            strength: "hard",
+            agreedBy: msg.senderId,
+          });
+        }
+      }
+    }
+
+    // ── budget (hard/soft): 予算 ──
+    // 「5000円前後」「3000-5000円」「1人5000円」「予算 5000」
+    const budgetPatterns: Array<{
+      re: RegExp;
+      normalize: (m: RegExpMatchArray) => string;
+      strength: AgreedConstraintStrength;
+      confidence: number;
+    }> = [
+      // per_person を最優先（「1人5000円くらい」は budget_around より特化した情報）
+      {
+        re: /(1\s*人|ひとり)\s*(\d{3,5})\s*円/,
+        normalize: (m) => `budget_per_person:${m[2]}`,
+        strength: "hard",
+        confidence: 0.85,
+      },
+      {
+        re: /(\d{3,5})\s*円\s*前後/,
+        normalize: (m) => `budget_around:${m[1]}`,
+        strength: "hard",
+        confidence: 0.9,
+      },
+      {
+        re: /(\d{3,5})\s*[-〜~]\s*(\d{3,5})\s*円/,
+        normalize: (m) => `budget_range:${m[1]}-${m[2]}`,
+        strength: "hard",
+        confidence: 0.9,
+      },
+      {
+        re: /(\d{3,5})\s*円\s*(以下|まで|以内)/,
+        normalize: (m) => `budget_max:${m[1]}`,
+        strength: "hard",
+        confidence: 0.9,
+      },
+      {
+        re: /(\d{3,5})\s*円\s*(くらい|程度|ぐらい)/,
+        normalize: (m) => `budget_around:${m[1]}`,
+        strength: "soft",
+        confidence: 0.7,
+      },
+    ];
+    for (const { re, normalize, strength, confidence } of budgetPatterns) {
+      const m = body.match(re);
+      if (m) {
+        const normalized = normalize(m);
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push({
+            kind: "budget",
+            normalizedValue: normalized,
+            sourceText: m[0],
+            confidence,
+            strength,
+            agreedBy: msg.senderId,
+          });
+        }
+      }
+    }
+
+    // ── style (hard): 具体ジャンル・形式の合意 ──
+    // 「フレンチでいこう」「ラーメンにしよう」「ランチは和食」
+    const stylePatterns: Array<{
+      re: RegExp;
+      value: string;
+      strength: AgreedConstraintStrength;
+      confidence: number;
+    }> = [
+      // 「A か B にしよう」「A または B」のような OR 合意
+      {
+        re: /(フレンチ|イタリアン|中華|和食|ラーメン|寿司|焼肉|カフェ|居酒屋)\s*か\s*(フレンチ|イタリアン|中華|和食|ラーメン|寿司|焼肉|カフェ|居酒屋)/,
+        value: "", // 動的に計算
+        strength: "hard",
+        confidence: 0.8,
+      },
+    ];
+    // OR ジャンル合意の検出
+    for (const { re, strength, confidence } of stylePatterns) {
+      const m = body.match(re);
+      if (m) {
+        const normalized = `style_or:${m[1]}|${m[2]}`;
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push({
+            kind: "style",
+            normalizedValue: normalized,
+            sourceText: m[0],
+            confidence,
+            strength,
+            agreedBy: msg.senderId,
+          });
+        }
+      }
+    }
+    // 単一ジャンルの明示（「フレンチにしようか」「ラーメンで」）
+    const singleStyleRe =
+      /(フレンチ|イタリアン|中華|和食|ラーメン|寿司|焼肉|カフェ|居酒屋|カジュアル|高級|個室|テラス)(で|に(しよう|する|して))/;
+    const singleStyleMatch = body.match(singleStyleRe);
+    if (singleStyleMatch) {
+      const normalized = `style:${singleStyleMatch[1]}`;
+      if (!seen.has(normalized)) {
+        seen.add(normalized);
+        result.push({
+          kind: "style",
+          normalizedValue: normalized,
+          sourceText: singleStyleMatch[0],
+          confidence: 0.7,
+          strength: "soft",
+          agreedBy: msg.senderId,
+        });
+      }
+    }
+
+    // ── preference (soft): 雰囲気・体験志向 ──
+    const preferencePatterns: Array<{ re: RegExp; value: string }> = [
+      { re: /ガヤガヤ|賑やか|ワイワイ|活気/, value: "lively" },
+      { re: /落ち着(いた|ける)|静か/, value: "calm" },
+      { re: /2\s*人で?楽しめ|二人で楽しめ/, value: "two_person_friendly" },
+      { re: /写真映え|フォトジェニック/, value: "photogenic" },
+      { re: /テラス|屋外/, value: "outdoor" },
+      { re: /個室/, value: "private_room" },
+    ];
+    for (const { re, value } of preferencePatterns) {
+      const m = body.match(re);
+      if (m) {
+        const normalized = `pref:${value}`;
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push({
+            kind: "preference",
+            normalizedValue: normalized,
+            sourceText: m[0],
+            confidence: 0.7,
+            strength: "soft",
+            agreedBy: msg.senderId,
+          });
+        }
+      }
+    }
+
+    // ── companions (hard): 同席者・人数 ──
+    const companionsPatterns: Array<{ re: RegExp; value: string }> = [
+      { re: /2\s*人で?|二人で?/, value: "two_people" },
+      { re: /家族(で|も|と)/, value: "with_family" },
+      { re: /友達(も|と|と一緒)/, value: "with_friends" },
+    ];
+    for (const { re, value } of companionsPatterns) {
+      const m = body.match(re);
+      if (m) {
+        const normalized = `companions:${value}`;
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          result.push({
+            kind: "companions",
+            normalizedValue: normalized,
+            sourceText: m[0],
+            confidence: 0.85,
+            strength: "hard",
+            agreedBy: msg.senderId,
+          });
+        }
+      }
+    }
+  }
+
+  // 合意の検出強化: 相手が肯定した制約は confidence+0.1、agreedBy=null に更新
+  // （「フレンチでどう？」→「それで行こう」のような2ターン合意）
+  // Phase 1.5.4.5 では簡易実装。将来 LLM で精緻化。
+  return result;
+}
+
+// ─────────────────────────────────────────────
 // メインAPI
 // ─────────────────────────────────────────────
 
@@ -385,5 +631,14 @@ export function analyzeConversation(
     caringIntensityB: estimateCaringIntensity(messages, userBId),
     extractedConstraints: constraints,
     constraintScore: computeConstraintScore(theme, constraints, messages),
+    agreedConstraints: extractAgreedConstraints(messages),
   };
 }
+
+// テスト用の内部 export
+export const __internal = {
+  extractAgreedConstraints,
+  detectTheme,
+  extractConstraints,
+  estimateCaringIntensity,
+};

@@ -221,6 +221,8 @@ export interface ConversationAnalysis {
   extractedConstraints: ExtractedConstraints;
   /** 条件充足度（0.0〜1.0）— 推薦に必要な条件がどれだけ揃っているか */
   constraintScore: number;
+  /** Phase 1.5.4.5: 二人の合意制約（hard/soft 分離、validator の hard constraint として使う） */
+  agreedConstraints?: AgreedConstraint[];
 }
 
 export type ConversationTheme =
@@ -246,6 +248,96 @@ export interface ExtractedConstraints {
   budget: string | null;      // 「安め」「3000円くらい」等
   timeSlot: string | null;    // 「夜」「午後」「19時」等
   preferences: string[];      // その他の明示的希望
+}
+
+// ─────────────────────────────────────────────
+// Phase 1.5.4.5: Agreed Constraints
+// ─────────────────────────────────────────────
+
+/**
+ * 合意制約の種別。
+ *
+ * - exclusion:   除外制約（「映画館併設じゃない」「チェーン店以外」）
+ * - preference:  雰囲気・体験志向（「ガヤガヤ系」「落ち着いた」「2人で楽しめる」）
+ * - budget:      金額（「5000円前後」「安め」）
+ * - style:       具体ジャンル・形式（「フレンチかラーメン」「カジュアル」）
+ * - companions:  同席者・人数（「2人で」「家族も」）
+ */
+export type AgreedConstraintKind =
+  | "exclusion"
+  | "preference"
+  | "budget"
+  | "style"
+  | "companions";
+
+/**
+ * 制約の強さ。
+ *
+ * - hard: 違反候補は必ず reject する（"A じゃない" 等の明示的除外、予算上限、同席条件）
+ * - soft: 違反しても文脈次第で許容（"ガヤガヤ系がいい" 等の preference 寄り）
+ *
+ * Phase 1.5.4.5 では hard のみを validator で強制。soft は reasoning への反映のみ。
+ */
+export type AgreedConstraintStrength = "hard" | "soft";
+
+/**
+ * 会話から抽出された「二人の合意制約」
+ *
+ * Phase 1.5.4.5 の核心データ。単なる preference と違い、
+ * 「二人で明示的に合意した」ものだけを採り、候補検査の hard constraint として使う。
+ */
+export interface AgreedConstraint {
+  kind: AgreedConstraintKind;
+  /** 正規化された表現（例: "no_attached_venue"、"budget_around_5000"、"style_french_or_ramen"） */
+  normalizedValue: string;
+  /** 元の発話断片（誤抽出監査のため保持） */
+  sourceText: string;
+  /** 抽出の確信度（0.0〜1.0） */
+  confidence: number;
+  /** hard constraint か soft か */
+  strength: AgreedConstraintStrength;
+  /** この制約を合意した発話者（A/B の userId、不明なら null） */
+  agreedBy?: string | null;
+}
+
+// ─────────────────────────────────────────────
+// Phase 1.5.4.5: Candidate Validation
+// ─────────────────────────────────────────────
+
+/**
+ * slot / 候補の reject 理由コード。
+ *
+ * re-prompt の品質向上 + 運用ログ監査のため、boolean ではなく reason code を返す。
+ */
+export type ValidationReasonCode =
+  // slot 粒度不足
+  | "abstract_where"              // where が抽象（「駅周辺」「人気店」等）
+  | "abstract_what"               // what が抽象（「恋愛映画」「おいしい料理」等）
+  | "missing_movie_title"         // movie テーマで作品名なし
+  | "missing_venue_proper_noun"   // food/travel テーマで固有名詞なし
+  | "missing_station_or_area"     // 最寄駅 or エリア情報なし
+  | "missing_budget_band"         // 予算帯不明
+  // hard constraint 違反
+  | "violates_exclusion"          // 除外制約違反（「併設じゃない」を破っている）
+  | "violates_budget"             // 予算制約違反
+  | "violates_companions"         // 同席条件違反
+  | "violates_style"              // ジャンル/形式違反
+  // core slot 欠落
+  | "missing_core_slot"           // テーマの core slot が埋まってない
+  // その他
+  | "duplicate_candidate"         // 既出候補と重複
+  | "empty_slots";                // slots そのものが空
+
+/**
+ * 1 候補の validation 結果。
+ */
+export interface CandidateValidationResult {
+  /** 採用可能か */
+  ok: boolean;
+  /** reject された理由（ok=true なら空配列） */
+  reasons: ValidationReasonCode[];
+  /** 違反した制約の元テキスト（ログ用、ok=true なら空配列） */
+  violatedConstraints: string[];
 }
 
 // ─────────────────────────────────────────────
@@ -303,6 +395,17 @@ export interface ProposalCard {
   decisionState?: SessionDecisionState;
   /** Phase 1.5.4: カード全体のテーマ（全候補共通）。UI でアイコン等を切り替えるのに使う */
   theme?: ConversationTheme;
+  /** Phase 1.5.4.5: validation 結果メタ（admin / 監査 / UI 透過用） */
+  validation?: {
+    /** reject された候補数 */
+    rejectedCount: number;
+    /** 発生した reject 理由コード（重複除去済み） */
+    rejectReasons: ValidationReasonCode[];
+    /** retry も失敗して clarify に落ちたか */
+    fallbackToClarify?: boolean;
+    /** 適用された hard constraint の数 */
+    hardConstraintsCount?: number;
+  };
 }
 
 /** 不足している条件 */
