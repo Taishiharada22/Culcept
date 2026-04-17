@@ -251,6 +251,27 @@ function minutesToTime(minutes: number): string {
  * 2. 空き時間にtodoを詰めていく（優先度: 長いタスクから）
  * 3. 開始時刻は現在時刻 or 9:00 のどちらか遅い方
  */
+
+/**
+ * Block 3 Phase 1: hard anchor が 1 件だけなら minimal plan mode を起動する。
+ *
+ * 判定: non-travel かつ non-proposal のアイテムが 1 件のみ（fixedStart or kind==="fixed"）。
+ * 返り値は fillGaps の minimalPlan オプションに直接渡す形。
+ *
+ * CEO 決裁 2026-04-17:
+ *   - 責務は planning 層に置く（sufficiencyGate ではなく generation 側）
+ *   - 明示なし帰宅接続は入れない（negation signal は Phase 2 以降）
+ */
+function resolveMinimalPlanOption(
+  items: PlanItem[],
+): { anchor: PlanItem; nowMin?: number } | undefined {
+  const hardAnchors = items.filter(
+    i => !i.proposal && i.kind !== "travel" && (i.fixedStart || i.kind === "fixed"),
+  );
+  if (hardAnchors.length !== 1) return undefined;
+  return { anchor: hardAnchors[0] };
+}
+
 export function buildDayPlan(
   items: PlanItem[],
   dayConditions: DayConditions,
@@ -427,7 +448,12 @@ export function buildDayPlan(
   });
 
   // ── Phase 4: Gap filling — 空き時間にAlter提案を差し込む ──
-  const filledItems = fillGaps(finalItems, options?.gapFill);
+  // Block 3 Phase 1: 1予定モード判定 — hard anchor が 1 件だけなら minimal plan mode
+  const minimalPlan = resolveMinimalPlanOption(finalItems);
+  const filledItems = fillGaps(finalItems, {
+    ...options?.gapFill,
+    minimalPlan,
+  });
 
   return {
     date: options?.targetDate ?? todayJST(),
@@ -594,7 +620,12 @@ export async function buildDayPlanAsync(
   });
 
   // ── Phase 4: Gap filling（sync 版と同一） ──
-  const filledItems = fillGaps(finalItems, options?.gapFill);
+  // Block 3 Phase 1: 1予定モード判定
+  const minimalPlan = resolveMinimalPlanOption(finalItems);
+  const filledItems = fillGaps(finalItems, {
+    ...options?.gapFill,
+    minimalPlan,
+  });
 
   return {
     date: options?.targetDate ?? todayJST(),
