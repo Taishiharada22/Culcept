@@ -15,6 +15,7 @@ import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
 import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
 import { CoAlterPlanDetailSheet } from "@/components/coalter/CoAlterPlanDetailSheet";
 import type { PlanItem } from "@/lib/coalter/planShelf";
+import { detectCoAlterTrigger } from "@/lib/coalter/triggerDetection";
 import IntentObservationSheet from "@/components/talk/IntentObservationSheet";
 
 const C = {
@@ -890,6 +891,42 @@ export default function ChatClient({ threadId }: Props) {
       if (res.ok) {
         setIsConnected(true);
         await fetchMessages();
+
+        // ─── CoAlter ソフトヒント起動（B案・Phase 1.5.3）──
+        // 送信成功後、膠着パターンを検出したら coalter.lastTrigger に記録。
+        // 実際のUI（ソフトヒントバー）は lastTrigger を見て描画する。
+        try {
+          // 両者発言チェック（自分以外の senderId が messages にあるか）
+          const bothParticipated =
+            !!currentUserId &&
+            messages.some((m) => m.senderId && m.senderId !== currentUserId);
+          // 直近5分以内に既に提案を出したか
+          const recentProposalWithin5Min = !!coalter.currentProposal;
+          // 直前メッセージ（拡散パターン2ターン連続判定用）
+          const previousMessage = [...messages]
+            .reverse()
+            .find((m) => m.senderId === currentUserId)?.body;
+
+          const trigger = detectCoAlterTrigger(
+            body,
+            {
+              isEnabled: coalter.pairState === "enabled",
+              recentProposalWithin5Min,
+              conversationTurnCount: messages.length,
+              bothParticipated,
+            },
+            previousMessage,
+          );
+
+          // strong = 明示メンション（未実装の即時起動は CEO 承認後）
+          // soft = ソフトヒント表示
+          if (trigger.confidence === "soft" || trigger.confidence === "strong") {
+            coalter.notifySoftTrigger(trigger.confidence, trigger.matchedPattern);
+          }
+        } catch (e) {
+          // silent — トリガー判定失敗で送信体験を壊さない
+          console.warn("[coalter/trigger] detection failed", e);
+        }
       } else {
         setFailedMsgs((prev) => new Set(prev).add(optimisticMsg.id));
       }
@@ -1280,6 +1317,7 @@ export default function ChatClient({ threadId }: Props) {
         onClose={() => setShowPlanCalendar(false)}
         onOpenItem={(item) => setDetailItem(item)}
         onOpen={coalter.fetchPlanItems}
+        currentUserId={currentUserId}
       />
 
       {/* ═══ CoAlter プラン詳細ボトムシート ═══ */}
@@ -1707,6 +1745,76 @@ export default function ChatClient({ threadId }: Props) {
         borderTop: `1px solid ${C.s2}`,
       }}>
         <div className="max-w-lg mx-auto px-4 py-2.5">
+          {/* ── CoAlter ソフトヒント（Phase 1.5.3・B案） ── */}
+          <AnimatePresence>
+            {coalter.lastTrigger &&
+              coalter.pairState === "enabled" &&
+              !coalter.currentProposal &&
+              coalter.sessionState !== "active" && (
+                <motion.button
+                  key={`coalter-hint-${coalter.lastTrigger.pattern}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={() => {
+                    coalter.invoke(null);
+                    coalter.dismissTrigger();
+                  }}
+                  className="w-full mb-1.5 rounded-xl px-3 py-2 flex items-center gap-2"
+                  style={{
+                    background: `linear-gradient(135deg, ${C.neural}0C, ${C.pulse}08)`,
+                    border: `1px solid ${C.neural}22`,
+                    textAlign: "left",
+                  }}
+                  aria-label="CoAlter で2人の候補を出す"
+                >
+                  <span
+                    className="shrink-0 flex items-center justify-center rounded-lg"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      background: `${C.neural}18`,
+                      fontSize: 14,
+                    }}
+                    aria-hidden
+                  >
+                    ✦
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span
+                      className="block"
+                      style={{ fontSize: 11, color: C.neural, fontWeight: 600 }}
+                    >
+                      2人の候補を一緒に出しますか？
+                    </span>
+                    <span
+                      className="block truncate"
+                      style={{ fontSize: 10, color: C.t3, marginTop: 1 }}
+                    >
+                      迷いや「どれにする？」を CoAlter が整理します
+                    </span>
+                  </span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      coalter.dismissTrigger();
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="ヒントを閉じる"
+                    style={{
+                      fontSize: 14,
+                      color: C.t4,
+                      padding: "4px 6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </span>
+                </motion.button>
+              )}
+          </AnimatePresence>
           {/* ── CoAlter ボタン ── */}
           <div className="flex justify-end mb-1.5">
             <CoAlterButton

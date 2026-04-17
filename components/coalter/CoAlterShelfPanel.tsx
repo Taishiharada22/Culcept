@@ -29,6 +29,8 @@ import {
   filterUpcoming,
   groupByDateBuckets,
 } from "@/lib/coalter/planShelfFilters";
+import { groupByDayTimeline } from "@/lib/coalter/planTimeline";
+import { CoAlterPlanTimelineDay } from "@/components/coalter/CoAlterPlanTimelineDay";
 
 const C = {
   coalter: "#6366F1",
@@ -190,8 +192,11 @@ export function CoAlterShelfPanel({
             className="overflow-hidden"
           >
             <div className="pb-3 space-y-3">
-              {groupSections.map(({ label, list }) =>
-                list.length === 0 ? null : (
+              {groupSections.map(({ label, list }) => {
+                if (list.length === 0) return null;
+                // 日別サブグルーピング + 時刻順ソート
+                const days = groupByDayTimeline(list);
+                return (
                   <div key={label}>
                     <p
                       style={{
@@ -204,21 +209,47 @@ export function CoAlterShelfPanel({
                     >
                       {label}
                     </p>
-                    <div className="space-y-1.5">
-                      {list.map((item) => (
-                        <ShelfItemRow
-                          key={item.id}
-                          item={item}
-                          currentUserId={currentUserId}
-                          todayStr={todayStr}
-                          tomorrowStr={tomorrowStr}
-                          onOpen={() => onOpenItem(item)}
-                        />
+                    <div className="space-y-2">
+                      {days.map((day) => (
+                        <div key={day.date}>
+                          {/* 複数日に跨るバケット（今週/来週）では日ラベルを付ける */}
+                          {days.length > 1 && (
+                            <p
+                              style={{
+                                fontSize: 9,
+                                color: C.t3,
+                                marginBottom: 3,
+                              }}
+                            >
+                              {formatDateLabel(day.date, todayStr, tomorrowStr)}
+                            </p>
+                          )}
+                          {day.items.length >= 2 ? (
+                            // 2件以上 → 時系列タイムライン
+                            <CoAlterPlanTimelineDay
+                              items={day.items}
+                              currentUserId={currentUserId}
+                              onOpenItem={onOpenItem}
+                            />
+                          ) : (
+                            // 1件 → 従来の行
+                            day.items.map((item) => (
+                              <ShelfItemRow
+                                key={item.id}
+                                item={item}
+                                currentUserId={currentUserId}
+                                todayStr={todayStr}
+                                tomorrowStr={tomorrowStr}
+                                onOpen={() => onOpenItem(item)}
+                              />
+                            ))
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
-                ),
-              )}
+                );
+              })}
               {/* later グループがある場合は履歴誘導 */}
               <div className="pt-1 flex items-center justify-between">
                 <button

@@ -18,6 +18,8 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PlanItem } from "@/lib/coalter/planShelf";
 import { toDateStr } from "@/lib/coalter/planShelfFilters";
+import { sortByTimeSlot } from "@/lib/coalter/planTimeline";
+import { CoAlterPlanTimelineDay } from "@/components/coalter/CoAlterPlanTimelineDay";
 
 const C = {
   coalter: "#6366F1",
@@ -39,6 +41,8 @@ interface Props {
   onOpenItem: (item: PlanItem) => void;
   /** モーダル開時に呼ばれる任意フック（rehydrate用） */
   onOpen?: () => void;
+  /** 採用者マーカー用（timeline 描画時に使う） */
+  currentUserId?: string | null;
 }
 
 /**
@@ -59,7 +63,7 @@ function buildMonthGrid(year: number, month: number): { date: Date; inMonth: boo
   return cells;
 }
 
-export function CoAlterPlanCalendar({ items, isOpen, onClose, onOpenItem, onOpen }: Props) {
+export function CoAlterPlanCalendar({ items, isOpen, onClose, onOpenItem, onOpen, currentUserId = null }: Props) {
   const today = new Date();
   const [cursorYear, setCursorYear] = useState(today.getFullYear());
   const [cursorMonth, setCursorMonth] = useState(today.getMonth());
@@ -110,9 +114,7 @@ export function CoAlterPlanCalendar({ items, isOpen, onClose, onOpenItem, onOpen
   };
 
   const selectedItems = selectedDate
-    ? items
-        .filter((i) => i.targetDate === selectedDate)
-        .sort((a, b) => a.sortOrder - b.sortOrder)
+    ? sortByTimeSlot(items.filter((i) => i.targetDate === selectedDate))
     : [];
 
   return (
@@ -276,13 +278,22 @@ export function CoAlterPlanCalendar({ items, isOpen, onClose, onOpenItem, onOpen
                     <p style={{ fontSize: 10, color: C.t3, fontWeight: 500 }}>
                       {selectedDate.replace(/-/g, "/")} のプラン
                     </p>
-                    {selectedItems.map((item) => (
-                      <CalendarItemRow
-                        key={item.id}
-                        item={item}
-                        onOpen={() => onOpenItem(item)}
+                    {selectedItems.length >= 2 ? (
+                      // 2件以上は時系列タイムライン
+                      <CoAlterPlanTimelineDay
+                        items={selectedItems}
+                        currentUserId={currentUserId}
+                        onOpenItem={onOpenItem}
                       />
-                    ))}
+                    ) : (
+                      selectedItems.map((item) => (
+                        <CalendarItemRow
+                          key={item.id}
+                          item={item}
+                          onOpen={() => onOpenItem(item)}
+                        />
+                      ))
+                    )}
                   </div>
                 ) : (
                   <p
