@@ -13,6 +13,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
+import { PlaceDetailSheet } from "./PlaceDetailSheet";
 import {
   learnDuration,
   loadDurationStore,
@@ -335,6 +336,7 @@ function PlanItemRow({
   canMoveUp,
   canMoveDown,
   confirmed,
+  onPlaceClick,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
@@ -345,6 +347,7 @@ function PlanItemRow({
   canMoveUp: boolean;
   canMoveDown: boolean;
   confirmed: boolean;
+  onPlaceClick: (item: PlanItem) => void;
 }) {
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -504,31 +507,51 @@ function PlanItemRow({
       {/* カテゴリアイコン */}
       <CategoryIcon item={item} size={15} />
 
-      {/* テキスト + 同伴者 + 場所（CEO 2026-04-17: 継承 location も表示） */}
+      {/*
+        CEO 方針 2026-04-17: 新レイアウト
+          活動 ー 場所 (住所は小さく) / 👤 人
+        場所タップで bottom sheet（地図 + 性質情報）を開く
+      */}
       <div className="flex-1 min-w-0">
-        <span
-          className={`text-[13px] ${
-            item.completed ? "line-through text-gray-400" : "text-gray-800"
-          }`}
-        >
-          {item.text}
-        </span>
-        {item.withWhom && (
-          <span className="block text-[10px] text-purple-400/80 mt-0.5 truncate">
-            👤 {item.withWhom}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span
+            className={`text-[13px] ${
+              item.completed ? "line-through text-gray-400" : "text-gray-800"
+            }`}
+          >
+            {item.what ?? item.text}
           </span>
+          {item.location?.label && (
+            <>
+              <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+              <button
+                onClick={() => onPlaceClick(item)}
+                className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
+                  item.completed
+                    ? "text-gray-400"
+                    : "text-gray-700 hover:text-purple-600"
+                }`}
+                title="場所の詳細を見る"
+              >
+                {item.location.resolvedName ?? item.location.label}
+              </button>
+            </>
+          )}
+        </div>
+        {/* 住所（小さく） */}
+        {item.location?.address && (
+          <div className="text-[10px] text-gray-400 mt-0.5 truncate pl-0">
+            {item.location.address}
+          </div>
         )}
-        {/*
-          item.text に既に場所が含まれている（例: "仕事(カフェ)"）場合は二重表示を避ける。
-          含まれていなければ継承された location を明示する。
-        */}
-        {item.location?.label && !item.text.includes(item.location.label) && (
-          <span className="block text-[10px] text-gray-400 mt-0.5 truncate">
-            📍 {item.location.label}
-            {item.location.source === "user_inferred" && (
-              <span className="text-gray-300 ml-1">（同じ場所）</span>
-            )}
-          </span>
+        {/* 同伴者 */}
+        {item.withWhom && (
+          <div className="text-[10px] text-purple-400/80 mt-0.5 truncate">
+            👤 {item.withWhom}
+          </div>
+        )}
+        {item.location?.source === "user_inferred" && !item.location?.address && (
+          <div className="text-[10px] text-gray-300 mt-0.5">（同じ場所）</div>
         )}
       </div>
 
@@ -574,6 +597,11 @@ export default function MorningPlanCard({
   onRequestChange,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
+  // Place detail bottom sheet state（CEO方針 2026-04-17）
+  const [placeSheetItem, setPlaceSheetItem] = useState<PlanItem | null>(null);
+  const handlePlaceClick = useCallback((item: PlanItem) => {
+    if (item.location) setPlaceSheetItem(item);
+  }, []);
 
   // Sync when parent passes a new plan (e.g. after planEditor edit)
   useEffect(() => {
@@ -760,10 +788,19 @@ export default function MorningPlanCard({
                 canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
                 canMoveDown={item.kind !== "travel" && !item.proposal && ntIdx < nonTravel.length - 1}
                 confirmed={plan.confirmed}
+                onPlaceClick={handlePlaceClick}
               />
             );
           })}
         </div>
+
+        {/* 場所詳細 bottom sheet */}
+        <PlaceDetailSheet
+          open={placeSheetItem !== null}
+          location={placeSheetItem?.location ?? null}
+          recommendReason={placeSheetItem?.recommendReason}
+          onClose={() => setPlaceSheetItem(null)}
+        />
 
         {/* アクションボタン */}
         {!plan.confirmed && (

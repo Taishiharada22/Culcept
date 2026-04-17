@@ -813,15 +813,40 @@ export function buildDeltaConfirmMessage(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 import type { PlanItem, MainLocation } from "./types";
+import { derivePropertyHints } from "./propertyHints";
+import { resolvePlace } from "./placeTable";
 
 export function planStateToPlanItems(state: PlanState): PlanItem[] {
   return state.segments.map((seg, index) => {
+    // placeTable から traits を引く（placeCanonical or place を逆引き）
+    const placeEntry = seg.placeCanonical
+      ? resolvePlace(seg.placeCanonical) ?? (seg.place ? resolvePlace(seg.place) : null)
+      : seg.place
+        ? resolvePlace(seg.place)
+        : null;
+
+    const propertyHints = seg.placeCanonical
+      ? derivePropertyHints({
+          activityCategory: seg.activityCategory,
+          placeCategory: seg.placeCategory,
+          traits: placeEntry?.traits,
+        })
+      : undefined;
+
     const location: MainLocation | undefined = seg.placeCanonical
       ? {
           canonicalId: seg.placeCategory ?? seg.placeCanonical,
           label: seg.placeCanonical,
           category: seg.placeCategory,
           source: "user_explicit" as const,
+          traits: placeEntry?.traits,
+          // place detail（placeResolver 解決済みなら伝播）
+          resolvedName: seg.resolvedPlaceName,
+          address: seg.resolvedAddress,
+          placeId: seg.resolvedPlaceId,
+          lat: seg.resolvedLat,
+          lng: seg.resolvedLng,
+          propertyHints,
         }
       : undefined;
 

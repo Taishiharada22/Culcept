@@ -8,6 +8,7 @@
 import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
+import type { TimeConstraintType } from "./planState";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MainLocation — 場所はプラン生成の中核フィールド
@@ -30,7 +31,62 @@ export interface MainLocation {
     noisy?: boolean;
     longStayOk?: boolean;
   };
+  // ── Place detail (placeResolver / Places API 由来) ──
+  /** 解決済みの正式名称（Places API / web search） */
+  resolvedName?: string;
+  /** 住所（表示用・bottom sheet で使用） */
+  address?: string;
+  /** Google Place ID */
+  placeId?: string;
+  /** 緯度（地図表示 / 移動時間計算） */
+  lat?: number;
+  /** 経度（地図表示 / 移動時間計算） */
+  lng?: number;
+  /**
+   * 性質情報（bottom sheet 用）。
+   *
+   * CEO方針 2026-04-17:
+   *   activity × place category で derive される。リコメンドの有無に限らず
+   *   必要（仕事→コンセント、ミーティング→静かさ、ランチ→雰囲気）。
+   *
+   * 値は 3値: "yes" | "no" | "unknown"
+   *   - "yes" : placeTable の traits から確度高く判定
+   *   - "no"  : 明確に該当しない
+   *   - "unknown" : 情報なし（UI で「情報なし」表示 or 非表示）
+   */
+  propertyHints?: PlacePropertyHints;
 }
+
+/**
+ * 性質情報（activity 別に必要なスロット）。
+ *
+ * すべて optional。activity × placeCategory に応じて埋められる。
+ * UI 側は activityCategory に応じて表示順を決める。
+ */
+export interface PlacePropertyHints {
+  /** コンセント有無（仕事・勉強・カフェ） */
+  outlets?: HintValue;
+  /** Wi-Fi 有無（仕事・勉強・ミーティング） */
+  wifi?: HintValue;
+  /** 静かさ（ミーティング・勉強・読書） */
+  quietness?: HintValue;
+  /** 個室・プライベート感（ミーティング・デート） */
+  private?: HintValue;
+  /** 長時間滞在可否（仕事・勉強） */
+  longStayOk?: HintValue;
+  /** 屋内か屋外か（雨天判断・コーデ） */
+  indoor?: HintValue;
+  /** 雰囲気タグ（ランチ・ディナー・カフェ・デート） */
+  atmosphere?: string;
+  /** 予算レンジ（ランチ・ディナー） */
+  budget?: string;
+  /** 駐車場有無（買い物・外食） */
+  parking?: HintValue;
+  /** 予約推奨（ディナー・人気店） */
+  reservationRecommended?: HintValue;
+}
+
+export type HintValue = "yes" | "no" | "unknown";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FlowContext — 1日の流れの文脈（「外で作業」「1日中」等）
@@ -188,6 +244,11 @@ export interface PlanItem {
   /** アクティビティカテゴリ（語彙テーブルからの正規化結果） */
   activityCategory?: ActivityCategory;
   /**
+   * 時間制約タイプ（PlanSegment.timeConstraint.type 由来）。
+   * buildDayPlan がウィンドウ制約や出発アンカーを尊重するために使う。
+   */
+  timeConstraintType?: TimeConstraintType;
+  /**
    * 順序制約（locationSequence 由来）。
    * 0 始まりの整数。visit=0,1,... → main task=最後。
    * buildDayPlan は duration ソートの前にこの値でソートする。
@@ -200,6 +261,22 @@ export interface PlanItem {
   travelTo?: string;
   /** 移動手段（kind: "travel" のみ） */
   travelTransport?: TransportMode;
+
+  // ── Alter 提案フィールド（Gap Fill Engine 由来） ──
+  /** true = Alter が提案した soft proposal（ユーザー予定ではない） */
+  proposal?: boolean;
+  /** 提案理由（UI の「提案」タグに表示） */
+  proposalReason?: string;
+  /** 提案の taxonomy カテゴリ（ログ基盤: impression→accept/dismiss 結合用） */
+  proposalTaxonomy?: string;
+
+  // ── Place 詳細表示用（CEO方針 2026-04-17 plan display redesign） ──
+  /**
+   * Alter が場所をリコメンドした理由（proposal=true or alter_suggested 時）。
+   * 例: 「仕事用ならスタバ渋谷が静かで作業しやすい」
+   * bottom sheet で表示される。リコメンドではない場合は undefined。
+   */
+  recommendReason?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -223,6 +300,22 @@ export interface MorningPlan {
   parsedIntent?: ParsedDayIntent;
   /** 終点アンカー（次回プランの始点候補に継承される） */
   endpointAnchor?: EndpointAnchor;
+  /**
+   * 出発アンカー（HH:mm）— 「8時に家を出る」等。
+   * UI 側の recalculateSchedule が departure anchor を尊重するために必要。
+   * buildDayPlan → MorningPlan → MorningPlanCard と伝播する。
+   */
+  departureTime?: string;
+  /**
+   * 到着アンカー（HH:mm）— 「18時に帰宅」等。
+   * UI 側の recalculateSchedule が arrival anchor を尊重するために必要。
+   */
+  arrivalTime?: string;
+  /**
+   * Phase D: 推論で補完された項目の追跡。
+   * transport / venue が未指定でも plan を組み、推論根拠を記録する。
+   */
+  autoInferred?: AutoInferredMap;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -270,6 +363,28 @@ export type MissingField =
   | "mood"
   | "withWhom"
   | "location_area"; // 場所の市区町村レベルの確認が必要
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase D: AutoInferred — 推論で埋めた項目の追跡
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type InferenceConfidence = "high" | "medium" | "low";
+
+/** 推論で埋めた単一フィールド */
+export interface AutoInferredField<T = string> {
+  /** 推論された値 */
+  value: T;
+  /** 推論の確信度 */
+  confidence: InferenceConfidence;
+  /** 推論の根拠（UIで「車で計算したよ」等に使用） */
+  reason: string;
+}
+
+/** プラン生成時に推論で補完された項目のマップ */
+export interface AutoInferredMap {
+  transport?: AutoInferredField<TransportMode>;
+  venue?: AutoInferredField<VenueType>;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LocationClarify — 場所未指定時の暗黙補完 / 質問ルール
@@ -463,6 +578,22 @@ export interface MorningSession {
   startedAt: string;
   /** ユーザーの性格コンテキスト（alter route から注入） */
   personalityContext?: PersonalityContext;
+  /** 場所解決で確認が必要なセグメント（medium/low confidence） */
+  pendingPlaceConfirmations?: Array<{
+    segmentId: string;
+    originalText: string;
+    resolvedName?: string;
+    confidence: "medium" | "low";
+    candidates?: Array<{ name: string; address?: string }>;
+  }>;
+  /** ユーザーID（場所キャッシュ用） */
+  userId?: string;
+  /** ユーザーのエリア情報（場所解決用） */
+  userArea?: string;
+  /** ユーザーの都道府県（baseline 由来、location resolver 用） */
+  userPrefecture?: string;
+  /** ユーザーの市区町村（baseline 由来、location resolver 用） */
+  userCity?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
