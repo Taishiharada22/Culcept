@@ -225,6 +225,19 @@ export interface PlanItem {
   startTime?: string;
   /** 所要時間（分）。Alterが仮置き or ユーザー修正後の値 */
   durationMin: number;
+  /**
+   * duration の由来（CEO方針 2026-04-18 Bug 5-B）:
+   *   - "user": ユーザーが明示した duration（例「12時〜13時」）→ 衝突時も短縮しない
+   *   - "inferred" (または undefined): activity vocabulary / default 由来 → 衝突時に短縮可
+   * 現時点で LLM extract は end-time 範囲を拾わないので常に "inferred"。
+   * 将来 "12〜13時" 抽出が入ったら "user" を立てる。
+   */
+  durationSource?: "user" | "inferred";
+  /**
+   * 次の fixed anchor / window.end 衝突を避けるため duration を短縮したことを示すフラグ。
+   * CEO方針 2026-04-18 Bug 5-B。UI で「短縮」注記を出したいときに使う。
+   */
+  durationShrunkByPlacement?: boolean;
   /** 明示的な時間指定があるか（true = アンカー、スケジュール再計算で動かさない） */
   fixedStart: boolean;
   /** 入力順序（discourse marker 由来。0始まり連番） */

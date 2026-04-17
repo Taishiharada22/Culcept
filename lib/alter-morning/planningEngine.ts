@@ -308,9 +308,26 @@ export function buildDayPlan(
       .map(i => timeToMinutes(i.startTime!))
       .sort((a, b) => a - b)[0];
 
-    if (earliestFixed !== undefined) {
-      // fixed item の1時間前（移動+準備）を dayStart に。最低 7:00。
-      dayStart = Math.max(earliestFixed - 60, 7 * 60);
+    // CEO方針 2026-04-18 Bug 5-A: earliestWindow も候補に入れる。
+    //   「朝マックで仕事 → 12時ランチ」で earliestFixed=12:00 だけ見ると
+    //   dayStart=11:00 になって朝タスクが昼アンカーに衝突→押し出される問題を回避。
+    //   window_morning を持つ todo があれば window.start (06:00) も候補とする。
+    const earliestWindow = items
+      .filter(i => i.timeConstraintType?.startsWith("window_"))
+      .map(i => {
+        const w = TIME_WINDOWS[i.timeConstraintType!];
+        return w?.start ?? Infinity;
+      })
+      .sort((a, b) => a - b)[0];
+
+    const hasWindowAnchor = earliestWindow !== undefined && earliestWindow !== Infinity;
+    if (earliestFixed !== undefined || hasWindowAnchor) {
+      // fixed 由来: その 60分前（移動+準備 buffer）を起点
+      const fixedBase = earliestFixed !== undefined ? earliestFixed - 60 : Infinity;
+      // window 由来: window.start そのものを起点（buffer は不要）
+      const windowBase = hasWindowAnchor ? earliestWindow : Infinity;
+      // どちらか早い方を採用、最低 7:00
+      dayStart = Math.max(Math.min(fixedBase, windowBase), 7 * 60);
     } else {
       const currentHour = currentTime.getHours();
       const currentMinute = currentTime.getMinutes();
@@ -367,31 +384,70 @@ export function buildDayPlan(
     } else {
       // todo item: cursor 位置に配置。ただしウィンドウ制約 / fixed 衝突を考慮
       let placedAt = cursor;
+      let effectiveDuration = item.durationMin;
 
-      // ウィンドウ制約: timeConstraintType が window_* なら、windowStart 以降に配置
+      // ウィンドウ制約: window.start 以降、window.end 以前に配置
+      //   CEO方針 2026-04-18 Bug 5-C: window.end 超過を禁止
+      let windowEnd: number | undefined;
       if (item.timeConstraintType?.startsWith("window_")) {
         const window = TIME_WINDOWS[item.timeConstraintType];
         if (window) {
-          // ウィンドウの最早開始以降に配置
           placedAt = Math.max(placedAt, window.start);
+          windowEnd = window.end;
         }
       }
 
-      // 次の fixed anchor と衝突するかチェック
+      // 次の fixed anchor / window end と衝突するかチェック
+      //   CEO方針 2026-04-18 Bug 5-B: 衝突時は push ではなく shrink を試みる。
+      //   shrink できるのは durationSource !== "user"（推論 duration のみ）。
+      //   user 明示 duration は現状維持で push-out（従来挙動）。
+      const SHRINK_BUFFER_MIN = 10; // anchor 直前にこれだけ空ける
+      const MIN_TODO_DURATION = 15; // これ未満には shrink しない
+      const canShrink = item.durationSource !== "user";
+
+      // 衝突する最も早い境界（anchor.start / windowEnd）を探す
+      let nextBoundary: number | undefined;
       for (const anchor of fixedAnchors) {
-        if (placedAt < anchor.start && placedAt + item.durationMin > anchor.start) {
-          // 衝突: fixed の後に配置
-          placedAt = anchor.end;
+        if (placedAt < anchor.start) {
+          nextBoundary = nextBoundary === undefined ? anchor.start : Math.min(nextBoundary, anchor.start);
+        }
+      }
+      if (windowEnd !== undefined) {
+        nextBoundary = nextBoundary === undefined ? windowEnd + 1 : Math.min(nextBoundary, windowEnd + 1);
+      }
+
+      if (nextBoundary !== undefined && placedAt + effectiveDuration > nextBoundary) {
+        // 衝突 or window.end 超過
+        const availableBefore = nextBoundary - placedAt - SHRINK_BUFFER_MIN;
+        if (canShrink && availableBefore >= MIN_TODO_DURATION) {
+          // shrink: sequenceOrder を保持したまま duration を短縮
+          effectiveDuration = availableBefore;
+        } else {
+          // 推論不可 or 十分な余裕なし → 従来通り push-out（次の anchor の後ろに配置）
+          //   ※ user-declared duration の保護
+          const colliding = fixedAnchors.find(a => placedAt < a.start && placedAt + item.durationMin > a.start);
+          if (colliding) {
+            placedAt = colliding.end;
+            effectiveDuration = item.durationMin; // push 時は duration を元に戻す
+          } else if (windowEnd !== undefined && placedAt > windowEnd) {
+            // window 超過・anchor 無し → cursor のまま（ordering 優先）
+          }
         }
       }
 
       // dayEnd チェック
-      if (placedAt + item.durationMin > dayEnd) {
+      if (placedAt + effectiveDuration > dayEnd) {
         // 時間内に収まらない → 時刻なしで末尾配置
         scheduled.push({ ...item });
       } else {
-        scheduled.push({ ...item, startTime: minutesToTime(placedAt) });
-        cursor = placedAt + item.durationMin;
+        const shrunk = effectiveDuration !== item.durationMin;
+        scheduled.push({
+          ...item,
+          startTime: minutesToTime(placedAt),
+          durationMin: effectiveDuration,
+          ...(shrunk ? { durationShrunkByPlacement: true } : {}),
+        });
+        cursor = placedAt + effectiveDuration;
       }
     }
   }
@@ -524,8 +580,20 @@ export async function buildDayPlanAsync(
       .map(i => timeToMinutes(i.startTime!))
       .sort((a, b) => a - b)[0];
 
-    if (earliestFixed !== undefined) {
-      dayStart = Math.max(earliestFixed - 60, 7 * 60);
+    // CEO方針 2026-04-18 Bug 5-A: earliestWindow も候補に入れる
+    const earliestWindow = items
+      .filter(i => i.timeConstraintType?.startsWith("window_"))
+      .map(i => {
+        const w = TIME_WINDOWS[i.timeConstraintType!];
+        return w?.start ?? Infinity;
+      })
+      .sort((a, b) => a - b)[0];
+    const hasWindowAnchor = earliestWindow !== undefined && earliestWindow !== Infinity;
+
+    if (earliestFixed !== undefined || hasWindowAnchor) {
+      const fixedBase = earliestFixed !== undefined ? earliestFixed - 60 : Infinity;
+      const windowBase = hasWindowAnchor ? earliestWindow : Infinity;
+      dayStart = Math.max(Math.min(fixedBase, windowBase), 7 * 60);
     } else {
       const currentHour = currentTime.getHours();
       const currentMinute = currentTime.getMinutes();
@@ -563,26 +631,61 @@ export async function buildDayPlanAsync(
   const scheduled: PlanItem[] = [];
   let cursor = dayStart;
 
+  // CEO方針 2026-04-18 Bug 5 (A+B+C): sync 版と同一の配置ロジック
   for (const item of sorted) {
     if (item.kind === "fixed" && item.startTime) {
       scheduled.push(item);
       cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
     } else {
       let placedAt = cursor;
+      let effectiveDuration = item.durationMin;
+      let windowEnd: number | undefined;
       if (item.timeConstraintType?.startsWith("window_")) {
         const window = TIME_WINDOWS[item.timeConstraintType];
-        if (window) placedAt = Math.max(placedAt, window.start);
-      }
-      for (const anchor of fixedAnchors) {
-        if (placedAt < anchor.start && placedAt + item.durationMin > anchor.start) {
-          placedAt = anchor.end;
+        if (window) {
+          placedAt = Math.max(placedAt, window.start);
+          windowEnd = window.end;
         }
       }
-      if (placedAt + item.durationMin > dayEnd) {
+
+      const SHRINK_BUFFER_MIN = 10;
+      const MIN_TODO_DURATION = 15;
+      const canShrink = item.durationSource !== "user";
+
+      let nextBoundary: number | undefined;
+      for (const anchor of fixedAnchors) {
+        if (placedAt < anchor.start) {
+          nextBoundary = nextBoundary === undefined ? anchor.start : Math.min(nextBoundary, anchor.start);
+        }
+      }
+      if (windowEnd !== undefined) {
+        nextBoundary = nextBoundary === undefined ? windowEnd + 1 : Math.min(nextBoundary, windowEnd + 1);
+      }
+
+      if (nextBoundary !== undefined && placedAt + effectiveDuration > nextBoundary) {
+        const availableBefore = nextBoundary - placedAt - SHRINK_BUFFER_MIN;
+        if (canShrink && availableBefore >= MIN_TODO_DURATION) {
+          effectiveDuration = availableBefore;
+        } else {
+          const colliding = fixedAnchors.find(a => placedAt < a.start && placedAt + item.durationMin > a.start);
+          if (colliding) {
+            placedAt = colliding.end;
+            effectiveDuration = item.durationMin;
+          }
+        }
+      }
+
+      if (placedAt + effectiveDuration > dayEnd) {
         scheduled.push({ ...item });
       } else {
-        scheduled.push({ ...item, startTime: minutesToTime(placedAt) });
-        cursor = placedAt + item.durationMin;
+        const shrunk = effectiveDuration !== item.durationMin;
+        scheduled.push({
+          ...item,
+          startTime: minutesToTime(placedAt),
+          durationMin: effectiveDuration,
+          ...(shrunk ? { durationShrunkByPlacement: true } : {}),
+        });
+        cursor = placedAt + effectiveDuration;
       }
     }
   }

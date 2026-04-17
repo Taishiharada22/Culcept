@@ -953,6 +953,9 @@ export function planStateToPlanItems(state: PlanState): PlanItem[] {
       what: activity,
       startTime: seg.startTime,
       durationMin: seg.estimatedDurationMin ?? 45,
+      // CEO方針 2026-04-18 Bug 5-B: duration は現状すべて vocabulary/default 由来。
+      //   将来「12〜13時」形式の end-time 抽出が入ったら "user" を立てる。
+      durationSource: "inferred" as const,
       fixedStart: isFixedConstraint || !!seg.startTime,
       orderHint: index,
       sourceTurnIndex: 0,
