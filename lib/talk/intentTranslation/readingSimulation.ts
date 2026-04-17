@@ -528,8 +528,10 @@ export async function simulateReading(
   }
 
   // LLM なし: ルールベースのみで返す
+  // reading は空文字（クライアント側で falsy スキップされる）。
+  // 以前は "（分析中）" を返しUIに永続表示されるバグあり（2026-04-17 修正）。
   const defaultSenderIntent: IntentInterpretation = {
-    reading: "（分析中）",
+    reading: "",
     speechAct: "inform",
     probability: 0.5,
     emotionalImpact: { valence: 0, arousal: 0, dominance: 0 },

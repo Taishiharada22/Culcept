@@ -541,7 +541,10 @@ export async function reconstructIntent(
 
   return {
     primaryIntent: {
-      reading: "（分析中）",
+      // LLM 未使用時のフォールバック — reading は空文字でクライアント側スキップ。
+      // 以前は "（分析中）" をそのまま返しており、BubbleHint に "（分析中）" が
+      // 永続表示されるUIバグの原因になっていた（2026-04-17 CEO報告）。
+      reading: "",
       speechAct: "inform",
       probability: 0.5,
       emotionalImpact: { valence: 0, arousal: 0, dominance: 0 },

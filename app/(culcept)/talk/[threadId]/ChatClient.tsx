@@ -11,6 +11,10 @@ import { useCoAlter } from "@/hooks/useCoAlter";
 import CoAlterButton from "@/components/coalter/CoAlterButton";
 import CoAlterConsent from "@/components/coalter/CoAlterConsent";
 import CoAlterCard from "@/components/coalter/CoAlterCard";
+import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
+import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
+import { CoAlterPlanDetailSheet } from "@/components/coalter/CoAlterPlanDetailSheet";
+import type { PlanItem } from "@/lib/coalter/planShelf";
 import IntentObservationSheet from "@/components/talk/IntentObservationSheet";
 
 const C = {
@@ -624,6 +628,8 @@ export default function ChatClient({ threadId }: Props) {
 
   // ── CoAlter ──
   const coalter = useCoAlter(threadId);
+  const [showPlanCalendar, setShowPlanCalendar] = useState(false);
+  const [detailItem, setDetailItem] = useState<PlanItem | null>(null);
 
   // ── mount 検出 + 下書き復元（hydration 完了後） ──
   useEffect(() => {
@@ -828,8 +834,17 @@ export default function ChatClient({ threadId }: Props) {
     }
   }, [fetchMessages, markRead, threadId]);
 
-  // スクロール位置に応じて新着バナーを表示
+  // スクロール位置に応じて新着バナーを表示 + 初回ロードは最下部へジャンプ
   useEffect(() => {
+    // 初回: メッセージが 0 → 1件以上に切り替わった瞬間、最新（最下部）へ即ジャンプ
+    if (messages.length > 0 && prevMsgCountRef.current === 0) {
+      // DOM描画待ちで1frame後に実行（instant でジャンプ、アニメなし）
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+      });
+      prevMsgCountRef.current = messages.length;
+      return;
+    }
     if (messages.length > prevMsgCountRef.current && prevMsgCountRef.current > 0) {
       const container = scrollContainerRef.current;
       if (container) {
@@ -983,7 +998,10 @@ export default function ChatClient({ threadId }: Props) {
       } else {
         // show=false でも primaryIntent があれば表示する（ユーザーが明示的にタップした）
         const reading = data.primaryIntent?.reading;
-        if (reading && typeof reading === "string") {
+        // フォールバック placeholder（"（分析中）" 等）は絶対に表示しない
+        const isPlaceholder = typeof reading === "string" &&
+          (reading.includes("分析中") || reading.trim() === "");
+        if (reading && typeof reading === "string" && !isPlaceholder) {
           setBubbleHints(prev => new Map(prev).set(messageId, {
             hintText: reading,
             confidence: data.primaryIntent?.confidence ?? data.confidence ?? 0.5,
@@ -999,25 +1017,42 @@ export default function ChatClient({ threadId }: Props) {
 
   // ── 共同Alter 仲介リクエスト ──
   const requestMediation = useCallback(async (messageId?: string) => {
+    // messageId 未指定時は相手の最新メッセージを対象にする
+    // （🤝 ヘッダーボタン押下 = "今のやり取りを仲介して" の意図）
+    let targetMessageId = messageId;
+    if (!targetMessageId) {
+      const latestCounterpartMsg = [...messages]
+        .reverse()
+        .find((m) => m.senderId && m.senderId !== currentUserId);
+      targetMessageId = latestCounterpartMsg?.id;
+    }
+    if (!targetMessageId) {
+      console.info("[mediate] 仲介対象メッセージが無いためスキップ");
+      return;
+    }
     setMediationState(prev => ({ ...prev, loading: true, visible: true }));
     try {
       const res = await fetch("/api/talk/mediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, messageId }),
+        body: JSON.stringify({ threadId, messageId: targetMessageId }),
       });
       if (res.ok) {
+        // mediate route は {forSender, forReceiver, sharedInsight, decision, ...} を直接返す
         const data = await res.json();
-        if (data.ok) {
+        if (data && data.decision) {
           setMediationState({ loading: false, result: data, visible: true });
           return;
         }
+      } else {
+        console.warn(`[mediate] ${res.status}`, await res.text().catch(() => ""));
       }
       setMediationState(prev => ({ ...prev, loading: false }));
-    } catch {
+    } catch (e) {
+      console.warn("[mediate] fetch error", e);
       setMediationState(prev => ({ ...prev, loading: false }));
     }
-  }, [threadId]);
+  }, [threadId, messages, currentUserId]);
 
   // ── 検索 ──
   const [searchQuery, setSearchQuery] = useState("");
@@ -1184,6 +1219,15 @@ export default function ChatClient({ threadId }: Props) {
             style={{ background: C.s2 }} aria-label="相手のGenome Card">
             <span style={{ fontSize: 14 }}>🧬</span>
           </Link>
+          {/* プラン履歴（カレンダー） */}
+          <button
+            onClick={() => setShowPlanCalendar(true)}
+            className="w-9 h-9 rounded-full flex items-center justify-center min-h-[44px]"
+            style={{ background: C.s2 }}
+            aria-label="プラン履歴を開く"
+          >
+            <span style={{ fontSize: 14 }}>📅</span>
+          </button>
         </div>
 
         {/* インサイトパネル */}
@@ -1192,6 +1236,14 @@ export default function ChatClient({ threadId }: Props) {
             <InsightPanel insight={insight} onClose={() => setShowInsight(false)} />
           )}
         </AnimatePresence>
+
+        {/* CoAlter プラン棚（「これからの予定」）── 生配列を渡し、パネル内部で filterUpcoming */}
+        <CoAlterShelfPanel
+          items={coalter.planItems}
+          currentUserId={currentUserId}
+          onOpenItem={(item) => setDetailItem(item)}
+          onOpenCalendar={() => setShowPlanCalendar(true)}
+        />
       </div>
 
       {/* ═══ 検索バー ═══ */}
@@ -1220,6 +1272,24 @@ export default function ChatClient({ threadId }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ═══ CoAlter プラン履歴カレンダー ═══ */}
+      <CoAlterPlanCalendar
+        items={coalter.planItems}
+        isOpen={showPlanCalendar}
+        onClose={() => setShowPlanCalendar(false)}
+        onOpenItem={(item) => setDetailItem(item)}
+        onOpen={coalter.fetchPlanItems}
+      />
+
+      {/* ═══ CoAlter プラン詳細ボトムシート ═══ */}
+      <CoAlterPlanDetailSheet
+        item={detailItem}
+        currentUserId={currentUserId}
+        isOpen={detailItem !== null}
+        onClose={() => setDetailItem(null)}
+        onDelete={coalter.deletePlanItem}
+      />
 
       {/* ═══ スレッド情報ドロワー ═══ */}
       <AnimatePresence>

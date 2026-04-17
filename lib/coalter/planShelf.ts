@@ -36,6 +36,8 @@ export interface PlanItem {
   category: string;
   /** 並び順（時系列） */
   sortOrder: number;
+  /** 採用したユーザーID（自分/相手マーカー用） */
+  createdBy: string;
   createdAt: string;
   /** 期限切れかどうか（targetDate < today） */
   isExpired: boolean;
@@ -160,6 +162,7 @@ function mapRow(row: Record<string, unknown>): PlanItem {
     url: (row.url as string) ?? null,
     category: row.category as string,
     sortOrder: row.sort_order as number,
+    createdBy: row.created_by as string,
     createdAt: row.created_at as string,
     isExpired: (row.target_date as string) < today,
   };
