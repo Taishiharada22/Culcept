@@ -277,7 +277,7 @@ export interface DeltaChange {
   /** 変更対象フィールド */
   field: string;
   /** 新しい値 */
-  newValue?: string | string[] | null;
+  newValue?: string | string[] | Record<string, unknown> | null;
   /** 追加セグメント（add_segment 時） */
   newSegment?: LLMRawSegment;
 }
@@ -347,7 +347,7 @@ export interface LLMDeltaResult {
     type: string;
     targetSegmentHint?: string | null;
     field: string;
-    newValue?: string | string[] | null;
+    newValue?: string | string[] | Record<string, unknown> | null;
     newSegment?: LLMRawSegment | null;
   }>;
 }
@@ -399,8 +399,8 @@ export const LLM_DELTA_SCHEMA = {
         properties: {
           type: { type: "string", description: "set | replace | remove | add_segment | remove_segment" },
           targetSegmentHint: { type: ["string", "null"], description: "自然言語での対象セグメントのヒント（例: 'ランチ', '午後の打ち合わせ'）" },
-          field: { type: "string", description: "place | activity | companions | startTime | transport | endTime | targetDate | departureTime | goOut | segment" },
-          newValue: { description: "新しい値（文字列 or 文字列配列 or null）" },
+          field: { type: "string", description: "place | placeSearchHint | activity | companions | startTime | transport | endTime | targetDate | departureTime | goOut | segment。place は固有名（スタバ/叙々苑等）、placeSearchHint は広域名・複合（甲府/新宿のカフェ等）" },
+          newValue: { description: "新しい値。field=place/activity/startTime/transport/endTime/targetDate/departureTime → 文字列。field=companions → 文字列配列。field=goOut → \"true\"/\"false\"。field=placeSearchHint → { nearAnchorLabel: 広域名, searchCategory: カテゴリ名 } オブジェクト" },
           newSegment: {
             type: ["object", "null"],
             properties: {

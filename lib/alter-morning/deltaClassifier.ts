@@ -1,29 +1,29 @@
 /**
- * Deterministic Delta Pre-Classifier — CEO方針 2026-04-18 Bug A
+ * Deterministic Delta Pre-Classifier — CEO方針 2026-04-18 Bug A（改訂版）
  *
- * 背景（実機ログ 2026-04-18）:
- *   Turn 1: items=3（マック/仕事、サドヤ/ランチ、カフェ/ミーティング）
- *   Turn 2: "カフェ森の中へだと甲府から相当遠くなるので、甲府にしてください。要は9時から家を出ます"
- *           → 期待: カフェ seg の place を「甲府」に replace + departureTime=09:00
- *           → 実際: items=7（LLM が add_segment を幻覚）
+ * === 2026-04-18 改訂（CEO実機再検証フィードバック反映）===
  *
- * CEO 指示:
- *   最優先 — place refinement を targeted replace に固定すること。
- *   汎用 delta ではなく、下のどれかに分類せよ:
- *     「甲府にしてください」→ place_replacement
- *     「甲府駅でおすすめある？」→ anchor_near_search
- *     「ミーティングもその場所の近い場所でやりたい」→ near_anchor_refinement
- *     「車」→ transport_update
+ * 当初の v1（place_replacement / departure_time を短絡）は不採用。
+ * 実機検証で CEO が "自然言語の読み取り 0 点" と指摘した背景:
+ *   - 「甲府にしてください」の「甲府」は area（広域）なのか point（固有店舗）なのか
+ *     compound（「甲府のカフェ」=エリア内の特定カテゴリ）なのかが、自然言語の理解
+ *     なしには判定不能。決定論 regex で place 直代入すると、placeResolver が広域名を
+ *     座標解決して「甲府駅」等に落ちるか、解決失敗する。
+ *   - CEO 指示: "まずは自然言語で理解して、それからリサーチを行なってください。
+ *     リサーチは LLM が不要だったら使わなくてもいい。"
+ *
+ * 新方針: 短絡対象を "曖昧性ゼロ" のものだけに絞る。
+ *   - ✓ transport_update: 「車」「徒歩」等の単独発話（語彙が閉じていて曖昧性なし）
+ *   - ✗ place_replacement: 自然言語理解が必須。LLM 必須。
+ *   - ✗ departure_time: 「9時から家を出ます」も文脈次第で活動 start との混同あり。LLM 必須。
+ *
+ * 当初 Bug A で回避したかった "LLM 幻覚による items 爆発" は、
+ * deltaClassifier ではなく llmDeltaParser 側の prompt 強化で対処する
+ * （area / point / compound の区別、既存セグメント維持の明示）。
  *
  * 設計原則:
- *   - LLM より先に決定論的パターンで短絡。幻覚の add_segment を防ぐ。
- *   - 強い確信度のパターンのみ短絡。曖昧なときは LLM にフォールスルー。
- *   - 「追加」「新しく」「やめる」「キャンセル」等、複合シグナルが混ざる発話は
- *     短絡せず LLM に委ねる（誤分類のほうがコスト大）。
- *   - 直交シグナル（place/departure/transport）は同一発話内で併存可能。
- *     同時に検出できれば複数 change を返す（turnType=correction）。
- *   - 対象セグメント解決は「発話内に既存 seg の place/activity トークンが現れるか」
- *     を主軸とする。見つからなければ null 返しで LLM フォールバック。
+ *   - 強い確信度のパターンのみ短絡（自然言語理解を要するものは全て LLM）
+ *   - 曖昧なときは null を返して LLM にフォールスルー
  */
 
 import {
@@ -70,9 +70,13 @@ const DEPARTURE_TIME_RE =
 /** 単独発話の transport トークン（前後に句読点のみ許容） */
 const TRANSPORT_SINGLE_RE = /^(車|徒歩|歩き|電車|バス|自転車|タクシー|バイク|飛行機)[。\s]?$/;
 
-/** 明示的 transport 宣言（「移動は車」「車で行く」） */
+/**
+ * 明示的 transport 宣言。
+ *   形 A: 「移動は車」「移動手段は車で」 — 明示的な主題提起
+ *   形 B: 「車で行く」「徒歩で行きます」 — 手段の宣言
+ */
 const TRANSPORT_EXPLICIT_RE =
-  /(?:移動(?:手段)?は|移動は|で行(?:く|きます)(?:$|[。\s]))?(車|徒歩|歩き|電車|バス|自転車|タクシー|バイク|飛行機)(?:で(?:行|移動)|が(?:いい|いいです)|$|[。\s])/;
+  /(?:移動(?:手段)?は(車|徒歩|歩き|電車|バス|自転車|タクシー|バイク|飛行機)|(車|徒歩|歩き|電車|バス|自転車|タクシー|バイク|飛行機)で(?:行く|行きます|移動する|移動します))/;
 
 /** 日本語 transport ラベル → TransportMode */
 const TRANSPORT_MAP: Record<string, string> = {
@@ -232,7 +236,9 @@ function classifyTransportUpdate(
   // 明示宣言（「移動は車」「車で行きます」）
   const mExp = trimmed.match(TRANSPORT_EXPLICIT_RE);
   if (mExp) {
-    const mode = TRANSPORT_MAP[mExp[1]];
+    // 形 A（移動は〜）か形 B（〜で行く）のどちらかが group 1/2 に入る
+    const token = mExp[1] ?? mExp[2];
+    const mode = token ? TRANSPORT_MAP[token] : undefined;
     if (mode) {
       return {
         change: {
@@ -277,25 +283,20 @@ export function classifyDeltaDeterministic(
   // 複合シグナル検出: 「追加」「やめる」等が混じる発話は決定論化しない
   if (COMPOUND_SIGNAL_RE.test(userMessage)) return null;
 
+  // 参照（未使用だが将来の拡張検討のため残置）
+  void state;
+
   const results: ClassifierResult[] = [];
 
-  const place = classifyPlaceReplacement(userMessage, state);
-  if (place) results.push(place);
+  // CEO方針 2026-04-18 改訂: place/departure は LLM 必須（自然言語理解が先行）
+  //   place_replacement / departure_time の短絡はここでは行わない。
+  //   classifyPlaceReplacement / classifyDepartureTime の実装は残しているが
+  //   呼び出していない（将来的に area/point 区別が決定論で可能になれば復活させる余地）。
 
-  const departure = classifyDepartureTime(userMessage);
-  if (departure) results.push(departure);
-
-  // transport は単独発話時のみ信用する（place/departure と併存する発話は誤検出が多い）
-  // ただし transport の明示宣言（「移動は車」）だけは他シグナルと併存可能
+  // transport のみ短絡対象。語彙が閉じていて曖昧性が極めて低いため安全。
   const transport = classifyTransportUpdate(userMessage);
   if (transport) {
-    if (transport.pattern === "transport_single") {
-      // 単独発話なので他シグナルと競合しないはず。そのまま採用。
-      results.push(transport);
-    } else if (transport.pattern === "transport_explicit") {
-      // 「移動は車で」のような明示 — 他シグナルと併存させてよい
-      results.push(transport);
-    }
+    results.push(transport);
   }
 
   if (results.length === 0) return null;

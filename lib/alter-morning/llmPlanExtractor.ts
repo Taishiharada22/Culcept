@@ -992,6 +992,25 @@ export function buildDeltaConfirmMessage(
           descriptions.push(
             `${segLabel}の場所を${String(change.newValue ?? "変更")}に変更`,
           );
+        } else if (change.field === "placeSearchHint") {
+          // CEO方針 2026-04-18 Bug A: 広域名「甲府」「新宿」等は near-anchor 検索で候補化する
+          const nv = change.newValue;
+          let area = "";
+          let cat = "";
+          if (nv && typeof nv === "object" && !Array.isArray(nv)) {
+            const obj = nv as Record<string, unknown>;
+            area = typeof obj.nearAnchorLabel === "string" ? obj.nearAnchorLabel : "";
+            cat = typeof obj.searchCategory === "string" ? obj.searchCategory : "";
+          } else if (typeof nv === "string") {
+            area = nv;
+          }
+          if (area && cat) {
+            descriptions.push(`${segLabel}の場所を${area}エリアの${cat}で探す`);
+          } else if (area) {
+            descriptions.push(`${segLabel}の場所を${area}エリアで探す`);
+          } else {
+            descriptions.push(`${segLabel}の場所を再検索`);
+          }
         } else if (change.field === "activity") {
           descriptions.push(
             `${segLabel}を${String(change.newValue ?? "変更")}に変更`,
@@ -1011,7 +1030,25 @@ export function buildDeltaConfirmMessage(
         break;
       }
       case "set": {
-        if (change.field === "transport") {
+        if (change.field === "placeSearchHint") {
+          const nv = change.newValue;
+          let area = "";
+          let cat = "";
+          if (nv && typeof nv === "object" && !Array.isArray(nv)) {
+            const obj = nv as Record<string, unknown>;
+            area = typeof obj.nearAnchorLabel === "string" ? obj.nearAnchorLabel : "";
+            cat = typeof obj.searchCategory === "string" ? obj.searchCategory : "";
+          } else if (typeof nv === "string") {
+            area = nv;
+          }
+          if (area && cat) {
+            descriptions.push(`${segLabel}の場所を${area}エリアの${cat}で探す`);
+          } else if (area) {
+            descriptions.push(`${segLabel}の場所を${area}エリアで探す`);
+          } else {
+            descriptions.push(`${segLabel}の場所を再検索`);
+          }
+        } else if (change.field === "transport") {
           const labels: Record<string, string> = {
             car: "車", train: "電車", bus: "バス", walk: "徒歩",
             bicycle: "自転車", taxi: "タクシー", motorcycle: "バイク",
