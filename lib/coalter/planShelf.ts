@@ -16,6 +16,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // 型定義
 // ─────────────────────────────────────────────
 
+/**
+ * 代替案（第2候補以降の控え）— Phase 1.5.3 ②
+ * 当日 NG になった時の再合意コストをゼロ化する「抱き合わせ保存」の要素。
+ */
+export interface PlanAlternative {
+  /** 候補タイトル */
+  title: string;
+  /** 一言説明 */
+  oneLiner: string;
+  /** 実用情報（住所・価格など） */
+  practicalInfo?: string | null;
+  /** 元の候補URL */
+  url?: string | null;
+}
+
 export interface PlanItem {
   id: string;
   threadId: string;
@@ -41,6 +56,8 @@ export interface PlanItem {
   createdAt: string;
   /** 期限切れかどうか（targetDate < today） */
   isExpired: boolean;
+  /** 代替案（Phase 1.5.3 ②）— 控えの第2候補以降。null = 未保存 */
+  alternatives: PlanAlternative[] | null;
 }
 
 // ─────────────────────────────────────────────
@@ -64,6 +81,8 @@ export async function addPlanItem(
     category: string;
     /** 採用したユーザーのID（RLS `auth.uid() = created_by` を通すため必須） */
     createdBy: string;
+    /** 代替案（Phase 1.5.3 ②）— 控えの第2候補以降 */
+    alternatives?: PlanAlternative[] | null;
   },
 ): Promise<PlanItem | null> {
   // 同じスレッド+日付の既存アイテム数で sortOrder を決定
@@ -87,6 +106,7 @@ export async function addPlanItem(
       category: params.category,
       sort_order: (count ?? 0) + 1,
       created_by: params.createdBy,
+      alternatives: params.alternatives ?? null,
     })
     .select("*")
     .single();
@@ -150,6 +170,11 @@ export async function removePlanItem(
 
 function mapRow(row: Record<string, unknown>): PlanItem {
   const today = new Date().toISOString().slice(0, 10);
+  // alternatives カラムは JSONB。migration 未実行環境でも null 安全に動く
+  const rawAlternatives = row.alternatives;
+  const alternatives: PlanAlternative[] | null = Array.isArray(rawAlternatives)
+    ? (rawAlternatives as PlanAlternative[])
+    : null;
   return {
     id: row.id as string,
     threadId: row.thread_id as string,
@@ -165,5 +190,6 @@ function mapRow(row: Record<string, unknown>): PlanItem {
     createdBy: row.created_by as string,
     createdAt: row.created_at as string,
     isExpired: (row.target_date as string) < today,
+    alternatives,
   };
 }

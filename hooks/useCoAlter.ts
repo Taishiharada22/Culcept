@@ -30,6 +30,9 @@ import type {
   AxisDelta,
 } from "@/lib/coalter/types";
 import { candidateKey } from "@/lib/coalter/axes";
+import type { PlanItem } from "@/lib/coalter/planShelf";
+
+export type { PlanItem };
 
 // ─────────────────────────────────────────────
 // State Types
@@ -49,6 +52,10 @@ export interface CoAlterState {
   pendingAxisDeltas: PendingAxisDeltas;
   /** Phase 1.5: 既出候補キー（memory only） */
   seenCandidateKeys: string[];
+  /** Phase 1.5.1: 保存済みプランアイテム（全期間） */
+  planItems: PlanItem[];
+  /** Phase 1.5.1: プラン取得中フラグ */
+  planItemsLoading: boolean;
 }
 
 const INITIAL_STATE: CoAlterState = {
@@ -62,6 +69,8 @@ const INITIAL_STATE: CoAlterState = {
   error: null,
   pendingAxisDeltas: {},
   seenCandidateKeys: [],
+  planItems: [],
+  planItemsLoading: false,
 };
 
 // ─────────────────────────────────────────────
@@ -194,6 +203,65 @@ export function useCoAlter(threadId: string) {
       channel.unsubscribe();
     };
   }, [threadId]);
+
+  // ── fetchPlanItems: 保存済みプランを取得（全期間） ──
+  const fetchPlanItems = useCallback(async () => {
+    setState((prev) => ({ ...prev, planItemsLoading: true }));
+    try {
+      const res = await fetch(`/api/coalter/plan?threadId=${encodeURIComponent(threadId)}`);
+      if (!res.ok) {
+        setState((prev) => ({ ...prev, planItemsLoading: false }));
+        return;
+      }
+      const data = await res.json();
+      if (data.ok && data.data?.items) {
+        setState((prev) => ({
+          ...prev,
+          planItems: data.data.items as PlanItem[],
+          planItemsLoading: false,
+        }));
+      } else {
+        setState((prev) => ({ ...prev, planItemsLoading: false }));
+      }
+    } catch {
+      setState((prev) => ({ ...prev, planItemsLoading: false }));
+    }
+  }, [threadId]);
+
+  // ── deletePlanItem: プラン削除（楽観更新 + rollback） ──
+  const deletePlanItem = useCallback(
+    async (itemId: string) => {
+      // 楽観更新: 先に state から除去
+      let backup: PlanItem[] = [];
+      setState((prev) => {
+        backup = prev.planItems;
+        return { ...prev, planItems: prev.planItems.filter((i) => i.id !== itemId) };
+      });
+      try {
+        const res = await fetch(
+          `/api/coalter/plan?itemId=${encodeURIComponent(itemId)}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          // ロールバック
+          setState((prev) => ({ ...prev, planItems: backup }));
+          return;
+        }
+        const data = await res.json();
+        if (!data.ok) {
+          setState((prev) => ({ ...prev, planItems: backup }));
+        }
+      } catch {
+        setState((prev) => ({ ...prev, planItems: backup }));
+      }
+    },
+    [],
+  );
+
+  // ── マウント時に保存済みプランを取得 ──
+  useEffect(() => {
+    fetchPlanItems();
+  }, [fetchPlanItems]);
 
   // ── activate: CoAlterの有効化をリクエスト ──
   const activate = useCallback(async () => {
@@ -482,8 +550,23 @@ export function useCoAlter(threadId: string) {
         }));
         return;
       }
+
+      // 代替案（Phase 1.5.3 ②）— 採用した候補以外を「控え」として抱き合わせ保存
+      const proposal = state.currentProposal;
+      const alternatives = proposal
+        ? proposal.candidates
+            .filter((c) => c.rank !== candidate.rank)
+            .sort((a, b) => a.rank - b.rank)
+            .map((c) => ({
+              title: c.title,
+              oneLiner: c.oneLiner,
+              practicalInfo: c.practicalInfo ?? null,
+              url: c.url ?? null,
+            }))
+        : null;
+
       try {
-        await fetch("/api/coalter/plan", {
+        const res = await fetch("/api/coalter/plan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -495,8 +578,19 @@ export function useCoAlter(threadId: string) {
             practicalInfo: candidate.practicalInfo,
             url: candidate.url ?? null,
             category: "other", // TODO: テーマから自動判定
+            alternatives: alternatives && alternatives.length > 0 ? alternatives : null,
           }),
         });
+        const data = await res.json();
+        if (data.ok && data.data?.item) {
+          // 楽観 append（即座にUIへ反映）
+          setState((prev) => ({
+            ...prev,
+            planItems: [...prev.planItems, data.data.item as PlanItem],
+          }));
+        }
+        // 整合性確保（非同期で全件再取得 — エラーは無視）
+        fetchPlanItems();
       } catch {
         // Plan Shelf保存失敗は許容（採用自体は成功させる）
       }
@@ -514,7 +608,7 @@ export function useCoAlter(threadId: string) {
         body: JSON.stringify({ threadId, action: "end_session" }),
       }).catch(() => {});
     },
-    [threadId, state.currentSessionId],
+    [threadId, state.currentSessionId, state.currentProposal, fetchPlanItems],
   );
 
   // ── refine（deprecated）: Phase 1.5 で reroll + toggleAxisDelta に置き換わった ──
@@ -561,6 +655,8 @@ export function useCoAlter(threadId: string) {
     toggleAxisDelta,
     notifySoftTrigger,
     dismissTrigger,
+    fetchPlanItems,
+    deletePlanItem,
     // 便利な派生値
     isEnabled: state.pairState === "enabled",
     isActive: state.sessionState === "active",

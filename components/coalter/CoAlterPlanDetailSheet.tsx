@@ -365,6 +365,102 @@ export function CoAlterPlanDetailSheet({
                 )}
               </div>
 
+              {/* ── 控えの候補（Phase 1.5.3 ②）── */}
+              {item.alternatives && item.alternatives.length > 0 && (
+                <div className="px-5 pb-3">
+                  <p
+                    style={{
+                      fontSize: 9,
+                      color: C.t3,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      marginBottom: 6,
+                    }}
+                  >
+                    控えの候補
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: C.t3,
+                      marginBottom: 8,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    当日うまくいかなかった時の第2候補。採用時に一緒に保存されています。
+                  </p>
+                  <div className="space-y-2">
+                    {item.alternatives.map((alt, idx) => (
+                      <div
+                        key={`alt-${idx}`}
+                        className="rounded-lg px-3 py-2"
+                        style={{
+                          background: C.s2,
+                          border: `1px solid ${C.coalter}10`,
+                        }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span
+                            style={{
+                              fontSize: 9,
+                              color: C.coalter,
+                              background: `${C.coalter}14`,
+                              padding: "1px 5px",
+                              borderRadius: 3,
+                              fontWeight: 600,
+                            }}
+                          >
+                            第{idx + 2}候補
+                          </span>
+                          <span
+                            className="truncate"
+                            style={{ fontSize: 12, color: C.t1, fontWeight: 500 }}
+                          >
+                            {alt.title}
+                          </span>
+                        </div>
+                        {alt.oneLiner && (
+                          <p
+                            style={{
+                              fontSize: 10,
+                              color: C.t2,
+                              marginTop: 3,
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            {alt.oneLiner}
+                          </p>
+                        )}
+                        {alt.practicalInfo && (
+                          <p
+                            className="truncate"
+                            style={{ fontSize: 9, color: C.t3, marginTop: 2 }}
+                          >
+                            {alt.practicalInfo}
+                          </p>
+                        )}
+                        {alt.url && (
+                          <a
+                            href={alt.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              fontSize: 10,
+                              color: C.coalter,
+                              marginTop: 3,
+                              display: "inline-block",
+                            }}
+                          >
+                            Webで開く ↗
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* ── 採用コンテキスト（小さく脇役として）── */}
               <div className="px-5 pb-3">
                 <div

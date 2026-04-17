@@ -37,6 +37,7 @@ function makeItem(
     createdBy: "user-a",
     createdAt: `${targetDate}T10:00:00.000Z`,
     isExpired: false,
+    alternatives: null,
   };
 }
 

@@ -43,10 +43,30 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
     const body = await request.json();
-    const { threadId, sessionId, targetDate, timeSlot, title, description, practicalInfo, url, category } = body;
+    const { threadId, sessionId, targetDate, timeSlot, title, description, practicalInfo, url, category, alternatives } = body;
 
     if (!threadId || !sessionId || !targetDate || !title) {
       return NextResponse.json({ ok: false, error: "Missing required fields" }, { status: 400 });
+    }
+
+    // alternatives バリデーション（Phase 1.5.3 ②）
+    // 要素の shape を最低限チェック。異常値は null に落として本体採用を壊さない
+    let safeAlternatives: Array<{ title: string; oneLiner: string; practicalInfo?: string | null; url?: string | null }> | null = null;
+    if (Array.isArray(alternatives)) {
+      safeAlternatives = alternatives
+        .filter((a: unknown): a is { title: string; oneLiner: string } =>
+          typeof a === "object" && a !== null &&
+          typeof (a as { title?: unknown }).title === "string" &&
+          typeof (a as { oneLiner?: unknown }).oneLiner === "string",
+        )
+        .slice(0, 4) // 最大4件（rank 2〜5）
+        .map((a) => ({
+          title: (a as { title: string }).title,
+          oneLiner: (a as { oneLiner: string }).oneLiner,
+          practicalInfo: ((a as { practicalInfo?: string | null }).practicalInfo) ?? null,
+          url: ((a as { url?: string | null }).url) ?? null,
+        }));
+      if (safeAlternatives.length === 0) safeAlternatives = null;
     }
 
     const item = await addPlanItem(supabase, {
@@ -60,6 +80,7 @@ export async function POST(request: Request) {
       url: url ?? null,
       category: category ?? "other",
       createdBy: user.id,
+      alternatives: safeAlternatives,
     });
 
     if (!item) {
