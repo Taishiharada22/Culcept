@@ -1223,6 +1223,11 @@ async function buildClarifyV2Response(
     };
   }
 
+  // CEO方針 2026-04-17 P1-B (plan_presented 拡張):
+  // 条件が揃った瞬間 "了解。startTimeを設定で更新したよ。" のような
+  // 実を伴わない preamble は UX ノイズ。プランカードで情報は伝わるため、
+  // overrideMessage が明示されていない限り簡潔な一言に置き換える。
+  const planPresentedMessage = overrideMessage ?? "こんな感じでどう？";
   return {
     session: {
       ...session,
@@ -1232,7 +1237,7 @@ async function buildClarifyV2Response(
     },
     response: {
       phase: "plan_presented",
-      message: confirmMsg,
+      message: planPresentedMessage,
       plan,
       personalizeHints: session.personalizeHints,
     },
