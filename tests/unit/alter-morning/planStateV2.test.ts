@@ -754,3 +754,145 @@ describe("buildDeltaConfirmMessage with clarify", () => {
     expect(msg).toContain("何時からの予定");
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Bug 2 (CEO方針 2026-04-17): 「サイヤをスタバに変更」で place 置換できない問題
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 実機症状: place="サイヤ"（固有名、activity="仕事"）のセグメントに対して、
+// ユーザーが「サイヤをスタバに変更して」と言っても LLM が targetSegmentHint="サイヤ" を
+// 渡すだけで、旧実装では normalizedHint.includes(seg.place) の部分一致が別セグメントの
+// activity を優先してしまい、正しいセグメントに解決されないケースがあった。
+// さらに、place が置換されても下流の resolve 結果（resolvedPlaceName 等）が残るため、
+// UI には旧地点が表示され続けていた。
+//
+// 修正方針（CEO承認 a+b）:
+//   (a) resolveSegmentIdFromHint の place 一致を完全一致優先に変更
+//   (b) applyFieldChange/clearField で place 変更時に下流フィールドを全リセット
+
+describe("Bug 2: place の正確な解決と変更時の下流リセット", () => {
+  function makeBugState(): PlanState {
+    return normalizeLLMOutput({
+      targetDate: "tomorrow",
+      segments: [
+        // seg 1: activity="仕事", place="サイヤ"
+        { order: 1, timeHint: "morning", activity: "仕事", place: "サイヤ", companions: [] },
+        // seg 2: activity に "サイヤ" 類似を含まない別セグメント
+        { order: 2, timeHint: "afternoon", activity: "打ち合わせ", place: "オフィス", companions: ["B君"] },
+      ],
+    });
+  }
+
+  test("place 完全一致: hint='サイヤ' → place='サイヤ' のセグメントに正確解決", () => {
+    const state = makeBugState();
+    const id = resolveSegmentIdFromHint("サイヤ", state);
+    expect(id).toBe(state.segments[0].id);
+  });
+
+  test("place 完全一致（大文字小文字/前後空白の正規化）", () => {
+    const state = makeBugState();
+    // trim + lowercase される
+    expect(resolveSegmentIdFromHint("  サイヤ  ", state)).toBe(state.segments[0].id);
+  });
+
+  test("applyDelta で place を 'サイヤ' → 'スタバ' に置換すると下流フィールドが全てリセットされる", () => {
+    const state = makeBugState();
+    const segId = state.segments[0].id;
+
+    // 下流の解決済みフィールドを事前に仕込む（旧サイヤ由来）
+    state.segments[0].placeType = "exact_proper_noun";
+    state.segments[0].resolvedPlaceName = "サドヤ醸造場";
+    state.segments[0].resolvedAddress = "山梨県甲府市北口3-3-24";
+    state.segments[0].resolvedPlaceId = "place_id_saiya_old";
+    state.segments[0].resolvedLat = 35.666;
+    state.segments[0].resolvedLng = 138.57;
+    state.segments[0].resolutionConfidence = "high";
+    state.segments[0].anchorScore = 5;
+    state.segments[0].placeSearchHint = {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+      originalQuery: "サドヤ近く",
+    };
+
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        { type: "replace", segmentId: segId, field: "place", newValue: "スタバ" },
+      ],
+      confirmSummary: "",
+    };
+
+    const updated = applyDelta(state, delta);
+    const seg = updated.segments[0];
+
+    // place は新しい値に置換される
+    expect(seg.place).toBe("スタバ");
+
+    // 下流の解決結果は全てリセットされる（旧サイヤ情報が残らないこと）
+    expect(seg.placeType).toBeUndefined();
+    expect(seg.placeSearchHint).toBeUndefined();
+    expect(seg.resolvedPlaceName).toBeUndefined();
+    expect(seg.resolvedAddress).toBeUndefined();
+    expect(seg.resolvedPlaceId).toBeUndefined();
+    expect(seg.resolvedLat).toBeUndefined();
+    expect(seg.resolvedLng).toBeUndefined();
+    expect(seg.resolutionConfidence).toBeUndefined();
+    expect(seg.anchorScore).toBeUndefined();
+  });
+
+  test("applyDelta で place を remove すると下流フィールドが全てリセットされる", () => {
+    const state = makeBugState();
+    const segId = state.segments[0].id;
+
+    // 下流を仕込む
+    state.segments[0].resolvedPlaceName = "サドヤ醸造場";
+    state.segments[0].resolvedLat = 35.666;
+    state.segments[0].resolvedLng = 138.57;
+    state.segments[0].anchorScore = 5;
+    state.segments[0].placeType = "exact_proper_noun";
+
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        { type: "remove", segmentId: segId, field: "place" },
+      ],
+      confirmSummary: "",
+    };
+
+    const updated = applyDelta(state, delta);
+    const seg = updated.segments[0];
+
+    expect(seg.place).toBeUndefined();
+    expect(seg.placeCanonical).toBeUndefined();
+    expect(seg.placeType).toBeUndefined();
+    expect(seg.resolvedPlaceName).toBeUndefined();
+    expect(seg.resolvedLat).toBeUndefined();
+    expect(seg.resolvedLng).toBeUndefined();
+    expect(seg.anchorScore).toBeUndefined();
+  });
+
+  test("他のセグメントの place は影響を受けない", () => {
+    const state = makeBugState();
+    const segId = state.segments[0].id;
+
+    // seg 2 にも下流フィールドを仕込む
+    state.segments[1].resolvedPlaceName = "本社オフィス";
+    state.segments[1].resolvedLat = 35.68;
+    state.segments[1].anchorScore = 3;
+
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        { type: "replace", segmentId: segId, field: "place", newValue: "スタバ" },
+      ],
+      confirmSummary: "",
+    };
+
+    const updated = applyDelta(state, delta);
+
+    // seg 2 の解決結果はそのまま維持
+    expect(updated.segments[1].resolvedPlaceName).toBe("本社オフィス");
+    expect(updated.segments[1].resolvedLat).toBe(35.68);
+    expect(updated.segments[1].anchorScore).toBe(3);
+  });
+});

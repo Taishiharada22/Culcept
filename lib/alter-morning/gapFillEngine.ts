@@ -814,6 +814,14 @@ function selectCandidatePool(gap: GapSlot): GapCandidate[] {
 
   const { before, after, after2 } = gap;
 
+  // ── 帰宅後は一切の提案を生成しない（CEO方針 2026-04-17 Bug 3） ──
+  // before が帰宅 travel で after=null（末尾の post-gap）は、ユーザーが既に
+  // 自宅に到着している状態。ここに「カフェで一息」等の外出提案を入れるのは
+  // 前後関係として破綻する。空プール → 提案ゼロ。
+  // middle gap（after != null）は「外出→帰宅→再外出」の正当なパターンなので
+  // 通す。
+  if (isReturnTravel(before) && after === null) return [];
+
   // ── Context: 前後の予定から最適プールを選択 ──
   // Phase 2b: after1 が travel の場合、after2 を「実質的な次の予定」として使う
 

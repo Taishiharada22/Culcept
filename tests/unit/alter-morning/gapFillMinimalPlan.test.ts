@@ -375,3 +375,95 @@ describe("Regression: 非 minimal モードの既存動作", () => {
     expect(between!.durationMin).toBe(240); // 10:00-14:00
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 6. Bug 3 (CEO方針 2026-04-17): 帰宅後の提案禁止
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 実機症状: カフェ→自宅 20:00 の後、20:20 に「カフェで一息」が勝手に湧く。
+// ユーザーは既に自宅に到着しているのにまた外出を提案するのは前後関係として破綻。
+// 修正: selectCandidatePool で isReturnTravel(before) && after===null なら空プール。
+
+describe("Bug 3: 帰宅トラベル後の post-gap は提案ゼロ", () => {
+  test("カフェ→自宅 travel が末尾にあるプランで帰宅後に proposal が湧かない", () => {
+    // 12:00 ランチ (anchor) → カフェ→自宅 travel (末尾) の構成
+    const lunch = makeAnchor({
+      id: "lunch",
+      text: "ランチ",
+      startTime: "12:00",
+      durationMin: 60,
+      activityCategory: "social_meal",
+    });
+    const returnTravel: PlanItem = {
+      id: "return_home",
+      kind: "travel",
+      text: "カフェ→自宅",
+      what: "移動",
+      startTime: "20:00",
+      durationMin: 15,
+      fixedStart: false,
+      orderHint: 10,
+      sourceTurnIndex: 0,
+      completed: false,
+      travelFrom: "カフェ",
+      travelTo: "自宅",
+    };
+
+    // 非 minimal モード（2 item 以上）で走らせる
+    const result = fillGaps([lunch, returnTravel]);
+
+    // 帰宅より後ろに proposal が入っていないこと
+    const returnStartMin = 20 * 60;
+    const proposalsAfterReturn = result.filter(
+      (i) => i.proposal && i.startTime && timeOfItem(i) >= returnStartMin,
+    );
+    expect(proposalsAfterReturn).toHaveLength(0);
+  });
+
+  test("外出→帰宅→再外出 パターンは middle gap 扱いで提案は止めない（副作用なし）", () => {
+    // 10:00 散歩 → カフェ→自宅 11:00-11:15 → 14:00 会議 の構成
+    // 帰宅 travel の after は会議 (non-null) なので空プールにはならない
+    const morning = makeAnchor({
+      id: "morning_walk",
+      text: "散歩",
+      startTime: "10:00",
+      durationMin: 30,
+      activityCategory: "exercise_walk",
+    });
+    const returnTravel: PlanItem = {
+      id: "return_mid",
+      kind: "travel",
+      text: "外→自宅",
+      what: "移動",
+      startTime: "11:00",
+      durationMin: 15,
+      fixedStart: false,
+      orderHint: 5,
+      sourceTurnIndex: 0,
+      completed: false,
+      travelFrom: "外",
+      travelTo: "自宅",
+    };
+    const meeting = makeAnchor({
+      id: "meeting",
+      text: "会議",
+      startTime: "14:00",
+      durationMin: 60,
+      activityCategory: "work_meeting",
+    });
+
+    // middle gap (11:15-14:00) は生成されるが、それは帰宅「後」ではなく「合間」なので
+    // proposal が作られることがあってよい。少なくともクラッシュしない。
+    const result = fillGaps([morning, returnTravel, meeting]);
+    // 結果に 3 つの原 item が残っていること
+    expect(result.find((i) => i.id === "morning_walk")).toBeDefined();
+    expect(result.find((i) => i.id === "return_mid")).toBeDefined();
+    expect(result.find((i) => i.id === "meeting")).toBeDefined();
+  });
+});
+
+function timeOfItem(item: PlanItem): number {
+  if (!item.startTime) return -1;
+  const [h, m] = item.startTime.split(":").map((s) => parseInt(s, 10));
+  return h * 60 + m;
+}
