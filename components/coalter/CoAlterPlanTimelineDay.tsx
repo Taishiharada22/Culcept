@@ -23,10 +23,12 @@ import {
   formatGapLabel,
   computeGapHours,
 } from "@/lib/coalter/planTimeline";
+import { computeRealityWarnings } from "@/lib/coalter/realityCheck";
 
 const C = {
   coalter: "#6366F1",
   pulse: "#EC4899",
+  warn: "#F59E0B",
   s1: "#ffffff",
   s2: "#f5f6fa",
   t1: "#1a1a2e",
@@ -65,8 +67,29 @@ export function CoAlterPlanTimelineDay({
 }: Props) {
   if (items.length === 0) return null;
 
+  // 現実性チェック（③）— この日のアイテムに対する警告を事前計算
+  const warnings = computeRealityWarnings(items);
+  // packed_day 警告は日全体に付くので最上部に1つだけ出す
+  const packedWarning = warnings.find((w) => w.kind === "packed_day");
+
   return (
     <div className="relative">
+      {packedWarning && (
+        <div
+          className="mb-1.5 rounded-lg px-2.5 py-1.5 flex items-center gap-2"
+          style={{
+            background: `${C.warn}12`,
+            border: `1px solid ${C.warn}30`,
+          }}
+        >
+          <span style={{ fontSize: 11 }} aria-hidden>
+            ⚠
+          </span>
+          <span style={{ fontSize: 10, color: C.warn, fontWeight: 500 }}>
+            {packedWarning.message}
+          </span>
+        </div>
+      )}
       {items.map((item, idx) => {
         const isMine = currentUserId && item.createdBy === currentUserId;
         const markerColor = isMine ? C.coalter : C.pulse;
@@ -76,6 +99,15 @@ export function CoAlterPlanTimelineDay({
         const next = items[idx + 1];
         const gapHours = next ? computeGapHours(item, next) : null;
         const gapLabel = formatGapLabel(gapHours);
+        // tight_gap 警告（自分と次のアイテムを繋ぐエッジに紐付くもの）
+        const tightGapWarning =
+          next &&
+          warnings.find(
+            (w) =>
+              w.kind === "tight_gap" &&
+              w.affectedItemIds.includes(item.id) &&
+              w.affectedItemIds.includes(next.id),
+          );
 
         return (
           <div key={item.id}>
@@ -176,31 +208,49 @@ export function CoAlterPlanTimelineDay({
               </div>
             </button>
 
-            {/* ── アイテム間ギャップラベル ── */}
-            {!isLast && gapLabel && (
-              <div className="flex items-center gap-3 py-0.5" aria-hidden>
+            {/* ── アイテム間ギャップラベル + tight_gap 警告 ── */}
+            {!isLast && (gapLabel || tightGapWarning) && (
+              <div className="flex items-start gap-3 py-0.5">
                 <div className="shrink-0" style={{ width: 44 }} />
                 <div
                   className="shrink-0 flex items-center justify-center"
                   style={{ width: 12 }}
+                  aria-hidden
                 >
                   <div
                     style={{
                       width: 1,
-                      height: 16,
-                      background: `${C.coalter}30`,
+                      height: tightGapWarning ? 24 : 16,
+                      background: tightGapWarning
+                        ? `${C.warn}50`
+                        : `${C.coalter}30`,
                     }}
                   />
                 </div>
-                <span
-                  style={{
-                    fontSize: 9,
-                    color: C.t4,
-                    fontStyle: "italic",
-                  }}
-                >
-                  · {gapLabel}の間
-                </span>
+                <div className="flex flex-col gap-0.5">
+                  {gapLabel && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        color: tightGapWarning ? C.warn : C.t4,
+                        fontStyle: "italic",
+                      }}
+                    >
+                      · {gapLabel}の間
+                    </span>
+                  )}
+                  {tightGapWarning && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        color: C.warn,
+                        fontWeight: 500,
+                      }}
+                    >
+                      ⚠ {tightGapWarning.message}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
           </div>
