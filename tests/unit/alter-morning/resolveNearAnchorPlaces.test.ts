@@ -168,17 +168,56 @@ describe("resolveNearAnchorPlaces", () => {
     expect(callArg.locationBias?.lat).toBeCloseTo(35.6630, 4);
   });
 
-  test("anchor 座標が取れない（同名 segment なし）→ スキップ", async () => {
+  test("anchor 座標が取れない（同名 segment なし）+ area geocode も失敗 → スキップ", async () => {
+    // CEO方針 2026-04-18 Bug A Step 3: 同名 segment が無くても area geocode を試すようになった。
+    //   このテストは geocode も 0 件で返す設定 → 最終的にスキップを確認する。
     const hint = makeHintSegment("seg_1", {
-      nearAnchorLabel: "サドヤ",
+      nearAnchorLabel: "存在しない地名xyz",
       searchCategory: "カフェ",
-      originalQuery: "サドヤ近くのカフェ",
+      originalQuery: "存在しない地名xyz近くのカフェ",
     });
+    mockPlacesTextSearch.mockResolvedValueOnce([]); // geocode 0 件
 
     const { needsConfirmation } = await resolveNearAnchorPlaces([hint]);
 
     expect(needsConfirmation).toEqual([]);
-    expect(mockPlacesTextSearch).not.toHaveBeenCalled();
+    // geocode 試行で 1 回は呼ばれる（Step 3）
+    expect(mockPlacesTextSearch).toHaveBeenCalledTimes(1);
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    expect(callArg.textQuery).toBe("存在しない地名xyz");
+    // 近傍探索用の locationBias は付かない（geocode クエリは単純な textQuery のみ）
+    expect(callArg.locationBias).toBeUndefined();
+  });
+
+  test("CEO方針 2026-04-18 Bug A Step 3: area geocode で広域地名 anchor を解決", async () => {
+    // 「カフェを甲府にして」— 甲府 は plan 内の resolved segment ではないが、
+    // geocode して甲府中心座標を取り、1500m 円内でカフェを探索する。
+    const hint = makeHintSegment("seg_1", {
+      nearAnchorLabel: "甲府",
+      searchCategory: "カフェ",
+      originalQuery: "甲府のカフェ",
+    });
+    // 1 回目: geocode クエリ（甲府中心を返す）
+    // 2 回目: 近傍検索（カフェ候補を返す）
+    mockPlacesTextSearch
+      .mockResolvedValueOnce([mockPlace("pid_kofu", "甲府", 35.664, 138.568)])
+      .mockResolvedValueOnce([
+        mockPlace("pid_A", "甲府カフェ A", 35.6645, 138.5685),
+        mockPlace("pid_B", "甲府カフェ B", 35.6650, 138.5690),
+      ]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([hint]);
+
+    expect(needsConfirmation.length).toBe(1);
+    expect(mockPlacesTextSearch).toHaveBeenCalledTimes(2);
+    // 2 回目の呼び出しは locationBias 付き
+    const secondCall = mockPlacesTextSearch.mock.calls[1][0] as any;
+    expect(secondCall.textQuery).toBe("カフェ");
+    expect(secondCall.locationBias?.radius).toBe(1500);
+    expect(secondCall.locationBias?.lat).toBeCloseTo(35.664, 3);
+    // 候補が取れる
+    expect(needsConfirmation[0].resolution.candidates.length).toBeGreaterThan(0);
+    expect(needsConfirmation[0].resolution.confidence).toBe("medium");
   });
 
   test("候補 0 件 → confidence=low / reason が near_anchor_zero 形式", async () => {
@@ -287,7 +326,10 @@ describe("resolveNearAnchorPlaces", () => {
   // GPT 追加ルール 2026-04-17
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  test("rule 1: anchor confidence=medium → near search を走らせない", async () => {
+  test("rule 1: segment anchor confidence=medium → near search を走らせない（既存ルール維持）", async () => {
+    // CEO方針 2026-04-18 Step 3 後も変更なし:
+    //   プラン内の既解決 segment が medium 確信なら、その 1 点の周辺を探索するのは危険。
+    //   area_geocode 経路（medium 許可）は segment 経路とは別の話。
     const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680, "medium");
     const hint = makeHintSegment("seg_2", {
       nearAnchorLabel: "サドヤ",

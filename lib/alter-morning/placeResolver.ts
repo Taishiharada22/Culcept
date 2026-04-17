@@ -1477,6 +1477,53 @@ function findAnchorCoords(
 }
 
 /**
+ * CEO方針 2026-04-18 Bug A Step 3: Area Label Geocoding
+ *
+ * 「甲府にしてください」「新宿のカフェ」のように、nearAnchorLabel がプラン内で
+ * 既解決なセグメント名ではなく、広域の地名（市区町村・駅前・エリア）を指す場合、
+ * Places Text Search の結果から area の中心座標を取得する。
+ *
+ * 使い方:
+ *   findAnchorCoords が null を返した時のフォールバック。
+ *   成功時 confidence = "medium"（anchor が 1 点ではなく面なので high にしない）
+ *
+ * 制約:
+ *   - userArea や currentLocation は一切参照しない（CEO方針: 現在地は正義ではない）
+ *   - Places API 未設定 → null（fail-open）
+ *   - 返却座標は area の中心。NEAR_ANCHOR_SEARCH_RADIUS_M が category デフォルトなので
+ *     カフェなら 1500m の円で周辺検索になる（CEO が期待している「場所から1500m」ルール）
+ */
+async function geocodeAreaLabel(
+  anchorLabel: string,
+): Promise<{ coords: LatLng; confidence: ResolutionConfidence } | null> {
+  if (!anchorLabel) return null;
+  const needle = anchorLabel.trim();
+  if (!needle) return null;
+  if (!isPlacesApiAvailable()) return null;
+
+  try {
+    const results = await searchPlacesByText({
+      textQuery: needle,
+      maxResultCount: 1,
+      languageCode: "ja",
+    });
+    const first = results[0];
+    const lat = first?.location?.latitude;
+    const lng = first?.location?.longitude;
+    if (lat === undefined || lng === undefined) return null;
+    return {
+      coords: { lat, lng },
+      // area 中心はユーザーが選んだ「正確な 1 地点」ではないので medium で抑える。
+      // ただし near-anchor bias として使うには十分。
+      confidence: "medium",
+    };
+  } catch (e) {
+    console.warn("[geocodeAreaLabel] searchPlacesByText failed:", e);
+    return null;
+  }
+}
+
+/**
  * PlacesApiPlace → PlaceCandidate 変換
  */
 function placesApiToNearCandidate(
@@ -1569,14 +1616,37 @@ export async function resolveNearAnchorPlaces(
     if (seg.resolvedPlaceName) continue;
 
     // 1) anchor 座標取得 + confidence チェック
-    const anchor = hint.nearAnchorLabel
-      ? findAnchorCoords(resolved, hint.nearAnchorLabel)
-      : null;
-    // anchor 座標が取れない → Phase 1 ではスキップ
-    if (!anchor) continue;
-    // GPT追加ルール: anchor 自体が曖昧（high 未満）なら near search を走らせない。
-    // まず anchor 確認を優先し、曖昧な anchor の近くを探すことはしない。
-    if (anchor.confidence !== "high") continue;
+    //    優先順位:
+    //    (a) プラン内で既解決のセグメントに同名 anchor がある（「サドヤでディナー→サドヤ近くのカフェ」）
+    //        → confidence=high のみ通す。medium/low は曖昧 anchor なので近傍探索しない。
+    //    (b) 広域地名としてジオコード（「カフェを甲府にして」— CEO方針 2026-04-18 Bug A Step 3）
+    //        → confidence=medium で通す（area は面であって 1 点ではないが、1500m 円の中心には使える）。
+    //
+    //    (b) を導入しない状態では「カフェを甲府にして」が anchor 未解決で near-search 全体がスキップ
+    //    され、travel-time 算出が currentLocation に暗黙フォールバックしていた（CEO 2026-04-18 実機
+    //    フィードバック: 「現在地からの情報をとっており、ずっと変わりません」）。
+    let anchor: { coords: LatLng; confidence: ResolutionConfidence } | null = null;
+    let anchorSource: "resolved_segment" | "area_geocode" | null = null;
+
+    if (hint.nearAnchorLabel) {
+      const fromSegments = findAnchorCoords(resolved, hint.nearAnchorLabel);
+      if (fromSegments) {
+        anchor = fromSegments;
+        anchorSource = "resolved_segment";
+      } else {
+        const fromGeocode = await geocodeAreaLabel(hint.nearAnchorLabel);
+        if (fromGeocode) {
+          anchor = fromGeocode;
+          anchorSource = "area_geocode";
+        }
+      }
+    }
+    // anchor 座標が取れない → スキップ（userArea/currentLocation には一切フォールバックしない）
+    if (!anchor || !anchorSource) continue;
+    // (a) path: segment anchor は high のみ許可（既存ルール維持）
+    // (b) path: area geocode は medium 許可（面探索の中心として十分）
+    if (anchorSource === "resolved_segment" && anchor.confidence !== "high") continue;
+    if (anchorSource === "area_geocode" && anchor.confidence !== "medium" && anchor.confidence !== "high") continue;
 
     const anchorCoords = anchor.coords;
     // GPT rule 4 UI side: ユーザーが「広げる」と応えた結果 radiusOverrideM が乗っていれば優先
