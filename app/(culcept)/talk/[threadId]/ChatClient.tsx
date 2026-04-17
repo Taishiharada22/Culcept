@@ -1329,6 +1329,7 @@ export default function ChatClient({ threadId }: Props) {
         onDelete={coalter.deletePlanItem}
         onRefine={coalter.refinePlanItem}
         onApplyRefine={coalter.applyRefinedPlanItem}
+        onGeneratePairNarrative={coalter.generatePairNarrative}
       />
 
       {/* ═══ スレッド情報ドロワー ═══ */}

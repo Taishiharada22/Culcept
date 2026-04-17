@@ -316,6 +316,32 @@ export function useCoAlter(threadId: string) {
     [],
   );
 
+  // ── generatePairNarrative: 「2人にとって」narrative を LLM 生成（Phase 1.5.3 ⑤）──
+  // 既にキャッシュがあれば LLM を呼ばずにそのまま返す（サーバ側で判定）
+  const generatePairNarrative = useCallback(
+    async (itemId: string): Promise<string | null> => {
+      try {
+        const res = await fetch("/api/coalter/plan/narrative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.ok || !data.data?.item) return null;
+        const updated = data.data.item as PlanItem;
+        setState((prev) => ({
+          ...prev,
+          planItems: prev.planItems.map((it) => (it.id === itemId ? updated : it)),
+        }));
+        return updated.pairNarrative;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
   // ── マウント時に保存済みプランを取得 ──
   useEffect(() => {
     fetchPlanItems();
@@ -717,6 +743,7 @@ export function useCoAlter(threadId: string) {
     deletePlanItem,
     refinePlanItem,
     applyRefinedPlanItem,
+    generatePairNarrative,
     // 便利な派生値
     isEnabled: state.pairState === "enabled",
     isActive: state.sessionState === "active",

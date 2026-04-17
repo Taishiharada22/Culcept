@@ -58,6 +58,11 @@ export interface PlanItem {
   isExpired: boolean;
   /** 代替案（Phase 1.5.3 ②）— 控えの第2候補以降。null = 未保存 */
   alternatives: PlanAlternative[] | null;
+  /**
+   * 2人にとっての意味（Phase 1.5.3 ⑤）— 初回表示時に LLM で生成しキャッシュ。
+   * null = 未生成。
+   */
+  pairNarrative: string | null;
 }
 
 // ─────────────────────────────────────────────
@@ -215,6 +220,12 @@ function mapRow(row: Record<string, unknown>): PlanItem {
   const alternatives: PlanAlternative[] | null = Array.isArray(rawAlternatives)
     ? (rawAlternatives as PlanAlternative[])
     : null;
+  // pair_narrative カラム — migration 未実行環境でも null 安全に
+  const rawPairNarrative = row.pair_narrative;
+  const pairNarrative: string | null =
+    typeof rawPairNarrative === "string" && rawPairNarrative.trim().length > 0
+      ? rawPairNarrative
+      : null;
   return {
     id: row.id as string,
     threadId: row.thread_id as string,
@@ -231,5 +242,33 @@ function mapRow(row: Record<string, unknown>): PlanItem {
     createdAt: row.created_at as string,
     isExpired: (row.target_date as string) < today,
     alternatives,
+    pairNarrative,
   };
+}
+
+// ─────────────────────────────────────────────
+// Pair Context Narrative（Phase 1.5.3 ⑤）
+// ─────────────────────────────────────────────
+
+/**
+ * 2人にとっての意味を DB に保存する。
+ * RLS 上は pair に属するユーザー両方から更新可能（thread 経由で参加確認）。
+ */
+export async function setPairNarrative(
+  supabase: SupabaseClient,
+  itemId: string,
+  narrative: string,
+): Promise<PlanItem | null> {
+  const { data, error } = await supabase
+    .from("coalter_plan_items")
+    .update({ pair_narrative: narrative })
+    .eq("id", itemId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("[CoAlter/PlanShelf] Failed to set pair narrative:", error);
+    return null;
+  }
+  return mapRow(data);
 }

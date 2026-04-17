@@ -50,6 +50,8 @@ interface Props {
       timeSlot?: string | null;
     },
   ) => Promise<boolean>;
+  /** Phase 1.5.3 ⑤ — 「2人にとって」narrative を生成（キャッシュあればそのまま返る） */
+  onGeneratePairNarrative?: (itemId: string) => Promise<string | null>;
 }
 
 function formatDateJp(dateStr: string): string {
@@ -127,6 +129,7 @@ export function CoAlterPlanDetailSheet({
   onDelete,
   onRefine,
   onApplyRefine,
+  onGeneratePairNarrative,
 }: Props) {
   // リファインメント状態（Phase 1.5.3 ④）
   const [refineLoading, setRefineLoading] = useState<RefineDirection | null>(null);
@@ -137,12 +140,18 @@ export function CoAlterPlanDetailSheet({
   >(null);
   const [applying, setApplying] = useState(false);
 
-  // item が変わったらリファイン状態リセット
+  // Pair narrative 状態（Phase 1.5.3 ⑤）
+  const [narrativeLoading, setNarrativeLoading] = useState(false);
+  const [narrativeError, setNarrativeError] = useState<string | null>(null);
+
+  // item が変わったら状態リセット
   useEffect(() => {
     setRefineLoading(null);
     setRefineError(null);
     setPreview(null);
     setApplying(false);
+    setNarrativeLoading(false);
+    setNarrativeError(null);
   }, [item?.id]);
   // Esc キーで閉じる
   useEffect(() => {
@@ -296,6 +305,98 @@ export function CoAlterPlanDetailSheet({
                   <p style={{ fontSize: 13, color: C.t2, lineHeight: 1.7 }}>
                     {item.description}
                   </p>
+                </div>
+              )}
+
+              {/* ── 2人にとって（Phase 1.5.3 ⑤ コンテキスト narrative）── */}
+              {onGeneratePairNarrative && (
+                <div className="px-5 pb-3">
+                  {item.pairNarrative ? (
+                    <div
+                      className="rounded-xl px-4 py-3"
+                      style={{
+                        background: `linear-gradient(135deg, ${C.coalter}0a, ${C.pulse}08)`,
+                        border: `1px solid ${C.coalter}20`,
+                      }}
+                    >
+                      <p
+                        style={{
+                          fontSize: 9,
+                          color: C.coalter,
+                          fontWeight: 600,
+                          letterSpacing: "0.08em",
+                          marginBottom: 4,
+                        }}
+                      >
+                        ✦ 2人にとって
+                      </p>
+                      <p
+                        style={{
+                          fontSize: 12,
+                          color: C.t1,
+                          lineHeight: 1.7,
+                        }}
+                      >
+                        {item.pairNarrative}
+                      </p>
+                    </div>
+                  ) : (
+                    <button
+                      disabled={narrativeLoading}
+                      onClick={async () => {
+                        if (!item) return;
+                        setNarrativeError(null);
+                        setNarrativeLoading(true);
+                        try {
+                          const narrative = await onGeneratePairNarrative(item.id);
+                          if (!narrative) {
+                            setNarrativeError("生成に失敗しました");
+                          }
+                        } finally {
+                          setNarrativeLoading(false);
+                        }
+                      }}
+                      className="w-full rounded-xl px-4 py-3 text-left"
+                      style={{
+                        background: C.s2,
+                        border: `1px dashed ${C.coalter}40`,
+                        opacity: narrativeLoading ? 0.7 : 1,
+                      }}
+                      aria-label="2人にとっての意味を生成"
+                    >
+                      <p
+                        style={{
+                          fontSize: 11,
+                          color: C.coalter,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {narrativeLoading ? "生成中…" : "✦ 2人にとっての意味を見る"}
+                      </p>
+                      {!narrativeLoading && (
+                        <p
+                          style={{
+                            fontSize: 10,
+                            color: C.t3,
+                            marginTop: 2,
+                          }}
+                        >
+                          この候補が 2 人にとってどんな意味を持つか、関係文脈から言語化します。
+                        </p>
+                      )}
+                      {narrativeError && (
+                        <p
+                          style={{
+                            fontSize: 10,
+                            color: C.warn,
+                            marginTop: 4,
+                          }}
+                        >
+                          {narrativeError}
+                        </p>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
 

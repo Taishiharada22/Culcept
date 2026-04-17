@@ -38,6 +38,7 @@ function makeItem(
     createdAt: `${targetDate}T10:00:00.000Z`,
     isExpired: false,
     alternatives: null,
+    pairNarrative: null,
   };
 }
 
