@@ -9,9 +9,14 @@
  * Shelf / Calendar 両方から共用する。
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { PlanItem } from "@/lib/coalter/planShelf";
+import type {
+  RefineCandidate,
+  RefineDirection,
+} from "@/lib/coalter/refineItem";
+import { REFINE_DIRECTION_LABEL } from "@/lib/coalter/refineItem";
 
 const C = {
   coalter: "#6366F1",
@@ -32,6 +37,19 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onDelete: (id: string) => void;
+  /** Phase 1.5.3 ④ — direction を受けて差し替え候補を 1 件生成（プレビュー用） */
+  onRefine?: (itemId: string, direction: RefineDirection) => Promise<RefineCandidate | null>;
+  /** Phase 1.5.3 ④ — プレビューした候補を実際に適用 */
+  onApplyRefine?: (
+    itemId: string,
+    patch: {
+      title: string;
+      description?: string;
+      practicalInfo?: string | null;
+      url?: string | null;
+      timeSlot?: string | null;
+    },
+  ) => Promise<boolean>;
 }
 
 function formatDateJp(dateStr: string): string {
@@ -92,13 +110,40 @@ const CATEGORY_LABEL: Record<string, string> = {
   other: "その他",
 };
 
+const REFINE_DIRECTIONS: RefineDirection[] = [
+  "cheaper",
+  "earlier",
+  "later",
+  "closer",
+  "quieter",
+  "livelier",
+];
+
 export function CoAlterPlanDetailSheet({
   item,
   currentUserId,
   isOpen,
   onClose,
   onDelete,
+  onRefine,
+  onApplyRefine,
 }: Props) {
+  // リファインメント状態（Phase 1.5.3 ④）
+  const [refineLoading, setRefineLoading] = useState<RefineDirection | null>(null);
+  const [refineError, setRefineError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<
+    | (RefineCandidate & { direction: RefineDirection })
+    | null
+  >(null);
+  const [applying, setApplying] = useState(false);
+
+  // item が変わったらリファイン状態リセット
+  useEffect(() => {
+    setRefineLoading(null);
+    setRefineError(null);
+    setPreview(null);
+    setApplying(false);
+  }, [item?.id]);
   // Esc キーで閉じる
   useEffect(() => {
     if (!isOpen) return;
@@ -461,6 +506,85 @@ export function CoAlterPlanDetailSheet({
                 </div>
               )}
 
+              {/* ── 少し寄せる（Phase 1.5.3 ④ 局所リファインメント）── */}
+              {isMine && onRefine && onApplyRefine && !item.isExpired && (
+                <div className="px-5 pb-3">
+                  <p
+                    style={{
+                      fontSize: 9,
+                      color: C.t3,
+                      fontWeight: 600,
+                      letterSpacing: "0.08em",
+                      marginBottom: 6,
+                    }}
+                  >
+                    少し寄せる
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: C.t3,
+                      marginBottom: 8,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    この候補の「ここだけ」を変えて差し替え案を見る。
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {REFINE_DIRECTIONS.map((dir) => {
+                      const isLoadingThis = refineLoading === dir;
+                      const isDisabled = refineLoading !== null || preview !== null;
+                      return (
+                        <button
+                          key={dir}
+                          disabled={isDisabled}
+                          onClick={async () => {
+                            if (!item) return;
+                            setRefineError(null);
+                            setRefineLoading(dir);
+                            try {
+                              const candidate = await onRefine(item.id, dir);
+                              if (candidate) {
+                                setPreview({ ...candidate, direction: dir });
+                              } else {
+                                setRefineError("差し替え候補の生成に失敗しました");
+                              }
+                            } finally {
+                              setRefineLoading(null);
+                            }
+                          }}
+                          style={{
+                            fontSize: 11,
+                            color: isLoadingThis ? C.s1 : C.t2,
+                            background: isLoadingThis ? C.coalter : C.s2,
+                            border: `1px solid ${isLoadingThis ? C.coalter : C.t4}40`,
+                            padding: "5px 10px",
+                            borderRadius: 999,
+                            fontWeight: 500,
+                            opacity: isDisabled && !isLoadingThis ? 0.4 : 1,
+                            transition: "all 0.2s",
+                          }}
+                          aria-label={`${REFINE_DIRECTION_LABEL[dir]}に寄せた差し替え案を生成`}
+                        >
+                          {isLoadingThis ? "生成中…" : REFINE_DIRECTION_LABEL[dir]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {refineError && (
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: C.warn,
+                        marginTop: 6,
+                      }}
+                    >
+                      {refineError}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* ── 採用コンテキスト（小さく脇役として）── */}
               <div className="px-5 pb-3">
                 <div
@@ -515,6 +639,172 @@ export function CoAlterPlanDetailSheet({
               </div>
             </div>
           </motion.div>
+
+          {/* ── リファインメント プレビューモーダル（Phase 1.5.3 ④）── */}
+          <AnimatePresence>
+            {preview && item && onApplyRefine && (
+              <motion.div
+                className="absolute inset-0 z-10 flex items-center justify-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <div
+                  className="absolute inset-0 bg-black/40"
+                  onClick={() => {
+                    if (!applying) setPreview(null);
+                  }}
+                  aria-hidden
+                />
+                <motion.div
+                  className="relative w-[92%] max-w-sm rounded-2xl p-5"
+                  initial={{ scale: 0.94, opacity: 0, y: 8 }}
+                  animate={{ scale: 1, opacity: 1, y: 0 }}
+                  exit={{ scale: 0.94, opacity: 0, y: 8 }}
+                  transition={{ type: "spring", damping: 26, stiffness: 320 }}
+                  style={{
+                    background: C.s1,
+                    boxShadow: "0 16px 48px rgba(0,0,0,0.25)",
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: C.coalter,
+                        background: `${C.coalter}14`,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {REFINE_DIRECTION_LABEL[preview.direction]}
+                    </span>
+                    {preview.changeNote && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: C.t3,
+                          fontStyle: "italic",
+                        }}
+                      >
+                        · {preview.changeNote}
+                      </span>
+                    )}
+                  </div>
+
+                  <h3
+                    style={{
+                      fontSize: 15,
+                      color: C.t1,
+                      fontWeight: 700,
+                      lineHeight: 1.4,
+                      marginBottom: 6,
+                    }}
+                  >
+                    {preview.title}
+                  </h3>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: C.t2,
+                      lineHeight: 1.6,
+                      marginBottom: 8,
+                    }}
+                  >
+                    {preview.oneLiner}
+                  </p>
+
+                  {preview.practicalInfo && (
+                    <div
+                      className="rounded-lg px-3 py-2 mb-2"
+                      style={{ background: C.s2 }}
+                    >
+                      <p
+                        style={{
+                          fontSize: 11,
+                          color: C.t1,
+                          lineHeight: 1.5,
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {preview.practicalInfo}
+                      </p>
+                    </div>
+                  )}
+
+                  {preview.timeSlot && preview.timeSlot !== item.timeSlot && (
+                    <p style={{ fontSize: 10, color: C.t3, marginBottom: 8 }}>
+                      時刻: {item.timeSlot ?? "未定"} → {preview.timeSlot}
+                    </p>
+                  )}
+
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: C.t3,
+                      marginBottom: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    差し替えると元の候補は上書きされます（控えの候補は残ります）。
+                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPreview(null)}
+                      disabled={applying}
+                      className="flex-1 rounded-full"
+                      style={{
+                        fontSize: 12,
+                        color: C.t2,
+                        background: C.s2,
+                        padding: "10px 14px",
+                        fontWeight: 500,
+                        opacity: applying ? 0.5 : 1,
+                      }}
+                    >
+                      キャンセル
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!item || !preview) return;
+                        setApplying(true);
+                        const ok = await onApplyRefine(item.id, {
+                          title: preview.title,
+                          description: preview.oneLiner,
+                          practicalInfo: preview.practicalInfo,
+                          url: preview.url,
+                          // timeSlot は候補があれば更新、なければ元を踏襲
+                          timeSlot: preview.timeSlot ?? item.timeSlot,
+                        });
+                        setApplying(false);
+                        if (ok) {
+                          setPreview(null);
+                          onClose();
+                        } else {
+                          setRefineError("差し替えに失敗しました");
+                          setPreview(null);
+                        }
+                      }}
+                      disabled={applying}
+                      className="flex-1 rounded-full"
+                      style={{
+                        fontSize: 12,
+                        color: C.s1,
+                        background: C.coalter,
+                        padding: "10px 14px",
+                        fontWeight: 600,
+                        opacity: applying ? 0.7 : 1,
+                      }}
+                    >
+                      {applying ? "差し替え中…" : "差し替える"}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </motion.div>
       )}
     </AnimatePresence>

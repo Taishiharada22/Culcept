@@ -150,6 +150,46 @@ export async function getPlanItems(
 }
 
 /**
+ * Plan Shelf のアイテムを差し替え更新する（Phase 1.5.3 ④ — 局所リファインメント用）。
+ *
+ * 設計:
+ *  - category と targetDate は意図的に変更不可（局所修正の定義）
+ *  - alternatives は残す（第2候補を失うのは損失）
+ *  - RLS 上は created_by = auth.uid() のユーザーだけが更新できる
+ */
+export async function updatePlanItem(
+  supabase: SupabaseClient,
+  params: {
+    itemId: string;
+    title: string;
+    description: string;
+    practicalInfo: string | null;
+    url: string | null;
+    timeSlot: string | null;
+  },
+): Promise<PlanItem | null> {
+  const { data, error } = await supabase
+    .from("coalter_plan_items")
+    .update({
+      title: params.title,
+      description: params.description,
+      practical_info: params.practicalInfo,
+      url: params.url,
+      time_slot: params.timeSlot,
+    })
+    .eq("id", params.itemId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.error("[CoAlter/PlanShelf] Failed to update item:", error);
+    return null;
+  }
+
+  return mapRow(data);
+}
+
+/**
  * Plan Shelfからアイテムを削除する（再提案フロー用）。
  */
 export async function removePlanItem(

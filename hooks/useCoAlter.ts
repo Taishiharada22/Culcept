@@ -31,6 +31,7 @@ import type {
 } from "@/lib/coalter/types";
 import { candidateKey } from "@/lib/coalter/axes";
 import type { PlanItem } from "@/lib/coalter/planShelf";
+import type { RefineCandidate, RefineDirection } from "@/lib/coalter/refineItem";
 
 export type { PlanItem };
 
@@ -253,6 +254,63 @@ export function useCoAlter(threadId: string) {
         }
       } catch {
         setState((prev) => ({ ...prev, planItems: backup }));
+      }
+    },
+    [],
+  );
+
+  // ── refinePlanItem: LLM で局所修正候補を 1 件生成（プレビュー用）──
+  // Phase 1.5.3 ④
+  const refinePlanItem = useCallback(
+    async (itemId: string, direction: RefineDirection): Promise<RefineCandidate | null> => {
+      try {
+        const res = await fetch("/api/coalter/refine-item", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId, direction }),
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!data.ok || !data.data?.candidate) return null;
+        return data.data.candidate as RefineCandidate;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
+  // ── applyRefinedPlanItem: プレビューした差し替え候補を実際に適用 ──
+  // Phase 1.5.3 ④
+  const applyRefinedPlanItem = useCallback(
+    async (
+      itemId: string,
+      patch: {
+        title: string;
+        description?: string;
+        practicalInfo?: string | null;
+        url?: string | null;
+        timeSlot?: string | null;
+      },
+    ): Promise<boolean> => {
+      try {
+        const res = await fetch("/api/coalter/plan", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ itemId, ...patch }),
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (!data.ok || !data.data?.item) return false;
+        // state に反映
+        const updated = data.data.item as PlanItem;
+        setState((prev) => ({
+          ...prev,
+          planItems: prev.planItems.map((it) => (it.id === itemId ? updated : it)),
+        }));
+        return true;
+      } catch {
+        return false;
       }
     },
     [],
@@ -657,6 +715,8 @@ export function useCoAlter(threadId: string) {
     dismissTrigger,
     fetchPlanItems,
     deletePlanItem,
+    refinePlanItem,
+    applyRefinedPlanItem,
     // 便利な派生値
     isEnabled: state.pairState === "enabled",
     isActive: state.sessionState === "active",

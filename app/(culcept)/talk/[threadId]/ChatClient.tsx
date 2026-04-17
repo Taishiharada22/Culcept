@@ -1327,6 +1327,8 @@ export default function ChatClient({ threadId }: Props) {
         isOpen={detailItem !== null}
         onClose={() => setDetailItem(null)}
         onDelete={coalter.deletePlanItem}
+        onRefine={coalter.refinePlanItem}
+        onApplyRefine={coalter.applyRefinedPlanItem}
       />
 
       {/* ═══ スレッド情報ドロワー ═══ */}

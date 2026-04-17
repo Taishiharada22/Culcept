@@ -7,7 +7,12 @@
  */
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { addPlanItem, getPlanItems, removePlanItem } from "@/lib/coalter/planShelf";
+import {
+  addPlanItem,
+  getPlanItems,
+  removePlanItem,
+  updatePlanItem,
+} from "@/lib/coalter/planShelf";
 import type { CoAlterApiResponse } from "@/lib/coalter/types";
 
 export async function GET(request: Request) {
@@ -93,6 +98,66 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     console.error("[CoAlter/Plan] POST error:", e);
+    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/coalter/plan — プランアイテムを差し替え更新（Phase 1.5.3 ④ 局所リファインメント）
+ *
+ * Body: { itemId, title, description?, practicalInfo?, url?, timeSlot? }
+ * - category / targetDate は変更不可（局所修正の定義）
+ * - 自分が採用したプランのみ更新可能
+ */
+export async function PATCH(request: Request) {
+  try {
+    const supabase = await supabaseServer();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+    const body = await request.json();
+    const { itemId, title, description, practicalInfo, url, timeSlot } = body ?? {};
+
+    if (!itemId || typeof itemId !== "string") {
+      return NextResponse.json({ ok: false, error: "itemId is required" }, { status: 400 });
+    }
+    if (!title || typeof title !== "string") {
+      return NextResponse.json({ ok: false, error: "title is required" }, { status: 400 });
+    }
+
+    // 所有チェック（RLS とは別に明示的に検証）
+    const { data: row } = await supabase
+      .from("coalter_plan_items")
+      .select("created_by")
+      .eq("id", itemId)
+      .single();
+
+    if (!row) {
+      return NextResponse.json({ ok: false, error: "Plan item not found" }, { status: 404 });
+    }
+    if (row.created_by !== user.id) {
+      return NextResponse.json(
+        { ok: false, error: "You can only update items you adopted" },
+        { status: 403 },
+      );
+    }
+
+    const item = await updatePlanItem(supabase, {
+      itemId,
+      title,
+      description: typeof description === "string" ? description : "",
+      practicalInfo: typeof practicalInfo === "string" && practicalInfo.trim().length > 0 ? practicalInfo : null,
+      url: typeof url === "string" && /^https?:\/\//.test(url) ? url : null,
+      timeSlot: typeof timeSlot === "string" && timeSlot.trim().length > 0 ? timeSlot : null,
+    });
+
+    if (!item) {
+      return NextResponse.json({ ok: false, error: "Failed to update plan item" }, { status: 500 });
+    }
+
+    return NextResponse.json<CoAlterApiResponse>({ ok: true, data: { item } });
+  } catch (e) {
+    console.error("[CoAlter/Plan] PATCH error:", e);
     return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
   }
 }
