@@ -597,12 +597,21 @@ export function determineConfidence(
 /**
  * 場所名を解決する。
  *
- * 1. キャッシュ確認
- * 2. Web検索で候補取得
- * 3. 候補をスコアリング
- * 4. confidence 判定
+ * CEO方針 2026-04-17 P0:
+ *   exact_proper_noun も Places API Text Search を先に試行し、lat/lng を取得する。
+ *   Places で coords 付き候補が取れない場合のみ、従来の Web検索にフォールバック。
  *
- * fail-open: 検索失敗時は { confidence: "unresolved" } を返す
+ *   根拠: 「サドヤ」のような固有名 Web 検索だけだと lat/lng が乗らず、
+ *         extractHardAnchors が空 anchor 扱いし、距離ペナルティが効かなくなる。
+ *         → 甲府のランチなのに杉並のカフェを提案する事故を誘発していた。
+ *
+ * パイプライン:
+ *   1. キャッシュ確認
+ *   2. Places API（coords 取得可能な経路）— high/medium で採用
+ *   3. Web検索フォールバック（固有名がローカルで Places 未登録のときの救済）
+ *   4. confidence 判定 + キャッシュ保存
+ *
+ * fail-open: 両経路とも失敗 → unresolved
  */
 export async function resolvePlace(
   placeName: string,
@@ -617,7 +626,27 @@ export async function resolvePlace(
     }
   }
 
-  // 2. Web検索
+  // 2. Places API を先に試す（P0 2026-04-17）
+  //    coords が取れて high/medium の結果が出れば採用 → hard anchor 化が可能になる
+  //    low or coords 無しなら Web search フォールバックへ落とす
+  if (isPlacesApiAvailable()) {
+    const placesResolution = await tryResolveExactViaPlacesApi(placeName, context);
+    if (placesResolution) {
+      if (userId && placesResolution.bestCandidate) {
+        await setCachedResolution(
+          userId,
+          placeName,
+          context.userArea,
+          placesResolution,
+          "exact_proper_noun",
+        );
+      }
+      return placesResolution;
+    }
+    // Places で取れなかった → Web フォールバックに落ちる
+  }
+
+  // 3. Web検索（固有名が Places に未登録 or Places 使用不能のフォールバック）
   const query = buildSearchQuery(placeName, context);
   let searchResults: SearchResult[];
   try {
@@ -627,10 +656,10 @@ export async function resolvePlace(
     return unresolvedResult(placeName, "Web検索失敗");
   }
 
-  // 3. 候補抽出 & スコアリング
+  // 4. 候補抽出 & スコアリング
   const candidates = extractCandidatesFromSearch(searchResults, placeName, context);
 
-  // 4. confidence 判定
+  // 5. confidence 判定
   const { confidence, reason } = determineConfidence(candidates);
 
   const resolution: PlaceResolution = {
@@ -641,12 +670,62 @@ export async function resolvePlace(
     reason,
   };
 
-  // 5. キャッシュ保存（high/medium のみ、L1 + L2）
+  // 6. キャッシュ保存（high/medium のみ、L1 + L2）
   if (userId && resolution.bestCandidate) {
     await setCachedResolution(userId, placeName, context.userArea, resolution, "exact_proper_noun");
   }
 
   return resolution;
+}
+
+/**
+ * exact_proper_noun を Places API 経由で解決する内部ヘルパー。
+ *
+ * CEO方針 2026-04-17 P0:
+ *   - Places が low or 空 or coords 欠落の場合は null を返し、呼び出し側で Web にフォールバック
+ *   - high/medium で coords 付きなら PlaceResolution を返す
+ *
+ * 返り値:
+ *   - PlaceResolution: Places で coords 付きの候補が取れた
+ *   - null: Places では解決できなかった（Web フォールバックに落とす）
+ */
+async function tryResolveExactViaPlacesApi(
+  placeName: string,
+  context: ResolutionContext,
+): Promise<PlaceResolution | null> {
+  const query = buildSearchQuery(placeName, context);
+  let places: PlacesApiPlace[] = [];
+  try {
+    places = await searchPlacesByText({
+      textQuery: query,
+      maxResultCount: 3,
+      languageCode: "ja",
+    });
+  } catch (e) {
+    console.warn(`[PlaceResolver] Places API failed for exact_proper_noun "${placeName}" — falling back to web:`, e);
+    return null;
+  }
+  if (!places || places.length === 0) return null;
+
+  const candidates = placesApiToCandidates(places, placeName, context);
+  if (candidates.length === 0) return null;
+
+  // coords が無い候補しか取れなかった場合は anchor 化に使えないので Web 経路へ
+  const hasCoords = candidates[0]?.lat != null && candidates[0]?.lng != null;
+  if (!hasCoords) return null;
+
+  const { confidence, reason } = determineConfidence(candidates);
+
+  // low は結局 anchor 化しないので Web search に救済機会を渡す
+  if (confidence === "low" || confidence === "unresolved") return null;
+
+  return {
+    originalText: placeName,
+    candidates,
+    bestCandidate: candidates[0],
+    confidence,
+    reason: `places_api: ${reason}`,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -859,6 +938,60 @@ function computePlacesMatchScore(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// P1-b Resolver 側 near-anchor 防御（CEO方針 2026-04-17）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 「近くの/付近の/周辺の〜」系の prefix を持つ場所名を検出するための正規表現。
+ * llmPlanExtractor の DECLARATIVE_NEAR_RE と独立に resolver 側で再検査するため複製している。
+ * （parser が hint 化に失敗した場合の最終防御線 — 単一の真実源を共有すると
+ *   片方を修正しても片方が取りこぼすリスクがあるので、あえて二箇所に持つ設計）
+ */
+const RESOLVER_NEAR_ANCHOR_RE = /(近く|付近|周り|周辺|近辺)(の|に)?/;
+
+/** P1-b 防御が発動する半径（chain / generic 共通）。徒歩〜車で妥当な 2km。 */
+const NEAR_ANCHOR_BIAS_RADIUS_M = 2000;
+
+/**
+ * 「近くの〜」系 placeName が渡され、かつ context.resolvedAnchors に高確信な
+ * coords 付き anchor があれば、locationBias を返す。
+ *
+ * CEO方針 2026-04-17 P1-b:
+ *   parser 側（DECLARATIVE_NEAR_RE）で hint 化されずに resolver に到達した場合でも、
+ *   userArea ではなく anchor の周辺を優先して検索することで「甲府ランチ → 杉並カフェ」
+ *   のような事故を防ぐ最終防御線。
+ *
+ * 採用条件:
+ *   - placeName が「近く/付近/周辺」等を含む
+ *   - context.resolvedAnchors に 1件以上 coords 付きがある
+ *   - resolutionConfidence === "high" の anchor を優先（なければ先頭）
+ *
+ * 返り値: locationBias 相当 or null（通常経路で userArea を使う）
+ */
+function resolveNearAnchorLocationBias(
+  placeName: string,
+  context: ResolutionContext,
+): { lat: number; lng: number; radius: number } | null {
+  if (!RESOLVER_NEAR_ANCHOR_RE.test(placeName)) return null;
+  const anchors = context.resolvedAnchors;
+  if (!anchors || anchors.length === 0) return null;
+
+  // coords 付きの anchor を拾う（extractHardAnchors 通過済みなので通常は全件に coords あり）
+  const withCoords = anchors.filter(a => a.coords);
+  if (withCoords.length === 0) return null;
+
+  // 時刻が近いものを優先（placeName 時刻情報は現状保持していないので先頭を採用）
+  const picked = withCoords[0];
+  if (!picked.coords) return null;
+
+  return {
+    lat: picked.coords.lat,
+    lng: picked.coords.lng,
+    radius: NEAR_ANCHOR_BIAS_RADIUS_M,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Phase B-1: Chain Brand Resolution
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -894,14 +1027,24 @@ export async function resolveChainBrand(
 
   // 3. ブランド名を正規化してクエリ構築
   const normalizedBrand = normalizeChainBrand(placeName);
-  const query = context.userArea
-    ? `${normalizedBrand} ${context.userArea}`
-    : normalizedBrand;
+
+  // CEO方針 2026-04-17 P1-b: 二重防御（chain_brand でも anchor 近傍を優先）
+  //   「近くのマック」「サドヤ付近のスタバ」のような near-anchor プレフィクス表記に備える。
+  const nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+  const query = nearAnchorBias
+    ? normalizedBrand
+    : context.userArea
+      ? `${normalizedBrand} ${context.userArea}`
+      : normalizedBrand;
 
   // 4. Places Text Search（コスト最適化: maxResultCount=3）
   let places: PlacesApiPlace[];
   try {
-    places = await searchPlacesByText({ textQuery: query, maxResultCount: 3 });
+    places = await searchPlacesByText({
+      textQuery: query,
+      maxResultCount: 3,
+      ...(nearAnchorBias ? { locationBias: nearAnchorBias } : {}),
+    });
   } catch {
     console.warn(`[PlaceResolver] Places API failed for chain_brand "${placeName}"`);
     return unresolvedResult(placeName, "Places API 検索失敗");
@@ -986,14 +1129,27 @@ export async function resolveGenericPlace(
   // 3. 検索クエリ構築（検索ヒントがあれば付加）
   const hint = getGenericPlaceSearchHint(placeName);
   const searchTerm = hint ?? placeName;
-  const query = context.userArea
-    ? `${searchTerm} ${context.userArea}`
-    : searchTerm;
+
+  // CEO方針 2026-04-17 P1-b: 二重防御
+  //   placeName が near-anchor prefix（「近くの〜」「付近の〜」等）を含み、
+  //   context.resolvedAnchors に coords 付きの anchor があれば、userArea より
+  //   anchor 座標を優先して locationBias を組む。
+  //   → parser 側（llmPlanExtractor）が hint 化に失敗しても、resolver 側で救済。
+  const nearAnchorBias = resolveNearAnchorLocationBias(placeName, context);
+  const query = nearAnchorBias
+    ? searchTerm // bias があるときは userArea を query に混ぜない（anchor エリアを汚染しないため）
+    : context.userArea
+      ? `${searchTerm} ${context.userArea}`
+      : searchTerm;
 
   // 4. Places Text Search（コスト最適化: maxResultCount=5、候補提示用に多めに取る）
   let places: PlacesApiPlace[];
   try {
-    places = await searchPlacesByText({ textQuery: query, maxResultCount: 5 });
+    places = await searchPlacesByText({
+      textQuery: query,
+      maxResultCount: 5,
+      ...(nearAnchorBias ? { locationBias: nearAnchorBias } : {}),
+    });
   } catch {
     console.warn(`[PlaceResolver] Places API failed for generic_place "${placeName}"`);
     return unresolvedResult(placeName, "Places API 検索失敗");
@@ -1126,6 +1282,8 @@ export async function resolveAnchors(
         resolvedLat: r.resolvedLat,
         resolvedLng: r.resolvedLng,
         resolvedPlaceName: r.resolvedPlaceName,
+        // P0 2026-04-17: high 確信のみ anchor 化
+        resolutionConfidence: r.resolutionConfidence,
       })),
     );
 

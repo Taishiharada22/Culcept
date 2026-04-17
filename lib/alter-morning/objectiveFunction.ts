@@ -338,6 +338,28 @@ export interface AnchorSource {
   resolvedLat?: number;
   resolvedLng?: number;
   resolvedPlaceName?: string;
+  /**
+   * 場所解決の確信度（CEO方針 2026-04-17 P0）
+   *
+   * high / 明示確認済み のみ hard anchor に昇格させる。medium は pendingPlaceConfirmations
+   * 経由でユーザーに確認した結果 high 相当（cache source で high）になってから anchor 化する。
+   * 未指定（legacy 経路）は従来動作を維持するため permissive に通す。
+   */
+  resolutionConfidence?: "high" | "medium" | "low" | "unresolved";
+}
+
+/**
+ * hard anchor に昇格可能な confidence のみ通すゲート。
+ *
+ * CEO方針 2026-04-17 P0:
+ *   - high = Places API で強く一致 or 確認後のキャッシュヒット → 通す
+ *   - medium = 候補が拮抗 or ユーザー確認未了 → 通さない（距離ペナルティ基点に使うと逆に事故）
+ *   - low / unresolved → 通さない
+ *   - undefined = legacy 呼び出し（テスト含む）。従来動作維持のため通す
+ */
+function isAnchorableConfidence(conf: AnchorSource["resolutionConfidence"]): boolean {
+  if (conf === undefined) return true;
+  return conf === "high";
 }
 
 export function extractHardAnchors(segments: AnchorSource[]): HardAnchor[] {
@@ -345,6 +367,7 @@ export function extractHardAnchors(segments: AnchorSource[]): HardAnchor[] {
   for (const s of segments) {
     if ((s.anchorScore ?? 0) < HARD_ANCHOR_THRESHOLD) continue;
     if (s.resolvedLat == null || s.resolvedLng == null) continue;
+    if (!isAnchorableConfidence(s.resolutionConfidence)) continue;
     anchors.push({
       segmentId: s.id,
       order: s.order ?? 0,

@@ -278,6 +278,9 @@ describe("resolvePlace", () => {
   beforeEach(() => {
     clearPlaceCache();
     mockSearch.mockReset();
+    mockPlacesTextSearch.mockReset();
+    mockPlacesAvailable.mockReset();
+    mockPlacesAvailable.mockReturnValue(true);
     mockReadL2.mockReset();
     mockWriteL2.mockReset();
     mockReadL2.mockResolvedValue(null);
@@ -354,6 +357,99 @@ describe("resolvePlace", () => {
     // 2回目はキャッシュから
     const cached = await getCachedResolution("user1", "叙々苑", undefined);
     expect(cached).not.toBeNull();
+  });
+
+  // ━━ CEO方針 2026-04-17 P0: exact_proper_noun でも Places API を先に試行 ━━
+  //   根拠: Web検索だけだと lat/lng が乗らず extractHardAnchors が空になり、
+  //         「甲府のサドヤ→杉並のむさしの森コーヒー 100km先」事故を誘発する。
+
+  test("P0: 固有名で Places API が coords 付き候補を返した場合 Web検索はスキップ", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_sadoya_places",
+        displayName: { text: "サドヤ ワイナリー", languageCode: "ja" },
+        formattedAddress: "甲府市丸の内1-20-16",
+        location: { latitude: 35.6660, longitude: 138.5663 },
+        types: ["restaurant", "winery"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    const result = await resolvePlace("サドヤ", { userArea: "甲府" }, "user_p0");
+
+    // Places が採用される
+    expect(mockPlacesTextSearch).toHaveBeenCalled();
+    // Web検索はフォールバック不要
+    expect(mockSearch).not.toHaveBeenCalled();
+    // coords が乗る（extractHardAnchors に昇格可能）
+    expect(result.bestCandidate?.lat).toBe(35.6660);
+    expect(result.bestCandidate?.lng).toBe(138.5663);
+    expect(result.bestCandidate?.source).toBe("places_api");
+    expect(result.confidence).not.toBe("unresolved");
+  });
+
+  test("P0: Places が coords 無し候補を返した場合は Web検索にフォールバック", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_no_coords",
+        displayName: { text: "サドヤ", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        // location なし
+        types: ["restaurant"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+    mockSearch.mockResolvedValue([
+      {
+        title: "サドヤ ワイナリー",
+        url: "https://sadoya.co.jp",
+        text: "甲府市丸の内にある老舗ワイナリー",
+        score: 0.9,
+      },
+    ]);
+
+    const result = await resolvePlace("サドヤ", { userArea: "甲府" }, "user_p0_fb");
+
+    // 両方呼ばれる: Places 試行 → coords 無しで null 返却 → Web フォールバック
+    expect(mockPlacesTextSearch).toHaveBeenCalled();
+    expect(mockSearch).toHaveBeenCalled();
+    expect(result.confidence).not.toBe("unresolved");
+  });
+
+  test("P0: Places が 0 件のとき Web検索にフォールバック", async () => {
+    mockPlacesTextSearch.mockResolvedValue([]);
+    mockSearch.mockResolvedValue([
+      {
+        title: "超マイナー店",
+        url: "https://example.com",
+        text: "甲府市の小さなお店",
+        score: 0.5,
+      },
+    ]);
+
+    const result = await resolvePlace("超マイナー店", { userArea: "甲府" }, "user_p0_empty");
+
+    expect(mockPlacesTextSearch).toHaveBeenCalled();
+    expect(mockSearch).toHaveBeenCalled();
+    expect(result.candidates.length).toBeGreaterThan(0);
+  });
+
+  test("P0: Places API 未設定なら Web検索を直接呼ぶ（従来動作維持）", async () => {
+    mockPlacesAvailable.mockReturnValueOnce(false);
+    mockSearch.mockResolvedValue([
+      {
+        title: "サドヤ ワイナリー",
+        url: "https://sadoya.co.jp",
+        text: "甲府市丸の内にある老舗ワイナリー",
+        score: 0.9,
+      },
+    ]);
+
+    const result = await resolvePlace("サドヤ", { userArea: "甲府" }, "user_p0_no_key");
+
+    expect(mockPlacesTextSearch).not.toHaveBeenCalled();
+    expect(mockSearch).toHaveBeenCalled();
+    expect(result.candidates.length).toBeGreaterThan(0);
   });
 
   test("L2 ヒット時も Web検索をスキップ（プロセス再起動後のキャッシュ復元）", async () => {
@@ -537,6 +633,126 @@ describe("resolveChainBrand", () => {
     expect(result.confidence).toBe("high");
     expect(result.bestCandidate?.source).toBe("cache");
     expect(mockPlacesTextSearch).not.toHaveBeenCalled();
+  });
+
+  // ━━ CEO方針 2026-04-17 P1-b: near-anchor placeName で anchor coords を locationBias に使う ━━
+
+  test("P1-b: 「近くのマック」でanchor coords が locationBias として Places API に渡る", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_kofu_mac",
+        displayName: { text: "マクドナルド 甲府店", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        location: { latitude: 35.66, longitude: 138.57 },
+        types: ["restaurant"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    const sadoyaAnchor: import("@/lib/alter-morning/objectiveFunction").HardAnchor = {
+      segmentId: "seg_sadoya",
+      order: 0,
+      anchorScore: 6,
+      coords: { lat: 35.6660, lng: 138.5663 },
+      label: "サドヤ ワイナリー",
+    };
+
+    // userArea は敢えて「杉並」のような遠い場所にして、locationBias が優先されるか確認
+    await resolveChainBrand(
+      "近くのマック",
+      { userArea: "杉並", resolvedAnchors: [sadoyaAnchor] },
+      "user_p1b_chain",
+    );
+
+    // Places API 呼び出しの引数に locationBias が入っている
+    expect(mockPlacesTextSearch).toHaveBeenCalled();
+    const args = mockPlacesTextSearch.mock.calls[0][0];
+    expect(args.locationBias).toBeDefined();
+    expect(args.locationBias?.lat).toBe(35.6660);
+    expect(args.locationBias?.lng).toBe(138.5663);
+    // query は userArea 付与せず brand 名のみ（anchor 優先）
+    expect(args.textQuery).not.toContain("杉並");
+  });
+
+  test("P1-b: near-anchor が無ければ従来通り userArea をクエリに付与", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_kofu_mac",
+        displayName: { text: "マクドナルド 甲府店", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        location: { latitude: 35.66, longitude: 138.57 },
+        types: ["restaurant"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    // anchor 無し + placeName も near-anchor プレフィクスなし
+    await resolveChainBrand(
+      "マック",
+      { userArea: "甲府" },
+      "user_p1b_none",
+    );
+
+    const args = mockPlacesTextSearch.mock.calls[0][0];
+    expect(args.locationBias).toBeUndefined();
+    expect(args.textQuery).toContain("甲府");
+  });
+
+  test("P1-b: resolvedAnchors があっても placeName が near-anchor でなければ locationBias は付かない", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_x", displayName: { text: "マクドナルド", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        location: { latitude: 35.66, longitude: 138.57 },
+        types: ["restaurant"], businessStatus: "OPERATIONAL",
+      },
+    ]);
+    const sadoyaAnchor: import("@/lib/alter-morning/objectiveFunction").HardAnchor = {
+      segmentId: "seg_sadoya", order: 0, anchorScore: 6,
+      coords: { lat: 35.6660, lng: 138.5663 }, label: "サドヤ",
+    };
+
+    await resolveChainBrand(
+      "マック",
+      { userArea: "甲府", resolvedAnchors: [sadoyaAnchor] },
+      "user_p1b_no_prefix",
+    );
+
+    const args = mockPlacesTextSearch.mock.calls[0][0];
+    // NEAR_ANCHOR_RE にマッチしない普通の placeName なので bias なし
+    expect(args.locationBias).toBeUndefined();
+  });
+
+  test("P1-b: 「付近のカフェ」（generic_place）でも anchor coords が locationBias に使われる", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_cafe",
+        displayName: { text: "カフェ・甲府", languageCode: "ja" },
+        formattedAddress: "甲府市",
+        location: { latitude: 35.666, longitude: 138.566 },
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    const sadoyaAnchor: import("@/lib/alter-morning/objectiveFunction").HardAnchor = {
+      segmentId: "seg_sadoya", order: 0, anchorScore: 6,
+      coords: { lat: 35.6660, lng: 138.5663 }, label: "サドヤ",
+    };
+
+    await resolveGenericPlace(
+      "付近のカフェ",
+      { userArea: "杉並", resolvedAnchors: [sadoyaAnchor] },
+      "user_p1b_generic",
+    );
+
+    expect(mockPlacesTextSearch).toHaveBeenCalled();
+    const args = mockPlacesTextSearch.mock.calls[0][0];
+    expect(args.locationBias).toBeDefined();
+    expect(args.locationBias?.lat).toBe(35.6660);
+    expect(args.locationBias?.lng).toBe(138.5663);
+    // userArea は query に含まれない（anchor 優先）
+    expect(args.textQuery).not.toContain("杉並");
   });
 
   test("resolveChainBrand が L2 に placeType=chain_brand で書き込む", async () => {
@@ -757,9 +973,14 @@ describe("resolveAnchors (mixed placeTypes)", () => {
 
     await resolveAnchors(segments, "甲府", "user1");
 
-    // anchorScore=6 の Web検索が先、anchorScore=1 の Places API が後
-    expect(callOrder[0]).toBe("web");
-    expect(callOrder[1]).toBe("places");
+    // anchorScore 降順: サドヤ(6) が マック(1) より先に処理される
+    // P0 (2026-04-17): exact_proper_noun は Places API を先に試行（座標取得目的）。
+    //   mock に location が無いため fallback として Web 検索が続く。
+    // その後 chain_brand の マック が Places API で解決される。
+    // 期待 callOrder: ["places"(サドヤ試行), "web"(サドヤ fallback), "places"(マック)]
+    expect(callOrder[0]).toBe("places");
+    expect(callOrder[1]).toBe("web");
+    expect(callOrder[2]).toBe("places");
   });
 
   // ━━ Phase C-2: lat/lng がセグメントに反映される ━━

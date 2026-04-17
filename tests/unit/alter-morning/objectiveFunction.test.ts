@@ -291,6 +291,82 @@ describe("extractHardAnchors", () => {
     ]);
     expect(anchors.map(a => a.segmentId)).toEqual(["s1", "s2"]);
   });
+
+  // ━━ CEO方針 2026-04-17 P0: resolutionConfidence ゲート ━━
+  //   high / undefined(legacy) のみ hard anchor 昇格。medium/low/unresolved は除外。
+  //   根拠: medium を anchor にすると距離ペナルティの基点が不確かになり、
+  //         「甲府ランチ→杉並カフェ」のような事故を誘発する。
+
+  test("resolutionConfidence=high は anchor 化される", () => {
+    const anchors = extractHardAnchors([
+      {
+        id: "s1", order: 0, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "high",
+      },
+    ]);
+    expect(anchors).toHaveLength(1);
+  });
+
+  test("resolutionConfidence=medium は anchor 化されない（P0 ゲート）", () => {
+    const anchors = extractHardAnchors([
+      {
+        id: "s1", order: 0, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "medium",
+      },
+    ]);
+    expect(anchors).toHaveLength(0);
+  });
+
+  test("resolutionConfidence=low / unresolved は anchor 化されない", () => {
+    const anchors = extractHardAnchors([
+      {
+        id: "s1", order: 0, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "low",
+      },
+      {
+        id: "s2", order: 1, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "unresolved",
+      },
+    ]);
+    expect(anchors).toHaveLength(0);
+  });
+
+  test("resolutionConfidence 未指定（legacy）は従来通り anchor 化される", () => {
+    const anchors = extractHardAnchors([
+      {
+        id: "s1", order: 0, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        // resolutionConfidence を指定しない
+      },
+    ]);
+    expect(anchors).toHaveLength(1);
+  });
+
+  test("複数混在: high のみ通る", () => {
+    const anchors = extractHardAnchors([
+      {
+        id: "s_high", order: 0, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "high",
+      },
+      {
+        id: "s_med", order: 1, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "medium",
+      },
+      {
+        id: "s_low", order: 2, anchorScore: 5,
+        resolvedLat: 35, resolvedLng: 138,
+        resolutionConfidence: "low",
+      },
+    ]);
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0].segmentId).toBe("s_high");
+  });
 });
 
 // ----------------------------------------------------------------

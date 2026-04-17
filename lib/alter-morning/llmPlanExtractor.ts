@@ -215,6 +215,12 @@ export function normalizeLLMOutput(raw: LLMExtractResult): PlanState {
     normalizeSegment(seg),
   );
 
+  // CEO方針 2026-04-17 P1-a: 平叙文 near-anchor（「近くのカフェで…」）を hint 化
+  //   疑問形（?）のない declarative でも、前セグメントの place を nearAnchorLabel に
+  //   補完して placeSearchHint に昇格させる。これで userArea フォールバックで
+  //   居住地のカフェを提案する事故を防ぐ。
+  applyDeclarativeNearAnchorHints(segments);
+
   const { absoluteDate, label } = resolveTargetDate(raw.targetDate);
   const missingFields = detectMissingFields(segments, raw);
 
@@ -303,6 +309,83 @@ function scrubQuestionPlace(rawPlace: string | null | undefined): {
       originalQuery: trimmed,
     },
   };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Declarative near-anchor hint 変換（CEO方針 2026-04-17 P1-a）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 平叙文で「近くの<カテゴリ>」が place に入ったセグメントを placeSearchHint に昇格する。
+ *
+ * 疑問形（「ないかな？」等）は scrubQuestionPlace で既に処理済み。ここで扱うのは
+ * 「その後近くのカフェでミーティング」のような declarative 文で LLM が place に
+ * 「近くのカフェ」をそのまま入れた場合。
+ *
+ * 変換ルール:
+ *   - place が "(prefix)?(近く|付近|周り|周辺|近辺)(の|に)?<cat>" パターンにマッチ
+ *   - cat が PLACE_CATEGORY_KEYWORDS のいずれかを含む（誤爆防止）
+ *   - prefix が非空ならそれを nearAnchorLabel に、空なら prev segment の place を使う
+ *   - 既に placeSearchHint が立っていれば上書きしない（scrub 済み）
+ *
+ * 破壊的: segments 内の対象要素を直接ミューテートする。
+ */
+const DECLARATIVE_NEAR_RE = /^(.*?)(?:の)?(?:近く|付近|周り|周辺|近辺)(?:の|に)?(.+)$/;
+
+export function applyDeclarativeNearAnchorHints(segments: PlanSegment[]): void {
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    // 既に scrub でhint 化済み or place 無しは対象外
+    if (seg.placeSearchHint) continue;
+    const place = seg.place?.trim();
+    if (!place) continue;
+
+    const m = place.match(DECLARATIVE_NEAR_RE);
+    if (!m) continue;
+
+    // prefix = anchor 候補、tail = category 候補
+    const prefix = m[1]?.trim() ?? "";
+    const tail = m[2]?.trim() ?? "";
+    if (!tail) continue;
+
+    // tail から明確な category を抽出（誤爆防止: 「近くの田中さん」等を除外）
+    let searchCategory: string | undefined;
+    for (const kw of PLACE_CATEGORY_KEYWORDS) {
+      if (tail.includes(kw)) {
+        searchCategory = kw;
+        break;
+      }
+    }
+    if (!searchCategory) continue; // category と確定できないなら触らない
+
+    // nearAnchorLabel を決定（prefix > 前セグメントの place）
+    let nearAnchorLabel: string | undefined = prefix || undefined;
+    if (!nearAnchorLabel) {
+      // 直前の non-empty place を探す（resolvedPlaceName があればそちら優先）
+      for (let j = i - 1; j >= 0; j--) {
+        const prev = segments[j];
+        const label = prev.resolvedPlaceName ?? prev.place;
+        if (label && label.trim()) {
+          nearAnchorLabel = label.trim();
+          break;
+        }
+      }
+    }
+
+    // anchor が見つからないケース（単独の「近くのカフェ」+ 先行 place なし）は
+    // placeSearchHint だけ立てて anchor 欠落のまま resolver 側防御に委ねる
+    seg.placeSearchHint = {
+      nearAnchorLabel,
+      searchCategory,
+      originalQuery: place,
+    };
+    // place はクリア: resolver が generic_place として処理しないように
+    seg.place = undefined;
+    // placeType も無効化（placeSearchHint 経由で resolveNearAnchorPlaces が処理する）
+    seg.placeType = undefined;
+    // anchorScore を再計算: place が消えたので下がる
+    seg.anchorScore = Math.max(0, (seg.anchorScore ?? 0) - 2);
+  }
 }
 
 function normalizeSegment(seg: LLMRawSegment): PlanSegment {
