@@ -935,7 +935,17 @@ async function handleCollectingPhaseV2(
   // hard blocker がある場合のみ clarify
   if (hardBlockerFields.length > 0) {
     const confirmMsg = _buildPlanConfirmMessage!(updatedPlanState);
-    const placeQuestions = buildPlaceConfirmQuestions(pendingPlaceConfirmations);
+    // CEO方針 2026-04-17 Block 1: 時間系 clarify が残っているなら placeQuestions は
+    // 後回し（1 ターン 1 質問）。時間質問が無いときだけ placeConfirm を聞く。
+    const hasHigherPriorityClarify = hardBlockerFields.some(f =>
+      f === "departureTime" ||
+      f === "transport" ||
+      f.startsWith("segmentTime:") ||
+      f.startsWith("segmentPlace:"),
+    );
+    const placeQuestions = hasHigherPriorityClarify
+      ? ""
+      : buildPlaceConfirmQuestions(pendingPlaceConfirmations);
     const plan: MorningPlan = {
       date: updatedPlanState.targetDate,
       items: allItems,

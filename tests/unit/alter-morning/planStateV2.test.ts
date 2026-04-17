@@ -208,20 +208,24 @@ describe("buildPlanConfirmMessage — Turn 1", () => {
     expect(msg).toContain("A君");
     // 18:00 終了 が含まれる
     expect(msg).toContain("18:00");
-    // 移動手段の質問が含まれる
-    expect(msg).toContain("移動手段");
-    // 「違う」「ランチ」「通勤」等のゴミが混入しない
+    // CEO方針 2026-04-17 Block 1: 1ターン1質問。
+    // 優先順位: segmentTime(食事系) > departureTime > segmentPlace(食事系) > transport。
+    // このシナリオでは timeHint はあるが explicit segmentTime は無いので、
+    // departureTime が最優先で聞かれる。
+    expect(msg).toContain("何時頃から動き出す");
+    // 他の質問は同じターンでは聞かない
+    expect(msg).not.toContain("移動手段");
+    expect(msg).not.toContain("いくつか確認させて");
+    // 「違う」「通勤」等のゴミが混入しない
     expect(msg).not.toContain("違う");
     expect(msg).not.toContain("通勤");
   });
 
-  test("CEO シナリオ — 出発時刻 + 移動手段 + 場所の質問が含まれる", () => {
+  test("時間が揃った後は transport が単独で聞かれる (1ターン1質問)", () => {
     const state = normalizeLLMOutput({
       targetDate: "tomorrow",
       segments: [
-        { order: 1, timeHint: "morning", activity: "仕事", place: "マック", companions: [] },
-        { order: 2, timeHint: "noon", activity: "食事", place: "近くのレストラン", companions: [] },
-        { order: 3, timeHint: "afternoon", activity: "仕事の打ち合わせ", place: null, companions: ["A君"] },
+        { order: 1, startTime: "09:00", activity: "仕事", place: "マクドナルド", companions: [] },
       ],
       endTime: "18:00",
       endAction: "帰宅",
@@ -230,15 +234,11 @@ describe("buildPlanConfirmMessage — Turn 1", () => {
 
     const msg = buildPlanConfirmMessage(state);
 
-    // 出発時刻の質問
-    expect(msg).toContain("何時頃から動き出す");
-    // 移動手段の質問
+    // 時間は埋まっているので transport が最優先で聞かれる
     expect(msg).toContain("移動手段");
-    // 打ち合わせ場所の質問（activityCanonical = "打ち合わせ"）
-    expect(msg).toContain("打ち合わせ");
-    expect(msg).toMatch(/どこ/);
-    // 複数質問時のまとめ表現
-    expect(msg).toContain("確認させて");
+    // departureTime/segmentTime は聞かない
+    expect(msg).not.toContain("何時頃から動き出す");
+    expect(msg).not.toContain("いくつか確認させて");
   });
 });
 
@@ -478,5 +478,279 @@ describe("planStateToPlanItems", () => {
 
     const items = planStateToPlanItems(state);
     expect(items[0].withWhom).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyDelta — セグメント追加時の既存セグメント保全
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("applyDelta — segment preservation on add", () => {
+  const baseState: PlanState = {
+    targetDate: "2026-04-16",
+    targetDateLabel: "明日",
+    timezone: "Asia/Tokyo",
+    segments: [
+      {
+        id: "seg_1", order: 1, activity: "仕事",
+        activityCanonical: "仕事", companions: [],
+        status: "confirmed", timeHint: "morning",
+        startTime: "09:00", estimatedDurationMin: 120,
+      },
+      {
+        id: "seg_2", order: 2, activity: "ランチ",
+        activityCanonical: "ランチ", companions: [],
+        status: "confirmed", timeHint: "noon",
+        place: "マクドナルド", placeCanonical: "マクドナルド",
+        estimatedDurationMin: 60,
+      },
+      {
+        id: "seg_3", order: 3, activity: "打ち合わせ",
+        activityCanonical: "打ち合わせ", companions: ["Aさん"],
+        status: "confirmed", timeHint: "afternoon",
+        startTime: "14:00", estimatedDurationMin: 60,
+      },
+    ],
+    transport: "car",
+    status: "collecting",
+    missingFields: [],
+  };
+
+  test("add_segment で既存の3セグメントが保持される", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 4,
+          activity: "商談",
+          companions: ["Bさん"],
+          timeHint: "afternoon",
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    // 既存の3つ + 新しい1つ = 4つ
+    expect(result.segments).toHaveLength(4);
+    // 既存セグメントが全て存在する
+    expect(result.segments.find(s => s.id === "seg_1")).toBeTruthy();
+    expect(result.segments.find(s => s.id === "seg_2")).toBeTruthy();
+    expect(result.segments.find(s => s.id === "seg_3")).toBeTruthy();
+    // Aさんの打ち合わせが消えていない
+    const meeting = result.segments.find(s => s.id === "seg_3");
+    expect(meeting!.activity).toBe("打ち合わせ");
+    expect(meeting!.companions).toEqual(["Aさん"]);
+  });
+
+  test("add_segment の companions が新セグメントのみに適用される（コンパニオン混同防止）", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 4,
+          activity: "商談",
+          companions: ["Bさん"],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    // 新しいセグメント（商談）にはBさんのみ
+    const newSeg = result.segments.find(s => s.activity === "商談");
+    expect(newSeg).toBeTruthy();
+    expect(newSeg!.companions).toEqual(["Bさん"]);
+    // 既存セグメント（打ち合わせ）のAさんは変わっていない
+    const existingSeg = result.segments.find(s => s.id === "seg_3");
+    expect(existingSeg!.companions).toEqual(["Aさん"]);
+    // ランチには同行者なし（混入していない）
+    const lunch = result.segments.find(s => s.id === "seg_2");
+    expect(lunch!.companions).toEqual([]);
+  });
+
+  test("add_segment の order 正規化（既存の order と衝突しても安定）", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 2, // ランチと同じ order
+          activity: "買い物",
+          companions: [],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    expect(result.segments).toHaveLength(4);
+    // order が 1-based 連番に正規化されている
+    const orders = result.segments.map(s => s.order);
+    expect(orders).toEqual([1, 2, 3, 4]);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyDelta — 時間敏感アクティビティの missing field 検出
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("applyDelta — 5W1H missing field detection", () => {
+  const baseState: PlanState = {
+    targetDate: "2026-04-16",
+    targetDateLabel: "明日",
+    timezone: "Asia/Tokyo",
+    segments: [
+      {
+        id: "seg_1", order: 1, activity: "仕事",
+        companions: [], status: "confirmed",
+        startTime: "09:00", estimatedDurationMin: 120,
+      },
+    ],
+    transport: "car",
+    status: "collecting",
+    missingFields: [],
+  };
+
+  test("商談を追加 → segmentTime が missing fields に含まれる", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 2,
+          activity: "商談",
+          companions: ["Bさん"],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    // startTime なしの「商談」→ segmentTime:xxx:商談 が missing に
+    const timeFields = result.missingFields.filter(f => f.startsWith("segmentTime:"));
+    expect(timeFields).toHaveLength(1);
+    expect(timeFields[0]).toContain("商談");
+  });
+
+  test("打ち合わせを追加（startTime 指定あり）→ segmentTime は missing にならない", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 2,
+          activity: "打ち合わせ",
+          startTime: "15:00",
+          companions: [],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    const timeFields = result.missingFields.filter(f => f.startsWith("segmentTime:"));
+    expect(timeFields).toHaveLength(0);
+  });
+
+  test("食事を追加（場所なし）→ segmentPlace が missing に", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 2,
+          activity: "ランチ",
+          companions: [],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    const placeFields = result.missingFields.filter(f => f.startsWith("segmentPlace:"));
+    expect(placeFields).toHaveLength(1);
+    expect(placeFields[0]).toContain("ランチ");
+  });
+
+  test("散歩を追加 → 時間も場所も missing にならない（非敏感アクティビティ）", () => {
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: 2,
+          activity: "散歩",
+          companions: [],
+        },
+      }],
+      confirmSummary: "",
+    };
+
+    const result = applyDelta(baseState, delta);
+    const timeFields = result.missingFields.filter(f => f.startsWith("segmentTime:"));
+    const placeFields = result.missingFields.filter(f => f.startsWith("segmentPlace:"));
+    expect(timeFields).toHaveLength(0);
+    expect(placeFields).toHaveLength(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// buildDeltaConfirmMessage — clarify question 統合
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildDeltaConfirmMessage with clarify", () => {
+  test("add_segment + missingFields → 確認メッセージに質問が含まれる", () => {
+    const state: PlanState = {
+      targetDate: "2026-04-16",
+      targetDateLabel: "明日",
+      timezone: "Asia/Tokyo",
+      segments: [
+        {
+          id: "seg_1", order: 1, activity: "仕事",
+          companions: [], status: "confirmed",
+          startTime: "09:00", estimatedDurationMin: 120,
+        },
+        {
+          id: "seg_2", order: 2, activity: "商談",
+          companions: ["Bさん"], status: "tentative",
+          estimatedDurationMin: 60,
+        },
+      ],
+      transport: "car",
+      status: "collecting",
+      missingFields: ["segmentTime:seg_2:商談"],
+    };
+
+    const delta: PlanDelta = {
+      turnType: "addition",
+      changes: [{
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: { order: 2, activity: "商談", companions: ["Bさん"] },
+      }],
+      confirmSummary: "",
+    };
+
+    const msg = buildDeltaConfirmMessage(state, delta);
+    expect(msg).toContain("商談を追加");
+    expect(msg).toContain("何時からの予定");
   });
 });
