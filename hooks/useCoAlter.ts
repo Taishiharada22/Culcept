@@ -57,6 +57,8 @@ export interface CoAlterState {
   planItems: PlanItem[];
   /** Phase 1.5.1: プラン取得中フラグ */
   planItemsLoading: boolean;
+  /** Phase 1.5.3: 「会話で答える」待機中の質問文（null=待機なし） */
+  awaitingAnswer: string | null;
 }
 
 const INITIAL_STATE: CoAlterState = {
@@ -72,6 +74,7 @@ const INITIAL_STATE: CoAlterState = {
   seenCandidateKeys: [],
   planItems: [],
   planItemsLoading: false,
+  awaitingAnswer: null,
 };
 
 // ─────────────────────────────────────────────
@@ -463,6 +466,8 @@ export function useCoAlter(threadId: string) {
               new Set([...prev.seenCandidateKeys, ...newKeys]),
             ),
             pendingAxisDeltas: {},
+            // 新しい提案が返ってきたので「会話で答える」待機は解消
+            awaitingAnswer: null,
           }));
         } else {
           setState((prev) => ({
@@ -607,6 +612,7 @@ export function useCoAlter(threadId: string) {
       ...prev,
       sessionState: null,
       currentProposal: null,
+      awaitingAnswer: null,
     }));
     // DB更新: end API を呼び出し → Realtime で相手のクライアントにも反映
     fetch("/api/coalter/end", {
@@ -701,6 +707,13 @@ export function useCoAlter(threadId: string) {
     // no-op（Phase 1.5 以降 reroll を使う）
   }, []);
 
+  // ── Phase 1.5.3: 「会話で答える」待機状態の設定 ──
+  // CoAlterCard で「会話で答える」押下時に、topMissing.question をマーク。
+  // ChatClient 側で次のユーザー発話送信時に invoke(message) を発火してクリアする。
+  const markAwaitingAnswer = useCallback((question: string | null) => {
+    setState((prev) => ({ ...prev, awaitingAnswer: question }));
+  }, []);
+
   // ── soft trigger の通知（ChatClientから呼ばれる） ──
   const notifySoftTrigger = useCallback(
     (confidence: TriggerConfidence, pattern: string | null) => {
@@ -744,6 +757,7 @@ export function useCoAlter(threadId: string) {
     refinePlanItem,
     applyRefinedPlanItem,
     generatePairNarrative,
+    markAwaitingAnswer,
     // 便利な派生値
     isEnabled: state.pairState === "enabled",
     isActive: state.sessionState === "active",

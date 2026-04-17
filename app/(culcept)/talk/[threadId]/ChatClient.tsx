@@ -892,6 +892,23 @@ export default function ChatClient({ threadId }: Props) {
         setIsConnected(true);
         await fetchMessages();
 
+        // ─── CoAlter「会話で答える」回答の取り込み（Phase 1.5.3）──
+        // カードの「会話で答える」で awaitingAnswer がセットされている場合、
+        // この送信メッセージを回答として CoAlter を再 invoke する。
+        // 成功したら新しい提案カードが返り、awaitingAnswer は hook 側で自動クリア。
+        if (coalter.awaitingAnswer) {
+          try {
+            await coalter.invoke(body);
+          } catch (e) {
+            console.warn("[coalter/awaiting-answer] invoke failed", e);
+            // 失敗時は awaiting を手動クリアしてユーザーが再操作できるようにする
+            coalter.markAwaitingAnswer(null);
+          }
+          // 取り込みパスを通ったら、通常のトリガー検出はスキップ
+          // (setSending(false) は finally で実行される)
+          return;
+        }
+
         // ─── CoAlter ソフトヒント起動（B案・Phase 1.5.3）──
         // 送信成功後、膠着パターンを検出したら coalter.lastTrigger に記録。
         // 実際のUI（ソフトヒントバー）は lastTrigger を見て描画する。
@@ -1677,6 +1694,9 @@ export default function ChatClient({ threadId }: Props) {
                   onAxisToggle={coalter.toggleAxisDelta}
                   onReroll={coalter.reroll}
                   onCloseRefine={() => { /* ローカルで閉じるだけ */ }}
+                  awaitingAnswer={coalter.awaitingAnswer}
+                  onAnswerInChat={(q) => coalter.markAwaitingAnswer(q)}
+                  onCancelAwaiting={() => coalter.markAwaitingAnswer(null)}
                 />
               </motion.div>
             )}

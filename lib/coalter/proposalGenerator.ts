@@ -25,6 +25,14 @@ import type {
   PendingAxisDeltas,
 } from "./types";
 import { deltasToTemplate, getAxesForTheme, getAxisMeta } from "./axes";
+import {
+  getThemeRule,
+  tryComposeTitle,
+  normalizeSlotBundle,
+  SLOT_LABEL,
+  isSlotKey,
+  type SlotKey,
+} from "./slots";
 
 // ─────────────────────────────────────────────
 // プロンプト構築
@@ -38,6 +46,42 @@ function buildSystemPrompt(theme: ConversationTheme): string {
       return `  - "${k}" (${m.label}): 0=${m.lowLabel} / 3=${m.highLabel}`;
     })
     .join("\n");
+
+  // Phase 1.5.4: テーマルールが定義されているテーマでは 5W1H 束プランを強制
+  const rule = getThemeRule(theme);
+  const slotSection = rule
+    ? `
+## 5W1H 束プラン（このテーマでは必須）
+
+今回のテーマ "${theme}" では、各候補を 5W1H の束として構造化します。
+title は **システムが slots から自動合成** するので、あなたは title を出さなくてよい（出しても上書きされる）。
+
+### 必須スロット / 補助スロット
+- **coreSlot = "${rule.core}"**（主軸。必ず埋める。${SLOT_LABEL[rule.core]}にあたる固有名詞）
+- **auxSlot = ${rule.aux.map((k) => `"${k}"(${SLOT_LABEL[k]})`).join(" または ")}**（少なくとも1つ埋める）
+- それ以外（why / who / how 等）は自然に埋まる分だけ
+
+### 各スロットに入れる内容
+- what:  具体的な作品 / 料理 / 体験（固有名詞）
+- where: 場所 / 店 / 地域（固有名詞）
+- when:  日付 / 時刻 / 時期（例: "19:00〜"、"今週末"）
+- who:   同席者・人数感（基本は「2人」）
+- why:   なぜこの束が2人に合うか（短い理由。1文）
+- how:   移動 / 費用感 / 動線
+
+### スロットの status（3値）
+- "confirmed": 会話から確実に読み取れる情報（例: 「渋谷で」と明記）
+- "proposed":  あなたが今回提案する暫定値（デフォルト。どれにすれば良いか迷ったらこれ）
+- "tentative": 仮置き。ユーザーの引きで決まる（例: 時刻が未定で "19:00〜(仮)" のように置く）
+
+### 重要なルール
+1. **coreSlot "${rule.core}" が埋められない候補は出さない** — テーマの本質を外している
+2. **title は自由生成禁止** — slots から \`coreSlot + auxSlot\` で合成される
+3. 各候補は必ず \`slots\` フィールドを持つ
+4. confirmed > proposed > tentative の順で「確かさ」を正直に付ける（全部 proposed にしない）
+
+`
+    : "";
 
   return `あなたはCoAlterです。二人の関係性を理解した上で、共同の課題を前に進める支援をする存在です。
 
@@ -57,7 +101,7 @@ function buildSystemPrompt(theme: ConversationTheme): string {
 - 「候補としてはこの辺り」（選択肢提示）
 - 「あとは二人で決めてね」（退出シグナル）
 
-## 出力形式（JSON）
+${slotSection}## 出力形式（JSON）
 以下の構造で出力してください。
 {
   "summary": "ここまでの要点（2-3文）",
@@ -69,9 +113,15 @@ function buildSystemPrompt(theme: ConversationTheme): string {
   "candidates": [
     {
       "rank": 1,
-      "title": "具体的な候補名（作品名・店名・スポット名）",
+      "title": "（5W1H対象テーマでは省略可。システム側で合成する）",
       "oneLiner": "なぜこの二人に合いそうか（性格・好み・会話文脈を踏まえた理由）",
       "practicalInfo": "現実情報（場所・時間・評価・料金等。あればnull以外）",
+      "slots": {
+        "what":  { "label": "ラストマイル", "detail": "サスペンス / 118分", "status": "proposed" },
+        "where": { "label": "渋谷ストリーム", "status": "confirmed" },
+        "when":  { "label": "19:00〜", "status": "tentative" },
+        "why":   { "label": "サスペンス好きに新作で外しにくい", "status": "proposed" }
+      },
       "axisScores": { "price": 1, "access": 2, "novelty": 1 }
     }
   ],
@@ -82,6 +132,7 @@ function buildSystemPrompt(theme: ConversationTheme): string {
     {
       "key": "条件キー（price_range, atmosphere, time_slot, area, genre, duration等）",
       "question": "ユーザーに聞く質問（例: '予算はどれくらい？'）",
+      "slot": "どの 5W1H スロットが欠けているか（what/where/when/who/why/how のいずれか。無ければ省略可）",
       "priority": 1
     }
   ]
@@ -325,6 +376,18 @@ export function buildUserPrompt(
 // LLM呼び出し + パース
 // ─────────────────────────────────────────────
 
+// Phase 1.5.4: スロット1つ分のスキーマ（detail/url/status は optional）
+const SLOT_SCHEMA = {
+  type: ["object", "null"],
+  properties: {
+    label: { type: "string" },
+    detail: { type: ["string", "null"] },
+    url: { type: ["string", "null"] },
+    status: { type: "string", enum: ["confirmed", "proposed", "tentative"] },
+  },
+  required: ["label"],
+} as const;
+
 const PROPOSAL_SCHEMA = {
   type: "object",
   properties: {
@@ -348,8 +411,20 @@ const PROPOSAL_SCHEMA = {
           oneLiner: { type: "string" },
           practicalInfo: { type: ["string", "null"] },
           axisScores: { type: "object" },
+          // Phase 1.5.4: 5W1H 束
+          slots: {
+            type: ["object", "null"],
+            properties: {
+              what: SLOT_SCHEMA,
+              where: SLOT_SCHEMA,
+              when: SLOT_SCHEMA,
+              who: SLOT_SCHEMA,
+              why: SLOT_SCHEMA,
+              how: SLOT_SCHEMA,
+            },
+          },
         },
-        required: ["rank", "title", "oneLiner"],
+        required: ["rank", "oneLiner"], // title は optional（5W1H テーマでは合成される）
       },
     },
     reasoning: { type: "string" },
@@ -363,6 +438,8 @@ const PROPOSAL_SCHEMA = {
           key: { type: "string" },
           question: { type: "string" },
           priority: { type: "number" },
+          // Phase 1.5.4: どの 5W1H スロットが欠けているか
+          slot: { type: ["string", "null"] },
         },
         required: ["key", "question", "priority"],
       },
@@ -465,6 +542,9 @@ function validateAndNormalize(
   const rawReasoning = sanitize(String(raw.reasoning || ""), nameA, nameB);
   const reasoning = prependDeltaTemplate(rawReasoning, options?.pendingDeltas);
 
+  // Phase 1.5.4: テーマが 5W1H 対象なら、candidate.slots を正規化し title を合成で上書き
+  const themeRule = getThemeRule(theme);
+
   const card: ProposalCard = {
     summary: sanitize(String(raw.summary || ""), nameA, nameB),
     priorities: {
@@ -474,21 +554,45 @@ function validateAndNormalize(
         ? sanitize(String((raw.priorities as Record<string, unknown>).common), nameA, nameB)
         : null,
     },
-    candidates: candidates.map(
-      (c, i): ProposalCandidate => ({
+    candidates: candidates.map((c, i): ProposalCandidate => {
+      const slots = normalizeSlotBundle(c.slots);
+      const hasSlots = Object.keys(slots).length > 0;
+
+      // title 合成: テーマルールがあり、かつ coreSlot が埋まっているなら合成を優先
+      let title: string;
+      if (themeRule) {
+        const composed = tryComposeTitle(theme, slots);
+        if (composed) {
+          title = composed; // LLM の自由 title を捨てて合成版を採用
+        } else {
+          // 合成失敗 → LLM 元 title（無ければプレースホルダ）を使う
+          title = String(c.title || `候補${i + 1}`);
+        }
+      } else {
+        // 5W1H 対象外テーマ → 従来挙動
+        title = String(c.title || `候補${i + 1}`);
+      }
+
+      return {
         rank: i + 1,
-        title: String(c.title || `候補${i + 1}`),
+        title,
         oneLiner: String(c.oneLiner || ""),
         practicalInfo: c.practicalInfo ? String(c.practicalInfo) : null,
         url: c.url ? String(c.url) : null,
         axisScores: parseAxisScores(c.axisScores, availableAxes),
-      }),
-    ),
+        // Phase 1.5.4
+        slots: hasSlots ? slots : undefined,
+        theme: hasSlots && themeRule ? theme : undefined,
+        coreSlot: hasSlots && themeRule ? themeRule.core : undefined,
+      };
+    }),
     reasoning,
     closing: String(raw.closing || "あとは二人で決めてね！"),
     missingConstraints: parseMissingConstraints(raw.missingConstraints),
     availableAxes,
     pairFitScore,
+    // Phase 1.5.4: カード全体のテーマ
+    theme,
   };
 
   return card;
@@ -544,11 +648,17 @@ function parseMissingConstraints(
     .filter((item): item is Record<string, unknown> =>
       typeof item === "object" && item !== null && "key" in item && "question" in item,
     )
-    .map((item) => ({
-      key: String(item.key || "unknown"),
-      question: String(item.question || ""),
-      priority: typeof item.priority === "number" ? item.priority : 99,
-    }))
+    .map((item) => {
+      // Phase 1.5.4: slot フィールドが有効な SlotKey なら採用
+      const slotRaw = item.slot;
+      const slot: SlotKey | undefined = isSlotKey(slotRaw) ? slotRaw : undefined;
+      return {
+        key: String(item.key || "unknown"),
+        question: String(item.question || ""),
+        priority: typeof item.priority === "number" ? item.priority : 99,
+        ...(slot ? { slot } : {}),
+      };
+    })
     .sort((a, b) => a.priority - b.priority)
     .slice(0, 3); // 最大3つ
 }
@@ -575,6 +685,9 @@ function sanitize(text: string, nameA: string, nameB: string): string {
 
   return result;
 }
+
+/** テスト用に validateAndNormalize を内部 export */
+export const __internal = { validateAndNormalize };
 
 /** テキストからJSONを抽出するフォールバック */
 function parseFallback(
@@ -617,5 +730,6 @@ function parseFallback(
     reasoning: "まだ情報が足りないので、もう少し話してみてね",
     closing: "二人で話してみて、また呼んでね！",
     availableAxes: getAxesForTheme(theme),
+    theme,
   };
 }

@@ -301,6 +301,8 @@ export interface ProposalCard {
   pairFitScore?: 0 | 1 | 2 | 3;
   /** Phase 1.5: セッションの意思決定状態 */
   decisionState?: SessionDecisionState;
+  /** Phase 1.5.4: カード全体のテーマ（全候補共通）。UI でアイコン等を切り替えるのに使う */
+  theme?: ConversationTheme;
 }
 
 /** 不足している条件 */
@@ -311,6 +313,8 @@ export interface MissingConstraint {
   question: string;
   /** 優先度（1=最も重要） */
   priority: number;
+  /** Phase 1.5.4: どの 5W1H スロットが欠けているか（将来の slot-targeted refine 用） */
+  slot?: import("@/lib/coalter/slots").SlotKey;
 }
 
 /** 提案候補 */
@@ -323,6 +327,16 @@ export interface ProposalCandidate {
   url: string | null;
   /** Phase 1.5: 各軸のスコア（0-3。操作軸の現在値） */
   axisScores?: AxisScores;
+  // ─ Phase 1.5.4 5W1H 束プラン（全 optional で後方互換）─
+  /**
+   * 5W1H のスロット束。テーマに応じて埋まるスロットが変わる。
+   * title は自由生成ではなく slots から composeTitle() で合成される。
+   */
+  slots?: import("@/lib/coalter/slots").SlotBundle;
+  /** このカードのテーマ（どの THEME_RULE が適用されたか） */
+  theme?: ConversationTheme;
+  /** 主軸スロット（テーマから導出されるが、UI で強調する時に参照） */
+  coreSlot?: import("@/lib/coalter/slots").SlotKey;
 }
 
 // ─────────────────────────────────────────────
