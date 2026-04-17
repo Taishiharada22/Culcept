@@ -1185,3 +1185,170 @@ export async function resolveAnchors(
 
   return { resolved, needsConfirmation };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// resolveNearAnchorPlaces — Block 2-(c) find_near_anchor intent
+//
+// CEO方針 2026-04-17:
+//   ユーザーが「サドヤ近くのカフェないかな？」のように疑問形で場所を探す場合、
+//   Block 1-(2) で placeSearchHint: { nearAnchorLabel, searchCategory, originalQuery } が
+//   PlanSegment に設定される。resolveAnchors は placeType で switch するので、疑問文は
+//   anchor 扱いされず未解決のまま通過する。
+//
+//   本関数は placeSearchHint を持つセグメントに対して:
+//   1) nearAnchorLabel の座標を解決（既 resolved な anchor を優先、無ければ単独 resolve）
+//   2) searchPlacesByText(textQuery=searchCategory, locationBias=anchor±1.5km)
+//   3) 結果を候補として needsConfirmation に積む（confidence=medium 固定、
+//      勝手に採用しない＝CEO方針「候補確認は全部ユーザーに聞く」）
+//
+//   fail-open: Places API 未設定・失敗時はスキップしてプラン生成を続行
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 近傍検索の半径（メートル）— 徒歩圏のカフェ/レストラン想定 */
+const NEAR_ANCHOR_SEARCH_RADIUS_M = 1500;
+
+/**
+ * nearAnchorLabel から座標を取得する。
+ *
+ * 優先順位:
+ *   1. 既に resolved な segment に同名 label があれば、その resolved 座標を返す
+ *      （同じプラン内で「サドヤでディナー → サドヤ近くのカフェ」の組み合わせに対応）
+ *   2. いずれも無ければ null（呼び出し側でスキップ）
+ *
+ * 注: 単独 resolve（resolvePlace 呼び出し）はコスト的に高いため Phase 1 では
+ *     同プラン内参照のみ。必要なら Phase 2 で拡張する。
+ */
+function findAnchorCoords(
+  resolved: PlanSegment[],
+  anchorLabel: string,
+): LatLng | null {
+  if (!anchorLabel) return null;
+  const needle = anchorLabel.trim();
+  for (const r of resolved) {
+    const name = r.resolvedPlaceName ?? r.placeCanonical ?? r.place;
+    if (!name || r.resolvedLat === undefined || r.resolvedLng === undefined) continue;
+    // 正規化比較: 部分一致（「サドヤ」が「サドヤ ワイナリー」にマッチ）
+    if (name.includes(needle) || needle.includes(name)) {
+      return { lat: r.resolvedLat, lng: r.resolvedLng };
+    }
+  }
+  return null;
+}
+
+/**
+ * PlacesApiPlace → PlaceCandidate 変換
+ */
+function placesApiToNearCandidate(p: PlacesApiPlace, anchorCoords: LatLng): PlaceCandidate {
+  const candLat = p.location?.latitude;
+  const candLng = p.location?.longitude;
+  // 距離ベースのスコア: 近いほど高い（1.0 at 0m → 0.5 at radius）
+  let matchScore = 0.5;
+  if (candLat !== undefined && candLng !== undefined) {
+    const distKm = haversineKm(anchorCoords, { lat: candLat, lng: candLng });
+    const distM = distKm * 1000;
+    matchScore = Math.max(0, 1 - distM / (NEAR_ANCHOR_SEARCH_RADIUS_M * 2));
+  }
+  return {
+    name: p.displayName?.text ?? "",
+    address: p.shortFormattedAddress ?? p.formattedAddress,
+    category: p.types?.[0],
+    placeId: p.id,
+    lat: candLat,
+    lng: candLng,
+    source: "places_api",
+    matchScore,
+  };
+}
+
+export async function resolveNearAnchorPlaces(
+  segments: PlanSegment[],
+  _userArea?: string,
+  _userId?: string,
+): Promise<{
+  resolved: PlanSegment[];
+  needsConfirmation: Array<{ segmentId: string; resolution: PlaceResolution }>;
+}> {
+  const resolved = [...segments];
+  const needsConfirmation: Array<{ segmentId: string; resolution: PlaceResolution }> = [];
+
+  // Places API 未設定 → fail-open（何もしない）
+  if (!isPlacesApiAvailable()) {
+    return { resolved, needsConfirmation };
+  }
+
+  for (let i = 0; i < resolved.length; i++) {
+    const seg = resolved[i];
+    const hint = seg.placeSearchHint;
+    if (!hint || !hint.searchCategory) continue;
+    // 既に解決済みならスキップ（ユーザーが後から場所を上書きした場合）
+    if (seg.resolvedPlaceName) continue;
+
+    // 1) anchor 座標取得
+    const anchorCoords = hint.nearAnchorLabel
+      ? findAnchorCoords(resolved, hint.nearAnchorLabel)
+      : null;
+    // anchor 座標が取れない → Phase 1 ではスキップ（後段で「場所を教えて」と聞く）
+    if (!anchorCoords) continue;
+
+    // 2) Places API 呼び出し
+    let apiResults: PlacesApiPlace[] = [];
+    try {
+      apiResults = await searchPlacesByText({
+        textQuery: hint.searchCategory,
+        locationBias: {
+          lat: anchorCoords.lat,
+          lng: anchorCoords.lng,
+          radius: NEAR_ANCHOR_SEARCH_RADIUS_M,
+        },
+        maxResultCount: 5,
+        languageCode: "ja",
+      });
+    } catch (e) {
+      console.warn("[resolveNearAnchorPlaces] searchPlacesByText failed:", e);
+      continue;
+    }
+
+    // 3) 候補を PlaceCandidate に変換（距離スコア順）
+    const candidates = apiResults
+      .filter(p => p.businessStatus !== "CLOSED_PERMANENTLY")
+      .map(p => placesApiToNearCandidate(p, anchorCoords))
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, 3);
+
+    // 候補 0 件: resolution.confidence = "low" かつ bestCandidate undefined
+    // → needsConfirmation に積む（UI で「候補なし。場所を教えて」を出せる）
+    const resolution: PlaceResolution = candidates.length === 0
+      ? {
+          originalText: hint.originalQuery ?? seg.place ?? hint.searchCategory,
+          candidates: [],
+          bestCandidate: undefined,
+          confidence: "low",
+          reason: "候補が見つからなかった（near anchor 検索）",
+        }
+      : {
+          originalText: hint.originalQuery ?? seg.place ?? hint.searchCategory,
+          candidates,
+          bestCandidate: candidates[0],
+          // CEO方針: 勝手に採用しない → 常に medium（ユーザー選択させる）
+          confidence: "medium",
+          reason: `near ${hint.nearAnchorLabel ?? "anchor"}: ${candidates.length} 件の候補`,
+        };
+
+    // resolved セグメントには bestCandidate を暫定セット（住所・座標が plan 表示で使われるため）
+    // ただし status は「確認待ち」— pendingPlaceConfirmations に積むので UI 側で確認を出す
+    if (resolution.bestCandidate) {
+      resolved[i] = {
+        ...seg,
+        resolutionConfidence: resolution.confidence,
+        resolvedPlaceName: resolution.bestCandidate.name,
+        resolvedAddress: resolution.bestCandidate.address,
+        resolvedPlaceId: resolution.bestCandidate.placeId,
+        resolvedLat: resolution.bestCandidate.lat,
+        resolvedLng: resolution.bestCandidate.lng,
+      };
+    }
+    needsConfirmation.push({ segmentId: seg.id, resolution });
+  }
+
+  return { resolved, needsConfirmation };
+}

@@ -57,6 +57,7 @@ let _removeMissingField: typeof import("./llmPlanExtractor").removeMissingField 
 let _detectDelta: typeof import("./llmDeltaParser").detectDelta | null = null;
 let _applyDelta: typeof import("./llmDeltaParser").applyDelta | null = null;
 let _resolveAnchors: typeof import("./placeResolver").resolveAnchors | null = null;
+let _resolveNearAnchorPlaces: typeof import("./placeResolver").resolveNearAnchorPlaces | null = null;
 
 /** test export: v2 モジュール強制ロード */
 export async function ensureV2Modules(): Promise<boolean> {
@@ -75,9 +76,10 @@ export async function ensureV2Modules(): Promise<boolean> {
       _detectDelta = delta.detectDelta;
       _applyDelta = delta.applyDelta;
     }
-    if (!_resolveAnchors) {
+    if (!_resolveAnchors || !_resolveNearAnchorPlaces) {
       const pr = await import("./placeResolver");
       _resolveAnchors = pr.resolveAnchors;
+      _resolveNearAnchorPlaces = pr.resolveNearAnchorPlaces;
     }
     return true;
   } catch {
@@ -846,6 +848,52 @@ async function handleCollectingPhaseV2(
     } catch (e) {
       // fail-open: 場所解決が失敗してもプラン生成は続行
       console.warn("[morning-protocol] resolveAnchors failed (fail-open):", e);
+    }
+  }
+
+  // ── Block 2-(c) find_near_anchor intent（CEO方針 2026-04-17）──
+  // 「サドヤ近くのカフェないかな？」のような疑問形で placeSearchHint が設定されたセグメントを
+  // anchor 座標周辺で Places API 検索し、候補を pendingPlaceConfirmations に積む。
+  // 同じ UI フロー（「〜でどう？」）に合流するので既存ロジックは無改修。
+  // fail-open: 失敗時はスキップしてプラン生成を続行
+  const hasSearchHint = updatedPlanState.segments.some(
+    s => s.placeSearchHint && s.placeSearchHint.searchCategory && !s.resolvedPlaceName,
+  );
+  if (hasSearchHint && _resolveNearAnchorPlaces) {
+    try {
+      const { resolved: nearResolved, needsConfirmation: nearNeeds } =
+        await _resolveNearAnchorPlaces(
+          updatedPlanState.segments,
+          session.userArea,
+          session.userId,
+        );
+      updatedPlanState = { ...updatedPlanState, segments: nearResolved };
+
+      for (const { segmentId, resolution } of nearNeeds) {
+        // 同一施設の重複候補を除去（resolveAnchors と同じロジック）
+        const seen = new Set<string>();
+        const dedupedCandidates: Array<{ name: string; address?: string }> = [];
+        for (const c of resolution.candidates) {
+          const key =
+            c.placeId ??
+            (c.address ? c.address.replace(/\s+/g, "") : null) ??
+            c.name.replace(/\s+/g, "");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          dedupedCandidates.push({ name: c.name, address: c.address });
+          if (dedupedCandidates.length >= 3) break;
+        }
+
+        pendingPlaceConfirmations.push({
+          segmentId,
+          originalText: resolution.originalText,
+          resolvedName: resolution.bestCandidate?.name,
+          confidence: resolution.confidence as "medium" | "low",
+          candidates: dedupedCandidates,
+        });
+      }
+    } catch (e) {
+      console.warn("[morning-protocol] resolveNearAnchorPlaces failed (fail-open):", e);
     }
   }
 
