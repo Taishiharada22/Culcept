@@ -48,12 +48,13 @@ const mockPlacesAvailable = vi.mocked(isPlacesApiAvailable);
 // ヘルパ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** resolved な anchor segment を作る */
+/** resolved な anchor segment を作る（デフォルト: confidence=high） */
 function makeAnchorSegment(
   id: string,
   name: string,
   lat: number,
   lng: number,
+  confidence: "high" | "medium" | "low" = "high",
 ): PlanSegment {
   return {
     id,
@@ -70,7 +71,7 @@ function makeAnchorSegment(
     resolvedLat: lat,
     resolvedLng: lng,
     resolvedAddress: `${name} の住所`,
-    resolutionConfidence: "high",
+    resolutionConfidence: confidence,
     anchorScore: 5,
     companions: [],
     status: "tentative",
@@ -180,7 +181,7 @@ describe("resolveNearAnchorPlaces", () => {
     expect(mockPlacesTextSearch).not.toHaveBeenCalled();
   });
 
-  test("候補 0 件 → confidence=low / bestCandidate undefined", async () => {
+  test("候補 0 件 → confidence=low / reason が near_anchor_zero 形式", async () => {
     const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
     const hint = makeHintSegment("seg_2", {
       nearAnchorLabel: "サドヤ",
@@ -192,9 +193,16 @@ describe("resolveNearAnchorPlaces", () => {
     const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
 
     expect(needsConfirmation.length).toBe(1);
-    expect(needsConfirmation[0].resolution.confidence).toBe("low");
-    expect(needsConfirmation[0].resolution.bestCandidate).toBeUndefined();
-    expect(needsConfirmation[0].resolution.candidates).toEqual([]);
+    const r = needsConfirmation[0].resolution;
+    expect(r.confidence).toBe("low");
+    expect(r.bestCandidate).toBeUndefined();
+    expect(r.candidates).toEqual([]);
+    // GPT rule 4: reason は "near_anchor_zero:<category>@<anchor>:radius=<m>" 形式
+    expect(r.reason).toBeDefined();
+    expect(r.reason!.startsWith("near_anchor_zero:")).toBe(true);
+    expect(r.reason).toContain("ラウンジ");
+    expect(r.reason).toContain("@サドヤ");
+    expect(r.reason).toMatch(/:radius=\d+$/);
   });
 
   test("Places API 未設定 → fail-open（何もしない）", async () => {
@@ -273,6 +281,120 @@ describe("resolveNearAnchorPlaces", () => {
     expect(needsConfirmation[0].resolution.candidates.length).toBe(2);
     const names = needsConfirmation[0].resolution.candidates.map(c => c.name);
     expect(names).not.toContain("カフェ B");
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // GPT 追加ルール 2026-04-17
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  test("rule 1: anchor confidence=medium → near search を走らせない", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680, "medium");
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    expect(needsConfirmation).toEqual([]);
+    expect(mockPlacesTextSearch).not.toHaveBeenCalled();
+  });
+
+  test("rule 1: anchor confidence=low → near search を走らせない", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680, "low");
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    expect(needsConfirmation).toEqual([]);
+    expect(mockPlacesTextSearch).not.toHaveBeenCalled();
+  });
+
+  test("rule 2: 同 placeId の重複候補は 1 件に dedupe", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+    // 同じ placeId の候補を 3 回
+    mockPlacesTextSearch.mockResolvedValue([
+      mockPlace("pid_SAME", "カフェ A", 35.6635, 138.5685),
+      mockPlace("pid_SAME", "カフェ A (dup)", 35.6636, 138.5686),
+      mockPlace("pid_OTHER", "カフェ B", 35.6700, 138.5700),
+    ]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    const candidates = needsConfirmation[0].resolution.candidates;
+    expect(candidates.length).toBe(2);
+    const ids = candidates.map(c => c.placeId);
+    expect(ids).toEqual(["pid_SAME", "pid_OTHER"]); // 距離順
+  });
+
+  test("rule 2: 同 address の表記揺れ dedupe（placeId 欠落 fallback）", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+    // placeId を欠落させて address 重複を突く
+    const p1 = { ...mockPlace("", "カフェ A", 35.6635, 138.5685, "渋谷区道玄坂1-2-3"), id: "" };
+    const p2 = { ...mockPlace("", "カフェ A（別名）", 35.6636, 138.5686, "渋谷区道玄坂1-2-3"), id: "" };
+    const p3 = mockPlace("pid_C", "カフェ C", 35.6700, 138.5700, "渋谷区神南1-1-1");
+    mockPlacesTextSearch.mockResolvedValue([p1, p2, p3]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    const candidates = needsConfirmation[0].resolution.candidates;
+    // address 重複で 1 件化 → 2 件
+    expect(candidates.length).toBe(2);
+  });
+
+  test("rule 3: searchCategory=公園 → radius 2000m が locationBias に渡る", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "公園",
+    });
+    mockPlacesTextSearch.mockResolvedValue([
+      mockPlace("p1", "代々木公園", 35.6700, 138.5700),
+    ]);
+
+    await resolveNearAnchorPlaces([anchor, hint]);
+
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    expect(callArg.locationBias?.radius).toBe(2000);
+  });
+
+  test("rule 3: searchCategory=駅 → radius 3000m", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "駅",
+    });
+    mockPlacesTextSearch.mockResolvedValue([]);
+
+    await resolveNearAnchorPlaces([anchor, hint]);
+
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    expect(callArg.locationBias?.radius).toBe(3000);
+  });
+
+  test("rule 3: 未知カテゴリ → デフォルト radius 1500m", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "寺社仏閣", // どのマップにも無い
+    });
+    mockPlacesTextSearch.mockResolvedValue([]);
+
+    await resolveNearAnchorPlaces([anchor, hint]);
+
+    const callArg = mockPlacesTextSearch.mock.calls[0][0] as any;
+    expect(callArg.locationBias?.radius).toBe(1500);
   });
 
   test("複数 hint セグメント → 各々 Places API を呼び出す", async () => {

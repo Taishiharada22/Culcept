@@ -1204,14 +1204,92 @@ export async function resolveAnchors(
 //   fail-open: Places API 未設定・失敗時はスキップしてプラン生成を続行
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/** 近傍検索の半径（メートル）— 徒歩圏のカフェ/レストラン想定 */
-const NEAR_ANCHOR_SEARCH_RADIUS_M = 1500;
+/**
+ * カテゴリ別 near-anchor 検索半径（メートル）。
+ *
+ * GPT提案 2026-04-17:
+ *   cafe / restaurant / bar は徒歩圏 1.5km、park / library / 図書館 はちょっと足を伸ばしていい 2km、
+ *   station / hospital / shopping mall は車前提で 3km。
+ *   hardcode ではなく調整可能な形で定数化しておき、今後キャリブレーション可能にする。
+ *
+ * 未知カテゴリは DEFAULT_NEAR_ANCHOR_RADIUS_M に落とす。
+ */
+const NEAR_ANCHOR_RADIUS_BY_CATEGORY: Record<string, number> = {
+  // 徒歩圏
+  cafe: 1500,
+  restaurant: 1500,
+  bar: 1500,
+  izakaya: 1500,
+  fast_food: 1500,
+  convenience_store: 1000,
+  bakery: 1500,
+  // 少し広め（公園・図書館は目的地が散在）
+  park: 2000,
+  library: 2000,
+  museum: 2000,
+  gym: 2000,
+  // 広域（車前提）
+  station: 3000,
+  hospital: 3000,
+  shopping: 3000,
+  shopping_mall: 3000,
+  supermarket: 2000,
+};
+const DEFAULT_NEAR_ANCHOR_RADIUS_M = 1500;
 
 /**
- * nearAnchorLabel から座標を取得する。
+ * searchCategory 文字列から radius を決める。
+ * カテゴリ名は日本語/英語/カテゴリ slug が混在しうるので
+ * ゆるめの includes マッチで正規化する。
+ */
+function getNearAnchorRadius(searchCategory: string | undefined): number {
+  if (!searchCategory) return DEFAULT_NEAR_ANCHOR_RADIUS_M;
+  const lower = searchCategory.toLowerCase();
+  // 日本語 → 英語 slug への正規化
+  const jpMap: Record<string, string> = {
+    "カフェ": "cafe",
+    "喫茶": "cafe",
+    "レストラン": "restaurant",
+    "バー": "bar",
+    "居酒屋": "izakaya",
+    "コンビニ": "convenience_store",
+    "ベーカリー": "bakery",
+    "パン屋": "bakery",
+    "公園": "park",
+    "図書館": "library",
+    "ジム": "gym",
+    "駅": "station",
+    "病院": "hospital",
+    "ショッピング": "shopping",
+    "モール": "shopping_mall",
+    "スーパー": "supermarket",
+    "美術館": "museum",
+    "博物館": "museum",
+  };
+  for (const [jp, slug] of Object.entries(jpMap)) {
+    if (searchCategory.includes(jp)) {
+      return NEAR_ANCHOR_RADIUS_BY_CATEGORY[slug] ?? DEFAULT_NEAR_ANCHOR_RADIUS_M;
+    }
+  }
+  // 英語 slug の直接マッチ
+  for (const key of Object.keys(NEAR_ANCHOR_RADIUS_BY_CATEGORY)) {
+    if (lower.includes(key)) return NEAR_ANCHOR_RADIUS_BY_CATEGORY[key];
+  }
+  return DEFAULT_NEAR_ANCHOR_RADIUS_M;
+}
+
+// 後方互換: 既存テスト/呼び出し用の alias（新規利用は getNearAnchorRadius 経由）
+const NEAR_ANCHOR_SEARCH_RADIUS_M = DEFAULT_NEAR_ANCHOR_RADIUS_M;
+
+/**
+ * nearAnchorLabel から anchor 座標 + confidence を取得する。
+ *
+ * GPT追加ルール 2026-04-17:
+ *   anchor 自体が曖昧（medium/low/unresolved）なら near search を走らせない。
+ *   → 本関数は confidence も返し、呼び出し側で high のみ許可する。
  *
  * 優先順位:
- *   1. 既に resolved な segment に同名 label があれば、その resolved 座標を返す
+ *   1. 既に resolved な segment に同名 label があれば、その resolved 座標 + confidence を返す
  *      （同じプラン内で「サドヤでディナー → サドヤ近くのカフェ」の組み合わせに対応）
  *   2. いずれも無ければ null（呼び出し側でスキップ）
  *
@@ -1221,7 +1299,7 @@ const NEAR_ANCHOR_SEARCH_RADIUS_M = 1500;
 function findAnchorCoords(
   resolved: PlanSegment[],
   anchorLabel: string,
-): LatLng | null {
+): { coords: LatLng; confidence: ResolutionConfidence } | null {
   if (!anchorLabel) return null;
   const needle = anchorLabel.trim();
   for (const r of resolved) {
@@ -1229,7 +1307,12 @@ function findAnchorCoords(
     if (!name || r.resolvedLat === undefined || r.resolvedLng === undefined) continue;
     // 正規化比較: 部分一致（「サドヤ」が「サドヤ ワイナリー」にマッチ）
     if (name.includes(needle) || needle.includes(name)) {
-      return { lat: r.resolvedLat, lng: r.resolvedLng };
+      return {
+        coords: { lat: r.resolvedLat, lng: r.resolvedLng },
+        // resolvedPlaceName が乗っている以上、resolutionConfidence は high であるべきだが
+        // 万が一欠落していた場合は low 扱いで安全側に倒す
+        confidence: r.resolutionConfidence ?? "low",
+      };
     }
   }
   return null;
@@ -1238,15 +1321,19 @@ function findAnchorCoords(
 /**
  * PlacesApiPlace → PlaceCandidate 変換
  */
-function placesApiToNearCandidate(p: PlacesApiPlace, anchorCoords: LatLng): PlaceCandidate {
+function placesApiToNearCandidate(
+  p: PlacesApiPlace,
+  anchorCoords: LatLng,
+  radiusM: number,
+): PlaceCandidate {
   const candLat = p.location?.latitude;
   const candLng = p.location?.longitude;
-  // 距離ベースのスコア: 近いほど高い（1.0 at 0m → 0.5 at radius）
+  // 距離ベースのスコア: 近いほど高い（1.0 at 0m → 0.5 at radius → 0.0 at 2×radius）
   let matchScore = 0.5;
   if (candLat !== undefined && candLng !== undefined) {
     const distKm = haversineKm(anchorCoords, { lat: candLat, lng: candLng });
     const distM = distKm * 1000;
-    matchScore = Math.max(0, 1 - distM / (NEAR_ANCHOR_SEARCH_RADIUS_M * 2));
+    matchScore = Math.max(0, 1 - distM / (radiusM * 2));
   }
   return {
     name: p.displayName?.text ?? "",
@@ -1258,6 +1345,46 @@ function placesApiToNearCandidate(p: PlacesApiPlace, anchorCoords: LatLng): Plac
     source: "places_api",
     matchScore,
   };
+}
+
+/**
+ * 候補の重複除去。
+ *
+ * GPT追加ルール 2026-04-17:
+ *   同じ駅前カフェが placeId 違い / 表記揺れで複数件返ることがある。
+ *   placeId → 正規化 address → 正規化 name の順で dedupe する。
+ */
+function dedupeCandidates(candidates: PlaceCandidate[]): PlaceCandidate[] {
+  const seen = new Set<string>();
+  const out: PlaceCandidate[] = [];
+  for (const c of candidates) {
+    const normalizedAddress = c.address ? c.address.replace(/\s+/g, "") : null;
+    const normalizedName = c.name.replace(/\s+/g, "");
+    const key = c.placeId ?? normalizedAddress ?? normalizedName;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
+ * 0 件時の reason に乗せる識別子。
+ *
+ * GPT追加ルール 2026-04-17:
+ *   候補 0 件で通常の「場所を教えて」に落とすと、"near anchor" 文脈が消えてしまう。
+ *   UI 側で「範囲を広げる」「別カテゴリで探す」を出せるよう、reason を機械可読にする。
+ *
+ * 形式: "near_anchor_zero:<searchCategory>@<anchorLabel>:radius=<meters>"
+ */
+export const NEAR_ANCHOR_ZERO_REASON_PREFIX = "near_anchor_zero";
+
+function buildZeroCandidateReason(
+  anchorLabel: string,
+  searchCategory: string,
+  radiusM: number,
+): string {
+  return `${NEAR_ANCHOR_ZERO_REASON_PREFIX}:${searchCategory}@${anchorLabel}:radius=${radiusM}`;
 }
 
 export async function resolveNearAnchorPlaces(
@@ -1283,12 +1410,18 @@ export async function resolveNearAnchorPlaces(
     // 既に解決済みならスキップ（ユーザーが後から場所を上書きした場合）
     if (seg.resolvedPlaceName) continue;
 
-    // 1) anchor 座標取得
-    const anchorCoords = hint.nearAnchorLabel
+    // 1) anchor 座標取得 + confidence チェック
+    const anchor = hint.nearAnchorLabel
       ? findAnchorCoords(resolved, hint.nearAnchorLabel)
       : null;
-    // anchor 座標が取れない → Phase 1 ではスキップ（後段で「場所を教えて」と聞く）
-    if (!anchorCoords) continue;
+    // anchor 座標が取れない → Phase 1 ではスキップ
+    if (!anchor) continue;
+    // GPT追加ルール: anchor 自体が曖昧（high 未満）なら near search を走らせない。
+    // まず anchor 確認を優先し、曖昧な anchor の近くを探すことはしない。
+    if (anchor.confidence !== "high") continue;
+
+    const anchorCoords = anchor.coords;
+    const radiusM = getNearAnchorRadius(hint.searchCategory);
 
     // 2) Places API 呼び出し
     let apiResults: PlacesApiPlace[] = [];
@@ -1298,7 +1431,7 @@ export async function resolveNearAnchorPlaces(
         locationBias: {
           lat: anchorCoords.lat,
           lng: anchorCoords.lng,
-          radius: NEAR_ANCHOR_SEARCH_RADIUS_M,
+          radius: radiusM,
         },
         maxResultCount: 5,
         languageCode: "ja",
@@ -1308,22 +1441,26 @@ export async function resolveNearAnchorPlaces(
       continue;
     }
 
-    // 3) 候補を PlaceCandidate に変換（距離スコア順）
-    const candidates = apiResults
+    // 3) 候補を PlaceCandidate に変換（距離スコア順）+ dedupe
+    const rawCandidates = apiResults
       .filter(p => p.businessStatus !== "CLOSED_PERMANENTLY")
-      .map(p => placesApiToNearCandidate(p, anchorCoords))
-      .sort((a, b) => b.matchScore - a.matchScore)
-      .slice(0, 3);
+      .map(p => placesApiToNearCandidate(p, anchorCoords, radiusM))
+      .sort((a, b) => b.matchScore - a.matchScore);
+    const candidates = dedupeCandidates(rawCandidates).slice(0, 3);
 
-    // 候補 0 件: resolution.confidence = "low" かつ bestCandidate undefined
-    // → needsConfirmation に積む（UI で「候補なし。場所を教えて」を出せる）
+    // 候補 0 件: near-anchor 専用 clarify 用の reason を乗せる
+    // → UI 側で「サドヤ近くで候補なし。範囲を広げる／別カテゴリ？」を出せる
     const resolution: PlaceResolution = candidates.length === 0
       ? {
           originalText: hint.originalQuery ?? seg.place ?? hint.searchCategory,
           candidates: [],
           bestCandidate: undefined,
           confidence: "low",
-          reason: "候補が見つからなかった（near anchor 検索）",
+          reason: buildZeroCandidateReason(
+            hint.nearAnchorLabel ?? "anchor",
+            hint.searchCategory,
+            radiusM,
+          ),
         }
       : {
           originalText: hint.originalQuery ?? seg.place ?? hint.searchCategory,
@@ -1331,7 +1468,7 @@ export async function resolveNearAnchorPlaces(
           bestCandidate: candidates[0],
           // CEO方針: 勝手に採用しない → 常に medium（ユーザー選択させる）
           confidence: "medium",
-          reason: `near ${hint.nearAnchorLabel ?? "anchor"}: ${candidates.length} 件の候補`,
+          reason: `near ${hint.nearAnchorLabel ?? "anchor"} (r=${radiusM}m): ${candidates.length} 件の候補`,
         };
 
     // resolved セグメントには bestCandidate を暫定セット（住所・座標が plan 表示で使われるため）
@@ -1352,3 +1489,6 @@ export async function resolveNearAnchorPlaces(
 
   return { resolved, needsConfirmation };
 }
+
+// 未使用 alias（将来の外部参照用に残す）— tsc が未使用警告を出さないよう void に渡す
+void NEAR_ANCHOR_SEARCH_RADIUS_M;

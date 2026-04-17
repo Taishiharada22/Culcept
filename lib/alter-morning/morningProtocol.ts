@@ -855,6 +855,14 @@ async function handleCollectingPhaseV2(
   // 「サドヤ近くのカフェないかな？」のような疑問形で placeSearchHint が設定されたセグメントを
   // anchor 座標周辺で Places API 検索し、候補を pendingPlaceConfirmations に積む。
   // 同じ UI フロー（「〜でどう？」）に合流するので既存ロジックは無改修。
+  //
+  // GPT追加ルール 2026-04-17:
+  //   - anchor 自体が曖昧（high 未満）なら near search を走らせない → placeResolver 側で実装
+  //   - 候補 dedupe（placeId → address → name）→ placeResolver 側で実装
+  //   - radius はカテゴリ別定数 → placeResolver 側で実装
+  //   - 候補 0 件時は nearAnchorContext を pendingPlaceConfirmations に載せ、
+  //     UI 側で「範囲を広げる／別カテゴリ」の dedicated clarify を出せるようにする
+  //
   // fail-open: 失敗時はスキップしてプラン生成を続行
   const hasSearchHint = updatedPlanState.segments.some(
     s => s.placeSearchHint && s.placeSearchHint.searchCategory && !s.resolvedPlaceName,
@@ -870,18 +878,33 @@ async function handleCollectingPhaseV2(
       updatedPlanState = { ...updatedPlanState, segments: nearResolved };
 
       for (const { segmentId, resolution } of nearNeeds) {
-        // 同一施設の重複候補を除去（resolveAnchors と同じロジック）
-        const seen = new Set<string>();
-        const dedupedCandidates: Array<{ name: string; address?: string }> = [];
+        // 重複除去は placeResolver 側で実施済みだが、pendingPlaceConfirmations の
+        // schema が { name, address } 限定なので最終的な整形のみ行う（top 3）。
+        const trimmedCandidates: Array<{ name: string; address?: string }> = [];
         for (const c of resolution.candidates) {
-          const key =
-            c.placeId ??
-            (c.address ? c.address.replace(/\s+/g, "") : null) ??
-            c.name.replace(/\s+/g, "");
-          if (seen.has(key)) continue;
-          seen.add(key);
-          dedupedCandidates.push({ name: c.name, address: c.address });
-          if (dedupedCandidates.length >= 3) break;
+          trimmedCandidates.push({ name: c.name, address: c.address });
+          if (trimmedCandidates.length >= 3) break;
+        }
+
+        // GPT rule 4: 候補 0 件時は nearAnchorContext を乗せる
+        // reason が "near_anchor_zero:<category>@<anchor>:radius=<m>" の場合に復元
+        let nearAnchorContext:
+          | { anchorLabel: string; searchCategory: string; radiusM: number }
+          | undefined;
+        if (resolution.candidates.length === 0 && resolution.reason?.startsWith("near_anchor_zero:")) {
+          // 形式: near_anchor_zero:<category>@<anchor>:radius=<meters>
+          const body = resolution.reason.slice("near_anchor_zero:".length);
+          const radiusMatch = body.match(/:radius=(\d+)$/);
+          const radiusM = radiusMatch ? Number(radiusMatch[1]) : 1500;
+          const stripped = radiusMatch ? body.slice(0, -radiusMatch[0].length) : body;
+          const atIdx = stripped.lastIndexOf("@");
+          if (atIdx > 0) {
+            nearAnchorContext = {
+              searchCategory: stripped.slice(0, atIdx),
+              anchorLabel: stripped.slice(atIdx + 1),
+              radiusM,
+            };
+          }
         }
 
         pendingPlaceConfirmations.push({
@@ -889,7 +912,8 @@ async function handleCollectingPhaseV2(
           originalText: resolution.originalText,
           resolvedName: resolution.bestCandidate?.name,
           confidence: resolution.confidence as "medium" | "low",
-          candidates: dedupedCandidates,
+          candidates: trimmedCandidates,
+          ...(nearAnchorContext ? { nearAnchorContext } : {}),
         });
       }
     } catch (e) {

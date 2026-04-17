@@ -585,6 +585,17 @@ export interface MorningSession {
     resolvedName?: string;
     confidence: "medium" | "low";
     candidates?: Array<{ name: string; address?: string }>;
+    /**
+     * GPT追加ルール 2026-04-17:
+     *   Block 2-(c) find_near_anchor の候補 0 件時に UI が
+     *   「範囲を広げる／別カテゴリで探す」の dedicated clarify を出せるよう、
+     *   near-anchor 検索のコンテキストを乗せる（near_anchor 経路 かつ 0 件時のみ設定）。
+     */
+    nearAnchorContext?: {
+      anchorLabel: string;
+      searchCategory: string;
+      radiusM: number;
+    };
   }>;
   /** ユーザーID（場所キャッシュ用） */
   userId?: string;
