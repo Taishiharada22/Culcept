@@ -30,6 +30,7 @@ import {
   generateSegmentId,
 } from "./planState";
 import { buildDeltaConfirmMessage } from "./llmPlanExtractor";
+import { classifyDeltaDeterministic } from "./deltaClassifier";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt for Delta Detection
@@ -82,6 +83,22 @@ export async function detectDelta(
   currentState: PlanState,
   userId?: string,
 ): Promise<PlanDelta | null> {
+  // CEO方針 2026-04-18 Bug A: LLM 呼び出し前の決定論的短絡。
+  //   place_replacement / departure_time / transport_update などの
+  //   強いパターンは LLM に任せると幻覚 add_segment が起きやすい。
+  //   ここで確定できる発話はそのまま PlanDelta にする（items 爆発を防ぐ）。
+  const deterministic = classifyDeltaDeterministic(userMessage, currentState);
+  if (deterministic) {
+    console.log(
+      "[delta-classifier] deterministic match",
+      JSON.stringify({
+        patterns: deterministic.matchedPatterns,
+        changeCount: deterministic.delta.changes.length,
+      }),
+    );
+    return deterministic.delta;
+  }
+
   // PlanState を LLM に渡す際は、セグメントの自然言語表現を添える
   const stateDescription = formatStateForLLM(currentState);
 
