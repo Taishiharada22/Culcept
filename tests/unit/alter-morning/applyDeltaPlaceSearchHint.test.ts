@@ -164,4 +164,100 @@ describe("Bug A 改訂: applyDelta / field=placeSearchHint", () => {
     expect(seg.placeSearchHint?.nearAnchorLabel).toBe("甲府");
     expect(seg.place).toBeUndefined(); // 旧 place はクリア
   });
+
+  // ─── CEO方針 2026-04-18 Bug A v2 安全弁 ───────────────────────────────
+  // LLM が nearAnchorLabel に相対語や店種語を入れた時に placeSearchHint に
+  // 乗せず、place 経路にフォールバックするかを検証
+  test("「近くのスターバックス」相対語 nearAnchorLabel は place にフォールバック", () => {
+    const state = mkState([
+      mkSeg({ id: "s1", activity: "ミーティング", place: "サドヤ" }),
+    ]);
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        {
+          type: "replace",
+          segmentId: "s1",
+          field: "placeSearchHint",
+          newValue: { nearAnchorLabel: "近く", searchCategory: "スターバックス" },
+        },
+      ],
+      confirmSummary: "",
+    };
+    const next = applyDelta(state, delta);
+    const seg = next.segments[0];
+    // 相対語 "近く" を nearAnchorLabel に残さず、place=スターバックスにフォールバック
+    expect(seg.place).toBe("スターバックス");
+    expect(seg.placeSearchHint).toBeUndefined();
+  });
+
+  test("「現在地」相対語 nearAnchorLabel は place にフォールバック", () => {
+    const state = mkState([
+      mkSeg({ id: "s1", activity: "ミーティング", place: "カフェ" }),
+    ]);
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        {
+          type: "replace",
+          segmentId: "s1",
+          field: "placeSearchHint",
+          newValue: { nearAnchorLabel: "現在地", searchCategory: "スタバ" },
+        },
+      ],
+      confirmSummary: "",
+    };
+    const next = applyDelta(state, delta);
+    const seg = next.segments[0];
+    expect(seg.place).toBe("スタバ");
+    expect(seg.placeSearchHint).toBeUndefined();
+  });
+
+  test("「スタバかタリーズ」候補列挙 — カテゴリ逆転から救済", () => {
+    // LLM が誤って nearAnchorLabel=カフェ（既存 place）、searchCategory=スタバかタリーズ と出した時の救済
+    const state = mkState([
+      mkSeg({ id: "s1", activity: "ミーティング", place: "カフェ" }),
+    ]);
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        {
+          type: "replace",
+          segmentId: "s1",
+          field: "placeSearchHint",
+          newValue: { nearAnchorLabel: "カフェ", searchCategory: "スタバかタリーズ" },
+        },
+      ],
+      confirmSummary: "",
+    };
+    const next = applyDelta(state, delta);
+    const seg = next.segments[0];
+    // 店種語 "カフェ" を nearAnchorLabel に残さず、place=スタバかタリーズに救済
+    expect(seg.place).toBe("スタバかタリーズ");
+    expect(seg.placeSearchHint).toBeUndefined();
+  });
+
+  test("店種語が nearAnchorLabel に入り searchCategory も同じなら誤判定救済（place 上書き）", () => {
+    const state = mkState([
+      mkSeg({ id: "s1", activity: "ランチ", place: "レストラン" }),
+    ]);
+    const delta: PlanDelta = {
+      turnType: "correction",
+      changes: [
+        {
+          type: "replace",
+          segmentId: "s1",
+          field: "placeSearchHint",
+          // 異常ケース: LLM が両方ともカテゴリ語を入れた
+          newValue: { nearAnchorLabel: "カフェ", searchCategory: "カフェ" },
+        },
+      ],
+      confirmSummary: "",
+    };
+    const next = applyDelta(state, delta);
+    const seg = next.segments[0];
+    // 両方カテゴリ → place=カフェに落とす（少なくとも座標爆発は防ぐ）
+    expect(seg.place).toBe("カフェ");
+    expect(seg.placeSearchHint).toBeUndefined();
+  });
 });
