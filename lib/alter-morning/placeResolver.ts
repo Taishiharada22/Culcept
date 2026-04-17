@@ -38,6 +38,7 @@ import type { PlanSegment, PlaceType, ResolutionConfidence } from "./planState";
 import {
   adjustCandidateScore,
   extractHardAnchors,
+  haversineKm,
   type HardAnchor,
   type LatLng,
 } from "./objectiveFunction";
@@ -730,6 +731,73 @@ function applyObjectiveFunctionReranking(
   });
 }
 
+/**
+ * hard anchor 近傍にある top 候補を medium に昇格する。
+ *
+ * CEO方針 2026-04-17 P1-C:
+ *   「ランチが甲府サドヤ（anchor）」と決まっているのに、「マックどこ？」と
+ *   候補を羅列するのは UX が悪い。anchor に十分近い候補があれば、
+ *   "近くのマクドナルド甲府駅前店でどう？" と 1件絞って提示するべき。
+ *
+ * 条件:
+ *   - 現在の confidence が "low"
+ *   - candidates の先頭に lat/lng が揃っている
+ *   - 先頭候補が最寄り anchor から ANCHOR_NEAR_KM 以内
+ *   - 2位候補があっても、先頭が十分優勢（matchScore 差 >= 0.05 以上）
+ *
+ * 戻り値: 昇格した場合 medium + candidates を先頭1件に絞る。
+ */
+const ANCHOR_NEAR_KM = 2.0;
+const ANCHOR_PROMOTE_MIN_GAP = 0.05;
+
+function maybePromoteAnchorNearCandidate(
+  candidates: PlaceCandidate[],
+  context: ResolutionContext,
+  currentConfidence: ResolutionConfidence,
+): { confidence: ResolutionConfidence; candidates: PlaceCandidate[]; reason?: string } {
+  if (currentConfidence !== "low") return { confidence: currentConfidence, candidates };
+  if (candidates.length === 0) return { confidence: currentConfidence, candidates };
+  if (!context.resolvedAnchors || context.resolvedAnchors.length === 0) {
+    return { confidence: currentConfidence, candidates };
+  }
+
+  const top = candidates[0];
+  if (top.lat == null || top.lng == null) {
+    return { confidence: currentConfidence, candidates };
+  }
+
+  // gap チェック（2位と拮抗なら promote しない）
+  if (candidates.length >= 2) {
+    const gap = top.matchScore - candidates[1].matchScore;
+    if (gap < ANCHOR_PROMOTE_MIN_GAP) {
+      return { confidence: currentConfidence, candidates };
+    }
+  }
+
+  // 最寄り anchor までの距離
+  const topCoords: LatLng = { lat: top.lat, lng: top.lng };
+  let minKm = Infinity;
+  for (const a of context.resolvedAnchors) {
+    if (!a.coords) continue; // coords 欠落の anchor は距離計算不可 → skip
+    const km = haversineKm(topCoords, a.coords);
+    if (km < minKm) minKm = km;
+  }
+  if (!isFinite(minKm)) {
+    return { confidence: currentConfidence, candidates };
+  }
+
+  if (minKm > ANCHOR_NEAR_KM) {
+    return { confidence: currentConfidence, candidates };
+  }
+
+  // 昇格: top 1件に絞る（候補羅列せずに "○○でどう？" を誘発）
+  return {
+    confidence: "medium",
+    candidates: [top],
+    reason: `anchor近傍 (${minKm.toFixed(2)}km) → medium昇格`,
+  };
+}
+
 /** Places API の types[] からカテゴリを推定 */
 function inferCategoryFromPlacesTypes(types?: string[]): string | undefined {
   if (!types || types.length === 0) return undefined;
@@ -840,7 +908,7 @@ export async function resolveChainBrand(
   }
 
   // 5. 候補抽出
-  const candidates = placesApiToCandidates(places, placeName, context);
+  let candidates = placesApiToCandidates(places, placeName, context);
 
   // 6. Confidence 判定 + チェーン店ルール適用
   let { confidence, reason } = determineConfidence(candidates);
@@ -855,6 +923,14 @@ export async function resolveChainBrand(
   if (!hasArea && confidence === "high") {
     confidence = "medium";
     reason = "チェーン店だがエリア不明";
+  }
+
+  // CEO方針 2026-04-17 P1-C: hard anchor 近傍で 1件絞れるなら medium 昇格
+  const promoted = maybePromoteAnchorNearCandidate(candidates, context, confidence);
+  if (promoted.reason) {
+    confidence = promoted.confidence;
+    candidates = promoted.candidates;
+    reason = promoted.reason;
   }
 
   const resolution: PlaceResolution = {
@@ -924,7 +1000,7 @@ export async function resolveGenericPlace(
   }
 
   // 5. 候補抽出
-  const candidates = placesApiToCandidates(places, placeName, context);
+  let candidates = placesApiToCandidates(places, placeName, context);
 
   // 6. Confidence 判定 + generic ルール適用
   let { confidence, reason } = determineConfidence(candidates);
@@ -933,6 +1009,14 @@ export async function resolveGenericPlace(
   if (confidence === "high") {
     confidence = "medium";
     reason = `一般名詞のため medium に制限（元: ${reason}）`;
+  }
+
+  // CEO方針 2026-04-17 P1-C: hard anchor 近傍で 1件絞れるなら medium 昇格
+  const promoted = maybePromoteAnchorNearCandidate(candidates, context, confidence);
+  if (promoted.reason) {
+    confidence = promoted.confidence;
+    candidates = promoted.candidates;
+    reason = promoted.reason;
   }
 
   const resolution: PlaceResolution = {

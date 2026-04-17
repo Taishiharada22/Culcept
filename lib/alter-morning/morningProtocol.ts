@@ -818,15 +818,28 @@ async function handleCollectingPhaseV2(
 
       // confidence に応じた確認リスト構築
       for (const { segmentId, resolution } of needsConfirmation) {
+        // CEO方針 2026-04-17 P1-A: 同一施設の重複候補を除去
+        // （Places API が同じ店舗を異なる placeId で返すケース対策）
+        // 優先順位: placeId → 正規化 address → 正規化 name
+        const seen = new Set<string>();
+        const dedupedCandidates: Array<{ name: string; address?: string }> = [];
+        for (const c of resolution.candidates) {
+          const key =
+            c.placeId ??
+            (c.address ? c.address.replace(/\s+/g, "") : null) ??
+            c.name.replace(/\s+/g, "");
+          if (seen.has(key)) continue;
+          seen.add(key);
+          dedupedCandidates.push({ name: c.name, address: c.address });
+          if (dedupedCandidates.length >= 3) break;
+        }
+
         pendingPlaceConfirmations.push({
           segmentId,
           originalText: resolution.originalText,
           resolvedName: resolution.bestCandidate?.name,
           confidence: resolution.confidence as "medium" | "low",
-          candidates: resolution.candidates.slice(0, 3).map(c => ({
-            name: c.name,
-            address: c.address,
-          })),
+          candidates: dedupedCandidates,
         });
       }
     } catch (e) {
@@ -1187,7 +1200,14 @@ async function buildClarifyV2Response(
 
   if (updatedState.missingFields.length > 0) {
     // まだ不足あり → clarifying 続行
+    // CEO方針 2026-04-17 P1-B: 条件が揃うまで "了解。...更新したよ。" preamble は出さない。
+    // ユーザーから見ると「はい/いいえ」しか返せない不要1ラリーになるため、
+    // overrideMessage が明示指定されたときのみ preamble を出す（旧動作温存）。
     const remainClarify = _buildPlanConfirmMessage!(updatedState);
+    const strippedRemain = remainClarify.replace(/^了解。.+?だね。\n?/, "").trim();
+    const messageBody = overrideMessage
+      ? `${confirmMsg}\n${strippedRemain}`.trim()
+      : strippedRemain;
     return {
       session: {
         ...session,
@@ -1197,7 +1217,7 @@ async function buildClarifyV2Response(
       },
       response: {
         phase: "clarifying",
-        message: `${confirmMsg}\n${remainClarify.replace(/^了解。.+?だね。\n?/, "")}`.trim(),
+        message: messageBody,
         plan,
       },
     };
@@ -1685,9 +1705,9 @@ function cleanupPendingPlaceConfirmations(
 /**
  * confidence に基づいて場所確認の質問を生成する。
  *
- * CEO方針:
+ * CEO方針 2026-04-17:
  *   - high → 黙って採用（質問なし）
- *   - medium → 「○○であってる？」と軽く確認
+ *   - medium → 「○○でどう？」と軽く提案（anchor近傍のチェーン店含む）
  *   - low → 候補提示 or 追加質問
  */
 function buildPlaceConfirmQuestions(
@@ -1699,8 +1719,16 @@ function buildPlaceConfirmQuestions(
 
   for (const pc of confirmations) {
     if (pc.confidence === "medium" && pc.resolvedName) {
-      // medium: 「サドヤ → サドヤ ワイナリーであってる？」
-      questions.push(`${pc.originalText}って${pc.resolvedName}であってる？`);
+      // medium: 「サドヤ ワイナリーでどう？」
+      // 元テキストと resolvedName が同じならシンプルに、違えば両方明示
+      const sameName =
+        pc.originalText.replace(/\s+/g, "") === pc.resolvedName.replace(/\s+/g, "") ||
+        pc.resolvedName.startsWith(pc.originalText);
+      questions.push(
+        sameName
+          ? `${pc.resolvedName}でどう？`
+          : `${pc.originalText}って${pc.resolvedName}でどう？`,
+      );
     } else if (pc.confidence === "low") {
       if (pc.candidates && pc.candidates.length > 0) {
         // low + 候補あり: 候補を提示
@@ -1749,7 +1777,8 @@ function tryDirectPlaceConfirmResponse(
 
     if (pc.confidence === "medium" && pc.resolvedName) {
       // medium: 肯定応答 → 採用
-      if (/^(うん|はい|そう|それ|おk|ok|yes|合って|あって|正解)/i.test(trimmed)) {
+      // （"でどう？" に対しては「いいね」「それで」「おけ」等の応答も拾う）
+      if (/^(うん|はい|そう|それ|おk|ok|yes|合って|あって|正解|いい|おけ|了解|ok|オッケ|オーケー|それで)/i.test(trimmed)) {
         seg.resolvedPlaceName = pc.resolvedName;
         seg.resolutionConfidence = "high"; // ユーザー確認済み → high に昇格
         descriptions.push(`${pc.originalText}は${pc.resolvedName}で確定`);

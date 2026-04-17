@@ -961,6 +961,83 @@ describe("resolveAnchors (mixed placeTypes)", () => {
     expect(macSeg?.resolvedLat).toBe(35.6640);
   });
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 方針 2026-04-17 P1-C: anchor 近傍候補は medium 昇格 + 1件絞り
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  test("P1-C: anchor 近傍 + userArea なしの chain_brand は medium + 1件に絞られる", async () => {
+    // userArea を空にして、chain_brand の自動 high 昇格を抑制する
+    // → 通常なら low のまま候補羅列される状況を作る
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_nearby",
+        displayName: { text: "マクドナルド 甲府駅前店", languageCode: "ja" },
+        formattedAddress: "甲府市丸の内",
+        location: { latitude: 35.6640, longitude: 138.5685 },
+        types: ["restaurant"],
+        businessStatus: "OPERATIONAL",
+      },
+      {
+        id: "ChIJ_farther",
+        displayName: { text: "マクドナルド 増穂店", languageCode: "ja" },
+        formattedAddress: "南巨摩郡富士川町",
+        location: { latitude: 35.5675, longitude: 138.4795 },
+        types: ["restaurant"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    // サドヤを座標付きで anchor に固定
+    mockReadL2.mockImplementation(async (_userId, placeText) => {
+      if (placeText === "サドヤ") {
+        return {
+          resolvedName: "サドヤ ワイナリー",
+          address: "甲府市丸の内1-20-16",
+          placeId: "ChIJ_sadoya",
+          lat: 35.6660,
+          lng: 138.5663,
+          confidence: "high" as const,
+          cachedAt: new Date().toISOString(),
+          lastUsedAt: new Date().toISOString(),
+          useCount: 1,
+        };
+      }
+      return null;
+    });
+
+    const segments: PlanSegment[] = [
+      {
+        id: "seg_mac", order: 1, activity: "朝食", place: "マック",
+        placeType: "chain_brand", companions: [], status: "confirmed",
+        anchorScore: 1,
+      },
+      {
+        id: "seg_sadoya", order: 2, activity: "会食", place: "サドヤ",
+        startTime: "12:00",
+        placeType: "exact_proper_noun", companions: ["鈴木さん"],
+        status: "confirmed", anchorScore: 6,
+      },
+    ];
+
+    // userArea 未指定 → 通常なら confidence=low/medium に留まる
+    const { resolved, needsConfirmation } = await resolveAnchors(
+      segments, undefined, "user_p1c",
+    );
+
+    const macSeg = resolved.find(s => s.id === "seg_mac");
+    // top 候補（甲府店）が選ばれている
+    expect(macSeg?.resolvedPlaceName).toBe("マクドナルド 甲府駅前店");
+
+    // needsConfirmation に macSeg が入る場合、low のまま羅列にならず
+    // medium + top=甲府駅前店 で 1件提示になる（CEOの望むUX）
+    const macConfirm = needsConfirmation.find(n => n.segmentId === "seg_mac");
+    if (macConfirm) {
+      expect(macConfirm.resolution.confidence).toBe("medium");
+      expect(macConfirm.resolution.bestCandidate?.name)
+        .toBe("マクドナルド 甲府駅前店");
+    }
+  });
+
   test("anchor 不在時は距離ペナルティ発動せず元ランクを維持", async () => {
     // anchor 無しで「マック」だけ検索
     mockSearch.mockResolvedValue([]);
