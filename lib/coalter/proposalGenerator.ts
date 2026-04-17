@@ -318,6 +318,22 @@ export function buildUserPrompt(
     );
   }
 
+  // ── Phase 1.5.4.6: 話題アンカー（LLM が古い話題に引っ張られないようにする） ──
+  if (analysis.topicAnchor) {
+    const a = analysis.topicAnchor;
+    parts.push("");
+    parts.push("## 今、話している話題（topic anchor — これが最優先）");
+    parts.push(`- 発話: "${a.text}"`);
+    if (a.detectedScope.theme && a.detectedScope.theme !== "general") {
+      parts.push(`- テーマ: ${a.detectedScope.theme}`);
+    }
+    if (a.detectedScope.timeRef) parts.push(`- 時期: ${a.detectedScope.timeRef}`);
+    if (a.detectedScope.placeRef) parts.push(`- 場所: ${a.detectedScope.placeRef}`);
+    parts.push(
+      "直近の会話に他の話題（例: 過去の旅行・別の予定）が出ていても、提案は上記 anchor に揃えること。",
+    );
+  }
+
   // 直近の会話
   parts.push("");
   parts.push("## 直近の会話");

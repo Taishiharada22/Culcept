@@ -223,6 +223,12 @@ export interface ConversationAnalysis {
   constraintScore: number;
   /** Phase 1.5.4.5: 二人の合意制約（hard/soft 分離、validator の hard constraint として使う） */
   agreedConstraints?: AgreedConstraint[];
+  /** Phase 1.5.4.6: 話題アンカー（現在スコープ）。anchor 優先で全解析を組み直す */
+  topicAnchor?: TopicAnchor;
+  /** Phase 1.5.4.6: primary scope に残ったメッセージ数（監査用） */
+  primaryScopeCount?: number;
+  /** Phase 1.5.4.6: background only に落ちたメッセージ数（監査用） */
+  backgroundScopeCount?: number;
 }
 
 export type ConversationTheme =
@@ -236,9 +242,58 @@ export type ConversationTheme =
 
 /** 会話の1ターン */
 export interface ConversationTurn {
+  /** talk_messages.id（任意。Phase 1.5.4.6 以降の topic anchor 参照用） */
+  id?: string;
   senderId: string;
   body: string;
   createdAt: string;
+}
+
+// ─────────────────────────────────────────────
+// Phase 1.5.4.6: Topic Scope — 「来週木曜のランチ」に四国が混ざらないように
+// ─────────────────────────────────────────────
+
+/**
+ * 起動直前メッセージ（または CoAlter 呼び出し時のユーザーメッセージ）から
+ * 抽出した「現在話している話題の核」。
+ *
+ * 以降の会話分析はこの anchor + 前後数件（primary scope）を優先し、
+ * 古い話題（「四国」等）は background only として扱う。
+ */
+export interface TopicAnchor {
+  /** talk_messages.id（起動直前の talk_messages を指す。null = invoke 時の userMessage を採用した場合） */
+  messageId: string | null;
+  /** anchor 発話そのもの（監査・UI 表示用） */
+  text: string;
+  /** anchor から抽出された scope（regex/軽量 LLM で取る） */
+  detectedScope: TopicScope;
+  /** anchor 採用の確信度（0.0〜1.0）。低い時は UI で「変更」ボタン露出 */
+  confidence: number;
+  /** anchor 採用の根拠（"user_message" / "last_talk_message" / "manual_override" など） */
+  source: TopicAnchorSource;
+}
+
+export type TopicAnchorSource =
+  | "user_message"       // invoke 時に渡された userMessage
+  | "last_talk_message"  // talk_messages の直前 1 件
+  | "manual_override";   // UI から後で「この話」と指定した場合（Phase 1.5.7+）
+
+/**
+ * anchor から抽出される話題スコープ。
+ *
+ * 設計原則:
+ *  - theme / timeRef / placeRef は string で保持（正規化は後続 phase）
+ *  - confidence は scope 抽出そのものの確からしさ
+ */
+export interface TopicScope {
+  /** 検出テーマ（会話の核がどのテーマか） */
+  theme: ConversationTheme;
+  /** 時期の手がかり（「来週木曜」「今週末」等）— null = anchor に時間表現が無い */
+  timeRef: string | null;
+  /** 場所の手がかり（「渋谷」「徳島」等）— null = anchor に場所表現が無い */
+  placeRef: string | null;
+  /** scope 抽出の確信度（theme/time/place の合成） */
+  confidence: number;
 }
 
 /** 会話から抽出された現実制約 */
@@ -461,6 +516,8 @@ export interface CoAlterOutput {
   proposalCard: ProposalCard;
   /** Phase 1.5: このカードに含まれる候補の一意キー（次回の avoidKeys 用） */
   seenCandidateKeys: string[];
+  /** Phase 1.5.4.6: このセッションで採用された topic anchor（UI 表示 / 変更ボタン用） */
+  topicAnchor?: TopicAnchor | null;
   /** 内部メトリクス（analytics用） */
   _internal: {
     searchDecision: SearchDecision;

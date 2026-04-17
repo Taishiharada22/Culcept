@@ -26,6 +26,8 @@ import { fetchRecentMessages, analyzeConversation } from "./conversationParser";
 import { decideSearch, searchAndFilter } from "./webConnector";
 import { generateProposal } from "./proposalGenerator";
 import { candidateKey } from "./axes";
+import { buildTopicAnchor } from "./topicScope";
+import type { TopicAnchor } from "./types";
 
 // ─────────────────────────────────────────────
 // L2: 関係理解（簡易版。Phase 1では最小限）
@@ -114,6 +116,8 @@ export async function runCoAlterPipeline(
   options?: {
     pendingDeltas?: PendingAxisDeltas;
     avoidKeys?: string[];
+    /** Phase 1.5.4.6: 永続化済み anchor（UI からの上書き / 再起動ケース） */
+    topicAnchor?: TopicAnchor;
   },
 ): Promise<CoAlterOutput> {
   const startTime = Date.now();
@@ -131,7 +135,14 @@ export async function runCoAlterPipeline(
     buildRelationshipContext(supabase, pairStateId, profileA, profileB),
   ]);
 
-  const analysis = analyzeConversation(messages, userAId, userBId);
+  // Phase 1.5.4.6: topic anchor を構築（起動直前 or userMessage）
+  // 既存セッションに永続化された anchor があれば優先、無ければ新規構築
+  const anchor: TopicAnchor | null =
+    options?.topicAnchor ?? buildTopicAnchor(messages, input.userMessage);
+
+  const analysis = analyzeConversation(messages, userAId, userBId, {
+    topicAnchor: anchor ?? undefined,
+  });
 
   // ── L4: 外部接続（Adaptive RAG） ──
   const searchDecision = decideSearch(analysis);
@@ -178,16 +189,32 @@ export async function runCoAlterPipeline(
     bias_score: fairnessBias,
   });
 
-  // ── セッションを completed に更新 ──
+  // ── セッションを completed に更新 + topic anchor 永続化（Phase 1.5.4.6） ──
   await supabase
     .from("coalter_sessions")
-    .update({ state: "completed", ended_at: new Date().toISOString() })
+    .update({
+      state: "completed",
+      ended_at: new Date().toISOString(),
+      topic_anchor_message_id: anchor?.messageId ?? null,
+      topic_anchor_text: anchor?.text ?? null,
+      topic_anchor_scope: anchor
+        ? {
+            theme: anchor.detectedScope.theme,
+            timeRef: anchor.detectedScope.timeRef,
+            placeRef: anchor.detectedScope.placeRef,
+            confidence: anchor.detectedScope.confidence,
+            anchorConfidence: anchor.confidence,
+            source: anchor.source,
+          }
+        : null,
+    })
     .eq("id", session.id);
 
   return {
     sessionId: session.id,
     proposalCard,
     seenCandidateKeys,
+    topicAnchor: anchor,
     _internal: {
       searchDecision,
       caringIntensityA: analysis.caringIntensityA,

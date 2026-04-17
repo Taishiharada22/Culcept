@@ -13,7 +13,9 @@ import type {
   ConversationTheme,
   ConversationTurn,
   ExtractedConstraints,
+  TopicAnchor,
 } from "./types";
+import { scopeMessages } from "./topicScope";
 
 // ─────────────────────────────────────────────
 // テーマ検出パターン
@@ -528,16 +530,17 @@ export async function fetchRecentMessages(
 ): Promise<ConversationTurn[]> {
   const { data: messages } = await supabase
     .from("talk_messages")
-    .select("sender_id, body, created_at")
+    .select("id, sender_id, body, created_at")
     .eq("thread_id", threadId)
     .order("created_at", { ascending: false })
     .limit(limit);
 
   if (!messages) return [];
 
-  return (messages as Array<{ sender_id: string; body: string; created_at: string }>)
+  return (messages as Array<{ id: string; sender_id: string; body: string; created_at: string }>)
     .reverse() // 時系列順に
     .map((m) => ({
+      id: m.id,
       senderId: m.sender_id,
       body: m.body,
       createdAt: m.created_at,
@@ -615,23 +618,69 @@ function computeConstraintScore(
 
 /**
  * 会話を分析し、CoAlterに必要なコンテキストを生成する。
+ *
+ * Phase 1.5.4.6: topicAnchor が渡された場合は primary scope のみを
+ * theme / constraints / agreedConstraints の判定対象にする。
+ * background scope は recentMessages への残留のみで、分析の軸にしない。
+ *
+ * 例: anchor = "来週木曜日のランチ" / 古いメッセージに「四国旅行」が含まれていても、
+ *     primary scope に四国が入らないため、extractConstraints は四国を拾わない。
  */
 export function analyzeConversation(
   messages: ConversationTurn[],
   userAId: string,
   userBId: string,
+  options: { topicAnchor?: TopicAnchor } = {},
 ): ConversationAnalysis {
-  const theme = detectTheme(messages);
-  const constraints = extractConstraints(messages);
+  const { topicAnchor } = options;
+
+  // anchor があれば scope を切り分け、無ければ従来どおり全部 primary
+  const { primary, background } = topicAnchor
+    ? scopeMessages(messages, topicAnchor, { windowSize: 5 })
+    : { primary: messages, background: [] };
+
+  // anchor が theme を強く検出している場合はそれを優先。
+  // primary の regex 検出と一致しなければ anchor 側を信じる（CEO「来週木曜ランチ → food」方針）。
+  const primaryTheme = detectTheme(primary.length > 0 ? primary : messages);
+  const theme: ConversationTheme =
+    topicAnchor &&
+    topicAnchor.detectedScope.theme !== "general" &&
+    topicAnchor.detectedScope.confidence >= 0.6
+      ? topicAnchor.detectedScope.theme
+      : primaryTheme;
+
+  // 制約抽出は primary のみで。ただし空なら全体にフォールバック。
+  const constraintBase = primary.length > 0 ? primary : messages;
+  const constraints = extractConstraints(constraintBase);
+
+  // anchor に明示的な placeRef があり、かつ extractConstraints が拾えていなければ
+  // anchor の placeRef を location として採用（「徳島」等が誤混入するのを上書きで防ぐ）
+  if (topicAnchor?.detectedScope.placeRef && !constraints.location) {
+    constraints.location = topicAnchor.detectedScope.placeRef;
+  }
+  // anchor が時間表現を持つ場合も同様
+  if (topicAnchor?.detectedScope.timeRef && !constraints.date) {
+    // date か timeSlot か判断: 曜日・日付系は date、時間帯は timeSlot
+    const t = topicAnchor.detectedScope.timeRef;
+    if (/(月曜|火曜|水曜|木曜|金曜|土曜|日曜|今日|明日|明後日|今週末|来週|来週末|週末|休み|休日|\d{1,2}月\d{1,2}日)/.test(t)) {
+      constraints.date = t;
+    } else if (!constraints.timeSlot) {
+      constraints.timeSlot = t;
+    }
+  }
+
   return {
     theme,
-    stalemate: detectStalemate(messages),
+    stalemate: detectStalemate(messages), // stalemate は全履歴から見る（膠着は古いメッセージも含めて判定すべき）
     recentMessages: messages,
-    caringIntensityA: estimateCaringIntensity(messages, userAId),
-    caringIntensityB: estimateCaringIntensity(messages, userBId),
+    caringIntensityA: estimateCaringIntensity(constraintBase, userAId),
+    caringIntensityB: estimateCaringIntensity(constraintBase, userBId),
     extractedConstraints: constraints,
-    constraintScore: computeConstraintScore(theme, constraints, messages),
-    agreedConstraints: extractAgreedConstraints(messages),
+    constraintScore: computeConstraintScore(theme, constraints, constraintBase),
+    agreedConstraints: extractAgreedConstraints(constraintBase),
+    topicAnchor,
+    primaryScopeCount: primary.length,
+    backgroundScopeCount: background.length,
   };
 }
 
