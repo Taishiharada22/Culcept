@@ -129,6 +129,22 @@ function looksLikeMovieTitle(label: string): boolean {
   if (!label) return false;
   const trimmed = label.trim();
 
+  // 活動ラベル単独は NG（タイトル無しでアクティビティだけ書いているケース）
+  const ACTIVITY_ONLY = [
+    "映画鑑賞", "映画観賞", "映画を観る", "映画を見る", "映画視聴",
+    "映画体験", "映画館", "シネマ", "シネマ鑑賞", "映画デート",
+    "ムービー", "映画", "観賞", "鑑賞",
+  ];
+  if (ACTIVITY_ONLY.some((a) => trimmed === a)) return false;
+  // 「XXX映画鑑賞」「映画鑑賞XXX」のような接辞のみの拡張も NG
+  if (ACTIVITY_ONLY.some((a) => {
+    const stripped = trimmed.replace(a, "").trim();
+    return stripped.length === 0 || stripped.length < 2;
+  })) {
+    // 作品名を含んでいる可能性を最低限残す: 括弧付きタイトルがあれば別
+    if (!/[『「【〈].+[』」】〉]/.test(trimmed)) return false;
+  }
+
   // 抽象ジャンル名だけの場合は NG（最優先でチェック）
   const GENRE_ONLY = [
     "恋愛映画", "恋愛", "アクション", "サスペンス", "ホラー",

@@ -276,87 +276,12 @@ export default function CoAlterCard({
         </div>
       </div>
 
-      {/* ═══ ③ 候補 2〜3 ═══ */}
-      <div className="px-4 py-1">
-        {proposal.candidates.map((c, i) => (
-          <div
-            key={c.rank}
-            className="flex items-start gap-2 py-2"
-            style={{
-              borderTop: i > 0 ? `1px solid ${C.s2}` : undefined,
-            }}
-          >
-            <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>
-              {RANK_EMOJI[i] ?? "•"}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  {c.url ? (
-                    <a
-                      href={c.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        fontSize: 12,
-                        color: C.coalter,
-                        fontWeight: 600,
-                        textDecoration: "underline",
-                        textUnderlineOffset: 2,
-                      }}
-                    >
-                      {c.title} ↗
-                    </a>
-                  ) : (
-                    <p style={{ fontSize: 12, color: C.t1, fontWeight: 600 }}>
-                      {c.title}
-                    </p>
-                  )}
-                  <p style={{ fontSize: 11, color: C.t3, marginTop: 1 }}>
-                    {c.oneLiner}
-                  </p>
-                  {/* Phase 1.5.4: 5W1H 束プランのスロット描画 */}
-                  {c.slots && c.coreSlot && (
-                    <SlotBundleBlock
-                      slots={c.slots}
-                      coreSlot={c.coreSlot}
-                      theme={c.theme}
-                    />
-                  )}
-                  {/* 軸スコアの小可視化 */}
-                  {c.axisScores && availableAxes.length > 0 && (
-                    <AxisScoresStrip
-                      scores={c.axisScores}
-                      axes={availableAxes}
-                    />
-                  )}
-                  {c.practicalInfo && (
-                    <p style={{ fontSize: 10, color: C.t4, marginTop: 2 }}>
-                      {c.practicalInfo}
-                    </p>
-                  )}
-                </div>
-                {onAdopt && (
-                  <motion.button
-                    onClick={() => onAdopt(c)}
-                    className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs"
-                    style={{
-                      background: `${C.coalter}10`,
-                      color: C.coalter,
-                      border: `1px solid ${C.coalter}20`,
-                      fontWeight: 500,
-                      marginTop: 2,
-                    }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    採用
-                  </motion.button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* ═══ ③ 候補（スワイプ） ═══ */}
+      <CandidateSwipeDeck
+        candidates={proposal.candidates}
+        availableAxes={availableAxes}
+        onAdopt={onAdopt}
+      />
 
       {/* ═══ ④ なぜこの候補か ═══ */}
       <div className="px-4 py-2">
@@ -803,6 +728,254 @@ function SlotBundleBlock({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * 候補スワイプデッキ（Phase 1.5.4.6+）
+ *
+ * 縦リスト → 横スワイプに変更。1候補ずつ見せることで
+ *  - 1枚あたりの情報密度を上げられる（slots + axis + practicalInfo + oneLiner）
+ *  - 3件並列を前提にできる（CEO 指示）
+ *  - 左右 drag / ドット / ← → ボタンで遷移
+ */
+function CandidateSwipeDeck({
+  candidates,
+  availableAxes,
+  onAdopt,
+}: {
+  candidates: ProposalCandidate[];
+  availableAxes: AxisKey[];
+  onAdopt?: (candidate: ProposalCandidate) => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const total = candidates.length;
+
+  if (total === 0) return null;
+
+  const clampIndex = (n: number) => Math.max(0, Math.min(total - 1, n));
+  const go = (delta: number) => setIndex((i) => clampIndex(i + delta));
+
+  const current = candidates[index];
+
+  return (
+    <div className="px-4 py-2">
+      {/* ペーシネーション: 🥇🥈🥉 + ドット */}
+      <div
+        className="flex items-center justify-between"
+        style={{ marginBottom: 6 }}
+      >
+        <div className="flex items-center" style={{ gap: 6 }}>
+          <span style={{ fontSize: 18 }}>
+            {RANK_EMOJI[index] ?? "•"}
+          </span>
+          <span style={{ fontSize: 10, color: C.t3, fontWeight: 500 }}>
+            {index + 1} / {total}
+          </span>
+        </div>
+        <div className="flex items-center" style={{ gap: 4 }}>
+          {candidates.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setIndex(i)}
+              aria-label={`候補 ${i + 1} を見る`}
+              style={{
+                width: i === index ? 18 : 6,
+                height: 6,
+                borderRadius: 3,
+                background: i === index ? C.coalter : `${C.coalter}25`,
+                transition: "all 0.2s ease",
+                cursor: "pointer",
+                border: "none",
+                padding: 0,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* スワイプ可能なカード本体 */}
+      <div
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          borderRadius: 12,
+          background: `${C.coalter}04`,
+          border: `1px solid ${C.coalter}10`,
+          minHeight: 120,
+        }}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={current.rank}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.22}
+            onDragEnd={(_, info) => {
+              if (info.offset.x < -50 && index < total - 1) go(1);
+              else if (info.offset.x > 50 && index > 0) go(-1);
+            }}
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -24 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="px-3 py-3"
+            style={{ cursor: "grab" }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {current.url ? (
+                  <a
+                    href={current.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      fontSize: 14,
+                      color: C.coalter,
+                      fontWeight: 700,
+                      textDecoration: "underline",
+                      textUnderlineOffset: 2,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {current.title} ↗
+                  </a>
+                ) : (
+                  <p
+                    style={{
+                      fontSize: 14,
+                      color: C.t1,
+                      fontWeight: 700,
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {current.title}
+                  </p>
+                )}
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: C.t2,
+                    marginTop: 4,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {current.oneLiner}
+                </p>
+              </div>
+              {onAdopt && (
+                <motion.button
+                  onClick={() => onAdopt(current)}
+                  className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs"
+                  style={{
+                    background: C.coalter,
+                    color: "white",
+                    fontWeight: 600,
+                    marginTop: 2,
+                  }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  この案を採用
+                </motion.button>
+              )}
+            </div>
+
+            {/* 5W1H 束 */}
+            {current.slots && current.coreSlot && (
+              <SlotBundleBlock
+                slots={current.slots}
+                coreSlot={current.coreSlot}
+                theme={current.theme}
+              />
+            )}
+
+            {/* 軸スコア */}
+            {current.axisScores && availableAxes.length > 0 && (
+              <AxisScoresStrip
+                scores={current.axisScores}
+                axes={availableAxes}
+              />
+            )}
+
+            {/* 実用情報 */}
+            {current.practicalInfo && (
+              <p
+                style={{
+                  fontSize: 10,
+                  color: C.t3,
+                  marginTop: 6,
+                  paddingTop: 6,
+                  borderTop: `1px dashed ${C.coalter}15`,
+                  lineHeight: 1.45,
+                }}
+              >
+                {current.practicalInfo}
+              </p>
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {/* 左右矢印（モバイル以外用アクセシビリティ） */}
+        {total > 1 && (
+          <>
+            <button
+              onClick={() => go(-1)}
+              disabled={index === 0}
+              aria-label="前の候補"
+              style={{
+                position: "absolute",
+                left: 4,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                background: C.s1,
+                border: `1px solid ${C.coalter}20`,
+                color: index === 0 ? C.t4 : C.coalter,
+                fontSize: 12,
+                fontWeight: 700,
+                opacity: index === 0 ? 0.3 : 0.85,
+                cursor: index === 0 ? "default" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+              }}
+            >
+              ‹
+            </button>
+            <button
+              onClick={() => go(1)}
+              disabled={index === total - 1}
+              aria-label="次の候補"
+              style={{
+                position: "absolute",
+                right: 4,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                background: C.s1,
+                border: `1px solid ${C.coalter}20`,
+                color: index === total - 1 ? C.t4 : C.coalter,
+                fontSize: 12,
+                fontWeight: 700,
+                opacity: index === total - 1 ? 0.3 : 0.85,
+                cursor: index === total - 1 ? "default" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+              }}
+            >
+              ›
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
