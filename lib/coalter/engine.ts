@@ -25,6 +25,7 @@ import { loadPairProfiles } from "./profileLoader";
 import { fetchRecentMessages, analyzeConversation } from "./conversationParser";
 import { decideSearch, searchAndFilter } from "./webConnector";
 import { generateProposal } from "./proposalGenerator";
+import { generateMovieProposalV2 } from "./movieOrchestrator";
 import { candidateKey } from "./axes";
 import { buildTopicAnchor } from "./topicScope";
 import type { TopicAnchor } from "./types";
@@ -151,15 +152,58 @@ export async function runCoAlterPipeline(
     : [];
 
   // ── L5: 提案生成 ──
-  const rawProposal = await generateProposal(
-    profileA,
-    profileB,
-    analysis,
-    searchCandidates,
-    relationship,
-    input.userMessage,
-    options,
-  );
+  // 2026-04-18: movie テーマは 4-layer 再設計パイプライン (movieOrchestrator) に切替
+  // それ以外のテーマは従来の generateProposal を継続使用
+  const useMovieV2 = analysis.theme === "movie";
+  let rawProposal: ProposalCard;
+  if (useMovieV2) {
+    const movieResult = await generateMovieProposalV2({
+      turns: messages,
+      analysis,
+      searchCandidates,
+      profileA,
+      profileB,
+      relationship,
+      avoidKeys: options?.avoidKeys,
+      pendingDeltas: options?.pendingDeltas,
+      sessionId: session.id,
+      userId: input.invokedBy,
+    });
+    rawProposal = movieResult.card;
+
+    // observability v1: 4-layer 品質監査を記録（失敗は握りつぶす、メインフローに影響させない）
+    supabase
+      .from("coalter_proposal_quality")
+      .insert({
+        session_id: session.id,
+        brief_source: movieResult.telemetry.briefSource,
+        brief_confidence: movieResult.telemetry.briefConfidence,
+        catalog_count: movieResult.telemetry.catalogCount,
+        ranked_count: movieResult.telemetry.rankedCount,
+        ranking_axes_preset: movieResult.telemetry.rankingAxesPreset,
+        narration_mode: movieResult.telemetry.narrationMode,
+        llm_success_layer0: movieResult.telemetry.llmSuccessLayer0,
+        llm_success_layer3: movieResult.telemetry.llmSuccessLayer3,
+        latency_ms_total: movieResult.telemetry.latencyMsTotal,
+        latency_ms_catalog: movieResult.telemetry.latencyMsCatalog,
+        latency_ms_rank: movieResult.telemetry.latencyMsRank,
+        latency_ms_narration: movieResult.telemetry.latencyMsNarration,
+      })
+      .then(
+        () => {},
+        () => {},
+      );
+  } else {
+    rawProposal = await generateProposal(
+      profileA,
+      profileB,
+      analysis,
+      searchCandidates,
+      relationship,
+      input.userMessage,
+      options,
+    );
+  }
 
   // ── URL付与: LLMが生成した候補に検索結果のURLを紐付け ──
   const withUrls = attachUrlsToCandidates(rawProposal, searchCandidates);

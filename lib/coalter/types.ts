@@ -535,6 +535,302 @@ export interface ProposalCandidate {
 }
 
 // ─────────────────────────────────────────────
+// CoAlter 4-layer rebuild (2026-04-18)
+//
+// Layer 0: briefBuilder (LLM + parser_fallback)    → ConversationBrief
+// Layer 1: movieCatalog (logic)                    → MovieScreening[]  (既存)
+// Layer 2: movieRanker (logic)                     → RankedCandidate[]
+// Layer 3: narrationBuilder + narrationEnricher / narrationTemplate
+//
+// 設計原則:
+//  - LLM は「意図の読み取り」と「自然言語化」に限定
+//  - 事実（作品名・劇場・時間・評価）は logic で決める
+//  - ロジック由来の narration はテンプレートではなく事実ベースの本文
+//  - rankingAxes は closed-set preset のみ（自由生成禁止）
+// ─────────────────────────────────────────────
+
+/**
+ * Layer 0 出力: 会話から抽出した「今回決めたいこと」の構造化ブリーフ。
+ *
+ * source="llm"          → LLM 成功時。high confidence 前提。
+ * source="parser_fallback" → LLM 失敗時。正規表現 + heuristics で最低限を埋める。
+ */
+export interface ConversationBrief {
+  /** テーマ（Layer 1 以降の分岐キー） */
+  theme:
+    | "movie"
+    | "food"
+    | "travel"
+    | "date"
+    | "schedule"
+    | "gift"
+    | "general";
+
+  /** エリア（「渋谷」「新宿」等）。不明なら null */
+  area: string | null;
+
+  /** おおよその時間 */
+  approximateTime: {
+    /** YYYY-MM-DD or 「今週末」等の正規化後。不明なら null */
+    date: string | null;
+    /** 時間帯 */
+    timeSlot: "morning" | "afternoon" | "evening" | "night" | null;
+    /** 希望開始時刻（24h hour, 0-23）。null なら未指定 */
+    preferredStartHour: number | null;
+  };
+
+  /**
+   * 会話から読み取った「気分・雰囲気」の closed vocabulary。
+   * 自由生成禁止。
+   */
+  mood: BriefMood[];
+
+  /** 二人の合意制約（既存型を再利用） */
+  hardConstraints: AgreedConstraint[];
+
+  /**
+   * この会話に合うランキング軸 preset を選ぶ。
+   * 自由生成禁止 — 3種の preset のみ。
+   */
+  rankingAxes: RankingAxesSelection;
+
+  /**
+   * まだ決められない場合の primary question（1件のみ）。
+   * 決まっているなら null。
+   *
+   * 「3件全部揃わないから clarify」ではなく、
+   * 「この一点が決まれば動く」という設計。
+   */
+  primaryUnresolvedQuestion: PrimaryUnresolvedQuestion | null;
+
+  /** ブリーフ全体の確信度（0.0〜1.0） */
+  confidence: number;
+
+  /**
+   * フィールド単位の確信度（Augmentation A）。
+   * parser_fallback で埋めたフィールドは 0.4 以下、LLM 由来は 0.7 以上が目安。
+   * Layer 2 の hard filter / clarify 判断で参照。
+   */
+  fieldConfidence?: {
+    theme?: number;
+    area?: number;
+    approximateTime?: number;
+  };
+
+  /** ブリーフ生成元 */
+  source: "llm" | "parser_fallback";
+}
+
+/** Brief の mood closed vocabulary */
+export type BriefMood =
+  | "重すぎない"
+  | "会話が続く"
+  | "静か"
+  | "盛り上がる"
+  | "癒し"
+  | "刺激"
+  | "ノスタルジア"
+  | "軽め"
+  | "非日常"
+  | "安心";
+
+/**
+ * ランキング軸 preset。closed-set。
+ *
+ * - balance_focus: 基本（二人の折り合い）
+ * - safety_adventure_discovery: 探索的（新しさ重視）
+ * - calm_stimulating_nostalgic: ムード軸（気分で決めたい）
+ */
+export type RankingAxesPreset =
+  | "balance_focus"
+  | "safety_adventure_discovery"
+  | "calm_stimulating_nostalgic";
+
+/** preset が提供する役割ラベル。closed-set。 */
+export type RankingRole =
+  | "balance"
+  | "aFocus"
+  | "bFocus"
+  | "safety"
+  | "adventure"
+  | "discovery"
+  | "calm"
+  | "stimulating"
+  | "nostalgic";
+
+/** Layer 0 が選んだ軸 preset と、その選択理由 */
+export interface RankingAxesSelection {
+  preset: RankingAxesPreset;
+  /** preset が露出する役割。UI/narration で使う */
+  roles: RankingRole[];
+  /** なぜこの preset を選んだか（narration への素材） */
+  rationale: string;
+}
+
+/** Layer 0 が出す primary question */
+export interface PrimaryUnresolvedQuestion {
+  /** 識別キー（"area" / "timeSlot" / "date" 等） */
+  key: string;
+  /** ユーザーへの問い */
+  question: string;
+  /** 該当する 5W1H スロット */
+  slot: import("@/lib/coalter/slots").SlotKey;
+}
+
+// ─────────────────────────────────────────────
+// Layer 2: movie ranker — input / output
+// ─────────────────────────────────────────────
+
+/** Layer 2 入力 */
+export interface RankInput {
+  brief: ConversationBrief;
+  catalog: MovieScreening[];
+  /** 前回までに採用済みの candidate key（reroll 用） */
+  avoidKeys: string[];
+  /** L1 プロフィール（interest match の素材） */
+  profileA: CoAlterPersonProfile;
+  profileB: CoAlterPersonProfile;
+}
+
+/** Layer 2 出力 */
+export interface RankOutput {
+  /** 採用された候補。0件 → clarify 誘導 / 1-2件 → 部分返却 / 3件 → 正規返却 */
+  ranked: RankedCandidate[];
+  /** ハードフィルタで落とされた監査トレース */
+  filterTrace: FilterTrace[];
+  /** ランカーが適用した preset（brief と同じだが、監査のため再掲） */
+  appliedPreset: RankingAxesPreset;
+  /** フィルタ前後の件数 */
+  counts: {
+    inputCatalog: number;
+    afterHardFilter: number;
+    afterDiversity: number;
+  };
+}
+
+/**
+ * ハードフィルタで落とされた候補の監査行。
+ */
+export interface FilterTrace {
+  title: string | null;
+  theater: string | null;
+  /** 落とされた理由コード（複数可） */
+  reasons: HardFilterReason[];
+}
+
+/**
+ * ハードフィルタ理由 (Augmentation B の #7 を含む)。
+ */
+export type HardFilterReason =
+  | "violates_release_status"       // hardConstraints "公開中のみ" + upcoming
+  | "violates_timeslot"             // 「夜」希望 + showtime 全て非該当
+  | "violates_area"                 // area 指定 + 劇場が該当エリア外
+  | "violates_preferred_start_hour" // preferredStartHour±2h に showtime なし
+  | "violates_avoid_keys"           // 前回採用済み
+  | "missing_identity"              // title/theater 共に null
+  | "unknown_status_without_showtime"; // Augmentation B: showtimes=[] AND status="unknown"
+
+/**
+ * Layer 2 が返す 1 候補。title / theater / showtime / runtime / rating /
+ * releaseStatus / axisScores / rationale は **Layer 3 LLM から書き換え禁止**
+ * （narrationEnricher の postprocessor で強制）。
+ */
+export interface RankedCandidate {
+  /** 一意キー（avoidKeys 用、重複判定用） */
+  candidateKey: string;
+  /** この候補の役割（preset.roles の 1 つ） */
+  role: RankingRole;
+
+  // ─ 事実フィールド（immutable）─
+  title: string;
+  theater: string | null;
+  /** 採用された開始時刻（複数 showtimes の中からランカーが選んだ 1 つ） */
+  showtime: string | null;
+  runtimeMinutes: number | null;
+  releaseStatus: "showing" | "upcoming" | "unknown";
+  rating: string | null;
+  sourceUrl: string;
+
+  /** 現在役割に対応した軸スコア（preset の roles と対応） */
+  axisScores: Partial<Record<RankingRole, number>>;
+  /** 総合スコア（Layer 2 内部デバッグ + 監査用） */
+  totalScore: number;
+
+  /** Layer 3 narration の素材（immutable）*/
+  rationale: SelectionRationale;
+
+  /** この候補の全 scoring 明細（observability） */
+  breakdown: ScoreBreakdown;
+}
+
+/**
+ * narration 用の構造化理由。LLM はこれを元に自然文を書くが、
+ * 中身のフィールドは改変できない（postprocess で保護）。
+ */
+export interface SelectionRationale {
+  /** この候補が響く「A 側 interest」ラベル（profileA.interests からヒットしたもの） */
+  matchedInterestsA: string[];
+  /** B 側同上 */
+  matchedInterestsB: string[];
+  /** A 側 values ヒット */
+  matchedValuesA: string[];
+  matchedValuesB: string[];
+  /** どの軸で強かったか（role ベース） */
+  appealedAxis: RankingRole[];
+  /** 必要ならトレードオフ注記（「runtime は長め」等）。null 可 */
+  tradeoff: string | null;
+  /** 条件崩れ時のヒント（「夜が厳しければ 17 時台も可」等）。null 可 */
+  contingencyHint: string | null;
+}
+
+/**
+ * scoring 明細（observability + 後段デバッグ）。
+ */
+export interface ScoreBreakdown {
+  /** 各 metric の 0-1 値 */
+  metrics: {
+    novelty: number;
+    safety: number;
+    runtimeFit: number;
+    timeslotFit: number;
+    areaFit: number;
+    genreMatchA: number;
+    genreMatchB: number;
+    moodMatch: number;
+  };
+  /** role→score map（preset が提供する role 分だけ埋まる） */
+  roleScores: Partial<Record<RankingRole, number>>;
+  /** 最終採用 role */
+  assignedRole: RankingRole;
+}
+
+// ─────────────────────────────────────────────
+// Observability (v1)
+// ─────────────────────────────────────────────
+
+/**
+ * 1 提案生成あたり 1 行記録される品質監査レコード。
+ * supabase: coalter_proposal_quality テーブル。
+ */
+export interface ProposalQualityRecord {
+  sessionId: string;
+  briefSource: "llm" | "parser_fallback";
+  briefConfidence: number;
+  catalogCount: number;
+  rankedCount: number;
+  rankingAxesPreset: RankingAxesPreset | null;
+  narrationMode: "llm" | "logic_template" | "mixed";
+  llmSuccessLayer0: boolean;
+  llmSuccessLayer3: boolean;
+  latencyMsTotal: number;
+  latencyMsCatalog: number;
+  latencyMsRank: number;
+  latencyMsNarration: number;
+  /** ユーザー反応（後段イベントで upsert） */
+  userAction: "adopted" | "refined" | "rerolled" | "dismissed" | null;
+}
+
+// ─────────────────────────────────────────────
 // Engine: 5層パイプライン統合
 // ─────────────────────────────────────────────
 
