@@ -58,7 +58,8 @@ let _detectDelta: typeof import("./llmDeltaParser").detectDelta | null = null;
 let _applyDelta: typeof import("./llmDeltaParser").applyDelta | null = null;
 let _resolveAnchors: typeof import("./placeResolver").resolveAnchors | null = null;
 
-async function ensureV2Modules(): Promise<boolean> {
+/** test export: v2 モジュール強制ロード */
+export async function ensureV2Modules(): Promise<boolean> {
   if (_extractPlanFromText && _detectDelta) return true;
   try {
     if (!_extractPlanFromText) {
@@ -1186,8 +1187,8 @@ async function handleClarifyingPhase(
   };
 }
 
-/** v2 clarify 回答後の共通レスポンス生成 */
-async function buildClarifyV2Response(
+/** v2 clarify 回答後の共通レスポンス生成（test export） */
+export async function buildClarifyV2Response(
   updatedState: PlanState,
   descriptions: string[] | null,
   session: MorningSession,
@@ -1209,28 +1210,65 @@ async function buildClarifyV2Response(
       : _buildPlanConfirmMessage!(updatedState));
 
   if (updatedState.missingFields.length > 0) {
-    // まだ不足あり → clarifying 続行
-    // CEO方針 2026-04-17 P1-B: 条件が揃うまで "了解。...更新したよ。" preamble は出さない。
-    // ユーザーから見ると「はい/いいえ」しか返せない不要1ラリーになるため、
-    // overrideMessage が明示指定されたときのみ preamble を出す（旧動作温存）。
-    const remainClarify = _buildPlanConfirmMessage!(updatedState);
-    const strippedRemain = remainClarify.replace(/^了解。.+?だね。\n?/, "").trim();
-    const messageBody = overrideMessage
-      ? `${confirmMsg}\n${strippedRemain}`.trim()
-      : strippedRemain;
-    return {
-      session: {
-        ...session,
-        phase: "clarifying",
-        plan,
-        planStateV2: updatedState,
-      },
-      response: {
-        phase: "clarifying",
-        message: messageBody,
-        plan,
-      },
-    };
+    // sortable missings (time/transport/place) と placeConfirm を分離。
+    // - sortable あり → 時間/移動/場所の 1 問を優先（既存ロジック）
+    // - sortable 0 かつ placeConfirm あり → 候補確認（例「サドヤでどう？」）
+    // - sortable 0 かつ placeConfirm も無い → plan_presented へ遷移
+    //
+    // CEO方針 2026-04-17 Block 1 fix: 以前は sortable が全て placeConfirm に
+    // フィルタされる状態だと buildClarifyFromMissing が "" を返し、strippedRemain
+    // が空になって messageBody がブランクで返答される事故が起きていた（実機: 「車」
+    // 回答後にアルターがブランクを返し「明日、やったか聞くね」で終了する）。
+    const sortableCount = updatedState.missingFields.filter(f =>
+      !f.startsWith("placeConfirm:") && !f.startsWith("placeAsk:"),
+    ).length;
+
+    if (sortableCount === 0) {
+      const pendingConfirms = session.pendingPlaceConfirmations ?? [];
+      if (pendingConfirms.length > 0) {
+        // placeConfirm のみ残存 → 候補確認を出す（clarifying 継続）
+        const placeQ = buildPlaceConfirmQuestions(pendingConfirms);
+        const messageBody = overrideMessage
+          ? `${confirmMsg}${placeQ ? `\n${placeQ}` : ""}`.trim()
+          : (placeQ || "こんな感じでどう？");
+        return {
+          session: {
+            ...session,
+            phase: "clarifying",
+            plan,
+            planStateV2: updatedState,
+          },
+          response: {
+            phase: "clarifying",
+            message: messageBody,
+            plan,
+          },
+        };
+      }
+      // sortable 0 + placeConfirm 無し → plan_presented に fall-through
+    } else {
+      // CEO方針 2026-04-17 P1-B: 条件が揃うまで "了解。...更新したよ。" preamble は出さない。
+      // ユーザーから見ると「はい/いいえ」しか返せない不要1ラリーになるため、
+      // overrideMessage が明示指定されたときのみ preamble を出す（旧動作温存）。
+      const remainClarify = _buildPlanConfirmMessage!(updatedState);
+      const strippedRemain = remainClarify.replace(/^了解。.+?だね。\n?/, "").trim();
+      const messageBody = overrideMessage
+        ? `${confirmMsg}\n${strippedRemain}`.trim()
+        : strippedRemain;
+      return {
+        session: {
+          ...session,
+          phase: "clarifying",
+          plan,
+          planStateV2: updatedState,
+        },
+        response: {
+          phase: "clarifying",
+          message: messageBody,
+          plan,
+        },
+      };
+    }
   }
 
   // CEO方針 2026-04-17 P1-B (plan_presented 拡張):
