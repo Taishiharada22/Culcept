@@ -19,10 +19,15 @@ import type {
   AgreedConstraint,
   CandidateValidationResult,
   ConversationTheme,
+  MovieScreening,
   ProposalCandidate,
   ValidationReasonCode,
 } from "./types";
 import { getThemeRule, type SlotBundle, type SlotContent } from "./slots";
+import {
+  matchesCatalogTheater,
+  matchesCatalogTitle,
+} from "./movieCatalog";
 
 // ─────────────────────────────────────────────
 // 抽象語辞書
@@ -442,7 +447,9 @@ function validateThemeMinimum(
  *
  * @param searchTitleSet - movie テーマで「検索結果から拾った title 集合」。あれば
  *                        candidate.slots.what.label がその中に fuzzy match しないと reject。
- *                        LLM が作品名を発明するのを防ぐ。
+ *                        LLM が作品名を発明するのを防ぐ。（P0-1 以降は movieCatalog で代替される）
+ * @param movieCatalog - P0-1: 構造化された映画上映情報。渡された場合はこちらを優先。
+ *                        title / theater / status / showtime を厳密に検査する。
  *
  * @returns { ok, reasons, violatedConstraints }
  *   - ok: reject せず採用可能か
@@ -454,6 +461,7 @@ export function validateCandidate(
   theme: ConversationTheme,
   agreedConstraints: AgreedConstraint[] = [],
   searchTitleSet?: string[],
+  movieCatalog?: MovieScreening[],
 ): CandidateValidationResult {
   const reasons: ValidationReasonCode[] = [];
   const violated: string[] = [];
@@ -478,9 +486,53 @@ export function validateCandidate(
   reasons.push(...violationCheck.reasons);
   violated.push(...violationCheck.violated);
 
-  // 3.5. movie テーマで search title set が与えられたら、what.label がそこに含まれているか確認
-  //      → LLM が映画名を発明するのを防ぐ
-  if (theme === "movie" && searchTitleSet && searchTitleSet.length > 0) {
+  // 3.5. P0-1/P0-2: movie catalog による厳密検査
+  if (theme === "movie" && movieCatalog && movieCatalog.length > 0) {
+    const what = candidate.slots?.what?.label?.trim();
+    // (a) title が catalog に一致しないなら reject（最重要）
+    if (!what || !matchesCatalogTitle(what, movieCatalog)) {
+      reasons.push("movie_title_not_in_catalog");
+    } else {
+      // (b) title が一致している場合のみ、劇場とステータスを追加検査
+      const where = candidate.slots?.where?.label?.trim();
+      // catalog に theater 情報があれば where も実在劇場と一致することを要求
+      const catalogHasTheaters = movieCatalog.some((s) => s.theater);
+      if (catalogHasTheaters && where && !matchesCatalogTheater(where, movieCatalog)) {
+        // 「映画館」「シネマ」「劇場」のような活動ラベルなら許容、固有名詞で不一致なら reject
+        const isGenericTheaterWord =
+          /^(映画館|シネマ|劇場|映画館\(未定\)|新宿の映画館|都内の映画館)$/.test(where);
+        if (!isGenericTheaterWord) {
+          reasons.push("theater_not_in_catalog");
+        }
+      }
+      // (c) 選ばれた作品の status が "upcoming" で、slot に「公開予定」の明示が無い場合 reject
+      const matchedScreening = movieCatalog.find((s) => {
+        const norm = (x: string) => x.replace(/[\s\u3000・〜～\-−ー「」『』]+/g, "").toLowerCase();
+        const a = norm(what);
+        const b = norm(s.title);
+        return a === b || a.includes(b) || b.includes(a);
+      });
+      if (matchedScreening) {
+        const whatDetail = candidate.slots?.what?.detail ?? "";
+        const whenLabel = candidate.slots?.when?.label ?? "";
+        const practicalInfo = candidate.practicalInfo ?? "";
+        const haystack = `${whatDetail} ${whenLabel} ${practicalInfo}`;
+        // 上映時刻 or 「公開予定」の明示が必要
+        const hasShowtime = /\d{1,2}:\d{2}/.test(haystack);
+        const hasUpcomingNote = /公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開|来月公開|来年公開/.test(haystack);
+        if (matchedScreening.status === "upcoming") {
+          // 公開予定作品は「公開予定」明示が必要
+          if (!hasUpcomingNote) reasons.push("movie_upcoming_without_note");
+        } else {
+          // 上映中作品は showtime or upcoming-note のどちらかが必要
+          if (!hasShowtime && !hasUpcomingNote) {
+            reasons.push("movie_missing_showtime");
+          }
+        }
+      }
+    }
+  } else if (theme === "movie" && searchTitleSet && searchTitleSet.length > 0) {
+    // フォールバック（catalog が無いが search title だけある旧パス）
     const what = candidate.slots?.what?.label?.trim();
     if (what && !whatLabelMatchesSearchTitles(what, searchTitleSet)) {
       reasons.push("missing_movie_title");
@@ -514,6 +566,7 @@ export function validateCandidates(
   theme: ConversationTheme,
   agreedConstraints: AgreedConstraint[] = [],
   searchTitleSet?: string[],
+  movieCatalog?: MovieScreening[],
 ): {
   accepted: ProposalCandidate[];
   rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>;
@@ -522,7 +575,13 @@ export function validateCandidates(
   const rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }> = [];
 
   for (const c of candidates) {
-    const result = validateCandidate(c, theme, agreedConstraints, searchTitleSet);
+    const result = validateCandidate(
+      c,
+      theme,
+      agreedConstraints,
+      searchTitleSet,
+      movieCatalog,
+    );
     if (result.ok) {
       accepted.push(c);
     } else {
@@ -553,6 +612,10 @@ export function reasonCodeToText(code: ValidationReasonCode): string {
     empty_slots: "5W1H slots が空",
     candidates_too_similar: "3案が実質同じ（差分が無い）",
     thin_practical_info: "現実情報（時間/料金/評価等）が薄い",
+    movie_title_not_in_catalog: "作品名が上映情報カタログに存在しない（発明禁止）",
+    theater_not_in_catalog: "劇場名が検索で見つかった実在劇場に一致しない",
+    movie_missing_showtime: "上映時刻の明示が無い（数字 19:00 等）",
+    movie_upcoming_without_note: "公開予定作品だが「公開予定」の明示が無い",
   };
   return map[code] ?? code;
 }
@@ -651,10 +714,29 @@ export function validateCandidatesDiversity(
   const uniqueWheres = new Set(wheres.filter((w) => w.length > 0));
   if (uniqueWheres.size >= 2) dimensions += 1;
 
-  // dim 3: when slot label の差（時間帯バリエーション）
+  // dim 3: when slot label の差（時間帯バリエーション — 朝/昼/夜 or 具体時刻 19:00 vs 14:00）
   const whens = candidates.map((c) => c.slots?.when?.label?.trim() ?? "");
   const uniqueWhens = new Set(whens.filter((w) => w.length > 0));
   if (uniqueWhens.size >= 2) dimensions += 1;
+  // P0-3: 時間帯 bucket（朝/昼/夜）でも差を評価 — "14:00" と "20:00" は違う bucket
+  if (uniqueWhens.size < 2) {
+    const buckets = whens.map((w) => timeSlotBucket(w)).filter((b) => b !== null);
+    if (new Set(buckets).size >= 2) dimensions += 1;
+  }
+
+  // P0-3: status 次元（上映中 vs 公開予定 / practicalInfo + slot.what.detail から拾う）
+  const statuses = candidates.map((c) => {
+    const haystack = [
+      c.practicalInfo ?? "",
+      c.slots?.what?.detail ?? "",
+      c.slots?.when?.label ?? "",
+    ].join(" ");
+    if (/公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開/.test(haystack)) return "upcoming";
+    if (/上映中|公開中/.test(haystack)) return "showing";
+    return "unknown";
+  });
+  const knownStatuses = statuses.filter((s) => s !== "unknown");
+  if (new Set(knownStatuses).size >= 2) dimensions += 1;
 
   // dim 4: axisScores で 2 軸以上の差
   const allAxisKeys = new Set<string>();
@@ -682,6 +764,32 @@ export function validateCandidatesDiversity(
   }
 
   return { ok: true };
+}
+
+/**
+ * 時刻ラベル → 時間帯 bucket。
+ *  - "14:00", "14時" → "afternoon"
+ *  - "19:00", "夜" → "evening"
+ *  - "10:00", "朝" → "morning"
+ */
+function timeSlotBucket(label: string): string | null {
+  if (!label) return null;
+  // 明示的な「朝/昼/夕/夜」語
+  if (/(朝|午前)/.test(label)) return "morning";
+  if (/(昼|お昼|ランチ)/.test(label)) return "afternoon";
+  if (/(夕方|夕)/.test(label)) return "evening";
+  if (/(夜|ナイト)/.test(label)) return "night";
+  // 数字時刻
+  const m = label.match(/(\d{1,2}):?(\d{0,2})/);
+  if (m) {
+    const h = Number(m[1]);
+    if (!Number.isFinite(h)) return null;
+    if (h >= 5 && h < 11) return "morning";
+    if (h >= 11 && h < 15) return "afternoon";
+    if (h >= 15 && h < 18) return "evening";
+    if ((h >= 18 && h <= 27) || (h >= 0 && h < 5)) return "night";
+  }
+  return null;
 }
 
 /** 2 文字列の文字種重なり率（簡易類似度）。0.0〜1.0。 */

@@ -384,7 +384,12 @@ export type ValidationReasonCode =
   | "empty_slots"                 // slots そのものが空
   // Phase 1.5.4.6+: 3案差分 + 密度
   | "candidates_too_similar"      // 3案が実質同じ（axisScores/slot/title のいずれでも差がない）
-  | "thin_practical_info";        // practicalInfo が薄い（数字項目不足）
+  | "thin_practical_info"         // practicalInfo が薄い（数字項目不足）
+  // P0-1 / P0-2: movie catalog 厳密検査
+  | "movie_title_not_in_catalog"  // 作品名が構造化 catalog に存在しない（LLM の発明）
+  | "theater_not_in_catalog"      // 劇場名が catalog の実在劇場に一致しない
+  | "movie_missing_showtime"      // 上映中作品で showtime / upcoming-note がない
+  | "movie_upcoming_without_note"; // 公開予定作品で「公開予定」明示がない
 
 /**
  * 1 候補の validation 結果。
@@ -421,6 +426,33 @@ export interface SearchCandidate {
   source: string;
   /** 元URL（クリック可能なリンクとして提示） */
   url: string | null;
+}
+
+/**
+ * P0-1: 構造化された映画上映情報。
+ *
+ * 「検索→構造化→選択」パイプラインの中間データ。
+ * LLM が作品名を発明するのを防ぐため、候補は必ずこの catalog から選ぶ。
+ */
+export interface MovieScreening {
+  /** 作品名（正規化済み） */
+  title: string;
+  /** 映画館名（「TOHOシネマズ新宿」等。不明なら null） */
+  theater: string | null;
+  /** 公開ステータス */
+  status: "showing" | "upcoming" | "unknown";
+  /** 上映時刻のリスト（"19:00", "21:30" 等） */
+  showtimes: string[];
+  /** 上映時間（分）。不明なら null */
+  runtimeMinutes: number | null;
+  /** 外部評価（Filmarks 4.2, 映画.com 3.8 等） */
+  rating: string | null;
+  /** 情報ソースURL */
+  sourceUrl: string;
+  /** 情報ソース（"映画.com" / "Filmarks" 等） */
+  source: string;
+  /** 元 snippet の要約（LLM に渡す補助情報） */
+  snippet: string;
 }
 
 // ─────────────────────────────────────────────

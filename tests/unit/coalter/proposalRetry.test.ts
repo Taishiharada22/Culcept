@@ -80,6 +80,37 @@ function makeAnalysis(
 const profileA = makeProfile("a", "たいし");
 const profileB = makeProfile("b", "あやか");
 const searchCandidates: SearchCandidate[] = [];
+
+// P0-1: movie テーマは searchCandidates → movieCatalog に構造化され、
+// catalog が空だと provider failure として LLM を呼ばず clarify に倒れる。
+// retry 挙動を検証するテストでは、catalog を populate するために最小限の search 結果を渡す。
+const movieSearchCandidates: SearchCandidate[] = [
+  {
+    title: "ラストマイル",
+    description: "上映中。118分",
+    externalRating: null,
+    practicalInfo: null,
+    source: "eiga.com",
+    url: null,
+  },
+  {
+    title: "アナログ",
+    description: "上映中。106分",
+    externalRating: null,
+    practicalInfo: null,
+    source: "filmarks",
+    url: null,
+  },
+  {
+    title: "PERFECT DAYS",
+    description: "上映中。124分",
+    externalRating: null,
+    practicalInfo: null,
+    source: "eiga.com",
+    url: null,
+  },
+];
+
 const relationship: RelationshipContext = {
   commonGround: [],
   frictionPoints: [],
@@ -152,7 +183,7 @@ describe("proposalGenerator retry — 3件 accepted なら runAI 1回で確定",
       profileA,
       profileB,
       makeAnalysis("movie"),
-      searchCandidates,
+      movieSearchCandidates,
       relationship,
       null,
     );
@@ -226,7 +257,7 @@ describe("proposalGenerator retry — 3件 accepted なら runAI 1回で確定",
       profileA,
       profileB,
       makeAnalysis("movie"),
-      searchCandidates,
+      movieSearchCandidates,
       relationship,
       null,
     );
@@ -297,7 +328,7 @@ describe("proposalGenerator retry — 1回目で全 reject なら retry する",
       profileA,
       profileB,
       makeAnalysis("movie"),
-      searchCandidates,
+      movieSearchCandidates,
       relationship,
       null,
     );
@@ -333,7 +364,7 @@ describe("proposalGenerator retry — 1回目で全 reject なら retry する",
       profileA,
       profileB,
       makeAnalysis("movie"),
-      searchCandidates,
+      movieSearchCandidates,
       relationship,
       null,
     );
@@ -373,7 +404,7 @@ describe("proposalGenerator retry — 1回目で全 reject なら retry する",
       profileA,
       profileB,
       makeAnalysis("movie"),
-      searchCandidates,
+      movieSearchCandidates,
       relationship,
       null,
     );
