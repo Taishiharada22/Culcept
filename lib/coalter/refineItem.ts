@@ -17,23 +17,14 @@
 import "server-only";
 import { runAI } from "@/lib/ai";
 import type { PlanItem } from "@/lib/coalter/planShelf";
+import type { RefineDirection, RefineCandidate } from "@/lib/coalter/refineDirections";
+import { REFINE_DIRECTION_LABEL } from "@/lib/coalter/refineDirections";
 
-export type RefineDirection =
-  | "cheaper" // 予算を抑えめに
-  | "earlier" // 時刻を早めに
-  | "later" // 時刻を遅めに
-  | "closer" // より近場に
-  | "quieter" // もっと落ち着ける雰囲気に
-  | "livelier"; // もっと賑やかな雰囲気に
-
-export const REFINE_DIRECTION_LABEL: Record<RefineDirection, string> = {
-  cheaper: "予算抑えめに",
-  earlier: "時刻を早めに",
-  later: "時刻を遅めに",
-  closer: "近場に",
-  quieter: "落ち着ける雰囲気に",
-  livelier: "賑やかな雰囲気に",
-};
+// 型とラベルはクライアントも触るため refineDirections.ts に分離。
+// LLM を実際に叩く generateRefinedCandidate だけこのファイルに残す。
+export type { RefineDirection, RefineCandidate };
+export { REFINE_DIRECTION_LABEL };
+export { isRefineDirection } from "@/lib/coalter/refineDirections";
 
 const DIRECTION_HINT_JA: Record<RefineDirection, string> = {
   cheaper: "予算を抑えめにしたい。コスパ寄り。",
@@ -43,17 +34,6 @@ const DIRECTION_HINT_JA: Record<RefineDirection, string> = {
   quieter: "落ち着いていて静かな雰囲気。混雑を避けたい。",
   livelier: "賑やかで活気のある雰囲気。人が集まる場所。",
 };
-
-export interface RefineCandidate {
-  title: string;
-  oneLiner: string;
-  practicalInfo: string | null;
-  url: string | null;
-  /** direction をどう反映したかの短いメモ（UI補助） */
-  changeNote: string;
-  /** 提案する timeSlot（null なら元の timeSlot を踏襲） */
-  timeSlot: string | null;
-}
 
 // ─────────────────────────────────────────────
 // スキーマ
@@ -206,18 +186,6 @@ export async function generateRefinedCandidate(params: {
     changeNote: changeNote || REFINE_DIRECTION_LABEL[direction],
     timeSlot,
   };
-}
-
-/** direction が妥当かチェック */
-export function isRefineDirection(v: unknown): v is RefineDirection {
-  return (
-    v === "cheaper" ||
-    v === "earlier" ||
-    v === "later" ||
-    v === "closer" ||
-    v === "quieter" ||
-    v === "livelier"
-  );
 }
 
 /** テスト用に sanitize を export */

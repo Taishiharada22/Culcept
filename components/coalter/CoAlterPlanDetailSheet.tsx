@@ -15,8 +15,8 @@ import type { PlanItem } from "@/lib/coalter/planShelf";
 import type {
   RefineCandidate,
   RefineDirection,
-} from "@/lib/coalter/refineItem";
-import { REFINE_DIRECTION_LABEL } from "@/lib/coalter/refineItem";
+} from "@/lib/coalter/refineDirections";
+import { REFINE_DIRECTION_LABEL } from "@/lib/coalter/refineDirections";
 
 const C = {
   coalter: "#6366F1",

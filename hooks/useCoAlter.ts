@@ -31,7 +31,7 @@ import type {
 } from "@/lib/coalter/types";
 import { candidateKey } from "@/lib/coalter/axes";
 import type { PlanItem } from "@/lib/coalter/planShelf";
-import type { RefineCandidate, RefineDirection } from "@/lib/coalter/refineItem";
+import type { RefineCandidate, RefineDirection } from "@/lib/coalter/refineDirections";
 
 export type { PlanItem };
 
