@@ -189,7 +189,11 @@ function buildSearchQueries(
   // ── mentioned candidates を優先的に検索 ──
   for (const candidate of mentionedCandidates.slice(0, 2)) {
     if (theme === "movie") {
-      queries.push(`${candidate} 映画 評価 上映中`);
+      // Phase A.6 P0: 名指しされた作品でも「上映館 / 劇場 / 上映時刻」を
+      //   含めて theater を引けるページ (映画館の上映作品ページ等) を誘引する。
+      //   旧: `${candidate} 映画 評価 上映中` は Filmarks / 映画.com の
+      //        作品ページばかり返し theater が取れない問題があった。
+      queries.push(`${candidate} 上映館 劇場 上映時刻`);
     } else if (theme === "food") {
       queries.push(`${candidate} レストラン 口コミ 予約`);
     } else if (theme === "travel") {
@@ -214,41 +218,61 @@ function buildSearchQueries(
 
   switch (theme) {
     case "movie": {
-      // core=what → 複数角度から「上映中の具体作品」を引き出す
-      //  (1) 映画.com の上映中ページ相当
-      //  (2) Filmarks 新作ランキング
-      //  (3) 地域 × 映画館スケジュール（場所がある場合のみ）
-      const q1 = [
-        styleHint,
-        "映画.com 上映中",
-        yearMonth,
-        "作品",
-        exclusionHint,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-      queries.push(q1);
+      // Phase A.6 P0 — 「映画館ページを取りに行ける検索」への再設計。
+      //
+      // 症状 (本番観測): listicle (「今月の注目映画10選」型) ばかり返り、
+      //   catalog の全作品 theater=null → A.5 の missing_where で全件 drop → 0 候補。
+      //
+      // 原因: 旧クエリ 3 本のうち q1 "映画.com 上映中" と q2 "Filmarks ランキング"
+      //   が構造的に listicle を返す。q3 だけ映画館狙いだが location 依存で不発。
+      //
+      // 新方針: 3 本全部を「映画館 / 劇場 / TOHOシネマズ / 109シネマズ / 上映館」
+      //   トークンを含む形に統一。location が無くても全クエリが発火する。
+      //   映画館ページが取れれば movieCatalog.theaterFromSource() の URL slug
+      //   matching + tier(3a) description theater 抽出が効き、theater 補完が通る。
+      const areaPrefix = locationPart.trim() ? `${locationPart.trim()} ` : "";
 
-      const q2 = [
-        styleHint,
-        "Filmarks ランキング",
-        yearMonth,
-        "新作 評価",
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-      queries.push(q2);
+      // q1: 「地域 × 映画館 × 今週末 × スケジュール」= 映画館ドメイン直撃
+      //     (hlo.tohotheater.jp, 109cinemas.net, eiga.com/theater/* 等)
+      queries.push(
+        [
+          areaPrefix.trim(),
+          "映画館 今週末 上映スケジュール",
+          yearMonth,
+          styleHint,
+          exclusionHint,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim(),
+      );
 
-      if (locationPart.trim()) {
-        queries.push(
-          `${locationPart.trim()} 映画館 上映スケジュール ${yearMonth}`.trim(),
-        );
-      } else {
-        // location が無い場合は公開中の話題作に寄せる
-        queries.push(`公開中 映画 話題作 ${yearMonth} 評価`);
-      }
+      // q2: TOHOシネマズ / 109シネマズ の上映時刻ページ狙い。
+      //     URL slug 解析 (theaterFromSource) が最強に効くドメイン。
+      queries.push(
+        [
+          areaPrefix.trim(),
+          "TOHOシネマズ 109シネマズ 上映時刻",
+          yearMonth,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim(),
+      );
+
+      // q3: 保険。映画.com の「映画館別の上映中作品」ページ等、
+      //     劇場名トークンを含むページ。listicle を完全排除はできないが
+      //     「上映館 劇場」キーワードで theater 付きページが混ざる確率を上げる。
+      queries.push(
+        [
+          areaPrefix.trim(),
+          "上映中 映画 作品 上映館 劇場",
+          yearMonth,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .trim(),
+      );
       break;
     }
     case "food": {
