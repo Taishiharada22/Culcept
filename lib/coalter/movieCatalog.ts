@@ -143,47 +143,121 @@ export function extractRating(text: string): string | null {
 /**
  * 検索結果の title から作品名を抽出する。
  *
- * 検索結果の title は:
- *   - 「『ラストマイル』 | 映画-映画.com」
- *   - 「ラストマイル | 上映時間・上映館 - Filmarks」
- *   - 「映画『PERFECT DAYS』 - 公式サイト」
+ * 現実の title は装飾が多様:
+ *   - 「『ラストマイル』 | 映画-映画.com」          … 括弧あり
+ *   - 「ラストマイル｜TOHOシネマズ渋谷｜上映時間」   … パイプ分割の先頭
+ *   - 「映画『PERFECT DAYS』 - 公式サイト」         … 接頭辞 + 括弧
+ *   - 「【2026年4月】渋谷のおすすめ映画10選 | 映画.com」 … リスティクル (除外)
+ *   - 「上映スケジュール | TOHOシネマズ渋谷」         … スケジュールページ (除外)
  *
- * みたいに装飾が付いているので、本体の作品名だけを抽出する。
+ * 方針:
+ *   1. `『...』` `「...」` の括弧優先（ここに作品名が入る規約が強い）
+ *   2. パイプ `| ｜` でセグメント分割 → サイト/劇場/meta を除いた先頭セグメント
+ *      （ハイフンは作品名内に混入しやすいので分割に使わない）
+ *   3. リスティクル / スケジュール系の非タイトル語を検出したら reject
+ *   4. ジャンル名単体も reject
  */
+
+/** サイト名・劇場名・meta 語（title 分解時に「これは title ではない」印） */
+const NON_TITLE_SEGMENT = /(映画\.com|Filmarks|filmarks|Yahoo|Wikipedia|wiki|eiga|gqjapan|moviewalker|シネフィル|ぴあ|TOHOシネマズ|MOVIX|109シネマズ|イオンシネマ|ユナイテッド.?シネマ|新宿バルト|ピカデリー|テアトル|シネクイント|ヒューマントラスト|アップリンク|映画館|シアター|cinema|Cinema|CINEMA|シネマ|公式サイト|Official Site|Trailer|予告(編)?|レビュー|あらすじ|キャスト|監督|作品情報|映画情報|上映時間|上映館|上映情報|上映スケジュール|上映中の映画|上映中|スケジュール)/i;
+
+/** リスティクル / まとめ記事系の非タイトル */
+const LISTICLE_PATTERNS: RegExp[] = [
+  /\d+\s*選/,
+  /ランキング/,
+  /おすすめ.{0,4}(映画|作品|邦画|洋画|デート)/,
+  /人気.{0,4}(映画|作品)/,
+  /話題の(映画|作品)/,
+  /特集/,
+  /まとめ/,
+  /比較/,
+  /一覧|ラインナップ/,
+  /今週の(映画|上映)/,
+  /(春|夏|秋|冬)の.{0,3}(映画|おすすめ)/,
+  /最新作品|最新映画/,
+];
+
+function isListicleOrMeta(s: string): boolean {
+  if (!s) return true;
+  return LISTICLE_PATTERNS.some((re) => re.test(s));
+}
+
+const GENRE_ONLY = new Set([
+  "恋愛映画", "アクション", "サスペンス", "ホラー", "コメディ",
+  "SF", "ファンタジー", "ドキュメンタリー", "ミステリー",
+  "ロマンス", "アニメ", "邦画", "洋画", "実写",
+  "映画", "作品", "新作", "話題作",
+]);
+
+function cleanSegment(s: string): string {
+  return s
+    .replace(/^\s*映画\s*/i, "")
+    .replace(/\s*[（(][^）)]{0,14}[）)]\s*$/, "") // 末尾の (2024) (2026年)
+    .replace(/\s*【[^】]{0,14}】\s*$/, "")          // 末尾の【公式】【予告】
+    .replace(/\s*[|｜]\s*\d{4}.*$/, "")             // 末尾の | 2026...
+    .trim();
+}
+
+function acceptTitleCandidate(raw: string): string | null {
+  const cleaned = cleanSegment(raw).trim();
+  if (!cleaned) return null;
+  if (cleaned.length > 40) return null;
+  if (GENRE_ONLY.has(cleaned)) return null;
+  if (isListicleOrMeta(cleaned)) return null;
+  return cleaned;
+}
+
 export function extractMovieTitle(rawTitle: string): string | null {
   if (!rawTitle) return null;
-  let t = rawTitle.trim();
+  const source = rawTitle.trim();
+  if (!source) return null;
 
-  // サイト名を末尾から削る: "| 映画.com", "- Filmarks", "| Yahoo!映画"
-  t = t.replace(/\s*[|｜\-—‐]\s*.{0,4}(映画\.com|Filmarks|filmarks|Yahoo|eiga|gqjapan|moviewalker|シネフィル|ぴあ|公式|Official|Trailer|公式サイト|上映時間|上映館|予告|レビュー|あらすじ).*$/i, "");
-
-  // 括弧で囲まれたタイトル: 『』「」
-  const bracketed = t.match(/[『「【]([^』」】]+)[』」】]/);
+  // 1) 括弧優先: 『』「」 （【...】は「【公式】」のような装飾枠なので除外）
+  const bracketed = source.match(/[『「]([^』」]+)[』」]/);
   if (bracketed) {
-    const inner = bracketed[1].trim();
-    if (inner.length >= 1 && inner.length <= 40) return inner;
+    const picked = acceptTitleCandidate(bracketed[1]);
+    if (picked) return picked;
   }
 
-  // "映画『X』" などの接頭を削る
-  t = t.replace(/^映画\s*/i, "");
-  t = t.trim();
+  // 2) パイプ分割 → site/meta/listicle を除いた先頭セグメント
+  const segments = source.split(/[|｜]/).map((s) => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    if (NON_TITLE_SEGMENT.test(seg)) continue;
+    if (isListicleOrMeta(seg)) continue;
+    const picked = acceptTitleCandidate(seg);
+    if (picked) return picked;
+  }
 
-  // 末尾のノイズ: "（2024）" "(2026年)" "| 2026" "【公式】"
-  t = t.replace(/\s*[（(【][^）)】]{0,10}[）)】]\s*$/, "");
-  t = t.replace(/\s*[|｜]\s*\d{4}.*$/, "");
+  // 3) 最後のフォールバック: source 全体を cleanup して受け入れ
+  const picked = acceptTitleCandidate(source);
+  if (picked && !NON_TITLE_SEGMENT.test(picked)) return picked;
 
-  if (t.length < 1 || t.length > 40) return null;
+  return null;
+}
 
-  // ジャンル名だけなら reject (「恋愛映画」「アクション」)
-  const GENRE_ONLY = [
-    "恋愛映画", "アクション", "サスペンス", "ホラー", "コメディ",
-    "SF", "ファンタジー", "ドキュメンタリー", "ミステリー",
-    "ロマンス", "アニメ", "邦画", "洋画", "実写",
-    "映画", "作品", "新作", "話題作",
-  ];
-  if (GENRE_ONLY.includes(t.trim())) return null;
-
-  return t.trim();
+/**
+ * description / snippet から `『X』` `「X」` で囲まれた作品名を全部拾う。
+ *
+ * リスティクル記事 (「渋谷のおすすめ映画10選」) では、title 自体は記事タイトルだが
+ * description に複数の作品名が 『』 で列挙される。これを拾うと
+ * 1 検索結果 → 複数 screening に展開でき、映画テーマの提案枯渇を防げる。
+ */
+export function extractBracketedTitles(text: string): string[] {
+  if (!text) return [];
+  const found: string[] = [];
+  const seen = new Set<string>();
+  const re = /[『「]([^』」]+)[』」]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const picked = acceptTitleCandidate(m[1]);
+    if (!picked) continue;
+    const key = picked.replace(/\s+/g, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    found.push(picked);
+    if (found.length >= 6) break;
+  }
+  return found;
 }
 
 // ─────────────────────────────────────────────
@@ -209,33 +283,48 @@ export function parseMovieScreenings(
       " ",
     );
 
-    const title = extractMovieTitle(sc.title) ?? extractMovieTitle(sc.description);
-    if (!title) continue;
-    // 既出は skip（複数検索結果に同じ作品が出ることが多い）
-    const normKey = title.replace(/\s+/g, "").toLowerCase();
-    if (seenTitles.has(normKey)) continue;
-    seenTitles.add(normKey);
+    // title から抽出 → 失敗したら description から 『X』 を全部拾う（リスティクル救済）
+    //   → それでも取れなければ description 本文から 1 個だけ拾う。
+    const titleCandidates: string[] = [];
+    const titleFromTitle = extractMovieTitle(sc.title);
+    if (titleFromTitle) {
+      titleCandidates.push(titleFromTitle);
+    } else {
+      const bracketedFromDesc = extractBracketedTitles(sc.description);
+      if (bracketedFromDesc.length > 0) {
+        titleCandidates.push(...bracketedFromDesc);
+      } else {
+        const titleFromDesc = extractMovieTitle(sc.description);
+        if (titleFromDesc) titleCandidates.push(titleFromDesc);
+      }
+    }
+
+    if (titleCandidates.length === 0) continue;
 
     const theaters = extractTheaters(combinedText);
     const showtimes = extractShowtimes(combinedText);
     const runtimeMinutes = extractRuntimeMinutes(combinedText);
     const status = extractStatus(combinedText);
     const rating = extractRating(combinedText) ?? sc.externalRating ?? null;
-
-    // theater は先頭1件を代表値として持つ。全てのリストは ui 側で使わないので省略。
     const theater = theaters[0] ?? null;
 
-    screenings.push({
-      title,
-      theater,
-      status,
-      showtimes,
-      runtimeMinutes,
-      rating,
-      sourceUrl: sc.url ?? "",
-      source: sc.source,
-      snippet: sc.description.slice(0, 140),
-    });
+    for (const title of titleCandidates) {
+      const normKey = title.replace(/\s+/g, "").toLowerCase();
+      if (seenTitles.has(normKey)) continue;
+      seenTitles.add(normKey);
+
+      screenings.push({
+        title,
+        theater,
+        status,
+        showtimes,
+        runtimeMinutes,
+        rating,
+        sourceUrl: sc.url ?? "",
+        source: sc.source,
+        snippet: sc.description.slice(0, 140),
+      });
+    }
   }
 
   return screenings;
