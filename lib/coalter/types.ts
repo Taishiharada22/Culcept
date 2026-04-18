@@ -1045,6 +1045,115 @@ export interface ScoreBreakdown {
 }
 
 // ─────────────────────────────────────────────
+// Phase B Commit 2: foodRanker — input / output (2026-04-18)
+// ─────────────────────────────────────────────
+
+/**
+ * food 用 hard filter 理由コード（9 種）。
+ *
+ * 境界原則: 「明確な違反」のみ hard。不明な場合は通す。
+ */
+export type FoodHardFilterReason =
+  | "violates_budget"             // budget 制約ありかつ priceBand が超える
+  | "violates_area"               // area 指定ありかつ venue.area/station が該当外
+  | "violates_cuisine_exclusion"  // exclusion 制約違反
+  | "violates_companions"         // 同席条件違反
+  | "violates_opening_hours"      // openingHours 既知かつ timeSlot と明確不一致（不明は通す）
+  | "closed_permanently"          // snippet に「閉店」「閉業」検出
+  | "missing_where"               // station=null AND area=null
+  | "insufficient_info"           // confidence < 0.1（name 単独）
+  | "violates_avoid_keys";        // candidateId が avoidKeys に含まれる
+
+/**
+ * food 用 metric 9 種。
+ *
+ * - quietnessFit は 静か / 盛り上がる のみ担当
+ * - moodMatch は残り mood（重すぎない/会話が続く/癒し/刺激/ノスタルジア/軽め/非日常/安心）
+ *   → 二重加点を避けるため責務分離
+ * - novelty は confidence と独立（sourceDomain proxy）。balance / safety には使わない
+ * - ratingFit 欠損時は 0.5 中立（公式サイト由来を不利にしない）
+ */
+export interface FoodMetrics {
+  budgetFit: number;
+  areaFit: number;
+  quietnessFit: number;
+  novelty: number;
+  cuisineMatchA: number;
+  cuisineMatchB: number;
+  moodMatch: number;
+  ratingFit: number;
+  /** balance preset のみ active 時のみ非 0（max(prefA,prefB)>=0.5 && |prefA-prefB|>=0.2） */
+  compromiseQuality: number;
+}
+
+/** food scoring 明細（observability + 後段デバッグ） */
+export interface FoodScoreBreakdown {
+  metrics: FoodMetrics;
+  roleScores: Partial<Record<RankingRole, number>>;
+  assignedRole: RankingRole;
+}
+
+/** food hard filter trace（追加フィールド: confidence / missingFields で監査強化） */
+export interface FoodFilterTrace {
+  candidateId: string;
+  venueName: string | null;
+  reasons: FoodHardFilterReason[];
+  /** 観測用: drop 時の confidence（insufficient_info 診断に使う） */
+  confidence?: number;
+  /** 観測用: 欠けていたフィールド（missing_where 等の診断に使う） */
+  missingFields?: string[];
+}
+
+/** food ranker input */
+export interface FoodRankInput {
+  brief: ConversationBrief;
+  catalog: ActivityCandidate<FoodVenue>[];
+  /** 前回までに採用済みの candidateId（reroll 用） */
+  avoidKeys: string[];
+  profileA: CoAlterPersonProfile;
+  profileB: CoAlterPersonProfile;
+}
+
+/** food ranker output（movie RankOutput 並行形） */
+export interface FoodRankOutput {
+  ranked: RankedFoodCandidate[];
+  alternatives: RankedFoodAlternative[];
+  filterTrace: FoodFilterTrace[];
+  appliedPreset: RankingAxesPreset;
+  counts: {
+    inputCatalog: number;
+    afterHardFilter: number;
+    afterDiversity: number;
+  };
+}
+
+/** role 採用候補（事実は pure entity FoodVenue から参照） */
+export interface RankedFoodCandidate {
+  /** avoidKeys 互換キー（= ActivityCandidate.candidateId 流用） */
+  candidateKey: string;
+  role: RankingRole;
+  /** 事実 entity（venue のメタ情報はすべてここ） */
+  venue: FoodVenue;
+  sourceUrl: string;
+  sourceDomain: string;
+  confidence: number;
+  axisScores: Partial<Record<RankingRole, number>>;
+  totalScore: number;
+  rationale: SelectionRationale;
+  breakdown: FoodScoreBreakdown;
+}
+
+/** 役割外上位（bottom sheet の「こっちもあるよ」枠、上限 2） */
+export interface RankedFoodAlternative {
+  candidateKey: string;
+  venue: FoodVenue;
+  sourceUrl: string;
+  reason: string;
+  topRole: RankingRole;
+  topRoleScore: number;
+}
+
+// ─────────────────────────────────────────────
 // Observability (v1)
 // ─────────────────────────────────────────────
 
