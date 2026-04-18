@@ -465,6 +465,92 @@ export interface MovieScreening {
 }
 
 // ─────────────────────────────────────────────
+// Phase B: 3-mode 共通基盤 — ActivityCandidate (2026-04-18)
+//
+// 設計原則:
+//  - FoodVenue / MovieScreening は pure entity（店そのもの / 作品そのもの）
+//  - ActivityCandidate は「提案単位の wrapper」— candidateId / sourceUrl /
+//    sourceDomain / confidence / 時間制約を持つ
+//  - 同じ店でも別の search から出れば別の ActivityCandidate になりうる
+//    （ただし candidateId は同一になるよう設計 → daily-mode dedup の土台）
+//  - extends ではなく composition。境界を崩さない
+// ─────────────────────────────────────────────
+
+/** 提案対象のドメイン（Phase B 時点では food のみ実装、movie/activity は将来） */
+export type ActivityDomain = "food" | "movie" | "activity";
+
+/** 予約必要度（booking resolver が決まる前の一時的な分類） */
+export type ReservationNeed = "required" | "recommended" | "none" | "unknown";
+
+/**
+ * 時間帯ウィンドウ（食事の「ランチ 11:30-14:30」「ディナー 17:00-22:00」等）。
+ *
+ * dayOfWeek = null なら全曜日。特定曜日のみなら 0(日)〜6(土)。
+ */
+export interface TimeWindow {
+  dayOfWeek: number | null;
+  /** 開始時刻（0-23） */
+  startHour: number;
+  /** 終了時刻（1-24、startHour より大きいこと） */
+  endHour: number;
+}
+
+/**
+ * 食事候補の pure entity（店そのもの）。
+ *
+ * 「店は 1 つ」— 同じ店が別 search で出ても entity は同一の意味論。
+ * candidateId / sourceUrl 等の「提案単位の情報」はここには含めない。
+ */
+export interface FoodVenue {
+  /** 店名（必須。parse 出力境界で null の venue は除外される） */
+  name: string;
+  /** 最寄駅（「渋谷駅」「新宿駅東口」等）。不明なら null */
+  station: string | null;
+  /** エリア（「渋谷区道玄坂」「代官山」等）。不明なら null */
+  area: string | null;
+  /** 価格帯（「¥3,000〜¥3,999」「5,000円前後」等、正規化せず raw 文字列）。不明なら null */
+  priceBand: string | null;
+  /** 営業時間（raw。「17:00-24:00」「11:30〜14:30」等）。不明なら null */
+  openingHours: string | null;
+  /** 外部評価（食べログ 3.52、★4.2 等）。不明なら null */
+  rating: string | null;
+  /** 元 snippet の要約（narration 素材） */
+  snippet: string;
+}
+
+/**
+ * 提案単位の wrapper。3-mode 共通契約。
+ *
+ * - candidateId: `{domain}:{sourceDomain}:{normalizedName}:{normalizedStationOrArea}`
+ *   スナップショット非依存の stable material だけで生成する（URL path / snippet は使わない）。
+ *   cross-source dedup（tabelog vs retty で同一店舗）は Phase B スコープ外。
+ * - confidence: name はゲート（必須）。priceBand/stationOrArea/openingHours/rating/
+ *   known domain の加点式。上限 1.0
+ * - bestTimeWindows: parse では基本空。ranker / orchestrator が埋める
+ * - reservationNeed: bookingResolver 実装前は "unknown"
+ */
+export interface ActivityCandidate<TEntity = FoodVenue | MovieScreening> {
+  /** 一意キー（daily-mode dedup 用、stable material から生成） */
+  candidateId: string;
+  /** 情報源 URL（searchCandidates 由来） */
+  sourceUrl: string;
+  /** 情報源ドメイン（tabelog.com 等、hostname 部分のみ） */
+  sourceDomain: string;
+  /** 提案信頼度（0.0〜1.0） */
+  confidence: number;
+  /** ドメイン discriminator */
+  domain: ActivityDomain;
+  /** ドメイン固有エンティティ（food なら FoodVenue） */
+  entity: TEntity;
+  /** 所要時間の推定（分）。不明なら null */
+  durationEstimate: number | null;
+  /** 推奨時間帯（openingHours / ドメイン既定値から導出） */
+  bestTimeWindows: TimeWindow[];
+  /** 予約必要度（bookingResolver 前は "unknown"） */
+  reservationNeed: ReservationNeed;
+}
+
+// ─────────────────────────────────────────────
 // L5: 提案生成
 // ─────────────────────────────────────────────
 
