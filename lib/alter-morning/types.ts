@@ -238,6 +238,13 @@ export interface PlanItem {
    * CEO方針 2026-04-18 Bug 5-B。UI で「短縮」注記を出したいときに使う。
    */
   durationShrunkByPlacement?: boolean;
+  /**
+   * W2-1 anchor-first planner (2026-04-19):
+   *   window_* 制約付きの item が hard anchor で埋められて window.end までに収まらなかった場合、
+   *   ロジックが「嘘の時刻」を付けない証として本フラグが立つ。
+   *   startTime は undefined のままで、Safety Gate が plan_presented を止める。
+   */
+  cannotFitWindow?: boolean;
   /** 明示的な時間指定があるか（true = アンカー、スケジュール再計算で動かさない） */
   fixedStart: boolean;
   /** 入力順序（discourse marker 由来。0始まり連番） */

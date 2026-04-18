@@ -243,6 +243,310 @@ function minutesToTime(minutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W2-1 anchor-first placement (CEO方針 2026-04-19)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 固定方針:「LLM は意味を掴む。ロジックが計画を組む。」
+ *
+ * 旧設計 (〜W1): LLM の `sequenceOrder` を真実源として走査、cursor で前進。
+ *   → 「7時にランチ」のような LLM 誤抽出に引きずられて window 外配置が起きた。
+ *   → anchor 衝突で todo が push-out され、window.end を超えて 22:00 配置された。
+ *
+ * 新設計 (W2-1): 3 パスで clock / window を hard に扱う。
+ *   Pass 1: Hard clock anchors (fixed_start / fixed_departure / fixed_arrival)
+ *           を時刻順に配置、占有区間を記録
+ *   Pass 2: window_* items を window.start 早い順に gap-fit。
+ *           window.end 超過は shrink → 無理なら cannotFitWindow=true
+ *           （startTime は undefined のまま。Safety Gate が拾う）
+ *   Pass 3: 時間制約なしの flex items を sequenceOrder 順に残ギャップへ流し込む
+ *
+ * sequenceOrder が尊重されるのは Pass 3 のみ。Pass 1/2 では clock/window が勝つ。
+ */
+
+type Interval = { start: number; end: number };
+
+/**
+ * sorted occupied intervals から [rangeStart, rangeEnd] 内で
+ * duration 以上の連続空き区間の開始位置を返す。見つからなければ null。
+ */
+function findFirstGap(
+  occupied: Interval[],
+  rangeStart: number,
+  rangeEnd: number,
+  duration: number,
+): number | null {
+  let cursor = rangeStart;
+  for (const block of occupied) {
+    if (block.end <= cursor) continue;
+    if (block.start >= rangeEnd) break;
+    if (block.start - cursor >= duration) {
+      return cursor;
+    }
+    cursor = Math.max(cursor, block.end);
+  }
+  if (rangeEnd - cursor >= duration) {
+    return cursor;
+  }
+  return null;
+}
+
+/**
+ * [rangeStart, rangeEnd] 内で確保できる最大の空き gap を探し、
+ * shrinkBuffer を末尾に残した上で duration>=minDuration なら
+ * {start, duration} を返す。shrink 候補。
+ */
+function findBestShrinkableGap(
+  occupied: Interval[],
+  rangeStart: number,
+  rangeEnd: number,
+  minDuration: number,
+  shrinkBuffer: number,
+): { start: number; duration: number } | null {
+  let cursor = rangeStart;
+  let best: { start: number; duration: number } | null = null;
+  const consider = (gapStart: number, gapEnd: number) => {
+    const available = gapEnd - gapStart - shrinkBuffer;
+    if (available >= minDuration) {
+      if (!best || available > best.duration) {
+        best = { start: gapStart, duration: available };
+      }
+    }
+  };
+  for (const block of occupied) {
+    if (block.end <= cursor) continue;
+    if (block.start >= rangeEnd) break;
+    if (block.start > cursor) {
+      consider(cursor, Math.min(block.start, rangeEnd));
+    }
+    cursor = Math.max(cursor, block.end);
+  }
+  if (cursor < rangeEnd) {
+    consider(cursor, rangeEnd);
+  }
+  return best;
+}
+
+function insertSortedInterval(occupied: Interval[], iv: Interval): void {
+  let i = 0;
+  while (i < occupied.length && occupied[i].start < iv.start) i++;
+  occupied.splice(i, 0, iv);
+}
+
+/**
+ * anchor-first 3 パス配置本体。travel は含まない（Phase 2 で挿入される）。
+ *
+ * 配置の意味論:
+ *   - Pass 1 (hard clock): 時刻順に確定。LLM order は無視。
+ *   - Pass 2 (window):     window.start 早い順で gap-fit。window.end は HARD。
+ *   - Pass 3 (flex):       **全 item の sequenceOrder を横断した cursor-walk**。
+ *                          flex item は直前の hard/window item が置かれた位置以降に置く。
+ *                          これで「仕事(1) → 食事(2) → 休憩(3)」のような narrative 順序を壊さない。
+ */
+function anchorFirstPlace(
+  items: PlanItem[],
+  dayStart: number,
+  dayEnd: number,
+): PlanItem[] {
+  const SHRINK_BUFFER_MIN = 10;
+  const MIN_DURATION = 15;
+
+  // Bucket 分類
+  type PlacedRecord = { item: PlanItem; start?: number; end?: number };
+  const hardAnchors: PlanItem[] = [];
+  const windowItems: PlanItem[] = [];
+  const flexItems: PlanItem[] = [];
+  for (const item of items) {
+    if (item.kind === "travel") continue;
+    if (item.kind === "fixed" && item.startTime) {
+      hardAnchors.push(item);
+    } else if (item.timeConstraintType?.startsWith("window_")) {
+      windowItems.push(item);
+    } else {
+      flexItems.push(item);
+    }
+  }
+
+  // id → placement 記録（Pass 3 の cursor-walk 用）
+  const placements = new Map<string, PlacedRecord>();
+
+  // ── Pass 1: Hard clock anchors — 時刻順にそのまま配置 ──
+  hardAnchors.sort(
+    (a, b) => timeToMinutes(a.startTime!) - timeToMinutes(b.startTime!),
+  );
+  const occupied: Interval[] = [];
+  for (const anchor of hardAnchors) {
+    const start = timeToMinutes(anchor.startTime!);
+    const end = start + anchor.durationMin;
+    insertSortedInterval(occupied, { start, end });
+    placements.set(anchor.id, { item: anchor, start, end });
+  }
+
+  // ── Pass 2: Window items — window.start 早い順で gap-fit ──
+  // window.end は HARD。push-out は許さない。
+  windowItems.sort((a, b) => {
+    const aw = TIME_WINDOWS[a.timeConstraintType!];
+    const bw = TIME_WINDOWS[b.timeConstraintType!];
+    const as = aw?.start ?? Infinity;
+    const bs = bw?.start ?? Infinity;
+    if (as !== bs) return as - bs;
+    return (a.sequenceOrder ?? a.orderHint ?? 0) - (b.sequenceOrder ?? b.orderHint ?? 0);
+  });
+
+  for (const item of windowItems) {
+    const w = TIME_WINDOWS[item.timeConstraintType!];
+    if (!w) {
+      flexItems.push(item);
+      continue;
+    }
+    const wStart = Math.max(w.start, dayStart);
+    const wEnd = Math.min(w.end + 1, dayEnd);
+
+    const fitStart = findFirstGap(occupied, wStart, wEnd, item.durationMin);
+    if (fitStart !== null) {
+      const end = fitStart + item.durationMin;
+      insertSortedInterval(occupied, { start: fitStart, end });
+      const placed: PlanItem = { ...item, startTime: minutesToTime(fitStart) };
+      placements.set(item.id, { item: placed, start: fitStart, end });
+      continue;
+    }
+    if (item.durationSource !== "user") {
+      const shrunk = findBestShrinkableGap(
+        occupied,
+        wStart,
+        wEnd,
+        MIN_DURATION,
+        SHRINK_BUFFER_MIN,
+      );
+      if (shrunk) {
+        const finalDuration = Math.min(item.durationMin, shrunk.duration);
+        const end = shrunk.start + finalDuration;
+        insertSortedInterval(occupied, { start: shrunk.start, end });
+        const placed: PlanItem = {
+          ...item,
+          startTime: minutesToTime(shrunk.start),
+          durationMin: finalDuration,
+          durationShrunkByPlacement: finalDuration !== item.durationMin,
+        };
+        placements.set(item.id, { item: placed, start: shrunk.start, end });
+        continue;
+      }
+    }
+    // cannotFitWindow — startTime 無し
+    placements.set(item.id, {
+      item: { ...item, startTime: undefined, cannotFitWindow: true },
+    });
+  }
+
+  // ── Pass 3: Flex items の cursor-walk ──
+  //
+  // 全 item を sequenceOrder 昇順で走査し、cursor を前進させる。
+  // hard/window anchor は既に配置済みなので cursor をその end まで進めるだけ。
+  //
+  // flex item は:
+  //   1. 「次に来る anchor (sequenceOrder が自分より大きい hard/window placed item)」
+  //      の start より前で収めるのが narrative intent に沿う。
+  //   2. 収まらず、かつ inferred duration ならその区間に shrink 配置を試みる。
+  //   3. それも無理なら cursor 以降の最初の gap（anchor を跨いでも可）に流す。
+  const allInOrder = items
+    .filter(i => i.kind !== "travel")
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.sequenceOrder ?? a.orderHint ?? 9999) -
+        (b.sequenceOrder ?? b.orderHint ?? 9999),
+    );
+
+  let cursor = dayStart;
+  for (let idx = 0; idx < allInOrder.length; idx++) {
+    const item = allInOrder[idx];
+    const rec = placements.get(item.id);
+    if (rec) {
+      if (rec.end !== undefined) {
+        cursor = Math.max(cursor, rec.end);
+      }
+      continue;
+    }
+    // 次に来る配置済み anchor (sequenceOrder 昇順で後続の placed item) の start を探す
+    let narrativeLimit: number | undefined;
+    for (let j = idx + 1; j < allInOrder.length; j++) {
+      const future = allInOrder[j];
+      const futureRec = placements.get(future.id);
+      if (futureRec?.start !== undefined) {
+        narrativeLimit = futureRec.start;
+        break;
+      }
+    }
+
+    // 1. narrativeLimit 以内で full duration を置けるか
+    const limitEnd = narrativeLimit !== undefined
+      ? Math.min(narrativeLimit, dayEnd)
+      : dayEnd;
+
+    let placedStart: number | null = null;
+    let placedDuration: number = item.durationMin;
+    let shrunk = false;
+
+    if (limitEnd > cursor) {
+      const fit = findFirstGap(occupied, cursor, limitEnd, item.durationMin);
+      if (fit !== null) {
+        placedStart = fit;
+      } else if (item.durationSource !== "user") {
+        // shrink して narrativeLimit 前に収める
+        const shrinkFit = findBestShrinkableGap(
+          occupied,
+          cursor,
+          limitEnd,
+          MIN_DURATION,
+          SHRINK_BUFFER_MIN,
+        );
+        if (shrinkFit) {
+          placedStart = shrinkFit.start;
+          placedDuration = Math.min(item.durationMin, shrinkFit.duration);
+          shrunk = placedDuration !== item.durationMin;
+        }
+      }
+    }
+
+    // 2. narrativeLimit 内に置けなかった → anchor を跨いで first gap
+    if (placedStart === null) {
+      const fallback = findFirstGap(occupied, cursor, dayEnd, item.durationMin);
+      if (fallback !== null) {
+        placedStart = fallback;
+      }
+    }
+
+    if (placedStart !== null) {
+      const end = placedStart + placedDuration;
+      insertSortedInterval(occupied, { start: placedStart, end });
+      const placed: PlanItem = {
+        ...item,
+        startTime: minutesToTime(placedStart),
+        durationMin: placedDuration,
+        ...(shrunk ? { durationShrunkByPlacement: true } : {}),
+      };
+      placements.set(item.id, { item: placed, start: placedStart, end });
+      cursor = end;
+    } else {
+      // 1 日に収まらない → 時刻なしで末尾
+      placements.set(item.id, { item: { ...item } });
+    }
+  }
+
+  // 出力: sequenceOrder ではなく startTime 順にソート（startTime なしは末尾）
+  const out: PlanItem[] = items
+    .filter(i => i.kind !== "travel")
+    .map(i => placements.get(i.id)?.item ?? i);
+  out.sort((a, b) => {
+    if (!a.startTime && !b.startTime) return 0;
+    if (!a.startTime) return 1;
+    if (!b.startTime) return -1;
+    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+  });
+  return out;
+}
+
 /**
  * PlanItemを時間軸に配置してMorningPlanを生成する。
  *
@@ -348,117 +652,15 @@ export function buildDayPlan(
     ? timeToMinutes(options.endTimeConstraint)
     : 23 * 60;
 
-  // ── Phase 1: sequenceOrder を真実源とする統合配置 ──
+  // ── Phase 1 (W2-1): anchor-first 3 パス配置 ──
   //
-  // 旧設計: fixed/todo に二分してスロット配置 → segment order が壊れる
-  // 新設計: sequenceOrder 順に全アイテムを走査し、カーソルを前進させる
-  //         fixed item はアンカー（startTime 優先）、todo は直前の位置に配置
+  // CEO方針 2026-04-19:
+  //   LLM の sequenceOrder は advisory。clock (fixed_*) と window (window_*)
+  //   がハード制約。22:00 ランチ再発防止のために LLM の order 駆動を捨てる。
   //
-  // travel を除外（後で Phase 2 で再挿入する）
+  // travel は除外（Phase 2 で insertTravelItems が挿入する）。
   const nonTravel = items.filter(i => i.kind !== "travel");
-
-  // sequenceOrder → orderHint → 入力順 でソート
-  const sorted = [...nonTravel].sort((a, b) => {
-    const aSeq = a.sequenceOrder ?? a.orderHint ?? 9999;
-    const bSeq = b.sequenceOrder ?? b.orderHint ?? 9999;
-    if (aSeq !== bSeq) return aSeq - bSeq;
-    return 0; // 安定ソート
-  });
-
-  // fixed items のアンカー時刻リスト（overlap 検出用）
-  const fixedAnchors = sorted
-    .filter(i => i.kind === "fixed" && i.startTime)
-    .map(i => ({
-      start: timeToMinutes(i.startTime!),
-      end: timeToMinutes(i.startTime!) + i.durationMin,
-    }));
-
-  const scheduled: PlanItem[] = [];
-  let cursor = dayStart;
-
-  for (const item of sorted) {
-    if (item.kind === "fixed" && item.startTime) {
-      // fixed item: アンカー時刻を使用
-      scheduled.push(item);
-      cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
-    } else {
-      // todo item: cursor 位置に配置。ただしウィンドウ制約 / fixed 衝突を考慮
-      let placedAt = cursor;
-      let effectiveDuration = item.durationMin;
-
-      // ウィンドウ制約: window.start 以降、window.end 以前に配置
-      //   CEO方針 2026-04-18 Bug 5-C: window.end 超過を禁止
-      let windowEnd: number | undefined;
-      if (item.timeConstraintType?.startsWith("window_")) {
-        const window = TIME_WINDOWS[item.timeConstraintType];
-        if (window) {
-          placedAt = Math.max(placedAt, window.start);
-          windowEnd = window.end;
-        }
-      }
-
-      // 次の fixed anchor / window end と衝突するかチェック
-      //   CEO方針 2026-04-18 Bug 5-B: 衝突時は push ではなく shrink を試みる。
-      //   shrink できるのは durationSource !== "user"（推論 duration のみ）。
-      //   user 明示 duration は現状維持で push-out（従来挙動）。
-      const SHRINK_BUFFER_MIN = 10; // anchor 直前にこれだけ空ける
-      const MIN_TODO_DURATION = 15; // これ未満には shrink しない
-      const canShrink = item.durationSource !== "user";
-
-      // 衝突する最も早い境界（anchor.start / windowEnd）を探す
-      let nextBoundary: number | undefined;
-      for (const anchor of fixedAnchors) {
-        if (placedAt < anchor.start) {
-          nextBoundary = nextBoundary === undefined ? anchor.start : Math.min(nextBoundary, anchor.start);
-        }
-      }
-      if (windowEnd !== undefined) {
-        nextBoundary = nextBoundary === undefined ? windowEnd + 1 : Math.min(nextBoundary, windowEnd + 1);
-      }
-
-      if (nextBoundary !== undefined && placedAt + effectiveDuration > nextBoundary) {
-        // 衝突 or window.end 超過
-        const availableBefore = nextBoundary - placedAt - SHRINK_BUFFER_MIN;
-        if (canShrink && availableBefore >= MIN_TODO_DURATION) {
-          // shrink: sequenceOrder を保持したまま duration を短縮
-          effectiveDuration = availableBefore;
-        } else {
-          // 推論不可 or 十分な余裕なし → 従来通り push-out（次の anchor の後ろに配置）
-          //   ※ user-declared duration の保護
-          const colliding = fixedAnchors.find(a => placedAt < a.start && placedAt + item.durationMin > a.start);
-          if (colliding) {
-            placedAt = colliding.end;
-            effectiveDuration = item.durationMin; // push 時は duration を元に戻す
-          } else if (windowEnd !== undefined && placedAt > windowEnd) {
-            // window 超過・anchor 無し → cursor のまま（ordering 優先）
-          }
-        }
-      }
-
-      // dayEnd チェック
-      if (placedAt + effectiveDuration > dayEnd) {
-        // 時間内に収まらない → 時刻なしで末尾配置
-        scheduled.push({ ...item });
-      } else {
-        const shrunk = effectiveDuration !== item.durationMin;
-        scheduled.push({
-          ...item,
-          startTime: minutesToTime(placedAt),
-          durationMin: effectiveDuration,
-          ...(shrunk ? { durationShrunkByPlacement: true } : {}),
-        });
-        cursor = placedAt + effectiveDuration;
-      }
-    }
-  }
-
-  // 最終ソート: startTime 順（ただし startTime なしは末尾）
-  scheduled.sort((a, b) => {
-    if (!a.startTime && !b.startTime) return 0;
-    if (!a.startTime) return 1;
-    if (!b.startTime) return -1;
-    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
-  });
+  const scheduled = anchorFirstPlace(nonTravel, dayStart, dayEnd);
 
   // ── Phase 1.5: Location forward inheritance（CEO 2026-04-17 実機検証 fix）──
   //
@@ -612,90 +814,9 @@ export async function buildDayPlanAsync(
     ? timeToMinutes(options.endTimeConstraint)
     : 23 * 60;
 
-  // ── Phase 1: sequenceOrder を真実源とする統合配置（sync 版と同一）──
+  // ── Phase 1 (W2-1): anchor-first 3 パス配置（sync 版と同一ロジック） ──
   const nonTravel = items.filter(i => i.kind !== "travel");
-  const sorted = [...nonTravel].sort((a, b) => {
-    const aSeq = a.sequenceOrder ?? a.orderHint ?? 9999;
-    const bSeq = b.sequenceOrder ?? b.orderHint ?? 9999;
-    if (aSeq !== bSeq) return aSeq - bSeq;
-    return 0;
-  });
-
-  const fixedAnchors = sorted
-    .filter(i => i.kind === "fixed" && i.startTime)
-    .map(i => ({
-      start: timeToMinutes(i.startTime!),
-      end: timeToMinutes(i.startTime!) + i.durationMin,
-    }));
-
-  const scheduled: PlanItem[] = [];
-  let cursor = dayStart;
-
-  // CEO方針 2026-04-18 Bug 5 (A+B+C): sync 版と同一の配置ロジック
-  for (const item of sorted) {
-    if (item.kind === "fixed" && item.startTime) {
-      scheduled.push(item);
-      cursor = Math.max(cursor, timeToMinutes(item.startTime) + item.durationMin);
-    } else {
-      let placedAt = cursor;
-      let effectiveDuration = item.durationMin;
-      let windowEnd: number | undefined;
-      if (item.timeConstraintType?.startsWith("window_")) {
-        const window = TIME_WINDOWS[item.timeConstraintType];
-        if (window) {
-          placedAt = Math.max(placedAt, window.start);
-          windowEnd = window.end;
-        }
-      }
-
-      const SHRINK_BUFFER_MIN = 10;
-      const MIN_TODO_DURATION = 15;
-      const canShrink = item.durationSource !== "user";
-
-      let nextBoundary: number | undefined;
-      for (const anchor of fixedAnchors) {
-        if (placedAt < anchor.start) {
-          nextBoundary = nextBoundary === undefined ? anchor.start : Math.min(nextBoundary, anchor.start);
-        }
-      }
-      if (windowEnd !== undefined) {
-        nextBoundary = nextBoundary === undefined ? windowEnd + 1 : Math.min(nextBoundary, windowEnd + 1);
-      }
-
-      if (nextBoundary !== undefined && placedAt + effectiveDuration > nextBoundary) {
-        const availableBefore = nextBoundary - placedAt - SHRINK_BUFFER_MIN;
-        if (canShrink && availableBefore >= MIN_TODO_DURATION) {
-          effectiveDuration = availableBefore;
-        } else {
-          const colliding = fixedAnchors.find(a => placedAt < a.start && placedAt + item.durationMin > a.start);
-          if (colliding) {
-            placedAt = colliding.end;
-            effectiveDuration = item.durationMin;
-          }
-        }
-      }
-
-      if (placedAt + effectiveDuration > dayEnd) {
-        scheduled.push({ ...item });
-      } else {
-        const shrunk = effectiveDuration !== item.durationMin;
-        scheduled.push({
-          ...item,
-          startTime: minutesToTime(placedAt),
-          durationMin: effectiveDuration,
-          ...(shrunk ? { durationShrunkByPlacement: true } : {}),
-        });
-        cursor = placedAt + effectiveDuration;
-      }
-    }
-  }
-
-  scheduled.sort((a, b) => {
-    if (!a.startTime && !b.startTime) return 0;
-    if (!a.startTime) return 1;
-    if (!b.startTime) return -1;
-    return timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
-  });
+  const scheduled = anchorFirstPlace(nonTravel, dayStart, dayEnd);
 
   // Phase 1.5: Location forward inheritance（sync 版と同一ロジック）
   applyForwardLocationInheritance(scheduled);
@@ -811,6 +932,11 @@ function reassignTimes(
           cursor += item.durationMin;
         }
       }
+    } else if (item.cannotFitWindow) {
+      // W2-1 (2026-04-19): anchor-first placer が window.end 超過で配置不能と
+      // 判定した item は startTime を undefined のまま保持する。Safety Gate が
+      // 拾って plan_presented を止める根拠になる。
+      result.push({ ...item, startTime: undefined });
     } else {
       // todo: cursor 位置に配置。ウィンドウ制約 + fixed 衝突を考慮
       let placedAt = cursor;

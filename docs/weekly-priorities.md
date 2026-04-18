@@ -27,7 +27,7 @@
 - [x] CEO 実機再検証で「22:00 ランチ」「真逆のカフェ」が再現しない
 - **CEO PASS 判定**: 2026-04-18
 
-### Build Unit — Week 2（2026-04-19 着手）🔴
+### Build Unit — Week 2（2026-04-19 着手）🟡
 anchor-first deterministic planner + start/end origin 修正 + recommendation path。
 
 **CEO 指示（2026-04-18）**: Deep Context Injection は **構造 4 点を固めてから** 着手。先に広げない。
@@ -37,13 +37,14 @@ anchor-first deterministic planner + start/end origin 修正 + recommendation pa
 2. ケース2: ある程度成功だが start / end origin が崩れている（終点を把握していない）
 3. ケース3: /baseline で成田設定なのに成田駅周辺で出ない + 移動時間欠落 + recommendation 不発
 
-#### Step W2-1: anchor-first deterministic planner 🔴
-LLM の order を捨て、3 パス構築:
-- [ ] Pass 1: Hard anchor 配置（fixed_start / window_* を時系列配置）
-- [ ] Pass 2: Flex anchor を gap に挿入
-- [ ] Pass 3: Travel 生成（解決済み place のみ）
-- [ ] `window_end` 尊重。push-out 禁止。短縮可能なのは `inferred duration` のみ
-- [ ] テスト追加（22:00 ランチ再発防止 / window_end 尊重 / push-out 禁止）
+#### Step W2-1: anchor-first deterministic planner ✅（2026-04-19 完了）
+LLM の `sequenceOrder` を advisory に格下げし、clock / window を hard constraint にする 3 パス配置。
+- [x] Pass 1: Hard clock anchor（`fixed_*`）を時刻順に占有、LLM order 無視
+- [x] Pass 2: Window item を window.start 早い順で gap-fit。window.end は HARD、shrink は inferred duration のみ（buffer 10 分 / min 15 分）
+- [x] Pass 3: 全 item を sequenceOrder 昇順で cursor-walk、narrativeLimit で順序保護
+- [x] 配置不能は `cannotFitWindow` → `placementStatus="window_overflow"` → Safety Gate が blocker 付きで clarify
+- [x] テスト完走: anchorFirstPlacer 8 + planReadinessGate 12 + ceoScenario 114 = 134/134 PASS
+- **成果物**: `anchorFirstPlace()` in `lib/alter-morning/planningEngine.ts`, gate rule in `planReadinessGate.ts`
 
 #### Step W2-2: start / end origin 優先順位修正 🔴
 CEO 実機ケース2・3 で観測: /baseline 起点と endpoint が尊重されていない。

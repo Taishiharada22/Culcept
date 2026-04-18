@@ -176,6 +176,16 @@ export interface PlanSegment {
   status: SegmentStatus;
   /** 備考 */
   notes?: string;
+
+  /**
+   * W2-1 anchor-first planner (2026-04-19):
+   *   プランナー配置結果の副作用。window_* 制約が hard anchor に阻まれて
+   *   window.end までに収まらなかったセグメントには "window_overflow" が立つ。
+   *   Safety Gate がこれを検知し plan_presented を止める。
+   *
+   *   通常配置成功時は undefined。LLM は触らない（ロジック層の記録用）。
+   */
+  placementStatus?: "window_overflow";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

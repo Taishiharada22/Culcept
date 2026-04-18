@@ -26,6 +26,7 @@ import {
   type LLMExtractResult,
   TIME_WINDOWS,
   resetSegmentCounter,
+  generateSegmentId,
 } from "@/lib/alter-morning/planState";
 import { preloadVocabulary } from "@/lib/alter-morning/intentParser";
 import { mergeLocationActivitySegments, normalizeLLMOutput } from "@/lib/alter-morning/llmPlanExtractor";
@@ -168,6 +169,11 @@ function findOverlaps(items: Layer3Row[]): string[] {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function makeCEOBaseState(): PlanState {
+  // CEO方針 2026-04-19 (W2-1): 固定 ID 文字列 "seg_1".."seg_4" をそのまま使うと、
+  //   delta で新規セグメントが追加される際に generateSegmentId() が
+  //   同じ "seg_1" を返して衝突する（beforeEach で counter=0 にリセットしているため）。
+  //   counter を 4 まで進めておけば新規セグメントは seg_5 から始まり衝突しない。
+  for (let i = 0; i < 4; i++) generateSegmentId();
   return {
     targetDate: "2026-04-17",
     targetDateLabel: "明日",

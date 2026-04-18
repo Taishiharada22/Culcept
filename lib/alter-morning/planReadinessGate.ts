@@ -26,10 +26,12 @@
  */
 
 import type { PlanState, PlanSegment } from "./planState";
+import type { MorningPlan } from "./types";
 
 export type GateReason =
   | "near_anchor_not_resolved"
-  | "low_confidence";
+  | "low_confidence"
+  | "window_overflow";
 
 export type GateFailure = {
   ready: false;
@@ -85,6 +87,20 @@ export function evaluatePlanReadiness(state: PlanState): GateResult {
         diagnostic: `low confidence: place="${seg.place ?? ""}" seg=${seg.id}`,
       };
     }
+
+    // Rule 3 (W2-1 2026-04-19): anchor-first planner が window.end 超過で
+    //   配置できなかったセグメント。LLM の誤った時刻を信じず、plan_presented
+    //   に進めない。どの hard anchor が阻んでいるかを率直に提示する。
+    if (seg.placementStatus === "window_overflow") {
+      return {
+        ready: false,
+        reason: "window_overflow",
+        segmentId: seg.id,
+        segmentLabel: segmentLabel(seg),
+        clarifyMessage: buildWindowOverflowClarify(seg, state),
+        diagnostic: `window overflow: window=${seg.timeConstraint?.type ?? "?"} seg=${seg.id}`,
+      };
+    }
   }
 
   return { ready: true };
@@ -120,6 +136,76 @@ function buildLowConfidenceClarify(seg: PlanSegment): string {
     return `${label}の場所、「${placeName}」で探したんだけど候補が絞り込めなかった。もう少し具体的に教えてくれる？`;
   }
   return `${label}の場所がまだ決めきれてない。具体的な店名か、エリアだけでも教えてくれる？`;
+}
+
+/**
+ * W2-1 2026-04-19: anchor-first planner が window.end 超過で配置できなかった場合。
+ * 「LLM の嘘の時刻」を信じない代わりに、何が阻んでいるかを率直に伝える。
+ */
+function buildWindowOverflowClarify(seg: PlanSegment, state: PlanState): string {
+  const label = segmentLabel(seg);
+  const windowName = windowTypeToLabel(seg.timeConstraint?.type);
+  // 同じ window / 直後に重なる hard anchor を抜き出す
+  const blockers = state.segments
+    .filter(s =>
+      s.id !== seg.id &&
+      s.startTime &&
+      s.timeConstraint?.type &&
+      (s.timeConstraint.type === "fixed_start" ||
+        s.timeConstraint.type === "fixed_departure" ||
+        s.timeConstraint.type === "fixed_arrival"),
+    )
+    .map(s => `${segmentLabel(s)}(${s.startTime})`);
+  const blockerList = blockers.length > 0 ? blockers.join("・") : "";
+  if (windowName && blockerList) {
+    return `${label}を${windowName}に置こうとしたけど、${blockerList}で枠が埋まってる。${label}を別の時間帯にする？それともどれかをずらす？`;
+  }
+  if (windowName) {
+    return `${label}が${windowName}の枠に収まらなかった。時間帯を変えるか、他の予定をずらすか、どっちがいい？`;
+  }
+  return `${label}の時刻が他の予定とぶつかって入れられなかった。どれをずらすか教えてくれる？`;
+}
+
+function windowTypeToLabel(type?: string): string {
+  switch (type) {
+    case "window_morning":   return "朝（6〜12時）";
+    case "window_noon":      return "昼（11〜14時）";
+    case "window_afternoon": return "午後（13〜18時）";
+    case "window_evening":   return "夕方（17〜21時）";
+    case "window_night":     return "夜（20〜24時）";
+    default: return "";
+  }
+}
+
+/**
+ * W2-1 2026-04-19: anchor-first planner が PlanItem に立てた cannotFitWindow フラグを
+ * PlanSegment の placementStatus に反映する。ID 一致でのみ伝播（user 由来 item だけ）。
+ *
+ * 返り値は新しい PlanState（ミューテーション禁止）。
+ */
+export function applyPlacementStatusFromPlan(
+  state: PlanState,
+  plan: { items: MorningPlan["items"] },
+): PlanState {
+  // id → cannotFit マップ
+  const cannotFitIds = new Set<string>();
+  for (const it of plan.items) {
+    if (it.cannotFitWindow && it.id) {
+      cannotFitIds.add(it.id);
+    }
+  }
+  // 既に placementStatus が立っている segment は reset（毎回 plan build で再評価される）
+  const segments = state.segments.map(seg => {
+    const next: PlanSegment = { ...seg };
+    if (cannotFitIds.has(seg.id)) {
+      next.placementStatus = "window_overflow";
+    } else if (seg.placementStatus === "window_overflow") {
+      // 前回 overflow だったが今回 fit した → reset
+      next.placementStatus = undefined;
+    }
+    return next;
+  });
+  return { ...state, segments };
 }
 
 function segmentLabel(seg: PlanSegment): string {

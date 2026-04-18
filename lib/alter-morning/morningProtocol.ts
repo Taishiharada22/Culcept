@@ -37,7 +37,7 @@ import { applyPlanEdit, addDifferentialItems } from "./planEditor";
 import { applyImplicitLocationFill, buildLocationClarifyQuestion } from "./locationClarify";
 import { generateProactiveSuggestion } from "./proactiveSuggestions";
 import type { PlanState } from "./planState";
-import { evaluatePlanReadiness } from "./planReadinessGate";
+import { evaluatePlanReadiness, applyPlacementStatusFromPlan } from "./planReadinessGate";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ── Phase D rollback (CEO 2026-04-17): 都市圏判定は撤回 ──
@@ -1199,18 +1199,22 @@ async function handleClarifyingPhase(
     const dayConditions = buildV2DayConditions(session, message);
     const plan = await buildV2DayPlanAsync(allItems, dayConditions, session.planStateV2, session);
 
+    // W2-1 2026-04-19: anchor-first 配置の結果 cannotFitWindow が立ったセグメントに
+    //   placementStatus="window_overflow" を伝播してから Safety Gate を評価する。
+    const planStateAfterPlacement = applyPlacementStatusFromPlan(session.planStateV2, plan);
+
     // CEO方針 2026-04-18 Week 1 Step 6a: Plan Readiness Gate
     //   missingFields が空でも、未解決 place / low confidence が残っていたら
     //   plan_presented に進ませず、率直な sharp clarify に戻す。
-    const hasMissing = session.planStateV2.missingFields.length > 0;
-    const gate = evaluatePlanReadiness(session.planStateV2);
+    const hasMissing = planStateAfterPlacement.missingFields.length > 0;
+    const gate = evaluatePlanReadiness(planStateAfterPlacement);
     const nextPhase: MorningPhase = (!hasMissing && gate.ready) ? "plan_presented" : "clarifying";
     let nextMessage: string;
     if (hasMissing) {
       // 既存 missingFields 由来 clarify
-      nextMessage = _buildPlanConfirmMessage!(session.planStateV2);
+      nextMessage = _buildPlanConfirmMessage!(planStateAfterPlacement);
     } else if (gate.ready) {
-      nextMessage = _buildPlanConfirmMessage!(session.planStateV2);
+      nextMessage = _buildPlanConfirmMessage!(planStateAfterPlacement);
     } else {
       console.log("[plan-readiness-gate] blocked:", gate.diagnostic);
       nextMessage = gate.clarifyMessage;
@@ -1221,7 +1225,7 @@ async function handleClarifyingPhase(
         ...session,
         phase: nextPhase,
         plan,
-        planStateV2: session.planStateV2,
+        planStateV2: planStateAfterPlacement,
       },
       response: {
         phase: nextPhase,
@@ -1629,17 +1633,20 @@ async function handlePlanPresentedPhase(
 
         const plan = await buildV2DayPlanAsync(allItems, dayConditions, updatedState, session);
 
-        const confirmMsg = _buildDeltaConfirmMessage!(updatedState, delta);
+        // W2-1 2026-04-19: anchor-first 配置結果を segment に伝播してから Gate 評価
+        const deltaStateAfterPlacement = applyPlacementStatusFromPlan(updatedState, plan);
+
+        const confirmMsg = _buildDeltaConfirmMessage!(deltaStateAfterPlacement, delta);
         // GPT指摘: delta 後に stale な pendingPlaceConfirmations をクリーンアップ
-        const cleanedPending = cleanupPendingPlaceConfirmations(session, updatedState, delta);
+        const cleanedPending = cleanupPendingPlaceConfirmations(session, deltaStateAfterPlacement, delta);
         // 追加セグメントに不足情報がある場合はclarifyingフェーズへ
-        const hasMissingSegmentFields = updatedState.missingFields.some(
+        const hasMissingSegmentFields = deltaStateAfterPlacement.missingFields.some(
           f => f.startsWith("segmentTime:") || f.startsWith("segmentPlace:")
         );
         // CEO方針 2026-04-18 Week 1 Step 6a: Plan Readiness Gate
         //   delta 適用後も、placeSearchHint が解けていない / low confidence が残っていたら
         //   plan_presented に進ませない（壊れた確定プランを出さない）。
-        const deltaGate = evaluatePlanReadiness(updatedState);
+        const deltaGate = evaluatePlanReadiness(deltaStateAfterPlacement);
         const shouldPresent = !hasMissingSegmentFields && deltaGate.ready;
         const nextPhase: MorningPhase = shouldPresent ? "plan_presented" : "clarifying";
         let nextMessage: string;
@@ -1656,7 +1663,7 @@ async function handlePlanPresentedPhase(
           nextMessage = confirmMsg;
         }
         return {
-          session: { ...session, phase: nextPhase, plan, planStateV2: updatedState, pendingPlaceConfirmations: cleanedPending },
+          session: { ...session, phase: nextPhase, plan, planStateV2: deltaStateAfterPlacement, pendingPlaceConfirmations: cleanedPending },
           response: {
             phase: nextPhase,
             message: nextMessage,

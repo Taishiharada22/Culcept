@@ -15,6 +15,7 @@ import { describe, test, expect } from "vitest";
 import {
   evaluatePlanReadiness,
   isPlanReadyForPresent,
+  applyPlacementStatusFromPlan,
 } from "@/lib/alter-morning/planReadinessGate";
 import type { PlanState, PlanSegment } from "@/lib/alter-morning/planState";
 
@@ -151,6 +152,95 @@ describe("evaluatePlanReadiness", () => {
     ]);
     const result = evaluatePlanReadiness(state);
     expect(result.ready).toBe(true);
+  });
+});
+
+describe("evaluatePlanReadiness — W2-1 window_overflow", () => {
+  test("placementStatus=window_overflow → ready=false + window_overflow reason", () => {
+    const state = baseState([
+      seg({
+        id: "seg_lunch",
+        activity: "ランチ",
+        activityCanonical: "ランチ",
+        place: "サドヤ",
+        resolvedLat: 35.66,
+        resolvedLng: 138.56,
+        resolutionConfidence: "high",
+        placementStatus: "window_overflow",
+        timeConstraint: { type: "window_noon" } as any,
+      }),
+      seg({
+        id: "seg_work",
+        order: 2,
+        activity: "仕事",
+        activityCanonical: "仕事",
+        startTime: "12:00",
+        timeConstraint: { type: "fixed_start", fixedTime: "12:00" } as any,
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toBe("window_overflow");
+    expect(result.segmentId).toBe("seg_lunch");
+    // 曖昧語禁止
+    for (const phrase of FORBIDDEN_PHRASES) {
+      expect(result.clarifyMessage).not.toContain(phrase);
+    }
+    // 対象セグメント名が含まれる
+    expect(result.clarifyMessage).toContain("ランチ");
+    // 時間帯ラベルが含まれる
+    expect(result.clarifyMessage).toContain("昼");
+  });
+
+  test("placementStatus 未設定なら window_overflow 判定は走らない", () => {
+    const state = baseState([
+      seg({
+        id: "seg_lunch",
+        place: "サドヤ",
+        resolvedLat: 35.66,
+        resolvedLng: 138.56,
+        resolutionConfidence: "high",
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(true);
+  });
+});
+
+describe("applyPlacementStatusFromPlan — W2-1", () => {
+  test("PlanItem.cannotFitWindow=true → 対応セグメントに placementStatus=window_overflow", () => {
+    const state = baseState([
+      seg({ id: "seg_1", place: "X", resolvedLat: 1, resolvedLng: 1, resolutionConfidence: "high" }),
+      seg({ id: "seg_2", order: 2, place: "Y", resolvedLat: 1, resolvedLng: 1, resolutionConfidence: "high" }),
+    ]);
+    const plan = {
+      items: [
+        { id: "seg_1", kind: "todo", cannotFitWindow: true } as any,
+        { id: "seg_2", kind: "todo" } as any,
+      ],
+    };
+    const next = applyPlacementStatusFromPlan(state, plan);
+    expect(next.segments[0].placementStatus).toBe("window_overflow");
+    expect(next.segments[1].placementStatus).toBeUndefined();
+    // 元の state は不変
+    expect(state.segments[0].placementStatus).toBeUndefined();
+  });
+
+  test("以前 window_overflow だったセグメントが今回 fit → reset", () => {
+    const state = baseState([
+      seg({
+        id: "seg_1",
+        place: "X",
+        resolvedLat: 1,
+        resolvedLng: 1,
+        resolutionConfidence: "high",
+        placementStatus: "window_overflow",
+      }),
+    ]);
+    const plan = { items: [{ id: "seg_1", kind: "todo" } as any] }; // cannotFitWindow なし
+    const next = applyPlacementStatusFromPlan(state, plan);
+    expect(next.segments[0].placementStatus).toBeUndefined();
   });
 });
 

@@ -50,6 +50,40 @@
 
 ---
 
+### 2026-04-19 Alter-Morning Planner W2-1 完了 — anchor-first deterministic planner
+- **部門**: Build
+- **決定内容**: W2 構造 4 点のうち最優先の W2-1 を実装完了。LLM の `sequenceOrder` を advisory に格下げし、clock (`fixed_*`) と window (`window_*`) を hard constraint にした 3 パス配置 `anchorFirstPlace()` を導入。
+- **理由**: W1 は「壊れを止める」だったが、「どう組むか」が LLM 丸投げのままだと 22:00 ランチのような破綻が再発する。CEO 方針（4週 C プラン）の固定原則「LLM は意味を掴む。ロジックが計画を組む。」を planner の核に据える。
+- **承認**: 自律（W1/W2 スコープは CEO 承認済み、実装は自律実行）
+
+#### 実装サマリ
+| レイヤ | 変更 |
+|---|---|
+| `lib/alter-morning/types.ts` | `PlanItem.cannotFitWindow?: boolean` 追加 |
+| `lib/alter-morning/planState.ts` | `PlanSegment.placementStatus?: "window_overflow"` 追加 |
+| `lib/alter-morning/planningEngine.ts` | Phase 1 を `anchorFirstPlace()` に差し替え（sync + async 両方）。`findFirstGap` / `findBestShrinkableGap` / `insertSortedInterval` を追加。`reassignTimes` で `cannotFitWindow` の startTime 無しを保持 |
+| `lib/alter-morning/planReadinessGate.ts` | `GateReason: "window_overflow"` 追加、`buildWindowOverflowClarify()` で blocker 付き 1 問 clarify、`applyPlacementStatusFromPlan()` で PlanItem → PlanSegment 伝播 |
+| `lib/alter-morning/morningProtocol.ts` | 2 箇所の gate 判定前に `applyPlacementStatusFromPlan` を接続 |
+
+#### 配置アルゴリズム
+- **Pass 1 Hard clock**: `fixed_start/fixed_departure/fixed_arrival` を時刻順に占有。LLM order 無視
+- **Pass 2 Window**: `window_*` を window.start 早い順で gap-fit。**window.end は HARD**。shrink は `durationSource !== "user"` のみ（buffer 10分、min 15分）。収まらなければ `cannotFitWindow=true` で startTime 無しのまま
+- **Pass 3 Flex**: 全 item を `sequenceOrder` 昇順で cursor-walk。hard/window anchor は cursor を advance するだけ。flex item は次 anchor の start を `narrativeLimit` として narrative 順序を保護
+
+#### テスト
+- `tests/unit/alter-morning/anchorFirstPlacer.test.ts` 新規 8 PASS — 22:00 再発防止 / LLM order override / window_end hard / shrink policy / user-duration 保護 / sequenceOrder / same-window tiebreak
+- `tests/unit/alter-morning/planReadinessGate.test.ts` 12 PASS（内 window_overflow 4 新規）
+- `tests/unit/alter-morning/ceoScenario.test.ts` 114 PASS（ID 衝突回避の test fixture 修正込み）
+- 合計 134/134 PASS、全 alter-morning 751/752 PASS（残 1 件は intentParser の outfit clarify phrasing、W2-1 無関係）
+
+#### test fixture 修正
+- `makeCEOBaseState()` 内で `generateSegmentId()` を 4 回空回しして counter を進め、delta が新規生成する `seg_5` が既存 `seg_1..seg_4` と衝突しないようにした。本番は全て generateSegmentId 経由なので衝突は起きない
+
+#### 次（W2-2）
+- start / end origin の優先順位修正: `explicit startPoint > currentLocation > todayOrigin > baseline home` / `endpointAnchor > endAction > 帰宅`
+
+---
+
 ### 2026-04-18 Alter-Morning Planner W1 PASS + W2 スコープ確定
 - **部門**: Build / Product
 - **決定内容**: W1 Step 6a+6b を PASS 判定。W2 は当初計画の「anchor-first + Deep Context Injection」を分割し、**構造 4 点を先に固めてから** Deep Context Injection に進む。
