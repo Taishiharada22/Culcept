@@ -11,6 +11,7 @@ import { useCoAlter } from "@/hooks/useCoAlter";
 import CoAlterButton from "@/components/coalter/CoAlterButton";
 import CoAlterConsent from "@/components/coalter/CoAlterConsent";
 import CoAlterCard from "@/components/coalter/CoAlterCard";
+import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
 import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
 import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
 import { CoAlterPlanDetailSheet } from "@/components/coalter/CoAlterPlanDetailSheet";
@@ -631,6 +632,36 @@ export default function ChatClient({ threadId }: Props) {
   const coalter = useCoAlter(threadId);
   const [showPlanCalendar, setShowPlanCalendar] = useState(false);
   const [detailItem, setDetailItem] = useState<PlanItem | null>(null);
+
+  // CoAlter Phase A (2026-04-18): 外部導線ハンドオフイベントを fire-and-forget で記録
+  const handleCoAlterHandoffEvent = useCallback(
+    (payload: HandoffLogPayload) => {
+      const sessionId = coalter.currentSessionId;
+      if (!sessionId) return;
+      try {
+        void fetch("/api/coalter/handoff-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            candidateKey: payload.candidateKey,
+            eventType: payload.eventType,
+            theme: coalter.currentProposal?.theme ?? null,
+            providerType: payload.providerType,
+            providerName: payload.providerName,
+            url: payload.url,
+            label: payload.label,
+            confidence: payload.confidence,
+          }),
+        }).catch(() => {
+          /* silent — 観測ログは UX を止めない */
+        });
+      } catch {
+        /* silent */
+      }
+    },
+    [coalter.currentSessionId, coalter.currentProposal?.theme],
+  );
 
   // ── mount 検出 + 下書き復元（hydration 完了後） ──
   useEffect(() => {
@@ -1697,6 +1728,7 @@ export default function ChatClient({ threadId }: Props) {
                   awaitingAnswer={coalter.awaitingAnswer}
                   onAnswerInChat={(q) => coalter.markAwaitingAnswer(q)}
                   onCancelAwaiting={() => coalter.markAwaitingAnswer(null)}
+                  onHandoffEvent={handleCoAlterHandoffEvent}
                 />
               </motion.div>
             )}

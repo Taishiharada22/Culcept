@@ -26,6 +26,7 @@ import {
   buildClosing,
   buildCandidateDetail,
 } from "./narrationBuilder";
+import { COALTER_FLAGS } from "./flags";
 
 export interface NarrationInput {
   ranked: RankedCandidate[];
@@ -52,7 +53,10 @@ export function buildNarrationFromLogic(input: NarrationInput): ProposalCard {
   const baseCandidates = buildProposalCandidates(ranked);
 
   // Phase A (2026-04-18): 各 candidate に detail (bottom sheet 用) を attach
+  // kill switch: COALTER_BOOKING_HANDOFF_ENABLED=false で detail 付与をスキップ → 旧 UI に戻る
+  const attachDetail = COALTER_FLAGS.bookingHandoffEnabled;
   const candidates = baseCandidates.map((cand, i) => {
+    if (!attachDetail) return cand;
     const rc = ranked[i];
     if (!rc) return cand;
     const detail = buildCandidateDetail({
