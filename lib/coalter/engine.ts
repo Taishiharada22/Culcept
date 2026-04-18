@@ -26,6 +26,10 @@ import { fetchRecentMessages, analyzeConversation } from "./conversationParser";
 import { decideSearch, searchAndFilter } from "./webConnector";
 import { generateProposal } from "./proposalGenerator";
 import { generateMovieProposalV2 } from "./movieOrchestrator";
+import {
+  generateFoodProposalV2,
+  emitFoodOrchestratorError,
+} from "./foodOrchestrator";
 import { candidateKey } from "./axes";
 import { buildTopicAnchor } from "./topicScope";
 import type { TopicAnchor } from "./types";
@@ -153,8 +157,10 @@ export async function runCoAlterPipeline(
 
   // ── L5: 提案生成 ──
   // 2026-04-18: movie テーマは 4-layer 再設計パイプライン (movieOrchestrator) に切替
+  // 2026-04-19 Phase B Commit 3: food テーマも 4-layer パイプライン (foodOrchestrator) に切替
   // それ以外のテーマは従来の generateProposal を継続使用
   const useMovieV2 = analysis.theme === "movie";
+  const useFoodV2 = analysis.theme === "food";
   let rawProposal: ProposalCard;
   if (useMovieV2) {
     const movieResult = await generateMovieProposalV2({
@@ -193,6 +199,63 @@ export async function runCoAlterPipeline(
         () => {},
         () => {},
       );
+  } else if (useFoodV2) {
+    // Phase B Commit 3 (2026-04-19): food 4-layer パイプライン
+    //
+    // CEO 追加条件 #1: diagnostics 二重発火禁止
+    //   - 成功時: foodOrchestrator 内で food.diagnostics を 1 回 emit
+    //   - 失敗時: food.orchestrator.error を emit + generateProposal に fallback
+    //            （food.diagnostics は emit しない）
+    try {
+      const foodResult = await generateFoodProposalV2({
+        turns: messages,
+        analysis,
+        searchCandidates,
+        profileA,
+        profileB,
+        relationship,
+        avoidKeys: options?.avoidKeys,
+        pendingDeltas: options?.pendingDeltas,
+        sessionId: session.id,
+        userId: input.invokedBy,
+      });
+      rawProposal = foodResult.card;
+
+      // observability: coalter_proposal_quality 記録 (movie と同パターン)
+      supabase
+        .from("coalter_proposal_quality")
+        .insert({
+          session_id: session.id,
+          brief_source: foodResult.telemetry.briefSource,
+          brief_confidence: foodResult.telemetry.briefConfidence,
+          catalog_count: foodResult.telemetry.catalogCount,
+          ranked_count: foodResult.telemetry.rankedCount,
+          ranking_axes_preset: foodResult.telemetry.rankingAxesPreset,
+          narration_mode: foodResult.telemetry.narrationMode,
+          llm_success_layer0: foodResult.telemetry.llmSuccessLayer0,
+          llm_success_layer3: foodResult.telemetry.llmSuccessLayer3,
+          latency_ms_total: foodResult.telemetry.latencyMsTotal,
+          latency_ms_catalog: foodResult.telemetry.latencyMsCatalog,
+          latency_ms_rank: foodResult.telemetry.latencyMsRank,
+          latency_ms_narration: foodResult.telemetry.latencyMsNarration,
+        })
+        .then(
+          () => {},
+          () => {},
+        );
+    } catch (err) {
+      // CEO 追加条件 #1: 失敗時は error を emit、成功時の food.diagnostics は出さない
+      emitFoodOrchestratorError(err, session.id);
+      rawProposal = await generateProposal(
+        profileA,
+        profileB,
+        analysis,
+        searchCandidates,
+        relationship,
+        input.userMessage,
+        options,
+      );
+    }
   } else {
     rawProposal = await generateProposal(
       profileA,

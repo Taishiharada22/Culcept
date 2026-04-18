@@ -1,17 +1,23 @@
 /**
  * CoAlter Phase A: Booking Handoff Resolver (2026-04-18)
+ * Phase B Commit 3 (2026-04-19): 5 分類化
+ *   official / official_site / official_reservation_partner /
+ *   third_party_listing / unknown
  *
  * 責務:
  *  - searchCandidates / catalog sourceUrl から候補に対応する URL を抽出
- *  - URL を providerType (official / official_site / third_party) に分類
- *  - entity 一致強度と URL 種別から confidence を判定（third_party は high 不可）
+ *  - URL を providerType (5 分類) に分類
+ *  - entity 一致強度と URL 種別から confidence を判定
+ *    (third_party_listing / official_reservation_partner は high 不可)
  *  - theme × confidence × providerType から CTA label を決定
  *    - movie は confidence によらず「予約」系 CTA を出さない（上映ページ誘導止まり）
+ *    - unknown は CTA 非表示（呼び出し側で落とす）
  *
  * 設計原則:
  *  1. URL はハルシネーションしない。入力の searchCandidates / catalog 由来のみ。
  *  2. 一致エビデンスが弱ければ confidence を落とす（label が自動で弱くなる）。
  *  3. phone は保持のみ。v1 CTA には使わない。
+ *  4. 分類不能時は unknown を返す（hard filter にはしない。観測可能な明示カテゴリ）。
  */
 
 import type {
@@ -57,8 +63,8 @@ const MOVIE_THIRD_PARTY_DOMAINS = new Map<string, string>([
 ]);
 
 /**
- * 食事系（Phase B 予定。Phase A では theme=food でこの枝に入らないが、
- * 将来のための骨格として残しておく）。
+ * 食事系の第三者リスティングサイト（venue-bearing: ページ単位で店舗情報完備）。
+ * 公式ではないので confidence は medium までに cap する。
  */
 const FOOD_THIRD_PARTY_DOMAINS = new Map<string, string>([
   ["tabelog.com", "食べログ"],
@@ -68,6 +74,26 @@ const FOOD_THIRD_PARTY_DOMAINS = new Map<string, string>([
   ["retty.me", "Retty"],
   ["tripadvisor.com", "Tripadvisor"],
   ["tripadvisor.jp", "Tripadvisor"],
+]);
+
+/**
+ * 公式が採用している予約 SaaS ドメイン（Phase B Commit 3 で 5 分類化）。
+ *
+ * これらへの導線は「公式の予約パートナー」扱い。
+ * confidence は medium までに cap（official ほど直接ではないが、unknown よりは強い）。
+ */
+const OFFICIAL_RESERVATION_PARTNER_DOMAINS = new Map<string, string>([
+  ["tablecheck.com", "TableCheck"],
+  ["www.tablecheck.com", "TableCheck"],
+  ["opentable.jp", "OpenTable"],
+  ["opentable.com", "OpenTable"],
+  ["toreta.in", "Toreta"],
+  ["toreta.app", "Toreta"],
+  ["ebica.jp", "ebica"],
+  ["hitosara.com", "ヒトサラ"],
+  ["autoreserve.com", "AutoReserve"],
+  ["ikyu.com", "一休レストラン"],
+  ["restaurant.ikyu.com", "一休レストラン"],
 ]);
 
 /** booking / reservation を示す URL パス */
@@ -112,16 +138,18 @@ function normalizeTitle(s: string): string {
 }
 
 /**
- * theme × URL から providerType を判定する。
+ * theme × URL から providerType を判定する（5 分類）。
  *
  * - movie:
  *   - MOVIE_OFFICIAL_DOMAINS に一致 → "official" (booking path あり) / "official_site" (なし)
- *   - MOVIE_THIRD_PARTY_DOMAINS に一致 → "third_party"
- *   - それ以外 → "third_party" (unknown 扱い / 最弱)
+ *   - MOVIE_THIRD_PARTY_DOMAINS に一致 → "third_party_listing"
+ *   - それ以外 → "unknown" (判定不能の明示カテゴリ。hard filter にはしない)
  * - food:
- *   - FOOD_THIRD_PARTY_DOMAINS に一致 → "third_party"
- *   - それ以外 + booking path あり → "official" (固有ドメインは確定不可なので path ベース)
- *   - それ以外 + トップ → "official_site"
+ *   - OFFICIAL_RESERVATION_PARTNER_DOMAINS に一致 → "official_reservation_partner"
+ *   - FOOD_THIRD_PARTY_DOMAINS に一致 → "third_party_listing"
+ *   - 未知ドメイン + booking path あり → "official" (path ベース heuristic)
+ *   - それ以外（未知ドメイン + booking path なし） → "unknown"
+ *     * 保守的: 任意 URL を official_site と扱うと公式を誤認するため、判定不能を明示する
  */
 function classifyProvider(
   theme: ConversationBrief["theme"] | string,
@@ -129,7 +157,7 @@ function classifyProvider(
 ): { providerType: BookingProviderType; providerName: string | null } {
   const host = hostOf(url);
   if (!host) {
-    return { providerType: "third_party", providerName: null };
+    return { providerType: "unknown", providerName: null };
   }
 
   if (theme === "movie") {
@@ -145,28 +173,40 @@ function classifyProvider(
     // 第三者映画サイト
     for (const [domain, label] of MOVIE_THIRD_PARTY_DOMAINS) {
       if (host === domain || host.endsWith(`.${domain}`)) {
-        return { providerType: "third_party", providerName: label };
+        return { providerType: "third_party_listing", providerName: label };
       }
     }
-    // その他のドメインは third_party（unknown 扱い）
-    return { providerType: "third_party", providerName: null };
+    // 判定不能
+    return { providerType: "unknown", providerName: null };
   }
 
   // 食事系
   if (theme === "food") {
-    for (const [domain, label] of FOOD_THIRD_PARTY_DOMAINS) {
+    // 公式予約パートナー（最優先に判定: listing より強い確信）
+    for (const [domain, label] of OFFICIAL_RESERVATION_PARTNER_DOMAINS) {
       if (host === domain || host.endsWith(`.${domain}`)) {
-        return { providerType: "third_party", providerName: label };
+        return {
+          providerType: "official_reservation_partner",
+          providerName: label,
+        };
       }
     }
+    // 第三者リスティング
+    for (const [domain, label] of FOOD_THIRD_PARTY_DOMAINS) {
+      if (host === domain || host.endsWith(`.${domain}`)) {
+        return { providerType: "third_party_listing", providerName: label };
+      }
+    }
+    // 未知ドメイン: booking path があれば official (path ベース heuristic)
     if (isBookingPath(url)) {
       return { providerType: "official", providerName: null };
     }
-    return { providerType: "official_site", providerName: null };
+    // それ以外は判定不能
+    return { providerType: "unknown", providerName: null };
   }
 
-  // その他 theme は一旦 third_party 扱い
-  return { providerType: "third_party", providerName: null };
+  // その他 theme は unknown
+  return { providerType: "unknown", providerName: null };
 }
 
 /**
@@ -223,6 +263,12 @@ function resolveLabel(
   confidence: BookingConfidence,
   providerName: string | null,
 ): string {
+  // unknown は CTA 非表示方針。呼び出し側で落とすのが本筋だが、
+  // label は fallback として最弱表示を返しておく。
+  if (providerType === "unknown") {
+    return "詳しく見る";
+  }
+
   if (theme === "movie") {
     // 映画は「予約」を出さない
     if (providerType === "official" && confidence !== "low") {
@@ -231,7 +277,7 @@ function resolveLabel(
     if (providerType === "official_site") {
       return "劇場サイトで確認する";
     }
-    if (providerType === "third_party") {
+    if (providerType === "third_party_listing") {
       return providerName ? `${providerName}で見る` : "上映情報を見る";
     }
     return "上映情報を見る";
@@ -247,7 +293,10 @@ function resolveLabel(
     if (providerType === "official_site") {
       return "公式サイトで確認する";
     }
-    if (providerType === "third_party") {
+    if (providerType === "official_reservation_partner") {
+      return providerName ? `${providerName}で予約する` : "予約サイトで確認する";
+    }
+    if (providerType === "third_party_listing") {
       return providerName ? `${providerName}で見る` : "お店の情報を見る";
     }
   }
@@ -340,18 +389,28 @@ export function resolveBookingHandoff(
         p.providerType === "official" || p.providerType === "official_site",
     ),
   );
+  const officialPartner = pickBest(
+    pool.filter((p) => p.providerType === "official_reservation_partner"),
+  );
   const thirdParty = pickBest(
-    pool.filter((p) => p.providerType === "third_party"),
+    pool.filter((p) => p.providerType === "third_party_listing"),
+  );
+  const unknownCandidate = pickBest(
+    pool.filter((p) => p.providerType === "unknown"),
   );
 
   const bookingUrl = officialBooking?.url ?? null;
   const officialUrl = officialSite?.url ?? null;
 
   // 出すべきプロバイダを選ぶ（confidence と label の主語）
+  // 優先: official(booking) > official_site > official_reservation_partner
+  //       > third_party_listing > unknown
   let primary: UrlCandidate | null = null;
   if (officialBooking) primary = officialBooking;
   else if (officialSite) primary = officialSite;
+  else if (officialPartner) primary = officialPartner;
   else if (thirdParty) primary = thirdParty;
+  else if (unknownCandidate) primary = unknownCandidate;
 
   if (!primary) return null;
 
@@ -388,13 +447,13 @@ function pickBest(list: UrlCandidate[]): UrlCandidate | null {
 }
 
 /**
- * confidence 決定:
+ * confidence 決定（5 分類対応）:
  *  - official + booking path + match>=0.7 → high
  *  - official + (booking path なし OR match<0.7) → medium
- *  - official_site + match>=0.5 → medium
- *  - third_party + match>=0.7 → medium（cap）
- *  - third_party + match<0.7 → low
- *  - それ以外の弱い一致 → low
+ *  - official_site + match>=0.5 → medium / else → low
+ *  - official_reservation_partner + match>=0.7 → medium（cap、high 不可） / else → low
+ *  - third_party_listing + match>=0.7 → medium（cap、high 不可） / else → low
+ *  - unknown → low（CTA 非表示方針だが label fallback のため low を返す）
  */
 function resolveConfidence(primary: UrlCandidate): BookingConfidence {
   const { providerType, hasBookingPath, match } = primary;
@@ -407,8 +466,15 @@ function resolveConfidence(primary: UrlCandidate): BookingConfidence {
     if (match >= 0.5) return "medium";
     return "low";
   }
-  // third_party: never high
-  if (match >= 0.7) return "medium";
+  if (providerType === "official_reservation_partner") {
+    if (match >= 0.7) return "medium";
+    return "low";
+  }
+  if (providerType === "third_party_listing") {
+    if (match >= 0.7) return "medium";
+    return "low";
+  }
+  // unknown
   return "low";
 }
 

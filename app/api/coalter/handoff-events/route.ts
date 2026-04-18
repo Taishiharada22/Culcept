@@ -26,7 +26,19 @@ const EVENT_TYPES = new Set([
   "source_tap",
 ]);
 
-const PROVIDER_TYPES = new Set(["official", "official_site", "third_party"]);
+// Phase B Commit 3 (2026-04-19): providerType を 5 分類に拡張
+//   official / official_site / official_reservation_partner / third_party_listing / unknown
+// 後方互換: 旧 "third_party" はイベント側で受け取っても silently 受け入れる
+// （過去クライアントからの POST を弾かない）
+const PROVIDER_TYPES = new Set([
+  "official",
+  "official_site",
+  "official_reservation_partner",
+  "third_party_listing",
+  "unknown",
+  // legacy compat
+  "third_party",
+]);
 const CONFIDENCE_LEVELS = new Set(["high", "medium", "low"]);
 
 interface Body {

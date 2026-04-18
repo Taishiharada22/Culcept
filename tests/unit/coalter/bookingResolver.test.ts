@@ -4,7 +4,7 @@
  * 検証:
  *  - 公式ドメイン + booking path → official + high confidence
  *  - 公式ドメインだが booking path なし → official_site + medium
- *  - third_party (映画.com / 食べログ) → third_party + 最大 medium (high 禁止)
+ *  - third_party_listing (映画.com / 食べログ) → third_party_listing + 最大 medium (high 禁止)
  *  - 映画は confidence が high でも CTA は「予約」にしない
  *  - URL が全く無ければ null
  *  - entity 一致弱ければ confidence が落ちる
@@ -47,19 +47,19 @@ describe("bookingResolver.classifyProvider", () => {
 
   it("movie: 映画.com → third_party (providerName=映画.com)", () => {
     const r = classifyProvider("movie", "https://eiga.com/movie/12345/");
-    expect(r.providerType).toBe("third_party");
+    expect(r.providerType).toBe("third_party_listing");
     expect(r.providerName).toBe("映画.com");
   });
 
   it("movie: Filmarks → third_party (providerName=Filmarks)", () => {
     const r = classifyProvider("movie", "https://filmarks.com/movies/99999");
-    expect(r.providerType).toBe("third_party");
+    expect(r.providerType).toBe("third_party_listing");
     expect(r.providerName).toBe("Filmarks");
   });
 
   it("food: 食べログ → third_party (providerName=食べログ)", () => {
     const r = classifyProvider("food", "https://tabelog.com/tokyo/A1303/rstdetail/");
-    expect(r.providerType).toBe("third_party");
+    expect(r.providerType).toBe("third_party_listing");
     expect(r.providerName).toBe("食べログ");
   });
 });
@@ -110,7 +110,7 @@ describe("bookingResolver.resolveBookingHandoff — movie theme", () => {
       ],
     });
     expect(b).not.toBeNull();
-    expect(b!.providerType).toBe("third_party");
+    expect(b!.providerType).toBe("third_party_listing");
     // third_party は絶対 high にならない
     expect(b!.confidence).not.toBe("high");
     expect(b!.confidence).toBe("medium");
@@ -145,7 +145,7 @@ describe("bookingResolver.resolveBookingHandoff — movie theme", () => {
     });
     expect(b).not.toBeNull();
     // catalog 由来だけが pool に残る
-    expect(b!.providerType).toBe("third_party");
+    expect(b!.providerType).toBe("third_party_listing");
   });
 });
 
@@ -187,7 +187,7 @@ describe("bookingResolver.resolveBookingHandoff — food theme", () => {
       ],
     });
     expect(b).not.toBeNull();
-    expect(b!.providerType).toBe("third_party");
+    expect(b!.providerType).toBe("third_party_listing");
     expect(b!.confidence).not.toBe("high");
     expect(b!.label).toBe("食べログで見る");
   });

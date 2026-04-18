@@ -646,17 +646,30 @@ export interface ProposalCandidate {
 // ─────────────────────────────────────────────
 
 /**
- * 予約/詳細確認の外部導線種別。
+ * 予約/詳細確認の外部導線種別（Phase B Commit 3 で 3→5 分類に拡張）。
  *
- * - official          : 映画館サイト・レストラン自社サイト等の「公式ドメイン」
- *                       URL パス上に /reserve, /booking, /ticket, /reservation 等を含む
- * - official_site     : 公式ドメインだが予約確定ページではない（トップ / メニュー）
- * - third_party       : 食べログ / ぐるなび / Filmarks 等の第三者サイト
+ * - official                       : 映画館サイト・レストラン自社サイト等の「公式ドメイン」
+ *                                    URL パス上に /reserve, /booking, /ticket, /reservation 等を含む
+ * - official_site                  : 公式ドメインだが予約確定ページではない（トップ / メニュー）
+ * - official_reservation_partner   : 公式が採用している予約 SaaS
+ *                                    (TableCheck / OpenTable / Toreta / ebica / Hitosara 等) への導線
+ *                                    公式予約パートナードメイン whitelist で判定
+ * - third_party_listing            : 食べログ / ぐるなび / Retty / ホットペッパー / Filmarks 等の
+ *                                    第三者リスティングサイト (Phase B Commit 3 以前は "third_party")
+ * - unknown                        : 5 分類のいずれにも確信を持って振れない判定不能ケース。
+ *                                    **hard filter にしない / CTA 非表示** の明示的カテゴリであり
+ *                                    エラーではない。監査の起点として別カウンタに計上する
+ *
+ * 後方互換: Phase B Commit 3 以前の "third_party" は "third_party_listing" に機械 rename。
+ * semantics は不変で、string の変更のみ。movie 側は実質 official / official_site /
+ * third_party_listing の 3 分類運用 (official_reservation_partner と unknown は食向け)。
  */
 export type BookingProviderType =
   | "official"
   | "official_site"
-  | "third_party";
+  | "official_reservation_partner"
+  | "third_party_listing"
+  | "unknown";
 
 /**
  * 導線 URL の確信度。

@@ -276,20 +276,47 @@ function buildSearchQueries(
       break;
     }
     case "food": {
-      // core=where → 店舗名を引き出すため「食べログ」「レストラン」「個室」等のキーワード
-      const q = [
+      // Phase B Commit 3 (2026-04-19) — food query 再設計:
+      //
+      // 方針:
+      //  - 食べログ / Retty / ぐるなび等の listing site は venue-bearing
+      //    （ページ単位で店舗情報完備）なので保持
+      //  - 「おすすめ10選」「まとめ」等の article-listing のみ除外
+      //  - 公式導線を 1 本追加して bookingProviderDistribution の多様性を担保
+      //
+      // negative 過剰適用禁止:
+      //  - "-まとめ" "-おすすめ10選" は listing-venue bearing クエリにのみ適用
+      //  - 公式誘引クエリには negative を追加しない（公式トップや予約ページを
+      //    抑制しないため）
+      const articleListingNegatives = "-まとめ -おすすめ10選 -ランキング";
+
+      // q1: venue-bearing listing クエリ（食べログ / Retty 等を主眼）
+      //     article-listing 用語を negative で除外
+      const q1 = [
         locationPart.trim(),
         budgetPart,
         styleHint,
-        "レストラン 食べログ デート",
+        "レストラン 食べログ Retty",
         exclusionHint,
+        articleListingNegatives,
       ]
         .filter(Boolean)
         .join(" ")
         .trim();
-      queries.push(q || "おすすめ レストラン デート");
+      queries.push(q1 || "おすすめ レストラン デート");
 
-      // 2本目: 雰囲気/style 単独
+      // q2: 公式導線誘引クエリ（provider 多様性のため）
+      //     negative は**意図的に未適用**。公式トップや予約ページを除外しないため
+      const q2Parts = [
+        locationPart.trim(),
+        styleHint,
+        "公式サイト 予約",
+      ].filter(Boolean);
+      if (q2Parts.length > 0) {
+        queries.push(q2Parts.join(" ").trim());
+      }
+
+      // q3: style 人気店 保険クエリ（styleHint があるときのみ）
       if (styleHint) {
         queries.push(`${locationPart}${styleHint} 人気店`.trim());
       }
