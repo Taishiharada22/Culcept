@@ -1778,5 +1778,222 @@ export async function resolveNearAnchorPlaces(
   return { resolved, needsConfirmation };
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Recommendation Intent Resolver (W2-3 CEO方針 2026-04-19)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+import type { RecommendationIntent } from "./types";
+import { inferPlaceCategoryFromActivity } from "./activityVocabulary";
+
+/** 解決結果の 1 件 */
+export interface RecommendationCandidate extends PlaceCandidate {
+  /** 発生源（narrative で使う） */
+  recommendationSource: RecommendationIntent["source"];
+  /** 使われた解決戦略 */
+  strategy: RecommendationIntent["strategy"];
+}
+
+export interface RecommendationResolution {
+  /** 候補（Top 3、matchScore 降順） */
+  candidates: RecommendationCandidate[];
+  /** 第 1 候補（あれば） */
+  bestCandidate?: RecommendationCandidate;
+  /** 確信度。recommendation は常に medium 以下（ユーザー選択 or Alter 提案を前提とする） */
+  confidence: ResolutionConfidence;
+  /** 解決理由・ログ */
+  reason: string;
+  /** 使用した戦略（source や anchor の有無で自動選択） */
+  strategyUsed: RecommendationIntent["strategy"];
+  /** 使用した半径（メートル） */
+  radiusM: number;
+  /** 使用した anchor 座標（なければ null） */
+  anchorCoords: LatLng | null;
+}
+
+/**
+ * RecommendationIntent を解決して候補を返す（W2-3 2026-04-19）。
+ *
+ * 責務境界:
+ *   - generic_place resolver は「どれか1つを確定したい」経路（clarify 系）
+ *   - この関数は「良い1つを提案してほしい」経路（proposal 系）
+ *
+ * 解決戦略（優先順で試行、最初に anchor/area が決まった戦略を採用）:
+ *   1. anchor_proximity: intent.anchorHint or 同プラン既解決セグメントに anchor がある
+ *                         → その座標の周囲を Places API で探索
+ *   2. category_only:    anchor なし。baseline/currentLocation をエリア中心に使う
+ *   3. stargazer_weighted / relational_weighted: W2-5 以降で追加
+ *
+ * CEO方針（以後のすべての layer で共通）:
+ *   - 勝手に確定しない: confidence は最大 medium
+ *   - 候補 0 件は低 confidence + clarify 用の reason を乗せる
+ *   - fail-open: API 未設定・失敗はプラン生成を止めない
+ *
+ * @param intent - ユーザー発話から抽出された recommendation 意図
+ * @param segments - 同プランの他セグメント（既解決 anchor を流用するため）
+ * @param ctx - エリア・現在地等のフォールバック情報
+ * @param activityHint - activity 名（categoryHint 未設定時の補完用）
+ */
+export async function resolveRecommendationIntent(
+  intent: RecommendationIntent,
+  segments: PlanSegment[],
+  ctx: {
+    /** 都市中心座標（baseline 由来）。anchor/anchorHint が取れないとき使う */
+    areaCoords?: LatLng | null;
+    /** エリア名（「渋谷区」「甲府」）。geocode の補助・reason ログ用 */
+    areaLabel?: string;
+    /** 現在地（GPS / recent_segment）。areaCoords より優先度が高い */
+    currentLocation?: LatLng | null;
+  },
+  activityHint?: string,
+): Promise<RecommendationResolution> {
+  // ── 1. category を確定（categoryHint > activity から推論） ──
+  const category =
+    intent.categoryHint?.trim() ||
+    (activityHint ? inferPlaceCategoryFromActivity(activityHint) : undefined);
+
+  if (!category) {
+    return {
+      candidates: [],
+      bestCandidate: undefined,
+      confidence: "low",
+      reason: `recommendation_no_category: intent.categoryHint なし、activity="${activityHint ?? ""}" からも推論不能`,
+      strategyUsed: intent.strategy,
+      radiusM: 0,
+      anchorCoords: null,
+    };
+  }
+
+  // ── 2. 戦略選択（anchor_proximity → category_only の順で退行） ──
+  let strategyUsed: RecommendationIntent["strategy"] = intent.strategy;
+  let anchorCoords: LatLng | null = null;
+  let anchorLabel = intent.anchorHint;
+
+  // 2a. anchor_proximity: intent.anchorHint or 同プランの既解決セグメント
+  if (intent.anchorHint) {
+    const fromSegments = findAnchorCoords(segments, intent.anchorHint);
+    if (fromSegments && fromSegments.confidence === "high") {
+      anchorCoords = fromSegments.coords;
+      strategyUsed = "anchor_proximity";
+    } else {
+      const fromGeocode = await geocodeAreaLabel(intent.anchorHint);
+      if (fromGeocode && (fromGeocode.confidence === "high" || fromGeocode.confidence === "medium")) {
+        anchorCoords = fromGeocode.coords;
+        strategyUsed = "anchor_proximity";
+      }
+    }
+  }
+
+  // 2b. category_only: anchor 取れず → currentLocation > areaCoords
+  if (!anchorCoords) {
+    if (ctx.currentLocation) {
+      anchorCoords = ctx.currentLocation;
+      anchorLabel = anchorLabel ?? "現在地";
+      strategyUsed = "category_only";
+    } else if (ctx.areaCoords) {
+      anchorCoords = ctx.areaCoords;
+      anchorLabel = anchorLabel ?? ctx.areaLabel ?? "エリア中心";
+      strategyUsed = "category_only";
+    }
+  }
+
+  // 2c. 全滅 → 解決不能
+  if (!anchorCoords) {
+    return {
+      candidates: [],
+      bestCandidate: undefined,
+      confidence: "low",
+      reason: `recommendation_no_anchor: anchorHint=${intent.anchorHint ?? "none"}, area/currentLocation も未解決`,
+      strategyUsed,
+      radiusM: 0,
+      anchorCoords: null,
+    };
+  }
+
+  // ── 3. 半径決定 ──
+  const radiusM = intent.radiusOverrideM ?? getNearAnchorRadius(category);
+
+  // ── 4. Places API 呼び出し（fail-open） ──
+  if (!isPlacesApiAvailable()) {
+    return {
+      candidates: [],
+      bestCandidate: undefined,
+      confidence: "low",
+      reason: "recommendation_api_unavailable: Places API 未設定",
+      strategyUsed,
+      radiusM,
+      anchorCoords,
+    };
+  }
+
+  let apiResults: PlacesApiPlace[] = [];
+  try {
+    apiResults = await searchPlacesByText({
+      textQuery: intent.qualityHint ? `${intent.qualityHint} ${category}` : category,
+      locationBias: {
+        lat: anchorCoords.lat,
+        lng: anchorCoords.lng,
+        radius: radiusM,
+      },
+      maxResultCount: 5,
+      languageCode: "ja",
+    });
+  } catch (e) {
+    console.warn("[resolveRecommendationIntent] searchPlacesByText failed:", e);
+    return {
+      candidates: [],
+      bestCandidate: undefined,
+      confidence: "low",
+      reason: "recommendation_api_error: Places API 検索失敗（fail-open）",
+      strategyUsed,
+      radiusM,
+      anchorCoords,
+    };
+  }
+
+  // ── 5. 候補変換 + Hard 距離フィルタ（Step 6b と同じ規律） ──
+  const apiHitCount = apiResults.filter(p => p.businessStatus !== "CLOSED_PERMANENTLY").length;
+  const rawCandidates: RecommendationCandidate[] = apiResults
+    .filter(p => p.businessStatus !== "CLOSED_PERMANENTLY")
+    .map(p => placesApiToNearCandidate(p, anchorCoords!, radiusM))
+    .filter((c): c is PlaceCandidate => c !== null)
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .map(c => ({
+      ...c,
+      recommendationSource: intent.source,
+      strategy: strategyUsed,
+    }));
+  const rejectedByDistance = apiHitCount - rawCandidates.length;
+  if (rejectedByDistance > 0) {
+    console.log(
+      `[resolveRecommendationIntent] hard-rejected ${rejectedByDistance}/${apiHitCount} outside ${radiusM}m ` +
+        `(anchor=${anchorLabel ?? "?"}, category=${category}, strategy=${strategyUsed})`,
+    );
+  }
+  const candidates = dedupeCandidates(rawCandidates).slice(0, 3) as RecommendationCandidate[];
+
+  if (candidates.length === 0) {
+    return {
+      candidates: [],
+      bestCandidate: undefined,
+      confidence: "low",
+      reason: buildZeroCandidateReason(anchorLabel ?? "anchor", category, radiusM),
+      strategyUsed,
+      radiusM,
+      anchorCoords,
+    };
+  }
+
+  return {
+    candidates,
+    bestCandidate: candidates[0],
+    // CEO方針: recommendation は勝手に確定しない → 常に medium
+    confidence: "medium",
+    reason: `recommendation ${strategyUsed}: near ${anchorLabel ?? "anchor"} (r=${radiusM}m, category=${category}): ${candidates.length} 件`,
+    strategyUsed,
+    radiusM,
+    anchorCoords,
+  };
+}
+
 // 未使用 alias（将来の外部参照用に残す）— tsc が未使用警告を出さないよう void に渡す
 void NEAR_ANCHOR_SEARCH_RADIUS_M;

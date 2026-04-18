@@ -60,6 +60,9 @@ let _detectDelta: typeof import("./llmDeltaParser").detectDelta | null = null;
 let _applyDelta: typeof import("./llmDeltaParser").applyDelta | null = null;
 let _resolveAnchors: typeof import("./placeResolver").resolveAnchors | null = null;
 let _resolveNearAnchorPlaces: typeof import("./placeResolver").resolveNearAnchorPlaces | null = null;
+let _resolveRecommendationIntent:
+  | typeof import("./placeResolver").resolveRecommendationIntent
+  | null = null;
 let _attachNearbyPlacesToProposals:
   | typeof import("./gapFillPlaceEnricher").attachNearbyPlacesToProposals
   | null = null;
@@ -82,10 +85,11 @@ export async function ensureV2Modules(): Promise<boolean> {
       _detectDelta = delta.detectDelta;
       _applyDelta = delta.applyDelta;
     }
-    if (!_resolveAnchors || !_resolveNearAnchorPlaces) {
+    if (!_resolveAnchors || !_resolveNearAnchorPlaces || !_resolveRecommendationIntent) {
       const pr = await import("./placeResolver");
       _resolveAnchors = pr.resolveAnchors;
       _resolveNearAnchorPlaces = pr.resolveNearAnchorPlaces;
+      _resolveRecommendationIntent = pr.resolveRecommendationIntent;
     }
     if (!_attachNearbyPlacesToProposals) {
       const en = await import("./gapFillPlaceEnricher");
@@ -932,6 +936,67 @@ async function handleCollectingPhaseV2(
       }
     } catch (e) {
       console.warn("[morning-protocol] resolveNearAnchorPlaces failed (fail-open):", e);
+    }
+  }
+
+  // ── W2-3 (2026-04-19): Recommendation Intent 解決経路 ──
+  //   generic_place と独立。ユーザーが「おすすめある？」「どこかいい店ない？」のように
+  //   *自分で決める意思がない* 場合、ここで anchor近傍 + category (+ 将来 Stargazer 軸)
+  //   で候補を探し、pendingPlaceConfirmations に proposal として積む。
+  //
+  //   placeSearchHint 経路との違い:
+  //     - placeSearchHint: anchor + category が明示 → clarify 系（「〇〇でどう？」）
+  //     - recommendationIntent: anchor/category 弱 → proposal 系（候補提示前提）
+  //
+  //   W2-3 時点では detection（LLM 抽出 or pre-classifier）は未実装なので、
+  //   recommendationIntent が立つのは将来 W2-4 で導入されたときのみ。
+  //   ここは W2-4 完了後に自動で起動する受け皿を先行で置く。
+  const hasRecommendationIntent = updatedPlanState.segments.some(
+    s => s.recommendationIntent && !s.resolvedPlaceName,
+  );
+  if (hasRecommendationIntent && _resolveRecommendationIntent) {
+    for (let i = 0; i < updatedPlanState.segments.length; i++) {
+      const seg = updatedPlanState.segments[i];
+      if (!seg.recommendationIntent || seg.resolvedPlaceName) continue;
+      try {
+        const resolution = await _resolveRecommendationIntent(
+          seg.recommendationIntent,
+          updatedPlanState.segments,
+          {
+            // W2-5 Deep Context Injection で currentLocation / areaCoords を受け取るように
+            // 拡張する。W2-3 時点では undefined 許容（category_only にフォールバック）。
+            areaCoords: null,
+            areaLabel: session.userArea,
+            currentLocation: null,
+          },
+          seg.activity,
+        );
+        if (resolution.bestCandidate) {
+          updatedPlanState.segments[i] = {
+            ...seg,
+            resolutionConfidence: resolution.confidence,
+            resolvedPlaceName: resolution.bestCandidate.name,
+            resolvedAddress: resolution.bestCandidate.address,
+            resolvedPlaceId: resolution.bestCandidate.placeId,
+            resolvedLat: resolution.bestCandidate.lat,
+            resolvedLng: resolution.bestCandidate.lng,
+          };
+        }
+        const trimmedCandidates: Array<{ name: string; address?: string }> = [];
+        for (const c of resolution.candidates) {
+          trimmedCandidates.push({ name: c.name, address: c.address });
+          if (trimmedCandidates.length >= 3) break;
+        }
+        pendingPlaceConfirmations.push({
+          segmentId: seg.id,
+          originalText: seg.recommendationIntent.originalQuery,
+          resolvedName: resolution.bestCandidate?.name,
+          confidence: resolution.confidence as "medium" | "low",
+          candidates: trimmedCandidates,
+        });
+      } catch (e) {
+        console.warn("[morning-protocol] resolveRecommendationIntent failed (fail-open):", e);
+      }
     }
   }
 

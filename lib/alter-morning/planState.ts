@@ -13,7 +13,7 @@
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
-import type { EndpointType } from "./types";
+import type { EndpointType, RecommendationIntent } from "./types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PlanSegment — 1つの活動セグメント
@@ -163,6 +163,23 @@ export interface PlanSegment {
      */
     radiusOverrideM?: number;
   };
+
+  /**
+   * Recommendation Intent (CEO方針 2026-04-19 W2-3).
+   *
+   * 「おすすめある？」「どこかいい店ない？」のように、ユーザーが *自分で決める意思がない*
+   * 提案要求を表す。generic_place と別経路で扱う。
+   *
+   * このフィールドが立つと placeResolver は resolveRecommendationIntent() 経路に
+   * ディスパッチされ、anchor 近傍 + category + (将来) Stargazer 軸で候補を生成する。
+   *
+   * placeSearchHint との違い:
+   *   - placeSearchHint: 「サドヤ近くのカフェないかな？」— anchor + category が明示され、解決は clarify 系
+   *   - recommendationIntent: 「おすすめ？」— anchor/category が弱い。解決は proposal 系
+   *
+   * 両方立つことはない（LLM 抽出時に二択）。
+   */
+  recommendationIntent?: RecommendationIntent;
 
   // ── Who ──
   /** 同行者 */

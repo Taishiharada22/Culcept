@@ -57,12 +57,14 @@ CEO 実機ケース2・3 で観測: /baseline 起点と endpoint が尊重され
 - [x] ケース2（終点把握）再発防止: endpointAnchor が下流に届き、`returnDest` が endpoint 側から解決される
 - **成果物**: `resolveEndpoint()` / `ResolvedEndpoint` in `lib/alter-morning/locationResolver.ts`, `AsyncPlanOptions.endpointCoords` in planningEngine.ts, `insertTravelItemsAsync(endpointCoords)` in travelTimeEngine.ts, `buildV2DayPlanAsync` wiring in morningProtocol.ts
 
-#### Step W2-3: recommendation path の明確化 🔴
+#### Step W2-3: recommendation path の明確化 ✅（2026-04-19 完了）
 CEO 実機ケース1で観測: 「おすすめ」が generic_place として扱われ recommendation が効かない。
-- [ ] `RecommendationIntent` 型を定義（generic_place とは別経路）
-- [ ] planner が recommendation intent を受ける分岐を追加
-- [ ] 解決戦略: anchor 近傍 + カテゴリ + （将来）Stargazer 軸 で候補を出す
-- [ ] テスト追加（intent 判別 / 候補生成経路）
+- [x] `RecommendationIntent` 型を定義（generic_place とは別経路）— `lib/alter-morning/types.ts`
+- [x] planner が recommendation intent を受ける分岐を追加 — `morningProtocol.ts` lazy import + dispatcher ループ
+- [x] 解決戦略: anchor 近傍 + カテゴリ + （将来）Stargazer/Relational で候補を出す — `resolveRecommendationIntent` in `placeResolver.ts`（`anchor_proximity` / `category_only` 実装、`stargazer_weighted` / `relational_weighted` は type のみ予約）
+- [x] テスト追加（intent 判別 / 候補生成経路）— `tests/unit/alter-morning/recommendationIntent.test.ts` 12 件 全 PASS
+- **成果物**: `RecommendationIntent` / `RecommendationCandidate` / `RecommendationResolution` / `resolveRecommendationIntent()` / `inferPlaceCategoryFromActivity()` / `PlanSegment.recommendationIntent` + dispatcher
+- **規律**: fail-open（API 未設定・エラー時に plan を止めない）、confidence ≤ medium（勝手に確定しない）、hard 距離フィルタ
 
 #### Step W2-4: 「おすすめある？」を recommendation intent として検出 🔴
 - [ ] llmPlanExtractor / llmDeltaParser の LLM プロンプトに recommendation intent 抽出ルール追加

@@ -159,6 +159,84 @@ export interface EndpointAnchor {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RecommendationIntent — W2-3 (CEO方針 2026-04-19)
+// 「おすすめある？」「どこかいい店ない？」を generic_place と別経路で扱うための型
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Recommendation の発生源。
+ *
+ * - `explicit_ask`: ユーザーが「おすすめ？」「どこかいい所ない？」と明示的に頼んだ
+ * - `implicit_gap`: 計画上必要だがユーザーが場所を決めきっていない（例: place=null だが activity=「ランチ」）
+ * - `alter_initiated`: Alter が提案軸で候補を出した（Phase 2 以降で使う）
+ */
+export type RecommendationSource = "explicit_ask" | "implicit_gap" | "alter_initiated";
+
+/**
+ * Recommendation の解決戦略レイヤ。
+ *
+ * W2-3 時点で実装するのは anchor_proximity と category_only（将来に向けた型定義も含む）。
+ * Stargazer 軸 / HDM Phase による重み付けは W2-5 Deep Context Injection で追加される。
+ */
+export type RecommendationStrategy =
+  | "anchor_proximity"     // 近傍 anchor + カテゴリ（現在の placeSearchHint 経路と共通インフラ）
+  | "category_only"        // アンカーなし。エリア（baseline/currentLocation）+ カテゴリのみ
+  | "stargazer_weighted"   // 将来: Stargazer 軸で候補を重み付け
+  | "relational_weighted"; // 将来: relational context（companion）で候補を重み付け
+
+/**
+ * Recommendation Intent — generic_place と独立した「提案を求めている」意図。
+ *
+ * generic_place との違い:
+ *   - generic_place: 「図書館」「カフェ」— カテゴリは明示されているが特定の1件が不明（resolver が候補を単純に候補提示する）
+ *   - RecommendationIntent: 「おすすめ」「いいとこ」— ユーザーは *自分で決める意思がない*。Alter/planner 側が納得できる候補を選ぶ責務を負う
+ *
+ * 経路分離の理由:
+ *   1. 曖昧性の性質が違う。generic_place は「どれか1つ」を確定したい、recommendation は
+ *      「良い1つ」を提案してほしい
+ *   2. 解決戦略が違う。recommendation は Stargazer 軸・HDM Phase・companion で重み付けが必要
+ *   3. UI/narrative が違う。generic_place は clarify、recommendation は proposal を提示する
+ *
+ * CEO ケース1 (2026-04-18 実機): 「カフェどこかいいとこある？」を LLM が generic_place として
+ *   place="カフェどこかいいとこ" に突っ込んでしまい、recommendation 経路が機能しなかった。
+ */
+export interface RecommendationIntent {
+  /** 発生源 */
+  source: RecommendationSource;
+  /**
+   * カテゴリヒント（「カフェ」「レストラン」「バー」等）。
+   * 無い場合（「どこかいいとこない？」のみ）は undefined。
+   * その場合 activity から推測する（activity="ランチ" → category="レストラン"）。
+   */
+  categoryHint?: string;
+  /**
+   * 近傍 anchor ラベル（「サドヤ」「渋谷」等）。
+   * 無ければ anchor なし（baseline / currentLocation 起点で探索）。
+   */
+  anchorHint?: string;
+  /**
+   * 雰囲気ヒント（「落ち着いた」「静かな」「デートっぽい」等）。
+   * LLM 抽出時に会話の文脈から拾う。resolver が quality filter に使う。
+   */
+  qualityHint?: string;
+  /** 元の発話（ログ / デバッグ用） */
+  originalQuery: string;
+  /**
+   * 解決戦略。デフォルトは anchorHint の有無で決まる:
+   *   - anchorHint あり → "anchor_proximity"
+   *   - anchorHint なし → "category_only"
+   * W2-5 以降で "stargazer_weighted" / "relational_weighted" を足す。
+   */
+  strategy: RecommendationStrategy;
+  /**
+   * 半径オーバーライド（メートル）。
+   * 候補 0 件時にユーザーが「広げて」と応えた場合のみ設定。
+   * デフォルトは category ごとのデフォルト半径を使う。
+   */
+  radiusOverrideM?: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ParsedDayIntent — 構造化された1日の意図
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

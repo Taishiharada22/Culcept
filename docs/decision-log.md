@@ -120,6 +120,39 @@
 
 ---
 
+### 2026-04-19 Alter-Morning Planner W2-3 完了 — recommendation path 明確化
+- **部門**: Build / Product
+- **決定内容**: recommendation intent（「おすすめある？」「どこかいい所ない？」型）を generic_place と分離した独立経路として実装。`RecommendationIntent` 型を `lib/alter-morning/types.ts` に定義し、`resolveRecommendationIntent()` を `placeResolver.ts` に新設。planner（morningProtocol）側に lazy import dispatcher を追加。
+- **理由**: W1 実機判定で「『おすすめある？』が generic_place 扱いで recommendation が効かない」ことが観測された（ケース1）。generic_place は「既に存在する特定の場所を確定する」経路、recommendation は「提案してほしい」経路で、解決戦略が根本的に異なる（前者は clarify、後者は anchor/category/Stargazer の合成スコアリング）。型レベルで分離しないと planner と narrator が常に間違える。
+- **承認**: 自律実行（CEO 方針 2026-04-19 に基づく W2-3）
+
+#### 実装内容
+- `lib/alter-morning/types.ts` — `RecommendationSource` (`explicit_ask` / `implicit_gap` / `alter_initiated`) + `RecommendationStrategy` (`anchor_proximity` / `category_only` / `stargazer_weighted` / `relational_weighted`) + `RecommendationIntent` インターフェース
+- `lib/alter-morning/planState.ts` — `PlanSegment.recommendationIntent?: RecommendationIntent` フィールド追加
+- `lib/alter-morning/placeResolver.ts` — `resolveRecommendationIntent()` 新設:
+  1. category 確定: `intent.categoryHint > inferPlaceCategoryFromActivity(activityHint)`
+  2. 戦略選択: `anchor_proximity`（`anchorHint` → segments 既解決 → geocode）→ `category_only`（`currentLocation > areaCoords`）
+  3. 半径: `intent.radiusOverrideM ?? getNearAnchorRadius(category)`
+  4. Places API 呼び出し（fail-open: 未設定/エラー時は low confidence + reason で返す）
+  5. Hard 距離フィルタ + dedupe + Top 3
+  6. **confidence は最大 medium**（勝手に確定しない = CEO 方針）
+- `lib/alter-morning/activityVocabulary.ts` — `inferPlaceCategoryFromActivity()` 追加（ランチ→レストラン、飲み→バー、作業/勉強→カフェ、散歩→公園）
+- `lib/alter-morning/morningProtocol.ts` — lazy import + dispatcher ループ（`resolveNearAnchorPlaces` ブロック直後に置き、`recommendationIntent && !resolvedPlaceName` なセグメントを解決して `pendingPlaceConfirmations` に積む）
+
+#### 検証結果
+- `tests/unit/alter-morning/recommendationIntent.test.ts` に 12 件を新設 → 全 PASS（anchor_proximity / category_only / category 推論 / 全フォールバック失敗 / fail-open（API 未設定 + API エラー）/ 候補 0 件 / confidence ≤ medium 保証 / anchor low confidence → geocode 退行 / qualityHint クエリ混入）
+- 全 alter-morning 773/774 PASS（残 1 件は intentParser outfit clarify copy、W2-3 無関係の Phase C-4 WIP 由来）
+- typecheck: W2-3 ファイルにエラーなし
+
+#### CEO 再発防止項目
+- ケース1（「おすすめ」が generic_place 扱い）: 型レベルで独立。以後 `recommendationIntent` を立てれば planner / narrator は分岐を取れる
+- 「勝手に確定しない」規律: resolver は medium を天井とし、Alter narration 側で提案形に落とす（実際の確定はユーザー選択で初めて発生）
+
+#### 次（W2-4）
+- LLM 抽出（llmPlanExtractor / llmDeltaParser）側に「おすすめ」「どこかいい所」「候補教えて」パターン検出 → `recommendationIntent` として emit するプロンプト拡張 + 決定論的プリクラシファイア
+
+---
+
 ### 2026-04-18 Alter-Morning Planner W1 PASS + W2 スコープ確定
 - **部門**: Build / Product
 - **決定内容**: W1 Step 6a+6b を PASS 判定。W2 は当初計画の「anchor-first + Deep Context Injection」を分割し、**構造 4 点を先に固めてから** Deep Context Injection に進む。

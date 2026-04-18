@@ -1647,3 +1647,60 @@ export function getDefaultDuration(text: string): number {
   const entry = resolveActivity(text);
   return entry?.defaultDurationMin ?? 45;
 }
+
+/**
+ * activity 名から Places 検索カテゴリを推論する（W2-3 CEO方針 2026-04-19）。
+ *
+ * RecommendationIntent.categoryHint が未設定の場合のフォールバック。
+ * 例:
+ *   - "ランチ" / "昼ごはん" → "レストラン"
+ *   - "飲み"            → "バー"
+ *   - "コーヒー"         → "カフェ"
+ *   - "仕事"            → "カフェ"（作業場所として解釈）
+ *
+ * 返り値は Places Text Search に投げる日本語カテゴリ語。該当なければ null。
+ */
+export function inferPlaceCategoryFromActivity(activityText: string | undefined): string | undefined {
+  if (!activityText) return undefined;
+  const raw = activityText.trim();
+  if (!raw) return undefined;
+
+  // 明示的カテゴリ単語の早期検出（activity にカテゴリがそのまま書かれているケース）
+  const direct = [
+    { re: /カフェ|喫茶|コーヒー|モーニング/, cat: "カフェ" },
+    { re: /バー|飲み|居酒屋|酒/, cat: "バー" },
+    { re: /ランチ|昼(食|ごはん|飯)|昼メシ|食事|ディナー|夕(食|ごはん|飯)|夕メシ|晩御飯|朝(食|ごはん)|レストラン|ご飯/, cat: "レストラン" },
+    { re: /散歩|ウォーク|公園/, cat: "公園" },
+    { re: /本屋|書店|読書/, cat: "書店" },
+    { re: /ホテル|宿/, cat: "ホテル" },
+  ];
+  for (const { re, cat } of direct) {
+    if (re.test(raw)) return cat;
+  }
+
+  // ActivityCategory からのマッピング
+  const cat = resolveActivityCategory(raw);
+  switch (cat) {
+    case "social_meal":
+      return "レストラン";
+    case "social_drink":
+      return "バー";
+    case "social_date":
+      return "レストラン";
+    case "work_code":
+    case "work_design":
+    case "work_document":
+    case "work_email":
+    case "work_general":
+    case "study_language":
+    case "study_exam":
+    case "study_reading":
+    case "study_academic":
+    case "study_general":
+      return "カフェ";
+    case "exercise_walk":
+      return "公園";
+    default:
+      return undefined;
+  }
+}
