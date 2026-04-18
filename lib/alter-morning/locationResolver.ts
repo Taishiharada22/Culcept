@@ -102,6 +102,18 @@ export interface ResolvedOrigin {
 export interface SavedBase {
   prefecture: string;
   city?: string;
+  /**
+   * baseline_home_lat (cache) — 2026-04-19 仕様 v1.1:
+   * profiles.baseline_home_lat/lng が埋まっていれば resolveLayer1 が即返す。
+   * NULL なら既存の city/prefecture resolution パスに落ちる（機能劣化なし）。
+   */
+  cachedHomeLat?: number | null;
+  cachedHomeLng?: number | null;
+  /**
+   * baseline_home_label — ユーザー自身が付けた呼び名（「自宅」「実家」等）。
+   * Alter Narration が「{label} から」「{label} へ」として使うため sourceLabel に反映する。
+   */
+  homeLabel?: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -119,9 +131,27 @@ export function resolveLayer1(base: SavedBase | null): ResolvedOrigin {
     return { coords: null, layer: "none", sourceLabel: "" };
   }
 
+  // sourceLabel を組み立てる（既存フォーマットを踏襲 + homeLabel を前置）
+  const areaLabel = base.city ? `${base.prefecture}${base.city}` : base.prefecture;
+  const fullLabel = base.homeLabel ? `${base.homeLabel}（${areaLabel}）` : areaLabel;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Cache 短絡（2026-04-19 仕様 v1.1）
+  // profiles.baseline_home_lat/lng が埋まっていれば即返す。
+  // resolved_at column は持たないため cache invalidation は行わない
+  // （source-of-truth は prefecture/city/label。PATCH /api/baseline 側で再解決）。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (base.cachedHomeLat != null && base.cachedHomeLng != null) {
+    return {
+      coords: { lat: base.cachedHomeLat, lng: base.cachedHomeLng },
+      layer: "layer1_city",
+      sourceLabel: fullLabel,
+    };
+  }
+
   const prefCoords = PREFECTURE_COORDS[base.prefecture];
   if (!prefCoords) {
-    return { coords: null, layer: "none", sourceLabel: base.prefecture };
+    return { coords: null, layer: "none", sourceLabel: fullLabel };
   }
 
   // city → MUNICIPALITY_COORDS で市区町村レベル座標を取得
@@ -131,21 +161,21 @@ export function resolveLayer1(base: SavedBase | null): ResolvedOrigin {
       return {
         coords: { lat: cityCoords.lat, lng: cityCoords.lon },
         layer: "layer1_city",
-        sourceLabel: `${base.prefecture}${base.city}`,
+        sourceLabel: fullLabel,
       };
     }
     // 未収録の市区町村 → PREFECTURE_COORDS にフォールバック（layer は city）
     return {
       coords: { lat: prefCoords.lat, lng: prefCoords.lon },
       layer: "layer1_city",
-      sourceLabel: `${base.prefecture}${base.city}`,
+      sourceLabel: fullLabel,
     };
   }
 
   return {
     coords: { lat: prefCoords.lat, lng: prefCoords.lon },
     layer: "layer1_prefecture",
-    sourceLabel: base.prefecture,
+    sourceLabel: fullLabel,
   };
 }
 

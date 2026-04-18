@@ -1566,7 +1566,14 @@ async function buildV2DayPlanAsync(
   // ── origin を解決 ──
   const savedBase: SavedBase | null =
     session.userPrefecture
-      ? { prefecture: session.userPrefecture, city: session.userCity }
+      ? {
+          prefecture: session.userPrefecture,
+          city: session.userCity,
+          // 2026-04-19 baseline 編集対応: cache + label を propagate
+          cachedHomeLat: session.userHomeLat ?? null,
+          cachedHomeLng: session.userHomeLng ?? null,
+          homeLabel: session.userHomeLabel ?? null,
+        }
       : null;
   const origin = resolveOrigin(planState, savedBase);
 

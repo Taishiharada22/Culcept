@@ -739,6 +739,19 @@ export interface MorningSession {
   userPrefecture?: string;
   /** ユーザーの市区町村（baseline 由来、location resolver 用） */
   userCity?: string;
+  /**
+   * ユーザー自身が付けた base ラベル（「自宅」「実家」等）。
+   * 2026-04-19 baseline 編集対応: profiles.baseline_home_label 由来。
+   * Alter Narration が「{label} から」等と使うため sourceLabel に反映される。
+   */
+  userHomeLabel?: string | null;
+  /**
+   * baseline_home_lat/lng キャッシュ（2026-04-19 baseline 編集対応）。
+   * profiles.baseline_home_lat/lng 由来。present なら resolveLayer1 が即返す。
+   * NULL の場合は prefecture/city から runtime 解決。
+   */
+  userHomeLat?: number | null;
+  userHomeLng?: number | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

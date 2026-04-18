@@ -112,6 +112,69 @@ describe("resolveLayer1", () => {
     expect(result.layer).toBe("layer1_city");
     expect(result.coords!.lat).toBeCloseTo(34.7055, 2);
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 2026-04-19 Baseline 編集 v1.1 — cachedHomeLat/Lng 短絡 + homeLabel
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  test("cachedHomeLat/Lng が present → 短絡して cache 座標を返す", () => {
+    // わざと municipalityCoords と違う座標を cache に入れて、cache が優先されていることを確認
+    const CACHE_LAT = 35.1234;
+    const CACHE_LNG = 139.5678;
+    const result = resolveLayer1({
+      prefecture: "東京都",
+      city: "渋谷区", // municipalityCoords は lat 35.6640
+      cachedHomeLat: CACHE_LAT,
+      cachedHomeLng: CACHE_LNG,
+    });
+    expect(result.layer).toBe("layer1_city");
+    expect(result.coords!.lat).toBe(CACHE_LAT);
+    expect(result.coords!.lng).toBe(CACHE_LNG);
+  });
+
+  test("cachedHomeLat のみ（lng 欠損）→ cache 無視、通常パスに落ちる", () => {
+    const result = resolveLayer1({
+      prefecture: "東京都",
+      city: "渋谷区",
+      cachedHomeLat: 35.1234,
+      cachedHomeLng: null,
+    });
+    expect(result.layer).toBe("layer1_city");
+    // 渋谷区の実座標
+    expect(result.coords!.lat).toBeCloseTo(35.6640, 2);
+  });
+
+  test("homeLabel あり → sourceLabel に『ラベル（エリア）』形式で反映", () => {
+    const result = resolveLayer1({
+      prefecture: "東京都",
+      city: "渋谷区",
+      homeLabel: "自宅",
+    });
+    expect(result.sourceLabel).toBe("自宅（東京都渋谷区）");
+  });
+
+  test("homeLabel + cache 併用 → ラベル付き sourceLabel + cache 座標", () => {
+    const result = resolveLayer1({
+      prefecture: "山梨県",
+      city: "甲府市",
+      homeLabel: "実家",
+      cachedHomeLat: 35.6600,
+      cachedHomeLng: 138.5700,
+    });
+    expect(result.sourceLabel).toBe("実家（山梨県甲府市）");
+    expect(result.coords!.lat).toBe(35.6600);
+    expect(result.coords!.lng).toBe(138.5700);
+    expect(result.layer).toBe("layer1_city");
+  });
+
+  test("homeLabel あり + prefecture のみ → ラベル付き prefecture sourceLabel", () => {
+    const result = resolveLayer1({
+      prefecture: "東京都",
+      homeLabel: "自宅",
+    });
+    expect(result.sourceLabel).toBe("自宅（東京都）");
+    expect(result.layer).toBe("layer1_prefecture");
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

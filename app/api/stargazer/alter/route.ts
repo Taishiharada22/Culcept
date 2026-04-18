@@ -1432,11 +1432,14 @@ export async function POST(req: NextRequest) {
       let baselineCtx: BaselineContext | null = null;
       let userPrefecture: string | undefined;
       let userCity: string | undefined;
+      let userHomeLabel: string | null | undefined;
+      let userHomeLat: number | null | undefined;
+      let userHomeLng: number | null | undefined;
       const [authResult, baselineResult, rvResult, lpResult] = await Promise.allSettled([
         // (1) auth.getUser
         supabase.auth.getUser(),
-        // (2) ④-C: profiles ベースライン
-        supabase.from("profiles").select("gender, date_of_birth, prefecture, city").eq("id", userId).maybeSingle(),
+        // (2) ④-C: profiles ベースライン + baseline_home (2026-04-19)
+        supabase.from("profiles").select("gender, date_of_birth, prefecture, city, baseline_home_label, baseline_home_lat, baseline_home_lng").eq("id", userId).maybeSingle(),
         // (3) ④-D: rendezvous_profiles 関係性ベースライン
         supabase.from("rendezvous_profiles").select("profile_details, enabled_categories, updated_at").eq("user_id", userId).maybeSingle(),
         // (4) ④-E: life_profile_entries 値・情熱・キャリア
@@ -1464,6 +1467,16 @@ export async function POST(req: NextRequest) {
           // Morning Protocol 用: baseline 住所をセッションに注入
           if (baselineRow?.prefecture) userPrefecture = baselineRow.prefecture;
           if (baselineRow?.city) userCity = baselineRow.city;
+          // 2026-04-19: baseline_home (label + lat/lng cache) を注入
+          if (baselineRow?.baseline_home_label != null) {
+            userHomeLabel = baselineRow.baseline_home_label as string;
+          }
+          if (baselineRow?.baseline_home_lat != null) {
+            userHomeLat = Number(baselineRow.baseline_home_lat);
+          }
+          if (baselineRow?.baseline_home_lng != null) {
+            userHomeLng = Number(baselineRow.baseline_home_lng);
+          }
         } catch { /* Non-fatal */ }
       }
       // (3) relationshipCtx 抽出
@@ -1675,12 +1688,20 @@ export async function POST(req: NextRequest) {
             personalityContext: personalityCtx,
             userPrefecture: rawMorningSession!.userPrefecture ?? userPrefecture,
             userCity: rawMorningSession!.userCity ?? userCity,
+            // 2026-04-19 baseline 編集対応
+            userHomeLabel: rawMorningSession!.userHomeLabel ?? userHomeLabel ?? null,
+            userHomeLat: rawMorningSession!.userHomeLat ?? userHomeLat ?? null,
+            userHomeLng: rawMorningSession!.userHomeLng ?? userHomeLng ?? null,
           };
         } else {
           morningSession = createMorningSession();
           morningSession.personalityContext = personalityCtx;
           if (userPrefecture) morningSession.userPrefecture = userPrefecture;
           if (userCity) morningSession.userCity = userCity;
+          // 2026-04-19 baseline 編集対応
+          if (userHomeLabel !== undefined) morningSession.userHomeLabel = userHomeLabel;
+          if (userHomeLat !== undefined) morningSession.userHomeLat = userHomeLat;
+          if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
         const result = await processMorningMessage(message, morningSession);
         morningSession = result.session;
