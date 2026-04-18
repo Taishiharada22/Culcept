@@ -10,6 +10,7 @@ import {
   resolveLayer1,
   resolveLayer2,
   resolveOrigin,
+  resolveEndpoint,
   getSegmentCoords,
   canUseRoutesApi,
   resolveCoarseArea,
@@ -17,6 +18,7 @@ import {
   type LatLng,
 } from "@/lib/alter-morning/locationResolver";
 import type { PlanState, PlanSegment } from "@/lib/alter-morning/planState";
+import type { EndpointAnchor } from "@/lib/alter-morning/types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Helper: PlanState ファクトリ
@@ -432,6 +434,153 @@ describe("Bug 6+1 (2026-04-18): 4層 origin 優先順位", () => {
     });
     const result = resolveOrigin(planState, BASELINE);
     expect(result.layer).toBe("today_origin");
+    expect(result.coords).toEqual(HOTEL_COORDS);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. W2-2 (CEO方針 2026-04-19): Endpoint 優先順位
+//    endpointAnchor > endAction/endpointType=home > baseline home
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("W2-2 (2026-04-19): resolveEndpoint 終点優先順位", () => {
+  const BASELINE_TOKYO: SavedBase = { prefecture: "東京都", city: "渋谷区" };
+  const HOTEL_COORDS: LatLng = { lat: 35.6693, lng: 139.7416 }; // ホテルオークラ相当
+  const FRIEND_COORDS: LatLng = { lat: 35.7000, lng: 139.7500 };
+
+  test("endpointAnchor が segments で解決済み → endpoint_anchor_resolved", () => {
+    const endpointAnchor: EndpointAnchor = {
+      type: "hotel",
+      label: "ホテルオークラ",
+      needsAreaConfirm: false,
+    };
+    const planState = makePlanState({
+      segments: [
+        makeSegment({
+          place: "ホテルオークラ",
+          resolvedPlaceName: "ホテルオークラ東京",
+          resolvedLat: HOTEL_COORDS.lat,
+          resolvedLng: HOTEL_COORDS.lng,
+        }),
+      ],
+    });
+    const result = resolveEndpoint(planState, endpointAnchor, BASELINE_TOKYO);
+    expect(result.source).toBe("endpoint_anchor_resolved");
+    expect(result.label).toBe("ホテルオークラ");
+    expect(result.coords).toEqual(HOTEL_COORDS);
+  });
+
+  test("endpointAnchor canonicalId で解決", () => {
+    const endpointAnchor: EndpointAnchor = {
+      type: "friend_home",
+      label: "田中さん家",
+      canonicalId: "friend_tanaka_home",
+      needsAreaConfirm: false,
+    };
+    const planState = makePlanState({
+      segments: [
+        makeSegment({
+          place: "田中さん家",
+          placeCanonical: "friend_tanaka_home",
+          resolvedLat: FRIEND_COORDS.lat,
+          resolvedLng: FRIEND_COORDS.lng,
+        }),
+      ],
+    });
+    const result = resolveEndpoint(planState, endpointAnchor, BASELINE_TOKYO);
+    expect(result.source).toBe("endpoint_anchor_resolved");
+    expect(result.coords).toEqual(FRIEND_COORDS);
+  });
+
+  test("endpointAnchor type=home、未解決 → baseline home にフォールバック (endpoint_anchor_home)", () => {
+    const endpointAnchor: EndpointAnchor = {
+      type: "home",
+      label: "家",
+      needsAreaConfirm: false,
+    };
+    const planState = makePlanState({});
+    const result = resolveEndpoint(planState, endpointAnchor, BASELINE_TOKYO);
+    expect(result.source).toBe("endpoint_anchor_home");
+    expect(result.coords).not.toBeNull();
+    // 渋谷区の座標が返る
+    expect(result.coords!.lat).toBeCloseTo(35.6640, 2);
+  });
+
+  test("endpointAnchor 未解決 + type ≠ home → label のみ (endpoint_anchor_label_only)", () => {
+    const endpointAnchor: EndpointAnchor = {
+      type: "other",
+      label: "どこか知らない場所",
+      needsAreaConfirm: true,
+    };
+    const planState = makePlanState({});
+    const result = resolveEndpoint(planState, endpointAnchor, BASELINE_TOKYO);
+    expect(result.source).toBe("endpoint_anchor_label_only");
+    expect(result.label).toBe("どこか知らない場所");
+    expect(result.coords).toBeNull();
+  });
+
+  test("endpointAnchor なし + endAction='帰宅' → end_action_home", () => {
+    const planState = makePlanState({ endAction: "帰宅" } as any);
+    const result = resolveEndpoint(planState, undefined, BASELINE_TOKYO);
+    expect(result.source).toBe("end_action_home");
+    expect(result.label).toBe("自宅");
+    expect(result.coords).not.toBeNull();
+  });
+
+  test("endpointAnchor なし + endpointType='home' → end_action_home", () => {
+    const planState = makePlanState({ endpointType: "home" } as any);
+    const result = resolveEndpoint(planState, undefined, BASELINE_TOKYO);
+    expect(result.source).toBe("end_action_home");
+    expect(result.coords).not.toBeNull();
+  });
+
+  test("endpointAnchor / endAction なし + baseline あり → baseline_home (implicit 帰宅)", () => {
+    const planState = makePlanState({});
+    const result = resolveEndpoint(planState, undefined, BASELINE_TOKYO);
+    expect(result.source).toBe("baseline_home");
+    expect(result.label).toBe("自宅");
+    expect(result.coords).not.toBeNull();
+  });
+
+  test("baseline 未設定 + endpointAnchor なし → none", () => {
+    const planState = makePlanState({});
+    const result = resolveEndpoint(planState, undefined, null);
+    expect(result.source).toBe("none");
+    expect(result.coords).toBeNull();
+  });
+
+  test("endpointAnchor type=home + baseline 未設定 → label_only（coords なし）", () => {
+    // home フォールバックの元座標がないため、label のみ
+    const endpointAnchor: EndpointAnchor = {
+      type: "home",
+      label: "家",
+      needsAreaConfirm: false,
+    };
+    const planState = makePlanState({});
+    const result = resolveEndpoint(planState, endpointAnchor, null);
+    expect(result.source).toBe("endpoint_anchor_label_only");
+    expect(result.coords).toBeNull();
+  });
+
+  test("endpointAnchor は endAction より優先（CEO ケース2: 終点把握）", () => {
+    // endAction=帰宅 でも endpointAnchor=hotel があればホテルに戻る
+    const endpointAnchor: EndpointAnchor = {
+      type: "hotel",
+      label: "ホテルオークラ",
+      needsAreaConfirm: false,
+    };
+    const planState = makePlanState({
+      endAction: "帰宅",
+      segments: [
+        makeSegment({
+          place: "ホテルオークラ",
+          resolvedLat: HOTEL_COORDS.lat,
+          resolvedLng: HOTEL_COORDS.lng,
+        }),
+      ],
+    } as any);
+    const result = resolveEndpoint(planState, endpointAnchor, BASELINE_TOKYO);
+    expect(result.source).toBe("endpoint_anchor_resolved");
     expect(result.coords).toEqual(HOTEL_COORDS);
   });
 });

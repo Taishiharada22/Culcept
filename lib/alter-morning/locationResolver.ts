@@ -66,6 +66,7 @@
 import { PREFECTURE_COORDS } from "@/lib/shared/location";
 import { getMunicipalityCoords } from "@/lib/shared/municipalityCoords";
 import type { PlanState, PlanSegment } from "./planState";
+import type { EndpointAnchor } from "./types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -341,6 +342,132 @@ export function canUseRoutesApi(
   destination: LatLng | null,
 ): boolean {
   return origin != null && destination != null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Endpoint Resolution (W2-2 2026-04-19)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** Endpoint 解決結果 */
+export interface ResolvedEndpoint {
+  /** 表示ラベル（travelTimeEngine / gapFillEngine が使う） */
+  label: string;
+  /** 座標（null = 不明、Routes API 不使用） */
+  coords: LatLng | null;
+  /** 解決経路（ログ/テスト用） */
+  source: "endpoint_anchor_resolved" | "endpoint_anchor_home" | "endpoint_anchor_label_only" | "end_action_home" | "baseline_home" | "none";
+}
+
+/**
+ * 終点（帰り先）を解決する（CEO方針 2026-04-19 W2-2）。
+ *
+ * 優先順位（上から順、確定したら返す）:
+ *   1. endpointAnchor（ユーザー明示の終点: 「ホテルに戻る」「田中さん家で終わり」）
+ *      a. anchor.canonicalId / label が segments で解決済みならその座標
+ *      b. anchor.type === "home" なら baseline home
+ *      c. それ以外は label だけ（coords=null、ヒューリスティック travel）
+ *   2. endAction "帰宅" / endpointType "home" → baseline home
+ *   3. 明示的な終点指示なし → baseline home （implicit 帰宅）
+ *   4. baseline 未設定 → none
+ *
+ * CEO ケース2 再発防止: endpointAnchor が parse されているのに使われず、
+ *   代わりに startPoint（origin）が returnDestination として流用されていた semantic バグを修正。
+ */
+export function resolveEndpoint(
+  planState: PlanState,
+  endpointAnchor: EndpointAnchor | undefined,
+  savedBase: SavedBase | null,
+): ResolvedEndpoint {
+  const layer1 = resolveLayer1(savedBase);
+
+  // (1) 明示的 endpointAnchor
+  if (endpointAnchor) {
+    // (1a) anchor が segments で既に解決済みか確認
+    const anchorCoords = findEndpointAnchorCoords(planState, endpointAnchor);
+    if (anchorCoords) {
+      return {
+        label: endpointAnchor.label,
+        coords: anchorCoords,
+        source: "endpoint_anchor_resolved",
+      };
+    }
+    // (1b) home 型 → baseline にフォールバック
+    if (endpointAnchor.type === "home" && layer1.coords) {
+      return {
+        label: endpointAnchor.label || "自宅",
+        coords: layer1.coords,
+        source: "endpoint_anchor_home",
+      };
+    }
+    // (1c) label だけ保持（coords 不明）
+    return {
+      label: endpointAnchor.label,
+      coords: null,
+      source: "endpoint_anchor_label_only",
+    };
+  }
+
+  // (2) endAction "帰宅" / endpointType "home"
+  if (planState.endAction === "帰宅" || planState.endpointType === "home") {
+    if (layer1.coords) {
+      return {
+        label: "自宅",
+        coords: layer1.coords,
+        source: "end_action_home",
+      };
+    }
+  }
+
+  // (3) 明示なし → implicit 帰宅（baseline home）
+  if (layer1.coords) {
+    return {
+      label: "自宅",
+      coords: layer1.coords,
+      source: "baseline_home",
+    };
+  }
+
+  // (4) baseline 未設定 → 解決不能
+  return { label: "自宅", coords: null, source: "none" };
+}
+
+/**
+ * endpointAnchor に対応する座標を PlanState.segments から探す。
+ *
+ * マッチングは findStartPointCoords と同じく「ラベル部分一致 + resolvedPlaceName 部分一致」。
+ * canonicalId があれば placeCanonical との一致も試みる。
+ */
+function findEndpointAnchorCoords(
+  planState: PlanState,
+  endpoint: EndpointAnchor,
+): LatLng | null {
+  const label = endpoint.label?.toLowerCase() ?? "";
+  const canonical = endpoint.canonicalId?.toLowerCase() ?? "";
+  if (!label && !canonical) return null;
+
+  for (const seg of planState.segments) {
+    if (seg.resolvedLat == null || seg.resolvedLng == null) continue;
+
+    if (canonical) {
+      const placeCanon = seg.placeCanonical?.toLowerCase() ?? "";
+      if (placeCanon && (placeCanon === canonical || placeCanon.includes(canonical) || canonical.includes(placeCanon))) {
+        return { lat: seg.resolvedLat, lng: seg.resolvedLng };
+      }
+    }
+
+    if (label) {
+      const resolvedName = seg.resolvedPlaceName?.toLowerCase() ?? "";
+      const place = seg.place?.toLowerCase() ?? "";
+      if (
+        (resolvedName && (resolvedName.includes(label) || label.includes(resolvedName))) ||
+        (place && (place.includes(label) || label.includes(place)))
+      ) {
+        return { lat: seg.resolvedLat, lng: seg.resolvedLng };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**

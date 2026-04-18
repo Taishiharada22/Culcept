@@ -87,8 +87,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "session not found" }, { status: 404 });
     }
 
-    const pair = (session as { coalter_pair_states?: { user_a: string; user_b: string } | null })
-      .coalter_pair_states;
+    // supabase-js は nested select を単一 or 配列として返すことがある
+    // （FK 解決の挙動差）。両方に対応する。
+    const pairRaw = (session as unknown as {
+      coalter_pair_states?:
+        | { user_a: string; user_b: string }
+        | { user_a: string; user_b: string }[]
+        | null;
+    }).coalter_pair_states;
+    const pair = Array.isArray(pairRaw) ? pairRaw[0] ?? null : pairRaw ?? null;
     if (!pair || (pair.user_a !== user.id && pair.user_b !== user.id)) {
       return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
     }

@@ -46,13 +46,16 @@ LLM の `sequenceOrder` を advisory に格下げし、clock / window を hard c
 - [x] テスト完走: anchorFirstPlacer 8 + planReadinessGate 12 + ceoScenario 114 = 134/134 PASS
 - **成果物**: `anchorFirstPlace()` in `lib/alter-morning/planningEngine.ts`, gate rule in `planReadinessGate.ts`
 
-#### Step W2-2: start / end origin 優先順位修正 🔴
+#### Step W2-2: start / end origin 優先順位修正 ✅（2026-04-19 完了）
 CEO 実機ケース2・3 で観測: /baseline 起点と endpoint が尊重されていない。
-- [ ] 起点優先順位を明文化: explicit startPoint > currentLocation > todayOrigin > baseline home
-- [ ] endpoint: endpointAnchor > endAction > 帰宅（baseline home）の順
-- [ ] ケース3（/baseline=成田 → 成田駅周辺）が再現しない
-- [ ] ケース2（終点把握）が再現しない
-- [ ] テスト追加（origin 優先順位 / endpoint 尊重）
+- [x] 起点優先順位を明文化: explicit startPoint > currentLocation > todayOrigin > baseline home（2026-04-18 に実装済み）
+- [x] endpoint: endpointAnchor > endAction("帰宅") / endpointType("home") > baseline home の順
+- [x] `resolveEndpoint()` を `locationResolver.ts` に追加（6 source 区分: endpoint_anchor_resolved / endpoint_anchor_home / endpoint_anchor_label_only / end_action_home / baseline_home / none）
+- [x] `buildV2DayPlanAsync` の buggy `returnDest = startPoint` semantic バグを除去、Routes API last-leg 精密計算を有効化（endpointCoords pass-through）
+- [x] sync `buildV2DayPlan` の同 buggy 派生も除去（baseline home フォールバック）
+- [x] テスト追加（locationResolver W2-2 ブロック 10 件、全 49 PASS）
+- [x] ケース2（終点把握）再発防止: endpointAnchor が下流に届き、`returnDest` が endpoint 側から解決される
+- **成果物**: `resolveEndpoint()` / `ResolvedEndpoint` in `lib/alter-morning/locationResolver.ts`, `AsyncPlanOptions.endpointCoords` in planningEngine.ts, `insertTravelItemsAsync(endpointCoords)` in travelTimeEngine.ts, `buildV2DayPlanAsync` wiring in morningProtocol.ts
 
 #### Step W2-3: recommendation path の明確化 🔴
 CEO 実機ケース1で観測: 「おすすめ」が generic_place として扱われ recommendation が効かない。

@@ -205,3 +205,95 @@ describe("parseMovieScreenings — Bug A 回帰防止", () => {
     expect(out[0].title).toBe("ラストマイル");
   });
 });
+
+// ─────────────────────────────────────────────
+// Phase A.5: listicle theater 共有停止 + title→theater 近接マッチ
+// ─────────────────────────────────────────────
+
+describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", () => {
+  it("listicle description で劇場が作品名から遠い場合は theater を引かない", () => {
+    // 『作品名』 と劇場名が 40 文字以上離れているパターン。
+    // 旧実装では theaters[0] が全作品に付いて誤紐付けが起きていた。
+    // 新実装は近接 40 文字を超える劇場は採用しない。
+    const filler =
+      "とにかく話題性が高く週末にぴったりで、デートでも一人でも家族でも誰と見ても楽しめる。" +
+      "見終わったあとに会話が続く構成になっている点も評価のポイントで、" +
+      "近年の邦画シーンを語る上で外せない作品として紹介されることが多い。";
+    const sc: SearchCandidate = {
+      title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
+      description: `週末に見たい作品。『ラストマイル』『PERFECT DAYS』${filler} 劇場は TOHOシネマズ新宿 ほか。`,
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/feature/tokyo-april-2026",
+    };
+    const out = parseMovieScreenings([sc]);
+    const titles = out.map((s) => s.title);
+    expect(titles).toContain("ラストマイル");
+    expect(titles).toContain("PERFECT DAYS");
+    // 劇場は近接していないので誤紐付けしない
+    for (const s of out) {
+      expect(s.theater).toBeNull();
+    }
+  });
+
+  it("listicle でも「作品名の近接 40 文字以内」に劇場があれば紐付ける", () => {
+    const sc: SearchCandidate = {
+      title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
+      description:
+        "今月の注目作。TOHOシネマズ渋谷で上映中の『ラストマイル』は必見。" +
+        "続いて MOVIX昭島 で観られる『PERFECT DAYS』も評価が高い。",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/feature/tokyo-april-2026",
+    };
+    const out = parseMovieScreenings([sc]);
+    const last = out.find((s) => s.title === "ラストマイル");
+    const perf = out.find((s) => s.title === "PERFECT DAYS");
+    expect(last?.theater).toBe("TOHOシネマズ渋谷");
+    expect(perf?.theater).toBe("MOVIX昭島");
+  });
+
+  it("sc.title から単独 title が取れた場合、description の theater を紐付けて OK", () => {
+    const sc: SearchCandidate = {
+      title: "ラストマイル",
+      description: "現在上映中。TOHOシネマズ渋谷で19:00〜、21:30〜。118分。★4.2",
+      externalRating: "4.2",
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/movie/last-mile",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBe(1);
+    expect(out[0].theater).toBe("TOHOシネマズ渋谷");
+  });
+
+  it("URL の known pattern (tohotheater) から theater を補完できる", () => {
+    const sc: SearchCandidate = {
+      title: "ラストマイル",
+      description: "118分。サスペンス。",
+      externalRating: null,
+      practicalInfo: null,
+      source: "tohotheater.jp",
+      url: "https://hlo.tohotheater.jp/net/schedule/076/",
+    };
+    // URL に "shibuya" が無いので theater は source 経由では引けない
+    // → description に劇場が無い → 最終的に null（曖昧補完禁止の原則）
+    const out = parseMovieScreenings([sc]);
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("URL slug から TOHOシネマズ渋谷 を補完できる", () => {
+    const sc: SearchCandidate = {
+      title: "ラストマイル",
+      description: "118分",
+      externalRating: null,
+      practicalInfo: null,
+      source: "hlo.tohotheater.jp",
+      url: "https://hlo.tohotheater.jp/net/theater/076/shibuya.html",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out[0].theater).toBe("TOHOシネマズ渋谷");
+  });
+});

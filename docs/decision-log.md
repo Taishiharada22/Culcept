@@ -84,6 +84,42 @@
 
 ---
 
+### 2026-04-19 Alter-Morning Planner W2-2 完了 — start/end origin 優先順位修正
+- **部門**: Build
+- **決定内容**: W2-2 を実装完了。origin 側は既に 4 層優先順位（`explicit startPoint > currentLocation > todayOrigin > baseline home`）が 2026-04-18 に実装済みだったため、今回は endpoint 側を新設した。endpoint の優先順位を `endpointAnchor > endAction("帰宅") / endpointType("home") > baseline home` に明文化し、`resolveEndpoint()` を `locationResolver.ts` に追加。`buildV2DayPlanAsync` の返り座標解決を修正し、Routes API で last-leg を精密計算するようにした。
+- **理由**: CEO 実機ケース2 で「終点を把握していない」が観測された。旧コードは `returnDest = planState.startPoint` と semantic バグを持っており、startPoint（origin）を endpoint として流用していた。parsedIntent.endpointAnchor は解析されていたのに下流で無視されていた。
+- **承認**: 自律（W2 スコープは CEO 承認済み、実装は自律実行）
+
+#### 実装サマリ
+| レイヤ | 変更 |
+|---|---|
+| `lib/alter-morning/locationResolver.ts` | `ResolvedEndpoint` 型 + `resolveEndpoint(planState, endpointAnchor, savedBase)` 公開関数 + `findEndpointAnchorCoords()` ヘルパを追加 |
+| `lib/alter-morning/planningEngine.ts` | `AsyncPlanOptions.endpointCoords?: LatLng \| null` 追加 → `insertTravelItemsAsync` に pass-through |
+| `lib/alter-morning/travelTimeEngine.ts` | `insertTravelItemsAsync` に `endpointCoords` パラメータ追加。return-trip の `toCoords` を `returnDestination` 有無で分岐（非 home endpoint で精密座標を使う） |
+| `lib/alter-morning/morningProtocol.ts` | `buildV2DayPlanAsync` で `resolveEndpoint()` を呼び出し、`returnDest` / `endpointCoords` を下流に渡す。sync 版 `buildV2DayPlan` は buggy `returnDest = startPoint` を除去して `undefined` に修正（session なしのため endpointAnchor 未アクセス、baseline home フォールバック）|
+
+#### 優先順位ルール（endpoint 側）
+1. **endpointAnchor 明示**
+   - 1a. canonicalId / label が segments で解決済み → その座標（source: `endpoint_anchor_resolved`）
+   - 1b. `type === "home"` + baseline あり → baseline home（source: `endpoint_anchor_home`）
+   - 1c. それ以外 → label のみ、coords=null（source: `endpoint_anchor_label_only`）
+2. **endAction=「帰宅」** or **endpointType="home"** → baseline home（source: `end_action_home`）
+3. **明示なし** → implicit 帰宅=baseline home（source: `baseline_home`）
+4. **baseline 未設定** → 解決不能（source: `none`）
+
+#### テスト
+- `tests/unit/alter-morning/locationResolver.test.ts` に W2-2 ブロック 10 件を追加 → 全 49 PASS
+- 全 alter-morning 761/762 PASS（残 1 件は intentParser の outfit clarify phrasing、W2-2 無関係）
+- typecheck: W2-2 ファイルにエラーなし
+
+#### CEO 再発防止項目
+- ケース2（終点把握崩れ）: endpointAnchor が下流に届くようになり、`returnDest = startPoint` semantic バグを除去。Routes API で last-leg 精密計算可能
+
+#### 次（W2-3）
+- recommendation path の明確化: `RecommendationIntent` 型を generic_place とは別経路として定義
+
+---
+
 ### 2026-04-18 Alter-Morning Planner W1 PASS + W2 スコープ確定
 - **部門**: Build / Product
 - **決定内容**: W1 Step 6a+6b を PASS 判定。W2 は当初計画の「anchor-first + Deep Context Injection」を分割し、**構造 4 点を先に固めてから** Deep Context Injection に進む。

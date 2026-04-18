@@ -871,6 +871,7 @@ export type HardFilterReason =
   | "violates_preferred_start_hour" // preferredStartHour±2h に showtime なし
   | "violates_avoid_keys"           // 前回採用済み
   | "missing_identity"              // title/theater 共に null
+  | "missing_where"                 // Phase A.5: theater が紐付けられない（作品×映画館で初めて1候補）
   | "unknown_status_without_showtime"; // Augmentation B: showtimes=[] AND status="unknown"
 
 /**

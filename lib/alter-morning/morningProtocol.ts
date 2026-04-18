@@ -31,7 +31,7 @@ import {
 import type { MissingField } from "./types";
 import { parseUserInput, buildDayPlan, buildDayPlanAsync, type AsyncPlanOptions } from "./planningEngine";
 import { parseIntent, intentToPlanItems, buildIntentConfirmMessage } from "./intentParser";
-import { resolveOrigin, getSegmentCoords, type SavedBase } from "./locationResolver";
+import { resolveOrigin, resolveEndpoint, getSegmentCoords, type SavedBase } from "./locationResolver";
 import type { LatLng } from "./routesApiClient";
 import { applyPlanEdit, addDifferentialItems } from "./planEditor";
 import { applyImplicitLocationFill, buildLocationClarifyQuestion } from "./locationClarify";
@@ -1443,9 +1443,11 @@ function buildV2DayPlan(
   planState: PlanState,
 ): MorningPlan {
   const goOut = planState.goOut ?? planState.segments.some(s => s.place);
-  const returnDest = planState.startPoint && planState.startPoint !== "自宅"
-    ? planState.startPoint
-    : undefined;
+  // W2-2 2026-04-19: 旧コードは `returnDest = planState.startPoint` と semantic バグを持っていた
+  //   （startPoint は origin であって endpoint ではない）。sync 版は session を受け取らないため
+  //   endpointAnchor を参照できない。baseline home（undefined）にフォールバックする。
+  //   非 home 終点の Routes 精密計算は async 版（buildV2DayPlanAsync）でのみ有効。
+  const returnDest = undefined;
   // CEO方針 2026-04-18 Week 1 Step 6a: Travel Suppress
   //   未解決 place / low confidence のセグメントが残っている間は travel を挿入しない。
   //   壊れた座標を元に算出した移動時間を提示すると、確定プラン化したときに
@@ -1503,10 +1505,18 @@ async function buildV2DayPlanAsync(
       : null;
   const origin = resolveOrigin(planState, savedBase);
 
+  // ── W2-2 2026-04-19: endpoint を解決 ──
+  //   旧挙動: returnDest を planState.startPoint から流用（semantic バグ — startPoint は origin）。
+  //   新挙動: endpointAnchor > endAction > baseline home で終点を決定、座標も解決する。
+  const endpointAnchor = session.parsedIntent?.endpointAnchor;
+  const endpoint = resolveEndpoint(planState, endpointAnchor, savedBase);
+  // 自宅帰宅は returnDestination 未指定で従来挙動（origin 座標を使う）に任せる
+  const returnDest = endpoint.source === "baseline_home" || endpoint.source === "end_action_home"
+    ? undefined
+    : endpoint.label;
+  const endpointCoords = endpoint.coords;
+
   const goOut = planState.goOut ?? planState.segments.some(s => s.place);
-  const returnDest = planState.startPoint && planState.startPoint !== "自宅"
-    ? planState.startPoint
-    : undefined;
   // CEO方針 2026-04-18 Week 1 Step 6a: Travel Suppress（async 版）
   const effectiveGoOut = goOut && !hasUnresolvedSegmentsForTravel(planState);
   if (goOut && !effectiveGoOut) {
@@ -1518,11 +1528,13 @@ async function buildV2DayPlanAsync(
   const plan = await buildDayPlanAsync(items, dayConditions, undefined, {
     goOut: effectiveGoOut,
     returnDestination: returnDest,
+    endpointAnchor,
     targetDate: planState.targetDate,
     endTimeConstraint: planState.endTime,
     departureTime: planState.departureTime,
     coordsMap,
     originCoords: origin.coords,
+    endpointCoords,
     departureTimeIso: planState.departureTime
       ? `${planState.targetDate}T${planState.departureTime}:00+09:00`
       : undefined,

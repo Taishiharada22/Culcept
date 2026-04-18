@@ -56,6 +56,18 @@ export interface MovieOrchestratorOutput {
   ranked: RankedCandidate[];
   /** brief の primary question（clarify にも使える） */
   primaryQuestion: ConversationBrief["primaryUnresolvedQuestion"];
+  /**
+   * Phase A.5 観測カウンタ (DB には永続化しない観測用・未 migration)。
+   * 「where 欠け」によって drop された作品数と、catalog 段階で title だけ
+   * 取れて theater が null のままだった件数を見る。これが多い場合は
+   * 検索クエリ / theater 補完ロジックに bug がある可能性が高い。
+   */
+  diagnostics: {
+    catalogCount: number;
+    rankedCount: number;
+    missingWhereRejectCount: number;
+    titleWithoutTheaterCount: number;
+  };
 }
 
 /**
@@ -182,10 +194,34 @@ export async function generateMovieProposalV2(
     latencyMsNarration: latencyNarration,
   };
 
+  // Phase A.5 diagnostics (未 migration。将来的に coalter_proposal_quality に列追加する場合は CEO 承認)
+  const missingWhereRejectCount = rankOutput.filterTrace.filter((t) =>
+    t.reasons.includes("missing_where"),
+  ).length;
+  const titleWithoutTheaterCount = catalog.filter((c) => c.title && !c.theater)
+    .length;
+  const diagnostics = {
+    catalogCount: catalog.length,
+    rankedCount: rankOutput.ranked.length,
+    missingWhereRejectCount,
+    titleWithoutTheaterCount,
+  };
+
+  // 観測用 console（server-side）。sessionId があれば紐付けて grep しやすくする。
+  try {
+    console.info(
+      "[CoAlter] movie.diagnostics",
+      JSON.stringify({ sessionId: input.sessionId ?? null, ...diagnostics }),
+    );
+  } catch {
+    // log 失敗しても本体には影響させない
+  }
+
   return {
     card: finalCard,
     telemetry,
     ranked: rankOutput.ranked,
     primaryQuestion: brief.primaryUnresolvedQuestion,
+    diagnostics,
   };
 }

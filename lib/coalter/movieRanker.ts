@@ -159,6 +159,12 @@ function hardFilterOne(
 
   if (!movie.title && !movie.theater) reasons.push("missing_identity");
 
+  // Phase A.5: 映画は「作品 × 映画館 × 上映時刻」の束で 1 候補。
+  // title はあるが theater が無い候補は「未確定」なので落とす。
+  // 旧挙動（theater=null でも areaFit=0.3 で下位に並べる）は
+  // UI で「作品だけカード」が出る退化を許してしまうため禁止。
+  if (movie.title && !movie.theater) reasons.push("missing_where");
+
   // Augmentation B: showtimes=[] AND status="unknown"
   if (movie.showtimes.length === 0 && movie.status === "unknown") {
     reasons.push("unknown_status_without_showtime");

@@ -743,6 +743,12 @@ export interface AsyncPlanOptions {
   coordsMap?: Record<string, LatLng>;
   /** 出発地の座標（locationResolver で解決済み） */
   originCoords?: LatLng | null;
+  /**
+   * W2-2 2026-04-19: 終点の座標（locationResolver.resolveEndpoint で解決済み）。
+   * 帰り先が非 home の場合、Routes API で last-leg を精密計算するために使う。
+   * null の場合はヒューリスティックにフォールバック。
+   */
+  endpointCoords?: LatLng | null;
   /** 出発時刻 ISO 8601（Routes API の departureTime、TRANSIT 精度向上用） */
   departureTimeIso?: string;
 }
@@ -832,6 +838,7 @@ export async function buildDayPlanAsync(
     options.originCoords ?? null,
     returnLabel,
     options.departureTimeIso,
+    options.endpointCoords ?? null,
   );
 
   // ── Phase 3: 移動アイテム込みで時刻を再計算（sync 版と同一） ──

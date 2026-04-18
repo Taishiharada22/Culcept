@@ -261,6 +261,130 @@ export function extractBracketedTitles(text: string): string[] {
 }
 
 // ─────────────────────────────────────────────
+// Title → Theater 紐付け
+//
+// Phase A.5 方針 (GPT 指定):
+//   許容する補完ソース:
+//     (1) result title 内の明示一致         （ラストマイル｜TOHOシネマズ渋谷）
+//     (2) source URL / known page pattern   （hlo.tohotheater.jp/shibuya）
+//     (3) clearly structured snippet        （description 内で作品名と劇場が近接）
+//   曖昧 snippet からの推測はしない。listicle の combinedText から theaters[0] を
+//   全作品に共有する旧挙動が「映画館が消える / 誤紐付け」の主因だった。
+// ─────────────────────────────────────────────
+
+/** source URL / hostname から一意に劇場名を引けるケースのみ補完する（known pattern のみ） */
+function theaterFromSource(sc: SearchCandidate): string | null {
+  const url = (sc.url ?? "").toLowerCase();
+  const source = (sc.source ?? "").toLowerCase();
+  const combined = `${url} ${source}`;
+
+  // TOHOシネマズ: hlo.tohotheater.jp/net/theater/{slug} etc.
+  if (/tohotheater|tohocinemas/.test(combined)) {
+    const SLUG_TO_THEATER: Record<string, string> = {
+      shibuya: "TOHOシネマズ渋谷",
+      shinjuku: "TOHOシネマズ新宿",
+      roppongi: "TOHOシネマズ六本木ヒルズ",
+      ikebukuro: "TOHOシネマズ池袋",
+      hibiya: "TOHOシネマズ日比谷",
+      ueno: "TOHOシネマズ上野",
+      nihonbashi: "TOHOシネマズ日本橋",
+      kinshicho: "TOHOシネマズ錦糸町",
+      fuchu: "TOHOシネマズ府中",
+      hachioji: "TOHOシネマズ八王子",
+      umeda: "TOHOシネマズ梅田",
+      namba: "TOHOシネマズなんば",
+      nagoya: "TOHOシネマズ名古屋",
+    };
+    for (const [slug, name] of Object.entries(SLUG_TO_THEATER)) {
+      if (combined.includes(slug)) return name;
+    }
+    return null;
+  }
+
+  // 109シネマズ: 109cinemas.net/{slug}
+  if (/109cinemas/.test(combined)) {
+    const slug = combined.match(/109cinemas[^\s/]*\/([a-z_]+)/);
+    const map: Record<string, string> = {
+      kiba: "109シネマズ木場",
+      futakotamagawa: "109シネマズ二子玉川",
+      premium_shinjuku: "109シネマズプレミアム新宿",
+    };
+    if (slug && map[slug[1]]) return map[slug[1]];
+    return null;
+  }
+
+  return null;
+}
+
+/**
+ * title 候補と theater が description 内で「近接して」出るかを見る。
+ *
+ * 近接 = 対象 title の前後 NEAR_WINDOW 文字以内に theater 名が出現。
+ * listicle 記事では 1 段落 = 1 作品解説のことが多く、その段落内に劇場が
+ * 書かれていれば採用してよい。
+ */
+function theaterNearTitle(candidateTitle: string, text: string): string | null {
+  if (!text) return null;
+  const theaters = extractTheaters(text);
+  if (theaters.length === 0) return null;
+  // 候補タイトルの位置（見つからなければ近接 check できないので null）
+  const idx = text.indexOf(candidateTitle);
+  if (idx === -1) return null;
+  const NEAR_WINDOW = 40;
+  const lo = Math.max(0, idx - NEAR_WINDOW);
+  const hi = Math.min(text.length, idx + candidateTitle.length + NEAR_WINDOW);
+  const near = text.slice(lo, hi);
+  for (const t of theaters) {
+    if (near.includes(t)) return t;
+  }
+  return null;
+}
+
+/** title 候補に対して theater を決定する（許容された補完ソースのみ使う） */
+function resolveTheaterForTitle(args: {
+  candidateTitle: string;
+  sc: SearchCandidate;
+  titleCameFromScTitle: boolean;
+}): string | null {
+  const { candidateTitle, sc, titleCameFromScTitle } = args;
+
+  // (1) title 明示一致: title が sc.title から取れた場合、sc.title 内の劇場をそのまま使える
+  if (titleCameFromScTitle) {
+    const inTitle = extractTheaters(sc.title);
+    if (inTitle.length > 0) return inTitle[0];
+  }
+
+  // (2) source URL / known page pattern
+  const fromSource = theaterFromSource(sc);
+  if (fromSource) return fromSource;
+
+  // (3a) title が sc.title から単独で取れた = 検索結果全体が「この 1 作品」の情報。
+  //      その description / practicalInfo に劇場が書かれていれば紐付けて OK。
+  //      (listicle でない single-movie page の標準ケース)
+  if (titleCameFromScTitle) {
+    const fromDesc = extractTheaters(sc.description);
+    if (fromDesc.length > 0) return fromDesc[0];
+    if (sc.practicalInfo) {
+      const fromPractical = extractTheaters(sc.practicalInfo);
+      if (fromPractical.length > 0) return fromPractical[0];
+    }
+  }
+
+  // (3b) description 内の近接マッチ（listicle で 1 段落 = 1 作品の場合のみ theater を引く）
+  //      title が description 展開 (extractBracketedTitles) で出てきた場合は
+  //      近接する劇場だけを採用する（離れて並列列挙される listicle で全作品が
+  //      同じ theater を共有する退化を避ける）。
+  const nearDesc = theaterNearTitle(candidateTitle, sc.description);
+  if (nearDesc) return nearDesc;
+  const nearPractical = sc.practicalInfo
+    ? theaterNearTitle(candidateTitle, sc.practicalInfo)
+    : null;
+  if (nearPractical) return nearPractical;
+
+  return null;
+}
+
+// ─────────────────────────────────────────────
 // メイン: SearchCandidate[] → MovieScreening[]
 // ─────────────────────────────────────────────
 
@@ -268,6 +392,8 @@ export function extractBracketedTitles(text: string): string[] {
  * 検索結果を映画上映 catalog に変換する。
  *
  * 1 検索結果 = 多くの場合 1 作品情報。title / snippet から構造化。
+ * Phase A.5: theater 紐付けは「明示一致 / source pattern / 近接 snippet」のみ。
+ *   曖昧 snippet からの全作品共有は行わない（listicle 誤紐付け防止）。
  *
  * @param searchCandidates 検索結果
  * @returns 構造化された上映情報リスト（title が抽出できたものだけ）
@@ -286,9 +412,11 @@ export function parseMovieScreenings(
     // title から抽出 → 失敗したら description から 『X』 を全部拾う（リスティクル救済）
     //   → それでも取れなければ description 本文から 1 個だけ拾う。
     const titleCandidates: string[] = [];
+    let titleCameFromScTitle = false;
     const titleFromTitle = extractMovieTitle(sc.title);
     if (titleFromTitle) {
       titleCandidates.push(titleFromTitle);
+      titleCameFromScTitle = true;
     } else {
       const bracketedFromDesc = extractBracketedTitles(sc.description);
       if (bracketedFromDesc.length > 0) {
@@ -301,17 +429,23 @@ export function parseMovieScreenings(
 
     if (titleCandidates.length === 0) continue;
 
-    const theaters = extractTheaters(combinedText);
+    // showtime / runtime / status / rating は 1 検索結果の単位で拾う（従来どおり）。
+    // theater だけは「title 単位」で再決定する（Phase A.5 の核）。
     const showtimes = extractShowtimes(combinedText);
     const runtimeMinutes = extractRuntimeMinutes(combinedText);
     const status = extractStatus(combinedText);
     const rating = extractRating(combinedText) ?? sc.externalRating ?? null;
-    const theater = theaters[0] ?? null;
 
     for (const title of titleCandidates) {
       const normKey = title.replace(/\s+/g, "").toLowerCase();
       if (seenTitles.has(normKey)) continue;
       seenTitles.add(normKey);
+
+      const theater = resolveTheaterForTitle({
+        candidateTitle: title,
+        sc,
+        titleCameFromScTitle,
+      });
 
       screenings.push({
         title,
