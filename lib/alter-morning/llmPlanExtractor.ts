@@ -29,6 +29,10 @@ import {
   TIME_WINDOWS,
   generateSegmentId,
 } from "./planState";
+import {
+  classifyRecommendationIntent,
+  toRecommendationIntent,
+} from "./recommendationClassifier";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt
@@ -142,7 +146,91 @@ export async function extractPlanFromText(
     return null;
   }
 
-  return normalizeLLMOutput(raw);
+  const state = normalizeLLMOutput(raw);
+  // W2-4（CEO方針 2026-04-19）: Turn 1 でも同じ pre-classifier を適用。
+  //   「おすすめある？」「サドヤ近くでおすすめのカフェない？」等を recommendationIntent に
+  //   昇格させる。explicit place 付きの segment は壊さない（条件 1）。
+  return applyRecommendationClassifierToState(state, userMessage);
+}
+
+/**
+ * W2-4 (CEO方針 2026-04-19): Turn 1 向け classifier 適用。
+ *
+ * classifier が `recommendation_request` を返した場合のみ作用する:
+ *   - 場所未確定 segment があればそこに attach
+ *   - なければ新規 segment を 1 件追加（「おすすめ」系）
+ *
+ * CEO 条件(1): `resolvedPlaceName` または `place` を持つ segment は触らない。
+ *   recommendation は補助であり、既存の場所指定を上書きしない。
+ */
+export function applyRecommendationClassifierToState(
+  state: PlanState,
+  userMessage: string,
+): PlanState {
+  const classification = classifyRecommendationIntent(userMessage);
+  if (classification.kind !== "recommendation_request") return state;
+
+  const intent = toRecommendationIntent(classification, userMessage);
+  if (!intent) return state;
+
+  const candidates = state.segments.filter((seg) => {
+    if (seg.resolvedPlaceName) return false;
+    if (seg.place && seg.place.trim().length > 0) return false;
+    if (seg.recommendationIntent) return false;
+    return true;
+  });
+
+  // target 解決: category → anchor → 単独 placeless
+  const categoryHint = classification.categoryHint?.trim();
+  const anchorHint = classification.anchorHint?.trim();
+  let target: PlanSegment | null = null;
+
+  if (categoryHint) {
+    for (const seg of candidates) {
+      const act = seg.activityCanonical ?? seg.activity ?? "";
+      if (act && (act.includes(categoryHint) || categoryHint.includes(act))) {
+        target = seg;
+        break;
+      }
+    }
+  }
+  if (!target && anchorHint) {
+    for (const seg of candidates) {
+      const anchor = seg.placeSearchHint?.nearAnchorLabel ?? "";
+      if (anchor && (anchor.includes(anchorHint) || anchorHint.includes(anchor))) {
+        target = seg;
+        break;
+      }
+    }
+  }
+  if (!target && candidates.length === 1) {
+    target = candidates[0];
+  }
+
+  if (target) {
+    const updatedSegments = state.segments.map((seg) =>
+      seg.id === target!.id
+        ? { ...seg, recommendationIntent: intent, companions: [...seg.companions] }
+        : seg,
+    );
+    return { ...state, segments: updatedSegments };
+  }
+
+  // 既存 segment が 0 件 or 全て explicit → 新規追加
+  const newActivity = classification.categoryHint ?? "おすすめ";
+  const actResult = resolveActivity(newActivity);
+  const newSeg: PlanSegment = {
+    id: generateSegmentId(),
+    order: state.segments.length + 1,
+    activity: newActivity,
+    activityCanonical: actResult?.canonical ?? newActivity,
+    activityCategory: actResult?.category as PlanSegment["activityCategory"],
+    estimatedDurationMin: actResult?.defaultDurationMin ?? getDefaultDuration(newActivity),
+    companions: [],
+    status: "tentative",
+    recommendationIntent: intent,
+  };
+  return { ...state, segments: [...state.segments, newSeg] };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

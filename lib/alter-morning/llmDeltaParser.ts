@@ -31,6 +31,12 @@ import {
 } from "./planState";
 import { buildDeltaConfirmMessage } from "./llmPlanExtractor";
 import { classifyDeltaDeterministic } from "./deltaClassifier";
+import {
+  classifyRecommendationIntent,
+  toRecommendationIntent,
+  type RecommendationClassification,
+} from "./recommendationClassifier";
+import type { RecommendationIntent } from "./types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt for Delta Detection
@@ -121,6 +127,32 @@ export async function detectDelta(
     return deterministic.delta;
   }
 
+  // CEO方針 2026-04-19 W2-4: recommendation pre-classifier を LLM より先に実行。
+  //   「おすすめある？」「どこかいい店ない？」等の純粋な提案要求は、
+  //   決定論的に recommendationIntent を emit して LLM の誤分類を避ける。
+  //   explicit_place が含まれる発話ではここで emit しない（CEO 条件 1）。
+  const recClassification = classifyRecommendationIntent(userMessage);
+  if (recClassification.kind === "recommendation_request") {
+    const recDelta = buildRecommendationDelta(
+      userMessage,
+      currentState,
+      recClassification,
+    );
+    if (recDelta) {
+      console.log(
+        "[recommendation-classifier] deterministic emit",
+        JSON.stringify({
+          phrase: recClassification.recommendationPhrase,
+          anchor: recClassification.anchorHint,
+          category: recClassification.categoryHint,
+          changeCount: recDelta.changes.length,
+        }),
+      );
+      return recDelta;
+    }
+    // target 解決不能 → LLM へフォールスルー（ただし LLM は recommendationIntent を emit しない）
+  }
+
   // PlanState を LLM に渡す際は、セグメントの自然言語表現を添える
   const stateDescription = formatStateForLLM(currentState);
 
@@ -161,6 +193,128 @@ export async function detectDelta(
   // 呼び出し元で applyDelta → buildDeltaConfirmMessage の順序で処理
 
   return delta;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W2-4 Recommendation Delta Builder
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Recommendation classifier が `recommendation_request` と判定した発話から
+ * PlanDelta を構築する。
+ *
+ * CEO 条件 (2026-04-19):
+ *   (1) explicit place を持つ既存 segment を recommendation で上書きしない
+ *       → `resolvedPlaceName` や `place` が既に設定された segment は候補から外す
+ *   (3) delta でも同じ意味論
+ *       → llmPlanExtractor の Turn 1 も同じ classifier + この builder 相当を使う
+ *
+ * target 解決戦略 (優先順位):
+ *   1. categoryHint が segment.activity / activityCanonical と意味一致
+ *   2. anchorHint が segment.place / placeSearchHint.nearAnchorLabel と一致
+ *   3. 場所未設定 segment が 1 件のみ → それ
+ *   4. いずれも不発 → add_segment で新規
+ *
+ * 戻り値が null になるのは toRecommendationIntent が null を返したとき
+ * （kind が recommendation_request でない場合のみ起きる）。
+ */
+function buildRecommendationDelta(
+  userMessage: string,
+  state: PlanState,
+  classification: RecommendationClassification,
+): PlanDelta | null {
+  const intent = toRecommendationIntent(classification, userMessage);
+  if (!intent) return null;
+
+  // CEO 条件(1): 既に場所が確定した seg は候補から除外
+  //   - resolvedPlaceName: placeResolver が確定した座標付き場所
+  //   - place + placeCanonical: ユーザーが明示した場所名
+  //   - recommendationIntent: 既に別 recommendation 系が付いている seg
+  const candidates = state.segments.filter((seg) => {
+    if (seg.resolvedPlaceName) return false;
+    if (seg.place && seg.place.trim().length > 0) return false;
+    if (seg.recommendationIntent) return false;
+    return true;
+  });
+
+  const target = findTargetForRecommendation(candidates, classification);
+
+  if (target) {
+    return {
+      turnType: "addition",
+      changes: [
+        {
+          type: "set",
+          segmentId: target.id,
+          field: "recommendationIntent",
+          newValue: intent as unknown as Record<string, unknown>,
+        },
+      ],
+      confirmSummary: "",
+    };
+  }
+
+  // 新しい segment を追加してそこに intent を載せる
+  //   activity は categoryHint があればそれを使う。なければ「おすすめ」。
+  const newActivity = classification.categoryHint ?? "おすすめ";
+  return {
+    turnType: "addition",
+    changes: [
+      {
+        type: "add_segment",
+        segmentId: null,
+        field: "segment",
+        newSegment: {
+          order: state.segments.length + 1,
+          activity: newActivity,
+          recommendationIntent: intent,
+        },
+      },
+    ],
+    confirmSummary: "",
+  };
+}
+
+/**
+ * classifier の hint と segment を突き合わせ、attach 先を決める。
+ *
+ * カテゴリ一致 > anchor 一致 > 単独placeless の順で判定。
+ */
+function findTargetForRecommendation(
+  candidates: PlanSegment[],
+  classification: RecommendationClassification,
+): PlanSegment | null {
+  if (candidates.length === 0) return null;
+
+  const categoryHint = classification.categoryHint?.trim();
+  const anchorHint = classification.anchorHint?.trim();
+
+  // 1. category 一致
+  if (categoryHint) {
+    for (const seg of candidates) {
+      const act = seg.activityCanonical ?? seg.activity ?? "";
+      if (act && (act.includes(categoryHint) || categoryHint.includes(act))) {
+        return seg;
+      }
+    }
+  }
+
+  // 2. anchor 一致（placeSearchHint.nearAnchorLabel との照合）
+  if (anchorHint) {
+    for (const seg of candidates) {
+      const anchor = seg.placeSearchHint?.nearAnchorLabel ?? "";
+      if (anchor && (anchor.includes(anchorHint) || anchorHint.includes(anchor))) {
+        return seg;
+      }
+    }
+  }
+
+  // 3. 単独の placeless segment
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  return null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -368,6 +522,9 @@ export function applyDelta(state: PlanState, delta: PlanDelta): PlanState {
             placeCategory: placeResult?.place.category as PlanSegment["placeCategory"],
             companions: change.newSegment.companions ?? [],
             status: "tentative",
+            // W2-4（CEO方針 2026-04-19 条件 3）: add_segment 経由で recommendationIntent を運ぶ
+            //   place が同時に入っていないことは buildRecommendationDelta 側で担保する
+            recommendationIntent: change.newSegment.recommendationIntent,
           };
           newSegments.push(newSeg);
           // order で安定ソート（同order時は既存を先に保つ）
@@ -566,6 +723,20 @@ function applyFieldChange(
     case "transport":
       seg.transport = value ? (String(value) as PlanSegment["transport"]) : undefined;
       break;
+    case "recommendationIntent": {
+      // W2-4（CEO方針 2026-04-19 条件 3）:
+      //   既存 explicit place を壊さない安全弁。seg に place が既に入っているときは
+      //   recommendationIntent を attach しない（classifier 側でも弾いているが二重防御）。
+      if (seg.resolvedPlaceName || (seg.place && seg.place.trim().length > 0)) {
+        return;
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        seg.recommendationIntent = value as unknown as RecommendationIntent;
+      } else if (value == null) {
+        seg.recommendationIntent = undefined;
+      }
+      break;
+    }
   }
 }
 
@@ -597,6 +768,9 @@ function clearField(seg: PlanSegment, field: string): void {
       break;
     case "transport":
       seg.transport = undefined;
+      break;
+    case "recommendationIntent":
+      seg.recommendationIntent = undefined;
       break;
   }
 }

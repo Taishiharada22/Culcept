@@ -153,6 +153,53 @@
 
 ---
 
+### 2026-04-19 Alter-Morning Planner W2-4 完了 — 決定論 recommendation pre-classifier + Turn1/Turn2+ 同一意味論
+- **部門**: Build / Product
+- **決定内容**: 「おすすめある？」「どこかいい店ない？」系発話を LLM に任せず決定論で 4 分類（`recommendation_request` / `explicit_place` / `explicit_category` / `none`）する pre-classifier を新設。`llmDeltaParser.detectDelta` では LLM 呼び出し前に短絡、`llmPlanExtractor.extractPlanFromText` では LLM 出力の post-process として同じ classifier を適用。Turn 1 と Turn 2+ で意味論を統一。
+- **理由**: CEO 方針 2026-04-19 の 3 条件:
+  1. **emit 条件を厳しくする** — 純粋な提案要求だけ `recommendationIntent` を立てる。「渋谷のカフェに行く」「A店に寄る」のような場所明示文では recommendation を主役にしない
+  2. **pre-classifier を先に置く** — LLM 丸投げは文言揺れに弱い。決定論で粗分類 → LLM の emit を制御
+  3. **delta でも同じ意味論** — Turn 2+ で「やっぱ近くでおすすめある？」を受けても既存 explicit place を壊さない
+- **承認**: 自律実行（CEO 方針 2026-04-19 に基づく W2-4）
+
+#### 実装内容
+- `lib/alter-morning/recommendationClassifier.ts`（新規 ~340 行）
+  - 7 種の recommendation phrase パターン（強/弱を区別。弱 phrase は疑問マーカー必須）
+  - `CHAIN_BRAND_RE` / `SHOP_MARKER_RE` / `STATION_RE` / `KANJI_PROPER_PLACE_RE` 等で explicit place 検出
+  - `GENERIC_SHOP_WORDS_RE` / `GENERIC_SHOP_PREFIX_RE` で「お店」「いい店」「人気の店」等の一般化表現を explicit から除外
+  - anchor/category/quality hint 抽出（「サドヤ近く」→ サドヤ、「静かな」→ quality）
+  - `classifyRecommendationIntent()`: 4 分類を返す。**explicit_place が検出された場合は recommendation phrase と両立しても explicit_place を優先**（CEO 条件 1）
+  - `toRecommendationIntent()`: 分類結果を `RecommendationIntent` に変換（anchor 有→`anchor_proximity`、無→`category_only`）
+- `lib/alter-morning/llmDeltaParser.ts`
+  - `detectDelta` の先頭（既存 `classifyDeltaDeterministic` の後）に `classifyRecommendationIntent` 短絡を追加
+  - `buildRecommendationDelta()` 新設: 既存 segment（`resolvedPlaceName` / `place` 未設定）から target を categoryHint → anchorHint → 単独 placeless の順で解決、無ければ `add_segment` で新規作成
+  - `applyFieldChange` に `recommendationIntent` case 追加（**二重防御**: place 付き seg への attach を拒否）
+  - `clearField` に `recommendationIntent` case 追加
+  - `applyDelta` add_segment 経路で `newSegment.recommendationIntent` を新 `PlanSegment` に伝播
+- `lib/alter-morning/planState.ts`
+  - `LLMRawSegment.recommendationIntent?: RecommendationIntent` 追加（LLM JSON schema には含めない内部拡張フィールド。`add_segment` 経由で新規 segment に運ぶ経路）
+- `lib/alter-morning/llmPlanExtractor.ts`
+  - `extractPlanFromText` の末尾で `applyRecommendationClassifierToState(state, userMessage)` を呼び出す（LLM 抽出後の post-classifier）
+  - Turn 1 も Turn 2+ と同じ attach 戦略（category → anchor → 単独 placeless → 新規追加）
+
+#### 検証結果
+- `tests/unit/alter-morning/recommendationClassifier.test.ts` 31 件 PASS（純粋提案 / explicit 優先 / カテゴリのみ / 弱 phrase 安全弁 / 変換 / 文言揺れ）
+- `tests/unit/alter-morning/recommendationDelta.test.ts` 10 件 PASS（Turn 2+ 短絡 / LLM 未呼び出し検証 / explicit 破壊防止 / add_segment 経路 / 文言揺れ）
+- `tests/unit/alter-morning/recommendationTurn1.test.ts` 6 件 PASS（Turn 1 post-classifier / 既存 explicit 破壊防止 / 単独 placeless / 新規追加）
+- 全 alter-morning 820/821 PASS（残 1 件は intentParser outfit clarify copy、W2-4 無関係の Phase C-4 WIP 由来）
+- typecheck: W2-4 ファイルにエラーなし
+
+#### CEO 再発防止項目
+- ケース1（「おすすめ」が generic_place 扱い）完全解消:
+  - 決定論 classifier が LLM より先に 4 分類 → LLM の誤抽出を経由しない
+  - explicit_place を持つ発話は `recommendation_request` に**絶対に落とさない**（分類優先順位を厳守）
+  - 既存 explicit place を持つ segment は attach の 2 重防御（classifier 側候補除外 + applyFieldChange 側 guard）で上書き不可
+
+#### 次（CEO 再検証チェックポイント）
+W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS なら W2-5 Deep Context Injection に進む。
+
+---
+
 ### 2026-04-18 Alter-Morning Planner W1 PASS + W2 スコープ確定
 - **部門**: Build / Product
 - **決定内容**: W1 Step 6a+6b を PASS 判定。W2 は当初計画の「anchor-first + Deep Context Injection」を分割し、**構造 4 点を先に固めてから** Deep Context Injection に進む。

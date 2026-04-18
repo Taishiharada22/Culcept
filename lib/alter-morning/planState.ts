@@ -348,6 +348,12 @@ export interface LLMRawSegment {
   placeType?: string | null;
   companions?: string[];
   transport?: string | null;
+  /**
+   * W2-4（CEO方針 2026-04-19）: recommendation intent の内部拡張フィールド。
+   * LLM JSON schema には含めない（決定論 pre-classifier のみが populate する）。
+   * add_segment 経由で新規 segment にアタッチするための経路。
+   */
+  recommendationIntent?: RecommendationIntent;
 }
 
 export interface LLMExtractResult {
