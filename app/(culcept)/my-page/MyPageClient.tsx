@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import SelfStateAlert from "@/components/orbiter/SelfStateAlert";
 import type { SelfStateReport } from "@/lib/orbiter/types";
+import BaselineSection, { type BaselineInfo } from "./BaselineSection";
 
 // ── Types ──
 interface UserInfo {
@@ -37,6 +38,7 @@ interface Props {
   stargazer: StargazerInfo;
   hasOrigin: boolean;
   unreadNotifCount: number;
+  baseline: BaselineInfo;
 }
 
 // ── Observation Level ──
@@ -103,7 +105,7 @@ const MENU_ITEMS = [
   { href: "/origin", icon: "🗺️", label: "Origin" },
 ] as const;
 
-export default function MyPageClient({ user, stargazer, hasOrigin, unreadNotifCount }: Props) {
+export default function MyPageClient({ user, stargazer, hasOrigin, unreadNotifCount, baseline }: Props) {
   const router = useRouter();
   const [identity, setIdentity] = useState<IdentityProgress | null>(null);
   const [selfState, setSelfState] = useState<SelfStateReport | null>(null);
@@ -503,6 +505,19 @@ export default function MyPageClient({ user, stargazer, hasOrigin, unreadNotifCo
             })}
           </div>
         </motion.section>
+
+        {/* ── Baseline (1日の始点・終点) ── */}
+        <BaselineSection
+          baseline={baseline}
+          cardStyle={{
+            background: C.card,
+            border: `1px solid ${C.cardBorder}`,
+            borderRadius: 20,
+          }}
+          textColor1={C.t1}
+          textColor2={C.t2}
+          textColor3={C.t3}
+        />
 
         {/* ── Menu ── */}
         <motion.section
