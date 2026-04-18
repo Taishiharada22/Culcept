@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Baseline 編集セクション（/my-page）
@@ -127,20 +127,18 @@ export default function BaselineSection({
         </>
       )}
 
-      <AnimatePresence>
-        {editOpen && (
-          <EditModal
-            baseline={baseline}
-            onClose={() => setEditOpen(false)}
-            onSaved={(msg) => {
-              setEditOpen(false);
-              setToast({ kind: msg.kind, text: msg.text });
-              router.refresh();
-              setTimeout(() => setToast(null), 5000);
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {editOpen && (
+        <EditModal
+          baseline={baseline}
+          onClose={() => setEditOpen(false)}
+          onSaved={(msg) => {
+            setEditOpen(false);
+            setToast({ kind: msg.kind, text: msg.text });
+            router.refresh();
+            setTimeout(() => setToast(null), 5000);
+          }}
+        />
+      )}
 
       {toast && (
         <div

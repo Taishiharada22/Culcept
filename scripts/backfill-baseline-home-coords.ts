@@ -1,5 +1,5 @@
-import "server-only";
-
+// Standalone Node CLI script — "server-only" は React 環境での bundler gate のため、
+// Node 直実行では不要（むしろ tsx で実行するとエラーになる）。
 import { config } from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { MUNICIPALITY_COORDS } from "@/lib/shared/municipalityCoords";
