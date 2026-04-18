@@ -1556,21 +1556,37 @@ async function geocodeAreaLabel(
 
 /**
  * PlacesApiPlace → PlaceCandidate 変換
+ *
+ * CEO方針 2026-04-18 Week 1 Step 6b: Hard 距離制約化
+ *   従来は「radius より遠くてもスコアを下げて残す」(soft)だったが、
+ *   「真逆のカフェを採用」事故の直接原因がこれ。
+ *   near-anchor 検索は「radius 内に収まっていること」を **hard 制約** とする。
+ *   - 座標が取れない → null を返して棄却
+ *   - 距離が radiusM を超える → null を返して棄却
+ *   これにより、呼び出し側は「候補 0 件 = 解決失敗 = low confidence」に
+ *   素直に落ちる（Step 6a Safety Gate の near_anchor_not_resolved に合流）。
  */
 function placesApiToNearCandidate(
   p: PlacesApiPlace,
   anchorCoords: LatLng,
   radiusM: number,
-): PlaceCandidate {
+): PlaceCandidate | null {
   const candLat = p.location?.latitude;
   const candLng = p.location?.longitude;
-  // 距離ベースのスコア: 近いほど高い（1.0 at 0m → 0.5 at radius → 0.0 at 2×radius）
-  let matchScore = 0.5;
-  if (candLat !== undefined && candLng !== undefined) {
-    const distKm = haversineKm(anchorCoords, { lat: candLat, lng: candLng });
-    const distM = distKm * 1000;
-    matchScore = Math.max(0, 1 - distM / (radiusM * 2));
-  }
+  // 座標が取れない候補は near-anchor 制約を満たせないので棄却
+  if (candLat === undefined || candLng === undefined) return null;
+
+  const distKm = haversineKm(anchorCoords, { lat: candLat, lng: candLng });
+  const distM = distKm * 1000;
+
+  // Hard 距離制約: radius 外は自動棄却
+  // （以前は matchScore を下げて残していたが、Top-1 に 1500m 外が来うるため廃止）
+  if (distM > radiusM) return null;
+
+  // 距離ベースのスコア: radius 内は [0.5, 1.0] に線形マップ
+  // （0m で 1.0、radius で 0.5）
+  const matchScore = Math.max(0.5, 1 - (distM / radiusM) * 0.5);
+
   return {
     name: p.displayName?.text ?? "",
     address: p.shortFormattedAddress ?? p.formattedAddress,
@@ -1702,10 +1718,22 @@ export async function resolveNearAnchorPlaces(
     }
 
     // 3) 候補を PlaceCandidate に変換（距離スコア順）+ dedupe
+    //    Step 6b (2026-04-18): placesApiToNearCandidate が radius 外を null で棄却するので
+    //    ここで null を除外する。Hard 距離制約なので、ここで 0 件になれば low confidence
+    //    に落ちて Safety Gate に引っかかる（= 真逆候補の自動採用が起こらない）。
+    const apiHitCount = apiResults.filter(p => p.businessStatus !== "CLOSED_PERMANENTLY").length;
     const rawCandidates = apiResults
       .filter(p => p.businessStatus !== "CLOSED_PERMANENTLY")
       .map(p => placesApiToNearCandidate(p, anchorCoords, radiusM))
+      .filter((c): c is PlaceCandidate => c !== null)
       .sort((a, b) => b.matchScore - a.matchScore);
+    const rejectedByDistance = apiHitCount - rawCandidates.length;
+    if (rejectedByDistance > 0) {
+      console.log(
+        `[resolveNearAnchorPlaces] hard-rejected ${rejectedByDistance}/${apiHitCount} candidates ` +
+          `outside ${radiusM}m of ${hint.nearAnchorLabel ?? "anchor"} (category=${hint.searchCategory})`,
+      );
+    }
     const candidates = dedupeCandidates(rawCandidates).slice(0, 3);
 
     // 候補 0 件: near-anchor 専用 clarify 用の reason を乗せる

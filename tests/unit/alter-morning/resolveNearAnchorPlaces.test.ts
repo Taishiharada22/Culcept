@@ -137,7 +137,7 @@ describe("resolveNearAnchorPlaces", () => {
     mockPlacesTextSearch.mockResolvedValue([
       mockPlace("pid_A", "カフェ A", 35.6635, 138.5685), // 約 60m
       mockPlace("pid_B", "カフェ B", 35.6700, 138.5700), // 約 800m
-      mockPlace("pid_C", "カフェ C", 35.6750, 138.5800), // 約 1500m
+      mockPlace("pid_C", "カフェ C", 35.6720, 138.5780), // 約 1350m（<1500m 内）
     ]);
 
     const { resolved, needsConfirmation } = await resolveNearAnchorPlaces(
@@ -457,5 +457,77 @@ describe("resolveNearAnchorPlaces", () => {
 
     expect(needsConfirmation.length).toBe(2);
     expect(mockPlacesTextSearch).toHaveBeenCalledTimes(2);
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO方針 2026-04-18 Week 1 Step 6b: Hard 距離制約化
+  //   半径(radius)外の候補は matchScore を下げるのではなく、即棄却する。
+  //   「真逆のカフェを採用」事故の直接原因だった soft 距離制約を撤廃。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  test("Step 6b: 1500m 外の候補は候補リストから hard 棄却される", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+    mockPlacesTextSearch.mockResolvedValue([
+      mockPlace("pid_near", "カフェ 近い", 35.6635, 138.5685),   // 約 60m: 採用
+      mockPlace("pid_edge", "カフェ 縁", 35.6720, 138.5780),    // 約 1350m: 採用
+      mockPlace("pid_far",  "カフェ 遠い", 35.6800, 138.5900), // 約 2700m: 棄却
+      mockPlace("pid_opp",  "真逆のカフェ", 35.6500, 138.5500), // 約 2200m 反対側: 棄却
+    ]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    expect(needsConfirmation.length).toBe(1);
+    const candidates = needsConfirmation[0].resolution.candidates;
+    // 1500m 以内の 2 件のみ残る
+    const names = candidates.map(c => c.name);
+    expect(names).toContain("カフェ 近い");
+    expect(names).toContain("カフェ 縁");
+    expect(names).not.toContain("カフェ 遠い");
+    expect(names).not.toContain("真逆のカフェ");
+  });
+
+  test("Step 6b: 半径内候補が 0 件になった場合は low confidence に落ちる", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+    // API は返すが全部 radius 外（1500m 超）
+    mockPlacesTextSearch.mockResolvedValue([
+      mockPlace("pid_far1", "カフェ 遠い1", 35.6800, 138.5900), // 約 2700m
+      mockPlace("pid_far2", "カフェ 遠い2", 35.7000, 138.6000), // 約 5000m
+    ]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    expect(needsConfirmation.length).toBe(1);
+    const r = needsConfirmation[0].resolution;
+    // Safety Gate に引っかかるよう confidence=low
+    expect(r.confidence).toBe("low");
+    expect(r.bestCandidate).toBeUndefined();
+    expect(r.candidates).toEqual([]);
+    // reason は near_anchor_zero 形式（UI 側で「範囲を広げる／別カテゴリ」の clarify）
+    expect(r.reason?.startsWith("near_anchor_zero:")).toBe(true);
+  });
+
+  test("Step 6b: 座標欠落候補も棄却される", async () => {
+    const anchor = makeAnchorSegment("seg_1", "サドヤ", 35.6630, 138.5680);
+    const hint = makeHintSegment("seg_2", {
+      nearAnchorLabel: "サドヤ",
+      searchCategory: "カフェ",
+    });
+    const withCoords = mockPlace("pid_A", "カフェ A", 35.6635, 138.5685);
+    const noCoords = { ...mockPlace("pid_B", "カフェ B", 0, 0), location: undefined };
+    mockPlacesTextSearch.mockResolvedValue([withCoords, noCoords]);
+
+    const { needsConfirmation } = await resolveNearAnchorPlaces([anchor, hint]);
+
+    const candidates = needsConfirmation[0].resolution.candidates;
+    expect(candidates.length).toBe(1);
+    expect(candidates[0].name).toBe("カフェ A");
   });
 });

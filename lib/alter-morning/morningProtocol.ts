@@ -26,6 +26,7 @@ import {
   applyOutfitClarifyResponse,
   inferVenueFromPlan,
   inferVenueFromCategory,
+  detectMood,
 } from "./sufficiencyGate";
 import type { MissingField } from "./types";
 import { parseUserInput, buildDayPlan, buildDayPlanAsync, type AsyncPlanOptions } from "./planningEngine";
@@ -36,6 +37,7 @@ import { applyPlanEdit, addDifferentialItems } from "./planEditor";
 import { applyImplicitLocationFill, buildLocationClarifyQuestion } from "./locationClarify";
 import { generateProactiveSuggestion } from "./proactiveSuggestions";
 import type { PlanState } from "./planState";
+import { evaluatePlanReadiness } from "./planReadinessGate";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ── Phase D rollback (CEO 2026-04-17): 都市圏判定は撤回 ──
@@ -1197,16 +1199,33 @@ async function handleClarifyingPhase(
     const dayConditions = buildV2DayConditions(session, message);
     const plan = await buildV2DayPlanAsync(allItems, dayConditions, session.planStateV2, session);
 
+    // CEO方針 2026-04-18 Week 1 Step 6a: Plan Readiness Gate
+    //   missingFields が空でも、未解決 place / low confidence が残っていたら
+    //   plan_presented に進ませず、率直な sharp clarify に戻す。
+    const hasMissing = session.planStateV2.missingFields.length > 0;
+    const gate = evaluatePlanReadiness(session.planStateV2);
+    const nextPhase: MorningPhase = (!hasMissing && gate.ready) ? "plan_presented" : "clarifying";
+    let nextMessage: string;
+    if (hasMissing) {
+      // 既存 missingFields 由来 clarify
+      nextMessage = _buildPlanConfirmMessage!(session.planStateV2);
+    } else if (gate.ready) {
+      nextMessage = _buildPlanConfirmMessage!(session.planStateV2);
+    } else {
+      console.log("[plan-readiness-gate] blocked:", gate.diagnostic);
+      nextMessage = gate.clarifyMessage;
+    }
+
     return {
       session: {
         ...session,
-        phase: session.planStateV2.missingFields.length > 0 ? "clarifying" : "plan_presented",
+        phase: nextPhase,
         plan,
         planStateV2: session.planStateV2,
       },
       response: {
-        phase: session.planStateV2.missingFields.length > 0 ? "clarifying" : "plan_presented",
-        message: _buildPlanConfirmMessage!(session.planStateV2),
+        phase: nextPhase,
+        message: nextMessage,
         plan,
         personalizeHints: session.personalizeHints,
       },
@@ -1385,6 +1404,35 @@ function buildV2DayConditions(session: MorningSession, message: string): DayCond
 }
 
 /** v2 用 buildDayPlan ラッパー（targetDate / endTime を反映） */
+/**
+ * Travel 挿入を抑止すべきかを判定する。
+ *
+ * CEO方針 2026-04-18 Week 1 Step 6a:
+ *   「全セグメントが high/medium confidence でない限り travel を挿入しない」
+ *
+ *   true を返す条件（いずれか該当でセグ単位に抑止）:
+ *     - placeSearchHint が残っているのに座標解決されていない
+ *     - resolutionConfidence === "low"
+ *     - place が明示されているのに座標が無い（現在地フォールバックで誤った travel が出る）
+ */
+function hasUnresolvedSegmentsForTravel(planState: PlanState): boolean {
+  for (const seg of planState.segments) {
+    if (seg.placeSearchHint && (seg.resolvedLat === undefined || seg.resolvedLng === undefined)) {
+      return true;
+    }
+    if (seg.resolutionConfidence === "low") return true;
+    if (seg.place && !seg.placeSearchHint) {
+      // place は明示されているが座標は未解決 → 現在地フォールバックで破綻する恐れ
+      if (seg.resolvedLat === undefined || seg.resolvedLng === undefined) {
+        // ただし known_base（自宅等）や base 未指定の inferred は別経路で解決されるので除外。
+        // ここでは「place 文字列があるのに resolvedLat が無い」状態のみ弾く。
+        if (seg.placeType !== "known_base") return true;
+      }
+    }
+  }
+  return false;
+}
+
 function buildV2DayPlan(
   items: PlanItem[],
   dayConditions: DayConditions,
@@ -1394,8 +1442,18 @@ function buildV2DayPlan(
   const returnDest = planState.startPoint && planState.startPoint !== "自宅"
     ? planState.startPoint
     : undefined;
+  // CEO方針 2026-04-18 Week 1 Step 6a: Travel Suppress
+  //   未解決 place / low confidence のセグメントが残っている間は travel を挿入しない。
+  //   壊れた座標を元に算出した移動時間を提示すると、確定プラン化したときに
+  //   「真逆のカフェへ 40 分」のような破綻が起きる。解決完了まで静かに隠す。
+  const effectiveGoOut = goOut && !hasUnresolvedSegmentsForTravel(planState);
+  if (goOut && !effectiveGoOut) {
+    console.log(
+      "[travel-suppress] unresolved segments present; skipping travel insertion (sync)",
+    );
+  }
   const plan = buildDayPlan(items, dayConditions, undefined, {
-    goOut,
+    goOut: effectiveGoOut,
     returnDestination: returnDest,
     targetDate: planState.targetDate,
     endTimeConstraint: planState.endTime,
@@ -1445,9 +1503,16 @@ async function buildV2DayPlanAsync(
   const returnDest = planState.startPoint && planState.startPoint !== "自宅"
     ? planState.startPoint
     : undefined;
+  // CEO方針 2026-04-18 Week 1 Step 6a: Travel Suppress（async 版）
+  const effectiveGoOut = goOut && !hasUnresolvedSegmentsForTravel(planState);
+  if (goOut && !effectiveGoOut) {
+    console.log(
+      "[travel-suppress] unresolved segments present; skipping travel insertion (async)",
+    );
+  }
 
   const plan = await buildDayPlanAsync(items, dayConditions, undefined, {
-    goOut,
+    goOut: effectiveGoOut,
     returnDestination: returnDest,
     targetDate: planState.targetDate,
     endTimeConstraint: planState.endTime,
@@ -1505,7 +1570,7 @@ async function handlePlanPresentedPhase(
       },
       response: {
         phase: "outfit_offered",
-        message: `${planDateLabel(confirmedPlan)}のプラン決まったね。コーデも見る？`,
+        message: `${planDateLabel(confirmedPlan)}のプラン決まったね。\nコーデどうする？キレイめ？カジュアル？きっちり？`,
         plan: confirmedPlan,
       },
     };
@@ -1571,12 +1636,30 @@ async function handlePlanPresentedPhase(
         const hasMissingSegmentFields = updatedState.missingFields.some(
           f => f.startsWith("segmentTime:") || f.startsWith("segmentPlace:")
         );
-        const nextPhase = hasMissingSegmentFields ? "clarifying" : "plan_presented";
+        // CEO方針 2026-04-18 Week 1 Step 6a: Plan Readiness Gate
+        //   delta 適用後も、placeSearchHint が解けていない / low confidence が残っていたら
+        //   plan_presented に進ませない（壊れた確定プランを出さない）。
+        const deltaGate = evaluatePlanReadiness(updatedState);
+        const shouldPresent = !hasMissingSegmentFields && deltaGate.ready;
+        const nextPhase: MorningPhase = shouldPresent ? "plan_presented" : "clarifying";
+        let nextMessage: string;
+        if (shouldPresent) {
+          nextMessage = confirmMsg;
+        } else if (hasMissingSegmentFields) {
+          // 既存 missingFields 由来の clarify が confirmMsg に含まれている想定
+          nextMessage = confirmMsg;
+        } else if (!deltaGate.ready) {
+          console.log("[plan-readiness-gate] delta blocked:", deltaGate.diagnostic);
+          // 変更は適用されたよ + sharp clarify を続けて提示
+          nextMessage = `${confirmMsg}\n\n${deltaGate.clarifyMessage}`;
+        } else {
+          nextMessage = confirmMsg;
+        }
         return {
           session: { ...session, phase: nextPhase, plan, planStateV2: updatedState, pendingPlaceConfirmations: cleanedPending },
           response: {
-            phase: nextPhase as MorningPhase,
-            message: confirmMsg,
+            phase: nextPhase,
+            message: nextMessage,
             plan,
           },
         };
@@ -1696,12 +1779,12 @@ function handlePlanConfirmedPhase(
   _message: string,
   session: MorningSession
 ): { session: MorningSession; response: MorningProtocolResponse } {
-  // プラン確定後 → コーデ提案へ
+  // プラン確定後 → コーデ提案（mood を一緒に聞く）
   return {
     session: { ...session, phase: "outfit_offered" },
     response: {
       phase: "outfit_offered",
-      message: "コーデも見る？",
+      message: `${planDateLabel(session.plan)}のプラン決まったね。\nコーデどうする？キレイめ？カジュアル？きっちり？`,
       plan: session.plan,
     },
   };
@@ -1711,55 +1794,64 @@ function handleOutfitOfferedPhase(
   message: string,
   session: MorningSession
 ): { session: MorningSession; response: MorningProtocolResponse } {
-  const wantsOutfit = /^(見|みる|見る|うん|はい|お願い|yes)/i.test(message.trim());
+  const trimMsg = message.trim();
 
-  if (wantsOutfit) {
-    // ── Outfit Sufficiency Gate ──
-    // コーデ提案に必要な情報が揃っているか確認。
-    // venue は placeTable から自動推定する。
-    // transport / mood / withWhom は不足分だけ 1 問で聞く。
-    if (session.plan) {
-      const outfitCheck = checkOutfitSufficiency(session.plan, session.rawInputs);
-
-      // venue 自動推定を DayConditions に反映
-      if (outfitCheck.inferredVenue && !session.plan.dayConditions.venue) {
-        session.plan.dayConditions = {
-          ...session.plan.dayConditions,
-          venue: outfitCheck.inferredVenue as DayConditions["venue"],
-        };
-      }
-
-      if (!outfitCheck.sufficient) {
-        // 不足あり → 1 問に束ねて聞く
-        const clarifyQ = buildOutfitClarifyQuestion(outfitCheck.missingFields);
-        return {
-          session: { ...session, phase: "outfit_clarifying" },
-          response: {
-            phase: "outfit_clarifying",
-            message: clarifyQ,
-            plan: session.plan,
-          },
-        };
-      }
-    }
-
-    // 情報十分 → 即コーデ提示
+  // ── 明示的な拒否 ──
+  const declinesOutfit = /^(いらない|不要|いい[やよ]?$|大丈夫|パス|なし|見ない|skip)/i.test(trimMsg);
+  if (declinesOutfit) {
     return {
-      session: { ...session, phase: "outfit_presented" },
+      session: { ...session, phase: "completed" },
       response: {
-        phase: "outfit_presented",
-        message: `${planDateLabel(session.plan)}のプランに合わせたコーデ、チェックしてみて`,
+        phase: "completed",
+        message: `了解。${planDateLabel(session.plan)}もいい1日にしよう`,
         plan: session.plan,
       },
     };
   }
 
-  // コーデ不要 → 完了
+  // ── mood をテキストから検出（「キレイめ」「カジュアル」等） ──
+  // CEO指摘: 「コーデも見る？」は情報が薄い。mood を一緒に聞くので、
+  // 回答からmoodが取れたら dayConditions に反映し、clarifying をスキップできる。
+  const detectedMood = detectMood(trimMsg);
+  if (detectedMood && session.plan) {
+    session.plan.dayConditions = {
+      ...session.plan.dayConditions,
+      moodText: detectedMood,
+    };
+  }
+
+  // ── Outfit Sufficiency Gate ──
+  if (session.plan) {
+    const outfitCheck = checkOutfitSufficiency(session.plan, session.rawInputs);
+
+    // venue 自動推定を DayConditions に反映
+    if (outfitCheck.inferredVenue && !session.plan.dayConditions.venue) {
+      session.plan.dayConditions = {
+        ...session.plan.dayConditions,
+        venue: outfitCheck.inferredVenue as DayConditions["venue"],
+      };
+    }
+
+    if (!outfitCheck.sufficient) {
+      // 不足あり → 1 問に束ねて聞く
+      const clarifyQ = buildOutfitClarifyQuestion(outfitCheck.missingFields);
+      return {
+        session: { ...session, phase: "outfit_clarifying" },
+        response: {
+          phase: "outfit_clarifying",
+          message: clarifyQ,
+          plan: session.plan,
+        },
+      };
+    }
+  }
+
+  // 情報十分 → 即コーデ提示
   return {
-    session: { ...session, phase: "completed" },
+    session: { ...session, phase: "outfit_presented" },
     response: {
-      phase: "completed",
-      message: `了解。${planDateLabel(session.plan)}もいい1日にしよう`,
+      phase: "outfit_presented",
+      message: `${planDateLabel(session.plan)}のプランに合わせたコーデ、チェックしてみて`,
       plan: session.plan,
     },
   };
