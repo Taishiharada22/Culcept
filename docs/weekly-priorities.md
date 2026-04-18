@@ -5,27 +5,73 @@
 ### 全社目標
 **alter-morning planner の再設計完遂**。CEO 判定 0 点からの構造再構築。方針: C プラン 4週・限定保守モード付き（`docs/alter-morning-planner-redesign.md` 参照）。
 
-### Build Unit — Week 1（2026-04-18 着手）
+### Build Unit — Week 1（2026-04-18 完了）🟢
 壊れた確定プランを出さない。
 
-#### Step 6a: Safety Gate + Travel Suppress + 率直保守メッセージ 🔴
-- [ ] `morningProtocol.ts` の phase 遷移に unresolved-place / low-confidence / near-anchor-0件 ゲート挿入
-- [ ] `planningEngine.ts` の travel 生成条件を「全セグ解決」に限定
-- [ ] 保守メッセージを率直化（曖昧文禁止、何が未解決か明示）
-- [ ] テスト追加（保守ゲート / travel suppress / 率直文言）
+#### Step 6a: Safety Gate + Travel Suppress + 率直保守メッセージ ✅
+- [x] `morningProtocol.ts` の phase 遷移に unresolved-place / low-confidence / near-anchor-0件 ゲート挿入
+- [x] travel 生成条件を「全セグ解決」に限定（`buildV2DayPlan` / Async）
+- [x] 保守メッセージを率直化（曖昧文禁止、何が未解決か明示）
+- [x] テスト追加（planReadinessGate 8 件）
 
-#### Step 6b: hard 距離制約化 🔴
-- [ ] `placeResolver.ts` `resolveNearAnchorPlaces` で 1500m 外候補を自動棄却
-- [ ] 0件時に `resolutionConfidence=low` を立てる
-- [ ] `placeSearchHint` 経路では `userArea` generic fallback 禁止
-- [ ] テスト追加（棄却 / low confidence / fallback 禁止）
+#### Step 6b: hard 距離制約化 ✅
+- [x] `placeResolver.ts` `placesApiToNearCandidate` で 1500m 外候補を自動棄却
+- [x] 全件棄却時に `confidence=low` + `near_anchor_zero` reason に合流
+- [x] `placeSearchHint` 経路の userArea fallback 無効化（placeType 未設定で resolveAnchors の generic 経路を通らない構造）
+- [x] テスト追加（棄却 / low confidence / 座標欠落棄却）
+
+**コミット**: `a9a791d7`（5 files, 583 insertions）
 
 #### 完了判定
-- 壊れた確定プランが出なくなる
-- CEO 実機再検証で「22:00 ランチ」「真逆のカフェ」が再現しない
+- [x] 壊れた確定プランが出なくなる
+- [x] CEO 実機再検証で「22:00 ランチ」「真逆のカフェ」が再現しない
+- **CEO PASS 判定**: 2026-04-18
 
-### Build Unit — Week 2
-anchor-first 再構築 + Deep Context Injection。詳細は W1 完了後確定。
+### Build Unit — Week 2（2026-04-19 着手）🔴
+anchor-first deterministic planner + start/end origin 修正 + recommendation path。
+
+**CEO 指示（2026-04-18）**: Deep Context Injection は **構造 4 点を固めてから** 着手。先に広げない。
+
+#### 背景（CEO 実機再検証で観測された 3 ケース）
+1. ケース1: 移動が生成されない / 会食場所をサドヤで固定 / 「おすすめ」が generic_place 扱いで recommendation が効かない
+2. ケース2: ある程度成功だが start / end origin が崩れている（終点を把握していない）
+3. ケース3: /baseline で成田設定なのに成田駅周辺で出ない + 移動時間欠落 + recommendation 不発
+
+#### Step W2-1: anchor-first deterministic planner 🔴
+LLM の order を捨て、3 パス構築:
+- [ ] Pass 1: Hard anchor 配置（fixed_start / window_* を時系列配置）
+- [ ] Pass 2: Flex anchor を gap に挿入
+- [ ] Pass 3: Travel 生成（解決済み place のみ）
+- [ ] `window_end` 尊重。push-out 禁止。短縮可能なのは `inferred duration` のみ
+- [ ] テスト追加（22:00 ランチ再発防止 / window_end 尊重 / push-out 禁止）
+
+#### Step W2-2: start / end origin 優先順位修正 🔴
+CEO 実機ケース2・3 で観測: /baseline 起点と endpoint が尊重されていない。
+- [ ] 起点優先順位を明文化: explicit startPoint > currentLocation > todayOrigin > baseline home
+- [ ] endpoint: endpointAnchor > endAction > 帰宅（baseline home）の順
+- [ ] ケース3（/baseline=成田 → 成田駅周辺）が再現しない
+- [ ] ケース2（終点把握）が再現しない
+- [ ] テスト追加（origin 優先順位 / endpoint 尊重）
+
+#### Step W2-3: recommendation path の明確化 🔴
+CEO 実機ケース1で観測: 「おすすめ」が generic_place として扱われ recommendation が効かない。
+- [ ] `RecommendationIntent` 型を定義（generic_place とは別経路）
+- [ ] planner が recommendation intent を受ける分岐を追加
+- [ ] 解決戦略: anchor 近傍 + カテゴリ + （将来）Stargazer 軸 で候補を出す
+- [ ] テスト追加（intent 判別 / 候補生成経路）
+
+#### Step W2-4: 「おすすめある？」を recommendation intent として検出 🔴
+- [ ] llmPlanExtractor / llmDeltaParser の LLM プロンプトに recommendation intent 抽出ルール追加
+- [ ] 決定論 pre-classifier（「おすすめ」「どこかいいとこ」等のパターン）を前段に
+- [ ] 既存 generic_place 経路と分離する境界を明確化
+- [ ] テスト追加（判別精度）
+
+#### W2 チェックポイント（CEO 再検証）
+ここで CEO 実機再検証 → PASS なら Deep Context Injection 着手。
+
+#### Step W2-5: Deep Context Injection（CEO 承認後のみ着手）
+- Stargazer 軸 / HDM Phase / Origin 直近 / Relational Lens を `PlanningContext` に統合
+- 詳細は W2-1〜W2-4 完了後に再確認
 
 ### Build Unit — Week 3
 Soft Preference Scoring。

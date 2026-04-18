@@ -42,11 +42,42 @@
 - plan を出してよい: hard anchor 解 / near 拘束解 / major place confidence OK / travel 解決済み
 - plan を出してはいけない: unresolved place / near-anchor 0件 / low confidence / slot-targeted 未解決 / 順序崩壊
 - 違反時: 1問だけ sharp clarify（「分からないから止めている」を率直に出す。曖昧文禁止）
-- **ステータス**: W1 実装中
+- **ステータス**: W1 完了（2026-04-18 CEO PASS、下記 W2 エントリ参照）
 
 #### 関連ドキュメント
-- 設計書: `docs/alter-morning-planner-redesign.md`（作成予定）
+- 設計書: `docs/alter-morning-planner-redesign.md`
 - 診断レポート: このセッションの調査結果（anchor 順序崩壊 / 距離制約 soft / place 未確定のまま travel）
+
+---
+
+### 2026-04-18 Alter-Morning Planner W1 PASS + W2 スコープ確定
+- **部門**: Build / Product
+- **決定内容**: W1 Step 6a+6b を PASS 判定。W2 は当初計画の「anchor-first + Deep Context Injection」を分割し、**構造 4 点を先に固めてから** Deep Context Injection に進む。
+- **理由**: CEO 実機再検証（3 ケース）で以下を観測:
+  1. ケース1: 移動が生成されない / 会食場所をサドヤで固定 / 「おすすめ」が generic_place 扱いで recommendation が効かない
+  2. ケース2: ある程度成功だが start / end origin の優先順位が崩れている（終点を把握していない）
+  3. ケース3: /baseline で成田設定なのに成田駅周辺で出ない + 移動時間欠落 + recommendation 不発
+  「壊れた確定プランを出さない」目的は達成。しかし「良いプランを組む」能力は構造レベルで未整備。Deep Context Injection を先に入れても土台が無いと効かないので、構造→深層の順に直す。
+- **承認**: CEO（2026-04-18）
+
+#### W2 実装順序（この順で固定）
+1. **anchor-first planner** — LLM の order を捨て、3 パス構築（hard anchor → flex anchor → travel）。push-out 禁止、window_end 尊重
+2. **start / end origin の優先順位修正** — /baseline の起点と endpoint が尊重されていない。優先順位を明文化し実装を合わせる
+3. **recommendation path の明確化** — recommendation intent を独立経路として扱う（generic_place の亜種ではない）
+4. **「おすすめある？」を recommendation intent として検出** — LLM 抽出側で intent を立て、resolver / planner がその経路で動く
+5. （ここまでで CEO 再検証）
+6. Deep Context Injection（Stargazer 軸 / HDM Phase / Origin 直近 / Relational Lens）
+
+#### W2 完了判定
+- [ ] LLM の `order` が使われない（決定は 3 パスロジック）
+- [ ] /baseline 起点が start で尊重される（ケース3 再現なし）
+- [ ] endpoint が明示された場合に尊重される（ケース2 再現なし）
+- [ ] 「おすすめ」発話で recommendation 経路が発動する（ケース1 再現なし）
+- [ ] その上で Deep Context Injection 開始
+
+#### 関連ドキュメント
+- `docs/weekly-priorities.md` Week 2 セクション更新
+- `docs/alter-morning-planner-redesign.md` W2 構成更新
 
 ---
 
