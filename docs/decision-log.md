@@ -14,6 +14,42 @@
 
 ---
 
+### 2026-04-18 Alter-Morning Planner 再設計（4週 C プラン + 限定保守モード）
+- **部門**: Build / Product
+- **決定内容**: alter-morning の planner を「LLM丸投げ」から「LLM 意味抽出 + Logic 計画 + LLM Narration」の3段分業に再構築する。4週間の C プランで着手。
+- **理由**: CEO 実機判定 0 点。ランチが 22:00 に押し出される / 自宅から真逆のカフェ採用 / 「サドヤ近く」が hard 制約にならない等、planner の state machine と constraint solver が壊れている。段階改善では「最高品質」に届かないと CEO 判断。
+- **承認**: CEO（2026-04-18）
+
+#### 固定方針（以後の設計原則）
+> **LLM は意味を掴む。ロジックが計画を組む。LLM が納得できる形で伝える。**
+- 層1 LLM: 構造化（意味抽出）のみ
+- 層2-4 Logic: hard constraint solver / soft preference scoring / candidate selection
+- 層5-6 LLM+template: why 生成 / Alter narration
+
+#### 核感情
+**納得感** を最優先。順番 = 納得感 → 満足感 → 期待感 → 幸福感。「なぜこの順か、なぜこの場所か、なぜ今日はこう組んだか」が腑に落ちることを体験の本体とする。
+
+#### 4週構成
+| Week | スコープ | 到達点 |
+|---|---|---|
+| W1 | Step 6a + 6b: Safety Gate / Travel suppress / hard 距離制約 / userArea fallback 禁止 | 壊れた確定プランを出さない |
+| W2 | anchor-first deterministic planner + Deep Context Injection (Stargazer 軸 / HDM Phase / Origin 直近 / Relational Lens) | 順序崩壊ゼロ + 自分のことを分かってる感 |
+| W3 | Soft Preference Scoring (rhythm / relational fit / spatial flow / aesthetic coherence) + Top-2 比較 | どのプランナーにも真似できないレベル |
+| W4 | Why 生成 + Alter Narration | 納得感の本体 |
+
+#### 公開挙動（限定保守モード）
+全面停止しない。未解決拘束がある時だけ plan_presented に行かない。
+- plan を出してよい: hard anchor 解 / near 拘束解 / major place confidence OK / travel 解決済み
+- plan を出してはいけない: unresolved place / near-anchor 0件 / low confidence / slot-targeted 未解決 / 順序崩壊
+- 違反時: 1問だけ sharp clarify（「分からないから止めている」を率直に出す。曖昧文禁止）
+- **ステータス**: W1 実装中
+
+#### 関連ドキュメント
+- 設計書: `docs/alter-morning-planner-redesign.md`（作成予定）
+- 診断レポート: このセッションの調査結果（anchor 順序崩壊 / 距離制約 soft / place 未確定のまま travel）
+
+---
+
 ### 2026-04-08 safe-merge 完了 + pre-existing test 失敗2件の固定記録
 - **部門**: Build
 - **決定内容**: ローカル全変更を main に安全合流・push 完了。pre-existing テスト失敗2件を正式記録。
