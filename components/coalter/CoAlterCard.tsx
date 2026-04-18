@@ -28,6 +28,9 @@ import type {
   AxisScores,
 } from "@/lib/coalter/types";
 import { getAxisMeta } from "@/lib/coalter/axes";
+import CoAlterCandidateDetailSheet, {
+  type HandoffLogPayload,
+} from "@/components/coalter/CoAlterCandidateDetailSheet";
 import {
   SLOT_ICON,
   SLOT_LABEL,
@@ -90,6 +93,12 @@ interface Props {
   onAnswerInChat?: (question: string) => void;
   /** 待機を取り消す */
   onCancelAwaiting?: () => void;
+  // ─ Phase A (2026-04-18) ─
+  /**
+   * bottom sheet 展開 / 外部導線タップのイベントロガー。
+   * coalter_handoff_events への書き込みを親側で行う想定。
+   */
+  onHandoffEvent?: (payload: HandoffLogPayload) => void;
 }
 
 export default function CoAlterCard({
@@ -103,8 +112,11 @@ export default function CoAlterCard({
   awaitingAnswer = null,
   onAnswerInChat,
   onCancelAwaiting,
+  onHandoffEvent,
 }: Props) {
   const [showRefine, setShowRefine] = useState(false);
+  const [detailCandidate, setDetailCandidate] =
+    useState<ProposalCandidate | null>(null);
   const isAwaiting = !!awaitingAnswer;
 
   const topMissing = proposal.missingConstraints?.[0] ?? null;
@@ -281,6 +293,7 @@ export default function CoAlterCard({
         candidates={proposal.candidates}
         availableAxes={availableAxes}
         onAdopt={onAdopt}
+        onOpenDetail={(c) => setDetailCandidate(c)}
       />
 
       {/* ═══ ④ なぜこの候補か ═══ */}
@@ -478,6 +491,14 @@ export default function CoAlterCard({
           )}
         </div>
       </div>
+
+      {/* Phase A: Candidate Detail Sheet */}
+      <CoAlterCandidateDetailSheet
+        candidate={detailCandidate}
+        isOpen={detailCandidate !== null}
+        onClose={() => setDetailCandidate(null)}
+        onHandoffEvent={onHandoffEvent}
+      />
     </motion.div>
   );
 }
@@ -744,10 +765,13 @@ function CandidateSwipeDeck({
   candidates,
   availableAxes,
   onAdopt,
+  onOpenDetail,
 }: {
   candidates: ProposalCandidate[];
   availableAxes: AxisKey[];
   onAdopt?: (candidate: ProposalCandidate) => void;
+  /** 詳細シートを開く (Phase A) */
+  onOpenDetail?: (candidate: ProposalCandidate) => void;
 }) {
   const [index, setIndex] = useState(0);
   const total = candidates.length;
@@ -912,6 +936,31 @@ function CandidateSwipeDeck({
               >
                 {current.practicalInfo}
               </p>
+            )}
+
+            {/* Phase A: 詳しく見る (bottom sheet を開く) */}
+            {current.detail && onOpenDetail && (
+              <div style={{ marginTop: 8, textAlign: "right" }}>
+                <motion.button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDetail(current);
+                  }}
+                  whileTap={{ scale: 0.96 }}
+                  style={{
+                    fontSize: 10,
+                    color: C.coalter,
+                    background: `${C.coalter}10`,
+                    border: `1px solid ${C.coalter}25`,
+                    borderRadius: 8,
+                    padding: "4px 10px",
+                    fontWeight: 600,
+                    cursor: "pointer",
+                  }}
+                >
+                  詳しく見る →
+                </motion.button>
+              </div>
             )}
           </motion.div>
         </AnimatePresence>

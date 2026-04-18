@@ -100,6 +100,8 @@ export async function generateMovieProposalV2(
     profileA: input.profileA,
     profileB: input.profileB,
     relationship: input.relationship,
+    alternatives: rankOutput.alternatives,
+    searchCandidates: input.searchCandidates,
   });
 
   const startedNarration = Date.now();

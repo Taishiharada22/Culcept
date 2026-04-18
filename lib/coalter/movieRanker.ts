@@ -23,6 +23,7 @@ import type {
   MovieScreening,
   RankInput,
   RankOutput,
+  RankedAlternative,
   RankedCandidate,
   RankingAxesPreset,
   RankingRole,
@@ -595,8 +596,13 @@ export function rankMovies(input: RankInput): RankOutput {
     }
   }
 
+  // 4) Alternatives (bottom sheet の「こっちもあるよ」枠、上限 2)
+  const adoptedTitles = new Set(ranked.map((r) => r.title));
+  const alternatives = buildAlternatives(passed, roles, adoptedTitles, brief);
+
   return {
     ranked,
+    alternatives,
     filterTrace,
     appliedPreset: preset,
     counts: {
@@ -605,6 +611,100 @@ export function rankMovies(input: RankInput): RankOutput {
       afterDiversity: ranked.length,
     },
   };
+}
+
+// ─────────────────────────────────────────────
+// Alternatives (役割外上位 0-2 件)
+// ─────────────────────────────────────────────
+
+function buildAlternatives(
+  passed: Array<{
+    movie: MovieScreening;
+    pickedShowtime: string | null;
+    metrics: Metrics;
+    roleScores: Record<RankingRole, number>;
+  }>,
+  roles: RankingRole[],
+  adoptedTitles: Set<string>,
+  brief: ConversationBrief,
+): RankedAlternative[] {
+  const residual = passed.filter((p) => !adoptedTitles.has(p.movie.title));
+  if (residual.length === 0) return [];
+
+  // 各候補の「最も強かった role」とそのスコアを求める
+  const scored = residual.map((p) => {
+    let topRole: RankingRole = roles[0];
+    let topScore = -Infinity;
+    for (const r of roles) {
+      const s = p.roleScores[r] ?? 0;
+      if (s > topScore) {
+        topScore = s;
+        topRole = r;
+      }
+    }
+    return { ...p, topRole, topScore };
+  });
+
+  scored.sort((a, b) => b.topScore - a.topScore);
+
+  // 上位 2 件を取る。重複タイトル回避（同じ映画の別 showtime は除外）
+  const seen = new Set<string>();
+  const picked: typeof scored = [];
+  for (const s of scored) {
+    if (seen.has(s.movie.title)) continue;
+    seen.add(s.movie.title);
+    picked.push(s);
+    if (picked.length >= 2) break;
+  }
+
+  return picked.map((p) => ({
+    title: p.movie.title,
+    theater: p.movie.theater,
+    showtime: p.pickedShowtime,
+    releaseStatus: p.movie.status,
+    sourceUrl: p.movie.sourceUrl,
+    rating: p.movie.rating,
+    reason: buildAlternativeReason(p.metrics, p.topRole, p.movie, brief),
+    topRole: p.topRole,
+    topRoleScore: p.topScore,
+  }));
+}
+
+function buildAlternativeReason(
+  m: Metrics,
+  topRole: RankingRole,
+  movie: MovieScreening,
+  brief: ConversationBrief,
+): string {
+  // トレードオフが強い項目があればそれを理由にする
+  if (movie.runtimeMinutes !== null && movie.runtimeMinutes > 140) {
+    return `上映時間が${movie.runtimeMinutes}分とやや長め`;
+  }
+  if (brief.approximateTime.timeSlot && m.timeslotFit < 0.5) {
+    return `希望の時間帯と少しズレがある`;
+  }
+  if (brief.area && m.areaFit < 0.5) {
+    return `${brief.area}からは少し離れる劇場`;
+  }
+  if (m.safety < 0.4 && m.novelty >= 0.6) {
+    return `評価は控えめだが新しさが強み`;
+  }
+  if (movie.status === "upcoming") {
+    return `公開予定のためスケジュール要確認`;
+  }
+  // role ラベルから一言に
+  const roleLabel: Record<RankingRole, string> = {
+    balance: "折り合い枠",
+    aFocus: "A の好み寄り",
+    bFocus: "B の好み寄り",
+    safety: "安心枠",
+    adventure: "冒険枠",
+    discovery: "新規性枠",
+    calm: "落ち着き寄り",
+    stimulating: "刺激寄り",
+    nostalgic: "ノスタルジア寄り",
+  };
+  return `${roleLabel[topRole]}としてもあり得た候補`;
 }
 
 // テスト用 export

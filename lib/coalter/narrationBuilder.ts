@@ -14,14 +14,20 @@
  */
 
 import type {
+  CandidateAlternative,
+  CandidateDetail,
+  CandidateSource,
   ConversationBrief,
   CoAlterPersonProfile,
   ProposalCandidate,
   ProposalCard,
+  RankedAlternative,
   RankedCandidate,
   RankingRole,
+  SearchCandidate,
 } from "./types";
 import type { SlotBundle } from "./slots";
+import { resolveBookingHandoff } from "./bookingResolver";
 
 // ─────────────────────────────────────────────
 // Role → 表現ラベル
@@ -250,8 +256,176 @@ export function buildProposalCandidates(
   }));
 }
 
+// ─────────────────────────────────────────────
+// CandidateDetail (Phase A 2026-04-18) — bottom sheet 用
+// ─────────────────────────────────────────────
+
+/**
+ * Movie 候補の詳細を logic 合成する。
+ *
+ * - why2People: role + matched interests から 1-2 文を組み立てる
+ * - address / access / operatingHours: catalog + searchCandidates から抽出
+ * - alternatives: Layer 2 residual (上限 2)
+ * - booking: resolveBookingHandoff へ委譲（CTA label 決定を含む）
+ * - sources: matching searchCandidates のユニーク URL 一覧
+ */
+export function buildCandidateDetail(args: {
+  candidate: RankedCandidate;
+  alternatives: RankedAlternative[];
+  searchCandidates: SearchCandidate[];
+  brief: ConversationBrief;
+}): CandidateDetail {
+  const { candidate, alternatives, searchCandidates, brief } = args;
+
+  // address / access / operatingHours / priceBand
+  const matched = pickMatchingSearchCandidates(
+    candidate.title,
+    candidate.theater,
+    searchCandidates,
+  );
+
+  const address = candidate.theater ?? null;
+  const access = extractAccess(matched);
+  const operatingHours = buildOperatingHours(candidate);
+  const priceBand: string | null = null; // movie では一旦空。Phase B 食事で使う
+
+  // why2People
+  const why2People = buildWhy2People(candidate);
+
+  // alternatives → CandidateAlternative[]
+  const altOut: CandidateAlternative[] = alternatives
+    .filter((a) => a.title !== candidate.title)
+    .slice(0, 2)
+    .map((a) => ({
+      title: a.title,
+      reason: a.reason,
+      url: a.sourceUrl || null,
+    }));
+
+  // booking handoff
+  const booking = resolveBookingHandoff({
+    theme: brief.theme,
+    candidateTitle: candidate.title,
+    candidateTheater: candidate.theater,
+    catalogSourceUrl: candidate.sourceUrl || null,
+    searchCandidates,
+  });
+
+  // sources
+  const sources = buildSources(candidate, matched);
+
+  return {
+    why2People,
+    address,
+    access,
+    priceBand,
+    operatingHours,
+    alternatives: altOut,
+    booking,
+    sources,
+  };
+}
+
+function buildWhy2People(c: RankedCandidate): string {
+  const { rationale, role } = c;
+  const aHit = rationale.matchedInterestsA.slice(0, 2);
+  const bHit = rationale.matchedInterestsB.slice(0, 2);
+
+  const roleLabel = ROLE_PRIORITY_CUE[role];
+
+  if (aHit.length > 0 && bHit.length > 0) {
+    const common = aHit.filter((x) => bHit.includes(x));
+    if (common.length > 0) {
+      return `2人ともに響く「${common[0]}」の要素があり、${roleLabel}の軸で中間が取れる1本。`;
+    }
+    return `Aには「${aHit[0]}」、Bには「${bHit[0]}」にそれぞれ引っかかる要素がある。${roleLabel}として据えた。`;
+  }
+  if (aHit.length > 0) {
+    return `Aの「${aHit[0]}」寄りに振った1本。${roleLabel}の役割として機能する。`;
+  }
+  if (bHit.length > 0) {
+    return `Bの「${bHit[0]}」寄りに振った1本。${roleLabel}の役割として機能する。`;
+  }
+  return `${roleLabel}を主眼に据えた1本。2人の好みから外しにくい中間に置いた。`;
+}
+
+function buildOperatingHours(c: RankedCandidate): string | null {
+  if (c.showtime) {
+    const runtime = c.runtimeMinutes ? ` (${c.runtimeMinutes}分)` : "";
+    return `${c.showtime}〜${runtime}`;
+  }
+  if (c.releaseStatus === "upcoming") return "公開予定";
+  return null;
+}
+
+function extractAccess(matched: SearchCandidate[]): string | null {
+  // practicalInfo / description から「〇〇駅 徒歩X分」「〇〇から徒歩」パターンを拾う
+  const pattern = /([^\s、。「」]{1,10}駅[^。、\n]{0,4}徒歩\s?\d+\s?分)/;
+  for (const sc of matched) {
+    for (const field of [sc.practicalInfo, sc.description]) {
+      if (!field) continue;
+      const m = field.match(pattern);
+      if (m) return m[1];
+    }
+  }
+  return null;
+}
+
+function pickMatchingSearchCandidates(
+  title: string,
+  theater: string | null,
+  searchCandidates: SearchCandidate[],
+): SearchCandidate[] {
+  const nt = title.toLowerCase().replace(/[\s　]/g, "");
+  const matches: SearchCandidate[] = [];
+  for (const sc of searchCandidates) {
+    const nsc = sc.title.toLowerCase().replace(/[\s　]/g, "");
+    const descNorm = `${sc.title} ${sc.description ?? ""} ${sc.practicalInfo ?? ""}`
+      .toLowerCase()
+      .replace(/[\s　]/g, "");
+    const titleMatch = nsc.includes(nt) || nt.includes(nsc) || descNorm.includes(nt);
+    if (!titleMatch) continue;
+    if (theater) {
+      const nth = theater.toLowerCase().replace(/[\s　]/g, "");
+      // theater が description / title に出ていれば優先。無くても許容。
+      if (!descNorm.includes(nth) && !nsc.includes(nth)) {
+        // theater 不一致でも title が完全一致してれば採用
+        if (!(nsc === nt || descNorm.includes(nt))) continue;
+      }
+    }
+    matches.push(sc);
+  }
+  return matches;
+}
+
+function buildSources(
+  candidate: RankedCandidate,
+  matched: SearchCandidate[],
+): CandidateSource[] {
+  const seen = new Set<string>();
+  const out: CandidateSource[] = [];
+
+  // catalog sourceUrl を最優先
+  if (candidate.sourceUrl) {
+    seen.add(candidate.sourceUrl);
+    out.push({ label: "上映情報", url: candidate.sourceUrl });
+  }
+
+  for (const sc of matched) {
+    if (!sc.url || seen.has(sc.url)) continue;
+    seen.add(sc.url);
+    out.push({ label: sc.source || "参考", url: sc.url });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 export const __internal = {
   ROLE_HEADLINE,
   ROLE_PRIORITY_CUE,
   buildSlots,
+  buildWhy2People,
+  pickMatchingSearchCandidates,
+  extractAccess,
+  buildSources,
 };

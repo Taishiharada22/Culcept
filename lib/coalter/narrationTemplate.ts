@@ -13,8 +13,10 @@ import type {
   ConversationBrief,
   CoAlterPersonProfile,
   ProposalCard,
+  RankedAlternative,
   RankedCandidate,
   RelationshipContext,
+  SearchCandidate,
 } from "./types";
 import {
   buildProposalCandidates,
@@ -22,6 +24,7 @@ import {
   buildReasoning,
   buildSummary,
   buildClosing,
+  buildCandidateDetail,
 } from "./narrationBuilder";
 
 export interface NarrationInput {
@@ -30,6 +33,10 @@ export interface NarrationInput {
   profileA: CoAlterPersonProfile;
   profileB: CoAlterPersonProfile;
   relationship: RelationshipContext;
+  /** Phase A: bottom sheet 用の alternatives プール (上限 2) */
+  alternatives?: RankedAlternative[];
+  /** Phase A: URL / booking / sources 解決用の生 search 結果 */
+  searchCandidates?: SearchCandidate[];
 }
 
 /**
@@ -39,8 +46,24 @@ export interface NarrationInput {
  */
 export function buildNarrationFromLogic(input: NarrationInput): ProposalCard {
   const { ranked, brief, profileA, profileB } = input;
+  const alternatives = input.alternatives ?? [];
+  const searchCandidates = input.searchCandidates ?? [];
 
-  const candidates = buildProposalCandidates(ranked);
+  const baseCandidates = buildProposalCandidates(ranked);
+
+  // Phase A (2026-04-18): 各 candidate に detail (bottom sheet 用) を attach
+  const candidates = baseCandidates.map((cand, i) => {
+    const rc = ranked[i];
+    if (!rc) return cand;
+    const detail = buildCandidateDetail({
+      candidate: rc,
+      alternatives,
+      searchCandidates,
+      brief,
+    });
+    return { ...cand, detail };
+  });
+
   const summary = buildSummary(brief, ranked);
   const priorities = buildPriorities(ranked, brief, profileA, profileB);
   const reasoning = buildReasoning(ranked, brief);

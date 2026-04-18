@@ -532,6 +532,121 @@ export interface ProposalCandidate {
   theme?: ConversationTheme;
   /** 主軸スロット（テーマから導出されるが、UI で強調する時に参照） */
   coreSlot?: import("@/lib/coalter/slots").SlotKey;
+  /**
+   * Phase A (2026-04-18): 候補詳細（bottom sheet 用）。
+   *
+   * logic 合成（narrationBuilder.buildCandidateDetail）で埋まる。
+   * 既存 UI への影響を抑えるため optional。LLM は prose のみ書き換え可。
+   */
+  detail?: CandidateDetail;
+}
+
+// ─────────────────────────────────────────────
+// Phase A: Booking Handoff (2026-04-18)
+//
+// 設計原則:
+//  1. URL は searchCandidates からしか取らない（ハルシネーション禁止）
+//  2. confidence は providerType × マッチ強度で決まる。third_party は high にならない
+//  3. 映画は confidence によらず CTA を「予約」にしない（上映ページ誘導止まり）
+// ─────────────────────────────────────────────
+
+/**
+ * 予約/詳細確認の外部導線種別。
+ *
+ * - official          : 映画館サイト・レストラン自社サイト等の「公式ドメイン」
+ *                       URL パス上に /reserve, /booking, /ticket, /reservation 等を含む
+ * - official_site     : 公式ドメインだが予約確定ページではない（トップ / メニュー）
+ * - third_party       : 食べログ / ぐるなび / Filmarks 等の第三者サイト
+ */
+export type BookingProviderType =
+  | "official"
+  | "official_site"
+  | "third_party";
+
+/**
+ * 導線 URL の確信度。
+ *
+ * - high   : official + 予約/購入導線が確定
+ *            → 食事のみ「公式の予約ページへ」CTA として出す
+ * - medium : official_site（予約ページではない） or third_party の強マッチ
+ *            → 「公式サイトで確認する」「食べログで見る」等
+ * - low    : snippet 依存 / entity 一致が弱い / ページ種別曖昧
+ *            → CTA 非表示 or 最弱ラベル
+ *
+ * 注: movie は theme 側の方針で high に到達しても CTA は「上映ページを見る」止まり。
+ */
+export type BookingConfidence = "high" | "medium" | "low";
+
+/**
+ * 外部導線ハンドオフの構造化結果。
+ *
+ * - URL は必ず searchCandidates 由来（resolver で検証）
+ * - phone は v1 では CTA として出さない（保持のみ / 将来の食事 fallback 用）
+ */
+export interface BookingHandoff {
+  /** 予約/購入導線の URL。無ければ null */
+  bookingUrl: string | null;
+  /** 公式サイト URL（予約でなくトップ/メニュー等を含む）。無ければ null */
+  officialUrl: string | null;
+  /** 電話番号（v1 では CTA にしない。将来の食事 fallback 用に保持） */
+  phone: string | null;
+  /** CTA のラベル（theme × confidence × providerType で決定） */
+  label: string;
+  /** 導線種別（resolver が判定） */
+  providerType: BookingProviderType;
+  /** 第三者サイト名など表示用プロバイダ名（「食べログ」「Filmarks」等）。null 可 */
+  providerName: string | null;
+  /** ラベル降格の根拠となる確信度 */
+  confidence: BookingConfidence;
+}
+
+/**
+ * 候補詳細（bottom sheet 用）。
+ *
+ * 原則:
+ *  - logic 合成。LLM は prose フィールドのみ書き換え可能（postprocessor 保護）。
+ *  - alternatives は Layer 2 の residual（役割外上位）から 0-2 件（上限 2）。
+ *  - sources は searchCandidates の url/source を logic で束ねる。
+ */
+export interface CandidateDetail {
+  /** 2 人にとってこの候補がどう機能するか（1-2 文） */
+  why2People: string;
+  /** 住所 / 所在エリア（catalog / search から取れれば）。null 可 */
+  address: string | null;
+  /** アクセス（「渋谷駅 徒歩 5 分」等）。null 可 */
+  access: string | null;
+  /** 価格帯（食事で使用。映画では null 可） */
+  priceBand: string | null;
+  /** 営業時間 / 上映時間帯（テーマで意味が変わる）。null 可 */
+  operatingHours: string | null;
+  /**
+   * 代替候補（0-2 件、上限 2 固定）。
+   *
+   * Layer 2 で役割からは外れたが有力だったものをピックアップ。
+   * LLM は呼ばない。
+   */
+  alternatives: CandidateAlternative[];
+  /** 外部導線ハンドオフ（null = 導線なし / 取得失敗） */
+  booking: BookingHandoff | null;
+  /** 出典（searchCandidates 由来。UI にはソース名で表示） */
+  sources: CandidateSource[];
+}
+
+/** 代替候補（bottom sheet の「こっちもあるよ」枠） */
+export interface CandidateAlternative {
+  title: string;
+  /** 選ばれなかった理由（logic 由来、1 文） */
+  reason: string;
+  /** 出典 URL（searchCandidates の url を引き写す）。null 可 */
+  url: string | null;
+}
+
+/** 出典エントリ（bottom sheet フッター用） */
+export interface CandidateSource {
+  /** 表示ラベル（「映画.com」「食べログ」等） */
+  label: string;
+  /** 出典 URL */
+  url: string;
 }
 
 // ─────────────────────────────────────────────
@@ -696,6 +811,14 @@ export interface RankInput {
 export interface RankOutput {
   /** 採用された候補。0件 → clarify 誘導 / 1-2件 → 部分返却 / 3件 → 正規返却 */
   ranked: RankedCandidate[];
+  /**
+   * 代替案プール（役割外上位、0-2 件、上限 2 固定）。
+   *
+   * Phase A (2026-04-18) CEO 方針:
+   *  - 追加 LLM 呼び出しはしない（Layer 2 の residual のみ）
+   *  - 全候補で共有。各 candidate の detail.alternatives はここから選ぶ
+   */
+  alternatives: RankedAlternative[];
   /** ハードフィルタで落とされた監査トレース */
   filterTrace: FilterTrace[];
   /** ランカーが適用した preset（brief と同じだが、監査のため再掲） */
@@ -706,6 +829,26 @@ export interface RankOutput {
     afterHardFilter: number;
     afterDiversity: number;
   };
+}
+
+/**
+ * 役割から外れたが有力だった候補（bottom sheet の「こっちもあるよ」枠）。
+ *
+ * 事実フィールドのみ持つ。LLM は呼ばない。
+ */
+export interface RankedAlternative {
+  title: string;
+  theater: string | null;
+  showtime: string | null;
+  releaseStatus: "showing" | "upcoming" | "unknown";
+  sourceUrl: string;
+  rating: string | null;
+  /** 選ばれなかった主要理由（logic 由来、1 文） */
+  reason: string;
+  /** この alternative が最も強かった role */
+  topRole: RankingRole;
+  /** その role でのスコア */
+  topRoleScore: number;
 }
 
 /**
