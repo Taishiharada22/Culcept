@@ -165,6 +165,10 @@ function hardFilterOne(
   // UI で「作品だけカード」が出る退化を許してしまうため禁止。
   if (movie.title && !movie.theater) reasons.push("missing_where");
 
+  // Phase A.6 P1: 「上映終了 / 古すぎるリリース年」は提案対象外。
+  // 2024 年の作品（"旅と日々"等）が 2026 年に提案される退化を防ぐ。
+  if (movie.status === "ended") reasons.push("stale_release");
+
   // Augmentation B: showtimes=[] AND status="unknown"
   if (movie.showtimes.length === 0 && movie.status === "unknown") {
     reasons.push("unknown_status_without_showtime");

@@ -67,6 +67,10 @@ export interface MovieOrchestratorOutput {
     rankedCount: number;
     missingWhereRejectCount: number;
     titleWithoutTheaterCount: number;
+    /** Phase A.6 P1: "上映終了 / 古すぎるリリース年" で drop した件数 */
+    staleReleaseRejectCount: number;
+    /** Phase A.6 P1: catalog 段階で status="ended" と判定された件数 */
+    endedStatusCount: number;
   };
 }
 
@@ -200,11 +204,18 @@ export async function generateMovieProposalV2(
   ).length;
   const titleWithoutTheaterCount = catalog.filter((c) => c.title && !c.theater)
     .length;
+  // Phase A.6 P1 diagnostics
+  const staleReleaseRejectCount = rankOutput.filterTrace.filter((t) =>
+    t.reasons.includes("stale_release"),
+  ).length;
+  const endedStatusCount = catalog.filter((c) => c.status === "ended").length;
   const diagnostics = {
     catalogCount: catalog.length,
     rankedCount: rankOutput.ranked.length,
     missingWhereRejectCount,
     titleWithoutTheaterCount,
+    staleReleaseRejectCount,
+    endedStatusCount,
   };
 
   // 観測用 console（server-side）。sessionId があれば紐付けて grep しやすくする。

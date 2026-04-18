@@ -107,17 +107,102 @@ export function extractRuntimeMinutes(text: string): number | null {
   return null;
 }
 
-/** 公開ステータス */
+/**
+ * リリース年を拾う（Phase A.6 P1）。
+ *
+ * 対応パターン:
+ *   - "2024年公開" "2024年10月公開"
+ *   - "（2024）" "(2024)" "[2024]" "【2024】"
+ *   - "2024年の話題作" （snippet 内の言及）
+ *   - "2024/10/25" "2024-10-25" （日付）
+ *   - "公開日: 2024年" （最低限）
+ *
+ * 拾う範囲は 1960-2099 に限定（電話番号 / 時刻 / 映画コード等を拾わないため）。
+ */
+export function extractReleaseYear(text: string): number | null {
+  if (!text) return null;
+
+  const candidates: number[] = [];
+
+  // "2024年" (直前に ISBN/ID 的な数字列が来ないもの)
+  const reYearJp = /(?<![\d])((?:19|20)\d{2})年/g;
+  let m: RegExpExecArray | null;
+  while ((m = reYearJp.exec(text)) !== null) {
+    const n = Number(m[1]);
+    if (n >= 1960 && n <= 2099) candidates.push(n);
+  }
+
+  // 括弧内の年: （2024） / (2024) / [2024] / 【2024】
+  const reBracket = /[（(\[【]\s*((?:19|20)\d{2})\s*[）)\]】]/g;
+  while ((m = reBracket.exec(text)) !== null) {
+    const n = Number(m[1]);
+    if (n >= 1960 && n <= 2099) candidates.push(n);
+  }
+
+  // 日付 2024/10/25 or 2024-10-25 (月・日が妥当な範囲)
+  const reDate = /(?<![\d])((?:19|20)\d{2})[\/\-](\d{1,2})[\/\-](\d{1,2})/g;
+  while ((m = reDate.exec(text)) !== null) {
+    const y = Number(m[1]);
+    const mm = Number(m[2]);
+    const dd = Number(m[3]);
+    if (y >= 1960 && y <= 2099 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) {
+      candidates.push(y);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  // 複数の年が出たら「最新」を採用（リリース年は他の年より新しいことが多い）
+  return Math.max(...candidates);
+}
+
+/**
+ * 公開ステータス。
+ *
+ * Phase A.6 P1: "ended" を追加。
+ *   - 明示的「上映終了 / 公開終了 / 終映」→ ended
+ *   - release year が reference date より 1 年以上前で showing 明示なし → ended
+ *   - 明示的 showing が優先（再上映・ロングラン対応）
+ *
+ * @param text 検査対象の文字列
+ * @param referenceNow stale 判定の基準日（省略時は new Date()）
+ */
 export function extractStatus(
   text: string,
-): "showing" | "upcoming" | "unknown" {
+  referenceNow: Date = new Date(),
+): "showing" | "upcoming" | "ended" | "unknown" {
   if (!text) return "unknown";
-  if (/公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開|今冬公開|今秋公開|今夏公開|今春公開/.test(text)) {
+
+  // (1) 明示的 showing が最優先（再上映・リバイバルケース）
+  const explicitShowing =
+    /上映中|公開中|絶賛上映|好評上映|現在上映|ただいま上映|ロードショー公開中/.test(text);
+  if (explicitShowing) return "showing";
+
+  // (2) 明示的 ended
+  if (/上映[はを]?終了|公開[はを]?終了|上映終了しました|公開終了しました|終映/.test(text)) {
+    return "ended";
+  }
+
+  // (3) 明示的 upcoming
+  if (
+    /公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開|今冬公開|今秋公開|今夏公開|今春公開|\d{4}年\d{1,2}月公開/.test(
+      text,
+    )
+  ) {
     return "upcoming";
   }
-  if (/上映中|公開中|絶賛上映|好評上映|現在上映/.test(text)) {
-    return "showing";
+
+  // (4) release year による stale 判定
+  //    reference 年 - release 年 >= 2 → ended（2026 現在、2024 年公開は「もう終わってる」確度が高い）
+  //    reference 年 - release 年 == 1 で reference 月 >= 4 → ended（14 ヶ月以上経過）
+  const releaseYear = extractReleaseYear(text);
+  if (releaseYear !== null) {
+    const currentYear = referenceNow.getFullYear();
+    const currentMonth = referenceNow.getMonth() + 1; // 1-12
+    const diffYears = currentYear - releaseYear;
+    if (diffYears >= 2) return "ended";
+    if (diffYears === 1 && currentMonth >= 4) return "ended";
   }
+
   return "unknown";
 }
 
@@ -434,6 +519,7 @@ export function parseMovieScreenings(
     const showtimes = extractShowtimes(combinedText);
     const runtimeMinutes = extractRuntimeMinutes(combinedText);
     const status = extractStatus(combinedText);
+    const releaseYear = extractReleaseYear(combinedText);
     const rating = extractRating(combinedText) ?? sc.externalRating ?? null;
 
     for (const title of titleCandidates) {
@@ -457,6 +543,7 @@ export function parseMovieScreenings(
         sourceUrl: sc.url ?? "",
         source: sc.source,
         snippet: sc.description.slice(0, 140),
+        releaseYear,
       });
     }
   }
@@ -550,7 +637,8 @@ export function catalogToPromptBlock(catalog: MovieScreening[]): string {
     const statusLabel =
       s.status === "showing" ? "上映中"
         : s.status === "upcoming" ? "公開予定"
-          : "状態不明";
+          : s.status === "ended" ? "上映終了"
+            : "状態不明";
     lines.push(`${i + 1}. ${s.title}（${statusLabel}）`);
     if (s.theater) lines.push(`   - 劇場: ${s.theater}`);
     if (s.showtimes.length > 0) lines.push(`   - 上映: ${s.showtimes.join(" / ")}`);

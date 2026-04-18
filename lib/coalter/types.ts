@@ -439,8 +439,17 @@ export interface MovieScreening {
   title: string;
   /** 映画館名（「TOHOシネマズ新宿」等。不明なら null） */
   theater: string | null;
-  /** 公開ステータス */
-  status: "showing" | "upcoming" | "unknown";
+  /**
+   * 公開ステータス。
+   * - showing:  明示的に「上映中 / 公開中 / 絶賛上映」が検出された
+   * - upcoming: 明示的に「公開予定 / 近日公開 / N月N日公開」が検出された
+   * - ended:    明示的に「上映終了 / 公開終了」が検出された、または
+   *             release year がリファレンス日付より 1 年以上前で showing 明示なし（Phase A.6 P1）
+   * - unknown:  いずれの手がかりも取れなかった
+   */
+  status: "showing" | "upcoming" | "ended" | "unknown";
+  /** 公開年（"2024年公開" 等から抽出）。不明なら null */
+  releaseYear?: number | null;
   /** 上映時刻のリスト（"19:00", "21:30" 等） */
   showtimes: string[];
   /** 上映時間（分）。不明なら null */
@@ -840,7 +849,7 @@ export interface RankedAlternative {
   title: string;
   theater: string | null;
   showtime: string | null;
-  releaseStatus: "showing" | "upcoming" | "unknown";
+  releaseStatus: "showing" | "upcoming" | "ended" | "unknown";
   sourceUrl: string;
   rating: string | null;
   /** 選ばれなかった主要理由（logic 由来、1 文） */
@@ -872,6 +881,7 @@ export type HardFilterReason =
   | "violates_avoid_keys"           // 前回採用済み
   | "missing_identity"              // title/theater 共に null
   | "missing_where"                 // Phase A.5: theater が紐付けられない（作品×映画館で初めて1候補）
+  | "stale_release"                 // Phase A.6 P1: 既に上映終了 / リリースが古すぎる
   | "unknown_status_without_showtime"; // Augmentation B: showtimes=[] AND status="unknown"
 
 /**
@@ -891,7 +901,7 @@ export interface RankedCandidate {
   /** 採用された開始時刻（複数 showtimes の中からランカーが選んだ 1 つ） */
   showtime: string | null;
   runtimeMinutes: number | null;
-  releaseStatus: "showing" | "upcoming" | "unknown";
+  releaseStatus: "showing" | "upcoming" | "ended" | "unknown";
   rating: string | null;
   sourceUrl: string;
 
