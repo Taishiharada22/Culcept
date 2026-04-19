@@ -13,6 +13,27 @@
 ```
 
 ---
+### 2026-04-20 CoAlter M0-7A close — SYSTEM_INSTRUCTION の mode selection guidance 追記で agreement 100% 到達
+- **部門**: Build
+- **決定内容**: `realApiAdapter.ts` の SYSTEM_INSTRUCTION に mode 選択ガイダンス（各 mode の structural condition と "weak signal → maintain" の default）を追記。50-case shadow を再実行し、目標超過達成（rule maintain → llm connect の件数 41 → 0）。M0-7 は M0-7A 単独で close、M0-7B/C は不要（YAGNI）。
+- **結果（M0-6C → M0-7A）**:
+  - overall agreement: 16% → **100%**
+  - maintain agreement: 4/46 → **46/46 = 100%**
+  - connect agreement: 4/4 → **4/4 = 100%（維持）**
+  - 混同行列: 完全対角（perfect diagonal）
+  - confidenceDelta p50: +0.326 → +0.126、min: +0.284 → **-0.016**（LLM が弱信号を素直に認識）
+- **設計判断の要点**:
+  - CompressedTodayInput は enum-only で既に structural。rule 条件を LLM に共有するのは cheat ではなく設計意図の一致。LLM 独自価値は implicitIntent / latentNeeds / confidence calibration に残る
+  - 数値閾値は "gap around 0.2 or more" のような緩い表現で伝え、LLM を calculator にしない
+  - 既存行は削除せず追記のみ。rollback は 1 commit
+- **残課題（本マイルストーンの scope 外）**:
+  - sample entropy は低いまま（arc/caringGap 以外は H=0）。diverse sample での calibration 強度は未検証
+  - 新 pair / 豊富な対話データでの再検証は別マイルストーン（M0-8 等）で切り出す
+- **参考ログ**: `/tmp/coalter-shadow-run-2026-04-20-m0-7a.log`
+- **承認**: CEO（自律実行承認、2026-04-20）
+- **ステータス**: 実行済（M0-7 close、M0-7B/C 不要）
+
+---
 ### 2026-04-20 CoAlter M0-6C close、次は M0-7 LLM calibration
 - **部門**: Build
 - **決定内容**: β（collector 追補）/ γ（rule 閾値 axis key 拡張）/ δ（signal entropy 指標）を実装し、50-case shadow を再実行。結果を受けて M0-6C を close、次マイルストーンを **M0-7 = LLM calibration** とする。

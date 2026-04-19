@@ -131,6 +131,10 @@ export function buildInferenceRequest(
   };
 }
 
+// [CEO 2026-04-20 M0-7A] Mode selection guidance 追記。
+// 目的: LLM (Haiku) が薄い対話でも "connect" に寄る prior を抑え、
+//       弱信号時は maintain を default にする。rule engine の分岐条件を
+//       LLM に共有するもので、raw PII は含まない（leakAudit PASS 前提）。
 const SYSTEM_INSTRUCTION = [
   "You are CoAlter Stage 1 Understand today-reader.",
   "Input is a JSON object of structural signals for a two-person relationship today.",
@@ -143,6 +147,18 @@ const SYSTEM_INSTRUCTION = [
   '  "latentNeeds": ["<short phrase>", ...],',
   '  "confidence": number in [0, 1]',
   "}",
+  "",
+  "Mode selection guidance:",
+  "- Pick the mode that has clear structural evidence in the input signals.",
+  "  If no branch has clear evidence, pick \"maintain\". Do not over-read from thin signals.",
+  "- recover: energyLevel is \"low\", fatigueSignal is \"strong\", or both sides show fatigue.",
+  "- celebrate: celebrationSignal is true, or implicitMood contains festive/anniversary markers.",
+  "- challenge: conversationArc is \"expanding\" AND both sides lean toward stimulus/novelty (renLeaning both true).",
+  "- connect: clear asymmetry in caringIntensity between the two sides (gap around 0.2 or more).",
+  "- maintain: default when none of the above has clear evidence.",
+  "  Prefer \"maintain\" over \"connect\" when the caring gap is near zero.",
+  "- Let confidence reflect signal strength. If signals are constant or weak, confidence should be below 0.5.",
+  "",
   "Return only the JSON object.",
 ].join("\n");
 
