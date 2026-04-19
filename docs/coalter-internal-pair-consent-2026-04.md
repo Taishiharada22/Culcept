@@ -26,7 +26,7 @@
 | 識別 | 値 |
 | --- | --- |
 | pair 内部コードネーム | `aneurasync` |
-| pairHash | `TBD_at_export_run`（16 hex chars; 実値は `~/.coalter/pair-map.json` 生成時に `sha256(userIdA + ":" + userIdB + ":" + pepper)[0..16]` で算出。記入時点では未算出） |
+| pairHash | `fc0e737cca0eab22`（`scripts/coalter/export-internal-pair.ts` 実行時に `sha256(sorted(userIdA,userIdB) + ":" + pepper)[0..16]` で算出、2026-04-20 05:19 JST） |
 | アカウント A 本人 | `taishi harada`（氏名） |
 | アカウント B 本人 | `kumi harada`（氏名） |
 | 両者の関係性 | `既知ペア`（例: 既知ペア / 共同検証者） |
@@ -124,10 +124,10 @@ commit による記録:
 | 項目 | 値 |
 | --- | --- |
 | 対象 session の抽出元 | `public.coalter_sessions`（`pair_state_id = <本ペアの id>`） + `public.talk_messages`（同 `thread_id` + 各 session の `created_at` 〜 `ended_at` 時間窓）。補助として `public.stargazer_*` / `public.alter_*` / `public.coalter_fairness_ledger` / `public.genome_connections` を read-only 参照 |
-| session 件数 | `23`（`>=20` を満たすこと ✓、coalter_sessions の行数） |
-| 期間 | `2026-04-01 〜 2026-04-20` |
-| 抽出時刻 | `2026-04-20 02:55 JST` |
-| 抽出クエリ hash | `TBD_at_extraction_run`（`scripts/coalter/export-internal-pair.ts` 実行時に、実行された SQL を `sha256` した先頭 16 hex を記入） |
+| session 件数 | `151`（`>=20` を満たす ✓、export CLI が `coalter_sessions` で検出した本ペアの session 行数、実測値） |
+| 期間 | 本ペアの全 `coalter_sessions`（日付フィルタなし、state='enabled' の pair_state 配下）|
+| 抽出時刻 | `2026-04-20 05:19 JST` |
+| 抽出クエリ hash | `8f66597980a6195b`（`scripts/coalter/export-internal-pair.ts` 実行時の aggregate query fingerprint の `sha256[0..16]`） |
 
 ---
 
