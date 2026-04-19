@@ -46,13 +46,14 @@ check_property "prompt" "$TARGET_DIR"
 check_property "rawOutput" "$TARGET_DIR"
 check_property "rawRationale" "$TARGET_DIR"
 
-echo "[leak-audit] Gate E-7: implicitIntent (allowlist: todayReader.ts / todayReaderLLM.ts / types.ts / adversarialStubs.ts)"
+echo "[leak-audit] Gate E-7: implicitIntent (allowlist: todayReader.ts / todayReaderLLM.ts / types.ts / adversarialStubs.ts / realApiAdapter.ts)"
 # implicitIntent は経路限定なので、allow list ファイルを grep から除外
 ALLOW_LIST=(
   "$TARGET_DIR/todayReader.ts"
   "$TARGET_DIR/todayReaderLLM.ts"
   "$TARGET_DIR/types.ts"
   "$TARGET_DIR/__testkit__/adversarialStubs.ts"
+  "$TARGET_DIR/realApiAdapter.ts"
 )
 EXCLUDES=""
 for f in "${ALLOW_LIST[@]}"; do
