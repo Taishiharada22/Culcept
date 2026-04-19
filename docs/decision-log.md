@@ -13,6 +13,19 @@
 ```
 
 ---
+### 2026-04-20 CoAlter M0-6B shadow 実行承認（実 API 呼出解禁）
+- **部門**: Build
+- **決定内容**: CoAlter M0-6B shadow 実行（実 Anthropic API 呼出）を解禁する。`scripts/coalter/shadow-real-api.ts` の fail-fast 条件が全て満たされたため、COALTER_SHADOW_ZDR_VERIFIED=1 で起動可能。
+- **前提条件の充足**:
+  1. ZDR 確認: `docs/coalter-m0-6b-zdr-evidence.md` §1 5 項目 実値記入済み（org=Aneurasync / prefix=dceca5bb / enrolled=Yes / 開始日=2026-04-20 / 確認日時=2026-04-20）
+  2. shadow key 発行: §2 3 項目 実値記入済み（末尾 4 文字=EwAA / 発行日=2026-04-20 / prod key と別・同一 ZDR org 所属 CEO 確認済み）
+  3. code-review: `docs/coalter-m0-6b-code-review.md` §2.1〜§2.4 全 PASS（根拠 commit: e946daac）
+- **解禁後の運用**:
+  - export: `npx tsx scripts/coalter/export-internal-pair.ts`（Supabase 接続を追加後）
+  - shadow: `COALTER_SHADOW_ZDR_VERIFIED=1 COALTER_PAIR_FILE=scripts/coalter/internal-pairs/internal-pair-<pairHash>.json npx tsx scripts/coalter/shadow-real-api.ts`
+  - 集約結果を decision-log に別途転記
+- **承認**: CEO（2026-04-20）
+- **ステータス**: 実行可
 
 ### 2026-04-20 CoAlter M0-6B 実装着手承認（shadow 実行は追加条件付き）
 - **部門**: Build

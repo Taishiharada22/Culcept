@@ -29,18 +29,18 @@
 
 | 項目 | 値 |
 | --- | --- |
-| Organization 名（公開可能な範囲） | `未確認`（Console ログイン後に記入） |
-| Organization ID の prefix（頭 8 文字のみ） | `未確認`（形式: `org_xxxxxxxx`、**full ID は本書に記載しない**） |
-| ZDR enrolled 状態 | `未確認`（Yes / No — Console の Data Retention 設定画面で確認） |
-| enrollment 開始日 | `未確認` |
-| 確認日時 | `未確認` |
-| 確認者 | `Taishi Harada`（予定、実確認時に再署名） |
-| 確認方法 | `console 画面`（予定、実確認で変わり得る — 他の選択肢: Anthropic 発行 email / 営業連絡） |
-| スクリーンショット保管場所 | `~/Documents/coalter-evidence/zdr-console-YYYY-MM-DD.png` を想定（repo 外、CEO 手元 local のみ、**repo には commit しない**。iCloud Drive 配下を避ける場合は `~/coalter-evidence/` に変更） |
+| Organization 名（公開可能な範囲） | `Aneurasync` |
+| Organization ID の prefix（頭 8 文字のみ） | `dceca5bb`（`org_xxxxxxxx` 形式、**full ID は本書に記載しない**） |
+| ZDR enrolled 状態 | `Yes` |
+| enrollment 開始日 | `2026-04-20` |
+| 確認日時 | `2026-04-20` |
+| 確認者 | `taishin harada` |
+| 確認方法 | `console 画面` |
+| スクリーンショット保管場所 | `未確認`（repo 外、CEO 手元 local のみ、**repo には commit しない**） |
 
-> **ブロッカー**: 上記 `未確認` 5 項目のいずれかが埋まるまで **M0-6B shadow 実行**（実 API 呼出）不可。
-> AI は console にログインできないため、これらは必ず CEO 本人が確認する。
-> adapter 実装コード自体は ZDR 確認前でも着手可能（fail-fast により実 API 呼出は起動時に throw される）。
+> **ブロッカー**: §1 の 5 項目（Organization 名 / ID prefix / ZDR enrolled 状態 / enrollment 開始日 / 確認日時）は 2026-04-20 に CEO 本人が Console 画面で確認し実値記入済み。
+> スクリーンショット保管場所のみ `未確認`（CEO 手元 local 保管、repo には commit しない方針は維持）。
+> adapter 実装コード自体は fail-fast により実 API 呼出は起動時に throw される保護あり。
 
 ---
 
@@ -50,12 +50,12 @@
 
 | 項目 | 値 |
 | --- | --- |
-| shadow 用 key 識別子（末尾 4 文字のみ） | `未発行`（key 発行後に末尾 4 文字を記入、full key は `.env.local` のみ） |
-| key 発行日 | `未発行` |
+| shadow 用 key 識別子（末尾 4 文字のみ） | `EwAA`（full key は `.env.local` のみ、repo には記載しない） |
+| key 発行日 | `2026-04-20` |
 | 保管場所 | `.env.local`（git commit 禁止、`.gitignore` 済み） |
 | env 変数名 | `COALTER_UNDERSTANDING_SHADOW_API_KEY` |
-| 所属 organization | 本書 §1 と同一の ZDR enrolled org か確認: `未確認`（key 発行時点で確認する） |
-| prod key と同一でないことの確認 | `未発行`（key 未発行のため判定不能。発行時は必ず別 key にする — 同一の場合は shadow 実行不可） |
+| 所属 organization | 本書 §1 と同一の ZDR enrolled org か確認: `はい`（2026-04-20 CEO 確認済み） |
+| prod key と同一でないことの確認 | `はい`（2026-04-20 CEO 確認済み、別 key として発行） |
 
 ---
 
@@ -74,8 +74,8 @@ M0-6B adapter 実装時（本書記入完了後）に以下を adapter 起動時
 | 項目 | 値 |
 | --- | --- |
 | 実装 TODO の記載場所 | `lib/coalter/understanding/realApiAdapter.ts`（M0-6B 着手時に新規作成予定、startup ルーチンに ZDR 検証 throw を組込む） |
-| 検証 test 名 | `tests/unit/coalter/understanding/leakAudit.test.ts` 内「adapter startup — 非 ZDR key で fail-fast」を追加予定 |
-| 検証 commit hash | `PENDING_M0-6B_IMPLEMENTATION`（adapter 未実装のため） |
+| 検証 test 名 | `tests/unit/coalter/understanding/leakAudit.test.ts` 内「adapter startup — 非 ZDR key で fail-fast」4 tests PASS |
+| 検証 commit hash | `e946daac`（M0-6B 骨格実装 — adapter / fail-fast / test 追加） |
 
 ---
 
