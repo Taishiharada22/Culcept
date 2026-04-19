@@ -200,6 +200,10 @@ Phase 3 判断の本番データを取るための「投入ガイド」。
 - [ ] CoAlter 同意フロー (accept) 完了済みペアであることを確認
 - [ ] 投入開始日時を記録 (Phase 3 gate の「preview 投入後 3 日」起算点)
 
+> **preview counting started at 2026-04-19 21:16 JST, baseline commit = f5f88e09**
+> 途中観測: card 付き新規 invoked sessions 10 件到達時点で軽い確認 (KPI-1 / KPI-6 / KPI-7 / AUX-1 のみ)。
+> 本番 gate: 30 件 or 3 日経過の早い方で `scripts/coalter-phase2-kpis.sql` 全 KPI 再実行。
+
 ---
 
 ## 観測タイミング

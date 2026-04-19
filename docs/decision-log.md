@@ -14,6 +14,18 @@
 
 ---
 
+### 2026-04-19 CoAlter Phase 2 preview 本カウント開始
+- **部門**: Build / Product
+- **決定内容**: preview counting started at **2026-04-19 21:16 JST**, baseline commit = **f5f88e09** (`feat(coalter): Phase 2 preview baseline — 3-mode dispatch + theme continuity + question guard + loop guard`)。
+- **開始条件充足**: (1) debug ログ撤去済 (`git diff --stat` empty), (2) movie misread sanity PASS (`coalterDispatch.test.ts` E2E #1, 17/17), (3) A 枝 audit 納品済 (`docs/research/coalter-movie-retrieval-audit.md`)。
+- **途中観測**: card 付き新規 invoked sessions 10 件到達時点で軽い確認 (KPI-1 分布 / KPI-6 negotiate proposals=0 / KPI-7 clarify question=null / AUX-1 router reason 分布)。clarify が 0 のままなら CEO に相談。
+- **正式再観測**: 30 件 or 3 日経過の早い方で `scripts/coalter-phase2-kpis.sql` 全 7 KPI + 4 AUX 再実行。
+- **並行 GO**: movie retrieval audit 3 候補の優先順位付けまで (preview 非停止前提)。着手順: (1) listicle 過多 → (2) area=null デフォルト → (3) NEAR_WINDOW 拡張。
+- **承認**: CEO（2026-04-19）
+- **ステータス**: preview 開始 (CEO 実機投入待ち)
+
+---
+
 ### 2026-04-19 Student Provider (v2 LoRA) Phase 1 実装承認 → main 反映用コミット作成完了
 - **部門**: Build
 - **決定内容**: v2 LoRA を `stargazer_alter_response` 限定の Generation-only provider として導入。3-state routing (eligible/skipped/disabled) + canary rollout + prompt length gate + output validation + fallback + 21 unit tests all PASS。`feat/baseline-edit` 上にコミット 98d403d4 作成済み（flag OFF）。main merge 完了時点で「main 反映完了」。endpoint 準備後 `STUDENT_PROVIDER_ENABLED=true` + `ROLLOUT_PERCENT=10` で canary 開始。
