@@ -50,6 +50,10 @@ scripts/output/
 # Fine-tuning exports (training data — do not commit)
 exports/
 
+# CoAlter M0-6B internal-pair replay input (PII / consent data — never commit)
+internal-pair-*.json
+/scripts/coalter/internal-pairs/
+
 # Playwright MCP logs
 .playwright-mcp/
 
