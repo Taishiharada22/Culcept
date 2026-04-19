@@ -451,17 +451,38 @@ export async function searchAndFilter(
     return [];
   }
 
-  // 検索結果を CoAlter の SearchCandidate に変換
+  // Phase A.7 D4 実験 (2026-04-19): highlights を description に連結する。
+  //
+  // 仮説 G: EXA の `r.highlights` (sentence-level 重要文) を webConnector が捨てており、
+  //   theater 情報がそこに含まれている場合に parseMovieScreenings が拾えない。
+  //   `r.text` 先頭 200 字だけでは listicle 記事の meta 部分しか入らず、theater 情報が
+  //   欠落しやすい。highlights を末尾に連結することで combinedText の情報量が増え、
+  //   extractTheaters / theaterNearTitle が theater を拾える確率が上がる可能性がある。
+  //
+  // 試作方針:
+  //   description = [r.text.slice(0, 200), ...highlights].join(" / ").slice(0, 500)
+  //   500 字上限で LLM プロンプト側の trimming (140 字 snippet) を壊さないよう配慮。
+  //   highlights が空なら従来どおり 200 字 slice。
+  //
+  // ブランチ: feat/coalter-highlights-experiment (merge しない、効果測定専用)
   const candidates: SearchCandidate[] = rawResults
     .filter((r) => r.title && r.text)
-    .map((r) => ({
-      title: r.title,
-      description: r.text.slice(0, 200),
-      externalRating: extractRating(r.text),
-      practicalInfo: extractPracticalInfo(r.text),
-      source: new URL(r.url).hostname,
-      url: r.url,
-    }))
+    .map((r) => {
+      const highlights = Array.isArray(r.highlights) ? r.highlights : [];
+      const baseDesc = r.text.slice(0, 200);
+      const descWithHighlights =
+        highlights.length > 0
+          ? [baseDesc, ...highlights].join(" / ").slice(0, 500)
+          : baseDesc;
+      return {
+        title: r.title,
+        description: descWithHighlights,
+        externalRating: extractRating(r.text),
+        practicalInfo: extractPracticalInfo(r.text),
+        source: new URL(r.url).hostname,
+        url: r.url,
+      };
+    })
     // 重複タイトルを除去
     .filter(
       (c, i, arr) =>
