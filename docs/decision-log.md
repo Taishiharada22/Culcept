@@ -23,6 +23,91 @@
 - **承認**: CEO（2026-04-19）
 - **ステータス**: 実行済 (flag OFF / main merge 待ち / RunPod endpoint 準備待ち)
 
+### 2026-04-19 CoAlter Phase 2 misread detector 先行接続 → preview 投入（採用案 A）
+- **部門**: Build / Product
+- **決定内容**: misread detector を先に接続し、その後に preview 投入を開始する。Phase 3 gate の 30 件カウントは detector 接続後の新規 card セッションから数える。
+- **背景**: 初回観測後に、`lib/coalter/engine.ts:326, 329` で `misread = MISREAD_NONE` / `ambiguityResponseMode = null` が固定値だったため、clarify mode が構造上発火不能だったと判明。このまま preview を投入しても Phase 3 判断の (a) clarify 観測ができない。
+- **却下した案**:
+  - B（現状 2-mode で preview 投入し clarify は実装待ち）: clarify 評価が遅延し、Phase 3 優先順位判断の根拠が不完全になる
+  - C（preview 投入と並行で detector 実装）: 観測データがフェーズ分裂し、30 件の意味が揺らぐ
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 実行中（misread detector 実装 → preview シナリオ作成は並行可）
+- **凍結線との整合**: 凍結 6 項目（isExecutorThemeEnabled / dispatch 5 step 順序 / CoAlterCard 契約 / metadata キー構造 / status API / resolveActiveFromMetadata）には一切触れない。engine.ts の signal 入力組み立て部のみ変更する。
+- **参照**: `docs/coalter-phase2-observation-spec.md` / `lib/coalter/modeRouter.ts`
+
+---
+
+### 2026-04-19 CoAlter Phase 2 初回観測結論 — 実装健全、母数不足により Phase 3 優先順位は保留
+- **部門**: Build / Product
+- **決定内容**: Phase 2 初回観測（6 日分・83 invoked sessions）の結論を「実装健全性 🟢 / 観測母数 🟡 / Phase 3 優先順位は保留」と正式固定。次は preview 母数づくりを最優先にする。
+- **理由**:
+  - **保存・復元: 🟢** — 修正版 KPI-5 で 83/83 件 `unrestorable_rate_pct = 0.0%`
+  - **gate / theme fallback: 🟢** — KPI-2（gate block 率）・KPI-3（theme fallback 率）ともに全日 0%、AUX-2 の fallback_reason は 100% null
+  - **legacy→新規移行: 🟢** — KPI-4 が 4/14〜4/18 = 100% → 4/19 = 0% と想定どおり切り替わる
+  - **3-mode 実運用分布: 判定不能** — routerTrace 付きは 4/19 の 2 件だけで、両方 decision / reason は stall_detected 100%、negotiate / clarify は 0 件
+  - 初回観測における KPI-5 定義バグ（`WHERE cs.state = 'completed'` で絞っていたため、`end/route.ts:56` で cancelled に上書きされる実仕様と噛み合わず常に 0 行）を修正。母数を「state=completed」から「coalter_messages を 1 件以上持つ session」に変更した定義で再観測して確定。
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 実行済（観測結論確定）
+- **Phase 3 gate（正式固定）**:
+  - **再観測の発火条件（どちらか早い方）**: ① card 付き新規 invoked sessions が 30 件到達、または ② preview 投入後 3 日経過
+  - **再観測内容**: 同じ 7 KPI + 4 AUX 一式を再実行
+  - **判断する 3 点**: (a) clarify が本当に使われるか（KPI-1 + KPI-7）/ (b) negotiate が materialize できているか（KPI-1 + KPI-6）/ (c) router が stall に偏っていないか（AUX-1）
+- **今やらないこと**: 凍結 6 項目の変更、Phase 3 候補の実装・優先順位付け、KPI 閾値の確定（暫定維持）
+- **参照**: `docs/coalter-phase2-observation-spec.md` / `scripts/coalter-phase2-kpis.sql` / `docs/coalter-phase2-freeze-checklist.md`
+- **次アクション**: preview 母数づくり（シナリオ作成 + 対象ユーザー 3〜5 人選定 + 投入）
+
+---
+
+### 2026-04-19 CoAlter Phase 2 採用案 D — Primary Question Guard（破綻質問の構造排除）
+- **部門**: Build / Product
+- **決定内容**: `primaryUnresolvedQuestion` が `slot="what"` / 「何を観るか」系の **ユーザーが答えを持っていない質問** を出した場合、構造で破棄して埋まっていない条件スロット (where/when/how) の 1 問に書き換える。movieOrchestrator の rankedCount=0 fallback と legacy generateProposal の verified-only guard 両方に適用。
+- **事故例**: thread `18eeb9ff` (catalogCount=0 / rankedCount=0) で LLM briefBuilder が `question="土曜日に何を観に行くか"` (slot="what") を出力 → summary にそのまま差し込まれ、迷っているユーザーに「何を観る？」と聞く破綻状態が出た。
+- **契約**:
+  - `slot="what"` は禁止
+  - 「何を / どれを / どの / なにを」+ 観/見/食/行/買/決/選/やる の組み合わせ（slot 誤検知時も弾く）
+  - 「作品名 / タイトル / 映画の名前」類も禁止
+  - 破綻検出時は movie 優先順 area(where) → time(when) → mood(how) → runtime(how fallback) で 1 問生成
+  - 質問は全て closed-vocabulary / 2 択誘導（ユーザーが即答できる形）
+- **実装ファイル**: `lib/coalter/primaryQuestionGuard.ts`（新規）/ `lib/coalter/movieOrchestrator.ts`（配線）/ `lib/coalter/engine.ts`（legacy path 配線）
+- **テスト**: `tests/unit/coalter/primaryQuestionGuard.test.ts` — 19 件 PASS
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 実行済
+- **凍結線との整合**: 凍結 6 項目いずれにも未接触。rankedCount=0 分岐の summary 生成ロジックの差し替えのみ。
+
+---
+
+### 2026-04-19 CoAlter Phase 2 採用案 E — Loop Guard（同じ条件質問の連続再投出排除）
+- **部門**: Build / Product
+- **決定内容**: 直前 invoke の `missingConstraints[0].key` を `fetchPreviousCoAlterState` で取得し、`primaryQuestionGuard` に `avoidKey` として渡す。同じ key の質問は skip して次の優先に進む。全優先が潰れた場合は撤退 summary（会話に戻す）に落とす。
+- **事故例**: D 実装後、catalogCount=0 が続くセッションで「上映時間は長めと短めどっちが合う？」(runtime) が連続 2 回投出されるループを CEO が実機確認。
+- **動作**: area → time → mood → runtime → 撤退、の優先順で直前と別の質問に進む。撤退時は `missingConstraints=[]` + "条件を何度か確認したけれど… また CoAlter を呼んでみてください" の summary。
+- **実装ファイル**: `lib/coalter/primaryQuestionGuard.ts`（avoidKey 対応）/ `lib/coalter/movieOrchestrator.ts`（avoidClarifyKey 受け取り）/ `lib/coalter/engine.ts`（previousClarifyKey 取得と配線）
+- **テスト**: `tests/unit/coalter/primaryQuestionGuard.test.ts` — 25 件 PASS（E 追加 6 件）/ 全 coalter unit 669 件 PASS
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 実行済
+- **凍結線との整合**: 凍結 6 項目いずれにも未接触。`metadata.card.missingConstraints[0].key` は既存の保存構造を読むだけ、構造変更なし。
+- **既知の残課題**: movie retrieval の弱さ（catalogCount=0 が続く根本原因）は未解決。D + E で「壊れない / ループしない」は担保したが、「候補が出る」は未達。別枝で並行着手。
+
+---
+
+### 2026-04-19 CoAlter Phase 2（3-mode body）凍結承認
+- **部門**: Build / Product
+- **決定内容**: CoAlter Phase 2（decision / negotiate / clarify の 3-mode body）を freeze checklist 合格により凍結。
+- **理由**: Phase 6.A〜6.D すべて CEO gate 合格（gate/router/trace → modifier/parser/builder → engine+UI+metadata → status 復元）。CoAlter 37 files / 614 tests PASS、CoAlter 系 tsc error 0、freeze checklist 5 項目すべて合格。
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 凍結実行済
+- **凍結線（以下 6 点に触る変更は再 gate 必須）**:
+  1. `isExecutorThemeEnabled` の判定条件（現: movie 固定）
+  2. `coalterDispatch` の 5 step 順序（gate → router → modifier → theme gate → executor）
+  3. `CoAlterCard` discriminated union と各 mode の契約（候補有無等）
+  4. `coalter_messages.metadata` のキー構造（proposalCard / card / routerTrace / gateResult / executorFallbackReason）
+  5. status API の `activeProposal` / `activeCard` 並列構造
+  6. `resolveActiveFromMetadata` の優先順位（card 優先 → proposalCard fallback）
+- **参照**: `docs/coalter-phase2-freeze-checklist.md` / `docs/coalter-phase2-3mode-design.md`
+- **次フェーズ**: Phase 3 候補優先順位付け or preview/本番観測項目の最終整理（CEO 判断待ち）
+
+---
+
 ### 2026-04-18 Alter-Morning Planner 再設計（4週 C プラン + 限定保守モード）
 - **部門**: Build / Product
 - **決定内容**: alter-morning の planner を「LLM丸投げ」から「LLM 意味抽出 + Logic 計画 + LLM Narration」の3段分業に再構築する。4週間の C プランで着手。

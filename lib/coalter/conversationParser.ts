@@ -699,3 +699,389 @@ export const __internal = {
   extractConstraints,
   estimateCaringIntensity,
 };
+
+// ═════════════════════════════════════════════════════════════════════
+// Phase 2: 信号検出器（2026-04-19 v0.3）
+//
+// 参照: docs/coalter-phase2-3mode-design.md §1.1、§1.6
+//
+// CEO 実装固定条件（フェーズ 6.B 条件 2）:
+//  - **検出に徹する**。提案生成・翻訳・解決策を持ち込まない。
+//  - 返すのは ContradictionSignal / StallSignal のみ。
+//  - misread はここで扱わない（intentTranslation の戻り値を読むだけの責務は別所）。
+// ═════════════════════════════════════════════════════════════════════
+
+import type {
+  AxisKey,
+  ContradictionSignal,
+  MisreadSignal,
+  StallSignal,
+} from "./types";
+
+/** 希望表明パターン（「〜したい」「〜がいい」「〜行こう」） */
+const PREFERENCE_PATTERNS: RegExp[] = [
+  /(したい|に行きたい|が(いい|食べたい|見たい)|行こう|にしよう|がよさそう)/,
+  /(の方が|の方がいい|の方が好き)/,
+];
+
+/** 否定 / 回避表明パターン（「〜は嫌」「〜は避けたい」「〜はちょっと」「無理」） */
+const NEGATION_PATTERNS: RegExp[] = [
+  /(は(嫌|やだ|無理|きつい|厳しい|ちょっと|パス|しんどい))/,
+  /(避けた|やめた|違う|合わない|気分じゃない)/,
+];
+
+/** 決着 / 合意パターン（「いいね」「それで」「決まり」） */
+const RESOLUTION_PATTERNS: RegExp[] = [
+  /(いいね|それで(いこう|いいよ)|決(まり|めよう)|了解|OK|賛成|そうしよう)/i,
+];
+
+/**
+ * 軸推定キーワード（contradiction の axes 推定用）。
+ * 軽量に既存 AxisKey にマッピングする。決定性重視。
+ */
+const AXIS_KEYWORDS: Array<{ axis: AxisKey; patterns: RegExp[] }> = [
+  { axis: "quietness", patterns: [/静か|賑やか|うるさい|騒が/] },
+  { axis: "atmosphere", patterns: [/雰囲気|落ち着|おしゃれ|カジュアル/] },
+  { axis: "price", patterns: [/高い|安い|予算|値段|円|コスパ/] },
+  { axis: "access", patterns: [/遠い|近(い|く|場|い|所)|駅|アクセス|徒歩/] },
+  { axis: "novelty", patterns: [/新しい|初|いつも|定番/] },
+  { axis: "tone", patterns: [/重い|軽い|明るい|暗い|シリアス|コメディ/] },
+  { axis: "runtime", patterns: [/長い|短い|\d+\s?分|時間/] },
+  { axis: "activity", patterns: [/アクティブ|動|体験/] },
+  { axis: "relaxation", patterns: [/のんびり|ゆっくり|休|まったり/] },
+  { axis: "flexibility", patterns: [/ゆるい|固い|急|変更/] },
+  { axis: "effort", patterns: [/面倒|楽|手軽|準備/] },
+];
+
+function matchAny(patterns: RegExp[], text: string): boolean {
+  return patterns.some((p) => p.test(text));
+}
+
+function detectAxes(text: string): AxisKey[] {
+  const axes: AxisKey[] = [];
+  for (const { axis, patterns } of AXIS_KEYWORDS) {
+    if (matchAny(patterns, text)) axes.push(axis);
+  }
+  return axes;
+}
+
+/**
+ * 対立検出器。
+ *
+ * 契約:
+ *  - **検出のみ**。解決案を持たない。
+ *  - 一方の希望表明と他方の否定 / 回避表明が同じ軸領域で並ぶときに検出。
+ *  - 返す軸は AxisKey のサブセット（空配列もあり得る）。
+ *  - stanceA / stanceB は根拠となった発話の原文をそのまま返す（要約・翻訳しない）。
+ *
+ * @param turns 直近 N ターン（Talk のメッセージ）
+ * @param userAId A 側の senderId
+ * @param userBId B 側の senderId
+ */
+export function detectContradiction(
+  turns: ConversationTurn[],
+  userAId: string,
+  userBId: string,
+): ContradictionSignal {
+  if (turns.length === 0) {
+    return { detected: false, axes: [], stanceA: null, stanceB: null };
+  }
+
+  // 直近のターンを優先して走査（最後から）
+  const reversed = [...turns].reverse();
+
+  let aPreference: { text: string; axes: AxisKey[] } | null = null;
+  let aNegation: { text: string; axes: AxisKey[] } | null = null;
+  let bPreference: { text: string; axes: AxisKey[] } | null = null;
+  let bNegation: { text: string; axes: AxisKey[] } | null = null;
+
+  for (const turn of reversed) {
+    const body = turn.body ?? "";
+    const isA = turn.senderId === userAId;
+    const isB = turn.senderId === userBId;
+    if (!isA && !isB) continue;
+
+    const hasPref = matchAny(PREFERENCE_PATTERNS, body);
+    const hasNeg = matchAny(NEGATION_PATTERNS, body);
+    const axes = detectAxes(body);
+    if (axes.length === 0) continue;
+
+    if (isA) {
+      if (hasPref && !aPreference) aPreference = { text: body, axes };
+      if (hasNeg && !aNegation) aNegation = { text: body, axes };
+    } else {
+      if (hasPref && !bPreference) bPreference = { text: body, axes };
+      if (hasNeg && !bNegation) bNegation = { text: body, axes };
+    }
+  }
+
+  // A が希望 & B が否定（同軸）/ または B が希望 & A が否定（同軸）
+  type Pair = { aText: string; bText: string; axes: AxisKey[] };
+  const candidates: Pair[] = [];
+
+  if (aPreference && bNegation) {
+    const shared = aPreference.axes.filter((ax) => bNegation!.axes.includes(ax));
+    if (shared.length > 0) {
+      candidates.push({ aText: aPreference.text, bText: bNegation.text, axes: shared });
+    }
+  }
+  if (bPreference && aNegation) {
+    const shared = bPreference.axes.filter((ax) => aNegation!.axes.includes(ax));
+    if (shared.length > 0) {
+      candidates.push({ aText: aNegation.text, bText: bPreference.text, axes: shared });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return { detected: false, axes: [], stanceA: null, stanceB: null };
+  }
+
+  const first = candidates[0]!;
+  return {
+    detected: true,
+    axes: first.axes,
+    stanceA: first.aText,
+    stanceB: first.bText,
+  };
+}
+
+/**
+ * 膠着検出器。
+ *
+ * 契約:
+ *  - **検出のみ**。次の一手を作らない。
+ *  - 同一テーマが N ターン以上続き、かつ直近 N ターン内に決着語が無い場合に detected=true。
+ *  - consecutiveTurns はそのテーマの連続ターン数（最大値）を返す。
+ *
+ * @param turns 直近ターン列
+ * @param minTurns 何ターン以上で膠着と見なすか（デフォルト 3）
+ */
+export function detectStall(
+  turns: ConversationTurn[],
+  minTurns = 3,
+): StallSignal {
+  if (turns.length < minTurns) {
+    return { detected: false, consecutiveTurns: turns.length };
+  }
+
+  // 決着語が直近 minTurns 以内に 1 つでも出ていれば膠着ではない
+  const recent = turns.slice(-minTurns);
+  const hasResolution = recent.some((t) => matchAny(RESOLUTION_PATTERNS, t.body ?? ""));
+  if (hasResolution) {
+    return { detected: false, consecutiveTurns: recent.length };
+  }
+
+  // 直近 N ターンに非自明な発話が連続しているか（空/短文以外）
+  //   decisive な合意語は上で除外済み。
+  //   意思決定話題の継続を厳密に判定するのは Phase 2 スコープ外。
+  //   ここでは「短文のみの連続」= 実質停止として膠着扱い。
+  const nonTrivialCount = recent.filter((t) => (t.body ?? "").trim().length >= 2).length;
+  const detected = nonTrivialCount >= minTurns;
+
+  return {
+    detected,
+    consecutiveTurns: detected ? nonTrivialCount : recent.length,
+  };
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Misread detector (Phase A — CoAlter-local 実装)
+//
+// 背景: CEO 2026-04-19 採用案 A 承認。
+//   本来の北極星は `lib/talk/intentTranslation/intentReconstruction.ts`
+//   の結果を DB 永続化 → CoAlter が読むだけで MisreadSignal を組むこと
+//   (types.ts MisreadSignal L1303-1306 コメント参照)。
+//   Phase B でそこに差し替えるが、Phase 2 凍結下で preview 母数を作るために
+//   Phase A として CoAlter-local な regex 検出器を入れる。
+//
+// 実装制約 (CEO 承認条件):
+//   1. 純関数・局所実装 (conversationParser.ts に閉じる)
+//   2. intentTranslation を direct import しない
+//   3. confidence は保守的:
+//      - 明示的困惑語 (strong): 0.8
+//      - 連続質問 (medium):   0.7
+//      - topic drift (soft):   0.6
+//   4. 最も強いシグナルを選び、multiple signals は加点しない (過検知回避)
+//
+// 返り値: MisreadSignal { confidence, direction, anchorMessageId }
+//   - direction: 誤読された側 = 困惑を示した側。
+//     A が困惑 (「え?」) → direction="b_to_a" (B の発話が A に誤読された)
+//     B が困惑         → direction="a_to_b"
+//   - anchorMessageId: 困惑を示した直前の相手メッセージの id (あれば)
+// ═════════════════════════════════════════════════════════════════════
+
+/** 明示的困惑語 (strong): 会話の表面に出た「分からない」表明 */
+const CONFUSION_MARKERS: RegExp[] = [
+  /(^|[\s、。!?])え[?？!！]{1,}/,                // 「え?」「え!」「え??」
+  /(^|[\s、。])(ん|えっ|えー|えぇ)[?？]+/,         // 「ん?」「えっ?」「えー?」
+  /どういう(こと|意味)/,                           // 「どういうこと」「どういう意味」
+  /(意味|話|それ)が?(分|わか)(ら|り|ん)ない/,      // 「意味わかんない」「話が分からない」
+  /何の(話|こと)/,                                 // 「何の話」「何のこと」
+  /(分|わか)らない(けど|んだけど)/,                 // 「わからないんだけど」
+  /[?？]{3,}/,                                     // 「???」「？？？」
+  /(ちょっと|よく)(分|わか)(ら|んな)/,              // 「よく分からない」「ちょっとわかんない」
+];
+
+/** 疑問文末尾パターン (連続質問検出用) */
+const QUESTION_ENDING: RegExp =
+  /([?？]|の[?？]?$|って[?？]?$|(どう|なに|なん|誰|どれ|どこ|いつ|なぜ|どの)[^。]*[?？]?$)/;
+
+/** 混乱語・極短文で疑問だけ返すケース (「は?」「ん?」のような短問) */
+const SHORT_CONFUSION: RegExp = /^(は|え|ん|へ|はぁ|えっ|ええ|うん)[?？！]+$/;
+
+/**
+ * 1 turn が疑問文かどうかの軽量判定。
+ * - 末尾に「?」「？」がある
+ * - 疑問詞 + 末尾「?」相当
+ * - 短い混乱語 (「は?」など)
+ */
+function isQuestion(body: string): boolean {
+  const trimmed = body.trim();
+  if (!trimmed) return false;
+  if (SHORT_CONFUSION.test(trimmed)) return true;
+  return QUESTION_ENDING.test(trimmed);
+}
+
+/**
+ * 2 発話間の「軸の噛み合い」を見る軽量判定。
+ * 両方が軸検出にヒットするが、共通軸が無い場合に true (drift).
+ * どちらか片方でも軸が空なら drift 判定はしない (過検知防止)。
+ */
+function detectTopicDriftBetween(prev: string, curr: string): boolean {
+  const prevAxes = detectAxes(prev);
+  const currAxes = detectAxes(curr);
+  if (prevAxes.length === 0 || currAxes.length === 0) return false;
+  const shared = prevAxes.filter((ax) => currAxes.includes(ax));
+  return shared.length === 0;
+}
+
+/** 空の MisreadSignal (「誤読なし」) */
+const MISREAD_EMPTY: MisreadSignal = {
+  confidence: 0,
+  direction: null,
+  anchorMessageId: null,
+};
+
+/**
+ * 誤読検出器 (CoAlter-local Phase A 実装)。
+ *
+ * 契約:
+ *  - **検出のみ**。提案生成・翻訳・復元はしない。
+ *  - **純関数**。DB / LLM / UI を触らない。
+ *  - 返すのは MisreadSignal のみ。
+ *  - 複数シグナルが重なっても加点しない (最も強いシグナルの confidence を採用)。
+ *
+ * 走査範囲: 直近 4 ターン (ambiguity は近傍にしか出ない前提)。
+ * 足切り: 2 ターン未満なら MISREAD_EMPTY を返す。
+ *
+ * @param turns 直近ターン列 (時系列昇順)
+ * @param userAId A 側の senderId
+ * @param userBId B 側の senderId
+ */
+export function detectMisread(
+  turns: ConversationTurn[],
+  userAId: string,
+  userBId: string,
+): MisreadSignal {
+  if (turns.length < 2) return MISREAD_EMPTY;
+
+  const recent = turns.slice(-4);
+
+  // ── Signal 1: 明示的困惑語 (confidence 0.8) ──
+  // 最新ターンから遡り、最初に見つけた confusion marker を採用。
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const turn = recent[i]!;
+    const body = (turn.body ?? "").trim();
+    if (!body) continue;
+    const isA = turn.senderId === userAId;
+    const isB = turn.senderId === userBId;
+    if (!isA && !isB) continue;
+
+    const hasMarker = CONFUSION_MARKERS.some((p) => p.test(body));
+    if (!hasMarker) continue;
+
+    // 直前の相手発話を anchor として採用 (あれば)
+    let anchorMessageId: string | null = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = recent[j]!;
+      if (prev.senderId === turn.senderId) continue;
+      if (prev.senderId !== userAId && prev.senderId !== userBId) continue;
+      anchorMessageId = prev.id ?? null;
+      break;
+    }
+
+    return {
+      confidence: 0.8,
+      direction: isA ? "b_to_a" : "a_to_b",
+      anchorMessageId,
+    };
+  }
+
+  // ── Signal 2: 連続質問 (confidence 0.7) ──
+  // 同じ話者から 2 ターン連続で疑問文 (間に相手の発話が挟まっていてもよい:
+  // 相手の応答が「噛み合わず」再度問い直している状態)。
+  // 厳密には「A の質問 → B の非回答 → A の再質問」パターンを拾う。
+  for (let i = recent.length - 1; i >= 2; i--) {
+    const turn = recent[i]!;
+    if (!turn.senderId) continue;
+    const isA = turn.senderId === userAId;
+    const isB = turn.senderId === userBId;
+    if (!isA && !isB) continue;
+    if (!isQuestion(turn.body ?? "")) continue;
+
+    // 同じ話者の直前疑問を探す
+    for (let j = i - 1; j >= 0; j--) {
+      const earlier = recent[j]!;
+      if (earlier.senderId !== turn.senderId) continue;
+      if (!isQuestion(earlier.body ?? "")) break;
+
+      // 見つかった: 同じ話者から 2 連続疑問
+      const anchorTurn = recent[i - 1]; // 直前 (相手 or 自分の) メッセージ
+      return {
+        confidence: 0.7,
+        direction: isA ? "b_to_a" : "a_to_b",
+        anchorMessageId: anchorTurn?.id ?? null,
+      };
+    }
+  }
+
+  // ── Signal 3: topic drift (confidence 0.6) ──
+  // 直近 2 ターン (A の発話 → B の発話、または逆) で軸が全く噛み合わない。
+  // 片方が軸無しの場合は判定しない (雑談・挨拶の誤爆防止)。
+  if (recent.length >= 2) {
+    const last = recent[recent.length - 1]!;
+    const prev = recent[recent.length - 2]!;
+    const lastIsA = last.senderId === userAId;
+    const lastIsB = last.senderId === userBId;
+    const prevIsA = prev.senderId === userAId;
+    const prevIsB = prev.senderId === userBId;
+
+    // 別話者 かつ 両方が A/B の発話のみ
+    const differentSpeakers =
+      (lastIsA && prevIsB) || (lastIsB && prevIsA);
+    if (differentSpeakers) {
+      if (detectTopicDriftBetween(prev.body ?? "", last.body ?? "")) {
+        return {
+          confidence: 0.6,
+          direction: lastIsA ? "b_to_a" : "a_to_b",
+          anchorMessageId: prev.id ?? null,
+        };
+      }
+    }
+  }
+
+  return MISREAD_EMPTY;
+}
+
+export const __phase2Internal = {
+  PREFERENCE_PATTERNS,
+  NEGATION_PATTERNS,
+  RESOLUTION_PATTERNS,
+  AXIS_KEYWORDS,
+  CONFUSION_MARKERS,
+  QUESTION_ENDING,
+  SHORT_CONFUSION,
+  detectAxes,
+  isQuestion,
+  detectTopicDriftBetween,
+};

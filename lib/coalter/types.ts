@@ -1208,11 +1208,34 @@ export interface CoAlterInput {
 /** エンジンからの出力 */
 export interface CoAlterOutput {
   sessionId: string;
+  /**
+   * 既存 decision path との後方互換用フィールド。
+   * - card.mode === "decision" のときは DecisionCard（= ProposalCard + mode タグ）を射影する
+   * - card.mode === "negotiate" / "clarify" のときは summary / closing のみ入った placeholder
+   *   （candidates は空配列）
+   *
+   * 新規のクライアントは `card` を使って discriminated union で分岐すること（CEO 6.C 条件 #4）。
+   */
   proposalCard: ProposalCard;
   /** Phase 1.5: このカードに含まれる候補の一意キー（次回の avoidKeys 用） */
   seenCandidateKeys: string[];
   /** Phase 1.5.4.6: このセッションで採用された topic anchor（UI 表示 / 変更ボタン用） */
   topicAnchor?: TopicAnchor | null;
+  // ─ Phase 2 / 6.C (2026-04-19) ─
+  /**
+   * 新しい 3-mode の統一出力（discriminated union）。
+   * UI は `switch (card.mode)` で分岐する。
+   */
+  card?: CoAlterCard;
+  /**
+   * Mode router の trace。Gate 不通過時は null。
+   * CEO 6.C 条件 #3: coalter_messages.metadata.routerTrace へ永続化される。
+   */
+  routerTrace?: RouterTrace | null;
+  /** Pre-router gate 結果 */
+  gateResult?: PreRouterGateResult;
+  /** executor が trace.selectedMode と違う decision を出した理由（観測用） */
+  executorFallbackReason?: "gate_blocked" | "theme_not_movie_yet" | null;
   /** 内部メトリクス（analytics用） */
   _internal: {
     searchDecision: SearchDecision;
@@ -1258,3 +1281,246 @@ export interface CoAlterApiResponse<T = unknown> {
   data?: T;
   error?: string;
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// Phase 2: 3-mode 設計本体（2026-04-19 v0.3 gate 通過）
+//
+// 参照: docs/coalter-phase2-3mode-design.md
+//
+// 中核原則: 「mode selection」と「安全/同意ゲート」と「実行器」を分離する。
+// 4 段階: Pre-router gate → Mode router → Post-router modifier → Executor
+//
+// フェーズ 6.A スコープ: ここから下の型定義 + preRouterGate + modeRouter。
+// executor（negotiateBuilder / clarifyBuilder）はフェーズ 6.B で実装する。
+// ═════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────
+// Phase 2: 信号（Signals）
+// ─────────────────────────────────────────────
+
+/**
+ * 誤読信号。
+ * Intent Translation Engine（lib/talk/intentTranslation/intentReconstruction.ts）
+ * の戻り値から CoAlter が**読むだけ**で組み立てる。
+ * CoAlter 側から intentTranslation を直接 import しない（§3.6 依存禁止表）。
+ */
+export interface MisreadSignal {
+  /** 0-1 の誤読度合い（>=0.7 で clarify 優先トリガー） */
+  confidence: number;
+  /** 誤読が主にどちら向きか（A→B: A の発話が B に誤読された） */
+  direction: "a_to_b" | "b_to_a" | null;
+  /** 目印となる直近メッセージの ID（存在すれば） */
+  anchorMessageId: string | null;
+}
+
+/**
+ * 対立信号。
+ * lib/coalter/conversationParser.ts（フェーズ 6.B で新設）が算出する。
+ */
+export interface ContradictionSignal {
+  /** 対立が検出されたか */
+  detected: boolean;
+  /** 対立している軸（AxisKey のサブセット） */
+  axes: AxisKey[];
+  /** A / B それぞれの立場の要約（短い）。未検出時は null */
+  stanceA: string | null;
+  stanceB: string | null;
+}
+
+/** 膠着信号 */
+export interface StallSignal {
+  /** 同じ話題が N ターン以上進まない */
+  detected: boolean;
+  /** 連続膠着ターン数 */
+  consecutiveTurns: number;
+}
+
+/**
+ * 情緒温度（四騎士検出の副産物）。
+ * nvcAnalysis の戻り値を CoAlter が**読むだけ**で組み立てる。
+ */
+export interface EmotionHeat {
+  severity: "low" | "mid" | "high";
+  /** high の主因（DV / コントロール兆候 etc）。low / mid では null */
+  reason: string | null;
+}
+
+// ─────────────────────────────────────────────
+// Phase 2: Pre-router gate
+// ─────────────────────────────────────────────
+
+/** Pre-router gate 入力 */
+export interface PreRouterGateInput {
+  consent: CoAlterSessionState;
+  emotionHeat: EmotionHeat;
+}
+
+/** Pre-router gate 結果 */
+export type PreRouterGateResult =
+  | { pass: true }
+  | { pass: false; reason: "consent_not_active" | "emotion_heat_high"; emotionReason?: string | null };
+
+// ─────────────────────────────────────────────
+// Phase 2: Mode router
+// ─────────────────────────────────────────────
+
+/**
+ * modeRouter の分岐名。RouterTrace.reason に入る。
+ * 8 分岐（design doc §1.3）。
+ */
+export type RouterReason =
+  | "negotiate_no_proposal_retry_decision"    // 1. 前ターン negotiate proposals=0 → decision 戻し
+  | "clarify_self_suppression"                 // 2. 連続 clarify 抑制 → decision
+  | "misread_dominant"                         // 3. misread >= 0.7 → clarify
+  | "contradiction_detected"                   // 4. contradiction → negotiate
+  | "stall_detected"                           // 5. stall → decision（branch 寄り）
+  | "ambiguity_conclude"                       // 6. ambiguity conclude → decision
+  | "ambiguity_branch"                         // 6. ambiguity branch → decision
+  | "ambiguity_clarify_delegate_decision"      // 7. Ambiguity Engine clarify（1 問） → decision
+  | "default_decision";                        // 8. default
+
+/** 信号名（trace 用） */
+export type SignalName =
+  | "misread"
+  | "contradiction"
+  | "stall"
+  | "ambiguity_conclude"
+  | "ambiguity_branch"
+  | "ambiguity_clarify"
+  | "previous_clarify_self_suppress"
+  | "previous_negotiate_no_proposal";
+
+/**
+ * modeRouter 入力。
+ * **純関数**で受ける全入力。DB や session state は外側で取得してここに詰める。
+ */
+export interface ModeRouterInput {
+  /** 直前ターンの mode（初回は null） */
+  previousMode: CoAlterMode | null;
+  /** 連続 clarify ターン数（clarify 自己増殖防止の閾値用） */
+  previousClarifyTurns: number;
+  /** 直前が negotiate で proposals=0 だったか（最優先短絡の入力） */
+  previousNegotiateNoProposal: boolean;
+  /** 誤読信号 */
+  misread: MisreadSignal;
+  /** 対立信号 */
+  contradiction: ContradictionSignal;
+  /** 膠着信号 */
+  stall: StallSignal;
+  /**
+   * 既存 Ambiguity Engine からの応答モード。
+   * null の場合は「Ambiguity Engine が走っていない / 判定できなかった」を表し、
+   * router は default_decision へ落ちる。
+   */
+  ambiguityResponseMode: AmbiguityResponseMode | null;
+}
+
+/**
+ * Ambiguity Engine 応答モードのサブセット。
+ * 既存型は lib/stargazer/alterHomeAdapter.ts の AmbiguityResponseMode と重なるが、
+ * Phase 2 は CoAlter 側から Stargazer 型を直接 import しない（レイヤ分離）。
+ * 必要な 3 値のみ再宣言。
+ */
+export type AmbiguityResponseMode = "conclude" | "branch" | "clarify";
+
+/**
+ * modeRouter の戻り値 = RouterTrace。
+ * v0.3 で mode 単体返却から trace 返却に昇格（監査・debug 用、§1.3.1）。
+ */
+export interface RouterTrace {
+  /** 最終決定された mode */
+  selectedMode: CoAlterMode;
+  /** 分岐名（短絡評価で決まった分岐） */
+  reason: RouterReason;
+  /** 閾値を超えた信号（順序不問） */
+  triggeredSignals: SignalName[];
+  /** 閾値を超えたが優先順位で抑制された信号 */
+  suppressedSignals: SignalName[];
+  /** 直前ターンの mode（自己抑制の根拠） */
+  previousMode: CoAlterMode | null;
+  /** Post-modifier が決定する最大質問数（emotion_heat mid → 0、通常 → 1） */
+  questionBudget: 0 | 1;
+  /** 生成時刻 ISO8601 */
+  timestamp: string;
+}
+
+// ─────────────────────────────────────────────
+// Phase 2: Post-router modifier
+// ─────────────────────────────────────────────
+
+/**
+ * Post-router modifier の出力。
+ * mode は変えない。語調と質問数を絞る責務のみ。
+ */
+export interface ToneModifier {
+  /** closing 文を柔らかくするか */
+  softenClosing: boolean;
+  /** 最大質問数（emotion_heat mid → 0、通常 → 1） */
+  maxQuestion: 0 | 1;
+}
+
+// ─────────────────────────────────────────────
+// Phase 2: CoAlterCard discriminated union
+// ─────────────────────────────────────────────
+
+/**
+ * decision モードの Card（既存 ProposalCard を mode タグで装飾）。
+ * ProposalCard 本体は不変。後方互換保持のため、既存コードは
+ * ProposalCard 型を使い続けて良い。union として判別するときのみ DecisionCard を使う。
+ */
+export type DecisionCard = ProposalCard & { mode: "decision" };
+
+/**
+ * negotiate モードの Card（フェーズ 6.B で builder 実装）。
+ *
+ * 契約:
+ * - proposals.length = 0 を許容（既存 catalog で materialize できない場合）
+ * - ただし pieExpansion の 3 フィールドのうち少なくとも 1 つは非 null である必要あり
+ *   （完全空の NegotiateCard を許さない、§4.2）
+ */
+export interface NegotiateCard {
+  mode: "negotiate";
+  summary: string;
+  interests: {
+    a: { nonNegotiable: string[]; negotiable: string[] };
+    b: { nonNegotiable: string[]; negotiable: string[] };
+  };
+  pieExpansion: {
+    axisShift: string | null;
+    timeShift: string | null;
+    placeShift: string | null;
+  };
+  /** 第三案 0-3 件（0 件許容、v0.3） */
+  proposals: ProposalCandidate[];
+  closing: string;
+}
+
+/**
+ * clarify モードの Card（フェーズ 6.B で builder 実装）。
+ *
+ * 契約（§2.2、§3 棲み分け）:
+ * - 候補を持たない（proposals / candidates フィールドを意図的に含まない）
+ * - neutralTranslation は**言い換え（paraphrase）のみ**
+ *   感情調停・提案・感情中立化は禁止
+ * - question は最大 1 問、emotion_heat mid または target 不明のときは 0 問
+ */
+export interface ClarifyCard {
+  mode: "clarify";
+  summary: string;
+  pointList: {
+    facts: string[];
+    feelings: string[];
+  };
+  neutralTranslation: {
+    aToB: string | null;
+    bToA: string | null;
+  };
+  question: { target: "a" | "b"; text: string } | null;
+  closing: string;
+}
+
+/**
+ * CoAlter の出力カード統一型（Phase 2 開幕で一括導入、§4.4）。
+ * UI 側は switch (card.mode) で分岐する。
+ */
+export type CoAlterCard = DecisionCard | NegotiateCard | ClarifyCard;

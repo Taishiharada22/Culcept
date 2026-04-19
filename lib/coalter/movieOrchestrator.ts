@@ -34,6 +34,7 @@ import { parseMovieScreenings } from "./movieCatalog";
 import { rankMovies } from "./movieRanker";
 import { buildNarrationFromLogic } from "./narrationTemplate";
 import { enrichNarration } from "./narrationEnricher";
+import { sanitizePrimaryQuestion } from "./primaryQuestionGuard";
 
 export interface MovieOrchestratorInput {
   turns: ConversationTurn[];
@@ -47,6 +48,12 @@ export interface MovieOrchestratorInput {
   userId?: string;
   sessionId?: string;
   llmTimeoutMs?: number;
+  /**
+   * 2026-04-19 CEO 採用案 E: 直前 invoke で既にユーザーに投げた
+   * condition question の key（missingConstraints[0].key）。
+   * 同じ key を連続で再投出しないために primaryQuestionGuard に渡す。
+   */
+  avoidClarifyKey?: string | null;
 }
 
 export interface MovieOrchestratorOutput {
@@ -143,28 +150,50 @@ export async function generateMovieProposalV2(
   const latencyNarration = Date.now() - startedNarration;
 
   // ── 候補 0 件 fallback: clarify 誘導 ──
+  //
+  // 2026-04-19 CEO 採用案 D: Primary Question Guard
+  //   LLM briefBuilder が slot="what" / 「何を観るか」型の破綻質問を出す事故あり
+  //   (thread 18eeb9ff 実測)。sanitizePrimaryQuestion で破綻を排除し、埋まっていない
+  //   条件スロット (where/when/how) の 1 問だけを返すように logic で上書きする。
   if (rankOutput.ranked.length === 0) {
+    const guarded = sanitizePrimaryQuestion(
+      brief.primaryUnresolvedQuestion,
+      brief,
+      "movie",
+      input.avoidClarifyKey ?? null,
+    );
+    const safeQuestion = guarded.question;
+    // E: avoidClarifyKey を指定したのに question=null が返った = 全優先が潰れた
+    // → 撤退 summary に落とす（同じ質問のループを断ち切る）
+    const isRetreat =
+      !safeQuestion && (guarded.reason === "loop_avoided" || !!input.avoidClarifyKey);
     finalCard = {
       ...finalCard,
-      summary: brief.primaryUnresolvedQuestion
-        ? `今の情報だと候補を絞りきれませんでした。${brief.primaryUnresolvedQuestion.question}`
-        : "まだ条件が揃っていないので、もう少し話してから候補を出します。",
-      reasoning: "今の条件では適切な候補が絞れなかったため、追加の情報をもらいに戻りました。",
+      summary: safeQuestion
+        ? `今の情報だと候補を絞りきれませんでした。${safeQuestion.question}`
+        : isRetreat
+          ? "条件を何度か確認したけれど、まだ決め切れるほどは揃っていませんでした。少し会話に戻して、行きやすい場所や時間帯がはっきりしたら、また CoAlter を呼んでみてください。"
+          : "まだ条件が揃っていないので、もう少し話してから候補を出します。",
+      reasoning:
+        "今の条件では適切な候補が絞れなかったため、追加の情報をもらいに戻りました。",
       candidates: [],
       theme: "movie",
     };
-    if (brief.primaryUnresolvedQuestion) {
+    if (safeQuestion) {
       finalCard = {
         ...finalCard,
         missingConstraints: [
           {
-            key: brief.primaryUnresolvedQuestion.key,
-            question: brief.primaryUnresolvedQuestion.question,
+            key: safeQuestion.key,
+            question: safeQuestion.question,
             priority: 1,
-            slot: brief.primaryUnresolvedQuestion.slot,
+            slot: safeQuestion.slot,
           },
         ],
       };
+    } else {
+      // E: 撤退時は missingConstraints を空にする (同じ key が引き継がれないように)
+      finalCard = { ...finalCard, missingConstraints: [] };
     }
   }
 

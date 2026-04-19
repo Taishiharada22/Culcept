@@ -3,10 +3,23 @@
  *
  * ペアが enabled の場合、アクティブなセッション + 提案カードも返す。
  * これにより、相手が起動した提案を両方のクライアントで表示できる。
+ *
+ * Phase 6.D (2026-04-19):
+ *   `activeCard` (Phase 2 discriminated union) を追加で返すようになった。
+ *   CEO 条件:
+ *     1) 後方互換優先 — `activeProposal` は維持、`activeCard` は加算
+ *     2) source of truth は `metadata.card` — 再合成は fallback のみ
+ *     3) mode 非依存で返す — decision/negotiate/clarify そのまま
+ *   詳細は `lib/coalter/statusResolver.ts` を参照。
  */
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import type { CoAlterApiResponse, ProposalCard } from "@/lib/coalter/types";
+import type {
+  CoAlterApiResponse,
+  CoAlterCard,
+  ProposalCard,
+} from "@/lib/coalter/types";
+import { resolveActiveFromMetadata } from "@/lib/coalter/statusResolver";
 
 export async function GET(request: Request) {
   try {
@@ -38,8 +51,9 @@ export async function GET(request: Request) {
       });
     }
 
-    // ── enabled の場合、アクティブなセッション + 提案カードを探す ──
+    // ── enabled の場合、アクティブなセッション + 提案カード/Card を探す ──
     let activeProposal: ProposalCard | null = null;
+    let activeCard: CoAlterCard | null = null;
     let activeSessionId: string | null = null;
 
     if (pairState.state === "enabled") {
@@ -55,7 +69,7 @@ export async function GET(request: Request) {
 
       if (session) {
         activeSessionId = session.id;
-        // セッションの提案カードを取得
+        // セッションの最新 coalter message の metadata を取得
         const { data: msg } = await supabase
           .from("coalter_messages")
           .select("metadata")
@@ -65,9 +79,14 @@ export async function GET(request: Request) {
           .limit(1)
           .single();
 
-        if (msg?.metadata?.proposalCard) {
-          activeProposal = msg.metadata.proposalCard as ProposalCard;
-        }
+        // Phase 6.D: resolver 一本化。mode 非依存で decoded。
+        const resolved = resolveActiveFromMetadata(
+          (msg?.metadata ?? null) as
+            | Parameters<typeof resolveActiveFromMetadata>[0]
+            | null,
+        );
+        activeProposal = resolved.activeProposal;
+        activeCard = resolved.activeCard;
       }
     }
 
@@ -81,6 +100,8 @@ export async function GET(request: Request) {
         // 提案カード（両方のクライアントで表示するため）
         activeSessionId,
         activeProposal,
+        // Phase 6.D: Phase 2 discriminated union（decision/negotiate/clarify）
+        activeCard,
       },
     });
   } catch (e) {

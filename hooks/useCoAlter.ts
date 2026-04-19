@@ -28,12 +28,31 @@ import type {
   PendingAxisDeltas,
   AxisKey,
   AxisDelta,
+  CoAlterCard,
 } from "@/lib/coalter/types";
 import { candidateKey } from "@/lib/coalter/axes";
 import type { PlanItem } from "@/lib/coalter/planShelf";
 import type { RefineCandidate, RefineDirection } from "@/lib/coalter/refineDirections";
 
 export type { PlanItem };
+
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+
+/**
+ * ProposalCard（レガシー）を DecisionCard（Phase 2 discriminated union の decision 枝）
+ * に昇格する。card フィールドが未定義の API レスポンス (status/realtime) への
+ * バックフィル専用。
+ */
+function deriveCard(
+  card: CoAlterCard | null | undefined,
+  proposal: ProposalCard | null | undefined,
+): CoAlterCard | null {
+  if (card) return card;
+  if (proposal) return { ...proposal, mode: "decision" };
+  return null;
+}
 
 // ─────────────────────────────────────────────
 // State Types
@@ -46,6 +65,13 @@ export interface CoAlterState {
   currentSessionId: string | null;
   sessionState: CoAlterSessionState | null;
   currentProposal: ProposalCard | null;
+  /**
+   * Phase 2 (6.C): 3-mode discriminated union の最新 Card。
+   * UI は card.mode で switch するので、レガシー currentProposal と並行して持つ。
+   * - decision モード時: currentCard.mode === "decision" (= currentProposal を投影)
+   * - negotiate/clarify モード時: currentProposal は projectToProposalCard のスタブ
+   */
+  currentCard: CoAlterCard | null;
   lastTrigger: { confidence: TriggerConfidence; pattern: string | null } | null;
   loading: boolean;
   error: string | null;
@@ -67,6 +93,7 @@ const INITIAL_STATE: CoAlterState = {
   currentSessionId: null,
   sessionState: null,
   currentProposal: null,
+  currentCard: null,
   lastTrigger: null,
   loading: false,
   error: null,
@@ -106,15 +133,17 @@ export function useCoAlter(threadId: string) {
             isInitiator?: boolean;
             activeSessionId?: string | null;
             activeProposal?: ProposalCard | null;
+            activeCard?: CoAlterCard | null;
           };
           setState((prev) => ({
             ...prev,
             pairState: (d.state === "inactive" ? "inactive" : d.state) as CoAlterPairState,
             pairStateId: d.pairStateId,
             // 既存の提案カードがあれば表示（相手が起動した提案も含む）
-            ...(d.activeProposal ? {
+            ...(d.activeProposal || d.activeCard ? {
               sessionState: "completed" as CoAlterSessionState,
-              currentProposal: d.activeProposal,
+              currentProposal: d.activeProposal ?? null,
+              currentCard: deriveCard(d.activeCard, d.activeProposal),
               currentSessionId: d.activeSessionId ?? prev.currentSessionId,
             } : {}),
           }));
@@ -149,11 +178,12 @@ export function useCoAlter(threadId: string) {
           try {
             const res = await fetch(`/api/coalter/status?threadId=${encodeURIComponent(threadId)}`);
             const data = await res.json();
-            if (data.ok && data.data?.activeProposal) {
+            if (data.ok && (data.data?.activeProposal || data.data?.activeCard)) {
               setState((prev) => ({
                 ...prev,
                 sessionState: "completed",
-                currentProposal: data.data.activeProposal,
+                currentProposal: data.data.activeProposal ?? null,
+                currentCard: deriveCard(data.data.activeCard, data.data.activeProposal),
                 loading: false,
               }));
             }
@@ -179,17 +209,19 @@ export function useCoAlter(threadId: string) {
               ...prev,
               sessionState: null,
               currentProposal: null,
+              currentCard: null,
             }));
           } else if (newState === "completed") {
             // パイプラインが完了 → 提案カードを取得して表示
             try {
               const res = await fetch(`/api/coalter/status?threadId=${encodeURIComponent(threadId)}`);
               const data = await res.json();
-              if (data.ok && data.data?.activeProposal) {
+              if (data.ok && (data.data?.activeProposal || data.data?.activeCard)) {
                 setState((prev) => ({
                   ...prev,
                   sessionState: "completed",
-                  currentProposal: data.data.activeProposal,
+                  currentProposal: data.data.activeProposal ?? null,
+                  currentCard: deriveCard(data.data.activeCard, data.data.activeProposal),
                   loading: false,
                 }));
               }
@@ -434,6 +466,7 @@ export function useCoAlter(threadId: string) {
         error: null,
         sessionState: "active",
         currentProposal: null,
+        currentCard: null,
       }));
 
       // 前のリクエストがあればキャンセル
@@ -460,6 +493,7 @@ export function useCoAlter(threadId: string) {
             ...prev,
             sessionState: "completed",
             currentProposal: data.data!.proposalCard,
+            currentCard: deriveCard(data.data!.card, data.data!.proposalCard),
             currentSessionId: data.data!.sessionId ?? prev.currentSessionId,
             loading: false,
             seenCandidateKeys: Array.from(
@@ -545,6 +579,7 @@ export function useCoAlter(threadId: string) {
           ...prev,
           sessionState: "completed",
           currentProposal: data.data!.proposalCard,
+          currentCard: deriveCard(data.data!.card, data.data!.proposalCard),
           currentSessionId: data.data!.sessionId ?? prev.currentSessionId,
           loading: false,
           seenCandidateKeys: Array.from(
@@ -589,12 +624,14 @@ export function useCoAlter(threadId: string) {
               pairState: "disabled",
               sessionState: null,
               currentProposal: null,
+              currentCard: null,
             }));
           } else {
             setState((prev) => ({
               ...prev,
               sessionState: null,
               currentProposal: null,
+              currentCard: null,
             }));
           }
         }
@@ -612,6 +649,7 @@ export function useCoAlter(threadId: string) {
       ...prev,
       sessionState: null,
       currentProposal: null,
+      currentCard: null,
       awaitingAnswer: null,
     }));
     // DB更新: end API を呼び出し → Realtime で相手のクライアントにも反映
@@ -637,6 +675,7 @@ export function useCoAlter(threadId: string) {
           ...prev,
           sessionState: null,
           currentProposal: null,
+          currentCard: null,
         }));
         return;
       }
@@ -690,6 +729,7 @@ export function useCoAlter(threadId: string) {
         ...prev,
         sessionState: null,
         currentProposal: null,
+        currentCard: null,
       }));
       // DB更新
       fetch("/api/coalter/end", {
@@ -763,5 +803,7 @@ export function useCoAlter(threadId: string) {
     isActive: state.sessionState === "active",
     isPending: state.pairState === "pending_consent",
     hasProposal: state.currentProposal !== null,
+    /** Phase 2 (6.C): discriminated union の Card が存在するか（decision/negotiate/clarify いずれか） */
+    hasCard: state.currentCard !== null,
   };
 }

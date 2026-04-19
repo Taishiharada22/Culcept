@@ -113,12 +113,24 @@ export async function POST(request: Request) {
     );
 
     // CoAlterメッセージをDBに保存
+    //
+    // Phase 6.C (2026-04-19) CEO 条件 #3:
+    //   routerTrace を coalter_messages.metadata.routerTrace へ永続化する。
+    //   card (discriminated union) も metadata.card に保存し、次ターン router 入力
+    //   (previousMode / previousNegotiateNoProposal) を復元可能にする。
+    //   proposalCard は後方互換のため残す。
     await supabase.from("coalter_messages").insert({
       session_id: session.id,
       role: "coalter",
       sender_id: null,
       content: result.proposalCard.summary,
-      metadata: { proposalCard: result.proposalCard },
+      metadata: {
+        proposalCard: result.proposalCard,
+        card: result.card ?? null,
+        routerTrace: result.routerTrace ?? null,
+        gateResult: result.gateResult ?? null,
+        executorFallbackReason: result.executorFallbackReason ?? null,
+      },
     });
 
     return NextResponse.json<CoAlterApiResponse<CoAlterOutput>>({

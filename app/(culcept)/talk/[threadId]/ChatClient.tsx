@@ -11,6 +11,7 @@ import { useCoAlter } from "@/hooks/useCoAlter";
 import CoAlterButton from "@/components/coalter/CoAlterButton";
 import CoAlterConsent from "@/components/coalter/CoAlterConsent";
 import CoAlterCard from "@/components/coalter/CoAlterCard";
+import CoAlterCardDispatcher from "@/components/coalter/CoAlterCardDispatcher";
 import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
 import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
 import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
@@ -1711,9 +1712,33 @@ export default function ChatClient({ threadId }: Props) {
               </motion.div>
             )}
           </AnimatePresence>
-          {/* ── CoAlter 提案カード ── */}
+          {/* ── CoAlter 提案カード (Phase 6.C: discriminated union dispatch) ── */}
+          {/*
+           * CEO 6.C 条件 #4:
+           *   card.mode (decision / negotiate / clarify) で switch し、1 カード内で混在させない。
+           *   currentCard があれば Dispatcher 経由、無ければ従来の CoAlterCard (decision) にフォールバック。
+           */}
           <AnimatePresence>
-            {coalter.hasProposal && coalter.currentProposal && (
+            {coalter.hasCard && coalter.currentCard && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterCardDispatcher
+                  card={coalter.currentCard}
+                  onDismiss={coalter.dismissProposal}
+                  onAdopt={coalter.adoptCandidate}
+                  onRefine={coalter.refine}
+                  pendingAxisDeltas={coalter.pendingAxisDeltas}
+                  onAxisToggle={coalter.toggleAxisDelta}
+                  onReroll={coalter.reroll}
+                  onCloseRefine={() => { /* ローカルで閉じるだけ */ }}
+                  awaitingAnswer={coalter.awaitingAnswer}
+                  onAnswerInChat={(q) => coalter.markAwaitingAnswer(q)}
+                  onCancelAwaiting={() => coalter.markAwaitingAnswer(null)}
+                  onHandoffEvent={handleCoAlterHandoffEvent}
+                />
+              </motion.div>
+            )}
+            {!coalter.hasCard && coalter.hasProposal && coalter.currentProposal && (
               <motion.div className="py-3 px-2"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <CoAlterCard
