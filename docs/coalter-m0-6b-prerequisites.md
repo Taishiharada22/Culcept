@@ -99,7 +99,7 @@
   M0-6B で追加予定）
 - 検証: 生成直後に `scripts/coalter/leak-audit.sh` + `leakAudit.test.ts` で漏洩 0 確認
 
-### 2.4 保持 / 削除
+### 2.4 保持 / 削除 / ローカル保護
 
 | 段階 | アクション |
 | --- | --- |
@@ -108,6 +108,18 @@
 | 削除トリガ | 以下いずれか: (a) M0-6B shadow 集計完了 (b) 昇格判定完了 (c) 同意撤回 (d) 上記いずれでもない場合でも 30 日経過 |
 | 削除手順 | `rm -rf scripts/coalter/internal-pairs/` + `docs/decision-log.md` に削除記録 |
 | バックアップ | 禁止（Time Machine 含む対象外フォルダに配置） |
+
+**[CEO lock 2026-04-20 追加]** 対応表 `~/.coalter/pair-map.json` および
+`scripts/coalter/internal-pairs/` のローカル保護は以下を必ず実施する:
+
+| 項目 | 設定内容 |
+| --- | --- |
+| ディレクトリ権限 | `chmod 700 ~/.coalter/` / `chmod 700 scripts/coalter/internal-pairs/` （owner のみ rwx） |
+| ファイル権限 | `chmod 600 ~/.coalter/pair-map.json` / 各 `internal-pair-*.json`（owner rw のみ、group / other 参照不可） |
+| Time Machine 除外 | `tmutil addexclusion ~/.coalter/` および `tmutil addexclusion scripts/coalter/internal-pairs/` をセットアップ手順に含める |
+| iCloud Drive / Dropbox | dotfile (`~/.coalter/`) はデフォルト同期対象外。ただし `~/Documents/` 等にエイリアス／シンボリックリンクを張らないこと |
+| 3rd-party バックアップ | Backblaze / Arq 等を利用している場合はユーザー責任で対象フォルダを除外設定する（設定確認はセットアップ時に CEO が明示チェック） |
+| 手順書 | M0-6B セットアップスクリプト追加時に、上記 `chmod` / `tmutil` を初期化ルーチンに組み込む |
 
 ---
 
@@ -168,6 +180,7 @@
     [ ] §2.1 の必須要素 5 項目を満たす
     [ ] ペア多様性=1 の注記が本書に明記されている（↑済み）
     [ ] 対応表は repo 外に配置、commit されていない
+    [ ] 対応表 / internal-pairs/ に chmod 700/600 + Time Machine 除外が適用済み
     [ ] sessions.length >= 20 が揃っている
 
 [ ] 前提② Anthropic ZDR
