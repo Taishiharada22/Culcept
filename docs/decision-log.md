@@ -14,6 +14,25 @@
 
 ---
 
+### 2026-04-20 CoAlter M0-6B 実装着手承認（shadow 実行は追加条件付き）
+- **部門**: Build
+- **決定内容**: CoAlter Stage 1 Understand M0-6B の **adapter 実装コード着手を承認**する。対象は `lib/coalter/understanding/realApiAdapter.ts` / `scripts/coalter/export-internal-pair.ts` / `scripts/coalter/shadow-real-api.ts` / `lib/coalter/understanding/__testkit__/internalPairSchema.ts` / `tests/unit/coalter/understanding/internalPairExport.test.ts`。**実 API 呼出（shadow 実行）は別条件**（§shadow 実行条件 参照）。
+- **理由**: M0-6A（synthetic 50 件 × 5 strategy 完走 + Gate E-6/E-7 leak audit PASS + 5-mode 件数出力）完了済み。M0-6B 着手前提 3 件の証拠物雛形が揃い、§3 前提① consent は CEO 記入済み、§3 前提② ZDR / §3 前提③ code review は adapter 実装後に埋める形で整合。adapter コードは fail-fast（ZDR 未確認 key で起動時 throw）により、実 API 呼出が暴発しない保護下にある。
+- **記入済み証拠物**:
+  1. `docs/coalter-internal-pair-consent-2026-04.md` — CEO 記入済み（A=taishi harada / B=kumi harada / sessions 23 件 / 対面同意 2026-04-20）
+  2. `docs/coalter-m0-6b-zdr-evidence.md` — `未確認`（Console 確認待ち 5 項目）/ `未発行`（shadow key 発行待ち 3 項目）として明示。shadow 実行前に実値で置換必須
+  3. `docs/coalter-m0-6b-code-review.md` — `PENDING_M0-6B_IMPLEMENTATION`（adapter 実装後に §2.1〜§2.4 を PASS/FAIL 判定）
+- **shadow 実行条件（all-of、着手承認には含まれない）**:
+  1. ZDR evidence の `未確認` 5 項目が実値で埋まる（Console 確認）
+  2. shadow 用 API key が発行され `未発行` 3 項目が埋まる（prod key と別 org / 別 key）
+  3. code-review の 4 check item（§2.1〜§2.4）が PASS
+  4. 本 decision-log に shadow 実行承認を別エントリで追加
+- **変更ファイル**: `docs/coalter-m0-6b-zdr-evidence.md`（`[CEO要確認]` → `未確認`/`未発行`/`未確定` に正規化、凡例追記、shadow 実行ブロッカー境界を明示）
+- **承認**: CEO（2026-04-20）
+- **ステータス**: 実行中（adapter 実装着手 → code-review 記入 → shadow 実行承認、の順で進む）
+
+---
+
 ### 2026-04-19 Student Provider (v2 LoRA) Phase 1 実装承認 → main 反映用コミット作成完了
 - **部門**: Build
 - **決定内容**: v2 LoRA を `stargazer_alter_response` 限定の Generation-only provider として導入。3-state routing (eligible/skipped/disabled) + canary rollout + prompt length gate + output validation + fallback + 21 unit tests all PASS。`feat/baseline-edit` 上にコミット 98d403d4 作成済み（flag OFF）。main merge 完了時点で「main 反映完了」。endpoint 準備後 `STUDENT_PROVIDER_ENABLED=true` + `ROLLOUT_PERCENT=10` で canary 開始。

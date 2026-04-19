@@ -17,7 +17,11 @@
 | 対象 Milestone | CoAlter Stage 1 Understand M0-6B |
 | 確認画面 | `https://console.anthropic.com/settings/data-retention` |
 
-> **凡例**: `[CEO要確認]` プレフィクスは **CEO が Anthropic Console にログインして確認し、実値で置き換える必要がある** 欄。AI は埋めない。
+> **凡例**:
+> - `未確認` = Anthropic Console 確認前の欄。Console ログイン後に実値で置換する。
+> - `未発行` = shadow 用 API key がまだ発行されていない欄。発行時に記入する。
+> - `未確定` = タイミング依存で現時点では決まらない欄（例: 次回確認予定日）。
+> - いずれも M0-6B **shadow 実行**（実 API 呼出）の前に確定する必要がある。adapter 実装コード自体は未記入のままで着手してよい（fail-fast 保護あり）。
 
 ---
 
@@ -25,17 +29,18 @@
 
 | 項目 | 値 |
 | --- | --- |
-| Organization 名（公開可能な範囲） | `[CEO要確認]` |
-| Organization ID の prefix（頭 8 文字のみ） | `[CEO要確認]`（形式: `org_xxxxxxxx`、**full ID は本書に記載しない**） |
-| ZDR enrolled 状態 | `[CEO要確認]`（Yes / No） |
-| enrollment 開始日 | `[CEO要確認]` |
-| 確認日時 | `[CEO要確認]` |
+| Organization 名（公開可能な範囲） | `未確認`（Console ログイン後に記入） |
+| Organization ID の prefix（頭 8 文字のみ） | `未確認`（形式: `org_xxxxxxxx`、**full ID は本書に記載しない**） |
+| ZDR enrolled 状態 | `未確認`（Yes / No — Console の Data Retention 設定画面で確認） |
+| enrollment 開始日 | `未確認` |
+| 確認日時 | `未確認` |
 | 確認者 | `Taishi Harada`（予定、実確認時に再署名） |
 | 確認方法 | `console 画面`（予定、実確認で変わり得る — 他の選択肢: Anthropic 発行 email / 営業連絡） |
 | スクリーンショット保管場所 | `~/Documents/coalter-evidence/zdr-console-YYYY-MM-DD.png` を想定（repo 外、CEO 手元 local のみ、**repo には commit しない**。iCloud Drive 配下を避ける場合は `~/coalter-evidence/` に変更） |
 
-> **ブロッカー**: 上記 `[CEO要確認]` 5 項目のいずれかが埋まるまで M0-6B 着手不可。
+> **ブロッカー**: 上記 `未確認` 5 項目のいずれかが埋まるまで **M0-6B shadow 実行**（実 API 呼出）不可。
 > AI は console にログインできないため、これらは必ず CEO 本人が確認する。
+> adapter 実装コード自体は ZDR 確認前でも着手可能（fail-fast により実 API 呼出は起動時に throw される）。
 
 ---
 
@@ -45,12 +50,12 @@
 
 | 項目 | 値 |
 | --- | --- |
-| shadow 用 key 識別子（末尾 4 文字のみ） | `[CEO要確認]`（key 発行後に末尾 4 文字を記入、full key は `.env.local` のみ） |
-| key 発行日 | `[CEO要確認]` |
+| shadow 用 key 識別子（末尾 4 文字のみ） | `未発行`（key 発行後に末尾 4 文字を記入、full key は `.env.local` のみ） |
+| key 発行日 | `未発行` |
 | 保管場所 | `.env.local`（git commit 禁止、`.gitignore` 済み） |
 | env 変数名 | `COALTER_UNDERSTANDING_SHADOW_API_KEY` |
-| 所属 organization | 本書 §1 と同一の ZDR enrolled org か確認: `[CEO要確認]`（はい / いいえ） |
-| prod key と同一でないことの確認 | `[CEO要確認]`（はい / いいえ — 同一の場合は着手不可） |
+| 所属 organization | 本書 §1 と同一の ZDR enrolled org か確認: `未確認`（key 発行時点で確認する） |
+| prod key と同一でないことの確認 | `未発行`（key 未発行のため判定不能。発行時は必ず別 key にする — 同一の場合は shadow 実行不可） |
 
 ---
 
@@ -78,7 +83,7 @@ M0-6B adapter 実装時（本書記入完了後）に以下を adapter 起動時
 
 | 項目 | 値 |
 | --- | --- |
-| 次回確認予定日 | M0-6B shadow 検証終了日（集計完了日と同日）に再確認。実日付は `[CEO要確認]` |
+| 次回確認予定日 | M0-6B shadow 検証終了日（集計完了日と同日）に再確認。実日付は `未確定`（shadow 実行開始後に確定） |
 | 失効時の手順 | M0-6B shadow 実行を即時停止 + `scripts/coalter/internal-pairs/` を `rm -rf` + `docs/decision-log.md` に失効記録 |
 
 ---
