@@ -157,7 +157,7 @@ const MATURE_RELATIONSHIP: RelationshipObservation = {
   ],
   fairnessLedger: [
     { sessionId: "s1", decidedAt: "2026-04-12T18:00:00Z", skew: -0.4, topic: "movie" },
-    { sessionId: "s2", decidedAt: "2026-04-05T19:00:00Z", skew: 0.3, topic: "food" },
+    { sessionId: "s2", decidedAt: "2026-04-05T19:00:00Z", skew: -0.2, topic: "food" },
     { sessionId: "s3", decidedAt: "2026-03-29T18:30:00Z", skew: -0.5, topic: "movie" },
   ],
   currentTemperature: "warm",

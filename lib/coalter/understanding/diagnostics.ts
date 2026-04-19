@@ -51,10 +51,33 @@ export type EmitUnderstandingDiagnostics = (
   diagnostics: UnderstandingDiagnostics,
 ) => void;
 
-/** M0-1 の no-op 実装。M0-3 で console / analytics 書き出しに差し替え。 */
-export const emitUnderstandingDiagnostics: EmitUnderstandingDiagnostics = (_d) => {
-  // intentionally empty — shadow stage, no write path yet
+/**
+ * [CEO lock 2026-04-20 M0-3 #4] デフォルト OFF の kill switch:
+ *   - `COALTER_UNDERSTANDING_DIAGNOSTICS === "1"` のときのみ console に出す。
+ *   - OFF（未設定 / "0" / その他）は完全 no-op。shadow 中はデフォルト OFF を維持。
+ *   - ON 時でも input 型は `UnderstandingDiagnostics` 限定のため
+ *     quote / summary / body / displayName / userId を出す経路がない（lock A）。
+ *
+ * 将来の analytics event 書き出しもここに集約する。DB 書き出し・外部 API 送信は
+ * この関数の中以外で起こらないこと。
+ */
+function isDiagnosticsEnabled(): boolean {
+  // process は Node 実行時のみ存在。browser 経路で呼ばれた場合は常に OFF。
+  if (typeof process === "undefined" || !process.env) return false;
+  return process.env.COALTER_UNDERSTANDING_DIAGNOSTICS === "1";
+}
+
+export const emitUnderstandingDiagnostics: EmitUnderstandingDiagnostics = (d) => {
+  if (!isDiagnosticsEnabled()) return; // デフォルト OFF = no-op
+
+  // ON 時: prefix 付き console.info で 1 行。型が UnderstandingDiagnostics のため
+  // 生テキスト経路は存在しない（compile-time に _DIAGNOSTICS_GUARD で担保）。
+  // eslint-disable-next-line no-console
+  console.info("[CoAlter] understanding.diagnostics", d);
 };
+
+/** test から kill switch 状態を確認するため（内部参照は非推奨）。 */
+export const _internal_isDiagnosticsEnabled = isDiagnosticsEnabled;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 2. Sample values — 型契約の reference + unit test / KPI SQL 設計用
