@@ -35,7 +35,6 @@ import type {
   FoodRankOutput,
   PendingAxisDeltas,
   ProposalCard,
-  ProposalCandidate,
   ProposalQualityRecord,
   RankedFoodCandidate,
   RankingAxesPreset,
@@ -47,6 +46,7 @@ import { buildConversationBrief } from "./briefBuilder";
 import { parseFoodVenues } from "./foodCatalog";
 import { rankFood } from "./foodRanker";
 import { __internal as bookingInternal } from "./bookingResolver";
+import { buildFoodNarrationFromLogic } from "./narrationTemplate";
 
 // ─────────────────────────────────────────────
 // Types
@@ -201,110 +201,29 @@ export function aggregateHardFilterReasons(
 }
 
 // ─────────────────────────────────────────────
-// Narration (placeholder — Commit 4 で富化)
+// Narration (Commit 4: buildFoodNarrationFromLogic 経由で富化)
 // ─────────────────────────────────────────────
 
 /**
- * Commit 3 では「最低限成立する」food 用 ProposalCard を返す。
+ * ranked = 0 件のときの clarify 専用 ProposalCard。
  *
- * Commit 4 で narrationBuilder を食に対応させて差し替える。
- * ここでは:
- *  - summary / priorities / reasoning / closing は汎用テキスト
- *  - candidates は venue name / area + priceBand / url / rationale を入れる
+ * primaryUnresolvedQuestion がある場合はそれを reasoning に据える。
+ * 事実フィールドは一切出さない（事実改変禁止の最上位契約）。
  */
-/**
- * RankedFoodCandidate.rationale (SelectionRationale) から 1 行要約を作る。
- * Commit 3 の placeholder。Commit 4 で narrationBuilder 側で差し替え。
- */
-function buildShortOneLiner(r: RankedFoodCandidate): string {
-  const parts: string[] = [];
-  const role = r.role;
-  if (role === "balance") parts.push("折り合い枠");
-  else if (role === "safety") parts.push("安心枠");
-  else if (role === "adventure") parts.push("冒険枠");
-  else if (role === "discovery") parts.push("新規性枠");
-  else if (role === "calm") parts.push("落ち着き寄り");
-  else if (role === "stimulating") parts.push("刺激寄り");
-  else if (role === "nostalgic") parts.push("ノスタルジア寄り");
-  else if (role === "aFocus") parts.push("A の好み寄り");
-  else if (role === "bFocus") parts.push("B の好み寄り");
-  if (r.rationale.tradeoff) parts.push(r.rationale.tradeoff);
-  return parts.length > 0 ? parts.join("。") : "2 人の条件に合いそうな候補";
-}
-
-function buildFoodPlaceholderCard(
-  ranked: RankedFoodCandidate[],
-  brief: ConversationBrief,
-): ProposalCard {
-  if (ranked.length === 0) {
-    // 0 件 → clarify 応答
-    const q =
-      brief.primaryUnresolvedQuestion?.question ??
-      "もう少し条件が決まると候補を絞れそう。エリアや予算の目安、教えてもらえる？";
-    return {
-      summary: "今の条件だと具体的な候補を絞り切れなかった。",
-      priorities: {
-        userA: "—",
-        userB: "—",
-        common: null,
-      },
-      candidates: [],
-      reasoning: q,
-      closing: "条件が決まったら、また候補を出し直すね。",
-      theme: "food",
-    };
-  }
-
-  const candidates: ProposalCandidate[] = ranked.map((r, i) => {
-    const venue = r.venue;
-    const locationLabel =
-      venue.station && venue.area
-        ? `${venue.area}（${venue.station}）`
-        : (venue.area ?? venue.station ?? "エリア情報なし");
-    const priceLabel = venue.priceBand ? ` / ${venue.priceBand}` : "";
-    const ratingLabel = venue.rating ? ` / ${venue.rating}` : "";
-    // Commit 3 では oneLiner は rationale から logic で短文化（Commit 4 で enrich）
-    const oneLiner = buildShortOneLiner(r);
-    // axisScores は RankingRole 型で ProposalCandidate.axisScores (AxisKey 型) と
-    // 型が合わないため、Commit 3 placeholder では省略。Commit 4 で
-    // narrationBuilder が正しく変換する。
-    return {
-      rank: i + 1,
-      title: venue.name,
-      oneLiner,
-      practicalInfo: `${locationLabel}${priceLabel}${ratingLabel}`,
-      url: r.sourceUrl,
-      theme: "food",
-    };
-  });
-
-  const topRoleLabel: Record<string, string> = {
-    balance: "バランス枠",
-    safety: "安心枠",
-    adventure: "冒険枠",
-    discovery: "新規性枠",
-    calm: "落ち着き寄り",
-    stimulating: "刺激寄り",
-    nostalgic: "ノスタルジア寄り",
-    aFocus: "A の好み寄り",
-    bFocus: "B の好み寄り",
-  };
-
-  const rolesLine = ranked
-    .map((r) => topRoleLabel[r.role] ?? r.role)
-    .join(" / ");
-
+function buildFoodClarifyCard(brief: ConversationBrief): ProposalCard {
+  const q =
+    brief.primaryUnresolvedQuestion?.question ??
+    "もう少し条件が決まると候補を絞れそう。エリアや予算の目安、教えてもらえる？";
   return {
-    summary: `候補を ${ranked.length} 件に絞り込んだ（${rolesLine}）。`,
+    summary: "今の条件だと具体的な候補を絞り切れなかった。",
     priorities: {
       userA: "—",
       userB: "—",
       common: null,
     },
-    candidates,
-    reasoning:
-      "2 人の好み・エリア・予算の折り合いから、役割分担のある 3 枠で候補を構成した。",
-    closing: "気になる候補があれば、詳細を開いてみて。",
+    candidates: [],
+    reasoning: q,
+    closing: "条件が決まったら、また候補を出し直すね。",
     theme: "food",
   };
 }
@@ -354,9 +273,27 @@ export async function generateFoodProposalV2(
   });
   const latencyRank = Date.now() - startedRank;
 
-  // ── Layer 3: narration placeholder ──
+  // ── Layer 3: narration (Commit 4: logic-only buildFoodNarrationFromLogic) ──
+  //
+  // 契約:
+  //  - ranked=0 件 → buildFoodClarifyCard（primaryUnresolvedQuestion を使う）
+  //  - ranked>0 件 → buildFoodNarrationFromLogic（食版 narrationBuilder を経由）
+  //
+  // CEO 条件 #3 (Commit 4): LLM enricher は食 path に接続していない。
+  //   接続前に CEO 承認が必要。本関数は一切 LLM を呼ばない（logic-only 契約）。
   const startedNarration = Date.now();
-  const card = buildFoodPlaceholderCard(rankOutput.ranked, brief);
+  const card =
+    rankOutput.ranked.length === 0
+      ? buildFoodClarifyCard(brief)
+      : buildFoodNarrationFromLogic({
+          ranked: rankOutput.ranked,
+          brief,
+          profileA: input.profileA,
+          profileB: input.profileB,
+          relationship: input.relationship,
+          alternatives: rankOutput.alternatives,
+          searchCandidates: input.searchCandidates,
+        });
   const latencyNarration = Date.now() - startedNarration;
 
   // ── Diagnostics 集計 ──
@@ -447,9 +384,11 @@ export async function generateFoodProposalV2(
     catalogCount: catalog.length,
     rankedCount: rankOutput.ranked.length,
     rankingAxesPreset: rankOutput.appliedPreset,
-    narrationMode: "logic_template", // Commit 4 で enrich 対応
+    // Commit 4: LLM enricher は食 path に接続していない（CEO 条件 #3）。
+    // narrationMode は "logic_template" 固定、llmSuccessLayer3 は false 固定。
+    narrationMode: "logic_template",
     llmSuccessLayer0: brief.source === "llm",
-    llmSuccessLayer3: false, // Commit 3 は placeholder
+    llmSuccessLayer3: false,
     latencyMsTotal: latencyTotal,
     latencyMsCatalog: latencyCatalog,
     latencyMsRank: latencyRank,
@@ -497,7 +436,7 @@ export function emitFoodOrchestratorError(
 
 // テスト用 export
 export const __internal = {
-  buildFoodPlaceholderCard,
+  buildFoodClarifyCard,
   round3,
   NOVELTY_USED_ROLES,
 };

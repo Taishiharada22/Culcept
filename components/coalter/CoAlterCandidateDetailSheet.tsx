@@ -102,6 +102,15 @@ export default function CoAlterCandidateDetailSheet({
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  // Phase B Commit 4 (2026-04-19):
+  //   providerType === "unknown" のとき、URL があれば CTA はゴースト化、
+  //   無ければ CTA ブロックごと非表示。
+  //   CEO 条件 (反証 2): 虚偽導線回避のため「予約」語を出さない弱い表示。
+  const isUnknownProvider = booking?.providerType === "unknown";
+  const hasUrl =
+    booking != null && (booking.bookingUrl != null || booking.officialUrl != null);
+  const showCta = booking != null && hasUrl;
+
   const handleAlternativeTap = (alt: CandidateAlternative) => {
     onHandoffEvent?.({
       eventType: "alternative_tap",
@@ -256,7 +265,7 @@ export default function CoAlterCandidateDetailSheet({
               )}
 
               {/* primary CTA (booking handoff) */}
-              {booking && (booking.bookingUrl || booking.officialUrl) && (
+              {showCta && booking && (
                 <div style={{ marginTop: 16 }}>
                   <motion.button
                     onClick={handleCtaTap}
@@ -264,12 +273,14 @@ export default function CoAlterCandidateDetailSheet({
                     style={{
                       width: "100%",
                       padding: "12px 16px",
-                      background: C.coalter,
-                      color: "white",
+                      // Phase B Commit 4: providerType="unknown" のときはゴースト化
+                      // （虚偽導線回避）。通常は coalter primary 色。
+                      background: isUnknownProvider ? C.s2 : C.coalter,
+                      color: isUnknownProvider ? C.t2 : "white",
                       borderRadius: 12,
                       fontSize: 14,
                       fontWeight: 700,
-                      border: "none",
+                      border: isUnknownProvider ? `1px solid ${C.t4}` : "none",
                       cursor: "pointer",
                     }}
                   >
@@ -418,15 +429,36 @@ function FactLine({ label, value }: { label: string; value: string | null }) {
   );
 }
 
+/**
+ * providerType 5 分類 × confidence に応じた補助文言。
+ *
+ * Phase B Commit 4 (2026-04-19): BookingProviderType を 5 分類に拡張。
+ *   - official                       : 公式ドメイン（booking path あり）
+ *   - official_site                  : 公式ドメイン（booking path なし）
+ *   - official_reservation_partner   : 公式採用の予約 SaaS（TableCheck 等）
+ *   - third_party_listing            : 第三者リスティング（食べログ / Retty 等）
+ *   - unknown                        : 分類不能（虚偽導線回避のため弱い表示）
+ */
 function confidenceHint(b: BookingHandoff): string {
-  // 映画は「予約」にならない文言
-  if (b.confidence === "high" && b.providerType === "official") {
-    return "公式ページに移動します";
+  switch (b.providerType) {
+    case "official":
+      // 映画は「予約」にならない文言（resolveLabel が「上映ページを見る」等を返す）
+      if (b.confidence === "high") return "公式の予約ページに移動します";
+      return "公式サイトに移動します";
+    case "official_site":
+      return "公式ページで詳細を確認できます";
+    case "official_reservation_partner":
+      return b.providerName
+        ? `${b.providerName} 経由の公式予約ページです`
+        : "公式の予約パートナーサイトに移動します";
+    case "third_party_listing":
+      return b.providerName
+        ? `${b.providerName} の情報ページで詳細を確認できます`
+        : "外部サイトで詳細を確認できます";
+    case "unknown":
+      // 虚偽導線回避: 「予約」「公式」を出さない弱い表現
+      return "外部サイトで確認してね";
+    default:
+      return "外部サイトで確認してね";
   }
-  if (b.confidence === "medium") {
-    return b.providerName
-      ? `${b.providerName} の情報ページで詳細を確認できます`
-      : "外部サイトで詳細を確認できます";
-  }
-  return "外部サイトで確認してね";
 }
