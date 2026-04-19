@@ -72,6 +72,24 @@ export function decideSearch(
     analysis.agreedConstraints ?? [],
   );
 
+  // Phase A.7 D1 (2026-04-19): mentionedCandidates 汚染の切り分け用。
+  //   preview 本カウント中に `系がいいの_ アニメ` 等の greedy 捕捉で query 第1本が
+  //   汚染され listicle を呼び込む疑惑があり、pattern 2 `(.{2,10})(...)` の出力を
+  //   観測する。behavior 非変更、log-only。
+  try {
+    console.info(
+      "[CoAlter] webConnector.decision",
+      JSON.stringify({
+        theme: analysis.theme,
+        mentionedCandidates: specificCandidates,
+        combinedSample: combined.slice(0, 80),
+        queriesCount: queries.length,
+      }),
+    );
+  } catch {
+    // log 失敗しても本体には影響させない
+  }
+
   return {
     shouldSearch: queries.length > 0,
     reason: queries.length > 0
@@ -382,7 +400,24 @@ export async function searchAndFilter(
 ): Promise<SearchCandidate[]> {
   // Phase A.6 diagnostics: retrieval pipeline 3-stage visibility
   // (preview 本カウント中の catalogCount=0 連発の切り分け用)
-  const diag = {
+  //
+  // Phase A.7 D2 (2026-04-19): rawResults 先頭 3 件の title / url / desc[0:50] を
+  //   観測用に追加。EXA snippet に theater 情報が物理的に載っていないか
+  //   (可能性 A/D) を目視確認するため。behavior 非変更、log-only。
+  const diag: {
+    shouldSearch: boolean;
+    queriesCount: number;
+    queriesSample: string[];
+    rawResultsCount: number;
+    candidatesCount: number;
+    rawSamples?: Array<{
+      title: string;
+      url: string;
+      descHead: string;
+      hasHighlights: boolean;
+      highlightHead: string;
+    }>;
+  } = {
     shouldSearch: decision.shouldSearch,
     queriesCount: decision.queries.length,
     queriesSample: decision.queries.slice(0, 3),
@@ -398,6 +433,18 @@ export async function searchAndFilter(
   // Perspective Engine の executeSearch を利用
   const rawResults = await executeSearch(decision.queries, 5000);
   diag.rawResultsCount = rawResults.length;
+
+  // Phase A.7 D2: rawResults 先頭 3 件のサンプルを diag に詰める
+  diag.rawSamples = rawResults.slice(0, 3).map((r) => {
+    const highlights = Array.isArray(r.highlights) ? r.highlights : [];
+    return {
+      title: (r.title ?? "").slice(0, 60),
+      url: r.url ?? "",
+      descHead: (r.text ?? "").slice(0, 50),
+      hasHighlights: highlights.length > 0,
+      highlightHead: highlights.join(" / ").slice(0, 80),
+    };
+  });
 
   if (rawResults.length === 0) {
     console.info("[CoAlter] webConnector.retrieval", diag);

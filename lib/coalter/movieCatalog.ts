@@ -383,6 +383,22 @@ function theaterFromSource(sc: SearchCandidate): string | null {
     for (const [slug, name] of Object.entries(SLUG_TO_THEATER)) {
       if (combined.includes(slug)) return name;
     }
+    // Phase A.7 D3 (2026-04-19): TOHO 系 URL なのに slug map に一致しなかった。
+    //   実運用で EXA がどの URL を返しているか観測するため log 化。
+    //   behavior 非変更、log-only。
+    try {
+      console.info(
+        "[CoAlter] theaterFromSource.null",
+        JSON.stringify({
+          chain: "toho",
+          url: sc.url ?? null,
+          sourceHost: sc.source ?? null,
+          titleHead: (sc.title ?? "").slice(0, 60),
+        }),
+      );
+    } catch {
+      /* noop */
+    }
     return null;
   }
 
@@ -395,6 +411,21 @@ function theaterFromSource(sc: SearchCandidate): string | null {
       premium_shinjuku: "109シネマズプレミアム新宿",
     };
     if (slug && map[slug[1]]) return map[slug[1]];
+    // Phase A.7 D3: 109 系 URL なのに slug map に一致しなかった。
+    try {
+      console.info(
+        "[CoAlter] theaterFromSource.null",
+        JSON.stringify({
+          chain: "109",
+          url: sc.url ?? null,
+          sourceHost: sc.source ?? null,
+          titleHead: (sc.title ?? "").slice(0, 60),
+          slugMatched: slug ? slug[1] : null,
+        }),
+      );
+    } catch {
+      /* noop */
+    }
     return null;
   }
 
