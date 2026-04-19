@@ -14,6 +14,15 @@
 
 ---
 
+### 2026-04-19 Student Provider (v2 LoRA) Phase 1 実装承認 → main 反映用コミット作成完了
+- **部門**: Build
+- **決定内容**: v2 LoRA を `stargazer_alter_response` 限定の Generation-only provider として導入。3-state routing (eligible/skipped/disabled) + canary rollout + prompt length gate + output validation + fallback + 21 unit tests all PASS。`feat/baseline-edit` 上にコミット 98d403d4 作成済み（flag OFF）。main merge 完了時点で「main 反映完了」。endpoint 準備後 `STUDENT_PROVIDER_ENABLED=true` + `ROLLOUT_PERCENT=10` で canary 開始。
+- **追加フォロー (25% 拡大前)**: (1) chars ベース gate を token ベースに置換 or 閾値再調整 (2) telemetry 4 指標 (attempt/success/fallback/skip) の分母を混線させない
+- **設計書**: `docs/lora-v2-design.md`, `docs/student-provider-operations.md`
+- **変更ファイル**: `lib/ai/{index,types,studentRouting}.ts`, `lib/ai/providers/student.ts`, `lib/stargazer/featureFlags.ts`, `tests/unit/ai/studentRouting.test.ts`
+- **承認**: CEO（2026-04-19）
+- **ステータス**: 実行済 (flag OFF / main merge 待ち / RunPod endpoint 準備待ち)
+
 ### 2026-04-08 safe-merge 完了 + pre-existing test 失敗2件の固定記録
 - **部門**: Build
 - **決定内容**: ローカル全変更を main に安全合流・push 完了。pre-existing テスト失敗2件を正式記録。
