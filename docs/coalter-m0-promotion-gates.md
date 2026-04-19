@@ -36,6 +36,10 @@
 | B-1 | `modeAgreement >= 0.85`（合成 pair 全件 × 実データ全件の加重平均） |
 | B-2 | `confidenceDelta` の絶対値中央値 <= 0.15（bias が過大でないこと） |
 | B-3 | `latentNeedsDelta.overlapCount / max(ruleCount, llmCount)` の中央値 >= 0.5 |
+| B-4 | **mode 別の件数 / 一致率を必須出力**。shadow-replay / 実データ集計のいずれも `recover / celebrate / maintain / connect / challenge` の 5 mode ごとに `件数 / 一致数 / 一致率` を記録する。全体平均のみの報告は偏りを隠すため不可。閾値は B-1 の全体平均で判定するが、mode 別値は CEO 判定資料として必ず残す |
+
+> [CEO lock 2026-04-20 M0-6A 追加lock1] B-4 は「表示義務」であって閾値ではない。
+> 件数 0 の mode は `件数 0（このランでは該当なし）` と明示出力する。
 
 ### Gate C: 信頼性
 | 項目 | 基準 |
@@ -62,6 +66,13 @@
 | E-3 | diagnostics payload key が許可リスト内のみ | `tests/unit/coalter/understanding/diagnostics.test.ts` の「payload キーは許可リスト内のみ」が PASS |
 | E-4 | LLM adapter に DB 書き込み経路なし | `grep -nE "insert\|update\|from\(.*\)" lib/coalter/understanding/**/*.ts` で Supabase client 呼出 0 件 |
 | E-5 | console.log / analytics event 経路に raw prompt / raw output なし | adapter 側で prompt / rawOutput を closure 外へ漏らさない（審査は code review） |
+| E-6 | **`prompt` / `rawOutput` / `rawRationale` の識別子が `lib/coalter/understanding/` 配下に一切存在しない** | `scripts/coalter/leak-audit.sh` および `tests/unit/coalter/understanding/leakAudit.test.ts` が PASS。 `import` 名も含め grep で 0 件 |
+| E-7 | **`implicitIntent` が diagnostics / comparison / console / analytics 出力経路に載らない** | `_COMPARE_GUARD` / `_DIAGNOSTICS_GUARD` の compile-time 禁止に加え、`leakAudit.test.ts` の runtime serialize 検証（JSON.stringify 文字列に `implicitIntent` key が現れない）が PASS。`TodayReading.implicitIntent` は narration UI の public field のため全面禁止はしない |
+
+> [CEO lock 2026-04-20 M0-6A 追加lock2] E-6 / E-7 は E-5（code review 依存）の穴埋めとして追加。
+> 4 識別子のうち 3 つ（prompt / rawOutput / rawRationale）は全面 grep 禁止、
+> 1 つ（implicitIntent）は経路限定での検証とする。全面禁止にしない理由は
+> `TodayReading.implicitIntent` が narration UI から参照される正当 field のため。
 
 ### Gate F: 決定性・互換性
 | 項目 | 基準 |

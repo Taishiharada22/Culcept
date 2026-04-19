@@ -112,6 +112,19 @@ function report(rows: Row[]): void {
     console.log(`  ${m.padEnd(10)} : ${n} (${pct(n, total)})`);
   }
   console.log();
+  // [CEO lock 2026-04-20 M0-6A #追加lock1] Gate B 対応 — mode 別 modeAgreement 必須出力
+  console.log("── mode 別 modeAgreement (rule-side mode で集計) ───────────────────");
+  const MODES: TodayMode[] = ["recover", "celebrate", "maintain", "connect", "challenge"];
+  for (const m of MODES) {
+    const sub = rows.filter((r) => r.ruleMode === m);
+    const subAgree = sub.filter((r) => r.modeAgreement).length;
+    if (sub.length === 0) {
+      console.log(`  ${m.padEnd(10)} : 件数 0（このランでは該当なし）`);
+    } else {
+      console.log(`  ${m.padEnd(10)} : ${subAgree}/${sub.length} = ${pct(subAgree, sub.length)}`);
+    }
+  }
+  console.log();
   console.log("── latency (ms) ────────────────────────────────────────────────────");
   console.log(`  rule  : min=${ruleLat[0]} p50=${pctile(ruleLat, 0.5)} p95=${pctile(ruleLat, 0.95)} max=${ruleLat[ruleLat.length - 1]}`);
   console.log(`  llm   : min=${llmLat[0]} p50=${pctile(llmLat, 0.5)} p95=${pctile(llmLat, 0.95)} max=${llmLat[llmLat.length - 1]}`);
