@@ -39,14 +39,40 @@
 両者は以下 5 項目を理解した上で同意する（§3 の理解確認欄「はい」×2 名分で担保）:
 
 ```
-[x] ① 既存の会話履歴を Stage 1 Understand の shadow 評価に使う
+[x] ① 既存の会話履歴 + Understanding に必要な既存プロファイル参照を
+       Stage 1 Understand の shadow 評価に使う（scope は §2.1 参照）
 [x] ② Anthropic ZDR 経由で LLM に送信する
-       （prompt は構造化フィールドのみ、
+       （入力は構造化フィールドのみ、
         turns.body / email / displayName / userId は含まない）
 [x] ③ 生成された LLM 出力は DB / analytics / log に保存しない
 [x] ④ M0-6B 完了後 or 同意撤回時に internal-pair-*.json を削除する
 [x] ⑤ 撤回申し出はいつでも可能（email または口頭、記録は CEO 管理）
 ```
+
+## 2.1 参照データの scope（2026-04-20 CEO 更新、両者再確認済み）
+
+当初 ①「対話のみ」を想定していたが、Understanding pipeline が十分な signal を
+抽出するためには既存プロファイル参照が必要なため、以下の scope に拡張する。
+
+**使ってよい範囲（Y-lite）**:
+- `talk_messages`（ペア会話本文。`coalter_sessions` の時間窓で slice）
+- Stargazer 観測データ（性格・判断特性）
+- Alter 観測データ（Alter 対話由来の内面モデル）
+- `coalter_fairness_ledger`（公平性台帳）
+- 既存の relationship / shared history 系（`genome_connections` / `coalter_pair_states` 等）
+
+**まだ使わない範囲（M0-6B scope 外、将来の別同意で扱う）**:
+- `calendar` 系（着用記録・AIカレンダー等）
+- `wardrobe` 系
+- `styleProfile` 系
+- その他の横断データ（顔・体・avatar 等）
+
+**運用制約**:
+- 読み取りのみ（read-only）。DB への書込なし。
+- export JSON には **email / displayName / userId / turns.body を含めない**（`assertAnonymized` で機械的に enforce）
+- pairHash + 集約 signal + RuleSnapshot のみを書き出す
+
+**両者の再確認**: 2026-04-20 CEO が対面で原田久美に scope 拡張を説明し、同日「はい」の返答を得た。本書の commit 時点をもって再確認記録とする。
 
 ---
 
@@ -97,11 +123,11 @@ commit による記録:
 
 | 項目 | 値 |
 | --- | --- |
-| 対象 session の抽出元 | `Supabase public.dialogues`（`user_id IN (userIdA, userIdB)` でフィルタ） |
-| session 件数 | `23`（`>=20` を満たすこと ✓） |
+| 対象 session の抽出元 | `public.coalter_sessions`（`pair_state_id = <本ペアの id>`） + `public.talk_messages`（同 `thread_id` + 各 session の `created_at` 〜 `ended_at` 時間窓）。補助として `public.stargazer_*` / `public.alter_*` / `public.coalter_fairness_ledger` / `public.genome_connections` を read-only 参照 |
+| session 件数 | `23`（`>=20` を満たすこと ✓、coalter_sessions の行数） |
 | 期間 | `2026-04-01 〜 2026-04-20` |
 | 抽出時刻 | `2026-04-20 02:55 JST` |
-| 抽出クエリ hash | `TBD_at_extraction_run`（`scripts/coalter/export-internal-pair.ts` 実行時に、実行された SQL を `sha256` した先頭 16 hex を記入。記入時点では export script 未実装） |
+| 抽出クエリ hash | `TBD_at_extraction_run`（`scripts/coalter/export-internal-pair.ts` 実行時に、実行された SQL を `sha256` した先頭 16 hex を記入） |
 
 ---
 
