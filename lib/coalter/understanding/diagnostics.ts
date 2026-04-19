@@ -67,6 +67,17 @@ function isDiagnosticsEnabled(): boolean {
   return process.env.COALTER_UNDERSTANDING_DIAGNOSTICS === "1";
 }
 
+/**
+ * [CEO lock 2026-04-20 M0-4 #2] LLM shadow 比較のデフォルト OFF kill switch。
+ *   - `COALTER_UNDERSTANDING_LLM_SHADOW === "1"` のときだけ shadow を走らせる
+ *   - OFF 時は compareTodayReaders を一切呼ばない（LLM への network call なし）
+ *   - ON でも runUnderstanding 本流の出力は rule-based のまま（比較専用）
+ */
+export function isLLMShadowEnabled(): boolean {
+  if (typeof process === "undefined" || !process.env) return false;
+  return process.env.COALTER_UNDERSTANDING_LLM_SHADOW === "1";
+}
+
 export const emitUnderstandingDiagnostics: EmitUnderstandingDiagnostics = (d) => {
   if (!isDiagnosticsEnabled()) return; // デフォルト OFF = no-op
 
@@ -199,7 +210,12 @@ type _ForbiddenKeys =
   | "implicitMood"
   | "narrative"
   | "displayName"
-  | "userId";
+  | "userId"
+  // [CEO lock M0-4 #5] LLM 生出力経路の禁止キー
+  | "rawRationale"
+  | "prompt"
+  | "rawOutput"
+  | "implicitIntent";
 
 // keyof UnderstandingDiagnostics に _ForbiddenKeys と重なるキーがないことを確認。
 type _Assert_NoForbiddenKeys = Extract<

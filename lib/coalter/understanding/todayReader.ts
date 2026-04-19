@@ -202,3 +202,10 @@ export function readToday(bundle: ObservationBundle): TodayReading {
     confidence: deriveConfidence(bundle),
   };
 }
+
+/**
+ * [CEO lock 2026-04-20 M0-4 #1] 並立のための明示エイリアス。
+ *   runUnderstanding 本流は readToday（rule-based）を使い続ける。
+ *   LLM 版は `todayReaderLLM.ts` に別置、比較は `compareTodayReaders.ts`。
+ */
+export const readTodayRuleBased = readToday;

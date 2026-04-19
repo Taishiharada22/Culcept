@@ -30,16 +30,19 @@
  * [M0 shadow] 既存 runtime 未接続、feat/baseline-edit に merge せず。
  */
 
-import { emitUnderstandingDiagnostics } from "./diagnostics";
+import { compareTodayReaders, type TodayReaderComparison } from "./compareTodayReaders";
+import { emitUnderstandingDiagnostics, isLLMShadowEnabled } from "./diagnostics";
 import { deriveFairnessAdjustment } from "./fairnessAdjustment";
 import { fusePersonalLens } from "./personFusion";
 import { fuseRelationalLens } from "./relationalFusion";
-import { readToday } from "./todayReader";
+import { readTodayRuleBased } from "./todayReader";
+import type { TodayReaderLLMClient } from "./todayReaderLLM";
 import type {
   DataGapSection,
   IsoTimestamp,
   ObservationBundle,
   PersonalLens,
+  TodayReaderComparisonDiag,
   TwoPersonLensToday,
   UnderstandingDiagnostics,
   UnderstandingOutcome,
@@ -64,11 +67,14 @@ export const OUTCOME_THRESHOLDS = {
  * @param bundle 既存観測から合成された ObservationBundle
  * @param now 現在時刻の注入（lock #1: 決定論のため caller 責任）
  * @param pairHash 匿名化済みペア識別子（diagnostics 用）
+ * @param options.llmClient DI された LLM client。shadow kill switch が ON かつ
+ *   client が渡された場合のみ LLM 側を実行する。本流出力は常に rule-based。
  */
 export async function runUnderstanding(
   bundle: ObservationBundle,
   now: IsoTimestamp,
   pairHash: string,
+  options: { llmClient?: TodayReaderLLMClient } = {},
 ): Promise<TwoPersonLensToday> {
   const start = nowMillis(now);
 
@@ -89,7 +95,8 @@ export async function runUnderstanding(
   const fusionLatency = Math.max(0, nowMillis(now) - fusionStart);
 
   const todayStart = nowMillis(now);
-  const todayReading = readToday(bundle);
+  // [CEO lock M0-4 #1/#2] 本流は rule-based のまま。LLM 版は shadow 比較専用。
+  const todayReading = readTodayRuleBased(bundle);
   const todayLatency = Math.max(0, nowMillis(now) - todayStart);
 
   const fairnessStart = nowMillis(now);
@@ -123,6 +130,13 @@ export async function runUnderstanding(
     lensVersion: "1.0.0",
   };
 
+  // ── shadow 比較（M0-4）— kill switch + client 注入時のみ実行 ─────
+  let comparisonDiag: TodayReaderComparisonDiag | undefined;
+  if (isLLMShadowEnabled()) {
+    const comparison = await compareTodayReaders(bundle, now, options.llmClient);
+    comparisonDiag = toComparisonDiag(comparison);
+  }
+
   // ── diagnostics emit（kill switch OFF ならここでも no-op） ─────────
   const totalLatency = Math.max(0, nowMillis(now) - start);
   const diagnostics: UnderstandingDiagnostics = {
@@ -141,10 +155,29 @@ export async function runUnderstanding(
     missing_domains: dataGaps,
     computedAt: now,
     pairHash,
+    ...(comparisonDiag ? { todayReaderComparison: comparisonDiag } : {}),
   };
   emitUnderstandingDiagnostics(diagnostics);
 
   return lens;
+}
+
+/**
+ * [CEO lock M0-4 #5] compare 出力 → diagnostics shape 移送。
+ * 追加フィールドが raw string 化しないことを 1 箇所で担保する。
+ */
+function toComparisonDiag(c: TodayReaderComparison): TodayReaderComparisonDiag {
+  return {
+    modeAgreement: c.modeAgreement,
+    ruleMode: c.ruleMode,
+    llmMode: c.llmMode,
+    confidenceDelta: c.confidenceDelta,
+    ruleConfidence: c.ruleConfidence,
+    llmConfidence: c.llmConfidence,
+    latencyMs: c.latencyMs,
+    latentNeedsDelta: c.latentNeedsDelta,
+    llmOutcome: c.llmOutcome,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -435,6 +435,33 @@ export type UnderstandingDiagnostics = {
   computedAt: IsoTimestamp;
   /** 匿名化済みペア識別子（hash）。userId は吐かない。 */
   pairHash: string;
+  /**
+   * [CEO lock 2026-04-20 M0-4 #5] shadow 比較の集約メトリクスのみ。
+   * LLM 生 rationale / prompt / raw output は含めない。
+   * undefined = shadow OFF、未取得。
+   */
+  todayReaderComparison?: TodayReaderComparisonDiag;
+};
+
+/**
+ * Diagnostics 上に載る shadow 比較サマリ。raw string 非載荷ルール:
+ *   - mode は enum、intent / latent needs の文字列は出さない
+ *   - count / delta / latency ms / outcome enum のみ
+ */
+export type TodayReaderComparisonDiag = {
+  modeAgreement: boolean;
+  ruleMode: TodayMode;
+  llmMode: TodayMode | null;
+  confidenceDelta: number | null;
+  ruleConfidence: number;
+  llmConfidence: number | null;
+  latencyMs: { rule: number; llm: number };
+  latentNeedsDelta: {
+    ruleCount: number;
+    llmCount: number;
+    overlapCount: number;
+  };
+  llmOutcome: "ok" | "fallback" | "error";
 };
 
 export type SourceCoverage = {
