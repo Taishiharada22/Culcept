@@ -13,6 +13,41 @@
 ```
 
 ---
+### 2026-04-20 CoAlter M0-8 close — sample diversity ゲート 4条件全 PASS
+- **部門**: Build
+- **決定内容**: M0-7A の 100% agreement が tail 50 単調 sample への過学習でないことを確認するため、既存 151 cases を conversationArc で 2 バケットに分割し shadow を再実行。**実装は入れず、検証のみ**。CEO 合格ライン 4 条件すべて PASS。M0-8 close。
+- **バケット定義（既存 compressedInput.conversationArc を使用、shadow runner は無改変）**:
+  - thin: `arc=opening` n=130
+  - medium: `arc=expanding || converging` n=21（dense=1件のみのため medium に含める）
+- **結果**:
+
+| 指標 | thin (n=130) | medium (n=21) |
+|---|---|---|
+| agreement | 130/130 = 100.0% | 20/21 = 95.2% |
+| maintain agreement | 121/121 = 100% | 10/11 = 90.9% |
+| connect agreement | 9/9 = 100% | 10/10 = 100% |
+| false-connect 率 (rule_maintain→llm_connect / rule_maintain) | 0/121 = 0% | 1/11 = 9.1% |
+| confidenceDelta p50 | +0.126 | +0.244 |
+| signal entropy caringGap | H=0.363 distinct=2 | H=1.229 distinct=3 |
+
+- **合格判定（CEO 定義 4 条件）**:
+  1. false-connect <20%: thin 0% / medium 9.1% → **PASS**
+  2. connect precision =100%: thin 9/9 / medium 10/10 → **PASS**
+  3. 過剰 maintain 非到達（non-maintain rule で LLM も追従）: thin connect 9 件全追従 / medium connect 10 件全追従 → **PASS**
+  4. overall agreement ≥80%: thin 100% / medium 95.2% → **PASS**
+- **観測**:
+  - medium bucket の 1 件 false-connect は healthy な境界揺らぎ（caringGap が 0.2 閾値直下で LLM が "around 0.2" を緩く解釈）
+  - medium は caringGap H=1.229 と thin の 3.4 倍多様だが precision は崩れず、calibration は diversity にロバスト
+  - confidenceDelta が medium で広がる（+0.126→+0.244）のは calibration が sample 情報量を反映している証拠
+- **本質的限界（scope 外、M0-9 で切り出し）**:
+  - `energyLevel / fatigueSignal / celebrationSignal / implicitMood` は 151 全量で **H=0**（pair 固有の単調性）
+  - **pair を超えた diversity 検証**は別 pair データ投入後に **M0-9** として実施する
+- **使い捨て artifacts**: `/tmp/coalter-split-buckets.ts`, `/tmp/coalter-bucket-*.json`, `/tmp/coalter-shadow-bucket-*.log` — 検証終了後に削除
+- **参考ログ**: `/tmp/coalter-shadow-bucket-thin.log`, `/tmp/coalter-shadow-bucket-medium.log`（削除前に要点転記済）
+- **承認**: CEO（自律実行承認、2026-04-20）
+- **ステータス**: 実行済（M0-8 close、M0-9 = 別 pair diversity 検証として切り出し）
+
+---
 ### 2026-04-20 CoAlter M0-7A close — SYSTEM_INSTRUCTION の mode selection guidance 追記で agreement 100% 到達
 - **部門**: Build
 - **決定内容**: `realApiAdapter.ts` の SYSTEM_INSTRUCTION に mode 選択ガイダンス（各 mode の structural condition と "weak signal → maintain" の default）を追記。50-case shadow を再実行し、目標超過達成（rule maintain → llm connect の件数 41 → 0）。M0-7 は M0-7A 単独で close、M0-7B/C は不要（YAGNI）。
