@@ -70,6 +70,8 @@ export interface MovieOrchestratorOutput {
    * 検索クエリ / theater 補完ロジックに bug がある可能性が高い。
    */
   diagnostics: {
+    /** Phase A.6 追加 (2026-04-19): input.searchCandidates.length。0 なら webConnector 経路の問題 */
+    searchCandidatesCount: number;
     catalogCount: number;
     rankedCount: number;
     missingWhereRejectCount: number;
@@ -239,6 +241,10 @@ export async function generateMovieProposalV2(
   ).length;
   const endedStatusCount = catalog.filter((c) => c.status === "ended").length;
   const diagnostics = {
+    // Phase A.6 追加 (2026-04-19): 0件 diagnostics 連発の切り分け用
+    //   searchCandidatesCount=0 かつ catalogCount=0 → webConnector 経路の問題
+    //   searchCandidatesCount>0 かつ catalogCount=0 → parseMovieScreenings 側の問題
+    searchCandidatesCount: input.searchCandidates.length,
     catalogCount: catalog.length,
     rankedCount: rankOutput.ranked.length,
     missingWhereRejectCount,

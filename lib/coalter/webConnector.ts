@@ -380,14 +380,27 @@ export async function searchAndFilter(
   _profileA: CoAlterPersonProfile,
   _profileB: CoAlterPersonProfile,
 ): Promise<SearchCandidate[]> {
+  // Phase A.6 diagnostics: retrieval pipeline 3-stage visibility
+  // (preview 本カウント中の catalogCount=0 連発の切り分け用)
+  const diag = {
+    shouldSearch: decision.shouldSearch,
+    queriesCount: decision.queries.length,
+    queriesSample: decision.queries.slice(0, 3),
+    rawResultsCount: 0,
+    candidatesCount: 0,
+  };
+
   if (!decision.shouldSearch || decision.queries.length === 0) {
+    console.info("[CoAlter] webConnector.retrieval", diag);
     return [];
   }
 
   // Perspective Engine の executeSearch を利用
   const rawResults = await executeSearch(decision.queries, 5000);
+  diag.rawResultsCount = rawResults.length;
 
   if (rawResults.length === 0) {
+    console.info("[CoAlter] webConnector.retrieval", diag);
     return [];
   }
 
@@ -409,6 +422,8 @@ export async function searchAndFilter(
     )
     .slice(0, 10); // 最大10件（LLMが絞る）
 
+  diag.candidatesCount = candidates.length;
+  console.info("[CoAlter] webConnector.retrieval", diag);
   return candidates;
 }
 
