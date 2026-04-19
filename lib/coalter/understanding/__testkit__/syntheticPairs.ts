@@ -38,6 +38,15 @@ export type SyntheticPairParams = {
   ledgerSkew: "balanced" | "a-favored" | "b-favored";
   celebration: boolean;
   energyLevel: "high" | "mid" | "low";
+  /**
+   * [M0-6A lock] 明示的な mode signal 制御。指定時は buildConversation で反映する。
+   *   caringGap: 0.0-1.0 の絶対差。>= 0.2 で rule-based が "connect" に倒す。
+   *   arcOverride: 指定時は conversationArc を固定する（celebration とは別口）。
+   *   temperature: relationship.currentTemperature の固定値。
+   */
+  caringGap?: number;
+  arcOverride?: "opening" | "expanding" | "converging" | "closing";
+  temperature?: "warm" | "cool" | "neutral" | "tense";
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -92,7 +101,6 @@ function buildConversation(
   userB: UserId,
 ): ConversationObservation {
   const turns: ConversationObservation["turns"] = [];
-  // fatigue tokens を必要本数だけ挿入
   if (p.fatigueLevel === "some") {
     turns.push({ senderId: userA, body: "今日は疲れた感じ", createdAt: "2026-04-20T12:00:00Z" });
   }
@@ -107,12 +115,20 @@ function buildConversation(
       createdAt: "2026-04-20T12:02:00Z",
     });
   }
-  // 中立 turn を必ず 1 本置く（empty 会話回避）
   turns.push({
     senderId: userB,
     body: "どうしようか",
     createdAt: "2026-04-20T12:03:00Z",
   });
+
+  // [M0-6A] caring gap の設定。caringGap 指定時は a に寄せる形で非対称を生成。
+  const gap = p.caringGap ?? 0.1; // default は従来と等価 (0.4 / 0.5)
+  const caringA = 0.5 - gap / 2;
+  const caringB = 0.5 + gap / 2;
+
+  // [M0-6A] arc の決定順: arcOverride > celebration (expanding) > default (opening)
+  const arc: ConversationObservation["conversationArc"] =
+    p.arcOverride ?? (p.celebration ? "expanding" : "opening");
 
   return {
     turns,
@@ -124,10 +140,10 @@ function buildConversation(
       timeSlot: "evening",
       preferences: [],
     },
-    caringIntensity: { a: 0.4, b: 0.5 },
+    caringIntensity: { a: caringA, b: caringB },
     implicitMood: p.celebration ? "祝祭の気配" : "",
     energyLevel: p.energyLevel,
-    conversationArc: p.celebration ? "expanding" : "opening",
+    conversationArc: arc,
     questionGuardState: null,
   };
 }
@@ -280,4 +296,110 @@ export function buildBootstrapMatrix(): SyntheticPairParams[] {
     });
   }
   return cases; // 5 * 4 = 20
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Extended 50-case matrix (M0-6A): 5 mode × 10 件で直交化
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * [CEO lock 2026-04-20 M0-6A]
+ *   rule-based todayReader の mode cascade (recover > celebrate > challenge > connect > maintain)
+ *   に合わせ、各 mode で最低 10 件の母数を確保する。
+ *
+ *   bootstrap 20 件では connect/challenge が 0 件だった反省の上書き。
+ *   mode ごとの trigger 条件:
+ *     recover   : energyLevel=low OR fatigueLevel∈{some,strong}
+ *     celebrate : celebration=true かつ上記 recover 条件非該当
+ *     challenge : 両者 ren-leaning (profile∈{A-outward,B-outward}) かつ arc=expanding
+ *                  かつ fatigueLevel=none かつ celebration=false
+ *     connect   : caringGap>=0.3 かつ上記全て非該当 (arc を opening/converging に寄せる)
+ *     maintain  : 上記全て非該当（中立パラメタ）
+ */
+export function buildExtendedMatrix(): SyntheticPairParams[] {
+  const cases: SyntheticPairParams[] = [];
+  const profiles: AxisProfile[] = ["A-inward", "A-outward", "mixed", "B-outward", "B-inward"];
+  const skews: Array<"balanced" | "a-favored" | "b-favored"> = ["balanced", "a-favored", "b-favored"];
+  const challengeProfiles: AxisProfile[] = ["A-outward", "B-outward"];
+  // connect: challenge に倒れないよう ren-leaning 両立を避ける
+  const nonChallengeProfiles: AxisProfile[] = ["A-inward", "mixed", "B-inward"];
+
+  // ── recover × 10 ────────────────────────────────────────────────
+  // 半分は energyLevel=low、半分は fatigueLevel 強で発火
+  for (let k = 0; k < 10; k++) {
+    const profile = profiles[k % profiles.length];
+    const useEnergy = k < 5;
+    cases.push({
+      id: `rec${String(k).padStart(2, "0")}`,
+      axisProfile: profile,
+      fatigueLevel: useEnergy ? "none" : k % 2 === 0 ? "some" : "strong",
+      ledgerSkew: skews[k % 3],
+      celebration: false,
+      energyLevel: useEnergy ? "low" : "mid",
+    });
+  }
+
+  // ── celebrate × 10 ──────────────────────────────────────────────
+  for (let k = 0; k < 10; k++) {
+    const profile = profiles[k % profiles.length];
+    cases.push({
+      id: `cel${String(k).padStart(2, "0")}`,
+      axisProfile: profile,
+      fatigueLevel: "none",
+      ledgerSkew: skews[k % 3],
+      celebration: true,
+      energyLevel: k % 2 === 0 ? "high" : "mid",
+    });
+  }
+
+  // ── challenge × 10 ──────────────────────────────────────────────
+  for (let k = 0; k < 10; k++) {
+    const profile = challengeProfiles[k % challengeProfiles.length];
+    cases.push({
+      id: `cha${String(k).padStart(2, "0")}`,
+      axisProfile: profile,
+      fatigueLevel: "none",
+      ledgerSkew: skews[k % 3],
+      celebration: false,
+      energyLevel: k % 2 === 0 ? "high" : "mid",
+      arcOverride: "expanding",
+      // caringGap はデフォルト (0.1) のままで connect には倒さない
+    });
+  }
+
+  // ── connect × 10 ────────────────────────────────────────────────
+  // challenge を避けるため non-challenge profile を使う
+  // （A-outward/B-outward で arc=expanding にならない形にしたいが、
+  //  arc のデフォルトが "opening" なので profile を絞るだけで十分）
+  for (let k = 0; k < 10; k++) {
+    const profile = nonChallengeProfiles[k % nonChallengeProfiles.length];
+    cases.push({
+      id: `con${String(k).padStart(2, "0")}`,
+      axisProfile: profile,
+      fatigueLevel: "none",
+      ledgerSkew: skews[k % 3],
+      celebration: false,
+      energyLevel: k % 2 === 0 ? "high" : "mid",
+      caringGap: 0.3 + (k % 3) * 0.1, // 0.3 / 0.4 / 0.5
+      arcOverride: "opening",
+    });
+  }
+
+  // ── maintain × 10 ───────────────────────────────────────────────
+  // 全て中立: 疲労なし / 祝祭なし / caringGap 小 / arc=opening
+  for (let k = 0; k < 10; k++) {
+    const profile = nonChallengeProfiles[k % nonChallengeProfiles.length];
+    cases.push({
+      id: `mai${String(k).padStart(2, "0")}`,
+      axisProfile: profile,
+      fatigueLevel: "none",
+      ledgerSkew: skews[k % 3],
+      celebration: false,
+      energyLevel: k % 2 === 0 ? "high" : "mid",
+      caringGap: 0.1,
+      arcOverride: "opening",
+    });
+  }
+
+  return cases; // 5 * 10 = 50
 }

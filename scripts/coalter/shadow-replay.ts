@@ -22,6 +22,7 @@ import {
 } from "@/lib/coalter/understanding/__testkit__/adversarialStubs";
 import {
   buildBootstrapMatrix,
+  buildExtendedMatrix,
   buildSyntheticBundle,
 } from "@/lib/coalter/understanding/__testkit__/syntheticPairs";
 import type { TodayMode } from "@/lib/coalter/understanding/types";
@@ -41,7 +42,9 @@ type Row = {
 };
 
 async function run(): Promise<void> {
-  const cases = buildBootstrapMatrix();
+  // [M0-6A] default は extended 50 件。CLI 引数 `--legacy` で 20 件 bootstrap。
+  const useLegacy = process.argv.includes("--legacy");
+  const cases = useLegacy ? buildBootstrapMatrix() : buildExtendedMatrix();
   const rows: Row[] = [];
 
   for (const p of cases) {
@@ -88,7 +91,8 @@ function report(rows: Row[]): void {
   console.log("CoAlter Stage 1 Understand — shadow replay bootstrap (M0-5)");
   console.log("═══════════════════════════════════════════════════════════════════");
   console.log();
-  console.log(`総件数: ${total} (${buildBootstrapMatrix().length} cases × ${STUB_STRATEGIES.length} strategies)`);
+  const caseCount = rows.length / STUB_STRATEGIES.length;
+  console.log(`総件数: ${total} (${caseCount} cases × ${STUB_STRATEGIES.length} strategies)`);
   console.log();
   console.log("── llmOutcome 分布 ─────────────────────────────────────────────────");
   console.log(`  ok       : ${ok} (${pct(ok, total)})`);

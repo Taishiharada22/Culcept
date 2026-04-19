@@ -79,6 +79,53 @@
 
 ---
 
+---
+
+## M0-6 の段階分割（M0-6A / M0-6B）
+
+**locked 2026-04-20 (M0-6)**
+
+M0-6 は実 API 接続を伴う局面だが、母数の健全性を先に担保するため
+次の 2 段階に分ける。M0-6B は **M0-6A 完了 + CEO 明示承認**が前提。
+
+### M0-6A: synthetic matrix 拡張（実 API 不使用）
+
+**完了条件**:
+- `buildExtendedMatrix()` が `syntheticPairs.ts` に存在し **50 件**を返す
+- rule-based `readToday` で判定した mode 分布が **5 mode 全てに 10 件以上**
+- 各 case id の prefix (`rec` / `cel` / `cha` / `con` / `mai`) と rule-based mode が
+  1-to-1 で一致するテストが PASS
+- `shadow-replay.ts` は default で extended matrix を使用し、全 250 件
+  (50 × 5 strategies) が `llmOutcome="ok"` で完走
+- 本番 runtime / DB / analytics は未接続のまま
+
+**この段階では**:
+- 実 API 呼び出し禁止
+- prod 環境変数 / secret 参照禁止
+- `docs/decision-log.md` への昇格提案はしない（データ準備中のため）
+
+### M0-6B: 実 API shadow 接続（内部ペア少数 + 完全 shadow）
+
+**着手条件 (all-of)**:
+1. M0-6A 完了
+2. 内部ペア **最低 20 件** の consent / 匿名化経路が明文化されている
+3. LLM adapter が ZDR プロバイダ (Anthropic ZDR enrollment) で稼働する構成
+4. prompt / raw output / PII を DB・analytics・log に残さない経路設計が
+   code review 1 回 PASS
+
+**観測 observables**:
+- `llmOutcome` の OK / fallback / error 内訳
+- `latencyMs.llm` の p50 / p95 / p99（ZDR provider 経由込み）
+- `modeAgreement` 実データ側集計（synthetic と分離）
+- `confidenceDelta` 分布
+- `llmOutcome === "fallback:invalid_shape"` の原因種別（shape / unknown mode / NaN）
+- exception 種別（timeout / auth / 429 / 5xx）
+
+**昇格判定はこの段階ではまだ行わない**。
+Gate A-1 / A-3 / A-4 のログ収集と Gate E(漏洩監査) の 2 回目実施が主目的。
+
+---
+
 ## Gate 判定の記録
 
 CEO 承認ログは `docs/decision-log.md` に次の形式で残す:

@@ -9,10 +9,13 @@ import {
 } from "@/lib/coalter/understanding/__testkit__/adversarialStubs";
 import {
   buildBootstrapMatrix,
+  buildExtendedMatrix,
   buildSyntheticBundle,
 } from "@/lib/coalter/understanding/__testkit__/syntheticPairs";
 import { compareTodayReaders } from "@/lib/coalter/understanding/compareTodayReaders";
 import { compressForTodayReader } from "@/lib/coalter/understanding/compressTodayInput";
+import { readTodayRuleBased } from "@/lib/coalter/understanding/todayReader";
+import type { TodayMode } from "@/lib/coalter/understanding/types";
 
 const FIXED_NOW = "2026-04-20T12:00:00Z";
 
@@ -90,6 +93,46 @@ describe("adversarial stubs", () => {
     const r1 = await c.infer(input);
     const r2 = await c.infer(input);
     expect(r2).toEqual(r1);
+  });
+});
+
+describe("extended matrix (M0-6A)", () => {
+  it("extended matrix = 50 件、全 id ユニーク", () => {
+    const cases = buildExtendedMatrix();
+    expect(cases.length).toBe(50);
+    const ids = new Set(cases.map((c) => c.id));
+    expect(ids.size).toBe(50);
+  });
+
+  it("各 mode に最低 10 件ある（rule-based で判定）", () => {
+    const cases = buildExtendedMatrix();
+    const dist = new Map<TodayMode, number>();
+    for (const p of cases) {
+      const bundle = buildSyntheticBundle(p);
+      const reading = readTodayRuleBased(bundle);
+      dist.set(reading.mode, (dist.get(reading.mode) ?? 0) + 1);
+    }
+    const modes: TodayMode[] = ["recover", "celebrate", "connect", "challenge", "maintain"];
+    for (const m of modes) {
+      expect(dist.get(m) ?? 0).toBeGreaterThanOrEqual(10);
+    }
+  });
+
+  it("id prefix と rule-based mode が一致する（意図通り mode を狙えている）", () => {
+    const prefixToMode: Record<string, TodayMode> = {
+      rec: "recover",
+      cel: "celebrate",
+      cha: "challenge",
+      con: "connect",
+      mai: "maintain",
+    };
+    for (const p of buildExtendedMatrix()) {
+      const prefix = p.id.slice(0, 3);
+      const expected = prefixToMode[prefix];
+      const bundle = buildSyntheticBundle(p);
+      const reading = readTodayRuleBased(bundle);
+      expect({ id: p.id, mode: reading.mode }).toEqual({ id: p.id, mode: expected });
+    }
   });
 });
 
