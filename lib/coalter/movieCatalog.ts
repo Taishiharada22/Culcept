@@ -27,20 +27,42 @@ import type { MovieScreening, SearchCandidate } from "./types";
  * 主要な映画館チェーン + 単館の表記ゆれをカバー。
  *
  * "TOHOシネマズ新宿" "109シネマズ木場" "新宿バルト9" 等を抽出する正規表現。
+ *
+ * Phase A.7 (A2 / 2026-04-19):
+ *   preview 本カウント中の catalog=6/ranked=0 問題で titleWithoutTheater が
+ *   5/6 だった原因の 1 つ: listicle 記事によく登場する独立系・ミニシアター・
+ *   T・ジョイ系・新宿武蔵野館 等が 旧パターンに載っていなかった。
+ *   NEAR_WINDOW が捕捉しても THEATER_PATTERNS が拾えなければ無意味なので
+ *   先にパターンを厚くする。
  */
 const THEATER_PATTERNS: RegExp[] = [
+  // 大手チェーン
   /TOHOシネマズ[\u30A0-\u30FF\u4E00-\u9FFF\w]+/gi,
   /MOVIX[\u30A0-\u30FF\u4E00-\u9FFF\w]+/gi,
   /109シネマズ[\u30A0-\u30FF\u4E00-\u9FFF\w]+/gi,
   /ユナイテッド・?シネマ[\u30A0-\u30FF\u4E00-\u9FFF\w]*/gi,
   /イオンシネマ[\u30A0-\u30FF\u4E00-\u9FFF\w]+/gi,
+  /T・?ジョイ[\u30A0-\u30FF\u4E00-\u9FFF\w]*/gi, // T・ジョイ博多、T・ジョイ京都、T・ジョイSEIBU大泉 等
   /グランドシネマサンシャイン[\u30A0-\u30FF\u4E00-\u9FFF\w]*/gi,
-  /[新旧]?宿ピカデリー/gi,
-  /新宿バルト9/gi,
+  /ヒューマックスシネマ[\u30A0-\u30FF\u4E00-\u9FFF]*/gi,
+  // ピカデリー / バルト / シャンテ
   /新宿ピカデリー/gi,
   /丸の内ピカデリー/gi,
+  /新宿バルト9/gi,
   /日比谷シャンテ/gi,
-  /TOHOシネマズ日比谷/gi,
+  // 都心ミニシアター・独立系（listicle で頻出）
+  /新宿武蔵野館/gi,
+  /シネマート[\u30A0-\u30FF\u4E00-\u9FFF]+/gi, // シネマート新宿、シネマート六本木
+  /角川シネマ[\u30A0-\u30FF\u4E00-\u9FFF]+/gi, // 角川シネマ有楽町
+  /Bunkamura[\s・]*ル[・\s]*シネマ/gi, // Bunkamura ル・シネマ（表記揺れ吸収）
+  /ユーロスペース/gi,
+  /シネマカリテ/gi,
+  /シネスイッチ銀座/gi,
+  /早稲田松竹/gi,
+  /目黒シネマ/gi,
+  /K['’]?s\s*cinema/gi, // K's cinema / Ks cinema
+  /新文芸坐/gi,
+  /ポレポレ東中野/gi,
   /シネクイント/gi,
   /kino cinéma[\u30A0-\u30FF\u4E00-\u9FFFa-z]*/gi,
   /ヒューマントラスト[\u30A0-\u30FF\u4E00-\u9FFF]+/gi,
@@ -407,22 +429,62 @@ function theaterFromSource(sc: SearchCandidate): string | null {
  * 近接 = 対象 title の前後 NEAR_WINDOW 文字以内に theater 名が出現。
  * listicle 記事では 1 段落 = 1 作品解説のことが多く、その段落内に劇場が
  * 書かれていれば採用してよい。
+ *
+ * Phase A.7 (A2 / 2026-04-19):
+ *   NEAR_WINDOW=40 は実 listicle 記事の 1 段落 (typical 100-200 文字) に対して
+ *   狭すぎた。preview 本カウント中の 7 セッションで catalog=6 / titleWithoutTheater=5
+ *   が連発した主因。120 に拡張し、単一段落内の「作品名 … 劇場名」を拾えるようにする。
+ *   隣接作品の劇場を誤って引かないよう 200 以上には広げない。
+ *
+ *   ただし窓を広げると「窓内に複数劇場が入る」ケースが増える（e.g. 前段落の
+ *   劇場 + 自段落の劇場）。そこで単純な「最初に出現した劇場」から
+ *   「title から最も近い劇場」に方針変更する。距離が等しい場合は
+ *   extractTheaters の登場順（= text 内の出現順）を採用する。
  */
 function theaterNearTitle(candidateTitle: string, text: string): string | null {
   if (!text) return null;
-  const theaters = extractTheaters(text);
-  if (theaters.length === 0) return null;
-  // 候補タイトルの位置（見つからなければ近接 check できないので null）
-  const idx = text.indexOf(candidateTitle);
-  if (idx === -1) return null;
-  const NEAR_WINDOW = 40;
-  const lo = Math.max(0, idx - NEAR_WINDOW);
-  const hi = Math.min(text.length, idx + candidateTitle.length + NEAR_WINDOW);
-  const near = text.slice(lo, hi);
-  for (const t of theaters) {
-    if (near.includes(t)) return t;
+  const titleIdx = text.indexOf(candidateTitle);
+  if (titleIdx === -1) return null;
+  const titleEnd = titleIdx + candidateTitle.length;
+  const NEAR_WINDOW = 120;
+
+  let bestName: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  // 距離同値のとき、title より「後ろ」にある劇場を優先する。
+  // 日本語 listicle の支配的パターンが『X』はY / 『X』 Y で上映中 のため、
+  // title → 劇場 の順に並んだ記述は結び付きが強い。
+  let bestAfterTitle = false;
+
+  for (const pat of THEATER_PATTERNS) {
+    for (const m of text.matchAll(pat)) {
+      const raw = m[0];
+      const cleaned = raw.trim();
+      if (cleaned.length < 3 || cleaned.length > 30) continue;
+      const pos = m.index ?? 0;
+      const theaterEnd = pos + raw.length;
+      // 距離: 重なるなら 0、title より前なら titleIdx - theaterEnd、後ろなら pos - titleEnd
+      let distance: number;
+      const afterTitle = pos >= titleEnd;
+      if (theaterEnd <= titleIdx) {
+        distance = titleIdx - theaterEnd;
+      } else if (afterTitle) {
+        distance = pos - titleEnd;
+      } else {
+        distance = 0;
+      }
+      if (distance > NEAR_WINDOW) continue;
+      const strictlyCloser = distance < bestDistance;
+      const tiedButAfter =
+        distance === bestDistance && afterTitle && !bestAfterTitle;
+      if (strictlyCloser || tiedButAfter) {
+        bestDistance = distance;
+        bestName = cleaned;
+        bestAfterTitle = afterTitle;
+      }
+    }
   }
-  return null;
+
+  return bestName;
 }
 
 /** title 候補に対して theater を決定する（許容された補完ソースのみ使う） */

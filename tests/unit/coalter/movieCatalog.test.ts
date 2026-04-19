@@ -208,17 +208,23 @@ describe("parseMovieScreenings — Bug A 回帰防止", () => {
 
 // ─────────────────────────────────────────────
 // Phase A.5: listicle theater 共有停止 + title→theater 近接マッチ
+// Phase A.7 (A2 / 2026-04-19): NEAR_WINDOW 40 → 120 に拡張
 // ─────────────────────────────────────────────
 
 describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", () => {
-  it("listicle description で劇場が作品名から遠い場合は theater を引かない", () => {
-    // 『作品名』 と劇場名が 40 文字以上離れているパターン。
+  it("listicle description で劇場が作品名から遠い場合 (>120文字) は theater を引かない", () => {
+    // 『作品名』 と劇場名が NEAR_WINDOW (120) を超えて離れているパターン。
     // 旧実装では theaters[0] が全作品に付いて誤紐付けが起きていた。
-    // 新実装は近接 40 文字を超える劇場は採用しない。
+    // Phase A.5: 近接窓外は reject する方針。
+    // Phase A.7: NEAR_WINDOW を 40 → 120 に拡張。この test では filler を厚くし、
+    //   「隣の段落の劇場」が拾われる退化を起こさないことを保証する。
     const filler =
       "とにかく話題性が高く週末にぴったりで、デートでも一人でも家族でも誰と見ても楽しめる。" +
       "見終わったあとに会話が続く構成になっている点も評価のポイントで、" +
-      "近年の邦画シーンを語る上で外せない作品として紹介されることが多い。";
+      "近年の邦画シーンを語る上で外せない作品として紹介されることが多い。" +
+      "国内外の映画祭でも高く評価され、批評家筋からの支持も厚い。" +
+      "観客動員も好調で、上映期間延長が発表されたケースもある。" +
+      "話題性・作家性・商業性の三拍子が揃った稀有な一本として挙げられる。";
     const sc: SearchCandidate = {
       title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
       description: `週末に見たい作品。『ラストマイル』『PERFECT DAYS』${filler} 劇場は TOHOシネマズ新宿 ほか。`,
@@ -237,7 +243,7 @@ describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", 
     }
   });
 
-  it("listicle でも「作品名の近接 40 文字以内」に劇場があれば紐付ける", () => {
+  it("listicle でも「作品名の近接 120 文字以内」に劇場があれば紐付ける", () => {
     const sc: SearchCandidate = {
       title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
       description:
@@ -295,5 +301,168 @@ describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", 
     };
     const out = parseMovieScreenings([sc]);
     expect(out[0].theater).toBe("TOHOシネマズ渋谷");
+  });
+});
+
+// ─────────────────────────────────────────────
+// Phase A.7 (A2 / 2026-04-19): NEAR_WINDOW 拡張 + THEATER_PATTERNS 強化
+//
+// preview 本カウント 7 セッションの Pattern B (catalog=6 / titleWithoutTheater=5):
+//   旧 NEAR_WINDOW=40 では実 listicle 記事の 1 段落 (100-200 文字) 内で
+//   作品名と劇場名が離れていると theater 補完に失敗していた。
+//   また、独立系・T・ジョイ系・角川シネマ系・ミニシアターが THEATER_PATTERNS に
+//   載っておらず、そもそも「劇場テキスト」として検出されていなかった。
+// ─────────────────────────────────────────────
+
+describe("parseMovieScreenings — Phase A.7 NEAR_WINDOW 120 拡張", () => {
+  it("作品名から 60 文字程度離れた劇場名を紐付ける (旧 40 では拾えなかった範囲)", () => {
+    // 作品名 → 60-70 文字の評論テキスト → 劇場名。旧 NEAR_WINDOW=40 では reject。
+    const sc: SearchCandidate = {
+      title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
+      description:
+        "『ラストマイル』は観るほどに発見のある緊張感の高いサスペンスで、編集とカット割りも評価されている注目作。" +
+        "TOHOシネマズ新宿 で公開中。",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/feature/tokyo-april-2026",
+    };
+    const out = parseMovieScreenings([sc]);
+    const last = out.find((s) => s.title === "ラストマイル");
+    expect(last?.theater).toBe("TOHOシネマズ新宿");
+  });
+
+  it("作品名から 100 文字超離れた劇場名も 120 以内なら紐付ける", () => {
+    // NEAR_WINDOW 120 の上端近傍をテスト。
+    const filler =
+      "編集・撮影・音響設計のすべてにおいて完成度が高く、キャスト全員の演技も抜群。" +
+      "終盤の展開まで目が離せない緻密な構成が魅力。"; // ~70 文字
+    const sc: SearchCandidate = {
+      title: "【2026年4月】東京のおすすめ映画10選 | 映画.com",
+      description: `『ラストマイル』${filler} MOVIX昭島 ほか全国公開中。`,
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/feature/tokyo-april-2026",
+    };
+    const out = parseMovieScreenings([sc]);
+    const last = out.find((s) => s.title === "ラストマイル");
+    expect(last?.theater).toBe("MOVIX昭島");
+  });
+});
+
+describe("parseMovieScreenings — Phase A.7 新 THEATER_PATTERNS", () => {
+  const baseListicle = (description: string): SearchCandidate => ({
+    title: "【2026年4月】都内ミニシアターで観られる作品10選 | 映画.com",
+    description,
+    externalRating: null,
+    practicalInfo: null,
+    source: "eiga.com",
+    url: "https://eiga.com/feature/tokyo-minishiatar-2026",
+  });
+
+  it("新宿武蔵野館 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle("『ルックバック』は新宿武蔵野館で上映中。"),
+    ]);
+    expect(out.find((s) => s.title === "ルックバック")?.theater).toBe(
+      "新宿武蔵野館",
+    );
+  });
+
+  it("シネマート新宿 / シネマート六本木 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle(
+        "『PERFECT DAYS』はシネマート新宿で、『ドライブ・マイ・カー』はシネマート六本木で観られる。",
+      ),
+    ]);
+    expect(
+      out.find((s) => s.title === "PERFECT DAYS")?.theater,
+    ).toBe("シネマート新宿");
+    expect(
+      out.find((s) => s.title === "ドライブ・マイ・カー")?.theater,
+    ).toBe("シネマート六本木");
+  });
+
+  it("T・ジョイ博多 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle("『ゴジラ-1.0』はT・ジョイ博多で先行上映。"),
+    ]);
+    expect(out.find((s) => s.title === "ゴジラ-1.0")?.theater).toBe(
+      "T・ジョイ博多",
+    );
+  });
+
+  it("角川シネマ有楽町 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle("『君たちはどう生きるか』は角川シネマ有楽町で上映中。"),
+    ]);
+    expect(
+      out.find((s) => s.title === "君たちはどう生きるか")?.theater,
+    ).toBe("角川シネマ有楽町");
+  });
+
+  it("Bunkamura ル・シネマ を抽出する (スペース・中点の揺れを吸収)", () => {
+    const out1 = parseMovieScreenings([
+      baseListicle("『パリタクシー』はBunkamura ル・シネマで公開。"),
+    ]);
+    expect(
+      out1.find((s) => s.title === "パリタクシー")?.theater,
+    ).toBe("Bunkamura ル・シネマ");
+
+    // 中点なしバリアントも拾う
+    const out2 = parseMovieScreenings([
+      baseListicle("『パリタクシー』はBunkamuraル・シネマで公開。"),
+    ]);
+    expect(out2.find((s) => s.title === "パリタクシー")?.theater).toMatch(
+      /Bunkamura/i,
+    );
+  });
+
+  it("ユーロスペース / シネマカリテ / シネスイッチ銀座 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle(
+        "『小説家の映画』はユーロスペース、『怪物』はシネマカリテ、『ミセス・ハリス、パリへ行く』はシネスイッチ銀座で上映中。",
+      ),
+    ]);
+    expect(
+      out.find((s) => s.title === "小説家の映画")?.theater,
+    ).toBe("ユーロスペース");
+    expect(out.find((s) => s.title === "怪物")?.theater).toBe("シネマカリテ");
+    expect(
+      out.find((s) => s.title === "ミセス・ハリス、パリへ行く")?.theater,
+    ).toBe("シネスイッチ銀座");
+  });
+
+  it("K's cinema / 早稲田松竹 / 目黒シネマ / 新文芸坐 / ポレポレ東中野 を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle(
+        "『この空の花』はK's cinema、『戦場のピアニスト』は早稲田松竹、" +
+          "『ニュー・シネマ・パラダイス』は目黒シネマ、『七人の侍』は新文芸坐、" +
+          "『夜明け告げるルーのうた』はポレポレ東中野。",
+      ),
+    ]);
+    expect(
+      out.find((s) => s.title === "この空の花")?.theater,
+    ).toMatch(/cinema/i);
+    expect(
+      out.find((s) => s.title === "戦場のピアニスト")?.theater,
+    ).toBe("早稲田松竹");
+    expect(
+      out.find((s) => s.title === "ニュー・シネマ・パラダイス")?.theater,
+    ).toBe("目黒シネマ");
+    expect(out.find((s) => s.title === "七人の侍")?.theater).toBe("新文芸坐");
+    expect(
+      out.find((s) => s.title === "夜明け告げるルーのうた")?.theater,
+    ).toBe("ポレポレ東中野");
+  });
+
+  it("ヒューマックスシネマ を抽出する", () => {
+    const out = parseMovieScreenings([
+      baseListicle("『ミッション:インポッシブル』はヒューマックスシネマ渋谷で公開。"),
+    ]);
+    expect(
+      out.find((s) => s.title?.includes("ミッション"))?.theater,
+    ).toBe("ヒューマックスシネマ渋谷");
   });
 });
