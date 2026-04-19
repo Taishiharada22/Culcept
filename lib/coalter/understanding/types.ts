@@ -323,23 +323,36 @@ export type PersonalLensSources = {
   behavioral: BehavioralSourceRef[];
 };
 
+/**
+ * [CEO lock 2026-04-20 A] `quote` は Stage 2 narration 生成の内部でのみ参照可。
+ * diagnostics / 永続ログ / KPI SQL / analytics event には載せない。
+ * M0 で許可されるのは source category / observedAt / source key / coverage count まで。
+ */
 export type StargazerSourceRef = {
   axisKey: string;
   axisValue: number;                  // -1..1
   observedAt: IsoTimestamp;
-  /** 元質問の凝縮（10-40 字）。ログには出さない、narration で引用するためだけの値。 */
+  /** 元質問の凝縮（10-40 字）。narration 内部専用、ログ・diagnostics 禁止。 */
   quote: string | null;
 };
 
+/**
+ * [CEO lock 2026-04-20 A] `summary` は生テキスト相当 → narration 内部専用。
+ * diagnostics / ログ / KPI には出さず、Alter の lens カテゴリ名と観測日時のみ集計。
+ */
 export type AlterSourceRef = {
   lensKey: string;                    // affect / parts / mentalization / body / narrative
-  summary: string;
+  summary: string;                    // narration 内部専用、ログ・diagnostics 禁止
   observedAt: IsoTimestamp;
 };
 
+/**
+ * [CEO lock 2026-04-20 A] `summary` は生テキスト相当 → narration 内部専用。
+ * diagnostics / ログ / KPI には kind と observedAt のみ集計する。
+ */
 export type BehavioralSourceRef = {
   kind: "origin_diary" | "calendar" | "wear_event";
-  summary: string;
+  summary: string;                    // narration 内部専用、ログ・diagnostics 禁止
   observedAt: IsoTimestamp;
 };
 
@@ -399,7 +412,10 @@ export type DataGapSection =
   | "environmental";
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 3. Diagnostics — §11.C 準拠。個人情報を生で吐かない。
+// 3. Diagnostics — §11.C + [CEO lock 2026-04-20 A] 準拠。
+//    個人情報 / 生テキスト / quote / summary を一切吐かない。
+//    許可されるのは集約値のみ: outcome, confidence, completeness,
+//    source category count, observedAt 集約, latency, missing_domains, pairHash。
 // ═══════════════════════════════════════════════════════════════════════════
 
 export type UnderstandingOutcome = "success" | "degraded" | "failed";
