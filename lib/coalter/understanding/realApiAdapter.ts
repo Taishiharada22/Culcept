@@ -161,7 +161,7 @@ function extractCandidate(raw: unknown): LLMReadingCandidate | null {
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = JSON.parse(stripCodeFence(text));
   } catch {
     return null;
   }
@@ -199,4 +199,12 @@ function extractCandidate(raw: unknown): LLMReadingCandidate | null {
 function maskSuffix(key: string): string {
   if (key.length >= 4) return key.slice(-4);
   return "****";
+}
+
+// Haiku は出力を ```json ... ``` で wrap することがある。先頭/末尾の fence を剥がす。
+function stripCodeFence(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  const withoutOpen = trimmed.replace(/^```[a-zA-Z]*\s*/, "");
+  return withoutOpen.replace(/\s*```\s*$/, "");
 }

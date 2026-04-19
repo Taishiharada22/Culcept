@@ -49,13 +49,32 @@ async function run(): Promise<void> {
   // 起動時 fail-fast（zdrVerified=false でここで throw）
   const client = createRealApiAdapter({ apiKey, zdrVerified });
 
+  // [CEO lock 2026-04-20 案 B] shadow 評価の統計精度は n≒30-50 で安定。
+  // cases 全量ではなく最新 N 件（tail）を評価対象にする。
+  // cases[] は export CLI 側で created_at ASC 順。tail = 最新。
+  const maxCases = parseMaxCases(process.env.COALTER_SHADOW_MAX_CASES);
+  const selected =
+    maxCases !== null && doc.cases.length > maxCases
+      ? doc.cases.slice(-maxCases)
+      : doc.cases;
+
   const rows: Row[] = [];
-  for (const c of doc.cases) {
+  for (const c of selected) {
     const row = await evaluateCase(c, client);
     rows.push(row);
   }
 
-  report(doc.pairHash, rows);
+  report(doc.pairHash, rows, {
+    totalCasesInFile: doc.cases.length,
+    evaluatedCases: selected.length,
+  });
+}
+
+function parseMaxCases(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
 async function evaluateCase(
@@ -85,7 +104,11 @@ async function evaluateCase(
   };
 }
 
-function report(pairHash: string, rows: Row[]): void {
+function report(
+  pairHash: string,
+  rows: Row[],
+  meta: { totalCasesInFile: number; evaluatedCases: number },
+): void {
   const total = rows.length;
   const agree = rows.filter((r) => r.modeAgreement).length;
   const ok = rows.filter((r) => r.llmOutcome === "ok").length;
@@ -107,6 +130,9 @@ function report(pairHash: string, rows: Row[]): void {
   console.log(`CoAlter Stage 1 Understand — real API shadow (M0-6B) pairHash=${pairHash}`);
   console.log("═══════════════════════════════════════════════════════════════════");
   console.log();
+  console.log(
+    `対象: file 内 ${meta.totalCasesInFile} cases 中 ${meta.evaluatedCases} cases を評価（最新 tail）`,
+  );
   console.log(`総件数: ${total}`);
   console.log();
   console.log("── llmOutcome 分布 ─────────────────────────────────────────────────");

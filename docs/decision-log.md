@@ -13,6 +13,27 @@
 ```
 
 ---
+### 2026-04-20 CoAlter M0-6B shadow 実行結果（50 cases）
+- **部門**: Build
+- **決定内容**: 内部ペア (pairHash=`fc0e737cca0eab22`) で shadow 実 API 呼出を完了。最新 50 `coalter_sessions` を評価（案 B、全量 151 cases のうち tail）。
+- **集約結果**:
+  - llmOutcome: **ok 50/50 (100.0%)** / fallback 0 / error 0
+  - modeAgreement: **17/50 = 34.0%**（rule-side が 50/50 全件 `maintain` に偏っていた。LLM は 66% で別 mode 提案）
+  - confidenceDelta (llm - rule): n=50, min=+0.259 / p50=+0.368 / p95=+0.384 / max=+0.384（LLM が rule より系統的に高信頼）
+  - latency (ms): min=1023 / **p50=1267** / p95=1944 / p99=2253 / max=2253
+- **実行中に判明した不具合と対処**:
+  1. Anthropic billing 反映遅延で初回 2 run（100% error, HTTP 400 credit-low）。console 側 credit 追加後に自然解消
+  2. adapter が `JSON.parse(text)` で直接パースしていたため、Haiku の markdown code fence (` ```json ... ``` `) 包装で 100% shape_error。`stripCodeFence` ヘルパで修正（realApiAdapter.ts）
+- **観察メモ**:
+  - rule engine が 100% maintain は感度不足の示唆。M0-6B shadow 評価としては想定内（rule-baseline の弱点検出が目的の 1 つ）
+  - LLM の confidence が rule より +0.37 高いのは、Haiku が structured output で高信頼に寄りがちな傾向
+  - pair 多様性 = 1 のため、昇格判定（M0 昇格 Gate A-4）では別 pair 追加が必要
+- **次アクション**:
+  - 現状の集計値で M0-6B shadow 完了扱いとするか、fence fix の効果を追確認するため maxCases を上げて再実行するかは CEO 判断
+- **承認**: 自律（shadow 実行自体は 2026-04-20 CEO 承認済み、結果転記は定型運用）
+- **ステータス**: 実行済
+
+---
 ### 2026-04-20 CoAlter M0-6B shadow 実行承認（実 API 呼出解禁）
 - **部門**: Build
 - **決定内容**: CoAlter M0-6B shadow 実行（実 Anthropic API 呼出）を解禁する。`scripts/coalter/shadow-real-api.ts` の fail-fast 条件が全て満たされたため、COALTER_SHADOW_ZDR_VERIFIED=1 で起動可能。
