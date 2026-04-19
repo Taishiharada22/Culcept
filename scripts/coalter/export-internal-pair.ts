@@ -417,14 +417,19 @@ function buildSessionInputs(args: {
   const latestWeatherA = latestBefore(weatherAll.filter((w) => w.user_id === userA), sessStart, (w) => w.recorded_at);
   const latestWeatherB = latestBefore(weatherAll.filter((w) => w.user_id === userB), sessStart, (w) => w.recorded_at);
 
+  // β M0-6C: caringIntensity / conversationArc を talk_messages から算出。
+  // 信号が薄い（total turns < 3）場合は {a:0.5, b:0.5} で中立に倒す。
+  const caringIntensity = computeCaringIntensity(turns);
+  const conversationArc = computeConversationArc(turns);
+
   const conversation: ConversationCollectorInput = {
     turns,
     theme: mapTriggerToTheme(session.trigger_pattern),
     extractedConstraints: null,
-    caringIntensity: null,
+    caringIntensity,
     implicitMood: latestWeatherA?.emotional_tone ?? latestWeatherB?.emotional_tone ?? null,
     energyLevel: mapEnergyLevel(latestWeatherA?.energy_level, latestWeatherB?.energy_level),
-    conversationArc: null,
+    conversationArc,
     questionGuardState: null,
   };
 
@@ -552,6 +557,45 @@ function mapEnergyLevel(
   if (avg >= 0.66) return "high";
   if (avg >= 0.33) return "mid";
   return "low";
+}
+
+// ─── β M0-6C: conversation signal extraction ────────────────────────────────
+
+const CARING_TOKENS = /(大丈夫|無理しない|無理しないで|休んで|心配|気をつけて|ありがとう|助か|お疲れ|ゆっくり|寝て|疲れてない)/;
+const QUESTION_MARKER = /[?？]/;
+
+function computeCaringIntensity(
+  turns: ConversationTurn[],
+): { a: number; b: number } | null {
+  if (turns.length === 0) return null;
+  const aTurns = turns.filter((t) => t.senderId === ANON_A);
+  const bTurns = turns.filter((t) => t.senderId === ANON_B);
+  // 信号が薄すぎる場合は中立（null→bundle default {0.5,0.5} を意図）
+  if (turns.length < 3) return null;
+
+  const score = (own: ConversationTurn[]): number => {
+    if (own.length === 0) return 0.5;
+    let hits = 0;
+    for (const t of own) {
+      if (CARING_TOKENS.test(t.body) || QUESTION_MARKER.test(t.body)) hits += 1;
+    }
+    // rate + 小さな baseline (0.15) で、発話あるが caring 0 の person も 0.15 に落ちる
+    const rate = hits / own.length;
+    return clampRange(0.15 + 0.85 * rate, 0, 1);
+  };
+
+  return { a: score(aTurns), b: score(bTurns) };
+}
+
+function computeConversationArc(
+  turns: ConversationTurn[],
+): "opening" | "expanding" | "converging" | "closing" | null {
+  const n = turns.length;
+  if (n === 0) return null;
+  if (n <= 3) return "opening";
+  if (n <= 12) return "expanding";
+  if (n <= 20) return "converging";
+  return "closing";
 }
 
 function mapTriggerToTheme(trigger: string | null): ThemeTag {

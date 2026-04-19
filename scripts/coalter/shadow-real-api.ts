@@ -31,6 +31,19 @@ type Row = {
   confidenceDelta: number | null;
   llmOutcome: "ok" | "fallback" | "error";
   llmLatencyMs: number;
+  // δ M0-6C: sample 群の signal 多様性確認用。rule 分岐に直結する 8 信号を保持。
+  signals: {
+    energyLevel: string;
+    conversationArc: string;
+    fatigueSignal: string;
+    celebrationSignal: string;
+    caringGapBucket: string;
+    implicitMoodNonEmpty: string;
+    renLeaningA: string;
+    renLeaningB: string;
+    calendarDensityA: string;
+    calendarDensityB: string;
+  };
 };
 
 async function run(): Promise<void> {
@@ -93,6 +106,11 @@ async function evaluateCase(
           (llmReading.confidence - c.ruleSnapshot.confidence) * 1000,
         ) / 1000;
 
+  const ci = c.compressedInput;
+  const gap = Math.abs(ci.caringIntensity.a - ci.caringIntensity.b);
+  const caringGapBucket =
+    gap < 0.05 ? "~0" : gap < 0.1 ? "<0.1" : gap < 0.2 ? "<0.2" : ">=0.2";
+
   return {
     caseId: c.caseId,
     ruleMode: c.ruleSnapshot.mode,
@@ -101,6 +119,18 @@ async function evaluateCase(
     confidenceDelta: cd,
     llmOutcome: res.outcome,
     llmLatencyMs: elapsed,
+    signals: {
+      energyLevel: ci.energyLevel,
+      conversationArc: ci.conversationArc,
+      fatigueSignal: ci.fatigueSignal,
+      celebrationSignal: String(ci.celebrationSignal),
+      caringGapBucket,
+      implicitMoodNonEmpty: ci.implicitMood.trim().length > 0 ? "yes" : "no",
+      renLeaningA: String(ci.renLeaning.a),
+      renLeaningB: String(ci.renLeaning.b),
+      calendarDensityA: String(ci.calendarDensity.a ?? "null"),
+      calendarDensityB: String(ci.calendarDensity.b ?? "null"),
+    },
   };
 }
 
@@ -160,6 +190,31 @@ function report(
     console.log(`  ${m.padEnd(10)} : ${n} (${pct(n, total)})`);
   }
   console.log();
+  console.log("── llm-side mode 分布 ──────────────────────────────────────────────");
+  const llmDist = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.llmMode ?? "(null)";
+    llmDist.set(k, (llmDist.get(k) ?? 0) + 1);
+  }
+  for (const [m, n] of llmDist) {
+    console.log(`  ${m.padEnd(10)} : ${n} (${pct(n, total)})`);
+  }
+  console.log();
+  console.log("── 混同行列 (rule × llm) ───────────────────────────────────────────");
+  const LLM_MODES = ["recover", "celebrate", "maintain", "connect", "challenge", "(null)"];
+  console.log("  rule \\ llm  " + LLM_MODES.map((m) => m.padStart(10)).join(""));
+  for (const rm of MODES) {
+    const subset = rows.filter((r) => r.ruleMode === rm);
+    if (subset.length === 0) continue;
+    const counts = LLM_MODES.map(
+      (lm) =>
+        subset.filter((r) => (r.llmMode ?? "(null)") === lm).length,
+    );
+    console.log(
+      `  ${rm.padEnd(11)} ` + counts.map((c) => String(c).padStart(10)).join(""),
+    );
+  }
+  console.log();
   console.log("── llm latency (ms) ────────────────────────────────────────────────");
   if (latencies.length === 0) {
     console.log("  n/a");
@@ -183,7 +238,42 @@ function report(
     console.log(`  |delta| median: ${absMed}`);
   }
   console.log();
+  // δ M0-6C: signal entropy — tail sample が構造的に variation を持っているかを見る
+  console.log("── signal entropy (bit) — tail sample の多様性指標 ─────────────────");
+  const signalKeys: (keyof Row["signals"])[] = [
+    "energyLevel",
+    "conversationArc",
+    "fatigueSignal",
+    "celebrationSignal",
+    "caringGapBucket",
+    "implicitMoodNonEmpty",
+    "renLeaningA",
+    "renLeaningB",
+    "calendarDensityA",
+    "calendarDensityB",
+  ];
+  for (const k of signalKeys) {
+    const values = rows.map((r) => r.signals[k]);
+    const h = shannonEntropy(values);
+    const distinct = new Set(values).size;
+    console.log(
+      `  ${k.padEnd(22)}: H=${h.toFixed(3)} distinct=${distinct}`,
+    );
+  }
+  console.log();
   console.log("═══════════════════════════════════════════════════════════════════");
+}
+
+function shannonEntropy(values: string[]): number {
+  if (values.length === 0) return 0;
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  let h = 0;
+  for (const c of counts.values()) {
+    const p = c / values.length;
+    if (p > 0) h -= p * Math.log2(p);
+  }
+  return h;
 }
 
 function required(name: string): string {

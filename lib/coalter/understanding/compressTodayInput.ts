@@ -103,13 +103,18 @@ function deriveCelebrationSignal(conv: ConversationObservation): boolean {
   return false;
 }
 
+// γ M0-6C: todayReader.REN_AXES と同一定義。変更時は両方同期すること。
+const REN_AXES = new Set([
+  "caution_vs_stimulus",
+  "novelty_vs_familiarity",
+  "cautious_vs_bold",
+  "tradition_vs_novelty",
+  "change_embrace_vs_resist",
+]);
+
 function renLeaningPerson(p: PersonObservation): boolean {
   for (const ax of p.stargazer.decisionAxes) {
-    if (
-      (ax.key === "caution_vs_stimulus" || ax.key === "novelty_vs_familiarity") &&
-      ax.value >= 0.3 &&
-      ax.confidence >= 0.4
-    ) {
+    if (REN_AXES.has(ax.key) && ax.value >= 0.3 && ax.confidence >= 0.4) {
       return true;
     }
   }

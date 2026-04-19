@@ -13,6 +13,46 @@
 ```
 
 ---
+### 2026-04-20 CoAlter M0-6C close、次は M0-7 LLM calibration
+- **部門**: Build
+- **決定内容**: β（collector 追補）/ γ（rule 閾値 axis key 拡張）/ δ（signal entropy 指標）を実装し、50-case shadow を再実行。結果を受けて M0-6C を close、次マイルストーンを **M0-7 = LLM calibration** とする。
+- **所見 4 点**:
+  1. **β/γ により rule の degenerate maintain 100% は解消**: rule 分布が maintain 46 / connect 4 に分岐。`caringIntensity` を talk_messages の question + caring token rate から算出、`conversationArc` を turn 数バケットで分類、`renLeaning` 軸キーリストを DB 実在値（`cautious_vs_bold` / `tradition_vs_novelty` / `change_embrace_vs_resist` 追加）に合わせた。
+  2. **connect 4件は LLM と 4/4 一致**: rule が connect を出した 4 case すべてで Haiku の mode も connect。構造信号（caringGap≥0.2）が LLM と整合した証拠。
+  3. **低 agreement の主因は tail sample の単調さ + LLM connect prior**: 16% に下がったのは劣化ではなく、δ（signal entropy）で明瞭化。`energyLevel / fatigueSignal / celebrationSignal / implicitMood / renLeaningA/B / calendarDensityA/B` はすべて H=0.000（distinct=1）、variation は arc と caringGap のみ H≈0.4。LLM は薄い対話でも connect を読み取る prior を持ち、maintain 46 のうち 41 を connect に振った（混同行列 `rule\llm maintain→connect=41, connect→connect=4`）。rule engine の欠陥ではない。
+  4. **M0-6C は close、次は M0-7 で LLM calibration**: 課題は rule の骨格ではなく (a) LLM の mode prior と (b) tail sample の単調さ。M0-7 で prompt / system instruction / bias 調整に寄せる。
+- **実装成果物（commit 対象）**:
+  - `scripts/coalter/export-internal-pair.ts` — β: `computeCaringIntensity` / `computeConversationArc` 追加
+  - `lib/coalter/understanding/todayReader.ts` — γ: `REN_AXES` set に 3 軸追加
+  - `lib/coalter/understanding/compressTodayInput.ts` — γ: 同上（両所同期）
+  - `scripts/coalter/shadow-real-api.ts` — δ: signal entropy / LLM mode 分布 / 混同行列を report に追加
+- **再実行条件（再現性確保）**:
+  - `scripts/coalter/_diag-turns-density.ts` は残置（新 pair / β 再調整時の診断入口）
+  - 使い捨て（_diag-weather-density / _diag-axes-density / /tmp/rule-diagnostic）は削除
+- **参考ログ**: `/tmp/coalter-shadow-run-2026-04-20-post-beta.log`
+- **承認**: CEO（2026-04-20、推奨 A を採用）
+- **ステータス**: 実行済（M0-6C close）
+
+---
+### 2026-04-20 CoAlter M0-6B shadow 34% agreement は構造起因（Y-lite collector 補完由来）
+- **部門**: Build
+- **決定内容**: M0-6B 50-case shadow の agreement=34% は偶然ではなく構造起因である、と CEO 判定。次アクションは α（inner_weather 密度確認）を走らせ、β（collector 追補）/ γ（rule 閾値緩和）/ δ（指標再解釈）のどれに進むかを決める。
+- **診断の根拠（50/50 cases 完全同一の signal プロファイル）**:
+  - `energyLevel=mid` 50/50 / `conversationArc=opening` 50/50 / `fatigueSignal=none` 50/50 / `celebrationSignal=false` 50/50 / `caringIntensity |a-b|≈0` 50/50 / `implicitMood="calm"` 1 unique value / `renLeaning A/B=false` 50/50
+  - collector 側で `caringIntensity: null` / `conversationArc: null` を渡している (`scripts/coalter/export-internal-pair.ts:424,427`)
+  - bundle builder が null 時に default 補完 (`lib/coalter/understanding/observationBundle.ts:308,311`: `{a:0.5,b:0.5}` / `"opening"`)
+  - 結果、5 mode のうち **challenge / connect は Y-lite では構造的に到達不能**
+  - recover / celebrate は辞書・正規表現依存で、この pair の対話語彙で 0 件 match（fatigue tokens / celebration markers とも）
+- **強い疑い**: `stargazer_inner_weather` が単一値で 50 session 全てに共有されている可能性（`latestBefore` は session_start 以前の最新 1 行を拾うため、weather 記録が少なければ全 session が同じ行を参照）
+- **次アクション**:
+  - α: `SELECT count(*), min/max(recorded_at), distinct emotional_tone` を user A/B で実行し、weather の実密度と多様性を確認
+  - α の結果で分岐:
+    - weather 実密度が低い場合 → β（collector に caringIntensity/conversationArc の rough 計算を追加、weather 補完 or inner_weather 以外の signal）を推奨
+    - weather は十分だが 50 session の時間帯で「たまたま calm 連続」だった場合 → γ（rule 閾値緩和）or δ（agreement 指標を別視点に）で十分かも
+- **承認**: CEO（診断所見の受理）
+- **ステータス**: α 実行待ち
+
+---
 ### 2026-04-20 CoAlter M0-6B shadow 実行結果（50 cases）
 - **部門**: Build
 - **決定内容**: 内部ペア (pairHash=`fc0e737cca0eab22`) で shadow 実 API 呼出を完了。最新 50 `coalter_sessions` を評価（案 B、全量 151 cases のうち tail）。

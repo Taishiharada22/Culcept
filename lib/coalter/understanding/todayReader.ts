@@ -88,13 +88,20 @@ function bothRenLeaning(a: PersonObservation, b: PersonObservation): boolean {
   return renLeaningPerson(a) && renLeaningPerson(b);
 }
 
+// γ M0-6C: 実在する Ren 系軸を列挙。value の正方向が「刺激/新奇を選ぶ」側。
+// caution_vs_stimulus / novelty_vs_familiarity は旧命名で現 DB に存在しないが、
+// 後方互換のため残す。実運用では cautious_vs_bold 等が参照される。
+const REN_AXES = new Set([
+  "caution_vs_stimulus",
+  "novelty_vs_familiarity",
+  "cautious_vs_bold",
+  "tradition_vs_novelty",
+  "change_embrace_vs_resist",
+]);
+
 function renLeaningPerson(p: PersonObservation): boolean {
   for (const ax of p.stargazer.decisionAxes) {
-    if (
-      (ax.key === "caution_vs_stimulus" || ax.key === "novelty_vs_familiarity") &&
-      ax.value >= 0.3 &&
-      ax.confidence >= 0.4
-    ) {
+    if (REN_AXES.has(ax.key) && ax.value >= 0.3 && ax.confidence >= 0.4) {
       return true;
     }
   }
