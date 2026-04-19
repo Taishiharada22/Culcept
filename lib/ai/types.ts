@@ -2,7 +2,7 @@ import "server-only";
 
 export const PRIMARY_AI_PROVIDER = "gemini" as const;
 
-export type AIProviderName = "gemini" | "openai";
+export type AIProviderName = "gemini" | "openai" | "student";
 
 export type AIProviderRequest = {
   prompt: string;

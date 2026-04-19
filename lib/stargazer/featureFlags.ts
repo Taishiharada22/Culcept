@@ -62,4 +62,14 @@ export const STARGAZER_FLAGS = {
    * @see docs/chained-exploration-design.md
    */
   peL1Enabled: process.env.PE_L1_ENABLED === "true",
+
+  /**
+   * Student Provider: v2 LoRA (Qwen2.5-7B-Instruct + LoRA) を Alter 応答に使用.
+   * true = stargazer_alter_response を student provider (RunPod Serverless) に送る。
+   * false = 全リクエストを既存 stable provider (Gemini/OpenAI) に送る。
+   * student 失敗時は自動的に stable provider にフォールバック。
+   * env: STUDENT_PROVIDER_ENABLED=true で有効化
+   * @see lib/ai/studentRouting.ts
+   */
+  useStudentProvider: process.env.STUDENT_PROVIDER_ENABLED === "true",
 } as const;
