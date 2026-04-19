@@ -36,6 +36,33 @@ const NO_SEARCH_PATTERNS = [
 ];
 
 /**
+ * Phase A.7 (A2 / 2026-04-19): movie 初回 fallback
+ *
+ * 症状:
+ *   preview 本カウント中の Pattern A (7/7 セッション中 2 件) — theme=movie に
+ *   分類されているのに recentMessages に「気分」「迷う」が含まれると
+ *   NO_SEARCH_PATTERNS で shouldSearch=false になり、検索が発火しないまま
+ *   movieOrchestrator が起動して「質問だけの 0 候補カード」が返る退化。
+ *
+ * 原因:
+ *   NO_SEARCH_PATTERNS が感情語を「検索を止める排他ゲート」として扱っている。
+ *   本来は「感情を読みつつ現実情報も取りに行く」並列が望ましい（CEO 方針）。
+ *   恒久対応は感情タグ抽出器への格下げ＋並列 retrieval であり、別設計。
+ *
+ * 暫定策（本 fallback）:
+ *   以下 3 条件を全て満たす「movie 意図が明白」なケースだけ、
+ *   NO_SEARCH_PATTERNS を迂回して検索を発火させる。
+ *     1. theme === "movie"（conversationParser の分類結果）
+ *     2. recentMessages 内に明示的 movie 語を含む
+ *        （映画 / 上映 / 劇場 / シネマ / cinema）
+ *     3. buildSearchQueries で queries が組めたこと（後段の判定で保証）
+ *
+ *   食事 / 旅行 / アクティビティ には適用しない（誤爆防止）。
+ *   queries が組めない場合は shouldSearch=false（空打ちしない）。
+ */
+const EXPLICIT_MOVIE_SIGNALS = /映画|上映|劇場|シネマ|cinema/i;
+
+/**
  * 検索が必要かどうかを判断する。
  */
 export function decideSearch(
@@ -50,15 +77,22 @@ export function decideSearch(
     };
   }
 
-  // 感情・関係性の話は検索しない
   const combined = analysis.recentMessages.map((m) => m.body).join(" ");
-  for (const pattern of NO_SEARCH_PATTERNS) {
-    if (pattern.test(combined)) {
-      return {
-        shouldSearch: false,
-        reason: "感情・関係性の話題のため検索不要",
-        queries: [],
-      };
+
+  // Phase A.7 A2 fallback: movie 意図が明白な場合のみ NO_SEARCH_PATTERNS を迂回
+  const hasExplicitMovieIntent =
+    analysis.theme === "movie" && EXPLICIT_MOVIE_SIGNALS.test(combined);
+
+  // 感情・関係性の話は検索しない（ただし明白な movie 意図がある場合は迂回）
+  if (!hasExplicitMovieIntent) {
+    for (const pattern of NO_SEARCH_PATTERNS) {
+      if (pattern.test(combined)) {
+        return {
+          shouldSearch: false,
+          reason: "感情・関係性の話題のため検索不要",
+          queries: [],
+        };
+      }
     }
   }
 

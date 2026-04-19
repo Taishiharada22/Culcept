@@ -127,3 +127,148 @@ describe("webConnector: movie queries target theater-bearing pages (P0)", () => 
     expect(hasYearMonth).toBe(true);
   });
 });
+
+// ─────────────────────────────────────────────
+// Phase A.7 (A2 / 2026-04-19): movie 初回 fallback
+//
+// preview 本カウント Pattern A 対応: theme=movie なのに「気分」「迷う」等で
+// NO_SEARCH_PATTERNS に引っかかって shouldSearch=false に落ちる退化を、
+// 「明白な movie 意図」がある場合だけ迂回する。
+// food / travel には適用しない。queries が組めない場合は空打ちしない。
+// ─────────────────────────────────────────────
+describe("webConnector: movie fallback — 感情語があっても movie 意図が明白なら検索発火 (A2)", () => {
+  it("theme=movie + '映画' + '気分' → NO_SEARCH_PATTERNS を迂回して検索発火", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "今夜映画見たい気分なんだよね",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(true);
+    expect(d.queries.length).toBeGreaterThan(0);
+  });
+
+  it("theme=movie + '劇場' + '迷う' → fallback 発火", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "劇場で何観るか迷う",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(true);
+  });
+
+  it("theme=movie + '上映' + '喧嘩' → fallback 発火", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "上映時間チェックしたい。この前喧嘩したから仲直りに",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(true);
+  });
+
+  it("theme=movie + 'シネマ' alone (感情語無し) → 通常ルートで発火", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "シネマに行きたい",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(true);
+  });
+
+  it("theme=movie でも movie 明示語が無いまま感情語が入ると従来通り block", () => {
+    // 「観る」「見る」のみでは明白な movie 意図とみなさない
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "何観たい気分か迷うね",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(false);
+    expect(d.reason).toContain("感情");
+  });
+
+  it("theme=food + '感情' → fallback は food に適用されない（block される）", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        theme: "food",
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "何食べたい気分？映画のあと",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    // body に「映画」が含まれるが theme=food なので fallback は発動しない
+    expect(d.shouldSearch).toBe(false);
+    expect(d.reason).toContain("感情");
+  });
+
+  it("theme=travel + '仲' → fallback は travel に適用されない", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        theme: "travel",
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "旅行に行きたい。映画好きな仲間で",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    expect(d.shouldSearch).toBe(false);
+  });
+
+  it("fallback 発火時も queries が組めなければ shouldSearch=false（空打ち禁止）", () => {
+    // theme=movie, movie signal あり、感情語あり、だが実質的 analysis は空っぽに近い
+    // → queries は常に生成される (buildSearchQueries が保険で出す) ので
+    //   この test では shouldSearch=true を期待するが、「queries が無ければ空打ちしない」
+    //   invariant が守られていることを形式的に確認する。
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "映画の気分",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    if (d.queries.length === 0) {
+      expect(d.shouldSearch).toBe(false);
+    } else {
+      expect(d.shouldSearch).toBe(true);
+    }
+  });
+});
