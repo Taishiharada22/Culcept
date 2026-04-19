@@ -127,3 +127,100 @@ describe("webConnector: movie queries target theater-bearing pages (P0)", () => 
     expect(hasYearMonth).toBe(true);
   });
 });
+
+// ──────────── Phase A.6 P0+ (2026-04-19 A1 — article-listing negatives) ────────────
+//
+// 背景: 映画館誘引クエリでも listicle (「おすすめ10選」「特集」「ランキング」「まとめ」)
+//   が混入し catalog 全作品 theater=null → missing_where で drop → catalogCount=0。
+// 不変条件: movie ケースの 3 本全てに negatives 4 語が含まれる。
+// 適用除外: Filmarks などの単独 ranking クエリが復活しないこと (P0 の不変条件は保持)。
+
+describe("webConnector: movie queries apply article-listing negatives (P0+ A1)", () => {
+  const NEGATIVE_TOKENS = ["-まとめ", "-特集", "-ランキング", "-おすすめ10選"];
+
+  it("location=null でも 3 本全部に negatives 4 語すべてが含まれる", () => {
+    const d = decideSearch(baseAnalysis());
+    expect(d.queries.length).toBe(3);
+    for (const q of d.queries) {
+      for (const neg of NEGATIVE_TOKENS) {
+        expect(q).toContain(neg);
+      }
+    }
+  });
+
+  it("location ありでも 3 本全部に negatives 4 語すべてが含まれる", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        extractedConstraints: {
+          date: null,
+          location: "渋谷",
+          budget: null,
+          timeSlot: null,
+          preferences: [],
+        },
+      }),
+    );
+    expect(d.queries.length).toBe(3);
+    for (const q of d.queries) {
+      for (const neg of NEGATIVE_TOKENS) {
+        expect(q).toContain(neg);
+      }
+    }
+  });
+
+  it("negatives 適用後も P0 不変条件 (theater 引き込みトークン) を維持", () => {
+    const d = decideSearch(baseAnalysis());
+    for (const q of d.queries) {
+      expect(q).toMatch(THEATER_TOKEN_RE);
+    }
+  });
+
+  it("negatives 適用後も area prefix 不変条件を維持", () => {
+    const d = decideSearch(
+      baseAnalysis({
+        extractedConstraints: {
+          date: null,
+          location: "新宿",
+          budget: null,
+          timeSlot: null,
+          preferences: [],
+        },
+      }),
+    );
+    for (const q of d.queries) {
+      expect(q.startsWith("新宿")).toBe(true);
+    }
+  });
+
+  it("mentioned candidate クエリは negatives を含まない (候補名 hit を最優先)", () => {
+    // 候補名 (タイトル) 検索では negative を付けると hit が潰れるため意図的に未適用。
+    // 候補ベースクエリは本 switch 文より前で build されるので影響を受けないことを
+    // 回帰として固定する。
+    const d = decideSearch(
+      baseAnalysis({
+        recentMessages: [
+          {
+            senderId: "a",
+            body: "ラストマイルはどう？",
+            createdAt: "2026-04-18T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    const candidateQuery = d.queries.find((q) => q.includes("ラストマイル"));
+    expect(candidateQuery).toBeDefined();
+    // 候補クエリには negative を付けない
+    for (const neg of NEGATIVE_TOKENS) {
+      expect(candidateQuery!).not.toContain(neg);
+    }
+  });
+
+  it("Filmarks+ランキング 単独クエリ禁止の不変条件は保持 (negative の -ランキング は hasFilmarks=false のため問題なし)", () => {
+    const d = decideSearch(baseAnalysis());
+    for (const q of d.queries) {
+      const hasFilmarks = /Filmarks/i.test(q);
+      const hasRankingPositive = /(?<!-)ランキング/.test(q); // 先頭に - が付かないランキング
+      expect(hasFilmarks && hasRankingPositive).toBe(false);
+    }
+  });
+});

@@ -230,7 +230,14 @@ function buildSearchQueries(
       //   トークンを含む形に統一。location が無くても全クエリが発火する。
       //   映画館ページが取れれば movieCatalog.theaterFromSource() の URL slug
       //   matching + tier(3a) description theater 抽出が効き、theater 補完が通る。
+      //
+      // Phase A.6 P0+ (2026-04-19 CEO 案 A1) — article-listing negatives:
+      //   映画館ページ誘引クエリでも依然 listicle が混入するため、food テーマで
+      //   実績のある `-まとめ -特集 -ランキング -おすすめ10選` を全 3 本に適用。
+      //   映画館公式ページや作品単独ページは通常これらの語を含まないので取りこぼし
+      //   リスクは低い。wave 2 投入前に本 branch で unit test PASS を確認する。
       const areaPrefix = locationPart.trim() ? `${locationPart.trim()} ` : "";
+      const articleListingNegatives = "-まとめ -特集 -ランキング -おすすめ10選";
 
       // q1: 「地域 × 映画館 × 今週末 × スケジュール」= 映画館ドメイン直撃
       //     (hlo.tohotheater.jp, 109cinemas.net, eiga.com/theater/* 等)
@@ -241,6 +248,7 @@ function buildSearchQueries(
           yearMonth,
           styleHint,
           exclusionHint,
+          articleListingNegatives,
         ]
           .filter(Boolean)
           .join(" ")
@@ -254,6 +262,7 @@ function buildSearchQueries(
           areaPrefix.trim(),
           "TOHOシネマズ 109シネマズ 上映時刻",
           yearMonth,
+          articleListingNegatives,
         ]
           .filter(Boolean)
           .join(" ")
@@ -268,6 +277,7 @@ function buildSearchQueries(
           areaPrefix.trim(),
           "上映中 映画 作品 上映館 劇場",
           yearMonth,
+          articleListingNegatives,
         ]
           .filter(Boolean)
           .join(" ")
