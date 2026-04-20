@@ -1,5 +1,6 @@
 /**
  * CoAlter L4.5: 食事候補の構造化 — Phase B Commit 1 (2026-04-18)
+ * §6.4 (6)-2b (2026-04-20): page type classifier を catalog 入口に統合
  *
  * 目的: movie 側の `parseMovieScreenings` と同じ設計で、search 結果から
  * 構造化された FoodVenue / ActivityCandidate を生成する。
@@ -7,23 +8,31 @@
  * 設計原則:
  *   1. FoodVenue は pure entity（店そのもの）
  *   2. ActivityCandidate は提案単位の wrapper（candidateId / sourceUrl / confidence）
- *   3. name 必須ゲート: 店名抽出失敗の venue は出力から hard drop
+ *   3. page type gate（(6)-2b 追加）: listicle / news は入口で hard drop。
+ *      ranker には届かせない（ranker には最終防波堤として同じ gate が残る）
+ *   4. name 必須ゲート: 店名抽出失敗の venue は出力から hard drop
  *      → 観測は rawCandidateCount - catalogCount の差分で取れる
- *   4. candidateId は stable material のみ（sourceDomain + normalized name +
+ *   5. candidateId は stable material のみ（sourceDomain + normalized name +
  *      normalized stationOrArea）— snippet / URL path は使わない
- *   5. 同じ店舗が別 search で出ても candidateId は同一になる（daily-mode dedup 前提）
- *   6. cross-source dedup（tabelog vs retty で同一店舗）は Phase B スコープ外
+ *   6. 同じ店舗が別 search で出ても candidateId は同一になる（daily-mode dedup 前提）
+ *   7. cross-source dedup（tabelog vs retty で同一店舗）は Phase B スコープ外
  *      → 同一店舗でも source が違えば別 candidateId として扱う
  *
  * パイプライン:
  *   検索結果 (SearchCandidate[])
  *     ↓  parseFoodVenues
- *   ActivityCandidate<FoodVenue>[]  ← ranker に渡す
+ *   { catalog: ActivityCandidate<FoodVenue>[], meta: ParseFoodVenuesMeta }
+ *     ↓  ranker に渡す
  */
 
+import {
+  classifyPageType,
+  isDirectCandidateBlocked,
+} from "./pageTypeClassifier";
 import type {
   ActivityCandidate,
   FoodVenue,
+  PageType,
   SearchCandidate,
 } from "./types";
 
@@ -347,27 +356,77 @@ function computeFoodConfidence(args: {
 // ─────────────────────────────────────────────
 
 /**
+ * parseFoodVenues の meta 情報。
+ *
+ * pageTypeDistribution は全 SearchCandidate の生分類（block の有無に関係なく合算）。
+ * blockedPageTypeCount は listicle/news で入口 drop した件数（§6.4 (6)-2 契約）。
+ * blockedByPageType は内訳。direct candidate として扱わなかった件数のソース表示に使う。
+ *
+ * diagnostics への配線は (6)-2c 完了後に行う（CEO 方針）。
+ */
+export interface ParseFoodVenuesMeta {
+  pageTypeDistribution: Record<PageType, number>;
+  blockedPageTypeCount: number;
+  blockedByPageType: Partial<Record<PageType, number>>;
+}
+
+export interface ParseFoodVenuesResult {
+  catalog: ActivityCandidate<FoodVenue>[];
+  meta: ParseFoodVenuesMeta;
+}
+
+function emptyPageTypeDistribution(): Record<PageType, number> {
+  return {
+    venue_detail: 0,
+    official: 0,
+    reservation_partner: 0,
+    third_party_listing: 0,
+    news: 0,
+    listicle: 0,
+  };
+}
+
+/**
  * 食事 search 結果を ActivityCandidate<FoodVenue> の catalog に変換する。
  *
- * name 必須ゲート: 店名が抽出できない venue は出力に含めない（hard drop）。
- * 観測は呼び出し側で `rawCandidateCount - catalog.length` を取れば「落ちた件数」が分かる。
+ * Drop 順（§6.4 (6)-2b 契約）:
+ *   1. page type classification — listicle/news は catalog 昇格を入口で block
+ *   2. name 必須ゲート — 店名抽出失敗は drop（hard drop）
+ *   3. candidateId dedup — 同一 id が出たら先勝ち
  *
- * 同一 candidateId が複数の search 結果から出た場合は先勝ち（最初に出た 1 件だけ残す）。
  * 同一店舗が別 sourceDomain（tabelog / retty）から出た場合は別の candidateId になる
  * ため両方残る（cross-source dedup は Phase B スコープ外）。
  */
 export function parseFoodVenues(
   searchCandidates: SearchCandidate[],
-): ActivityCandidate<FoodVenue>[] {
+): ParseFoodVenuesResult {
   const catalog: ActivityCandidate<FoodVenue>[] = [];
   const seenIds = new Set<string>();
+  const pageTypeDistribution = emptyPageTypeDistribution();
+  const blockedByPageType: Partial<Record<PageType, number>> = {};
+  let blockedPageTypeCount = 0;
 
   for (const sc of searchCandidates) {
+    // (1) page type classification（name gate より前: 入口で block）
+    const classification = classifyPageType({
+      url: sc.url ?? "",
+      title: sc.title ?? "",
+      description: sc.description ?? "",
+    });
+    const pageType = classification.pageType;
+    pageTypeDistribution[pageType] += 1;
+
+    if (isDirectCandidateBlocked(pageType)) {
+      blockedPageTypeCount += 1;
+      blockedByPageType[pageType] = (blockedByPageType[pageType] ?? 0) + 1;
+      continue;
+    }
+
     const combinedText = [sc.title, sc.description, sc.practicalInfo ?? ""].join(
       " ",
     );
 
-    // name 抽出（必須ゲート）
+    // (2) name 抽出（必須ゲート）
     const name = extractFoodVenueName(sc.title, sc.description);
     if (!name) continue;
 
@@ -386,6 +445,7 @@ export function parseFoodVenues(
       area,
     });
 
+    // (3) candidateId dedup
     if (seenIds.has(candidateId)) continue;
     seenIds.add(candidateId);
 
@@ -417,8 +477,16 @@ export function parseFoodVenues(
       durationEstimate: null,
       bestTimeWindows: [],
       reservationNeed: "unknown",
+      pageType,
     });
   }
 
-  return catalog;
+  return {
+    catalog,
+    meta: {
+      pageTypeDistribution,
+      blockedPageTypeCount,
+      blockedByPageType,
+    },
+  };
 }

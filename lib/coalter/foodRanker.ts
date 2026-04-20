@@ -26,6 +26,7 @@ import type {
   FoodFilterTrace,
   FoodHardFilterReason,
   FoodMetrics,
+  FoodQuery,
   FoodRankInput,
   FoodRankOutput,
   FoodScoreBreakdown,
@@ -34,6 +35,7 @@ import type {
   RankedFoodCandidate,
   RankingAxesPreset,
   RankingRole,
+  RequestedTimeSlot,
   SelectionRationale,
 } from "./types";
 
@@ -184,11 +186,22 @@ function violatesBudget(venue: FoodVenue, brief: ConversationBrief): boolean {
   return band.lo > ceiling;
 }
 
-function violatesArea(venue: FoodVenue, brief: ConversationBrief): boolean {
-  if (!brief.area) return false;
-  // area / station どちらも null は missing_where で別途落ちる。ここでは matching 責務のみ
+/**
+ * [CEO lock 2026-04-20 F-6] Area hard filter.
+ *
+ * 優先順位: query.area → brief.area。どちらも null は filter skip。
+ * venue.area / venue.station が null は missing_where で別途落ちるため、
+ * ここでは matching 責務のみ。
+ */
+function violatesArea(
+  venue: FoodVenue,
+  brief: ConversationBrief,
+  query?: FoodQuery,
+): boolean {
+  const area = query?.area ?? brief.area;
+  if (!area) return false;
   if (!venue.area && !venue.station) return false;
-  return !venueMatchesArea(venue, brief.area);
+  return !venueMatchesArea(venue, area);
 }
 
 function violatesCuisineExclusion(
@@ -218,17 +231,50 @@ function violatesCompanions(
   return hasHardConstraint(brief, (c) => c.kind === "companions") && false;
 }
 
+/**
+ * [CEO lock 2026-04-20 F-6] Opening hours hard filter（explicit-hour 昇格）。
+ *
+ * 優先順位:
+ *   1. query.requestedTimeSlots（explicit hour） — F-5 で復活した first-class field
+ *   2. brief.approximateTime.timeSlot（coarse 4-enum） — fallback
+ *   3. どちらも無ければ filter skip
+ *
+ * openingHours が未知の venue は常に通す（実装ガード #5 / ハルシ禁止）。
+ * query の requestedTimeSlots が複数ある場合、**いずれか 1 本**でも overlap すれば通す
+ * （T1a で同日 prev/next + 明日同時刻を並べたときに、どれかに合う営業時間なら OK）。
+ */
 function violatesOpeningHours(
   venue: FoodVenue,
   brief: ConversationBrief,
+  query?: FoodQuery,
 ): boolean {
-  // 実装ガード #5: openingHours 不明は通す
   const hours = parseHoursRange(venue.openingHours);
   if (!hours) return false;
+
+  // 1) query.requestedTimeSlots 優先
+  if (query && query.requestedTimeSlots.length > 0) {
+    return !query.requestedTimeSlots.some((slot) =>
+      requestedSlotOverlapsHours(hours, slot),
+    );
+  }
+
+  // 2) brief.approximateTime.timeSlot fallback
   const slot = brief.approximateTime.timeSlot;
   if (!slot) return false;
   const win = timeSlotWindow(slot);
   return !hoursOverlap(hours, win);
+}
+
+function requestedSlotOverlapsHours(
+  hours: { open: number; close: number },
+  slot: RequestedTimeSlot,
+): boolean {
+  const win = {
+    start: Math.max(0, Math.min(24, slot.startHour)),
+    end: Math.max(0, Math.min(24, slot.endHour)),
+  };
+  if (win.start >= win.end) return false;
+  return hoursOverlap(hours, win);
 }
 
 function isClosedPermanently(venue: FoodVenue): boolean {
@@ -255,16 +301,25 @@ export function hardFilterOne(
   candidate: ActivityCandidate<FoodVenue>,
   brief: ConversationBrief,
   avoidKeys: Set<string>,
+  query?: FoodQuery,
 ): HardFilterStep {
   const venue = candidate.entity;
   const reasons: FoodHardFilterReason[] = [];
   const missingFields: string[] = [];
 
+  // §6.4 (6)-2c: pageType guard (bypass 経路の最終防波堤)。
+  // catalog 段で入口遮断済みだが、catalog を介さず直接 rankFood に流し込む
+  // 将来の別経路（future commits / test double / manual injection）に備えて
+  // ここでも hard reject する。reason は blocked_page_type。
+  if (candidate.pageType === "listicle" || candidate.pageType === "news") {
+    reasons.push("blocked_page_type");
+  }
+
   if (violatesBudget(venue, brief)) reasons.push("violates_budget");
-  if (violatesArea(venue, brief)) reasons.push("violates_area");
+  if (violatesArea(venue, brief, query)) reasons.push("violates_area");
   if (violatesCuisineExclusion(venue, brief)) reasons.push("violates_cuisine_exclusion");
   if (violatesCompanions(venue, brief)) reasons.push("violates_companions");
-  if (violatesOpeningHours(venue, brief)) reasons.push("violates_opening_hours");
+  if (violatesOpeningHours(venue, brief, query)) reasons.push("violates_opening_hours");
   if (isClosedPermanently(venue)) reasons.push("closed_permanently");
   if (isMissingWhere(venue)) reasons.push("missing_where");
   if (isInsufficientInfo(candidate)) reasons.push("insufficient_info");
@@ -591,7 +646,7 @@ function buildRationale(
 // ─────────────────────────────────────────────
 
 export function rankFood(input: FoodRankInput): FoodRankOutput {
-  const { brief, catalog, avoidKeys, profileA, profileB } = input;
+  const { brief, catalog, avoidKeys, profileA, profileB, query } = input;
   const preset = brief.rankingAxes.preset;
   const roles = PRESET_ROLES[preset];
   const avoidSet = new Set(avoidKeys);
@@ -605,7 +660,7 @@ export function rankFood(input: FoodRankInput): FoodRankOutput {
   }> = [];
 
   for (const candidate of catalog) {
-    const step = hardFilterOne(candidate, brief, avoidSet);
+    const step = hardFilterOne(candidate, brief, avoidSet, query);
     if (step.reasons.length > 0) {
       filterTrace.push({
         candidateId: candidate.candidateId,
@@ -613,6 +668,8 @@ export function rankFood(input: FoodRankInput): FoodRankOutput {
         reasons: step.reasons,
         confidence: candidate.confidence,
         missingFields: step.missingFields,
+        // §6.4 (6)-4 observability: source-kind 別集計のため pageType を trace に同梱
+        pageType: candidate.pageType,
       });
       continue;
     }

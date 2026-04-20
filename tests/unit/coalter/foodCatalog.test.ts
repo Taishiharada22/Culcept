@@ -260,8 +260,9 @@ describe("parseFoodVenues: name 必須ゲート", () => {
         url: "https://tabelog.com/tokyo/A1303/A130301/13012345/",
       }),
     ];
-    const out = parseFoodVenues(input);
-    // listicle は drop、焼肉ABC のみ残る
+    const { catalog: out } = parseFoodVenues(input);
+    // listicle は drop（§6.4 (6)-2b: pageType gate が入口で hard drop）、
+    // 焼肉ABC のみ残る
     expect(out.length).toBe(1);
     expect(out[0].entity.name).toBe("焼肉ABC");
   });
@@ -273,7 +274,7 @@ describe("parseFoodVenues: name 必須ゲート", () => {
         description: "今週のランキング発表",
       }),
     ];
-    expect(parseFoodVenues(input).length).toBe(0);
+    expect(parseFoodVenues(input).catalog.length).toBe(0);
   });
 });
 
@@ -288,7 +289,7 @@ describe("parseFoodVenues: FoodVenue は entity として入る（extends では
         url: "https://tabelog.com/tokyo/xxxx",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out.length).toBe(1);
     const c = out[0];
     expect(c.domain).toBe("food");
@@ -323,7 +324,7 @@ describe("parseFoodVenues: 同一 candidateId は先勝ちで 1 件", () => {
         url: "https://tabelog.com/tokyo/A/2",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out.length).toBe(1);
   });
 
@@ -340,7 +341,7 @@ describe("parseFoodVenues: 同一 candidateId は先勝ちで 1 件", () => {
         url: "https://retty.me/area/xxx",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out.length).toBe(2);
     expect(out[0].sourceDomain).not.toBe(out[1].sourceDomain);
   });
@@ -357,7 +358,7 @@ describe("parseFoodVenues: confidence 加点", () => {
         url: "https://example.com/foo",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out.length).toBe(1);
     expect(out[0].confidence).toBe(0);
   });
@@ -371,7 +372,7 @@ describe("parseFoodVenues: confidence 加点", () => {
         url: "https://tabelog.com/tokyo/A1303/13012345/",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out.length).toBe(1);
     expect(out[0].confidence).toBe(1);
   });
@@ -391,8 +392,8 @@ describe("parseFoodVenues: confidence 加点", () => {
         url: "https://example.com/foo",
       }),
     ];
-    const a = parseFoodVenues(knownInput)[0];
-    const b = parseFoodVenues(unknownInput)[0];
+    const a = parseFoodVenues(knownInput).catalog[0];
+    const b = parseFoodVenues(unknownInput).catalog[0];
     expect(a.confidence).toBeGreaterThan(b.confidence);
     expect(a.confidence - b.confidence).toBeCloseTo(0.1, 2);
   });
@@ -409,9 +410,121 @@ describe("parseFoodVenues: 未実装フィールドの default", () => {
         url: "https://tabelog.com/tokyo/A/1",
       }),
     ];
-    const out = parseFoodVenues(input);
+    const { catalog: out } = parseFoodVenues(input);
     expect(out[0].durationEstimate).toBeNull();
     expect(out[0].bestTimeWindows).toEqual([]);
     expect(out[0].reservationNeed).toBe("unknown");
+  });
+});
+
+// ──────────── parseFoodVenues: pageType gate (§6.4 (6)-2b) ────────────
+
+describe("parseFoodVenues: pageType gate (§6.4 (6)-2b)", () => {
+  it("listicle は入口で block され catalog に入らない", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "新宿のラーメン10選",
+        description: "人気店まとめ",
+        url: "https://tabelog.com/matome/12345/",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.listicle).toBe(1);
+    expect(meta.blockedPageTypeCount).toBe(1);
+    expect(meta.blockedByPageType.listicle).toBe(1);
+  });
+
+  it("news は入口で block される", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "老舗ラーメン店が5月末で閉店",
+        description: "惜しまれつつ...",
+        url: "https://news.yahoo.co.jp/articles/abc",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.news).toBe(1);
+    expect(meta.blockedPageTypeCount).toBe(1);
+    expect(meta.blockedByPageType.news).toBe(1);
+  });
+
+  it("venue_detail / third_party_listing / reservation_partner は通過する", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "『焼肉ABC』渋谷店",
+        description: "渋谷駅徒歩5分",
+        url: "https://tabelog.com/tokyo/A1303/A130301/13012345/",
+      }),
+      sc({
+        title: "『寿司DEF』銀座店 - 一休",
+        description: "銀座駅直結",
+        url: "https://restaurant.ikyu.com/100200/",
+      }),
+      sc({
+        title: "『ラーメンGHI』新宿",
+        description: "新宿駅徒歩3分",
+        url: "https://custom-blog.example/post/2026",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(3);
+    expect(meta.blockedPageTypeCount).toBe(0);
+    expect(meta.pageTypeDistribution.third_party_listing).toBe(1);
+    expect(meta.pageTypeDistribution.reservation_partner).toBe(1);
+    expect(meta.pageTypeDistribution.venue_detail).toBe(1);
+  });
+
+  it("各 candidate に pageType が付与される", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "『焼肉ABC』渋谷店",
+        description: "渋谷駅徒歩5分",
+        url: "https://tabelog.com/tokyo/A1303/A130301/13012345/",
+      }),
+    ];
+    const { catalog } = parseFoodVenues(input);
+    expect(catalog[0].pageType).toBe("third_party_listing");
+  });
+
+  it("混在入力: listicle は drop、それ以外は通過、meta に内訳", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "『焼肉ABC』渋谷店",
+        description: "渋谷駅徒歩5分",
+        url: "https://tabelog.com/tokyo/A1303/A130301/13012345/",
+      }),
+      sc({
+        title: "新宿ラーメンBEST10",
+        description: "今年の人気店",
+        url: "https://matome-site.example/foo",
+      }),
+      sc({
+        title: "老舗が閉店",
+        description: "5月末閉店",
+        url: "https://news.yahoo.co.jp/articles/xyz",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(1);
+    expect(catalog[0].entity.name).toBe("焼肉ABC");
+    expect(meta.blockedPageTypeCount).toBe(2);
+    expect(meta.blockedByPageType.listicle).toBe(1);
+    expect(meta.blockedByPageType.news).toBe(1);
+    expect(meta.pageTypeDistribution.third_party_listing).toBe(1);
+    expect(meta.pageTypeDistribution.listicle).toBe(1);
+    expect(meta.pageTypeDistribution.news).toBe(1);
+  });
+
+  it("全 6 page type のカウントが 0 初期化される", () => {
+    const { meta } = parseFoodVenues([]);
+    expect(meta.pageTypeDistribution.venue_detail).toBe(0);
+    expect(meta.pageTypeDistribution.official).toBe(0);
+    expect(meta.pageTypeDistribution.reservation_partner).toBe(0);
+    expect(meta.pageTypeDistribution.third_party_listing).toBe(0);
+    expect(meta.pageTypeDistribution.news).toBe(0);
+    expect(meta.pageTypeDistribution.listicle).toBe(0);
+    expect(meta.blockedPageTypeCount).toBe(0);
   });
 });

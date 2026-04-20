@@ -26,6 +26,8 @@ import type {
   RelationshipContext,
   SearchCandidate,
 } from "./types";
+import type { TwoPersonLensToday } from "./understanding/types";
+import type { FoodLensToday } from "./understanding/foodLensAdapter";
 
 /**
  * ConversationBrief.theme ("date" を含む) から ProposalCard.theme
@@ -130,6 +132,15 @@ export interface FoodNarrationInput {
   alternatives?: RankedFoodAlternative[];
   /** URL / booking / sources 解決用の生 search 結果 */
   searchCandidates?: SearchCandidate[];
+  /**
+   * F-2 / F-3 (2026-04-20): Stage 1 Understand の lens と food 翻訳を受け取る
+   * optional 入力。
+   *
+   * 供給時: F-3 Personality-Rooted 5 要素 narration に使う。
+   * 未供給時: 従来 brief-only 経路で logic fallback（互換性保持）。
+   */
+  lens?: TwoPersonLensToday;
+  foodLensToday?: FoodLensToday;
 }
 
 /**
@@ -176,10 +187,28 @@ export function buildFoodNarrationFromLogic(input: FoodNarrationInput): Proposal
     profileA,
     profileB,
   );
-  const reasoning = buildReasoning(
-    ranked as unknown as RankedCandidate[],
-    brief,
-  );
+  // F-3 (2026-04-20): Personality-Rooted 5 要素 reasoning
+  //
+  //   lens + foodLensToday が供給されていれば 5 要素 narration を logic で組む。
+  //   未供給時は従来 buildReasoning にフォールバック（互換性維持）。
+  //
+  //   5 要素（doc §2.3.3）:
+  //     personA_lens  : A さんの判断原理 × 今日の空気
+  //     personB_lens  : B さんの判断原理 × 今日の空気
+  //     relational_fit: 2人の関係性 × 店の雰囲気
+  //     today_hook    : 今日の会話・気分 × 店選定の接続
+  //     veto_guard    : 避けたいもの（avoid/dislikes）は外した旨
+  const reasoning =
+    input.lens && input.foodLensToday
+      ? buildFoodPersonalityRootedReasoning({
+          ranked,
+          brief,
+          profileA,
+          profileB,
+          lens: input.lens,
+          foodLensToday: input.foodLensToday,
+        })
+      : buildReasoning(ranked as unknown as RankedCandidate[], brief);
   const closing = buildClosing();
 
   return {
@@ -191,3 +220,189 @@ export function buildFoodNarrationFromLogic(input: FoodNarrationInput): Proposal
     theme: toConversationTheme(brief.theme),
   };
 }
+
+// ─────────────────────────────────────────────
+// F-3: Personality-Rooted 5 要素 reasoning (logic-only)
+// ─────────────────────────────────────────────
+
+interface PersonalityRootedInput {
+  ranked: RankedFoodCandidate[];
+  brief: ConversationBrief;
+  profileA: CoAlterPersonProfile;
+  profileB: CoAlterPersonProfile;
+  lens: TwoPersonLensToday;
+  foodLensToday: FoodLensToday;
+}
+
+/**
+ * Personality-Rooted 5 要素 reasoning を logic で組む。
+ *
+ * 契約:
+ *  - LLM を使わない。lens / foodLensToday から短文を決定論的に合成する
+ *  - 5 要素を「。」区切りで 1 つの reasoning string に畳む
+ *    （ProposalCard.reasoning は string 型。UI 側の構造要件を壊さない）
+ *  - lens.sourcedFrom に該当観測が無い軸は「一般論」になるため元の buildReasoning
+ *    に倒してよい、が本 F-3 では 5 要素を「空で書かない」方針（= skip）で欠落を許す
+ *  - 一般論（「人気」「口コミ」「ランキング」）は書かない（doc §2.3.3 禁止事項）
+ */
+function buildFoodPersonalityRootedReasoning(
+  input: PersonalityRootedInput,
+): string {
+  const { ranked, brief, profileA, profileB, lens, foodLensToday } = input;
+  const parts: string[] = [];
+
+  const personA = buildPersonLensSentence(
+    profileA,
+    lens.personalLenses.a,
+    "A",
+  );
+  if (personA) parts.push(personA);
+
+  const personB = buildPersonLensSentence(
+    profileB,
+    lens.personalLenses.b,
+    "B",
+  );
+  if (personB) parts.push(personB);
+
+  const relational = buildRelationalFitSentence(lens, foodLensToday);
+  if (relational) parts.push(relational);
+
+  const todayHook = buildTodayHookSentence(lens, foodLensToday);
+  if (todayHook) parts.push(todayHook);
+
+  const veto = buildVetoGuardSentence(lens, profileA, profileB);
+  if (veto) parts.push(veto);
+
+  // Gap B (doc §2.3.3): fairnessAdjustment がある場合は 6 番目要素として note を追加。
+  //   rationale は narration 引用可（types.ts §2.4）。
+  const fairnessNote = buildFairnessNoteSentence(lens);
+  if (fairnessNote) parts.push(fairnessNote);
+
+  // 要素が一つも埋まらない場合は従来 reasoning にフォールバック（防御）
+  if (parts.length === 0) {
+    return buildReasoning(ranked as unknown as RankedCandidate[], brief);
+  }
+  return parts.join("。") + "。";
+}
+
+function buildPersonLensSentence(
+  profile: CoAlterPersonProfile,
+  lens: TwoPersonLensToday["personalLenses"]["a"],
+  fallbackLabel: "A" | "B",
+): string | null {
+  const name = lens.displayName || profile.displayName || fallbackLabel;
+  const principle = lens.coreDecisionPrinciples[0]?.trim();
+  const hue = lens.currentEmotionalHue?.trim();
+  if (!principle && !hue) return null;
+  // Gap A (doc §2.3.3 item 6): narration に 1 箇所以上、由来引用を含める。
+  //   sourcedFrom の非空バケツから priority 順（stargazer > alter > behavioral）で
+  //   1 件だけ prefix として使う。PII は出さない（category のみ）。
+  const prefix = buildSourcedFromPrefix(lens.sourcedFrom);
+  const head = prefix ? `${prefix}、` : "";
+  if (principle && hue) {
+    return `${head}${name}さんは${principle}を大事にする人で、今は「${hue}」の空気`;
+  }
+  if (principle) return `${head}${name}さんは${principle}を大事にする人`;
+  return `${head}${name}さんは今「${hue}」の空気`;
+}
+
+/**
+ * sourcedFrom 由来引用の prefix を組む。
+ * 優先度: stargazer > alter > behavioral。全 empty なら null。
+ * 生テキスト（quote / summary）は出さない — カテゴリ名のみ（[CEO lock 2026-04-20 A]）。
+ */
+function buildSourcedFromPrefix(
+  sourced: TwoPersonLensToday["personalLenses"]["a"]["sourcedFrom"],
+): string | null {
+  if (sourced.stargazer.length > 0) return "Stargazer の観測では";
+  if (sourced.alter.length > 0) return "Alter の記録では";
+  if (sourced.behavioral.length > 0) return "普段の行動から";
+  return null;
+}
+
+function buildRelationalFitSentence(
+  lens: TwoPersonLensToday,
+  food: FoodLensToday,
+): string | null {
+  const temp = lens.relationalLens.temperature;
+  const atmos = food.foodContext.atmosphereDesire;
+  const tempLabel: Record<typeof temp, string> = {
+    warm: "温かい",
+    neutral: "落ち着いた",
+    cool: "少し距離のある",
+  };
+  const quietLabel: Record<typeof atmos.quietness, string | null> = {
+    quiet: "静かで",
+    moderate: "ほどよい賑わいで",
+    lively: "賑やかで",
+    either: null,
+  };
+  const lightLabel: Record<typeof atmos.lighting, string | null> = {
+    warm_low: "光は温かく落とした",
+    neutral: "光は自然な",
+    bright: "明るい",
+    either: null,
+  };
+  const bits = [quietLabel[atmos.quietness], lightLabel[atmos.lighting]]
+    .filter((s): s is string => !!s)
+    .join("・");
+  if (!bits) {
+    return `2人の今日は${tempLabel[temp]}空気に合う店を選んだ`;
+  }
+  return `2人の今日は${tempLabel[temp]}空気で、${bits}店を選んだ`;
+}
+
+function buildTodayHookSentence(
+  lens: TwoPersonLensToday,
+  food: FoodLensToday,
+): string | null {
+  const intent = lens.todayReading.implicitIntent?.trim();
+  const mood = food.foodContext.moodTags[0];
+  if (!intent && !mood) return null;
+  if (intent && mood) {
+    return `今日の『${mood}』な流れから、${intent}を一回受け止められる形にした`;
+  }
+  if (mood) return `今日の『${mood}』な流れに合わせた`;
+  return `今日の会話の「${intent}」を受け止められる形にした`;
+}
+
+function buildVetoGuardSentence(
+  lens: TwoPersonLensToday,
+  _profileA: CoAlterPersonProfile,
+  _profileB: CoAlterPersonProfile,
+): string | null {
+  const avoids = new Set<string>();
+  for (const a of lens.relationalLens.avoidElements ?? []) {
+    const t = a.trim();
+    if (t) avoids.add(t);
+  }
+  const list = Array.from(avoids).slice(0, 2);
+  if (list.length === 0) return null;
+  return `${list.join("・")}は外した`;
+}
+
+function buildFairnessNoteSentence(
+  lens: TwoPersonLensToday,
+): string | null {
+  const fa = lens.fairnessAdjustment;
+  if (!fa || fa.favorSide == null) return null;
+  const rationale = fa.rationale?.trim();
+  if (!rationale) return null;
+  const sideName =
+    fa.favorSide === "a"
+      ? lens.personalLenses.a.displayName || "A"
+      : lens.personalLenses.b.displayName || "B";
+  return `今日は${sideName}さんに少し寄せた（${rationale}）`;
+}
+
+// テスト用 export
+export const __narrationInternal = {
+  buildFoodPersonalityRootedReasoning,
+  buildPersonLensSentence,
+  buildRelationalFitSentence,
+  buildTodayHookSentence,
+  buildVetoGuardSentence,
+  buildFairnessNoteSentence,
+  buildSourcedFromPrefix,
+};

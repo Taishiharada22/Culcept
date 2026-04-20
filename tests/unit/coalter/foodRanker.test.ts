@@ -584,3 +584,124 @@ describe("rankFood output shape (movie RankOutput 並行形)", () => {
     }
   });
 });
+
+// ──────────── §6.4 (6)-2c: pageType hard guard (bypass 経路の最終防波堤) ────────────
+
+describe("§6.4 (6)-2c: pageType hard guard", () => {
+  it("pageType='listicle' の candidate は hardFilterOne で blocked_page_type を reason に持つ", () => {
+    const c = candidate(
+      { name: "まとめ記事風ページ" },
+      { pageType: "listicle" },
+    );
+    const step = hardFilterOne(c, brief(), new Set());
+    expect(step.reasons).toContain("blocked_page_type");
+  });
+
+  it("pageType='news' の candidate は hardFilterOne で blocked_page_type を reason に持つ", () => {
+    const c = candidate(
+      { name: "閉店ニュース風ページ" },
+      { pageType: "news" },
+    );
+    const step = hardFilterOne(c, brief(), new Set());
+    expect(step.reasons).toContain("blocked_page_type");
+  });
+
+  it("pageType 未設定（legacy）は guard 発火しない（下位互換）", () => {
+    const c = candidate(); // pageType undefined
+    const step = hardFilterOne(c, brief(), new Set());
+    expect(step.reasons).not.toContain("blocked_page_type");
+  });
+
+  it("venue_detail / official / reservation_partner / third_party_listing は guard 発火しない", () => {
+    for (const pt of [
+      "venue_detail",
+      "official",
+      "reservation_partner",
+      "third_party_listing",
+    ] as const) {
+      const c = candidate({}, { pageType: pt });
+      const step = hardFilterOne(c, brief(), new Set());
+      expect(step.reasons).not.toContain("blocked_page_type");
+    }
+  });
+
+  it("bypass 経路: catalog を介さず直接 rankFood に listicle を流しても ranked から排除される", () => {
+    // 「別経路で listicle が ActivityCandidate として ranker に届いた」状況を模擬
+    const normal = candidate(
+      { name: "焼肉ABC" },
+      { pageType: "venue_detail" },
+    );
+    const listicleBypass = candidate(
+      { name: "新宿ラーメン10選" },
+      {
+        candidateId: "food:listicle.example:10sen:新宿",
+        sourceDomain: "listicle.example",
+        sourceUrl: "https://listicle.example/article",
+        pageType: "listicle",
+      },
+    );
+    const out = rankFood({
+      brief: brief(),
+      catalog: [normal, listicleBypass],
+      avoidKeys: [],
+      profileA: profile("a"),
+      profileB: profile("b"),
+    });
+    const rankedIds = new Set(out.ranked.map((r) => r.candidateKey));
+    expect(rankedIds.has(listicleBypass.candidateId)).toBe(false);
+    // filterTrace に blocked_page_type が残る
+    const trace = out.filterTrace.find(
+      (t) => t.candidateId === listicleBypass.candidateId,
+    );
+    expect(trace).toBeDefined();
+    expect(trace?.reasons).toContain("blocked_page_type");
+  });
+
+  it("bypass 経路: news も同様に排除される", () => {
+    const normal = candidate(
+      { name: "焼肉ABC" },
+      { pageType: "venue_detail" },
+    );
+    const newsBypass = candidate(
+      { name: "閉店ニュース" },
+      {
+        candidateId: "food:news.example:close:新宿",
+        sourceDomain: "news.example",
+        sourceUrl: "https://news.example/close",
+        pageType: "news",
+      },
+    );
+    const out = rankFood({
+      brief: brief(),
+      catalog: [normal, newsBypass],
+      avoidKeys: [],
+      profileA: profile("a"),
+      profileB: profile("b"),
+    });
+    expect(
+      out.ranked.some((r) => r.candidateKey === newsBypass.candidateId),
+    ).toBe(false);
+    const trace = out.filterTrace.find(
+      (t) => t.candidateId === newsBypass.candidateId,
+    );
+    expect(trace?.reasons).toContain("blocked_page_type");
+  });
+
+  it("bypass 経路: listicle のみ catalog を流しても ranked=0 で filterTrace に reason が残る", () => {
+    const only = candidate(
+      { name: "ランキングまとめ" },
+      { pageType: "listicle" },
+    );
+    const out = rankFood({
+      brief: brief(),
+      catalog: [only],
+      avoidKeys: [],
+      profileA: profile("a"),
+      profileB: profile("b"),
+    });
+    expect(out.ranked.length).toBe(0);
+    expect(out.counts.afterHardFilter).toBe(0);
+    expect(out.filterTrace.length).toBe(1);
+    expect(out.filterTrace[0].reasons).toContain("blocked_page_type");
+  });
+});

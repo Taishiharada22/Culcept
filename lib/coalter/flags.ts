@@ -63,6 +63,40 @@ export const COALTER_FLAGS = {
   get pairOnboardingEnabled(): boolean {
     return envBool("COALTER_PAIR_ONBOARDING", false);
   },
+  /**
+   * [CEO lock 2026-04-20 F-5] `foodLensWired`
+   *   - engine.ts の food branch で Stage 1 Understand を走らせ、その結果
+   *     (TwoPersonLensToday / FoodLensToday / FoodQueryBuilderInput) を
+   *     foodOrchestrator に渡すかを決める kill switch。
+   *   - 既定 OFF。false 時は従来経路（options.foodLens を外部から渡された
+   *     場合のみ orchestrator に流す、それ以外は lens 無し）を機械的に維持する。
+   *   - Stage 1 側の例外は engine 内で fail-open（catch して lens なしで
+   *     従来経路に fall through）。env から外せば即座に pre-F-5 状態へ戻る。
+   *   - 時間の優先順位: brief > exact time > lens 補完。lens は brief の
+   *     欠損を埋めるだけで上書きはしない（F-5 wiring test d 参照）。
+   *   - F-5 scope: output 復活まで。foodTierExpander の消費は F-6 以降。
+   */
+  get foodLensWired(): boolean {
+    return envBool("COALTER_FOOD_LENS_WIRED", false);
+  },
+  /**
+   * [CEO lock 2026-04-20 F-6] `foodTierLoop`
+   *   - foodOrchestrator で `runTieredRanking`（T0→T1a→T1b→T2 順次）を
+   *     走らせるかの kill switch。F-5 (`foodLensWired`) と独立。
+   *   - 既定 OFF。false 時は従来どおり `rankFood` 単発（= Tier 0 相当）のみ。
+   *   - true + effective FoodQuery 不在（lens 欠損 or area 欠落）→ tier loop skip、
+   *     従来動作に fall through（fail-open）。
+   *   - 契約（CEO 2026-04-20 F-6）:
+   *     1. Tier 入力は **query 主体 + brief fallback**
+   *        (area: query.area → brief.area / time: query.requestedTimeSlots → brief.approximateTime)
+   *     2. 成功閾値は `ranked.length >= 1`（"豊富" 閾値 3 は diagnostics/narration 用のみ）
+   *     3. Tier 結果は**混ぜない**。最初に success した Tier の ranked をそのまま採用。
+   *   - F-6 scope: re-search しない、booking API・daily/travel には入らない、
+   *     density/lighting ranker 負債は触らない。
+   */
+  get foodTierLoop(): boolean {
+    return envBool("COALTER_FOOD_TIER_LOOP", false);
+  },
 };
 
 // ─────────────────────────────────────────────

@@ -553,6 +553,13 @@ export interface ActivityCandidate<TEntity = FoodVenue | MovieScreening> {
   bestTimeWindows: TimeWindow[];
   /** 予約必要度（bookingResolver 前は "unknown"） */
   reservationNeed: ReservationNeed;
+  /**
+   * ページ種別分類（§6.4 (6)-2 で food に付与、movie は当面 undefined）。
+   * listicle/news は catalog 昇格段で block されるため、ここまで届くのは
+   * venue_detail / official / reservation_partner / third_party_listing のみ。
+   * ranker は hard guard として再度これを検査する。
+   */
+  pageType?: PageType;
 }
 
 // ─────────────────────────────────────────────
@@ -1080,7 +1087,8 @@ export type FoodHardFilterReason =
   | "closed_permanently"          // snippet に「閉店」「閉業」検出
   | "missing_where"               // station=null AND area=null
   | "insufficient_info"           // confidence < 0.1（name 単独）
-  | "violates_avoid_keys";        // candidateId が avoidKeys に含まれる
+  | "violates_avoid_keys"         // candidateId が avoidKeys に含まれる
+  | "blocked_page_type";          // §6.4 (6)-2c: pageType ∈ {listicle, news}（ranker 防波堤）
 
 /**
  * food 用 metric 9 種。
@@ -1120,6 +1128,13 @@ export interface FoodFilterTrace {
   confidence?: number;
   /** 観測用: 欠けていたフィールド（missing_where 等の診断に使う） */
   missingFields?: string[];
+  /**
+   * §6.4 (6)-4 observability (2026-04-20):
+   * catalog 段で分類済みの PageType を trace に同梱する。
+   * diagnostics 側で missingWhere / insufficientInfo を source-kind 別に
+   * 集計するために必要。未分類候補（legacy path）では undefined のまま。
+   */
+  pageType?: PageType;
 }
 
 /** food ranker input */
@@ -1130,6 +1145,18 @@ export interface FoodRankInput {
   avoidKeys: string[];
   profileA: CoAlterPersonProfile;
   profileB: CoAlterPersonProfile;
+  /**
+   * [CEO lock 2026-04-20 F-6] Stage 1 結晶化済み FoodQuery（optional）。
+   *
+   *   - 供給時: area / 営業時間判定で query.area / query.requestedTimeSlots を
+   *     brief に **優先**して使う（brief は fallback）。explicit hour がある場合は
+   *     coarse な brief.approximateTime.timeSlot を上書き。
+   *   - 未供給時: 従来どおり brief 主体（下位互換）。
+   *
+   * F-6 scope: hard filter (area / opening hours) のみ query を参照する。
+   * score 系 metric への query 反映は F-7 以降。
+   */
+  query?: FoodQuery;
 }
 
 /** food ranker output（movie RankOutput 並行形） */
@@ -1584,3 +1611,239 @@ export interface ClarifyCard {
  * UI 側は switch (card.mode) で分岐する。
  */
 export type CoAlterCard = DecisionCard | NegotiateCard | ClarifyCard;
+
+// ═══════════════════════════════════════════════════════════════════════
+// Food Query Builder 型定義（§6.4 (6)-1 / docs/coalter-food-three-stage-design.md rev 3）
+//
+// 責務（原則 9: Retrieval Hygiene & Constraint Projection）:
+//   (a) FoodLensToday → 検索クエリ文字列群への constraint projection
+//   (b) 軸別 projection coverage 算出（area / cuisine / exactTime / occasion /
+//       moodAtmosphere / priceBand）
+//   (c) clarify 判断材料の出力（reason / missing_axes / projected_axes / dropped_axes）
+//   (d) source priority hint の出力（(6)-2 page type classifier への入力）
+//
+// 本 block は型定義のみ。実装は lib/coalter/foodQueryBuilder.ts（CEO 承認後）。
+// FoodLensToday 本体は lib/coalter/understanding/foodLensAdapter.ts（step (2)）で定義される。
+// 本ファイルからは参照しない（forward dependency を避ける）。
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * FoodQuery の軸（正準列）。
+ * ProjectionCoverage / ClarifySignal / SourcePriorityHint で共有される。
+ */
+export type FoodQueryAxis =
+  | "area"
+  | "cuisine"
+  | "exactTime"
+  | "occasion"
+  | "moodAtmosphere"
+  | "priceBand";
+
+/**
+ * (6)-2 Page Type Classifier の判定ラベル（CEO 条件 4 / 先行定義）。
+ *
+ * 契約:
+ *   venue_detail         — 単一店に解決可能な詳細ページ（tabelog/{id}/ 等）
+ *   official             — 店公式サイト
+ *   reservation_partner  — 公式採用の予約 SaaS（TableCheck / Toreta / OpenTable）
+ *   third_party_listing  — 個別店ページだが食べログ/ぐるなび等の三者ページ（詳細頁）
+ *   news                 — ニュース記事（閉店・メディア掲載情報等）
+ *   listicle             — 「新宿ラーメン BEST 10」等の複数店列挙ページ
+ *
+ * direct candidate 昇格 block 対象: news / listicle
+ */
+export type PageType =
+  | "venue_detail"
+  | "official"
+  | "reservation_partner"
+  | "third_party_listing"
+  | "news"
+  | "listicle";
+
+/**
+ * FoodQuery の「時刻枠」first-class 表現（rev 2/3 原則 9）。
+ *
+ * 粒度設計（CEO 指摘 #1 / 2026-04-20）:
+ *   「11時くらい」「10:45-11:30」「19:30 or 20:00」のような表現を落とさない。
+ *
+ *   (a) coarse hour: startHour / endHour（0-23）— 常に必須。後段の bucket 判定用
+ *   (b) minute-precision: startLocalTime / endLocalTime（"HH:MM" or ISO）
+ *   (c) 近似性: flexMinutes（「11時くらい」= 30, 「19:30 ジャスト」= 0）
+ *
+ * 優先順（消費側の契約）:
+ *   startLocalTime/endLocalTime が両方 present なら分単位を優先。
+ *   いずれか欠ける場合は startHour/endHour を使う（常に埋まっている）。
+ *   flexMinutes は tolerance 幅。検索クエリ生成時は time window を
+ *   [start - flex, end + flex] に拡張してよい。
+ */
+export interface RequestedTimeSlot {
+  /** "2026-04-20" 等、null なら今日扱い */
+  localDate: string | null;
+  /** coarse hour（0-23）— 必須 fallback */
+  startHour: number;
+  endHour: number;
+  /** 分単位（"HH:MM" or "YYYY-MM-DDTHH:MM"）。両端 present なら優先 */
+  startLocalTime?: string;
+  endLocalTime?: string;
+  /** 近似幅（分）。「11時くらい」= 30、「19:30 ジャスト」= 0。未指定は 0 扱い */
+  flexMinutes?: number;
+  /** 元会話での確度 */
+  confidence: "explicit" | "approximate" | "inferred";
+}
+
+/**
+ * 会話から抽出された occasion（構造化）。
+ *
+ * narration 由来引用と Tier 判断の両方で使う（rev 2）。
+ */
+export interface FoodOccasion {
+  /** 「誕生日」「記念日」「デート」「気楽な昼」等 */
+  label: string;
+  confidence: "explicit" | "inferred" | "none";
+  source: "user_utterance" | "calendar" | "s1_derivation" | null;
+}
+
+/**
+ * 検索軸に翻訳された FoodQuery。
+ *
+ * buildFoodQuery() の中間成果物。実際の検索文字列は searchStrings として別途返される。
+ * projectionCoverage / clarifySignal / sourcePriorityHint と合わせて
+ * FoodQueryBuildResult に束ねる。
+ */
+export interface FoodQuery {
+  /** 希求 cuisine（top-3 推奨） */
+  cuisines: string[];
+  /** veto（アレルギー・嫌い） */
+  excludeCuisines: string[];
+  /** 価格帯。不明なら null */
+  priceBand: { minYen: number; maxYen: number } | null;
+  /** ユーザー指定 or 推定エリア */
+  area: string | null;
+  /**
+   * 時間帯 coarse enum（併存・廃止しない / CEO 指摘 #3）。
+   *
+   * 契約:
+   *   - requestedTimeSlots / targetLocalTime が exact time 用の first-class field
+   *   - timeWindow は ranking / 後段ロジック（営業時間マッチ等）の coarse 軸として常に併存
+   *   - 「exact time を中心にする」と「timeWindow を捨てる」は別責務
+   *   - requestedTimeSlots から派生できない場合（時刻が全く取れない会話）は null 可
+   */
+  timeWindow:
+    | "breakfast"
+    | "lunch"
+    | "late_lunch"
+    | "tea"
+    | "dinner"
+    | "late_night"
+    | null;
+  /** ★ first-class field（rev 2/3）★ — 検索クエリ生成は exact time を優先 */
+  requestedTimeSlots: RequestedTimeSlot[];
+  /** ★ 代表値 ISO local（S3 Tier0 初期目標） */
+  targetLocalTime: string | null;
+  /** occasion 構造化（rev 2） */
+  occasion: FoodOccasion | null;
+  /** 雰囲気希求 3 軸（原則 6）— 取得できなかった軸は "either" */
+  atmosphere: {
+    quietness: "quiet" | "moderate" | "lively" | "either";
+    density: "private" | "spacious" | "intimate" | "either";
+    lighting: "warm_low" | "neutral" | "bright" | "either";
+  };
+  /** moodTags（narration 核、S1 由来） */
+  moodTags: string[];
+  /** 予約の緊急度（Tier0 判断材料） */
+  reservationUrgency: "tonight" | "this_week" | "flexible";
+}
+
+/**
+ * 軸別 projection coverage（CEO 条件 1 / rev 3、CEO 指摘 #2 / 2026-04-20）。
+ *
+ * 各軸について 3 状態を区別する:
+ *   presentInInput  = lens / input にその軸が存在したか
+ *   projected       = 実際に少なくとも 1 つの searchString に乗ったか
+ *   sourceAxis      = lens 側のどのフィールドから派生したか（telemetry / 由来引用）
+ *
+ * 区別の意味:
+ *   presentInInput=false, projected=false  → 真の欠損（会話に情報なし → clarify 候補）
+ *   presentInInput=true,  projected=true   → 正常射影
+ *   presentInInput=true,  projected=false  → **dropped axis**（今回の本丸の観測対象）
+ *   presentInInput=false, projected=true   → 想定外（contract violation、assert fail）
+ *
+ * summaryScore は重み付き平均。area と exactTime は高ウェイト（critical axes）。
+ * 実装時の提案重み: area 0.25 / exactTime 0.25 / cuisine 0.20 / moodAtmosphere 0.15 /
+ * occasion 0.10 / priceBand 0.05（foodQueryBuilder 内部定数、CEO 実装承認時に確定）。
+ */
+export interface CoverageAxisState {
+  presentInInput: boolean;
+  projected: boolean;
+  /**
+   * lens 側のフィールド path（narration 由来引用用）。
+   * 例: "foodContext.moodTags" / "relationalLens.temperature" / "environmental.location".
+   * FoodQueryAxis とは意味が異なる（軸ではなく、派生元 field の識別子）。
+   */
+  sourceAxis: string | null;
+}
+
+export interface ProjectionCoverage {
+  area: CoverageAxisState;
+  cuisine: CoverageAxisState;
+  exactTime: CoverageAxisState;
+  occasion: CoverageAxisState;
+  moodAtmosphere: CoverageAxisState;
+  priceBand: CoverageAxisState;
+  /** 0-1, 重み付き平均。閾値は foodQueryBuilder 内部定数 */
+  summaryScore: number;
+}
+
+/**
+ * clarify gate 判断材料（CEO 条件 3 / rev 3）。
+ *
+ * 閾値単独で判断しない — critical axis（area / exactTime）欠落は
+ * summaryScore が高くても shouldClarify=true に倒す。
+ *
+ * 4 フィールド（missing / projected / dropped / reason）は必ず telemetry に push する。
+ */
+export interface ClarifySignal {
+  shouldClarify: boolean;
+  clarifyReason:
+    | "coverage_below_threshold"
+    | "critical_axis_missing"
+    | "conflicting_signals"
+    | null;
+  /** lens にも会話にも存在しない軸（真の欠損） */
+  missingAxes: FoodQueryAxis[];
+  /** searchString に射影できた軸 */
+  projectedAxes: FoodQueryAxis[];
+  /** lens には存在したが searchString に載せられなかった軸（射影失敗） */
+  droppedAxes: FoodQueryAxis[];
+  /** 推奨 clarify 質問（「新宿で和食、何時頃ですか？」等）。欠損軸を 1-2 個に絞る */
+  suggestedClarifyQuestion: string | null;
+}
+
+/**
+ * (6)-2 page type classifier に渡す source 優先順（CEO 条件 4 / rev 3）。
+ *
+ * webConnector が発射するクエリと、retrieval 結果を classifier に流す際の優先順を
+ * buildFoodQuery() 側で決める（原則: 公式 > 予約 SaaS > 詳細 > listicle/news）。
+ */
+export interface SourcePriorityHint {
+  /** 優先順位つき domain 群（配列の先頭が最優先） */
+  preferredDomains: string[];
+  /** direct candidate 昇格を block すべき page type（PageType union から選出） */
+  blockedPageTypes: PageType[];
+  /** このリクエストで venue_detail ページを最優先で取りに行くか */
+  preferVenueDetail: boolean;
+}
+
+/**
+ * buildFoodQuery() の統合返り値（CEO 条件 4: 4 責務を単一モジュールに束ねる）。
+ *
+ * foodQueryBuilder.ts の export 型。foodOrchestrator はこれ 1 つだけ受け取る。
+ */
+export interface FoodQueryBuildResult {
+  query: FoodQuery;
+  /** 実際の検索クエリ文字列群（並列 source に発射される） */
+  searchStrings: string[];
+  coverage: ProjectionCoverage;
+  clarifySignal: ClarifySignal;
+  sourcePriorityHint: SourcePriorityHint;
+}

@@ -38,7 +38,14 @@ import { generateMovieProposalV2 } from "./movieOrchestrator";
 import {
   generateFoodProposalV2,
   emitFoodOrchestratorError,
+  shouldSkipFoodWebSearch,
 } from "./foodOrchestrator";
+import type { FoodQueryBuilderInput } from "./foodQueryBuilder";
+import { COALTER_FLAGS } from "./flags";
+import { collectLiveBundle } from "./understanding/liveCollector";
+import { runUnderstanding } from "./understanding";
+import { buildFoodLensToday, type FoodLensToday } from "./understanding/foodLensAdapter";
+import type { TwoPersonLensToday } from "./understanding/types";
 import { candidateKey } from "./axes";
 import { buildTopicAnchor } from "./topicScope";
 import type { TopicAnchor } from "./types";
@@ -146,6 +153,13 @@ export async function runCoAlterPipeline(
     avoidKeys?: string[];
     /** Phase 1.5.4.6: 永続化済み anchor（UI からの上書き / 再起動ケース） */
     topicAnchor?: TopicAnchor;
+    /**
+     * §6.4 (6)-1b pre-search gate (2026-04-20):
+     * food 専用 retrieval lens。供給された場合、shouldSkipFoodWebSearch が true の
+     * ときに ensureSearchCandidates() を呼ばない（rawSearchCandidates=0）。
+     * 未供給時は legacy 経路（従来どおり search 実行）。
+     */
+    foodLens?: FoodQueryBuilderInput;
   },
 ): Promise<CoAlterOutput> {
   const startTime = Date.now();
@@ -215,7 +229,15 @@ export async function runCoAlterPipeline(
   const useMovieV2 = analysis.theme === "movie";
   const useFoodV2 = analysis.theme === "food";
   const buildDecisionCard = async (): Promise<ProposalCard> => {
-    const searchCands = await ensureSearchCandidates();
+    // §6.4 (6)-1b pre-search gate (2026-04-20 / GPT 条件 #1 真の達成):
+    //   food + foodLens 供給 + shouldClarify=true のときだけ web search を skip する。
+    //   clarify で返すと決まっているのに generic query を打つのは pollution を増やすだけ。
+    //   skip 時は rawSearchCandidates=0 になる（orchestrator 側でも defensive gate あり）。
+    const skipFoodWebSearch =
+      useFoodV2 && shouldSkipFoodWebSearch(options?.foodLens);
+    const searchCands = skipFoodWebSearch
+      ? []
+      : await ensureSearchCandidates();
     let rawProposal: ProposalCard;
     if (useMovieV2) {
       const movieResult = await generateMovieProposalV2({
@@ -262,7 +284,20 @@ export async function runCoAlterPipeline(
       //   - 成功時: foodOrchestrator 内で food.diagnostics を 1 回 emit
       //   - 失敗時: food.orchestrator.error を emit + generateProposal に fallback
       //            （food.diagnostics は emit しない）
+      //
+      // F-5 (2026-04-20): COALTER_FOOD_LENS_WIRED=true かつ外部 foodLens 未供給時は
+      //   Stage 1 Understand を走らせて TwoPersonLensToday / FoodLensToday を組み立て、
+      //   orchestrator に渡す。flag false 時は従来経路を機械的に維持する。
+      //   Stage 1 側の例外は catch して lens 無しに fall through（fail-open）。
       try {
+        const { lens, foodLensToday } = await buildFoodLensIfEnabled(
+          supabase,
+          input.threadId,
+          pairStateId,
+          userAId,
+          userBId,
+          !!options?.foodLens,
+        );
         const foodResult = await generateFoodProposalV2({
           turns: messages,
           analysis,
@@ -274,6 +309,9 @@ export async function runCoAlterPipeline(
           pendingDeltas: options?.pendingDeltas,
           sessionId: session.id,
           userId: input.invokedBy,
+          foodLens: options?.foodLens,
+          lens,
+          foodLensToday,
         });
         rawProposal = foodResult.card;
 
@@ -751,6 +789,58 @@ function sanitizeLegacyMovieCandidates(
   // 部分生存: rank を詰め直して返す（順序は保つ）
   const repacked = verified.map((c, idx) => ({ ...c, rank: idx + 1 }));
   return { ...card, candidates: repacked };
+}
+
+// ─────────────────────────────────────────────
+// F-5: Stage 1 Understand → Food lens wiring（flag-gated）
+// ─────────────────────────────────────────────
+
+/**
+ * COALTER_FOOD_LENS_WIRED が ON かつ 外部 foodLens 未供給のときだけ、
+ * Stage 1 Understand を走らせて TwoPersonLensToday / FoodLensToday を構築する。
+ *
+ * 挙動:
+ *  - flag OFF             → { lens: undefined, foodLensToday: undefined } を即返す
+ *  - 外部 foodLens 供給済  → { lens: undefined, foodLensToday: undefined } を即返す
+ *    （legacy 経路を壊さない。外部注入の foodLens が既に hygiene gate を通す担保）
+ *  - flag ON + 未供給      → collectLiveBundle → runUnderstanding → buildFoodLensToday
+ *    を実行。例外は握り潰して fail-open（{ lens: undefined, foodLensToday: undefined }）
+ *    で返し、orchestrator は brief-only 経路で fallback する。
+ *
+ * F-5 scope: Stage 1 の outcome 判定 (failed/degraded/success) は呼び出し側で
+ *   gating しない。orchestrator 側が lens の中身を見て narration を劣化させる想定。
+ */
+async function buildFoodLensIfEnabled(
+  supabase: SupabaseClient,
+  threadId: string,
+  pairStateId: string,
+  userA: string,
+  userB: string,
+  externalFoodLensSupplied: boolean,
+): Promise<{ lens?: TwoPersonLensToday; foodLensToday?: FoodLensToday }> {
+  if (!COALTER_FLAGS.foodLensWired) return {};
+  if (externalFoodLensSupplied) return {};
+  try {
+    const now = new Date().toISOString();
+    const { bundle } = await collectLiveBundle({
+      supabase,
+      threadId,
+      pairStateId,
+      userA,
+      userB,
+      now,
+    });
+    const lens = await runUnderstanding(bundle, now, pairStateId);
+    const foodLensToday = buildFoodLensToday({
+      lens,
+      environmental: bundle.environmental,
+      turns: bundle.conversation.turns,
+    });
+    return { lens, foodLensToday };
+  } catch {
+    // fail-open: Stage 1 の失敗で food pipeline 全体を倒さない
+    return {};
+  }
 }
 
 // ─────────────────────────────────────────────
