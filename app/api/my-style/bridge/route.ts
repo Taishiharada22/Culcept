@@ -24,7 +24,10 @@ function readServerSnapshot(raw: unknown): SavedState | null {
     const maybeState = isRecord(raw.myStyleState) ? raw.myStyleState : null;
     if (!maybeState) return null;
     const normalized = normalizeSavedState(maybeState);
-    return hasMeaningfulState(normalized) ? normalized : null;
+    // Return state if it has meaningful data OR a revision > 0 (intentional empty state).
+    // Only return null for truly never-used state.
+    if (hasMeaningfulState(normalized) || (normalized._revision ?? 0) > 0) return normalized;
+    return null;
 }
 
 export async function GET() {
@@ -97,6 +100,17 @@ export async function GET() {
         const styleVector = styleVectorRes.data;
         const quizResult = isRecord(styleSummary?.quiz_result) ? styleSummary.quiz_result : {};
         const remoteState = readServerSnapshot(quizResult);
+
+        // ── Diagnostic: wardrobe read-side ──
+        const _savedAt = typeof quizResult.myStyleSavedAt === "string" ? quizResult.myStyleSavedAt : null;
+        const _wardrobeLen = remoteState?.wardrobe?.length ?? 0;
+        const _hasMyStyleState = isRecord(quizResult.myStyleState);
+        console.log(`[bridge GET] hasMyStyleState=${_hasMyStyleState} wardrobeLen=${_wardrobeLen} savedAt=${_savedAt ?? "null"} remoteStateNull=${remoteState === null}`);
+        if (_hasMyStyleState && _wardrobeLen === 0) {
+            const raw = quizResult.myStyleState as Record<string, unknown>;
+            console.warn(`[bridge GET] myStyleState exists but wardrobe empty — raw wardrobe type=${typeof raw.wardrobe}, isArray=${Array.isArray(raw.wardrobe)}, rawLen=${Array.isArray(raw.wardrobe) ? raw.wardrobe.length : "N/A"}`);
+        }
+
         const laneTop3 = Array.isArray((tasteLayers?.layer_30d as Record<string, unknown> | null)?.lane_top3)
             ? ((tasteLayers?.layer_30d as Record<string, unknown>).lane_top3 as string[]).slice(0, 3)
             : [];
@@ -170,7 +184,9 @@ export async function POST(request: NextRequest) {
         const source = String(body?.source ?? "my-style");
         const state = normalizeSavedState(body?.state);
 
-        if (!hasMeaningfulState(state)) {
+        // Accept empty state when revision > 0 — user intentionally deleted all items.
+        // Only skip for truly virgin state (never used).
+        if ((state._revision ?? 0) === 0 && !hasMeaningfulState(state)) {
             return NextResponse.json({ ok: true, skipped: true, reason: "empty_state" });
         }
 

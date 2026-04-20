@@ -53,6 +53,9 @@ export async function fetchWardrobe(): Promise<
  * サーバー未到達時のクライアント側正本
  */
 const STYLE_STATE_KEY = "culcept_my_style_v3";
+const IDB_NAME = "culcept_mystyle";
+const IDB_STORE = "state_cache";
+const IDB_KEY = "my-style-state";
 
 export function loadWardrobeFromLocal(): import("@/app/(immersive)/my-style/_lib/types").WardrobeItem[] {
   if (typeof window === "undefined") return [];
@@ -64,4 +67,53 @@ export function loadWardrobeFromLocal(): import("@/app/(immersive)/my-style/_lib
   } catch {
     return [];
   }
+}
+
+/**
+ * ワードローブの読み取り（IndexedDB → localStorage → server の優先順）
+ * localStorage がクォータ超過等で空の場合の救済策。
+ * 呼び出し側が非同期を扱える場合はこちらを使う。
+ */
+export async function loadWardrobeWithFallback(): Promise<import("@/app/(immersive)/my-style/_lib/types").WardrobeItem[]> {
+  // 1. localStorage（最速）
+  const local = loadWardrobeFromLocal();
+  if (local.length > 0) return local;
+
+  // 2. IndexedDB（画像付きフルステートが入っている）
+  if (typeof window !== "undefined" && typeof indexedDB !== "undefined") {
+    try {
+      const items = await loadWardrobeFromIDB();
+      if (items.length > 0) return items;
+    } catch { /* IndexedDB unavailable */ }
+  }
+
+  // 3. Server via bridge API（最終手段）
+  return fetchWardrobe();
+}
+
+/** IndexedDB から直接ワードローブを読み取る */
+function loadWardrobeFromIDB(): Promise<import("@/app/(immersive)/my-style/_lib/types").WardrobeItem[]> {
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onerror = () => resolve([]);
+      req.onsuccess = () => {
+        try {
+          const db = req.result;
+          if (!db.objectStoreNames.contains(IDB_STORE)) { db.close(); resolve([]); return; }
+          const tx = db.transaction(IDB_STORE, "readonly");
+          const store = tx.objectStore(IDB_STORE);
+          const get = store.get(IDB_KEY);
+          get.onsuccess = () => {
+            db.close();
+            const data = get.result;
+            resolve(Array.isArray(data?.wardrobe) ? data.wardrobe : []);
+          };
+          get.onerror = () => { db.close(); resolve([]); };
+        } catch { resolve([]); }
+      };
+      // DB doesn't exist yet — resolve empty
+      req.onupgradeneeded = () => { req.result.close(); resolve([]); };
+    } catch { resolve([]); }
+  });
 }
