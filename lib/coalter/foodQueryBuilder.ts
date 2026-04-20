@@ -70,7 +70,11 @@ const COVERAGE_THRESHOLD = 0.4;
  * direct candidate 昇格を block する page type。
  * (6)-2 classifier が判定した結果を rank 段で enforce する際の入力。
  */
-const BLOCKED_PAGE_TYPES: readonly PageType[] = ["listicle", "news"] as const;
+const BLOCKED_PAGE_TYPES: readonly PageType[] = [
+  "listicle",
+  "news",
+  "non_venue",
+] as const;
 
 /**
  * 日本の食事検索で preferred な domain。順序が優先順。

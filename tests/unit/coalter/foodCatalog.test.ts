@@ -517,7 +517,7 @@ describe("parseFoodVenues: pageType gate (§6.4 (6)-2b)", () => {
     expect(meta.pageTypeDistribution.news).toBe(1);
   });
 
-  it("全 6 page type のカウントが 0 初期化される", () => {
+  it("全 7 page type のカウントが 0 初期化される", () => {
     const { meta } = parseFoodVenues([]);
     expect(meta.pageTypeDistribution.venue_detail).toBe(0);
     expect(meta.pageTypeDistribution.official).toBe(0);
@@ -525,6 +525,96 @@ describe("parseFoodVenues: pageType gate (§6.4 (6)-2b)", () => {
     expect(meta.pageTypeDistribution.third_party_listing).toBe(0);
     expect(meta.pageTypeDistribution.news).toBe(0);
     expect(meta.pageTypeDistribution.listicle).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(0);
     expect(meta.blockedPageTypeCount).toBe(0);
+  });
+
+  // ──────────── venue quality gate (2026-04-20 F-6 live 残差対応) ────────────
+
+  it("municipal host (city.shinjuku.lg.jp) → non_venue として block", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "新宿区役所 | 住民サービス",
+        description: "住民票・戸籍・税務",
+        url: "https://www.city.shinjuku.lg.jp/index.html",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(1);
+    expect(meta.blockedPageTypeCount).toBe(1);
+    expect(meta.blockedByPageType.non_venue).toBe(1);
+  });
+
+  it("metro.tokyo.jp (東京都庁) → non_venue として block", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "東京都 | 公式",
+        description: "都政情報",
+        url: "https://www.metro.tokyo.jp/page/abc",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(1);
+    expect(meta.blockedByPageType.non_venue).toBe(1);
+  });
+
+  it("観光協会タイトル → non_venue として block", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "渋谷観光協会 | 渋谷を楽しむ",
+        description: "渋谷のおすすめスポット",
+        url: "https://example.com/foo",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(1);
+    expect(meta.blockedByPageType.non_venue).toBe(1);
+  });
+
+  it("料理ジャンル一覧 (directory title) → non_venue として block", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "料理ジャンル一覧 | 食べログ",
+        description: "ジャンルから探す",
+        url: "https://tabelog.com/category/all/",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(1);
+    expect(meta.blockedByPageType.non_venue).toBe(1);
+  });
+
+  it("listing domain の directory path (/category/) → non_venue として block", () => {
+    const input: SearchCandidate[] = [
+      sc({
+        title: "焼肉",
+        description: "エリアで絞り込む",
+        url: "https://retty.me/category/yakiniku/",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(0);
+    expect(meta.pageTypeDistribution.non_venue).toBe(1);
+    expect(meta.blockedByPageType.non_venue).toBe(1);
+  });
+
+  it("listing domain の venue detail path は directory gate で誤爆しない (retty /restaurants/123)", () => {
+    // /restaurants/\d+ は VENUE_DETAIL_PATH に当たるため non_venue に落ちない
+    const input: SearchCandidate[] = [
+      sc({
+        title: "『焼肉ABC』渋谷店",
+        description: "渋谷駅徒歩5分",
+        url: "https://retty.me/restaurants/RTN100200/",
+      }),
+    ];
+    const { catalog, meta } = parseFoodVenues(input);
+    expect(catalog.length).toBe(1);
+    expect(catalog[0].pageType).toBe("third_party_listing");
+    expect(meta.pageTypeDistribution.non_venue).toBe(0);
+    expect(meta.pageTypeDistribution.third_party_listing).toBe(1);
   });
 });

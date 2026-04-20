@@ -1650,7 +1650,13 @@ export type FoodQueryAxis =
  *   news                 — ニュース記事（閉店・メディア掲載情報等）
  *   listicle             — 「新宿ラーメン BEST 10」等の複数店列挙ページ
  *
- * direct candidate 昇格 block 対象: news / listicle
+ * direct candidate 昇格 block 対象: news / listicle / non_venue
+ *
+ * 2026-04-20 venue quality gate 追加（F-6 live smoke 残差対応）:
+ *   non_venue — municipal / 公共機関 / ディレクトリ（ジャンル一覧）等、単一店舗ページで
+ *   ないと判定されたページ。blocked-by-design。live retrieval で
+ *   city.*.lg.jp / 観光協会 / /category/ のような URL が candidate として
+ *   昇格する現象を止めるための分類。
  */
 export type PageType =
   | "venue_detail"
@@ -1658,7 +1664,8 @@ export type PageType =
   | "reservation_partner"
   | "third_party_listing"
   | "news"
-  | "listicle";
+  | "listicle"
+  | "non_venue";
 
 /**
  * FoodQuery の「時刻枠」first-class 表現（rev 2/3 原則 9）。

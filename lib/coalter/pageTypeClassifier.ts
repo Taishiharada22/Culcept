@@ -79,6 +79,72 @@ const NEWS_ORIENTED_DOMAINS: readonly string[] = [
   "j-cast.com",
 ];
 
+/**
+ * venue quality gate — 2026-04-20 live smoke 残差対応。
+ *
+ * 以下に該当した時点で pageType="non_venue" に倒す（= direct candidate 昇格 block）。
+ *
+ * (a) Municipal / 公共機関ホスト:
+ *     city.shinjuku.lg.jp / www.city.shibuya.tokyo.jp / *.go.jp / *.pref.*.jp 等。
+ *     日本の地方公共団体は慣例的に以下 TLD / サブドメインを使う:
+ *       - *.lg.jp  : 全地方公共団体 (city/town/village/ward)
+ *       - *.go.jp  : 中央省庁・政府機関
+ *       - metro.tokyo.jp / city.*.tokyo.jp 等: 東京都 / 都内区市町村
+ *       - pref.*.jp : 都道府県庁
+ *
+ * (b) Directory / ジャンル一覧パス（listing domain でも非 venue）:
+ *     retty.me/category/, tabelog.com/genre/, /tags/, /search 等。
+ *     VENUE_DETAIL_PATH に該当する場合はこのルールを適用しない（intent 併用）。
+ *
+ * 判定順: (a) host → (c) title → (b) path の順で評価する（path は最も誤爆しやすいため
+ *   venue_detail path を先に拾い、残った時のみ directory 判定へ）。
+ */
+const MUNICIPAL_HOST_PATTERNS: readonly RegExp[] = [
+  /(^|\.)lg\.jp$/i, // 全地方公共団体
+  /(^|\.)go\.jp$/i, // 中央省庁・政府機関
+  /(^|\.)pref\.[a-z0-9-]+\.jp$/i, // 都道府県庁 (pref.tokyo.jp etc.)
+  /(^|\.)metro\.tokyo\.jp$/i, // 東京都庁
+  /(^|\.)city\.[a-z0-9-]+\.(?:tokyo|jp)\b/i, // 市区
+  /(^|\.)town\.[a-z0-9-]+\.jp$/i, // 町役場
+  /(^|\.)village\.[a-z0-9-]+\.jp$/i, // 村役場
+  /(^|\.)ward\.[a-z0-9-]+\.jp$/i, // 区(稀)
+];
+
+/**
+ * 非 venue を強く示す title 語。
+ * restaurant detail タイトルと衝突しないものだけ（「〇〇食堂」等は含めない）。
+ */
+const NON_VENUE_TITLE_PATTERNS: readonly RegExp[] = [
+  /区役所/,
+  /市役所/,
+  /町役場/,
+  /村役場/,
+  /県庁/,
+  /都庁/,
+  /府庁/,
+  /商工会(?:議所)?/,
+  /観光協会/,
+  /観光案内所/,
+  /観光局/,
+  /交通案内/,
+  /料理ジャンル一覧/,
+  /ジャンル一覧/,
+  /エリア一覧/,
+];
+
+/**
+ * Directory / ジャンル一覧 URL パス。
+ * venue_detail path を先に評価し、それに該当しない時のみこのルールを適用する。
+ */
+const DIRECTORY_PATH_PATTERNS: readonly RegExp[] = [
+  /\/category(?:\/|$)/i,
+  /\/categories(?:\/|$)/i,
+  /\/genre(?:s)?(?:\/|$)/i,
+  /\/tags?(?:\/|$)/i,
+  /\/search(?:\/|$|\?)/i,
+  /\/keyword(?:s)?(?:\/|$)/i,
+];
+
 // ─────────────────────────────────────────────
 // Path patterns
 // ─────────────────────────────────────────────
@@ -241,8 +307,14 @@ export interface PageTypeClassification {
 /**
  * direct candidate として昇格させてはいけない PageType。
  * foodQueryBuilder の BLOCKED_PAGE_TYPES と揃える契約。
+ *
+ * 2026-04-20: venue quality gate 追加で "non_venue" を block に含める。
  */
-const BLOCKED: readonly PageType[] = ["listicle", "news"] as const;
+const BLOCKED: readonly PageType[] = [
+  "listicle",
+  "news",
+  "non_venue",
+] as const;
 
 export function isDirectCandidateBlocked(pageType: PageType): boolean {
   return BLOCKED.includes(pageType);
@@ -251,17 +323,21 @@ export function isDirectCandidateBlocked(pageType: PageType): boolean {
 /**
  * URL / title / description から PageType を判定する。
  *
- * 判定順（重要: listicle/news が誤って venue_detail に流れないこと）:
- *   1. title に listicle signal → listicle (high)
- *   2. title に news signal → news (high)
- *   3. path に listicle signal → listicle (medium/high: 既知ドメインなら high)
- *   4. path に news signal → news (medium/high: news-oriented ドメインなら high)
- *   5. 予約 partner ドメイン → reservation_partner (high)
- *   6. 第三者 listing ドメイン + venue 詳細 path → third_party_listing (high)
- *   7. 第三者 listing ドメイン（詳細 path 未確認） → third_party_listing (medium)
- *   8. 官公式 signal（title or booking path） → official (medium/high)
- *   9. venue 詳細 path → venue_detail (medium)
- *  10. fallback → venue_detail (low)
+ * 判定順（重要: 非 venue が誤って venue_detail / third_party_listing に流れないこと）:
+ *   0a. host が municipal/政府 → non_venue (high) [2026-04-20 venue quality gate]
+ *   0b. title が 区役所/観光協会/料理ジャンル一覧 等 → non_venue (high)
+ *   1.  title に listicle signal → listicle (high)
+ *   2.  title に news signal → news (high)
+ *   3.  path に listicle signal → listicle (medium/high: 既知ドメインなら high)
+ *   4.  path に news signal → news (medium/high: news-oriented ドメインなら high)
+ *   5.  予約 partner ドメイン → reservation_partner (high)
+ *   6.  第三者 listing ドメイン + venue 詳細 path → third_party_listing (high)
+ *   6.5 venue_detail path が無く、directory path あり → non_venue (medium)
+ *       [2026-04-20 venue quality gate: /category/ /genre/ /tags/ /search /keyword]
+ *   7.  第三者 listing ドメイン（詳細 path 未確認） → third_party_listing (medium)
+ *   8.  官公式 signal（title or booking path） → official (medium/high)
+ *   9.  venue 詳細 path → venue_detail (medium)
+ *  10.  fallback → venue_detail (low)
  */
 export function classifyPageType(
   input: ClassifyPageTypeInput,
@@ -271,6 +347,29 @@ export function classifyPageType(
   const description = input.description ?? "";
   const host = extractHost(url) ?? "";
   const path = extractPath(url);
+
+  // (0a) municipal / 公共機関ホスト → non_venue
+  if (host) {
+    for (const re of MUNICIPAL_HOST_PATTERNS) {
+      if (re.test(host)) {
+        return {
+          pageType: "non_venue",
+          confidence: "high",
+          signals: { domainHit: host, reason: "municipal-host" },
+        };
+      }
+    }
+  }
+
+  // (0b) 非 venue title（区役所 / 観光協会 / ジャンル一覧 等）
+  const nonVenueTitle = firstMatch(NON_VENUE_TITLE_PATTERNS, title);
+  if (nonVenueTitle) {
+    return {
+      pageType: "non_venue",
+      confidence: "high",
+      signals: { titleHit: nonVenueTitle, reason: "non-venue-title" },
+    };
+  }
 
   // (1) title listicle
   const listicleTitle = firstMatch(LISTICLE_TITLE_PATTERNS, title);
@@ -344,20 +443,63 @@ export function classifyPageType(
     };
   }
 
-  // (6)(7) third-party listing
+  // (6)(6.5)(7) third-party listing
   if (listingDomainHit) {
     const venuePath = firstMatch(VENUE_DETAIL_PATH_PATTERNS, path);
+    if (venuePath) {
+      // (6) venue 詳細 path あり → third_party_listing (high)
+      return {
+        pageType: "third_party_listing",
+        confidence: "high",
+        signals: {
+          domainHit: listingDomainHit,
+          pathHit: venuePath,
+          reason: "third-party-listing-domain+venue-path",
+        },
+      };
+    }
+    // (6.5) venue 詳細 path 無し + directory path あり → non_venue
+    //   listing domain（retty/tabelog 等）でも /category/ /genre/ /tags/ /search は
+    //   単一店ページではない。venue path を先に見ることで誤爆を避ける。
+    const directoryPath = firstMatch(DIRECTORY_PATH_PATTERNS, path);
+    if (directoryPath) {
+      return {
+        pageType: "non_venue",
+        confidence: "medium",
+        signals: {
+          domainHit: listingDomainHit,
+          pathHit: directoryPath,
+          reason: "directory-path-on-listing-domain",
+        },
+      };
+    }
+    // (7) listing domain のみ（詳細 path 未確認）
     return {
       pageType: "third_party_listing",
-      confidence: venuePath ? "high" : "medium",
+      confidence: "medium",
       signals: {
         domainHit: listingDomainHit,
-        ...(venuePath ? { pathHit: venuePath } : {}),
-        reason: venuePath
-          ? "third-party-listing-domain+venue-path"
-          : "third-party-listing-domain",
+        reason: "third-party-listing-domain",
       },
     };
+  }
+
+  // (6.5-b) listing domain でない URL でも directory path が明確な場合は non_venue
+  //   例: example.com/category/japanese-food のような一般ディレクトリページ。
+  //   listing domain 判定後に置くことで retty/tabelog の誤爆を先に回避済み。
+  {
+    const directoryPath = firstMatch(DIRECTORY_PATH_PATTERNS, path);
+    if (directoryPath) {
+      return {
+        pageType: "non_venue",
+        confidence: "medium",
+        signals: {
+          ...(host ? { domainHit: host } : {}),
+          pathHit: directoryPath,
+          reason: "directory-path",
+        },
+      };
+    }
   }
 
   // news-oriented domain but no listicle/news path → news (low, 保守的)
@@ -425,6 +567,9 @@ export const __internal = {
   RESERVATION_PARTNER_DOMAINS,
   THIRD_PARTY_LISTING_DOMAINS,
   NEWS_ORIENTED_DOMAINS,
+  MUNICIPAL_HOST_PATTERNS,
+  NON_VENUE_TITLE_PATTERNS,
+  DIRECTORY_PATH_PATTERNS,
   LISTICLE_PATH_PATTERNS,
   NEWS_PATH_PATTERNS,
   VENUE_DETAIL_PATH_PATTERNS,

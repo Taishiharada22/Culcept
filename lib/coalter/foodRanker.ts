@@ -311,7 +311,11 @@ export function hardFilterOne(
   // catalog 段で入口遮断済みだが、catalog を介さず直接 rankFood に流し込む
   // 将来の別経路（future commits / test double / manual injection）に備えて
   // ここでも hard reject する。reason は blocked_page_type。
-  if (candidate.pageType === "listicle" || candidate.pageType === "news") {
+  if (
+    candidate.pageType === "listicle" ||
+    candidate.pageType === "news" ||
+    candidate.pageType === "non_venue"
+  ) {
     reasons.push("blocked_page_type");
   }
 

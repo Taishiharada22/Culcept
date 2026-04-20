@@ -151,9 +151,12 @@ export interface FoodDiagnostics {
   /**
    * §6.4 (6)-2c integration (2026-04-20):
    * catalog 段の page type classifier 結果を diagnostics にまとめて合流。
-   *   pageTypeDistribution: 全 SearchCandidate の生分布（6 型すべて 0 初期化）
-   *   blockedPageTypeCount: listicle + news の合計（catalog 昇格を block した件数）
-   *   blockedByPageType:    内訳（listicle / news のみ非 0 になる）
+   *   pageTypeDistribution: 全 SearchCandidate の生分布（7 型すべて 0 初期化）
+   *   blockedPageTypeCount: listicle + news + non_venue の合計（catalog 昇格を block した件数）
+   *   blockedByPageType:    内訳（listicle / news / non_venue のみ非 0 になる）
+   *   2026-04-20 venue quality gate: non_venue を追加（municipal/directory/非店舗）
+   *   固定 shape は 7-key（venue_detail / official / reservation_partner /
+   *     third_party_listing / news / listicle / non_venue）。
    * 未供給（gated clarify short-circuit）時は 0 埋めで shape を保つ。
    */
   pageTypeDistribution: Record<PageType, number>;
@@ -166,7 +169,7 @@ export interface FoodDiagnostics {
    *     PageType 別 "missing_where で落ちた率"。
    *     分母 = その PageType で catalog を通過し ranker に入った候補数
    *     分子 = 分母のうち filterTrace.reasons に "missing_where" を含む件数
-   *     固定 6-key shape（未観測 type は 0.0）。分母 0 は 0.0（NaN ガード）。
+   *     固定 7-key shape（未観測 type は 0.0）。分母 0 は 0.0（NaN ガード）。
    *   insufficientInfoRateBySourceKind:
    *     同上、reason = "insufficient_info"
    *   candidateEligiblePageRate:
@@ -647,7 +650,7 @@ export async function generateFoodProposalV2(
     pageTypeDistribution: catalogMeta.pageTypeDistribution,
     blockedPageTypeCount: catalogMeta.blockedPageTypeCount,
     blockedByPageType: catalogMeta.blockedByPageType,
-    // §6.4 (6)-4: source-kind 別欠落率 + eligible page rate（固定 6-key shape）
+    // §6.4 (6)-4: source-kind 別欠落率 + eligible page rate（固定 7-key shape）
     missingWhereRateBySourceKind,
     insufficientInfoRateBySourceKind,
     candidateEligiblePageRate,
@@ -805,6 +808,7 @@ function emptyPageTypeDistribution(): Record<PageType, number> {
     third_party_listing: 0,
     news: 0,
     listicle: 0,
+    non_venue: 0,
   };
 }
 
@@ -828,7 +832,7 @@ function countCataloguedByPageType(
  *
  * 分母 = cataloguedByPageType[pt]（ranker 入力数）
  * 分子 = filterTrace の pageType==pt かつ reasons に reason を含む件数
- * 分母 0 → 0.0（NaN 禁止）。固定 6-key shape。
+ * 分母 0 → 0.0（NaN 禁止）。固定 7-key shape。
  */
 function computeRateBySourceKind(
   filterTrace: ReadonlyArray<FoodFilterTrace>,

@@ -954,6 +954,7 @@ describe("§6.4 (6)-4: observability — source-kind rates + eligible page rate"
     "third_party_listing",
     "news",
     "listicle",
+    "non_venue",
   ];
 
   function expectSixKeyShape(

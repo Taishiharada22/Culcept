@@ -359,7 +359,8 @@ function computeFoodConfidence(args: {
  * parseFoodVenues の meta 情報。
  *
  * pageTypeDistribution は全 SearchCandidate の生分類（block の有無に関係なく合算）。
- * blockedPageTypeCount は listicle/news で入口 drop した件数（§6.4 (6)-2 契約）。
+ * blockedPageTypeCount は listicle/news/non_venue で入口 drop した件数（§6.4 (6)-2 契約）。
+ *   2026-04-20 venue quality gate 追加で non_venue も block 集計対象。
  * blockedByPageType は内訳。direct candidate として扱わなかった件数のソース表示に使う。
  *
  * diagnostics への配線は (6)-2c 完了後に行う（CEO 方針）。
@@ -383,6 +384,7 @@ function emptyPageTypeDistribution(): Record<PageType, number> {
     third_party_listing: 0,
     news: 0,
     listicle: 0,
+    non_venue: 0,
   };
 }
 
@@ -390,7 +392,7 @@ function emptyPageTypeDistribution(): Record<PageType, number> {
  * 食事 search 結果を ActivityCandidate<FoodVenue> の catalog に変換する。
  *
  * Drop 順（§6.4 (6)-2b 契約）:
- *   1. page type classification — listicle/news は catalog 昇格を入口で block
+ *   1. page type classification — listicle/news/non_venue は catalog 昇格を入口で block
  *   2. name 必須ゲート — 店名抽出失敗は drop（hard drop）
  *   3. candidateId dedup — 同一 id が出たら先勝ち
  *

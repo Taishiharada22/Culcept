@@ -324,6 +324,146 @@ describe("pageTypeClassifier.classifyPageType", () => {
       expect(r.pageType).toBe("news");
     });
   });
+
+  // ─────────────────────────────────────────────
+  // 2026-04-20 venue quality gate: non_venue
+  // ─────────────────────────────────────────────
+
+  describe("non_venue: municipal host", () => {
+    it("city.shinjuku.lg.jp → non_venue (high)", () => {
+      const r = classifyPageType({
+        url: "https://www.city.shinjuku.lg.jp/index.html",
+        title: "新宿区役所",
+      });
+      expect(r.pageType).toBe("non_venue");
+      expect(r.confidence).toBe("high");
+      expect(r.signals.reason).toBe("municipal-host");
+      expect(isDirectCandidateBlocked(r.pageType)).toBe(true);
+    });
+
+    it("metro.tokyo.jp → non_venue (high)", () => {
+      const r = classifyPageType({
+        url: "https://www.metro.tokyo.jp/page/abc",
+        title: "東京都",
+      });
+      expect(r.pageType).toBe("non_venue");
+      expect(r.confidence).toBe("high");
+      expect(r.signals.reason).toBe("municipal-host");
+    });
+
+    it("pref.kanagawa.jp → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://www.pref.kanagawa.jp/docs/abc.html",
+        title: "神奈川県",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("*.go.jp (中央省庁) → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://www.mlit.go.jp/page",
+        title: "国土交通省",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("city.shibuya.tokyo.jp → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://www.city.shibuya.tokyo.jp/info/",
+        title: "渋谷区公式サイト",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+  });
+
+  describe("non_venue: title signal", () => {
+    it("title に『区役所』→ non_venue (high)", () => {
+      const r = classifyPageType({
+        url: "https://example.com/foo",
+        title: "新宿区役所 | 各種窓口",
+      });
+      expect(r.pageType).toBe("non_venue");
+      expect(r.signals.reason).toBe("non-venue-title");
+    });
+
+    it("title に『観光協会』→ non_venue", () => {
+      const r = classifyPageType({
+        url: "https://example.com/foo",
+        title: "渋谷観光協会 | 渋谷を楽しむ",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("title に『料理ジャンル一覧』→ non_venue", () => {
+      const r = classifyPageType({
+        url: "https://tabelog.com/category/all/",
+        title: "料理ジャンル一覧 | 食べログ",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("title に『商工会議所』→ non_venue", () => {
+      const r = classifyPageType({
+        url: "https://example.com/foo",
+        title: "渋谷商工会議所",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+  });
+
+  describe("non_venue: directory path", () => {
+    it("listing domain + /category/ → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://retty.me/category/yakiniku/",
+        title: "焼肉",
+      });
+      expect(r.pageType).toBe("non_venue");
+      expect(r.signals.reason).toBe("directory-path-on-listing-domain");
+    });
+
+    it("listing domain + /genre/ → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://tabelog.com/genre/ramen/",
+        title: "ラーメン",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("listing domain + /search → non_venue", () => {
+      const r = classifyPageType({
+        url: "https://retty.me/search?q=yakiniku",
+        title: "検索結果",
+      });
+      expect(r.pageType).toBe("non_venue");
+    });
+
+    it("非 listing domain + /category/ → non_venue (directory-path)", () => {
+      const r = classifyPageType({
+        url: "https://example.com/category/japanese-food",
+        title: "和食",
+      });
+      expect(r.pageType).toBe("non_venue");
+      expect(r.signals.reason).toBe("directory-path");
+    });
+
+    it("listing domain + venue detail path → third_party_listing (非 non_venue、intent 優先)", () => {
+      const r = classifyPageType({
+        url: "https://retty.me/restaurants/RTN100200/",
+        title: "『焼肉ABC』渋谷店",
+      });
+      expect(r.pageType).toBe("third_party_listing");
+      expect(r.signals.reason).toBe("third-party-listing-domain+venue-path");
+    });
+
+    it("listing domain + 7 桁以上 ID + venue path → third_party_listing (/category がある URL でも venue_detail 優先はしない)", () => {
+      // tabelog venue detail に /category/ は通常含まれない。念のため確認。
+      const r = classifyPageType({
+        url: "https://tabelog.com/tokyo/A1303/A130301/13012345/",
+        title: "『焼肉ABC』渋谷店",
+      });
+      expect(r.pageType).toBe("third_party_listing");
+    });
+  });
 });
 
 describe("pageTypeClassifier.isDirectCandidateBlocked", () => {
@@ -344,5 +484,8 @@ describe("pageTypeClassifier.isDirectCandidateBlocked", () => {
   });
   it("third_party_listing は block されない", () => {
     expect(isDirectCandidateBlocked("third_party_listing")).toBe(false);
+  });
+  it("non_venue は block される (2026-04-20 venue quality gate)", () => {
+    expect(isDirectCandidateBlocked("non_venue")).toBe(true);
   });
 });
