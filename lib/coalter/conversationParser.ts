@@ -235,8 +235,22 @@ function extractConstraints(
   );
 
   // 場所
+  //
+  // 2026-04-21 S3 修正: whitelist を主要ターミナル + 広域エリア駅まで拡張。
+  //   旧 whitelist（15 エリア）では 新橋 / 東京 / 品川 / 上野 等の主要駅が
+  //   取りこぼされ、"新橋で朝7時に..." が location=null となり
+  //   webConnector.food query が generic に退化していた。
+  //
+  // 反証して採用しなかった案:
+  //   - 汎用 `(\S{2,6})駅` パターン: 「次の駅」「終着駅」等を誤マッチする
+  //     False positive の影響が localPart→ query 直結なので採用しない
+  //   - 県庁所在地を全件カバー: 現時点で扱う会話ドメイン（Tokyo+主要都市圏）を
+  //     超えるため YAGNI、必要になったら追加
+  //
+  // 優先順位: 長い表記 → 短い表記（部分一致衝突を避ける）
+  //   例: 新宿三丁目 > 新宿、中目黒 > 目黒、高田馬場 > 馬場
   const locationMatch = combined.match(
-    /(渋谷|新宿|池袋|銀座|六本木|表参道|原宿|吉祥寺|横浜|大阪|京都|名古屋|福岡|札幌|神戸|近く(で|の)|この辺|駅前)/,
+    /(新宿三丁目|高田馬場|自由が丘|三軒茶屋|下北沢|中目黒|代官山|阿佐ヶ谷|高円寺|御茶ノ水|中野坂上|代々木上原|二子玉川|武蔵小杉|たまプラーザ|みなとみらい|渋谷|新宿|池袋|銀座|六本木|表参道|原宿|吉祥寺|横浜|大阪|京都|名古屋|福岡|札幌|神戸|新橋|東京|品川|上野|秋葉原|浜松町|有楽町|田町|恵比寿|目黒|五反田|大崎|赤坂|麻布|青山|汐留|虎ノ門|日比谷|丸の内|築地|神田|神保町|巣鴨|早稲田|飯田橋|四ツ谷|市ヶ谷|水道橋|後楽園|荻窪|中野|三鷹|立川|町田|大井町|神泉|神楽坂|蒲田|北千住|錦糸町|押上|浅草|上野毛|成城|三宿|広尾|白金|南青山|西麻布|六本木ヒルズ|代々木|新大久保|梅田|難波|心斎橋|天王寺|烏丸|河原町|祇園|三宮|栄|天神|博多|近く(で|の)|この辺|駅前)/,
   );
 
   // 予算
@@ -245,9 +259,20 @@ function extractConstraints(
   );
 
   // 時間帯
-  const timeMatch = combined.match(
-    /(朝|昼|夕方|夜|午前|午後|\d{1,2}時|ランチ|ディナー|レイトショー)/,
+  //
+  // 2026-04-21 S1 朝誤認修正:
+  //   旧: 1 つの regex alternation で leftmost-first match
+  //        → 「朝から、11時にラーメン食べたい」で "朝" が先に hit し
+  //          briefBuilder.mapTimeSlot("朝") → "morning" 判定。
+  //          narrationBuilder.formatWhenFromBrief が 11時ランチを「朝」と表記。
+  //   新: 具体的な clock hour (\d{1,2}時) を抽象語より優先。
+  //        hour が取れれば mapTimeSlot が 11 → afternoon を返す（既存ロジックで正しい）。
+  //        hour 無しで抽象語のみの場合は従来通り。
+  const hourMatch = combined.match(/\d{1,2}時/);
+  const slotMatch = combined.match(
+    /(朝|昼|夕方|夜|午前|午後|ランチ|ディナー|レイトショー)/,
   );
+  const timeSlotRaw = hourMatch ? hourMatch[0] : (slotMatch?.[1] ?? null);
 
   // その他の明示的希望
   const preferences: string[] = [];
@@ -268,7 +293,7 @@ function extractConstraints(
     date: dateMatch?.[1] ?? null,
     location: locationMatch?.[1] ?? null,
     budget: budgetMatch?.[1] ?? null,
-    timeSlot: timeMatch?.[1] ?? null,
+    timeSlot: timeSlotRaw,
     preferences,
   };
 }

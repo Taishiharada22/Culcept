@@ -179,6 +179,38 @@ function mapTimeSlot(
   return null;
 }
 
+/**
+ * explicit hour を authoritative source として brief.approximateTime を整形する。
+ *
+ * - timeSlot は hour 由来の mapTimeSlot で上書き（LLM 誤判定を矯正）
+ * - preferredStartHour が欠けていれば補完
+ * - hour が range 外 (mapTimeSlot が null) のケースでは元の brief を返す
+ *   （反証: hour が数字として抽出されたが意味不明なら override しない）
+ */
+function rectifyBriefTimeByHour(
+  brief: ConversationBrief,
+  hour: number,
+): ConversationBrief {
+  const derivedSlot = mapTimeSlot(`${hour}時`);
+  if (!derivedSlot) return brief;
+  const at = brief.approximateTime;
+  // no-op 最適化: 既に hour も timeSlot も整合している場合は同じ参照を返す
+  if (
+    at.timeSlot === derivedSlot &&
+    at.preferredStartHour === hour
+  ) {
+    return brief;
+  }
+  return {
+    ...brief,
+    approximateTime: {
+      date: at.date,
+      timeSlot: derivedSlot,
+      preferredStartHour: at.preferredStartHour ?? hour,
+    },
+  };
+}
+
 function extractPreferredStartHour(text: string): number | null {
   const m = text.match(/(\d{1,2})時/);
   if (!m) return null;
@@ -466,8 +498,22 @@ export async function buildConversationBrief(
         latencyMs: Date.now() - started,
       };
     }
+    // 2026-04-21 S1 朝誤認修正（post-LLM override）:
+    //   ユーザーが explicit な時刻（例: "11時"）を言っているのに LLM が
+    //   "morning" と誤判定するケース（"お昼一緒に食べない？" と "11時" が
+    //   同居して LLM が朝と判断）を、explicit hour を authoritative に
+    //   置き換えることで修正する。
+    //   反証: hour と LLM の timeSlot が整合していれば override は noop。
+    //   hour を authoritative にする理由は、LLM の qualitative 判断は
+    //   user の quantitative 明示より精度が劣るため。
+    const joined = turns.map((t) => t.body).join(" ");
+    const explicitHour = extractPreferredStartHour(joined);
+    const rectified =
+      explicitHour !== null
+        ? rectifyBriefTimeByHour(normalized, explicitHour)
+        : normalized;
     return {
-      brief: normalized,
+      brief: rectified,
       llmSuccess: true,
       latencyMs: Date.now() - started,
     };
@@ -487,6 +533,7 @@ export const __internal = {
   inferMoodFromText,
   mapTimeSlot,
   extractPreferredStartHour,
+  rectifyBriefTimeByHour,
   PRESET_ROLES,
   MOOD_VOCAB,
 };

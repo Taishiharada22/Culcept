@@ -132,4 +132,70 @@ describe("webConnector: food queries (Phase B Commit 3)", () => {
     const styleQuery = d.queries.find((q) => /イタリアン/.test(q) && /人気店/.test(q));
     expect(styleQuery).toBeTruthy();
   });
+
+  // ─────────────────────────────────────────────
+  // 2026-04-21 S3 query degeneration 修正
+  // ─────────────────────────────────────────────
+  //
+  // 「新橋で朝7時にしっかり和定食食べたい」が generic query に退化せず、
+  //   area (新橋) + time (朝|7時) + cuisine (和食|和定食) が少なくとも 1 本の
+  //   クエリに必ず残ることを保証する。
+  //
+  // 退化していた根因:
+  //   1. extractConstraints.location の whitelist に 新橋 が無い
+  //   2. agreedConstraints.style は `で|にしよう|にする|にして` suffix 必須で
+  //      「和定食食べたい」は hit しない（かつ 和定食 も whitelist 不在）
+  //   3. food buildSearchQueries は c.timeSlot を query に含めない
+  //
+  // 上記 3 点が同時に落ちると「おすすめ レストラン デート」等の fallback に退化する。
+  describe("S3 query degeneration (新橋 / 朝7時 / 和定食) 修正", () => {
+    function s3Analysis(): ConversationAnalysis {
+      const turns: ConversationTurn[] = [
+        {
+          senderId: "a",
+          body: "新橋で朝7時にしっかり和定食食べたい",
+          createdAt: "2026-04-21T07:00:00Z",
+        },
+      ];
+      // ユーザー入力だけを recentMessages に載せ、
+      //   extractedConstraints を生パーサが埋めた想定で明示的に注入する
+      //   （conversationParser の regex 拡張で 新橋 を拾えるようになっている前提）
+      return {
+        theme: "food",
+        stalemate: null,
+        recentMessages: turns,
+        caringIntensityA: 0.5,
+        caringIntensityB: 0.5,
+        extractedConstraints: {
+          date: null,
+          location: "新橋",
+          budget: null,
+          timeSlot: "朝",
+          preferences: [],
+        },
+        constraintScore: 0.5,
+        agreedConstraints: [],
+      };
+    }
+
+    it("area + time + cuisine が少なくとも 1 本のクエリに必ず残る", () => {
+      const d = decideSearch(s3Analysis());
+      expect(d.shouldSearch).toBe(true);
+      // 少なくとも 1 本は 新橋 AND (朝|7時) AND (和食|和定食) を同時に含む
+      const covered = d.queries.find(
+        (q) =>
+          /新橋/.test(q) &&
+          /(朝|7時)/.test(q) &&
+          /(和食|和定食)/.test(q),
+      );
+      expect(covered).toBeTruthy();
+    });
+
+    it("退化した汎用 fallback 'おすすめ レストラン デート' に落ちない", () => {
+      const d = decideSearch(s3Analysis());
+      // fallback 文字列そのものが q1 の素になるのは location/style 全欠落時だけ
+      const degenerate = d.queries.find((q) => q === "おすすめ レストラン デート");
+      expect(degenerate).toBeFalsy();
+    });
+  });
 });

@@ -267,6 +267,71 @@ function extractMentionedCandidates(text: string): string[] {
   return [...new Set(candidates)];
 }
 
+/**
+ * 会話テキストから料理ジャンルを検出（suffix 不要の free-form 版）。
+ *
+ * agreedConstraints の singleStyleRe は「〜で / 〜にしよう」等の合意 suffix を
+ * 要求するため、「和定食食べたい」のような free-form 発話で取りこぼす。
+ * これが styleHint を空にし、q1 から cuisine が消え、q3（人気店保険）も発火
+ * しなくなる ── S3 query degeneration の主因。
+ *
+ * 設計:
+ *  - 長い表記を優先（和定食 > 和食、中華料理 > 中華 等）
+ *  - 直後 8 文字以内に否定語（嫌い / 苦手 / ダメ / 無理 / やめ / 避け）が
+ *    あればスキップ。反証: 「ラーメンはやめておこう」で style:ラーメン を
+ *    引き込む誤作動を避ける。
+ *  - agreedConstraints からの styleHint が取れているときは fallback しない
+ *    （呼び出し側で制御）。
+ */
+function detectCuisineHint(text: string): string | null {
+  const cuisines = [
+    // 長い表記を先に（prefix match 優先）
+    "和定食",
+    "洋定食",
+    "中華料理",
+    "フランス料理",
+    "韓国料理",
+    "タイ料理",
+    "インド料理",
+    "ベトナム料理",
+    "和食",
+    "洋食",
+    "中華",
+    "ラーメン",
+    "つけ麺",
+    "寿司",
+    "鮨",
+    "焼肉",
+    "焼き鳥",
+    "焼鳥",
+    "居酒屋",
+    "イタリアン",
+    "フレンチ",
+    "カフェ",
+    "そば",
+    "蕎麦",
+    "うどん",
+    "とんかつ",
+    "天ぷら",
+    "天婦羅",
+    "牛丼",
+    "カレー",
+    "ピザ",
+    "パスタ",
+    "定食",
+    "丼",
+  ];
+  for (const c of cuisines) {
+    const idx = text.indexOf(c);
+    if (idx < 0) continue;
+    // 直後 8 文字以内に否定語があれば誤検出としてスキップ
+    const tail = text.slice(idx + c.length, idx + c.length + 8);
+    if (/嫌い|苦手|ダメ|無理|やめ|避け|禁止/.test(tail)) continue;
+    return c;
+  }
+  return null;
+}
+
 /** 会話テキストからアクティビティのサブカテゴリを検出 */
 function detectActivitySubcategory(text: string): string | null {
   const subcategories: Array<{ keywords: RegExp; label: string }> = [
@@ -447,18 +512,29 @@ function buildSearchQueries(
       //  - 「おすすめ10選」「まとめ」等の article-listing のみ除外
       //  - 公式導線を 1 本追加して bookingProviderDistribution の多様性を担保
       //
+      // 2026-04-21 S3 修正:
+      //  - agreedConstraints.style が取れない free-form 発話
+      //    （例: 「和定食食べたい」）でも combined text から cuisine を検出
+      //  - c.timeSlot を q1 に注入（朝/昼/ランチ/ディナー 等）
+      //  - これにより「新橋 / 朝7時 / 和定食」が generic query に退化しなくなる
+      //
       // negative 過剰適用禁止:
       //  - "-まとめ" "-おすすめ10選" は listing-venue bearing クエリにのみ適用
       //  - 公式誘引クエリには negative を追加しない（公式トップや予約ページを
       //    抑制しないため）
       const articleListingNegatives = "-まとめ -おすすめ10選 -ランキング";
 
+      // cuisine fallback: styleHint 空なら combined から free-form 検出
+      const cuisineFallback = styleHint || detectCuisineHint(combined) || "";
+      const timePart = c.timeSlot ? `${c.timeSlot} ` : "";
+
       // q1: venue-bearing listing クエリ（食べログ / Retty 等を主眼）
       //     article-listing 用語を negative で除外
       const q1 = [
         locationPart.trim(),
+        timePart.trim(),
         budgetPart,
-        styleHint,
+        cuisineFallback,
         "レストラン 食べログ Retty",
         exclusionHint,
         articleListingNegatives,
@@ -472,16 +548,16 @@ function buildSearchQueries(
       //     negative は**意図的に未適用**。公式トップや予約ページを除外しないため
       const q2Parts = [
         locationPart.trim(),
-        styleHint,
+        cuisineFallback,
         "公式サイト 予約",
       ].filter(Boolean);
       if (q2Parts.length > 0) {
         queries.push(q2Parts.join(" ").trim());
       }
 
-      // q3: style 人気店 保険クエリ（styleHint があるときのみ）
-      if (styleHint) {
-        queries.push(`${locationPart}${styleHint} 人気店`.trim());
+      // q3: cuisine 人気店 保険クエリ（styleHint または fallback があるとき）
+      if (cuisineFallback) {
+        queries.push(`${locationPart}${cuisineFallback} 人気店`.trim());
       }
       break;
     }

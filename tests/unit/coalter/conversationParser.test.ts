@@ -80,10 +80,57 @@ describe("conversationParser", () => {
       expect(r.extractedConstraints.location).toBe("渋谷");
     });
 
+    // 2026-04-21 S3 修正: 新橋 等の主要ターミナル駅を whitelist に追加
+    it.each([
+      ["新橋", "新橋で朝7時に和定食食べたい"],
+      ["東京", "東京駅の近くで昼ごはん"],
+      ["品川", "品川で軽くランチ"],
+      ["上野", "上野で定食どう？"],
+      ["恵比寿", "恵比寿でディナーしよう"],
+      ["浜松町", "浜松町でランチ"],
+      ["中目黒", "中目黒でカフェ行こう"],
+    ])("場所を抽出: %s", (expected, text) => {
+      const msgs = turns([USER_A, text], [USER_B, "いいね"]);
+      const r = analyzeConversation(msgs, USER_A, USER_B);
+      expect(r.extractedConstraints.location).toBe(expected);
+    });
+
     it("日時を抽出", () => {
       const msgs = turns([USER_A, "今週末何する？"], [USER_B, "映画見たい"]);
       const r = analyzeConversation(msgs, USER_A, USER_B);
       expect(r.extractedConstraints.date).toBe("今週末");
+    });
+
+    // 2026-04-21 S1 朝誤認修正:
+    //   「朝から、11時にラーメン」のように抽象語 (朝) と具体時刻 (11時) が併存する
+    //   発話で、leftmost-first の regex が "朝" を拾っていた。
+    //   ↓ briefBuilder.mapTimeSlot("朝") → "morning"
+    //   ↓ narrationBuilder が summary に「朝」と出力 → 11時ランチが朝扱いになる不具合
+    //   修正後: 具体時刻を優先し、mapTimeSlot が 11 → "afternoon" を返せるようにする
+    describe("時間帯抽出 — 具体時刻 > 抽象語", () => {
+      it("「朝から、11時にラーメン」→ '11時' を優先", () => {
+        const msgs = turns(
+          [USER_A, "朝から新宿でラーメン食べたい、11時くらいで"],
+          [USER_B, "いいね"],
+        );
+        const r = analyzeConversation(msgs, USER_A, USER_B);
+        expect(r.extractedConstraints.timeSlot).toBe("11時");
+      });
+
+      it("clock hour 無し → 抽象語 (朝) を維持", () => {
+        const msgs = turns([USER_A, "朝から動こう"], [USER_B, "いいね"]);
+        const r = analyzeConversation(msgs, USER_A, USER_B);
+        expect(r.extractedConstraints.timeSlot).toBe("朝");
+      });
+
+      it("「ランチで11時」→ '11時' を優先", () => {
+        const msgs = turns(
+          [USER_A, "ランチで11時集合"],
+          [USER_B, "了解"],
+        );
+        const r = analyzeConversation(msgs, USER_A, USER_B);
+        expect(r.extractedConstraints.timeSlot).toBe("11時");
+      });
     });
 
     it("好みの傾向を抽出", () => {
