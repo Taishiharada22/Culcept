@@ -14,6 +14,7 @@ import {
   judgeOutcome,
 } from "@/lib/coalter/understanding";
 import { collectLiveBundle } from "@/lib/coalter/understanding/liveCollector";
+import { buildStage1Prefix } from "@/lib/coalter/stage1Narration";
 import type {
   PersonalLens,
   SourceCoverage,
@@ -131,6 +132,45 @@ export async function POST(request: Request) {
       { pendingDeltas, avoidKeys },
     );
 
+    // [M1 1a] Stage 1 Understand snapshot (flag-gated, fail-open, read-only).
+    //   - COALTER_STAGE1_LIVE=true のときだけ collector + runUnderstanding() を呼ぶ
+    //   - 例外は握り潰して log のみ（invoke の成功レスポンスは壊さない）
+    //   - 1a 段階では collector が最小（talk_messages のみ）なので outcome は構造的に
+    //     "failed" を返す。これは経路確認の合格条件
+    //
+    // [M1 Candidate 2] narration 先頭への 1 行反映のため、DB insert より先に計算する。
+    //   失敗時 undefined なので narration は no-op、既存 summary を壊さない。
+    const stage1Snapshot = COALTER_FLAGS.stage1LiveEnabled
+      ? await computeStage1Snapshot({
+          supabase,
+          threadId,
+          pairStateId: pairState.id,
+          userA: pairState.user_a,
+          userB: pairState.user_b,
+        })
+      : undefined;
+
+    // [M1 Candidate 2] Stage 1 narration を proposalCard.summary / card.summary に 1 行反映。
+    //   - flag `COALTER_STAGE1_NARRATION=true` が必要（stage1LiveEnabled と独立）。
+    //   - outcome === "failed" のときは buildStage1Prefix が null を返す → no-op。
+    //   - mutation ではなく新オブジェクト差し替え（result._internal などは保持）。
+    const narrationPrefix =
+      COALTER_FLAGS.stage1NarrationEnabled && stage1Snapshot
+        ? buildStage1Prefix(stage1Snapshot)
+        : null;
+    if (narrationPrefix) {
+      result.proposalCard = {
+        ...result.proposalCard,
+        summary: `${narrationPrefix}\n${result.proposalCard.summary}`,
+      };
+      if (result.card) {
+        result.card = {
+          ...result.card,
+          summary: `${narrationPrefix}\n${result.card.summary}`,
+        };
+      }
+    }
+
     // CoAlterメッセージをDBに保存
     //
     // Phase 6.C (2026-04-19) CEO 条件 #3:
@@ -138,6 +178,8 @@ export async function POST(request: Request) {
     //   card (discriminated union) も metadata.card に保存し、次ターン router 入力
     //   (previousMode / previousNegotiateNoProposal) を復元可能にする。
     //   proposalCard は後方互換のため残す。
+    //
+    // Candidate 2: narration prefix が付与済みの summary をそのまま保存する。
     await supabase.from("coalter_messages").insert({
       session_id: session.id,
       role: "coalter",
@@ -151,21 +193,6 @@ export async function POST(request: Request) {
         executorFallbackReason: result.executorFallbackReason ?? null,
       },
     });
-
-    // [M1 1a] Stage 1 Understand snapshot (flag-gated, fail-open, read-only).
-    //   - COALTER_STAGE1_LIVE=true のときだけ collector + runUnderstanding() を呼ぶ
-    //   - 例外は握り潰して log のみ（invoke の成功レスポンスは壊さない）
-    //   - 1a 段階では collector が最小（talk_messages のみ）なので outcome は構造的に
-    //     "failed" を返す。これは経路確認の合格条件
-    const stage1Snapshot = COALTER_FLAGS.stage1LiveEnabled
-      ? await computeStage1Snapshot({
-          supabase,
-          threadId,
-          pairStateId: pairState.id,
-          userA: pairState.user_a,
-          userB: pairState.user_b,
-        })
-      : undefined;
 
     const responseData: CoAlterOutput = stage1Snapshot
       ? { ...result, stage1: stage1Snapshot }

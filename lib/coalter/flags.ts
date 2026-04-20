@@ -37,4 +37,16 @@ export const COALTER_FLAGS = {
   get stage1LiveEnabled(): boolean {
     return envBool("COALTER_STAGE1_LIVE", false);
   },
+  /**
+   * [CEO lock 2026-04-20 M1 Candidate 2] `stage1NarrationEnabled`
+   *   - Stage 1 の todayReading を proposalCard.summary / card.summary に
+   *     1 行だけ反映する弁。既定 OFF。
+   *   - stage1LiveEnabled と独立。narration 層だけ切り戻したい場面がある。
+   *   - outcome が failed の場合は flag に関係なく narration を付けない
+   *     (CEO lock: failed を意味あるコピーに見せない)。
+   *   - 依存: stage1LiveEnabled = true。snapshot が無い場合は no-op。
+   */
+  get stage1NarrationEnabled(): boolean {
+    return envBool("COALTER_STAGE1_NARRATION", false);
+  },
 };
