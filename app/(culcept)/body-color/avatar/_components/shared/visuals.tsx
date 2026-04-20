@@ -218,7 +218,8 @@ export function CompletionConstellation({ sections }: { sections: { key: string;
                 })}
                 {/* Center pulse */}
                 <motion.circle
-                    cx={cx} cy={cy} r="8" fill="url(#centerGlow)"
+                    cx={cx} cy={cy} r={8} fill="url(#centerGlow)"
+                    initial={{ r: 8 }}
                     animate={{ r: [8, 12, 8], opacity: [0.6, 1, 0.6] }}
                     transition={{ duration: 3, repeat: Infinity }}
                 />
