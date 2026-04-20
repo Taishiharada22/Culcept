@@ -18,6 +18,12 @@ import type {
   SearchDecision,
 } from "./types";
 import { getThemeRule } from "./slots";
+import { isU3AbolitionActive } from "./flags";
+import {
+  extractMatchedTerms,
+  hasActionableConstraintsByTheme,
+  maskSensitiveText,
+} from "./u3Telemetry";
 
 // Perspective Engine の検索関数を転用
 import { executeSearch } from "@/lib/stargazer/perspectiveEngine";
@@ -80,6 +86,35 @@ const NO_SEARCH_PATTERNS = [
 ];
 
 /**
+ * 検索クエリ生成までのコアロジック（U3 分岐とは独立）。
+ *
+ * §7 Step A (2026-04-20) で抽出した pure refactor。
+ *   - 非 U3 パスの return 値
+ *   - U3 hit 時の counterfactual（「U3 がなければ何を返していたか」）
+ * の両方で共有する。既存挙動と完全同一。
+ */
+function buildSearchDecisionCore(
+  analysis: ConversationAnalysis,
+  combined: string,
+): { decision: SearchDecision; mentionedCandidates: string[] } {
+  const mentionedCandidates = extractMentionedCandidates(combined);
+  const queries = buildSearchQueries(
+    analysis,
+    mentionedCandidates,
+    analysis.agreedConstraints ?? [],
+  );
+  const decision: SearchDecision = {
+    shouldSearch: queries.length > 0,
+    reason:
+      queries.length > 0
+        ? `テーマ「${analysis.theme}」の現実情報を取得`
+        : "検索クエリを生成できなかった",
+    queries,
+  };
+  return { decision, mentionedCandidates };
+}
+
+/**
  * 検索が必要かどうかを判断する。
  */
 export function decideSearch(
@@ -98,24 +133,91 @@ export function decideSearch(
   //   decideSearch / extractMentionedCandidates が stale topic を掴むのを防ぐ。
   const currentBurst = filterCurrentTopicBurst(analysis.recentMessages);
   const combined = currentBurst.map((m) => m.body).join(" ");
+
+  // U3 exclusion gate: NO_SEARCH_PATTERNS hit 時は skip。
+  //   §7 Step A (2026-04-20): behavior は既存のまま（skip）だが、telemetry を
+  //   追加して Step B（flag 下 U3 撤廃）の Go / Rollback 判断材料を蓄積する。
+  let matchedPattern: RegExp | null = null;
   for (const pattern of NO_SEARCH_PATTERNS) {
     if (pattern.test(combined)) {
-      return {
-        shouldSearch: false,
-        reason: "感情・関係性の話題のため検索不要",
-        queries: [],
-      };
+      matchedPattern = pattern;
+      break;
     }
   }
 
-  // 具体的な候補が既に挙がっている場合 → その候補を検索
-  const specificCandidates = extractMentionedCandidates(combined);
+  if (matchedPattern) {
+    // §7 Step B (2026-04-20): flag 下での U3 撤廃。
+    //   abolition=ON かつ actionable=true → gate を解除し、通常検索へ進む。
+    //   それ以外は従来どおり skip。
+    //
+    //   telemetry の u3_gate_applied / abolition_active は実挙動から算出する
+    //   （2 bool の直交で、Step A と Step B のログが同じキーで混ざっても
+    //   意味が崩れない — CEO 条件）。
+    const counterfactual = buildSearchDecisionCore(analysis, combined);
+    const { hasActionable, breakdown } = hasActionableConstraintsByTheme(
+      analysis,
+      analysis.theme,
+    );
+    const abolitionActive = isU3AbolitionActive(analysis.theme);
+    const gateApplied = !(abolitionActive && hasActionable);
 
-  // 検索クエリを生成（Phase 1.5.4.5: theme × slot × agreedConstraints 駆動）
-  const queries = buildSearchQueries(
+    const skipReason = gateApplied
+      ? abolitionActive
+        ? "撤廃下でも actionable 制約ゼロのため skip"
+        : "感情・関係性の話題のため検索不要"
+      : null;
+
+    try {
+      console.info(
+        "[CoAlter] webConnector.u3_gate",
+        JSON.stringify({
+          theme: analysis.theme,
+          matched_pattern: matchedPattern.source,
+          matched_terms: extractMatchedTerms(matchedPattern, combined),
+          matched_text_sample: maskSensitiveText(combined, 32),
+          would_have_searched_without_u3: counterfactual.decision.shouldSearch,
+          counterfactual_queries_count: counterfactual.decision.queries.length,
+          has_actionable_constraints: hasActionable,
+          actionable_breakdown: breakdown,
+          u3_gate_applied: gateApplied,
+          abolition_active: abolitionActive,
+          reason_for_skip: skipReason,
+        }),
+      );
+    } catch {
+      // log 失敗しても本体には影響させない
+    }
+
+    if (gateApplied) {
+      return {
+        shouldSearch: false,
+        reason: skipReason ?? "感情・関係性の話題のため検索不要",
+        queries: [],
+      };
+    }
+
+    // gate 撤廃 → counterfactual の決定をそのまま返す。
+    //   decision log も通常 path と同形で emit し、下流の集計が共通化できる
+    //   ようにする。
+    try {
+      console.info(
+        "[CoAlter] webConnector.decision",
+        JSON.stringify({
+          theme: analysis.theme,
+          mentionedCandidates: counterfactual.mentionedCandidates,
+          combinedSample: combined.slice(0, 80),
+          queriesCount: counterfactual.decision.queries.length,
+        }),
+      );
+    } catch {
+      // log 失敗しても本体には影響させない
+    }
+    return counterfactual.decision;
+  }
+
+  const { decision, mentionedCandidates } = buildSearchDecisionCore(
     analysis,
-    specificCandidates,
-    analysis.agreedConstraints ?? [],
+    combined,
   );
 
   // Phase A.7 D1 (2026-04-19): mentionedCandidates 汚染の切り分け用。
@@ -127,22 +229,16 @@ export function decideSearch(
       "[CoAlter] webConnector.decision",
       JSON.stringify({
         theme: analysis.theme,
-        mentionedCandidates: specificCandidates,
+        mentionedCandidates,
         combinedSample: combined.slice(0, 80),
-        queriesCount: queries.length,
+        queriesCount: decision.queries.length,
       }),
     );
   } catch {
     // log 失敗しても本体には影響させない
   }
 
-  return {
-    shouldSearch: queries.length > 0,
-    reason: queries.length > 0
-      ? `テーマ「${analysis.theme}」の現実情報を取得`
-      : "検索クエリを生成できなかった",
-    queries,
-  };
+  return decision;
 }
 
 // ─────────────────────────────────────────────

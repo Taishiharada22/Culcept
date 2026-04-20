@@ -64,3 +64,62 @@ export const COALTER_FLAGS = {
     return envBool("COALTER_PAIR_ONBOARDING", false);
   },
 };
+
+// ─────────────────────────────────────────────
+// §7 Step B (2026-04-20): U3 exclusion gate abolition
+// ─────────────────────────────────────────────
+//
+// webConnector.decideSearch の NO_SEARCH_PATTERNS (感情・関係性 regex) を
+// 条件付きで撤廃する per-theme flag。
+//
+// 既定は全 OFF（Step A 観測挙動のまま）。env で theme 単位に ON 可能:
+//   COALTER_U3_ABOLITION_FOOD=true など。
+//
+// flag=ON 時の挙動:
+//   NO_SEARCH_PATTERNS hit + actionable=true → skip せず通常検索へ
+//   NO_SEARCH_PATTERNS hit + actionable=false → 従来どおり skip（noise 防止）
+//
+// テストからは __setU3AbolitionOverride で env を汚さず切替可能。
+
+export type U3AbolishableTheme = "food" | "movie" | "travel" | "activity";
+
+const U3_ABOLITION_ENV_KEYS: Record<U3AbolishableTheme, string> = {
+  food: "COALTER_U3_ABOLITION_FOOD",
+  movie: "COALTER_U3_ABOLITION_MOVIE",
+  travel: "COALTER_U3_ABOLITION_TRAVEL",
+  activity: "COALTER_U3_ABOLITION_ACTIVITY",
+};
+
+const U3_ABOLISHABLE_THEMES = new Set<string>(
+  Object.keys(U3_ABOLITION_ENV_KEYS),
+);
+
+let u3AbolitionOverride:
+  | Partial<Record<U3AbolishableTheme, boolean>>
+  | null = null;
+
+/**
+ * テスト用 override。process.env を触らず U3 abolition flag を上書きする。
+ * null でクリア。
+ */
+export function __setU3AbolitionOverride(
+  next: Partial<Record<U3AbolishableTheme, boolean>> | null,
+): void {
+  u3AbolitionOverride = next;
+}
+
+/**
+ * 指定 theme で U3 撤廃が有効か。
+ *
+ *  1. 撤廃対象外 theme（schedule/gift/general）は常に false
+ *  2. テスト override があればそれを採用
+ *  3. 環境変数 fallback（default false）
+ */
+export function isU3AbolitionActive(theme: string): boolean {
+  if (!U3_ABOLISHABLE_THEMES.has(theme)) return false;
+  const t = theme as U3AbolishableTheme;
+  if (u3AbolitionOverride && t in u3AbolitionOverride) {
+    return !!u3AbolitionOverride[t];
+  }
+  return envBool(U3_ABOLITION_ENV_KEYS[t], false);
+}
