@@ -8,7 +8,15 @@
  *   - 本番で違和感が出たときに「全体を止める」のではなく
  *     「detail sheet だけ止める」粒度で切り戻せるようにするための弁。
  *
- * 既定値は ON。明示的に `false` / `0` / `off` を指定したときだけ無効化する。
+ * [CEO lock 2026-04-20 M1 1a] `stage1LiveEnabled`
+ *   - /api/coalter/invoke で Stage 1 Understand を呼ぶかを決める弁。
+ *   - 既定 OFF。invoke の response shape は flag OFF で現行と完全一致。
+ *   - ON 時のみ collector + `runUnderstanding()` が走り、response.data に
+ *     optional `stage1: Stage1Snapshot` が付与される。
+ *   - Stage 1 側の例外は invoke route で握り潰し、`stage1` 欠落で返す（fail-open）。
+ *   - env から外せば即座に 1a 前状態へ戻る。
+ *
+ * 既定値は flag ごとに異なる。bookingHandoffEnabled は ON、stage1LiveEnabled は OFF。
  */
 
 function envBool(name: string, fallback: boolean): boolean {
@@ -24,5 +32,9 @@ export const COALTER_FLAGS = {
   /** Phase A: bottom sheet 用 detail を candidate に付与するか */
   get bookingHandoffEnabled(): boolean {
     return envBool("COALTER_BOOKING_HANDOFF_ENABLED", true);
+  },
+  /** M1 1a: /api/coalter/invoke で Stage 1 Understand を呼んで response に乗せるか */
+  get stage1LiveEnabled(): boolean {
+    return envBool("COALTER_STAGE1_LIVE", false);
   },
 };

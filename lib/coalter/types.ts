@@ -1244,7 +1244,62 @@ export interface CoAlterOutput {
     fairnessBias: number; // この提案の偏りスコア
     processingTimeMs: number;
   };
+  /**
+   * [M1 1a] Stage 1 Understand snapshot (optional, flag-gated).
+   *   - 既定 OFF: `COALTER_STAGE1_LIVE !== true` のとき欠落
+   *   - ON: invoke route が pipeline 完了後に collector + runUnderstanding() を呼び、
+   *     結果をここに付与する。既存 CoAlterOutput shape は非破壊
+   *   - discriminated union（outcome で分岐）。failed 時は todayReading を意図的に
+   *     欠落させ、default 値を意味ある信号と誤読させない
+   */
+  stage1?: Stage1Snapshot;
 }
+
+// ─────────────────────────────────────────────
+// Stage 1 Understand snapshot（invoke response 乗せ用）
+//
+// [CEO lock 2026-04-20 M1 1a] discriminated union。
+//   outcome が "failed" のときは todayReading を欠落させる（rule-based の
+//   default 値を意味ある信号と誤読させない）。
+//   collectorMeta は後続の latency / 過読み検証のために query 数と参照元を記録。
+// ─────────────────────────────────────────────
+
+/** Stage 1 collector がどの DB ソースを何回引いたかの記録（観測用） */
+export interface Stage1CollectorMeta {
+  /** 実行した supabase query 本数（pair_state 取得は invoke 側で既実行なので含めない） */
+  queryCount: number;
+  /** 参照したテーブル / ビュー名の昇順 distinct list（例: ["talk_messages"]） */
+  sources: string[];
+}
+
+/** failed: source_coverage が全ゼロ OR confidence < 0.2 のとき */
+export interface Stage1SnapshotFailed {
+  outcome: "failed";
+  understanding_confidence: number;
+  lensVersion: string;
+  computedAt: string;
+  collectorMeta: Stage1CollectorMeta;
+  // todayReading は意図的に欠落
+}
+
+/** degraded / success: runUnderstanding() が意味ある todayReading を返したとき */
+export interface Stage1SnapshotOk {
+  outcome: "degraded" | "success";
+  understanding_confidence: number;
+  todayReading: {
+    mode: "recover" | "celebrate" | "connect" | "challenge" | "maintain";
+    energyBudget: "high" | "mid" | "low";
+    timeBudget: "ample" | "limited" | "tight";
+    implicitIntent: string;
+    latentNeeds: string[];
+    confidence: number;
+  };
+  lensVersion: string;
+  computedAt: string;
+  collectorMeta: Stage1CollectorMeta;
+}
+
+export type Stage1Snapshot = Stage1SnapshotFailed | Stage1SnapshotOk;
 
 // ─────────────────────────────────────────────
 // API Types

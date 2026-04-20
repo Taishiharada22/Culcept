@@ -8,7 +8,26 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { runCoAlterPipeline } from "@/lib/coalter/engine";
 import { createButtonTrigger } from "@/lib/coalter/triggerDetection";
-import type { InvokeRequest, CoAlterApiResponse, CoAlterOutput } from "@/lib/coalter/types";
+import { COALTER_FLAGS } from "@/lib/coalter/flags";
+import {
+  runUnderstanding,
+  judgeOutcome,
+} from "@/lib/coalter/understanding";
+import { collectLiveBundle } from "@/lib/coalter/understanding/liveCollector";
+import type {
+  PersonalLens,
+  SourceCoverage,
+  TwoPersonLensToday,
+  IsoTimestamp,
+} from "@/lib/coalter/understanding/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createHash } from "node:crypto";
+import type {
+  InvokeRequest,
+  CoAlterApiResponse,
+  CoAlterOutput,
+  Stage1Snapshot,
+} from "@/lib/coalter/types";
 
 export async function POST(request: Request) {
   try {
@@ -133,12 +152,124 @@ export async function POST(request: Request) {
       },
     });
 
+    // [M1 1a] Stage 1 Understand snapshot (flag-gated, fail-open, read-only).
+    //   - COALTER_STAGE1_LIVE=true のときだけ collector + runUnderstanding() を呼ぶ
+    //   - 例外は握り潰して log のみ（invoke の成功レスポンスは壊さない）
+    //   - 1a 段階では collector が最小（talk_messages のみ）なので outcome は構造的に
+    //     "failed" を返す。これは経路確認の合格条件
+    const stage1Snapshot = COALTER_FLAGS.stage1LiveEnabled
+      ? await computeStage1Snapshot({
+          supabase,
+          threadId,
+          userA: pairState.user_a,
+          userB: pairState.user_b,
+        })
+      : undefined;
+
+    const responseData: CoAlterOutput = stage1Snapshot
+      ? { ...result, stage1: stage1Snapshot }
+      : result;
+
     return NextResponse.json<CoAlterApiResponse<CoAlterOutput>>({
       ok: true,
-      data: result,
+      data: responseData,
     });
   } catch (e) {
     console.error("[CoAlter] Invoke error:", e);
     return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [M1 1a] Stage 1 snapshot helper
+//
+//   fail-open: collector / runUnderstanding() の例外は握り潰して undefined を返す。
+//   invoke route 側で `stage1` 欠落のまま response を返すことで「Stage 1 が壊れたら
+//   invoke も壊れる」を防ぐ。
+//
+//   `outcome` は runUnderstanding() 本体では diagnostics 経由でしか出ないので、
+//   同じ judgeOutcome() で snapshot 化してから discriminated union に載せる。
+// ═══════════════════════════════════════════════════════════════════════════
+
+type Stage1HelperInput = {
+  supabase: SupabaseClient;
+  threadId: string;
+  userA: string;
+  userB: string;
+};
+
+async function computeStage1Snapshot(
+  input: Stage1HelperInput,
+): Promise<Stage1Snapshot | undefined> {
+  try {
+    const now = new Date().toISOString() as IsoTimestamp;
+    const { bundle, meta } = await collectLiveBundle({
+      supabase: input.supabase,
+      threadId: input.threadId,
+      userA: input.userA,
+      userB: input.userB,
+      now,
+    });
+
+    const pairHash = createHash("sha256")
+      .update(`${input.userA}|${input.userB}`)
+      .digest("hex")
+      .slice(0, 16);
+
+    const lens: TwoPersonLensToday = await runUnderstanding(bundle, now, pairHash);
+
+    const sourceCoverage = sourceCoverageFromLens(lens);
+    const missingDomains = lens.dataGaps;
+    const outcome = judgeOutcome({
+      confidence: lens.understanding_confidence,
+      missingDomains,
+      sourceCoverage,
+    });
+
+    if (outcome === "failed") {
+      return {
+        outcome: "failed",
+        understanding_confidence: lens.understanding_confidence,
+        lensVersion: lens.lensVersion,
+        computedAt: lens.computedAt,
+        collectorMeta: meta,
+      };
+    }
+
+    return {
+      outcome,
+      understanding_confidence: lens.understanding_confidence,
+      todayReading: {
+        mode: lens.todayReading.mode,
+        energyBudget: lens.todayReading.energyBudget,
+        timeBudget: lens.todayReading.timeBudget,
+        implicitIntent: lens.todayReading.implicitIntent,
+        latentNeeds: lens.todayReading.latentNeeds,
+        confidence: lens.todayReading.confidence,
+      },
+      lensVersion: lens.lensVersion,
+      computedAt: lens.computedAt,
+      collectorMeta: meta,
+    };
+  } catch (e) {
+    console.error("[CoAlter] Stage1 snapshot failed (fail-open):", e);
+    return undefined;
+  }
+}
+
+function sourceCoverageFromLens(lens: TwoPersonLensToday): SourceCoverage {
+  return {
+    a: personCoverage(lens.personalLenses.a),
+    b: personCoverage(lens.personalLenses.b),
+  };
+}
+
+function personCoverage(
+  p: PersonalLens,
+): { stargazerCount: number; alterCount: number; behavioralCount: number } {
+  return {
+    stargazerCount: p.sourcedFrom.stargazer.length,
+    alterCount: p.sourcedFrom.alter.length,
+    behavioralCount: p.sourcedFrom.behavioral.length,
+  };
 }
