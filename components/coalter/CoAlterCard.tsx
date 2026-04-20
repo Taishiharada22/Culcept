@@ -40,6 +40,7 @@ import {
   type SlotBundle,
 } from "@/lib/coalter/slots";
 import type { ConversationTheme } from "@/lib/coalter/types";
+import { splitStage1Prefix } from "@/lib/coalter/stage1Narration";
 import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 const C = {
@@ -60,6 +61,13 @@ function clamp(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1) + "…";
 }
+
+/**
+ * [M1 C2b] ① summary 本文 clamp 上限。
+ * Stage 1 narration prefix 導入に伴う 100→240 の引き上げ。
+ * 実サマリは 40–80 字中心、prefix 併置時でも 140 字前後で収まる想定。
+ */
+const SUMMARY_BODY_CLAMP = 240;
 
 /** ●/○ で軸スコアを描画（max=3） */
 function ScoreDots({ value }: { value: 0 | 1 | 2 | 3 }) {
@@ -250,12 +258,36 @@ export default function CoAlterCard({
         </motion.div>
       )}
 
-      {/* ═══ ① ここまでの要点 ═══ */}
-      <div className="px-4 pt-3 pb-2">
-        <p style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
-          {clamp(proposal.summary, 100)}
-        </p>
-      </div>
+      {/* ═══ ① ここまでの要点 ═══
+          [M1 C2b] Stage 1 narration prefix が前置されている場合は `\n` で split し、
+          prefix は有界（契約 max ≈60 字）なので clamp せず、本文側のみ clamp。
+          prefix が無い (legacy / flag OFF) ときは body === proposal.summary で挙動互換。
+
+          [CEO lock 2026-04-20 M1 C2b 追加指示] clamp 上限 100 → SUMMARY_BODY_CLAMP。
+          現行 buildSummary の出力は ~40–80 字、narrationEnricher も logic-only path で
+          暴走余地が小さいため、240 字で「実用域では truncate しない + 病的長文のみ保護」。 */}
+      {(() => {
+        const parts = splitStage1Prefix(proposal.summary);
+        return (
+          <div className="px-4 pt-3 pb-2">
+            {parts.prefix && (
+              <p
+                style={{
+                  fontSize: 12,
+                  color: C.t2,
+                  lineHeight: 1.5,
+                  marginBottom: 4,
+                }}
+              >
+                {parts.prefix}
+              </p>
+            )}
+            <p style={{ fontSize: 12, color: C.t2, lineHeight: 1.5 }}>
+              {clamp(parts.body, SUMMARY_BODY_CLAMP)}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* ═══ ② 二人が重視している点 ═══ */}
       <div className="px-4 py-2">

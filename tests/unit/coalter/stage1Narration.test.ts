@@ -9,7 +9,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { buildStage1Prefix, prependStage1Prefix } from "@/lib/coalter/stage1Narration";
+import {
+  buildStage1Prefix,
+  prependStage1Prefix,
+  splitStage1Prefix,
+} from "@/lib/coalter/stage1Narration";
 import type {
   Stage1Snapshot,
   Stage1SnapshotFailed,
@@ -115,6 +119,58 @@ describe("failed を意味あるコピーに見せない契約", () => {
     const out = prependStage1Prefix(summary, mkFailed());
     expect(out).toBe(summary);
     expect(out.includes("今日")).toBe(false);
+  });
+});
+
+describe("splitStage1Prefix", () => {
+  const base = "週末で見る映画を選びたい流れ。2人の好みと公開情報を突き合わせて3本に絞った。";
+
+  it("`\\n` を含まない summary は prefix=null, body=入力そのもの", () => {
+    const out = splitStage1Prefix(base);
+    expect(out.prefix).toBeNull();
+    expect(out.body).toBe(base);
+  });
+
+  it("prependStage1Prefix で作った文字列は逆向きに完全分解できる", () => {
+    const stage1OK = mkOk("connect", "ちゃんと向き合いたい");
+    const joined = prependStage1Prefix(base, stage1OK);
+    const split = splitStage1Prefix(joined);
+    expect(split.prefix).toBe(buildStage1Prefix(stage1OK));
+    expect(split.body).toBe(base);
+  });
+
+  it("最初の `\\n` のみで分割（body 内の `\\n` は保持）", () => {
+    const weird = "prefix-line\nbody line 1\nbody line 2";
+    const out = splitStage1Prefix(weird);
+    expect(out.prefix).toBe("prefix-line");
+    expect(out.body).toBe("body line 1\nbody line 2");
+  });
+
+  it("先頭が `\\n` なら prefix は空文字、body は残り", () => {
+    const out = splitStage1Prefix("\ntail");
+    expect(out.prefix).toBe("");
+    expect(out.body).toBe("tail");
+  });
+
+  it("末尾が `\\n` なら prefix に全体、body は空文字", () => {
+    const out = splitStage1Prefix("head\n");
+    expect(out.prefix).toBe("head");
+    expect(out.body).toBe("");
+  });
+});
+
+describe("clamp 問題が再発しないことの契約（C2b）", () => {
+  // CoAlterCard.tsx 側の clamp(body, 100) を想定し、prefix は必ず残る想定。
+  it("prefix + long body のとき、prefix 部分は分割後に保持される", () => {
+    const longBody = "a".repeat(200);
+    const stage1OK = mkOk("celebrate", "今日は少し贅沢したい気分");
+    const joined = prependStage1Prefix(longBody, stage1OK);
+    const split = splitStage1Prefix(joined);
+    // prefix は契約 max ≈60 字、clamp(100) に引っかからない長さ
+    expect(split.prefix).toBe(buildStage1Prefix(stage1OK));
+    expect(split.prefix!.length).toBeLessThanOrEqual(100);
+    // body は 200 字なので renderer 側で clamp(100) が掛かる想定（ここでは split だけ検証）
+    expect(split.body.length).toBe(200);
   });
 });
 

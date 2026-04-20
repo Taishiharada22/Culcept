@@ -63,3 +63,28 @@ export function prependStage1Prefix(
   if (!prefix) return summary;
   return `${prefix}\n${summary}`;
 }
+
+/**
+ * prependStage1Prefix の逆向き分解。
+ *
+ * [CEO lock 2026-04-20 M1 C2b] decision card 側で summary をレンダリングするとき、
+ * clamp(summary, 100) が prefix と本文を区別せずに末尾から切ってしまうと
+ * Stage 1 の 1 行が削れるケースが出る（prefix 最大 ≈60 字 + 本文で 100 字超過が起こる）。
+ *
+ * そこで `\n` を境界に prefix と body を分け、renderer は
+ *   - prefix: 契約上 max ≈60 字で有界なので clamp しない
+ *   - body: 既存 clamp(100) をそのまま適用
+ * とすることで「prefix が削られる」事故を防ぐ。
+ *
+ * `\n` を含まない（= prepend が呼ばれていない / legacy flow）場合は
+ * `prefix: null, body: 入力そのもの` を返すので、呼び元は prefix を見ずに
+ * body を従来どおり clamp すれば behavior 互換。
+ */
+export function splitStage1Prefix(summary: string): {
+  prefix: string | null;
+  body: string;
+} {
+  const idx = summary.indexOf("\n");
+  if (idx === -1) return { prefix: null, body: summary };
+  return { prefix: summary.slice(0, idx), body: summary.slice(idx + 1) };
+}
