@@ -316,7 +316,13 @@ async function fetchGrowthByUser(
 }
 
 type FairnessLedgerRow = {
-  session_id: string;
+  /**
+   * coalter_sessions.id。
+   * **null = onboarding seed row** (pre-session の公平性原点 skew=0)。
+   * 型を嘘にしないため string | null。将来集計で除外したい場合は
+   * `WHERE session_id IS NOT NULL` を付ける。
+   */
+  session_id: string | null;
   bias_score: number | string;
   decided_at: string;
 };

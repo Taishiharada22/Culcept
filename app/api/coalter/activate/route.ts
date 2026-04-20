@@ -132,7 +132,11 @@ export async function POST(request: Request) {
     }
 
     // [M1 C3] fairness ledger seed row (bias_score=0)
-    //   - session_id は migration で nullable 化済み。pre-session seed の意図。
+    //   - **session_id IS NULL = onboarding seed** の唯一の発生源。
+    //     これ以外の insert (engine.ts 内) は必ず有効な session.id を入れる。
+    //   - 集計系は既定で `WHERE session_id IS NOT NULL` を付けて seed を除外する。
+    //     意図的に含めたい場合のみコメントで明示して残す運用。
+    //   - session_id は migration で nullable 化済み。
     //   - 失敗しても activate 自体は成功扱い（fail-open、ledger は内部計測）。
     if (COALTER_FLAGS.pairOnboardingEnabled) {
       const { error: seedError } = await supabase.from("coalter_fairness_ledger").insert({

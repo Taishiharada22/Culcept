@@ -39,7 +39,8 @@ type GrowthRow = {
   updated_at: string;
 };
 type FairnessRow = {
-  session_id: string;
+  /** null = onboarding seed row (pre-session の公平性原点) */
+  session_id: string | null;
   bias_score: number;
   decided_at: string;
 };
@@ -244,6 +245,31 @@ describe("collectLiveBundle (1b Y-lite) — 4 テーブル読み", () => {
     expect(ledger[0].sessionId).toBe("s1");
     expect(ledger[0].skew).toBeCloseTo(-0.3);
     expect(ledger[2].skew).toBe(-1); // clamp
+  });
+
+  it("[M1 C3] session_id IS NULL (onboarding seed) を含んでも reader が壊れない", async () => {
+    // 実 session の行 + seed 行 (null) 混在で、どちらも FairnessRecord として
+    // そのまま乗るのが契約。seed 行の skew は 0。
+    const fairness: FairnessRow[] = [
+      { session_id: null, bias_score: 0, decided_at: "2026-04-20T00:00:00.000Z" },
+      { session_id: "s1", bias_score: -0.3, decided_at: "2026-04-21T00:00:00.000Z" },
+    ];
+    const supabase = mockSupabase({ fairness });
+    const { bundle } = await collectLiveBundle({
+      supabase,
+      threadId: "t-1",
+      pairStateId: PAIR_STATE_ID,
+      userA: USER_A,
+      userB: USER_B,
+      now: NOW,
+    });
+    const ledger = bundle.relationship.fairnessLedger;
+    expect(ledger).toHaveLength(2);
+    // seed 行 (decidedAt 昇順で先頭) は sessionId null を保つ
+    expect(ledger[0].sessionId).toBeNull();
+    expect(ledger[0].skew).toBe(0);
+    // 実 session 行は通常どおり string
+    expect(ledger[1].sessionId).toBe("s1");
   });
 
   it("Supabase error は呼び元に throw する (talk_messages)", async () => {

@@ -160,7 +160,12 @@ type GrowthRow = {
 };
 
 type FairnessRow = {
-  session_id: string;
+  /**
+   * coalter_sessions.id。
+   * **null = onboarding seed row** (pre-session の公平性原点 bias=0)。
+   * export JSON にも `sessionId: null` としてそのまま載る (schema 許容)。
+   */
+  session_id: string | null;
   bias_score: number;
   decided_at: string;
 };

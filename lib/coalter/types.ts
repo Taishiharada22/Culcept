@@ -196,7 +196,12 @@ export interface RelationshipContext {
 
 /** 公平性台帳のエントリ */
 export interface FairnessEntry {
-  sessionId: string;
+  /**
+   * 対応する coalter_sessions.id。
+   * **null = onboarding seed row** (pre-session の公平性原点 bias=0)。
+   * 集計で実 session 由来だけ欲しい場合は呼び元で null を除外する。
+   */
+  sessionId: string | null;
   /** -1.0（完全にA寄り）〜 +1.0（完全にB寄り）、0=均衡 */
   biasScore: number;
   decidedAt: string;

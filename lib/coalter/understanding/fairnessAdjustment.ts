@@ -47,9 +47,17 @@ export function deriveFairnessAdjustment(
   conversation: ConversationObservation,
 ): FairnessAdjustment {
   // 決定論 sort: decidedAt 昇順、同時刻は sessionId 昇順。
+  //
+  // [M1 C3] sessionId は string | null (null = onboarding seed row)。
+  //   null が混じっても比較子が安定して順序を返すよう、明示的に
+  //   `?? ""` で空文字へ寄せる。空文字は任意の非空 string より
+  //   lexicographically 小なので seed 行は同時刻グループ内で先頭に並ぶ。
+  //   tiebreak 未決 (x === y) の場合は 0 を返して元順序を保持。
   const sortedLedger = [...relationship.fairnessLedger].sort((x, y) => {
     if (x.decidedAt !== y.decidedAt) return x.decidedAt < y.decidedAt ? -1 : 1;
-    return x.sessionId < y.sessionId ? -1 : 1;
+    const sx = x.sessionId ?? "";
+    const sy = y.sessionId ?? "";
+    return sx < sy ? -1 : sx > sy ? 1 : 0;
   });
   // 直近 N 件（新しい側）を採用。
   const recent = sortedLedger.slice(-LEDGER_WINDOW);

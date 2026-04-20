@@ -85,6 +85,11 @@ async function buildRelationshipContext(
   }
 
   // Fairness Ledger の読み込み
+  //
+  // [M1 C3] session_id IS NULL の行 = activate 時の onboarding seed (bias_score=0)。
+  //   読み取り側は null を許容する (FairnessEntry.sessionId: string | null)。
+  //   将来、実 session 由来だけ欲しい集計を足すときは
+  //   `WHERE session_id IS NOT NULL` を付けるのが既定。
   const { data: ledgerRows } = await supabase
     .from("coalter_fairness_ledger")
     .select("session_id, bias_score, decided_at")
@@ -93,7 +98,7 @@ async function buildRelationshipContext(
     .limit(10);
 
   const fairnessLedger: FairnessEntry[] = (ledgerRows ?? []).map(
-    (r: { session_id: string; bias_score: number; decided_at: string }) => ({
+    (r: { session_id: string | null; bias_score: number; decided_at: string }) => ({
       sessionId: r.session_id,
       biasScore: r.bias_score,
       decidedAt: r.decided_at,
@@ -409,6 +414,10 @@ export async function runCoAlterPipeline(
   const fairnessBias = (analysis.caringIntensityA - analysis.caringIntensityB) * 0.3;
 
   // ── Fairness Ledger に書き込み ──
+  //
+  // [M1 C3] この insert は session 確定後なので session_id は必ず非 null。
+  //   null が入るのは activate route の onboarding seed (bias_score=0) のみ。
+  //   両者は `session_id IS NULL` で識別できる。
   await supabase.from("coalter_fairness_ledger").insert({
     pair_state_id: pairStateId,
     session_id: session.id,

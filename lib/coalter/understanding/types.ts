@@ -192,7 +192,14 @@ export type Moment = {
 };
 
 export type FairnessRecord = {
-  sessionId: string;
+  /**
+   * 対応する coalter_sessions.id。
+   * **null = onboarding seed row** (pre-session の公平性原点 skew=0)。
+   * fairnessAdjustment の tiebreak は null 混在でも決定論的に動くよう
+   * `??""` で空文字に寄せている。集計系で実 session 由来だけ欲しい場合は
+   * 呼び元で `session_id IS NOT NULL` を付けるか null を除外する。
+   */
+  sessionId: string | null;
   decidedAt: IsoTimestamp;
   /** 「どちらに寄った」か。-1..1 で a 寄り〜b 寄り。 */
   skew: number;
