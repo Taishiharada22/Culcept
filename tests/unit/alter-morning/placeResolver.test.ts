@@ -388,6 +388,79 @@ describe("resolvePlace", () => {
     expect(result.confidence).not.toBe("unresolved");
   });
 
+  // ━━ W2-CEO-Emergency B (2026-04-19): explicit place の sanity distance check ━━
+  //   CEO 実機 0 点ケース: place="カフェ森の中へ" が prevAnchor(サドヤ) から 2h 遠のカフェに
+  //   解決された。confidence low に降格して Safety Gate Rule 2 が拾う設計。
+  test("B: prevAnchor から 30km 超 → Places 経路は null（Web 経路に落とす）", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_far_cafe",
+        displayName: { text: "カフェ森の中へ", languageCode: "ja" },
+        formattedAddress: "遠く離れた町",
+        // サドヤ (35.666, 138.566) から 2h 遠の杉並区付近 (35.70, 139.63) = 約 100km
+        location: { latitude: 35.70, longitude: 139.63 },
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+    // Web フォールバックも 0 件
+    mockSearch.mockResolvedValue([]);
+
+    const context: ResolutionContext = {
+      prevAnchor: {
+        label: "サドヤ",
+        coords: { lat: 35.6660, lng: 138.5663 },
+      },
+    };
+    const result = await resolvePlace("カフェ森の中へ", context, "user_b");
+
+    // sanity で low 降格 → Places 経路は null → Web フォールバック → Web も空で low
+    expect(result.confidence).toBe("low");
+  });
+
+  test("B: prevAnchor から 30km 以内 → 正常に解決", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_near_cafe",
+        displayName: { text: "近くのカフェ", languageCode: "ja" },
+        formattedAddress: "甲府市内",
+        // サドヤ (35.666, 138.566) から 5km 程度
+        location: { latitude: 35.70, longitude: 138.59 },
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+
+    const context: ResolutionContext = {
+      prevAnchor: {
+        label: "サドヤ",
+        coords: { lat: 35.6660, lng: 138.5663 },
+      },
+    };
+    const result = await resolvePlace("近くのカフェ", context, "user_b2");
+
+    expect(result.confidence).not.toBe("low");
+    expect(result.bestCandidate?.source).toBe("places_api");
+  });
+
+  test("B: prevAnchor が無いときは sanity を適用しない（遠方明示を尊重）", async () => {
+    mockPlacesTextSearch.mockResolvedValue([
+      {
+        id: "ChIJ_far_ok",
+        displayName: { text: "スタバ渋谷", languageCode: "ja" },
+        formattedAddress: "東京都渋谷区",
+        location: { latitude: 35.66, longitude: 139.70 },
+        types: ["cafe"],
+        businessStatus: "OPERATIONAL",
+      },
+    ]);
+    mockSearch.mockResolvedValue([]);
+
+    const result = await resolvePlace("スタバ渋谷", {}, "user_b3");
+    // prevAnchor が無いので sanity を適用せず通る（Places 採用）
+    expect(result.bestCandidate?.source).toBe("places_api");
+  });
+
   test("P0: Places が coords 無し候補を返した場合は Web検索にフォールバック", async () => {
     mockPlacesTextSearch.mockResolvedValue([
       {
