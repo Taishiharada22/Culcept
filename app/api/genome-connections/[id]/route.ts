@@ -1,6 +1,14 @@
 // PATCH /api/genome-connections/[id] — 承認/拒否/ブロック
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 export async function PATCH(
   req: Request,
@@ -54,11 +62,34 @@ export async function PATCH(
 
     if (updateErr) throw updateErr;
 
-    // 承認時: Talk スレッドを作成
+    // 承認時: Talk スレッドを作成（talk_threads は INSERT ポリシー無しのため service role 経由）
+    //
+    // [C4 2026-04-20] service-role 不在や upsert 失敗を silent に許すと、UI 側
+    //   （TalkPageClient, CardViewClient）で connection_id を thread_id として扱う
+    //   フォールバックに化けて FK / RLS 不整合が発生する。accept は talk_threads
+    //   行の存在まで含めて成立する契約に揃える。失敗時は 500 で明示。
     if (action === "accept") {
-      await supabase.from("talk_threads").insert({
-        connection_id: connectionId,
-      });
+      const admin = getAdminClient();
+      if (!admin) {
+        console.error("[genome-connections] accept aborted: service_role_unavailable");
+        return NextResponse.json(
+          { error: "Service role unavailable" },
+          { status: 500 },
+        );
+      }
+      const { error: upsertErr } = await admin
+        .from("talk_threads")
+        .upsert(
+          { connection_id: connectionId },
+          { onConflict: "connection_id" },
+        );
+      if (upsertErr) {
+        console.error("[genome-connections] talk_threads upsert failed:", upsertErr);
+        return NextResponse.json(
+          { error: "Talk thread creation failed" },
+          { status: 500 },
+        );
+      }
     }
 
     return NextResponse.json({ ok: true, status: statusMap[action] });

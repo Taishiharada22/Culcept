@@ -2,6 +2,32 @@
 // GET  /api/genome-card/exchange?targetUserId=xxx — 交換状態チェック
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
+
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
+// talk_threads は INSERT ポリシーが無いため service role で upsert する。
+//
+// [C4 2026-04-20] 失敗を silent に握りつぶすと connection_id を thread_id として
+//   扱う UI 側の型的嘘が観測できなくなる（accepted なのに talk_threads 行が無い
+//   状態）。ここでは throw し、caller で 500 を返して顕在化する。
+async function ensureTalkThread(connectionId: string): Promise<void> {
+  const admin = getAdminClient();
+  if (!admin) {
+    throw new Error("service_role_unavailable");
+  }
+  const { error } = await admin
+    .from("talk_threads")
+    .upsert({ connection_id: connectionId }, { onConflict: "connection_id" });
+  if (error) {
+    throw new Error(`talk_threads_upsert_failed: ${error.message}`);
+  }
+}
 
 /**
  * GET: 特定ユーザーとのカード交換ステータスを取得
@@ -146,6 +172,8 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      await ensureTalkThread(existing.id);
+
       return NextResponse.json({
         ok: true,
         status: "exchanged",
@@ -191,6 +219,10 @@ export async function POST(req: NextRequest) {
         { error: "Exchange failed" },
         { status: 500 },
       );
+    }
+
+    if (autoAccept) {
+      await ensureTalkThread(newConn.id);
     }
 
     return NextResponse.json({

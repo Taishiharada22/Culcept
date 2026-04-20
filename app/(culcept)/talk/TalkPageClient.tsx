@@ -256,11 +256,21 @@ export default function TalkPageClient() {
                             className="overflow-hidden"
                           >
                             <div className="flex gap-2 px-3 pt-2 pb-1">
-                              <Link href={`/talk/${conn.threadId ?? conn.id}?from=home`}
-                                className="flex-1 py-2.5 rounded-xl text-center text-xs font-medium transition-all active:scale-95"
-                                style={{ background: `${C.neural}10`, color: C.neural, border: `1px solid ${C.neural}20` }}>
-                                トーク
-                              </Link>
+                              {/* [C4 2026-04-20] threadId が null なら link 不活性化。
+                                  connection_id を thread_id として流すと FK/RLS で落ちる。 */}
+                              {conn.threadId ? (
+                                <Link href={`/talk/${conn.threadId}?from=home`}
+                                  className="flex-1 py-2.5 rounded-xl text-center text-xs font-medium transition-all active:scale-95"
+                                  style={{ background: `${C.neural}10`, color: C.neural, border: `1px solid ${C.neural}20` }}>
+                                  トーク
+                                </Link>
+                              ) : (
+                                <span
+                                  className="flex-1 py-2.5 rounded-xl text-center text-xs font-medium opacity-50 cursor-not-allowed"
+                                  style={{ background: C.s2, color: C.t3, border: `1px solid ${C.s2}` }}>
+                                  トーク準備中
+                                </span>
+                              )}
                               <Link href={`/genome-card/${conn.counterpart.userId}`}
                                 className="flex-1 py-2.5 rounded-xl text-center text-xs font-medium transition-all active:scale-95"
                                 style={{ background: C.s2, color: C.t2 }}>

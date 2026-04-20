@@ -16,6 +16,7 @@ export default function CardViewClient({ userId }: { userId: string }) {
   const [myCard, setMyCard] = useState<GenomeCardData | null>(null);
   const [visibilityLevel, setVisibilityLevel] = useState<VisibilityLevel>(1);
   const [connectionId, setConnectionId] = useState<string | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +34,7 @@ export default function CardViewClient({ userId }: { userId: string }) {
         setCard(targetData.card);
         setVisibilityLevel(targetData.visibilityLevel);
         setConnectionId(targetData.connectionId);
+        setThreadId(targetData.threadId ?? null);
 
         if (myData.ok) setMyCard(myData.card);
       } catch { setError("ネットワークエラー"); } finally { setLoading(false); }
@@ -98,10 +100,15 @@ export default function CardViewClient({ userId }: { userId: string }) {
 
             {/* アクション */}
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="flex gap-2">
-              {connectionId && (
-                <Link href={`/talk/${connectionId}`} className="flex-1 py-3 rounded-xl text-sm font-medium text-center"
+              {/* [C4 2026-04-20] threadId が null なら link を出さない。
+                  connectionId を /talk/:threadId に流すと FK/RLS で落ちる。 */}
+              {threadId ? (
+                <Link href={`/talk/${threadId}`} className="flex-1 py-3 rounded-xl text-sm font-medium text-center"
                   style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`, color: "white" }}>トークする</Link>
-              )}
+              ) : connectionId ? (
+                <span className="flex-1 py-3 rounded-xl text-sm font-medium text-center opacity-50 cursor-not-allowed"
+                  style={{ background: C.s2, color: C.t3 }}>トーク準備中</span>
+              ) : null}
               <Link href="/genome-card" className="flex-1 py-3 rounded-xl text-sm font-medium text-center"
                 style={{ background: C.s2, color: C.t2 }}>カード一覧</Link>
             </motion.div>
