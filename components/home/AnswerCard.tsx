@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 type FeedbackType = "correct" | "partially" | "wrong";
 
@@ -78,7 +79,7 @@ export default function AnswerCard({
               : "none",
           }}
         >
-          <span className="text-[10px]" style={{ color: "#6366F1", opacity: 0.6 }}>✦</span>
+          <AneurasyncLogo size={15} color="#6366F1" style={{ opacity: 0.6 }} />
           <span className="text-[11px] font-medium text-text1 flex-1 text-left truncate">
             {proposal.length > 40 ? proposal.slice(0, 40) + "…" : proposal}
           </span>
@@ -145,7 +146,7 @@ export default function AnswerCard({
           }}
         >
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-xs">✦</span>
+            <AneurasyncLogo size={16} color="#6366F1" style={{ opacity: 0.6 }} />
             <span
               className="text-[9px] font-mono tracking-wider"
               style={{ color: "#6366F1", opacity: 0.6 }}
@@ -188,7 +189,7 @@ export default function AnswerCard({
           {/* Header */}
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px]" style={{ opacity: 0.5 }}>✦</span>
+              <AneurasyncLogo size={15} color="#6366F1" style={{ opacity: 0.5 }} />
               <span
                 className="text-[9px] font-mono tracking-wider"
                 style={{ color: "#6366F1", opacity: 0.5 }}
@@ -287,7 +288,7 @@ export default function AnswerCard({
           {/* Prediction feedback */}
           <div className="mt-2 pt-2 border-t border-black/[0.04]">
             <div className="flex items-center gap-1.5 mb-2">
-              <span className="text-[10px]" style={{ opacity: 0.5 }}>✦</span>
+              <AneurasyncLogo size={15} color="#6366F1" style={{ opacity: 0.5 }} />
               <span
                 className="text-[9px] font-mono tracking-wider"
                 style={{ color: "#6366F1", opacity: 0.5 }}
