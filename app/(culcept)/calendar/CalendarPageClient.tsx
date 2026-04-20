@@ -238,42 +238,111 @@ export default function CalendarPageClient() {
   React.useEffect(() => { setLoading(true); void fetchCalendar(); }, [fetchCalendar]);
 
   // Wardrobe: bridge API 優先、localStorage フォールバック
+  // 鮮度比較: remote savedAt < local なら local を優先（stale remote 防止）
   React.useEffect(() => {
     let active = true;
     (async () => {
+      let remoteSavedAt: string | null = null;
+      let remoteWardrobe: WardrobeItem[] | null = null;
+
       // 1. サーバーから取得
       try {
         const res = await fetch("/api/my-style/bridge", { cache: "no-store" });
         if (res.ok && active) {
           const json = await res.json();
+          remoteSavedAt = json?.syncedAt ?? null;
           const remote = json?.remoteState?.wardrobe;
           if (Array.isArray(remote) && remote.length > 0) {
-            setWardrobeItems(remote);
-            return;
+            remoteWardrobe = remote;
           }
+          console.log(`[calendar wardrobe] bridge GET: status=200 wardrobeLen=${remoteWardrobe?.length ?? 0} syncedAt=${remoteSavedAt ?? "null"} remoteStateNull=${json?.remoteState === null}`);
+        } else {
+          console.warn(`[calendar wardrobe] bridge GET: status=${res?.status ?? "unknown"}`);
         }
-      } catch { /* fallback to localStorage */ }
-      // 2. フォールバック: localStorage
-      if (!active) return;
-      try {
-        const raw = localStorage.getItem(WARDROBE_KEY);
-        if (raw) {
-          const data = JSON.parse(raw);
-          if (Array.isArray(data.wardrobe) && data.wardrobe.length > 0) {
-            setWardrobeItems(data.wardrobe);
-            return;
+      } catch (e) {
+        console.warn("[calendar wardrobe] bridge GET failed:", e);
+      }
+
+      // 2. localStorage
+      let localWardrobe: WardrobeItem[] | null = null;
+      if (active) {
+        try {
+          const raw = localStorage.getItem(WARDROBE_KEY);
+          if (raw) {
+            const data = JSON.parse(raw);
+            if (Array.isArray(data.wardrobe) && data.wardrobe.length > 0) {
+              localWardrobe = data.wardrobe;
+            }
           }
+          console.log(`[calendar wardrobe] localStorage: wardrobeLen=${localWardrobe?.length ?? 0}`);
+        } catch { /* continue */ }
+      }
+
+      // 3. IndexedDB: full-fidelity source (has base64 images)
+      // My-Style writes full state to IndexedDB, but only image-stripped snapshots
+      // to localStorage and bridge. IndexedDB is the only source with real photos.
+      let idbWardrobe: WardrobeItem[] | null = null;
+      if (active) {
+        try {
+          const { loadCachedState } = await import("@/app/(immersive)/my-style/_lib/stateCache");
+          const cached = await loadCachedState<{ wardrobe?: WardrobeItem[] }>("my-style-state");
+          if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0) {
+            idbWardrobe = cached.wardrobe as WardrobeItem[];
+            const withImages = idbWardrobe.filter(i => !!i.imageUrl).length;
+            console.log(`[calendar wardrobe] IndexedDB: ${idbWardrobe.length} items, ${withImages} with images`);
+          }
+        } catch { /* continue without IDB */ }
+      }
+
+      // 4. Merge strategy:
+      // - IndexedDB has images but may be stale (user might have added items on another device)
+      // - Remote bridge is authoritative for item list but has no images
+      // - Use remote as authority for which items exist, enrich with IndexedDB images
+      const mergeImages = (
+        authority: WardrobeItem[],
+        imageSource: WardrobeItem[] | null,
+      ): WardrobeItem[] => {
+        if (!imageSource || imageSource.length === 0) return authority;
+        const imageMap = new Map<string, string>();
+        for (const item of imageSource) {
+          if (item.id && item.imageUrl) imageMap.set(item.id, item.imageUrl);
         }
-      } catch { /* continue to IndexedDB */ }
-      // 3. フォールバック: IndexedDB（localStorage容量超過時）
-      if (!active) return;
-      try {
-        const { loadCachedState } = await import("@/app/(immersive)/my-style/_lib/stateCache");
-        const cached = await loadCachedState<{ wardrobe?: WardrobeItem[] }>("my-style-state");
-        if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0 && active) {
-          setWardrobeItems(cached.wardrobe as WardrobeItem[]);
+        let merged = 0;
+        const result = authority.map((item) => {
+          if (item.imageUrl) return item;
+          const img = imageMap.get(item.id);
+          if (img) { merged++; return { ...item, imageUrl: img }; }
+          return item;
+        });
+        if (merged > 0) console.log(`[calendar wardrobe] 🖼 merged ${merged} images from IndexedDB into wardrobe`);
+        return result;
+      };
+
+      if (active) {
+        if (remoteWardrobe) {
+          // Remote is authoritative, enrich with images from IndexedDB
+          const enriched = mergeImages(remoteWardrobe, idbWardrobe);
+          const withImages = enriched.filter(i => !!i.imageUrl).length;
+          console.log(`[calendar wardrobe] ✓ source=remote+idb (${enriched.length} items, ${withImages} with images)`);
+          setWardrobeItems(enriched);
+          return;
         }
-      } catch { setWardrobeItems([]); }
+        // No remote — use IndexedDB directly (has images)
+        if (idbWardrobe) {
+          console.log(`[calendar wardrobe] ✓ source=IndexedDB (${idbWardrobe.length} items)`);
+          setWardrobeItems(idbWardrobe);
+          return;
+        }
+        // Last resort: localStorage (no images, but has item metadata)
+        if (localWardrobe) {
+          console.log(`[calendar wardrobe] ✓ source=localStorage (${localWardrobe.length} items, no images)`);
+          setWardrobeItems(localWardrobe);
+          return;
+        }
+      }
+
+      console.warn("[calendar wardrobe] ✗ no wardrobe found in any source");
+      if (active) setWardrobeItems([]);
     })();
     return () => { active = false; };
   }, []);
@@ -444,8 +513,25 @@ export default function CalendarPageClient() {
   const recentlyWornIds = React.useMemo(() => getRecentlyWornItemIds(7), []);
 
   const dayProposals = React.useMemo(() => {
-    if (!calendarData || wardrobeItems.length === 0) return new Map<string, DayProposal>();
+    if (!calendarData || wardrobeItems.length === 0) {
+      console.log(`[calendar proposals] skip: calendarData=${!!calendarData} wardrobeItems=${wardrobeItems.length}`);
+      return new Map<string, DayProposal>();
+    }
+
+    // ── Diagnostic: category breakdown ──
+    const catBreakdown: Record<string, number> = {};
+    for (const item of wardrobeItems) {
+      const cat = item.categoryMain || item.category;
+      catBreakdown[cat] = (catBreakdown[cat] ?? 0) + 1;
+    }
+    const usable = (catBreakdown["tops"] ?? 0) + (catBreakdown["bottoms"] ?? 0) + (catBreakdown["shoes"] ?? 0) + (catBreakdown["outer"] ?? 0) + (catBreakdown["outerwear"] ?? 0);
+    console.log(`[calendar proposals] wardrobeItems=${wardrobeItems.length} usable=${usable} categories=${JSON.stringify(catBreakdown)}`);
+    if (usable < 2) {
+      console.warn(`[calendar proposals] ⚠ usable items < 2 — generateDayProposal will return null (need at least tops+bottoms)`);
+    }
+
     const map = new Map<string, DayProposal>();
+    let nullCount = 0;
     for (const day of calendarData.days) {
       // 拡張天気コンテキスト構築 (湿度・風速考慮)
       const extWeather = buildExtendedWeatherContext(day.weather_daily);
@@ -463,6 +549,7 @@ export default function CalendarPageClient() {
       };
 
       const proposal = generateDayProposal(wardrobeItems, day.date, day.weather_daily, day.events, recentlyWornIds, undefined, personaProfile, satisfactionProfile, extOpts);
+      if (!proposal) { nullCount++; }
       if (proposal) {
         // インサイト生成 (6エンジン統合)
         const blend = getSeasonBlend(day.date);
@@ -506,6 +593,7 @@ export default function CalendarPageClient() {
         map.set(day.date, proposal);
       }
     }
+    console.log(`[calendar proposals] generated=${map.size} nullDays=${nullCount} totalDays=${calendarData.days?.length ?? 0}`);
     return map;
   }, [calendarData, wardrobeItems, recentlyWornIds, personaProfile, satisfactionProfile, temporalProfile, comboGraph, observationContext]);
 
@@ -558,6 +646,9 @@ export default function CalendarPageClient() {
   const todayData = calendarData?.days.find(d => d.date === todayStr) ?? null;
   const todayProposal = dayProposals.get(todayStr) ?? null;
   const todayWeather = todayData?.weather_daily ?? null;
+
+  // ── Diagnostic: rendering pipeline ──
+  console.log(`[calendar render] todayStr=${todayStr} dayProposals.size=${dayProposals.size} todayProposal=${todayProposal ? "present" : "null"} loading=${loading} wardrobeItems=${wardrobeItems.length}`);
 
   const tomorrowStr = React.useMemo(() => {
     const d = new Date(today); d.setDate(d.getDate() + 1);
@@ -869,11 +960,16 @@ export default function CalendarPageClient() {
                       <div className="flex items-center gap-1.5">
                         <div className="flex gap-0.5 shrink-0">
                           {todayProposal.main.items.slice(0, 4).map((item, i) => (
-                            <div key={i} className="w-7 h-7 rounded-md bg-white/60 border border-white/50 overflow-hidden flex items-center justify-center">
+                            <div key={i} className="w-7 h-7 rounded-md bg-white/60 border border-white/50 overflow-hidden flex items-center justify-center relative">
                               {item.imageUrl ? (
                                 <Image src={item.imageUrl} alt="" width={28} height={28} className="w-full h-full object-contain p-0.5" loader={passthroughLoader} unoptimized />
                               ) : (
-                                <span className="text-[9px] text-gray-300">{item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : "👟"}</span>
+                                <div className="flex flex-col items-center justify-center">
+                                  <div className="w-3.5 h-0.5 rounded-full mb-px" style={{ backgroundColor: item.colorHex || item.color || "#888", opacity: 0.6 }} />
+                                  <span className="text-[8px] text-gray-300">
+                                    {item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : item.category === "outerwear" ? "🧥" : "👟"}
+                                  </span>
+                                </div>
                               )}
                             </div>
                           ))}
@@ -925,6 +1021,27 @@ export default function CalendarPageClient() {
               </FadeInView>
               );
             })()}
+
+            {/* ── ワードローブあるが提案生成できなかった場合 ── */}
+            {!todayProposal && wardrobeItems.length > 0 && !loading && (
+              <FadeInView delay={0.02}>
+                <div className="rounded-2xl bg-gradient-to-br from-white/50 to-amber-50/20 backdrop-blur-2xl border border-white/40 p-4">
+                  <div className="text-center">
+                    <p className="text-2xl mb-2">🧩</p>
+                    <p className="text-sm font-bold text-gray-700 mb-1">今日のコーデを組み立て中…</p>
+                    <p className="text-xs text-gray-400 leading-relaxed">
+                      トップス・ボトムス・靴から2カテゴリ以上あると提案できます。
+                      <br />現在 {wardrobeItems.length} アイテム登録済み
+                    </p>
+                    <Link href="/my-style?tab=closet"
+                      className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full"
+                      style={{ background: "rgba(245,158,11,0.1)", color: "#D97706" }}>
+                      アイテムを追加する →
+                    </Link>
+                  </div>
+                </div>
+              </FadeInView>
+            )}
 
             {/* ── ワードローブ未登録 → My-Style導線 ── */}
             {!todayProposal && wardrobeItems.length === 0 && !loading && (

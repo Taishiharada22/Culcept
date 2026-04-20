@@ -8,6 +8,62 @@ import type { Slot } from "../_lib/vcTypes";
 
 const passthroughLoader: ImageLoader = ({ src }) => src;
 
+/* ── Category silhouette SVGs ── */
+const CATEGORY_SILHOUETTE: Record<string, React.ReactNode> = {
+  tops: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M14 12L10 18V36H38V18L34 12H30L28 16H20L18 12H14Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="24" y1="16" x2="24" y2="30" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  top: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M14 12L10 18V36H38V18L34 12H30L28 16H20L18 12H14Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="24" y1="16" x2="24" y2="30" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  bottoms: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M14 8H34V20L30 40H26L24 24L22 40H18L14 20V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  ),
+  bottom: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M14 8H34V20L30 40H26L24 24L22 40H18L14 20V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  ),
+  shoes: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M8 30L12 22H28L36 26L40 30V34H8V30Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M36 26L38 22" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  outer: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M12 10L8 16V38H18V38L20 16H28L30 38H40V16L36 10H30L28 14H20L18 10H12Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="24" y1="14" x2="24" y2="32" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  outerwear: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <path d="M12 10L8 16V38H18V38L20 16H28L30 38H40V16L36 10H30L28 14H20L18 10H12Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <line x1="24" y1="14" x2="24" y2="32" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  accessory: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <circle cx="24" cy="24" r="10" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="24" cy="24" r="4" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+  accessories: (
+    <svg viewBox="0 0 48 48" fill="none" className="w-12 h-12 opacity-30">
+      <circle cx="24" cy="24" r="10" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="24" cy="24" r="4" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+  ),
+};
+
 /* ── ItemCard ── */
 function ItemCard({
   item,
@@ -16,6 +72,10 @@ function ItemCard({
   item: WardrobeItem;
   isCenter: boolean;
 }) {
+  const cat = item.categoryMain || item.category;
+  const colorHex = item.colorHex || item.color || "#888";
+  const displayName = item.name || item.subcategory || cat;
+
   return (
     <div
       className={`
@@ -27,22 +87,45 @@ function ItemCard({
         }
       `}
     >
-      {/* 画像 */}
+      {/* 画像エリア */}
       <div className="relative w-full aspect-[1/1.08] bg-gradient-to-br from-gray-50 to-gray-100/50">
         {item.imageUrl ? (
           <Image
             loader={passthroughLoader}
             src={item.imageUrl}
-            alt={item.name}
+            alt={displayName}
             fill
             className="object-contain p-2"
             sizes="168px"
             unoptimized
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-300 text-4xl">
-            👕
+          /* Category-specific silhouette + color accent */
+          <div className="flex flex-col items-center justify-center h-full gap-1 text-gray-400">
+            {/* Color accent bar */}
+            <div
+              className="w-10 h-1 rounded-full mb-1"
+              style={{ backgroundColor: colorHex, opacity: 0.7 }}
+            />
+            {CATEGORY_SILHOUETTE[cat] ?? CATEGORY_SILHOUETTE.tops}
           </div>
+        )}
+      </div>
+      {/* Item identity footer */}
+      <div className="px-2 py-1.5 border-t border-gray-100/50">
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-3 h-3 rounded-full shrink-0 border border-white/60"
+            style={{ backgroundColor: colorHex }}
+          />
+          <span className="text-[10px] font-medium text-gray-600 truncate leading-tight">
+            {displayName}
+          </span>
+        </div>
+        {item.colorName && (
+          <span className="text-[8px] text-gray-400 ml-[18px] block truncate">
+            {item.colorName}
+          </span>
         )}
       </div>
     </div>
