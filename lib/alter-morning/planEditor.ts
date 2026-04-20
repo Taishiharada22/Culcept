@@ -12,6 +12,7 @@
  */
 
 import type { PlanItem, MorningPlan } from "./types";
+import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import { parseIntent, intentToPlanItems } from "./intentParser";
 import { parseUserInput } from "./planningEngine";
 
@@ -28,10 +29,14 @@ export interface EditResult {
   message: string;
   /** 検出された編集操作 */
   operations: EditOperation[];
+  /** プラン条件（transport 等）の変更 */
+  conditionChanges?: {
+    transport?: TransportMode;
+  };
 }
 
 interface EditOperation {
-  type: "add" | "remove" | "modify_duration" | "modify_start" | "replace";
+  type: "add" | "remove" | "modify_duration" | "modify_start" | "replace" | "modify_condition";
   target?: string;
   detail: string;
 }
@@ -63,6 +68,23 @@ const ANCHOR_BEFORE_RE =
 /** 順序変更 */
 const REORDER_RE =
   /(.+?)を?(?:先|最初)にして/;
+
+/** 移動手段変更（「やっぱり電車で」「車にして」「バスで行く」等） */
+const TRANSPORT_CHANGE_RE =
+  /(?:やっぱり|やはり|やっぱ)?\s*(車|電車|バス|自転車|チャリ|徒歩|歩き|タクシー|バイク)(?:で(?:行[くこ]|い[くこ]|お願い)?|に(?:変え|し|する|して)|がいい|にして)?/;
+
+/** 移動手段ワード → TransportMode 変換 */
+const TRANSPORT_WORD_MAP: Record<string, TransportMode> = {
+  /* car   */ "\u8ECA": "car",
+  /* train */ "\u96FB\u8ECA": "train",
+  /* bus   */ "\u30D0\u30B9": "bus",
+  /* bicycle */ "\u81EA\u8EE2\u8ECA": "bicycle",
+  /* bicycle */ "\u30C1\u30E3\u30EA": "bicycle",
+  /* walk  */ "\u5F92\u6B69": "walk",
+  /* walk  */ "\u6B69\u304D": "walk",
+  /* taxi  */ "\u30BF\u30AF\u30B7\u30FC": "taxi",
+  /* motorcycle */ "\u30D0\u30A4\u30AF": "motorcycle",
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ファジーマッチ
@@ -186,7 +208,26 @@ export function applyPlanEdit(message: string, plan: MorningPlan): EditResult {
     }
   }
 
-  // ── 5. アンカー付き追加検出（「〜の後に X して Y して」） ──
+  // ── 5. 移動手段変更検出（「やっぱり電車で」「車にして」等） ──
+  let conditionChanges: EditResult["conditionChanges"];
+  if (!applied) {
+    const transportM = message.match(TRANSPORT_CHANGE_RE);
+    if (transportM) {
+      const word = transportM[1];
+      const mode = TRANSPORT_WORD_MAP[word];
+      if (mode) {
+        const label = word === "チャリ" ? "自転車" : word;
+        conditionChanges = { transport: mode };
+        operations.push({
+          type: "modify_condition",
+          detail: `移動手段を${label}(${mode})に変更`,
+        });
+        applied = true;
+      }
+    }
+  }
+
+  // ── 6. アンカー付き追加検出（「〜の後に X して Y して」） ──
   const anchorAfterM = message.match(ANCHOR_AFTER_RE);
   const anchorBeforeM = !anchorAfterM ? message.match(ANCHOR_BEFORE_RE) : null;
 
@@ -214,7 +255,7 @@ export function applyPlanEdit(message: string, plan: MorningPlan): EditResult {
     }
   }
 
-  // ── 6. アンカーなしの追加（新しいアイテムが含まれているが位置指定なし） ──
+  // ── 7. アンカーなしの追加（新しいアイテムが含まれているが位置指定なし） ──
   if (!applied) {
     const newItemsFromFull = extractNewItems(message);
     // 既存アイテムとの重複を除外
@@ -239,7 +280,7 @@ export function applyPlanEdit(message: string, plan: MorningPlan): EditResult {
     msg = summaryParts.join("、") + "。\nこれでどう？";
   }
 
-  return { applied, items, message: msg, operations };
+  return { applied, items, message: msg, operations, conditionChanges };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

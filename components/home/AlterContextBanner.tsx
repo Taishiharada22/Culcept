@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 /**
  * AlterContextBanner
@@ -39,7 +40,7 @@ export default function AlterContextBanner({ page }: Props) {
         borderBottom: "1px solid rgba(99,102,241,0.10)",
       }}
     >
-      <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
+      <AneurasyncLogo size={15} color="#6366F1" />
       <span className="text-[11px] font-medium" style={{ color: "#4338CA", opacity: 0.75 }}>
         {message}
       </span>

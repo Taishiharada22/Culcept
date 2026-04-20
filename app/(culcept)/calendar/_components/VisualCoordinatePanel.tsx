@@ -173,6 +173,12 @@ function saveOutfitToStorage(outfit: SavedOutfit) {
 /* ═══════════════════════════════════════════════
    SelectedRecipeRail
    ═══════════════════════════════════════════════ */
+const SLOT_EMOJI: Record<string, string> = {
+  top: "👕", tops: "👕", bottom: "👖", bottoms: "👖",
+  shoes: "👟", outer: "🧥", outerwear: "🧥",
+  accessory: "💍", accessories: "💍", hat: "🧢",
+};
+
 function SelectedRecipeRail({ draft }: { draft: Partial<Record<Slot, WardrobeItem>> }) {
   const selected = SLOT_ORDER.filter((s) => draft[s]);
   if (selected.length === 0) return null;
@@ -183,13 +189,21 @@ function SelectedRecipeRail({ draft }: { draft: Partial<Record<Slot, WardrobeIte
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         {selected.map((slot) => {
           const item = draft[slot]!;
+          const colorHex = item.colorHex || item.color || "#888";
+          const cat = item.categoryMain || item.category;
           return (
-            <div key={slot} className="shrink-0 w-10 h-10 rounded-lg bg-white/70 border border-white/60 shadow-sm overflow-hidden relative">
-              {item.imageUrl ? (
-                <Image loader={passthroughLoader} src={item.imageUrl} alt={item.name} fill className="object-contain p-0.5" sizes="40px" unoptimized />
-              ) : (
-                <div className="flex items-center justify-center h-full text-gray-300 text-sm">👕</div>
-              )}
+            <div key={slot} className="shrink-0 flex flex-col items-center gap-0.5">
+              <div className="w-10 h-10 rounded-lg bg-white/70 border border-white/60 shadow-sm overflow-hidden relative">
+                {item.imageUrl ? (
+                  <Image loader={passthroughLoader} src={item.imageUrl} alt={item.name} fill className="object-contain p-0.5" sizes="40px" unoptimized />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="w-5 h-0.5 rounded-full mb-0.5" style={{ backgroundColor: colorHex, opacity: 0.6 }} />
+                    <span className="text-gray-300 text-sm">{SLOT_EMOJI[cat] ?? "👕"}</span>
+                  </div>
+                )}
+              </div>
+              <span className="text-[7px] text-gray-400 truncate max-w-[44px]">{item.name || cat}</span>
             </div>
           );
         })}
@@ -345,6 +359,21 @@ export default function VisualCoordinatePanel({
   };
 
   const hasAnyCandidates = SLOT_ORDER.some((s) => candidates[s].length > 0);
+
+  // ── Diagnostic: VC Panel inventory → candidates ──
+  React.useEffect(() => {
+    const slotCounts = Object.fromEntries(SLOT_ORDER.map((s) => [s, candidates[s].length]));
+    console.log(`[VisualCoordinatePanel] inventory=${inventory.length} hasAnyCandidates=${hasAnyCandidates} slotCounts=${JSON.stringify(slotCounts)}`);
+    if (inventory.length > 0 && !hasAnyCandidates) {
+      const withImage = inventory.filter(i => !!i.imageUrl).length;
+      const catBreakdown: Record<string, number> = {};
+      for (const item of inventory) {
+        const cat = item.categoryMain || item.category;
+        catBreakdown[cat] = (catBreakdown[cat] ?? 0) + 1;
+      }
+      console.warn(`[VisualCoordinatePanel] ⚠ items exist but 0 candidates — withImage=${withImage}/${inventory.length} categories=${JSON.stringify(catBreakdown)}`);
+    }
+  }, [inventory, candidates, hasAnyCandidates]);
 
   /* ── 日付ヘッダー ── */
   const dateObj = new Date(date + "T00:00:00");

@@ -470,6 +470,7 @@ export default function InteractiveConstellationMap({
                     fill="none"
                     stroke={hexToRgba(thPrimary, 0.5)}
                     strokeWidth={1}
+                    initial={{ r: nodeSize + 4 }}
                     animate={{ r: [nodeSize + 4, nodeSize + 14], opacity: [0.5, 0] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                   />

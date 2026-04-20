@@ -291,9 +291,10 @@ function PsycheSignatureVisual({
 
       {/* Ambient glow background */}
       <motion.circle
-        cx={cx} cy={cy} r={130}
+        cx={cx} cy={cy} r={120}
         fill="url(#ambientGlow)"
         filter="url(#softBlur)"
+        initial={{ r: 120 }}
         animate={{ r: [120, 140, 120] }}
         transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -1594,6 +1595,7 @@ export default function SignatureClient() {
                 <motion.circle
                   cx={80} cy={80} r={10}
                   fill={`${palette.primary}15`}
+                  initial={{ r: 10 }}
                   animate={{ r: [10, 16, 10], opacity: [0.15, 0.35, 0.15] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 />

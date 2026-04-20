@@ -377,8 +377,10 @@ export default function DayDetailSheet({
                   ) : (
                     <div className="text-center">
                       <p className="text-4xl mb-3">📐</p>
-                      <p className="text-sm text-gray-500">この日の提案を生成できません</p>
-                      <p className="text-[10px] text-gray-400 mt-1">トップス・ボトムス・靴の登録が必要です</p>
+                      <p className="text-sm text-gray-500">この日の提案を準備中</p>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {wardrobeItems.length}アイテム登録済み — コーデタブから直接選択できます
+                      </p>
                     </div>
                   )}
                 </div>

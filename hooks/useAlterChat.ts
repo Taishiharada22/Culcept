@@ -5,11 +5,20 @@ import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMe
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult } from "@/lib/alter-morning/types";
 
+/** PE出典情報（Alter発言下に小さく表示） */
+export type PerspectiveSource = {
+  title: string;
+  url: string;
+  date: string | null;
+};
+
 export type AlterMessage = {
   id: string;
   role: "user" | "alter";
   content: string;
   timestamp: string;
+  /** P1.9: PE出典データ（Alter応答にのみ付与） */
+  perspectiveSources?: PerspectiveSource[];
 };
 
 export type AlterChatState = {
@@ -301,6 +310,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         role: "alter",
         content: data.response ?? "...",
         timestamp: new Date().toISOString(),
+        // P1.9: PE出典データ（CEOアプローチ: 目立たなく小さく表示）
+        ...(data.perspectiveSources?.length > 0 ? {
+          perspectiveSources: data.perspectiveSources,
+        } : {}),
       };
 
       if (!sessionId && data.sessionId) {

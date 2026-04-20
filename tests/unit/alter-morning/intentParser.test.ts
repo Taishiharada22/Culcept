@@ -709,11 +709,11 @@ describe("checkOutfitSufficiency — コーデ用 gate", () => {
 });
 
 describe("buildOutfitClarifyQuestion — 1 問に束ねた質問", () => {
-  test("transport + mood → 束ねて質問", () => {
+  test("transport + mood → 1文にまとめて質問", () => {
     const question = buildOutfitClarifyQuestion(["transport", "mood"]);
     expect(question).toContain("移動は");
-    expect(question).toContain("服は");
-    expect(question).toContain("コーデ提案するために");
+    expect(question).toContain("ラフかキレイめか");
+    expect(question).toContain("コーディネート");
   });
 
   test("不足なし → 空文字", () => {

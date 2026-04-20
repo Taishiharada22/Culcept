@@ -329,10 +329,11 @@ export default function RadarChart({
               <motion.circle
                 cx={px}
                 cy={py}
-                r={6}
+                r={5}
                 fill="none"
                 stroke={strokeColor}
                 strokeWidth={1}
+                initial={{ r: 5 }}
                 animate={{ r: [5, 10, 5], opacity: [0.5, 0, 0.5] }}
                 transition={{ duration: 2, repeat: Infinity }}
               />

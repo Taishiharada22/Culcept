@@ -778,7 +778,12 @@ export default function MyStylePage() {
     const tabBarRef = useRef<HTMLDivElement>(null);
 
     const setState = (updater: SetStateAction<SavedState>) => {
-        rawSetState((prev) => finalizeSavedState(typeof updater === "function" ? (updater as (current: SavedState) => SavedState)(prev) : updater));
+        rawSetState((prev) => {
+            const next = finalizeSavedState(typeof updater === "function" ? (updater as (current: SavedState) => SavedState)(prev) : updater);
+            // Auto-increment revision on every mutation — the monotonic counter
+            // ensures that "newest state wins" on restore, even when wardrobe is empty.
+            return { ...next, _revision: (prev._revision ?? 0) + 1 };
+        });
     };
     const pushNotice = (text: string) => { vibrateSuccess(); setNotice(text); };
     const addItemToSetup = (itemId: string) => {
@@ -812,9 +817,9 @@ export default function MyStylePage() {
         if (!restorationResolved) return;
         const snapshot = createPortableStateSnapshot(state);
         const json = JSON.stringify(snapshot);
-        // Always cache to IndexedDB first (no size limit)
-        void cacheState("my-style-state", snapshot);
-        // localStorage: try but don't block if quota exceeded — IndexedDB is the primary store
+        // IndexedDB: cache FULL state (with images) — no size limit, used by Calendar for real photos
+        void cacheState("my-style-state", normalizeSavedState(state));
+        // localStorage: image-stripped snapshot only (5MB quota)
         try {
             localStorage.setItem(STORAGE_KEY, json);
         } catch {
@@ -828,10 +833,23 @@ export default function MyStylePage() {
                 console.warn("[my-style] localStorage quota exceeded — using IndexedDB as primary store");
             }
         }
-        // Backup is expendable — write only if quota allows
-        if (hasMeaningfulState(state)) {
-            try { localStorage.setItem(BACKUP_STORAGE_KEY, json); } catch { /* expendable */ }
-        }
+        // Backup moved to beforeunload only — writing it on every change doubled quota pressure
+    }, [state, restorationResolved]);
+
+    // Write backup only on page unload to avoid doubling localStorage usage per change
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            if (!restorationResolved) return;
+            // Always write backup when revision > 0, even if wardrobe is empty (intentional delete-all).
+            // Only skip for truly never-used state (revision 0 + no meaningful data).
+            if ((state._revision ?? 0) === 0 && !hasMeaningfulState(state)) return;
+            try {
+                const snapshot = createPortableStateSnapshot(state);
+                localStorage.setItem(BACKUP_STORAGE_KEY, JSON.stringify(snapshot));
+            } catch { /* expendable — IndexedDB is the primary backup */ }
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
     }, [state, restorationResolved]);
 
     // Clean stale sync items on mount
@@ -847,26 +865,67 @@ export default function MyStylePage() {
         }
 
         // localStorage から読み込んだ state が空の場合、IndexedDB フォールバック
-        if (isEmptyState(initialBundle.state)) {
+        // ただし revision > 0 ならユーザーが意図的に全削除した可能性がある → フォールバックで上書きしない
+        const localRev = initialBundle.state._revision ?? 0;
+        const localIsEmpty = isEmptyState(initialBundle.state);
+        if (localIsEmpty && localRev === 0) {
             void (async () => {
                 try {
                     const cached = await loadCachedState<SavedState>("my-style-state");
-                    if (cached && !isEmptyState(normalizeSavedState(cached))) {
-                        setState(normalizeSavedState(cached));
-                        setShowOnboarding(false);
-                        pushNotice("IndexedDB からデータを復元しました");
-                        setRestorationResolved(true);
-                        return;
+                    if (cached) {
+                        const normalized = normalizeSavedState(cached);
+                        const cachedRev = normalized._revision ?? 0;
+                        // Only use IndexedDB fallback if it has newer data
+                        if (cachedRev > localRev && (cachedRev > 0 || !isEmptyState(normalized))) {
+                            setState(normalized);
+                            setShowOnboarding(false);
+                            pushNotice("IndexedDB からデータを復元しました");
+                            setRestorationResolved(true);
+                            return;
+                        }
                     }
                 } catch { /* IndexedDB unavailable */ }
                 // どちらも空 → onboarding 表示
-                setShowOnboarding(isEmptyState(initialBundle.state));
+                setShowOnboarding(true);
                 setRestorationResolved(true);
             })();
-        } else {
-            // localStorage にデータあり → そのまま
+        } else if (localIsEmpty && localRev > 0) {
+            // Intentional delete-all: revision > 0 but wardrobe is empty — user cleared everything.
+            // Do NOT fallback to IndexedDB/remote — respect their decision.
             setShowOnboarding(false);
             setRestorationResolved(true);
+            // Still write the empty-but-revised state to IndexedDB to keep it consistent
+            void cacheState("my-style-state", normalizeSavedState(initialBundle.state));
+        } else {
+            // localStorage にデータあり → IndexedDB から画像を復元してマージ
+            setShowOnboarding(false);
+            void (async () => {
+                try {
+                    const cached = await loadCachedState<SavedState>("my-style-state");
+                    if (cached && Array.isArray(cached.wardrobe) && cached.wardrobe.length > 0) {
+                        const imageMap = new Map<string, string>();
+                        for (const item of cached.wardrobe) {
+                            if (item.id && item.imageUrl) imageMap.set(item.id, item.imageUrl);
+                        }
+                        if (imageMap.size > 0) {
+                            setState((prev) => {
+                                const hasAnyImage = prev.wardrobe.some(w => !!w.imageUrl);
+                                if (hasAnyImage) return prev; // already has images
+                                let restored = 0;
+                                const wardrobe = prev.wardrobe.map((item) => {
+                                    if (item.imageUrl) return item;
+                                    const img = imageMap.get(item.id);
+                                    if (img) { restored++; return { ...item, imageUrl: img }; }
+                                    return item;
+                                });
+                                if (restored > 0) console.log(`[my-style] 🖼 restored ${restored} images from IndexedDB`);
+                                return restored > 0 ? { ...prev, wardrobe } : prev;
+                            });
+                        }
+                    }
+                } catch { /* IndexedDB unavailable */ }
+                setRestorationResolved(true);
+            })();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -899,7 +958,11 @@ export default function MyStylePage() {
             setSyncStatus(json?.syncedAt ? "synced" : "idle");
             if (json?.crossFeature) setCrossFeature(json.crossFeature);
             if (json?.pulse) setBridgePulse(json.pulse);
-            if (!hasMeaningfulState(initialBundle.state) && json?.remoteState && hasMeaningfulState(json.remoteState)) {
+            // Only overwrite local state with remote if local is truly virgin (rev 0 + empty).
+            // If local has revision > 0, user has been active — even if wardrobe is empty (delete-all).
+            const localRevNow = initialBundle.state._revision ?? 0;
+            const remoteRev = json?.remoteState?._revision ?? 0;
+            if (localRevNow === 0 && !hasMeaningfulState(initialBundle.state) && json?.remoteState && (remoteRev > 0 || hasMeaningfulState(json.remoteState))) {
                 rawSetState(finalizeSavedState(json.remoteState)); setNotice("保存データを読み込みました");
             }
         }
@@ -911,8 +974,14 @@ export default function MyStylePage() {
     // 復元完了前は POST を禁止（空 state でサーバーを上書きしない）
     useEffect(() => {
         if (!restorationResolved) return;
-        if (!hasMeaningfulState(state)) return;
+        // Allow sync when revision > 0 (even if wardrobe is empty — intentional delete-all)
+        // Only skip for truly virgin state (rev 0 + no meaningful data)
+        if ((state._revision ?? 0) === 0 && !hasMeaningfulState(state)) return;
         if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
+        // Flush immediately for destructive mutations (empty wardrobe with revision > 0)
+        // to avoid losing the delete-all intent within the 1.5s debounce window.
+        const isDestructive = (state._revision ?? 0) > 0 && state.wardrobe.length === 0;
+        const delay = isDestructive ? 0 : 1500;
         syncTimerRef.current = window.setTimeout(async () => {
             const payload = { source: "my-style-self-forming-v3", state: createPortableStateSnapshot(state) };
             // If offline, queue for later
@@ -938,7 +1007,7 @@ export default function MyStylePage() {
                 enqueueSync("/api/my-style/bridge", "POST", payload);
                 setSyncStatus("error");
             }
-        }, 1500);
+        }, delay);
         return () => { if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current); };
     }, [state, restorationResolved]);
 

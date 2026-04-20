@@ -97,6 +97,7 @@ export const EMPTY_STATE: SavedState = {
     },
     stylePrefs: {},
     memo: "",
+    _revision: 0,
     styles: [],
     primaryLanes: [],
     secondaryLanes: [],
@@ -198,7 +199,10 @@ function cleanWardrobe(value: unknown): WardrobeItem | null {
     const name = String(value.name ?? "").trim();
     const category = String(value.category ?? "").trim() as WardrobeItem["category"];
     const color = String(value.color ?? "").trim();
-    if (!id || !name || !category || !color) return null;
+    if (!id || !name || !category || !color) {
+        console.warn(`[cleanWardrobe] dropped item — id=${id || "(empty)"} name=${name || "(empty)"} category=${category || "(empty)"} color=${color || "(empty)"}`);
+        return null;
+    }
     return value as WardrobeItem;
 }
 
@@ -861,6 +865,7 @@ function normalizeBaseState(raw: unknown): SavedState {
         seekPersonas: toStringArray(parsed.seekPersonas),
         seekCategories: toStringArray(parsed.seekCategories),
         seekSubcategories: toStringArray(parsed.seekSubcategories),
+        _revision: typeof parsed._revision === "number" && Number.isFinite(parsed._revision) ? parsed._revision : 0,
     };
 
     return next;
@@ -1024,55 +1029,19 @@ export function getStateRichness(state: SavedState | null | undefined) {
 
 export function mergeWithBackup(current: SavedState, backup: SavedState | null) {
     if (!backup) return { state: current, usedBackup: false };
-    let usedBackup = false;
-    const next: SavedState = { ...current };
 
-    if (next.wardrobe.length === 0 && backup.wardrobe.length > 0) {
-        next.wardrobe = backup.wardrobe;
-        usedBackup = true;
-    }
-    if (next.setups.length === 0 && backup.setups.length > 0) {
-        next.setups = backup.setups;
-        usedBackup = true;
-    }
-    if (next.styleSelections.length === 0 && backup.styleSelections.length > 0) {
-        next.styleSelections = backup.styleSelections;
-        usedBackup = true;
-    }
-    if (next.unexpectedStyleLanes.length === 0 && backup.unexpectedStyleLanes.length > 0) {
-        next.unexpectedStyleLanes = backup.unexpectedStyleLanes;
-        usedBackup = true;
-    }
-    if (next.timelineSnapshots.length === 0 && backup.timelineSnapshots.length > 0) {
-        next.timelineSnapshots = backup.timelineSnapshots;
-        usedBackup = true;
+    const currentRev = current._revision ?? 0;
+    const backupRev = backup._revision ?? 0;
+
+    // If current has a higher or equal revision, it is authoritative — never resurrect backup data.
+    // This prevents deleted items from reappearing via an older backup.
+    if (currentRev >= backupRev) {
+        return { state: current, usedBackup: false };
     }
 
-    if (next.iam.likedTags.length === 0 && backup.iam.likedTags.length > 0) {
-        next.iam = backup.iam;
-        usedBackup = true;
-    }
-    if (next.iseek.attractedWorldviews.length === 0 && backup.iseek.attractedWorldviews.length > 0) {
-        next.iseek = backup.iseek;
-        usedBackup = true;
-    }
-    if (next.ibecome.pairs.length === 0 && backup.ibecome.pairs.length > 0) {
-        next.ibecome = backup.ibecome;
-        usedBackup = true;
-    }
-    if (!hasSeekSignal(next.seek) && hasSeekSignal(backup.seek)) {
-        next.seek = backup.seek;
-        usedBackup = true;
-    }
-    if ((next.colorPrefs?.dominant.length ?? 0) === 0 && (backup.colorPrefs?.dominant.length ?? 0) > 0) {
-        next.colorPrefs = backup.colorPrefs;
-        usedBackup = true;
-    }
-    if (!hasText(next.memo) && hasText(backup.memo)) {
-        next.memo = backup.memo;
-        usedBackup = true;
-    }
-    return { state: normalizeSavedState(next), usedBackup };
+    // Backup has a strictly newer revision — use it entirely (replace semantics)
+    console.log(`[mergeWithBackup] backup revision ${backupRev} > current ${currentRev} — using backup`);
+    return { state: normalizeSavedState(backup), usedBackup: true };
 }
 
 function collectStyleSignalWeights(state: SavedState) {
@@ -1401,7 +1370,10 @@ export function loadStateBundle(): LoadBundle {
     const backup = backupRaw ? normalizeSavedState(backupRaw) : null;
     const merged = mergeWithBackup(current, backup);
 
-    if (hasMeaningfulState(merged.state)) {
+    // If revision > 0, the user has actively used my-style — respect their state even if empty.
+    // Only fall through to legacy when revision is 0 (never-used) AND state is empty.
+    const hasRevision = (merged.state._revision ?? 0) > 0;
+    if (hasRevision || hasMeaningfulState(merged.state)) {
         return {
             state: merged.state,
             recoveryMessage: merged.usedBackup ? "my-style のバックアップを補完して復元しました。" : null,

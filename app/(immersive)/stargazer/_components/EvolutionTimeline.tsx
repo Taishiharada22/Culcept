@@ -512,10 +512,11 @@ export default function EvolutionTimeline({
                 <motion.circle
                   cx={m.x}
                   cy={m.y}
-                  r={8}
+                  r={7}
                   fill="none"
                   stroke={info.color}
                   strokeWidth={1}
+                  initial={{ r: 7 }}
                   animate={{ r: [7, 12, 7], opacity: [0.6, 0, 0.6] }}
                   transition={{ duration: 2.5, repeat: Infinity, delay: i * 0.3 }}
                 />

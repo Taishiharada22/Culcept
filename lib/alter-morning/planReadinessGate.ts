@@ -31,7 +31,8 @@ import type { MorningPlan } from "./types";
 export type GateReason =
   | "near_anchor_not_resolved"
   | "low_confidence"
-  | "window_overflow";
+  | "window_overflow"
+  | "place_not_resolved";
 
 export type GateFailure = {
   ready: false;
@@ -88,6 +89,28 @@ export function evaluatePlanReadiness(state: PlanState): GateResult {
       };
     }
 
+    // Rule 4 (W2-CEO-Emergency C 2026-04-19): explicit place が指定されているのに
+    //   座標が解決されていない。travel-suppress は発火するが従来この gate には
+    //   抜けが有り、plan_presented に進んで「真逆のカフェ」「2h 遠のカフェ」が
+    //   確定プランに出る事故の直接原因だった。
+    //   known_base（自宅等）は別経路で解決されるので除外。
+    //   placeSearchHint 経路は Rule 1 で既に拾っているのでここは place のみ対象。
+    if (
+      seg.place &&
+      !seg.placeSearchHint &&
+      seg.placeType !== "known_base" &&
+      (seg.resolvedLat === undefined || seg.resolvedLng === undefined)
+    ) {
+      return {
+        ready: false,
+        reason: "place_not_resolved",
+        segmentId: seg.id,
+        segmentLabel: segmentLabel(seg),
+        clarifyMessage: buildPlaceNotResolvedClarify(seg),
+        diagnostic: `place not resolved: place="${seg.place}" placeType=${seg.placeType ?? "?"} seg=${seg.id}`,
+      };
+    }
+
     // Rule 3 (W2-1 2026-04-19): anchor-first planner が window.end 超過で
     //   配置できなかったセグメント。LLM の誤った時刻を信じず、plan_presented
     //   に進めない。どの hard anchor が阻んでいるかを率直に提示する。
@@ -127,6 +150,21 @@ function buildNearAnchorClarify(area: string, cat: string, segLabel: string): st
   }
   // area も cat も無い（想定しにくいが安全策）
   return `${segLabel}の場所が決めきれなかった。もう少しヒントくれる？`;
+}
+
+/**
+ * W2-CEO-Emergency C (2026-04-19): explicit place が座標未解決のときの clarify。
+ *
+ * CEO 方針「率直に書く」に従い、どの店が見つからなかったかを明示する。
+ * 「Alter が学習中」のような曖昧文は禁止。
+ */
+function buildPlaceNotResolvedClarify(seg: PlanSegment): string {
+  const label = segmentLabel(seg);
+  const place = seg.place ?? "";
+  if (place) {
+    return `${label}の「${place}」、場所が特定できなかった。正式な店名か、エリアを教えてくれる？`;
+  }
+  return `${label}の場所を特定できなかった。店名かエリアを教えてくれる？`;
 }
 
 function buildLowConfidenceClarify(seg: PlanSegment): string {

@@ -50,21 +50,27 @@ function formatDuration(min: number): string {
   return m > 0 ? `${h}時間${m}分` : `${h}時間`;
 }
 
-/** plan.date を今日/明日/日付 に変換する */
-function formatPlanDateLabel(planDate: string): string {
+/** plan.date → "today" | "tomorrow" | "specific" */
+export function getDateContext(planDate: string): { kind: "today" | "tomorrow" | "specific"; display: string } {
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const todayStr = jst.toISOString().slice(0, 10);
-  // 明日
   const tomorrow = new Date(jst);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
-  if (planDate === todayStr) return "☀️ 今日のプラン";
-  if (planDate === tomorrowStr) return "🌙 明日のプラン";
-  // それ以外: 月/日表示
+  if (planDate === todayStr) return { kind: "today", display: "今日" };
+  if (planDate === tomorrowStr) return { kind: "tomorrow", display: "明日" };
   const [, m, d] = planDate.split("-");
-  return `📅 ${parseInt(m)}/${parseInt(d)}のプラン`;
+  return { kind: "specific", display: `${parseInt(m)}/${parseInt(d)}` };
+}
+
+const DATE_ICON: Record<string, string> = { today: "☀️", tomorrow: "🌙", specific: "📅" };
+
+/** plan.date を今日/明日/日付 に変換する */
+export function formatPlanDateLabel(planDate: string): string {
+  const ctx = getDateContext(planDate);
+  return `${DATE_ICON[ctx.kind]} ${ctx.display}のプラン`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

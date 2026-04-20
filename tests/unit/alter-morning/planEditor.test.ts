@@ -245,3 +245,78 @@ describe("targetDate extraction (via intentParser)", () => {
     }
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// HIGH-3: 移動手段変更（transport change）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Transport change (HIGH-3)", () => {
+  test("yappari densha de -> transport=train, no new task", () => {
+    const plan = makePlan([
+      { text: "cafe de shigoto", what: "cafe" },
+    ]);
+    const result = applyPlanEdit("やっぱり電車で", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("train");
+    // Should NOT add a new task item
+    expect(result.items).toHaveLength(1);
+    expect(result.operations.some(o => o.type === "modify_condition")).toBe(true);
+  });
+
+  test("kuruma ni shite -> transport=car", () => {
+    const plan = makePlan([{ text: "staba de benkyou" }]);
+    const result = applyPlanEdit("車にして", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("car");
+    expect(result.items).toHaveLength(1);
+  });
+
+  test("bus de iku -> transport=bus", () => {
+    const plan = makePlan([{ text: "kaigi" }]);
+    const result = applyPlanEdit("バスで行く", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("bus");
+    expect(result.items).toHaveLength(1);
+  });
+
+  test("taxi ga ii -> transport=taxi", () => {
+    const plan = makePlan([{ text: "dinner" }]);
+    const result = applyPlanEdit("タクシーがいい", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("taxi");
+  });
+
+  test("jitensha de -> transport=bicycle", () => {
+    const plan = makePlan([{ text: "park" }]);
+    const result = applyPlanEdit("自転車で", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("bicycle");
+  });
+
+  test("chari de -> transport=bicycle (colloquial)", () => {
+    const plan = makePlan([{ text: "park" }]);
+    const result = applyPlanEdit("チャリで", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("bicycle");
+  });
+
+  test("toho de -> transport=walk", () => {
+    const plan = makePlan([{ text: "konbini" }]);
+    const result = applyPlanEdit("徒歩で", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("walk");
+  });
+
+  test("yappari kuruma de -> transport=car", () => {
+    const plan = makePlan([{ text: "cafe" }]);
+    const result = applyPlanEdit("やっぱり車で", plan);
+    expect(result.applied).toBe(true);
+    expect(result.conditionChanges?.transport).toBe("car");
+  });
+
+  test("non-transport message -> no conditionChanges", () => {
+    const plan = makePlan([{ text: "cafe de shigoto" }]);
+    const result = applyPlanEdit("ランチを追加して", plan);
+    expect(result.conditionChanges?.transport).toBeUndefined();
+  });
+});

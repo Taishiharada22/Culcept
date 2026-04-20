@@ -605,7 +605,7 @@ export function toWeatherContext(weather?: {
 // WeatherDaily 変換（SYNCスコア用）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function toWeatherDaily(weather?: {
+export function toWeatherDaily(weather?: {
   tempMax: number | null;
   tempMin: number | null;
   condition: "sunny" | "cloudy" | "rain" | "snow";
