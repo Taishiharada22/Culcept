@@ -771,3 +771,29 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
 - **残TODO**:
   1. qualityAudit 106件の expectedMode 再分類 → 閾値 0.75 復元
   2. package.json の `"latest"` 指定を固定バージョンに変更（再発防止）
+
+### 2026-04-21 Phase 0〜F 完遂 — 未コミット整理 + 累積 origin/main 公開（PR #4）
+- **部門**: Build
+- **決定内容**: セッション開始時に 46 modified + 35 untracked + 1 deleted の巨大な未コミット変更を抱えていた状態から、保全→分割コミット→レビュー→main 合流までを 1 セッションで完遂。**PR #4** で **Wave 1 (82) + Wave 2 (52) + Wave 3 (9) + CI fix (1) = 144 commits + merge commit** を `origin/main` に公開（099f6e1b → 6d15d1e0）。
+- **理由**: 未コミット変更の放置がデータ消失リスク + PR レビュー不能の両面で危険だったため。特に my-style 保存系（mergeWithBackup の revision 化、bridge POST 空 state 許可）は既存ユーザー state の退化を招きうる破壊的変更を含んでいたため、Phase E で baseline 照合までを必須ゲートとした。
+- **承認**: CEO（各 Phase ごとに明示承認、Gate 3 merge は GitHub UI で CEO 手動実行）
+- **ステータス**: 実行済
+- **達成プロセス**（safety-first モードで 1 Phase = 1 承認）:
+  1. **Phase 0 保全**: `safety/pre-commit-2026-04-20` + `wip/save-2026-04-20`（81 paths 完全保全） + origin push + recovery rehearsal worktree で復旧可能性実証
+  2. **DB 保全 Gate**: Free → Pro プランアップグレード + PITR 7-day window 確認（Dashboard）
+  3. **client state 保全**: `backups/client-state-2026-04-21/indexeddb-tier3-state-cache-only.json`（wardrobe 23 / setups 10 / _revision 2 / 全 imageUrl base64 保持）
+  4. **Phase A-1**: `.gitignore` に `backups/` + `.claude/scheduled_tasks.lock` + `supabase/.temp/` を追加（PII 保護）
+  5. **Phase B**: integration ブランチで cherry-pick -n + gitignore 除外 + reset（80 → 78 → 79 の整合検証 PASS）
+  6. **Phase C**: 9 split commits（C-1 my-style / C-2 calendar / C-3 home+morning / C-4 stargazer / C-5 planner / C-6+7 clients+tests / C-8 baseline / C-9 migrations / C-10+11 docs+scripts）
+  7. **Phase D**: 5/5 分割整合性検証 PASS
+  8. **Phase E**: 7/7 C1/C2 baseline reconciliation PASS（wardrobe 23 / _revision 2 の保持を `mergeWithBackup` ロジックで論理検証）
+  9. **Phase F**: push + PR #4 Draft 作成 + CI 失敗 2 tests 原因切り分け + 最小修正（timezone 依存 bug 1 + 古い test expectation 2）+ CI green + merge + smoke PASS
+- **想定外の良い発見**: migration `20260416100000_place_resolution_cache.sql` + `20260416200000_exchange_protocol_and_invitation_tokens.sql` は **session 前から本番 DB に applied 済**だった。Phase F-5 の migration 適用作業は不要と判定。旧 `20260409100000_exchange_protocol` は一度も適用されずに rename 削除。
+- **保全資産（残存）**: `safety/pre-commit-2026-04-20` @ 881665ec / `wip/save-2026-04-20` @ d49ba817（両 origin 同期済）。将来の参照 / rollback のため残置。
+- **削除済**: `integration/split-commits-2026-04-21`（local + origin、merge 済のため安全削除）
+- **方法論的な学び**:
+  1. 「wip primary snapshot」と「整理 integration branch」を分離することで、分割が失敗しても wip が原典として常に存在する構造が効いた
+  2. CI 失敗時に **timezone 依存の真因**を見抜くには、`TZ=UTC npx vitest run` でローカル再現するのが最速
+  3. CEO 並行 commit（c22db5f9 / 566c4456）のような想定外事象は、即停止 → 現状診断 → 計画再設計の順で扱うと退化ゼロで吸収可能
+- **commit message 方針**（今後参照用）: Phase C の 9 commits は **依存関係明示**（"Depends on C-1..." 等）と **file-level change narrative** を含め、レビュアが wave 構造を把握できるようにした。
+
