@@ -21,6 +21,7 @@
 export { simulateReading } from "./readingSimulation";
 export { reconstructIntent } from "./intentReconstruction";
 export { mediate } from "./sharedMediator";
+export { fetchIntentProfile } from "./fetchIntentProfile";
 
 export {
   analyzeNVCRuleBased,

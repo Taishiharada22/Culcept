@@ -29,6 +29,7 @@ export default async function MyPage() {
     { count: observationCount },
     { count: unreadNotifCount },
     { data: originSnap },
+    { data: baselineRow },
   ] = await Promise.all([
     supabase
       .from("stargazer_profiles")
@@ -55,9 +56,28 @@ export default async function MyPage() {
       .eq("user_id", user.id)
       .limit(1)
       .maybeSingle(),
+    // 2026-04-19 baseline 編集対応: /my-page から baseline を表示・編集する
+    supabase
+      .from("profiles")
+      .select(
+        "prefecture, city, baseline_home_label, baseline_home_place_type, baseline_home_lat, baseline_home_lng, baseline_completed_at",
+      )
+      .eq("id", user.id)
+      .maybeSingle(),
   ]);
 
   const archetype = resolvedType ?? sgProfile;
+
+  // coords_status 派生（API §3 と同じルール）
+  const homeLat = baselineRow?.baseline_home_lat != null ? Number(baselineRow.baseline_home_lat) : null;
+  const homeLng = baselineRow?.baseline_home_lng != null ? Number(baselineRow.baseline_home_lng) : null;
+  const prefecture = baselineRow?.prefecture ?? null;
+  const coordsStatus: "resolved" | "fallback" | "unresolved" =
+    homeLat != null
+      ? "resolved"
+      : prefecture
+        ? "fallback"
+        : "unresolved";
 
   return (
     <MyPageClient
@@ -80,6 +100,15 @@ export default async function MyPage() {
       }}
       hasOrigin={!!originSnap}
       unreadNotifCount={unreadNotifCount ?? 0}
+      baseline={{
+        prefecture,
+        city: baselineRow?.city ?? null,
+        homeLabel: baselineRow?.baseline_home_label ?? null,
+        homePlaceType: (baselineRow?.baseline_home_place_type as "home" | "other" | undefined) ?? "home",
+        homeCoords: homeLat != null && homeLng != null ? { lat: homeLat, lng: homeLng } : null,
+        coordsStatus,
+        completedAt: baselineRow?.baseline_completed_at ?? null,
+      }}
     />
   );
 }

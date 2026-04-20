@@ -8,6 +8,7 @@
 import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
+import type { TimeConstraintType } from "./planState";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MainLocation — 場所はプラン生成の中核フィールド
@@ -30,7 +31,62 @@ export interface MainLocation {
     noisy?: boolean;
     longStayOk?: boolean;
   };
+  // ── Place detail (placeResolver / Places API 由来) ──
+  /** 解決済みの正式名称（Places API / web search） */
+  resolvedName?: string;
+  /** 住所（表示用・bottom sheet で使用） */
+  address?: string;
+  /** Google Place ID */
+  placeId?: string;
+  /** 緯度（地図表示 / 移動時間計算） */
+  lat?: number;
+  /** 経度（地図表示 / 移動時間計算） */
+  lng?: number;
+  /**
+   * 性質情報（bottom sheet 用）。
+   *
+   * CEO方針 2026-04-17:
+   *   activity × place category で derive される。リコメンドの有無に限らず
+   *   必要（仕事→コンセント、ミーティング→静かさ、ランチ→雰囲気）。
+   *
+   * 値は 3値: "yes" | "no" | "unknown"
+   *   - "yes" : placeTable の traits から確度高く判定
+   *   - "no"  : 明確に該当しない
+   *   - "unknown" : 情報なし（UI で「情報なし」表示 or 非表示）
+   */
+  propertyHints?: PlacePropertyHints;
 }
+
+/**
+ * 性質情報（activity 別に必要なスロット）。
+ *
+ * すべて optional。activity × placeCategory に応じて埋められる。
+ * UI 側は activityCategory に応じて表示順を決める。
+ */
+export interface PlacePropertyHints {
+  /** コンセント有無（仕事・勉強・カフェ） */
+  outlets?: HintValue;
+  /** Wi-Fi 有無（仕事・勉強・ミーティング） */
+  wifi?: HintValue;
+  /** 静かさ（ミーティング・勉強・読書） */
+  quietness?: HintValue;
+  /** 個室・プライベート感（ミーティング・デート） */
+  private?: HintValue;
+  /** 長時間滞在可否（仕事・勉強） */
+  longStayOk?: HintValue;
+  /** 屋内か屋外か（雨天判断・コーデ） */
+  indoor?: HintValue;
+  /** 雰囲気タグ（ランチ・ディナー・カフェ・デート） */
+  atmosphere?: string;
+  /** 予算レンジ（ランチ・ディナー） */
+  budget?: string;
+  /** 駐車場有無（買い物・外食） */
+  parking?: HintValue;
+  /** 予約推奨（ディナー・人気店） */
+  reservationRecommended?: HintValue;
+}
+
+export type HintValue = "yes" | "no" | "unknown";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // FlowContext — 1日の流れの文脈（「外で作業」「1日中」等）
@@ -45,6 +101,10 @@ export interface FlowContext {
   certainty?: "high" | "medium" | "low";
   /** 開始タイミング（「これから」「午後から」等） */
   startWindow?: "now" | "morning" | "afternoon" | "evening" | "later";
+  /** 主な移動手段（intent 段階で検出） */
+  transport?: TransportMode;
+  /** 終了・帰宅時刻（「18時に帰宅」→ "18:00"） */
+  endTime?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,6 +122,118 @@ export interface LocationStop {
   order: number;
   /** placeTable のカテゴリ */
   category?: PlaceCategory;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// EndpointAnchor — 終点アンカー（「帰る」先の構造化）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * プランの終点を表す構造化アンカー。
+ *
+ * CEO方針:
+ * - home固定禁止。ホテル、友人宅、パートナー宅等もあり得る
+ * - 非自宅系は市区町村レベルで確認するルールを入れる
+ * - 終点アンカーは次回プランの始点候補に継承する
+ */
+export type EndpointType =
+  | "home"
+  | "hotel"
+  | "friend_home"
+  | "partner_home"
+  | "family_home"
+  | "office"
+  | "other";
+
+export interface EndpointAnchor {
+  /** 終点タイプ */
+  type: EndpointType;
+  /** 場所ラベル（「ホテルオークラ」「田中さんの家」等） */
+  label: string;
+  /** 市区町村レベルのエリア（非自宅系で移動時間計算に使う。「渋谷区」「新宿」等） */
+  area?: string;
+  /** placeTable のID（解決できた場合） */
+  canonicalId?: string;
+  /** 非自宅系で市区町村が未確認のとき true（clarify が必要） */
+  needsAreaConfirm: boolean;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RecommendationIntent — W2-3 (CEO方針 2026-04-19)
+// 「おすすめある？」「どこかいい店ない？」を generic_place と別経路で扱うための型
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Recommendation の発生源。
+ *
+ * - `explicit_ask`: ユーザーが「おすすめ？」「どこかいい所ない？」と明示的に頼んだ
+ * - `implicit_gap`: 計画上必要だがユーザーが場所を決めきっていない（例: place=null だが activity=「ランチ」）
+ * - `alter_initiated`: Alter が提案軸で候補を出した（Phase 2 以降で使う）
+ */
+export type RecommendationSource = "explicit_ask" | "implicit_gap" | "alter_initiated";
+
+/**
+ * Recommendation の解決戦略レイヤ。
+ *
+ * W2-3 時点で実装するのは anchor_proximity と category_only（将来に向けた型定義も含む）。
+ * Stargazer 軸 / HDM Phase による重み付けは W2-5 Deep Context Injection で追加される。
+ */
+export type RecommendationStrategy =
+  | "anchor_proximity"     // 近傍 anchor + カテゴリ（現在の placeSearchHint 経路と共通インフラ）
+  | "category_only"        // アンカーなし。エリア（baseline/currentLocation）+ カテゴリのみ
+  | "stargazer_weighted"   // 将来: Stargazer 軸で候補を重み付け
+  | "relational_weighted"; // 将来: relational context（companion）で候補を重み付け
+
+/**
+ * Recommendation Intent — generic_place と独立した「提案を求めている」意図。
+ *
+ * generic_place との違い:
+ *   - generic_place: 「図書館」「カフェ」— カテゴリは明示されているが特定の1件が不明（resolver が候補を単純に候補提示する）
+ *   - RecommendationIntent: 「おすすめ」「いいとこ」— ユーザーは *自分で決める意思がない*。Alter/planner 側が納得できる候補を選ぶ責務を負う
+ *
+ * 経路分離の理由:
+ *   1. 曖昧性の性質が違う。generic_place は「どれか1つ」を確定したい、recommendation は
+ *      「良い1つ」を提案してほしい
+ *   2. 解決戦略が違う。recommendation は Stargazer 軸・HDM Phase・companion で重み付けが必要
+ *   3. UI/narrative が違う。generic_place は clarify、recommendation は proposal を提示する
+ *
+ * CEO ケース1 (2026-04-18 実機): 「カフェどこかいいとこある？」を LLM が generic_place として
+ *   place="カフェどこかいいとこ" に突っ込んでしまい、recommendation 経路が機能しなかった。
+ */
+export interface RecommendationIntent {
+  /** 発生源 */
+  source: RecommendationSource;
+  /**
+   * カテゴリヒント（「カフェ」「レストラン」「バー」等）。
+   * 無い場合（「どこかいいとこない？」のみ）は undefined。
+   * その場合 activity から推測する（activity="ランチ" → category="レストラン"）。
+   */
+  categoryHint?: string;
+  /**
+   * 近傍 anchor ラベル（「サドヤ」「渋谷」等）。
+   * 無ければ anchor なし（baseline / currentLocation 起点で探索）。
+   */
+  anchorHint?: string;
+  /**
+   * 雰囲気ヒント（「落ち着いた」「静かな」「デートっぽい」等）。
+   * LLM 抽出時に会話の文脈から拾う。resolver が quality filter に使う。
+   */
+  qualityHint?: string;
+  /** 元の発話（ログ / デバッグ用） */
+  originalQuery: string;
+  /**
+   * 解決戦略。デフォルトは anchorHint の有無で決まる:
+   *   - anchorHint あり → "anchor_proximity"
+   *   - anchorHint なし → "category_only"
+   * W2-5 以降で "stargazer_weighted" / "relational_weighted" を足す。
+   */
+  strategy: RecommendationStrategy;
+  /**
+   * 半径オーバーライド（メートル）。
+   * 候補 0 件時にユーザーが「広げて」と応えた場合のみ設定。
+   * デフォルトは category ごとのデフォルト半径を使う。
+   */
+  radiusOverrideM?: number;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,6 +277,12 @@ export interface ParsedDayIntent {
   taskLocations?: Array<{ taskIndex: number; location: MainLocation }>;
   /** 場所の訪問順序（visit=経由 → main=滞在場所） */
   locationSequence?: LocationStop[];
+  /** 対象日（「明日」→ +1、「明後日」→ +2 等。未指定なら today） */
+  targetDate?: string;
+  /** 終点アンカー（「帰る」が検出された場合）。プランの最終移動の到着地を構造化 */
+  endpointAnchor?: EndpointAnchor;
+  /** @deprecated returnDestination は EndpointAnchor に移行。後方互換用 */
+  returnDestination?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,12 +295,40 @@ export interface PlanItem {
   id: string;
   /** "fixed" = 時間が決まっている予定、"todo" = 柔軟に配置できるタスク、"travel" = 移動 */
   kind: PlanItemKind;
-  /** 表示テキスト（ユーザーが書いた内容） */
+  /** 表示テキスト — what/who/where から自動生成。raw text を直接保存しない */
   text: string;
+  /** 純粋なアクション名（「仕事」「買い物」「ミーティング」等） */
+  what: string | null;
   /** 開始時刻（HH:mm）。fixedは必須、todoはプランニング後に付与 */
   startTime?: string;
   /** 所要時間（分）。Alterが仮置き or ユーザー修正後の値 */
   durationMin: number;
+  /**
+   * duration の由来（CEO方針 2026-04-18 Bug 5-B）:
+   *   - "user": ユーザーが明示した duration（例「12時〜13時」）→ 衝突時も短縮しない
+   *   - "inferred" (または undefined): activity vocabulary / default 由来 → 衝突時に短縮可
+   * 現時点で LLM extract は end-time 範囲を拾わないので常に "inferred"。
+   * 将来 "12〜13時" 抽出が入ったら "user" を立てる。
+   */
+  durationSource?: "user" | "inferred";
+  /**
+   * 次の fixed anchor / window.end 衝突を避けるため duration を短縮したことを示すフラグ。
+   * CEO方針 2026-04-18 Bug 5-B。UI で「短縮」注記を出したいときに使う。
+   */
+  durationShrunkByPlacement?: boolean;
+  /**
+   * W2-1 anchor-first planner (2026-04-19):
+   *   window_* 制約付きの item が hard anchor で埋められて window.end までに収まらなかった場合、
+   *   ロジックが「嘘の時刻」を付けない証として本フラグが立つ。
+   *   startTime は undefined のままで、Safety Gate が plan_presented を止める。
+   */
+  cannotFitWindow?: boolean;
+  /** 明示的な時間指定があるか（true = アンカー、スケジュール再計算で動かさない） */
+  fixedStart: boolean;
+  /** 入力順序（discourse marker 由来。0始まり連番） */
+  orderHint: number;
+  /** どのユーザー入力ターンで生成されたか（差分追加の判定用。0始まり） */
+  sourceTurnIndex: number;
   /** 予定の種別（コーデ提案用）。fixed予定から推定 */
   eventType?: EventType;
   /** 誰と（予定テキストから自動推定 or ユーザー回答） */
@@ -136,6 +342,11 @@ export interface PlanItem {
   /** アクティビティカテゴリ（語彙テーブルからの正規化結果） */
   activityCategory?: ActivityCategory;
   /**
+   * 時間制約タイプ（PlanSegment.timeConstraint.type 由来）。
+   * buildDayPlan がウィンドウ制約や出発アンカーを尊重するために使う。
+   */
+  timeConstraintType?: TimeConstraintType;
+  /**
    * 順序制約（locationSequence 由来）。
    * 0 始まりの整数。visit=0,1,... → main task=最後。
    * buildDayPlan は duration ソートの前にこの値でソートする。
@@ -148,6 +359,58 @@ export interface PlanItem {
   travelTo?: string;
   /** 移動手段（kind: "travel" のみ） */
   travelTransport?: TransportMode;
+
+  // ── Alter 提案フィールド（Gap Fill Engine 由来） ──
+  /** true = Alter が提案した soft proposal（ユーザー予定ではない） */
+  proposal?: boolean;
+  /** 提案理由（UI の「提案」タグに表示） */
+  proposalReason?: string;
+  /** 提案の taxonomy カテゴリ（ログ基盤: impression→accept/dismiss 結合用） */
+  proposalTaxonomy?: string;
+
+  // ── Place 詳細表示用（CEO方針 2026-04-17 plan display redesign） ──
+  /**
+   * Alter が場所をリコメンドした理由（proposal=true or alter_suggested 時）。
+   * 例: 「仕事用ならスタバ渋谷が静かで作業しやすい」
+   * bottom sheet で表示される。リコメンドではない場合は undefined。
+   */
+  recommendReason?: string;
+
+  // ── Block 2-(b): gapFillEngine × Places Nearby（CEO方針 2026-04-17）──
+  /**
+   * Gap-fill 提案（proposal=true）に対して Places API が返した近傍候補。
+   *
+   * 発動条件 (gapFillPlaceEnricher):
+   *   - item.proposal === true かつ activityCategory が life_rest / social_meal
+   *   - 近傍の hard anchor（anchorScore>=4 かつ resolvedLat/lng 有り）が存在
+   *   - Places API キー有り
+   *
+   * 原則:
+   *   - 勝手に採用しない（medium 相当）→ resolvedPlaceName はセットしない
+   *   - 距離/近傍/往復ペナルティは objective function を流用（adjustCandidateScore）
+   *   - top 1-3 件、placeId → address → name で dedupe
+   *   - ユーザーが確認 / 選択するまで単なる添え物
+   *
+   * UI 側は「近くにこんなカフェあるよ」等の追加表示に使う。
+   */
+  proposedPlaceCandidates?: Array<{
+    name: string;
+    address?: string;
+    placeId?: string;
+    lat?: number;
+    lng?: number;
+    matchScore: number;
+    /**
+     * なぜこの場所が候補か（UI 表示用の短い理由）。
+     * 例: 「ランチの近く・徒歩200m」「動線が自然」。
+     * anchor ラベル + 距離 + 往復の自然さから生成される（speculation なし）。
+     */
+    recommendReason?: string;
+    /** この候補を紐づけた anchor のラベル（表示用、例: 「ランチ」「打ち合わせ」） */
+    anchorLabel?: string;
+    /** anchor からの直線距離（m）。丸め済み。UI の「徒歩約 Xm」に使う。 */
+    distanceM?: number;
+  }>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -169,6 +432,24 @@ export interface MorningPlan {
   flowContext?: FlowContext;
   /** 構造化された元の意図（パース結果の保持用） */
   parsedIntent?: ParsedDayIntent;
+  /** 終点アンカー（次回プランの始点候補に継承される） */
+  endpointAnchor?: EndpointAnchor;
+  /**
+   * 出発アンカー（HH:mm）— 「8時に家を出る」等。
+   * UI 側の recalculateSchedule が departure anchor を尊重するために必要。
+   * buildDayPlan → MorningPlan → MorningPlanCard と伝播する。
+   */
+  departureTime?: string;
+  /**
+   * 到着アンカー（HH:mm）— 「18時に帰宅」等。
+   * UI 側の recalculateSchedule が arrival anchor を尊重するために必要。
+   */
+  arrivalTime?: string;
+  /**
+   * Phase D: 推論で補完された項目の追跡。
+   * transport / venue が未指定でも plan を組み、推論根拠を記録する。
+   */
+  autoInferred?: AutoInferredMap;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -214,7 +495,63 @@ export type MissingField =
   | "transport"
   | "venue"
   | "mood"
-  | "withWhom";
+  | "withWhom"
+  | "location_area"; // 場所の市区町村レベルの確認が必要
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase D: AutoInferred — 推論で埋めた項目の追跡
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type InferenceConfidence = "high" | "medium" | "low";
+
+/** 推論で埋めた単一フィールド */
+export interface AutoInferredField<T = string> {
+  /** 推論された値 */
+  value: T;
+  /** 推論の確信度 */
+  confidence: InferenceConfidence;
+  /** 推論の根拠（UIで「車で計算したよ」等に使用） */
+  reason: string;
+}
+
+/** プラン生成時に推論で補完された項目のマップ */
+export interface AutoInferredMap {
+  transport?: AutoInferredField<TransportMode>;
+  venue?: AutoInferredField<VenueType>;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LocationClarify — 場所未指定時の暗黙補完 / 質問ルール
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 場所未指定アイテムに対する clarify 判定結果。
+ *
+ * CEO方針:
+ * - 前後が同エリアなら暗黙補完可
+ * - 前後が別エリアなら質問
+ * - 共同プラン化を見据えて participants / shared constraints に拡張しやすい構造
+ */
+export type LocationClarifyAction = "implicit_fill" | "ask" | "skip";
+
+export interface LocationClarifyResult {
+  /** 判定対象のアイテムID */
+  itemId: string;
+  /** アクション */
+  action: LocationClarifyAction;
+  /** 暗黙補完する場合のエリア名 */
+  implicitArea?: string;
+  /** 暗黙補完する場合の場所情報 */
+  implicitLocation?: MainLocation;
+  /** 質問する場合のテキスト */
+  askQuestion?: string;
+  /** 将来拡張: 共同プランの参加者制約 */
+  participantConstraints?: Array<{
+    participantId: string;
+    constraintType: "must_be_at" | "prefer" | "avoid";
+    location?: string;
+  }>;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TaskDurationMemory — タスク所要時間の学習
@@ -330,6 +667,30 @@ export type MorningPhase =
   | "completed"          // 朝のフロー完了
   | "skipped";           // planning不要（通常Alterフロー）
 
+/**
+ * ユーザーの性格軸スコア（プロアクティブ提案に使用）
+ * alter route で解決済みの axisScores から、プラン提案に関連する軸だけ抽出して渡す。
+ * 値域: -1.0（左極）〜 +1.0（右極）。0 = 未観測 or 中間。
+ */
+export interface PersonalityContext {
+  /** 内向的(-1) ↔ 外向的(+1) */
+  introvert_vs_extrovert?: number;
+  /** 計画的(-1) ↔ 即興的(+1) */
+  plan_vs_spontaneous?: number;
+  /** 完成度重視(-1) ↔ 実用・前進重視(+1) */
+  perfectionist_vs_pragmatic?: number;
+  /** 一人で整理(-1) ↔ 人と回復(+1) */
+  stress_isolation_vs_social?: number;
+  /** 機能・合理(-1) ↔ 表現・情緒(+1) */
+  function_vs_expression?: number;
+  /** 慎重(-1) ↔ 大胆(+1) */
+  cautious_vs_bold?: number;
+  /** エネルギーリズム: 朝型(-1) ↔ 夜型(+1) — expansion 軸 */
+  energy_rhythm?: number;
+  /** 決断テンポ: 即断(-1) ↔ 熟慮(+1) — cognitive 軸 */
+  decision_tempo?: number;
+}
+
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
@@ -341,12 +702,56 @@ export interface MorningSession {
   plan?: MorningPlan;
   /** 構造化された意図（パース結果） */
   parsedIntent?: ParsedDayIntent;
+  /** v2 PlanState（LLMベースの構造化状態） */
+  planStateV2?: import("./planState").PlanState;
   /** 充足判定結果 */
   sufficiency?: SufficiencyResult;
   /** パーソナライズメッセージ（「前回は90分で組んでたよ」等） */
   personalizeHints: string[];
   /** セッション開始時刻 */
   startedAt: string;
+  /** ユーザーの性格コンテキスト（alter route から注入） */
+  personalityContext?: PersonalityContext;
+  /** 場所解決で確認が必要なセグメント（medium/low confidence） */
+  pendingPlaceConfirmations?: Array<{
+    segmentId: string;
+    originalText: string;
+    resolvedName?: string;
+    confidence: "medium" | "low";
+    candidates?: Array<{ name: string; address?: string }>;
+    /**
+     * GPT追加ルール 2026-04-17:
+     *   Block 2-(c) find_near_anchor の候補 0 件時に UI が
+     *   「範囲を広げる／別カテゴリで探す」の dedicated clarify を出せるよう、
+     *   near-anchor 検索のコンテキストを乗せる（near_anchor 経路 かつ 0 件時のみ設定）。
+     */
+    nearAnchorContext?: {
+      anchorLabel: string;
+      searchCategory: string;
+      radiusM: number;
+    };
+  }>;
+  /** ユーザーID（場所キャッシュ用） */
+  userId?: string;
+  /** ユーザーのエリア情報（場所解決用） */
+  userArea?: string;
+  /** ユーザーの都道府県（baseline 由来、location resolver 用） */
+  userPrefecture?: string;
+  /** ユーザーの市区町村（baseline 由来、location resolver 用） */
+  userCity?: string;
+  /**
+   * ユーザー自身が付けた base ラベル（「自宅」「実家」等）。
+   * 2026-04-19 baseline 編集対応: profiles.baseline_home_label 由来。
+   * Alter Narration が「{label} から」等と使うため sourceLabel に反映される。
+   */
+  userHomeLabel?: string | null;
+  /**
+   * baseline_home_lat/lng キャッシュ（2026-04-19 baseline 編集対応）。
+   * profiles.baseline_home_lat/lng 由来。present なら resolveLayer1 が即返す。
+   * NULL の場合は prefecture/city から runtime 解決。
+   */
+  userHomeLat?: number | null;
+  userHomeLng?: number | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

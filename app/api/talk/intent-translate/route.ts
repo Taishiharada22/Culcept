@@ -2,16 +2,18 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
-import { reconstructIntent } from "@/lib/talk/intentTranslation";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  reconstructIntent,
+  fetchIntentProfile,
+} from "@/lib/talk/intentTranslation";
 import type {
-  IntentTranslationProfile,
   ConversationTurn,
   SenderPastPattern,
   BubbleHintDecision,
   RelationshipMeta,
 } from "@/lib/talk/intentTranslation";
 import {
-  INTENT_TRANSLATION_AXES,
   MAX_BUBBLE_HINTS_PER_DAY,
   BUBBLE_HINT_COOLDOWN_MS,
 } from "@/lib/talk/intentTranslation";
@@ -35,7 +37,11 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({
+      ok: false,
+      code: "unauthorized",
+      details: { reason: "No authenticated user session" },
+    }, { status: 401 });
   }
 
   let body: {
@@ -48,13 +54,46 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "invalid_body",
+      details: { reason: "Request body is not valid JSON" },
+    }, { status: 400 });
   }
 
   const { messageId, threadId, senderUserId } = body;
 
   if (!messageId || !threadId || !senderUserId) {
-    return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "missing_fields",
+      details: {
+        hasMessageId: !!messageId,
+        hasThreadId: !!threadId,
+        hasSenderUserId: !!senderUserId,
+        receivedKeys: Object.keys(body),
+        receivedValues: {
+          messageId: messageId ?? null,
+          threadId: threadId ?? null,
+          senderUserId: senderUserId ?? null,
+        },
+      },
+    }, { status: 400 });
+  }
+
+  // 自分自身のメッセージに対して呼ばれていないか確認
+  if (senderUserId === user.id) {
+    return NextResponse.json({
+      ok: false,
+      code: "self_message_translate",
+      details: {
+        reason: "Cannot translate own message — intent-translate is for received messages only",
+        senderUserId,
+        currentUserId: user.id,
+        messageId,
+        threadId,
+      },
+    }, { status: 422 });
   }
 
   // 💭表示の日次制限・cooldown チェック
@@ -64,38 +103,72 @@ export async function POST(request: NextRequest) {
     ? (Date.now() - new Date(bubbleState.lastHintAt).getTime()) < BUBBLE_HINT_COOLDOWN_MS
     : false;
 
-  // ── 受信メッセージ本文を取得 ──
-  const { data: messageRow } = await supabase
+  // ── 受信メッセージ本文を取得（admin: RLSバイパス） ──
+  const { data: messageRow, error: msgError } = await supabaseAdmin
     .from("talk_messages")
-    .select("body")
+    .select("body, sender_id")
     .eq("id", messageId)
     .single();
 
   if (!messageRow?.body) {
-    return NextResponse.json({ error: "message_not_found" }, { status: 404 });
+    return NextResponse.json({
+      ok: false,
+      code: "message_not_found",
+      details: {
+        messageId,
+        threadId,
+        dbError: msgError?.message ?? null,
+        hasRow: !!messageRow,
+        hasBody: !!messageRow?.body,
+        actualSenderId: messageRow?.sender_id ?? null,
+        expectedSenderId: senderUserId,
+      },
+    }, { status: 404 });
   }
 
-  // ── プロファイル取得（送信者 + 受信者=自分） ──
-  const [senderProfile, receiverProfile] = await Promise.all([
-    fetchIntentProfile(supabase, senderUserId),
-    fetchIntentProfile(supabase, user.id),
-  ]);
-
-  if (!senderProfile || !receiverProfile) {
+  // sender_id 整合性チェック（DB上の送信者 ≠ リクエストの senderUserId なら不整合）
+  if (messageRow.sender_id && messageRow.sender_id !== senderUserId) {
     return NextResponse.json({
-      error: "profile_incomplete",
-      detail: "双方の Stargazer プロファイルが必要です",
+      ok: false,
+      code: "sender_mismatch",
+      details: {
+        reason: "Message sender_id does not match provided senderUserId",
+        messageId,
+        actualSenderId: messageRow.sender_id,
+        providedSenderUserId: senderUserId,
+        currentUserId: user.id,
+      },
     }, { status: 422 });
   }
 
-  // ── 会話履歴（直近5ターン） ──
-  const conversationContext = await fetchRecentTurns(supabase, threadId, 5);
+  // ── プロファイル取得（RLSバイパス: 他ユーザーのプロファイルも読む必要あり） ──
+  const [senderProfile, receiverProfile] = await Promise.all([
+    fetchIntentProfile(supabaseAdmin, senderUserId),
+    fetchIntentProfile(supabaseAdmin, user.id),
+  ]);
+
+  if (!senderProfile || !receiverProfile) {
+    // プロファイル不足 → 200 + skipped で graceful skip
+    // intent-translate: sender = 相手(senderUserId), receiver = 自分(user.id)
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      skipReason: "profile_incomplete",
+      bubbleHint: { show: false, skipReason: "profile_incomplete" },
+      bubbleState: body.bubbleState ?? { hintsShownToday: 0, lastHintAt: null },
+      selfHasProfile: !!receiverProfile,       // receiver = 自分
+      counterpartHasProfile: !!senderProfile,   // sender = 相手
+    });
+  }
+
+  // ── 会話履歴（直近5ターン）— admin でRLSバイパス ──
+  const conversationContext = await fetchRecentTurns(supabaseAdmin, threadId, 5);
 
   // ── 送信者の過去パターン（同一スレッド内の類似短文） ──
-  const senderPastPatterns = await fetchSenderPatterns(supabase, threadId, senderUserId);
+  const senderPastPatterns = await fetchSenderPatterns(supabaseAdmin, threadId, senderUserId);
 
   // ── 関係メタデータ — 温度差+rupture を実データから算出 ──
-  const relationshipMeta = await computeRelationshipMeta(supabase, threadId, senderUserId, user.id);
+  const relationshipMeta = await computeRelationshipMeta(supabaseAdmin, threadId, senderUserId, user.id);
 
   // ── Intent Reconstruction 実行 ──
   const result = await reconstructIntent({
@@ -121,6 +194,7 @@ export async function POST(request: NextRequest) {
     : bubbleState;
 
   return NextResponse.json({
+    ok: true,
     primaryIntent: result.primaryIntent,
     alternativeIntents: result.alternativeIntents,
     contextNote: result.contextNote,
@@ -137,37 +211,6 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {
-  const { data: rows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension, score")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-
-  if (!rows || rows.length < 5) return null;
-
-  const scores: Record<string, number> = {};
-  for (const row of rows as Array<{ dimension: string; score: number }>) {
-    scores[row.dimension] = row.score;
-  }
-
-  return {
-    userId,
-    direct_vs_diplomatic: scores.direct_vs_diplomatic ?? 0,
-    attachment_style: scores.attachment_style ?? 0,
-    reassurance_need: scores.reassurance_need ?? 0,
-    emotional_variability: scores.emotional_variability ?? 0,
-    conflict_style: scores.conflict_style ?? 0,
-    public_private_gap: scores.public_private_gap ?? 0,
-    intimacy_pace: scores.intimacy_pace ?? 0,
-    boundary_awareness: scores.boundary_awareness ?? 0,
-    self_disclosure_depth: scores.self_disclosure_depth ?? 0,
-    emotional_regulation: scores.emotional_regulation ?? 0,
-    relational_investment: scores.relational_investment ?? 0,
-  };
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchRecentTurns(supabase: any, threadId: string, limit: number): Promise<ConversationTurn[]> {

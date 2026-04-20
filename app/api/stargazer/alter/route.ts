@@ -497,6 +497,7 @@ import {
 } from "@/lib/stargazer/realityAnchoring";
 import { SessionFactAccumulator, detectDrillDown } from "@/lib/stargazer/sessionContext";
 import { validateAgainstContract, repairResponse, buildContractPromptBlock, getContract, type ContractValidation } from "@/lib/stargazer/outputContract";
+import { runEpisodicRecall, type RecallResult } from "@/lib/stargazer/episodicRecall";
 // Morning Protocol — Alter統合ハブ（Todo/予定/コーデ）
 import {
   isMorningProtocolQuery,
@@ -506,7 +507,7 @@ import {
   createSession as createMorningSession,
   processMorningMessage,
 } from "@/lib/alter-morning/morningProtocol";
-import type { MorningSession, MorningProtocolResponse } from "@/lib/alter-morning/types";
+import type { MorningSession, MorningProtocolResponse, PersonalityContext } from "@/lib/alter-morning/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -915,6 +916,8 @@ export async function POST(req: NextRequest) {
         personalizeHints?: string[];
         parsedIntent?: any;
         sufficiency?: any;
+        // v2: PlanState ラウンドトリップ
+        planStateV2?: any;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1198,16 +1201,25 @@ export async function POST(req: NextRequest) {
     let behavioralEvidence: AlterBehavioralEvidence[] = [];
     let longTermMemory: Awaited<ReturnType<typeof buildMemoryContext>> | undefined;
     let growthState: Awaited<ReturnType<typeof loadAlterGrowthState>> | undefined;
+    let episodicRecallResult: RecallResult | null = null;
+    let episodicRecallLatencyMs = 0;
     try {
-      const [summaries, patterns, memory, growth] = await Promise.all([
+      const episodicRecallStart = Date.now();
+      const [summaries, patterns, memory, growth, episodicResult] = await Promise.all([
         loadAlterSessionSummaries(userId, 10),
         fetchPatternsForUser(supabase, userId).catch(() => []),
         buildMemoryContext(userId, 20).catch(() => undefined),
         loadAlterGrowthState(userId).catch(() => undefined),
+        runEpisodicRecall(message, userId).catch((e) => {
+          console.warn("[episodic-recall] Failed (fail-open):", e);
+          return null;
+        }),
       ]);
+      episodicRecallLatencyMs = Date.now() - episodicRecallStart;
       pastSummaries = summaries;
       longTermMemory = memory;
       growthState = growth;
+      episodicRecallResult = episodicResult;
       if (pastSummaries.length > 0) {
         contradictionHint = await detectCrossSessionContradiction(
           message,
@@ -1418,11 +1430,16 @@ export async function POST(req: NextRequest) {
       // 4つの独立したDBクエリを Promise.allSettled で並列実行（6-9秒→~2秒）
       let userName: string | undefined;
       let baselineCtx: BaselineContext | null = null;
+      let userPrefecture: string | undefined;
+      let userCity: string | undefined;
+      let userHomeLabel: string | null | undefined;
+      let userHomeLat: number | null | undefined;
+      let userHomeLng: number | null | undefined;
       const [authResult, baselineResult, rvResult, lpResult] = await Promise.allSettled([
         // (1) auth.getUser
         supabase.auth.getUser(),
-        // (2) ④-C: profiles ベースライン
-        supabase.from("profiles").select("gender, date_of_birth, prefecture").eq("id", userId).maybeSingle(),
+        // (2) ④-C: profiles ベースライン + baseline_home (2026-04-19)
+        supabase.from("profiles").select("gender, date_of_birth, prefecture, city, baseline_home_label, baseline_home_lat, baseline_home_lng").eq("id", userId).maybeSingle(),
         // (3) ④-D: rendezvous_profiles 関係性ベースライン
         supabase.from("rendezvous_profiles").select("profile_details, enabled_categories, updated_at").eq("user_id", userId).maybeSingle(),
         // (4) ④-E: life_profile_entries 値・情熱・キャリア
@@ -1446,6 +1463,19 @@ export async function POST(req: NextRequest) {
               dateOfBirth: baselineRow.date_of_birth ?? undefined,
               prefecture: baselineRow.prefecture ?? undefined,
             });
+          }
+          // Morning Protocol 用: baseline 住所をセッションに注入
+          if (baselineRow?.prefecture) userPrefecture = baselineRow.prefecture;
+          if (baselineRow?.city) userCity = baselineRow.city;
+          // 2026-04-19: baseline_home (label + lat/lng cache) を注入
+          if (baselineRow?.baseline_home_label != null) {
+            userHomeLabel = baselineRow.baseline_home_label as string;
+          }
+          if (baselineRow?.baseline_home_lat != null) {
+            userHomeLat = Number(baselineRow.baseline_home_lat);
+          }
+          if (baselineRow?.baseline_home_lng != null) {
+            userHomeLng = Number(baselineRow.baseline_home_lng);
           }
         } catch { /* Non-fatal */ }
       }
@@ -1574,6 +1604,36 @@ export async function POST(req: NextRequest) {
       const hasExistingMorningSession = rawMorningSession?.phase &&
         !["completed", "skipped"].includes(rawMorningSession.phase);
 
+      // P2 routing lock (CEO 2026-04-17):
+      // Morning session が plan_presented / clarifying 中の発話は本質的に
+      // 「プラン編集/確認」以外ありえない。PE や汎用 Alter 判断ルートに
+      // 漏れると「判断質問」扱いで返答が崩れるため、
+      //  - queryContext.domain を daily_guidance に寄せ（最も近い既存ドメイン）
+      //  - ambiguity_score を 0 に落として clarify/branch 昇格を抑止
+      //  - questionType を conversation に固定（judgment/ask_me/PE 派生を遮断）
+      //  - responseMode を direct_response に固定（Alter 返答を morning protocol の
+      //    生成文字列でそのまま返す経路を維持）
+      // ※ 下流の morning protocol 自体は hasExistingMorningSession により
+      //    常に strong intent で発火済。この lock は「万一 morning を抜けて
+      //    通常パイプラインに落ちた場合の保険」+「同ターン内の PE/判断側副作用防止」。
+      if (
+        hasExistingMorningSession &&
+        (rawMorningSession!.phase === "plan_presented" ||
+          rawMorningSession!.phase === "clarifying")
+      ) {
+        queryContext = {
+          ...queryContext,
+          domain: "daily_guidance",
+          ambiguity_score: 0,
+        };
+        questionType = "conversation";
+        responseMode = "direct_response";
+        modeDecisionReason = "conclude_low_ambiguity";
+        console.info(
+          `[morning-protocol] routing lock: phase=${rawMorningSession!.phase} → domain=daily_guidance, questionType=conversation, responseMode=direct_response`,
+        );
+      }
+
       // 3段階判定: strong（直接発火）/ soft（確認を挟む）/ none（対象外）
       let morningIntent = hasExistingMorningSession
         ? "strong" as const
@@ -1598,6 +1658,18 @@ export async function POST(req: NextRequest) {
 
       // ── Strong: 直接 Morning Protocol に入る ──
       if (morningIntent === "strong") {
+        // 性格コンテキストを構築（プロアクティブ提案用）
+        const personalityCtx: PersonalityContext = {
+          introvert_vs_extrovert: axisScores.introvert_vs_extrovert ?? 0,
+          plan_vs_spontaneous: axisScores.plan_vs_spontaneous ?? 0,
+          perfectionist_vs_pragmatic: axisScores.perfectionist_vs_pragmatic ?? 0,
+          stress_isolation_vs_social: axisScores.stress_isolation_vs_social ?? 0,
+          function_vs_expression: axisScores.function_vs_expression ?? 0,
+          cautious_vs_bold: axisScores.cautious_vs_bold ?? 0,
+          energy_rhythm: axisScores.energy_rhythm ?? 0,
+          decision_tempo: axisScores.decision_tempo ?? 0,
+        };
+
         // 既存セッション復元 or 新規作成
         // P0-1: parsedIntent / rawInputs / sufficiency をクライアントから復元する。
         // これがないと2ターン目で intent がゼロリセットされ、
@@ -1612,11 +1684,26 @@ export async function POST(req: NextRequest) {
             plan: rawMorningSession!.plan ?? undefined,
             parsedIntent: rawMorningSession!.parsedIntent ?? undefined,
             sufficiency: rawMorningSession!.sufficiency ?? undefined,
+            planStateV2: rawMorningSession!.planStateV2 ?? undefined,
+            personalityContext: personalityCtx,
+            userPrefecture: rawMorningSession!.userPrefecture ?? userPrefecture,
+            userCity: rawMorningSession!.userCity ?? userCity,
+            // 2026-04-19 baseline 編集対応
+            userHomeLabel: rawMorningSession!.userHomeLabel ?? userHomeLabel ?? null,
+            userHomeLat: rawMorningSession!.userHomeLat ?? userHomeLat ?? null,
+            userHomeLng: rawMorningSession!.userHomeLng ?? userHomeLng ?? null,
           };
         } else {
           morningSession = createMorningSession();
+          morningSession.personalityContext = personalityCtx;
+          if (userPrefecture) morningSession.userPrefecture = userPrefecture;
+          if (userCity) morningSession.userCity = userCity;
+          // 2026-04-19 baseline 編集対応
+          if (userHomeLabel !== undefined) morningSession.userHomeLabel = userHomeLabel;
+          if (userHomeLat !== undefined) morningSession.userHomeLat = userHomeLat;
+          if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
-        const result = processMorningMessage(message, morningSession);
+        const result = await processMorningMessage(message, morningSession);
         morningSession = result.session;
         morningResponse = result.response;
 
@@ -1863,6 +1950,28 @@ export async function POST(req: NextRequest) {
       // JUDGMENT ENGINE: 既存の対人判断パイプライン
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+      // ── S4: SignalProc DB クエリを Gemini 読解と並列実行 ──
+      // 15 個の独立 DB クエリを Promise 化して即座に発射。
+      // Gemini 読解 (3-7s) の間に全て完了する。各結果は元のコード位置で await する。
+      const _spTrapCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const _sp = {
+        statePattern: Promise.resolve(supabase.from("stargazer_alter_patterns").select("pattern_data, observation_count").eq("user_id", userId).eq("pattern_type", "state").eq("pattern_key", "time_capacity").maybeSingle()),
+        lastInsight: Promise.resolve(supabase.from("stargazer_analytics").select("id, metadata, created_at").eq("user_id", userId).eq("event", "home_alter_insight_presented").order("created_at", { ascending: false }).limit(1).single()),
+        miFreqInsights: Promise.resolve(supabase.from("stargazer_analytics").select("created_at").eq("user_id", userId).eq("event", "home_alter_insight_presented").order("created_at", { ascending: false }).limit(1)),
+        denyStreak: Promise.resolve(supabase.from("stargazer_alter_reactions").select("reaction").eq("user_id", userId).order("created_at", { ascending: false }).limit(5)),
+        lifeContext: Promise.resolve(supabase.from("stargazer_alter_context").select("id, category, content, source, temporality, confidence, evidence_count, last_confirmed, possibly_stale").eq("user_id", userId).eq("possibly_stale", false).gte("confidence", 0.4).order("confidence", { ascending: false }).limit(10)),
+        hdmState: Promise.resolve(supabase.from("stargazer_alter_growth").select("hdm_phase_state").eq("user_id", userId).single()),
+        trapScan: Promise.resolve(supabase.from("stargazer_analytics").select("metadata, created_at").eq("user_id", userId).eq("event", "phase5_trap_scan").gte("created_at", _spTrapCutoff).order("created_at", { ascending: false }).limit(1).maybeSingle()),
+        woundDefs: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "wound_definition").order("created_at", { ascending: false }).limit(10)),
+        financialCount: Promise.resolve(supabase.from("stargazer_analytics").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("event", "financial_signal_detected")),
+        microSignals: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "home_alter_micro_signal").order("created_at", { ascending: false }).limit(20)),
+        followups: Promise.resolve(supabase.from("stargazer_analytics").select("metadata").eq("user_id", userId).eq("event", "home_alter_followup").order("created_at", { ascending: false }).limit(30)),
+        sessionCount: Promise.resolve(supabase.from("stargazer_alter_patterns").select("observation_count").eq("user_id", userId).eq("pattern_type", "decision")),
+        hypotheses: Promise.resolve(supabase.from("stargazer_alter_hypotheses").select("content, hypothesis_type, confidence, status, domains, evidence_count, created_at, last_evaluated").eq("user_id", userId).in("status", ["stable", "strengthening"]).gte("confidence", 0.5).order("confidence", { ascending: false }).limit(5)),
+        allPatterns: Promise.resolve(supabase.from("stargazer_alter_patterns").select("pattern_type, pattern_key, observation_count, pattern_data, confidence").eq("user_id", userId)),
+        personMap: Promise.resolve(supabase.from("stargazer_alter_person_map").select("label, role, sentiment_trend, last_sentiment, influence_score, mention_count").eq("user_id", userId).gte("influence_score", 0.5).gte("mention_count", 2).order("influence_score", { ascending: false }).limit(5)),
+      };
+
       // ── Phase 0: Gemini一次読解（構造化JSON） ──
       // Geminiは「候補を出す役」。意味の確定はAneurasync側で行う。
       // 失敗時は既存パイプラインがそのまま動く（graceful degradation）。
@@ -1923,13 +2032,7 @@ export async function POST(req: NextRequest) {
       // Phase 2: State Pattern をベイズ事前確率として統合
       // time_block 別の蓄積パターンがあれば、ルールベース推定と 70:30 で統合
       try {
-        const { data: statePattern } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("pattern_data, observation_count")
-          .eq("user_id", userId)
-          .eq("pattern_type", "state")
-          .eq("pattern_key", "time_capacity")
-          .maybeSingle();
+        const { data: statePattern } = await _sp.statePattern; // S4: pre-fired
 
         if (statePattern && userState) {
           const hour = new Date().getHours();
@@ -2254,14 +2357,7 @@ export async function POST(req: NextRequest) {
 
       // ── Phase 2: Reaction Learning — 前回 Micro Insight への反応を記録 ──
       try {
-        const { data: lastInsight } = await supabase
-          .from("stargazer_analytics")
-          .select("id, metadata, created_at")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_insight_presented")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .single();
+        const { data: lastInsight } = await _sp.lastInsight; // S4: pre-fired
 
         if (lastInsight) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2356,13 +2452,7 @@ export async function POST(req: NextRequest) {
       // ── D: MI 頻度制限データ取得 ──
       try {
         // 直近の MI 提示時刻を取得（まだマーカーが残っていれば提示直後）
-        const { data: recentInsights } = await supabase
-          .from("stargazer_analytics")
-          .select("created_at")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_insight_presented")
-          .order("created_at", { ascending: false })
-          .limit(1);
+        const { data: recentInsights } = await _sp.miFreqInsights; // S4: pre-fired
 
         if (recentInsights && recentInsights.length > 0) {
           lastInsightPresentedAt = new Date(recentInsights[0].created_at);
@@ -2380,12 +2470,7 @@ export async function POST(req: NextRequest) {
         }
 
         // 直近の deny/ignored 連続数を取得
-        const { data: recentReactionRows } = await supabase
-          .from("stargazer_alter_reactions")
-          .select("reaction")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(5);
+        const { data: recentReactionRows } = await _sp.denyStreak; // S4: pre-fired
         if (recentReactionRows) {
           recentDenyIgnoreStreak = 0;
           for (const r of recentReactionRows) {
@@ -2403,14 +2488,7 @@ export async function POST(req: NextRequest) {
       // ── Life Context v2: 既存コンテキスト取得 ──
       let activeLifeContext: LifeContextEntry[] = [];
       try {
-        const { data: contextRows } = await supabase
-          .from("stargazer_alter_context")
-          .select("id, category, content, source, temporality, confidence, evidence_count, last_confirmed, possibly_stale")
-          .eq("user_id", userId)
-          .eq("possibly_stale", false)
-          .gte("confidence", 0.4)
-          .order("confidence", { ascending: false })
-          .limit(10);
+        const { data: contextRows } = await _sp.lifeContext; // S4: pre-fired
 
         if (contextRows && contextRows.length > 0) {
           activeLifeContext = filterActiveContext(contextRows as LifeContextEntry[]);
@@ -2436,11 +2514,7 @@ export async function POST(req: NextRequest) {
       // ── DB から hdm_phase_state を先にロード（Trust 導出に必要） ──
       let loadedHdmState: HdmPhaseState = { ...DEFAULT_HDM_PHASE_STATE };
       try {
-        const { data: growthRow } = await supabase
-          .from("stargazer_alter_growth")
-          .select("hdm_phase_state")
-          .eq("user_id", userId)
-          .single();
+        const { data: growthRow } = await _sp.hdmState; // S4: pre-fired
         if (growthRow?.hdm_phase_state) {
           loadedHdmState = growthRow.hdm_phase_state as HdmPhaseState;
         }
@@ -2578,16 +2652,7 @@ export async function POST(req: NextRequest) {
       interface TrapScanSummary { should_suppress_mi?: boolean; should_suppress_route_c?: boolean; should_reduce_depth?: boolean }
       let lastTrapScan: TrapScanSummary | null = null;
       try {
-        const trapScanCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-        const { data: trapScanRow } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata, created_at")
-          .eq("user_id", userId)
-          .eq("event", "phase5_trap_scan")
-          .gte("created_at", trapScanCutoff)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const { data: trapScanRow } = await _sp.trapScan; // S4: pre-fired
         if (trapScanRow?.metadata) {
           lastTrapScan = trapScanRow.metadata as TrapScanSummary;
 
@@ -2616,13 +2681,7 @@ export async function POST(req: NextRequest) {
       try {
         // 1. DB から登録済みの傷定義を取得
         let woundDefs: WoundDefinition[] = [];
-        const { data: woundRows } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "wound_definition")
-          .order("created_at", { ascending: false })
-          .limit(10);
+        const { data: woundRows } = await _sp.woundDefs; // S4: pre-fired
         if (woundRows && woundRows.length > 0) {
           woundDefs = woundRows.map(r => {
             const m = r.metadata as any;
@@ -2712,11 +2771,7 @@ export async function POST(req: NextRequest) {
         // 過去の経済シグナル蓄積数を取得
         let historicalCount = 0;
         try {
-          const { count } = await supabase
-            .from("stargazer_analytics")
-            .select("id", { count: "exact", head: true })
-            .eq("user_id", userId)
-            .eq("event", "financial_signal_detected");
+          const { count } = await _sp.financialCount; // S4: pre-fired
           historicalCount = count ?? 0;
         } catch {
           // 初回時等は静かにスキップ
@@ -2756,13 +2811,7 @@ export async function POST(req: NextRequest) {
       // ── Micro Insight Engine: シグナル検知 ──
       try {
         // 過去のシグナルを取得（analytics から）
-        const { data: prevSignalData } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_micro_signal")
-          .order("created_at", { ascending: false })
-          .limit(20);
+        const { data: prevSignalData } = await _sp.microSignals; // S4: pre-fired
 
         const previousSignals: MicroSignal[] = (prevSignalData ?? [])
           .map(d => d.metadata as MicroSignal)
@@ -2916,13 +2965,7 @@ export async function POST(req: NextRequest) {
 
       // ━━━━ フォローアップ履歴を取得（判断精度の向上に使用） ━━━━
       try {
-        const { data: recentFollowups } = await supabase
-          .from("stargazer_analytics")
-          .select("metadata")
-          .eq("user_id", userId)
-          .eq("event", "home_alter_followup")
-          .order("created_at", { ascending: false })
-          .limit(30);
+        const { data: recentFollowups } = await _sp.followups; // S4: pre-fired
 
         if (recentFollowups && recentFollowups.length >= 5) {
           // ドメイン別にフィルタ（ドメイン横断の汚染を防ぐ）
@@ -3113,11 +3156,7 @@ export async function POST(req: NextRequest) {
       // ※ Stargazer の total_sessions ではなく、Alter が実際に観測した判断回数を使う
       alterSessionCount = 0;
       try {
-        const { data: decisionCounts } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("observation_count")
-          .eq("user_id", userId)
-          .eq("pattern_type", "decision");
+        const { data: decisionCounts } = await _sp.sessionCount; // S4: pre-fired
         if (decisionCounts) {
           alterSessionCount = decisionCounts.reduce((sum, r) => sum + (r.observation_count ?? 0), 0);
         }
@@ -3141,14 +3180,7 @@ export async function POST(req: NextRequest) {
       // P2: stable/strengthening 仮説を facts レイヤーに注入するために事前取得
       let hypothesisFactEntries: HypothesisFactEntry[] | null = null;
       try {
-        const { data: stableHypotheses } = await supabase
-          .from("stargazer_alter_hypotheses")
-          .select("content, hypothesis_type, confidence, status, domains, evidence_count, created_at, last_evaluated")
-          .eq("user_id", userId)
-          .in("status", ["stable", "strengthening"])
-          .gte("confidence", 0.5)
-          .order("confidence", { ascending: false })
-          .limit(5);
+        const { data: stableHypotheses } = await _sp.hypotheses; // S4: pre-fired
         if (stableHypotheses && stableHypotheses.length > 0) {
           hypothesisFactEntries = stableHypotheses as HypothesisFactEntry[];
         }
@@ -3159,10 +3191,7 @@ export async function POST(req: NextRequest) {
       let baselineDeviationEntries: BaselineDeviationEntry[] | null = null;
       baselineDeviationsFull = [];
       try {
-        const { data: allPatterns } = await supabase
-          .from("stargazer_alter_patterns")
-          .select("pattern_type, pattern_key, observation_count, pattern_data, confidence")
-          .eq("user_id", userId);
+        const { data: allPatterns } = await _sp.allPatterns; // S4: pre-fired
 
         if (allPatterns && allPatterns.length > 0) {
           const userBaseline = computeUserBaseline(allPatterns);
@@ -3230,14 +3259,7 @@ export async function POST(req: NextRequest) {
       // ── P6: 関係マップ読み出し ──
       let personMapFactEntries: PersonMapFactEntry[] | null = null;
       try {
-        const { data: personMapRows } = await supabase
-          .from("stargazer_alter_person_map")
-          .select("label, role, sentiment_trend, last_sentiment, influence_score, mention_count")
-          .eq("user_id", userId)
-          .gte("influence_score", 0.5)
-          .gte("mention_count", 2)
-          .order("influence_score", { ascending: false })
-          .limit(5);
+        const { data: personMapRows } = await _sp.personMap; // S4: pre-fired
         if (personMapRows && personMapRows.length > 0) {
           personMapFactEntries = personMapRows as PersonMapFactEntry[];
           console.info(`[person-map] P6: ${personMapRows.length} high-influence person(s) loaded: ${personMapRows.map(p => `${p.label}(${p.influence_score.toFixed(2)})`).join(", ")}`);
@@ -3493,6 +3515,8 @@ export async function POST(req: NextRequest) {
           personalityCtx: personality?.axisScores
             ? { axisScores: personality.axisScores }
             : null,
+          // P1.9: 外部知識バイパス判定用
+          questionType,
         });
         if (peResult) {
           perspectiveAudit = peResult.audit;  // keep for analytics backward compat
@@ -3632,12 +3656,15 @@ export async function POST(req: NextRequest) {
       if (!peResult) {
         console.info("[perspective-engine] 💤 PE returned null (not invoked / fail-open / AB-test disabled)");
       }
-      const peIsExplicit = peResult?.searchTask?.explicit ?? false;
+      // P1.8-fix: searchTask has no `explicit`; use audit.isExplicitAsk
+      const peIsExplicit = peResult?.audit?.isExplicitAsk ?? false;
       const peQualityAction = peResult?.qualityGate?.action ?? null;
       const peTaskType = peResult?.searchTask?.type ?? null;
       const peSearchTask = peResult?.searchTask ?? null;
+      // P1.8-fix: promptBlock lives at peResult.block.promptBlock, not peResult.promptBlock
+      const pePromptBlock = peResult?.block?.promptBlock || "";
 
-      if (peResult?.gateDecision === "blocked") {
+      if (peResult?.audit?.gateDecision === "blocked") {
         // Case 1: Explicit ask が検出されたが Flag OFF → 通常会話に流さず直答
         homeSystemPrompt += `\n\n[最上位制約 — 検索能力への直答]
 ユーザーはWeb検索を明示的に要求したが、今この機能はまだ有効化されていない。
@@ -3646,27 +3673,35 @@ export async function POST(req: NextRequest) {
 禁止: この事実に触れずに通常会話に流すこと。`;
         console.info("[perspective-engine] 🚫 Explicit ask blocked → direct answer path injected");
       } else if (peIsExplicit && peTaskType === "listing_search") {
-        // Case 2: listing_search + explicit ask → honest limitation
-        // Exa.ai は求人一覧・店舗一覧等のリスト検索ができない。正直に伝える。
-        // ただし周辺情報（業界レポート、年収データ等）があれば併用する。
-        const hasPeripheralInfo = peResult != null && (peResult.promptBlock?.length ?? 0) > 0 && peResult.fragments.length > 0;
-        if (hasPeripheralInfo && peResult?.promptBlock) {
-          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
-        }
-        homeSystemPrompt += `\n\n[最上位制約 — リスト検索の能力限界への直答]
-ユーザーは具体的な一覧・リスト（求人一覧、お店一覧等）を求めているが、
-今の検索機能では実際のリスト・一覧を直接引っ張ってくることはできない。
-${hasPeripheralInfo
-  ? `ただし関連する周辺情報（業界動向、統計データ等）は見つかったので、上記の外界の視点として活用すること。`
-  : ""}
-必ず回答の中で以下の2点を含めること:
-1. 「実際の${peSearchTask?.userNeed?.includes("求人") ? "求人サイト" : "一覧サイト"}を直接見に行く機能はまだないんだ」と正直に伝える
-2. 自分のパーソナルモデルから「${peSearchTask?.userNeed?.includes("求人") ? "たいしさんの判断傾向を考えると、こういう軸で探すといいかも" : "こういう方向で探してみるのがいいかも"}」と助言する
-禁止: リスト検索ができるかのように振る舞うこと。
+        // Case 2: listing_search + explicit ask → honest limitation + 周辺情報活用
+        // P1.9: 周辺情報がある場合は情報提示を優先し、limitation は末尾に添える
+        const hasPeripheralInfo = peResult != null && pePromptBlock.length > 0 && peResult.block.fragments.length > 0;
+        if (hasPeripheralInfo) {
+          homeSystemPrompt += `\n\n${pePromptBlock}`;
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（情報優先）]
+上記の外部情報から、ユーザーの要求に関連する具体的な情報（企業名・条件・特徴等）を可能な限り引き出して提示すること。
+必須構造:
+1. 外部情報の「データ:」行に含まれる企業名・サービス名を省略せず全て本文に入れる（最低1つ、可能なら2つ以上）
+2. それぞれについて、パーソナルモデルから「なぜこの人に合いそうか」を1文で添える
+3. 数値データ（年収・従業員数・成長率等）があれば省略せず使う
+4. 回答の最後に、直接的なリスト検索はまだできないことを1文で軽く触れてよい（ただし謝罪や長い弁明は不要）
+禁止:
+- 「できない」から始めること — 見つかった情報の提示を必ず先にする
+- 外部情報に企業名があるのにそれを省略して方向性提案だけで済ませること
+- 過剰な謝罪や弁明
+- **外部情報に含まれていない企業名を捏造すること — プレースホルダー（「○○社」「XYZ」）は絶対禁止**`;
+        } else {
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（情報なし）]
+ユーザーの検索要求に対し外部情報を取得したが、具体的な候補は見つからなかった。
+必須構造:
+1. 「具体的なリストを直接引っ張ってくるのはまだ難しい」と最初に正直に伝える
+2. パーソナルモデルから「こういう軸で探すのがいいと思う」と具体的な探し方を助言する
+3. 可能であれば、探すのに適したサイトや検索キーワードを1つ提案する
 禁止: 検索した事実に触れずに通常会話に流すこと。`;
+        }
         console.info(
           `[perspective-engine] 📋 listing_search honest limitation injected` +
-          (hasPeripheralInfo ? ` (with ${peResult!.fragments.length} peripheral fragments)` : " (no peripheral info)")
+          (hasPeripheralInfo ? ` (with ${peResult!.block.fragments.length} peripheral fragments → info-first path)` : " (no peripheral info → limitation-first path)")
         );
       } else if (peIsExplicit && (peQualityAction === "discard" || peQualityAction === "abstain")) {
         // Case 3: 検索したが結果なし or 品質不足 → 正直に伝える
@@ -3681,78 +3716,81 @@ ${hasPeripheralInfo
         console.info(`[perspective-engine] ⚠️ Explicit ask + quality ${peQualityAction} → honest fallback injected`);
       } else if (peIsExplicit && peResult?.qualityGate?.canClarify) {
         // Case 4: 検索したが不十分 → hedge 付き + 1問確認OK（CEO方針）
-        if (peResult?.promptBlock) {
-          homeSystemPrompt += `\n\n${peResult.promptBlock}`;
+        if (pePromptBlock) {
+          homeSystemPrompt += `\n\n${pePromptBlock}`;
         }
         homeSystemPrompt += `\n\n[検索結果が不十分 — 追加確認OK]
 外部情報を取得したが、十分な精度の情報が揃わなかった。
 自分の知識と取得できた情報を組み合わせて回答した上で、1問だけ確認を挟んでよい。
 例:「もう少し絞りたいんだけど、勤務地はどこ基準で見る？」`;
-        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${(peResult?.promptBlock?.length ?? 0)} chars)`);
-      } else if (peTaskType === "listing_search" && peResult?.promptBlock) {
+        console.info(`[perspective-engine] Prompt block injected with clarify option (promptBlock=${pePromptBlock.length} chars)`);
+      } else if (peTaskType === "listing_search" && pePromptBlock) {
         // Case 5: listing_search + 暗黙検索 → 周辺情報 hedge 付き + limitation 注記
-        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
+        homeSystemPrompt += `\n\n${pePromptBlock}`;
         homeSystemPrompt += `\n\n[注記 — リスト型情報の限界]
 上記の外部情報は周辺的な参考データであり、実際のリスト・一覧ではない。
 具体的なリストが必要な場合は、ユーザーに適切なサイト（求人サイト等）を案内してよい。`;
         console.info(`[perspective-engine] listing_search implicit → peripheral info with limitation note`);
-      } else if (peResult?.promptBlock) {
+      } else if (pePromptBlock) {
         // Case 6: 通常の検索結果注入
-        homeSystemPrompt += `\n\n${peResult.promptBlock}`;
-        console.info(`[perspective-engine] Prompt block injected (${peResult.promptBlock.length} chars)`);
+        homeSystemPrompt += `\n\n${pePromptBlock}`;
+        console.info(`[perspective-engine] Prompt block injected (${pePromptBlock.length} chars)`);
       } else if (peResult) {
         // P1-3 Fix: No injection branch matched — diagnostic logging
         // This catches: implicit abstain, skipped with no explicit ask, or unexpected edge cases
         console.info(
-          `[perspective-engine] ⚡ NO_INJECTION: gate=${peResult.gateDecision}, ` +
+          `[perspective-engine] ⚡ NO_INJECTION: gate=${peResult.audit.gateDecision}, ` +
           `explicit=${peIsExplicit}, quality=${peQualityAction}, ` +
-          `taskType=${peTaskType}, promptBlock=${peResult.promptBlock?.length ?? 0} chars, ` +
-          `fragments=${peResult.fragments?.length ?? 0}`
+          `taskType=${peTaskType}, promptBlock=${pePromptBlock.length} chars, ` +
+          `fragments=${peResult.block.fragments?.length ?? 0}`
         );
       }
 
       // ── P1: 検索タスク別 response contract ──
       // searchTask.type に応じて、LLM への出力指示を追加する。
       // これにより downstream が fragments から search type を逆算する必要がなくなる。
-      if (peResult?.gateDecision === "fired" && peSearchTask) {
+      if (peResult?.audit?.gateDecision === "fired" && peSearchTask) {
         if (peSearchTask.type === "market_intel") {
-          homeSystemPrompt += `\n\n[検索応答契約 — market_intel]
-応答に含めること:
-- 取得した情報の要点（数値・統計があれば具体的に）
-- 情報の根拠（「〜によると」ではなく自分の言葉で）
-- パーソナルモデルの視点からの解釈
+          // P1.10: market_intel 出力契約強化 — ChatGPT級の情報密度
+          homeSystemPrompt += `\n\n[検索応答契約 — market_intel（厳格・データ密度重視）]
+必須構造:
+1. 具体的なデータポイントを最低3つ本文に入れる（数値・割合・金額・成長率など）
+2. データの出典・年度に1回以上触れる（「2026年の調査では」「○○レポートによると」等。ただし堅い引用形式は不要）
+3. 企業名・組織名が外部情報に含まれていれば省略せず本文に入れる
+4. データが示すトレンドや意味を1〜2文で要約する（「つまり〜ということ」）
+5. パーソナルモデルから「たいしさんにとってこの情報はこう意味がある」を1文で添える
+6. 結論として「だから〜がいいと思う」or「だから〜に注目するといい」を1つ出す
 禁止:
-- 「いろんな意見がある」で終わること
-- 情報の羅列だけで結論を出さないこと`;
+- 外部情報の「データ:」行に含まれる数値・企業名を省略して一般論に抽象化すること — これが最大の禁止事項
+- 「いろんな意見がある」「詳しくは調べてみて」で終わること — 必ず結論を出す
+- 情報の羅列だけで解釈を付けないこと
+- **外部情報に含まれていない企業名・サービス名を捏造すること — 「○○社」「XYZ社」「ABC社」等のプレースホルダーは絶対禁止**`;
         } else if (peSearchTask.type === "listing_search") {
-          const hasEntities = (peSearchTask.candidateEntities?.length ?? 0) > 0;
-          if (hasEntities) {
-            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補あり）]
-応答に含めること:
-- 見つかった候補の名前を必ず明記すること（${peSearchTask.candidateEntities?.join("、") ?? ""}）
-- 各候補について1-2文の説明
-- パーソナルモデルの視点からなぜ合う/合わないかの解釈
-- 「気になるところがあれば教えて」で次のアクションを促す
+          // P1.10: listing_search 出力契約強化 — ChatGPT級の情報密度
+          homeSystemPrompt += `\n\n[検索応答契約 — listing_search（厳格・企業名密度重視）]
+必須構造:
+1. 検索結果から具体的な候補名（企業名・サービス名）を最低2つ、可能なら3〜4つ本文に入れる
+   ※ プラットフォーム名（Indeed, Wantedly等）は候補にカウントしない。実際の企業名のみ
+2. 各候補について「特徴」と「なぜたいしさんに合いそうか」を各1文で添える
+3. 外部情報の「データ:」行に企業名・数値が含まれていれば省略せず使うこと
+4. 候補間の違い（働き方・規模・強み・文化）を1〜2文で触れる
+5. 最後に「どれが気になる？」「もう少し深掘りしたいところはある？」で次を促す
+注記:
+- 検索結果に具体的な候補名がなかった場合は、方向性提案に切り替えてよい
+- ただしその場合も、検索で得た情報（業界動向・条件データ等）は必ず活用すること
 禁止:
-- 候補名を省略すること
-- 「いくつかの企業」等の曖昧な表現で候補を隠すこと`;
-          } else {
-            homeSystemPrompt += `\n\n[検索応答契約 — listing_search（候補なし）]
+- 「いくつかの企業がある」等の曖昧表現で候補名を隠すこと
+- 外部情報に企業名があるのにそれを省略して一般論に流すこと
+- 「詳しくは自分で調べてみて」で丸投げすること
+- **外部情報に含まれていない企業名を捏造すること — 「○○社」「XYZ社」「ABC社」等のプレースホルダーは絶対禁止。見つからなかった場合は方向性提案に切り替える**`;
+        } else if (peSearchTask.type === "entity_research") {
+          homeSystemPrompt += `\n\n[検索応答契約 — entity_research]
 応答に含めること:
-- 直接的なリスト検索ができなかったことを正直に伝える
-- 見つかった周辺情報（業界動向等）があれば活用する
-- パーソナルモデルの視点から探し方のアドバイス
-禁止:
-- リストが見つかったかのように振る舞うこと`;
-          }
-        } else if (peSearchTask.type === "company_research") {
-          homeSystemPrompt += `\n\n[検索応答契約 — company_research]
-応答に含めること:
-- 対象企業/サービスの具体的な情報
+- 対象企業/サービスの具体的な情報（規模・特徴・強み等）
 - パーソナルモデルの視点からの適合分析
 - 引っかかりそうな点があれば正直に
 禁止:
-- 検索結果にない情報を捏造すること`;
+- 検索結果にない情報を捏造すること — 「○○社」「XYZ」等のプレースホルダー企業名は絶対禁止`;
         } else if (peSearchTask.type === "factual_lookup") {
           homeSystemPrompt += `\n\n[検索応答契約 — factual_lookup]
 応答に含めること:
@@ -3761,15 +3799,35 @@ ${hasPeripheralInfo
 禁止:
 - 事実確認なのに長い分析を展開すること`;
         } else if (peSearchTask.type === "comparison") {
-          // P1-3: comparison タスク用 response contract（欠落していた）
-          homeSystemPrompt += `\n\n[検索応答契約 — comparison]
-応答に含めること:
-- 比較軸を明確にする（何と何を、どの観点で比較しているか）
-- 外部情報から得た具体的な違い・特徴を提示する
-- パーソナルモデルの視点から「このユーザーにはどちらが合うか」の結論を出す
+          // P1.11: comparison 出力契約 — 多軸比較 + 外部データ裏付け
+          homeSystemPrompt += `\n\n[検索応答契約 — comparison（厳格・多軸比較）]
+必須構造:
+1. 比較軸を最低2つ設定し、各軸でA vs Bを明示する
+   例: 「働き方: Aはフレックス＋リモート、Bは出社中心」「技術: Aはデータ分析特化、Bはフルスタック」
+   使える軸: 働き方/文化、業務内容/技術、安定/成長性、年収/待遇、規模/チーム構成、収入安定性、社会保障/税・保険、案件獲得/市場需要
+2. 各軸の比較に、検索で得た具体的データを最低1つ含める（数値・利用率・年収額・制度名・調査名・統計データなど）
+   データがない軸でも、固有名詞（制度名・ツール名・プラットフォーム名など）を必ず1つは入れる
+   ※ 外部情報の「データ:」行に数値・制度名があれば、省略せず必ず回答本文に使うこと
+3. 最後に「たいしさんには○○の方が合っていると思う」と必ず明言する
+4. その理由をパーソナルモデルから1文で述べる（性格・判断傾向・働き方の好みから）
+5. 推さなかった方にも「ただし○○の点では△△の方が良い」とバランス情報を1文添える
 禁止:
-- 「どちらもいい面がある」で終わること
-- 結論を出さず並列提示だけすること`;
+- 1軸だけで結論を出すこと — 必ず2軸以上で比較する
+- 外部情報に数値や制度名があるのに省略して性格分析だけで結論を出すこと
+- 「どちらもいい面がある」「それぞれに魅力がある」で終わること — 必ず片方を推す
+- 比較対象の説明だけで終わること — 必ず「たいしさんには」の結論で締める
+- 検索で得た情報を無視して一般論だけで比較すること
+- **外部情報に含まれていない企業名・サービス名・数値を捏造すること**`;
+        } else {
+          // P1.10: 上記以外のタスクタイプ（perspective_seek, how_to 等）のデフォルト契約
+          homeSystemPrompt += `\n\n[検索応答契約 — デフォルト]
+必須構造:
+1. 検索で得た情報から具体的なポイントを最低1つ本文に入れる
+2. パーソナルモデルから「たいしさんにとってはこういう意味がある」を1文添える
+3. 結論or方向性を1つ出す
+禁止:
+- 検索で得た情報を無視して一般論だけで回答すること
+- **外部情報に含まれていない企業名・サービス名を捏造すること**`;
         }
       }
 
@@ -3826,8 +3884,8 @@ ${hasPeripheralInfo
       // ── PE Fix-1b: PE 発火時の mode/questionType 安全ネット ──
       // PE がコンテンツを注入した場合、conversation モードの制約が PE 出力を上書きするのを防ぐ。
       // Fix-1（早期検出）が効かなかった場合のフォールバック。
-      const peHasFiredWithContent = peResult?.gateDecision === "fired" &&
-        (peResult?.promptBlock || perspectiveExplorationTemplate);
+      const peHasFiredWithContent = peResult?.audit?.gateDecision === "fired" &&
+        (pePromptBlock || perspectiveExplorationTemplate);
       if (peHasFiredWithContent) {
         if (questionType === "conversation") {
           const prevQType = questionType;
@@ -5974,6 +6032,16 @@ ${hasPeripheralInfo
       if (followupInsight) {
         homeSystemPrompt += `\n\n# 過去の提案に対するフィードバック傾向\n${followupInsight}\nこの傾向を考慮して、提案の粒度・ハードルを調整すること。`;
       }
+
+      // ── Episodic Recall: 過去の会話想起ブロック注入（Home Alter パス） ──
+      if (episodicRecallResult && episodicRecallResult.promptBlock) {
+        homeSystemPrompt += `\n\n${episodicRecallResult.promptBlock}`;
+        console.info(
+          `[alter-home] Episodic recall injected: mode=${episodicRecallResult.mode}, ` +
+          `matches=${episodicRecallResult.matches.length}, blockLen=${episodicRecallResult.promptBlock.length}`,
+        );
+      }
+
       // clarify follow-up: 元の質問 + 追加情報を統合してプロンプトに渡す
       let effectiveMessage = message;
       if (wasPreviousClarify && conversationHistory.length >= 2) {
@@ -5993,6 +6061,8 @@ ${hasPeripheralInfo
 
       // P1.7: prompt構築完了 → main LLM call 開始の境界
       latencyTracker.promptBuildMs = Date.now() - routeStart;
+      // S3: プロンプトサイズ追跡（mainLLM外れ値の原因特定用）
+      latencyTracker.mainPromptChars = (homeSystemPrompt?.length ?? 0) + (homeUserPrompt?.length ?? 0);
       const mainLlmStart = Date.now();
 
       // 1回目の生成
@@ -6498,8 +6568,8 @@ ${hasPeripheralInfo
         const namePrefix = userName ? `${userName}さん、` : "";
 
         // P0-2b: PE fired だが LLM が空応答を返した場合 → fragments から直接構成
-        if (peHasFiredWithContent && peResult?.fragments?.length) {
-          const topFragments = peResult.fragments.slice(0, 3);
+        if (peHasFiredWithContent && peResult?.block?.fragments?.length) {
+          const topFragments = peResult.block.fragments.slice(0, 3);
           const fragmentTexts = topFragments
             .map(f => f.text.trim())
             .filter(t => t.length > 10)
@@ -7001,6 +7071,15 @@ ${hasPeripheralInfo
 
     if (contradictionHint) {
       systemPrompt += `\n\n## セッション間の矛盾検出\n${contradictionHint}\nこの過去の発言との矛盾を、好奇心を持って対話に織り込んでください。判断ではなく、好奇心で。`;
+    }
+
+    // ── Episodic Recall: 過去の会話想起ブロック注入 ──
+    if (episodicRecallResult && episodicRecallResult.promptBlock) {
+      systemPrompt += `\n\n${episodicRecallResult.promptBlock}`;
+      console.info(
+        `[alter] Episodic recall injected: mode=${episodicRecallResult.mode}, ` +
+        `matches=${episodicRecallResult.matches.length}, blockLen=${episodicRecallResult.promptBlock.length}`,
+      );
     }
 
     // ── Wall 3+7: Deep Alter にも心の統合ブロックを注入 ──
@@ -7611,6 +7690,20 @@ ${hasPeripheralInfo
               phase: "failed",
             } : undefined,
 
+            // Episodic Recall — 常に3フィールド記録（Phase 1 実運用判断用）
+            episodic_recall_detected: !!episodicRecallResult,
+            episodic_recall_mode: episodicRecallResult?.mode ?? "none",
+            episodic_recall_latency_ms: episodicRecallLatencyMs,
+            episodic_recall: episodicRecallResult ? {
+              signal_type: episodicRecallResult.signal.type,
+              time_hint: episodicRecallResult.signal.timeHint,
+              topic_hint: episodicRecallResult.signal.topicHint,
+              person_hint: episodicRecallResult.signal.personHint,
+              needs_specific_quote: episodicRecallResult.signal.needsSpecificQuote,
+              matches_count: episodicRecallResult.matches.length,
+              core_exchanges_count: episodicRecallResult.coreExchanges.length,
+              block_length: episodicRecallResult.promptBlock.length,
+            } : undefined,
             // ── 派生事実トレーサビリティ（§7-A: home_alter_judgment経路） ──
             ...(derivedFactSet ? (() => {
               const includedRules = new Set(derivedFactSet.facts.map((f) => f.generationRule));
@@ -8790,6 +8883,18 @@ ${hasPeripheralInfo
     latencyTracker.postProcessingMs = Date.now() - routeStart - (latencyTracker.promptBuildMs ?? 0) - (latencyTracker.mainLlmMs ?? 0) - (latencyTracker.validationRetryMs ?? 0);
     latencyTracker.totalMs = Date.now() - routeStart;
     latencyTracker.peMs = peResult?.latencyBreakdown?.totalMs ?? 0;
+    // S1: PE内部breakdown（速度最適化分析用）
+    if (peResult?.latencyBreakdown) {
+      latencyTracker.peQueryGenMs = peResult.latencyBreakdown.queryGenerationMs;
+      latencyTracker.peSearchMs = peResult.latencyBreakdown.searchMs;
+      latencyTracker.peClassifyMs = peResult.latencyBreakdown.classificationMs;
+      latencyTracker.peQualityGateMs = peResult.latencyBreakdown.qualityGateMs;
+      latencyTracker.pePromptBuildMs = peResult.latencyBreakdown.promptBuildMs;
+      // L1 breakdown（Chained Exploration）
+      if (peResult.latencyBreakdown.l1) {
+        latencyTracker.peL1 = peResult.latencyBreakdown.l1;
+      }
+    }
 
     return NextResponse.json({
       ok: true,
@@ -8817,6 +8922,8 @@ ${hasPeripheralInfo
           rawInputs: morningSession?.rawInputs ?? [],
           parsedIntent: morningSession?.parsedIntent ?? null,
           sufficiency: morningSession?.sufficiency ?? null,
+          // ── v2: PlanState ラウンドトリップ ──
+          planStateV2: morningSession?.planStateV2 ?? null,
         },
       } : {}),
       ...(queryContext ? {
@@ -8882,6 +8989,22 @@ ${hasPeripheralInfo
           quality_pass: qualityCheck?.pass ?? null,
         },
       },
+      // P1.9: PE 出典データ（Alter発言下に小さく表示）
+      // CEO承認: 2026-04-16 — 「視点: URL」形式で目立たなく出す
+      ...(peResult && peResult.audit.gateDecision === "fired" && peResult.block.fragments.length > 0 ? {
+        perspectiveSources: peResult.block.fragments
+          .filter((f: { sourceUrl: string; sourceTitle: string }) => f.sourceUrl && f.sourceTitle)
+          .map((f: { sourceUrl: string; sourceTitle: string; evidence?: { date?: string } }) => ({
+            title: f.sourceTitle,
+            url: f.sourceUrl,
+            date: f.evidence?.date ?? null,
+          }))
+          // URL重複排除
+          .filter((s: { url: string }, i: number, arr: { url: string }[]) =>
+            arr.findIndex((x: { url: string }) => x.url === s.url) === i
+          )
+          .slice(0, 4), // 最大4件
+      } : {}),
       // Perspective Engine v3 監査データ（backward compat for existing dashboards）
       ...(perspectiveAudit ? {
         perspectiveEngine: {
@@ -8916,11 +9039,10 @@ ${hasPeripheralInfo
           // P1: downstream searchTask (source of truth)
           downstream_search_task: peResult?.searchTask ? {
             type: peResult.searchTask.type,
-            explicit: peResult.searchTask.explicit,
-            confidence: peResult.searchTask.confidence,
-            candidate_entities: peResult.searchTask.candidateEntities,
+            fitness: peResult.searchTask.searchFitness,
+            exploration_depth: peResult.searchTask.explorationDepth,
           } : null,
-          gate_decision_v6: peResult?.gateDecision ?? null,
+          gate_decision_v6: peResult?.audit?.gateDecision ?? null,
         },
       } : {}),
       // P1.7: 全体レイテンシ分解

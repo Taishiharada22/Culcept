@@ -17,6 +17,17 @@ import { buildDayPlan } from "@/lib/alter-morning/planningEngine";
 import { parseIntent, intentToPlanItems, preloadVocabulary } from "@/lib/alter-morning/intentParser";
 import type { PlanItem, DayConditions, MorningPlan } from "@/lib/alter-morning/types";
 
+/** テスト用: PlanItem の新規必須フィールドをデフォルト埋めするヘルパー */
+function makePlanItem(partial: Omit<PlanItem, "what" | "fixedStart" | "orderHint" | "sourceTurnIndex"> & Partial<Pick<PlanItem, "what" | "fixedStart" | "orderHint" | "sourceTurnIndex">>): PlanItem {
+  return {
+    what: partial.text,
+    fixedStart: partial.kind === "fixed",
+    orderHint: 0,
+    sourceTurnIndex: 0,
+    ...partial,
+  };
+}
+
 beforeAll(async () => {
   await preloadVocabulary();
 });
@@ -129,7 +140,7 @@ describe("insertTravelItems", () => {
 
   test("在宅なら移動アイテムなし", () => {
     const items: PlanItem[] = [
-      { id: "1", kind: "todo", text: "掃除", durationMin: 30, completed: false },
+      makePlanItem({ id: "1", kind: "todo", text: "掃除", durationMin: 30, completed: false }),
     ];
     const result = insertTravelItems(items, "car", false);
     expect(result).toEqual(items);
@@ -138,8 +149,8 @@ describe("insertTravelItems", () => {
 
   test("場所なしのタスクには移動を挿入しない", () => {
     const items: PlanItem[] = [
-      { id: "1", kind: "todo", text: "読書", durationMin: 60, completed: false },
-      { id: "2", kind: "todo", text: "勉強", durationMin: 60, completed: false },
+      makePlanItem({ id: "1", kind: "todo", text: "読書", durationMin: 60, completed: false }),
+      makePlanItem({ id: "2", kind: "todo", text: "勉強", durationMin: 60, completed: false }),
     ];
     const result = insertTravelItems(items, "car", true);
     // location がないので travel は生成されない
@@ -148,10 +159,10 @@ describe("insertTravelItems", () => {
 
   test("1つの場所 → 自宅→目的地 + 目的地→自宅 の2移動", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "1", kind: "todo", text: "マクドナルドで仕事",
         durationMin: 120, completed: false, location: mcdLocation,
-      },
+      }),
     ];
     const result = insertTravelItems(items, "car", true);
     const travels = result.filter(i => i.kind === "travel");
@@ -164,16 +175,16 @@ describe("insertTravelItems", () => {
 
   test("2つの場所 → 自宅→A + A→B + B→自宅 の3移動", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "1", kind: "todo", text: "BMWに寄る",
         durationMin: 30, completed: false, location: bmwLocation,
         sequenceOrder: 1,
-      },
-      {
+      }),
+      makePlanItem({
         id: "2", kind: "todo", text: "マクドナルドで仕事",
         durationMin: 120, completed: false, location: mcdLocation,
         sequenceOrder: 2,
-      },
+      }),
     ];
     const result = insertTravelItems(items, "car", true);
     const travels = result.filter(i => i.kind === "travel");
@@ -188,14 +199,14 @@ describe("insertTravelItems", () => {
 
   test("同じ場所のアイテム間には移動を挿入しない", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "1", kind: "todo", text: "マクドナルドで勉強",
         durationMin: 60, completed: false, location: mcdLocation,
-      },
-      {
+      }),
+      makePlanItem({
         id: "2", kind: "todo", text: "マクドナルドでランチ",
         durationMin: 60, completed: false, location: mcdLocation,
-      },
+      }),
     ];
     const result = insertTravelItems(items, "car", true);
     const travels = result.filter(i => i.kind === "travel");
@@ -205,10 +216,10 @@ describe("insertTravelItems", () => {
 
   test("移動アイテムに交通手段アイコンが含まれる", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "1", kind: "todo", text: "マクドナルドで仕事",
         durationMin: 120, completed: false, location: mcdLocation,
-      },
+      }),
     ];
     const resultCar = insertTravelItems(items, "car", true);
     expect(resultCar.find(i => i.kind === "travel")!.text).toContain("🚗");
@@ -241,16 +252,16 @@ describe("buildDayPlan with travel items", () => {
 
   test("外出プラン → 移動アイテムが挿入される", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "visit_1", kind: "todo", text: "BMWに寄る",
         durationMin: 30, completed: false, location: bmwLocation,
         sequenceOrder: 1,
-      },
-      {
+      }),
+      makePlanItem({
         id: "main_1", kind: "todo", text: "マクドナルドで仕事",
         durationMin: 120, completed: false, location: mcdLocation,
         sequenceOrder: 2,
-      },
+      }),
     ];
     const dayConditions: DayConditions = { mainTransport: "car" };
     const now = new Date("2026-04-13T09:00:00+09:00");
@@ -277,8 +288,8 @@ describe("buildDayPlan with travel items", () => {
 
   test("在宅プラン → 移動アイテムなし", () => {
     const items: PlanItem[] = [
-      { id: "1", kind: "todo", text: "掃除", durationMin: 30, completed: false },
-      { id: "2", kind: "todo", text: "洗濯", durationMin: 20, completed: false },
+      makePlanItem({ id: "1", kind: "todo", text: "掃除", durationMin: 30, completed: false }),
+      makePlanItem({ id: "2", kind: "todo", text: "洗濯", durationMin: 20, completed: false }),
     ];
     const plan = buildDayPlan(items, {}, undefined, { goOut: false });
     const travels = plan.items.filter(i => i.kind === "travel");
@@ -287,10 +298,10 @@ describe("buildDayPlan with travel items", () => {
 
   test("goOut 未指定 + 場所あり → 移動が自動挿入される", () => {
     const items: PlanItem[] = [
-      {
+      makePlanItem({
         id: "1", kind: "todo", text: "マクドナルドで仕事",
         durationMin: 120, completed: false, location: mcdLocation,
-      },
+      }),
     ];
     const plan = buildDayPlan(items, { mainTransport: "car" });
     const travels = plan.items.filter(i => i.kind === "travel");

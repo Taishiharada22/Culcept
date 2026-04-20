@@ -555,6 +555,8 @@ export function assessEscalation(
   }
 
   // Withdrawal streak: 末尾の連続短文ターン
+  // 閾値は 5 を維持。10 に拡張すると通常会話（質問→短返答の繰り返し）で
+  // streak >= 3 が発火し false positive が増える（A-110 回帰で確認済み）。
   let withdrawalStreak = 0;
   for (let i = scores.length - 1; i >= 0; i--) {
     if (scores[i].bodyLength <= 5) withdrawalStreak++;

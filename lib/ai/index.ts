@@ -6,7 +6,9 @@ import { logAiRun } from "./logging";
 import { resolveModelSelection, toModelSelectionMetadata } from "./modelSelection";
 import { runGemini } from "./providers/gemini";
 import { runOpenAI } from "./providers/openai";
+import { runStudent } from "./providers/student";
 import { resolveRouterDecision } from "./router";
+import { resolveStudentRouting, type StudentRoutingDecision } from "./studentRouting";
 import { isStargazerStudentTask } from "@/lib/stargazer/studentTrack";
 import { maybeRunStargazerShadow } from "@/lib/stargazer/shadowRun";
 import { isOrbiterStudentTask } from "@/lib/orbiter/studentTrack";
@@ -101,6 +103,12 @@ async function executeProvider(
     });
   }
 
+  if (provider === "student") {
+    return runStudent(request, {
+      model: modelOverride || undefined,
+    });
+  }
+
   throw new AIProviderError({
     provider: PRIMARY_AI_PROVIDER,
     code: "provider_disabled",
@@ -128,12 +136,192 @@ function defaultModelForProvider(provider: AIProviderName): string {
   ).trim();
 }
 
+/**
+ * Student provider 試行
+ *
+ * 成功すれば AIRunResult を返す。失敗すれば null を返し、
+ * 呼び出し元の runAI() が既存 stable provider にフォールバックする。
+ *
+ * テレメトリ: 成功・失敗とも logAiRun に記録される。
+ * metadata に studentRouting / studentFallbackReason を含む。
+ */
+async function attemptStudentProvider(
+  params: RunAIParams,
+  startedAt: number,
+  decision: Extract<StudentRoutingDecision, { state: "eligible" }>,
+): Promise<AIRunResult | null> {
+  const studentTelemetry = {
+    studentProvider: true,
+    studentRouting: decision.reason,
+    studentRolloutPercent: decision.rolloutPercent,
+    studentAssignmentBucket: decision.assignmentBucket,
+    studentSeedSource: decision.seedSource,
+  };
+
+  try {
+    const output = await executeProvider("student", params, {});
+
+    if (!output.text?.trim()) {
+      console.warn("[ai/student] empty output, falling back to stable", {
+        taskType: params.taskType,
+      });
+      await logAiRun({
+        userId: params.userId,
+        sessionId: params.sessionId,
+        taskType: params.taskType,
+        provider: "student",
+        model: output.model,
+        promptText: params.prompt,
+        systemPrompt: params.systemPrompt,
+        responseText: null,
+        structuredJson: null,
+        success: false,
+        latencyMs: Date.now() - startedAt,
+        fallbackUsed: false,
+        errorMessage: "empty_output",
+        metadata: {
+          ...(params.metadata ?? {}),
+          ...studentTelemetry,
+          studentFallbackReason: "empty_output",
+        },
+      });
+      return null;
+    }
+
+    const latencyMs = Date.now() - startedAt;
+
+    const aiRunId = await logAiRun({
+      userId: params.userId,
+      sessionId: params.sessionId,
+      taskType: params.taskType,
+      provider: "student",
+      model: output.model,
+      promptText: params.prompt,
+      systemPrompt: params.systemPrompt,
+      responseText: output.text,
+      structuredJson: null,
+      success: true,
+      latencyMs,
+      inputTokens: output.inputTokens ?? null,
+      outputTokens: output.outputTokens ?? null,
+      fallbackUsed: false,
+      metadata: {
+        ...(params.metadata ?? {}),
+        ...studentTelemetry,
+      },
+    });
+
+    console.info("[ai/student] success", {
+      taskType: params.taskType,
+      model: output.model,
+      latencyMs,
+      outputLength: output.text.length,
+    });
+
+    return {
+      text: output.text,
+      provider: "student",
+      model: output.model,
+      latencyMs,
+      success: true,
+      structured: null,
+      fallbackUsed: false,
+      cacheHit: false,
+      cacheKey: null,
+      confidence: output.confidence ?? null,
+      errorMessage: null,
+      aiRunId,
+    };
+  } catch (error) {
+    const errorMessage = normalizeErrorMessage(error);
+    const latencyMs = Date.now() - startedAt;
+
+    console.warn("[ai/student] failed, falling back to stable", {
+      taskType: params.taskType,
+      error: errorMessage,
+      latencyMs,
+    });
+
+    await logAiRun({
+      userId: params.userId,
+      sessionId: params.sessionId,
+      taskType: params.taskType,
+      provider: "student",
+      model: process.env.STUDENT_PROVIDER_MODEL ?? "qwen2.5-7b-instruct-lora-v2",
+      promptText: params.prompt,
+      systemPrompt: params.systemPrompt,
+      responseText: isAIProviderError(error) ? (error.responseText ?? null) : null,
+      structuredJson: null,
+      success: false,
+      latencyMs,
+      fallbackUsed: false,
+      errorMessage,
+      metadata: {
+        ...(params.metadata ?? {}),
+        ...studentTelemetry,
+        studentFallbackReason: errorMessage,
+      },
+    });
+
+    return null; // Signal to fall through to stable provider
+  }
+}
+
 export async function runAI(params: RunAIParams): Promise<AIRunResult> {
   const startedAt = Date.now();
+
+  // ── Student Provider Pre-routing ──────────────────────────────
+  // v2 LoRA Generation-only: feature flag ON + eligible task + canary 選出 → student 先行試行
+  // 3-state decision:
+  //   eligible → student 試行。成功なら即 return、失敗なら stable fallback (studentFallbackToStable)
+  //   skipped  → stable 直行、telemetry に studentSkipped=true + reason を残す
+  //   disabled → stable 直行、student 関連は記録しない
+  const studentDecision = resolveStudentRouting(params);
+  if (studentDecision.state === "eligible") {
+    const studentResult = await attemptStudentProvider(params, startedAt, studentDecision);
+    if (studentResult) return studentResult;
+    // student failed → fall through to stable provider (studentFallbackToStable)
+  }
+  // ──────────────────────────────────────────────────────────────
+
   const selectionDecision = await resolveModelSelection(params);
   const selectionMetadata = toModelSelectionMetadata(selectionDecision);
 
-  const effectiveMetadata = mergeMetadata(params.metadata ?? null, selectionMetadata);
+  // Student 3-state telemetry merge
+  //   eligible (reached here) → student was attempted but failed → studentFallbackToStable
+  //   skipped                 → student was eligible but skipped pre-attempt → studentSkipped
+  //   disabled                → no student annotation
+  let studentStableMeta: Record<string, unknown> = {};
+  if (studentDecision.state === "eligible") {
+    studentStableMeta = {
+      studentAttempted: true,
+      studentFallbackToStable: true,
+      studentRouting: studentDecision.reason,
+      studentRolloutPercent: studentDecision.rolloutPercent,
+      studentAssignmentBucket: studentDecision.assignmentBucket,
+    };
+  } else if (studentDecision.state === "skipped") {
+    studentStableMeta = {
+      studentSkipped: true,
+      studentSkipReason: studentDecision.reason,
+      ...(studentDecision.rolloutPercent !== undefined
+        ? { studentRolloutPercent: studentDecision.rolloutPercent }
+        : {}),
+      ...(studentDecision.assignmentBucket !== undefined
+        ? { studentAssignmentBucket: studentDecision.assignmentBucket }
+        : {}),
+      ...(studentDecision.promptChars !== undefined
+        ? { studentPromptChars: studentDecision.promptChars }
+        : {}),
+      ...(studentDecision.maxPromptChars !== undefined
+        ? { studentMaxPromptChars: studentDecision.maxPromptChars }
+        : {}),
+    };
+  }
+  const effectiveMetadata = mergeMetadata(
+    mergeMetadata(params.metadata ?? null, selectionMetadata),
+    studentStableMeta,
+  );
   const effectiveParams: RunAIParams = {
     ...params,
     preferredProvider: selectionDecision.preferredProvider ?? params.preferredProvider,
@@ -213,10 +401,13 @@ export async function runAI(params: RunAIParams): Promise<AIRunResult> {
     lastProvider = provider;
 
     try {
+      // S2a: params.modelOverride は呼び出し元の直接指定（env var ベース）。
+      // model selection よりも優先する。
       const modelOverride =
-        provider === selectionDecision.preferredProvider
+        effectiveParams.modelOverride ??
+        (provider === selectionDecision.preferredProvider
           ? selectionDecision.modelOverride
-          : null;
+          : null);
 
       const result = await executeProvider(provider, effectiveParams, {
         modelOverride,

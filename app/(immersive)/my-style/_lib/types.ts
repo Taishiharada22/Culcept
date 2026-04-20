@@ -343,4 +343,7 @@ export type SavedState = {
     seekPersonas?: string[];
     seekCategories?: string[];
     seekSubcategories?: string[];
+    /** Monotonic revision counter — incremented on every wardrobe mutation.
+     *  Used by persistence/restore to pick the newest state, not the "non-empty" one. */
+    _revision?: number;
 };

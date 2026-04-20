@@ -42,6 +42,8 @@ const FAILOVER_ELIGIBLE_PREFIXES = [
   "orbiter_",      // Orbiter tasks
   "identity_",     // Identity tasks
   "perspective_",  // Perspective Engine tasks (task_query, classify) — PE critical path
+  "morning_",      // Morning Protocol tasks (plan_extract, delta detect) — CEO: Gemini障害でV1ゴミ出力は許容不可
+  "coalter_",      // CoAlter tasks (proposal generation) — CEO: 503障害でCoAlter不在は許容不可
 ];
 
 function isOpenAIFallbackAvailable(): boolean {

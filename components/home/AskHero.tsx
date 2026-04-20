@@ -13,6 +13,7 @@ import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
 import FollowUpChip from "@/components/home/morning/FollowUpChip";
 import JournalPromptChip from "@/components/home/morning/JournalPromptChip";
 import MorningInsightChip from "@/components/home/morning/MorningInsightChip";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 /** action_shape → 主CTA テキスト（返答の次の1歩をそのまま押せる形で） */
 const ACTION_SHAPE_CTA: Record<ActionShape, { label: string; icon: string }> = {
@@ -118,6 +119,8 @@ type Props = {
   morningPlan?: MorningPlan | null;
   /** Morning Protocol: 現在フェーズ */
   morningPhase?: MorningPhase | null;
+  /** Morning Protocol: パーソナライズヒント */
+  morningPersonalizeHints?: string[];
   /** Morning Protocol: プラン確定コールバック */
   onMorningPlanConfirm?: (plan: MorningPlan) => void;
   /** Morning Protocol: 変更リクエストコールバック */
@@ -148,6 +151,10 @@ type Props = {
   composerFocused?: boolean;
   /** 親のスクロールコンテナへの参照（自動スクロール用） */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
+  /** コーデ確定後のコールバック — カードをAlterエリアから退避 */
+  onOutfitCommit?: () => void;
+  /** プラン＆コーデカードが退避済みか */
+  morningCardsDismissed?: boolean;
 };
 
 const THINKING_PHRASES = [
@@ -210,7 +217,7 @@ function AlterThinkingText() {
 
   return (
     <div className="flex items-center gap-2 py-1">
-      <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
+      <AneurasyncLogo size={16} color="#6366F1" animate />
       <span className="text-[13px] font-medium" style={{ color: "#6366F1", opacity: 0.7 }}>
         {text}
         <motion.span
@@ -241,6 +248,7 @@ export default function AskHero({
   alterCounselorSoftLink,
   morningPlan,
   morningPhase,
+  morningPersonalizeHints,
   onMorningPlanConfirm,
   onMorningPlanChange,
   morningWeather,
@@ -254,6 +262,8 @@ export default function AskHero({
   nudge: nudgeInput,
   composerFocused = false,
   scrollRef,
+  onOutfitCommit,
+  morningCardsDismissed = false,
 }: Props) {
   const router = useRouter();
   const [ctaDismissed, setCtaDismissed] = useState(false);
@@ -312,12 +322,31 @@ export default function AskHero({
             ) : (
               <div className="pl-0">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-[10px]" style={{ color: "#6366F1" }}>✦</span>
+                  <AneurasyncLogo size={16} color="#6366F1" animate />
                   <span className="text-[9px] font-mono" style={{ color: "#6366F1", opacity: 0.5 }}>Alter</span>
                 </div>
                 <p className="text-[14px] text-text1 leading-[1.8] font-medium whitespace-pre-wrap">
                   {msg.content}
                 </p>
+                {/* PE出典（視点）— 目立たなく小さく */}
+                {msg.perspectiveSources && msg.perspectiveSources.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 mb-0.5">
+                    <span className="text-[9px] font-mono" style={{ color: "#6366F1", opacity: 0.3 }}>視点</span>
+                    {msg.perspectiveSources.map((src, i) => (
+                      <a
+                        key={i}
+                        href={src.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[9px] font-mono truncate max-w-[180px] hover:underline"
+                        style={{ color: "#8888a0", opacity: 0.5 }}
+                        title={src.title}
+                      >
+                        {src.title || new URL(src.url).hostname}
+                      </a>
+                    ))}
+                  </div>
+                )}
                 {msg === alterMessages[alterMessages.length - 1] && !alterLoading && alterSessionId && alterResponseId && (
                   <AlterFeedback
                     sessionId={alterSessionId}
@@ -348,19 +377,22 @@ export default function AskHero({
         ))}
 
         {/* Morning Protocol: プランカード（会話内にインライン表示） */}
-        {morningPlan && (morningPhase === "plan_presented" || morningPhase === "plan_confirmed" || morningPhase === "outfit_offered" || morningPhase === "outfit_clarifying" || morningPhase === "completed") && (
+        {/* CEO方針: コーデ確定後はAlterエリアから退避 → 📅 で確認 */}
+        {!morningCardsDismissed && morningPlan && (morningPhase === "plan_presented" || morningPhase === "plan_confirmed" || morningPhase === "outfit_offered" || morningPhase === "outfit_clarifying" || morningPhase === "completed") && (
           <MorningPlanCard
             plan={morningPlan}
+            personalizeHints={morningPersonalizeHints}
             onConfirm={onMorningPlanConfirm ?? (() => {})}
             onRequestChange={onMorningPlanChange ?? (() => {})}
           />
         )}
 
         {/* Morning Protocol: コーデ提案カード（ユーザーが「見る」と応答後に表示） */}
-        {morningPlan && (morningPhase === "outfit_presented" || morningPhase === "completed") && (
+        {!morningCardsDismissed && morningPlan && (morningPhase === "outfit_presented" || morningPhase === "completed") && (
           <MorningOutfitCard
             plan={morningPlan}
             weather={morningWeather ?? undefined}
+            onCommit={onOutfitCommit}
           />
         )}
 
@@ -473,7 +505,7 @@ export default function AskHero({
               border: "1px solid rgba(99,102,241,0.15)",
             }}
           >
-            <span className="text-sm">✦</span>
+            <AneurasyncLogo size={18} color="#4338CA" />
             <span className="text-[11px] font-medium flex-1" style={{ color: "#4338CA" }}>
               ここから深く話す
             </span>

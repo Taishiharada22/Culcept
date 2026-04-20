@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { retryFetch } from "@/lib/retryFetch";
 import { useSaveToast } from "@/components/ui/SaveToastProvider";
+import { PREFECTURE_MUNICIPALITIES } from "@/lib/shared/municipalityData";
 
 /**
  * ④-A: ベースライン収集 UI
@@ -248,7 +249,7 @@ export default function BaselineCollectionClient({ userName }: Props) {
 
   const dobValid = skipDob || (birthYear !== null && birthMonth !== null && birthDay !== null);
   const genderValid = gender !== null;
-  const locationValid = skipLocation || prefecture !== null;
+  const locationValid = skipLocation || (prefecture !== null && city !== "");
   const occupationValid = skipOccupation || occupation !== null;
 
   const stepIndex = STEPS.indexOf(step);
@@ -482,7 +483,7 @@ export default function BaselineCollectionClient({ userName }: Props) {
                               <button
                                 key={pref}
                                 type="button"
-                                onClick={() => setPrefecture(pref)}
+                                onClick={() => { setPrefecture(pref); if (pref !== prefecture) setCity(""); }}
                                 className={`
                                   rounded-lg px-1 py-2 text-xs font-medium transition-all duration-150
                                   ${prefecture === pref
@@ -499,7 +500,7 @@ export default function BaselineCollectionClient({ userName }: Props) {
                       ))}
                     </div>
 
-                    {/* 市区町村（都道府県選択後に表示） */}
+                    {/* 市区町村チップ選択（都道府県選択後に表示） */}
                     <AnimatePresence>
                       {prefecture && (
                         <motion.div
@@ -510,17 +511,31 @@ export default function BaselineCollectionClient({ userName }: Props) {
                         >
                           <div className="mt-4">
                             <label className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                              市区町村（任意）
+                              市区町村
+                              <span className="ml-1 text-rose-400">*必須</span>
                             </label>
-                            <input
-                              type="text"
-                              value={city}
-                              onChange={(e) => setCity(e.target.value)}
-                              placeholder={`例: ${prefecture === "東京都" ? "渋谷区" : prefecture === "大阪府" ? "大阪市北区" : prefecture === "北海道" ? "札幌市中央区" : "○○市"}`}
-                              className="mt-2 w-full rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-700 placeholder-slate-300 outline-none backdrop-blur-sm transition-all focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100"
-                            />
+                            <div className="mt-2 max-h-[180px] overflow-y-auto rounded-xl bg-slate-50/50 p-2 scrollbar-thin">
+                              <div className="flex flex-wrap gap-1.5">
+                                {(PREFECTURE_MUNICIPALITIES[prefecture] ?? []).map((m) => (
+                                  <button
+                                    key={m}
+                                    type="button"
+                                    onClick={() => setCity(m)}
+                                    className={`
+                                      rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all duration-150
+                                      ${city === m
+                                        ? "bg-gradient-to-br from-violet-100 to-cyan-50 text-violet-700 font-bold border border-violet-300 shadow-sm"
+                                        : "bg-white/60 text-slate-400 hover:bg-white hover:text-slate-600 border border-slate-100"
+                                      }
+                                    `}
+                                  >
+                                    {m}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                             <p className="mt-1.5 text-[10px] text-slate-400">
-                              市区町村まで入力すると、より精密な天気・地域分析が可能になります
+                              市区町村まで選択すると、より精密な天気・移動時間の分析が可能になります
                             </p>
                           </div>
                         </motion.div>

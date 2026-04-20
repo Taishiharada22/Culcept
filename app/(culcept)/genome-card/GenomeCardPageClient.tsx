@@ -34,8 +34,10 @@ type Tab = "overview" | "card" | "connections";
 const TABS: { key: Tab; label: string; sublabel: string }[] = [
   { key: "overview", label: "概要", sublabel: "Overview" },
   { key: "card", label: "カード", sublabel: "Card" },
-  { key: "connections", label: "つながり", sublabel: "Connect" },
+  { key: "connections", label: "相性診断", sublabel: "Chemistry" },
 ];
+
+type ConnectionSubTab = "list" | "requests";
 
 export default function GenomeCardPageClient() {
   const [card, setCard] = useState<GenomeCardData | null>(null);
@@ -44,6 +46,8 @@ export default function GenomeCardPageClient() {
   const [showSendModal, setShowSendModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [connSubTab, setConnSubTab] = useState<ConnectionSubTab>("list");
+  const [tokenBalance, setTokenBalance] = useState<{ points: number; friendshipTokens: number } | null>(null);
   const [celebration, setCelebration] = useState<string | null>(null);
   const [establishedConn, setEstablishedConn] = useState<{
     counterpart: { userId: string; displayName: string | null; avatarUrl: string | null };
@@ -55,9 +59,10 @@ export default function GenomeCardPageClient() {
 
   const fetchData = async () => {
     try {
-      const [cardRes, connRes] = await Promise.all([
+      const [cardRes, connRes, tokenRes] = await Promise.all([
         fetch("/api/genome-card"),
         fetch("/api/genome-connections"),
+        fetch("/api/rendezvous/invite"),
       ]);
       if (cardRes.ok) {
         const cardData = await cardRes.json().catch(() => null);
@@ -83,6 +88,15 @@ export default function GenomeCardPageClient() {
       if (connRes.ok) {
         const connData = await connRes.json().catch(() => null);
         if (connData?.ok) setConnections(connData.connections);
+      }
+      if (tokenRes.ok) {
+        const tokenData = await tokenRes.json().catch(() => null);
+        if (tokenData?.balance) {
+          setTokenBalance({
+            points: tokenData.balance.points ?? 0,
+            friendshipTokens: tokenData.balance.friendshipTokens ?? 0,
+          });
+        }
       }
     } catch {
       // ネットワークエラー — 静かに失敗（ページは空状態表示）
@@ -505,7 +519,7 @@ export default function GenomeCardPageClient() {
                   onClick={() => setActiveTab("connections")}
                   style={{ background: C.s1, border: `1px solid ${C.s2}`, color: C.t2 }}
                 >
-                  つながり
+                  相性診断
                 </button>
               </motion.div>
             </motion.div>
@@ -591,6 +605,46 @@ export default function GenomeCardPageClient() {
                       ))}
                     </div>
                   </motion.div>
+
+                  {/* 相性診断の構成要素 */}
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.25 }}
+                    className="rounded-2xl"
+                    style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: "16px 20px" }}
+                  >
+                    <p style={{ fontSize: 11, fontWeight: 500, color: C.t2, marginBottom: 12 }}>
+                      相性診断の構成要素
+                    </p>
+                    <div className="space-y-2">
+                      {[
+                        { label: "共鳴マップ", source: "価値観 4 軸", filled: !!(card.cardBack?.radarAxes) },
+                        { label: "判断スタイル", source: "ActionShape", filled: !!card.archetypeLabel },
+                        { label: "補完ポイント", source: "行動 3 軸", filled: !!(card.cardBack?.radarAxes) },
+                        { label: "二面性の共鳴", source: "矛盾検出", filled: !!(card.personalInsights?.length) },
+                        { label: "コミュ温度計", source: "外向性・率直さ", filled: !!(card.cardBack?.radarAxes) },
+                        { label: "成長エッジ", source: "ForceBalance", filled: false },
+                      ].map((item) => (
+                        <div key={item.label} className="flex items-center gap-2.5">
+                          <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{
+                            background: item.filled ? "rgba(52,211,153,0.12)" : C.s2,
+                          }}>
+                            <span style={{
+                              fontSize: 9,
+                              color: item.filled ? "rgb(16,185,129)" : C.t4,
+                            }}>
+                              {item.filled ? "✓" : "−"}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 11, color: item.filled ? C.t1 : C.t3, flex: 1 }}>
+                            {item.label}
+                          </span>
+                          <span style={{ fontSize: 9, color: C.t4 }}>{item.source}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
                 </>
               ) : (
                 <div className="rounded-2xl text-center py-12" style={{
@@ -614,7 +668,7 @@ export default function GenomeCardPageClient() {
             </motion.div>
           )}
 
-          {/* ═══ つながりタブ ═══ */}
+          {/* ═══ 相性診断タブ ═══ */}
           {activeTab === "connections" && (
             <motion.div
               key="connections"
@@ -624,140 +678,215 @@ export default function GenomeCardPageClient() {
               transition={{ duration: 0.35 }}
               className="space-y-5"
             >
-              <div className="flex gap-2">
-                <button
-                  className="flex-1 py-3 rounded-xl text-sm font-medium"
-                  onClick={() => setShowSendModal(true)}
-                  style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`, color: "white" }}
-                >
-                  カード交換をリクエスト
-                </button>
-                <Link href="/genome-card/exchange"
-                  className="flex-1 py-3 rounded-xl text-sm font-medium text-center"
-                  style={{ background: C.s1, border: `1px solid ${C.s2}`, color: C.t2 }}
-                >
-                  リクエスト管理
-                </Link>
+              {/* サブタブ: リスト / リクエスト管理 */}
+              <div className="flex gap-1 p-1 rounded-xl" style={{ background: C.s2, border: `1px solid ${C.t4}20` }}>
+                {([
+                  { key: "list" as const, label: "リスト" },
+                  { key: "requests" as const, label: "リクエスト管理" },
+                ] as const).map((sub) => (
+                  <button
+                    key={sub.key}
+                    onClick={() => setConnSubTab(sub.key)}
+                    className="relative flex-1 py-2 rounded-lg transition-all"
+                    style={{
+                      background: connSubTab === sub.key ? C.s1 : "transparent",
+                      boxShadow: connSubTab === sub.key ? "0 1px 6px rgba(0,0,0,0.06)" : "none",
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 12, fontWeight: connSubTab === sub.key ? 600 : 400,
+                      color: connSubTab === sub.key ? C.t1 : C.t3,
+                    }}>
+                      {sub.label}
+                    </span>
+                    {sub.key === "requests" && pending.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+                        style={{ fontSize: 9, fontWeight: 700, color: "white",
+                          background: `linear-gradient(135deg, #ef4444, ${C.pulse})` }}>
+                        {pending.length}
+                      </span>
+                    )}
+                  </button>
+                ))}
               </div>
 
-              {/* 受信リクエスト */}
-              {pending.length > 0 && (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-                  <h2 className="flex items-center gap-2" style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>
-                    受信リクエスト
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center"
-                      style={{ fontSize: 9, fontWeight: 700, color: "white", background: `linear-gradient(135deg, #ef4444, ${C.pulse})` }}>
-                      {pending.length}
-                    </span>
-                  </h2>
-                  {pending.map((conn) => (
-                    <div key={conn.id} className="rounded-2xl flex items-center justify-between" style={{
-                      background: C.s1, border: `1px solid ${C.s2}`, padding: "12px 16px",
-                    }}>
-                      <div className="flex items-center gap-3">
-                        {conn.counterpart.avatarUrl ? (
-                          <img src={conn.counterpart.avatarUrl} alt={`${conn.counterpart.displayName ?? "ユーザー"}のアバター`} className="w-10 h-10 rounded-xl object-cover" />
-                        ) : (
+              {/* ── サブタブ: リスト ── */}
+              {connSubTab === "list" && (
+                <div className="space-y-4">
+                  {/* 保有トークン */}
+                  <div className="rounded-2xl" style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: "14px 16px" }}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p style={{ fontSize: 9, color: C.t4, letterSpacing: "0.1em", textTransform: "uppercase" as const }}>
+                          Friendship Token
+                        </p>
+                        <div className="flex items-baseline gap-2 mt-1">
+                          <span style={{ fontSize: 24, fontWeight: 200, color: C.t1, fontFamily: "monospace" }}>
+                            {tokenBalance?.friendshipTokens ?? 0}
+                          </span>
+                          <span style={{ fontSize: 10, color: C.t3 }}>枚</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p style={{ fontSize: 9, color: C.t4, letterSpacing: "0.1em", textTransform: "uppercase" as const }}>
+                          蓄積ポイント
+                        </p>
+                        <div className="flex items-baseline gap-1 mt-1 justify-end">
+                          <span style={{ fontSize: 16, fontWeight: 300, color: C.t2, fontFamily: "monospace" }}>
+                            {tokenBalance?.points ?? 0}
+                          </span>
+                          <span style={{ fontSize: 10, color: C.t4 }}>/ 100pt</span>
+                        </div>
+                        {/* ポイント進捗バー */}
+                        <div style={{ height: 2, borderRadius: 1, background: C.s2, width: 80, marginTop: 4 }}>
+                          <div style={{
+                            height: "100%", borderRadius: 1,
+                            width: `${Math.min(100, (tokenBalance?.points ?? 0))}%`,
+                            background: `linear-gradient(90deg, ${C.neural}, ${C.pulse})`,
+                          }} />
+                        </div>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 10, color: C.t4, marginTop: 8, lineHeight: 1.5 }}>
+                      友だちを招待して Stargazer を進めてもらうとポイントが貯まります。100pt で 1 枚のトークンに交換でき、好きな友だちとの相性診断を解放できます。
+                    </p>
+                  </div>
+
+                  {/* 友だちリスト */}
+                  {accepted.length > 0 ? (
+                    <div className="space-y-2">
+                      {accepted.map((conn) => (
+                        <Link
+                          key={conn.id}
+                          href={`/genome-card/compatibility/${conn.counterpart.userId}`}
+                          className="block rounded-2xl transition-all active:scale-[0.98]"
+                          style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: "14px 16px" }}
+                        >
+                          <div className="flex items-center gap-3">
+                            {conn.counterpart.avatarUrl ? (
+                              <img src={conn.counterpart.avatarUrl} alt="" className="w-10 h-10 rounded-xl object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                                style={{ background: `linear-gradient(135deg, ${C.neural}20, ${C.pulse}20)`, fontSize: 14, color: C.t2 }}>
+                                {conn.counterpart.displayName?.[0] ?? "?"}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p style={{ fontSize: 13, fontWeight: 600, color: C.t1 }} className="truncate">
+                                {conn.counterpart.displayName ?? "ユーザー"}
+                              </p>
+                              <p style={{ fontSize: 10, color: C.t4, marginTop: 2 }}>
+                                相性を確認 →
+                              </p>
+                            </div>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.t4} strokeWidth={2} strokeLinecap="round">
+                              <polyline points="9 18 15 12 9 6" />
+                            </svg>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : !loading ? (
+                    <div className="rounded-2xl text-center py-10"
+                      style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: 24 }}>
+                      <div style={{ fontSize: 36, marginBottom: 12, color: C.t4 }}>∞</div>
+                      <p style={{ fontSize: 13, color: C.t3, lineHeight: 1.8 }}>
+                        まだ交換した友だちがいません。<br />
+                        カードを交換するとここに表示されます。
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* ── サブタブ: リクエスト管理 ── */}
+              {connSubTab === "requests" && (
+                <div className="space-y-4">
+                  {/* 受信リクエスト */}
+                  {pending.length > 0 && (
+                    <div className="space-y-3">
+                      <h2 className="flex items-center gap-2" style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>
+                        受信リクエスト
+                        <span className="w-5 h-5 rounded-full flex items-center justify-center"
+                          style={{ fontSize: 9, fontWeight: 700, color: "white",
+                            background: `linear-gradient(135deg, #ef4444, ${C.pulse})` }}>
+                          {pending.length}
+                        </span>
+                      </h2>
+                      {pending.map((conn) => (
+                        <div key={conn.id} className="rounded-2xl flex items-center justify-between" style={{
+                          background: C.s1, border: `1px solid ${C.s2}`, padding: "12px 16px",
+                        }}>
+                          <div className="flex items-center gap-3">
+                            {conn.counterpart.avatarUrl ? (
+                              <img src={conn.counterpart.avatarUrl} alt="" className="w-10 h-10 rounded-xl object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                                style={{ background: `linear-gradient(135deg, ${C.neural}20, ${C.pulse}20)`, fontSize: 14, color: C.t2 }}>
+                                {conn.counterpart.displayName?.[0] ?? "?"}
+                              </div>
+                            )}
+                            <div>
+                              <p style={{ fontSize: 13, fontWeight: 500, color: C.t1 }}>
+                                {conn.counterpart.displayName ?? "ユーザー"}
+                              </p>
+                              <p style={{ fontSize: 10, color: C.t4 }}>
+                                {conn.visibilityRequester === 3 ? "信頼レベルで送ってくれました"
+                                  : conn.visibilityRequester === 2 ? "会話レベルで交換リクエスト"
+                                  : "名刺レベルで交換リクエスト"}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button onClick={() => handleAccept(conn.id)}
+                              className="px-4 py-2 rounded-lg text-xs font-medium min-h-[44px]"
+                              style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`, color: "white" }}>
+                              承認
+                            </button>
+                            <button onClick={() => handleDecline(conn.id)}
+                              className="px-4 py-2 rounded-lg text-xs font-medium min-h-[44px]"
+                              style={{ background: C.s2, color: C.t3 }}>
+                              拒否
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 送信済み */}
+                  {connections.filter(c => c.status === "pending" && c.requesterId === card?.userId).length > 0 && (
+                    <div className="space-y-3">
+                      <h2 style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>送信済み</h2>
+                      {connections.filter(c => c.status === "pending" && c.requesterId === card?.userId).map((conn) => (
+                        <div key={conn.id} className="rounded-2xl flex items-center gap-3" style={{
+                          background: C.s1, border: `1px solid ${C.s2}`, padding: "12px 16px",
+                        }}>
                           <div className="w-10 h-10 rounded-xl flex items-center justify-center"
                             style={{ background: `linear-gradient(135deg, ${C.neural}20, ${C.pulse}20)`, fontSize: 14, color: C.t2 }}>
                             {conn.counterpart.displayName?.[0] ?? "?"}
                           </div>
-                        )}
-                        <div>
-                          <p style={{ fontSize: 13, fontWeight: 500, color: C.t1 }}>
-                            {conn.counterpart.displayName ?? "ユーザー"}
-                          </p>
-                          <p style={{ fontSize: 10, color: C.t4 }}>
-                            {conn.visibilityRequester === 3 ? "🔓 信頼レベルで送ってくれました"
-                              : conn.visibilityRequester === 2 ? "💬 会話レベルで交換リクエスト"
-                              : "🤝 名刺レベルで交換リクエスト"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => handleAccept(conn.id)}
-                          aria-label={`${conn.counterpart.displayName ?? "ユーザー"}のリクエストを承認`}
-                          className="px-4 py-2 rounded-lg text-xs font-medium min-h-[44px]"
-                          style={{ background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})`, color: "white" }}>
-                          承認
-                        </button>
-                        <button onClick={() => handleDecline(conn.id)}
-                          aria-label={`${conn.counterpart.displayName ?? "ユーザー"}のリクエストを拒否`}
-                          className="px-4 py-2 rounded-lg text-xs font-medium min-h-[44px]"
-                          style={{ background: C.s2, color: C.t3 }}>
-                          拒否
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </motion.div>
-              )}
-
-              {/* 接続済み */}
-              {accepted.length > 0 && (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="space-y-3">
-                  <h2 style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>カード交換済み</h2>
-                  {accepted.map((conn) => {
-                    const myVisibility = conn.requesterId === card?.userId
-                      ? conn.visibilityRequester : conn.visibilityTarget;
-                    return (
-                      <div key={conn.id} className="rounded-2xl" style={{
-                        background: C.s1, border: `1px solid ${C.s2}`, padding: "14px 16px",
-                      }}>
-                        <div className="flex items-center gap-3">
-                          {conn.counterpart.avatarUrl ? (
-                            <img src={conn.counterpart.avatarUrl} alt={`${conn.counterpart.displayName ?? "ユーザー"}のアバター`} className="w-10 h-10 rounded-xl object-cover" />
-                          ) : (
-                            <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                              style={{ background: `linear-gradient(135deg, ${C.neural}20, ${C.pulse}20)`, fontSize: 14, color: C.t2 }}>
-                              {conn.counterpart.displayName?.[0] ?? "?"}
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p style={{ fontSize: 13, fontWeight: 600, color: C.t1 }} className="truncate">
+                          <div className="flex-1">
+                            <p style={{ fontSize: 13, fontWeight: 500, color: C.t1 }}>
                               {conn.counterpart.displayName ?? "ユーザー"}
                             </p>
-                            <div className="flex gap-2 mt-1.5">
-                              <Link href={`/genome-card/${conn.counterpart.userId}`}
-                                className="px-2.5 py-1 rounded-lg text-center"
-                                style={{ fontSize: 10, fontWeight: 500, color: "white",
-                                  background: `linear-gradient(135deg, ${C.neural}, ${C.pulse})` }}>
-                                カードを見る
-                              </Link>
-                              {conn.threadId && (
-                                <Link href={`/talk/${conn.threadId}`}
-                                  className="px-2.5 py-1 rounded-lg text-center"
-                                  style={{ fontSize: 10, fontWeight: 500, color: C.pulse,
-                                    background: `${C.pulse}10`, border: `1px solid ${C.pulse}20` }}>
-                                  トークする
-                                </Link>
-                              )}
-                            </div>
+                            <p style={{ fontSize: 10, color: C.t4 }}>承認待ち</p>
                           </div>
                         </div>
-                        <div className="mt-3">
-                          <VisibilityControl connectionId={conn.id} currentLevel={myVisibility as 1 | 2 | 3} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </motion.div>
-              )}
+                      ))}
+                    </div>
+                  )}
 
-              {/* 空状態 */}
-              {!loading && accepted.length === 0 && pending.length === 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-2xl text-center py-10"
-                  style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: 24 }}
-                >
-                  <div style={{ fontSize: 36, marginBottom: 12, color: C.t4 }}>∞</div>
-                  <p style={{ fontSize: 13, color: C.t3, lineHeight: 1.8 }}>
-                    まだ交換相手がいません。<br />
-                    友達にリクエストを送ってみましょう。
-                  </p>
-                </motion.div>
+                  {/* リクエスト空状態 */}
+                  {pending.length === 0 && connections.filter(c => c.status === "pending" && c.requesterId === card?.userId).length === 0 && (
+                    <div className="rounded-2xl text-center py-10"
+                      style={{ background: C.s1, border: `1px solid ${C.s2}`, padding: 24 }}>
+                      <p style={{ fontSize: 13, color: C.t3, lineHeight: 1.8 }}>
+                        リクエストはありません
+                      </p>
+                    </div>
+                  )}
+                </div>
               )}
             </motion.div>
           )}

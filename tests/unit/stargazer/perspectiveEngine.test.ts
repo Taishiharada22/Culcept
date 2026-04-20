@@ -190,27 +190,29 @@ describe("evaluateSearchGate", () => {
     flags.explicitSearchLive = original;
   });
 
-  it("暗黙検索は Phase < 1 で弾かれる", () => {
+  it("暗黙検索は Phase < 1 で弾かれる（外部知識バイパス非該当時）", () => {
     const result = evaluateSearchGate(
-      "エンジニアの年収ってどのくらい？",
-      makeQueryContext("career_fit"),
-      "judgment" as QuestionCategory,
+      "人間関係で悩んでるんだよね",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
       0, // Phase 0
       3,
       "conclude",
+      "emotional", // 感情系 → バイパス不可
     );
     expect(result.shouldSearch).toBe(false);
     expect(result.reason).toBe("phase_too_low");
   });
 
-  it("暗黙検索は Trust < 2 で弾かれる", () => {
+  it("暗黙検索は Trust < 2 で弾かれる（外部知識バイパス非該当時）", () => {
     const result = evaluateSearchGate(
-      "エンジニアの年収ってどのくらい？",
-      makeQueryContext("career_fit"),
-      "judgment" as QuestionCategory,
+      "最近ちょっと疲れてるんだよね",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
       2,
       1, // Trust 1
       "conclude",
+      "emotional", // 感情系 → バイパス不可
     );
     expect(result.shouldSearch).toBe(false);
     expect(result.reason).toBe("trust_too_low");
@@ -233,6 +235,7 @@ describe("evaluateSearchGate", () => {
       makeQueryContext("general"),
       "general" as QuestionCategory,
       3, 3, "conclude",
+      "emotional",
     );
     expect(result.shouldSearch).toBe(false);
     expect(result.searchNeed).toBeLessThanOrEqual(0.1);
@@ -244,10 +247,225 @@ describe("evaluateSearchGate", () => {
       makeQueryContext("career_fit"),
       "judgment" as QuestionCategory,
       2, 3, "conclude",
+      "knowledge",
     );
     // career_fit(0.25) + factual(0.25) + market(0.2) = 0.7
     expect(result.shouldSearch).toBe(true);
     expect(result.searchNeed).toBeGreaterThanOrEqual(0.5);
+  });
+
+  // ━━━━ 案B v2: 外部知識バイパス（Phase/Trust スキップ）━━━━
+  // v2: conversation 型を拒否リストから除外 + パターン大幅拡張
+  // CEO指摘: 「特定の言葉がないとWEBリサーチを入れられてない」
+
+  it("案B: 外部知識要求は Phase=0 でもバイパスして検索する", () => {
+    const result = evaluateSearchGate(
+      "具体的に会社を教えて",
+      makeQueryContext("career_fit"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "knowledge",
+    );
+    expect(result.shouldSearch).toBe(true);
+    expect(result.reason).toMatch(/implicit/);
+  });
+
+  it("案B: judgment + 仕事キーワードでもバイパス発動", () => {
+    const result = evaluateSearchGate(
+      "俺に適した仕事って何がある？",
+      makeQueryContext("career_fit"),
+      "career" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "judgment",
+    );
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案B: 感情吐露はバイパスしない", () => {
+    const result = evaluateSearchGate(
+      "仕事しんどい",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "emotional",
+    );
+    expect(result.shouldSearch).toBe(false);
+  });
+
+  it("案B: self_understanding はバイパスしない", () => {
+    const result = evaluateSearchGate(
+      "俺の強みって何？",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "self_understanding",
+    );
+    expect(result.shouldSearch).toBe(false);
+  });
+
+  // ━━━━ 案B v2: CEO 実例テスト（2026-04-16 本番ログから） ━━━━
+  // 以下は CEO が実際に入力して phase_too_low でブロックされた発話
+
+  it("案B v2: 'ビジネスパートナーの性格を教えて' — judgment + ビジネス → bypass", () => {
+    const result = evaluateSearchGate(
+      "俺に会うビジネスパートナーの性格を教えて",
+      makeQueryContext("creation"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "judgment",
+    );
+    // "ビジネス" + "パートナー" → 仕事カテゴリにマッチ
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案B v2: 'そんな人どこにいんだよ' — conversation + どこ → bypass", () => {
+    const result = evaluateSearchGate(
+      "そんな人どこにいんだよ",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "conversation", // v2: conversation は拒否リスト外
+    );
+    // "どこ" → 場所カテゴリにマッチ
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案B v2: '近場で会える場所とかってない？' — conversation + 場所 → bypass", () => {
+    const result = evaluateSearchGate(
+      "近場で会える場所とかってない？",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "conversation",
+    );
+    // "近場" + "場所" → 場所カテゴリにマッチ
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案B v2: '近場で会える場所ない？みんなが集まるような場所' — conversation + 場所+集まる → bypass", () => {
+    const result = evaluateSearchGate(
+      "近場で会える場所ない？みんなが集まるような場所",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "conversation",
+    );
+    // "近場" + "場所" + "集まる" → 場所+コミュニティカテゴリにマッチ
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案B v2: conversation + 感情的内容は外部パターン不一致でブロック", () => {
+    const result = evaluateSearchGate(
+      "なんかもう疲れたな",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "conversation", // conversation 型自体は拒否しないが
+    );
+    // パターン不一致 → bypass 発動せず → phase gate でブロック
+    expect(result.shouldSearch).toBe(false);
+    expect(result.reason).toBe("phase_too_low");
+  });
+
+  it("案B v2: conversation + 短い相槌は bypass しない", () => {
+    const result = evaluateSearchGate(
+      "うん",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "conclude",
+      "conversation",
+    );
+    expect(result.shouldSearch).toBe(false);
+  });
+
+  // ━━━━ 案C: clarify モード並行検索 ━━━━
+
+  it("案C: clarify + 外部知識要求は PE 並行実行を許可", () => {
+    const result = evaluateSearchGate(
+      "俺に適した仕事って何がある？",
+      makeQueryContext("career_fit"),
+      "career" as QuestionCategory,
+      0, 0,
+      "clarify",
+      "judgment",
+    );
+    expect(result.shouldSearch).toBe(true);
+  });
+
+  it("案C: clarify + 純内面質問は従来通りブロック", () => {
+    const result = evaluateSearchGate(
+      "自分の性格ってどう思う？",
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0,
+      "clarify",
+      "self_understanding",
+    );
+    expect(result.shouldSearch).toBe(false);
+    expect(result.reason).toBe("mode_clarify");
+  });
+
+  // ━━━━ v2 拡張カテゴリ: 30カテゴリ網羅テスト ━━━━
+
+  it.each([
+    // [カテゴリ, メッセージ, questionType, 期待結果]
+    // ── 発火すべきケース（外部知識が必要） ──
+    ["飲食",       "いい飯屋知らない？",              "conversation", true],
+    ["飲食",       "渋谷でランチおすすめある？",       "conversation", true],
+    ["医療",       "頭痛がひどい、いい病院ある？",     "conversation", true],
+    ["医療",       "花粉症の薬って何がいい？",         "knowledge",    true],
+    ["住居",       "引っ越したいんだけど",             "judgment",     true],
+    ["住居",       "家賃の相場ってどのくらい？",       "knowledge",    true],
+    ["旅行",       "旅行行きたいな、おすすめある？",   "conversation", true],
+    ["旅行",       "温泉でいいとこない？",             "conversation", true],
+    ["交通",       "終電って何時？",                   "knowledge",    true],
+    ["交通",       "駐車場ってどこにある？",           "conversation", true],
+    ["教育",       "プログラミングどうやって勉強する？", "judgment",   true],
+    ["教育",       "TOEICの対策教えて",                "knowledge",    true],
+    ["エンタメ",   "面白い映画ない？",                 "conversation", true],
+    ["エンタメ",   "Netflixでおすすめある？",          "conversation", true],
+    ["IT",         "Reactってどう？フレームワーク選び", "knowledge",    true],
+    ["金融",       "NISAってどうやるの？",             "knowledge",    true],
+    ["金融",       "どうやって稼げばいい？",           "judgment",     true],
+    ["美容",       "いい美容院ない？",                 "conversation", true],
+    ["フィットネス", "近くにジムってある？",            "conversation", true],
+    ["ペット",     "犬の飼い方って何から始める？",     "knowledge",    true],
+    ["冠婚葬祭",   "婚活ってどうやるの？",             "judgment",     true],
+    ["冠婚葬祭",   "保育園入れるかな",                 "conversation", true],
+    ["定義",       "NFTって何？",                      "knowledge",    true],
+    ["数量",       "東京の家賃っていくら？",           "knowledge",    true],
+    ["数量",       "エンジニアって平均何歳くらい？",   "knowledge",    true],
+    ["存在",       "あの店まだやってる？",             "conversation", true],
+    ["社会",       "最近の経済ってどうなの？",         "conversation", true],
+    ["DIY",        "エアコン壊れたんだけど修理どうする？", "conversation", true],
+    ["資格",       "簿記の合格率ってどのくらい？",     "knowledge",    true],
+    ["行政",       "パスポートの申請ってどうやるの？", "knowledge",    true],
+    // ── 発火しないべきケース（内面・感情） ──
+    ["感情",       "もう疲れた",                       "emotional",    false],
+    ["自己理解",   "俺の強みって何？",                 "self_understanding", false],
+    ["挨拶",       "おはよう",                         "greeting",     false],
+    ["相槌",       "なるほどね",                       "conversation", false],
+    ["内面",       "最近モヤモヤする",                 "emotional",    false],
+  ] as const)("v2拡張: %s — '%s' → %s", (_cat, msg, qType, expected) => {
+    const result = evaluateSearchGate(
+      msg,
+      makeQueryContext("general"),
+      "general" as QuestionCategory,
+      0, 0, // Phase=0, Trust=0
+      "conclude",
+      qType as any,
+    );
+    expect(result.shouldSearch).toBe(expected);
   });
 });
 

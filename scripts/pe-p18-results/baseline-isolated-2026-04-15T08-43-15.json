@@ -1,0 +1,163 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T08:43:15.525Z",
+    "caseCount": 3,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 12692,
+        "p90Ms": 29041,
+        "minMs": 12468,
+        "maxMs": 29041
+      },
+      "pe": {
+        "medianMs": 3585,
+        "p90Ms": 14421
+      },
+      "mainLlm": {
+        "medianMs": 3136,
+        "p90Ms": 3329
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 362,
+          "p90Ms": 2772
+        },
+        "search": {
+          "medianMs": 365,
+          "p90Ms": 411
+        },
+        "classify": {
+          "medianMs": 447,
+          "p90Ms": 13840
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 1
+        },
+        "promptBuild": {
+          "medianMs": 1,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 29041,
+      "responseText": "IT業界の最新トレンドをWEBで調べてみたよ。たいしさんは分析的で、データから本質を見抜くのが得意だから、具体的な数字からトレンドを掴むのが合っていると思う。\n2024年の調査によると、日本企業の生成AI導入率は80％で、グローバル平均の32％を大きく上回っているんだ。特にオープンテキストの調査では、生成AIが過去30年で最も衝撃を与えたIT技術として認識されていると、ITRの舘野真人さんも指摘している。つまり、生成AIは単なるバズワードではなく、ビジネスの現場で急速に浸透していることがわかる。\nたいしさんは新しいアイデアに興奮して深く集中する力があるから、このトレンドは大きなチャンスになりそうだね。まずは、この生成AIの波をどう自分の専門性と掛け合わせるか、具体的な活用事例をいくつか見てみるのがいいと思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 1677,
+        "geminiReadingMs": 2728,
+        "postGeminiStartMs": 4413,
+        "preProcessingMs": 4945,
+        "promptBuildMs": 21108,
+        "mainPromptChars": 11551,
+        "mainLlmMs": 2956,
+        "validationRetryMs": 1,
+        "postProcessingMs": 4155,
+        "totalMs": 28220,
+        "peMs": 14421,
+        "peQueryGenMs": 298,
+        "peSearchMs": 280,
+        "peClassifyMs": 13840,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 12468,
+      "responseText": "データ分析に強いIT企業について、いくつか候補があるから見てみよう。たいしさんはデータや根拠を求めて判断する傾向があるから、具体的な企業名から入る方がイメージしやすいと思う。\nまず、TDSE株式会社はAI導入からデータ分析基盤構築、DX推進まで600社以上の企業を支援している専門集団だよ。次に、イプロスで提供されているデータ分析のメーカー・企業ランキングでは、ネットビジネスサポート株式会社が1位になっているね。他にも、日本IT業界は構造的転換期で、大手企業とAI/クラウド/SaaSの新興企業が競争しているという見方もある。\nこれらの企業は、たいしさんが一人で深く集中して分析する力を活かせる環境かもしれない。ただ、公開Webから調べられる範囲での情報だから、もっと詳しく知りたいところがあれば教えてほしい。",
+      "latencyBreakdown": {
+        "dbInitMs": 765,
+        "geminiReadingMs": 5241,
+        "postGeminiStartMs": 6011,
+        "preProcessingMs": 6763,
+        "promptBuildMs": 8809,
+        "mainPromptChars": 12870,
+        "mainLlmMs": 3329,
+        "validationRetryMs": 1,
+        "postProcessingMs": 209,
+        "totalMs": 12348,
+        "peMs": 1144,
+        "peQueryGenMs": 362,
+        "peSearchMs": 411,
+        "peClassifyMs": 370,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社はAI導入からデータ分析基盤構築",
+        "株式会社が1位になっているね"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 12692,
+      "responseText": "たいしさんはフリーランスよりも正社員の方が合っていると僕は思うよ。\n働き方として、フリーランスの平均年収は425万円とされているけど、中央値は300万円台で、会社員の平均年収478万円と比較すると収入の不安定さがある。たいしさんはリスクを避け、じっくりと情報を集めてから動きたいという慎重な傾向があるから、収入が不安定になりがちなフリーランスより、社会保険や年金制度が整っていて将来の安心感がある正社員の方が、たいしさんの心の安定に繋がるんじゃないかな。\nもちろん、フリーランスには年収1,000〜2,000万円を超える可能性もあるし、自分のペースで仕事ができる自由さもあるけど、たいしさんの場合は、まず足元を固めることを優先する方が、安心して実力を発揮できると思うんだ。",
+      "latencyBreakdown": {
+        "dbInitMs": 1010,
+        "geminiReadingMs": 3120,
+        "postGeminiStartMs": 4133,
+        "preProcessingMs": 4519,
+        "promptBuildMs": 8642,
+        "mainPromptChars": 6129,
+        "mainLlmMs": 3136,
+        "validationRetryMs": 1,
+        "postProcessingMs": 767,
+        "totalMs": 12546,
+        "peMs": 3585,
+        "peQueryGenMs": 2772,
+        "peSearchMs": 365,
+        "peClassifyMs": 447,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

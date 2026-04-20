@@ -1,0 +1,124 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T08:30:40.799Z",
+    "caseCount": 2,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 30077,
+        "p90Ms": 36917,
+        "minMs": 23237,
+        "maxMs": 36917
+      },
+      "pe": {
+        "medianMs": 17572,
+        "p90Ms": 22848
+      },
+      "mainLlm": {
+        "medianMs": 4964,
+        "p90Ms": 6762
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 1679,
+          "p90Ms": 2994
+        },
+        "search": {
+          "medianMs": 1517,
+          "p90Ms": 1618
+        },
+        "classify": {
+          "medianMs": 14376,
+          "p90Ms": 21068
+        },
+        "qualityGate": {
+          "medianMs": 1,
+          "p90Ms": 1
+        },
+        "promptBuild": {
+          "medianMs": 1,
+          "p90Ms": 1
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 36917,
+      "responseText": "最近のIT業界では、生成AIの導入が急速に進んでいるのが大きなトレンドだよ。特にChatGPTやOpenAI、Googleなどが業務効率化や情報検索支援に活用されていて、企業のAI導入率は80%にも達しているんだ。また、AI導入の費用対効果を実証できる企業は35%にとどまっているというデータもある。こうした動向は、今後のビジネスシーンや競争環境に大きな影響を与えると思うから、ぜひ注目してみてほしいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 1769,
+        "geminiReadingMs": 2696,
+        "postGeminiStartMs": 4476,
+        "preProcessingMs": 4985,
+        "promptBuildMs": 28553,
+        "mainLlmMs": 6762,
+        "validationRetryMs": 2,
+        "postProcessingMs": 320,
+        "totalMs": 35637,
+        "peMs": 22848,
+        "peQueryGenMs": 364,
+        "peSearchMs": 1415,
+        "peClassifyMs": 21068,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 23237,
+      "responseText": "たいしさんには、フリーランスよりも正社員の方が、今の段階では合っていると僕は思うよ。\n働き方で比較すると、フリーランスは年収425万円とされているけど、中央値は300万円台で、正社員の平均年収478万円とは異なる実態があるんだ。この数字を見ると、フリーランスは収入が安定しにくい面があることがわかるね。また、フリーランスと正社員では社会保険や年金制度が大きく異なるから、将来への安心感に差が出やすいという専門家の見解も2025年10月1日の株式会社Kaizen Tech Agentの調査で示されているよ。\n業務内容で考えると、たいしさんは一人で深く集中する力がある一方で、協力を求めるタイミングを逃しやすい傾向があるよね。正社員ならチームで動くことが多くて、自然と協力体制の中で仕事ができるから、その点が安心かな。\nただ、フリーランスには年収1,000〜2,000万円を超える人もいて、働き方や職種によっては大きな収入を得られる可能性もあるんだ。でも、たいしさんは「慎重」に物事を判断する傾向があるから、まずは安定した正社員の環境で、じっくり自分のスキルや強みを見極めていくのが合っているんじゃないかな。",
+      "latencyBreakdown": {
+        "dbInitMs": 723,
+        "geminiReadingMs": 4261,
+        "postGeminiStartMs": 4992,
+        "preProcessingMs": 5526,
+        "promptBuildMs": 18526,
+        "mainLlmMs": 3166,
+        "validationRetryMs": 2,
+        "postProcessingMs": 491,
+        "totalMs": 22185,
+        "peMs": 12296,
+        "peQueryGenMs": 2994,
+        "peSearchMs": 1618,
+        "peClassifyMs": 7683,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 1
+      },
+      "entities": [
+        "株式会社Kaizen",
+        "Kaizen Tech Agent"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

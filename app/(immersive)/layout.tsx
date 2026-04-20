@@ -1,4 +1,3 @@
-import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import ImmersiveHomeBeacon from "@/app/(immersive)/ImmersiveHomeBeacon";
 
 export default function ImmersiveLayout({
@@ -8,7 +7,6 @@ export default function ImmersiveLayout({
 }) {
     return (
         <>
-            <Breadcrumb light />
             {children}
             <ImmersiveHomeBeacon />
         </>

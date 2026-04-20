@@ -2,20 +2,20 @@ import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import {
   simulateReading,
   resolveInterventionLevel,
   updateCooldownAfterActive,
   resetConsecutiveActive,
   createFreshCooldownState,
+  fetchIntentProfile,
 } from "@/lib/talk/intentTranslation";
 import type {
-  IntentTranslationProfile,
   ConversationTurn,
   RelationshipMeta,
   InterventionCooldownState,
 } from "@/lib/talk/intentTranslation";
-import { INTENT_TRANSLATION_AXES } from "@/lib/talk/intentTranslation";
 
 // ============================================================
 // POST /api/talk/intent-check
@@ -36,7 +36,11 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json({
+      ok: false,
+      code: "unauthorized",
+      details: { reason: "No authenticated user session" },
+    }, { status: 401 });
   }
 
   let body: {
@@ -48,36 +52,56 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "invalid_body" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "invalid_body",
+      details: { reason: "Request body is not valid JSON" },
+    }, { status: 400 });
   }
 
   const { message, threadId, receiverUserId } = body;
 
   if (!message?.trim() || !threadId || !receiverUserId) {
-    return NextResponse.json({ error: "missing_fields" }, { status: 400 });
+    return NextResponse.json({
+      ok: false,
+      code: "missing_fields",
+      details: {
+        hasMessage: !!message?.trim(),
+        hasThreadId: !!threadId,
+        hasReceiverUserId: !!receiverUserId,
+        receivedKeys: Object.keys(body),
+      },
+    }, { status: 400 });
   }
 
   // Cooldown 状態: クライアントから受け取るか、新規作成
   const cooldown: InterventionCooldownState = body.cooldownState ?? createFreshCooldownState();
 
-  // ── プロファイル取得 ──
+  // ── プロファイル取得（RLSバイパス: 他ユーザーのプロファイルも読む必要あり） ──
   const [senderProfile, receiverProfile] = await Promise.all([
-    fetchIntentProfile(supabase, user.id),
-    fetchIntentProfile(supabase, receiverUserId),
+    fetchIntentProfile(supabaseAdmin, user.id),
+    fetchIntentProfile(supabaseAdmin, receiverUserId),
   ]);
 
   if (!senderProfile || !receiverProfile) {
+    // プロファイル不足 → 200 + skipped で graceful skip
+    // intent-check: sender = 自分(user.id), receiver = 相手(receiverUserId)
     return NextResponse.json({
-      error: "profile_incomplete",
-      detail: "双方の Stargazer プロファイルが必要です",
-    }, { status: 422 });
+      ok: true,
+      skipped: true,
+      skipReason: "profile_incomplete",
+      interventionLevel: "none" as const,
+      misreadRisk: 0,
+      selfHasProfile: !!senderProfile,
+      counterpartHasProfile: !!receiverProfile,
+    });
   }
 
-  // ── 会話履歴取得（直近5ターン） ──
-  const conversationContext = await fetchRecentTurns(supabase, threadId, 5);
+  // ── 会話履歴取得（直近5ターン）— admin でRLSバイパス ──
+  const conversationContext = await fetchRecentTurns(supabaseAdmin, threadId, 5);
 
   // ── 関係メタデータ — 温度差+rupture を実データから算出 ──
-  const relationshipMeta = await computeRelationshipMeta(supabase, threadId, user.id, receiverUserId);
+  const relationshipMeta = await computeRelationshipMeta(supabaseAdmin, threadId, user.id, receiverUserId);
 
   // ── Reading Simulation 実行 ──
   const result = await simulateReading({
@@ -95,6 +119,7 @@ export async function POST(request: NextRequest) {
     : resetConsecutiveActive(cooldown);
 
   return NextResponse.json({
+    ok: true,
     misreadRisk: result.misreadRisk,
     interventionLevel: finalLevel,
     rawInterventionLevel: result.interventionLevel,
@@ -114,37 +139,6 @@ export async function POST(request: NextRequest) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // ヘルパー
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchIntentProfile(supabase: any, userId: string): Promise<IntentTranslationProfile | null> {
-  const { data: rows } = await supabase
-    .from("personality_dimensions")
-    .select("dimension, score")
-    .eq("user_id", userId)
-    .in("dimension", INTENT_TRANSLATION_AXES);
-
-  if (!rows || rows.length < 5) return null; // 最低5軸は必要
-
-  const scores: Record<string, number> = {};
-  for (const row of rows as Array<{ dimension: string; score: number }>) {
-    scores[row.dimension] = row.score;
-  }
-
-  return {
-    userId,
-    direct_vs_diplomatic: scores.direct_vs_diplomatic ?? 0,
-    attachment_style: scores.attachment_style ?? 0,
-    reassurance_need: scores.reassurance_need ?? 0,
-    emotional_variability: scores.emotional_variability ?? 0,
-    conflict_style: scores.conflict_style ?? 0,
-    public_private_gap: scores.public_private_gap ?? 0,
-    intimacy_pace: scores.intimacy_pace ?? 0,
-    boundary_awareness: scores.boundary_awareness ?? 0,
-    self_disclosure_depth: scores.self_disclosure_depth ?? 0,
-    emotional_regulation: scores.emotional_regulation ?? 0,
-    relational_investment: scores.relational_investment ?? 0,
-  };
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchRecentTurns(supabase: any, threadId: string, limit: number): Promise<ConversationTurn[]> {

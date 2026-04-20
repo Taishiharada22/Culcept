@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T08:45:46.835Z",
+    "caseCount": 3,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 19271,
+        "p90Ms": 37044,
+        "minMs": 9810,
+        "maxMs": 37044
+      },
+      "pe": {
+        "medianMs": 10272,
+        "p90Ms": 23167
+      },
+      "mainLlm": {
+        "medianMs": 3193,
+        "p90Ms": 4068
+      },
+      "peInternal": {
+        "queryGen": {
+          "medianMs": 317,
+          "p90Ms": 2525
+        },
+        "search": {
+          "medianMs": 376,
+          "p90Ms": 998
+        },
+        "classify": {
+          "medianMs": 6749,
+          "p90Ms": 22471
+        },
+        "qualityGate": {
+          "medianMs": 0,
+          "p90Ms": 1
+        },
+        "promptBuild": {
+          "medianMs": 0,
+          "p90Ms": 0
+        }
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 37044,
+      "responseText": "IT業界の最新トレンドをWEBで調べてみたよ。今のたいしさんは、新しい情報に触れることで、自分の軸を再確認したい時期なのかなって思った。\n2025年のIT投資動向調査（株式会社アイ・ティ・アール）によると、DXとAIへの戦略的投資が大きく変化していることが示されているんだ。特に生成AIの導入は急速に進んでいて、2026年4月6日のDATA INSIGHTの調査では、ChatGPTやGeminiといった生成AIの企業導入が広がっていることがわかる。オープンテキストの調査では、日本企業の80%がすでに生成AIを導入しているというデータもあるから、この流れは無視できないね。\nつまり、AI、特に生成AIがビジネスのあらゆる側面に深く浸透しているのが今のIT業界の大きなトレンドだよ。たいしさんは、論理的に物事を考えるのが得意だから、このあたりの技術がどう実用化されているかに注目してみると、新しいアイデアが生まれるかもしれない。",
+      "latencyBreakdown": {
+        "dbInitMs": 1709,
+        "geminiReadingMs": 2781,
+        "postGeminiStartMs": 4492,
+        "preProcessingMs": 4979,
+        "promptBuildMs": 29118,
+        "mainPromptChars": 11741,
+        "mainLlmMs": 4068,
+        "validationRetryMs": 0,
+        "postProcessingMs": 3534,
+        "totalMs": 36720,
+        "peMs": 23167,
+        "peQueryGenMs": 317,
+        "peSearchMs": 376,
+        "peClassifyMs": 22471,
+        "peQualityGateMs": 1,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社アイ・ティ・アール"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 9810,
+      "responseText": "今、データ分析に強いIT企業を探しているんだね。たいしさんはデータや根拠を求めて判断する傾向があるから、具体的な企業名から絞り込んでいくのが合っていると思う。\n僕が調べた限りだと、イプロスではデータ分析のメーカー・企業38社の製品一覧とランキングが提供されていて、ネットビジネスサポート株式会社が1位だよ。それから、TDSE株式会社はAI導入からデータ分析基盤構築、DX推進まで600社以上の企業の意思決定を支援している専門集団だね。どちらも、たいしさんが重視するであろう「機能性」や「実績」がはっきりしているから、安心して検討できるんじゃないかな。\n正直なところ、WEBでリストを完全に出力することはまだできないんだけど、この2社が今のたいしさんにとっての有力候補だと思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 684,
+        "geminiReadingMs": 3159,
+        "postGeminiStartMs": 3846,
+        "preProcessingMs": 4645,
+        "promptBuildMs": 6586,
+        "mainPromptChars": 12870,
+        "mainLlmMs": 2820,
+        "validationRetryMs": 1,
+        "postProcessingMs": 260,
+        "totalMs": 9667,
+        "peMs": 1104,
+        "peQueryGenMs": 286,
+        "peSearchMs": 330,
+        "peClassifyMs": 487,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社が1位だよ",
+        "株式会社はAI導入からデータ分析基盤構築",
+        "機能性"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 19271,
+      "responseText": "たいしさんには、今は正社員として働く方が合っていると僕は思うよ。特に、収入の安定性や社会保障の面で安心感があるから、まずそこから始めるのがいいんじゃないかな。\n働き方としては、正社員の場合、株式会社Kaizen Tech Agentの2025年の見解にもあるように、社会保険や年金制度がしっかりしているから、将来への不安を感じにくい。フリーランスだと、damakoroや国税庁のデータを見ると、平均年収は425万円だけど、中央値は300万円台で、1,000万円を超える人は限られていて、収入が不安定になるリスクがある。たいしさんは、新しいアイデアに興奮して夜3時まで作業した結果、翌日の大事な予定をすっぽかしてしまうこともあるし、チームが新しいツールを導入しようとすると「今のままでいいのでは」と言ってしまう傾向があるから、自分で全てを管理するフリーランスよりも、ある程度レールが敷かれた正社員の方が、目の前の仕事に集中しやすいんじゃないかな。\nただ、フリーランスには、時事ドットコムニュースや株式会社LiKGの2026年2月26日の調査にもあるように、働き方や職種によっては年収1,000〜2,000万円を超える可能性もあって、個人の裁量が大きいという魅力もある。",
+      "latencyBreakdown": {
+        "dbInitMs": 656,
+        "geminiReadingMs": 3171,
+        "postGeminiStartMs": 3830,
+        "preProcessingMs": 4105,
+        "promptBuildMs": 15210,
+        "mainPromptChars": 6099,
+        "mainLlmMs": 3193,
+        "validationRetryMs": 1,
+        "postProcessingMs": 759,
+        "totalMs": 19163,
+        "peMs": 10272,
+        "peQueryGenMs": 2525,
+        "peSearchMs": 998,
+        "peClassifyMs": 6749,
+        "peQualityGateMs": 0,
+        "pePromptBuildMs": 0
+      },
+      "entities": [
+        "株式会社Kaizen",
+        "株式会社LiKGの2026年2月26日の調査にもあるように",
+        "Kaizen Tech Agent",
+        "今のままでいいのでは"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

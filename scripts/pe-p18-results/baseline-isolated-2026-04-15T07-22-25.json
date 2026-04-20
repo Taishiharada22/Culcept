@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-15T07:22:25.426Z",
+    "caseCount": 3,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 23668,
+        "p90Ms": 25505,
+        "minMs": 19593,
+        "maxMs": 25505
+      },
+      "pe": {
+        "medianMs": 10095,
+        "p90Ms": 10276
+      },
+      "mainLlm": {
+        "medianMs": 2482,
+        "p90Ms": 3570
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "C1",
+      "category": "comparison",
+      "message": "サイバーエージェントとマクロミルならどっちが自分に合う？調べてみて",
+      "description": "comparison: 2社比較（明示的・適性判断要求）",
+      "evaluationFocus": "比較軸の妥当性、パーソナリティとの接続",
+      "mode": "isolated",
+      "elapsedMs": 25505,
+      "responseText": "たいしさんには、サイバーエージェントの方が合っていると僕は思う。働き方と文化の面で比較すると、サイバーエージェントは若手の抜擢文化があり、成長を重視する環境が特徴的だとOpenWorkや転職picksのクチコミから見える。一方で、マクロミルはデータ分析に特化していて、より専門性を深める働き方が中心になるだろう。たいしさんが自分の情熱を新しいアイデアに注ぎ込み、深く集中して本質を探るプロセスに喜びを感じるなら、サイバーエージェントの成長環境で挑戦する方が、より達成感を得られるんじゃないかな。ただし、マクロミルはより論理的でデータに基づいた判断を重視するたいしさんの分析的な側面を満たす可能性があるよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 2304,
+        "geminiReadingMs": 6830,
+        "postGeminiStartMs": 9140,
+        "preProcessingMs": 10873,
+        "promptBuildMs": 21512,
+        "mainLlmMs": 2409,
+        "validationRetryMs": 1,
+        "postProcessingMs": 152,
+        "totalMs": 24074,
+        "peMs": 10276
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C2",
+      "category": "comparison",
+      "message": "PythonとRならデータ分析にはどっちがいい？ネットで調べて",
+      "description": "comparison: 技術比較（明示的・スキル選択）",
+      "evaluationFocus": "技術的正確性、ユーザー適性との接続",
+      "mode": "isolated",
+      "elapsedMs": 23668,
+      "responseText": "たいしさんがデータ分析でPythonとRのどちらを選ぶかだけど、僕は「Pythonの方がたいしさんには合っているんじゃないかな」と思うよ。\nPythonはWeb開発やAI、自動化、データ分析と幅広い分野で利用されていて、株式会社テクニケーションシードのSES事業でも2026年3月17日時点で多岐にわたる案件で使われているんだ。R言語が統計解析に特化しているのに対して、Pythonは汎用性が高いから、たいしさんがもしデータ分析の先にWebサービス開発やAIの実装といった応用的なことにも興味が出てきた時に、スムーズに移行できると思う。それに、たいしさんは一人で深く集中する力があるから、Pythonの豊富なライブラリとコミュニティのサポートがあれば、さらに深く探求しやすいはず。\nただ、R言語は統計解析用に開発されただけあって、統計解析の専門的な機能やグラフ作成の美しさではPythonよりも優れている面もあるんだ。だから、もし純粋に統計モデルの構築や学術的な分析に特化したいならRも良い選択肢になるかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 419,
+        "geminiReadingMs": 8495,
+        "postGeminiStartMs": 8915,
+        "preProcessingMs": 10366,
+        "promptBuildMs": 20921,
+        "mainLlmMs": 2482,
+        "validationRetryMs": 1,
+        "postProcessingMs": 167,
+        "totalMs": 23571,
+        "peMs": 10095
+      },
+      "entities": [
+        "株式会社テクニケーションシードのSES事業でも2026年3月17日時点で多岐にわたる案件で使われているんだ"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 19593,
+      "responseText": "たいしさんはフリーランスよりも正社員の方が合っていると僕は思う。働き方としては、正社員は会社という組織の中で安定した収入と社会保障を得られるのが大きい。フリーランスの平均年収は425万円とされているけれど、中央値は300万円台というデータもあるから、収入の安定性には注意が必要だ。\n特に、たいしさんは「守りたい力」を強く持っているから、社会保険や年金制度の違いを考えると、株式会社Kaizen Tech Agentが2025年10月1日に分析しているように、税金や保障の面で正社員の方が安心できる部分が多いんじゃないかな。\n一方で、フリーランスは自分のペースで仕事を選べる自由があるけれど、たいしさんの「慎重」な判断傾向からすると、案件獲得や市場需要の変動リスクは、株式会社LiKGが2026年02月26日に発表したフリーランス実態調査でも指摘されているように、少し負担に感じるかもしれない。だから、今のたいしさんには、正社員として安定した基盤の上で、じっくりと自分の専門性を深めていく方が、心穏やかに進める道だと僕は思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 482,
+        "geminiReadingMs": 10962,
+        "postGeminiStartMs": 11445,
+        "preProcessingMs": 12727,
+        "promptBuildMs": 15692,
+        "mainLlmMs": 3570,
+        "validationRetryMs": 0,
+        "postProcessingMs": 253,
+        "totalMs": 19515,
+        "peMs": 2621
+      },
+      "entities": [
+        "株式会社Kaizen",
+        "株式会社LiKGが2026年02月26日に発表したフリーランス実態調査でも指摘されているように",
+        "Kaizen Tech Agent",
+        "守りたい力"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

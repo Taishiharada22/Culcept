@@ -275,6 +275,9 @@ async function runE2ECase(c: EvalCase): Promise<E2EResult> {
       profileA: c.senderProfile,
       profileB: c.receiverProfile,
       conversationContext: c.context,
+      // P1→P3 連携: Phase 1 の介入レベルを渡す
+      phase1InterventionLevel:
+        result.actualLevel !== "error" ? result.actualLevel : undefined,
     });
 
     result.actualMediate = p3.decision.shouldMediate;
@@ -362,6 +365,16 @@ function generateE2EReport(results: E2EResult[]) {
   log(`\n▸ E2E: ${passed}/${total} PASS (${(passed / total * 100).toFixed(1)}%) | ${failed} FAIL`);
 
   log(`\n▸ LLM発火: Phase1=${llmStats.phase1}/${total} Phase2=${llmStats.phase2}/${total} Phase3=${llmStats.phase3}/${total}`);
+
+  // ── Provider Health ──
+  // LLM成功ケースのみの PASS率を計測（503障害の影響を分離）
+  const llmSuccessCases = results.filter((r) => r.llmFired.phase1 || r.llmFired.phase2);
+  const llmSuccessPass = llmSuccessCases.filter((r) => r.pass).length;
+  const llmFailCases = results.filter((r) => !r.llmFired.phase1 && !r.llmFired.phase2);
+  const llmFailPass = llmFailCases.filter((r) => r.pass).length;
+  log(`\n▸ Provider Health:`);
+  log(`  LLM成功: ${llmSuccessCases.length}/${total}件 → PASS ${llmSuccessPass}/${llmSuccessCases.length} (${llmSuccessCases.length > 0 ? (llmSuccessPass / llmSuccessCases.length * 100).toFixed(1) : "N/A"}%)`);
+  log(`  LLM失敗(fallback): ${llmFailCases.length}/${total}件 → PASS ${llmFailPass}/${llmFailCases.length} (${llmFailCases.length > 0 ? (llmFailPass / llmFailCases.length * 100).toFixed(1) : "N/A"}%)`);
 
   log("\n▸ カテゴリ別:");
   for (const s of catStats) {

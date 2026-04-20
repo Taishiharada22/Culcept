@@ -1,0 +1,427 @@
+{
+  "meta": {
+    "mode": "isolated",
+    "timestamp": "2026-04-14T11:37:46.927Z",
+    "caseCount": 12,
+    "errorCount": 0,
+    "stats": {
+      "latency": {
+        "medianMs": 22255,
+        "p90Ms": 34010,
+        "minMs": 17060,
+        "maxMs": 38182
+      },
+      "pe": {
+        "medianMs": 10898,
+        "p90Ms": 24950
+      },
+      "mainLlm": {
+        "medianMs": 2845,
+        "p90Ms": 6776
+      },
+      "failureRate": "0.0%"
+    }
+  },
+  "results": [
+    {
+      "id": "A1",
+      "category": "market_intel",
+      "message": "IT業界の最新トレンドをWEBで調べて",
+      "description": "market_intel: IT業界トレンド（明示的）",
+      "evaluationFocus": "市場データの具体性、数値の有無",
+      "mode": "isolated",
+      "elapsedMs": 24497,
+      "responseText": "IT業界の最新トレンドについて、たいしさんが今知っておくと役立ちそうな情報をまとめてみたよ。\n2024年から2026年にかけて、特に注目されているのは生成AIの爆発的な普及と、それに伴うクラウドネイティブ化の加速なんだ。株式会社アイティークロスやCompTIAの調査でも、AIとサイバーセキュリティがトップトレンドとして挙げられていて、ビジネスに不可欠な存在になりつつあるとSHIFT ASIAも指摘しているね。これは、たいしさんが一人で深く集中して技術を深めたいときに、どんな分野に力を注ぐかのヒントになると思う。\n具体的には、\n   生成AI: OpenAIのChatGPTに代表されるように、様々な業務での活用が進んでいて、LinkedInの予測では2025年から2030年にかけてさらに進化すると見られている。\n   クラウドネイティブ: アプリケーション開発や運用がクラウド環境を前提とする動きが加速している。\nサイバーセキュリティ: AIの進化とデジタル化の進展に伴い、セキュリティ対策の重要性が増している。\nこういう情報に触れることで、たいしさんの分析的な視点がさらに活きるんじゃないかな。まずはこの3つを頭に入れておくと、これからのキャリアを考える上で役立つと思うよ。",
+      "latencyBreakdown": {
+        "dbInitMs": 504,
+        "geminiReadingMs": 7046,
+        "postGeminiStartMs": 7551,
+        "preProcessingMs": 9909,
+        "promptBuildMs": 20658,
+        "mainLlmMs": 3456,
+        "validationRetryMs": 1,
+        "postProcessingMs": 153,
+        "totalMs": 24268,
+        "peMs": 10307
+      },
+      "entities": [
+        "株式会社アイティークロスやCompTIAの調査でも"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A2",
+      "category": "market_intel",
+      "message": "AIスタートアップの資金調達状況を調べてきて",
+      "description": "market_intel: AIスタートアップ資金調達（明示的・ニッチ）",
+      "evaluationFocus": "具体的な企業名・金額の有無",
+      "mode": "isolated",
+      "elapsedMs": 23890,
+      "responseText": "2026年Q1のAIスタートアップへの投資は世界で約45兆円に達し、そのうち4社が64%を独占しているから、この流れに乗るなら特定の分野への集中と差別化が重要だよ。今のたいしさんは、広く探索するより一点突破に力を注ぐのが合っていると思う。\n特に、国内では2026年1月に東京大学発の燈が50億円を調達してトップになるなど、特定の領域で実績を出すスタートアップが注目されている。たいしさんは完成度を重視する傾向があるから、まずは狙う市場を絞り込み、そこに深く集中してプロダクトを磨き込むのがいい。\n直近2週間で、まず具体的なターゲットユーザー像を3パターン書き出して、それぞれのペインポイントを洗い出してみて。その上で、どのペインポイントに自分のプロダクトが最も深く刺さるかを検証しよう。もし、ターゲットの反応が薄いと感じたら、すぐに次のパターンに切り替える準備もしておこうね。",
+      "latencyBreakdown": {
+        "dbInitMs": 433,
+        "geminiReadingMs": 2078,
+        "postGeminiStartMs": 2511,
+        "preProcessingMs": 3703,
+        "promptBuildMs": 20801,
+        "mainLlmMs": 2966,
+        "validationRetryMs": 1,
+        "postProcessingMs": 61,
+        "totalMs": 23829,
+        "peMs": 16671
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "A3",
+      "category": "market_intel",
+      "message": "リモートワークの普及率って今どれくらいなのか調べてみて",
+      "description": "market_intel: リモートワーク統計（明示的・統計要求）",
+      "evaluationFocus": "統計データ・数値の具体性",
+      "mode": "isolated",
+      "elapsedMs": 17060,
+      "responseText": "リモートワークの普及率は、調査機関によって少し差があるけれど、総務省の2025年5月発表だと、2024年時点での企業導入率は47.3％で、コロナ禍での急増から今は落ち着いてきているみたいだよ。\n公益財団法人日本生産性本部の調査では、少し前のデータになるけど実施率は15.4％だったと出ているね。数字だけ見ると幅があるように感じるかもしれないけど、たいしさんはデータや根拠を求めて判断する傾向があるから、複数の情報を見て考えるのが合っていると思う。\nもっと詳しく知りたいなら、総務省の「通信利用動向調査」や日本生産性本部の「働く人の意識調査」を見てみるのがいいかもしれない。",
+      "latencyBreakdown": {
+        "dbInitMs": 382,
+        "geminiReadingMs": 2660,
+        "postGeminiStartMs": 3045,
+        "preProcessingMs": 4124,
+        "promptBuildMs": 14098,
+        "mainLlmMs": 2580,
+        "validationRetryMs": 2,
+        "postProcessingMs": 285,
+        "totalMs": 16965,
+        "peMs": 9565
+      },
+      "entities": [
+        "通信利用動向調査",
+        "働く人の意識調査"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B1",
+      "category": "listing_search",
+      "message": "自分に合いそうなIT企業をWEBで探してきて",
+      "description": "listing_search: 自分に合うIT企業（明示的・適性依存）",
+      "evaluationFocus": "候補が「この人向き」か、理由の納得感",
+      "mode": "isolated",
+      "elapsedMs": 22060,
+      "responseText": "たいしさんにとって、IT企業を選ぶなら「個人の深い集中」と「論理的な思考」を活かせる場所が合っていると思う。\n僕の知る限りだと、IT業界はAIやIoT、ビッグデータといった技術革新が進んでいて、マイナビ転職エージェントやギークリーといった専門サイトでも、変化を受け入れ、社会を支えることにやりがいを感じる人材を求めているみたいだよ。\n特に、IIJやエンジニアtypeで紹介されているような、現代社会の基盤を支える企業は、たいしさんが持つ分析的な視点や、一つのことに深く集中する力を存分に発揮できるんじゃないかな。\n正直に言うと、今は具体的な企業名をリストアップする機能は持っていないんだけど、そういった情報源を参考に「どんな技術に興味があるか」「どんな社会貢献がしたいか」を考えてみるのが、自分に合った場所を見つける第一歩になると思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 328,
+        "geminiReadingMs": 3825,
+        "postGeminiStartMs": 4156,
+        "preProcessingMs": 5915,
+        "promptBuildMs": 18814,
+        "mainLlmMs": 2810,
+        "validationRetryMs": 1,
+        "postProcessingMs": 229,
+        "totalMs": 21854,
+        "peMs": 11728
+      },
+      "entities": [
+        "個人の深い集中",
+        "論理的な思考",
+        "どんな技術に興味があるか",
+        "どんな社会貢献がしたいか"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B2",
+      "category": "listing_search",
+      "message": "データ分析に強いIT企業をWEBで調べて",
+      "description": "listing_search: データ分析企業（明示的・スキル指定）",
+      "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+      "mode": "isolated",
+      "elapsedMs": 34010,
+      "responseText": "データ分析に強いIT企業をいくつか見てみたんだけど、たいしさんが深く集中して取り組めるような、専門性の高い会社がいくつか見つかったよ。\n例えば、TDSE株式会社は600社以上の企業のデータ分析やDX推進を支援している専門集団で、たいしさんが論理的に深く考える特性を活かせるかもしれない。あとは、AI inside株式会社もデータ分析製品のランキングで名前が挙がっていて、実用性を重視するたいしさんの視点に合う部分があるかもしれないね。こういう会社は、たいしさんが一人で深く集中する力を存分に発揮できる環境が期待できると思う。",
+      "latencyBreakdown": {
+        "dbInitMs": 847,
+        "geminiReadingMs": 2783,
+        "postGeminiStartMs": 3634,
+        "preProcessingMs": 5200,
+        "promptBuildMs": 30672,
+        "mainLlmMs": 2429,
+        "validationRetryMs": 1,
+        "postProcessingMs": 118,
+        "totalMs": 33220,
+        "peMs": 24950
+      },
+      "entities": [
+        "株式会社は600社以上の企業のデータ分析やDX推進を支援している専門集団で",
+        "株式会社もデータ分析製品のランキングで名前が挙がっていて"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "B3",
+      "category": "listing_search",
+      "message": "少人数でリモートOKのスタートアップをネットで調べてみて",
+      "description": "listing_search: 働き方条件指定（明示的・条件具体）",
+      "evaluationFocus": "条件（少人数・リモート）との一致度",
+      "mode": "isolated",
+      "elapsedMs": 22449,
+      "responseText": "少人数でリモートOKのスタートアップを探すのが良いと思う。たいしさんは、個で深める寄りの傾向があるから、小規模なチームで密に連携できる環境が合っているはず。具体的には、以下のような企業が考えられる。\n株式会社TRAILBLAZER: フルリモートで運営しており、設立時は3人からスタートしたため、少人数の文化が根付いている。\n株式会社Acompany: エンタープライズ企業向けのプライバシーDXを推進しており、完全リモート勤務が可能。\nRemotify: AIやITテクノロジーを活用し、仕事や生活におけるリモートDXを支援する企業。",
+      "latencyBreakdown": {
+        "dbInitMs": 505,
+        "geminiReadingMs": 2481,
+        "postGeminiStartMs": 2987,
+        "preProcessingMs": 4139,
+        "promptBuildMs": 14659,
+        "mainLlmMs": 7257,
+        "validationRetryMs": 2,
+        "postProcessingMs": 423,
+        "totalMs": 22341,
+        "peMs": 10066
+      },
+      "entities": [
+        "株式会社TRAILBLAZER",
+        "株式会社Acompany"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C1",
+      "category": "comparison",
+      "message": "サイバーエージェントとマクロミルならどっちが自分に合う？調べてみて",
+      "description": "comparison: 2社比較（明示的・適性判断要求）",
+      "evaluationFocus": "比較軸の妥当性、パーソナリティとの接続",
+      "mode": "isolated",
+      "elapsedMs": 20822,
+      "responseText": "たいしさんには、マクロミルの方が合っているんじゃないかなと僕は思う。\n働き方と文化の軸で考えると、マクロミルは社員インタビューから多様なキャリアパスや成長を重視する文化が見えるから、たいしさんが持つ「一人で深く集中する力」を活かしつつ、着実に専門性を深めていくのに向いているんじゃないかな。サイバーエージェントは「体育会系でキラキラ系企業」という話もあって、若手の抜擢文化は魅力的だけど、たいしさんの「慎重」な判断傾向とは少しギャップがあるかもしれない。\n業務内容や技術の軸では、マクロミルはデータ分析に特化している印象があるから、たいしさんがデータや根拠を求めて判断する傾向や、実用性を優先する姿勢と合致すると思う。サイバーエージェントは多岐にわたる事業を展開しているから、新しいアイデアに興奮して集中する力は活かせるかもしれないけど、たいしさんが「状況に応じて目的が変わる」という点では、マクロミルのように特定の領域で深く探求する方が、より安定してパフォーマンスを発揮できるんじゃないかな。\nもちろん、サイバーエージェントも新しい技術やトレンドに常に挑戦しているから、その刺激的な環境はたいしさんの「進みたい力」を後押しするかもしれないね。",
+      "latencyBreakdown": {
+        "dbInitMs": 347,
+        "geminiReadingMs": 2976,
+        "postGeminiStartMs": 3325,
+        "preProcessingMs": 4415,
+        "promptBuildMs": 17606,
+        "mainLlmMs": 2911,
+        "validationRetryMs": 5,
+        "postProcessingMs": 134,
+        "totalMs": 20656,
+        "peMs": 12726
+      },
+      "entities": [
+        "一人で深く集中する力",
+        "体育会系でキラキラ系企業",
+        "進みたい力"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C2",
+      "category": "comparison",
+      "message": "PythonとRならデータ分析にはどっちがいい？ネットで調べて",
+      "description": "comparison: 技術比較（明示的・スキル選択）",
+      "evaluationFocus": "技術的正確性、ユーザー適性との接続",
+      "mode": "isolated",
+      "elapsedMs": 22582,
+      "responseText": "たいしさんがデータ分析を始めるなら、僕はPythonから入るのが合っていると思うよ。\nPythonは売上分析から機械学習まで幅広い実例が豊富で、pandasやnumpyといった必須ライブラリを使いこなせば、データ操作や数値計算、グラフ作成まで一通りできるから、実用性を優先したいというたいしさんの考えに合うんじゃないかな。\nもちろんR言語も統計解析や可視化に強いから魅力的なんだけど、まずはPythonでデータ分析全体の流れを掴んでから、必要に応じてR言語も検討する方が、効率よく進められる気がするんだ。",
+      "latencyBreakdown": {
+        "dbInitMs": 362,
+        "geminiReadingMs": 7520,
+        "postGeminiStartMs": 7884,
+        "preProcessingMs": 9019,
+        "promptBuildMs": 20140,
+        "mainLlmMs": 2082,
+        "validationRetryMs": 2,
+        "postProcessingMs": 238,
+        "totalMs": 22462,
+        "peMs": 10545
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "C3",
+      "category": "comparison",
+      "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+      "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+      "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+      "mode": "isolated",
+      "elapsedMs": 17904,
+      "responseText": "たいしさんは、今の情報だと正社員の働き方の方が合っているんじゃないかなと僕は思うよ。\n深く集中して本質を探る力があるから、一つの組織で腰を据えて取り組むことで、その能力を最大限に活かせるんじゃないかな。\nもちろんフリーランスにも魅力はあるけれど、たいしさんの場合は、守りたい力が少し強いように見えるから、まずは安定した環境で力を発揮するのが良いんじゃないかなって。",
+      "latencyBreakdown": {
+        "dbInitMs": 488,
+        "geminiReadingMs": 2925,
+        "postGeminiStartMs": 3416,
+        "preProcessingMs": 4645,
+        "promptBuildMs": 15152,
+        "mainLlmMs": 2083,
+        "validationRetryMs": 2,
+        "postProcessingMs": 329,
+        "totalMs": 17566,
+        "peMs": 9851
+      },
+      "entities": [],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D1",
+      "category": "ambiguous_explicit",
+      "message": "なんかいい仕事ないかなぁ、ちょっと調べてみてよ",
+      "description": "曖昧explicit: 漠然とした仕事探し",
+      "evaluationFocus": "曖昧さへの対応、clarifyか直答か",
+      "mode": "isolated",
+      "elapsedMs": 18147,
+      "responseText": "たいしさんが「いい仕事」と感じるかはまだわからないけど、いくつか気になる会社を調べてみたよ。たいしさんは分析的で、一人で深く集中するのを大事にするから、成果が明確で専門性を高められる仕事が合いそうに見える。\n特に、従業員が急増している成長企業は、新しい役割や専門性を深める機会が多いかもしれない。例えば、AI企業データプラットフォームのSalesNowが560万社のデータから分析したところ、急成長企業では新しい挑戦が生まれやすいみたいだ。あとは、20代が成長できる会社ランキングで2位のシンプレクスみたいなコンサル業界も、機能や合理性を重視するたいしさんには向いているかもしれない。\nどれか気になる会社があったら教えてほしいな。",
+      "latencyBreakdown": {
+        "dbInitMs": 492,
+        "geminiReadingMs": 3097,
+        "postGeminiStartMs": 3592,
+        "preProcessingMs": 4774,
+        "promptBuildMs": 15000,
+        "mainLlmMs": 2823,
+        "validationRetryMs": 1,
+        "postProcessingMs": 168,
+        "totalMs": 17992,
+        "peMs": 9831
+      },
+      "entities": [
+        "いい仕事"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D2",
+      "category": "ambiguous_explicit",
+      "message": "最近面白い会社とかある？ネットで見てきて",
+      "description": "曖昧explicit: 面白い会社（基準が曖昧）",
+      "evaluationFocus": "「面白い」の解釈がユーザーに合っているか",
+      "mode": "isolated",
+      "elapsedMs": 38182,
+      "responseText": "最近注目されている会社の一つは、2023年に法人起業件数が過去最多となった背景から、特に新しいベンチャー企業が成長していることが挙げられる。例えば、「SaaS企業のXYZ」は、業務効率化を図るためのツールを提供しており、実用性を重視するたいしさんに合いそうだと思う。また、「エコ商品を扱うABC社」は、環境意識の高まりに応じたビジネスモデルで注目されている。こうした企業は、データや根拠を重視する傾向があるたいしさんでも興味を持ちやすいかもしれないね。\nこの中で気になるところ、もう少し見てみたいところがあれば教えて。",
+      "latencyBreakdown": {
+        "dbInitMs": 466,
+        "geminiReadingMs": 2701,
+        "postGeminiStartMs": 3168,
+        "preProcessingMs": 4261,
+        "promptBuildMs": 30994,
+        "mainLlmMs": 6776,
+        "validationRetryMs": 2,
+        "postProcessingMs": 305,
+        "totalMs": 38077,
+        "peMs": 26265
+      },
+      "entities": [
+        "SaaS企業のXYZ",
+        "エコ商品を扱うABC社"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    },
+    {
+      "id": "D3",
+      "category": "ambiguous_explicit",
+      "message": "転職するならどういう方向がいいかWEBで調べて",
+      "description": "曖昧explicit: 転職方向性（広範・適性依存）",
+      "evaluationFocus": "方向性提案がパーソナリティに基づいているか",
+      "mode": "isolated",
+      "elapsedMs": 19581,
+      "responseText": "本質を構造化して言語にする力が強みだから、その能力が直接価値になる方向で、市場が追い風の業界に注目するのがいいと思う。JAC Recruitmentの2026年予測では、21業界中20業界が活況を呈すると言われているから、選択肢は多いよ。\nたいしさんは自分の情熱が誰にも理解されず、ただの変人で終わることを恐れる傾向があるから、表面的に消費されるより、アウトプットの深さが評価される環境じゃないと続かないはず。株式会社Sei San Seiの2026年上半期の市場分析では、追い風は続いているものの専門性や実績の水準が上がっているとあるから、自分の強みが活かせる専門分野を深掘りするのが効果的だよ。\nまずは、過去に自分の言語化で誰かが「わかった」と反応してくれた具体的な場面を1つ思い出してみて。",
+      "latencyBreakdown": {
+        "dbInitMs": 311,
+        "geminiReadingMs": 3141,
+        "postGeminiStartMs": 3454,
+        "preProcessingMs": 4561,
+        "promptBuildMs": 16231,
+        "mainLlmMs": 2867,
+        "validationRetryMs": 2,
+        "postProcessingMs": 316,
+        "totalMs": 19416,
+        "peMs": 11250
+      },
+      "entities": [
+        "株式会社Sei",
+        "Sei San Sei"
+      ],
+      "hasError": false,
+      "ranking": {
+        "candidatesFit": null,
+        "workStyleFit": null,
+        "industryFit": null,
+        "reasonCredibility": null,
+        "notes": ""
+      }
+    }
+  ]
+}

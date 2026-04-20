@@ -63,7 +63,22 @@ export async function GET(
       cardExtras,
     );
 
-    return NextResponse.json({ ok: true, card, visibilityLevel, connectionId: conn.id });
+    // [C4 2026-04-20] talk_threads は connection_id に対し 1:1。UI は threadId を
+    //   直接参照する必要がある（connection_id を /talk/:threadId に流すと FK/RLS
+    //   不整合になる）。talk_threads 行は accept 経路で必ず作られる契約。
+    const { data: thread } = await supabase
+      .from("talk_threads")
+      .select("id")
+      .eq("connection_id", conn.id)
+      .maybeSingle();
+
+    return NextResponse.json({
+      ok: true,
+      card,
+      visibilityLevel,
+      connectionId: conn.id,
+      threadId: thread?.id ?? null,
+    });
   } catch (error) {
     console.error("genome-card/[userId] error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

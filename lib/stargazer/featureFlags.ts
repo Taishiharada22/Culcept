@@ -53,4 +53,23 @@ export const STARGAZER_FLAGS = {
    */
   implicitSearchLive: process.env.STARGAZER_IMPLICIT_SEARCH_LIVE === "true"
     || process.env.STARGAZER_PERSPECTIVE_ENGINE_LIVE === "true",
+
+  /**
+   * Chained Exploration: L1 Deep Dive 有効化.
+   * L0 の Quality Gate が supplement を返した場合に、
+   * 情報ギャップ分析 → 追加クエリ生成 → 追加検索 → マージを実行する。
+   * env: PE_L1_ENABLED=true で有効化（デフォルト false）
+   * @see docs/chained-exploration-design.md
+   */
+  peL1Enabled: process.env.PE_L1_ENABLED === "true",
+
+  /**
+   * Student Provider: v2 LoRA (Qwen2.5-7B-Instruct + LoRA) を Alter 応答に使用.
+   * true = stargazer_alter_response を student provider (RunPod Serverless) に送る。
+   * false = 全リクエストを既存 stable provider (Gemini/OpenAI) に送る。
+   * student 失敗時は自動的に stable provider にフォールバック。
+   * env: STUDENT_PROVIDER_ENABLED=true で有効化
+   * @see lib/ai/studentRouting.ts
+   */
+  useStudentProvider: process.env.STUDENT_PROVIDER_ENABLED === "true",
 } as const;

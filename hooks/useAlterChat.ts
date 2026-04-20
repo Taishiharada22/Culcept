@@ -1,15 +1,24 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMetadata } from "@/lib/stargazer/alterHomeAdapter";
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
-import type { MorningPlan, MorningPhase } from "@/lib/alter-morning/types";
+import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult } from "@/lib/alter-morning/types";
+
+/** PE出典情報（Alter発言下に小さく表示） */
+export type PerspectiveSource = {
+  title: string;
+  url: string;
+  date: string | null;
+};
 
 export type AlterMessage = {
   id: string;
   role: "user" | "alter";
   content: string;
   timestamp: string;
+  /** P1.9: PE出典データ（Alter応答にのみ付与） */
+  perspectiveSources?: PerspectiveSource[];
 };
 
 export type AlterChatState = {
@@ -68,6 +77,79 @@ function writeDailyUsage(count: number): void {
   }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Morning Session Persistence — ページ遷移でもセッションを維持
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MORNING_SESSION_KEY = "aneurasync_morning_session_v1";
+
+interface PersistedMorningSession {
+  date: string; // YYYY-MM-DD — 日付が変わったら無効
+  phase: MorningPhase;
+  sessionId: string | null;
+  plan: MorningPlan | null;
+  rawInputs: string[];
+  parsedIntent: ParsedDayIntent | null;
+  sufficiency: SufficiencyResult | null;
+  personalizeHints: string[];
+  // v2: PlanState ラウンドトリップ
+  planStateV2?: any;
+}
+
+function saveMorningSession(session: PersistedMorningSession): void {
+  try {
+    localStorage.setItem(MORNING_SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // localStorage 書き込み失敗は無視
+  }
+}
+
+function loadMorningSession(): PersistedMorningSession | null {
+  try {
+    const raw = localStorage.getItem(MORNING_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedMorningSession;
+    // 日付が今日でなければ無効（翌日にはリセット）
+    if (parsed.date !== getTodayJST()) {
+      localStorage.removeItem(MORNING_SESSION_KEY);
+      return null;
+    }
+    // completed / skipped セッションは復元しない（新しいセッションを開始）
+    if (parsed.phase === "completed" || parsed.phase === "skipped") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearMorningSession(): void {
+  try {
+    localStorage.removeItem(MORNING_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * 終点アンカーを次回プランの始点候補として永続化する。
+ * 前回プラン確定時に保存し、次回プラン作成時に参照する。
+ */
+const LAST_ENDPOINT_KEY = "aneurasync_last_endpoint_v1";
+
+export function saveLastEndpoint(anchor: import("@/lib/alter-morning/types").EndpointAnchor): void {
+  try {
+    localStorage.setItem(LAST_ENDPOINT_KEY, JSON.stringify({ ...anchor, savedAt: new Date().toISOString() }));
+  } catch { /* ignore */ }
+}
+
+export function loadLastEndpoint(): import("@/lib/alter-morning/types").EndpointAnchor | null {
+  try {
+    const raw = localStorage.getItem(LAST_ENDPOINT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 type UseAlterChatOptions = {
   /** Home 画面の文脈データ（Alter に渡す） */
   homeContext?: HomeAlterContextData | null;
@@ -98,15 +180,18 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     message: string;
     destination: string;
   } | null>(null);
-  /** Morning Protocol: プランデータ */
-  const [morningPlan, setMorningPlan] = useState<MorningPlan | null>(null);
-  const [morningPhase, setMorningPhase] = useState<MorningPhase | null>(null);
-  const [morningSessionId, setMorningSessionId] = useState<string | null>(null);
+  /** Morning Protocol: セッション永続化から復元 */
+  const [restoredSession] = useState<PersistedMorningSession | null>(() => loadMorningSession());
+  const [morningPlan, setMorningPlan] = useState<MorningPlan | null>(restoredSession?.plan ?? null);
+  const [morningPhase, setMorningPhase] = useState<MorningPhase | null>(restoredSession?.phase ?? null);
+  const [morningSessionId, setMorningSessionId] = useState<string | null>(restoredSession?.sessionId ?? null);
   /** P0-1: ターン間で保持する追加セッション状態 */
-  const [morningRawInputs, setMorningRawInputs] = useState<string[]>([]);
-  const [morningParsedIntent, setMorningParsedIntent] = useState<any>(null);
-  const [morningSufficiency, setMorningSufficiency] = useState<any>(null);
-  const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>([]);
+  const [morningRawInputs, setMorningRawInputs] = useState<string[]>(restoredSession?.rawInputs ?? []);
+  const [morningParsedIntent, setMorningParsedIntent] = useState<ParsedDayIntent | null>(restoredSession?.parsedIntent ?? null);
+  const [morningSufficiency, setMorningSufficiency] = useState<SufficiencyResult | null>(restoredSession?.sufficiency ?? null);
+  const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>(restoredSession?.personalizeHints ?? []);
+  // v2: PlanState ラウンドトリップ
+  const [morningPlanStateV2, setMorningPlanStateV2] = useState<any>(restoredSession?.planStateV2 ?? null);
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -122,6 +207,22 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const abortRef = useRef<AbortController | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
+
+  // Morning Session: 状態変更時に localStorage に保存
+  useEffect(() => {
+    if (!morningPhase) return; // セッション未開始なら保存しない
+    saveMorningSession({
+      date: getTodayJST(),
+      phase: morningPhase,
+      sessionId: morningSessionId,
+      plan: morningPlan,
+      rawInputs: morningRawInputs,
+      parsedIntent: morningParsedIntent,
+      sufficiency: morningSufficiency,
+      personalizeHints: morningPersonalizeHints,
+      planStateV2: morningPlanStateV2,
+    });
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -177,6 +278,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               personalizeHints: morningPersonalizeHints,
               parsedIntent: morningParsedIntent ?? undefined,
               sufficiency: morningSufficiency ?? undefined,
+              planStateV2: morningPlanStateV2 ?? undefined,
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
@@ -208,6 +310,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         role: "alter",
         content: data.response ?? "...",
         timestamp: new Date().toISOString(),
+        // P1.9: PE出典データ（CEOアプローチ: 目立たなく小さく表示）
+        ...(data.perspectiveSources?.length > 0 ? {
+          perspectiveSources: data.perspectiveSources,
+        } : {}),
       };
 
       if (!sessionId && data.sessionId) {
@@ -272,6 +378,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (data.morningProtocol.personalizeHints) {
           setMorningPersonalizeHints(data.morningProtocol.personalizeHints);
         }
+        // v2: PlanState ラウンドトリップ
+        if (data.morningProtocol.planStateV2 !== undefined) {
+          setMorningPlanStateV2(data.morningProtocol.planStateV2);
+        }
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -285,7 +395,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -308,6 +418,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningParsedIntent(null);
     setMorningSufficiency(null);
     setMorningPersonalizeHints([]);
+    // セッション永続化もクリア
+    clearMorningSession();
   }, []);
 
   /** メッセージを外部から注入（リミット通知などAPI不使用の返答） */
@@ -359,5 +471,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     morningPhase,
     /** Morning Protocol: プランを更新（UI操作後） */
     setMorningPlan,
+    /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */
+    morningPersonalizeHints,
   } as const;
 }

@@ -1,0 +1,370 @@
+[
+  {
+    "id": "A1",
+    "category": "market_intel",
+    "message": "IT業界の最新トレンドをWEBで調べて",
+    "description": "market_intel: IT業界トレンド（明示的）",
+    "evaluationFocus": "市場データの具体性、数値の有無",
+    "elapsedMs": 39164,
+    "responseText": "最近のIT業界のトレンドとして、生成AIやクラウドネイティブ化が注目されています。これらは、特にデータ分析や効率化を求める企業にとって大きな機会を提供するものです。特に生成AIは、業務自動化やクリエイティブな作業の補助といった分野で急速に進化している印象があります。\n具体的には、以下のようなトピックが挙げられます：\n生成AI: コンテンツ生成やデータ解析の高度化。\nクラウドサービス: DX（デジタルトランスフォーメーション）推進のための基盤としての重要性。\nサイバーセキュリティ: 増加するサイバー攻撃への対応が急務。\nもっと詳しく知りたいなら、専門的なブログや業界レポートを調べると良いよ。",
+    "latencyBreakdown": {
+      "dbInitMs": 1624,
+      "geminiReadingMs": 11615,
+      "postGeminiStartMs": 13243,
+      "preProcessingMs": 14812,
+      "promptBuildMs": 24232,
+      "mainLlmMs": 12096,
+      "validationRetryMs": 2,
+      "postProcessingMs": 286,
+      "totalMs": 36616,
+      "peMs": 8875
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "A2",
+    "category": "market_intel",
+    "message": "AIスタートアップの資金調達状況を調べてきて",
+    "description": "market_intel: AIスタートアップ資金調達（明示的・ニッチ）",
+    "evaluationFocus": "具体的な企業名・金額の有無",
+    "elapsedMs": 44482,
+    "responseText": "AIスタートアップの資金調達については、最近のデータでは2023年においても巨額の資金が流入していることがわかっています。特に、生成AI関連の企業は投資家から高い注目を集めており、これが新たな市場機会を生んでいる印象があります。\n具体的には、次のようなポイントが挙げられます：\n2023年上半期には、特に生成AI企業への投資額が前年同期比で大幅に増加。\n大手テクノロジー企業が新興スタートアップと提携し、資金提供を行うケースが増加中。\n投資家は、特にデータセキュリティやプライバシー保護に関連した技術にも注目している様子。",
+    "latencyBreakdown": {
+      "dbInitMs": 549,
+      "geminiReadingMs": 9435,
+      "postGeminiStartMs": 9989,
+      "preProcessingMs": 11186,
+      "promptBuildMs": 21817,
+      "mainLlmMs": 22147,
+      "validationRetryMs": 2,
+      "postProcessingMs": 184,
+      "totalMs": 44150,
+      "peMs": 9915
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "A3",
+    "category": "market_intel",
+    "message": "リモートワークの普及率って今どれくらいなのか調べてみて",
+    "description": "market_intel: リモートワーク統計（明示的・統計要求）",
+    "evaluationFocus": "統計データ・数値の具体性",
+    "elapsedMs": 26262,
+    "responseText": "リモートワークの普及率について、最近のデータでは2023年初頭に約15.4%となっていることがわかっています。この数字は、企業がテレワークを導入する中での変化を反映しています。\n現在注目されるポイントとしては：\nリモートワークを継続する企業が増えている一方で、オフィス勤務への回帰も見られる状況。\n労働市場における柔軟な働き方への需要が高まっているため、リモートワークの選択肢が定着しつつある。\n特にIT業界では、リモート勤務が一般化している傾向があります。",
+    "latencyBreakdown": {
+      "dbInitMs": 487,
+      "geminiReadingMs": 3092,
+      "postGeminiStartMs": 3583,
+      "preProcessingMs": 4773,
+      "promptBuildMs": 19088,
+      "mainLlmMs": 6729,
+      "validationRetryMs": 1,
+      "postProcessingMs": 262,
+      "totalMs": 26080,
+      "peMs": 13934
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "B1",
+    "category": "listing_search",
+    "message": "自分に合いそうなIT企業をWEBで探してきて",
+    "description": "listing_search: 自分に合うIT企業（明示的・適性依存）",
+    "evaluationFocus": "候補が「この人向き」か、理由の納得感",
+    "elapsedMs": 24686,
+    "responseText": "自分に合いそうなIT企業をWebで探すのは、今のたいしさんにとって、少し重い作業になりそうだね。今は「重くしないこと」を優先して、まず具体的な方向性を見つけるのが合っていると思う。\n正直に言うと、僕の今の機能だと、Web上の企業リストを直接引っ張ってきて「これが合いそうだよ」と提示することはまだできないんだ。でも、いくつか見つかった周辺情報から、たいしさんに合いそうな企業の探し方を一緒に考えてみることはできる。\n例えば、千葉県にはリモート勤務が可能なシステムエンジニアやプログラマーの求人を出しているIT企業がいくつかあるみたい。株式会社マリモ・グローバル・テクノロジーや株式会社ケージェーシーソフトウェア、あとは千葉銀行もデータエンジニアの正社員をリモートで募集しているケースがあるみたいだよ。\nこの中で、もし「こんな企業はどうかな？」と気になるところがあれば、もう少し見てみることもできるし、どんな働き方や企業文化に興味があるか、もう少し教えてくれると、僕も探し方のヒとになると思う。",
+    "latencyBreakdown": {
+      "dbInitMs": 613,
+      "geminiReadingMs": 4438,
+      "postGeminiStartMs": 5053,
+      "preProcessingMs": 6123,
+      "promptBuildMs": 20868,
+      "mainLlmMs": 3604,
+      "validationRetryMs": 2,
+      "postProcessingMs": 101,
+      "totalMs": 24575,
+      "peMs": 14284
+    },
+    "entities": [
+      "株式会社マリモ・グローバル・テクノロジーや株式会社ケージェーシーソフトウェア",
+      "重くしないこと",
+      "これが合いそうだよ",
+      "こんな企業はどうかな？"
+    ],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "B2",
+    "category": "listing_search",
+    "message": "データ分析に強いIT企業をWEBで調べて",
+    "description": "listing_search: データ分析企業（明示的・スキル指定）",
+    "evaluationFocus": "データ分析との一致度、企業名の妥当性",
+    "elapsedMs": 41482,
+    "responseText": "データ分析に強いIT企業を探すのは、たいしさんのスキルや興味にピッタリな選択肢だと思う。最近、データ分析に特化した企業が増えてきており、特にリモートワークを取り入れているところも多いから、選択肢は広がっているよ。\n例えば、以下の企業が注目されるかもしれないね：\n株式会社データアーティスト：データ解析やAIを活用したサービスを提供している企業。\n株式会社トレジャーデータ：クラウド型のデータプラットフォームを提供し、多くのクライアントと協力している。\n株式会社マクロミル：データ分析を通じてマーケティング支援を行っている大手企業。\nもし興味がある業界や特定のプロジェクトがあれば、それに関連する企業をさらに探してみることもできるよ。どんな働き方やチーム文化が理想的なのかな？その辺りも教えてくれると、もっと具体的な情報を一緒に考えられそうだね。",
+    "latencyBreakdown": {
+      "dbInitMs": 297,
+      "geminiReadingMs": 3234,
+      "postGeminiStartMs": 3533,
+      "preProcessingMs": 4414,
+      "promptBuildMs": 34681,
+      "mainLlmMs": 6435,
+      "validationRetryMs": 2,
+      "postProcessingMs": 258,
+      "totalMs": 41376,
+      "peMs": 29828
+    },
+    "entities": [
+      "株式会社データアーティスト",
+      "株式会社トレジャーデータ",
+      "株式会社マクロミル"
+    ],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "B3",
+    "category": "listing_search",
+    "message": "少人数でリモートOKのスタートアップをネットで調べてみて",
+    "description": "listing_search: 働き方条件指定（明示的・条件具体）",
+    "evaluationFocus": "条件（少人数・リモート）との一致度",
+    "elapsedMs": 16669,
+    "responseText": "少人数でリモートOKのスタートアップを探しているんだね。たいしさんのように、自分のペースで深く集中したい人にとって、そういう環境はすごく合っていると思う。\n僕の機能だと、Web上の企業リストを直接引っ張ってくることはまだできないんだけど、いくつか見つかった周辺情報から、たいしさんに合いそうなスタートアップの探し方を一緒に考えてみることはできる。\n例えば、以下のような企業が注目されるかもしれない。\n   株式会社リモートワーククラウド: AIを活用した新しい働き方を提案していて、Webエンジニアやフリーランスを募集しているみたい。リモートで柔軟に働きたい人には特に合うかもしれない。\n   HERP Career掲載企業の一部: フルリモートの事務職の求人が15社分くらい出ていることがあるみたいだから、職種は違うかもしれないけど、リモートワークを前提とした企業文化を持つスタートアップを探すヒントにはなると思う。\n正直に言うと、実際の一覧サイトを直接見に行く機能はまだないんだ。だから、この情報をもとに、たいしさん自身で「こういうキーワードで探してみようかな」とか「この媒体を見てみようかな」と方向性を決めるのが、今は一番効率的だと思う。\nもし、この中で気になるところがあれば、もう少し見てみることもできるし、どんな技術やサービスに興味があるか、もう少し教えてくれると、僕も探し方のヒントになると思う。",
+    "latencyBreakdown": {
+      "dbInitMs": 420,
+      "geminiReadingMs": 2832,
+      "postGeminiStartMs": 3255,
+      "preProcessingMs": 4366,
+      "promptBuildMs": 12880,
+      "mainLlmMs": 3479,
+      "validationRetryMs": 1,
+      "postProcessingMs": 157,
+      "totalMs": 16517,
+      "peMs": 8243
+    },
+    "entities": [
+      "株式会社リモートワーククラウド",
+      "HERP Career",
+      "こういうキーワードで探してみようかな",
+      "この媒体を見てみようかな"
+    ],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "C1",
+    "category": "comparison",
+    "message": "サイバーエージェントとマクロミルならどっちが自分に合う？調べてみて",
+    "description": "comparison: 2社比較（明示的・適性判断要求）",
+    "evaluationFocus": "比較軸の妥当性、パーソナリティとの接続",
+    "elapsedMs": 30808,
+    "responseText": "サイバーエージェントとマクロミルのどちらがたいしさんに合うか、考えてみると面白いね。サイバーエージェントは、広告やメディア事業を中心に多様なプロジェクトが進行していて、常に新しい挑戦が求められる環境だと思う。一方で、マクロミルはデータ分析を通じてマーケティング支援を行っており、より分析的なアプローチが強調される企業だよね。\nもし、たいしさんがデータ分析やマーケティングの深い理解を活かしたいなら、マクロミルがフィットするかもしれない。一方で、プロジェクトの多様性や新しいアイデアに取り組むことに興味があるなら、サイバーエージェントも魅力的だと思う。この二つの企業はそれぞれ異なる文化や働き方があるから、どちらに興味を持っているかによって選択肢が変わってくるんじゃないかな。\nどちらの企業文化や業務内容が気になる？もっと具体的な情報を一緒に考えてみよう。",
+    "latencyBreakdown": {
+      "dbInitMs": 382,
+      "geminiReadingMs": 3006,
+      "postGeminiStartMs": 3390,
+      "preProcessingMs": 4273,
+      "promptBuildMs": 21086,
+      "mainLlmMs": 9397,
+      "validationRetryMs": 1,
+      "postProcessingMs": 236,
+      "totalMs": 30720,
+      "peMs": 16456
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "C2",
+    "category": "comparison",
+    "message": "PythonとRならデータ分析にはどっちがいい？ネットで調べて",
+    "description": "comparison: 技術比較（明示的・スキル選択）",
+    "evaluationFocus": "技術的正確性、ユーザー適性との接続",
+    "elapsedMs": 21736,
+    "responseText": "PythonとR、データ分析にどっちがいいか、たいしさんが気になっているのはすごくわかるよ。ネットで調べるといろんな情報が出てくるから、余計に迷うこともあるよね。\n僕の見立てだと、たいしさんは一つを深く掘り下げて、その本質を見極めたいタイプだから、どちらか一方に集中して極める方が合っているんじゃないかな。\nPythonは、データ分析以外にもWeb開発とか機械学習とか、いろんなことができる汎用性の高さが魅力だよね。Rは統計解析に特化していて、専門的な分析や美しいグラフ作成が得意とされている。\n今のたいしさんの関心からすると、もしかしたら、直感で「これだ」と思った時と、じっくり考えた時、どっちの判断が当たってるのかな？それによっても、どちらがよりスムーズに習得できるかのヒントになるかもしれないね。",
+    "latencyBreakdown": {
+      "dbInitMs": 294,
+      "geminiReadingMs": 8262,
+      "postGeminiStartMs": 8558,
+      "preProcessingMs": 9541,
+      "promptBuildMs": 18633,
+      "mainLlmMs": 2821,
+      "validationRetryMs": 1,
+      "postProcessingMs": 158,
+      "totalMs": 21613,
+      "peMs": 8637
+    },
+    "entities": [
+      "これだ"
+    ],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "C3",
+    "category": "comparison",
+    "message": "フリーランスと正社員、自分にはどっちが合うかな？調べてみて",
+    "description": "comparison: キャリア形態比較（明示的・ライフスタイル判断）",
+    "evaluationFocus": "パーソナリティとの接続、具体的根拠",
+    "elapsedMs": 771,
+    "responseText": "フリーランスと正社員と自分にはどっちが合うかな？調べてみてを組んでいくね。",
+    "latencyBreakdown": {
+      "dbInitMs": 557,
+      "postProcessingMs": 724,
+      "totalMs": 724,
+      "peMs": 0
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "D1",
+    "category": "ambiguous_explicit",
+    "message": "なんかいい仕事ないかなぁ、ちょっと調べてみてよ",
+    "description": "曖昧explicit: 漠然とした仕事探し",
+    "evaluationFocus": "曖昧さへの対応、clarifyか直答か",
+    "elapsedMs": 636,
+    "responseText": "仕事とちょっと調べてみてよを組んでいくね。",
+    "latencyBreakdown": {
+      "dbInitMs": 391,
+      "postProcessingMs": 560,
+      "totalMs": 560,
+      "peMs": 0
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "D2",
+    "category": "ambiguous_explicit",
+    "message": "最近面白い会社とかある？ネットで見てきて",
+    "description": "曖昧explicit: 面白い会社（基準が曖昧）",
+    "evaluationFocus": "「面白い」の解釈がユーザーに合っているか",
+    "elapsedMs": 34861,
+    "responseText": "最近面白い会社を探しているんだね。僕の読みだと、フリーランスの選択肢を考える一方で、職場環境や人間関係も気にしているのかなって思う。実際の一覧サイトを直接見に行く機能はまだないけれど、2026年に注目されるスタートアップの情報はいくつか見つけたよ。\n例えば、以下の企業が面白いかもしれない：\n1. AIを活用した教育プラットフォーム\n   - 新しい学習方法を提供していて、教育分野での成長が期待されている。\n   - ただし、競争が激しい市場でもある。\n2. 持続可能なエネルギーソリューション企業\n   - 環境に配慮したビジネスモデルで、今後の成長が注目されている。\n   - ただし、技術革新が求められる分野でもある。\n3. リモートワーク支援ツールを開発するスタートアップ\n   - フリーランスやリモートワーカーにとって便利なツールを提供していて、需要が高まっている。\n   - 競合他社との差別化が鍵になるかもしれない。\nこの中で気になるところや、もう少し見てみたいところがあれば教えて！",
+    "latencyBreakdown": {
+      "dbInitMs": 371,
+      "geminiReadingMs": 6768,
+      "postGeminiStartMs": 7140,
+      "preProcessingMs": 8192,
+      "promptBuildMs": 25381,
+      "mainLlmMs": 8686,
+      "validationRetryMs": 11,
+      "postProcessingMs": 663,
+      "totalMs": 34741,
+      "peMs": 16678
+    },
+    "entities": [],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  },
+  {
+    "id": "D3",
+    "category": "ambiguous_explicit",
+    "message": "転職するならどういう方向がいいかWEBで調べて",
+    "description": "曖昧explicit: 転職方向性（広範・適性依存）",
+    "evaluationFocus": "方向性提案がパーソナリティに基づいているか",
+    "elapsedMs": 32728,
+    "responseText": "転職を考えているなら、たいしさんは「混沌の中から誰も見たことのないものを取り出したい」という欲求があるから、既存の枠にとらわれない働き方や、新しい価値を生み出す仕事が合っていると思う。\n今のたいしさんは、自分の情熱が理解されずに終わることを恐れる気持ちと、自由に実験したい気持ちの間で揺れやすいから、まずは自分の得意領域が活かせる環境をいくつか見てみるのがいいかもしれない。\n具体的には、\n1. 専門性を活かしたフリーランス：自分の強みである「失敗から学ぶ力」や「情熱と論理を同時に使える」点を前面に出して、プロジェクト単位で関わる働き方。\n2. スタートアップの新規事業開発：まだ形になっていないアイデアを、ゼロから作り上げていくフェーズの仕事。\n3. 研究開発職：誰もやらなかった実験に手を出せる環境で、深く集中して新しい発見を目指す方向。",
+    "latencyBreakdown": {
+      "dbInitMs": 454,
+      "geminiReadingMs": 3684,
+      "postGeminiStartMs": 4140,
+      "preProcessingMs": 8739,
+      "promptBuildMs": 26590,
+      "mainLlmMs": 5805,
+      "validationRetryMs": 5,
+      "postProcessingMs": 219,
+      "totalMs": 32619,
+      "peMs": 17269
+    },
+    "entities": [
+      "混沌の中から誰も見たことのないものを取り出したい",
+      "失敗から学ぶ力",
+      "情熱と論理を同時に使える"
+    ],
+    "hasError": false,
+    "ranking": {
+      "candidatesFit": null,
+      "workStyleFit": null,
+      "industryFit": null,
+      "reasonCredibility": null,
+      "notes": ""
+    }
+  }
+]

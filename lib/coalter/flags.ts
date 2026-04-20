@@ -1,0 +1,159 @@
+/**
+ * CoAlter runtime flags — kill switch集約
+ *
+ * Phase A (2026-04-18): `bookingHandoffEnabled`
+ *   - false のとき narrationTemplate の `buildCandidateDetail` 呼び出しをスキップし、
+ *     候補カードに `detail` を載せない。UI 側は `current.detail` が無ければ
+ *     bottom sheet 起動ボタンを出さないため、旧体験に戻る。
+ *   - 本番で違和感が出たときに「全体を止める」のではなく
+ *     「detail sheet だけ止める」粒度で切り戻せるようにするための弁。
+ *
+ * [CEO lock 2026-04-20 M1 1a] `stage1LiveEnabled`
+ *   - /api/coalter/invoke で Stage 1 Understand を呼ぶかを決める弁。
+ *   - 既定 OFF。invoke の response shape は flag OFF で現行と完全一致。
+ *   - ON 時のみ collector + `runUnderstanding()` が走り、response.data に
+ *     optional `stage1: Stage1Snapshot` が付与される。
+ *   - Stage 1 側の例外は invoke route で握り潰し、`stage1` 欠落で返す（fail-open）。
+ *   - env から外せば即座に 1a 前状態へ戻る。
+ *
+ * 既定値は flag ごとに異なる。bookingHandoffEnabled は ON、stage1LiveEnabled は OFF。
+ */
+
+function envBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  const v = raw.trim().toLowerCase();
+  if (v === "" || v === "1" || v === "true" || v === "on" || v === "yes") return true;
+  if (v === "0" || v === "false" || v === "off" || v === "no") return false;
+  return fallback;
+}
+
+export const COALTER_FLAGS = {
+  /** Phase A: bottom sheet 用 detail を candidate に付与するか */
+  get bookingHandoffEnabled(): boolean {
+    return envBool("COALTER_BOOKING_HANDOFF_ENABLED", true);
+  },
+  /** M1 1a: /api/coalter/invoke で Stage 1 Understand を呼んで response に乗せるか */
+  get stage1LiveEnabled(): boolean {
+    return envBool("COALTER_STAGE1_LIVE", false);
+  },
+  /**
+   * [CEO lock 2026-04-20 M1 Candidate 2] `stage1NarrationEnabled`
+   *   - Stage 1 の todayReading を proposalCard.summary / card.summary に
+   *     1 行だけ反映する弁。既定 OFF。
+   *   - stage1LiveEnabled と独立。narration 層だけ切り戻したい場面がある。
+   *   - outcome が failed の場合は flag に関係なく narration を付けない
+   *     (CEO lock: failed を意味あるコピーに見せない)。
+   *   - 依存: stage1LiveEnabled = true。snapshot が無い場合は no-op。
+   */
+  get stage1NarrationEnabled(): boolean {
+    return envBool("COALTER_STAGE1_NARRATION", false);
+  },
+  /**
+   * [CEO lock 2026-04-20 M1 Candidate 3] `pairOnboardingEnabled`
+   *   - ペア activate 時に `coalter_pair_states.onboarded_at` をセットし、
+   *     `coalter_fairness_ledger` に bias_score=0 の seed row を 1 件入れる。
+   *   - invoke の Stage 1 は「onboarded_at is null かつ talk_messages 0」の
+   *     cold-start ペアに対しては snapshot を返さない（outcome="failed" を
+   *     見せないための保護）。
+   *   - 既定 OFF。activate/invoke のどちらも flag OFF で従来挙動と完全一致。
+   *   - stage1LiveEnabled / stage1NarrationEnabled と独立。onboarding 層
+   *     だけ切り戻したい場面に対応する 3 つ目の弁。
+   */
+  get pairOnboardingEnabled(): boolean {
+    return envBool("COALTER_PAIR_ONBOARDING", false);
+  },
+  /**
+   * [CEO lock 2026-04-20 F-5] `foodLensWired`
+   *   - engine.ts の food branch で Stage 1 Understand を走らせ、その結果
+   *     (TwoPersonLensToday / FoodLensToday / FoodQueryBuilderInput) を
+   *     foodOrchestrator に渡すかを決める kill switch。
+   *   - 既定 OFF。false 時は従来経路（options.foodLens を外部から渡された
+   *     場合のみ orchestrator に流す、それ以外は lens 無し）を機械的に維持する。
+   *   - Stage 1 側の例外は engine 内で fail-open（catch して lens なしで
+   *     従来経路に fall through）。env から外せば即座に pre-F-5 状態へ戻る。
+   *   - 時間の優先順位: brief > exact time > lens 補完。lens は brief の
+   *     欠損を埋めるだけで上書きはしない（F-5 wiring test d 参照）。
+   *   - F-5 scope: output 復活まで。foodTierExpander の消費は F-6 以降。
+   */
+  get foodLensWired(): boolean {
+    return envBool("COALTER_FOOD_LENS_WIRED", false);
+  },
+  /**
+   * [CEO lock 2026-04-20 F-6] `foodTierLoop`
+   *   - foodOrchestrator で `runTieredRanking`（T0→T1a→T1b→T2 順次）を
+   *     走らせるかの kill switch。F-5 (`foodLensWired`) と独立。
+   *   - 既定 OFF。false 時は従来どおり `rankFood` 単発（= Tier 0 相当）のみ。
+   *   - true + effective FoodQuery 不在（lens 欠損 or area 欠落）→ tier loop skip、
+   *     従来動作に fall through（fail-open）。
+   *   - 契約（CEO 2026-04-20 F-6）:
+   *     1. Tier 入力は **query 主体 + brief fallback**
+   *        (area: query.area → brief.area / time: query.requestedTimeSlots → brief.approximateTime)
+   *     2. 成功閾値は `ranked.length >= 1`（"豊富" 閾値 3 は diagnostics/narration 用のみ）
+   *     3. Tier 結果は**混ぜない**。最初に success した Tier の ranked をそのまま採用。
+   *   - F-6 scope: re-search しない、booking API・daily/travel には入らない、
+   *     density/lighting ranker 負債は触らない。
+   */
+  get foodTierLoop(): boolean {
+    return envBool("COALTER_FOOD_TIER_LOOP", false);
+  },
+};
+
+// ─────────────────────────────────────────────
+// §7 Step B (2026-04-20): U3 exclusion gate abolition
+// ─────────────────────────────────────────────
+//
+// webConnector.decideSearch の NO_SEARCH_PATTERNS (感情・関係性 regex) を
+// 条件付きで撤廃する per-theme flag。
+//
+// 既定は全 OFF（Step A 観測挙動のまま）。env で theme 単位に ON 可能:
+//   COALTER_U3_ABOLITION_FOOD=true など。
+//
+// flag=ON 時の挙動:
+//   NO_SEARCH_PATTERNS hit + actionable=true → skip せず通常検索へ
+//   NO_SEARCH_PATTERNS hit + actionable=false → 従来どおり skip（noise 防止）
+//
+// テストからは __setU3AbolitionOverride で env を汚さず切替可能。
+
+export type U3AbolishableTheme = "food" | "movie" | "travel" | "activity";
+
+const U3_ABOLITION_ENV_KEYS: Record<U3AbolishableTheme, string> = {
+  food: "COALTER_U3_ABOLITION_FOOD",
+  movie: "COALTER_U3_ABOLITION_MOVIE",
+  travel: "COALTER_U3_ABOLITION_TRAVEL",
+  activity: "COALTER_U3_ABOLITION_ACTIVITY",
+};
+
+const U3_ABOLISHABLE_THEMES = new Set<string>(
+  Object.keys(U3_ABOLITION_ENV_KEYS),
+);
+
+let u3AbolitionOverride:
+  | Partial<Record<U3AbolishableTheme, boolean>>
+  | null = null;
+
+/**
+ * テスト用 override。process.env を触らず U3 abolition flag を上書きする。
+ * null でクリア。
+ */
+export function __setU3AbolitionOverride(
+  next: Partial<Record<U3AbolishableTheme, boolean>> | null,
+): void {
+  u3AbolitionOverride = next;
+}
+
+/**
+ * 指定 theme で U3 撤廃が有効か。
+ *
+ *  1. 撤廃対象外 theme（schedule/gift/general）は常に false
+ *  2. テスト override があればそれを採用
+ *  3. 環境変数 fallback（default false）
+ */
+export function isU3AbolitionActive(theme: string): boolean {
+  if (!U3_ABOLISHABLE_THEMES.has(theme)) return false;
+  const t = theme as U3AbolishableTheme;
+  if (u3AbolitionOverride && t in u3AbolitionOverride) {
+    return !!u3AbolitionOverride[t];
+  }
+  return envBool(U3_ABOLITION_ENV_KEYS[t], false);
+}

@@ -7,6 +7,18 @@ import type { TalkMessage, GenomeCardData, GenomeReactionType } from "@/lib/geno
 import { generateConversationInsights, type ConversationInsight } from "@/lib/genome/conversationIntelligence";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import { getCardTheme } from "@/lib/genome/archetypeThemes";
+import { useCoAlter } from "@/hooks/useCoAlter";
+import CoAlterButton from "@/components/coalter/CoAlterButton";
+import CoAlterConsent from "@/components/coalter/CoAlterConsent";
+import CoAlterCard from "@/components/coalter/CoAlterCard";
+import CoAlterCardDispatcher from "@/components/coalter/CoAlterCardDispatcher";
+import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
+import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
+import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
+import { CoAlterPlanDetailSheet } from "@/components/coalter/CoAlterPlanDetailSheet";
+import type { PlanItem } from "@/lib/coalter/planShelf";
+import { detectCoAlterTrigger } from "@/lib/coalter/triggerDetection";
+import IntentObservationSheet from "@/components/talk/IntentObservationSheet";
 
 const C = {
   bg: "#f8f6f3", s1: "#ffffff", s2: "#f5f6fa",
@@ -200,8 +212,10 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
   onApplyRewrite: (text: string) => void;
 }) {
   const riskPercent = Math.round(result.misreadRisk * 100);
-  const riskColor = riskPercent >= 60 ? "#ef4444" : riskPercent >= 30 ? "#f59e0b" : "#22c55e";
-  const riskLabel = riskPercent >= 60 ? "伝わりにくい" : riskPercent >= 30 ? "少し注意" : "伝わりやすい";
+  const isHigh = riskPercent >= 60;
+  const isMid = riskPercent >= 30;
+  const riskColor = isHigh ? "#ef4444" : isMid ? "#f59e0b" : "#22c55e";
+  const riskLabel = isHigh ? "伝わりにくい" : isMid ? "少し注意" : "伝わりやすい";
 
   return (
     <motion.div
@@ -210,29 +224,87 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
       exit={{ opacity: 0, y: 8, height: 0 }}
       className="overflow-hidden"
     >
-      <div className="px-4 py-3 space-y-2" style={{ background: "rgba(255,255,255,0.95)", borderTop: `1px solid ${C.s2}` }}>
-        {/* ヘッダー */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span style={{ fontSize: 14 }}>🔮</span>
-            <span style={{ fontSize: 10, fontWeight: 600, color: riskColor }}>{riskLabel}</span>
-            <span style={{ fontSize: 9, color: C.t4 }}>
-              誤読リスク {riskPercent}%
-            </span>
+      <div className="mx-3 mb-2 rounded-2xl overflow-hidden" style={{
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(20px) saturate(1.4)",
+        boxShadow: "0 2px 16px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03)",
+      }}>
+        {/* ── ヘッダー ── */}
+        <div className="px-4 py-2.5 flex items-center justify-between" style={{
+          borderBottom: "1px solid rgba(0,0,0,0.04)",
+        }}>
+          <div className="flex items-center gap-2.5">
+            {/* リスクインジケーター — 微細なアニメーション付き */}
+            <div className="relative flex items-center justify-center" style={{ width: 28, height: 28 }}>
+              <svg width="28" height="28" viewBox="0 0 28 28">
+                <circle cx="14" cy="14" r="12" fill="none" stroke="rgba(0,0,0,0.06)" strokeWidth="2" />
+                <motion.circle
+                  cx="14" cy="14" r="12" fill="none"
+                  stroke={riskColor} strokeWidth="2" strokeLinecap="round"
+                  strokeDasharray={`${(1 - result.misreadRisk) * 75.4} 75.4`}
+                  strokeDashoffset="18.85"
+                  initial={{ strokeDasharray: "0 75.4" }}
+                  animate={{ strokeDasharray: `${(1 - result.misreadRisk) * 75.4} 75.4` }}
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: riskColor }} />
+              </div>
+            </div>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: C.t1, lineHeight: 1 }}>{riskLabel}</p>
+              {riskPercent > 0 && (
+                <p style={{ fontSize: 9, color: C.t4, marginTop: 2 }}>
+                  誤読リスク {riskPercent}%
+                </p>
+              )}
+            </div>
           </div>
-          <button onClick={onClose} style={{ fontSize: 10, color: C.t4, padding: 4 }}>✕</button>
+          <button onClick={onClose} className="rounded-full flex items-center justify-center transition-colors"
+            style={{
+              width: 26, height: 26,
+              background: "rgba(0,0,0,0.04)",
+              color: C.t4, fontSize: 10,
+            }}>
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M1 1l8 8M9 1l-8 8" />
+            </svg>
+          </button>
         </div>
 
-        {/* 受信者がどう読むか */}
+        {/* ── 受信者がどう読むか ── */}
         {result.receiverInterpretations.length > 0 && (
-          <div className="space-y-1">
-            <p style={{ fontSize: 8, color: C.t4, letterSpacing: "0.1em" }}>相手にどう読まれるか</p>
+          <div className="px-4 py-2.5 space-y-1.5">
+            <p style={{ fontSize: 9, color: C.t4, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              相手の読み取り方
+            </p>
             {result.receiverInterpretations.slice(0, 2).map((interp, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span style={{ fontSize: 8, color: C.t4, marginTop: 2, whiteSpace: "nowrap" }}>
-                  {Math.round(interp.probability * 100)}%
-                </span>
-                <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.5 }}>
+              <div key={i} className="flex items-start gap-2.5">
+                {/* 確率バー */}
+                <div className="flex-shrink-0 mt-1.5" style={{ width: 32 }}>
+                  <div style={{ height: 3, borderRadius: 2, background: "rgba(0,0,0,0.04)", overflow: "hidden" }}>
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${interp.probability * 100}%` }}
+                      transition={{ duration: 0.6, delay: i * 0.15, ease: "easeOut" }}
+                      style={{
+                        height: "100%", borderRadius: 2,
+                        background: i === 0 ? C.neural : C.t4,
+                      }}
+                    />
+                  </div>
+                  <p style={{
+                    fontSize: 8, color: i === 0 ? C.neural : C.t4, marginTop: 1,
+                    fontVariantNumeric: "tabular-nums", textAlign: "center",
+                  }}>
+                    {Math.round(interp.probability * 100)}%
+                  </p>
+                </div>
+                <p style={{
+                  fontSize: 12, color: i === 0 ? C.t1 : C.t3,
+                  lineHeight: 1.6, fontWeight: i === 0 ? 500 : 400,
+                }}>
                   {interp.reading}
                 </p>
               </div>
@@ -240,20 +312,31 @@ function IntentCheckPanel({ result, onClose, onApplyRewrite }: {
           </div>
         )}
 
-        {/* 言い換え提案 */}
+        {/* ── 言い換え提案 ── */}
         {result.rewriteSuggestion && (
-          <button
-            onClick={() => onApplyRewrite(result.rewriteSuggestion!)}
-            className="w-full text-left rounded-xl px-3 py-2 transition-all"
-            style={{ background: `${C.neural}08`, border: `1px solid ${C.neural}15` }}
-          >
-            <p style={{ fontSize: 8, color: C.neural, letterSpacing: "0.1em", marginBottom: 2 }}>
-              言い換え提案（タップで適用）
-            </p>
-            <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.5 }}>
-              {result.rewriteSuggestion}
-            </p>
-          </button>
+          <div className="px-3 pb-3">
+            <button
+              onClick={() => onApplyRewrite(result.rewriteSuggestion!)}
+              className="w-full text-left rounded-xl px-3.5 py-3 transition-all active:scale-[0.99]"
+              style={{
+                background: `linear-gradient(135deg, ${C.neural}08, ${C.pulse}05)`,
+                border: `1px solid ${C.neural}10`,
+              }}
+            >
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M9 1.5L10.5 3L4.5 9L2 9.5L2.5 7L8.5 1L9 1.5Z" stroke={C.neural} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <p style={{ fontSize: 9, color: C.neural, fontWeight: 600, letterSpacing: "0.05em" }}>
+                  言い換え提案
+                </p>
+                <span style={{ fontSize: 8, color: C.t4, marginLeft: "auto" }}>タップで適用</span>
+              </div>
+              <p style={{ fontSize: 12, color: C.t1, lineHeight: 1.6 }}>
+                {result.rewriteSuggestion}
+              </p>
+            </button>
+          </div>
         )}
       </div>
     </motion.div>
@@ -269,19 +352,24 @@ function BubbleHint({ hint, onTap }: {
 }) {
   return (
     <motion.button
-      initial={{ opacity: 0, scale: 0.8 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.8 }}
+      initial={{ opacity: 0, scale: 0.95, y: 4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: 4 }}
       onClick={onTap}
-      className="mt-1 text-left rounded-xl px-3 py-2 max-w-[90%]"
+      className="mt-1.5 text-left rounded-2xl px-3.5 py-2.5 max-w-[90%]"
       style={{
-        background: `${C.neural}06`,
-        border: `1px solid ${C.neural}12`,
+        background: "rgba(255,255,255,0.92)",
+        backdropFilter: "blur(8px)",
+        border: "1px solid rgba(139,92,246,0.1)",
+        boxShadow: "0 2px 12px rgba(30,30,60,0.06)",
       }}
     >
-      <div className="flex items-start gap-1.5">
-        <span style={{ fontSize: 12, flexShrink: 0 }}>💭</span>
-        <p style={{ fontSize: 10, color: C.t2, lineHeight: 1.5 }}>
+      <div className="flex items-start gap-2">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, marginTop: 1 }}>
+          <circle cx="12" cy="12" r="8" stroke={C.neural} strokeWidth="1.5" opacity="0.4" />
+          <circle cx="12" cy="12" r="3" fill={C.neural} opacity="0.5" />
+        </svg>
+        <p style={{ fontSize: 11, color: C.t2, lineHeight: 1.6 }}>
           {hint.hintText}
         </p>
       </div>
@@ -478,17 +566,15 @@ function ConversationStarters({ counterpartName, archetypeLabel, deepeningTopics
    ═══════════════════════════════════════════════ */
 export default function ChatClient({ threadId }: Props) {
   const [messages, setMessages] = useState<TalkMessage[]>([]);
-  const [input, setInput] = useState(() => {
-    if (typeof window === "undefined") return "";
-    try { return sessionStorage.getItem(`talk_draft_${threadId}`) ?? ""; } catch { return ""; }
-  });
+  const [input, setInput] = useState("");
+  const [mounted, setMounted] = useState(false);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [counterpart, setCounterpart] = useState<{
-    displayName: string | null; avatarUrl: string | null;
+    userId: string | null; displayName: string | null; avatarUrl: string | null;
     archetypeLabel: string | null; card: GenomeCardData | null;
-  }>({ displayName: null, avatarUrl: null, archetypeLabel: null, card: null });
+  }>({ userId: null, displayName: null, avatarUrl: null, archetypeLabel: null, card: null });
   const [myCard, setMyCard] = useState<GenomeCardData | null>(null);
   const [showInsight, setShowInsight] = useState(true);
   const [showThreadInfo, setShowThreadInfo] = useState(false);
@@ -530,20 +616,72 @@ export default function ChatClient({ threadId }: Props) {
     } | null;
     visible: boolean;
   }>({ loading: false, result: null, visible: false });
+
+  // ── ミニ観測ボトムシート ──
+  const [observationSheet, setObservationSheet] = useState<{
+    open: boolean;
+    reason: "self_incomplete" | "counterpart_incomplete";
+  }>({ open: false, reason: "self_incomplete" });
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const prevMsgCountRef = useRef(0);
 
+  // ── CoAlter ──
+  const coalter = useCoAlter(threadId);
+  const [showPlanCalendar, setShowPlanCalendar] = useState(false);
+  const [detailItem, setDetailItem] = useState<PlanItem | null>(null);
+
+  // CoAlter Phase A (2026-04-18): 外部導線ハンドオフイベントを fire-and-forget で記録
+  const handleCoAlterHandoffEvent = useCallback(
+    (payload: HandoffLogPayload) => {
+      const sessionId = coalter.currentSessionId;
+      if (!sessionId) return;
+      try {
+        void fetch("/api/coalter/handoff-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            candidateKey: payload.candidateKey,
+            eventType: payload.eventType,
+            theme: coalter.currentProposal?.theme ?? null,
+            providerType: payload.providerType,
+            providerName: payload.providerName,
+            url: payload.url,
+            label: payload.label,
+            confidence: payload.confidence,
+          }),
+        }).catch(() => {
+          /* silent — 観測ログは UX を止めない */
+        });
+      } catch {
+        /* silent */
+      }
+    },
+    [coalter.currentSessionId, coalter.currentProposal?.theme],
+  );
+
+  // ── mount 検出 + 下書き復元（hydration 完了後） ──
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const draft = sessionStorage.getItem(`talk_draft_${threadId}`);
+      if (draft) setInput(draft);
+    } catch { /* noop */ }
+  }, [threadId]);
+
   // ── 下書き保存（sessionStorage） ──
   useEffect(() => {
+    if (!mounted) return;
     const key = `talk_draft_${threadId}`;
     try {
       if (input) { sessionStorage.setItem(key, input); }
       else { sessionStorage.removeItem(key); }
     } catch { /* noop */ }
-  }, [input, threadId]);
+  }, [input, threadId, mounted]);
 
   // ── 会話インサイト（Aneurasyncの核心）──
   // Step 1: ルールベースで即座に表示（フォールバック）
@@ -695,6 +833,7 @@ export default function ChatClient({ threadId }: Props) {
             const cpCardRes = await fetch(`/api/genome-card/${cpId}`).catch(() => null);
             const cpCardData = cpCardRes ? await cpCardRes.json().catch(() => null) : null;
             setCounterpart({
+              userId: cpId,
               displayName: thread.counterpart.displayName,
               avatarUrl: thread.counterpart.avatarUrl,
               archetypeLabel: cpCardData?.ok ? cpCardData.card?.archetypeLabel : null,
@@ -728,8 +867,17 @@ export default function ChatClient({ threadId }: Props) {
     }
   }, [fetchMessages, markRead, threadId]);
 
-  // スクロール位置に応じて新着バナーを表示
+  // スクロール位置に応じて新着バナーを表示 + 初回ロードは最下部へジャンプ
   useEffect(() => {
+    // 初回: メッセージが 0 → 1件以上に切り替わった瞬間、最新（最下部）へ即ジャンプ
+    if (messages.length > 0 && prevMsgCountRef.current === 0) {
+      // DOM描画待ちで1frame後に実行（instant でジャンプ、アニメなし）
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+      });
+      prevMsgCountRef.current = messages.length;
+      return;
+    }
     if (messages.length > prevMsgCountRef.current && prevMsgCountRef.current > 0) {
       const container = scrollContainerRef.current;
       if (container) {
@@ -775,6 +923,59 @@ export default function ChatClient({ threadId }: Props) {
       if (res.ok) {
         setIsConnected(true);
         await fetchMessages();
+
+        // ─── CoAlter「会話で答える」回答の取り込み（Phase 1.5.3）──
+        // カードの「会話で答える」で awaitingAnswer がセットされている場合、
+        // この送信メッセージを回答として CoAlter を再 invoke する。
+        // 成功したら新しい提案カードが返り、awaitingAnswer は hook 側で自動クリア。
+        if (coalter.awaitingAnswer) {
+          try {
+            await coalter.invoke(body);
+          } catch (e) {
+            console.warn("[coalter/awaiting-answer] invoke failed", e);
+            // 失敗時は awaiting を手動クリアしてユーザーが再操作できるようにする
+            coalter.markAwaitingAnswer(null);
+          }
+          // 取り込みパスを通ったら、通常のトリガー検出はスキップ
+          // (setSending(false) は finally で実行される)
+          return;
+        }
+
+        // ─── CoAlter ソフトヒント起動（B案・Phase 1.5.3）──
+        // 送信成功後、膠着パターンを検出したら coalter.lastTrigger に記録。
+        // 実際のUI（ソフトヒントバー）は lastTrigger を見て描画する。
+        try {
+          // 両者発言チェック（自分以外の senderId が messages にあるか）
+          const bothParticipated =
+            !!currentUserId &&
+            messages.some((m) => m.senderId && m.senderId !== currentUserId);
+          // 直近5分以内に既に提案を出したか
+          const recentProposalWithin5Min = !!coalter.currentProposal;
+          // 直前メッセージ（拡散パターン2ターン連続判定用）
+          const previousMessage = [...messages]
+            .reverse()
+            .find((m) => m.senderId === currentUserId)?.body;
+
+          const trigger = detectCoAlterTrigger(
+            body,
+            {
+              isEnabled: coalter.pairState === "enabled",
+              recentProposalWithin5Min,
+              conversationTurnCount: messages.length,
+              bothParticipated,
+            },
+            previousMessage,
+          );
+
+          // strong = 明示メンション（未実装の即時起動は CEO 承認後）
+          // soft = ソフトヒント表示
+          if (trigger.confidence === "soft" || trigger.confidence === "strong") {
+            coalter.notifySoftTrigger(trigger.confidence, trigger.matchedPattern);
+          }
+        } catch (e) {
+          // silent — トリガー判定失敗で送信体験を壊さない
+          console.warn("[coalter/trigger] detection failed", e);
+        }
       } else {
         setFailedMsgs((prev) => new Set(prev).add(optimisticMsg.id));
       }
@@ -810,71 +1011,134 @@ export default function ChatClient({ threadId }: Props) {
   // ── 🔮 意図チェック（送信前） ──
   const handleIntentCheck = useCallback(async () => {
     if (!input.trim() || intentCheck.checking) return;
+    if (!counterpart.userId) {
+      console.warn("[intent-check] counterpart.userId is missing — skipping");
+      return;
+    }
     setIntentCheck(prev => ({ ...prev, checking: true, visible: true }));
     try {
       const res = await fetch("/api/talk/intent-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, message: input.trim() }),
+        body: JSON.stringify({ threadId, message: input.trim(), receiverUserId: counterpart.userId }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok) {
-          setIntentCheck({ checking: false, result: data, visible: true });
-          return;
-        }
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.warn(`[intent-check] ${res.status}`, data);
+        setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
+        return;
       }
-      setIntentCheck(prev => ({ ...prev, checking: false }));
-    } catch {
+      // skipped = プロファイル不足 → ミニ観測ボトムシートを表示
+      if (data.skipped) {
+        console.info("[intent-check] skipped:", data.skipReason);
+        setIntentCheck(prev => ({ ...prev, checking: false, visible: false }));
+        if (data.skipReason === "profile_incomplete") {
+          const selfOk = data.selfHasProfile === true;
+          const reason = !selfOk
+            ? "self_incomplete" as const
+            : "counterpart_incomplete" as const;
+          setObservationSheet({ open: true, reason });
+        }
+        return;
+      }
+      setIntentCheck({ checking: false, result: data, visible: true });
+    } catch (e) {
+      console.warn("[intent-check] fetch error", e);
       setIntentCheck(prev => ({ ...prev, checking: false }));
     }
-  }, [input, threadId, intentCheck.checking]);
+  }, [input, threadId, intentCheck.checking, counterpart.userId]);
 
   // ── 💭 バブルヒント（受信メッセージ） ──
   const fetchBubbleHint = useCallback(async (messageId: string) => {
     if (bubbleHints.has(messageId) || bubbleFetching.has(messageId)) return;
+    if (!counterpart.userId) {
+      console.warn("[intent-translate] counterpart.userId is missing — skipping", { messageId });
+      return;
+    }
     setBubbleFetching(prev => new Set(prev).add(messageId));
     try {
       const res = await fetch("/api/talk/intent-translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, messageId }),
+        body: JSON.stringify({ threadId, messageId, senderUserId: counterpart.userId }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.ok && data.bubbleHint?.show) {
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        console.warn(`[intent-translate] ${res.status}`, data);
+      } else if (data.skipped) {
+        console.info("[intent-translate] skipped:", data.skipReason);
+        // プロファイル不足 → ミニ観測ボトムシートを表示
+        if (data.skipReason === "profile_incomplete") {
+          const selfOk = data.selfHasProfile === true;
+          const reason = !selfOk
+            ? "self_incomplete" as const
+            : "counterpart_incomplete" as const;
+          setObservationSheet({ open: true, reason });
+        }
+      } else if (data.bubbleHint?.show) {
+        setBubbleHints(prev => new Map(prev).set(messageId, {
+          hintText: data.bubbleHint.hintText,
+          confidence: data.bubbleHint.confidence,
+          misreadRisk: data.bubbleHint.misreadRisk,
+        }));
+      } else {
+        // show=false でも primaryIntent があれば表示する（ユーザーが明示的にタップした）
+        const reading = data.primaryIntent?.reading;
+        // フォールバック placeholder（"（分析中）" 等）は絶対に表示しない
+        const isPlaceholder = typeof reading === "string" &&
+          (reading.includes("分析中") || reading.trim() === "");
+        if (reading && typeof reading === "string" && !isPlaceholder) {
           setBubbleHints(prev => new Map(prev).set(messageId, {
-            hintText: data.bubbleHint.hintText,
-            confidence: data.bubbleHint.confidence,
-            misreadRisk: data.bubbleHint.misreadRisk,
+            hintText: reading,
+            confidence: data.primaryIntent?.confidence ?? data.confidence ?? 0.5,
+            misreadRisk: 0,
           }));
         }
       }
-    } catch { /* silent */ }
+    } catch (e) {
+      console.warn("[intent-translate] fetch error", e);
+    }
     setBubbleFetching(prev => { const n = new Set(prev); n.delete(messageId); return n; });
-  }, [threadId, bubbleHints, bubbleFetching]);
+  }, [threadId, bubbleHints, bubbleFetching, counterpart.userId]);
 
   // ── 共同Alter 仲介リクエスト ──
   const requestMediation = useCallback(async (messageId?: string) => {
+    // messageId 未指定時は相手の最新メッセージを対象にする
+    // （🤝 ヘッダーボタン押下 = "今のやり取りを仲介して" の意図）
+    let targetMessageId = messageId;
+    if (!targetMessageId) {
+      const latestCounterpartMsg = [...messages]
+        .reverse()
+        .find((m) => m.senderId && m.senderId !== currentUserId);
+      targetMessageId = latestCounterpartMsg?.id;
+    }
+    if (!targetMessageId) {
+      console.info("[mediate] 仲介対象メッセージが無いためスキップ");
+      return;
+    }
     setMediationState(prev => ({ ...prev, loading: true, visible: true }));
     try {
       const res = await fetch("/api/talk/mediate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ threadId, messageId }),
+        body: JSON.stringify({ threadId, messageId: targetMessageId }),
       });
       if (res.ok) {
+        // mediate route は {forSender, forReceiver, sharedInsight, decision, ...} を直接返す
         const data = await res.json();
-        if (data.ok) {
+        if (data && data.decision) {
           setMediationState({ loading: false, result: data, visible: true });
           return;
         }
+      } else {
+        console.warn(`[mediate] ${res.status}`, await res.text().catch(() => ""));
       }
       setMediationState(prev => ({ ...prev, loading: false }));
-    } catch {
+    } catch (e) {
+      console.warn("[mediate] fetch error", e);
       setMediationState(prev => ({ ...prev, loading: false }));
     }
-  }, [threadId]);
+  }, [threadId, messages, currentUserId]);
 
   // ── 検索 ──
   const [searchQuery, setSearchQuery] = useState("");
@@ -969,16 +1233,18 @@ export default function ChatClient({ threadId }: Props) {
   const cpName = counterpart.displayName ?? "ユーザー";
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: C.bg }}>
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: C.bg }}>
       {/* ═══ ヘッダー ═══ */}
       <div className="sticky top-0 z-20" style={{
         background: "rgba(248,246,243,0.88)", backdropFilter: "blur(16px) saturate(1.5)",
         borderBottom: `1px solid ${C.s2}`,
       }}>
         <div className="max-w-lg mx-auto px-4 py-2.5 flex items-center gap-3">
-          <Link href="/talk" className="flex items-center justify-center w-9 h-9 rounded-full min-h-[44px] min-w-[44px]"
-            style={{ background: C.s2 }} aria-label="トーク一覧に戻る">
-            <span style={{ fontSize: 14, color: C.t2 }}>←</span>
+          <Link href="/talk?tab=talk" className="flex items-center justify-center w-9 h-9 rounded-full min-h-[44px] min-w-[44px]"
+            style={{ background: C.s2 }} aria-label="戻る">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a4a68" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
           </Link>
           <button className="flex items-center gap-2.5 flex-1 min-w-0 text-left"
             onClick={() => setShowThreadInfo(true)} aria-label="スレッド情報を表示">
@@ -1039,6 +1305,15 @@ export default function ChatClient({ threadId }: Props) {
             style={{ background: C.s2 }} aria-label="相手のGenome Card">
             <span style={{ fontSize: 14 }}>🧬</span>
           </Link>
+          {/* プラン履歴（カレンダー） */}
+          <button
+            onClick={() => setShowPlanCalendar(true)}
+            className="w-9 h-9 rounded-full flex items-center justify-center min-h-[44px]"
+            style={{ background: C.s2 }}
+            aria-label="プラン履歴を開く"
+          >
+            <span style={{ fontSize: 14 }}>📅</span>
+          </button>
         </div>
 
         {/* インサイトパネル */}
@@ -1047,6 +1322,14 @@ export default function ChatClient({ threadId }: Props) {
             <InsightPanel insight={insight} onClose={() => setShowInsight(false)} />
           )}
         </AnimatePresence>
+
+        {/* CoAlter プラン棚（「これからの予定」）── 生配列を渡し、パネル内部で filterUpcoming */}
+        <CoAlterShelfPanel
+          items={coalter.planItems}
+          currentUserId={currentUserId}
+          onOpenItem={(item) => setDetailItem(item)}
+          onOpenCalendar={() => setShowPlanCalendar(true)}
+        />
       </div>
 
       {/* ═══ 検索バー ═══ */}
@@ -1075,6 +1358,28 @@ export default function ChatClient({ threadId }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ═══ CoAlter プラン履歴カレンダー ═══ */}
+      <CoAlterPlanCalendar
+        items={coalter.planItems}
+        isOpen={showPlanCalendar}
+        onClose={() => setShowPlanCalendar(false)}
+        onOpenItem={(item) => setDetailItem(item)}
+        onOpen={coalter.fetchPlanItems}
+        currentUserId={currentUserId}
+      />
+
+      {/* ═══ CoAlter プラン詳細ボトムシート ═══ */}
+      <CoAlterPlanDetailSheet
+        item={detailItem}
+        currentUserId={currentUserId}
+        isOpen={detailItem !== null}
+        onClose={() => setDetailItem(null)}
+        onDelete={coalter.deletePlanItem}
+        onRefine={coalter.refinePlanItem}
+        onApplyRefine={coalter.applyRefinedPlanItem}
+        onGeneratePairNarrative={coalter.generatePairNarrative}
+      />
 
       {/* ═══ スレッド情報ドロワー ═══ */}
       <AnimatePresence>
@@ -1339,8 +1644,11 @@ export default function ChatClient({ threadId }: Props) {
                                 style={{ background: "transparent" }}
                                 aria-label="意図を翻訳"
                               >
-                                <span style={{ fontSize: 10 }}>💭</span>
-                                <span style={{ fontSize: 8, color: C.t4 }}>意図を見る</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.5 }}>
+                                  <circle cx="12" cy="12" r="8" stroke={C.neural} strokeWidth="1.5" />
+                                  <circle cx="12" cy="12" r="3" fill={C.neural} opacity="0.5" />
+                                </svg>
+                                <span style={{ fontSize: 9, color: C.t4 }}>意図を見る</span>
                               </motion.button>
                             )}
                           </AnimatePresence>
@@ -1390,6 +1698,66 @@ export default function ChatClient({ threadId }: Props) {
             })}
           </>
           )}
+          {/* ── CoAlter 同意カード ── */}
+          <AnimatePresence>
+            {coalter.isPending && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterConsent
+                  requesterName={cpName ?? "相手"}
+                  onAccept={coalter.accept}
+                  onDecline={() => coalter.end("opt_out")}
+                  loading={coalter.loading}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {/* ── CoAlter 提案カード (Phase 6.C: discriminated union dispatch) ── */}
+          {/*
+           * CEO 6.C 条件 #4:
+           *   card.mode (decision / negotiate / clarify) で switch し、1 カード内で混在させない。
+           *   currentCard があれば Dispatcher 経由、無ければ従来の CoAlterCard (decision) にフォールバック。
+           */}
+          <AnimatePresence>
+            {coalter.hasCard && coalter.currentCard && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterCardDispatcher
+                  card={coalter.currentCard}
+                  onDismiss={coalter.dismissProposal}
+                  onAdopt={coalter.adoptCandidate}
+                  onRefine={coalter.refine}
+                  pendingAxisDeltas={coalter.pendingAxisDeltas}
+                  onAxisToggle={coalter.toggleAxisDelta}
+                  onReroll={coalter.reroll}
+                  onCloseRefine={() => { /* ローカルで閉じるだけ */ }}
+                  awaitingAnswer={coalter.awaitingAnswer}
+                  onAnswerInChat={(q) => coalter.markAwaitingAnswer(q)}
+                  onCancelAwaiting={() => coalter.markAwaitingAnswer(null)}
+                  onHandoffEvent={handleCoAlterHandoffEvent}
+                />
+              </motion.div>
+            )}
+            {!coalter.hasCard && coalter.hasProposal && coalter.currentProposal && (
+              <motion.div className="py-3 px-2"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <CoAlterCard
+                  proposal={coalter.currentProposal}
+                  onDismiss={coalter.dismissProposal}
+                  onAdopt={coalter.adoptCandidate}
+                  onRefine={coalter.refine}
+                  pendingAxisDeltas={coalter.pendingAxisDeltas}
+                  onAxisToggle={coalter.toggleAxisDelta}
+                  onReroll={coalter.reroll}
+                  onCloseRefine={() => { /* ローカルで閉じるだけ */ }}
+                  awaitingAnswer={coalter.awaitingAnswer}
+                  onAnswerInChat={(q) => coalter.markAwaitingAnswer(q)}
+                  onCancelAwaiting={() => coalter.markAwaitingAnswer(null)}
+                  onHandoffEvent={handleCoAlterHandoffEvent}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
           {/* タイピングインジケーター */}
           <AnimatePresence>
             {isTyping && (
@@ -1457,6 +1825,87 @@ export default function ChatClient({ threadId }: Props) {
         borderTop: `1px solid ${C.s2}`,
       }}>
         <div className="max-w-lg mx-auto px-4 py-2.5">
+          {/* ── CoAlter ソフトヒント（Phase 1.5.3・B案） ── */}
+          <AnimatePresence>
+            {coalter.lastTrigger &&
+              coalter.pairState === "enabled" &&
+              !coalter.currentProposal &&
+              coalter.sessionState !== "active" && (
+                <motion.button
+                  key={`coalter-hint-${coalter.lastTrigger.pattern}`}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 6 }}
+                  transition={{ duration: 0.2 }}
+                  onClick={() => {
+                    coalter.invoke(null);
+                    coalter.dismissTrigger();
+                  }}
+                  className="w-full mb-1.5 rounded-xl px-3 py-2 flex items-center gap-2"
+                  style={{
+                    background: `linear-gradient(135deg, ${C.neural}0C, ${C.pulse}08)`,
+                    border: `1px solid ${C.neural}22`,
+                    textAlign: "left",
+                  }}
+                  aria-label="CoAlter で2人の候補を出す"
+                >
+                  <span
+                    className="shrink-0 flex items-center justify-center rounded-lg"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      background: `${C.neural}18`,
+                      fontSize: 14,
+                    }}
+                    aria-hidden
+                  >
+                    ✦
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span
+                      className="block"
+                      style={{ fontSize: 11, color: C.neural, fontWeight: 600 }}
+                    >
+                      2人の候補を一緒に出しますか？
+                    </span>
+                    <span
+                      className="block truncate"
+                      style={{ fontSize: 10, color: C.t3, marginTop: 1 }}
+                    >
+                      迷いや「どれにする？」を CoAlter が整理します
+                    </span>
+                  </span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      coalter.dismissTrigger();
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="ヒントを閉じる"
+                    style={{
+                      fontSize: 14,
+                      color: C.t4,
+                      padding: "4px 6px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </span>
+                </motion.button>
+              )}
+          </AnimatePresence>
+          {/* ── CoAlter ボタン ── */}
+          <div className="flex justify-end mb-1.5">
+            <CoAlterButton
+              pairState={coalter.pairState}
+              sessionState={coalter.sessionState}
+              loading={coalter.loading}
+              error={coalter.error}
+              onActivate={coalter.activate}
+              onInvoke={() => coalter.invoke(null)}
+            />
+          </div>
           {/* 引用返信プレビュー */}
           <AnimatePresence>
             {replyTo && (
@@ -1535,37 +1984,82 @@ export default function ChatClient({ threadId }: Props) {
               )}
             </div>
             {/* 🔮 意図チェックボタン */}
-            <button
-              onClick={handleIntentCheck}
-              disabled={!input.trim() || intentCheck.checking}
-              aria-label="伝わり方チェック"
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px] flex-shrink-0"
-              style={{
-                background: intentCheck.checking ? `${C.neural}20` : input.trim() ? `${C.neural}10` : "transparent",
-                opacity: input.trim() ? 1 : 0.3,
-              }}
-            >
-              <span style={{ fontSize: 16 }}>{intentCheck.checking ? "⏳" : "🔮"}</span>
-            </button>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || sending}
-              aria-label="送信"
-              className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px]"
-              style={{
-                background: input.trim() ? `linear-gradient(135deg, ${C.neural}, ${C.pulse})` : C.s2,
-                color: input.trim() ? "white" : C.t4,
-                opacity: sending ? 0.5 : 1,
-                transform: input.trim() ? "scale(1)" : "scale(0.95)",
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
-              </svg>
-            </button>
+            {(() => {
+              const hasText = mounted && !!input.trim();
+              return (
+                <button
+                  onClick={handleIntentCheck}
+                  disabled={!hasText || intentCheck.checking}
+                  aria-label="伝わり方チェック"
+                  className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px] flex-shrink-0"
+                  style={{
+                    background: intentCheck.checking ? `${C.neural}20` : hasText ? `${C.neural}10` : "transparent",
+                    opacity: hasText ? 1 : 0.3,
+                  }}
+                >
+                  {intentCheck.checking ? (
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+                    >
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="9" stroke={C.neural} strokeWidth="2" strokeDasharray="20 40" strokeLinecap="round" />
+                      </svg>
+                    </motion.div>
+                  ) : (
+                    /* 2つの吹き出しが重なるアイコン — 「伝わり方」を表現 */
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      {/* 送信側吹き出し */}
+                      <path d="M4 4h10c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2H8l-3 2.5V13H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+                        stroke={hasText ? C.neural : C.t4} strokeWidth="1.5" strokeLinejoin="round"
+                        fill={hasText ? `${C.neural}10` : "none"} opacity={hasText ? 1 : 0.4} />
+                      {/* 受信側吹き出し（少しずらして重ねる） */}
+                      <path d="M10 9h10c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2h-1v2.5L16 18h-6c-1.1 0-2-.9-2-2v-5c0-1.1.9-2 2-2z"
+                        stroke={hasText ? C.pulse : C.t4} strokeWidth="1.5" strokeLinejoin="round"
+                        fill={hasText ? `${C.pulse}08` : "none"} opacity={hasText ? 0.8 : 0.3} />
+                      {/* 中央のリンクドット — 通じ合いを表現 */}
+                      <circle cx="12" cy="12.5" r="1.5" fill={hasText ? C.neural : C.t4} opacity={hasText ? 0.7 : 0.2} />
+                    </svg>
+                  )}
+                </button>
+              );
+            })()}
+            {(() => {
+              const hasText = mounted && !!input.trim();
+              return (
+                <button
+                  onClick={handleSend}
+                  disabled={!hasText || sending}
+                  aria-label="送信"
+                  className="w-10 h-10 rounded-full flex items-center justify-center transition-all min-h-[44px]"
+                  style={{
+                    background: hasText ? `linear-gradient(135deg, ${C.neural}, ${C.pulse})` : C.s2,
+                    color: hasText ? "white" : C.t4,
+                    opacity: sending ? 0.5 : 1,
+                    transform: hasText ? "scale(1)" : "scale(0.95)",
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path d="M3.105 2.289a.75.75 0 00-.826.95l1.414 4.925A1.5 1.5 0 005.135 9.25h6.115a.75.75 0 010 1.5H5.135a1.5 1.5 0 00-1.442 1.086l-1.414 4.926a.75.75 0 00.826.95 28.896 28.896 0 0015.293-7.154.75.75 0 000-1.115A28.897 28.897 0 003.105 2.289z" />
+                  </svg>
+                </button>
+              );
+            })()}
           </div>
         </div>
       </div>
+
+      {/* ── ミニ観測ボトムシート ── */}
+      <IntentObservationSheet
+        open={observationSheet.open}
+        reason={observationSheet.reason}
+        onClose={() => setObservationSheet(prev => ({ ...prev, open: false }))}
+        onComplete={() => {
+          setObservationSheet(prev => ({ ...prev, open: false }));
+          // 観測完了 → intent-check を自動リトライ
+          console.info("[observation] complete — intent features should now be available");
+        }}
+      />
     </div>
   );
 }

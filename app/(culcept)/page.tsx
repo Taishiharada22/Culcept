@@ -25,8 +25,8 @@ export default async function HomePage() {
             const isRegistered = cookieStore.get("aneurasync_registered")?.value === "1";
             // 登録済みユーザー → ログイン画面へ（素直に）
             if (isRegistered) redirect("/login");
-            // 新規ユーザー → Stargazer オンボーディングへ
-            redirect("/stargazer");
+            // 新規 or クッキー消失 → ウェルカム画面で振り分け
+            redirect("/welcome");
         }
 
         // ── 匿名ユーザー（Stargazer初回観測未完了） ──

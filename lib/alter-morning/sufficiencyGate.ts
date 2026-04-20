@@ -14,7 +14,11 @@ import type {
   MorningPlan,
   MainLocation,
   ParsedDayIntent,
+  AutoInferredMap,
+  AutoInferredField,
+  InferenceConfidence,
 } from "./types";
+import type { TransportMode, VenueType } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 検出パターン
@@ -279,10 +283,16 @@ export interface PlanIntakeResult {
   goingOut: boolean;
   /** 社会的活動が含まれるか（ミーティング・食事・デート等） */
   hasSocialActivity: boolean;
-  /** 自動推定された条件 */
+  /** 自動推定された条件（後方互換: venue の値のみ） */
   autoInferred: {
     venue?: "indoor" | "outdoor" | "mixed";
   };
+  /**
+   * Phase D: 推論で補完されたフィールド（confidence + reason 付き）。
+   * transport / venue が未指定でも plan 骨格を壊さない場合はここに格納し、
+   * clarify に回さず plan_presented へ直行させる。
+   */
+  autoInferredMap: AutoInferredMap;
 }
 
 /** 社会的活動を示すキーワード（withWhom が plan-critical になる条件） */
@@ -333,15 +343,118 @@ function detectSocialActivity(items: PlanItem[], intent?: ParsedDayIntent): bool
  * @param dayConditions - extractDayConditions() の結果（条件）
  * @param allRawInputs - 全ユーザー入力テキスト
  */
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase D: Transport 推論チェーン
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 優先順位: 明示指定 → ユーザー既知傾向 → 距離/地理推論 → 最後の保険デフォルト
+// CEO方針: transport 未指定でも plan を止めない。推論で埋める。
+
+/** 首都圏・近畿・中京の都市圏（電車が主な移動手段） */
+const TRAIN_PREFECTURES = new Set([
+  "東京都", "神奈川県", "千葉県", "埼玉県",           // 首都圏
+  "大阪府", "京都府", "兵庫県",                         // 近畿
+  "愛知県",                                              // 中京
+]);
+
+/**
+ * Transport 推論チェーン。
+ *
+ * CEO 方針 2026-04-17（Phase D rollback）:
+ *   日本は電車/バス/車/自転車/徒歩が混在し、都道府県ベースの推論は誤りが大きい。
+ *   ユーザー傾向ログが蓄積されるまでは、transport は clarify 対象に戻す。
+ *
+ * 1. 明示指定（intent / dayConditions） → null を返して Gate に委譲
+ * 2. ユーザー既知傾向（将来: baseline / 過去プラン統計）— データ蓄積待ち
+ * 3. 距離/地理推論 — 撤回（誤推論が体験を壊す）
+ * 4. 最後の保険デフォルト — 撤回（勝手に「車」や「電車」と仮定しない）
+ */
+function inferTransport(
+  _intent: ParsedDayIntent,
+  _dayConditions: Partial<DayConditions>,
+  _rawSufficiency: SufficiencyResult,
+  _userPrefecture?: string,
+): AutoInferredField<TransportMode> | null {
+  // 明示があれば null（Gate 側で既に解決済み扱い）、なければ null で未解決にして
+  // planMissing に transport を積む → clarify で聞く。
+  return null;
+}
+// 参考: 旧コード（復活用に保存）
+//   if (userPrefecture && TRAIN_PREFECTURES.has(userPrefecture)) { ... train medium }
+//   return { value: "car", confidence: "low", reason: "指定なし → 車" };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase D: Venue 確信度付き推論
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO方針: 高確信はそのまま採用。中確信は plan は出すが autoInferred に残す。
+//          低確信は必要なら確認（ただし plan は止めない）。
+
+function inferVenueWithConfidence(
+  intent: ParsedDayIntent,
+  dayConditions: Partial<DayConditions>,
+  goingOut: boolean,
+): AutoInferredField<VenueType> | null {
+  if (dayConditions.venue) return null; // ユーザーが明示済み
+
+  // ── mainLocation のカテゴリから推定（高確信）──
+  if (intent.mainLocation?.category) {
+    const v = inferVenueFromCategory(intent.mainLocation.category);
+    if (v) {
+      return {
+        value: v as VenueType,
+        confidence: "high",
+        reason: `${intent.mainLocation.label ?? intent.mainLocation.category} → ${v}`,
+      };
+    }
+  }
+
+  // ── locationSequence の main stop から推定（高確信）──
+  const mainStop = intent.locationSequence?.find(ls => ls.kind === "main");
+  if (mainStop?.category) {
+    const v = inferVenueFromCategory(mainStop.category);
+    if (v) {
+      return {
+        value: v as VenueType,
+        confidence: "high",
+        reason: `${mainStop.label} → ${v}`,
+      };
+    }
+  }
+
+  // ── goOut フラグから推定（中確信）──
+  if (goingOut) {
+    return {
+      value: "mixed" as VenueType,
+      confidence: "medium",
+      reason: "外出予定 → 室内外混在で計算",
+    };
+  }
+  if (intent.flowContext.goOut === false) {
+    return {
+      value: "indoor" as VenueType,
+      confidence: "high",
+      reason: "在宅予定 → 室内",
+    };
+  }
+
+  // ── 推定不能（低確信のデフォルト）──
+  return {
+    value: "mixed" as VenueType,
+    confidence: "low",
+    reason: "場所情報なし → 室内外混在で計算",
+  };
+}
+
 export function checkPlanIntakeSufficiency(
   rawSufficiency: SufficiencyResult,
   intent: ParsedDayIntent,
   items: PlanItem[],
   dayConditions: Partial<DayConditions>,
-  allRawInputs: string
+  allRawInputs: string,
+  userPrefecture?: string,
 ): PlanIntakeResult {
   // ── goOut 判定 ──
-  // mainLocation が "home" カテゴリの場合は外出ではない
   const hasNonHomeLocation =
     intent.mainLocation != null && intent.mainLocation.category !== "home";
   const hasNonHomeInSequence =
@@ -351,58 +464,57 @@ export function checkPlanIntakeSufficiency(
     hasNonHomeInSequence ||
     hasNonHomeLocation;
 
-  // ── venue 自動推定 ──
-  let inferredVenue: "indoor" | "outdoor" | "mixed" | undefined;
-  if (!dayConditions.venue) {
-    if (intent.mainLocation?.category) {
-      const v = inferVenueFromCategory(intent.mainLocation.category);
-      if (v) inferredVenue = v;
-    }
-    // locationSequence の main stop からも試す
-    if (!inferredVenue) {
-      const mainStop = intent.locationSequence?.find(ls => ls.kind === "main");
-      if (mainStop?.category) {
-        const v = inferVenueFromCategory(mainStop.category);
-        if (v) inferredVenue = v;
-      }
-    }
-    // goOut フラグから推定
-    if (!inferredVenue) {
-      if (goingOut) inferredVenue = "mixed";
-      else if (intent.flowContext.goOut === false) inferredVenue = "indoor";
-    }
+  // ── Phase D: Transport 推論チェーン ──
+  const autoInferredMap: AutoInferredMap = {};
+  const transportInferred = inferTransport(intent, dayConditions, rawSufficiency, userPrefecture);
+  if (transportInferred) {
+    autoInferredMap.transport = transportInferred;
   }
-  const venueResolved = dayConditions.venue != null || inferredVenue != null;
+
+  // ── Phase D: Venue 確信度付き推論 ──
+  const venueInferred = inferVenueWithConfidence(intent, dayConditions, goingOut);
+  if (venueInferred) {
+    autoInferredMap.venue = venueInferred;
+  }
 
   // ── 社会的活動の検出 ──
   const hasSocialActivity = detectSocialActivity(items, intent);
 
   // ── withWhom の解決判定 ──
-  // テキストからの検出 OR fixedEvents に companion がある OR items に withWhom がある
   const withWhomFromText = detectWithWhom(allRawInputs) !== null;
   const withWhomFromItems = items.some(i => i.withWhom != null);
   const withWhomFromEvents = intent.fixedEvents.some(e => e.companion != null);
   const withWhomResolved = withWhomFromText || withWhomFromItems || withWhomFromEvents || dayConditions.withWhom != null;
 
-  // ── プランに不足している項目を判定 ──
-  // mood を除外（プラン成立には不要 → Outfit Gate で扱う）
+  // ── Phase D: hard blocker のみ missingFields に入れる ──
+  // CEO方針: transport / venue / mood / withWhom は plan を止めない
+  // hard blocker = place unresolved / hard anchor 衝突 のみ（上位で処理）
   const planMissing: MissingField[] = [];
 
-  // transport: 外出時に必須（移動時間の計算に必要）
-  const transportResolved = rawSufficiency.resolved.transport || dayConditions.mainTransport != null;
-  if (!transportResolved && goingOut) {
+  // transport: 推論で埋まった場合は missing にしない
+  const transportResolved =
+    rawSufficiency.resolved.transport ||
+    dayConditions.mainTransport != null ||
+    intent.flowContext.transport != null ||
+    transportInferred != null;
+  // CEO 方針 2026-04-17 (Phase D rollback):
+  //   外出予定 (goingOut=true) で transport が未解決なら clarify で聞く。
+  //   以前は「推論 or default car で進む」だったが、誤推論がプラン全体を崩すため撤回。
+  //   在宅 (goingOut=false) は transport を聞かない（移動がないので不要）。
+  if (goingOut && !transportResolved) {
     planMissing.push("transport");
   }
 
-  // venue: 自動推定できなかった場合のみ不足
-  if (!venueResolved) {
-    planMissing.push("venue");
-  }
+  // venue: 推論で埋まった場合は missing にしない
+  // Phase D: venue 未解決でも plan は止めない
+  // → planMissing に venue を追加しない
 
-  // withWhom: 社会的活動がある場合は必須
-  if (!withWhomResolved && hasSocialActivity) {
-    planMissing.push("withWhom");
-  }
+  // withWhom: 社会的活動があっても plan を止めない
+  // CEO方針: 勝手に埋めない（unknown のまま）、ただし plan は止めない
+  // → planMissing に withWhom を追加しない
+
+  // mood: 元々 plan 成立に不要（Outfit Gate で扱う）
+  // → planMissing に mood を追加しない
 
   // ── sufficiency level を判定 ──
   const hasTasks =
@@ -413,18 +525,13 @@ export function checkPlanIntakeSufficiency(
   let level: SufficiencyLevel;
   if (!hasTasks) {
     level = rawSufficiency.level === "no_plan" ? "no_plan" : "insufficient";
-  } else if (planMissing.length === 0) {
-    level = "sufficient";
-  } else if (planMissing.includes("transport")) {
-    // transport が不明 → 移動時間を計算できない → 必ず聞く
-    level = "insufficient";
-  } else if (planMissing.includes("withWhom") && hasSocialActivity) {
-    // 社会的活動あり + 相手不明 → プランの文脈が不完全 → 聞く
-    level = "insufficient";
-  } else if (planMissing.length <= 1) {
+  } else if (planMissing.length > 0) {
+    // CEO 方針 2026-04-17: transport 等 clarify 必須項目が残っていれば partial。
+    // 上位で buildPlanClarifyQuestion が呼ばれる経路に入り、聞いてから plan を組む。
     level = "partial";
   } else {
-    level = "insufficient";
+    // タスク + 必須項目が揃っている → sufficient
+    level = "sufficient";
   }
 
   return {
@@ -433,8 +540,9 @@ export function checkPlanIntakeSufficiency(
     goingOut,
     hasSocialActivity,
     autoInferred: {
-      venue: inferredVenue,
+      venue: venueInferred?.value as "indoor" | "outdoor" | "mixed" | undefined,
     },
+    autoInferredMap,
   };
 }
 
@@ -534,7 +642,9 @@ export function inferVenueFromPlan(plan: MorningPlan): "indoor" | "outdoor" | "m
   return null;
 }
 
-export type OutfitMissingField = "transport" | "mood" | "withWhom";
+export type OutfitMissingField = "transport" | "mood";
+// NOTE: withWhom は 2026-04-18 以降 outfit blocking から除外。
+// 固有名詞検出の限界（「夏」「仙洞田」等）により、質問コストが体験を毀損するため。
 
 export interface OutfitSufficiencyResult {
   /** コーデ提案に十分な情報があるか */
@@ -579,10 +689,11 @@ export function checkOutfitSufficiency(
   const missingFields: OutfitMissingField[] = [];
   if (!transportResolved) missingFields.push("transport");
   if (!moodResolved) missingFields.push("mood");
-  // withWhom は対人予定がありそうな場合のみ聞く
-  if (!withWhomResolved && looksLikeSocialEvent(plan)) {
-    missingFields.push("withWhom");
-  }
+  // CEO方針 2026-04-18: withWhom はコーデ提案を止めない。
+  // フォーマリティへの影響は小さく、質問のコストが高い。
+  // プランテキスト中に「Xと」パターンがあれば暗黙解決扱い。
+  // 名前辞書に頼れない（「夏」「仙洞田」等の固有名を検出できない）。
+  // → withWhom は outfit missingFields に追加しない。
 
   return {
     sufficient: missingFields.length === 0,
@@ -608,28 +719,35 @@ function looksLikeSocialEvent(plan: MorningPlan): boolean {
 }
 
 /**
- * コーデ用の不足情報を 1 問に束ねた質問文を生成する。
+ * コーデ用の不足情報を 1 問で聞ける文言に生成する。
  *
- * 例:
- * 「コーデ提案するために教えて。移動は車・電車・徒歩どれが多い？
- *  服はラフ寄り / きれいめ寄りどっち？」
+ * CEO指摘 2026-04-16: 「コーデ見る？」だと手間がかかる。
+ * 「今日コーディネート必要だったら、ラフかキレイか、どっちがいいか教えて？」
+ * のように一回で聞けるようにする。
  */
 export function buildOutfitClarifyQuestion(missing: OutfitMissingField[]): string {
   if (missing.length === 0) return "";
 
-  const questions: string[] = [];
-
-  if (missing.includes("transport")) {
-    questions.push("移動は車・電車・徒歩どれが多い？");
+  // mood だけが不足（最も多いパターン）→ 1発で聞く
+  if (missing.length === 1 && missing[0] === "mood") {
+    return "コーデどんな感じがいい？キレイめ？カジュアル？きっちり？";
   }
+
+  // transport だけが不足
+  if (missing.length === 1 && missing[0] === "transport") {
+    return "移動は車・電車・徒歩のどれが多い？";
+  }
+
+  // 複数不足 → 1文にまとめる
+  const parts: string[] = [];
   if (missing.includes("mood")) {
-    questions.push("服はラフ寄り / きれいめ寄りどっち？");
+    parts.push("キレイめかカジュアルか");
   }
-  if (missing.includes("withWhom")) {
-    questions.push("誰かと会う予定ある？");
+  if (missing.includes("transport")) {
+    parts.push("移動は車・電車・徒歩のどれが多いか");
   }
 
-  return `コーデ提案するために教えて。\n${questions.join("\n")}`;
+  return `コーデ組むから教えて。${parts.join("と、")}`;
 }
 
 /**

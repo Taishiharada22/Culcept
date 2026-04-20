@@ -1,0 +1,814 @@
+/**
+ * CoAlter Slot Validator — Phase 1.5.4.5
+ *
+ * 目的: LLM の出力品質を機械的に保証する第二層。
+ *
+ * 責務:
+ *  1. slot の粒度チェック（「駅周辺」「人気店」など抽象は reject）
+ *  2. テーマ固有の最低粒度（movie=作品名 / food=店舗固有名詞 / travel=固有地名）
+ *  3. agreedConstraints（hard）違反検査
+ *  4. reject 理由を reason code で返す（re-prompt 品質向上 + ログ監査）
+ *
+ * 設計原則:
+ *  - boolean でなく reason code を返す（LLM re-prompt に使える）
+ *  - hard constraint のみ強制、soft は reasoning 強調にとどめる
+ *  - 誤 reject を恐れて緩くするより、抽象候補を落とす方針（CoAlter の強みは具体性）
+ */
+
+import type {
+  AgreedConstraint,
+  CandidateValidationResult,
+  ConversationTheme,
+  MovieScreening,
+  ProposalCandidate,
+  ValidationReasonCode,
+} from "./types";
+import { getThemeRule, type SlotBundle, type SlotContent } from "./slots";
+import {
+  matchesCatalogTheater,
+  matchesCatalogTitle,
+} from "./movieCatalog";
+
+// ─────────────────────────────────────────────
+// 抽象語辞書
+// ─────────────────────────────────────────────
+
+/**
+ * 「これだけで終わっていたら具体性に欠ける」語のリスト。
+ *
+ * 固有名詞と組み合わさっていれば OK（例: 「渋谷ストリーム」は通す、「渋谷駅周辺」は落とす）。
+ */
+const ABSTRACT_TOKENS = [
+  "周辺",
+  "駅前",
+  "駅近",
+  "駅から",
+  "人気店",
+  "人気",
+  "おすすめ",
+  "有名",
+  "安い店",
+  "リーズナブル",
+  "ヘルシー",
+  "美味しい店",
+  "おいしい",
+  "近く",
+  "近場",
+  "この辺",
+  "いいお店",
+  "良いお店",
+  "雰囲気のいい",
+  "お店",
+  "レストラン",
+] as const;
+
+/**
+ * 抽象語「のみ」で構成されているかを判定。
+ *
+ * 例:
+ *  - "渋谷駅周辺" → true（"渋谷" + 抽象語 "駅周辺"。固有が地名1個のみで抽象語が支配的）
+ *  - "渋谷ストリーム" → false（固有名詞）
+ *  - "人気のラーメン店" → true
+ *  - "一蘭" → false（固有名詞）
+ */
+function isAbstractOnly(label: string): boolean {
+  if (!label) return true;
+  const trimmed = label.trim();
+  if (trimmed.length === 0) return true;
+
+  // 抽象語を含むか？
+  const hasAbstract = ABSTRACT_TOKENS.some((t) => trimmed.includes(t));
+  if (!hasAbstract) return false;
+
+  // 固有名詞的なシグナルがあるか？
+  // - カタカナ3文字以上の連続（カタカナ固有名詞）
+  // - 『』『 』で囲まれた作品名
+  // - 具体的な店舗名らしい語尾（「亭」「屋」「庵」「カフェ」+ 固有 等）
+  const hasKatakanaProperNoun = /[\u30A0-\u30FF]{3,}/.test(trimmed);
+  const hasBracketedTitle = /[『「【〈].+[』」】〉]/.test(trimmed);
+  // 漢字3文字以上の連続で、かつ一般名詞語尾じゃないもの
+  const hasKanjiProperNoun = /[\u4E00-\u9FFF]{2,}/.test(trimmed) &&
+    !ABSTRACT_TOKENS.every((t) => trimmed.includes(t));
+
+  // カタカナ固有名詞 or 鉤括弧作品名 がないなら抽象的
+  if (hasKatakanaProperNoun || hasBracketedTitle) return false;
+
+  // 漢字のみで、抽象語を含む場合 → 抽象と判定（「人気ラーメン店」等）
+  // 「渋谷の一蘭」のように抽象語 + 固有名詞らしきものがある場合は通す
+  // ざっくり: 抽象語を除いた部分が2文字以上残るか
+  let residual = trimmed;
+  for (const t of ABSTRACT_TOKENS) {
+    residual = residual.split(t).join("");
+  }
+  residual = residual.replace(/[のでをにはが、。・\s]/g, "");
+
+  // 地名リスト（「渋谷」「新宿」等）— これらだけが残っても抽象扱い
+  const GENERIC_AREA_NAMES = [
+    "渋谷", "新宿", "池袋", "銀座", "六本木", "表参道", "原宿",
+    "吉祥寺", "横浜", "大阪", "京都", "名古屋", "福岡", "札幌", "神戸",
+    "東京", "品川", "渋谷駅", "新宿駅", "東京駅",
+  ];
+  const isOnlyAreaName = GENERIC_AREA_NAMES.some((a) => residual === a || residual.replace(a, "") === "");
+  if (isOnlyAreaName) return true;
+
+  // 残存文字が2文字未満 = 固有名詞がほぼ無い
+  if (residual.length < 2) return true;
+
+  // 漢字のみの残存が3文字以上あるなら固有名詞の可能性あり
+  if (hasKanjiProperNoun && residual.length >= 3) return false;
+
+  return true;
+}
+
+// ─────────────────────────────────────────────
+// 作品名パターン（movie.what 専用）
+// ─────────────────────────────────────────────
+
+/**
+ * movie の what が具体的な作品名を含むか。
+ *
+ * OK: 『ラストマイル』、"君の名は。"、「THE FIRST SLAM DUNK」、"ラストマイル"
+ * NG: 「恋愛映画」「サスペンス」「話題の新作」
+ */
+function looksLikeMovieTitle(label: string): boolean {
+  if (!label) return false;
+  const trimmed = label.trim();
+
+  // 活動ラベル単独は NG（タイトル無しでアクティビティだけ書いているケース）
+  const ACTIVITY_ONLY = [
+    "映画鑑賞", "映画観賞", "映画を観る", "映画を見る", "映画視聴",
+    "映画体験", "映画館", "シネマ", "シネマ鑑賞", "映画デート",
+    "ムービー", "映画", "観賞", "鑑賞",
+  ];
+  if (ACTIVITY_ONLY.some((a) => trimmed === a)) return false;
+  // 「XXX映画鑑賞」「映画鑑賞XXX」のような接辞のみの拡張も NG
+  if (ACTIVITY_ONLY.some((a) => {
+    const stripped = trimmed.replace(a, "").trim();
+    return stripped.length === 0 || stripped.length < 2;
+  })) {
+    // 作品名を含んでいる可能性を最低限残す: 括弧付きタイトルがあれば別
+    if (!/[『「【〈].+[』」】〉]/.test(trimmed)) return false;
+  }
+
+  // 抽象ジャンル名だけの場合は NG（最優先でチェック）
+  const GENRE_WORDS = [
+    "恋愛", "アクション", "サスペンス", "ホラー",
+    "コメディ", "SF", "ファンタジー", "ドキュメンタリー", "ミステリー",
+    "ロマンス", "青春", "感動", "泣ける", "ラブストーリー", "ラブコメ",
+    "ヒューマン", "アニメ", "邦画", "洋画", "実写",
+  ];
+  const ADJECTIVE_WORDS = [
+    "話題の", "話題", "話題作", "最新", "最新の", "最新作",
+    "人気", "人気の", "人気作", "おすすめ", "おすすめの",
+    "新作", "新しい", "過去の", "昔の", "定番の", "定番", "名作",
+    "感動", "話題の新作", "今", "今話題", "今期",
+    "公開中の", "公開中", "上映中の", "上映中",
+  ];
+  const GENRE_ONLY_LITERAL = GENRE_WORDS.flatMap((g) => [g, `${g}映画`, `${g}作品`]);
+  if (GENRE_ONLY_LITERAL.some((g) => trimmed === g)) return false;
+  // ジャンル名 + 「映画」で終わるだけ（「恋愛映画」等）
+  if (GENRE_WORDS.some((g) => {
+    const stripped = trimmed.replace(g, "").replace(/映画|作品/g, "").trim();
+    return stripped.length === 0;
+  })) {
+    return false;
+  }
+  // 形容詞接頭 + (ジャンル|空) + (映画|作品|もの) → NG
+  // 例: 「過去の話題作恋愛映画」「新作恋愛映画」「話題の新作」「定番の感動作品」
+  for (const adj of ADJECTIVE_WORDS) {
+    if (!trimmed.includes(adj)) continue;
+    let residual = trimmed.split(adj).join("");
+    for (const g of GENRE_WORDS) residual = residual.split(g).join("");
+    for (const adj2 of ADJECTIVE_WORDS) residual = residual.split(adj2).join("");
+    residual = residual.replace(/映画|作品|もの|の|・|系|風/g, "").trim();
+    if (residual.length === 0) return false;
+  }
+  // 「話題の X」「最新作 X」などジャンル接頭 + 一般名詞
+  const GENRE_PREFIXES = ["話題の", "最新の", "人気の", "おすすめの"];
+  if (GENRE_PREFIXES.some((p) => {
+    if (!trimmed.startsWith(p)) return false;
+    const rest = trimmed.slice(p.length);
+    const GENERIC_NOUNS = ["新作", "映画", "作品", "もの"];
+    return GENERIC_NOUNS.some((n) => rest === n);
+  })) return false;
+
+  // 括弧付き（『』「」【】）は作品名の典型
+  if (/[『「【〈].+[』」】〉]/.test(trimmed)) return true;
+
+  // カタカナ3文字以上の連続（カタカナ作品名）
+  if (/[\u30A0-\u30FF]{3,}/.test(trimmed)) return true;
+
+  // 英数字タイトル（"THE FIRST SLAM DUNK" 等）
+  if (/[A-Z][A-Z\s]{3,}/.test(trimmed)) return true;
+
+  // 漢字 or ひらがな混在の 3文字以上 → 日本語タイトルの可能性
+  if (trimmed.length >= 3 && /[\u4E00-\u9FFF\u3040-\u309F]/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
+}
+
+// ─────────────────────────────────────────────
+// 密度チェック（practicalInfo / slot detail が薄すぎないか）
+// ─────────────────────────────────────────────
+
+/**
+ * practicalInfo が「数字が含まれる具体情報」を最低2項目持っているか。
+ *
+ * 数字項目の種類:
+ *  - 評価スコア（★/点/4.2 のような小数）
+ *  - 時刻（15:00〜 / 19:00 等）
+ *  - 料金（1,500円 / ¥1500 / 大人 1900 等）
+ *  - 所要・上映時間（118分 / 2時間 等）
+ *  - 徒歩分（駅徒歩5分 等）
+ *
+ * practicalInfo が null の場合でも、slot.detail に密度があれば救済。
+ */
+function hasDensePracticalInfo(
+  candidate: ProposalCandidate,
+  _theme: ConversationTheme,
+): boolean {
+  // practicalInfo + 全 slot の detail を結合
+  const text = [
+    candidate.practicalInfo ?? "",
+    ...Object.values(candidate.slots ?? {}).flatMap((s) =>
+      s ? [s.detail ?? ""] : [],
+    ),
+  ].join(" ");
+
+  if (text.trim().length === 0) return false;
+
+  // 数字を含む情報項目を数える
+  let score = 0;
+  // 評価系
+  if (/★\s*\d|\d\.\d{1,2}\s*点|\d\.\d{1,2}\s*\/\s*5|Filmarks?[^\n]{0,6}\d\.\d/.test(text)) {
+    score += 1;
+  }
+  // 時刻
+  if (/\b\d{1,2}:\d{2}/.test(text)) {
+    score += 1;
+  }
+  // 料金
+  if (/(¥|\\)?\s?[\d,]{3,6}\s*円|\bprice|\d{3,5}\s*〜|\d{3,5}\s*-\s*\d{3,5}/.test(text)) {
+    score += 1;
+  }
+  // 所要・上映時間
+  if (/\d{2,3}\s*分|\d\s*時間|\d+h\b/.test(text)) {
+    score += 1;
+  }
+  // 徒歩分 / 距離
+  if (/徒歩\s*\d|駅\s*\d\s*分|\d\s*km/.test(text)) {
+    score += 1;
+  }
+
+  // テーマ別に要求数を変える余地があるが、共通で「2項目以上」を最低ラインに
+  return score >= 2;
+}
+
+// ─────────────────────────────────────────────
+// slot 単位の validation
+// ─────────────────────────────────────────────
+
+function validateSlot(
+  theme: ConversationTheme,
+  slotKey: "what" | "where" | "when" | "who" | "why" | "how",
+  content: SlotContent | undefined,
+): ValidationReasonCode[] {
+  if (!content || !content.label) return []; // optional slot は空でよい
+
+  const label = content.label.trim();
+
+  // 抽象語チェック
+  if (isAbstractOnly(label)) {
+    if (slotKey === "where") return ["abstract_where"];
+    if (slotKey === "what") return ["abstract_what"];
+    // その他の slot も抽象なら落とすが、主要2つに絞って返す
+  }
+
+  // テーマ固有のチェック
+  if (theme === "movie" && slotKey === "what") {
+    if (!looksLikeMovieTitle(label)) return ["missing_movie_title"];
+  }
+
+  return [];
+}
+
+// ─────────────────────────────────────────────
+// agreedConstraints 違反検査
+// ─────────────────────────────────────────────
+
+/**
+ * 候補が hard constraint に違反しているかチェック。
+ */
+function checkAgreedConstraintsViolation(
+  candidate: ProposalCandidate,
+  constraints: AgreedConstraint[],
+): { reasons: ValidationReasonCode[]; violated: string[] } {
+  const reasons: ValidationReasonCode[] = [];
+  const violated: string[] = [];
+
+  // 候補の全テキスト（title + oneLiner + slots の label/detail）を結合
+  const candidateText = [
+    candidate.title,
+    candidate.oneLiner,
+    candidate.practicalInfo ?? "",
+    ...Object.values(candidate.slots ?? {}).flatMap((s) =>
+      s ? [s.label, s.detail ?? ""] : [],
+    ),
+  ].join(" ");
+
+  for (const c of constraints) {
+    if (c.strength !== "hard") continue;
+
+    // ── exclusion: 候補が除外ターゲットを含んでいたら違反 ──
+    if (c.kind === "exclusion") {
+      // "exclude:attached_venue" 特化
+      if (c.normalizedValue === "exclude:attached_venue") {
+        // 候補が映画館併設のレストランを提示していたら違反
+        if (/併設|一緒|同じ場所|ビル内|同じビル/.test(candidateText)) {
+          reasons.push("violates_exclusion");
+          violated.push(c.sourceText);
+        }
+      } else if (c.normalizedValue.startsWith("exclude:")) {
+        // 汎用 exclusion: normalized から除外ターゲット語を取得
+        const target = c.normalizedValue.slice("exclude:".length);
+        if (target && target.length > 1 && candidateText.includes(target)) {
+          reasons.push("violates_exclusion");
+          violated.push(c.sourceText);
+        }
+      }
+    }
+
+    // ── budget: 候補の detail に予算情報があれば比較 ──
+    if (c.kind === "budget") {
+      const priceMatch = candidateText.match(/(\d{3,5})\s*円/);
+      if (!priceMatch) continue;
+      const price = Number(priceMatch[1]);
+
+      if (c.normalizedValue.startsWith("budget_max:")) {
+        const max = Number(c.normalizedValue.split(":")[1]);
+        if (Number.isFinite(max) && price > max * 1.2) {
+          // 20% の buffer を許容
+          reasons.push("violates_budget");
+          violated.push(c.sourceText);
+        }
+      } else if (c.normalizedValue.startsWith("budget_around:")) {
+        const center = Number(c.normalizedValue.split(":")[1]);
+        if (Number.isFinite(center) && (price > center * 1.5 || price < center * 0.5)) {
+          // ±50% を許容範囲に
+          reasons.push("violates_budget");
+          violated.push(c.sourceText);
+        }
+      } else if (c.normalizedValue.startsWith("budget_range:")) {
+        const range = c.normalizedValue.split(":")[1];
+        const [lo, hi] = range.split("-").map(Number);
+        if (Number.isFinite(lo) && Number.isFinite(hi) && (price < lo * 0.8 || price > hi * 1.2)) {
+          reasons.push("violates_budget");
+          violated.push(c.sourceText);
+        }
+      } else if (c.normalizedValue.startsWith("budget_per_person:")) {
+        const perPerson = Number(c.normalizedValue.split(":")[1]);
+        if (Number.isFinite(perPerson) && price > perPerson * 2.5) {
+          // 1人5000円と合意 → 1万円超は違反
+          reasons.push("violates_budget");
+          violated.push(c.sourceText);
+        }
+      }
+    }
+
+    // ── style: OR 合意（「A か B」） → どちらかを満たしてなければ違反 ──
+    if (c.kind === "style" && c.normalizedValue.startsWith("style_or:")) {
+      const options = c.normalizedValue.slice("style_or:".length).split("|");
+      const anyMatch = options.some((opt) => candidateText.includes(opt));
+      if (!anyMatch) {
+        reasons.push("violates_style");
+        violated.push(c.sourceText);
+      }
+    }
+
+    // ── companions: 今回は検査対象外（候補 text に表れないことが多い） ──
+  }
+
+  return { reasons: [...new Set(reasons)], violated };
+}
+
+// ─────────────────────────────────────────────
+// テーマ固有の最低粒度チェック
+// ─────────────────────────────────────────────
+
+function validateThemeMinimum(
+  theme: ConversationTheme,
+  slots: SlotBundle | undefined,
+): ValidationReasonCode[] {
+  const rule = getThemeRule(theme);
+  if (!rule) return []; // テーマルール未定義なら検査スキップ
+
+  if (!slots || Object.keys(slots).length === 0) {
+    return ["empty_slots"];
+  }
+
+  const reasons: ValidationReasonCode[] = [];
+
+  // core slot 欠落
+  const coreContent = slots[rule.core];
+  if (!coreContent || !coreContent.label) {
+    reasons.push("missing_core_slot");
+  }
+
+  // テーマ固有の追加チェック
+  if (theme === "food") {
+    // food の where は店舗固有名詞が望ましい
+    const where = slots.where;
+    if (where && where.label && isAbstractOnly(where.label)) {
+      if (!reasons.includes("abstract_where")) {
+        reasons.push("missing_venue_proper_noun");
+      }
+    }
+  }
+
+  if (theme === "travel") {
+    // travel の where は固有地名（観光地名 or 施設名）が望ましい
+    const where = slots.where;
+    if (where && where.label && isAbstractOnly(where.label)) {
+      reasons.push("missing_venue_proper_noun");
+    }
+  }
+
+  return reasons;
+}
+
+// ─────────────────────────────────────────────
+// メインAPI
+// ─────────────────────────────────────────────
+
+/**
+ * 1 候補の validation。
+ *
+ * @param searchTitleSet - movie テーマで「検索結果から拾った title 集合」。あれば
+ *                        candidate.slots.what.label がその中に fuzzy match しないと reject。
+ *                        LLM が作品名を発明するのを防ぐ。（P0-1 以降は movieCatalog で代替される）
+ * @param movieCatalog - P0-1: 構造化された映画上映情報。渡された場合はこちらを優先。
+ *                        title / theater / status / showtime を厳密に検査する。
+ *
+ * @returns { ok, reasons, violatedConstraints }
+ *   - ok: reject せず採用可能か
+ *   - reasons: reject 理由（re-prompt や admin dashboard 表示に使う）
+ *   - violatedConstraints: 違反した制約の sourceText（監査用）
+ */
+export function validateCandidate(
+  candidate: ProposalCandidate,
+  theme: ConversationTheme,
+  agreedConstraints: AgreedConstraint[] = [],
+  searchTitleSet?: string[],
+  movieCatalog?: MovieScreening[],
+): CandidateValidationResult {
+  const reasons: ValidationReasonCode[] = [];
+  const violated: string[] = [];
+
+  // 1. slot 単位の粒度チェック
+  if (candidate.slots) {
+    for (const key of ["what", "where", "when", "who", "why", "how"] as const) {
+      const r = validateSlot(theme, key, candidate.slots[key]);
+      reasons.push(...r);
+    }
+  }
+
+  // 2. テーマ固有の最低粒度
+  const themeReasons = validateThemeMinimum(theme, candidate.slots);
+  reasons.push(...themeReasons);
+
+  // 3. agreedConstraints (hard) 違反
+  const violationCheck = checkAgreedConstraintsViolation(
+    candidate,
+    agreedConstraints,
+  );
+  reasons.push(...violationCheck.reasons);
+  violated.push(...violationCheck.violated);
+
+  // 3.5. P0-1/P0-2: movie catalog による厳密検査
+  if (theme === "movie" && movieCatalog && movieCatalog.length > 0) {
+    const what = candidate.slots?.what?.label?.trim();
+    // (a) title が catalog に一致しないなら reject（最重要）
+    if (!what || !matchesCatalogTitle(what, movieCatalog)) {
+      reasons.push("movie_title_not_in_catalog");
+    } else {
+      // (b) title が一致している場合のみ、劇場とステータスを追加検査
+      const where = candidate.slots?.where?.label?.trim();
+      // catalog に theater 情報があれば where も実在劇場と一致することを要求
+      const catalogHasTheaters = movieCatalog.some((s) => s.theater);
+      if (catalogHasTheaters && where && !matchesCatalogTheater(where, movieCatalog)) {
+        // 「映画館」「シネマ」「劇場」のような活動ラベルなら許容、固有名詞で不一致なら reject
+        const isGenericTheaterWord =
+          /^(映画館|シネマ|劇場|映画館\(未定\)|新宿の映画館|都内の映画館)$/.test(where);
+        if (!isGenericTheaterWord) {
+          reasons.push("theater_not_in_catalog");
+        }
+      }
+      // (c) 選ばれた作品の status が "upcoming" で、slot に「公開予定」の明示が無い場合 reject
+      const matchedScreening = movieCatalog.find((s) => {
+        const norm = (x: string) => x.replace(/[\s\u3000・〜～\-−ー「」『』]+/g, "").toLowerCase();
+        const a = norm(what);
+        const b = norm(s.title);
+        return a === b || a.includes(b) || b.includes(a);
+      });
+      if (matchedScreening) {
+        const whatDetail = candidate.slots?.what?.detail ?? "";
+        const whenLabel = candidate.slots?.when?.label ?? "";
+        const practicalInfo = candidate.practicalInfo ?? "";
+        const haystack = `${whatDetail} ${whenLabel} ${practicalInfo}`;
+        // 上映時刻 or 「公開予定」の明示が必要
+        const hasShowtime = /\d{1,2}:\d{2}/.test(haystack);
+        const hasUpcomingNote = /公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開|来月公開|来年公開/.test(haystack);
+        if (matchedScreening.status === "upcoming") {
+          // 公開予定作品は「公開予定」明示が必要
+          if (!hasUpcomingNote) reasons.push("movie_upcoming_without_note");
+        } else {
+          // 上映中作品は showtime or upcoming-note のどちらかが必要
+          if (!hasShowtime && !hasUpcomingNote) {
+            reasons.push("movie_missing_showtime");
+          }
+        }
+      }
+    }
+  } else if (theme === "movie" && searchTitleSet && searchTitleSet.length > 0) {
+    // フォールバック（catalog が無いが search title だけある旧パス）
+    const what = candidate.slots?.what?.label?.trim();
+    if (what && !whatLabelMatchesSearchTitles(what, searchTitleSet)) {
+      reasons.push("missing_movie_title");
+    }
+  }
+
+  // 4. practicalInfo 密度チェック（movie/food/travel は具体数値3項目以上を期待）
+  if (theme === "movie" || theme === "food" || theme === "travel") {
+    if (!hasDensePracticalInfo(candidate, theme)) {
+      reasons.push("thin_practical_info");
+    }
+  }
+
+  // 重複除去
+  const uniqReasons = [...new Set(reasons)];
+
+  return {
+    ok: uniqReasons.length === 0,
+    reasons: uniqReasons,
+    violatedConstraints: violated,
+  };
+}
+
+/**
+ * カード全体の validation（候補配列の reject）。
+ *
+ * @returns reject されずに残った候補 + 各候補の reason code
+ */
+export function validateCandidates(
+  candidates: ProposalCandidate[],
+  theme: ConversationTheme,
+  agreedConstraints: AgreedConstraint[] = [],
+  searchTitleSet?: string[],
+  movieCatalog?: MovieScreening[],
+): {
+  accepted: ProposalCandidate[];
+  rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }>;
+} {
+  const accepted: ProposalCandidate[] = [];
+  const rejected: Array<{ candidate: ProposalCandidate; result: CandidateValidationResult }> = [];
+
+  for (const c of candidates) {
+    const result = validateCandidate(
+      c,
+      theme,
+      agreedConstraints,
+      searchTitleSet,
+      movieCatalog,
+    );
+    if (result.ok) {
+      accepted.push(c);
+    } else {
+      rejected.push({ candidate: c, result });
+    }
+  }
+
+  return { accepted, rejected };
+}
+
+/**
+ * reason code を日本語の短いサマリに変換（re-prompt や UI 表示用）。
+ */
+export function reasonCodeToText(code: ValidationReasonCode): string {
+  const map: Record<ValidationReasonCode, string> = {
+    abstract_where: "場所が抽象（「駅周辺」「近く」等）",
+    abstract_what: "内容が抽象（ジャンルだけ等）",
+    missing_movie_title: "作品名が具体でない（ジャンルだけ）",
+    missing_venue_proper_noun: "店舗/施設の固有名詞が無い",
+    missing_station_or_area: "最寄駅/エリア情報が無い",
+    missing_budget_band: "予算帯が不明",
+    violates_exclusion: "会話の除外条件に違反",
+    violates_budget: "予算制約に違反",
+    violates_companions: "同席条件に違反",
+    violates_style: "ジャンル/形式の合意に違反",
+    missing_core_slot: "テーマの主軸スロットが埋まってない",
+    duplicate_candidate: "既出候補と重複",
+    empty_slots: "5W1H slots が空",
+    candidates_too_similar: "3案が実質同じ（差分が無い）",
+    thin_practical_info: "現実情報（時間/料金/評価等）が薄い",
+    movie_title_not_in_catalog: "作品名が上映情報カタログに存在しない（発明禁止）",
+    theater_not_in_catalog: "劇場名が検索で見つかった実在劇場に一致しない",
+    movie_missing_showtime: "上映時刻の明示が無い（数字 19:00 等）",
+    movie_upcoming_without_note: "公開予定作品だが「公開予定」の明示が無い",
+  };
+  return map[code] ?? code;
+}
+
+// ─────────────────────────────────────────────
+// 検索結果 title 集合との fuzzy match
+// ─────────────────────────────────────────────
+
+/**
+ * 候補の what.label が「検索結果のタイトル集合」に含まれているか fuzzy 判定。
+ *
+ * 完全一致 / 検索 title が候補 label に含まれる / 候補 label が検索 title に含まれる
+ * のいずれかで OK。汎用ジャンル名（「映画」のみ）は無視する。
+ *
+ * @returns true = 検索集合に存在する作品らしい / false = LLM の発明っぽい
+ */
+function whatLabelMatchesSearchTitles(label: string, searchTitles: string[]): boolean {
+  const norm = (s: string) =>
+    s
+      .replace(/[\s\u3000・〜～\-−ー!?！？「」『』【】（）()「」]+/g, "")
+      .toLowerCase();
+  const target = norm(label);
+  if (target.length < 2) return true; // 判定できないので通す
+  for (const t of searchTitles) {
+    const tn = norm(t);
+    if (tn.length < 2) continue;
+    if (target === tn) return true;
+    if (tn.includes(target) && target.length >= 3) return true;
+    if (target.includes(tn) && tn.length >= 3) return true;
+  }
+  return false;
+}
+
+// ─────────────────────────────────────────────
+// 3案差分 validator（候補間の意味的差異をチェック）
+// ─────────────────────────────────────────────
+
+/**
+ * 3つ（以上）の候補が「意味的に違う」かチェック。
+ *
+ * 判定方針:
+ *  - 軸の差を「次元」として数える：title / where / when / axisScores
+ *  - 3 件並べたとき、最低 2 次元で差がついていないと "意味的に同じ" とみなす
+ *  - core slot label が全部同じ or 全部空 は即 NG（最低限の同一性）
+ *
+ * @returns true = 意味的に違う（OK） / false = 類似しすぎ（reject）
+ */
+export function validateCandidatesDiversity(
+  candidates: ProposalCandidate[],
+  theme: ConversationTheme,
+): { ok: boolean; reason?: ValidationReasonCode } {
+  if (candidates.length < 2) return { ok: true };
+
+  const rule = getThemeRule(theme);
+  const coreKey = rule?.core;
+
+  // ── 即 NG: core slot label が全部同じ or 全部空 ──
+  if (coreKey) {
+    const coreLabels = candidates.map((c) => {
+      const slot = c.slots?.[coreKey];
+      return slot?.label?.trim() ?? "";
+    });
+    const nonEmptyLabels = coreLabels.filter((l) => l.length > 0);
+    if (nonEmptyLabels.length === 0) {
+      return { ok: false, reason: "candidates_too_similar" };
+    }
+    const uniqueCoreLabels = new Set(nonEmptyLabels);
+    if (uniqueCoreLabels.size === 1 && candidates.length >= 2) {
+      return { ok: false, reason: "candidates_too_similar" };
+    }
+  }
+
+  // ── 2件のみは緩く: 1 次元差で OK ──
+  if (candidates.length < 3) return { ok: true };
+
+  // ── 3 件以上は「最低 2 次元差」 ──
+  let dimensions = 0;
+
+  // dim 1: title が全部 unique か（部分一致は同一視）
+  const titles = candidates.map((c) => c.title?.trim() ?? "");
+  const nonEmptyTitles = titles.filter((t) => t.length > 0);
+  // 共通サブストリング多すぎは「実質同じ」扱い: 60% 重なりで同一視
+  const titlePairs: Array<[string, string]> = [];
+  for (let i = 0; i < nonEmptyTitles.length; i++) {
+    for (let j = i + 1; j < nonEmptyTitles.length; j++) {
+      titlePairs.push([nonEmptyTitles[i], nonEmptyTitles[j]]);
+    }
+  }
+  const titleSimilarPair = titlePairs.some(([a, b]) => stringOverlapRatio(a, b) >= 0.6);
+  if (new Set(nonEmptyTitles).size === nonEmptyTitles.length && !titleSimilarPair) {
+    dimensions += 1;
+  }
+
+  // dim 2: where slot label の差
+  const wheres = candidates.map((c) => c.slots?.where?.label?.trim() ?? "");
+  const uniqueWheres = new Set(wheres.filter((w) => w.length > 0));
+  if (uniqueWheres.size >= 2) dimensions += 1;
+
+  // dim 3: when slot label の差（時間帯バリエーション — 朝/昼/夜 or 具体時刻 19:00 vs 14:00）
+  const whens = candidates.map((c) => c.slots?.when?.label?.trim() ?? "");
+  const uniqueWhens = new Set(whens.filter((w) => w.length > 0));
+  if (uniqueWhens.size >= 2) dimensions += 1;
+  // P0-3: 時間帯 bucket（朝/昼/夜）でも差を評価 — "14:00" と "20:00" は違う bucket
+  if (uniqueWhens.size < 2) {
+    const buckets = whens.map((w) => timeSlotBucket(w)).filter((b) => b !== null);
+    if (new Set(buckets).size >= 2) dimensions += 1;
+  }
+
+  // P0-3: status 次元（上映中 vs 公開予定 / practicalInfo + slot.what.detail から拾う）
+  const statuses = candidates.map((c) => {
+    const haystack = [
+      c.practicalInfo ?? "",
+      c.slots?.what?.detail ?? "",
+      c.slots?.when?.label ?? "",
+    ].join(" ");
+    if (/公開予定|近日公開|\d{1,2}月\d{1,2}日.{0,3}公開/.test(haystack)) return "upcoming";
+    if (/上映中|公開中/.test(haystack)) return "showing";
+    return "unknown";
+  });
+  const knownStatuses = statuses.filter((s) => s !== "unknown");
+  if (new Set(knownStatuses).size >= 2) dimensions += 1;
+
+  // dim 4: axisScores で 2 軸以上の差
+  const allAxisKeys = new Set<string>();
+  for (const c of candidates) {
+    if (c.axisScores) {
+      for (const k of Object.keys(c.axisScores)) allAxisKeys.add(k);
+    }
+  }
+  if (allAxisKeys.size > 0) {
+    let variedAxisCount = 0;
+    for (const k of allAxisKeys) {
+      const values = candidates
+        .map((c) => c.axisScores?.[k as keyof typeof c.axisScores])
+        .filter((v): v is 0 | 1 | 2 | 3 => typeof v === "number");
+      if (values.length < 2) continue;
+      const unique = new Set(values);
+      if (unique.size >= 2) variedAxisCount += 1;
+    }
+    if (variedAxisCount >= 2) dimensions += 1;
+  }
+
+  // 最低 2 次元差を要求
+  if (dimensions < 2) {
+    return { ok: false, reason: "candidates_too_similar" };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * 時刻ラベル → 時間帯 bucket。
+ *  - "14:00", "14時" → "afternoon"
+ *  - "19:00", "夜" → "evening"
+ *  - "10:00", "朝" → "morning"
+ */
+function timeSlotBucket(label: string): string | null {
+  if (!label) return null;
+  // 明示的な「朝/昼/夕/夜」語
+  if (/(朝|午前)/.test(label)) return "morning";
+  if (/(昼|お昼|ランチ)/.test(label)) return "afternoon";
+  if (/(夕方|夕)/.test(label)) return "evening";
+  if (/(夜|ナイト)/.test(label)) return "night";
+  // 数字時刻
+  const m = label.match(/(\d{1,2}):?(\d{0,2})/);
+  if (m) {
+    const h = Number(m[1]);
+    if (!Number.isFinite(h)) return null;
+    if (h >= 5 && h < 11) return "morning";
+    if (h >= 11 && h < 15) return "afternoon";
+    if (h >= 15 && h < 18) return "evening";
+    if ((h >= 18 && h <= 27) || (h >= 0 && h < 5)) return "night";
+  }
+  return null;
+}
+
+/** 2 文字列の文字種重なり率（簡易類似度）。0.0〜1.0。 */
+function stringOverlapRatio(a: string, b: string): number {
+  if (!a || !b) return 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let overlap = 0;
+  for (const c of setA) if (setB.has(c)) overlap += 1;
+  return overlap / Math.max(setA.size, setB.size);
+}
+
+/** テスト用の内部 export */
+export const __internal = {
+  isAbstractOnly,
+  looksLikeMovieTitle,
+  validateSlot,
+  validateThemeMinimum,
+  checkAgreedConstraintsViolation,
+  hasDensePracticalInfo,
+  validateCandidatesDiversity,
+};

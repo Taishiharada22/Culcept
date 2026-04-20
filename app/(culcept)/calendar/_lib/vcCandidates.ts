@@ -267,7 +267,6 @@ export function buildCandidates(
   };
 
   for (const item of inventory) {
-    if (!item.imageUrl) continue;
     const slot = itemToSlot(item);
     if (!slot) continue;
 

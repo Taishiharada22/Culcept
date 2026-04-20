@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireBaseline } from "@/lib/baseline/requireBaseline";
@@ -18,5 +19,9 @@ export default async function TalkPage() {
 
   await requireBaseline(supabase, user.id);
 
-  return <TalkPageClient />;
+  return (
+    <Suspense>
+      <TalkPageClient />
+    </Suspense>
+  );
 }

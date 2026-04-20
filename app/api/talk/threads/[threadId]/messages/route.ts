@@ -71,7 +71,13 @@ export async function GET(
     }
 
     const enriched = (messages ?? []).reverse().map((m) => ({
-      ...m,
+      id: m.id,
+      threadId: m.thread_id,
+      senderId: m.sender_id,
+      body: m.body,
+      createdAt: m.created_at,
+      readAt: m.read_at,
+      mediaUrl: m.media_url ?? null,
       reactions: reactionsMap[m.id] ?? [],
     }));
 

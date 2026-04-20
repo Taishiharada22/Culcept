@@ -39,6 +39,7 @@ import {
   computeAmbiguityFactor,
   computeTopicWeight,
   detectKeigoShift,
+  computeFrictionSignal,
 } from "./japanesePragmatics";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -448,25 +449,34 @@ export async function reconstructIntent(
 
     // 曖昧表現ブースト: 既知の曖昧パターン検出 → LLM分析の価値が高い
     if (ambiguousExpressions.length > 0) {
-      displayConfidence = Math.min(1, displayConfidence + 0.15);
+      displayConfidence = Math.min(1, displayConfidence + 0.20);
     }
 
     // 短文ブースト: 短い文ほど解釈分岐が大きく、ヒントの価値が高い
-    if (input.receivedMessage.length <= 10) {
-      displayConfidence = Math.min(1, displayConfidence + 0.1);
+    if (input.receivedMessage.length <= 15) {
+      displayConfidence = Math.min(1, displayConfidence + 0.10);
     }
 
     // プロファイル差ブースト: 送受信者のスタイル差が大きい → 誤読リスク上昇
     const styleDelta = Math.abs(
       input.senderProfile.direct_vs_diplomatic - input.receiverProfile.direct_vs_diplomatic,
     );
-    if (styleDelta > 0.5) {
-      displayConfidence = Math.min(1, displayConfidence + styleDelta * 0.1);
+    if (styleDelta > 0.3) {
+      displayConfidence = Math.min(1, displayConfidence + styleDelta * 0.12);
     }
 
     // 会話深度ブースト: 文脈が多いほどLLM分析の精度が上がる
     if (input.conversationContext.length >= 3) {
       displayConfidence = Math.min(1, displayConfidence + 0.05);
+    }
+
+    // 摩擦パターンブースト: 明確な摩擦パターンがあればヒントの価値が高い
+    const frictionSignal = computeFrictionSignal(input.receivedMessage);
+    if (frictionSignal.score > 0) {
+      displayConfidence = Math.min(1, displayConfidence + 0.15);
+      if (frictionSignal.score >= 0.30) {
+        displayConfidence = Math.min(1, displayConfidence + 0.10);
+      }
     }
 
     const bubbleHint = decideBubbleHint({
@@ -497,19 +507,28 @@ export async function reconstructIntent(
   // fallback でも rule-layer シグナルで display confidence を合成する
   let fallbackDisplayConfidence = fallbackConfidence;
   if (ambiguousExpressions.length > 0) {
-    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.15);
+    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.20);
   }
-  if (input.receivedMessage.length <= 10) {
-    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.1);
+  if (input.receivedMessage.length <= 15) {
+    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.10);
   }
   const fallbackStyleDelta = Math.abs(
     input.senderProfile.direct_vs_diplomatic - input.receiverProfile.direct_vs_diplomatic,
   );
-  if (fallbackStyleDelta > 0.5) {
-    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + fallbackStyleDelta * 0.1);
+  if (fallbackStyleDelta > 0.3) {
+    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + fallbackStyleDelta * 0.12);
   }
   if (input.conversationContext.length >= 3) {
     fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.05);
+  }
+
+  // 摩擦パターンブースト（fallback 用）
+  const fallbackFrictionSignal = computeFrictionSignal(input.receivedMessage);
+  if (fallbackFrictionSignal.score > 0) {
+    fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.15);
+    if (fallbackFrictionSignal.score >= 0.30) {
+      fallbackDisplayConfidence = Math.min(1, fallbackDisplayConfidence + 0.10);
+    }
   }
 
   const bubbleHint = decideBubbleHint({
@@ -522,7 +541,10 @@ export async function reconstructIntent(
 
   return {
     primaryIntent: {
-      reading: "（分析中）",
+      // LLM 未使用時のフォールバック — reading は空文字でクライアント側スキップ。
+      // 以前は "（分析中）" をそのまま返しており、BubbleHint に "（分析中）" が
+      // 永続表示されるUIバグの原因になっていた（2026-04-17 CEO報告）。
+      reading: "",
       speechAct: "inform",
       probability: 0.5,
       emotionalImpact: { valence: 0, arousal: 0, dominance: 0 },

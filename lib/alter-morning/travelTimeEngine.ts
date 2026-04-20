@@ -1,7 +1,18 @@
 /**
- * Travel Time Engine — ヒューリスティック移動時間推定
+ * Travel Time Engine — ヒューリスティック + Routes API 統合移動時間推定
  *
- * API不要。交通手段 × 距離区分 → 移動時間（分）のマッピング。
+ * Phase C-4: Routes API 統合
+ *
+ * 3層構成:
+ *   Layer 0/2: travelTimeTable（同一地点・同一エリア・エリア間マトリクス）
+ *   Layer 1: ヒューリスティック（交通手段 × 距離区分テーブル）
+ *   Layer R: Routes API（origin/destination 両方に座標がある場合のみ）
+ *
+ * 統合ルール:
+ *   - origin / destination の両方に lat/lng がある → Routes API を試行
+ *   - Routes API 失敗（timeout, HTTP error, API key なし） → Layer 0/2 → Layer 1
+ *   - 座標が片方でも欠ける → Routes API スキップ → Layer 0/2 → Layer 1
+ *   - fail-open: Routes API エラーはプラン生成を止めない
  *
  * 設計根拠:
  * - 研究: docs/research/daily-planning-methodology-research.md
@@ -16,6 +27,14 @@
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 import type { PlanItem, MainLocation } from "./types";
 import type { PlaceCategory } from "./placeTable";
+import { lookupTravelTime, isSamePoint } from "./travelTimeTable";
+import {
+  computeRoute,
+  isRoutesApiAvailable,
+  toRouteTravelMode,
+  type LatLng,
+  type RouteResult,
+} from "./routesApiClient";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 距離区分
@@ -225,7 +244,8 @@ export function estimateTravelTime(
 export function insertTravelItems(
   items: PlanItem[],
   transport: TransportMode | string | undefined,
-  goOut: boolean
+  goOut: boolean,
+  returnDestination?: string,
 ): PlanItem[] {
   // 在宅なら移動なし
   if (!goOut) return items;
@@ -253,20 +273,28 @@ export function insertTravelItems(
       const toCategory = item.location?.category;
       const isFromHome = prevLocation === "home";
 
-      const estimate = estimateTravelTime(
-        transport,
-        fromCategory,
-        toCategory,
-        isFromHome
+      // Layer 0/2: travelTimeTable で推定を試みる
+      const tableLookup = lookupTravelTime(
+        fromLabel, toLabel,
+        prevLocation, currentLocation,
       );
 
-      if (estimate) {
+      // travelTimeTable にヒット → その値を使用、なければ Layer 1 フォールバック
+      const durationMin = tableLookup !== null
+        ? roundTo15(tableLookup + (isFromHome ? HOME_DEPARTURE_OVERHEAD : 0))
+        : estimateTravelTime(transport, fromCategory, toCategory, isFromHome)?.durationMin;
+
+      if (durationMin) {
         const travelIcon = getTravelIcon(transport);
         result.push({
           id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
           kind: "travel",
           text: `${travelIcon} ${fromLabel}→${toLabel}`,
-          durationMin: estimate.durationMin,
+          what: null,
+          durationMin,
+          fixedStart: false,
+          orderHint: 0,
+          sourceTurnIndex: 0,
           completed: false,
           travelFrom: fromLabel,
           travelTo: toLabel,
@@ -282,28 +310,280 @@ export function insertTravelItems(
     result.push(item);
   }
 
-  // 帰路: 最終目的地 → 自宅
+  // 帰路: 最終目的地 → 帰り先（デフォルト: 自宅。ホテル等もあり得る）
   if (prevLocation && prevLocation !== "home") {
     const fromLabel = findLabelById(items, prevLocation);
     const fromCategory = findCategoryById(items, prevLocation);
+    const returnLabel = returnDestination ?? "自宅";
+    const returnCategory = returnDestination ? "other" : "home";
 
-    const estimate = estimateTravelTime(
-      transport,
-      fromCategory,
-      "home",
-      false
-    );
+    // Layer 0/2 → Layer 1 フォールバック
+    const tableLookup = lookupTravelTime(fromLabel, returnLabel, prevLocation, "home");
+    const durationMin = tableLookup !== null
+      ? roundTo15(tableLookup)
+      : estimateTravelTime(transport, fromCategory, returnCategory, false)?.durationMin;
 
-    if (estimate) {
+    if (durationMin) {
       const travelIcon = getTravelIcon(transport);
       result.push({
         id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
         kind: "travel",
-        text: `${travelIcon} ${fromLabel}→自宅`,
-        durationMin: estimate.durationMin,
+        text: `${travelIcon} ${fromLabel}→${returnLabel}`,
+        what: null,
+        durationMin,
+        fixedStart: false,
+        orderHint: 0,
+        sourceTurnIndex: 0,
         completed: false,
         travelFrom: fromLabel,
-        travelTo: "自宅",
+        travelTo: returnLabel,
+        travelTransport: normalizeTransport(transport) as TransportMode,
+      });
+    }
+  }
+
+  return result;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase C-4: Routes API 統合
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** Routes API 統合の移動推定結果 */
+export interface RoutedTravelEstimate extends TravelEstimate {
+  /** 推定の情報源 */
+  source: "routes_api" | "heuristic" | "table_lookup";
+  /** Routes API 使用時の距離（メートル） */
+  routeDistanceMeters?: number;
+}
+
+/**
+ * Routes API を使った移動時間推定（fail-open）。
+ *
+ * 条件:
+ *   - origin / destination の両方に座標がある
+ *   - GOOGLE_MAPS_API_KEY が設定されている
+ *
+ * 失敗時はヒューリスティックにフォールバック。
+ *
+ * @param origin - 出発地の座標（null → ヒューリスティック即フォールバック）
+ * @param destination - 到着地の座標（null → ヒューリスティック即フォールバック）
+ * @param transport - 交通手段
+ * @param fromCategory - 出発地カテゴリ（ヒューリスティックフォールバック用）
+ * @param toCategory - 到着地カテゴリ（ヒューリスティックフォールバック用）
+ * @param isFromHome - 自宅出発か
+ * @param departureTime - 出発時刻 ISO 8601（TRANSIT 精度向上用）
+ */
+export async function estimateTravelTimeWithRoutes(
+  origin: LatLng | null,
+  destination: LatLng | null,
+  transport: TransportMode | string | undefined,
+  fromCategory?: PlaceCategory | string,
+  toCategory?: PlaceCategory | string,
+  isFromHome: boolean = false,
+  departureTime?: string,
+): Promise<RoutedTravelEstimate | null> {
+  // 座標が揃っている + API 利用可能 → Routes API を試行
+  if (origin && destination && isRoutesApiAvailable()) {
+    try {
+      const routeResult = await computeRoute({
+        origin,
+        destination,
+        travelMode: toRouteTravelMode(normalizeTransport(transport)),
+        departureTime,
+      });
+
+      const overhead = isFromHome ? HOME_DEPARTURE_OVERHEAD : 0;
+      const apiMinutes = routeResult.durationMinutes;
+      const totalMin = roundTo15(apiMinutes + overhead);
+
+      return {
+        durationMin: totalMin,
+        rawTravelMin: apiMinutes,
+        overheadMin: overhead,
+        distanceCategory: inferDistanceFromMeters(routeResult.distanceMeters),
+        source: "routes_api",
+        routeDistanceMeters: routeResult.distanceMeters,
+      };
+    } catch (err) {
+      // fail-open: Routes API エラー → ヒューリスティックにフォールバック
+      console.warn("[TravelTimeEngine] Routes API failed, falling back to heuristic:", err);
+    }
+  }
+
+  // フォールバック: ヒューリスティック
+  const heuristic = estimateTravelTime(transport, fromCategory, toCategory, isFromHome);
+  if (!heuristic) return null;
+
+  return {
+    ...heuristic,
+    source: "heuristic",
+  };
+}
+
+/**
+ * 距離（メートル）から距離区分を推定する。
+ * Routes API の distanceMeters をヒューリスティックの DistanceCategory に変換。
+ */
+function inferDistanceFromMeters(meters: number): DistanceCategory {
+  if (meters < 2000) return "near";       // 2km 未満
+  if (meters < 10000) return "city";      // 10km 未満
+  if (meters < 30000) return "adjacent";  // 30km 未満
+  return "wide";                          // 30km 以上
+}
+
+/** セグメント座標ペア（insertTravelItemsAsync 用） */
+export interface SegmentCoordsPair {
+  /** from の座標（null = 自宅 or 座標なし） */
+  fromCoords: LatLng | null;
+  /** to の座標 */
+  toCoords: LatLng | null;
+}
+
+/**
+ * PlanItem[] にツアー構造の移動アイテムを挿入する（Routes API 統合版）。
+ *
+ * insertTravelItems の async 版。座標があるセグメント間は Routes API で精密計算。
+ * 座標がないセグメントは既存のヒューリスティックにフォールバック。
+ *
+ * @param items - sequenceOrder でソート済みの PlanItem[]
+ * @param transport - 主な交通手段
+ * @param goOut - 外出するか
+ * @param coordsMap - セグメント ID or ラベル → 座標のマッピング
+ * @param originCoords - 自宅（origin）の座標
+ * @param returnDestination - 帰り先のラベル
+ * @param departureTime - 出発時刻 ISO 8601
+ * @param endpointCoords - 帰り先の座標（W2-2 2026-04-19: 非 home endpoint の精密計算用）
+ */
+export async function insertTravelItemsAsync(
+  items: PlanItem[],
+  transport: TransportMode | string | undefined,
+  goOut: boolean,
+  coordsMap: Record<string, LatLng>,
+  originCoords: LatLng | null,
+  returnDestination?: string,
+  departureTime?: string,
+  endpointCoords?: LatLng | null,
+): Promise<PlanItem[]> {
+  // 在宅なら移動なし
+  if (!goOut) return items;
+
+  // 場所を持つアイテムだけを抽出（travel は除外）
+  const locationItems = items.filter(
+    (item) => item.kind !== "travel" && item.location != null
+  );
+  if (locationItems.length === 0) return items;
+
+  const result: PlanItem[] = [];
+  let prevLocation: string | undefined = "home";
+
+  for (const item of items) {
+    if (item.kind === "travel") continue;
+
+    const currentLocation = item.location?.canonicalId ?? item.location?.label;
+
+    if (currentLocation && currentLocation !== prevLocation) {
+      const fromLabel = prevLocation === "home" ? "自宅" : findLabelById(items, prevLocation);
+      const toLabel = item.location?.label ?? currentLocation;
+      const fromCategory = prevLocation === "home" ? "home" : findCategoryById(items, prevLocation);
+      const toCategory = item.location?.category;
+      const isFromHome = prevLocation === "home";
+
+      // Layer 0/2: travelTimeTable チェック（同一地点・エリア間マトリクス）
+      const tableLookup = lookupTravelTime(fromLabel, toLabel, prevLocation, currentLocation);
+
+      let durationMin: number | undefined;
+      let source: "routes_api" | "heuristic" | "table_lookup" = "heuristic";
+
+      if (tableLookup !== null) {
+        // テーブルヒット → 即採用
+        durationMin = roundTo15(tableLookup + (isFromHome ? HOME_DEPARTURE_OVERHEAD : 0));
+        source = "table_lookup";
+      } else {
+        // Layer R: Routes API を試行 → Layer 1 フォールバック
+        const fromCoords = isFromHome ? originCoords : (coordsMap[prevLocation!] ?? null);
+        const toCoords = coordsMap[currentLocation] ?? null;
+
+        const estimate = await estimateTravelTimeWithRoutes(
+          fromCoords, toCoords, transport,
+          fromCategory, toCategory, isFromHome,
+          departureTime,
+        );
+
+        durationMin = estimate?.durationMin;
+        source = estimate?.source ?? "heuristic";
+      }
+
+      if (durationMin) {
+        const travelIcon = getTravelIcon(transport);
+        result.push({
+          id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          kind: "travel",
+          text: `${travelIcon} ${fromLabel}→${toLabel}`,
+          what: null,
+          durationMin,
+          fixedStart: false,
+          orderHint: 0,
+          sourceTurnIndex: 0,
+          completed: false,
+          travelFrom: fromLabel,
+          travelTo: toLabel,
+          travelTransport: normalizeTransport(transport) as TransportMode,
+        });
+      }
+
+      prevLocation = currentLocation;
+    } else if (currentLocation) {
+      prevLocation = currentLocation;
+    }
+
+    result.push(item);
+  }
+
+  // 帰路
+  if (prevLocation && prevLocation !== "home") {
+    const fromLabel = findLabelById(items, prevLocation);
+    const fromCategory = findCategoryById(items, prevLocation);
+    const returnLabel = returnDestination ?? "自宅";
+
+    const tableLookup = lookupTravelTime(fromLabel, returnLabel, prevLocation, "home");
+
+    let durationMin: number | undefined;
+
+    if (tableLookup !== null) {
+      durationMin = roundTo15(tableLookup);
+    } else {
+      const fromCoords = coordsMap[prevLocation!] ?? null;
+      // W2-2 2026-04-19: 非 home endpoint の場合、resolveEndpoint が解決した endpointCoords を使う。
+      //   旧挙動: returnDestination があれば null（ヒューリスティックに落ちる）。
+      //   新挙動: endpointCoords が与えられていれば Routes API で精密計算。
+      //   自宅帰宅（returnDestination 未指定）は従来通り originCoords。
+      const toCoords = returnDestination
+        ? (endpointCoords ?? null)
+        : originCoords;
+
+      const estimate = await estimateTravelTimeWithRoutes(
+        fromCoords, toCoords, transport,
+        fromCategory, returnDestination ? "other" : "home", false,
+      );
+
+      durationMin = estimate?.durationMin;
+    }
+
+    if (durationMin) {
+      const travelIcon = getTravelIcon(transport);
+      result.push({
+        id: `travel_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        kind: "travel",
+        text: `${travelIcon} ${fromLabel}→${returnLabel}`,
+        what: null,
+        durationMin,
+        fixedStart: false,
+        orderHint: 0,
+        sourceTurnIndex: 0,
+        completed: false,
+        travelFrom: fromLabel,
+        travelTo: returnLabel,
         travelTransport: normalizeTransport(transport) as TransportMode,
       });
     }

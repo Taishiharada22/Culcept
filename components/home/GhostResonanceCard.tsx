@@ -115,8 +115,9 @@ export default function GhostResonanceCard({ ghost }: Props) {
             <motion.circle
               cx={270}
               cy={8}
-              r={4}
+              r={3.5}
               fill="rgba(139,92,246,0.6)"
+              initial={{ r: 3.5 }}
               animate={{ r: [3.5, 4.5, 3.5] }}
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
             />
