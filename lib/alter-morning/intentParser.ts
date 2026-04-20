@@ -97,14 +97,14 @@ function getDefaultDurationSync(text: string): number {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TIME_REGEX =
-  /(?:(?:午前|午後|朝|昼|夕方|夜)\s*)?(\d{1,2})(?::(\d{2}))?(?:時|：)/;
+  /(?:(?:午前|午後|朝|昼|夕方|夜)\s*)?(\d{1,2})(?::(\d{2}))?(?:時|：)(半)?/;
 const PERIOD_REGEX = /(午前|午後|朝|昼|夕方|夜)/;
 
 function extractTime(text: string): string | null {
   const match = text.match(TIME_REGEX);
   if (!match) return null;
   let hour = parseInt(match[1], 10);
-  const minute = match[2] ? parseInt(match[2], 10) : 0;
+  const minute = match[2] ? parseInt(match[2], 10) : (match[3] === "半" ? 30 : 0);
   const periodMatch = text.match(PERIOD_REGEX);
   if (periodMatch) {
     const period = periodMatch[1];
@@ -1262,14 +1262,18 @@ export function buildIntentConfirmMessage(intent: ParsedDayIntent): string {
     }
   } else {
     // ── 従来のフォーマット（訪問順序なし） ──
+    // targetDate があれば「明日は」「明後日は」等を使う
+    const dateLabel = intent.targetDate
+      ? (intent.targetDate === todayJST() ? "今日" : "明日")
+      : "今日";
     if (intent.flowContext.goOut === true) {
       if (intent.mainLocation) {
-        parts.push(`今日は${intent.mainLocation.label}で作業する想定で`);
+        parts.push(`${dateLabel}は${intent.mainLocation.label}で作業する想定で`);
       } else {
-        parts.push("今日は外で作業する想定で");
+        parts.push(`${dateLabel}は外で作業する想定で`);
       }
     } else if (intent.flowContext.goOut === false) {
-      parts.push("今日は家で過ごす想定で");
+      parts.push(`${dateLabel}は家で過ごす想定で`);
     }
 
     // メインタスク

@@ -642,7 +642,9 @@ export function inferVenueFromPlan(plan: MorningPlan): "indoor" | "outdoor" | "m
   return null;
 }
 
-export type OutfitMissingField = "transport" | "mood" | "withWhom";
+export type OutfitMissingField = "transport" | "mood";
+// NOTE: withWhom は 2026-04-18 以降 outfit blocking から除外。
+// 固有名詞検出の限界（「夏」「仙洞田」等）により、質問コストが体験を毀損するため。
 
 export interface OutfitSufficiencyResult {
   /** コーデ提案に十分な情報があるか */
@@ -687,14 +689,11 @@ export function checkOutfitSufficiency(
   const missingFields: OutfitMissingField[] = [];
   if (!transportResolved) missingFields.push("transport");
   if (!moodResolved) missingFields.push("mood");
-  // withWhom は対人予定がありそうで、かつプラン中に誰の言及もない場合のみ聞く
-  // CEO指摘 2026-04-16: プランニング中に人の話が出てたら聞かなくていい
-  const hasCompanionsInPlan = plan.items?.some(item =>
-    item.companions && item.companions.length > 0
-  ) ?? false;
-  if (!withWhomResolved && !hasCompanionsInPlan && looksLikeSocialEvent(plan)) {
-    missingFields.push("withWhom");
-  }
+  // CEO方針 2026-04-18: withWhom はコーデ提案を止めない。
+  // フォーマリティへの影響は小さく、質問のコストが高い。
+  // プランテキスト中に「Xと」パターンがあれば暗黙解決扱い。
+  // 名前辞書に頼れない（「夏」「仙洞田」等の固有名を検出できない）。
+  // → withWhom は outfit missingFields に追加しない。
 
   return {
     sufficient: missingFields.length === 0,
@@ -731,23 +730,24 @@ export function buildOutfitClarifyQuestion(missing: OutfitMissingField[]): strin
 
   // mood だけが不足（最も多いパターン）→ 1発で聞く
   if (missing.length === 1 && missing[0] === "mood") {
-    return "今日コーディネート必要だったら、ラフかキレイめか教えて。";
+    return "コーデどんな感じがいい？キレイめ？カジュアル？きっちり？";
+  }
+
+  // transport だけが不足
+  if (missing.length === 1 && missing[0] === "transport") {
+    return "移動は車・電車・徒歩のどれが多い？";
   }
 
   // 複数不足 → 1文にまとめる
   const parts: string[] = [];
-
   if (missing.includes("mood")) {
-    parts.push("ラフかキレイめか");
+    parts.push("キレイめかカジュアルか");
   }
   if (missing.includes("transport")) {
     parts.push("移動は車・電車・徒歩のどれが多いか");
   }
-  if (missing.includes("withWhom")) {
-    parts.push("誰かと会うか");
-  }
 
-  return `今日コーディネート必要だったら、${parts.join("と、")}教えて。`;
+  return `コーデ組むから教えて。${parts.join("と、")}`;
 }
 
 /**

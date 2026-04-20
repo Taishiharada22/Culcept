@@ -33,6 +33,7 @@ import {
   classifyRecommendationIntent,
   toRecommendationIntent,
 } from "./recommendationClassifier";
+import { isPlaceNewValueAcceptable } from "./utteranceDecomposer";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt
@@ -632,7 +633,19 @@ function normalizeSegment(
   //   - 非検出: scrubNonPlaceContent が scrub.place をそのまま返す（pass-through）
   const nonPlaceScrub = scrubNonPlaceContent(scrub.place, seg.companions ?? []);
   // 検出時 null、非検出時は trimmed place が入っている
-  const effectivePlace: string | null = nonPlaceScrub.place;
+  let effectivePlace: string | null = nonPlaceScrub.place;
+
+  // W2-CEO-Emergency A-3 (2026-04-19): Turn 1 でも生文 place を拒否。
+  //   LLM が place に「ランチはサドヤだから、会食もその近くにしてください」のような
+  //   raw sentence を入れた事故（CEO 実機 0 点）の直接的な遮断。
+  //   拒否時は null に戻し、downstream missingFields が拾う。
+  if (effectivePlace && !isPlaceNewValueAcceptable(effectivePlace)) {
+    console.warn(
+      "[place-validator-turn1] rejected non-place LLM output",
+      JSON.stringify({ rawPlace: effectivePlace.slice(0, 80) }),
+    );
+    effectivePlace = null;
+  }
   const rawCompanions = [
     ...(seg.companions ?? []),
     ...nonPlaceScrub.addedCompanions,
