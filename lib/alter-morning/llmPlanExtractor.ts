@@ -846,31 +846,29 @@ function minutesToHHMM(min: number): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export function resolveTargetDate(raw: string): { absoluteDate: string; label: string } {
-  const today = todayJST();
-  const todayDate = new Date(today + "T00:00:00+09:00");
+  const today = todayJST(); // "YYYY-MM-DD" anchored on JST
 
   switch (raw) {
-    case "tomorrow": {
-      const d = new Date(todayDate);
-      d.setDate(d.getDate() + 1);
-      return { absoluteDate: formatDate(d), label: "明日" };
-    }
-    case "day_after_tomorrow": {
-      const d = new Date(todayDate);
-      d.setDate(d.getDate() + 2);
-      return { absoluteDate: formatDate(d), label: "明後日" };
-    }
+    case "tomorrow":
+      return { absoluteDate: addDaysJST(today, 1), label: "明日" };
+    case "day_after_tomorrow":
+      return { absoluteDate: addDaysJST(today, 2), label: "明後日" };
     case "today":
     default:
       return { absoluteDate: today, label: "今日" };
   }
 }
 
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+// JST date arithmetic via UTC internals — independent of server TZ.
+// Prior local-time getters broke on UTC CI (tomorrow collapsed to today).
+function addDaysJST(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const y2 = dt.getUTCFullYear();
+  const m2 = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d2 = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y2}-${m2}-${d2}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

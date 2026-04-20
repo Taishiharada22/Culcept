@@ -59,10 +59,17 @@ describe("resolveTargetDate", () => {
   test("tomorrow → 明日の日付", () => {
     const { absoluteDate, label } = resolveTargetDate("tomorrow");
     expect(label).toBe("明日");
-    // 明日は今日+1
-    const today = new Date();
-    today.setDate(today.getDate() + 1);
-    const expected = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // 明日は JST 基準の今日+1。new Date() の local getter は CI (UTC) で
+    // server TZ のズレを引き込むため、ここでは JST-anchored UTC 演算で計算する。
+    const JST_MS = 9 * 60 * 60 * 1000;
+    const jst = new Date(Date.now() + JST_MS);
+    const y = jst.getUTCFullYear();
+    const m = jst.getUTCMonth();
+    const d = jst.getUTCDate();
+    const t = new Date(Date.UTC(y, m, d));
+    t.setUTCDate(t.getUTCDate() + 1);
+    const expected =
+      `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}-${String(t.getUTCDate()).padStart(2, "0")}`;
     expect(absoluteDate).toBe(expected);
   });
 
