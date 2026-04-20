@@ -368,10 +368,18 @@ export async function generateFoodProposalV2(
   };
 
   // ── Observability (CEO 追加条件 #1: food.diagnostics は成功時のみ 1 回) ──
+  //   U2 (2026-04-20): movie と grep 互換になるよう
+  //   missingWhereRejectCount / insufficientInfoRejectCount を alias として
+  //   log にだけ同梱する。FoodDiagnostics 型は変えない（既存テスト契約保持）。
   try {
     console.info(
       "[CoAlter] food.diagnostics",
-      JSON.stringify({ sessionId: input.sessionId ?? null, ...diagnostics }),
+      JSON.stringify({
+        sessionId: input.sessionId ?? null,
+        ...diagnostics,
+        missingWhereRejectCount: missingWhereDropCount,
+        insufficientInfoRejectCount: insufficientInfoDropCount,
+      }),
     );
   } catch {
     // log 失敗しても本体には影響させない

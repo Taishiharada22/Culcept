@@ -13,6 +13,7 @@ import type {
   ConversationAnalysis,
   CoAlterPersonProfile,
   ConversationTheme,
+  ConversationTurn,
   SearchCandidate,
   SearchDecision,
 } from "./types";
@@ -20,6 +21,49 @@ import { getThemeRule } from "./slots";
 
 // Perspective Engine の検索関数を転用
 import { executeSearch } from "@/lib/stargazer/perspectiveEngine";
+
+// ─────────────────────────────────────────────
+// [B / U1b — 2026-04-20] トピック新鮮性分岐
+// ─────────────────────────────────────────────
+
+/**
+ * メッセージ間に大きな空白（gap）があった場合、最後のバーストより前を drop する。
+ *
+ *  なぜ:
+ *   数分前の別話題が `combined` に混入すると、decideSearch / extractMentionedCandidates
+ *   が古いトピックを現在の話題として拾い、retrieval を汚染する（CEO 指摘 2026-04-20）。
+ *
+ *  ルール（狭く開始）:
+ *   - 連続するメッセージ間の gap が TOPIC_BURST_GAP_MS を超えたら、その位置で split
+ *   - 最後の split 以降のメッセージのみ返す
+ *   - 空・1件は filter なしで返す（split 対象なし）
+ *
+ *  境界値: gap == 閾値ちょうど は "split しない" 扱い（閾値を"超える"gap のみ split）
+ */
+export const TOPIC_BURST_GAP_MS = 10 * 60 * 1000;
+
+export function filterCurrentTopicBurst(
+  messages: ConversationTurn[],
+): ConversationTurn[] {
+  if (messages.length <= 1) return messages;
+
+  // createdAt が ISO。想定は時系列昇順だが、安全側で sort してから判定。
+  const sorted = [...messages].sort(
+    (a, b) =>
+      new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+
+  let burstStart = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = new Date(sorted[i - 1].createdAt).getTime();
+    const cur = new Date(sorted[i].createdAt).getTime();
+    if (cur - prev > TOPIC_BURST_GAP_MS) {
+      burstStart = i;
+    }
+  }
+
+  return sorted.slice(burstStart);
+}
 
 // ─────────────────────────────────────────────
 // Adaptive RAG: 検索が必要かどうかの判断
@@ -50,8 +94,10 @@ export function decideSearch(
     };
   }
 
-  // 感情・関係性の話は検索しない
-  const combined = analysis.recentMessages.map((m) => m.body).join(" ");
+  // U1b: 数分前の別話題を drop し、現在のトピックバーストのみで判定する。
+  //   decideSearch / extractMentionedCandidates が stale topic を掴むのを防ぐ。
+  const currentBurst = filterCurrentTopicBurst(analysis.recentMessages);
+  const combined = currentBurst.map((m) => m.body).join(" ");
   for (const pattern of NO_SEARCH_PATTERNS) {
     if (pattern.test(combined)) {
       return {
@@ -162,7 +208,10 @@ function buildSearchQueries(
 ): string[] {
   const queries: string[] = [];
   const { theme, extractedConstraints: c } = analysis;
-  const combined = analysis.recentMessages.map((m) => m.body).join(" ");
+  // U1b: stale topic が query 文字列に混入しないよう current burst のみ使う。
+  const combined = filterCurrentTopicBurst(analysis.recentMessages)
+    .map((m) => m.body)
+    .join(" ");
 
   // ── agreedConstraints を検索語に ──
   const hardConstraints = agreedConstraints.filter((cc) => cc.strength === "hard");

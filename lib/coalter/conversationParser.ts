@@ -521,7 +521,36 @@ function extractAgreedConstraints(
 // ─────────────────────────────────────────────
 
 /**
+ * [B / U1a — 2026-04-20] META 発話フィルタ（狭い）
+ *
+ *   CoAlter 宛のメタ発話・露骨な罵倒語のみを除去する。感情語一般・関係性語は
+ *   対象外（relationship signal を落とさない）。
+ *
+ *   広げないこと:
+ *     - 「悲しい」「嬉しい」「腹立つ」等の感情語
+ *     - 「すれ違い」「誤解」等の関係性語
+ *   ここを広げると本来の会話理解まで失われる（CEO 方針 2026-04-20）。
+ */
+export const META_TALK_PATTERNS: readonly RegExp[] = [
+  /coalter/i,
+  /使えね/,
+  /使えない/,
+  /クソ/,
+  /ゴミ/,
+];
+
+export function filterMetaTalk(
+  messages: ConversationTurn[],
+): ConversationTurn[] {
+  return messages.filter(
+    (m) => !META_TALK_PATTERNS.some((p) => p.test(m.body)),
+  );
+}
+
+/**
  * 直近の会話メッセージを取得する。
+ *
+ * U1a: META 発話は retrieval / 分析に使わない。conversationParser の入口で剥がす。
  */
 export async function fetchRecentMessages(
   supabase: SupabaseClient,
@@ -537,7 +566,7 @@ export async function fetchRecentMessages(
 
   if (!messages) return [];
 
-  return (messages as Array<{ id: string; sender_id: string; body: string; created_at: string }>)
+  const turns = (messages as Array<{ id: string; sender_id: string; body: string; created_at: string }>)
     .reverse() // 時系列順に
     .map((m) => ({
       id: m.id,
@@ -545,6 +574,8 @@ export async function fetchRecentMessages(
       body: m.body,
       createdAt: m.created_at,
     }));
+
+  return filterMetaTalk(turns);
 }
 
 // ─────────────────────────────────────────────
