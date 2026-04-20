@@ -161,6 +161,7 @@ export async function POST(request: Request) {
       ? await computeStage1Snapshot({
           supabase,
           threadId,
+          pairStateId: pairState.id,
           userA: pairState.user_a,
           userB: pairState.user_b,
         })
@@ -194,6 +195,7 @@ export async function POST(request: Request) {
 type Stage1HelperInput = {
   supabase: SupabaseClient;
   threadId: string;
+  pairStateId: string;
   userA: string;
   userB: string;
 };
@@ -206,6 +208,7 @@ async function computeStage1Snapshot(
     const { bundle, meta } = await collectLiveBundle({
       supabase: input.supabase,
       threadId: input.threadId,
+      pairStateId: input.pairStateId,
       userA: input.userA,
       userB: input.userB,
       now,
