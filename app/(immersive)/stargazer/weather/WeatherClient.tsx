@@ -96,17 +96,19 @@ function SunnyAnimation() {
     <svg width="180" height="180" viewBox="0 0 180 180" className="mx-auto">
       {/* Central sun */}
       <motion.circle
-        cx="90" cy="90" r="30"
+        cx="90" cy="90" r={30}
         fill="rgba(251,191,36,0.9)"
+        initial={{ r: 30 }}
         animate={{ r: [30, 33, 30] }}
         transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
       />
       {/* Inner glow */}
       <motion.circle
-        cx="90" cy="90" r="40"
+        cx="90" cy="90" r={40}
         fill="none"
         stroke="rgba(253,224,71,0.3)"
         strokeWidth="2"
+        initial={{ r: 40 }}
         animate={{ r: [40, 48, 40], opacity: [0.3, 0.6, 0.3] }}
         transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
       />
