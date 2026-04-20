@@ -49,4 +49,18 @@ export const COALTER_FLAGS = {
   get stage1NarrationEnabled(): boolean {
     return envBool("COALTER_STAGE1_NARRATION", false);
   },
+  /**
+   * [CEO lock 2026-04-20 M1 Candidate 3] `pairOnboardingEnabled`
+   *   - ペア activate 時に `coalter_pair_states.onboarded_at` をセットし、
+   *     `coalter_fairness_ledger` に bias_score=0 の seed row を 1 件入れる。
+   *   - invoke の Stage 1 は「onboarded_at is null かつ talk_messages 0」の
+   *     cold-start ペアに対しては snapshot を返さない（outcome="failed" を
+   *     見せないための保護）。
+   *   - 既定 OFF。activate/invoke のどちらも flag OFF で従来挙動と完全一致。
+   *   - stage1LiveEnabled / stage1NarrationEnabled と独立。onboarding 層
+   *     だけ切り戻したい場面に対応する 3 つ目の弁。
+   */
+  get pairOnboardingEnabled(): boolean {
+    return envBool("COALTER_PAIR_ONBOARDING", false);
+  },
 };

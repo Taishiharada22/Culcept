@@ -6,6 +6,7 @@
  */
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import type { ActivateRequest, CoAlterApiResponse } from "@/lib/coalter/types";
 
 export async function POST(request: Request) {
@@ -99,23 +100,50 @@ export async function POST(request: Request) {
     }
 
     // 新規作成 — 即 enabled（同意フロー不要）
+    //
+    // [M1 C3] flag ON のときだけ onboarded_at を stamp する。
+    //   - 旧ペア (migration 前) の onboarded_at は null のまま残すのが契約。
+    //     新規 activate パスに限定することで「旧ペア再 activate で stamp」の
+    //     取り違えを避ける（= "最初の activate" の意味を壊さない）。
+    //   - flag OFF のときは column に触れないので従来 insert と完全一致。
+    const nowIso = new Date().toISOString();
+    const insertRow: Record<string, unknown> = {
+      thread_id: threadId,
+      thread_type: "talk",
+      user_a: userA,
+      user_b: userB,
+      state: "enabled",
+      initiated_by: user.id,
+      accepted_at: nowIso,
+    };
+    if (COALTER_FLAGS.pairOnboardingEnabled) {
+      insertRow.onboarded_at = nowIso;
+    }
+
     const { data: created, error } = await supabase
       .from("coalter_pair_states")
-      .insert({
-        thread_id: threadId,
-        thread_type: "talk",
-        user_a: userA,
-        user_b: userB,
-        state: "enabled",
-        initiated_by: user.id,
-        accepted_at: new Date().toISOString(),
-      })
+      .insert(insertRow)
       .select("id")
       .single();
 
     if (error) {
       console.error("[CoAlter] Failed to create pair state:", error);
       return NextResponse.json({ ok: false, error: "Failed to activate" }, { status: 500 });
+    }
+
+    // [M1 C3] fairness ledger seed row (bias_score=0)
+    //   - session_id は migration で nullable 化済み。pre-session seed の意図。
+    //   - 失敗しても activate 自体は成功扱い（fail-open、ledger は内部計測）。
+    if (COALTER_FLAGS.pairOnboardingEnabled) {
+      const { error: seedError } = await supabase.from("coalter_fairness_ledger").insert({
+        pair_state_id: created.id,
+        session_id: null,
+        bias_score: 0,
+        decided_at: nowIso,
+      });
+      if (seedError) {
+        console.error("[CoAlter] Fairness ledger seed failed (fail-open):", seedError);
+      }
     }
 
     return NextResponse.json<CoAlterApiResponse>({

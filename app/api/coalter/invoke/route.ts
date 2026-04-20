@@ -15,6 +15,7 @@ import {
 } from "@/lib/coalter/understanding";
 import { collectLiveBundle } from "@/lib/coalter/understanding/liveCollector";
 import { buildStage1Prefix } from "@/lib/coalter/stage1Narration";
+import { isPairInColdStart } from "@/lib/coalter/pairOnboarding";
 import type {
   PersonalLens,
   SourceCoverage,
@@ -48,9 +49,12 @@ export async function POST(request: Request) {
     }
 
     // ペア状態を確認
+    //
+    // [M1 C3] onboarded_at を一緒に取る。flag OFF 時も取得するが参照しない。
+    //   migration 前 schema では列が無く `null` として返る想定。
     const { data: pairState } = await supabase
       .from("coalter_pair_states")
-      .select("id, state, user_a, user_b")
+      .select("id, state, user_a, user_b, onboarded_at")
       .eq("thread_id", threadId)
       .single();
 
@@ -147,6 +151,7 @@ export async function POST(request: Request) {
           pairStateId: pairState.id,
           userA: pairState.user_a,
           userB: pairState.user_b,
+          onboardedAt: (pairState as { onboarded_at?: string | null }).onboarded_at ?? null,
         })
       : undefined;
 
@@ -225,12 +230,34 @@ type Stage1HelperInput = {
   pairStateId: string;
   userA: string;
   userB: string;
+  /** [M1 C3] onboarded_at 列の値。null or undefined = 未 onboarding (legacy or pre-migration) */
+  onboardedAt?: string | null;
 };
 
 async function computeStage1Snapshot(
   input: Stage1HelperInput,
 ): Promise<Stage1Snapshot | undefined> {
   try {
+    // [M1 C3] cold-start protection
+    //   pairOnboardingEnabled が ON かつ
+    //     (a) onboarded_at が null (= 旧ペア or migration 前) かつ
+    //     (b) talk_messages が 0 件
+    //   のときは Stage 1 を呼ばず undefined を返す。
+    //   理由: 会話が 1 件も無い段階で runUnderstanding() を回しても
+    //   構造的に outcome="failed" が確定する。narration 層は failed を
+    //   hide するが、response に `stage1.outcome=failed` が載ると
+    //   「今日」を示唆しないまでも「計測に失敗した 2 人」という情報は漏れる。
+    //   snapshot を欠落させる方が情報設計として正しい。
+    if (COALTER_FLAGS.pairOnboardingEnabled && !input.onboardedAt) {
+      const { count, error: countError } = await input.supabase
+        .from("talk_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("thread_id", input.threadId);
+      if (!countError && isPairInColdStart(input.onboardedAt, count ?? 0)) {
+        return undefined;
+      }
+    }
+
     const now = new Date().toISOString() as IsoTimestamp;
     const { bundle, meta } = await collectLiveBundle({
       supabase: input.supabase,
