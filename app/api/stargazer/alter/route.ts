@@ -512,7 +512,7 @@ import type { MorningSession, MorningProtocolResponse, PersonalityContext } from
 import { runMorningPipeline } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
-import { adaptPipelineToLegacy } from "@/lib/alter-morning/legacyAdapter";
+import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
 
 export const runtime = "nodejs";
@@ -1891,14 +1891,39 @@ export async function POST(req: NextRequest) {
             );
             }
           } catch (err) {
-            // 新 pipeline が落ちたら旧実装に fallback（safety net）
+            // ── W3-PR-7 Commit 5: Provider failure 耐性 ──
+            //   pipeline / provider の throw を legacy に落とさず、合成
+            //   comprehension_failed 結果を adapter に通して **prior state を維持** する。
+            //   commit 4 の priorPlan / priorPending / priorPersistedEvents 継承機構を
+            //   そのまま使い、「失敗しても会話状態を壊さない」ことに限定する。
+            //   （根本的な provider / schema 修正はここでは行わない — 別 PR）
             console.warn(
-              `[morning-protocol:v2] pipeline error — fallback to legacy`,
+              `[morning-protocol:v2] pipeline throw — absorb and preserve prior state`,
               err,
             );
-            const result = await processMorningMessage(message, morningSession);
-            morningSession = result.session;
-            morningResponse = result.response;
+            const priorInputs = isStickyV2
+              ? (rawMorningSession?.rawInputs ?? [])
+              : [];
+            const adapted = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+              sessionId: morningSession.sessionId,
+              utterance: message,
+              personalityContext: personalityCtx,
+              userPrefecture: morningSession.userPrefecture,
+              userCity: morningSession.userCity,
+              userHomeLabel: morningSession.userHomeLabel,
+              userHomeLat: morningSession.userHomeLat,
+              userHomeLng: morningSession.userHomeLng,
+              priorRawInputs: priorInputs,
+              priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
+              priorPersistedEvents:
+                rawMorningSession?.persistedEvents ?? undefined,
+              priorPlan: rawMorningSession?.plan ?? null,
+            });
+            morningSession = adapted.session;
+            morningResponse = adapted.response;
+            console.info(
+              `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
+            );
           }
         } else {
           const result = await processMorningMessage(message, morningSession);

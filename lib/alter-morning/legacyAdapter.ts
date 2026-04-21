@@ -328,6 +328,40 @@ function buildClarifyingMessage(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Synthetic failed result — W3-PR-7 Commit 5 (Provider failure 耐性)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Provider / pipeline が throw した場合に合成する `comprehension_failed` 結果。
+ *
+ * route.ts の catch ハンドラで使い、adapter の prior-state 継承機構（commit 4）
+ * を通して plan/pending/events を維持する。
+ *
+ * 設計方針（CEO 2026-04-22 commit 5 指示）:
+ *   - LLM 返却 null と pipeline throw を **同じ形** に畳む
+ *     （status="comprehension_failed" = 「今ターンは何も掴めなかった」）
+ *   - 今ターンの events も narration も無い扱い
+ *   - priorPending / priorPlan / priorPersistedEvents がある場合は adapter 側で継承
+ *   - この helper 自体は副作用なし。hints も空
+ */
+export function buildFailedPipelineResult(): MorningPipelineResult {
+  return {
+    status: "comprehension_failed",
+    comprehension: null,
+    timeline: null,
+    grounded: [],
+    gapResolution: null,
+    annotations: { body: [], weather: [], party: [] },
+    narration: null,
+    hints: {
+      explicit_times: [],
+      explicit_start_points: [],
+      slot_opt_outs: [],
+    },
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Entry
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
