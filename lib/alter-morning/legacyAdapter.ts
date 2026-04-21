@@ -30,10 +30,19 @@ import type {
   PendingClarify,
   PendingClarifyScope,
   PendingSlot,
+  ConfirmationState,
+  WhereVagueSubKind,
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
+import {
+  computeWhenSharpness,
+  computeWhereSharpness,
+  computeWhatSharpness,
+} from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
+import { classifyWhereVague } from "./planning/whereVagueClassifier";
+import { normalizePlanItem } from "./normalizedPlanItem";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // I/O
@@ -98,7 +107,29 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
   const whenText = startTime ?? "";
   // 表示テキストは「HH:mm 場所 活動」の簡易結合。narration.text が本命なので
   // こちらは最低限の fallback 用途。
+  // 設計書 §3.5: PR-8 では UI は slot 個別描画、text は旧経路用の残置 fallback。
   const text = [whenText, whereText, whatText].filter((s) => s.length > 0).join(" ");
+
+  // ── W3-PR-8: sharpness 貫通（設計書 §6.2）──
+  //   eventSchema の pure function を呼んで結果を item に写す。
+  //   Event schema には永続フィールドを追加しない（計算関数で閉じる）。
+  const whenSharpness = computeWhenSharpness(event.when);
+  const whereSharpness = computeWhereSharpness(event.where);
+  const whatSharpness = computeWhatSharpness(event.what);
+
+  // vague 時のみ sub-kind を計算（non-vague では undefined で残す。normalizer が null に倒す）。
+  const whereVagueSubKind: WhereVagueSubKind | undefined =
+    whereSharpness === "vague" ? classifyWhereVague(event.where) : undefined;
+
+  // item 単位の confirmationState。needs_answer は adaptPipelineToLegacy 側で
+  // pendingClarify と付き合わせて上書きされる（設計書 §6.2）。
+  const allFixed =
+    whenSharpness === "fixed" &&
+    whereSharpness === "fixed" &&
+    whatSharpness === "fixed";
+  const confirmationState: ConfirmationState = allFixed
+    ? "confirmed"
+    : "provisional";
 
   return {
     id: event.event_id,
@@ -112,6 +143,12 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
     orderHint,
     sourceTurnIndex: 0,
     completed: false,
+    // ── W3-PR-8 Strict Confirmation ──
+    whenSharpness,
+    whereSharpness,
+    whatSharpness,
+    whereVagueSubKind,
+    confirmationState,
   };
 }
 
@@ -421,9 +458,22 @@ export function adaptPipelineToLegacy(
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
-    const items: PlanItem[] = effectiveEvents.map((ev, idx) =>
+    const rawItems: PlanItem[] = effectiveEvents.map((ev, idx) =>
       eventToPlanItem(ev, idx),
     );
+
+    // ── W3-PR-8: needs_answer 上書き + normalize（設計書 §6.2, §3.4）──
+    //   pendingClarify.event_id が指す item だけ confirmationState="needs_answer"。
+    //   その後 normalizePlanItem で optional → required に狭めて UI に渡す。
+    const pendingEventId = pendingClarify?.event_id ?? null;
+    const items = rawItems.map((item) => {
+      const withNeedsAnswer: PlanItem =
+        pendingEventId != null && item.id === pendingEventId
+          ? { ...item, confirmationState: "needs_answer" }
+          : item;
+      return normalizePlanItem(withNeedsAnswer);
+    });
+
     plan = {
       date: today,
       items,
@@ -435,10 +485,11 @@ export function adaptPipelineToLegacy(
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として
     // priorPlan を provisional 扱いで継承する。
+    // W3-PR-8: priorPlan の items も normalize 経由で strict 型に整える。
     plan = {
       ...input.priorPlan,
-      status:
-        phase === "plan_presented" ? "confirmed" : planStatus,
+      status: phase === "plan_presented" ? "confirmed" : planStatus,
+      items: input.priorPlan.items.map((item) => normalizePlanItem(item)),
     };
   }
 

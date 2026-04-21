@@ -30,21 +30,26 @@ import type {
  * adapter 通過後の PlanItem を一度ここを通してから UI に渡す。
  * UI は NormalizedPlanItem のみを参照する。
  */
-export interface NormalizedPlanItem
-  extends Omit<
-    PlanItem,
-    | "confirmationState"
-    | "whenSharpness"
-    | "whereSharpness"
-    | "whatSharpness"
-    | "whereVagueSubKind"
-  > {
+export interface NormalizedPlanItem extends PlanItem {
+  /** required 化: adapter 通過後は必ず値が入る */
   confirmationState: ConfirmationState;
   whenSharpness: SlotSharpness;
   whereSharpness: SlotSharpness;
   whatSharpness: SlotSharpness;
-  /** vague 時のみ値を持つ。fixed/missing では null。 */
-  whereVagueSubKind: WhereVagueSubKind | null;
+  /**
+   * vague 時のみ値を持つ。fixed/missing では undefined。
+   *
+   * PlanItem.whereVagueSubKind が `WhereVagueSubKind | undefined` のため、
+   * NormalizedPlanItem でも同じ shape を保つ（`| null` にすると構造的 subtype
+   * の互換が崩れて plan.items への代入ができなくなる）。
+   *
+   * 意味:
+   *   - whereSharpness === "vague" のとき: WhereVagueSubKind（必ず値あり）
+   *   - その他: undefined
+   *
+   * UI 側は whereSharpness を先に見てから分岐する（設計書 §6.3）。
+   */
+  whereVagueSubKind?: WhereVagueSubKind;
 }
 
 /**
@@ -63,11 +68,11 @@ export function normalizePlanItem(item: PlanItem): NormalizedPlanItem {
   const confirmationState: ConfirmationState =
     item.confirmationState ?? "provisional";
 
-  // whereVagueSubKind: vague 時のみ値を持つ。それ以外は null。
-  const whereVagueSubKind: WhereVagueSubKind | null =
+  // whereVagueSubKind: vague 時のみ値。それ以外は undefined に確実に落とす。
+  const whereVagueSubKind: WhereVagueSubKind | undefined =
     whereSharpness === "vague"
       ? item.whereVagueSubKind ?? "undecided" // vague なのに sub-kind 無し → 最保守
-      : null;
+      : undefined;
 
   return {
     ...item,
