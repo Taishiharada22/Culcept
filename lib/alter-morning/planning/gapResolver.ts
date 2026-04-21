@@ -27,6 +27,7 @@ import type {
 import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
 import type { GroundedPlace } from "./placeGrounder";
 import { classifyWhereSlot } from "./whereClassifier";
+import { classifyWhenSlot } from "./whenClassifier";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -128,8 +129,17 @@ export function resolveEventGap(
     });
   }
 
-  // semantic==["when"]
+  // semantic==["when"] — When 三層判定（W3-PR-6 Commit 3）
+  //   category default や前後 event からの relative anchor があれば
+  //   PROVISIONAL 扱いで ASK せずに進める（pass_through）。
   if (sem.length === 1 && sem[0] === "when") {
+    const ws = classifyWhenSlot(ev, { events: ctx.events, index: ctx.index });
+    if (ws.kind === "provisional") {
+      // 自動補完できたので ASK しない
+      return { type: "pass_through", event_id: ev.event_id };
+    }
+    // FIXED はここには到達しない（sem に when が残っているのは startTime も
+    // timeHint もない場合のみ）。防御的に ASK へ。
     return mkClarify({
       event_id: ev.event_id,
       kind: "specific_time",
