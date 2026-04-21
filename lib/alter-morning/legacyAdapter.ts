@@ -94,31 +94,26 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
  * Phase 決定 — W3-PR-6 CEO 方針: clarify-first **hard gate**
  *
  * 「ASK が 1 つでも残るなら plan_presented に進ませない」が最重要制約。
- * 従前は status===ok && narration.text のみだったが、gapResolution.primary_clarify
- * と missing_semantic_critical を AND で検査することで、条件不足状態での
- * plan 提示を構造的に禁止する。
+ * gapResolver は三層判定（FIXED / PROVISIONAL / ASK）を行い、ASK が 1 件でも
+ * 残った場合のみ primary_clarify を立てる。ここはその判定を信じる。
  *
  * 判定順:
  *   1. status !== "ok"                         → clarifying
  *   2. narration が空                          → clarifying（防御的）
  *   3. gapResolution.primary_clarify != null   → clarifying（hard gate 本体）
- *   4. 任意の event に missing_semantic_critical が残る → clarifying（二重化）
- *   5. else                                    → plan_presented
+ *   4. else                                    → plan_presented
+ *
+ * 重要: 以前あった「missing_semantic_critical が残っていれば clarifying」という
+ * 二重化チェックは **削除した**。missing_semantic_critical は生欠損を表すだけで、
+ * Where/When 三層判定が PROVISIONAL（borrow / category default）と判定した場合
+ * でもフィールドには残る。二重化は PROVISIONAL ルートを誤って ASK に差し戻す
+ * バグ経路になっていた（W3-PR-6 真機テストで発覚、2026-04-22）。
+ * gapResolver.primary_clarify が唯一の権威。
  */
 function decidePhase(result: MorningPipelineResult): MorningPhase {
   if (result.status !== "ok") return "clarifying";
   if (!result.narration || !result.narration.narration?.text) return "clarifying";
-
-  // hard gate 本体
   if (result.gapResolution?.primary_clarify) return "clarifying";
-
-  // 二重化: primary_clarify が null でも missing_semantic_critical が残る
-  // event があれば clarifying に倒す（gapResolver の漏れへの safety net）
-  const hasMissingSemantic = result.comprehension?.events.some(
-    (ev) => ev.missing_semantic_critical.length > 0,
-  );
-  if (hasMissingSemantic) return "clarifying";
-
   return "plan_presented";
 }
 
