@@ -417,6 +417,19 @@ export interface PlanItem {
 // MorningPlan — 1日のプラン全体
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * W3-PR-7 Commit 4: plan の確定度。
+ *
+ *   confirmed:   全 slot fixed、ASK なし。「これで行ける」plan
+ *   needs_answer: pendingClarify あり、ユーザー回答待ちの仮の流れ
+ *   provisional: ASK は無いが sharpness=vague 残存 / comprehension_failed 時の
+ *                前ターン継承など、未確定要素を含む「仮の流れ」
+ *
+ * UI は status に応じて表示スタイル（点線・薄色・確定スタンプ等）を出し分ける。
+ * 旧コードへの後方互換のため optional。未指定時は legacyAdapter が推定する。
+ */
+export type MorningPlanStatus = "confirmed" | "needs_answer" | "provisional";
+
 export interface MorningPlan {
   date: string; // YYYY-MM-DD
   items: PlanItem[];
@@ -426,6 +439,11 @@ export interface MorningPlan {
   createdAt: string;
   /** ユーザーが確定したか */
   confirmed: boolean;
+  /**
+   * W3-PR-7 Commit 4: plan 確定度（3 値）。
+   * 未指定の旧 session 互換のため optional。
+   */
+  status?: MorningPlanStatus;
   /** メインの場所（プラン生成の中核フィールド） */
   mainLocation?: MainLocation;
   /** 1日の流れの文脈 */
@@ -691,6 +709,62 @@ export interface PersonalityContext {
   decision_tempo?: number;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PendingClarify — W3-PR-7 Commit 2
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §3.4
+//
+// ターンをまたいで「直前に何を聞いたか」を保持するダイアログ状態。
+// 次ターンの answerBinder はこの情報を使って、ユーザー返答を正しい event/slot に
+// 書き込む（LLM 再 comprehension に頼らない bind）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** PendingClarify が指し示す slot（書き込み対象） */
+export type PendingSlot =
+  | "when"
+  | "where"
+  | "what"
+  | "transport"
+  | "endpoint";
+
+/**
+ * 質問時の event スコープ情報。再表示・再質問時に「朝の仕事」等と
+ * event を特定して聞き直せるようにする。
+ */
+export interface PendingClarifyScope {
+  /** "朝" | "12:00" | "夜" | null（表示用ラベル） */
+  timeLabel: string | null;
+  /** "仕事" | "ランチ" | null */
+  activityLabel: string | null;
+  /** plan 内で何番目の event か（1 始まり、同時間帯複数時の曖昧解消用） */
+  eventOrdinal: number;
+}
+
+export interface PendingClarify {
+  /** 対象 event（resolveGaps が決めた primary_clarify.event_id） */
+  event_id: string;
+  /** 書き込み対象 slot */
+  slot: PendingSlot;
+  /**
+   * 質問種別（answerBinder の解釈に使う）。
+   * ClarifyKind と等価の string literal。cyclic import を避けるため string 型で持つ。
+   */
+  kind: string;
+  /** 質問時の event スコープ情報（再表示・再質問用） */
+  scope: PendingClarifyScope;
+  /** 質問文（次ターンで再表示する場合用） */
+  question: string;
+  /** 質問したターンの ISO timestamp（staleness 判定用、将来拡張） */
+  askedAt: string;
+  /**
+   * 意味不明応答の連続カウント。CEO 方針 2026-04-22:
+   *   semantic_miss が 2 連続したら pending を破棄し fresh comprehension に戻す。
+   *   system_miss は連続カウントしない（pending 維持）。
+   */
+  semanticMissCount?: number;
+}
+
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
@@ -760,6 +834,21 @@ export interface MorningSession {
    */
   userHomeLat?: number | null;
   userHomeLng?: number | null;
+  /**
+   * W3-PR-7 Commit 2: ダイアログ状態。
+   * 直前ターンで発した clarify 質問の情報。次ターンの answerBinder が
+   * ユーザー応答を正しい event.slot に bind するのに使う。
+   */
+  pendingClarify?: PendingClarify | null;
+  /**
+   * W3-PR-7 Commit 2: v2 pipeline が出した最後の events。
+   * 次ターンで LLM 再 comprehension を飛ばす state 起点。
+   * 「文字列連結で過去発話を再抽出」するレガシー方式を将来置換する土台。
+   *
+   * 型: ComprehensionEvent[]（cyclic import 回避のため unknown で持ち、
+   * 実アクセス側で型ガード。serialization は JSON 互換のため lossless）。
+   */
+  persistedEvents?: import("./comprehension/eventSchema").Event[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

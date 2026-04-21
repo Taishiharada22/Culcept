@@ -3,7 +3,8 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMetadata } from "@/lib/stargazer/alterHomeAdapter";
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
-import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult } from "@/lib/alter-morning/types";
+import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
+import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 
 /** PE出典情報（Alter発言下に小さく表示） */
 export type PerspectiveSource = {
@@ -96,6 +97,9 @@ interface PersistedMorningSession {
   planStateV2?: any;
   // W3-PR-6: v2 pipeline stickiness round-trip
   pipelineVersion?: "v2";
+  // W3-PR-7 Commit 2: dialog state round-trip
+  pendingClarify?: PendingClarify | null;
+  persistedEvents?: ComprehensionEvent[];
 }
 
 function saveMorningSession(session: PersistedMorningSession): void {
@@ -198,6 +202,13 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningPipelineVersion, setMorningPipelineVersion] = useState<"v2" | null>(
     (restoredSession as { pipelineVersion?: "v2" } | null)?.pipelineVersion ?? null,
   );
+  // W3-PR-7 Commit 2: dialog state round-trip
+  const [morningPendingClarify, setMorningPendingClarify] = useState<PendingClarify | null>(
+    restoredSession?.pendingClarify ?? null,
+  );
+  const [morningPersistedEvents, setMorningPersistedEvents] = useState<ComprehensionEvent[] | null>(
+    restoredSession?.persistedEvents ?? null,
+  );
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -228,8 +239,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       personalizeHints: morningPersonalizeHints,
       planStateV2: morningPlanStateV2,
       ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+      pendingClarify: morningPendingClarify,
+      persistedEvents: morningPersistedEvents ?? undefined,
     });
-  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion]);
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -288,6 +301,9 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               planStateV2: morningPlanStateV2 ?? undefined,
               // W3-PR-6: v2 stickiness を route に返送する
               ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+              // W3-PR-7 Commit 2: dialog state を route に返送する
+              ...(morningPendingClarify ? { pendingClarify: morningPendingClarify } : {}),
+              ...(morningPersistedEvents ? { persistedEvents: morningPersistedEvents } : {}),
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
@@ -397,6 +413,13 @@ export function useAlterChat(options?: UseAlterChatOptions) {
             data.morningProtocol.pipelineVersion === "v2" ? "v2" : null,
           );
         }
+        // W3-PR-7 Commit 2: dialog state round-trip
+        if (data.morningProtocol.pendingClarify !== undefined) {
+          setMorningPendingClarify(data.morningProtocol.pendingClarify ?? null);
+        }
+        if (data.morningProtocol.persistedEvents !== undefined) {
+          setMorningPersistedEvents(data.morningProtocol.persistedEvents ?? null);
+        }
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -410,7 +433,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();

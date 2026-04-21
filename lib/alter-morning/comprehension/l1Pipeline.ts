@@ -51,6 +51,22 @@ export interface L1PipelineInput {
   };
   /** ユーザ発話（L1.2 Slot & Provenance Checker 用） */
   utterance: string;
+  /**
+   * W3-PR-7 Commit 2: answerBinder 経路で使う event 上書き。
+   *
+   * 指定された場合、`raw.events` を無視して **この events をそのまま採用**
+   * する（LLM 再 comprehension / event_id 再採番をスキップ）。
+   *
+   * 用途:
+   *   bindAnswerToSlot で slot を書き込んだ後、LLM に再解釈させずに
+   *   同じ event graph を planner に流すため。
+   *
+   * 契約:
+   *   - events は既に event_id を持つ（attachEventId 不要）
+   *   - checker には回さない（bind 時に missing_semantic_critical 再計算済み）
+   *   - raw.events は無視される（targetDate/startPoint/departureTime/goOut は利用）
+   */
+  priorEvents?: Event[];
 }
 
 /**
@@ -62,14 +78,22 @@ export interface L1PipelineInput {
  *
  * 副作用: generateEventId がモジュールグローバル counter を消費する点のみ。
  *         テストでは resetEventCounter でリセット可能。
+ *
+ * 特例 (priorEvents):
+ *   answerBinder 経路では priorEvents をそのまま events として採用する。
+ *   LLM 再 comprehension / checker 再実行を skip する（bind 時に
+ *   missing_semantic_critical は再計算済み）。
  */
 export function runL1Pipeline(input: L1PipelineInput): ComprehensionResult {
-  const { raw, utterance } = input;
+  const { raw, utterance, priorEvents } = input;
 
-  const events: Event[] = raw.events.map((re) => {
-    const withId = attachEventId(re);
-    return checkEvent(withId, utterance);
-  });
+  const events: Event[] =
+    priorEvents !== undefined
+      ? priorEvents
+      : raw.events.map((re) => {
+          const withId = attachEventId(re);
+          return checkEvent(withId, utterance);
+        });
 
   return {
     events,

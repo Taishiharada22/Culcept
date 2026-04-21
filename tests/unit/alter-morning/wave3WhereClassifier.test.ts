@@ -120,7 +120,7 @@ describe("classifyWhereSlot — FIXED", () => {
     if (res.kind === "fixed") expect(res.reason).toBe("exact_proper_noun");
   });
 
-  test("resolved + 単一候補 → FIXED/resolved_single", () => {
+  test("chain_brand + resolved 単一候補 → PROVISIONAL（W3-PR-7: auto-grounding で FIXED 昇格しない）", () => {
     const ev = mkEvent("e1", {
       where: {
         place_ref: "スタバ",
@@ -130,11 +130,11 @@ describe("classifyWhereSlot — FIXED", () => {
     });
     const grounded = [mkGrounded("e1", "resolved", [mkCandidate("スターバックス")])];
     const res = classifyWhereSlot(ev, { events: [ev], index: 0, grounded });
-    expect(res.kind).toBe("fixed");
-    if (res.kind === "fixed") expect(res.reason).toBe("resolved_single");
+    expect(res.kind).toBe("provisional");
+    // CEO 2026-04-22: chain_brand は user 確認 or 支店明示でのみ FIXED 昇格可能
   });
 
-  test("unresolved（辞書 miss）でも place_ref あれば発話尊重 → FIXED/respected_unresolved", () => {
+  test("exact_proper_noun（辞書 miss）でも placeType で FIXED（respected_unresolved ではなく exact_proper_noun）", () => {
     const ev = mkEvent("e1", {
       where: {
         place_ref: "ナゾのカフェ",
@@ -145,7 +145,7 @@ describe("classifyWhereSlot — FIXED", () => {
     const grounded = [mkGrounded("e1", "unresolved", [])];
     const res = classifyWhereSlot(ev, { events: [ev], index: 0, grounded });
     expect(res.kind).toBe("fixed");
-    if (res.kind === "fixed") expect(res.reason).toBe("respected_unresolved");
+    if (res.kind === "fixed") expect(res.reason).toBe("exact_proper_noun");
   });
 });
 
@@ -368,11 +368,11 @@ describe("gapResolver — Where 三層 integration", () => {
   });
 
   test("Where ASK vs What ASK が並立: Where が優先（slot priority）", () => {
-    // eWhat は place_ref=null（anchor にならない）。eWhere も place_ref=null で
-    // anchor 借用不可 → where_center ASK が立つ。
+    // W3-PR-7: sharpness 駆動のため、eWhat は where 埋め where が ASK に
+    // ならないようにしておく（これで eWhat は activity ASK に落ちる）
     const eWhat = mkEvent("e_what", {
       when: { startTime: "12:00", timeHint: null, provenance: utteranceProvenance(["12時"], "high") },
-      // place_ref null（anchor にしない）
+      where: { place_ref: "東京駅", placeType: "exact_proper_noun", provenance: utteranceProvenance(["東京駅"], "high") },
       missing_semantic_critical: ["what"],
     });
     const eWhere = mkEvent("e_where", {

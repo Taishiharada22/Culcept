@@ -16,6 +16,7 @@ import {
   type Event,
   resetEventCounter,
   baselineProvenance,
+  utteranceProvenance,
 } from "@/lib/alter-morning/comprehension/eventSchema";
 
 import {
@@ -147,6 +148,9 @@ describe("L2.1 resolveGaps with clarify question", () => {
   test("specific_time clarify に question が付与される", () => {
     const ev = mkEvent({
       event_id: "event_1",
+      // When のみ missing、他は fixed にして specific_time へ誘導（W3-PR-7 sharpness 駆動）
+      where: { place_ref: "渋谷", placeType: "generic_place", provenance: utteranceProvenance(["渋谷"]) },
+      what: { activity: "打ち合わせ", activityCanonical: "打ち合わせ", provenance: utteranceProvenance(["打ち合わせ"]) },
       missing_semantic_critical: ["when"],
     });
     const res = resolveGaps([ev]);

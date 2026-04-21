@@ -256,3 +256,97 @@ export function toolProvenance(
     from_utterance: false,
   };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SlotSharpness — W3-PR-7 三層判定の正本（derived pure function）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §3
+//
+// sharpness は slot 値から都度計算する pure function として実装する。
+// Event schema に永続フィールドは**追加しない**。理由:
+//   - 単一真実源: raw slot 値（startTime / place_ref / activity 等）のみが正本。
+//     sharpness を field 化すると「更新し忘れ」バグの温床になる
+//   - 保守容易: 既存テスト fixture を一切書き換えずに済む
+//   - 計算コスト: slot 3 つの sharpness 判定は O(1) × 3。実行コスト無視可能
+//
+// 設計原則:
+//   - missing_semantic_critical（二値: 存在/不在）とは別概念。sharpness は三値
+//   - vague を missing に混ぜない（CEO 方針 2026-04-22）
+//   - chain_brand は **原則 vague 固定**（「スタバ」だけでは支店確定せず）
+//   - VAGUE_ACTIVITY_SET は保守的に（誤爆より漏れを許容）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type SlotSharpness = "fixed" | "vague" | "missing";
+
+/**
+ * 汎用的で具体性に欠ける活動語。activity / activityCanonical が
+ * これらに一致する（trim 後、大小文字無視）場合 What は vague 扱い。
+ *
+ * CEO 承認 2026-04-22: 「仕事」「作業」「用事」「予定」「もろもろ」「雑務」「タスク」。
+ * Wave 4+ で category default（リモート/会議/作業）を引けるようにする段階的拡張を想定。
+ */
+export const VAGUE_ACTIVITY_SET: ReadonlySet<string> = new Set([
+  "仕事",
+  "作業",
+  "用事",
+  "予定",
+  "もろもろ",
+  "雑務",
+  "タスク",
+]);
+
+/**
+ * HH:mm 形式の簡易検証（"09:00" / "23:59" 等）。
+ */
+function isHHmm(s: string | null | undefined): boolean {
+  if (!s) return false;
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+}
+
+/**
+ * When の sharpness:
+ *   - fixed:   startTime が "HH:mm" にマッチ
+ *   - vague:   startTime null かつ timeHint != null
+ *   - missing: 両方 null
+ */
+export function computeWhenSharpness(when: WhenSlot): SlotSharpness {
+  if (isHHmm(when.startTime)) return "fixed";
+  if (when.timeHint != null) return "vague";
+  return "missing";
+}
+
+/**
+ * Where の sharpness:
+ *   - missing: place_ref null
+ *   - fixed:   placeType が exact_proper_noun / known_base
+ *   - vague:   chain_brand / generic_place / null placeType（それ以外）
+ *
+ * CEO 明示 2026-04-22: chain_brand は auto-grounding が resolved を返しても
+ * sharpness 計算上は vague のまま。fixed 昇格は以下の 2 経路のみ:
+ *   1. user 確認済みで grounded.status=resolved かつ candidates==1（Gate は別層で）
+ *   2. user が支店を明示（placeType=exact_proper_noun へ昇格）
+ *
+ * ここは slot 値のみを見る純関数なので、grounded は参照しない。
+ */
+export function computeWhereSharpness(where: WhereSlot): SlotSharpness {
+  if (where.place_ref == null || where.place_ref.trim() === "") return "missing";
+  if (where.placeType === "exact_proper_noun") return "fixed";
+  if (where.placeType === "known_base") return "fixed";
+  return "vague";
+}
+
+/**
+ * What の sharpness:
+ *   - missing: activity が null or 空文字
+ *   - vague:   activity / activityCanonical が VAGUE_ACTIVITY_SET に一致
+ *   - fixed:   それ以外
+ */
+export function computeWhatSharpness(what: WhatSlot): SlotSharpness {
+  const a = (what.activity ?? "").trim();
+  if (!a) return "missing";
+  const canon = (what.activityCanonical ?? "").trim();
+  if (VAGUE_ACTIVITY_SET.has(a)) return "vague";
+  if (canon && VAGUE_ACTIVITY_SET.has(canon)) return "vague";
+  return "fixed";
+}

@@ -24,10 +24,16 @@ import type {
   SemanticCriticalSlot,
   SolverBlocker,
 } from "../comprehension/eventSchema";
+import {
+  computeWhenSharpness,
+  computeWhereSharpness,
+  computeWhatSharpness,
+} from "../comprehension/eventSchema";
 import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
 import type { GroundedPlace } from "./placeGrounder";
 import { classifyWhereSlot } from "./whereClassifier";
 import { classifyWhenSlot } from "./whenClassifier";
+import { classifyWhatSlot } from "./whatClassifier";
 import type { OptOutSlot } from "../comprehension/rulePreParse";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -48,6 +54,28 @@ export type ClarifyKind =
   | "transport"             // solver_blocker: transport
   | "endpoint";             // solver_blocker: endpoint / end_time
 
+/**
+ * clarify 質問時の event scope 情報（W3-PR-7 Commit 3 で追加）。
+ *
+ * 「朝の仕事はどのあたり？」のような event 指定付き質問を生成するために使う。
+ * events + event_id から gapResolver が都度計算する（純関数）。
+ *
+ * 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §5.1 / §5.3
+ */
+export interface ClarifyScope {
+  /** "朝" | "12:00" | "夜" | null（表示用ラベル） */
+  timeLabel: string | null;
+  /** "仕事" | "ランチ" | null */
+  activityLabel: string | null;
+  /** plan 内で何番目の event か（1 始まり） */
+  eventOrdinal: number;
+  /**
+   * 同 timeLabel+activityLabel の event 数。
+   * >= 2 の時のみ question に "1つ目の仕事は…" のような ordinal prefix を付ける。
+   */
+  sameLabelCount: number;
+}
+
 export interface ClarifyRequest {
   event_id: string;
   kind: ClarifyKind;
@@ -55,6 +83,12 @@ export interface ClarifyRequest {
   target_slot: SemanticCriticalSlot | SolverBlocker | "target_ref";
   /** テンプレで使うメタ情報 */
   hint?: string;
+  /**
+   * event scope 情報（W3-PR-7 Commit 3 から）。
+   * 質問文に「朝の仕事はどのあたり？」のような prefix を付けるために使う。
+   * 後方互換のため optional。未指定時は hint ベースの generic 文にフォールバック。
+   */
+  scope?: ClarifyScope;
   /**
    * ユーザーに戻す日本語質問文（rule-based 生成、Wave 3 W3-PR-1）。
    * resolveGaps 時に buildClarifyQuestion で自動生成される。
@@ -93,14 +127,82 @@ function hasTentativeChain(events: Event[], idx: number): boolean {
 }
 
 /**
+ * timeHint → 表示ラベル（「朝」「昼」「夜」「夕方」など）
+ */
+const TIME_HINT_LABEL: Record<string, string> = {
+  dawn: "早朝",
+  morning: "朝",
+  noon: "昼",
+  afternoon: "午後",
+  evening: "夕方",
+  night: "夜",
+  late_night: "深夜",
+};
+
+/**
+ * events + event_id から ClarifyScope を計算する純関数（W3-PR-7 Commit 3）。
+ *
+ * - timeLabel: startTime (HH:mm) or timeHint (日本語ラベル) or null
+ * - activityLabel: activityCanonical or activity or null
+ * - eventOrdinal: plan 内の 1 始まりインデックス
+ * - sameLabelCount: 同じ (timeLabel, activityLabel) を持つ event 数
+ *
+ * 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §5.3
+ */
+export function buildScopeFromEvents(
+  events: Event[],
+  event_id: string,
+): ClarifyScope | null {
+  const idx = events.findIndex((e) => e.event_id === event_id);
+  if (idx < 0) return null;
+  const ev = events[idx];
+
+  const timeLabel: string | null =
+    ev.when.startTime ??
+    (ev.when.timeHint ? TIME_HINT_LABEL[ev.when.timeHint] ?? null : null);
+
+  const activityLabel: string | null =
+    (ev.what.activityCanonical && ev.what.activityCanonical.trim()) ||
+    (ev.what.activity && ev.what.activity.trim()) ||
+    null;
+
+  // 同じラベル組み合わせの event 数をカウント
+  const sameLabelCount = events.filter((e) => {
+    const eTime =
+      e.when.startTime ??
+      (e.when.timeHint ? TIME_HINT_LABEL[e.when.timeHint] ?? null : null);
+    const eAct =
+      (e.what.activityCanonical && e.what.activityCanonical.trim()) ||
+      (e.what.activity && e.what.activity.trim()) ||
+      null;
+    return eTime === timeLabel && eAct === activityLabel;
+  }).length;
+
+  return {
+    timeLabel,
+    activityLabel,
+    eventOrdinal: idx + 1,
+    sameLabelCount,
+  };
+}
+
+/**
  * ClarifyRequest を組み立てる internal helper。
  * question フィールドを rule-based builder で自動付与する（Wave 3 W3-PR-1）。
+ *
+ * W3-PR-7 Commit 3: events + idx から scope を計算して request/question に反映する。
  */
 function mkClarify(
-  req: Omit<ClarifyRequest, "question">,
+  req: Omit<ClarifyRequest, "question" | "scope">,
+  ctx: { events: Event[]; index: number },
 ): GapAction {
-  const question = buildClarifyQuestion({ kind: req.kind, hint: req.hint });
-  return { type: "clarify", request: { ...req, question } };
+  const scope = buildScopeFromEvents(ctx.events, req.event_id) ?? undefined;
+  const question = buildClarifyQuestion({
+    kind: req.kind,
+    hint: req.hint,
+    scope,
+  });
+  return { type: "clarify", request: { ...req, scope, question } };
 }
 
 export function resolveEventGap(
@@ -109,103 +211,142 @@ export function resolveEventGap(
 ): GapAction {
   // Turn 2+ modify: target_ref_confidence=low は最優先 clarify
   if (ev.turn_mode === "modify" && ev.target_ref_confidence === "low") {
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "target_ref_low",
-      target_slot: "target_ref",
-      hint: ev.target_ref ?? undefined,
-    });
+    return mkClarify(
+      {
+        event_id: ev.event_id,
+        kind: "target_ref_low",
+        target_slot: "target_ref",
+        hint: ev.target_ref ?? undefined,
+      },
+      ctx,
+    );
   }
 
-  const sem = ev.missing_semantic_critical;
   const blk = ev.missing_solver_blockers;
 
-  // |semantic| >= 2 → 粗 time bucket
-  if (sem.length >= 2) {
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "coarse_time_bucket",
-      target_slot: "when",
-      hint: ev.what.activity || ev.what.activityCanonical || undefined,
-    });
+  // ── W3-PR-7: sharpness 駆動 dispatch ────────────────────────────────────
+  // vague を missing と別に扱う。vague も ASK になり得る。
+  const whenSh = computeWhenSharpness(ev.when);
+  const whereSh = computeWhereSharpness(ev.where);
+  const whatSh = computeWhatSharpness(ev.what);
+
+  // aggregate heuristic: When が missing かつ他に 1+ 欠損 → coarse time bucket
+  //   （When が fixed なら「朝/昼/夜?」を聞く意味がない）
+  const otherMissingCount =
+    (whereSh === "missing" ? 1 : 0) +
+    (whatSh === "missing" ? 1 : 0);
+  if (whenSh === "missing" && otherMissingCount >= 1) {
+    return mkClarify(
+      {
+        event_id: ev.event_id,
+        kind: "coarse_time_bucket",
+        target_slot: "when",
+        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+      },
+      ctx,
+    );
   }
 
-  // semantic==["when"] — When 三層判定（W3-PR-6 Commit 3）
-  //   category default や前後 event からの relative anchor があれば
-  //   PROVISIONAL 扱いで ASK せずに進める（pass_through）。
-  if (sem.length === 1 && sem[0] === "when") {
+  // 各 slot 単独判定（priority 順: When > Where > What）。
+  // 最初に出た ASK を返す。全 slot が provisional/fixed なら defer/pass_through。
+  let sawNonFixed = false;
+
+  // When: sharpness != fixed なら classifier に投げる
+  if (whenSh !== "fixed") {
+    sawNonFixed = true;
     const ws = classifyWhenSlot(ev, { events: ctx.events, index: ctx.index });
-    if (ws.kind === "provisional") {
-      // 自動補完できたので ASK しない
-      return { type: "pass_through", event_id: ev.event_id };
+    if (ws.kind === "ask") {
+      return mkClarify(
+        {
+          event_id: ev.event_id,
+          kind: "specific_time",
+          target_slot: "when",
+          hint: ev.what.activity || ev.what.activityCanonical || undefined,
+        },
+        ctx,
+      );
     }
-    // FIXED はここには到達しない（sem に when が残っているのは startTime も
-    // timeHint もない場合のみ）。防御的に ASK へ。
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "specific_time",
-      target_slot: "when",
-      hint: ev.what.activity || ev.what.activityCanonical || undefined,
-    });
+    // fixed/provisional: スキップして次 slot へ
   }
 
-  // semantic==["where"] → Where 三層判定（W3-PR-6 Commit 2）
-  //   grounded が渡されている場合は FIXED/PROVISIONAL/ASK で分岐。
-  //   渡されていない場合は従前どおり Place Grounder へ defer。
-  if (sem.length === 1 && sem[0] === "where") {
+  // Where: sharpness != fixed
+  if (whereSh !== "fixed") {
+    sawNonFixed = true;
     if (ctx.grounded) {
       const ws = classifyWhereSlot(ev, {
         events: ctx.events,
         index: ctx.index,
         grounded: ctx.grounded,
       });
-      if (ws.kind === "fixed" || ws.kind === "provisional") {
-        return { type: "defer_to_place_grounder", event_id: ev.event_id };
+      if (ws.kind === "ask") {
+        if (ws.reason === "ambiguous_too_many") {
+          return mkClarify(
+            {
+              event_id: ev.event_id,
+              kind: "where_pick_from_candidates",
+              target_slot: "where",
+              hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
+            },
+            ctx,
+          );
+        }
+        return mkClarify(
+          {
+            event_id: ev.event_id,
+            kind: "where_center",
+            target_slot: "where",
+            hint: ev.what.activity || ev.what.activityCanonical || undefined,
+          },
+          ctx,
+        );
       }
-      // ASK
-      if (ws.reason === "ambiguous_too_many") {
-        return mkClarify({
-          event_id: ev.event_id,
-          kind: "where_pick_from_candidates",
-          target_slot: "where",
-          hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
-        });
-      }
-      // missing_no_anchor
-      return mkClarify({
-        event_id: ev.event_id,
-        kind: "where_center",
-        target_slot: "where",
-        hint: ev.what.activity || ev.what.activityCanonical || undefined,
-      });
+      // provisional/fixed: place grounder へ defer（plan graph に候補載せる）
     }
+    // grounded 未提供なら defer_to_place_grounder に倒す（後段で判定）
+  }
+
+  // What: sharpness != fixed（missing or vague）
+  if (whatSh !== "fixed") {
+    sawNonFixed = true;
+    const ws = classifyWhatSlot(ev, { events: ctx.events, index: ctx.index });
+    if (ws.kind === "ask") {
+      return mkClarify(
+        {
+          event_id: ev.event_id,
+          kind: "activity",
+          target_slot: "what",
+          hint: ev.where.place_ref ?? undefined,
+        },
+        ctx,
+      );
+    }
+  }
+
+  // 全 slot が fixed、または provisional/deferred で ASK 不要
+  if (!sawNonFixed) {
+    // 完全 fixed — solver_blockers を見る
+  } else if (whereSh !== "fixed") {
+    // where が vague/missing でも ASK にならなかった（provisional） → place grounder へ
     return { type: "defer_to_place_grounder", event_id: ev.event_id };
   }
 
-  // semantic==["what"]
-  if (sem.length === 1 && sem[0] === "what") {
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "activity",
-      target_slot: "what",
-      hint: ev.where.place_ref ?? undefined,
-    });
-  }
-
-  // semantic==0: solver_blockers を見る
-  if (sem.length === 0) {
+  // solver_blockers 判定（sharpness 全 fixed、or When/What provisional 時）
+  {
     // tentative 連鎖チェック（Q1-A' 条件）
     if (hasTentativeChain(ctx.events, ctx.index)) {
-      return mkClarify({
-        event_id: ev.event_id,
-        kind: "tentative_chain",
-        target_slot: "when",
-        hint:
-          ev.target_ref ??
-          ev.what.activity ??
-          ev.what.activityCanonical ??
-          undefined,
-      });
+      return mkClarify(
+        {
+          event_id: ev.event_id,
+          kind: "tentative_chain",
+          target_slot: "when",
+          hint:
+            ev.target_ref ??
+            ev.what.activity ??
+            ev.what.activityCanonical ??
+            undefined,
+        },
+        ctx,
+      );
     }
 
     if (blk.length === 0) {
@@ -224,25 +365,28 @@ export function resolveEventGap(
 
     // blocker に endpoint / end_time が含まれる: clarify
     if (blk.includes("endpoint") || blk.includes("end_time")) {
-      return mkClarify({
-        event_id: ev.event_id,
-        kind: "endpoint",
-        target_slot: "endpoint",
-        hint: ev.what.activity || ev.what.activityCanonical || undefined,
-      });
+      return mkClarify(
+        {
+          event_id: ev.event_id,
+          kind: "endpoint",
+          target_slot: "endpoint",
+          hint: ev.what.activity || ev.what.activityCanonical || undefined,
+        },
+        ctx,
+      );
     }
 
     // それ以外（transport 複合等）: transport clarify
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "transport",
-      target_slot: "transport",
-      hint: ev.where.place_ref ?? undefined,
-    });
+    return mkClarify(
+      {
+        event_id: ev.event_id,
+        kind: "transport",
+        target_slot: "transport",
+        hint: ev.where.place_ref ?? undefined,
+      },
+      ctx,
+    );
   }
-
-  // 到達し得ない（sem.length が負になることはない）
-  return { type: "pass_through", event_id: ev.event_id };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
