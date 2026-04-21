@@ -9,6 +9,43 @@ import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(c
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
 import type { TimeConstraintType } from "./planState";
+import type { SlotSharpness } from "./comprehension/eventSchema";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-8 Strict Confirmation — 確定度の型
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-strict-confirmation-design.md §3
+//
+// `plan.status` は plan 全体の確定度、`item.confirmationState` は item 単位の
+// 確定度。UI は両方を別々に描画する。
+//
+// 旧セッション / test fixture 互換のため optional で追加。adapter 通過後の
+// item には normalize により必ず値が入る（normalizedPlanItem.ts 参照）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * PlanItem 全体の確定度（plan.status と独立）。
+ *
+ *   - confirmed:    全 slot sharpness="fixed"、pendingClarify 対象外
+ *   - needs_answer: pendingClarify.event_id === this.id（この item を直接質問中）
+ *   - provisional:  それ以外で何らかの slot が vague/missing
+ */
+export type ConfirmationState = "confirmed" | "provisional" | "needs_answer";
+
+/**
+ * whereSharpness="vague" の sub-kind。
+ *
+ *   - anchor:         「甲府駅周辺」「近場」「〇〇市」— 文言そのものが位置情報
+ *   - category_chain: 「スタバ」「カフェ」「図書館」— カテゴリ/チェーン
+ *   - undecided:      「決めてない」「まだ」「たぶん」— 場所の実体なし
+ *
+ * UI は sub-kind ごとに表示を変える（設計書 §5.2）:
+ *   - anchor:         文言残す、チップなし
+ *   - category_chain: 文言残す + 「店舗暫定」チップ
+ *   - undecided:      文言を描画せず `[場所未確定]` ラベルのみ
+ */
+export type WhereVagueSubKind = "anchor" | "category_chain" | "undecided";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MainLocation — 場所はプラン生成の中核フィールド
@@ -411,6 +448,25 @@ export interface PlanItem {
     /** anchor からの直線距離（m）。丸め済み。UI の「徒歩約 Xm」に使う。 */
     distanceM?: number;
   }>;
+
+  // ── W3-PR-8 Strict Confirmation (2026-04-22) ──
+  //
+  // 設計書: docs/alter-morning-strict-confirmation-design.md §3.1
+  //
+  // optional: 旧セッション / test fixture の後方互換のため。
+  // adapter 通過後は **必ず値が入る**（normalizePlanItem で保証）。
+  // UI 側では `NormalizedPlanItem` 経由で strict に扱い、`??` fallback 禁止。
+
+  /** item 全体の確定度（plan.status と独立） */
+  confirmationState?: ConfirmationState;
+  /** when slot の sharpness（eventSchema.computeWhenSharpness の結果） */
+  whenSharpness?: SlotSharpness;
+  /** where slot の sharpness（eventSchema.computeWhereSharpness の結果） */
+  whereSharpness?: SlotSharpness;
+  /** what slot の sharpness（eventSchema.computeWhatSharpness の結果） */
+  whatSharpness?: SlotSharpness;
+  /** whereSharpness="vague" 時のみ付与。anchor / category_chain / undecided */
+  whereVagueSubKind?: WhereVagueSubKind;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
