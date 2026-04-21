@@ -13,6 +13,21 @@
 ```
 
 ---
+### 2026-04-22 W3-PR-7 merge — PendingClarify + plan continuity + failure 耐性
+- **部門**: Build
+- **決定内容**: W3-PR-7 (alter-morning Wave 3) を main に merge。5 commit 連鎖: SlotSharpness 三値 / PendingClarify + answerBinder / ClarifyQuestionBuilder scope 強化 / items=0 禁則 + provisional plan 継続性 / Provider failure 耐性。
+- **理由**: 対話状態（pendingClarify / persistedEvents / plan.status）を第一級市民化し、clarifying ループの「質問が空」「返答が別 event に流れる」「provider 落ちで状態蒸発」を構造的に塞ぐ。
+- **Preview 判定（CEO 実機 2026-04-22）**:
+  - **PASS**: 質問非空・scope 明示、when/where/what bind 動作、clarifying 中も流れ保持、provider failure で即死しない
+  - **残課題**: (1) 未確定 slot が残るのに plan を前倒しで出す、(2) fixable / provisional 場所の境界が甘い、(3) anchor-based search / 同心円 / recommendation 分離は未着手
+  - 判定: **commit 1〜5 の改善工程として合格。次工程に進んでよい。ただし Morning 完成扱いではない**
+- **成果物**: `docs/alter-morning-comprehension-first-wave3-pr7-design.md`, `lib/alter-morning/{legacyAdapter,comprehension/answerBinder,planning/whatClassifier,planning/clarifyQuestionBuilder}.ts`, `app/api/stargazer/alter/route.ts`, 5 新規テストファイル (+ ≈60 tests)
+- **テスト**: 全 4939 tests PASS（208→209 files, +12 files）
+- **PR**: #15 (merge commit 283cb2a4)
+- **承認**: CEO
+- **ステータス**: 実行済
+
+---
 ### 2026-04-20 CoAlter M0-8 close — sample diversity ゲート 4条件全 PASS
 - **部門**: Build
 - **決定内容**: M0-7A の 100% agreement が tail 50 単調 sample への過学習でないことを確認するため、既存 151 cases を conversationArc で 2 バケットに分割し shadow を再実行。**実装は入れず、検証のみ**。CEO 合格ライン 4 条件すべて PASS。M0-8 close。

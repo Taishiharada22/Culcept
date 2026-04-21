@@ -97,6 +97,26 @@ Soft Preference Scoring。
 ### Build Unit — Week 4
 Why 生成 + Alter Narration。
 
+### W3-PR-7 merge 後 backlog（CEO 2026-04-22 指摘）
+W3-PR-7 で「質問ループの基盤」はクリア。次工程は **確定条件の厳格化 + anchor-based search / recommendation 層**。
+Morning 完成扱いにはなっていない。次 PR の粒度で扱う:
+
+1. **plan 前倒し提示の抑制**（確定条件の厳格化）
+   - 未確定 slot（pendingClarify 未解消）が残っている間、plan を confirmed に昇格しないだけでなく、**UI に全 items を出さない** モードを検討
+   - 現状: provisional でも UI に 3 items 出てしまい「質問中なのに決まった感」が出る
+   - 候補: 確定済み items のみ表示 / 未確定 items は grey スタブ / そもそも plan セクション自体を hide
+
+2. **fixable 場所 / provisional 場所 の境界厳密化**
+   - 「甲府駅周辺」「近場」「決めてない」のような vague 応答に対する正規化ルール
+   - placeType 三層（exact_proper_noun / generic_category / vague）と plan 表示ポリシーの接続
+
+3. **Anchor-based search / 同心円 / recommendation 分離**
+   - 既知 anchor（自宅 / 前 event 終点）からの同心円検索
+   - 店名 recommendation と fixable place の責務分離（現在は混在）
+   - 「ランチはどのあたり？」→ 候補提示 → 本人選択の流れを構造化
+
+**着手順**: 次セッションで CEO と粒度・優先度を確認してから分割設計。現時点では backlog 化のみ。
+
 ### 実装規律
 - 固定方針: 「LLM は意味を掴む。ロジックが計画を組む。LLM が納得できる形で伝える。」
 - 核感情: **納得感**
