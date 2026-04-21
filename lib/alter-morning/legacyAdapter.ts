@@ -145,6 +145,7 @@ export function adaptPipelineToLegacy(
   // ── Session 構築 ──
   const session: MorningSession = {
     sessionId: input.sessionId,
+    pipelineVersion: "v2",
     phase,
     rawInputs: [input.utterance],
     personalizeHints: [],
