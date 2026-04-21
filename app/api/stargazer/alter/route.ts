@@ -914,6 +914,8 @@ export async function POST(req: NextRequest) {
       /** Morning Protocol: クライアントから送信される進行中セッション状態 */
       morningSession?: {
         sessionId?: string;
+        // W3-PR-5: v2 stickiness
+        pipelineVersion?: "v2";
         phase: string;
         plan?: any;
         // P0-1: ターン間で保持する追加フィールド
@@ -923,6 +925,12 @@ export async function POST(req: NextRequest) {
         sufficiency?: any;
         // v2: PlanState ラウンドトリップ
         planStateV2?: any;
+        // baseline 由来キャッシュ（rawMorningSession!.userXxx 参照箇所が型要求）
+        userPrefecture?: string;
+        userCity?: string;
+        userHomeLabel?: string | null;
+        userHomeLat?: number | null;
+        userHomeLng?: number | null;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1682,6 +1690,8 @@ export async function POST(req: NextRequest) {
         if (hasExistingMorningSession) {
           morningSession = {
             sessionId: rawMorningSession!.sessionId ?? `ms_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            // W3-PR-5: v2 stickiness — 前ターンが v2 なら継続、旧は undefined のまま
+            pipelineVersion: rawMorningSession!.pipelineVersion === "v2" ? "v2" : undefined,
             phase: rawMorningSession!.phase as MorningSession["phase"],
             rawInputs: rawMorningSession!.rawInputs ?? [],
             personalizeHints: rawMorningSession!.personalizeHints ?? [],
@@ -1709,16 +1719,33 @@ export async function POST(req: NextRequest) {
           if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
 
-        // ── W3-PR-4: Flag-gated new pipeline（create-only / UI無変更） ──
-        // create-only = hasExistingMorningSession === false。
-        // modify / clarifying 途中ターンは旧 processMorningMessage に落とす。
+        // ── W3-PR-5: Flag-gated new pipeline with v2 session stickiness ──
+        // v2 に入る条件:
+        //   (a) 新規セッション（hasExistingMorningSession === false）
+        //   (b) または既存セッションが v2（pipelineVersion === "v2"）
+        // 旧セッション（pipelineVersion undefined）を途中で v2 に切り替えない。
+        // modify は現時点でも新 pipeline が未対応だが、「元発話＋新発話合算」での
+        // 再 comprehension で安全に create-only 相当に畳む（脳は混ぜない原則）。
         // flag default OFF — 「true」のみで有効化する。
         const v2Enabled = process.env.ALTER_MORNING_V2_ROUTE_ENABLED === "true";
-        const createOnly = !hasExistingMorningSession;
-        if (v2Enabled && createOnly) {
+        const isNewSession = !hasExistingMorningSession;
+        const isStickyV2 =
+          hasExistingMorningSession &&
+          rawMorningSession?.pipelineVersion === "v2";
+        const useV2 = v2Enabled && (isNewSession || isStickyV2);
+        if (useV2) {
           try {
+            // 継続ターンは「元発話＋新発話」を合算して再 comprehension。
+            // 旧 planner の modify/delta ロジックは戻さず、殻（session shape）のみ
+            // 維持しつつ新 pipeline で再構築する。
+            const priorInputs = isStickyV2
+              ? (rawMorningSession?.rawInputs ?? [])
+              : [];
+            const combinedUtterance = [...priorInputs, message]
+              .filter((s) => typeof s === "string" && s.length > 0)
+              .join(" / ");
             const pipelineResult = await runMorningPipeline(
-              { utterance: message },
+              { utterance: combinedUtterance },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),
                 narration: createLLMNarrationProvider({ userId }),
@@ -1727,7 +1754,7 @@ export async function POST(req: NextRequest) {
             );
             const adapted = adaptPipelineToLegacy(pipelineResult, {
               sessionId: morningSession.sessionId,
-              utterance: message,
+              utterance: combinedUtterance,
               personalityContext: personalityCtx,
               userPrefecture: morningSession.userPrefecture,
               userCity: morningSession.userCity,
@@ -1738,7 +1765,7 @@ export async function POST(req: NextRequest) {
             morningSession = adapted.session;
             morningResponse = adapted.response;
             console.info(
-              `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0}`,
+              `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"}`,
             );
           } catch (err) {
             // 新 pipeline が落ちたら旧実装に fallback（safety net）
@@ -8963,6 +8990,9 @@ export async function POST(req: NextRequest) {
       ...(morningResponse && morningResponse.phase !== "skipped" ? {
         morningProtocol: {
           sessionId: morningSession?.sessionId ?? null,
+          // W3-PR-5: v2 stickiness — クライアントがラウンドトリップで返送し、
+          // 次ターンも v2 pipeline に吸い込む
+          pipelineVersion: morningSession?.pipelineVersion ?? null,
           phase: morningResponse.phase,
           plan: morningResponse.plan ?? null,
           clarifyQuestion: morningResponse.clarifyQuestion ?? null,

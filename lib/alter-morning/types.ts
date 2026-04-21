@@ -694,6 +694,14 @@ export interface PersonalityContext {
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
+  /**
+   * Pipeline バージョン識別子（W3-PR-5）。
+   *   - undefined: 旧 processMorningMessage 経路（レガシー既存セッション）
+   *   - "v2":      新 runMorningPipeline 経路（Comprehension-First v1.3+）
+   * 将来 "v3" 以降に拡張することを前提に string literal union で開ける。
+   * 明示フィールドにしているのは sessionId prefix 判定より brittle でないため。
+   */
+  pipelineVersion?: "v2";
   /** 現在のフェーズ */
   phase: MorningPhase;
   /** 収集したユーザー入力（生テキスト） */
