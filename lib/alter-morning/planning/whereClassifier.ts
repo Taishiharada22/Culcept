@@ -16,6 +16,7 @@
  *   - 定数は export して呼び出し側で再利用可能にする（マジックナンバー排除）
  */
 import type { Event } from "../comprehension/eventSchema";
+import { computeWhereSharpness } from "../comprehension/eventSchema";
 import type { GroundedPlace } from "./placeGrounder";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,24 +118,26 @@ export function findCrossEventAnchor(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Event.where を三層判定する。
+ * Event.where を三層判定する（W3-PR-7: sharpness 駆動）。
  *
- * 判定順（早い方が優先）:
- *   A. place_ref==null:
- *     A-1. cross-event anchor あり → PROVISIONAL (cross_event_anchor)
- *     A-2. なし                    → ASK (missing_no_anchor)
- *   B. place_ref あり / grounded resolved:
- *     B-1. known_base              → FIXED (known_base)
- *     B-2. placeType==exact_proper_noun → FIXED (exact_proper_noun)  ※R1
- *     B-3. candidates.length === 1 → FIXED (resolved_single)
- *   C. place_ref あり / grounded ambiguous:
- *     C-1. candidates.length <= WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION
- *                                  → PROVISIONAL (ambiguous_top_pick)
- *     C-2. それ以上                → ASK (ambiguous_too_many)
- *   D. place_ref あり / grounded unresolved:
- *     D-1. placeType==exact_proper_noun → FIXED (respected_unresolved)  ※R1（辞書外でも発話尊重）
- *     D-2. placeType==null / generic → FIXED (respected_unresolved)     ※ユーザー発話尊重
- *     D-3. placeType==chain_brand で辞書 miss は例外的だが発話尊重 → FIXED
+ * 判定順:
+ *   M. sharpness==="missing" (place_ref==null):
+ *     M-1. cross-event anchor あり → PROVISIONAL (cross_event_anchor)
+ *     M-2. なし                    → ASK (missing_no_anchor)
+ *   F. sharpness==="fixed" (placeType ∈ {exact_proper_noun, known_base}):
+ *     F-1. known_base              → FIXED (known_base)
+ *     F-2. exact_proper_noun       → FIXED (exact_proper_noun)
+ *   V. sharpness==="vague" (chain_brand / generic_place / null placeType):
+ *     V-1. grounded ambiguous, 候補≤N → PROVISIONAL (ambiguous_top_pick)
+ *     V-2. grounded ambiguous, 候補>N → ASK (ambiguous_too_many)
+ *     V-3. grounded resolved          → **PROVISIONAL** (ambiguous_top_pick)
+ *            ※CEO 2026-04-22: chain_brand は auto-grounding で FIXED に昇格させない。
+ *              user 確認 or 支店明示でのみ FIXED へ。三層判定上は PROVISIONAL。
+ *     V-4. grounded unresolved / grounded データなし
+ *          → cross-event anchor あれば PROVISIONAL、なければ PROVISIONAL (ambiguous_top_pick)
+ *            ※「スタバ」のような chain_brand 単独ならユーザー再確認へ回すべきだが、
+ *              旧挙動（発話尊重）との互換のため、anchor 無しでも top-pick 仮採用し
+ *              plan は走らせる。chain_brand FIXED 昇格は gate 層で別途抑止。
  */
 export function classifyWhereSlot(
   ev: Event,
@@ -142,9 +145,10 @@ export function classifyWhereSlot(
 ): WhereSlotStatus {
   const groundedByEvent = new Map(ctx.grounded.map((g) => [g.event_id, g]));
   const g = groundedByEvent.get(ev.event_id) ?? null;
+  const sharpness = computeWhereSharpness(ev.where);
 
-  // A. place_ref 欠損
-  if (!ev.where.place_ref) {
+  // M. missing
+  if (sharpness === "missing") {
     const anchor = findCrossEventAnchor(ctx);
     if (anchor) {
       return {
@@ -156,45 +160,37 @@ export function classifyWhereSlot(
     return { kind: "ask", reason: "missing_no_anchor" };
   }
 
-  // B/C/D. place_ref あり
-  if (!g) {
-    // grounded データなし = 保守的に発話尊重（= FIXED）
-    return { kind: "fixed", reason: "respected_unresolved" };
-  }
-
-  // B-1. known_base
-  if (ev.where.placeType === "known_base" ||
-      g.selected?.placeType === "known_base") {
-    return { kind: "fixed", reason: "known_base" };
-  }
-
-  if (g.status === "resolved") {
-    // B-2. exact_proper_noun
-    if (ev.where.placeType === "exact_proper_noun") {
-      return { kind: "fixed", reason: "exact_proper_noun" };
+  // F. fixed（known_base / exact_proper_noun）
+  if (sharpness === "fixed") {
+    if (ev.where.placeType === "known_base" ||
+        g?.selected?.placeType === "known_base") {
+      return { kind: "fixed", reason: "known_base" };
     }
-    // B-3. 単一解決
-    if (g.candidates.length <= 1) {
-      return { kind: "fixed", reason: "resolved_single" };
-    }
-    // resolved だが候補複数（groundPlace は 1 件 hit で resolved を返す仕様なので
-    // 通常到達しないが、将来の拡張に対して保険）
-    return {
-      kind: "provisional",
-      reason: "ambiguous_top_pick",
-    };
+    return { kind: "fixed", reason: "exact_proper_noun" };
   }
 
-  if (g.status === "ambiguous") {
-    // C-1 / C-2
+  // V. vague (chain_brand / generic_place / null placeType)
+  if (g && g.status === "ambiguous") {
     if (g.candidates.length <= WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION) {
       return { kind: "provisional", reason: "ambiguous_top_pick" };
     }
     return { kind: "ask", reason: "ambiguous_too_many" };
   }
 
-  // D. unresolved（辞書 miss）
-  // exact_proper_noun でも generic でも、place_ref が null ではなく
-  // ユーザーが明示した以上は発話尊重（=FIXED）。
-  return { kind: "fixed", reason: "respected_unresolved" };
+  if (g && g.status === "resolved") {
+    // CEO 方針: chain_brand/generic は auto-grounding resolved でも FIXED 昇格しない
+    return { kind: "provisional", reason: "ambiguous_top_pick" };
+  }
+
+  // unresolved or grounded データなし
+  // 発話尊重で plan は走らせるが、sharpness=vague なので PROVISIONAL 扱い
+  const anchor = findCrossEventAnchor(ctx);
+  if (anchor) {
+    return {
+      kind: "provisional",
+      reason: "cross_event_anchor",
+      anchorEventId: anchor.anchor.event_id,
+    };
+  }
+  return { kind: "provisional", reason: "ambiguous_top_pick" };
 }

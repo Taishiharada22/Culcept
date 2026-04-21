@@ -406,9 +406,17 @@ describe("L2.2 solveTimeLine", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("L2.1 resolveEventGap", () => {
-  test("semantic 空 / blocker 空 → pass_through", () => {
+  /**
+   * W3-PR-7: gapResolver は slot 値から sharpness を都度計算する。
+   * missing_semantic_critical の値は dispatch に使われない（参考情報）。
+   * そのためこれらの fixture は「実際の slot 値」で sharpness を表現する。
+   */
+  test("全 slot fixed / blocker 空 → pass_through", () => {
     const ev = mkEvent({
       event_id: "event_1",
+      when: { startTime: "09:00", timeHint: null, provenance: utteranceProvenance(["9時"]) },
+      where: { place_ref: "自宅", placeType: "known_base", provenance: utteranceProvenance(["自宅"]) },
+      what: { activity: "作業開始", activityCanonical: "作業開始", provenance: utteranceProvenance(["作業開始"]) },
       missing_semantic_critical: [],
       missing_solver_blockers: [],
     });
@@ -416,7 +424,7 @@ describe("L2.1 resolveEventGap", () => {
     expect(a.type).toBe("pass_through");
   });
 
-  test("semantic ≥ 2 → coarse_time_bucket", () => {
+  test("when missing + where missing → coarse_time_bucket", () => {
     const ev = mkEvent({
       event_id: "event_1",
       missing_semantic_critical: ["when", "where"],
@@ -428,9 +436,12 @@ describe("L2.1 resolveEventGap", () => {
     }
   });
 
-  test("semantic=[when] → specific_time", () => {
+  test("when だけ missing → specific_time", () => {
     const ev = mkEvent({
       event_id: "event_1",
+      // when null のまま
+      where: { place_ref: "渋谷", placeType: "generic_place", provenance: utteranceProvenance(["渋谷"]) },
+      what: { activity: "打ち合わせ", activityCanonical: "打ち合わせ", provenance: utteranceProvenance(["打ち合わせ"]) },
       missing_semantic_critical: ["when"],
     });
     const a = resolveEventGap(ev, { events: [ev], index: 0 });
@@ -441,9 +452,12 @@ describe("L2.1 resolveEventGap", () => {
     }
   });
 
-  test("semantic=[where] → defer_to_place_grounder (clarify せず)", () => {
+  test("where だけ missing / grounded 未提供 → defer_to_place_grounder", () => {
     const ev = mkEvent({
       event_id: "event_1",
+      when: { startTime: "12:00", timeHint: null, provenance: utteranceProvenance(["12時"]) },
+      // where null のまま
+      what: { activity: "ランチ", activityCanonical: "ランチ", provenance: utteranceProvenance(["ランチ"]) },
       missing_semantic_critical: ["where"],
     });
     const a = resolveEventGap(ev, { events: [ev], index: 0 });
@@ -467,8 +481,26 @@ describe("L2.1 resolveEventGap", () => {
   });
 
   test("tentative が連鎖 → tentative_chain clarify", () => {
-    const ev1 = mkEvent({ event_id: "event_1", certainty: "tentative" });
-    const ev2 = mkEvent({ event_id: "event_2", certainty: "tentative" });
+    // W3-PR-7: sharpness 全 fixed で初めて tentative_chain 判定まで到達
+    const fixedSlots = {
+      when: { startTime: "09:00", timeHint: null, provenance: utteranceProvenance(["9時"]) },
+      where: { place_ref: "自宅", placeType: "known_base", provenance: utteranceProvenance(["自宅"]) },
+      what: { activity: "作業", activityCanonical: "作業", provenance: utteranceProvenance(["作業"]) },
+    };
+    // NOTE: activity="作業" は VAGUE_ACTIVITY_SET に入るので vague 扱い。tentative 検出には
+    // 実 activity を入れる必要がある。
+    const ev1 = mkEvent({
+      event_id: "event_1",
+      certainty: "tentative",
+      ...fixedSlots,
+      what: { activity: "開発", activityCanonical: "開発", provenance: utteranceProvenance(["開発"]) },
+    });
+    const ev2 = mkEvent({
+      event_id: "event_2",
+      certainty: "tentative",
+      ...fixedSlots,
+      what: { activity: "開発", activityCanonical: "開発", provenance: utteranceProvenance(["開発"]) },
+    });
     const a = resolveEventGap(ev1, { events: [ev1, ev2], index: 0 });
     if (a.type === "clarify") {
       expect(a.request.kind).toBe("tentative_chain");

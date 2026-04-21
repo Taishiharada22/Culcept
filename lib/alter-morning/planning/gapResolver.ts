@@ -24,10 +24,16 @@ import type {
   SemanticCriticalSlot,
   SolverBlocker,
 } from "../comprehension/eventSchema";
+import {
+  computeWhenSharpness,
+  computeWhereSharpness,
+  computeWhatSharpness,
+} from "../comprehension/eventSchema";
 import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
 import type { GroundedPlace } from "./placeGrounder";
 import { classifyWhereSlot } from "./whereClassifier";
 import { classifyWhenSlot } from "./whenClassifier";
+import { classifyWhatSlot } from "./whatClassifier";
 import type { OptOutSlot } from "../comprehension/rulePreParse";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,11 +123,20 @@ export function resolveEventGap(
     });
   }
 
-  const sem = ev.missing_semantic_critical;
   const blk = ev.missing_solver_blockers;
 
-  // |semantic| >= 2 → 粗 time bucket
-  if (sem.length >= 2) {
+  // ── W3-PR-7: sharpness 駆動 dispatch ────────────────────────────────────
+  // vague を missing と別に扱う。vague も ASK になり得る。
+  const whenSh = computeWhenSharpness(ev.when);
+  const whereSh = computeWhereSharpness(ev.where);
+  const whatSh = computeWhatSharpness(ev.what);
+
+  // aggregate heuristic: When が missing かつ他に 1+ 欠損 → coarse time bucket
+  //   （When が fixed なら「朝/昼/夜?」を聞く意味がない）
+  const otherMissingCount =
+    (whereSh === "missing" ? 1 : 0) +
+    (whatSh === "missing" ? 1 : 0);
+  if (whenSh === "missing" && otherMissingCount >= 1) {
     return mkClarify({
       event_id: ev.event_id,
       kind: "coarse_time_bucket",
@@ -130,70 +145,79 @@ export function resolveEventGap(
     });
   }
 
-  // semantic==["when"] — When 三層判定（W3-PR-6 Commit 3）
-  //   category default や前後 event からの relative anchor があれば
-  //   PROVISIONAL 扱いで ASK せずに進める（pass_through）。
-  if (sem.length === 1 && sem[0] === "when") {
+  // 各 slot 単独判定（priority 順: When > Where > What）。
+  // 最初に出た ASK を返す。全 slot が provisional/fixed なら defer/pass_through。
+  let sawNonFixed = false;
+
+  // When: sharpness != fixed なら classifier に投げる
+  if (whenSh !== "fixed") {
+    sawNonFixed = true;
     const ws = classifyWhenSlot(ev, { events: ctx.events, index: ctx.index });
-    if (ws.kind === "provisional") {
-      // 自動補完できたので ASK しない
-      return { type: "pass_through", event_id: ev.event_id };
+    if (ws.kind === "ask") {
+      return mkClarify({
+        event_id: ev.event_id,
+        kind: "specific_time",
+        target_slot: "when",
+        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+      });
     }
-    // FIXED はここには到達しない（sem に when が残っているのは startTime も
-    // timeHint もない場合のみ）。防御的に ASK へ。
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "specific_time",
-      target_slot: "when",
-      hint: ev.what.activity || ev.what.activityCanonical || undefined,
-    });
+    // fixed/provisional: スキップして次 slot へ
   }
 
-  // semantic==["where"] → Where 三層判定（W3-PR-6 Commit 2）
-  //   grounded が渡されている場合は FIXED/PROVISIONAL/ASK で分岐。
-  //   渡されていない場合は従前どおり Place Grounder へ defer。
-  if (sem.length === 1 && sem[0] === "where") {
+  // Where: sharpness != fixed
+  if (whereSh !== "fixed") {
+    sawNonFixed = true;
     if (ctx.grounded) {
       const ws = classifyWhereSlot(ev, {
         events: ctx.events,
         index: ctx.index,
         grounded: ctx.grounded,
       });
-      if (ws.kind === "fixed" || ws.kind === "provisional") {
-        return { type: "defer_to_place_grounder", event_id: ev.event_id };
-      }
-      // ASK
-      if (ws.reason === "ambiguous_too_many") {
+      if (ws.kind === "ask") {
+        if (ws.reason === "ambiguous_too_many") {
+          return mkClarify({
+            event_id: ev.event_id,
+            kind: "where_pick_from_candidates",
+            target_slot: "where",
+            hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
+          });
+        }
         return mkClarify({
           event_id: ev.event_id,
-          kind: "where_pick_from_candidates",
+          kind: "where_center",
           target_slot: "where",
-          hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
+          hint: ev.what.activity || ev.what.activityCanonical || undefined,
         });
       }
-      // missing_no_anchor
+      // provisional/fixed: place grounder へ defer（plan graph に候補載せる）
+    }
+    // grounded 未提供なら defer_to_place_grounder に倒す（後段で判定）
+  }
+
+  // What: sharpness != fixed（missing or vague）
+  if (whatSh !== "fixed") {
+    sawNonFixed = true;
+    const ws = classifyWhatSlot(ev, { events: ctx.events, index: ctx.index });
+    if (ws.kind === "ask") {
       return mkClarify({
         event_id: ev.event_id,
-        kind: "where_center",
-        target_slot: "where",
-        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+        kind: "activity",
+        target_slot: "what",
+        hint: ev.where.place_ref ?? undefined,
       });
     }
+  }
+
+  // 全 slot が fixed、または provisional/deferred で ASK 不要
+  if (!sawNonFixed) {
+    // 完全 fixed — solver_blockers を見る
+  } else if (whereSh !== "fixed") {
+    // where が vague/missing でも ASK にならなかった（provisional） → place grounder へ
     return { type: "defer_to_place_grounder", event_id: ev.event_id };
   }
 
-  // semantic==["what"]
-  if (sem.length === 1 && sem[0] === "what") {
-    return mkClarify({
-      event_id: ev.event_id,
-      kind: "activity",
-      target_slot: "what",
-      hint: ev.where.place_ref ?? undefined,
-    });
-  }
-
-  // semantic==0: solver_blockers を見る
-  if (sem.length === 0) {
+  // solver_blockers 判定（sharpness 全 fixed、or When/What provisional 時）
+  {
     // tentative 連鎖チェック（Q1-A' 条件）
     if (hasTentativeChain(ctx.events, ctx.index)) {
       return mkClarify({
@@ -240,9 +264,6 @@ export function resolveEventGap(
       hint: ev.where.place_ref ?? undefined,
     });
   }
-
-  // 到達し得ない（sem.length が負になることはない）
-  return { type: "pass_through", event_id: ev.event_id };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
