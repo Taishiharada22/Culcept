@@ -43,6 +43,7 @@ const FAILOVER_ELIGIBLE_PREFIXES = [
   "identity_",     // Identity tasks
   "perspective_",  // Perspective Engine tasks (task_query, classify) — PE critical path
   "morning_",      // Morning Protocol tasks (plan_extract, delta detect) — CEO: Gemini障害でV1ゴミ出力は許容不可
+  "alter_morning_", // Alter Morning v2 pipeline (comprehension, narration) — W3-PR-5: Gemini 503 で null 落ち許容不可
   "coalter_",      // CoAlter tasks (proposal generation) — CEO: 503障害でCoAlter不在は許容不可
 ];
 
