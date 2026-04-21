@@ -475,10 +475,29 @@ function resolveChange(
  * 解決戦略（優先順位順）:
  * 1. activity 完全一致
  * 2. activityCanonical 完全一致
- * 3. timeHint 一致
+ * 3. timeHint 一致（直接 → Bug 2 triage: startTime 逆引き fallback）
  * 4. activity 部分一致
  * 5. place 一致
  */
+
+/**
+ * Bug 2 triage (handoff 2026-04-18): HH:MM から時間帯ラベルを導出。
+ * 不正な文字列は null を返す。
+ */
+function deriveTimeHintFromStartTime(
+  startTime: string | undefined,
+): "morning" | "noon" | "afternoon" | "evening" | null {
+  if (!startTime) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(startTime.trim());
+  if (!m) return null;
+  const hh = Number(m[1]);
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
+  if (hh < 11) return "morning";
+  if (hh < 14) return "noon";
+  if (hh < 17) return "afternoon";
+  return "evening";
+}
+
 export function resolveSegmentIdFromHint(
   hint: string,
   state: PlanState,
@@ -507,8 +526,23 @@ export function resolveSegmentIdFromHint(
   };
   for (const [keyword, th] of Object.entries(timeHintMap)) {
     if (normalizedHint.includes(keyword)) {
-      const match = state.segments.find((s) => s.timeHint === th);
-      if (match) return match.id;
+      // 2a. seg.timeHint 直接一致
+      const direct = state.segments.find((s) => s.timeHint === th);
+      if (direct) return direct.id;
+      // 2b. Bug 2 triage (handoff 2026-04-18): startTime からの逆引き。
+      //   Turn 1 で生成される segment は startTime="09:00" のみで timeHint 未設定のことが多い。
+      //   「朝はマックに変更して」が segmentId=null で applyDelta に黙殺される事故の止血。
+      //   規約:
+      //     morning  : HH < 11
+      //     noon     : 11 <= HH < 14
+      //     afternoon: 14 <= HH < 17
+      //     evening  : HH >= 17
+      const derived = state.segments.find((s) => {
+        if (s.timeHint) return false; // 直接一致で既に試行済み
+        const th2 = deriveTimeHintFromStartTime(s.startTime);
+        return th2 === th;
+      });
+      if (derived) return derived.id;
     }
   }
 
