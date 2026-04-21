@@ -58,6 +58,18 @@ const TEMPLATES: Record<ClarifyKind, Template> = {
       ? `「${hint}」というのは、どの予定のことですか？`
       : "どの予定のことですか？",
 
+  // W3-PR-6: place が完全欠損、近隣 event からも借用できない
+  where_center: (hint) =>
+    hint
+      ? `「${hint}」はどのあたりでしたいですか？`
+      : "どのあたりでしたいですか？",
+
+  // W3-PR-6: ambiguous 候補が多すぎて絞れない
+  where_pick_from_candidates: (hint) =>
+    hint
+      ? `「${hint}」はどこを指していますか？（絞り込みたいです）`
+      : "どこを指していますか？（絞り込みたいです）",
+
   // solver_blocker: transport が決まらない
   transport: (hint) =>
     hint

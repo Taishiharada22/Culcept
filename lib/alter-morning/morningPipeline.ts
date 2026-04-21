@@ -183,9 +183,10 @@ export async function runMorningPipeline(
   const events = comprehension.events;
 
   // L2 — Planning（純関数 3 つ）
+  // 注: resolveGaps は Where 三層判定のため grounded を参照する（W3-PR-6 Commit 2）
   const timeline = solveTimeLine(events);
   const grounded = groundPlaces(events);
-  const gapResolution = resolveGaps(events);
+  const gapResolution = resolveGaps(events, { grounded });
 
   // L2 — Annotation 層（plan graph 非破壊、narration に渡さない）
   const bodyAnns = annotateBody(events, grounded, input.phenotype ?? {});

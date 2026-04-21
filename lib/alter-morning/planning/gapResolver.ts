@@ -25,6 +25,8 @@ import type {
   SolverBlocker,
 } from "../comprehension/eventSchema";
 import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
+import type { GroundedPlace } from "./placeGrounder";
+import { classifyWhereSlot } from "./whereClassifier";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -39,6 +41,8 @@ export type ClarifyKind =
   | "activity"              // semantic==["what"]: 何する予定？
   | "tentative_chain"       // tentative が連鎖（Q1-A' 条件）
   | "target_ref_low"        // target_ref_confidence=low
+  | "where_center"          // W3-PR-6: place 完全欠損、anchor もなし → どのあたり？
+  | "where_pick_from_candidates" // W3-PR-6: ambiguous 候補が多すぎ → どれ？
   | "transport"             // solver_blocker: transport
   | "endpoint";             // solver_blocker: endpoint / end_time
 
@@ -99,7 +103,7 @@ function mkClarify(
 
 export function resolveEventGap(
   ev: Event,
-  ctx: { events: Event[]; index: number },
+  ctx: { events: Event[]; index: number; grounded?: GroundedPlace[] },
 ): GapAction {
   // Turn 2+ modify: target_ref_confidence=low は最優先 clarify
   if (ev.turn_mode === "modify" && ev.target_ref_confidence === "low") {
@@ -134,12 +138,37 @@ export function resolveEventGap(
     });
   }
 
-  // semantic==["where"] → Place Grounder へ defer
+  // semantic==["where"] → Where 三層判定（W3-PR-6 Commit 2）
+  //   grounded が渡されている場合は FIXED/PROVISIONAL/ASK で分岐。
+  //   渡されていない場合は従前どおり Place Grounder へ defer。
   if (sem.length === 1 && sem[0] === "where") {
-    return {
-      type: "defer_to_place_grounder",
-      event_id: ev.event_id,
-    };
+    if (ctx.grounded) {
+      const ws = classifyWhereSlot(ev, {
+        events: ctx.events,
+        index: ctx.index,
+        grounded: ctx.grounded,
+      });
+      if (ws.kind === "fixed" || ws.kind === "provisional") {
+        return { type: "defer_to_place_grounder", event_id: ev.event_id };
+      }
+      // ASK
+      if (ws.reason === "ambiguous_too_many") {
+        return mkClarify({
+          event_id: ev.event_id,
+          kind: "where_pick_from_candidates",
+          target_slot: "where",
+          hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
+        });
+      }
+      // missing_no_anchor
+      return mkClarify({
+        event_id: ev.event_id,
+        kind: "where_center",
+        target_slot: "where",
+        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+      });
+    }
+    return { type: "defer_to_place_grounder", event_id: ev.event_id };
   }
 
   // semantic==["what"]
@@ -227,6 +256,9 @@ const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   coarse_time_bucket: 10,   // |semantic|≥2 → 朝/昼/夜?
   specific_time: 11,        // |semantic|==["when"] → 何時?
   tentative_chain: 14,      // 前後 tentative → 1 点確定
+  // ── Where（20-24）──
+  where_center: 20,         // 場所完全欠損・借用元なし
+  where_pick_from_candidates: 22, // ambiguous 候補多数、絞らせる
   // ── What（30）──
   activity: 30,
   // ── How（40-42）──
@@ -234,9 +266,13 @@ const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   endpoint: 42,
 };
 
-export function resolveGaps(events: Event[]): GapResolution {
+export function resolveGaps(
+  events: Event[],
+  ctx?: { grounded?: GroundedPlace[] },
+): GapResolution {
+  const grounded = ctx?.grounded;
   const actions: GapAction[] = events.map((ev, index) =>
-    resolveEventGap(ev, { events, index }),
+    resolveEventGap(ev, { events, index, grounded }),
   );
 
   let primary: ClarifyRequest | null = null;
