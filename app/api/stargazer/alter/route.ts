@@ -1789,6 +1789,8 @@ export async function POST(req: NextRequest) {
                   userHomeLng: morningSession.userHomeLng,
                   priorRawInputs: priorInputs,
                   priorPendingClarify: null, // bind 成功 → カウントリセット
+                  priorPersistedEvents: priorPersistedEvents ?? undefined,
+                  priorPlan: rawMorningSession?.plan ?? null,
                 });
                 morningSession = adapted.session;
                 morningResponse = adapted.response;
@@ -1877,7 +1879,10 @@ export async function POST(req: NextRequest) {
               userHomeLabel: morningSession.userHomeLabel,
               userHomeLat: morningSession.userHomeLat,
               userHomeLng: morningSession.userHomeLng,
-              priorPendingClarify: null,
+              priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
+              priorPersistedEvents:
+                rawMorningSession?.persistedEvents ?? undefined,
+              priorPlan: rawMorningSession?.plan ?? null,
             });
             morningSession = adapted.session;
             morningResponse = adapted.response;

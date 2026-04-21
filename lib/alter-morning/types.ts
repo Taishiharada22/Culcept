@@ -417,6 +417,19 @@ export interface PlanItem {
 // MorningPlan — 1日のプラン全体
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * W3-PR-7 Commit 4: plan の確定度。
+ *
+ *   confirmed:   全 slot fixed、ASK なし。「これで行ける」plan
+ *   needs_answer: pendingClarify あり、ユーザー回答待ちの仮の流れ
+ *   provisional: ASK は無いが sharpness=vague 残存 / comprehension_failed 時の
+ *                前ターン継承など、未確定要素を含む「仮の流れ」
+ *
+ * UI は status に応じて表示スタイル（点線・薄色・確定スタンプ等）を出し分ける。
+ * 旧コードへの後方互換のため optional。未指定時は legacyAdapter が推定する。
+ */
+export type MorningPlanStatus = "confirmed" | "needs_answer" | "provisional";
+
 export interface MorningPlan {
   date: string; // YYYY-MM-DD
   items: PlanItem[];
@@ -426,6 +439,11 @@ export interface MorningPlan {
   createdAt: string;
   /** ユーザーが確定したか */
   confirmed: boolean;
+  /**
+   * W3-PR-7 Commit 4: plan 確定度（3 値）。
+   * 未指定の旧 session 互換のため optional。
+   */
+  status?: MorningPlanStatus;
   /** メインの場所（プラン生成の中核フィールド） */
   mainLocation?: MainLocation;
   /** 1日の流れの文脈 */

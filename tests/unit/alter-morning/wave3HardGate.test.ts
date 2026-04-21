@@ -119,7 +119,9 @@ describe("W3-PR-6 hard gate (clarify-first)", () => {
     });
     expect(response.phase).toBe("clarifying");
     expect(session.phase).toBe("clarifying");
-    expect(response.plan).toBeUndefined();
+    // W3-PR-7 commit 4: plan は clarifying 中も残る（confirmed ではない）
+    expect(response.plan).toBeDefined();
+    expect(response.plan?.status).not.toBe("confirmed");
     expect(response.clarifyQuestion).toBeDefined();
   });
 

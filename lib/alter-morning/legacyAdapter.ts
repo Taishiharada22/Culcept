@@ -24,6 +24,7 @@ import type {
   MorningProtocolResponse,
   MorningPhase,
   MorningPlan,
+  MorningPlanStatus,
   PlanItem,
   PersonalityContext,
   PendingClarify,
@@ -32,6 +33,7 @@ import type {
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
+import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // I/O
@@ -63,6 +65,18 @@ export interface LegacyAdapterInput {
    * （answerBinder 経路で bind 失敗が続いたときのカウント伝搬に使う）。
    */
   priorPendingClarify?: PendingClarify | null;
+  /**
+   * W3-PR-7 Commit 4: comprehension_failed 時に今ターンの events が空でも、
+   * 前ターンの persistedEvents から plan を再構築して UI に出し続けるための継承。
+   * priorPersistedEvents があれば、result.comprehension?.events が空の時に代用される。
+   */
+  priorPersistedEvents?: ComprehensionEvent[];
+  /**
+   * W3-PR-7 Commit 4: 前ターンで確定済みの plan。
+   * 今ターンに events も priorPersistedEvents も無い場合、この plan を
+   * provisional 継承として UI に残す（「プランが蒸発する」UX 破壊の防止）。
+   */
+  priorPlan?: MorningPlan | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -106,34 +120,22 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Phase 決定 — W3-PR-6 CEO 方針: clarify-first **hard gate**
+ * Phase 決定 — W3-PR-7 Commit 4 で再シンプル化（CEO 2026-04-22 確定）:
  *
- * 「ASK が 1 つでも残るなら plan_presented に進ませない」が最重要制約。
- * 従前は status===ok && narration.text のみだったが、gapResolution.primary_clarify
- * と missing_semantic_critical を AND で検査することで、条件不足状態での
- * plan 提示を構造的に禁止する。
+ *   1. status !== "ok"                       → clarifying
+ *   2. gapResolution.primary_clarify != null → clarifying（clarify-first hard gate）
+ *   3. else                                  → plan_presented
  *
- * 判定順:
- *   1. status !== "ok"                         → clarifying
- *   2. narration が空                          → clarifying（防御的）
- *   3. gapResolution.primary_clarify != null   → clarifying（hard gate 本体）
- *   4. 任意の event に missing_semantic_critical が残る → clarifying（二重化）
- *   5. else                                    → plan_presented
+ * 旧 safety net（narration 空 / missing_semantic_critical 二重化）は削除。
+ *   - narration 空は message 決定側で deterministic fallback を使う
+ *   - gapResolver が primary_clarify を正しく立てる責務を負う（sharpness 駆動）
+ *
+ * このシンプル化は commit 3 までで sharpness → clarifyRequest の配線が
+ * 完成したことを前提にしている。
  */
 function decidePhase(result: MorningPipelineResult): MorningPhase {
   if (result.status !== "ok") return "clarifying";
-  if (!result.narration || !result.narration.narration?.text) return "clarifying";
-
-  // hard gate 本体
   if (result.gapResolution?.primary_clarify) return "clarifying";
-
-  // 二重化: primary_clarify が null でも missing_semantic_critical が残る
-  // event があれば clarifying に倒す（gapResolver の漏れへの safety net）
-  const hasMissingSemantic = result.comprehension?.events.some(
-    (ev) => ev.missing_semantic_critical.length > 0,
-  );
-  if (hasMissingSemantic) return "clarifying";
-
   return "plan_presented";
 }
 
@@ -231,6 +233,101 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * events から deterministic narration を組み立てる（narration LLM 空時の fallback）。
+ * 「08:00 カフェ 作業 → 12:00 渋谷 ランチ」のような簡易連結。
+ */
+function buildDeterministicNarration(events: ComprehensionEvent[]): string {
+  return events
+    .map((ev) => {
+      const when = ev.when.startTime ?? "";
+      const where = ev.where.place_ref ?? "";
+      const what = ev.what.activity || ev.what.activityCanonical || "";
+      return [when, where, what].filter((s) => s.length > 0).join(" ");
+    })
+    .filter((s) => s.length > 0)
+    .join(" → ");
+}
+
+/**
+ * plan_presented 時の message 決定。
+ * narration が空なら events から deterministic に組み立てる。
+ * それも空なら generic fallback。
+ */
+function buildPlanPresentedMessage(
+  result: MorningPipelineResult,
+  effectiveEvents: ComprehensionEvent[],
+): string {
+  const narrationText = result.narration?.narration?.text?.trim() ?? "";
+  if (narrationText) return narrationText;
+
+  const deterministic = buildDeterministicNarration(effectiveEvents);
+  if (deterministic) return deterministic;
+
+  return "予定がまとまりました。";
+}
+
+/**
+ * clarifying 時の message 決定 — **items=0 禁則の本体**。
+ *
+ * 優先順:
+ *   1. result.gapResolution.primary_clarify.question（rule-based で生成済み）
+ *   2. scope+kind から buildClarifyQuestion を再実行（question が空だった場合の修復）
+ *   3. input.priorPendingClarify.question（前ターンの質問を継承、system_miss 相当）
+ *   4. scope+kind があれば最低限「{活動}は…？」を再生成
+ *   5. 最終的に generic fallback
+ *
+ * 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §4.5 (message 決定)
+ */
+function buildClarifyingMessage(
+  result: MorningPipelineResult,
+  input: LegacyAdapterInput,
+  pendingClarify: PendingClarify | null,
+): string {
+  const pc = result.gapResolution?.primary_clarify ?? null;
+
+  // Level 1: primary_clarify.question をそのまま使う
+  const direct = pc?.question?.trim() ?? "";
+  if (direct) return direct;
+
+  // Level 2: primary_clarify はあるが question が空 → scope/kind から再生成
+  if (pc) {
+    console.error(
+      "[legacyAdapter] primary_clarify present but question is empty; regenerating from scope+kind",
+      { kind: pc.kind, event_id: pc.event_id },
+    );
+    const regenerated = buildClarifyQuestion({
+      kind: pc.kind,
+      hint: pc.hint,
+      scope: pc.scope,
+    }).trim();
+    if (regenerated) return regenerated;
+  }
+
+  // Level 3: 前ターンの pendingClarify を継承（system_miss 的 fallback）
+  const priorQ = input.priorPendingClarify?.question?.trim() ?? "";
+  if (priorQ) return priorQ;
+
+  // Level 4: pendingClarify が構築できていれば、その question を使う
+  const pendingQ = pendingClarify?.question?.trim() ?? "";
+  if (pendingQ) return pendingQ;
+
+  // Level 5: 最終 generic fallback
+  console.error(
+    "[legacyAdapter] clarifying phase with no question source — using generic fallback",
+    {
+      hasPrimaryClarify: pc != null,
+      hasPriorPending: input.priorPendingClarify != null,
+      pipelineStatus: result.status,
+    },
+  );
+  return "もう少し詳しく教えてくれる？";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Entry
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -241,30 +338,14 @@ export function adaptPipelineToLegacy(
   const phase = decidePhase(result);
   const today = input.today ?? todayYmd();
 
-  // ── Message 決定 ──
-  // narration.text が本命。clarifying 時は gapResolution.primary_clarify.question を
-  // 最優先で採用（rule-based で生成済み、W3-PR-1）。無ければ generic fallback。
-  const narrationText = result.narration?.narration?.text ?? "";
-  const clarifyText =
-    result.gapResolution?.primary_clarify?.question?.trim() || "";
-  const message =
-    phase === "plan_presented"
-      ? narrationText
-      : clarifyText || "もう少し詳しく教えてくれる？";
-
-  // ── Plan 構築 ──
-  const events = result.comprehension?.events ?? [];
-  const items: PlanItem[] = events.map((ev, idx) => eventToPlanItem(ev, idx));
-  const plan: MorningPlan | undefined =
-    phase === "plan_presented"
-      ? {
-          date: today,
-          items,
-          dayConditions: {},
-          createdAt: new Date().toISOString(),
-          confirmed: false,
-        }
-      : undefined;
+  // ── Events 継承（W3-PR-7 Commit 4）──
+  //   今ターンの pipeline が events を返せなかった（comprehension_failed 等）場合は
+  //   priorPersistedEvents から引き継いで UI 側の plan を消さない。
+  const currentEvents = result.comprehension?.events ?? [];
+  const effectiveEvents: ComprehensionEvent[] =
+    currentEvents.length > 0
+      ? currentEvents
+      : input.priorPersistedEvents ?? [];
 
   // ── PendingClarify / persistedEvents 構築（W3-PR-7 Commit 2）──
   //   clarifying phase のときだけ pendingClarify を立てる。
@@ -274,9 +355,57 @@ export function adaptPipelineToLegacy(
     const prior = input.priorPendingClarify ?? null;
     pendingClarify = buildPendingClarifyFromResolution(
       result.gapResolution?.primary_clarify ?? null,
-      events,
+      effectiveEvents,
       prior ? prior.semanticMissCount ?? 0 : 0,
     );
+    // comprehension_failed 等で今ターンに primary_clarify が無い場合は、
+    // priorPendingClarify をそのまま維持する（system_miss と同じ扱い）。
+    if (!pendingClarify && prior) {
+      pendingClarify = prior;
+    }
+  }
+
+  // ── Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）──
+  //   clarifying: primary_clarify.question → scope/kind 再生成 → prior.question → generic
+  //   plan_presented: narration.text → events から deterministic 再構築 → generic
+  const message =
+    phase === "plan_presented"
+      ? buildPlanPresentedMessage(result, effectiveEvents)
+      : buildClarifyingMessage(result, input, pendingClarify);
+
+  // ── Plan 構築（W3-PR-7 Commit 4: clarifying 時も provisional として保持）──
+  //   status: plan_presented → confirmed
+  //           pendingClarify あり → needs_answer
+  //           else (events あるが ASK 無し / comprehension_failed 継承) → provisional
+  //   events が完全に空の場合は priorPlan を provisional として継承する。
+  const planStatus: MorningPlanStatus =
+    phase === "plan_presented"
+      ? "confirmed"
+      : pendingClarify != null
+        ? "needs_answer"
+        : "provisional";
+
+  let plan: MorningPlan | undefined;
+  if (effectiveEvents.length > 0) {
+    const items: PlanItem[] = effectiveEvents.map((ev, idx) =>
+      eventToPlanItem(ev, idx),
+    );
+    plan = {
+      date: today,
+      items,
+      dayConditions: {},
+      createdAt: new Date().toISOString(),
+      confirmed: false,
+      status: planStatus,
+    };
+  } else if (input.priorPlan) {
+    // events が無い（今ターン失敗 & prior も空）場合、最後の手段として
+    // priorPlan を provisional 扱いで継承する。
+    plan = {
+      ...input.priorPlan,
+      status:
+        phase === "plan_presented" ? "confirmed" : planStatus,
+    };
   }
 
   // rawInputs: sticky 時は追記、それ以外は utterance 単独
@@ -300,7 +429,7 @@ export function adaptPipelineToLegacy(
     userHomeLat: input.userHomeLat ?? null,
     userHomeLng: input.userHomeLng ?? null,
     pendingClarify,
-    persistedEvents: events,
+    persistedEvents: effectiveEvents,
   };
 
   // ── Response 構築 ──
