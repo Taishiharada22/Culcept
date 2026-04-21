@@ -28,6 +28,7 @@ import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
 import type { GroundedPlace } from "./placeGrounder";
 import { classifyWhereSlot } from "./whereClassifier";
 import { classifyWhenSlot } from "./whenClassifier";
+import type { OptOutSlot } from "../comprehension/rulePreParse";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -276,24 +277,49 @@ const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   endpoint: 42,
 };
 
+/**
+ * ClarifyKind がどの slot に対応するか（opt-out 判定に使う）。
+ * target_ref_low と tentative_chain は opt-out 対象外（構造的に必要）。
+ */
+const KIND_TO_OPT_OUT_SLOT: Partial<Record<ClarifyKind, OptOutSlot>> = {
+  coarse_time_bucket: "when",
+  specific_time: "when",
+  where_center: "where",
+  where_pick_from_candidates: "where",
+  activity: "what",
+  transport: "how",
+  endpoint: "how",
+};
+
 export function resolveGaps(
   events: Event[],
-  ctx?: { grounded?: GroundedPlace[] },
+  ctx?: {
+    grounded?: GroundedPlace[];
+    /** ユーザーが「聞かなくていい」と明示した slot。primary_clarify 選択時にスキップ */
+    slotOptOuts?: OptOutSlot[];
+  },
 ): GapResolution {
   const grounded = ctx?.grounded;
+  const optOuts = new Set<OptOutSlot>(ctx?.slotOptOuts ?? []);
   const actions: GapAction[] = events.map((ev, index) =>
     resolveEventGap(ev, { events, index, grounded }),
   );
 
+  // W3-PR-6 Commit 4: opt-out slot に対応する clarify は primary_clarify 選定から除外。
+  // （pass_through ではなく action 自体は残す — 将来 ASK でなく PROVISIONAL 扱い
+　//  する時に備え、action trace は保持）
   let primary: ClarifyRequest | null = null;
   let primaryScore = Infinity;
   for (const a of actions) {
-    if (a.type === "clarify") {
-      const score = CLARIFY_PRIORITY[a.request.kind] ?? 99;
-      if (score < primaryScore) {
-        primary = a.request;
-        primaryScore = score;
-      }
+    if (a.type !== "clarify") continue;
+    const targetSlot = KIND_TO_OPT_OUT_SLOT[a.request.kind];
+    if (targetSlot && optOuts.has(targetSlot)) {
+      continue; // ユーザーが「聞かなくていい」と宣言した slot はスキップ
+    }
+    const score = CLARIFY_PRIORITY[a.request.kind] ?? 99;
+    if (score < primaryScore) {
+      primary = a.request;
+      primaryScore = score;
     }
   }
 
