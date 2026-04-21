@@ -19,7 +19,7 @@
  *   5. Feature flag の配線は route 側の責務。orchestrator は flag を見ない
  */
 
-import type { ComprehensionResult } from "./comprehension/eventSchema";
+import type { ComprehensionResult, Event } from "./comprehension/eventSchema";
 import type { L1PipelineInput } from "./comprehension/l1Pipeline";
 import { runL1Pipeline } from "./comprehension/l1Pipeline";
 import { preParseUtterance, type RulePreParseHints } from "./comprehension/rulePreParse";
@@ -81,6 +81,17 @@ export interface MorningPipelineInput {
   partyBaseline?: PartyBaselineEntry[];
   /** weather annotation 用 context（officeCode 等）。省略時は officeCode=null / targetDate=今日 */
   weatherContext?: Partial<WeatherContext>;
+  /**
+   * W3-PR-7 Commit 2: answerBinder 経路専用。
+   *
+   * 指定されている場合:
+   *   - LLM comprehension provider は呼ばない（extract は skip）
+   *   - 提供された events をそのまま planner 以降に流す
+   *   - utterance は narration 参考情報としてのみ使用
+   *
+   * 用途: route.ts の Branch A で bindAnswerToSlot の結果を pipeline に渡す。
+   */
+  priorEvents?: Event[];
 }
 
 export interface MorningPipelineProviders {
@@ -112,6 +123,18 @@ export interface MorningPipelineResult {
   narration: L3PipelineResult | null;
   /** 参考情報。debug / telemetry 用 */
   hints: RulePreParseHints;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// helpers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function todayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -152,7 +175,7 @@ export async function runMorningPipeline(
   input: MorningPipelineInput,
   providers: MorningPipelineProviders,
 ): Promise<MorningPipelineResult> {
-  const { utterance } = input;
+  const { utterance, priorEvents } = input;
   const narrationProvider = providers.narration ?? stubNarrationProvider;
   const weatherProvider = providers.weather ?? null;
 
@@ -160,7 +183,18 @@ export async function runMorningPipeline(
   const hints = preParseUtterance(utterance);
 
   // L1.1 — LLM Structured Outputs 抽出
-  const raw = await providers.comprehension.extract(utterance, hints);
+  //   priorEvents モード: answerBinder 経路では LLM を呼ばず既存 events をそのまま流す。
+  //   targetDate 等のメタ情報は bind 経路では utterance 由来の today に倒す。
+  const raw =
+    priorEvents !== undefined
+      ? ({
+          targetDate: todayYmd(),
+          events: [],
+          startPoint: null,
+          departureTime: null,
+          goOut: null,
+        } satisfies L1PipelineInput["raw"])
+      : await providers.comprehension.extract(utterance, hints);
 
   // empty annotations（comprehension_failed 時の既定値）
   const emptyAnnotations: MorningAnnotations = { body: [], weather: [], party: [] };
@@ -179,7 +213,8 @@ export async function runMorningPipeline(
   }
 
   // L1.2 — Slot & Provenance checker（runL1Pipeline 内部で実行）
-  const comprehension = runL1Pipeline({ raw, utterance });
+  //   priorEvents があれば checker は走らない（bind 時に再計算済み）
+  const comprehension = runL1Pipeline({ raw, utterance, priorEvents });
   const events = comprehension.events;
 
   // L2 — Planning（純関数 3 つ）

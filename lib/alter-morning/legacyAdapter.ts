@@ -26,8 +26,12 @@ import type {
   MorningPlan,
   PlanItem,
   PersonalityContext,
+  PendingClarify,
+  PendingClarifyScope,
+  PendingSlot,
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
+import type { ClarifyRequest } from "./planning/gapResolver";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // I/O
@@ -48,6 +52,17 @@ export interface LegacyAdapterInput {
   userHomeLng?: number | null;
   /** プラン作成日 fallback。省略時は今日（YYYY-MM-DD） */
   today?: string;
+  /**
+   * 前ターンから引き継ぐ rawInputs（sticky v2 用）。
+   * 指定時は rawInputs = [...priorRawInputs, utterance] となる。
+   * 指定がなければ [utterance] のみ。
+   */
+  priorRawInputs?: string[];
+  /**
+   * 前ターンから引き継ぐ pendingClarify の semanticMissCount 等
+   * （answerBinder 経路で bind 失敗が続いたときのカウント伝搬に使う）。
+   */
+  priorPendingClarify?: PendingClarify | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -126,6 +141,73 @@ function decidePhase(result: MorningPipelineResult): MorningPhase {
 // targetDate 決定
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PendingClarify 構築（W3-PR-7 Commit 2）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * ClarifyRequest.target_slot → PendingSlot へ正規化。
+ * answerBinder は "when"/"where"/"what"/"transport"/"endpoint" のみ扱う。
+ * "target_ref" は「どの予定のことか」なので answerBinder 対象外（null を返す）。
+ */
+function toPendingSlot(
+  target: ClarifyRequest["target_slot"],
+): PendingSlot | null {
+  switch (target) {
+    case "when":
+    case "where":
+    case "what":
+    case "transport":
+    case "endpoint":
+      return target;
+    default:
+      return null;
+  }
+}
+
+/**
+ * resolveGaps の primary_clarify と comprehension events から
+ * PendingClarify を組み立てる。
+ *
+ * scope 情報（timeLabel / activityLabel / eventOrdinal）は対象 event から拾う。
+ * 対象 event が見つからない、もしくは target_slot が answerBinder 対象外の場合は null。
+ */
+export function buildPendingClarifyFromResolution(
+  primaryClarify: ClarifyRequest | null,
+  events: ComprehensionEvent[],
+  priorSemanticMissCount?: number,
+): PendingClarify | null {
+  if (!primaryClarify) return null;
+  const slot = toPendingSlot(primaryClarify.target_slot);
+  if (!slot) return null;
+
+  const idx = events.findIndex((e) => e.event_id === primaryClarify.event_id);
+  if (idx < 0) return null;
+  const ev = events[idx];
+
+  const scope: PendingClarifyScope = {
+    timeLabel:
+      ev.when.startTime ??
+      (ev.when.timeHint
+        ? ({ morning: "朝", noon: "昼", afternoon: "午後", evening: "夜" } as const)[
+            ev.when.timeHint
+          ] ?? null
+        : null),
+    activityLabel: ev.what.activity || ev.what.activityCanonical || null,
+    eventOrdinal: idx + 1,
+  };
+
+  return {
+    event_id: primaryClarify.event_id,
+    slot,
+    kind: primaryClarify.kind,
+    scope,
+    question: primaryClarify.question,
+    askedAt: new Date().toISOString(),
+    semanticMissCount: priorSemanticMissCount ?? 0,
+  };
+}
+
 function todayYmd(): string {
   const d = new Date();
   const y = d.getFullYear();
@@ -170,12 +252,30 @@ export function adaptPipelineToLegacy(
         }
       : undefined;
 
+  // ── PendingClarify / persistedEvents 構築（W3-PR-7 Commit 2）──
+  //   clarifying phase のときだけ pendingClarify を立てる。
+  //   priorPendingClarify が同一 event_id/slot を指していた場合 semanticMissCount を継承する。
+  let pendingClarify: PendingClarify | null = null;
+  if (phase === "clarifying") {
+    const prior = input.priorPendingClarify ?? null;
+    pendingClarify = buildPendingClarifyFromResolution(
+      result.gapResolution?.primary_clarify ?? null,
+      events,
+      prior ? prior.semanticMissCount ?? 0 : 0,
+    );
+  }
+
+  // rawInputs: sticky 時は追記、それ以外は utterance 単独
+  const rawInputs = input.priorRawInputs && input.priorRawInputs.length > 0
+    ? [...input.priorRawInputs, input.utterance]
+    : [input.utterance];
+
   // ── Session 構築 ──
   const session: MorningSession = {
     sessionId: input.sessionId,
     pipelineVersion: "v2",
     phase,
-    rawInputs: [input.utterance],
+    rawInputs,
     personalizeHints: [],
     startedAt: new Date().toISOString(),
     plan,
@@ -185,6 +285,8 @@ export function adaptPipelineToLegacy(
     userHomeLabel: input.userHomeLabel ?? null,
     userHomeLat: input.userHomeLat ?? null,
     userHomeLng: input.userHomeLng ?? null,
+    pendingClarify,
+    persistedEvents: events,
   };
 
   // ── Response 構築 ──

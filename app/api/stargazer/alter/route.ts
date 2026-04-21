@@ -513,6 +513,7 @@ import { runMorningPipeline } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy } from "@/lib/alter-morning/legacyAdapter";
+import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -931,6 +932,9 @@ export async function POST(req: NextRequest) {
         userHomeLabel?: string | null;
         userHomeLat?: number | null;
         userHomeLng?: number | null;
+        // W3-PR-7 Commit 2: answerBinder 用 round-trip
+        pendingClarify?: import("@/lib/alter-morning/types").PendingClarify | null;
+        persistedEvents?: import("@/lib/alter-morning/comprehension/eventSchema").Event[];
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1707,6 +1711,9 @@ export async function POST(req: NextRequest) {
             userHomeLabel: rawMorningSession!.userHomeLabel ?? userHomeLabel ?? null,
             userHomeLat: rawMorningSession!.userHomeLat ?? userHomeLat ?? null,
             userHomeLng: rawMorningSession!.userHomeLng ?? userHomeLng ?? null,
+            // W3-PR-7 Commit 2: dialog state round-trip
+            pendingClarify: rawMorningSession!.pendingClarify ?? null,
+            persistedEvents: rawMorningSession!.persistedEvents ?? undefined,
           };
         } else {
           morningSession = createMorningSession();
@@ -1735,6 +1742,115 @@ export async function POST(req: NextRequest) {
         const useV2 = v2Enabled && (isNewSession || isStickyV2);
         if (useV2) {
           try {
+            // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
+            // 前ターンで clarify を発行済みで persistedEvents が残っている場合、
+            // LLM 再 comprehension をスキップして該当 event.slot にユーザー応答を
+            // 直接 bind する（答えの意味不明率を下げる最短経路）。
+            const priorPending = rawMorningSession?.pendingClarify ?? null;
+            const priorPersistedEvents = rawMorningSession?.persistedEvents;
+            const canBind =
+              isStickyV2 &&
+              priorPending != null &&
+              Array.isArray(priorPersistedEvents) &&
+              priorPersistedEvents.length > 0;
+
+            let usedBindPath = false;
+            let bindReason: string | null = null;
+            if (canBind) {
+              const bindResult = bindAnswerToSlot(
+                priorPersistedEvents!,
+                priorPending!,
+                message,
+              );
+              bindReason = bindResult.reason;
+              if (bindResult.bound) {
+                usedBindPath = true;
+                const priorInputs = rawMorningSession?.rawInputs ?? [];
+                const pipelineResult = await runMorningPipeline(
+                  {
+                    utterance: message,
+                    priorEvents: bindResult.events,
+                  },
+                  {
+                    // priorEvents モードでは comprehension.extract は呼ばれない
+                    comprehension: createLLMComprehensionProvider({ userId }),
+                    narration: createLLMNarrationProvider({ userId }),
+                    weather: null,
+                  },
+                );
+                const adapted = adaptPipelineToLegacy(pipelineResult, {
+                  sessionId: morningSession.sessionId,
+                  utterance: message,
+                  personalityContext: personalityCtx,
+                  userPrefecture: morningSession.userPrefecture,
+                  userCity: morningSession.userCity,
+                  userHomeLabel: morningSession.userHomeLabel,
+                  userHomeLat: morningSession.userHomeLat,
+                  userHomeLng: morningSession.userHomeLng,
+                  priorRawInputs: priorInputs,
+                  priorPendingClarify: null, // bind 成功 → カウントリセット
+                });
+                morningSession = adapted.session;
+                morningResponse = adapted.response;
+                console.info(
+                  `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
+                );
+              } else if (bindResult.reason === "semantic_miss") {
+                // 連続 semantic_miss カウンタを増やし、2 連続で pending 破棄。
+                const nextCount = (priorPending!.semanticMissCount ?? 0) + 1;
+                if (nextCount >= 2) {
+                  // pending 破棄 → 通常の LLM 再 comprehension に流す
+                  console.info(
+                    `[morning-protocol:v2:bind] reason=semantic_miss count=${nextCount} → discard pending, fallback to LLM`,
+                  );
+                  // usedBindPath=false のままにして下の LLM 経路へフォールスルー
+                } else {
+                  // 1 連続目: pending 維持 + 同じ質問を再提示
+                  usedBindPath = true;
+                  morningSession = {
+                    ...morningSession,
+                    phase: "clarifying",
+                    pendingClarify: {
+                      ...priorPending!,
+                      semanticMissCount: nextCount,
+                    },
+                    persistedEvents: priorPersistedEvents!,
+                    rawInputs: [...(rawMorningSession?.rawInputs ?? []), message],
+                  };
+                  morningResponse = {
+                    phase: "clarifying",
+                    message: priorPending!.question || "ごめん、もう少し具体的に教えてくれる？",
+                    clarifyQuestion: priorPending!.question,
+                    personalizeHints: [],
+                  };
+                  console.info(
+                    `[morning-protocol:v2:bind] reason=semantic_miss count=${nextCount} → re-ask`,
+                  );
+                }
+              } else {
+                // system_miss: 系の失敗。pending 維持のまま LLM 経路にも流さず再質問。
+                usedBindPath = true;
+                morningSession = {
+                  ...morningSession,
+                  phase: "clarifying",
+                  pendingClarify: priorPending!,
+                  persistedEvents: priorPersistedEvents!,
+                  rawInputs: [...(rawMorningSession?.rawInputs ?? []), message],
+                };
+                morningResponse = {
+                  phase: "clarifying",
+                  message: priorPending!.question || "もう少し詳しく教えてくれる？",
+                  clarifyQuestion: priorPending!.question,
+                  personalizeHints: [],
+                };
+                console.info(
+                  `[morning-protocol:v2:bind] reason=system_miss → maintain pending`,
+                );
+              }
+            }
+
+            if (!usedBindPath) {
+            // ── 通常経路（Branch B）: LLM 再 comprehension ──
             // 継続ターンは「元発話＋新発話」を合算して再 comprehension。
             // 旧 planner の modify/delta ロジックは戻さず、殻（session shape）のみ
             // 維持しつつ新 pipeline で再構築する。
@@ -1761,12 +1877,14 @@ export async function POST(req: NextRequest) {
               userHomeLabel: morningSession.userHomeLabel,
               userHomeLat: morningSession.userHomeLat,
               userHomeLng: morningSession.userHomeLng,
+              priorPendingClarify: null,
             });
             morningSession = adapted.session;
             morningResponse = adapted.response;
             console.info(
-              `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"}`,
+              `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
             );
+            }
           } catch (err) {
             // 新 pipeline が落ちたら旧実装に fallback（safety net）
             console.warn(
@@ -1783,6 +1901,11 @@ export async function POST(req: NextRequest) {
           morningResponse = result.response;
         }
 
+        // W3-PR-7 Commit 2: TS narrowing が nested branch A で失われるため
+        //   明示的に assert する（全 path で morningResponse は設定済み）。
+        if (!morningResponse) {
+          throw new Error("morningResponse must be set after v2/legacy branch");
+        }
         if (morningResponse.phase !== "skipped") {
           // Morning Protocol がハンドリング → alterResponseText に設定
           alterResponseText = morningResponse.message;
@@ -9003,6 +9126,9 @@ export async function POST(req: NextRequest) {
           sufficiency: morningSession?.sufficiency ?? null,
           // ── v2: PlanState ラウンドトリップ ──
           planStateV2: morningSession?.planStateV2 ?? null,
+          // ── W3-PR-7 Commit 2: dialog state round-trip ──
+          pendingClarify: morningSession?.pendingClarify ?? null,
+          persistedEvents: morningSession?.persistedEvents ?? null,
         },
       } : {}),
       ...(queryContext ? {

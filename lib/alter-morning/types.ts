@@ -691,6 +691,62 @@ export interface PersonalityContext {
   decision_tempo?: number;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PendingClarify — W3-PR-7 Commit 2
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §3.4
+//
+// ターンをまたいで「直前に何を聞いたか」を保持するダイアログ状態。
+// 次ターンの answerBinder はこの情報を使って、ユーザー返答を正しい event/slot に
+// 書き込む（LLM 再 comprehension に頼らない bind）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** PendingClarify が指し示す slot（書き込み対象） */
+export type PendingSlot =
+  | "when"
+  | "where"
+  | "what"
+  | "transport"
+  | "endpoint";
+
+/**
+ * 質問時の event スコープ情報。再表示・再質問時に「朝の仕事」等と
+ * event を特定して聞き直せるようにする。
+ */
+export interface PendingClarifyScope {
+  /** "朝" | "12:00" | "夜" | null（表示用ラベル） */
+  timeLabel: string | null;
+  /** "仕事" | "ランチ" | null */
+  activityLabel: string | null;
+  /** plan 内で何番目の event か（1 始まり、同時間帯複数時の曖昧解消用） */
+  eventOrdinal: number;
+}
+
+export interface PendingClarify {
+  /** 対象 event（resolveGaps が決めた primary_clarify.event_id） */
+  event_id: string;
+  /** 書き込み対象 slot */
+  slot: PendingSlot;
+  /**
+   * 質問種別（answerBinder の解釈に使う）。
+   * ClarifyKind と等価の string literal。cyclic import を避けるため string 型で持つ。
+   */
+  kind: string;
+  /** 質問時の event スコープ情報（再表示・再質問用） */
+  scope: PendingClarifyScope;
+  /** 質問文（次ターンで再表示する場合用） */
+  question: string;
+  /** 質問したターンの ISO timestamp（staleness 判定用、将来拡張） */
+  askedAt: string;
+  /**
+   * 意味不明応答の連続カウント。CEO 方針 2026-04-22:
+   *   semantic_miss が 2 連続したら pending を破棄し fresh comprehension に戻す。
+   *   system_miss は連続カウントしない（pending 維持）。
+   */
+  semanticMissCount?: number;
+}
+
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
@@ -760,6 +816,21 @@ export interface MorningSession {
    */
   userHomeLat?: number | null;
   userHomeLng?: number | null;
+  /**
+   * W3-PR-7 Commit 2: ダイアログ状態。
+   * 直前ターンで発した clarify 質問の情報。次ターンの answerBinder が
+   * ユーザー応答を正しい event.slot に bind するのに使う。
+   */
+  pendingClarify?: PendingClarify | null;
+  /**
+   * W3-PR-7 Commit 2: v2 pipeline が出した最後の events。
+   * 次ターンで LLM 再 comprehension を飛ばす state 起点。
+   * 「文字列連結で過去発話を再抽出」するレガシー方式を将来置換する土台。
+   *
+   * 型: ComprehensionEvent[]（cyclic import 回避のため unknown で持ち、
+   * 実アクセス側で型ガード。serialization は JSON 互換のため lossless）。
+   */
+  persistedEvents?: import("./comprehension/eventSchema").Event[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
