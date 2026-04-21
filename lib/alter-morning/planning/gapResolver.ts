@@ -24,6 +24,7 @@ import type {
   SemanticCriticalSlot,
   SolverBlocker,
 } from "../comprehension/eventSchema";
+import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -48,6 +49,11 @@ export interface ClarifyRequest {
   target_slot: SemanticCriticalSlot | SolverBlocker | "target_ref";
   /** テンプレで使うメタ情報 */
   hint?: string;
+  /**
+   * ユーザーに戻す日本語質問文（rule-based 生成、Wave 3 W3-PR-1）。
+   * resolveGaps 時に buildClarifyQuestion で自動生成される。
+   */
+  question: string;
 }
 
 export type GapAction =
@@ -80,21 +86,29 @@ function hasTentativeChain(events: Event[], idx: number): boolean {
   return false;
 }
 
+/**
+ * ClarifyRequest を組み立てる internal helper。
+ * question フィールドを rule-based builder で自動付与する（Wave 3 W3-PR-1）。
+ */
+function mkClarify(
+  req: Omit<ClarifyRequest, "question">,
+): GapAction {
+  const question = buildClarifyQuestion({ kind: req.kind, hint: req.hint });
+  return { type: "clarify", request: { ...req, question } };
+}
+
 export function resolveEventGap(
   ev: Event,
   ctx: { events: Event[]; index: number },
 ): GapAction {
   // Turn 2+ modify: target_ref_confidence=low は最優先 clarify
   if (ev.turn_mode === "modify" && ev.target_ref_confidence === "low") {
-    return {
-      type: "clarify",
-      request: {
-        event_id: ev.event_id,
-        kind: "target_ref_low",
-        target_slot: "target_ref",
-        hint: ev.target_ref ?? undefined,
-      },
-    };
+    return mkClarify({
+      event_id: ev.event_id,
+      kind: "target_ref_low",
+      target_slot: "target_ref",
+      hint: ev.target_ref ?? undefined,
+    });
   }
 
   const sem = ev.missing_semantic_critical;
@@ -102,26 +116,22 @@ export function resolveEventGap(
 
   // |semantic| >= 2 → 粗 time bucket
   if (sem.length >= 2) {
-    return {
-      type: "clarify",
-      request: {
-        event_id: ev.event_id,
-        kind: "coarse_time_bucket",
-        target_slot: "when",
-      },
-    };
+    return mkClarify({
+      event_id: ev.event_id,
+      kind: "coarse_time_bucket",
+      target_slot: "when",
+      hint: ev.what.activity || ev.what.activityCanonical || undefined,
+    });
   }
 
   // semantic==["when"]
   if (sem.length === 1 && sem[0] === "when") {
-    return {
-      type: "clarify",
-      request: {
-        event_id: ev.event_id,
-        kind: "specific_time",
-        target_slot: "when",
-      },
-    };
+    return mkClarify({
+      event_id: ev.event_id,
+      kind: "specific_time",
+      target_slot: "when",
+      hint: ev.what.activity || ev.what.activityCanonical || undefined,
+    });
   }
 
   // semantic==["where"] → Place Grounder へ defer
@@ -134,29 +144,28 @@ export function resolveEventGap(
 
   // semantic==["what"]
   if (sem.length === 1 && sem[0] === "what") {
-    return {
-      type: "clarify",
-      request: {
-        event_id: ev.event_id,
-        kind: "activity",
-        target_slot: "what",
-      },
-    };
+    return mkClarify({
+      event_id: ev.event_id,
+      kind: "activity",
+      target_slot: "what",
+      hint: ev.where.place_ref ?? undefined,
+    });
   }
 
   // semantic==0: solver_blockers を見る
   if (sem.length === 0) {
     // tentative 連鎖チェック（Q1-A' 条件）
     if (hasTentativeChain(ctx.events, ctx.index)) {
-      return {
-        type: "clarify",
-        request: {
-          event_id: ev.event_id,
-          kind: "tentative_chain",
-          target_slot: "when",
-          hint: ev.target_ref ?? undefined,
-        },
-      };
+      return mkClarify({
+        event_id: ev.event_id,
+        kind: "tentative_chain",
+        target_slot: "when",
+        hint:
+          ev.target_ref ??
+          ev.what.activity ??
+          ev.what.activityCanonical ??
+          undefined,
+      });
     }
 
     if (blk.length === 0) {
@@ -175,25 +184,21 @@ export function resolveEventGap(
 
     // blocker に endpoint / end_time が含まれる: clarify
     if (blk.includes("endpoint") || blk.includes("end_time")) {
-      return {
-        type: "clarify",
-        request: {
-          event_id: ev.event_id,
-          kind: "endpoint",
-          target_slot: "endpoint",
-        },
-      };
+      return mkClarify({
+        event_id: ev.event_id,
+        kind: "endpoint",
+        target_slot: "endpoint",
+        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+      });
     }
 
     // それ以外（transport 複合等）: transport clarify
-    return {
-      type: "clarify",
-      request: {
-        event_id: ev.event_id,
-        kind: "transport",
-        target_slot: "transport",
-      },
-    };
+    return mkClarify({
+      event_id: ev.event_id,
+      kind: "transport",
+      target_slot: "transport",
+      hint: ev.where.place_ref ?? undefined,
+    });
   }
 
   // 到達し得ない（sem.length が負になることはない）
