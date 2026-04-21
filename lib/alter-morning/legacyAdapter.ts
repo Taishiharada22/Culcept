@@ -169,7 +169,10 @@ function toPendingSlot(
  * resolveGaps の primary_clarify と comprehension events から
  * PendingClarify を組み立てる。
  *
- * scope 情報（timeLabel / activityLabel / eventOrdinal）は対象 event から拾う。
+ * W3-PR-7 Commit 3 以降: primary_clarify.scope が付与されていれば最優先で使う
+ * （gapResolver が events + idx から計算済み）。後方互換のため、scope が欠けて
+ * いる場合のみ event から再計算する fallback を持つ。
+ *
  * 対象 event が見つからない、もしくは target_slot が answerBinder 対象外の場合は null。
  */
 export function buildPendingClarifyFromResolution(
@@ -183,19 +186,30 @@ export function buildPendingClarifyFromResolution(
 
   const idx = events.findIndex((e) => e.event_id === primaryClarify.event_id);
   if (idx < 0) return null;
-  const ev = events[idx];
 
-  const scope: PendingClarifyScope = {
-    timeLabel:
-      ev.when.startTime ??
-      (ev.when.timeHint
-        ? ({ morning: "朝", noon: "昼", afternoon: "午後", evening: "夜" } as const)[
-            ev.when.timeHint
-          ] ?? null
-        : null),
-    activityLabel: ev.what.activity || ev.what.activityCanonical || null,
-    eventOrdinal: idx + 1,
-  };
+  // primary_clarify.scope が付いていればそれを使う（gapResolver が正本）
+  let scope: PendingClarifyScope;
+  if (primaryClarify.scope) {
+    scope = {
+      timeLabel: primaryClarify.scope.timeLabel,
+      activityLabel: primaryClarify.scope.activityLabel,
+      eventOrdinal: primaryClarify.scope.eventOrdinal,
+    };
+  } else {
+    // fallback: events から自前で計算（W3-PR-7 Commit 2 以前の経路互換）
+    const ev = events[idx];
+    scope = {
+      timeLabel:
+        ev.when.startTime ??
+        (ev.when.timeHint
+          ? ({ morning: "朝", noon: "昼", afternoon: "午後", evening: "夜" } as const)[
+              ev.when.timeHint
+            ] ?? null
+          : null),
+      activityLabel: ev.what.activity || ev.what.activityCanonical || null,
+      eventOrdinal: idx + 1,
+    };
+  }
 
   return {
     event_id: primaryClarify.event_id,
