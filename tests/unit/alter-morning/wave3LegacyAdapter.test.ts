@@ -180,7 +180,7 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
       provenance: utteranceProvenance(["朝"], "medium"),
     };
     const pipelineResult = await runMorningPipeline(
-      { utterance: "朝にコーヒー" },
+      { utterance: "朝にスタバでコーヒー" },
       {
         comprehension: createStubComprehensionProvider(raw),
         narration: stubNarrationProvider,

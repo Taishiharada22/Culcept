@@ -212,15 +212,26 @@ export function resolveEventGap(
 /**
  * clarify kind の優先度。UI に戻す 1 件を選ぶときに使う。
  * 数値が小さいほど優先。
+ *
+ * W3-PR-6 CEO 方針（2026-04-22 確定）: slot priority を
+ *   When(10-14) > Where(20-24) > What(30-32) > How(40-42) > Who(50)
+ * の block で並べる。modify の target_ref_low だけは 0 で最上位（全 slot に先行）。
+ * Why は blocker にしない（entry 不要）。
+ *
+ * Where の新 kind（where_center / where_pick_from_candidates）は Commit 2 で追加。
+ * ここでは枠だけ確保する。
  */
 const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
-  target_ref_low: 0,       // 最優先（modify の曖昧さ）
-  coarse_time_bucket: 1,   // |semantic|≥2
-  specific_time: 2,
-  activity: 3,
-  tentative_chain: 4,
-  endpoint: 5,
-  transport: 6,
+  target_ref_low: 0,        // 最優先（modify の曖昧さ、slot 非依存）
+  // ── When（10-14）──
+  coarse_time_bucket: 10,   // |semantic|≥2 → 朝/昼/夜?
+  specific_time: 11,        // |semantic|==["when"] → 何時?
+  tentative_chain: 14,      // 前後 tentative → 1 点確定
+  // ── What（30）──
+  activity: 30,
+  // ── How（40-42）──
+  transport: 40,
+  endpoint: 42,
 };
 
 export function resolveGaps(events: Event[]): GapResolution {

@@ -90,10 +90,35 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
 // phase 決定
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * Phase 決定 — W3-PR-6 CEO 方針: clarify-first **hard gate**
+ *
+ * 「ASK が 1 つでも残るなら plan_presented に進ませない」が最重要制約。
+ * 従前は status===ok && narration.text のみだったが、gapResolution.primary_clarify
+ * と missing_semantic_critical を AND で検査することで、条件不足状態での
+ * plan 提示を構造的に禁止する。
+ *
+ * 判定順:
+ *   1. status !== "ok"                         → clarifying
+ *   2. narration が空                          → clarifying（防御的）
+ *   3. gapResolution.primary_clarify != null   → clarifying（hard gate 本体）
+ *   4. 任意の event に missing_semantic_critical が残る → clarifying（二重化）
+ *   5. else                                    → plan_presented
+ */
 function decidePhase(result: MorningPipelineResult): MorningPhase {
   if (result.status !== "ok") return "clarifying";
-  // status=ok でも narration が無ければ clarifying に倒す（防御的）
   if (!result.narration || !result.narration.narration?.text) return "clarifying";
+
+  // hard gate 本体
+  if (result.gapResolution?.primary_clarify) return "clarifying";
+
+  // 二重化: primary_clarify が null でも missing_semantic_critical が残る
+  // event があれば clarifying に倒す（gapResolver の漏れへの safety net）
+  const hasMissingSemantic = result.comprehension?.events.some(
+    (ev) => ev.missing_semantic_critical.length > 0,
+  );
+  if (hasMissingSemantic) return "clarifying";
+
   return "plan_presented";
 }
 
@@ -121,12 +146,15 @@ export function adaptPipelineToLegacy(
   const today = input.today ?? todayYmd();
 
   // ── Message 決定 ──
-  // narration.text が本命。無ければ defensive な fallback。
+  // narration.text が本命。clarifying 時は gapResolution.primary_clarify.question を
+  // 最優先で採用（rule-based で生成済み、W3-PR-1）。無ければ generic fallback。
   const narrationText = result.narration?.narration?.text ?? "";
+  const clarifyText =
+    result.gapResolution?.primary_clarify?.question?.trim() || "";
   const message =
     phase === "plan_presented"
       ? narrationText
-      : "もう少し詳しく教えてくれる？";
+      : clarifyText || "もう少し詳しく教えてくれる？";
 
   // ── Plan 構築 ──
   const events = result.comprehension?.events ?? [];
