@@ -508,6 +508,11 @@ import {
   processMorningMessage,
 } from "@/lib/alter-morning/morningProtocol";
 import type { MorningSession, MorningProtocolResponse, PersonalityContext } from "@/lib/alter-morning/types";
+// Comprehension-First v1.3+ Wave 3 (W3-PR-4) — flag-gated new pipeline
+import { runMorningPipeline } from "@/lib/alter-morning/morningPipeline";
+import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
+import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
+import { adaptPipelineToLegacy } from "@/lib/alter-morning/legacyAdapter";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1703,9 +1708,53 @@ export async function POST(req: NextRequest) {
           if (userHomeLat !== undefined) morningSession.userHomeLat = userHomeLat;
           if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
-        const result = await processMorningMessage(message, morningSession);
-        morningSession = result.session;
-        morningResponse = result.response;
+
+        // ── W3-PR-4: Flag-gated new pipeline（create-only / UI無変更） ──
+        // create-only = hasExistingMorningSession === false。
+        // modify / clarifying 途中ターンは旧 processMorningMessage に落とす。
+        // flag default OFF — 「true」のみで有効化する。
+        const v2Enabled = process.env.ALTER_MORNING_V2_ROUTE_ENABLED === "true";
+        const createOnly = !hasExistingMorningSession;
+        if (v2Enabled && createOnly) {
+          try {
+            const pipelineResult = await runMorningPipeline(
+              { utterance: message },
+              {
+                comprehension: createLLMComprehensionProvider({ userId }),
+                narration: createLLMNarrationProvider({ userId }),
+                weather: null,
+              },
+            );
+            const adapted = adaptPipelineToLegacy(pipelineResult, {
+              sessionId: morningSession.sessionId,
+              utterance: message,
+              personalityContext: personalityCtx,
+              userPrefecture: morningSession.userPrefecture,
+              userCity: morningSession.userCity,
+              userHomeLabel: morningSession.userHomeLabel,
+              userHomeLat: morningSession.userHomeLat,
+              userHomeLng: morningSession.userHomeLng,
+            });
+            morningSession = adapted.session;
+            morningResponse = adapted.response;
+            console.info(
+              `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0}`,
+            );
+          } catch (err) {
+            // 新 pipeline が落ちたら旧実装に fallback（safety net）
+            console.warn(
+              `[morning-protocol:v2] pipeline error — fallback to legacy`,
+              err,
+            );
+            const result = await processMorningMessage(message, morningSession);
+            morningSession = result.session;
+            morningResponse = result.response;
+          }
+        } else {
+          const result = await processMorningMessage(message, morningSession);
+          morningSession = result.session;
+          morningResponse = result.response;
+        }
 
         if (morningResponse.phase !== "skipped") {
           // Morning Protocol がハンドリング → alterResponseText に設定
