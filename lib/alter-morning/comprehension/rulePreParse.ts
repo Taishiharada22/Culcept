@@ -34,11 +34,20 @@ export interface ExtractedSpan<T = string> {
   index: number;
 }
 
+/**
+ * Slot opt-out: ユーザーが「この slot は質問しないで」と明示した場合の印。
+ * 対応 slot: when / where / what / how / who。
+ * W3-PR-6 Commit 4 で追加。
+ */
+export type OptOutSlot = "when" | "where" | "what" | "how" | "who";
+
 export interface RulePreParseHints {
   /** 明示時刻（HH:mm 正規化済み） */
   explicit_times: ExtractedSpan<string>[];
   /** 明示起点（"自宅" / "ホテル" / "会社" / "実家" 等に正規化） */
   explicit_start_points: ExtractedSpan<string>[];
+  /** slot opt-out（発話から検出した「聞かなくていい」宣言） */
+  slot_opt_outs: ExtractedSpan<OptOutSlot>[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -220,6 +229,77 @@ export function extractExplicitStartPoints(utterance: string): ExtractedSpan<str
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Slot opt-out 抽出（W3-PR-6 Commit 4）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Slot ごとの opt-out 語彙。保守的に明示的な「質問不要」宣言のみ拾う。
+ * false positive を避けるため、「どこでもいい」はあっても「どこ？」は拾わない等、
+ * 明示的 opt-out に限定する。
+ */
+const OPT_OUT_PATTERNS: Array<{ pattern: string; slot: OptOutSlot }> = [
+  // where
+  { pattern: "どこでもいい", slot: "where" },
+  { pattern: "場所はどこでも", slot: "where" },
+  { pattern: "場所は任せる", slot: "where" },
+  { pattern: "場所は任せます", slot: "where" },
+  { pattern: "場所はお任せ", slot: "where" },
+  // when
+  { pattern: "いつでもいい", slot: "when" },
+  { pattern: "時間はいつでも", slot: "when" },
+  { pattern: "時間は任せる", slot: "when" },
+  { pattern: "時間は任せます", slot: "when" },
+  { pattern: "時間はお任せ", slot: "when" },
+  // what
+  { pattern: "なんでもいい", slot: "what" },
+  { pattern: "何でもいい", slot: "what" },
+  // how
+  { pattern: "移動手段は任せる", slot: "how" },
+  { pattern: "移動は任せる", slot: "how" },
+  { pattern: "どう行ってもいい", slot: "how" },
+  // 全般（あえて slot を多めに。what/where/how をまとめて意志表明する語）
+  { pattern: "リサーチ不要", slot: "where" },
+  { pattern: "調べなくていい", slot: "where" },
+  { pattern: "適当でいい", slot: "what" },
+  { pattern: "後で決める", slot: "what" },
+  { pattern: "あとで決める", slot: "what" },
+];
+
+export function extractSlotOptOuts(
+  utterance: string,
+): ExtractedSpan<OptOutSlot>[] {
+  if (!utterance) return [];
+  const normalized = utterance.normalize("NFKC");
+  const results: ExtractedSpan<OptOutSlot>[] = [];
+  const claimed: Array<{ start: number; end: number }> = [];
+
+  function overlaps(start: number, end: number): boolean {
+    return claimed.some((c) => !(end <= c.start || start >= c.end));
+  }
+
+  // 長い pattern 優先（"場所はどこでも" を "どこでもいい" より先に食う）
+  const sorted = [...OPT_OUT_PATTERNS].sort(
+    (a, b) => b.pattern.length - a.pattern.length,
+  );
+
+  for (const { pattern, slot } of sorted) {
+    let searchStart = 0;
+    while (true) {
+      const idx = normalized.indexOf(pattern, searchStart);
+      if (idx === -1) break;
+      const end = idx + pattern.length;
+      if (!overlaps(idx, end)) {
+        results.push({ value: slot, span: pattern, index: idx });
+        claimed.push({ start: idx, end });
+      }
+      searchStart = idx + pattern.length;
+    }
+  }
+
+  return results.sort((a, b) => a.index - b.index);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 主エントリ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -231,6 +311,7 @@ export function preParseUtterance(utterance: string): RulePreParseHints {
   return {
     explicit_times: extractExplicitTimes(utterance),
     explicit_start_points: extractExplicitStartPoints(utterance),
+    slot_opt_outs: extractSlotOptOuts(utterance),
   };
 }
 

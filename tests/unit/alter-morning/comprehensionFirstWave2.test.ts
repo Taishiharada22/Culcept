@@ -165,7 +165,7 @@ describe("L1.0 preParseUtterance + formatHintsForPrompt", () => {
   });
 
   test("formatHintsForPrompt 空 hint → 空文字", () => {
-    expect(formatHintsForPrompt({ explicit_times: [], explicit_start_points: [] })).toBe("");
+    expect(formatHintsForPrompt({ explicit_times: [], explicit_start_points: [], slot_opt_outs: [] })).toBe("");
   });
 
   test("formatHintsForPrompt 内容あり → prompt 注入可能な文字列", () => {

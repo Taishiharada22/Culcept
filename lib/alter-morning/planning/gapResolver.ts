@@ -25,6 +25,10 @@ import type {
   SolverBlocker,
 } from "../comprehension/eventSchema";
 import { buildClarifyQuestion } from "./clarifyQuestionBuilder";
+import type { GroundedPlace } from "./placeGrounder";
+import { classifyWhereSlot } from "./whereClassifier";
+import { classifyWhenSlot } from "./whenClassifier";
+import type { OptOutSlot } from "../comprehension/rulePreParse";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -39,6 +43,8 @@ export type ClarifyKind =
   | "activity"              // semantic==["what"]: 何する予定？
   | "tentative_chain"       // tentative が連鎖（Q1-A' 条件）
   | "target_ref_low"        // target_ref_confidence=low
+  | "where_center"          // W3-PR-6: place 完全欠損、anchor もなし → どのあたり？
+  | "where_pick_from_candidates" // W3-PR-6: ambiguous 候補が多すぎ → どれ？
   | "transport"             // solver_blocker: transport
   | "endpoint";             // solver_blocker: endpoint / end_time
 
@@ -99,7 +105,7 @@ function mkClarify(
 
 export function resolveEventGap(
   ev: Event,
-  ctx: { events: Event[]; index: number },
+  ctx: { events: Event[]; index: number; grounded?: GroundedPlace[] },
 ): GapAction {
   // Turn 2+ modify: target_ref_confidence=low は最優先 clarify
   if (ev.turn_mode === "modify" && ev.target_ref_confidence === "low") {
@@ -124,8 +130,17 @@ export function resolveEventGap(
     });
   }
 
-  // semantic==["when"]
+  // semantic==["when"] — When 三層判定（W3-PR-6 Commit 3）
+  //   category default や前後 event からの relative anchor があれば
+  //   PROVISIONAL 扱いで ASK せずに進める（pass_through）。
   if (sem.length === 1 && sem[0] === "when") {
+    const ws = classifyWhenSlot(ev, { events: ctx.events, index: ctx.index });
+    if (ws.kind === "provisional") {
+      // 自動補完できたので ASK しない
+      return { type: "pass_through", event_id: ev.event_id };
+    }
+    // FIXED はここには到達しない（sem に when が残っているのは startTime も
+    // timeHint もない場合のみ）。防御的に ASK へ。
     return mkClarify({
       event_id: ev.event_id,
       kind: "specific_time",
@@ -134,12 +149,37 @@ export function resolveEventGap(
     });
   }
 
-  // semantic==["where"] → Place Grounder へ defer
+  // semantic==["where"] → Where 三層判定（W3-PR-6 Commit 2）
+  //   grounded が渡されている場合は FIXED/PROVISIONAL/ASK で分岐。
+  //   渡されていない場合は従前どおり Place Grounder へ defer。
   if (sem.length === 1 && sem[0] === "where") {
-    return {
-      type: "defer_to_place_grounder",
-      event_id: ev.event_id,
-    };
+    if (ctx.grounded) {
+      const ws = classifyWhereSlot(ev, {
+        events: ctx.events,
+        index: ctx.index,
+        grounded: ctx.grounded,
+      });
+      if (ws.kind === "fixed" || ws.kind === "provisional") {
+        return { type: "defer_to_place_grounder", event_id: ev.event_id };
+      }
+      // ASK
+      if (ws.reason === "ambiguous_too_many") {
+        return mkClarify({
+          event_id: ev.event_id,
+          kind: "where_pick_from_candidates",
+          target_slot: "where",
+          hint: ev.where.place_ref ?? ev.what.activity ?? undefined,
+        });
+      }
+      // missing_no_anchor
+      return mkClarify({
+        event_id: ev.event_id,
+        kind: "where_center",
+        target_slot: "where",
+        hint: ev.what.activity || ev.what.activityCanonical || undefined,
+      });
+    }
+    return { type: "defer_to_place_grounder", event_id: ev.event_id };
   }
 
   // semantic==["what"]
@@ -212,31 +252,74 @@ export function resolveEventGap(
 /**
  * clarify kind の優先度。UI に戻す 1 件を選ぶときに使う。
  * 数値が小さいほど優先。
+ *
+ * W3-PR-6 CEO 方針（2026-04-22 確定）: slot priority を
+ *   When(10-14) > Where(20-24) > What(30-32) > How(40-42) > Who(50)
+ * の block で並べる。modify の target_ref_low だけは 0 で最上位（全 slot に先行）。
+ * Why は blocker にしない（entry 不要）。
+ *
+ * Where の新 kind（where_center / where_pick_from_candidates）は Commit 2 で追加。
+ * ここでは枠だけ確保する。
  */
 const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
-  target_ref_low: 0,       // 最優先（modify の曖昧さ）
-  coarse_time_bucket: 1,   // |semantic|≥2
-  specific_time: 2,
-  activity: 3,
-  tentative_chain: 4,
-  endpoint: 5,
-  transport: 6,
+  target_ref_low: 0,        // 最優先（modify の曖昧さ、slot 非依存）
+  // ── When（10-14）──
+  coarse_time_bucket: 10,   // |semantic|≥2 → 朝/昼/夜?
+  specific_time: 11,        // |semantic|==["when"] → 何時?
+  tentative_chain: 14,      // 前後 tentative → 1 点確定
+  // ── Where（20-24）──
+  where_center: 20,         // 場所完全欠損・借用元なし
+  where_pick_from_candidates: 22, // ambiguous 候補多数、絞らせる
+  // ── What（30）──
+  activity: 30,
+  // ── How（40-42）──
+  transport: 40,
+  endpoint: 42,
 };
 
-export function resolveGaps(events: Event[]): GapResolution {
+/**
+ * ClarifyKind がどの slot に対応するか（opt-out 判定に使う）。
+ * target_ref_low と tentative_chain は opt-out 対象外（構造的に必要）。
+ */
+const KIND_TO_OPT_OUT_SLOT: Partial<Record<ClarifyKind, OptOutSlot>> = {
+  coarse_time_bucket: "when",
+  specific_time: "when",
+  where_center: "where",
+  where_pick_from_candidates: "where",
+  activity: "what",
+  transport: "how",
+  endpoint: "how",
+};
+
+export function resolveGaps(
+  events: Event[],
+  ctx?: {
+    grounded?: GroundedPlace[];
+    /** ユーザーが「聞かなくていい」と明示した slot。primary_clarify 選択時にスキップ */
+    slotOptOuts?: OptOutSlot[];
+  },
+): GapResolution {
+  const grounded = ctx?.grounded;
+  const optOuts = new Set<OptOutSlot>(ctx?.slotOptOuts ?? []);
   const actions: GapAction[] = events.map((ev, index) =>
-    resolveEventGap(ev, { events, index }),
+    resolveEventGap(ev, { events, index, grounded }),
   );
 
+  // W3-PR-6 Commit 4: opt-out slot に対応する clarify は primary_clarify 選定から除外。
+  // （pass_through ではなく action 自体は残す — 将来 ASK でなく PROVISIONAL 扱い
+　//  する時に備え、action trace は保持）
   let primary: ClarifyRequest | null = null;
   let primaryScore = Infinity;
   for (const a of actions) {
-    if (a.type === "clarify") {
-      const score = CLARIFY_PRIORITY[a.request.kind] ?? 99;
-      if (score < primaryScore) {
-        primary = a.request;
-        primaryScore = score;
-      }
+    if (a.type !== "clarify") continue;
+    const targetSlot = KIND_TO_OPT_OUT_SLOT[a.request.kind];
+    if (targetSlot && optOuts.has(targetSlot)) {
+      continue; // ユーザーが「聞かなくていい」と宣言した slot はスキップ
+    }
+    const score = CLARIFY_PRIORITY[a.request.kind] ?? 99;
+    if (score < primaryScore) {
+      primary = a.request;
+      primaryScore = score;
     }
   }
 

@@ -94,6 +94,8 @@ interface PersistedMorningSession {
   personalizeHints: string[];
   // v2: PlanState ラウンドトリップ
   planStateV2?: any;
+  // W3-PR-6: v2 pipeline stickiness round-trip
+  pipelineVersion?: "v2";
 }
 
 function saveMorningSession(session: PersistedMorningSession): void {
@@ -192,6 +194,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>(restoredSession?.personalizeHints ?? []);
   // v2: PlanState ラウンドトリップ
   const [morningPlanStateV2, setMorningPlanStateV2] = useState<any>(restoredSession?.planStateV2 ?? null);
+  // W3-PR-6: v2 pipeline stickiness round-trip（"v2" | null）
+  const [morningPipelineVersion, setMorningPipelineVersion] = useState<"v2" | null>(
+    (restoredSession as { pipelineVersion?: "v2" } | null)?.pipelineVersion ?? null,
+  );
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -221,8 +227,9 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       sufficiency: morningSufficiency,
       personalizeHints: morningPersonalizeHints,
       planStateV2: morningPlanStateV2,
+      ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
     });
-  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -279,6 +286,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               parsedIntent: morningParsedIntent ?? undefined,
               sufficiency: morningSufficiency ?? undefined,
               planStateV2: morningPlanStateV2 ?? undefined,
+              // W3-PR-6: v2 stickiness を route に返送する
+              ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
@@ -381,6 +390,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         // v2: PlanState ラウンドトリップ
         if (data.morningProtocol.planStateV2 !== undefined) {
           setMorningPlanStateV2(data.morningProtocol.planStateV2);
+        }
+        // W3-PR-6: v2 pipelineVersion round-trip
+        if (data.morningProtocol.pipelineVersion !== undefined) {
+          setMorningPipelineVersion(
+            data.morningProtocol.pipelineVersion === "v2" ? "v2" : null,
+          );
         }
       }
 
