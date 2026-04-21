@@ -117,6 +117,35 @@ Morning 完成扱いにはなっていない。次 PR の粒度で扱う:
 
 **着手順**: 次セッションで CEO と粒度・優先度を確認してから分割設計。現時点では backlog 化のみ。
 
+### W3-PR-8 — Strict Confirmation（2026-04-22 実装完了）✅
+W3-PR-7 merge 後 backlog の (1) plan 前倒し抑制 + (2) fixable / provisional 境界厳密化 に応える UI-truth PR。新機能ゼロ、adapter と UI の整合のみ。設計書: `docs/alter-morning-strict-confirmation-design.md`（CEO レビュー済み rev 1）。
+
+#### 構造問題の出自
+W3-PR-7 merge（PR #15, commit 283cb2a4）で「provisional plan が UI 上で確定に見える」崩れを観測。震源は `legacyAdapter.eventToPlanItem`（L93-115）で sharpness を無視し、`place_ref` を text に漏洩。CEO 単一方針: **「検索を足すより先に、未確定を未確定のまま扱う」**。PR-9（Anchor-Based Search）の前提条件。
+
+#### コミット構成（全 7 commit）
+- **Commit 1** (`bacc48e9`): 型追加 — `ConfirmationState` / `WhereVagueSubKind` / `PlanItem` 拡張フィールド（optional）
+- **Commit 2** (`8b6a098f`): `whereVagueClassifier.ts` + `normalizedPlanItem.ts`（deterministic、LLM 非依存）
+- **Commit 3** (`a01df5e4`): adapter に sharpness 配線（`computeWhenSharpness` / `computeWhereSharpness` / `computeWhatSharpness` 貫通 + `needs_answer` 上書き + `normalizePlanItem` 出口）
+- **Commit 4** (`a817ee1a`): `MorningPlanCard` slot 分離描画（`confirmationState` 別 border / HelpCircle icon / 「時間未確定」「場所未確定」「内容暫定」「店舗暫定」chip）
+- **Commit 5** (`70e6ea52`): `anchorSearchGate.ts` PR-9 予約スタブ（throw stub + deterministic 発火条件を JSDoc に固定）
+- **Commit 6** (`aa04bb02`): ユニットテスト 3 本（whereVagueClassifier / normalizedPlanItem / legacyAdapterSharpness）
+- **Commit 7**: weekly-priorities.md 記録（本エントリ）+ tsc PASS + 1246/1246 PASS 確認
+
+#### 成果
+- **UI-truth 回復**: `PlanItem` → `NormalizedPlanItem` 経由で UI が `??` fallback 不要に
+- **3-way vague 分類確定**: `anchor`（B：位置情報そのもの）/ `category_chain`（C：検索候補）/ `undecided`（A：clarify 必須）
+- **PR-9 単一入口確定**: `shouldFireAnchorSearch()` に firing gate を集約（判断分散の禁止）
+- **テスト**: whereVagueClassifier 20+ / normalizedPlanItem 10+ / legacyAdapterSharpness 5 = 35+ 件 新規追加、合計 1246 PASS
+- **型**: tsc PR-8 ファイル群 error 0（既存 1043 行の error は PR-8 スコープ外）
+
+#### 規律
+- 新 LLM コール 0、新 DB 変更 0、新 API 追加 0（UI-truth PR の定義通り）
+- `kind: "fixed" | "todo" | "travel"` は**変更禁止**（confirmationState とは直交）
+- fixtures は包括的 defensive ではなく、テストごとに必要最小限の slot を埋める（provenance checker が span 存在を要求する制約を尊重）
+
+**次**: CEO 実機再検証 → PASS 確認後に PR-9（Anchor-Based Search）着手。
+
 ### 実装規律
 - 固定方針: 「LLM は意味を掴む。ロジックが計画を組む。LLM が納得できる形で伝える。」
 - 核感情: **納得感**
