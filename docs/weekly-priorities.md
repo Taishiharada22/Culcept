@@ -166,6 +166,40 @@ GPT 分析 + CEO 最終承認を受け、同 branch に dialog-control 修復 co
 
 **次**: commit 12 push → PR #16 更新 → CEO 実機再検証 → PASS 確認後 PR-9（Anchor-Based Search）着手。
 
+#### 改訂 3 Phase 0（CEO preview FAIL #2 — liveness 修復、設計のみ）
+改訂 2 の commit 8-12 を preview に出した結果、CEO 第 2 FAIL 判定:
+- 「甲府あたり → 甲府 → スタバ → 図書館」と回答しても同じ「朝の仕事はどのあたり？」質問が繰り返される（会話 memory 無し）
+- provider 連続失敗で `items=0 clarifying` 経路が HTTP 500 を引き起こす
+- **`primary_clarify == null` を正本にしない** は入ったが、**「会話を所有する者」が不在** で同じ層別パッチの失敗が 3 週間続いている構造欠陥が露呈
+
+**CEO 方針（2026-04-22）**:
+> 「常に、先を見通して思考しろ。鵜呑みにするな。迎合するな。甘い判断を下すな...スタート〜ゴールまでの論理的な構築が最優先。まずは、全ての実装を実機観測なしで、行う。全ての設計が終わらない限り、また同じ問題が起こる可能性が高い」
+
+**Phase 0 スコープ（実装禁止、設計のみ）**:
+- `docs/alter-morning-roadmap.md`（新規）— 北極星（map + pin + timeline）から逆算した PR-8〜PR-14 階段。各段階の「初めて可能になるもの」と依存関係を固定
+- `docs/alter-morning-strict-confirmation-design.md` 改訂 3 追記 — §2.9 DialogState / §2.10 where staircase / §2.11 providerRecovery / §2.12 slot_switching / §3.7 型 / §3.8 reducer action / §3.9 taxonomy decision table / §3.10 PendingClarify 移行表 / §3.11 items=0 state-aware / §3.12 merge 条件（GPT 4 + 追加 6）/ §10 commit 13〜21 / 付録 C
+- `docs/alter-morning-pr9-places-search-design.md`（新規骨子）— SearchQueryDraft → Places API query 変換 / NormalizedPlaceCandidate 型 / user selection フロー / 座標注入契約
+- `docs/alter-morning-pr10-14-interface-reservation.md`（新規）— PR-10 transport / PR-11 who / PR-12 end time / PR-13 map pin / PR-14 timeline の型予約のみ
+
+**改訂 3 の核判断（CEO 2026-04-22 承認案 γ）**:
+- **DialogState を新設して会話を所有する単一 layer を作る**: gapResolver/answerBinder/legacyAdapter は consumer。書き込み口は reducer のみ
+- **`search_handoff_blocking` は PR-8 では internal state only**: PR-9 未実装下で「近くのお店探そうか？」を user-facing に出すのは dead end。PR-9 merge で解放
+- **slot_switching は deterministic**: 新時刻/新候補/新活動名を生成しない。gapResolver 既存優先順位に委譲
+- **providerRecovery を phase authority の前で分岐**: items=0 ガードに到達させない、fake plan 合成禁止
+- **PendingClarify を derived view 化**: session に永続化するのは DialogState のみ、PendingClarify は毎ターン derive
+- **session schema version bump + reset**: migration せず beta ユーザーだけなので旧 session は捨てる
+- **DIALOG_STATE_V2 feature flag**: 改訂 2 挙動を完全保存する kill switch
+- **LLM prompt に DialogState 混入禁止**: reducer は rule-based、taxonomy も deterministic
+
+**merge 条件（GPT 4 + 追加 6 = 10 条件）**:
+- A1: phase=clarifying items=0 が 0 件 / A2: provider 失敗で 500 が 0 件 / A3: 初回 anchor で plan 昇格しない / A4: 同 slot 2 回 miss で遷移
+- B1: LLM prompt 汚染 0 / B2: DialogState persist roundtrip / B3: version bump で旧 session reset / B4: taxonomy 14 ケース 1:1 / B5: state machine invariants / B6: narrowStep 単調増加
+
+**Phase 0 規律**:
+- 4 文書（roadmap / strict-confirmation rev 3 / pr9 骨子 / pr10-14 予約）を **CEO 承認取得前に commit 13 以降に着手しない**
+- 文書に書かれていない型・関数・state を実装で追加しない
+- 本 branch（`feature/alter-morning-v2-strict-confirmation`）の次 commit は **Phase 0 文書のみ**
+
 ### 実装規律
 - 固定方針: 「LLM は意味を掴む。ロジックが計画を組む。LLM が納得できる形で伝える。」
 - 核感情: **納得感**
