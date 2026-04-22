@@ -905,6 +905,22 @@ export interface MorningSession {
    * 実アクセス側で型ガード。serialization は JSON 互換のため lossless）。
    */
   persistedEvents?: import("./comprehension/eventSchema").Event[];
+  /**
+   * W3-PR-8 rev 3 Commit 13: DialogState v2（単一会話所有層）。
+   *
+   * 位置づけ:
+   *   `ALTER_MORNING_DIALOG_STATE_V2=true` のときのみ reducer 経路が
+   *   読み書きする optional field。flag OFF の間は undefined のまま放置される
+   *   （既存 pendingClarify / persistedEvents 経路が全量処理）。
+   *
+   * 設計:
+   *   - docs/alter-morning-strict-confirmation-design.md §3.7
+   *   - docs/alter-morning-pr8-rev3-implementation-detail.md §1
+   *
+   * commit 13 段階では本 field を **読み書きするコードは存在しない**。
+   * type landing のみ（後続 commit 14+ で reducer / route.ts が使う）。
+   */
+  dialogState?: import("./dialog/types").DialogState | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
