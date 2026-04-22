@@ -514,6 +514,8 @@ import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehensio
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
+// W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
+import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -935,6 +937,8 @@ export async function POST(req: NextRequest) {
         // W3-PR-7 Commit 2: answerBinder 用 round-trip
         pendingClarify?: import("@/lib/alter-morning/types").PendingClarify | null;
         persistedEvents?: import("@/lib/alter-morning/comprehension/eventSchema").Event[];
+        // W3-PR-8 rev 3 commit 16: DialogState v2 round-trip 受け口（flag OFF 中は常に undefined）
+        dialogState?: import("@/lib/alter-morning/dialog/types").DialogState | null;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1714,6 +1718,10 @@ export async function POST(req: NextRequest) {
             // W3-PR-7 Commit 2: dialog state round-trip
             pendingClarify: rawMorningSession!.pendingClarify ?? null,
             persistedEvents: rawMorningSession!.persistedEvents ?? undefined,
+            // W3-PR-8 rev 3 Commit 16: DialogState v2 round-trip（read-side reception）
+            //   flag OFF: rawMorningSession 側が undefined のまま → undefined pass-through
+            //   flag ON:  client から返ってきた dialogState をそのまま hydrate
+            dialogState: rawMorningSession!.dialogState ?? undefined,
           };
         } else {
           morningSession = createMorningSession();
@@ -1725,6 +1733,12 @@ export async function POST(req: NextRequest) {
           if (userHomeLat !== undefined) morningSession.userHomeLat = userHomeLat;
           if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
+        // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration
+        //   flag OFF → 同一参照 return（完全中立、downstream 不変）
+        //   flag ON  → 未初期化なら createInitialDialogState() を付与
+        //   本時点で downstream（adapter / phase / reducer）は dialogState を読まない。
+        //   route が serialize 時に round-trip するのみ（CEO wiring-only 条件）。
+        morningSession = ensureSessionV1(morningSession);
 
         // ── W3-PR-5: Flag-gated new pipeline with v2 session stickiness ──
         // v2 に入る条件:
@@ -9159,6 +9173,15 @@ export async function POST(req: NextRequest) {
           // ── W3-PR-7 Commit 2: dialog state round-trip ──
           pendingClarify: morningSession?.pendingClarify ?? null,
           persistedEvents: morningSession?.persistedEvents ?? null,
+          // ── W3-PR-8 rev 3 Commit 16: DialogState v2 round-trip（write-side）──
+          //   flag OFF: ensureSessionV1 が identity return するため dialogState は
+          //   常に undefined → conditional spread で field を出力しない。response
+          //   shape は baseline と完全一致。
+          //   flag ON:  dialogState が set されている → field 含めて送出、client が
+          //   次ターンで返送する。
+          ...(morningSession?.dialogState != null
+            ? { dialogState: morningSession.dialogState }
+            : {}),
         },
       } : {}),
       ...(queryContext ? {
