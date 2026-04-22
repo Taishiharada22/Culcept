@@ -516,6 +516,10 @@ import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-mo
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
+// W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
+import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import { advanceDialogState } from "@/lib/alter-morning/dialog/shadowPipeline";
+import type { DialogFocus } from "@/lib/alter-morning/dialog/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1950,6 +1954,84 @@ export async function POST(req: NextRequest) {
         if (!morningResponse) {
           throw new Error("morningResponse must be set after v2/legacy branch");
         }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // W3-PR-8 rev 3 commit 17: DialogState v2 shadow pipeline（flag ON のみ）
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //
+        // CEO 方針（2026-04-22 commit 17 条件）:
+        //   1. flag OFF 完全中立        → `if` 分岐で完全 gate。Dead code 化。
+        //   2. phase authority = hasBlockingUnresolvedSlots のまま
+        //                               → morningResponse.phase は **一切触らない**。
+        //   3. search_handoff_blocking は internal only
+        //                               → derived.kind には出ない（derivePendingClarify 側で null 返却）。
+        //   4. DialogState が唯一の主状態
+        //                               → session.dialogState のみ書き換える。
+        //   5. reducer は pure のまま   → shadowPipeline.ts 内で完結。
+        //
+        // 禁止事項:
+        //   - session.pendingClarify へ derived を書き戻さない（主状態の二重化禁止）
+        //   - morningResponse / phase を変更しない
+        //   - DialogState を LLM prompt に流さない（本箇所では prompt を構築しない）
+        //
+        // 完了条件:
+        //   - flag ON 時に classify → reducer → persist → derive が通る
+        //   - readyForHandoff=true でも morningResponse.phase は clarifying のまま
+        //   - reducer throw 時も user-facing 応答は壊れない（try/catch で吸収）
+        if (
+          ALTER_MORNING_FLAGS.dialogStateV2 &&
+          morningSession?.dialogState != null &&
+          typeof message === "string" &&
+          message.length > 0
+        ) {
+          try {
+            const events = morningSession.persistedEvents ?? [];
+            const nextPending = morningSession.pendingClarify;
+            const targetEventId =
+              nextPending?.event_id ?? events[0]?.event_id ?? null;
+            const rawSlot = nextPending?.slot ?? "where";
+            // PendingSlot は {when,where,what,transport,endpoint}、DialogFocus.slot は
+            // {where,when,what,who}。共通部分の where/when/what のみ dispatch 対象にする。
+            const targetSlot: DialogFocus["slot"] | null =
+              rawSlot === "where" || rawSlot === "when" || rawSlot === "what"
+                ? rawSlot
+                : null;
+            if (targetEventId != null && targetSlot != null) {
+              const advanced = advanceDialogState({
+                prevState: morningSession.dialogState,
+                message,
+                targetEventId,
+                targetSlot,
+                events,
+                turnIndex:
+                  morningSession.dialogState.capturedHistory.length + 1,
+                nowIso: new Date().toISOString(),
+              });
+              // persist: session.dialogState のみ更新。pendingClarify は触らない。
+              morningSession = {
+                ...morningSession,
+                dialogState: advanced.nextState,
+              };
+              // ⚠ advanced.derived は session.pendingClarify に書き戻さない
+              //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
+              //   将来 commit で gate 超え後に prompt/phase と接続するまで dead。
+              void advanced.derived;
+              console.info(
+                `[dialog-state-v2:shadow] status=${advanced.nextState.conversationStatus} ` +
+                  `narrowStep=${advanced.nextState.focus?.narrowStep ?? 0} ` +
+                  `ready=${advanced.nextState.searchQueryDraft.readyForHandoff ? "1" : "0"} ` +
+                  `derived_kind=${advanced.derived?.kind ?? "null"} ` +
+                  `phase_unchanged=${morningResponse.phase}`,
+              );
+            }
+          } catch (err) {
+            // flag ON 限定の shadow 例外（FSA 違反 / 想定外 classify 等）は user-facing
+            // 応答を壊さず warn 止まり。CEO 条件「flag OFF baseline 不変」の保護と、
+            // flag ON が user 画面まで刺さない dead-code 前提を両立する。
+            console.warn(`[dialog-state-v2:shadow] error`, err);
+          }
+        }
+
         if (morningResponse.phase !== "skipped") {
           // Morning Protocol がハンドリング → alterResponseText に設定
           alterResponseText = morningResponse.message;
