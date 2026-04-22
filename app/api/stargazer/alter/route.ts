@@ -1812,7 +1812,16 @@ export async function POST(req: NextRequest) {
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
                 });
-                morningSession = adapted.session;
+                // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+                //   ensureSessionV1 (L1747) で init した dialogState を、
+                //   adaptPipelineToLegacy が返す adapted.session が field 非対応で
+                //   上書き消去してしまうため、明示的に継承する。
+                //   この漏れが原因で commit 17 以降 shadow block が dead のまま
+                //   preview に到達しなかった（2026-04-22 CEO preview で判明）。
+                morningSession = {
+                  ...adapted.session,
+                  dialogState: morningSession.dialogState,
+                };
                 morningResponse = adapted.response;
                 console.info(
                   `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
@@ -1904,7 +1913,12 @@ export async function POST(req: NextRequest) {
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
             });
-            morningSession = adapted.session;
+            // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+            //   （Branch B 通常 LLM 経路。理由は bind 経路と同じ。）
+            morningSession = {
+              ...adapted.session,
+              dialogState: morningSession.dialogState,
+            };
             morningResponse = adapted.response;
             console.info(
               `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
@@ -1939,7 +1953,12 @@ export async function POST(req: NextRequest) {
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
             });
-            morningSession = adapted.session;
+            // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+            //   （pipeline throw 吸収経路。provider failure 時も narrowStep を保つ。）
+            morningSession = {
+              ...adapted.session,
+              dialogState: morningSession.dialogState,
+            };
             morningResponse = adapted.response;
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
@@ -1947,7 +1966,13 @@ export async function POST(req: NextRequest) {
           }
         } else {
           const result = await processMorningMessage(message, morningSession);
-          morningSession = result.session;
+          // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+          //   （legacy processMorningMessage 経路。flag ON + useV2=false は想定外だが
+          //    完全中立性のため対称に継承する。）
+          morningSession = {
+            ...result.session,
+            dialogState: morningSession.dialogState,
+          };
           morningResponse = result.response;
         }
 
