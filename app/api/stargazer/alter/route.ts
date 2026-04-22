@@ -522,6 +522,10 @@ import { advanceDialogState } from "@/lib/alter-morning/dialog/shadowPipeline";
 import type { DialogFocus } from "@/lib/alter-morning/dialog/types";
 // W3-PR-8 rev 3 Commit 19: DialogState v2 user-facing runtime 昇格（flag ON のみ、phase authority 不干渉）
 import { promoteDialogStateToUserFacing } from "@/lib/alter-morning/dialog/responsePromotion";
+// W3-PR-8 rev 3 Commit 22: shadow pipeline へ渡す targetEventId の条件付き focus 継承
+//   Branch B 再 comprehension が毎 turn 新 event_id を採番することによる
+//   reducer.eventChanged 誤発火 → draft reset → narrowStep 逆行 を止める。
+import { selectShadowTargetEventId } from "@/lib/alter-morning/dialog/shadowTargetEventId";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -2014,8 +2018,6 @@ export async function POST(req: NextRequest) {
           try {
             const events = morningSession.persistedEvents ?? [];
             const nextPending = morningSession.pendingClarify;
-            const targetEventId =
-              nextPending?.event_id ?? events[0]?.event_id ?? null;
             const rawSlot = nextPending?.slot ?? "where";
             // PendingSlot は {when,where,what,transport,endpoint}、DialogFocus.slot は
             // {where,when,what,who}。共通部分の where/when/what のみ dispatch 対象にする。
@@ -2023,7 +2025,52 @@ export async function POST(req: NextRequest) {
               rawSlot === "where" || rawSlot === "when" || rawSlot === "what"
                 ? rawSlot
                 : null;
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // W3-PR-8 rev 3 commit 22: 条件付き focus 継承
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 問題:
+            //   Branch B 再 comprehension が毎 turn `generateEventId()` で新 id を
+            //   発行するため、reducer の eventChanged 判定が毎 turn true → draft reset
+            //   → narrowStep が turn 毎に 0/1/2 を振動する。
+            //   2026-04-22 preview で カフェ→甲府→スタバ で 2→1→2 逆行を観測。
+            //
+            // 修正:
+            //   「同一 clarifying ループ + same slot + explicit focus switch なし」の
+            //   条件下でのみ prev.focus.event_id を継承する（selectShadowTargetEventId）。
+            //   新 event 開始（plan_presented 後など）では fallback で新 id を使う。
+            const targetSelection = selectShadowTargetEventId({
+              prevFocus: morningSession.dialogState.focus,
+              prevConversationStatus:
+                morningSession.dialogState.conversationStatus,
+              previousResponsePhase: rawMorningSession?.phase ?? null,
+              pendingEventId: nextPending?.event_id ?? null,
+              firstEventId: events[0]?.event_id ?? null,
+              currentResponsePhase: morningResponse.phase,
+              targetSlot,
+            });
+            const targetEventId = targetSelection.chosenTargetEventId;
+
             if (targetEventId != null && targetSlot != null) {
+              // CEO 条件 #2: structured log
+              //   prev/pending/events0/chosen/eventChanged/reason を 1 行で出力。
+              //   eventChanged は prev.focus.event_id と chosen の比較（reducer が
+              //   実際に使う判定と同等）。
+              const prevFocusEventId =
+                morningSession.dialogState.focus?.event_id ?? null;
+              const eventChanged =
+                prevFocusEventId !== null && prevFocusEventId !== targetEventId;
+              console.info(
+                `[dialog-state-v2:targetEventId] ` +
+                  `prev_focus=${prevFocusEventId ?? "null"} ` +
+                  `nextPending=${nextPending?.event_id ?? "null"} ` +
+                  `events0=${events[0]?.event_id ?? "null"} ` +
+                  `chosen=${targetEventId} ` +
+                  `eventChanged=${eventChanged ? "1" : "0"} ` +
+                  `canContinueFocus=${targetSelection.canContinueFocus ? "1" : "0"} ` +
+                  `reason=${targetSelection.reason}`,
+              );
+
               const advanced = advanceDialogState({
                 prevState: morningSession.dialogState,
                 message,
