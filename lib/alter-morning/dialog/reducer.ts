@@ -444,40 +444,94 @@ function handleTurnCaptured(
   //     - chain 確定 → category を null に上書き（chain がより specific）
   //     - category 確定（chain なし）→ chain はそのまま（元の chain が残る）
   //     - anchor 確定 → anchor のみ更新
-  //   where 以外の slot では draft を触らない。
+  //
+  //   commit 23c (2026-04-22): slot-independent preservation
+  //     where 以外の slot 応答中に user が偶発的に where 情報を含めた場合
+  //     (例: Turn 1 "明日はカフェで仕事の予定" は targetSlot="when" だが
+  //     category="カフェ" を含む)、その情報を失わずに draft に保存する。
+  //     ただし保守的戦略を採り、**既に non-null のフィールドは上書きしない**。
+  //     narrowing 中の明示的決定を非 where turn が上書きする事故を防ぐ。
   //
   //   ⚠ commit 18 で Step 4 (narrowStep) の前に移動:
   //     narrowStep を「累積 newDraft から derive」する実装に寄せたため、
   //     先に draft を確定させる必要がある。
   let newDraft: SearchQueryDraft;
-  if (isWhereSlot) {
-    let nextAnchor = prev.searchQueryDraft.anchorRegion;
-    let nextCategory = prev.searchQueryDraft.categoryToken;
-    let nextChain = prev.searchQueryDraft.chainToken;
-
-    if (action.capture.extractedAnchor !== null) {
-      nextAnchor = action.capture.extractedAnchor;
-    }
-    if (action.capture.extractedChain !== null) {
-      nextChain = action.capture.extractedChain;
-      nextCategory = null; // chain 確定時 category を排他
-    } else if (
-      action.capture.extractedCategory !== null &&
-      nextChain === null
-    ) {
-      // chain ↔ category 相互排他（detail §1.4）:
-      //   chain が既に確定している場合、category 発話は無視（chain を specificity で保持）。
-      //   chain 未確定の場合のみ category を受け入れる。
-      nextCategory = action.capture.extractedCategory;
-    }
-
-    // focus 切替（event_id 変更）時は draft を reset
+  {
     const eventChanged =
       prev.focus !== null && prev.focus.event_id !== action.targetEventId;
+
+    let nextAnchor: string | null;
+    let nextCategory: string | null;
+    let nextChain: string | null;
+
     if (eventChanged) {
+      // event 切替時は draft を reset（where/非 where 対称）。
+      // reset 直後に、この turn の capture だけを初期値に乗せる。
       nextAnchor = action.capture.extractedAnchor;
-      nextCategory = action.capture.extractedCategory;
       nextChain = action.capture.extractedChain;
+      // chain 確定時は category を排他（detail §1.4）
+      nextCategory =
+        action.capture.extractedChain !== null
+          ? null
+          : action.capture.extractedCategory;
+    } else if (isWhereSlot) {
+      // where turn: 既存仕様通り、capture で上書き更新する。
+      nextAnchor = prev.searchQueryDraft.anchorRegion;
+      nextCategory = prev.searchQueryDraft.categoryToken;
+      nextChain = prev.searchQueryDraft.chainToken;
+
+      if (action.capture.extractedAnchor !== null) {
+        nextAnchor = action.capture.extractedAnchor;
+      }
+      if (action.capture.extractedChain !== null) {
+        nextChain = action.capture.extractedChain;
+        nextCategory = null; // chain 確定時 category を排他
+      } else if (
+        action.capture.extractedCategory !== null &&
+        nextChain === null
+      ) {
+        // chain ↔ category 相互排他:
+        //   chain 確定時は category 発話を無視、chain 未確定時のみ受け入れる。
+        nextCategory = action.capture.extractedCategory;
+      }
+    } else {
+      // 非 where turn: commit 23c slot-independent preservation。
+      //   **空欄のみ埋める**（non-null の既存情報は上書きしない）。
+      //   これで Turn 1 の偶発的 where 情報 (「明日はカフェで仕事」の category)
+      //   が、後続 where clarify で activeClarifyFallback に届く。
+      nextAnchor = prev.searchQueryDraft.anchorRegion;
+      nextCategory = prev.searchQueryDraft.categoryToken;
+      nextChain = prev.searchQueryDraft.chainToken;
+
+      // chain 空欄 → preserve（chain が specificity で優位）
+      if (
+        action.capture.extractedChain !== null &&
+        nextChain === null
+      ) {
+        nextChain = action.capture.extractedChain;
+        // chain 新規記入時に既存 category があれば detail §1.4 に従い null 化する。
+        // ただし non-where turn の preserve なので、既存 category が non-null の
+        // ときは「既存を上書きしない」原則で chain 側を棄却する方が自然。
+        // → ここは chain 側優先（specificity）で category を落とす。
+        if (nextCategory !== null) {
+          nextCategory = null;
+        }
+      }
+      // category 空欄 + chain も空欄 → preserve
+      if (
+        action.capture.extractedCategory !== null &&
+        nextCategory === null &&
+        nextChain === null
+      ) {
+        nextCategory = action.capture.extractedCategory;
+      }
+      // anchor 空欄 → preserve
+      if (
+        action.capture.extractedAnchor !== null &&
+        nextAnchor === null
+      ) {
+        nextAnchor = action.capture.extractedAnchor;
+      }
     }
 
     newDraft = buildSearchQueryDraft({
@@ -485,9 +539,6 @@ function handleTurnCaptured(
       categoryToken: nextCategory,
       chainToken: nextChain,
     });
-  } else {
-    // where 以外では draft を触らない（前状態をそのまま保持）
-    newDraft = prev.searchQueryDraft;
   }
 
   // Step 4: narrowStep 遷移（detail §1.2 table: newDraft から derive）

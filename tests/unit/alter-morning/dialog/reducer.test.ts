@@ -665,6 +665,322 @@ describe("chain ↔ category 相互排他（detail §1.4）", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7.5 commit 23c: slot-independent preservation
+//     where 以外の slot turn (when/what) でも、capture に where 情報が
+//     含まれていれば draft の空欄を埋める。既存 non-null は上書きしない。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("commit 23c — slot-independent draft preservation", () => {
+  it("targetSlot=when で category 含む capture → draft.categoryToken に preserve", () => {
+    // シナリオ: Turn 1「明日はカフェで仕事の予定」を when turn として処理
+    // （dispatcher が when に振った場合）。category="カフェ" が落ちない。
+    const s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "カフェ",
+          rawSpan: "カフェ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("カフェ");
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+    expect(s.searchQueryDraft.anchorRegion).toBeNull();
+  });
+
+  it("targetSlot=when で anchor 含む capture → draft.anchorRegion に preserve", () => {
+    const s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+  });
+
+  it("targetSlot=when で chain+anchor 含む capture → 両方 preserve", () => {
+    const s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "chain_with_anchor",
+          extractedAnchor: "甲府",
+          extractedChain: "スタバ",
+          rawSpan: "甲府のスタバ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ");
+  });
+
+  it("targetSlot=what でも同様に preserve される（slot 独立）", () => {
+    const s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "what",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "ランチ",
+          rawSpan: "ランチ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ");
+  });
+
+  it("既存 non-null は when turn で上書きされない（保守原則）", () => {
+    // Turn 1 where: category=ランチ を確定
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "ランチ",
+          rawSpan: "ランチ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ");
+
+    // Turn 2 when: 別の category=カフェ を含んでも ランチ は維持
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "カフェ",
+          rawSpan: "カフェ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ");
+  });
+
+  it("既存 anchor は when turn で上書きされない", () => {
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+
+    // when turn で別 anchor 来ても 甲府 維持
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "新宿",
+          rawSpan: "新宿",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+  });
+
+  it("既存 category あり + when turn で chain 新規 → chain 採用・category 排他（§1.4 維持）", () => {
+    // Turn 1 where: category=カフェ 確定
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "カフェ",
+          rawSpan: "カフェ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("カフェ");
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+
+    // Turn 2 when: chain=スタバ → specificity で chain 採用、category 排他
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "chain_alone",
+          extractedChain: "スタバ",
+          rawSpan: "スタバ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ");
+    expect(s.searchQueryDraft.categoryToken).toBeNull();
+  });
+
+  it("既存 chain あり + when turn で category 来ても chain 維持（chain 上書き禁止）", () => {
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "chain_alone",
+          extractedChain: "スタバ",
+          rawSpan: "スタバ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ");
+
+    // Turn 2 when: category=カフェ → chain 非空なので category 棄却
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "カフェ",
+          rawSpan: "カフェ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ");
+    expect(s.searchQueryDraft.categoryToken).toBeNull();
+  });
+
+  it("when turn で空 capture (subKind=other) → draft は完全に不変", () => {
+    // 先に where で何か埋めておく
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    const before = s.searchQueryDraft;
+
+    // Turn 2 when: 空 capture
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({ subKind: "other", rawSpan: "まだ未定" }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe(before.anchorRegion);
+    expect(s.searchQueryDraft.categoryToken).toBe(before.categoryToken);
+    expect(s.searchQueryDraft.chainToken).toBe(before.chainToken);
+  });
+
+  it("E2E シナリオ: Turn 1=when(category) → Turn 2=what(empty) → Turn 3=where(clarify)  draft に category が残る", () => {
+    // Turn 1: 「明日はカフェで仕事の予定」(when focus)
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "カフェ",
+          rawSpan: "カフェ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("カフェ");
+
+    // Turn 2: 「9時」(when focus 継続 / 空 capture)
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetSlot: "when",
+        capture: mkCapture({ subKind: "other", rawSpan: "9時" }),
+      }),
+    );
+    expect(s.searchQueryDraft.categoryToken).toBe("カフェ"); // 維持
+
+    // Turn 3: 「まだ未定」(where clarify focus)
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 3,
+        targetSlot: "where",
+        capture: mkCapture({ subKind: "other", rawSpan: "まだ未定" }),
+      }),
+    );
+    // where turn に入っても capture 空なので category 維持
+    expect(s.searchQueryDraft.categoryToken).toBe("カフェ");
+    expect(s.searchQueryDraft.anchorRegion).toBeNull();
+    // → clarifyFallback は draft.category="カフェ" を見て A2 分岐に入れる
+  });
+
+  it("event_id 切替 (eventChanged) は非 where turn でも draft を reset + 初期値乗せる", () => {
+    // Turn 1: event_1, where, chain=スタバ
+    let s = dialogReducer(
+      createInitialDialogState(),
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "chain_alone",
+          extractedChain: "スタバ",
+          rawSpan: "スタバ",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ");
+
+    // Turn 2: event_2 (新 event) / when turn / category=ランチ
+    // eventChanged 分岐で reset + 初期値「ランチ」が乗る
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 2,
+        targetEventId: "event_2",
+        targetSlot: "when",
+        capture: mkCapture({
+          subKind: "category_alone",
+          extractedCategory: "ランチ",
+          rawSpan: "ランチ",
+        }),
+      }),
+    );
+    // 前 draft (chain=スタバ) は消え、category=ランチ が乗る
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 8. PROVIDER_FAILED / RECOVERED
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
