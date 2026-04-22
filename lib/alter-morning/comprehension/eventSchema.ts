@@ -15,6 +15,12 @@
  *   - L1 LLM は内部 ID を扱わない。target_ref は自然言語ヒント。L2 で解決
  */
 
+// W3-PR-9: 地理座標は normalizedPlace.ts で reserved 済み（commit 13）。
+// LLM は生成しない。Places API tool 層で user 選択時に注入する設計。
+import type { GeoCoordinates } from "../search/normalizedPlace";
+
+export type { GeoCoordinates };
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Provenance — slot の根拠情報
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -71,6 +77,15 @@ export interface WhereSlot {
    */
   place_ref: string | null;
   placeType: string | null;
+  /**
+   * 地理座標。W3-PR-9: Places Search で user 選択後に tool 層が注入。
+   * LLM からは必ず undefined/null（invent 禁止）。未解決時も null。
+   *
+   * 型は optional (undefined 許容) だが、L1 Pipeline の attachEventId で
+   * 必ず null に正規化される。consumers は `coordinates ?? null` で扱う。
+   * 既存テスト fixture との後方互換のため optional にしている。
+   */
+  coordinates?: GeoCoordinates | null;
   provenance: Provenance;
 }
 
