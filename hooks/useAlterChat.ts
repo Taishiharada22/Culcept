@@ -224,6 +224,24 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningDialogState, setMorningDialogState] = useState<DialogState | null>(
     restoredSession?.dialogState ?? null,
   );
+  /**
+   * W3-PR-9 commit 5c: Place selection 進行中の placeId。
+   *   - null: 送信中ではない
+   *   - string: この placeId を現在送信中（picker 側で全ボタン disable + loader）
+   *
+   * server canonical response 受信で null に戻る。途中 reject / abort / error でも finally で null。
+   */
+  const [placeSelectionPending, setPlaceSelectionPending] = useState<string | null>(null);
+  const selectionAbortRef = useRef<AbortController | null>(null);
+  /**
+   * stale-response guard 用の ref。setter 内 closure が最新 state を参照できないため、
+   * async response 到着時に ref で比較する。
+   */
+  const morningDialogStateRef = useRef<DialogState | null>(morningDialogState);
+  useEffect(() => {
+    morningDialogStateRef.current = morningDialogState;
+  }, [morningDialogState]);
+
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -465,8 +483,124 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     }
   }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents, morningDialogState]);
 
+  /**
+   * W3-PR-9 commit 5c: Place candidate 選択ハンドラ。
+   *
+   * 契約（CEO 2026-04-23）:
+   *   1. picker は `status === "search_candidates_presented" && activePresentation !== null`
+   *      でのみ mount される前提。このハンドラも同条件を guard する。
+   *   2. optimistic update しない — server canonical response のみ state を進める。
+   *   3. pending 中（placeSelectionPending != null）は no-op（再クリック禁止）。
+   *   4. stale-response guard: 応答到着時に dialogState の
+   *      activePresentation.targetEventId/queryFingerprint が一致しない場合は破棄。
+   *      user が mid-flight で別 turn を進めたケース対策。
+   *   5. accepted=false は無害な no-op（error UI 出さない）。
+   *   6. accepted=true は canonical morningSession で dialogState + events を置換。
+   */
+  const selectPlaceCandidate = useCallback(async (selectedPlaceId: string) => {
+    const curr = morningDialogStateRef.current;
+    if (!curr) return;
+    if (curr.conversationStatus !== "search_candidates_presented") return;
+    const active = curr.activePresentation;
+    if (!active) return;
+    if (!active.candidates.some((c) => c.placeId === selectedPlaceId)) return;
+    // Race guard: 既に pending ならスキップ（UI 側 disabled だが defense in depth）
+    if (placeSelectionPending !== null) return;
+
+    // 旧 selection を abort（同時多重送信防止）
+    selectionAbortRef.current?.abort();
+    const controller = new AbortController();
+    selectionAbortRef.current = controller;
+
+    // Request 時点の fingerprint を capture（stale check 用）
+    const requestTargetEventId = active.targetEventId;
+    const requestFingerprint = active.queryFingerprint;
+    const requestTurnIndex = active.presentedAtTurn + 1;
+
+    setPlaceSelectionPending(selectedPlaceId);
+
+    try {
+      const morningSession = {
+        ...(morningSessionId ? { sessionId: morningSessionId } : {}),
+        ...(morningPhase ? { phase: morningPhase } : {}),
+        dialogState: curr,
+        persistedEvents: morningPersistedEvents ?? [],
+        ...(morningPlan ? { plan: morningPlan } : {}),
+        rawInputs: morningRawInputs,
+        ...(morningParsedIntent ? { parsedIntent: morningParsedIntent } : {}),
+        ...(morningSufficiency ? { sufficiency: morningSufficiency } : {}),
+        personalizeHints: morningPersonalizeHints,
+        ...(morningPlanStateV2 ? { planStateV2: morningPlanStateV2 } : {}),
+        ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+        ...(morningPendingClarify ? { pendingClarify: morningPendingClarify } : {}),
+      };
+
+      const res = await fetch("/api/stargazer/alter/selection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        signal: controller.signal,
+        body: JSON.stringify({
+          turnIndex: requestTurnIndex,
+          targetEventId: requestTargetEventId,
+          queryFingerprint: requestFingerprint,
+          selectedPlaceId,
+          morningSession,
+        }),
+      });
+
+      if (!res.ok) {
+        console.warn("[selection] http error", res.status);
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      // Stale-response guard: response 到着時点で dialogState が別の presentation に
+      // 移動していたら（または null になっていたら）この response は stale。破棄する。
+      const latest = morningDialogStateRef.current;
+      const stillSame =
+        latest?.activePresentation?.targetEventId === requestTargetEventId &&
+        latest?.activePresentation?.queryFingerprint === requestFingerprint;
+      if (!stillSame) {
+        console.info("[selection] stale response discarded");
+        return;
+      }
+
+      if (!data.accepted) {
+        // accepted=false は normal no-op（picker は次 server turn で unmount される）
+        console.info("[selection] rejected", data.reason);
+        return;
+      }
+
+      // accepted=true: canonical morningSession で置換
+      if (data.morningSession) {
+        const next = data.morningSession;
+        if (next.dialogState !== undefined) {
+          setMorningDialogState(next.dialogState ?? null);
+        }
+        if (next.persistedEvents !== undefined) {
+          setMorningPersistedEvents(next.persistedEvents ?? null);
+        }
+        if (next.phase) {
+          setMorningPhase(next.phase);
+        }
+      }
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      console.warn("[selection] error", err);
+    } finally {
+      setPlaceSelectionPending(null);
+      if (selectionAbortRef.current === controller) {
+        selectionAbortRef.current = null;
+      }
+    }
+  }, [placeSelectionPending, morningSessionId, morningPhase, morningPersistedEvents, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify]);
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    selectionAbortRef.current?.abort();
     setMessages([]);
     setLoading(false);
     setSessionId(null);
@@ -488,6 +622,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningPersonalizeHints([]);
     // W3-PR-8 rev 3 commit 22b: DialogState v2 も reset でクリア
     setMorningDialogState(null);
+    // W3-PR-9 commit 5c: pending selection もクリア
+    setPlaceSelectionPending(null);
     // セッション永続化もクリア
     clearMorningSession();
   }, []);
@@ -543,5 +679,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningPlan,
     /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */
     morningPersonalizeHints,
+    /**
+     * W3-PR-9 commit 5c: DialogState v2（picker の条件描画に使う）。
+     * `conversationStatus === "search_candidates_presented" && activePresentation !== null`
+     * のときだけ picker を mount する。
+     */
+    morningDialogState,
+    /**
+     * W3-PR-9 commit 5c: place 候補選択ハンドラ。placeId のみ受け取り、
+     * server canonical response で dialogState + events を置換する。
+     */
+    selectPlaceCandidate,
+    /**
+     * W3-PR-9 commit 5c: 送信中の placeId（null なら非送信中）。
+     * picker に pending flag として渡して全ボタン disable する。
+     */
+    placeSelectionPending,
   } as const;
 }

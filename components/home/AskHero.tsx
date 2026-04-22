@@ -13,6 +13,8 @@ import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
 import FollowUpChip from "@/components/home/morning/FollowUpChip";
 import JournalPromptChip from "@/components/home/morning/JournalPromptChip";
 import MorningInsightChip from "@/components/home/morning/MorningInsightChip";
+import PlaceCandidatePicker from "@/components/alter-morning/PlaceCandidatePicker";
+import type { DialogState } from "@/lib/alter-morning/dialog/types";
 import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 /** action_shape → 主CTA テキスト（返答の次の1歩をそのまま押せる形で） */
@@ -155,6 +157,19 @@ type Props = {
   onOutfitCommit?: () => void;
   /** プラン＆コーデカードが退避済みか */
   morningCardsDismissed?: boolean;
+  /**
+   * W3-PR-9 commit 5c: Places Search DialogState v2。
+   * `conversationStatus === "search_candidates_presented" && activePresentation !== null`
+   * でのみ PlaceCandidatePicker を描画する。
+   */
+  morningDialogState?: DialogState | null;
+  /**
+   * W3-PR-9 commit 5c: 候補選択ハンドラ。placeId のみ受け取る。
+   * server canonical response で親 (useAlterChat) が dialogState + events を置換する。
+   */
+  onPlaceSelect?: (placeId: string) => void;
+  /** W3-PR-9 commit 5c: 送信中 placeId（null なら非送信中） */
+  placeSelectionPending?: string | null;
 };
 
 const THINKING_PHRASES = [
@@ -264,6 +279,9 @@ export default function AskHero({
   scrollRef,
   onOutfitCommit,
   morningCardsDismissed = false,
+  morningDialogState,
+  onPlaceSelect,
+  placeSelectionPending = null,
 }: Props) {
   const router = useRouter();
   const [ctaDismissed, setCtaDismissed] = useState(false);
@@ -403,6 +421,24 @@ export default function AskHero({
             onDismiss={onInsightDismiss}
           />
         )}
+
+        {/*
+         * W3-PR-9 commit 5c: Place candidate picker
+         * 厳密な gate（CEO 2026-04-23）:
+         *   status === "search_candidates_presented" && activePresentation !== null
+         *   を同時に満たす時のみ mount。server が state を進めた時点で自動 unmount。
+         * parked presentations は描画しない（α' 方針、PR-9 では自動復帰しない）。
+         */}
+        {onPlaceSelect &&
+          morningDialogState?.conversationStatus === "search_candidates_presented" &&
+          morningDialogState.activePresentation !== null && (
+            <PlaceCandidatePicker
+              candidates={morningDialogState.activePresentation.candidates}
+              onSelect={onPlaceSelect}
+              pending={placeSelectionPending !== null}
+              pendingPlaceId={placeSelectionPending}
+            />
+          )}
 
         {/* Follow-up: 日中フォロー */}
         {followUp && onFollowUpRespond && onFollowUpDismiss && (
