@@ -41,8 +41,10 @@ import type {
   DialogAction,
   DialogFocus,
   DialogState,
+  LastFailedSearch,
   LastGoodPlanSnapshot,
   NormalizedCapture,
+  PresentationContext,
   ProgressDelta,
   SearchQueryDraft,
 } from "./types";
@@ -78,22 +80,41 @@ const ALLOWED_TRANSITIONS: Readonly<
     "stable",
     "provider_recovering",
   ]),
-  // CEO invariant #3: search_handoff_blocking から降格できるのは
-  //   slot_switching（ユーザーが別 slot へ話題変更）/ provider_recovering のみ。
-  //   narrowing / clarifying / stable への降格は禁止（blocking のまま）。
-  //   ただし search_handoff_blocking 同士での自己遷移は許可（同じ状態の再確認）。
+  // CEO invariant #3（PR-9 commit 2 で拡張）:
+  //   PR-8 rev 3: search_handoff_blocking からの降格は slot_switching / provider_recovering のみ。
+  //   PR-9 commit 2 追加:
+  //     - search_candidates_presented: Places API が候補を返した時の前進
+  //     - clarifying: zero_candidates（結果 0 件）の時に narrowStep=1 に rollback する
+  //       → 「狭すぎた検索を広げ直す」明示的な downgrade。narrowing ではなく clarifying へ
+  //         戻すのは「何でこの地域で探す？」という再 clarify を走らせるため。
+  //   narrowing / stable への降格は引き続き禁止（stable は candidate 選択後にのみ到達）。
   search_handoff_blocking: new Set([
     "search_handoff_blocking",
+    "search_candidates_presented",
+    "clarifying",
     "slot_switching",
     "provider_recovering",
-    // stable への降格は PR-9 merge 後に追加（PR-9 が candidate 選択後 stable に戻す）
-    // PR-8 rev 3 では search_handoff_blocking に入ったら戻れない（staircase 契約）
+  ]),
+  // PR-9 commit 2 追加: search_candidates_presented
+  //   - stable: SEARCH_CANDIDATE_SELECTED 成功
+  //   - clarifying: user が「どれでもない」で再 clarify（将来拡張用、UI で発火）
+  //   - slot_switching: focus 切替（park されて別 slot/event へ）
+  //   - provider_recovering: 提示中に次 turn が provider 失敗
+  //   - self: 同状態維持（再提示 / 再描画）
+  //   narrowing / search_handoff_blocking への巻き戻しは禁止（提示済み状態が後退しない）。
+  search_candidates_presented: new Set([
+    "search_candidates_presented",
+    "stable",
+    "clarifying",
+    "slot_switching",
+    "provider_recovering",
   ]),
   slot_switching: new Set([
     "slot_switching",
     "clarifying",
     "narrowing",
     "stable",
+    "search_handoff_blocking", // 切替先 focus 初発で chain_with_anchor の直行ケース
     "provider_recovering",
   ]),
   // CEO invariant #2: provider_recovering → stable は PROVIDER_RECOVERED 経由のみ。
@@ -119,6 +140,46 @@ function assertAllowedTransition(
         `Allowed from ${from}: ${Array.from(allowed).join(", ")}`,
     );
   }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Presentation 退避 (α' 方針: state 保持のみ、PR-9 で自動復帰させない)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MAX_PARKED_PRESENTATIONS = 3;
+
+/**
+ * activePresentation を parkedPresentations に退避する LRU 処理。
+ *
+ * - activePresentation が null なら no-op（parked を mutate しない）。
+ * - 同じ (targetEventId, queryFingerprint) が既に parked にあれば除去して最新化。
+ * - 最大 3 件、超過分は最古を捨てる。
+ *
+ * CEO α' 制約:
+ *   parkedPresentations は PR-9 の state machine / NLU 復帰には一切使わない。
+ *   保持のみ。UI/復帰は PR-9.5 以降。reducer 本体もここ以外から触らない。
+ */
+function parkActivePresentation(prev: DialogState): {
+  activePresentation: null;
+  parkedPresentations: ReadonlyArray<PresentationContext>;
+} {
+  if (!prev.activePresentation) {
+    return {
+      activePresentation: null,
+      parkedPresentations: prev.parkedPresentations,
+    };
+  }
+  const active = prev.activePresentation;
+  const filtered = prev.parkedPresentations.filter(
+    (p) =>
+      p.targetEventId !== active.targetEventId ||
+      p.queryFingerprint !== active.queryFingerprint,
+  );
+  const merged: PresentationContext[] = [active, ...filtered];
+  return {
+    activePresentation: null,
+    parkedPresentations: merged.slice(0, MAX_PARKED_PRESENTATIONS),
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -596,6 +657,19 @@ function handleTurnCaptured(
     : prev.conversationStatus;
   assertAllowedTransition(fsaFromStatus, nextStatus);
 
+  // PR-9 commit 2: focus 切替時に activePresentation を park する（α' 保持のみ）。
+  // focus 継続中は active を保持（提示中の候補が生き続ける）。
+  const presentationSlot = focusChanged
+    ? parkActivePresentation(prev)
+    : {
+        activePresentation: prev.activePresentation,
+        parkedPresentations: prev.parkedPresentations,
+      };
+
+  // zeroCandidateMissCount は focus 切替で reset。
+  // focus 継続時は維持（同一 clarify 内の miss loop を計数する）。
+  const nextZeroMissCount = focusChanged ? 0 : prev.zeroCandidateMissCount;
+
   return {
     version: prev.version,
     focus: newFocus,
@@ -605,6 +679,10 @@ function handleTurnCaptured(
     providerFailureStreak: prev.providerFailureStreak,
     lastGoodPlan: prev.lastGoodPlan,
     searchQueryDraft: newDraft,
+    activePresentation: presentationSlot.activePresentation,
+    parkedPresentations: presentationSlot.parkedPresentations,
+    lastFailedSearch: prev.lastFailedSearch,
+    zeroCandidateMissCount: nextZeroMissCount,
   };
 }
 
@@ -628,6 +706,13 @@ function handleProviderFailed(
     providerFailureStreak: prev.providerFailureStreak + 1,
     lastGoodPlan: prev.lastGoodPlan, // 維持（UI 継続表示用）
     searchQueryDraft: prev.searchQueryDraft,
+    // PR-9 commit 2: activePresentation は provider 失敗で invalidate（復帰後は
+    //   再提示が必要。候補 UI はフリーズ表示中でも stale 扱い）。parkedPresentations
+    //   / lastFailedSearch / zeroCandidateMissCount は維持。
+    activePresentation: null,
+    parkedPresentations: prev.parkedPresentations,
+    lastFailedSearch: prev.lastFailedSearch,
+    zeroCandidateMissCount: prev.zeroCandidateMissCount,
   };
 }
 
@@ -666,6 +751,12 @@ function handleProviderRecovered(
     providerFailureStreak: 0, // reset
     lastGoodPlan: nextLastGoodPlan,
     searchQueryDraft: prev.searchQueryDraft,
+    // PR-9 commit 2: activePresentation は PROVIDER_FAILED 時に既に null 化済み。
+    //   parked / lastFailedSearch / missCount は維持。
+    activePresentation: prev.activePresentation,
+    parkedPresentations: prev.parkedPresentations,
+    lastFailedSearch: prev.lastFailedSearch,
+    zeroCandidateMissCount: prev.zeroCandidateMissCount,
   };
 }
 
@@ -695,6 +786,11 @@ function handleFocusSwitched(
 
   assertAllowedTransition(prev.conversationStatus, "slot_switching");
 
+  // PR-9 commit 2: activePresentation を parked に退避（α'）。
+  //   同 event の同 slot に戻ってくる可能性があるため、破棄せず state 保持。
+  //   miss count は focus が変わるので reset。
+  const presentationSlot = parkActivePresentation(prev);
+
   return {
     version: prev.version,
     focus: nextFocus,
@@ -704,6 +800,10 @@ function handleFocusSwitched(
     providerFailureStreak: prev.providerFailureStreak,
     lastGoodPlan: prev.lastGoodPlan,
     searchQueryDraft: prev.searchQueryDraft, // where 情報は保持
+    activePresentation: presentationSlot.activePresentation,
+    parkedPresentations: presentationSlot.parkedPresentations,
+    lastFailedSearch: prev.lastFailedSearch,
+    zeroCandidateMissCount: 0,
   };
 }
 
@@ -730,6 +830,233 @@ function handleReset(
       chainToken: null,
       readyForHandoff: false,
     },
+    activePresentation: null,
+    parkedPresentations: [],
+    lastFailedSearch: null,
+    zeroCandidateMissCount: 0,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SEARCH_CANDIDATES_PRESENTED handler (PR-9 commit 2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function handleSearchCandidatesPresented(
+  prev: DialogState,
+  action: Extract<DialogAction, { type: "SEARCH_CANDIDATES_PRESENTED" }>,
+): DialogState {
+  // invariant: presentation は search_handoff_blocking から遷移（or 同状態再提示）
+  if (
+    prev.conversationStatus !== "search_handoff_blocking" &&
+    prev.conversationStatus !== "search_candidates_presented"
+  ) {
+    throw new Error(
+      `[DialogReducer] SEARCH_CANDIDATES_PRESENTED requires conversationStatus ` +
+        `in {search_handoff_blocking, search_candidates_presented}, got ${prev.conversationStatus}`,
+    );
+  }
+  if (!prev.focus || prev.focus.slot !== "where") {
+    throw new Error(
+      `[DialogReducer] SEARCH_CANDIDATES_PRESENTED requires focus.slot="where", ` +
+        `got ${prev.focus?.slot ?? "null"}`,
+    );
+  }
+  if (prev.focus.event_id !== action.targetEventId) {
+    throw new Error(
+      `[DialogReducer] SEARCH_CANDIDATES_PRESENTED targetEventId mismatch: ` +
+        `focus.event_id=${prev.focus.event_id}, action.targetEventId=${action.targetEventId}`,
+    );
+  }
+  if (action.candidates.length === 0) {
+    throw new Error(
+      `[DialogReducer] SEARCH_CANDIDATES_PRESENTED with empty candidates — ` +
+        `use SEARCH_ZERO_CANDIDATES instead`,
+    );
+  }
+
+  assertAllowedTransition(prev.conversationStatus, "search_candidates_presented");
+
+  const presentation: PresentationContext = {
+    targetEventId: action.targetEventId,
+    queryFingerprint: action.queryFingerprint,
+    candidates: action.candidates.slice(),
+    presentedAtTurn: action.turnIndex,
+  };
+
+  return {
+    version: prev.version,
+    focus: prev.focus,
+    conversationStatus: "search_candidates_presented",
+    capturedHistory: prev.capturedHistory,
+    semanticMissStreak: prev.semanticMissStreak,
+    providerFailureStreak: prev.providerFailureStreak,
+    lastGoodPlan: prev.lastGoodPlan,
+    searchQueryDraft: prev.searchQueryDraft,
+    activePresentation: presentation,
+    parkedPresentations: prev.parkedPresentations,
+    // 提示成功で 0 件 miss 連続は打ち切り（同 focus で「当たった」 = 次 0 件で再起算）
+    lastFailedSearch: prev.lastFailedSearch,
+    zeroCandidateMissCount: 0,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SEARCH_CANDIDATE_SELECTED handler (PR-9 commit 2)
+//
+// S8 方針（CEO 2026-04-23）: stale / provider_recovering / invalid selection は
+//   throw ではなく reject/no-op（prev state をそのまま返す）。
+//   route.ts が state 不変を検知して gentle re-guidance を返す。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function handleSearchCandidateSelected(
+  prev: DialogState,
+  action: Extract<DialogAction, { type: "SEARCH_CANDIDATE_SELECTED" }>,
+): DialogState {
+  // S8.a: provider_recovering 中は一切受けない（state を触らない）
+  if (prev.conversationStatus === "provider_recovering") {
+    return prev;
+  }
+  // S8.b: activePresentation が無い（presentation 外からの selection）
+  if (!prev.activePresentation) {
+    return prev;
+  }
+  // S8.c: targetEventId 不一致（別 event の古い picker から来た）
+  if (prev.activePresentation.targetEventId !== action.targetEventId) {
+    return prev;
+  }
+  // S8.d: queryFingerprint 不一致（draft が変わった後の stale selection）
+  if (prev.activePresentation.queryFingerprint !== action.queryFingerprint) {
+    return prev;
+  }
+  // S8.e: selectedPlaceId が保存候補にない
+  const match = prev.activePresentation.candidates.find(
+    (c) => c.placeId === action.selectedPlaceId,
+  );
+  if (!match) {
+    return prev;
+  }
+  // S8.f: conversationStatus が search_candidates_presented でない
+  //   (e.g. focus 切替直後に古い UI から selection が来た等)。no-op で受け流す。
+  if (prev.conversationStatus !== "search_candidates_presented") {
+    return prev;
+  }
+  if (!prev.focus || prev.focus.slot !== "where") {
+    return prev;
+  }
+
+  assertAllowedTransition(prev.conversationStatus, "stable");
+
+  // D1: 成功時の full reset — draft / activePresentation / missCount / lastFailedSearch
+  const nextDraft: SearchQueryDraft = {
+    anchorRegion: null,
+    categoryToken: null,
+    chainToken: null,
+    readyForHandoff: false,
+  };
+
+  const nextFocus: DialogFocus = {
+    event_id: prev.focus.event_id,
+    slot: "where",
+    narrowStep: 3, // terminal（picker 経由で確定）
+  };
+
+  return {
+    version: prev.version,
+    focus: nextFocus,
+    conversationStatus: "stable",
+    capturedHistory: prev.capturedHistory,
+    semanticMissStreak: 0,
+    providerFailureStreak: prev.providerFailureStreak,
+    lastGoodPlan: prev.lastGoodPlan,
+    searchQueryDraft: nextDraft,
+    activePresentation: null,
+    parkedPresentations: prev.parkedPresentations,
+    lastFailedSearch: null,
+    zeroCandidateMissCount: 0,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SEARCH_ZERO_CANDIDATES handler (PR-9 commit 2)
+//
+// E 方針（E3 copy + E1 state）:
+//   - anchor は保持（地域は失敗原因ではない）
+//   - category / chain は drop（これが失敗原因）
+//   - narrowStep 2 → 1（explicit rollback。無限ハンドオフ防止）
+//   - conversationStatus → clarifying
+//   - lastFailedSearch 記録、zeroCandidateMissCount++
+//
+// S9 方針（CEO 2026-04-23）:
+//   missCount が 3 を超えても reducer は status を強制変更しない（clarifying 維持）。
+//   copy 強化は route.ts の責務。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function handleSearchZeroCandidates(
+  prev: DialogState,
+  action: Extract<DialogAction, { type: "SEARCH_ZERO_CANDIDATES" }>,
+): DialogState {
+  // invariant: zero_candidates は search_handoff_blocking から発火する想定。
+  //   search_candidates_presented からの「再検索 0 件」経路は PR-9.5 以降で検討。
+  if (prev.conversationStatus !== "search_handoff_blocking") {
+    throw new Error(
+      `[DialogReducer] SEARCH_ZERO_CANDIDATES requires conversationStatus=` +
+        `search_handoff_blocking, got ${prev.conversationStatus}`,
+    );
+  }
+  if (!prev.focus || prev.focus.slot !== "where") {
+    throw new Error(
+      `[DialogReducer] SEARCH_ZERO_CANDIDATES requires focus.slot="where"`,
+    );
+  }
+  if (prev.focus.event_id !== action.targetEventId) {
+    throw new Error(
+      `[DialogReducer] SEARCH_ZERO_CANDIDATES targetEventId mismatch: ` +
+        `focus=${prev.focus.event_id}, action=${action.targetEventId}`,
+    );
+  }
+
+  assertAllowedTransition(prev.conversationStatus, "clarifying");
+
+  const priorDraft = prev.searchQueryDraft;
+  const anchorRegion = priorDraft.anchorRegion;
+
+  // lastFailedSearch 記録。anchor が空なら record を作らない（defensive）。
+  const failedSearch: LastFailedSearch | null = anchorRegion
+    ? {
+        turnIndex: action.turnIndex,
+        anchorRegion,
+        failedCategoryToken: priorDraft.categoryToken,
+        failedChainToken: priorDraft.chainToken,
+      }
+    : prev.lastFailedSearch;
+
+  // anchor 保持 + chain/category drop
+  const nextDraft = buildSearchQueryDraft({
+    anchorRegion,
+    categoryToken: null,
+    chainToken: null,
+  });
+
+  // narrowStep 2 → 1（explicit rollback, CEO 設計 §2.2 zero_candidates）
+  const nextFocus: DialogFocus = {
+    event_id: prev.focus.event_id,
+    slot: "where",
+    narrowStep: 1,
+  };
+
+  return {
+    version: prev.version,
+    focus: nextFocus,
+    conversationStatus: "clarifying",
+    capturedHistory: prev.capturedHistory,
+    semanticMissStreak: prev.semanticMissStreak,
+    providerFailureStreak: prev.providerFailureStreak,
+    lastGoodPlan: prev.lastGoodPlan,
+    searchQueryDraft: nextDraft,
+    activePresentation: null,
+    parkedPresentations: prev.parkedPresentations,
+    lastFailedSearch: failedSearch,
+    zeroCandidateMissCount: prev.zeroCandidateMissCount + 1,
   };
 }
 
@@ -755,6 +1082,12 @@ export function dialogReducer(
       return handleProviderRecovered(prev, action);
     case "FOCUS_SWITCHED":
       return handleFocusSwitched(prev, action);
+    case "SEARCH_CANDIDATES_PRESENTED":
+      return handleSearchCandidatesPresented(prev, action);
+    case "SEARCH_CANDIDATE_SELECTED":
+      return handleSearchCandidateSelected(prev, action);
+    case "SEARCH_ZERO_CANDIDATES":
+      return handleSearchZeroCandidates(prev, action);
     case "RESET":
       return handleReset(prev, action);
     default: {
