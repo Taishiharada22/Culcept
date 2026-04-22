@@ -26,6 +26,7 @@
  */
 
 import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
+import type { NormalizedPlaceCandidate } from "../search/normalizedPlace";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Conversation Status — 会話の現在モード
@@ -45,14 +46,16 @@ import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
  * - clarifying:             1 event に対する「何を」再確認中
  * - narrowing:              where slot の narrowStep>0 で anchor/category/chain を詰めている
  * - search_handoff_blocking: PR-9 起動前状態（PR-8 内部のみ、user-facing は slot_switching と同等）
+ * - search_candidates_presented: PR-9 が候補を提示した直後（user の selection 待ち）
  * - slot_switching:         別 slot に focus 移動中
  * - provider_recovering:    LLM / Places API 失敗後の lastGoodPlan 継続状態
  *
- * 遷移許可表（detail §1.1）:
+ * 遷移許可表（PR-9 commit 2 で拡張）:
  *   - stable        → clarifying | narrowing | provider_recovering
  *   - clarifying    → stable | narrowing | slot_switching | search_handoff_blocking | provider_recovering
  *   - narrowing     → narrowing | search_handoff_blocking | clarifying | slot_switching | stable | provider_recovering
- *   - search_handoff_blocking → clarifying | narrowing | slot_switching | stable | provider_recovering
+ *   - search_handoff_blocking → search_candidates_presented | clarifying (zero-cand) | slot_switching | provider_recovering
+ *   - search_candidates_presented → stable (selected) | clarifying (どれでもない) | slot_switching | provider_recovering
  *   - slot_switching → clarifying | narrowing | stable | provider_recovering
  *   - provider_recovering → clarifying | narrowing | stable (フェーズ権威より先に評価)
  */
@@ -61,6 +64,7 @@ export type ConversationStatus =
   | "clarifying"
   | "narrowing"
   | "search_handoff_blocking"
+  | "search_candidates_presented"
   | "slot_switching"
   | "provider_recovering";
 
@@ -217,6 +221,70 @@ export interface LastGoodPlanSnapshot {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Presentation Context — PR-9 で提示した候補集合のスナップショット
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * PR-9 が Places API から取得した候補を user に提示した時点のスナップショット。
+ *
+ * `queryFingerprint` は (anchorRegion, chainToken, categoryToken) を正規化した
+ * hash 相当の識別子。SELECTED action が stale か（draft が変わった後の古い
+ * selection か）判定するために reducer が使う。
+ *
+ * `activePresentation` = 現在 user に見えている候補集合（1 つだけ）。
+ * `parkedPresentations` = 過去に提示済みで別 slot/event に focus が移った際に
+ *   state として保持するだけの履歴（α' 方針: PR-9 では自動復帰しない、
+ *   UI/NLU 復帰は PR-9.5 以降）。LRU 最大 3 件。
+ *
+ * targetEventId は「この候補がどの event の where slot 向けか」を固定する。
+ * 別 event に focus が移った場合は activePresentation → parkedPresentations に
+ * 退避する（reducer 不変条件）。
+ */
+export interface PresentationContext {
+  /** 対象 event（ComprehensionEvent.event_id） */
+  targetEventId: string;
+  /**
+   * 当時の searchQueryDraft を要約した指紋。
+   * reducer は payload で渡された値をそのまま保存し、比較時は厳密一致で判定。
+   * 構造は外部（placesHandoff）の責務。
+   */
+  queryFingerprint: string;
+  /** 提示した候補（UI がそのまま描画できる NormalizedPlaceCandidate の配列） */
+  candidates: ReadonlyArray<NormalizedPlaceCandidate>;
+  /** 提示ターン（analytics / stale 判定の補助） */
+  presentedAtTurn: number;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Last Failed Search — zero_candidates 時の失敗理由メモ
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * zero_candidates（Places API 結果 0 件）発生時に reducer が set する失敗メモ。
+ *
+ * 目的:
+ *   - E3 (copy 強化) + E1 (state: drop failed spec + keep anchor) を両立させるため
+ *     「何で失敗したか」を reducer 側で保持し、次 turn の route.ts が
+ *     `「{anchor} で {chain} 見つからなかった、{category} に広げる？」` のような
+ *     穏やかな re-guidance copy を生成できるようにする。
+ *   - 無限ループ防止: readyForHandoff は false に戻した上で、次 turn の draft 更新で
+ *     同じ failedChainToken / failedCategoryToken が再捕捉されたとしても
+ *     route.ts が fingerprint 比較で抑止できる（将来拡張、commit 2 範囲外）。
+ *
+ * null の場合は「未失敗 or 成功後にクリア済み」。
+ */
+export interface LastFailedSearch {
+  /** 失敗検出ターン */
+  turnIndex: number;
+  /** 失敗時に使っていた anchor（空文字不可、空なら record を作らない） */
+  anchorRegion: string;
+  /** 失敗時に使っていた category（chain が使われていた場合は null） */
+  failedCategoryToken: string | null;
+  /** 失敗時に使っていた chain（category が使われていた場合は null） */
+  failedChainToken: string | null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // DialogState — 本体
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -265,6 +333,46 @@ export interface DialogState {
    * 他 slot focus 中も前回の where 情報を保持する（slot 切替後に戻ってきた時の復元用）。
    */
   searchQueryDraft: SearchQueryDraft;
+
+  /**
+   * PR-9 commit 2 追加 — 現在 user に見えている候補集合（1 つだけ）。
+   * null は「今は候補を提示していない」。
+   *
+   * set される契機: SEARCH_CANDIDATES_PRESENTED（search_handoff_blocking からの遷移）
+   * clear される契機:
+   *   - SEARCH_CANDIDATE_SELECTED 成功
+   *   - SEARCH_ZERO_CANDIDATES（再探索で 0 件に戻った）
+   *   - PROVIDER_FAILED
+   *   - FOCUS_SWITCHED / TURN_CAPTURED による focus 切替 → parkedPresentations に退避
+   */
+  activePresentation: PresentationContext | null;
+
+  /**
+   * 過去に提示して focus 切替で退避させた presentation の履歴（LRU 最大 3 件、
+   * 新しい順）。α' 方針により **PR-9 では自動復帰させない**。state 保持のみ、
+   * UI/NLU 復帰は PR-9.5 以降で検討。
+   */
+  parkedPresentations: ReadonlyArray<PresentationContext>;
+
+  /**
+   * PR-9 commit 2 追加 — 直近の zero_candidates 失敗メモ。
+   * 次 turn の route.ts が re-guidance copy 生成時に参照。
+   * 成功（SEARCH_CANDIDATE_SELECTED）時は null に戻す。
+   */
+  lastFailedSearch: LastFailedSearch | null;
+
+  /**
+   * PR-9 commit 2 追加 — zero_candidates が連続で発生した回数。
+   * SEARCH_CANDIDATE_SELECTED 成功 / focus 切替で 0 リセット。
+   *
+   * S9 方針（CEO 2026-04-23）:
+   *   - 3 を超えても conversationStatus は clarifying のまま維持する（焦点を自動で
+   *     別 slot / 別 event に移さない）。
+   *   - route.ts 側が本 count を参照して copy を強める（「別のチェーンで探す？」
+   *     「もう少し広いエリアで探す？」）。
+   *   - reducer は count を進める責務のみ、policy は外に出す。
+   */
+  zeroCandidateMissCount: number;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -336,6 +444,58 @@ export type DialogAction =
       nextFocus: DialogFocus;
     }
   /**
+   * PR-9 commit 2 追加 — Places API から候補が返った。
+   * conversationStatus: search_handoff_blocking → search_candidates_presented
+   * activePresentation を新規 set する。
+   *
+   * reducer 責務:
+   *   - prev.conversationStatus が search_handoff_blocking（or self）以外なら throw
+   *   - prev.focus.slot が "where" でないなら throw
+   *   - candidates.length === 0 なら throw（zero は SEARCH_ZERO_CANDIDATES 経由）
+   */
+  | {
+      type: "SEARCH_CANDIDATES_PRESENTED";
+      turnIndex: number;
+      targetEventId: string;
+      queryFingerprint: string;
+      candidates: ReadonlyArray<NormalizedPlaceCandidate>;
+    }
+  /**
+   * PR-9 commit 2 追加 — user が picker で候補 1 つを選択した。
+   *
+   * S8 方針（CEO 2026-04-23）— throw 禁止、reject/no-op で受け流す:
+   *   - prev.activePresentation === null（presentation なし）
+   *   - prev.conversationStatus === "provider_recovering"（復帰中の選択）
+   *   - targetEventId が activePresentation と不一致（別 event 選択）
+   *   - queryFingerprint が不一致（stale selection）
+   *   - selectedPlaceId が activePresentation.candidates に無い
+   *   いずれも reducer は prev state を返す（UI 側の gentle re-guidance で対処）。
+   *
+   * payload には selectedPlaceId のみ（NOT full candidate）。CEO 不変条件:
+   *   reducer / route.ts が saved candidates から lookup して upgrade する。
+   *   client からの coordinates 偽装を構造的に禁止する。
+   */
+  | {
+      type: "SEARCH_CANDIDATE_SELECTED";
+      turnIndex: number;
+      targetEventId: string;
+      queryFingerprint: string;
+      selectedPlaceId: string;
+    }
+  /**
+   * PR-9 commit 2 追加 — Places API 結果が 0 件だった。
+   * conversationStatus: search_handoff_blocking → clarifying
+   * narrowStep: 2 → 1（explicit rollback）
+   * lastFailedSearch を set / zeroCandidateMissCount++
+   * searchQueryDraft は anchor を保持し category/chain を drop（readyForHandoff は false に）
+   */
+  | {
+      type: "SEARCH_ZERO_CANDIDATES";
+      turnIndex: number;
+      targetEventId: string;
+      queryFingerprint: string;
+    }
+  /**
    * 会話リセット（session migration / 旧 session）。
    * DialogState を初期状態に戻し、capturedHistory を空にする。
    * detail §6 ensureSessionV1 が発行。
@@ -372,6 +532,10 @@ export function createInitialDialogState(): DialogState {
       chainToken: null,
       readyForHandoff: false,
     },
+    activePresentation: null,
+    parkedPresentations: [],
+    lastFailedSearch: null,
+    zeroCandidateMissCount: 0,
   };
 }
 

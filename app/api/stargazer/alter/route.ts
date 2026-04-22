@@ -536,6 +536,7 @@ import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyF
 //   phase / plan は触らない。次 turn 成功で PROVIDER_RECOVERED が streak=0 に戻す。
 import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
+import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -2225,6 +2226,95 @@ export async function POST(req: NextRequest) {
                   `phase_unchanged=${morningResponse.phase} ` +
                   `user_facing_promoted=${promoted ? "1" : "0"}`,
               );
+
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // W3-PR-9 commit 4: Places handoff orchestration
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              //
+              // AND gate: dialogStateV2 && placesSearch 両方 ON でのみ発火。
+              //
+              // 呼び出し契機（orchestrator が内部 gate で判定）:
+              //   advanceDialogState 直後の nextState が
+              //   conversationStatus=search_handoff_blocking かつ
+              //   focus.slot=where かつ readyForHandoff=true の時のみ API 呼び出し。
+              //
+              // CEO 2026-04-23 固定条件:
+              //   1. L1 cache は best-effort（broken でも correctness 成立）
+              //   2. provider_error は cache しない
+              //   3. idempotency skip は (targetEventId ∧ fingerprint ∧ status=presented)
+              //   4. draft_not_ready は provider_failure と分離してログ出力
+              //   5. parked は候補ソース・再利用ソース双方で未使用
+              //
+              // 禁止事項:
+              //   - user-facing message / phase / plan の書き換え
+              //   - parked の参照・再利用
+              //   - provider_error の cache 保存
+              //   - await を飛ばした fire-and-forget（次 dispatch が state 依存）
+              if (ALTER_MORNING_FLAGS.placesSearch && morningSession.dialogState) {
+                try {
+                  const handoff = await orchestratePlacesHandoff({
+                    userId,
+                    dialogState: morningSession.dialogState,
+                    turnIndex:
+                      morningSession.dialogState.capturedHistory.length,
+                  });
+                  if (handoff.nextDispatch) {
+                    try {
+                      const afterHandoff = dialogReducer(
+                        morningSession.dialogState,
+                        handoff.nextDispatch,
+                      );
+                      morningSession = {
+                        ...morningSession,
+                        dialogState: afterHandoff,
+                      };
+                    } catch (dispatchErr) {
+                      // FSA 違反などは warn 止まり（外部応答は壊さない）
+                      console.warn(
+                        `[places-handoff:dispatch] reducer throw`,
+                        dispatchErr,
+                      );
+                    }
+                  }
+                  const oc = handoff.outcome;
+                  if (oc.kind === "error") {
+                    // CEO 条件 4: invariant と provider_failure を分離
+                    const tag =
+                      oc.logClass === "route_invariant_mismatch"
+                        ? "[places-handoff:invariant_mismatch]"
+                        : "[places-handoff:provider_failure]";
+                    console.warn(
+                      `${tag} reason=${oc.reason} fp=${oc.fingerprint}`,
+                    );
+                  } else if (oc.kind === "skip_gate") {
+                    console.info(
+                      `[places-handoff:skip_gate] reason=${oc.reason} fp=${oc.fingerprint}`,
+                    );
+                  } else if (oc.kind === "skip_idempotent") {
+                    console.info(
+                      `[places-handoff:skip_idempotent] fp=${oc.fingerprint}`,
+                    );
+                  } else if (
+                    oc.kind === "presented_from_api" ||
+                    oc.kind === "presented_from_cache"
+                  ) {
+                    console.info(
+                      `[places-handoff:${oc.kind}] fp=${oc.fingerprint} count=${oc.candidateCount}`,
+                    );
+                  } else {
+                    // zero_from_api / zero_from_cache
+                    console.info(
+                      `[places-handoff:${oc.kind}] fp=${oc.fingerprint}`,
+                    );
+                  }
+                } catch (handoffErr) {
+                  // orchestrator 外の想定外エラー。user-facing は壊さない。
+                  console.warn(
+                    `[places-handoff] unexpected throw`,
+                    handoffErr,
+                  );
+                }
+              }
             }
           } catch (err) {
             // flag ON 限定の shadow 例外（FSA 違反 / 想定外 classify 等）は user-facing

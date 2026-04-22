@@ -1,9 +1,31 @@
-# Alter Morning — PR-10〜14 Interface Reservation（Phase 0）
+# Alter Morning — PR-10〜14 Interface Reservation（Phase 0 → rev 2）
 
-**ステータス**: Phase 0 型予約のみ — 実装禁止 / CEO レビュー待ち
-**作成日**: 2026-04-22
+**ステータス**: rev 2（2026-04-23 CEO 追記）— 型予約のみ / 各 PR で実装
+**作成日**: 2026-04-22（rev 1）/ 2026-04-23（rev 2 原則パネル追加）
 **目的**: PR-8 rev 3 / PR-9 が参照すべき **後続 PR の型と handoff 契約** を予約する。PR-8/PR-9 実装中に「PR-10 以降の型が見えない」ことで手戻りが起きないように。
 **原則**: 本文書で定義した型は **interface のみ**。実装は当該 PR で行う。各 PR の冒頭 commit で本文書が参照される。
+
+---
+
+## ⚠️ 上位原則: Slot ごとに解決方式が違う（CEO 確定 2026-04-23 / rev 2）
+
+本文書で予約する PR-10〜PR-14 は、**slot ごとに解決方式が異なる**。共通 framework 化しない。
+
+| slot | 解決方式 | PR |
+|------|---------|-----|
+| where | 外部 search（cache + places_api）→ 候補 → user 選択 | PR-9 |
+| transport | 確定場所間の推論（mode + 経路） | PR-10 |
+| who | 人物同定（正規化 + fuzzy match） | PR-11 |
+| time | 時間範囲の確定（startTime + endTime or durationMin） | PR-12 |
+| what | 活動内容の具体化（vocabulary 突合） | PR-15 相当（roadmap gap、§4.5.1） |
+
+**含意**:
+- PR-9 で作る where 用 reducer action / ConversationStatus は **where 専用命名**を維持（`SEARCH_CANDIDATES_PRESENTED` / `search_candidates_presented` 等）
+- PR-10 以降は各 slot の解決方式に合わせて **独立設計**する。`SLOT_CANDIDATE_SELECTED` 等への汎用化は PR-9 では行わない
+- 「ほぼコストゼロの境界」（picker props 形、docs 契約の言い回し、payload shape の軽い将来余地）だけ将来再利用を意識する
+- 各 PR の state machine / reducer / phase authority は独立。slot 名を含んだ命名とする
+
+参照: `docs/alter-morning-pr9-places-search-design.md` §🎯 invariant / `docs/alter-morning-roadmap.md` §4.5.5
 
 ---
 

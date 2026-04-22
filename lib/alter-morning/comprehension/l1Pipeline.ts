@@ -33,7 +33,16 @@ import { checkEvent } from "./provenanceChecker";
 type RawEvent = Omit<Event, "event_id">;
 
 export function attachEventId(raw: RawEvent): Event {
-  return { event_id: generateEventId(), ...raw };
+  // W3-PR-9 Commit 5a-1: LLM は coordinates を生成しないため、境界で null に正規化する。
+  // raw.where.coordinates が undefined の場合（JSON schema 不在）に null を埋める。
+  return {
+    event_id: generateEventId(),
+    ...raw,
+    where: {
+      ...raw.where,
+      coordinates: raw.where.coordinates ?? null,
+    },
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

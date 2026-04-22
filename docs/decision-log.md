@@ -13,6 +13,28 @@
 ```
 
 ---
+### 2026-04-23 W3-PR-9 完了 — Places Search / Anchor-Based Search
+- **部門**: Build
+- **決定内容**: W3-PR-9（Alter Morning Protocol の where slot 確定経路）を完了として受理。`search_handoff_blocking → candidate present → user select → where.coordinates fixed` の一本道を landing。
+- **実装方針**:
+  - **where-first**: when/who/transport 系は PR-10 以降に回し、PR-9 は where slot のみに絞る
+  - **candidate source**: 設計上は `cache + places_api` 併用。ただし現 commit では multi-candidate の構造上 `places_api` が中心で、L1 best-effort cache は route / orchestrator 側で補完する実装に落とした（cache-first 化は運用データが溜まってから再評価）
+  - **strict gate**: orchestrator は `dialogState.conversationStatus === "search_handoff_blocking"` でのみ発火。それ以外は skip
+  - **server canonical response**: client は optimistic 更新せず、selection endpoint の返す canonical state でのみ where.coordinates を fix
+  - **selectedPlaceId only**: client→server は placeId のみ送る（座標 / 名称は server 側で再解決）
+  - **parked presentation**: 失敗 / stale / slot 切替時は activePresentation を破棄せず parked に退避（state 保持のみ、再提示経路は PR-9.5 以降）
+  - **reject-no-op 方針**: zero candidates / provider 失敗 / stale click / race は reducer が no-op で受け流し、UI 側で破棄表示に統一
+- **手動 preview 確認（CEO 承認 2026-04-23）**:
+  1. success: 候補提示 → 1件選択 → accepted=true → picker 消失 → where.coordinates fix → stable 遷移
+  2. stale click: 状態遷移後の古い picker click → accepted=false → stale UI 残らない
+  3. double-click / race: 連打 / 順不同レスポンスでも server canonical とズレない
+  4. zero / provider_error: picker 描画されない
+- **known note**: 同一 browser session の localStorage 汚染（narrowStep=3 固着）で手動検証が歪む場合あり。clean session では正常動作。「同一 event 継続扱いによる narrowStep=3 固着」は PR-10 以降の event reset 条件検討事項としてメモし、PR-9 の blocking issue にはしない
+- **非スコープ**: transport / who / endTime / map pin / timeline UI（いずれも PR-10〜14 で段階的に対応）
+- **承認**: CEO（Safari 実機で正常動作を確認、PR-9 完了承認）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
 ### 2026-04-22 W3-PR-7 merge — PendingClarify + plan continuity + failure 耐性
 - **部門**: Build
 - **決定内容**: W3-PR-7 (alter-morning Wave 3) を main に merge。5 commit 連鎖: SlotSharpness 三値 / PendingClarify + answerBinder / ClarifyQuestionBuilder scope 強化 / items=0 禁則 + provisional plan 継続性 / Provider failure 耐性。
