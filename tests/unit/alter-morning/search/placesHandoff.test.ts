@@ -13,7 +13,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import type { SearchQueryDraft } from "@/lib/alter-morning/dialog/types";
-import type { PlacesApiPlace } from "@/lib/alter-morning/placesApiClient";
+import type { PlacesApiPlace, TextSearchOptions } from "@/lib/alter-morning/placesApiClient";
 import {
   buildQueryFingerprint,
   classifyProviderErrorForLog,
@@ -358,7 +358,7 @@ describe("executePlacesHandoff — call parameters", () => {
       chainToken: "スタバ",
       categoryToken: "カフェ",
     });
-    const searchSpy = vi.fn(async () => []);
+    const searchSpy = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft },
       mkDeps({ searchPlacesByText: searchSpy as never }),
@@ -375,7 +375,7 @@ describe("executePlacesHandoff — call parameters", () => {
       chainToken: null,
       categoryToken: "カフェ",
     });
-    const searchSpy = vi.fn(async () => []);
+    const searchSpy = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft },
       mkDeps({ searchPlacesByText: searchSpy as never }),
@@ -387,7 +387,7 @@ describe("executePlacesHandoff — call parameters", () => {
 
   it("passes locationBias when anchorCoords supplied", async () => {
     const draft = mkDraft();
-    const searchSpy = vi.fn(async () => []);
+    const searchSpy = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft, anchorCoords: { lat: 35.66, lng: 138.56 }, anchorBiasRadiusMeters: 2000 },
       mkDeps({ searchPlacesByText: searchSpy as never }),
@@ -399,7 +399,7 @@ describe("executePlacesHandoff — call parameters", () => {
 
   it("omits locationBias when anchorCoords not supplied", async () => {
     const draft = mkDraft();
-    const searchSpy = vi.fn(async () => []);
+    const searchSpy = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft },
       mkDeps({ searchPlacesByText: searchSpy as never }),
@@ -420,14 +420,14 @@ describe("executePlacesHandoff — call parameters", () => {
 
   it("uses Basic-tier maxResultCount default 5 unless overridden", async () => {
     const draft = mkDraft();
-    const searchSpy = vi.fn(async () => []);
+    const searchSpy = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft },
       mkDeps({ searchPlacesByText: searchSpy as never }),
     );
     expect(searchSpy.mock.calls[0]![0]).toMatchObject({ maxResultCount: 5 });
 
-    const searchSpy2 = vi.fn(async () => []);
+    const searchSpy2 = vi.fn(async (_opts: TextSearchOptions) => [] as PlacesApiPlace[]);
     await executePlacesHandoff(
       { draft, maxResultCount: 3 },
       mkDeps({ searchPlacesByText: searchSpy2 as never }),
