@@ -25,6 +25,7 @@ import type {
 } from "./eventSchema";
 import { utteranceProvenance } from "./eventSchema";
 import { extractExplicitTimes } from "./rulePreParse";
+import { blockingForEvent } from "../planning/blockingSlots";
 import type { PendingClarify, PendingSlot } from "../types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,6 +75,56 @@ function parseTransport(answer: string): string | null {
   if (/車|クルマ|タクシー|Uber/i.test(a)) return "車";
   if (/バス/.test(a)) return "バス";
   return null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-8: undecided 語彙（where answer として受け入れない）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO 指示 2026-04-22: 「決めてない」「任せる」「おすすめで」等の未決意表明を
+// where answer として bind してはならない（震源 3）。
+// これらは semantic_miss として扱い、pendingClarify を維持する。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 未決意表明語彙。where answer への bind 前に検査する。
+ * whereVagueClassifier の UNDECIDED_VOCAB を拡張（return 表現含む）。
+ */
+const UNDECIDED_WHERE_ANSWER: ReadonlySet<string> = new Set([
+  "決めてない",
+  "決まってない",
+  "まだ",
+  "未定",
+  "どこでもいい",
+  "どこでも",
+  "どこか",
+  "わからない",
+  "わかんない",
+  "たぶん",
+  "おすすめで",
+  "おすすめ",
+  "任せる",
+  "まかせる",
+]);
+
+/**
+ * answer が where slot に対して undecided 語彙かどうか。
+ *
+ * 判定:
+ *   1. trim + 末尾句読点/感嘆符を削って完全一致
+ *   2. 先頭一致: "どこでもいいよ" "任せるよ" のような助詞付きも拾う
+ *
+ * 語尾助詞揺れを許容しすぎると固有名詞まで拾うので、
+ * 先頭一致は UNDECIDED_WHERE_ANSWER 集合にあるトークンのみ対象。
+ */
+function isUndecidedWhereAnswer(answer: string): boolean {
+  const trimmed = answer.trim().replace(/[。.！!？?\s]+$/, "");
+  if (!trimmed) return false;
+  if (UNDECIDED_WHERE_ANSWER.has(trimmed)) return true;
+  for (const token of UNDECIDED_WHERE_ANSWER) {
+    if (trimmed.startsWith(token)) return true;
+  }
+  return false;
 }
 
 /**
@@ -201,6 +252,12 @@ export function bindAnswerToSlot(
     }
 
     case "where": {
+      // W3-PR-8 震源 3 修復: undecided 語彙は bind 前に拒否する（CEO 2026-04-22）
+      //   「決めてない」「任せる」「おすすめで」等を where answer として採用しない。
+      //   pendingClarify を維持し、semanticMissCount は呼び出し側で inc される。
+      if (isUndecidedWhereAnswer(answer)) {
+        return { events, bound: false, reason: "semantic_miss" };
+      }
       const place = normalizePlaceAnswer(answer);
       if (place) {
         updated = {
@@ -279,6 +336,36 @@ export function bindAnswerToSlot(
     ...next[idx],
     missing_semantic_critical: recomputeSemanticMissing(next[idx]),
   };
+
+  // ── W3-PR-8 invariant: 単一 event のみ更新されていること ──
+  //   bind は対象 event 1 件だけに作用するはず。他 event に shallow reference
+  //   を持つ map 操作等で破れていないかを保守的に検査する。
+  //
+  //   dev/test: 違反で throw
+  //   prod: log のみ（UX 保全。既存 bind 動作を流用、会話は壊さない）
+  const mutatedIndexes: number[] = [];
+  for (let i = 0; i < next.length; i++) {
+    if (next[i] !== events[i]) mutatedIndexes.push(i);
+  }
+  if (mutatedIndexes.length !== 1 || mutatedIndexes[0] !== idx) {
+    const msg = `answerBinder invariant violation: expected only events[${idx}] to mutate, got [${mutatedIndexes.join(",")}]`;
+    if (process.env.NODE_ENV !== "production") {
+      throw new Error(msg);
+    }
+    console.error(msg);
+  }
+
+  // ── W3-PR-8 bind 後 sharpness 再評価（captured vs resolved の分離、最小版）──
+  //   bind 成功後も blockingForEvent が true のままなら「captured ≠ resolved」。
+  //   例: where slot に「そのへん」と入れた場合、place_ref は埋まったが
+  //        whereSharpness=vague のままで phase は依然 clarifying。
+  //   PR-8 ではログ出力のみ。次 PR で Event schema に resolutionStatus 型を
+  //   追加して capturedAsAnchor / resolvedAsFixed を区別する（設計書 §3.6）。
+  if (blockingForEvent(next[idx])) {
+    console.log(
+      `[answerBinder] slot bound but still blocking (captured ≠ resolved): event=${next[idx].event_id} slot=${pending.slot}`,
+    );
+  }
 
   return { events: next, bound: true, reason: "ok", boundSlot: pending.slot };
 }

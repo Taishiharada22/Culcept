@@ -5,6 +5,12 @@ import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMe
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+// W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
+//   server が返した dialogState を state 保持 → 次 POST で送り返す。
+//   これが無いと route.ts 側で ensureSessionV1 が毎 turn fresh init し、
+//   selectShadowTargetEventId の condition A (prevFocus===null) が恒常 fail
+//   で focus 継承が発動しない（2026-04-22 preview で判明）。
+import type { DialogState } from "@/lib/alter-morning/dialog/types";
 
 /** PE出典情報（Alter発言下に小さく表示） */
 export type PerspectiveSource = {
@@ -100,6 +106,9 @@ interface PersistedMorningSession {
   // W3-PR-7 Commit 2: dialog state round-trip
   pendingClarify?: PendingClarify | null;
   persistedEvents?: ComprehensionEvent[];
+  // W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
+  //   flag OFF 環境では常に undefined（server が field 出力しないため）。
+  dialogState?: DialogState | null;
 }
 
 function saveMorningSession(session: PersistedMorningSession): void {
@@ -209,6 +218,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningPersistedEvents, setMorningPersistedEvents] = useState<ComprehensionEvent[] | null>(
     restoredSession?.persistedEvents ?? null,
   );
+  // W3-PR-8 rev 3 commit 22b: DialogState v2 round-trip
+  //   response.morningProtocol.dialogState を次 POST で返送するための state。
+  //   null のときは POST body 側で field を出力しない（flag OFF と同等形）。
+  const [morningDialogState, setMorningDialogState] = useState<DialogState | null>(
+    restoredSession?.dialogState ?? null,
+  );
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
@@ -241,8 +256,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
       pendingClarify: morningPendingClarify,
       persistedEvents: morningPersistedEvents ?? undefined,
+      // W3-PR-8 rev 3 commit 22b: dialogState を localStorage にも永続化
+      //   タブ closing / reload を跨いでも focus 継承が切れないようにする。
+      //   flag OFF では常に null のため spread 条件で field を省略。
+      ...(morningDialogState ? { dialogState: morningDialogState } : {}),
     });
-  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents]);
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents, morningDialogState]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -304,6 +323,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               // W3-PR-7 Commit 2: dialog state を route に返送する
               ...(morningPendingClarify ? { pendingClarify: morningPendingClarify } : {}),
               ...(morningPersistedEvents ? { persistedEvents: morningPersistedEvents } : {}),
+              // W3-PR-8 rev 3 commit 22b: DialogState v2 を route に返送する
+              //   この 1 箇所が欠けていたため commit 22 の focus 継承が発動せず、
+              //   2026-04-22 preview で全 turn prev_focus=null 恒常 fallback。
+              ...(morningDialogState ? { dialogState: morningDialogState } : {}),
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
@@ -420,6 +443,13 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (data.morningProtocol.persistedEvents !== undefined) {
           setMorningPersistedEvents(data.morningProtocol.persistedEvents ?? null);
         }
+        // W3-PR-8 rev 3 commit 22b: DialogState v2 round-trip 受信側
+        //   server が flag ON 時のみ field を出力する（route.ts L9363-9365）。
+        //   undefined check (!== undefined) で「field 省略」と「null リセット」を
+        //   区別する。flag OFF では常に省略のため setter は走らない = baseline 不変。
+        if (data.morningProtocol.dialogState !== undefined) {
+          setMorningDialogState(data.morningProtocol.dialogState ?? null);
+        }
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -433,7 +463,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents, morningDialogState]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -456,6 +486,8 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningParsedIntent(null);
     setMorningSufficiency(null);
     setMorningPersonalizeHints([]);
+    // W3-PR-8 rev 3 commit 22b: DialogState v2 も reset でクリア
+    setMorningDialogState(null);
     // セッション永続化もクリア
     clearMorningSession();
   }, []);

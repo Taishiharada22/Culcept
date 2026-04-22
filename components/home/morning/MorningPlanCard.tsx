@@ -13,6 +13,7 @@ import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
+import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
 import {
   learnDuration,
@@ -25,6 +26,7 @@ import {
   BriefcaseBusiness, MessageCircle, UtensilsCrossed, Coffee,
   Route, BookOpen, Dumbbell, Users, ClipboardList, House,
   Car, Footprints, Bus, TrainFront, PlaneTakeoff, Bike,
+  HelpCircle,
 } from "lucide-react";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
@@ -491,160 +493,259 @@ function PlanItemRow({
   }
 
   // ── 通常アイテム ──
+  //
+  // W3-PR-8 Strict Confirmation（設計書 §5, §6.3）:
+  //   - item を normalize（念押し）して slot sharpness + confirmationState を strict に扱う
+  //   - slot を個別に描画。sharpness に応じて値 or 未確定ラベルを出す
+  //   - confirmationState に応じて枠線 / チップを変える
+  //
+  //   UI 側では ?? fallback を禁止（設計書 §3.4）。item.location.label のような
+  //   PlanItem 既存フィールド（sharpness 非依存）はそのまま参照して良い。
+  const normalized = normalizePlanItem(item);
+  const { confirmationState, whenSharpness, whereSharpness, whatSharpness } = normalized;
+  const subKind = normalized.whereVagueSubKind;
+
   const category = resolvePlanCategory(item);
   const catConfig = CATEGORY_CONFIG[category];
+
+  // 枠線・背景スタイル（設計書 §5.1-5.3）
+  //   confirmed:    実線 + カテゴリ色（従来通り）
+  //   provisional:  点線 + 薄色
+  //   needs_answer: 濃い点線 + 薄い背景色 + (?) アイコン
+  const containerClass =
+    confirmationState === "needs_answer"
+      ? "border-2 border-dashed border-purple-400/70 bg-purple-50/40"
+      : confirmationState === "provisional"
+        ? "border border-dashed border-gray-300/60 bg-gray-50/30"
+        : `border ${catConfig.bg} ${catConfig.border}`;
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`flex items-center gap-2 py-2.5 px-3 rounded-xl transition-all border ${
-        item.completed
-          ? "opacity-50 bg-gray-50/30 border-transparent"
-          : `${catConfig.bg} ${catConfig.border}`
+      className={`rounded-xl transition-all ${
+        item.completed ? "opacity-50 bg-gray-50/30 border-transparent" : containerClass
       }`}
     >
-      {/* 完了チェック（確定後のみ） */}
-      {confirmed && (
-        <button
-          onClick={() => onToggleComplete(item.id)}
-          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-            item.completed
-              ? "bg-purple-500 border-purple-500"
-              : "border-gray-300 hover:border-purple-400"
-          }`}
-        >
-          {item.completed && (
-            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-              <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+      {/* 確定度チップ（左上、confirmed は非表示） */}
+      {!item.completed && confirmationState !== "confirmed" && (
+        <div className="flex items-center gap-1 px-3 pt-1.5">
+          {confirmationState === "needs_answer" ? (
+            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100/80 text-purple-600 border border-purple-200/60">
+              <HelpCircle size={9} strokeWidth={2.5} />
+              確認中
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100/80 text-gray-500 border border-gray-200/60">
+              暫定
+            </span>
           )}
-        </button>
-      )}
-
-      {/* 並べ替えボタン（未確定時のみ） */}
-      {!confirmed && (
-        <div className="flex flex-col gap-0 flex-shrink-0">
-          <button
-            onClick={() => canMoveUp && onMoveUp(item.id)}
-            disabled={!canMoveUp}
-            className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
-            title="上に移動"
-          >
-            ▲
-          </button>
-          <button
-            onClick={() => canMoveDown && onMoveDown(item.id)}
-            disabled={!canMoveDown}
-            className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
-            title="下に移動"
-          >
-            ▼
-          </button>
         </div>
       )}
 
-      {/* 開始時刻（タップで変更） */}
-      <div className="relative flex-shrink-0 w-[42px]">
-        <button
-          onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
-          className={`text-[12px] font-mono w-full text-left ${
-            confirmed
-              ? "text-gray-400 cursor-default"
-              : "text-gray-500 hover:text-purple-600 cursor-pointer"
-          }`}
-        >
-          {item.startTime ?? "──"}
-        </button>
-        <AnimatePresence>
-          {showTimePicker && (
-            <StartTimePicker
-              current={item.startTime}
-              onSelect={(time) => onStartTimeChange(item.id, time)}
-              onClose={() => setShowTimePicker(false)}
-            />
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* カテゴリアイコン */}
-      <CategoryIcon item={item} size={15} />
-
-      {/*
-        CEO 方針 2026-04-17: 新レイアウト
-          活動 ー 場所 (住所は小さく) / 👤 人
-        場所タップで bottom sheet（地図 + 性質情報）を開く
-      */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1 flex-wrap">
-          <span
-            className={`text-[13px] ${
-              item.completed ? "line-through text-gray-400" : "text-gray-800"
+      <div className="flex items-center gap-2 py-2.5 px-3">
+        {/* 完了チェック（確定後のみ） */}
+        {confirmed && (
+          <button
+            onClick={() => onToggleComplete(item.id)}
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+              item.completed
+                ? "bg-purple-500 border-purple-500"
+                : "border-gray-300 hover:border-purple-400"
             }`}
           >
-            {item.what ?? item.text}
-          </span>
-          {item.location?.label && (
+            {item.completed && (
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
+        )}
+
+        {/* 並べ替えボタン（未確定時のみ） */}
+        {!confirmed && (
+          <div className="flex flex-col gap-0 flex-shrink-0">
+            <button
+              onClick={() => canMoveUp && onMoveUp(item.id)}
+              disabled={!canMoveUp}
+              className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+              title="上に移動"
+            >
+              ▲
+            </button>
+            <button
+              onClick={() => canMoveDown && onMoveDown(item.id)}
+              disabled={!canMoveDown}
+              className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+              title="下に移動"
+            >
+              ▼
+            </button>
+          </div>
+        )}
+
+        {/* 開始時刻 slot — whenSharpness で分岐 */}
+        <div className="relative flex-shrink-0 min-w-[42px]">
+          {whenSharpness === "fixed" ? (
             <>
-              <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
               <button
-                onClick={() => onPlaceClick(item)}
-                className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
-                  item.completed
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:text-purple-600"
+                onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
+                className={`text-[12px] font-mono w-full text-left ${
+                  confirmed
+                    ? "text-gray-400 cursor-default"
+                    : "text-gray-500 hover:text-purple-600 cursor-pointer"
                 }`}
-                title="場所の詳細を見る"
               >
-                {item.location.resolvedName ?? item.location.label}
+                {item.startTime}
               </button>
+              <AnimatePresence>
+                {showTimePicker && (
+                  <StartTimePicker
+                    current={item.startTime}
+                    onSelect={(time) => onStartTimeChange(item.id, time)}
+                    onClose={() => setShowTimePicker(false)}
+                  />
+                )}
+              </AnimatePresence>
             </>
+          ) : (
+            // vague / missing — どちらも「時間未確定」ラベル（設計書 §6.3）
+            <span className="text-[10px] text-gray-400 italic whitespace-nowrap" title="時間未確定">
+              [時間未確定]
+            </span>
           )}
         </div>
-        {/* 住所（小さく） */}
-        {item.location?.address && (
-          <div className="text-[10px] text-gray-400 mt-0.5 truncate pl-0">
-            {item.location.address}
-          </div>
-        )}
-        {/* 同伴者 */}
-        {item.withWhom && (
-          <div className="text-[10px] text-purple-400/80 mt-0.5 truncate">
-            👤 {item.withWhom}
-          </div>
-        )}
-        {item.location?.source === "user_inferred" && !item.location?.address && (
-          <div className="text-[10px] text-gray-300 mt-0.5">（同じ場所）</div>
-        )}
-      </div>
 
-      {/* 所要時間（タップで変更） */}
-      <div className="relative flex-shrink-0">
-        <button
-          onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
-          className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
-            confirmed
-              ? "text-gray-400 bg-gray-50/50 cursor-default"
-              : "text-purple-600 bg-purple-50/60 border border-purple-200/40 hover:bg-purple-100/60 cursor-pointer"
-          }`}
-        >
-          {formatDuration(item.durationMin)}
-        </button>
-        <AnimatePresence>
-          {showDurationPicker && (
-            <DurationPicker
-              current={item.durationMin}
-              onSelect={(min) => onDurationChange(item.id, min)}
-              onClose={() => setShowDurationPicker(false)}
-            />
+        {/* カテゴリアイコン */}
+        <CategoryIcon item={item} size={15} />
+
+        {/* 活動 / 場所 slot 群 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* What slot — whatSharpness で分岐（設計書 §5.2(d), §6.3）*/}
+            {whatSharpness === "missing" ? (
+              <span className="text-[10px] text-gray-400 italic" title="内容暫定">
+                [内容暫定]
+              </span>
+            ) : (
+              <>
+                <span
+                  className={`text-[13px] ${
+                    item.completed ? "line-through text-gray-400" : "text-gray-800"
+                  }`}
+                >
+                  {item.what ?? item.text}
+                </span>
+                {whatSharpness === "vague" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50/80 text-amber-700 border border-amber-200/60 flex-shrink-0">
+                    内容暫定
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* Where slot — whereSharpness + vague sub-kind で分岐（設計書 §6.3）*/}
+            {whereSharpness === "fixed" && item.location?.label ? (
+              <>
+                <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                <button
+                  onClick={() => onPlaceClick(item)}
+                  className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
+                    item.completed
+                      ? "text-gray-400"
+                      : "text-gray-700 hover:text-purple-600"
+                  }`}
+                  title="場所の詳細を見る"
+                >
+                  {item.location.resolvedName ?? item.location.label}
+                </button>
+              </>
+            ) : whereSharpness === "vague" ? (
+              // vague は 3 sub-kind で描画を変える
+              subKind === "undecided" ? (
+                <>
+                  <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                  <span className="text-[10px] text-gray-400 italic" title="場所未確定">
+                    [場所未確定]
+                  </span>
+                </>
+              ) : (
+                // anchor / category_chain — 文言残す。category_chain は「店舗暫定」チップ併記。
+                <>
+                  <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                  <span
+                    className={`text-[12px] ${
+                      item.completed ? "text-gray-400" : "text-gray-700"
+                    }`}
+                  >
+                    {item.location?.label ?? item.text}
+                  </span>
+                  {subKind === "category_chain" && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50/80 text-amber-700 border border-amber-200/60 flex-shrink-0">
+                      店舗暫定
+                    </span>
+                  )}
+                </>
+              )
+            ) : whereSharpness === "missing" && item.location?.label ? (
+              // sharpness=missing だが既存 location がある旧 session 互換
+              <>
+                <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                <span className={`text-[12px] ${item.completed ? "text-gray-400" : "text-gray-700"}`}>
+                  {item.location.resolvedName ?? item.location.label}
+                </span>
+              </>
+            ) : null}
+          </div>
+
+          {/* 住所（fixed 場所のみ表示） */}
+          {whereSharpness === "fixed" && item.location?.address && (
+            <div className="text-[10px] text-gray-400 mt-0.5 truncate pl-0">
+              {item.location.address}
+            </div>
           )}
-        </AnimatePresence>
-      </div>
+          {/* 同伴者 */}
+          {item.withWhom && (
+            <div className="text-[10px] text-purple-400/80 mt-0.5 truncate">
+              👤 {item.withWhom}
+            </div>
+          )}
+          {whereSharpness === "fixed" &&
+            item.location?.source === "user_inferred" &&
+            !item.location?.address && (
+              <div className="text-[10px] text-gray-300 mt-0.5">（同じ場所）</div>
+            )}
+        </div>
 
-      {/* 固定予定: 時計マーク（控えめ） */}
-      {item.fixedStart && (
-        <span className="text-[9px] text-gray-300 flex-shrink-0" title="時刻固定">⏱</span>
-      )}
+        {/* 所要時間（タップで変更） */}
+        <div className="relative flex-shrink-0">
+          <button
+            onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
+            className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
+              confirmed
+                ? "text-gray-400 bg-gray-50/50 cursor-default"
+                : "text-purple-600 bg-purple-50/60 border border-purple-200/40 hover:bg-purple-100/60 cursor-pointer"
+            }`}
+          >
+            {formatDuration(item.durationMin)}
+          </button>
+          <AnimatePresence>
+            {showDurationPicker && (
+              <DurationPicker
+                current={item.durationMin}
+                onSelect={(min) => onDurationChange(item.id, min)}
+                onClose={() => setShowDurationPicker(false)}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* 固定予定: 時計マーク（控えめ） */}
+        {item.fixedStart && whenSharpness === "fixed" && (
+          <span className="text-[9px] text-gray-300 flex-shrink-0" title="時刻固定">⏱</span>
+        )}
+      </div>
     </motion.div>
   );
 }

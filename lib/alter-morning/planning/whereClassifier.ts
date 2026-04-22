@@ -118,7 +118,12 @@ export function findCrossEventAnchor(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Event.where を三層判定する（W3-PR-7: sharpness 駆動）。
+ * Event.where を三層判定する（W3-PR-8: dialog-control strict 化）。
+ *
+ * CEO 指示 2026-04-22:
+ *   PR-8 段階では vague 3 sub-kind (anchor / category_chain / undecided) は
+ *   **全部 blocking = ASK** とする。fixed proper noun のみ non-blocking。
+ *   「anchor だけで plan 昇格」は anchor 検索が動く PR-9 以降に解禁する予約。
  *
  * 判定順:
  *   M. sharpness==="missing" (place_ref==null):
@@ -127,17 +132,12 @@ export function findCrossEventAnchor(
  *   F. sharpness==="fixed" (placeType ∈ {exact_proper_noun, known_base}):
  *     F-1. known_base              → FIXED (known_base)
  *     F-2. exact_proper_noun       → FIXED (exact_proper_noun)
- *   V. sharpness==="vague" (chain_brand / generic_place / null placeType):
- *     V-1. grounded ambiguous, 候補≤N → PROVISIONAL (ambiguous_top_pick)
- *     V-2. grounded ambiguous, 候補>N → ASK (ambiguous_too_many)
- *     V-3. grounded resolved          → **PROVISIONAL** (ambiguous_top_pick)
- *            ※CEO 2026-04-22: chain_brand は auto-grounding で FIXED に昇格させない。
- *              user 確認 or 支店明示でのみ FIXED へ。三層判定上は PROVISIONAL。
- *     V-4. grounded unresolved / grounded データなし
- *          → cross-event anchor あれば PROVISIONAL、なければ PROVISIONAL (ambiguous_top_pick)
- *            ※「スタバ」のような chain_brand 単独ならユーザー再確認へ回すべきだが、
- *              旧挙動（発話尊重）との互換のため、anchor 無しでも top-pick 仮採用し
- *              plan は走らせる。chain_brand FIXED 昇格は gate 層で別途抑止。
+ *   V. sharpness==="vague":
+ *     V-1. 現 PR (PR-8): 無条件に ASK。grounded の状態によらず sub-kind を
+ *          理由コードに埋めて返す（ambiguous_too_many / missing_no_anchor 相当）。
+ *     V-2. 予約 (PR-9 search 実装後):
+ *          「旧 ambiguous_top_pick / cross_event_anchor 仮採用」は anchor 検索が
+ *          動くときに provisional として復活する。今は機能しないため削除。
  */
 export function classifyWhereSlot(
   ev: Event,
@@ -169,28 +169,19 @@ export function classifyWhereSlot(
     return { kind: "fixed", reason: "exact_proper_noun" };
   }
 
-  // V. vague (chain_brand / generic_place / null placeType)
-  if (g && g.status === "ambiguous") {
-    if (g.candidates.length <= WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION) {
-      return { kind: "provisional", reason: "ambiguous_top_pick" };
-    }
+  // V. vague — PR-8: 全部 ASK（anchor / category_chain / undecided すべて）
+  //
+  // 候補件数の多寡で理由コードを分ける:
+  //   grounded.status==="ambiguous" かつ candidates > 閾値 → ambiguous_too_many
+  //   それ以外（grounded なし / resolved / unresolved / 候補少）→ missing_no_anchor
+  //     （「仮採用して plan 走らせる」経路を PR-8 では廃止）
+  if (g && g.status === "ambiguous" &&
+      g.candidates.length > WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION) {
     return { kind: "ask", reason: "ambiguous_too_many" };
   }
 
-  if (g && g.status === "resolved") {
-    // CEO 方針: chain_brand/generic は auto-grounding resolved でも FIXED 昇格しない
-    return { kind: "provisional", reason: "ambiguous_top_pick" };
-  }
-
-  // unresolved or grounded データなし
-  // 発話尊重で plan は走らせるが、sharpness=vague なので PROVISIONAL 扱い
-  const anchor = findCrossEventAnchor(ctx);
-  if (anchor) {
-    return {
-      kind: "provisional",
-      reason: "cross_event_anchor",
-      anchorEventId: anchor.anchor.event_id,
-    };
-  }
-  return { kind: "provisional", reason: "ambiguous_top_pick" };
+  // anchor / category_chain / undecided すべてここに落ちる。
+  // PR-9 で anchor search が入れば、ここを provisional (cross_event_anchor) と
+  // provisional (ambiguous_top_pick) に差し戻す（設計書 §2.5 予約）。
+  return { kind: "ask", reason: "missing_no_anchor" };
 }

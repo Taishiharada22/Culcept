@@ -514,6 +514,28 @@ import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehensio
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
+// W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
+import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
+// W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
+import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import { advanceDialogState } from "@/lib/alter-morning/dialog/shadowPipeline";
+import type { DialogFocus } from "@/lib/alter-morning/dialog/types";
+// W3-PR-8 rev 3 Commit 19: DialogState v2 user-facing runtime 昇格（flag ON のみ、phase authority 不干渉）
+import { promoteDialogStateToUserFacing } from "@/lib/alter-morning/dialog/responsePromotion";
+// W3-PR-8 rev 3 Commit 22: shadow pipeline へ渡す targetEventId の条件付き focus 継承
+//   Branch B 再 comprehension が毎 turn 新 event_id を採番することによる
+//   reducer.eventChanged 誤発火 → draft reset → narrowStep 逆行 を止める。
+import { selectShadowTargetEventId } from "@/lib/alter-morning/dialog/shadowTargetEventId";
+// W3-PR-8 rev 3 Commit 23: phase=clarifying && items=0 の user 画面直前 gate
+//   「同文 verbatim 再提示」「undecided ループ停滞」「semantic_miss 後の無為な再質問」を
+//   世界観に沿った短い rephrase に差し替える pure helper。plan.items は触らない。
+import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyFallback";
+// W3-PR-8 rev 3 Commit 24: provider failure latch
+//   pipeline throw (ai/run 総失敗) 時に reducer に PROVIDER_FAILED を流し、
+//   streak≥1 で user-facing message を alter voice の degrade 文に差し替える。
+//   phase / plan は触らない。次 turn 成功で PROVIDER_RECOVERED が streak=0 に戻す。
+import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
+import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -935,6 +957,8 @@ export async function POST(req: NextRequest) {
         // W3-PR-7 Commit 2: answerBinder 用 round-trip
         pendingClarify?: import("@/lib/alter-morning/types").PendingClarify | null;
         persistedEvents?: import("@/lib/alter-morning/comprehension/eventSchema").Event[];
+        // W3-PR-8 rev 3 commit 16: DialogState v2 round-trip 受け口（flag OFF 中は常に undefined）
+        dialogState?: import("@/lib/alter-morning/dialog/types").DialogState | null;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1714,6 +1738,10 @@ export async function POST(req: NextRequest) {
             // W3-PR-7 Commit 2: dialog state round-trip
             pendingClarify: rawMorningSession!.pendingClarify ?? null,
             persistedEvents: rawMorningSession!.persistedEvents ?? undefined,
+            // W3-PR-8 rev 3 Commit 16: DialogState v2 round-trip（read-side reception）
+            //   flag OFF: rawMorningSession 側が undefined のまま → undefined pass-through
+            //   flag ON:  client から返ってきた dialogState をそのまま hydrate
+            dialogState: rawMorningSession!.dialogState ?? undefined,
           };
         } else {
           morningSession = createMorningSession();
@@ -1725,6 +1753,12 @@ export async function POST(req: NextRequest) {
           if (userHomeLat !== undefined) morningSession.userHomeLat = userHomeLat;
           if (userHomeLng !== undefined) morningSession.userHomeLng = userHomeLng;
         }
+        // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration
+        //   flag OFF → 同一参照 return（完全中立、downstream 不変）
+        //   flag ON  → 未初期化なら createInitialDialogState() を付与
+        //   本時点で downstream（adapter / phase / reducer）は dialogState を読まない。
+        //   route が serialize 時に round-trip するのみ（CEO wiring-only 条件）。
+        morningSession = ensureSessionV1(morningSession);
 
         // ── W3-PR-5: Flag-gated new pipeline with v2 session stickiness ──
         // v2 に入る条件:
@@ -1740,6 +1774,16 @@ export async function POST(req: NextRequest) {
           hasExistingMorningSession &&
           rawMorningSession?.pipelineVersion === "v2";
         const useV2 = v2Enabled && (isNewSession || isStickyV2);
+        // W3-PR-8 rev 3 commit 23: bindReason / priorPending.question を shadow 後の
+        //   clarifyFallback gate（L2133+）から読むため、try/catch より外側に hoist する。
+        //   以前は try の内側で let 宣言していたため、gate 側で scope に居なかった。
+        //   hoist に伴う「未初期化 read」はなく、gate 側で null を明示的に判定する。
+        let bindReasonOuter: string | null = null;
+        let priorQuestionOuter: string | null = null;
+        // W3-PR-8 rev 3 commit 24: pipeline throw (absorb) を shadow block 側で
+        //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
+        //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
+        let pipelineAbsorbedOuter = false;
         if (useV2) {
           try {
             // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
@@ -1753,6 +1797,7 @@ export async function POST(req: NextRequest) {
               priorPending != null &&
               Array.isArray(priorPersistedEvents) &&
               priorPersistedEvents.length > 0;
+            priorQuestionOuter = priorPending?.question ?? null;
 
             let usedBindPath = false;
             let bindReason: string | null = null;
@@ -1763,6 +1808,8 @@ export async function POST(req: NextRequest) {
                 message,
               );
               bindReason = bindResult.reason;
+              // commit 23: shadow 後の clarifyFallback gate に渡すため outer にも反映
+              bindReasonOuter = bindResult.reason;
               if (bindResult.bound) {
                 usedBindPath = true;
                 const priorInputs = rawMorningSession?.rawInputs ?? [];
@@ -1792,7 +1839,16 @@ export async function POST(req: NextRequest) {
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
                 });
-                morningSession = adapted.session;
+                // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+                //   ensureSessionV1 (L1747) で init した dialogState を、
+                //   adaptPipelineToLegacy が返す adapted.session が field 非対応で
+                //   上書き消去してしまうため、明示的に継承する。
+                //   この漏れが原因で commit 17 以降 shadow block が dead のまま
+                //   preview に到達しなかった（2026-04-22 CEO preview で判明）。
+                morningSession = {
+                  ...adapted.session,
+                  dialogState: morningSession.dialogState,
+                };
                 morningResponse = adapted.response;
                 console.info(
                   `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
@@ -1884,7 +1940,12 @@ export async function POST(req: NextRequest) {
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
             });
-            morningSession = adapted.session;
+            // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+            //   （Branch B 通常 LLM 経路。理由は bind 経路と同じ。）
+            morningSession = {
+              ...adapted.session,
+              dialogState: morningSession.dialogState,
+            };
             morningResponse = adapted.response;
             console.info(
               `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
@@ -1919,15 +1980,63 @@ export async function POST(req: NextRequest) {
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
             });
-            morningSession = adapted.session;
+            // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+            //   （pipeline throw 吸収経路。provider failure 時も narrowStep を保つ。）
+            morningSession = {
+              ...adapted.session,
+              dialogState: morningSession.dialogState,
+            };
             morningResponse = adapted.response;
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
             );
+            // ── W3-PR-8 rev 3 commit 24: reducer に PROVIDER_FAILED を通知 ──
+            //   pipeline 総失敗を DialogState 層に昇格する。streak++、
+            //   conversationStatus → provider_recovering、lastGoodPlan 維持。
+            //   phase authority / morningResponse は変更しない（adapter 側で absorb 済み）。
+            //
+            //   absorbed flag を立てて shadow block 冒頭の PROVIDER_RECOVERED
+            //   誤 dispatch を防ぐ（今 turn は recovery 対象ではない）。
+            pipelineAbsorbedOuter = true;
+            if (
+              ALTER_MORNING_FLAGS.dialogStateV2 &&
+              morningSession?.dialogState != null
+            ) {
+              try {
+                const nextDialogState = dialogReducer(
+                  morningSession.dialogState,
+                  {
+                    type: "PROVIDER_FAILED",
+                    turnIndex:
+                      morningSession.dialogState.capturedHistory.length + 1,
+                    reason: "provider_error",
+                  },
+                );
+                morningSession = {
+                  ...morningSession,
+                  dialogState: nextDialogState,
+                };
+                console.info(
+                  `[dialog-state-v2:providerFailed] streak=${nextDialogState.providerFailureStreak} status=${nextDialogState.conversationStatus}`,
+                );
+              } catch (shadowErr) {
+                // reducer FSA 違反などは warn 止まり（既に adapter で absorb 済み）。
+                console.warn(
+                  `[dialog-state-v2:providerFailed] reducer throw`,
+                  shadowErr,
+                );
+              }
+            }
           }
         } else {
           const result = await processMorningMessage(message, morningSession);
-          morningSession = result.session;
+          // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
+          //   （legacy processMorningMessage 経路。flag ON + useV2=false は想定外だが
+          //    完全中立性のため対称に継承する。）
+          morningSession = {
+            ...result.session,
+            dialogState: morningSession.dialogState,
+          };
           morningResponse = result.response;
         }
 
@@ -1936,6 +2045,325 @@ export async function POST(req: NextRequest) {
         if (!morningResponse) {
           throw new Error("morningResponse must be set after v2/legacy branch");
         }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // W3-PR-8 rev 3 commit 17: DialogState v2 shadow pipeline（flag ON のみ）
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        //
+        // CEO 方針（2026-04-22 commit 17 条件）:
+        //   1. flag OFF 完全中立        → `if` 分岐で完全 gate。Dead code 化。
+        //   2. phase authority = hasBlockingUnresolvedSlots のまま
+        //                               → morningResponse.phase は **一切触らない**。
+        //   3. search_handoff_blocking は internal only
+        //                               → derived.kind には出ない（derivePendingClarify 側で null 返却）。
+        //   4. DialogState が唯一の主状態
+        //                               → session.dialogState のみ書き換える。
+        //   5. reducer は pure のまま   → shadowPipeline.ts 内で完結。
+        //
+        // 禁止事項:
+        //   - session.pendingClarify へ derived を書き戻さない（主状態の二重化禁止）
+        //   - morningResponse / phase を変更しない
+        //   - DialogState を LLM prompt に流さない（本箇所では prompt を構築しない）
+        //
+        // 完了条件:
+        //   - flag ON 時に classify → reducer → persist → derive が通る
+        //   - readyForHandoff=true でも morningResponse.phase は clarifying のまま
+        //   - reducer throw 時も user-facing 応答は壊れない（try/catch で吸収）
+        if (
+          ALTER_MORNING_FLAGS.dialogStateV2 &&
+          morningSession?.dialogState != null &&
+          typeof message === "string" &&
+          message.length > 0
+        ) {
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 24: PROVIDER_RECOVERED dispatch（shadow 冒頭）
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // 前 turn が provider_recovering かつ今 turn の pipeline が成功
+          // （absorb 経路を通らなかった）なら、reducer に PROVIDER_RECOVERED を
+          // 流して streak=0 + conversationStatus を normal に戻す。
+          // 以降の advanceDialogState（TURN_CAPTURED）は normal path で処理される。
+          //
+          // pipelineAbsorbedOuter=true の turn は「連続失敗中」なので recovery しない。
+          if (
+            !pipelineAbsorbedOuter &&
+            morningSession.dialogState.conversationStatus ===
+              "provider_recovering"
+          ) {
+            try {
+              const recoveredEvents = morningSession.persistedEvents ?? [];
+              const recoveredState = dialogReducer(
+                morningSession.dialogState,
+                {
+                  type: "PROVIDER_RECOVERED",
+                  turnIndex:
+                    morningSession.dialogState.capturedHistory.length + 1,
+                  events: recoveredEvents,
+                },
+              );
+              // In-place property mutation to preserve TS narrowing for the
+              // shadow advance block below. Reassigning the whole object via
+              // spread widens `morningSession.dialogState` back to
+              // `DialogState | null | undefined` and regresses pre-existing
+              // non-null reads (advanceDialogState.prevState など).
+              morningSession.dialogState = recoveredState;
+              console.info(
+                `[dialog-state-v2:providerRecovered] streak=0 status=${recoveredState.conversationStatus}`,
+              );
+            } catch (shadowErr) {
+              console.warn(
+                `[dialog-state-v2:providerRecovered] reducer throw`,
+                shadowErr,
+              );
+            }
+          }
+
+          try {
+            const events = morningSession.persistedEvents ?? [];
+            const nextPending = morningSession.pendingClarify;
+            const rawSlot = nextPending?.slot ?? "where";
+            // PendingSlot は {when,where,what,transport,endpoint}、DialogFocus.slot は
+            // {where,when,what,who}。共通部分の where/when/what のみ dispatch 対象にする。
+            const targetSlot: DialogFocus["slot"] | null =
+              rawSlot === "where" || rawSlot === "when" || rawSlot === "what"
+                ? rawSlot
+                : null;
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // W3-PR-8 rev 3 commit 22: 条件付き focus 継承
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 問題:
+            //   Branch B 再 comprehension が毎 turn `generateEventId()` で新 id を
+            //   発行するため、reducer の eventChanged 判定が毎 turn true → draft reset
+            //   → narrowStep が turn 毎に 0/1/2 を振動する。
+            //   2026-04-22 preview で カフェ→甲府→スタバ で 2→1→2 逆行を観測。
+            //
+            // 修正:
+            //   「同一 clarifying ループ + same slot + explicit focus switch なし」の
+            //   条件下でのみ prev.focus.event_id を継承する（selectShadowTargetEventId）。
+            //   新 event 開始（plan_presented 後など）では fallback で新 id を使う。
+            const targetSelection = selectShadowTargetEventId({
+              prevFocus: morningSession.dialogState.focus,
+              prevConversationStatus:
+                morningSession.dialogState.conversationStatus,
+              previousResponsePhase: rawMorningSession?.phase ?? null,
+              pendingEventId: nextPending?.event_id ?? null,
+              firstEventId: events[0]?.event_id ?? null,
+              currentResponsePhase: morningResponse.phase,
+              targetSlot,
+            });
+            const targetEventId = targetSelection.chosenTargetEventId;
+
+            if (targetEventId != null && targetSlot != null) {
+              // CEO 条件 #2: structured log
+              //   prev/pending/events0/chosen/eventChanged/reason を 1 行で出力。
+              //   eventChanged は prev.focus.event_id と chosen の比較（reducer が
+              //   実際に使う判定と同等）。
+              const prevFocusEventId =
+                morningSession.dialogState.focus?.event_id ?? null;
+              const eventChanged =
+                prevFocusEventId !== null && prevFocusEventId !== targetEventId;
+              console.info(
+                `[dialog-state-v2:targetEventId] ` +
+                  `prev_focus=${prevFocusEventId ?? "null"} ` +
+                  `nextPending=${nextPending?.event_id ?? "null"} ` +
+                  `events0=${events[0]?.event_id ?? "null"} ` +
+                  `chosen=${targetEventId} ` +
+                  `eventChanged=${eventChanged ? "1" : "0"} ` +
+                  `canContinueFocus=${targetSelection.canContinueFocus ? "1" : "0"} ` +
+                  `reason=${targetSelection.reason}`,
+              );
+
+              const advanced = advanceDialogState({
+                prevState: morningSession.dialogState,
+                message,
+                targetEventId,
+                targetSlot,
+                events,
+                turnIndex:
+                  morningSession.dialogState.capturedHistory.length + 1,
+                nowIso: new Date().toISOString(),
+              });
+              // persist: session.dialogState のみ更新。pendingClarify は触らない。
+              morningSession = {
+                ...morningSession,
+                dialogState: advanced.nextState,
+              };
+              // ⚠ advanced.derived は session.pendingClarify に書き戻さない
+              //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // W3-PR-8 rev 3 commit 19: user-facing runtime 昇格
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // CEO 方針（2026-04-22 commit 19）:
+              //   1. flag ON 時だけ DialogState → derive を実質問生成に使う
+              //   2. same broad question 繰り返しを narrower step / slot switch /
+              //      provider recovery で user-facing に解消する
+              //      （分岐は derive 側で決定済み。ここは結果を反映するだけ）
+              //   3. search_handoff_blocking は internal only のまま
+              //      （derived=null になるため promote は legacy を維持する）
+              //   4. plan_presented には上げない
+              //      （promote は response.phase !== "clarifying" なら非昇格）
+              //   5. phase authority 変更禁止
+              //      （promote は phase / plan / personalizeHints を触らない）
+              //
+              // 禁止事項:
+              //   - PR-9 Places search 呼び出し
+              //   - 「近くのお店で探そうか？」の user-facing 開放
+              //   - phase authority (hasBlockingUnresolvedSlots) の変更
+              //   - session.pendingClarify 書き戻し
+              const beforePromoteMessage = morningResponse.message;
+              morningResponse = promoteDialogStateToUserFacing({
+                response: morningResponse,
+                derived: advanced.derived,
+              });
+              const promoted = morningResponse.message !== beforePromoteMessage;
+              console.info(
+                `[dialog-state-v2:shadow] status=${advanced.nextState.conversationStatus} ` +
+                  `narrowStep=${advanced.nextState.focus?.narrowStep ?? 0} ` +
+                  `ready=${advanced.nextState.searchQueryDraft.readyForHandoff ? "1" : "0"} ` +
+                  `derived_kind=${advanced.derived?.kind ?? "null"} ` +
+                  `phase_unchanged=${morningResponse.phase} ` +
+                  `user_facing_promoted=${promoted ? "1" : "0"}`,
+              );
+            }
+          } catch (err) {
+            // flag ON 限定の shadow 例外（FSA 違反 / 想定外 classify 等）は user-facing
+            // 応答を壊さず warn 止まり。CEO 条件「flag OFF baseline 不変」の保護と、
+            // flag ON が user 画面まで刺さない dead-code 前提を両立する。
+            console.warn(`[dialog-state-v2:shadow] error`, err);
+          }
+
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 24: provider failure latch gate
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // 優先順位:
+          //   commit 19 promote（上） → **commit 24 latch（ここ）** → commit 23 clarifyFallback
+          //
+          // 発火条件:
+          //   DialogState.providerFailureStreak >= 1
+          //   （今 turn の PROVIDER_FAILED 反映済みの値を参照）
+          //
+          // 効果:
+          //   - message / clarifyQuestion を short degrade 文に差し替える
+          //   - latchFired フラグを立て、後段の clarifyFallback を skip する
+          //     （latch 文を守るため、「まだ未定」等の undecided rephrase に
+          //     上書きされないようにする）
+          //
+          // 禁止事項:
+          //   - phase / plan / personalizeHints の書き換え
+          //   - session.dialogState の書き換え（reducer の責務）
+          //   - 外部 I/O
+          let latchFired = false;
+          try {
+            const streak =
+              morningSession?.dialogState?.providerFailureStreak ?? 0;
+            const latch = computeProviderLatch({
+              providerFailureStreak: streak,
+              currentMessage: morningResponse.message ?? "",
+            });
+            if (latch.shouldReplace && latch.nextMessage !== null) {
+              const before = morningResponse.message;
+              morningResponse = {
+                ...morningResponse,
+                message: latch.nextMessage,
+                clarifyQuestion: latch.nextMessage,
+              };
+              latchFired = true;
+              console.info(
+                `[dialog-state-v2:providerLatch] reason=${latch.reason} ` +
+                  `streak=${streak} replaced=1 before_len=${before?.length ?? 0} ` +
+                  `after_len=${latch.nextMessage.length}`,
+              );
+            } else {
+              console.info(
+                `[dialog-state-v2:providerLatch] reason=${latch.reason} streak=${streak} replaced=0`,
+              );
+            }
+          } catch (err) {
+            console.warn(`[dialog-state-v2:providerLatch] error`, err);
+          }
+
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 23: phase=clarifying && items=0 gate
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // CEO 方針（2026-04-22 commit 23 条件）:
+          //   1. phase authority (= hasBlockingUnresolvedSlots) は変更しない
+          //      → message / clarifyQuestion のみ差し替える。plan.items は触らない。
+          //   2. 世界観保持（短く柔らかく断定しない）
+          //      → 差し替えメッセージは helper が世界観準拠で生成
+          //   3. S5（正常 chain 応答）/ S6（plan_presented）では不介入
+          //      → 条件は (a) phase=clarifying (b) items=0 の AND
+          //   4. shadow pipeline 失敗時でも user-facing は壊さない
+          //      → try/catch で fail-open、例外時は legacy message を維持
+          //
+          // 呼び出し契機:
+          //   phase=clarifying && plan.items.length=0 の時のみ helper に問い合わせ、
+          //   helper が「差し替えるべき」と返したケースで message / clarifyQuestion を
+          //   書き換える。phase / plan / personalizeHints は不変。
+          //
+          // 禁止事項:
+          //   - morningSession の書き換え（dialogState / pendingClarify 双方）
+          //   - plan.items の fabrication
+          //   - phase の書き換え
+          //   - LLM / DB / Places API 呼び出し
+          try {
+            const itemCount = morningResponse.plan?.items?.length ?? 0;
+            // commit 24: provider latch が発火済みなら degrade 文を守るため skip する。
+            //   undecided 系 rephrase で latch 文を上書きしない。
+            const shouldGate =
+              !latchFired &&
+              morningResponse.phase === "clarifying" &&
+              itemCount === 0;
+            if (shouldGate) {
+              // shadow block で更新済みの draft を優先参照（commit 22 で narrowStep
+              // 逆行を止めた後の「今 turn の draft」が最新）。dialogState が未通過の
+              // fallback 時は null になり、helper 側が A4 empty_draft に落ちる。
+              const draft =
+                morningSession?.dialogState?.searchQueryDraft ?? null;
+              const rawSlot = morningSession?.pendingClarify?.slot ?? "where";
+              const gateTargetSlot: "where" | "when" | "what" | null =
+                rawSlot === "where" || rawSlot === "when" || rawSlot === "what"
+                  ? rawSlot
+                  : null;
+              const fallback = selectClarifyFallback({
+                utterance: typeof message === "string" ? message : "",
+                draft,
+                targetSlot: gateTargetSlot,
+                priorQuestion: priorQuestionOuter,
+                bindReason: bindReasonOuter,
+                currentMessage: morningResponse.message ?? "",
+              });
+              if (fallback.shouldReplace && fallback.nextMessage !== null) {
+                const before = morningResponse.message;
+                morningResponse = {
+                  ...morningResponse,
+                  message: fallback.nextMessage,
+                  clarifyQuestion: fallback.nextMessage,
+                };
+                console.info(
+                  `[dialog-state-v2:clarifyFallback] reason=${fallback.reason} ` +
+                    `draft_anchor=${draft?.anchorRegion ?? "null"} ` +
+                    `draft_spec=${draft?.chainToken ?? draft?.categoryToken ?? "null"} ` +
+                    `bindReason=${bindReasonOuter ?? "null"} ` +
+                    `replaced=1 before_len=${before?.length ?? 0} ` +
+                    `after_len=${fallback.nextMessage.length}`,
+                );
+              } else {
+                console.info(
+                  `[dialog-state-v2:clarifyFallback] reason=${fallback.reason} ` +
+                    `bindReason=${bindReasonOuter ?? "null"} ` +
+                    `replaced=0`,
+                );
+              }
+            }
+          } catch (err) {
+            // fail-open: gate 例外時は legacy message を維持。user 体験を壊さない。
+            console.warn(`[dialog-state-v2:clarifyFallback] error`, err);
+          }
+        }
+
         if (morningResponse.phase !== "skipped") {
           // Morning Protocol がハンドリング → alterResponseText に設定
           alterResponseText = morningResponse.message;
@@ -9159,6 +9587,15 @@ export async function POST(req: NextRequest) {
           // ── W3-PR-7 Commit 2: dialog state round-trip ──
           pendingClarify: morningSession?.pendingClarify ?? null,
           persistedEvents: morningSession?.persistedEvents ?? null,
+          // ── W3-PR-8 rev 3 Commit 16: DialogState v2 round-trip（write-side）──
+          //   flag OFF: ensureSessionV1 が identity return するため dialogState は
+          //   常に undefined → conditional spread で field を出力しない。response
+          //   shape は baseline と完全一致。
+          //   flag ON:  dialogState が set されている → field 含めて送出、client が
+          //   次ターンで返送する。
+          ...(morningSession?.dialogState != null
+            ? { dialogState: morningSession.dialogState }
+            : {}),
         },
       } : {}),
       ...(queryContext ? {

@@ -120,7 +120,9 @@ describe("classifyWhereSlot — FIXED", () => {
     if (res.kind === "fixed") expect(res.reason).toBe("exact_proper_noun");
   });
 
-  test("chain_brand + resolved 単一候補 → PROVISIONAL（W3-PR-7: auto-grounding で FIXED 昇格しない）", () => {
+  test("chain_brand + resolved 単一候補 → ASK（W3-PR-8: vague は無条件 ASK）", () => {
+    // W3-PR-8 dialog-control: vague 3 sub-kind はすべて ASK（blocking）。
+    // PR-9 の anchor/chain 検索が入るまで provisional 昇格は禁止（CEO 2026-04-22）。
     const ev = mkEvent("e1", {
       where: {
         place_ref: "スタバ",
@@ -130,8 +132,7 @@ describe("classifyWhereSlot — FIXED", () => {
     });
     const grounded = [mkGrounded("e1", "resolved", [mkCandidate("スターバックス")])];
     const res = classifyWhereSlot(ev, { events: [ev], index: 0, grounded });
-    expect(res.kind).toBe("provisional");
-    // CEO 2026-04-22: chain_brand は user 確認 or 支店明示でのみ FIXED 昇格可能
+    expect(res.kind).toBe("ask");
   });
 
   test("exact_proper_noun（辞書 miss）でも placeType で FIXED（respected_unresolved ではなく exact_proper_noun）", () => {
@@ -149,8 +150,10 @@ describe("classifyWhereSlot — FIXED", () => {
   });
 });
 
-describe("classifyWhereSlot — PROVISIONAL", () => {
-  test(`ambiguous 候補 ${WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION} 件以下 → PROVISIONAL/ambiguous_top_pick`, () => {
+describe("classifyWhereSlot — PROVISIONAL (missing 系のみ、vague は ASK 化)", () => {
+  test(`ambiguous 候補 ${WHERE_MAX_CANDIDATES_FOR_RECOMMENDATION} 件以下 → ASK（W3-PR-8: vague 無条件 ASK）`, () => {
+    // PR-7 では PROVISIONAL/ambiguous_top_pick だったが、PR-8 で廃止。
+    // anchor 検索が動く PR-9 で復活予定。
     const ev = mkEvent("e1", {
       where: {
         place_ref: "カフェ",
@@ -163,8 +166,7 @@ describe("classifyWhereSlot — PROVISIONAL", () => {
     );
     const grounded = [mkGrounded("e1", "ambiguous", cands)];
     const res = classifyWhereSlot(ev, { events: [ev], index: 0, grounded });
-    expect(res.kind).toBe("provisional");
-    if (res.kind === "provisional") expect(res.reason).toBe("ambiguous_top_pick");
+    expect(res.kind).toBe("ask");
   });
 
   test("place_ref==null + adjacent resolved event あり → PROVISIONAL/cross_event_anchor", () => {
@@ -327,7 +329,11 @@ describe("gapResolver — Where 三層 integration", () => {
     expect(res.primary_clarify).toBeNull();
   });
 
-  test("semantic==['where'] + cross-event anchor あり → PROVISIONAL → defer_to_place_grounder", () => {
+  test("W3-PR-8: semantic==['where'] + cross-event anchor あっても e1 の vague が ASK を立てる", () => {
+    // PR-7 では cross-event anchor があれば defer_to_place_grounder に落ちたが、
+    // PR-8 では e1 の where=vague (chain_brand) 自体が ASK を立てるため、
+    // primary_clarify は null にならない（e1 の where_center / ambiguous_too_many 等が立つ）。
+    // anchor 検索が PR-9 で入ったら provisional 復活。
     const e1 = mkEvent("e1", {
       when: { startTime: "09:00", timeHint: null, provenance: utteranceProvenance(["9時"], "high") },
       where: { place_ref: "スタバ", placeType: "chain_brand", provenance: utteranceProvenance(["スタバ"], "high") },
@@ -343,7 +349,8 @@ describe("gapResolver — Where 三層 integration", () => {
       mkGrounded("e2", "unresolved", []),
     ];
     const res = resolveGaps([e1, e2], { grounded });
-    expect(res.primary_clarify).toBeNull();
+    // e1 (vague) の ASK が優先される（When が fixed、Where が vague で ASK）。
+    expect(res.primary_clarify).not.toBeNull();
   });
 
   test("Where ASK vs When ASK が並立: When が優先（slot priority）", () => {

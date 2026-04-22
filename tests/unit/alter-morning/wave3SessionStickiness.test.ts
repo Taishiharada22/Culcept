@@ -11,7 +11,7 @@
  *   API route 全体の integration は別 E2E で担保する。ここでは
  *   stickiness 判定の真理値表と adapter のラベリングまで。
  */
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 
 import {
   runMorningPipeline,
@@ -81,21 +81,32 @@ describe("adaptPipelineToLegacy → pipelineVersion stickiness (W3-PR-5)", () =>
     expect(session.pipelineVersion).toBe("v2");
   });
 
-  test("comprehension_failed でも session は v2 タグを維持する（クライアントが次ターンも v2 に返すため）", async () => {
-    const pipelineResult = await runMorningPipeline(
-      { utterance: "意味不明" },
-      {
-        comprehension: { async extract() { return null; } },
-        narration: stubNarrationProvider,
-        weather: null,
-      },
-    );
-    const { session } = adaptPipelineToLegacy(pipelineResult, {
-      sessionId: "ms_test",
-      utterance: "意味不明",
-    });
-    expect(session.pipelineVersion).toBe("v2");
-    expect(session.phase).toBe("clarifying");
+  test("comprehension_failed でも session は v2 タグを維持する（prod safe degrade）", async () => {
+    // W3-PR-8 items=0 禁則: dev/test は throw、prod のみ safe degrade
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pipelineResult = await runMorningPipeline(
+        { utterance: "意味不明" },
+        {
+          comprehension: { async extract() { return null; } },
+          narration: stubNarrationProvider,
+          weather: null,
+        },
+      );
+      const { session } = adaptPipelineToLegacy(pipelineResult, {
+        sessionId: "ms_test",
+        utterance: "意味不明",
+      });
+      expect(session.pipelineVersion).toBe("v2");
+      expect(session.phase).toBe("clarifying");
+    } finally {
+      // @ts-expect-error
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
   });
 });
 
