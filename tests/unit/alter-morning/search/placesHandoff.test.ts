@@ -16,6 +16,7 @@ import type { SearchQueryDraft } from "@/lib/alter-morning/dialog/types";
 import type { PlacesApiPlace } from "@/lib/alter-morning/placesApiClient";
 import {
   buildQueryFingerprint,
+  classifyProviderErrorForLog,
   executePlacesHandoff,
   type PlacesHandoffDeps,
 } from "@/lib/alter-morning/search/placesHandoff";
@@ -468,5 +469,27 @@ describe("result kind discriminant", () => {
     const d1 = mkDraft();
     const d2 = mkDraft();
     expect(buildQueryFingerprint(d1)).toBe(buildQueryFingerprint(d2));
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §7 classifyProviderErrorForLog
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("classifyProviderErrorForLog", () => {
+  it("classifies draft_not_ready as route_invariant_mismatch", () => {
+    expect(classifyProviderErrorForLog("draft_not_ready")).toBe(
+      "route_invariant_mismatch",
+    );
+  });
+
+  it("classifies api_key_missing as provider_failure", () => {
+    expect(classifyProviderErrorForLog("api_key_missing")).toBe(
+      "provider_failure",
+    );
+  });
+
+  it("classifies api_throw as provider_failure", () => {
+    expect(classifyProviderErrorForLog("api_throw")).toBe("provider_failure");
   });
 });

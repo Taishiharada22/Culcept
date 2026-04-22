@@ -58,6 +58,25 @@ export type ProviderErrorReason =
   /** Places API 呼び出しが throw（HTTP error / network / timeout） */
   | "api_throw";
 
+/**
+ * 内部ログ分類（CEO 2026-04-23 GPT review 指摘）:
+ *   - draft_not_ready は呼び元（route / reducer）の invariant 不整合であり、
+ *     外部 provider 起因の障害ではない。内部ログ / alerting を分けるため
+ *     callsite はこの helper でタグ付けする。
+ *   - user-facing の result.kind は "provider_error" で共通のまま。
+ */
+export type ProviderErrorLogClass =
+  | "route_invariant_mismatch" // draft_not_ready — 上流 bug
+  | "provider_failure"; //         api_key_missing / api_throw — 外部要因
+
+export function classifyProviderErrorForLog(
+  reason: ProviderErrorReason,
+): ProviderErrorLogClass {
+  return reason === "draft_not_ready"
+    ? "route_invariant_mismatch"
+    : "provider_failure";
+}
+
 export type PlacesHandoffResult =
   | {
       kind: "success";
