@@ -1,6 +1,6 @@
 # Alter Morning — Strict Confirmation 設計書（PR-8 初稿）
 
-**ステータス**: 改訂 1（CEO レビュー反映 / PR-8 実装 Go）
+**ステータス**: 改訂 2（CEO preview FAIL 反映 / dialog-control 修復）
 **前提**: W3-PR-7 merge 済み（PR #15, commit 283cb2a4）。質問ループ基盤は完成、ただし未確定 slot が UI 上「確定風」に描画されている。
 **対象**: PR-8（Strict Confirmation）。PR-9（Anchor-Based Search）着手前に固めるレイヤ。
 **作成日**: 2026-04-22
@@ -8,6 +8,12 @@
   1. `whereSharpness=vague` を anchor / category_chain / undecided の 3 sub-kind に分離
   2. `confirmationState` は adapter で normalize、UI 側で `??` fallback 禁止
   3. `What vague` は「内容暫定」で暫定性を強く見せる表示に寄せる
+**改訂 2（2026-04-22 CEO preview FAIL 反映）**: dialog-control 契約修復
+  1. **anchor も blocking**（PR-9 search 未実装のため、anchor 単独で plan 昇格不可）
+  2. **phase 昇格正本を `hasBlockingUnresolvedSlots` に移譲**（`primary_clarify == null` を正本にしない）
+  3. **answerBinder 最小版**: undecided 語彙拒否 + 単一 event invariant + bind 後 sharpness 再評価（観測のみ）
+  4. **items=0 二層化**: dev/test throw / prod safe degrade（偽 plan 合成禁止）
+  5. **What vague は non-blocking**（CEO §9 回答 6 との整合）
 
 ---
 
@@ -94,13 +100,15 @@ PR-8 は UI 層に「未確定の表現力」を通し、PR-9（Anchor-Based Sea
 
 PR-9 が依存する分類を **PR-8 の型定義段階で** 書き込む:
 
-| 分類 | 定義 | 例 | PR-8 sharpness | where vague sub-kind | PR-9 検索 |
-|------|-----|----|---------------|---------------------|----------|
-| **A**: fixed OK | 発話内で一意同定できる固有名詞 / known_base | 「サドヤ」「自宅」「オフィス（= known_base）」 | fixed | — | 不要 |
-| **B**: anchor 使用可 | エリア指定 / 曖昧指定だが範囲を絞れる | 「甲府駅周辺」「〇〇市」「近場」「baseline」 | vague | **anchor** | anchor hint として使う（候補は出さない、範囲として使う） |
-| **C**: anchor 必須で検索対象 | カテゴリ or チェーン、周辺検索しないと特定不能 | 「マック」「スタバ」「カフェ」「図書館」「オフィス（固有名なし）」 | vague | **category_chain** | **PR-9 search gate の対象** |
-| **D**: 場所ではない | 活動カテゴリ / 食事区分 | 「ランチ」「ディナー」「打ち合わせ」 | place_ref に入っていたら分類エラー → What へ | — | — |
-| **undecided**: 未決意表明 | 文字列として場所の実体なし | 「決めてない」「まだ」「たぶん」「どこでもいい」 | vague | **undecided** | 非対象（まず clarify） |
+| 分類 | 定義 | 例 | PR-8 sharpness | where vague sub-kind | PR-8 plan 昇格 | PR-9 検索 |
+|------|-----|----|---------------|---------------------|---------------|----------|
+| **A**: fixed OK | 発話内で一意同定できる固有名詞 / known_base | 「サドヤ」「自宅」「オフィス（= known_base）」 | fixed | — | **昇格可** | 不要 |
+| **B**: anchor 使用可 | エリア指定 / 曖昧指定だが範囲を絞れる | 「甲府駅周辺」「〇〇市」「近場」「baseline」 | vague | **anchor** | **blocking（PR-8 単独では昇格しない）** | anchor hint として使う（候補は出さない、範囲として使う） |
+| **C**: anchor 必須で検索対象 | カテゴリ or チェーン、周辺検索しないと特定不能 | 「マック」「スタバ」「カフェ」「図書館」「オフィス（固有名なし）」 | vague | **category_chain** | **blocking** | **PR-9 search gate の対象** |
+| **D**: 場所ではない | 活動カテゴリ / 食事区分 | 「ランチ」「ディナー」「打ち合わせ」 | place_ref に入っていたら分類エラー → What へ | — | — | — |
+| **undecided**: 未決意表明 | 文字列として場所の実体なし | 「決めてない」「まだ」「たぶん」「どこでもいい」 | vague | **undecided** | **blocking（clarify 必須）** | 非対象（まず clarify） |
+
+**CEO 改訂 2 追記**: 当初案では B（anchor）を「位置情報として十分」と扱い plan 昇格を許す設計だったが、preview で「甲府駅周辺 / ランチ」が `confirmed` 風に描画される事故を確認。PR-9 の anchor search が未実装の段階で anchor を確定とみなすと「範囲を点と誤認する」嘘が出る。**PR-8 では B も blocking** とする。B が plan に昇格できるのは PR-9 で anchor search → 候補選択が入った後。
 
 D は L1 comprehension / whereClassifier 側で既に分離されている想定。PR-8 で確認し、漏れがあれば classifier の保守項として backlog 化する。
 
@@ -149,6 +157,68 @@ shouldFireAnchorSearch(item, session) =
 - `undecided` sub-kind は検索前に clarify が必要
 - `anchorHint`: その item の近傍に fixed 場所がある / session に baseline がある / 直前 item の場所が fixed
 - LLM / session 状態に依存する「気持ち」での発火は禁止
+
+### 2.8 blocking 定義 + phase 昇格の正本（CEO 改訂 2 / 2026-04-22）
+
+**問題**: 改訂 1 までの設計は「`primary_clarify == null` なら plan 昇格」という暗黙契約で動いていた。preview FAIL の原因はここ。adapter が clarify を立て忘れた瞬間、未確定 slot を含む item が `confirmed` として出力される。phase 昇格の判断を「clarify の有無」ではなく **「未解決 slot の有無」** に据え直す。
+
+#### 2.8.1 blocking の定義（slot × sharpness × sub-kind）
+
+| slot | fixed | vague | missing |
+|------|-------|-------|---------|
+| **When** | non-blocking | **blocking** | **blocking** |
+| **Where** | non-blocking | **blocking**（sub-kind 全て: anchor / category_chain / undecided） | **blocking** |
+| **What** | non-blocking | non-blocking（PR-8 scope、§9 回答 6 に準拠） | **blocking** |
+
+- **When vague は blocking**: `timeHint` のみで `startTime` が HH:mm にならない状態（「朝」「昼」）は点に落ちていないため plan 昇格不可。
+- **Where vague は sub-kind に関わらず blocking**: PR-8 では anchor / category_chain / undecided すべて plan 昇格対象外（§2.5 改訂 2 注と整合）。
+- **What vague は non-blocking**: 「仕事」「作業」等は plan 昇格を妨げない（表示強化のみで対応、§9 回答 6）。What の clarify 追加議論は PR-7 の gapResolver 優先度見直し後に回す。
+- **What missing は blocking**: activity が空文字列 / null は plan として成立しない。
+
+event 単位の `blockingForEvent(event)`、plan 単位の `hasBlockingUnresolvedSlots(events)` を `lib/alter-morning/planning/blockingSlots.ts` に置く（commit 8 で実装済み）。
+
+#### 2.8.2 phase 昇格の正本契約
+
+`legacyAdapter.decidePhase()` の新契約（commit 9 で実装済み）:
+
+```ts
+function decidePhase(
+  result: PipelineResult,
+  effectiveEvents: Event[],
+): "clarifying" | "plan_presented" {
+  // 1. status 異常は無条件 clarifying
+  if (result.status !== "ok") return "clarifying";
+
+  // 2. ★ 正本: 未解決 blocking slot があれば必ず clarifying
+  if (hasBlockingUnresolvedSlots(effectiveEvents)) return "clarifying";
+
+  // 3. 二次防御: primary_clarify が立っていれば clarifying
+  //    （正本ではない。1 と 2 を通過したのに clarify が立つケースは異常信号）
+  if (result.primary_clarify != null) return "clarifying";
+
+  // 4. それ以外 → plan_presented
+  return "plan_presented";
+}
+```
+
+**なぜ `primary_clarify == null` を正本にしないか**:
+- clarify を立てる責任を L2/L3/gapResolver に分散させると「誰かが立てるはず」の責任境界崩壊が起きる
+- 改訂 1 の preview FAIL は、gapResolver が clarify を立て忘れた状態で L3 が plan_presented に昇格させた事故
+- slot の未解決有無は Event から決定的に計算できる（`compute*Sharpness`）。clarify の有無より信頼できる
+- `primary_clarify != null` は二次防御としてだけ残す（slot は全て fixed だが clarify が立っている、という矛盾状態を catch するため）
+
+#### 2.8.3 `items=0` の扱い（二層化）
+
+改訂 1 では言及なし。dialog-control 契約で defensive fallback を禁止する代わりに、開発時の事故検知を強化する:
+
+| 環境 | items=0 に遭遇した時の挙動 |
+|------|--------------------------|
+| `NODE_ENV === "development"` | `throw new Error("items=0 contract violation")` |
+| `NODE_ENV === "test"` | `throw`（同上、CI で検知） |
+| prod | `console.error` + phase=clarifying への safe degrade（**偽 plan 合成は禁止**） |
+
+- prod で throw すると UX が死ぬ。safe degrade で会話を継続させるが、**placeholder plan 合成（空の item を 1 個作る等）は禁止**。「今の発話からは plan を組み立てられませんでした」という clarify に倒す。
+- dev / test で throw することで adapter / comprehension pipeline の契約違反を早期に発見する。
 
 ---
 
@@ -250,6 +320,38 @@ export function normalizePlanItem(item: PlanItem): NormalizedPlanItem {
   - 1 つでも `needs_answer` → plan header は質問中
   - else → provisional
 
+### 3.6 answerBinder における captured vs resolved（CEO 改訂 2 / 2026-04-22）
+
+#### 3.6.1 問題
+
+改訂 1 までの `bindAnswerToSlot` は「ユーザー回答 = slot 解決」と扱っていた。preview FAIL で「朝の仕事はどのあたり？」→「決めてない」が bind 成功 → `place_ref="決めてない"` として plan 昇格する事故を確認。**回答が入力されたこと（captured）と、slot が点に落ちたこと（resolved）は別概念**。
+
+#### 3.6.2 PR-8 最小版（commit 10 で実装済み）
+
+完全な型分離（`CapturedAnswer` と `ResolvedSlotValue` を分ける）は影響範囲が大きいため、PR-8 では **最小版** で止める:
+
+1. **undecided 語彙拒否** (`isUndecidedWhereAnswer`):
+   - Where slot への回答が「決めてない / まだ / 未定 / わからない / どこでもいい / 任せる / おすすめで / たぶん」等の undecided 語彙に一致 → `bound: false`, `reason: "semantic_miss"`
+   - 完全一致 + 先頭一致（「どこでもいいよ」「任せるよ」等）で判定
+   - LLM は呼ばない（deterministic）
+
+2. **単一 event invariant**:
+   - `bindAnswerToSlot` の返り値で「変更された event の index が 0 個または 2 個以上」の場合は invariant 違反として dev/test で throw、prod で `console.error`
+   - pendingClarify が指す event_id の 1 件だけが更新される契約を機械的に保証
+
+3. **bind 後 sharpness 再評価（観測のみ）**:
+   - bind 成功後に `computeWhereSharpness` を呼び直し、まだ `vague` のままなら「captured ≠ resolved」として `console.warn` + analytics ログ
+   - PR-8 ではログのみ。PR-9 で anchor search と連動させる時にこの信号を正式に使う
+
+#### 3.6.3 次 PR で検討する完全版
+
+以下は PR-8 scope 外。次 PR 以降の議題として予約:
+
+- `CapturedAnswer<S>` / `ResolvedSlotValue<S>` の型レベル分離
+- `placeResolver` の 2 段階化: captured → classify → (resolved | still_provisional)
+- `confirmationState` と連動した bind 結果の区別（bind で confirmed に昇格できる条件 vs provisional のまま捕捉される条件）
+- 「3 回 semantic_miss で別 slot に逃げる」対話制御（`semanticMissCount` は既に PendingClarify に載っているので PR-8 で観測基盤だけ入れた）
+
 ---
 
 ## 4. 既存参照箇所の影響範囲
@@ -259,9 +361,12 @@ export function normalizePlanItem(item: PlanItem): NormalizedPlanItem {
 | ファイル | 変更内容 |
 |---------|---------|
 | `lib/alter-morning/types.ts` | `ConfirmationState` 型定義 / `PlanItem` 拡張 |
-| `lib/alter-morning/legacyAdapter.ts` | `eventToPlanItem` で sharpness 貫通 + `confirmationState` 計算 |
+| `lib/alter-morning/legacyAdapter.ts` | `eventToPlanItem` で sharpness 貫通 + `confirmationState` 計算 + `decidePhase` 新契約（改訂 2） |
+| `lib/alter-morning/planning/blockingSlots.ts` | **新規（改訂 2）**: `blockingForEvent` / `hasBlockingUnresolvedSlots`（phase 昇格正本） |
+| `lib/alter-morning/planning/whereClassifier.ts` | vague 時の provisional fallback を凍結（PR-9 search まで昇格禁止） |
+| `lib/alter-morning/comprehension/answerBinder.ts` | **改訂 2**: undecided 拒否 + 単一 event invariant + bind 後 sharpness 再評価 |
 | `components/home/morning/MorningPlanCard.tsx` | slot 分離描画 / 「暫定」チップ / vague place 非描画 |
-| `tests/unit/alter-morning/*.test.ts` | adapter の新 output shape に追従（雪だるま式に既存 assert を緩める） |
+| `tests/unit/alter-morning/*.test.ts` | adapter の新 output shape に追従 + `blockingSlots.test.ts` / `answerBinderUndecided.test.ts` 追加 |
 
 ### 4.2 触らないレイヤ（明示的な非対象）
 
@@ -527,15 +632,23 @@ PR-7 の preview で観測された UX 破壊の一次ソース:
 
 commit 分割案:
 
+**改訂 1（初稿）フェーズ — commit 1〜7（merged 前に main に landing）**:
+
 1. **型追加**: `types.ts` に `ConfirmationState` / `WhereVagueSubKind` / 3 本の sharpness フィールドを optional で追加
 2. **where vague classifier**: `classifyWhereVague(where: WhereSlot): WhereVagueSubKind` を adapter 近傍に実装（undecided 語彙集合含む）
 3. **adapter 配線**: `eventToPlanItem` で sharpness + sub-kind 計算、`adaptPipelineToLegacy` で needs_answer 上書き
-4. **NormalizedPlanItem + normalizer**: `lib/alter-morning/normalizedPlanItem.ts` 追加、adapter 出口で一度通す
-5. **UI 分離描画**: `MorningPlanCard` を slot 分離 + sub-kind 分岐 + What 内容暫定チップ構造に改修
-6. **needs_answer 強調**: 濃い点線 + 薄い背景色 + (?) アイコン
-7. **undecided 非描画 guard**: `whereVagueSubKind="undecided"` 時に place_ref を描画しない defensive
-8. **テスト**: adapter 側 3 状態 × 3 sharpness × 3 sub-kind の主要組合せ、normalize 側、UI snapshot 1 set
-9. **PR-9 gate 型予約**: `lib/alter-morning/search/anchorSearchGate.ts` を **interface + 未実装 throw stub** として置く
+4. **UI 分離描画**: `MorningPlanCard` を slot 分離 + sub-kind 分岐 + What 内容暫定チップ構造に改修
+5. **PR-9 gate 型予約**: `lib/alter-morning/search/anchorSearchGate.ts` を **interface + 未実装 throw stub** として置く
+6. **テスト（初稿）**: Strict Confirmation の snapshot / adapter / classifier
+7. **docs 初稿**: 本設計書初版を commit
+
+**改訂 2（CEO preview FAIL 反映）フェーズ — commit 8〜12（本 branch に追加）**:
+
+8. **blocking 正本**: `lib/alter-morning/planning/blockingSlots.ts` 追加 + `whereClassifier.ts` の vague provisional fallback 凍結
+9. **phase 昇格契約書き直し**: `legacyAdapter.decidePhase` を `hasBlockingUnresolvedSlots` 正本に差し替え + `items=0` の dev/test throw / prod safe degrade
+10. **answerBinder 最小版**: undecided 語彙拒否 + 単一 event invariant + bind 後 sharpness 再評価（観測ログ）
+11. **dialog-control テスト**: `blockingSlots.test.ts`（12 cases）/ `answerBinderUndecided.test.ts`（6 cases）
+12. **設計書 改訂 2 反映**: §2.5 anchor blocking 注記 / §2.8 blocking 定義 + phase 昇格契約 / §3.6 captured vs resolved 最小版 / §4.1 参照表追記 / §10 本節更新
 
 関連 fixture 更新方針（CEO 指摘 5）:
 - blanket で `confirmationState?` を defensive optional にしない
@@ -567,3 +680,5 @@ commit 分割案:
 
 - What sharpness を vague のまま UI に出すか、What clarify を追加するかは PR-8 の scope で一旦「表示のみ」に留める。clarify 追加は PR-7 の gapResolver 優先度（When > What > How）を再議論してから。
 - `confirmationState` を Server Action / DB 永続化する必要性は今のところない（session JSON に入るだけ）。将来 cross-session で「昨日は暫定のまま終わった plan」を拾うなら別 PR。
+- **（改訂 2 追加）** captured vs resolved の完全な型分離（`CapturedAnswer<S>` / `ResolvedSlotValue<S>`）は次 PR で検討。PR-8 は最小版（undecided 拒否 + 単一 event invariant + bind 後 sharpness 再評価ログ）で止める。
+- **（改訂 2 追加）** `semanticMissCount` は PendingClarify に載っているが「3 回 miss で別 slot に逃げる」対話制御は未実装。PR-9 or PR-10 で着手。
