@@ -852,6 +852,68 @@ describe("§7 PROVIDER_FAILED / RECOVERED", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §7.5 state invariant: activePresentation ⇔ conversationStatus="search_candidates_presented"
+//      (PR-9 commit 4.1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("§7.5 state invariant (commit 4.1)", () => {
+  it("presented → stable (TURN_CAPTURED proper_noun_specific, focus 継続) で active が park", () => {
+    const s0 = mkBlockingState();
+    const sP = dialogReducer(s0, {
+      type: "SEARCH_CANDIDATES_PRESENTED",
+      turnIndex: 2,
+      targetEventId: "event_1",
+      queryFingerprint: "fp1",
+      candidates: [mkCandidate({ placeId: "p1" })],
+    });
+    expect(sP.conversationStatus).toBe("search_candidates_presented");
+    expect(sP.activePresentation?.targetEventId).toBe("event_1");
+
+    // focus 継続 + proper_noun_specific → stable 遷移
+    const sT = dialogReducer(
+      sP,
+      mkTurnCaptured({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "proper_noun_specific",
+          rawSpan: "サドヤ",
+        }),
+      }),
+    );
+    expect(sT.conversationStatus).toBe("stable");
+    // invariant: stable 遷移で active は park へ退避
+    expect(sT.activePresentation).toBeNull();
+    expect(sT.parkedPresentations).toHaveLength(1);
+    expect(sT.parkedPresentations[0]!.targetEventId).toBe("event_1");
+    expect(sT.parkedPresentations[0]!.queryFingerprint).toBe("fp1");
+  });
+
+  it("presented → presented 自己遷移（SEARCH_CANDIDATES_PRESENTED 再発行）では park されない", () => {
+    const s0 = mkBlockingState();
+    const sP1 = dialogReducer(s0, {
+      type: "SEARCH_CANDIDATES_PRESENTED",
+      turnIndex: 2,
+      targetEventId: "event_1",
+      queryFingerprint: "fp1",
+      candidates: [mkCandidate({ placeId: "p1" })],
+    });
+    const sP2 = dialogReducer(sP1, {
+      type: "SEARCH_CANDIDATES_PRESENTED",
+      turnIndex: 3,
+      targetEventId: "event_1",
+      queryFingerprint: "fp1b",
+      candidates: [mkCandidate({ placeId: "p2" })],
+    });
+    expect(sP2.conversationStatus).toBe("search_candidates_presented");
+    // 自己遷移では active が新しい presentation に置き換わり、parked は空のまま
+    expect(sP2.activePresentation?.queryFingerprint).toBe("fp1b");
+    expect(sP2.parkedPresentations).toHaveLength(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // §8. RESET は全新フィールドを初期値に戻す
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

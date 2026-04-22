@@ -658,13 +658,19 @@ function handleTurnCaptured(
   assertAllowedTransition(fsaFromStatus, nextStatus);
 
   // PR-9 commit 2: focus 切替時に activePresentation を park する（α' 保持のみ）。
-  // focus 継続中は active を保持（提示中の候補が生き続ける）。
-  const presentationSlot = focusChanged
-    ? parkActivePresentation(prev)
-    : {
-        activePresentation: prev.activePresentation,
-        parkedPresentations: prev.parkedPresentations,
-      };
+  // PR-9 commit 4.1: state invariant を守る。
+  //   `activePresentation != null  ⇔  conversationStatus === "search_candidates_presented"`
+  //   focus 継続かつ nextStatus が presented を離脱する場合（典型: proper_noun_specific → stable）、
+  //   active を park（退避）して invariant 違反を防ぐ。parkActivePresentation は
+  //   prev.activePresentation=null で no-op なので、他経路への副作用はない。
+  const leavesPresented = nextStatus !== "search_candidates_presented";
+  const presentationSlot =
+    focusChanged || leavesPresented
+      ? parkActivePresentation(prev)
+      : {
+          activePresentation: prev.activePresentation,
+          parkedPresentations: prev.parkedPresentations,
+        };
 
   // zeroCandidateMissCount は focus 切替で reset。
   // focus 継続時は維持（同一 clarify 内の miss loop を計数する）。
