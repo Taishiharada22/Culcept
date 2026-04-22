@@ -530,6 +530,12 @@ import { selectShadowTargetEventId } from "@/lib/alter-morning/dialog/shadowTarg
 //   「同文 verbatim 再提示」「undecided ループ停滞」「semantic_miss 後の無為な再質問」を
 //   世界観に沿った短い rephrase に差し替える pure helper。plan.items は触らない。
 import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyFallback";
+// W3-PR-8 rev 3 Commit 24: provider failure latch
+//   pipeline throw (ai/run 総失敗) 時に reducer に PROVIDER_FAILED を流し、
+//   streak≥1 で user-facing message を alter voice の degrade 文に差し替える。
+//   phase / plan は触らない。次 turn 成功で PROVIDER_RECOVERED が streak=0 に戻す。
+import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
+import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1774,6 +1780,10 @@ export async function POST(req: NextRequest) {
         //   hoist に伴う「未初期化 read」はなく、gate 側で null を明示的に判定する。
         let bindReasonOuter: string | null = null;
         let priorQuestionOuter: string | null = null;
+        // W3-PR-8 rev 3 commit 24: pipeline throw (absorb) を shadow block 側で
+        //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
+        //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
+        let pipelineAbsorbedOuter = false;
         if (useV2) {
           try {
             // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
@@ -1980,6 +1990,43 @@ export async function POST(req: NextRequest) {
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
             );
+            // ── W3-PR-8 rev 3 commit 24: reducer に PROVIDER_FAILED を通知 ──
+            //   pipeline 総失敗を DialogState 層に昇格する。streak++、
+            //   conversationStatus → provider_recovering、lastGoodPlan 維持。
+            //   phase authority / morningResponse は変更しない（adapter 側で absorb 済み）。
+            //
+            //   absorbed flag を立てて shadow block 冒頭の PROVIDER_RECOVERED
+            //   誤 dispatch を防ぐ（今 turn は recovery 対象ではない）。
+            pipelineAbsorbedOuter = true;
+            if (
+              ALTER_MORNING_FLAGS.dialogStateV2 &&
+              morningSession?.dialogState != null
+            ) {
+              try {
+                const nextDialogState = dialogReducer(
+                  morningSession.dialogState,
+                  {
+                    type: "PROVIDER_FAILED",
+                    turnIndex:
+                      morningSession.dialogState.capturedHistory.length + 1,
+                    reason: "provider_error",
+                  },
+                );
+                morningSession = {
+                  ...morningSession,
+                  dialogState: nextDialogState,
+                };
+                console.info(
+                  `[dialog-state-v2:providerFailed] streak=${nextDialogState.providerFailureStreak} status=${nextDialogState.conversationStatus}`,
+                );
+              } catch (shadowErr) {
+                // reducer FSA 違反などは warn 止まり（既に adapter で absorb 済み）。
+                console.warn(
+                  `[dialog-state-v2:providerFailed] reducer throw`,
+                  shadowErr,
+                );
+              }
+            }
           }
         } else {
           const result = await processMorningMessage(message, morningSession);
@@ -2028,6 +2075,49 @@ export async function POST(req: NextRequest) {
           typeof message === "string" &&
           message.length > 0
         ) {
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 24: PROVIDER_RECOVERED dispatch（shadow 冒頭）
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // 前 turn が provider_recovering かつ今 turn の pipeline が成功
+          // （absorb 経路を通らなかった）なら、reducer に PROVIDER_RECOVERED を
+          // 流して streak=0 + conversationStatus を normal に戻す。
+          // 以降の advanceDialogState（TURN_CAPTURED）は normal path で処理される。
+          //
+          // pipelineAbsorbedOuter=true の turn は「連続失敗中」なので recovery しない。
+          if (
+            !pipelineAbsorbedOuter &&
+            morningSession.dialogState.conversationStatus ===
+              "provider_recovering"
+          ) {
+            try {
+              const recoveredEvents = morningSession.persistedEvents ?? [];
+              const recoveredState = dialogReducer(
+                morningSession.dialogState,
+                {
+                  type: "PROVIDER_RECOVERED",
+                  turnIndex:
+                    morningSession.dialogState.capturedHistory.length + 1,
+                  events: recoveredEvents,
+                },
+              );
+              // In-place property mutation to preserve TS narrowing for the
+              // shadow advance block below. Reassigning the whole object via
+              // spread widens `morningSession.dialogState` back to
+              // `DialogState | null | undefined` and regresses pre-existing
+              // non-null reads (advanceDialogState.prevState など).
+              morningSession.dialogState = recoveredState;
+              console.info(
+                `[dialog-state-v2:providerRecovered] streak=0 status=${recoveredState.conversationStatus}`,
+              );
+            } catch (shadowErr) {
+              console.warn(
+                `[dialog-state-v2:providerRecovered] reducer throw`,
+                shadowErr,
+              );
+            }
+          }
+
           try {
             const events = morningSession.persistedEvents ?? [];
             const nextPending = morningSession.pendingClarify;
@@ -2144,6 +2234,57 @@ export async function POST(req: NextRequest) {
           }
 
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 24: provider failure latch gate
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // 優先順位:
+          //   commit 19 promote（上） → **commit 24 latch（ここ）** → commit 23 clarifyFallback
+          //
+          // 発火条件:
+          //   DialogState.providerFailureStreak >= 1
+          //   （今 turn の PROVIDER_FAILED 反映済みの値を参照）
+          //
+          // 効果:
+          //   - message / clarifyQuestion を short degrade 文に差し替える
+          //   - latchFired フラグを立て、後段の clarifyFallback を skip する
+          //     （latch 文を守るため、「まだ未定」等の undecided rephrase に
+          //     上書きされないようにする）
+          //
+          // 禁止事項:
+          //   - phase / plan / personalizeHints の書き換え
+          //   - session.dialogState の書き換え（reducer の責務）
+          //   - 外部 I/O
+          let latchFired = false;
+          try {
+            const streak =
+              morningSession?.dialogState?.providerFailureStreak ?? 0;
+            const latch = computeProviderLatch({
+              providerFailureStreak: streak,
+              currentMessage: morningResponse.message ?? "",
+            });
+            if (latch.shouldReplace && latch.nextMessage !== null) {
+              const before = morningResponse.message;
+              morningResponse = {
+                ...morningResponse,
+                message: latch.nextMessage,
+                clarifyQuestion: latch.nextMessage,
+              };
+              latchFired = true;
+              console.info(
+                `[dialog-state-v2:providerLatch] reason=${latch.reason} ` +
+                  `streak=${streak} replaced=1 before_len=${before?.length ?? 0} ` +
+                  `after_len=${latch.nextMessage.length}`,
+              );
+            } else {
+              console.info(
+                `[dialog-state-v2:providerLatch] reason=${latch.reason} streak=${streak} replaced=0`,
+              );
+            }
+          } catch (err) {
+            console.warn(`[dialog-state-v2:providerLatch] error`, err);
+          }
+
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           // W3-PR-8 rev 3 commit 23: phase=clarifying && items=0 gate
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           //
@@ -2169,8 +2310,12 @@ export async function POST(req: NextRequest) {
           //   - LLM / DB / Places API 呼び出し
           try {
             const itemCount = morningResponse.plan?.items?.length ?? 0;
+            // commit 24: provider latch が発火済みなら degrade 文を守るため skip する。
+            //   undecided 系 rephrase で latch 文を上書きしない。
             const shouldGate =
-              morningResponse.phase === "clarifying" && itemCount === 0;
+              !latchFired &&
+              morningResponse.phase === "clarifying" &&
+              itemCount === 0;
             if (shouldGate) {
               // shadow block で更新済みの draft を優先参照（commit 22 で narrowStep
               // 逆行を止めた後の「今 turn の draft」が最新）。dialogState が未通過の
