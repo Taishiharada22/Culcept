@@ -520,6 +520,8 @@ import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
 import { advanceDialogState } from "@/lib/alter-morning/dialog/shadowPipeline";
 import type { DialogFocus } from "@/lib/alter-morning/dialog/types";
+// W3-PR-8 rev 3 Commit 19: DialogState v2 user-facing runtime 昇格（flag ON のみ、phase authority 不干渉）
+import { promoteDialogStateToUserFacing } from "@/lib/alter-morning/dialog/responsePromotion";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -2014,14 +2016,39 @@ export async function POST(req: NextRequest) {
               };
               // ⚠ advanced.derived は session.pendingClarify に書き戻さない
               //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
-              //   将来 commit で gate 超え後に prompt/phase と接続するまで dead。
-              void advanced.derived;
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // W3-PR-8 rev 3 commit 19: user-facing runtime 昇格
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // CEO 方針（2026-04-22 commit 19）:
+              //   1. flag ON 時だけ DialogState → derive を実質問生成に使う
+              //   2. same broad question 繰り返しを narrower step / slot switch /
+              //      provider recovery で user-facing に解消する
+              //      （分岐は derive 側で決定済み。ここは結果を反映するだけ）
+              //   3. search_handoff_blocking は internal only のまま
+              //      （derived=null になるため promote は legacy を維持する）
+              //   4. plan_presented には上げない
+              //      （promote は response.phase !== "clarifying" なら非昇格）
+              //   5. phase authority 変更禁止
+              //      （promote は phase / plan / personalizeHints を触らない）
+              //
+              // 禁止事項:
+              //   - PR-9 Places search 呼び出し
+              //   - 「近くのお店で探そうか？」の user-facing 開放
+              //   - phase authority (hasBlockingUnresolvedSlots) の変更
+              //   - session.pendingClarify 書き戻し
+              const beforePromoteMessage = morningResponse.message;
+              morningResponse = promoteDialogStateToUserFacing({
+                response: morningResponse,
+                derived: advanced.derived,
+              });
+              const promoted = morningResponse.message !== beforePromoteMessage;
               console.info(
                 `[dialog-state-v2:shadow] status=${advanced.nextState.conversationStatus} ` +
                   `narrowStep=${advanced.nextState.focus?.narrowStep ?? 0} ` +
                   `ready=${advanced.nextState.searchQueryDraft.readyForHandoff ? "1" : "0"} ` +
                   `derived_kind=${advanced.derived?.kind ?? "null"} ` +
-                  `phase_unchanged=${morningResponse.phase}`,
+                  `phase_unchanged=${morningResponse.phase} ` +
+                  `user_facing_promoted=${promoted ? "1" : "0"}`,
               );
             }
           } catch (err) {
