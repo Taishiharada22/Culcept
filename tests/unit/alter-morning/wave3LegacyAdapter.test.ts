@@ -11,7 +11,7 @@
  *   - session に userPrefecture/userCity/baseline 系が伝播する
  */
 
-import { describe, test, expect, beforeEach } from "vitest";
+import { describe, test, expect, beforeEach, vi } from "vitest";
 
 import {
   runMorningPipeline,
@@ -28,6 +28,10 @@ import {
   type LegacyAdapterInput,
 } from "@/lib/alter-morning/legacyAdapter";
 import { stubNarrationProvider } from "@/lib/alter-morning/expression/narration";
+
+// W3-PR-8 dialog-control: plan_presented 検証にはすべての slot が "fixed" であること
+// が必要。chain_brand は vague=blocking。固有名詞を使い utterance も一致させる。
+const TEST_UTTERANCE = "9時にサドヤでコーヒー";
 
 function mkRaw(): L1PipelineInput["raw"] {
   return {
@@ -48,9 +52,10 @@ function mkRaw(): L1PipelineInput["raw"] {
           provenance: utteranceProvenance(["9時"], "high"),
         },
         where: {
-          place_ref: "スタバ",
-          placeType: "chain_brand",
-          provenance: utteranceProvenance(["スタバ"], "high"),
+          // W3-PR-8: chain_brand は vague=blocking。exact_proper_noun で fixed に。
+          place_ref: "サドヤ",
+          placeType: "exact_proper_noun",
+          provenance: utteranceProvenance(["サドヤ"], "high"),
         },
         what: {
           activity: "コーヒー",
@@ -69,7 +74,7 @@ function mkRaw(): L1PipelineInput["raw"] {
 function mkInput(): LegacyAdapterInput {
   return {
     sessionId: "ms_test_abcd",
-    utterance: "9時にスタバでコーヒー",
+    utterance: TEST_UTTERANCE,
     userPrefecture: "東京都",
     userCity: "渋谷区",
     userHomeLabel: "自宅",
@@ -81,7 +86,7 @@ function mkInput(): LegacyAdapterInput {
 
 async function runOk(): Promise<MorningPipelineResult> {
   return runMorningPipeline(
-    { utterance: "9時にスタバでコーヒー" },
+    { utterance: TEST_UTTERANCE },
     {
       comprehension: createStubComprehensionProvider(mkRaw()),
       narration: stubNarrationProvider,
@@ -129,16 +134,27 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
     expect(response.message).toBe(pipelineResult.narration!.narration.text);
   });
 
-  test("status=comprehension_failed → phase=clarifying + plan 未定義", async () => {
-    const pipelineResult = await runFailed();
-    const { session, response } = adaptPipelineToLegacy(pipelineResult, mkInput());
+  test("status=comprehension_failed → phase=clarifying + plan 未定義（prod safe degrade）", async () => {
+    // W3-PR-8 items=0 禁則: dev/test で throw、prod のみ safe degrade
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const pipelineResult = await runFailed();
+      const { session, response } = adaptPipelineToLegacy(pipelineResult, mkInput());
 
-    expect(response.phase).toBe("clarifying");
-    expect(session.phase).toBe("clarifying");
-    expect(response.plan).toBeUndefined();
-    expect(session.plan).toBeUndefined();
-    expect(response.clarifyQuestion).toBeDefined();
-    expect(response.message.length).toBeGreaterThan(0);
+      expect(response.phase).toBe("clarifying");
+      expect(session.phase).toBe("clarifying");
+      expect(response.plan).toBeUndefined();
+      expect(session.plan).toBeUndefined();
+      expect(response.clarifyQuestion).toBeDefined();
+      expect(response.message.length).toBeGreaterThan(0);
+    } finally {
+      // @ts-expect-error
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
   });
 
   test("session に userPrefecture/userCity/baseline 系が伝播する", async () => {
@@ -160,7 +176,7 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
   test("rawInputs に発話が1件積まれる（create-only 前提）", async () => {
     const pipelineResult = await runOk();
     const { session } = adaptPipelineToLegacy(pipelineResult, mkInput());
-    expect(session.rawInputs).toEqual(["9時にスタバでコーヒー"]);
+    expect(session.rawInputs).toEqual([TEST_UTTERANCE]);
   });
 
   test("plan.date は input.today で上書きできる", async () => {
@@ -173,6 +189,8 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
   });
 
   test("when.startTime が null の event は kind=todo、fixedStart=false", async () => {
+    // W3-PR-8: timeHint のみ（startTime 無し）は whenSharpness=vague → blocking。
+    // phase=clarifying になるが plan itself は provisional で残る（plan 継続性）。
     const raw = mkRaw();
     raw.events[0].when = {
       startTime: null,
@@ -180,7 +198,7 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
       provenance: utteranceProvenance(["朝"], "medium"),
     };
     const pipelineResult = await runMorningPipeline(
-      { utterance: "朝にスタバでコーヒー" },
+      { utterance: "朝にサドヤでコーヒー" },
       {
         comprehension: createStubComprehensionProvider(raw),
         narration: stubNarrationProvider,
@@ -188,7 +206,9 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
       },
     );
     const { response } = adaptPipelineToLegacy(pipelineResult, mkInput());
-    // todo 化されて fixedStart=false
+    // 新契約: when vague → blocking → clarifying だが plan は provisional で残る
+    expect(response.phase).toBe("clarifying");
+    expect(response.plan).toBeDefined();
     const item = response.plan!.items[0];
     expect(item.kind).toBe("todo");
     expect(item.fixedStart).toBe(false);

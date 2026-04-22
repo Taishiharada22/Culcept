@@ -42,6 +42,7 @@ import {
 import type { ClarifyRequest } from "./planning/gapResolver";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { classifyWhereVague } from "./planning/whereVagueClassifier";
+import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -157,21 +158,34 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Phase 決定 — W3-PR-7 Commit 4 で再シンプル化（CEO 2026-04-22 確定）:
+ * Phase 決定 — W3-PR-8 dialog-control 修復（CEO 2026-04-22 再確定）:
  *
- *   1. status !== "ok"                       → clarifying
- *   2. gapResolution.primary_clarify != null → clarifying（clarify-first hard gate）
- *   3. else                                  → plan_presented
+ *   1. status !== "ok"                           → clarifying
+ *   2. hasBlockingUnresolvedSlots(events)        → clarifying（**正本**）
+ *   3. gapResolution.primary_clarify != null     → clarifying（二重防御）
+ *   4. else                                      → plan_presented
  *
- * 旧 safety net（narration 空 / missing_semantic_critical 二重化）は削除。
- *   - narration 空は message 決定側で deterministic fallback を使う
- *   - gapResolver が primary_clarify を正しく立てる責務を負う（sharpness 駆動）
+ * 中心原則（CEO 指示）:
+ *   「質問が消えた」と「問題が解けた」を分ける。
+ *   primary_clarify == null は UI 質問選定の結果であって、plan 昇格契約ではない。
+ *   blocking slot が実データ上解決されているかを hasBlockingUnresolvedSlots が見る。
  *
- * このシンプル化は commit 3 までで sharpness → clarifyRequest の配線が
- * 完成したことを前提にしている。
+ * 旧契約の問題:
+ *   PR-7 時点では (1)+(2 旧: primary_clarify==null) で昇格していたため、
+ *   whereClassifier が vague を provisional に倒すと primary_clarify が立たず、
+ *   「質問が立たなかっただけで plan 確定」として phase=plan_presented に昇格した
+ *   （契約違反 1 & 2 の震源）。
+ *
+ *   PR-8: blockingSlots を一次判定に据え、primary_clarify は二重防御に降格。
  */
-function decidePhase(result: MorningPipelineResult): MorningPhase {
+function decidePhase(
+  result: MorningPipelineResult,
+  effectiveEvents: ComprehensionEvent[],
+): MorningPhase {
   if (result.status !== "ok") return "clarifying";
+  // 新契約: blocking slot が残っていれば昇格しない（正本）
+  if (hasBlockingUnresolvedSlots(effectiveEvents)) return "clarifying";
+  // 二重防御: gapResolver が primary_clarify を立てていれば clarifying
   if (result.gapResolution?.primary_clarify) return "clarifying";
   return "plan_presented";
 }
@@ -406,7 +420,6 @@ export function adaptPipelineToLegacy(
   result: MorningPipelineResult,
   input: LegacyAdapterInput,
 ): LegacyAdapterOutput {
-  const phase = decidePhase(result);
   const today = input.today ?? todayYmd();
 
   // ── Events 継承（W3-PR-7 Commit 4）──
@@ -417,6 +430,9 @@ export function adaptPipelineToLegacy(
     currentEvents.length > 0
       ? currentEvents
       : input.priorPersistedEvents ?? [];
+
+  // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
+  const phase = decidePhase(result, effectiveEvents);
 
   // ── PendingClarify / persistedEvents 構築（W3-PR-7 Commit 2）──
   //   clarifying phase のときだけ pendingClarify を立てる。
@@ -491,6 +507,30 @@ export function adaptPipelineToLegacy(
       status: phase === "plan_presented" ? "confirmed" : planStatus,
       items: input.priorPlan.items.map((item) => normalizePlanItem(item)),
     };
+  }
+
+  // ── W3-PR-8: items=0 禁則の二層化（CEO 2026-04-22）──
+  //   phase=clarifying で items=0（plan が組めない / priorPlan も空）は
+  //   契約違反。dev/test では throw、prod では error log + safe degrade
+  //   （偽 plan 合成は禁止。UI 側が plan なし clarifying を描画する契約）。
+  if (phase === "clarifying") {
+    const hasPlanItems = plan != null && plan.items.length > 0;
+    if (!hasPlanItems) {
+      const msg =
+        "[legacyAdapter] contract violation: phase=clarifying with empty items";
+      const details = {
+        hasEvents: effectiveEvents.length > 0,
+        hasPriorPlan: input.priorPlan != null,
+        pipelineStatus: result.status,
+      };
+      if (process.env.NODE_ENV !== "production") {
+        throw new Error(`${msg} — ${JSON.stringify(details)}`);
+      }
+      console.error(msg, details);
+      // prod safe degrade:
+      //   plan は undefined のまま、message は非空（buildClarifyingMessage が担保）、
+      //   偽 plan 合成は禁止。UI 側が plan なし clarifying を描画する。
+    }
   }
 
   // rawInputs: sticky 時は追記、それ以外は utterance 単独

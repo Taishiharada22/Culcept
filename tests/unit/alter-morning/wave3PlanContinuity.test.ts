@@ -13,7 +13,7 @@
  *   - plan.status が 3 値（confirmed / needs_answer / provisional）で出る
  *   - decidePhase は status!=ok || primary_clarify!=null のみで判定
  */
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 
 import {
   inferredProvenance,
@@ -159,35 +159,71 @@ describe("items=0 禁則: phase=clarifying なら message は非空", () => {
     expect(response.message).toBe("朝の仕事はどのあたり？");
   });
 
-  test("comprehension_failed で primary_clarify 無し + priorPendingClarify あり → 前 question 継承", () => {
-    const priorPending: PendingClarify = {
-      event_id: "e1",
-      slot: "when",
-      kind: "specific_time",
-      scope: { timeLabel: "朝", activityLabel: "仕事", eventOrdinal: 1 },
-      question: "朝の仕事は何時頃？",
-      askedAt: new Date().toISOString(),
-      semanticMissCount: 0,
-    };
-    const result = mkFailedResult();
-    const { response } = adaptPipelineToLegacy(result, {
-      sessionId: "ms_t",
-      utterance: "（認識失敗）",
-      priorPendingClarify: priorPending,
-    });
-    expect(response.phase).toBe("clarifying");
-    expect(response.message).toBe("朝の仕事は何時頃？");
+  test("comprehension_failed で primary_clarify 無し + priorPendingClarify あり → 前 question 継承（prod safe degrade）", () => {
+    // W3-PR-8 items=0 禁則: dev/test では throw、prod のみ safe degrade。
+    // priorPlan / priorPersistedEvents 無し + failure は items=0 に陥るため prod 前提。
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error — NODE_ENV は readonly だがテスト時上書き
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const priorPending: PendingClarify = {
+        event_id: "e1",
+        slot: "when",
+        kind: "specific_time",
+        scope: { timeLabel: "朝", activityLabel: "仕事", eventOrdinal: 1 },
+        question: "朝の仕事は何時頃？",
+        askedAt: new Date().toISOString(),
+        semanticMissCount: 0,
+      };
+      const result = mkFailedResult();
+      const { response } = adaptPipelineToLegacy(result, {
+        sessionId: "ms_t",
+        utterance: "（認識失敗）",
+        priorPendingClarify: priorPending,
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.message).toBe("朝の仕事は何時頃？");
+      expect(response.plan).toBeUndefined();
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      // @ts-expect-error — restore
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
   });
 
-  test("絶対 fallback: 何も手がかりが無ければ generic", () => {
+  test("絶対 fallback: 何も手がかりが無ければ generic（prod safe degrade）", () => {
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = mkFailedResult();
+      const { response } = adaptPipelineToLegacy(result, {
+        sessionId: "ms_t",
+        utterance: "（認識失敗）",
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.message.length).toBeGreaterThan(0);
+      expect(response.message).toContain("詳しく");
+      expect(response.plan).toBeUndefined();
+    } finally {
+      // @ts-expect-error
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
+  });
+
+  test("W3-PR-8: dev/test 環境で phase=clarifying items=0 → throw", () => {
+    // NODE_ENV=test (vitest default) で throw を期待
     const result = mkFailedResult();
-    const { response } = adaptPipelineToLegacy(result, {
-      sessionId: "ms_t",
-      utterance: "（認識失敗）",
-    });
-    expect(response.phase).toBe("clarifying");
-    expect(response.message.length).toBeGreaterThan(0);
-    expect(response.message).toContain("詳しく");
+    expect(() =>
+      adaptPipelineToLegacy(result, {
+        sessionId: "ms_t",
+        utterance: "（認識失敗）",
+      }),
+    ).toThrow(/contract violation: phase=clarifying with empty items/);
   });
 });
 
@@ -281,15 +317,25 @@ describe("plan 継続性: clarifying 中も plan は消えない", () => {
     expect(response.plan!.status).toBe("provisional");
   });
 
-  test("events も priorPersistedEvents も priorPlan も無い → plan=undefined でも message は出る", () => {
-    const result = mkFailedResult();
-    const { response } = adaptPipelineToLegacy(result, {
-      sessionId: "ms_t",
-      utterance: "（認識失敗）",
-    });
-    expect(response.phase).toBe("clarifying");
-    expect(response.plan).toBeUndefined();
-    expect(response.message.length).toBeGreaterThan(0);
+  test("events も priorPersistedEvents も priorPlan も無い → plan=undefined でも message は出る（prod safe degrade）", () => {
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = mkFailedResult();
+      const { response } = adaptPipelineToLegacy(result, {
+        sessionId: "ms_t",
+        utterance: "（認識失敗）",
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.plan).toBeUndefined();
+      expect(response.message.length).toBeGreaterThan(0);
+    } finally {
+      // @ts-expect-error
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
   });
 });
 
@@ -327,12 +373,22 @@ describe("decidePhase: status!=ok || primary_clarify!=null のみで判定", () 
     expect(response.phase).toBe("plan_presented");
   });
 
-  test("status!=ok → 必ず clarifying", () => {
-    const result = mkFailedResult();
-    const { response } = adaptPipelineToLegacy(result, {
-      sessionId: "ms_t",
-      utterance: "...",
-    });
-    expect(response.phase).toBe("clarifying");
+  test("status!=ok → 必ず clarifying（prod safe degrade）", () => {
+    const orig = process.env.NODE_ENV;
+    // @ts-expect-error
+    process.env.NODE_ENV = "production";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = mkFailedResult();
+      const { response } = adaptPipelineToLegacy(result, {
+        sessionId: "ms_t",
+        utterance: "...",
+      });
+      expect(response.phase).toBe("clarifying");
+    } finally {
+      // @ts-expect-error
+      process.env.NODE_ENV = orig;
+      errSpy.mockRestore();
+    }
   });
 });

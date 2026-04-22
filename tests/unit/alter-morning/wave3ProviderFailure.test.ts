@@ -15,7 +15,7 @@
  *   5. system_miss 相当の扱い: semanticMissCount は increment されない
  *      （bind 経路の semantic_miss 2-count 破棄ポリシーを壊さない）
  */
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 
 import {
   utteranceProvenance,
@@ -76,6 +76,25 @@ function mkPending(overrides: Partial<PendingClarify> = {}): PendingClarify {
     semanticMissCount: 0,
     ...overrides,
   };
+}
+
+/**
+ * W3-PR-8 items=0 禁則: dev/test では throw、prod のみ safe degrade。
+ * provider failure テストの多くは priorPlan/priorPersistedEvents を渡さずに
+ * `items=0` パスを踏むため、NODE_ENV=production でのみ検証する。
+ */
+function withProdEnv<T>(fn: () => T): T {
+  const orig = process.env.NODE_ENV;
+  // @ts-expect-error — NODE_ENV は readonly だがテスト時上書き
+  process.env.NODE_ENV = "production";
+  const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    return fn();
+  } finally {
+    // @ts-expect-error
+    process.env.NODE_ENV = orig;
+    errSpy.mockRestore();
+  }
 }
 
 function mkPlan(overrides: Partial<MorningPlan> = {}): MorningPlan {
@@ -163,14 +182,16 @@ describe("provider failure 吸収: plan は消えない", () => {
     expect(response.plan!.status).not.toBe("confirmed");
   });
 
-  test("prior 何も無ければ plan は undefined でも会話は壊れない", () => {
-    const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
+  test("prior 何も無ければ plan は undefined でも会話は壊れない（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.plan).toBeUndefined();
+      expect(response.message.length).toBeGreaterThan(0);
     });
-    expect(response.phase).toBe("clarifying");
-    expect(response.plan).toBeUndefined();
-    expect(response.message.length).toBeGreaterThan(0);
   });
 });
 
@@ -179,29 +200,33 @@ describe("provider failure 吸収: plan は消えない", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("provider failure 吸収: pendingClarify が維持される", () => {
-  test("priorPendingClarify はそのまま session.pendingClarify に継承", () => {
-    const prior = mkPending();
-    const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
-      priorPendingClarify: prior,
+  test("priorPendingClarify はそのまま session.pendingClarify に継承（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const prior = mkPending();
+      const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+        priorPendingClarify: prior,
+      });
+      expect(session.pendingClarify).not.toBeNull();
+      expect(session.pendingClarify?.event_id).toBe(prior.event_id);
+      expect(session.pendingClarify?.slot).toBe(prior.slot);
+      expect(session.pendingClarify?.question).toBe(prior.question);
     });
-    expect(session.pendingClarify).not.toBeNull();
-    expect(session.pendingClarify?.event_id).toBe(prior.event_id);
-    expect(session.pendingClarify?.slot).toBe(prior.slot);
-    expect(session.pendingClarify?.question).toBe(prior.question);
   });
 
-  test("failure 時に semanticMissCount は increment されない（system_miss 相当）", () => {
+  test("failure 時に semanticMissCount は increment されない（system_miss 相当、prod safe degrade）", () => {
     // semantic_miss の 2-count 破棄ポリシーは bind 経路の責務。
     // provider throw では counter を触らない（会話を殺さない）。
-    const prior = mkPending({ semanticMissCount: 1 });
-    const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
-      priorPendingClarify: prior,
+    withProdEnv(() => {
+      const prior = mkPending({ semanticMissCount: 1 });
+      const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+        priorPendingClarify: prior,
+      });
+      expect(session.pendingClarify?.semanticMissCount).toBe(1);
     });
-    expect(session.pendingClarify?.semanticMissCount).toBe(1);
   });
 });
 
@@ -210,38 +235,44 @@ describe("provider failure 吸収: pendingClarify が維持される", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("provider failure 吸収: phase=clarifying + question 非空", () => {
-  test("priorPending がある → その question を再提示", () => {
-    const prior = mkPending({ question: "朝の仕事はどのあたり？" });
-    const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
-      priorPendingClarify: prior,
+  test("priorPending がある → その question を再提示（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const prior = mkPending({ question: "朝の仕事はどのあたり？" });
+      const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+        priorPendingClarify: prior,
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.message).toBe("朝の仕事はどのあたり？");
+      expect(response.clarifyQuestion).toBe("朝の仕事はどのあたり？");
     });
-    expect(response.phase).toBe("clarifying");
-    expect(response.message).toBe("朝の仕事はどのあたり？");
-    expect(response.clarifyQuestion).toBe("朝の仕事はどのあたり？");
   });
 
-  test("priorPending 無しでも phase=clarifying で message は非空", () => {
-    const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
+  test("priorPending 無しでも phase=clarifying で message は非空（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.message.length).toBeGreaterThan(0);
+      expect(response.clarifyQuestion).toBeDefined();
+      expect(response.clarifyQuestion!.length).toBeGreaterThan(0);
     });
-    expect(response.phase).toBe("clarifying");
-    expect(response.message.length).toBeGreaterThan(0);
-    expect(response.clarifyQuestion).toBeDefined();
-    expect(response.clarifyQuestion!.length).toBeGreaterThan(0);
   });
 
-  test("priorPending.question が空文字でも最終 fallback で埋まる", () => {
-    const prior = mkPending({ question: "   " });
-    const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
-      priorPendingClarify: prior,
+  test("priorPending.question が空文字でも最終 fallback で埋まる（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const prior = mkPending({ question: "   " });
+      const { response } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+        priorPendingClarify: prior,
+      });
+      expect(response.phase).toBe("clarifying");
+      expect(response.message.trim().length).toBeGreaterThan(0);
     });
-    expect(response.phase).toBe("clarifying");
-    expect(response.message.trim().length).toBeGreaterThan(0);
   });
 });
 
@@ -250,13 +281,15 @@ describe("provider failure 吸収: phase=clarifying + question 非空", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("provider failure 吸収: sticky session 前ターン状態継承", () => {
-  test("rawInputs は priorRawInputs + 今ターン utterance で追記される", () => {
-    const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "9時オフィス",
-      priorRawInputs: ["朝カフェ"],
+  test("rawInputs は priorRawInputs + 今ターン utterance で追記される（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "9時オフィス",
+        priorRawInputs: ["朝カフェ"],
+      });
+      expect(session.rawInputs).toEqual(["朝カフェ", "9時オフィス"]);
     });
-    expect(session.rawInputs).toEqual(["朝カフェ", "9時オフィス"]);
   });
 
   test("priorPersistedEvents + priorPendingClarify + priorPlan 全部揃って継承", () => {
@@ -287,20 +320,22 @@ describe("provider failure 吸収: sticky session 前ターン状態継承", () 
     expect(response.message).toBe(prior.question);
   });
 
-  test("user 固有属性（prefecture / home）も session に引き継がれる", () => {
-    const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
-      sessionId: "ms_pf",
-      utterance: "（provider throw）",
-      userPrefecture: "東京都",
-      userCity: "渋谷区",
-      userHomeLabel: "自宅",
-      userHomeLat: 35.658,
-      userHomeLng: 139.701,
+  test("user 固有属性（prefecture / home）も session に引き継がれる（prod safe degrade）", () => {
+    withProdEnv(() => {
+      const { session } = adaptPipelineToLegacy(buildFailedPipelineResult(), {
+        sessionId: "ms_pf",
+        utterance: "（provider throw）",
+        userPrefecture: "東京都",
+        userCity: "渋谷区",
+        userHomeLabel: "自宅",
+        userHomeLat: 35.658,
+        userHomeLng: 139.701,
+      });
+      expect(session.userPrefecture).toBe("東京都");
+      expect(session.userCity).toBe("渋谷区");
+      expect(session.userHomeLabel).toBe("自宅");
+      expect(session.userHomeLat).toBe(35.658);
+      expect(session.userHomeLng).toBe(139.701);
     });
-    expect(session.userPrefecture).toBe("東京都");
-    expect(session.userCity).toBe("渋谷区");
-    expect(session.userHomeLabel).toBe("自宅");
-    expect(session.userHomeLat).toBe(35.658);
-    expect(session.userHomeLng).toBe(139.701);
   });
 });
