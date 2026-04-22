@@ -35,7 +35,6 @@
  */
 
 import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
-import { NARROW_STEP_BY_SUBKIND } from "./taxonomy";
 import type {
   CapturedHistoryEntry,
   ConversationStatus,
@@ -162,58 +161,105 @@ function buildSearchQueryDraft(params: {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// narrowStep 遷移（CEO invariant #1: 逆行禁止）
+// narrowStep 遷移（CEO invariant #1: 逆行禁止、detail §1.2 table）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 新 narrowStep を決定する。focus 継続中は単調増加のみ許可。
- * focus が切り替わった時（event_id or slot 変更）は 0 リセット許可。
+ * 累積 draft から narrowStep を derive する（detail §1.2 table 準拠）。
  *
- * @throws focus 継続中に逆行しようとした場合
+ * 読み方（detail §1.2 Step 2 table、commit 18 で reducer を寄せ直した版）:
+ *   - draft に chainToken か categoryToken が載っている → step=2
+ *   - draft に anchorRegion のみ載っている → step=1
+ *   - どれも載っていない → step=0
+ *
+ * これにより:
+ *   - anchor_alone → chain_alone の 2 ターン合成で 1 → **2** に lift する
+ *     （§11.1 T3 シナリオ A を成立させる、rev 3 の本質）
+ *   - 「0 → 2」初回短絡（§11.4 D, §2.10.2）も同式で自然に成立
+ *     （chain_alone 初回: anchor=null だが chain 載る → step=2）
+ *
+ * proper_noun_specific / baseline は draft を更新しない terminal なので、
+ * 別経路（TURN_CAPTURED handler 側）で narrowStep=3 を直接セットする。
+ */
+function deriveNarrowStepFromDraft(draft: SearchQueryDraft): 0 | 1 | 2 {
+  if (draft.chainToken !== null || draft.categoryToken !== null) {
+    return 2;
+  }
+  if (draft.anchorRegion !== null) {
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * 新 narrowStep を決定する（focus 継続中は単調増加のみ許可）。
+ *
+ * アルゴリズム（detail §1.2 準拠、commit 18 rewrite）:
+ *   1. where 以外の slot → 0 固定（narrowStep は where 専用）
+ *   2. proper_noun_specific / baseline → 3（terminal、draft 非更新）
+ *   3. focus 継続 + progressDelta="regressed" → prev - 1（下限 0）
+ *   4. それ以外 → deriveNarrowStepFromDraft(newDraft) を基準に、
+ *      focus 継続中は max(prev, derived) で単調増加保証
+ *
+ * @param newDraft TURN_CAPTURED で更新 **済み** の searchQueryDraft
+ *                 （chain/category 排他処理後、buildSearchQueryDraft の出力）
+ * @throws focus 継続中に逆行しようとした場合（defensive、draft は accumulate のみなので通常到達不能）
  */
 function nextNarrowStep(params: {
   prevFocus: DialogFocus | null;
   newFocus: DialogFocus;
-  /** NARROW_STEP_BY_SUBKIND から引いた subKind 固有の step */
-  subKindStep: 0 | 1 | 2 | 3;
-  /** where 以外の slot は常に 0 */
+  newDraft: SearchQueryDraft;
+  capture: NormalizedCapture;
   isWhereSlot: boolean;
-  /** progressDelta が "regressed" の場合、narrowStep を一段下げる許容があるか */
   progressDelta: ProgressDelta;
 }): 0 | 1 | 2 | 3 {
-  const { prevFocus, newFocus, subKindStep, isWhereSlot, progressDelta } = params;
+  const { prevFocus, newFocus, newDraft, capture, isWhereSlot, progressDelta } =
+    params;
 
   // where 以外の slot は 0 固定
   if (!isWhereSlot) {
     return 0;
   }
 
-  // focus 切替検出（event_id or slot 変更）→ 0 から再開
+  // terminal subKind: draft 非更新で直接 step=3 に飛ぶ
+  //   proper_noun_specific: 「サドヤ」等、slot 確定（stable 行き）
+  //   baseline: 「自宅」「オフィス」等、Layer 1 resolver 経由で確定
+  if (
+    capture.subKind === "proper_noun_specific" ||
+    capture.subKind === "baseline"
+  ) {
+    return 3;
+  }
+
   const focusChanged =
     !prevFocus ||
     prevFocus.event_id !== newFocus.event_id ||
     prevFocus.slot !== newFocus.slot;
 
-  if (focusChanged) {
-    // 切替直後でも subKind が terminal (3) or blocking (2) なら直接飛ぶ許容
-    return subKindStep;
-  }
-
-  const prevStep = prevFocus.narrowStep;
-
   // CEO invariant #1: 逆行禁止（progressDelta="regressed" のみ例外的に -1 許容）
-  if (progressDelta === "regressed") {
-    // 前の情報を否定する発話（例: 「あ、甲府じゃなくてわかんない」）
-    // narrowStep を一段戻す（下限 0）。
+  //   focus 継続中のみ適用（focus 切替後の「前の step」は新 focus に無意味）。
+  //   現状 classifyUtterance は subKind="regressed" を返さないため、
+  //   この枝は将来の否定発話分類用の reserve。
+  if (progressDelta === "regressed" && !focusChanged) {
+    const prevStep = prevFocus.narrowStep;
     const regressedStep = Math.max(0, prevStep - 1);
     return regressedStep as 0 | 1 | 2 | 3;
   }
 
-  // 同一 focus 継続中は max(prevStep, subKindStep) = 前進 or 維持のみ
-  const nextStep = Math.max(prevStep, subKindStep) as 0 | 1 | 2 | 3;
+  const derivedStep = deriveNarrowStepFromDraft(newDraft);
+
+  // focus 切替時は monotonic 検証なし（新 focus に対しては prev step は無意味）。
+  //   draft は event 切替で reset、slot 切替では保持なので、
+  //   derivedStep が slot_switching 後の where 復帰時に 2 まで復元される（§11.1 T4）。
+  if (focusChanged) {
+    return derivedStep;
+  }
+
+  const prevStep = prevFocus.narrowStep;
+  const nextStep = Math.max(prevStep, derivedStep) as 0 | 1 | 2 | 3;
 
   if (nextStep < prevStep) {
-    // 定義上到達不能だが defensive
+    // draft が accumulate-only である限り到達不能だが defensive
     throw new Error(
       `[DialogReducer] narrowStep regression detected: ${prevStep} → ${nextStep} ` +
         `(focus=${newFocus.event_id}/${newFocus.slot}). ` +
@@ -380,36 +426,29 @@ function handleTurnCaptured(
   const newFocus: DialogFocus = {
     event_id: action.targetEventId,
     slot: action.targetSlot,
-    // narrowStep は Step 3 で埋める。ここでは仮値 0。
+    // narrowStep は Step 4 で埋める。ここでは仮値 0。
     narrowStep: 0,
   };
 
   const isWhereSlot = action.targetSlot === "where";
 
-  // Step 2: progressDelta 計算
+  // Step 2: progressDelta 計算（priorDraft vs 今 capture）
   const progressDelta = computeProgressDelta({
     priorDraft: prev.searchQueryDraft,
     capture: action.capture,
     isWhereSlot,
   });
 
-  // Step 3: narrowStep 遷移
-  const subKindStep = NARROW_STEP_BY_SUBKIND[action.capture.subKind];
-  const newNarrowStep = nextNarrowStep({
-    prevFocus: prev.focus,
-    newFocus,
-    subKindStep,
-    isWhereSlot,
-    progressDelta,
-  });
-  newFocus.narrowStep = newNarrowStep;
-
-  // Step 4: searchQueryDraft 更新（chain ↔ category 相互排他処理）
+  // Step 3: searchQueryDraft 更新（chain ↔ category 相互排他処理）
   //   ルール（detail §1.4）:
   //     - chain 確定 → category を null に上書き（chain がより specific）
   //     - category 確定（chain なし）→ chain はそのまま（元の chain が残る）
   //     - anchor 確定 → anchor のみ更新
   //   where 以外の slot では draft を触らない。
+  //
+  //   ⚠ commit 18 で Step 4 (narrowStep) の前に移動:
+  //     narrowStep を「累積 newDraft から derive」する実装に寄せたため、
+  //     先に draft を確定させる必要がある。
   let newDraft: SearchQueryDraft;
   if (isWhereSlot) {
     let nextAnchor = prev.searchQueryDraft.anchorRegion;
@@ -450,6 +489,19 @@ function handleTurnCaptured(
     // where 以外では draft を触らない（前状態をそのまま保持）
     newDraft = prev.searchQueryDraft;
   }
+
+  // Step 4: narrowStep 遷移（detail §1.2 table: newDraft から derive）
+  //   commit 18 で subKindStep lookup から「累積 draft 依存」に寄せた。
+  //   anchor → chain / category の multi-turn 合成が step=2 に lift する。
+  const newNarrowStep = nextNarrowStep({
+    prevFocus: prev.focus,
+    newFocus,
+    newDraft,
+    capture: action.capture,
+    isWhereSlot,
+    progressDelta,
+  });
+  newFocus.narrowStep = newNarrowStep;
 
   // Step 5: readyForHandoff は buildSearchQueryDraft 内で derive 済み
   //   （直接代入経路なし、CEO invariant #4 遵守）

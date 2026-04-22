@@ -117,7 +117,12 @@ describe("TURN_CAPTURED — subKind 別の narrowStep", () => {
     expect(s1.conversationStatus).toBe("search_handoff_blocking");
   });
 
-  it("chain_alone → narrowStep=1 + narrowing（anchor 追加聴取待ち）", () => {
+  it("chain_alone（初回、anchor なし） → narrowStep=2 + narrowing（detail §1.2 table 0→2、§11.4 D 初回短絡）", () => {
+    // 設計書 §1.2 Step 2 table row "0 → 2: (chainAdvanced || categoryAdvanced)" に従い、
+    // chain_alone が初回 captured で anchor なしでも narrowStep=2 に直行する（1 スキップ）。
+    // readyForHandoff は anchor 必須なので false（§11.4 D T1）。
+    // → conversationStatus は narrowing（step=2 && !readyForHandoff、derivePending は where_pinpoint で
+    //    「スタバね。どのあたりのスタバ？」と anchor を追加聴取する）。
     const s0 = createInitialDialogState();
     const s1 = dialogReducer(
       s0,
@@ -129,8 +134,9 @@ describe("TURN_CAPTURED — subKind 別の narrowStep", () => {
         }),
       }),
     );
-    expect(s1.focus?.narrowStep).toBe(1);
+    expect(s1.focus?.narrowStep).toBe(2);
     expect(s1.searchQueryDraft.anchorRegion).toBeNull();
+    expect(s1.searchQueryDraft.chainToken).toBe("スタバ");
     expect(s1.searchQueryDraft.readyForHandoff).toBe(false);
     expect(s1.conversationStatus).toBe("narrowing");
   });

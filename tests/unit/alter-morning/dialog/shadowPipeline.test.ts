@@ -144,11 +144,16 @@ describe("§2 classify → reducer → derive の一気通貫", () => {
     expect(result.nextState.searchQueryDraft.readyForHandoff).toBe(false);
   });
 
-  it("capturedHistory が append-only で進む（複数ターン通算で readyForHandoff に到達）", () => {
+  it("§11.1 シナリオ A T3: 「甲府」→「スタバ」で narrowStep=1→2 に lift、search_handoff_blocking 到達", () => {
+    // rev 3 の本質（commit 18 で reducer を設計書に寄せ直した挙動）:
+    //   anchor_alone → chain_alone の 2 ターン合成で narrowStep が 1 → 2 に lift し、
+    //   readyForHandoff=true と合わさって search_handoff_blocking に到達する。
+    //   derivePendingClarify は search_handoff_blocking@where では null を返すため、
+    //   user-facing には「同じ甲府のどこ？」が出続けない（rev 3 ゴール）。
     let state = createInitialDialogState();
     const events = [mkEvent({ event_id: "event_1" })];
 
-    // T1: 「甲府」= anchor_alone → narrowStep=1, anchor 確定
+    // T1: 「甲府」= anchor_alone → newDraft={anchor:"甲府"}、deriveFromDraft=1
     state = advanceDialogState({
       prevState: state,
       message: "甲府",
@@ -161,9 +166,10 @@ describe("§2 classify → reducer → derive の一気通貫", () => {
     expect(state.capturedHistory).toHaveLength(1);
     expect(state.focus?.narrowStep).toBe(1);
     expect(state.searchQueryDraft.anchorRegion).toBe("甲府");
+    expect(state.searchQueryDraft.readyForHandoff).toBe(false);
 
-    // T2: 「スタバ」= chain_alone → narrowStep=1 維持（subKindStep=1）
-    //   但し anchor+chain が揃い readyForHandoff=true（reducer CEO invariant #4 の通り derive）
+    // T2: 「スタバ」= chain_alone → newDraft={anchor:"甲府", chain:"スタバ"}、deriveFromDraft=2
+    //   §1.2 table row "1 → 2: chainAdvanced || categoryAdvanced" に従う lift。
     state = advanceDialogState({
       prevState: state,
       message: "スタバ",
@@ -174,15 +180,16 @@ describe("§2 classify → reducer → derive の一気通貫", () => {
       nowIso: NOW_ISO,
     }).nextState;
     expect(state.capturedHistory).toHaveLength(2);
+    expect(state.focus?.narrowStep).toBe(2); // ★ lift: 1 → 2
     expect(state.searchQueryDraft.chainToken).toBe("スタバ");
     expect(state.searchQueryDraft.readyForHandoff).toBe(true);
-    // conversationStatus は narrowStep=2 に未到達なので narrowing 維持
-    //   （commit 14 reducer 仕様: search_handoff_blocking は narrowStep=2 条件付き）
-    expect(state.conversationStatus).toBe("narrowing");
+    // narrowStep=2 && readyForHandoff=true → search_handoff_blocking（§1.2 Step 7(c)）
+    expect(state.conversationStatus).toBe("search_handoff_blocking");
   });
 
-  it("anchor+chain 単発発話は narrowStep=2 + search_handoff_blocking 到達", () => {
-    // 単一ターンの chain_with_anchor は NARROW_STEP_BY_SUBKIND=2 で直行。
+  it("anchor+chain 単発発話も narrowStep=2 + search_handoff_blocking（single-turn でも T3 と同じ着地）", () => {
+    // 単一ターンの chain_with_anchor は draft に anchor+chain 両方が載るため、
+    // deriveFromDraft=2 で multi-turn 合成と同じ着地点に至る（§1.2 table row 0→2）。
     const state = advanceDialogState({
       prevState: createInitialDialogState(),
       message: "甲府のスタバ",

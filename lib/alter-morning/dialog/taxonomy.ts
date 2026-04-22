@@ -516,15 +516,25 @@ export function classifyUtterance(rawSpan: string): NormalizedCapture {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// subKind → narrowStep 遷移ヒント（reducer が使う参照表）
+// subKind → narrowStep 「粒度ヒント」参照表（reducer 非依存、legacy reference）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * reducer が narrowStep を決めるときの参照。
- * detail §1.2 表を const map にしたもの。
+ * subKind ごとの「情報量の目安」を示す参照表。
  *
- * 読み方: 「focus.slot='where' かつ subKind='chain_with_anchor' なら narrowStep=2 に直接進む」
- * proper_noun / baseline は narrowStep=3 (terminal) に飛ばして slot 確定へ。
+ * ⚠ commit 18 以降、reducer は本表を直接は参照しない。
+ *   narrowStep は累積 searchQueryDraft の (anchor / chain / category) 有無から
+ *   直接 derive される（§1.2 table 準拠、`deriveNarrowStepFromDraft` in reducer.ts）。
+ *   これは §11.1 T3 の multi-turn lift
+ *   （anchor_alone→chain_alone の 2 ターン合成で 1→2 lift）を成立させるため。
+ *
+ * 本表は以下の用途で残している:
+ *   1. 設計書 §1.2 の subKind 粒度感を文書として追跡する（読む人の mental model）
+ *   2. 将来的に classify 層が signal を出す際の目安として参照
+ *   3. taxonomy 単体テストで「10 subKind 全カバー」の機械検証
+ *
+ * 読み方: 「focus.slot='where' かつ subKind='chain_with_anchor' なら粒度感は 2 相当」
+ * proper_noun / baseline は粒度 3（terminal）。
  */
 export const NARROW_STEP_BY_SUBKIND: Readonly<
   Record<CaptureSubKind, 0 | 1 | 2 | 3>
