@@ -526,6 +526,10 @@ import { promoteDialogStateToUserFacing } from "@/lib/alter-morning/dialog/respo
 //   Branch B 再 comprehension が毎 turn 新 event_id を採番することによる
 //   reducer.eventChanged 誤発火 → draft reset → narrowStep 逆行 を止める。
 import { selectShadowTargetEventId } from "@/lib/alter-morning/dialog/shadowTargetEventId";
+// W3-PR-8 rev 3 Commit 23: phase=clarifying && items=0 の user 画面直前 gate
+//   「同文 verbatim 再提示」「undecided ループ停滞」「semantic_miss 後の無為な再質問」を
+//   世界観に沿った短い rephrase に差し替える pure helper。plan.items は触らない。
+import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyFallback";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1764,6 +1768,12 @@ export async function POST(req: NextRequest) {
           hasExistingMorningSession &&
           rawMorningSession?.pipelineVersion === "v2";
         const useV2 = v2Enabled && (isNewSession || isStickyV2);
+        // W3-PR-8 rev 3 commit 23: bindReason / priorPending.question を shadow 後の
+        //   clarifyFallback gate（L2133+）から読むため、try/catch より外側に hoist する。
+        //   以前は try の内側で let 宣言していたため、gate 側で scope に居なかった。
+        //   hoist に伴う「未初期化 read」はなく、gate 側で null を明示的に判定する。
+        let bindReasonOuter: string | null = null;
+        let priorQuestionOuter: string | null = null;
         if (useV2) {
           try {
             // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
@@ -1777,6 +1787,7 @@ export async function POST(req: NextRequest) {
               priorPending != null &&
               Array.isArray(priorPersistedEvents) &&
               priorPersistedEvents.length > 0;
+            priorQuestionOuter = priorPending?.question ?? null;
 
             let usedBindPath = false;
             let bindReason: string | null = null;
@@ -1787,6 +1798,8 @@ export async function POST(req: NextRequest) {
                 message,
               );
               bindReason = bindResult.reason;
+              // commit 23: shadow 後の clarifyFallback gate に渡すため outer にも反映
+              bindReasonOuter = bindResult.reason;
               if (bindResult.bound) {
                 usedBindPath = true;
                 const priorInputs = rawMorningSession?.rawInputs ?? [];
@@ -2128,6 +2141,81 @@ export async function POST(req: NextRequest) {
             // 応答を壊さず warn 止まり。CEO 条件「flag OFF baseline 不変」の保護と、
             // flag ON が user 画面まで刺さない dead-code 前提を両立する。
             console.warn(`[dialog-state-v2:shadow] error`, err);
+          }
+
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // W3-PR-8 rev 3 commit 23: phase=clarifying && items=0 gate
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // CEO 方針（2026-04-22 commit 23 条件）:
+          //   1. phase authority (= hasBlockingUnresolvedSlots) は変更しない
+          //      → message / clarifyQuestion のみ差し替える。plan.items は触らない。
+          //   2. 世界観保持（短く柔らかく断定しない）
+          //      → 差し替えメッセージは helper が世界観準拠で生成
+          //   3. S5（正常 chain 応答）/ S6（plan_presented）では不介入
+          //      → 条件は (a) phase=clarifying (b) items=0 の AND
+          //   4. shadow pipeline 失敗時でも user-facing は壊さない
+          //      → try/catch で fail-open、例外時は legacy message を維持
+          //
+          // 呼び出し契機:
+          //   phase=clarifying && plan.items.length=0 の時のみ helper に問い合わせ、
+          //   helper が「差し替えるべき」と返したケースで message / clarifyQuestion を
+          //   書き換える。phase / plan / personalizeHints は不変。
+          //
+          // 禁止事項:
+          //   - morningSession の書き換え（dialogState / pendingClarify 双方）
+          //   - plan.items の fabrication
+          //   - phase の書き換え
+          //   - LLM / DB / Places API 呼び出し
+          try {
+            const itemCount = morningResponse.plan?.items?.length ?? 0;
+            const shouldGate =
+              morningResponse.phase === "clarifying" && itemCount === 0;
+            if (shouldGate) {
+              // shadow block で更新済みの draft を優先参照（commit 22 で narrowStep
+              // 逆行を止めた後の「今 turn の draft」が最新）。dialogState が未通過の
+              // fallback 時は null になり、helper 側が A4 empty_draft に落ちる。
+              const draft =
+                morningSession?.dialogState?.searchQueryDraft ?? null;
+              const rawSlot = morningSession?.pendingClarify?.slot ?? "where";
+              const gateTargetSlot: "where" | "when" | "what" | null =
+                rawSlot === "where" || rawSlot === "when" || rawSlot === "what"
+                  ? rawSlot
+                  : null;
+              const fallback = selectClarifyFallback({
+                utterance: typeof message === "string" ? message : "",
+                draft,
+                targetSlot: gateTargetSlot,
+                priorQuestion: priorQuestionOuter,
+                bindReason: bindReasonOuter,
+                currentMessage: morningResponse.message ?? "",
+              });
+              if (fallback.shouldReplace && fallback.nextMessage !== null) {
+                const before = morningResponse.message;
+                morningResponse = {
+                  ...morningResponse,
+                  message: fallback.nextMessage,
+                  clarifyQuestion: fallback.nextMessage,
+                };
+                console.info(
+                  `[dialog-state-v2:clarifyFallback] reason=${fallback.reason} ` +
+                    `draft_anchor=${draft?.anchorRegion ?? "null"} ` +
+                    `draft_spec=${draft?.chainToken ?? draft?.categoryToken ?? "null"} ` +
+                    `bindReason=${bindReasonOuter ?? "null"} ` +
+                    `replaced=1 before_len=${before?.length ?? 0} ` +
+                    `after_len=${fallback.nextMessage.length}`,
+                );
+              } else {
+                console.info(
+                  `[dialog-state-v2:clarifyFallback] reason=${fallback.reason} ` +
+                    `bindReason=${bindReasonOuter ?? "null"} ` +
+                    `replaced=0`,
+                );
+              }
+            }
+          } catch (err) {
+            // fail-open: gate 例外時は legacy message を維持。user 体験を壊さない。
+            console.warn(`[dialog-state-v2:clarifyFallback] error`, err);
           }
         }
 
