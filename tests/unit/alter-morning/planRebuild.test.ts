@@ -153,8 +153,11 @@ describe("buildPlanAndSegmentsFromEvents — C7 flag ON", () => {
     expect(seg.toEventId).toBe("evt_2");
     // Phase 1: mode 推定なし、mainTransport 未指定 → "unknown"
     expect(seg.mode).toBe("unknown");
-    // Phase 1: Routes API 未接続 → null
-    expect(seg.estimatedDurationMin).toBeNull();
+    // Scope A: 両端 coords が揃った pair では中立距離 heuristic で duration を埋める。
+    //   number 返り値なら durationSource="heuristic" と同期する（invariant）
+    expect(typeof seg.estimatedDurationMin).toBe("number");
+    expect(seg.durationSource).toBe("heuristic");
+    // Scope A は Routes API 非接続なので distanceM は null 継続
     expect(seg.distanceM).toBeNull();
     // mainTransport なしは "default"
     expect(seg.confidence).toBe("default");

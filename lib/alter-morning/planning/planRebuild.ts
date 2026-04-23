@@ -38,6 +38,7 @@ import type {
   WhereVagueSubKind,
 } from "../types";
 import type { TransportMode, TransportSegment } from "../transport/types";
+import { estimateNeutralDurationMin } from "../transport/durationHeuristic";
 import { classifyWhereVague } from "./whereVagueClassifier";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -132,12 +133,19 @@ function buildTransportSegments(
       // invariant: 両端座標が揃わない pair では canonical edge を捏造しない
       continue;
     }
+    // Scope A: mode 非依存の中立距離 heuristic で duration を埋める。
+    //   number → durationSource="heuristic"（両 field は必ず同期）
+    //   null   → durationSource=null（≤0.2km or invalid coords）
+    const estimatedDurationMin = estimateNeutralDurationMin(
+      from.where.coordinates!,
+      to.where.coordinates!,
+    );
     segments.push({
       fromEventId: from.event_id,
       toEventId: to.event_id,
       mode,
-      estimatedDurationMin: null,
-      durationSource: null,
+      estimatedDurationMin,
+      durationSource: estimatedDurationMin !== null ? "heuristic" : null,
       distanceM: null,
       confidence: mainTransport ? "inferred" : "default",
       source: "default_walk",
