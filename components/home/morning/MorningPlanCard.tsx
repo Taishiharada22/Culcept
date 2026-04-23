@@ -21,6 +21,7 @@ import {
   saveDurationStore,
 } from "@/lib/alter-morning/taskDurationMemory";
 import { regenerateTravelForPlan } from "@/lib/alter-morning/planning/regenerateTravelForPlan";
+import { trackTransportV2EditRegression } from "@/lib/stargazer/trackClient";
 import {
   BriefcaseBusiness, MessageCircle, UtensilsCrossed, Coffee,
   Route, BookOpen, Dumbbell, Users, ClipboardList, House,
@@ -38,6 +39,13 @@ interface MorningPlanCardProps {
   personalizeHints?: string[];
   onConfirm: (plan: MorningPlan) => void;
   onRequestChange: () => void;
+  /**
+   * W3-PR-10 canary — Alter session id 観測窓 join key。
+   * AskHero から alterSessionId を流し込み、transport_v2_edit_regression の
+   * metadata.session_id に載せる。未提供/null の場合は plan_date + user_id で近似 join。
+   * 編集イベントを emit する以外には使用しない。
+   */
+  sessionId?: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -758,6 +766,7 @@ export default function MorningPlanCard({
   personalizeHints,
   onConfirm,
   onRequestChange,
+  sessionId,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -783,6 +792,10 @@ export default function MorningPlanCard({
 
   const handleDurationChange = useCallback(
     (itemId: string, newDuration: number) => {
+      // W3-PR-10 canary — emit を setPlan の外で一度だけ fire するため
+      // reducer 内では args だけ捕まえ、reducer 多重実行（strict mode dev など）では
+      // 同じ値で上書きされるだけなので重複 emit にならない。
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         // 1. 対象アイテムの duration を更新（travel以外）
         const nonTravel = prev.items.filter(i => i.kind !== "travel").map((item) =>
@@ -799,27 +812,50 @@ export default function MorningPlanCard({
           saveDurationStore(newStore);
         }
 
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "duration_edit",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
+
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   const handleStartTimeChange = useCallback(
     (itemId: string, newTime: string) => {
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         // 時刻変更 → travel以外を更新 → 移動アイテムを再生成
         const nonTravel = prev.items.filter(i => i.kind !== "travel").map((item) =>
           item.id === itemId ? { ...item, startTime: newTime, kind: "fixed" as const, fixedStart: true } : item
         );
         const items = regenerateTravel(nonTravel, prev);
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "time_edit",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   const handleMoveUp = useCallback((itemId: string) => {
+    let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
     setPlan((prev) => {
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
@@ -828,11 +864,22 @@ export default function MorningPlanCard({
       [reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]];
       // 移動アイテムを新しい順序で再生成
       const items = regenerateTravel(reordered, prev);
+      emitArgs = {
+        canonical_present: prev.transportSegments !== undefined,
+        transport_segments_count: prev.transportSegments?.length ?? 0,
+        travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+        travel_items_after: items.filter((i) => i.kind === "travel").length,
+        edit_trigger: "reorder",
+        session_id: sessionId ?? null,
+        plan_date: prev.date,
+      };
       return { ...prev, items };
     });
-  }, [regenerateTravel]);
+    if (emitArgs) trackTransportV2EditRegression(emitArgs);
+  }, [regenerateTravel, sessionId]);
 
   const handleMoveDown = useCallback((itemId: string) => {
+    let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
     setPlan((prev) => {
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
@@ -840,9 +887,19 @@ export default function MorningPlanCard({
       const reordered = [...nonTravel];
       [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
       const items = regenerateTravel(reordered, prev);
+      emitArgs = {
+        canonical_present: prev.transportSegments !== undefined,
+        transport_segments_count: prev.transportSegments?.length ?? 0,
+        travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+        travel_items_after: items.filter((i) => i.kind === "travel").length,
+        edit_trigger: "reorder",
+        session_id: sessionId ?? null,
+        plan_date: prev.date,
+      };
       return { ...prev, items };
     });
-  }, [regenerateTravel]);
+    if (emitArgs) trackTransportV2EditRegression(emitArgs);
+  }, [regenerateTravel, sessionId]);
 
   const handleToggleComplete = useCallback((itemId: string) => {
     setPlan((prev) => ({
@@ -864,6 +921,7 @@ export default function MorningPlanCard({
    */
   const handleSelectCandidate = useCallback(
     (itemId: string, candidateIndex: number) => {
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         const target = prev.items.find((i) => i.id === itemId);
         if (!target || !target.proposedPlaceCandidates) return prev;
@@ -902,10 +960,20 @@ export default function MorningPlanCard({
           );
         // 場所が変わったので travel を再生成
         const items = regenerateTravel(nonTravel, prev);
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "place_change",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   /**
