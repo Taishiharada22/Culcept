@@ -37,6 +37,10 @@ import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
 import { buildPlanAndSegmentsFromEvents } from "./planning/planRebuild";
+import {
+  synthesizeTravelItems,
+  interleaveTravelItems,
+} from "./planning/synthesizeTravelItems";
 import { ALTER_MORNING_FLAGS } from "./dialog/flags";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -419,11 +423,36 @@ export function adaptPipelineToLegacy(
       enableTransportV2: ALTER_MORNING_FLAGS.transportV2,
     });
 
+    // ── W3-PR-10 Phase 2: travel display cache interleave ──
+    //   flag ON（built.transportSegments !== undefined）の時のみ、canonical
+    //   TransportSegment[] を display cache の travel PlanItem に射影し、
+    //   event items との間に挿入する。
+    //   flag OFF 時は built.transportSegments が key 自体不在 → 通さない。
+    //   items[] は Phase 1 と byte-diff ゼロ。
+    //
+    //   invariant:
+    //   - synthesize / interleave はいずれも pure。env / flag を読まない。
+    //   - travel の id は deterministic（travel__<from>__<to>）。
+    //   - needs_answer 上書きは event id にのみヒット（travel id は `travel__` prefix で衝突しない）。
+    let interleavedItems: PlanItem[];
+    if (built.transportSegments !== undefined) {
+      const entries = synthesizeTravelItems(
+        built.transportSegments,
+        effectiveEvents,
+      );
+      interleavedItems = interleaveTravelItems(built.items, entries);
+    } else {
+      interleavedItems = built.items;
+    }
+
     // ── W3-PR-8: needs_answer 上書き + normalize（設計書 §6.2, §3.4）──
     //   pendingClarify.event_id が指す item だけ confirmationState="needs_answer"。
     //   その後 normalizePlanItem で optional → required に狭めて UI に渡す。
+    //   travel items は id が `travel__` prefix で pendingEventId と衝突しない
+    //   ため needs_answer は通過、normalize は kind-agnostic に通る（travel item の
+    //   UI renderer は normalize 前提フィールドを参照しないため harmless）。
     const pendingEventId = pendingClarify?.event_id ?? null;
-    const items = built.items.map((item) => {
+    const items = interleavedItems.map((item) => {
       const withNeedsAnswer: PlanItem =
         pendingEventId != null && item.id === pendingEventId
           ? { ...item, confirmationState: "needs_answer" }
