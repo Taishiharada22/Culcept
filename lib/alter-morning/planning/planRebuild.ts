@@ -137,6 +137,7 @@ function buildTransportSegments(
       toEventId: to.event_id,
       mode,
       estimatedDurationMin: null,
+      durationSource: null,
       distanceM: null,
       confidence: mainTransport ? "inferred" : "default",
       source: "default_walk",

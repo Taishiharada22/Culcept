@@ -34,6 +34,25 @@ export type TransportMode =
 // TransportSegment
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * duration の出所（Scope A 2026-04-23 導入）
+ *
+ * 契約:
+ *   - `estimatedDurationMin` が number の時のみ値を持つ
+ *   - `estimatedDurationMin: null` のとき必ず null（両者の非 null / null は同期する）
+ *
+ * 各値の意味:
+ *   - "heuristic":     中立距離 heuristic（mode 非依存）由来。Scope A で使う唯一の値
+ *   - "routes_api":    Routes API 実測（Scope B で導入）
+ *   - "explicit_user": user 発話由来（parser 拡張で導入）
+ *   - "user_override": UI 上書き（per-segment override で導入）
+ */
+export type DurationSource =
+  | "heuristic"
+  | "routes_api"
+  | "explicit_user"
+  | "user_override";
+
 export interface TransportSegment {
   /** この segment の前の event */
   fromEventId: string;
@@ -43,6 +62,12 @@ export interface TransportSegment {
   mode: TransportMode;
   /** 経路推定所要時間（分）。取得不能時 null */
   estimatedDurationMin: number | null;
+  /**
+   * duration の出所（Scope A 2026-04-23）。
+   * `estimatedDurationMin` が number のときのみ値を持ち、null のときは null。
+   * 呼び出し側はこの 2 field を同期させること（invariant）。
+   */
+  durationSource: DurationSource | null;
   /** 距離（m、Routes API 由来 or 直線距離概算）。null 許容 */
   distanceM: number | null;
   /** 確定度 */

@@ -72,6 +72,7 @@ function mkSegment(opts: {
   to: string;
   mode?: TransportSegment["mode"];
   estimatedDurationMin?: number | null;
+  durationSource?: TransportSegment["durationSource"];
   confidence?: TransportSegment["confidence"];
   source?: TransportSegment["source"];
 }): TransportSegment {
@@ -80,6 +81,7 @@ function mkSegment(opts: {
     toEventId: opts.to,
     mode: opts.mode ?? "unknown",
     estimatedDurationMin: opts.estimatedDurationMin ?? null,
+    durationSource: opts.durationSource ?? null,
     distanceM: null,
     confidence: opts.confidence ?? "default",
     source: opts.source ?? "default_walk",
