@@ -13,6 +13,32 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12 完了 — live verified + main 着地 + production rollout plan + comprehension 別 issue 切り出し
+- **部門**: Build
+- **決定内容**: PR-12 の live verification 合格判定 (CEO) を受け、3 件の後続アクションを完了
+  1. **PR #28 squash merge**: main HEAD `2bf627c3 → 36b3db4e` に fast-forward 着地。3 commits 集約（reducer.ts + shadowPipeline.ts + types.ts 実装 + tests 7 本追加 + decision-log + preview redeploy trigger）
+  2. **production rollout plan 作成**: `docs/alter-morning-pr12-production-rollout-plan.md` として 4 stage 段階 rollout を明文化（S0 preview real-data → S1 allowlist 機構 PR → S2 canary → S3 global ON）。PR-12 固有の flag は追加しておらず、rollout 対象は Wave 3 全体（`ALTER_MORNING_DIALOG_STATE_V2` + `ALTER_MORNING_PLACES_SEARCH` + `GOOGLE_MAPS_API_KEY`）であることを明記
+  3. **comprehension 別 issue 切り出し**: #29 作成（"自然会話で event-scoped where clarify が 2 件目 event を pending にできない"）。PR-12 は fix path を verified したが、harness 経由でしか踏めない自然会話経路の改善は別タスクとして分離
+- **live verified 証拠（preview `dpl_7V7dgmCXtcF2Si2euH6f9Uc85DV6`, trace `a406cac691b2fd01ee0b83b7a83919af`, 2026-04-24 07:12:39 JST）**:
+  - `[dialog-state-v2:targetEventId] chosen=event_2_harness eventChanged=1 reason=prev_phase_not_clarifying_plan_presented`
+  - `[dialog-state-v2:shadow] status=search_handoff_blocking narrowStep=2 ready=1`
+  - `[places-handoff:provider_failure] fp=pf:v1|a=新宿|ch=マック|cat=-`
+  - fingerprint `a=新宿|ch=マック` が seedCapture→reducer→draft→orchestrator 連鎖の直接証拠
+  - `provider_failure: api_key_missing` は preview env の `GOOGLE_MAPS_API_KEY` 未設定（infra 事象）で PR-12 機能 blocker ではない
+- **CEO 判断事項（rollout plan に記載）**:
+  - B1: Stage 1 (allowlist 機構追加 PR) を実施するか、Minimum Path で直接 global ON か
+  - B2: `GOOGLE_MAPS_API_KEY` の preview / production 投入タイミング（外部 API key、CEO 承認事項）
+  - B3: Stage 2 の内部協力者 3 名指名
+  - B4: KPI 観測の永続化スキーマ
+- **判断待ち事項のうち CEO 即答方針で確定**:
+  - "本番 flag ON は段階的に" → Stage 1 (allowlist) 経由の推奨 path を plan 第一案に据える
+  - "main-baseline は不要" → before 相当の main-preview 実行は skip
+  - "comprehension は別タスク" → #29 として分離
+- **承認**: CEO（live verification 合格 + 3 件アクション承認 2026-04-24）
+- **ステータス**: 実行済（merge / plan / issue 3 件完了）
+- **次の CEO 判断事項**: B1 (Stage 1 allowlist PR の要否)、B2 (API key 投入)
+
+---
 ### 2026-04-24 W3-PR-12 Step 1 診断 — 2 件目 event handoff `status_not_handoff` 真因確定 + 実装計画承認
 - **部門**: Build
 - **決定内容**: PR-11 Preview 実機検証で観測された「2 件目 event の `places-handoff:skip_gate status_not_handoff`」事象について Step 1 診断を実施し、CEO 補正 2 回を経て根本原因 H1 を確定、最小根治の実装計画（shadowPipeline.ts / reducer.ts / types.ts 改修 + unit test 7 本）を CEO 承認
