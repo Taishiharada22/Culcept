@@ -205,6 +205,40 @@ GPT 分析 + CEO 最終承認を受け、同 branch に dialog-control 修復 co
 - 核感情: **納得感**
 - 逸脱は CEO 承認を要する
 
+### W3-PR-10 — Transport Staircase（Phase 1 + Phase 2）✅
+**Phase 1（2026-04-22 前後 merge, PR #20）**: canonical edge model 導入。`TransportSegment[]` を domain truth として生成、flag OFF では byte-diff ゼロ。
+**Phase 2（2026-04-23 完了, 本 branch）**: canonical segments を Path A の `PlanItem(kind="travel")` display cache として UI に再生成。
+
+#### Phase 2 コミット構成
+- **C1 (`c8914ea4`)**: display-first 監査 — R1=false 確認（builder に travel synthesis を混ぜない前提が崩れていないこと）
+- **C2 (`56082721`)**: `synthesizeTravelItems(segments, events)` + `interleaveTravelItems(items, entries)` pure fn + 20 tests
+- **C3a (`eca2f7bb`)**: `legacyAdapter` に travel interleave 接続（Path A extract）+ 5 tests
+- **C3b (`578dcd2c`)**: `/api/stargazer/alter/selection` route に travel interleave 接続（Path A rebuild）+ 既存 selectionEndpoint test の items[] 期待値更新
+
+#### Phase 2 核判断（CEO 承認範囲内）
+- **Path A only / Path B 非接触**: 既存 `processMorningMessage` 経路は一切触らない
+- **builder に travel synthesis を入れない**: `buildPlanAndSegmentsFromEvents` の T2 原則を守り、synthesize を独立 pure fn として切り出し
+- **interleave は call-site 責務**: synthesize は entry pair を返すだけ。PlanItem[] 挿入は legacyAdapter / selection route 側
+- **id parse しない**: `SynthesizedTravelEntry { afterEventId, item }` で side-channel、event_id に `__` が含まれても事故らない
+- **deterministic id**: `travel__<fromEventId>__<toEventId>` (double underscore prefix で既存 `travel_` と machine-distinguishable)
+- **flag OFF 完全不変**: `built.transportSegments !== undefined` だけを gate に使い、flag OFF では Phase 1 と byte-diff ゼロ
+- **schema 変更なし**: 新規 field / 新規 key 追加ゼロ
+
+#### 非スコープ（今回やらない、明示的に残す）
+- client `regenerateTravel` の id 揺れ解消（Phase 3 以降）
+- Path B (`processMorningMessage`) / persisted travel item との統合（Phase 3 以降）
+- Routes API による実 duration / distance 計算（`durationMin = estimatedDurationMin ?? 0`）
+- mode 推定（segment.mode をそのまま使用）
+
+#### テスト
+- `synthesizeTravelItems.test.ts`: 20/20 PASS
+- `legacyAdapterTransportPhase2.test.ts`: 5/5 PASS
+- `selectionEndpoint.test.ts`: 15/15 PASS（flag ON Path A 期待値 2→3 更新 = CEO 承認範囲内）
+- alter-morning 全体: 1767/1767 PASS
+- tsc: 影響範囲 clean
+
+**次**: Phase 3（Routes API 連携 / client regenerateTravel id 統合 / Path B 統合）は CEO 判断待ち。現時点で Phase 2 スコープは閉じる。
+
 ---
 
 ## Week of 2026-03-14
