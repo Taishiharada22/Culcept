@@ -25,6 +25,7 @@
  */
 
 import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
+import type { PlanItem } from "../types";
 import type { TransportMode, TransportSegment } from "./types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -227,6 +228,81 @@ export function computeSegmentsBuiltTelemetry(
     bin_distribution,
     mode,
     sanity_violations: Array.from(violations).sort(),
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Event 2: transport_v2_display_rendered — §3-B Event 2
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// Phase 2 で synthesizeTravelItems + interleaveTravelItems が display cache の
+// PlanItem(kind="travel") を生成した直後に emit する。目的は「segment から
+// travel 表示に落ちるまでで何件ずつ落ちたか」を SQL で追えるようにすること。
+// invariant として travel_rendered_count + skipped_null_count == segment_count
+// が（event_id mismatch が無ければ）成立する。差分が出たら SQL で検知可能。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface DisplayRenderedTelemetry {
+  /** canonical edge 本数（= segments.length） */
+  segment_count: number;
+  /** 最終 items[] で kind==="travel" のもの（UI で実際に出る travel 行数） */
+  travel_rendered_count: number;
+  /**
+   * synthesize 側で null-skip した segment 数（= estimatedDurationMin === null）。
+   * ≤0.2km / invalid coords / heuristic 失敗が主因。canary Phase 1 では
+   * heuristic のカバレッジ確認に使う。
+   */
+  skipped_null_count: number;
+  /**
+   * 0 分 travel の発生数（regression canary）。synthesize は null-skip する
+   * 契約なので 0 分は本来発生しない。非 0 が観測されたら canonical 経路で
+   * 旧 placeholder が復活している兆候。
+   */
+  fake_zero_travel_count: number;
+}
+
+/**
+ * interleaveTravelItems 直後 display cache の telemetry。
+ *
+ * 契約:
+ *   - pure（入力変更なし、乱数なし、時刻依存なし）
+ *   - interleavedItems は「synthesize + interleave 済みの最終 PlanItem[]」を想定。
+ *     他経路の travel（travelTimeEngine 由来）が混ざる可能性は Scope A の legacyAdapter
+ *     / selection/route では無いが、もし混ざっても kind==="travel" を一律カウントする
+ *     （分析側で事後に `id LIKE 'travel\_\_%'` で分離できるよう、SQL 前処理で prefix
+ *      フィルタが可能）
+ *   - fake_zero_travel_count は durationMin === 0 を数える。undefined は 0 扱いしない。
+ *
+ * 異常経路:
+ *   - segment_count - travel_rendered_count - skipped_null_count > 0 は
+ *     「event_id mismatch で interleave が entry を落とした」等の invariant 違反。
+ *     本 helper では発火点を特定しないが、SQL で差分を検知できる field 構成にする。
+ */
+export function computeDisplayRenderedTelemetry(
+  segments: TransportSegment[],
+  interleavedItems: PlanItem[],
+): DisplayRenderedTelemetry {
+  let travel_rendered_count = 0;
+  let fake_zero_travel_count = 0;
+  for (const item of interleavedItems) {
+    if (item.kind === "travel") {
+      travel_rendered_count++;
+      if (item.durationMin === 0) {
+        fake_zero_travel_count++;
+      }
+    }
+  }
+
+  let skipped_null_count = 0;
+  for (const seg of segments) {
+    if (seg.estimatedDurationMin === null) skipped_null_count++;
+  }
+
+  return {
+    segment_count: segments.length,
+    travel_rendered_count,
+    skipped_null_count,
+    fake_zero_travel_count,
   };
 }
 

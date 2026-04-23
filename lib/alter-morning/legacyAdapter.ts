@@ -45,7 +45,10 @@ import {
   ALTER_MORNING_FLAGS,
   resolveTransportV2FlagSource,
 } from "./dialog/flags";
-import { computeSegmentsBuiltTelemetry } from "./transport/telemetry";
+import {
+  computeSegmentsBuiltTelemetry,
+  computeDisplayRenderedTelemetry,
+} from "./transport/telemetry";
 // NOTE: `@/lib/stargazer/analytics` transitively imports `@/lib/supabaseAdmin`,
 // which eagerly reads `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` at
 // module load. Vitest runs without those envs set, so any static import chain
@@ -497,6 +500,45 @@ export function adaptPipelineToLegacy(
         effectiveEvents,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);
+
+      // ── W3-PR-10 canary O3: transport_v2_display_rendered emit ──
+      //   interleave 直後（display cache が決まった瞬間）で emit。
+      //   segment_count / travel_rendered_count / skipped_null_count / fake_zero_travel_count。
+      //
+      //   invariant:
+      //   - userId 未指定（主に test fixture）では emit せず、既存テスト契約を維持
+      //   - flag_source は O2 と同じ resolveTransportV2FlagSource(userId) から
+      //   - telemetry helper は pure — segments と interleavedItems を読むだけ
+      //   - fire-and-forget — analytics 失敗が plan 構築に影響しない
+      if (input.userId) {
+        const flagSource = resolveTransportV2FlagSource(input.userId);
+        if (flagSource != null) {
+          const telemetry = computeDisplayRenderedTelemetry(
+            built.transportSegments,
+            interleavedItems,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId: input.userId!,
+                event: "transport_v2_display_rendered",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: input.sessionId,
+                  plan_date: today,
+                  caller: "legacy_adapter",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan build — swallow */
+            });
+        }
+      }
     } else {
       interleavedItems = built.items;
     }

@@ -48,7 +48,10 @@ import {
 } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
-import { computeSegmentsBuiltTelemetry } from "@/lib/alter-morning/transport/telemetry";
+import {
+  computeSegmentsBuiltTelemetry,
+  computeDisplayRenderedTelemetry,
+} from "@/lib/alter-morning/transport/telemetry";
 // NOTE: `@/lib/stargazer/analytics` transitively imports `@/lib/supabaseAdmin`,
 // which eagerly reads `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` at
 // module load. Vitest runs without those envs set, so any static import chain
@@ -264,6 +267,42 @@ export async function POST(req: NextRequest) {
               )
             : [];
         const interleaved = interleaveTravelItems(built.items, entries);
+
+        // ── W3-PR-10 canary O3: transport_v2_display_rendered emit ──
+        //   interleave 直後の display cache telemetry。
+        //   segments がある時（= flag ON かつ rebuild 済み）のみ fire。
+        //   flag_source / schema_version 契約は O2 と共有。
+        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
+        if (built.transportSegments !== undefined) {
+          const flagSource = resolveTransportV2FlagSource(userId);
+          if (flagSource != null) {
+            const telemetry = computeDisplayRenderedTelemetry(
+              built.transportSegments,
+              interleaved,
+            );
+            void import("@/lib/stargazer/analytics")
+              .then(({ trackStargazerEvent }) =>
+                trackStargazerEvent({
+                  userId,
+                  event: "transport_v2_display_rendered",
+                  feature: "alter_morning",
+                  metadata: {
+                    schema_version: "2026-04-24",
+                    flag_source: flagSource,
+                    session_id: morningSession.sessionId ?? null,
+                    plan_date: priorPlan.date,
+                    caller: "selection_route",
+                    ...telemetry,
+                  },
+                  timestamp: new Date().toISOString(),
+                }),
+              )
+              .catch(() => {
+                /* analytics must never block plan rebuild — swallow */
+              });
+          }
+        }
+
         const normalizedItems: PlanItem[] = interleaved.map((item) =>
           normalizePlanItem(item),
         );

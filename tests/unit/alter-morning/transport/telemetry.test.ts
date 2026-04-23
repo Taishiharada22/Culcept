@@ -1,7 +1,8 @@
 /**
- * computeSegmentsBuiltTelemetry — W3-PR-10 canary O2 契約テスト
+ * computeSegmentsBuiltTelemetry / computeDisplayRenderedTelemetry
+ *   — W3-PR-10 canary O2 / O3 契約テスト
  *
- * カバレッジ:
+ * O2 カバレッジ:
  *   T-A: pure / 決定論 — 同じ入力で同じ出力
  *   T-B: bin_distribution の閾値境界
  *   T-C: sanity_violations (S1〜S4) の検知ルール
@@ -9,12 +10,20 @@
  *   T-E: segments=[] / events<2 の edge case
  *   T-F: VALID_TABLE_DURATION_VALUES と durationHeuristic の table 整合
  *   T-G: mode 取り出し — segments[0].mode を採用、空なら "unknown"
+ *
+ * O3 カバレッジ:
+ *   T-H: pure / 決定論 — display rendered telemetry
+ *   T-I: segment_count / travel_rendered_count / skipped_null_count の一致
+ *   T-J: fake_zero_travel_count — 0 分 travel 検知（regression canary）
+ *   T-K: invariant 違反（interleave で event_id mismatch → travel 落ち）を数値で検知可能
+ *   T-L: 空入力 edge case
  */
 
 import { describe, test, expect } from "vitest";
 
 import {
   computeSegmentsBuiltTelemetry,
+  computeDisplayRenderedTelemetry,
   __VALID_TABLE_DURATION_VALUES_FOR_TEST,
   type TransportBinKey,
 } from "@/lib/alter-morning/transport/telemetry";
@@ -23,6 +32,11 @@ import {
   type Event,
 } from "@/lib/alter-morning/comprehension/eventSchema";
 import type { TransportSegment } from "@/lib/alter-morning/transport/types";
+import type { PlanItem } from "@/lib/alter-morning/types";
+import {
+  synthesizeTravelItems,
+  interleaveTravelItems,
+} from "@/lib/alter-morning/planning/synthesizeTravelItems";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Fixtures（synthesizeTravelItems.test.ts の mkEvent/mkSegment と同じ構造）
@@ -345,5 +359,171 @@ describe("computeSegmentsBuiltTelemetry — heuristic 整合", () => {
     expect(
       Array.from(__VALID_TABLE_DURATION_VALUES_FOR_TEST).sort((a, b) => a - b),
     ).toEqual(expected);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// O3: computeDisplayRenderedTelemetry
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * PlanItem(kind="fixed") の最小 fixture。interleave の input として events を
+ * items 変換した想定で使う（build の items は event-only、travel は含まれない）。
+ */
+function mkEventItem(id: string): PlanItem {
+  return {
+    id,
+    kind: "fixed",
+    text: id,
+    what: null,
+    durationMin: 60,
+    durationSource: "inferred",
+    fixedStart: false,
+    orderHint: 0,
+    sourceTurnIndex: 0,
+    completed: false,
+  };
+}
+
+/**
+ * synthesize バグ再現用: kind="travel" かつ durationMin=0 の手組み PlanItem。
+ * 実装の synthesize は null-skip するので現実にはこの構造は出ないが、
+ * regression canary（fake_zero_travel_count）が発火するかを直接テストする。
+ */
+function mkZeroTravelItem(id: string): PlanItem {
+  return {
+    id,
+    kind: "travel",
+    text: "🚗 x→y",
+    what: null,
+    durationMin: 0,
+    durationSource: "inferred",
+    fixedStart: false,
+    orderHint: 0,
+    sourceTurnIndex: 0,
+    completed: false,
+  };
+}
+
+describe("computeDisplayRenderedTelemetry — pure / 決定論", () => {
+  test("T-H: 同じ入力で出力が等価（deep equal）", () => {
+    const events = [
+      mkEvent({ id: "e1", coordinates: BASE }),
+      mkEvent({ id: "e2", coordinates: coordsAtKmEast(2) }),
+    ];
+    const segs = [mkSegment({ from: "e1", to: "e2", estimatedDurationMin: 15 })];
+    const entries = synthesizeTravelItems(segs, events);
+    const items = interleaveTravelItems(events.map((e) => mkEventItem(e.event_id)), entries);
+    const a = computeDisplayRenderedTelemetry(segs, items);
+    const b = computeDisplayRenderedTelemetry(segs, items);
+    expect(a).toEqual(b);
+  });
+});
+
+describe("computeDisplayRenderedTelemetry — count invariants", () => {
+  test("T-I: 正常系 — segment_count === travel_rendered_count + skipped_null_count", () => {
+    const events = [
+      mkEvent({ id: "e1", coordinates: BASE }),
+      mkEvent({ id: "e2", coordinates: coordsAtKmEast(0.15) }), // ≤0.2km
+      mkEvent({ id: "e3", coordinates: coordsAtKmEast(5) }),
+    ];
+    const segs = [
+      mkSegment({ from: "e1", to: "e2", estimatedDurationMin: null }), // null-skip
+      mkSegment({ from: "e2", to: "e3", estimatedDurationMin: 25 }),   // renders
+    ];
+    const entries = synthesizeTravelItems(segs, events);
+    const items = interleaveTravelItems(events.map((e) => mkEventItem(e.event_id)), entries);
+    const tel = computeDisplayRenderedTelemetry(segs, items);
+
+    expect(tel.segment_count).toBe(2);
+    expect(tel.travel_rendered_count).toBe(1);
+    expect(tel.skipped_null_count).toBe(1);
+    expect(tel.fake_zero_travel_count).toBe(0);
+    // invariant: segment_count === travel_rendered_count + skipped_null_count
+    expect(tel.segment_count).toBe(
+      tel.travel_rendered_count + tel.skipped_null_count,
+    );
+  });
+
+  test("T-I: 全 null → travel_rendered_count=0, skipped_null_count=segment_count", () => {
+    const events = [
+      mkEvent({ id: "e1", coordinates: BASE }),
+      mkEvent({ id: "e2", coordinates: coordsAtKmEast(0.15) }),
+      mkEvent({ id: "e3", coordinates: coordsAtKmEast(0.1) }),
+    ];
+    const segs = [
+      mkSegment({ from: "e1", to: "e2", estimatedDurationMin: null }),
+      mkSegment({ from: "e2", to: "e3", estimatedDurationMin: null }),
+    ];
+    const entries = synthesizeTravelItems(segs, events);
+    const items = interleaveTravelItems(events.map((e) => mkEventItem(e.event_id)), entries);
+    const tel = computeDisplayRenderedTelemetry(segs, items);
+
+    expect(tel.segment_count).toBe(2);
+    expect(tel.travel_rendered_count).toBe(0);
+    expect(tel.skipped_null_count).toBe(2);
+  });
+
+  test("T-J: fake_zero_travel_count — durationMin=0 travel を検知", () => {
+    const zeroItems: PlanItem[] = [
+      mkEventItem("e1"),
+      mkZeroTravelItem("travel__e1__e2"),
+      mkEventItem("e2"),
+    ];
+    // segments は fake 0分 source としては無関係。fake_zero は travel の durationMin のみ見る。
+    const tel = computeDisplayRenderedTelemetry([], zeroItems);
+    expect(tel.travel_rendered_count).toBe(1);
+    expect(tel.fake_zero_travel_count).toBe(1);
+  });
+
+  test("T-J: 正常 travel (durationMin=15) は fake_zero にカウントされない", () => {
+    const events = [
+      mkEvent({ id: "e1", coordinates: BASE }),
+      mkEvent({ id: "e2", coordinates: coordsAtKmEast(2) }),
+    ];
+    const segs = [mkSegment({ from: "e1", to: "e2", estimatedDurationMin: 15 })];
+    const entries = synthesizeTravelItems(segs, events);
+    const items = interleaveTravelItems(events.map((e) => mkEventItem(e.event_id)), entries);
+    const tel = computeDisplayRenderedTelemetry(segs, items);
+    expect(tel.fake_zero_travel_count).toBe(0);
+  });
+
+  test("T-K: invariant 違反 — event_id mismatch で interleave が落とした時、差分が出る", () => {
+    // synthesize は e1→e2 travel を作る。interleave の eventItems が e2 のみ
+    // （e1 が存在しない）の場合、entry.afterEventId='e1' がどの ev.id にもマッチせず
+    // skip される → travel が UI に出ない → travel_rendered_count=0
+    const events = [
+      mkEvent({ id: "e1", coordinates: BASE }),
+      mkEvent({ id: "e2", coordinates: coordsAtKmEast(2) }),
+    ];
+    const segs = [mkSegment({ from: "e1", to: "e2", estimatedDurationMin: 15 })];
+    const entries = synthesizeTravelItems(segs, events);
+    // 意図的に e2 だけを eventItems にして entry.afterEventId="e1" を miss させる
+    const items = interleaveTravelItems([mkEventItem("e2")], entries);
+    const tel = computeDisplayRenderedTelemetry(segs, items);
+
+    expect(tel.segment_count).toBe(1);
+    expect(tel.travel_rendered_count).toBe(0);
+    expect(tel.skipped_null_count).toBe(0);
+    // 差分: segment_count - (travel_rendered + skipped_null) === 1 → invariant 違反を SQL で検知可能
+    expect(
+      tel.segment_count - tel.travel_rendered_count - tel.skipped_null_count,
+    ).toBe(1);
+  });
+
+  test("T-L: 空入力 → すべて 0", () => {
+    const tel = computeDisplayRenderedTelemetry([], []);
+    expect(tel).toEqual({
+      segment_count: 0,
+      travel_rendered_count: 0,
+      skipped_null_count: 0,
+      fake_zero_travel_count: 0,
+    });
+  });
+
+  test("T-L: items は kind!=='travel' のみ → travel_rendered_count=0", () => {
+    const items = [mkEventItem("e1"), mkEventItem("e2")];
+    const tel = computeDisplayRenderedTelemetry([], items);
+    expect(tel.travel_rendered_count).toBe(0);
   });
 });
