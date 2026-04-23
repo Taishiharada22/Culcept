@@ -37,6 +37,10 @@ import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import type { DialogState } from "@/lib/alter-morning/dialog/types";
 import type { Event } from "@/lib/alter-morning/comprehension/eventSchema";
 import { applyPlaceSelection } from "@/lib/alter-morning/search/applyPlaceSelection";
+import { buildPlanAndSegmentsFromEvents } from "@/lib/alter-morning/planning/planRebuild";
+import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
+import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Reject reasons — client が UI feedback に使える enum
@@ -182,11 +186,47 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 7: canonical morningSession
+    // Step 7a: plan rebuild（W3-PR-10 canonical staleness fix / F-New-1）
+    //   flag OFF: rebuildPlan は undefined。response の morningSession.plan は
+    //     client が送った pass-through（...morningSession）で従来挙動のまま。
+    //   flag ON:  updated events から items と canonical TransportSegment[] を rebuild。
+    //     priorPlan の date / dayConditions / createdAt / confirmed / status は温存。
+    //   invariant: buildPlanAndSegmentsFromEvents は pure。flag 値は引数で受け渡す。
+    let rebuiltPlan: MorningPlan | undefined;
+    if (ALTER_MORNING_FLAGS.transportV2) {
+      const priorPlan = morningSession.plan as MorningPlan | undefined;
+      if (priorPlan) {
+        const built = buildPlanAndSegmentsFromEvents({
+          events: eventUpdate.events,
+          enableTransportV2: true,
+        });
+        const normalizedItems: PlanItem[] = built.items.map((item) =>
+          normalizePlanItem(item),
+        );
+        rebuiltPlan = {
+          ...priorPlan,
+          items: normalizedItems,
+          ...(built.transportSegments !== undefined
+            ? { transportSegments: built.transportSegments }
+            : {}),
+        };
+      }
+    }
+
+    // Step 7b: canonical morningSession
+    //   flag OFF: plan は含めない（pre-PR-10 挙動: client が setMorningPlan を呼ばない）。
+    //     pre-PR-10 は client の pass-through を server が echo していたが、client hook は
+    //     plan を無視していたため wire 上は plan を消しても client state 遷移はゼロ。
+    //   flag ON:  rebuiltPlan が plan として返る（client は setMorningPlan で置換）。
+    //
+    // invariant: flag OFF 時は response.morningSession.plan === undefined であり、
+    //   client の `if (next.plan !== undefined) setMorningPlan(...)` ガードに揃う。
+    const { plan: _passthroughPlan, ...morningSessionWithoutPlan } = morningSession;
     const nextMorningSession = {
-      ...morningSession,
+      ...morningSessionWithoutPlan,
       dialogState: nextDialogState,
       persistedEvents: eventUpdate.events,
+      ...(rebuiltPlan !== undefined ? { plan: rebuiltPlan } : {}),
     };
 
     return NextResponse.json({

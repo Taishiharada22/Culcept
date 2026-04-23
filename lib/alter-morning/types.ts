@@ -10,6 +10,7 @@ import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
 import type { TimeConstraintType } from "./planState";
 import type { SlotSharpness } from "./comprehension/eventSchema";
+import type { TransportSegment } from "./transport/types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // W3-PR-8 Strict Confirmation — 確定度の型
@@ -524,6 +525,15 @@ export interface MorningPlan {
    * transport / venue が未指定でも plan を組み、推論根拠を記録する。
    */
   autoInferred?: AutoInferredMap;
+  /**
+   * W3-PR-10 Transport Staircase — canonical edge model（flag: ALTER_MORNING_TRANSPORT_V2）。
+   * 隣接 event pair の両端 where.coordinates が揃った場合のみ生成される。
+   * 揃わない pair は segment 不生成（heuristic placeholder 禁止、不完全情報で捏造しない）。
+   * domain consumer（PR-13/14）はこの field を canonical source として読む。
+   * persisted travel PlanItem は display cache 扱いであり canonical ではない。
+   * flag OFF 時は field 自体を plan に含めない（conditional spread、byte-diff ゼロ保証）。
+   */
+  transportSegments?: TransportSegment[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -35,6 +35,7 @@ function envBool(name: string, fallback: boolean): boolean {
  */
 let dialogStateV2Override: boolean | null = null;
 let placesSearchOverride: boolean | null = null;
+let transportV2Override: boolean | null = null;
 
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
@@ -44,6 +45,11 @@ export function __setDialogStateV2Override(next: boolean | null): void {
 /** @internal テスト用 override（PR-9 Places Search gate） */
 export function __setPlacesSearchOverride(next: boolean | null): void {
   placesSearchOverride = next;
+}
+
+/** @internal テスト用 override（PR-10 Transport Staircase gate） */
+export function __setTransportV2Override(next: boolean | null): void {
+  transportV2Override = next;
 }
 
 export const ALTER_MORNING_FLAGS = {
@@ -88,5 +94,30 @@ export const ALTER_MORNING_FLAGS = {
   get placesSearch(): boolean {
     if (placesSearchOverride !== null) return placesSearchOverride;
     return envBool("ALTER_MORNING_PLACES_SEARCH", false);
+  },
+
+  /**
+   * PR-10 Transport Staircase — canonical TransportSegment[] 供給 gate。
+   *
+   * false（既定）:
+   *   - buildPlanAndSegmentsFromEvents は transportSegments key を返さない
+   *     （undefined も含めない、conditional spread で落とす）
+   *   - MorningPlan.transportSegments は付かない → 既存 consumer は無影響
+   *   - selection endpoint の plan rebuild も transportSegments を含めない
+   *   - Path B（processMorningMessage / insertTravelItems）は不干渉で従来通り
+   *   - byte-diff ゼロ互換（既存 test suite green 条件）
+   *
+   * true:
+   *   - adaptPipelineToLegacy が buildPlanAndSegmentsFromEvents に委譲
+   *     → plan.items build 時に同一関数内で canonical segments を 1 回生成
+   *   - selection endpoint accepted 時に同関数で plan rebuild → transportSegments 更新
+   *   - 両端 where.coordinates が揃った隣接 event pair のみ segment 生成
+   *     （placeholder / heuristic edge は禁止、不完全情報で捏造しない）
+   *
+   * env key: `ALTER_MORNING_TRANSPORT_V2`
+   */
+  get transportV2(): boolean {
+    if (transportV2Override !== null) return transportV2Override;
+    return envBool("ALTER_MORNING_TRANSPORT_V2", false);
   },
 };

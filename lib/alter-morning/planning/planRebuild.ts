@@ -1,0 +1,194 @@
+/**
+ * planRebuild — W3-PR-10 Phase 1 Domain Model
+ *
+ * 位置づけ:
+ *   Comprehension-First Path A で、events から plan.items と canonical
+ *   TransportSegment[] を **1 回だけ** 生成する pure function。
+ *   adaptPipelineToLegacy / selection endpoint の両方から呼ばれる共通入口。
+ *
+ * 設計原則（Phase 0 Audit + CEO 確定 2026-04-23 / 2026-04-24）:
+ *   - **pure**: 関数内部で env / feature flag を読まない。引数 enableTransportV2 を受ける
+ *   - **T1**: Domain truth は TransportSegment[]。persisted travel PlanItem は display cache
+ *   - **T2**: canonical segments は build 時 1 回だけ生成、consumer は結果を参照。
+ *     builder（buildTransportSegments）は export しない → consumer 直叩き禁止を型で enforce
+ *   - **T3**: flag OFF 完全互換。enableTransportV2=false 時は transportSegments を返さない
+ *     （conditional spread で object に含めない、undefined も含めない）
+ *   - **coordinates 未確定 pair invariant（CEO 確定 2026-04-24）**:
+ *     両端 where.coordinates が揃った隣接 event pair のみ TransportSegment を生成。
+ *     片方でも null/undefined の pair は segment 不生成。
+ *     heuristic placeholder edge 禁止。不完全情報で canonical edge を捏造しない
+ *
+ * 非責務（Phase 1 非スコープ）:
+ *   - mode 推定（mainTransport 既定値 or "unknown" で埋める、per-segment 推定なし）
+ *   - Routes API 呼び出し（durationMin / distanceM は null 既定、Phase 2 以降）
+ *   - Path B（processMorningMessage / buildDayPlan / insertTravelItems）は不干渉
+ *   - dialogState / pendingClarify / phase 決定には関与しない（caller が別管理）
+ *   - needs_answer 上書きも caller 側で実施（eventToPlanItem が生成する素の item を返すのみ）
+ */
+
+import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
+import {
+  computeWhenSharpness,
+  computeWhereSharpness,
+  computeWhatSharpness,
+} from "../comprehension/eventSchema";
+import type {
+  PlanItem,
+  ConfirmationState,
+  WhereVagueSubKind,
+} from "../types";
+import type { TransportMode, TransportSegment } from "../transport/types";
+import { classifyWhereVague } from "./whereVagueClassifier";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Defaults（Phase 1 固定、将来 CEO 判断で変更）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const DEFAULT_DURATION_MIN = 45;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Internal: event → PlanItem
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem {
+  const startTime = event.when.startTime ?? undefined;
+  const hasFixedStart = Boolean(startTime);
+  const whatText = event.what.activity || event.what.activityCanonical || "予定";
+  const whereText = event.where.place_ref ?? "";
+  const whenText = startTime ?? "";
+  const text = [whenText, whereText, whatText].filter((s) => s.length > 0).join(" ");
+
+  const whenSharpness = computeWhenSharpness(event.when);
+  const whereSharpness = computeWhereSharpness(event.where);
+  const whatSharpness = computeWhatSharpness(event.what);
+
+  const whereVagueSubKind: WhereVagueSubKind | undefined =
+    whereSharpness === "vague" ? classifyWhereVague(event.where) : undefined;
+
+  const allFixed =
+    whenSharpness === "fixed" &&
+    whereSharpness === "fixed" &&
+    whatSharpness === "fixed";
+  const confirmationState: ConfirmationState = allFixed
+    ? "confirmed"
+    : "provisional";
+
+  return {
+    id: event.event_id,
+    kind: hasFixedStart ? "fixed" : "todo",
+    text,
+    what: whatText,
+    startTime,
+    durationMin: DEFAULT_DURATION_MIN,
+    durationSource: "inferred",
+    fixedStart: hasFixedStart,
+    orderHint,
+    sourceTurnIndex: 0,
+    completed: false,
+    whenSharpness,
+    whereSharpness,
+    whatSharpness,
+    whereVagueSubKind,
+    confirmationState,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Internal: buildTransportSegments — NOT EXPORTED
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// Invariant T2 enforcement: この関数は module 外に公開しない。
+// 外部呼び出しは buildPlanAndSegmentsFromEvents 経由のみ。
+// consumer が毎回直接叩く設計を型レベルで禁止する。
+//
+// Invariant (coordinates 未確定 pair):
+//   両端 where.coordinates が揃った隣接 event pair のみ segment を生成する。
+//   片方でも null/undefined の場合は segment 不生成。skip して次の pair を評価。
+//
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function hasCoordinates(event: ComprehensionEvent): boolean {
+  const c = event.where.coordinates;
+  return (
+    c != null &&
+    typeof c.lat === "number" &&
+    typeof c.lng === "number"
+  );
+}
+
+function buildTransportSegments(
+  events: ComprehensionEvent[],
+  mainTransport: TransportMode | undefined,
+): TransportSegment[] {
+  if (events.length < 2) return [];
+
+  const segments: TransportSegment[] = [];
+  const mode: TransportMode = mainTransport ?? "unknown";
+
+  for (let i = 0; i < events.length - 1; i++) {
+    const from = events[i];
+    const to = events[i + 1];
+    if (!hasCoordinates(from) || !hasCoordinates(to)) {
+      // invariant: 両端座標が揃わない pair では canonical edge を捏造しない
+      continue;
+    }
+    segments.push({
+      fromEventId: from.event_id,
+      toEventId: to.event_id,
+      mode,
+      estimatedDurationMin: null,
+      distanceM: null,
+      confidence: mainTransport ? "inferred" : "default",
+      source: "default_walk",
+    });
+  }
+
+  return segments;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Public API
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface BuildPlanAndSegmentsInput {
+  events: ComprehensionEvent[];
+  /**
+   * feature flag 値（ALTER_MORNING_TRANSPORT_V2）。
+   * call-site 側で env を読み、この関数は pure のまま引数だけで分岐する。
+   * false 時: transportSegments は result に **含めない**（undefined も含めない、conditional spread）
+   */
+  enableTransportV2: boolean;
+  /**
+   * day-level 既定 transport mode（DayConditions.mainTransport 由来）。
+   * 未指定時は "unknown" として segment を生成する。Phase 1 では per-segment 推定なし。
+   */
+  mainTransport?: TransportMode;
+}
+
+export interface BuildPlanAndSegmentsOutput {
+  items: PlanItem[];
+  transportSegments?: TransportSegment[];
+}
+
+/**
+ * events から plan.items と（flag ON 時のみ）TransportSegment[] を 1 回だけ生成する pure function。
+ *
+ * 副作用なし。env / flag を直接読まない。
+ * 返り値の transportSegments は conditional spread で追加される:
+ *   - enableTransportV2=false → key 自体を含めない（undefined も含めない）
+ *   - enableTransportV2=true  → TransportSegment[] を必ず含める（0 件でも空配列を返す）
+ */
+export function buildPlanAndSegmentsFromEvents(
+  input: BuildPlanAndSegmentsInput,
+): BuildPlanAndSegmentsOutput {
+  const { events, enableTransportV2, mainTransport } = input;
+
+  const items = events.map((ev, idx) => eventToPlanItem(ev, idx));
+
+  if (!enableTransportV2) {
+    return { items };
+  }
+
+  const transportSegments = buildTransportSegments(events, mainTransport);
+  return { items, transportSegments };
+}

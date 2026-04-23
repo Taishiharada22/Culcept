@@ -30,20 +30,14 @@ import type {
   PendingClarify,
   PendingClarifyScope,
   PendingSlot,
-  ConfirmationState,
-  WhereVagueSubKind,
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
-import {
-  computeWhenSharpness,
-  computeWhereSharpness,
-  computeWhatSharpness,
-} from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
-import { classifyWhereVague } from "./planning/whereVagueClassifier";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
+import { buildPlanAndSegmentsFromEvents } from "./planning/planRebuild";
+import { ALTER_MORNING_FLAGS } from "./dialog/flags";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // I/O
@@ -92,65 +86,6 @@ export interface LegacyAdapterInput {
 export interface LegacyAdapterOutput {
   session: MorningSession;
   response: MorningProtocolResponse;
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Event → PlanItem
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const DEFAULT_DURATION_MIN = 45;
-
-function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem {
-  const startTime = event.when.startTime ?? undefined;
-  const hasFixedStart = Boolean(startTime);
-  const whatText = event.what.activity || event.what.activityCanonical || "予定";
-  const whereText = event.where.place_ref ?? "";
-  const whenText = startTime ?? "";
-  // 表示テキストは「HH:mm 場所 活動」の簡易結合。narration.text が本命なので
-  // こちらは最低限の fallback 用途。
-  // 設計書 §3.5: PR-8 では UI は slot 個別描画、text は旧経路用の残置 fallback。
-  const text = [whenText, whereText, whatText].filter((s) => s.length > 0).join(" ");
-
-  // ── W3-PR-8: sharpness 貫通（設計書 §6.2）──
-  //   eventSchema の pure function を呼んで結果を item に写す。
-  //   Event schema には永続フィールドを追加しない（計算関数で閉じる）。
-  const whenSharpness = computeWhenSharpness(event.when);
-  const whereSharpness = computeWhereSharpness(event.where);
-  const whatSharpness = computeWhatSharpness(event.what);
-
-  // vague 時のみ sub-kind を計算（non-vague では undefined で残す。normalizer が null に倒す）。
-  const whereVagueSubKind: WhereVagueSubKind | undefined =
-    whereSharpness === "vague" ? classifyWhereVague(event.where) : undefined;
-
-  // item 単位の confirmationState。needs_answer は adaptPipelineToLegacy 側で
-  // pendingClarify と付き合わせて上書きされる（設計書 §6.2）。
-  const allFixed =
-    whenSharpness === "fixed" &&
-    whereSharpness === "fixed" &&
-    whatSharpness === "fixed";
-  const confirmationState: ConfirmationState = allFixed
-    ? "confirmed"
-    : "provisional";
-
-  return {
-    id: event.event_id,
-    kind: hasFixedStart ? "fixed" : "todo",
-    text,
-    what: whatText,
-    startTime,
-    durationMin: DEFAULT_DURATION_MIN,
-    durationSource: "inferred",
-    fixedStart: hasFixedStart,
-    orderHint,
-    sourceTurnIndex: 0,
-    completed: false,
-    // ── W3-PR-8 Strict Confirmation ──
-    whenSharpness,
-    whereSharpness,
-    whatSharpness,
-    whereVagueSubKind,
-    confirmationState,
-  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -474,15 +409,21 @@ export function adaptPipelineToLegacy(
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
-    const rawItems: PlanItem[] = effectiveEvents.map((ev, idx) =>
-      eventToPlanItem(ev, idx),
-    );
+    // ── W3-PR-10: planRebuild 委譲 ──
+    //   events → PlanItem[] と（flag ON 時のみ）TransportSegment[] を
+    //   1 回だけ生成する pure function に委譲。flag OFF 時は transportSegments
+    //   は result に含まれず、後段の plan 組み立てでも conditional spread により
+    //   plan から落ちる（byte-diff ゼロ保証）。
+    const built = buildPlanAndSegmentsFromEvents({
+      events: effectiveEvents,
+      enableTransportV2: ALTER_MORNING_FLAGS.transportV2,
+    });
 
     // ── W3-PR-8: needs_answer 上書き + normalize（設計書 §6.2, §3.4）──
     //   pendingClarify.event_id が指す item だけ confirmationState="needs_answer"。
     //   その後 normalizePlanItem で optional → required に狭めて UI に渡す。
     const pendingEventId = pendingClarify?.event_id ?? null;
-    const items = rawItems.map((item) => {
+    const items = built.items.map((item) => {
       const withNeedsAnswer: PlanItem =
         pendingEventId != null && item.id === pendingEventId
           ? { ...item, confirmationState: "needs_answer" }
@@ -497,6 +438,9 @@ export function adaptPipelineToLegacy(
       createdAt: new Date().toISOString(),
       confirmed: false,
       status: planStatus,
+      ...(built.transportSegments !== undefined
+        ? { transportSegments: built.transportSegments }
+        : {}),
     };
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として
