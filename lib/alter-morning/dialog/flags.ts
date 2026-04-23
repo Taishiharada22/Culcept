@@ -34,10 +34,16 @@ function envBool(name: string, fallback: boolean): boolean {
  * null でクリア（env 値に戻る）。
  */
 let dialogStateV2Override: boolean | null = null;
+let placesSearchOverride: boolean | null = null;
 
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
   dialogStateV2Override = next;
+}
+
+/** @internal テスト用 override（PR-9 Places Search gate） */
+export function __setPlacesSearchOverride(next: boolean | null): void {
+  placesSearchOverride = next;
 }
 
 export const ALTER_MORNING_FLAGS = {
@@ -57,5 +63,30 @@ export const ALTER_MORNING_FLAGS = {
   get dialogStateV2(): boolean {
     if (dialogStateV2Override !== null) return dialogStateV2Override;
     return envBool("ALTER_MORNING_DIALOG_STATE_V2", false);
+  },
+
+  /**
+   * PR-9 Places Search handoff の有効化。
+   *
+   * **AND gate**: 本 flag が true でも `dialogStateV2` が false なら無効。
+   * DialogState が無ければ handoff を fire しても dispatch 先がないため。
+   *
+   * false（既定）:
+   *   - route.ts は executePlacesHandoff を呼ばない
+   *   - PlacesApi 呼び出し 0 回、cache 0 エントリ
+   *   - DialogState の searchQueryDraft.readyForHandoff=true になっても
+   *     SEARCH_CANDIDATES_PRESENTED / SEARCH_ZERO_CANDIDATES は dispatch されない
+   *     （reducer は search_handoff_blocking のまま）
+   *
+   * true:
+   *   - route.ts が advanceDialogState 後に handoff を発火
+   *   - idempotency gate 通過時のみ新規 API 呼び出し
+   *   - L1 in-memory cache で同一 fingerprint の再発火を抑制
+   *
+   * env key: `ALTER_MORNING_PLACES_SEARCH`
+   */
+  get placesSearch(): boolean {
+    if (placesSearchOverride !== null) return placesSearchOverride;
+    return envBool("ALTER_MORNING_PLACES_SEARCH", false);
   },
 };

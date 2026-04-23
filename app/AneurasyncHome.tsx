@@ -893,6 +893,9 @@ export default function AneurasyncHome() {
                 scrollRef={scrollRef}
                 onOutfitCommit={handleOutfitCommit}
                 morningCardsDismissed={morningCardsDismissed}
+                morningDialogState={alterChat.morningDialogState}
+                onPlaceSelect={alterChat.selectPlaceCandidate}
+                placeSelectionPending={alterChat.placeSelectionPending}
                 nudge={{
                   stargazerDoneToday: instrumentUsedToday.stargazer,
                   innerWeatherRecorded: !!innerWeather?.recorded,

@@ -162,6 +162,7 @@ export function checkEvent(ev: Event, utterance: string): Event {
     where = {
       place_ref: wasUtteranceClaim ? null : ev.where.place_ref,
       placeType: wasUtteranceClaim ? null : ev.where.placeType,
+      coordinates: wasUtteranceClaim ? null : ev.where.coordinates,
       provenance: whereProv,
     };
   }
