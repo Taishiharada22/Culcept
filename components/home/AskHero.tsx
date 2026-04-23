@@ -402,6 +402,7 @@ export default function AskHero({
             personalizeHints={morningPersonalizeHints}
             onConfirm={onMorningPlanConfirm ?? (() => {})}
             onRequestChange={onMorningPlanChange ?? (() => {})}
+            sessionId={alterSessionId ?? null}
           />
         )}
 

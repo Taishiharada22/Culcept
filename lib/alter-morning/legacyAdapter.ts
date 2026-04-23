@@ -41,7 +41,20 @@ import {
   synthesizeTravelItems,
   interleaveTravelItems,
 } from "./planning/synthesizeTravelItems";
-import { ALTER_MORNING_FLAGS } from "./dialog/flags";
+import {
+  ALTER_MORNING_FLAGS,
+  resolveTransportV2FlagSource,
+} from "./dialog/flags";
+import {
+  computeSegmentsBuiltTelemetry,
+  computeDisplayRenderedTelemetry,
+} from "./transport/telemetry";
+// NOTE: `@/lib/stargazer/analytics` transitively imports `@/lib/supabaseAdmin`,
+// which eagerly reads `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` at
+// module load. Vitest runs without those envs set, so any static import chain
+// that reaches supabaseAdmin crashes during test module resolution. We defer
+// analytics via dynamic import so the chain only resolves when we actually emit
+// — a path guarded by flag_source, i.e. never reached in unit tests.
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // I/O
@@ -85,6 +98,13 @@ export interface LegacyAdapterInput {
    * provisional 継承として UI に残す（「プランが蒸発する」UX 破壊の防止）。
    */
   priorPlan?: MorningPlan | null;
+  /**
+   * W3-PR-10 canary (2026-04-24): allowlist 判定用の userId。
+   * 省略時は allowlist check を skip して global fallback のみ参照（safe OFF 方向）。
+   * 呼び出し元（app/api/stargazer/alter/route.ts）は tierCheck / supabase auth から
+   * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
+   */
+  userId?: string;
 }
 
 export interface LegacyAdapterOutput {
@@ -420,8 +440,47 @@ export function adaptPipelineToLegacy(
     //   plan から落ちる（byte-diff ゼロ保証）。
     const built = buildPlanAndSegmentsFromEvents({
       events: effectiveEvents,
-      enableTransportV2: ALTER_MORNING_FLAGS.transportV2,
+      enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
     });
+
+    // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
+    //   flag ON（built.transportSegments !== undefined）かつ userId 判明時のみ
+    //   fire-and-forget で analytics emit。純粋関数 build の外で副作用を起こす。
+    //
+    //   invariant:
+    //   - userId 未指定（主に test fixture）では emit せず、既存テスト契約を維持
+    //   - flag_source は resolveTransportV2FlagSource(userId) から取得（allowlist/global）
+    //   - telemetry helper は pure — bin 分布 / sanity violation を計算するだけ
+    //   - await しない。analytics 失敗が plan 構築に影響しない
+    if (built.transportSegments !== undefined && input.userId) {
+      const flagSource = resolveTransportV2FlagSource(input.userId);
+      if (flagSource != null) {
+        const telemetry = computeSegmentsBuiltTelemetry(
+          effectiveEvents,
+          built.transportSegments,
+        );
+        void import("@/lib/stargazer/analytics")
+          .then(({ trackStargazerEvent }) =>
+            trackStargazerEvent({
+              userId: input.userId!,
+              event: "transport_v2_segments_built",
+              feature: "alter_morning",
+              metadata: {
+                schema_version: "2026-04-24",
+                flag_source: flagSource,
+                session_id: input.sessionId,
+                plan_date: today,
+                caller: "legacy_adapter",
+                ...telemetry,
+              },
+              timestamp: new Date().toISOString(),
+            }),
+          )
+          .catch(() => {
+            /* analytics must never block plan build — swallow */
+          });
+      }
+    }
 
     // ── W3-PR-10 Phase 2: travel display cache interleave ──
     //   flag ON（built.transportSegments !== undefined）の時のみ、canonical
@@ -441,6 +500,45 @@ export function adaptPipelineToLegacy(
         effectiveEvents,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);
+
+      // ── W3-PR-10 canary O3: transport_v2_display_rendered emit ──
+      //   interleave 直後（display cache が決まった瞬間）で emit。
+      //   segment_count / travel_rendered_count / skipped_null_count / fake_zero_travel_count。
+      //
+      //   invariant:
+      //   - userId 未指定（主に test fixture）では emit せず、既存テスト契約を維持
+      //   - flag_source は O2 と同じ resolveTransportV2FlagSource(userId) から
+      //   - telemetry helper は pure — segments と interleavedItems を読むだけ
+      //   - fire-and-forget — analytics 失敗が plan 構築に影響しない
+      if (input.userId) {
+        const flagSource = resolveTransportV2FlagSource(input.userId);
+        if (flagSource != null) {
+          const telemetry = computeDisplayRenderedTelemetry(
+            built.transportSegments,
+            interleavedItems,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId: input.userId!,
+                event: "transport_v2_display_rendered",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: input.sessionId,
+                  plan_date: today,
+                  caller: "legacy_adapter",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan build — swallow */
+            });
+        }
+      }
     } else {
       interleavedItems = built.items;
     }

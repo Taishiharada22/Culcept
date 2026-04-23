@@ -41,6 +41,14 @@ const VALID_EVENTS: Set<string> = new Set<StargazerEvent>([
   "mystyle_rendezvous_bridge",
   "mystyle_photo_ai_correction",
   "mystyle_failure",
+  // ── W3-PR-10 Transport Staircase canary events (2026-04-24) ──
+  // client 側から sendBeacon 経由で POST する可能性のあるイベントを全て許可。
+  // O2/O3 は server-side fire-and-forget で trackStargazerEvent を直接呼ぶため
+  // 本 whitelist には触れないが、union との整合を保つため列挙だけ揃える。
+  // 実際 client から POST されるのは transport_v2_edit_regression（O4）のみ。
+  "transport_v2_segments_built",
+  "transport_v2_display_rendered",
+  "transport_v2_edit_regression",
 ]);
 
 export async function POST(req: NextRequest) {
