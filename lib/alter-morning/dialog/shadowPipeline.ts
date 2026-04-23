@@ -25,7 +25,7 @@ import type { PendingClarify } from "../types";
 import { classifyUtterance } from "./taxonomy";
 import { dialogReducer } from "./reducer";
 import { derivePendingClarify } from "./derivePendingClarify";
-import type { DialogFocus, DialogState } from "./types";
+import type { DialogFocus, DialogState, NormalizedCapture } from "./types";
 
 export interface AdvanceDialogStateParams {
   /** 前ターンの DialogState（session.dialogState） */
@@ -57,12 +57,69 @@ export interface AdvanceDialogStateResult {
 }
 
 /**
+ * PR-12 最小根治: pre-comprehended where からの seed capture を作る pure helper。
+ *
+ * 位置づけ:
+ *   2 件目 event に focus が遷移した直後、reducer の `eventChanged` branch は
+ *   draft を capture-only で reset する。しかし 2 件目 event は既に
+ *   `event.where.place_ref` / `placeType` / `coordinates` を持つため、
+ *   ユーザー発話が area-only / category-only の場合 draft に anchor+chain の
+ *   両方が揃わず `readyForHandoff=false` → handoff gate skip となる。
+ *
+ *   本 helper は「focus 切替直前の新 event が持つ場所情報」を
+ *   classify して seedCapture として dispatch に載せる。
+ *   reducer 側で seed → user capture の順に merge することで、
+ *   ユーザー発話が薄くても pre-comprehended 情報が draft に載る。
+ *
+ * 採用方針（CEO 補正 2 確認）:
+ *   - `event.where.place_ref` のみ classify（`classifyUtterance` に渡す）
+ *   - `placeType` raw は categoryToken と語彙空間が異なる可能性が高いため seed には使わない
+ *     （`CATEGORY_DICT` は日本語、`placeType` raw は英語推定）
+ *     別 PR で placeType → categoryToken マッピングを検討
+ *
+ * 非責務:
+ *   - `eventChanged` / `isWhereSlot` guard（reducer で二重に enforce）
+ *   - placeTable 解決 / canonicalId 発番
+ *
+ * 返り値:
+ *   - targetSlot !== "where" → null
+ *   - focus 不変（prevState.focus?.event_id === targetEventId）→ null
+ *   - target event が events に存在しない → null
+ *   - place_ref 空 / 空白のみ → null
+ *   - 上記以外 → `classifyUtterance(place_ref)`
+ */
+function buildSeedCaptureFromEvent(params: {
+  prevState: DialogState;
+  events: ReadonlyArray<Event>;
+  targetEventId: string;
+  targetSlot: DialogFocus["slot"];
+}): NormalizedCapture | null {
+  if (params.targetSlot !== "where") return null;
+
+  const prevFocus = params.prevState.focus;
+  const eventLikelyChanged =
+    prevFocus == null || prevFocus.event_id !== params.targetEventId;
+  if (!eventLikelyChanged) return null;
+
+  const targetEvent = params.events.find(
+    (e) => e.event_id === params.targetEventId,
+  );
+  if (!targetEvent) return null;
+
+  const placeRef = targetEvent.where.place_ref;
+  if (typeof placeRef !== "string" || placeRef.trim().length === 0) return null;
+
+  return classifyUtterance(placeRef);
+}
+
+/**
  * DialogState を 1 ターン分進める pure helper。
  *
  * 処理順（detail §7.1）:
  *   1. classifyUtterance(message) → NormalizedCapture
- *   2. dialogReducer(prev, TURN_CAPTURED) → nextState
- *   3. derivePendingClarify(nextState, events, nowIso) → PendingClarify | null
+ *   2. buildSeedCaptureFromEvent(events, targetEvent) → NormalizedCapture | null（PR-12 最小根治）
+ *   3. dialogReducer(prev, TURN_CAPTURED + seedCapture) → nextState
+ *   4. derivePendingClarify(nextState, events, nowIso) → PendingClarify | null
  *
  * 例外:
  *   - reducer が FSA 違反 / narrowStep 逆行で throw する場合あり。
@@ -75,6 +132,13 @@ export function advanceDialogState(
 ): AdvanceDialogStateResult {
   const capture = classifyUtterance(params.message);
 
+  const seedCapture = buildSeedCaptureFromEvent({
+    prevState: params.prevState,
+    events: params.events,
+    targetEventId: params.targetEventId,
+    targetSlot: params.targetSlot,
+  });
+
   const nextState = dialogReducer(params.prevState, {
     type: "TURN_CAPTURED",
     turnIndex: params.turnIndex,
@@ -82,6 +146,7 @@ export function advanceDialogState(
     capture,
     targetEventId: params.targetEventId,
     targetSlot: params.targetSlot,
+    seedCapture,
   });
 
   const derived = derivePendingClarify(nextState, params.events, params.nowIso);

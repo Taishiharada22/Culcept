@@ -401,3 +401,145 @@ describe("shadow sequence integration (commit 22) — 新 event で stale focus 
     expect(t2.reason).toMatch(/^slot_change_where_to_when$/);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PR-12 multi-event seeding — event2 の pre-comprehended where から seed
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// Preview で観測された「2 件目 event の status_not_handoff」事象の regression。
+// shadowPipeline.buildSeedCaptureFromEvent が event.where.place_ref を classify し、
+// reducer の eventChanged branch で merge されることで handoff 再発火する経路を固定。
+//
+function mkEventWithWhere(id: string, placeRef: string | null): Event {
+  return {
+    event_id: id,
+    turn_mode: "create",
+    change_scope: null,
+    target_ref: null,
+    target_ref_confidence: null,
+    certainty: "asserted",
+    when: {
+      startTime: "09:00",
+      timeHint: null,
+      provenance: utteranceProvenance([], "high"),
+    },
+    where: {
+      place_ref: placeRef,
+      placeType: null,
+      provenance: utteranceProvenance(
+        placeRef ? [placeRef] : [],
+        placeRef ? "high" : "low",
+      ),
+    },
+    what: {
+      activity: null,
+      activityCanonical: null,
+      provenance: utteranceProvenance([], "low"),
+    },
+    who: [],
+    transport: null,
+    missing_semantic_critical: placeRef ? [] : ["where"],
+    missing_solver_blockers: [],
+  } as unknown as Event;
+}
+
+describe("PR-12 multi-event seeding — event2 pre-comprehended where seed", () => {
+  test("T8-A: Turn1 event_1 handoff → Turn2 focus 遷移 (event_2 seed: area-only) で category-only 発話で handoff 再発火", () => {
+    // シナリオ（Preview 再現 — "新宿のルミネ" のように chain が CHAIN_BRAND_DICT に無いケース）:
+    //   Turn 1: 「渋谷のスタバでコーヒー」→ event_1 focus, draft={anchor=渋谷, chain=スタバ}
+    //           narrowStep=2, search_handoff_blocking（1 件目は既存経路で handoff）
+    //   Turn 2: 「ランチ」（category-only）
+    //           event_2 に focus 遷移、event_2 は place_ref="新宿のルミネ" を pre-comprehend 済み。
+    //           "ルミネ" は CHAIN_BRAND_DICT に存在しないため、
+    //           classifyUtterance("新宿のルミネ") は anchor_alone({anchor=新宿}) を返す。
+    //           → seed は area-only。capture は category="ランチ"。
+    //           → merge: {anchor=新宿, chain=null, category=ランチ}
+    //           → readyForHandoff=true, search_handoff_blocking ✓
+    const initial = createInitialDialogState();
+
+    // Turn 1: event_1 で handoff まで到達
+    const t1 = advanceDialogState({
+      prevState: initial,
+      message: "渋谷のスタバでコーヒー",
+      targetEventId: "event_1",
+      targetSlot: "where",
+      events: [mkEventWithWhere("event_1", "渋谷のスタバ")],
+      turnIndex: 1,
+      nowIso: "2026-04-22T09:00:00.000Z",
+    });
+    expect(t1.nextState.focus?.event_id).toBe("event_1");
+    expect(t1.nextState.searchQueryDraft.anchorRegion).toBe("渋谷");
+    expect(t1.nextState.searchQueryDraft.chainToken).toBe("スタバ");
+    expect(t1.nextState.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(t1.nextState.conversationStatus).toBe("search_handoff_blocking");
+
+    // Turn 2: event_2 に focus 遷移。events には event_2 が place_ref="新宿のルミネ" で存在。
+    //         ユーザー発話は「ランチ」のみ（category-only）。
+    //         seedCapture が event_2.where から生成されて reducer に渡る。
+    const t2 = advanceDialogState({
+      prevState: t1.nextState,
+      message: "ランチ",
+      targetEventId: "event_2",
+      targetSlot: "where",
+      events: [
+        mkEventWithWhere("event_1", "渋谷のスタバ"),
+        mkEventWithWhere("event_2", "新宿のルミネ"),
+      ],
+      turnIndex: 2,
+      nowIso: "2026-04-22T09:05:00.000Z",
+    });
+
+    expect(t2.nextState.focus?.event_id).toBe("event_2");
+    // seed: classifyUtterance("新宿のルミネ") → anchor=新宿（ルミネ は CHAIN_BRAND_DICT 不在、anchor_alone）
+    // capture: classifyUtterance("ランチ") → category=ランチ
+    // merge: seed anchor と capture category が両立（chain が両側 null のため排他無効）
+    expect(t2.nextState.searchQueryDraft.anchorRegion).toBe("新宿");
+    expect(t2.nextState.searchQueryDraft.chainToken).toBeNull();
+    expect(t2.nextState.searchQueryDraft.categoryToken).toBe("ランチ");
+    expect(t2.nextState.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(t2.nextState.focus?.narrowStep).toBe(2);
+    expect(t2.nextState.conversationStatus).toBe("search_handoff_blocking");
+  });
+
+  test("T8-B: event_2 place_ref が chain を含む場合（CHAIN_BRAND_DICT hit）でも seed は正しく chain を拾う", () => {
+    // T8-A の補強: CHAIN_BRAND_DICT に含まれる chain が event.where.place_ref に
+    // 載っている場合、seed は chain_with_anchor として classify される。
+    // その場合 chain ⊕ category 排他で capture の category は棄却される。
+    const initial = createInitialDialogState();
+
+    const t1 = advanceDialogState({
+      prevState: initial,
+      message: "渋谷のスタバでコーヒー",
+      targetEventId: "event_1",
+      targetSlot: "where",
+      events: [mkEventWithWhere("event_1", "渋谷のスタバ")],
+      turnIndex: 1,
+      nowIso: "2026-04-22T09:00:00.000Z",
+    });
+
+    // event_2: place_ref="新宿のマック"（chain は CHAIN_BRAND_DICT に存在）
+    const t2 = advanceDialogState({
+      prevState: t1.nextState,
+      message: "ランチ",
+      targetEventId: "event_2",
+      targetSlot: "where",
+      events: [
+        mkEventWithWhere("event_1", "渋谷のスタバ"),
+        mkEventWithWhere("event_2", "新宿のマック"),
+      ],
+      turnIndex: 2,
+      nowIso: "2026-04-22T09:05:00.000Z",
+    });
+
+    expect(t2.nextState.focus?.event_id).toBe("event_2");
+    // seed: classifyUtterance("新宿のマック") → chain_with_anchor({anchor=新宿, chain=マック})
+    // capture: {category=ランチ}
+    // merge: seed.chain 非 null なので capture.category は chain 排他で棄却
+    expect(t2.nextState.searchQueryDraft.anchorRegion).toBe("新宿");
+    expect(t2.nextState.searchQueryDraft.chainToken).toBe("マック");
+    expect(t2.nextState.searchQueryDraft.categoryToken).toBeNull();
+    expect(t2.nextState.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(t2.nextState.focus?.narrowStep).toBe(2);
+    expect(t2.nextState.conversationStatus).toBe("search_handoff_blocking");
+  });
+});

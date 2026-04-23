@@ -527,14 +527,66 @@ function handleTurnCaptured(
 
     if (eventChanged) {
       // event 切替時は draft を reset（where/非 where 対称）。
-      // reset 直後に、この turn の capture だけを初期値に乗せる。
-      nextAnchor = action.capture.extractedAnchor;
-      nextChain = action.capture.extractedChain;
-      // chain 確定時は category を排他（detail §1.4）
-      nextCategory =
-        action.capture.extractedChain !== null
-          ? null
-          : action.capture.extractedCategory;
+      //
+      // PR-12 最小根治（2026-04-24）:
+      //   isWhereSlot 時に pre-comprehended where の seedCapture が渡されていれば、
+      //   draft を「seed を初期値、user capture で上書き」の 2 層 merge で再構築する。
+      //   これにより 2 件目 event が既に place_ref を持つケースで、ユーザー発話が
+      //   area-only / category-only でも readyForHandoff=true に到達できる。
+      //
+      //   優先順位:
+      //     Layer 1 (seed): event.where.place_ref を classify した NormalizedCapture
+      //       seed が chain を持つときは category を排他（detail §1.4）
+      //     Layer 2 (user capture): capture が seed を上書き
+      //       ただし chain ⊕ category 排他は維持
+      //
+      //   isWhereSlot=false の時 / seedCapture 未提供の時は既存挙動（capture のみで reset）。
+      //   shadowPipeline 側でも同等の guard を持つが、reducer 側でも二重に enforce する。
+      const seed = isWhereSlot ? action.seedCapture ?? null : null;
+
+      if (seed !== null) {
+        // Layer 1: seed からの初期値（seed 内部の chain ⊕ category 排他）
+        const seedAnchor: string | null = seed.extractedAnchor;
+        const seedChain: string | null = seed.extractedChain;
+        const seedCategory: string | null =
+          seed.extractedChain !== null ? null : seed.extractedCategory;
+
+        // Layer 2: user capture による上書き（chain ⊕ category 排他維持）
+        nextAnchor =
+          action.capture.extractedAnchor !== null
+            ? action.capture.extractedAnchor
+            : seedAnchor;
+
+        if (action.capture.extractedChain !== null) {
+          // capture に chain → capture chain 確定、category 排他
+          nextChain = action.capture.extractedChain;
+          nextCategory = null;
+        } else if (action.capture.extractedCategory !== null) {
+          // capture に category（chain なし）
+          if (seedChain !== null) {
+            // seed に chain あり → chain が specificity で優位、capture category 棄却
+            nextChain = seedChain;
+            nextCategory = null;
+          } else {
+            // seed に chain なし → capture category 採用
+            nextChain = null;
+            nextCategory = action.capture.extractedCategory;
+          }
+        } else {
+          // capture に chain / category いずれもなし → seed 値をそのまま保持
+          nextChain = seedChain;
+          nextCategory = seedCategory;
+        }
+      } else {
+        // 既存動作: seed 無し（isWhereSlot=false or seedCapture 未提供）時は
+        // user capture のみで draft を構築（this turn 以前の情報は reset）。
+        nextAnchor = action.capture.extractedAnchor;
+        nextChain = action.capture.extractedChain;
+        nextCategory =
+          action.capture.extractedChain !== null
+            ? null
+            : action.capture.extractedCategory;
+      }
     } else if (isWhereSlot) {
       // where turn: 既存仕様通り、capture で上書き更新する。
       nextAnchor = prev.searchQueryDraft.anchorRegion;

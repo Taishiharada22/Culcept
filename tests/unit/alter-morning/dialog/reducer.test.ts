@@ -1257,3 +1257,283 @@ describe("exhaustive", () => {
     ).toThrow(/Unknown action type/);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 14. PR-12 seedCapture merge — pre-comprehended where seeding on eventChanged
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 位置づけ:
+//   PR-12 最小根治: 2 件目 event に focus が遷移した直後、
+//   reducer は eventChanged branch で draft を「seed を初期値、user capture で上書き」
+//   の 2 層 merge で再構築する。pre-comprehended where（event.where.place_ref）を
+//   classify した seedCapture をユーザー発話が薄くても拾えるようにする。
+//
+// カバレッジ:
+//   T1: 既存互換（seed 未渡し → fallback 同一挙動）
+//   T2: seed chain_with_anchor + user category_only → seed chain 優位で handoff
+//   T3: seed + capture 両方 non-null → capture が seed を上書き（chain 排他維持）
+//   T4: isWhereSlot=false で seedCapture 渡しても無視
+//   T5: eventChanged=false で seedCapture 渡しても無視
+//   T7: area seed + category-only utterance → search_handoff_blocking 到達
+//
+describe("PR-12 seedCapture merge — eventChanged branch", () => {
+  it("T1: regression-trap — seedCapture 未渡し（omitted）時は既存挙動維持", () => {
+    // seed 未渡しで anchor_alone を食わせると narrowing に落ちる（従来動作）
+    const s0 = createInitialDialogState();
+    const s1 = dialogReducer(
+      s0,
+      mkTurnCaptured({
+        // seedCapture を omit（undefined）
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    expect(s1.searchQueryDraft.anchorRegion).toBe("甲府");
+    expect(s1.searchQueryDraft.chainToken).toBeNull();
+    expect(s1.searchQueryDraft.categoryToken).toBeNull();
+    expect(s1.searchQueryDraft.readyForHandoff).toBe(false);
+    expect(s1.focus?.narrowStep).toBe(1);
+    expect(s1.conversationStatus).toBe("narrowing");
+  });
+
+  it("T2: seed chain_with_anchor + capture category_only → seed chain 優位で handoff", () => {
+    // 1 件目 event (event_1) で何か focus 経験 → 2 件目 event (event_2) に
+    // 遷移する瞬間。event_2 は place_ref='新宿のルミネ' を pre-comprehend 済み。
+    // ユーザー発話は「ランチ」(category_only)。
+    //
+    // 期待: seed({anchor=新宿, chain=ルミネ}) を初期値、capture.chain=null
+    //       & seed.chain 非 null なので capture.category="ランチ" は棄却される。
+    //       draft={anchor=新宿, chain=ルミネ, category=null} で handoff 到達。
+    let s: DialogState = createInitialDialogState();
+    // event_1 で anchor_alone を入れ focus を張る
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "渋谷",
+          rawSpan: "渋谷",
+        }),
+      }),
+    );
+    expect(s.focus?.event_id).toBe("event_1");
+
+    // event_2 に遷移 + seed
+    s = dialogReducer(s, {
+      type: "TURN_CAPTURED",
+      turnIndex: 2,
+      capturedAt: "2026-04-22T09:05:00Z",
+      targetEventId: "event_2",
+      targetSlot: "where",
+      capture: mkCapture({
+        subKind: "category_alone",
+        extractedCategory: "ランチ",
+        rawSpan: "ランチ",
+      }),
+      seedCapture: mkCapture({
+        subKind: "chain_with_anchor",
+        extractedAnchor: "新宿",
+        extractedChain: "ルミネ",
+        rawSpan: "新宿のルミネ",
+      }),
+    });
+
+    expect(s.focus?.event_id).toBe("event_2");
+    expect(s.searchQueryDraft.anchorRegion).toBe("新宿");
+    expect(s.searchQueryDraft.chainToken).toBe("ルミネ");
+    expect(s.searchQueryDraft.categoryToken).toBeNull(); // chain 排他維持
+    expect(s.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(s.focus?.narrowStep).toBe(2);
+    expect(s.conversationStatus).toBe("search_handoff_blocking");
+  });
+
+  it("T3: seed + capture 両方 non-null → capture が seed を上書き（chain 排他維持）", () => {
+    // seed={anchor=新宿, chain=ルミネ} と capture={anchor=渋谷, chain=スタバ}。
+    // capture 側の chain が確定しているので、capture chain="スタバ" が勝ち、
+    // nextAnchor も capture 側の "渋谷" が勝つ（上書き）。category は chain 排他で null。
+    let s: DialogState = createInitialDialogState();
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+
+    s = dialogReducer(s, {
+      type: "TURN_CAPTURED",
+      turnIndex: 2,
+      capturedAt: "2026-04-22T09:05:00Z",
+      targetEventId: "event_2",
+      targetSlot: "where",
+      capture: mkCapture({
+        subKind: "chain_with_anchor",
+        extractedAnchor: "渋谷",
+        extractedChain: "スタバ",
+        rawSpan: "渋谷のスタバ",
+      }),
+      seedCapture: mkCapture({
+        subKind: "chain_with_anchor",
+        extractedAnchor: "新宿",
+        extractedChain: "ルミネ",
+        rawSpan: "新宿のルミネ",
+      }),
+    });
+
+    expect(s.searchQueryDraft.anchorRegion).toBe("渋谷"); // capture が上書き
+    expect(s.searchQueryDraft.chainToken).toBe("スタバ"); // capture が上書き
+    expect(s.searchQueryDraft.categoryToken).toBeNull(); // chain 排他
+    expect(s.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(s.focus?.narrowStep).toBe(2);
+  });
+
+  it("T4: targetSlot!=where（when）で seedCapture 渡しても無視される", () => {
+    // seedCapture は where slot 専用の構成。targetSlot="when" の時は reducer で
+    // 二重に guard されて無視される（shadowPipeline でも事前 null 化されるが、
+    // reducer 側でも enforce）。
+    let s: DialogState = createInitialDialogState();
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        targetSlot: "where",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+
+    // event_2 へ遷移、targetSlot=when で seedCapture を「あえて」渡す
+    s = dialogReducer(s, {
+      type: "TURN_CAPTURED",
+      turnIndex: 2,
+      capturedAt: "2026-04-22T09:05:00Z",
+      targetEventId: "event_2",
+      targetSlot: "when",
+      capture: mkCapture({ subKind: "other", rawSpan: "えーと" }),
+      seedCapture: mkCapture({
+        subKind: "chain_with_anchor",
+        extractedAnchor: "新宿",
+        extractedChain: "ルミネ",
+        rawSpan: "新宿のルミネ",
+      }),
+    });
+
+    // seedCapture は無視される（isWhereSlot=false のため）。
+    // eventChanged branch の fallback（capture-only reset）が走り、draft は空。
+    expect(s.searchQueryDraft.anchorRegion).toBeNull();
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+    expect(s.searchQueryDraft.categoryToken).toBeNull();
+    expect(s.searchQueryDraft.readyForHandoff).toBe(false);
+  });
+
+  it("T5: eventChanged=false（同一 event）で seedCapture 渡しても無視される", () => {
+    // 同じ event_id で 2 ターン目を打つと eventChanged=false。
+    // このとき else if (isWhereSlot) branch が走り、seedCapture は参照されない。
+    // 既存 draft ("甲府") は preserve されるのみ。seed の chain="ルミネ" は混入しない。
+    let s: DialogState = createInitialDialogState();
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "甲府",
+          rawSpan: "甲府",
+        }),
+      }),
+    );
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+
+    // 同じ event_1 に対して seedCapture を「あえて」渡す
+    s = dialogReducer(s, {
+      type: "TURN_CAPTURED",
+      turnIndex: 2,
+      capturedAt: "2026-04-22T09:05:00Z",
+      targetEventId: "event_1", // same as before
+      targetSlot: "where",
+      capture: mkCapture({
+        subKind: "category_alone",
+        extractedCategory: "ランチ",
+        rawSpan: "ランチ",
+      }),
+      seedCapture: mkCapture({
+        subKind: "chain_with_anchor",
+        extractedAnchor: "新宿",
+        extractedChain: "ルミネ",
+        rawSpan: "新宿のルミネ",
+      }),
+    });
+
+    // seedCapture は eventChanged=false で無視。既存 anchor="甲府" preserve、
+    // capture の category="ランチ" が採用される。seed の chain は混入しない。
+    expect(s.searchQueryDraft.anchorRegion).toBe("甲府");
+    expect(s.searchQueryDraft.chainToken).toBeNull(); // seed chain="ルミネ" が漏れていない
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ");
+  });
+
+  it("T7 (CEO 追加): area seed + category-only utterance → handoff 到達", () => {
+    // CEO 補正 1: 「event2 に area seed があり、ユーザー発話が category-only
+    // (例:『ランチ』) でも search_handoff_blocking に到達するケース」
+    //
+    // seed: {subKind=anchor_alone, extractedAnchor=新宿} (place_ref="新宿" 相当)
+    // capture: {subKind=category_alone, extractedCategory=ランチ}
+    // → seed anchor + capture category で draft={anchor=新宿, category=ランチ, chain=null}
+    // → readyForHandoff=true, narrowStep=2, search_handoff_blocking
+    let s: DialogState = createInitialDialogState();
+    s = dialogReducer(
+      s,
+      mkTurnCaptured({
+        turnIndex: 1,
+        targetEventId: "event_1",
+        capture: mkCapture({
+          subKind: "anchor_alone",
+          extractedAnchor: "渋谷",
+          rawSpan: "渋谷",
+        }),
+      }),
+    );
+
+    s = dialogReducer(s, {
+      type: "TURN_CAPTURED",
+      turnIndex: 2,
+      capturedAt: "2026-04-22T09:05:00Z",
+      targetEventId: "event_2",
+      targetSlot: "where",
+      capture: mkCapture({
+        subKind: "category_alone",
+        extractedCategory: "ランチ",
+        rawSpan: "ランチ",
+      }),
+      seedCapture: mkCapture({
+        subKind: "anchor_alone",
+        extractedAnchor: "新宿",
+        rawSpan: "新宿",
+      }),
+    });
+
+    expect(s.focus?.event_id).toBe("event_2");
+    expect(s.searchQueryDraft.anchorRegion).toBe("新宿"); // seed が底上げ
+    expect(s.searchQueryDraft.chainToken).toBeNull();
+    expect(s.searchQueryDraft.categoryToken).toBe("ランチ"); // capture が category を載せる
+    expect(s.searchQueryDraft.readyForHandoff).toBe(true);
+    expect(s.focus?.narrowStep).toBe(2);
+    expect(s.conversationStatus).toBe("search_handoff_blocking");
+  });
+});
