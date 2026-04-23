@@ -15,6 +15,7 @@ import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
+import { formatStartEndLabel } from "./timeLabel";
 import {
   learnDuration,
   loadDurationStore,
@@ -371,6 +372,7 @@ function PlanItemRow({
   onPlaceClick,
   onSelectCandidate,
   onDismissCandidates,
+  isDayBoundary,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
@@ -384,6 +386,12 @@ function PlanItemRow({
   onPlaceClick: (item: PlanItem) => void;
   onSelectCandidate: (itemId: string, candidateIndex: number) => void;
   onDismissCandidates: (itemId: string) => void;
+  /**
+   * PR-11 Step 2b: 1日の開始点/終点（= 非 travel の先頭/末尾 index）に該当する時は
+   * 時刻表示を開始–終了 range にしない。true の時は従来通り startTime 単一表示。
+   * 判定は caller（MorningPlanCard）側で nonTravel index に基づき計算する。
+   */
+  isDayBoundary: boolean;
 }) {
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -633,7 +641,9 @@ function PlanItemRow({
           </div>
         )}
 
-        {/* 開始時刻 slot — whenSharpness で分岐 */}
+        {/* 開始時刻 slot — whenSharpness で分岐
+            PR-11 Step 2b: 通常行は開始–終了の range 表示。1日の開始点/終点
+            （isDayBoundary=true）は従来通り単一時刻表示。 */}
         <div className="relative flex-shrink-0 min-w-[42px]">
           {whenSharpness === "fixed" ? (
             <>
@@ -642,13 +652,18 @@ function PlanItemRow({
                   e.stopPropagation();
                   if (!confirmed) setShowTimePicker(!showTimePicker);
                 }}
-                className={`text-[12px] font-mono w-full text-left ${
+                className={`text-[12px] font-mono w-full text-left whitespace-nowrap ${
                   confirmed
                     ? "text-gray-400 cursor-default"
                     : "text-gray-500 hover:text-purple-600 cursor-pointer"
                 }`}
+                title="開始時刻を変更"
               >
-                {item.startTime}
+                {formatStartEndLabel({
+                  startTime: item.startTime,
+                  durationMin: item.durationMin,
+                  isDayBoundary,
+                }) ?? item.startTime}
               </button>
               <AnimatePresence>
                 {showTimePicker && (
@@ -1115,28 +1130,41 @@ export default function MorningPlanCard({
 
         {/* アイテムリスト */}
         <div className="space-y-0.5">
-          {plan.items.map((item) => {
-            // 並べ替え対象: travel 以外
-            const nonTravel = plan.items.filter(i => i.kind !== "travel");
-            const ntIdx = nonTravel.findIndex(i => i.id === item.id);
-            return (
-              <PlanItemRow
-                key={item.id}
-                item={item}
-                onDurationChange={handleDurationChange}
-                onStartTimeChange={handleStartTimeChange}
-                onToggleComplete={handleToggleComplete}
-                onMoveUp={handleMoveUp}
-                onMoveDown={handleMoveDown}
-                canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
-                canMoveDown={item.kind !== "travel" && !item.proposal && ntIdx < nonTravel.length - 1}
-                confirmed={plan.confirmed}
-                onPlaceClick={handlePlaceClick}
-                onSelectCandidate={handleSelectCandidate}
-                onDismissCandidates={handleDismissCandidates}
-              />
-            );
-          })}
+          {(() => {
+            // nonTravel 一覧は render pass 間で 1 回だけ算出（N^2 回避）。
+            // plan.items は PR-11 render cycle 内で不変。
+            const nonTravel = plan.items.filter((i) => i.kind !== "travel");
+            const nonTravelLastIdx = nonTravel.length - 1;
+            return plan.items.map((item) => {
+              const ntIdx = nonTravel.findIndex((i) => i.id === item.id);
+              // PR-11 Step 2b: 1日の開始点/終点（非 travel の先頭/末尾）は
+              // 時刻 range の対象外。travel 行は自身の startTime 単一表示を維持
+              // （専用 fork L375-404）のため、本 flag は normal item のみ意味を持つ。
+              const isDayBoundary =
+                item.kind !== "travel" &&
+                (ntIdx === 0 || ntIdx === nonTravelLastIdx);
+              return (
+                <PlanItemRow
+                  key={item.id}
+                  item={item}
+                  onDurationChange={handleDurationChange}
+                  onStartTimeChange={handleStartTimeChange}
+                  onToggleComplete={handleToggleComplete}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
+                  canMoveDown={
+                    item.kind !== "travel" && !item.proposal && ntIdx < nonTravelLastIdx
+                  }
+                  confirmed={plan.confirmed}
+                  onPlaceClick={handlePlaceClick}
+                  onSelectCandidate={handleSelectCandidate}
+                  onDismissCandidates={handleDismissCandidates}
+                  isDayBoundary={isDayBoundary}
+                />
+              );
+            });
+          })()}
         </div>
 
         {/* 場所詳細 bottom sheet */}
