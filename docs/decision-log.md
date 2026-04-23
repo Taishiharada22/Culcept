@@ -13,6 +13,41 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-10 Scope A 完了 — canonical segment に duration / source を注入（mode-free 中立距離 heuristic）
+- **部門**: Build
+- **決定内容**: W3-PR-10 Phase 3+ の優先候補 5 本から Scope A（duration / source 強化）を選定し、canonical `TransportSegment` の `estimatedDurationMin` と `durationSource` を build 時に埋める。mode 非依存の中立距離 heuristic を導入し、unknown mode でも travel 表示を機能させる。
+- **承認範囲（CEO Scope A GO 2026-04-24）**:
+  - C1: `TransportSegment.durationSource` 型追加（挙動変更なし）
+  - C2: `estimateNeutralDurationMin(fromCoords, toCoords)` pure fn + `buildTransportSegments` wiring
+  - C3: `synthesizeTravelItems` の `?? 0` 撤去 + null-skip 安全網
+  - C4: decision log + landing memo
+- **CEO Lock（設計ロック）**:
+  1. **canonical 側で decide**: duration / source は `buildTransportSegments`（canonical segment 生成時）で決定。`synthesizeTravelItems`（display cache 側）は segment に書かれた値を参照するのみ
+  2. **failure は null 厳守**: heuristic 失敗 / ≤0.2km / invalid coords で **0 を返さない**。null のまま segment に残し、display 側で skip
+  3. **mode-free signature**: heuristic は `(fromCoords, toCoords) => number | null`。mode 引数を取らない。unknown mode でも duration を埋めるための中立 curve
+  4. **段階テーブル**: 1 本の連続 curve ではなく距離ビンごとの固定値（≤0.2km null / ≤1km 10min / ≤3km 15min / ≤7km 25min / ≤15km 40min / ≤30km 60min / >30km 90min、CEO 確定値 2026-04-24）
+  5. **両 field 同期 invariant**: `estimatedDurationMin` が number なら `durationSource="heuristic"`、null なら `durationSource=null`。両 field の null / non-null は必ず同期
+  6. **実装順**: C1 (型) → C2 (heuristic + wiring) → C3 (null-skip) → C4 (docs)。C2 が先に land、その後 C3
+- **成果物**:
+  - `lib/alter-morning/transport/types.ts`: `DurationSource` union + `TransportSegment.durationSource` field
+  - `lib/alter-morning/transport/durationHeuristic.ts` (new, 84 行): pure fn、haversine、段階テーブル、NaN / Infinity safe
+  - `lib/alter-morning/planning/planRebuild.ts`: `buildTransportSegments` が heuristic を call して両 field を同期で埋める
+  - `lib/alter-morning/planning/synthesizeTravelItems.ts`: `?? 0` 撤去、null segment は entry 生成を skip
+  - `tests/unit/alter-morning/durationHeuristic.test.ts` (new, 16 tests): 境界値（同一点 / 0.2km / 各 bin / 上限 clamp / NaN / 両端 NaN / 単調性）
+  - `tests/unit/alter-morning/planRebuild.test.ts`: C7 flag ON の期待値を `null` から `number + durationSource="heuristic"` に更新
+  - `tests/unit/alter-morning/synthesizeTravelItems.test.ts`: null-skip 契約に書き換え + mkSegment 既定値を number (15) に
+  - `tests/unit/alter-morning/regenerateTravelForPlan.test.ts`: fixture の segment に `durationSource: "heuristic"` 同期
+- **非スコープ（今回やらない）**:
+  - per-segment mode 推定（mode は `unknown` 保持。mode 推定エンジンは別候補）
+  - Routes API 連携（distance / duration の実計測は Scope B 以降）
+  - client regenerateTravel の再構造（Phase 3A で既に着地済）
+  - Path B / persisted travel 統合
+- **テスト**: alter-morning 1789/1789 PASS（+16 新規 durationHeuristic）、触った file に新規 tsc エラーなし
+- **commit**: C1 `7d5b01b2` / C2 `c33f1a41` / C3 `2318c413`
+- **承認**: CEO（Scope A Design Lock 3 改訂版 2026-04-24、承認範囲 C1/C2/C3/C4 内で実装完了）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
 ### 2026-04-23 W3-PR-10 Phase 2 完了 — Transport Staircase Display Cache (travel interleave)
 - **部門**: Build
 - **決定内容**: W3-PR-10 Phase 2（canonical `TransportSegment[]` を Path A の `PlanItem(kind="travel")` display cache として再生成）を完了。Phase 1 で domain truth として確立した segments を、flag ON 経路でのみ UI に見える travel item として interleave する。

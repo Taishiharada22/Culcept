@@ -137,6 +137,7 @@ describe("regenerateTravelForPlan — canonical mode (W3-PR-10 Phase 3A)", () =>
           toEventId: "t2",
           mode: "car",
           estimatedDurationMin: 15,
+          durationSource: "heuristic",
           distanceM: null,
           confidence: "inferred",
           source: "distance_heuristic",

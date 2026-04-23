@@ -138,9 +138,13 @@ export interface SynthesizedTravelEntry {
  *   - caller は interleaveTravelItems に entry[] を渡す
  *
  * durationMin:
- *   - seg.estimatedDurationMin が number なら採用。null なら 0。
- *   - PlanItem.durationMin は required:number。Phase 1 では Routes API 未接続なので
- *     実質常に 0。Phase 3 で Routes 連携時に自動で実値が入る。
+ *   - seg.estimatedDurationMin が number なら採用。
+ *   - null（≤0.2km / invalid coords / heuristic 失敗）なら travel entry を生成しない。
+ *     「0 分の travel」を作ると UI 上で虚偽の移動帯が出るため、null-skip を
+ *     canonical edge 生成の safety net として併置する。buildTransportSegments 側で
+ *     ≤0.2km を既に null にしているが、display cache 側でも二重防御する。
+ *   - Phase 1 では Routes API 未接続のため Scope A の mode-free 中立距離 heuristic が
+ *     埋める。Phase 3 で Routes 連携時に自動で実値に置き換わる。
  */
 export function synthesizeTravelItems(
   segments: TransportSegment[],
@@ -162,6 +166,13 @@ export function synthesizeTravelItems(
       continue;
     }
 
+    // null-skip: heuristic が null を返した segment（≤0.2km / invalid coords /
+    // 失敗）では travel display cache を生成しない。fake 0分 travel 禁止。
+    // segment 自体は canonical に残す（domain truth は edge の存在まで）。
+    if (seg.estimatedDurationMin === null) {
+      continue;
+    }
+
     const fromLabel = placeLabel(from);
     const toLabel = placeLabel(to);
     const icon = travelIconFor(seg.mode);
@@ -172,7 +183,7 @@ export function synthesizeTravelItems(
       kind: "travel",
       text,
       what: null,
-      durationMin: seg.estimatedDurationMin ?? 0,
+      durationMin: seg.estimatedDurationMin,
       durationSource: "inferred",
       fixedStart: false,
       orderHint: i, // 最終 orderHint は interleave で再付番される

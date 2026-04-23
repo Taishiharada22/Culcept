@@ -205,9 +205,28 @@ GPT 分析 + CEO 最終承認を受け、同 branch に dialog-control 修復 co
 - 核感情: **納得感**
 - 逸脱は CEO 承認を要する
 
-### W3-PR-10 — Transport Staircase（Phase 1 + Phase 2）✅
+### W3-PR-10 — Transport Staircase（Phase 1 + Phase 2 + Phase 3A + Scope A）✅
 **Phase 1（2026-04-22 前後 merge, PR #20）**: canonical edge model 導入。`TransportSegment[]` を domain truth として生成、flag OFF では byte-diff ゼロ。
-**Phase 2（2026-04-23 完了, 本 branch）**: canonical segments を Path A の `PlanItem(kind="travel")` display cache として UI に再生成。
+**Phase 2（2026-04-23 完了, PR #21）**: canonical segments を Path A の `PlanItem(kind="travel")` display cache として UI に再生成。
+**Phase 3A（2026-04-23 完了, PR #22）**: client 側 `regenerateTravelForPlan` を canonical 対応（transportSegments !== undefined で Path B 再注入を止める）。
+**Scope A（2026-04-24 完了, 本 branch）**: canonical segment の `estimatedDurationMin` / `durationSource` を build 時に埋める。mode 非依存の中立距離 heuristic を導入し、unknown mode でも travel 表示が機能する。
+
+#### Scope A コミット構成
+- **C1 (`7d5b01b2`)**: `DurationSource` union + `TransportSegment.durationSource` field 追加（挙動変更なし）
+- **C2 (`c33f1a41`)**: `estimateNeutralDurationMin(fromCoords, toCoords)` pure fn + `buildTransportSegments` wiring + 16 境界テスト
+- **C3 (`2318c413`)**: `synthesizeTravelItems` の `?? 0` 撤去 + null-skip 安全網
+
+#### Scope A 核判断（CEO Lock 2026-04-24）
+- **canonical 側で decide**: duration / source は `buildTransportSegments` で決定。display cache（`synthesizeTravelItems`）は segment の値を参照するのみ
+- **failure は null 厳守**: ≤0.2km / invalid coords / heuristic 失敗で 0 を返さない。null のまま segment に残し、display 側で skip（fake 0分 travel 禁止）
+- **mode-free signature**: `(fromCoords, toCoords) => number | null`。mode 引数を取らない。unknown mode でも中立 curve で埋める
+- **段階テーブル**: ≤0.2km null / ≤1km 10min / ≤3km 15min / ≤7km 25min / ≤15km 40min / ≤30km 60min / >30km 90min（CEO 確定値）
+- **両 field 同期 invariant**: `estimatedDurationMin` と `durationSource` は null / non-null を必ず同期
+
+#### 非スコープ（Scope A で明示的にやらない）
+- per-segment mode 推定（mode は `unknown` 保持、別候補）
+- Routes API 連携（distance / 実測 duration は Scope B 以降）
+- Path B / persisted travel 統合
 
 #### Phase 2 コミット構成
 - **C1 (`c8914ea4`)**: display-first 監査 — R1=false 確認（builder に travel synthesis を混ぜない前提が崩れていないこと）
