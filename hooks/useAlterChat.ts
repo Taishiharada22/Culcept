@@ -592,6 +592,19 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           setMorningPlan(next.plan ?? null);
         }
       }
+
+      // W3-PR-10 positive-path nudge: 1件目 place 確定直後に Alter から次の場所を自然に問う。
+      // server 側 narrow trigger で gate 済（transportV2 flag ON + 0→1 place diff + !multiple + !endSignal）。
+      // DB dialogues 永続化は初版では行わない（UI 表示のみ）。
+      if (typeof data.alterFollowUp?.text === "string" && data.alterFollowUp.text.length > 0) {
+        const followUpMsg: AlterMessage = {
+          id: `alter-${Date.now()}-followup`,
+          role: "alter",
+          content: data.alterFollowUp.text,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, followUpMsg]);
+      }
     } catch (err: any) {
       if (err.name === "AbortError") return;
       console.warn("[selection] error", err);

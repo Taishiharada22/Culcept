@@ -664,3 +664,207 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     expect(body.morningSession.plan).toBeUndefined();
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-10 positive-path nudge — alterFollowUp 発火ゲート
+//   narrow trigger (conversationStarter.shouldAskNextPlace):
+//     A. このターンで 1 件目 place が confirm された
+//     B. まだ複数 place に到達していない
+//     C. ユーザーが終了意思を示していない
+//   さらに transportV2 flag ON user 限定。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", () => {
+  beforeEach(() => {
+    mockTierCheck.mockReset();
+    mockTierCheck.mockResolvedValue({
+      userId: "user_1",
+      tier: { level: "free" },
+      allowed: true,
+    });
+    __setTransportV2Override(null);
+  });
+
+  afterEach(() => {
+    __setTransportV2Override(null);
+    vi.clearAllMocks();
+  });
+
+  it("flag OFF + 1件目 place 確定 → alterFollowUp は emit されない", async () => {
+    __setTransportV2Override(false);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          dialogState,
+          persistedEvents: [mkEvent()],
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // flag OFF 契約: 観測対象外ユーザーに UX 変化を与えない
+    expect(body.alterFollowUp).toBeUndefined();
+    expect("alterFollowUp" in body).toBe(false);
+  });
+
+  it("flag ON + 1件目 place 確定 + 終了意思なし → alterFollowUp で固定文を emit", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+      {
+        // capturedHistory は終了意思を含まない無害な履歴
+        capturedHistory: [
+          {
+            capture: {
+              rawSpan: "じゃあそこで",
+              turnIndex: 2,
+              slot: "where",
+              kind: "place",
+              normalizedValue: "スタバ",
+              confidence: 0.8,
+            },
+          } as any,
+        ],
+      },
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          dialogState,
+          // coordinates なしの event だけ → prev=0、selection で next=1（初の確定）
+          persistedEvents: [mkEvent()],
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("このあと、どこか寄る？");
+  });
+
+  it("flag ON + 1件目 place 確定 but ユーザーが終了意思 → alterFollowUp 抑制", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+      {
+        capturedHistory: [
+          {
+            capture: {
+              rawSpan: "これだけでいい",
+              turnIndex: 2,
+              slot: "where",
+              kind: "place",
+              normalizedValue: "スタバ",
+              confidence: 0.8,
+            },
+          } as any,
+        ],
+      },
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          dialogState,
+          persistedEvents: [mkEvent()],
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // 終了意思あり → Predicate C で抑制
+    expect(body.alterFollowUp).toBeUndefined();
+  });
+
+  it("flag ON + 2件目 place 確定（prev=1, next=2） → alterFollowUp 抑制", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    // 既に event_2 は coordinates 解決済み、event_1 が今回の selection で解決 →
+    // prev=1(event_2), next=2(event_1+event_2)。justConfirmedFirstPlace=false。
+    const events: Event[] = [
+      mkEvent("event_1"),
+      mkEventWithCoords(
+        "event_2",
+        "渋谷",
+        { lat: 35.66, lng: 139.7 },
+        "12:00",
+      ),
+    ];
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          dialogState,
+          persistedEvents: events,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // Predicate A 不成立（prev=1, next=2） + Predicate B 成立 → 抑制
+    expect(body.alterFollowUp).toBeUndefined();
+  });
+
+  it("flag ON + accepted=false（stale fingerprint） → alterFollowUp は付かない", async () => {
+    __setTransportV2Override(true);
+
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [mkCandidate("p1")]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp_old", // mismatch → reject
+        selectedPlaceId: "p1",
+        morningSession: {
+          dialogState,
+          persistedEvents: [mkEvent()],
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    // reject response は accepted=false + reason のみ。alterFollowUp は emit path に
+    // 到達すらしない（return NextResponse.json は Step 7c より前の rejection で返る）。
+    expect(body).toEqual({ accepted: false, reason: "query_fingerprint_stale" });
+    expect(body.alterFollowUp).toBeUndefined();
+  });
+});

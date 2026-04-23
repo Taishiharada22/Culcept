@@ -245,3 +245,162 @@ function buildNightMessage(_state: StarterState): string {
   // 深夜は軽い締めのみ。追加質問なし。
   return "お疲れさま。ゆっくり休んでね";
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-10 positive-path nudge — 1件目 place 確定直後の follow-up
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 目的:
+//   自然会話フローで 2 件目 place が確定されず positive-path telemetry
+//   (segment_count > 0 / travel_rendered_count > 0) が発火しない問題に対し、
+//   1 件目 place 確定直後に Alter 側から軽く次の立ち寄り先を尋ねる nudge を
+//   出して、自然な 2 件目進行を促す。
+//
+// 設計方針（CEO 2026-04-24 承認範囲）:
+//   - DialogState / reducer / ConversationStatus 一切変更しない
+//   - derivePendingClarify / clarify kind 追加しない
+//   - planReadinessGate の ready 判定も変更しない（1-place plan を引き続き ready とみなす）
+//   - DB dialogues への永続化もしない（UI 上の nudge のみで目的を果たす）
+//   - 固定テンプレ v1（LLM 非呼び出し）。place 名差し込みは後続の personalization で検討
+//   - flag 判定 (transportV2 allowlist) は caller 側で行う。本 helper は flag 非依存の pure functions のみ提供
+//
+// 呼び出し口: app/api/stargazer/alter/selection/route.ts のみ
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 1 件目 place 確定直後に Alter が自然に次の立ち寄り先を尋ねる文（固定テンプレ v1）。
+ *
+ * 方針:
+ *   - 短く、プレッシャーなく、1-place plan 完結も許容する問い
+ *   - place 名や時刻の差し込みはしない（personalization は後続 PR）
+ *   - 決定論的（A/B 計測容易）
+ */
+export function buildNextPlaceAskText(): string {
+  return "このあと、どこか寄る？";
+}
+
+/**
+ * predicate helper で参照する event の最小 shape。
+ *   - `where.coordinates` が non-null かつ lat/lng が finite number なら「解決済み」とみなす
+ *   - これは buildTransportSegments が segment 生成の前提としている判定と同じ軸
+ *     （lib/alter-morning/planning/planRebuild.ts:hasCoordinates）
+ *   - 実際の Event 型から必要な field のみを structural subset として拾う
+ */
+export interface EventWithCoordinates {
+  where?: {
+    coordinates?: { lat: number; lng: number } | null;
+  };
+}
+
+/**
+ * events のうち、segment build 前提を満たす（= coordinates 解決済み）place 数を数える。
+ *
+ * 判定軸は buildTransportSegments.hasCoordinates と一致させる:
+ *   - `where.coordinates` が non-null
+ *   - lat, lng がともに finite number
+ */
+export function countConfirmedPlacesInEvents(
+  events: ReadonlyArray<EventWithCoordinates>,
+): number {
+  let count = 0;
+  for (const ev of events) {
+    const c = ev?.where?.coordinates;
+    if (!c) continue;
+    if (typeof c.lat !== "number" || !Number.isFinite(c.lat)) continue;
+    if (typeof c.lng !== "number" || !Number.isFinite(c.lng)) continue;
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * Predicate A — ちょうどこのターンで 1 件目 place が confirm された？
+ *
+ *   prev=0 件解決済み && next=1 件解決済み の両方を満たせば true。
+ *   2 件目以降の confirm / 既存 plan の修正では false。
+ *   差分ベースで判定するため、連続 click や session 復元などの edge case にも耐える。
+ */
+export function justConfirmedFirstPlace(
+  prevEvents: ReadonlyArray<EventWithCoordinates>,
+  nextEvents: ReadonlyArray<EventWithCoordinates>,
+): boolean {
+  return (
+    countConfirmedPlacesInEvents(prevEvents) === 0 &&
+    countConfirmedPlacesInEvents(nextEvents) === 1
+  );
+}
+
+/**
+ * Predicate B — plan にすでに 2 件以上 place が confirm されている？
+ *
+ *   Predicate A が真なら必ず false（冗長）だが、設計書の narrow 条件を明示するため
+ *   独立した述語として持つ。異常 event graph の defense in depth にもなる。
+ */
+export function hasMultiplePlaces(
+  events: ReadonlyArray<EventWithCoordinates>,
+): boolean {
+  return countConfirmedPlacesInEvents(events) >= 2;
+}
+
+/**
+ * ユーザーが直近のターンで「終了意思」を示したか。
+ *
+ * 対象パターン: 「これだけ」「以上」「終わり」「直接帰る」「まっすぐ帰る」「もう寝る」系
+ * 走査対象: DialogState.capturedHistory の直近 N ターン（rawSpan に対して regex match）
+ *
+ * 注意: capturedHistory は append-only log なので末尾が直近。
+ * lookbackTurns は defense として 3 turn を default（最近 3 ターン内に終了意思あり = nudge 抑制）。
+ */
+const END_SIGNAL_PATTERNS: readonly RegExp[] = [
+  /これだけ/,
+  /それだけ/,
+  /以上(です|かな|だ|$)/,
+  /これで(いい|終わり|おしまい|大丈夫|十分)/,
+  /終わり(です|だ|$)/,
+  /直接帰る/,
+  /まっすぐ帰る/,
+  /(家|自宅|うち)に(帰る|戻る)/,
+  /(もう|今日は)(寝る|休む)/,
+];
+
+export interface CapturedHistoryLike {
+  capture: { rawSpan: string };
+}
+
+export function userSignaledEnd(
+  capturedHistory: ReadonlyArray<CapturedHistoryLike>,
+  lookbackTurns: number = 3,
+): boolean {
+  if (lookbackTurns <= 0) return false;
+  const recent = capturedHistory.slice(-lookbackTurns);
+  for (const h of recent) {
+    const span = h?.capture?.rawSpan;
+    if (typeof span !== "string" || span.length === 0) continue;
+    for (const rx of END_SIGNAL_PATTERNS) {
+      if (rx.test(span)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * selection endpoint が alterFollowUp を注入すべきか最終判定する narrow trigger。
+ *
+ * 条件（全 AND）:
+ *   A. このターンで 1 件目 place が confirm された         (justConfirmedFirstPlace)
+ *   B. まだ複数 place に到達していない                     (!hasMultiplePlaces)
+ *   C. ユーザーが終了意思を示していない                    (!userSignaledEnd)
+ *
+ * flag 判定 (transportV2 allowlist) は caller が担う（本 helper は flag 非依存）。
+ */
+export function shouldAskNextPlace(args: {
+  prevEvents: ReadonlyArray<EventWithCoordinates>;
+  nextEvents: ReadonlyArray<EventWithCoordinates>;
+  capturedHistory: ReadonlyArray<CapturedHistoryLike>;
+}): boolean {
+  return (
+    justConfirmedFirstPlace(args.prevEvents, args.nextEvents) &&
+    !hasMultiplePlaces(args.nextEvents) &&
+    !userSignaledEnd(args.capturedHistory)
+  );
+}

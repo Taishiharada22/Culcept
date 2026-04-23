@@ -52,6 +52,10 @@ import {
   computeSegmentsBuiltTelemetry,
   computeDisplayRenderedTelemetry,
 } from "@/lib/alter-morning/transport/telemetry";
+import {
+  buildNextPlaceAskText,
+  shouldAskNextPlace,
+} from "@/lib/alter-morning/conversationStarter";
 // NOTE: `@/lib/stargazer/analytics` transitively imports `@/lib/supabaseAdmin`,
 // which eagerly reads `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` at
 // module load. Vitest runs without those envs set, so any static import chain
@@ -332,9 +336,36 @@ export async function POST(req: NextRequest) {
       ...(rebuiltPlan !== undefined ? { plan: rebuiltPlan } : {}),
     };
 
+    // Step 7c: W3-PR-10 positive-path nudge
+    //   narrow trigger (conversationStarter.shouldAskNextPlace):
+    //     A. このターンで 1 件目 place が confirm された
+    //     B. まだ複数 place に到達していない
+    //     C. ユーザーが終了意思を示していない
+    //   さらに transportV2 flag ON ユーザー限定（観測対象外ユーザーに UX 変化を与えない）。
+    //
+    //   発火時は response 末尾に `alterFollowUp: { text }` を付けるだけ。
+    //   DialogState / reducer / plan のいずれも変更しない。client は injectMessage 経由で
+    //   UI に Alter 発話として 1 通だけ表示する。DB dialogues への永続化もしない
+    //   （初版 scope 外、後続 PR で必要性確認）。
+    //
+    //   observability: O2 / O3 telemetry は本 nudge と独立。natural 2 件目が
+    //   user 応答で追加されれば segment build 側で segment_count > 0 が発火する。
+    let alterFollowUp: { text: string } | undefined;
+    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
+      const should = shouldAskNextPlace({
+        prevEvents,
+        nextEvents: eventUpdate.events,
+        capturedHistory: nextDialogState.capturedHistory,
+      });
+      if (should) {
+        alterFollowUp = { text: buildNextPlaceAskText() };
+      }
+    }
+
     return NextResponse.json({
       accepted: true,
       morningSession: nextMorningSession,
+      ...(alterFollowUp !== undefined ? { alterFollowUp } : {}),
     });
   } catch (error) {
     console.error("[alter-selection] unhandled error", error);
