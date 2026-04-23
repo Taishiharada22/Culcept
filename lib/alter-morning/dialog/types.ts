@@ -407,6 +407,26 @@ export type DialogAction =
        * 会話全体の focus と一致しない場合もある（slot_switching 判定のため）。
        */
       targetSlot: DialogFocus["slot"];
+      /**
+       * pre-comprehended where からの seed capture（PR-12 最小根治）。
+       *
+       * 位置づけ:
+       *   focus が前 event から新 event に切り替わった瞬間（`eventChanged=true` + `isWhereSlot`）に、
+       *   新 event が既に持つ `event.where.place_ref` を classify した NormalizedCapture を
+       *   draft 再構築の seed として渡すためのフィールド。ユーザー発話 (capture) が
+       *   area-only / category-only でも、seed に anchor / chain / category が既に載っていれば
+       *   merge 後に `readyForHandoff=true` へ到達しやすくなる。
+       *
+       * 責務範囲:
+       *   - shadowPipeline が `isWhereSlot && eventChanged` 時のみ `classifyUtterance(event.where.place_ref)` を詰める
+       *   - 上記以外（slot=when/what / eventChanged=false）では `null` または省略
+       *   - reducer は `eventChanged` branch で seed → capture の順に merge する（capture 優先、seed は底上げ）
+       *
+       * 非責務:
+       *   - `event.where.placeType` raw を categoryToken に流用すること（語彙空間不一致のため不採用、別 PR 候補）
+       *   - placeTable 解決 / canonicalId 発番（別レイヤ）
+       */
+      seedCapture?: NormalizedCapture | null;
     }
   /**
    * provider 失敗。conversationStatus → "provider_recovering" に遷移。
