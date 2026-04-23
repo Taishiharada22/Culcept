@@ -85,6 +85,13 @@ export interface LegacyAdapterInput {
    * provisional 継承として UI に残す（「プランが蒸発する」UX 破壊の防止）。
    */
   priorPlan?: MorningPlan | null;
+  /**
+   * W3-PR-10 canary (2026-04-24): allowlist 判定用の userId。
+   * 省略時は allowlist check を skip して global fallback のみ参照（safe OFF 方向）。
+   * 呼び出し元（app/api/stargazer/alter/route.ts）は tierCheck / supabase auth から
+   * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
+   */
+  userId?: string;
 }
 
 export interface LegacyAdapterOutput {
@@ -420,7 +427,7 @@ export function adaptPipelineToLegacy(
     //   plan から落ちる（byte-diff ゼロ保証）。
     const built = buildPlanAndSegmentsFromEvents({
       events: effectiveEvents,
-      enableTransportV2: ALTER_MORNING_FLAGS.transportV2,
+      enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
     });
 
     // ── W3-PR-10 Phase 2: travel display cache interleave ──

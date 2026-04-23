@@ -30,12 +30,73 @@ function envBool(name: string, fallback: boolean): boolean {
 }
 
 /**
+ * PR-10 canary: transport_v2 allowlist 解決。
+ *
+ * env `ALTER_MORNING_TRANSPORT_V2_ALLOWLIST` を CSV でパース → Set<string>。
+ * env 値変更時だけ再計算（test で process.env を書き換える pattern に対応）。
+ *
+ * normalization:
+ *   - trim + lowercase（UUID は hex なので入力ミス吸収）
+ *   - 空要素は無視
+ */
+let cachedAllowlist: { raw: string | undefined; set: Set<string> } = {
+  raw: undefined,
+  set: new Set(),
+};
+
+function getTransportV2AllowlistSet(): Set<string> {
+  const raw = process.env.ALTER_MORNING_TRANSPORT_V2_ALLOWLIST;
+  if (raw === cachedAllowlist.raw) return cachedAllowlist.set;
+  const set = new Set<string>();
+  if (raw) {
+    for (const entry of raw.split(",")) {
+      const trimmed = entry.trim().toLowerCase();
+      if (trimmed) set.add(trimmed);
+    }
+  }
+  cachedAllowlist = { raw, set };
+  return set;
+}
+
+/**
  * テスト override。process.env を触らず flag を上書きする。
  * null でクリア（env 値に戻る）。
  */
 let dialogStateV2Override: boolean | null = null;
 let placesSearchOverride: boolean | null = null;
 let transportV2Override: boolean | null = null;
+
+/**
+ * PR-10 canary: flag_source を payload に埋める用の helper。
+ *
+ * 優先順位（§1-A-1）:
+ *   test override > allowlist > global fallback
+ *
+ * 戻り値:
+ *   - "allowlist" / "global"（log payload の flag_source に入る値）
+ *   - null（flag OFF なので ON にはならなかった = log 自体そもそも出さない）
+ *
+ * 注意: test override が効いているときは log を通常 emit しない（test では fire-and-forget
+ *       の side-effect を assert しない）。そのため "test" ラベルは必要なく、
+ *       allowlist / global の 2 値で十分。
+ */
+export type TransportV2FlagSource = "allowlist" | "global";
+
+export function resolveTransportV2FlagSource(
+  userId: string | undefined,
+): TransportV2FlagSource | null {
+  if (transportV2Override !== null) {
+    // test override が true でも false でも、flag_source としては原則無関係。
+    // とはいえ true のときに log を出すなら global として扱う（env 未経由の強制 ON）。
+    return transportV2Override ? "global" : null;
+  }
+  if (userId) {
+    const normalized = userId.toLowerCase();
+    if (getTransportV2AllowlistSet().has(normalized)) return "allowlist";
+  }
+  if (envBool("ALTER_MORNING_TRANSPORT_V2", false)) return "global";
+  return null;
+}
 
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
@@ -99,6 +160,16 @@ export const ALTER_MORNING_FLAGS = {
   /**
    * PR-10 Transport Staircase — canonical TransportSegment[] 供給 gate。
    *
+   * **W3-PR-10 canary（2026-04-24）以降は method に変更**:
+   *   `ALTER_MORNING_FLAGS.transportV2(userId?)` の形で呼ぶ。getter ではないので
+   *   `if (ALTER_MORNING_FLAGS.transportV2) { ... }` と書くと常に truthy
+   *   （function reference）になる。必ず `()` を付けて呼び出すこと。
+   *
+   * 優先順位（§1-A-1）:
+   *   1. test override（`__setTransportV2Override(true|false)`）
+   *   2. allowlist（`ALTER_MORNING_TRANSPORT_V2_ALLOWLIST` CSV に userId 含む）
+   *   3. global fallback（`ALTER_MORNING_TRANSPORT_V2` env、既定 false）
+   *
    * false（既定）:
    *   - buildPlanAndSegmentsFromEvents は transportSegments key を返さない
    *     （undefined も含めない、conditional spread で落とす）
@@ -114,10 +185,20 @@ export const ALTER_MORNING_FLAGS = {
    *   - 両端 where.coordinates が揃った隣接 event pair のみ segment 生成
    *     （placeholder / heuristic edge は禁止、不完全情報で捏造しない）
    *
-   * env key: `ALTER_MORNING_TRANSPORT_V2`
+   * userId の扱い:
+   *   - undefined: allowlist check を skip。global fallback のみ参照（safe OFF 方向）
+   *   - lower-case normalize で比較（env 入力の大小文字ミス吸収）
+   *
+   * env keys:
+   *   - `ALTER_MORNING_TRANSPORT_V2_ALLOWLIST` (CSV) — primary
+   *   - `ALTER_MORNING_TRANSPORT_V2` (bool) — global fallback
    */
-  get transportV2(): boolean {
+  transportV2(userId?: string): boolean {
     if (transportV2Override !== null) return transportV2Override;
+    if (userId) {
+      const normalized = userId.toLowerCase();
+      if (getTransportV2AllowlistSet().has(normalized)) return true;
+    }
     return envBool("ALTER_MORNING_TRANSPORT_V2", false);
   },
 };

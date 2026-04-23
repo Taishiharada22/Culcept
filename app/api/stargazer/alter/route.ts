@@ -1839,6 +1839,7 @@ export async function POST(req: NextRequest) {
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
+                  userId, // W3-PR-10 canary: allowlist 判定用
                 });
                 // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
                 //   ensureSessionV1 (L1747) で init した dialogState を、
@@ -1940,6 +1941,7 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              userId, // W3-PR-10 canary: allowlist 判定用
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
             //   （Branch B 通常 LLM 経路。理由は bind 経路と同じ。）
@@ -1980,6 +1982,7 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              userId, // W3-PR-10 canary: allowlist 判定用
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
             //   （pipeline throw 吸収経路。provider failure 時も narrowStep を保つ。）

@@ -98,6 +98,9 @@ export async function POST(req: NextRequest) {
   try {
     const tierCheck = await checkStargazerTier("alter");
     if (tierCheck instanceof NextResponse) return tierCheck;
+    // W3-PR-10 canary: userId は tierCheck 戻り値に既に含まれている（/lib/stargazer/tierGuard.ts:74）。
+    // transportV2 allowlist 判定で使う。ここで抽出しておく。
+    const { userId } = tierCheck;
 
     let raw: unknown;
     try {
@@ -197,7 +200,7 @@ export async function POST(req: NextRequest) {
     //     priorPlan の date / dayConditions / createdAt / confirmed / status は温存。
     //   invariant: buildPlanAndSegmentsFromEvents は pure。flag 値は引数で受け渡す。
     let rebuiltPlan: MorningPlan | undefined;
-    if (ALTER_MORNING_FLAGS.transportV2) {
+    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
       const priorPlan = morningSession.plan as MorningPlan | undefined;
       if (priorPlan) {
         const built = buildPlanAndSegmentsFromEvents({
