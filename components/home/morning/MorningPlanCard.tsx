@@ -186,14 +186,22 @@ function DurationPicker({
 
   return (
     <>
-      {/* オーバーレイ（タップで閉じる） */}
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
 
-      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない） */}
+      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない）
+          PR-11 Step 2: 内側 button click が親行の onClick に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute right-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[220px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">所要時間を変更</div>
@@ -297,11 +305,20 @@ function StartTimePicker({
 
   return (
     <>
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      {/* ピッカー本体 — PR-11 Step 2: 内側の click が親行に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute left-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[180px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">開始時刻を変更</div>
@@ -551,11 +568,29 @@ function PlanItemRow({
         </div>
       )}
 
-      <div className="flex items-center gap-2 py-2.5 px-3">
+      {/*
+        行全体の tap で PlaceDetailSheet を開く（PR-11 Step 2）:
+          - item.location?.label が在る時のみ onClick を有効化（空 location で sheet を開かない）
+          - 既存の場所名 button (L659 付近) は keyboard/screen reader の primary trigger として維持
+          - 内側の button/picker には stopPropagation を付与し多重発火/誤動作を防ぐ
+          - a11y: 行 div には tabIndex/role=button を付与しない（既存 place button に任せ、
+            tab 走査ノイズを避ける最小方針）
+      */}
+      <div
+        className={`flex items-center gap-2 py-2.5 px-3 ${
+          item.location?.label ? "cursor-pointer" : ""
+        }`}
+        onClick={() => {
+          if (item.location?.label) onPlaceClick(item);
+        }}
+      >
         {/* 完了チェック（確定後のみ） */}
         {confirmed && (
           <button
-            onClick={() => onToggleComplete(item.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete(item.id);
+            }}
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
               item.completed
                 ? "bg-purple-500 border-purple-500"
@@ -574,7 +609,10 @@ function PlanItemRow({
         {!confirmed && (
           <div className="flex flex-col gap-0 flex-shrink-0">
             <button
-              onClick={() => canMoveUp && onMoveUp(item.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveUp) onMoveUp(item.id);
+              }}
               disabled={!canMoveUp}
               className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
               title="上に移動"
@@ -582,7 +620,10 @@ function PlanItemRow({
               ▲
             </button>
             <button
-              onClick={() => canMoveDown && onMoveDown(item.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveDown) onMoveDown(item.id);
+              }}
               disabled={!canMoveDown}
               className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
               title="下に移動"
@@ -597,7 +638,10 @@ function PlanItemRow({
           {whenSharpness === "fixed" ? (
             <>
               <button
-                onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!confirmed) setShowTimePicker(!showTimePicker);
+                }}
                 className={`text-[12px] font-mono w-full text-left ${
                   confirmed
                     ? "text-gray-400 cursor-default"
@@ -657,7 +701,10 @@ function PlanItemRow({
               <>
                 <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
                 <button
-                  onClick={() => onPlaceClick(item)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlaceClick(item);
+                  }}
                   className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
                     item.completed
                       ? "text-gray-400"
@@ -728,7 +775,10 @@ function PlanItemRow({
         {/* 所要時間（タップで変更） */}
         <div className="relative flex-shrink-0">
           <button
-            onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!confirmed) setShowDurationPicker(!showDurationPicker);
+            }}
             className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
               confirmed
                 ? "text-gray-400 bg-gray-50/50 cursor-default"
