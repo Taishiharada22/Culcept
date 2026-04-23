@@ -76,12 +76,31 @@ function mkSegment(opts: {
   confidence?: TransportSegment["confidence"];
   source?: TransportSegment["source"];
 }): TransportSegment {
+  // Scope A 以降: synthesizeTravelItems は null-duration segment を skip するため、
+  // fixture の既定値は「typical な heuristic 返り値」を表す number (15 min) にする。
+  // null スキップ挙動を検証する test だけが明示的に null を渡す。
+  const hasExplicitDuration = Object.prototype.hasOwnProperty.call(
+    opts,
+    "estimatedDurationMin",
+  );
+  const estimatedDurationMin = hasExplicitDuration
+    ? (opts.estimatedDurationMin ?? null)
+    : 15;
+  const hasExplicitSource = Object.prototype.hasOwnProperty.call(
+    opts,
+    "durationSource",
+  );
+  const durationSource = hasExplicitSource
+    ? (opts.durationSource ?? null)
+    : estimatedDurationMin !== null
+      ? "heuristic"
+      : null;
   return {
     fromEventId: opts.from,
     toEventId: opts.to,
     mode: opts.mode ?? "unknown",
-    estimatedDurationMin: opts.estimatedDurationMin ?? null,
-    durationSource: opts.durationSource ?? null,
+    estimatedDurationMin,
+    durationSource,
     distanceM: null,
     confidence: opts.confidence ?? "default",
     source: opts.source ?? "default_walk",
@@ -189,7 +208,7 @@ describe("synthesizeTravelItems — C2-B shape", () => {
     expect(t.sourceTurnIndex).toBe(0);
   });
 
-  test("durationMin: estimatedDurationMin が number ならそれ、null なら 0", () => {
+  test("durationMin: number の segment だけ travel entry を生成し、null は skip（fake 0分禁止）", () => {
     const events = [
       mkEvent({ id: "evt_1", placeRef: "A" }),
       mkEvent({ id: "evt_2", placeRef: "B" }),
@@ -197,12 +216,16 @@ describe("synthesizeTravelItems — C2-B shape", () => {
     ];
     const segments = [
       mkSegment({ from: "evt_1", to: "evt_2", estimatedDurationMin: 15 }),
+      // ≤0.2km / invalid coords / heuristic 失敗の代表。display cache を作らない
       mkSegment({ from: "evt_2", to: "evt_3", estimatedDurationMin: null }),
     ];
     const entries = synthesizeTravelItems(segments, events);
 
+    expect(entries).toHaveLength(1);
+    expect(entries[0].afterEventId).toBe("evt_1");
     expect(entries[0].item.durationMin).toBe(15);
-    expect(entries[1].item.durationMin).toBe(0);
+    // null segment からは entry を出さない（0 分 travel を UI に見せない）
+    expect(entries.some((e) => e.afterEventId === "evt_2")).toBe(false);
   });
 
   test("durationSource は inferred（user 指定相当の override は持たない）", () => {
