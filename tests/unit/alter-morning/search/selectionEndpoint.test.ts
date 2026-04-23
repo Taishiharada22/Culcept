@@ -19,6 +19,8 @@ import type { DialogState, PresentationContext } from "@/lib/alter-morning/dialo
 import type { Event } from "@/lib/alter-morning/comprehension/eventSchema";
 import type { NormalizedPlaceCandidate } from "@/lib/alter-morning/search/normalizedPlace";
 import { utteranceProvenance } from "@/lib/alter-morning/comprehension/eventSchema";
+import { __setTransportV2Override } from "@/lib/alter-morning/dialog/flags";
+import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Mocks
@@ -378,5 +380,278 @@ describe("POST /api/stargazer/alter/selection", () => {
     expect(body.morningSession.sessionId).toBe("s1");
     expect(body.morningSession.phase).toBe("clarifying");
     expect(body.morningSession.rawInputs).toEqual(["朝スタバ行く"]);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-10 Transport Staircase — plan rebuild 分岐
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function mkEventWithCoords(
+  eventId: string,
+  placeRef: string,
+  coordinates: { lat: number; lng: number } | null,
+  startTime = "10:00",
+): Event {
+  return {
+    event_id: eventId,
+    turn_mode: "create",
+    target_ref: null,
+    target_ref_confidence: null,
+    change_scope: null,
+    when: {
+      startTime,
+      timeHint: null,
+      provenance: utteranceProvenance([startTime], "high"),
+    },
+    where: {
+      place_ref: placeRef,
+      placeType: coordinates ? "exact_proper_noun" : "chain_brand",
+      coordinates,
+      provenance: utteranceProvenance([placeRef], "high"),
+    },
+    what: {
+      activity: "作業",
+      activityCanonical: "work",
+      provenance: utteranceProvenance(["作業"], "high"),
+    },
+    who: [],
+    transport: null,
+    certainty: "asserted",
+    missing_semantic_critical: coordinates ? [] : ["where"],
+    missing_solver_blockers: [],
+  };
+}
+
+function mkPriorPlan(items: PlanItem[]): MorningPlan {
+  return {
+    date: "2026-04-22",
+    items,
+    dayConditions: {},
+    createdAt: "2026-04-22T09:00:00Z",
+    confirmed: false,
+    status: "provisional",
+  };
+}
+
+describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
+  beforeEach(() => {
+    mockTierCheck.mockReset();
+    mockTierCheck.mockResolvedValue({
+      userId: "user_1",
+      tier: { level: "free" },
+      allowed: true,
+    });
+    __setTransportV2Override(null);
+  });
+
+  afterEach(() => {
+    __setTransportV2Override(null);
+    vi.clearAllMocks();
+  });
+
+  it("flag OFF + plan in morningSession → response.morningSession.plan は含まれない（完全互換）", async () => {
+    __setTransportV2Override(false);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+    const priorPlan = mkPriorPlan([
+      {
+        id: "event_1",
+        kind: "fixed",
+        text: "10:00 スタバ コーヒー",
+        what: "コーヒー",
+        startTime: "10:00",
+        durationMin: 45,
+        durationSource: "inferred",
+        fixedStart: true,
+        orderHint: 0,
+        sourceTurnIndex: 0,
+        completed: false,
+        whenSharpness: "fixed",
+        whereSharpness: "vague",
+        whatSharpness: "fixed",
+        whereVagueSubKind: "category_chain",
+        confirmationState: "provisional",
+      },
+    ]);
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          plan: priorPlan,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // flag OFF 契約: server は plan を response に含めない（client は自前の plan を保持）。
+    // pre-PR-10 では client hook が plan を無視していたため、wire 上 plan を消しても
+    // client の state 遷移は発生せず、byte-diff ゼロ相当の互換を満たす。
+    expect(body.morningSession.plan).toBeUndefined();
+    expect("plan" in body.morningSession).toBe(false);
+  });
+
+  it("flag ON + coordinates-fixed events + plan in morningSession → rebuild で transportSegments 付与", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    // candidate は lat:35.66, lng:138.56。selection で event_1 の coordinates がこれに更新される。
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const priorPlan = mkPriorPlan([
+      {
+        id: "event_1",
+        kind: "fixed",
+        text: "10:00 スタバ コーヒー",
+        what: "コーヒー",
+        startTime: "10:00",
+        durationMin: 45,
+        durationSource: "inferred",
+        fixedStart: true,
+        orderHint: 0,
+        sourceTurnIndex: 0,
+        completed: false,
+        whenSharpness: "fixed",
+        whereSharpness: "vague",
+        whatSharpness: "fixed",
+        whereVagueSubKind: "category_chain",
+        confirmationState: "provisional",
+      },
+    ]);
+
+    // event_1 は chain_brand（coordinates null）、event_2 は coordinates 既定
+    const events: Event[] = [
+      mkEvent("event_1"),
+      mkEventWithCoords(
+        "event_2",
+        "渋谷",
+        { lat: 35.66, lng: 139.7 },
+        "12:00",
+      ),
+    ];
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: events,
+          plan: priorPlan,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    expect(body.morningSession.plan).toBeDefined();
+
+    const nextPlan: MorningPlan = body.morningSession.plan;
+    // items は rebuild され、event_1 の text も新しい place_ref を反映する
+    expect(nextPlan.items).toHaveLength(2);
+    expect(nextPlan.items[0].id).toBe("event_1");
+    expect(nextPlan.items[0].text).toContain(candidate.displayName);
+
+    // transportSegments: event_1 が selection で coordinates 獲得、event_2 も coordinates 既定 →
+    // 両端揃ったので 1 segment 生成
+    expect(nextPlan.transportSegments).toBeDefined();
+    expect(nextPlan.transportSegments).toHaveLength(1);
+    expect(nextPlan.transportSegments![0].fromEventId).toBe("event_1");
+    expect(nextPlan.transportSegments![0].toEventId).toBe("event_2");
+    expect(nextPlan.transportSegments![0].mode).toBe("unknown");
+    expect(nextPlan.transportSegments![0].source).toBe("default_walk");
+
+    // date / dayConditions / createdAt / confirmed / status は priorPlan から温存
+    expect(nextPlan.date).toBe("2026-04-22");
+    expect(nextPlan.createdAt).toBe("2026-04-22T09:00:00Z");
+    expect(nextPlan.confirmed).toBe(false);
+    expect(nextPlan.status).toBe("provisional");
+  });
+
+  it("flag ON + 片方 coordinates 欠落 → transportSegments は空配列（heuristic 禁止 invariant）", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const priorPlan = mkPriorPlan([]);
+
+    // event_1 は selection で coordinates 獲得、event_2 は coordinates null のまま
+    const events: Event[] = [
+      mkEvent("event_1"),
+      mkEventWithCoords("event_2", "未確定", null, "12:00"),
+    ];
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: events,
+          plan: priorPlan,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    const nextPlan: MorningPlan = body.morningSession.plan;
+    // coordinates 揃った pair が無いので segment は 0 件
+    expect(nextPlan.transportSegments).toEqual([]);
+  });
+
+  it("flag ON + priorPlan なし → plan rebuild しない（plan は response に含まれない）", async () => {
+    __setTransportV2Override(true);
+
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          // plan なし
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // priorPlan なし → rebuild も skip。plan key は response に現れない
+    expect(body.morningSession.plan).toBeUndefined();
   });
 });

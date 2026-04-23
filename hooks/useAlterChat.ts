@@ -586,6 +586,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (next.phase) {
           setMorningPhase(next.phase);
         }
+        // W3-PR-10: server が rebuild した plan があれば置換（transportSegments 含む）。
+        // flag OFF 時は server は plan を返さないので本分岐は no-op（byte-diff ゼロ）。
+        if (next.plan !== undefined) {
+          setMorningPlan(next.plan ?? null);
+        }
       }
     } catch (err: any) {
       if (err.name === "AbortError") return;
