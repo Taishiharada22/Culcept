@@ -13,6 +13,52 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12 Step 1 診断 — 2 件目 event handoff `status_not_handoff` 真因確定 + 実装計画承認
+- **部門**: Build
+- **決定内容**: PR-11 Preview 実機検証で観測された「2 件目 event の `places-handoff:skip_gate status_not_handoff`」事象について Step 1 診断を実施し、CEO 補正 2 回を経て根本原因 H1 を確定、最小根治の実装計画（shadowPipeline.ts / reducer.ts / types.ts 改修 + unit test 7 本）を CEO 承認
+- **根本原因（H1 確定）**:
+  - `eventChanged=true` branch（`reducer.ts` L528-537）は、focus 遷移直後にユーザー発話の `capture` **のみ** から draft を再構築する（capture-only reset）
+  - しかし 2 件目 event は **pre-comprehended where**（`place_ref` / `placeType` / `coordinates`）を既に持っているため、ユーザー発話が area-only / category-only の場合、draft に anchor+chain の両方が揃わず `readyForHandoff=false` → `narrowStep<2` → FSA が `search_handoff_blocking` に遷移できず gate skip
+  - 副次: H2-H4（focus selection fallback / FSA allowed transitions / idempotency skip）は現行コードで正しく動作しており、今回の事象を説明しない
+- **補正 1 の趣旨（CEO）**: "H1 は最有力だが確定ではない。seed は `place_ref` 再分類だけに依存しすぎない方がいい。本質は pre-comprehended where を seed すること。area seed + category-only utterance (『ランチ』) でも handoff に到達するケースをテストに追加"
+- **補正 2 の趣旨（CEO）**: "Preview/Vercel の commit SHA を先に確認。`placeType` raw string を category token に使う前提の確認"
+- **deployment SHA 確認（CEO 条件）**: `gh api repos/Taishiharada22/Culcept/deployments` で直近 6 件取得、production / preview / PR merge の対応を確認（下表）。ローカル vs Vercel の drift なし。今回のような「URL は知っているが中身の SHA を確認していない」混乱を防ぐため、表を記録に残す
+
+| 時刻 (UTC) | 環境 | SHA | 内容 |
+|---|---|---|---|
+| 2026-04-23 18:57:59 | Production | `2bf627c3` | main 最新（PR-11 merge + decision-log） |
+| 2026-04-23 18:53:49 | Production | `0928332c` | PR #27 (PR-11) squash merge |
+| 2026-04-23 18:25:54 | Preview | `0c4d5f70` | PR-11 branch 最終 commit（timeLabel） |
+| 2026-04-23 17:36:55 | Production | `511191f6` | PR #26 (Positive-Path Nudge) squash merge |
+| 2026-04-23 14:43:06 | Preview | `3e60da86` | PR-26 branch 最終 commit |
+| 2026-04-23 13:53:29 | Production | `52814bb2` | PR #25 squash merge |
+
+- **`placeType` raw 不採用の根拠**:
+  - `CATEGORY_DICT`（`taxonomy.ts` L68-96）は日本語のみ（"カフェ" / "ランチ" / "居酒屋" 等）
+  - `event.where.placeType` の value range は upstream 推定（英語 "cafe" 等の可能性）で categoryToken と語彙が異なる
+  - `buildQueryFingerprint`（`placesHandoff.ts` L127-138）は toLowerCase 正規化だが **語彙空間が違う** と fingerprint の idempotency が壊れる
+  - 採用方針: seed は `classifyUtterance(place_ref)` 単独。`placeType` raw → categoryToken マッピングは後段候補（別 PR）としてメモ化
+- **実装計画（Step 3 承認範囲）**:
+  1. `lib/alter-morning/dialog/types.ts`: `TURN_CAPTURED` action に `seedCapture?: NormalizedCapture | null` 追加（~4 行）
+  2. `lib/alter-morning/dialog/shadowPipeline.ts`: `buildSeedCaptureFromEvent(event)` helper を新規追加し、`isWhereSlot && eventChanged` 時のみ `classifyUtterance(event.where.place_ref)` を seedCapture として dispatch に injection（~12 行）
+  3. `lib/alter-morning/dialog/reducer.ts`: `eventChanged` branch を書き換え、seed capture → user capture の順に merge（chain ⊕ category 排他は既存 `mergeCaptureIntoDraft` を踏襲）（~18 行）
+  4. unit tests 7 本追加（`reducer.test.ts` + `shadowSequenceIntegration.test.ts`）:
+    - T1: regression-trap（seed 未渡し → 既存互換で anchor_alone → narrowing=1）
+    - T2: seed + place_ref="新宿のルミネ" → draft={anchor=新宿, chain=ルミネ} → handoff
+    - T3: seed + capture 両方 non-null → capture が seed を上書き（chain 排他維持）
+    - T4: `isWhereSlot=false` で seedCapture 渡しても無視
+    - T5: `eventChanged=false` で seedCapture 渡しても無視
+    - T7: **CEO 追加**: area seed + category-only utterance（"ランチ"）→ `search_handoff_blocking` に到達
+    - T8: multi-event Turn1→Turn2 focus 遷移 → event2 seed で handoff 再発火
+- **非スコープ（CEO 確認済）**:
+  - `placeType` raw → categoryToken マッピング（別 PR 検討）
+  - comprehension engine の place_ref 抽出精度改善（PR-13+）
+  - narrow loop / trap-scan / event_id 飛び（別サブシステム）
+- **PR #26 凍結事項不変**: `shouldAskNextPlace` / `userSignaledEnd` / `buildNextPlaceAskText` / `transportV2` allowlist は無変更
+- **承認**: CEO（Step 1 診断承認 + 補正 2 回 + SHA 表記録条件 + Step 3 実装計画承認）
+- **ステータス**: 実装着手（Step 3 実装中）
+
+---
 ### 2026-04-24 W3-PR-11 完了 — UI 正しさ修正 (場所名表示 / 行 tap / 開始–終了) Path A Domain→UI 直結
 - **部門**: Build
 - **決定内容**: W3-PR-11 の 4 要件を 3 commit の最小根治で充足。(1) 予定カードに**場所名**を表示、(2) 場所名/予定行タップで**場所詳細ボトムシート**、(3) 各予定の時刻を**開始–終了**レンジ表示、(4) 「未確定だから出ない」vs「確定済なのに UI に出ない」を切り分け後者を解消。
