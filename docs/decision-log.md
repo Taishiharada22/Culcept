@@ -13,6 +13,50 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-11 完了 — UI 正しさ修正 (場所名表示 / 行 tap / 開始–終了) Path A Domain→UI 直結
+- **部門**: Build
+- **決定内容**: W3-PR-11 の 4 要件を 3 commit の最小根治で充足。(1) 予定カードに**場所名**を表示、(2) 場所名/予定行タップで**場所詳細ボトムシート**、(3) 各予定の時刻を**開始–終了**レンジ表示、(4) 「未確定だから出ない」vs「確定済なのに UI に出ない」を切り分け後者を解消。
+- **CEO 制約 (遵守)**:
+  - "Step 2 を Step 1 より先に入れない" / "Step 3 は upstream 直しではなく最小根治に留める"
+  - PR #26 凍結事項不変 (shouldAskNextPlace / userSignaledEnd / buildNextPlaceAskText / transportV2 allowlist)
+  - 最終ゴール PR-14/15 までの論理連鎖を途切れさせない
+- **成果物 (3 commits, 5 files)**:
+  - Commit 1 `756dfb8b`: `planRebuild.ts` に `eventWhereToLocation` pure helper + `eventToPlanItem` 内 conditional spread 合流 (Path A Domain→UI 接続根治)
+  - Commit 2 `636bd08c`: `MorningPlanCard.tsx` 行 onClick + 5 button 及び picker backdrop/body に `stopPropagation()` 防御
+  - Commit 3 `0c4d5f70`: `components/home/morning/timeLabel.ts` 新規 pure module (`timeToMinutes` / `minutesToTimeHHMM` / `formatStartEndLabel`)。MorningPlanCard の time slot が fixed 経路でのみ `"HH:MM–HH:MM"` (en dash U+2013) を描画。vague/missing 時は従来 `[時間未確定]` placeholder を維持
+- **不変項 (Commit 1)**:
+  - `event.where.place_ref` 空/空白のみ → `location` key ごと含めない (`item.location?.label` guard と整合)
+  - `coordinates` が有限数値時のみ lat/lng 書き込み (NaN/Infinity/非 number 除外)
+  - `canonicalId=""` 固定 (intentParser.ts:714-720 precedent)
+  - `source="user_explicit"` (place_ref は utterance or selection 由来)
+- **不変項 (Commit 3 timeLabel)**:
+  - `startTime undefined` → `undefined` (caller fallback)
+  - `isDayBoundary=true` → 単一時刻 (CEO 確定 2026-04-24: 1 日の開始点/終点は range 対象外)
+  - `durationMin ≤ 0 / NaN` → 単一時刻 (0 幅 range 退化回避)
+  - 24h 越え end / invalid startTime 形式 → 単一時刻 fallback
+  - 通常経路 → `"HH:MM–HH:MM"` en dash U+2013
+- **非責務 (今回やらない)**:
+  - comprehension engine が event.where.place_ref を抽出できない utterance パターン → PR-12+ スコープ
+  - `whenSharpness=fixed` 判定精度 (今回 preview では `[時間未確定]` 出現、placeholder は仕様どおり)
+  - `status_not_handoff` / narrow loop / trap-scan / event_id 飛び等のログ観測事項 → いずれも PR-11 スコープ外
+- **テスト**:
+  - `tests/unit/components/timeLabel.test.ts` 新規 22 tests (境界 / 退化 / en dash / UI 契約)
+  - `tests/unit/alter-morning/planRebuild.test.ts` 既存 11 + C8 `eventWhereToLocation` 9 tests 追加 → 20 tests PASS
+  - alter-morning + components vitest suite **1953/1953 PASS**
+  - 触った file に新規 tsc エラーなし
+- **Preview 実機検証 (Playwright / CEO account)**:
+  - ✅ 要件 1: item 3 行に "新宿のルミネ" label 描画
+  - ✅ 要件 2: 行 tap → PlaceDetailSheet 展開 (Google Maps iframe 座標 35.690227, 139.700144 新宿)
+  - ✅ 要件 3: `formatStartEndLabel` は fixed 経路のみ呼ぶ設計。今回入力は vague 判定で placeholder が正しく表示、unit tests で range 経路は担保
+  - ✅ 要件 4: `[時間未確定]` `[内容暫定]` は sharpness=vague の正表現、location は独立経路で描画 → 従来の「確定済なのに出ない」は解消
+  - ✅ negative: 場所ラベル無し行 (item 1) tap で sheet 非展開、cursor:pointer も非付与
+- **CI / Preview**: lint-and-test SUCCESS / Vercel Preview SUCCESS
+- **PR**: [#27](https://github.com/Taishiharada22/Culcept/pull/27) (squash merge `0928332c`)
+- **main 遷移**: `511191f6 → 0928332c`
+- **承認**: CEO (Step 1 診断承認 / Step 3 最小根治承認 / Preview 検証後マージ承認)
+- **ステータス**: 実行済
+
+---
 ### 2026-04-24 W3-PR-10 Scope A 完了 — canonical segment に duration / source を注入（mode-free 中立距離 heuristic）
 - **部門**: Build
 - **決定内容**: W3-PR-10 Phase 3+ の優先候補 5 本から Scope A（duration / source 強化）を選定し、canonical `TransportSegment` の `estimatedDurationMin` と `durationSource` を build 時に埋める。mode 非依存の中立距離 heuristic を導入し、unknown mode でも travel 表示を機能させる。
