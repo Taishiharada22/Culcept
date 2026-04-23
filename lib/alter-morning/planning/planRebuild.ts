@@ -36,6 +36,7 @@ import type {
   PlanItem,
   ConfirmationState,
   WhereVagueSubKind,
+  MainLocation,
 } from "../types";
 import type { TransportMode, TransportSegment } from "../transport/types";
 import { estimateNeutralDurationMin } from "../transport/durationHeuristic";
@@ -46,6 +47,57 @@ import { classifyWhereVague } from "./whereVagueClassifier";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const DEFAULT_DURATION_MIN = 45;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Internal: event.where → PlanItem.location（PR-11 UI 正しさ修正）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 位置づけ（2026-04-23 CEO 承認 Step 3 最小根治）:
+//   Phase 1 Domain Model において、event.where は canonical な場所情報を持つが、
+//   従来 eventToPlanItem はそれを text field に join するだけで、UI が読む
+//   PlanItem.location （= MainLocation）に一切変換していなかった。
+//   結果 MorningPlanCard の render gate `whereSharpness === "fixed" && item.location?.label`
+//   が常に false となり、「確定済なのに場所名 UI に出ない」現象を引き起こしていた。
+//
+// 不変項:
+//   - label（= event.where.place_ref）が空なら location 自体 undefined を返す
+//     （MainLocation.label は required string のため、空文字を詰めない）
+//   - canonicalId は placeTable 解決を経ない以上空文字 ""（intentParser の既存 precedent）
+//   - source は "user_explicit"
+//       event.where.place_ref は utterance 由来（user 発話）か selection 由来
+//       （user が候補を明示選択）のいずれか。どちらも user 明示として扱って差し支えない
+//   - lat/lng は coordinates が有限 number の時のみ含める。NaN/Infinity/非 number は除外
+//
+// 非責務:
+//   - placeTable 解決 / canonicalId 発番 → 別レイヤ（placeResolver / intentParser）
+//   - category / traits 推定 → placeTable 依存のため本 pure fn では扱わない
+//   - propertyHints / resolvedName の精緻化 → 別 PR
+//   - placeId（Google Place ID）転送 → 現在 event.where に field 自体が無いため対象外
+function eventWhereToLocation(
+  where: ComprehensionEvent["where"],
+): MainLocation | undefined {
+  const label =
+    typeof where.place_ref === "string" && where.place_ref.trim().length > 0
+      ? where.place_ref
+      : null;
+  if (label === null) return undefined;
+
+  const c = where.coordinates;
+  const hasValidCoords =
+    c != null &&
+    typeof c.lat === "number" &&
+    typeof c.lng === "number" &&
+    Number.isFinite(c.lat) &&
+    Number.isFinite(c.lng);
+
+  return {
+    canonicalId: "",
+    label,
+    source: "user_explicit",
+    resolvedName: label,
+    ...(hasValidCoords ? { lat: c!.lat, lng: c!.lng } : {}),
+  };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Internal: event → PlanItem
@@ -74,6 +126,8 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
     ? "confirmed"
     : "provisional";
 
+  const location = eventWhereToLocation(event.where);
+
   return {
     id: event.event_id,
     kind: hasFixedStart ? "fixed" : "todo",
@@ -91,6 +145,10 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
     whatSharpness,
     whereVagueSubKind,
     confirmationState,
+    // conditional spread: label 無しなら location key 自体を含めない。
+    // 下流 UI の `item.location?.label` guard と整合し、PR-10 C6 の
+    // conditional spread precedent（transportSegments）を踏襲する。
+    ...(location !== undefined ? { location } : {}),
   };
 }
 

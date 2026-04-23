@@ -13,6 +13,13 @@
  *     - segment の estimatedDurationMin / distanceM は null（Phase 2 以降で埋める）
  *     - confidence は mainTransport ありなら "inferred"、なしなら "default"
  *     - source は "default_walk"（Phase 1 固定）
+ *   C8: PlanItem.location 写像（PR-11 Step 3 最小根治）
+ *     - event.where.place_ref → location.label / resolvedName
+ *     - event.where.coordinates (有限数値) → location.lat / lng
+ *     - label 空/空白のみ → location key 自体を返り値に含めない
+ *     - 無効 coords (null/NaN/Infinity) → lat/lng を key ごと除外
+ *     - canonicalId="" / source="user_explicit" (intentParser precedent)
+ *     - flag (enableTransportV2) は location の構築に影響しない
  */
 import { describe, test, expect } from "vitest";
 
@@ -289,6 +296,232 @@ describe("buildPlanAndSegmentsFromEvents — C7 flag ON", () => {
 
     expect(result.items).toEqual([]);
     expect(result.transportSegments).toEqual([]);
+  });
+});
+
+describe("buildPlanAndSegmentsFromEvents — C8 location field (PR-11 Step 3 最小根治)", () => {
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 位置づけ:
+  //   eventToPlanItem が event.where を PlanItem.location に写像することの検証。
+  //   MorningPlanCard render gate `whereSharpness === "fixed" && item.location?.label`
+  //   が通るための必要条件。修正前は text field への join のみで、location を
+  //   一切構築せず「確定済なのに場所名が UI に出ない」現象を起こしていた。
+  //
+  // 不変項（eventWhereToLocation 仕様、planRebuild.ts の JSDoc と一対一対応）:
+  //   - label が空（空文字/空白のみ）なら location 自体 undefined → conditional spread で key 不含
+  //   - label 在 + coords 有限数値 → lat/lng を含める
+  //   - label 在 + coords null/NaN/Infinity → lat/lng は含めない（key 自体を落とす）
+  //   - canonicalId は "" 固定（intentParser.ts:714-720 の precedent）
+  //   - source は "user_explicit"（place_ref は user 発話 or selection 明示由来）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  test("place_ref + valid coordinates → PlanItem.location に label/resolvedName/lat/lng が揃う", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "サドヤ",
+        activity: "コーヒー",
+        coordinates: { lat: 35.68, lng: 139.77 },
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].location).toBeDefined();
+    expect(items[0].location!.label).toBe("サドヤ");
+    expect(items[0].location!.resolvedName).toBe("サドヤ");
+    // placeTable 解決は別レイヤなので canonicalId は "" precedent
+    expect(items[0].location!.canonicalId).toBe("");
+    // place_ref は utterance/selection いずれも user 明示として扱う
+    expect(items[0].location!.source).toBe("user_explicit");
+    expect(items[0].location!.lat).toBe(35.68);
+    expect(items[0].location!.lng).toBe(139.77);
+  });
+
+  test("place_ref あり + coordinates=null → location は生成されるが lat/lng は key ごと除外", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "渋谷駅",
+        activity: "集合",
+        coordinates: null,
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items[0].location).toBeDefined();
+    expect(items[0].location!.label).toBe("渋谷駅");
+    expect(items[0].location!.resolvedName).toBe("渋谷駅");
+    // conditional spread precedent: undefined 詰めずに key 自体を落とす
+    expect("lat" in items[0].location!).toBe(false);
+    expect("lng" in items[0].location!).toBe(false);
+  });
+
+  test("place_ref='' → PlanItem.location key 自体が含まれない（render gate と整合）", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "",
+        activity: "予定",
+        coordinates: null,
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items).toHaveLength(1);
+    // MorningPlanCard `item.location?.label` guard と整合、
+    // C6 conditional spread precedent（transportSegments）の踏襲
+    expect(items[0].location).toBeUndefined();
+    expect("location" in items[0]).toBe(false);
+  });
+
+  test("place_ref が空白のみ → label 扱いせず location を含めない（trim 判定）", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "   ",
+        activity: "予定",
+        coordinates: null,
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect("location" in items[0]).toBe(false);
+  });
+
+  test("coordinates.lat が NaN → label は入るが lat/lng は key ごと除外", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "渋谷",
+        activity: "集合",
+        coordinates: { lat: NaN, lng: 139.7 },
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items[0].location).toBeDefined();
+    expect(items[0].location!.label).toBe("渋谷");
+    expect("lat" in items[0].location!).toBe(false);
+    expect("lng" in items[0].location!).toBe(false);
+  });
+
+  test("coordinates.lng が Infinity → label は入るが lat/lng は key ごと除外", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "渋谷",
+        activity: "集合",
+        coordinates: { lat: 35.66, lng: Infinity },
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items[0].location).toBeDefined();
+    expect(items[0].location!.label).toBe("渋谷");
+    expect("lat" in items[0].location!).toBe(false);
+    expect("lng" in items[0].location!).toBe(false);
+  });
+
+  test("MorningPlanCard render gate 必要条件: whereSharpness='fixed' + location?.label 両立", () => {
+    // 本 test は UI gate に対する Contract test。
+    // mkEvent は placeType="exact_proper_noun" 固定のため whereSharpness は "fixed"。
+    // 両方成立して初めて `{whereSharpness === "fixed" && item.location?.label}` が通る。
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        startTime: "09:00",
+        placeRef: "サドヤ",
+        activity: "コーヒー",
+        coordinates: { lat: 35.68, lng: 139.77 },
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items[0].whereSharpness).toBe("fixed");
+    expect(items[0].location?.label).toBe("サドヤ");
+  });
+
+  test("複数 events 混在 → 各 item の location は独立に決定される", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "サドヤ",
+        activity: "コーヒー",
+        coordinates: { lat: 35.68, lng: 139.77 },
+      }),
+      mkEvent({
+        id: "evt_2",
+        placeRef: "",
+        activity: "予定",
+        coordinates: null,
+      }),
+      mkEvent({
+        id: "evt_3",
+        placeRef: "新宿",
+        activity: "夕食",
+        coordinates: { lat: 35.69, lng: 139.7 },
+      }),
+    ];
+    const { items } = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+
+    expect(items).toHaveLength(3);
+    // evt_1: 完全な location
+    expect(items[0].location?.label).toBe("サドヤ");
+    expect(items[0].location?.lat).toBe(35.68);
+    // evt_2: 空 placeRef → location key 不含
+    expect("location" in items[1]).toBe(false);
+    // evt_3: 完全な location（independent）
+    expect(items[2].location?.label).toBe("新宿");
+    expect(items[2].location?.lat).toBe(35.69);
+  });
+
+  test("flag ON でも location field 挙動は不変（enableTransportV2 は location に影響しない）", () => {
+    const events = [
+      mkEvent({
+        id: "evt_1",
+        placeRef: "サドヤ",
+        activity: "コーヒー",
+        coordinates: { lat: 35.68, lng: 139.77 },
+      }),
+    ];
+    const off = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    const on = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: true,
+    });
+
+    // items の JSON 等価（location は flag とは無関係）
+    expect(JSON.stringify(off.items)).toBe(JSON.stringify(on.items));
+    expect(off.items[0].location?.label).toBe("サドヤ");
+    expect(on.items[0].location?.label).toBe("サドヤ");
   });
 });
 

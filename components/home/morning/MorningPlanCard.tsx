@@ -15,6 +15,7 @@ import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
+import { formatStartEndLabel } from "./timeLabel";
 import {
   learnDuration,
   loadDurationStore,
@@ -186,14 +187,22 @@ function DurationPicker({
 
   return (
     <>
-      {/* オーバーレイ（タップで閉じる） */}
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
 
-      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない） */}
+      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない）
+          PR-11 Step 2: 内側 button click が親行の onClick に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute right-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[220px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">所要時間を変更</div>
@@ -297,11 +306,20 @@ function StartTimePicker({
 
   return (
     <>
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      {/* ピッカー本体 — PR-11 Step 2: 内側の click が親行に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute left-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[180px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">開始時刻を変更</div>
@@ -354,6 +372,7 @@ function PlanItemRow({
   onPlaceClick,
   onSelectCandidate,
   onDismissCandidates,
+  isDayBoundary,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
@@ -367,6 +386,12 @@ function PlanItemRow({
   onPlaceClick: (item: PlanItem) => void;
   onSelectCandidate: (itemId: string, candidateIndex: number) => void;
   onDismissCandidates: (itemId: string) => void;
+  /**
+   * PR-11 Step 2b: 1日の開始点/終点（= 非 travel の先頭/末尾 index）に該当する時は
+   * 時刻表示を開始–終了 range にしない。true の時は従来通り startTime 単一表示。
+   * 判定は caller（MorningPlanCard）側で nonTravel index に基づき計算する。
+   */
+  isDayBoundary: boolean;
 }) {
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -551,11 +576,29 @@ function PlanItemRow({
         </div>
       )}
 
-      <div className="flex items-center gap-2 py-2.5 px-3">
+      {/*
+        行全体の tap で PlaceDetailSheet を開く（PR-11 Step 2）:
+          - item.location?.label が在る時のみ onClick を有効化（空 location で sheet を開かない）
+          - 既存の場所名 button (L659 付近) は keyboard/screen reader の primary trigger として維持
+          - 内側の button/picker には stopPropagation を付与し多重発火/誤動作を防ぐ
+          - a11y: 行 div には tabIndex/role=button を付与しない（既存 place button に任せ、
+            tab 走査ノイズを避ける最小方針）
+      */}
+      <div
+        className={`flex items-center gap-2 py-2.5 px-3 ${
+          item.location?.label ? "cursor-pointer" : ""
+        }`}
+        onClick={() => {
+          if (item.location?.label) onPlaceClick(item);
+        }}
+      >
         {/* 完了チェック（確定後のみ） */}
         {confirmed && (
           <button
-            onClick={() => onToggleComplete(item.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete(item.id);
+            }}
             className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
               item.completed
                 ? "bg-purple-500 border-purple-500"
@@ -574,7 +617,10 @@ function PlanItemRow({
         {!confirmed && (
           <div className="flex flex-col gap-0 flex-shrink-0">
             <button
-              onClick={() => canMoveUp && onMoveUp(item.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveUp) onMoveUp(item.id);
+              }}
               disabled={!canMoveUp}
               className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
               title="上に移動"
@@ -582,7 +628,10 @@ function PlanItemRow({
               ▲
             </button>
             <button
-              onClick={() => canMoveDown && onMoveDown(item.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveDown) onMoveDown(item.id);
+              }}
               disabled={!canMoveDown}
               className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
               title="下に移動"
@@ -592,19 +641,29 @@ function PlanItemRow({
           </div>
         )}
 
-        {/* 開始時刻 slot — whenSharpness で分岐 */}
+        {/* 開始時刻 slot — whenSharpness で分岐
+            PR-11 Step 2b: 通常行は開始–終了の range 表示。1日の開始点/終点
+            （isDayBoundary=true）は従来通り単一時刻表示。 */}
         <div className="relative flex-shrink-0 min-w-[42px]">
           {whenSharpness === "fixed" ? (
             <>
               <button
-                onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
-                className={`text-[12px] font-mono w-full text-left ${
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!confirmed) setShowTimePicker(!showTimePicker);
+                }}
+                className={`text-[12px] font-mono w-full text-left whitespace-nowrap ${
                   confirmed
                     ? "text-gray-400 cursor-default"
                     : "text-gray-500 hover:text-purple-600 cursor-pointer"
                 }`}
+                title="開始時刻を変更"
               >
-                {item.startTime}
+                {formatStartEndLabel({
+                  startTime: item.startTime,
+                  durationMin: item.durationMin,
+                  isDayBoundary,
+                }) ?? item.startTime}
               </button>
               <AnimatePresence>
                 {showTimePicker && (
@@ -657,7 +716,10 @@ function PlanItemRow({
               <>
                 <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
                 <button
-                  onClick={() => onPlaceClick(item)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlaceClick(item);
+                  }}
                   className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
                     item.completed
                       ? "text-gray-400"
@@ -728,7 +790,10 @@ function PlanItemRow({
         {/* 所要時間（タップで変更） */}
         <div className="relative flex-shrink-0">
           <button
-            onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!confirmed) setShowDurationPicker(!showDurationPicker);
+            }}
             className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
               confirmed
                 ? "text-gray-400 bg-gray-50/50 cursor-default"
@@ -1065,28 +1130,41 @@ export default function MorningPlanCard({
 
         {/* アイテムリスト */}
         <div className="space-y-0.5">
-          {plan.items.map((item) => {
-            // 並べ替え対象: travel 以外
-            const nonTravel = plan.items.filter(i => i.kind !== "travel");
-            const ntIdx = nonTravel.findIndex(i => i.id === item.id);
-            return (
-              <PlanItemRow
-                key={item.id}
-                item={item}
-                onDurationChange={handleDurationChange}
-                onStartTimeChange={handleStartTimeChange}
-                onToggleComplete={handleToggleComplete}
-                onMoveUp={handleMoveUp}
-                onMoveDown={handleMoveDown}
-                canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
-                canMoveDown={item.kind !== "travel" && !item.proposal && ntIdx < nonTravel.length - 1}
-                confirmed={plan.confirmed}
-                onPlaceClick={handlePlaceClick}
-                onSelectCandidate={handleSelectCandidate}
-                onDismissCandidates={handleDismissCandidates}
-              />
-            );
-          })}
+          {(() => {
+            // nonTravel 一覧は render pass 間で 1 回だけ算出（N^2 回避）。
+            // plan.items は PR-11 render cycle 内で不変。
+            const nonTravel = plan.items.filter((i) => i.kind !== "travel");
+            const nonTravelLastIdx = nonTravel.length - 1;
+            return plan.items.map((item) => {
+              const ntIdx = nonTravel.findIndex((i) => i.id === item.id);
+              // PR-11 Step 2b: 1日の開始点/終点（非 travel の先頭/末尾）は
+              // 時刻 range の対象外。travel 行は自身の startTime 単一表示を維持
+              // （専用 fork L375-404）のため、本 flag は normal item のみ意味を持つ。
+              const isDayBoundary =
+                item.kind !== "travel" &&
+                (ntIdx === 0 || ntIdx === nonTravelLastIdx);
+              return (
+                <PlanItemRow
+                  key={item.id}
+                  item={item}
+                  onDurationChange={handleDurationChange}
+                  onStartTimeChange={handleStartTimeChange}
+                  onToggleComplete={handleToggleComplete}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
+                  canMoveDown={
+                    item.kind !== "travel" && !item.proposal && ntIdx < nonTravelLastIdx
+                  }
+                  confirmed={plan.confirmed}
+                  onPlaceClick={handlePlaceClick}
+                  onSelectCandidate={handleSelectCandidate}
+                  onDismissCandidates={handleDismissCandidates}
+                  isDayBoundary={isDayBoundary}
+                />
+              );
+            });
+          })()}
         </div>
 
         {/* 場所詳細 bottom sheet */}
