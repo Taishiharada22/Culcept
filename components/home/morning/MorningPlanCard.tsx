@@ -20,8 +20,7 @@ import {
   loadDurationStore,
   saveDurationStore,
 } from "@/lib/alter-morning/taskDurationMemory";
-import { recalculateSchedule } from "@/lib/alter-morning/planningEngine";
-import { insertTravelItems } from "@/lib/alter-morning/travelTimeEngine";
+import { regenerateTravelForPlan } from "@/lib/alter-morning/planning/regenerateTravelForPlan";
 import {
   BriefcaseBusiness, MessageCircle, UtensilsCrossed, Coffee,
   Route, BookOpen, Dumbbell, Users, ClipboardList, House,
@@ -772,23 +771,15 @@ export default function MorningPlanCard({
     setPlan(initialPlan);
   }, [initialPlan]);
 
-  /** 並べ替え後に移動アイテムをA→Bの新しい順序で再生成する */
-  const regenerateTravel = useCallback((nonTravelItems: PlanItem[], prevPlan: MorningPlan): PlanItem[] => {
-    // 既存の travel から transport を推定
-    const existingTravel = prevPlan.items.find(i => i.kind === "travel");
-    const transport = existingTravel?.travelTransport
-      ?? prevPlan.flowContext?.transport
-      ?? prevPlan.dayConditions?.mainTransport
-      ?? "car";
-    const goOut = prevPlan.flowContext?.goOut ?? nonTravelItems.some(i => i.location);
-    // insertTravelItems で場所変化を検出し移動アイテムを挿入
-    const withTravel = insertTravelItems(nonTravelItems, transport, goOut);
-    // CEO P0: departure/arrival anchor を渡す（サーバーの reassignTimes と同一ロジック）
-    return recalculateSchedule(withTravel, {
-      departureTime: prevPlan.departureTime,
-      arrivalTime: prevPlan.arrivalTime,
-    });
-  }, []);
+  /** 並べ替え後に移動アイテムを再生成する（W3-PR-10 Phase 3A: canonical 対応）
+   * 本体は `regenerateTravelForPlan`（pure fn）— canonical mode では travel を落として
+   * server 側の次ターン rebuild に委ねる。詳細はヘルパーファイル参照。
+   */
+  const regenerateTravel = useCallback(
+    (nonTravelItems: PlanItem[], prevPlan: MorningPlan): PlanItem[] =>
+      regenerateTravelForPlan(nonTravelItems, prevPlan),
+    [],
+  );
 
   const handleDurationChange = useCallback(
     (itemId: string, newDuration: number) => {
