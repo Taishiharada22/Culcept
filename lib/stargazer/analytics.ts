@@ -35,7 +35,13 @@ export type StargazerEvent =
   | "mystyle_gap_shown"
   | "mystyle_rendezvous_bridge"
   | "mystyle_photo_ai_correction"
-  | "mystyle_failure";
+  | "mystyle_failure"
+  // ── W3-PR-10 Transport Staircase canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr10-scope-a-canary-plan.md §3-B
+  // いずれも flag ON 経路でのみ emit され、feature="alter_morning" 固定。
+  | "transport_v2_segments_built"     // server: build 直後の分布 / sanity
+  | "transport_v2_display_rendered"   // server: display cache interleave 直後
+  | "transport_v2_edit_regression";   // client: regenerateTravel 後の travel 増減
 
 export interface StargazerAnalyticsEvent {
   userId: string;

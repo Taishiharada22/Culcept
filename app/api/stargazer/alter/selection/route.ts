@@ -42,9 +42,19 @@ import {
   synthesizeTravelItems,
   interleaveTravelItems,
 } from "@/lib/alter-morning/planning/synthesizeTravelItems";
-import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import {
+  ALTER_MORNING_FLAGS,
+  resolveTransportV2FlagSource,
+} from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
+import { computeSegmentsBuiltTelemetry } from "@/lib/alter-morning/transport/telemetry";
+// NOTE: `@/lib/stargazer/analytics` transitively imports `@/lib/supabaseAdmin`,
+// which eagerly reads `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` at
+// module load. Vitest runs without those envs set, so any static import chain
+// that reaches supabaseAdmin crashes during test module resolution. We defer
+// analytics via dynamic import so the chain only resolves when we actually emit
+// — a path guarded by flag_source, i.e. never reached in unit tests.
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Reject reasons — client が UI feedback に使える enum
@@ -207,6 +217,40 @@ export async function POST(req: NextRequest) {
           events: eventUpdate.events,
           enableTransportV2: true,
         });
+        // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
+        //   selection endpoint では userId は必ず tierCheck 経由で取得済み（null 不可）。
+        //   flag_source は resolveTransportV2FlagSource(userId) から取得（transportV2
+        //   呼び出しと同じ resolution 順序を共有）。
+        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
+        if (built.transportSegments !== undefined) {
+          const flagSource = resolveTransportV2FlagSource(userId);
+          if (flagSource != null) {
+            const telemetry = computeSegmentsBuiltTelemetry(
+              eventUpdate.events,
+              built.transportSegments,
+            );
+            void import("@/lib/stargazer/analytics")
+              .then(({ trackStargazerEvent }) =>
+                trackStargazerEvent({
+                  userId,
+                  event: "transport_v2_segments_built",
+                  feature: "alter_morning",
+                  metadata: {
+                    schema_version: "2026-04-24",
+                    flag_source: flagSource,
+                    session_id: morningSession.sessionId ?? null,
+                    plan_date: priorPlan.date,
+                    caller: "selection_route",
+                    ...telemetry,
+                  },
+                  timestamp: new Date().toISOString(),
+                }),
+              )
+              .catch(() => {
+                /* analytics must never block plan rebuild — swallow */
+              });
+          }
+        }
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
         //   flag ON（built.transportSegments !== undefined）なので travel を
         //   synthesize して event items との間に挿入する。synthesize / interleave
