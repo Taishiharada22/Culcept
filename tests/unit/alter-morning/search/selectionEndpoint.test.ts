@@ -565,10 +565,19 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     expect(body.morningSession.plan).toBeDefined();
 
     const nextPlan: MorningPlan = body.morningSession.plan;
-    // items は rebuild され、event_1 の text も新しい place_ref を反映する
-    expect(nextPlan.items).toHaveLength(2);
+    // items は rebuild され、event_1 の text も新しい place_ref を反映する。
+    // W3-PR-10 Phase 2: flag ON 経路では event items の間に travel item が interleave される。
+    //   両端 coords 揃い（event_1 selection で獲得 / event_2 既定）→ 1 segment → 1 travel item
+    //   期待: [event_1, travel(event_1→event_2), event_2]
+    expect(nextPlan.items).toHaveLength(3);
     expect(nextPlan.items[0].id).toBe("event_1");
     expect(nextPlan.items[0].text).toContain(candidate.displayName);
+    expect(nextPlan.items[1].kind).toBe("travel");
+    expect(nextPlan.items[1].id.startsWith("travel__")).toBe(true);
+    expect(nextPlan.items[1].id).toBe("travel__event_1__event_2");
+    expect(nextPlan.items[2].id).toBe("event_2");
+    // orderHint は 0..2 の連番で再付番される
+    expect(nextPlan.items.map((i) => i.orderHint)).toEqual([0, 1, 2]);
 
     // transportSegments: event_1 が selection で coordinates 獲得、event_2 も coordinates 既定 →
     // 両端揃ったので 1 segment 生成

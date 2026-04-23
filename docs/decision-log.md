@@ -13,6 +13,38 @@
 ```
 
 ---
+### 2026-04-23 W3-PR-10 Phase 2 完了 — Transport Staircase Display Cache (travel interleave)
+- **部門**: Build
+- **決定内容**: W3-PR-10 Phase 2（canonical `TransportSegment[]` を Path A の `PlanItem(kind="travel")` display cache として再生成）を完了。Phase 1 で domain truth として確立した segments を、flag ON 経路でのみ UI に見える travel item として interleave する。
+- **承認範囲（CEO Phase 2 GO 2026-04-23）**:
+  - C2: `synthesizeTravelItems(segments, events)` pure function
+  - C3: Path A 2 site wire (legacyAdapter / selection route)
+  - C4: decision log + close memo
+- **実装方針**:
+  - **Path A only / Path B 非接触**: `adaptPipelineToLegacy` と `/api/stargazer/alter/selection` の 2 箇所のみ配線。`processMorningMessage` (Path B) は touch しない
+  - **independent pure function**: `buildPlanAndSegmentsFromEvents` に travel synthesis を混ぜず、`synthesizeTravelItems` を独立 pure function として切り出し。Phase 1 の T2 原則（builder は travel を返さない）を維持
+  - **interleave は call-site 責務**: synthesize は entry pair (`SynthesizedTravelEntry { afterEventId, item }`) を返すだけで、PlanItem[] への挿入は `interleaveTravelItems` が call-site で実行
+  - **deterministic id**: `travel__<fromEventId>__<toEventId>` (double underscore prefix で既存 `travel_` 由来 item と machine-distinguishable)
+  - **id parse 回避**: entry に `afterEventId` 別 channel を持たせ、event_id に `__` が含まれても安全に interleave できる構造
+  - **flag OFF items[] byte-diff ゼロ**: flag gate は `built.transportSegments !== undefined` のみ。flag OFF 経路は Phase 1 同様 segments 未生成 → synthesize 呼ばず → items は event-only
+  - **schema 変更なし**: Phase 1 shape (`plan.transportSegments?: TransportSegment[]`) を維持、新規 field 追加なし
+- **非スコープ（明示的に今回やらない）**:
+  - client regenerateTravel の id 揺れ解消
+  - Path B / persisted travel 統合
+  - Routes API 連携（`durationMin` は `estimatedDurationMin ?? 0`）
+- **成果物**:
+  - `lib/alter-morning/planning/synthesizeTravelItems.ts` (new, 241 行)
+  - `lib/alter-morning/legacyAdapter.ts` (travel interleave 挿入)
+  - `app/api/stargazer/alter/selection/route.ts` (rebuildPlan 経路に interleave)
+  - `tests/unit/alter-morning/synthesizeTravelItems.test.ts` (new, 20 tests)
+  - `tests/unit/alter-morning/legacyAdapterTransportPhase2.test.ts` (new, 5 tests)
+  - `tests/unit/alter-morning/search/selectionEndpoint.test.ts` (flag ON Path A の items[] 期待値 2→3 更新、CEO 承認済)
+- **テスト**: alter-morning 1767/1767 PASS、tsc 影響範囲 clean
+- **commit**: C2 `56082721` / C3a `eca2f7bb` / C3b `578dcd2c`
+- **承認**: CEO（Phase 2 GO 2026-04-23、承認範囲 C2/C3/C4 内で実装完了）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
 ### 2026-04-23 W3-PR-9 完了 — Places Search / Anchor-Based Search
 - **部門**: Build
 - **決定内容**: W3-PR-9（Alter Morning Protocol の where slot 確定経路）を完了として受理。`search_handoff_blocking → candidate present → user select → where.coordinates fixed` の一本道を landing。

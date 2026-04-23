@@ -38,6 +38,10 @@ import type { DialogState } from "@/lib/alter-morning/dialog/types";
 import type { Event } from "@/lib/alter-morning/comprehension/eventSchema";
 import { applyPlaceSelection } from "@/lib/alter-morning/search/applyPlaceSelection";
 import { buildPlanAndSegmentsFromEvents } from "@/lib/alter-morning/planning/planRebuild";
+import {
+  synthesizeTravelItems,
+  interleaveTravelItems,
+} from "@/lib/alter-morning/planning/synthesizeTravelItems";
 import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
@@ -200,7 +204,20 @@ export async function POST(req: NextRequest) {
           events: eventUpdate.events,
           enableTransportV2: true,
         });
-        const normalizedItems: PlanItem[] = built.items.map((item) =>
+        // ── W3-PR-10 Phase 2: travel display cache interleave ──
+        //   flag ON（built.transportSegments !== undefined）なので travel を
+        //   synthesize して event items との間に挿入する。synthesize / interleave
+        //   はいずれも pure。travel id は deterministic（`travel__<from>__<to>`）。
+        //   flag OFF 経路は外側 if で弾いているのでここには来ない。
+        const entries =
+          built.transportSegments !== undefined
+            ? synthesizeTravelItems(
+                built.transportSegments,
+                eventUpdate.events,
+              )
+            : [];
+        const interleaved = interleaveTravelItems(built.items, entries);
+        const normalizedItems: PlanItem[] = interleaved.map((item) =>
           normalizePlanItem(item),
         );
         rebuiltPlan = {
