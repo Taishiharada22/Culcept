@@ -121,6 +121,16 @@ type Props = {
   morningPlan?: MorningPlan | null;
   /** Morning Protocol: 現在フェーズ */
   morningPhase?: MorningPhase | null;
+  /**
+   * W3-PR-13: 確定済みイベント列（MorningMapView の coordinates source）。
+   * reading strategy β — rebuildPlan を経由せず event から直接 coords を読む。
+   */
+  morningPersistedEvents?: import("@/lib/alter-morning/comprehension/eventSchema").Event[] | null;
+  /**
+   * W3-PR-13: visualFlow flag（server 評価、prop drill）。
+   * (culcept)/page.tsx → AneurasyncHome → AskHero → MorningPlanCard。
+   */
+  visualFlowEnabled?: boolean;
   /** Morning Protocol: パーソナライズヒント */
   morningPersonalizeHints?: string[];
   /** Morning Protocol: プラン確定コールバック */
@@ -282,6 +292,8 @@ export default function AskHero({
   morningDialogState,
   onPlaceSelect,
   placeSelectionPending = null,
+  morningPersistedEvents = null,
+  visualFlowEnabled = false,
 }: Props) {
   const router = useRouter();
   const [ctaDismissed, setCtaDismissed] = useState(false);
@@ -403,6 +415,8 @@ export default function AskHero({
             onConfirm={onMorningPlanConfirm ?? (() => {})}
             onRequestChange={onMorningPlanChange ?? (() => {})}
             sessionId={alterSessionId ?? null}
+            visualFlowEnabled={visualFlowEnabled}
+            persistedEvents={morningPersistedEvents}
           />
         )}
 

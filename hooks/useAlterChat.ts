@@ -713,5 +713,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
      * picker に pending flag として渡して全ボタン disable する。
      */
     placeSelectionPending,
+    /**
+     * W3-PR-13: Morning Protocol の確定済みイベント列。
+     * Map view（pin-only MVP）が coordinates を読む source of truth。
+     * rebuildPlan の flag gating に依存しないため reading strategy β で必要。
+     */
+    morningPersistedEvents,
   } as const;
 }

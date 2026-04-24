@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 import AneurasyncHome from "../AneurasyncHome";
+import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
 
 /**
  * / の役割を1つに固定:
@@ -53,10 +54,13 @@ export default async function HomePage() {
 
         if (!starMapRow) redirect("/stargazer");
 
-        return <AneurasyncHome />;
+        // W3-PR-13: visualFlow flag を server で評価（non-NEXT_PUBLIC env 読込のため）
+        const visualFlowEnabled = ALTER_MORNING_FLAGS.visualFlow(user.id);
+
+        return <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
     } catch (e: any) {
         if (e?.digest?.includes("NEXT_REDIRECT")) throw e;
-        // auth errors は非致命的 — fallback として Home を表示
+        // auth errors は非致命的 — fallback として Home を表示（flag は false 固定）
         return <AneurasyncHome />;
     }
 }
