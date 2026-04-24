@@ -33,6 +33,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import type { GeoCoordinates } from "@/lib/alter-morning/search/normalizedPlace";
+import { emitVisualFlowClientEvent } from "@/lib/alter-morning/visualFlow/analytics";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Minimal Google Maps JS API types
@@ -171,6 +172,11 @@ export function MorningMapView({ events }: MorningMapViewProps) {
 
   // ── Script loader（singleton） ───────────────────────────────────────────
   // 複数 instance が mount されても script は一つだけ挿入されるように guard。
+  //
+  // M4 analytics:
+  //   - 新規 script を挿入したときのみ script_loaded を emit（既存 script / 既ロード時は emit しない）
+  //   - onload / onerror の両方を捕捉して status を区別
+  //   - duration_ms は script.src 設定〜onload までを計測
   useEffect(() => {
     if (!browserKey) return;
     if (typeof window === "undefined") return;
@@ -189,8 +195,22 @@ export function MorningMapView({ events }: MorningMapViewProps) {
     script.async = true;
     script.defer = true;
     script.src = `${SCRIPT_URL_BASE}?key=${encodeURIComponent(browserKey)}`;
-    const handler = () => setMapsReady(true);
-    script.addEventListener("load", handler, { once: true });
+    const startedAt = Date.now();
+    const loadHandler = () => {
+      setMapsReady(true);
+      void emitVisualFlowClientEvent({
+        event: "visual_flow_script_loaded",
+        metadata: { status: "succeeded", duration_ms: Date.now() - startedAt },
+      });
+    };
+    const errorHandler = () => {
+      void emitVisualFlowClientEvent({
+        event: "visual_flow_script_loaded",
+        metadata: { status: "failed" },
+      });
+    };
+    script.addEventListener("load", loadHandler, { once: true });
+    script.addEventListener("error", errorHandler, { once: true });
     document.head.appendChild(script);
   }, [browserKey]);
 
@@ -208,7 +228,10 @@ export function MorningMapView({ events }: MorningMapViewProps) {
       disableDefaultUI: true,
     });
 
-    if (allSamePoint || !bounds) {
+    const fitBoundsMode: "bounds" | "single_fallback" =
+      allSamePoint || !bounds ? "single_fallback" : "bounds";
+
+    if (fitBoundsMode === "single_fallback") {
       const center = pins[0].coord;
       map.setCenter({ lat: center.lat, lng: center.lng });
       map.setZoom(SAME_POINT_ZOOM);
@@ -229,10 +252,43 @@ export function MorningMapView({ events }: MorningMapViewProps) {
         }),
     );
 
+    // M4 analytics: map が実際に描画されたことを emit
+    // fire-and-forget（network 失敗でも UI 影響なし）
+    void emitVisualFlowClientEvent({
+      event: "visual_flow_map_mounted",
+      metadata: {
+        pin_count: pins.length,
+        fit_bounds_mode: fitBoundsMode,
+      },
+    });
+
     return () => {
       for (const m of markers) m.setMap(null);
     };
   }, [mapsReady, pins, allSamePoint, bounds]);
+
+  // ── Gate rejected analytics ─────────────────────────────────────────────
+  // render-time の return null より先に effect で emit する（同 cause を連打しない）。
+  // deps: browserKey, pins.length の片方が変わった時だけ再評価。
+  // 両方 NG の時は no_browser_key 優先（early return）で 1 event のみ。
+  useEffect(() => {
+    if (!browserKey) {
+      void emitVisualFlowClientEvent({
+        event: "visual_flow_gate_rejected",
+        metadata: { reason: "no_browser_key" },
+      });
+      return;
+    }
+    if (pins.length < 2) {
+      void emitVisualFlowClientEvent({
+        event: "visual_flow_gate_rejected",
+        metadata: {
+          reason: "insufficient_pins",
+          pin_count: pins.length,
+        },
+      });
+    }
+  }, [browserKey, pins.length]);
 
   // ── Fail-safe gates ─────────────────────────────────────────────────────
   if (!browserKey) return null;
