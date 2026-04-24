@@ -13,6 +13,22 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12.5 Stage 2 canary 本番 live 確認
+- **部門**: Build / Product
+- **決定内容**: production allowlist-only canary が本番で live。CEO UUID で `flag_source=allowlist` + `outcome_kind=presented_from_api` を確認
+- **検証結果（harness 2026-04-24 15:52 JST 付近、production `https://culcept.vercel.app`、session `ms_pr12_1777013538870`）**:
+  - `alter_morning_handoff_outcome`: `outcome_kind=presented_from_api` / `candidate_count=5` / `latency_ms=285` / `flag_source=allowlist`
+  - `alter_morning_shadow_state`: `flag_source=allowlist`（CEO UUID が production allowlist に正しく乗っている証跡）
+  - `provider_failure` 消失（`GOOGLE_MAPS_API_KEY` production baked-in 後）
+- **Vercel / env 作業メモ**:
+  - production 側 `GOOGLE_MAPS_API_KEY` は preview と同じ key を投入（CEO から key 直接受領 → `vercel env add ... production` で追加）
+  - runtime resolve のみでは既存 Ready deploy が新 env を拾わなかった → empty commit `150b704c` push で fresh build `culcept-24qarh3t8` を作成、4 分で Ready → runtime で API key 解決確認
+  - 12h 以内で Vercel builder hang 4 回。infra 起因と確定済。5 回目発生時は Vercel support escalation 推奨
+- **セキュリティ残タスク**: 本セッションログに API key 値が露出したため、Stage 2 観測完了後に key rotation を CEO に依頼すること
+- **承認**: CEO（API key 直接投入依頼 + Stage 2 canary 突入 2026-04-24 本ターン）
+- **ステータス**: Stage 2 canary live（production allowlist-only、CEO + Role C `zawane0903@gmail.com` の 2 UUID）
+
+---
 ### 2026-04-24 W3-PR-12.5 Stage 1 完了 + Stage 2 Role C 指名 — canary 運用開始
 - **部門**: Build / Product
 - **決定内容**: PR #30 (Stage 1 allowlist canary + 観測イベント) を live preview で検証 PASS し main へ merge。E2 比較表に基づき Stage 2 Role C を確定、canary 運用フェーズに突入
