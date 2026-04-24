@@ -209,6 +209,17 @@ Bug-1 修正後（Step C 完了後）に順次:
 | 本 bridge handoff | `docs/coalter-handoff-2026-04-22.md`（本書） | 2026-04-24 作成 | snapshot |
 | live smoke harness spec | `scripts/coalter/f6-live-smoke.ts`（docstring） | 2026-04-20 作成 / 2026-04-24 docstring 補強 | docstring-as-spec 固定（CEO 承認 2026-04-24 Step A-4） |
 
+**live smoke 運用束**（CEO 追補 2026-04-24）: 以下 6 本はすべて「手動限定 / staging-frozen」の同一運用ルール下にある。spec 正本は `f6-live-smoke.ts` の docstring、他 5 本はその運用束の同格メンバーとして扱う:
+
+| harness | 役割 |
+|---|---|
+| `scripts/coalter/f6-live-smoke.ts` | foodTier 本線 live smoke（spec 正本） |
+| `scripts/coalter/f6-live-replay.ts` | foodTier 録画 replay |
+| `scripts/coalter/shadow-real-api.ts` | understanding shadow を real API で起動 |
+| `scripts/coalter/shadow-replay.ts` | understanding shadow の録画 replay |
+| `scripts/coalter/step4-preflight.ts` | M0 step4 flip 前の preflight |
+| `scripts/coalter/step4-postflip-smoke.ts` | M0 step4 flip 後の smoke |
+
 **複数 doc の関係**:
 - `coalter-core-ux-layered-presence.md` v1.1 と本 bridge は **並行存在**（v1.1 §12.2 明示）。v1.1 は Presence / Action / Theme の 3 軸直交を定義、本 bridge は executor 実装の順序を定義。
 - `coalter-movie-three-stage-design.md` rev 3.2 と `coalter-bug1-emotion-retrieval-design.md` v0.2 は **責務分離**（rev 3.2 §6 M2 の「Bug-1 / Bug-2 責務分離まとめ」）。Bug-1 = Stage 0 / Bug-2 = Stage 3。
@@ -252,6 +263,52 @@ Bug-1 修正後（Step C 完了後）に順次:
 
 ---
 
+## 付録 A. 前史 / 凍結原典台帳（2026-04-24 CEO 追補）
+
+本流 8 項目（Bug-1 設計 / Bug-2 接続 / handoff bridge / live smoke / core UX / state UI spec / speech template / master-design の内側）の**前史・監査証跡**として残す doc 群。これらは「これから触る本流」ではなく、**参照・監査・昇格判定の後方資産**として、削除禁止 / 改訂禁止で凍結する。本流と同格では扱わない（重み付け保護のため）。
+
+### A.1 Phase 2 前史（Action Mode 凍結の原典群）
+
+| doc | 凍結理由 |
+|---|---|
+| `docs/coalter-phase2-3mode-design.md` | 2026-04-19 CEO 6.D 合格で body 凍結。本流の「Phase 2 3-mode」として §3 で生存扱いだが、**改訂不可**の凍結原典 |
+| `docs/coalter-phase2-freeze-checklist.md` | 6.D 合格時の checklist 証跡 |
+| `docs/coalter-phase2-observation-spec.md` | 6.D 合格時の観測仕様（KPI SQL / diagnostics field 定義） |
+| `docs/coalter-phase2-preview-scenarios.md` | 6.D 合格時の preview scenario 台帳 |
+
+### A.2 M0 通過前史（三段式 M0 昇格判定の原典群）
+
+| doc | 凍結理由 |
+|---|---|
+| `docs/coalter-m0-promotion-gates.md` | M0 → M1 promotion gate 定義。master-design から参照される付随 |
+| `docs/coalter-m0-6a-challenge-agreement-memo.md` | M0-6a CEO 合意メモ |
+| `docs/coalter-m0-6b-code-review.md` | M0-6b code review 記録 |
+| `docs/coalter-m0-6b-prerequisites.md` | M0-6b 前提条件台帳 |
+| `docs/coalter-m0-6b-zdr-evidence.md` | M0-6b ZDR 証跡 |
+
+### A.3 retrieval / 差別化 前史
+
+| doc | 凍結理由 |
+|---|---|
+| `docs/coalter-handoff-2026-04-19-retrieval-investigation.md` | 本 bridge の **原典 handoff**。§3 で「凍結・原典」として既記載。本 bridge は本 doc を継承 |
+| `docs/coalter-phase-1-5-6-differentiation-research.md` | Phase 1.5.6 Travel 差別化の研究原典。§1 snapshot で「実装設計未起草」状態として生存扱いだが、**研究 doc としては凍結原典** |
+
+### A.4 付随運用資料（本流 6-core doc に直接対応する付録）
+
+| doc | 対応する本流 doc |
+|---|---|
+| `docs/coalter-internal-pair-consent-2026-04.md` | 本 bridge §2 Step B B-6 執行ポリシー（内部ペア同意記録） |
+| `docs/coalter-food-diagnostics.md` | `docs/coalter-phase2-3mode-design.md`（food diagnostics 仕様の実装側記述） |
+
+### A.5 更新ポリシー
+
+- **削除禁止**: 監査証跡として残す必要あり
+- **改訂禁止**: 凍結時点の内容を保持する。新しい知見は新 doc として別途作成する
+- **参照可**: 本流 doc から「前史として参照」する形式は許容
+- **付録台帳の保守**: 新たに凍結原典化する doc が発生したら本付録 A に追記する
+
+---
+
 ## 6. 改訂履歴
 
 | 日付 | 版 | 変更内容 | 承認 |
@@ -261,3 +318,4 @@ Bug-1 修正後（Step C 完了後）に順次:
 | 2026-04-24 | rev 3 | **Step B 再定義**: Step B 着手前の実態精査で rev 2 snapshot と実装状態の齟齬を発見。`lib/coalter/understanding/` は M0-1〜M0-7A + M1 wiring proof まで commit 済 (17 files) + 15 unit test (132 cases) PASS + tsc understanding 配下 error 0 という状態で、rev 2 の「🔴 未着手（shadow 解禁実行待ち）」は不正確だった。rev 3 で (1) §1 Stage 1 Understand 行を 4 段分離（設計 / shadow 実装 / runtime 接続 / U1-U5 実測）に書き直し、(2) §1 精密化ポイントに 4 段観測原則を追記、(3) §2 Step B を「Understanding 共通基盤の昇格判定フェーズ」に再定義し B-1〜B-6 の 6 サブタスク構造へ置換、(4) 「shadow モード解禁」という二重化した表現を shadow harness 実行 (B-2/B-3 自律) と runtime 並走接続 (B-5 CEO 承認) に分離。B-1 / B-4 は本 rev で完了、B-2 / B-3 は α 範囲として自律続行、B-5 / B-6 は β 範囲として CEO 承認必要 | CEO 指示「(α) 採用 + 順序 B-1 → B-4 → B-2 → B-3、Step B を昇格判定フェーズに再定義」（2026-04-24 本セッション） |
 | 2026-04-24 | rev 4 | **B-2 / B-3 完了反映 + α 初回計測記録**: `scripts/coalter/understanding-u-gate.ts` を新設し 10 pair × 3 session = 30 runs で U1-U5 を計測。legacy (先頭 10 件) / mode-cross (stride=5) の両モードで計測し結果を §2 Step B 末尾に記録。U4 (latency p95) / U5 (same-bundle Jaccard) は PASS、U1 (success 率) / U2 (sourcedFrom ≥2) / U3 (confidence p50) は FAIL。全 30 件が `degraded` バンドに集中 = 合成 fixture と判定閾値の構造的乖離。β 範囲（B-5/B-6）で preview 実測を取って fixture 改良 / 閾値調整の要否を判定する方針を論点として提示 | 自律（B-2/B-3 は α 範囲 CEO 承認済） |
 | 2026-04-24 | rev 5 | **B-5 完了反映 + B-6 を Step E 観測 window に統合**: (1) B-5 runtime shadow 並走接続が commit `47d57a46` で着地（`COALTER_UNDERSTANDING_SHADOW_MOVIE` flag default OFF / `runMovieShadowUnderstanding` 関数 / movie V2 経路 fire-and-forget hook / §11.A 禁止対象は 1 bit も未変更 / flag invariant test + 既存 1111 tests PASS → 1117 tests PASS）。(2) §1 Stage 1 Understand 行の「runtime 接続 🔴」→「🟢 完了」、「U1-U5 🔴」→「🟡 合成済・preview は全実装完了後に延期」。(3) §1 精密化ポイントに「観測フェーズは全実装完了後」CEO 方針を追記。(4) §2 Step B 表で B-5 ✅ 完了 + B-6 🟡 パラメータ承認済 / 実行 deferred に更新。(5) §2 Step B に「B-6 執行ポリシー」ブロック新設（pair: 内部ペアのみ / 規模: 5 pair × 3 invoke × 72h / 環境: feat/coalter-three-stage Preview 限定 / 実行タイミング: Step E）。(6) §2 Step E の監査対象に Stage 1 U1-U5 （B-6 統合）を追加 | CEO 指示「観測フェーズは全実装完了後に回す + B-6 preview 実測承認 + B 案 + 推奨案 + Preview 限定」（2026-04-24 本セッション） |
+| 2026-04-24 | rev 6 | **棚卸し反映 + 前史台帳化 + live smoke 運用束明示化**: CEO 判定（2026-04-24 本流 8 項目棚卸し後）を反映。(1) §3 正本 doc 一覧の live smoke 行直下に「live smoke 運用束」表を追加し `f6-live-smoke` + `f6-live-replay` + `shadow-real-api` + `shadow-replay` + `step4-preflight` + `step4-postflip-smoke` の 6 本を同一運用ルール（手動限定 / staging-frozen）下にあることを明示化（本流 8 項目の項目 6 拡張）。(2) **付録 A「前史 / 凍結原典台帳」を新設**: Phase 2 前史 4 本 / M0 通過前史 5 本 / retrieval・差別化 前史 2 本 / 付随運用資料 2 本を削除禁止・改訂禁止で凍結台帳化。8 項目本流リストを 9 項目化せず、付録として後方資産管理する方針（CEO 判定: 重み付け保護のため） | CEO 指示「棚卸しはほぼ正しい・9 項目化は不要・付録表で管理・項目 6 拡張は採用」（2026-04-24 本セッション） |
