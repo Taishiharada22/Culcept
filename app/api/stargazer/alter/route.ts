@@ -537,6 +537,10 @@ import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyF
 import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
+import {
+  emitShadowStateEvent,
+  emitHandoffOutcomeEvent,
+} from "@/lib/alter-morning/search/handoffAnalytics";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -1759,7 +1763,7 @@ export async function POST(req: NextRequest) {
         //   flag ON  → 未初期化なら createInitialDialogState() を付与
         //   本時点で downstream（adapter / phase / reducer）は dialogState を読まない。
         //   route が serialize 時に round-trip するのみ（CEO wiring-only 条件）。
-        morningSession = ensureSessionV1(morningSession);
+        morningSession = ensureSessionV1(morningSession, userId);
 
         // ── W3-PR-5: Flag-gated new pipeline with v2 session stickiness ──
         // v2 に入る条件:
@@ -2003,7 +2007,7 @@ export async function POST(req: NextRequest) {
             //   誤 dispatch を防ぐ（今 turn は recovery 対象ではない）。
             pipelineAbsorbedOuter = true;
             if (
-              ALTER_MORNING_FLAGS.dialogStateV2 &&
+              ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
               morningSession?.dialogState != null
             ) {
               try {
@@ -2074,7 +2078,7 @@ export async function POST(req: NextRequest) {
         //   - readyForHandoff=true でも morningResponse.phase は clarifying のまま
         //   - reducer throw 時も user-facing 応答は壊れない（try/catch で吸収）
         if (
-          ALTER_MORNING_FLAGS.dialogStateV2 &&
+          ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
           morningSession?.dialogState != null &&
           typeof message === "string" &&
           message.length > 0
@@ -2229,6 +2233,19 @@ export async function POST(req: NextRequest) {
                   `phase_unchanged=${morningResponse.phase} ` +
                   `user_facing_promoted=${promoted ? "1" : "0"}`,
               );
+              // ── W3-PR-12.5 Stage 1 canary: 構造化 shadow state イベント ──
+              //   console.info と 1:1 対応。flag_source=null（canary 外）なら no-op。
+              emitShadowStateEvent({
+                userId,
+                sessionId: morningSession.sessionId ?? null,
+                targetEventId,
+                eventChanged,
+                shadowStatus: advanced.nextState.conversationStatus,
+                narrowStep: advanced.nextState.focus?.narrowStep ?? null,
+                readyForHandoff:
+                  advanced.nextState.searchQueryDraft.readyForHandoff,
+                targetSelectionReason: targetSelection.reason,
+              });
 
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               // W3-PR-9 commit 4: Places handoff orchestration
@@ -2253,7 +2270,8 @@ export async function POST(req: NextRequest) {
               //   - parked の参照・再利用
               //   - provider_error の cache 保存
               //   - await を飛ばした fire-and-forget（次 dispatch が state 依存）
-              if (ALTER_MORNING_FLAGS.placesSearch && morningSession.dialogState) {
+              if (ALTER_MORNING_FLAGS.placesSearch(userId) && morningSession.dialogState) {
+                const handoffStartedAt = Date.now();
                 try {
                   const handoff = await orchestratePlacesHandoff({
                     userId,
@@ -2310,6 +2328,15 @@ export async function POST(req: NextRequest) {
                       `[places-handoff:${oc.kind}] fp=${oc.fingerprint}`,
                     );
                   }
+                  // ── W3-PR-12.5 Stage 1 canary: 構造化 handoff outcome ──
+                  //   kind / fingerprint / candidate_count / latency_ms を analytics に流す。
+                  //   flag_source=null（canary 外）なら no-op。
+                  emitHandoffOutcomeEvent({
+                    userId,
+                    sessionId: morningSession.sessionId ?? null,
+                    outcome: handoff.outcome,
+                    latencyMs: Date.now() - handoffStartedAt,
+                  });
                 } catch (handoffErr) {
                   // orchestrator 外の想定外エラー。user-facing は壊さない。
                   console.warn(
