@@ -13,6 +13,28 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12.5 Stage 1 着手 — allowlist canary 機構 + 観測イベント同梱
+- **部門**: Build
+- **決定内容**: CEO 判断（F2 承認 / F1 条件付き承認 / E1 暫定 β / E2 比較表のみ / E3 現文面 OK）を受け、Stage 1 PR の実装に着手し、env 名確定と 3 commit を `feat/alter-morning-pr125-allowlist-canary` に着地
+  1. **env 名確定（F1 条件）**: `process.env.GOOGLE_MAPS_API_KEY` が正。`lib/alter-morning/placesApiClient.ts:62,66` / `lib/alter-morning/routesApiClient.ts:125,129` / `scripts/import_shops_places.mjs` / `tests/unit/alter-morning/routesApiClient.test.ts` 全て `GOOGLE_MAPS_API_KEY` を直接参照。Places API / Routes API 共用。以前の報告で混在した `GOOGLE_PLACES_API_KEY` は実装上存在しない
+  2. **Stage 1 C1 commit (`ff3b972a`)**: `flags.ts` を getter → method 化。`dialogStateV2(userId?)` / `placesSearch(userId?)` を追加し、transport_v2 と同じ allowlist → global の 3 段優先順位を導入。`resolveDialogStateV2FlagSource` / `resolvePlacesSearchFlagSource` を公開し、metadata の `flag_source` 解決を集約
+  3. **Stage 1 C2 commit (`36879d76`)**: call site 4 箇所 + ensureSessionV1 signature を userId 付きに更新。テスト comment 追従のみ
+  4. **Stage 1 C3 commit (`a364fc28`)**: A1 同梱方針に従い観測イベント 2 本を配線。`lib/alter-morning/search/handoffAnalytics.ts` を新設し、console log と 1:1 対応する `alter_morning_shadow_state` / `alter_morning_handoff_outcome` を `stargazer_analytics` へ fire-and-forget で流す。unit test 21 本追加、alter-morning 全 1960 tests PASS
+- **CEO 判断（2026-04-24 Message 5）**:
+  - F2 承認: Stage 1 PR の実装に着手
+  - F1 条件付き承認: env 名をコードで確定してから preview 投入。正 `GOOGLE_MAPS_API_KEY` 確定済
+  - E1 暫定 β: Stage 2 の Role B は CEO 兼務で進める。内部 engineer が立てば差し替え可
+  - E2 比較表のみ: `hikariharada86@icloud.com` / `zawane0903@gmail.com` を C-1/C-2/C-4 観点で相対比較 → 最終指名は保留
+  - E3 現文面 OK: 軽量 NDA 提示済み文案で進める。通知 channel は DM、終了通知は Stage 2 終了時
+- **残タスク**:
+  - C4（本 commit）で rollout plan を PR-12.5 着手状態に更新
+  - PR raise（`feat/alter-morning-pr125-allowlist-canary` → `main`）
+  - preview redeploy（main 非汚染版）: `npx vercel env add GOOGLE_MAPS_API_KEY preview` → `npx vercel redeploy <preview-url> --target preview` → harness 再実行で `presented_from_api / zero_from_api` を捕捉
+  - E2 比較表（別 turn で提示）
+- **承認**: CEO（F1/F2/E1/E2/E3 判断 2026-04-24 Message 5）
+- **ステータス**: 進行中（C1-C3 commit 完了、C4 進行中、PR raise 未）
+
+---
 ### 2026-04-24 W3-PR-12 完了 — live verified + main 着地 + production rollout plan + comprehension 別 issue 切り出し
 - **部門**: Build
 - **決定内容**: PR-12 の live verification 合格判定 (CEO) を受け、3 件の後続アクションを完了
