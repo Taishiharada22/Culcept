@@ -1,6 +1,14 @@
 /**
  * CoAlter F-6 Live smoke harness (harness-A, 2026-04-20)
  *
+ * Spec 位置づけ:
+ *   本 docstring が正本（docstring-as-spec）。独立 doc は作らない。
+ *   類似 harness 9 本中 8 本（f6-live-replay / shadow-real-api /
+ *   step4-postflip-smoke 等）と同じ docstring 主義で統一する。
+ *   2026-04-24 Step A-4（docs/coalter-handoff-2026-04-22.md §2 Step A-4）
+ *   で CEO 判定: docstring 正本継続 + 本拡張 3 点（Scenarios 観測目的 /
+ *   失敗時挙動 / CEO 改訂欄）を実施。
+ *
  * CEO 承認構成 (message D):
  *   - 構成: A (harness, not HTTP route)
  *   - thread: 新規 / live-smoke 識別子付き（本 harness は talk_messages を
@@ -22,6 +30,35 @@
  *   4. diagnostics.rankedCount
  *   5. diagnostics.bookingProviderDistribution
  *   6. searchCandidates 上位 3 件
+ *
+ * Scenarios (3 本固定、観測目的):
+ *   S1 新宿 / 11時 / ラーメン / 醤油 (explicit):
+ *       area / cuisineHints / time が explicit で揃った"基本線"観測。
+ *       query projection coverage の上限値を見る。
+ *   S2 気分語あり (落ち着いた / 会話できる):
+ *       moodTags + atmosphereDesire(quiet, spacious, warm_low) を入れた
+ *       "soft 軸"観測。narration に mood が滲むか、tier 内で mood 軸が
+ *       drop されないかを見る。
+ *   S3 早朝時間帯 (新橋 7時 / 和定食):
+ *       T0 候補が薄くなる時間帯で tier escalation が発火するかを見る。
+ *       appliedTier / tierAttempts / tierThinReason の挙動観測が主目的。
+ *
+ * 失敗時の挙動:
+ *   - 各 scenario 実行は try/catch で分離包括（runScenario 内）
+ *   - 例外発生時は scenario 内で止めず ScenarioReport.error に記録し
+ *     次 scenario の実行を継続する。他 scenario の結果汚染を防ぐため
+ *     早期 return ではなく error フィールド付きレポート返却とする
+ *   - main の profileLoader / console.info interceptor 系の例外は
+ *     main の catch で fatal 扱い process.exit(1)
+ *   - searchCandidates が空の場合もエラー扱いにしない（decideSearch
+ *     が false を返したなら searchTop3 = [] として report する）
+ *
+ * CEO 承認改訂履歴:
+ *   2026-04-20 message D: harness-A 構成 / 必須 6 項目 report / 実行条件 /
+ *                         talk_messages 非接触 の承認
+ *   2026-04-24 Step A-4:  docstring 継続 + 本補強 3 点（Scenarios 観測目的 /
+ *                         失敗時挙動 / CEO 改訂欄）の承認
+ *   (以降の CEO 追加指示はここに年月日付きで追記する)
  *
  * 使用:
  *   COALTER_FOOD_LENS_WIRED=true COALTER_FOOD_TIER_LOOP=true \
