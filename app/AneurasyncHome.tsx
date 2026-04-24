@@ -48,16 +48,7 @@ import "./home-animations.css";
 
 
 /* ═══ MAIN COMPONENT ═══ */
-/**
- * W3-PR-13: visualFlowEnabled は server ((culcept)/page.tsx) で評価された
- * ALTER_MORNING_FLAGS.visualFlow(userId) の結果。non-NEXT_PUBLIC env を読むため
- * client では評価できず、server 側で計算して prop drill する。
- */
-interface AneurasyncHomeProps {
-  visualFlowEnabled?: boolean;
-}
-
-export default function AneurasyncHome({ visualFlowEnabled = false }: AneurasyncHomeProps = {}) {
+export default function AneurasyncHome() {
   const [introComplete, setIntroComplete] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -818,8 +809,6 @@ export default function AneurasyncHome({ visualFlowEnabled = false }: Aneurasync
             <div>
               <AskHero
                 observationCount={sgData?.observationCount ?? 0}
-                visualFlowEnabled={visualFlowEnabled}
-                morningPersistedEvents={alterChat.morningPersistedEvents}
                 alterMessages={alterChat.messages}
                 alterLoading={alterChat.loading}
                 alterError={alterChat.error}

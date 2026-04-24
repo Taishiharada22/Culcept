@@ -10,11 +10,9 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
-import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
-import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
 import { formatStartEndLabel } from "./timeLabel";
@@ -33,13 +31,6 @@ import {
 } from "lucide-react";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
-// W3-PR-13: client-only map view (pin-only MVP). ssr:false で SSR 影響を遮断。
-// flag OFF / key 未投入 / coords 不足時は内部で null return（fail-safe）。
-const MorningMapView = dynamic(
-  () => import("./MorningMapView").then((m) => m.MorningMapView),
-  { ssr: false, loading: () => null },
-);
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -56,17 +47,6 @@ interface MorningPlanCardProps {
    * 編集イベントを emit する以外には使用しない。
    */
   sessionId?: string | null;
-  /**
-   * W3-PR-13: visualFlow flag（server 側で評価済み）。true のときだけ map を描画候補にする。
-   * prop drilling: (culcept)/page.tsx → AneurasyncHome → AskHero → ここ。
-   * default false でロールアウト前は完全に dead。
-   */
-  visualFlowEnabled?: boolean;
-  /**
-   * W3-PR-13: reading strategy β の source — persistedEvents[].where.coordinates を読む。
-   * plan.items[].location（rebuildPlan 経由、transportV2 flag 依存）ではなく events 直読み。
-   */
-  persistedEvents?: ComprehensionEvent[] | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -852,8 +832,6 @@ export default function MorningPlanCard({
   onConfirm,
   onRequestChange,
   sessionId,
-  visualFlowEnabled = false,
-  persistedEvents = null,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -1196,14 +1174,6 @@ export default function MorningPlanCard({
           recommendReason={placeSheetItem?.recommendReason}
           onClose={() => setPlaceSheetItem(null)}
         />
-
-        {/* W3-PR-13: Map view（pin-only MVP、list の下に配置）
-            list を source of truth のまま上に見せ、map は補助ビューとして下に置く。
-            visualFlowEnabled false / persistedEvents null / <2 pins / key 未投入 では
-            MorningMapView 側で null return（fail-safe） */}
-        {visualFlowEnabled && persistedEvents && persistedEvents.length > 0 && (
-          <MorningMapView events={persistedEvents} />
-        )}
 
         {/* アクションボタン */}
         {!plan.confirmed && (
