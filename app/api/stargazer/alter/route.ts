@@ -537,6 +537,10 @@ import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyF
 import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
+import {
+  emitShadowStateEvent,
+  emitHandoffOutcomeEvent,
+} from "@/lib/alter-morning/search/handoffAnalytics";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -2229,6 +2233,19 @@ export async function POST(req: NextRequest) {
                   `phase_unchanged=${morningResponse.phase} ` +
                   `user_facing_promoted=${promoted ? "1" : "0"}`,
               );
+              // ── W3-PR-12.5 Stage 1 canary: 構造化 shadow state イベント ──
+              //   console.info と 1:1 対応。flag_source=null（canary 外）なら no-op。
+              emitShadowStateEvent({
+                userId,
+                sessionId: morningSession.sessionId ?? null,
+                targetEventId,
+                eventChanged,
+                shadowStatus: advanced.nextState.conversationStatus,
+                narrowStep: advanced.nextState.focus?.narrowStep ?? null,
+                readyForHandoff:
+                  advanced.nextState.searchQueryDraft.readyForHandoff,
+                targetSelectionReason: targetSelection.reason,
+              });
 
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               // W3-PR-9 commit 4: Places handoff orchestration
@@ -2254,6 +2271,7 @@ export async function POST(req: NextRequest) {
               //   - provider_error の cache 保存
               //   - await を飛ばした fire-and-forget（次 dispatch が state 依存）
               if (ALTER_MORNING_FLAGS.placesSearch(userId) && morningSession.dialogState) {
+                const handoffStartedAt = Date.now();
                 try {
                   const handoff = await orchestratePlacesHandoff({
                     userId,
@@ -2310,6 +2328,15 @@ export async function POST(req: NextRequest) {
                       `[places-handoff:${oc.kind}] fp=${oc.fingerprint}`,
                     );
                   }
+                  // ── W3-PR-12.5 Stage 1 canary: 構造化 handoff outcome ──
+                  //   kind / fingerprint / candidate_count / latency_ms を analytics に流す。
+                  //   flag_source=null（canary 外）なら no-op。
+                  emitHandoffOutcomeEvent({
+                    userId,
+                    sessionId: morningSession.sessionId ?? null,
+                    outcome: handoff.outcome,
+                    latencyMs: Date.now() - handoffStartedAt,
+                  });
                 } catch (handoffErr) {
                   // orchestrator 外の想定外エラー。user-facing は壊さない。
                   console.warn(

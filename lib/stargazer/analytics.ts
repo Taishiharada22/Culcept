@@ -41,7 +41,12 @@ export type StargazerEvent =
   // いずれも flag ON 経路でのみ emit され、feature="alter_morning" 固定。
   | "transport_v2_segments_built"     // server: build 直後の分布 / sanity
   | "transport_v2_display_rendered"   // server: display cache interleave 直後
-  | "transport_v2_edit_regression";   // client: regenerateTravel 後の travel 増減
+  | "transport_v2_edit_regression"    // client: regenerateTravel 後の travel 増減
+  // ── W3-PR-12.5 DialogState v2 + Places Search canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr12-production-rollout-plan.md §2 Stage 2
+  // いずれも flag ON 経路（allowlist or global）でのみ emit、feature="alter_morning" 固定。
+  | "alter_morning_shadow_state"      // server: [dialog-state-v2:shadow] 構造化版
+  | "alter_morning_handoff_outcome";  // server: [places-handoff:*] 構造化版
 
 export interface StargazerAnalyticsEvent {
   userId: string;
