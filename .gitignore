@@ -25,6 +25,10 @@ node_modules/
 .env*.local
 .DS_Store
 
+# .env.example は公開 template（git 管理対象）。
+# 上記 .env* / .env*.local パターンに対する negation rule。
+!.env.example
+
 # Python venv
 .venv/
 **/.venv/

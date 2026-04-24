@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 import AneurasyncHome from "../AneurasyncHome";
-import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import { resolveVisualFlowFlagSource } from "@/lib/alter-morning/dialog/flags";
+import { emitVisualFlowFlagEvaluated } from "@/lib/alter-morning/visualFlow/analyticsServer";
 
 /**
  * / の役割を1つに固定:
@@ -54,10 +55,23 @@ export default async function HomePage() {
 
         if (!starMapRow) redirect("/stargazer");
 
-        // ── W3-PR-13 M3: visualFlow flag eval（server-side 単一評価ポイント） ──
-        // 評価結果を AneurasyncHome に drill down。flag OFF default のため
-        // 未設定ユーザーは必ず false。MorningMapView の dynamic import 自体が fire しない。
-        const visualFlowEnabled = ALTER_MORNING_FLAGS.visualFlow(user.id);
+        // ── W3-PR-13 M3+M4: visualFlow flag eval + analytics（server-side 単一評価ポイント） ──
+        //
+        // M3: 評価結果の boolean を AneurasyncHome に drill down。flag OFF default のため
+        //     未設定ユーザーは必ず false。MorningMapView の dynamic import 自体が fire しない。
+        //
+        // M4: flag_source (allowlist / global) を取得し、flag ON の時のみ
+        //     visual_flow_flag_evaluated イベントを emit（CEO decision #3）。
+        //     resolveVisualFlowFlagSource は visualFlow() と同じ判定ロジック。
+        //     戻り値 null = flag OFF → 何も emit しない（dead-code 維持）。
+        const visualFlowSource = resolveVisualFlowFlagSource(user.id);
+        const visualFlowEnabled = visualFlowSource !== null;
+        if (visualFlowSource !== null) {
+            emitVisualFlowFlagEvaluated({
+                userId: user.id,
+                metadata: { flag_source: visualFlowSource },
+            });
+        }
 
         return <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
     } catch (e: any) {

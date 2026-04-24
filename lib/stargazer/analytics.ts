@@ -46,7 +46,15 @@ export type StargazerEvent =
   // 詳細: docs/alter-morning-pr12-production-rollout-plan.md §2 Stage 2
   // いずれも flag ON 経路（allowlist or global）でのみ emit、feature="alter_morning" 固定。
   | "alter_morning_shadow_state"      // server: [dialog-state-v2:shadow] 構造化版
-  | "alter_morning_handoff_outcome";  // server: [places-handoff:*] 構造化版
+  | "alter_morning_handoff_outcome"   // server: [places-handoff:*] 構造化版
+  // ── W3-PR-13 Visual Flow canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr13-visual-flow-rollout-plan.md
+  // いずれも flag ON 経路（allowlist or global）でのみ emit、feature="alter_morning_visual_flow" 固定。
+  // dead-code 方針: flag OFF default / browser key 未投入 / allowlist 空 → 実発火ゼロ。
+  | "visual_flow_flag_evaluated"      // server: page.tsx で visualFlowEnabled=true の時のみ
+  | "visual_flow_gate_rejected"       // client: MorningMapView 早期 null return (no key / insufficient pins)
+  | "visual_flow_script_loaded"       // client: Google Maps JS API script.onload / onerror
+  | "visual_flow_map_mounted";        // client: fitBounds 完了後
 
 export interface StargazerAnalyticsEvent {
   userId: string;
