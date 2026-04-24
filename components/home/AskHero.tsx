@@ -7,6 +7,7 @@ import Link from "next/link";
 import type { AlterMessage } from "@/hooks/useAlterChat";
 import type { ActionShape } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase } from "@/lib/alter-morning/types";
+import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import { AlterFeedback } from "@/components/stargazer/AlterFeedback";
 import MorningPlanCard from "@/components/home/morning/MorningPlanCard";
 import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
@@ -123,6 +124,10 @@ type Props = {
   morningPhase?: MorningPhase | null;
   /** Morning Protocol: パーソナライズヒント */
   morningPersonalizeHints?: string[];
+  /** W3-PR-13 M3: persisted comprehension events（MorningMapView の pin source） */
+  morningEvents?: ComprehensionEvent[];
+  /** W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean） */
+  visualFlowEnabled?: boolean;
   /** Morning Protocol: プラン確定コールバック */
   onMorningPlanConfirm?: (plan: MorningPlan) => void;
   /** Morning Protocol: 変更リクエストコールバック */
@@ -264,6 +269,8 @@ export default function AskHero({
   morningPlan,
   morningPhase,
   morningPersonalizeHints,
+  morningEvents,
+  visualFlowEnabled = false,
   onMorningPlanConfirm,
   onMorningPlanChange,
   morningWeather,
@@ -403,6 +410,8 @@ export default function AskHero({
             onConfirm={onMorningPlanConfirm ?? (() => {})}
             onRequestChange={onMorningPlanChange ?? (() => {})}
             sessionId={alterSessionId ?? null}
+            events={morningEvents}
+            visualFlowEnabled={visualFlowEnabled}
           />
         )}
 

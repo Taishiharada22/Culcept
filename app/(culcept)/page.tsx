@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { supabaseServer } from "@/lib/supabase/server";
 import AneurasyncHome from "../AneurasyncHome";
+import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
 
 /**
  * / の役割を1つに固定:
@@ -53,7 +54,12 @@ export default async function HomePage() {
 
         if (!starMapRow) redirect("/stargazer");
 
-        return <AneurasyncHome />;
+        // ── W3-PR-13 M3: visualFlow flag eval（server-side 単一評価ポイント） ──
+        // 評価結果を AneurasyncHome に drill down。flag OFF default のため
+        // 未設定ユーザーは必ず false。MorningMapView の dynamic import 自体が fire しない。
+        const visualFlowEnabled = ALTER_MORNING_FLAGS.visualFlow(user.id);
+
+        return <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
     } catch (e: any) {
         if (e?.digest?.includes("NEXT_REDIRECT")) throw e;
         // auth errors は非致命的 — fallback として Home を表示

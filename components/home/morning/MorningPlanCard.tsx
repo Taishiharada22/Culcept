@@ -10,9 +10,11 @@
  */
 
 import { useState, useCallback, useEffect } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
+import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
 import { formatStartEndLabel } from "./timeLabel";
@@ -32,6 +34,18 @@ import {
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-13 M3: MorningMapView を client-only lazy import。
+//   - ssr: false 必須（MorningMapView 内部で document.createElement("script") を呼ぶ）
+//   - flag OFF default + browser key 未投入 → dynamic import 自体が fire しない
+//   - 依存追加なし（MorningMapView は M2 で依存ゼロ実装済み）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MorningMapView = dynamic(
+  () => import("@/components/home/morning/MorningMapView"),
+  { ssr: false },
+);
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -47,6 +61,16 @@ interface MorningPlanCardProps {
    * 編集イベントを emit する以外には使用しない。
    */
   sessionId?: string | null;
+  /**
+   * W3-PR-13 M3: persisted comprehension events（map pin source）。
+   * MorningMapView に events として渡す。座標妥当性判定は child に集約。
+   */
+  events?: ComprehensionEvent[];
+  /**
+   * W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean）。
+   * false の時は MorningMapView の dynamic import 自体が fire しない。
+   */
+  visualFlowEnabled?: boolean;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -832,6 +856,8 @@ export default function MorningPlanCard({
   onConfirm,
   onRequestChange,
   sessionId,
+  events,
+  visualFlowEnabled = false,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -1166,6 +1192,19 @@ export default function MorningPlanCard({
             });
           })()}
         </div>
+
+        {/*
+          W3-PR-13 M3: MorningMapView — pin map（list view の補助ビュー）
+          gate:
+            - visualFlowEnabled (server-side flag eval 済み boolean)
+            - events 2 件以上（座標妥当性は child の extractPins に集約）
+          child 側でさらに:
+            - NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY 未設定で null
+            - valid pin < 2 で null
+         */}
+        {visualFlowEnabled && events && events.length >= 2 && (
+          <MorningMapView events={events} />
+        )}
 
         {/* 場所詳細 bottom sheet */}
         <PlaceDetailSheet
