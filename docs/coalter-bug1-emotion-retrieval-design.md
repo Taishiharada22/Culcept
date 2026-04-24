@@ -277,12 +277,12 @@ export function extractEmotionTags(
 
 | tag | source_lexeme | polarity（任意） |
 |-----|---------------|-----------------|
-| mood | 気持ち, 気分, 感情 | neutral |
-| indecision | 迷う, 迷い, 分からない, どっちも | neutral |
-| relation | 関係, 仲, 距離感 | neutral |
-| friction | すれ違い, 誤解, 喧嘩 | negative |
+| mood | 気持ち, 気分, 感情, 心境, 気分が乗らない | neutral |
+| indecision | 迷う, 迷い, 分からない, どっちも, どっちでもいい | neutral |
+| relation | 関係, 仲, 距離感, 距離, 付き合い方 | neutral |
+| friction | すれ違い, 誤解, 喧嘩, ぎくしゃく, 気まずい | negative |
 
-初版は旧 `NO_SEARCH_PATTERNS` と 1:1 対応（互換を取るため）。以降の拡張は `indecision` カテゴリへの「どっちでもいい / ピンと来ない」等を別 PR で増やす。
+初版は旧 `NO_SEARCH_PATTERNS` の 3 カテゴリ（mood / relation / friction）を正本として引き継ぎつつ、欠落していた `indecision` カテゴリを新設し、**各カテゴリ 5 語**で起草する。recall 担保（mainstream plan §2.1 Gate ②「各カテゴリ最低 5 語」）と失敗独立原則の両立を目的とする。以降の拡張（新規カテゴリの追加、語彙のチューニング）は別 PR で扱う。
 
 ### 4.4 `decideSearch` の再設計
 
