@@ -229,6 +229,8 @@ CoAlter は以下 **3 軸**で振る舞いが決まる：
 
 ## 4. 通常モードの発話パターン 6 種
 
+> **参照（統合契約 §4, 2026-04-24 rev 1 FIXED）**: 本章の 6 種は **6 families**（存在論層、A/B/C/D/E/F）として再位置付け。運用層では **7 variants**（A/B/C/D/E/F-1/F-2）が併置される（UI spec §7 / speech template §3-§9 参照）。本章の本文内容は不変。
+
 通常モードは 6 つの発話パターンを持つ。**1 ターンで 1 パターンだけ**選び、複数混ぜない。
 
 ### 4.1 A. 入口発話（Entry）
@@ -334,6 +336,8 @@ CoAlter は以下 **3 軸**で振る舞いが決まる：
 - 元の発言を否定しない（補足する形で）
 
 ### 4.6 F. 軽提案（Light Proposal）
+
+> **参照（統合契約 §4, 2026-04-24 rev 1 FIXED）**: F は **関係提案（F-1）と生活提案（F-2）の 2 variants を持つ family** として固定。既存の F-1/F-2 節構造は variant 層の正本として維持。
 
 **目的**: 通常モードでの軽い一手。**プランニングそのものではなく、関係を進めるための次の一歩**。
 
@@ -486,6 +490,8 @@ CoAlter は毎回いきなり結論を出すのではなく、基本はこの 5 
 - 既存 `coalter_messages.metadata` の構造
 
 S0-S8 は**上部レイヤー UI の表示と発話サイクル**を表す。Phase 2 凍結 6 項目は変えない。
+
+> **参照（統合契約 §3, 2026-04-24 rev 1 FIXED）**: S4 理解更新中は、映画三段式の **Stage 1 Understand の生進捗バーではない**。両者は **event bus 分離**（`executor.understanding.*` vs `presence.state.*`）で独立に動く。Stage 1 を走らせない通常モード S5 橋渡しも許容される（詳細は統合契約 §3.2〜§3.4）。
 
 ### 8.2 9 状態の定義
 
@@ -774,6 +780,9 @@ S8 から S0 に戻った後、以下のいずれかで S1 へ：
 | Presence（本書） | S0-S8 | Presence / UI | 上部レイヤー表示 + 発話サイクル制御 |
 | Action（Phase 2 凍結） | decision / negotiate / clarify | executor / reducer | `coalterDispatch` 内部 / `coalter_messages.metadata` |
 | Theme | food / movie / travel / schedule / general | 会話内容分類 | `conversationParser` |
+| **executor availability**（統合契約 §2, rev 1 FIXED） | inactive / pending_consent / enabled / active / disabled | executor / pair state | `master-design.md` §5 起動状態機械 / 統合契約 §2 |
+
+> **参照（統合契約 §2, 2026-04-24 rev 1 FIXED）**: 本表は 3 軸から **4 軸直交構造** に拡張。executor availability が Presence / Action / Theme と直交し、Presence の可動域を制約する（`enabled` = S0 常駐のみ / `active` = S1-S8 可動）。
 
 **禁止**:
 - S0-S8 を `coalterDispatch` の state に直接 mapping すること
