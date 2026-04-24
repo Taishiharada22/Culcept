@@ -1,9 +1,10 @@
 # CoAlter 統合契約 — canonical surface / Presence×executor 直交 / Understand 分離 / Pattern 命名裁定
 
 **作成日**: 2026-04-24
-**ステータス**: v0.1 初稿（CEO 固定レビュー待ち）
+**ステータス**: **v0.1 固定**（CEO 固定確定 2026-04-24）
 **起草 branch**: `design/coalter-integration-contract-2026-04-24`（`design/coalter-step-a-baseline` から派生）
 **前提 snapshot**: Step A 完了時点（`docs/coalter-handoff-2026-04-22.md` rev 2）
+**不可侵化**: §0.5 起草プロトコルにより、以後の変更は rev 追記方式（既存本文削除禁止）
 
 ---
 
@@ -450,8 +451,9 @@ export const toFamily = (v: PatternVariant): PatternFamily =>
 | 日付 | 版 | 変更内容 | 承認 |
 |---|---|---|---|
 | 2026-04-24 | v0.1 | 初稿起草。CEO「複合型 canonical」判断 + GPT「P0 = 1+8+5」推奨を統合。4 契約点（① 二層 surface / ② 3 レイヤー直交 / ③ Stage 1 vs S4 分離 / ④ 6 families/7 variants 裁定）を固定候補として草案 | CEO レビュー待ち |
-| 2026-04-24 | v0.1（固定前締め付け） | CEO v0.1 レビュー後の 4 点締め付け反映: (a) §0.3 snapshot rev2 の意図固定を注記、(b) §1.1.1 対話面自由テキスト返答の最小粒度 5 項目を追加、(c) §2.1 に `disabled` vs `inactive` 語義差を固定、(d) §4.2 に external（F-1/F-2）↔ internal（F1/F2）normalize 規則を追加。版は v0.1 のまま（固定前修正のため昇格しない） | CEO 固定確定待ち |
-| 2026-04-24 | v0.1（整合修正） | CEO 再レビュー指摘の 2 点反映: (e) §2.4 状態遷移図を §2.1 語義差と整合させて書き直し（`disabled ⇄ pending_consent` の誤読を除去、明示 OFF / 明示再開パスを明示）、(f) §1.1 対話面発火条件を「`enabled` 以上」→「`enabled` または `active`」に変更して順序型誤読を除去。版は v0.1 維持 | CEO 固定確定待ち |
+| 2026-04-24 | v0.1（固定前締め付け） | CEO v0.1 レビュー後の 4 点締め付け反映: (a) §0.3 snapshot rev2 の意図固定を注記、(b) §1.1.1 対話面自由テキスト返答の最小粒度 5 項目を追加、(c) §2.1 に `disabled` vs `inactive` 語義差を固定、(d) §4.2 に external（F-1/F-2）↔ internal（F1/F2）normalize 規則を追加。版は v0.1 のまま（固定前修正のため昇格しない） | CEO 固定確定（2026-04-24） |
+| 2026-04-24 | v0.1（整合修正） | CEO 再レビュー指摘の 2 点反映: (e) §2.4 状態遷移図を §2.1 語義差と整合させて書き直し（`disabled ⇄ pending_consent` の誤読を除去、明示 OFF / 明示再開パスを明示）、(f) §1.1 対話面発火条件を「`enabled` 以上」→「`enabled` または `active`」に変更して順序型誤読を除去。版は v0.1 維持 | CEO 固定確定（2026-04-24） |
+| 2026-04-24 | v0.1 fixed | CEO 固定確定判定。§0 ヘッダのステータスを「v0.1 固定」に更新、不可侵化を明記。以後の変更は rev 追記方式のみ | **FIXED** |
 
 ---
 
