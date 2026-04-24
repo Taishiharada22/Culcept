@@ -23,6 +23,8 @@
  *   - `ALTER_MORNING_PLACES_SEARCH_ALLOWLIST` (CSV of userId) — PR-12.5 canary
  *   - `ALTER_MORNING_TRANSPORT_V2` (bool) — global fallback
  *   - `ALTER_MORNING_TRANSPORT_V2_ALLOWLIST` (CSV of userId) — PR-10 canary
+ *   - `ALTER_MORNING_VISUAL_FLOW` (bool) — global fallback (PR-13 map pin MVP)
+ *   - `ALTER_MORNING_VISUAL_FLOW_ALLOWLIST` (CSV of userId) — PR-13 canary
  *
  * pattern は `lib/coalter/flags.ts` の envBool と揃える（既存パターンに合流）。
  */
@@ -63,6 +65,7 @@ function parseAllowlistCsv(raw: string | undefined, cache: AllowlistCache): Allo
 let cachedTransportAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
 let cachedDialogStateAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
 let cachedPlacesSearchAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
+let cachedVisualFlowAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
 
 function getTransportV2AllowlistSet(): Set<string> {
   cachedTransportAllowlist = parseAllowlistCsv(
@@ -88,6 +91,14 @@ function getPlacesSearchAllowlistSet(): Set<string> {
   return cachedPlacesSearchAllowlist.set;
 }
 
+function getVisualFlowAllowlistSet(): Set<string> {
+  cachedVisualFlowAllowlist = parseAllowlistCsv(
+    process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST,
+    cachedVisualFlowAllowlist,
+  );
+  return cachedVisualFlowAllowlist.set;
+}
+
 /**
  * テスト override。process.env を触らず flag を上書きする。
  * null でクリア（env 値に戻る）。
@@ -95,6 +106,7 @@ function getPlacesSearchAllowlistSet(): Set<string> {
 let dialogStateV2Override: boolean | null = null;
 let placesSearchOverride: boolean | null = null;
 let transportV2Override: boolean | null = null;
+let visualFlowOverride: boolean | null = null;
 
 /**
  * canary flag の「どの経路で ON になったか」を payload に埋める用の共通 type。
@@ -179,6 +191,37 @@ export function resolvePlacesSearchFlagSource(
   return null;
 }
 
+/**
+ * PR-13 canary: Visual Flow (map pin MVP) の flag_source 解決。
+ *
+ * 用途:
+ *   - 観測イベント (`alter_morning_map_rendered`) の metadata.flag_source
+ *   - ALTER_MORNING_FLAGS.visualFlow(userId) と同じ判定ロジック
+ *
+ * 独立性:
+ *   - dialogStateV2 / placesSearch との AND gate なし（data-driven 判定:
+ *     event.where.coordinates が揃った event が 2+ ある時にのみ描画される）
+ *   - rebuildPlan 経路にも非依存（MapView は persistedEvents を直読: 戦略 β）
+ *
+ * 戻り値:
+ *   - "allowlist": env CSV に userId が含まれる
+ *   - "global": env CSV に含まれないが global flag が true
+ *   - null: flag OFF（canary 対象外 = 観測イベントも出さない）
+ */
+export function resolveVisualFlowFlagSource(
+  userId: string | undefined,
+): FlagSource | null {
+  if (visualFlowOverride !== null) {
+    return visualFlowOverride ? "global" : null;
+  }
+  if (userId) {
+    const normalized = userId.toLowerCase();
+    if (getVisualFlowAllowlistSet().has(normalized)) return "allowlist";
+  }
+  if (envBool("ALTER_MORNING_VISUAL_FLOW", false)) return "global";
+  return null;
+}
+
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
   dialogStateV2Override = next;
@@ -192,6 +235,11 @@ export function __setPlacesSearchOverride(next: boolean | null): void {
 /** @internal テスト用 override（PR-10 Transport Staircase gate） */
 export function __setTransportV2Override(next: boolean | null): void {
   transportV2Override = next;
+}
+
+/** @internal テスト用 override（PR-13 Visual Flow map pin MVP gate） */
+export function __setVisualFlowOverride(next: boolean | null): void {
+  visualFlowOverride = next;
 }
 
 export const ALTER_MORNING_FLAGS = {
@@ -309,5 +357,45 @@ export const ALTER_MORNING_FLAGS = {
       if (getTransportV2AllowlistSet().has(normalized)) return true;
     }
     return envBool("ALTER_MORNING_TRANSPORT_V2", false);
+  },
+
+  /**
+   * PR-13 Visual Flow — map pin MVP の描画 gate。
+   *
+   * **scope は pin-only MVP に固定**:
+   *   - timeline / polyline / endTime / durationMin / Routes API は非対象（後続 PR）
+   *   - list view は source of truth のまま、MapView は並列に提示
+   *
+   * **独立 flag（AND gate 無し）**:
+   *   - dialogStateV2 / placesSearch と独立。どちらが OFF でも visualFlow は動く
+   *   - 描画条件は data-driven: event.where.coordinates が揃った event が 2+ ある時のみ
+   *   - rebuildPlan 経路にも非依存（persistedEvents を直読: 戦略 β）
+   *
+   * 優先順位（§1-A-1）:
+   *   1. test override（`__setVisualFlowOverride(true|false)`）
+   *   2. allowlist（`ALTER_MORNING_VISUAL_FLOW_ALLOWLIST` CSV に userId 含む）
+   *   3. global fallback（`ALTER_MORNING_VISUAL_FLOW` env、既定 false）
+   *
+   * false（既定）:
+   *   - MorningPlanCard は従来通り list のみを render
+   *   - MapView component は mount されない（`@vis.gl/react-google-maps` は load されない）
+   *   - alter_morning_map_rendered 観測イベントは emit されない
+   *
+   * true:
+   *   - coordinates を持つ event が 2+ ある時、MorningPlanCard が MapView を並列表示
+   *   - pin タップ→対応 event の詳細表示（詳細フローは C4 で決定）
+   *   - alter_morning_map_rendered を session 内 1 回のみ emit（C5 で担保）
+   *
+   * env keys:
+   *   - `ALTER_MORNING_VISUAL_FLOW_ALLOWLIST` (CSV) — primary
+   *   - `ALTER_MORNING_VISUAL_FLOW` (bool) — global fallback
+   */
+  visualFlow(userId?: string): boolean {
+    if (visualFlowOverride !== null) return visualFlowOverride;
+    if (userId) {
+      const normalized = userId.toLowerCase();
+      if (getVisualFlowAllowlistSet().has(normalized)) return true;
+    }
+    return envBool("ALTER_MORNING_VISUAL_FLOW", false);
   },
 };

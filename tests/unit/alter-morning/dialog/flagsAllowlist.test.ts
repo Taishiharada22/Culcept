@@ -19,8 +19,10 @@ import {
   ALTER_MORNING_FLAGS,
   __setDialogStateV2Override,
   __setPlacesSearchOverride,
+  __setVisualFlowOverride,
   resolveDialogStateV2FlagSource,
   resolvePlacesSearchFlagSource,
+  resolveVisualFlowFlagSource,
 } from "@/lib/alter-morning/dialog/flags";
 
 const USER_A = "11111111-1111-1111-1111-111111111111";
@@ -32,18 +34,22 @@ function clearEnv() {
   delete process.env.ALTER_MORNING_DIALOG_STATE_V2_ALLOWLIST;
   delete process.env.ALTER_MORNING_PLACES_SEARCH;
   delete process.env.ALTER_MORNING_PLACES_SEARCH_ALLOWLIST;
+  delete process.env.ALTER_MORNING_VISUAL_FLOW;
+  delete process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST;
 }
 
 beforeEach(() => {
   clearEnv();
   __setDialogStateV2Override(null);
   __setPlacesSearchOverride(null);
+  __setVisualFlowOverride(null);
 });
 
 afterEach(() => {
   clearEnv();
   __setDialogStateV2Override(null);
   __setPlacesSearchOverride(null);
+  __setVisualFlowOverride(null);
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -183,5 +189,89 @@ describe("flags §7 independence — AND gate は route.ts 側の責務", () => 
     expect(ALTER_MORNING_FLAGS.placesSearch(USER_A)).toBe(true);
     expect(ALTER_MORNING_FLAGS.dialogStateV2(USER_A)).toBe(false);
     // AND gate は route.ts 側で `dialogStateV2(userId) && placesSearch(userId)` を書く責務
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §8. visualFlow (PR-13 Visual Flow map pin MVP canary)
+//
+// 検証観点:
+//   §8.1 default (env 未設定) — 全 false / flag_source null
+//   §8.2 global fallback — env true で全 user true / flag_source=global
+//   §8.3 allowlist — CSV に含まれる user のみ true / flag_source=allowlist
+//   §8.4 test override — __setVisualFlowOverride が env / allowlist を上書き
+//   §8.5 独立性 — visualFlow は dialogStateV2 / placesSearch の状態を見ない
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("flags §8 visualFlow (PR-13 canary)", () => {
+  it("§8.1 default (env 未設定) — 全 false / flag_source null", () => {
+    expect(ALTER_MORNING_FLAGS.visualFlow()).toBe(false);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(false);
+    expect(resolveVisualFlowFlagSource(undefined)).toBe(null);
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe(null);
+  });
+
+  it("§8.2 global fallback — env true で全 user true / flag_source=global", () => {
+    process.env.ALTER_MORNING_VISUAL_FLOW = "true";
+    expect(ALTER_MORNING_FLAGS.visualFlow()).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_B)).toBe(true);
+    expect(resolveVisualFlowFlagSource(undefined)).toBe("global");
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe("global");
+  });
+
+  it("§8.3 allowlist — CSV に含まれる user のみ true / flag_source=allowlist", () => {
+    process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST = `${USER_A},${USER_B}`;
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_B)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_C)).toBe(false);
+    expect(ALTER_MORNING_FLAGS.visualFlow()).toBe(false);
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe("allowlist");
+    expect(resolveVisualFlowFlagSource(USER_B)).toBe("allowlist");
+    expect(resolveVisualFlowFlagSource(USER_C)).toBe(null);
+    expect(resolveVisualFlowFlagSource(undefined)).toBe(null);
+  });
+
+  it("§8.3b allowlist + global 両方 ON — allowlist 優先、外は global", () => {
+    process.env.ALTER_MORNING_VISUAL_FLOW = "true";
+    process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST = `${USER_A}`;
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe("allowlist");
+    expect(resolveVisualFlowFlagSource(USER_B)).toBe("global");
+    expect(resolveVisualFlowFlagSource(undefined)).toBe("global");
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_B)).toBe(true);
+  });
+
+  it("§8.4 test override — __setVisualFlowOverride が env / allowlist を上書き", () => {
+    process.env.ALTER_MORNING_VISUAL_FLOW = "false";
+    __setVisualFlowOverride(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.visualFlow()).toBe(true);
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe("global");
+
+    process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST = `${USER_A}`;
+    __setVisualFlowOverride(false);
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(false);
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe(null);
+  });
+
+  it("§8.5 独立性 — visualFlow は dialogStateV2 / placesSearch の状態を見ない", () => {
+    // visualFlow のみ ON、dialogStateV2 / placesSearch は OFF
+    process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST = `${USER_A}`;
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.dialogStateV2(USER_A)).toBe(false);
+    expect(ALTER_MORNING_FLAGS.placesSearch(USER_A)).toBe(false);
+
+    // dialogStateV2 / placesSearch を ON にしても visualFlow の判定は変わらない
+    process.env.ALTER_MORNING_DIALOG_STATE_V2 = "true";
+    process.env.ALTER_MORNING_PLACES_SEARCH = "true";
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(true); // allowlist
+    expect(resolveVisualFlowFlagSource(USER_A)).toBe("allowlist"); // 他 flag の影響なし
+
+    // 逆に visualFlow を OFF にしても dialogStateV2 / placesSearch は独立
+    delete process.env.ALTER_MORNING_VISUAL_FLOW_ALLOWLIST;
+    expect(ALTER_MORNING_FLAGS.visualFlow(USER_A)).toBe(false);
+    expect(ALTER_MORNING_FLAGS.dialogStateV2(USER_A)).toBe(true);
+    expect(ALTER_MORNING_FLAGS.placesSearch(USER_A)).toBe(true);
   });
 });
