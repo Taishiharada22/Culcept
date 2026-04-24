@@ -31,7 +31,7 @@ v1.1 側が参照している **Step A-E フロー** の正本として機能す
 | P2 food G6 拡張 | ✅ 完成（CEO 6.D 合格 2026-04-19） | ✅ 完成 | 🟡 母数積み上げ中 | `docs/coalter-phase2-3mode-design.md` |
 | Phase 2 3-mode body | ✅ 完成・凍結（2026-04-19 CEO 6.D 合格） | ✅ 完成 | 🟡 母数積み上げ中（観測インフラは完成） | `docs/coalter-phase2-3mode-design.md` |
 | Phase 1.5.6 Travel 差別化 | 🟡 研究 doc のみ、実装設計未起草 | 🔴 未着手 | — | `docs/coalter-phase-1-5-6-differentiation-research.md` |
-| Stage 1 Understand（三段式 M0 共通基盤） | ✅ rev 3.1（2026-04-20 CEO lock） | 🟡 shadow 実装完成（M0-1〜M0-7A + M1-1a/1b/C3b commit 済）/ 🔴 runtime 未接続 | 🔴 U1-U5 未実測（合成 fixture + preview いずれも未計測） | `docs/coalter-movie-three-stage-design.md` §11-13 |
+| Stage 1 Understand（三段式 M0 共通基盤） | ✅ rev 3.1（2026-04-20 CEO lock） | 🟢 shadow 実装完成（M0-1〜M0-7A + M1-1a/1b/C3b）+ 🟢 runtime 接続完成（2026-04-24 B-5、movie branch に flag-gated fire-and-forget で並走接続済） | 🟡 合成 U1-U5 初回計測済（U4/U5 PASS、U1/U2/U3 FAIL として凍結）/ 🔴 preview 実測は **全実装完了後に延期**（CEO 方針 2026-04-24） | `docs/coalter-movie-three-stage-design.md` §11-13 |
 | Stage 2 Curate（三段式 M1 movie） | ✅ rev 3 設計（§2.3） | 🔴 未着手 | — | `docs/coalter-movie-three-stage-design.md` §2.3 / §6 Phase M1 |
 | Stage 3 Resolve（三段式 M2 movie） | ✅ rev 3 設計 + rev 3.2 Bug-2 接続 | 🔴 未着手 | — | `docs/coalter-movie-three-stage-design.md` §2.4 / §6 Phase M2 |
 | P3（travel reflect 等） | 🔴 未設計 | 🔴 未着手 | — | — |
@@ -46,7 +46,8 @@ v1.1 側が参照している **Step A-E フロー** の正本として機能す
 - 「Phase 2 観測は完成扱い」とは **観測インフラ・現時点までの母数積み上げは完成** の意。母数そのものは時間経過で継続的に積み上がる（Phase 2 凍結は維持されるため、新機能追加による分岐は発生しない）。
 - Bug-1 / Bug-2 は **設計完了**。実装は Step C / Step D に分配される（§2 参照）。
 - P3 / P4 / P5 は **未設計** かつ **観測待ち**。Phase 2 観測の母数が揃う前に P3 設計に着手すると、観測値を設計に反映する機会を失う。
-- **Stage 1 Understand は 4 段で観測する**（rev 3 で明示化）: 設計 / shadow 実装 / runtime 接続 / U1-U5 実測。初版 bridge (rev 2) は単に「🔴 未着手（shadow 解禁実行待ち）」と書いたが、実態は shadow 実装済（M0-1〜M0-7A + M1 wiring proof 含む commit 系列 + 15 unit test PASS）・runtime 未接続・U1-U5 未実測の混成状態であるため、rev 3 で 4 段分離に訂正した。Step B（§2）はこの 4 段のうち **runtime 接続 / U1-U5 実測 を埋める昇格判定フェーズ** として再定義される。
+- **Stage 1 Understand は 4 段で観測する**（rev 3 で明示化）: 設計 / shadow 実装 / runtime 接続 / U1-U5 実測。初版 bridge (rev 2) は単に「🔴 未着手（shadow 解禁実行待ち）」と書いたが、実態は shadow 実装済（M0-1〜M0-7A + M1 wiring proof 含む commit 系列 + 15 unit test PASS）・runtime 未接続・U1-U5 未実測の混成状態であるため、rev 3 で 4 段分離に訂正した。Step B（§2）はこの 4 段のうち **runtime 接続 / U1-U5 実測 を埋める昇格判定フェーズ** として再定義される。2026-04-24 の rev 5 時点: 設計 ✅ / shadow 実装 ✅ / runtime 接続 ✅（B-5 着地）/ U1-U5 実測 🟡（合成計測済・preview 実測は全実装完了後に延期）。
+- **観測フェーズは全実装完了後に回す**（CEO 方針 2026-04-24）: Stage 1 U1-U5 の preview 実測 (B-6) / Bug-1 北極星 / Bug-2 北極星 を Stage 2/3 と切り離して piecemeal に測ると、Stage 2/3 実装後の実態と乖離する。**Step C (Bug-1) / Step D (Bug-2 M1/M2) 完了後に Step E で 1 回で正しく取る**。B-6 はこの Step E 観測 window に統合する。
 
 ---
 
@@ -88,15 +89,45 @@ rev 3 ではこの 2 つを明示分離する。
 | B-2. U1-U5 計測導線整備 | ✅ 完了（2026-04-24） | `scripts/coalter/understanding-u-gate.ts` 新設。既存 code touch 0、diagnostics emitter に patch せず `runUnderstanding` 戻り値 + `judgeOutcome` 再呼び出し + harness 側 `performance.now()` で U1-U5 を集計。`--legacy` で先頭 10 件（recover mode 偏重）、default は stride=5 mode 横断の 2 モードを用意 | 自律 |
 | B-3. 合成観測の初回報告 | ✅ 完了（2026-04-24） | 10 pair × 3 session = 30 runs を legacy / mode-cross 両方で計測。両方とも U4/U5 PASS、U1/U2/U3 FAIL。FAIL の原因は合成 fixture の source_coverage / confidence 水準が judgeOutcome 閾値（0.5/4）と構造的に乖離していること（mode 偏りではない） | 自律 |
 | B-4. bridge doc snapshot 訂正 | ✅ 完了（2026-04-24） | 本 rev 3 で §1 Stage 1 Understand 行を 4 段分離 + §2 Step B を昇格判定フェーズに書き直し + §6 rev 3 追加 | 自律 |
-| B-5. runtime shadow 並走接続 | 🔴 未着手 | `lib/coalter/movieOrchestrator.ts` / `coalterDispatch.ts` 等から `runUnderstanding` を並走呼び出し（既存 behavior 不変、diagnostics のみ収集）。**§11.A「既存 movie retrieval の behavior を一切変えない」と「M0 期間中 import 無し」の 2 制約に抵触するため CEO 承認必須** | **CEO 承認必要** |
-| B-6. preview 実測 | 🔴 未着手 | B-5 完了後、preview 環境で shadow 並走して 5 pair 分の U1-U5 実測値を確定 | **CEO 承認必要** |
+| B-5. runtime shadow 並走接続 | ✅ 完了（2026-04-24） | `lib/coalter/flags.ts` に新 flag `understandingShadowMovie`（env `COALTER_UNDERSTANDING_SHADOW_MOVIE`、default OFF）。`lib/coalter/engine.ts` に `runMovieShadowUnderstanding` 関数を新設（`buildFoodLensIfEnabled` の pattern 模倣）。`buildDecisionCard` クロージャの movie V2 経路に `void ... .catch(() => {})` で fire-and-forget 呼び出し hook。§11.A 禁止対象（`movieOrchestrator.ts` / `webConnector.ts` / `movieCatalog.ts`）は 1 bit も未変更。flag OFF で call flow 完全不変。`tests/unit/coalter/understandingShadowFlag.test.ts` で default OFF + env-driven 挙動を固定。coalter suite 71 files / 1117 tests PASS | CEO 承認済（2026-04-24 本セッション） |
+| B-6. preview 実測 | 🟡 パラメータ承認済 / 実行 deferred | パラメータ固定（下記 B-6 執行ポリシー）。**実行は Step C + Step D 完了後の Step E 観測 window に統合**（CEO 方針「観測フェーズは全実装完了後」2026-04-24）。preview env ON/OFF + 5 pair × 3 invoke × 72h のランブックは本 bridge doc で固定し、Step E 着手時に適用する | CEO 承認済（2026-04-24 パラメータ） / 実行時に Step E 連動 |
 
 **Step B α 範囲**（本セッション自律実行）: B-1 → B-4 → B-2 → B-3（CEO 承認 2026-04-24 の順序）
-**Step B β 範囲**（α 完了 + CEO 承認後）: B-5 → B-6
+**Step B β 範囲**（α 完了 + CEO 承認後）:
+- B-5 ✅ 完了（2026-04-24 実装着地）
+- B-6 🟡 パラメータ承認済、実行は **Step E 観測 window に統合**（下記 B-6 執行ポリシー参照）
 
-**Step B 完了条件（再定義）**:
-- α 範囲完了条件: 合成 fixture で U1-U5 初回値が計測され、計測値と harness が bridge doc に記録される（閾値到達は β 範囲で判定）
-- β 範囲完了条件: preview 実測で `U1 ≥ 95% / U2 ≥ 90% / U3 中央値 ≥ 0.6 / U4 p95 ≤ 5s / U5 ≥ 95%` を達成。未達なら設計・実装に戻る
+**Step B 完了条件（再定義、rev 5 時点）**:
+- α 範囲完了条件: 合成 fixture で U1-U5 初回値が計測され、計測値と harness が bridge doc に記録される（閾値到達は β 範囲で判定）→ ✅ 達成（rev 4）
+- β 範囲完了条件:
+  - **B-5（runtime 接続）**: flag OFF で既存 behavior 完全不変 + flag ON で shadow 並走が起動すること → ✅ 達成（rev 5、flag invariant test + 既存 1111 tests PASS 継続）
+  - **B-6（preview 実測）**: Step E 観測 window 内で `U1 ≥ 95% / U2 ≥ 90% / U3 中央値 ≥ 0.6 / U4 p95 ≤ 5s / U5 ≥ 95%` を達成。未達なら設計・実装に戻る（判定タイミング = Step E 実行時）
+- **Step B 全体**: α + β（実装まで）完了。β の実測完了判定は Step E と統合。
+
+#### B-6 執行ポリシー（CEO 承認 2026-04-24、実行 deferred）
+
+**承認された執行パラメータ**（Step E 着手時にそのまま適用）:
+
+| 項目 | 固定値 |
+|---|---|
+| pair 選定 | **B 案: 既存内部ペアのみ**（知人招待制の既存テストペア / 自己ペア等、内部スコープ限定） |
+| 測定規模 | **5 pair × 3 invoke × 72h 以内** |
+| 環境 | **`feat/coalter-three-stage` の Preview 限定**（本番・他ブランチ Preview には波及させない） |
+| 有効化方法 | Preview デプロイの env に `COALTER_UNDERSTANDING_SHADOW_MOVIE=true` + `COALTER_UNDERSTANDING_DIAGNOSTICS=1` を設定。不要になれば env から外せば即座に pre-B-5 状態に戻る |
+| 実行タイミング | **Step C + Step D 完了後**（= Step E 観測 window） |
+| 延期理由（CEO 方針 2026-04-24） | Stage 2/3（Step C Bug-1 / Step D Bug-2 M1/M2）未実装で Stage 1 単独で U1-U5 を測ると、フルスタック完成後の実態と乖離する。観測は全実装完了後に 1 回で正しく取る |
+
+**執行ランブック**（Step E で実行する手順、本 bridge で固定）:
+1. Step C + Step D 完了を確認（D-1 / D-2 が H1-H5 + B1-B3 合格）
+2. `feat/coalter-three-stage` ブランチの Preview env に B-6 用 2 変数を追加、デプロイ
+3. 内部ペア 5 組に 72h window で 3 invoke ずつ movie 相談を走らせる（= 合計 15 diagnostics emit 目標）
+4. `coalter.understanding.diagnostics.v1` analytics / `[CoAlter] understanding.diagnostics` console.info を回収
+5. U1-U5 を集計し Step B β 完了条件（`U1 ≥ 95% / U2 ≥ 90% / U3 p50 ≥ 0.6 / U4 p95 ≤ 5s / U5 ≥ 95%`）と比較
+6. 判定は CEO。未達時の判断 3 択:
+   - (a) α で凍結した「合成 fixture lift」を実施（testkit 側を preview 実測で得た分布に近づける）
+   - (b) `OUTCOME_THRESHOLDS` を preview 実測分布に合わせて再校正
+   - (c) Understanding 側の collector / fusion / todayReader を再設計
+7. 観測終了後、Preview env の B-6 用 2 変数を削除（flag OFF に戻す）
 
 #### Step B α-range 初回計測結果（rev 4, 2026-04-24）
 
@@ -158,6 +189,7 @@ Bug-1 修正後（Step C 完了後）に順次:
 - 監査対象:
   - Bug-1 北極星: `searchCandidatesCount ≥ 5`（Step C の直接成果）
   - Bug-2 北極星: `catalogCount ≥ 5 / rankedCount ≥ 3 / missingWhereRejectCount ≤ 30%`（M2 未着手の間は現行実装の maintenance として観測。M2 完成後は構造 gate B1 により `missingWhereRejectCount` は 0 に収束）
+  - **Stage 1 Understand U1-U5（B-6 統合 rev 5, 2026-04-24）**: B-6 執行ポリシー（§2 Step B 内）に従い、5 pair × 3 invoke × 72h で `U1 ≥ 95% / U2 ≥ 90% / U3 p50 ≥ 0.6 / U4 p95 ≤ 5s / U5 ≥ 95%` を測定。CEO 方針「観測フェーズは全実装完了後」に従い、Step C / Step D 完了後のこの window で初めて preview 実測を行う
   - Phase 2 3-mode body: 母数積み上げに従い追加集計
 - 判定と次フェーズ移行は CEO 承認
 
@@ -228,3 +260,4 @@ Bug-1 修正後（Step C 完了後）に順次:
 | 2026-04-24 | rev 2 | Step A-4 完了反映: live smoke harness の docstring-as-spec を CEO 承認固定として §1 snapshot / §2 Step A-4 + Step A 完了条件 / §3 正本 doc 一覧 を更新。A-4 判定根拠（類似 harness 統一 / 3 判断軸 / 補強 3 点）を明文化。Step A 4 サブタスクすべて完了、Step B 着手条件を満たす状態に遷移 | CEO 指示「(a) docstring 継続 + 最小補強 3 点実施 + bridge doc 更新」（2026-04-24 本セッション） |
 | 2026-04-24 | rev 3 | **Step B 再定義**: Step B 着手前の実態精査で rev 2 snapshot と実装状態の齟齬を発見。`lib/coalter/understanding/` は M0-1〜M0-7A + M1 wiring proof まで commit 済 (17 files) + 15 unit test (132 cases) PASS + tsc understanding 配下 error 0 という状態で、rev 2 の「🔴 未着手（shadow 解禁実行待ち）」は不正確だった。rev 3 で (1) §1 Stage 1 Understand 行を 4 段分離（設計 / shadow 実装 / runtime 接続 / U1-U5 実測）に書き直し、(2) §1 精密化ポイントに 4 段観測原則を追記、(3) §2 Step B を「Understanding 共通基盤の昇格判定フェーズ」に再定義し B-1〜B-6 の 6 サブタスク構造へ置換、(4) 「shadow モード解禁」という二重化した表現を shadow harness 実行 (B-2/B-3 自律) と runtime 並走接続 (B-5 CEO 承認) に分離。B-1 / B-4 は本 rev で完了、B-2 / B-3 は α 範囲として自律続行、B-5 / B-6 は β 範囲として CEO 承認必要 | CEO 指示「(α) 採用 + 順序 B-1 → B-4 → B-2 → B-3、Step B を昇格判定フェーズに再定義」（2026-04-24 本セッション） |
 | 2026-04-24 | rev 4 | **B-2 / B-3 完了反映 + α 初回計測記録**: `scripts/coalter/understanding-u-gate.ts` を新設し 10 pair × 3 session = 30 runs で U1-U5 を計測。legacy (先頭 10 件) / mode-cross (stride=5) の両モードで計測し結果を §2 Step B 末尾に記録。U4 (latency p95) / U5 (same-bundle Jaccard) は PASS、U1 (success 率) / U2 (sourcedFrom ≥2) / U3 (confidence p50) は FAIL。全 30 件が `degraded` バンドに集中 = 合成 fixture と判定閾値の構造的乖離。β 範囲（B-5/B-6）で preview 実測を取って fixture 改良 / 閾値調整の要否を判定する方針を論点として提示 | 自律（B-2/B-3 は α 範囲 CEO 承認済） |
+| 2026-04-24 | rev 5 | **B-5 完了反映 + B-6 を Step E 観測 window に統合**: (1) B-5 runtime shadow 並走接続が commit `47d57a46` で着地（`COALTER_UNDERSTANDING_SHADOW_MOVIE` flag default OFF / `runMovieShadowUnderstanding` 関数 / movie V2 経路 fire-and-forget hook / §11.A 禁止対象は 1 bit も未変更 / flag invariant test + 既存 1111 tests PASS → 1117 tests PASS）。(2) §1 Stage 1 Understand 行の「runtime 接続 🔴」→「🟢 完了」、「U1-U5 🔴」→「🟡 合成済・preview は全実装完了後に延期」。(3) §1 精密化ポイントに「観測フェーズは全実装完了後」CEO 方針を追記。(4) §2 Step B 表で B-5 ✅ 完了 + B-6 🟡 パラメータ承認済 / 実行 deferred に更新。(5) §2 Step B に「B-6 執行ポリシー」ブロック新設（pair: 内部ペアのみ / 規模: 5 pair × 3 invoke × 72h / 環境: feat/coalter-three-stage Preview 限定 / 実行タイミング: Step E）。(6) §2 Step E の監査対象に Stage 1 U1-U5 （B-6 統合）を追加 | CEO 指示「観測フェーズは全実装完了後に回す + B-6 preview 実測承認 + B 案 + 推奨案 + Preview 限定」（2026-04-24 本セッション） |
