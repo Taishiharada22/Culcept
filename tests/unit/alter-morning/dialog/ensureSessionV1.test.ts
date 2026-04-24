@@ -70,20 +70,20 @@ afterEach(() => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("ensureSessionV1 §1 flag SoT", () => {
-  it("ALTER_MORNING_FLAGS.dialogStateV2 が single SoT（default OFF）", () => {
+  it("ALTER_MORNING_FLAGS.dialogStateV2() が single SoT（default OFF）", () => {
     __setDialogStateV2Override(null);
-    expect(ALTER_MORNING_FLAGS.dialogStateV2).toBe(false);
+    expect(ALTER_MORNING_FLAGS.dialogStateV2()).toBe(false);
   });
 
   it("__setDialogStateV2Override(true) で flag ON に切替可能", () => {
     __setDialogStateV2Override(true);
-    expect(ALTER_MORNING_FLAGS.dialogStateV2).toBe(true);
+    expect(ALTER_MORNING_FLAGS.dialogStateV2()).toBe(true);
   });
 
   it("__setDialogStateV2Override(null) で env 復帰（default OFF）", () => {
     __setDialogStateV2Override(true);
     __setDialogStateV2Override(null);
-    expect(ALTER_MORNING_FLAGS.dialogStateV2).toBe(false);
+    expect(ALTER_MORNING_FLAGS.dialogStateV2()).toBe(false);
   });
 });
 

@@ -1759,7 +1759,7 @@ export async function POST(req: NextRequest) {
         //   flag ON  → 未初期化なら createInitialDialogState() を付与
         //   本時点で downstream（adapter / phase / reducer）は dialogState を読まない。
         //   route が serialize 時に round-trip するのみ（CEO wiring-only 条件）。
-        morningSession = ensureSessionV1(morningSession);
+        morningSession = ensureSessionV1(morningSession, userId);
 
         // ── W3-PR-5: Flag-gated new pipeline with v2 session stickiness ──
         // v2 に入る条件:
@@ -2003,7 +2003,7 @@ export async function POST(req: NextRequest) {
             //   誤 dispatch を防ぐ（今 turn は recovery 対象ではない）。
             pipelineAbsorbedOuter = true;
             if (
-              ALTER_MORNING_FLAGS.dialogStateV2 &&
+              ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
               morningSession?.dialogState != null
             ) {
               try {
@@ -2074,7 +2074,7 @@ export async function POST(req: NextRequest) {
         //   - readyForHandoff=true でも morningResponse.phase は clarifying のまま
         //   - reducer throw 時も user-facing 応答は壊れない（try/catch で吸収）
         if (
-          ALTER_MORNING_FLAGS.dialogStateV2 &&
+          ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
           morningSession?.dialogState != null &&
           typeof message === "string" &&
           message.length > 0
@@ -2253,7 +2253,7 @@ export async function POST(req: NextRequest) {
               //   - parked の参照・再利用
               //   - provider_error の cache 保存
               //   - await を飛ばした fire-and-forget（次 dispatch が state 依存）
-              if (ALTER_MORNING_FLAGS.placesSearch && morningSession.dialogState) {
+              if (ALTER_MORNING_FLAGS.placesSearch(userId) && morningSession.dialogState) {
                 try {
                   const handoff = await orchestratePlacesHandoff({
                     userId,

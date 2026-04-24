@@ -3,7 +3,7 @@
  *
  * 位置づけ:
  *   commit 17 で追加された shadow pipeline gate（route.ts 内の
- *   `ALTER_MORNING_FLAGS.dialogStateV2 && morningSession?.dialogState != null`）が、
+ *   `ALTER_MORNING_FLAGS.dialogStateV2(userId) && morningSession?.dialogState != null`）が、
  *   commit 17/18/19 全てで **preview で一度も発火していなかった**。
  *
  *   原因は shadow block の手前で `morningSession = adapted.session` により

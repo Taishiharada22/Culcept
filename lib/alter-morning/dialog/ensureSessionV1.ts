@@ -11,7 +11,7 @@
  * CEO 方針（2026-04-22 commit 16 条件）:
  *   1. flag OFF 中は完全中立: session 不変、log/alloc/DB 書き込みなし
  *   2. migration は lazy: read 時点で判定、自動書き戻しはしない
- *   3. flag source of truth は 1 箇所: ALTER_MORNING_FLAGS.dialogStateV2
+ *   3. flag source of truth は 1 箇所: ALTER_MORNING_FLAGS.dialogStateV2(userId?)
  *   4. adapter / phase / runtime behavior は触らない: 本関数は dialogState field のみを操作
  *   5. 単体テスト追加: flag OFF 不変 / flag ON init / 将来 version reset
  *
@@ -54,11 +54,19 @@ import type { MorningSession } from "../types";
  *   - downstream は session.dialogState を **読まない**（commit 16 範囲外）。
  *     その制約下で、本関数の戻り値は単に「write-back 時に serialize される field を
  *     準備するだけ」の役割を持つ。
+ *
+ * userId の扱い（W3-PR-12.5 canary 以降）:
+ *   - PR-12.5 以降 `ALTER_MORNING_FLAGS.dialogStateV2` は method。userId を渡して
+ *     allowlist 判定に回す（未指定なら global fallback のみ参照 = safe OFF）。
+ *   - route は tierCheck.userId を必ず渡すこと。
  */
-export function ensureSessionV1(session: MorningSession): MorningSession {
+export function ensureSessionV1(
+  session: MorningSession,
+  userId?: string,
+): MorningSession {
   // ── Step 1: flag OFF — 完全中立 ─────────────────────────────────────────────
   //   同一参照を返す。allocation / log / DB なし。呼び出しコストは function call のみ。
-  if (!ALTER_MORNING_FLAGS.dialogStateV2) {
+  if (!ALTER_MORNING_FLAGS.dialogStateV2(userId)) {
     return session;
   }
 
