@@ -13,6 +13,32 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12.5 Stage 1 完了 + Stage 2 Role C 指名 — canary 運用開始
+- **部門**: Build / Product
+- **決定内容**: PR #30 (Stage 1 allowlist canary + 観測イベント) を live preview で検証 PASS し main へ merge。E2 比較表に基づき Stage 2 Role C を確定、canary 運用フェーズに突入
+  1. **PR #30 live verification（preview `dpl_835z8BhRZAR2CvKazoZPWBncwMmt`, harness 2026-04-24 13:29 JST）**:
+     - `stargazer_analytics` に canary 観測 4 行着弾（cold + warm 2 run × shadow_state + handoff_outcome）
+     - cold path: `outcome_kind=presented_from_api` / `candidate_count=5` / `latency_ms=414` / `flag_source=global`
+     - warm path: `outcome_kind=presented_from_cache` / `latency_ms=0` / idempotency cache hit 動作確認
+     - `provider_failure` 完全消失（GOOGLE_MAPS_API_KEY preview 投入後）
+     - shadow_state: `status=search_handoff_blocking` / `ready_for_handoff=true` / `target_selection_reason=prev_phase_not_clarifying_plan_presented`
+  2. **Vercel builder 42 分 hang の診断と recovery**: preview build が initialization 段階で `Builds [0ms]` のまま stuck。7h 前にも 31 分 hang 履歴あり → Vercel infra 起因と確定。stuck deployment `culcept-iun104ow9` を `vercel rm` で削除 → empty commit `b32411b4` push で fresh build trigger → 4 分で Ready 達成。local build exit 0 でコード起因完全除外
+  3. **PR #30 merge**: 2026-04-24 04:43:48Z、merge commit `9cfa7e0b` で main 着地（merge commit 戦略、C1→C2→C3→C4 の history 保持）。`feat/alter-morning-pr125-allowlist-canary` branch 削除済
+  4. **E2 Role C 指名**: `zawane0903@gmail.com` で確定（CEO 直接判断）。3 軸（C-1 自然会話で使う習慣 / C-2 multi-event が自然に出る外出頻度 / C-4 違和感を言語化して返せる）ベースの比較表を提示し CEO が即断
+- **CEO 判断（2026-04-24 本ターン）**:
+  - PR #30 は Stage 1 observability 検証合格 → merge 判断に進んでよい
+  - E2: `zawane0903@gmail.com` で決定
+  - DM 通知は行わない。CEO 自ら直接伝達する（`docs/alter-morning-pr12-production-rollout-plan.md` E3 の軽量 NDA DM 文案は本ケース不適用）
+  - 継続して次のフェーズ（Stage 2 canary 運用）に突入
+- **残タスク（Stage 2 canary 開始に向けて）**:
+  - rollout plan を Stage 1 完了 + Stage 2 進行中に更新
+  - Role C (`zawane0903@gmail.com`) の UUID 取得
+  - preview / production env 変更計画（`_ALLOWLIST` を UUID で埋める / global flag を false に戻す / allowlist-only モードへ切替）を CEO に提示 → 承認後に実行
+  - 本番 env 変更は「承認が必要な行動」カテゴリ → CEO 最終確認後に実施
+- **承認**: CEO（PR #30 merge + E2 確定 + 次フェーズ突入 2026-04-24 本ターン）
+- **ステータス**: Stage 1 実行済 / Stage 2 Role C 確定、env 変更計画 CEO 確認待ち
+
+---
 ### 2026-04-24 W3-PR-12.5 Stage 1 着手 — allowlist canary 機構 + 観測イベント同梱
 - **部門**: Build
 - **決定内容**: CEO 判断（F2 承認 / F1 条件付き承認 / E1 暫定 β / E2 比較表のみ / E3 現文面 OK）を受け、Stage 1 PR の実装に着手し、env 名確定と 3 commit を `feat/alter-morning-pr125-allowlist-canary` に着地
