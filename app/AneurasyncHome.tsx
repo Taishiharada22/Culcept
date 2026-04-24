@@ -48,7 +48,18 @@ import "./home-animations.css";
 
 
 /* ═══ MAIN COMPONENT ═══ */
-export default function AneurasyncHome() {
+interface AneurasyncHomeProps {
+  /**
+   * W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean）。
+   * page.tsx (server) で ALTER_MORNING_FLAGS.visualFlow(user.id) を評価した値。
+   * false の時は MorningMapView の dynamic import 自体が fire しない。
+   */
+  visualFlowEnabled?: boolean;
+}
+
+export default function AneurasyncHome({
+  visualFlowEnabled = false,
+}: AneurasyncHomeProps = {}) {
   const [introComplete, setIntroComplete] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -825,6 +836,8 @@ export default function AneurasyncHome() {
                 morningPlan={alterChat.morningPlan}
                 morningPhase={alterChat.morningPhase}
                 morningPersonalizeHints={alterChat.morningPersonalizeHints}
+                morningEvents={alterChat.morningPersistedEvents ?? undefined}
+                visualFlowEnabled={visualFlowEnabled}
                 onMorningPlanConfirm={(plan) => {
                   alterChat.setMorningPlan(plan);
                   // プラン確定後、コーデ提案を聞く

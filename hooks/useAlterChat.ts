@@ -713,5 +713,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
      * picker に pending flag として渡して全ボタン disable する。
      */
     placeSelectionPending,
+    /**
+     * W3-PR-13 M3: persisted comprehension events（MorningMapView の pin source）。
+     * 既存 internal state (L218) をそのまま expose（非破壊 export）。
+     * 読み取り戦略 β: plan.items[].location は rebuildPlan (transportV2 flag 依存)
+     * 経由なので、flag OFF でも map が描画できるよう events から直接読む。
+     */
+    morningPersistedEvents,
   } as const;
 }
