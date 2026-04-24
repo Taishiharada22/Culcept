@@ -205,6 +205,9 @@ Bug-1 修正後（Step C 完了後）に順次:
 | Phase 1.5.6 Travel 差別化 | `docs/coalter-phase-1-5-6-differentiation-research.md` | 既存 | 生存（設計先行） |
 | Bug-1（retrieval 感情 gate） | `docs/coalter-bug1-emotion-retrieval-design.md` | v0.2（2026-04-24 固定） | 固定 |
 | 映画ドメイン三段式（Bug-2 接続含む） | `docs/coalter-movie-three-stage-design.md` | rev 3.2（2026-04-24） | 固定（rev 追加方式） |
+| Presence State UI Spec | `docs/coalter-presence-state-ui-spec.md` | v0.1（2026-04-24） | 生存 |
+| 発話文面テンプレート | `docs/coalter-speech-template.md` | v0.1（2026-04-24） | 生存 |
+| **P0 統合契約**（canonical surface / 直交 / Stage 1 vs S4 / Pattern 命名） | `docs/coalter-integration-contract-2026-04-24.md` | v0.1 rev 1 FIXED（2026-04-24） | 固定（不可侵、正本間衝突時のみ rev 例外） |
 | 前 handoff（retrieval investigation 原典） | `docs/coalter-handoff-2026-04-19-retrieval-investigation.md` | 2026-04-19 | 凍結・原典 |
 | 本 bridge handoff | `docs/coalter-handoff-2026-04-22.md`（本書） | 2026-04-24 作成 | snapshot |
 | live smoke harness spec | `scripts/coalter/f6-live-smoke.ts`（docstring） | 2026-04-20 作成 / 2026-04-24 docstring 補強 | docstring-as-spec 固定（CEO 承認 2026-04-24 Step A-4） |

@@ -83,6 +83,8 @@
 - 本書の各 Pattern 章（§3〜§9）は UI spec §7 の 7 Pattern 定義を引用する
 - v1.1 §4 から発話例・禁則を引用する際は、運用上の 7 Pattern 名称にマッピングして用いる（例: v1.1 §4.6 の F 発話例は、本書では F-1 または F-2 のどちらに帰属するか運用判断した上で引用）
 
+> **補注（統合契約 §4, 2026-04-24 rev 1 FIXED）**: 本節の上流差分（6 種 vs 7 Pattern）は **裁定済**。**6 families**（A/B/C/D/E/F）と **7 variants**（A/B/C/D/E/F-1/F-2）の二層命名で固定。本書の 7 Pattern 準拠は variant 層として正本化。external `F-1/F-2` ↔ internal `F1/F2` の normalize 規則は統合契約 §4.2 参照。
+
 ---
 
 ## §1 全 Pattern 共通トーン運用原則
