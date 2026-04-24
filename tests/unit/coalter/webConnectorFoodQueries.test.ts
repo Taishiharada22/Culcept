@@ -99,7 +99,10 @@ describe("webConnector: food queries (Phase B Commit 3)", () => {
     expect(hasListingSite).toBe(true);
   });
 
-  it("location=null でも少なくとも 1 本のクエリが発火する", () => {
+  it("全制約 null（actionable=false）→ skip（Bug-1 Phase 3 §4.4 / §8.2 precision）", () => {
+    // 旧契約（Phase 2 以前）: food theme なら制約 null でも fallback クエリを生成していた。
+    // Phase 3 §4.4 移行で actionable-only gate に統一。hasActionable=false は必ず skip
+    // （§8.2 precision KPI: `retrieval_fired=true && hasActionable=false = 0%`）。
     const d = decideSearch(
       foodAnalysis({
         extractedConstraints: {
@@ -111,8 +114,9 @@ describe("webConnector: food queries (Phase B Commit 3)", () => {
         },
       }),
     );
-    expect(d.shouldSearch).toBe(true);
-    expect(d.queries.length).toBeGreaterThanOrEqual(1);
+    expect(d.shouldSearch).toBe(false);
+    expect(d.queries).toEqual([]);
+    expect(d.reason).toContain("actionable");
   });
 
   it("styleHint ある場合は style 人気店クエリが出る", () => {

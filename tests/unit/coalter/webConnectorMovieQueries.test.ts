@@ -99,8 +99,11 @@ describe("webConnector: movie queries target theater-bearing pages (P0)", () => 
     }
   });
 
-  it("mentioned candidate の movie クエリも theater 引き込みトークンを含む", () => {
-    // 「ラストマイルはどう？」のような候補提示パターン
+  it("mentioned candidate のみ（actionable 制約なし）→ skip（Bug-1 Phase 3 §4.4 / §8.2 precision）", () => {
+    // 旧契約（Phase A.6 P0）: title mention のみで fallback クエリを生成していた。
+    // Phase 3 §4.4 移行で actionable-only gate に統一。"ラストマイル" は
+    // TARGET_PATTERNS.movie 非該当 + location/time 欠落 → hasActionable=false → skip
+    // （§8.2 precision KPI: `retrieval_fired=true && hasActionable=false = 0%`）。
     const d = decideSearch(
       baseAnalysis({
         recentMessages: [
@@ -112,11 +115,9 @@ describe("webConnector: movie queries target theater-bearing pages (P0)", () => 
         ],
       }),
     );
-    // 候補ベースのクエリが先頭に出る
-    expect(d.queries.length).toBeGreaterThan(0);
-    const candidateQuery = d.queries.find((q) => q.includes("ラストマイル"));
-    expect(candidateQuery).toBeDefined();
-    expect(candidateQuery!).toMatch(THEATER_TOKEN_RE);
+    expect(d.shouldSearch).toBe(false);
+    expect(d.queries).toEqual([]);
+    expect(d.reason).toContain("actionable");
   });
 
   it("年月トークン (2026年4月 等) が少なくとも 1 本のクエリに含まれる", () => {
