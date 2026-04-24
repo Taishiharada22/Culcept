@@ -13,6 +13,24 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12 / 12.5 系クローズ + PR-13 開発本線移行
+- **部門**: Build / Product
+- **決定内容**: PR-12 / PR-12.5 系を開発本線からクローズし、Stage 2 canary は運用タスクとして並行継続。次の開発本線 = PR-13（map / timeline / visual flow への最短導線）に移行
+- **クロージング処理**:
+  - `docs/alter-morning-pr12-production-rollout-plan.md` を CLOSED 化（status / クロージング記録 section 追加）
+  - 運用タスクとして残すもの: Stage 2 日次監視 / `GOOGLE_MAPS_API_KEY` rotation / Role C 観測レビュー / Vercel builder hang 監視
+- **PR-13 診断結果**（`docs/alter-morning-pr13-visual-flow-scope.md`）:
+  - Hard gap 4 本特定: G1 coordinates 書き戻し未接続 / G2 WhenSlot endTime+durationMin 未定義 / G3 TransportSegment builder 未着地 / G4 Map/Timeline UI 層不在
+  - G1 = 他の全 gap の前提（座標が event に乗らない限り pin/polyline/segment 全て描けない）
+- **PR-13 scope 提案**（CEO 承認待ち、案 A 推奨）:
+  - 案 A（minimal 推奨）: Coordinate persistence + 静的 map pin MVP + kill switch `ALTER_MORNING_VISUAL_FLOW`
+  - 案 B（wide）: A + endTime + Timeline 同梱（rollback 単位が大きい）
+  - 案 C（ultra-minimal）: G1 のみ（視覚化ゼロ、CEO 意図外）
+- **CEO 判断点**: (1) 案 A/B/C 選択 (2) Map library（MapLibre vs `@vis.gl/react-google-maps` — 推奨 b） (3) flag 命名 (4) 段階ロールアウト (preview → prod allowlist → global)
+- **承認**: CEO（PR-12 / 12.5 クローズ + PR-13 診断開始 2026-04-24 本ターン）
+- **ステータス**: PR-12 / 12.5 クローズ済 / PR-13 scope proposal 提出、CEO 判断待ち
+
+---
 ### 2026-04-24 W3-PR-12.5 Stage 2 canary 本番 live 確認
 - **部門**: Build / Product
 - **決定内容**: production allowlist-only canary が本番で live。CEO UUID で `flag_source=allowlist` + `outcome_kind=presented_from_api` を確認

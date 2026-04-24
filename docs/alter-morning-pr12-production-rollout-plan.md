@@ -1,8 +1,25 @@
 # W3-PR-12 Production Rollout Plan
 
+**ステータス**: **CLOSED — 開発本線は PR-13 へ移行**（2026-04-24 CEO 判定）
 **作成日**: 2026-04-24
 **base**: `main` @ `36b3db4e` (W3-PR-12 merge 後)
 **前提**: PR-12 live verification 合格 (preview, 2026-04-24)
+
+---
+
+## ⛳ クロージング記録（2026-04-24）
+
+- **Stage 1**: 完了（PR #30 merge commit `9cfa7e0b`、main 着地）
+- **Stage 2**: production canary live（CEO + Role C `zawane0903@gmail.com` の 2 UUID allowlist）
+  - production harness session `ms_pr12_1777013538870`: `outcome_kind=presented_from_api` / `flag_source=allowlist` / `candidate_count=5` / `latency_ms=285`
+  - commit `150b704c` trigger → build `culcept-24qarh3t8` で `GOOGLE_MAPS_API_KEY` baked-in
+- **Stage 3（production global ON）**: 未実行。Stage 2 の日次監視で判断材料を蓄積するまで保留
+- **運用タスクとして継続**:
+  1. Stage 2 canary の日次監視（`stargazer_analytics` を `feature=alter_morning` で観測）
+  2. `GOOGLE_MAPS_API_KEY` rotation（セッションログに露出したため、Stage 2 観測完了後に CEO 依頼）
+  3. Role C 観測結果レビュー（自然発話で multi-event 外出が出たときの canary 挙動）
+  4. Vercel builder hang の監視（12h で 4 回発生）
+- **開発本線**: PR-13（map / timeline / visual flow への最短導線）へ移行
 
 ---
 
