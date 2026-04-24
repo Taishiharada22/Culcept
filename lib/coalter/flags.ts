@@ -80,6 +80,27 @@ export const COALTER_FLAGS = {
     return envBool("COALTER_FOOD_LENS_WIRED", false);
   },
   /**
+   * [CEO lock 2026-04-24 B-5] `understandingShadowMovie`
+   *   - engine.ts の movie branch で Stage 1 Understand を **shadow 並走** するか
+   *     決める kill switch。Step B の β 範囲（CEO 承認 2026-04-24）。
+   *   - 既定 OFF。**flag OFF 時は movie V2 経路の call flow が 1 bit も変化しない**。
+   *     import は残るが実行されない（dead import）。
+   *   - ON 時: `runMovieShadowUnderstanding` を `generateMovieProposalV2` 起動と
+   *     並列に **fire-and-forget** で起動する。shadow 結果は本流の
+   *     card / ranked / telemetry / diagnostics に **1 bit も反映しない**。
+   *     差分は `emitUnderstandingDiagnostics`（別 flag `COALTER_UNDERSTANDING_DIAGNOSTICS`）
+   *     からのみ出す。
+   *   - shadow 失敗は runMovieShadowUnderstanding 内 try/catch で握り潰し、
+   *     呼び出し側でも `.catch(() => {})` で二重防御（fail-open）。
+   *   - §11.A の behavior invariant (既存 movie retrieval の挙動を 1 bit も
+   *     変えない) を守るため、flag OFF が既定。preview で shadow 並走して
+   *     B-6 の U1-U5 現実分布を取るときのみ env で ON にする。
+   *   - env から外せば即座に pre-B-5 状態へ戻る。
+   */
+  get understandingShadowMovie(): boolean {
+    return envBool("COALTER_UNDERSTANDING_SHADOW_MOVIE", false);
+  },
+  /**
    * [CEO lock 2026-04-20 F-6] `foodTierLoop`
    *   - foodOrchestrator で `runTieredRanking`（T0→T1a→T1b→T2 順次）を
    *     走らせるかの kill switch。F-5 (`foodLensWired`) と独立。
