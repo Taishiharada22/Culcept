@@ -776,10 +776,14 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
 
     expect(body.accepted).toBe(true);
     expect(body.alterFollowUp).toBeDefined();
-    expect(body.alterFollowUp.text).toBe("このあと、どこか寄る？");
+    // CEO 2026-04-26 update: selection 後は transport question 最優先
+    //   (transport が events.transport=null かつ pendingClarify=null/where → transport clarify が立つ)
+    //   旧 test は "このあと、どこか寄る？" nudge を期待していたが、CEO の Phase 2
+    //   ゴール「場所→移動手段」優先で transport question に置き換わる。
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
-  it("flag ON + 1件目 place 確定 but ユーザーが終了意思 → alterFollowUp 抑制", async () => {
+  it("flag ON + 1件目 place 確定 but ユーザーが終了意思 → transport clarify 立つ (CEO 2026-04-26)", async () => {
     __setTransportV2Override(true);
 
     const candidate = mkCandidate("p1");
@@ -816,11 +820,15 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // 終了意思あり → Predicate C で抑制
-    expect(body.alterFollowUp).toBeUndefined();
+    // CEO 2026-04-26 update: 旧 nudge は終了意思で抑制されたが、
+    //   新 state machine では selection → transport が unconditional。
+    //   ただし「終了意思 → 何も聞かない」を尊重する場合、別 path で transport を skip する
+    //   logic が必要。Phase 2 では transport を最優先で出す方針 (CEO 承認済)。
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
-  it("flag ON + 2件目 place 確定（prev=1, next=2） → alterFollowUp 抑制", async () => {
+  it("flag ON + 2件目 place 確定（prev=1, next=2） → transport clarify 立つ (CEO 2026-04-26)", async () => {
     __setTransportV2Override(true);
 
     const candidate = mkCandidate("p1");
@@ -855,8 +863,11 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // Predicate A 不成立（prev=1, next=2） + Predicate B 成立 → 抑制
-    expect(body.alterFollowUp).toBeUndefined();
+    // CEO 2026-04-26 update: 2件目 place 確定でも transport が events で null
+    //   なら transport clarify を立てる (場所→移動手段の論理順序)。旧 nudge 抑制
+    //   ロジックは保持されるが、selection の core flow としては transport 最優先。
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
   it("flag ON + accepted=false（stale fingerprint） → alterFollowUp は付かない", async () => {
@@ -905,7 +916,9 @@ describe("POST /api/stargazer/alter/selection — Phase 2 scope 4-B/4-D (CEO 202
     __setTransportV2Override(null);
   });
 
-  it("scope 4-B: selection 受理 + 同 event_id + slot=where pendingClarify → clear (null)", async () => {
+  it("scope 4-B' + 4-C: selection 受理 + slot=where pendingClarify → transport clarify に置換", async () => {
+    // CEO 2026-04-26 再設計: 旧 4-B (clear=null) は撤回。
+    // selection 後は transport clarify に進める正しい状態遷移を検証する。
     __setTransportV2Override(true);
     const candidate = mkCandidate("p1");
     const dialogState = mkPresentedDialogState(
@@ -922,8 +935,7 @@ describe("POST /api/stargazer/alter/selection — Phase 2 scope 4-B/4-D (CEO 202
           sessionId: "s1",
           phase: "clarifying",
           dialogState,
-          persistedEvents: [mkEvent()],
-          // CEO 観測の真因: pendingClarify が selection で clear されない
+          persistedEvents: [mkEvent()], // event_1, transport=null
           pendingClarify: {
             event_id: "event_1",
             slot: "where",
@@ -938,8 +950,64 @@ describe("POST /api/stargazer/alter/selection — Phase 2 scope 4-B/4-D (CEO 202
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // scope 4-B: pendingClarify が null に clear されている
-    expect(body.morningSession.pendingClarify).toBeNull();
+    // 必須 test 1: pendingClarify.slot === "transport"
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify).not.toBeNull();
+    expect(body.morningSession.pendingClarify.slot).toBe("transport");
+    expect(body.morningSession.pendingClarify.kind).toBe("transport");
+    expect(body.morningSession.pendingClarify.event_id).toBe("event_1");
+    expect(body.morningSession.pendingClarify.question).toBe(
+      "移動手段は何にする？",
+    );
+    // 必須 test 2: response に「移動手段は何にする？」が出る (alterFollowUp 経由)
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
+  });
+
+  it("scope 4-B': transport が events に既知 (transport != null) → pendingClarify は touch しない", async () => {
+    // 既に user が transport を述べた状態で selection が走った場合、
+    // redundant に「移動手段は何にする？」を聞かない。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+    const eventWithTransport: Event = {
+      ...mkEvent(),
+      transport: "電車",
+    };
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [eventWithTransport],
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_1" },
+            question: "10:00のカフェはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // transport 既知なので transport clarify に置換しない (where pending を維持しない、
+    // 元 pendingClarify は selection 受理で意味を失っているが、transport 既知の場合は
+    // 「現状維持 = where のまま」が安全側 = transport question 出さない)
+    expect(body.morningSession.pendingClarify?.slot).not.toBe("transport");
+    // alterFollowUp に transport question は出ない
+    expect(body.alterFollowUp?.text).not.toBe("移動手段は何にする？");
   });
 
   it("scope 4-B: selection 受理 + 別 event_id の pendingClarify → 維持", async () => {

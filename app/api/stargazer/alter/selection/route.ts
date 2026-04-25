@@ -374,19 +374,28 @@ export async function POST(req: NextRequest) {
     //
     //   invariant: priorPlan が存在すれば response.morningSession.plan は必ず含まれる。
     //     priorPlan が undefined の時のみ plan は含まれない（既存の no-priorPlan 挙動）。
-    // Phase 2 scope 4-B (CEO 2026-04-26): selection 受理時に同 event_id + slot=where
-    //   の pendingClarify を null に clear する。
+    // Phase 2 scope 4-B' + 4-C (CEO 2026-04-26 再設計):
+    //   旧 scope 4-B (pendingClarify=null clear) は撤回。
+    //   selection 後に Branch A (canBind path) に入れず Branch B (fresh comprehension)
+    //   になり、where が LLM 再 resolve で上書きされる regression を起こしていた。
     //
-    //   観測の真因 (CEO 4/26 4:28):
-    //     Turn 2 で TSUTAYA tap → applyPlaceSelection で events 更新済 (where 確定)
-    //     しかし selection route は session.pendingClarify を touch しない設計だった
-    //     → 次 turn で legacyAdapter / morningPipeline に stale pendingClarify
-    //       (where_center clarify "10:00のカフェはどのあたり？") が継承される
-    //     → user は selection で確定済なのに同じ「カフェはどのあたり？」が再発
+    //   正しい状態遷移:
+    //     [Turn 2 selection 受理]
+    //       events.where = TSUTAYA / exact_proper_noun
+    //       pendingClarify = { slot: "transport", question: "移動手段は何にする？" }
+    //       response message に transport question を含める (alterFollowUp 経由)
+    //     [Turn 3 「電車」入力]
+    //       canBind = true (pendingClarify=transport, persistedEvents 非空)
+    //       Branch A: answerBinder で events.transport="電車" bind
+    //       fresh comprehension 走らない → where / startTime 触らない
+    //       → travel item / 移動時間が plan に反映
     //
-    //   修正: selection 受理時に pendingClarify を clear する。ただし以下は維持:
-    //     - 別 event_id の pendingClarify (multi-segment 対応)
-    //     - slot=where 以外 (transport / when 等の必要な clarify を消さない)
+    //   排他条件:
+    //     - 同 event_id + slot="where" 既存 pendingClarify → transport pendingClarify に置換
+    //     - 別 event_id pendingClarify → 維持 (multi-segment 対応)
+    //     - slot=transport / when 等 → 維持 (必要な clarify を消さない)
+    //     - 元から transport が non-null (events.transport != null) → pendingClarify 立てない
+    //       (CEO の usecase で transport 既知なら redundant question を出さない)
     const incomingPendingClarify = (morningSession as { pendingClarify?: unknown })
       .pendingClarify as
       | {
@@ -395,13 +404,42 @@ export async function POST(req: NextRequest) {
         }
       | null
       | undefined;
-    const shouldClearPendingClarify =
-      incomingPendingClarify != null &&
-      incomingPendingClarify.event_id === targetEventId &&
-      incomingPendingClarify.slot === "where";
-    const nextPendingClarify = shouldClearPendingClarify
-      ? null
-      : incomingPendingClarify ?? null;
+    const shouldReplaceWithTransport =
+      incomingPendingClarify == null ||
+      (incomingPendingClarify.event_id === targetEventId &&
+        incomingPendingClarify.slot === "where");
+    const targetEventTransport = eventUpdate.events.find(
+      (e) => e.event_id === targetEventId,
+    )?.transport;
+    const transportAlreadyKnown =
+      targetEventTransport != null && targetEventTransport.length > 0;
+
+    let nextPendingClarify: unknown;
+    // transportClarifyFollowUp: 場所確定後の transport question。
+    // CEO 2026-04-26 方針: 「selection したら transport を聞く」シンプル state machine。
+    // 既存 PR-10 nudge ("次の場所どこ？") は本 path で **置き換え**られる。
+    // CEO usecase「全場所確定後に移動手段」を最優先 — nudge より transport question。
+    let transportClarifyFollowUp: { text: string } | undefined;
+    const transportV2Active = ALTER_MORNING_FLAGS.transportV2(userId);
+    if (
+      shouldReplaceWithTransport &&
+      !transportAlreadyKnown &&
+      transportV2Active
+    ) {
+      const transportQuestion = "移動手段は何にする？";
+      nextPendingClarify = {
+        event_id: targetEventId,
+        slot: "transport",
+        kind: "transport",
+        scope: { event_id: targetEventId },
+        question: transportQuestion,
+        askedAt: new Date().toISOString(),
+      };
+      transportClarifyFollowUp = { text: transportQuestion };
+    } else {
+      // transport 既知 or 別 event_id pending → pendingClarify を touch しない
+      nextPendingClarify = incomingPendingClarify ?? null;
+    }
 
     const {
       plan: _passthroughPlan,
@@ -433,8 +471,12 @@ export async function POST(req: NextRequest) {
     //
     //   observability: O2 / O3 telemetry は本 nudge と独立。natural 2 件目が
     //   user 応答で追加されれば segment build 側で segment_count > 0 が発火する。
-    let alterFollowUp: { text: string } | undefined;
-    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
+    // alterFollowUp (CEO 2026-04-26 方針):
+    //   transport clarify を **最優先**で出す (場所→移動手段の論理順序)。
+    //   それが該当しない場合のみ既存 PR-10 nudge ("次の場所どこ？") を考慮する。
+    //   従来 nudge は transport が既知の multi-place case で動く想定で残す。
+    let alterFollowUp: { text: string } | undefined = transportClarifyFollowUp;
+    if (alterFollowUp === undefined && transportV2Active) {
       const should = shouldAskNextPlace({
         prevEvents,
         nextEvents: eventUpdate.events,
