@@ -1194,17 +1194,35 @@ export default function MorningPlanCard({
         </div>
 
         {/*
-          W3-PR-13 M3: MorningMapView — pin map（list view の補助ビュー）
-          gate:
+          W3-PR-13 M3 + M5 fix: MorningMapView — pin map（list view の補助ビュー）
+          gate (v1 OR v2 のいずれかで描画可能):
             - visualFlowEnabled (server-side flag eval 済み boolean)
-            - events 2 件以上（座標妥当性は child の extractPins に集約）
-          child 側でさらに:
+            - events 2 件以上 (v1 経路 = ComprehensionEvent[].where.coordinates)
+            - OR plan.items の fixed-with-coords が 2 件以上 (v2 経路 = MainLocation.lat/lng)
+          子側でさらに:
             - NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY 未設定で null
-            - valid pin < 2 で null
+            - valid pin < 2 で null（gate_rejected emit）
+
+          M5 fix の根拠: legacyAdapter が v2 Place Search 経路下では
+          comprehension.events を populate せず persistedEvents=null を返す
+          ケースがあるため、parent gate も v2 plan.items.location を見て
+          子へ両方を渡す。詳細は MorningMapView.tsx の prop docstring を参照。
          */}
-        {visualFlowEnabled && events && events.length >= 2 && (
-          <MorningMapView events={events} />
-        )}
+        {visualFlowEnabled &&
+          (() => {
+            // v1 events が 2 件以上あればそれで OK
+            const v1Ok = (events?.length ?? 0) >= 2;
+            // v2: plan.items のうち fixed かつ location.lat/lng を持つものを数える
+            const v2FixedWithCoords = (plan.items ?? []).filter(
+              (i) =>
+                i.kind === "fixed" &&
+                typeof i.location?.lat === "number" &&
+                typeof i.location?.lng === "number",
+            ).length;
+            const v2Ok = v2FixedWithCoords >= 2;
+            if (!v1Ok && !v2Ok) return null;
+            return <MorningMapView events={events} planItems={plan.items} />;
+          })()}
 
         {/* 場所詳細 bottom sheet */}
         <PlaceDetailSheet
