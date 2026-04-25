@@ -423,11 +423,14 @@ function mkEventWithCoords(
   };
 }
 
-function mkPriorPlan(items: PlanItem[]): MorningPlan {
+function mkPriorPlan(
+  items: PlanItem[],
+  dayConditions: MorningPlan["dayConditions"] = {},
+): MorningPlan {
   return {
     date: "2026-04-22",
     items,
-    dayConditions: {},
+    dayConditions,
     createdAt: "2026-04-22T09:00:00Z",
     confirmed: false,
     status: "provisional",
@@ -881,5 +884,233 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     // 到達すらしない（return NextResponse.json は Step 7c より前の rejection で返る）。
     expect(body).toEqual({ accepted: false, reason: "query_fingerprint_stale" });
     expect(body.alterFollowUp).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2 scope 4-B + 4-D (CEO 2026-04-26 観測由来)
+//   B: selection 受理時に session.pendingClarify を clear（同 event_id + slot=where）
+//      → 「カフェはどのあたり？」再発を構造的に防ぐ
+//   D: selection 経由 plan rebuild に dayConditions.mainTransport を渡す
+//      → travel item の transport が反映される
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("POST /api/stargazer/alter/selection — Phase 2 scope 4-B/4-D (CEO 2026-04-26)", () => {
+  beforeEach(() => {
+    mockTierCheck.mockResolvedValue({ userId: "user_test" });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    __setTransportV2Override(null);
+  });
+
+  it("scope 4-B: selection 受理 + 同 event_id + slot=where pendingClarify → clear (null)", async () => {
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          // CEO 観測の真因: pendingClarify が selection で clear されない
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_1", what: "コーヒー", time_hint: "10:00" },
+            question: "10:00のカフェはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // scope 4-B: pendingClarify が null に clear されている
+    expect(body.morningSession.pendingClarify).toBeNull();
+  });
+
+  it("scope 4-B: selection 受理 + 別 event_id の pendingClarify → 維持", async () => {
+    // 多 segment ケース: seg_1 を選択中、seg_2 の pendingClarify は触らない
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          pendingClarify: {
+            event_id: "event_2", // ← 別 event の clarify
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_2", what: "ランチ", time_hint: "12:00" },
+            question: "12:00のランチはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // 別 event_id の pendingClarify は維持される
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify.event_id).toBe("event_2");
+  });
+
+  it("scope 4-B: selection 受理 + slot != where (transport pending) → 維持", async () => {
+    // transport 確認中に place selection が走るケース（順序的にレア）。
+    // slot=where 以外の clarify は触らない（必要な clarify を消さない）。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "transport", // ← transport の clarify
+            kind: "transport",
+            scope: { event_id: "event_1", what: "コーヒー", time_hint: "10:00" },
+            question: "移動手段は何？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // transport pendingClarify は維持される
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify.slot).toBe("transport");
+  });
+
+  it("scope 4-D: selection 経由 plan rebuild で priorPlan.dayConditions.mainTransport が反映される", async () => {
+    // user が以前「電車」と言って dayConditions.mainTransport="train" 設定済の状態で
+    // place selection が走る → rebuilt plan の dayConditions / travel item に train が反映。
+    //
+    // buildTransportSegments は events.length >= 2 + 両端 coordinates 必須なので、
+    // CEO 観測の現実的な usecase (seg_1 + seg_2 の 2 件) を模す。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+    const priorPlan = mkPriorPlan(
+      [
+        {
+          id: "event_1",
+          kind: "fixed",
+          text: "10:00 スタバ コーヒー",
+          what: "コーヒー",
+          startTime: "10:00",
+          durationMin: 45,
+          durationSource: "inferred",
+          fixedStart: true,
+          orderHint: 0,
+          sourceTurnIndex: 0,
+          completed: false,
+          whenSharpness: "fixed",
+          whereSharpness: "vague",
+          whatSharpness: "fixed",
+          whereVagueSubKind: "category_chain",
+          confirmationState: "provisional",
+        },
+      ],
+      // dayConditions.mainTransport を pre-populate
+      { mainTransport: "train", venue: "outdoor", estimatedWalkLevel: "medium" },
+    );
+
+    // event 1 (selection target): TSUTAYA candidate 候補で更新される (where 確定)
+    // event 2: マック等で coordinates あり (segment 構築に必要)
+    const event1: Event = {
+      ...mkEvent("event_1"),
+      where: {
+        place_ref: "スタバ",
+        placeType: "chain_brand",
+        coordinates: { lat: 35.66, lng: 138.56 },
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+    };
+    const event2: Event = {
+      ...mkEvent("event_2"),
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "マック",
+        placeType: "exact_proper_noun",
+        coordinates: { lat: 35.69, lng: 139.7 },
+        provenance: utteranceProvenance(["マック"], "high"),
+      },
+      missing_semantic_critical: [],
+    };
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [event1, event2],
+          plan: priorPlan,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    expect(body.morningSession.plan).toBeDefined();
+    // dayConditions.mainTransport は priorPlan から維持される (selection で触らない、vcTypes 形式)
+    expect(body.morningSession.plan.dayConditions?.mainTransport).toBe("train");
+    // transportSegments が build されており、mode="public_transit"
+    //   (mapVcTransportToPlanTransport で vcTypes "train" → planTypes "public_transit")
+    expect(body.morningSession.plan.transportSegments).toBeDefined();
+    const segments = body.morningSession.plan.transportSegments as Array<{
+      mode: string;
+    }>;
+    expect(segments.length).toBeGreaterThan(0);
+    const transitSegments = segments.filter((s) => s.mode === "public_transit");
+    expect(transitSegments.length).toBeGreaterThan(0);
   });
 });

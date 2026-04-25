@@ -47,6 +47,8 @@ import {
   resolveTransportV2FlagSource,
 } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
+import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
+import type { TransportMode as PlanTransportMode } from "@/lib/alter-morning/transport/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import {
   computeSegmentsBuiltTelemetry,
@@ -105,6 +107,45 @@ function validateBody(x: unknown): SelectionRequestBody | null {
   if (!isString(o.selectedPlaceId)) return null;
   if (!o.morningSession || typeof o.morningSession !== "object") return null;
   return o as unknown as SelectionRequestBody;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TransportMode mapper (Phase 2 scope 4-D / CEO 2026-04-26)
+//   既存 architectural debt: vcTypes.TransportMode と transport/types.TransportMode が
+//   別 union (vcTypes は "train"/"bus"、transport/types は "public_transit"/"unknown")。
+//   selection 経由で priorPlan.dayConditions.mainTransport (vcTypes) を
+//   buildPlanAndSegmentsFromEvents (transport/types) に渡すため、ここで thin mapping。
+//   完全な型統一は別 PR の構造修正で対応。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function mapVcTransportToPlanTransport(
+  mode: VcTransportMode | undefined,
+): PlanTransportMode | undefined {
+  if (mode === undefined) return undefined;
+  switch (mode) {
+    case "walk":
+      return "walk";
+    case "bicycle":
+      return "bicycle";
+    case "car":
+    case "motorcycle":
+      return "car";
+    case "taxi":
+      return "taxi";
+    case "train":
+    case "bus":
+      // 公共交通手段は "public_transit" にまとめる (transport/types のセマンティクス)
+      return "public_transit";
+    case "plane":
+      // 飛行機は plan layer では未対応 → unknown 扱い
+      return "unknown";
+    default: {
+      // exhaustive check fallback
+      const _exhaustive: never = mode;
+      void _exhaustive;
+      return "unknown";
+    }
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -226,9 +267,18 @@ export async function POST(req: NextRequest) {
     const priorPlan = morningSession.plan as MorningPlan | undefined;
     if (priorPlan) {
       const enableTransportV2 = ALTER_MORNING_FLAGS.transportV2(userId);
+      // Phase 2 scope 4-D (CEO 2026-04-26): priorPlan.dayConditions.mainTransport を
+      //   buildPlanAndSegmentsFromEvents に渡すことで、travel item / transportSegments
+      //   の mode が反映される。旧 logic は events.transport を見ない設計上、user の
+      //   「電車」入力が plan の travel item に反映されない問題があった。
+      //   vcTypes.TransportMode → transport/types.TransportMode の mapping は
+      //   mapVcTransportToPlanTransport で（既存 architectural debt の対応）。
       const built = buildPlanAndSegmentsFromEvents({
         events: eventUpdate.events,
         enableTransportV2,
+        mainTransport: mapVcTransportToPlanTransport(
+          priorPlan.dayConditions?.mainTransport,
+        ),
       });
 
       let interleavedItems = built.items;
@@ -324,11 +374,48 @@ export async function POST(req: NextRequest) {
     //
     //   invariant: priorPlan が存在すれば response.morningSession.plan は必ず含まれる。
     //     priorPlan が undefined の時のみ plan は含まれない（既存の no-priorPlan 挙動）。
-    const { plan: _passthroughPlan, ...morningSessionWithoutPlan } = morningSession;
+    // Phase 2 scope 4-B (CEO 2026-04-26): selection 受理時に同 event_id + slot=where
+    //   の pendingClarify を null に clear する。
+    //
+    //   観測の真因 (CEO 4/26 4:28):
+    //     Turn 2 で TSUTAYA tap → applyPlaceSelection で events 更新済 (where 確定)
+    //     しかし selection route は session.pendingClarify を touch しない設計だった
+    //     → 次 turn で legacyAdapter / morningPipeline に stale pendingClarify
+    //       (where_center clarify "10:00のカフェはどのあたり？") が継承される
+    //     → user は selection で確定済なのに同じ「カフェはどのあたり？」が再発
+    //
+    //   修正: selection 受理時に pendingClarify を clear する。ただし以下は維持:
+    //     - 別 event_id の pendingClarify (multi-segment 対応)
+    //     - slot=where 以外 (transport / when 等の必要な clarify を消さない)
+    const incomingPendingClarify = (morningSession as { pendingClarify?: unknown })
+      .pendingClarify as
+      | {
+          event_id?: string;
+          slot?: string;
+        }
+      | null
+      | undefined;
+    const shouldClearPendingClarify =
+      incomingPendingClarify != null &&
+      incomingPendingClarify.event_id === targetEventId &&
+      incomingPendingClarify.slot === "where";
+    const nextPendingClarify = shouldClearPendingClarify
+      ? null
+      : incomingPendingClarify ?? null;
+
+    const {
+      plan: _passthroughPlan,
+      pendingClarify: _staleIncomingPendingClarify,
+      ...morningSessionWithoutPlan
+    } = morningSession as Record<string, unknown> & {
+      plan?: MorningPlan;
+      pendingClarify?: unknown;
+    };
     const nextMorningSession = {
       ...morningSessionWithoutPlan,
       dialogState: nextDialogState,
       persistedEvents: eventUpdate.events,
+      pendingClarify: nextPendingClarify,
       ...(rebuiltPlan !== undefined ? { plan: rebuiltPlan } : {}),
     };
 
