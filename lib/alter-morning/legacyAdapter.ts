@@ -137,6 +137,153 @@ export interface LegacyAdapterOutput {
  *
  *   PR-8: blockingSlots を一次判定に据え、primary_clarify は二重防御に降格。
  */
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2 scope 3 — field-level event merge (CEO + GPT 合意 2026-04-26)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 1 件の current event を prior event に **field-level merge** する。
+ *
+ * 規則 (CEO 確定 2026-04-26):
+ *   - event_id は prior を維持（同一性 anchor の安定）
+ *   - cur の **non-null / non-empty** フィールドは採用（意図的更新はできる）
+ *   - cur の **null / undefined / 空文字** フィールドは prior を保持（消失防止）
+ *   - missing_semantic_critical / missing_solver_blockers は prior を維持
+ *     （current の partial event が空 missing を持っていても、prior の
+ *      正確な missing を上書きしない）
+ *
+ * I6 (CEO + GPT): 「やっぱり 10 時で」のような意図的更新は cur が non-null を
+ *   持つので採用される。null fill だけでなく overwrite も支援するが、
+ *   段階2 では null fill のみを保証対象とする（overwrite は将来 turn）。
+ */
+function mergeIntoPrior(
+  prior: ComprehensionEvent,
+  cur: ComprehensionEvent,
+): ComprehensionEvent {
+  const startTime = cur.when.startTime ?? prior.when.startTime;
+  const placeRef = cur.where.place_ref ?? prior.where.place_ref;
+  const placeType = cur.where.placeType ?? prior.where.placeType;
+  const coordinates = cur.where.coordinates ?? prior.where.coordinates;
+  const activity =
+    cur.what.activity && cur.what.activity.length > 0
+      ? cur.what.activity
+      : prior.what.activity;
+  const activityCanonical =
+    cur.what.activityCanonical && cur.what.activityCanonical.length > 0
+      ? cur.what.activityCanonical
+      : prior.what.activityCanonical;
+
+  return {
+    ...prior,
+    event_id: prior.event_id,
+    turn_mode: cur.turn_mode ?? prior.turn_mode,
+    target_ref: cur.target_ref ?? prior.target_ref,
+    target_ref_confidence:
+      cur.target_ref_confidence ?? prior.target_ref_confidence,
+    change_scope: cur.change_scope ?? prior.change_scope,
+    when: {
+      startTime,
+      timeHint: cur.when.timeHint ?? prior.when.timeHint,
+      // provenance は startTime が cur 由来なら cur、prior 維持なら prior
+      provenance:
+        cur.when.startTime != null ? cur.when.provenance : prior.when.provenance,
+    },
+    where: {
+      place_ref: placeRef,
+      placeType,
+      coordinates,
+      provenance:
+        cur.where.place_ref != null || cur.where.coordinates != null
+          ? cur.where.provenance
+          : prior.where.provenance,
+    },
+    what: {
+      activity,
+      activityCanonical,
+      provenance:
+        cur.what.activity && cur.what.activity.length > 0
+          ? cur.what.provenance
+          : prior.what.provenance,
+    },
+    who: cur.who.length > 0 ? cur.who : prior.who,
+    transport: cur.transport ?? prior.transport,
+    certainty: cur.certainty ?? prior.certainty,
+    // missing_semantic_critical / missing_solver_blockers は prior 維持
+    //   （current の partial event が "where" "what" を含んでいたとしても、
+    //    prior が確定済 (= []) ならそちらを信頼する）
+    missing_semantic_critical: prior.missing_semantic_critical,
+    missing_solver_blockers: prior.missing_solver_blockers,
+  };
+}
+
+/**
+ * currentEvents と priorPersistedEvents を **同一性判定 + position fallback** で
+ * field-level merge する。
+ *
+ * 同一性判定（順）:
+ *   1. event_id 一致
+ *   2. (when.startTime, where.place_ref) 両方 non-null かつ一致
+ *   3. position fallback (events 数が一致するときのみ)
+ *
+ * defensive fallback (CEO Invariant 5):
+ *   - currentEvents 空 → priorPersistedEvents をそのまま返す（既存挙動）
+ *   - priorPersistedEvents 空 / undefined → currentEvents をそのまま返す
+ *   - 数不一致 → priorPersistedEvents をそのまま返す（current は破棄、安全側）
+ *
+ * 動機（CEO 観測 2026-04-26）:
+ *   Turn 3「電車」入力で comprehension が transport だけの partial event を
+ *   返した時、旧 logic `currentEvents.length > 0 ? currentEvents : prior` は
+ *   prior の startTime / coordinates / placeType を完全に discard していた。
+ *   field-level merge でこれを防ぐ。
+ *
+ * @internal exported for unit tests (tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
+ */
+export function mergeEventFields(
+  currentEvents: ComprehensionEvent[],
+  priorPersistedEvents: ComprehensionEvent[] | undefined,
+): ComprehensionEvent[] {
+  if (currentEvents.length === 0) {
+    return priorPersistedEvents ?? [];
+  }
+  if (!priorPersistedEvents || priorPersistedEvents.length === 0) {
+    return currentEvents;
+  }
+  // 数不一致 → defensive: priorPersistedEvents 全保持、current 破棄
+  //   （current は何かしら state 不整合な partial 状態の可能性。安全側で
+  //    既存正本を保つ。CEO observation の「seg_1 + seg_2 確定後に turn 3 で
+  //    transport だけ 1 件返る」ケースに該当）
+  if (currentEvents.length !== priorPersistedEvents.length) {
+    return priorPersistedEvents;
+  }
+
+  return currentEvents.map((cur, idx) => {
+    // 1. event_id 一致
+    let prior: ComprehensionEvent | undefined = priorPersistedEvents.find(
+      (p) => p.event_id === cur.event_id,
+    );
+
+    // 2. (when.startTime, where.place_ref) 両方 non-null かつ一致
+    if (!prior && cur.when.startTime != null && cur.where.place_ref != null) {
+      prior = priorPersistedEvents.find(
+        (p) =>
+          p.when.startTime === cur.when.startTime &&
+          p.where.place_ref === cur.where.place_ref,
+      );
+    }
+
+    // 3. position fallback
+    if (!prior) {
+      prior = priorPersistedEvents[idx];
+    }
+
+    if (!prior) {
+      return cur;
+    }
+
+    return mergeIntoPrior(prior, cur);
+  });
+}
+
 function decidePhase(
   result: MorningPipelineResult,
   effectiveEvents: ComprehensionEvent[],
@@ -381,14 +528,18 @@ export function adaptPipelineToLegacy(
 ): LegacyAdapterOutput {
   const today = input.today ?? todayYmd();
 
-  // ── Events 継承（W3-PR-7 Commit 4）──
-  //   今ターンの pipeline が events を返せなかった（comprehension_failed 等）場合は
-  //   priorPersistedEvents から引き継いで UI 側の plan を消さない。
+  // ── Events 継承（W3-PR-7 Commit 4 + Phase 2 scope 3 / CEO 2026-04-26）──
+  //   旧: `currentEvents.length > 0 ? currentEvents : priorPersistedEvents`
+  //   新: field-level merge で priorPersistedEvents を全 discard しない。
+  //
+  //   Turn 3「電車」入力で comprehension が transport だけの partial event を
+  //   返した時、startTime / where.coordinates / placeType を保持する。
+  //   詳細: mergeEventFields (本ファイル上部 + tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
   const currentEvents = result.comprehension?.events ?? [];
-  const effectiveEvents: ComprehensionEvent[] =
-    currentEvents.length > 0
-      ? currentEvents
-      : input.priorPersistedEvents ?? [];
+  const effectiveEvents: ComprehensionEvent[] = mergeEventFields(
+    currentEvents,
+    input.priorPersistedEvents,
+  );
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const phase = decidePhase(result, effectiveEvents);

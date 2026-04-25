@@ -450,7 +450,17 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     vi.clearAllMocks();
   });
 
-  it("flag OFF + plan in morningSession → response.morningSession.plan は含まれない（完全互換）", async () => {
+  it("flag OFF + plan in morningSession → response.morningSession.plan は含まれる（Phase 2 scope 1: items rebuild、travel なし）", async () => {
+    // Phase 2 scope 1 (CEO 2026-04-26): plan rebuild は transportV2 flag 不問で
+    // 常に走るように変更。flag OFF でも events 由来の items で plan を最新化する。
+    // 旧契約「flag OFF で plan を含めない」は CEO 観測「TSUTAYA tap 後も Markcity が
+    // 残る」の構造的原因だったため意図的に廃止。
+    //
+    // flag OFF の保証:
+    //   - response.morningSession.plan は **含まれる**（priorPlan が存在すれば）
+    //   - plan.items は events から rebuild された最新値
+    //   - plan.transportSegments は **undefined**（travel 機能は flag ON 時のみ）
+    //   - travel item は plan.items に含まれない（同上）
     __setTransportV2Override(false);
 
     const candidate = mkCandidate("p1");
@@ -496,11 +506,16 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // flag OFF 契約: server は plan を response に含めない（client は自前の plan を保持）。
-    // pre-PR-10 では client hook が plan を無視していたため、wire 上 plan を消しても
-    // client の state 遷移は発生せず、byte-diff ゼロ相当の互換を満たす。
-    expect(body.morningSession.plan).toBeUndefined();
-    expect("plan" in body.morningSession).toBe(false);
+    // Phase 2 scope 1: plan は **含まれる**（rebuilt with items, no travel/transportSegments）
+    expect(body.morningSession.plan).toBeDefined();
+    expect(body.morningSession.plan).not.toBeNull();
+    // priorPlan の不変 fields は維持（date / dayConditions / createdAt / confirmed / status）
+    expect(body.morningSession.plan.date).toBe(priorPlan.date);
+    // travel / transportSegments は flag OFF なので含まれない
+    expect(body.morningSession.plan.transportSegments).toBeUndefined();
+    const travelItems = (body.morningSession.plan.items as Array<{ kind: string }>)
+      .filter((i) => i.kind === "travel");
+    expect(travelItems).toHaveLength(0);
   });
 
   it("flag ON + coordinates-fixed events + plan in morningSession → rebuild で transportSegments 付与", async () => {

@@ -210,124 +210,120 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 7a: plan rebuild（W3-PR-10 canonical staleness fix / F-New-1）
-    //   flag OFF: rebuildPlan は undefined。response の morningSession.plan は
-    //     client が送った pass-through（...morningSession）で従来挙動のまま。
-    //   flag ON:  updated events から items と canonical TransportSegment[] を rebuild。
-    //     priorPlan の date / dayConditions / createdAt / confirmed / status は温存。
-    //   invariant: buildPlanAndSegmentsFromEvents は pure。flag 値は引数で受け渡す。
+    // Step 7a: plan rebuild
+    //   Phase 2 scope 1 (CEO 2026-04-26): plan rebuild 自体は transportV2 flag
+    //   不問で実行する。理由 = candidate 選択後に events が更新されたなら、
+    //   plan items は events と同期した状態で UI に返す必要がある。flag OFF で
+    //   plan を rebuild しないと client は古い plan (Markcity 等) を表示し続ける。
+    //
+    //   ただし travel synthesize / interleave / telemetry は transportV2 flag ON 時のみ:
+    //     - flag OFF: items は events から rebuild、travel item なし、transportSegments なし
+    //     - flag ON:  上記 + travel item interleave + transportSegments + telemetry
+    //
+    //   buildPlanAndSegmentsFromEvents の `enableTransportV2: false` 経路は
+    //   transportSegments を返さない既存挙動なので、flag OFF でも items 再構築は安全。
     let rebuiltPlan: MorningPlan | undefined;
-    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
-      const priorPlan = morningSession.plan as MorningPlan | undefined;
-      if (priorPlan) {
-        const built = buildPlanAndSegmentsFromEvents({
-          events: eventUpdate.events,
-          enableTransportV2: true,
-        });
+    const priorPlan = morningSession.plan as MorningPlan | undefined;
+    if (priorPlan) {
+      const enableTransportV2 = ALTER_MORNING_FLAGS.transportV2(userId);
+      const built = buildPlanAndSegmentsFromEvents({
+        events: eventUpdate.events,
+        enableTransportV2,
+      });
+
+      let interleavedItems = built.items;
+
+      // travel synthesize + interleave + telemetry は transportV2 flag ON のみ
+      if (enableTransportV2 && built.transportSegments !== undefined) {
         // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
-        //   selection endpoint では userId は必ず tierCheck 経由で取得済み（null 不可）。
-        //   flag_source は resolveTransportV2FlagSource(userId) から取得（transportV2
-        //   呼び出しと同じ resolution 順序を共有）。
-        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
-        if (built.transportSegments !== undefined) {
-          const flagSource = resolveTransportV2FlagSource(userId);
-          if (flagSource != null) {
-            const telemetry = computeSegmentsBuiltTelemetry(
-              eventUpdate.events,
-              built.transportSegments,
-            );
-            void import("@/lib/stargazer/analytics")
-              .then(({ trackStargazerEvent }) =>
-                trackStargazerEvent({
-                  userId,
-                  event: "transport_v2_segments_built",
-                  feature: "alter_morning",
-                  metadata: {
-                    schema_version: "2026-04-24",
-                    flag_source: flagSource,
-                    session_id: morningSession.sessionId ?? null,
-                    plan_date: priorPlan.date,
-                    caller: "selection_route",
-                    ...telemetry,
-                  },
-                  timestamp: new Date().toISOString(),
-                }),
-              )
-              .catch(() => {
-                /* analytics must never block plan rebuild — swallow */
-              });
-          }
+        const flagSource = resolveTransportV2FlagSource(userId);
+        if (flagSource != null) {
+          const telemetry = computeSegmentsBuiltTelemetry(
+            eventUpdate.events,
+            built.transportSegments,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId,
+                event: "transport_v2_segments_built",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: morningSession.sessionId ?? null,
+                  plan_date: priorPlan.date,
+                  caller: "selection_route",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan rebuild — swallow */
+            });
         }
+
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
-        //   flag ON（built.transportSegments !== undefined）なので travel を
-        //   synthesize して event items との間に挿入する。synthesize / interleave
-        //   はいずれも pure。travel id は deterministic（`travel__<from>__<to>`）。
-        //   flag OFF 経路は外側 if で弾いているのでここには来ない。
-        const entries =
-          built.transportSegments !== undefined
-            ? synthesizeTravelItems(
-                built.transportSegments,
-                eventUpdate.events,
-              )
-            : [];
-        const interleaved = interleaveTravelItems(built.items, entries);
+        const entries = synthesizeTravelItems(
+          built.transportSegments,
+          eventUpdate.events,
+        );
+        interleavedItems = interleaveTravelItems(built.items, entries);
 
         // ── W3-PR-10 canary O3: transport_v2_display_rendered emit ──
-        //   interleave 直後の display cache telemetry。
-        //   segments がある時（= flag ON かつ rebuild 済み）のみ fire。
-        //   flag_source / schema_version 契約は O2 と共有。
-        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
-        if (built.transportSegments !== undefined) {
-          const flagSource = resolveTransportV2FlagSource(userId);
-          if (flagSource != null) {
-            const telemetry = computeDisplayRenderedTelemetry(
-              built.transportSegments,
-              interleaved,
-            );
-            void import("@/lib/stargazer/analytics")
-              .then(({ trackStargazerEvent }) =>
-                trackStargazerEvent({
-                  userId,
-                  event: "transport_v2_display_rendered",
-                  feature: "alter_morning",
-                  metadata: {
-                    schema_version: "2026-04-24",
-                    flag_source: flagSource,
-                    session_id: morningSession.sessionId ?? null,
-                    plan_date: priorPlan.date,
-                    caller: "selection_route",
-                    ...telemetry,
-                  },
-                  timestamp: new Date().toISOString(),
-                }),
-              )
-              .catch(() => {
-                /* analytics must never block plan rebuild — swallow */
-              });
-          }
+        if (flagSource != null) {
+          const telemetry = computeDisplayRenderedTelemetry(
+            built.transportSegments,
+            interleavedItems,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId,
+                event: "transport_v2_display_rendered",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: morningSession.sessionId ?? null,
+                  plan_date: priorPlan.date,
+                  caller: "selection_route",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan rebuild — swallow */
+            });
         }
-
-        const normalizedItems: PlanItem[] = interleaved.map((item) =>
-          normalizePlanItem(item),
-        );
-        rebuiltPlan = {
-          ...priorPlan,
-          items: normalizedItems,
-          ...(built.transportSegments !== undefined
-            ? { transportSegments: built.transportSegments }
-            : {}),
-        };
       }
+
+      const normalizedItems: PlanItem[] = interleavedItems.map((item) =>
+        normalizePlanItem(item),
+      );
+      rebuiltPlan = {
+        ...priorPlan,
+        items: normalizedItems,
+        ...(enableTransportV2 && built.transportSegments !== undefined
+          ? { transportSegments: built.transportSegments }
+          : {}),
+      };
     }
 
     // Step 7b: canonical morningSession
-    //   flag OFF: plan は含めない（pre-PR-10 挙動: client が setMorningPlan を呼ばない）。
-    //     pre-PR-10 は client の pass-through を server が echo していたが、client hook は
-    //     plan を無視していたため wire 上は plan を消しても client state 遷移はゼロ。
-    //   flag ON:  rebuiltPlan が plan として返る（client は setMorningPlan で置換）。
+    //   Phase 2 scope 1 (CEO 2026-04-26): rebuiltPlan は priorPlan が存在すれば
+    //   transportV2 flag 不問で常に作られるため、flag OFF でも plan が含まれる
+    //   ようになる。これは selection 後に client UI が古い plan を表示し続ける
+    //   問題（CEO 観測「TSUTAYA tap 後も Markcity が残る」）の構造的修正。
     //
-    // invariant: flag OFF 時は response.morningSession.plan === undefined であり、
-    //   client の `if (next.plan !== undefined) setMorningPlan(...)` ガードに揃う。
+    //   flag OFF: rebuiltPlan は items のみ更新（travel item / transportSegments なし）。
+    //     client は setMorningPlan で「items だけ最新化された plan」に置換する。
+    //   flag ON:  rebuiltPlan は items + travel + transportSegments すべて含む。
+    //
+    //   invariant: priorPlan が存在すれば response.morningSession.plan は必ず含まれる。
+    //     priorPlan が undefined の時のみ plan は含まれない（既存の no-priorPlan 挙動）。
     const { plan: _passthroughPlan, ...morningSessionWithoutPlan } = morningSession;
     const nextMorningSession = {
       ...morningSessionWithoutPlan,
