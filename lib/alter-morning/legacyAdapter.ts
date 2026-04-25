@@ -160,10 +160,21 @@ function mergeIntoPrior(
   prior: ComprehensionEvent,
   cur: ComprehensionEvent,
 ): ComprehensionEvent {
+  // ── Phase 2 scope 4-A (CEO 2026-04-26 / GPT 補強): where-lock ──
+  //   prior.where.placeType === "exact_proper_noun" は applyPlaceSelection で
+  //   selection 受理時にのみ設定される marker。これが立っている event の
+  //   where slot は **後続 turn の comprehension 再抽出から保護する**。
+  //
+  //   観測の真因 (CEO 4/26 3:28):
+  //     Turn 2 で TSUTAYA tap → events[0].where.placeType="exact_proper_noun"
+  //     Turn 3「電車」入力 → comprehension が place を Markcity (chain_brand) に再 resolve
+  //     → 旧 mergeIntoPrior は cur.where が non-null なら採用 → TSUTAYA が消失
+  //
+  //   修正: prior が selection 確定済なら where 全体を prior 維持。
+  //   chain_brand / generic_place / known_base はこの保護対象外（通常 merge）。
+  const priorWhereLocked = prior.where.placeType === "exact_proper_noun";
+
   const startTime = cur.when.startTime ?? prior.when.startTime;
-  const placeRef = cur.where.place_ref ?? prior.where.place_ref;
-  const placeType = cur.where.placeType ?? prior.where.placeType;
-  const coordinates = cur.where.coordinates ?? prior.where.coordinates;
   const activity =
     cur.what.activity && cur.what.activity.length > 0
       ? cur.what.activity
@@ -172,6 +183,19 @@ function mergeIntoPrior(
     cur.what.activityCanonical && cur.what.activityCanonical.length > 0
       ? cur.what.activityCanonical
       : prior.what.activityCanonical;
+
+  // where: priorWhereLocked なら完全保持、それ以外は field-level merge
+  const mergedWhere = priorWhereLocked
+    ? prior.where
+    : {
+        place_ref: cur.where.place_ref ?? prior.where.place_ref,
+        placeType: cur.where.placeType ?? prior.where.placeType,
+        coordinates: cur.where.coordinates ?? prior.where.coordinates,
+        provenance:
+          cur.where.place_ref != null || cur.where.coordinates != null
+            ? cur.where.provenance
+            : prior.where.provenance,
+      };
 
   return {
     ...prior,
@@ -188,15 +212,7 @@ function mergeIntoPrior(
       provenance:
         cur.when.startTime != null ? cur.when.provenance : prior.when.provenance,
     },
-    where: {
-      place_ref: placeRef,
-      placeType,
-      coordinates,
-      provenance:
-        cur.where.place_ref != null || cur.where.coordinates != null
-          ? cur.where.provenance
-          : prior.where.provenance,
-    },
+    where: mergedWhere,
     what: {
       activity,
       activityCanonical,

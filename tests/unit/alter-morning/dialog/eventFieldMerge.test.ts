@@ -139,16 +139,18 @@ describe("§1 event_id 一致 merge", () => {
     expect(merged[0].missing_semantic_critical).toEqual([]);
   });
 
-  it("§1.2 event_id 一致 + currentEvent が full（startTime も持つ）→ current 値を採用", () => {
-    // 「やっぱり 10 時で」のような意図的更新は段階2 scope 外だが、
-    // current が non-null を持つ場合は current を尊重する（既存挙動）。
-    // ただし I6 で scope 外と認識（test は将来の挙動を固定するための baseline）。
+  it("§1.2 event_id 一致 + prior が non-exact_proper_noun + cur full → current 値を採用（where-lock 対象外）", () => {
+    // CEO 2026-04-26: where-lock は exact_proper_noun のみ対象。
+    // chain_brand などの prior は通常 merge で cur 採用（whenScope の意図的更新は cur が non-null なので採用される）。
+    // ただし I6 (CEO + GPT) で「ユーザー意図的更新は段階2 scope 外」のため、
+    // selection 経由なしで where を変える UX は段階2 では支援しない設計。
     const prior = mkPriorEvent({
       event_id: "seg_1",
       startTime: "09:00",
       placeRef: "スタバ",
       lat: 35.0,
       lng: 139.0,
+      placeType: "chain_brand", // ← lock 対象外
     });
     const current = mkPriorEvent({
       event_id: "seg_1",
@@ -156,6 +158,7 @@ describe("§1 event_id 一致 merge", () => {
       placeRef: "マック",
       lat: 35.5,
       lng: 139.5,
+      placeType: "chain_brand",
       transport: "電車",
     });
 
@@ -397,6 +400,163 @@ describe("§5 round-trip (CEO 2026-04-26 観測ケース再現)", () => {
     // → buildPlanAndSegmentsFromEvents の eventToPlanItem は startTime null だと
     // kind="todo"。startTime が "09:00" 維持されていれば kind="fixed"。
     expect(merged[0].when.startTime).not.toBeNull();
+  });
+
+  it("§5.3 where-lock: prior が exact_proper_noun (selection 確定済) → cur の chain_brand 上書き禁止", () => {
+    // CEO 観測 (4/26 3:28) の核心:
+    //   Turn 2 で TSUTAYA tap → applyPlaceSelection で events.where.placeType=exact_proper_noun
+    //   Turn 3「電車」入力 → comprehension が place を再 resolve (Markcity, chain_brand)
+    //   旧 mergeEventFields は cur が non-null なら採用 → TSUTAYA が Markcity に戻る
+    //
+    // scope 4-A の保護: prior.where.placeType === "exact_proper_noun" の時、where 全体を lock。
+    // → CEO の 4 条件のうち「TSUTAYA 維持」が成立。
+    const turn2EventsAfterSelection: ComprehensionEvent[] = [
+      {
+        event_id: "seg_1",
+        turn_mode: "create",
+        target_ref: null,
+        target_ref_confidence: null,
+        change_scope: null,
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["09:00"], "high"),
+        },
+        where: {
+          place_ref: "スターバックス コーヒー TSUTAYA 1F店",
+          placeType: "exact_proper_noun", // ← applyPlaceSelection で設定
+          coordinates: { lat: 35.6588, lng: 139.6996 },
+          provenance: utteranceProvenance(["TSUTAYA"], "high"),
+        },
+        what: {
+          activity: "滞在",
+          activityCanonical: "滞在",
+          provenance: utteranceProvenance(["滞在"], "high"),
+        },
+        who: [],
+        transport: null,
+        certainty: "asserted",
+        missing_semantic_critical: [],
+        missing_solver_blockers: [],
+      },
+    ];
+
+    // Turn 3「電車」入力で comprehension が place を Markcity に再 resolve（LLM 再抽出）
+    const turn3CurrentEvents: ComprehensionEvent[] = [
+      {
+        event_id: "event_42",
+        turn_mode: "create",
+        target_ref: null,
+        target_ref_confidence: null,
+        change_scope: null,
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["09:00"], "high"),
+        },
+        where: {
+          // comprehension が place を再 resolve (LLM デフォルト = Markcity)
+          place_ref: "スターバックス コーヒー 渋谷マークシティ店",
+          placeType: "chain_brand", // ← 確定でない → whereSharpness="vague" → blocking
+          coordinates: { lat: 35.6587, lng: 139.6997 },
+          provenance: utteranceProvenance(["スタバ"], "low"),
+        },
+        what: {
+          activity: "滞在",
+          activityCanonical: "滞在",
+          provenance: utteranceProvenance(["滞在"], "high"),
+        },
+        who: [],
+        transport: "電車", // ← 新情報
+        certainty: "asserted",
+        missing_semantic_critical: [],
+        missing_solver_blockers: [],
+      },
+    ];
+
+    const merged = mergeEventFields(turn3CurrentEvents, turn2EventsAfterSelection);
+
+    // A. where lock: TSUTAYA が維持される（Markcity に戻らない）
+    expect(merged[0].where.place_ref).toBe(
+      "スターバックス コーヒー TSUTAYA 1F店",
+    );
+    expect(merged[0].where.placeType).toBe("exact_proper_noun");
+    expect(merged[0].where.coordinates).toEqual({ lat: 35.6588, lng: 139.6996 });
+
+    // B. startTime も維持
+    expect(merged[0].when.startTime).toBe("09:00");
+
+    // C → D の前提: transport は cur の「電車」を採用（既存 logic で OK）
+    expect(merged[0].transport).toBe("電車");
+  });
+
+  it("§5.4 where-lock: prior が chain_brand なら従来 logic（cur 採用）— scope 4-A の対象外保護", () => {
+    // selection を経由していない（confidence=low / chain_brand）prior の場合は
+    // 通常 merge で cur 値を採用する。lock は exact_proper_noun のみ対象。
+    const priorChain: ComprehensionEvent = {
+      event_id: "seg_1",
+      turn_mode: "create",
+      target_ref: null,
+      target_ref_confidence: null,
+      change_scope: null,
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["09:00"], "high"),
+      },
+      where: {
+        place_ref: "渋谷のスタバ",
+        placeType: "chain_brand", // ← lock 対象外
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "low"),
+      },
+      what: {
+        activity: "滞在",
+        activityCanonical: "滞在",
+        provenance: utteranceProvenance(["滞在"], "high"),
+      },
+      who: [],
+      transport: null,
+      certainty: "tentative",
+      missing_semantic_critical: ["where"],
+      missing_solver_blockers: [],
+    };
+    const curResolved: ComprehensionEvent = {
+      event_id: "event_42",
+      turn_mode: "create",
+      target_ref: null,
+      target_ref_confidence: null,
+      change_scope: null,
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["09:00"], "high"),
+      },
+      where: {
+        place_ref: "スターバックス コーヒー 渋谷マークシティ店",
+        placeType: "exact_proper_noun", // 上書きで confidence 上がる
+        coordinates: { lat: 35.6587, lng: 139.6997 },
+        provenance: utteranceProvenance(["マークシティ"], "high"),
+      },
+      what: {
+        activity: "滞在",
+        activityCanonical: "滞在",
+        provenance: utteranceProvenance(["滞在"], "high"),
+      },
+      who: [],
+      transport: "電車",
+      certainty: "asserted",
+      missing_semantic_critical: [],
+      missing_solver_blockers: [],
+    };
+
+    const merged = mergeEventFields([curResolved], [priorChain]);
+
+    // chain_brand は lock 対象外 → cur 採用
+    expect(merged[0].where.place_ref).toBe(
+      "スターバックス コーヒー 渋谷マークシティ店",
+    );
+    expect(merged[0].where.placeType).toBe("exact_proper_noun");
   });
 
   it("§5.2 連結検証 — mergeEventFields → buildPlanAndSegmentsFromEvents で plan items.startTime が消えない", () => {
