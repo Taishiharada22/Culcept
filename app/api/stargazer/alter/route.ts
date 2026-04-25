@@ -526,6 +526,12 @@ import { promoteDialogStateToUserFacing } from "@/lib/alter-morning/dialog/respo
 //   Branch B 再 comprehension が毎 turn 新 event_id を採番することによる
 //   reducer.eventChanged 誤発火 → draft reset → narrowStep 逆行 を止める。
 import { selectShadowTargetEventId } from "@/lib/alter-morning/dialog/shadowTargetEventId";
+// fix/alter-morning-place-search-candidate-ui (CEO 2026-04-25 承認):
+//   v1 planStateV2 → v2 dialogState の dispatch bridge。
+//   morningProtocol が persistedEvents=null + missingFields に placeAsk を返す
+//   ケースで TURN_CAPTURED が dispatch されず candidate UI が出ない問題を修正する。
+//   segments → ComprehensionEvent[] を合成して既存 dispatch path に注入する。
+import { buildSyntheticEventsFromPlanState } from "@/lib/alter-morning/dialog/syntheticEventBuilder";
 // W3-PR-8 rev 3 Commit 23: phase=clarifying && items=0 の user 画面直前 gate
 //   「同文 verbatim 再提示」「undecided ループ停滞」「semantic_miss 後の無為な再質問」を
 //   世界観に沿った短い rephrase に差し替える pure helper。plan.items は触らない。
@@ -2125,6 +2131,81 @@ export async function POST(req: NextRequest) {
               );
             }
           }
+
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // fix/alter-morning-place-search-candidate-ui (CEO 承認 2026-04-25)
+          // V1 → V2 Dispatch Bridge
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          //
+          // 観測（CEO aneurasync 1c6ef878）:
+          //   morningProtocol が planStateV2.missingFields に placeAsk:seg_X を
+          //   立てるが persistedEvents=null を返すケースで、下流の
+          //   `targetEventId = events[0]?.event_id ?? null` が null になり
+          //   TURN_CAPTURED dispatch が skip される → dialog state machine が
+          //   driven されず PlaceCandidatePicker が mount されない。
+          //
+          // 修正: planStateV2.segments[*] から ComprehensionEvent[] を合成して
+          //   morningSession.persistedEvents に注入する。これだけで
+          //   既存の TURN_CAPTURED dispatch / orchestrator / selection callback
+          //   /decidePhase の chain が natural に動く。
+          //
+          // hard gate: synthetic event の placeType（"chain_brand" 等）と
+          //   missing_semantic_critical=["where"] の二重 enforce で
+          //   hasBlockingUnresolvedSlots=true → decidePhase=clarifying。
+          //   さらに既に plan_presented になっていた場合は明示的に降格する。
+          //
+          // 排他条件:
+          //   - dialogStateV2 + placesSearch 両 flag ON
+          //   - persistedEvents 空（既存 PR-7 path とハイブリッドにしない）
+          //   - missingFields に placeAsk: が含まれる
+          //   - dialogState 自体は ensureSessionV1 で初期化済み（null でない）
+          //
+          // tests:
+          //   tests/unit/alter-morning/dialog/syntheticEventBuilder.test.ts (16)
+          //   tests/unit/alter-morning/dialog/placeSearchBridge.test.ts (15、
+          //     CEO guard #1 round-trip + #2 phase 降格境界 を含む)
+          if (
+            ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
+            ALTER_MORNING_FLAGS.placesSearch(userId) &&
+            morningSession?.dialogState != null &&
+            (morningSession.persistedEvents?.length ?? 0) === 0 &&
+            morningSession.planStateV2?.missingFields?.some((f: string) =>
+              f.startsWith("placeAsk:"),
+            )
+          ) {
+            const synthetic = buildSyntheticEventsFromPlanState(
+              morningSession.planStateV2,
+            );
+            if (synthetic.length > 0) {
+              const placeAskCount =
+                morningSession.planStateV2?.missingFields?.filter((f: string) =>
+                  f.startsWith("placeAsk:"),
+                ).length ?? 0;
+              // in-place mutation: morningSession 自体の参照を変えないことで、
+              //   downstream の `morningSession.dialogState` narrowing を維持する。
+              //   (object spread 経由の reassign は TS が narrowing を失う)
+              morningSession.persistedEvents = synthetic;
+              // hard gate: placeAsk が残る限り plan_presented に上げない
+              //   降格は plan_presented → clarifying のみ。
+              //   既に clarifying / outfit_presented などには触らない（境界 test §3 参照）。
+              if (morningResponse.phase === "plan_presented") {
+                morningResponse = {
+                  ...morningResponse,
+                  phase: "clarifying",
+                };
+              }
+              console.info(
+                `[place-search-bridge] injected synthetic events ` +
+                  `count=${synthetic.length} ` +
+                  `ids=${synthetic.map((e) => e.event_id).join(",")} ` +
+                  `placeAskCount=${placeAskCount} ` +
+                  `phase_after=${morningResponse.phase}`,
+              );
+            }
+          }
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          // END Bridge
+          // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           try {
             const events = morningSession.persistedEvents ?? [];
