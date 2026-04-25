@@ -9,10 +9,12 @@ import { describe, it, expect } from "vitest";
 import {
   isValidCoord,
   extractPins,
+  extractPinsFromPlanItems,
   isSamePointCluster,
   computeBounds,
 } from "@/components/home/morning/MorningMapView";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+import type { PlanItem } from "@/lib/alter-morning/types";
 
 // ─── 最小 event factory（検証対象の where.coordinates のみに集中） ───
 function mkEvent(
@@ -240,5 +242,160 @@ describe("MorningMapView render gate（実装と同じ判定ロジック）", ()
     expect(pins.length).toBeGreaterThanOrEqual(2);
     expect(isSamePointCluster(pins)).toBe(false);
     expect(computeBounds(pins)).not.toBeNull();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §6 extractPinsFromPlanItems — W3-PR-13 M5 fix
+// v2 plan.items から pin 抽出ロジック。
+// kind === "fixed" + location.lat/lng が valid な item のみが pin になる。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 最小 PlanItem factory（pin 抽出に必要な field のみ） */
+function mkPlanItem(opts: {
+  id: string;
+  kind: PlanItem["kind"];
+  lat?: number | null;
+  lng?: number | null;
+  resolvedName?: string;
+  label?: string;
+}): PlanItem {
+  const { id, kind, lat, lng, resolvedName, label } = opts;
+  const hasLocation = lat !== undefined || lng !== undefined || resolvedName || label;
+  return {
+    id,
+    kind,
+    text: id,
+    what: null,
+    durationMin: 30,
+    fixedStart: kind === "fixed",
+    orderHint: 0,
+    sourceTurnIndex: 0,
+    completed: false,
+    ...(hasLocation
+      ? {
+          location: {
+            canonicalId: "test",
+            label: label ?? "test",
+            source: "user_explicit" as const,
+            ...(typeof lat === "number" ? { lat } : {}),
+            ...(typeof lng === "number" ? { lng } : {}),
+            ...(resolvedName ? { resolvedName } : {}),
+          },
+        }
+      : {}),
+  } as PlanItem;
+}
+
+describe("§6 extractPinsFromPlanItems (M5 fix)", () => {
+  it("§6.1 fixed item with valid lat/lng → pin に含まれる", () => {
+    const items = [
+      mkPlanItem({
+        id: "seg_1",
+        kind: "fixed",
+        lat: 35.6587191,
+        lng: 139.6997413,
+        resolvedName: "スターバックス コーヒー 渋谷マークシティ店",
+        label: "スターバックス",
+      }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins).toHaveLength(1);
+    expect(pins[0]?.id).toBe("seg_1");
+    expect(pins[0]?.coord.lat).toBeCloseTo(35.6587191);
+    expect(pins[0]?.coord.lng).toBeCloseTo(139.6997413);
+    expect(pins[0]?.label).toBe("スターバックス コーヒー 渋谷マークシティ店");
+  });
+
+  it("§6.2 todo / travel / proposal は除外", () => {
+    const items = [
+      mkPlanItem({ id: "seg_fixed", kind: "fixed", lat: 35.68, lng: 139.76 }),
+      mkPlanItem({ id: "seg_todo", kind: "todo", lat: 35.69, lng: 139.77 }),
+      mkPlanItem({ id: "seg_travel", kind: "travel", lat: 35.70, lng: 139.78 }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins).toHaveLength(1);
+    expect(pins[0]?.id).toBe("seg_fixed");
+  });
+
+  it("§6.3 location 欠損 / lat or lng 欠損は除外", () => {
+    const items = [
+      mkPlanItem({ id: "no_location", kind: "fixed" }),
+      mkPlanItem({ id: "no_lat", kind: "fixed", lng: 139.76 }),
+      mkPlanItem({ id: "no_lng", kind: "fixed", lat: 35.68 }),
+      mkPlanItem({ id: "ok", kind: "fixed", lat: 35.68, lng: 139.76 }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins.map((p) => p.id)).toEqual(["ok"]);
+  });
+
+  it("§6.4 lat/lng が範囲外 (NaN/Infinity/緯度経度範囲外) は除外", () => {
+    const items = [
+      mkPlanItem({ id: "nan_lat", kind: "fixed", lat: NaN, lng: 139.76 }),
+      mkPlanItem({ id: "inf_lng", kind: "fixed", lat: 35.68, lng: Infinity }),
+      mkPlanItem({ id: "lat_over_90", kind: "fixed", lat: 91, lng: 139.76 }),
+      mkPlanItem({ id: "lng_under_-180", kind: "fixed", lat: 35.68, lng: -181 }),
+      mkPlanItem({ id: "ok", kind: "fixed", lat: 35.68, lng: 139.76 }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins.map((p) => p.id)).toEqual(["ok"]);
+  });
+
+  it("§6.5 label fallback chain: resolvedName → label → null", () => {
+    const items = [
+      mkPlanItem({
+        id: "with_resolved",
+        kind: "fixed",
+        lat: 35.68,
+        lng: 139.76,
+        resolvedName: "Resolved Name",
+        label: "Generic Label",
+      }),
+      mkPlanItem({
+        id: "label_only",
+        kind: "fixed",
+        lat: 35.69,
+        lng: 139.77,
+        label: "Only Label",
+      }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins[0]?.label).toBe("Resolved Name");
+    expect(pins[1]?.label).toBe("Only Label");
+  });
+
+  it("§6.6 CEO 観測ケース再現: スタバ + マック の 2 件で 2 pin 返る", () => {
+    // server response (M5 Stage 3 canary 観測時) の plan.items を再現
+    const items = [
+      mkPlanItem({
+        id: "seg_1",
+        kind: "fixed",
+        lat: 35.6587191,
+        lng: 139.6997413,
+        resolvedName: "スターバックス コーヒー 渋谷マークシティ店",
+      }),
+      mkPlanItem({
+        id: "gf_proposal_xxx",
+        kind: "todo",
+        // proposal なので除外される
+      }),
+      mkPlanItem({
+        id: "seg_2",
+        kind: "fixed",
+        lat: 35.689315799999996,
+        lng: 139.7025099,
+        resolvedName: "マクドナルド ＪＲ新宿南口店",
+      }),
+    ];
+    const pins = extractPinsFromPlanItems(items);
+    expect(pins).toHaveLength(2);
+    expect(pins.map((p) => p.id)).toEqual(["seg_1", "seg_2"]);
+    // この pins で fitBounds が動くこと
+    expect(isSamePointCluster(pins)).toBe(false);
+    expect(computeBounds(pins)).not.toBeNull();
+  });
+
+  it("§6.7 空配列入力 → 空配列出力", () => {
+    expect(extractPinsFromPlanItems([])).toEqual([]);
   });
 });

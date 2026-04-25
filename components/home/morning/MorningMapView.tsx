@@ -33,6 +33,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 import type { GeoCoordinates } from "@/lib/alter-morning/search/normalizedPlace";
+import type { PlanItem } from "@/lib/alter-morning/types";
 import { emitVisualFlowClientEvent } from "@/lib/alter-morning/visualFlow/analytics";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -84,8 +85,26 @@ declare global {
 // Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * MorningMapView の入力 prop。
+ *
+ * W3-PR-13 M5 fix:
+ *   v1 経路 (`events`: ComprehensionEvent[]) と v2 経路 (`planItems`: PlanItem[])
+ *   の両方を受ける。pin 抽出は events を優先し、events から有効 pin が 2 未満
+ *   しか取れなかった場合に planItems から fallback で抽出する。
+ *
+ *   背景 (M5 Stage 3 canary 観測時に判明):
+ *     現在の data flow では server 側 `legacyAdapter.ts` が `currentEvents = result.comprehension?.events ?? []`
+ *     を読むが、Place Search v2 経路に乗っているケースでは comprehension.events が
+ *     populate されず `persistedEvents: null` のまま返る。一方 `plan.items[].location`
+ *     には Places API resolver が解決した lat/lng が確実に乗っている。
+ *     map の唯一の真の source として両方を見ることで、server 改修なしに描画可能にする。
+ */
 interface MorningMapViewProps {
-  events: ComprehensionEvent[];
+  /** v1 経路 (legacyAdapter.persistedEvents)。空 / 不足時は planItems を使う */
+  events?: ComprehensionEvent[];
+  /** v2 経路 fallback (PlanItem[].location.lat/lng)。events が 2 未満の時に使う */
+  planItems?: PlanItem[];
 }
 
 interface PinPoint {
@@ -117,6 +136,44 @@ export function extractPins(events: ComprehensionEvent[]): PinPoint[] {
       id: ev.event_id,
       coord: c,
       label: ev.where?.place_ref ?? null,
+    });
+  }
+  return pins;
+}
+
+/**
+ * v2 plan.items から valid な pin 群を抽出（W3-PR-13 M5 fix）。
+ *
+ * 設計:
+ *   - kind === "fixed" のみ対象（todo / travel / proposal は pin にしない）
+ *   - location.lat / location.lng が両方 number で valid range の item のみ
+ *   - id は PlanItem.id（seg_1 / seg_2 等）
+ *   - label は location.resolvedName ?? location.label
+ *
+ * 「fixed のみ」の根拠:
+ *   - "todo" は時間未確定の柔軟タスク（まだプラン上の場所が決まっていない可能性）
+ *   - "travel" は移動セグメントで、出発地/到着地の二点を持つので pin 化に追加実装が必要
+ *   - "proposal" は Alter の提案（ユーザー予定ではない）
+ *   M5 段階では「ユーザーが確定した場所」だけを pin として描く方針。
+ *
+ * 重複防止:
+ *   events からも planItems からも同一座標が取れる可能性があるが、
+ *   呼び出し側で「events ≥ 2 ならそちらを使う / 不足時のみ planItems を使う」
+ *   排他選択をするので、両方を merge する処理は本関数では行わない。
+ */
+export function extractPinsFromPlanItems(items: PlanItem[]): PinPoint[] {
+  const pins: PinPoint[] = [];
+  for (const item of items) {
+    if (item.kind !== "fixed") continue;
+    const lat = item.location?.lat;
+    const lng = item.location?.lng;
+    if (typeof lat !== "number" || typeof lng !== "number") continue;
+    const coord: GeoCoordinates = { lat, lng };
+    if (!isValidCoord(coord)) continue;
+    pins.push({
+      id: item.id,
+      coord,
+      label: item.location?.resolvedName ?? item.location?.label ?? null,
     });
   }
   return pins;
@@ -161,12 +218,30 @@ const SAME_POINT_ZOOM = 15;
 const SCRIPT_ID = "alter-morning-gmaps";
 const SCRIPT_URL_BASE = "https://maps.googleapis.com/maps/api/js";
 
-export function MorningMapView({ events }: MorningMapViewProps) {
+export function MorningMapView({ events, planItems }: MorningMapViewProps) {
   const browserKey = process.env.NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY;
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [mapsReady, setMapsReady] = useState<boolean>(false);
 
-  const pins = useMemo(() => extractPins(events), [events]);
+  /**
+   * W3-PR-13 M5 fix — pin source の二段階解決:
+   *   1. v1 events から有効 pin が 2 件以上取れればそれを使う
+   *   2. 取れなければ v2 planItems から fallback で抽出
+   *   3. それでも 2 未満なら最終 pin 配列は空または 1 件 → child の gate (pins<2)
+   *      で gate_rejected (insufficient_pins) が emit される
+   *
+   * 「v1 を優先する」理由: comprehension が走った場合 ev.where.coordinates は
+   * Places API 解決済みで信頼度が高い。planItems の location は v2 PlanState
+   * 由来で、resolutionConfidence が "low" のケースもある。
+   */
+  const pins = useMemo(() => {
+    const v1Pins = events ? extractPins(events) : [];
+    if (v1Pins.length >= 2) return v1Pins;
+    const v2Pins = planItems ? extractPinsFromPlanItems(planItems) : [];
+    if (v2Pins.length >= 2) return v2Pins;
+    // v1 / v2 のうち pin 数が多い方を返す（gate_rejected の pin_count 報告用）
+    return v1Pins.length >= v2Pins.length ? v1Pins : v2Pins;
+  }, [events, planItems]);
   const allSamePoint = useMemo(() => isSamePointCluster(pins), [pins]);
   const bounds = useMemo(() => computeBounds(pins), [pins]);
 
