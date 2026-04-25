@@ -1087,6 +1087,55 @@ async function handleCollectingPhaseV2(
   // hard blocker がある場合のみ clarify
   if (hardBlockerFields.length > 0) {
     const confirmMsg = _buildPlanConfirmMessage!(updatedPlanState);
+
+    // CEO方針 2026-04-26: 場所未確定（placeAsk pending）の時は他の
+    // higher priority clarify (transport / segmentTime 等) を**すべて後回し**にする。
+    // 「場所どれ？」を先に確定させてから移動手段や時間を聞く方が論理的に正しい順序。
+    //
+    // 排他条件:
+    //   1. placeAsk が missingFields に立つ
+    //   2. pendingPlaceConfirmations に対応する entry がある（buildPlaceConfirmQuestions
+    //      が空文字を返さない defensive check）
+    //
+    // これを満たす時、message を **placeQuestions 単独** に絞り、confirmMsg に含まれる
+    // transport / time question を出さない。場所確定 turn 後の次 turn で
+    // missingFields から placeAsk が消えれば、既存 path に戻り transport が聞ける。
+    const hasPlaceAsk = updatedPlanState.missingFields.some(f =>
+      f.startsWith("placeAsk:"),
+    );
+    if (hasPlaceAsk && pendingPlaceConfirmations.length > 0) {
+      const placeOnlyQuestions = buildPlaceConfirmQuestions(pendingPlaceConfirmations);
+      if (placeOnlyQuestions) {
+        // 場所最優先 path — message は place 質問のみ
+        const placeOnlyPlan: MorningPlan = {
+          date: updatedPlanState.targetDate,
+          items: allItems,
+          dayConditions: dayConditions as DayConditions,
+          createdAt: new Date().toISOString(),
+          confirmed: false,
+          autoInferred: Object.keys(v2AutoInferred).length > 0 ? v2AutoInferred : undefined,
+        };
+        return {
+          session: {
+            ...session,
+            phase: "clarifying",
+            plan: placeOnlyPlan,
+            planStateV2: updatedPlanState,
+            pendingPlaceConfirmations: pendingPlaceConfirmations.length > 0
+              ? pendingPlaceConfirmations
+              : undefined,
+          },
+          response: {
+            phase: "clarifying",
+            message: placeOnlyQuestions,
+            plan: placeOnlyPlan,
+          },
+        };
+      }
+      // placeOnlyQuestions が空 = 矛盾状態（placeAsk 立つが pendingPlaceConfirmations
+      // が build できない）→ 既存 path に fallback（safe）
+    }
+
     // CEO方針 2026-04-17 Block 1: 時間系 clarify が残っているなら placeQuestions は
     // 後回し（1 ターン 1 質問）。時間質問が無いときだけ placeConfirm を聞く。
     const hasHigherPriorityClarify = hardBlockerFields.some(f =>

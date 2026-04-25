@@ -401,9 +401,21 @@ export default function AskHero({
           </div>
         ))}
 
-        {/* Morning Protocol: プランカード（会話内にインライン表示） */}
-        {/* CEO方針: コーデ確定後はAlterエリアから退避 → 📅 で確認 */}
-        {!morningCardsDismissed && morningPlan && (morningPhase === "plan_presented" || morningPhase === "plan_confirmed" || morningPhase === "outfit_offered" || morningPhase === "outfit_clarifying" || morningPhase === "completed") && (
+        {/* Morning Protocol: プランカード（会話内にインライン表示）
+            CEO方針: コーデ確定後はAlterエリアから退避 → 📅 で確認
+            CEO 2026-04-26: clarifying でも morningPlan が build 済（non-null）
+            なら表示する。Place Search の placeAsk pending 中も plan の輪郭は
+            既に作られており、ユーザーに「[暫定] [時間未確定]」ラベル付きで
+            見せ続けるべき。「これでいく」ボタンは MorningPlanCard 内の
+            placeAskPending gate で抑止される。 */}
+        {!morningCardsDismissed && morningPlan && (
+          morningPhase === "plan_presented" ||
+          morningPhase === "plan_confirmed" ||
+          morningPhase === "outfit_offered" ||
+          morningPhase === "outfit_clarifying" ||
+          morningPhase === "completed" ||
+          morningPhase === "clarifying"
+        ) && (
           <MorningPlanCard
             plan={morningPlan}
             personalizeHints={morningPersonalizeHints}
