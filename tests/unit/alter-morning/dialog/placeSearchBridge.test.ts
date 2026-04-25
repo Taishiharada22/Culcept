@@ -241,16 +241,21 @@ describe("§2 Bridge → reducer dispatch", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §3 phase 降格境界（CEO 追加 guard #2）
-// hard gate 用の phase 降格は placeAsk が立つ時にだけ発火し、
-// 立たない時には plan_presented を勝手に降格しない。
+// §3 hard gate 境界（CEO 2026-04-26 redesign）
+//   旧 phase 降格 (route.ts 内) は MorningPlanCard の「これでいく」gate に
+//   何の影響も与えていなかった（gate は !plan.confirmed のみ依存）。
+//   新設計: events.missing_semantic_critical=["where"] を MorningPlanCard 内で
+//   読んで「これでいく」を hide する。selection で applyPlaceSelection が
+//   "where" を filter すると false に戻り button 復活。
+//
+//   (router 側 bridge は injection のみ責務、phase 降格は削除)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§3 phase 降格境界（CEO guard #2）", () => {
+describe("§3 hard gate 境界（events 由来 placeAskPending）", () => {
   /**
-   * Bridge injection の核心ロジックを切り出し（route.ts に同じ判定が入る）。
+   * Bridge injection の核心ロジック（route.ts に同じ判定が入る）。
    * placeAsk が missingFields にあり persistedEvents が空の時だけ
-   * synthetic events を作って phase を降格する責務。
+   * synthetic events を作って注入する。phase 降格は廃止された。
    */
   function shouldInject(opts: {
     persistedEventsLength: number;
@@ -260,63 +265,82 @@ describe("§3 phase 降格境界（CEO guard #2）", () => {
     return opts.missingFields.some((f) => f.startsWith("placeAsk:"));
   }
 
-  function shouldDemotePhase(opts: {
-    currentPhase: string;
-    missingFields: string[];
-  }): boolean {
-    if (opts.currentPhase !== "plan_presented") return false;
-    return opts.missingFields.some((f) => f.startsWith("placeAsk:"));
+  /**
+   * MorningPlanCard 内の hasPlaceAskPending の純粋ロジック（行末側で
+   * 真の component 関数を直接 import すると jsdom 不在 react import が
+   * 走るためここでは pure helper として再現テストする）。
+   */
+  function hasPlaceAskPendingFromEventLikeArray(
+    events: Array<{ missing_semantic_critical?: string[] }> | undefined | null,
+  ): boolean {
+    if (!events || events.length === 0) return false;
+    return events.some(
+      (e) => e.missing_semantic_critical?.includes("where") ?? false,
+    );
   }
 
-  it("§3.1 placeAsk あり + phase=plan_presented → 降格 (true)", () => {
+  it("§3.1 events 空 → false（初期状態 / morningPlan が無いケース）", () => {
+    expect(hasPlaceAskPendingFromEventLikeArray([])).toBe(false);
+    expect(hasPlaceAskPendingFromEventLikeArray(undefined)).toBe(false);
+    expect(hasPlaceAskPendingFromEventLikeArray(null)).toBe(false);
+  });
+
+  it("§3.2 events 1 件 + missing_semantic_critical=[where] → true（hard gate 有効）", () => {
     expect(
-      shouldDemotePhase({
-        currentPhase: "plan_presented",
-        missingFields: ["placeAsk:seg_1:渋谷のスタバ"],
-      }),
+      hasPlaceAskPendingFromEventLikeArray([
+        { missing_semantic_critical: ["where"] },
+      ]),
     ).toBe(true);
   });
 
-  it("§3.2 placeAsk なし + phase=plan_presented → 降格しない (false)", () => {
+  it("§3.3 events 1 件 + missing_semantic_critical=[] → false", () => {
     expect(
-      shouldDemotePhase({
-        currentPhase: "plan_presented",
-        missingFields: [],
-      }),
+      hasPlaceAskPendingFromEventLikeArray([{ missing_semantic_critical: [] }]),
     ).toBe(false);
   });
 
-  it("§3.3 placeAsk あり + phase=clarifying → 降格対象外（既に clarifying）", () => {
+  it("§3.4 events 1 件 + missing_semantic_critical undefined → false", () => {
+    expect(hasPlaceAskPendingFromEventLikeArray([{}])).toBe(false);
+  });
+
+  it("§3.5 events 複数 + 1 件だけ where → true（or 評価）", () => {
+    // CEO 観測ケース: スタバ + マック の 2 件のうち 1 件でも未確定なら hard gate
     expect(
-      shouldDemotePhase({
-        currentPhase: "clarifying",
-        missingFields: ["placeAsk:seg_1:X"],
-      }),
+      hasPlaceAskPendingFromEventLikeArray([
+        { missing_semantic_critical: [] },
+        { missing_semantic_critical: ["where"] },
+      ]),
+    ).toBe(true);
+  });
+
+  it("§3.6 events 複数 + 全件 where → true", () => {
+    expect(
+      hasPlaceAskPendingFromEventLikeArray([
+        { missing_semantic_critical: ["where"] },
+        { missing_semantic_critical: ["where"] },
+      ]),
+    ).toBe(true);
+  });
+
+  it("§3.7 events 複数 + 全件 where 解消 → false（selection 完了想定）", () => {
+    expect(
+      hasPlaceAskPendingFromEventLikeArray([
+        { missing_semantic_critical: [] },
+        { missing_semantic_critical: [] },
+      ]),
     ).toBe(false);
   });
 
-  it("§3.4 placeAsk あり + phase=outfit_presented（既に進んだ phase）→ 降格しない", () => {
-    // 既に outfit に進んでいる場合は触らない（途中で巻き戻すと UX 崩れ）。
-    // ただし設計判断: outfit phase に至った時点で plan は確定済の前提のため、
-    // ここで placeAsk が出る条件は本来発生しないはず。
+  it("§3.8 missing_semantic_critical に when は含まれるが where はない → false", () => {
+    // hard gate は where に限定（時刻未確定では確定 button を hide しない）
     expect(
-      shouldDemotePhase({
-        currentPhase: "outfit_presented",
-        missingFields: ["placeAsk:seg_1:X"],
-      }),
+      hasPlaceAskPendingFromEventLikeArray([
+        { missing_semantic_critical: ["when"] },
+      ]),
     ).toBe(false);
   });
 
-  it("§3.5 placeConfirm のみ + phase=plan_presented → 降格しない（placeAsk のみが trigger）", () => {
-    expect(
-      shouldDemotePhase({
-        currentPhase: "plan_presented",
-        missingFields: ["placeConfirm:seg_1:X"],
-      }),
-    ).toBe(false);
-  });
-
-  it("§3.6 injection ガード: persistedEvents 既存 + placeAsk あり → injection しない", () => {
+  it("§3.9 injection ガード: persistedEvents 既存 + placeAsk あり → injection しない", () => {
     expect(
       shouldInject({
         persistedEventsLength: 1,
@@ -325,7 +349,7 @@ describe("§3 phase 降格境界（CEO guard #2）", () => {
     ).toBe(false);
   });
 
-  it("§3.7 injection ガード: persistedEvents 空 + placeAsk あり → injection する", () => {
+  it("§3.10 injection ガード: persistedEvents 空 + placeAsk あり → injection する", () => {
     expect(
       shouldInject({
         persistedEventsLength: 0,
@@ -334,7 +358,7 @@ describe("§3 phase 降格境界（CEO guard #2）", () => {
     ).toBe(true);
   });
 
-  it("§3.8 injection ガード: persistedEvents 空 + placeAsk なし → injection しない", () => {
+  it("§3.11 injection ガード: persistedEvents 空 + placeAsk なし → injection しない", () => {
     expect(
       shouldInject({
         persistedEventsLength: 0,
@@ -343,53 +367,11 @@ describe("§3 phase 降格境界（CEO guard #2）", () => {
     ).toBe(false);
   });
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // §3.9-3.11: CEO 2026-04-26 観測由来の境界 — Phase 1 partial fail 修正
-  //   後続 turn で persistedEvents が non-empty になった後も placeAsk が
-  //   残る限り phase 降格は idempotent に発火し続ける必要がある。
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  it("§3.9 後続 turn: persistedEvents non-empty + placeAsk 維持 → injection skip だが 降格は発火", () => {
-    // 初回 turn で synthetic 注入済 → 2 turn 目「車」入力
-    expect(
-      shouldInject({
-        persistedEventsLength: 2,
-        missingFields: ["placeAsk:seg_1:渋谷のスタバ"],
-      }),
-    ).toBe(false);
-    // でも降格は走るべき
-    expect(
-      shouldDemotePhase({
-        currentPhase: "plan_presented",
-        missingFields: ["placeAsk:seg_1:渋谷のスタバ"],
-      }),
-    ).toBe(true);
-  });
-
-  it("§3.10 後続 turn: persistedEvents non-empty + placeAsk 解消後 → injection skip + 降格 skip", () => {
-    // user が候補選択した結果 placeAsk が消えた状態
-    expect(
-      shouldInject({
-        persistedEventsLength: 2,
-        missingFields: [],
-      }),
-    ).toBe(false);
-    expect(
-      shouldDemotePhase({
-        currentPhase: "plan_presented",
-        missingFields: [],
-      }),
-    ).toBe(false);
-  });
-
-  it("§3.11 idempotency: 同じ条件で n 回降格判定しても同じ結果（純関数）", () => {
-    const cond = {
-      currentPhase: "plan_presented",
-      missingFields: ["placeAsk:seg_1:X"],
-    };
-    expect(shouldDemotePhase(cond)).toBe(true);
-    expect(shouldDemotePhase(cond)).toBe(true);
-    expect(shouldDemotePhase(cond)).toBe(true);
+  it("§3.12 idempotency: 同じ events で n 回判定しても同じ結果（純関数）", () => {
+    const evs = [{ missing_semantic_critical: ["where"] }];
+    expect(hasPlaceAskPendingFromEventLikeArray(evs)).toBe(true);
+    expect(hasPlaceAskPendingFromEventLikeArray(evs)).toBe(true);
+    expect(hasPlaceAskPendingFromEventLikeArray(evs)).toBe(true);
   });
 });
 
@@ -499,7 +481,25 @@ describe("§4 round-trip 完全実証（CEO guard #1）", () => {
     // Step F: phase は legacyAdapter の decidePhase と同じロジックで判定可能
     // （decidePhase は MorningPipelineResult を要求するため、
     // ここでは直接 hasBlockingUnresolvedSlots(false) ＝ plan_presented 昇格可能と確認）
-    // → これで CEO guard #1 の「plan_presented へ戻る」要件を実証完了。
+
+    // Step G (CEO 2026-04-26 追加): client-side hard gate も同期して解除する
+    //   MorningPlanCard 内の hasPlaceAskPending(events) の純粋ロジックを
+    //   再現してテスト（component 関数を直接 import すると jsdom 不在で失敗）。
+    function hasPlaceAskPending(
+      evs: Array<{ missing_semantic_critical?: string[] }>,
+    ): boolean {
+      return evs.some(
+        (e) => e.missing_semantic_critical?.includes("where") ?? false,
+      );
+    }
+    // 注入直後（選択前）: hard gate 有効
+    expect(hasPlaceAskPending(syntheticEvents)).toBe(true);
+    // 選択後: hard gate 解除（「これでいく」復活）
+    expect(hasPlaceAskPending(selectionResult.events)).toBe(false);
+
+    // → CEO guard #1 の「plan_presented へ戻る」要件を実証完了:
+    //   - server side: hasBlockingUnresolvedSlots false → decidePhase=plan_presented
+    //   - client side: hasPlaceAskPending false → 「これでいく」復活
   });
 
   it("§4.2 round-trip negative: 選択前は hard gate が成立し続けている（境界の対比証明）", () => {

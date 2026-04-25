@@ -9,7 +9,7 @@
  * - 確定 / 変更ボタン
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
@@ -71,6 +71,23 @@ interface MorningPlanCardProps {
    * false の時は MorningMapView の dynamic import 自体が fire しない。
    */
   visualFlowEnabled?: boolean;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// hasPlaceAskPending — 「これでいく」hard gate 用
+//   CEO 2026-04-26: events のいずれかが `missing_semantic_critical` に "where" を
+//   含む = 場所が未確定 = plan を確定すべきでない状態。
+//   bridge 由来の synthetic events と通常 comprehension events の両方で動く。
+//   selection 後 applyPlaceSelection が "where" を filter するので false に戻る。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export function hasPlaceAskPending(
+  events: ComprehensionEvent[] | undefined | null,
+): boolean {
+  if (!events || events.length === 0) return false;
+  return events.some(
+    (e) => e.missing_semantic_critical?.includes("where") ?? false,
+  );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -866,6 +883,11 @@ export default function MorningPlanCard({
     if (item.location) setPlaceSheetItem(item);
   }, []);
 
+  // CEO 2026-04-26: events のいずれかが「場所未確定 (missing_semantic_critical=where)」
+  // を持つ間は「これでいく」を hide する。selection で applyPlaceSelection が
+  // "where" を filter すると false に戻り、確定 button が出る。
+  const placeAskPending = useMemo(() => hasPlaceAskPending(events), [events]);
+
   // Sync when parent passes a new plan (e.g. after planEditor edit)
   useEffect(() => {
     setPlan(initialPlan);
@@ -1232,8 +1254,13 @@ export default function MorningPlanCard({
           onClose={() => setPlaceSheetItem(null)}
         />
 
-        {/* アクションボタン */}
-        {!plan.confirmed && (
+        {/* アクションボタン
+            CEO 2026-04-26: placeAskPending=true（events に missing_semantic_critical=
+            "where" を含む event がある）= 場所未確定 = 確定操作を許可しない hard gate。
+            候補選択 (applyPlaceSelection) で missing_semantic_critical から "where" が
+            filter されると false に戻り、これでいく ボタンが復活する。
+            「変更する」は場所未確定でも有効（再依頼可）のため gate しない。 */}
+        {!plan.confirmed && !placeAskPending && (
           <div className="flex gap-2 mt-4">
             <button
               onClick={handleConfirm}
