@@ -2164,14 +2164,45 @@ export async function POST(req: NextRequest) {
           //   tests/unit/alter-morning/dialog/syntheticEventBuilder.test.ts (16)
           //   tests/unit/alter-morning/dialog/placeSearchBridge.test.ts (15、
           //     CEO guard #1 round-trip + #2 phase 降格境界 を含む)
+          // CEO follow-up (2026-04-26 観測): 初回 turn は bridge 発火するが、
+          //   後続 turn (例:「車」入力) で persistedEvents 既存 → bridge skip →
+          //   phase 降格も skip → plan_presented に戻り「これでいく」が表示される
+          //   問題が発覚（Phase 1 partial fail）。
+          //
+          //   修正: bridge の責務を 2 つに分離して、phase 降格を idempotent 化:
+          //     (A) phase 降格 — placeAsk が立つ限り毎 turn 実行（既に persistedEvents
+          //         が non-empty でも降格は走る）
+          //     (B) synthetic event 注入 — persistedEvents が空のときのみ実行
+          //         （初回 turn の bootstrap 用）
+          const hasPendingPlaceAsk =
+            morningSession?.planStateV2?.missingFields?.some((f: string) =>
+              f.startsWith("placeAsk:"),
+            ) ?? false;
+
+          // ── (A) hard gate: placeAsk が立つ限り plan_presented を clarifying に降格 ──
+          //   毎 turn 走る。`bridge synthesis` の前提条件（persistedEvents 空）は
+          //   気にしない。降格対象は plan_presented のみ。clarifying / outfit_presented
+          //   など既に進行 / 既に降格済の phase には触らない（§3 phase 境界 test で固定）。
+          if (hasPendingPlaceAsk && morningResponse.phase === "plan_presented") {
+            morningResponse = {
+              ...morningResponse,
+              phase: "clarifying",
+            };
+            console.info(
+              `[place-search-bridge:gate] phase demoted plan_presented→clarifying ` +
+                `(placeAsk pending, idempotent across turns)`,
+            );
+          }
+
+          // ── (B) synthetic event 注入 — persistedEvents 空 + placeAsk + flags ON ──
+          //   初回 turn の bootstrap。dispatch path に events[0].event_id を供給する
+          //   ためだけに走る。後続 turn は既存 persistedEvents が dispatch を成立させる。
           if (
             ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
             ALTER_MORNING_FLAGS.placesSearch(userId) &&
             morningSession?.dialogState != null &&
             (morningSession.persistedEvents?.length ?? 0) === 0 &&
-            morningSession.planStateV2?.missingFields?.some((f: string) =>
-              f.startsWith("placeAsk:"),
-            )
+            hasPendingPlaceAsk
           ) {
             const synthetic = buildSyntheticEventsFromPlanState(
               morningSession.planStateV2,
@@ -2185,17 +2216,8 @@ export async function POST(req: NextRequest) {
               //   downstream の `morningSession.dialogState` narrowing を維持する。
               //   (object spread 経由の reassign は TS が narrowing を失う)
               morningSession.persistedEvents = synthetic;
-              // hard gate: placeAsk が残る限り plan_presented に上げない
-              //   降格は plan_presented → clarifying のみ。
-              //   既に clarifying / outfit_presented などには触らない（境界 test §3 参照）。
-              if (morningResponse.phase === "plan_presented") {
-                morningResponse = {
-                  ...morningResponse,
-                  phase: "clarifying",
-                };
-              }
               console.info(
-                `[place-search-bridge] injected synthetic events ` +
+                `[place-search-bridge:inject] injected synthetic events ` +
                   `count=${synthetic.length} ` +
                   `ids=${synthetic.map((e) => e.event_id).join(",")} ` +
                   `placeAskCount=${placeAskCount} ` +

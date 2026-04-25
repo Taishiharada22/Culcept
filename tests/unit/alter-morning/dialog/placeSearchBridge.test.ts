@@ -342,6 +342,55 @@ describe("§3 phase 降格境界（CEO guard #2）", () => {
       }),
     ).toBe(false);
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // §3.9-3.11: CEO 2026-04-26 観測由来の境界 — Phase 1 partial fail 修正
+  //   後続 turn で persistedEvents が non-empty になった後も placeAsk が
+  //   残る限り phase 降格は idempotent に発火し続ける必要がある。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  it("§3.9 後続 turn: persistedEvents non-empty + placeAsk 維持 → injection skip だが 降格は発火", () => {
+    // 初回 turn で synthetic 注入済 → 2 turn 目「車」入力
+    expect(
+      shouldInject({
+        persistedEventsLength: 2,
+        missingFields: ["placeAsk:seg_1:渋谷のスタバ"],
+      }),
+    ).toBe(false);
+    // でも降格は走るべき
+    expect(
+      shouldDemotePhase({
+        currentPhase: "plan_presented",
+        missingFields: ["placeAsk:seg_1:渋谷のスタバ"],
+      }),
+    ).toBe(true);
+  });
+
+  it("§3.10 後続 turn: persistedEvents non-empty + placeAsk 解消後 → injection skip + 降格 skip", () => {
+    // user が候補選択した結果 placeAsk が消えた状態
+    expect(
+      shouldInject({
+        persistedEventsLength: 2,
+        missingFields: [],
+      }),
+    ).toBe(false);
+    expect(
+      shouldDemotePhase({
+        currentPhase: "plan_presented",
+        missingFields: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("§3.11 idempotency: 同じ条件で n 回降格判定しても同じ結果（純関数）", () => {
+    const cond = {
+      currentPhase: "plan_presented",
+      missingFields: ["placeAsk:seg_1:X"],
+    };
+    expect(shouldDemotePhase(cond)).toBe(true);
+    expect(shouldDemotePhase(cond)).toBe(true);
+    expect(shouldDemotePhase(cond)).toBe(true);
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
