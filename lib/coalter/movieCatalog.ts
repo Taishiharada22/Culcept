@@ -357,6 +357,64 @@ export function extractBracketedTitles(text: string): string[] {
 //   全作品に共有する旧挙動が「映画館が消える / 誤紐付け」の主因だった。
 // ─────────────────────────────────────────────
 
+/**
+ * Phase 3B B'-1 (2026-04-26): listing page の sc.title「【XXX】上映作品...」形式から
+ * theater 名を抽出する private helper。
+ *
+ * 対象: crank-in `/theater/search/all/{areaId}/{theaterId}/{movieId}` のような
+ *       「1 page = 1 theater 確定」型の listing page。
+ *
+ * 4 重 guard:
+ *   1. URL pattern が theaterId を含む（呼び出し側で確認済み前提）
+ *   2. title 内に「【...】」存在
+ *   3. 中身を空白除去（半角 + 全角）して `extractTheaters` の whitelist で照合
+ *   4. 照合失敗 → null（誤紐付け回避、既存 fallback に委譲）
+ *
+ * 既存 `extractTheaters` の `THEATER_PATTERNS` regex は空白を含まないため、
+ * 「TOHOシネマズ 池袋」のようなスペース挟み表記は事前に空白除去してから照合する。
+ */
+function resolveTheaterFromBracketTitle(title: string): string | null {
+  if (!title) return null;
+  const m = title.match(/【([^】]+)】/);
+  if (!m) return null;
+  const stripped = m[1].replace(/[\s　]+/g, "").trim();
+  if (!stripped) return null;
+  const candidates = extractTheaters(stripped);
+  if (candidates.length === 0) return null;
+  // 最長一致を返す（「グランドシネマサンシャイン」と「グランドシネマサンシャイン池袋」が
+  // 両方 match した場合、より具体的な後者を採用する。THEATER_PATTERNS の `*` quantifier
+  // で短い prefix が誤抽出されるケースに対応）。
+  return candidates.reduce((longest, c) =>
+    c.length > longest.length ? c : longest,
+  );
+}
+
+/**
+ * Phase 3B B'-1 (2026-04-26): listing page の sc.title 「{theater 名}（area）...」形式から
+ * theater 名を抽出する private helper。
+ *
+ * 対象: eiga.com `/theater/{prefId}/{areaId}/{theaterId}/...` のような
+ *       「1 page = 1 theater 確定」型の theater detail page。
+ *
+ * 4 重 guard:
+ *   1. URL pattern が theaterId を含む（呼び出し側で確認済み前提）
+ *   2. title 先頭の `（` または `(` の前部分を取得
+ *   3. 空白除去 + `extractTheaters` whitelist 照合
+ *   4. 照合失敗 → null
+ */
+function resolveTheaterFromTitlePrefix(title: string): string | null {
+  if (!title) return null;
+  const beforeParen = title.split(/[（(]/)[0] ?? "";
+  const stripped = beforeParen.replace(/[\s　]+/g, "").trim();
+  if (!stripped) return null;
+  const candidates = extractTheaters(stripped);
+  if (candidates.length === 0) return null;
+  // 最長一致を返す（resolveTheaterFromBracketTitle と同じ理由）。
+  return candidates.reduce((longest, c) =>
+    c.length > longest.length ? c : longest,
+  );
+}
+
 /** source URL / hostname から一意に劇場名を引けるケースのみ補完する（known pattern のみ） */
 function theaterFromSource(sc: SearchCandidate): string | null {
   const url = (sc.url ?? "").toLowerCase();
@@ -429,6 +487,27 @@ function theaterFromSource(sc: SearchCandidate): string | null {
     return null;
   }
 
+  // Phase 3B B'-1 (2026-04-26): crank-in theater 単体 page。
+  //   URL `crank-in.net/theater/search/all/{areaId}/{theaterId}/{movieId}` は
+  //   theater_id を含む = 1 page = 1 theater 確定。sc.title「【XXX】上映作品...」内の
+  //   【】部分を空白除去 + whitelist 照合で安全抽出。
+  //   照合失敗時は null → 既存 fallback に委譲（誤紐付け回避）。
+  //
+  //   regex test は `combined` ではなく `url` のみで行う（combined は url+source を
+  //   space 結合するため `$` 終端 anchor が機能しない）。
+  if (/crank-in\.net\/theater\//.test(url)) {
+    return resolveTheaterFromBracketTitle(sc.title ?? "");
+  }
+
+  // Phase 3B B'-1 (2026-04-26): eiga.com theater 単体 detail page。
+  //   URL `eiga.com/theater/{prefId}/{areaId}/{theaterId}/...` で theaterId 桁数を
+  //   厳格 match。`/theater/{prefId}/{areaId}/$` (theaterId 無し = area listing) は
+  //   除外（複数 theater 混在 page で誤紐付けを避ける）。
+  //   sc.title「{theater 名}（area）上映スケジュール...」の `（` 前を抽出。
+  if (/eiga\.com\/theater\/\d+\/\d+\/\d+\/?(\?|#|$)/.test(url)) {
+    return resolveTheaterFromTitlePrefix(sc.title ?? "");
+  }
+
   return null;
 }
 
@@ -464,15 +543,20 @@ function resolveTheaterForTitle(args: {
 }): string | null {
   const { candidateTitle, sc, titleCameFromScTitle } = args;
 
+  // (0) Phase 3B B'-1 (2026-04-26): URL pattern が theater 単体 page を確定できる場合を最優先。
+  //   crank-in / eiga.com / TOHO official / 109cinemas のような known URL pattern は
+  //   theater_id を含むため「1 page = 1 theater 確定」。sc.title からの抽出より信頼できる。
+  //   特に THEATER_PATTERNS の `*` quantifier (e.g. グランドシネマサンシャイン) で
+  //   sc.title「【XXX 池袋】」のスペース挟みケースに対し suffix なし誤抽出が起きるため、
+  //   listing page の URL signal を優先する。
+  const fromSource = theaterFromSource(sc);
+  if (fromSource) return fromSource;
+
   // (1) title 明示一致: title が sc.title から取れた場合、sc.title 内の劇場をそのまま使える
   if (titleCameFromScTitle) {
     const inTitle = extractTheaters(sc.title);
     if (inTitle.length > 0) return inTitle[0];
   }
-
-  // (2) source URL / known page pattern
-  const fromSource = theaterFromSource(sc);
-  if (fromSource) return fromSource;
 
   // (3a) title が sc.title から単独で取れた = 検索結果全体が「この 1 作品」の情報。
   //      その description / practicalInfo に劇場が書かれていれば紐付けて OK。
