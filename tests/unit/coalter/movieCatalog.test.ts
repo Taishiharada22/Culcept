@@ -16,6 +16,7 @@ import { describe, it, expect } from "vitest";
 import {
   extractMovieTitle,
   extractBracketedTitles,
+  extractTheaters,
   parseMovieScreenings,
 } from "@/lib/coalter/movieCatalog";
 import type { SearchCandidate } from "@/lib/coalter/types";
@@ -295,5 +296,170 @@ describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", 
     };
     const out = parseMovieScreenings([sc]);
     expect(out[0].theater).toBe("TOHOシネマズ渋谷");
+  });
+});
+
+// ─────────────────────────────────────────────
+// Phase 3B B'-1 (2026-04-26): 空白除去後の whitelist 照合前提確認
+//
+// 既存 THEATER_PATTERNS の regex は「TOHOシネマズ\s?池袋」のような空白を
+// catch しない。listing page の sc.title 「【TOHOシネマズ 池袋】...」のような
+// スペース挟み表記を扱うため、theaterFromSource 内 helper が
+// `replace(/[\s　]+/g, "")` で空白を事前除去してから extractTheaters を呼ぶ。
+// 本セクションではその前提が成立するか whitelist 単体で確認する。
+// ─────────────────────────────────────────────
+
+describe("extractTheaters whitelist (Phase 3B B'-1 前提確認)", () => {
+  it("空白除去後の TOHOシネマズ池袋 が whitelist で match する", () => {
+    const got = extractTheaters("TOHOシネマズ池袋");
+    expect(got).toContain("TOHOシネマズ池袋");
+  });
+
+  it("空白除去後の グランドシネマサンシャイン池袋 が whitelist で match する", () => {
+    const got = extractTheaters("グランドシネマサンシャイン池袋");
+    expect(got).toContain("グランドシネマサンシャイン池袋");
+  });
+
+  it("空白除去後の TOHOシネマズ新宿 が whitelist で match する", () => {
+    const got = extractTheaters("TOHOシネマズ新宿");
+    expect(got).toContain("TOHOシネマズ新宿");
+  });
+
+  it("whitelist 不在の架空 theater は match しない", () => {
+    const got = extractTheaters("未知シネマ池袋");
+    expect(got.length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Phase 3B B'-1 (2026-04-26): theaterFromSource — listing page 対応
+//
+// crank-in / eiga.com の listing page から theater 名を安全に抽出できるか
+// parseMovieScreenings 経由で検証する。theaterFromSource は private のため
+// 外部からは呼べない。
+//
+// 4 重 guard:
+//   1. URL pattern (crank-in: /theater/、eiga.com: theaterId 桁数)
+//   2. title 構造 (【...】 or （ 必須)
+//   3. extractTheaters whitelist 照合
+//   4. 失敗時 null (誤紐付け回避、既存 fallback に委譲)
+//
+// 既存 SLUG_TO_THEATER (TOHO official) / 109cinemas 経路は untouched で
+// 回帰なし（前 describe の 「URL slug から TOHOシネマズ渋谷 を補完できる」 で確認済）。
+// ─────────────────────────────────────────────
+
+describe("theaterFromSource — listing page support (Phase 3B B'-1)", () => {
+  it("crank-in TOHOシネマズ池袋 listing → 'TOHOシネマズ池袋' を抽出", () => {
+    const sc: SearchCandidate = {
+      title: "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『ガールズ＆パンツァー もっとラブラブ作戦です！』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("TOHOシネマズ池袋");
+  });
+
+  it("crank-in グランドシネマサンシャイン池袋 listing → 'グランドシネマサンシャイン池袋' を抽出", () => {
+    const sc: SearchCandidate = {
+      title:
+        "【グランドシネマサンシャイン 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【グランドシネマサンシャイン 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『シン・ウルトラマン』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11669/202014",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("グランドシネマサンシャイン池袋");
+  });
+
+  it("eiga.com theater detail (theaterId 含む URL) → theater 抽出成功", () => {
+    const sc: SearchCandidate = {
+      title:
+        "TOHOシネマズ 新宿（新宿）上映スケジュール・上映時間：映画館 - 映画.com",
+      description:
+        "TOHOシネマズ 新宿（新宿）上映スケジュール・上映時間\n# 上映中の映画\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/theater/13/130201/3035/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("TOHOシネマズ新宿");
+  });
+
+  it("eiga.com area listing (theaterId 無し URL) → theater 抽出 null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "新宿の映画館 上映スケジュール・上映時間 - 映画.com",
+      description:
+        "新宿の映画館 上映スケジュール・上映時間\n# 新宿の映画館 上映スケジュール\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/theater/13/130201/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // 複数 theater 混在の area listing は theater 紐付け不能
+    // → 既存 fallback に委譲、theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("crank-in URL だが title に 【】 無し → null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "上映スケジュールページ｜クランクイン！",
+      description:
+        "上映スケジュールページ｜クランクイン！\n# 上映作品\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // title に 【】 が無く resolveTheaterFromBracketTitle が null を返す
+    // → theaterFromSource null → theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("crank-in URL + title に 【】 はあるが whitelist 不在 theater → null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "【未知シネマ 池袋】上映作品・スケジュール｜クランクイン！",
+      description:
+        "【未知シネマ 池袋】上映作品・スケジュール｜クランクイン！\n# 上映作品\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/99999/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // 【】内 "未知シネマ 池袋" は whitelist (THEATER_PATTERNS) 不在
+    // → resolveTheaterFromBracketTitle が null を返し、既存 fallback でも取れず null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("eiga.com の他のページ (theater detail でない記事 etc.) → 影響なし", () => {
+    const sc: SearchCandidate = {
+      title: "あるモデル映画レビュー - eiga.com",
+      description: "あるモデル映画レビュー\n『あるモデル作品』",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/movie/12345/review/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // /theater/ pattern に該当しない URL → 新規 case 不発火
+    // 既存 SLUG_TO_THEATER も該当せず、theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
   });
 });
