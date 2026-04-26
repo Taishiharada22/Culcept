@@ -463,3 +463,60 @@ describe("theaterFromSource — listing page support (Phase 3B B'-1)", () => {
     expect(out[0].theater).toBeNull();
   });
 });
+
+// ─────────────────────────────────────────────
+// 2026-04-26: 「クランクイン」 (crank-in.net page 名) を作品名として採用しない
+//
+// 実 retrieval で sc.title「【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！」
+// がパイプ分割の 2 番目 segment「クランクイン！」を title 候補として採用していた。
+// NON_TITLE_SEGMENT に `クランクイン` を 1 token 追加して reject。
+//
+// genuine 映画「クランクイン」(仮想) は `『クランクイン』` 括弧付きで来る想定で、
+// extractMovieTitle Step 1 (括弧優先) が NON_TITLE_SEGMENT を通らず救済する。
+// ─────────────────────────────────────────────
+
+describe("extractMovieTitle — site 名「クランクイン」を title として reject", () => {
+  it("crank-in page title (パイプ後の「クランクイン！」) は採用しない", () => {
+    expect(
+      extractMovieTitle(
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      ),
+    ).toBeNull();
+  });
+
+  it("genuine title 『クランクイン』 (括弧優先 Step 1) は採用する (回帰防止)", () => {
+    expect(extractMovieTitle("『クランクイン』 | 映画.com")).toBe("クランクイン");
+  });
+
+  it("裸の「クランクイン｜TOHOシネマズ渋谷」も採用しない (site 名扱い)", () => {
+    expect(extractMovieTitle("クランクイン｜TOHOシネマズ渋谷")).toBeNull();
+  });
+});
+
+describe("parseMovieScreenings — crank-in page title 除外 + description 救済", () => {
+  it("crank-in URL の sc.title 「【XXX】... ｜クランクイン！」 は title として通さず、description の 『作品名』 に fallback。B'-1 の theater 解決は維持", () => {
+    const sc: SearchCandidate = {
+      title:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『ガールズ＆パンツァー もっとラブラブ作戦です！』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    // sc.title からは title 取れず、description の 『ガールズ＆パンツァー...』 に fallback
+    expect(out.length).toBeGreaterThan(0);
+    const titles = out.map((s) => s.title);
+    expect(titles).toContain("ガールズ＆パンツァー もっとラブラブ作戦です！");
+    // 「クランクイン！」が title として通っていないことを確認
+    expect(titles).not.toContain("クランクイン！");
+    expect(titles).not.toContain("クランクイン");
+    // B'-1 効果が維持されている: crank-in URL から theater が解決されている
+    const target = out.find(
+      (s) => s.title === "ガールズ＆パンツァー もっとラブラブ作戦です！",
+    );
+    expect(target?.theater).toBe("TOHOシネマズ池袋");
+  });
+});

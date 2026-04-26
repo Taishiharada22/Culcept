@@ -243,8 +243,15 @@ export function extractRating(text: string): string | null {
  *   4. ジャンル名単体も reject
  */
 
-/** サイト名・劇場名・meta 語（title 分解時に「これは title ではない」印） */
-const NON_TITLE_SEGMENT = /(映画\.com|Filmarks|filmarks|Yahoo|Wikipedia|wiki|eiga|gqjapan|moviewalker|シネフィル|ぴあ|TOHOシネマズ|MOVIX|109シネマズ|イオンシネマ|ユナイテッド.?シネマ|新宿バルト|ピカデリー|テアトル|シネクイント|ヒューマントラスト|アップリンク|映画館|シアター|cinema|Cinema|CINEMA|シネマ|公式サイト|Official Site|Trailer|予告(編)?|レビュー|あらすじ|キャスト|監督|作品情報|映画情報|上映時間|上映館|上映情報|上映スケジュール|上映中の映画|上映中|スケジュール)/i;
+/**
+ * サイト名・劇場名・meta 語（title 分解時に「これは title ではない」印）。
+ *
+ * 2026-04-26 追加: `クランクイン` (crank-in.net の page 名)。
+ *   実 retrieval で「【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！」が
+ *   パイプ分割の 2 番目 segment として「クランクイン！」が title 候補として採用されていた。
+ *   genuine 映画「クランクイン」は `『クランクイン』` 括弧付きで来る想定 (Step 1 経由で救済)。
+ */
+const NON_TITLE_SEGMENT = /(映画\.com|Filmarks|filmarks|Yahoo|Wikipedia|wiki|eiga|gqjapan|moviewalker|シネフィル|ぴあ|クランクイン|TOHOシネマズ|MOVIX|109シネマズ|イオンシネマ|ユナイテッド.?シネマ|新宿バルト|ピカデリー|テアトル|シネクイント|ヒューマントラスト|アップリンク|映画館|シアター|cinema|Cinema|CINEMA|シネマ|公式サイト|Official Site|Trailer|予告(編)?|レビュー|あらすじ|キャスト|監督|作品情報|映画情報|上映時間|上映館|上映情報|上映スケジュール|上映中の映画|上映中|スケジュール)/i;
 
 /** リスティクル / まとめ記事系の非タイトル */
 const LISTICLE_PATTERNS: RegExp[] = [
