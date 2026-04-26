@@ -142,6 +142,10 @@ export async function generateMovieProposalV2(
       timeoutMs: input.llmTimeoutMs ?? 3500,
       userId: input.userId,
       sessionId: input.sessionId,
+      // Phase 3B Layer 2-C: analysis.emotionTags を enricher へ propagate。
+      // 軽い補助信号として LLM prompt にのみ届き、user-facing prose には漏らさない
+      // (narrationEnricher 側で SYSTEM_PROMPT 制約 + FORBIDDEN check で担保)。
+      emotionTags: input.analysis.emotionTags,
     });
     if (enriched.llmSuccess) {
       finalCard = enriched.card;
