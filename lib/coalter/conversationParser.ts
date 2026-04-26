@@ -16,6 +16,8 @@ import type {
   TopicAnchor,
 } from "./types";
 import { scopeMessages } from "./topicScope";
+import { extractEmotionTags } from "./emotion/extract";
+import type { EmotionTag } from "./emotion/types";
 
 // ─────────────────────────────────────────────
 // テーマ検出パターン
@@ -672,6 +674,82 @@ function computeConstraintScore(
   return Math.min(1, score);
 }
 
+// ─────────────────────────────────────────────
+// Bug-1 §4.3 高レベル wrapper: emotion tag に speaker を載せる
+// ─────────────────────────────────────────────
+
+/**
+ * recentMessages window 内で EmotionTag を集約し、speaker を senderId から
+ * "user_a" / "user_b" / "both" / "unknown" に書き換える。
+ *
+ * 集約規則:
+ *   - dedupe key = `${tag}:${source_lexeme}`
+ *   - 同 user の同 lexeme 重複 → 1 entry のまま
+ *   - 異 user (user_a + user_b) の同 lexeme → "both"
+ *   - unknown 後に named speaker → named に昇格（情報損失を避ける）
+ *   - named 後に unknown → named を維持
+ *   - both は変更しない
+ *
+ * 範囲:
+ *   - messages 引数（= recentMessages = analysis window）のみを参照する。
+ *   - 過去全履歴は拾わない（Bug-1 §4.3 / CEO Q4 β 寄り方針）。
+ *
+ * 失敗独立条文 (§2.3):
+ *   - extractEmotionTags の失敗で全体を壊さない（per-turn try/catch + skip）。
+ *   - 不正入力 (null / undefined / 非配列) には [] を返す。
+ *   - 副作用ゼロ・純関数。
+ */
+function collectEmotionTagsForAnalysis(
+  messages: ConversationTurn[],
+  userAId: string,
+  userBId: string,
+): EmotionTag[] {
+  if (!Array.isArray(messages) || messages.length === 0) return [];
+
+  const map = new Map<string, EmotionTag>();
+
+  for (const turn of messages) {
+    if (turn === null || typeof turn !== "object") continue;
+
+    let tagsFromText: EmotionTag[];
+    try {
+      tagsFromText = extractEmotionTags((turn as ConversationTurn).body);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(tagsFromText) || tagsFromText.length === 0) continue;
+
+    const senderId = (turn as ConversationTurn).senderId;
+    let speaker: EmotionTag["speaker"];
+    if (senderId === userAId) speaker = "user_a";
+    else if (senderId === userBId) speaker = "user_b";
+    else speaker = "unknown";
+
+    for (const t of tagsFromText) {
+      if (!t || typeof t !== "object") continue;
+      const key = `${t.tag}:${t.source_lexeme}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { ...t, speaker });
+        continue;
+      }
+      if (existing.speaker === "both") continue;
+      if (existing.speaker === speaker) continue;
+      // unknown を named に昇格
+      if (existing.speaker === "unknown") {
+        map.set(key, { ...existing, speaker });
+        continue;
+      }
+      // 新規が unknown、既存が named → 既存維持
+      if (speaker === "unknown") continue;
+      // user_a vs user_b → both
+      map.set(key, { ...existing, speaker: "both" });
+    }
+  }
+
+  return Array.from(map.values());
+}
+
 /**
  * 会話を分析し、CoAlterに必要なコンテキストを生成する。
  *
@@ -745,6 +823,8 @@ export function analyzeConversation(
     topicAnchor,
     primaryScopeCount: primary.length,
     backgroundScopeCount: background.length,
+    // Phase 3B Layer 1: emotion tag を analysis に載せる（narration 用、retrieval gate 非依存）
+    emotionTags: collectEmotionTagsForAnalysis(messages, userAId, userBId),
   };
 }
 
@@ -754,6 +834,7 @@ export const __internal = {
   detectTheme,
   extractConstraints,
   estimateCaringIntensity,
+  collectEmotionTagsForAnalysis,
 };
 
 // ═════════════════════════════════════════════════════════════════════
