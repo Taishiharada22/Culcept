@@ -798,3 +798,44 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
   3. double invoke (10 click → 20 invoke)
   4. travel/activity の query 弱さ（candidatesCount=3 上限）
 - **次フェーズ**: Phase 3B narration 接続を `feat/coalter-three-stage` 上で開始。`preview/coalter-stepc-phase3a` 上では行わない。
+
+### [2026-04-26] [Build] CoAlter Bug-1 Phase 3B Layer 2-C preview 観測 — inconclusive
+- **部門**: Build
+- **決定内容**: Layer 2-C (`5e63e7b5` = preview cherry-pick `634ff651`) の preview deploy
+  (`dpl_4hTC7cVUfYGVeBb6fkL498RUoPtu`) で UX 効果検証を試みたが、movie path の
+  `rankedCount=0` が連続したため UI 上の効果検証は **inconclusive (未判定)**。
+- **承認**: CEO
+- **ステータス**: 観測完了 / 効果判定保留 / 修正未着手
+- **観測結果（5 invoke / 直近 1h logs）**:
+  - movie 4/5: `rawResultsCount=9 / catalogCount=3 / rankedCount=0` （4 件全て同一構造）
+    - `missingWhereRejectCount=3` / `titleWithoutTheaterCount=3` で全 drop
+  - food 1/5: `rawResultsCount=6 / parsedVenues=1 / rankedCount=1`（rank>0 達成）
+  - emotion_signals が prose に反映された観察ゼロ
+- **新たに判明した別 gate（重要）**:
+  - **Phase 3A retrieval gate PASS は維持**（recall/precision の観測値は別 entry 既述）
+  - ただし retrieval 後の **catalog / ranker gate**（特に movieRanker の `missing_where`
+    hard filter）で movie が 100% drop する事実が判明
+  - **Phase 3A は retrieval 評価としては有効だが、UX 到達には ranker gate も別途必要**
+- **food path の dead spot（Layer 2-D 論点）**:
+  - foodOrchestrator は narrationEnricher を呼ばない構造（Phase B Commit 4 lock）
+  - Layer 2-A/B/C で構築した emotion 経路は food path に届かない
+  - food rank>0 でも logic-only narration → emotion 反映ゼロ
+  - Layer 2-C 効果検証直後には扱わず、Layer 2-D で別判断
+- **UX 課題（layout/UI phase 送り）**:
+  - repeated clarify / context drift（CEO 入力の直近 N turn が薄い相槌だと
+    `combinedSample` が stale 化、4 連続で同一 query → 同一 clarify）
+  - 「もっと聞かせて」連発に対する UX 改善は別 phase
+- **次の観察候補（CEO 優先順位 A → B → C → D、本 entry 時点で実装着手なし）**:
+  - **A**: theater 名直接指定 movie 入力で rank>0 に到達するか preview で再観測
+    （CEO 操作 + Claude logs 確認）
+  - **B**: `lib/coalter/movieRanker.ts` / `movieCatalog.ts` の `missing_where`
+    hard filter を読み取り、最小修正案を起草（observation のみ、修正禁止）
+  - **C**: food Layer 2-D は別判断（保留）
+  - **D**: layout/UI 改善は別 phase で課題一覧を整理
+- **layout/UI phase 候補課題**:
+  - L-1: repeated clarify
+  - L-2: context drift（直近 N turn 薄い相槌で combinedSample stale 化）
+  - L-3: clarify card に「ピン止めされた条件」見える化
+  - L-4: clarify card に「足りない条件」明示（既存 missingConstraints 経路の UI 強化）
+  - L-7: rank=0 時の「何が原因か」UI 表示（"theater 情報が取れなかった" 等の透明化）
+  - L-9: 「もっと聞かせて」click 後に context が更新される仕組み
