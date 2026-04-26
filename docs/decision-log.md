@@ -771,3 +771,30 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
 - **残TODO**:
   1. qualityAudit 106件の expectedMode 再分類 → 閾値 0.75 復元
   2. package.json の `"latest"` 指定を固定バージョンに変更（再発防止）
+
+### [2026-04-26] [Build] CoAlter Bug-1 Phase 3A 観測 gate PASS / 本線 build-fix 着地
+- **部門**: Build
+- **決定内容**: Phase 3A retrieval recall/precision 観測 4 指標が全 PASS。Phase 3B narration 接続の着手条件達成。Phase 3A の build blocker 除去 commit を本線 `feat/coalter-three-stage` に cherry-pick。
+- **承認**: CEO
+- **ステータス**: Phase 3A 完了 / Phase 3B 着手前
+- **観測 gate 結果（N=19）**:
+  - searchCandidatesCount median: **6** (閾値 ≥5)
+  - searchCandidatesCount p25: **3** (閾値 ≥3)
+  - hasActionable=false での fire 率: **0%** (閾値 =0%、precision 完全)
+  - 0 candidates 比率: **0%** (閾値 <20%)
+  - candidatesCount sorted: `[3,3,3,3,3,3,3,6,6,6,7,8,8,8,9,9,9,9,9]`
+- **観測前提**:
+  - branch: `preview/coalter-stepc-phase3a` (HEAD `e2eb810b`)
+  - env: `EXA_API_KEY` (preview+production), `COALTER_UNDERSTANDING_DIAGNOSTICS=1` (preview, branch scope)
+  - 観測経路: 正規 ChatClient (`/talk/[threadId]`) → CoAlter button click → POST `/api/coalter/invoke`
+- **本線着地（cherry-pick）**: `e2eb810b` を `feat/coalter-three-stage` に cherry-pick → 新 hash **`45cd1327`**。preview のみあった build blocker 除去（main の portable file 6 個欠落: `AneurasyncLogo.tsx` / `placeCacheStore.ts` / `placesApiClient.ts` / `routesApiClient.ts` / `municipalityCoords.ts` / `episodicRecall.ts`、計 1538 lines）を本線に取り込み、再発防止。
+- **正確な扱い（CEO 確定）**:
+  - Phase 3A retrieval recall/precision の gate は **PASS**
+  - Phase 3B 進行条件は満たした
+  - ただし「完全に健全」ではなく、後続課題が残る
+- **後続課題**（Phase 3B 完了後 or 別 Phase で扱う、優先順位 CEO 確定）:
+  1. theme drift（直前 N turn 累積で「表参道 昼カフェ」が movie 誤分類）
+  2. 同一クエリ / エリアの retrieval 重複（dedup 不足）
+  3. double invoke (10 click → 20 invoke)
+  4. travel/activity の query 弱さ（candidatesCount=3 上限）
+- **次フェーズ**: Phase 3B narration 接続を `feat/coalter-three-stage` 上で開始。`preview/coalter-stepc-phase3a` 上では行わない。
