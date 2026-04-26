@@ -16,6 +16,7 @@
 
 import type { Stage1Snapshot } from "./types";
 import type { TodayMode } from "./understanding/types";
+import type { EmotionTag } from "./emotion/types";
 
 /** TodayMode → narrative 1 行（日本語）。mode を外から追加したときは必ずここに追記する。 */
 const MODE_LINE: Record<TodayMode, string> = {
@@ -87,4 +88,73 @@ export function splitStage1Prefix(summary: string): {
   const idx = summary.indexOf("\n");
   if (idx === -1) return { prefix: null, body: summary };
   return { prefix: summary.slice(0, idx), body: summary.slice(idx + 1) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 3B Layer 2-A — emotion_signals prompt block builder
+//
+// EmotionTag[] を LLM prompt 用の構造化テキスト block に変換する。
+// 既存 stage1 narration prefix (CEO lock M1 C2、UI 表示用 1 行) とは
+// 完全に独立した building block。orchestrator / proposalGenerator が
+// prompt 内に挿入する想定（Layer 2-B 以降の caller）。
+//
+// 出力形式 (CEO 指定):
+//   emotion_signals:
+//   - speaker: user_a
+//     category: mood
+//   - speaker: both
+//     category: friction
+//
+// 設計原則:
+// - source_lexeme は出力に含めない (LLM が「気分」「すれ違い」等の具体語を
+//   見て感情を決めつけるリスクを避ける、CEO Q-L2-2 α 方針)
+// - speaker + category のみで「軽い補助信号」として LLM に渡す
+// - 同一 (speaker, category) は dedupe
+// - 出力順は入力順を維持 (test 安定性)
+// - emotionTags が undefined / empty / 全 entry malformed → null
+//   (= 何も挿入しない、CEO 指示「LLM の出力変化を最小化」)
+// - 失敗独立条文 (§2.3) 遵守: 例外を投げない、不正 entry は skip
+// ─────────────────────────────────────────────────────────────────────────
+
+/** speaker enum の許可値（実行時 type guard 用） */
+const VALID_SPEAKERS = ["user_a", "user_b", "both", "unknown"] as const;
+
+/** category enum (= EmotionCategory) の許可値（実行時 type guard 用） */
+const VALID_CATEGORIES = ["mood", "indecision", "relation", "friction"] as const;
+
+/**
+ * EmotionTag[] を prompt 用 emotion_signals block に変換する。
+ *
+ * @param emotionTags 入力の EmotionTag 配列。undefined / empty で null を返す。
+ * @returns prompt 挿入用の構造化テキスト、または null（挿入しない）。
+ */
+export function buildEmotionSignalsBlock(
+  emotionTags: EmotionTag[] | undefined,
+): string | null {
+  if (!Array.isArray(emotionTags) || emotionTags.length === 0) return null;
+
+  const seen = new Set<string>();
+  const lines: string[] = [];
+
+  for (const tag of emotionTags) {
+    if (!tag || typeof tag !== "object") continue;
+
+    const speaker = (tag as EmotionTag).speaker;
+    const category = (tag as EmotionTag).tag;
+
+    if (typeof speaker !== "string" || typeof category !== "string") continue;
+    if (!VALID_SPEAKERS.includes(speaker as (typeof VALID_SPEAKERS)[number])) continue;
+    if (!VALID_CATEGORIES.includes(category as (typeof VALID_CATEGORIES)[number])) continue;
+
+    const key = `${speaker}:${category}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    lines.push(`- speaker: ${speaker}`);
+    lines.push(`  category: ${category}`);
+  }
+
+  if (lines.length === 0) return null;
+
+  return ["emotion_signals:", ...lines].join("\n");
 }
