@@ -34,6 +34,7 @@ import S7ProposalShown from "./components/states/S7ProposalShown";
 import S8Cooldown from "./components/states/S8Cooldown";
 import PatternPicker from "./components/PatternPicker";
 import StateModeMatrix from "./components/StateModeMatrix";
+import DailyMode from "./components/modes/DailyMode";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -326,6 +327,11 @@ function UpperLayerStateRenderer({
   state: PresenceState;
   modeLabel: "通常" | "Daily" | "Travel";
 }) {
+  // Daily mode は L1-e で Daily 専用 component を mount (override 反映)
+  if (modeLabel === "Daily") {
+    return <DailyMode state={state} />;
+  }
+  // 通常 + Travel は L1-b の通常 state を流用 (Travel 専用は L1-f で導入予定)
   switch (state) {
     case "S0":
       return <S0Observing modeLabel={modeLabel} />;
