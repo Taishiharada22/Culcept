@@ -10,6 +10,7 @@
         "test:unit": "vitest run"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.91.1",
         "@mediapipe/tasks-vision": "^0.10.32",
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-slot": "^1.2.4",
