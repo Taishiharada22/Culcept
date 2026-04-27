@@ -41,6 +41,11 @@ import type {
 import type { TransportMode, TransportSegment } from "../transport/types";
 import { estimateNeutralDurationMin } from "../transport/durationHeuristic";
 import { classifyWhereVague } from "./whereVagueClassifier";
+// CEO 2026-04-28 Option B: home/current → first_event の synthetic travel segment
+//   を 1-event plan でも生成可能にする。HOME_TRAVEL_SENTINEL_ID は実 event_id と
+//   衝突しない sentinel として segment.fromEventId に入る。
+import { HOME_TRAVEL_SENTINEL_ID } from "./transportContext";
+import type { HomeAnchor } from "./transportContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Defaults（Phase 1 固定、将来 CEO 判断で変更）
@@ -178,11 +183,40 @@ function hasCoordinates(event: ComprehensionEvent): boolean {
 function buildTransportSegments(
   events: ComprehensionEvent[],
   mainTransport: TransportMode | undefined,
+  homeAnchor: HomeAnchor | null,
 ): TransportSegment[] {
-  if (events.length < 2) return [];
-
   const segments: TransportSegment[] = [];
   const mode: TransportMode = mainTransport ?? "unknown";
+
+  // ── CEO 2026-04-28 Option B: home/current → first_event 合成 segment ──
+  //   1-event plan でも travel item を出すための合成 edge。
+  //   - homeAnchor が null なら作らない（CEO 案 1: hallucination 防止）
+  //   - first event に coordinates が無ければ作らない（同上）
+  //   - estimateNeutralDurationMin が null（≤0.2km / invalid）でも push しない
+  //     （segment 自体を作らないことで synthesizeTravelItems の null-skip と整合）
+  if (homeAnchor && events.length > 0 && hasCoordinates(events[0])) {
+    const homeCoords = { lat: homeAnchor.lat, lng: homeAnchor.lng };
+    const firstCoords = events[0].where.coordinates!;
+    const estimatedDurationMin = estimateNeutralDurationMin(
+      homeCoords,
+      firstCoords,
+    );
+    if (estimatedDurationMin !== null) {
+      segments.push({
+        fromEventId: HOME_TRAVEL_SENTINEL_ID,
+        toEventId: events[0].event_id,
+        mode,
+        estimatedDurationMin,
+        durationSource: "heuristic",
+        distanceM: null,
+        confidence: mainTransport ? "inferred" : "default",
+        source: "default_walk",
+      });
+    }
+  }
+
+  // ── 既存 event-pair segments（先行 segment と独立に動作）──
+  if (events.length < 2) return segments;
 
   for (let i = 0; i < events.length - 1; i++) {
     const from = events[i];
@@ -230,6 +264,16 @@ export interface BuildPlanAndSegmentsInput {
    * 未指定時は "unknown" として segment を生成する。Phase 1 では per-segment 推定なし。
    */
   mainTransport?: TransportMode;
+  /**
+   * CEO 2026-04-28 Option B: home/current → first_event の synthetic travel segment 用 anchor。
+   *   - 渡された場合: 1-event plan でも events[0] (coordinates 必須) との travel segment を生成
+   *   - null/undefined: home segment を作らない（CEO 案 1: hallucination 防止）
+   * 優先順位（resolveHomeAnchor で解決）:
+   *   1. 現在地 (browser geolocation)
+   *   2. 登録済み自宅 (DB baseline_home_lat/lng)
+   *   3. どちらもない → null
+   */
+  homeAnchor?: HomeAnchor | null;
 }
 
 export interface BuildPlanAndSegmentsOutput {
@@ -248,7 +292,7 @@ export interface BuildPlanAndSegmentsOutput {
 export function buildPlanAndSegmentsFromEvents(
   input: BuildPlanAndSegmentsInput,
 ): BuildPlanAndSegmentsOutput {
-  const { events, enableTransportV2, mainTransport } = input;
+  const { events, enableTransportV2, mainTransport, homeAnchor } = input;
 
   const items = events.map((ev, idx) => eventToPlanItem(ev, idx));
 
@@ -256,6 +300,10 @@ export function buildPlanAndSegmentsFromEvents(
     return { items };
   }
 
-  const transportSegments = buildTransportSegments(events, mainTransport);
+  const transportSegments = buildTransportSegments(
+    events,
+    mainTransport,
+    homeAnchor ?? null,
+  );
   return { items, transportSegments };
 }

@@ -47,9 +47,15 @@ import {
   resolveTransportV2FlagSource,
 } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
-import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
-import type { TransportMode as PlanTransportMode } from "@/lib/alter-morning/transport/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
+// CEO 2026-04-28 Option B: 一元化された transport mapper / home anchor 解決を使う。
+//   旧 mapVcTransportToPlanTransport は本ファイル内に残置していたが、
+//   transportContext.ts に移行（同じ logic を chat 経路と共有）。
+import {
+  deriveDayTransport,
+  mapVcTransportToPlanMode,
+  resolveHomeAnchor,
+} from "@/lib/alter-morning/planning/transportContext";
 import {
   computeSegmentsBuiltTelemetry,
   computeDisplayRenderedTelemetry,
@@ -92,6 +98,13 @@ interface SelectionRequestBody {
     // pass-through: 他の field は変更せずそのまま返却
     [key: string]: unknown;
   };
+  /**
+   * CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+   * selection 後の plan rebuild で home anchor の優先 1 として使われる。
+   * registered home (priorPlan.dayConditions 経由) より優先。
+   */
+  currentLat?: number | null;
+  currentLng?: number | null;
 }
 
 function isString(x: unknown): x is string {
@@ -109,44 +122,8 @@ function validateBody(x: unknown): SelectionRequestBody | null {
   return o as unknown as SelectionRequestBody;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TransportMode mapper (Phase 2 scope 4-D / CEO 2026-04-26)
-//   既存 architectural debt: vcTypes.TransportMode と transport/types.TransportMode が
-//   別 union (vcTypes は "train"/"bus"、transport/types は "public_transit"/"unknown")。
-//   selection 経由で priorPlan.dayConditions.mainTransport (vcTypes) を
-//   buildPlanAndSegmentsFromEvents (transport/types) に渡すため、ここで thin mapping。
-//   完全な型統一は別 PR の構造修正で対応。
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function mapVcTransportToPlanTransport(
-  mode: VcTransportMode | undefined,
-): PlanTransportMode | undefined {
-  if (mode === undefined) return undefined;
-  switch (mode) {
-    case "walk":
-      return "walk";
-    case "bicycle":
-      return "bicycle";
-    case "car":
-    case "motorcycle":
-      return "car";
-    case "taxi":
-      return "taxi";
-    case "train":
-    case "bus":
-      // 公共交通手段は "public_transit" にまとめる (transport/types のセマンティクス)
-      return "public_transit";
-    case "plane":
-      // 飛行機は plan layer では未対応 → unknown 扱い
-      return "unknown";
-    default: {
-      // exhaustive check fallback
-      const _exhaustive: never = mode;
-      void _exhaustive;
-      return "unknown";
-    }
-  }
-}
+// CEO 2026-04-28 Option B: vcTypes ↔ transport/types mapper は
+//   transportContext.ts に一元化（同じ logic を chat 経路と共有）。
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Handler
@@ -179,6 +156,15 @@ export async function POST(req: NextRequest) {
       body;
     const prevDialogState = morningSession.dialogState ?? null;
     const prevEvents = morningSession.persistedEvents ?? [];
+    // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+    //   selection 経路では registered home にアクセスできないため、
+    //   currentLat/Lng が無ければ home anchor は null（travel item 不生成）。
+    //   chat 経路 (legacyAdapter) は registered home を fallback で使えるため、
+    //   Turn 3「電車」入力時に travel item が確実に生成される。
+    const selectionHomeAnchor = resolveHomeAnchor({
+      currentLat: body.currentLat,
+      currentLng: body.currentLng,
+    });
 
     // Step 3: dialogState presence
     if (!prevDialogState) {
@@ -273,12 +259,19 @@ export async function POST(req: NextRequest) {
       //   「電車」入力が plan の travel item に反映されない問題があった。
       //   vcTypes.TransportMode → transport/types.TransportMode の mapping は
       //   mapVcTransportToPlanTransport で（既存 architectural debt の対応）。
+      // CEO 2026-04-28 Option B: transport 解決の優先
+      //   1. events[*].transport (deriveDayTransport) — 直近 Turn の answer 反映
+      //   2. priorPlan.dayConditions.mainTransport — 前 turn から carry
+      // homeAnchor は selection 経路では currentLat/Lng のみ採用 (registered home 不在)。
+      const derivedTransport = deriveDayTransport(eventUpdate.events);
+      const fallbackPlanMode = mapVcTransportToPlanMode(
+        priorPlan.dayConditions?.mainTransport,
+      );
       const built = buildPlanAndSegmentsFromEvents({
         events: eventUpdate.events,
         enableTransportV2,
-        mainTransport: mapVcTransportToPlanTransport(
-          priorPlan.dayConditions?.mainTransport,
-        ),
+        mainTransport: derivedTransport?.plan ?? fallbackPlanMode,
+        homeAnchor: selectionHomeAnchor,
       });
 
       let interleavedItems = built.items;
@@ -315,9 +308,12 @@ export async function POST(req: NextRequest) {
         }
 
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
+        // CEO 2026-04-28 Option B: HOME_SENTINEL fromEventId の segment を
+        //   synthesize で正しく label 解決するため homeAnchor を渡す。
         const entries = synthesizeTravelItems(
           built.transportSegments,
           eventUpdate.events,
+          selectionHomeAnchor,
         );
         interleavedItems = interleaveTravelItems(built.items, entries);
 
@@ -353,9 +349,15 @@ export async function POST(req: NextRequest) {
       const normalizedItems: PlanItem[] = interleavedItems.map((item) =>
         normalizePlanItem(item),
       );
+      // CEO 2026-04-28 Option B: dayConditions.mainTransport を events 由来で更新。
+      //   events に transport が無ければ priorPlan の値を維持（不要な reset を避ける）。
+      const nextDayConditions = derivedTransport
+        ? { ...priorPlan.dayConditions, mainTransport: derivedTransport.vc }
+        : (priorPlan.dayConditions ?? {});
       rebuiltPlan = {
         ...priorPlan,
         items: normalizedItems,
+        dayConditions: nextDayConditions,
         ...(enableTransportV2 && built.transportSegments !== undefined
           ? { transportSegments: built.transportSegments }
           : {}),

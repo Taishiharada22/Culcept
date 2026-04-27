@@ -37,6 +37,13 @@ import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
 import { buildPlanAndSegmentsFromEvents } from "./planning/planRebuild";
+// CEO 2026-04-28 Option B: transport rendering 基盤の wiring
+//   - deriveDayTransport: events[*].transport → dayConditions.mainTransport
+//   - resolveHomeAnchor: currentLat/Lng > homeLat/Lng > null
+import {
+  deriveDayTransport,
+  resolveHomeAnchor,
+} from "./planning/transportContext";
 import {
   synthesizeTravelItems,
   interleaveTravelItems,
@@ -73,6 +80,13 @@ export interface LegacyAdapterInput {
   userHomeLabel?: string | null;
   userHomeLat?: number | null;
   userHomeLng?: number | null;
+  /**
+   * CEO 2026-04-28 Option B: home anchor 解決の優先 1（現在地）。
+   * client (browser geolocation) から chat / selection request body 経由で渡る。
+   * resolveHomeAnchor で homeLat/Lng より優先して採用される。
+   */
+  currentLat?: number | null;
+  currentLng?: number | null;
   /** プラン作成日 fallback。省略時は今日（YYYY-MM-DD） */
   today?: string;
   /**
@@ -600,6 +614,18 @@ export function adaptPipelineToLegacy(
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
+    // ── CEO 2026-04-28 Option B: transport context 解決 ──
+    //   1. events[*].transport を scan して dayConditions.mainTransport を導出
+    //   2. currentLat/Lng → userHomeLat/Lng → null の優先で homeAnchor を解決
+    //   両方を buildPlanAndSegmentsFromEvents に渡す。
+    const derivedTransport = deriveDayTransport(effectiveEvents);
+    const homeAnchor = resolveHomeAnchor({
+      currentLat: input.currentLat,
+      currentLng: input.currentLng,
+      homeLat: input.userHomeLat,
+      homeLng: input.userHomeLng,
+    });
+
     // ── W3-PR-10: planRebuild 委譲 ──
     //   events → PlanItem[] と（flag ON 時のみ）TransportSegment[] を
     //   1 回だけ生成する pure function に委譲。flag OFF 時は transportSegments
@@ -608,6 +634,8 @@ export function adaptPipelineToLegacy(
     const built = buildPlanAndSegmentsFromEvents({
       events: effectiveEvents,
       enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
+      mainTransport: derivedTransport?.plan,
+      homeAnchor,
     });
 
     // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
@@ -662,9 +690,12 @@ export function adaptPipelineToLegacy(
     //   - needs_answer 上書きは event id にのみヒット（travel id は `travel__` prefix で衝突しない）。
     let interleavedItems: PlanItem[];
     if (built.transportSegments !== undefined) {
+      // CEO 2026-04-28 Option B: HOME_SENTINEL fromEventId の segment を
+      // synthesize で正しく label 解決するため homeAnchor を渡す。
       const entries = synthesizeTravelItems(
         built.transportSegments,
         effectiveEvents,
+        homeAnchor,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);
 
@@ -725,10 +756,16 @@ export function adaptPipelineToLegacy(
       return normalizePlanItem(withNeedsAnswer);
     });
 
+    // CEO 2026-04-28 Option B: dayConditions.mainTransport を events[*].transport から
+    //   lift。これがないと selection endpoint が再 rebuild する際に priorPlan から
+    //   読めず、全 turn で「unknown」mode に落ちる。
+    const dayConditions: import("./types").DayConditions = derivedTransport
+      ? { mainTransport: derivedTransport.vc }
+      : {};
     plan = {
       date: today,
       items,
-      dayConditions: {},
+      dayConditions,
       createdAt: new Date().toISOString(),
       confirmed: false,
       status: planStatus,

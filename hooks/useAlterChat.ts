@@ -247,6 +247,41 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 2026-04-28 Option B: 現在地座標 (browser geolocation)
+  //   - hook mount 時に 1 回だけ取得を試みる（失敗時は静かに null）
+  //   - chat / selection request body に乗せ、server で home anchor として優先採用
+  //   - permission 拒否時はパーミッション再要求を強制しない（UX 阻害禁止）
+  //   - 取得済み座標は React state にキャッシュ（同 hook lifecycle 中は不変）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const [currentCoords, setCurrentCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setCurrentCoords({ lat, lng });
+        }
+      },
+      () => {
+        // 拒否 / timeout は黙って無視（registered home が代替）
+      },
+      // 5 秒で諦める（UX 阻害禁止）。high accuracy 不要、cached 値 OK
+      { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
     try {
@@ -352,6 +387,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
           ...(softBridgePending ? { softBridgePending: true } : {}),
+          // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+          //   server で home anchor の優先 1 として採用される。
+          //   取得に失敗 / 拒否されていれば送らない（registered home が代替）。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
         }),
       });
 
@@ -549,6 +590,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           queryFingerprint: requestFingerprint,
           selectedPlaceId,
           morningSession,
+          // CEO 2026-04-28 Option B: 現在地座標（home anchor 優先 1）。
+          //   selection endpoint で travel item の home segment 生成に使う。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
         }),
       });
 

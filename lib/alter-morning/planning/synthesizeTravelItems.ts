@@ -30,6 +30,12 @@ import type { Event as ComprehensionEvent } from "../comprehension/eventSchema";
 import type { PlanItem } from "../types";
 import type { TransportMode, TransportSegment } from "../transport/types";
 import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
+// CEO 2026-04-28 Option B: HOME_TRAVEL_SENTINEL_ID を fromEventId に持つ segment は
+// 実 event ではなく homeAnchor 由来の synthetic edge。本ファイルで label を埋める。
+import {
+  HOME_TRAVEL_SENTINEL_ID,
+  type HomeAnchor,
+} from "./transportContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // id prefix — 既存 travelTimeEngine の `travel_${Date.now()}_${rand}` と衝突
@@ -149,6 +155,7 @@ export interface SynthesizedTravelEntry {
 export function synthesizeTravelItems(
   segments: TransportSegment[],
   events: ComprehensionEvent[],
+  homeAnchor?: HomeAnchor | null,
 ): SynthesizedTravelEntry[] {
   if (segments.length === 0) return [];
 
@@ -160,11 +167,25 @@ export function synthesizeTravelItems(
   const entries: SynthesizedTravelEntry[] = [];
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
-    const from = eventById.get(seg.fromEventId);
-    const to = eventById.get(seg.toEventId);
-    if (!from || !to) {
-      continue;
+
+    // ── CEO 2026-04-28 Option B: HOME_SENTINEL の解釈 ──
+    //   fromEventId が HOME_TRAVEL_SENTINEL_ID なら from は home anchor。
+    //   homeAnchor が渡されていない（呼び出し側のミス）場合は skip（hallucination 防止）。
+    let fromLabel: string;
+    if (seg.fromEventId === HOME_TRAVEL_SENTINEL_ID) {
+      if (!homeAnchor) {
+        // segment は home 用なのに anchor が渡っていない → defensive skip
+        continue;
+      }
+      fromLabel = homeAnchor.label;
+    } else {
+      const from = eventById.get(seg.fromEventId);
+      if (!from) continue;
+      fromLabel = placeLabel(from);
     }
+
+    const to = eventById.get(seg.toEventId);
+    if (!to) continue;
 
     // null-skip: heuristic が null を返した segment（≤0.2km / invalid coords /
     // 失敗）では travel display cache を生成しない。fake 0分 travel 禁止。
@@ -173,7 +194,6 @@ export function synthesizeTravelItems(
       continue;
     }
 
-    const fromLabel = placeLabel(from);
     const toLabel = placeLabel(to);
     const icon = travelIconFor(seg.mode);
     const text = `${icon} ${fromLabel}→${toLabel}`;
@@ -216,6 +236,11 @@ export function synthesizeTravelItems(
 //   - orderHint は 0..n の連番で再付番する
 //
 // 注意: eventItems は events と同じ順序である前提（caller が担保）。
+//
+// CEO 2026-04-28 Option B 拡張:
+//   afterEventId === HOME_TRAVEL_SENTINEL_ID の entry は eventItems の **先頭に prepend**
+//   する（home/current → first event の travel）。
+//   通常 entry（実 event id）は従来通り該当 event の直後に挿入。
 
 export function interleaveTravelItems(
   eventItems: PlanItem[],
@@ -225,9 +250,20 @@ export function interleaveTravelItems(
     return eventItems.map((item, idx) => ({ ...item, orderHint: idx }));
   }
 
+  // ── HOME 由来の prepend entries と event-attached entries に分離 ──
+  const prependEntries: SynthesizedTravelEntry[] = [];
+  const insertEntries: SynthesizedTravelEntry[] = [];
+  for (const entry of entries) {
+    if (entry.afterEventId === HOME_TRAVEL_SENTINEL_ID) {
+      prependEntries.push(entry);
+    } else {
+      insertEntries.push(entry);
+    }
+  }
+
   // afterEventId → entries[] の map（同じ event の直後に複数挟むケースに備える）
   const byAfter = new Map<string, SynthesizedTravelEntry[]>();
-  for (const entry of entries) {
+  for (const entry of insertEntries) {
     const arr = byAfter.get(entry.afterEventId);
     if (arr) {
       arr.push(entry);
@@ -238,6 +274,11 @@ export function interleaveTravelItems(
 
   const result: PlanItem[] = [];
   let orderIdx = 0;
+  // ── HOME → first event を eventItems の前に prepend ──
+  for (const e of prependEntries) {
+    result.push({ ...e.item, orderHint: orderIdx++ });
+  }
+  // ── 既存 event-attached interleave ──
   for (const ev of eventItems) {
     result.push({ ...ev, orderHint: orderIdx++ });
     const travels = byAfter.get(ev.id);
