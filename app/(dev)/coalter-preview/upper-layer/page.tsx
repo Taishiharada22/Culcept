@@ -36,6 +36,10 @@ import PatternPicker from "./components/PatternPicker";
 import StateModeMatrix from "./components/StateModeMatrix";
 import DailyMode from "./components/modes/DailyMode";
 import TravelMode from "./components/modes/TravelMode";
+import ModeSwitcher from "./components/ModeSwitcher";
+import AutoEscalationBanner from "./components/AutoEscalationBanner";
+import ModeReturn from "./components/ModeReturn";
+import RejectionFlows from "./components/RejectionFlows";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -307,6 +311,52 @@ export default function UpperLayerPreviewPage() {
           状態 × モード 優先順位マトリクス (L1-d、UI spec §4)
         </h2>
         <StateModeMatrix />
+      </section>
+
+      {/* L1-g: モード切替 / 昇格・降格 UI フロー preview (UI spec §6) */}
+      <section
+        aria-label="mode transitions"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          モード切替 / 昇格・降格 UI フロー (L1-g、UI spec §6)
+        </h2>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §6.3 手動切替
+            </h3>
+            <ModeSwitcher />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §6.4 自動昇格 (S5 状態優先切替時)
+            </h3>
+            <AutoEscalationBanner />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §6.5 通常モードへの復帰
+            </h3>
+            <ModeReturn />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §6.6 拒否 3 分類 / §6.7 再介入条件 / §6.8 非判定性
+            </h3>
+            <RejectionFlows />
+          </div>
+        </div>
       </section>
     </main>
   );
