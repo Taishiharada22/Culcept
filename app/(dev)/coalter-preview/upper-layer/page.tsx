@@ -23,6 +23,15 @@
  */
 
 import { useState } from "react";
+import S0Observing from "./components/states/S0Observing";
+import S1Approaching from "./components/states/S1Approaching";
+import S2Opening from "./components/states/S2Opening";
+import S3Awaiting from "./components/states/S3Awaiting";
+import S4Understanding from "./components/states/S4Understanding";
+import S5Bridging from "./components/states/S5Bridging";
+import S6ReadyForProposal from "./components/states/S6ReadyForProposal";
+import S7ProposalShown from "./components/states/S7ProposalShown";
+import S8Cooldown from "./components/states/S8Cooldown";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -238,34 +247,67 @@ export default function UpperLayerPreviewPage() {
       </section>
 
       <section
-        aria-label="upper layer preview placeholder"
+        aria-label="upper layer preview"
         style={{
-          background: "#ffffff",
-          border: "1px dashed #c8c8dc",
-          borderRadius: 8,
-          padding: 32,
-          textAlign: "center",
-          color: "#8888a0",
-          fontSize: 13,
-          minHeight: 200,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          gap: 8,
+          padding: "0",
+          marginBottom: 12,
         }}
       >
-        <div style={{ fontSize: 14, color: "#4a4a68" }}>
-          上部レイヤー UI placeholder
+        <div
+          style={{
+            fontSize: 11,
+            color: "#8888a0",
+            marginBottom: 8,
+          }}
+        >
+          選択中: {STATE_LABELS[selectedState]} × Pattern {selectedPattern} ×{" "}
+          {MODE_LABELS[selectedMode]} (L1-b: 通常モード S0-S8 静的再現 / Pattern
+          variant 切替は L1-c で接続予定 / Daily/Travel 差分は L1-e/f で接続予定)
         </div>
-        <div>
-          選択中: <strong>{STATE_LABELS[selectedState]}</strong> ×{" "}
-          <strong>Pattern {selectedPattern}</strong> ×{" "}
-          <strong>{MODE_LABELS[selectedMode]}</strong>
-        </div>
-        <div style={{ fontSize: 12, marginTop: 8 }}>
-          ※ Phase L1-a (scaffold) — 各 state component は L1-b 以降で mount 予定
-        </div>
+        <UpperLayerStateRenderer
+          state={selectedState}
+          modeLabel={MODE_TO_LABEL[selectedMode]}
+        />
       </section>
     </main>
   );
+}
+
+// ─────────────────────────────────────────────
+// state renderer (L1-b: state に応じた component を mount)
+// ─────────────────────────────────────────────
+
+const MODE_TO_LABEL: Record<Mode, "通常" | "Daily" | "Travel"> = {
+  normal: "通常",
+  daily: "Daily",
+  travel: "Travel",
+};
+
+function UpperLayerStateRenderer({
+  state,
+  modeLabel,
+}: {
+  state: PresenceState;
+  modeLabel: "通常" | "Daily" | "Travel";
+}) {
+  switch (state) {
+    case "S0":
+      return <S0Observing modeLabel={modeLabel} />;
+    case "S1":
+      return <S1Approaching modeLabel={modeLabel} />;
+    case "S2":
+      return <S2Opening modeLabel={modeLabel} />;
+    case "S3":
+      return <S3Awaiting modeLabel={modeLabel} />;
+    case "S4":
+      return <S4Understanding modeLabel={modeLabel} />;
+    case "S5":
+      return <S5Bridging modeLabel={modeLabel} />;
+    case "S6":
+      return <S6ReadyForProposal modeLabel={modeLabel} />;
+    case "S7":
+      return <S7ProposalShown modeLabel={modeLabel} />;
+    case "S8":
+      return <S8Cooldown modeLabel={modeLabel} />;
+  }
 }

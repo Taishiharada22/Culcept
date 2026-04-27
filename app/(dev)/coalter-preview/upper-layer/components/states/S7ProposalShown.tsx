@@ -1,0 +1,61 @@
+"use client";
+
+/**
+ * S7 — 提案表示 のレイアウト (UI spec §5.10)
+ *
+ * 密度: expanded-card
+ * 折りたたみ: 発話本文カード = 提案 1 件で expanded、承認チップ 1 個 + 閉じる導線
+ *             + 明示共有 tap (§2.7 handoff)
+ * 固定アンカー:
+ *   - 提案カード = 全幅、expanded-card
+ *   - 承認チップ = 本文カード下、中央寄り 1 個固定
+ *   - 閉じる導線 = 右肩固定
+ *   - 「この提案をチャットに共有」tap = 承認チップの下段
+ */
+
+import UpperLayerShell from "../UpperLayerShell";
+import Chip from "../Chip";
+
+export default function S7ProposalShown({
+  modeLabel = "通常",
+}: {
+  modeLabel?: "通常" | "Daily" | "Travel";
+}) {
+  return (
+    <UpperLayerShell statusLabel="発話中" density="expanded-card" modeLabel={modeLabel}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div
+          style={{
+            border: "1px solid #c8c8dc",
+            borderRadius: 6,
+            padding: "12px 14px",
+            background: "#ffffff",
+            fontSize: 13,
+            color: "#1a1a2e",
+            lineHeight: 1.6,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>提案:</div>
+          <div>〜</div>
+          <div>〜</div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <Chip variant="approve">提案を受ける</Chip>
+          <Chip variant="close">× 閉じる</Chip>
+        </div>
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <Chip variant="response" ariaLabel="明示 handoff">
+            この提案をチャットに共有
+          </Chip>
+        </div>
+      </div>
+    </UpperLayerShell>
+  );
+}
