@@ -44,6 +44,7 @@ import MemorySurface from "./components/memory/MemorySurface";
 import MemoryAccessRail from "./components/memory/MemoryAccessRail";
 import VisibilityControls from "./components/memory/VisibilityControls";
 import RetreatRail from "./components/memory/RetreatRail";
+import UrgentLayer from "./components/urgent/UrgentLayer";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -407,6 +408,23 @@ export default function UpperLayerPreviewPage() {
             <RetreatRail />
           </div>
         </div>
+      </section>
+
+      {/* L1-i: 緊急介入視覚層 preview (UI spec §8.5-§8.6) */}
+      <section
+        aria-label="urgent intervention layer"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          緊急介入視覚層 (L1-i、UI spec §8.5-§8.6)
+        </h2>
+        <UrgentLayer />
       </section>
     </main>
   );
