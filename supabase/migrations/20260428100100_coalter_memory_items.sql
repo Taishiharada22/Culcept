@@ -15,7 +15,8 @@
 
 create table if not exists public.coalter_memory_items (
   id uuid primary key default gen_random_uuid(),
-  pair_id uuid not null references public.coalter_pair_states(pair_id) on delete cascade,
+  -- pair_id は coalter_pair_states.id (master §5、既存 PK) への FK
+  pair_id uuid not null references public.coalter_pair_states(id) on delete cascade,
 
   content text not null,
 
@@ -80,26 +81,29 @@ create trigger trg_coalter_memory_items_updated_at
 -- RLS: pair_id 経由のメンバーのみ。片側可視性 (user_a_only / user_b_only) は viewer の auth.uid() で gate
 alter table public.coalter_memory_items enable row level security;
 
+-- 既存 coalter_pair_states (master §5) の実 schema:
+--   - PK: id (UUID)
+--   - users: user_a / user_b (UUID、auth.users FK)
 drop policy if exists "coalter_memory_items_select_pair_visibility" on public.coalter_memory_items;
 create policy "coalter_memory_items_select_pair_visibility"
   on public.coalter_memory_items for select
   using (
     exists (
       select 1 from public.coalter_pair_states cps
-      where cps.pair_id = coalter_memory_items.pair_id
-        and (cps.user_a_id = auth.uid() or cps.user_b_id = auth.uid())
+      where cps.id = coalter_memory_items.pair_id
+        and (cps.user_a = auth.uid() or cps.user_b = auth.uid())
     )
     and (
       visibility = 'both_visible'
       or (visibility = 'user_a_only' and exists (
         select 1 from public.coalter_pair_states cps
-        where cps.pair_id = coalter_memory_items.pair_id
-          and cps.user_a_id = auth.uid()
+        where cps.id = coalter_memory_items.pair_id
+          and cps.user_a = auth.uid()
       ))
       or (visibility = 'user_b_only' and exists (
         select 1 from public.coalter_pair_states cps
-        where cps.pair_id = coalter_memory_items.pair_id
-          and cps.user_b_id = auth.uid()
+        where cps.id = coalter_memory_items.pair_id
+          and cps.user_b = auth.uid()
       ))
       -- internal_only は client から見えない
     )
@@ -111,8 +115,8 @@ create policy "coalter_memory_items_update_pair_member"
   using (
     exists (
       select 1 from public.coalter_pair_states cps
-      where cps.pair_id = coalter_memory_items.pair_id
-        and (cps.user_a_id = auth.uid() or cps.user_b_id = auth.uid())
+      where cps.id = coalter_memory_items.pair_id
+        and (cps.user_a = auth.uid() or cps.user_b = auth.uid())
     )
   );
 
@@ -128,7 +132,7 @@ create policy "coalter_memory_items_delete_pair_member"
   using (
     exists (
       select 1 from public.coalter_pair_states cps
-      where cps.pair_id = coalter_memory_items.pair_id
-        and (cps.user_a_id = auth.uid() or cps.user_b_id = auth.uid())
+      where cps.id = coalter_memory_items.pair_id
+        and (cps.user_a = auth.uid() or cps.user_b = auth.uid())
     )
   );

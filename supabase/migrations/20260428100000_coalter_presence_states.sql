@@ -17,7 +17,8 @@
 
 -- 1. coalter_presence_states (ペア単位、shared state 9 件)
 create table if not exists public.coalter_presence_states (
-  pair_id uuid primary key references public.coalter_pair_states(pair_id) on delete cascade,
+  -- pair_id は本 table の PK、coalter_pair_states.id (master §5、既存 PK) への FK
+  pair_id uuid primary key references public.coalter_pair_states(id) on delete cascade,
 
   -- 1. executor availability (master §5 / 統合契約 §2.1)
   availability text not null default 'inactive'
@@ -100,16 +101,18 @@ create trigger trg_coalter_presence_states_bump_ts
 -- 5. RLS (pair_id 経由のペアメンバーのみ select/update 可)
 alter table public.coalter_presence_states enable row level security;
 
--- 既存 coalter_pair_states に user_a_id / user_b_id 列がある前提 (master §5)
--- ペアメンバー判定 helper view (既存 schema 整合性のため、ない場合は per-policy で sub-query)
+-- 既存 coalter_pair_states (master §5) の実 schema:
+--   - PK: id (UUID)
+--   - users: user_a / user_b (UUID、auth.users FK)
+-- ペアメンバー判定: cps.id = coalter_presence_states.pair_id AND auth.uid() in (user_a, user_b)
 drop policy if exists "coalter_presence_states_select_pair_member" on public.coalter_presence_states;
 create policy "coalter_presence_states_select_pair_member"
   on public.coalter_presence_states for select
   using (
     exists (
       select 1 from public.coalter_pair_states cps
-      where cps.pair_id = coalter_presence_states.pair_id
-        and (cps.user_a_id = auth.uid() or cps.user_b_id = auth.uid())
+      where cps.id = coalter_presence_states.pair_id
+        and (cps.user_a = auth.uid() or cps.user_b = auth.uid())
     )
   );
 
@@ -119,8 +122,8 @@ create policy "coalter_presence_states_update_pair_member"
   using (
     exists (
       select 1 from public.coalter_pair_states cps
-      where cps.pair_id = coalter_presence_states.pair_id
-        and (cps.user_a_id = auth.uid() or cps.user_b_id = auth.uid())
+      where cps.id = coalter_presence_states.pair_id
+        and (cps.user_a = auth.uid() or cps.user_b = auth.uid())
     )
   );
 
