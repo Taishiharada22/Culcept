@@ -33,6 +33,7 @@ import S6ReadyForProposal from "./components/states/S6ReadyForProposal";
 import S7ProposalShown from "./components/states/S7ProposalShown";
 import S8Cooldown from "./components/states/S8Cooldown";
 import PatternPicker from "./components/PatternPicker";
+import StateModeMatrix from "./components/StateModeMatrix";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -286,6 +287,23 @@ export default function UpperLayerPreviewPage() {
           Pattern variant 合成 preview (L1-c)
         </h2>
         <PatternPicker />
+      </section>
+
+      {/* L1-d: 状態 × モード 優先順位マトリクス */}
+      <section
+        aria-label="state x mode matrix"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          状態 × モード 優先順位マトリクス (L1-d、UI spec §4)
+        </h2>
+        <StateModeMatrix />
       </section>
     </main>
   );
