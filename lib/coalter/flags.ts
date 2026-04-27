@@ -118,6 +118,25 @@ export const COALTER_FLAGS = {
   get foodTierLoop(): boolean {
     return envBool("COALTER_FOOD_TIER_LOOP", false);
   },
+  /**
+   * [Stage 2 L2-g 2026-04-28] `presenceExecutorEnabled`
+   *   - lib/coalter/presence/** の Presence executor を本番経路に組み込むかの
+   *     最終 kill switch (Stage 4 L4-l production flip 用の弁)。
+   *   - 既定 OFF。Stage 4 L4-l flip まで OFF 固定 (CEO 別審議の上で flip)。
+   *   - **flag OFF 時は presence/** が import すらされない**。Stage 1-3 の preview / E2E
+   *     試作はこの flag を介さず別経路 (preview ページ / Stage 3 試作 wiring)。
+   *   - 本 flag が ON になるのは Stage 4 L4-l のみ。flag が ON のとき:
+   *       - 上部レイヤー UI を本番 ChatClient に mount (Stage 4 L4-c-h 経由で legacy
+   *         CoAlterCard と入替)
+   *       - signalAdapter / reducer / patternSelector / cooldownResolver / 各 store が
+   *         active 経路に接続される
+   *   - flag OFF で既存 coalter 挙動 (engine / orchestrator / dispatch / CoAlterCard) が
+   *     1 bit も変わらない。Stage 4 以前の安全弁。
+   *   - env から外せば pre-Stage 4 状態へ即座に戻る。
+   */
+  get presenceExecutorEnabled(): boolean {
+    return envBool("COALTER_PRESENCE_EXECUTOR", false);
+  },
 };
 
 // ─────────────────────────────────────────────

@@ -161,9 +161,12 @@ export function getAllowedPatterns(
 // ─────────────────────────────────────────────
 
 /**
- * Cooldown 種類 (runtime contract §3.2 / UI spec §6.6 / §6.7 統合)。
+ * Cooldown 種類 (6 種)。
  *
- * runtime §3.2 5 種 (resolver 正本) + UI spec §6.6.3 (1 種) = 6 種:
+ * 正本: UI spec §6.7「3 種類の拒否はそれぞれ独立の cooldown・信頼影響を持つ」
+ *       「一括化は禁止」原則 + runtime §3.2 絶対 cooldown 3 種 (normal_s8 / rupture
+ *       / dignity)。3 (絶対) + 3 (拒否独立、§6.6.1/2/3) = 6 種。
+ *
  *   - normal_s8           : 通常 S8 cooldown (Presence サイクル完了、最短 5 分、v1.1 §8.6)
  *   - rupture             : rupture signal 検出 (HDM P3 関係断絶、超越 cooldown §3.3-2)
  *   - dignity             : dignity 違反検出 (HDM P4 尊厳侵害、超越 cooldown §3.3-1)
@@ -171,7 +174,12 @@ export function getAllowedPatterns(
  *   - proposal_rejection  : 個別提案拒否 (UI spec §6.6.2、同テーマのみ抑制)
  *   - intervention_retreat: ユーザー明示後退要求 (UI spec §6.6.3、指定期間 S0→S1 完全停止)
  *
- * 6 種は独立。複数同時発動可 (runtime §3.2)。
+ * 6 種は独立。複数同時発動可。
+ *
+ * NOTE (2026-04-28): runtime §3.2 自体は line 297/309/397 で「5 種類」と表記
+ * しているが、UI spec §6.7「拒否 3 分類それぞれ独立」を機械的に展開すると 6 となる。
+ * runtime contract minor revision で §3.2 表記を「6 種類」+ 拒否 3 分類独立明示に
+ * 同期予定 (CEO task、Stage 2 完了後)。
  */
 export const COOLDOWN_KINDS = [
   "normal_s8",
