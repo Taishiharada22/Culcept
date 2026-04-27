@@ -161,18 +161,25 @@ export function getAllowedPatterns(
 // ─────────────────────────────────────────────
 
 /**
- * Cooldown 種類。L2-j 拒否 3 分類 reducer + Core UX v1.1 §8.6 5 分再起動 で消費。
+ * Cooldown 種類 (runtime contract §3.2 / UI spec §6.6 / §6.7 統合)。
  *
- * - mode_escalation_rejected   : §6.6.1 モード昇格拒否、当該セッション内で自動昇格再試行禁止
- * - individual_proposal_rejected : §6.6.2 個別提案拒否、同内容を短期再提示しない
- * - intervention_retreat       : §6.6.3 介入後退要求、指定期間 S0 → S1 自動遷移完全停止
- * - recent_proposal_5min       : v1.1 §8.6 / UI spec §1.6、5 分再起動禁止 (同セッション)
+ * runtime §3.2 5 種 (resolver 正本) + UI spec §6.6.3 (1 種) = 6 種:
+ *   - normal_s8           : 通常 S8 cooldown (Presence サイクル完了、最短 5 分、v1.1 §8.6)
+ *   - rupture             : rupture signal 検出 (HDM P3 関係断絶、超越 cooldown §3.3-2)
+ *   - dignity             : dignity 違反検出 (HDM P4 尊厳侵害、超越 cooldown §3.3-1)
+ *   - mode_rejection      : モード昇格拒否 (UI spec §6.6.1、当該モードのみ抑制)
+ *   - proposal_rejection  : 個別提案拒否 (UI spec §6.6.2、同テーマのみ抑制)
+ *   - intervention_retreat: ユーザー明示後退要求 (UI spec §6.6.3、指定期間 S0→S1 完全停止)
+ *
+ * 6 種は独立。複数同時発動可 (runtime §3.2)。
  */
 export const COOLDOWN_KINDS = [
-  "mode_escalation_rejected",
-  "individual_proposal_rejected",
+  "normal_s8",
+  "rupture",
+  "dignity",
+  "mode_rejection",
+  "proposal_rejection",
   "intervention_retreat",
-  "recent_proposal_5min",
 ] as const;
 
 export type CooldownKind = (typeof COOLDOWN_KINDS)[number];
@@ -182,14 +189,18 @@ export type CooldownKind = (typeof COOLDOWN_KINDS)[number];
  * 本定数は実装側 default。CEO 別審議で上書き可能 (環境変数 / DB 設定)。
  */
 export const COOLDOWN_DEFAULT_DURATION_MS: Record<CooldownKind, number> = {
-  // §6.6.1: 「当該セッション終了まで」→ session 単位で expiry 扱い、ms は安全大値
-  mode_escalation_rejected: 24 * 60 * 60 * 1000, // 24h (session 上限)
-  // §6.6.2: 「短期的には再提示しない」→ §9 保留、安全大値
-  individual_proposal_rejected: 60 * 60 * 1000, // 1h
-  // §6.6.3: 「指定期間」例 24h、§9 保留
-  intervention_retreat: 24 * 60 * 60 * 1000, // 24h (例値)
   // v1.1 §8.6 / UI spec §1.6: 5 分
-  recent_proposal_5min: 5 * 60 * 1000,
+  normal_s8: 5 * 60 * 1000,
+  // HDM P3: 関係断絶 cooldown、本書では暫定 24h (§9 保留)
+  rupture: 24 * 60 * 60 * 1000,
+  // HDM P4: 尊厳 cooldown、より厳密な抑制が必要なため 24h 暫定
+  dignity: 24 * 60 * 60 * 1000,
+  // §6.6.1: 「当該セッション終了まで」→ session 単位、ms は安全大値
+  mode_rejection: 24 * 60 * 60 * 1000,
+  // §6.6.2: 「短期的には再提示しない」→ §9 保留、暫定 1h
+  proposal_rejection: 60 * 60 * 1000,
+  // §6.6.3: 「指定期間」例 24h
+  intervention_retreat: 24 * 60 * 60 * 1000,
 };
 
 // ─────────────────────────────────────────────

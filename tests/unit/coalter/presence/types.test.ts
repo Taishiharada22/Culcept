@@ -232,13 +232,15 @@ describe("L2-a STATE_PATTERN_PRIORITY — 状態内優先順", () => {
 // ─────────────────────────────────────────────
 
 describe("L2-a Cooldown / Signal default mapping", () => {
-  it("COOLDOWN_KINDS は 4 種 (UI spec §6.7 + v1.1 §8.6 5 分)", () => {
-    expect(COOLDOWN_KINDS).toHaveLength(4);
+  it("COOLDOWN_KINDS は 6 種 (runtime §3.2 5 種 + UI spec §6.6.3 介入後退要求)", () => {
+    expect(COOLDOWN_KINDS).toHaveLength(6);
     expect([...COOLDOWN_KINDS]).toEqual([
-      "mode_escalation_rejected",
-      "individual_proposal_rejected",
+      "normal_s8",
+      "rupture",
+      "dignity",
+      "mode_rejection",
+      "proposal_rejection",
       "intervention_retreat",
-      "recent_proposal_5min",
     ]);
   });
 
@@ -250,8 +252,8 @@ describe("L2-a Cooldown / Signal default mapping", () => {
     }
   });
 
-  it("recent_proposal_5min は 5 分 = 300_000 ms (v1.1 §8.6)", () => {
-    expect(COOLDOWN_DEFAULT_DURATION_MS.recent_proposal_5min).toBe(5 * 60 * 1000);
+  it("normal_s8 は 5 分 = 300_000 ms (v1.1 §8.6 / UI spec §1.6)", () => {
+    expect(COOLDOWN_DEFAULT_DURATION_MS.normal_s8).toBe(5 * 60 * 1000);
   });
 
   it("SIGNAL_KIND_DEFAULT_STRENGTH: implicit のみ soft、他は strong (runtime §1.2)", () => {
