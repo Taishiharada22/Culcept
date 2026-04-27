@@ -839,3 +839,36 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
   - L-4: clarify card に「足りない条件」明示（既存 missingConstraints 経路の UI 強化）
   - L-7: rank=0 時の「何が原因か」UI 表示（"theater 情報が取れなかった" 等の透明化）
   - L-9: 「もっと聞かせて」click 後に context が更新される仕組み
+
+### [2026-04-27] [Build] CoAlter Phase 3B catalog parser 強化打ち切り / 映画 2 段階分離設計へ移行
+- **部門**: Build
+- **決定内容**: B'-1 (theater 解決) / Bug 1 (page 名 reject) / Bug 2 (markdown heading 抽出) と
+  catalog parser 強化を 3 commit 連続で実施。preview 再観測で限定的に Layer 2-C 効果検証に
+  到達したが、CEO 判断で catalog parser 強化はここで打ち切り。映画は「映画館検索」と
+  「映画内容そのもの」の 2 段階分離設計を別 Phase で扱う。
+- **承認**: CEO
+- **ステータス**: 打ち切り判定 / Phase 3B Layer 2-C 観測は限定的成果のまま終了
+- **3 commit の経緯**:
+  1. **B'-1** (`56f7e487` preview / cherry-pick `9a52bfba` feat): theater 解決強化
+     (crank-in / eiga.com URL pattern 追加 + resolveTheaterForTitle chain 順序変更)
+     - 観測結果: rankedCount 0 → 1 達成、UI に「クランクイン！」(page 名) 表示
+     - Layer 2-C emotion 経路が 1 度だけ user-facing に到達
+  2. **Bug 1** (`9ce67668` preview / `f7f597e5` feat): NON_TITLE_SEGMENT に「クランクイン」追加
+     (page 名 → site 名扱いで reject)
+     - 観測結果: 「クランクイン！」消滅、しかし description 内 markdown `# {作品名}` を
+       extractBracketedTitles が拾えず rankedCount 0 後退
+  3. **Bug 2** (`fcfc3d8b` feat、preview 未反映): markdown heading 抽出 helper
+     `extractMarkdownHeadingTitles` 追加、parseMovieScreenings の description fallback chain に統合
+     - unit test 全 PASS (84 files / 1236 tests)、preview deploy 前に CEO パス判定
+- **打ち切り理由**:
+  - 映画は「映画館検索」と「映画内容そのもの」の 2 段階分離が本来の設計（CEO）
+  - catalog parser 単体強化を続けても real EXA results の表記揺れに追従しきれない
+  - parser 強化は 3 commit で十分試行、これ以上は ROI 低い
+- **未反映の commit**:
+  - **`fcfc3d8b` (Bug 2)** は feat 本線に commit 済 + unit test PASS だが preview deploy しない
+  - 映画 2 段階分離設計が定まる前は preview に流さない方針
+- **次フェーズ**: CEO 判断仰ぐ
+  - food path Layer 2-D（narrationEnricher への接続、前 turn で保留）
+  - layout/UI phase（rank=0 理由の見える化、context drift 対策）
+  - 映画 2 段階分離設計（新 Phase）
+  - その他
