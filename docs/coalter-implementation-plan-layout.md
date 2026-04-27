@@ -22,11 +22,19 @@
 **本書が扱う範囲**:
 - Core UX v1.1 Stage 0.5 / 1 / 2 / 3 / 4 の実装順序（§12.1）
 - 上部レイヤー UI（対話面 = 画面上部 CoAlter レイヤー）の静的試作 → executor 骨格 → E2E → 本実装
+- **3 Presence Mode（通常 / Daily / Travel）の UI レイアウト・モード切替 logic・昇格降格フロー・拒否 3 分類**（Core UX v1.1 §2 / UI spec §6）
 - S0-S8 Presence 状態機械（reducer / state machine）
 - Pattern variant（A / B / C / D / E / F-1 / F-2）の文面合成・許可 matrix
-- 共有メモリ surface / 介入 UI
+- **共有メモリ surface（由来 × 確定度 × 可視性 3 軸、可視性操作 UI、後退導線）**（UI spec §8.2-§8.4）
+- **緊急介入視覚層（critical signal → urgent layer / 解除条件 / 非判定性継承）**（UI spec §8.5-§8.6）
+- **連投抑制 構造的担保**（UI spec §1.6 / Core UX §11.4）
+- **UI 基礎要素**: UI 密度の段階（§1.4）/ アニメカテゴリ（§1.5）/ z-index（§2.3）/ focus 競合（§2.4）/ scroll 連動（§2.5）/ 入力欄との競合境界（§2.6）/ action 実行後の handoff 境界（§2.7）
+- **共有メモリ項目の視覚記号型・ラベル階層・有効組み合わせ制約**（UI spec §8.3）
+- **speechBuilder LLM 合成 hook**（speech template §3-§9 静的テンプレ → 動的合成、Stage 4 段階）
 - executor availability（`inactive` / `pending_consent` / `enabled` / `active` / `disabled`）との直交
 - legacy CoAlterCard の明示 handoff 経由への置換
+- **telemetry / 観測計測**（Presence 遷移率 / Pattern 使用分布 / 同意率 / mode 昇格降格率 / 拒否分類別件数 / 緊急介入発火率 / 連投抑制発火率 / legacy fallback 率）
+- **a11y / loading / error / empty state**（各 S × mode における 4 補助状態）
 
 **本書が扱わない範囲**:
 - Bug-1 / Bug-2 / 三段式本流（→ mainstream plan）
@@ -97,16 +105,21 @@
 │  配置: app/(dev)/coalter-preview/upper-layer/** 限定               │
 │  内容: 上部レイヤー ASCII の React 静的再現 / S0-S8 切替だけのモック│
 │       Pattern 合成のプレビューカード                              │
+│       Daily / Travel mode 画面 / モード切替 / 昇格降格 UI フロー    │
+│       共有メモリ surface / 緊急介入視覚層 / UI 基礎要素全項目       │
 │  CEO 承認: 着手時の短確認 + preview 完成時の visual レビュー       │
 │  境界: ChatClient / lib/coalter に 1 bit も影響しない              │
 └────────────────────────────────────┬────────────────────────────┘
                                      │
                                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Stage 2 — 通常 executor 骨格                                      │
+│ Stage 2 — 通常 + Daily + Travel executor 骨格                      │
 │  配置: lib/coalter/presence/** 新規（既存 coalterDispatch 非接触） │
 │  内容: S0-S8 reducer / signal adapter / Pattern variant type /    │
 │       Pattern→State 許可 matrix / executor availability 直交      │
+│       modeReducer (3 mode 昇格・降格 logic) / 共有メモリ store     │
+│       拒否 3 分類 reducer / 緊急介入 trigger / 連投抑制構造的担保   │
+│       speechBuilder LLM 合成 hook (interface のみ、実装は Stage 4) │
 │  CEO 承認: 骨格 landing 後に観測フェーズ合意                       │
 │  境界: Action Mode / CoAlterCard / 既存 coalterDispatch 非接触    │
 └────────────────────────────────────┬────────────────────────────┘
@@ -116,6 +129,8 @@
 │ Stage 3 — preview E2E                                             │
 │  配置: app/(dev)/coalter-preview/full/** + Stage 2 executor 結合  │
 │  内容: 通常モード 1 サイクル S0→S1→S2→...→S8 の preview 内完結動作│
+│       Daily / Travel mode 1 サイクル E2E / モード昇格降格 E2E      │
+│       共有メモリ surface E2E / 緊急介入視覚層 E2E / 拒否 3 分類 E2E│
 │       2 人 mock 会話 / Pattern A-F2 発話 / chip 応答              │
 │  CEO 承認: 観測フェーズ終了時                                      │
 │  境界: ChatClient への介入は引き続きゼロ                           │
@@ -127,7 +142,10 @@
 │  配置: app/components/chat/ChatClient.tsx + 上部レイヤー統合       │
 │  内容: 上部レイヤー本番マウント / executor availability UI         │
 │       legacy CoAlterCard 自動挿入 → 明示 handoff へ置換            │
-│       同意フロー UI / 再有効化経路                                 │
+│       同意フロー UI / 再有効化経路 / shared state 同期実装         │
+│       モード切替 UI 本番マウント / 共有メモリ surface 本番マウント  │
+│       緊急介入視覚層 本番マウント / speechBuilder LLM 合成本番化    │
+│       telemetry 計測 / a11y / loading / error / empty state       │
 │  CEO 承認: 別承認（core UX v1.1 §6.4 ⚠️ + 統合契約 §1.4）          │
 │  境界: mainstream plan の Step E 完了と**整合**させて flip         │
 └─────────────────────────────────────────────────────────────────┘
@@ -355,17 +373,160 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - [ ] 27 セルが全て埋まっている（UI spec §4.3 の網羅性確認）
 - [ ] §4.4「状態優先切替の例外」が preview 上で確認できる（A3 例外の visual demo）
 
-### 4.5 Phase L1-e — CEO visual レビュー
+### 4.5 Phase L1-e — Daily Mode 画面 React 静的再現
 
-- [ ] CEO が preview を開き、v1.1 §3.1 ASCII / UI spec §5 / §7 / §4 との整合を目視確認
+**正本**: Core UX v1.1 §2.1（3 Presence Mode 定義）/ §2.2（通常 vs Daily/Travel 役割の中心）/ UI spec §4「状態×モード優先順位マトリクス」Daily 列 / §5.3-5.11 各 S の Daily 列差分
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/modes/DailyMode.tsx` | **新規** | Daily mode の上部レイヤー外枠（v1.1 §2 / UI spec §4 の Daily 列を React 化） |
+| `app/(dev)/coalter-preview/upper-layer/components/modes/daily/S0Daily.tsx` 〜 `S8Daily.tsx` | **新規 9 件** | UI spec §4.3.1-4.3.9 の Daily 列セル（6 属性: 表示要素 / 文面トーン / chip / mode 表示 / 緊急介入 / 拒否動線）を S0-S8 各々で React 化 |
+| `app/(dev)/coalter-preview/upper-layer/mock/dailyContext.ts` | **新規** | Daily mode の mock 文脈（今日の予定 / 今日の出来事の整理） |
+
+**制約**:
+- 通常モードと UI 構造を共有（DailyMode.tsx は外枠差分のみ、S0-S8 sub-component は通常モード版を base に diff 表示）
+- v1.1 §2.3「Daily/Travel は昇格モード」原則：Daily mode 単独起動の preview ではなく、通常 → Daily 昇格を mock 切替で表現
+- v1.1 §11.5「何でも Daily/Travel にしない」：Daily mode 起動条件を明示 signal（手動切替 mock or 状態優先昇格 mock）に限定
+
+**Gate**:
+- [ ] Daily mode 9 state（S0-S8 × Daily）が preview 上で表示切替可能
+- [ ] UI spec §4.3 Daily 列の 9 セル 6 属性が網羅
+- [ ] 通常 → Daily 昇格 mock が動作
+- [ ] CEO 短確認で Core UX §2.2 の「役割の中心が違う」が視覚的に伝わる
+
+### 4.6 Phase L1-f — Travel Mode 画面 React 静的再現
+
+**正本**: Core UX v1.1 §2.1（3 Presence Mode 定義）/ UI spec §4「状態×モード優先順位マトリクス」Travel 列 / §5.3-5.11 各 S の Travel 列差分
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/modes/TravelMode.tsx` | **新規** | Travel mode の上部レイヤー外枠（v1.1 §2 / UI spec §4 の Travel 列を React 化） |
+| `app/(dev)/coalter-preview/upper-layer/components/modes/travel/S0Travel.tsx` 〜 `S8Travel.tsx` | **新規 9 件** | UI spec §4.3.1-4.3.9 の Travel 列セル（6 属性）を S0-S8 各々で React 化 |
+| `app/(dev)/coalter-preview/upper-layer/mock/travelContext.ts` | **新規** | Travel mode の mock 文脈（旅程 / 行先 / 旅プラン整理） |
+
+**制約**:
+- 通常モードと UI 構造を共有
+- v1.1 §2.3「昇格モード」原則：Travel mode 起動条件を明示 signal に限定
+
+**Gate**:
+- [ ] Travel mode 9 state（S0-S8 × Travel）が preview 上で表示切替可能
+- [ ] UI spec §4.3 Travel 列の 9 セル 6 属性が網羅
+- [ ] 通常 → Travel 昇格 mock が動作
+
+### 4.7 Phase L1-g — モード切替 / 昇格・降格 UI フロー preview
+
+**正本**: UI spec §6 全体（モード切替と昇格／降格 UI）/ Core UX v1.1 §2.3 通常モード本体性
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/ModeSwitcher.tsx` | **新規** | 手動切替 UI（§6.3 手動切替フロー）/ 通常 ⇄ Daily ⇄ Travel button |
+| `app/(dev)/coalter-preview/upper-layer/components/AutoEscalationBanner.tsx` | **新規** | 自動昇格 UI（§6.4 S5 状態優先切替時の昇格通知 banner） |
+| `app/(dev)/coalter-preview/upper-layer/components/ModeReturn.tsx` | **新規** | 通常モード復帰 UI（§6.5）/ Daily/Travel から通常への戻り |
+| `app/(dev)/coalter-preview/upper-layer/components/RejectionFlows.tsx` | **新規** | 拒否 3 分類の UI mock（§6.6.1 mode 昇格拒否 / §6.6.2 個別提案拒否 / §6.6.3 介入そのものの後退要求） |
+| `app/(dev)/coalter-preview/upper-layer/mock/modeTransitions.ts` | **新規** | 切替・昇格・降格・拒否の状態遷移 mock |
+
+**制約**:
+- §6.2 の 3 形態（手動切替 / 自動昇格 / 復帰）を全て preview 上で再現
+- §6.6 の 3 分類拒否は**異なる UI** で区別（拒否種別の混同禁止）
+- §6.7 再介入条件サマリの cooldown 期間も visual 表示
+- §6.8 拒否の非判定性：拒否が「悪い」「失敗」と読まれる視覚要素を一切出さない
+
+**Gate**:
+- [ ] §6.2 3 形態が preview 上で動作
+- [ ] §6.6 3 分類拒否がそれぞれ異なる UI で表示
+- [ ] §6.7 再介入条件 cooldown が表示される
+- [ ] §6.8 非判定性の visual 検証（CEO 短確認）
+
+### 4.8 Phase L1-h — 共有メモリ surface preview
+
+**正本**: UI spec §8.2 共有メモリ surface 表示モデル / §8.3 由来×確定度×可視性 3 軸 / §8.4 可視性操作 UI / Core UX v1.1 §10 共有メモリとモード別文脈管理
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/memory/MemorySurface.tsx` | **新規** | 共有メモリ surface 本体（§8.2.1 コンポーネント形態） |
+| `app/(dev)/coalter-preview/upper-layer/components/memory/MemoryAccessRail.tsx` | **新規** | アクセス導線 UI（§8.2.2、上部レイヤー右端 rail） |
+| `app/(dev)/coalter-preview/upper-layer/components/memory/MemoryItemCard.tsx` | **新規** | 個別メモリ項目 card（§8.3.2 視覚記号型 + §8.3.3 ラベル階層 + §8.3.4 有効組み合わせ制約） |
+| `app/(dev)/coalter-preview/upper-layer/components/memory/VisibilityControls.tsx` | **新規** | 可視性 4 操作 UI（§8.4.1 観測停止 / 訂正 / 削除 / 範囲縮小） + §8.4.1.1 操作の意味境界 |
+| `app/(dev)/coalter-preview/upper-layer/components/memory/RetreatRail.tsx` | **新規** | 後退導線 UI（§8.4.2） |
+| `app/(dev)/coalter-preview/upper-layer/mock/memoryItems.ts` | **新規** | mock メモリ項目（由来 6 種 × 確定度 3 段階 × 可視性 3 段階の網羅サンプル） |
+
+**制約**:
+- §8.3.1 3 軸の独立定義：由来・確定度・可視性は **1:1 mapping しない**（独立の組み合わせを表現）
+- §8.3.4 有効組み合わせ制約：禁止組み合わせ（例: 由来=暗黙観測 ∧ 確定度=確定 など）が UI で生成されない
+- §8.4.3 操作フィードバックのトーン：操作後の応答が裁定的にならない（§6.8 非判定性継承）
+- §8.4.4 片側可視性の範囲：A 側可視 / B 側可視 / 両側可視の 3 種が UI で区別
+
+**Gate**:
+- [ ] §8.2-§8.4 全 component が preview 上で表示
+- [ ] §8.3.1 3 軸が独立して切替可能
+- [ ] §8.3.4 禁止組み合わせが UI で生成されない（test）
+- [ ] §8.4 4 操作が動作、各操作後の visual feedback が §8.4.3 トーン準拠
+
+### 4.9 Phase L1-i — 緊急介入視覚層 preview
+
+**正本**: UI spec §8.5 緊急介入視覚層 / §8.6 memory surface と urgent layer の優先順位 / runtime contract §1.5 critical signal
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/urgent/UrgentLayer.tsx` | **新規** | 緊急介入視覚層本体（§8.5.2 視覚形態） |
+| `app/(dev)/coalter-preview/upper-layer/components/urgent/UrgentMessageCard.tsx` | **新規** | 緊急発話 card（§8.5.3 トーンと視覚言語） |
+| `app/(dev)/coalter-preview/upper-layer/components/urgent/UrgentRelease.tsx` | **新規** | 解除 UI（§8.5.4 解除条件: 自動 / 手動 / cooldown） |
+| `app/(dev)/coalter-preview/upper-layer/mock/urgentScenarios.ts` | **新規** | critical signal 投入 mock（dignity 抵触 / rupture 検出 / safety 違反） |
+
+**制約**:
+- §8.5.5 §6.8 非判定性の継承：緊急発火後の発話・visual で「悪い」「失敗」を表現しない
+- §8.6.1 平常時・緊急時の優先順位：urgent layer 表示時に memory surface は降格 or 縮退（§8.6.2 使い分け）
+- §8.6.3 同時出現時の禁止組み合わせ：urgent + 提案 (S7) 同居禁止など
+- §8.6.4 遷移アニメのトーン連続性：urgent 起動時の motion が裁定的にならない（v1.1 §1.5 アニメカテゴリ準拠）
+
+**Gate**:
+- [ ] critical signal 投入で urgent layer が起動
+- [ ] §8.5.4 3 解除条件が動作
+- [ ] §8.6.1 優先順位 + §8.6.3 禁止組み合わせが UI 構造的に enforce
+- [ ] CEO 短確認で §8.5.3 「裁定にならない」「権威にならない」トーンを目視
+
+### 4.10 Phase L1-j — UI 基礎要素 preview（密度 / アニメ / focus / scroll / z-index / 入力欄競合）
+
+**正本**: UI spec §1.4 UI 密度の段階 / §1.5 アニメカテゴリ / §1.6 連投抑制の構造的担保 / §2.3 z-index / §2.4 focus 競合 / §2.5 scroll 連動 / §2.6 入力欄との競合境界 / §2.7 action 実行後の handoff 境界
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/DensityShowcase.tsx` | **新規** | UI 密度 4 段階の visual demo（§1.4: minimal / standard / focused / urgent） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/AnimationCatalog.tsx` | **新規** | アニメカテゴリ visual demo（§1.5: enter / exit / state-shift / urgent / retreat の 5 カテゴリ） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/ZIndexInspector.tsx` | **新規** | z-index 階層 visualizer（§2.3: メインチャット / 上部レイヤー / urgent / modal の重なり） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/FocusGuard.tsx` | **新規** | focus 競合制御（§2.4: 上部レイヤー focus 取得時のメインチャット保護） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/ScrollSync.tsx` | **新規** | scroll 連動（§2.5: メインチャット scroll に対する上部レイヤー追従ルール） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/InputBoundary.tsx` | **新規** | 入力欄との競合境界（§2.6: 入力中 / IME 中の上部レイヤー応答抑制） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/HandoffBoundary.tsx` | **新規** | action 実行後の handoff 境界（§2.7: 手動 handoff 後の cooldown） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/RateLimitDemo.tsx` | **新規** | 連投抑制構造的担保 demo（§1.6 / Core UX §11.4: 同一 state 連続発話禁止 / cooldown 強制） |
+
+**制約**:
+- §1.5 で定義される motion token をそのまま使う（新規数値禁止、§0.2 整合）
+- glassmorphism design system の既存 z-index token を借用（§2.3 数値はそこに準拠）
+- §2.6 入力欄との競合：IME composition 中は signal 起動禁止（構造的担保、test 必須）
+
+**Gate**:
+- [ ] §1.4 4 段階密度が visual で確認できる
+- [ ] §1.5 5 カテゴリアニメが動作
+- [ ] §2.3 z-index 階層が正しい
+- [ ] §2.4-§2.7 4 境界が**構造的に**enforce（テスト含む）
+- [ ] §1.6 連投抑制の demo で「2 連発が起きない」が visual 確認
+
+### 4.11 Phase L1-k — CEO visual レビュー（Stage 1 全体）
+
+- [ ] CEO が preview を開き、v1.1 §3.1 ASCII / UI spec §4 / §5 / §6 / §7 / §8 全体との整合を目視確認
+- [ ] 通常 / Daily / Travel 3 mode 全てが preview 上で動作
+- [ ] モード切替 / 昇格降格 / 拒否 3 分類 / 共有メモリ / 緊急介入 / UI 基礎要素 が**全て揃っている**ことを CEO が確認
 - [ ] CEO 承認で Stage 1 完了
 
-### 4.6 Stage 1 完了状態
+### 4.12 Stage 1 完了状態
 
 - `app/(dev)/coalter-preview/upper-layer/**` に静的 preview が存在
-- S0-S8 / Pattern A-F2 / 状態×モード matrix の全要素が視覚化
+- S0-S8 / Pattern A-F2 / 状態×モード matrix（27 セル）の全要素が視覚化
+- **3 Presence Mode（通常 / Daily / Travel）9×3 = 27 sub-layout が全て React 化**
+- **モード切替 / 昇格降格 / 拒否 3 分類 / 共有メモリ surface / 緊急介入視覚層 / UI 基礎要素**が preview 上で動作
 - 本番 ChatClient / lib/coalter に影響ゼロ
-- Stage 2 で「Pattern の何を出力するか」「S の何を表示するか」の contract を reducer に持たせる準備完了
+- Stage 2 で「Pattern の何を出力するか」「S の何を表示するか」「mode の何を切り替えるか」「memory の何を保持するか」「urgent の何で起動するか」の contract を reducer / store に持たせる準備完了
 
 ---
 
@@ -484,17 +645,121 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - [ ] flag OFF 既定
 - [ ] flag OFF で既存 coalter 挙動が 1 bit 変わらない（test で検証）
 
-### 5.8 Stage 2 完了条件
+### 5.8 Phase L2-h — modeReducer（mode 昇格・降格 logic）
 
-- [ ] L2-a 〜 L2-g 全 Phase PASS
+**正本**: Core UX v1.1 §2.3 通常モード本体性 / §2.4 3 軸の関係 / UI spec §6.4 自動昇格 / §6.5 通常モードへの復帰 / runtime contract §1.1 signal 5 分類のうち「モード昇格」signal
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/modeReducer.ts` | **新規** | `modeReducer(mode, event): mode` 実装。3 形態（手動切替 / 自動昇格 / 復帰）の遷移 logic |
+| `lib/coalter/presence/modeEscalationDetector.ts` | **新規** | 自動昇格判定（UI spec §6.4 S5 状態優先切替時）。Daily/Travel 起動条件: 明示 signal のみ（v1.1 §11.5 何でも Daily/Travel にしない原則） |
+| `lib/coalter/presence/modeReturnLogic.ts` | **新規** | 通常モード復帰 logic（UI spec §6.5）/ Daily/Travel 文脈完了 or 明示降格で通常へ |
+| `tests/unit/coalter/presence/modeReducer.test.ts` | **新規** | ① 通常 → Daily 手動切替 / ② 通常 → Travel 手動切替 / ③ 通常 → Daily/Travel 自動昇格（明示 signal） / ④ 暗黙 signal で昇格しない（§11.5 enforce） / ⑤ Daily → 通常復帰 / ⑥ Travel → 通常復帰 / ⑦ Daily ↔ Travel 直接遷移禁止 |
+| `tests/unit/coalter/presence/modeEscalationDetector.test.ts` | **新規** | 明示 signal で昇格 / 暗黙 signal で昇格しない / state 優先昇格条件 |
+
+**Gate**:
+- [ ] modeReducer 7 ケース PASS
+- [ ] §11.5「何でも Daily/Travel にしない」原則が構造的に担保（暗黙 signal 起動 path が**存在しない**）
+- [ ] Daily ↔ Travel 直接遷移禁止が enforce
+
+### 5.9 Phase L2-i — 共有メモリ store（3 軸: 由来 × 確定度 × 可視性）
+
+**正本**: UI spec §8.3 共有メモリ項目の由来・確定度・可視性ラベル / Core UX v1.1 §10 共有メモリとモード別文脈管理
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/memoryStore.ts` | **新規** | 共有メモリ store。`MemoryItem` 型: `{ id, content, origin, certainty, visibility, modeContext, createdAt, updatedAt }` |
+| `lib/coalter/presence/memoryTypes.ts` | **新規** | 型定義: `Origin` (6 種) / `Certainty` (3 段階: 仮 / 暫定 / 確定) / `Visibility` (3 段階: A 側のみ / B 側のみ / 両側) / `ModeContext` (通常 / Daily / Travel) |
+| `lib/coalter/presence/memoryConstraints.ts` | **新規** | §8.3.4 有効組み合わせ制約。禁止組み合わせ enforcer（暗黙観測 ∧ 確定 など） |
+| `lib/coalter/presence/memoryVisualType.ts` | **新規** | §8.3.2 視覚記号型 → 表示形式 mapping（type-safe） |
+| `lib/coalter/presence/memoryLabelHierarchy.ts` | **新規** | §8.3.3 ラベル階層ルール |
+| `lib/coalter/presence/modeContextManager.ts` | **新規** | Core UX §10.2 モード別セッション文脈の保持・切替 / §10.3 モード遷移時の文脈継承ルール |
+| `tests/unit/coalter/presence/memoryStore.test.ts` | **新規** | CRUD + 3 軸独立性（§8.3.1）+ 禁止組み合わせ rejected（§8.3.4）|
+| `tests/unit/coalter/presence/modeContextManager.test.ts` | **新規** | mode 遷移時の文脈継承（§10.3 ルール準拠） |
+
+**Gate**:
+- [ ] §8.3 全項目の TypeScript 型化
+- [ ] §8.3.4 禁止組み合わせが**構造的に**生成不可能（コンパイル時 or runtime guard）
+- [ ] mode 遷移時の文脈継承ルール test PASS
+
+### 5.10 Phase L2-j — 拒否 3 分類 reducer
+
+**正本**: UI spec §6.6 拒否の 3 分類（mode 昇格拒否 / 個別提案拒否 / 介入そのものの後退要求）/ §6.7 再介入条件サマリ / §6.8 拒否の非判定性
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/rejectionReducer.ts` | **新規** | 拒否 3 分類 state machine。`RejectionType = "mode_escalation" \| "individual_proposal" \| "coalter_retreat"` |
+| `lib/coalter/presence/reentryConditions.ts` | **新規** | §6.7 再介入条件サマリ。各拒否種別の cooldown 期間・解除条件・再介入 trigger |
+| `tests/unit/coalter/presence/rejectionReducer.test.ts` | **新規** | ① mode 昇格拒否で mode 復帰 / ② 個別提案拒否で次提案までの cooldown 増加 / ③ coalter 後退要求で availability `disabled` 遷移 / ④ 3 種拒否の混同なし（独立した state） |
+| `tests/unit/coalter/presence/reentryConditions.test.ts` | **新規** | §6.7 cooldown 期間 / 再介入 trigger の正確性 |
+
+**Gate**:
+- [ ] 3 拒否種別の独立性が構造的に担保（1 enum or 1 reducer に統合しない、§2.3.1 直交原則準拠）
+- [ ] §6.8 非判定性：拒否後の state が「失敗」「悪い」を内部表現として持たない
+- [ ] §6.7 再介入条件 test 全 PASS
+
+### 5.11 Phase L2-k — 緊急介入 trigger logic
+
+**正本**: UI spec §8.5 緊急介入視覚層 / §8.6 優先順位 / runtime contract §1.5 critical signal
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/urgentTrigger.ts` | **新規** | critical signal → urgent layer 起動 logic（§8.5.1 責務） |
+| `lib/coalter/presence/urgentReleaseLogic.ts` | **新規** | §8.5.4 解除条件（自動 / 手動 / cooldown）の 3 path |
+| `lib/coalter/presence/urgentMemoryPriority.ts` | **新規** | §8.6.1 平常時 / 緊急時優先順位 / §8.6.2 降格 vs 縮退 / §8.6.3 同時出現禁止組み合わせ enforcer |
+| `tests/unit/coalter/presence/urgentTrigger.test.ts` | **新規** | dignity 抵触 / rupture 検出 / safety 違反で urgent 起動 |
+| `tests/unit/coalter/presence/urgentMemoryPriority.test.ts` | **新規** | urgent 起動時に memory surface が降格 or 縮退（§8.6.2 使い分け）/ urgent + S7 同居禁止（§8.6.3） |
+
+**Gate**:
+- [ ] critical signal 3 種で urgent 起動
+- [ ] §8.5.4 3 解除 path が動作
+- [ ] §8.6.3 禁止組み合わせが構造的に enforce
+
+### 5.12 Phase L2-l — 連投抑制 構造的担保
+
+**正本**: UI spec §1.6 連投抑制の構造的担保 / Core UX v1.1 §11.4 連投しない / §5.2 1 回の発話でやることは 1 つ / §5.3 長く話さない
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/rateLimitGuard.ts` | **新規** | 連投抑制 guard。同一 state 連続発話禁止 / cooldown 強制 / 1 発話 1 タスク enforcer |
+| `lib/coalter/presence/utteranceQueue.ts` | **新規** | 発話 queue（同時発話禁止、構造的に 1 発話単位の serialize） |
+| `tests/unit/coalter/presence/rateLimitGuard.test.ts` | **新規** | ① 同一 state で 2 連発が**構造的に**起きない / ② cooldown 中の発話 reject / ③ §5.2 1 発話 1 タスク違反検出 / ④ §5.3 文長 override 違反検出 |
+
+**Gate**:
+- [ ] 連投が**コード構造で**禁止（試行に対して reject、ログ警告ではなく enforce）
+- [ ] §11.4 連投しない原則の構造的担保が test で検証
+
+### 5.13 Phase L2-m — speechBuilder LLM 合成 hook（interface のみ）
+
+**正本**: speech template §3-§9 文面テンプレート / Core UX v1.1 §4 通常モード発話パターン 6 種
+
+**目的**: Stage 1 で「LLM 呼ばない」だった speechBuilder の **interface 層** を Stage 2 で先に定義し、Stage 4 で本実装する準備をする。本 Phase では interface のみ、実装は Stage 4。
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/speechBuilder.ts` | **新規（interface 層）** | `buildPresenceSpeech(variant, state, mode, context): Promise<SpeechOutput>` の interface。実装は Stage 4 で LLM 合成導線を追加 |
+| `lib/coalter/presence/speechValidator.ts` | **新規** | speech template §2 共通禁止表現の構造検査（語彙レベル） + §1.2.1 6 項目 checker（LLM 出力の事後 validation 用 entry point） |
+| `lib/coalter/presence/speechTypes.ts` | **新規** | `SpeechOutput` 型 / `ToneCategory` / `LengthOverride` / Pattern 別の文長制約（speech template §3.3 / §4.3 / §5.3 / §6.3 / §7.3 / §8.3 文長 override） |
+| `tests/unit/coalter/presence/speechValidator.test.ts` | **新規** | §2 共通禁止表現の検出 / §1.2.1 6 項目 checker / mainstream plan の Bug-1 lexeme 正本との整合 |
+
+**Gate**:
+- [ ] interface 型が speech template §3-§9 全 Pattern に対応
+- [ ] §2 禁止表現 validator が動作
+- [ ] mainstream plan EMOTION_TAG_LEXEMES 正本との整合（dual source 禁止、import 経由のみ）
+- [ ] LLM 呼び出し実装は Stage 4 に委譲（本 Phase で touch しない）
+
+### 5.14 Stage 2 完了条件
+
+- [ ] L2-a 〜 L2-m 全 Phase PASS
 - [ ] `tests/unit/coalter/presence/` 全 PASS
 - [ ] `tests/unit/coalter/` 累積全 PASS（既存テスト回帰ゼロ）
 - [ ] `npx tsc --noEmit` エラー 0
 - [ ] 既存 `coalterDispatch.ts` / `coalterOrchestrator.ts` / CoAlterCard / 他 `lib/coalter/**` に diff ゼロ
 - [ ] `npm run build` 成功
+- [ ] **3 Presence Mode reducer / 共有メモリ store / 拒否 3 分類 / 緊急介入 trigger / 連投抑制 / speechBuilder interface が全て揃う**
 - [ ] CEO が骨格 landing 後の観測フェーズ合意
 
-**ロールバック**: Phase 単位 revert（L2-g → f → e → d → c → b → a）。新規サブディレクトリのみなので影響局所。
+**ロールバック**: Phase 単位 revert（L2-m → l → k → j → i → h → g → f → e → d → c → b → a）。新規サブディレクトリのみなので影響局所。
 
 ---
 
@@ -552,18 +817,121 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - [ ] local state（入力中テキスト）が相手側に伝播しない
 - [ ] optimistic update の revert が視覚確認できる
 
-### 6.4 Phase L3-d — CEO 観測フェーズ
+### 6.4 Phase L3-d — Daily Mode 1 サイクル E2E
 
-- [ ] CEO が preview で 7 シナリオを全て確認
-- [ ] Pattern / state / 発話トーンが Core UX v1.1 / speech template / UI spec と整合
+**目的**: Daily mode で S0 → S8 の 9 遷移が preview 上で観察できる。
+
+| シナリオ | 入力 signal | 期待遷移 | 期待発話 |
+|---|---|---|---|
+| Daily 通常経路 | Daily 暗黙 signal mock（今日の予定整理 trigger） | S0(Daily) → S1 → S2 | S2 で Pattern B (Daily 文脈) |
+| Daily chip 応答 | S3(Daily) で chip tap | S3 → S4 → S5 | S5 で Pattern E (Daily 橋渡し) |
+| Daily 提案 | S5(Daily) → S6 → S7 | | S7 で Pattern F-2 (生活提案、Daily 文脈) |
+| Daily 退出 | Daily 文脈完了 | S7 → S8 → S0(通常) | 通常モード復帰（§6.5）|
+
+**Gate**:
+- [ ] Daily 4 シナリオ全て preview で再現
+- [ ] Daily 文脈完了後に**通常モード自動復帰**（§6.5）
+
+### 6.5 Phase L3-e — Travel Mode 1 サイクル E2E
+
+**目的**: Travel mode で S0 → S8 の 9 遷移が preview 上で観察できる。
+
+| シナリオ | 入力 signal | 期待遷移 | 期待発話 |
+|---|---|---|---|
+| Travel 通常経路 | Travel 明示 signal（旅程整理 trigger） | S0(Travel) → S1 → S2 | S2 で Pattern B (Travel 文脈) |
+| Travel chip 応答 | S3(Travel) で chip tap | S3 → S4 → S5 | S5 で Pattern E (Travel 橋渡し) |
+| Travel 提案 | S5(Travel) → S6 → S7 | | S7 で Pattern F-2 (旅程提案) |
+| Travel 退出 | Travel 文脈完了 | S7 → S8 → S0(通常) | 通常モード復帰 |
+
+**Gate**:
+- [ ] Travel 4 シナリオ全て preview で再現
+- [ ] Travel 文脈完了後に**通常モード自動復帰**
+
+### 6.6 Phase L3-f — モード昇格・降格 E2E
+
+**正本**: UI spec §6.4 自動昇格 / §6.5 通常モード復帰 / §6.3 手動切替
+
+| シナリオ | 入力 | 期待遷移 |
+|---|---|---|
+| 手動 → Daily | ModeSwitcher tap | 通常 → Daily（§6.3） |
+| 手動 → Travel | ModeSwitcher tap | 通常 → Travel |
+| 自動昇格（S5 状態優先） | S5 で Daily 文脈 signal | 通常 → Daily 自動昇格 banner（§6.4） |
+| 通常復帰 | Daily 完了 or 明示降格 | Daily → 通常（§6.5） |
+| Daily ↔ Travel 直接遷移 | mock 試行 | **拒否される**（modeReducer §11.5 enforce） |
+| 何でも Daily/Travel 防止 | 暗黙 signal で Daily 起動試行 | **拒否される**（§11.5 構造的担保） |
+
+**Gate**:
+- [ ] 6 シナリオ全て preview で再現
+- [ ] §11.5「何でも Daily/Travel にしない」の structural enforce が動作
+
+### 6.7 Phase L3-g — 共有メモリ surface E2E
+
+**正本**: UI spec §8.2-§8.4 / Core UX §10
+
+| シナリオ | 入力 | 期待挙動 |
+|---|---|---|
+| メモリ追加 | mock 観測 trigger | MemorySurface に MemoryItemCard 追加（origin / certainty / visibility 3 軸表示） |
+| 可視性操作 | VisibilityControls 4 操作各々 | 観測停止 / 訂正 / 削除 / 範囲縮小（§8.4.1）|
+| 後退導線 | RetreatRail tap | 全メモリ後退 + UI トーン §8.4.3 準拠 |
+| 禁止組み合わせ生成試行 | 由来=暗黙 ∧ 確定度=確定 を試行 | **構造的に拒否**（§8.3.4） |
+| 片側可視性 | A 側のみ visibility | A 側 client にのみ表示、B 側に表示されない（§8.4.4） |
+| mode 文脈継承 | 通常 → Daily 昇格 | §10.3 ルール準拠で文脈継承 |
+
+**Gate**:
+- [ ] 6 シナリオ全て動作
+- [ ] §8.3.4 / §8.4.3 / §10.3 の 3 ルールが visual + 構造で確認
+
+### 6.8 Phase L3-h — 緊急介入視覚層 E2E
+
+**正本**: UI spec §8.5-§8.6 / runtime §1.5
+
+| シナリオ | 入力 | 期待挙動 |
+|---|---|---|
+| dignity 抵触 critical | mock dignity signal | urgent layer 起動 + memory surface 縮退（§8.6.2） |
+| rupture 検出 critical | mock rupture signal | urgent layer 起動 + memory surface 降格 |
+| safety 違反 critical | mock safety signal | urgent layer 起動 + 全 chip 非表示（§8.6.3 禁止組み合わせ enforce） |
+| 自動解除 | mock 5 分経過 | urgent layer 自動解除（§8.5.4） |
+| 手動解除 | UrgentRelease tap | urgent layer 即解除 |
+| cooldown 解除 | mock cooldown 完了 | urgent layer 解除 + 平常 memory surface 復帰 |
+| urgent + S7 同居試行 | mock | **構造的に拒否**（§8.6.3） |
+| トーン連続性 | urgent 起動 → 解除 | §8.6.4 アニメ連続性が裁定的にならない（CEO 短確認） |
+
+**Gate**:
+- [ ] 8 シナリオ全て動作
+- [ ] §8.6.3 禁止組み合わせが UI 構造で enforce
+- [ ] §8.5.5 / §8.6.4 非判定性継承が CEO 確認で合格
+
+### 6.9 Phase L3-i — 拒否 3 分類 E2E
+
+**正本**: UI spec §6.6 拒否 3 分類 / §6.7 再介入条件 / §6.8 非判定性
+
+| シナリオ | 入力 | 期待挙動 |
+|---|---|---|
+| mode 昇格拒否 | 自動昇格 banner で拒否 | mode は通常維持、cooldown §6.7 |
+| 個別提案拒否 | S7 提案を拒否 | 同種提案 cooldown 増加（§6.7） |
+| coalter 後退要求 | RetreatRail で「介入そのものを止める」 | availability `enabled` → `disabled` 遷移 + 再有効化経路表示（§6.7） |
+| 3 拒否の独立性 | 3 種を順番に試行 | 各拒否が**他の拒否 state を変更しない**（独立性 enforce） |
+| 非判定性 | 各拒否後 visual 確認 | 「失敗」「悪い」表現がゼロ（§6.8 / CEO 確認） |
+| 再介入条件サマリ | 各 cooldown 完了 | §6.7 表通りの解除条件で再介入可能 |
+
+**Gate**:
+- [ ] 6 シナリオ全て動作
+- [ ] §6.6 3 分類の独立性が確認
+- [ ] §6.8 非判定性が CEO 確認で合格
+
+### 6.10 Phase L3-j — CEO 観測フェーズ
+
+- [ ] CEO が preview で全シナリオ（通常 7 + Daily 4 + Travel 4 + mode 6 + memory 6 + urgent 8 + rejection 6 = **41 シナリオ**）を確認
+- [ ] Pattern / state / mode / memory / urgent / 発話トーンが Core UX v1.1 / speech template / UI spec / runtime contract と整合
 - [ ] **観測フェーズ終了** = CEO 承認で Stage 4 着手可
 
-### 6.5 Stage 3 完了条件
+### 6.11 Stage 3 完了条件
 
-- [ ] L3-a 〜 L3-d 全 Phase PASS
-- [ ] preview で 7 シナリオ再現
+- [ ] L3-a 〜 L3-j 全 Phase PASS
+- [ ] preview で 41 シナリオ再現
 - [ ] `tests/unit/coalter/presence/` 累積全 PASS
 - [ ] ChatClient 非接触継続
+- [ ] **3 Presence Mode + 共有メモリ + 緊急介入 + 拒否 3 分類が preview E2E で全て動く**
 - [ ] CEO 観測フェーズ合格
 
 ---
@@ -653,20 +1021,136 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - [ ] migration が Stargazer 方式（CEO 承認 + 未実行でも可）に従う
 - [ ] E2E test で eventually consistent の挙動実測
 
-### 7.6 Phase L4-f — 本番 flip（flag ON、CEO 審議）
+### 7.6 Phase L4-f — モード切替 UI 本番マウント
+
+**正本**: UI spec §6 / Core UX v1.1 §2
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/components/chat/ModeSwitcher.tsx` | **新規** | preview L1-g の component を本番化（手動切替 button） |
+| `app/components/chat/AutoEscalationBanner.tsx` | **新規** | 自動昇格 banner（§6.4） |
+| `app/components/chat/ModeReturnPrompt.tsx` | **新規** | 通常モード復帰 UI（§6.5） |
+| `app/components/chat/RejectionFlows.tsx` | **新規** | 拒否 3 分類 UI（§6.6） |
+| `app/components/chat/ChatClient.tsx` | **修正** | 上部レイヤー mount に modeSwitcher / banner / rejection を統合（flag ON 時のみ） |
+| `tests/unit/coalter/chatClientModeSwitch.test.ts` | **新規** | flag OFF で diff ゼロ / flag ON でモード切替動作 / Daily ↔ Travel 直接遷移禁止 |
+
+**Gate**:
+- [ ] flag OFF で既存 ChatClient 不変
+- [ ] flag ON で 3 mode 切替が本番 UI で動作
+- [ ] 拒否 3 分類が独立 UI で動作
+
+### 7.7 Phase L4-g — 共有メモリ surface 本番マウント
+
+**正本**: UI spec §8.2-§8.4 / Core UX §10
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/components/chat/MemorySurface.tsx` | **新規** | preview L1-h の本番化 |
+| `app/components/chat/MemoryAccessRail.tsx` | **新規** | アクセス導線（§8.2.2） |
+| `app/components/chat/MemoryItemCard.tsx` | **新規** | 個別メモリ card（§8.3.2 視覚記号 + §8.3.3 ラベル階層） |
+| `app/components/chat/VisibilityControls.tsx` | **新規** | 4 操作 UI（§8.4.1） |
+| `app/components/chat/RetreatRail.tsx` | **新規** | 後退導線（§8.4.2） |
+| `app/api/coalter/memory/**` | **新規 API** | server 側 memory CRUD API（CEO 承認後） |
+| migration | **新規** | `coalter_memory_items` table（origin / certainty / visibility / mode_context 列含む） |
+| `tests/integration/coalter/memorySurfaceE2E.test.ts` | **新規** | 2 client memory 同期 / 片側可視性 / 禁止組み合わせ rejected |
+
+**Gate**:
+- [ ] §8.3.4 禁止組み合わせが server 側でも enforce
+- [ ] §8.4.4 片側可視性が server side で enforce
+- [ ] memory CRUD E2E PASS
+- [ ] CEO 承認済の場合のみ migration 実行（Stargazer 方式）
+
+### 7.8 Phase L4-h — 緊急介入視覚層 本番マウント
+
+**正本**: UI spec §8.5-§8.6 / runtime §1.5
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/components/chat/UrgentLayer.tsx` | **新規** | preview L1-i の本番化 |
+| `app/components/chat/UrgentMessageCard.tsx` | **新規** | 緊急発話 card（§8.5.3 トーン） |
+| `app/components/chat/UrgentRelease.tsx` | **新規** | 解除 UI（§8.5.4） |
+| `app/components/chat/ChatClient.tsx` | **修正** | urgent layer を上部レイヤー最上位に mount（flag ON 時のみ）/ memory surface との優先順位 enforcer |
+| `tests/integration/coalter/urgentLayerE2E.test.ts` | **新規** | critical signal 投入 → urgent 起動 / §8.6 優先順位 enforce |
+
+**Gate**:
+- [ ] critical signal 3 種で urgent 起動
+- [ ] §8.6.3 禁止組み合わせが本番 UI で enforce
+- [ ] §8.6.4 トーン連続性 CEO 確認
+
+### 7.9 Phase L4-i — speechBuilder LLM 合成本番化
+
+**正本**: speech template §3-§9 / Stage 2 L2-m interface
+
+**目的**: Stage 2 で interface のみだった speechBuilder の **LLM 合成実装** を本番化する。
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/speechBuilder.ts` | **修正（実装追加）** | LLM 合成実装（speech template §3-§9 を prompt として注入、Pattern variant 別の文長 override 適用） |
+| `lib/coalter/presence/speechPromptBuilder.ts` | **新規** | speech template §3-§9 → LLM prompt 構築。§1.2.1 6 項目 + §2 共通禁止表現を必ず prompt に含める |
+| `lib/coalter/presence/speechPostValidator.ts` | **新規** | LLM 出力に対する事後 validator（§2 禁止語彙静的検査 + §1.2.1 6 項目 checker）。違反時は再生成 or fallback |
+| `lib/coalter/flags.ts` | **修正** | `presenceSpeechLLMEnabled` 新設（既定 OFF、env `COALTER_PRESENCE_SPEECH_LLM`）。Stage 4 中盤で ON flip |
+| `tests/unit/coalter/presence/speechBuilder.test.ts` | **新規** | LLM mock で 7 Pattern × 9 state × 3 mode = 189 ケース / 禁止表現 reject / 文長 override 遵守 |
+| `tests/unit/coalter/presence/speechPostValidator.test.ts` | **新規** | §2 違反検出 / §1.2.1 6 項目検出 / fallback 経路 |
+
+**Gate**:
+- [ ] flag OFF で speechBuilder は静的 mock 文面（Stage 1 の挙動維持）
+- [ ] flag ON で LLM 合成 + 事後 validator が動作
+- [ ] §2 / §1.2.1 違反が**ゼロ**（ランダム 100 ケース sampling）
+- [ ] mainstream Bug-1 lexeme 正本との dual source 禁止
+
+### 7.10 Phase L4-j — telemetry / 計測実装
+
+**正本**: 本書 §0.1（telemetry / 観測計測項目一覧）
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `lib/coalter/presence/telemetry.ts` | **新規** | 計測 emitter。8 項目: ① Presence state 遷移率 / ② Pattern 使用分布 / ③ 同意・再有効化率 / ④ legacy fallback 率 / ⑤ mode 昇格・降格率 / ⑥ 拒否分類別件数 / ⑦ 緊急介入発火率 / ⑧ 連投抑制発火率 |
+| `lib/coalter/presence/telemetryEvents.ts` | **新規** | event 型定義（PostHog or 自前 analytics への送信 entry point） |
+| `app/api/coalter/presence/telemetry/route.ts` | **新規 API** | server 側計測収集 endpoint |
+| `tests/unit/coalter/presence/telemetry.test.ts` | **新規** | 8 項目すべての emit / fail-open / payload schema |
+
+**Gate**:
+- [ ] 8 項目すべてが presence state 動作中に emit される
+- [ ] 計測失敗で本体 UI が止まらない（fail-open）
+- [ ] payload schema が固定（後方互換維持）
+
+### 7.11 Phase L4-k — a11y / loading / error / empty state
+
+**正本**: UI spec §1（UI 全体原則）/ §5 各 S レイアウト
+
+**目的**: 各 S × mode（27 セル）における 4 補助状態（loading / error / empty / a11y focus）の UI を本番化。
+
+| ファイル | 種別 | 変更 |
+|---|---|---|
+| `app/components/chat/states/StateLoadingFallback.tsx` | **新規** | 各 S の loading 状態（v1.1 §1.5 アニメカテゴリ準拠） |
+| `app/components/chat/states/StateErrorFallback.tsx` | **新規** | 各 S の error 状態（fail-open、§6.8 非判定性継承） |
+| `app/components/chat/states/StateEmptyFallback.tsx` | **新規** | 各 S の empty 状態（観測なし時の minimal 表示） |
+| `app/components/chat/states/StateAriaWrapper.tsx` | **新規** | a11y 属性 wrapper（aria-live / aria-label / role= など） |
+| `tests/unit/coalter/chatClientFallbacks.test.ts` | **新規** | 各 S × mode の 4 補助状態が rendering / a11y axe-core 静的検査 PASS |
+| `tests/integration/coalter/a11yE2E.test.ts` | **新規** | スクリーンリーダー mock で urgent layer の announcement 動作 |
+
+**Gate**:
+- [ ] 27 セル × 4 補助状態 = 108 ケースが全て rendering
+- [ ] axe-core 静的検査 PASS
+- [ ] urgent layer の aria-live="assertive" が機能
+
+### 7.12 Phase L4-l — 本番 flip（flag ON、CEO 審議）
 
 **最終段階**:
 
-1. preview / staging で full E2E 観測（1 週間以上）
+1. preview / staging で full E2E 観測（1 週間以上、L4-f / g / h / i / j / k 全反映）
 2. CEO 審議: mainstream E-3（三段式 flip）との整合、legacy 退役審議
-3. CEO 承認で `COALTER_PRESENCE_EXECUTOR=true` + `COALTER_LEGACY_CARD_AUTO_INSERT=false` を本番反映
+3. CEO 承認で flag flip:
+   - `COALTER_PRESENCE_EXECUTOR=true`
+   - `COALTER_LEGACY_CARD_AUTO_INSERT=false`
+   - `COALTER_PRESENCE_SPEECH_LLM=true`（speechBuilder LLM 合成）
 4. `docs/decision-log.md` に記録
 
-**ロールバック**: 両 flag を元に戻す → 即既存 UI / legacy 自動挿入に復帰。
+**ロールバック**: 3 flag を元に戻す → 即既存 UI / legacy 自動挿入 / 静的 speech に復帰。
 
-### 7.7 Phase L4-g — legacy code 削除（1 rev 後 CEO 審議）
+### 7.13 Phase L4-m — legacy code 削除（1 rev 後 CEO 審議）
 
-**前提**: L4-f flip 後 1 rev（推奨: 2 週間以上）観測して問題ゼロ
+**前提**: L4-l flip 後 1 rev（推奨: 2 週間以上）観測して問題ゼロ
 
 | ファイル | 種別 | 変更 |
 |---|---|---|
@@ -679,12 +1163,14 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - [ ] 削除後も `tests/` 全 PASS
 - [ ] `docs/coalter-legacy-cardplacement-retirement-plan.md` を「完了」で close
 
-### 7.8 Stage 4 完了条件
+### 7.14 Stage 4 完了条件
 
-- [ ] L4-a 〜 L4-g 全 Phase PASS
+- [ ] L4-a 〜 L4-m 全 Phase PASS
 - [ ] `COALTER_PRESENCE_EXECUTOR=true` 本番稼働
 - [ ] `COALTER_LEGACY_CARD_AUTO_INSERT=false` 本番稼働
-- [ ] legacy code 削除（L4-g 完了）
+- [ ] `COALTER_PRESENCE_SPEECH_LLM=true` 本番稼働
+- [ ] 3 mode 本番 UI / 共有メモリ surface / 緊急介入視覚層 / speechBuilder LLM / telemetry 8 項目 / a11y 4 補助状態 が全て稼働
+- [ ] legacy code 削除（L4-m 完了）
 - [ ] 統合契約 §1.4 整合達成
 - [ ] CEO 最終承認
 
@@ -696,10 +1182,11 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 |---|---|---|---|---|
 | **`COALTER_PRESENCE_EXECUTOR`** | `presenceExecutorEnabled` (L2-g 新設) | **OFF** | presence/ reducer + 上部レイヤー UI 起動 | Stage 2 以降 |
 | **`COALTER_LEGACY_CARD_AUTO_INSERT`** | `legacyCardAutoInsertEnabled` (L4-c 新設) | **ON（移行期）** | legacy CoAlterCard 自動挿入維持 | Stage 4 未満で ON、flip で OFF |
+| **`COALTER_PRESENCE_SPEECH_LLM`** | `presenceSpeechLLMEnabled` (L4-i 新設) | **OFF** | speechBuilder の LLM 合成本番化 | Stage 4 中盤以降 |
 
 **原則**:
 - Stage 2-3 では `COALTER_PRESENCE_EXECUTOR=false` が既定（preview は dev flag で局所 ON）
-- Stage 4 本番 flip までは両 flag の本番値を変更しない
+- Stage 4 本番 flip までは 3 flag の本番値を変更しない
 - 全 flag OFF で Stage 1 前の CoAlter 挙動が 1 bit も変わらない（handoff §3 継続）
 
 ---
@@ -711,12 +1198,12 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | Stage | Phase 数 | Commit 数 | 粒度原則 |
 |---|---|---|---|
 | Stage 0.5 | L0-a **着地済** / L0-b | 1 commit（L0-b のみ） | L0-a は `a98114c4` で着地済 / L0-b 新規 doc 1 |
-| Stage 1 | L1-a 〜 e | 5 commit | 基盤 / 状態 / Pattern / matrix / レビュー |
-| Stage 2 | L2-a 〜 g | 7 commit | 型 / signal / reducer / pattern selector / availability / shared state / flag |
-| Stage 3 | L3-a 〜 d | 4 commit | ハーネス / E2E / 同期 mock / レビュー |
-| Stage 4 | L4-a 〜 g | 7 commit | マウント / signal / legacy 置換 / 同意 / 同期 / flip / 削除 |
+| Stage 1 | L1-a 〜 k（11 Phase） | 11 commit | 基盤 / S0-S8 / Pattern / matrix / Daily / Travel / モード切替 / 共有メモリ / 緊急介入 / UI 基礎 / レビュー |
+| Stage 2 | L2-a 〜 m（13 Phase） | 13 commit | 型 / signal / reducer / pattern selector / availability / shared state / flag / modeReducer / 共有メモリ store / 拒否 3 分類 / 緊急介入 trigger / 連投抑制 / speechBuilder interface |
+| Stage 3 | L3-a 〜 j（10 Phase） | 10 commit | ハーネス / 通常 E2E / 同期 mock / Daily E2E / Travel E2E / mode E2E / 共有メモリ E2E / 緊急介入 E2E / 拒否 E2E / レビュー |
+| Stage 4 | L4-a 〜 m（13 Phase） | 13 commit | マウント / signal / legacy 置換 / 同意 / 同期 / mode UI / 共有メモリ UI / 緊急介入 UI / speechBuilder LLM / telemetry / a11y / flip / 削除 |
 
-**合計**: 約 24 commit（layout 系統、L0-a 着地済み分を除く）
+**合計**: 約 48 commit（layout 系統、L0-a 着地済み分を除く）
 
 ### 9.2 Branch 戦略
 
@@ -733,15 +1220,23 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | Stage | 完了条件 |
 |---|---|
 | Stage 0.5 | §3.5（§6 追記 + 退役計画 doc） |
-| Stage 1 | §4.6（preview 静的、CEO visual レビュー）|
-| Stage 2 | §5.8（executor 骨格、CEO 観測フェーズ合意）|
-| Stage 3 | §6.5（preview E2E、CEO 観測フェーズ合格）|
-| Stage 4 | §7.8（本番 flip + legacy 削除、CEO 最終承認）|
+| Stage 1 | §4.12（preview 静的全要素、CEO visual レビュー）|
+| Stage 2 | §5.14（executor 骨格 + 3 mode + 共有メモリ + 拒否 + 緊急介入 + 連投抑制 + speech interface、CEO 観測フェーズ合意）|
+| Stage 3 | §6.11（preview E2E 41 シナリオ、CEO 観測フェーズ合格）|
+| Stage 4 | §7.14（本番 flip + speechBuilder LLM + telemetry + a11y + legacy 削除、CEO 最終承認）|
 
 ### 10.2 レイアウト系統 全完了
 
 - Stage 0.5 〜 4 全完了
-- `COALTER_PRESENCE_EXECUTOR=true` / `COALTER_LEGACY_CARD_AUTO_INSERT=false` 本番稼働
+- `COALTER_PRESENCE_EXECUTOR=true` / `COALTER_LEGACY_CARD_AUTO_INSERT=false` / `COALTER_PRESENCE_SPEECH_LLM=true` 本番稼働
+- 3 Presence Mode（通常 / Daily / Travel）本番稼働
+- 共有メモリ surface（3 軸: 由来×確定度×可視性）本番稼働
+- 緊急介入視覚層 本番稼働
+- 拒否 3 分類 本番稼働
+- 連投抑制 構造的担保 本番稼働
+- speechBuilder LLM 合成 本番稼働
+- telemetry 8 項目 計測稼働
+- a11y / loading / error / empty 4 補助状態 全 27 セル稼働
 - 統合契約 4 契約点 / runtime 3 論点 / Core UX v1.1 不可侵項 全て遵守実測
 - mainstream plan の E-3（三段式本番 flip）と整合完了
 - legacy CoAlterCard 自動挿入コード削除
@@ -784,20 +1279,20 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 新セッションはこの順序で進める:
 
 1. **Day 0**: Stage 0.5 Phase L0-a は**着地済**（commit `a98114c4` 確認のみ）/ L0-b（退役計画 doc 起草）のみ着手 → CEO 短確認
-2. **Day 1-3**: Stage 1 L1-a 〜 e（preview 静的試作）→ CEO visual レビュー
-3. **Day 3-6**: Stage 2 L2-a 〜 g（executor 骨格）→ CEO 観測フェーズ合意
-4. **Day 6-9**: Stage 3 L3-a 〜 d（preview E2E）→ CEO 観測フェーズ合格
-5. **Day 9+**: Stage 4 着手判断（mainstream E-3 整合 + CEO 別承認）
-6. **Day 9-12 (CEO 承認後)**: Stage 4 L4-a 〜 f（本番 flip）
-7. **Day 12 + 2 週間観測**: Stage 4 L4-g（legacy code 削除、CEO 別承認）
+2. **Day 1-7**: Stage 1 L1-a 〜 k（preview 静的試作 11 Phase: 基盤 / S0-S8 / Pattern / matrix / Daily / Travel / モード切替 / 共有メモリ / 緊急介入 / UI 基礎 / CEO レビュー）
+3. **Day 7-14**: Stage 2 L2-a 〜 m（executor 骨格 13 Phase: 型 / signal / reducer / patternSelector / availability / shared state / flag / modeReducer / memoryStore / rejectionReducer / urgentTrigger / rateLimitGuard / speechBuilder interface）
+4. **Day 14-21**: Stage 3 L3-a 〜 j（preview E2E 10 Phase: ハーネス / 通常 E2E / 同期 mock / Daily E2E / Travel E2E / mode E2E / memory E2E / urgent E2E / rejection E2E / CEO 観測）
+5. **Day 21+**: Stage 4 着手判断（mainstream E-3 整合 + CEO 別承認）
+6. **Day 21-35 (CEO 承認後)**: Stage 4 L4-a 〜 l（本番 flip 12 Phase: マウント / signal / legacy 置換 / 同意 / 同期 / mode UI / memory UI / urgent UI / speechBuilder LLM / telemetry / a11y / 本番 flip）
+7. **Day 35 + 2 週間観測**: Stage 4 L4-m（legacy code 削除、CEO 別承認）
 
 **マイルストーン**:
 - Milestone L-0.5: Stage 0.5 完了（statutory refs 追記 + 退役計画 doc）
-- Milestone L-1: Stage 1 完了（preview 静的試作）
-- Milestone L-2: Stage 2 完了（executor 骨格）
-- Milestone L-3: Stage 3 完了（preview E2E）
-- Milestone L-4a: Stage 4 本番 flip
-- Milestone L-4g: legacy 削除完了
+- Milestone L-1: Stage 1 完了（preview 静的試作 全要素）
+- Milestone L-2: Stage 2 完了（executor 骨格 + 3 mode + memory + rejection + urgent + rateLimit + speech interface）
+- Milestone L-3: Stage 3 完了（preview E2E 41 シナリオ）
+- Milestone L-4l: Stage 4 本番 flip（3 mode + memory + urgent + speechBuilder LLM + telemetry + a11y）
+- Milestone L-4m: legacy 削除完了
 
 ---
 
@@ -817,7 +1312,8 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | 日付 | 版 | 変更内容 | 承認 |
 |---|---|---|---|
 | 2026-04-24 | v0.1 DRAFT | 初稿起草。Stage 0.5 / 1 / 2 / 3 / 4 の Phase 分解、commit 粒度、変更ファイル、型定義、テスト、gate、ロールバック、kill switch 地図、mainstream との合流点を網羅 | CEO 承認待ち |
+| 2026-04-27 | v0.2 DRAFT | CEO 指示により Daily/Travel UI（L1-e/f）/ モード切替・昇格降格（L1-g, L2-h, L3-f, L4-f）/ 共有メモリ surface（L1-h, L2-i, L3-g, L4-g）/ 緊急介入視覚層（L1-i, L2-k, L3-h, L4-h）/ UI 基礎要素（L1-j）/ 拒否 3 分類（L2-j, L3-i）/ 連投抑制（L2-l）/ speechBuilder LLM（L2-m, L4-i）/ telemetry（L4-j）/ a11y（L4-k）を全面追加。22 新 Phase、commit 数 24 → 48、§0.1 範囲拡張、§1.1 ロードマップ全段拡張、§8 kill switch 3 件化、§13 着手順序更新 | CEO 承認待ち |
 
 ---
 
-**🎯 結論（v0.1 DRAFT）**: 本書は Core UX v1.1 / UI spec / speech template / 統合契約 / runtime 契約 を**統合した実装手順書**。既存正本 doc を**新規解釈せず**、Stage 0.5 → 1 → 2 → 3 → 4 の順序と commit 粒度で実装を進める。新セッションは本書冒頭から順に commit を重ねれば、上部レイヤー本番実装と legacy 退役が論理的に達成される。本流修正系統（Bug-1/2/三段式）は `docs/coalter-implementation-plan-mainstream.md` に委譲。両 plan の合流点は §14 で明示。
+**🎯 結論（v0.2 DRAFT）**: 本書は Core UX v1.1 / UI spec / speech template / 統合契約 / runtime 契約 を**統合した実装手順書**。既存正本 doc を**新規解釈せず**、Stage 0.5 → 1 → 2 → 3 → 4 の順序と commit 粒度で実装を進める。新セッションは本書冒頭から順に commit を重ねれば、上部レイヤー本番実装（**3 Presence Mode + 共有メモリ surface + 緊急介入視覚層 + 拒否 3 分類 + 連投抑制 + speechBuilder LLM + telemetry + a11y**）と legacy 退役が論理的に達成される。本流修正系統（Bug-1/2/三段式）は `docs/coalter-implementation-plan-mainstream.md` に委譲。両 plan の合流点は §14 で明示。
