@@ -40,6 +40,10 @@ import ModeSwitcher from "./components/ModeSwitcher";
 import AutoEscalationBanner from "./components/AutoEscalationBanner";
 import ModeReturn from "./components/ModeReturn";
 import RejectionFlows from "./components/RejectionFlows";
+import MemorySurface from "./components/memory/MemorySurface";
+import MemoryAccessRail from "./components/memory/MemoryAccessRail";
+import VisibilityControls from "./components/memory/VisibilityControls";
+import RetreatRail from "./components/memory/RetreatRail";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -355,6 +359,52 @@ export default function UpperLayerPreviewPage() {
               §6.6 拒否 3 分類 / §6.7 再介入条件 / §6.8 非判定性
             </h3>
             <RejectionFlows />
+          </div>
+        </div>
+      </section>
+
+      {/* L1-h: 共有メモリ surface preview (UI spec §8.2-§8.4) */}
+      <section
+        aria-label="shared memory surface"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          共有メモリ surface (L1-h、UI spec §8.2-§8.4)
+        </h2>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §8.2.1 surface 本体 + §8.3 3 軸ラベル
+            </h3>
+            <MemorySurface />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §8.2.2 アクセス導線 (4 形態切替)
+            </h3>
+            <MemoryAccessRail />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §8.4.1 可視性 4 操作 / §8.4.1.1 操作の意味境界
+            </h3>
+            <VisibilityControls />
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §8.4.2 後退導線
+            </h3>
+            <RetreatRail />
           </div>
         </div>
       </section>
