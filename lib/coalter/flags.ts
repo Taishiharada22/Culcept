@@ -119,6 +119,19 @@ export const COALTER_FLAGS = {
     return envBool("COALTER_FOOD_TIER_LOOP", false);
   },
   /**
+   * [Stage 4 L4-i 2026-04-28] `presenceSpeechLLMEnabled`
+   *   - speechBuilder の LLM 合成経路を有効化する kill switch (Stage 4 L4-i)。
+   *   - **既定 OFF**。Stage 4 L4-l flip まで OFF 固定 (CEO 別審議)。
+   *   - flag OFF: speechBuilder は static mock 文面を返す (Stage 1 挙動維持)
+   *   - flag ON: speechPromptBuilder + LLM 合成 + speechPostValidator 経路
+   *   - env: `COALTER_PRESENCE_SPEECH_LLM`。env から外せば既定 OFF へ戻る。
+   *   - 不可侵: flag OFF で speech template §3-§9 prompt 経路に入らない
+   *     (LLM 課金経路が production behavior 不変原則を侵さない)。
+   */
+  get presenceSpeechLLMEnabled(): boolean {
+    return envBool("COALTER_PRESENCE_SPEECH_LLM", false);
+  },
+  /**
    * [Stage 4 L4-c 2026-04-28] `legacyCardAutoInsertEnabled`
    *   - 旧 CoAlterCard 自動挿入経路 (ChatClient.tsx :1741-1759、退役計画 doc §1.1) を
    *     enable するかの kill switch。

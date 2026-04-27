@@ -1,52 +1,146 @@
 /**
- * CoAlter Stage 2 — speechBuilder interface (L2-m)
+ * CoAlter Stage 4 L4-i — speechBuilder LLM 合成本番化
  *
- * 正本: layout plan v0.3 §5.13 (interface のみ、実装は Stage 4)
+ * 正本: layout plan v0.3 §5.13 (interface) + §7.9 (LLM 合成本番化)
  *
- * 本 phase の責務: Stage 4 LLM 合成導線で消費される **interface 層** の固定。
- * 実装は Stage 4 で `runStageBuildPresenceSpeech` 等の LLM 統合経路を追加する。
+ * 本 phase 改修:
+ *   - flag presenceSpeechLLMEnabled OFF (既定): static mock 文面を返す (Stage 1 挙動維持)
+ *   - flag ON: speechPromptBuilder + LLM call + speechPostValidator 経路
  *
- * 本 phase 不可侵:
- *   - LLM 呼び出しの実装は Stage 4 に委譲 (本 phase で touch しない)
- *   - 型定義 + stub のみ
+ * Stage 4 L4-l flip まで flag OFF 固定 (production behavior 不変)。
+ *
+ * 不可侵:
+ *   - flag OFF で LLM 課金経路に到達しない (production cost 不変原則)
+ *   - speech template §2 / §1.2.1 違反は postValidateSpeech で構造的に reject
+ *   - mainstream Bug-1 lexeme 整合: speechValidator が import 経由で参照
  */
 
-import { LENGTH_OVERRIDE_BY_VARIANT } from "./speechTypes";
+import { COALTER_FLAGS } from "@/lib/coalter/flags";
+import {
+  LENGTH_OVERRIDE_BY_VARIANT,
+} from "./speechTypes";
 import type {
   BuildPresenceSpeechInput,
   SpeechOutput,
+  ToneCategory,
 } from "./speechTypes";
+import { buildSpeechPrompt } from "./speechPromptBuilder";
+import { postValidateSpeech } from "./speechPostValidator";
+
+// ─────────────────────────────────────────────
+// Static mock 文面 (flag OFF 経路 / fallback)
+// ─────────────────────────────────────────────
+
+const STATIC_MOCK_BY_VARIANT: Readonly<Record<string, string>> = {
+  A: "今、間に入れそうな間が少しありそう。",
+  B: "二人の間に少し温度差が見えるかもしれません。",
+  C: "少し整理する時間を入れてみるのはどうですか？",
+  D: "その揺れに視線を向けてみてもいいかもしれません。",
+  E: "違う言葉で言うと、こう聞こえているのかもしれません。",
+  F1: "二人で少し話す時間を取れるとよさそうです。",
+  F2: "夕方の予定を整えるなら、20 分の話す時間を入れてみる方法があります。",
+};
+
+const TONE_BY_VARIANT: Readonly<Record<string, ToneCategory>> = {
+  A: "calm",
+  B: "calm",
+  C: "tentative",
+  D: "attentive",
+  E: "calm",
+  F1: "tentative",
+  F2: "tentative",
+};
+
+// ─────────────────────────────────────────────
+// LLM call interface (DI)
+// ─────────────────────────────────────────────
 
 /**
- * Stage 4 で実装される speech 合成関数の interface。
+ * LLM 呼び出し関数の型 (本書 interface のみ、実装は Stage 4 L4-l 環境変数 + DI 経由)。
  *
- * 本 phase の stub は Stage 4 まで `not-implemented` を投げる。
- * 呼び出し側 (Stage 3 試作 / Stage 4 統合) は本 interface を import して使う。
+ * 実 production では Anthropic SDK / OpenAI SDK を呼ぶラッパーが本関数として注入される。
+ */
+export type LlmCallFn = (prompt: string) => Promise<string>;
+
+// グローバル DI スロット (default は throw、L4-l flip 時に setLlmCall で注入)
+let injectedLlmCall: LlmCallFn | null = null;
+
+export function setLlmCall(fn: LlmCallFn | null): void {
+  injectedLlmCall = fn;
+}
+
+// ─────────────────────────────────────────────
+// buildPresenceSpeech (本番実装)
+// ─────────────────────────────────────────────
+
+/**
+ * Pattern variant + state + mode + context → SpeechOutput。
  *
- * Stage 4 実装時は以下を行う (本書では指示のみ):
- *   1. LLM 呼び出し (Anthropic / OpenAI 経由)
- *   2. speech template §3-§9 各 Pattern の prompt 適用
- *   3. validateSpeech (speechValidator) で禁止表現を除去
- *   4. LengthOverride 適用 (variant 別文長制約)
- *   5. tone カテゴリ付与 (UI spec §0.5)
+ * - flag OFF: static mock 文面を返す (Stage 1 挙動維持、LLM 課金ゼロ)
+ * - flag ON: prompt 構築 → LLM 呼び出し → 事後 validate (再生成 / fallback)
  */
 export async function buildPresenceSpeech(
   input: BuildPresenceSpeechInput,
 ): Promise<SpeechOutput> {
-  // Stage 4 まで stub。呼び出し側は本関数を直接 await しない (Stage 3 試作は
-  // mock で代替、Stage 4 で本実装)。
-  void input;
-  throw new Error(
-    "buildPresenceSpeech is not implemented in Stage 2. Implementation " +
-      "is deferred to Stage 4 (LLM 合成導線、layout plan v0.3 §5.13)",
-  );
+  const override = LENGTH_OVERRIDE_BY_VARIANT[input.variant];
+  const tone = TONE_BY_VARIANT[input.variant] ?? "calm";
+  const fallbackText = STATIC_MOCK_BY_VARIANT[input.variant] ?? "(fallback)";
+
+  // flag OFF: static mock を返す (Stage 1 挙動維持)
+  if (!COALTER_FLAGS.presenceSpeechLLMEnabled) {
+    return {
+      body: fallbackText,
+      tone,
+      appliedLength: override,
+    };
+  }
+
+  // flag ON: LLM 経路
+  if (!injectedLlmCall) {
+    // LLM call 関数が未注入 → fallback (fail-open、production 落ちない)
+    return {
+      body: fallbackText,
+      tone,
+      appliedLength: override,
+    };
+  }
+
+  const prompt = buildSpeechPrompt(input, override);
+
+  let initialText: string;
+  try {
+    initialText = await injectedLlmCall(prompt);
+  } catch {
+    return {
+      body: fallbackText,
+      tone,
+      appliedLength: override,
+    };
+  }
+
+  const validated = await postValidateSpeech(initialText, {
+    regenerate: async () => {
+      try {
+        return await injectedLlmCall!(prompt);
+      } catch {
+        throw new Error("regenerate failed");
+      }
+    },
+    fallbackText,
+    override,
+    maxRetries: 2,
+  });
+
+  return {
+    body: validated.finalText,
+    tone,
+    appliedLength: override,
+  };
 }
 
 /**
- * Pattern 別の LengthOverride を返す helper (validator が消費)。
+ * Pattern 別 LengthOverride lookup (L2-m から維持)。
  */
-export function getLengthOverride(
-  variant: BuildPresenceSpeechInput["variant"],
-) {
+export function getLengthOverride(variant: BuildPresenceSpeechInput["variant"]) {
   return LENGTH_OVERRIDE_BY_VARIANT[variant];
 }

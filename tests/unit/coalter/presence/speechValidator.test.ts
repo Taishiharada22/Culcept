@@ -236,14 +236,32 @@ describe("L2-m validateSpeech — 統合 checker", () => {
 // buildPresenceSpeech (Stage 2 stub、Stage 4 実装委譲)
 // ─────────────────────────────────────────────
 
-describe("L2-m buildPresenceSpeech — Stage 2 stub (Stage 4 委譲)", () => {
-  it("Stage 2 では throw (LLM 実装は Stage 4)", async () => {
-    await expect(
-      buildPresenceSpeech({
-        variant: "A",
-        state: "S2",
+describe("L4-i buildPresenceSpeech — flag OFF で static mock 文面 (Stage 1 挙動維持)", () => {
+  it("flag presenceSpeechLLMEnabled OFF で static mock を返す (LLM 課金ゼロ)", async () => {
+    // env で flag を強制 OFF
+    const original = process.env.COALTER_PRESENCE_SPEECH_LLM;
+    delete process.env.COALTER_PRESENCE_SPEECH_LLM;
+    const result = await buildPresenceSpeech({
+      variant: "A",
+      state: "S2",
+      mode: "normal",
+    });
+    expect(result.body).toContain("間に入れそう");
+    expect(result.tone).toBe("calm");
+    if (original !== undefined) process.env.COALTER_PRESENCE_SPEECH_LLM = original;
+  });
+
+  it("各 variant の static mock が空文字でない", async () => {
+    const variants: Array<"A" | "B" | "C" | "D" | "E" | "F1" | "F2"> = [
+      "A", "B", "C", "D", "E", "F1", "F2",
+    ];
+    for (const variant of variants) {
+      const r = await buildPresenceSpeech({
+        variant,
+        state: variant === "A" ? "S2" : variant.startsWith("F") ? "S7" : "S5",
         mode: "normal",
-      }),
-    ).rejects.toThrow(/Stage 4/);
+      });
+      expect(r.body.length).toBeGreaterThan(0);
+    }
   });
 });
