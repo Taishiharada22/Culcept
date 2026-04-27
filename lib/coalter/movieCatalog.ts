@@ -352,6 +352,54 @@ export function extractBracketedTitles(text: string): string[] {
   return found;
 }
 
+/**
+ * 2026-04-27 Bug 2: description 内の markdown heading から作品名候補を抽出する。
+ *
+ * 動機: crank-in / その他の listing page の description は `『...』` `「...」` ではなく
+ *   `# {作品名}` (markdown level-1 heading) で作品が列挙される構造を持つ。
+ *   `extractBracketedTitles` だけでは拾えず、Bug 1 修正（page 名 reject）後に
+ *   description fallback が機能しなくなる問題があった。
+ *
+ * 採用条件:
+ *   - level-1 heading `^#\s+...` のみを採用（`##`, `###` は meta header の傾向が強い、
+ *     例: `## 上映作品・スケジュール` `## 映画情報`）
+ *   - 既存 `acceptTitleCandidate` (cleanSegment + length + GENRE_ONLY + isListicleOrMeta) を必ず通す
+ *   - 加えて `NON_TITLE_SEGMENT` で source/site/theater/meta 名を reject
+ *     （`# TOHOシネマズ` `# クランクイン！` `# 池袋の映画館 上映スケジュール` 等）
+ *   - 重複排除 + 上限 6 件
+ *
+ * 失敗時 fail-open: 例外を投げず `[]` を返す。
+ */
+export function extractMarkdownHeadingTitles(text: string): string[] {
+  if (!text) return [];
+  const found: string[] = [];
+  const seen = new Set<string>();
+  // level-1 heading のみ。`^##` `^###` 等は match させない (negative lookahead は使わず、
+  // capture 後に `##` で始まらないことを確認する設計でも可だが、ここでは簡潔に
+  // `(?:^|\n)# ` で開始位置を制約する)。
+  const re = /(?:^|\n)#\s+([^\n]+)/g;
+  let m: RegExpExecArray | null;
+  try {
+    while ((m = re.exec(text)) !== null) {
+      const raw = m[1].trim();
+      if (!raw) continue;
+      const picked = acceptTitleCandidate(raw);
+      if (!picked) continue;
+      // source / site / theater / meta 名は reject (Bug 1 と同じ規則を適用)
+      if (NON_TITLE_SEGMENT.test(picked)) continue;
+      const key = picked.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(picked);
+      if (found.length >= 6) break;
+    }
+  } catch {
+    // §2.3 失敗独立: fail-open
+    return found;
+  }
+  return found;
+}
+
 // ─────────────────────────────────────────────
 // Title → Theater 紐付け
 //
@@ -629,8 +677,16 @@ export function parseMovieScreenings(
       if (bracketedFromDesc.length > 0) {
         titleCandidates.push(...bracketedFromDesc);
       } else {
-        const titleFromDesc = extractMovieTitle(sc.description);
-        if (titleFromDesc) titleCandidates.push(titleFromDesc);
+        // 2026-04-27 Bug 2: description に `『...』` がない listing page (crank-in 等) でも
+        // markdown level-1 heading `# {作品名}` から候補を拾う。
+        // acceptTitleCandidate + NON_TITLE_SEGMENT で meta / theater / source 名は reject。
+        const headingFromDesc = extractMarkdownHeadingTitles(sc.description);
+        if (headingFromDesc.length > 0) {
+          titleCandidates.push(...headingFromDesc);
+        } else {
+          const titleFromDesc = extractMovieTitle(sc.description);
+          if (titleFromDesc) titleCandidates.push(titleFromDesc);
+        }
       }
     }
 
