@@ -119,6 +119,20 @@ export const COALTER_FLAGS = {
     return envBool("COALTER_FOOD_TIER_LOOP", false);
   },
   /**
+   * [Stage 4 L4-c 2026-04-28] `legacyCardAutoInsertEnabled`
+   *   - 旧 CoAlterCard 自動挿入経路 (ChatClient.tsx :1741-1759、退役計画 doc §1.1) を
+   *     enable するかの kill switch。
+   *   - **既定 ON** (移行期、既存挙動維持)。Stage 4 L4-l flip で OFF に切替予定 (CEO 別審議)。
+   *   - flag ON: 既存 CoAlterCard 自動挿入が走る (移行期挙動)。
+   *   - flag OFF: 自動挿入スキップ。S7 提案は明示 handoff (HandoffButton) tap 経由のみ
+   *     メインチャットに送信 (UI spec §2.7 / §4.3.8 / 統合契約 §1.6-3)。
+   *   - **Phase 6.C+ Dispatcher 経路 (line 1721-1740) は flag 無関係に常時動作** (退役計画 doc §1.2 / plan v0.3 §3.3)。
+   *   - env: `COALTER_LEGACY_CARD_AUTO_INSERT`。env から外せば既定 ON 状態へ即座に戻る。
+   */
+  get legacyCardAutoInsertEnabled(): boolean {
+    return envBool("COALTER_LEGACY_CARD_AUTO_INSERT", true);
+  },
+  /**
    * [Stage 2 L2-g 2026-04-28] `presenceExecutorEnabled`
    *   - lib/coalter/presence/** の Presence executor を本番経路に組み込むかの
    *     最終 kill switch (Stage 4 L4-l production flip 用の弁)。

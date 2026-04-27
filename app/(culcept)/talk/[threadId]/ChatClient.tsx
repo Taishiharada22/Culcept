@@ -16,6 +16,8 @@ import CoAlterCardDispatcher from "@/components/coalter/CoAlterCardDispatcher";
 import UpperLayerMount from "@/app/components/chat/UpperLayerMount";
 // Stage 4 L4-b: signal adapter 本番接続 (flag OFF 既定で signal 発火ゼロ、メインチャット UI 影響ゼロ)
 import PresenceSignalWiring from "@/app/components/chat/PresenceSignalWiring";
+// Stage 4 L4-c: legacyCardAutoInsertEnabled flag (既定 ON、L4-l flip で OFF)
+import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
 import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
 import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
@@ -1748,7 +1750,8 @@ export default function ChatClient({ threadId }: Props) {
                 />
               </motion.div>
             )}
-            {!coalter.hasCard && coalter.hasProposal && coalter.currentProposal && (
+            {/* L4-c: legacyCardAutoInsertEnabled flag gate (既定 ON、L4-l flip で OFF) */}
+            {COALTER_FLAGS.legacyCardAutoInsertEnabled && !coalter.hasCard && coalter.hasProposal && coalter.currentProposal && (
               <motion.div className="py-3 px-2"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
                 <CoAlterCard
