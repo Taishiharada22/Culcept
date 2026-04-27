@@ -37,12 +37,14 @@ import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
 import { buildPlanAndSegmentsFromEvents } from "./planning/planRebuild";
-// CEO 2026-04-28 Option B: transport rendering 基盤の wiring
+// CEO 2026-04-28 Option B + Journey 構造: transport rendering 基盤の wiring
 //   - deriveDayTransport: events[*].transport → dayConditions.mainTransport
 //   - resolveHomeAnchor: currentLat/Lng > homeLat/Lng > null
+//   - resolveJourneyEndAnchor: home anchor から round-trip default の endpoint
 import {
   deriveDayTransport,
   resolveHomeAnchor,
+  resolveJourneyEndAnchor,
 } from "./planning/transportContext";
 import {
   synthesizeTravelItems,
@@ -614,10 +616,10 @@ export function adaptPipelineToLegacy(
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
-    // ── CEO 2026-04-28 Option B: transport context 解決 ──
+    // ── CEO 2026-04-28 Option B + Journey 構造: transport context 解決 ──
     //   1. events[*].transport を scan して dayConditions.mainTransport を導出
     //   2. currentLat/Lng → userHomeLat/Lng → null の優先で homeAnchor を解決
-    //   両方を buildPlanAndSegmentsFromEvents に渡す。
+    //   3. journeyEnd を home anchor の round-trip default で派生 (label="帰宅")
     const derivedTransport = deriveDayTransport(effectiveEvents);
     const homeAnchor = resolveHomeAnchor({
       currentLat: input.currentLat,
@@ -625,6 +627,7 @@ export function adaptPipelineToLegacy(
       homeLat: input.userHomeLat,
       homeLng: input.userHomeLng,
     });
+    const journeyEnd = resolveJourneyEndAnchor(homeAnchor);
 
     // ── W3-PR-10: planRebuild 委譲 ──
     //   events → PlanItem[] と（flag ON 時のみ）TransportSegment[] を
@@ -636,6 +639,7 @@ export function adaptPipelineToLegacy(
       enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
       mainTransport: derivedTransport?.plan,
       homeAnchor,
+      journeyEnd,
     });
 
     // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
@@ -690,12 +694,14 @@ export function adaptPipelineToLegacy(
     //   - needs_answer 上書きは event id にのみヒット（travel id は `travel__` prefix で衝突しない）。
     let interleavedItems: PlanItem[];
     if (built.transportSegments !== undefined) {
-      // CEO 2026-04-28 Option B: HOME_SENTINEL fromEventId の segment を
-      // synthesize で正しく label 解決するため homeAnchor を渡す。
+      // CEO 2026-04-28 Option B + Journey 構造:
+      //   HOME_SENTINEL fromEventId の segment は homeAnchor.label を from に使う。
+      //   ENDPOINT_SENTINEL toEventId の segment は journeyEnd.label を to に使う。
       const entries = synthesizeTravelItems(
         built.transportSegments,
         effectiveEvents,
         homeAnchor,
+        journeyEnd,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);
 
@@ -762,6 +768,25 @@ export function adaptPipelineToLegacy(
     const dayConditions: import("./types").DayConditions = derivedTransport
       ? { mainTransport: derivedTransport.vc }
       : {};
+    // CEO 2026-04-28 Journey 構造: plan-level metadata (journeyOrigin / journeyEnd)
+    //   MorningPlanCard が plan.items の上下に「現在地」「帰宅」ノードを render するため。
+    //   homeAnchor が null（座標が無い CEO 案 1 のケース）→ 両方 undefined → UI 何も出さない。
+    const journeyOrigin = homeAnchor
+      ? {
+          label: homeAnchor.label,
+          lat: homeAnchor.lat,
+          lng: homeAnchor.lng,
+          source: homeAnchor.source,
+        }
+      : undefined;
+    const journeyEndForPlan = journeyEnd
+      ? {
+          label: journeyEnd.label,
+          lat: journeyEnd.lat,
+          lng: journeyEnd.lng,
+          source: journeyEnd.source,
+        }
+      : undefined;
     plan = {
       date: today,
       items,
@@ -772,6 +797,8 @@ export function adaptPipelineToLegacy(
       ...(built.transportSegments !== undefined
         ? { transportSegments: built.transportSegments }
         : {}),
+      ...(journeyOrigin !== undefined ? { journeyOrigin } : {}),
+      ...(journeyEndForPlan !== undefined ? { journeyEnd: journeyEndForPlan } : {}),
     };
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として

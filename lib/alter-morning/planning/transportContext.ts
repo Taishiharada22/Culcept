@@ -24,21 +24,35 @@ import type { TransportMode as PlanTransportMode } from "../transport/types";
 import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// HOME_TRAVEL_SENTINEL_ID
+// HOME_TRAVEL_SENTINEL_ID / ENDPOINT_TRAVEL_SENTINEL_ID
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //
-// 1-event plan で「home/current → first_event」の synthetic travel segment を
-// 表現するために使う特殊 event_id。実 event とは衝突しない（"__" prefix）。
+// CEO 2026-04-28 Day Trajectory 構造（anchor → ... → endpoint）:
 //
-// 用途:
-//   - buildTransportSegments が segment.fromEventId にこの値を設定する
-//   - synthesizeTravelItems が segment.fromEventId === HOME_TRAVEL_SENTINEL_ID を
-//     検出して homeAnchor.label を from に使う
-//   - interleaveTravelItems が entry.afterEventId === HOME_TRAVEL_SENTINEL_ID を
-//     検出して eventItems の先頭に prepend する
+//   現在地 / 自宅            ← top anchor node (plan.originAnchor)
+//   🚃 (HOME_SENTINEL → first_event)
+//   event 1
+//   🚃 (event_1 → event_2)
+//   event 2
+//   ...
+//   event n (last)
+//   🚃 (last_event → ENDPOINT_SENTINEL)
+//   帰宅 / hotel / friend's    ← bottom endpoint node (plan.endpointAnchor)
+//
+// HOME_TRAVEL_SENTINEL_ID:
+//   - segment.fromEventId に入る (synthesizeTravelItems が homeAnchor.label を使う)
+//   - interleaveTravelItems が entry.afterEventId 一致で eventItems 先頭に prepend
+//
+// ENDPOINT_TRAVEL_SENTINEL_ID:
+//   - segment.toEventId に入る (synthesizeTravelItems が endpointAnchor.label を使う)
+//   - interleaveTravelItems が entry.afterEventId === last_event.event_id で挿入後、
+//     ENDPOINT 用 entry を eventItems 末尾の **後ろ** に append する
+//
+// 実 event_id ("event_N") と衝突しない "__" prefix で名前空間を隔離する。
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export const HOME_TRAVEL_SENTINEL_ID = "__home__";
+export const ENDPOINT_TRAVEL_SENTINEL_ID = "__endpoint__";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // HomeAnchor
@@ -53,6 +67,43 @@ export interface HomeAnchor {
   label: "現在地" | "自宅";
   /** どちらの coordinate から由来したか（telemetry / debug 用） */
   source: HomeAnchorSource;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// JourneyEndAnchor — 1日の終点ノード（帰宅 / hotel / friend's house 等）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO 2026-04-28: plan の最下部に「終点ノード」を置き、その直前に
+// 「last_event → endpoint」 travel item を挟む。
+//
+// 命名注意:
+//   types.ts に既存の `EndpointAnchor`（type/label/area/canonicalId/needsAreaConfirm）
+//   が存在する。それは saveLastEndpoint / 次プラン継承用の legacy 型で、シェイプも
+//   役割も異なる。本ファイルの新型は座標 + ラベルだけを持つ純粋な journey 終点で、
+//   名前を `JourneyEndAnchor` として明示的に分離する（型衝突を避ける）。
+//
+// MVP design:
+//   journey end = home anchor の round trip default
+//     - coords = homeAnchor.lat/lng
+//     - label  = "帰宅"（origin が "現在地" でも "自宅" でも、終点は常に「帰宅」）
+//
+// 将来拡張:
+//   - comprehension が utterance から「ホテルに泊まる」「友達の家」等を抽出して
+//     journey end coords + label を上書きできるようにする
+//   - source: "default_round_trip" | "comprehension_explicit" | "user_override"
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type JourneyEndAnchorSource =
+  | "default_round_trip" // home anchor から自動派生
+  | "comprehension_explicit" // 将来: utterance から抽出
+  | "user_override"; // 将来: UI で指定
+
+export interface JourneyEndAnchor {
+  lat: number;
+  lng: number;
+  /** 表示ラベル（MVP: "帰宅" 固定。将来は「ホテル」等も可） */
+  label: string;
+  source: JourneyEndAnchorSource;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -218,4 +269,34 @@ export function resolveHomeAnchor(
   }
   // Priority 3: nothing → no travel item (hallucination 防止)
   return null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// resolveEndpointAnchor — 終点ノード（帰宅 等）の解決
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// MVP: home anchor からの round trip default。
+//   - coords = homeAnchor.lat/lng
+//   - label  = "帰宅"
+//   - source = "default_round_trip"
+//
+// homeAnchor が null（home/current どちらも無い）→ endpoint も null。
+// この場合、CEO 案 1 に従い travel item / anchor / endpoint いずれも生成しない。
+//
+// 将来拡張ポイント:
+//   - utterance に "ホテルに泊まる" / "友達の家" 等があれば comprehension が
+//     endpoint coords + label を抽出し、本関数に渡されたら override する
+//   - 将来 input に explicitEndpoint?: { lat, lng, label } を加える
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export function resolveJourneyEndAnchor(
+  homeAnchor: HomeAnchor | null,
+): JourneyEndAnchor | null {
+  if (!homeAnchor) return null;
+  return {
+    lat: homeAnchor.lat,
+    lng: homeAnchor.lng,
+    label: "帰宅",
+    source: "default_round_trip",
+  };
 }

@@ -44,8 +44,13 @@ import { classifyWhereVague } from "./whereVagueClassifier";
 // CEO 2026-04-28 Option B: home/current → first_event の synthetic travel segment
 //   を 1-event plan でも生成可能にする。HOME_TRAVEL_SENTINEL_ID は実 event_id と
 //   衝突しない sentinel として segment.fromEventId に入る。
-import { HOME_TRAVEL_SENTINEL_ID } from "./transportContext";
-import type { HomeAnchor } from "./transportContext";
+// CEO 2026-04-28 Journey 構造: last_event → 帰宅 の synthetic travel segment も
+//   生成する。ENDPOINT_TRAVEL_SENTINEL_ID は segment.toEventId に入る sentinel。
+import {
+  HOME_TRAVEL_SENTINEL_ID,
+  ENDPOINT_TRAVEL_SENTINEL_ID,
+} from "./transportContext";
+import type { HomeAnchor, JourneyEndAnchor } from "./transportContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Defaults（Phase 1 固定、将来 CEO 判断で変更）
@@ -184,6 +189,7 @@ function buildTransportSegments(
   events: ComprehensionEvent[],
   mainTransport: TransportMode | undefined,
   homeAnchor: HomeAnchor | null,
+  journeyEnd: JourneyEndAnchor | null,
 ): TransportSegment[] {
   const segments: TransportSegment[] = [];
   const mode: TransportMode = mainTransport ?? "unknown";
@@ -216,32 +222,63 @@ function buildTransportSegments(
   }
 
   // ── 既存 event-pair segments（先行 segment と独立に動作）──
-  if (events.length < 2) return segments;
-
-  for (let i = 0; i < events.length - 1; i++) {
-    const from = events[i];
-    const to = events[i + 1];
-    if (!hasCoordinates(from) || !hasCoordinates(to)) {
-      // invariant: 両端座標が揃わない pair では canonical edge を捏造しない
-      continue;
+  if (events.length >= 2) {
+    for (let i = 0; i < events.length - 1; i++) {
+      const from = events[i];
+      const to = events[i + 1];
+      if (!hasCoordinates(from) || !hasCoordinates(to)) {
+        // invariant: 両端座標が揃わない pair では canonical edge を捏造しない
+        continue;
+      }
+      // Scope A: mode 非依存の中立距離 heuristic で duration を埋める。
+      //   number → durationSource="heuristic"（両 field は必ず同期）
+      //   null   → durationSource=null（≤0.2km or invalid coords）
+      const estimatedDurationMin = estimateNeutralDurationMin(
+        from.where.coordinates!,
+        to.where.coordinates!,
+      );
+      segments.push({
+        fromEventId: from.event_id,
+        toEventId: to.event_id,
+        mode,
+        estimatedDurationMin,
+        durationSource: estimatedDurationMin !== null ? "heuristic" : null,
+        distanceM: null,
+        confidence: mainTransport ? "inferred" : "default",
+        source: "default_walk",
+      });
     }
-    // Scope A: mode 非依存の中立距離 heuristic で duration を埋める。
-    //   number → durationSource="heuristic"（両 field は必ず同期）
-    //   null   → durationSource=null（≤0.2km or invalid coords）
-    const estimatedDurationMin = estimateNeutralDurationMin(
-      from.where.coordinates!,
-      to.where.coordinates!,
-    );
-    segments.push({
-      fromEventId: from.event_id,
-      toEventId: to.event_id,
-      mode,
-      estimatedDurationMin,
-      durationSource: estimatedDurationMin !== null ? "heuristic" : null,
-      distanceM: null,
-      confidence: mainTransport ? "inferred" : "default",
-      source: "default_walk",
-    });
+  }
+
+  // ── CEO 2026-04-28 Journey 構造: last_event → endpoint 合成 segment ──
+  //   plan の最下部 "帰宅" ノードに向けた travel edge。
+  //   - journeyEnd が null（homeAnchor も null = 現在地・自宅どちらも無い）→ 作らない
+  //   - last event に coordinates が無ければ作らない（hallucination 防止）
+  //   - 距離 ≤0.2km（estimateNeutralDurationMin null）→ push しない
+  //   - last_event の coords と journeyEnd の coords が同一の round trip default 場合、
+  //     距離≈0 → null → segment 不生成（safety net で 0 分 travel が出ない）
+  if (journeyEnd && events.length > 0) {
+    const last = events[events.length - 1];
+    if (hasCoordinates(last)) {
+      const lastCoords = last.where.coordinates!;
+      const endCoords = { lat: journeyEnd.lat, lng: journeyEnd.lng };
+      const estimatedDurationMin = estimateNeutralDurationMin(
+        lastCoords,
+        endCoords,
+      );
+      if (estimatedDurationMin !== null) {
+        segments.push({
+          fromEventId: last.event_id,
+          toEventId: ENDPOINT_TRAVEL_SENTINEL_ID,
+          mode,
+          estimatedDurationMin,
+          durationSource: "heuristic",
+          distanceM: null,
+          confidence: mainTransport ? "inferred" : "default",
+          source: "default_walk",
+        });
+      }
+    }
   }
 
   return segments;
@@ -274,6 +311,13 @@ export interface BuildPlanAndSegmentsInput {
    *   3. どちらもない → null
    */
   homeAnchor?: HomeAnchor | null;
+  /**
+   * CEO 2026-04-28 Journey 構造: last_event → 帰宅 の synthetic travel segment 用 anchor。
+   *   - 渡された場合: events.length>=1 の last event に対して endpoint travel を生成
+   *   - null/undefined: endpoint segment を作らない
+   * MVP: round-trip default → resolveJourneyEndAnchor(homeAnchor) で homeAnchor から派生。
+   */
+  journeyEnd?: JourneyEndAnchor | null;
 }
 
 export interface BuildPlanAndSegmentsOutput {
@@ -292,7 +336,8 @@ export interface BuildPlanAndSegmentsOutput {
 export function buildPlanAndSegmentsFromEvents(
   input: BuildPlanAndSegmentsInput,
 ): BuildPlanAndSegmentsOutput {
-  const { events, enableTransportV2, mainTransport, homeAnchor } = input;
+  const { events, enableTransportV2, mainTransport, homeAnchor, journeyEnd } =
+    input;
 
   const items = events.map((ev, idx) => eventToPlanItem(ev, idx));
 
@@ -304,6 +349,7 @@ export function buildPlanAndSegmentsFromEvents(
     events,
     mainTransport,
     homeAnchor ?? null,
+    journeyEnd ?? null,
   );
   return { items, transportSegments };
 }

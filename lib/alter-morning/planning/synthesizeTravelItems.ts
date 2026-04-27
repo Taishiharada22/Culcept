@@ -32,9 +32,13 @@ import type { TransportMode, TransportSegment } from "../transport/types";
 import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 // CEO 2026-04-28 Option B: HOME_TRAVEL_SENTINEL_ID を fromEventId に持つ segment は
 // 実 event ではなく homeAnchor 由来の synthetic edge。本ファイルで label を埋める。
+// CEO 2026-04-28 Journey 構造: ENDPOINT_TRAVEL_SENTINEL_ID を toEventId に持つ
+// segment は last_event → 帰宅 の synthetic edge。journeyEndAnchor.label で to を埋める。
 import {
   HOME_TRAVEL_SENTINEL_ID,
+  ENDPOINT_TRAVEL_SENTINEL_ID,
   type HomeAnchor,
+  type JourneyEndAnchor,
 } from "./transportContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -156,6 +160,7 @@ export function synthesizeTravelItems(
   segments: TransportSegment[],
   events: ComprehensionEvent[],
   homeAnchor?: HomeAnchor | null,
+  journeyEnd?: JourneyEndAnchor | null,
 ): SynthesizedTravelEntry[] {
   if (segments.length === 0) return [];
 
@@ -168,7 +173,7 @@ export function synthesizeTravelItems(
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
 
-    // ── CEO 2026-04-28 Option B: HOME_SENTINEL の解釈 ──
+    // ── CEO 2026-04-28 Option B: HOME_SENTINEL の解釈（from 側）──
     //   fromEventId が HOME_TRAVEL_SENTINEL_ID なら from は home anchor。
     //   homeAnchor が渡されていない（呼び出し側のミス）場合は skip（hallucination 防止）。
     let fromLabel: string;
@@ -184,8 +189,20 @@ export function synthesizeTravelItems(
       fromLabel = placeLabel(from);
     }
 
-    const to = eventById.get(seg.toEventId);
-    if (!to) continue;
+    // ── CEO 2026-04-28 Journey 構造: ENDPOINT_SENTINEL の解釈（to 側）──
+    //   toEventId が ENDPOINT_TRAVEL_SENTINEL_ID なら to は journey end anchor。
+    //   journeyEnd が渡されていない場合は skip（defensive）。
+    let toLabel: string;
+    if (seg.toEventId === ENDPOINT_TRAVEL_SENTINEL_ID) {
+      if (!journeyEnd) {
+        continue;
+      }
+      toLabel = journeyEnd.label;
+    } else {
+      const to = eventById.get(seg.toEventId);
+      if (!to) continue;
+      toLabel = placeLabel(to);
+    }
 
     // null-skip: heuristic が null を返した segment（≤0.2km / invalid coords /
     // 失敗）では travel display cache を生成しない。fake 0分 travel 禁止。
@@ -194,7 +211,6 @@ export function synthesizeTravelItems(
       continue;
     }
 
-    const toLabel = placeLabel(to);
     const icon = travelIconFor(seg.mode);
     const text = `${icon} ${fromLabel}→${toLabel}`;
 
@@ -214,6 +230,15 @@ export function synthesizeTravelItems(
       travelTransport: toVcTransportMode(seg.mode),
     };
 
+    // ── interleave 用の afterEventId 規約 ──
+    //   HOME segment: afterEventId = HOME_SENTINEL → eventItems の先頭に prepend
+    //   ENDPOINT segment: afterEventId = last event の id → eventItems の最後の event の直後に挿入
+    //                       （endpoint node は plan-level metadata で UI 側に出る）
+    //   通常 segment: afterEventId = from event id → 該当 event 直後に挿入
+    //
+    // ENDPOINT segment の afterEventId は from(=last event).event_id にする
+    // ことで、interleave の通常 path（event の直後に挿入）に乗せられる。
+    // HOME と異なり「先頭 prepend」の特別 path 不要。
     entries.push({ afterEventId: seg.fromEventId, item });
   }
 

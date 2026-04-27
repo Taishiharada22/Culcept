@@ -1176,6 +1176,26 @@ export default function MorningPlanCard({
           </div>
         )}
 
+        {/*
+          CEO 2026-04-28 Journey 構造: 起点ノード（plan.journeyOrigin）
+            - plan.items の **上** に「現在地 / 自宅」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - homeAnchor が null（座標が無い CEO 案 1: hallucination 防止）→
+              plan.journeyOrigin が undefined → 何も render しない
+        */}
+        {plan.journeyOrigin && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mb-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyOrigin.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">起点</span>
+          </div>
+        )}
+
         {/* アイテムリスト */}
         <div className="space-y-0.5">
           {(() => {
@@ -1214,6 +1234,25 @@ export default function MorningPlanCard({
             });
           })()}
         </div>
+
+        {/*
+          CEO 2026-04-28 Journey 構造: 終点ノード（plan.journeyEnd）
+            - plan.items の **下** に「帰宅 / hotel / friend's house」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - journeyEnd が undefined（CEO 案 1）→ 何も render しない
+        */}
+        {plan.journeyEnd && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mt-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyEnd.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">終点</span>
+          </div>
+        )}
 
         {/*
           W3-PR-13 M3 + M5 fix: MorningMapView — pin map（list view の補助ビュー）

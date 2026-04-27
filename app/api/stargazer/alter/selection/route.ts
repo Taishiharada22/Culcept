@@ -48,13 +48,15 @@ import {
 } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
-// CEO 2026-04-28 Option B: 一元化された transport mapper / home anchor 解決を使う。
+// CEO 2026-04-28 Option B + Journey 構造: 一元化された transport mapper /
+//   home anchor / journey end 解決を使う。
 //   旧 mapVcTransportToPlanTransport は本ファイル内に残置していたが、
 //   transportContext.ts に移行（同じ logic を chat 経路と共有）。
 import {
   deriveDayTransport,
   mapVcTransportToPlanMode,
   resolveHomeAnchor,
+  resolveJourneyEndAnchor,
 } from "@/lib/alter-morning/planning/transportContext";
 import {
   computeSegmentsBuiltTelemetry,
@@ -156,15 +158,17 @@ export async function POST(req: NextRequest) {
       body;
     const prevDialogState = morningSession.dialogState ?? null;
     const prevEvents = morningSession.persistedEvents ?? [];
-    // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+    // CEO 2026-04-28 Option B + Journey 構造: browser geolocation 由来の現在地座標。
     //   selection 経路では registered home にアクセスできないため、
     //   currentLat/Lng が無ければ home anchor は null（travel item 不生成）。
     //   chat 経路 (legacyAdapter) は registered home を fallback で使えるため、
     //   Turn 3「電車」入力時に travel item が確実に生成される。
+    //   journeyEnd は homeAnchor の round-trip default 派生。
     const selectionHomeAnchor = resolveHomeAnchor({
       currentLat: body.currentLat,
       currentLng: body.currentLng,
     });
+    const selectionJourneyEnd = resolveJourneyEndAnchor(selectionHomeAnchor);
 
     // Step 3: dialogState presence
     if (!prevDialogState) {
@@ -272,6 +276,7 @@ export async function POST(req: NextRequest) {
         enableTransportV2,
         mainTransport: derivedTransport?.plan ?? fallbackPlanMode,
         homeAnchor: selectionHomeAnchor,
+        journeyEnd: selectionJourneyEnd,
       });
 
       let interleavedItems = built.items;
@@ -308,12 +313,13 @@ export async function POST(req: NextRequest) {
         }
 
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
-        // CEO 2026-04-28 Option B: HOME_SENTINEL fromEventId の segment を
-        //   synthesize で正しく label 解決するため homeAnchor を渡す。
+        // CEO 2026-04-28 Option B + Journey:
+        //   HOME_SENTINEL → homeAnchor.label / ENDPOINT_SENTINEL → journeyEnd.label
         const entries = synthesizeTravelItems(
           built.transportSegments,
           eventUpdate.events,
           selectionHomeAnchor,
+          selectionJourneyEnd,
         );
         interleavedItems = interleaveTravelItems(built.items, entries);
 
@@ -354,6 +360,25 @@ export async function POST(req: NextRequest) {
       const nextDayConditions = derivedTransport
         ? { ...priorPlan.dayConditions, mainTransport: derivedTransport.vc }
         : (priorPlan.dayConditions ?? {});
+      // CEO 2026-04-28 Journey 構造: plan-level metadata
+      //   selectionHomeAnchor が無ければ priorPlan.journeyOrigin / journeyEnd を保持
+      //   （chat 経路で設定されたものを selection が消さないように）。
+      const nextJourneyOrigin = selectionHomeAnchor
+        ? {
+            label: selectionHomeAnchor.label,
+            lat: selectionHomeAnchor.lat,
+            lng: selectionHomeAnchor.lng,
+            source: selectionHomeAnchor.source,
+          }
+        : priorPlan.journeyOrigin;
+      const nextJourneyEnd = selectionJourneyEnd
+        ? {
+            label: selectionJourneyEnd.label,
+            lat: selectionJourneyEnd.lat,
+            lng: selectionJourneyEnd.lng,
+            source: selectionJourneyEnd.source,
+          }
+        : priorPlan.journeyEnd;
       rebuiltPlan = {
         ...priorPlan,
         items: normalizedItems,
@@ -361,6 +386,8 @@ export async function POST(req: NextRequest) {
         ...(enableTransportV2 && built.transportSegments !== undefined
           ? { transportSegments: built.transportSegments }
           : {}),
+        ...(nextJourneyOrigin !== undefined ? { journeyOrigin: nextJourneyOrigin } : {}),
+        ...(nextJourneyEnd !== undefined ? { journeyEnd: nextJourneyEnd } : {}),
       };
     }
 
