@@ -45,6 +45,14 @@ import MemoryAccessRail from "./components/memory/MemoryAccessRail";
 import VisibilityControls from "./components/memory/VisibilityControls";
 import RetreatRail from "./components/memory/RetreatRail";
 import UrgentLayer from "./components/urgent/UrgentLayer";
+import DensityShowcase from "./components/foundation/DensityShowcase";
+import AnimationCatalog from "./components/foundation/AnimationCatalog";
+import ZIndexInspector from "./components/foundation/ZIndexInspector";
+import FocusGuard from "./components/foundation/FocusGuard";
+import ScrollSync from "./components/foundation/ScrollSync";
+import InputBoundary from "./components/foundation/InputBoundary";
+import HandoffBoundary from "./components/foundation/HandoffBoundary";
+import RateLimitDemo from "./components/foundation/RateLimitDemo";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -425,6 +433,73 @@ export default function UpperLayerPreviewPage() {
           緊急介入視覚層 (L1-i、UI spec §8.5-§8.6)
         </h2>
         <UrgentLayer />
+      </section>
+
+      {/* L1-j: UI 基礎要素 preview (UI spec §1.4-§1.6 / §2.3-§2.7) */}
+      <section
+        aria-label="ui foundation"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          UI 基礎要素 (L1-j、UI spec §1.4-§1.6 / §2.3-§2.7)
+        </h2>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §1.4 UI 密度
+            </h3>
+            <DensityShowcase />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §1.5 アニメカテゴリ
+            </h3>
+            <AnimationCatalog />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §2.3 z-index 階層
+            </h3>
+            <ZIndexInspector />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §2.4 focus 競合
+            </h3>
+            <FocusGuard />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §2.5 scroll 連動
+            </h3>
+            <ScrollSync />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §2.6 入力欄競合境界
+            </h3>
+            <InputBoundary />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §2.7 handoff 境界
+            </h3>
+            <HandoffBoundary />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>
+              §1.6 連投抑制
+            </h3>
+            <RateLimitDemo />
+          </div>
+        </div>
       </section>
     </main>
   );
