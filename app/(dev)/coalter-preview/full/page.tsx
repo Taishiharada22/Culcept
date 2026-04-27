@@ -22,6 +22,10 @@ import TwoClientView from "./components/TwoClientView";
 import { NORMAL_CYCLE_SCENARIOS } from "./scenarios/normalCycle";
 import { DAILY_MODE_SCENARIOS } from "./scenarios/dailyMode";
 import { TRAVEL_MODE_SCENARIOS } from "./scenarios/travelMode";
+import { MODE_TRANSITION_SCENARIOS } from "./scenarios/modeTransitions";
+import { MEMORY_SURFACE_SCENARIOS } from "./scenarios/memorySurface";
+import { URGENT_LAYER_SCENARIOS } from "./scenarios/urgentLayer";
+import { REJECTION_FLOW_SCENARIOS } from "./scenarios/rejectionFlows";
 
 export default function FullPreviewPage() {
   const exec = usePresenceExecutor();
@@ -89,6 +93,14 @@ export default function FullPreviewPage() {
         <ScenarioRunner exec={exec} scenarios={DAILY_MODE_SCENARIOS} />
 
         <ScenarioRunner exec={exec} scenarios={TRAVEL_MODE_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={MODE_TRANSITION_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={MEMORY_SURFACE_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={URGENT_LAYER_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={REJECTION_FLOW_SCENARIOS} />
       </section>
 
       {/* 全幅: 2 client view (L3-c) */}
