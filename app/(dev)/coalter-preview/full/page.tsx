@@ -20,6 +20,8 @@ import PresenceDebugPanel from "./components/PresenceDebugPanel";
 import ScenarioRunner from "./components/ScenarioRunner";
 import TwoClientView from "./components/TwoClientView";
 import { NORMAL_CYCLE_SCENARIOS } from "./scenarios/normalCycle";
+import { DAILY_MODE_SCENARIOS } from "./scenarios/dailyMode";
+import { TRAVEL_MODE_SCENARIOS } from "./scenarios/travelMode";
 
 export default function FullPreviewPage() {
   const exec = usePresenceExecutor();
@@ -83,6 +85,10 @@ export default function FullPreviewPage() {
         <SpeechCardPreview exec={exec} />
 
         <ScenarioRunner exec={exec} scenarios={NORMAL_CYCLE_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={DAILY_MODE_SCENARIOS} />
+
+        <ScenarioRunner exec={exec} scenarios={TRAVEL_MODE_SCENARIOS} />
       </section>
 
       {/* 全幅: 2 client view (L3-c) */}
