@@ -35,6 +35,7 @@ import S8Cooldown from "./components/states/S8Cooldown";
 import PatternPicker from "./components/PatternPicker";
 import StateModeMatrix from "./components/StateModeMatrix";
 import DailyMode from "./components/modes/DailyMode";
+import TravelMode from "./components/modes/TravelMode";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -265,7 +266,8 @@ export default function UpperLayerPreviewPage() {
         >
           選択中: {STATE_LABELS[selectedState]} × Pattern {selectedPattern} ×{" "}
           {MODE_LABELS[selectedMode]} (L1-b: 通常モード S0-S8 静的再現 / Pattern
-          variant 切替は L1-c で接続予定 / Daily/Travel 差分は L1-e/f で接続予定)
+          variant 切替は L1-c で接続済 / Daily 差分は L1-e で接続済 / Travel 差分は
+          L1-f で接続済)
         </div>
         <UpperLayerStateRenderer
           state={selectedState}
@@ -331,7 +333,11 @@ function UpperLayerStateRenderer({
   if (modeLabel === "Daily") {
     return <DailyMode state={state} />;
   }
-  // 通常 + Travel は L1-b の通常 state を流用 (Travel 専用は L1-f で導入予定)
+  // Travel mode は L1-f で Travel 専用 component を mount (override 反映)
+  if (modeLabel === "Travel") {
+    return <TravelMode state={state} />;
+  }
+  // 通常モードは L1-b の通常 state を直接 mount
   switch (state) {
     case "S0":
       return <S0Observing modeLabel={modeLabel} />;
