@@ -18,6 +18,7 @@ import { usePresenceExecutor } from "./hooks/usePresenceExecutor";
 import MockConversation, { type MockMessage } from "./components/MockConversation";
 import PresenceDebugPanel from "./components/PresenceDebugPanel";
 import ScenarioRunner from "./components/ScenarioRunner";
+import TwoClientView from "./components/TwoClientView";
 import { NORMAL_CYCLE_SCENARIOS } from "./scenarios/normalCycle";
 
 export default function FullPreviewPage() {
@@ -82,6 +83,11 @@ export default function FullPreviewPage() {
         <SpeechCardPreview exec={exec} />
 
         <ScenarioRunner exec={exec} scenarios={NORMAL_CYCLE_SCENARIOS} />
+      </section>
+
+      {/* 全幅: 2 client view (L3-c) */}
+      <section style={{ gridColumn: "1 / span 2" }}>
+        <TwoClientView />
       </section>
     </main>
   );
