@@ -17,6 +17,8 @@ import { useState } from "react";
 import { usePresenceExecutor } from "./hooks/usePresenceExecutor";
 import MockConversation, { type MockMessage } from "./components/MockConversation";
 import PresenceDebugPanel from "./components/PresenceDebugPanel";
+import ScenarioRunner from "./components/ScenarioRunner";
+import { NORMAL_CYCLE_SCENARIOS } from "./scenarios/normalCycle";
 
 export default function FullPreviewPage() {
   const exec = usePresenceExecutor();
@@ -78,6 +80,8 @@ export default function FullPreviewPage() {
         <PresenceDebugPanel state={exec.state} computed={exec.computed} />
 
         <SpeechCardPreview exec={exec} />
+
+        <ScenarioRunner exec={exec} scenarios={NORMAL_CYCLE_SCENARIOS} />
       </section>
     </main>
   );
