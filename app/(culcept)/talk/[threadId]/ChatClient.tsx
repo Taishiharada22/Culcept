@@ -12,6 +12,8 @@ import CoAlterButton from "@/components/coalter/CoAlterButton";
 import CoAlterConsent from "@/components/coalter/CoAlterConsent";
 import CoAlterCard from "@/components/coalter/CoAlterCard";
 import CoAlterCardDispatcher from "@/components/coalter/CoAlterCardDispatcher";
+// Stage 4 L4-a: 上部レイヤー本番マウント (presenceExecutorEnabled flag OFF 既定で null render、既存 layout 不変)
+import UpperLayerMount from "@/app/components/chat/UpperLayerMount";
 import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
 import { CoAlterShelfPanel } from "@/components/coalter/CoAlterShelfPanel";
 import { CoAlterPlanCalendar } from "@/components/coalter/CoAlterPlanCalendar";
@@ -1509,6 +1511,9 @@ export default function ChatClient({ threadId }: Props) {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* L4-a: CoAlter 上部レイヤー本番マウント (flag OFF 既定で null、既存 layout 不変) */}
+      <UpperLayerMount />
 
       {/* ═══ メッセージエリア ═══ */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto max-w-lg mx-auto w-full relative" role="log" aria-label="メッセージ履歴" aria-live="polite">
