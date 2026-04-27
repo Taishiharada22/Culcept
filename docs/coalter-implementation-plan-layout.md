@@ -1,7 +1,7 @@
 # CoAlter 実装手順書 — レイアウト系統（Core UX / 上部レイヤー / Presence UI / Pattern）
 
 **作成日**: 2026-04-24
-**ステータス**: v0.1 DRAFT（新セッション即時着手版 / CEO 承認待ち）
+**ステータス**: v0.3 minor revision（2026-04-28、Stage 1 着地後の spec 同期 / CEO 承認）
 **起草 branch**: `feat/coalter-three-stage`（実装進入時は別 feat branch 推奨、§9 参照）
 **正本依存**:
 - `docs/coalter-core-ux-layered-presence.md` v1.1（Core UX 存在論、不可侵 §15.2）
@@ -139,7 +139,7 @@
                                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Stage 4 — ChatClient 本実装（CEO 承認必須）                        │
-│  配置: app/components/chat/ChatClient.tsx + 上部レイヤー統合       │
+│  配置: app/(culcept)/talk/[threadId]/ChatClient.tsx + 上部レイヤー統合│
 │  内容: 上部レイヤー本番マウント / executor availability UI         │
 │       legacy CoAlterCard 自動挿入 → 明示 handoff へ置換            │
 │       同意フロー UI / 再有効化経路 / shared state 同期実装         │
@@ -276,7 +276,7 @@ Stage 1-4 の UI / executor が**絶対にやってはいけない**（Core UX v
 
 **章立て（最小骨格）**:
 - §0 メタ（位置づけ / スコープ / 正本依存）
-- §1 legacy CoAlterCard 現状（`ChatClient.tsx:1898-1908` 付近の自動挿入フロー）
+- §1 legacy CoAlterCard 現状（`app/(culcept)/talk/[threadId]/ChatClient.tsx:1741-1759` 付近の自動挿入フロー）
 - §2 退役ゴール（統合契約 §1.4 準拠: 「自動挿入廃止 / 明示 handoff 経由のみ」）
 - §3 移行期の扱い（Stage 1-3 中は legacy 維持、Stage 4 flip）
 - §4 retirement phase（flag 追加 → shadow 観測 → CEO 承認 flip → 1 rev 後に code 削除）
@@ -448,7 +448,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | `app/(dev)/coalter-preview/upper-layer/components/memory/MemoryItemCard.tsx` | **新規** | 個別メモリ項目 card（§8.3.2 視覚記号型 + §8.3.3 ラベル階層 + §8.3.4 有効組み合わせ制約） |
 | `app/(dev)/coalter-preview/upper-layer/components/memory/VisibilityControls.tsx` | **新規** | 可視性 4 操作 UI（§8.4.1 観測停止 / 訂正 / 削除 / 範囲縮小） + §8.4.1.1 操作の意味境界 |
 | `app/(dev)/coalter-preview/upper-layer/components/memory/RetreatRail.tsx` | **新規** | 後退導線 UI（§8.4.2） |
-| `app/(dev)/coalter-preview/upper-layer/mock/memoryItems.ts` | **新規** | mock メモリ項目（由来 6 種 × 確定度 3 段階 × 可視性 3 段階の網羅サンプル） |
+| `app/(dev)/coalter-preview/upper-layer/mock/memoryItems.ts` | **新規** | mock メモリ項目（由来 3 種 × 確定度 3 段階 × 可視性 4 種の網羅サンプル、UI spec §8.3.1 正本） |
 
 **制約**:
 - §8.3.1 3 軸の独立定義：由来・確定度・可視性は **1:1 mapping しない**（独立の組み合わせを表現）
@@ -491,8 +491,8 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 
 | ファイル | 種別 | 変更 |
 |---|---|---|
-| `app/(dev)/coalter-preview/upper-layer/components/foundation/DensityShowcase.tsx` | **新規** | UI 密度 4 段階の visual demo（§1.4: minimal / standard / focused / urgent） |
-| `app/(dev)/coalter-preview/upper-layer/components/foundation/AnimationCatalog.tsx` | **新規** | アニメカテゴリ visual demo（§1.5: enter / exit / state-shift / urgent / retreat の 5 カテゴリ） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/DensityShowcase.tsx` | **新規** | UI 密度 3 段階の visual demo（§1.4: single-line / compact-card / expanded-card） |
+| `app/(dev)/coalter-preview/upper-layer/components/foundation/AnimationCatalog.tsx` | **新規** | アニメカテゴリ visual demo（§1.5: fade / slide-down / pulse / none の 4 カテゴリ） |
 | `app/(dev)/coalter-preview/upper-layer/components/foundation/ZIndexInspector.tsx` | **新規** | z-index 階層 visualizer（§2.3: メインチャット / 上部レイヤー / urgent / modal の重なり） |
 | `app/(dev)/coalter-preview/upper-layer/components/foundation/FocusGuard.tsx` | **新規** | focus 競合制御（§2.4: 上部レイヤー focus 取得時のメインチャット保護） |
 | `app/(dev)/coalter-preview/upper-layer/components/foundation/ScrollSync.tsx` | **新規** | scroll 連動（§2.5: メインチャット scroll に対する上部レイヤー追従ルール） |
@@ -506,8 +506,8 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 - §2.6 入力欄との競合：IME composition 中は signal 起動禁止（構造的担保、test 必須）
 
 **Gate**:
-- [ ] §1.4 4 段階密度が visual で確認できる
-- [ ] §1.5 5 カテゴリアニメが動作
+- [ ] §1.4 3 段階密度が visual で確認できる
+- [ ] §1.5 4 カテゴリアニメが動作
 - [ ] §2.3 z-index 階層が正しい
 - [ ] §2.4-§2.7 4 境界が**構造的に**enforce（テスト含む）
 - [ ] §1.6 連投抑制の demo で「2 連発が起きない」が visual 確認
@@ -669,7 +669,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | ファイル | 種別 | 変更 |
 |---|---|---|
 | `lib/coalter/presence/memoryStore.ts` | **新規** | 共有メモリ store。`MemoryItem` 型: `{ id, content, origin, certainty, visibility, modeContext, createdAt, updatedAt }` |
-| `lib/coalter/presence/memoryTypes.ts` | **新規** | 型定義: `Origin` (6 種) / `Certainty` (3 段階: 仮 / 暫定 / 確定) / `Visibility` (3 段階: A 側のみ / B 側のみ / 両側) / `ModeContext` (通常 / Daily / Travel) |
+| `lib/coalter/presence/memoryTypes.ts` | **新規** | 型定義: `Origin` (3 種: explicit_shared / inferred / transient_summary、UI spec §8.3.1) / `Certainty` (3 段階: high / medium / low) / `Visibility` (4 種: both_visible / user_a_only / user_b_only / internal_only) / `ModeContext` (通常 / Daily / Travel) |
 | `lib/coalter/presence/memoryConstraints.ts` | **新規** | §8.3.4 有効組み合わせ制約。禁止組み合わせ enforcer（暗黙観測 ∧ 確定 など） |
 | `lib/coalter/presence/memoryVisualType.ts` | **新規** | §8.3.2 視覚記号型 → 表示形式 mapping（type-safe） |
 | `lib/coalter/presence/memoryLabelHierarchy.ts` | **新規** | §8.3.3 ラベル階層ルール |
@@ -950,7 +950,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 
 | ファイル | 種別 | 変更 |
 |---|---|---|
-| `app/components/chat/ChatClient.tsx` | **修正** | 上部レイヤー component のマウントを追加。`presenceExecutorEnabled` flag OFF で**既存レイアウト完全不変**、ON で上部レイヤー表示（現段階では OFF のまま） |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | 上部レイヤー component のマウントを追加。`presenceExecutorEnabled` flag OFF で**既存レイアウト完全不変**、ON で上部レイヤー表示（現段階では OFF のまま） |
 | `app/components/chat/UpperLayerMount.tsx` | **新規** | 上部レイヤーの本番 entry point（Stage 1 preview component を本番用に移植） |
 | `tests/unit/coalter/chatClientUpperLayerMount.test.ts` | **新規** | flag OFF で ChatClient の diff ゼロ（render snapshot 一致） |
 
@@ -965,7 +965,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 
 | ファイル | 種別 | 変更 |
 |---|---|---|
-| `app/components/chat/ChatClient.tsx` | **修正** | 2 人のメインチャット発話 → signalAdapter 経由で presence reducer へ（flag ON 時のみ）。**メインチャット本文の UI には 1 bit も影響しない** |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | 2 人のメインチャット発話 → signalAdapter 経由で presence reducer へ（flag ON 時のみ）。**メインチャット本文の UI には 1 bit も影響しない** |
 | `tests/unit/coalter/chatClientSignalWiring.test.ts` | **新規** | flag OFF でメインチャット発話が presence reducer に届かない / flag ON で届く |
 
 **Gate**:
@@ -979,7 +979,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | ファイル | 種別 | 変更 |
 |---|---|---|
 | `lib/coalter/flags.ts` | **修正** | `legacyCardAutoInsertEnabled` 新設（既定 **ON**、env `COALTER_LEGACY_CARD_AUTO_INSERT`）。移行期は ON、flip で OFF |
-| `app/components/chat/ChatClient.tsx` | **修正** | `ChatClient.tsx:1898-1908` 付近の CoAlterCard 自動挿入を `legacyCardAutoInsertEnabled` OFF 時にスキップ。同時に **明示 handoff UI**（「チャットに共有」button + tap で 1 回きり broadcast）を追加 |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | `:1741-1759`（実測値、退役計画 doc §1.1）の CoAlterCard 自動挿入を `legacyCardAutoInsertEnabled` OFF 時にスキップ。Phase 6.C+ Dispatcher 経路（line 1721-1740）は flag 無関係に常時動作。同時に **明示 handoff UI**（「チャットに共有」button + tap で 1 回きり broadcast）を追加 |
 | `app/components/chat/HandoffButton.tsx` | **新規** | UI spec §4.3.8 / §2.7 の明示 handoff button |
 | `tests/unit/coalter/legacyCardAutoInsertFlag.test.ts` | **新規** | flag ON で legacy 自動挿入 / flag OFF で handoff button のみ |
 | `tests/unit/coalter/handoffButton.test.ts` | **新規** | 明示 tap → 1 回きり broadcast / 自動 broadcast しない（統合契約 §1.6-3） |
@@ -1031,7 +1031,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | `app/components/chat/AutoEscalationBanner.tsx` | **新規** | 自動昇格 banner（§6.4） |
 | `app/components/chat/ModeReturnPrompt.tsx` | **新規** | 通常モード復帰 UI（§6.5） |
 | `app/components/chat/RejectionFlows.tsx` | **新規** | 拒否 3 分類 UI（§6.6） |
-| `app/components/chat/ChatClient.tsx` | **修正** | 上部レイヤー mount に modeSwitcher / banner / rejection を統合（flag ON 時のみ） |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | 上部レイヤー mount に modeSwitcher / banner / rejection を統合（flag ON 時のみ） |
 | `tests/unit/coalter/chatClientModeSwitch.test.ts` | **新規** | flag OFF で diff ゼロ / flag ON でモード切替動作 / Daily ↔ Travel 直接遷移禁止 |
 
 **Gate**:
@@ -1069,7 +1069,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 | `app/components/chat/UrgentLayer.tsx` | **新規** | preview L1-i の本番化 |
 | `app/components/chat/UrgentMessageCard.tsx` | **新規** | 緊急発話 card（§8.5.3 トーン） |
 | `app/components/chat/UrgentRelease.tsx` | **新規** | 解除 UI（§8.5.4） |
-| `app/components/chat/ChatClient.tsx` | **修正** | urgent layer を上部レイヤー最上位に mount（flag ON 時のみ）/ memory surface との優先順位 enforcer |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | urgent layer を上部レイヤー最上位に mount（flag ON 時のみ）/ memory surface との優先順位 enforcer |
 | `tests/integration/coalter/urgentLayerE2E.test.ts` | **新規** | critical signal 投入 → urgent 起動 / §8.6 優先順位 enforce |
 
 **Gate**:
@@ -1154,7 +1154,7 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 
 | ファイル | 種別 | 変更 |
 |---|---|---|
-| `app/components/chat/ChatClient.tsx` | **修正** | legacy CoAlterCard 自動挿入コード（`:1898-1908` 付近）を削除 |
+| `app/(culcept)/talk/[threadId]/ChatClient.tsx` | **修正** | legacy CoAlterCard 自動挿入コード（実測 `:1741-1759`、退役計画 doc §1.1 整合）を削除。Phase 6.C+ Dispatcher 経路（line 1721-1740）は不変 |
 | `lib/coalter/flags.ts` | **修正** | `legacyCardAutoInsertEnabled` flag 削除 |
 | 関連テスト | 削除 or 更新 | |
 
@@ -1313,7 +1313,8 @@ docs(coalter): legacy CoAlterCard 退役計画 doc 起草
 |---|---|---|---|
 | 2026-04-24 | v0.1 DRAFT | 初稿起草。Stage 0.5 / 1 / 2 / 3 / 4 の Phase 分解、commit 粒度、変更ファイル、型定義、テスト、gate、ロールバック、kill switch 地図、mainstream との合流点を網羅 | CEO 承認待ち |
 | 2026-04-27 | v0.2 DRAFT | CEO 指示により Daily/Travel UI（L1-e/f）/ モード切替・昇格降格（L1-g, L2-h, L3-f, L4-f）/ 共有メモリ surface（L1-h, L2-i, L3-g, L4-g）/ 緊急介入視覚層（L1-i, L2-k, L3-h, L4-h）/ UI 基礎要素（L1-j）/ 拒否 3 分類（L2-j, L3-i）/ 連投抑制（L2-l）/ speechBuilder LLM（L2-m, L4-i）/ telemetry（L4-j）/ a11y（L4-k）を全面追加。22 新 Phase、commit 数 24 → 48、§0.1 範囲拡張、§1.1 ロードマップ全段拡張、§8 kill switch 3 件化、§13 着手順序更新 | CEO 承認待ち |
+| 2026-04-28 | v0.3 minor revision | Stage 1 実装中に発覚した plan ↔ UI spec 不整合 4 件を spec 正本側に同期（CEO 承認）: ① memory 由来 6→3 種（§4.8 / §5.9）/ ② Visibility 3→4 種（§5.9）/ ③ UI 密度 4→3 段階 + 命名修正 minimal/standard/focused/urgent → single-line/compact-card/expanded-card（§4.10 / §10.1）/ ④ アニメ 5→4 カテゴリ + 命名修正 enter/exit/state-shift/urgent/retreat → fade/slide-down/pulse/none（§4.10 / §10.1）/ ⑤ ChatClient.tsx path stale 同期 `app/components/chat/ChatClient.tsx` → `app/(culcept)/talk/[threadId]/ChatClient.tsx`（全 7 箇所）/ ⑥ 退役対象 line 1898-1908 → 1741-1759（実測値、退役計画 doc §1.1 整合）/ ⑦ Phase 6.C+ Dispatcher 経路（line 1721-1740）の flag 無関係常時動作を §7.3 / §7.13 に明記。実装は既に spec 準拠で着地済（commit chain 199556fd〜01f8948b）、本 revision は plan 側の事後同期 | CEO 承認 |
 
 ---
 
-**🎯 結論（v0.2 DRAFT）**: 本書は Core UX v1.1 / UI spec / speech template / 統合契約 / runtime 契約 を**統合した実装手順書**。既存正本 doc を**新規解釈せず**、Stage 0.5 → 1 → 2 → 3 → 4 の順序と commit 粒度で実装を進める。新セッションは本書冒頭から順に commit を重ねれば、上部レイヤー本番実装（**3 Presence Mode + 共有メモリ surface + 緊急介入視覚層 + 拒否 3 分類 + 連投抑制 + speechBuilder LLM + telemetry + a11y**）と legacy 退役が論理的に達成される。本流修正系統（Bug-1/2/三段式）は `docs/coalter-implementation-plan-mainstream.md` に委譲。両 plan の合流点は §14 で明示。
+**🎯 結論（v0.3）**: 本書は Core UX v1.1 / UI spec / speech template / 統合契約 / runtime 契約 を**統合した実装手順書**。既存正本 doc を**新規解釈せず**、Stage 0.5 → 1 → 2 → 3 → 4 の順序と commit 粒度で実装を進める。新セッションは本書冒頭から順に commit を重ねれば、上部レイヤー本番実装（**3 Presence Mode + 共有メモリ surface + 緊急介入視覚層 + 拒否 3 分類 + 連投抑制 + speechBuilder LLM + telemetry + a11y**）と legacy 退役が論理的に達成される。本流修正系統（Bug-1/2/三段式）は `docs/coalter-implementation-plan-mainstream.md` に委譲。両 plan の合流点は §14 で明示。
