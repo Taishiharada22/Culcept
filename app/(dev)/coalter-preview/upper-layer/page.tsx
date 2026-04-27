@@ -32,6 +32,7 @@ import S5Bridging from "./components/states/S5Bridging";
 import S6ReadyForProposal from "./components/states/S6ReadyForProposal";
 import S7ProposalShown from "./components/states/S7ProposalShown";
 import S8Cooldown from "./components/states/S8Cooldown";
+import PatternPicker from "./components/PatternPicker";
 
 // ─────────────────────────────────────────────
 // state picker enum (L1-a で確定、L1-b 以降で消費される)
@@ -268,6 +269,23 @@ export default function UpperLayerPreviewPage() {
           state={selectedState}
           modeLabel={MODE_TO_LABEL[selectedMode]}
         />
+      </section>
+
+      {/* L1-c: Pattern variant 合成 preview (state picker と独立) */}
+      <section
+        aria-label="pattern picker"
+        style={{
+          background: "#ffffff",
+          border: "1px solid #e8e8ec",
+          borderRadius: 8,
+          padding: 20,
+          marginTop: 12,
+        }}
+      >
+        <h2 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 12px" }}>
+          Pattern variant 合成 preview (L1-c)
+        </h2>
+        <PatternPicker />
       </section>
     </main>
   );
