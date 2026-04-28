@@ -24,7 +24,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import UpperLayerMount from "@/app/components/chat/UpperLayerMount";
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 
-const ENV_KEY = "COALTER_PRESENCE_EXECUTOR";
+const ENV_KEY = "NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR";
 let originalEnv: string | undefined;
 
 beforeEach(() => {

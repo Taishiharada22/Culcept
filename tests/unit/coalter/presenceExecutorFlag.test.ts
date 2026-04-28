@@ -17,7 +17,7 @@ import { COALTER_FLAGS } from "@/lib/coalter/flags";
 // ─────────────────────────────────────────────
 
 describe("L2-g presenceExecutorEnabled — 既定 OFF", () => {
-  const ENV_KEY = "COALTER_PRESENCE_EXECUTOR";
+  const ENV_KEY = "NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR";
   let originalEnv: string | undefined;
 
   beforeEach(() => {

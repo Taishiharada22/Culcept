@@ -26,7 +26,7 @@ import {
 } from "@/lib/coalter/presence/telemetry";
 import { TELEMETRY_EVENT_TYPES } from "@/lib/coalter/presence/telemetryEvents";
 
-const ENV_KEY = "COALTER_PRESENCE_EXECUTOR";
+const ENV_KEY = "NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR";
 let originalEnv: string | undefined;
 
 beforeEach(() => {

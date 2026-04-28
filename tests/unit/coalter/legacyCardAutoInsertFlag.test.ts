@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 
-const ENV_KEY = "COALTER_LEGACY_CARD_AUTO_INSERT";
+const ENV_KEY = "NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT";
 let originalEnv: string | undefined;
 
 beforeEach(() => {

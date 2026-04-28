@@ -140,10 +140,12 @@ export const COALTER_FLAGS = {
    *   - flag OFF: 自動挿入スキップ。S7 提案は明示 handoff (HandoffButton) tap 経由のみ
    *     メインチャットに送信 (UI spec §2.7 / §4.3.8 / 統合契約 §1.6-3)。
    *   - **Phase 6.C+ Dispatcher 経路 (line 1721-1740) は flag 無関係に常時動作** (退役計画 doc §1.2 / plan v0.3 §3.3)。
-   *   - env: `COALTER_LEGACY_CARD_AUTO_INSERT`。env から外せば既定 ON 状態へ即座に戻る。
+   *   - env: `NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT`。env から外せば既定 ON 状態へ即座に戻る。
+   *   - **NEXT_PUBLIC_ prefix**: ChatClient.tsx (client component) が判定に使うため、
+   *     client bundle に inline する必要あり (Next.js 規約)。redeploy で flip 反映。
    */
   get legacyCardAutoInsertEnabled(): boolean {
-    return envBool("COALTER_LEGACY_CARD_AUTO_INSERT", true);
+    return envBool("NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT", true);
   },
   /**
    * [Stage 2 L2-g 2026-04-28] `presenceExecutorEnabled`
@@ -160,9 +162,14 @@ export const COALTER_FLAGS = {
    *   - flag OFF で既存 coalter 挙動 (engine / orchestrator / dispatch / CoAlterCard) が
    *     1 bit も変わらない。Stage 4 以前の安全弁。
    *   - env から外せば pre-Stage 4 状態へ即座に戻る。
+   *
+   *   **NEXT_PUBLIC_ prefix (2026-04-28 訂正)**: UpperLayerMount /
+   *   PresenceSignalWiring (client component) が判定に使い、telemetry.safeEmit
+   *   も client / server 両方から呼ばれるため、client bundle に inline する必要
+   *   あり (Next.js 規約)。redeploy で flip 反映。
    */
   get presenceExecutorEnabled(): boolean {
-    return envBool("COALTER_PRESENCE_EXECUTOR", false);
+    return envBool("NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR", false);
   },
 };
 

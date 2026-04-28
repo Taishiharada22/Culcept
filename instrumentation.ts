@@ -11,7 +11,7 @@ export async function register() {
     //     → setLlmCall を呼ばない (null injection で誤動作させない、speechBuilder の
     //     default static fallback 経路を維持)
     //   - wireSentryTelemetry() は sink injection のみ。実 send は telemetry.safeEmit
-    //     経路で COALTER_PRESENCE_EXECUTOR flag を gate (flag OFF で送信ゼロ)
+    //     経路で NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR flag を gate (flag OFF で送信ゼロ)
     //
     // L4-l flip 時に CEO ops が:
     //   - .env で ANTHROPIC_API_KEY + 3 flag を設定
