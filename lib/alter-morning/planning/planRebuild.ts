@@ -46,11 +46,15 @@ import { classifyWhereVague } from "./whereVagueClassifier";
 //   衝突しない sentinel として segment.fromEventId に入る。
 // CEO 2026-04-28 Journey 構造: last_event → 帰宅 の synthetic travel segment も
 //   生成する。ENDPOINT_TRAVEL_SENTINEL_ID は segment.toEventId に入る sentinel。
+// CEO 2026-04-28 G2 (5W1H How): event.transport (raw Japanese) → item.transport
+//   (vcTypes.TransportMode) の写像に parseJapaneseTransportToVc を使う。
 import {
   HOME_TRAVEL_SENTINEL_ID,
   ENDPOINT_TRAVEL_SENTINEL_ID,
+  parseJapaneseTransportToVc,
 } from "./transportContext";
 import type { HomeAnchor, JourneyEndAnchor } from "./transportContext";
+import type { TransportMode as VcTransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Defaults（Phase 1 固定、将来 CEO 判断で変更）
@@ -152,6 +156,21 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
   const withWhomText: string | undefined =
     cleanedWho.length > 0 ? cleanedWho.join("、") : undefined;
 
+  // ── CEO 2026-04-28 G2 (5W1H How 軸): event.transport → item.transport 写像 ──
+  //   仕様:
+  //     - event.transport は LLM/answerBinder が書き込む raw Japanese (e.g., "電車")
+  //     - parseJapaneseTransportToVc が "train"/"walk"/"bus"/... に正規化
+  //     - parse 不能 / null / 空白のみ → undefined（spread で field 不在）
+  //   設計判断:
+  //     - 既存 deriveDayTransport (dayConditions.mainTransport derive) と同じ
+  //       parser を共有することで day-wide と per-event の解釈が常に一致
+  //     - parse 不能なものは保存しない (hallucination 防止)
+  //     - vcTypes.TransportMode に統一 (PlanItem.transport の型と一致)
+  const itemTransport: VcTransportMode | undefined =
+    event.transport && event.transport.trim().length > 0
+      ? parseJapaneseTransportToVc(event.transport)
+      : undefined;
+
   return {
     id: event.event_id,
     kind: hasFixedStart ? "fixed" : "todo",
@@ -175,6 +194,8 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
     ...(location !== undefined ? { location } : {}),
     // CEO 2026-04-28 G1: 同伴者 (5W1H Who 軸)
     ...(withWhomText !== undefined ? { withWhom: withWhomText } : {}),
+    // CEO 2026-04-28 G2: 移動手段 (5W1H How 軸)
+    ...(itemTransport !== undefined ? { transport: itemTransport } : {}),
   };
 }
 

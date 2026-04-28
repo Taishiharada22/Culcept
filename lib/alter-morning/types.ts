@@ -398,6 +398,24 @@ export interface PlanItem {
   /** 移動手段（kind: "travel" のみ） */
   travelTransport?: TransportMode;
 
+  // ── 5W1H How 軸 (CEO 2026-04-28 G2): event 単位の移動手段 ──
+  /**
+   * その予定への移動手段（kind: "fixed" | "todo" 用の "How" 軸）。
+   * `event.transport` (raw Japanese e.g., "電車") を vcTypes.TransportMode に
+   * 正規化したもの。`travelTransport` と異なり、travel 行ではなく **event 行**
+   * 自身に紐づく How 情報。
+   *
+   * 用途:
+   *   - PlanItem として 5W1H 完備性を保証する (Audit G2)
+   *   - 将来 UI で event row に小さい移動手段アイコン表示できるようにする
+   *   - dayConditions.mainTransport (day-wide) と event.transport (per-event) の
+   *     gap を埋める。複数 event で各々違う移動手段を持つケースに対応
+   *
+   * 設計: undefined なら field 不在 (conditional spread)。parseJapaneseTransportToVc
+   * で parse 不能だった raw 値は保存しない (hallucination 防止)。
+   */
+  transport?: TransportMode;
+
   // ── Alter 提案フィールド（Gap Fill Engine 由来） ──
   /** true = Alter が提案した soft proposal（ユーザー予定ではない） */
   proposal?: boolean;

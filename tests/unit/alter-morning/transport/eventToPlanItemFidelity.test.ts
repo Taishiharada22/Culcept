@@ -149,3 +149,131 @@ describe("G1: event.who[] → item.withWhom 写像", () => {
     expect(result.items[2].withWhom).toBeUndefined();
   });
 });
+
+describe("G2: event.transport → item.transport 写像 (vcTypes 正規化)", () => {
+  it("[ROOT CAUSE] event.transport='電車' → item.transport='train'", () => {
+    const events = [mkEventFull({ id: "evt_1", transport: "電車" })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBe("train");
+  });
+
+  it("event.transport=null → field 自体不在 (conditional spread)", () => {
+    const events = [mkEventFull({ id: "evt_1", transport: null })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBeUndefined();
+    expect("transport" in result.items[0]).toBe(false);
+  });
+
+  it.each([
+    ["徒歩", "walk"],
+    ["歩き", "walk"],
+    ["歩いて", "walk"],
+    ["自転車", "bicycle"],
+    ["チャリ", "bicycle"],
+    ["車", "car"],
+    ["クルマ", "car"],
+    ["タクシー", "taxi"],
+    ["Uber", "taxi"],
+    ["バス", "bus"],
+    ["地下鉄", "train"],
+    ["JR", "train"],
+    ["私鉄", "train"],
+  ] as const)("event.transport='%s' → item.transport='%s'", (raw, expected) => {
+    const events = [mkEventFull({ id: "evt_1", transport: raw })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBe(expected);
+  });
+
+  it("event.transport='飛行機' (parse 不能) → undefined (hallucination 防止)", () => {
+    const events = [mkEventFull({ id: "evt_1", transport: "飛行機" })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBeUndefined();
+  });
+
+  it("event.transport='' (空文字) → undefined", () => {
+    const events = [mkEventFull({ id: "evt_1", transport: "" })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBeUndefined();
+  });
+
+  it("event.transport='   ' (空白のみ) → undefined", () => {
+    const events = [mkEventFull({ id: "evt_1", transport: "   " })];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBeUndefined();
+  });
+
+  it("複数 event でそれぞれ異なる transport を持つケース", () => {
+    const events = [
+      mkEventFull({ id: "evt_1", transport: "電車" }),
+      mkEventFull({ id: "evt_2", transport: "徒歩" }),
+      mkEventFull({ id: "evt_3", transport: null }),
+    ];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].transport).toBe("train");
+    expect(result.items[1].transport).toBe("walk");
+    expect(result.items[2].transport).toBeUndefined();
+  });
+});
+
+describe("G1 + G2 統合: 同 event に Who/How 両方が乗るケース", () => {
+  it("event.who + event.transport 両方ある → item に withWhom + transport 両方乗る", () => {
+    const events = [
+      mkEventFull({
+        id: "evt_1",
+        who: ["田中", "佐藤"],
+        transport: "電車",
+      }),
+    ];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].withWhom).toBe("田中、佐藤");
+    expect(result.items[0].transport).toBe("train");
+  });
+
+  it("event.who のみ (transport なし) → withWhom only", () => {
+    const events = [
+      mkEventFull({ id: "evt_1", who: ["田中"], transport: null }),
+    ];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].withWhom).toBe("田中");
+    expect(result.items[0].transport).toBeUndefined();
+  });
+
+  it("event.transport のみ (who なし) → transport only", () => {
+    const events = [
+      mkEventFull({ id: "evt_1", who: [], transport: "電車" }),
+    ];
+    const result = buildPlanAndSegmentsFromEvents({
+      events,
+      enableTransportV2: false,
+    });
+    expect(result.items[0].withWhom).toBeUndefined();
+    expect(result.items[0].transport).toBe("train");
+  });
+});
