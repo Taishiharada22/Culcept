@@ -60,6 +60,7 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 // CEO 2026-04-28 PR #41b-0: effectiveEvents canonical reconcile (3 layer)。
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
+import { dispatchEventMerge } from "./planning/eventMergeDispatch";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -544,17 +545,27 @@ export function adaptPipelineToLegacy(
   });
   const currentEvents = guardResult.events;
 
-  // ── Events 継承（W3-PR-7 Commit 4 + Phase 2 scope 3 / CEO 2026-04-26）──
-  //   旧: `currentEvents.length > 0 ? currentEvents : priorPersistedEvents`
-  //   新: field-level merge で priorPersistedEvents を全 discard しない。
+  // ── Events 継承（CEO 2026-04-29 PR #41b-1a: turn_mode dispatch）──
+  //   旧 mergeEventFields の課題:
+  //     1. length-mismatch (cur.length !== prior.length) で全 cur を discard
+  //        → 予定追加 (LLM が 2 events 出力) で新規 event が消える (CEO Case 3 真因)
+  //     2. mergeIntoPrior は null-fill semantics で intentional update を表現できない
+  //        → 「9時を10時に変更」 で event_1.when.startTime が更新されない (CEO Case 1 真因)
+  //     3. position fallback が turn_mode 不問で fire
+  //        → modify event が誤合流するリスク
   //
-  //   Turn 3「電車」入力で comprehension が transport だけの partial event を
-  //   返した時、startTime / where.coordinates / placeType を保持する。
-  //   詳細: mergeEventFields (本ファイル上部 + tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
-  const effectiveEvents: ComprehensionEvent[] = mergeEventFields(
+  //   新 dispatchEventMerge:
+  //     A. length-mismatch でも各 event 独立処理 (discard 廃止)
+  //     B. turn_mode 別 dispatch (modify / create / append)
+  //     C. modify apply (applyModifyPatch で intentional update)
+  //     D. position fallback を turn_mode="create" + length match に限定
+  //
+  //   詳細: lib/alter-morning/planning/eventMergeDispatch.ts
+  const dispatchResult = dispatchEventMerge({
     currentEvents,
-    input.priorPersistedEvents,
-  );
+    priorPersistedEvents: input.priorPersistedEvents ?? [],
+  });
+  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);

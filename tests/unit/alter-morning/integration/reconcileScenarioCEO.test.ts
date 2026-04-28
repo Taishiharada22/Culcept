@@ -233,15 +233,20 @@ describe("CEO 2026-04-28 success scenario: 9時を10時に変更", () => {
     expect(response.plan!.items.length).toBe(1);
     expect(response.plan!.status).toBe("confirmed");
 
-    // ─── effectiveEvents は guard 補正済 + merge 済 ──
-    //   merge で event_id は priorPersistedEvents 側 (evt_morning) になる想定
+    // ─── effectiveEvents は guard 補正済 + dispatch (modify apply) 済 ──
+    //   PR #41b-1a: applyModifyPatch で prior.when.startTime=10:00 に更新済み
+    //   prior の turn_mode="create" は維持 (modify は apply 後消える)
+    //   target_ref は解決後 clear
     const persisted = session.persistedEvents;
     expect(persisted).toBeDefined();
     expect(persisted!.length).toBe(1);
-    // when は 10:00 (guard suggestedNewStartTime override)
+    expect(persisted![0].event_id).toBe("evt_morning"); // prior id 維持
+    // CEO Case 1 真因 fix: when=10:00 に更新
     expect(persisted![0].when.startTime).toBe("10:00");
-    // turn_mode は modify (guard 補正)
-    expect(persisted![0].turn_mode).toBe("modify");
+    // turn_mode は prior の "create" を維持 (modify apply 後)
+    expect(persisted![0].turn_mode).toBe("create");
+    // target_ref は解決後 clear
+    expect(persisted![0].target_ref).toBeNull();
 
     // ─── trace で reconcile 観測 ──
     const captured = captureLog();
