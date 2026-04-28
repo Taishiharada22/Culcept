@@ -138,6 +138,20 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
 
   const location = eventWhereToLocation(event.where);
 
+  // ── CEO 2026-04-28 G1 (5W1H Who 軸): event.who[] → item.withWhom 写像 ──
+  //   仕様:
+  //     - 空配列 / 空文字のみ → undefined（spread で field 自体を含めない）
+  //     - 単数 → そのまま
+  //     - 複数 → 「、」(Japanese enumeration) で join
+  //     - 配列内の空文字は filter で除外（defensive）
+  //   UI 側 (MorningPlanCard.tsx L819) は `item.withWhom` がある時のみ
+  //   「👤 ...」を render する。本写像が無いと UI に 1 度も到達しない。
+  const cleanedWho = event.who
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter((s) => s.length > 0);
+  const withWhomText: string | undefined =
+    cleanedWho.length > 0 ? cleanedWho.join("、") : undefined;
+
   return {
     id: event.event_id,
     kind: hasFixedStart ? "fixed" : "todo",
@@ -159,6 +173,8 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
     // 下流 UI の `item.location?.label` guard と整合し、PR-10 C6 の
     // conditional spread precedent（transportSegments）を踏襲する。
     ...(location !== undefined ? { location } : {}),
+    // CEO 2026-04-28 G1: 同伴者 (5W1H Who 軸)
+    ...(withWhomText !== undefined ? { withWhom: withWhomText } : {}),
   };
 }
 
