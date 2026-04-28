@@ -303,8 +303,26 @@ export function dispatchEventMerge(
             return;
           }
         }
+        // resolveTargetRef が解決できなかった場合の最終手段:
+        // CEO 2026-04-29 single event fallback —
+        //   priorCopy.length === 1 なら、target_ref 文字列が無くても
+        //   その単一 event を target と推定 (e.g., 「今日の予定」「それ」 等)。
+        //   medium confidence で apply、CEO Case 2 (移動手段変更) で重要。
+        if (priorCopy.length === 1) {
+          priorCopy[0] = applyModifyPatch(priorCopy[0], cur);
+          dispatch.push({
+            cur_event_id: cur.event_id,
+            cur_turn_mode: "modify",
+            action: "modify_applied",
+            target_event_id: priorCopy[0].event_id,
+            confidence: "medium",
+            strategy: "single_event_fallback",
+          });
+          return;
+        }
       }
-      // 未解決 modify: fallback で create 扱い (data loss 防止)
+      // 未解決 modify (target_ref なし or 解決失敗 + 複数 prior):
+      //   fallback で kept_as_new (data loss 防止)
       newEvents.push(cur);
       dispatch.push({
         cur_event_id: cur.event_id,

@@ -367,7 +367,10 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[0].action).toBe("modify_applied");
   });
 
-  it("[fallback] modify unresolved (target_ref 解決失敗) → kept_as_new (data loss 防止)", () => {
+  it("[single event fallback] target_ref 解決失敗 + prior 1 件 → 単一 event に apply (CEO Case 2)", () => {
+    // CEO 2026-04-29 Case 2「移動手段を車に変更」 シナリオ:
+    //   target_ref="今日の予定" のような非 specific 文字列でも、
+    //   prior が 1 件なら自動的にその event に apply (medium confidence)
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -375,17 +378,59 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         timeHint: null,
         provenance: utteranceProvenance(["9時"], "high"),
       },
+      where: {
+        place_ref: "サドヤ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["サドヤ"], "high"),
+      },
+      transport: "電車",
+    });
+    const modifyCur = mkEvent({
+      event_id: "evt_modify",
+      turn_mode: "modify",
+      target_ref: "今日の予定", // resolveTargetRef では解決しない文字列
+      transport: "車",
+    });
+    const result = dispatchEventMerge({
+      currentEvents: [modifyCur],
+      priorPersistedEvents: [prior],
+    });
+    expect(result.effectiveEvents).toHaveLength(1);
+    expect(result.effectiveEvents[0].transport).toBe("車"); // ★ apply された
+    expect(result.dispatch[0].action).toBe("modify_applied");
+    expect(result.dispatch[0].strategy).toBe("single_event_fallback");
+    expect(result.dispatch[0].confidence).toBe("medium");
+  });
+
+  it("[fallback] modify unresolved (target_ref 解決失敗 + prior 複数) → kept_as_new (data loss 防止)", () => {
+    const prior1 = mkEvent({
+      event_id: "e1",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+    });
+    const prior2 = mkEvent({
+      event_id: "e2",
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
     });
     const unresolvedModify = mkEvent({
       event_id: "evt_modify",
       turn_mode: "modify",
-      target_ref: "存在しない予定",
+      target_ref: "存在しない予定", // 複数 prior + 解決失敗 → ambiguous
     });
     const result = dispatchEventMerge({
       currentEvents: [unresolvedModify],
-      priorPersistedEvents: [prior],
+      priorPersistedEvents: [prior1, prior2],
     });
-    expect(result.effectiveEvents).toHaveLength(2); // prior + unresolved (fallback)
+    // 複数 prior で曖昧 → fallback (single event fallback は length===1 のみ)
+    expect(result.effectiveEvents).toHaveLength(3); // prior1 + prior2 + unresolved
     expect(result.dispatch[0].action).toBe("modify_unresolved_fallback_create");
   });
 
