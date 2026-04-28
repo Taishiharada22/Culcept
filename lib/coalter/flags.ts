@@ -19,8 +19,17 @@
  * 既定値は flag ごとに異なる。bookingHandoffEnabled は ON、stage1LiveEnabled は OFF。
  */
 
-function envBool(name: string, fallback: boolean): boolean {
-  const raw = process.env[name];
+/**
+ * 値ベースの bool 正規化。
+ *
+ * **重要 (2026-04-29 修正)**: webpack の DefinePlugin は `process.env.X` (member
+ * access) のみ build 時に値で置換する。`process.env[name]` (computed access) は
+ * 置換されないため、client side では browser polyfill (process.env={}) に
+ * 落ちて常に undefined を返す。したがって NEXT_PUBLIC_ flag を client で
+ * 読むには、各 getter で `process.env.NEXT_PUBLIC_X` を**直接記述**する必要が
+ * ある。本 helper は読み取り済みの raw value を受け取るだけの pure function。
+ */
+function normalizeBool(raw: string | undefined, fallback: boolean): boolean {
   if (raw == null) return fallback;
   const v = raw.trim().toLowerCase();
   if (v === "" || v === "1" || v === "true" || v === "on" || v === "yes") return true;
@@ -28,14 +37,25 @@ function envBool(name: string, fallback: boolean): boolean {
   return fallback;
 }
 
+/**
+ * 動的 env name を取って bool を返す helper。
+ *
+ * **server-only context でしか使わないこと**。client で呼ぶと browser polyfill
+ * の空 env により常に fallback を返す。現状の唯一の caller は
+ * `isU3AbolitionActive` (theme→env name の動的 lookup が必要)。
+ */
+function envBool(name: string, fallback: boolean): boolean {
+  return normalizeBool(process.env[name], fallback);
+}
+
 export const COALTER_FLAGS = {
   /** Phase A: bottom sheet 用 detail を candidate に付与するか */
   get bookingHandoffEnabled(): boolean {
-    return envBool("COALTER_BOOKING_HANDOFF_ENABLED", true);
+    return normalizeBool(process.env.COALTER_BOOKING_HANDOFF_ENABLED, true);
   },
   /** M1 1a: /api/coalter/invoke で Stage 1 Understand を呼んで response に乗せるか */
   get stage1LiveEnabled(): boolean {
-    return envBool("COALTER_STAGE1_LIVE", false);
+    return normalizeBool(process.env.COALTER_STAGE1_LIVE, false);
   },
   /**
    * [CEO lock 2026-04-20 M1 Candidate 2] `stage1NarrationEnabled`
@@ -47,7 +67,7 @@ export const COALTER_FLAGS = {
    *   - 依存: stage1LiveEnabled = true。snapshot が無い場合は no-op。
    */
   get stage1NarrationEnabled(): boolean {
-    return envBool("COALTER_STAGE1_NARRATION", false);
+    return normalizeBool(process.env.COALTER_STAGE1_NARRATION, false);
   },
   /**
    * [CEO lock 2026-04-20 M1 Candidate 3] `pairOnboardingEnabled`
@@ -61,7 +81,7 @@ export const COALTER_FLAGS = {
    *     だけ切り戻したい場面に対応する 3 つ目の弁。
    */
   get pairOnboardingEnabled(): boolean {
-    return envBool("COALTER_PAIR_ONBOARDING", false);
+    return normalizeBool(process.env.COALTER_PAIR_ONBOARDING, false);
   },
   /**
    * [CEO lock 2026-04-20 F-5] `foodLensWired`
@@ -77,7 +97,7 @@ export const COALTER_FLAGS = {
    *   - F-5 scope: output 復活まで。foodTierExpander の消費は F-6 以降。
    */
   get foodLensWired(): boolean {
-    return envBool("COALTER_FOOD_LENS_WIRED", false);
+    return normalizeBool(process.env.COALTER_FOOD_LENS_WIRED, false);
   },
   /**
    * [CEO lock 2026-04-24 B-5] `understandingShadowMovie`
@@ -98,7 +118,7 @@ export const COALTER_FLAGS = {
    *   - env から外せば即座に pre-B-5 状態へ戻る。
    */
   get understandingShadowMovie(): boolean {
-    return envBool("COALTER_UNDERSTANDING_SHADOW_MOVIE", false);
+    return normalizeBool(process.env.COALTER_UNDERSTANDING_SHADOW_MOVIE, false);
   },
   /**
    * [CEO lock 2026-04-20 F-6] `foodTierLoop`
@@ -116,7 +136,7 @@ export const COALTER_FLAGS = {
    *     density/lighting ranker 負債は触らない。
    */
   get foodTierLoop(): boolean {
-    return envBool("COALTER_FOOD_TIER_LOOP", false);
+    return normalizeBool(process.env.COALTER_FOOD_TIER_LOOP, false);
   },
   /**
    * [Stage 4 L4-i 2026-04-28] `presenceSpeechLLMEnabled`
@@ -129,7 +149,7 @@ export const COALTER_FLAGS = {
    *     (LLM 課金経路が production behavior 不変原則を侵さない)。
    */
   get presenceSpeechLLMEnabled(): boolean {
-    return envBool("COALTER_PRESENCE_SPEECH_LLM", false);
+    return normalizeBool(process.env.COALTER_PRESENCE_SPEECH_LLM, false);
   },
   /**
    * [Stage 4 L4-c 2026-04-28] `legacyCardAutoInsertEnabled`
@@ -141,11 +161,17 @@ export const COALTER_FLAGS = {
    *     メインチャットに送信 (UI spec §2.7 / §4.3.8 / 統合契約 §1.6-3)。
    *   - **Phase 6.C+ Dispatcher 経路 (line 1721-1740) は flag 無関係に常時動作** (退役計画 doc §1.2 / plan v0.3 §3.3)。
    *   - env: `NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT`。env から外せば既定 ON 状態へ即座に戻る。
-   *   - **NEXT_PUBLIC_ prefix**: ChatClient.tsx (client component) が判定に使うため、
-   *     client bundle に inline する必要あり (Next.js 規約)。redeploy で flip 反映。
+   *   - **NEXT_PUBLIC_ prefix + 直接アクセス必須 (2026-04-29 修正)**: ChatClient.tsx
+   *     (client component) が判定に使う。webpack DefinePlugin が build 時に
+   *     値で置換するのは `process.env.NEXT_PUBLIC_X` (member access) のみ。
+   *     `process.env[name]` (computed access) は browser polyfill (env={}) に
+   *     落ちて常に undefined → fallback。本 getter は直接記述で inline 強制。
    */
   get legacyCardAutoInsertEnabled(): boolean {
-    return envBool("NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT", true);
+    return normalizeBool(
+      process.env.NEXT_PUBLIC_COALTER_LEGACY_CARD_AUTO_INSERT,
+      true,
+    );
   },
   /**
    * [Stage 2 L2-g 2026-04-28] `presenceExecutorEnabled`
@@ -163,13 +189,19 @@ export const COALTER_FLAGS = {
    *     1 bit も変わらない。Stage 4 以前の安全弁。
    *   - env から外せば pre-Stage 4 状態へ即座に戻る。
    *
-   *   **NEXT_PUBLIC_ prefix (2026-04-28 訂正)**: UpperLayerMount /
-   *   PresenceSignalWiring (client component) が判定に使い、telemetry.safeEmit
-   *   も client / server 両方から呼ばれるため、client bundle に inline する必要
-   *   あり (Next.js 規約)。redeploy で flip 反映。
+   *   **NEXT_PUBLIC_ prefix + 直接アクセス必須 (2026-04-29 訂正)**:
+   *   UpperLayerMount / PresenceSignalWiring (client component) が判定に使い、
+   *   telemetry.safeEmit も client / server 両方から呼ばれる。
+   *   webpack DefinePlugin の inline は `process.env.NEXT_PUBLIC_X`
+   *   (member access) のみ対象。computed access (`process.env[name]`) は
+   *   browser polyfill の env={} に落ちて常に undefined → fallback。
+   *   本 getter は直接記述で inline を強制する。
    */
   get presenceExecutorEnabled(): boolean {
-    return envBool("NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR", false);
+    return normalizeBool(
+      process.env.NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR,
+      false,
+    );
   },
 };
 
