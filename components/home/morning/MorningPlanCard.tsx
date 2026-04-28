@@ -1176,6 +1176,26 @@ export default function MorningPlanCard({
           </div>
         )}
 
+        {/*
+          CEO 2026-04-28 Journey 構造: 起点ノード（plan.journeyOrigin）
+            - plan.items の **上** に「現在地 / 自宅」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - homeAnchor が null（座標が無い CEO 案 1: hallucination 防止）→
+              plan.journeyOrigin が undefined → 何も render しない
+        */}
+        {plan.journeyOrigin && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mb-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyOrigin.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">起点</span>
+          </div>
+        )}
+
         {/* アイテムリスト */}
         <div className="space-y-0.5">
           {(() => {
@@ -1216,6 +1236,25 @@ export default function MorningPlanCard({
         </div>
 
         {/*
+          CEO 2026-04-28 Journey 構造: 終点ノード（plan.journeyEnd）
+            - plan.items の **下** に「帰宅 / hotel / friend's house」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - journeyEnd が undefined（CEO 案 1）→ 何も render しない
+        */}
+        {plan.journeyEnd && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mt-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyEnd.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">終点</span>
+          </div>
+        )}
+
+        {/*
           W3-PR-13 M3 + M5 fix: MorningMapView — pin map（list view の補助ビュー）
           gate (v1 OR v2 のいずれかで描画可能):
             - visualFlowEnabled (server-side flag eval 済み boolean)
@@ -1232,18 +1271,62 @@ export default function MorningPlanCard({
          */}
         {visualFlowEnabled &&
           (() => {
-            // v1 events が 2 件以上あればそれで OK
-            const v1Ok = (events?.length ?? 0) >= 2;
-            // v2: plan.items のうち fixed かつ location.lat/lng を持つものを数える
-            const v2FixedWithCoords = (plan.items ?? []).filter(
+            // event pin の予測数（v1 events か v2 planItems のうち多い方）
+            const v1Count = (events ?? []).filter(
+              (e) =>
+                e.where?.coordinates &&
+                typeof e.where.coordinates.lat === "number" &&
+                typeof e.where.coordinates.lng === "number",
+            ).length;
+            const v2Count = (plan.items ?? []).filter(
               (i) =>
                 i.kind === "fixed" &&
                 typeof i.location?.lat === "number" &&
                 typeof i.location?.lng === "number",
             ).length;
-            const v2Ok = v2FixedWithCoords >= 2;
-            if (!v1Ok && !v2Ok) return null;
-            return <MorningMapView events={events} planItems={plan.items} />;
+            const eventPinCount = Math.max(v1Count, v2Count);
+
+            // CEO 2026-04-28 G5: journey anchor pin を予測数に加える。
+            //   1-event plan + home/current あれば anchor + event = 2 pins で
+            //   map が mount できるようになる。
+            //   round-trip default (origin === endpoint coords) は 1 pin に
+            //   dedupe されるので、両方あっても +1 として扱う。
+            const originValid = !!(
+              plan.journeyOrigin &&
+              Number.isFinite(plan.journeyOrigin.lat) &&
+              Number.isFinite(plan.journeyOrigin.lng)
+            );
+            const endValid = !!(
+              plan.journeyEnd &&
+              Number.isFinite(plan.journeyEnd.lat) &&
+              Number.isFinite(plan.journeyEnd.lng)
+            );
+            const sameAnchorCoords =
+              originValid &&
+              endValid &&
+              plan.journeyOrigin!.lat.toFixed(4) ===
+                plan.journeyEnd!.lat.toFixed(4) &&
+              plan.journeyOrigin!.lng.toFixed(4) ===
+                plan.journeyEnd!.lng.toFixed(4);
+            const journeyPinCount = originValid
+              ? endValid && !sameAnchorCoords
+                ? 2
+                : 1
+              : endValid
+                ? 1
+                : 0;
+
+            const totalEstimate = eventPinCount + journeyPinCount;
+            if (totalEstimate < 2) return null;
+
+            return (
+              <MorningMapView
+                events={events}
+                planItems={plan.items}
+                journeyOrigin={plan.journeyOrigin ?? null}
+                journeyEnd={plan.journeyEnd ?? null}
+              />
+            );
           })()}
 
         {/* 場所詳細 bottom sheet */}

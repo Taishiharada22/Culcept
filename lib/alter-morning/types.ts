@@ -398,6 +398,24 @@ export interface PlanItem {
   /** 移動手段（kind: "travel" のみ） */
   travelTransport?: TransportMode;
 
+  // ── 5W1H How 軸 (CEO 2026-04-28 G2): event 単位の移動手段 ──
+  /**
+   * その予定への移動手段（kind: "fixed" | "todo" 用の "How" 軸）。
+   * `event.transport` (raw Japanese e.g., "電車") を vcTypes.TransportMode に
+   * 正規化したもの。`travelTransport` と異なり、travel 行ではなく **event 行**
+   * 自身に紐づく How 情報。
+   *
+   * 用途:
+   *   - PlanItem として 5W1H 完備性を保証する (Audit G2)
+   *   - 将来 UI で event row に小さい移動手段アイコン表示できるようにする
+   *   - dayConditions.mainTransport (day-wide) と event.transport (per-event) の
+   *     gap を埋める。複数 event で各々違う移動手段を持つケースに対応
+   *
+   * 設計: undefined なら field 不在 (conditional spread)。parseJapaneseTransportToVc
+   * で parse 不能だった raw 値は保存しない (hallucination 防止)。
+   */
+  transport?: TransportMode;
+
   // ── Alter 提案フィールド（Gap Fill Engine 由来） ──
   /** true = Alter が提案した soft proposal（ユーザー予定ではない） */
   proposal?: boolean;
@@ -534,6 +552,58 @@ export interface MorningPlan {
    * flag OFF 時は field 自体を plan に含めない（conditional spread、byte-diff ゼロ保証）。
    */
   transportSegments?: TransportSegment[];
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 2026-04-28: Journey 構造（anchor → ... → endpoint）の plan-level metadata
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //
+  // MorningPlanCard が plan.items の **上** に "起点ノード"、**下** に "終点ノード"
+  // を render するための plan-level metadata。
+  //
+  // CEO 提示構造:
+  //   現在地（🏠）         ← plan.journeyOrigin から render
+  //   🚃                   ← plan.items[0] (kind:travel, HOME_SENTINEL→evt_1)
+  //   予定場所             ← plan.items[1..n] (kind:fixed)
+  //   🚃                   ← plan.items[n+1] (kind:travel, evt_last→ENDPOINT_SENTINEL)
+  //   帰宅                 ← plan.journeyEnd から render
+  //
+  // 設計判断（PlanItem に新 kind を追加しない理由）:
+  //   - PlanItemKind="anchor"/"endpoint" の追加は filter / sort / normalize / migration
+  //     の数十箇所に副作用が及ぶ
+  //   - 起点・終点は plan 全体に 1 件ずつしかない singleton → array より plan-level metadata に
+  //     置くほうが論理的かつ局所的
+  //   - render layer (MorningPlanCard) で 2 ブロック追加するだけで完結する
+  //
+  // 値が undefined の場合の挙動:
+  //   homeAnchor が null（CEO 案 1: 現在地・自宅どちらも無い）→ journeyOrigin / journeyEnd
+  //   ともに undefined。MorningPlanCard は何も render せず、travel item も生成されない
+  //   （hallucination 防止）。
+  /**
+   * 起点アンカー（現在地 / 自宅）。CEO 2026-04-28 Journey 構造の最上位ノード。
+   * coords は travel synthesize 用、label は UI render 用。
+   */
+  journeyOrigin?: {
+    /** "現在地" または "自宅" */
+    label: string;
+    lat: number;
+    lng: number;
+    /** どちらの coordinate が採用されたか */
+    source: "current" | "registered_home";
+  };
+  /**
+   * 終点アンカー（帰宅 / hotel / friend's house）。CEO 2026-04-28 Journey 構造の最下位ノード。
+   * MVP: round-trip default → coords は journeyOrigin と同一、label="帰宅"。
+   * 将来拡張: comprehension が utterance から explicit endpoint を抽出した場合 override。
+   *
+   * 注意: 既存 `endpointAnchor` (type/label/area/needsAreaConfirm) は
+   * saveLastEndpoint / 次プラン継承用の legacy 型で、本 field とは役割が異なる。
+   */
+  journeyEnd?: {
+    label: string;
+    lat: number;
+    lng: number;
+    source: "default_round_trip" | "comprehension_explicit" | "user_override";
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

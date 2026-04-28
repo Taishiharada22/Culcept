@@ -423,11 +423,14 @@ function mkEventWithCoords(
   };
 }
 
-function mkPriorPlan(items: PlanItem[]): MorningPlan {
+function mkPriorPlan(
+  items: PlanItem[],
+  dayConditions: MorningPlan["dayConditions"] = {},
+): MorningPlan {
   return {
     date: "2026-04-22",
     items,
-    dayConditions: {},
+    dayConditions,
     createdAt: "2026-04-22T09:00:00Z",
     confirmed: false,
     status: "provisional",
@@ -450,7 +453,17 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     vi.clearAllMocks();
   });
 
-  it("flag OFF + plan in morningSession → response.morningSession.plan は含まれない（完全互換）", async () => {
+  it("flag OFF + plan in morningSession → response.morningSession.plan は含まれる（Phase 2 scope 1: items rebuild、travel なし）", async () => {
+    // Phase 2 scope 1 (CEO 2026-04-26): plan rebuild は transportV2 flag 不問で
+    // 常に走るように変更。flag OFF でも events 由来の items で plan を最新化する。
+    // 旧契約「flag OFF で plan を含めない」は CEO 観測「TSUTAYA tap 後も Markcity が
+    // 残る」の構造的原因だったため意図的に廃止。
+    //
+    // flag OFF の保証:
+    //   - response.morningSession.plan は **含まれる**（priorPlan が存在すれば）
+    //   - plan.items は events から rebuild された最新値
+    //   - plan.transportSegments は **undefined**（travel 機能は flag ON 時のみ）
+    //   - travel item は plan.items に含まれない（同上）
     __setTransportV2Override(false);
 
     const candidate = mkCandidate("p1");
@@ -496,11 +509,16 @@ describe("POST /api/stargazer/alter/selection — PR-10 plan rebuild", () => {
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // flag OFF 契約: server は plan を response に含めない（client は自前の plan を保持）。
-    // pre-PR-10 では client hook が plan を無視していたため、wire 上 plan を消しても
-    // client の state 遷移は発生せず、byte-diff ゼロ相当の互換を満たす。
-    expect(body.morningSession.plan).toBeUndefined();
-    expect("plan" in body.morningSession).toBe(false);
+    // Phase 2 scope 1: plan は **含まれる**（rebuilt with items, no travel/transportSegments）
+    expect(body.morningSession.plan).toBeDefined();
+    expect(body.morningSession.plan).not.toBeNull();
+    // priorPlan の不変 fields は維持（date / dayConditions / createdAt / confirmed / status）
+    expect(body.morningSession.plan.date).toBe(priorPlan.date);
+    // travel / transportSegments は flag OFF なので含まれない
+    expect(body.morningSession.plan.transportSegments).toBeUndefined();
+    const travelItems = (body.morningSession.plan.items as Array<{ kind: string }>)
+      .filter((i) => i.kind === "travel");
+    expect(travelItems).toHaveLength(0);
   });
 
   it("flag ON + coordinates-fixed events + plan in morningSession → rebuild で transportSegments 付与", async () => {
@@ -758,10 +776,14 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
 
     expect(body.accepted).toBe(true);
     expect(body.alterFollowUp).toBeDefined();
-    expect(body.alterFollowUp.text).toBe("このあと、どこか寄る？");
+    // CEO 2026-04-26 update: selection 後は transport question 最優先
+    //   (transport が events.transport=null かつ pendingClarify=null/where → transport clarify が立つ)
+    //   旧 test は "このあと、どこか寄る？" nudge を期待していたが、CEO の Phase 2
+    //   ゴール「場所→移動手段」優先で transport question に置き換わる。
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
-  it("flag ON + 1件目 place 確定 but ユーザーが終了意思 → alterFollowUp 抑制", async () => {
+  it("flag ON + 1件目 place 確定 but ユーザーが終了意思 → transport clarify 立つ (CEO 2026-04-26)", async () => {
     __setTransportV2Override(true);
 
     const candidate = mkCandidate("p1");
@@ -798,11 +820,15 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // 終了意思あり → Predicate C で抑制
-    expect(body.alterFollowUp).toBeUndefined();
+    // CEO 2026-04-26 update: 旧 nudge は終了意思で抑制されたが、
+    //   新 state machine では selection → transport が unconditional。
+    //   ただし「終了意思 → 何も聞かない」を尊重する場合、別 path で transport を skip する
+    //   logic が必要。Phase 2 では transport を最優先で出す方針 (CEO 承認済)。
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
-  it("flag ON + 2件目 place 確定（prev=1, next=2） → alterFollowUp 抑制", async () => {
+  it("flag ON + 2件目 place 確定（prev=1, next=2） → transport clarify 立つ (CEO 2026-04-26)", async () => {
     __setTransportV2Override(true);
 
     const candidate = mkCandidate("p1");
@@ -837,8 +863,11 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     const body = await res.json();
 
     expect(body.accepted).toBe(true);
-    // Predicate A 不成立（prev=1, next=2） + Predicate B 成立 → 抑制
-    expect(body.alterFollowUp).toBeUndefined();
+    // CEO 2026-04-26 update: 2件目 place 確定でも transport が events で null
+    //   なら transport clarify を立てる (場所→移動手段の論理順序)。旧 nudge 抑制
+    //   ロジックは保持されるが、selection の core flow としては transport 最優先。
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
   });
 
   it("flag ON + accepted=false（stale fingerprint） → alterFollowUp は付かない", async () => {
@@ -866,5 +895,290 @@ describe("POST /api/stargazer/alter/selection — PR-10 alterFollowUp nudge", ()
     // 到達すらしない（return NextResponse.json は Step 7c より前の rejection で返る）。
     expect(body).toEqual({ accepted: false, reason: "query_fingerprint_stale" });
     expect(body.alterFollowUp).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2 scope 4-B + 4-D (CEO 2026-04-26 観測由来)
+//   B: selection 受理時に session.pendingClarify を clear（同 event_id + slot=where）
+//      → 「カフェはどのあたり？」再発を構造的に防ぐ
+//   D: selection 経由 plan rebuild に dayConditions.mainTransport を渡す
+//      → travel item の transport が反映される
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("POST /api/stargazer/alter/selection — Phase 2 scope 4-B/4-D (CEO 2026-04-26)", () => {
+  beforeEach(() => {
+    mockTierCheck.mockResolvedValue({ userId: "user_test" });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    __setTransportV2Override(null);
+  });
+
+  it("scope 4-B' + 4-C: selection 受理 + slot=where pendingClarify → transport clarify に置換", async () => {
+    // CEO 2026-04-26 再設計: 旧 4-B (clear=null) は撤回。
+    // selection 後は transport clarify に進める正しい状態遷移を検証する。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()], // event_1, transport=null
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_1", what: "コーヒー", time_hint: "10:00" },
+            question: "10:00のカフェはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // 必須 test 1: pendingClarify.slot === "transport"
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify).not.toBeNull();
+    expect(body.morningSession.pendingClarify.slot).toBe("transport");
+    expect(body.morningSession.pendingClarify.kind).toBe("transport");
+    expect(body.morningSession.pendingClarify.event_id).toBe("event_1");
+    expect(body.morningSession.pendingClarify.question).toBe(
+      "移動手段は何にする？",
+    );
+    // 必須 test 2: response に「移動手段は何にする？」が出る (alterFollowUp 経由)
+    expect(body.alterFollowUp).toBeDefined();
+    expect(body.alterFollowUp.text).toBe("移動手段は何にする？");
+  });
+
+  it("scope 4-B': transport が events に既知 (transport != null) → pendingClarify は touch しない", async () => {
+    // 既に user が transport を述べた状態で selection が走った場合、
+    // redundant に「移動手段は何にする？」を聞かない。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+    const eventWithTransport: Event = {
+      ...mkEvent(),
+      transport: "電車",
+    };
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [eventWithTransport],
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_1" },
+            question: "10:00のカフェはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // transport 既知なので transport clarify に置換しない (where pending を維持しない、
+    // 元 pendingClarify は selection 受理で意味を失っているが、transport 既知の場合は
+    // 「現状維持 = where のまま」が安全側 = transport question 出さない)
+    expect(body.morningSession.pendingClarify?.slot).not.toBe("transport");
+    // alterFollowUp に transport question は出ない
+    expect(body.alterFollowUp?.text).not.toBe("移動手段は何にする？");
+  });
+
+  it("scope 4-B: selection 受理 + 別 event_id の pendingClarify → 維持", async () => {
+    // 多 segment ケース: seg_1 を選択中、seg_2 の pendingClarify は触らない
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          pendingClarify: {
+            event_id: "event_2", // ← 別 event の clarify
+            slot: "where",
+            kind: "where_center",
+            scope: { event_id: "event_2", what: "ランチ", time_hint: "12:00" },
+            question: "12:00のランチはどのあたり？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // 別 event_id の pendingClarify は維持される
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify.event_id).toBe("event_2");
+  });
+
+  it("scope 4-B: selection 受理 + slot != where (transport pending) → 維持", async () => {
+    // transport 確認中に place selection が走るケース（順序的にレア）。
+    // slot=where 以外の clarify は触らない（必要な clarify を消さない）。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [mkEvent()],
+          pendingClarify: {
+            event_id: "event_1",
+            slot: "transport", // ← transport の clarify
+            kind: "transport",
+            scope: { event_id: "event_1", what: "コーヒー", time_hint: "10:00" },
+            question: "移動手段は何？",
+            askedAt: "2026-04-26T00:00:00Z",
+          },
+        } as any,
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    // transport pendingClarify は維持される
+    expect(body.morningSession.pendingClarify).toBeDefined();
+    expect(body.morningSession.pendingClarify.slot).toBe("transport");
+  });
+
+  it("scope 4-D: selection 経由 plan rebuild で priorPlan.dayConditions.mainTransport が反映される", async () => {
+    // user が以前「電車」と言って dayConditions.mainTransport="train" 設定済の状態で
+    // place selection が走る → rebuilt plan の dayConditions / travel item に train が反映。
+    //
+    // buildTransportSegments は events.length >= 2 + 両端 coordinates 必須なので、
+    // CEO 観測の現実的な usecase (seg_1 + seg_2 の 2 件) を模す。
+    __setTransportV2Override(true);
+    const candidate = mkCandidate("p1");
+    const dialogState = mkPresentedDialogState(
+      mkActivePresentation("event_1", "fp1", [candidate]),
+    );
+    const priorPlan = mkPriorPlan(
+      [
+        {
+          id: "event_1",
+          kind: "fixed",
+          text: "10:00 スタバ コーヒー",
+          what: "コーヒー",
+          startTime: "10:00",
+          durationMin: 45,
+          durationSource: "inferred",
+          fixedStart: true,
+          orderHint: 0,
+          sourceTurnIndex: 0,
+          completed: false,
+          whenSharpness: "fixed",
+          whereSharpness: "vague",
+          whatSharpness: "fixed",
+          whereVagueSubKind: "category_chain",
+          confirmationState: "provisional",
+        },
+      ],
+      // dayConditions.mainTransport を pre-populate
+      { mainTransport: "train", venue: "outdoor", estimatedWalkLevel: "medium" },
+    );
+
+    // event 1 (selection target): TSUTAYA candidate 候補で更新される (where 確定)
+    // event 2: マック等で coordinates あり (segment 構築に必要)
+    const event1: Event = {
+      ...mkEvent("event_1"),
+      where: {
+        place_ref: "スタバ",
+        placeType: "chain_brand",
+        coordinates: { lat: 35.66, lng: 138.56 },
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+    };
+    const event2: Event = {
+      ...mkEvent("event_2"),
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "マック",
+        placeType: "exact_proper_noun",
+        coordinates: { lat: 35.69, lng: 139.7 },
+        provenance: utteranceProvenance(["マック"], "high"),
+      },
+      missing_semantic_critical: [],
+    };
+
+    const res = await POST(
+      mkRequest({
+        turnIndex: 3,
+        targetEventId: "event_1",
+        queryFingerprint: "fp1",
+        selectedPlaceId: "p1",
+        morningSession: {
+          sessionId: "s1",
+          phase: "clarifying",
+          dialogState,
+          persistedEvents: [event1, event2],
+          plan: priorPlan,
+        },
+      }) as any,
+    );
+    const body = await res.json();
+
+    expect(body.accepted).toBe(true);
+    expect(body.morningSession.plan).toBeDefined();
+    // dayConditions.mainTransport は priorPlan から維持される (selection で触らない、vcTypes 形式)
+    expect(body.morningSession.plan.dayConditions?.mainTransport).toBe("train");
+    // transportSegments が build されており、mode="public_transit"
+    //   (mapVcTransportToPlanTransport で vcTypes "train" → planTypes "public_transit")
+    expect(body.morningSession.plan.transportSegments).toBeDefined();
+    const segments = body.morningSession.plan.transportSegments as Array<{
+      mode: string;
+    }>;
+    expect(segments.length).toBeGreaterThan(0);
+    const transitSegments = segments.filter((s) => s.mode === "public_transit");
+    expect(transitSegments.length).toBeGreaterThan(0);
   });
 });

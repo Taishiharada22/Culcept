@@ -11,6 +11,9 @@ import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehens
 //   selectShadowTargetEventId の condition A (prevFocus===null) が恒常 fail
 //   で focus 継承が発動しない（2026-04-22 preview で判明）。
 import type { DialogState } from "@/lib/alter-morning/dialog/types";
+// CEO 2026-04-26 root-cause fix: server canonical state を selection 経路でも完全に
+// honour する pure helper（テスタビリティのため React 非依存ファイルに切り出し）。
+import { applySelectionMorningSession } from "@/hooks/applySelectionResponse";
 
 /** PE出典情報（Alter発言下に小さく表示） */
 export type PerspectiveSource = {
@@ -244,6 +247,41 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 2026-04-28 Option B: 現在地座標 (browser geolocation)
+  //   - hook mount 時に 1 回だけ取得を試みる（失敗時は静かに null）
+  //   - chat / selection request body に乗せ、server で home anchor として優先採用
+  //   - permission 拒否時はパーミッション再要求を強制しない（UX 阻害禁止）
+  //   - 取得済み座標は React state にキャッシュ（同 hook lifecycle 中は不変）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const [currentCoords, setCurrentCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setCurrentCoords({ lat, lng });
+        }
+      },
+      () => {
+        // 拒否 / timeout は黙って無視（registered home が代替）
+      },
+      // 5 秒で諦める（UX 阻害禁止）。high accuracy 不要、cached 値 OK
+      { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
     try {
@@ -349,6 +387,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
           ...(softBridgePending ? { softBridgePending: true } : {}),
+          // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+          //   server で home anchor の優先 1 として採用される。
+          //   取得に失敗 / 拒否されていれば送らない（registered home が代替）。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
         }),
       });
 
@@ -546,6 +590,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           queryFingerprint: requestFingerprint,
           selectedPlaceId,
           morningSession,
+          // CEO 2026-04-28 Option B: 現在地座標（home anchor 優先 1）。
+          //   selection endpoint で travel item の home segment 生成に使う。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
         }),
       });
 
@@ -575,22 +624,32 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       }
 
       // accepted=true: canonical morningSession で置換
+      //
+      // CEO 2026-04-26 root-cause fix:
+      //   旧実装は dialogState / persistedEvents / phase / plan の **4 fields のみ**
+      //   propagate していた。pendingClarify を含む 7 fields が落ちており、
+      //   selection で server が pendingClarify={slot:"transport"} を返しても
+      //   client state は更新されず、次 turn の chat で stale pendingClarify が
+      //   送られて Branch A (canBind) が起動せず Branch B fresh comprehension に
+      //   落ちて「09:00のカフェはどのあたり？」 clarify が再発していた。
+      //
+      //   applySelectionMorningSession (hooks/applySelectionResponse.ts) は
+      //   chat response handler (L457-) と同等の field set を propagate する。
+      //   テスタビリティのため pure 関数として切り出してある。
       if (data.morningSession) {
-        const next = data.morningSession;
-        if (next.dialogState !== undefined) {
-          setMorningDialogState(next.dialogState ?? null);
-        }
-        if (next.persistedEvents !== undefined) {
-          setMorningPersistedEvents(next.persistedEvents ?? null);
-        }
-        if (next.phase) {
-          setMorningPhase(next.phase);
-        }
-        // W3-PR-10: server が rebuild した plan があれば置換（transportSegments 含む）。
-        // flag OFF 時は server は plan を返さないので本分岐は no-op（byte-diff ゼロ）。
-        if (next.plan !== undefined) {
-          setMorningPlan(next.plan ?? null);
-        }
+        applySelectionMorningSession(data.morningSession, {
+          setMorningDialogState,
+          setMorningPersistedEvents,
+          setMorningPhase,
+          setMorningPlan,
+          setMorningPendingClarify,
+          setMorningRawInputs,
+          setMorningParsedIntent,
+          setMorningSufficiency,
+          setMorningPersonalizeHints,
+          setMorningPlanStateV2,
+          setMorningPipelineVersion,
+        });
       }
 
       // W3-PR-10 positive-path nudge: 1件目 place 確定直後に Alter から次の場所を自然に問う。

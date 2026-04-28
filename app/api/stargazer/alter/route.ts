@@ -923,6 +923,8 @@ export async function POST(req: NextRequest) {
       _abTestOverrideTrust: abTestOverrideTrust,
       morningSession: rawMorningSession,
       softBridgePending: rawSoftBridgePending,
+      currentLat: rawCurrentLat,
+      currentLng: rawCurrentLng,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -973,6 +975,14 @@ export async function POST(req: NextRequest) {
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
+      /**
+       * CEO 2026-04-28 Option B: browser geolocation で取得した現在地座標。
+       * adaptPipelineToLegacy → resolveHomeAnchor で home anchor の優先 1 として
+       * 採用される。registered home (userHomeLat/Lng) より優先。
+       * 取得不能なら null（さらに registered home もなければ travel item 不生成）。
+       */
+      currentLat?: number | null;
+      currentLng?: number | null;
     };
 
     const isHomeAlter = source === "home";
@@ -1845,6 +1855,9 @@ export async function POST(req: NextRequest) {
                   userHomeLabel: morningSession.userHomeLabel,
                   userHomeLat: morningSession.userHomeLat,
                   userHomeLng: morningSession.userHomeLng,
+                  // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+                  currentLat: rawCurrentLat ?? null,
+                  currentLng: rawCurrentLng ?? null,
                   priorRawInputs: priorInputs,
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
@@ -1947,6 +1960,10 @@ export async function POST(req: NextRequest) {
               userHomeLabel: morningSession.userHomeLabel,
               userHomeLat: morningSession.userHomeLat,
               userHomeLng: morningSession.userHomeLng,
+              // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+              // resolveHomeAnchor で registered home より優先される。
+              currentLat: rawCurrentLat ?? null,
+              currentLng: rawCurrentLng ?? null,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
@@ -1987,6 +2004,10 @@ export async function POST(req: NextRequest) {
               userHomeLabel: morningSession.userHomeLabel,
               userHomeLat: morningSession.userHomeLat,
               userHomeLng: morningSession.userHomeLng,
+              // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+              // resolveHomeAnchor で registered home より優先される。
+              currentLat: rawCurrentLat ?? null,
+              currentLng: rawCurrentLng ?? null,
               priorRawInputs: priorInputs,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:

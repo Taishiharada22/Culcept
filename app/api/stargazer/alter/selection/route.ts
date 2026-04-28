@@ -48,6 +48,16 @@ import {
 } from "@/lib/alter-morning/dialog/flags";
 import type { MorningPlan, PlanItem } from "@/lib/alter-morning/types";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
+// CEO 2026-04-28 Option B + Journey 構造: 一元化された transport mapper /
+//   home anchor / journey end 解決を使う。
+//   旧 mapVcTransportToPlanTransport は本ファイル内に残置していたが、
+//   transportContext.ts に移行（同じ logic を chat 経路と共有）。
+import {
+  deriveDayTransport,
+  mapVcTransportToPlanMode,
+  resolveHomeAnchor,
+  resolveJourneyEndAnchor,
+} from "@/lib/alter-morning/planning/transportContext";
 import {
   computeSegmentsBuiltTelemetry,
   computeDisplayRenderedTelemetry,
@@ -90,6 +100,13 @@ interface SelectionRequestBody {
     // pass-through: 他の field は変更せずそのまま返却
     [key: string]: unknown;
   };
+  /**
+   * CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+   * selection 後の plan rebuild で home anchor の優先 1 として使われる。
+   * registered home (priorPlan.dayConditions 経由) より優先。
+   */
+  currentLat?: number | null;
+  currentLng?: number | null;
 }
 
 function isString(x: unknown): x is string {
@@ -106,6 +123,9 @@ function validateBody(x: unknown): SelectionRequestBody | null {
   if (!o.morningSession || typeof o.morningSession !== "object") return null;
   return o as unknown as SelectionRequestBody;
 }
+
+// CEO 2026-04-28 Option B: vcTypes ↔ transport/types mapper は
+//   transportContext.ts に一元化（同じ logic を chat 経路と共有）。
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Handler
@@ -138,6 +158,17 @@ export async function POST(req: NextRequest) {
       body;
     const prevDialogState = morningSession.dialogState ?? null;
     const prevEvents = morningSession.persistedEvents ?? [];
+    // CEO 2026-04-28 Option B + Journey 構造: browser geolocation 由来の現在地座標。
+    //   selection 経路では registered home にアクセスできないため、
+    //   currentLat/Lng が無ければ home anchor は null（travel item 不生成）。
+    //   chat 経路 (legacyAdapter) は registered home を fallback で使えるため、
+    //   Turn 3「電車」入力時に travel item が確実に生成される。
+    //   journeyEnd は homeAnchor の round-trip default 派生。
+    const selectionHomeAnchor = resolveHomeAnchor({
+      currentLat: body.currentLat,
+      currentLng: body.currentLng,
+    });
+    const selectionJourneyEnd = resolveJourneyEndAnchor(selectionHomeAnchor);
 
     // Step 3: dialogState presence
     if (!prevDialogState) {
@@ -210,129 +241,248 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Step 7a: plan rebuild（W3-PR-10 canonical staleness fix / F-New-1）
-    //   flag OFF: rebuildPlan は undefined。response の morningSession.plan は
-    //     client が送った pass-through（...morningSession）で従来挙動のまま。
-    //   flag ON:  updated events から items と canonical TransportSegment[] を rebuild。
-    //     priorPlan の date / dayConditions / createdAt / confirmed / status は温存。
-    //   invariant: buildPlanAndSegmentsFromEvents は pure。flag 値は引数で受け渡す。
+    // Step 7a: plan rebuild
+    //   Phase 2 scope 1 (CEO 2026-04-26): plan rebuild 自体は transportV2 flag
+    //   不問で実行する。理由 = candidate 選択後に events が更新されたなら、
+    //   plan items は events と同期した状態で UI に返す必要がある。flag OFF で
+    //   plan を rebuild しないと client は古い plan (Markcity 等) を表示し続ける。
+    //
+    //   ただし travel synthesize / interleave / telemetry は transportV2 flag ON 時のみ:
+    //     - flag OFF: items は events から rebuild、travel item なし、transportSegments なし
+    //     - flag ON:  上記 + travel item interleave + transportSegments + telemetry
+    //
+    //   buildPlanAndSegmentsFromEvents の `enableTransportV2: false` 経路は
+    //   transportSegments を返さない既存挙動なので、flag OFF でも items 再構築は安全。
     let rebuiltPlan: MorningPlan | undefined;
-    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
-      const priorPlan = morningSession.plan as MorningPlan | undefined;
-      if (priorPlan) {
-        const built = buildPlanAndSegmentsFromEvents({
-          events: eventUpdate.events,
-          enableTransportV2: true,
-        });
+    const priorPlan = morningSession.plan as MorningPlan | undefined;
+    if (priorPlan) {
+      const enableTransportV2 = ALTER_MORNING_FLAGS.transportV2(userId);
+      // Phase 2 scope 4-D (CEO 2026-04-26): priorPlan.dayConditions.mainTransport を
+      //   buildPlanAndSegmentsFromEvents に渡すことで、travel item / transportSegments
+      //   の mode が反映される。旧 logic は events.transport を見ない設計上、user の
+      //   「電車」入力が plan の travel item に反映されない問題があった。
+      //   vcTypes.TransportMode → transport/types.TransportMode の mapping は
+      //   mapVcTransportToPlanTransport で（既存 architectural debt の対応）。
+      // CEO 2026-04-28 Option B: transport 解決の優先
+      //   1. events[*].transport (deriveDayTransport) — 直近 Turn の answer 反映
+      //   2. priorPlan.dayConditions.mainTransport — 前 turn から carry
+      // homeAnchor は selection 経路では currentLat/Lng のみ採用 (registered home 不在)。
+      const derivedTransport = deriveDayTransport(eventUpdate.events);
+      const fallbackPlanMode = mapVcTransportToPlanMode(
+        priorPlan.dayConditions?.mainTransport,
+      );
+      const built = buildPlanAndSegmentsFromEvents({
+        events: eventUpdate.events,
+        enableTransportV2,
+        mainTransport: derivedTransport?.plan ?? fallbackPlanMode,
+        homeAnchor: selectionHomeAnchor,
+        journeyEnd: selectionJourneyEnd,
+      });
+
+      let interleavedItems = built.items;
+
+      // travel synthesize + interleave + telemetry は transportV2 flag ON のみ
+      if (enableTransportV2 && built.transportSegments !== undefined) {
         // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
-        //   selection endpoint では userId は必ず tierCheck 経由で取得済み（null 不可）。
-        //   flag_source は resolveTransportV2FlagSource(userId) から取得（transportV2
-        //   呼び出しと同じ resolution 順序を共有）。
-        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
-        if (built.transportSegments !== undefined) {
-          const flagSource = resolveTransportV2FlagSource(userId);
-          if (flagSource != null) {
-            const telemetry = computeSegmentsBuiltTelemetry(
-              eventUpdate.events,
-              built.transportSegments,
-            );
-            void import("@/lib/stargazer/analytics")
-              .then(({ trackStargazerEvent }) =>
-                trackStargazerEvent({
-                  userId,
-                  event: "transport_v2_segments_built",
-                  feature: "alter_morning",
-                  metadata: {
-                    schema_version: "2026-04-24",
-                    flag_source: flagSource,
-                    session_id: morningSession.sessionId ?? null,
-                    plan_date: priorPlan.date,
-                    caller: "selection_route",
-                    ...telemetry,
-                  },
-                  timestamp: new Date().toISOString(),
-                }),
-              )
-              .catch(() => {
-                /* analytics must never block plan rebuild — swallow */
-              });
-          }
+        const flagSource = resolveTransportV2FlagSource(userId);
+        if (flagSource != null) {
+          const telemetry = computeSegmentsBuiltTelemetry(
+            eventUpdate.events,
+            built.transportSegments,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId,
+                event: "transport_v2_segments_built",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: morningSession.sessionId ?? null,
+                  plan_date: priorPlan.date,
+                  caller: "selection_route",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan rebuild — swallow */
+            });
         }
+
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
-        //   flag ON（built.transportSegments !== undefined）なので travel を
-        //   synthesize して event items との間に挿入する。synthesize / interleave
-        //   はいずれも pure。travel id は deterministic（`travel__<from>__<to>`）。
-        //   flag OFF 経路は外側 if で弾いているのでここには来ない。
-        const entries =
-          built.transportSegments !== undefined
-            ? synthesizeTravelItems(
-                built.transportSegments,
-                eventUpdate.events,
-              )
-            : [];
-        const interleaved = interleaveTravelItems(built.items, entries);
+        // CEO 2026-04-28 Option B + Journey:
+        //   HOME_SENTINEL → homeAnchor.label / ENDPOINT_SENTINEL → journeyEnd.label
+        const entries = synthesizeTravelItems(
+          built.transportSegments,
+          eventUpdate.events,
+          selectionHomeAnchor,
+          selectionJourneyEnd,
+        );
+        interleavedItems = interleaveTravelItems(built.items, entries);
 
         // ── W3-PR-10 canary O3: transport_v2_display_rendered emit ──
-        //   interleave 直後の display cache telemetry。
-        //   segments がある時（= flag ON かつ rebuild 済み）のみ fire。
-        //   flag_source / schema_version 契約は O2 と共有。
-        //   fire-and-forget — analytics 失敗が plan rebuild に影響しない。
-        if (built.transportSegments !== undefined) {
-          const flagSource = resolveTransportV2FlagSource(userId);
-          if (flagSource != null) {
-            const telemetry = computeDisplayRenderedTelemetry(
-              built.transportSegments,
-              interleaved,
-            );
-            void import("@/lib/stargazer/analytics")
-              .then(({ trackStargazerEvent }) =>
-                trackStargazerEvent({
-                  userId,
-                  event: "transport_v2_display_rendered",
-                  feature: "alter_morning",
-                  metadata: {
-                    schema_version: "2026-04-24",
-                    flag_source: flagSource,
-                    session_id: morningSession.sessionId ?? null,
-                    plan_date: priorPlan.date,
-                    caller: "selection_route",
-                    ...telemetry,
-                  },
-                  timestamp: new Date().toISOString(),
-                }),
-              )
-              .catch(() => {
-                /* analytics must never block plan rebuild — swallow */
-              });
-          }
+        if (flagSource != null) {
+          const telemetry = computeDisplayRenderedTelemetry(
+            built.transportSegments,
+            interleavedItems,
+          );
+          void import("@/lib/stargazer/analytics")
+            .then(({ trackStargazerEvent }) =>
+              trackStargazerEvent({
+                userId,
+                event: "transport_v2_display_rendered",
+                feature: "alter_morning",
+                metadata: {
+                  schema_version: "2026-04-24",
+                  flag_source: flagSource,
+                  session_id: morningSession.sessionId ?? null,
+                  plan_date: priorPlan.date,
+                  caller: "selection_route",
+                  ...telemetry,
+                },
+                timestamp: new Date().toISOString(),
+              }),
+            )
+            .catch(() => {
+              /* analytics must never block plan rebuild — swallow */
+            });
         }
-
-        const normalizedItems: PlanItem[] = interleaved.map((item) =>
-          normalizePlanItem(item),
-        );
-        rebuiltPlan = {
-          ...priorPlan,
-          items: normalizedItems,
-          ...(built.transportSegments !== undefined
-            ? { transportSegments: built.transportSegments }
-            : {}),
-        };
       }
+
+      const normalizedItems: PlanItem[] = interleavedItems.map((item) =>
+        normalizePlanItem(item),
+      );
+      // CEO 2026-04-28 Option B: dayConditions.mainTransport を events 由来で更新。
+      //   events に transport が無ければ priorPlan の値を維持（不要な reset を避ける）。
+      const nextDayConditions = derivedTransport
+        ? { ...priorPlan.dayConditions, mainTransport: derivedTransport.vc }
+        : (priorPlan.dayConditions ?? {});
+      // CEO 2026-04-28 Journey 構造: plan-level metadata
+      //   selectionHomeAnchor が無ければ priorPlan.journeyOrigin / journeyEnd を保持
+      //   （chat 経路で設定されたものを selection が消さないように）。
+      const nextJourneyOrigin = selectionHomeAnchor
+        ? {
+            label: selectionHomeAnchor.label,
+            lat: selectionHomeAnchor.lat,
+            lng: selectionHomeAnchor.lng,
+            source: selectionHomeAnchor.source,
+          }
+        : priorPlan.journeyOrigin;
+      const nextJourneyEnd = selectionJourneyEnd
+        ? {
+            label: selectionJourneyEnd.label,
+            lat: selectionJourneyEnd.lat,
+            lng: selectionJourneyEnd.lng,
+            source: selectionJourneyEnd.source,
+          }
+        : priorPlan.journeyEnd;
+      rebuiltPlan = {
+        ...priorPlan,
+        items: normalizedItems,
+        dayConditions: nextDayConditions,
+        ...(enableTransportV2 && built.transportSegments !== undefined
+          ? { transportSegments: built.transportSegments }
+          : {}),
+        ...(nextJourneyOrigin !== undefined ? { journeyOrigin: nextJourneyOrigin } : {}),
+        ...(nextJourneyEnd !== undefined ? { journeyEnd: nextJourneyEnd } : {}),
+      };
     }
 
     // Step 7b: canonical morningSession
-    //   flag OFF: plan は含めない（pre-PR-10 挙動: client が setMorningPlan を呼ばない）。
-    //     pre-PR-10 は client の pass-through を server が echo していたが、client hook は
-    //     plan を無視していたため wire 上は plan を消しても client state 遷移はゼロ。
-    //   flag ON:  rebuiltPlan が plan として返る（client は setMorningPlan で置換）。
+    //   Phase 2 scope 1 (CEO 2026-04-26): rebuiltPlan は priorPlan が存在すれば
+    //   transportV2 flag 不問で常に作られるため、flag OFF でも plan が含まれる
+    //   ようになる。これは selection 後に client UI が古い plan を表示し続ける
+    //   問題（CEO 観測「TSUTAYA tap 後も Markcity が残る」）の構造的修正。
     //
-    // invariant: flag OFF 時は response.morningSession.plan === undefined であり、
-    //   client の `if (next.plan !== undefined) setMorningPlan(...)` ガードに揃う。
-    const { plan: _passthroughPlan, ...morningSessionWithoutPlan } = morningSession;
+    //   flag OFF: rebuiltPlan は items のみ更新（travel item / transportSegments なし）。
+    //     client は setMorningPlan で「items だけ最新化された plan」に置換する。
+    //   flag ON:  rebuiltPlan は items + travel + transportSegments すべて含む。
+    //
+    //   invariant: priorPlan が存在すれば response.morningSession.plan は必ず含まれる。
+    //     priorPlan が undefined の時のみ plan は含まれない（既存の no-priorPlan 挙動）。
+    // Phase 2 scope 4-B' + 4-C (CEO 2026-04-26 再設計):
+    //   旧 scope 4-B (pendingClarify=null clear) は撤回。
+    //   selection 後に Branch A (canBind path) に入れず Branch B (fresh comprehension)
+    //   になり、where が LLM 再 resolve で上書きされる regression を起こしていた。
+    //
+    //   正しい状態遷移:
+    //     [Turn 2 selection 受理]
+    //       events.where = TSUTAYA / exact_proper_noun
+    //       pendingClarify = { slot: "transport", question: "移動手段は何にする？" }
+    //       response message に transport question を含める (alterFollowUp 経由)
+    //     [Turn 3 「電車」入力]
+    //       canBind = true (pendingClarify=transport, persistedEvents 非空)
+    //       Branch A: answerBinder で events.transport="電車" bind
+    //       fresh comprehension 走らない → where / startTime 触らない
+    //       → travel item / 移動時間が plan に反映
+    //
+    //   排他条件:
+    //     - 同 event_id + slot="where" 既存 pendingClarify → transport pendingClarify に置換
+    //     - 別 event_id pendingClarify → 維持 (multi-segment 対応)
+    //     - slot=transport / when 等 → 維持 (必要な clarify を消さない)
+    //     - 元から transport が non-null (events.transport != null) → pendingClarify 立てない
+    //       (CEO の usecase で transport 既知なら redundant question を出さない)
+    const incomingPendingClarify = (morningSession as { pendingClarify?: unknown })
+      .pendingClarify as
+      | {
+          event_id?: string;
+          slot?: string;
+        }
+      | null
+      | undefined;
+    const shouldReplaceWithTransport =
+      incomingPendingClarify == null ||
+      (incomingPendingClarify.event_id === targetEventId &&
+        incomingPendingClarify.slot === "where");
+    const targetEventTransport = eventUpdate.events.find(
+      (e) => e.event_id === targetEventId,
+    )?.transport;
+    const transportAlreadyKnown =
+      targetEventTransport != null && targetEventTransport.length > 0;
+
+    let nextPendingClarify: unknown;
+    // transportClarifyFollowUp: 場所確定後の transport question。
+    // CEO 2026-04-26 方針: 「selection したら transport を聞く」シンプル state machine。
+    // 既存 PR-10 nudge ("次の場所どこ？") は本 path で **置き換え**られる。
+    // CEO usecase「全場所確定後に移動手段」を最優先 — nudge より transport question。
+    let transportClarifyFollowUp: { text: string } | undefined;
+    const transportV2Active = ALTER_MORNING_FLAGS.transportV2(userId);
+    if (
+      shouldReplaceWithTransport &&
+      !transportAlreadyKnown &&
+      transportV2Active
+    ) {
+      const transportQuestion = "移動手段は何にする？";
+      nextPendingClarify = {
+        event_id: targetEventId,
+        slot: "transport",
+        kind: "transport",
+        scope: { event_id: targetEventId },
+        question: transportQuestion,
+        askedAt: new Date().toISOString(),
+      };
+      transportClarifyFollowUp = { text: transportQuestion };
+    } else {
+      // transport 既知 or 別 event_id pending → pendingClarify を touch しない
+      nextPendingClarify = incomingPendingClarify ?? null;
+    }
+
+    const {
+      plan: _passthroughPlan,
+      pendingClarify: _staleIncomingPendingClarify,
+      ...morningSessionWithoutPlan
+    } = morningSession as Record<string, unknown> & {
+      plan?: MorningPlan;
+      pendingClarify?: unknown;
+    };
     const nextMorningSession = {
       ...morningSessionWithoutPlan,
       dialogState: nextDialogState,
       persistedEvents: eventUpdate.events,
+      pendingClarify: nextPendingClarify,
       ...(rebuiltPlan !== undefined ? { plan: rebuiltPlan } : {}),
     };
 
@@ -350,8 +500,12 @@ export async function POST(req: NextRequest) {
     //
     //   observability: O2 / O3 telemetry は本 nudge と独立。natural 2 件目が
     //   user 応答で追加されれば segment build 側で segment_count > 0 が発火する。
-    let alterFollowUp: { text: string } | undefined;
-    if (ALTER_MORNING_FLAGS.transportV2(userId)) {
+    // alterFollowUp (CEO 2026-04-26 方針):
+    //   transport clarify を **最優先**で出す (場所→移動手段の論理順序)。
+    //   それが該当しない場合のみ既存 PR-10 nudge ("次の場所どこ？") を考慮する。
+    //   従来 nudge は transport が既知の multi-place case で動く想定で残す。
+    let alterFollowUp: { text: string } | undefined = transportClarifyFollowUp;
+    if (alterFollowUp === undefined && transportV2Active) {
       const should = shouldAskNextPlace({
         prevEvents,
         nextEvents: eventUpdate.events,

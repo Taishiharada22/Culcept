@@ -37,6 +37,15 @@ import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
 import { buildPlanAndSegmentsFromEvents } from "./planning/planRebuild";
+// CEO 2026-04-28 Option B + Journey 構造: transport rendering 基盤の wiring
+//   - deriveDayTransport: events[*].transport → dayConditions.mainTransport
+//   - resolveHomeAnchor: currentLat/Lng > homeLat/Lng > null
+//   - resolveJourneyEndAnchor: home anchor から round-trip default の endpoint
+import {
+  deriveDayTransport,
+  resolveHomeAnchor,
+  resolveJourneyEndAnchor,
+} from "./planning/transportContext";
 import {
   synthesizeTravelItems,
   interleaveTravelItems,
@@ -73,6 +82,13 @@ export interface LegacyAdapterInput {
   userHomeLabel?: string | null;
   userHomeLat?: number | null;
   userHomeLng?: number | null;
+  /**
+   * CEO 2026-04-28 Option B: home anchor 解決の優先 1（現在地）。
+   * client (browser geolocation) から chat / selection request body 経由で渡る。
+   * resolveHomeAnchor で homeLat/Lng より優先して採用される。
+   */
+  currentLat?: number | null;
+  currentLng?: number | null;
   /** プラン作成日 fallback。省略時は今日（YYYY-MM-DD） */
   today?: string;
   /**
@@ -137,6 +153,169 @@ export interface LegacyAdapterOutput {
  *
  *   PR-8: blockingSlots を一次判定に据え、primary_clarify は二重防御に降格。
  */
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2 scope 3 — field-level event merge (CEO + GPT 合意 2026-04-26)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 1 件の current event を prior event に **field-level merge** する。
+ *
+ * 規則 (CEO 確定 2026-04-26):
+ *   - event_id は prior を維持（同一性 anchor の安定）
+ *   - cur の **non-null / non-empty** フィールドは採用（意図的更新はできる）
+ *   - cur の **null / undefined / 空文字** フィールドは prior を保持（消失防止）
+ *   - missing_semantic_critical / missing_solver_blockers は prior を維持
+ *     （current の partial event が空 missing を持っていても、prior の
+ *      正確な missing を上書きしない）
+ *
+ * I6 (CEO + GPT): 「やっぱり 10 時で」のような意図的更新は cur が non-null を
+ *   持つので採用される。null fill だけでなく overwrite も支援するが、
+ *   段階2 では null fill のみを保証対象とする（overwrite は将来 turn）。
+ */
+function mergeIntoPrior(
+  prior: ComprehensionEvent,
+  cur: ComprehensionEvent,
+): ComprehensionEvent {
+  // ── Phase 2 scope 4-A (CEO 2026-04-26 / GPT 補強): where-lock ──
+  //   prior.where.placeType === "exact_proper_noun" は applyPlaceSelection で
+  //   selection 受理時にのみ設定される marker。これが立っている event の
+  //   where slot は **後続 turn の comprehension 再抽出から保護する**。
+  //
+  //   観測の真因 (CEO 4/26 3:28):
+  //     Turn 2 で TSUTAYA tap → events[0].where.placeType="exact_proper_noun"
+  //     Turn 3「電車」入力 → comprehension が place を Markcity (chain_brand) に再 resolve
+  //     → 旧 mergeIntoPrior は cur.where が non-null なら採用 → TSUTAYA が消失
+  //
+  //   修正: prior が selection 確定済なら where 全体を prior 維持。
+  //   chain_brand / generic_place / known_base はこの保護対象外（通常 merge）。
+  const priorWhereLocked = prior.where.placeType === "exact_proper_noun";
+
+  const startTime = cur.when.startTime ?? prior.when.startTime;
+  const activity =
+    cur.what.activity && cur.what.activity.length > 0
+      ? cur.what.activity
+      : prior.what.activity;
+  const activityCanonical =
+    cur.what.activityCanonical && cur.what.activityCanonical.length > 0
+      ? cur.what.activityCanonical
+      : prior.what.activityCanonical;
+
+  // where: priorWhereLocked なら完全保持、それ以外は field-level merge
+  const mergedWhere = priorWhereLocked
+    ? prior.where
+    : {
+        place_ref: cur.where.place_ref ?? prior.where.place_ref,
+        placeType: cur.where.placeType ?? prior.where.placeType,
+        coordinates: cur.where.coordinates ?? prior.where.coordinates,
+        provenance:
+          cur.where.place_ref != null || cur.where.coordinates != null
+            ? cur.where.provenance
+            : prior.where.provenance,
+      };
+
+  return {
+    ...prior,
+    event_id: prior.event_id,
+    turn_mode: cur.turn_mode ?? prior.turn_mode,
+    target_ref: cur.target_ref ?? prior.target_ref,
+    target_ref_confidence:
+      cur.target_ref_confidence ?? prior.target_ref_confidence,
+    change_scope: cur.change_scope ?? prior.change_scope,
+    when: {
+      startTime,
+      timeHint: cur.when.timeHint ?? prior.when.timeHint,
+      // provenance は startTime が cur 由来なら cur、prior 維持なら prior
+      provenance:
+        cur.when.startTime != null ? cur.when.provenance : prior.when.provenance,
+    },
+    where: mergedWhere,
+    what: {
+      activity,
+      activityCanonical,
+      provenance:
+        cur.what.activity && cur.what.activity.length > 0
+          ? cur.what.provenance
+          : prior.what.provenance,
+    },
+    who: cur.who.length > 0 ? cur.who : prior.who,
+    transport: cur.transport ?? prior.transport,
+    certainty: cur.certainty ?? prior.certainty,
+    // missing_semantic_critical / missing_solver_blockers は prior 維持
+    //   （current の partial event が "where" "what" を含んでいたとしても、
+    //    prior が確定済 (= []) ならそちらを信頼する）
+    missing_semantic_critical: prior.missing_semantic_critical,
+    missing_solver_blockers: prior.missing_solver_blockers,
+  };
+}
+
+/**
+ * currentEvents と priorPersistedEvents を **同一性判定 + position fallback** で
+ * field-level merge する。
+ *
+ * 同一性判定（順）:
+ *   1. event_id 一致
+ *   2. (when.startTime, where.place_ref) 両方 non-null かつ一致
+ *   3. position fallback (events 数が一致するときのみ)
+ *
+ * defensive fallback (CEO Invariant 5):
+ *   - currentEvents 空 → priorPersistedEvents をそのまま返す（既存挙動）
+ *   - priorPersistedEvents 空 / undefined → currentEvents をそのまま返す
+ *   - 数不一致 → priorPersistedEvents をそのまま返す（current は破棄、安全側）
+ *
+ * 動機（CEO 観測 2026-04-26）:
+ *   Turn 3「電車」入力で comprehension が transport だけの partial event を
+ *   返した時、旧 logic `currentEvents.length > 0 ? currentEvents : prior` は
+ *   prior の startTime / coordinates / placeType を完全に discard していた。
+ *   field-level merge でこれを防ぐ。
+ *
+ * @internal exported for unit tests (tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
+ */
+export function mergeEventFields(
+  currentEvents: ComprehensionEvent[],
+  priorPersistedEvents: ComprehensionEvent[] | undefined,
+): ComprehensionEvent[] {
+  if (currentEvents.length === 0) {
+    return priorPersistedEvents ?? [];
+  }
+  if (!priorPersistedEvents || priorPersistedEvents.length === 0) {
+    return currentEvents;
+  }
+  // 数不一致 → defensive: priorPersistedEvents 全保持、current 破棄
+  //   （current は何かしら state 不整合な partial 状態の可能性。安全側で
+  //    既存正本を保つ。CEO observation の「seg_1 + seg_2 確定後に turn 3 で
+  //    transport だけ 1 件返る」ケースに該当）
+  if (currentEvents.length !== priorPersistedEvents.length) {
+    return priorPersistedEvents;
+  }
+
+  return currentEvents.map((cur, idx) => {
+    // 1. event_id 一致
+    let prior: ComprehensionEvent | undefined = priorPersistedEvents.find(
+      (p) => p.event_id === cur.event_id,
+    );
+
+    // 2. (when.startTime, where.place_ref) 両方 non-null かつ一致
+    if (!prior && cur.when.startTime != null && cur.where.place_ref != null) {
+      prior = priorPersistedEvents.find(
+        (p) =>
+          p.when.startTime === cur.when.startTime &&
+          p.where.place_ref === cur.where.place_ref,
+      );
+    }
+
+    // 3. position fallback
+    if (!prior) {
+      prior = priorPersistedEvents[idx];
+    }
+
+    if (!prior) {
+      return cur;
+    }
+
+    return mergeIntoPrior(prior, cur);
+  });
+}
+
 function decidePhase(
   result: MorningPipelineResult,
   effectiveEvents: ComprehensionEvent[],
@@ -381,14 +560,18 @@ export function adaptPipelineToLegacy(
 ): LegacyAdapterOutput {
   const today = input.today ?? todayYmd();
 
-  // ── Events 継承（W3-PR-7 Commit 4）──
-  //   今ターンの pipeline が events を返せなかった（comprehension_failed 等）場合は
-  //   priorPersistedEvents から引き継いで UI 側の plan を消さない。
+  // ── Events 継承（W3-PR-7 Commit 4 + Phase 2 scope 3 / CEO 2026-04-26）──
+  //   旧: `currentEvents.length > 0 ? currentEvents : priorPersistedEvents`
+  //   新: field-level merge で priorPersistedEvents を全 discard しない。
+  //
+  //   Turn 3「電車」入力で comprehension が transport だけの partial event を
+  //   返した時、startTime / where.coordinates / placeType を保持する。
+  //   詳細: mergeEventFields (本ファイル上部 + tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
   const currentEvents = result.comprehension?.events ?? [];
-  const effectiveEvents: ComprehensionEvent[] =
-    currentEvents.length > 0
-      ? currentEvents
-      : input.priorPersistedEvents ?? [];
+  const effectiveEvents: ComprehensionEvent[] = mergeEventFields(
+    currentEvents,
+    input.priorPersistedEvents,
+  );
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const phase = decidePhase(result, effectiveEvents);
@@ -433,6 +616,19 @@ export function adaptPipelineToLegacy(
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
+    // ── CEO 2026-04-28 Option B + Journey 構造: transport context 解決 ──
+    //   1. events[*].transport を scan して dayConditions.mainTransport を導出
+    //   2. currentLat/Lng → userHomeLat/Lng → null の優先で homeAnchor を解決
+    //   3. journeyEnd を home anchor の round-trip default で派生 (label="帰宅")
+    const derivedTransport = deriveDayTransport(effectiveEvents);
+    const homeAnchor = resolveHomeAnchor({
+      currentLat: input.currentLat,
+      currentLng: input.currentLng,
+      homeLat: input.userHomeLat,
+      homeLng: input.userHomeLng,
+    });
+    const journeyEnd = resolveJourneyEndAnchor(homeAnchor);
+
     // ── W3-PR-10: planRebuild 委譲 ──
     //   events → PlanItem[] と（flag ON 時のみ）TransportSegment[] を
     //   1 回だけ生成する pure function に委譲。flag OFF 時は transportSegments
@@ -441,6 +637,9 @@ export function adaptPipelineToLegacy(
     const built = buildPlanAndSegmentsFromEvents({
       events: effectiveEvents,
       enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
+      mainTransport: derivedTransport?.plan,
+      homeAnchor,
+      journeyEnd,
     });
 
     // ── W3-PR-10 canary O2: transport_v2_segments_built emit ──
@@ -495,9 +694,14 @@ export function adaptPipelineToLegacy(
     //   - needs_answer 上書きは event id にのみヒット（travel id は `travel__` prefix で衝突しない）。
     let interleavedItems: PlanItem[];
     if (built.transportSegments !== undefined) {
+      // CEO 2026-04-28 Option B + Journey 構造:
+      //   HOME_SENTINEL fromEventId の segment は homeAnchor.label を from に使う。
+      //   ENDPOINT_SENTINEL toEventId の segment は journeyEnd.label を to に使う。
       const entries = synthesizeTravelItems(
         built.transportSegments,
         effectiveEvents,
+        homeAnchor,
+        journeyEnd,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);
 
@@ -558,16 +762,43 @@ export function adaptPipelineToLegacy(
       return normalizePlanItem(withNeedsAnswer);
     });
 
+    // CEO 2026-04-28 Option B: dayConditions.mainTransport を events[*].transport から
+    //   lift。これがないと selection endpoint が再 rebuild する際に priorPlan から
+    //   読めず、全 turn で「unknown」mode に落ちる。
+    const dayConditions: import("./types").DayConditions = derivedTransport
+      ? { mainTransport: derivedTransport.vc }
+      : {};
+    // CEO 2026-04-28 Journey 構造: plan-level metadata (journeyOrigin / journeyEnd)
+    //   MorningPlanCard が plan.items の上下に「現在地」「帰宅」ノードを render するため。
+    //   homeAnchor が null（座標が無い CEO 案 1 のケース）→ 両方 undefined → UI 何も出さない。
+    const journeyOrigin = homeAnchor
+      ? {
+          label: homeAnchor.label,
+          lat: homeAnchor.lat,
+          lng: homeAnchor.lng,
+          source: homeAnchor.source,
+        }
+      : undefined;
+    const journeyEndForPlan = journeyEnd
+      ? {
+          label: journeyEnd.label,
+          lat: journeyEnd.lat,
+          lng: journeyEnd.lng,
+          source: journeyEnd.source,
+        }
+      : undefined;
     plan = {
       date: today,
       items,
-      dayConditions: {},
+      dayConditions,
       createdAt: new Date().toISOString(),
       confirmed: false,
       status: planStatus,
       ...(built.transportSegments !== undefined
         ? { transportSegments: built.transportSegments }
         : {}),
+      ...(journeyOrigin !== undefined ? { journeyOrigin } : {}),
+      ...(journeyEndForPlan !== undefined ? { journeyEnd: journeyEndForPlan } : {}),
     };
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として
