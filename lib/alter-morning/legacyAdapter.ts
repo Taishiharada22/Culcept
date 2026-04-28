@@ -53,6 +53,7 @@ import {
   buildVerboseExtension,
   isVerboseTraceEnabled,
   type ModifyResolutionSnapshot,
+  type TurnTracePayload,
 } from "./trace/turnTrace";
 // CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 (apply は L5)。
 import { resolveTargetRef } from "./planning/modifyRouter";
@@ -136,6 +137,16 @@ export interface LegacyAdapterInput {
 export interface LegacyAdapterOutput {
   session: MorningSession;
   response: MorningProtocolResponse;
+  /**
+   * CEO 2026-04-28 PR #41a Commit 6: emit された trace snapshot。
+   *
+   * shouldEmitTrace() === true の env (preview / development) でのみ non-null。
+   * caller (chat / selection route) はこの値を response の `_debug.trace` field
+   * として乗せることで、CEO が browser DevTools Network tab から観測可能になる。
+   *
+   * production では emit されない → 必ず undefined → response にも乗らない。
+   */
+  lastTraceSnapshot?: TurnTracePayload;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -910,7 +921,11 @@ export function adaptPipelineToLegacy(
   //   PII 配慮 + env gating は emitTurnTrace 内で完結。
   //   turn 反復 / merge 真因 pin に使う diagnostic。
   //   verbose mode は ALTER_MORNING_TRACE_VERBOSE=true で content 含む。
-  emitTurnTrace(
+  //
+  // PR #41a Commit 6: emitTurnTrace の戻り値を caller に返却することで、
+  //   route handler が response の `_debug.trace` に乗せられるようにする。
+  //   CEO が browser DevTools Network tab から trace を観測可能になる。
+  const traceSnapshot = emitTurnTrace(
     {
       sessionId: input.sessionId,
       // turnIndex: rawInputs の長さで近似 (1始まり)
@@ -942,5 +957,11 @@ export function adaptPipelineToLegacy(
       : undefined,
   );
 
-  return { session, response };
+  return {
+    session,
+    response,
+    ...(traceSnapshot != null
+      ? { lastTraceSnapshot: traceSnapshot satisfies TurnTracePayload }
+      : {}),
+  };
 }

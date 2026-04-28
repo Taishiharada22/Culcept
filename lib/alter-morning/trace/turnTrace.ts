@@ -259,6 +259,16 @@ export function isVerboseTraceEnabled(): boolean {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * emit された trace の payload。verbose 拡張を含むかは isVerboseTraceEnabled() に依存。
+ *
+ * caller (legacyAdapter / selection_route) はこの payload を **response に
+ * `_debug.trace` として乗せる** ことで、CEO が browser DevTools Network tab から
+ * 観測可能になる (Vercel function logs に access できなくても trace を読める)。
+ */
+export type TurnTracePayload = TurnTraceSnapshot &
+  Partial<{ verbose: TurnTraceVerboseExtension }>;
+
+/**
  * structured turn snapshot を emit する。
  *
  * 副作用:
@@ -267,21 +277,31 @@ export function isVerboseTraceEnabled(): boolean {
  *
  * verbose extension が指定されており isVerboseTraceEnabled() === true なら
  * snapshot に extension を merge して出力する。
+ *
+ * 戻り値:
+ *   - emit された場合: TurnTracePayload (verbose を merge 済み)
+ *   - emit 不能 (env gate / serialize fail) の場合: null
+ *
+ * caller はこの戻り値を response に乗せることで browser から trace を確認可能にする。
+ * production では shouldEmitTrace() が false → 必ず null → response にも乗らない。
  */
 export function emitTurnTrace(
   snapshot: TurnTraceSnapshot,
   verboseExtension?: TurnTraceVerboseExtension,
-): void {
-  if (!shouldEmitTrace()) return;
+): TurnTracePayload | null {
+  if (!shouldEmitTrace()) return null;
   try {
-    const payload: TurnTraceSnapshot &
-      Partial<{ verbose: TurnTraceVerboseExtension }> = { ...snapshot };
+    const payload: TurnTracePayload = { ...snapshot };
     if (verboseExtension && isVerboseTraceEnabled()) {
       payload.verbose = verboseExtension;
     }
-    console.info("[alter-morning:trace]", JSON.stringify(payload));
+    // serialize 試行 (循環参照を early-detect)
+    const json = JSON.stringify(payload);
+    console.info("[alter-morning:trace]", json);
+    return payload;
   } catch {
     // JSON.stringify failure (循環参照等) → silent skip。trace 失敗で
     // 上位 plan rebuild を壊さない fail-open 設計。
+    return null;
   }
 }

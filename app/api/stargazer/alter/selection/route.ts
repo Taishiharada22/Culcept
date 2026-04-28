@@ -524,10 +524,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── CEO 2026-04-28 PR #41a Layer 0: turnTrace emission (selection_route) ──
+    // ── CEO 2026-04-28 PR #41a Layer 0 + Commit 6: turnTrace emission ──
     //   selection 経路でも events / pendingClarify の遷移を追跡する。
+    //   Commit 6: emit 戻り値を response の `_debug.trace` に乗せて、
+    //     CEO が browser DevTools Network tab から観測可能にする。
     //   PII redact + env gate は emitTurnTrace 内で完結。
-    emitTurnTrace(
+    const selectionTraceSnapshot = emitTurnTrace(
       {
         sessionId:
           typeof morningSession.sessionId === "string"
@@ -565,6 +567,10 @@ export async function POST(req: NextRequest) {
       accepted: true,
       morningSession: nextMorningSession,
       ...(alterFollowUp !== undefined ? { alterFollowUp } : {}),
+      // CEO 2026-04-28 PR #41a Commit 6: browser DevTools 観測用
+      ...(selectionTraceSnapshot != null
+        ? { _debug: { trace: selectionTraceSnapshot } }
+        : {}),
     });
   } catch (error) {
     console.error("[alter-selection] unhandled error", error);
