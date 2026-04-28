@@ -46,6 +46,13 @@ import {
   resolveHomeAnchor,
   resolveJourneyEndAnchor,
 } from "./planning/transportContext";
+// CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
+import {
+  emitTurnTrace,
+  eventToShapeSnapshot,
+  buildVerboseExtension,
+  isVerboseTraceEnabled,
+} from "./trace/turnTrace";
 import {
   synthesizeTravelItems,
   interleaveTravelItems,
@@ -867,6 +874,39 @@ export function adaptPipelineToLegacy(
     personalizeHints: [],
     ...(phase === "clarifying" ? { clarifyQuestion: message } : {}),
   };
+
+  // ── CEO 2026-04-28 PR #41a Layer 0: turnTrace emission ──
+  //   PII 配慮 + env gating は emitTurnTrace 内で完結。
+  //   turn 反復 / merge 真因 pin に使う diagnostic。
+  //   verbose mode は ALTER_MORNING_TRACE_VERBOSE=true で content 含む。
+  emitTurnTrace(
+    {
+      sessionId: input.sessionId,
+      // turnIndex: rawInputs の長さで近似 (1始まり)
+      turnIndex: rawInputs.length,
+      caller: "legacy_adapter",
+      utteranceLength: input.utterance.length,
+      hasUtterance: input.utterance.trim().length > 0,
+      currentEventCount: result.comprehension?.events.length ?? 0,
+      priorEventCount: input.priorPersistedEvents?.length ?? 0,
+      mergedEventCount: effectiveEvents.length,
+      mergedEvents: effectiveEvents.map(eventToShapeSnapshot),
+      primaryClarifyKind:
+        result.gapResolution?.primary_clarify?.kind ?? null,
+      primaryClarifyEventId:
+        result.gapResolution?.primary_clarify?.event_id ?? null,
+      pendingClarifySlot: pendingClarify?.slot ?? null,
+      pendingClarifyKind: pendingClarify?.kind ?? null,
+      pendingClarifyEventId: pendingClarify?.event_id ?? null,
+    },
+    isVerboseTraceEnabled()
+      ? buildVerboseExtension({
+          utterance: input.utterance,
+          mergedEvents: effectiveEvents,
+          pendingClarify,
+        })
+      : undefined,
+  );
 
   return { session, response };
 }
