@@ -1943,8 +1943,18 @@ export async function POST(req: NextRequest) {
             const combinedUtterance = [...priorInputs, message]
               .filter((s) => typeof s === "string" && s.length > 0)
               .join(" / ");
+            // CEO 2026-04-28 PR #41a Layer 2: prior plan context を LLM に渡す。
+            //   既存の persistedEvents (= 確定済 plan) を簡略化形で送り、
+            //   LLM が turn_mode (create/append/modify) を 3-way 判別できるようにする。
+            //   prior が空ならフィールド省略 → 既存 create-only 挙動。
+            const priorPlanForLLM = rawMorningSession?.persistedEvents;
             const pipelineResult = await runMorningPipeline(
-              { utterance: combinedUtterance },
+              {
+                utterance: combinedUtterance,
+                ...(priorPlanForLLM && priorPlanForLLM.length > 0
+                  ? { priorPlanForContext: priorPlanForLLM }
+                  : {}),
+              },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),
                 narration: createLLMNarrationProvider({ userId }),
