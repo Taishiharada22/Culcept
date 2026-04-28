@@ -1481,6 +1481,13 @@ export async function POST(req: NextRequest) {
     let morningResponse: MorningProtocolResponse | undefined;
     // Soft Bridge: レスポンスでフラグを返すため外部スコープ
     let isSoftBridgeResponse = false;
+    // CEO 2026-04-28 PR #41a Commit 6 (修正): trace snapshot を **response 構築位置**
+    //   (L9847+) で参照するため、外部スコープで宣言する。旧版は morningIntent="strong"
+    //   block 内で let していたため、ブロック外の response 合成で ReferenceError → 500。
+    //   shouldEmitTrace() === true (preview / development) でのみ non-null。
+    let lastTraceSnapshot:
+      | import("@/lib/alter-morning/trace/turnTrace").TurnTracePayload
+      | null = null;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -1805,12 +1812,8 @@ export async function POST(req: NextRequest) {
         //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
         //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
         let pipelineAbsorbedOuter = false;
-        // CEO 2026-04-28 PR #41a Commit 6: trace snapshot を Branch A/B/failure
-        //   経路を跨いで capture。response.morningProtocol._debug.trace に乗せる。
-        //   shouldEmitTrace() === true (preview / development) でのみ non-null。
-        let lastTraceSnapshot:
-          | import("@/lib/alter-morning/trace/turnTrace").TurnTracePayload
-          | null = null;
+        // CEO 2026-04-28 PR #41a Commit 6: lastTraceSnapshot は L1485 の outer scope
+        //   で宣言済み。Branch A/B/failure すべてここから assign する。
         if (useV2) {
           try {
             // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
