@@ -613,6 +613,61 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.effectiveEvents[0].when.startTime).toBe("10:00");
   });
 
+  it("[CEO Case 3 + collision] append cur が prior と event_id 衝突 → fresh id にrename (data loss 防止)", () => {
+    // CEO 2026-04-29 PR #41b-1b: LLM が prior と同じ event_id を再利用してしまった場合、
+    //   そのまま push すると effectiveEvents に duplicate id が入って data 上書きリスク
+    const prior = mkEvent({
+      event_id: "event_1",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "スタバ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const appendCur = mkEvent({
+      event_id: "event_1", // ★ prior と衝突
+      turn_mode: "append",
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "新宿",
+        placeType: null,
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ミーティング",
+        activityCanonical: "ミーティング",
+        provenance: utteranceProvenance(["ミーティング"], "high"),
+      },
+    });
+    const result = dispatchEventMerge({
+      currentEvents: [appendCur],
+      priorPersistedEvents: [prior],
+    });
+    expect(result.effectiveEvents).toHaveLength(2);
+    const ids = result.effectiveEvents.map((e) => e.event_id);
+    expect(new Set(ids).size).toBe(2); // ★ 重複なし
+    expect(result.effectiveEvents[0].event_id).toBe("event_1");
+    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ"); // prior 上書きされない
+    expect(result.effectiveEvents[1].event_id).toBe("event_2"); // ★ rename
+    expect(result.effectiveEvents[1].where.place_ref).toBe("新宿");
+  });
+
   it("[position fallback 制限] length mismatch + create → fallback fire しない (kept_as_new)", () => {
     const prior1 = mkEvent({ event_id: "e1" });
     const prior2 = mkEvent({ event_id: "e2" });

@@ -232,6 +232,35 @@ export function mergeIntoPriorCreate(prior: Event, cur: Event): Event {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Helpers (event_id 衝突回避 — PR #41b-1b)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * event_id の衝突を回避する fresh id 発行 (PR #41b-1b)。
+ *
+ * 既存 events の event_id と衝突しないように `event_${N}` 形式で新 id を生成。
+ *   1. 既存 ids に `event_${n}` と一致するものを 1 から順に試す
+ *   2. 衝突しない最小 N を返す
+ *
+ * 用途:
+ *   append event (or kept_as_new) の event_id が priorCopy / 他 newEvents と
+ *   衝突する場合、data 上書きを防ぐため新 id に rename する。
+ *
+ * 例:
+ *   existing ids = ["event_1", "event_2"] → return "event_3"
+ *   existing ids = ["event_1", "event_3"] → return "event_2"
+ *   existing ids = []                       → return "event_1"
+ */
+export function generateNonCollidingEventId(
+  existing: ReadonlyArray<Event>,
+): string {
+  const ids = new Set(existing.map((e) => e.event_id));
+  let n = 1;
+  while (ids.has(`event_${n}`)) n++;
+  return `event_${n}`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Public API — dispatchEventMerge
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -281,6 +310,29 @@ export function dispatchEventMerge(
 
   const lengthMatch = currentEvents.length === priorPersistedEvents.length;
 
+  /**
+   * cur を newEvents に push する直前に event_id 衝突を検査し、
+   * 衝突する場合は fresh id にrename する (PR #41b-1b: data loss 防止)。
+   *
+   * 衝突 chk 対象: priorCopy + 現時点の newEvents (両方を見て fresh id 発行)
+   *
+   * 戻り値: rename された (or 元のままの) Event。dispatch.push 側で
+   * effective_event_id を記録する用途で caller が利用。
+   */
+  const pushNewWithRename = (cur: Event): Event => {
+    const idCollides = [...priorCopy, ...newEvents].some(
+      (e) => e.event_id === cur.event_id,
+    );
+    const finalEvent = idCollides
+      ? {
+          ...cur,
+          event_id: generateNonCollidingEventId([...priorCopy, ...newEvents]),
+        }
+      : cur;
+    newEvents.push(finalEvent);
+    return finalEvent;
+  };
+
   currentEvents.forEach((cur, idx) => {
     if (cur.turn_mode === "modify") {
       // ── modify: resolveTargetRef → applyModifyPatch ──
@@ -323,7 +375,7 @@ export function dispatchEventMerge(
       }
       // 未解決 modify (target_ref なし or 解決失敗 + 複数 prior):
       //   fallback で kept_as_new (data loss 防止)
-      newEvents.push(cur);
+      pushNewWithRename(cur);
       dispatch.push({
         cur_event_id: cur.event_id,
         cur_turn_mode: "modify",
@@ -333,8 +385,8 @@ export function dispatchEventMerge(
     }
 
     if (cur.turn_mode === "append") {
-      // ── append: そのまま新規追加 (PR #41b-1b で event_id 新規発行) ──
-      newEvents.push(cur);
+      // ── append: 新規追加。event_id 衝突時は rename (PR #41b-1b: data loss 防止) ──
+      pushNewWithRename(cur);
       dispatch.push({
         cur_event_id: cur.event_id,
         cur_turn_mode: "append",
@@ -373,8 +425,8 @@ export function dispatchEventMerge(
         target_event_id: priorCopy[priorMatchIdx].event_id,
       });
     } else {
-      // 同一性なし → 新規追加
-      newEvents.push(cur);
+      // 同一性なし → 新規追加 (event_id 衝突時は rename)
+      pushNewWithRename(cur);
       dispatch.push({
         cur_event_id: cur.event_id,
         cur_turn_mode: "create",
