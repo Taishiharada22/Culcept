@@ -142,13 +142,24 @@ describe("items=0 禁則: phase=clarifying なら message は非空", () => {
   });
 
   test("primary_clarify はあるが question が空 → scope/kind から再生成", () => {
+    // CEO 2026-04-28 PR #41b-0: primary_clarify は target slot が effectiveEvents で
+    // fixed なら drop される (condition 3)。本テストでは where が vague な event を
+    // 使い、primary_clarify (where_center) と一貫した状態を作る。
     const pc = mkClarifyRequest({
       question: "   ",
       kind: "where_center",
       scope: mkScope({ timeLabel: "朝", activityLabel: "仕事" }),
     });
     const result = mkOkResult({
-      events: [mkEvent()],
+      events: [
+        mkEvent({
+          where: {
+            place_ref: "カフェ",
+            placeType: null, // category_alone → vague (blocking)
+            provenance: utteranceProvenance(["カフェ"]),
+          },
+        }),
+      ],
       primaryClarify: pc,
     });
     const { response } = adaptPipelineToLegacy(result, {
@@ -233,7 +244,16 @@ describe("items=0 禁則: phase=clarifying なら message は非空", () => {
 
 describe("plan 継続性: clarifying 中も plan は消えない", () => {
   test("primary_clarify あり + events あり → plan.items=events.length, status=needs_answer", () => {
-    const ev = mkEvent();
+    // CEO 2026-04-28 PR #41b-0: primary_clarify (where_center) と event の where が
+    // 一貫している必要がある。default mkEvent の where=オフィス は fixed なので
+    // primary_clarify が drop されてしまう。where vague な event に変更する。
+    const ev = mkEvent({
+      where: {
+        place_ref: "カフェ",
+        placeType: null, // category_alone → vague (blocking)
+        provenance: utteranceProvenance(["カフェ"]),
+      },
+    });
     const result = mkOkResult({
       events: [ev],
       primaryClarify: mkClarifyRequest(),

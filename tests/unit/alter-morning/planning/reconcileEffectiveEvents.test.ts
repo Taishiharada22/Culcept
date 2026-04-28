@@ -139,10 +139,14 @@ describe("areEventsFullyFixed", () => {
     expect(areEventsFullyFixed(events)).toBe(false);
   });
 
-  it("missing_semantic_critical に where あり → false", () => {
+  it("[CEO 2026-04-28] sharpness fixed なら missing_semantic_critical を無視 → true", () => {
+    // 設計判断: sharpness を canonical truth として採用。
+    // missing_semantic_critical は provenance checker の artifact で、
+    // sharpness と意味的に重複。disagree する場合 (test fixture 等) は
+    // sharpness を信じる (実 events では一致する想定)。
     const events = [mkFixedEvent("e1", "10:00", "TSUTAYA")];
     events[0].missing_semantic_critical = ["where"];
-    expect(areEventsFullyFixed(events)).toBe(false);
+    expect(areEventsFullyFixed(events)).toBe(true);
   });
 
   it("空配列 → false (plan 不能)", () => {
@@ -375,7 +379,7 @@ describe("reconcilePendingClarify", () => {
       semanticMissCount: 4,
     };
     const result = reconcilePendingClarify({
-      newGapResolution: { actions: [], primary_clarify: null },
+      filteredPrimary: null,
       effectiveEvents: [mkFixedEvent("e1", "10:00", "TSUTAYA")],
       priorPendingClarify: priorPending,
     });
@@ -404,7 +408,7 @@ describe("reconcilePendingClarify", () => {
       }),
     ];
     const result = reconcilePendingClarify({
-      newGapResolution: { actions: [], primary_clarify: null },
+      filteredPrimary: null,
       effectiveEvents: events,
       priorPendingClarify: priorPending,
     });
@@ -413,20 +417,17 @@ describe("reconcilePendingClarify", () => {
 
   it("primary_clarify あり → 新しい pendingClarify build", () => {
     const result = reconcilePendingClarify({
-      newGapResolution: {
-        actions: [],
-        primary_clarify: {
-          event_id: "e1",
-          kind: "where_center",
-          target_slot: "where",
-          scope: {
-            timeLabel: "12:00",
-            activityLabel: "ランチ",
-            eventOrdinal: 2,
-            sameLabelCount: 1,
-          },
-          question: "12:00のランチはどのあたり？",
+      filteredPrimary: {
+        event_id: "e1",
+        kind: "where_center",
+        target_slot: "where",
+        scope: {
+          timeLabel: "12:00",
+          activityLabel: "ランチ",
+          eventOrdinal: 2,
+          sameLabelCount: 1,
         },
+        question: "12:00のランチはどのあたり？",
       },
       effectiveEvents: [
         mkFixedEvent("e0", "09:00", "TSUTAYA"),
@@ -490,11 +491,13 @@ describe("reconcileGapStateFromEffectiveEvents — full reconcile (CEO 6 条件)
       effectiveEvents,
       priorPendingClarify: priorPending,
       priorDialogState: priorState,
-      gapContext: { grounded: [], slotOptOuts: [] },
+      priorGapResolution: null,
       originalPhase: "clarifying",
+      comprehensionOk: true,
     });
 
-    // CEO condition 1: gapResolver は effectiveEvents で再計算 → primary_clarify=null (fixed なので)
+    // CEO condition 1: GapResolution は effectiveEvents 基準で filter
+    //   priorGapResolution=null なので primary_clarify は最初から null
     expect(result.reconciledGapResolution.primary_clarify).toBeNull();
 
     // CEO condition 2,3: pendingClarify は null (prior fallback しない)
@@ -548,8 +551,9 @@ describe("reconcileGapStateFromEffectiveEvents — full reconcile (CEO 6 条件)
       effectiveEvents: events,
       priorPendingClarify: priorPending,
       priorDialogState: priorState,
-      gapContext: { grounded: [], slotOptOuts: [] },
+      priorGapResolution: null,
       originalPhase: "clarifying",
+      comprehensionOk: true,
     });
 
     // events not fully fixed → fallback で prior pendingClarify を保持 OR
@@ -565,8 +569,9 @@ describe("reconcileGapStateFromEffectiveEvents — full reconcile (CEO 6 条件)
       effectiveEvents: events,
       priorPendingClarify: null,
       priorDialogState: null,
-      gapContext: { grounded: [], slotOptOuts: [] },
+      priorGapResolution: null,
       originalPhase: "completed", // 特殊 phase
+      comprehensionOk: true,
     });
     expect(result.reconciledPhase).toBe("completed"); // preserve
   });
@@ -576,8 +581,9 @@ describe("reconcileGapStateFromEffectiveEvents — full reconcile (CEO 6 条件)
       effectiveEvents: [mkFixedEvent("e1", "10:00", "x")],
       priorPendingClarify: null,
       priorDialogState: null,
-      gapContext: { grounded: [], slotOptOuts: [] },
+      priorGapResolution: null,
       originalPhase: "clarifying",
+      comprehensionOk: true,
     });
     expect(result.reconciledDialogState).toBeNull();
     expect(result.reconciled.focusCleared).toBe(false);

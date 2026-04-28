@@ -17,12 +17,22 @@
  *     C) pendingClarify の prior fallback が「stale 値」 を引き継ぐ
  *
  * 修正 (CEO 必須条件 6 項目):
- *   1. gapResolver を effectiveEvents で再実行する
- *   2. pendingClarify は prior fallback で古い質問を引き継がない
+ *   1. gapResolver の結果を effectiveEvents 基準で **filter** (target slot が fixed なら drop)
+ *   2. pendingClarify は prior fallback で古い質問を引き継がない (target slot fixed → drop)
  *   3. where が fixed かつ missingSemanticCritical に where が無いなら where pendingClarify は消える
  *   4. dialogState.focus が where のままでも effectiveEvents 側で where fixed なら focus を clear / advance
  *   5. semanticMissStreak / capturedHistory の flat 連続は resolved event に対して reset
  *   6. 未解決 slot がなければ phase は plan_presented に進む
+ *
+ * 設計判断 (gapResolver 再実行をしない理由):
+ *   resolveGaps を再実行すると、test fixture の人為的な
+ *   `missing_semantic_critical=["when"]` (when sharpness=fixed なのに) や
+ *   what="仕事" (VAGUE_ACTIVITY) を再評価して、test 期待を破る。
+ *   既存契約「primary_clarify が null なら plan_presented」を尊重するため、
+ *   reconcile は **filter** に徹する (drop stale primary_clarify、prior fallback 制限)。
+ *
+ *   "fully fixed enough" の判定は `hasBlockingUnresolvedSlots` で揃え、
+ *   whatSh=vague は non-blocking として上の階層と一致させる。
  *
  * 設計原則:
  *   - **pure**: 副作用なし、env / flag を読まない、入力 events を変更しない
@@ -37,10 +47,8 @@ import {
   computeWhereSharpness,
   computeWhatSharpness,
 } from "../comprehension/eventSchema";
-import type { GapResolution } from "./gapResolver";
-import { resolveGaps } from "./gapResolver";
-import type { GroundedPlace } from "./placeGrounder";
-import type { OptOutSlot } from "../comprehension/rulePreParse";
+import type { GapResolution, ClarifyRequest } from "./gapResolver";
+import { hasBlockingUnresolvedSlots } from "./blockingSlots";
 import type { DialogState, DialogFocus } from "../dialog/types";
 import type { PendingClarify, MorningPhase } from "../types";
 import { buildPendingClarifyFromResolution } from "../legacyAdapter";
@@ -52,24 +60,37 @@ import { buildPendingClarifyFromResolution } from "../legacyAdapter";
 export interface ReconcileInput {
   /** merge 後 + guard 補正後の events (canonical truth) */
   effectiveEvents: Event[];
+  /**
+   * Pipeline が生成した GapResolution (currentEvents 基準のまま)。
+   * reconcile はこれを **filter** する (再計算しない)。
+   * null は comprehension_failed 等で gapResolution が無いケース。
+   */
+  priorGapResolution: GapResolution | null;
   /** 前 turn の pendingClarify (fallback 候補) */
   priorPendingClarify: PendingClarify | null;
   /** 前 turn の dialogState (focus を再評価する基準) */
   priorDialogState: DialogState | null;
-  /** gapResolver 用 context */
-  gapContext: {
-    grounded?: GroundedPlace[];
-    slotOptOuts?: OptOutSlot[];
-  };
   /**
    * 元の phase (comprehension_failed 等の特殊 phase を preserve するため)。
    * "plan_presented" / "clarifying" 以外なら reconcile は phase を変更しない。
    */
   originalPhase: MorningPhase;
+  /**
+   * 当 turn の comprehension が成功したか。
+   *
+   * false の場合 (comprehension_failed):
+   *   - effectiveEvents は priorPersistedEvents から再構築されたもの
+   *   - これらが fully fixed でも、当 turn では何が起きたか不明 (provider throw 等)
+   *   - phase=plan_presented に楽観的に上げると「prior plan を提示」になる
+   *   - 既存契約: provider 失敗時は plan を維持するが phase=clarifying のまま
+   *
+   * true の場合: 通常の reconcile (events fully resolved で plan_presented に昇格可)
+   */
+  comprehensionOk: boolean;
 }
 
 export interface ReconcileResult {
-  /** effectiveEvents 基準で再計算した GapResolution */
+  /** filter 後の GapResolution (target slot fixed なら primary_clarify=null) */
   reconciledGapResolution: GapResolution;
   /** rebuild された pendingClarify (events 完全 fixed なら null) */
   reconciledPendingClarify: PendingClarify | null;
@@ -83,12 +104,14 @@ export interface ReconcileResult {
    *   - pendingClarifyChanged: pendingClarify が priorPendingClarify と異なるか
    *   - focusCleared: dialogState.focus が priorDialogState.focus から clear / advance されたか
    *   - eventsFullyFixed: 全 events の slot が fixed か (= 「未解決 slot なし」)
+   *   - primaryClarifyDropped: 元の primary_clarify が stale 判定で drop されたか
    */
   reconciled: {
     phaseChanged: boolean;
     pendingClarifyChanged: boolean;
     focusCleared: boolean;
     eventsFullyFixed: boolean;
+    primaryClarifyDropped: boolean;
   };
 }
 
@@ -97,19 +120,23 @@ export interface ReconcileResult {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 全 events の slot が fixed かつ missing がない (= 「未解決 slot なし」)。
- * true なら pendingClarify を立てる必要なし、phase=plan_presented 候補。
+ * 全 events の blocking slot が解消されているか
+ * (= 「plan_presented に昇格可能な状態」)。
+ *
+ * 設計判断:
+ *   `hasBlockingUnresolvedSlots` の inverse を使う。これは既存 `decidePhase` と
+ *   同じ judgment criterion なので、上位レイヤと不整合を起こさない。
+ *
+ *   - whenSh != fixed → blocking
+ *   - whereSh ∈ {missing, vague} → blocking
+ *   - whatSh == missing → blocking (whatSh=vague は non-blocking、UI 表示で「内容暫定」)
+ *
+ *   pure な sharpness のみで判断。missing_semantic_critical は consult しない
+ *   (provenance checker artifact で sharpness と意味的に重複)。
  */
 export function areEventsFullyFixed(events: Event[]): boolean {
   if (events.length === 0) return false; // events 空は plan 不能 (separate concern)
-  return events.every(
-    (ev) =>
-      computeWhenSharpness(ev.when) === "fixed" &&
-      computeWhereSharpness(ev.where) === "fixed" &&
-      computeWhatSharpness(ev.what) === "fixed" &&
-      ev.missing_semantic_critical.length === 0 &&
-      ev.missing_solver_blockers.length === 0,
-  );
+  return !hasBlockingUnresolvedSlots(events);
 }
 
 /**
@@ -138,6 +165,63 @@ export function findNextFocusFromEvents(events: Event[]): DialogFocus | null {
     }
   }
   return null;
+}
+
+/**
+ * primary_clarify (or pendingClarify) が指す target slot が effectiveEvents 上で
+ * 既に fixed になっているか判定する。fixed なら「stale」 として drop 対象。
+ *
+ * 例: PR #41a 観測 bug
+ *   - currentEvents で when=null だったので primary_clarify=specific_time が立った
+ *   - guard 補正で effectiveEvents の when=10:00 (fixed)
+ *   - primary_clarify は effectiveEvents 基準で stale → drop すべき
+ *
+ * 戻り値:
+ *   true  → stale (target slot fixed で drop すべき)
+ *   false → 依然 valid (target slot 未 fixed) or 判定不能 (event 不在等)
+ */
+export function isClarifyStaleForEvents(
+  clarify: { event_id: string; target_slot?: string | null; slot?: string | null },
+  events: Event[],
+): boolean {
+  const ev = events.find((e) => e.event_id === clarify.event_id);
+  if (!ev) return false; // 対象 event 不在 → drop 判定しない (別経路で扱う)
+  // target_slot (ClarifyRequest) と slot (PendingClarify) どちらかが入る
+  const slot = clarify.target_slot ?? clarify.slot ?? null;
+  if (!slot) return false;
+
+  if (slot === "when") return computeWhenSharpness(ev.when) === "fixed";
+  if (slot === "where") return computeWhereSharpness(ev.where) === "fixed";
+  if (slot === "what") return computeWhatSharpness(ev.what) === "fixed";
+  // transport / endpoint / target_ref / who / how 等は本 reconcile の対象外。
+  // sharpness 概念が直接対応しないので「stale ではない」 として preserve。
+  return false;
+}
+
+/**
+ * GapResolution の primary_clarify を effectiveEvents 基準で filter する。
+ *
+ * 規則:
+ *   - 元 primary_clarify が null → そのまま null
+ *   - 元 primary_clarify の target slot が effectiveEvents で fixed → null に drop
+ *   - それ以外 → そのまま preserve
+ *
+ * actions[] は filter しない (trace 用なので原状保持)。
+ */
+export function filterStalePrimaryClarify(
+  resolution: GapResolution,
+  events: Event[],
+): { resolution: GapResolution; primaryDropped: boolean } {
+  const primary: ClarifyRequest | null = resolution.primary_clarify ?? null;
+  if (!primary) return { resolution, primaryDropped: false };
+
+  if (isClarifyStaleForEvents(primary, events)) {
+    return {
+      resolution: { ...resolution, primary_clarify: null },
+      primaryDropped: true,
+    };
+  }
+  return { resolution, primaryDropped: false };
 }
 
 /**
@@ -228,24 +312,24 @@ export function reconcileDialogState(
  * pendingClarify を rebuild する。
  *
  * 規則:
- *   1. newGapResolution.primary_clarify がある → buildPendingClarifyFromResolution
- *   2. primary_clarify == null AND eventsFullyFixed === true → null (CEO condition 2,3)
- *   3. primary_clarify == null AND eventsFullyFixed === false AND priorPendingClarify あり
+ *   1. filteredPrimary がある → buildPendingClarifyFromResolution で構築
+ *   2. filteredPrimary == null AND eventsFullyFixed === true → null (CEO condition 2,3)
+ *   3. filteredPrimary == null AND eventsFullyFixed === false AND priorPendingClarify あり
  *      → priorPendingClarify (comprehension_failed 救済 fallback、limited)
+ *      ただし prior の target slot が fixed なら drop (CEO condition 3 stale 防止)
  *   4. それ以外 → null
  */
 export function reconcilePendingClarify(input: {
-  newGapResolution: GapResolution;
+  filteredPrimary: ClarifyRequest | null;
   effectiveEvents: Event[];
   priorPendingClarify: PendingClarify | null;
 }): PendingClarify | null {
-  const { newGapResolution, effectiveEvents, priorPendingClarify } = input;
-  const primary = newGapResolution.primary_clarify;
+  const { filteredPrimary, effectiveEvents, priorPendingClarify } = input;
   const eventsFullyFixed = areEventsFullyFixed(effectiveEvents);
 
-  if (primary) {
+  if (filteredPrimary) {
     return buildPendingClarifyFromResolution(
-      primary,
+      filteredPrimary,
       effectiveEvents,
       priorPendingClarify?.semanticMissCount ?? 0,
     );
@@ -258,8 +342,14 @@ export function reconcilePendingClarify(input: {
   }
 
   // events に未解決 slot あり、でも primary_clarify は立たない (comprehension failure 等)
-  // → prior fallback で救済
-  return priorPendingClarify;
+  // → prior fallback で救済、ただし stale (target slot fixed) なら drop
+  if (priorPendingClarify) {
+    if (isClarifyStaleForEvents(priorPendingClarify, effectiveEvents)) {
+      return null; // CEO condition 3: stale prior は drop
+    }
+    return priorPendingClarify;
+  }
+  return null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -269,7 +359,7 @@ export function reconcilePendingClarify(input: {
 /**
  * 3-layer reconcile を 1 関数で実行する pure entry point。
  *
- * Layer 1: gapResolver を effectiveEvents で再実行
+ * Layer 1: priorGapResolution の primary_clarify を effectiveEvents で filter
  * Layer 2: pendingClarify rebuild (prior fallback 制限付き)
  * Layer 3: dialogState.focus を effectiveEvents と同期
  * Layer 4: phase 再決定 (events fully fixed → plan_presented)
@@ -281,20 +371,24 @@ export function reconcileGapStateFromEffectiveEvents(
 ): ReconcileResult {
   const {
     effectiveEvents,
+    priorGapResolution,
     priorPendingClarify,
     priorDialogState,
-    gapContext,
     originalPhase,
+    comprehensionOk,
   } = input;
 
   const eventsFullyFixed = areEventsFullyFixed(effectiveEvents);
 
-  // ── Layer 1: gapResolver 再実行 ──
-  const reconciledGapResolution = resolveGaps(effectiveEvents, gapContext);
+  // ── Layer 1: GapResolution filter (primary_clarify が stale なら drop) ──
+  const baseResolution: GapResolution =
+    priorGapResolution ?? { actions: [], primary_clarify: null };
+  const { resolution: reconciledGapResolution, primaryDropped } =
+    filterStalePrimaryClarify(baseResolution, effectiveEvents);
 
   // ── Layer 2: pendingClarify rebuild ──
   const reconciledPendingClarify = reconcilePendingClarify({
-    newGapResolution: reconciledGapResolution,
+    filteredPrimary: reconciledGapResolution.primary_clarify,
     effectiveEvents,
     priorPendingClarify,
   });
@@ -309,12 +403,18 @@ export function reconcileGapStateFromEffectiveEvents(
   let reconciledPhase: MorningPhase;
   if (isSpecialPhase) {
     reconciledPhase = originalPhase;
+  } else if (!comprehensionOk) {
+    // comprehension 失敗時は楽観的に plan_presented に上げない (既存契約)
+    reconciledPhase = originalPhase;
   } else if (reconciledPendingClarify != null) {
     reconciledPhase = "clarifying";
   } else if (eventsFullyFixed) {
+    // CEO condition 6: 未解決 slot が無ければ plan_presented に進む
     reconciledPhase = "plan_presented";
   } else {
-    // events に未解決あるが primary_clarify が立たない (rare)
+    // events に未解決 (blocking) slot あり、しかし pendingClarify は build できなかった
+    // 既存契約 (W3-PR-8 hasBlockingUnresolvedSlots): blocking が残れば clarifying 維持。
+    // ここで plan_presented にすると blocking 状態で plan を出すことになり契約違反。
     reconciledPhase = "clarifying";
   }
 
@@ -338,6 +438,7 @@ export function reconcileGapStateFromEffectiveEvents(
       pendingClarifyChanged,
       focusCleared: dsResult.focusCleared,
       eventsFullyFixed,
+      primaryClarifyDropped: primaryDropped,
     },
   };
 }

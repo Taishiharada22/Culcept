@@ -293,8 +293,18 @@ describe("provider failure 吸収: sticky session 前ターン状態継承", () 
   });
 
   test("priorPersistedEvents + priorPendingClarify + priorPlan 全部揃って継承", () => {
+    // CEO 2026-04-28 PR #41b-0: priorPending (slot="where") は priorEv の where が
+    // 既に fixed だと CEO condition 3 (stale drop) で消える。
+    // 本テストの本質「provider failure 時の継続性」を保ったまま fixture を
+    // 一貫させるため、priorEv の where を vague にする。
     const prior = mkPending();
-    const priorEv = mkEvent();
+    const priorEv = mkEvent({
+      where: {
+        place_ref: "カフェ",
+        placeType: null, // category_alone → vague (blocking) → priorPending preserved
+        provenance: utteranceProvenance(["カフェ"]),
+      },
+    });
     const priorPlan = mkPlan();
     const { session, response } = adaptPipelineToLegacy(
       buildFailedPipelineResult(),

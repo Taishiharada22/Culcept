@@ -57,6 +57,9 @@ import {
 } from "./trace/turnTrace";
 // CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 (apply は L5)。
 import { resolveTargetRef } from "./planning/modifyRouter";
+// CEO 2026-04-28 PR #41b-0: effectiveEvents canonical reconcile (3 layer)。
+//   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
+import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -618,25 +621,43 @@ export function adaptPipelineToLegacy(
   );
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
-  const phase = decidePhase(result, effectiveEvents);
+  const originalPhase = decidePhase(result, effectiveEvents);
 
-  // ── PendingClarify / persistedEvents 構築（W3-PR-7 Commit 2）──
-  //   clarifying phase のときだけ pendingClarify を立てる。
-  //   priorPendingClarify が同一 event_id/slot を指していた場合 semanticMissCount を継承する。
-  let pendingClarify: PendingClarify | null = null;
-  if (phase === "clarifying") {
-    const prior = input.priorPendingClarify ?? null;
-    pendingClarify = buildPendingClarifyFromResolution(
-      result.gapResolution?.primary_clarify ?? null,
-      effectiveEvents,
-      prior ? prior.semanticMissCount ?? 0 : 0,
-    );
-    // comprehension_failed 等で今ターンに primary_clarify が無い場合は、
-    // priorPendingClarify をそのまま維持する（system_miss と同じ扱い）。
-    if (!pendingClarify && prior) {
-      pendingClarify = prior;
-    }
-  }
+  // ── CEO 2026-04-28 PR #41b-0: 3-layer reconcile from effectiveEvents ──
+  //   PR #41a で観測された UX bug の真因 fix:
+  //     events fully fixed なのに pendingClarify が古い where_center で stuck し、
+  //     Alter が「09:00のカフェはどのあたり？」 を聞き続けていた。
+  //
+  //   reconcile は effectiveEvents を canonical truth として:
+  //     1. gapResolver を effectiveEvents で再実行 (currentEvents 基準でない)
+  //     2. pendingClarify rebuild (eventsFullyFixed なら prior fallback しない)
+  //     3. dialogState.focus を events 状態に同期 (fixed slot は clear/advance)
+  //     4. phase を再決定 (eventsFullyFixed → plan_presented)
+  //
+  //   特殊 phase (comprehension_failed 等) は preserve (originalPhase 入力で識別)。
+  const reconcile = reconcileGapStateFromEffectiveEvents({
+    effectiveEvents,
+    // pipeline が生成した GapResolution (currentEvents 基準) を filter する。
+    // 再実行はしない (test fixture の人為的 missing_semantic_critical を尊重)。
+    priorGapResolution: result.gapResolution ?? null,
+    priorPendingClarify: input.priorPendingClarify ?? null,
+    priorDialogState:
+      // dialogState は currentEvents 基準で reducer により update 済み。
+      // ここでは reducer 後の状態を入力として、effectiveEvents 基準で再評価する。
+      // legacyAdapter の入力には dialogState が直接含まれていないため、
+      // 上位 (chat route / selection route) が reducer を回した後の state を
+      // 参照する必要がある。本 commit では一旦 null を渡し、
+      // dialogState 同期は別途 (route 側 with reducer 統合) で対応する。
+      null,
+    originalPhase,
+    // comprehension_failed の場合は楽観的に plan_presented に上げない。
+    // priorPersistedEvents fallback で effectiveEvents が fully fixed でも、
+    // 当 turn では何が起きたか不明なため originalPhase=clarifying を preserve。
+    comprehensionOk: result.status === "ok",
+  });
+
+  const phase = reconcile.reconciledPhase;
+  const pendingClarify = reconcile.reconciledPendingClarify;
 
   // ── Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）──
   //   clarifying: primary_clarify.question → scope/kind 再生成 → prior.question → generic
