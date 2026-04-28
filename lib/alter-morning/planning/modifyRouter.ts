@@ -93,7 +93,50 @@ export function resolveTargetRef(
 
   const normRef = normalizeForMatch(targetRef);
 
-  // Strategy 1: time bucket
+  // ── Strategy 1a: explicit hour match (CEO 2026-04-28 PR #41a Commit 9) ──
+  //   target_ref に「9時」「10時の予定」「07:30の予定」 等の明示時刻が含まれる場合、
+  //   prior events の startTime と数値 hour で比較して一致を見つける。
+  //   time_bucket strategy の中で先に走らせる (より specific なため)。
+  //
+  //   理由 (CEO directive):
+  //     detectModifyIntent が target_ref="9時の予定" を生成するが、既存
+  //     TIME_BUCKET_KEYWORDS には「9時」が無いため Strategy 1 で resolve しない。
+  //     explicit hour match を追加することで「9時の予定」 が high confidence で
+  //     resolve できるようにする。
+  //
+  //   pattern: "(\\d{1,2})時" (e.g., "9時", "10時", "21時")
+  //   normalized 後の文字列に hour pattern があれば、existing events から
+  //   startTime の hour 部分が一致する event を探す。
+  const explicitHourMatch = normRef.match(/(\d{1,2})時/);
+  if (explicitHourMatch) {
+    const hour = parseInt(explicitHourMatch[1], 10);
+    if (hour >= 0 && hour <= 23) {
+      const matches = existing.filter((e) => {
+        if (!e.when.startTime) return false;
+        const parts = e.when.startTime.split(":");
+        if (parts.length < 1) return false;
+        const startHour = parseInt(parts[0], 10);
+        return Number.isFinite(startHour) && startHour === hour;
+      });
+      if (matches.length === 1) {
+        return {
+          event_id: matches[0].event_id,
+          confidence: "high",
+          strategy: "time_bucket",
+        };
+      }
+      if (matches.length > 1) {
+        return {
+          event_id: matches[0].event_id,
+          confidence: "medium",
+          strategy: "time_bucket",
+        };
+      }
+      // hour 一致なし → time_bucket keyword strategy に fall-through
+    }
+  }
+
+  // Strategy 1b: time bucket keyword (朝/昼/夜 等)
   for (const [kw, bucket] of Object.entries(TIME_BUCKET_KEYWORDS)) {
     if (normRef.includes(normalizeForMatch(kw))) {
       // 直接 timeHint 一致優先

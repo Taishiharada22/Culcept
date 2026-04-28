@@ -93,6 +93,140 @@ describe("resolveTargetRef — edge cases", () => {
 // Strategy 1: time_bucket
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+describe("resolveTargetRef — Strategy 1a explicit hour (PR #41a Commit 9)", () => {
+  it("[ROOT CAUSE] '9時の予定' + startTime=09:00 event → high confidence", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_9am",
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+      }),
+    ];
+    const result = resolveTargetRef("9時の予定", events);
+    expect(result.event_id).toBe("e_9am");
+    expect(result.confidence).toBe("high");
+    expect(result.strategy).toBe("time_bucket");
+  });
+
+  it("'10時の予定' + startTime=10:30 event → high (hour-only match)", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_10am",
+        when: {
+          startTime: "10:30",
+          timeHint: null,
+          provenance: utteranceProvenance(["10時"], "high"),
+        },
+      }),
+    ];
+    const result = resolveTargetRef("10時の予定", events);
+    expect(result.event_id).toBe("e_10am");
+    expect(result.confidence).toBe("high");
+  });
+
+  it("'9時' (target_ref が短い) + startTime=09:00 → high (hour pattern マッチ)", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_9am",
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+      }),
+    ];
+    const result = resolveTargetRef("9時", events);
+    expect(result.event_id).toBe("e_9am");
+    expect(result.strategy).toBe("time_bucket");
+  });
+
+  it("hour 一致 event が複数 → 最初一致 + medium", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_a",
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+      }),
+      mkEvent({
+        event_id: "e_b",
+        when: {
+          startTime: "09:30",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時半"], "high"),
+        },
+      }),
+    ];
+    const result = resolveTargetRef("9時の予定", events);
+    expect(result.event_id).toBe("e_a");
+    expect(result.confidence).toBe("medium");
+  });
+
+  it("hour 一致なし → time_bucket keyword strategy に fall-through", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_morning",
+        when: {
+          startTime: null,
+          timeHint: "morning",
+          provenance: utteranceProvenance(["朝"], "high"),
+        },
+      }),
+    ];
+    // "9時の予定" は explicit hour で 09:00 を探すが該当無し
+    // → 「9時」 は TIME_BUCKET_KEYWORDS に無いので fall-through で Strategy 2/3/4 へ
+    // → どれも match しない → none
+    const result = resolveTargetRef("9時の予定", events);
+    expect(result.strategy).toBe("none");
+  });
+
+  it("範囲外 hour (25時) → match しない", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_9am",
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+      }),
+    ];
+    const result = resolveTargetRef("25時の予定", events);
+    expect(result.event_id).toBeNull(); // 25 は range 外で hour match skip
+  });
+
+  it("explicit hour と time_bucket keyword 両方 → explicit hour 優先", () => {
+    const events = [
+      mkEvent({
+        event_id: "e_morning_9",
+        when: {
+          startTime: "09:00",
+          timeHint: "morning",
+          provenance: utteranceProvenance(["朝"], "high"),
+        },
+      }),
+      mkEvent({
+        event_id: "e_morning_other",
+        when: {
+          startTime: "07:00",
+          timeHint: "morning",
+          provenance: utteranceProvenance(["朝"], "high"),
+        },
+      }),
+    ];
+    // "9時の朝食" → explicit hour=9 で e_morning_9 を high で resolve
+    // (time_bucket keyword "朝食" は両方 match するが priority 1a 優先)
+    const result = resolveTargetRef("9時の朝食", events);
+    expect(result.event_id).toBe("e_morning_9");
+    expect(result.confidence).toBe("high");
+  });
+});
+
 describe("resolveTargetRef — Strategy 1 time_bucket", () => {
   it("'朝の予定' + timeHint=morning event → 直接 timeHint 一致 (high)", () => {
     const events = [
