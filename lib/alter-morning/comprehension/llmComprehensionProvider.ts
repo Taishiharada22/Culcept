@@ -58,19 +58,83 @@ events 分割ルール（CEO 2026-04-28 重要）:
 - when.startTime も when.timeHint も両方 null の event を作る場合、
   その event は「ユーザーが意図的に時刻を述べていない 2 件目以降の予定」である必要がある
 
-turn_mode 判別ルール（CEO 2026-04-28 PR #41a 拡張）:
+turn_mode 判別ルール（CEO 2026-04-28 PR #41a 強化版）:
+
+[3-way 判定]
 - **prior plan が空 / context が無い** → 全 events を turn_mode="create"
 - **prior plan が存在する場合** (USER_PROMPT に [prior plan context] block あり):
   - 発話が **新しい予定を追加** する内容 → turn_mode="append"
-    例: 「このあと武藤さんとディナー」「夕方に新宿で買い物追加」
-  - 発話が **既存予定の変更** → turn_mode="modify" + target_ref を埋める
-    target_ref は prior plan の event を指すヒント文字列（"朝の予定" / "ランチ" / "最後の予定" 等）
-    change_scope を必ず指定（"replace" / "patch" / "append" / "remove"）
-    例: 「9時を10時に変える」 → turn_mode="modify", target_ref="朝の予定", change_scope="patch"
-- **重要な禁則**:
-  - prior plan の event を **再抽出してはいけない**（duplicate 防止）
-  - 今 turn の utterance に書かれた **新規 events のみ** 出力する
-  - prior と同じ予定を再度 events に入れない（LLM がコピーすると plan が重複する）`;
+  - 発話が **既存予定の変更** → turn_mode="modify" + target_ref + change_scope 必須
+
+[modify を判定する keyword]
+発話に以下の語が含まれている場合、 turn_mode="modify" の可能性が極めて高い:
+  「変更」「変える」「ずらす」「にする」「キャンセル」「削除」「やめる」「移動」
+  「○時を△時に」「○時を△時にする」「○時を△時に変更」「○時を△時にずらす」 等のパターン
+時刻 A → 時刻 B / 場所 A → 場所 B のような「A → B」表現は **必ず modify** として扱う。
+
+[modify 出力の必須 fields]
+- turn_mode: "modify"
+- target_ref: prior plan の event を指す自然言語ヒント
+  優先 1: 元の時刻 (例: "9時の予定" / "9時のスタバ")
+  優先 2: 活動 (例: "ランチ" / "打ち合わせ")
+  優先 3: 場所 (例: "渋谷の予定" / "サドヤ")
+  優先 4: 順序 (例: "最初の予定" / "最後の予定")  ← prior が 1 件のみの時に使う
+- change_scope: "patch" (一部変更) / "replace" (丸ごと差し替え) / "append" (追加) / "remove" (削除)
+- when / where / what: 変更後の値 (元の値ではなく **新しい値** を入れる)
+
+[append を判定する keyword]
+発話に「このあと」「その後」「追加」「他に」「別の」「足す」 等が含まれ、
+かつ **新しい時刻 / 場所 / 活動** が出ている場合 turn_mode="append"。
+target_ref は不要 (新規 event なので)。
+
+[few-shot 例]
+
+例 1 (modify、時刻変更):
+  prior: [event_id=evt_1, time=09:00, place=渋谷のスタバ, activity=コーヒー]
+  発話: "9時を10時に変更"
+  期待出力:
+    events: [{
+      turn_mode: "modify",
+      target_ref: "9時の予定",
+      change_scope: "patch",
+      when: { startTime: "10:00", timeHint: null, ... },
+      where: { place_ref: null, ... },  ← 場所変更なしなので null
+      what: { activity: "", ... }
+    }]
+
+例 2 (append、新規予定追加):
+  prior: [event_id=evt_1, time=09:00, place=スタバ, activity=コーヒー]
+  発話: "このあと新宿で武藤さんとディナー"
+  期待出力:
+    events: [{
+      turn_mode: "append",
+      target_ref: null,
+      change_scope: null,
+      when: { startTime: null, timeHint: "evening", ... },
+      where: { place_ref: "新宿", placeType: "generic_place", ... },
+      what: { activity: "ディナー", ... },
+      who: ["武藤"]
+    }]
+
+例 3 (create、初回 plan 構築、prior 空):
+  prior: (empty)
+  発話: "明日9時に渋谷のスタバ"
+  期待出力:
+    events: [{
+      turn_mode: "create",
+      target_ref: null,
+      change_scope: null,
+      when: { startTime: "09:00", ... },
+      where: { place_ref: "渋谷のスタバ", placeType: "chain_brand", ... },
+      what: { activity: "", ... }
+    }]
+
+[絶対禁則]
+- prior plan の event を **再抽出してはいけない**（duplicate 防止）
+- 今 turn の utterance に書かれた **新規 events のみ** 出力する
+- prior と同じ予定を再度 events に入れない（LLM がコピーすると plan が重複する）
+- modify の場合、変更前の値ではなく **変更後の値** を when/where/what に入れる
+- 発話に「変更/変える/ずらす/A→B」が含まれているのに turn_mode="create" を出さない`;
 
 function buildUserPrompt(
   utterance: string,
