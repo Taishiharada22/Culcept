@@ -100,10 +100,23 @@ export interface WhatSlot {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * create: 新規予定の追加
- * modify: 既存予定の変更
+ * Event の意図種別。
+ *
+ * - **create**: turn 1 で plan を新規構築する「最初の予定」群
+ * - **append**: 既存 plan に「新しい予定」を追加（CEO 2026-04-28 PR #41a Layer 1）
+ *   例: plan 確定後に「このあと武藤さんとディナー」 → 新 event_id で append
+ * - **modify**: 既存予定の slot を変更（target_ref + change_scope 必須）
+ *   例: 「9時を10時に変える」 → target_ref="朝の予定", change_scope="patch"
+ *
+ * 設計判断 (PR #41a):
+ *   create と append の差異は「prior plan の有無」ではなく「LLM が turn_mode で
+ *   明示する意図」とする。implicit な event_id collision-based 判定は debug 困難
+ *   なため、explicit 3-way enum を schema に持つ。
+ *
+ *   PR #41a では schema 拡張のみ（Commit 2）+ LLM prompt 拡張（Commit 3）。
+ *   実 dispatch (mergeEventFields branch) は PR #41b の L4-L5 で。
  */
-export type TurnMode = "create" | "modify";
+export type TurnMode = "create" | "append" | "modify";
 
 /**
  * modify 時の change_scope。change の粒度を schema に持ち上げる。

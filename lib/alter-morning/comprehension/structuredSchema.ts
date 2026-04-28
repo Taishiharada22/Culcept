@@ -123,7 +123,10 @@ const EVENT_SCHEMA = {
   properties: {
     turn_mode: {
       type: "string",
-      enum: ["create", "modify"],
+      // CEO 2026-04-28 PR #41a Layer 1: append を追加。
+      //   create: turn 1 の新規構築 / append: 既存 plan に新 event 追加 /
+      //   modify: 既存 event 変更 (target_ref + change_scope 必須)
+      enum: ["create", "append", "modify"],
     },
     target_ref: {
       type: ["string", "null"],

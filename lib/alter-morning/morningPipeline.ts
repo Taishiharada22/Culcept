@@ -52,6 +52,30 @@ import {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * CEO 2026-04-28 PR #41a Layer 2: prior plan context for LLM modify/append 判別。
+ *
+ * 既存 plan の summary を簡略化して LLM に渡す。token 軽量化のため、
+ * 完全 Event ではなく必要 field のみを抽出する（PII の lat/lng は含めない）。
+ *
+ * LLM はこの context を使って utterance を classify する:
+ *   - 既存 plan が空 / context 渡されない → turn_mode="create" (既存挙動)
+ *   - utterance が新時刻+新場所を述べる → turn_mode="append"、新 event_id
+ *   - utterance が既存 event の slot 変更 → turn_mode="modify" + target_ref
+ *
+ * **絶対契約**:
+ *   - LLM は priorContext を **再抽出してはいけない**（duplicate 防止）
+ *   - LLM は今 turn の utterance から **新規 events のみ** 出力する
+ */
+export interface PriorEventContext {
+  event_id: string;
+  /** 「朝の予定」「ランチ」等の自然言語ヒント生成用 */
+  startTime: string | null;
+  place_ref: string | null;
+  /** target_ref 解決の手がかり */
+  activity: string;
+}
+
+/**
  * L1.1 Comprehension の LLM 抽出を抽象化する interface。
  *
  * 実装:
@@ -59,11 +83,16 @@ import {
  *   - llm:   実 LLM provider（別ファイル `llmComprehensionProvider.ts` で定義）
  *
  * 失敗時は `null` を返す（throw しない）。orchestrator が gracefully fail する。
+ *
+ * priorContext (PR #41a Layer 2):
+ *   省略時は既存挙動 (create-only)。
+ *   渡された場合 LLM が turn_mode を 3-way (create/append/modify) で判別する。
  */
 export interface ComprehensionProvider {
   extract(
     utterance: string,
     hints: RulePreParseHints,
+    priorContext?: PriorEventContext[],
   ): Promise<L1PipelineInput["raw"] | null>;
 }
 
@@ -92,6 +121,22 @@ export interface MorningPipelineInput {
    * 用途: route.ts の Branch A で bindAnswerToSlot の結果を pipeline に渡す。
    */
   priorEvents?: Event[];
+  /**
+   * CEO 2026-04-28 PR #41a Layer 2: LLM 呼び出し時の prior plan context。
+   *
+   * 指定されている場合:
+   *   - LLM comprehension provider が呼ばれる (priorEvents === undefined 前提)
+   *   - prior events を簡略化形 (PriorEventContext) で LLM に渡す
+   *   - LLM は utterance を classify して turn_mode (create/append/modify) を出力
+   *
+   * priorEvents (LLM skip) と **別 field** にすることで両モード排他:
+   *   - priorEvents !== undefined  → LLM skip (answerBinder bind path)
+   *   - priorPlanForContext !== undefined → LLM 呼び出し with context (modify/append)
+   *   - 両方 undefined → 既存 create-only 挙動
+   *
+   * 用途: route.ts の Branch B で「prior plan あり + 新 utterance」 → modify/append 判定。
+   */
+  priorPlanForContext?: Event[];
 }
 
 export interface MorningPipelineProviders {
@@ -185,6 +230,26 @@ export async function runMorningPipeline(
   // L1.1 — LLM Structured Outputs 抽出
   //   priorEvents モード: answerBinder 経路では LLM を呼ばず既存 events をそのまま流す。
   //   targetDate 等のメタ情報は bind 経路では utterance 由来の today に倒す。
+  //
+  // CEO 2026-04-28 PR #41a Layer 2: priorPlanForContext を **LLM 呼び出し時** に渡す。
+  //   priorEvents (answerBinder, LLM skip) と **別 field** にすることで、両モードを
+  //   排他的に表現する:
+  //     - priorEvents !== undefined  → LLM skip (answerBinder bind path)
+  //     - priorPlanForContext !== undefined → LLM 呼び出し時に context として渡す
+  //                                          (modify/append 判別用)
+  //   両方が undefined なら create-only 既存挙動。
+  //
+  //   priorPlanForContext は完全 Event ではなく簡略化形 (PriorEventContext) で渡す。
+  //   token 軽量化 + PII (lat/lng) 排除のため。
+  const priorContextForLLM: PriorEventContext[] | undefined =
+    input.priorPlanForContext !== undefined && input.priorPlanForContext.length > 0
+      ? input.priorPlanForContext.map((ev) => ({
+          event_id: ev.event_id,
+          startTime: ev.when.startTime,
+          place_ref: ev.where.place_ref,
+          activity: ev.what.activity,
+        }))
+      : undefined;
   const raw =
     priorEvents !== undefined
       ? ({
@@ -194,7 +259,11 @@ export async function runMorningPipeline(
           departureTime: null,
           goOut: null,
         } satisfies L1PipelineInput["raw"])
-      : await providers.comprehension.extract(utterance, hints);
+      : await providers.comprehension.extract(
+          utterance,
+          hints,
+          priorContextForLLM,
+        );
 
   // empty annotations（comprehension_failed 時の既定値）
   const emptyAnnotations: MorningAnnotations = { body: [], weather: [], party: [] };

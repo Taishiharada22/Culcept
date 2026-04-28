@@ -1481,6 +1481,13 @@ export async function POST(req: NextRequest) {
     let morningResponse: MorningProtocolResponse | undefined;
     // Soft Bridge: レスポンスでフラグを返すため外部スコープ
     let isSoftBridgeResponse = false;
+    // CEO 2026-04-28 PR #41a Commit 6 (修正): trace snapshot を **response 構築位置**
+    //   (L9847+) で参照するため、外部スコープで宣言する。旧版は morningIntent="strong"
+    //   block 内で let していたため、ブロック外の response 合成で ReferenceError → 500。
+    //   shouldEmitTrace() === true (preview / development) でのみ non-null。
+    let lastTraceSnapshot:
+      | import("@/lib/alter-morning/trace/turnTrace").TurnTracePayload
+      | null = null;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -1805,6 +1812,8 @@ export async function POST(req: NextRequest) {
         //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
         //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
         let pipelineAbsorbedOuter = false;
+        // CEO 2026-04-28 PR #41a Commit 6: lastTraceSnapshot は L1485 の outer scope
+        //   で宣言済み。Branch A/B/failure すべてここから assign する。
         if (useV2) {
           try {
             // ── W3-PR-7 Commit 2: Branch A — answerBinder path ──
@@ -1875,6 +1884,8 @@ export async function POST(req: NextRequest) {
                   dialogState: morningSession.dialogState,
                 };
                 morningResponse = adapted.response;
+                // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
+                lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
                 console.info(
                   `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
                 );
@@ -1943,8 +1954,18 @@ export async function POST(req: NextRequest) {
             const combinedUtterance = [...priorInputs, message]
               .filter((s) => typeof s === "string" && s.length > 0)
               .join(" / ");
+            // CEO 2026-04-28 PR #41a Layer 2: prior plan context を LLM に渡す。
+            //   既存の persistedEvents (= 確定済 plan) を簡略化形で送り、
+            //   LLM が turn_mode (create/append/modify) を 3-way 判別できるようにする。
+            //   prior が空ならフィールド省略 → 既存 create-only 挙動。
+            const priorPlanForLLM = rawMorningSession?.persistedEvents;
             const pipelineResult = await runMorningPipeline(
-              { utterance: combinedUtterance },
+              {
+                utterance: combinedUtterance,
+                ...(priorPlanForLLM && priorPlanForLLM.length > 0
+                  ? { priorPlanForContext: priorPlanForLLM }
+                  : {}),
+              },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),
                 narration: createLLMNarrationProvider({ userId }),
@@ -1977,6 +1998,8 @@ export async function POST(req: NextRequest) {
               dialogState: morningSession.dialogState,
             };
             morningResponse = adapted.response;
+            // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
+            lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
             console.info(
               `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
             );
@@ -2022,6 +2045,8 @@ export async function POST(req: NextRequest) {
               dialogState: morningSession.dialogState,
             };
             morningResponse = adapted.response;
+            // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
+            lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
             );
@@ -9818,6 +9843,12 @@ export async function POST(req: NextRequest) {
           //   次ターンで返送する。
           ...(morningSession?.dialogState != null
             ? { dialogState: morningSession.dialogState }
+            : {}),
+          // CEO 2026-04-28 PR #41a Commit 6: trace を browser DevTools 観測可能に
+          //   verbose env (VERCEL_ENV=preview/development + ALTER_MORNING_TRACE_VERBOSE)
+          //   の時のみ含まれる。production では lastTraceSnapshot=null → field 不在。
+          ...(lastTraceSnapshot != null
+            ? { _debug: { trace: lastTraceSnapshot } }
             : {}),
         },
       } : {}),
