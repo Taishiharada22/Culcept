@@ -35,6 +35,11 @@ import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehens
 import type { GeoCoordinates } from "@/lib/alter-morning/search/normalizedPlace";
 import type { PlanItem } from "@/lib/alter-morning/types";
 import { emitVisualFlowClientEvent } from "@/lib/alter-morning/visualFlow/analytics";
+// CEO 2026-04-28 G5: journey anchor pin 用 sentinel id (実 event_id と衝突しない)
+import {
+  HOME_TRAVEL_SENTINEL_ID,
+  ENDPOINT_TRAVEL_SENTINEL_ID,
+} from "@/lib/alter-morning/planning/transportContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Minimal Google Maps JS API types
@@ -105,6 +110,18 @@ interface MorningMapViewProps {
   events?: ComprehensionEvent[];
   /** v2 経路 fallback (PlanItem[].location.lat/lng)。events が 2 未満の時に使う */
   planItems?: PlanItem[];
+  /**
+   * CEO 2026-04-28 G5 (Journey 構造): 起点 anchor (現在地 / 自宅)。
+   * `plan.journeyOrigin` から渡される。coords があれば map pin として **先頭** に追加。
+   * 1-event plan でも anchor + event + endpoint = 3 pins で map mount 可能になる。
+   */
+  journeyOrigin?: { label: string; lat: number; lng: number } | null;
+  /**
+   * CEO 2026-04-28 G5: 終点 anchor (帰宅 / hotel / friend's house)。
+   * `plan.journeyEnd` から渡される。coords があれば map pin として **末尾** に追加。
+   * round-trip default (origin と同 coords) は dedupe で 1 pin に集約される。
+   */
+  journeyEnd?: { label: string; lat: number; lng: number } | null;
 }
 
 interface PinPoint {
@@ -188,6 +205,108 @@ export function isSamePointCluster(pins: PinPoint[]): boolean {
   return keys.size <= 1;
 }
 
+/**
+ * CEO 2026-04-28 G5: journey anchor (origin / endpoint) を pin として抽出。
+ *
+ * 仕様:
+ *   - origin / end の coords が valid (Number.isFinite + 緯度経度範囲内) なら pin 化
+ *   - id は HOME_TRAVEL_SENTINEL_ID / ENDPOINT_TRAVEL_SENTINEL_ID (sentinel)
+ *   - label は anchor.label ("現在地" / "自宅" / "帰宅")
+ *   - **dedupe**: origin と end の coords が 4 桁精度（≈11m）で同点なら endpoint pin を skip
+ *     （round-trip default の場合、anchor 1 個で済ます）
+ *
+ * 戻り値:
+ *   - origin のみ valid → [origin pin]
+ *   - end のみ valid    → [end pin]
+ *   - 両方 valid + 異coord → [origin pin, end pin] (順序保持)
+ *   - 両方 valid + 同 coord → [origin pin] (endpoint dedupe)
+ *   - どちらも invalid  → []
+ *
+ * 設計判断:
+ *   - dedupe 精度は isSamePointCluster と同じ 4 桁（精度の一貫性）
+ *   - round-trip 時に endpoint label "帰宅" を見せたいか議論余地あるが、
+ *     map pin は座標位置を示すもので「重複位置に 2 pin」は混乱を招く
+ *     → 1 pin にまとめる（label は origin の "現在地" or "自宅" になる）
+ */
+export function extractJourneyPins(
+  origin?: { label: string; lat: number; lng: number } | null,
+  end?: { label: string; lat: number; lng: number } | null,
+): PinPoint[] {
+  const pins: PinPoint[] = [];
+  const originCoord: GeoCoordinates | null =
+    origin && Number.isFinite(origin.lat) && Number.isFinite(origin.lng)
+      ? { lat: origin.lat, lng: origin.lng }
+      : null;
+  const endCoord: GeoCoordinates | null =
+    end && Number.isFinite(end.lat) && Number.isFinite(end.lng)
+      ? { lat: end.lat, lng: end.lng }
+      : null;
+
+  if (originCoord && isValidCoord(originCoord)) {
+    pins.push({
+      id: HOME_TRAVEL_SENTINEL_ID,
+      coord: originCoord,
+      label: origin!.label,
+    });
+  }
+
+  if (endCoord && isValidCoord(endCoord)) {
+    // dedupe: origin と end が同 coord (round-trip default) なら endpoint は skip
+    if (originCoord && isSameCoordPrecision(originCoord, endCoord)) {
+      // skip — origin pin が既に同位置を示している
+    } else {
+      pins.push({
+        id: ENDPOINT_TRAVEL_SENTINEL_ID,
+        coord: endCoord,
+        label: end!.label,
+      });
+    }
+  }
+
+  return pins;
+}
+
+/**
+ * 2 つの coord が 4 桁精度（≈11m）で同点か。
+ * isSamePointCluster と精度を揃えることで「同点 cluster なら全部同位置」と
+ * 「journey dedupe」の判定基準を一致させる。
+ */
+function isSameCoordPrecision(a: GeoCoordinates, b: GeoCoordinates): boolean {
+  return (
+    a.lat.toFixed(4) === b.lat.toFixed(4) &&
+    a.lng.toFixed(4) === b.lng.toFixed(4)
+  );
+}
+
+/**
+ * CEO 2026-04-28 G5: pin 順序を「origin → events → endpoint」 に組成する。
+ *
+ * journeyPins は extractJourneyPins の出力（[origin] / [end] / [origin, end] / []）。
+ * eventPins は extractPins or extractPinsFromPlanItems の出力。
+ *
+ * 出力順序:
+ *   1. origin pin (HOME_TRAVEL_SENTINEL_ID) があれば先頭
+ *   2. eventPins
+ *   3. endpoint pin (ENDPOINT_TRAVEL_SENTINEL_ID) があれば末尾
+ *
+ * Map fitBounds は順序非依存だが、UI 上で pin 順序が意味を持つ将来拡張
+ * （pin tooltip / polyline / 検索順序）に備えて canonical 順序を保証する。
+ */
+export function composeJourneyPinList(
+  journeyPins: PinPoint[],
+  eventPins: PinPoint[],
+): PinPoint[] {
+  const originPin = journeyPins.find((p) => p.id === HOME_TRAVEL_SENTINEL_ID);
+  const endPin = journeyPins.find(
+    (p) => p.id === ENDPOINT_TRAVEL_SENTINEL_ID,
+  );
+  const result: PinPoint[] = [];
+  if (originPin) result.push(originPin);
+  result.push(...eventPins);
+  if (endPin) result.push(endPin);
+  return result;
+}
+
 /** fitBounds 用の矩形（ne / sw）を算出 */
 export function computeBounds(pins: PinPoint[]): {
   north: number;
@@ -218,30 +337,51 @@ const SAME_POINT_ZOOM = 15;
 const SCRIPT_ID = "alter-morning-gmaps";
 const SCRIPT_URL_BASE = "https://maps.googleapis.com/maps/api/js";
 
-export function MorningMapView({ events, planItems }: MorningMapViewProps) {
+export function MorningMapView({
+  events,
+  planItems,
+  journeyOrigin,
+  journeyEnd,
+}: MorningMapViewProps) {
   const browserKey = process.env.NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY;
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [mapsReady, setMapsReady] = useState<boolean>(false);
 
   /**
-   * W3-PR-13 M5 fix — pin source の二段階解決:
-   *   1. v1 events から有効 pin が 2 件以上取れればそれを使う
-   *   2. 取れなければ v2 planItems から fallback で抽出
-   *   3. それでも 2 未満なら最終 pin 配列は空または 1 件 → child の gate (pins<2)
-   *      で gate_rejected (insufficient_pins) が emit される
+   * W3-PR-13 M5 + CEO 2026-04-28 G5: pin source の三段階解決
+   *
+   *   1. event pins:
+   *      a. v1 events から有効 pin が 2 件以上取れればそれを使う
+   *      b. 取れなければ v2 planItems から fallback で抽出
+   *      c. どちらも 2 未満なら多い方（gate_rejected 報告用）
+   *   2. journey pins (anchor + endpoint):
+   *      extractJourneyPins で origin / endpoint を pin 化
+   *      （round-trip 同 coords は dedupe で 1 pin に集約）
+   *   3. composeJourneyPinList で「origin → events → endpoint」 順に結合
    *
    * 「v1 を優先する」理由: comprehension が走った場合 ev.where.coordinates は
    * Places API 解決済みで信頼度が高い。planItems の location は v2 PlanState
    * 由来で、resolutionConfidence が "low" のケースもある。
+   *
+   * 「journey pin を加える」理由 (CEO 2026-04-28 G5):
+   *   1-event plan でも origin + event = 2 pins で map mount できるようにする。
+   *   anchor / endpoint の coords は plan.journeyOrigin / journeyEnd 経由で渡る。
    */
   const pins = useMemo(() => {
     const v1Pins = events ? extractPins(events) : [];
-    if (v1Pins.length >= 2) return v1Pins;
     const v2Pins = planItems ? extractPinsFromPlanItems(planItems) : [];
-    if (v2Pins.length >= 2) return v2Pins;
-    // v1 / v2 のうち pin 数が多い方を返す（gate_rejected の pin_count 報告用）
-    return v1Pins.length >= v2Pins.length ? v1Pins : v2Pins;
-  }, [events, planItems]);
+    // event pin source: v1 を優先、不足時 v2、どちらも 2 未満なら多い方
+    let eventPins: PinPoint[];
+    if (v1Pins.length >= 2) {
+      eventPins = v1Pins;
+    } else if (v2Pins.length >= 2) {
+      eventPins = v2Pins;
+    } else {
+      eventPins = v1Pins.length >= v2Pins.length ? v1Pins : v2Pins;
+    }
+    const journeyPins = extractJourneyPins(journeyOrigin, journeyEnd);
+    return composeJourneyPinList(journeyPins, eventPins);
+  }, [events, planItems, journeyOrigin, journeyEnd]);
   const allSamePoint = useMemo(() => isSamePointCluster(pins), [pins]);
   const bounds = useMemo(() => computeBounds(pins), [pins]);
 
