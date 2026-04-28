@@ -52,7 +52,10 @@ import {
   eventToShapeSnapshot,
   buildVerboseExtension,
   isVerboseTraceEnabled,
+  type ModifyResolutionSnapshot,
 } from "./trace/turnTrace";
+// CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 (apply は L5)。
+import { resolveTargetRef } from "./planning/modifyRouter";
 import {
   synthesizeTravelItems,
   interleaveTravelItems,
@@ -875,6 +878,34 @@ export function adaptPipelineToLegacy(
     ...(phase === "clarifying" ? { clarifyQuestion: message } : {}),
   };
 
+  // ── CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 ──
+  //   LLM が turn_mode='modify' event を出力した場合、prior persisted events 中の
+  //   どの event を指しているかを resolveTargetRef で解決する。
+  //   本 PR では trace に記録するのみ (apply は PR #41b L5 で実装)。
+  //
+  //   priorBaseEvents: 解決対象の base 集合。priorPersistedEvents を canonical source
+  //   として採用 (今 turn で拡張前の plan)。
+  const priorBaseEvents = input.priorPersistedEvents ?? [];
+  const modifyResolutionsSnapshots: ModifyResolutionSnapshot[] = (
+    result.comprehension?.events ?? []
+  )
+    .filter((ev) => ev.turn_mode === "modify")
+    .map((ev) => {
+      const resolution = ev.target_ref
+        ? resolveTargetRef(ev.target_ref, priorBaseEvents)
+        : { event_id: null, confidence: null as null, strategy: "none" as const };
+      return {
+        event_id: ev.event_id,
+        target_ref_present:
+          typeof ev.target_ref === "string" && ev.target_ref.length > 0,
+        resolved: {
+          target_event_id: resolution.event_id,
+          confidence: resolution.confidence,
+          strategy: resolution.strategy,
+        },
+      };
+    });
+
   // ── CEO 2026-04-28 PR #41a Layer 0: turnTrace emission ──
   //   PII 配慮 + env gating は emitTurnTrace 内で完結。
   //   turn 反復 / merge 真因 pin に使う diagnostic。
@@ -898,6 +929,9 @@ export function adaptPipelineToLegacy(
       pendingClarifySlot: pendingClarify?.slot ?? null,
       pendingClarifyKind: pendingClarify?.kind ?? null,
       pendingClarifyEventId: pendingClarify?.event_id ?? null,
+      ...(modifyResolutionsSnapshots.length > 0
+        ? { modifyResolutions: modifyResolutionsSnapshots }
+        : {}),
     },
     isVerboseTraceEnabled()
       ? buildVerboseExtension({

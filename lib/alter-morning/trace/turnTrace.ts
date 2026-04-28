@@ -68,6 +68,29 @@ export interface EventShapeSnapshot {
 }
 
 /**
+ * CEO 2026-04-28 PR #41a Layer 3: modify 解決結果の trace 用 snapshot。
+ *
+ * legacyAdapter が turn_mode='modify' event に対して resolveTargetRef を
+ * 呼んだ結果を記録。apply は PR #41b で実装するため、本 PR では
+ * 「LLM が modify 意図を出すか」「target_ref が解決するか」 の観測のみ。
+ */
+export interface ModifyResolutionSnapshot {
+  /** modify event の event_id (新規 LLM 出力 event の ID) */
+  event_id: string;
+  /** target_ref 文字列の有無のみ (内容は redact) */
+  target_ref_present: boolean;
+  /** resolveTargetRef の戻り値 */
+  resolved: {
+    /** 解決された prior event_id (or null) */
+    target_event_id: string | null;
+    /** 解決時の confidence */
+    confidence: "low" | "medium" | "high" | null;
+    /** どの戦略で解決したか */
+    strategy: "time_bucket" | "activity" | "place" | "ordinal" | "none";
+  };
+}
+
+/**
  * 1 turn 全体の構造的 snapshot。
  *
  * 観測対象:
@@ -75,6 +98,7 @@ export interface EventShapeSnapshot {
  *   - prior / current / merged events の数 + 型分布
  *   - gap resolution の outcome
  *   - pendingClarify の選定結果
+ *   - modify 解決結果 (PR #41a Layer 3)
  */
 export interface TurnTraceSnapshot {
   /** session 識別子 (hash 不要、内部 ID は安全)。デバッグ用に turn 連続性を追跡 */
@@ -105,6 +129,12 @@ export interface TurnTraceSnapshot {
   pendingClarifySlot: PendingSlot | null;
   pendingClarifyKind: string | null;
   pendingClarifyEventId: string | null;
+  // ── modify 解決 (PR #41a Layer 3) ──
+  /**
+   * LLM が出力した turn_mode='modify' event を resolveTargetRef で解決した結果。
+   * 空配列なら今 turn に modify event なし。本 PR では apply はしない。
+   */
+  modifyResolutions?: ModifyResolutionSnapshot[];
 }
 
 /**
