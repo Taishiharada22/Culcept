@@ -990,6 +990,17 @@ export function adaptPipelineToLegacy(
       // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard 観測
       modifyCandidate: guardResult.modifyCandidate,
       modifyCandidateReason: guardResult.reason,
+      // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
+      //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
+      //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で
+      //   primary_clarify が stale になった経路の真因 pin。
+      reconcile: {
+        phaseChanged: reconcile.reconciled.phaseChanged,
+        primaryClarifyDropped: reconcile.reconciled.primaryClarifyDropped,
+        pendingClarifyChanged: reconcile.reconciled.pendingClarifyChanged,
+        focusCleared: reconcile.reconciled.focusCleared,
+        eventsFullyFixed: reconcile.reconciled.eventsFullyFixed,
+      },
     },
     isVerboseTraceEnabled()
       ? buildVerboseExtension({

@@ -176,6 +176,13 @@ export function findNextFocusFromEvents(events: Event[]): DialogFocus | null {
  *   - guard 補正で effectiveEvents の when=10:00 (fixed)
  *   - primary_clarify は effectiveEvents 基準で stale → drop すべき
  *
+ * event_id 解決 (CEO 2026-04-28):
+ *   1. clarify.event_id と一致する event を探す
+ *   2. 見つからない (mergeEventFields で event_id が remap された等) かつ
+ *      effectiveEvents.length === 1 なら、その単一 event を target とする
+ *      (CEO bug case の本流: guard 補正後 1 event の merge で id が変わるケース)
+ *   3. それ以外は判定不能 → false (drop しない、保守側)
+ *
  * 戻り値:
  *   true  → stale (target slot fixed で drop すべき)
  *   false → 依然 valid (target slot 未 fixed) or 判定不能 (event 不在等)
@@ -184,8 +191,13 @@ export function isClarifyStaleForEvents(
   clarify: { event_id: string; target_slot?: string | null; slot?: string | null },
   events: Event[],
 ): boolean {
-  const ev = events.find((e) => e.event_id === clarify.event_id);
-  if (!ev) return false; // 対象 event 不在 → drop 判定しない (別経路で扱う)
+  // event_id 一致経路
+  let ev = events.find((e) => e.event_id === clarify.event_id);
+  // 一致しない場合の fallback: 単一 event なら remap と推定
+  if (!ev && events.length === 1) {
+    ev = events[0];
+  }
+  if (!ev) return false; // 対象 event 不在 / 複数 event で id 不一致 → 判定保留
   // target_slot (ClarifyRequest) と slot (PendingClarify) どちらかが入る
   const slot = clarify.target_slot ?? clarify.slot ?? null;
   if (!slot) return false;
