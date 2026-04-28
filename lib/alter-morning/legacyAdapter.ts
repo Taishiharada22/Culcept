@@ -57,6 +57,10 @@ import {
 } from "./trace/turnTrace";
 // CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 (apply は L5)。
 import { resolveTargetRef } from "./planning/modifyRouter";
+// CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
+//   LLM が turn_mode='create' を出した場合でも、utterance pattern から
+//   modify 意図を検出して補正する safety net。
+import { applyDeterministicModifyIntent } from "./comprehension/modifyIntentDetector";
 import {
   synthesizeTravelItems,
   interleaveTravelItems,
@@ -581,6 +585,26 @@ export function adaptPipelineToLegacy(
 ): LegacyAdapterOutput {
   const today = input.today ?? todayYmd();
 
+  // ── CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard ──
+  //   LLM が turn_mode='create' を出した場合でも、utterance pattern (「○時を△時に」等)
+  //   から modify 意図を検出して補正する safety net。
+  //   guard を mergeEventFields **より前** に走らせ、補正後の events を merge に渡す。
+  //   こうすることで mergedEvents (= trace.mergedEvents) の turn_mode が modify を
+  //   反映する (CEO の merge 条件を満たす)。
+  //
+  //   guard 安全条件 (applyDeterministicModifyIntent 内で全 AND check):
+  //     - detectModifyIntent(utterance) が isModifyIntent=true
+  //     - priorPersistedEvents.length > 0
+  //     - events.length === 1
+  //     - events[0].turn_mode === "create"
+  //   満たさない場合は LLM 出力をそのまま通す (no-op)。
+  const guardResult = applyDeterministicModifyIntent({
+    events: result.comprehension?.events ?? [],
+    priorPersistedEvents: input.priorPersistedEvents ?? [],
+    utterance: input.utterance,
+  });
+  const currentEvents = guardResult.events;
+
   // ── Events 継承（W3-PR-7 Commit 4 + Phase 2 scope 3 / CEO 2026-04-26）──
   //   旧: `currentEvents.length > 0 ? currentEvents : priorPersistedEvents`
   //   新: field-level merge で priorPersistedEvents を全 discard しない。
@@ -588,7 +612,6 @@ export function adaptPipelineToLegacy(
   //   Turn 3「電車」入力で comprehension が transport だけの partial event を
   //   返した時、startTime / where.coordinates / placeType を保持する。
   //   詳細: mergeEventFields (本ファイル上部 + tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
-  const currentEvents = result.comprehension?.events ?? [];
   const effectiveEvents: ComprehensionEvent[] = mergeEventFields(
     currentEvents,
     input.priorPersistedEvents,
@@ -890,16 +913,12 @@ export function adaptPipelineToLegacy(
   };
 
   // ── CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 ──
-  //   LLM が turn_mode='modify' event を出力した場合、prior persisted events 中の
-  //   どの event を指しているかを resolveTargetRef で解決する。
+  //   LLM が turn_mode='modify' event を出力した、または guard が補正した場合、
+  //   prior persisted events 中のどの event を指しているかを resolveTargetRef で解決。
   //   本 PR では trace に記録するのみ (apply は PR #41b L5 で実装)。
-  //
-  //   priorBaseEvents: 解決対象の base 集合。priorPersistedEvents を canonical source
-  //   として採用 (今 turn で拡張前の plan)。
+  //   currentEvents は guard 経由なので、補正適用済みの状態。
   const priorBaseEvents = input.priorPersistedEvents ?? [];
-  const modifyResolutionsSnapshots: ModifyResolutionSnapshot[] = (
-    result.comprehension?.events ?? []
-  )
+  const modifyResolutionsSnapshots: ModifyResolutionSnapshot[] = currentEvents
     .filter((ev) => ev.turn_mode === "modify")
     .map((ev) => {
       const resolution = ev.target_ref
@@ -947,6 +966,9 @@ export function adaptPipelineToLegacy(
       ...(modifyResolutionsSnapshots.length > 0
         ? { modifyResolutions: modifyResolutionsSnapshots }
         : {}),
+      // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard 観測
+      modifyCandidate: guardResult.modifyCandidate,
+      modifyCandidateReason: guardResult.reason,
     },
     isVerboseTraceEnabled()
       ? buildVerboseExtension({

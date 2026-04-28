@@ -135,6 +135,34 @@ export interface TurnTraceSnapshot {
    * 空配列なら今 turn に modify event なし。本 PR では apply はしない。
    */
   modifyResolutions?: ModifyResolutionSnapshot[];
+
+  // ── deterministic modify guard (PR #41a Commit 10) ──
+  /**
+   * applyDeterministicModifyIntent の発火フラグ。
+   *
+   * true:  utterance pattern (「○時を△時に」 等) から modify 意図が検出され、
+   *        LLM 出力 (turn_mode=create) を補正で modify に書き換えた。
+   * false (default): 補正なし。LLM が直接 modify を出したか、補正条件に
+   *                  該当しなかった。
+   *
+   * CEO 観測用: 「LLM が弱くても guard で modify 判定が trace に出る」 を
+   * pin できる。turn_mode='modify' の出所が LLM か guard かを区別する。
+   */
+  modifyCandidate?: boolean;
+  /**
+   * 補正の reason (modifyCandidate が undefined / false の場合の説明含む)。
+   * - "no_intent": detectModifyIntent が false を返した
+   * - "no_prior":  priorPersistedEvents 空
+   * - "events_count_mismatch": comprehension events 数 !== 1
+   * - "already_modify": LLM が既に modify を出していた / append だった
+   * - "applied": 補正発火
+   */
+  modifyCandidateReason?:
+    | "no_intent"
+    | "no_prior"
+    | "events_count_mismatch"
+    | "already_modify"
+    | "applied";
 }
 
 /**

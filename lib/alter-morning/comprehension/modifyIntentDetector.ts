@@ -144,6 +144,131 @@ function extractTimeShift(normalized: string): TimeShiftMatch | null {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyDeterministicModifyIntent — 補正 logic
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+import type { Event, ChangeScope } from "./eventSchema";
+
+export interface ApplyModifyIntentInput {
+  /** LLM 出力の events (raw comprehension) */
+  events: Event[];
+  /** prior persisted events (補正対象判定 + target_ref fallback) */
+  priorPersistedEvents: Event[];
+  /** ユーザー発話 */
+  utterance: string;
+}
+
+export interface ApplyModifyIntentResult {
+  /** 補正後の events (mutate せず新配列を返す pure) */
+  events: Event[];
+  /**
+   * 補正発火フラグ:
+   *   true: detectModifyIntent + 安全条件すべて満たし event[0] の turn_mode を modify に書き換えた
+   *   false: 補正なし (LLM が既に modify を出した / 条件に該当しない)
+   */
+  modifyCandidate: boolean;
+  /** 補正の根拠 (debug / trace 用) */
+  reason:
+    | "no_intent" // detectModifyIntent が isModifyIntent=false を返した
+    | "no_prior" // priorPersistedEvents が空
+    | "events_count_mismatch" // events.length !== 1 (補正は単一 event のみ)
+    | "already_modify" // 既に LLM が turn_mode='modify' を出している
+    | "applied"; // 補正発火
+  /** detectModifyIntent の生結果 (trace で参照可能に) */
+  detection: ModifyIntentResult;
+}
+
+/**
+ * LLM が turn_mode="create" を出したが、utterance pattern から modify 意図が
+ * 確実に読み取れる場合、event[0].turn_mode を "modify" に補正する。
+ *
+ * 安全条件 (すべて AND):
+ *   1. detectModifyIntent(utterance).isModifyIntent === true
+ *   2. priorPersistedEvents.length > 0 (補正対象が存在する)
+ *   3. events.length === 1 (単一 event のみ補正、複数は危険)
+ *   4. events[0].turn_mode === "create" (既に modify ならそのまま)
+ *
+ * 補正内容:
+ *   - turn_mode: "create" → "modify"
+ *   - target_ref: detectModifyIntent.suggestedTargetRef (or fallback "最初の予定")
+ *   - target_ref_confidence: "medium" (補正由来であることを明示)
+ *   - change_scope: detectModifyIntent.suggestedChangeScope (default "patch")
+ *   - when.startTime: detectModifyIntent.suggestedNewStartTime があれば override
+ *
+ * 戻り値:
+ *   modifyCandidate=true なら events[0] が modify に書き換えられている。
+ *   trace に modifyCandidate=true が出ることで観測可能。
+ */
+export function applyDeterministicModifyIntent(
+  input: ApplyModifyIntentInput,
+): ApplyModifyIntentResult {
+  const { events, priorPersistedEvents, utterance } = input;
+  const detection = detectModifyIntent(utterance);
+
+  if (!detection.isModifyIntent) {
+    return { events, modifyCandidate: false, reason: "no_intent", detection };
+  }
+  if (priorPersistedEvents.length === 0) {
+    return { events, modifyCandidate: false, reason: "no_prior", detection };
+  }
+  if (events.length !== 1) {
+    return {
+      events,
+      modifyCandidate: false,
+      reason: "events_count_mismatch",
+      detection,
+    };
+  }
+  if (events[0].turn_mode === "modify") {
+    return {
+      events,
+      modifyCandidate: false,
+      reason: "already_modify",
+      detection,
+    };
+  }
+  // turn_mode === "append" は本 commit では補正対象外 (LLM の意図を尊重)
+  if (events[0].turn_mode !== "create") {
+    return {
+      events,
+      modifyCandidate: false,
+      reason: "already_modify", // append 等は touch しない
+      detection,
+    };
+  }
+
+  // 補正発火
+  const targetRef =
+    detection.suggestedTargetRef ??
+    // priorPersistedEvents が 1 件しかなければ「最初の予定」 fallback
+    (priorPersistedEvents.length === 1 ? "最初の予定" : undefined);
+
+  const correctedEvent: Event = {
+    ...events[0],
+    turn_mode: "modify",
+    target_ref: targetRef ?? events[0].target_ref,
+    target_ref_confidence: "medium",
+    change_scope: detection.suggestedChangeScope as ChangeScope,
+    // suggestedNewStartTime があれば when.startTime を override (modify の意図する変更後値)
+    ...(detection.suggestedNewStartTime
+      ? {
+          when: {
+            ...events[0].when,
+            startTime: detection.suggestedNewStartTime,
+          },
+        }
+      : {}),
+  };
+
+  return {
+    events: [correctedEvent],
+    modifyCandidate: true,
+    reason: "applied",
+    detection,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Public API
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
