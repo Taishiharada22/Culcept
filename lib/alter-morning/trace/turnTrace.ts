@@ -163,6 +163,32 @@ export interface TurnTraceSnapshot {
     | "events_count_mismatch"
     | "already_modify"
     | "applied";
+
+  // ── 3-layer reconcile (PR #41b-0 Commit 3 / CEO 2026-04-28) ──
+  /**
+   * reconcileGapStateFromEffectiveEvents の発火フラグ群。
+   *
+   * 観測目的:
+   *   PR #41a で発覚した「events fully fixed なのに pendingClarify が古い
+   *   where_center で stuck」 bug の修正経路 pin。
+   *
+   *   - phaseChanged:           reconcile が phase を override した (e.g. clarifying → plan_presented)
+   *   - primaryClarifyDropped:  pipeline 由来 primary_clarify が stale 判定で drop された
+   *   - pendingClarifyChanged:  pendingClarify が priorPendingClarify と異なる
+   *   - focusCleared:           dialogState.focus が clear / advance された
+   *   - eventsFullyFixed:       全 event の slot が fixed (= 「未解決 slot なし」)
+   *
+   *   CEO success scenario「9時を10時に変更」 では reconcile.eventsFullyFixed=true,
+   *   reconcile.phaseChanged=true (clarifying→plan_presented),
+   *   reconcile.primaryClarifyDropped=true (stale specific_time clarify) が出る想定。
+   */
+  reconcile?: {
+    phaseChanged: boolean;
+    primaryClarifyDropped: boolean;
+    pendingClarifyChanged: boolean;
+    focusCleared: boolean;
+    eventsFullyFixed: boolean;
+  };
 }
 
 /**
