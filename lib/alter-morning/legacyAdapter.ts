@@ -883,7 +883,11 @@ export function adaptPipelineToLegacy(
   // ── CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 ──
   //   LLM が turn_mode='modify' event を出力した、または guard が補正した場合、
   //   prior persisted events 中のどの event を指しているかを resolveTargetRef で解決。
-  //   本 PR では trace に記録するのみ (apply は PR #41b L5 で実装)。
+  //
+  //   PR #41a: 観察のみ (apply 未実装)
+  //   PR #41b-1a: dispatchEventMerge.applyModifyPatch で apply 実装 → trace に
+  //              applied=true/false を追加し、CEO が「modify が effective に反映された」 を pin できるようにする。
+  //
   //   currentEvents は guard 経由なので、補正適用済みの状態。
   const priorBaseEvents = input.priorPersistedEvents ?? [];
   const modifyResolutionsSnapshots: ModifyResolutionSnapshot[] = currentEvents
@@ -892,6 +896,11 @@ export function adaptPipelineToLegacy(
       const resolution = ev.target_ref
         ? resolveTargetRef(ev.target_ref, priorBaseEvents)
         : { event_id: null, confidence: null as null, strategy: "none" as const };
+      // dispatch result から本 modify event の applied 判定を取得
+      const decision = dispatchResult.dispatch.find(
+        (d) => d.cur_event_id === ev.event_id && d.cur_turn_mode === "modify",
+      );
+      const applied = decision?.action === "modify_applied";
       return {
         event_id: ev.event_id,
         target_ref_present:
@@ -901,8 +910,21 @@ export function adaptPipelineToLegacy(
           confidence: resolution.confidence,
           strategy: resolution.strategy,
         },
+        applied,
       };
     });
+
+  // ── CEO 2026-04-29 PR #41b-1a: dispatch summary aggregation ──
+  //   各 cur event の dispatch 判断を集計し trace に乗せる。
+  const dispatchSummary = {
+    modify_applied: 0,
+    modify_unresolved_fallback_create: 0,
+    merged_into_prior: 0,
+    kept_as_new: 0,
+  };
+  for (const d of dispatchResult.dispatch) {
+    dispatchSummary[d.action] += 1;
+  }
 
   // ── CEO 2026-04-28 PR #41a Layer 0: turnTrace emission ──
   //   PII 配慮 + env gating は emitTurnTrace 内で完結。
@@ -937,6 +959,10 @@ export function adaptPipelineToLegacy(
       // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard 観測
       modifyCandidate: guardResult.modifyCandidate,
       modifyCandidateReason: guardResult.reason,
+      // CEO 2026-04-29 PR #41b-1a Commit 3: dispatch summary 観測
+      //   dispatchSummary.modify_applied >= 1 で「modify が effective に反映」 を pin。
+      //   CEO Case 1, Case 2 の merge 条件として使う。
+      dispatchSummary,
       // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
       //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
       //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で

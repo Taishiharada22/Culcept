@@ -88,6 +88,35 @@ export interface ModifyResolutionSnapshot {
     /** どの戦略で解決したか */
     strategy: "time_bucket" | "activity" | "place" | "ordinal" | "none";
   };
+  /**
+   * applyModifyPatch が実際に prior に適用されたか (PR #41b-1a で追加)。
+   *
+   * - true:  resolved.target_event_id が prior に存在し、applyModifyPatch で更新された
+   *          (CEO Case 1, Case 2 の merge 条件)
+   * - false: resolved.target_event_id=null (target_ref 解決失敗) もしくは
+   *          prior に存在しない (race) → fallback で kept_as_new
+   *
+   * PR #41a までは観察のみ、PR #41b-1a で apply 実装。
+   */
+  applied?: boolean;
+}
+
+/**
+ * dispatchEventMerge が各 cur event に対して下した判断のサマリ (PR #41b-1a)。
+ *
+ * 観測目的:
+ *   trace で「どの cur event がどう処理されたか」 を pin。
+ *   modify_applied / kept_as_new / merged_into_prior / fallback の頻度を測れる。
+ */
+export interface DispatchSummarySnapshot {
+  /**
+   * 各 cur event の action 件数。modify_applied の数で「modify が
+   * 実際に effective に反映された数」 を簡易測定。
+   */
+  modify_applied: number;
+  modify_unresolved_fallback_create: number;
+  merged_into_prior: number;
+  kept_as_new: number;
 }
 
 /**
@@ -163,6 +192,18 @@ export interface TurnTraceSnapshot {
     | "events_count_mismatch"
     | "already_modify"
     | "applied";
+
+  // ── dispatch summary (PR #41b-1a Commit 3 / CEO 2026-04-29) ──
+  /**
+   * dispatchEventMerge の各 cur event 処理結果のサマリ。
+   *
+   * 観測目的:
+   *   - modify_applied >= 1 → 「modify が effective events に反映された」 (Case 1, 2)
+   *   - kept_as_new >= 1   → 「append 候補が新規追加された」 (Case 3 — PR #41b-1b で event_id 新規発行)
+   *   - merged_into_prior  → 「create が既存 event と統合」 (通常 turn)
+   *   - modify_unresolved_fallback_create → 「target_ref 解決失敗、warn」
+   */
+  dispatchSummary?: DispatchSummarySnapshot;
 
   // ── 3-layer reconcile (PR #41b-0 Commit 3 / CEO 2026-04-28) ──
   /**
