@@ -51,7 +51,9 @@ import type { GapResolution, ClarifyRequest } from "./gapResolver";
 import { hasBlockingUnresolvedSlots } from "./blockingSlots";
 import type { DialogState, DialogFocus } from "../dialog/types";
 import type { PendingClarify, MorningPhase } from "../types";
-import { buildPendingClarifyFromResolution } from "../legacyAdapter";
+// CEO 2026-04-29 hotfix: legacyAdapter からの import で循環参照 → production
+//   webpack build hang。pendingClarifyBuilder.ts に抽出して循環を断つ。
+import { buildPendingClarifyFromResolution } from "./pendingClarifyBuilder";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
