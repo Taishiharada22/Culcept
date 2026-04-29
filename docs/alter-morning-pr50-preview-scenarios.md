@@ -3,6 +3,28 @@
 > **対象 PR**: [Culcept#48](https://github.com/Taishiharada22/Culcept/pull/48)
 > **目的**: Preview デプロイ後、CEO が 5 cases を順序通りに踏むための具体的な会話台本。実 LLM が `operations[]` を安定して出力するかを検証する。
 > **作成**: 2026-04-30 / Build Unit (Claude Opus 4.7)
+> **更新**: 2026-04-30 (Commit 6-9 = PR-50.1 反映) / Preview 観測退化を修復 — 実 LLM が operations を返さなくても deterministic synth で動く / transport-only duplicate を防ぐ / focus 残留を修正
+
+---
+
+## 0-PRE. PR-50.1 (Commit 6-9) の修正点 (2026-04-30 追加)
+
+Preview 実機 (CEO 観測) で以下の退化が判明 → PR-50.1 で修復:
+
+| 退化 | 真因 | 修復 (Commit) |
+|---|---|---|
+| 「9時を10時に変更」 が反応しない (Alter「もう少し詳しく」) | LLM が operations / events 両方空で返した | Commit 7: utterance pattern → deterministic modify 生成 |
+| 「電車」 が duplicate event を作る | LLM が「event_1 完全コピー + transport=電車」 で append 出力 | Commit 7 + 8: deterministic transport modify が override / LLM bad append → modify transform |
+| dialogState.focus が where に残留 | legacyAdapter が priorDialogState=null 固定で reconcileDialogState を early-return させていた | Commit 9: priorDialogState を route.ts → adapter → reconcile に wire |
+| trace.operations が undefined で原因切り分け不能 | buildOperationsTrace の null 判定が観測の盲点 | Commit 6: trace 常時出力 + synthesisSource field |
+
+検証時の trace 観測ポイント (Commit 6 で追加):
+- `trace.operations.synthesisSource`:
+  - `"deterministic"`: LLM 不出力 + utterance pattern hit
+  - `"deterministic_overrides_llm"`: LLM 出力 + utterance pattern hit (override)
+  - `"llm"`: LLM 出力をそのまま採用
+  - `"llm_transformed"`: LLM bad output を inspect で transform (transport-only duplicate → modify)
+  - `"none"`: 操作なし
 
 ---
 

@@ -457,3 +457,183 @@ describe("PR-50 Case 5: invalid operation fallback", () => {
     }
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Preview 観測ケース修復 (Commit 6-9 全層通過の E2E)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO 観測 (Preview 2026-04-30) で以下の退化が判明:
+//   1. LLM が「9時を10時に変更」 を operations 空で返す → modify が動かない
+//   2. LLM が「電車」 を「event_1 完全コピー + transport=電車」 で append output
+//      → events[] 経路で kept_as_new、duplicate event 発生
+//
+// PR-50.1 (Commit 6-9) で以下を修正:
+//   1. Commit 7 deterministic synth: LLM 出力に依存せず utterance pattern で
+//      modify を生成 → 「9時を10時に変更」 が動く
+//   2. Commit 8 LLM operations inspector: LLM bad append を transform して
+//      modify に変換 → duplicate を防ぐ
+//
+// 以下の E2E test で Preview 退化が解消されたことを固定する。
+
+describe("PR-50 Preview 観測退化の修復 (Commit 6-9)", () => {
+  it("LLM 不出力時でも「9時を10時に変更」 が deterministic synth で動く", async () => {
+    const prior = mkPriorStarbucks();
+    // CEO Preview 観測: LLM が operations / events 両方空で返す状況を再現
+    const raw = mkRaw({ operations: [], events: [] });
+
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "9時を10時に変更",
+        priorPlanForContext: [prior],
+      },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "preview-fix-1",
+      utterance: "9時を10時に変更",
+      priorPersistedEvents: [prior],
+    });
+
+    // Commit 7 deterministic synth が utterance pattern hit
+    //   LLM ops 空 → synthesisSource = "deterministic" (overrides_llm でない)
+    expect(adapted.lastTraceSnapshot!.operations).toMatchObject({
+      received: 1,
+      accepted: 1,
+      rejected: 0,
+      fallbackToEvents: false,
+      appliedTypes: ["modify"],
+      synthesisSource: "deterministic",
+    });
+
+    // event_1 の startTime が 10:00 に変更
+    const events = adapted.session.persistedEvents ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].when.startTime).toBe("10:00");
+    // PR-46 contract: where / what 不変
+    expect(events[0].where.place_ref).toBe("スタバ");
+    expect(events[0].what.activity).toBe("コーヒー");
+  });
+
+  it("LLM が bad append (transport-only duplicate) を出しても、deterministic で modify に変換", async () => {
+    const prior = mkPriorStarbucks({ transport: null });
+    // CEO Preview 観測: LLM が「電車」 を以下で append output
+    const llmBadAppend: PlanOperation = {
+      type: "append",
+      eventDraft: {
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+        where: {
+          place_ref: "スタバ",
+          placeType: "exact_proper_noun",
+          provenance: utteranceProvenance(["スタバ"], "high"),
+        },
+        what: {
+          activity: "コーヒー",
+          activityCanonical: "コーヒー",
+          provenance: utteranceProvenance(["コーヒー"], "high"),
+        },
+        who: [],
+        transport: "電車",
+        certainty: "asserted",
+      },
+    };
+    const raw = mkRaw({ operations: [llmBadAppend], events: [] });
+
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "電車",
+        priorPlanForContext: [prior],
+      },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "preview-fix-2",
+      utterance: "電車",
+      priorPersistedEvents: [prior],
+    });
+
+    // Commit 7 deterministic synth が「電車」 utterance pattern hit、LLM ops を上書き
+    //   deterministic_overrides_llm
+    expect(adapted.lastTraceSnapshot!.operations).toMatchObject({
+      received: 1,
+      accepted: 1,
+      rejected: 0,
+      fallbackToEvents: false,
+      appliedTypes: ["modify"],
+      synthesisSource: "deterministic_overrides_llm",
+    });
+
+    // duplicate event が作られていない (1 件のみ + transport 更新)
+    const events = adapted.session.persistedEvents ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].event_id).toBe(prior.event_id);
+    expect(events[0].transport).toBe("電車");
+    // 不変 fields
+    expect(events[0].when.startTime).toBe("09:00");
+    expect(events[0].where.place_ref).toBe("スタバ");
+  });
+
+  it("LLM bad append + utterance が pattern hit しない場合 → Layer 2 inspector で transform", async () => {
+    // utterance が transport-only でも時刻変更でもない場合 (Commit 8 Layer 2 単独動作)
+    const prior = mkPriorStarbucks({ transport: null });
+    const llmBadAppend: PlanOperation = {
+      type: "append",
+      eventDraft: {
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+        where: {
+          place_ref: "スタバ",
+          placeType: "exact_proper_noun",
+          provenance: utteranceProvenance(["スタバ"], "high"),
+        },
+        what: {
+          activity: "コーヒー",
+          activityCanonical: "コーヒー",
+          provenance: utteranceProvenance(["コーヒー"], "high"),
+        },
+        who: [],
+        transport: "徒歩",
+        certainty: "asserted",
+      },
+    };
+    const raw = mkRaw({ operations: [llmBadAppend], events: [] });
+
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "うん", // pattern hit しない発話 (LLM が文脈で transport を抽出した想定)
+        priorPlanForContext: [prior],
+      },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "preview-fix-3",
+      utterance: "うん",
+      priorPersistedEvents: [prior],
+    });
+
+    // Layer 1 (utterance) hit せず、Layer 2 (LLM inspect) で transform
+    //   synthesisSource = "llm_transformed"
+    expect(adapted.lastTraceSnapshot!.operations).toMatchObject({
+      received: 1,
+      accepted: 1,
+      rejected: 0,
+      fallbackToEvents: false,
+      appliedTypes: ["modify"],
+      synthesisSource: "llm_transformed",
+    });
+
+    // duplicate event が作られていない (Commit 8 が transform したので modify 適用済)
+    const events = adapted.session.persistedEvents ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].transport).toBe("徒歩");
+  });
+});
