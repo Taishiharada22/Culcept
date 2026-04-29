@@ -1001,6 +1001,29 @@ export interface MorningSession {
    * type landing のみ（後続 commit 14+ で reducer / route.ts が使う）。
    */
   dialogState?: import("./dialog/types").DialogState | null;
+
+  /**
+   * その日の **main transport** (PR-48 / CEO 2026-04-29)。
+   *
+   * 位置づけ:
+   *   一度確定した transport (例: "電車") をその日全体の default として保持する。
+   *   毎 turn の予定追加で「移動手段?」と聞かれない UX 実現の基盤。
+   *
+   * 値:
+   *   - "電車" | "車" | "徒歩" | "バス" | "自転車" | "タクシー" | "飛行機"
+   *     その他 raw Japanese 文字列 (parseJapaneseTransportToVc に渡せる形)
+   *   - null: その日の default 未確定
+   *
+   * 更新ルール (CEO 成功条件):
+   *   - 一度「電車」と答えたら保持 (events[*].transport から derive、初回のみ)
+   *   - 「車に変更」「徒歩に変更」 等 modify で上書き
+   *   - 新規 event が transport=null なら dayMainTransport を auto inject
+   *
+   * source of truth:
+   *   - session.dayMainTransport が canonical (永続化対象)
+   *   - plan.dayConditions.mainTransport は derived view (vcTypes 形)
+   */
+  dayMainTransport?: string | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
