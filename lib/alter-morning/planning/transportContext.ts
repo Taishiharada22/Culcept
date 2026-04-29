@@ -132,8 +132,8 @@ export function parseJapaneseTransportToVc(
   if (/電車|地下鉄|JR|私鉄/i.test(s)) return "train";
   // バス（公共交通だが vcTypes で別 tag）
   if (/バス/.test(s)) return "bus";
-  // 徒歩
-  if (/徒歩|歩き|歩いて/.test(s)) return "walk";
+  // 徒歩 (CEO 2026-04-29 PR-47: 「歩く / 歩行 / on foot / walk」 等を追加)
+  if (/徒歩|歩き|歩いて|歩く|歩行|on\s*foot|walk/i.test(s)) return "walk";
   // 自転車
   if (/自転車|チャリ/.test(s)) return "bicycle";
   // タクシー / Uber は taxi

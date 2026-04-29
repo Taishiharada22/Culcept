@@ -82,21 +82,32 @@ export interface MergeDispatchResult {
  * modify event (cur) の non-null フィールドを prior に **override** する
  * (intentional update セマンティクス、 mergeIntoPrior の null-fill とは異なる)。
  *
- * 規則 (CEO 2026-04-29):
+ * 規則 (CEO 2026-04-29 PR-46 hotfix):
  *   - **event_id**: prior 維持 (同一性 anchor の安定)
  *   - **turn_mode**: prior 維持 (= "create"、modify は apply 後消える)
  *   - **target_ref / target_ref_confidence / change_scope**: 解決済なので null 化
  *   - **when.startTime**: cur non-null なら override (CEO Case 1: 「9時を10時に変更」)
  *   - **when.timeHint**: cur non-null なら override
- *   - **where.place_ref**: cur non-null なら override
- *     priorWhereLocked (exact_proper_noun) でも、modify は user 明示なので尊重し
- *     override する (e.g., 「サドヤから新宿に変更」)
- *   - **what.activity**: cur non-empty なら override
  *   - **transport**: cur non-null なら override (CEO Case 2: 「移動手段は車に変更」)
- *   - **who**: cur non-empty なら override
+ *   - **where**: 常に prior 維持 (modify では where は touch しない)
+ *   - **what**: 常に prior 維持 (modify では what は touch しない)
+ *   - **who**: 常に prior 維持
  *   - **certainty**: cur non-null なら override
  *   - **missing_semantic_critical / missing_solver_blockers**: prior 維持
  *     (cur は modify partial output なので missing list は信頼できない)
+ *
+ * CEO 2026-04-29 設計判断 (where/what/who を override しない):
+ *   modify event の cur.what / cur.where は「内部編集命令文字列」 が混入する
+ *   ことが多い (e.g., LLM が cur.what.activity="9時を10時に変更" を出す)。
+ *   これを prior.what に override すると plan_item.text に command 文字列が
+ *   leak する。
+ *
+ *   現状の modify pattern は時刻変更 / 移動手段変更が主。場所変更や活動変更は
+ *   将来 PR で別 pattern として扱う (e.g., change_scope='replace' で明示的に
+ *   全 slot 置換、または「サドヤから新宿に」 を専用 pattern detect)。
+ *
+ *   CEO directive: 「modify command event は plan item 化しない。apply後の plan
+ *   text は、変更後の予定内容だけにする」 → prior の plan item を維持する。
  *
  * 戻り値: 新しい Event オブジェクト (input は不変)。
  */
@@ -109,34 +120,12 @@ export function applyModifyPatch(prior: Event, cur: Event): Event {
     provenance: whenChanged ? cur.when.provenance : prior.when.provenance,
   };
 
-  // where patch: cur.place_ref non-null なら override (lock を尊重しつつも override)
-  //   理由: modify は user の明示的意図なので、prior が exact_proper_noun でも
-  //   user が「変更する」と言ったら従う。
-  const newWhere =
-    cur.where.place_ref != null
-      ? {
-          place_ref: cur.where.place_ref,
-          placeType: cur.where.placeType ?? prior.where.placeType,
-          coordinates: cur.where.coordinates ?? prior.where.coordinates,
-          provenance: cur.where.provenance,
-        }
-      : prior.where;
-
-  // what patch: cur.activity non-empty なら override
-  const newWhat =
-    cur.what.activity && cur.what.activity.length > 0
-      ? {
-          activity: cur.what.activity,
-          activityCanonical: cur.what.activityCanonical || cur.what.activity,
-          provenance: cur.what.provenance,
-        }
-      : prior.what;
-
   // transport patch: cur.transport non-null なら override (CEO Case 2)
   const newTransport = cur.transport ?? prior.transport;
 
-  // who patch: cur.who non-empty なら override
-  const newWho = cur.who.length > 0 ? cur.who : prior.who;
+  // where / what / who: 常に prior 維持 (PR-46 text leak fix)
+  //   modify event は cur に command 文字列が混入する可能性があるため、
+  //   時刻 / 移動手段以外は touch しない。
 
   return {
     ...prior,
@@ -146,9 +135,9 @@ export function applyModifyPatch(prior: Event, cur: Event): Event {
     target_ref_confidence: null,
     change_scope: null,
     when: newWhen,
-    where: newWhere,
-    what: newWhat,
-    who: newWho,
+    where: prior.where, // PR-46: 常に prior 維持 (text leak 防止)
+    what: prior.what, // PR-46: 常に prior 維持 (text leak 防止)
+    who: prior.who, // PR-46: 常に prior 維持
     transport: newTransport,
     certainty: cur.certainty ?? prior.certainty,
     missing_semantic_critical: prior.missing_semantic_critical,

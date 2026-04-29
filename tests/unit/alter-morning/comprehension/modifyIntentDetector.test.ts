@@ -163,3 +163,51 @@ describe("detectModifyIntent — Strategy 優先順位", () => {
     expect(result.suggestedChangeScope).toBe("patch"); // time-shift = patch
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PR-47: transport-change pattern (CEO 2026-04-29 「徒歩が反映されない」 fix)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("detectModifyIntent — transport-change pattern (PR-47)", () => {
+  it("'移動手段を車に変更' → modify + suggestedTransport='車'", () => {
+    const result = detectModifyIntent("移動手段を車に変更");
+    expect(result.isModifyIntent).toBe(true);
+    expect(result.suggestedTransport).toBe("車");
+    expect(result.suggestedChangeScope).toBe("patch");
+    expect(result.reasons.hasTransportPattern).toBe(true);
+  });
+
+  it("'移動手段は徒歩で' → modify + suggestedTransport='徒歩' (CEO 主訴 fix)", () => {
+    const result = detectModifyIntent("移動手段は徒歩で");
+    expect(result.isModifyIntent).toBe(true);
+    expect(result.suggestedTransport).toBe("徒歩");
+  });
+
+  it("'徒歩に変更' → modify + suggestedTransport='徒歩' (token + change keyword)", () => {
+    const result = detectModifyIntent("徒歩に変更");
+    expect(result.isModifyIntent).toBe(true);
+    expect(result.suggestedTransport).toBe("徒歩");
+  });
+
+  it("'歩いて行く' (change keyword なし、token のみ) → not modify (false-positive 抑制)", () => {
+    const result = detectModifyIntent("歩いて行く");
+    expect(result.isModifyIntent).toBe(false);
+  });
+
+  it("'移動手段を電車に' (strict pattern 単独) → modify + suggestedTransport='電車'", () => {
+    const result = detectModifyIntent("移動手段を電車に");
+    expect(result.isModifyIntent).toBe(true);
+    expect(result.suggestedTransport).toBe("電車");
+  });
+
+  it("'バスに変更' → modify + suggestedTransport='バス'", () => {
+    const result = detectModifyIntent("バスに変更");
+    expect(result.isModifyIntent).toBe(true);
+    expect(result.suggestedTransport).toBe("バス");
+  });
+
+  it("'9時に車で行く' (初回 plan、change keyword なし) → not modify", () => {
+    const result = detectModifyIntent("9時に車で行く");
+    expect(result.isModifyIntent).toBe(false); // change keyword 無いので token 単独では fire しない
+  });
+});

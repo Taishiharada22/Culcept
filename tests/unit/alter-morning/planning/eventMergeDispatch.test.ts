@@ -155,12 +155,15 @@ describe("applyModifyPatch — modify event の intentional update", () => {
     expect(result.transport).toBe("電車");
   });
 
-  it("where lock を尊重しない (modify は user 明示なので override する)", () => {
+  it("[PR-46 text leak fix] where は modify では override しない (常に prior 維持)", () => {
+    // CEO 2026-04-29: modify event の cur.where は touch しない。
+    //   理由: LLM の command 文字列や stale 値が混入するリスクあり。
+    //   場所変更は将来 PR で別 pattern (e.g.,「サドヤから新宿に変更」専用) で扱う。
     const prior = mkEvent({
       event_id: "e1",
       where: {
         place_ref: "サドヤ",
-        placeType: "exact_proper_noun", // locked
+        placeType: "exact_proper_noun",
         coordinates: null,
         provenance: utteranceProvenance(["サドヤ"], "high"),
       },
@@ -177,7 +180,33 @@ describe("applyModifyPatch — modify event の intentional update", () => {
       },
     });
     const result = applyModifyPatch(prior, cur);
-    expect(result.where.place_ref).toBe("新宿"); // override (locked でも)
+    expect(result.where.place_ref).toBe("サドヤ"); // ★ prior 維持 (text leak 防止)
+  });
+
+  it("[PR-46 text leak fix] what は modify では override しない (常に prior 維持)", () => {
+    // CEO 2026-04-29 真因 fix: LLM が cur.what.activity に「9時を10時に変更」 等の
+    //   command 文字列を入れると、prior.what が上書きされて plan_item.text に leak。
+    //   modify では what を touch しない契約に変更。
+    const prior = mkEvent({
+      event_id: "e1",
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      event_id: "evt_modify",
+      turn_mode: "modify",
+      target_ref: "9時",
+      what: {
+        activity: "9時を10時に変更", // ← LLM が command 文字列を入れた想定
+        activityCanonical: "9時を10時に変更",
+        provenance: utteranceProvenance(["9時を10時に変更"], "high"),
+      },
+    });
+    const result = applyModifyPatch(prior, cur);
+    expect(result.what.activity).toBe("コーヒー"); // ★ prior 維持
   });
 
   it("missing_semantic_critical / missing_solver_blockers は prior 維持", () => {
