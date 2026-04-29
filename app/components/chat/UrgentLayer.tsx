@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Stage 4 L4-h — UrgentLayer 本体 (本番化、preview L1-i 移植)
+ * Stage 4 L4-h → B-2.4 — UrgentLayer 本体 (本番化、preview L1-i 移植)
  *
  * 正本: layout plan v0.3 §7.8 / UI spec §8.5 / §8.6
  *
@@ -13,6 +13,11 @@
  *   - overlay_banner (薄いバンド)
  *   - dominant_card (中央上部の展開カード)
  *   - inline_cue (枠線彩度のみの弱キュー)
+ *
+ * B-2.4 (2026-04-30) 修正:
+ *   - 全 variant で aria-label「緊急表示を閉じる」に統一 (CEO 確定)
+ *   - inline_cue に dismiss button を追加 (右上「×」、絶対位置、CEO 必須要件)
+ *   - dominant_card は UrgentRelease.tsx 側で white 背景前提に style 変更済
  */
 
 import UrgentMessageCard from "./UrgentMessageCard";
@@ -83,7 +88,7 @@ export default function UrgentLayer({
             type="button"
             onClick={onDismiss}
             data-testid="coalter-urgent-banner-dismiss"
-            aria-label="緊急介入を閉じる"
+            aria-label="緊急表示を閉じる"
             style={{
               padding: "2px 8px",
               fontSize: 11,
@@ -111,7 +116,8 @@ export default function UrgentLayer({
           data-testid="coalter-urgent-layer-inline"
           data-form="inline_cue"
           style={{
-            padding: "10px 12px",
+            position: "relative",
+            padding: "10px 36px 10px 12px",
             background: "#ffffff",
             border: "2px solid",
             borderImage: "linear-gradient(90deg, #c7d2fe, #a5b4fc) 1",
@@ -120,6 +126,28 @@ export default function UrgentLayer({
             color: "#4a4a68",
           }}
         >
+          <button
+            type="button"
+            onClick={onDismiss}
+            data-testid="coalter-urgent-inline-dismiss"
+            aria-label="緊急表示を閉じる"
+            style={{
+              position: "absolute",
+              top: 6,
+              right: 8,
+              width: 22,
+              height: 22,
+              padding: 0,
+              fontSize: 14,
+              lineHeight: 1,
+              background: "transparent",
+              border: "none",
+              color: "#4a4a68",
+              cursor: "pointer",
+            }}
+          >
+            ×
+          </button>
           <div style={{ fontStyle: "italic", marginBottom: 4 }}>
             inline cue
           </div>
