@@ -12,32 +12,36 @@
  *   - L4-a: placeholder text のみ
  *   - B-1 (2026-04-29): usePresenceExecutor + UpperLayerStateRenderer + ModeSwitcher 本番化
  *   - B-2 (2026-04-29): UrgentLayer mount + autoRefire block 60s + dismiss handler
+ *   - B-3.3 (2026-04-30): MemorySurface mount + useMemoryItems(threadId) initial fetch
  *
- * B-2 で動作するもの:
- *   - usePresenceExecutor が productionSignalBus に subscribe (signal 流入経路確立)
- *   - urgentDecision 計算結果に応じた UrgentLayer の表示 (3 形態: dominant_card /
- *     overlay_banner / inline_cue)
- *   - dismiss tap → 60s autoRefire block (§8.5.4 不可侵: 追加挽留禁止)
- *   - 60s 経過後の自動 unblock
+ * B-3.3 で動作するもの:
+ *   - threadId を useParams() から取得 (ChatClient touch ゼロ)
+ *   - useMemoryItems(threadId) で initial fetch (Realtime なし、B-3.4 で別 gate)
+ *   - viewer (user_a / user_b) が確定 + items 取得時のみ MemorySurface mount
+ *   - viewer 不明 / loading / error 時は MemorySurface 非表示 (CEO 指示の安全 fallback)
  *
- * B-2 で動作しないもの (B-3 以降で接続):
- *   - Memory surface (L4-g)
+ * B-3 で動作しないもの (B-3.4 以降で接続):
+ *   - Realtime subscribe (Supabase channel)
  *   - LLM 合成 urgent message (B-2 では category-based static fallback)
  *   - explicit / mention / chip tap signal (B-2 は implicit + critical のみ)
  *
  * 不可侵 (plan §0.4 / §7 全体):
  *   - flag OFF で既存 ChatClient render が 1 bit も変わらない
  *   - production behavior 不変原則
- *   - ChatClient.tsx は touch しない (props 影響ゼロ)
+ *   - ChatClient.tsx は touch しない (props 影響ゼロ、threadId は useParams で取得)
  *   - 自動 urgent 再発火禁止 (§8.5.4 user_dismiss / timeout 後の沈黙ペナルティ禁止)
+ *   - viewer 解決曖昧時は MemorySurface 非表示 (情報漏洩リスク回避、CEO 指示)
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { usePresenceExecutor } from "./hooks/usePresenceExecutor";
+import { useMemoryItems } from "./hooks/useMemoryItems";
 import UpperLayerStateRenderer from "./states/UpperLayerStateRenderer";
 import UrgentLayer from "./UrgentLayer";
+import MemorySurface from "./MemorySurface";
 import {
   isUrgentAutoRefireBlocked,
   type UrgentReleasePath,
@@ -94,6 +98,46 @@ export default function UpperLayerMount() {
  */
 function UpperLayerMountActive() {
   const exec = usePresenceExecutor();
+
+  /**
+   * B-3.3: threadId を URL params から取得 (ChatClient touch ゼロ)。
+   *
+   * 本 component は `app/(culcept)/talk/[threadId]/` route 配下で render される
+   * ため、useParams() で `params.threadId` を取得可能。preview / 別 route で
+   * mount された場合は threadId === null となり、useMemoryItems が空 state を返す
+   * (MemorySurface は表示しない)。
+   */
+  const params = useParams();
+  const threadId = useMemo<string | null>(() => {
+    const raw = params?.threadId;
+    if (typeof raw === "string" && raw.length > 0) return raw;
+    return null;
+  }, [params]);
+
+  /**
+   * B-3.3: Memory items 取得 hook (initial fetch のみ、Realtime は B-3.4)。
+   *
+   * threadId 不明 → 空 state、fetch しない (early return)。
+   * 404/403/500 → 空 fallback、UI 壊さない。
+   */
+  const memory = useMemoryItems(threadId);
+
+  /**
+   * B-3.3: MemorySurface 表示判定。
+   *
+   * CEO 指示「viewer解決が曖昧なら、無理に表示せず空/hidden fallback」:
+   *   - viewer === null (auth / pair lookup 失敗 / loading) → 非表示
+   *   - error が "fetch_failed_4xx" / "network_error" / "invalid_response_shape"
+   *     のいずれか (transient な fetch 失敗) → 非表示
+   *   - error === "degraded" (DB items 取得失敗、items=[] でも viewer は確定) → 表示 (空表示 OK)
+   *   - error === null + viewer 確定 → 表示
+   */
+  const showMemorySurface = useMemo<boolean>(() => {
+    if (memory.viewer === null) return false;
+    if (memory.isLoading) return false;
+    if (memory.error !== null && memory.error !== "degraded") return false;
+    return true;
+  }, [memory.viewer, memory.isLoading, memory.error]);
 
   /**
    * 直近 release 情報。null 時は autoRefire block なし。
@@ -175,6 +219,13 @@ function UpperLayerMountActive() {
         mode={exec.state.mode}
         onSwitchMode={handleModeSwitch}
       />
+      {showMemorySurface && memory.viewer !== null && (
+        <MemorySurface
+          items={memory.items}
+          viewer={memory.viewer}
+          modeScope={exec.state.mode}
+        />
+      )}
       <UrgentLayer
         decision={visibleUrgentDecision}
         message={urgentMessage}
