@@ -1143,3 +1143,79 @@ CEO 確定 (2026-04-30): **P1 を採用候補**、B-4.2 完了後に以下 6 つ
 ### 制限事項
 - Production promote は B-4.2 全完了後にまとめて (CEO 確定方針)
 - 本 commit のみで Production promote しない
+
+## [2026-04-30] [Build] [Stage 4 L4-j Phase 1 — production reachable 4 event wire] [承認: CEO]
+
+### 範囲
+Plan D (CEO 確定 2026-04-30): production reachable 4 event のみ telemetry emit を usePresenceExecutor に wire。
+- ① `state_transition`: presence.state 変化時 (前値比較で重複防止)
+- ② `pattern_used`: primaryPattern 変化時 (前値比較)
+- ⑤ `mode_transition`: mode 変化時 (`lastModeEventTypeRef` で trigger 解決)
+- ⑦ `urgent_triggered`: urgentDecision 変化時 (`buildUrgentDedupeKey` で dedupe)
+
+### 不採用 4 event (別 phase 扱い)
+- ③ `consent`: consent / activate flow の観測設計が別途必要 (consent UI phase で wire)
+- ④ `legacy_fallback`: `LEGACY_CARD_AUTO_INSERT=false` で抑止中、L4-m legacy 削除 phase と統合
+- ⑥ `rejection`: rejection UI が本番 wire されていない (§10.2 #6 と連動)
+- ⑧ `ratelimit_blocked`: utteranceQueue / ratelimit の UI 経路が現状 reachable でない
+
+→ **未到達 event を telemetry だけ入れて「実装済み」に見せる行為を回避**。
+
+### emit point の集約
+- 全 4 event を `usePresenceExecutor.ts` の useEffect 内で emit
+- ChatClient.tsx に touch なし (B-1 から不変、grep で確認)
+- emit point 分散ゼロ (presence state / mode / urgent / pattern の中心 hook で集約)
+
+### dedupe 戦略
+- 4 event すべて useRef で前値 / 前 key を保持
+- 前値と異なる場合のみ emit、毎 render の rerender では emit ゼロ
+- urgent は null 復帰で dedupe key reset (次の non-null で再 emit 可能)
+
+### payload 制約 (CEO 厳守 2026-04-30)
+- 会話本文 / ユーザー入力文 / 個人情報を一切含めない (test で grep 確認)
+- pairId は `initial?.pairId ?? ""` のみ (telemetry のための fetch 追加禁止)
+- state / mode / pattern variant 等の構造化 enum + number (ts) のみ送信
+
+### Sentry breadcrumb 経路 (既存 wire の活用、本 phase で追加変更なし)
+- `lib/coalter/presence/sentryTelemetry.ts` の `createSentryTelemetrySink` で `Sentry.addBreadcrumb` 経由
+- `instrumentation-client.ts` の `wireSentryTelemetry()` で sink 注入済 (L4-pre-3 wire)
+- 8 event → category mapping は既存 (`coalter.presence` / `coalter.pattern` / `coalter.mode` / `coalter.urgent` 等)
+
+### 重要観測仮説 (CEO 指摘)
+`Sentry.addBreadcrumb` は通常、breadcrumb 単体で独立送信されるとは限らない:
+- error event / transaction / replay 等に紐づいて初めて Sentry Discover で見える可能性
+- L4-j Phase 1 完了後の Production 観測で実証必要
+- もし breadcrumb 単体で観測不能なら、追加 event wire に進まず、**sink 設計に戻る** (Sentry breadcrumb → Sentry custom event / metric / span 等への切替検討)
+
+### Production 観測手順
+1. CEO Production talk page (`https://culcept-2ly9oxx2v-...vercel.app/talk/<thread>`) で:
+   - ModeSwitcher で「Daily」 tap → `mode_transition` 発火想定
+   - 「もう限界」等 critical keyword 送信 → `urgent_triggered` + `state_transition` + `pattern_used` 発火想定
+2. CEO Sentry dashboard で `category:coalter.*` filter で breadcrumb 確認
+3. もし breadcrumb 単体で観測できない場合、L4-j Phase 1 を「sink 設計再検討」 phase として記録、追加 wire は次 phase へ
+
+### §10.2 #9 status
+- Plan D 完了後も **partial 維持** (CEO 確定方針)
+- 4/8 wire に留まる (構造的 reachable のみ)
+- 残 4 event は別 phase 依存
+- Sentry 観測経路もまず実証段階
+
+### 不変 (CEO 厳守 2026-04-30)
+- ChatClient.tsx 触らない ✅
+- consent / rejection / legacy / ratelimit を本 phase で wire しない ✅
+- L4-i / L4-m / E-3 触らない ✅
+- env / package / next-env.d.ts / supabase temp 触らない ✅
+- telemetry payload に会話本文 / 個人情報を入れない ✅
+- §10.2 #9 を complete に更新しない ✅
+- 既存 telemetry sink (Sentry breadcrumb) 設計を変更しない ✅
+
+### rollback 境界
+- code rollback: `git revert <L4-j Phase 1 commit>` + push (15-20 min)
+- env / migration / DB 不変
+- 影響: 4 emit 経路削除のみ、telemetry sink + 既存 wire は維持
+- behavior 不変原則: flag OFF で完全不変 (`safeEmit` が flag check で短絡)
+
+### 次フェーズ
+- L4-j Phase 1 完了後 Production 観測実証 → 結果次第:
+  - **観測 OK** → 残 4 event を別 phase で順次 wire (ただし trigger UI 接続要件あり)
+  - **観測 NG (sink 経路問題)** → sink 設計再検討 phase (Sentry breadcrumb 単体観測の代替検討)

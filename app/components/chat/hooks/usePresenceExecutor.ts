@@ -86,6 +86,12 @@ import {
   adaptManualRestart,
   adaptModePromotion,
 } from "@/lib/coalter/presence/signalAdapter";
+import {
+  emitPresenceStateTransition,
+  emitPatternUsed,
+  emitModeTransition,
+  emitUrgentTriggered,
+} from "@/lib/coalter/presence/telemetry";
 import type {
   ExecutorAvailability,
   PatternVariant,
@@ -93,6 +99,7 @@ import type {
   PresenceSignal,
   PresenceState,
 } from "@/lib/coalter/presence/types";
+import type { ModeTransitionEvent } from "@/lib/coalter/presence/telemetryEvents";
 
 export interface PresenceExecutorState {
   presence: PresenceReducerState;
@@ -115,6 +122,45 @@ export interface PresenceExecutorComputed {
 const SIGNAL_LOG_LIMIT = 20;
 
 /**
+ * L4-j Phase 1 (Plan D、CEO 確定 2026-04-30):
+ *
+ * ModeEvent → telemetry trigger 名 mapping (mode_transition emit 用)。
+ * 純関数、test 容易性のため export。
+ *
+ * "manual_switch" | "auto_escalate" | "plan_complete" | "manual_return" の 4 値。
+ */
+export function modeEventToTransitionTrigger(
+  eventType: ModeEvent["type"],
+): ModeTransitionEvent["trigger"] {
+  switch (eventType) {
+    case "MANUAL_SWITCH":
+      return "manual_switch";
+    case "AUTO_ESCALATE":
+      return "auto_escalate";
+    case "PLAN_COMPLETE":
+      return "plan_complete";
+    case "MANUAL_RETURN":
+      return "manual_return";
+  }
+}
+
+/**
+ * L4-j Phase 1 (Plan D): UrgentDecision の dedupe key 生成。
+ *
+ * category + form + memoryFallback の 3 軸で key 化。同 decision の重複 emit を
+ * 防ぐ (毎 render emit を抑止)。
+ *
+ * 純関数、test 容易性のため export。
+ */
+export function buildUrgentDedupeKey(decision: {
+  category: string;
+  form: string;
+  memoryFallback: string;
+}): string {
+  return `${decision.category}:${decision.form}:${decision.memoryFallback}`;
+}
+
+/**
  * 本番 Presence Executor hook。
  *
  * thread scope: 本 hook を呼ぶ component (UpperLayerMount) は ChatClient の
@@ -129,6 +175,12 @@ const SIGNAL_LOG_LIMIT = 20;
 export function usePresenceExecutor(initial?: {
   availability?: ExecutorAvailability;
   patternContext?: PatternContext;
+  /**
+   * L4-j Phase 1 (CEO 確定 2026-04-30): telemetry payload pairId。
+   * 既に安全に存在する識別子のみ使用 (telemetry のための fetch 追加禁止)。
+   * 渡されない場合は空文字 "" で emit (CEO 「pairId なければ省略または null」)。
+   */
+  pairId?: string | null;
 }) {
   const [presence, dispatchPresence] = useReducer(
     presenceReducer,
@@ -150,6 +202,33 @@ export function usePresenceExecutor(initial?: {
   const [patternContext, setPatternContext] = useState<PatternContext>(
     initial?.patternContext ?? {},
   );
+
+  // ─────────────────────────────────────────────
+  // L4-j Phase 1 (Plan D、CEO 確定 2026-04-30):
+  // Production reachable 4 event の telemetry emit 用 refs + pairId。
+  //
+  // payload 制約 (CEO 厳守):
+  //   - 会話本文 / ユーザー入力文 / 個人情報を含めない
+  //   - pairId は initial.pairId のみ使用、未提供で "" (telemetry のための fetch
+  //     追加禁止)
+  //   - state / mode / pattern variant 等の構造化 enum のみ送信
+  //
+  // 範囲: ① state_transition / ② pattern_used / ⑤ mode_transition / ⑦ urgent_triggered
+  // 不採用 4 event (別 phase): consent / legacy_fallback / rejection / ratelimit_blocked
+  // ─────────────────────────────────────────────
+
+  const telemetryPairId = initial?.pairId ?? "";
+
+  /** 重複 emit 防止: 直近 emit した state/pattern/mode/urgent key を保持 */
+  const lastEmittedStateRef = useRef<PresenceState | null>(null);
+  const lastEmittedPatternRef = useRef<PatternVariant | null>(null);
+  const lastEmittedModeRef = useRef<PresenceMode | null>(null);
+  const lastEmittedUrgentKeyRef = useRef<string | null>(null);
+  /** state_transition の trigger は最新 signal kind を使う (closure stale 回避) */
+  const recentSignalsRef = useRef<ReadonlyArray<PresenceSignal>>(recentSignals);
+  useEffect(() => {
+    recentSignalsRef.current = recentSignals;
+  }, [recentSignals]);
 
   const logSignal = useCallback((signal: PresenceSignal) => {
     setRecentSignals((prev) => {
@@ -188,7 +267,15 @@ export function usePresenceExecutor(initial?: {
     dispatchPresence(event);
   }, []);
 
+  /**
+   * L4-j Phase 1 (CEO 確定 2026-04-30): mode_transition emit のため、
+   * 直近 dispatch された ModeEvent type を ref に記録。trigger 値の解決に使う
+   * (mode 変化を観察する useEffect は ModeEvent type 直接アクセス不可のため)。
+   */
+  const lastModeEventTypeRef = useRef<ModeEvent["type"] | null>(null);
+
   const dispatchModeEvent = useCallback((event: ModeEvent) => {
+    lastModeEventTypeRef.current = event.type;
     dispatchModeRaw(event);
   }, []);
 
@@ -258,6 +345,30 @@ export function usePresenceExecutor(initial?: {
     [presence.state, mode, primaryPattern, patternContext],
   );
 
+  // ② pattern_used: primaryPattern 変化時 (前値比較で重複防止、毎 render emit を抑止)
+  useEffect(() => {
+    const current = primaryPattern;
+    const last = lastEmittedPatternRef.current;
+    // null → null や 同 variant → 同 variant では emit しない
+    if (current !== null && current !== last) {
+      emitPatternUsed({
+        pairId: telemetryPairId,
+        variant: current,
+        state: presence.state,
+        mode,
+        hasSecondary: secondaryPattern !== null,
+        ts: Date.now(),
+      });
+    }
+    lastEmittedPatternRef.current = current;
+  }, [
+    primaryPattern,
+    presence.state,
+    mode,
+    secondaryPattern,
+    telemetryPairId,
+  ]);
+
   // Cooldown resolver helper
   const resolveCurrent = useCallback(
     (
@@ -285,6 +396,67 @@ export function usePresenceExecutor(initial?: {
     };
     return detectUrgent(input);
   }, [recentSignals, presence.state, rejectionState]);
+
+  // ⑦ urgent_triggered: urgentDecision 変化時 (dedupe key で重複防止)
+  useEffect(() => {
+    if (urgentDecision === null) {
+      // null 復帰時に dedupe key を reset (次の non-null で再 emit するため)
+      lastEmittedUrgentKeyRef.current = null;
+      return;
+    }
+    const key = buildUrgentDedupeKey(urgentDecision);
+    const last = lastEmittedUrgentKeyRef.current;
+    if (last !== key) {
+      emitUrgentTriggered({
+        pairId: telemetryPairId,
+        category: urgentDecision.category,
+        form: urgentDecision.form,
+        memoryFallback: urgentDecision.memoryFallback,
+        ts: Date.now(),
+      });
+      lastEmittedUrgentKeyRef.current = key;
+    }
+  }, [urgentDecision, telemetryPairId]);
+
+  // ① state_transition: presence.state 変化時 (前値比較で重複防止)
+  useEffect(() => {
+    const current = presence.state;
+    const last = lastEmittedStateRef.current;
+    if (last !== null && last !== current) {
+      const lastSignal =
+        recentSignalsRef.current[recentSignalsRef.current.length - 1];
+      emitPresenceStateTransition({
+        pairId: telemetryPairId,
+        from: last,
+        to: current,
+        // signal 経由なら kind、無ければ explicit_event (UI tap / event dispatch 想定)
+        trigger: lastSignal?.kind ?? "explicit_event",
+        ts: Date.now(),
+      });
+    }
+    lastEmittedStateRef.current = current;
+  }, [presence.state, telemetryPairId]);
+
+  // ⑤ mode_transition: mode 変化時 (lastModeEventTypeRef で trigger 解決)
+  useEffect(() => {
+    const current = mode;
+    const last = lastEmittedModeRef.current;
+    if (last !== null && last !== current) {
+      const eventType = lastModeEventTypeRef.current;
+      const trigger: ModeTransitionEvent["trigger"] =
+        eventType !== null
+          ? modeEventToTransitionTrigger(eventType)
+          : "manual_switch";
+      emitModeTransition({
+        pairId: telemetryPairId,
+        from: last,
+        to: current,
+        trigger,
+        ts: Date.now(),
+      });
+    }
+    lastEmittedModeRef.current = current;
+  }, [mode, telemetryPairId]);
 
   // Utterance queue helper
   const tryEnqueueUtterance = useCallback(
