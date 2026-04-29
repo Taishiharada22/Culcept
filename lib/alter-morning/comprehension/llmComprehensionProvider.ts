@@ -20,6 +20,7 @@ import "server-only";
 import { runAI } from "@/lib/ai";
 import type { ComprehensionProvider } from "../morningPipeline";
 import type { L1PipelineInput } from "./l1Pipeline";
+import { parsePlanOperations } from "./parsePlanOperations";
 import type { RulePreParseHints } from "./rulePreParse";
 import { formatHintsForPrompt } from "./rulePreParse";
 import { L1_COMPREHENSION_SCHEMA } from "./structuredSchema";
@@ -267,29 +268,45 @@ function buildUserPrompt(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Shape validation
+// Shape validation (PR-50 Commit 3)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * LLM structured output が L1_RESPONSE_FORMAT の shape を満たすかを最低限チェック。
- * strict: true でも念のため narrow する（後段で as 乱発を避ける）。
+ * LLM structured output が L1_RESPONSE_FORMAT の shape を満たすかチェックし、
+ * operations を `PlanOperation[]` に正規化した raw object を返す。
  *
- * PR-50 (CEO 2026-04-30): operations field 追加。strict mode で required なので
- * LLM 出力に必ず存在する想定。空配列 [] は許容 (events[] fallback signal)。
- * operations parser / validation は Commit 3 で実装するため、本層では shape のみ確認。
+ * PR-50 Commit 3 (CEO 2026-04-30): type predicate (`x is L1PipelineInput["raw"]`)
+ * から runtime parser に格上げ。
+ *   理由: operations は LLM JSON schema 上 OPERATION_SCHEMA 形 (全 field を null/値
+ *         で持つ flat object) で出てくるが、code 側の PlanOperation 型は
+ *         discriminated union (type 別に必要 field のみ持つ)。両者の橋渡しを
+ *         parsePlanOperations (`./parsePlanOperations.ts`) で行うことで、後段
+ *         (validatePlanOperation / dispatch) は narrow 済の PlanOperation を扱える。
+ *
+ * 戻り値:
+ *   - 正常 parse → L1PipelineInput["raw"] (operations は PlanOperation[] に正規化済)
+ *   - shape 不正 → null (caller が status="comprehension_failed" で graceful fail)
  */
-function validateRawShape(x: unknown): x is L1PipelineInput["raw"] {
-  if (!x || typeof x !== "object") return false;
+function parseRawShape(x: unknown): L1PipelineInput["raw"] | null {
+  if (!x || typeof x !== "object") return null;
   const o = x as Record<string, unknown>;
-  if (typeof o.targetDate !== "string") return false;
-  if (!Array.isArray(o.events)) return false;
-  // PR-50: operations は必須 (strict mode required)。array であることのみ確認。
-  if (!Array.isArray(o.operations)) return false;
-  // startPoint / departureTime は null or object（schema が required: で列挙している）
-  if (o.startPoint !== null && typeof o.startPoint !== "object") return false;
-  if (o.departureTime !== null && typeof o.departureTime !== "object") return false;
-  if (o.goOut !== null && typeof o.goOut !== "boolean") return false;
-  return true;
+  if (typeof o.targetDate !== "string") return null;
+  if (!Array.isArray(o.events)) return null;
+  if (!Array.isArray(o.operations)) return null;
+  if (o.startPoint !== null && typeof o.startPoint !== "object") return null;
+  if (o.departureTime !== null && typeof o.departureTime !== "object") return null;
+  if (o.goOut !== null && typeof o.goOut !== "boolean") return null;
+
+  const operations = parsePlanOperations(o.operations);
+
+  return {
+    targetDate: o.targetDate,
+    events: o.events as L1PipelineInput["raw"]["events"],
+    operations,
+    startPoint: o.startPoint as L1PipelineInput["raw"]["startPoint"],
+    departureTime: o.departureTime as L1PipelineInput["raw"]["departureTime"],
+    goOut: o.goOut as boolean | null,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -376,7 +393,8 @@ export function createLLMComprehensionProvider(
       }
 
       const structured = result.structured;
-      if (!validateRawShape(structured)) {
+      const parsed = parseRawShape(structured);
+      if (!parsed) {
         console.warn("[alter-morning/comprehension] invalid shape", {
           model: result.model,
           hasStructured: Boolean(structured),
@@ -384,7 +402,7 @@ export function createLLMComprehensionProvider(
         return null;
       }
 
-      return structured;
+      return parsed;
     },
   };
 }

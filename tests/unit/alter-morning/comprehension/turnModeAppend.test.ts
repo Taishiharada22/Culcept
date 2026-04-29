@@ -123,6 +123,7 @@ describe("L1 pipeline が turn_mode='append' を通過させる", () => {
       raw: {
         targetDate: "today",
         events: [mkRawEvent("append")],
+        operations: [],
         startPoint: null,
         departureTime: null,
         goOut: null,
@@ -142,6 +143,7 @@ describe("L1 pipeline が turn_mode='append' を通過させる", () => {
           mkRawEvent("append"),
           mkRawEvent("modify"),
         ],
+        operations: [],
         startPoint: null,
         departureTime: null,
         goOut: null,
