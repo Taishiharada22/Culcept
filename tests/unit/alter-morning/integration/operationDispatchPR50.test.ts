@@ -152,6 +152,9 @@ describe("PR-50 Case 1: modify when (時間変更)", () => {
 
     // ── trace.operations ──
     expect(adapted.lastTraceSnapshot).toBeDefined();
+    // Commit 7 (synth): utterance「9時を10時に変更」 → deterministic pattern hit
+    //   stub の raw.operations にも modify が入っているため LLM ops 非空 →
+    //   synthesisSource = "deterministic_overrides_llm"
     expect(adapted.lastTraceSnapshot!.operations).toEqual({
       received: 1,
       accepted: 1,
@@ -159,7 +162,7 @@ describe("PR-50 Case 1: modify when (時間変更)", () => {
       fallbackToEvents: false,
       appliedTypes: ["modify"],
       rejectReasons: [],
-      synthesisSource: "none",
+      synthesisSource: "deterministic_overrides_llm",
     });
   });
 });
@@ -169,7 +172,7 @@ describe("PR-50 Case 1: modify when (時間変更)", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("PR-50 Case 2: modify transport (移動手段変更)", () => {
-  it("train → walk、plan.dayConditions.mainTransport も更新", async () => {
+  it("train → 徒歩、plan.dayConditions.mainTransport も更新", async () => {
     const prior = mkPriorStarbucks({ transport: "train" });
     const modifyOp: PlanOperation = {
       type: "modify",
@@ -193,22 +196,31 @@ describe("PR-50 Case 2: modify transport (移動手段変更)", () => {
     });
 
     // ── effective events: transport だけ更新 ──
+    // Commit 7 (synth): utterance「徒歩に変更」 が deterministic transport-only
+    //   pattern hit → LLM の patch.transport "walk" を上書きして
+    //   parseTransportExact が正規化した「徒歩」 が採用される (日本語正規化 token)。
+    //   これは現状の transport vocabulary の正規化方針 (parseTransport / Exact が
+    //   日本語に正規化) と一致。後段 deriveDayTransport / synthesizeTravelItems で
+    //   walk マップに変換される。
     const events = adapted.session.persistedEvents ?? [];
     expect(events).toHaveLength(1);
     expect(events[0].event_id).toBe("event_prior");
-    expect(events[0].transport).toBe("walk");
+    expect(events[0].transport).toBe("徒歩");
     // 不変 fields
     expect(events[0].when.startTime).toBe("09:00");
     expect(events[0].where.place_ref).toBe("スタバ");
     expect(events[0].what.activity).toBe("コーヒー");
 
     // ── plan.dayConditions: deriveDayTransport が effectiveEvents から
-    //    再計算するので、transport=walk が dayConditions.mainTransport に反映 ──
+    //    再計算するので、transport=徒歩 が dayConditions.mainTransport に反映 ──
+    //    deriveDayTransport は日本語 → walk 系正規化を行う想定 (transportContext.ts)。
     const plan = adapted.session.plan;
     expect(plan).toBeDefined();
     expect(plan!.dayConditions?.mainTransport).toBe("walk");
 
     // ── trace.operations ──
+    // Commit 7 (synth): utterance「徒歩に変更」 → transport-only deterministic
+    //   pattern hit、LLM ops 非空 → synthesisSource = "deterministic_overrides_llm"
     expect(adapted.lastTraceSnapshot!.operations).toEqual({
       received: 1,
       accepted: 1,
@@ -216,7 +228,7 @@ describe("PR-50 Case 2: modify transport (移動手段変更)", () => {
       fallbackToEvents: false,
       appliedTypes: ["modify"],
       rejectReasons: [],
-      synthesisSource: "none",
+      synthesisSource: "deterministic_overrides_llm",
     });
   });
 });
@@ -282,6 +294,9 @@ describe("PR-50 Case 3: append (予定追加)", () => {
     expect(events[1].who).toEqual(["武藤"]);
 
     // ── trace.operations ──
+    // Commit 7 (synth): utterance「12時に新宿でランチ」 は時刻変更でも
+    //   transport-only でもないので deterministic pattern hit せず → LLM ops を
+    //   そのまま採用 → synthesisSource = "llm"
     expect(adapted.lastTraceSnapshot!.operations).toEqual({
       received: 1,
       accepted: 1,
@@ -289,7 +304,7 @@ describe("PR-50 Case 3: append (予定追加)", () => {
       fallbackToEvents: false,
       appliedTypes: ["append"],
       rejectReasons: [],
-      synthesisSource: "none",
+      synthesisSource: "llm",
     });
   });
 });
@@ -343,6 +358,9 @@ describe("PR-50 Case 4: answer (pendingClarify 回答, secondary safety path)", 
     expect(events[0].what.activity).toBe("コーヒー");
 
     // ── trace.operations ──
+    // Commit 7 (synth): utterance「池袋」 は時刻変更でも transport-only でもない
+    //   ので deterministic pattern hit せず → LLM ops (answer) をそのまま採用 →
+    //   synthesisSource = "llm"
     expect(adapted.lastTraceSnapshot!.operations).toEqual({
       received: 1,
       accepted: 1,
@@ -350,7 +368,7 @@ describe("PR-50 Case 4: answer (pendingClarify 回答, secondary safety path)", 
       fallbackToEvents: false,
       appliedTypes: ["answer"],
       rejectReasons: [],
-      synthesisSource: "none",
+      synthesisSource: "llm",
     });
   });
 });
@@ -421,6 +439,10 @@ describe("PR-50 Case 5: invalid operation fallback", () => {
       expect(events[1].when.startTime).toBe("12:00"); // 不変
 
       // ── trace.operations ──
+      // Commit 7 (synth): utterance「夜の予定を20時に変更」 は「N時を M時に」
+      //   pattern (「夜」 は数字でない) に該当しないので deterministic pattern
+      //   hit せず → LLM ops をそのまま採用 → synthesisSource = "llm"
+      //   その後 validation で modify_target_unresolved reject。
       expect(adapted.lastTraceSnapshot!.operations).toEqual({
         received: 1,
         accepted: 0,
@@ -428,7 +450,7 @@ describe("PR-50 Case 5: invalid operation fallback", () => {
         fallbackToEvents: true,
         appliedTypes: [],
         rejectReasons: ["modify_target_unresolved"],
-        synthesisSource: "none",
+        synthesisSource: "llm",
       });
     } finally {
       warn.mockRestore();

@@ -24,6 +24,7 @@ import type { L1PipelineInput } from "./comprehension/l1Pipeline";
 import { runL1Pipeline } from "./comprehension/l1Pipeline";
 import { preParseUtterance, type RulePreParseHints } from "./comprehension/rulePreParse";
 import { validatePlanOperations } from "./comprehension/validateOperation";
+import { synthesizeOperations } from "./comprehension/deterministicOperationSynth";
 import type { PendingClarify } from "./types";
 
 import { solveTimeLine, type TimeLine } from "./planning/timeSolver";
@@ -333,7 +334,27 @@ export async function runMorningPipeline(
   //     を含む)。
   //   - Branch A (bind 経路): pipeline は priorEvents bypass で raw.operations が
   //     空のため、context は使われない (validation スキップ相当)。
-  const operationsFromRaw = raw.operations ?? [];
+  //
+  // PR-50 Commit 7 (CEO 2026-04-30): deterministic operation synthesis 接続。
+  //   LLM raw operations を直接 validation に渡すのではなく、まず synth 層で
+  //   utterance pattern を見て deterministic operations を生成する。
+  //
+  //   優先順位:
+  //     1. utterance pattern hit (時刻変更 / transport-only) → deterministic 採用、
+  //        LLM operations は破棄 (synthesisSource: "deterministic" or
+  //        "deterministic_overrides_llm")
+  //     2. LLM operations 非空 → そのまま採用 (synthesisSource: "llm")
+  //     3. 何もない → none (events[] 経路)
+  //
+  //   理由: LLM が「9時を10時に変更」「電車」 等の意味が一意な発話を、append や
+  //   noop として誤判定するケースが実機 (Preview 2026-04-30) で観測されたため。
+  //   pattern が確実な発話はコード側で modify を生成して LLM 出力を上書きする。
+  const synthesisResult = synthesizeOperations({
+    utterance,
+    priorEvents: input.priorPlanForContext ?? [],
+    llmOperations: raw.operations ?? [],
+  });
+  const operationsFromRaw = synthesisResult.operations;
   const operationContext = {
     priorEvents: input.priorPlanForContext ?? [],
     priorPendingClarify: input.priorPendingClarify ?? null,
@@ -341,9 +362,12 @@ export async function runMorningPipeline(
   const validation = validatePlanOperations(operationsFromRaw, operationContext);
   const useOperationsPath =
     operationsFromRaw.length > 0 && validation.allAccepted;
+  // operations は LLM raw output ではなく synth 後を伝搬 (trace 整合性)
+  comprehension.operations = operationsFromRaw;
   comprehension.acceptedOperations = validation.acceptedOperations;
   comprehension.fallbackToEvents = !useOperationsPath;
   comprehension.operationRejections = validation.rejections;
+  comprehension.operationsSynthesisSource = synthesisResult.synthesisSource;
   if (!useOperationsPath && operationsFromRaw.length > 0) {
     console.warn(
       "[alter-morning/morningPipeline] operations rejected, falling back to events[]",
@@ -351,6 +375,7 @@ export async function runMorningPipeline(
         received: operationsFromRaw.length,
         rejected: validation.rejections.length,
         reasons: validation.rejections.map((r) => r.reason),
+        synthesisSource: synthesisResult.synthesisSource,
       },
     );
   }
