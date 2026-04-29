@@ -1945,23 +1945,33 @@ export async function POST(req: NextRequest) {
 
             if (!usedBindPath) {
             // ── 通常経路（Branch B）: LLM 再 comprehension ──
-            // 継続ターンは「元発話＋新発話」を合算して再 comprehension。
-            // 旧 planner の modify/delta ロジックは戻さず、殻（session shape）のみ
-            // 維持しつつ新 pipeline で再構築する。
-            const priorInputs = isStickyV2
-              ? (rawMorningSession?.rawInputs ?? [])
-              : [];
-            const combinedUtterance = [...priorInputs, message]
-              .filter((s) => typeof s === "string" && s.length > 0)
-              .join(" / ");
+            //
+            // PR-49 (CEO 2026-04-30) 根本修正:
+            //   旧設計: combinedUtterance = priorInputs.join(" / ") + " / " + message
+            //     → LLM が毎 turn 過去発話全部を再解釈 → 重複 events 大量生成
+            //     → CEO 観測 bug: 1 turn で 20 個重複が累積するループ
+            //
+            //   新設計: utterance = message (今 turn のみ)
+            //     prior context は priorPlanForContext (persisted events) で渡す
+            //     LLM の責務: 「今の 1 発話」 を理解する (extraction target)
+            //     prior の責務: context only (既存予定の理解補助)
+            //
+            //   これにより rawInputs 再解釈ループ (重複増殖の根因) を断つ。
+            //   session.rawInputs は audit log / UI / DB 互換のため引き続き保持
+            //   (legacyAdapter で priorRawInputs から append される)。
+            //
             // CEO 2026-04-28 PR #41a Layer 2: prior plan context を LLM に渡す。
             //   既存の persistedEvents (= 確定済 plan) を簡略化形で送り、
             //   LLM が turn_mode (create/append/modify) を 3-way 判別できるようにする。
             //   prior が空ならフィールド省略 → 既存 create-only 挙動。
+            const priorInputs = isStickyV2
+              ? (rawMorningSession?.rawInputs ?? [])
+              : [];
             const priorPlanForLLM = rawMorningSession?.persistedEvents;
             const pipelineResult = await runMorningPipeline(
               {
-                utterance: combinedUtterance,
+                // PR-49: current utterance のみを extraction target に
+                utterance: message,
                 ...(priorPlanForLLM && priorPlanForLLM.length > 0
                   ? { priorPlanForContext: priorPlanForLLM }
                   : {}),
@@ -1974,7 +1984,9 @@ export async function POST(req: NextRequest) {
             );
             const adapted = adaptPipelineToLegacy(pipelineResult, {
               sessionId: morningSession.sessionId,
-              utterance: combinedUtterance,
+              // PR-49: current utterance のみ。session.rawInputs (audit log) は
+              //        legacyAdapter で priorRawInputs から構築される。
+              utterance: message,
               personalityContext: personalityCtx,
               userPrefecture: morningSession.userPrefecture,
               userCity: morningSession.userCity,
@@ -1985,6 +1997,9 @@ export async function POST(req: NextRequest) {
               // resolveHomeAnchor で registered home より優先される。
               currentLat: rawCurrentLat ?? null,
               currentLng: rawCurrentLng ?? null,
+              // PR-49: rawInputs は audit log (UI / DB 互換) として
+              //        legacyAdapter 内で session.rawInputs に蓄積される。
+              priorRawInputs: priorInputs,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
