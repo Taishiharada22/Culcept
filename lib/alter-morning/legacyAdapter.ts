@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
+import type { DialogState } from "./dialog/types";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
@@ -145,6 +146,26 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): focus reconcile 用の前 turn dialogState。
+   *
+   * 用途:
+   *   reconcileGapStateFromEffectiveEvents の Layer 3 (dialogState focus 同期)
+   *   が pendingClarify=null + slot fixed の場合に focus を clear / advance する。
+   *   既存仕様で priorDialogState=null を固定で渡しており、reconcileDialogState
+   *   が early-return されて focus.where が残留する観測 (Preview 2026-04-30) の
+   *   真因を解消する。
+   *
+   * 渡し方:
+   *   - route.ts (Branch A / B): reducer 後の morningSession.dialogState を渡す
+   *   - 省略 → null (Commit 9 以前と同等の挙動を保つ defensive)
+   *
+   * 出力:
+   *   reconcile 後の dialogState は LegacyAdapterOutput.reconciledDialogState
+   *   に含める (session には乗せない、route.ts 側で merge を判断する)。
+   */
+  priorDialogState?: DialogState | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -160,6 +181,19 @@ export interface LegacyAdapterOutput {
    * production では emit されない → 必ず undefined → response にも乗らない。
    */
   lastTraceSnapshot?: TurnTracePayload;
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): reconcile 後の dialogState。
+   *
+   * 用途:
+   *   priorDialogState (input) を reconcileGapStateFromEffectiveEvents で
+   *   effectiveEvents と再同期した結果。slot fixed → focus advance / clear。
+   *   route.ts は morningSession.dialogState に反映するか判断する
+   *   (現状: adapter 出力 ?? reducer 後 state の優先順)。
+   *
+   * undefined: priorDialogState が null だった場合、または reconcile が必要
+   *   なかった (focus が元から null) 場合。caller は既存 dialogState を維持。
+   */
+  reconciledDialogState?: DialogState | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -684,11 +718,12 @@ export function adaptPipelineToLegacy(
     priorDialogState:
       // dialogState は currentEvents 基準で reducer により update 済み。
       // ここでは reducer 後の状態を入力として、effectiveEvents 基準で再評価する。
-      // legacyAdapter の入力には dialogState が直接含まれていないため、
-      // 上位 (chat route / selection route) が reducer を回した後の state を
-      // 参照する必要がある。本 commit では一旦 null を渡し、
-      // dialogState 同期は別途 (route 側 with reducer 統合) で対応する。
-      null,
+      // PR-50 Commit 9 (CEO 2026-04-30):
+      //   route.ts は reducer 後の morningSession.dialogState を input.priorDialogState
+      //   に渡す。null なら reconcileDialogState は early-return する (= 既存挙動維持)。
+      //   非 null なら focus / sharpness を effectiveEvents と再同期し、
+      //   pendingClarify=null + slot fixed → focus clear / advance に至る。
+      input.priorDialogState ?? null,
     originalPhase,
     // comprehension_failed の場合は楽観的に plan_presented に上げない。
     // priorPersistedEvents fallback で effectiveEvents が fully fixed でも、
@@ -1089,6 +1124,14 @@ export function adaptPipelineToLegacy(
     response,
     ...(traceSnapshot != null
       ? { lastTraceSnapshot: traceSnapshot satisfies TurnTracePayload }
+      : {}),
+    // PR-50 Commit 9: reconcile 後の dialogState を caller に返す。
+    //   priorDialogState が non-null かつ reconcile で focus が変わった場合、
+    //   route.ts はこれを morningSession.dialogState に反映する。
+    //   priorDialogState が null だった場合は reconcile.reconciledDialogState
+    //   も null なので、route.ts は既存 dialogState を維持する。
+    ...(input.priorDialogState !== undefined
+      ? { reconciledDialogState: reconcile.reconciledDialogState }
       : {}),
   };
 }

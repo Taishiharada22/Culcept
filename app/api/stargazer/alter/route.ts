@@ -1872,16 +1872,26 @@ export async function POST(req: NextRequest) {
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
                   userId, // W3-PR-10 canary: allowlist 判定用
+                  // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
+                  //   渡して focus reconcile を有効化。slot fixed → focus clear。
+                  priorDialogState: morningSession.dialogState ?? null,
                 });
                 // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
                 //   ensureSessionV1 (L1747) で init した dialogState を、
                 //   adaptPipelineToLegacy が返す adapted.session が field 非対応で
                 //   上書き消去してしまうため、明示的に継承する。
-                //   この漏れが原因で commit 17 以降 shadow block が dead のまま
-                //   preview に到達しなかった（2026-04-22 CEO preview で判明）。
+                //
+                // PR-50 Commit 9 (CEO 2026-04-30):
+                //   adapter が reconciledDialogState を返した場合 (= priorDialogState
+                //   を渡した結果 reconcile された) はそちらを優先採用。
+                //   reconcile が null を返した (= focus 全 clear) ケースも明示的に
+                //   反映する (なので ?? でなく hasOwnProperty 相当の判定)。
                 morningSession = {
                   ...adapted.session,
-                  dialogState: morningSession.dialogState,
+                  dialogState:
+                    "reconciledDialogState" in adapted
+                      ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                      : morningSession.dialogState,
                 };
                 morningResponse = adapted.response;
                 // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
@@ -2014,12 +2024,23 @@ export async function POST(req: NextRequest) {
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
               userId, // W3-PR-10 canary: allowlist 判定用
+              // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
+              //   渡して focus reconcile を有効化 (Branch B も同様)。
+              priorDialogState: morningSession.dialogState ?? null,
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
             //   （Branch B 通常 LLM 経路。理由は bind 経路と同じ。）
+            //
+            // PR-50 Commit 9 (CEO 2026-04-30):
+            //   adapter が reconciledDialogState を返したら採用 (focus clear /
+            //   advance を反映)。それ以外は reducer 後の morningSession.dialogState
+            //   を継承。
             morningSession = {
               ...adapted.session,
-              dialogState: morningSession.dialogState,
+              dialogState:
+                "reconciledDialogState" in adapted
+                  ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                  : morningSession.dialogState,
             };
             morningResponse = adapted.response;
             // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)

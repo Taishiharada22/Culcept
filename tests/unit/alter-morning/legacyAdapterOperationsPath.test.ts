@@ -25,6 +25,7 @@ import {
 import type { L1PipelineInput } from "@/lib/alter-morning/comprehension/l1Pipeline";
 import type { PlanOperation } from "@/lib/alter-morning/comprehension/planOperation";
 import type { PendingClarify } from "@/lib/alter-morning/types";
+import type { DialogState } from "@/lib/alter-morning/dialog/types";
 
 vi.mock("server-only", () => ({}));
 
@@ -115,6 +116,28 @@ function mkPendingWhere(): PendingClarify {
     scope: { timeLabel: "9時", activityLabel: "コーヒー", eventOrdinal: 1 },
     question: "どのあたり？",
     askedAt: new Date().toISOString(),
+  };
+}
+
+function mkDialogStateWithFocusOnWhere(eventId: string): DialogState {
+  return {
+    version: 1,
+    focus: { event_id: eventId, slot: "where", narrowStep: 3 },
+    conversationStatus: "narrowing",
+    capturedHistory: [],
+    semanticMissStreak: 2,
+    providerFailureStreak: 0,
+    lastGoodPlan: null,
+    searchQueryDraft: {
+      anchorRegion: "渋谷",
+      categoryToken: null,
+      chainToken: "スタバ",
+      readyForHandoff: false,
+    },
+    activePresentation: null,
+    parkedPresentations: [],
+    lastFailedSearch: null,
+    zeroCandidateMissCount: 0,
   };
 }
 
@@ -351,3 +374,100 @@ describe("legacyAdapter: operations path vs events path 分岐 (PR-50 Commit 4)"
     }
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Commit 9: focus reconcile (priorDialogState wire)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("legacyAdapter: focus reconcile (PR-50 Commit 9)", () => {
+  it("priorDialogState 渡さない → reconciledDialogState は出力に含まれない (既存挙動維持)", async () => {
+    const prior = mkPriorEvent();
+    const raw = mkRaw({ events: [], operations: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "おはよう", priorPlanForContext: [prior] },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-no-dialog",
+      utterance: "おはよう",
+      priorPersistedEvents: [prior],
+      // priorDialogState 未指定
+    });
+    expect("reconciledDialogState" in adapted).toBe(false);
+  });
+
+  it("priorDialogState=null → reconciledDialogState=null (early return)", async () => {
+    const prior = mkPriorEvent();
+    const raw = mkRaw({ events: [], operations: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "おはよう", priorPlanForContext: [prior] },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-null-dialog",
+      utterance: "おはよう",
+      priorPersistedEvents: [prior],
+      priorDialogState: null,
+    });
+    expect(adapted.reconciledDialogState).toBeNull();
+  });
+
+  it("priorDialogState 非 null + slot fixed → focus が clear/advance (CEO 成功条件)", async () => {
+    // CEO 観測ケース: where が exact_proper_noun + coordinates 付きで fixed
+    // なのに focus.where が narrowStep=3 で残る → reconcile で clear すべき
+    const prior = mkPriorEvent({
+      where: {
+        place_ref: "スターバックス コーヒー 渋谷ストリーム店",
+        placeType: "exact_proper_noun",
+        coordinates: { lat: 35.65, lng: 139.7 },
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+    });
+    const raw = mkRaw({ events: [], operations: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "おはよう", priorPlanForContext: [prior] },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+    const dialogStateWithFocusOnFixedWhere = mkDialogStateWithFocusOnWhere(prior.event_id);
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-focus-clear",
+      utterance: "おはよう",
+      priorPersistedEvents: [prior],
+      priorDialogState: dialogStateWithFocusOnFixedWhere,
+    });
+    // focus が clear (= null) または別 slot に advance
+    //   全 slot fixed (when / where / what / who) なら focus = null
+    expect(adapted.reconciledDialogState).not.toBeNull();
+    expect(adapted.reconciledDialogState!.focus).toBeNull();
+    expect(adapted.reconciledDialogState!.conversationStatus).toBe("stable");
+    expect(adapted.reconciledDialogState!.semanticMissStreak).toBe(0);
+  });
+
+  it("priorDialogState 非 null + slot 依然 vague → focus そのまま (Rule 4)", async () => {
+    // where が generic_place で vague のまま → focus 維持
+    const prior = mkPriorEvent({
+      where: {
+        place_ref: "渋谷",
+        placeType: "generic_place",
+        provenance: utteranceProvenance(["渋谷"], "high"),
+      },
+    });
+    const raw = mkRaw({ events: [], operations: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "おはよう", priorPlanForContext: [prior] },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+    const dialogState = mkDialogStateWithFocusOnWhere(prior.event_id);
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-focus-keep",
+      utterance: "おはよう",
+      priorPersistedEvents: [prior],
+      priorDialogState: dialogState,
+    });
+    // where vague のまま → focus 維持
+    expect(adapted.reconciledDialogState).not.toBeNull();
+    expect(adapted.reconciledDialogState!.focus).not.toBeNull();
+    expect(adapted.reconciledDialogState!.focus!.slot).toBe("where");
+  });
+});
+
