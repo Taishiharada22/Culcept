@@ -935,3 +935,56 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
 - B-3.4 単独で Production promote しない (Path B 完了後にまとめて、CEO 確定方針)
 - B-4 (Supabase migration 適用状態最終 audit + integration test) は別 phase
 - preview smoke 段階では publication 未追加で CHANNEL_ERROR が来る可能性あり、UI 壊れない invariant が保証
+
+## [2026-04-30] [Build] [Stage 4 B-3.4.d REPLICA IDENTITY FULL] [承認: CEO]
+
+### 経緯
+- B-3.4 publication 追加後の manual realtime test (2026-04-30) で発見:
+  - INSERT realtime: ✅ 即時反映
+  - UPDATE realtime: (本 test では未検証、INSERT と同じ broadcast 経路のため OK 想定)
+  - DELETE realtime: ⚠️ 不発火、page refresh 後に initial fetch 経由で消える
+
+### 根本原因
+- PostgreSQL `REPLICA IDENTITY DEFAULT` 仕様: DELETE event の OLD record に PK のみ
+- Supabase Realtime は subscriber session の RLS で event filter
+- RLS policy `cps.id = coalter_memory_items.pair_id` の評価で OLD record の `pair_id`
+  不在 → filter で drop → subscriber に届かない
+
+### 修正
+- migration: `supabase/migrations/20260430110000_coalter_memory_items_replica_full.sql`
+- SQL: `ALTER TABLE public.coalter_memory_items REPLICA IDENTITY FULL;`
+- これにより DELETE event の OLD record に全 columns が含まれ、RLS evaluation 成功
+
+### 副作用評価
+- WAL log size がやや増加 (UPDATE / DELETE 時に全 row が log に書かれる)
+- coalter_memory_items は row size 小 (text + uuid + timestamps) かつ update 頻度低
+  → 影響軽微、許容範囲
+- 既存 RLS / INSERT / UPDATE realtime 経路は不変 (schema-only change)
+- 既存 row data は touch しない
+
+### 不変 (CEO 厳守 2026-04-30)
+- useMemoryItems.ts ロジック変更なし (既存 client computeNext で動く)
+- API / UI / MemorySurface 変更なし
+- RLS policy 変更なし
+- soft delete pattern 採用せず (scope 過大、B-4 でも別審議せず)
+
+### supabase db push timing (Gate A 維持)
+1. migration commit + push
+2. preview build + smoke (publication 既追加で INSERT/UPDATE は引き続き動作、
+   DELETE は本 migration 適用前のため引き続き page refresh 依存)
+3. 私が `supabase migration list --linked` で未適用 1 本確認 → CEO に GO 仰ぐ
+4. CEO `supabase db push` 手動実行
+5. 適用確認 + DELETE manual realtime test 再実行
+
+### rollback 手順
+- code: 本 migration を git revert (file 削除)
+- migration rollback:
+  - 別 migration `<timestamp>_revert_coalter_memory_items_replica_default.sql` を作成
+  - SQL: `ALTER TABLE public.coalter_memory_items REPLICA IDENTITY DEFAULT;`
+  - CEO `supabase db push` で適用
+- env / DB row data / 既存 RLS / publication 登録は touch しない (data 破棄ゼロ)
+- rollback 後の DELETE realtime は再び不発火に戻るが、INSERT/UPDATE は引き続き動作
+
+### 制限事項
+- B-3.4.d 単独で Production promote しない (Path B 完了後にまとめて)
+- B-4 (Supabase migration 適用状態最終 audit + integration test) は本 migration 適用後に実施

@@ -1,0 +1,53 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- CoAlter Stage 4 B-3.4.d — coalter_memory_items REPLICA IDENTITY FULL
+--
+-- 正本: layout plan v0.3 §7.7 / Supabase Realtime + RLS + DELETE 既知問題
+--
+-- 背景 (manual realtime test 2026-04-30 で発見):
+--   - INSERT / UPDATE realtime broadcast: 完全 NEW record で broadcast → RLS 評価成功
+--     → MemorySurface に即時反映 ✅
+--   - DELETE realtime broadcast: REPLICA IDENTITY DEFAULT (= PK のみ logical
+--     replication slot に流す) で OLD record に id のみ → RLS policy の
+--     `cps.id = coalter_memory_items.pair_id` の評価で pair_id 不在のため
+--     filter で drop → subscriber に届かない → MemorySurface から消えない
+--     (page refresh で initial fetch 経由で消える、Realtime 不発火)
+--
+-- 修正:
+--   `ALTER TABLE ... REPLICA IDENTITY FULL` で DELETE event の OLD record に
+--   全 columns (id, pair_id, visibility, expires_at, content, origin, certainty,
+--   mode_context, created_at, updated_at) を含める。これにより:
+--     - RLS evaluation: `cps.id = coalter_memory_items.pair_id` が成功
+--     - filter: `pair_id=eq.${pairId}` も評価成功
+--     - client computeNext: payload.old.id を読んで filter out (既存 logic 不変)
+--   → DELETE realtime broadcast 経路が完成、subscriber に届く。
+--
+-- 副作用:
+--   - WAL log size が UPDATE / DELETE 時にやや増加 (全 row が log に書かれる)
+--   - coalter_memory_items は row size 小 (text + uuid + timestamps) かつ update
+--     頻度低 (memory item は永続データ、頻繁更新なし) のため影響軽微
+--   - 既存 RLS / INSERT / UPDATE realtime 経路は不変
+--   - REPLICA IDENTITY 変更は schema-only change、既存 row data 不変
+--
+-- 不変 (CEO 厳守 2026-04-30):
+--   - useMemoryItems.ts ロジック変更なし (既存 client computeNext で動く)
+--   - API / UI / MemorySurface 変更なし
+--   - RLS policy 変更なし (既存 SELECT/UPDATE/DELETE/INSERT policy 維持)
+--   - soft delete pattern 採用せず (scope 過大のため B-3.4 範囲外)
+--
+-- rollback:
+--   別 migration `<timestamp>_revert_coalter_memory_items_replica_default.sql`
+--   を作成し以下を実行 (CEO 確認後の `supabase db push` で適用):
+--     `ALTER TABLE public.coalter_memory_items REPLICA IDENTITY DEFAULT;`
+--   env / DB row data / 既存 RLS / publication 登録は touch しない。
+--
+-- supabase db push timing (CEO 確認 gate):
+--   1. 本 migration file commit + push
+--   2. preview build + smoke (publication 既追加で INSERT/UPDATE は引き続き動作、
+--      DELETE は本 migration 適用前のため引き続き page refresh 依存)
+--   3. 私が `supabase migration list --linked` で未適用が `20260430110000` 1 本のみ
+--      であることを確認 → CEO に GO 判断仰ぐ
+--   4. **CEO が `supabase db push` 手動実行**
+--   5. 適用確認 + DELETE manual realtime test 再実行
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table public.coalter_memory_items replica identity full;
