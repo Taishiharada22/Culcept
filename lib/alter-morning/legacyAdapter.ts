@@ -60,6 +60,7 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 // CEO 2026-04-28 PR #41b-0: effectiveEvents canonical reconcile (3 layer)。
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
+import { dispatchEventMerge } from "./planning/eventMergeDispatch";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -544,17 +545,27 @@ export function adaptPipelineToLegacy(
   });
   const currentEvents = guardResult.events;
 
-  // ── Events 継承（W3-PR-7 Commit 4 + Phase 2 scope 3 / CEO 2026-04-26）──
-  //   旧: `currentEvents.length > 0 ? currentEvents : priorPersistedEvents`
-  //   新: field-level merge で priorPersistedEvents を全 discard しない。
+  // ── Events 継承（CEO 2026-04-29 PR #41b-1a: turn_mode dispatch）──
+  //   旧 mergeEventFields の課題:
+  //     1. length-mismatch (cur.length !== prior.length) で全 cur を discard
+  //        → 予定追加 (LLM が 2 events 出力) で新規 event が消える (CEO Case 3 真因)
+  //     2. mergeIntoPrior は null-fill semantics で intentional update を表現できない
+  //        → 「9時を10時に変更」 で event_1.when.startTime が更新されない (CEO Case 1 真因)
+  //     3. position fallback が turn_mode 不問で fire
+  //        → modify event が誤合流するリスク
   //
-  //   Turn 3「電車」入力で comprehension が transport だけの partial event を
-  //   返した時、startTime / where.coordinates / placeType を保持する。
-  //   詳細: mergeEventFields (本ファイル上部 + tests/unit/alter-morning/dialog/eventFieldMerge.test.ts)
-  const effectiveEvents: ComprehensionEvent[] = mergeEventFields(
+  //   新 dispatchEventMerge:
+  //     A. length-mismatch でも各 event 独立処理 (discard 廃止)
+  //     B. turn_mode 別 dispatch (modify / create / append)
+  //     C. modify apply (applyModifyPatch で intentional update)
+  //     D. position fallback を turn_mode="create" + length match に限定
+  //
+  //   詳細: lib/alter-morning/planning/eventMergeDispatch.ts
+  const dispatchResult = dispatchEventMerge({
     currentEvents,
-    input.priorPersistedEvents,
-  );
+    priorPersistedEvents: input.priorPersistedEvents ?? [],
+  });
+  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);
@@ -872,7 +883,11 @@ export function adaptPipelineToLegacy(
   // ── CEO 2026-04-28 PR #41a Layer 3: modify event の target_ref 解決 ──
   //   LLM が turn_mode='modify' event を出力した、または guard が補正した場合、
   //   prior persisted events 中のどの event を指しているかを resolveTargetRef で解決。
-  //   本 PR では trace に記録するのみ (apply は PR #41b L5 で実装)。
+  //
+  //   PR #41a: 観察のみ (apply 未実装)
+  //   PR #41b-1a: dispatchEventMerge.applyModifyPatch で apply 実装 → trace に
+  //              applied=true/false を追加し、CEO が「modify が effective に反映された」 を pin できるようにする。
+  //
   //   currentEvents は guard 経由なので、補正適用済みの状態。
   const priorBaseEvents = input.priorPersistedEvents ?? [];
   const modifyResolutionsSnapshots: ModifyResolutionSnapshot[] = currentEvents
@@ -881,6 +896,11 @@ export function adaptPipelineToLegacy(
       const resolution = ev.target_ref
         ? resolveTargetRef(ev.target_ref, priorBaseEvents)
         : { event_id: null, confidence: null as null, strategy: "none" as const };
+      // dispatch result から本 modify event の applied 判定を取得
+      const decision = dispatchResult.dispatch.find(
+        (d) => d.cur_event_id === ev.event_id && d.cur_turn_mode === "modify",
+      );
+      const applied = decision?.action === "modify_applied";
       return {
         event_id: ev.event_id,
         target_ref_present:
@@ -890,8 +910,21 @@ export function adaptPipelineToLegacy(
           confidence: resolution.confidence,
           strategy: resolution.strategy,
         },
+        applied,
       };
     });
+
+  // ── CEO 2026-04-29 PR #41b-1a: dispatch summary aggregation ──
+  //   各 cur event の dispatch 判断を集計し trace に乗せる。
+  const dispatchSummary = {
+    modify_applied: 0,
+    modify_unresolved_fallback_create: 0,
+    merged_into_prior: 0,
+    kept_as_new: 0,
+  };
+  for (const d of dispatchResult.dispatch) {
+    dispatchSummary[d.action] += 1;
+  }
 
   // ── CEO 2026-04-28 PR #41a Layer 0: turnTrace emission ──
   //   PII 配慮 + env gating は emitTurnTrace 内で完結。
@@ -926,6 +959,10 @@ export function adaptPipelineToLegacy(
       // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard 観測
       modifyCandidate: guardResult.modifyCandidate,
       modifyCandidateReason: guardResult.reason,
+      // CEO 2026-04-29 PR #41b-1a Commit 3: dispatch summary 観測
+      //   dispatchSummary.modify_applied >= 1 で「modify が effective に反映」 を pin。
+      //   CEO Case 1, Case 2 の merge 条件として使う。
+      dispatchSummary,
       // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
       //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
       //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で

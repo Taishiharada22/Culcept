@@ -275,15 +275,28 @@ describe("legacyAdapter integration — CEO merge 条件", () => {
     expect(captured).not.toBeNull();
     const trace = captured!.payload as Record<string, unknown>;
 
-    // CEO merge 条件 1: mergedEvents[0].turn_mode === "modify"
-    const mergedEvents = trace.mergedEvents as Array<{ turn_mode: string; target_ref_present: boolean }>;
+    // CEO 2026-04-29 PR #41b-1a: modify が apply された後の状態を観測
+    //   旧 (PR #41a): mergedEvents[0].turn_mode="modify" + target_ref_present=true
+    //                 (modify がそのまま mergedEvents に残った)
+    //   新 (PR #41b-1a): applyModifyPatch で prior に統合、turn_mode は prior の "create" 維持
+    //                    target_ref は解決後 clear (null)
+    //                    when.startTime は 10:00 に override (CEO Case 1)
+    const mergedEvents = trace.mergedEvents as Array<{
+      event_id: string;
+      turn_mode: string;
+      target_ref_present: boolean;
+    }>;
     expect(mergedEvents).toHaveLength(1);
-    expect(mergedEvents[0].turn_mode).toBe("modify");
+    expect(mergedEvents[0].event_id).toBe("prior_9am"); // prior id 維持
+    expect(mergedEvents[0].turn_mode).toBe("create"); // prior turn_mode 維持 (apply 後)
+    expect(mergedEvents[0].target_ref_present).toBe(false); // 解決後 clear
 
-    // CEO merge 条件 2: target_ref_present === true
-    expect(mergedEvents[0].target_ref_present).toBe(true);
+    // CEO Case 1 真因 fix: prior の startTime が 10:00 に更新されている
+    expect(out.session.persistedEvents).toBeDefined();
+    expect(out.session.persistedEvents![0].when.startTime).toBe("10:00");
 
     // CEO merge 条件 3 + 4: modifyResolutions[].resolved.target_event_id + confidence high
+    //   (PR #41a の audit trace、PR #41b-1a でも保持)
     const modifyResolutions = trace.modifyResolutions as Array<{
       resolved: { target_event_id: string | null; confidence: string | null; strategy: string };
     }>;
@@ -296,8 +309,6 @@ describe("legacyAdapter integration — CEO merge 条件", () => {
     // 観測条件: modifyCandidate=true (guard 発火を観測可能)
     expect(trace.modifyCandidate).toBe(true);
     expect(trace.modifyCandidateReason).toBe("applied");
-
-    void out; // silence unused
   });
 
   it("LLM が直接 modify を出した場合 → guard no-op、modifyResolutions そのまま", () => {
