@@ -113,9 +113,14 @@ export interface MergeDispatchResult {
  */
 export function applyModifyPatch(prior: Event, cur: Event): Event {
   // when patch: cur の non-null を採用、両方 null なら prior 維持
-  const whenChanged = cur.when.startTime != null || cur.when.timeHint != null;
+  //   CEO 2026-04-29 PR #44: endTime も override 対象 (modify で「11時まで」 等を反映)
+  const whenChanged =
+    cur.when.startTime != null ||
+    cur.when.timeHint != null ||
+    (cur.when.endTime ?? null) != null;
   const newWhen = {
     startTime: cur.when.startTime ?? prior.when.startTime,
+    endTime: (cur.when.endTime ?? null) ?? (prior.when.endTime ?? null),
     timeHint: cur.when.timeHint ?? prior.when.timeHint,
     provenance: whenChanged ? cur.when.provenance : prior.when.provenance,
   };
