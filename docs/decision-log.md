@@ -872,3 +872,66 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
   - layout/UI phase（rank=0 理由の見える化、context drift 対策）
   - 映画 2 段階分離設計（新 Phase）
   - その他
+
+## [2026-04-30] [Build] [Stage 4 B-3.4 Realtime publication 追加] [承認: CEO]
+
+### 範囲
+- migration: `supabase/migrations/20260430100000_coalter_memory_items_realtime.sql`
+  - SQL: `ALTER PUBLICATION supabase_realtime ADD TABLE public.coalter_memory_items`
+  - 冪等性: `pg_publication_tables` check で重複追加回避 (既存 `20260415100000_coalter.sql` と同 pattern)
+- code: `useMemoryItems` hook に Supabase Realtime channel subscribe 追加
+  - channel name: `coalter_memory:${pairId}` (CEO 確定 2026-04-30、filter 式は分離)
+  - filter: `pair_id=eq.${pairId}` (postgres_changes 内、performance 最適化)
+  - throttle: **250ms** (REALTIME_THROTTLE_MS、CEO 確定 2026-04-30、即時性より安定性優先)
+  - throttle 中の連続 event 取りこぼし防止: `pendingRef.current ?? itemsRef.current` を base に compute
+  - `shouldDisplay` 多層 gate (CEO 確定 2026-04-30):
+    - viewer=user_a で user_b_only → 非表示
+    - viewer=user_b で user_a_only → 非表示
+    - internal_only → 常に非表示
+    - expired (expires_at <= now) → 非表示
+    - both_visible / same-side scope → 表示
+
+### security boundary (3 層 defense in depth)
+1. RLS (DB-level、主防御): SELECT policy で pair member + 片側可視性 enforce、Realtime broadcast は subscriber session の RLS を評価
+2. filter (server-side、performance): `pair_id=eq.${pairId}` で別 pair event を server-side で短絡
+3. client `shouldDisplay` (UI-level、副防御): visibility / expires / viewer scope を client 側でも check
+
+### supabase db push timing (CEO 確認 gate)
+1. B-3.4.a/b/c 3 commits を local 完了
+2. push origin → Vercel preview build
+3. preview smoke (publication 未追加で CHANNEL_ERROR でも UI 壊れない invariant 確認)
+4. **CEO 確認 → CEO が `supabase db push` 手動実行** (ここが必須 gate)
+5. publication 追加後 manual realtime test (test pair で service_role INSERT → 別端末で受信確認)
+6. test data cleanup (CEO 指示 Gate B、必須):
+   - `DELETE FROM coalter_memory_items WHERE pair_id = '${test_pair_id}' AND content LIKE 'B-3.4 manual test%'`
+   - service_role 経由、SQL Editor or supabase CLI
+7. Production promote 判断 (B-4 完了後にまとめて、B-2/B-3 と同方針)
+
+### rollback 手順
+- code rollback:
+  - `git revert <B-3.4.a hash> <B-3.4.b hash> <B-3.4.c hash>` + `git push origin feat/coalter-three-stage`
+  - Vercel auto preview build → CEO promote
+- migration rollback:
+  - 別 migration `supabase/migrations/<timestamp>_revert_coalter_memory_items_realtime.sql` を作成
+  - SQL: 冪等性付き `ALTER PUBLICATION supabase_realtime DROP TABLE public.coalter_memory_items`
+    ```sql
+    do $$
+    begin
+      if exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime'
+          and schemaname = 'public'
+          and tablename = 'coalter_memory_items'
+      ) then
+        execute 'alter publication supabase_realtime drop table public.coalter_memory_items';
+      end if;
+    end $$;
+    ```
+  - **CEO 操作で `supabase db push`** で適用
+- env / `coalter_memory_items` table / 既存 RLS は touch しない (data 破棄ゼロ)
+- revert 中の in-flight subscribe client は CHANNEL_ERROR を受けるが、`setRealtimeError("channel_*")` fallback で UI 壊れず、initial fetch 経路維持
+
+### 制限事項
+- B-3.4 単独で Production promote しない (Path B 完了後にまとめて、CEO 確定方針)
+- B-4 (Supabase migration 適用状態最終 audit + integration test) は別 phase
+- preview smoke 段階では publication 未追加で CHANNEL_ERROR が来る可能性あり、UI 壊れない invariant が保証
