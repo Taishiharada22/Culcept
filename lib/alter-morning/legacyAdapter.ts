@@ -392,6 +392,52 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Operations trace builder (PR-50 Commit 5 / CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * comprehension result から operations 経路 trace 用 summary を構築する。
+ *
+ * 出力条件:
+ *   - operations / acceptedOperations / operationRejections のいずれかが
+ *     非 empty なら summary を返す
+ *   - 全部 empty (operations 経路を踏んでいない turn) → null (caller が omit)
+ *
+ * 含む field:
+ *   - received:         comprehension.operations.length (LLM が出した数)
+ *   - accepted:         comprehension.acceptedOperations.length
+ *   - rejected:         comprehension.operationRejections.length
+ *   - fallbackToEvents: comprehension.fallbackToEvents (default true)
+ *   - appliedTypes:     accepted operations の type 配列 (LLM 出力 order を保持)
+ *   - rejectReasons:    reject 理由の string 配列 (重複可)
+ */
+function buildOperationsTrace(
+  comprehension: MorningPipelineResult["comprehension"],
+): {
+  received: number;
+  accepted: number;
+  rejected: number;
+  fallbackToEvents: boolean;
+  appliedTypes: string[];
+  rejectReasons: string[];
+} | null {
+  if (!comprehension) return null;
+  const received = comprehension.operations?.length ?? 0;
+  const accepted = comprehension.acceptedOperations?.length ?? 0;
+  const rejections = comprehension.operationRejections ?? [];
+  const rejected = rejections.length;
+  if (received === 0 && accepted === 0 && rejected === 0) return null;
+  return {
+    received,
+    accepted,
+    rejected,
+    fallbackToEvents: comprehension.fallbackToEvents ?? true,
+    appliedTypes: (comprehension.acceptedOperations ?? []).map((op) => op.type),
+    rejectReasons: rejections.map((r) => r.reason),
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -970,6 +1016,8 @@ export function adaptPipelineToLegacy(
   // PR #41a Commit 6: emitTurnTrace の戻り値を caller に返却することで、
   //   route handler が response の `_debug.trace` に乗せられるようにする。
   //   CEO が browser DevTools Network tab から trace を観測可能になる。
+  // PR-50 Commit 5: operations 経路の集計値を 1 回だけ計算して trace に乗せる。
+  const operationsTrace = buildOperationsTrace(result.comprehension);
   const traceSnapshot = emitTurnTrace(
     {
       sessionId: input.sessionId,
@@ -999,6 +1047,11 @@ export function adaptPipelineToLegacy(
       //   dispatchSummary.modify_applied >= 1 で「modify が effective に反映」 を pin。
       //   CEO Case 1, Case 2 の merge 条件として使う。
       dispatchSummary,
+      // PR-50 Commit 5 (CEO 2026-04-30): operations 経路 観測
+      //   morningPipeline (Commit 3) で comprehension に積まれた集計値を trace に
+      //   乗せる。operation 解釈率 ≥ 90% KPI の判定材料。
+      //   operations が 1 件も出ていない turn では field 自体を omit (undefined)。
+      ...(operationsTrace ? { operations: operationsTrace } : {}),
       // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
       //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
       //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で
