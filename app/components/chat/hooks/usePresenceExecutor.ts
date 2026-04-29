@@ -28,7 +28,7 @@
  *   - signal subscribe 経路 (productionSignalBus)
  */
 
-import { useCallback, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
 import {
   presenceReducer,
@@ -36,6 +36,7 @@ import {
   type PresenceEvent,
   type PresenceReducerState,
 } from "@/lib/coalter/presence/reducer";
+import { subscribePresenceSignal } from "@/lib/coalter/presence/productionSignalBus";
 import {
   modeReducer,
   initialMode,
@@ -166,6 +167,22 @@ export function usePresenceExecutor(initial?: {
     },
     [logSignal],
   );
+
+  /**
+   * B-2.1 (2026-04-29): productionSignalBus への subscribe。
+   *
+   * `PresenceSignalWiring` (ChatClient で既に mount 済) が publish する signal を
+   * 本 hook の reducer に流す経路。これにより以下の chain が確立する:
+   *
+   *   ChatClient messages → PresenceSignalWiring useEffect → publishPresenceSignal
+   *     → bus → 本 useEffect → dispatchSignal → presenceReducer (SIGNAL event)
+   *
+   * unmount で unsubscribe (return された関数を React が呼ぶ)。
+   * dispatchSignal は useCallback で memoize されているため effect 再実行は最小限。
+   */
+  useEffect(() => {
+    return subscribePresenceSignal(dispatchSignal);
+  }, [dispatchSignal]);
 
   const dispatchPresenceEvent = useCallback((event: PresenceEvent) => {
     dispatchPresence(event);
