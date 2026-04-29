@@ -66,6 +66,24 @@ export type TimeHintValue = "morning" | "noon" | "afternoon" | "evening";
 export interface WhenSlot {
   /** "HH:mm" 形式 or null */
   startTime: string | null;
+  /**
+   * 終了時刻 "HH:mm" 形式 or null。
+   *
+   * CEO 2026-04-29 PR #44 拡張:
+   *   - 旧契約: startTime + timeHint のみ。終了時刻は plan layer で durationMin から推定。
+   *   - 新契約: endTime を first-class slot として持つ。typical_duration 推論で
+   *     不足分を埋め、それでも不明なら clarify で「何時まで？」 を聞く。
+   *
+   * sharpness 計算 (computeWhenSharpness):
+   *   - startTime fixed + (endTime fixed OR 推論可) → fixed
+   *   - startTime null + timeHint あり → vague
+   *   - 両方 null → missing
+   *
+   * 互換性:
+   *   - optional (?) で default null 許容、既存 fixture / test を壊さない。
+   *   - LLM 出力 schema にも endTime を追加 (structuredSchema)。
+   */
+  endTime?: string | null;
   timeHint: TimeHintValue | null;
   provenance: Provenance;
 }

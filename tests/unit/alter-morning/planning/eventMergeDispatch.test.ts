@@ -155,12 +155,15 @@ describe("applyModifyPatch — modify event の intentional update", () => {
     expect(result.transport).toBe("電車");
   });
 
-  it("where lock を尊重しない (modify は user 明示なので override する)", () => {
+  it("[PR-46 text leak fix] where は modify では override しない (常に prior 維持)", () => {
+    // CEO 2026-04-29: modify event の cur.where は touch しない。
+    //   理由: LLM の command 文字列や stale 値が混入するリスクあり。
+    //   場所変更は将来 PR で別 pattern (e.g.,「サドヤから新宿に変更」専用) で扱う。
     const prior = mkEvent({
       event_id: "e1",
       where: {
         place_ref: "サドヤ",
-        placeType: "exact_proper_noun", // locked
+        placeType: "exact_proper_noun",
         coordinates: null,
         provenance: utteranceProvenance(["サドヤ"], "high"),
       },
@@ -177,7 +180,33 @@ describe("applyModifyPatch — modify event の intentional update", () => {
       },
     });
     const result = applyModifyPatch(prior, cur);
-    expect(result.where.place_ref).toBe("新宿"); // override (locked でも)
+    expect(result.where.place_ref).toBe("サドヤ"); // ★ prior 維持 (text leak 防止)
+  });
+
+  it("[PR-46 text leak fix] what は modify では override しない (常に prior 維持)", () => {
+    // CEO 2026-04-29 真因 fix: LLM が cur.what.activity に「9時を10時に変更」 等の
+    //   command 文字列を入れると、prior.what が上書きされて plan_item.text に leak。
+    //   modify では what を touch しない契約に変更。
+    const prior = mkEvent({
+      event_id: "e1",
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      event_id: "evt_modify",
+      turn_mode: "modify",
+      target_ref: "9時",
+      what: {
+        activity: "9時を10時に変更", // ← LLM が command 文字列を入れた想定
+        activityCanonical: "9時を10時に変更",
+        provenance: utteranceProvenance(["9時を10時に変更"], "high"),
+      },
+    });
+    const result = applyModifyPatch(prior, cur);
+    expect(result.what.activity).toBe("コーヒー"); // ★ prior 維持
   });
 
   it("missing_semantic_critical / missing_solver_blockers は prior 維持", () => {
@@ -493,15 +522,16 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         provenance: utteranceProvenance(["ミーティング"], "high"),
       },
     });
-    // length mismatch (prior=1, cur=1) ← length match だが時間/場所が違う
+    // CEO 2026-04-29 Commit A: position fallback 廃止後の挙動
+    //   length match でも、event_id / time+place が一致しなければ kept_as_new。
+    //   旧 logic は merged_into_prior (上書き risk) → 修正で kept_as_new (data loss/上書き 防止)。
     const result = dispatchEventMerge({
       currentEvents: [newEvent],
       priorPersistedEvents: [prior],
     });
-    // length match で position fallback が fire してしまう (現状)
-    // → CEO Case 3 では cur=2 prior=1 で length mismatch なので fallback fire しない
-    //   (本テストは length match を意図的に作ったので merged_into_prior になる)
-    expect(result.dispatch[0].action).toBe("merged_into_prior");
+    expect(result.effectiveEvents).toHaveLength(2); // prior (不変) + new
+    expect(result.dispatch[0].action).toBe("kept_as_new");
+    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ"); // prior 不変
   });
 
   it("[length mismatch + create + append] cur=2 prior=1 → 各 event 独立処理 (旧 discard 廃止)", () => {
@@ -583,8 +613,10 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[0].action).toBe("kept_as_new");
   });
 
-  it("[position fallback 制限] turn_mode='create' + length match のみ fallback", () => {
-    // length match で event_id / time+place 不一致 → position fallback fire
+  it("[position fallback 廃止] turn_mode='create' + length match でも 同一性なし → kept_as_new", () => {
+    // CEO 2026-04-29 Commit A: position fallback 廃止
+    //   旧 logic: length match なら index 0 で fallback merge → 上書き risk
+    //   新 logic: 厳密な同一性 (event_id / (when, place_ref)) のみで merge
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -606,11 +638,66 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       currentEvents: [cur],
       priorPersistedEvents: [prior],
     });
-    // position fallback で merged_into_prior
-    expect(result.dispatch[0].action).toBe("merged_into_prior");
-    // event_id は prior (e1) を維持、startTime は cur (10:00) 採用
-    expect(result.effectiveEvents[0].event_id).toBe("e1");
-    expect(result.effectiveEvents[0].when.startTime).toBe("10:00");
+    // 厳密同一性なし (event_id 違う、time も違う、place 両方 null) → kept_as_new
+    expect(result.dispatch[0].action).toBe("kept_as_new");
+    expect(result.effectiveEvents).toHaveLength(2); // prior (不変) + new
+    expect(result.effectiveEvents[0].event_id).toBe("e1"); // prior 不変
+    expect(result.effectiveEvents[0].when.startTime).toBe("09:00"); // 不変
+  });
+
+  it("[CEO Case 3 + collision] append cur が prior と event_id 衝突 → fresh id にrename (data loss 防止)", () => {
+    // CEO 2026-04-29 PR #41b-1b: LLM が prior と同じ event_id を再利用してしまった場合、
+    //   そのまま push すると effectiveEvents に duplicate id が入って data 上書きリスク
+    const prior = mkEvent({
+      event_id: "event_1",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "スタバ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const appendCur = mkEvent({
+      event_id: "event_1", // ★ prior と衝突
+      turn_mode: "append",
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "新宿",
+        placeType: null,
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ミーティング",
+        activityCanonical: "ミーティング",
+        provenance: utteranceProvenance(["ミーティング"], "high"),
+      },
+    });
+    const result = dispatchEventMerge({
+      currentEvents: [appendCur],
+      priorPersistedEvents: [prior],
+    });
+    expect(result.effectiveEvents).toHaveLength(2);
+    const ids = result.effectiveEvents.map((e) => e.event_id);
+    expect(new Set(ids).size).toBe(2); // ★ 重複なし
+    expect(result.effectiveEvents[0].event_id).toBe("event_1");
+    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ"); // prior 上書きされない
+    expect(result.effectiveEvents[1].event_id).toBe("event_2"); // ★ rename
+    expect(result.effectiveEvents[1].where.place_ref).toBe("新宿");
   });
 
   it("[position fallback 制限] length mismatch + create → fallback fire しない (kept_as_new)", () => {

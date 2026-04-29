@@ -56,12 +56,24 @@ export interface ModifyIntentResult {
    */
   suggestedNewStartTime?: string;
   /**
+   * transport-change pattern が detected された場合、変更後の transport raw 文字列 (NFKC 正規化済)。
+   * 「移動手段を車に変更」 → "車"
+   * 「徒歩に変更」 → "徒歩"
+   * 「歩いて行く」 → "歩いて"
+   *
+   * CEO 2026-04-29 PR-47:「徒歩が反映されない」 bug の経路 fix。
+   * LLM が transport field を埋めない場合でも、guard が utterance から抽出して
+   * event.transport を override する。値は parseJapaneseTransportToVc に渡せる。
+   */
+  suggestedTransport?: string;
+  /**
    * detect の根拠 (debug / trace 用)。複数 reason が同時に true もあり得る。
    */
   reasons: {
     hasChangeKeyword: boolean;
     hasTimeShiftPattern: boolean;
     hasCancelKeyword: boolean;
+    hasTransportPattern: boolean;
   };
 }
 
@@ -84,6 +96,20 @@ const TIME_SHIFT_RE_HHMM = /(\d{1,2}):(\d{2})を(\d{1,2}):(\d{2})に/;
 // 矢印 pattern (より自然): 「9時→10時」「09:00 → 10:00」
 const TIME_ARROW_RE_HOUR = /(\d{1,2})時\s*[→⇒>]\s*(\d{1,2})時/;
 const TIME_ARROW_RE_HHMM = /(\d{1,2}):(\d{2})\s*[→⇒>]\s*(\d{1,2}):(\d{2})/;
+
+// CEO 2026-04-29 PR-47: transport-change pattern
+//   matches:
+//     「移動手段を車に変更」「移動手段は車に変更」「移動手段を電車に」「移動手段は徒歩で」
+//     「車に変更」「徒歩に変更」「歩いて行く」「電車に切り替え」
+//   captures: [_, transport_raw]
+//
+// 厳密な「移動手段」 keyword pattern (優先): false-positive 抑制
+const TRANSPORT_CHANGE_RE_STRICT =
+  /移動手段(?:を|は)\s*([^。\s、,]{1,8})\s*(?:に|で)/;
+// 緩めの transport keyword (CHANGE_KEYWORD と組合せた時のみ有効化):
+//   「車に変更」「徒歩に変更」 等
+const TRANSPORT_TOKEN_RE =
+  /(電車|地下鉄|JR|私鉄|バス|徒歩|歩き|歩いて|歩く|歩行|自転車|チャリ|タクシー|車|クルマ|飛行機)/;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Helpers
@@ -258,6 +284,11 @@ export function applyDeterministicModifyIntent(
           },
         }
       : {}),
+    // CEO 2026-04-29 PR-47: suggestedTransport があれば transport を override
+    //   「移動手段を車に変更」「徒歩に変更」 等で LLM が transport を取りこぼした場合の safety net
+    ...(detection.suggestedTransport
+      ? { transport: detection.suggestedTransport }
+      : {}),
   };
 
   return {
@@ -284,6 +315,35 @@ export function applyDeterministicModifyIntent(
  * Phase 1 (PR #41a) では time-shift と change keyword のみ対象。
  * place-shift / activity-shift は将来拡張。
  */
+/**
+ * utterance から transport-change pattern を抽出する (CEO 2026-04-29 PR-47)。
+ *
+ * 戦略:
+ *   1. STRICT: 「移動手段(を|は) X (に|で)」 → X (high confidence)
+ *   2. TOKEN+CHANGE: change keyword あり + transport token 単独 → X
+ *
+ * 戻り値: 抽出された transport raw 文字列 (NFKC 正規化済) or null
+ */
+function extractTransportChange(
+  normalized: string,
+  hasChangeKeyword: boolean,
+): string | null {
+  // Strategy 1: 移動手段 explicit pattern (most confident)
+  const strictMatch = normalized.match(TRANSPORT_CHANGE_RE_STRICT);
+  if (strictMatch) {
+    return strictMatch[1].trim();
+  }
+  // Strategy 2: change keyword + transport token
+  //   change keyword なしで token だけだと、初回 plan の「車で行く」 等と区別困難 → skip
+  if (hasChangeKeyword) {
+    const tokenMatch = normalized.match(TRANSPORT_TOKEN_RE);
+    if (tokenMatch) {
+      return tokenMatch[1];
+    }
+  }
+  return null;
+}
+
 export function detectModifyIntent(utterance: string): ModifyIntentResult {
   const u = utterance.normalize("NFKC");
   const hasChangeKeyword = CHANGE_KEYWORD_RE.test(u);
@@ -291,6 +351,9 @@ export function detectModifyIntent(utterance: string): ModifyIntentResult {
 
   const timeShift = extractTimeShift(u);
   const hasTimeShiftPattern = timeShift !== null;
+
+  const transportRaw = extractTransportChange(u, hasChangeKeyword);
+  const hasTransportPattern = transportRaw !== null;
 
   // Strategy 1: time-shift pattern (最も confident)
   //   「○時を△時に」 が明示されていれば、change keyword の有無に関わらず modify。
@@ -304,10 +367,12 @@ export function detectModifyIntent(utterance: string): ModifyIntentResult {
       suggestedTargetRef: `${timeShift.fromHour}時の予定`,
       suggestedChangeScope: "patch",
       suggestedNewStartTime: toHHmm,
+      ...(transportRaw ? { suggestedTransport: transportRaw } : {}),
       reasons: {
         hasChangeKeyword,
         hasTimeShiftPattern: true,
         hasCancelKeyword,
+        hasTransportPattern,
       },
     };
   }
@@ -322,11 +387,29 @@ export function detectModifyIntent(utterance: string): ModifyIntentResult {
         hasChangeKeyword,
         hasTimeShiftPattern: false,
         hasCancelKeyword: true,
+        hasTransportPattern,
       },
     };
   }
 
-  // Strategy 3: change keyword (時刻パターン無し、target 不確定だが modify 意図)
+  // Strategy 3: transport-change pattern (CEO 2026-04-29 PR-47)
+  //   「移動手段を車に変更」「徒歩に変更」 等で抽出された transport raw を返す。
+  if (transportRaw) {
+    return {
+      isModifyIntent: true,
+      suggestedTargetRef: undefined, // target 不確定 (single_event_fallback 経路)
+      suggestedChangeScope: "patch",
+      suggestedTransport: transportRaw,
+      reasons: {
+        hasChangeKeyword,
+        hasTimeShiftPattern: false,
+        hasCancelKeyword: false,
+        hasTransportPattern: true,
+      },
+    };
+  }
+
+  // Strategy 4: change keyword (時刻 / 移動手段 パターン無し、target 不確定だが modify 意図)
   if (hasChangeKeyword) {
     return {
       isModifyIntent: true,
@@ -336,6 +419,7 @@ export function detectModifyIntent(utterance: string): ModifyIntentResult {
         hasChangeKeyword: true,
         hasTimeShiftPattern: false,
         hasCancelKeyword: false,
+        hasTransportPattern: false,
       },
     };
   }
@@ -348,6 +432,7 @@ export function detectModifyIntent(utterance: string): ModifyIntentResult {
       hasChangeKeyword: false,
       hasTimeShiftPattern: false,
       hasCancelKeyword: false,
+      hasTransportPattern: false,
     },
   };
 }

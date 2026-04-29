@@ -41,6 +41,8 @@ import type {
 import type { TransportMode, TransportSegment } from "../transport/types";
 import { estimateNeutralDurationMin } from "../transport/durationHeuristic";
 import { classifyWhereVague } from "./whereVagueClassifier";
+// CEO 2026-04-29 PR #44: endTime 推論 (activity → typical duration)
+import { inferEndTimeFromActivity } from "./typicalDuration";
 // CEO 2026-04-28 Option B: home/current → first_event の synthetic travel segment
 //   を 1-event plan でも生成可能にする。HOME_TRAVEL_SENTINEL_ID は実 event_id と
 //   衝突しない sentinel として segment.fromEventId に入る。
@@ -122,7 +124,27 @@ function eventToPlanItem(event: ComprehensionEvent, orderHint: number): PlanItem
   const hasFixedStart = Boolean(startTime);
   const whatText = event.what.activity || event.what.activityCanonical || "予定";
   const whereText = event.where.place_ref ?? "";
-  const whenText = startTime ?? "";
+
+  // CEO 2026-04-29 PR #44: endTime を text に表示 (explicit or activity 推論)
+  //   - event.when.endTime あり → そのまま採用
+  //   - 無し + activity から typical_duration 推論可 (high/medium) → 推論値を採用
+  //   - 推論不能 (low confidence) → start のみ表示
+  let endTimeForText: string | null = event.when.endTime ?? null;
+  if (!endTimeForText && startTime) {
+    const inferred = inferEndTimeFromActivity({
+      startTime,
+      activity: event.what.activity || event.what.activityCanonical,
+    });
+    if (inferred.endTime && inferred.confidence !== "low") {
+      endTimeForText = inferred.endTime;
+    }
+  }
+  const whenText = startTime
+    ? endTimeForText
+      ? `${startTime}〜${endTimeForText}`
+      : startTime
+    : "";
+
   const text = [whenText, whereText, whatText].filter((s) => s.length > 0).join(" ");
 
   const whenSharpness = computeWhenSharpness(event.when);
