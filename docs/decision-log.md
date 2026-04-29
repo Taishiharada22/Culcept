@@ -812,3 +812,20 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
   3. CEO 並行 commit（c22db5f9 / 566c4456）のような想定外事象は、即停止 → 現状診断 → 計画再設計の順で扱うと退化ゼロで吸収可能
 - **commit message 方針**（今後参照用）: Phase C の 9 commits は **依存関係明示**（"Depends on C-1..." 等）と **file-level change narrative** を含め、レビュアが wave 構造を把握できるようにした。
 
+---
+### 2026-04-23 PR #26 merge — W3-PR-10 positive-path nudge（1件目確定後の「このあと、どこか寄る？」）
+- **部門**: Build
+- **決定内容**: PR #26（feat/alter-morning-followup-next-place）を main に merge。narrow trigger `shouldAskNextPlace` = `justConfirmedFirstPlace`(prev=0→next=1) ∧ `!hasMultiplePlaces` ∧ `!userSignaledEnd`、`ALTER_MORNING_FLAGS.transportV2(userId)` gating 付き。発火時は `/api/stargazer/alter/selection` response に `alterFollowUp: { text }` を付与し、client は `injectMessage` で 1 通だけ UI 表示。DialogState / reducer / plan は不変、DB 永続化なし。
+- **理由**: Transport Staircase の positive-path 観測（segment_count > 0 / travel_rendered_count > 0）を発生させるには 2 件目 place が必要だが、自然会話のみでは 1 件目で停止するユーザーが多く telemetry が 0 shape に偏っていた。narrow trigger で「1件目確定直後に 1 回だけ」声掛けすることで、自然な 2 件目入力率を上げ、UX を壊さず観測を促す。
+- **Preview 判定（CEO 実機 2026-04-23 + Claude 逆算検証）**:
+  - **Item ① 1件目 nudge 発火**: ✅ PASS — CEO screenshot (14:14) で目視確認、unit tests 46/46 PASS
+  - **Item ② 終了意思 suppress**: ✅ PASS (Option A) — S2「直接帰る」→ cafe 選択で nudge 発火は、narrow trigger の設計前提どおり。「直接帰る」(4字) は `STRONG_TRIGGERS` 不一致で morningSession 未作成 → `advanceDialogState` 未実行 → `capturedHistory` に残らず、`userSignaledEnd` は false を返す。Empirical 裏付け: S1(`ms_mobqr2yy_tane`) と S2(`ms_mobqtdj1_klpy`) が独立 session_id で telemetry 記録されていることから、S2 は cafe turn で新規 session 作成が確定。UX 観点でも pre-session ambivalence + positive action = end 意思の revoke であり nudge は自然。session-level message history 読み取りは PR #26 scope 外（別 PR）
+  - **Item ③ 2件目 positive telemetry**: ⏳ 未達（merge gate とは独立） — CEO の S1/S2 どちらも 1 件目で停止、`transport_v2_segments_built` 26 rows 全て `event_count=1, segment_count=0`。main 着地後の canary 観測で追跡
+  - **Item ④ 二重発火防止**: ✅ PASS (構造的) — narrow trigger = 0→1 edge のみ。リロード / 候補再選択 は prev≥1 で edge 不成立。`SEARCH_CANDIDATE_SELECTED` reducer は `capturedHistory` 保存のみで append しない、不変条件維持
+- **merge 方式**: merge commit（PR #24/#25 と同流儀、`gh pr merge 26 --merge --delete-branch`）
+- **main HEAD 変化**: `52814bb2` → `511191f6`（merge commit）
+- **成果物（5 files, +726 lines）**: `lib/alter-morning/conversationStarter.ts`（+159）/ `app/api/stargazer/alter/selection/route.ts`（+31）/ `hooks/useAlterChat.ts`（+13）/ `tests/unit/alter-morning/conversationStarterFollowUp.test.ts`（+319 新規）/ `tests/unit/alter-morning/search/selectionEndpoint.test.ts`（+204 新規）
+- **次段観測課題（PR #26 の成功条件とは独立）**: `segment_count > 0` / `travel_rendered_count > 0` / `transport_v2_edit_regression` の初観測を別トラックで記録し、2 件目 flow 完走率を canary 計測する
+- **承認**: CEO（選択肢 1: merge 先行 + Item ③ は canary 継続観測）
+- **ステータス**: 実行済
+

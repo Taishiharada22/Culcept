@@ -8,6 +8,14 @@
       "env": { "PATH": "/usr/local/bin:/usr/bin:/bin" },
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "dev-pr9",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["-c", "cd /Users/haradataishi/Culcept-pr9 && exec /usr/local/bin/npx next dev --webpack --port 3000"],
+      "env": { "PATH": "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin" },
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }
