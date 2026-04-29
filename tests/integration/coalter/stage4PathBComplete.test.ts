@@ -127,10 +127,17 @@ export const STAGE_4_L4L_COMPLETION_DEFINITION: ReadonlyArray<Stage4CompletionIt
   {
     index: 10,
     description: "a11y / loading / error / empty 4 補助状態 全 27 セル稼働",
-    status: "partial",
+    status: "complete",
     pathBCommit: null,
-    evidence: "L4-k で State*Fallback 4 components 実装済、Path B B-1 の UpperLayerStateRenderer に接続なし",
-    remainingPhase: "L4-k (UpperLayerStateRenderer 拡張)",
+    evidence:
+      "L4-k (2026-04-30) で 4 補助状態すべて wire 完成: " +
+      "Loading=isPresenceReady transient (mount 直後 1 tick) / " +
+      "Empty=availability!=='active' (B-1 default active 固定で発火しない、将来 consent flow で発火) / " +
+      "Error=UpperLayerErrorBoundary class component catch / " +
+      "Aria=StateAriaWrapper polite 固定 (UpperLayerStateRenderer で全 state component を統一 wrap、" +
+      "UpperLayerShell の二重 role=region 削除)。" +
+      "27 セル × 4 補助 = 108 ケース structural readiness を test PASS で担保",
+    remainingPhase: null,
   },
   {
     index: 11,
@@ -371,10 +378,11 @@ describe("B-4.2 §10.2 達成サマリ export (CEO 監視用)", () => {
     const json = JSON.stringify(summary);
     const parsed = JSON.parse(json);
     expect(parsed.total).toBe(13);
-    expect(parsed.complete).toBe(5);
-    expect(parsed.partial).toBe(6);
+    // L4-k (2026-04-30) で #10 partial → complete: complete 5→6 / partial 6→5
+    expect(parsed.complete).toBe(6);
+    expect(parsed.partial).toBe(5);
     expect(parsed.missing).toBe(2);
-    expect(parsed.completionRatio).toBeCloseTo(5 / 13);
+    expect(parsed.completionRatio).toBeCloseTo(6 / 13);
   });
 
   it("summary は immutable (将来 phase で update 時に意図せぬ変化を防ぐ)", () => {
@@ -385,17 +393,18 @@ describe("B-4.2 §10.2 達成サマリ export (CEO 監視用)", () => {
 });
 
 describe("B-4.2 Path B 完了判定 (将来 phase の前提資料)", () => {
-  it("Path B 完了 = Stage 4 L4-l core UI path 完了 (5 項目達成)", () => {
+  it("Path B + L4-k 完了 = Stage 4 L4-l core UI path 完了 (6 項目達成、L4-k で #10 complete 移行)", () => {
     const summary = summarizeStage4Completion();
-    expect(summary.complete).toBe(5);
+    // L4-k (2026-04-30) で #10 complete に移行: 5 → 6
+    expect(summary.complete).toBe(6);
   });
 
-  it("§10.2 残項目 = L4-i / L4-j / L4-k / L4-m / mainstream E-3 + 拒否 3 分類 UI 接続", () => {
+  it("§10.2 残項目 = L4-i / L4-j / L4-m / mainstream E-3 + 拒否 3 分類 UI 接続 (L4-k 完了で #10 削除)", () => {
     const partialOrMissing = STAGE_4_L4L_COMPLETION_DEFINITION.filter(
       (i) => i.status !== "complete",
     );
-    // 残 8 項目 (partial 6 + missing 2)
-    expect(partialOrMissing).toHaveLength(8);
+    // L4-k 完了で 残 7 項目 (partial 5 + missing 2)
+    expect(partialOrMissing).toHaveLength(7);
     // remainingPhase で次 phase が明示
     for (const item of partialOrMissing) {
       expect(item.remainingPhase).not.toBeNull();

@@ -30,6 +30,7 @@ import S5Bridging from "./S5Bridging";
 import S6ReadyForProposal from "./S6ReadyForProposal";
 import S7ProposalShown from "./S7ProposalShown";
 import S8Cooldown from "./S8Cooldown";
+import StateAriaWrapper from "./StateAriaWrapper";
 import type { UpperLayerStatusLabel } from "./UpperLayerShell";
 import type { PresenceMode, PresenceState } from "@/lib/coalter/presence/types";
 
@@ -110,11 +111,23 @@ export interface UpperLayerStateRendererProps {
   onSwitchMode: (target: PresenceMode) => void;
 }
 
+/**
+ * Stage 4 L4-k (2026-04-30): StateAriaWrapper で全 state component をラップし
+ * a11y 属性 (role / aria-label / aria-live) を統一。UpperLayerShell の
+ * role="region" は削除して二重 region を回避。
+ *
+ * aria-live: polite 固定 (CEO 確定 2026-04-30、UrgentLayer の role=alert /
+ * aria-live=assertive と分離して二重通知を避ける、isUrgent prop は渡さない)。
+ */
 export default function UpperLayerStateRenderer({
   state,
   mode,
   onSwitchMode,
 }: UpperLayerStateRendererProps) {
   const Component = mapStateToComponent(state);
-  return <Component mode={mode} onSwitchMode={onSwitchMode} />;
+  return (
+    <StateAriaWrapper state={state} mode={mode}>
+      <Component mode={mode} onSwitchMode={onSwitchMode} />
+    </StateAriaWrapper>
+  );
 }

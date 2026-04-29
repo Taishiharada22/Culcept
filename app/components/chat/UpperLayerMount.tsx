@@ -13,6 +13,8 @@
  *   - B-1 (2026-04-29): usePresenceExecutor + UpperLayerStateRenderer + ModeSwitcher 本番化
  *   - B-2 (2026-04-29): UrgentLayer mount + autoRefire block 60s + dismiss handler
  *   - B-3.3 (2026-04-30): MemorySurface mount + useMemoryItems(threadId) initial fetch
+ *   - L4-k (2026-04-30): UpperLayerErrorBoundary + Loading (isPresenceReady) + Empty
+ *     (availability!=="active") の 4 補助状態 wire 完成 (§10.2 #10 partial → complete)
  *
  * B-3.3 で動作するもの:
  *   - threadId を useParams() から取得 (ChatClient touch ゼロ)
@@ -40,6 +42,9 @@ import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { usePresenceExecutor } from "./hooks/usePresenceExecutor";
 import { useMemoryItems } from "./hooks/useMemoryItems";
 import UpperLayerStateRenderer from "./states/UpperLayerStateRenderer";
+import UpperLayerErrorBoundary from "./states/UpperLayerErrorBoundary";
+import StateLoadingFallback from "./states/StateLoadingFallback";
+import StateEmptyFallback from "./states/StateEmptyFallback";
 import UrgentLayer from "./UrgentLayer";
 import MemorySurface from "./MemorySurface";
 import {
@@ -82,7 +87,14 @@ export default function UpperLayerMount() {
   if (!COALTER_FLAGS.presenceExecutorEnabled) {
     return null;
   }
-  return <UpperLayerMountActive />;
+  // L4-k (2026-04-30): UpperLayerErrorBoundary で UpperLayerMountActive をラップ。
+  // child throw は StateErrorFallback へ。ChatClient (chat input / scroll /
+  // message rendering) は包まない (CEO 厳守、UpperLayer 領域のみ)。
+  return (
+    <UpperLayerErrorBoundary>
+      <UpperLayerMountActive />
+    </UpperLayerErrorBoundary>
+  );
 }
 
 /**
@@ -98,6 +110,24 @@ export default function UpperLayerMount() {
  */
 function UpperLayerMountActive() {
   const exec = usePresenceExecutor();
+
+  /**
+   * L4-k (2026-04-30): isPresenceReady transient (mount 直後 1 tick の Loading)。
+   *
+   * 目的: usePresenceExecutor の useEffect (subscribePresenceSignal 等) が完了する
+   * までの transient で StateLoadingFallback を表示し、その後通常 UI に切替。
+   * MemorySurface の memory.isLoading とは独立 (MemorySurface 内 loading は別経路)。
+   *
+   * 動作:
+   *   - 初期 render: false → StateLoadingFallback mount
+   *   - useEffect mount 後 setTimeout(0): true → 通常 UI
+   *   - transient < 16ms (1 frame)、視覚的 flicker なし、layout collapse なし
+   */
+  const [isPresenceReady, setIsPresenceReady] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setIsPresenceReady(true), 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   /**
    * B-3.3: threadId を URL params から取得 (ChatClient touch ゼロ)。
@@ -211,6 +241,42 @@ function UpperLayerMountActive() {
   const handleUrgentDismiss = useCallback(() => {
     setLastRelease({ path: "user_dismiss", releasedAt: Date.now() });
   }, []);
+
+  /**
+   * L4-k (2026-04-30): Loading transient (presence executor 初期化中)。
+   *
+   * isPresenceReady === false の transient で StateLoadingFallback を mount。
+   * 16ms 以内に通常 UI に切替 (effect 完了後)。
+   */
+  if (!isPresenceReady) {
+    return (
+      <StateLoadingFallback
+        state={exec.state.presence.state}
+        mode={exec.state.mode}
+      />
+    );
+  }
+
+  /**
+   * L4-k (2026-04-30): Empty (availability !== "active")。
+   *
+   * Stage 2 L2-e の ExecutorAvailability 5 値 (disabled / inactive /
+   * pending_consent / enabled / active) のうち、active 以外は presence state
+   * machine が動かない状態。state component を mount せず StateEmptyFallback で
+   * minimal 表示。
+   *
+   * B-1 では default "active" 固定のため発火しない (production behavior 不変)。
+   * 将来 consent flow / disabled / inactive / pending_consent / enabled 経路が
+   * つながった時に自動的に発火 (本 commit で wire 完成)。
+   */
+  if (exec.state.availability !== "active") {
+    return (
+      <StateEmptyFallback
+        state={exec.state.presence.state}
+        mode={exec.state.mode}
+      />
+    );
+  }
 
   return (
     <>

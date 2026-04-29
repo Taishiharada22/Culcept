@@ -86,8 +86,6 @@ export default function UpperLayerShell({
 
   return (
     <section
-      role="region"
-      aria-label="CoAlter 上部レイヤー"
       data-testid="coalter-upper-layer-mount"
       style={{
         background: C.bg,

@@ -1089,3 +1089,57 @@ CEO 確定 (2026-04-30): **P1 を採用候補**、B-4.2 完了後に以下 6 つ
 ### 不変 (CEO 厳守 2026-04-30)
 - B-4.1 audit は read-only、code touch ゼロ
 - migration / API / UI / RLS / supabase db push / Production promote / env / package / next-env.d.ts / supabase temp 全て不変
+
+## [2026-04-30] [Build] [Stage 4 L4-k a11y / loading / error / empty 4 補助状態 wire] [承認: CEO]
+
+### 範囲
+- UpperLayerStateRenderer に `<StateAriaWrapper>` を統合 (全 state component を統一 wrap)
+- UpperLayerShell から `role="region"` + `aria-label="CoAlter 上部レイヤー"` 削除 (二重 region 回避、`data-testid="coalter-upper-layer-mount"` 維持)
+- UpperLayerMount を `<UpperLayerErrorBoundary>` でラップ
+- UpperLayerMountActive 内に Loading transient (isPresenceReady) + Empty (availability!=='active') 経路追加
+
+### 4 補助状態の Trigger 条件
+- **Loading**: `!isPresenceReady` (mount 直後 1 tick、setTimeout(0) で ready)
+- **Empty**: `availability !== "active"` (B-1 では active 固定で発火しない、将来 consent flow で発火)
+- **Error**: UpperLayerErrorBoundary class component の getDerivedStateFromError catch
+- **Aria**: StateAriaWrapper polite 固定 (UrgentLayer assertive と分離、二重通知回避)
+
+### §10.2 #10 状態遷移
+- Path B 完了時点 (B-4.2 record): partial
+- L4-k 完了時点: **complete** (4 補助状態すべて mount 経路 wire、trigger 条件明確、test PASS)
+- B-4.2 mapping update: complete 5→6 / partial 6→5 / missing 2 (不変)
+
+### CEO 厳守事項の遵守 (2026-04-30)
+- ChatClient.tsx 触らない (test で grep 確認、UpperLayerErrorBoundary 等 import なし)
+- ErrorBoundary は UpperLayerMountActive のみ包む (chat input / scroll / message rendering 不変)
+- telemetry / Sentry breadcrumb は L4-j で別接続、本 phase は console.error のみ (L4-j 衝突回避)
+- Memory / Realtime / Supabase / Urgent trigger / signal detection 不変
+- L4-i / L4-j / L4-m / mainstream E-3 触らない
+- env / package / next-env.d.ts / supabase temp 触らない
+- 新 dependency 追加なし (react-error-boundary 不使用、class component で React 古典実装)
+
+### test 計画 (10 必須項目すべて cover)
+- Loading: 初期 tick 経路 (構造 invariant + StateLoadingFallback 関数 invoke)
+- Loading: timer 後 ready 経路 (useEffect setTimeout grep)
+- Empty: availability 4 値 (disabled / inactive / pending_consent / enabled) で StateEmptyFallback
+- Error: ErrorBoundary class method (getDerivedStateFromError + render + reset + componentDidCatch)
+- Aria: StateAriaWrapper wrap + state component children + polite 固定
+- UpperLayerShell role=region 削除確認
+- ChatClient touch ゼロ確認
+- B-1/B-2/B-3/B-4/B-2.4 regression (5327/5328 PASS、1 failure は pre-existing alter-morning)
+- 27 セル × 4 補助 = 108 ケース structural readiness
+
+### rollback
+- code rollback: `git revert <L4-k commit>` + push (15-20 min)
+- env / migration / DB 不変
+- 影響: a11y 属性削除 + ErrorBoundary なし → 既存 UpperLayerShell の role=region に戻る (B-1 状態)
+- behavior 不変原則: flag OFF で完全不変
+
+### Production observation 項目
+- a11y reader 読み上げ品質 (CEO / 任意 user による screen reader テスト)
+- Error 経路の発火率 (L4-j で telemetry wire 後に Sentry で監視)
+- Loading transient 時間 (dev tools React profiler、1 frame 内に通常 UI 切替確認)
+
+### 制限事項
+- Production promote は B-4.2 全完了後にまとめて (CEO 確定方針)
+- 本 commit のみで Production promote しない
