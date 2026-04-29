@@ -522,15 +522,16 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         provenance: utteranceProvenance(["ミーティング"], "high"),
       },
     });
-    // length mismatch (prior=1, cur=1) ← length match だが時間/場所が違う
+    // CEO 2026-04-29 Commit A: position fallback 廃止後の挙動
+    //   length match でも、event_id / time+place が一致しなければ kept_as_new。
+    //   旧 logic は merged_into_prior (上書き risk) → 修正で kept_as_new (data loss/上書き 防止)。
     const result = dispatchEventMerge({
       currentEvents: [newEvent],
       priorPersistedEvents: [prior],
     });
-    // length match で position fallback が fire してしまう (現状)
-    // → CEO Case 3 では cur=2 prior=1 で length mismatch なので fallback fire しない
-    //   (本テストは length match を意図的に作ったので merged_into_prior になる)
-    expect(result.dispatch[0].action).toBe("merged_into_prior");
+    expect(result.effectiveEvents).toHaveLength(2); // prior (不変) + new
+    expect(result.dispatch[0].action).toBe("kept_as_new");
+    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ"); // prior 不変
   });
 
   it("[length mismatch + create + append] cur=2 prior=1 → 各 event 独立処理 (旧 discard 廃止)", () => {
@@ -612,8 +613,10 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[0].action).toBe("kept_as_new");
   });
 
-  it("[position fallback 制限] turn_mode='create' + length match のみ fallback", () => {
-    // length match で event_id / time+place 不一致 → position fallback fire
+  it("[position fallback 廃止] turn_mode='create' + length match でも 同一性なし → kept_as_new", () => {
+    // CEO 2026-04-29 Commit A: position fallback 廃止
+    //   旧 logic: length match なら index 0 で fallback merge → 上書き risk
+    //   新 logic: 厳密な同一性 (event_id / (when, place_ref)) のみで merge
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -635,11 +638,11 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       currentEvents: [cur],
       priorPersistedEvents: [prior],
     });
-    // position fallback で merged_into_prior
-    expect(result.dispatch[0].action).toBe("merged_into_prior");
-    // event_id は prior (e1) を維持、startTime は cur (10:00) 採用
-    expect(result.effectiveEvents[0].event_id).toBe("e1");
-    expect(result.effectiveEvents[0].when.startTime).toBe("10:00");
+    // 厳密同一性なし (event_id 違う、time も違う、place 両方 null) → kept_as_new
+    expect(result.dispatch[0].action).toBe("kept_as_new");
+    expect(result.effectiveEvents).toHaveLength(2); // prior (不変) + new
+    expect(result.effectiveEvents[0].event_id).toBe("e1"); // prior 不変
+    expect(result.effectiveEvents[0].when.startTime).toBe("09:00"); // 不変
   });
 
   it("[CEO Case 3 + collision] append cur が prior と event_id 衝突 → fresh id にrename (data loss 防止)", () => {

@@ -297,7 +297,7 @@ export function dispatchEventMerge(
   const newEvents: Event[] = [];
   const dispatch: MergeDispatchDecision[] = [];
 
-  const lengthMatch = currentEvents.length === priorPersistedEvents.length;
+  // CEO 2026-04-29 Commit A: position fallback 廃止のため lengthMatch 不要に。
 
   /**
    * cur を newEvents に push する直前に event_id 衝突を検査し、
@@ -385,6 +385,14 @@ export function dispatchEventMerge(
     }
 
     // ── create: 同一性判定で prior にマッチさせ mergeIntoPriorCreate ──
+    //   CEO 2026-04-29 指摘 (Commit A): position fallback **廃止**。
+    //   旧 logic は length match (cur.length === prior.length) なら index で fallback merge していた。
+    //   これが「新規追加した cur が既存 event と誤合流して上書き」 の真因。
+    //   例: cur=[新ランチ], prior=[ミーティング] (length=1=1) → position 0 で fallback
+    //       → mergeIntoPriorCreate(ミーティング, 新ランチ) → ミーティングの where が「新宿」 に上書き
+    //
+    //   新 logic: 厳密な同一性 (event_id OR (when, place_ref)) のみで merge。
+    //   それ以外は kept_as_new で新規追加 → 上書き事故ゼロ化。
     let priorMatchIdx = priorCopy.findIndex((p) => p.event_id === cur.event_id);
     if (
       priorMatchIdx < 0 &&
@@ -397,10 +405,8 @@ export function dispatchEventMerge(
           p.where.place_ref === cur.where.place_ref,
       );
     }
-    // position fallback: turn_mode="create" + length match に限定 (CEO directive D)
-    if (priorMatchIdx < 0 && lengthMatch) {
-      priorMatchIdx = idx;
-    }
+    // position fallback: 削除 (CEO 2026-04-29 directive D 完全実装)
+    //   length match による position 合流は data loss/上書き risk が高すぎる。
 
     if (priorMatchIdx >= 0 && priorMatchIdx < priorCopy.length) {
       priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
