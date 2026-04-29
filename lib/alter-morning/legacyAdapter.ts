@@ -140,6 +140,27 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+  /**
+   * PR-48 (CEO 2026-04-29): 前 turn から引き継ぐ dayMainTransport。
+   *
+   * 位置づけ:
+   *   その日の default 移動手段。「電車で行く」 と一度言ったら以降の予定追加で
+   *   毎回聞かない実現の基盤。
+   *
+   * 用途:
+   *   - 新規 event の transport が null なら dispatch で auto inject
+   *   - transport clarify を suppress (gapResolver)
+   *   - modify で「車に変更」 → dayMainTransport 上書き
+   *
+   * source of truth:
+   *   chat / selection route が session.dayMainTransport を渡す。
+   *   adaptPipelineToLegacy が当 turn の events から再 derive し、優先順位:
+   *     1. 当 turn modify で transport=X → X が新値
+   *     2. priorDayMainTransport != null → 維持
+   *     3. events[*].transport から先頭 non-null pick (初回のみ)
+   *     4. null
+   */
+  priorDayMainTransport?: string | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -565,7 +586,31 @@ export function adaptPipelineToLegacy(
     currentEvents,
     priorPersistedEvents: input.priorPersistedEvents ?? [],
   });
-  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
+  let effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
+
+  // ── PR-48 (CEO 2026-04-29): dayMainTransport auto-inject ──
+  //   一度確定した dayMainTransport を、transport=null の event に auto inject。
+  //
+  //   UX 効果:
+  //     - 「電車で行く」 → priorDayMainTransport="電車" として永続化
+  //     - 次 turn「12時に新宿でランチ」 (transport=null event)
+  //     - auto-inject で event.transport="電車" → 移動手段聞かれない
+  //
+  //   override 安全性:
+  //     - inject は transport=null の場合のみ。null でない event は touch しない
+  //     - modify「車に変更」 で event.transport=車 が apply されれば、auto-inject は走らない
+  //     - つまり user 明示の transport は最優先で尊重される
+  if (input.priorDayMainTransport) {
+    effectiveEvents = effectiveEvents.map((ev) => {
+      if (ev.transport && ev.transport.trim().length > 0) {
+        return ev; // 既に transport 確定 → touch しない
+      }
+      return {
+        ...ev,
+        transport: input.priorDayMainTransport ?? null,
+      };
+    });
+  }
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);
@@ -852,6 +897,24 @@ export function adaptPipelineToLegacy(
     ? [...input.priorRawInputs, input.utterance]
     : [input.utterance];
 
+  // ── PR-48: dayMainTransport derivation (CEO 2026-04-29) ──
+  //   優先順位:
+  //     1. 当 turn の effectiveEvents から先頭 non-null transport (modify apply / 新規確定で更新)
+  //     2. priorDayMainTransport があればそれを維持 (events 全 null でも prior 保持)
+  //     3. null (未確定)
+  //
+  //   注意: events[*].transport は applyModifyPatch で「車に変更」 等の modify を反映済み。
+  //   よって events から derive すれば modify 上書きが正しく反映される。
+  let derivedDayMainTransport: string | null = null;
+  for (const ev of effectiveEvents) {
+    if (ev.transport && ev.transport.trim().length > 0) {
+      derivedDayMainTransport = ev.transport;
+      break;
+    }
+  }
+  const dayMainTransport: string | null =
+    derivedDayMainTransport ?? input.priorDayMainTransport ?? null;
+
   // ── Session 構築 ──
   const session: MorningSession = {
     sessionId: input.sessionId,
@@ -869,6 +932,7 @@ export function adaptPipelineToLegacy(
     userHomeLng: input.userHomeLng ?? null,
     pendingClarify,
     persistedEvents: effectiveEvents,
+    dayMainTransport, // PR-48: 永続化対象
   };
 
   // ── Response 構築 ──

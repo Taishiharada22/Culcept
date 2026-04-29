@@ -207,8 +207,13 @@ export function isClarifyStaleForEvents(
   if (slot === "when") return computeWhenSharpness(ev.when) === "fixed";
   if (slot === "where") return computeWhereSharpness(ev.where) === "fixed";
   if (slot === "what") return computeWhatSharpness(ev.what) === "fixed";
-  // transport / endpoint / target_ref / who / how 等は本 reconcile の対象外。
-  // sharpness 概念が直接対応しないので「stale ではない」 として preserve。
+  // PR-48 (CEO 2026-04-29): transport も stale 判定に含める。
+  //   dayMainTransport auto-inject で event.transport が non-null なら、
+  //   transport 質問は不要 → drop する。
+  if (slot === "transport" || slot === "how") {
+    return ev.transport != null && ev.transport.trim().length > 0;
+  }
+  // endpoint / target_ref / who 等は本 reconcile の対象外。
   return false;
 }
 

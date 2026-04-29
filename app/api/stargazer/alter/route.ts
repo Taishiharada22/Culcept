@@ -972,6 +972,8 @@ export async function POST(req: NextRequest) {
         persistedEvents?: import("@/lib/alter-morning/comprehension/eventSchema").Event[];
         // W3-PR-8 rev 3 commit 16: DialogState v2 round-trip 受け口（flag OFF 中は常に undefined）
         dialogState?: import("@/lib/alter-morning/dialog/types").DialogState | null;
+        // PR-48 (CEO 2026-04-29): その日の default transport (round-trip)
+        dayMainTransport?: string | null;
       };
       /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
       softBridgePending?: boolean;
@@ -1871,6 +1873,8 @@ export async function POST(req: NextRequest) {
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
+                  // PR-48 (CEO 2026-04-29): その日の default transport を継承
+                  priorDayMainTransport: morningSession.dayMainTransport ?? null,
                   userId, // W3-PR-10 canary: allowlist 判定用
                 });
                 // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
@@ -1989,6 +1993,9 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              // PR-48 (CEO 2026-04-29): その日の default transport を継承
+              priorDayMainTransport:
+                rawMorningSession?.dayMainTransport ?? null,
               userId, // W3-PR-10 canary: allowlist 判定用
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
@@ -2036,6 +2043,9 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              // PR-48 (CEO 2026-04-29): その日の default transport を継承
+              priorDayMainTransport:
+                rawMorningSession?.dayMainTransport ?? null,
               userId, // W3-PR-10 canary: allowlist 判定用
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
