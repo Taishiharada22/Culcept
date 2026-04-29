@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   synthesizeOperations,
   detectDeterministicPatterns,
+  inspectAndTransformLlmOperations,
 } from "@/lib/alter-morning/comprehension/deterministicOperationSynth";
 import {
   utteranceProvenance,
@@ -294,5 +295,181 @@ describe("synthesizeOperations: priority", () => {
     if (result.operations[0].type === "modify") {
       expect(result.operations[0].patch.transport).toBe("電車");
     }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Commit 8: inspectAndTransformLlmOperations (Layer 2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("inspectAndTransformLlmOperations: transport-only duplicate append → modify transform", () => {
+  function mkBadAppend(transport: string): PlanOperation {
+    // CEO 観測ケースの再現: prior と when/where/what 完全一致 + transport 異なる
+    return {
+      type: "append",
+      eventDraft: {
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+        where: {
+          place_ref: "スタバ",
+          placeType: "exact_proper_noun",
+          provenance: utteranceProvenance(["スタバ"], "high"),
+        },
+        what: {
+          activity: "コーヒー",
+          activityCanonical: "コーヒー",
+          provenance: utteranceProvenance(["コーヒー"], "high"),
+        },
+        who: [],
+        transport,
+        certainty: "asserted",
+      },
+    };
+  }
+
+  it("prior と完全一致 + transport 異なる append → modify に transform", () => {
+    const prior = [mkPriorEvent({ transport: null })];
+    const badAppend = mkBadAppend("電車");
+    const result = inspectAndTransformLlmOperations([badAppend], prior);
+    expect(result.transformed).toBe(true);
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0].type).toBe("modify");
+    if (result.operations[0].type === "modify") {
+      expect(result.operations[0].targetRef).toBe("9時の予定");
+      expect(result.operations[0].patch.transport).toBe("電車");
+    }
+  });
+
+  it("prior と完全一致 + transport が prior と同じ → passthrough (完全 duplicate は別系統)", () => {
+    const prior = [mkPriorEvent({ transport: "電車" })];
+    const sameAppend = mkBadAppend("電車");
+    const result = inspectAndTransformLlmOperations([sameAppend], prior);
+    expect(result.transformed).toBe(false);
+    expect(result.operations).toEqual([sameAppend]);
+  });
+
+  it("prior と一致しない append → passthrough (新規予定として正常)", () => {
+    const prior = [mkPriorEvent()];
+    const newAppend: PlanOperation = {
+      type: "append",
+      eventDraft: {
+        when: {
+          startTime: "12:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["12時"], "high"),
+        },
+        where: {
+          place_ref: "新宿",
+          placeType: "generic_place",
+          provenance: utteranceProvenance(["新宿"], "high"),
+        },
+        what: {
+          activity: "ランチ",
+          activityCanonical: "ランチ",
+          provenance: utteranceProvenance(["ランチ"], "high"),
+        },
+        who: [],
+        transport: "電車",
+        certainty: "asserted",
+      },
+    };
+    const result = inspectAndTransformLlmOperations([newAppend], prior);
+    expect(result.transformed).toBe(false);
+    expect(result.operations).toEqual([newAppend]);
+  });
+
+  it("eventDraft.transport が null → passthrough (transport patch 意図でない)", () => {
+    const prior = [mkPriorEvent()];
+    const noTransportAppend: PlanOperation = {
+      type: "append",
+      eventDraft: {
+        when: {
+          startTime: "09:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["9時"], "high"),
+        },
+        where: {
+          place_ref: "スタバ",
+          placeType: "exact_proper_noun",
+          provenance: utteranceProvenance(["スタバ"], "high"),
+        },
+        what: {
+          activity: "コーヒー",
+          activityCanonical: "コーヒー",
+          provenance: utteranceProvenance(["コーヒー"], "high"),
+        },
+        who: [],
+        transport: null,
+        certainty: "asserted",
+      },
+    };
+    const result = inspectAndTransformLlmOperations([noTransportAppend], prior);
+    expect(result.transformed).toBe(false);
+    expect(result.operations).toEqual([noTransportAppend]);
+  });
+
+  it("modify / answer / noop は transform 対象外 (passthrough)", () => {
+    const prior = [mkPriorEvent()];
+    const ops: PlanOperation[] = [
+      {
+        type: "modify",
+        targetRef: "9時の予定",
+        patch: { when: { startTime: "10:00", endTime: null, timeHint: null } },
+      },
+      { type: "answer", slot: "where", value: "池袋" },
+      { type: "noop", reason: "acknowledgement" },
+    ];
+    const result = inspectAndTransformLlmOperations(ops, prior);
+    expect(result.transformed).toBe(false);
+    expect(result.operations).toEqual(ops);
+  });
+
+  it("複数 ops 混在: append (transform) + modify (passthrough)", () => {
+    const prior = [mkPriorEvent({ transport: null })];
+    const badAppend = mkBadAppend("徒歩");
+    const otherModify: PlanOperation = {
+      type: "modify",
+      targetRef: "今日の予定",
+      patch: { when: { startTime: "11:00", endTime: null, timeHint: null } },
+    };
+    const result = inspectAndTransformLlmOperations(
+      [badAppend, otherModify],
+      prior,
+    );
+    expect(result.transformed).toBe(true);
+    expect(result.operations).toHaveLength(2);
+    expect(result.operations[0].type).toBe("modify"); // transformed
+    expect(result.operations[1]).toEqual(otherModify); // passthrough
+  });
+
+  it("synthesizeOperations から呼ぶと synthesisSource = llm_transformed", () => {
+    const prior = [mkPriorEvent({ transport: null })];
+    const badAppend = mkBadAppend("電車");
+    const result = synthesizeOperations({
+      utterance: "電車にする",  // hit はする可能性あるが test では純 LLM transform を見たい
+      priorEvents: prior,
+      llmOperations: [badAppend],
+    });
+    // utterance「電車にする」 が deterministic transport-only に hit するため
+    // synthesisSource は "deterministic_overrides_llm" になる。
+    // Layer 2 (llm_transformed) を直接観測するには utterance を pattern に
+    // hit しない値 (e.g. 「うん」) にして LLM bad append を残す:
+    expect(result.synthesisSource).toBe("deterministic_overrides_llm");
+  });
+
+  it("synthesizeOperations: utterance が pattern に hit しない場合は llm_transformed", () => {
+    const prior = [mkPriorEvent({ transport: null })];
+    const badAppend = mkBadAppend("電車");
+    const result = synthesizeOperations({
+      utterance: "うん", // pattern hit しない発話
+      priorEvents: prior,
+      llmOperations: [badAppend],
+    });
+    expect(result.synthesisSource).toBe("llm_transformed");
+    expect(result.operations).toHaveLength(1);
+    expect(result.operations[0].type).toBe("modify");
   });
 });

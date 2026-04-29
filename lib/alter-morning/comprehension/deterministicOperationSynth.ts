@@ -1,9 +1,10 @@
 /**
- * Deterministic Operation Synthesizer — PR-50 Commit 7 (CEO 2026-04-30)
+ * Deterministic Operation Synthesizer — PR-50 Commit 7+8 (CEO 2026-04-30)
  *
  * Goal:
  *   LLM 出力に依存せず、**utterance pattern が明確な発話** を deterministic に
- *   PlanOperation に変換する synth 層。
+ *   PlanOperation に変換する synth 層。さらに、LLM が出した operations を
+ *   inspect & transform する Layer 2 も提供する (Commit 8)。
  *
  * 設計原則 (CEO 確定 2026-04-30):
  *   - **deterministic pattern hit > LLM 出力**:
@@ -12,6 +13,13 @@
  *       LLM が同じ turn で append 等を出していても **deterministic を優先**
  *       (LLM の append duplicate を排除する)。
  *
+ *   - **LLM operations の inspect & transform** (Commit 8):
+ *       deterministic pattern が hit しなかった turn でも、LLM が出した
+ *       operations の中に「prior と when/where/what 完全一致 + transport だけ
+ *       異なる append」 が混じっていたら、modify (patch.transport) に **変換**
+ *       する。reject + fallback ではなく transform にすることで、events[]
+ *       fallback で同じ duplicate が再発する事故を防ぐ (CEO 指示 2026-04-30)。
+ *
  *   - **責務分離**:
  *       synth = 意味の補正 / 変換
  *       validation = 構造の検証
@@ -19,13 +27,12 @@
  *       本ファイルは synth 層のみ。validation / dispatch には触らない。
  *
  * Commit 7 (本ファイル初版): utterance pattern → deterministic operations
- * Commit 8 (将来追加): LLM operations inspector (transport-only duplicate
- *   append → modify 変換)。本 commit では実装しない。Layer 2 が hit しない turn は
- *   LLM operations をそのまま採用する。
+ * Commit 8 (本 commit):      LLM operations inspector (Layer 2)
  *
  * scope (CEO 限定 2026-04-30):
  *   - 時刻変更 (「N時を M時に変更」「N時にして」 等)
  *   - transport-only (「電車」「徒歩」「車」 等の単独発話)
+ *   - LLM bad append (transport-only duplicate) → modify transform
  *
  * scope 外 (将来 PR):
  *   - 場所変更 (「サドヤから新宿に」)
@@ -62,11 +69,11 @@ export interface SynthesisResult {
 }
 
 /**
- * synth 層メイン entry (Commit 7 段階)。
+ * synth 層メイン entry。
  *
  * 優先順位:
  *   1. utterance pattern hit (deterministic) → LLM ops を上書きして採用
- *   2. LLM operations 非空 → そのまま採用 (Commit 8 で transform 機能追加予定)
+ *   2. LLM operations 非空 → inspect & transform して採用 (Commit 8)
  *   3. operations なし (none)
  */
 export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
@@ -82,10 +89,18 @@ export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
     };
   }
 
-  // Layer 2: LLM operations は Commit 8 で inspect & transform を追加予定。
-  //   Commit 7 段階では LLM が出した operations をそのまま採用 (= 既存挙動維持)。
+  // Layer 2: LLM operations inspector (Commit 8)
+  //   deterministic pattern hit しなかった turn でも、LLM が出した operations を
+  //   inspect して transport-only duplicate append → modify に変換する。
   if (ctx.llmOperations.length > 0) {
-    return { operations: ctx.llmOperations, synthesisSource: "llm" };
+    const inspected = inspectAndTransformLlmOperations(
+      ctx.llmOperations,
+      ctx.priorEvents,
+    );
+    return {
+      operations: inspected.operations,
+      synthesisSource: inspected.transformed ? "llm_transformed" : "llm",
+    };
   }
 
   // 何も無い
@@ -291,4 +306,91 @@ function detectTransportOnly(utterance: string): string | null {
   return parseTransportExact(core);
 }
 
-// Layer 2 (LLM operations inspector) は Commit 8 で本ファイルに追加予定。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Layer 2: LLM operations inspector (Commit 8)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * inspectAndTransformLlmOperations の戻り値。
+ *
+ * - operations: 変換後の operations (元配列と同じ長さ、変換 / 非変換が混ざる)
+ * - transformed: 1 つでも transform が発生したら true (trace synthesisSource 用)
+ */
+interface InspectResult {
+  operations: PlanOperation[];
+  transformed: boolean;
+}
+
+/**
+ * LLM operations を順に inspect して、必要なら transform する (Commit 8)。
+ *
+ * 現状の transform ルール (1 種、Commit 8 scope):
+ *   - **append かつ eventDraft.transport が non-null
+ *     かつ prior に「when.startTime / where.place_ref / what.activity 全部一致」
+ *     する event がある + 当該 prior の transport が異なる**
+ *     → modify { targetRef, patch.transport } に変換
+ *
+ *   理由 (CEO 観測 2026-04-30 / Preview turn 3):
+ *     LLM が「電車」 を「event_1 の完全コピー + transport=電車」 で append output
+ *     するケースが実機で発生。これを reject + fallback すると events[] 経路で
+ *     同じ duplicate が再発するため、append → modify に **変換** する
+ *     (CEO 指示: reject + fallback だけは NG / transform するべき)。
+ *
+ *   targetRef 構築:
+ *     - eventDraft.when.startTime が "HH:MM" → 「N時の予定」 (時刻 prefix)
+ *     - 取れない場合 → samePlan.event_id (resolveTargetRef に直接渡せる)
+ *
+ * 変換しない (passthrough):
+ *   - prior と一致しない append (新規予定として正常)
+ *   - eventDraft.transport が null (transport patch 意図でない)
+ *   - prior と一致 + transport も同じ (= 完全 duplicate、別系統の問題)
+ *   - modify / answer / noop (transform 対象外)
+ *
+ * @internal exported for unit tests
+ */
+export function inspectAndTransformLlmOperations(
+  llmOperations: PlanOperation[],
+  priorEvents: Event[],
+): InspectResult {
+  const out: PlanOperation[] = [];
+  let transformed = false;
+  for (const op of llmOperations) {
+    if (op.type !== "append") {
+      out.push(op);
+      continue;
+    }
+    if (op.eventDraft.transport == null) {
+      out.push(op);
+      continue;
+    }
+    // 一致する prior を探す (when.startTime / where.place_ref / what.activity 全部一致)
+    const samePlan = priorEvents.find(
+      (p) =>
+        p.when.startTime === op.eventDraft.when.startTime &&
+        p.where.place_ref === op.eventDraft.where.place_ref &&
+        p.what.activity === op.eventDraft.what.activity,
+    );
+    if (!samePlan) {
+      // 新規予定として正常 (prior に該当なし)
+      out.push(op);
+      continue;
+    }
+    if (samePlan.transport === op.eventDraft.transport) {
+      // 完全 duplicate (transport も同じ)。本層では変換しない (別系統の問題)
+      out.push(op);
+      continue;
+    }
+    // transport-only duplicate append → modify に変換
+    const targetTime = op.eventDraft.when.startTime;
+    const targetRef = targetTime
+      ? `${parseInt(targetTime.split(":")[0], 10)}時の予定`
+      : samePlan.event_id;
+    out.push({
+      type: "modify",
+      targetRef,
+      patch: { transport: op.eventDraft.transport },
+    });
+    transformed = true;
+  }
+  return { operations: out, transformed };
+}
