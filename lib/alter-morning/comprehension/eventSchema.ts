@@ -279,6 +279,28 @@ export interface ComprehensionResult {
     operation: PlanOperation;
     reason: string;
   }>;
+
+  /**
+   * PR-50 Commit 6 (CEO 2026-04-30): operations の出所を trace に出すための field。
+   *
+   * 値:
+   *   - "llm":                          LLM operations をそのまま採用
+   *   - "llm_transformed":              LLM operations のうち 1+ が synth 層で
+   *                                      transform された (e.g., transport-only
+   *                                      duplicate append → modify)
+   *   - "deterministic":                utterance pattern hit、LLM は出していない
+   *   - "deterministic_overrides_llm":  utterance pattern hit、LLM 出力を上書き
+   *   - "none":                         operations 全部空 (legacy events[] 経路)
+   *
+   * Commit 6 段階: schema のみ追加 (default "none")。
+   * Commit 7-8: synth 層が値を埋める。
+   */
+  operationsSynthesisSource?:
+    | "llm"
+    | "llm_transformed"
+    | "deterministic"
+    | "deterministic_overrides_llm"
+    | "none";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

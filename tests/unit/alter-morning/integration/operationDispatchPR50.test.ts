@@ -159,6 +159,7 @@ describe("PR-50 Case 1: modify when (時間変更)", () => {
       fallbackToEvents: false,
       appliedTypes: ["modify"],
       rejectReasons: [],
+      synthesisSource: "none",
     });
   });
 });
@@ -215,6 +216,7 @@ describe("PR-50 Case 2: modify transport (移動手段変更)", () => {
       fallbackToEvents: false,
       appliedTypes: ["modify"],
       rejectReasons: [],
+      synthesisSource: "none",
     });
   });
 });
@@ -287,6 +289,7 @@ describe("PR-50 Case 3: append (予定追加)", () => {
       fallbackToEvents: false,
       appliedTypes: ["append"],
       rejectReasons: [],
+      synthesisSource: "none",
     });
   });
 });
@@ -347,6 +350,7 @@ describe("PR-50 Case 4: answer (pendingClarify 回答, secondary safety path)", 
       fallbackToEvents: false,
       appliedTypes: ["answer"],
       rejectReasons: [],
+      synthesisSource: "none",
     });
   });
 });
@@ -424,6 +428,7 @@ describe("PR-50 Case 5: invalid operation fallback", () => {
         fallbackToEvents: true,
         appliedTypes: [],
         rejectReasons: ["modify_target_unresolved"],
+        synthesisSource: "none",
       });
     } finally {
       warn.mockRestore();

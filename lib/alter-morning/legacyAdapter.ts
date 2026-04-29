@@ -392,24 +392,29 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Operations trace builder (PR-50 Commit 5 / CEO 2026-04-30)
+// Operations trace builder (PR-50 Commit 5+6 / CEO 2026-04-30)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
  * comprehension result から operations 経路 trace 用 summary を構築する。
  *
- * 出力条件:
- *   - operations / acceptedOperations / operationRejections のいずれかが
- *     非 empty なら summary を返す
- *   - 全部 empty (operations 経路を踏んでいない turn) → null (caller が omit)
+ * 出力条件 (PR-50 Commit 6 / CEO 2026-04-30 修正):
+ *   **常に summary を返す**。旧仕様で全部 0 のとき null を返していたが、
+ *   観測の盲点 (LLM 不出力 / parser drop / fallback / synth どこで止まったか
+ *   trace に出ない) になっていたため、常時出力に変更。
+ *
+ *   - comprehension が null (= 異常状態) のときのみ null
+ *   - それ以外は { received: 0, ... synthesisSource: "none" } を含めて常に出す
  *
  * 含む field:
- *   - received:         comprehension.operations.length (LLM が出した数)
+ *   - received:         comprehension.operations.length (parsePlanOperations 通過後)
  *   - accepted:         comprehension.acceptedOperations.length
  *   - rejected:         comprehension.operationRejections.length
  *   - fallbackToEvents: comprehension.fallbackToEvents (default true)
  *   - appliedTypes:     accepted operations の type 配列 (LLM 出力 order を保持)
  *   - rejectReasons:    reject 理由の string 配列 (重複可)
+ *   - synthesisSource:  Commit 7-8 で synth 層が埋める。Commit 6 段階では
+ *                       受け皿のみ提供 (既存 comprehension で値が無ければ "none" 既定)
  */
 function buildOperationsTrace(
   comprehension: MorningPipelineResult["comprehension"],
@@ -420,13 +425,18 @@ function buildOperationsTrace(
   fallbackToEvents: boolean;
   appliedTypes: string[];
   rejectReasons: string[];
+  synthesisSource:
+    | "llm"
+    | "llm_transformed"
+    | "deterministic"
+    | "deterministic_overrides_llm"
+    | "none";
 } | null {
   if (!comprehension) return null;
   const received = comprehension.operations?.length ?? 0;
   const accepted = comprehension.acceptedOperations?.length ?? 0;
   const rejections = comprehension.operationRejections ?? [];
   const rejected = rejections.length;
-  if (received === 0 && accepted === 0 && rejected === 0) return null;
   return {
     received,
     accepted,
@@ -434,6 +444,7 @@ function buildOperationsTrace(
     fallbackToEvents: comprehension.fallbackToEvents ?? true,
     appliedTypes: (comprehension.acceptedOperations ?? []).map((op) => op.type),
     rejectReasons: rejections.map((r) => r.reason),
+    synthesisSource: comprehension.operationsSynthesisSource ?? "none",
   };
 }
 
