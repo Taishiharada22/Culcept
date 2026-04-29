@@ -988,3 +988,104 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
 ### 制限事項
 - B-3.4.d 単独で Production promote しない (Path B 完了後にまとめて)
 - B-4 (Supabase migration 適用状態最終 audit + integration test) は本 migration 適用後に実施
+
+## [2026-04-30] [Build] [Stage 4 B-4.1 audit + Path B 完了判定] [承認: CEO]
+
+### Path B で達成した範囲
+
+- **B-1** (`02b57f79`): L4-b state header + L4-f ModeSwitcher 本番化
+- **B-2** (`2bc7a7b4` / `03ada72a` / `a0a4d2c9`): L4-h Urgent layer + critical signal detection (CEO 視覚確認 PASS)
+- **B-3.0**: migration / RLS read-only audit (commit なし、audit only)
+- **B-3.1** (`e5474242`): Memory list API endpoint (server-side、RLS-aware)
+- **B-3.2** (`6c0cf82d`): useMemoryItems hook (initial fetch のみ)
+- **B-3.3** (`8330c7bc`): UpperLayerMount に MemorySurface mount + viewer 解決
+- **B-3.4.a** (`8e5d0e80`): Realtime publication migration (適用済 2026-04-30 10:00:00)
+- **B-3.4.b** (`bb0eba99`): useMemoryItems Realtime 拡張 (channel + filter + throttle 250ms)
+- **B-3.4.c** (`9599138e`): Realtime hook test + 既存 grep 反転 (CEO 修正条件 1/2 cover)
+- **B-3.4.d** (`42ba5bee`): REPLICA IDENTITY FULL migration (適用済 2026-04-30 11:00:00)
+
+### Path B 完了 ≠ §10.2 全項目完全達成
+
+Stage 4 L4-l 完了定義 §10.2 13 項目に対する Path B の状態:
+- **完全達成 (complete)**: 5 項目 (#3 3 mode / #4 memory surface / #5 urgent layer / #7 連投抑制 / #11 不可侵項遵守)
+- **部分達成 (partial)**: 6 項目 (#1 Stage 4 全 / #2 flag 全 (PRESENCE_SPEECH_LLM 未稼働) / #6 拒否 3 分類 UI 未接続 / #9 telemetry 観測未確認 / #10 a11y 4 補助状態未接続 / #12 mainstream E-3 整合未確認)
+- **未達成 (missing)**: 2 項目 (#8 speechBuilder LLM 合成 / #13 legacy CoAlterCard 削除)
+
+表現規約 (CEO 確定 2026-04-30):
+- ✅ **Path B 完了** / ✅ **Stage 4 L4-l core UI path 完了**
+- ❌ **§10.2 全項目完全達成** / ❌ **Stage 4 L4-l 完全完了** (= 表現禁止)
+
+→ **Path B 完了 = Stage 4 L4-l core UI path 完了**。Stage 4 L4-l 正式完了には L4-i / L4-j / L4-k / L4-m / mainstream E-3 の追加 phase が必要。
+
+### B-3.4 Realtime INSERT / DELETE manual test PASS
+
+2026-04-30 manual test (CEO 視覚確認):
+- INSERT realtime: 即時表示 ✅
+- DELETE realtime: page refresh なしで即時消失 ✅ (REPLICA IDENTITY FULL 効果)
+- cleanup SELECT count = 0 ✅
+- console error / CHANNEL_ERROR なし ✅
+
+REPLICA IDENTITY FULL の効果が想定通りに発揮 (DELETE event の OLD record が full row で broadcast され RLS 評価成功 → subscriber に届く)。
+
+### publication / REPLICA IDENTITY FULL / RLS の最終状態
+
+- `coalter_memory_items`: `supabase_realtime` publication に登録済 ✅ (`20260430100000`)
+- `coalter_memory_items`: REPLICA IDENTITY FULL ✅ (`20260430110000`)
+- `coalter_memory_items` RLS:
+  - SELECT: pair member + visibility gate (4 軸: both_visible / user_a_only / user_b_only / internal_only) ✅
+  - UPDATE: pair member ✅
+  - INSERT: `with check (false)` (service_role 経由のみ) ✅
+  - DELETE: pair member ✅
+- `coalter_pair_states` RLS:
+  - SELECT/INSERT/UPDATE: pair member ✅
+  - DELETE: cascading delete only
+
+### 残リスク R1-R13
+
+#### Path B 範囲外 (§10.2 残項目)
+- **R1**: `PRESENCE_SPEECH_LLM` 未稼働 (L4-i 残)
+- **R2**: telemetry 8 項目 Production 観測未確認 (L4-j 部分)
+- **R3**: a11y 4 補助状態 UI 未接続 (L4-k 部分、State*Fallback components 実装済だが UpperLayerStateRenderer に mount なし)
+- **R4**: 拒否 3 分類 UI 未接続 (§10.2 #6、rejectionReducer 実装済だが UpperLayerMount に mount なし)
+- **R5**: legacy CoAlterCard 削除未実施 (L4-m、CEO「1 rev 観測後」方針)
+- **R6**: mainstream plan E-3 整合未確認
+
+#### Path B 範囲内
+- **R7**: explicit / mention / chip tap signal 未実装 (B-2 で除外)
+- **R8**: Memory item 「両端末視点」確認 1 端末のみ (端末 2 台での visibility test 未実施)
+- **R9**: Production load (memory rate / subscriber count) 未測定
+- **R10**: rate limit / utterance queue は Stage 2 実装済だが UI 接続未確認
+
+#### 運用
+- **R11**: rollback 経路の手動依存 (CEO 操作: Vercel env / supabase db push)
+- **R12**: test pair_id 1 つでの確認のみ
+- **R13**: CEO 厳守事項 12 項目 → 機械的 enforcement なし
+
+### Production promote 候補 P1/P2/P3
+
+- **P1**: Path B 完了で promote (B-4.2 完了後の CEO 判断、推奨)
+- **P2**: §10.2 全項目達成後 promote (慎重派、L4-i/j/k/m + E-3 完了まで preview のみ)
+- **P3**: 段階的 promote (sub-phase 完了ごとに promote)
+
+### 推奨は P1、最終判断は B-4.2 後
+
+CEO 確定 (2026-04-30): **P1 を採用候補**、B-4.2 完了後に以下 6 つの判断材料を見て最終判断:
+1. B-4.2 test 結果
+2. decision-log 記録
+3. rollback 手順
+4. preview smoke
+5. CEO 視覚確認
+6. §10.2 残項目が明示されていること
+
+### 次フェーズ優先順位 (B-4 完了後、CEO 確定 2026-04-30)
+1. **L4-k**: a11y / loading / error / empty 補助状態の本番 wire
+2. **L4-j**: telemetry 8 項目の Production 観測
+3. **L4-i**: Presence speech LLM 合成
+4. **L4-m**: legacy CoAlterCard 自動挿入コード削除
+5. **mainstream plan E-3 整合 audit**
+
+ただし実際の着手順は B-4 完了後に再判断。
+
+### 不変 (CEO 厳守 2026-04-30)
+- B-4.1 audit は read-only、code touch ゼロ
+- migration / API / UI / RLS / supabase db push / Production promote / env / package / next-env.d.ts / supabase temp 全て不変
