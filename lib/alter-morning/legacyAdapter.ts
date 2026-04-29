@@ -61,6 +61,11 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
 import { dispatchEventMerge } from "./planning/eventMergeDispatch";
+// PR-50 Commit 4 (CEO 2026-04-30): operations 経路の thin dispatch。
+//   acceptedOperations を applyModifyPatchFromOperation / generateNonCollidingEventId /
+//   bindAnswerToSlot / resolveTargetRef を再利用して effectiveEvents に反映する。
+//   fallbackToEvents===false かつ acceptedOperations.length>0 のときのみ使用。
+import { dispatchOperations } from "./planning/operationDispatcher";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -561,11 +566,42 @@ export function adaptPipelineToLegacy(
   //     D. position fallback を turn_mode="create" + length match に限定
   //
   //   詳細: lib/alter-morning/planning/eventMergeDispatch.ts
-  const dispatchResult = dispatchEventMerge({
-    currentEvents,
-    priorPersistedEvents: input.priorPersistedEvents ?? [],
-  });
-  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
+  //
+  // ── PR-50 Commit 4 (CEO 2026-04-30): operations 経路 分岐 ──
+  //   morningPipeline (Commit 3) が ComprehensionResult.fallbackToEvents を
+  //   立てる: false なら全 operations が validation 通過、true なら operations
+  //   空 or 1+ reject。前者のみ operationDispatcher で effectiveEvents 構築、
+  //   後者は既存 dispatchEventMerge に倒す (regression baseline 維持)。
+  //
+  //   分岐条件 (両方満たす):
+  //     - comprehension.fallbackToEvents === false
+  //     - comprehension.acceptedOperations が non-empty
+  //
+  //   どちらの経路でも下流 reconcileGapStateFromEffectiveEvents は同じ呼び出し。
+  //   trace 集計 (L924-) は dispatchResult.dispatch を見るので、両分岐で同 shape
+  //   を保つ。operation 経路では dispatch は空配列にして「turn_mode ベース集計
+  //   に該当なし」を表現する (operation 別 trace は Commit 5 で扱う)。
+  const fallbackToEvents = result.comprehension?.fallbackToEvents ?? true;
+  const acceptedOperations = result.comprehension?.acceptedOperations ?? [];
+  const useOperationsPath =
+    !fallbackToEvents && acceptedOperations.length > 0;
+  let effectiveEvents: ComprehensionEvent[];
+  let dispatchResult: ReturnType<typeof dispatchEventMerge>;
+  if (useOperationsPath) {
+    const opResult = dispatchOperations({
+      acceptedOperations,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+      priorPendingClarify: input.priorPendingClarify ?? null,
+    });
+    effectiveEvents = opResult.effectiveEvents;
+    dispatchResult = { effectiveEvents: opResult.effectiveEvents, dispatch: [] };
+  } else {
+    dispatchResult = dispatchEventMerge({
+      currentEvents,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+    });
+    effectiveEvents = dispatchResult.effectiveEvents;
+  }
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);

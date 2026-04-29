@@ -1975,6 +1975,15 @@ export async function POST(req: NextRequest) {
                 ...(priorPlanForLLM && priorPlanForLLM.length > 0
                   ? { priorPlanForContext: priorPlanForLLM }
                   : {}),
+                // PR-50 Commit 4 (CEO 2026-04-30): operations 経路の answer
+                //   operation を validation 層で検証するため、pendingClarify を
+                //   morningPipeline.validatePlanOperations の context に流す。
+                //   answer は secondary safety path (主経路は Branch A の
+                //   bindAnswerToSlot)。Branch B で LLM が answer operation を
+                //   出した場合のみ operationDispatcher で補助 bind が走る。
+                //   pendingClarify が null なら validation で
+                //   answer_no_pending_clarify reject → events[] fallback。
+                priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),

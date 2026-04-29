@@ -24,6 +24,7 @@ import type { L1PipelineInput } from "./comprehension/l1Pipeline";
 import { runL1Pipeline } from "./comprehension/l1Pipeline";
 import { preParseUtterance, type RulePreParseHints } from "./comprehension/rulePreParse";
 import { validatePlanOperations } from "./comprehension/validateOperation";
+import type { PendingClarify } from "./types";
 
 import { solveTimeLine, type TimeLine } from "./planning/timeSolver";
 import { groundPlaces, type GroundedPlace } from "./planning/placeGrounder";
@@ -138,6 +139,27 @@ export interface MorningPipelineInput {
    * 用途: route.ts の Branch B で「prior plan あり + 新 utterance」 → modify/append 判定。
    */
   priorPlanForContext?: Event[];
+
+  /**
+   * PR-50 Commit 4 (CEO 2026-04-30): operations 経路の answer operation を
+   * validation 層で検証するための pendingClarify state。
+   *
+   * 用途:
+   *   - validatePlanOperations の context.priorPendingClarify に流す
+   *   - LLM が answer operation を出した場合、slot mismatch / no_pending_clarify
+   *     を validation で検出して、矛盾なら events[] fallback に倒す
+   *
+   * 渡し方:
+   *   - route.ts Branch B (LLM 経路): rawMorningSession.pendingClarify を渡す
+   *   - route.ts Branch A (bind 経路): pipeline は priorEvents bypass モードで
+   *     LLM を呼ばず operations は空のため、本 field の影響なし (流しても無害)
+   *
+   * **answer は secondary safety path** (CEO 2026-04-30):
+   *   主経路は route.ts Branch A の bindAnswerToSlot。Branch A 成功時は LLM が
+   *   呼ばれず operations は空。Branch B で LLM が answer operation を出した
+   *   ケースのみ本 field 経由で operationDispatcher の bind に流れる。
+   */
+  priorPendingClarify?: PendingClarify | null;
 }
 
 export interface MorningPipelineProviders {
@@ -305,19 +327,16 @@ export async function runMorningPipeline(
   // を見て経路選択する。Commit 3 では伝搬のみで dispatch はしない (既存 events[]
   // 経路の挙動が変わらないことが regression baseline 合格条件)。
   //
-  // 既知の制約 (Commit 4 で解消):
-  //   - priorPendingClarify は現状 null 固定。answer operation の検証
-  //     (slot mismatch / no_pending_clarify) は Commit 4 で route.ts が pending
-  //     state を MorningPipelineInput に渡せるようにしてから完成する。
-  //     Commit 3 段階で answer 経由の operations が来た場合、validation 層は
-  //     answer_no_pending_clarify で reject → events[] fallback に倒す。
-  //     これは既存挙動 (events[] 経路) と一致するため regression は発生しない。
+  // PR-50 Commit 4 (CEO 2026-04-30): priorPendingClarify を input から拾う。
+  //   - Branch B (LLM 経路): route.ts は rawMorningSession.pendingClarify を渡す。
+  //     answer operation を validation 層で正確に検証 (slot mismatch / no_pending
+  //     を含む)。
+  //   - Branch A (bind 経路): pipeline は priorEvents bypass で raw.operations が
+  //     空のため、context は使われない (validation スキップ相当)。
   const operationsFromRaw = raw.operations ?? [];
   const operationContext = {
     priorEvents: input.priorPlanForContext ?? [],
-    // TODO(PR-50 Commit 4): MorningPipelineInput.priorPendingClarify を追加して
-    //   route.ts の Branch B (LLM 経路) で pendingClarify を渡せるようにする。
-    priorPendingClarify: null,
+    priorPendingClarify: input.priorPendingClarify ?? null,
   };
   const validation = validatePlanOperations(operationsFromRaw, operationContext);
   const useOperationsPath =

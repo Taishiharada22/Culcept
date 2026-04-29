@@ -30,6 +30,7 @@
  */
 
 import type { Event } from "../comprehension/eventSchema";
+import type { ModifyOperation } from "../comprehension/planOperation";
 import { resolveTargetRef } from "./modifyRouter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,6 +146,91 @@ export function applyModifyPatch(prior: Event, cur: Event): Event {
     who: prior.who, // PR-46: 常に prior 維持
     transport: newTransport,
     certainty: cur.certainty ?? prior.certainty,
+    missing_semantic_critical: prior.missing_semantic_critical,
+    missing_solver_blockers: prior.missing_solver_blockers,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyModifyPatchFromOperation — PlanOperation.modify を prior に適用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * `applyModifyPatch(prior, cur: Event)` の operation 版 sibling。
+ *
+ * CEO 2026-04-30 PR-50 Commit 4:
+ *   既存 `applyModifyPatch` は `cur: Event` を取る (turn_mode / target_ref 等を持つ)。
+ *   `PlanOperation.modify` は `targetRef: string` + `patch: EventPatch` の組で、
+ *   Event 型ではない。両者の橋渡しを本関数で行う。
+ *
+ * 適用範囲 (Commit 4 暫定制限):
+ *   - **when.startTime / endTime / timeHint**: patch.when 経由で override
+ *   - **transport**: patch.transport 経由で override
+ *   - **where / what / who**: prior 維持 (touch しない)
+ *
+ * なぜ where / what / who を touch しないか (PR-46 contract):
+ *   modify event の patch.what / patch.where に LLM が **編集命令文字列**
+ *   を入れがち (e.g., patch.what.activity="9時を10時に変更")。これを prior に
+ *   override すると plan_item.text に command 文字列が leak する。
+ *   既存 applyModifyPatch (cur: Event 版) も同 contract で touch しない。
+ *
+ * 将来拡張 (Commit 4 では未実装):
+ *   - 「サドヤから新宿に変更」 のような場所変更を扱う場合、change_scope='replace'
+ *     を schema 層で導入し、where override を **明示的選択肢** として patch に渡す
+ *   - 同様に what / who 変更も明示的 scope で扱う
+ *   - 現状: PlanOperation.modify の patch は当層で when / transport のみ通す
+ *
+ * 戻り値: 新しい Event オブジェクト (prior は不変)。
+ */
+export function applyModifyPatchFromOperation(
+  prior: Event,
+  op: ModifyOperation,
+): Event {
+  const whenPatch = op.patch.when;
+  const newStartTime = whenPatch?.startTime ?? prior.when.startTime;
+  const newEndTime =
+    whenPatch?.endTime !== undefined && whenPatch.endTime !== null
+      ? whenPatch.endTime
+      : (prior.when.endTime ?? null);
+  const newTimeHint = whenPatch?.timeHint ?? prior.when.timeHint;
+  const whenChanged =
+    (whenPatch?.startTime != null) ||
+    (whenPatch?.endTime != null) ||
+    (whenPatch?.timeHint != null);
+  const newWhen = {
+    startTime: newStartTime,
+    endTime: newEndTime,
+    timeHint: newTimeHint,
+    // patch.when.provenance は EventPatch 型に存在しないので、prior の provenance
+    // を維持する。明示変更を反映する場合は将来 patch に provenance を載せる。
+    provenance: whenChanged ? prior.when.provenance : prior.when.provenance,
+  };
+
+  // transport: patch.transport が string なら override、undefined なら prior 維持
+  //   `op.patch.transport` の型は `string | null | undefined`。null は parser が
+  //   omit して undefined にする (parsePlanOperations) ため、ここは string のみ
+  //   override 対象として扱う。
+  const newTransport =
+    typeof op.patch.transport === "string"
+      ? op.patch.transport
+      : prior.transport;
+
+  return {
+    ...prior,
+    event_id: prior.event_id,
+    turn_mode: prior.turn_mode,
+    // target_ref / target_ref_confidence / change_scope: 解決後 clear
+    target_ref: null,
+    target_ref_confidence: null,
+    change_scope: null,
+    when: newWhen,
+    // PR-46 contract: where / what / who は prior 維持 (text leak 防止)
+    //   将来 PR で change_scope='replace' を導入する場合、ここで分岐する。
+    where: prior.where,
+    what: prior.what,
+    who: prior.who,
+    transport: newTransport,
+    certainty: prior.certainty,
     missing_semantic_critical: prior.missing_semantic_critical,
     missing_solver_blockers: prior.missing_solver_blockers,
   };
