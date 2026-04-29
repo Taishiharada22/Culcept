@@ -29,7 +29,12 @@ describe("B-3.2 構造 invariant — useMemoryItems hook の設計遵守", () =>
     expect(content.startsWith('"use client";')).toBe(true);
   });
 
-  it("Realtime subscribe を含まない (B-3.4 で別 gate)", async () => {
+  it("Realtime subscribe を含む (B-3.4 で grep 反転、CEO 確定 2026-04-30)", async () => {
+    // 旧 (B-3.2): Realtime API 未使用を確認 (Realtime は B-3.4 で別 gate)
+    // 新 (B-3.4): Realtime API 使用を確認 (channel + filter + throttle が wire 済)
+    //
+    // 詳細な Realtime invariant は useMemoryItemsRealtime.test.ts で別途 cover、
+    // 本 test では「B-3.4 wire 完了」の最低限の grep のみ。
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -37,11 +42,13 @@ describe("B-3.2 構造 invariant — useMemoryItems hook の設計遵守", () =>
       "../../../app/components/chat/hooks/useMemoryItems.ts",
     );
     const content = fs.readFileSync(file, "utf8");
-    // supabase Realtime API を import していない
-    expect(content).not.toMatch(/from\s+["']@supabase\/supabase-js["']/);
-    expect(content).not.toMatch(/\.channel\(/);
-    expect(content).not.toMatch(/postgres_changes/);
-    expect(content).not.toMatch(/createBrowserClient/);
+    // B-3.4: Supabase browser client + channel subscribe + filter
+    expect(content).toMatch(
+      /import\s+\{\s*supabaseBrowser\s*\}\s+from\s+["']@\/lib\/supabase\/client["']/,
+    );
+    expect(content).toMatch(/\.channel\(/);
+    expect(content).toMatch(/postgres_changes/);
+    expect(content).toMatch(/RealtimePostgresChangesPayload/);
   });
 
   it("API endpoint /api/coalter/memory/list を fetch", async () => {
