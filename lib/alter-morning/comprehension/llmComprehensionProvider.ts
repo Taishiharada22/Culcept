@@ -134,7 +134,100 @@ target_ref は不要 (新規 event なので)。
 - 今 turn の utterance に書かれた **新規 events のみ** 出力する
 - prior と同じ予定を再度 events に入れない（LLM がコピーすると plan が重複する）
 - modify の場合、変更前の値ではなく **変更後の値** を when/where/what に入れる
-- 発話に「変更/変える/ずらす/A→B」が含まれているのに turn_mode="create" を出さない`;
+- 発話に「変更/変える/ずらす/A→B」が含まれているのに turn_mode="create" を出さない
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[operations 出力ルール (CEO 2026-04-30 PR-50 移行)]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+events[] の他に、**今 turn の意図** を表現する operations[] も出力してください。
+operations は events[] と並列に同じ意図を表現する。code 側で operations を主、
+events[] を fallback として使用します。
+
+[operations の 4 種類]
+
+- **append**: 新規予定の追加
+  必須 fields: type="append", eventDraft (新規 event の slot 一式)
+  null fields: targetRef, patch, slot, value, reason
+
+- **modify**: 既存予定の slot 修正
+  必須 fields: type="modify", targetRef, patch (修正したい slot のみ非 null)
+  null fields: eventDraft, slot, value, reason
+  注意: patch.when.startTime / patch.transport が修正対象なら non-null、
+        それ以外の slot は null にする (修正対象外 slot に値を入れない)
+
+- **answer**: pendingClarify への回答 (発話が "どこ？" "何時？" 等への返答)
+  必須 fields: type="answer", slot, value
+  null fields: eventDraft, targetRef, patch, reason
+  注意: pendingClarify が立っていない turn では answer を出さない
+
+- **noop**: 予定変更を伴わない発話 (挨拶、状態確認、雑談)
+  必須 fields: type="noop"
+  null fields: eventDraft, targetRef, patch, slot, value
+  reason は debug 用 (acknowledgement / status_query / off_topic / other) or null
+
+[fallback ルール]
+
+- operations を判定できない / 自信がない → operations: [] にする
+  events[] が main path として使われる (旧挙動互換)
+- operations を出す場合でも、events[] は **必ず並列に同じ意図を表現** する
+  operations だけを populate して events[] を空にしない (regression baseline)
+- 1 turn で複数 operation 出力可 (例: modify + append が同じ発話に含まれる)
+
+[operations few-shot 例]
+
+例 4 (operations: append):
+  prior: [event_id=evt_1, time=09:00, place=スタバ, activity=コーヒー]
+  発話: "12時に新宿で武藤さんとランチ"
+  期待出力:
+    events: [{ turn_mode: "append", when: 12:00, where: 新宿, what: ランチ, who: ["武藤"] }]
+    operations: [{
+      type: "append",
+      eventDraft: { when: 12:00, where: 新宿, what: ランチ, who: ["武藤"], transport: null, certainty: "asserted" },
+      targetRef: null, patch: null, slot: null, value: null, reason: null
+    }]
+
+例 5 (operations: modify):
+  prior: [event_id=evt_1, time=09:00, place=スタバ, activity=コーヒー]
+  発話: "9時を10時に変更"
+  期待出力:
+    events: [{ turn_mode: "modify", target_ref: "9時の予定", change_scope: "patch", when: 10:00, ... }]
+    operations: [{
+      type: "modify",
+      targetRef: "9時の予定",
+      patch: { when: { startTime: "10:00", endTime: null, timeHint: null }, where: null, what: null, transport: null, who: null },
+      eventDraft: null, slot: null, value: null, reason: null
+    }]
+
+例 6 (operations: answer):
+  prior: [event_id=evt_1, time=09:00, place=null (vague), activity=コーヒー]
+  pendingClarify: { event_id: "evt_1", slot: "where", question: "どのあたり？" }
+  発話: "池袋"
+  期待出力:
+    events: []  ← answer の場合 events は空 OK (新規予定でないため)
+    operations: [{
+      type: "answer",
+      slot: "where",
+      value: "池袋",
+      eventDraft: null, targetRef: null, patch: null, reason: null
+    }]
+  ※ events: [] は **answer 経路でのみ許可**。append/modify/noop の operations を出すなら events も並列に出す。
+
+例 7 (operations: noop):
+  発話: "ありがとう"
+  期待出力:
+    events: []
+    operations: [{
+      type: "noop",
+      reason: "acknowledgement",
+      eventDraft: null, targetRef: null, patch: null, slot: null, value: null
+    }]
+
+[operations 絶対禁則]
+- type="append" なのに targetRef を入れない
+- type="modify" なのに patch が空 (全 slot null) は禁止
+- type="answer" なのに value が空文字 / null は禁止
+- type 別の必須 field 以外は **必ず null** にする (LLM の混乱を防ぐ)`;
 
 function buildUserPrompt(
   utterance: string,
@@ -180,12 +273,18 @@ function buildUserPrompt(
 /**
  * LLM structured output が L1_RESPONSE_FORMAT の shape を満たすかを最低限チェック。
  * strict: true でも念のため narrow する（後段で as 乱発を避ける）。
+ *
+ * PR-50 (CEO 2026-04-30): operations field 追加。strict mode で required なので
+ * LLM 出力に必ず存在する想定。空配列 [] は許容 (events[] fallback signal)。
+ * operations parser / validation は Commit 3 で実装するため、本層では shape のみ確認。
  */
 function validateRawShape(x: unknown): x is L1PipelineInput["raw"] {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
   if (typeof o.targetDate !== "string") return false;
   if (!Array.isArray(o.events)) return false;
+  // PR-50: operations は必須 (strict mode required)。array であることのみ確認。
+  if (!Array.isArray(o.operations)) return false;
   // startPoint / departureTime は null or object（schema が required: で列挙している）
   if (o.startPoint !== null && typeof o.startPoint !== "object") return false;
   if (o.departureTime !== null && typeof o.departureTime !== "object") return false;
