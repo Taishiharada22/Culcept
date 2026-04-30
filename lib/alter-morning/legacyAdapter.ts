@@ -61,7 +61,13 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 // CEO 2026-04-28 PR #41b-0: effectiveEvents canonical reconcile (3 layer)。
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
-import { dispatchEventMerge } from "./planning/eventMergeDispatch";
+import {
+  dispatchEventMerge,
+  dedupCanonicalEvents,
+} from "./planning/eventMergeDispatch";
+// PR-50 Commit 14 (CEO 2026-04-30): canonical event invariant enforcement
+//   ghost modify removal で「予定の残骸」 を persistedEvents から filter する。
+import { isGhostModifyEvent } from "./planning/canonicalEventIdentity";
 // PR-50 Commit 4 (CEO 2026-04-30): operations 経路の thin dispatch。
 //   acceptedOperations を applyModifyPatchFromOperation / generateNonCollidingEventId /
 //   bindAnswerToSlot / resolveTargetRef を再利用して effectiveEvents に反映する。
@@ -696,6 +702,39 @@ export function adaptPipelineToLegacy(
       utterance: input.utterance,
     });
     effectiveEvents = dispatchResult.effectiveEvents;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR-50 Commit 14 (CEO 2026-04-30): canonical event invariant enforcement
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 合言葉: 「増殖は止める。でも、本物の別予定は潰さない」
+  //
+  // dispatchEventMerge / dispatchOperations の **後段** で effectiveEvents の
+  // 不変条件を修復する pure pass。雑な dedup ではなく状態機械の不変条件:
+  //
+  //   1. ghost modify removal: turn_mode=modify + 全 slot missing な event を
+  //      filter (Commit 12 で発生源は断ったが既存 polluted session の defensive)
+  //   2. same canonical event merge: same startTime + same activity + same
+  //      place identity の event を 1 件に統合 (LLM の re-extraction が
+  //      Commit 12 を貫通した場合の最終防御)
+  //
+  // 含まない (= future PR):
+  //   - different startTime をまたぐ transport-only duplicate cleanup
+  //     (本物別予定を潰すリスク高)
+  //
+  // merge 方向 (CEO + GPT 確定):
+  //   先にある event (= base) を維持、duplicate から non-null 情報だけ補完。
+  //   event_id は base 維持 → capturedHistory / dialogState.focus.event_id の
+  //   参照が壊れない。
+  const beforeInvariantCount = effectiveEvents.length;
+  effectiveEvents = effectiveEvents.filter((e) => !isGhostModifyEvent(e));
+  const afterGhostFilterCount = effectiveEvents.length;
+  effectiveEvents = dedupCanonicalEvents(effectiveEvents);
+  const afterDedupCount = effectiveEvents.length;
+  if (beforeInvariantCount !== afterDedupCount) {
+    console.info(
+      `[alter-morning:invariant] events ${beforeInvariantCount} → ${afterGhostFilterCount} (ghost filter) → ${afterDedupCount} (canonical dedup)`,
+    );
   }
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──

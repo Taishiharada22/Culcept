@@ -614,3 +614,70 @@ export function dispatchEventMerge(
     dispatch,
   };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// dedupCanonicalEvents — PR-50 Commit 14 (CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * events 配列内の **同一 canonical event** を 1 件に統合する dedup pass。
+ *
+ * 設計原則 (CEO 2026-04-30):
+ *   合言葉: 「増殖は止める。でも、本物の別予定は潰さない」
+ *
+ *   merge 条件 (isSameEventCanonical で判定):
+ *     - same startTime
+ *     - same activity
+ *     - same place identity (place_ref 完全一致 / coordinates 近接 /
+ *       exact_proper_noun 包含 / 片方 null + confident 救済)
+ *
+ *   保護される「本物の別予定」 (merge されない):
+ *     - different startTime (例: 10:00 スタバ + 12:00 スタバ → 別予定)
+ *     - different place (例: 10:00 スタバ + 10:00 サドヤ → 別予定)
+ *     - different activity (例: 10:00 スタバ コーヒー + 10:00 スタバ ランチ → 別予定)
+ *
+ * merge 方向 (CEO + GPT 確定 2026-04-30):
+ *   **base (= 先にある event) を維持**、後から来た duplicate から non-null
+ *   情報だけ補完。これにより:
+ *     - event_id は base 維持 → capturedHistory / dialogState.focus.event_id
+ *       の参照が壊れない
+ *     - place は exact_proper_noun / coordinates ありが優先される
+ *       (mergeIntoPriorCreate の priorWhereLocked + cur non-null 採用ロジック
+ *       により自然に達成)
+ *     - transport は non-null を優先 (mergeIntoPriorCreate の cur.transport ?? prior.transport)
+ *
+ * 用途 (legacyAdapter.ts Commit 14 invariant pass):
+ *   effectiveEvents 構築直後に呼び出す。dispatchEventMerge の中で発生する
+ *   merge とは別レイヤ (= 後段の独立 invariant 修復)。
+ *
+ *   既存 polluted session に同一 canonical の event が複数存在する場合、
+ *   ここで 1 件に統合して plan UI の duplicate 表示を防ぐ。
+ *
+ *   different startTime をまたぐ merge は **行わない** (CEO 確定 2026-04-30)。
+ *   それは future PR の scope (本物別予定を潰すリスクが高い)。
+ *
+ * pure: 副作用なし、新配列を返す。
+ *
+ * 計算量: O(n²) だが events 件数は通常 n ≤ 10 程度なので実用上問題なし。
+ */
+export function dedupCanonicalEvents(events: Event[]): Event[] {
+  const result: Event[] = [];
+  for (const ev of events) {
+    const matchIdx = result.findIndex((r) => isSameEventCanonical(r, ev));
+    if (matchIdx >= 0) {
+      // base (result[matchIdx]) を維持し、ev (duplicate) から non-null 情報を
+      // 補完する。mergeIntoPriorCreate(prior, cur) で:
+      //   - event_id: prior 維持
+      //   - startTime / activity: 同一性前提で同じ値
+      //   - where: priorWhereLocked (= prior が exact_proper_noun) なら prior 完全保持、
+      //            それ以外は cur の non-null を採用 (= cur が exact_proper_noun なら
+      //            それを優先する効果)
+      //   - coordinates: cur.where.coordinates ?? prior.where.coordinates (non-null 優先)
+      //   - transport: cur.transport ?? prior.transport (non-null 優先)
+      result[matchIdx] = mergeIntoPriorCreate(result[matchIdx], ev);
+    } else {
+      result.push(ev);
+    }
+  }
+  return result;
+}

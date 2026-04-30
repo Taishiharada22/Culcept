@@ -204,6 +204,51 @@ export function utteranceImpliesDifferentPlace(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// isGhostModifyEvent — PR-50 Commit 14 (CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Event が「ghost modify」 かを判定する pure predicate。
+ *
+ * 定義 (CEO 2026-04-30):
+ *   ghost modify event = turn_mode="modify" + when/where/what 全 missing
+ *   かつ transport だけ持つような実体のない event。
+ *
+ *   発生源 (Commit 12 以前): dispatchEventMerge の modify_unresolved_fallback_create
+ *   が未解決 modify を新規 event として persist していたことが原因。
+ *   Commit 12 で発生源は断ったが、既存 polluted session には残存している
+ *   可能性あり (production user の DB)。
+ *
+ *   plan 上の表示: 「[時間未確定][内容暫定]」 等の意味のない予定として残る
+ *   → CEO Preview 観測 2026-04-30 で問題発覚。
+ *
+ * 判定条件 (全て満たす):
+ *   - turn_mode === "modify"
+ *   - when.startTime null AND when.timeHint null
+ *   - where.place_ref null OR 空白文字のみ
+ *   - what.activity 空 OR 空白文字のみ
+ *
+ * 用途 (legacyAdapter.ts L? Commit 14 invariant pass):
+ *   effectiveEvents 構築直後に filter で ghost を除外する。
+ *   これは状態機械の不変条件修復であり、雑な dedup ではない (CEO 強調 2026-04-30)。
+ *
+ * pure: 副作用なし、引数のみで判定。
+ */
+export function isGhostModifyEvent(e: Event): boolean {
+  if (e.turn_mode !== "modify") return false;
+  const hasWhen =
+    e.when.startTime !== null || e.when.timeHint !== null;
+  if (hasWhen) return false;
+  const hasWhere =
+    e.where.place_ref !== null && e.where.place_ref.trim() !== "";
+  if (hasWhere) return false;
+  const hasWhat =
+    typeof e.what.activity === "string" && e.what.activity.trim() !== "";
+  if (hasWhat) return false;
+  return true;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // isFromCurrentUtterance
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
