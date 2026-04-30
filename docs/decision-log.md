@@ -1993,3 +1993,78 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
 - Production env に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` まだ入れない
 - Urgent LLM 化しない (Phase 1 範囲外)
 - L4-m / E-3 にまだ進まない
+
+## [2026-05-01] [Build] [PR #49 main 着地 → Production env scope 修正 → Production smoke 9/9 PASS] [承認: CEO]
+
+### Phase 1 main 着地 (commit `6a0f6d4b`)
+- 2026-05-01 ~01:54 JST: CEO が PR #49 を **Create a merge commit** で main へ regular merge
+- main HEAD: `6a0f6d4bffb755ad076017c87431b9fa3be92af0`
+- Vercel Production auto-deploy 起動、~7 分後 SUCCESS
+
+### Production smoke 1 巡目 — env scope 違反検出
+- Claude curl 検証 (alias `culcept.vercel.app`): smoke #1-5, #5b, #9 PASS (sentry-release 一致、env vercel-production、API routes alive、Production DSN 不在)
+- CEO 視覚確認 (`culcept-2l32gow43-...` deployment URL): **`/api/coalter/speech` 4 件 fire、speechSource:"llm"**
+- 原因特定: **Production env scope に L4-i Phase 1/2 関連 env 3 件が誤って入っていた**
+  - `COALTER_PRESENCE_SPEECH_LLM=true` (Production scope check 残存)
+  - `ANTHROPIC_API_KEY` (Production scope check 残存)
+  - `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` (Production scope check 残存)
+- **CEO 厳守条件 (Production env まだ入れない) 違反**
+
+### env scope 修正 (CEO 操作)
+- 上記 3 env を **Vercel Project env で Production check を外し、Preview only に変更**
+- ただし `NEXT_PUBLIC_*` は build-time inline → Production redeploy 必須
+
+### Production redeploy (Claude trigger)
+- 2026-05-01 ~02:35 JST: Claude が main に **empty commit `c9257721`** push
+  - commit message: `ci(coalter): retrigger Production build after env scope correction`
+- Vercel Production auto-build 起動、~12 分後 SUCCESS
+- 新 deployment alias `culcept.vercel.app` が `c9257721` を指すように更新
+
+### Production smoke 2 巡目 — 9/9 全 PASS
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | sentry-release `c9257721920d7020ff32c522202c38da334fd2fb` | ✅ Claude curl + CEO Console 確認 |
+| 2 | sentry-environment `vercel-production` | ✅ |
+| 3 | `/api/coalter/presence/state` 応答 (HTTP 501 Supabase gate 期待通り) | ✅ |
+| 4 | `/api/coalter/presence/telemetry` 応答 (HTTP 405 GET 不許可) | ✅ |
+| 5 | `/api/coalter/memory/list` 応答 (HTTP 401 auth required) | ✅ |
+| 5b | `/api/coalter/speech` POST (HTTP 401 auth required、Phase 1 wire 反映確認) | ✅ |
+| **6** | **`/api/coalter/speech` client request 0 件** | ✅ **(43 件中 0 件、CEO Network tab 確認 `culcept.vercel.app` 経由)** |
+| 7 | S2/S5/S7 UI 文言 既存 hardcoded のまま | ✅ |
+| 8 | UrgentLayer message が `URGENT_FALLBACK_MESSAGES` static のまま | ✅ |
+| 9 | Production env DSN 不在 (sentry-public_key/org_id 未含) | ✅ |
+
+### Production env 状態 (2 巡目検証時点)
+- ❌ `NEXT_PUBLIC_SENTRY_DSN` 未設定 (Production)
+- ❌ `ANTHROPIC_API_KEY` 削除済 (Production scope 外、Preview only)
+- ❌ `COALTER_PRESENCE_SPEECH_LLM=true` 削除済 (Production scope 外、Preview only)
+- ❌ `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 削除済 (Production scope 外、Preview only)
+- ✅ `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` (presence executor base、Path B 完了状態)
+
+→ Phase 1 default OFF (CEO 厳守) を **完全に満たす Production 状態を実現**
+
+### 学び (operational lesson)
+- NEXT_PUBLIC_* env は build-time inline → Production redeploy しないと反映されない (server-only env と動作差)
+- Vercel deployment URL `culcept-<hash>-...vercel.app` は immutable、bookmark 不推奨 (古い build に永続接続)
+- Production observation には **alias `culcept.vercel.app` のみ使う** ことで常に最新 build を見られる
+- env scope 設定時は **Production check の状態を必ず確認**、Phase 1 中は意図しない Production 露出を避ける
+
+### Production HEAD (2026-05-01 03:13 JST 時点)
+- main: `c9257721920d7020ff32c522202c38da334fd2fb` (env scope correction retrigger)
+- 1 つ手前: `6a0f6d4b` (PR #49 merge commit、L4-i Phase 1 wire)
+- 2 つ手前: `92bf2129` (alter-morning PR-49)
+
+### 副次論点 (将来 task、Phase 1 完了判定には影響なし)
+- `/api/coalter/speech` route の `speechSource: "llm"` mislabel: gate 2 通過 + buildPresenceSpeech 内部 fallback の場合に `speechSource: "fallback"` を返すべき (現状は "llm" 固定)。Phase 2 着手前に修正候補
+- response payload の actual source propagation: buildPresenceSpeech から retries/latency/validationFailed を素直に取れる API 改修
+
+### 不変 (CEO 厳守 維持)
+- Phase 1 commit (`c2472719` + `c409a6be`) は L4-i Phase 1 wire の正本、Production にも反映済
+- Production env に L4-i Phase 1/2 関連 env を **入れない** (Phase 2 で Preview only 投入予定)
+- ChatClient.tsx / UrgentLayer / UrgentMessageCard / UrgentRelease 触らない
+- §10.2 #9 partial 維持
+- L4-m / E-3 にまだ進まない
+
+### 次フェーズ: L4-i Phase 2 着手準備
+- Phase 2 = Preview only env 投入 + staged observation (20 calls smoke → 100 calls observation → 5 sample × 7 variant review)
+- Phase 2 着手の CEO 判断後、Claude が手順を提示
