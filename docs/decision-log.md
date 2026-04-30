@@ -1336,3 +1336,105 @@ Preview redeploy 完了後に下記 5 項目を確認:
 2. CEO が Preview URL を共有
 3. Claude が 5 項目検証 → 結果を decision-log に記録
 4. 判定 PASS / NG の双方を別 entry で記録、PASS なら L4-i 着手可否を CEO 判断、NG ならトラブルシュート phase
+
+## [2026-04-30] [Build] [L4-j-blocker — Sentry 接続復元 phase PASS (4/4 event 観測実証 完了)] [承認: CEO]
+
+### 経過
+- CEO が新規 Sentry project (`taishi-harada / culcept`) 作成、Preview only DSN を Vercel Project env に登録、redeploy 完了
+- Preview URL: `https://culcept-i8yqqlwkz-taishis-projects-0a8deb17.vercel.app/`
+- Sentry org: `taishi-harada`、project slug: `culcept`、org_id: 4511307264622592
+
+### 5 項目検証 結果
+| # | 項目 | 結果 | 根拠 |
+|---|---|---|---|
+| 1 | sentry-release | ✅ PASS | HTML meta tag に `sentry-release=28ba23e0d6b776b08c91d66029743298d67f8f90` (最新 commit と一致) |
+| 2 | sentry-environment | ✅ PASS | HTML meta tag に `sentry-environment=vercel-preview` |
+| 3 | `/monitoring` request | ✅ PASS | DevTools Network で 21 件以上観測、payload に正規 Sentry envelope |
+| 4 | Sentry dashboard 反映 | ✅ PASS | `taishi-harada.sentry.io/insights/projects/culcept/` で Issues 2 件 (CULCEPT-1 + CULCEPT-2) |
+| 5 | L4-j 4 event 観測 | ✅ **完全 PASS (4/4 種)** | CULCEPT-2 の Breadcrumbs pane で全 4 category 観測 |
+
+### 観測された L4-j 4 event (CULCEPT-2 の Breadcrumbs)
+| category | level | trigger 操作 | 観測 timestamp | data payload |
+|---|---|---|---|---|
+| `coalter.urgent` | warning | 「もう限界」送信 | 2026-04-30T10:31:07.721Z | `{category:"rupture_detected", form:"dominant_card", memoryFallback:"demote", pairId:"", ts:1777545067721}` |
+| `coalter.presence` | info | 同上 (S0→S2 critical) | 2026-04-30T10:31:07.721Z | `{from:"S0", to:"S2", trigger:"critical", pairId:"", ts:1777545067721}` |
+| `coalter.pattern` | info | 同上 (variant A) | 2026-04-30T10:31:07.721Z | `{state:"S2", mode:"normal", variant:"A", hasSecondary:false, pairId:"", ts:1777545067721}` |
+| `coalter.mode` (#1) | info | Daily 切替 | 2026-04-30T10:31:20.914Z | `{from:"normal", to:"daily", trigger:"manual_switch", pairId:"", ts:1777545080914}` |
+| `coalter.mode` (#2) | info | 通常切替 | 2026-04-30T10:31:21.907Z | `{from:"daily", to:"normal", trigger:"manual_switch", pairId:"", ts:1777545081907}` |
+
+→ 5 件の telemetry breadcrumb が単一 error event (level: error, message: "L4-j breadcrumb verification - manual trigger") に attach されて Sentry に到達。
+
+### payload 制約 (CEO 厳守項目) 全 PASS
+- ✅ 会話本文 / ユーザー入力文 / 個人情報を一切含まない (構造化 enum + number のみ)
+- ✅ `pairId: ""` (空文字) — `initial?.pairId ?? ""` のみ、telemetry のための fetch 追加なし
+- ✅ state / mode / pattern variant / category / form / trigger 等の enum
+- ✅ `coalter.urgent` のみ level=warning、他は info — `lib/coalter/presence/sentryTelemetry.ts` 仕様と一致
+
+### CEO 判定基準到達
+- 必須: `/monitoring` request が出る → **超過 (21 件)**
+- 必須: `coalter.mode.transition` 観測 → **超過 (2 件)**
+- 必須: `coalter.urgent.triggered` 観測 → **PASS (1 件)**
+- 追加: `coalter.presence.state_transition` 観測 → PASS
+- 追加: `coalter.pattern.used` 観測 → PASS
+
+### 検証経路 (CEO 操作詳細)
+1. Preview talk page で chat 操作:
+   - 「もう限界」送信 (19:31:07 JST) → 3 event 同時 emit
+   - CoAlter mode で Daily 切替 (19:31:20 JST) + 通常戻し (19:31:21 JST) → mode_transition × 2
+2. DevTools Console で uncaught error:
+   ```js
+   setTimeout(() => { throw new Error("L4-j breadcrumb verification - manual trigger") }, 0)
+   ```
+3. Sentry SDK の `window.onerror` integration が auto-capture
+4. error event に直前の 5 breadcrumb が attach されて `/monitoring` 経由で Sentry SaaS に送信
+5. CEO が Sentry dashboard で CULCEPT-2 を開いて Breadcrumbs pane を確認
+
+### 重要な技術知見 (今後の運用 / 別 phase 設計参考)
+- `Sentry.addBreadcrumb` 単体は **Sentry に独立送信されない** (transaction/error の context として attach のみ)
+- `tracesSampleRate: 0.1` で 90% の transaction が drop される → breadcrumb もそれと運命を共にする
+- error event は **100% sampling** (instrumentation-client.ts の error 設定) → breadcrumb attach の最確実経路
+- `window.Sentry` は modern Sentry SDK (v10) で **window 露出されない** → console から直接呼べない、uncaught error 経由が唯一の手段
+- L4-j Phase 1 の 4 event は client side (`instrumentation-client.ts` の `wireSentryTelemetry()` で sink 注入) でのみ emit
+- server side error (例: CULCEPT-1 の `/offline` Server/Client Component bug) には CoAlter breadcrumb は attach されない (server runtime には sink なし)
+
+### Phase ステータス確定
+- **L4-j-blocker = PASS**
+- **L4-j Phase 1 観測実証 = 完了**
+- **§10.2 #9 status**:
+  - 4 event wire complete + Sentry 観測実証 完了
+  - 但し CEO 確定方針 (Plan D) で **partial 維持** (8 event 中 4/8 のみ wire、残 4 event は consent / rejection / legacy / ratelimit 経路依存)
+  - **complete 昇格は別 phase で 4 event 追加 wire してから**
+
+### 並行観測された副次論点 (本 phase 範囲外、別 task で対応)
+- **CULCEPT-1**: `/offline` page の Next.js Server/Client Component event handler bug
+  - "Event handlers cannot be passed to Client Component props. {onClick: function onClick, className: ..., children: ...}"
+  - 修正は spawn task として記録済 (本 phase scope 外)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase は触らない ✅
+- L4-i / L4-m / E-3 へまだ進まない (本 phase PASS で進路再決定 phase に移行) ✅
+
+### 次フェーズ (CEO 判断待ち)
+本 phase PASS により下記 4 つの判断が CEO に戻る:
+
+1. **Production DSN 投入の可否** (本 phase 範囲外、CEO 別判断)
+   - 案 A: Preview PASS のまま Production も同 DSN を投入 (Project env Production scope)
+   - 案 B: Preview のみ運用継続、Production は L4-i / L4-m / E-3 完了後の別 phase で判断
+   - 案 C: 別 Sentry project (Production 用) を分離 (本気運用なら推奨だが工数 +)
+
+2. **L4-i / L4-m / E-3 の着手順**
+   - Plan D 元案: L4-i (LLM 合成) → L4-m (memory 拡充) → E-3 (Stage 4 §10.2 完成)
+   - 本 phase で telemetry 観測経路が確立 → L4-i の発火頻度 / 誤発火 / 出力品質 / 安全性が観測可能になった (本来の前提条件 PASS)
+
+3. **§10.2 #9 status を complete に昇格するか**
+   - 残 4 event (consent / rejection / legacy / ratelimit) を wire する別 phase を切るか、partial のまま L4-l 完了とするか
+
+4. **CULCEPT-1 (`/offline` bug) の修正タイミング**
+   - 既に spawn task に記録済、本 phase 完了後の別 task で対応
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ
+- DSN 設定: Vercel UI 操作のみ、rollback は env 削除 + redeploy
+- L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は不変
