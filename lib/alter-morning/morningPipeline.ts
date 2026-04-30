@@ -238,11 +238,15 @@ export async function runMorningPipeline(
 
   // L1.1 — LLM Structured Outputs 抽出
   //   priorEvents モード: answerBinder 経路では LLM を呼ばず既存 events をそのまま流す。
-  //   targetDate 等のメタ情報は bind 経路では utterance 由来の today に倒す。
+  //   targetDate は CEO 修正条件 (W3 P1.5):
+  //     input.targetDateHint > todayYmd() の優先順位で決める。
+  //     priorEvents 経路で hint が渡されない場合のみ today fallback。
+  //     これにより「明日の…」で始まった session が answerBinder turn で
+  //     today に degrade することを防ぐ (CEO 実機 trace 2026-05-01 で確定)。
   let raw: L1PipelineInput["raw"] | null;
   if (priorEventsMode) {
     raw = {
-      targetDate: todayYmd(),
+      targetDate: input.targetDateHint ?? todayYmd(),
       events: [],
       startPoint: null,
       departureTime: null,
@@ -328,12 +332,15 @@ export async function runMorningPipeline(
     narrationProvider,
   );
 
-  // ── W3 Commit 16.1-T: targetDate 経路を実値で記録 ──
-  // priorEventsMode 時は todayYmd() に倒れる ("fallback_today")
-  // priorEventsMode=false かつ raw 由来 → "llm" (provider 由来)
-  // input.targetDateHint で上書きされた場合は "input_hint"（本関数では未使用、route 側経路）
-  const targetDateSource: string =
-    priorEventsMode ? "fallback_today" : "llm";
+  // ── W3 Commit 16.1-T + P1.5: targetDate 経路を実値で記録 ──
+  // priorEventsMode かつ hint あり → "input_hint" (= 前 turn の plan.date 等)
+  // priorEventsMode かつ hint なし → "fallback_today"
+  // priorEventsMode=false → "llm" (provider 由来)
+  const targetDateSource: string = priorEventsMode
+    ? input.targetDateHint != null
+      ? "input_hint"
+      : "fallback_today"
+    : "llm";
 
   return {
     status: "ok",

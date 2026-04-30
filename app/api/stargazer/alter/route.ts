@@ -514,6 +514,11 @@ import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehensio
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
+// W3 P1: candidate state 中の where 汚染防止 gate
+import {
+  classifyCandidateUtterance,
+  type CandidateIntentResult,
+} from "@/lib/alter-morning/comprehension/candidateIntentClassifier";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 // W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
@@ -944,6 +949,13 @@ export async function POST(req: NextRequest) {
   let traceMorningPipelineCalled = false;
   let traceLastPipelineTrace: import("@/lib/alter-morning/morningPipeline").MorningPipelineTraceMetadata | null = null;
   let tracePersistedEventCountBefore: number | null = null;
+
+  // ── W3 P1: candidate intent gate trace 変数群 ──
+  // CEO 修正条件: as any 禁止、明示的制御変数で実装。
+  let traceIntentGateFired = false;
+  let traceIntentGateSkipReason: string | null = null;
+  let traceIntentGateClassification: CandidateIntentResult | null = null;
+  let traceIntentGateAnswerBinderSkipped = false;
 
   try {
     const tierCheck = await checkStargazerTier("alter");
@@ -1860,9 +1872,71 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents.length > 0;
             priorQuestionOuter = priorPending?.question ?? null;
 
+            // ── W3 P1: Candidate intent gate (where 汚染防止) ──
+            // CEO 修正条件 (2026-05-01):
+            //   1. P1 の目的は「where 汚染を止める」ことに限定
+            //   2. as any 禁止、明示的制御変数で実装 (shouldSkipAnswerBinder / skipReason)
+            //   3. 既存 taxonomy / modifyRouter / 既知パターンを再利用する薄い wrapper
+            //
+            // 動作:
+            //   conversationStatus=search_candidates_presented or activePresentation 存在 状態で、
+            //   user 発話を classifyCandidateUtterance() で 7 intent に分類する。
+            //   intent !== "where_refinement" の場合 answerBinder を skip し、
+            //   既存 Branch B (LLM 再 comprehension) に流す。
+            //   gate が走らなかった turn (candidate state 不在) は通常の answerBinder 経路。
+            //
+            // 不変条件:
+            //   - phase / plan / persistedEvents / pendingClarify は変更しない
+            //   - bindResult を偽装しない (= as any なし、shouldSkipAnswerBinder で流れを制御)
+            //   - candidate UI 表示 / 候補選択 / candidate_reject 完成は P2 以降の射程
+            let shouldSkipAnswerBinder = false;
+            let candidateIntentSkipReason: string | null = null;
+            const inCandidateState =
+              morningSession?.dialogState?.conversationStatus ===
+                "search_candidates_presented" ||
+              morningSession?.dialogState?.activePresentation != null;
+
+            if (
+              canBind &&
+              inCandidateState &&
+              typeof message === "string" &&
+              message.length > 0
+            ) {
+              traceIntentGateFired = true;
+              const intentResult = classifyCandidateUtterance(message, {
+                candidates:
+                  morningSession?.dialogState?.activePresentation
+                    ?.candidates ?? [],
+                activePresentationExists:
+                  morningSession?.dialogState?.activePresentation != null,
+              });
+              traceIntentGateClassification = intentResult;
+
+              if (intentResult.intent !== "where_refinement") {
+                shouldSkipAnswerBinder = true;
+                candidateIntentSkipReason = `intent_${intentResult.intent}`;
+                traceIntentGateAnswerBinderSkipped = true;
+                console.info(
+                  `[candidate-intent-gate] skip answerBinder ` +
+                    `intent=${intentResult.intent} confidence=${intentResult.confidence} ` +
+                    `reason=${intentResult.reason}`,
+                );
+              } else {
+                console.info(
+                  `[candidate-intent-gate] allow answerBinder ` +
+                    `intent=where_refinement confidence=${intentResult.confidence} ` +
+                    `reason=${intentResult.reason}`,
+                );
+              }
+            } else if (canBind && !inCandidateState) {
+              traceIntentGateSkipReason = "not_in_candidate_state";
+            } else if (!canBind) {
+              traceIntentGateSkipReason = "cannot_bind";
+            }
+
             let usedBindPath = false;
             let bindReason: string | null = null;
-            if (canBind) {
+            if (canBind && !shouldSkipAnswerBinder) {
               const bindResult = bindAnswerToSlot(
                 priorPersistedEvents!,
                 priorPending!,
@@ -1877,10 +1951,19 @@ export async function POST(req: NextRequest) {
                 // ── W3 Commit 16.1-T: pipeline 呼び出し直前の persistedEvents 長を保存 ──
                 tracePersistedEventCountBefore =
                   morningSession?.persistedEvents?.length ?? null;
+                // ── W3 P1.5: targetDate preserve ──
+                // priorEventsMode で todayYmd() fallback により「明日」が今日に
+                // degrade する問題 (CEO 実機 trace 2026-05-01 確定) を防ぐ。
+                // 前 turn の plan.date を hint として渡す。
+                const priorPlanDate =
+                  rawMorningSession?.plan?.date ?? null;
                 const pipelineResult = await runMorningPipeline(
                   {
                     utterance: message,
                     priorEvents: bindResult.events,
+                    ...(priorPlanDate != null
+                      ? { targetDateHint: priorPlanDate }
+                      : {}),
                   },
                   {
                     // priorEvents モードでは comprehension.extract は呼ばれない
@@ -9889,6 +9972,21 @@ export async function POST(req: NextRequest) {
           pipelineStatus: traceLastPipelineTrace?.pipelineStatus ?? null,
         };
 
+        // ── W3 P1: intent gate trace の組み立て (記録者責務) ──
+        const traceIntentGateField: MorningTurnTrace["intentGate"] = {
+          fired: traceIntentGateFired,
+          skipReason: traceIntentGateSkipReason,
+          classification: traceIntentGateClassification
+            ? {
+                intent: traceIntentGateClassification.intent,
+                confidence: traceIntentGateClassification.confidence,
+                reason: traceIntentGateClassification.reason,
+                matchedSpan: traceIntentGateClassification.matchedSpan,
+              }
+            : null,
+          answerBinderSkipped: traceIntentGateAnswerBinderSkipped,
+        };
+
         morningTurnTraceForResponse = buildMorningTurnTrace({
           flagSnapshot,
           dialogStateAvailable: morningSession?.dialogState != null,
@@ -9915,6 +10013,7 @@ export async function POST(req: NextRequest) {
           dispatch: traceDispatchInfo,
           responsePhase: morningResponse.phase,
           pipeline: tracePipelineField,
+          intentGate: traceIntentGateField,
         });
       } catch (err) {
         // trace 構築失敗時は response を壊さない（fail-open）

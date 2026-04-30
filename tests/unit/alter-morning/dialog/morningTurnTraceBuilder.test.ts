@@ -94,6 +94,12 @@ function mkInput(
       persistedEventCountAfter: 1,
       pipelineStatus: "ok",
     },
+    intentGate: {
+      fired: false,
+      skipReason: "not_in_candidate_state",
+      classification: null,
+      answerBinderSkipped: false,
+    },
     ...overrides,
   };
 }
@@ -297,6 +303,83 @@ describe("buildMorningTurnTrace — 全 activeDialogPath / pendingClarifySource 
       mkInput({ pendingClarifySource: "null" }),
     );
     expect(trace.pendingClarifySource).toBe("null");
+  });
+});
+
+describe("buildMorningTurnTrace — intentGate field (W3 P1)", () => {
+  test("intentGate=null も維持される (gate 拡張前の旧 turn 互換)", () => {
+    const trace = buildMorningTurnTrace(mkInput({ intentGate: null }));
+    expect(trace.intentGate).toBeNull();
+  });
+
+  test("gate 不発火 (candidate state 不在) はデフォルト fixture と一致", () => {
+    const trace = buildMorningTurnTrace(mkInput());
+    expect(trace.intentGate?.fired).toBe(false);
+    expect(trace.intentGate?.skipReason).toBe("not_in_candidate_state");
+    expect(trace.intentGate?.answerBinderSkipped).toBe(false);
+    expect(trace.intentGate?.classification).toBeNull();
+  });
+
+  test("gate 発火 + transport 分類 + answerBinder skip", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        intentGate: {
+          fired: true,
+          skipReason: null,
+          classification: {
+            intent: "transport",
+            confidence: "high",
+            reason: "transport_keyword_exact:電車",
+            matchedSpan: "電車",
+          },
+          answerBinderSkipped: true,
+        },
+      }),
+    );
+    expect(trace.intentGate?.fired).toBe(true);
+    expect(trace.intentGate?.classification?.intent).toBe("transport");
+    expect(trace.intentGate?.answerBinderSkipped).toBe(true);
+  });
+
+  test("gate 発火 + where_refinement 分類 + answerBinder 通過", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        intentGate: {
+          fired: true,
+          skipReason: null,
+          classification: {
+            intent: "where_refinement",
+            confidence: "medium",
+            reason: "taxonomy:anchor_alone",
+            matchedSpan: "渋谷",
+          },
+          answerBinderSkipped: false,
+        },
+      }),
+    );
+    expect(trace.intentGate?.classification?.intent).toBe("where_refinement");
+    expect(trace.intentGate?.answerBinderSkipped).toBe(false);
+  });
+
+  test("矛盾入力 (fired=false なのに classification non-null) でも訂正されない", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        intentGate: {
+          fired: false,
+          skipReason: "cannot_bind",
+          classification: {
+            intent: "transport",
+            confidence: "high",
+            reason: "X",
+            matchedSpan: null,
+          },
+          answerBinderSkipped: false,
+        },
+      }),
+    );
+    // builder は記録者 only、矛盾を訂正しない
+    expect(trace.intentGate?.fired).toBe(false);
+    expect(trace.intentGate?.classification?.intent).toBe("transport");
   });
 });
 

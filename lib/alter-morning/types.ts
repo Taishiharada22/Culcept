@@ -1223,6 +1223,30 @@ export interface MorningTurnTrace {
     /** pipeline 終了時の status（"ok" / "comprehension_failed" / その他） */
     pipelineStatus: string | null;
   } | null;
+
+  // ── intent gate（W3 P1: candidate state 中の where 汚染防止） ──
+  /**
+   * candidate 提示状態 (search_candidates_presented or activePresentation 存在) で
+   * answerBinder を呼ぶ前に走らせる入口分類の結果。
+   *
+   * gate が走らなかった turn (candidate state 不在) は null。
+   * gate は答えを where に bind すべきかを判定するのみ。phase / plan / persistedEvents は変更しない。
+   */
+  intentGate: {
+    /** gate が発火したか (= candidate state 中だったか) */
+    fired: boolean;
+    /** 不発火の理由 (fired=false の時のみ非 null) */
+    skipReason: string | null;
+    /** 分類結果 (fired=true の時のみ非 null) */
+    classification: {
+      intent: string;
+      confidence: string;
+      reason: string;
+      matchedSpan: string | null;
+    } | null;
+    /** answerBinder を skip したか (= where 汚染を止めたか) */
+    answerBinderSkipped: boolean;
+  } | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
