@@ -19,6 +19,13 @@ export type PerspectiveSource = {
   date: string | null;
 };
 
+/**
+ * W3 P2: 朝予定の候補地リスト (search_candidates_presented 状態で server から bridge).
+ * server response の morningProtocol.candidates をそのまま格納し、AskHero / AlterClient で
+ * CandidateCardList に渡す.
+ */
+import type { AlterMorningCandidate } from "@/components/alter-morning/CandidateCardList";
+
 export type AlterMessage = {
   id: string;
   role: "user" | "alter";
@@ -26,6 +33,8 @@ export type AlterMessage = {
   timestamp: string;
   /** P1.9: PE出典データ（Alter応答にのみ付与） */
   perspectiveSources?: PerspectiveSource[];
+  /** W3 P2: 朝予定の候補カード (search_candidates_presented 状態でのみ非 null) */
+  candidates?: AlterMorningCandidate[];
 };
 
 export type AlterChatState = {
@@ -353,6 +362,15 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         try { localStorage.setItem(BETA_TESTER_KEY, "1"); } catch {}
       }
 
+      // W3 P2: 朝予定の候補カードを bridge から取得
+      // server (route.ts) で activePresentation.candidates が
+      // morningProtocol.candidates に spread されている (search_candidates_presented 状態のみ)
+      const candidatesFromServer:
+        | AlterMorningCandidate[]
+        | undefined = Array.isArray(data?.morningProtocol?.candidates)
+        ? (data.morningProtocol.candidates as AlterMorningCandidate[])
+        : undefined;
+
       const alterMsg: AlterMessage = {
         id: `alter-${Date.now()}`,
         role: "alter",
@@ -362,6 +380,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         ...(data.perspectiveSources?.length > 0 ? {
           perspectiveSources: data.perspectiveSources,
         } : {}),
+        // W3 P2: 朝予定の候補カード (search_candidates_presented でのみ送られる)
+        ...(candidatesFromServer && candidatesFromServer.length > 0
+          ? { candidates: candidatesFromServer }
+          : {}),
       };
 
       if (!sessionId && data.sessionId) {

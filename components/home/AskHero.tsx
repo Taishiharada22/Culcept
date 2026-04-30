@@ -13,6 +13,7 @@ import MorningOutfitCard from "@/components/home/morning/MorningOutfitCard";
 import FollowUpChip from "@/components/home/morning/FollowUpChip";
 import JournalPromptChip from "@/components/home/morning/JournalPromptChip";
 import MorningInsightChip from "@/components/home/morning/MorningInsightChip";
+import { CandidateCardList } from "@/components/alter-morning/CandidateCardList";
 import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 /** action_shape → 主CTA テキスト（返答の次の1歩をそのまま押せる形で） */
@@ -328,6 +329,10 @@ export default function AskHero({
                 <p className="text-[14px] text-text1 leading-[1.8] font-medium whitespace-pre-wrap">
                   {msg.content}
                 </p>
+                {/* W3 P2: 朝予定の候補カード (search_candidates_presented で server から bridge) */}
+                {msg.candidates && msg.candidates.length > 0 && (
+                  <CandidateCardList candidates={msg.candidates} />
+                )}
                 {/* PE出典（視点）— 目立たなく小さく */}
                 {msg.perspectiveSources && msg.perspectiveSources.length > 0 && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5 mb-0.5">
