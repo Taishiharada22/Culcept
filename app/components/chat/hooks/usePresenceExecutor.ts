@@ -28,7 +28,7 @@
  *   - signal subscribe 経路 (productionSignalBus)
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import {
   presenceReducer,
