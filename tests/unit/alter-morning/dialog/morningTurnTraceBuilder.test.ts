@@ -72,6 +72,28 @@ function mkInput(
       eventsFallback: false,
     },
     responsePhase: "clarifying",
+    pipeline: {
+      outerAlterMode: "warm",
+      morningIntentDetected: true,
+      morningPipelineCalled: true,
+      morningPipelineSkipReason: null,
+      priorEventsMode: false,
+      comprehensionProviderCalled: true,
+      providerSkipReason: null,
+      providerName: null,
+      providerSuccess: true,
+      providerFailureReason: null,
+      providerLatencyMs: 120,
+      rawEventCount: 1,
+      schemaValidationErrors: null,
+      eventsAfterNormalizationCount: 1,
+      droppedEvents: null,
+      targetDateExtracted: "2026-05-01",
+      targetDateSource: "llm",
+      persistedEventCountBefore: 0,
+      persistedEventCountAfter: 1,
+      pipelineStatus: "ok",
+    },
     ...overrides,
   };
 }
@@ -275,6 +297,183 @@ describe("buildMorningTurnTrace — 全 activeDialogPath / pendingClarifySource 
       mkInput({ pendingClarifySource: "null" }),
     );
     expect(trace.pendingClarifySource).toBe("null");
+  });
+});
+
+describe("buildMorningTurnTrace — pipeline field (Commit 16.1-T)", () => {
+  test("pipeline=null も維持される (pipeline trace 取得しなかった turn)", () => {
+    const trace = buildMorningTurnTrace(mkInput({ pipeline: null }));
+    expect(trace.pipeline).toBeNull();
+  });
+
+  test("pipeline 全 field が transparent にコピーされる", () => {
+    const input = mkInput();
+    const trace = buildMorningTurnTrace(input);
+    expect(trace.pipeline).toEqual(input.pipeline);
+  });
+
+  test("Case A: morningPipeline 未呼び出し (Stargazer 経路)", () => {
+    // 期待 trace: morning pipeline がそもそも呼ばれていない
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        pipeline: {
+          outerAlterMode: "warm",
+          morningIntentDetected: false,
+          morningPipelineCalled: false,
+          morningPipelineSkipReason: "not_morning_intent",
+          priorEventsMode: null,
+          comprehensionProviderCalled: null,
+          providerSkipReason: null,
+          providerName: null,
+          providerSuccess: null,
+          providerFailureReason: null,
+          providerLatencyMs: null,
+          rawEventCount: null,
+          schemaValidationErrors: null,
+          eventsAfterNormalizationCount: null,
+          droppedEvents: null,
+          targetDateExtracted: null,
+          targetDateSource: null,
+          persistedEventCountBefore: null,
+          persistedEventCountAfter: null,
+          pipelineStatus: null,
+        },
+      }),
+    );
+    expect(trace.pipeline?.morningPipelineCalled).toBe(false);
+    expect(trace.pipeline?.morningPipelineSkipReason).toBe("not_morning_intent");
+    expect(trace.pipeline?.comprehensionProviderCalled).toBeNull();
+  });
+
+  test("Case B: pipeline 呼ばれたが provider 未呼び出し", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        pipeline: {
+          outerAlterMode: "warm",
+          morningIntentDetected: true,
+          morningPipelineCalled: true,
+          morningPipelineSkipReason: null,
+          priorEventsMode: true,
+          comprehensionProviderCalled: false,
+          providerSkipReason: "prior_events_mode",
+          providerName: null,
+          providerSuccess: null,
+          providerFailureReason: null,
+          providerLatencyMs: null,
+          rawEventCount: 0,
+          schemaValidationErrors: null,
+          eventsAfterNormalizationCount: 0,
+          droppedEvents: null,
+          targetDateExtracted: "2026-05-01",
+          targetDateSource: "fallback",
+          persistedEventCountBefore: 0,
+          persistedEventCountAfter: 0,
+          pipelineStatus: "ok",
+        },
+      }),
+    );
+    expect(trace.pipeline?.priorEventsMode).toBe(true);
+    expect(trace.pipeline?.comprehensionProviderCalled).toBe(false);
+    expect(trace.pipeline?.providerSkipReason).toBe("prior_events_mode");
+  });
+
+  test("Case C: provider 呼ばれたが raw events=0", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        pipeline: {
+          outerAlterMode: "warm",
+          morningIntentDetected: true,
+          morningPipelineCalled: true,
+          morningPipelineSkipReason: null,
+          priorEventsMode: false,
+          comprehensionProviderCalled: true,
+          providerSkipReason: null,
+          providerName: null,
+          providerSuccess: true,
+          providerFailureReason: null,
+          providerLatencyMs: 350,
+          rawEventCount: 0,
+          schemaValidationErrors: null,
+          eventsAfterNormalizationCount: 0,
+          droppedEvents: null,
+          targetDateExtracted: "2026-05-01",
+          targetDateSource: "llm",
+          persistedEventCountBefore: 0,
+          persistedEventCountAfter: 0,
+          pipelineStatus: "ok",
+        },
+      }),
+    );
+    expect(trace.pipeline?.providerSuccess).toBe(true);
+    expect(trace.pipeline?.rawEventCount).toBe(0);
+    expect(trace.pipeline?.eventsAfterNormalizationCount).toBe(0);
+  });
+
+  test("Case D: raw events>0 だが normalization で 0 になった (drop)", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        pipeline: {
+          outerAlterMode: "warm",
+          morningIntentDetected: true,
+          morningPipelineCalled: true,
+          morningPipelineSkipReason: null,
+          priorEventsMode: false,
+          comprehensionProviderCalled: true,
+          providerSkipReason: null,
+          providerName: null,
+          providerSuccess: true,
+          providerFailureReason: null,
+          providerLatencyMs: 280,
+          rawEventCount: 2,
+          schemaValidationErrors: ["invalid_when_format", "missing_where"],
+          eventsAfterNormalizationCount: 0,
+          droppedEvents: [
+            { reason: "invalid_when_format", spanHint: null },
+            { reason: "missing_where", spanHint: null },
+          ],
+          targetDateExtracted: "2026-05-01",
+          targetDateSource: "llm",
+          persistedEventCountBefore: 0,
+          persistedEventCountAfter: 0,
+          pipelineStatus: "ok",
+        },
+      }),
+    );
+    expect(trace.pipeline?.rawEventCount).toBe(2);
+    expect(trace.pipeline?.eventsAfterNormalizationCount).toBe(0);
+    expect(trace.pipeline?.droppedEvents).toHaveLength(2);
+  });
+
+  test("provider null 返却 (comprehension_failed)", () => {
+    const trace = buildMorningTurnTrace(
+      mkInput({
+        pipeline: {
+          outerAlterMode: "warm",
+          morningIntentDetected: true,
+          morningPipelineCalled: true,
+          morningPipelineSkipReason: null,
+          priorEventsMode: false,
+          comprehensionProviderCalled: true,
+          providerSkipReason: null,
+          providerName: null,
+          providerSuccess: false,
+          providerFailureReason: null,
+          providerLatencyMs: 8500,
+          rawEventCount: null,
+          schemaValidationErrors: null,
+          eventsAfterNormalizationCount: 0,
+          droppedEvents: null,
+          targetDateExtracted: null,
+          targetDateSource: null,
+          persistedEventCountBefore: 0,
+          persistedEventCountAfter: 0,
+          pipelineStatus: "comprehension_failed",
+        },
+      }),
+    );
+    expect(trace.pipeline?.providerSuccess).toBe(false);
+    expect(trace.pipeline?.rawEventCount).toBeNull();
+    expect(trace.pipeline?.pipelineStatus).toBe("comprehension_failed");
   });
 });
 

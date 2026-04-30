@@ -1120,6 +1120,109 @@ export interface MorningTurnTrace {
    * phase=clarifying かどうかから blocking 状態の事後推定は CEO 側で行う。
    */
   responsePhase: string;
+
+  // ── pipeline（W3 Commit 16.1-T: comprehension extraction 上流 trace） ──
+  /**
+   * morningPipeline 内部で観測した extraction 経路の事実。
+   *
+   * 目的:
+   *   Commit 16-T で「flag/path は通っている、shadow は no_target_event_or_slot で
+   *   skip された、comprehensionEventCount=0」が判明したが、**なぜ events が
+   *   0 件なのか** は判別できなかった。CEO 観測で `mode="warm"` /
+   *   `domain="general"` / `_is_fallback=true` が見えており、Morning pipeline
+   *   そのものが本格起動していない可能性も含めて、以下 4 段階で root cause を
+   *   識別する:
+   *
+   *     1. Morning pipeline がそもそも呼ばれていない
+   *        → morningPipelineCalled=false, morningPipelineSkipReason=<reason>
+   *     2. 呼ばれたが L1 provider が呼ばれていない
+   *        → comprehensionProviderCalled=false, providerSkipReason=<reason>
+   *     3. provider は呼ばれたが raw events=0
+   *        → rawEventCount=0
+   *     4. raw events はあったが normalization で 0 になった
+   *        → rawEventCount > 0 ∧ eventsAfterNormalizationCount=0
+   *
+   * CEO 修正条件継承:
+   *   - 取れない値は null（0 / 空文字 で偽装しない）
+   *   - 各 field は「実値の記録」であり、推測 / 補正 を含まない
+   *   - 本 field 全体が null = pipeline trace を取得しなかった turn
+   *     （例: trace 構築失敗、または Commit 16-T 単体の旧 client）
+   */
+  pipeline: {
+    // ─── route 経路の判定 ───
+    /**
+     * 既存 `mode` field の実値（response 直前で route が決めた alter mode）。
+     * "warm" / "morning" / "stargazer" 等。Morning に流れたか判別の主軸。
+     */
+    outerAlterMode: string | null;
+    /**
+     * 朝予定入力として検出されたか。
+     * route 内で「Morning pipeline に流すべき発話」と判定された場合 true。
+     * false の場合は morningPipelineCalled も false になるはず。
+     */
+    morningIntentDetected: boolean | null;
+    /** runMorningPipeline が実際に呼ばれたか */
+    morningPipelineCalled: boolean;
+    /**
+     * morningPipeline が呼ばれなかった場合の理由。
+     * 例: "not_morning_intent" / "early_return_existing_session" /
+     *     "outer_mode_general" / "fallback_response_path"
+     * 呼ばれた場合は null。
+     */
+    morningPipelineSkipReason: string | null;
+
+    // ─── provider 経路 ───
+    /**
+     * priorEvents モード（answerBinder 経路 = Branch A）か。
+     * true なら LLM provider は呼ばれず固定 events が流される。
+     */
+    priorEventsMode: boolean | null;
+    /** comprehension provider.extract() が実際に呼ばれたか */
+    comprehensionProviderCalled: boolean | null;
+    /**
+     * provider が呼ばれなかった理由。
+     * 例: "prior_events_mode" / "provider_disabled" / "no_api_key" / "early_return"
+     * 呼ばれた場合は null。
+     */
+    providerSkipReason: string | null;
+    /** provider 実装名（"stub" / "llm" 等。interface 拡張前は null） */
+    providerName: string | null;
+    /** provider が null を返したか raw を返したか（呼ばれなかった場合 null） */
+    providerSuccess: boolean | null;
+    /** provider 失敗の詳細理由（interface 拡張前は null） */
+    providerFailureReason: string | null;
+    /** provider 呼び出しの latency（呼ばれなかった場合 null） */
+    providerLatencyMs: number | null;
+
+    // ─── 抽出結果 ───
+    /** raw.events.length（provider が null を返した場合 null） */
+    rawEventCount: number | null;
+    /** L1Pipeline は filter/drop しない設計のため常に null（観測のため field のみ用意） */
+    schemaValidationErrors: string[] | null;
+    /** L1Pipeline 通過後の events.length（pipeline が呼ばれた場合のみ非 null） */
+    eventsAfterNormalizationCount: number | null;
+    /** L1Pipeline は filter/drop しない設計のため常に null（観測のため field のみ用意） */
+    droppedEvents: { reason: string; spanHint: string | null }[] | null;
+
+    // ─── target date 経路 ───
+    /** raw.targetDate / comprehension.targetDate（provider が null を返した場合 null） */
+    targetDateExtracted: string | null;
+    /**
+     * targetDate が決まった経路。
+     * "llm" (raw.targetDate) / "rulePreParse" / "input_hint" / "fallback" / null
+     */
+    targetDateSource: string | null;
+
+    // ─── persistedEvents 推移（pipeline field に集約、dispatch から移動）───
+    /** dispatch 前の session.persistedEvents.length（取れない場合 null） */
+    persistedEventCountBefore: number | null;
+    /** dispatch 後の session.persistedEvents.length（取れない場合 null） */
+    persistedEventCountAfter: number | null;
+
+    // ─── pipeline status (補助情報) ───
+    /** pipeline 終了時の status（"ok" / "comprehension_failed" / その他） */
+    pipelineStatus: string | null;
+  } | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

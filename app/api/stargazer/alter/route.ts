@@ -931,13 +931,19 @@ export async function POST(req: NextRequest) {
   let tracePromoteFired = false;
   let tracePromoteSkipReason: string | null = null;
   let traceDispatchInfo: {
-    comprehensionEventCount: number;
-    operationsExtracted: number;
-    persistedEventCountBefore: number;
-    persistedEventCountAfter: number;
-    eventsFallback: boolean;
+    comprehensionEventCount: number | null;
+    operationsExtracted: number | null;
+    persistedEventCountBefore: number | null;
+    persistedEventCountAfter: number | null;
+    eventsFallback: boolean | null;
   } | null = null;
   let traceHasBlockingUnresolvedSlots = false;
+
+  // ── W3 Commit 16.1-T: pipeline trace 変数群 ──
+  // CEO 修正条件: 各 field は実値の記録。再計算 / 推測なし。
+  let traceMorningPipelineCalled = false;
+  let traceLastPipelineTrace: import("@/lib/alter-morning/morningPipeline").MorningPipelineTraceMetadata | null = null;
+  let tracePersistedEventCountBefore: number | null = null;
 
   try {
     const tierCheck = await checkStargazerTier("alter");
@@ -1868,6 +1874,9 @@ export async function POST(req: NextRequest) {
               if (bindResult.bound) {
                 usedBindPath = true;
                 const priorInputs = rawMorningSession?.rawInputs ?? [];
+                // ── W3 Commit 16.1-T: pipeline 呼び出し直前の persistedEvents 長を保存 ──
+                tracePersistedEventCountBefore =
+                  morningSession?.persistedEvents?.length ?? null;
                 const pipelineResult = await runMorningPipeline(
                   {
                     utterance: message,
@@ -1880,6 +1889,9 @@ export async function POST(req: NextRequest) {
                     weather: null,
                   },
                 );
+                // ── W3 Commit 16.1-T: pipeline trace を実値で保存 ──
+                traceMorningPipelineCalled = true;
+                traceLastPipelineTrace = pipelineResult._pipelineTrace ?? null;
                 const adapted = adaptPipelineToLegacy(pipelineResult, {
                   sessionId: morningSession.sessionId,
                   utterance: message,
@@ -1973,6 +1985,9 @@ export async function POST(req: NextRequest) {
             const combinedUtterance = [...priorInputs, message]
               .filter((s) => typeof s === "string" && s.length > 0)
               .join(" / ");
+            // ── W3 Commit 16.1-T: pipeline 呼び出し直前の persistedEvents 長を保存 ──
+            tracePersistedEventCountBefore =
+              morningSession?.persistedEvents?.length ?? null;
             const pipelineResult = await runMorningPipeline(
               { utterance: combinedUtterance },
               {
@@ -1981,6 +1996,9 @@ export async function POST(req: NextRequest) {
                 weather: null,
               },
             );
+            // ── W3 Commit 16.1-T: pipeline trace を実値で保存 ──
+            traceMorningPipelineCalled = true;
+            traceLastPipelineTrace = pipelineResult._pipelineTrace ?? null;
             const adapted = adaptPipelineToLegacy(pipelineResult, {
               sessionId: morningSession.sessionId,
               utterance: combinedUtterance,
@@ -2020,6 +2038,10 @@ export async function POST(req: NextRequest) {
             const priorInputs = isStickyV2
               ? (rawMorningSession?.rawInputs ?? [])
               : [];
+            // ── W3 Commit 16.1-T: pipeline throw 経路、called=true / lastTrace=null で記録 ──
+            // (buildFailedPipelineResult は _pipelineTrace を持たない、pipeline 自体は呼ばれた事実のみ)
+            traceMorningPipelineCalled = true;
+            traceLastPipelineTrace = null;
             const adapted = adaptPipelineToLegacy(buildFailedPipelineResult(), {
               sessionId: morningSession.sessionId,
               utterance: message,
@@ -9821,6 +9843,52 @@ export async function POST(req: NextRequest) {
           };
         }
 
+        // ── W3 Commit 16.1-T: pipeline trace を組み立てる ──
+        // CEO 修正条件: 各 field は実値の記録、再計算 / 推測なし
+        const tracePipelineField: MorningTurnTrace["pipeline"] = {
+          // route 経路の判定
+          outerAlterMode: typeof mode === "string" ? mode : null,
+          // morningIntentDetected は route 内で詳細判別が困難なため null
+          // (pipeline が呼ばれた事実から事後推定可能だが、実値ではないため記録しない)
+          morningIntentDetected: null,
+          morningPipelineCalled: traceMorningPipelineCalled,
+          // 呼ばれなかった場合の理由は route 内で詳細判別できないため、called=false の時のみ
+          // 一般理由 "not_morning_intent_or_skipped" を入れる (次の commit で詳細化)
+          morningPipelineSkipReason: traceMorningPipelineCalled
+            ? null
+            : "not_morning_intent_or_skipped",
+
+          // provider 経路 (pipeline trace から転写)
+          priorEventsMode: traceLastPipelineTrace?.priorEventsMode ?? null,
+          comprehensionProviderCalled:
+            traceLastPipelineTrace?.comprehensionProviderCalled ?? null,
+          providerSkipReason: traceLastPipelineTrace?.providerSkipReason ?? null,
+          providerName: null, // provider interface 拡張前は null
+          providerSuccess: traceLastPipelineTrace?.providerSuccess ?? null,
+          providerFailureReason: null, // provider interface 拡張前は null
+          providerLatencyMs: traceLastPipelineTrace?.providerLatencyMs ?? null,
+
+          // 抽出結果
+          rawEventCount: traceLastPipelineTrace?.rawEventCount ?? null,
+          schemaValidationErrors: null, // L1Pipeline は drop しない設計
+          eventsAfterNormalizationCount:
+            traceLastPipelineTrace?.eventsAfterNormalizationCount ?? null,
+          droppedEvents: null, // L1Pipeline は drop しない設計
+
+          // target date 経路
+          targetDateExtracted:
+            traceLastPipelineTrace?.targetDateExtracted ?? null,
+          targetDateSource: traceLastPipelineTrace?.targetDateSource ?? null,
+
+          // persistedEvents 推移
+          persistedEventCountBefore: tracePersistedEventCountBefore,
+          persistedEventCountAfter:
+            morningSession?.persistedEvents?.length ?? null,
+
+          // 補助 status
+          pipelineStatus: traceLastPipelineTrace?.pipelineStatus ?? null,
+        };
+
         morningTurnTraceForResponse = buildMorningTurnTrace({
           flagSnapshot,
           dialogStateAvailable: morningSession?.dialogState != null,
@@ -9846,6 +9914,7 @@ export async function POST(req: NextRequest) {
           },
           dispatch: traceDispatchInfo,
           responsePhase: morningResponse.phase,
+          pipeline: tracePipelineField,
         });
       } catch (err) {
         // trace 構築失敗時は response を壊さない（fail-open）

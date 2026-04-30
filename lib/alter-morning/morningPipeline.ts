@@ -111,6 +111,45 @@ export type MorningPipelineStatus =
   | "ok"
   | "comprehension_failed"; // L1 LLM 抽出が null を返した / 形式不正
 
+/**
+ * W3 Commit 16.1-T: pipeline 内部の trace metadata（runtime path 証明用）。
+ *
+ * orchestrator が観測できる範囲の事実のみを記録する。CEO 修正条件:
+ *   - 取れない値は null（0 / 空文字 で偽装しない）
+ *   - 推測 / 補正 を含まない
+ *   - 副作用ゼロ（既存挙動を一切変えない、optional 戻り値）
+ */
+export interface MorningPipelineTraceMetadata {
+  /** 関数が呼ばれた事実（true 固定。本オブジェクトが存在する = 呼ばれた） */
+  pipelineCalled: true;
+  /** pipeline 終了時の status */
+  pipelineStatus: MorningPipelineStatus;
+  /** priorEvents モード（answerBinder 経路 = Branch A）か */
+  priorEventsMode: boolean;
+  /** comprehension provider.extract() が実際に呼ばれたか */
+  comprehensionProviderCalled: boolean;
+  /**
+   * provider が呼ばれなかった理由（呼ばれた場合は null）。
+   * 例: "prior_events_mode"
+   */
+  providerSkipReason: string | null;
+  /** provider が null を返したか raw を返したか（呼ばれなかった場合 null） */
+  providerSuccess: boolean | null;
+  /** provider 呼び出しの latency（呼ばれなかった場合 null） */
+  providerLatencyMs: number | null;
+  /** raw.events.length（provider が null を返した場合 null） */
+  rawEventCount: number | null;
+  /** L1Pipeline 通過後の events.length */
+  eventsAfterNormalizationCount: number;
+  /** raw.targetDate / comprehension.targetDate（provider が null を返した場合 null） */
+  targetDateExtracted: string | null;
+  /**
+   * targetDate が決まった経路。
+   * "llm" (raw.targetDate from provider) / "input_hint" / "fallback_today" / null
+   */
+  targetDateSource: string | null;
+}
+
 export interface MorningPipelineResult {
   status: MorningPipelineStatus;
   /** L1 出力。comprehension_failed 時は null */
@@ -123,6 +162,11 @@ export interface MorningPipelineResult {
   narration: L3PipelineResult | null;
   /** 参考情報。debug / telemetry 用 */
   hints: RulePreParseHints;
+  /**
+   * W3 Commit 16.1-T: trace metadata (optional, additive).
+   * 既存 caller は無視可能。route.ts が trace 構築時に参照する。
+   */
+  _pipelineTrace?: MorningPipelineTraceMetadata;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -182,19 +226,43 @@ export async function runMorningPipeline(
   // L1.0 — rule pre-parse（hint 化のみ。state は持たせない）
   const hints = preParseUtterance(utterance);
 
+  // ── W3 Commit 16.1-T: trace metadata 収集 ──
+  // 各分岐点で実値を記録、推測 / 再計算なし。
+  const priorEventsMode = priorEvents !== undefined;
+  const comprehensionProviderCalled = !priorEventsMode;
+  const providerSkipReason: string | null = priorEventsMode
+    ? "prior_events_mode"
+    : null;
+  let providerSuccess: boolean | null = null;
+  let providerLatencyMs: number | null = null;
+
   // L1.1 — LLM Structured Outputs 抽出
   //   priorEvents モード: answerBinder 経路では LLM を呼ばず既存 events をそのまま流す。
   //   targetDate 等のメタ情報は bind 経路では utterance 由来の today に倒す。
-  const raw =
-    priorEvents !== undefined
-      ? ({
-          targetDate: todayYmd(),
-          events: [],
-          startPoint: null,
-          departureTime: null,
-          goOut: null,
-        } satisfies L1PipelineInput["raw"])
-      : await providers.comprehension.extract(utterance, hints);
+  let raw: L1PipelineInput["raw"] | null;
+  if (priorEventsMode) {
+    raw = {
+      targetDate: todayYmd(),
+      events: [],
+      startPoint: null,
+      departureTime: null,
+      goOut: null,
+    } satisfies L1PipelineInput["raw"];
+  } else {
+    const providerStart = Date.now();
+    try {
+      raw = await providers.comprehension.extract(utterance, hints);
+      providerLatencyMs = Date.now() - providerStart;
+      providerSuccess = raw !== null;
+    } catch (err) {
+      // 契約上 provider は throw しないが、防御的に catch して trace に反映
+      providerLatencyMs = Date.now() - providerStart;
+      providerSuccess = false;
+      raw = null;
+      // err は orchestrator が握り潰さない方針 (上位 try/catch で吸収)
+      throw err;
+    }
+  }
 
   // empty annotations（comprehension_failed 時の既定値）
   const emptyAnnotations: MorningAnnotations = { body: [], weather: [], party: [] };
@@ -209,6 +277,19 @@ export async function runMorningPipeline(
       annotations: emptyAnnotations,
       narration: null,
       hints,
+      _pipelineTrace: {
+        pipelineCalled: true,
+        pipelineStatus: "comprehension_failed",
+        priorEventsMode,
+        comprehensionProviderCalled,
+        providerSkipReason,
+        providerSuccess,
+        providerLatencyMs,
+        rawEventCount: null, // raw=null のため取れない
+        eventsAfterNormalizationCount: 0,
+        targetDateExtracted: null,
+        targetDateSource: null,
+      },
     };
   }
 
@@ -247,6 +328,13 @@ export async function runMorningPipeline(
     narrationProvider,
   );
 
+  // ── W3 Commit 16.1-T: targetDate 経路を実値で記録 ──
+  // priorEventsMode 時は todayYmd() に倒れる ("fallback_today")
+  // priorEventsMode=false かつ raw 由来 → "llm" (provider 由来)
+  // input.targetDateHint で上書きされた場合は "input_hint"（本関数では未使用、route 側経路）
+  const targetDateSource: string =
+    priorEventsMode ? "fallback_today" : "llm";
+
   return {
     status: "ok",
     comprehension,
@@ -260,5 +348,18 @@ export async function runMorningPipeline(
     },
     narration,
     hints,
+    _pipelineTrace: {
+      pipelineCalled: true,
+      pipelineStatus: "ok",
+      priorEventsMode,
+      comprehensionProviderCalled,
+      providerSkipReason,
+      providerSuccess,
+      providerLatencyMs,
+      rawEventCount: raw.events.length,
+      eventsAfterNormalizationCount: events.length,
+      targetDateExtracted: comprehension.targetDate,
+      targetDateSource,
+    },
   };
 }

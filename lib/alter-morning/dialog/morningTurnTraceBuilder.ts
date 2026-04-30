@@ -75,5 +75,6 @@ export function buildMorningTurnTrace(
     },
     dispatch: input.dispatch,
     responsePhase: input.responsePhase,
+    pipeline: input.pipeline,
   };
 }
