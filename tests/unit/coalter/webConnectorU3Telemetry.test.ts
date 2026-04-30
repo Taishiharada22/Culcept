@@ -1,10 +1,15 @@
 /**
- * §7 Step A (2026-04-20): U3 exclusion gate telemetry の観測テスト。
+ * webConnector / u3Telemetry helper — Phase 3 契約テスト。
  *
- * 方針:
- *   - behavior 非変更（U3 hit 時は既存どおり shouldSearch:false を返す）
- *   - telemetry emit の payload shape を固定し、Step B の集計キー不変を保証
- *   - theme-aware helper が food 以外でも動くことを最低 1 件で検証
+ * Bug-1 Phase 3（§4.4 actionable-only gate）移行に伴い、旧 §7 Step A U3 telemetry
+ * の emit 検証（`[CoAlter] webConnector.u3_gate` log / `U3GatePayload`）は
+ * dead code path となり本ファイルから削除済み。
+ *
+ * 現役責務:
+ *   1. decideSearch Phase 3 最小 smoke（3 gate 組合せを 1 件ずつ）
+ *      — 詳細挙動は decideSearchSystemA/B/C.test.ts
+ *   2. u3Telemetry.ts の helper 3 本の API 契約
+ *      — hasActionableConstraintsByTheme / extractMatchedTerms / maskSensitiveText
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -60,34 +65,7 @@ function makeAnalysis(opts: {
   };
 }
 
-interface U3GatePayload {
-  theme: string;
-  matched_pattern: string;
-  matched_terms: string[];
-  matched_text_sample: string;
-  would_have_searched_without_u3: boolean;
-  counterfactual_queries_count: number;
-  has_actionable_constraints: boolean;
-  actionable_breakdown: {
-    has_location: boolean;
-    has_time: boolean;
-    has_target: boolean;
-    has_preference: boolean;
-  };
-  u3_gate_applied: boolean;
-  abolition_active: boolean;
-  reason_for_skip: string;
-}
-
 type InfoSpy = ReturnType<typeof vi.spyOn>;
-
-function captureU3Gate(spy: InfoSpy): U3GatePayload | null {
-  const call = spy.mock.calls.find(
-    (args: unknown[]) => args[0] === "[CoAlter] webConnector.u3_gate",
-  );
-  if (!call) return null;
-  return JSON.parse(call[1] as string) as U3GatePayload;
-}
 
 function hasDecisionLog(spy: InfoSpy): boolean {
   return spy.mock.calls.some(
@@ -95,7 +73,13 @@ function hasDecisionLog(spy: InfoSpy): boolean {
   );
 }
 
-describe("webConnector §7 Step A: U3 telemetry (behavior 非変更)", () => {
+function hasU3GateLog(spy: InfoSpy): boolean {
+  return spy.mock.calls.some(
+    (args: unknown[]) => args[0] === "[CoAlter] webConnector.u3_gate",
+  );
+}
+
+describe("webConnector.decideSearch — Phase 3 最小 smoke", () => {
   let infoSpy: InfoSpy;
 
   beforeEach(() => {
@@ -105,152 +89,53 @@ describe("webConnector §7 Step A: U3 telemetry (behavior 非変更)", () => {
     infoSpy.mockRestore();
   });
 
-  describe("emit 条件 / payload shape", () => {
-    it("emotion only（food, 制約なし）→ u3_gate emit / actionable=false", () => {
-      const d = decideSearch(
-        makeAnalysis({ theme: "food", body: "なんかモヤモヤする気分" }),
-      );
-      // behavior 非変更
-      expect(d.shouldSearch).toBe(false);
-      expect(d.queries).toEqual([]);
-
-      const payload = captureU3Gate(infoSpy);
-      expect(payload).not.toBeNull();
-      expect(payload!.theme).toBe("food");
-      expect(payload!.matched_pattern).toBe("気持ち|感情|気分");
-      expect(payload!.matched_terms).toEqual(["気分"]);
-      expect(payload!.has_actionable_constraints).toBe(false);
-      // NOTE: food theme は制約ゼロでも fallback クエリ（"おすすめ レストラン デート"）
-      //   を生成するため、counterfactual は wouldSearch=true になる。
-      //   これは「U3 が無ければ noise クエリも発火する」を Step B の判断で
-      //   actionable 有無と組み合わせて評価するための signal。
-      expect(payload!.would_have_searched_without_u3).toBe(true);
-      expect(payload!.counterfactual_queries_count).toBeGreaterThan(0);
-      expect(payload!.u3_gate_applied).toBe(true);
-      expect(payload!.abolition_active).toBe(false);
-      expect(payload!.reason_for_skip).toBe("感情・関係性の話題のため検索不要");
-    });
-
-    it("emotion + location（food, 新宿）→ actionable=true / would=true（over-blocking 証拠）", () => {
-      const d = decideSearch(
-        makeAnalysis({
-          theme: "food",
-          body: "新宿でラーメン食べたい気分なんだよね",
-          constraints: { location: "新宿", preferences: ["ラーメン"] },
-        }),
-      );
-      expect(d.shouldSearch).toBe(false);
-      expect(d.queries).toEqual([]);
-
-      const payload = captureU3Gate(infoSpy);
-      expect(payload).not.toBeNull();
-      expect(payload!.has_actionable_constraints).toBe(true);
-      expect(payload!.actionable_breakdown.has_location).toBe(true);
-      expect(payload!.actionable_breakdown.has_target).toBe(true);
-      expect(payload!.would_have_searched_without_u3).toBe(true);
-      expect(payload!.counterfactual_queries_count).toBeGreaterThan(0);
-      expect(payload!.u3_gate_applied).toBe(true);
-      expect(payload!.abolition_active).toBe(false);
-    });
-
-    it("emotion + time（food, timeSlot=夜）→ actionable_breakdown.has_time=true", () => {
-      const d = decideSearch(
-        makeAnalysis({
-          theme: "food",
-          body: "疲れたから何か食べたい気分",
-          constraints: { timeSlot: "夜" },
-        }),
-      );
-      expect(d.shouldSearch).toBe(false);
-
-      const payload = captureU3Gate(infoSpy);
-      expect(payload).not.toBeNull();
-      expect(payload!.actionable_breakdown.has_time).toBe(true);
-      expect(payload!.has_actionable_constraints).toBe(true);
-    });
-
-    it("non-U3 path（food, 感情語なし）→ u3_gate 非 emit / decision log のみ", () => {
-      const d = decideSearch(
-        makeAnalysis({
-          theme: "food",
-          body: "新宿でラーメン食べたい",
-          constraints: { location: "新宿", preferences: ["ラーメン"] },
-        }),
-      );
-      expect(d.shouldSearch).toBe(true);
-      expect(d.queries.length).toBeGreaterThan(0);
-
-      expect(captureU3Gate(infoSpy)).toBeNull();
-      expect(hasDecisionLog(infoSpy)).toBe(true);
-    });
+  it("Gate 1: 非検索 theme は skip（reason に theme 名）", () => {
+    const d = decideSearch(
+      makeAnalysis({
+        theme: "schedule" as ConversationTheme,
+        body: "土曜の夜どうしよう",
+        constraints: { date: "土曜", timeSlot: "夜" },
+      }),
+    );
+    expect(d.shouldSearch).toBe(false);
+    expect(d.queries).toEqual([]);
+    expect(d.reason).toContain("schedule");
+    expect(d.reason).toContain("検索不要");
   });
 
-  describe("behavior 非変更の契約", () => {
-    const emotionSamples: Array<{ theme: ConversationTheme; body: string }> = [
-      { theme: "food", body: "モヤモヤするし、気分じゃない" },
-      { theme: "movie", body: "最近すれ違いが多くて喧嘩した" },
-      { theme: "travel", body: "二人の距離感が気になる" },
-      { theme: "activity", body: "感情が追いつかない" },
-    ];
-
-    for (const s of emotionSamples) {
-      it(`[${s.theme}] U3 hit 時は常に shouldSearch:false / queries:[]`, () => {
-        const d = decideSearch(makeAnalysis({ theme: s.theme, body: s.body }));
-        expect(d.shouldSearch).toBe(false);
-        expect(d.queries).toEqual([]);
-        expect(d.reason).toBe("感情・関係性の話題のため検索不要");
-      });
-    }
+  it("Gate 2: 検索 theme でも actionable=false なら skip", () => {
+    const d = decideSearch(
+      makeAnalysis({ theme: "food", body: "気分が乗らない" }),
+    );
+    expect(d.shouldSearch).toBe(false);
+    expect(d.queries).toEqual([]);
+    expect(d.reason).toContain("actionable");
   });
 
-  describe("pure refactor 不変（buildSearchDecisionCore 抽出）", () => {
-    it("non-U3 path の return 値が従来と同形: shouldSearch / reason / queries", () => {
-      const d = decideSearch(
-        makeAnalysis({
-          theme: "food",
-          body: "新宿でラーメン食べたい",
-          constraints: { location: "新宿", preferences: ["ラーメン"] },
-        }),
-      );
-      expect(d.shouldSearch).toBe(true);
-      expect(d.reason).toContain("food");
-      expect(Array.isArray(d.queries)).toBe(true);
-      expect(d.queries.length).toBeGreaterThan(0);
-    });
+  it("両 gate 通過: 通常検索 + decision log emit", () => {
+    const d = decideSearch(
+      makeAnalysis({
+        theme: "food",
+        body: "新宿でラーメン食べたい",
+        constraints: { location: "新宿", preferences: ["ラーメン"] },
+      }),
+    );
+    expect(d.shouldSearch).toBe(true);
+    expect(d.queries.length).toBeGreaterThan(0);
+    expect(d.reason).toContain("food");
+    expect(hasDecisionLog(infoSpy)).toBe(true);
   });
 
-  describe("theme-aware helper（non-food 1 ケース: travel）", () => {
-    it("travel + location あり → actionable=true（has_location ルート）", () => {
-      const d = decideSearch(
-        makeAnalysis({
-          theme: "travel",
-          body: "京都で温泉行きたい気分",
-          constraints: { location: "京都" },
-        }),
-      );
-      expect(d.shouldSearch).toBe(false);
-
-      const payload = captureU3Gate(infoSpy);
-      expect(payload).not.toBeNull();
-      expect(payload!.theme).toBe("travel");
-      expect(payload!.actionable_breakdown.has_location).toBe(true);
-      expect(payload!.actionable_breakdown.has_target).toBe(true); // 「温泉」
-      expect(payload!.has_actionable_constraints).toBe(true);
-    });
-
-    it("travel + 何もなし（目的地も時期も target も無し）→ actionable=false", () => {
-      // travel は location / (target + time) ルールなので、
-      // location=null かつ target は検出されるが time=null の場合 actionable=false
-      const d = decideSearch(
-        makeAnalysis({ theme: "travel", body: "なんか気分が乗らないな" }),
-      );
-      expect(d.shouldSearch).toBe(false);
-
-      const payload = captureU3Gate(infoSpy);
-      expect(payload).not.toBeNull();
-      expect(payload!.theme).toBe("travel");
-      expect(payload!.has_actionable_constraints).toBe(false);
-    });
+  it("旧 u3_gate telemetry は Phase 3 で完全撤去（skip/pass どちらでも emit されない）", () => {
+    decideSearch(makeAnalysis({ theme: "food", body: "気分が乗らない" }));
+    decideSearch(
+      makeAnalysis({
+        theme: "food",
+        body: "新宿でラーメン食べたい気分",
+        constraints: { location: "新宿" },
+      }),
+    );
+    expect(hasU3GateLog(infoSpy)).toBe(false);
   });
 });
 

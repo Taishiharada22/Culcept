@@ -240,6 +240,18 @@ export async function runCoAlterPipeline(
       : await ensureSearchCandidates();
     let rawProposal: ProposalCard;
     if (useMovieV2) {
+      // [B-5 2026-04-24] movie branch Stage 1 Understand shadow 並走（fire-and-forget）
+      //   flag `understandingShadowMovie` OFF では即 return（追加 latency 0 / 副作用 0）。
+      //   主経路は shadow を await しない。shadow 結果は card / telemetry に 1 bit も反映しない。
+      //   二重防御: 関数内 try/catch + ここで `.catch(() => {})`。
+      void runMovieShadowUnderstanding(
+        supabase,
+        input.threadId,
+        pairStateId,
+        userAId,
+        userBId,
+      ).catch(() => {});
+
       const movieResult = await generateMovieProposalV2({
         turns: messages,
         analysis,
@@ -840,6 +852,57 @@ async function buildFoodLensIfEnabled(
   } catch {
     // fail-open: Stage 1 の失敗で food pipeline 全体を倒さない
     return {};
+  }
+}
+
+// ─────────────────────────────────────────────
+// B-5: Stage 1 Understand → movie branch shadow 並走（flag-gated / fire-and-forget）
+// ─────────────────────────────────────────────
+
+/**
+ * [CEO lock 2026-04-24 B-5] movie branch に Stage 1 Understand を **shadow 並走**で接続する。
+ *
+ * 挙動:
+ *  - flag OFF           → 即 return。movie V2 経路の call flow は 1 bit も変化しない（dead import）
+ *  - flag ON            → `collectLiveBundle` → `runUnderstanding` を走らせ、
+ *                          diagnostics emit（`COALTER_UNDERSTANDING_DIAGNOSTICS` 別 flag）に任せる
+ *  - 返り値なし（void）。shadow 結果は主経路の card / ranked / telemetry / diagnostics に
+ *    **1 bit も反映しない**。差分は `emitUnderstandingDiagnostics` 経由のみ。
+ *  - 呼び出しは `void runMovieShadowUnderstanding(...).catch(() => {})` で fire-and-forget。
+ *    movie V2 の latency に加算されない（主経路は await しない）。
+ *
+ * 失敗モード（fail-open 二重防御）:
+ *  1. 関数内 try/catch で collector / runUnderstanding の例外を握り潰す
+ *  2. 呼び出し側で `.catch(() => {})` で Promise rejection を握り潰す
+ *
+ * §11.A 遵守:
+ *  - `movieOrchestrator.ts` / `webConnector.ts` / `movieCatalog.ts` は一切触らない
+ *  - `engine.ts` の movie V2 呼び出しは flag OFF 時に追加 latency 0 / 副作用 0
+ *  - shadow の結果で card / ranked の値は変わらない（そもそも受け取らない）
+ */
+async function runMovieShadowUnderstanding(
+  supabase: SupabaseClient,
+  threadId: string,
+  pairStateId: string,
+  userA: string,
+  userB: string,
+): Promise<void> {
+  if (!COALTER_FLAGS.understandingShadowMovie) return;
+  try {
+    const now = new Date().toISOString();
+    const { bundle } = await collectLiveBundle({
+      supabase,
+      threadId,
+      pairStateId,
+      userA,
+      userB,
+      now,
+    });
+    // runUnderstanding 内で emitUnderstandingDiagnostics が発火する（別 flag gated）。
+    // 戻り値は意図的に破棄: movie 本流は shadow 結果を一切参照しない。
+    await runUnderstanding(bundle, now, pairStateId);
+  } catch {
+    // fail-open: shadow 失敗で movie 主経路を倒さない
   }
 }
 

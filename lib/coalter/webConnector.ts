@@ -18,12 +18,7 @@ import type {
   SearchDecision,
 } from "./types";
 import { getThemeRule } from "./slots";
-import { isU3AbolitionActive } from "./flags";
-import {
-  extractMatchedTerms,
-  hasActionableConstraintsByTheme,
-  maskSensitiveText,
-} from "./u3Telemetry";
+import { hasActionableConstraintsByTheme } from "./u3Telemetry";
 
 // Perspective Engine の検索関数を転用
 import { executeSearch } from "@/lib/stargazer/perspectiveEngine";
@@ -78,11 +73,24 @@ export function filterCurrentTopicBurst(
 /** 検索が必要なテーマ */
 const SEARCH_REQUIRED_THEMES = new Set(["movie", "food", "travel", "activity"]);
 
-/** 検索不要の明示的パターン */
-const NO_SEARCH_PATTERNS = [
-  /気持ち|感情|気分/,          // 感情の話は検索不要
-  /関係|仲|距離感/,           // 関係性の話は検索不要
-  /すれ違い|誤解|喧嘩/,       // すれ違いは内部処理
+/**
+ * @deprecated Phase 1 alias — 旧 U3 感情 gate で使用された pattern 表。
+ *
+ *   Bug-1 Phase 3（§4.4）で decideSearch は actionable-only gate に移行し、
+ *   本 pattern 表は実経路から参照されなくなった（§6.3 段階的廃止の Phase 1: 死コード化）。
+ *
+ *   Phase 1 の契約:
+ *     - symbol は存続する（Phase 2 で物理削除予定）
+ *     - decideSearch / buildSearchDecisionCore から一切参照されない
+ *     - 新規コードから参照してはならない
+ *
+ *   本 export の役割は「存在確認テスト（webConnectorNoSearchPatternsDeprecated.test.ts）」
+ *   のための symbol 保持のみ。
+ */
+export const NO_SEARCH_PATTERNS = [
+  /気持ち|感情|気分/,
+  /関係|仲|距離感/,
+  /すれ違い|誤解|喧嘩/,
 ];
 
 /**
@@ -115,16 +123,38 @@ function buildSearchDecisionCore(
 }
 
 /**
- * 検索が必要かどうかを判断する。
+ * 検索が必要かどうかを判断する（Bug-1 §4.4 actionable-only gate）。
+ *
+ * 判定順序:
+ *   Gate 1: theme が SEARCH_REQUIRED_THEMES に属するか
+ *   Gate 2: hasActionableConstraintsByTheme(analysis, theme) が true か
+ *     → いずれか false なら skip。両 true なら通常の buildSearchDecisionCore。
+ *
+ *  旧 U3 path（NO_SEARCH_PATTERNS 感情 gate / isU3AbolitionActive flag /
+ *  u3_gate telemetry）は Phase 3 で撤去。actionable 有無のみが skip 条件。
+ *  感情語の有無は検索要否に影響しない（失敗独立 §2.3）。
  */
 export function decideSearch(
   analysis: ConversationAnalysis,
 ): SearchDecision {
-  // テーマが検索不要の場合
+  // Gate 1: テーマが検索対象でなければ skip
   if (!SEARCH_REQUIRED_THEMES.has(analysis.theme)) {
     return {
       shouldSearch: false,
       reason: `テーマ「${analysis.theme}」は検索不要`,
+      queries: [],
+    };
+  }
+
+  // Gate 2: actionable 制約が 1 つも無ければ skip（noise 防止）
+  const { hasActionable } = hasActionableConstraintsByTheme(
+    analysis,
+    analysis.theme,
+  );
+  if (!hasActionable) {
+    return {
+      shouldSearch: false,
+      reason: `テーマ「${analysis.theme}」に actionable な制約がないため検索不要`,
       queries: [],
     };
   }
@@ -134,96 +164,11 @@ export function decideSearch(
   const currentBurst = filterCurrentTopicBurst(analysis.recentMessages);
   const combined = currentBurst.map((m) => m.body).join(" ");
 
-  // U3 exclusion gate: NO_SEARCH_PATTERNS hit 時は skip。
-  //   §7 Step A (2026-04-20): behavior は既存のまま（skip）だが、telemetry を
-  //   追加して Step B（flag 下 U3 撤廃）の Go / Rollback 判断材料を蓄積する。
-  let matchedPattern: RegExp | null = null;
-  for (const pattern of NO_SEARCH_PATTERNS) {
-    if (pattern.test(combined)) {
-      matchedPattern = pattern;
-      break;
-    }
-  }
-
-  if (matchedPattern) {
-    // §7 Step B (2026-04-20): flag 下での U3 撤廃。
-    //   abolition=ON かつ actionable=true → gate を解除し、通常検索へ進む。
-    //   それ以外は従来どおり skip。
-    //
-    //   telemetry の u3_gate_applied / abolition_active は実挙動から算出する
-    //   （2 bool の直交で、Step A と Step B のログが同じキーで混ざっても
-    //   意味が崩れない — CEO 条件）。
-    const counterfactual = buildSearchDecisionCore(analysis, combined);
-    const { hasActionable, breakdown } = hasActionableConstraintsByTheme(
-      analysis,
-      analysis.theme,
-    );
-    const abolitionActive = isU3AbolitionActive(analysis.theme);
-    const gateApplied = !(abolitionActive && hasActionable);
-
-    const skipReason = gateApplied
-      ? abolitionActive
-        ? "撤廃下でも actionable 制約ゼロのため skip"
-        : "感情・関係性の話題のため検索不要"
-      : null;
-
-    try {
-      console.info(
-        "[CoAlter] webConnector.u3_gate",
-        JSON.stringify({
-          theme: analysis.theme,
-          matched_pattern: matchedPattern.source,
-          matched_terms: extractMatchedTerms(matchedPattern, combined),
-          matched_text_sample: maskSensitiveText(combined, 32),
-          would_have_searched_without_u3: counterfactual.decision.shouldSearch,
-          counterfactual_queries_count: counterfactual.decision.queries.length,
-          has_actionable_constraints: hasActionable,
-          actionable_breakdown: breakdown,
-          u3_gate_applied: gateApplied,
-          abolition_active: abolitionActive,
-          reason_for_skip: skipReason,
-        }),
-      );
-    } catch {
-      // log 失敗しても本体には影響させない
-    }
-
-    if (gateApplied) {
-      return {
-        shouldSearch: false,
-        reason: skipReason ?? "感情・関係性の話題のため検索不要",
-        queries: [],
-      };
-    }
-
-    // gate 撤廃 → counterfactual の決定をそのまま返す。
-    //   decision log も通常 path と同形で emit し、下流の集計が共通化できる
-    //   ようにする。
-    try {
-      console.info(
-        "[CoAlter] webConnector.decision",
-        JSON.stringify({
-          theme: analysis.theme,
-          mentionedCandidates: counterfactual.mentionedCandidates,
-          combinedSample: combined.slice(0, 80),
-          queriesCount: counterfactual.decision.queries.length,
-        }),
-      );
-    } catch {
-      // log 失敗しても本体には影響させない
-    }
-    return counterfactual.decision;
-  }
-
   const { decision, mentionedCandidates } = buildSearchDecisionCore(
     analysis,
     combined,
   );
 
-  // Phase A.7 D1 (2026-04-19): mentionedCandidates 汚染の切り分け用。
-  //   preview 本カウント中に `系がいいの_ アニメ` 等の greedy 捕捉で query 第1本が
-  //   汚染され listicle を呼び込む疑惑があり、pattern 2 `(.{2,10})(...)` の出力を
-  //   観測する。behavior 非変更、log-only。
   try {
     console.info(
       "[CoAlter] webConnector.decision",

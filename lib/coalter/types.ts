@@ -9,6 +9,8 @@
  *   L5: 提案生成（要約→解釈→関係性に即した提案）
  */
 
+import type { EmotionTag } from "./emotion/types";
+
 // ─────────────────────────────────────────────
 // Session & State
 // ─────────────────────────────────────────────
@@ -234,6 +236,13 @@ export interface ConversationAnalysis {
   primaryScopeCount?: number;
   /** Phase 1.5.4.6: background only に落ちたメッセージ数（監査用） */
   backgroundScopeCount?: number;
+  /**
+   * Phase 3B: 感情タグ（narration 用、retrieval gate には影響しない）。
+   * recentMessages window 内で集約された EmotionTag[]。
+   * speaker は senderId に基づき "user_a" / "user_b" / "both" / "unknown"。
+   * 失敗独立条文 (§2.3) により、抽出失敗時は空配列。
+   */
+  emotionTags?: EmotionTag[];
 }
 
 export type ConversationTheme =

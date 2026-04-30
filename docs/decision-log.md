@@ -1099,3 +1099,858 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
   3. CEO 並行 commit（c22db5f9 / 566c4456）のような想定外事象は、即停止 → 現状診断 → 計画再設計の順で扱うと退化ゼロで吸収可能
 - **commit message 方針**（今後参照用）: Phase C の 9 commits は **依存関係明示**（"Depends on C-1..." 等）と **file-level change narrative** を含め、レビュアが wave 構造を把握できるようにした。
 
+### [2026-04-26] [Build] CoAlter Bug-1 Phase 3A 観測 gate PASS / 本線 build-fix 着地
+- **部門**: Build
+- **決定内容**: Phase 3A retrieval recall/precision 観測 4 指標が全 PASS。Phase 3B narration 接続の着手条件達成。Phase 3A の build blocker 除去 commit を本線 `feat/coalter-three-stage` に cherry-pick。
+- **承認**: CEO
+- **ステータス**: Phase 3A 完了 / Phase 3B 着手前
+- **観測 gate 結果（N=19）**:
+  - searchCandidatesCount median: **6** (閾値 ≥5)
+  - searchCandidatesCount p25: **3** (閾値 ≥3)
+  - hasActionable=false での fire 率: **0%** (閾値 =0%、precision 完全)
+  - 0 candidates 比率: **0%** (閾値 <20%)
+  - candidatesCount sorted: `[3,3,3,3,3,3,3,6,6,6,7,8,8,8,9,9,9,9,9]`
+- **観測前提**:
+  - branch: `preview/coalter-stepc-phase3a` (HEAD `e2eb810b`)
+  - env: `EXA_API_KEY` (preview+production), `COALTER_UNDERSTANDING_DIAGNOSTICS=1` (preview, branch scope)
+  - 観測経路: 正規 ChatClient (`/talk/[threadId]`) → CoAlter button click → POST `/api/coalter/invoke`
+- **本線着地（cherry-pick）**: `e2eb810b` を `feat/coalter-three-stage` に cherry-pick → 新 hash **`45cd1327`**。preview のみあった build blocker 除去（main の portable file 6 個欠落: `AneurasyncLogo.tsx` / `placeCacheStore.ts` / `placesApiClient.ts` / `routesApiClient.ts` / `municipalityCoords.ts` / `episodicRecall.ts`、計 1538 lines）を本線に取り込み、再発防止。
+- **正確な扱い（CEO 確定）**:
+  - Phase 3A retrieval recall/precision の gate は **PASS**
+  - Phase 3B 進行条件は満たした
+  - ただし「完全に健全」ではなく、後続課題が残る
+- **後続課題**（Phase 3B 完了後 or 別 Phase で扱う、優先順位 CEO 確定）:
+  1. theme drift（直前 N turn 累積で「表参道 昼カフェ」が movie 誤分類）
+  2. 同一クエリ / エリアの retrieval 重複（dedup 不足）
+  3. double invoke (10 click → 20 invoke)
+  4. travel/activity の query 弱さ（candidatesCount=3 上限）
+- **次フェーズ**: Phase 3B narration 接続を `feat/coalter-three-stage` 上で開始。`preview/coalter-stepc-phase3a` 上では行わない。
+
+### [2026-04-26] [Build] CoAlter Bug-1 Phase 3B Layer 2-C preview 観測 — inconclusive
+- **部門**: Build
+- **決定内容**: Layer 2-C (`5e63e7b5` = preview cherry-pick `634ff651`) の preview deploy
+  (`dpl_4hTC7cVUfYGVeBb6fkL498RUoPtu`) で UX 効果検証を試みたが、movie path の
+  `rankedCount=0` が連続したため UI 上の効果検証は **inconclusive (未判定)**。
+- **承認**: CEO
+- **ステータス**: 観測完了 / 効果判定保留 / 修正未着手
+- **観測結果（5 invoke / 直近 1h logs）**:
+  - movie 4/5: `rawResultsCount=9 / catalogCount=3 / rankedCount=0` （4 件全て同一構造）
+    - `missingWhereRejectCount=3` / `titleWithoutTheaterCount=3` で全 drop
+  - food 1/5: `rawResultsCount=6 / parsedVenues=1 / rankedCount=1`（rank>0 達成）
+  - emotion_signals が prose に反映された観察ゼロ
+- **新たに判明した別 gate（重要）**:
+  - **Phase 3A retrieval gate PASS は維持**（recall/precision の観測値は別 entry 既述）
+  - ただし retrieval 後の **catalog / ranker gate**（特に movieRanker の `missing_where`
+    hard filter）で movie が 100% drop する事実が判明
+  - **Phase 3A は retrieval 評価としては有効だが、UX 到達には ranker gate も別途必要**
+- **food path の dead spot（Layer 2-D 論点）**:
+  - foodOrchestrator は narrationEnricher を呼ばない構造（Phase B Commit 4 lock）
+  - Layer 2-A/B/C で構築した emotion 経路は food path に届かない
+  - food rank>0 でも logic-only narration → emotion 反映ゼロ
+  - Layer 2-C 効果検証直後には扱わず、Layer 2-D で別判断
+- **UX 課題（layout/UI phase 送り）**:
+  - repeated clarify / context drift（CEO 入力の直近 N turn が薄い相槌だと
+    `combinedSample` が stale 化、4 連続で同一 query → 同一 clarify）
+  - 「もっと聞かせて」連発に対する UX 改善は別 phase
+- **次の観察候補（CEO 優先順位 A → B → C → D、本 entry 時点で実装着手なし）**:
+  - **A**: theater 名直接指定 movie 入力で rank>0 に到達するか preview で再観測
+    （CEO 操作 + Claude logs 確認）
+  - **B**: `lib/coalter/movieRanker.ts` / `movieCatalog.ts` の `missing_where`
+    hard filter を読み取り、最小修正案を起草（observation のみ、修正禁止）
+  - **C**: food Layer 2-D は別判断（保留）
+  - **D**: layout/UI 改善は別 phase で課題一覧を整理
+- **layout/UI phase 候補課題**:
+  - L-1: repeated clarify
+  - L-2: context drift（直近 N turn 薄い相槌で combinedSample stale 化）
+  - L-3: clarify card に「ピン止めされた条件」見える化
+  - L-4: clarify card に「足りない条件」明示（既存 missingConstraints 経路の UI 強化）
+  - L-7: rank=0 時の「何が原因か」UI 表示（"theater 情報が取れなかった" 等の透明化）
+  - L-9: 「もっと聞かせて」click 後に context が更新される仕組み
+
+### [2026-04-27] [Build] CoAlter Phase 3B catalog parser 強化打ち切り / 映画 2 段階分離設計へ移行
+- **部門**: Build
+- **決定内容**: B'-1 (theater 解決) / Bug 1 (page 名 reject) / Bug 2 (markdown heading 抽出) と
+  catalog parser 強化を 3 commit 連続で実施。preview 再観測で限定的に Layer 2-C 効果検証に
+  到達したが、CEO 判断で catalog parser 強化はここで打ち切り。映画は「映画館検索」と
+  「映画内容そのもの」の 2 段階分離設計を別 Phase で扱う。
+- **承認**: CEO
+- **ステータス**: 打ち切り判定 / Phase 3B Layer 2-C 観測は限定的成果のまま終了
+- **3 commit の経緯**:
+  1. **B'-1** (`56f7e487` preview / cherry-pick `9a52bfba` feat): theater 解決強化
+     (crank-in / eiga.com URL pattern 追加 + resolveTheaterForTitle chain 順序変更)
+     - 観測結果: rankedCount 0 → 1 達成、UI に「クランクイン！」(page 名) 表示
+     - Layer 2-C emotion 経路が 1 度だけ user-facing に到達
+  2. **Bug 1** (`9ce67668` preview / `f7f597e5` feat): NON_TITLE_SEGMENT に「クランクイン」追加
+     (page 名 → site 名扱いで reject)
+     - 観測結果: 「クランクイン！」消滅、しかし description 内 markdown `# {作品名}` を
+       extractBracketedTitles が拾えず rankedCount 0 後退
+  3. **Bug 2** (`fcfc3d8b` feat、preview 未反映): markdown heading 抽出 helper
+     `extractMarkdownHeadingTitles` 追加、parseMovieScreenings の description fallback chain に統合
+     - unit test 全 PASS (84 files / 1236 tests)、preview deploy 前に CEO パス判定
+- **打ち切り理由**:
+  - 映画は「映画館検索」と「映画内容そのもの」の 2 段階分離が本来の設計（CEO）
+  - catalog parser 単体強化を続けても real EXA results の表記揺れに追従しきれない
+  - parser 強化は 3 commit で十分試行、これ以上は ROI 低い
+- **未反映の commit**:
+  - **`fcfc3d8b` (Bug 2)** は feat 本線に commit 済 + unit test PASS だが preview deploy しない
+  - 映画 2 段階分離設計が定まる前は preview に流さない方針
+- **次フェーズ**: CEO 判断仰ぐ
+  - food path Layer 2-D（narrationEnricher への接続、前 turn で保留）
+  - layout/UI phase（rank=0 理由の見える化、context drift 対策）
+  - 映画 2 段階分離設計（新 Phase）
+  - その他
+
+## [2026-04-30] [Build] [Stage 4 B-3.4 Realtime publication 追加] [承認: CEO]
+
+### 範囲
+- migration: `supabase/migrations/20260430100000_coalter_memory_items_realtime.sql`
+  - SQL: `ALTER PUBLICATION supabase_realtime ADD TABLE public.coalter_memory_items`
+  - 冪等性: `pg_publication_tables` check で重複追加回避 (既存 `20260415100000_coalter.sql` と同 pattern)
+- code: `useMemoryItems` hook に Supabase Realtime channel subscribe 追加
+  - channel name: `coalter_memory:${pairId}` (CEO 確定 2026-04-30、filter 式は分離)
+  - filter: `pair_id=eq.${pairId}` (postgres_changes 内、performance 最適化)
+  - throttle: **250ms** (REALTIME_THROTTLE_MS、CEO 確定 2026-04-30、即時性より安定性優先)
+  - throttle 中の連続 event 取りこぼし防止: `pendingRef.current ?? itemsRef.current` を base に compute
+  - `shouldDisplay` 多層 gate (CEO 確定 2026-04-30):
+    - viewer=user_a で user_b_only → 非表示
+    - viewer=user_b で user_a_only → 非表示
+    - internal_only → 常に非表示
+    - expired (expires_at <= now) → 非表示
+    - both_visible / same-side scope → 表示
+
+### security boundary (3 層 defense in depth)
+1. RLS (DB-level、主防御): SELECT policy で pair member + 片側可視性 enforce、Realtime broadcast は subscriber session の RLS を評価
+2. filter (server-side、performance): `pair_id=eq.${pairId}` で別 pair event を server-side で短絡
+3. client `shouldDisplay` (UI-level、副防御): visibility / expires / viewer scope を client 側でも check
+
+### supabase db push timing (CEO 確認 gate)
+1. B-3.4.a/b/c 3 commits を local 完了
+2. push origin → Vercel preview build
+3. preview smoke (publication 未追加で CHANNEL_ERROR でも UI 壊れない invariant 確認)
+4. **CEO 確認 → CEO が `supabase db push` 手動実行** (ここが必須 gate)
+5. publication 追加後 manual realtime test (test pair で service_role INSERT → 別端末で受信確認)
+6. test data cleanup (CEO 指示 Gate B、必須):
+   - `DELETE FROM coalter_memory_items WHERE pair_id = '${test_pair_id}' AND content LIKE 'B-3.4 manual test%'`
+   - service_role 経由、SQL Editor or supabase CLI
+7. Production promote 判断 (B-4 完了後にまとめて、B-2/B-3 と同方針)
+
+### rollback 手順
+- code rollback:
+  - `git revert <B-3.4.a hash> <B-3.4.b hash> <B-3.4.c hash>` + `git push origin feat/coalter-three-stage`
+  - Vercel auto preview build → CEO promote
+- migration rollback:
+  - 別 migration `supabase/migrations/<timestamp>_revert_coalter_memory_items_realtime.sql` を作成
+  - SQL: 冪等性付き `ALTER PUBLICATION supabase_realtime DROP TABLE public.coalter_memory_items`
+    ```sql
+    do $$
+    begin
+      if exists (
+        select 1 from pg_publication_tables
+        where pubname = 'supabase_realtime'
+          and schemaname = 'public'
+          and tablename = 'coalter_memory_items'
+      ) then
+        execute 'alter publication supabase_realtime drop table public.coalter_memory_items';
+      end if;
+    end $$;
+    ```
+  - **CEO 操作で `supabase db push`** で適用
+- env / `coalter_memory_items` table / 既存 RLS は touch しない (data 破棄ゼロ)
+- revert 中の in-flight subscribe client は CHANNEL_ERROR を受けるが、`setRealtimeError("channel_*")` fallback で UI 壊れず、initial fetch 経路維持
+
+### 制限事項
+- B-3.4 単独で Production promote しない (Path B 完了後にまとめて、CEO 確定方針)
+- B-4 (Supabase migration 適用状態最終 audit + integration test) は別 phase
+- preview smoke 段階では publication 未追加で CHANNEL_ERROR が来る可能性あり、UI 壊れない invariant が保証
+
+## [2026-04-30] [Build] [Stage 4 B-3.4.d REPLICA IDENTITY FULL] [承認: CEO]
+
+### 経緯
+- B-3.4 publication 追加後の manual realtime test (2026-04-30) で発見:
+  - INSERT realtime: ✅ 即時反映
+  - UPDATE realtime: (本 test では未検証、INSERT と同じ broadcast 経路のため OK 想定)
+  - DELETE realtime: ⚠️ 不発火、page refresh 後に initial fetch 経由で消える
+
+### 根本原因
+- PostgreSQL `REPLICA IDENTITY DEFAULT` 仕様: DELETE event の OLD record に PK のみ
+- Supabase Realtime は subscriber session の RLS で event filter
+- RLS policy `cps.id = coalter_memory_items.pair_id` の評価で OLD record の `pair_id`
+  不在 → filter で drop → subscriber に届かない
+
+### 修正
+- migration: `supabase/migrations/20260430110000_coalter_memory_items_replica_full.sql`
+- SQL: `ALTER TABLE public.coalter_memory_items REPLICA IDENTITY FULL;`
+- これにより DELETE event の OLD record に全 columns が含まれ、RLS evaluation 成功
+
+### 副作用評価
+- WAL log size がやや増加 (UPDATE / DELETE 時に全 row が log に書かれる)
+- coalter_memory_items は row size 小 (text + uuid + timestamps) かつ update 頻度低
+  → 影響軽微、許容範囲
+- 既存 RLS / INSERT / UPDATE realtime 経路は不変 (schema-only change)
+- 既存 row data は touch しない
+
+### 不変 (CEO 厳守 2026-04-30)
+- useMemoryItems.ts ロジック変更なし (既存 client computeNext で動く)
+- API / UI / MemorySurface 変更なし
+- RLS policy 変更なし
+- soft delete pattern 採用せず (scope 過大、B-4 でも別審議せず)
+
+### supabase db push timing (Gate A 維持)
+1. migration commit + push
+2. preview build + smoke (publication 既追加で INSERT/UPDATE は引き続き動作、
+   DELETE は本 migration 適用前のため引き続き page refresh 依存)
+3. 私が `supabase migration list --linked` で未適用 1 本確認 → CEO に GO 仰ぐ
+4. CEO `supabase db push` 手動実行
+5. 適用確認 + DELETE manual realtime test 再実行
+
+### rollback 手順
+- code: 本 migration を git revert (file 削除)
+- migration rollback:
+  - 別 migration `<timestamp>_revert_coalter_memory_items_replica_default.sql` を作成
+  - SQL: `ALTER TABLE public.coalter_memory_items REPLICA IDENTITY DEFAULT;`
+  - CEO `supabase db push` で適用
+- env / DB row data / 既存 RLS / publication 登録は touch しない (data 破棄ゼロ)
+- rollback 後の DELETE realtime は再び不発火に戻るが、INSERT/UPDATE は引き続き動作
+
+### 制限事項
+- B-3.4.d 単独で Production promote しない (Path B 完了後にまとめて)
+- B-4 (Supabase migration 適用状態最終 audit + integration test) は本 migration 適用後に実施
+
+## [2026-04-30] [Build] [Stage 4 B-4.1 audit + Path B 完了判定] [承認: CEO]
+
+### Path B で達成した範囲
+
+- **B-1** (`02b57f79`): L4-b state header + L4-f ModeSwitcher 本番化
+- **B-2** (`2bc7a7b4` / `03ada72a` / `a0a4d2c9`): L4-h Urgent layer + critical signal detection (CEO 視覚確認 PASS)
+- **B-3.0**: migration / RLS read-only audit (commit なし、audit only)
+- **B-3.1** (`e5474242`): Memory list API endpoint (server-side、RLS-aware)
+- **B-3.2** (`6c0cf82d`): useMemoryItems hook (initial fetch のみ)
+- **B-3.3** (`8330c7bc`): UpperLayerMount に MemorySurface mount + viewer 解決
+- **B-3.4.a** (`8e5d0e80`): Realtime publication migration (適用済 2026-04-30 10:00:00)
+- **B-3.4.b** (`bb0eba99`): useMemoryItems Realtime 拡張 (channel + filter + throttle 250ms)
+- **B-3.4.c** (`9599138e`): Realtime hook test + 既存 grep 反転 (CEO 修正条件 1/2 cover)
+- **B-3.4.d** (`42ba5bee`): REPLICA IDENTITY FULL migration (適用済 2026-04-30 11:00:00)
+
+### Path B 完了 ≠ §10.2 全項目完全達成
+
+Stage 4 L4-l 完了定義 §10.2 13 項目に対する Path B の状態:
+- **完全達成 (complete)**: 5 項目 (#3 3 mode / #4 memory surface / #5 urgent layer / #7 連投抑制 / #11 不可侵項遵守)
+- **部分達成 (partial)**: 6 項目 (#1 Stage 4 全 / #2 flag 全 (PRESENCE_SPEECH_LLM 未稼働) / #6 拒否 3 分類 UI 未接続 / #9 telemetry 観測未確認 / #10 a11y 4 補助状態未接続 / #12 mainstream E-3 整合未確認)
+- **未達成 (missing)**: 2 項目 (#8 speechBuilder LLM 合成 / #13 legacy CoAlterCard 削除)
+
+表現規約 (CEO 確定 2026-04-30):
+- ✅ **Path B 完了** / ✅ **Stage 4 L4-l core UI path 完了**
+- ❌ **§10.2 全項目完全達成** / ❌ **Stage 4 L4-l 完全完了** (= 表現禁止)
+
+→ **Path B 完了 = Stage 4 L4-l core UI path 完了**。Stage 4 L4-l 正式完了には L4-i / L4-j / L4-k / L4-m / mainstream E-3 の追加 phase が必要。
+
+### B-3.4 Realtime INSERT / DELETE manual test PASS
+
+2026-04-30 manual test (CEO 視覚確認):
+- INSERT realtime: 即時表示 ✅
+- DELETE realtime: page refresh なしで即時消失 ✅ (REPLICA IDENTITY FULL 効果)
+- cleanup SELECT count = 0 ✅
+- console error / CHANNEL_ERROR なし ✅
+
+REPLICA IDENTITY FULL の効果が想定通りに発揮 (DELETE event の OLD record が full row で broadcast され RLS 評価成功 → subscriber に届く)。
+
+### publication / REPLICA IDENTITY FULL / RLS の最終状態
+
+- `coalter_memory_items`: `supabase_realtime` publication に登録済 ✅ (`20260430100000`)
+- `coalter_memory_items`: REPLICA IDENTITY FULL ✅ (`20260430110000`)
+- `coalter_memory_items` RLS:
+  - SELECT: pair member + visibility gate (4 軸: both_visible / user_a_only / user_b_only / internal_only) ✅
+  - UPDATE: pair member ✅
+  - INSERT: `with check (false)` (service_role 経由のみ) ✅
+  - DELETE: pair member ✅
+- `coalter_pair_states` RLS:
+  - SELECT/INSERT/UPDATE: pair member ✅
+  - DELETE: cascading delete only
+
+### 残リスク R1-R13
+
+#### Path B 範囲外 (§10.2 残項目)
+- **R1**: `PRESENCE_SPEECH_LLM` 未稼働 (L4-i 残)
+- **R2**: telemetry 8 項目 Production 観測未確認 (L4-j 部分)
+- **R3**: a11y 4 補助状態 UI 未接続 (L4-k 部分、State*Fallback components 実装済だが UpperLayerStateRenderer に mount なし)
+- **R4**: 拒否 3 分類 UI 未接続 (§10.2 #6、rejectionReducer 実装済だが UpperLayerMount に mount なし)
+- **R5**: legacy CoAlterCard 削除未実施 (L4-m、CEO「1 rev 観測後」方針)
+- **R6**: mainstream plan E-3 整合未確認
+
+#### Path B 範囲内
+- **R7**: explicit / mention / chip tap signal 未実装 (B-2 で除外)
+- **R8**: Memory item 「両端末視点」確認 1 端末のみ (端末 2 台での visibility test 未実施)
+- **R9**: Production load (memory rate / subscriber count) 未測定
+- **R10**: rate limit / utterance queue は Stage 2 実装済だが UI 接続未確認
+
+#### 運用
+- **R11**: rollback 経路の手動依存 (CEO 操作: Vercel env / supabase db push)
+- **R12**: test pair_id 1 つでの確認のみ
+- **R13**: CEO 厳守事項 12 項目 → 機械的 enforcement なし
+
+### Production promote 候補 P1/P2/P3
+
+- **P1**: Path B 完了で promote (B-4.2 完了後の CEO 判断、推奨)
+- **P2**: §10.2 全項目達成後 promote (慎重派、L4-i/j/k/m + E-3 完了まで preview のみ)
+- **P3**: 段階的 promote (sub-phase 完了ごとに promote)
+
+### 推奨は P1、最終判断は B-4.2 後
+
+CEO 確定 (2026-04-30): **P1 を採用候補**、B-4.2 完了後に以下 6 つの判断材料を見て最終判断:
+1. B-4.2 test 結果
+2. decision-log 記録
+3. rollback 手順
+4. preview smoke
+5. CEO 視覚確認
+6. §10.2 残項目が明示されていること
+
+### 次フェーズ優先順位 (B-4 完了後、CEO 確定 2026-04-30)
+1. **L4-k**: a11y / loading / error / empty 補助状態の本番 wire
+2. **L4-j**: telemetry 8 項目の Production 観測
+3. **L4-i**: Presence speech LLM 合成
+4. **L4-m**: legacy CoAlterCard 自動挿入コード削除
+5. **mainstream plan E-3 整合 audit**
+
+ただし実際の着手順は B-4 完了後に再判断。
+
+### 不変 (CEO 厳守 2026-04-30)
+- B-4.1 audit は read-only、code touch ゼロ
+- migration / API / UI / RLS / supabase db push / Production promote / env / package / next-env.d.ts / supabase temp 全て不変
+
+## [2026-04-30] [Build] [Stage 4 L4-k a11y / loading / error / empty 4 補助状態 wire] [承認: CEO]
+
+### 範囲
+- UpperLayerStateRenderer に `<StateAriaWrapper>` を統合 (全 state component を統一 wrap)
+- UpperLayerShell から `role="region"` + `aria-label="CoAlter 上部レイヤー"` 削除 (二重 region 回避、`data-testid="coalter-upper-layer-mount"` 維持)
+- UpperLayerMount を `<UpperLayerErrorBoundary>` でラップ
+- UpperLayerMountActive 内に Loading transient (isPresenceReady) + Empty (availability!=='active') 経路追加
+
+### 4 補助状態の Trigger 条件
+- **Loading**: `!isPresenceReady` (mount 直後 1 tick、setTimeout(0) で ready)
+- **Empty**: `availability !== "active"` (B-1 では active 固定で発火しない、将来 consent flow で発火)
+- **Error**: UpperLayerErrorBoundary class component の getDerivedStateFromError catch
+- **Aria**: StateAriaWrapper polite 固定 (UrgentLayer assertive と分離、二重通知回避)
+
+### §10.2 #10 状態遷移
+- Path B 完了時点 (B-4.2 record): partial
+- L4-k 完了時点: **complete** (4 補助状態すべて mount 経路 wire、trigger 条件明確、test PASS)
+- B-4.2 mapping update: complete 5→6 / partial 6→5 / missing 2 (不変)
+
+### CEO 厳守事項の遵守 (2026-04-30)
+- ChatClient.tsx 触らない (test で grep 確認、UpperLayerErrorBoundary 等 import なし)
+- ErrorBoundary は UpperLayerMountActive のみ包む (chat input / scroll / message rendering 不変)
+- telemetry / Sentry breadcrumb は L4-j で別接続、本 phase は console.error のみ (L4-j 衝突回避)
+- Memory / Realtime / Supabase / Urgent trigger / signal detection 不変
+- L4-i / L4-j / L4-m / mainstream E-3 触らない
+- env / package / next-env.d.ts / supabase temp 触らない
+- 新 dependency 追加なし (react-error-boundary 不使用、class component で React 古典実装)
+
+### test 計画 (10 必須項目すべて cover)
+- Loading: 初期 tick 経路 (構造 invariant + StateLoadingFallback 関数 invoke)
+- Loading: timer 後 ready 経路 (useEffect setTimeout grep)
+- Empty: availability 4 値 (disabled / inactive / pending_consent / enabled) で StateEmptyFallback
+- Error: ErrorBoundary class method (getDerivedStateFromError + render + reset + componentDidCatch)
+- Aria: StateAriaWrapper wrap + state component children + polite 固定
+- UpperLayerShell role=region 削除確認
+- ChatClient touch ゼロ確認
+- B-1/B-2/B-3/B-4/B-2.4 regression (5327/5328 PASS、1 failure は pre-existing alter-morning)
+- 27 セル × 4 補助 = 108 ケース structural readiness
+
+### rollback
+- code rollback: `git revert <L4-k commit>` + push (15-20 min)
+- env / migration / DB 不変
+- 影響: a11y 属性削除 + ErrorBoundary なし → 既存 UpperLayerShell の role=region に戻る (B-1 状態)
+- behavior 不変原則: flag OFF で完全不変
+
+### Production observation 項目
+- a11y reader 読み上げ品質 (CEO / 任意 user による screen reader テスト)
+- Error 経路の発火率 (L4-j で telemetry wire 後に Sentry で監視)
+- Loading transient 時間 (dev tools React profiler、1 frame 内に通常 UI 切替確認)
+
+### 制限事項
+- Production promote は B-4.2 全完了後にまとめて (CEO 確定方針)
+- 本 commit のみで Production promote しない
+
+## [2026-04-30] [Build] [Stage 4 L4-j Phase 1 — production reachable 4 event wire] [承認: CEO]
+
+### 範囲
+Plan D (CEO 確定 2026-04-30): production reachable 4 event のみ telemetry emit を usePresenceExecutor に wire。
+- ① `state_transition`: presence.state 変化時 (前値比較で重複防止)
+- ② `pattern_used`: primaryPattern 変化時 (前値比較)
+- ⑤ `mode_transition`: mode 変化時 (`lastModeEventTypeRef` で trigger 解決)
+- ⑦ `urgent_triggered`: urgentDecision 変化時 (`buildUrgentDedupeKey` で dedupe)
+
+### 不採用 4 event (別 phase 扱い)
+- ③ `consent`: consent / activate flow の観測設計が別途必要 (consent UI phase で wire)
+- ④ `legacy_fallback`: `LEGACY_CARD_AUTO_INSERT=false` で抑止中、L4-m legacy 削除 phase と統合
+- ⑥ `rejection`: rejection UI が本番 wire されていない (§10.2 #6 と連動)
+- ⑧ `ratelimit_blocked`: utteranceQueue / ratelimit の UI 経路が現状 reachable でない
+
+→ **未到達 event を telemetry だけ入れて「実装済み」に見せる行為を回避**。
+
+### emit point の集約
+- 全 4 event を `usePresenceExecutor.ts` の useEffect 内で emit
+- ChatClient.tsx に touch なし (B-1 から不変、grep で確認)
+- emit point 分散ゼロ (presence state / mode / urgent / pattern の中心 hook で集約)
+
+### dedupe 戦略
+- 4 event すべて useRef で前値 / 前 key を保持
+- 前値と異なる場合のみ emit、毎 render の rerender では emit ゼロ
+- urgent は null 復帰で dedupe key reset (次の non-null で再 emit 可能)
+
+### payload 制約 (CEO 厳守 2026-04-30)
+- 会話本文 / ユーザー入力文 / 個人情報を一切含めない (test で grep 確認)
+- pairId は `initial?.pairId ?? ""` のみ (telemetry のための fetch 追加禁止)
+- state / mode / pattern variant 等の構造化 enum + number (ts) のみ送信
+
+### Sentry breadcrumb 経路 (既存 wire の活用、本 phase で追加変更なし)
+- `lib/coalter/presence/sentryTelemetry.ts` の `createSentryTelemetrySink` で `Sentry.addBreadcrumb` 経由
+- `instrumentation-client.ts` の `wireSentryTelemetry()` で sink 注入済 (L4-pre-3 wire)
+- 8 event → category mapping は既存 (`coalter.presence` / `coalter.pattern` / `coalter.mode` / `coalter.urgent` 等)
+
+### 重要観測仮説 (CEO 指摘)
+`Sentry.addBreadcrumb` は通常、breadcrumb 単体で独立送信されるとは限らない:
+- error event / transaction / replay 等に紐づいて初めて Sentry Discover で見える可能性
+- L4-j Phase 1 完了後の Production 観測で実証必要
+- もし breadcrumb 単体で観測不能なら、追加 event wire に進まず、**sink 設計に戻る** (Sentry breadcrumb → Sentry custom event / metric / span 等への切替検討)
+
+### Production 観測手順
+1. CEO Production talk page (`https://culcept-2ly9oxx2v-...vercel.app/talk/<thread>`) で:
+   - ModeSwitcher で「Daily」 tap → `mode_transition` 発火想定
+   - 「もう限界」等 critical keyword 送信 → `urgent_triggered` + `state_transition` + `pattern_used` 発火想定
+2. CEO Sentry dashboard で `category:coalter.*` filter で breadcrumb 確認
+3. もし breadcrumb 単体で観測できない場合、L4-j Phase 1 を「sink 設計再検討」 phase として記録、追加 wire は次 phase へ
+
+### §10.2 #9 status
+- Plan D 完了後も **partial 維持** (CEO 確定方針)
+- 4/8 wire に留まる (構造的 reachable のみ)
+- 残 4 event は別 phase 依存
+- Sentry 観測経路もまず実証段階
+
+### 不変 (CEO 厳守 2026-04-30)
+- ChatClient.tsx 触らない ✅
+- consent / rejection / legacy / ratelimit を本 phase で wire しない ✅
+- L4-i / L4-m / E-3 触らない ✅
+- env / package / next-env.d.ts / supabase temp 触らない ✅
+- telemetry payload に会話本文 / 個人情報を入れない ✅
+- §10.2 #9 を complete に更新しない ✅
+- 既存 telemetry sink (Sentry breadcrumb) 設計を変更しない ✅
+
+### rollback 境界
+- code rollback: `git revert <L4-j Phase 1 commit>` + push (15-20 min)
+- env / migration / DB 不変
+- 影響: 4 emit 経路削除のみ、telemetry sink + 既存 wire は維持
+- behavior 不変原則: flag OFF で完全不変 (`safeEmit` が flag check で短絡)
+
+### 次フェーズ
+- L4-j Phase 1 完了後 Production 観測実証 → 結果次第:
+  - **観測 OK** → 残 4 event を別 phase で順次 wire (ただし trigger UI 接続要件あり)
+  - **観測 NG (sink 経路問題)** → sink 設計再検討 phase (Sentry breadcrumb 単体観測の代替検討)
+
+## [2026-04-30] [Build] [L4-j-blocker — Sentry sink unreachable: NEXT_PUBLIC_SENTRY_DSN 未設定確定] [承認: CEO]
+
+### 観測契機
+- L4-j Phase 1 (`30866d3e` + fix `a21d2f80`) で 4 event (state_transition / pattern_used / mode_transition / urgent_triggered) の sink emit 配線を完了
+- CEO Production smoke で「観測できているか」確認の段階で Sentry dashboard / Discover に CoAlter 関連 breadcrumb が一切見当たらない事象を観測
+- 本 phase は Plan D の **観測経路実証** part であり、wire 完了 ≠ 観測完了
+
+### 確認手順 (CEO 実施 2026-04-30)
+1. **Project レベル env 確認**: `https://vercel.com/taishis-projects-0a8deb17/culcept/settings/environment-variables`
+   → `NEXT_PUBLIC_SENTRY_DSN` **存在せず**
+2. **Team レベル Shared env 確認**: `https://vercel.com/taishis-projects-0a8deb17/~/settings/environment-variables?view=shared&q=NEXT_PUBLIC_SENTRY_DSN`
+   → "No Results Found" — **Shared スコープにも存在せず**
+3. CEO 確認結果 (chat): 「結論、NEXT_PUBLIC_SENTRY_DSN は存在しない可能性が高いです」→ Shared 確認後「ここ？」screenshot で確定
+
+### 結論 (CEO 承認 2026-04-30)
+- **Sentry SDK は Vercel preview / production 環境で完全 no-op**
+- 根拠: `instrumentation-client.ts` / `sentry.server.config.ts` / `sentry.edge.config.ts` 全て `enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN` ガード
+- 根拠: `next.config.js` の `withSentryConfig` も `disableClientWebpackPlugin: !process.env.NEXT_PUBLIC_SENTRY_DSN`
+- 根拠: 結果として `Sentry.addBreadcrumb` は SDK 未初期化で no-op、**1 件も Sentry に届いていない**
+- 影響範囲: L4-j Phase 1 で wire した 4 event だけでなく、**プロジェクト全体の Sentry breadcrumb / error / transaction / replay が一切送信されていない**
+
+### Phase ステータス確定
+- **L4-j Phase 1 wire**: ✅ 完了維持 (`30866d3e` + `a21d2f80`)
+- **L4-j Phase 1 観測実証**: ❌ blocker により未到達
+- **§10.2 #9 status**: partial (4/8 wire) のまま不変、観測実証なしでは complete に上げられない
+- **fix-forward 維持**: L4-j Phase 1 の commit はリバートしない (構造的 reachable は確保済、Sentry 復元後に観測実証で完了)
+
+### 新 phase 挿入: L4-j-blocker (Sentry 接続復元 / 判断 phase)
+CEO 判断 (2026-04-30):
+- 旧計画: L4-j Phase 1 完了 → L4-i / L4-m / E-3 着手
+- 新計画: **L4-j Phase 1 完了 → L4-j-blocker (Sentry 接続判断) → 結論次第で L4-i / L4-m / E-3 着手順を再決定**
+- L4-j-blocker は code 変更を伴わない判断 phase。CEO の選択を待って次 phase を決める
+
+### CEO 判断待ちの選択肢 (4 案)
+1. **既存 Sentry project 復元** — 過去に存在した Sentry project の DSN / Auth Token を Vercel Shared env に再設定。dashboard / Discover に蓄積された過去データが残っていれば最短復旧
+2. **新規 Sentry project 作成** (推奨案) — `culcept` 用に新規 project を Sentry SaaS で作成、新 DSN / Auth Token を Vercel Shared env に登録。過去データ無しだが clean start
+3. **別 sink 採用** — Sentry を使わず別 telemetry 先 (PostHog / Datadog / Supabase logs / 自前 endpoint) に切替。設計差し戻し phase が必要
+4. **telemetry なしで L4-i に進む** — 観測なしで code path だけ進める。CEO 既に却下 (Plan D の観測実証要件と矛盾、§10.2 #9 partial 固定化)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits リバートしない ✅ (HEAD = `a21d2f80`)
+- L4-i / L4-m / E-3 着手しない (L4-j-blocker 判断後に着手順再決定) ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase temp 触らない ✅
+- 本 phase は code 変更ゼロ、判断ログのみ ✅
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ (`git revert` で除去可能)
+- L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は本 phase の rollback 対象外
+
+## [2026-04-30] [Build] [L4-j-blocker — Q4 判断: Option 2 採用 (新規 Sentry project / Preview only DSN)] [承認: CEO]
+
+### CEO 判断 Q4-blocker (2026-04-30)
+- **採用**: Option 2 = 新規 Sentry project 作成 + Preview only DSN
+- **却下**: Option 1 (既存復元) — 確認結果から既存 project の根拠が薄い (Vercel Project / Shared / .env.local / repo / git history すべて DSN 痕跡なし、Sentry dashboard project 0 件)
+- **却下**: Option 3 (別 sink 採用) — `@sentry/nextjs` / Sentry config / tunnelRoute / sink 配線が実装済、PostHog 等への切替は scope 過大
+- **却下**: Option 4 (telemetry なしで L4-i 進行) — L4-i は LLM 合成 phase、発火頻度 / 誤発火 / 出力品質 / 安全性を観測できない状態での着手は危険
+
+### 進め方 (CEO 確定方針)
+- いきなり Production へは入れない
+- **まず Preview only で DSN 設定 → Sentry 観測実証 → PASS 後に Production DSN を別判断**
+
+### CEO 担当作業 (2026-04-30 進行中)
+1. Sentry SaaS で新規 Project 作成
+   - Platform: Next.js
+   - Project name: `culcept` (Vercel project 名と一致、混乱回避)
+2. DSN 取得
+3. Vercel Project `culcept` の Environment Variables に追加
+   - key: `NEXT_PUBLIC_SENTRY_DSN`
+   - value: Sentry DSN
+   - scope: **Preview only** (Production / Development には入れない)
+   - 可能なら branch filter: `feat/coalter-three-stage`
+4. Preview redeploy
+
+### Claude 担当作業 (CEO Preview URL 共有後)
+Preview redeploy 完了後に下記 5 項目を確認:
+1. **sentry-release** が最新 commit hash に一致 (HEAD = `37d92eb8` 時点)
+2. **sentry-environment** = `vercel-preview`
+3. DevTools Network で `/monitoring` request が出る (tunnelRoute による Sentry SaaS 転送)
+4. Sentry dashboard に event / breadcrumb / transaction / replay のいずれかが見える
+5. **L4-j Phase 1 の 4 event 観測**:
+   - `coalter.mode.transition` (ModeSwitcher で Daily/通常切替)
+   - `coalter.urgent.triggered` (「もう限界」等 critical keyword 送信)
+   - `coalter.presence.state_transition` (S0→S1/S2 遷移)
+   - `coalter.pattern.used` (pattern 算出)
+
+### 判定基準 (CEO 確定 2026-04-30)
+- Preview で `/monitoring` request が出る
+- Sentry 側で最低限 `coalter.mode.transition` と `coalter.urgent.triggered` の 2 event が確認できる
+- 上記 2 条件 PASS で **Sentry 接続復元 phase 一旦 PASS**
+- その後 Production DSN を入れるかは **別判断** (L4-j-blocker の範囲外)
+
+### 禁止事項 (CEO 厳守 2026-04-30)
+- Production env に DSN を入れない (Preview PASS 後の別判断)
+- Shared Variables で全 project / 全環境に広げない (Project scope 限定)
+- Sentry project を複数作らない (`culcept` 1 個のみ)
+- DSN を code に直書きしない (env 経由のみ)
+- env / package / next-env.d.ts / Supabase は触らない
+- L4-i へ進まない (本 phase PASS 待ち)
+- 別 sink へ飛ばない (Sentry 採用方針維持)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- 本 phase は code 変更ゼロ、判断ログ + 観測手順記録のみ ✅
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ
+- DSN 設定は Vercel UI 操作 → rollback も Vercel UI で env 削除 + redeploy のみ
+- 観測 NG だった場合の次 phase: Sentry 接続トラブルシュート (DSN typo / project scope mismatch / build env 未反映 等) を切り分け、別 phase として記録
+
+### 次ステップ (CEO Preview URL 共有待ち)
+1. CEO が Sentry project 作成 + Vercel Preview env 登録 + redeploy 完了
+2. CEO が Preview URL を共有
+3. Claude が 5 項目検証 → 結果を decision-log に記録
+4. 判定 PASS / NG の双方を別 entry で記録、PASS なら L4-i 着手可否を CEO 判断、NG ならトラブルシュート phase
+
+## [2026-04-30] [Build] [L4-j-blocker — Sentry 接続復元 phase PASS (4/4 event 観測実証 完了)] [承認: CEO]
+
+### 経過
+- CEO が新規 Sentry project (`taishi-harada / culcept`) 作成、Preview only DSN を Vercel Project env に登録、redeploy 完了
+- Preview URL: `https://culcept-i8yqqlwkz-taishis-projects-0a8deb17.vercel.app/`
+- Sentry org: `taishi-harada`、project slug: `culcept`、org_id: 4511307264622592
+
+### 5 項目検証 結果
+| # | 項目 | 結果 | 根拠 |
+|---|---|---|---|
+| 1 | sentry-release | ✅ PASS | HTML meta tag に `sentry-release=28ba23e0d6b776b08c91d66029743298d67f8f90` (最新 commit と一致) |
+| 2 | sentry-environment | ✅ PASS | HTML meta tag に `sentry-environment=vercel-preview` |
+| 3 | `/monitoring` request | ✅ PASS | DevTools Network で 21 件以上観測、payload に正規 Sentry envelope |
+| 4 | Sentry dashboard 反映 | ✅ PASS | `taishi-harada.sentry.io/insights/projects/culcept/` で Issues 2 件 (CULCEPT-1 + CULCEPT-2) |
+| 5 | L4-j 4 event 観測 | ✅ **完全 PASS (4/4 種)** | CULCEPT-2 の Breadcrumbs pane で全 4 category 観測 |
+
+### 観測された L4-j 4 event (CULCEPT-2 の Breadcrumbs)
+| category | level | trigger 操作 | 観測 timestamp | data payload |
+|---|---|---|---|---|
+| `coalter.urgent` | warning | 「もう限界」送信 | 2026-04-30T10:31:07.721Z | `{category:"rupture_detected", form:"dominant_card", memoryFallback:"demote", pairId:"", ts:1777545067721}` |
+| `coalter.presence` | info | 同上 (S0→S2 critical) | 2026-04-30T10:31:07.721Z | `{from:"S0", to:"S2", trigger:"critical", pairId:"", ts:1777545067721}` |
+| `coalter.pattern` | info | 同上 (variant A) | 2026-04-30T10:31:07.721Z | `{state:"S2", mode:"normal", variant:"A", hasSecondary:false, pairId:"", ts:1777545067721}` |
+| `coalter.mode` (#1) | info | Daily 切替 | 2026-04-30T10:31:20.914Z | `{from:"normal", to:"daily", trigger:"manual_switch", pairId:"", ts:1777545080914}` |
+| `coalter.mode` (#2) | info | 通常切替 | 2026-04-30T10:31:21.907Z | `{from:"daily", to:"normal", trigger:"manual_switch", pairId:"", ts:1777545081907}` |
+
+→ 5 件の telemetry breadcrumb が単一 error event (level: error, message: "L4-j breadcrumb verification - manual trigger") に attach されて Sentry に到達。
+
+### payload 制約 (CEO 厳守項目) 全 PASS
+- ✅ 会話本文 / ユーザー入力文 / 個人情報を一切含まない (構造化 enum + number のみ)
+- ✅ `pairId: ""` (空文字) — `initial?.pairId ?? ""` のみ、telemetry のための fetch 追加なし
+- ✅ state / mode / pattern variant / category / form / trigger 等の enum
+- ✅ `coalter.urgent` のみ level=warning、他は info — `lib/coalter/presence/sentryTelemetry.ts` 仕様と一致
+
+### CEO 判定基準到達
+- 必須: `/monitoring` request が出る → **超過 (21 件)**
+- 必須: `coalter.mode.transition` 観測 → **超過 (2 件)**
+- 必須: `coalter.urgent.triggered` 観測 → **PASS (1 件)**
+- 追加: `coalter.presence.state_transition` 観測 → PASS
+- 追加: `coalter.pattern.used` 観測 → PASS
+
+### 検証経路 (CEO 操作詳細)
+1. Preview talk page で chat 操作:
+   - 「もう限界」送信 (19:31:07 JST) → 3 event 同時 emit
+   - CoAlter mode で Daily 切替 (19:31:20 JST) + 通常戻し (19:31:21 JST) → mode_transition × 2
+2. DevTools Console で uncaught error:
+   ```js
+   setTimeout(() => { throw new Error("L4-j breadcrumb verification - manual trigger") }, 0)
+   ```
+3. Sentry SDK の `window.onerror` integration が auto-capture
+4. error event に直前の 5 breadcrumb が attach されて `/monitoring` 経由で Sentry SaaS に送信
+5. CEO が Sentry dashboard で CULCEPT-2 を開いて Breadcrumbs pane を確認
+
+### 重要な技術知見 (今後の運用 / 別 phase 設計参考)
+- `Sentry.addBreadcrumb` 単体は **Sentry に独立送信されない** (transaction/error の context として attach のみ)
+- `tracesSampleRate: 0.1` で 90% の transaction が drop される → breadcrumb もそれと運命を共にする
+- error event は **100% sampling** (instrumentation-client.ts の error 設定) → breadcrumb attach の最確実経路
+- `window.Sentry` は modern Sentry SDK (v10) で **window 露出されない** → console から直接呼べない、uncaught error 経由が唯一の手段
+- L4-j Phase 1 の 4 event は client side (`instrumentation-client.ts` の `wireSentryTelemetry()` で sink 注入) でのみ emit
+- server side error (例: CULCEPT-1 の `/offline` Server/Client Component bug) には CoAlter breadcrumb は attach されない (server runtime には sink なし)
+
+### Phase ステータス確定
+- **L4-j-blocker = PASS**
+- **L4-j Phase 1 観測実証 = 完了**
+- **§10.2 #9 status**:
+  - 4 event wire complete + Sentry 観測実証 完了
+  - 但し CEO 確定方針 (Plan D) で **partial 維持** (8 event 中 4/8 のみ wire、残 4 event は consent / rejection / legacy / ratelimit 経路依存)
+  - **complete 昇格は別 phase で 4 event 追加 wire してから**
+
+### 並行観測された副次論点 (本 phase 範囲外、別 task で対応)
+- **CULCEPT-1**: `/offline` page の Next.js Server/Client Component event handler bug
+  - "Event handlers cannot be passed to Client Component props. {onClick: function onClick, className: ..., children: ...}"
+  - 修正は spawn task として記録済 (本 phase scope 外)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase は触らない ✅
+- L4-i / L4-m / E-3 へまだ進まない (本 phase PASS で進路再決定 phase に移行) ✅
+
+### 次フェーズ (CEO 判断待ち)
+本 phase PASS により下記 4 つの判断が CEO に戻る:
+
+1. **Production DSN 投入の可否** (本 phase 範囲外、CEO 別判断)
+   - 案 A: Preview PASS のまま Production も同 DSN を投入 (Project env Production scope)
+   - 案 B: Preview のみ運用継続、Production は L4-i / L4-m / E-3 完了後の別 phase で判断
+   - 案 C: 別 Sentry project (Production 用) を分離 (本気運用なら推奨だが工数 +)
+
+2. **L4-i / L4-m / E-3 の着手順**
+   - Plan D 元案: L4-i (LLM 合成) → L4-m (memory 拡充) → E-3 (Stage 4 §10.2 完成)
+   - 本 phase で telemetry 観測経路が確立 → L4-i の発火頻度 / 誤発火 / 出力品質 / 安全性が観測可能になった (本来の前提条件 PASS)
+
+3. **§10.2 #9 status を complete に昇格するか**
+   - 残 4 event (consent / rejection / legacy / ratelimit) を wire する別 phase を切るか、partial のまま L4-l 完了とするか
+
+4. **CULCEPT-1 (`/offline` bug) の修正タイミング**
+   - 既に spawn task に記録済、本 phase 完了後の別 task で対応
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ
+- DSN 設定: Vercel UI 操作のみ、rollback は env 削除 + redeploy
+- L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は不変
+
+## [2026-04-30] [Build] [L4-j-blocker PASS 後 進路再決定 (Q6 / Q7 / Q8 / Q9)] [承認: CEO]
+
+### 前提
+L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-30):
+- Preview only DSN 設定確認
+- `/monitoring` request 発生確認
+- Sentry issue 生成確認
+- Breadcrumbs pane で 4 event 観測確認 (`coalter.urgent.triggered` / `coalter.presence.state_transition` / `coalter.pattern.used` / `coalter.mode.transition`)
+- payload に会話本文 / ユーザー入力文 / 個人情報なし確認
+→ Sentry sink は Preview で観測可能
+
+### Q6: Production DSN 投入 → **案 B: Preview only 運用継続** (CEO 確定 2026-04-30)
+理由 (CEO):
+1. L4-j の目的は「観測経路の実証」、Preview で達成済
+2. Production はまだ L4-j Phase 1 を promote していない、Production DSN の必然性が薄い
+3. L4-i / L4-m / E-3 の preview 検証を先に、観測対象が増えた段階で Production DSN
+4. Production event を早期に混ぜると初期検証ノイズが増える
+5. Preview / Production の混在は environment tag で分離できるが、今は運用単純化を優先
+- **Production DSN は追加しない**。Preview only 維持
+
+### Q7: 次の着手順 → **L4-i → L4-m → E-3** (Plan D 元案維持) (CEO 確定 2026-04-30)
+理由 (CEO):
+1. L4-i は LLM 合成で発火頻度 / 誤発火 / 出力品質 / 安全性の観測価値が最も高い
+2. Sentry preview 観測経路が成立 → L4-i を Preview で安全に検証可能
+3. L4-m は memory 拡張、L4-i の出力挙動を見た後の方が接続判断しやすい
+4. E-3 は §10.2 全体仕上げ、L4-i / L4-m 後が妥当
+- **次フェーズは L4-i 詳細設計 → CEO 確認 → 実装** の順 (いきなり実装に入らない)
+
+### Q8: §10.2 #9 status → **案 A: partial のまま** (CEO 確定 2026-04-30)
+理由 (CEO):
+- 今回 wire したのは production-reachable 4 event (state_transition / pattern_used / mode_transition / urgent_triggered)
+- 残 4 event (consent.event / rejection.recorded / legacy.fallback / ratelimit.blocked) は依存 UI / 依存 phase が未完
+- 8/8 観測可能ではない
+- 記録統一: 「**L4-j Phase 1: production-reachable 4 event Preview 観測 PASS / §10.2 #9 は partial 維持**」
+- **§10.2 #9 を complete に昇格しない**
+
+### Q9: CULCEPT-1 `/offline` bug → **案 B: L4-i 完了後に対応** (CEO 確定 2026-04-30)
+理由 (CEO):
+1. Sentry で捕捉できるようになったため存在は追跡可能
+2. `/offline` は重要だが現在の主導線ではない
+3. 今すぐ入ると L4-i の流れが分断される
+4. L4-i / L4-m の観測設計を優先する方がプロダクト上の価値が高い
+- **L4-i 完了後の修正候補として保持** (decision-log に記録、放置ではない)
+
+### 次アクション (CEO 指示 2026-04-30)
+1. L4-j-blocker PASS を decision-log に記録 → 完了済 (`ee4dc476`)
+2. Production DSN は追加しない → 不変
+3. §10.2 #9 は partial 維持 → 不変
+4. `/offline` bug は L4-i 後 → 保留 task に残す
+5. **L4-i 詳細設計を提出**
+
+### L4-i 設計で必ず covers すべき項目 (CEO 指示)
+1. LLM 合成がどこで発火するか
+2. どの presence state で発話するか
+3. 発話頻度制御
+4. safety gate
+5. 文字数制限
+6. ユーザー入力本文を telemetry payload に入れない
+7. telemetry で観測する event
+8. Sentry breadcrumb で確認する項目
+9. rollback 境界
+10. Production promote 条件
+- **いきなり実装ではなく設計から**
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase 触らない ✅
+- 別 sink へ飛ばない ✅
+- Production DSN 追加しない ✅ (本 entry で確定)
+- §10.2 #9 を complete に昇格しない ✅ (本 entry で確定)
+- L4-i 設計 phase 中は code 変更なし、設計提示 → CEO 確認 → 実装
+
+### rollback 境界
+- 本 entry は判断記録のみ、code 変更なし → rollback 対象は decision-log entry
+
+## [2026-04-30] [Build] [L4-i Phase 1 — speech synthesis gated wire 完成 (commit `c2472719`)] [承認: CEO]
+
+### 実装内容
+- 新規 file:
+  - `lib/coalter/presence/speechFetchGate.ts` — client gate (`process.env.NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH === "true"`、Phase 1 default false)
+  - `app/api/coalter/speech/route.ts` — server-side LLM 経路 (二重 gate: presenceExecutor + LLM flag、auth 401 厳格、staticFallback path 整理)
+  - `tests/unit/coalter/speechFetchGate.test.ts`
+  - `tests/unit/coalter/api/speechApiRoute.test.ts`
+  - `tests/unit/coalter/presence/sentryTelemetryL4i.test.ts`
+  - `tests/unit/coalter/upperLayerSpeechFetch.test.ts`
+- 改修 file (Urgent 触らない、CEO 厳守):
+  - `lib/coalter/presence/telemetryEvents.ts` — `PatternUsedEvent` に optional 5 field 追加 (speechSource / retries / latencyMs / validationFailed / fallbackReason)、`legacy.fallback` 流用なし
+  - `app/components/chat/UpperLayerMount.tsx` — speech fetch effect (gate OFF で起動ゼロ、AbortController + 2s timeout + in-flight dedupe + mounted ref + negative cache 30s)
+  - `app/components/chat/states/UpperLayerStateRenderer.tsx` — `body?: string` prop forward
+  - `app/components/chat/states/S2Opening.tsx` / `S5Bridging.tsx` / `S7ProposalShown.tsx` — `body?: string` prop accept、undefined で既存 hardcoded fallback (Production 不変)
+  - `app/components/chat/hooks/usePresenceExecutor.ts` — `emitPatternUsed` に default static speech field 追加
+  - `tests/integration/coalter/stage4PathBComplete.test.ts` — §10.2 #8 evidence 更新 (status は missing 維持、Phase 2 で本番稼働判定)
+
+### CEO 14 必須項目との対応
+| # | 項目 | 検証 |
+|---|---|---|
+| 1 | env 未設定で fetch 0 | `speechFetchGate.test.ts` + `upperLayerSpeechFetch.test.ts` (gate OFF early return) |
+| 2 | env 未設定で UI 文言不変 | S2/S5/S7 `body undefined` で hardcoded fallback render test |
+| 3 | API route で LLM flag OFF なら Anthropic call なし | `speechApiRoute.test.ts` (gate 2 直前で flag_off 経路) |
+| 4 | S2/S5/S7 のみ speech 対象 | `SPEECH_ENABLED_STATES` grep + 6 state 拒否 test |
+| 5 | S0/S1/S3/S4/S6/S8 で fetch なし | `state !== "S2" && state !== "S5" && state !== "S7"` guard grep |
+| 6 | urgentDecision 出ても speech fetch なし | UrgentLayer / UrgentMessageCard / UrgentRelease grep で関連 import 無し |
+| 7 | LLM response 本文 telemetry 不在 | `PatternUsedEvent` 型 grep で禁止 field 不在確認 |
+| 8 | prompt 本文 Sentry 不在 | route.ts grep で `promptText/llmResponseRaw/violationMessage` 禁止 |
+| 9 | validation 違反時 fallback | API route の validation_failed path |
+| 10 | timeout fallback | `setTimeout(..., 2000)` + `controller.abort()` |
+| 11 | in-flight 重複 fetch なし | `inFlightSpeechRef` Map test |
+| 12 | stale response UI 上書きなし | `speechMountedRef` + AbortController return cleanup |
+| 13 | ChatClient.tsx touch なし | git diff + grep で確認、test で固定 |
+| 14 | Production default behavior 不変 | gate OFF / S0-S1/S3-S8 / urgent path 全て fetch ゼロ |
+
+### test 結果
+- 新規 4 test file 全 PASS (45/45 test cases)
+- 既存 coalter 関連 146 test file 全 PASS (2114/2114 test cases)
+- type check: L4-i Phase 1 触った file に error ゼロ (既存 error は Stage4 範囲外で別 phase)
+- 構造 invariant: ChatClient.tsx / UrgentLayer / UrgentMessageCard / UrgentRelease に L4-i 関連 import なし
+
+### 実装の core 原則 (CEO v2 設計反映)
+1. **二重 gate**:
+   - client `isSpeechFetchEnabled()` env 未設定 false (Phase 1 default)
+   - server LLM flag `presenceSpeechLLMEnabled` + `ANTHROPIC_API_KEY` 必須
+   - 二層独立、片方 OFF で完全停止
+2. **Urgent LLM 完全除外**:
+   - UrgentLayer / UrgentMessageCard / UrgentRelease 触らない
+   - urgentMessage は既存 `URGENT_FALLBACK_MESSAGES` static 維持
+   - LLM 化は L4-i Phase 3 以降の別審議
+3. **`legacy.fallback` 流用禁止**:
+   - speech 失敗 / fallback は `coalter.pattern.used` payload に集約
+   - `coalter.legacy.fallback` semantics は legacy CoAlterCard 経路専用維持
+4. **auth 失敗 = 401 厳格**:
+   - static fallback と混ぜない (CEO 厳守)
+   - rate_limited は 200 + speechSource:"static" + fallbackReason:"rate_limited"
+5. **Phase 1 で env 追加なし**:
+   - code 変更のみ、Vercel env は触らない
+   - Phase 2 で Preview env 3 個 (`ANTHROPIC_API_KEY` + `COALTER_PRESENCE_SPEECH_LLM=true` + `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true`) を追加するだけで起動
+
+### Production behavior 不変 確認
+- Phase 1 commit (`c2472719`) を本番 promote しても:
+  - `isSpeechFetchEnabled()` = false → fetch 起動ゼロ → /api/coalter/speech 呼ばれない
+  - `presenceSpeechLLMEnabled` = false → LLM call ゼロ
+  - `ANTHROPIC_API_KEY` 未設定 → setLlmCall(null) (instrumentation.ts 既存挙動維持)
+  - state component body prop = undefined → hardcoded fallback (既存挙動維持)
+  - urgentMessage = `URGENT_FALLBACK_MESSAGES[category]` (既存挙動維持)
+- L4-i Phase 1 commit 後も **LLM はまだ動かない** (CEO 厳守 #7)
+
+### Phase 2 への移行手順 (CEO 操作のみ、code 変更ゼロ)
+1. CEO Vercel Project culcept → Settings → Environment Variables → Preview only に追加:
+   - `ANTHROPIC_API_KEY` = `<Anthropic SaaS API key>`
+   - `COALTER_PRESENCE_SPEECH_LLM` = `true`
+   - `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH` = `true`
+2. Preview redeploy
+3. Stage 2.1 Smoke (20 calls) → Stage 2.2 Observation (100 calls) → Stage 2.3 Variant 別 review (5 sample × 7 variant = 35 sample) の 3 sub-stage 検証
+4. 全 sub-stage PASS で Phase 3 (Production promote) を CEO 別判断
+
+### §10.2 #9 status (CEO Q8 確定方針 維持)
+- partial 維持 (4/8 wire、本 phase で変更なし)
+- L4-i Phase 1 で telemetry payload に new field 追加したが、event 種類は 8 のまま
+- 「§10.2 #9 partial」と「Production-reachable 4 event Preview 観測 PASS」が表現規約
+
+### §10.2 #8 status
+- missing 維持 (本 phase commit 後も)
+- 理由: Phase 1 は wire 完了だが LLM 経路 dormant (Production 稼働ではない)
+- 本番稼働 = L4-i Phase 2 (Preview 観測 PASS) → Phase 3 (Production promote)
+- evidence 更新: bridge wire 完了の事実を記録
+
+### 不変 (CEO 厳守 2026-04-30)
+- ChatClient.tsx 触らない ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 触らない (Phase 1 Urgent LLM 化なし) ✅
+- env / package.json / next-env.d.ts / Supabase 触らない (Phase 1) ✅
+- `legacy.fallback` を speech fallback に流用しない ✅
+- 新 telemetry event 追加しない (`pattern.used` payload 拡張のみ) ✅
+- §10.2 #9 を complete に昇格しない ✅
+- Production DSN 追加しない (Phase 2 Preview only 維持) ✅
+- 別 sink へ飛ばない (Sentry 維持) ✅
+- L4-i Phase 1 後も LLM はまだ動かない ✅
+
+### rollback 境界
+- L0 (env): Vercel env を追加しない → rollback 不要 (Phase 1 commit は Production 影響なし)
+- L1 (code): `git revert c2472719` + push (15-20 分)、L4-k 完了状態 (5c7722ad) に戻る
+- Phase 2 で env 追加後の rollback は env 削除 + redeploy
+
+### 次フェーズ (CEO 判断待ち)
+1. Phase 1 commit を CEO Production promote するか?
+   - 推奨: そのまま Production 反映 (behavior 不変なので安全、git history を main に整える)
+   - or: Preview だけで保持 (`feat/coalter-three-stage` で Phase 2 着手後にまとめて Production)
+2. Phase 2 着手のタイミング
+3. Phase 2 で env 追加するか別判断 (CEO 確定済 = Phase 2 で env 追加 + 観測)

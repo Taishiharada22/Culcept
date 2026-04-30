@@ -381,6 +381,8 @@ HDM Phase（関係の深さ）と連動:
 - **disabled → enabled**: 再有効化には再度の相互同意が必要（一度切ったら戻すのにも合意）
 - CoAlterがactiveの間も、通常のチャットメッセージは送受信可能
 
+> **参照（統合契約 §2, 2026-04-24 rev 1 FIXED）**: 本節の 5 状態（inactive / pending_consent / enabled / active / disabled）は統合契約で **executor availability** として正式命名。Presence 状態（S0-S8、v1.1 §8）・Action Mode（decision/negotiate/clarify、Phase 2 凍結）と**直交する 3 レイヤー構造**の 1 つとして位置付け。availability が Presence の可動域を制約する（`enabled` = S0 常駐のみ / `active` = S1-S8 可動、統合契約 §2.2）。**本節の disabled 再有効化経路は統合契約 §2.1/§2.4 の正本**（統合契約 rev 1 で本節整合に修正済）。
+
 ### Phase 1 トリガー条件（decision モード）
 
 Morning Protocol と同じ strong/soft/none の3段階判定。

@@ -243,8 +243,15 @@ export function extractRating(text: string): string | null {
  *   4. ジャンル名単体も reject
  */
 
-/** サイト名・劇場名・meta 語（title 分解時に「これは title ではない」印） */
-const NON_TITLE_SEGMENT = /(映画\.com|Filmarks|filmarks|Yahoo|Wikipedia|wiki|eiga|gqjapan|moviewalker|シネフィル|ぴあ|TOHOシネマズ|MOVIX|109シネマズ|イオンシネマ|ユナイテッド.?シネマ|新宿バルト|ピカデリー|テアトル|シネクイント|ヒューマントラスト|アップリンク|映画館|シアター|cinema|Cinema|CINEMA|シネマ|公式サイト|Official Site|Trailer|予告(編)?|レビュー|あらすじ|キャスト|監督|作品情報|映画情報|上映時間|上映館|上映情報|上映スケジュール|上映中の映画|上映中|スケジュール)/i;
+/**
+ * サイト名・劇場名・meta 語（title 分解時に「これは title ではない」印）。
+ *
+ * 2026-04-26 追加: `クランクイン` (crank-in.net の page 名)。
+ *   実 retrieval で「【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！」が
+ *   パイプ分割の 2 番目 segment として「クランクイン！」が title 候補として採用されていた。
+ *   genuine 映画「クランクイン」は `『クランクイン』` 括弧付きで来る想定 (Step 1 経由で救済)。
+ */
+const NON_TITLE_SEGMENT = /(映画\.com|Filmarks|filmarks|Yahoo|Wikipedia|wiki|eiga|gqjapan|moviewalker|シネフィル|ぴあ|クランクイン|TOHOシネマズ|MOVIX|109シネマズ|イオンシネマ|ユナイテッド.?シネマ|新宿バルト|ピカデリー|テアトル|シネクイント|ヒューマントラスト|アップリンク|映画館|シアター|cinema|Cinema|CINEMA|シネマ|公式サイト|Official Site|Trailer|予告(編)?|レビュー|あらすじ|キャスト|監督|作品情報|映画情報|上映時間|上映館|上映情報|上映スケジュール|上映中の映画|上映中|スケジュール)/i;
 
 /** リスティクル / まとめ記事系の非タイトル */
 const LISTICLE_PATTERNS: RegExp[] = [
@@ -345,6 +352,54 @@ export function extractBracketedTitles(text: string): string[] {
   return found;
 }
 
+/**
+ * 2026-04-27 Bug 2: description 内の markdown heading から作品名候補を抽出する。
+ *
+ * 動機: crank-in / その他の listing page の description は `『...』` `「...」` ではなく
+ *   `# {作品名}` (markdown level-1 heading) で作品が列挙される構造を持つ。
+ *   `extractBracketedTitles` だけでは拾えず、Bug 1 修正（page 名 reject）後に
+ *   description fallback が機能しなくなる問題があった。
+ *
+ * 採用条件:
+ *   - level-1 heading `^#\s+...` のみを採用（`##`, `###` は meta header の傾向が強い、
+ *     例: `## 上映作品・スケジュール` `## 映画情報`）
+ *   - 既存 `acceptTitleCandidate` (cleanSegment + length + GENRE_ONLY + isListicleOrMeta) を必ず通す
+ *   - 加えて `NON_TITLE_SEGMENT` で source/site/theater/meta 名を reject
+ *     （`# TOHOシネマズ` `# クランクイン！` `# 池袋の映画館 上映スケジュール` 等）
+ *   - 重複排除 + 上限 6 件
+ *
+ * 失敗時 fail-open: 例外を投げず `[]` を返す。
+ */
+export function extractMarkdownHeadingTitles(text: string): string[] {
+  if (!text) return [];
+  const found: string[] = [];
+  const seen = new Set<string>();
+  // level-1 heading のみ。`^##` `^###` 等は match させない (negative lookahead は使わず、
+  // capture 後に `##` で始まらないことを確認する設計でも可だが、ここでは簡潔に
+  // `(?:^|\n)# ` で開始位置を制約する)。
+  const re = /(?:^|\n)#\s+([^\n]+)/g;
+  let m: RegExpExecArray | null;
+  try {
+    while ((m = re.exec(text)) !== null) {
+      const raw = m[1].trim();
+      if (!raw) continue;
+      const picked = acceptTitleCandidate(raw);
+      if (!picked) continue;
+      // source / site / theater / meta 名は reject (Bug 1 と同じ規則を適用)
+      if (NON_TITLE_SEGMENT.test(picked)) continue;
+      const key = picked.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      found.push(picked);
+      if (found.length >= 6) break;
+    }
+  } catch {
+    // §2.3 失敗独立: fail-open
+    return found;
+  }
+  return found;
+}
+
 // ─────────────────────────────────────────────
 // Title → Theater 紐付け
 //
@@ -356,6 +411,64 @@ export function extractBracketedTitles(text: string): string[] {
 //   曖昧 snippet からの推測はしない。listicle の combinedText から theaters[0] を
 //   全作品に共有する旧挙動が「映画館が消える / 誤紐付け」の主因だった。
 // ─────────────────────────────────────────────
+
+/**
+ * Phase 3B B'-1 (2026-04-26): listing page の sc.title「【XXX】上映作品...」形式から
+ * theater 名を抽出する private helper。
+ *
+ * 対象: crank-in `/theater/search/all/{areaId}/{theaterId}/{movieId}` のような
+ *       「1 page = 1 theater 確定」型の listing page。
+ *
+ * 4 重 guard:
+ *   1. URL pattern が theaterId を含む（呼び出し側で確認済み前提）
+ *   2. title 内に「【...】」存在
+ *   3. 中身を空白除去（半角 + 全角）して `extractTheaters` の whitelist で照合
+ *   4. 照合失敗 → null（誤紐付け回避、既存 fallback に委譲）
+ *
+ * 既存 `extractTheaters` の `THEATER_PATTERNS` regex は空白を含まないため、
+ * 「TOHOシネマズ 池袋」のようなスペース挟み表記は事前に空白除去してから照合する。
+ */
+function resolveTheaterFromBracketTitle(title: string): string | null {
+  if (!title) return null;
+  const m = title.match(/【([^】]+)】/);
+  if (!m) return null;
+  const stripped = m[1].replace(/[\s　]+/g, "").trim();
+  if (!stripped) return null;
+  const candidates = extractTheaters(stripped);
+  if (candidates.length === 0) return null;
+  // 最長一致を返す（「グランドシネマサンシャイン」と「グランドシネマサンシャイン池袋」が
+  // 両方 match した場合、より具体的な後者を採用する。THEATER_PATTERNS の `*` quantifier
+  // で短い prefix が誤抽出されるケースに対応）。
+  return candidates.reduce((longest, c) =>
+    c.length > longest.length ? c : longest,
+  );
+}
+
+/**
+ * Phase 3B B'-1 (2026-04-26): listing page の sc.title 「{theater 名}（area）...」形式から
+ * theater 名を抽出する private helper。
+ *
+ * 対象: eiga.com `/theater/{prefId}/{areaId}/{theaterId}/...` のような
+ *       「1 page = 1 theater 確定」型の theater detail page。
+ *
+ * 4 重 guard:
+ *   1. URL pattern が theaterId を含む（呼び出し側で確認済み前提）
+ *   2. title 先頭の `（` または `(` の前部分を取得
+ *   3. 空白除去 + `extractTheaters` whitelist 照合
+ *   4. 照合失敗 → null
+ */
+function resolveTheaterFromTitlePrefix(title: string): string | null {
+  if (!title) return null;
+  const beforeParen = title.split(/[（(]/)[0] ?? "";
+  const stripped = beforeParen.replace(/[\s　]+/g, "").trim();
+  if (!stripped) return null;
+  const candidates = extractTheaters(stripped);
+  if (candidates.length === 0) return null;
+  // 最長一致を返す（resolveTheaterFromBracketTitle と同じ理由）。
+  return candidates.reduce((longest, c) =>
+    c.length > longest.length ? c : longest,
+  );
+}
 
 /** source URL / hostname から一意に劇場名を引けるケースのみ補完する（known pattern のみ） */
 function theaterFromSource(sc: SearchCandidate): string | null {
@@ -429,6 +542,27 @@ function theaterFromSource(sc: SearchCandidate): string | null {
     return null;
   }
 
+  // Phase 3B B'-1 (2026-04-26): crank-in theater 単体 page。
+  //   URL `crank-in.net/theater/search/all/{areaId}/{theaterId}/{movieId}` は
+  //   theater_id を含む = 1 page = 1 theater 確定。sc.title「【XXX】上映作品...」内の
+  //   【】部分を空白除去 + whitelist 照合で安全抽出。
+  //   照合失敗時は null → 既存 fallback に委譲（誤紐付け回避）。
+  //
+  //   regex test は `combined` ではなく `url` のみで行う（combined は url+source を
+  //   space 結合するため `$` 終端 anchor が機能しない）。
+  if (/crank-in\.net\/theater\//.test(url)) {
+    return resolveTheaterFromBracketTitle(sc.title ?? "");
+  }
+
+  // Phase 3B B'-1 (2026-04-26): eiga.com theater 単体 detail page。
+  //   URL `eiga.com/theater/{prefId}/{areaId}/{theaterId}/...` で theaterId 桁数を
+  //   厳格 match。`/theater/{prefId}/{areaId}/$` (theaterId 無し = area listing) は
+  //   除外（複数 theater 混在 page で誤紐付けを避ける）。
+  //   sc.title「{theater 名}（area）上映スケジュール...」の `（` 前を抽出。
+  if (/eiga\.com\/theater\/\d+\/\d+\/\d+\/?(\?|#|$)/.test(url)) {
+    return resolveTheaterFromTitlePrefix(sc.title ?? "");
+  }
+
   return null;
 }
 
@@ -464,15 +598,20 @@ function resolveTheaterForTitle(args: {
 }): string | null {
   const { candidateTitle, sc, titleCameFromScTitle } = args;
 
+  // (0) Phase 3B B'-1 (2026-04-26): URL pattern が theater 単体 page を確定できる場合を最優先。
+  //   crank-in / eiga.com / TOHO official / 109cinemas のような known URL pattern は
+  //   theater_id を含むため「1 page = 1 theater 確定」。sc.title からの抽出より信頼できる。
+  //   特に THEATER_PATTERNS の `*` quantifier (e.g. グランドシネマサンシャイン) で
+  //   sc.title「【XXX 池袋】」のスペース挟みケースに対し suffix なし誤抽出が起きるため、
+  //   listing page の URL signal を優先する。
+  const fromSource = theaterFromSource(sc);
+  if (fromSource) return fromSource;
+
   // (1) title 明示一致: title が sc.title から取れた場合、sc.title 内の劇場をそのまま使える
   if (titleCameFromScTitle) {
     const inTitle = extractTheaters(sc.title);
     if (inTitle.length > 0) return inTitle[0];
   }
-
-  // (2) source URL / known page pattern
-  const fromSource = theaterFromSource(sc);
-  if (fromSource) return fromSource;
 
   // (3a) title が sc.title から単独で取れた = 検索結果全体が「この 1 作品」の情報。
   //      その description / practicalInfo に劇場が書かれていれば紐付けて OK。
@@ -538,8 +677,16 @@ export function parseMovieScreenings(
       if (bracketedFromDesc.length > 0) {
         titleCandidates.push(...bracketedFromDesc);
       } else {
-        const titleFromDesc = extractMovieTitle(sc.description);
-        if (titleFromDesc) titleCandidates.push(titleFromDesc);
+        // 2026-04-27 Bug 2: description に `『...』` がない listing page (crank-in 等) でも
+        // markdown level-1 heading `# {作品名}` から候補を拾う。
+        // acceptTitleCandidate + NON_TITLE_SEGMENT で meta / theater / source 名は reject。
+        const headingFromDesc = extractMarkdownHeadingTitles(sc.description);
+        if (headingFromDesc.length > 0) {
+          titleCandidates.push(...headingFromDesc);
+        } else {
+          const titleFromDesc = extractMovieTitle(sc.description);
+          if (titleFromDesc) titleCandidates.push(titleFromDesc);
+        }
       }
     }
 

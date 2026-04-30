@@ -16,6 +16,8 @@ import { describe, it, expect } from "vitest";
 import {
   extractMovieTitle,
   extractBracketedTitles,
+  extractMarkdownHeadingTitles,
+  extractTheaters,
   parseMovieScreenings,
 } from "@/lib/coalter/movieCatalog";
 import type { SearchCandidate } from "@/lib/coalter/types";
@@ -295,5 +297,331 @@ describe("parseMovieScreenings — Phase A.5 theater 紐付けロバスト化", 
     };
     const out = parseMovieScreenings([sc]);
     expect(out[0].theater).toBe("TOHOシネマズ渋谷");
+  });
+});
+
+// ─────────────────────────────────────────────
+// Phase 3B B'-1 (2026-04-26): 空白除去後の whitelist 照合前提確認
+//
+// 既存 THEATER_PATTERNS の regex は「TOHOシネマズ\s?池袋」のような空白を
+// catch しない。listing page の sc.title 「【TOHOシネマズ 池袋】...」のような
+// スペース挟み表記を扱うため、theaterFromSource 内 helper が
+// `replace(/[\s　]+/g, "")` で空白を事前除去してから extractTheaters を呼ぶ。
+// 本セクションではその前提が成立するか whitelist 単体で確認する。
+// ─────────────────────────────────────────────
+
+describe("extractTheaters whitelist (Phase 3B B'-1 前提確認)", () => {
+  it("空白除去後の TOHOシネマズ池袋 が whitelist で match する", () => {
+    const got = extractTheaters("TOHOシネマズ池袋");
+    expect(got).toContain("TOHOシネマズ池袋");
+  });
+
+  it("空白除去後の グランドシネマサンシャイン池袋 が whitelist で match する", () => {
+    const got = extractTheaters("グランドシネマサンシャイン池袋");
+    expect(got).toContain("グランドシネマサンシャイン池袋");
+  });
+
+  it("空白除去後の TOHOシネマズ新宿 が whitelist で match する", () => {
+    const got = extractTheaters("TOHOシネマズ新宿");
+    expect(got).toContain("TOHOシネマズ新宿");
+  });
+
+  it("whitelist 不在の架空 theater は match しない", () => {
+    const got = extractTheaters("未知シネマ池袋");
+    expect(got.length).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Phase 3B B'-1 (2026-04-26): theaterFromSource — listing page 対応
+//
+// crank-in / eiga.com の listing page から theater 名を安全に抽出できるか
+// parseMovieScreenings 経由で検証する。theaterFromSource は private のため
+// 外部からは呼べない。
+//
+// 4 重 guard:
+//   1. URL pattern (crank-in: /theater/、eiga.com: theaterId 桁数)
+//   2. title 構造 (【...】 or （ 必須)
+//   3. extractTheaters whitelist 照合
+//   4. 失敗時 null (誤紐付け回避、既存 fallback に委譲)
+//
+// 既存 SLUG_TO_THEATER (TOHO official) / 109cinemas 経路は untouched で
+// 回帰なし（前 describe の 「URL slug から TOHOシネマズ渋谷 を補完できる」 で確認済）。
+// ─────────────────────────────────────────────
+
+describe("theaterFromSource — listing page support (Phase 3B B'-1)", () => {
+  it("crank-in TOHOシネマズ池袋 listing → 'TOHOシネマズ池袋' を抽出", () => {
+    const sc: SearchCandidate = {
+      title: "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『ガールズ＆パンツァー もっとラブラブ作戦です！』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("TOHOシネマズ池袋");
+  });
+
+  it("crank-in グランドシネマサンシャイン池袋 listing → 'グランドシネマサンシャイン池袋' を抽出", () => {
+    const sc: SearchCandidate = {
+      title:
+        "【グランドシネマサンシャイン 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【グランドシネマサンシャイン 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『シン・ウルトラマン』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11669/202014",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("グランドシネマサンシャイン池袋");
+  });
+
+  it("eiga.com theater detail (theaterId 含む URL) → theater 抽出成功", () => {
+    const sc: SearchCandidate = {
+      title:
+        "TOHOシネマズ 新宿（新宿）上映スケジュール・上映時間：映画館 - 映画.com",
+      description:
+        "TOHOシネマズ 新宿（新宿）上映スケジュール・上映時間\n# 上映中の映画\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/theater/13/130201/3035/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out[0].theater).toBe("TOHOシネマズ新宿");
+  });
+
+  it("eiga.com area listing (theaterId 無し URL) → theater 抽出 null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "新宿の映画館 上映スケジュール・上映時間 - 映画.com",
+      description:
+        "新宿の映画館 上映スケジュール・上映時間\n# 新宿の映画館 上映スケジュール\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/theater/13/130201/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // 複数 theater 混在の area listing は theater 紐付け不能
+    // → 既存 fallback に委譲、theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("crank-in URL だが title に 【】 無し → null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "上映スケジュールページ｜クランクイン！",
+      description:
+        "上映スケジュールページ｜クランクイン！\n# 上映作品\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // title に 【】 が無く resolveTheaterFromBracketTitle が null を返す
+    // → theaterFromSource null → theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("crank-in URL + title に 【】 はあるが whitelist 不在 theater → null（誤紐付け回避）", () => {
+    const sc: SearchCandidate = {
+      title: "【未知シネマ 池袋】上映作品・スケジュール｜クランクイン！",
+      description:
+        "【未知シネマ 池袋】上映作品・スケジュール｜クランクイン！\n# 上映作品\n『あるモデル作品』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/99999/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // 【】内 "未知シネマ 池袋" は whitelist (THEATER_PATTERNS) 不在
+    // → resolveTheaterFromBracketTitle が null を返し、既存 fallback でも取れず null
+    expect(out[0].theater).toBeNull();
+  });
+
+  it("eiga.com の他のページ (theater detail でない記事 etc.) → 影響なし", () => {
+    const sc: SearchCandidate = {
+      title: "あるモデル映画レビュー - eiga.com",
+      description: "あるモデル映画レビュー\n『あるモデル作品』",
+      externalRating: null,
+      practicalInfo: null,
+      source: "eiga.com",
+      url: "https://eiga.com/movie/12345/review/",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    // /theater/ pattern に該当しない URL → 新規 case 不発火
+    // 既存 SLUG_TO_THEATER も該当せず、theaterNearTitle で取れなければ null
+    expect(out[0].theater).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────
+// 2026-04-26: 「クランクイン」 (crank-in.net page 名) を作品名として採用しない
+//
+// 実 retrieval で sc.title「【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！」
+// がパイプ分割の 2 番目 segment「クランクイン！」を title 候補として採用していた。
+// NON_TITLE_SEGMENT に `クランクイン` を 1 token 追加して reject。
+//
+// genuine 映画「クランクイン」(仮想) は `『クランクイン』` 括弧付きで来る想定で、
+// extractMovieTitle Step 1 (括弧優先) が NON_TITLE_SEGMENT を通らず救済する。
+// ─────────────────────────────────────────────
+
+describe("extractMovieTitle — site 名「クランクイン」を title として reject", () => {
+  it("crank-in page title (パイプ後の「クランクイン！」) は採用しない", () => {
+    expect(
+      extractMovieTitle(
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      ),
+    ).toBeNull();
+  });
+
+  it("genuine title 『クランクイン』 (括弧優先 Step 1) は採用する (回帰防止)", () => {
+    expect(extractMovieTitle("『クランクイン』 | 映画.com")).toBe("クランクイン");
+  });
+
+  it("裸の「クランクイン｜TOHOシネマズ渋谷」も採用しない (site 名扱い)", () => {
+    expect(extractMovieTitle("クランクイン｜TOHOシネマズ渋谷")).toBeNull();
+  });
+});
+
+describe("parseMovieScreenings — crank-in page title 除外 + description 救済", () => {
+  it("crank-in URL の sc.title 「【XXX】... ｜クランクイン！」 は title として通さず、description の 『作品名』 に fallback。B'-1 の theater 解決は維持", () => {
+    const sc: SearchCandidate = {
+      title:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n## 上映作品・スケジュール\n# 『ガールズ＆パンツァー もっとラブラブ作戦です！』\n",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    // sc.title からは title 取れず、description の 『ガールズ＆パンツァー...』 に fallback
+    expect(out.length).toBeGreaterThan(0);
+    const titles = out.map((s) => s.title);
+    expect(titles).toContain("ガールズ＆パンツァー もっとラブラブ作戦です！");
+    // 「クランクイン！」が title として通っていないことを確認
+    expect(titles).not.toContain("クランクイン！");
+    expect(titles).not.toContain("クランクイン");
+    // B'-1 効果が維持されている: crank-in URL から theater が解決されている
+    const target = out.find(
+      (s) => s.title === "ガールズ＆パンツァー もっとラブラブ作戦です！",
+    );
+    expect(target?.theater).toBe("TOHOシネマズ池袋");
+  });
+});
+
+// ─────────────────────────────────────────────
+// 2026-04-27 Bug 2: description 内 markdown heading から作品名を救済
+//
+// crank-in 等の listing page の description は `『...』` `「...」` ではなく
+// `# {作品名}` (markdown level-1 heading) で作品が列挙される。Bug 1 修正
+// (page 名 reject) 後に description fallback が機能しない問題を解消する。
+// ─────────────────────────────────────────────
+
+describe("extractMarkdownHeadingTitles (Bug 2)", () => {
+  it("description 内の `# 作品名` を candidate として拾う", () => {
+    const text =
+      "## 上映作品・スケジュール\n\n# ガールズ＆パンツァー もっとラブラブ作戦です！\n\n上映時間 77分";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got).toContain("ガールズ＆パンツァー もっとラブラブ作戦です！");
+  });
+
+  it("`## 上映作品・スケジュール` (level-2 meta heading) は拾わない", () => {
+    const text = "## 上映作品・スケジュール\n## 映画情報";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got.length).toBe(0);
+  });
+
+  it("`# TOHOシネマズ` のような theater 名は拾わない", () => {
+    const text = "# TOHOシネマズ\n# TOHOシネマズ 池袋";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got.length).toBe(0);
+  });
+
+  it("`# 池袋の映画館 上映スケジュール` のような meta heading は拾わない", () => {
+    const text = "# 池袋の映画館 上映スケジュール\n# 池袋の映画館 上映スケジュール・上映時間";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got.length).toBe(0);
+  });
+
+  it("`# クランクイン！` (page/site 名) は拾わない", () => {
+    const text = "# クランクイン！";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got.length).toBe(0);
+  });
+
+  it("複数の作品名 heading を全部拾う + 重複は排除", () => {
+    const text =
+      "# ガールズ＆パンツァー\n# シン・ウルトラマン\n# ガールズ＆パンツァー";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got).toContain("ガールズ＆パンツァー");
+    expect(got).toContain("シン・ウルトラマン");
+    expect(got.filter((t) => t === "ガールズ＆パンツァー").length).toBe(1);
+  });
+
+  it("level-1 のみ採用、`##` `###` は無視 (混在環境)", () => {
+    const text =
+      "## 上映作品・スケジュール\n# ガールズ＆パンツァー\n### 詳細情報";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got).toContain("ガールズ＆パンツァー");
+    expect(got.length).toBe(1);
+  });
+
+  it("リスティクル meta は acceptTitleCandidate で reject", () => {
+    const text = "# 2026年4月のおすすめ映画10選\n# おすすめランキング";
+    const got = extractMarkdownHeadingTitles(text);
+    expect(got.length).toBe(0);
+  });
+
+  it("空文字 / null-ish は []、例外を投げない (fail-open)", () => {
+    expect(extractMarkdownHeadingTitles("")).toEqual([]);
+    expect(extractMarkdownHeadingTitles(null as unknown as string)).toEqual([]);
+    expect(extractMarkdownHeadingTitles(undefined as unknown as string)).toEqual(
+      [],
+    );
+  });
+});
+
+describe("parseMovieScreenings — Bug 2: description markdown heading fallback", () => {
+  it("crank-in page (sc.title 「...｜クランクイン！」) で description の `# {作品名}` から fallback、theater は B'-1 で維持", () => {
+    const sc: SearchCandidate = {
+      title:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！",
+      description:
+        "【TOHOシネマズ 池袋】上映作品・スケジュール・アクセス ｜クランクイン！\n\n# TOHOシネマズ 池袋\n## 上映作品・スケジュール\n\n# ガールズ＆パンツァー もっとラブラブ作戦です！\n\n上映時間 77分",
+      externalRating: null,
+      practicalInfo: null,
+      source: "crank-in.net",
+      url: "https://www.crank-in.net/theater/search/all/13/11675/199588",
+    };
+    const out = parseMovieScreenings([sc]);
+    expect(out.length).toBeGreaterThan(0);
+    const titles = out.map((s) => s.title);
+    // markdown heading から genuine 作品名が拾われる
+    expect(titles).toContain(
+      "ガールズ＆パンツァー もっとラブラブ作戦です！",
+    );
+    // page 名 / theater meta は拾われない
+    expect(titles).not.toContain("クランクイン！");
+    expect(titles).not.toContain("クランクイン");
+    expect(titles).not.toContain("TOHOシネマズ 池袋");
+    expect(titles).not.toContain("TOHOシネマズ池袋");
+    // B'-1 の theater 解決が維持されている (crank-in URL → resolveTheaterFromBracketTitle)
+    const target = out.find(
+      (s) => s.title === "ガールズ＆パンツァー もっとラブラブ作戦です！",
+    );
+    expect(target?.theater).toBe("TOHOシネマズ池袋");
   });
 });
