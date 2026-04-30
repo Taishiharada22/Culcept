@@ -18,6 +18,7 @@ import {
   isSameEventCanonical,
   isFromCurrentUtterance,
   countNonEmptyCriticalSlots,
+  utteranceImpliesDifferentPlace,
 } from "@/lib/alter-morning/planning/canonicalEventIdentity";
 import {
   utteranceProvenance,
@@ -176,9 +177,8 @@ describe("isSameEventCanonical: place identity 条件 B (coordinates 近接)", (
   });
 });
 
-describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救済)", () => {
-  it("CEO ケース: prior に place_ref あり + cur が place_ref=null + when/activity 一致 → true", () => {
-    // LLM が context bind で同じ予定を partial output (where=null) で再構築
+describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救済、厳格版)", () => {
+  it("prior が confident (exact_proper_noun) + cur null → true (LLM partial 救済)", () => {
     const prior = mkEvent({
       where: {
         place_ref: "サドヤ",
@@ -189,7 +189,7 @@ describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救�
     });
     const cur = mkEvent({
       where: {
-        place_ref: null, // LLM が partial で出力
+        place_ref: null,
         placeType: null,
         coordinates: null,
         provenance: inferredProvenance(),
@@ -198,7 +198,69 @@ describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救�
     expect(isSameEventCanonical(prior, cur)).toBe(true);
   });
 
-  it("逆方向: cur に place_ref あり + prior が null → true", () => {
+  it("prior が confident (coordinates あり) + cur null → true", () => {
+    const prior = mkEvent({
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: { lat: 35.69, lng: 139.7 },
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      where: {
+        place_ref: null,
+        placeType: null,
+        coordinates: null,
+        provenance: inferredProvenance(),
+      },
+    });
+    expect(isSameEventCanonical(prior, cur)).toBe(true);
+  });
+
+  it("CEO 警告ケース: prior が **not confident** (chain_brand + coordinates なし) + cur null → false", () => {
+    // prior が確定していない → LLM partial output と本物 append を区別できない
+    // → 別予定として扱う (CEO 2026-04-30 指示: 条件 D 限定)
+    const prior = mkEvent({
+      where: {
+        place_ref: "スタバ",
+        placeType: "chain_brand",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      where: {
+        place_ref: null,
+        placeType: null,
+        coordinates: null,
+        provenance: inferredProvenance(),
+      },
+    });
+    expect(isSameEventCanonical(prior, cur)).toBe(false);
+  });
+
+  it("CEO 警告ケース: prior が generic_place + coordinates なし + cur null → false", () => {
+    const prior = mkEvent({
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      where: {
+        place_ref: null,
+        placeType: null,
+        coordinates: null,
+        provenance: inferredProvenance(),
+      },
+    });
+    expect(isSameEventCanonical(prior, cur)).toBe(false);
+  });
+
+  it("逆方向 (cur が confident + prior null): cur=exact_proper_noun → true", () => {
     const prior = mkEvent({
       where: {
         place_ref: null,
@@ -209,16 +271,16 @@ describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救�
     });
     const cur = mkEvent({
       where: {
-        place_ref: "新宿",
-        placeType: "generic_place",
+        place_ref: "サドヤ",
+        placeType: "exact_proper_noun",
         coordinates: null,
-        provenance: utteranceProvenance(["新宿"], "high"),
+        provenance: utteranceProvenance(["サドヤ"], "high"),
       },
     });
     expect(isSameEventCanonical(prior, cur)).toBe(true);
   });
 
-  it("両方 place_ref=null は false (= 識別不能、merge しない)", () => {
+  it("両方 place_ref=null は false", () => {
     const prior = mkEvent({
       where: {
         place_ref: null,
@@ -236,6 +298,52 @@ describe("isSameEventCanonical: place identity 条件 D (LLM partial output 救�
       },
     });
     expect(isSameEventCanonical(prior, cur)).toBe(false);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// utteranceImpliesDifferentPlace (Commit 12.1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("utteranceImpliesDifferentPlace", () => {
+  it("「12時に新宿でランチ」 + prior「サドヤ」 → true (新 place 検出)", () => {
+    expect(utteranceImpliesDifferentPlace("12時に新宿でランチ", "サドヤ")).toBe(
+      true,
+    );
+  });
+
+  it("「12時に新宿でランチ」 + prior「新宿」 → false (部分一致)", () => {
+    expect(utteranceImpliesDifferentPlace("12時に新宿でランチ", "新宿")).toBe(
+      false,
+    );
+  });
+
+  it("「9時に新宿駅でランチ」 + prior「新宿」 → false (新宿 ⊂ 新宿駅)", () => {
+    expect(utteranceImpliesDifferentPlace("9時に新宿駅でランチ", "新宿")).toBe(
+      false,
+    );
+  });
+
+  it("「9時に新宿でコーヒー」 + prior「新宿駅」 → false (新宿 ⊂ 新宿駅)", () => {
+    expect(utteranceImpliesDifferentPlace("9時に新宿でコーヒー", "新宿駅")).toBe(
+      false,
+    );
+  });
+
+  it("「9時にコーヒー」 (place なし) → false (= signal なし)", () => {
+    expect(utteranceImpliesDifferentPlace("9時にコーヒー", "サドヤ")).toBe(
+      false,
+    );
+  });
+
+  it("「12時に渋谷でランチ」 + prior「新宿」 → true", () => {
+    expect(utteranceImpliesDifferentPlace("12時に渋谷でランチ", "新宿")).toBe(
+      true,
+    );
+  });
+
+  it("「明日は遊ぶ」 (place 抽出 pattern なし) → false", () => {
+    expect(utteranceImpliesDifferentPlace("明日は遊ぶ", "新宿")).toBe(false);
   });
 });
 

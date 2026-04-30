@@ -115,25 +115,92 @@ export function isSameEventCanonical(a: Event, b: Event): boolean {
     return true;
   }
 
-  // place identity 条件 D (CEO 2026-04-30 LLM partial output 救済):
-  //   片方が place_ref=null かつもう片方が non-null + 必須条件 (when + activity)
-  //   一致 → 同じ予定とみなす。
+  // place identity 条件 D (CEO 2026-04-30 LLM partial output 救済、厳格版):
+  //   片方が place_ref=null かつ **もう片方が confident** (exact_proper_noun OR
+  //   coordinates あり) のみ true。
   //
-  //   理由: LLM が context bind で同じ予定を partial output (where=null) で
-  //   再構築するケースが実機で発生する。これを別予定扱いすると duplicate event
-  //   が作られる。CEO Case「同一 event の partial update (where 確定後)」
-  //   (reconcileScenarioCEO test) で観測。
+  //   "confident" の定義 (CEO 2026-04-30 指示):
+  //     - placeType === "exact_proper_noun" (places API resolved)
+  //     - OR coordinates !== null (user 確定済 or places API 解決済)
   //
-  //   リスク: 同時刻同活動の別予定 + cur partial の場合に誤 merge する可能性。
-  //   ただしこれは稀な edge case で、duplicate event の発生より UX 影響が小さい。
-  if (
-    (a.where.place_ref === null && b.where.place_ref !== null) ||
-    (b.where.place_ref === null && a.where.place_ref !== null)
-  ) {
+  //   理由 (CEO 指摘 2026-04-30):
+  //     条件 D が緩すぎると本物の append や別予定を既存 event に吸収する。
+  //     「12時に新宿でランチ」 のような明確な新 place を持つ utterance で、
+  //     prior が確定していない (chain_brand + coordinates なし) 状態の場合、
+  //     LLM partial output と本物 append の区別がつかない。
+  //
+  //     prior が **confident** (exact_proper_noun または coordinates) のときに
+  //     限定すれば:
+  //       - LLM partial output (= 同じ予定の再構築) は救済される
+  //       - prior が vague (chain_brand + coordinates なし) なら別予定扱い
+  //
+  //   さらに caller (dispatchEventMerge) は utterance check を追加で行う:
+  //     utterance が新 place を強く示唆 (例: 「12時に新宿でランチ」) する場合は
+  //     条件 D match を skip して本物 append として扱う。
+  //     この caller-side check は utteranceImpliesDifferentPlace で実装。
+  const aIsConfident =
+    a.where.placeType === "exact_proper_noun" ||
+    a.where.coordinates != null;
+  const bIsConfident =
+    b.where.placeType === "exact_proper_noun" ||
+    b.where.coordinates != null;
+  if (a.where.place_ref === null && b.where.place_ref !== null && bIsConfident) {
+    return true;
+  }
+  if (b.where.place_ref === null && a.where.place_ref !== null && aIsConfident) {
     return true;
   }
 
   return false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// utteranceImpliesDifferentPlace
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * utterance に「prior の place_ref と異なる新 place」 が含まれているか判定。
+ *
+ * 用途 (CEO 2026-04-30 指示):
+ *   isSameEventCanonical の条件 D (片方 null 救済) で誤って本物 append が
+ *   既存 event に吸収されるのを防ぐ。utterance が「12時に新宿でランチ」 のように
+ *   明確な新 place を含むなら、cur の place_ref が null でも別予定として扱う。
+ *
+ *   dispatchEventMerge の caller-side で条件 D match 直後に check し、
+ *   true なら merge を skip して本物 append として処理続行する。
+ *
+ * 判定ロジック:
+ *   1. utterance から「N時に X で」「N時 X で」 等の place 名 X を抽出
+ *      (regex: /(?:\d{1,2}:?\d*時?(?:に|から)?)\s*([^で、,。\s]+?)で/)
+ *   2. X が priorPlaceRef と異なるか check
+ *      - X が priorPlaceRef を含む / 含まれる場合は同じとみなす (例: 「新宿」 と「新宿駅」)
+ *      - 完全に異なる場合は true (= 別 place、本物 append)
+ *
+ * 偽陽性 (false positive) 防止:
+ *   - utterance に place 抽出 pattern が無い → false (= 既存挙動維持)
+ *   - 抽出された X が prior と部分一致 → false (= 同じ場所の variant とみなす)
+ *
+ * 偽陰性 (false negative) 防止:
+ *   - 抽出 pattern が「N時に X で」 のみ。「明日 X」 や「新宿の店」 等は拾えないが、
+ *     これは LLM 経路で別途処理される (= deterministic synth 範囲外)。
+ */
+export function utteranceImpliesDifferentPlace(
+  utterance: string,
+  priorPlaceRef: string,
+): boolean {
+  const u = utterance.normalize("NFKC");
+  // 「N時に X で」「N:MM X で」 等の place 名 X を抽出
+  const match = u.match(
+    /(?:\d{1,2}(?::\d{2})?時?(?:に|から|頃)?)\s*([^で、,。\s]+?)で/,
+  );
+  if (!match) return false;
+  const newPlace = match[1].trim();
+  if (newPlace.length === 0) return false;
+  // priorPlaceRef と部分一致なら同じ場所とみなす (false positive 防止)
+  if (priorPlaceRef.includes(newPlace)) return false;
+  if (newPlace.includes(priorPlaceRef)) return false;
+  // 完全に異なる
+  return true;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

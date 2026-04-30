@@ -36,6 +36,7 @@ import {
   isSameEventCanonical,
   isFromCurrentUtterance,
   countNonEmptyCriticalSlots,
+  utteranceImpliesDifferentPlace,
 } from "./canonicalEventIdentity";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -536,21 +537,42 @@ export function dispatchEventMerge(
     //    + collision (LLM が prior と同じ event_id を出す) で誤 merge する不具合
     //    あり。新コードは canonical identity (when + activity + place) のみで判定し、
     //    event_id 一致は collision case として pushNewWithRename で処理する。
+    //
+    //    PR-50 Commit 12.1 (CEO 2026-04-30): 条件 D (片方 null 救済) match で、
+    //    かつ utterance が新 place を強く示唆する場合は merge を **skip** して
+    //    本物 append として処理続行する。
+    //    例: prior=「09:00 サドヤ コーヒー」 + cur=「12:00 null ランチ」 +
+    //        utterance=「12時に新宿でランチ」 → utterance に "新宿" が出現し
+    //        prior の "サドヤ" と異なる → merge skip → 別予定 append。
     const priorMatchIdx = priorCopy.findIndex((p) =>
       isSameEventCanonical(p, cur),
     );
     if (priorMatchIdx >= 0 && priorMatchIdx < priorCopy.length) {
-      priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
-        priorCopy[priorMatchIdx],
-        cur,
-      );
-      dispatch.push({
-        cur_event_id: cur.event_id,
-        cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
-        action: "merged_into_prior",
-        target_event_id: priorCopy[priorMatchIdx].event_id,
-      });
-      return;
+      const matched = priorCopy[priorMatchIdx];
+      // 条件 D match (cur.where.place_ref === null + matched が confident) で
+      // utterance が新 place を示唆 → merge skip
+      const isPartialMatch =
+        cur.where.place_ref === null && matched.where.place_ref !== null;
+      const utteranceSignalsDifferentPlace =
+        isPartialMatch &&
+        utterance !== undefined &&
+        matched.where.place_ref !== null &&
+        utteranceImpliesDifferentPlace(utterance, matched.where.place_ref);
+      if (!utteranceSignalsDifferentPlace) {
+        priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
+          priorCopy[priorMatchIdx],
+          cur,
+        );
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+          action: "merged_into_prior",
+          target_event_id: priorCopy[priorMatchIdx].event_id,
+        });
+        return;
+      }
+      // utterance signals different place → 条件 D match を skip して
+      // 続く judgment へ進む (utterance 由来 / slot count / kept_as_new)
     }
 
     // 2. priorEvents non-empty + current utterance 由来でない → drop
