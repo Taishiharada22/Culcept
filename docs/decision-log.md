@@ -1438,3 +1438,79 @@ Preview redeploy 完了後に下記 5 項目を確認:
 - 本 phase は code 変更なし → rollback 対象は decision-log entry のみ
 - DSN 設定: Vercel UI 操作のみ、rollback は env 削除 + redeploy
 - L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は不変
+
+## [2026-04-30] [Build] [L4-j-blocker PASS 後 進路再決定 (Q6 / Q7 / Q8 / Q9)] [承認: CEO]
+
+### 前提
+L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-30):
+- Preview only DSN 設定確認
+- `/monitoring` request 発生確認
+- Sentry issue 生成確認
+- Breadcrumbs pane で 4 event 観測確認 (`coalter.urgent.triggered` / `coalter.presence.state_transition` / `coalter.pattern.used` / `coalter.mode.transition`)
+- payload に会話本文 / ユーザー入力文 / 個人情報なし確認
+→ Sentry sink は Preview で観測可能
+
+### Q6: Production DSN 投入 → **案 B: Preview only 運用継続** (CEO 確定 2026-04-30)
+理由 (CEO):
+1. L4-j の目的は「観測経路の実証」、Preview で達成済
+2. Production はまだ L4-j Phase 1 を promote していない、Production DSN の必然性が薄い
+3. L4-i / L4-m / E-3 の preview 検証を先に、観測対象が増えた段階で Production DSN
+4. Production event を早期に混ぜると初期検証ノイズが増える
+5. Preview / Production の混在は environment tag で分離できるが、今は運用単純化を優先
+- **Production DSN は追加しない**。Preview only 維持
+
+### Q7: 次の着手順 → **L4-i → L4-m → E-3** (Plan D 元案維持) (CEO 確定 2026-04-30)
+理由 (CEO):
+1. L4-i は LLM 合成で発火頻度 / 誤発火 / 出力品質 / 安全性の観測価値が最も高い
+2. Sentry preview 観測経路が成立 → L4-i を Preview で安全に検証可能
+3. L4-m は memory 拡張、L4-i の出力挙動を見た後の方が接続判断しやすい
+4. E-3 は §10.2 全体仕上げ、L4-i / L4-m 後が妥当
+- **次フェーズは L4-i 詳細設計 → CEO 確認 → 実装** の順 (いきなり実装に入らない)
+
+### Q8: §10.2 #9 status → **案 A: partial のまま** (CEO 確定 2026-04-30)
+理由 (CEO):
+- 今回 wire したのは production-reachable 4 event (state_transition / pattern_used / mode_transition / urgent_triggered)
+- 残 4 event (consent.event / rejection.recorded / legacy.fallback / ratelimit.blocked) は依存 UI / 依存 phase が未完
+- 8/8 観測可能ではない
+- 記録統一: 「**L4-j Phase 1: production-reachable 4 event Preview 観測 PASS / §10.2 #9 は partial 維持**」
+- **§10.2 #9 を complete に昇格しない**
+
+### Q9: CULCEPT-1 `/offline` bug → **案 B: L4-i 完了後に対応** (CEO 確定 2026-04-30)
+理由 (CEO):
+1. Sentry で捕捉できるようになったため存在は追跡可能
+2. `/offline` は重要だが現在の主導線ではない
+3. 今すぐ入ると L4-i の流れが分断される
+4. L4-i / L4-m の観測設計を優先する方がプロダクト上の価値が高い
+- **L4-i 完了後の修正候補として保持** (decision-log に記録、放置ではない)
+
+### 次アクション (CEO 指示 2026-04-30)
+1. L4-j-blocker PASS を decision-log に記録 → 完了済 (`ee4dc476`)
+2. Production DSN は追加しない → 不変
+3. §10.2 #9 は partial 維持 → 不変
+4. `/offline` bug は L4-i 後 → 保留 task に残す
+5. **L4-i 詳細設計を提出**
+
+### L4-i 設計で必ず covers すべき項目 (CEO 指示)
+1. LLM 合成がどこで発火するか
+2. どの presence state で発話するか
+3. 発話頻度制御
+4. safety gate
+5. 文字数制限
+6. ユーザー入力本文を telemetry payload に入れない
+7. telemetry で観測する event
+8. Sentry breadcrumb で確認する項目
+9. rollback 境界
+10. Production promote 条件
+- **いきなり実装ではなく設計から**
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase 触らない ✅
+- 別 sink へ飛ばない ✅
+- Production DSN 追加しない ✅ (本 entry で確定)
+- §10.2 #9 を complete に昇格しない ✅ (本 entry で確定)
+- L4-i 設計 phase 中は code 変更なし、設計提示 → CEO 確認 → 実装
+
+### rollback 境界
+- 本 entry は判断記録のみ、code 変更なし → rollback 対象は decision-log entry
