@@ -1219,3 +1219,53 @@ Plan D (CEO 確定 2026-04-30): production reachable 4 event のみ telemetry em
 - L4-j Phase 1 完了後 Production 観測実証 → 結果次第:
   - **観測 OK** → 残 4 event を別 phase で順次 wire (ただし trigger UI 接続要件あり)
   - **観測 NG (sink 経路問題)** → sink 設計再検討 phase (Sentry breadcrumb 単体観測の代替検討)
+
+## [2026-04-30] [Build] [L4-j-blocker — Sentry sink unreachable: NEXT_PUBLIC_SENTRY_DSN 未設定確定] [承認: CEO]
+
+### 観測契機
+- L4-j Phase 1 (`30866d3e` + fix `a21d2f80`) で 4 event (state_transition / pattern_used / mode_transition / urgent_triggered) の sink emit 配線を完了
+- CEO Production smoke で「観測できているか」確認の段階で Sentry dashboard / Discover に CoAlter 関連 breadcrumb が一切見当たらない事象を観測
+- 本 phase は Plan D の **観測経路実証** part であり、wire 完了 ≠ 観測完了
+
+### 確認手順 (CEO 実施 2026-04-30)
+1. **Project レベル env 確認**: `https://vercel.com/taishis-projects-0a8deb17/culcept/settings/environment-variables`
+   → `NEXT_PUBLIC_SENTRY_DSN` **存在せず**
+2. **Team レベル Shared env 確認**: `https://vercel.com/taishis-projects-0a8deb17/~/settings/environment-variables?view=shared&q=NEXT_PUBLIC_SENTRY_DSN`
+   → "No Results Found" — **Shared スコープにも存在せず**
+3. CEO 確認結果 (chat): 「結論、NEXT_PUBLIC_SENTRY_DSN は存在しない可能性が高いです」→ Shared 確認後「ここ？」screenshot で確定
+
+### 結論 (CEO 承認 2026-04-30)
+- **Sentry SDK は Vercel preview / production 環境で完全 no-op**
+- 根拠: `instrumentation-client.ts` / `sentry.server.config.ts` / `sentry.edge.config.ts` 全て `enabled: !!process.env.NEXT_PUBLIC_SENTRY_DSN` ガード
+- 根拠: `next.config.js` の `withSentryConfig` も `disableClientWebpackPlugin: !process.env.NEXT_PUBLIC_SENTRY_DSN`
+- 根拠: 結果として `Sentry.addBreadcrumb` は SDK 未初期化で no-op、**1 件も Sentry に届いていない**
+- 影響範囲: L4-j Phase 1 で wire した 4 event だけでなく、**プロジェクト全体の Sentry breadcrumb / error / transaction / replay が一切送信されていない**
+
+### Phase ステータス確定
+- **L4-j Phase 1 wire**: ✅ 完了維持 (`30866d3e` + `a21d2f80`)
+- **L4-j Phase 1 観測実証**: ❌ blocker により未到達
+- **§10.2 #9 status**: partial (4/8 wire) のまま不変、観測実証なしでは complete に上げられない
+- **fix-forward 維持**: L4-j Phase 1 の commit はリバートしない (構造的 reachable は確保済、Sentry 復元後に観測実証で完了)
+
+### 新 phase 挿入: L4-j-blocker (Sentry 接続復元 / 判断 phase)
+CEO 判断 (2026-04-30):
+- 旧計画: L4-j Phase 1 完了 → L4-i / L4-m / E-3 着手
+- 新計画: **L4-j Phase 1 完了 → L4-j-blocker (Sentry 接続判断) → 結論次第で L4-i / L4-m / E-3 着手順を再決定**
+- L4-j-blocker は code 変更を伴わない判断 phase。CEO の選択を待って次 phase を決める
+
+### CEO 判断待ちの選択肢 (4 案)
+1. **既存 Sentry project 復元** — 過去に存在した Sentry project の DSN / Auth Token を Vercel Shared env に再設定。dashboard / Discover に蓄積された過去データが残っていれば最短復旧
+2. **新規 Sentry project 作成** (推奨案) — `culcept` 用に新規 project を Sentry SaaS で作成、新 DSN / Auth Token を Vercel Shared env に登録。過去データ無しだが clean start
+3. **別 sink 採用** — Sentry を使わず別 telemetry 先 (PostHog / Datadog / Supabase logs / 自前 endpoint) に切替。設計差し戻し phase が必要
+4. **telemetry なしで L4-i に進む** — 観測なしで code path だけ進める。CEO 既に却下 (Plan D の観測実証要件と矛盾、§10.2 #9 partial 固定化)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits リバートしない ✅ (HEAD = `a21d2f80`)
+- L4-i / L4-m / E-3 着手しない (L4-j-blocker 判断後に着手順再決定) ✅
+- ChatClient.tsx 触らない ✅
+- env / package / next-env.d.ts / supabase temp 触らない ✅
+- 本 phase は code 変更ゼロ、判断ログのみ ✅
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ (`git revert` で除去可能)
+- L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は本 phase の rollback 対象外
