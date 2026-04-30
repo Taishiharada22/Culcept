@@ -166,8 +166,9 @@ export default function HexaflexRadar({ scores, overallFlexibility }: Props) {
                     <motion.circle
                       cx={x}
                       cy={y}
-                      r={8}
+                      r={6}
                       fill="rgba(212,175,55,0.2)"
+                      initial={{ r: 6 }}
                       animate={{ r: [6, 10, 6] }}
                       transition={{
                         duration: 2.2,

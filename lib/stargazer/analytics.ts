@@ -35,7 +35,26 @@ export type StargazerEvent =
   | "mystyle_gap_shown"
   | "mystyle_rendezvous_bridge"
   | "mystyle_photo_ai_correction"
-  | "mystyle_failure";
+  | "mystyle_failure"
+  // ── W3-PR-10 Transport Staircase canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr10-scope-a-canary-plan.md §3-B
+  // いずれも flag ON 経路でのみ emit され、feature="alter_morning" 固定。
+  | "transport_v2_segments_built"     // server: build 直後の分布 / sanity
+  | "transport_v2_display_rendered"   // server: display cache interleave 直後
+  | "transport_v2_edit_regression"    // client: regenerateTravel 後の travel 増減
+  // ── W3-PR-12.5 DialogState v2 + Places Search canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr12-production-rollout-plan.md §2 Stage 2
+  // いずれも flag ON 経路（allowlist or global）でのみ emit、feature="alter_morning" 固定。
+  | "alter_morning_shadow_state"      // server: [dialog-state-v2:shadow] 構造化版
+  | "alter_morning_handoff_outcome"   // server: [places-handoff:*] 構造化版
+  // ── W3-PR-13 Visual Flow canary events (2026-04-24) ──
+  // 詳細: docs/alter-morning-pr13-visual-flow-rollout-plan.md
+  // いずれも flag ON 経路（allowlist or global）でのみ emit、feature="alter_morning_visual_flow" 固定。
+  // dead-code 方針: flag OFF default / browser key 未投入 / allowlist 空 → 実発火ゼロ。
+  | "visual_flow_flag_evaluated"      // server: page.tsx で visualFlowEnabled=true の時のみ
+  | "visual_flow_gate_rejected"       // client: MorningMapView 早期 null return (no key / insufficient pins)
+  | "visual_flow_script_loaded"       // client: Google Maps JS API script.onload / onerror
+  | "visual_flow_map_mounted";        // client: fitBounds 完了後
 
 export interface StargazerAnalyticsEvent {
   userId: string;
@@ -69,9 +88,97 @@ export interface FeaturePopularity {
 // trackStargazerEvent — イベントを stargazer_analytics に保存
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * W3-PR-10 O5 hook — transport_v2_* event 判定 helper（内部）。
+ *
+ * 本 module 先頭の StargazerEvent union と同期。間引き・string 比較で済ませる
+ * ことで Sentry / validator をこの path の hot loop から外す。
+ */
+function isTransportV2Event(
+  name: StargazerEvent,
+): name is
+  | "transport_v2_segments_built"
+  | "transport_v2_display_rendered"
+  | "transport_v2_edit_regression" {
+  return (
+    name === "transport_v2_segments_built" ||
+    name === "transport_v2_display_rendered" ||
+    name === "transport_v2_edit_regression"
+  );
+}
+
+/**
+ * W3-PR-10 O5 hook — shape guard を起動し、違反があれば Sentry へ fire-and-forget。
+ *
+ * 契約（CEO 2026-04-23 承認範囲）:
+ *   - emit は **止めない**（DB insert は常に走る）。guard は監視のみ
+ *   - DSN 未設定（test / dev 既定）では Sentry.init enabled=false なので実質 no-op
+ *   - throw しない。validator / Sentry import いずれの失敗も swallow
+ *   - violator の粒度は個別違反ごと（dedup は Sentry 側 issue grouping に委ねる）
+ */
+async function runTransportV2ShapeGuard(
+  event: StargazerAnalyticsEvent,
+): Promise<void> {
+  try {
+    const { validateTransportV2Shape } = await import(
+      "@/lib/alter-morning/transport/shapeGuard"
+    );
+    const violations = validateTransportV2Shape(
+      event.event as
+        | "transport_v2_segments_built"
+        | "transport_v2_display_rendered"
+        | "transport_v2_edit_regression",
+      event.metadata,
+    );
+    if (violations.length === 0) return;
+
+    try {
+      const Sentry = await import("@sentry/nextjs");
+      const primary = violations[0];
+      const md = (event.metadata ?? {}) as Record<string, unknown>;
+      Sentry.captureMessage(
+        `[alter-morning] W3-PR-10 O5 shape violation: ${primary.code}`,
+        {
+          level: "error",
+          tags: {
+            feature: "alter_morning",
+            canary: "transport_v2",
+            event: event.event,
+            violation_code: primary.code,
+          },
+          extra: {
+            violations: violations.map((v) => ({
+              code: v.code,
+              field: v.field,
+              detail: v.detail,
+              actualValue: v.actualValue,
+            })),
+            event: event.event,
+            user_id: event.userId,
+            caller: md.caller,
+            flag_source: md.flag_source,
+            schema_version: md.schema_version,
+            plan_date: md.plan_date,
+          },
+        },
+      );
+    } catch {
+      // Sentry import / capture は emit path を絶対に壊さない
+    }
+  } catch {
+    // validator import 失敗も同様に swallow
+  }
+}
+
 export async function trackStargazerEvent(
   event: StargazerAnalyticsEvent,
 ): Promise<boolean> {
+  // ── W3-PR-10 O5: transport_v2_* のみ 0-shape guard を非ブロッキングで起動 ──
+  //   await しない。DB insert を待たせない。guard 内部も throw せず swallow。
+  if (isTransportV2Event(event.event)) {
+    void runTransportV2ShapeGuard(event);
+  }
+
   try {
     const supabase = await supabaseServer();
     const { error } = await supabase.from("stargazer_analytics").insert({

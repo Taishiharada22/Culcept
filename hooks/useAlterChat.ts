@@ -3,13 +3,32 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMetadata } from "@/lib/stargazer/alterHomeAdapter";
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
-import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult } from "@/lib/alter-morning/types";
+import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
+import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+// W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
+//   server が返した dialogState を state 保持 → 次 POST で送り返す。
+//   これが無いと route.ts 側で ensureSessionV1 が毎 turn fresh init し、
+//   selectShadowTargetEventId の condition A (prevFocus===null) が恒常 fail
+//   で focus 継承が発動しない（2026-04-22 preview で判明）。
+import type { DialogState } from "@/lib/alter-morning/dialog/types";
+// CEO 2026-04-26 root-cause fix: server canonical state を selection 経路でも完全に
+// honour する pure helper（テスタビリティのため React 非依存ファイルに切り出し）。
+import { applySelectionMorningSession } from "@/hooks/applySelectionResponse";
+
+/** PE出典情報（Alter発言下に小さく表示） */
+export type PerspectiveSource = {
+  title: string;
+  url: string;
+  date: string | null;
+};
 
 export type AlterMessage = {
   id: string;
   role: "user" | "alter";
   content: string;
   timestamp: string;
+  /** P1.9: PE出典データ（Alter応答にのみ付与） */
+  perspectiveSources?: PerspectiveSource[];
 };
 
 export type AlterChatState = {
@@ -85,6 +104,14 @@ interface PersistedMorningSession {
   personalizeHints: string[];
   // v2: PlanState ラウンドトリップ
   planStateV2?: any;
+  // W3-PR-6: v2 pipeline stickiness round-trip
+  pipelineVersion?: "v2";
+  // W3-PR-7 Commit 2: dialog state round-trip
+  pendingClarify?: PendingClarify | null;
+  persistedEvents?: ComprehensionEvent[];
+  // W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
+  //   flag OFF 環境では常に undefined（server が field 出力しないため）。
+  dialogState?: DialogState | null;
 }
 
 function saveMorningSession(session: PersistedMorningSession): void {
@@ -183,8 +210,78 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [morningPersonalizeHints, setMorningPersonalizeHints] = useState<string[]>(restoredSession?.personalizeHints ?? []);
   // v2: PlanState ラウンドトリップ
   const [morningPlanStateV2, setMorningPlanStateV2] = useState<any>(restoredSession?.planStateV2 ?? null);
+  // W3-PR-6: v2 pipeline stickiness round-trip（"v2" | null）
+  const [morningPipelineVersion, setMorningPipelineVersion] = useState<"v2" | null>(
+    (restoredSession as { pipelineVersion?: "v2" } | null)?.pipelineVersion ?? null,
+  );
+  // W3-PR-7 Commit 2: dialog state round-trip
+  const [morningPendingClarify, setMorningPendingClarify] = useState<PendingClarify | null>(
+    restoredSession?.pendingClarify ?? null,
+  );
+  const [morningPersistedEvents, setMorningPersistedEvents] = useState<ComprehensionEvent[] | null>(
+    restoredSession?.persistedEvents ?? null,
+  );
+  // W3-PR-8 rev 3 commit 22b: DialogState v2 round-trip
+  //   response.morningProtocol.dialogState を次 POST で返送するための state。
+  //   null のときは POST body 側で field を出力しない（flag OFF と同等形）。
+  const [morningDialogState, setMorningDialogState] = useState<DialogState | null>(
+    restoredSession?.dialogState ?? null,
+  );
+  /**
+   * W3-PR-9 commit 5c: Place selection 進行中の placeId。
+   *   - null: 送信中ではない
+   *   - string: この placeId を現在送信中（picker 側で全ボタン disable + loader）
+   *
+   * server canonical response 受信で null に戻る。途中 reject / abort / error でも finally で null。
+   */
+  const [placeSelectionPending, setPlaceSelectionPending] = useState<string | null>(null);
+  const selectionAbortRef = useRef<AbortController | null>(null);
+  /**
+   * stale-response guard 用の ref。setter 内 closure が最新 state を参照できないため、
+   * async response 到着時に ref で比較する。
+   */
+  const morningDialogStateRef = useRef<DialogState | null>(morningDialogState);
+  useEffect(() => {
+    morningDialogStateRef.current = morningDialogState;
+  }, [morningDialogState]);
+
   /** Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか */
   const [softBridgePending, setSoftBridgePending] = useState(false);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 2026-04-28 Option B: 現在地座標 (browser geolocation)
+  //   - hook mount 時に 1 回だけ取得を試みる（失敗時は静かに null）
+  //   - chat / selection request body に乗せ、server で home anchor として優先採用
+  //   - permission 拒否時はパーミッション再要求を強制しない（UX 阻害禁止）
+  //   - 取得済み座標は React state にキャッシュ（同 hook lifecycle 中は不変）
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const [currentCoords, setCurrentCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setCurrentCoords({ lat, lng });
+        }
+      },
+      () => {
+        // 拒否 / timeout は黙って無視（registered home が代替）
+      },
+      // 5 秒で諦める（UX 阻害禁止）。high accuracy 不要、cached 値 OK
+      { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
     try {
@@ -212,8 +309,15 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       sufficiency: morningSufficiency,
       personalizeHints: morningPersonalizeHints,
       planStateV2: morningPlanStateV2,
+      ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+      pendingClarify: morningPendingClarify,
+      persistedEvents: morningPersistedEvents ?? undefined,
+      // W3-PR-8 rev 3 commit 22b: dialogState を localStorage にも永続化
+      //   タブ closing / reload を跨いでも focus 継承が切れないようにする。
+      //   flag OFF では常に null のため spread 条件で field を省略。
+      ...(morningDialogState ? { dialogState: morningDialogState } : {}),
     });
-  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
+  }, [morningPhase, morningSessionId, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents, morningDialogState]);
 
   const sessionAlterCount = messages.filter((m) => m.role === "alter").length;
   const roundCount = priorDailyCount + sessionAlterCount;
@@ -270,10 +374,25 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               parsedIntent: morningParsedIntent ?? undefined,
               sufficiency: morningSufficiency ?? undefined,
               planStateV2: morningPlanStateV2 ?? undefined,
+              // W3-PR-6: v2 stickiness を route に返送する
+              ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+              // W3-PR-7 Commit 2: dialog state を route に返送する
+              ...(morningPendingClarify ? { pendingClarify: morningPendingClarify } : {}),
+              ...(morningPersistedEvents ? { persistedEvents: morningPersistedEvents } : {}),
+              // W3-PR-8 rev 3 commit 22b: DialogState v2 を route に返送する
+              //   この 1 箇所が欠けていたため commit 22 の focus 継承が発動せず、
+              //   2026-04-22 preview で全 turn prev_focus=null 恒常 fallback。
+              ...(morningDialogState ? { dialogState: morningDialogState } : {}),
             },
           } : {}),
           // Soft Bridge: 直前のAlter返答がSoft Bridge確認だったか
           ...(softBridgePending ? { softBridgePending: true } : {}),
+          // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
+          //   server で home anchor の優先 1 として採用される。
+          //   取得に失敗 / 拒否されていれば送らない（registered home が代替）。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
         }),
       });
 
@@ -301,6 +420,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         role: "alter",
         content: data.response ?? "...",
         timestamp: new Date().toISOString(),
+        // P1.9: PE出典データ（CEOアプローチ: 目立たなく小さく表示）
+        ...(data.perspectiveSources?.length > 0 ? {
+          perspectiveSources: data.perspectiveSources,
+        } : {}),
       };
 
       if (!sessionId && data.sessionId) {
@@ -369,6 +492,26 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         if (data.morningProtocol.planStateV2 !== undefined) {
           setMorningPlanStateV2(data.morningProtocol.planStateV2);
         }
+        // W3-PR-6: v2 pipelineVersion round-trip
+        if (data.morningProtocol.pipelineVersion !== undefined) {
+          setMorningPipelineVersion(
+            data.morningProtocol.pipelineVersion === "v2" ? "v2" : null,
+          );
+        }
+        // W3-PR-7 Commit 2: dialog state round-trip
+        if (data.morningProtocol.pendingClarify !== undefined) {
+          setMorningPendingClarify(data.morningProtocol.pendingClarify ?? null);
+        }
+        if (data.morningProtocol.persistedEvents !== undefined) {
+          setMorningPersistedEvents(data.morningProtocol.persistedEvents ?? null);
+        }
+        // W3-PR-8 rev 3 commit 22b: DialogState v2 round-trip 受信側
+        //   server が flag ON 時のみ field を出力する（route.ts L9363-9365）。
+        //   undefined check (!== undefined) で「field 省略」と「null リセット」を
+        //   区別する。flag OFF では常に省略のため setter は走らない = baseline 不変。
+        if (data.morningProtocol.dialogState !== undefined) {
+          setMorningDialogState(data.morningProtocol.dialogState ?? null);
+        }
       }
 
       // localStorage の日次カウントを更新（βテスターはカウント不要だが記録は残す）
@@ -382,10 +525,159 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     } finally {
       setLoading(false);
     }
-  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2]);
+  }, [loading, limitReached, sessionId, isBetaTester, morningPhase, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify, morningPersistedEvents, morningDialogState]);
+
+  /**
+   * W3-PR-9 commit 5c: Place candidate 選択ハンドラ。
+   *
+   * 契約（CEO 2026-04-23）:
+   *   1. picker は `status === "search_candidates_presented" && activePresentation !== null`
+   *      でのみ mount される前提。このハンドラも同条件を guard する。
+   *   2. optimistic update しない — server canonical response のみ state を進める。
+   *   3. pending 中（placeSelectionPending != null）は no-op（再クリック禁止）。
+   *   4. stale-response guard: 応答到着時に dialogState の
+   *      activePresentation.targetEventId/queryFingerprint が一致しない場合は破棄。
+   *      user が mid-flight で別 turn を進めたケース対策。
+   *   5. accepted=false は無害な no-op（error UI 出さない）。
+   *   6. accepted=true は canonical morningSession で dialogState + events を置換。
+   */
+  const selectPlaceCandidate = useCallback(async (selectedPlaceId: string) => {
+    const curr = morningDialogStateRef.current;
+    if (!curr) return;
+    if (curr.conversationStatus !== "search_candidates_presented") return;
+    const active = curr.activePresentation;
+    if (!active) return;
+    if (!active.candidates.some((c) => c.placeId === selectedPlaceId)) return;
+    // Race guard: 既に pending ならスキップ（UI 側 disabled だが defense in depth）
+    if (placeSelectionPending !== null) return;
+
+    // 旧 selection を abort（同時多重送信防止）
+    selectionAbortRef.current?.abort();
+    const controller = new AbortController();
+    selectionAbortRef.current = controller;
+
+    // Request 時点の fingerprint を capture（stale check 用）
+    const requestTargetEventId = active.targetEventId;
+    const requestFingerprint = active.queryFingerprint;
+    const requestTurnIndex = active.presentedAtTurn + 1;
+
+    setPlaceSelectionPending(selectedPlaceId);
+
+    try {
+      const morningSession = {
+        ...(morningSessionId ? { sessionId: morningSessionId } : {}),
+        ...(morningPhase ? { phase: morningPhase } : {}),
+        dialogState: curr,
+        persistedEvents: morningPersistedEvents ?? [],
+        ...(morningPlan ? { plan: morningPlan } : {}),
+        rawInputs: morningRawInputs,
+        ...(morningParsedIntent ? { parsedIntent: morningParsedIntent } : {}),
+        ...(morningSufficiency ? { sufficiency: morningSufficiency } : {}),
+        personalizeHints: morningPersonalizeHints,
+        ...(morningPlanStateV2 ? { planStateV2: morningPlanStateV2 } : {}),
+        ...(morningPipelineVersion ? { pipelineVersion: morningPipelineVersion } : {}),
+        ...(morningPendingClarify ? { pendingClarify: morningPendingClarify } : {}),
+      };
+
+      const res = await fetch("/api/stargazer/alter/selection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        signal: controller.signal,
+        body: JSON.stringify({
+          turnIndex: requestTurnIndex,
+          targetEventId: requestTargetEventId,
+          queryFingerprint: requestFingerprint,
+          selectedPlaceId,
+          morningSession,
+          // CEO 2026-04-28 Option B: 現在地座標（home anchor 優先 1）。
+          //   selection endpoint で travel item の home segment 生成に使う。
+          ...(currentCoords
+            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            : {}),
+        }),
+      });
+
+      if (!res.ok) {
+        console.warn("[selection] http error", res.status);
+        return;
+      }
+
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      // Stale-response guard: response 到着時点で dialogState が別の presentation に
+      // 移動していたら（または null になっていたら）この response は stale。破棄する。
+      const latest = morningDialogStateRef.current;
+      const stillSame =
+        latest?.activePresentation?.targetEventId === requestTargetEventId &&
+        latest?.activePresentation?.queryFingerprint === requestFingerprint;
+      if (!stillSame) {
+        console.info("[selection] stale response discarded");
+        return;
+      }
+
+      if (!data.accepted) {
+        // accepted=false は normal no-op（picker は次 server turn で unmount される）
+        console.info("[selection] rejected", data.reason);
+        return;
+      }
+
+      // accepted=true: canonical morningSession で置換
+      //
+      // CEO 2026-04-26 root-cause fix:
+      //   旧実装は dialogState / persistedEvents / phase / plan の **4 fields のみ**
+      //   propagate していた。pendingClarify を含む 7 fields が落ちており、
+      //   selection で server が pendingClarify={slot:"transport"} を返しても
+      //   client state は更新されず、次 turn の chat で stale pendingClarify が
+      //   送られて Branch A (canBind) が起動せず Branch B fresh comprehension に
+      //   落ちて「09:00のカフェはどのあたり？」 clarify が再発していた。
+      //
+      //   applySelectionMorningSession (hooks/applySelectionResponse.ts) は
+      //   chat response handler (L457-) と同等の field set を propagate する。
+      //   テスタビリティのため pure 関数として切り出してある。
+      if (data.morningSession) {
+        applySelectionMorningSession(data.morningSession, {
+          setMorningDialogState,
+          setMorningPersistedEvents,
+          setMorningPhase,
+          setMorningPlan,
+          setMorningPendingClarify,
+          setMorningRawInputs,
+          setMorningParsedIntent,
+          setMorningSufficiency,
+          setMorningPersonalizeHints,
+          setMorningPlanStateV2,
+          setMorningPipelineVersion,
+        });
+      }
+
+      // W3-PR-10 positive-path nudge: 1件目 place 確定直後に Alter から次の場所を自然に問う。
+      // server 側 narrow trigger で gate 済（transportV2 flag ON + 0→1 place diff + !multiple + !endSignal）。
+      // DB dialogues 永続化は初版では行わない（UI 表示のみ）。
+      if (typeof data.alterFollowUp?.text === "string" && data.alterFollowUp.text.length > 0) {
+        const followUpMsg: AlterMessage = {
+          id: `alter-${Date.now()}-followup`,
+          role: "alter",
+          content: data.alterFollowUp.text,
+          timestamp: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, followUpMsg]);
+      }
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      console.warn("[selection] error", err);
+    } finally {
+      setPlaceSelectionPending(null);
+      if (selectionAbortRef.current === controller) {
+        selectionAbortRef.current = null;
+      }
+    }
+  }, [placeSelectionPending, morningSessionId, morningPhase, morningPersistedEvents, morningPlan, morningRawInputs, morningParsedIntent, morningSufficiency, morningPersonalizeHints, morningPlanStateV2, morningPipelineVersion, morningPendingClarify]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    selectionAbortRef.current?.abort();
     setMessages([]);
     setLoading(false);
     setSessionId(null);
@@ -405,6 +697,10 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningParsedIntent(null);
     setMorningSufficiency(null);
     setMorningPersonalizeHints([]);
+    // W3-PR-8 rev 3 commit 22b: DialogState v2 も reset でクリア
+    setMorningDialogState(null);
+    // W3-PR-9 commit 5c: pending selection もクリア
+    setPlaceSelectionPending(null);
     // セッション永続化もクリア
     clearMorningSession();
   }, []);
@@ -460,5 +756,28 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     setMorningPlan,
     /** Morning Protocol: パーソナライズヒント（性格ベースの提案含む） */
     morningPersonalizeHints,
+    /**
+     * W3-PR-9 commit 5c: DialogState v2（picker の条件描画に使う）。
+     * `conversationStatus === "search_candidates_presented" && activePresentation !== null`
+     * のときだけ picker を mount する。
+     */
+    morningDialogState,
+    /**
+     * W3-PR-9 commit 5c: place 候補選択ハンドラ。placeId のみ受け取り、
+     * server canonical response で dialogState + events を置換する。
+     */
+    selectPlaceCandidate,
+    /**
+     * W3-PR-9 commit 5c: 送信中の placeId（null なら非送信中）。
+     * picker に pending flag として渡して全ボタン disable する。
+     */
+    placeSelectionPending,
+    /**
+     * W3-PR-13 M3: persisted comprehension events（MorningMapView の pin source）。
+     * 既存 internal state (L218) をそのまま expose（非破壊 export）。
+     * 読み取り戦略 β: plan.items[].location は rebuildPlan (transportV2 flag 依存)
+     * 経由なので、flag OFF でも map が描画できるよう events から直接読む。
+     */
+    morningPersistedEvents,
   } as const;
 }

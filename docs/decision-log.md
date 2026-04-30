@@ -13,6 +13,308 @@
 ```
 
 ---
+### 2026-04-24 W3-PR-12 / 12.5 系クローズ + PR-13 開発本線移行
+- **部門**: Build / Product
+- **決定内容**: PR-12 / PR-12.5 系を開発本線からクローズし、Stage 2 canary は運用タスクとして並行継続。次の開発本線 = PR-13（map / timeline / visual flow への最短導線）に移行
+- **クロージング処理**:
+  - `docs/alter-morning-pr12-production-rollout-plan.md` を CLOSED 化（status / クロージング記録 section 追加）
+  - 運用タスクとして残すもの: Stage 2 日次監視 / `GOOGLE_MAPS_API_KEY` rotation / Role C 観測レビュー / Vercel builder hang 監視
+- **PR-13 診断結果**（`docs/alter-morning-pr13-visual-flow-scope.md`）:
+  - Hard gap 4 本特定: G1 coordinates 書き戻し未接続 / G2 WhenSlot endTime+durationMin 未定義 / G3 TransportSegment builder 未着地 / G4 Map/Timeline UI 層不在
+  - G1 = 他の全 gap の前提（座標が event に乗らない限り pin/polyline/segment 全て描けない）
+- **PR-13 scope 提案**（CEO 承認待ち、案 A 推奨）:
+  - 案 A（minimal 推奨）: Coordinate persistence + 静的 map pin MVP + kill switch `ALTER_MORNING_VISUAL_FLOW`
+  - 案 B（wide）: A + endTime + Timeline 同梱（rollback 単位が大きい）
+  - 案 C（ultra-minimal）: G1 のみ（視覚化ゼロ、CEO 意図外）
+- **CEO 判断点**: (1) 案 A/B/C 選択 (2) Map library（MapLibre vs `@vis.gl/react-google-maps` — 推奨 b） (3) flag 命名 (4) 段階ロールアウト (preview → prod allowlist → global)
+- **承認**: CEO（PR-12 / 12.5 クローズ + PR-13 診断開始 2026-04-24 本ターン）
+- **ステータス**: PR-12 / 12.5 クローズ済 / PR-13 scope proposal 提出、CEO 判断待ち
+
+---
+### 2026-04-24 W3-PR-12.5 Stage 2 canary 本番 live 確認
+- **部門**: Build / Product
+- **決定内容**: production allowlist-only canary が本番で live。CEO UUID で `flag_source=allowlist` + `outcome_kind=presented_from_api` を確認
+- **検証結果（harness 2026-04-24 15:52 JST 付近、production `https://culcept.vercel.app`、session `ms_pr12_1777013538870`）**:
+  - `alter_morning_handoff_outcome`: `outcome_kind=presented_from_api` / `candidate_count=5` / `latency_ms=285` / `flag_source=allowlist`
+  - `alter_morning_shadow_state`: `flag_source=allowlist`（CEO UUID が production allowlist に正しく乗っている証跡）
+  - `provider_failure` 消失（`GOOGLE_MAPS_API_KEY` production baked-in 後）
+- **Vercel / env 作業メモ**:
+  - production 側 `GOOGLE_MAPS_API_KEY` は preview と同じ key を投入（CEO から key 直接受領 → `vercel env add ... production` で追加）
+  - runtime resolve のみでは既存 Ready deploy が新 env を拾わなかった → empty commit `150b704c` push で fresh build `culcept-24qarh3t8` を作成、4 分で Ready → runtime で API key 解決確認
+  - 12h 以内で Vercel builder hang 4 回。infra 起因と確定済。5 回目発生時は Vercel support escalation 推奨
+- **セキュリティ残タスク**: 本セッションログに API key 値が露出したため、Stage 2 観測完了後に key rotation を CEO に依頼すること
+- **承認**: CEO（API key 直接投入依頼 + Stage 2 canary 突入 2026-04-24 本ターン）
+- **ステータス**: Stage 2 canary live（production allowlist-only、CEO + Role C `zawane0903@gmail.com` の 2 UUID）
+
+---
+### 2026-04-24 W3-PR-12.5 Stage 1 完了 + Stage 2 Role C 指名 — canary 運用開始
+- **部門**: Build / Product
+- **決定内容**: PR #30 (Stage 1 allowlist canary + 観測イベント) を live preview で検証 PASS し main へ merge。E2 比較表に基づき Stage 2 Role C を確定、canary 運用フェーズに突入
+  1. **PR #30 live verification（preview `dpl_835z8BhRZAR2CvKazoZPWBncwMmt`, harness 2026-04-24 13:29 JST）**:
+     - `stargazer_analytics` に canary 観測 4 行着弾（cold + warm 2 run × shadow_state + handoff_outcome）
+     - cold path: `outcome_kind=presented_from_api` / `candidate_count=5` / `latency_ms=414` / `flag_source=global`
+     - warm path: `outcome_kind=presented_from_cache` / `latency_ms=0` / idempotency cache hit 動作確認
+     - `provider_failure` 完全消失（GOOGLE_MAPS_API_KEY preview 投入後）
+     - shadow_state: `status=search_handoff_blocking` / `ready_for_handoff=true` / `target_selection_reason=prev_phase_not_clarifying_plan_presented`
+  2. **Vercel builder 42 分 hang の診断と recovery**: preview build が initialization 段階で `Builds [0ms]` のまま stuck。7h 前にも 31 分 hang 履歴あり → Vercel infra 起因と確定。stuck deployment `culcept-iun104ow9` を `vercel rm` で削除 → empty commit `b32411b4` push で fresh build trigger → 4 分で Ready 達成。local build exit 0 でコード起因完全除外
+  3. **PR #30 merge**: 2026-04-24 04:43:48Z、merge commit `9cfa7e0b` で main 着地（merge commit 戦略、C1→C2→C3→C4 の history 保持）。`feat/alter-morning-pr125-allowlist-canary` branch 削除済
+  4. **E2 Role C 指名**: `zawane0903@gmail.com` で確定（CEO 直接判断）。3 軸（C-1 自然会話で使う習慣 / C-2 multi-event が自然に出る外出頻度 / C-4 違和感を言語化して返せる）ベースの比較表を提示し CEO が即断
+- **CEO 判断（2026-04-24 本ターン）**:
+  - PR #30 は Stage 1 observability 検証合格 → merge 判断に進んでよい
+  - E2: `zawane0903@gmail.com` で決定
+  - DM 通知は行わない。CEO 自ら直接伝達する（`docs/alter-morning-pr12-production-rollout-plan.md` E3 の軽量 NDA DM 文案は本ケース不適用）
+  - 継続して次のフェーズ（Stage 2 canary 運用）に突入
+- **残タスク（Stage 2 canary 開始に向けて）**:
+  - rollout plan を Stage 1 完了 + Stage 2 進行中に更新
+  - Role C (`zawane0903@gmail.com`) の UUID 取得
+  - preview / production env 変更計画（`_ALLOWLIST` を UUID で埋める / global flag を false に戻す / allowlist-only モードへ切替）を CEO に提示 → 承認後に実行
+  - 本番 env 変更は「承認が必要な行動」カテゴリ → CEO 最終確認後に実施
+- **承認**: CEO（PR #30 merge + E2 確定 + 次フェーズ突入 2026-04-24 本ターン）
+- **ステータス**: Stage 1 実行済 / Stage 2 Role C 確定、env 変更計画 CEO 確認待ち
+
+---
+### 2026-04-24 W3-PR-12.5 Stage 1 着手 — allowlist canary 機構 + 観測イベント同梱
+- **部門**: Build
+- **決定内容**: CEO 判断（F2 承認 / F1 条件付き承認 / E1 暫定 β / E2 比較表のみ / E3 現文面 OK）を受け、Stage 1 PR の実装に着手し、env 名確定と 3 commit を `feat/alter-morning-pr125-allowlist-canary` に着地
+  1. **env 名確定（F1 条件）**: `process.env.GOOGLE_MAPS_API_KEY` が正。`lib/alter-morning/placesApiClient.ts:62,66` / `lib/alter-morning/routesApiClient.ts:125,129` / `scripts/import_shops_places.mjs` / `tests/unit/alter-morning/routesApiClient.test.ts` 全て `GOOGLE_MAPS_API_KEY` を直接参照。Places API / Routes API 共用。以前の報告で混在した `GOOGLE_PLACES_API_KEY` は実装上存在しない
+  2. **Stage 1 C1 commit (`ff3b972a`)**: `flags.ts` を getter → method 化。`dialogStateV2(userId?)` / `placesSearch(userId?)` を追加し、transport_v2 と同じ allowlist → global の 3 段優先順位を導入。`resolveDialogStateV2FlagSource` / `resolvePlacesSearchFlagSource` を公開し、metadata の `flag_source` 解決を集約
+  3. **Stage 1 C2 commit (`36879d76`)**: call site 4 箇所 + ensureSessionV1 signature を userId 付きに更新。テスト comment 追従のみ
+  4. **Stage 1 C3 commit (`a364fc28`)**: A1 同梱方針に従い観測イベント 2 本を配線。`lib/alter-morning/search/handoffAnalytics.ts` を新設し、console log と 1:1 対応する `alter_morning_shadow_state` / `alter_morning_handoff_outcome` を `stargazer_analytics` へ fire-and-forget で流す。unit test 21 本追加、alter-morning 全 1960 tests PASS
+- **CEO 判断（2026-04-24 Message 5）**:
+  - F2 承認: Stage 1 PR の実装に着手
+  - F1 条件付き承認: env 名をコードで確定してから preview 投入。正 `GOOGLE_MAPS_API_KEY` 確定済
+  - E1 暫定 β: Stage 2 の Role B は CEO 兼務で進める。内部 engineer が立てば差し替え可
+  - E2 比較表のみ: `hikariharada86@icloud.com` / `zawane0903@gmail.com` を C-1/C-2/C-4 観点で相対比較 → 最終指名は保留
+  - E3 現文面 OK: 軽量 NDA 提示済み文案で進める。通知 channel は DM、終了通知は Stage 2 終了時
+- **残タスク**:
+  - C4（本 commit）で rollout plan を PR-12.5 着手状態に更新
+  - PR raise（`feat/alter-morning-pr125-allowlist-canary` → `main`）
+  - preview redeploy（main 非汚染版）: `npx vercel env add GOOGLE_MAPS_API_KEY preview` → `npx vercel redeploy <preview-url> --target preview` → harness 再実行で `presented_from_api / zero_from_api` を捕捉
+  - E2 比較表（別 turn で提示）
+- **承認**: CEO（F1/F2/E1/E2/E3 判断 2026-04-24 Message 5）
+- **ステータス**: 進行中（C1-C3 commit 完了、C4 進行中、PR raise 未）
+
+---
+### 2026-04-24 W3-PR-12 完了 — live verified + main 着地 + production rollout plan + comprehension 別 issue 切り出し
+- **部門**: Build
+- **決定内容**: PR-12 の live verification 合格判定 (CEO) を受け、3 件の後続アクションを完了
+  1. **PR #28 squash merge**: main HEAD `2bf627c3 → 36b3db4e` に fast-forward 着地。3 commits 集約（reducer.ts + shadowPipeline.ts + types.ts 実装 + tests 7 本追加 + decision-log + preview redeploy trigger）
+  2. **production rollout plan 作成**: `docs/alter-morning-pr12-production-rollout-plan.md` として 4 stage 段階 rollout を明文化（S0 preview real-data → S1 allowlist 機構 PR → S2 canary → S3 global ON）。PR-12 固有の flag は追加しておらず、rollout 対象は Wave 3 全体（`ALTER_MORNING_DIALOG_STATE_V2` + `ALTER_MORNING_PLACES_SEARCH` + `GOOGLE_MAPS_API_KEY`）であることを明記
+  3. **comprehension 別 issue 切り出し**: #29 作成（"自然会話で event-scoped where clarify が 2 件目 event を pending にできない"）。PR-12 は fix path を verified したが、harness 経由でしか踏めない自然会話経路の改善は別タスクとして分離
+- **live verified 証拠（preview `dpl_7V7dgmCXtcF2Si2euH6f9Uc85DV6`, trace `a406cac691b2fd01ee0b83b7a83919af`, 2026-04-24 07:12:39 JST）**:
+  - `[dialog-state-v2:targetEventId] chosen=event_2_harness eventChanged=1 reason=prev_phase_not_clarifying_plan_presented`
+  - `[dialog-state-v2:shadow] status=search_handoff_blocking narrowStep=2 ready=1`
+  - `[places-handoff:provider_failure] fp=pf:v1|a=新宿|ch=マック|cat=-`
+  - fingerprint `a=新宿|ch=マック` が seedCapture→reducer→draft→orchestrator 連鎖の直接証拠
+  - `provider_failure: api_key_missing` は preview env の `GOOGLE_MAPS_API_KEY` 未設定（infra 事象）で PR-12 機能 blocker ではない
+- **CEO 判断事項（rollout plan に記載）**:
+  - B1: Stage 1 (allowlist 機構追加 PR) を実施するか、Minimum Path で直接 global ON か
+  - B2: `GOOGLE_MAPS_API_KEY` の preview / production 投入タイミング（外部 API key、CEO 承認事項）
+  - B3: Stage 2 の内部協力者 3 名指名
+  - B4: KPI 観測の永続化スキーマ
+- **判断待ち事項のうち CEO 即答方針で確定**:
+  - "本番 flag ON は段階的に" → Stage 1 (allowlist) 経由の推奨 path を plan 第一案に据える
+  - "main-baseline は不要" → before 相当の main-preview 実行は skip
+  - "comprehension は別タスク" → #29 として分離
+- **承認**: CEO（live verification 合格 + 3 件アクション承認 2026-04-24）
+- **ステータス**: 実行済（merge / plan / issue 3 件完了）
+- **次の CEO 判断事項**: B1 (Stage 1 allowlist PR の要否)、B2 (API key 投入)
+
+---
+### 2026-04-24 W3-PR-12 Step 1 診断 — 2 件目 event handoff `status_not_handoff` 真因確定 + 実装計画承認
+- **部門**: Build
+- **決定内容**: PR-11 Preview 実機検証で観測された「2 件目 event の `places-handoff:skip_gate status_not_handoff`」事象について Step 1 診断を実施し、CEO 補正 2 回を経て根本原因 H1 を確定、最小根治の実装計画（shadowPipeline.ts / reducer.ts / types.ts 改修 + unit test 7 本）を CEO 承認
+- **根本原因（H1 確定）**:
+  - `eventChanged=true` branch（`reducer.ts` L528-537）は、focus 遷移直後にユーザー発話の `capture` **のみ** から draft を再構築する（capture-only reset）
+  - しかし 2 件目 event は **pre-comprehended where**（`place_ref` / `placeType` / `coordinates`）を既に持っているため、ユーザー発話が area-only / category-only の場合、draft に anchor+chain の両方が揃わず `readyForHandoff=false` → `narrowStep<2` → FSA が `search_handoff_blocking` に遷移できず gate skip
+  - 副次: H2-H4（focus selection fallback / FSA allowed transitions / idempotency skip）は現行コードで正しく動作しており、今回の事象を説明しない
+- **補正 1 の趣旨（CEO）**: "H1 は最有力だが確定ではない。seed は `place_ref` 再分類だけに依存しすぎない方がいい。本質は pre-comprehended where を seed すること。area seed + category-only utterance (『ランチ』) でも handoff に到達するケースをテストに追加"
+- **補正 2 の趣旨（CEO）**: "Preview/Vercel の commit SHA を先に確認。`placeType` raw string を category token に使う前提の確認"
+- **deployment SHA 確認（CEO 条件）**: `gh api repos/Taishiharada22/Culcept/deployments` で直近 6 件取得、production / preview / PR merge の対応を確認（下表）。ローカル vs Vercel の drift なし。今回のような「URL は知っているが中身の SHA を確認していない」混乱を防ぐため、表を記録に残す
+
+| 時刻 (UTC) | 環境 | SHA | 内容 |
+|---|---|---|---|
+| 2026-04-23 18:57:59 | Production | `2bf627c3` | main 最新（PR-11 merge + decision-log） |
+| 2026-04-23 18:53:49 | Production | `0928332c` | PR #27 (PR-11) squash merge |
+| 2026-04-23 18:25:54 | Preview | `0c4d5f70` | PR-11 branch 最終 commit（timeLabel） |
+| 2026-04-23 17:36:55 | Production | `511191f6` | PR #26 (Positive-Path Nudge) squash merge |
+| 2026-04-23 14:43:06 | Preview | `3e60da86` | PR-26 branch 最終 commit |
+| 2026-04-23 13:53:29 | Production | `52814bb2` | PR #25 squash merge |
+
+- **`placeType` raw 不採用の根拠**:
+  - `CATEGORY_DICT`（`taxonomy.ts` L68-96）は日本語のみ（"カフェ" / "ランチ" / "居酒屋" 等）
+  - `event.where.placeType` の value range は upstream 推定（英語 "cafe" 等の可能性）で categoryToken と語彙が異なる
+  - `buildQueryFingerprint`（`placesHandoff.ts` L127-138）は toLowerCase 正規化だが **語彙空間が違う** と fingerprint の idempotency が壊れる
+  - 採用方針: seed は `classifyUtterance(place_ref)` 単独。`placeType` raw → categoryToken マッピングは後段候補（別 PR）としてメモ化
+- **実装計画（Step 3 承認範囲）**:
+  1. `lib/alter-morning/dialog/types.ts`: `TURN_CAPTURED` action に `seedCapture?: NormalizedCapture | null` 追加（~4 行）
+  2. `lib/alter-morning/dialog/shadowPipeline.ts`: `buildSeedCaptureFromEvent(event)` helper を新規追加し、`isWhereSlot && eventChanged` 時のみ `classifyUtterance(event.where.place_ref)` を seedCapture として dispatch に injection（~12 行）
+  3. `lib/alter-morning/dialog/reducer.ts`: `eventChanged` branch を書き換え、seed capture → user capture の順に merge（chain ⊕ category 排他は既存 `mergeCaptureIntoDraft` を踏襲）（~18 行）
+  4. unit tests 7 本追加（`reducer.test.ts` + `shadowSequenceIntegration.test.ts`）:
+    - T1: regression-trap（seed 未渡し → 既存互換で anchor_alone → narrowing=1）
+    - T2: seed + place_ref="新宿のルミネ" → draft={anchor=新宿, chain=ルミネ} → handoff
+    - T3: seed + capture 両方 non-null → capture が seed を上書き（chain 排他維持）
+    - T4: `isWhereSlot=false` で seedCapture 渡しても無視
+    - T5: `eventChanged=false` で seedCapture 渡しても無視
+    - T7: **CEO 追加**: area seed + category-only utterance（"ランチ"）→ `search_handoff_blocking` に到達
+    - T8: multi-event Turn1→Turn2 focus 遷移 → event2 seed で handoff 再発火
+- **非スコープ（CEO 確認済）**:
+  - `placeType` raw → categoryToken マッピング（別 PR 検討）
+  - comprehension engine の place_ref 抽出精度改善（PR-13+）
+  - narrow loop / trap-scan / event_id 飛び（別サブシステム）
+- **PR #26 凍結事項不変**: `shouldAskNextPlace` / `userSignaledEnd` / `buildNextPlaceAskText` / `transportV2` allowlist は無変更
+- **承認**: CEO（Step 1 診断承認 + 補正 2 回 + SHA 表記録条件 + Step 3 実装計画承認）
+- **ステータス**: 実装着手（Step 3 実装中）
+
+---
+### 2026-04-24 W3-PR-11 完了 — UI 正しさ修正 (場所名表示 / 行 tap / 開始–終了) Path A Domain→UI 直結
+- **部門**: Build
+- **決定内容**: W3-PR-11 の 4 要件を 3 commit の最小根治で充足。(1) 予定カードに**場所名**を表示、(2) 場所名/予定行タップで**場所詳細ボトムシート**、(3) 各予定の時刻を**開始–終了**レンジ表示、(4) 「未確定だから出ない」vs「確定済なのに UI に出ない」を切り分け後者を解消。
+- **CEO 制約 (遵守)**:
+  - "Step 2 を Step 1 より先に入れない" / "Step 3 は upstream 直しではなく最小根治に留める"
+  - PR #26 凍結事項不変 (shouldAskNextPlace / userSignaledEnd / buildNextPlaceAskText / transportV2 allowlist)
+  - 最終ゴール PR-14/15 までの論理連鎖を途切れさせない
+- **成果物 (3 commits, 5 files)**:
+  - Commit 1 `756dfb8b`: `planRebuild.ts` に `eventWhereToLocation` pure helper + `eventToPlanItem` 内 conditional spread 合流 (Path A Domain→UI 接続根治)
+  - Commit 2 `636bd08c`: `MorningPlanCard.tsx` 行 onClick + 5 button 及び picker backdrop/body に `stopPropagation()` 防御
+  - Commit 3 `0c4d5f70`: `components/home/morning/timeLabel.ts` 新規 pure module (`timeToMinutes` / `minutesToTimeHHMM` / `formatStartEndLabel`)。MorningPlanCard の time slot が fixed 経路でのみ `"HH:MM–HH:MM"` (en dash U+2013) を描画。vague/missing 時は従来 `[時間未確定]` placeholder を維持
+- **不変項 (Commit 1)**:
+  - `event.where.place_ref` 空/空白のみ → `location` key ごと含めない (`item.location?.label` guard と整合)
+  - `coordinates` が有限数値時のみ lat/lng 書き込み (NaN/Infinity/非 number 除外)
+  - `canonicalId=""` 固定 (intentParser.ts:714-720 precedent)
+  - `source="user_explicit"` (place_ref は utterance or selection 由来)
+- **不変項 (Commit 3 timeLabel)**:
+  - `startTime undefined` → `undefined` (caller fallback)
+  - `isDayBoundary=true` → 単一時刻 (CEO 確定 2026-04-24: 1 日の開始点/終点は range 対象外)
+  - `durationMin ≤ 0 / NaN` → 単一時刻 (0 幅 range 退化回避)
+  - 24h 越え end / invalid startTime 形式 → 単一時刻 fallback
+  - 通常経路 → `"HH:MM–HH:MM"` en dash U+2013
+- **非責務 (今回やらない)**:
+  - comprehension engine が event.where.place_ref を抽出できない utterance パターン → PR-12+ スコープ
+  - `whenSharpness=fixed` 判定精度 (今回 preview では `[時間未確定]` 出現、placeholder は仕様どおり)
+  - `status_not_handoff` / narrow loop / trap-scan / event_id 飛び等のログ観測事項 → いずれも PR-11 スコープ外
+- **テスト**:
+  - `tests/unit/components/timeLabel.test.ts` 新規 22 tests (境界 / 退化 / en dash / UI 契約)
+  - `tests/unit/alter-morning/planRebuild.test.ts` 既存 11 + C8 `eventWhereToLocation` 9 tests 追加 → 20 tests PASS
+  - alter-morning + components vitest suite **1953/1953 PASS**
+  - 触った file に新規 tsc エラーなし
+- **Preview 実機検証 (Playwright / CEO account)**:
+  - ✅ 要件 1: item 3 行に "新宿のルミネ" label 描画
+  - ✅ 要件 2: 行 tap → PlaceDetailSheet 展開 (Google Maps iframe 座標 35.690227, 139.700144 新宿)
+  - ✅ 要件 3: `formatStartEndLabel` は fixed 経路のみ呼ぶ設計。今回入力は vague 判定で placeholder が正しく表示、unit tests で range 経路は担保
+  - ✅ 要件 4: `[時間未確定]` `[内容暫定]` は sharpness=vague の正表現、location は独立経路で描画 → 従来の「確定済なのに出ない」は解消
+  - ✅ negative: 場所ラベル無し行 (item 1) tap で sheet 非展開、cursor:pointer も非付与
+- **CI / Preview**: lint-and-test SUCCESS / Vercel Preview SUCCESS
+- **PR**: [#27](https://github.com/Taishiharada22/Culcept/pull/27) (squash merge `0928332c`)
+- **main 遷移**: `511191f6 → 0928332c`
+- **承認**: CEO (Step 1 診断承認 / Step 3 最小根治承認 / Preview 検証後マージ承認)
+- **ステータス**: 実行済
+
+---
+### 2026-04-24 W3-PR-10 Scope A 完了 — canonical segment に duration / source を注入（mode-free 中立距離 heuristic）
+- **部門**: Build
+- **決定内容**: W3-PR-10 Phase 3+ の優先候補 5 本から Scope A（duration / source 強化）を選定し、canonical `TransportSegment` の `estimatedDurationMin` と `durationSource` を build 時に埋める。mode 非依存の中立距離 heuristic を導入し、unknown mode でも travel 表示を機能させる。
+- **承認範囲（CEO Scope A GO 2026-04-24）**:
+  - C1: `TransportSegment.durationSource` 型追加（挙動変更なし）
+  - C2: `estimateNeutralDurationMin(fromCoords, toCoords)` pure fn + `buildTransportSegments` wiring
+  - C3: `synthesizeTravelItems` の `?? 0` 撤去 + null-skip 安全網
+  - C4: decision log + landing memo
+- **CEO Lock（設計ロック）**:
+  1. **canonical 側で decide**: duration / source は `buildTransportSegments`（canonical segment 生成時）で決定。`synthesizeTravelItems`（display cache 側）は segment に書かれた値を参照するのみ
+  2. **failure は null 厳守**: heuristic 失敗 / ≤0.2km / invalid coords で **0 を返さない**。null のまま segment に残し、display 側で skip
+  3. **mode-free signature**: heuristic は `(fromCoords, toCoords) => number | null`。mode 引数を取らない。unknown mode でも duration を埋めるための中立 curve
+  4. **段階テーブル**: 1 本の連続 curve ではなく距離ビンごとの固定値（≤0.2km null / ≤1km 10min / ≤3km 15min / ≤7km 25min / ≤15km 40min / ≤30km 60min / >30km 90min、CEO 確定値 2026-04-24）
+  5. **両 field 同期 invariant**: `estimatedDurationMin` が number なら `durationSource="heuristic"`、null なら `durationSource=null`。両 field の null / non-null は必ず同期
+  6. **実装順**: C1 (型) → C2 (heuristic + wiring) → C3 (null-skip) → C4 (docs)。C2 が先に land、その後 C3
+- **成果物**:
+  - `lib/alter-morning/transport/types.ts`: `DurationSource` union + `TransportSegment.durationSource` field
+  - `lib/alter-morning/transport/durationHeuristic.ts` (new, 84 行): pure fn、haversine、段階テーブル、NaN / Infinity safe
+  - `lib/alter-morning/planning/planRebuild.ts`: `buildTransportSegments` が heuristic を call して両 field を同期で埋める
+  - `lib/alter-morning/planning/synthesizeTravelItems.ts`: `?? 0` 撤去、null segment は entry 生成を skip
+  - `tests/unit/alter-morning/durationHeuristic.test.ts` (new, 16 tests): 境界値（同一点 / 0.2km / 各 bin / 上限 clamp / NaN / 両端 NaN / 単調性）
+  - `tests/unit/alter-morning/planRebuild.test.ts`: C7 flag ON の期待値を `null` から `number + durationSource="heuristic"` に更新
+  - `tests/unit/alter-morning/synthesizeTravelItems.test.ts`: null-skip 契約に書き換え + mkSegment 既定値を number (15) に
+  - `tests/unit/alter-morning/regenerateTravelForPlan.test.ts`: fixture の segment に `durationSource: "heuristic"` 同期
+- **非スコープ（今回やらない）**:
+  - per-segment mode 推定（mode は `unknown` 保持。mode 推定エンジンは別候補）
+  - Routes API 連携（distance / duration の実計測は Scope B 以降）
+  - client regenerateTravel の再構造（Phase 3A で既に着地済）
+  - Path B / persisted travel 統合
+- **テスト**: alter-morning 1789/1789 PASS（+16 新規 durationHeuristic）、触った file に新規 tsc エラーなし
+- **commit**: C1 `7d5b01b2` / C2 `c33f1a41` / C3 `2318c413`
+- **承認**: CEO（Scope A Design Lock 3 改訂版 2026-04-24、承認範囲 C1/C2/C3/C4 内で実装完了）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
+### 2026-04-23 W3-PR-10 Phase 2 完了 — Transport Staircase Display Cache (travel interleave)
+- **部門**: Build
+- **決定内容**: W3-PR-10 Phase 2（canonical `TransportSegment[]` を Path A の `PlanItem(kind="travel")` display cache として再生成）を完了。Phase 1 で domain truth として確立した segments を、flag ON 経路でのみ UI に見える travel item として interleave する。
+- **承認範囲（CEO Phase 2 GO 2026-04-23）**:
+  - C2: `synthesizeTravelItems(segments, events)` pure function
+  - C3: Path A 2 site wire (legacyAdapter / selection route)
+  - C4: decision log + close memo
+- **実装方針**:
+  - **Path A only / Path B 非接触**: `adaptPipelineToLegacy` と `/api/stargazer/alter/selection` の 2 箇所のみ配線。`processMorningMessage` (Path B) は touch しない
+  - **independent pure function**: `buildPlanAndSegmentsFromEvents` に travel synthesis を混ぜず、`synthesizeTravelItems` を独立 pure function として切り出し。Phase 1 の T2 原則（builder は travel を返さない）を維持
+  - **interleave は call-site 責務**: synthesize は entry pair (`SynthesizedTravelEntry { afterEventId, item }`) を返すだけで、PlanItem[] への挿入は `interleaveTravelItems` が call-site で実行
+  - **deterministic id**: `travel__<fromEventId>__<toEventId>` (double underscore prefix で既存 `travel_` 由来 item と machine-distinguishable)
+  - **id parse 回避**: entry に `afterEventId` 別 channel を持たせ、event_id に `__` が含まれても安全に interleave できる構造
+  - **flag OFF items[] byte-diff ゼロ**: flag gate は `built.transportSegments !== undefined` のみ。flag OFF 経路は Phase 1 同様 segments 未生成 → synthesize 呼ばず → items は event-only
+  - **schema 変更なし**: Phase 1 shape (`plan.transportSegments?: TransportSegment[]`) を維持、新規 field 追加なし
+- **非スコープ（明示的に今回やらない）**:
+  - client regenerateTravel の id 揺れ解消
+  - Path B / persisted travel 統合
+  - Routes API 連携（`durationMin` は `estimatedDurationMin ?? 0`）
+- **成果物**:
+  - `lib/alter-morning/planning/synthesizeTravelItems.ts` (new, 241 行)
+  - `lib/alter-morning/legacyAdapter.ts` (travel interleave 挿入)
+  - `app/api/stargazer/alter/selection/route.ts` (rebuildPlan 経路に interleave)
+  - `tests/unit/alter-morning/synthesizeTravelItems.test.ts` (new, 20 tests)
+  - `tests/unit/alter-morning/legacyAdapterTransportPhase2.test.ts` (new, 5 tests)
+  - `tests/unit/alter-morning/search/selectionEndpoint.test.ts` (flag ON Path A の items[] 期待値 2→3 更新、CEO 承認済)
+- **テスト**: alter-morning 1767/1767 PASS、tsc 影響範囲 clean
+- **commit**: C2 `56082721` / C3a `eca2f7bb` / C3b `578dcd2c`
+- **承認**: CEO（Phase 2 GO 2026-04-23、承認範囲 C2/C3/C4 内で実装完了）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
+### 2026-04-23 W3-PR-9 完了 — Places Search / Anchor-Based Search
+- **部門**: Build
+- **決定内容**: W3-PR-9（Alter Morning Protocol の where slot 確定経路）を完了として受理。`search_handoff_blocking → candidate present → user select → where.coordinates fixed` の一本道を landing。
+- **実装方針**:
+  - **where-first**: when/who/transport 系は PR-10 以降に回し、PR-9 は where slot のみに絞る
+  - **candidate source**: 設計上は `cache + places_api` 併用。ただし現 commit では multi-candidate の構造上 `places_api` が中心で、L1 best-effort cache は route / orchestrator 側で補完する実装に落とした（cache-first 化は運用データが溜まってから再評価）
+  - **strict gate**: orchestrator は `dialogState.conversationStatus === "search_handoff_blocking"` でのみ発火。それ以外は skip
+  - **server canonical response**: client は optimistic 更新せず、selection endpoint の返す canonical state でのみ where.coordinates を fix
+  - **selectedPlaceId only**: client→server は placeId のみ送る（座標 / 名称は server 側で再解決）
+  - **parked presentation**: 失敗 / stale / slot 切替時は activePresentation を破棄せず parked に退避（state 保持のみ、再提示経路は PR-9.5 以降）
+  - **reject-no-op 方針**: zero candidates / provider 失敗 / stale click / race は reducer が no-op で受け流し、UI 側で破棄表示に統一
+- **手動 preview 確認（CEO 承認 2026-04-23）**:
+  1. success: 候補提示 → 1件選択 → accepted=true → picker 消失 → where.coordinates fix → stable 遷移
+  2. stale click: 状態遷移後の古い picker click → accepted=false → stale UI 残らない
+  3. double-click / race: 連打 / 順不同レスポンスでも server canonical とズレない
+  4. zero / provider_error: picker 描画されない
+- **known note**: 同一 browser session の localStorage 汚染（narrowStep=3 固着）で手動検証が歪む場合あり。clean session では正常動作。「同一 event 継続扱いによる narrowStep=3 固着」は PR-10 以降の event reset 条件検討事項としてメモし、PR-9 の blocking issue にはしない
+- **非スコープ**: transport / who / endTime / map pin / timeline UI（いずれも PR-10〜14 で段階的に対応）
+- **承認**: CEO（Safari 実機で正常動作を確認、PR-9 完了承認）
+- **ステータス**: 実行済（PR 作成 / merge は別途）
+
+---
+### 2026-04-22 W3-PR-7 merge — PendingClarify + plan continuity + failure 耐性
+- **部門**: Build
+- **決定内容**: W3-PR-7 (alter-morning Wave 3) を main に merge。5 commit 連鎖: SlotSharpness 三値 / PendingClarify + answerBinder / ClarifyQuestionBuilder scope 強化 / items=0 禁則 + provisional plan 継続性 / Provider failure 耐性。
+- **理由**: 対話状態（pendingClarify / persistedEvents / plan.status）を第一級市民化し、clarifying ループの「質問が空」「返答が別 event に流れる」「provider 落ちで状態蒸発」を構造的に塞ぐ。
+- **Preview 判定（CEO 実機 2026-04-22）**:
+  - **PASS**: 質問非空・scope 明示、when/where/what bind 動作、clarifying 中も流れ保持、provider failure で即死しない
+  - **残課題**: (1) 未確定 slot が残るのに plan を前倒しで出す、(2) fixable / provisional 場所の境界が甘い、(3) anchor-based search / 同心円 / recommendation 分離は未着手
+  - 判定: **commit 1〜5 の改善工程として合格。次工程に進んでよい。ただし Morning 完成扱いではない**
+- **成果物**: `docs/alter-morning-comprehension-first-wave3-pr7-design.md`, `lib/alter-morning/{legacyAdapter,comprehension/answerBinder,planning/whatClassifier,planning/clarifyQuestionBuilder}.ts`, `app/api/stargazer/alter/route.ts`, 5 新規テストファイル (+ ≈60 tests)
+- **テスト**: 全 4939 tests PASS（208→209 files, +12 files）
+- **PR**: #15 (merge commit 283cb2a4)
+- **承認**: CEO
+- **ステータス**: 実行済
+
+---
 ### 2026-04-20 CoAlter M0-8 close — sample diversity ゲート 4条件全 PASS
 - **部門**: Build
 - **決定内容**: M0-7A の 100% agreement が tail 50 単調 sample への過学習でないことを確認するため、既存 151 cases を conversationArc で 2 バケットに分割し shadow を再実行。**実装は入れず、検証のみ**。CEO 合格ライン 4 条件すべて PASS。M0-8 close。
@@ -771,6 +1073,31 @@ W2-1 〜 W2-4 の構造 4 点が揃ったので、CEO 実機再検証へ。PASS 
 - **残TODO**:
   1. qualityAudit 106件の expectedMode 再分類 → 閾値 0.75 復元
   2. package.json の `"latest"` 指定を固定バージョンに変更（再発防止）
+
+### 2026-04-21 Phase 0〜F 完遂 — 未コミット整理 + 累積 origin/main 公開（PR #4）
+- **部門**: Build
+- **決定内容**: セッション開始時に 46 modified + 35 untracked + 1 deleted の巨大な未コミット変更を抱えていた状態から、保全→分割コミット→レビュー→main 合流までを 1 セッションで完遂。**PR #4** で **Wave 1 (82) + Wave 2 (52) + Wave 3 (9) + CI fix (1) = 144 commits + merge commit** を `origin/main` に公開（099f6e1b → 6d15d1e0）。
+- **理由**: 未コミット変更の放置がデータ消失リスク + PR レビュー不能の両面で危険だったため。特に my-style 保存系（mergeWithBackup の revision 化、bridge POST 空 state 許可）は既存ユーザー state の退化を招きうる破壊的変更を含んでいたため、Phase E で baseline 照合までを必須ゲートとした。
+- **承認**: CEO（各 Phase ごとに明示承認、Gate 3 merge は GitHub UI で CEO 手動実行）
+- **ステータス**: 実行済
+- **達成プロセス**（safety-first モードで 1 Phase = 1 承認）:
+  1. **Phase 0 保全**: `safety/pre-commit-2026-04-20` + `wip/save-2026-04-20`（81 paths 完全保全） + origin push + recovery rehearsal worktree で復旧可能性実証
+  2. **DB 保全 Gate**: Free → Pro プランアップグレード + PITR 7-day window 確認（Dashboard）
+  3. **client state 保全**: `backups/client-state-2026-04-21/indexeddb-tier3-state-cache-only.json`（wardrobe 23 / setups 10 / _revision 2 / 全 imageUrl base64 保持）
+  4. **Phase A-1**: `.gitignore` に `backups/` + `.claude/scheduled_tasks.lock` + `supabase/.temp/` を追加（PII 保護）
+  5. **Phase B**: integration ブランチで cherry-pick -n + gitignore 除外 + reset（80 → 78 → 79 の整合検証 PASS）
+  6. **Phase C**: 9 split commits（C-1 my-style / C-2 calendar / C-3 home+morning / C-4 stargazer / C-5 planner / C-6+7 clients+tests / C-8 baseline / C-9 migrations / C-10+11 docs+scripts）
+  7. **Phase D**: 5/5 分割整合性検証 PASS
+  8. **Phase E**: 7/7 C1/C2 baseline reconciliation PASS（wardrobe 23 / _revision 2 の保持を `mergeWithBackup` ロジックで論理検証）
+  9. **Phase F**: push + PR #4 Draft 作成 + CI 失敗 2 tests 原因切り分け + 最小修正（timezone 依存 bug 1 + 古い test expectation 2）+ CI green + merge + smoke PASS
+- **想定外の良い発見**: migration `20260416100000_place_resolution_cache.sql` + `20260416200000_exchange_protocol_and_invitation_tokens.sql` は **session 前から本番 DB に applied 済**だった。Phase F-5 の migration 適用作業は不要と判定。旧 `20260409100000_exchange_protocol` は一度も適用されずに rename 削除。
+- **保全資産（残存）**: `safety/pre-commit-2026-04-20` @ 881665ec / `wip/save-2026-04-20` @ d49ba817（両 origin 同期済）。将来の参照 / rollback のため残置。
+- **削除済**: `integration/split-commits-2026-04-21`（local + origin、merge 済のため安全削除）
+- **方法論的な学び**:
+  1. 「wip primary snapshot」と「整理 integration branch」を分離することで、分割が失敗しても wip が原典として常に存在する構造が効いた
+  2. CI 失敗時に **timezone 依存の真因**を見抜くには、`TZ=UTC npx vitest run` でローカル再現するのが最速
+  3. CEO 並行 commit（c22db5f9 / 566c4456）のような想定外事象は、即停止 → 現状診断 → 計画再設計の順で扱うと退化ゼロで吸収可能
+- **commit message 方針**（今後参照用）: Phase C の 9 commits は **依存関係明示**（"Depends on C-1..." 等）と **file-level change narrative** を含め、レビュアが wave 構造を把握できるようにした。
 
 ### [2026-04-26] [Build] CoAlter Bug-1 Phase 3A 観測 gate PASS / 本線 build-fix 着地
 - **部門**: Build

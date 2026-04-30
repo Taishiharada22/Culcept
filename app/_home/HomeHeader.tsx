@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { C, mono } from "./constants";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 
 type HomeHeaderProps = {
   scrollAlpha: number;
@@ -55,22 +56,18 @@ export default function HomeHeader({ scrollAlpha: ha, onScrollTop }: HomeHeaderP
       >
         <div
           style={{
-            width: 26,
-            height: 26,
+            width: 32,
+            height: 32,
             borderRadius: "50%",
             background: `linear-gradient(135deg, #6366F1, #8B5CF6)`,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            fontSize: 10,
-            fontWeight: 900,
-            color: "#fff",
-            fontFamily: mono,
             boxShadow: "0 2px 8px rgba(99,102,241,0.25)",
             transition: "box-shadow 0.3s, transform 0.3s",
           }}
         >
-          An
+          <AneurasyncLogo size={24} color="#fff" />
         </div>
         <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: -0.5, color: C.t1 }}>Aneurasync</span>
       </button>

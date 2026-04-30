@@ -9,24 +9,41 @@
  * - 確定 / 変更ボタン
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
+import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
+import { formatStartEndLabel } from "./timeLabel";
 import {
   learnDuration,
   loadDurationStore,
   saveDurationStore,
 } from "@/lib/alter-morning/taskDurationMemory";
-import { recalculateSchedule } from "@/lib/alter-morning/planningEngine";
-import { insertTravelItems } from "@/lib/alter-morning/travelTimeEngine";
+import { regenerateTravelForPlan } from "@/lib/alter-morning/planning/regenerateTravelForPlan";
+import { trackTransportV2EditRegression } from "@/lib/stargazer/trackClient";
 import {
   BriefcaseBusiness, MessageCircle, UtensilsCrossed, Coffee,
   Route, BookOpen, Dumbbell, Users, ClipboardList, House,
   Car, Footprints, Bus, TrainFront, PlaneTakeoff, Bike,
+  HelpCircle,
 } from "lucide-react";
 import type { TransportMode } from "@/app/(culcept)/calendar/_lib/vcTypes";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-13 M3: MorningMapView を client-only lazy import。
+//   - ssr: false 必須（MorningMapView 内部で document.createElement("script") を呼ぶ）
+//   - flag OFF default + browser key 未投入 → dynamic import 自体が fire しない
+//   - 依存追加なし（MorningMapView は M2 で依存ゼロ実装済み）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MorningMapView = dynamic(
+  () => import("@/components/home/morning/MorningMapView"),
+  { ssr: false },
+);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -37,6 +54,40 @@ interface MorningPlanCardProps {
   personalizeHints?: string[];
   onConfirm: (plan: MorningPlan) => void;
   onRequestChange: () => void;
+  /**
+   * W3-PR-10 canary — Alter session id 観測窓 join key。
+   * AskHero から alterSessionId を流し込み、transport_v2_edit_regression の
+   * metadata.session_id に載せる。未提供/null の場合は plan_date + user_id で近似 join。
+   * 編集イベントを emit する以外には使用しない。
+   */
+  sessionId?: string | null;
+  /**
+   * W3-PR-13 M3: persisted comprehension events（map pin source）。
+   * MorningMapView に events として渡す。座標妥当性判定は child に集約。
+   */
+  events?: ComprehensionEvent[];
+  /**
+   * W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean）。
+   * false の時は MorningMapView の dynamic import 自体が fire しない。
+   */
+  visualFlowEnabled?: boolean;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// hasPlaceAskPending — 「これでいく」hard gate 用
+//   CEO 2026-04-26: events のいずれかが `missing_semantic_critical` に "where" を
+//   含む = 場所が未確定 = plan を確定すべきでない状態。
+//   bridge 由来の synthetic events と通常 comprehension events の両方で動く。
+//   selection 後 applyPlaceSelection が "where" を filter するので false に戻る。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export function hasPlaceAskPending(
+  events: ComprehensionEvent[] | undefined | null,
+): boolean {
+  if (!events || events.length === 0) return false;
+  return events.some(
+    (e) => e.missing_semantic_critical?.includes("where") ?? false,
+  );
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -50,21 +101,27 @@ function formatDuration(min: number): string {
   return m > 0 ? `${h}時間${m}分` : `${h}時間`;
 }
 
-/** plan.date を今日/明日/日付 に変換する */
-function formatPlanDateLabel(planDate: string): string {
+/** plan.date → "today" | "tomorrow" | "specific" */
+export function getDateContext(planDate: string): { kind: "today" | "tomorrow" | "specific"; display: string } {
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   const todayStr = jst.toISOString().slice(0, 10);
-  // 明日
   const tomorrow = new Date(jst);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const tomorrowStr = tomorrow.toISOString().slice(0, 10);
 
-  if (planDate === todayStr) return "☀️ 今日のプラン";
-  if (planDate === tomorrowStr) return "🌙 明日のプラン";
-  // それ以外: 月/日表示
+  if (planDate === todayStr) return { kind: "today", display: "今日" };
+  if (planDate === tomorrowStr) return { kind: "tomorrow", display: "明日" };
   const [, m, d] = planDate.split("-");
-  return `📅 ${parseInt(m)}/${parseInt(d)}のプラン`;
+  return { kind: "specific", display: `${parseInt(m)}/${parseInt(d)}` };
+}
+
+const DATE_ICON: Record<string, string> = { today: "☀️", tomorrow: "🌙", specific: "📅" };
+
+/** plan.date を今日/明日/日付 に変換する */
+export function formatPlanDateLabel(planDate: string): string {
+  const ctx = getDateContext(planDate);
+  return `${DATE_ICON[ctx.kind]} ${ctx.display}のプラン`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -171,14 +228,22 @@ function DurationPicker({
 
   return (
     <>
-      {/* オーバーレイ（タップで閉じる） */}
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
 
-      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない） */}
+      {/* ピッカー本体 — 上方向に展開（composerや下タブに隠れない）
+          PR-11 Step 2: 内側 button click が親行の onClick に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute right-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[220px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">所要時間を変更</div>
@@ -282,11 +347,20 @@ function StartTimePicker({
 
   return (
     <>
-      <div className="fixed inset-0 z-20" onClick={onClose} />
+      {/* オーバーレイ（タップで閉じる）— PR-11 Step 2: 行 onClick への bubble 遮断 */}
+      <div
+        className="fixed inset-0 z-20"
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+      />
+      {/* ピッカー本体 — PR-11 Step 2: 内側の click が親行に bubble するのを遮断 */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
+        onClick={(e) => e.stopPropagation()}
         className="absolute left-0 bottom-full mb-2 z-30 bg-white/95 backdrop-blur-xl rounded-2xl shadow-xl border border-white/60 p-3 min-w-[180px]"
       >
         <div className="text-[11px] text-gray-400 mb-2 font-medium">開始時刻を変更</div>
@@ -339,6 +413,7 @@ function PlanItemRow({
   onPlaceClick,
   onSelectCandidate,
   onDismissCandidates,
+  isDayBoundary,
 }: {
   item: PlanItem;
   onDurationChange: (id: string, newDuration: number) => void;
@@ -352,6 +427,12 @@ function PlanItemRow({
   onPlaceClick: (item: PlanItem) => void;
   onSelectCandidate: (itemId: string, candidateIndex: number) => void;
   onDismissCandidates: (itemId: string) => void;
+  /**
+   * PR-11 Step 2b: 1日の開始点/終点（= 非 travel の先頭/末尾 index）に該当する時は
+   * 時刻表示を開始–終了 range にしない。true の時は従来通り startTime 単一表示。
+   * 判定は caller（MorningPlanCard）側で nonTravel index に基づき計算する。
+   */
+  isDayBoundary: boolean;
 }) {
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -485,160 +566,299 @@ function PlanItemRow({
   }
 
   // ── 通常アイテム ──
+  //
+  // W3-PR-8 Strict Confirmation（設計書 §5, §6.3）:
+  //   - item を normalize（念押し）して slot sharpness + confirmationState を strict に扱う
+  //   - slot を個別に描画。sharpness に応じて値 or 未確定ラベルを出す
+  //   - confirmationState に応じて枠線 / チップを変える
+  //
+  //   UI 側では ?? fallback を禁止（設計書 §3.4）。item.location.label のような
+  //   PlanItem 既存フィールド（sharpness 非依存）はそのまま参照して良い。
+  const normalized = normalizePlanItem(item);
+  const { confirmationState, whenSharpness, whereSharpness, whatSharpness } = normalized;
+  const subKind = normalized.whereVagueSubKind;
+
   const category = resolvePlanCategory(item);
   const catConfig = CATEGORY_CONFIG[category];
+
+  // 枠線・背景スタイル（設計書 §5.1-5.3）
+  //   confirmed:    実線 + カテゴリ色（従来通り）
+  //   provisional:  点線 + 薄色
+  //   needs_answer: 濃い点線 + 薄い背景色 + (?) アイコン
+  const containerClass =
+    confirmationState === "needs_answer"
+      ? "border-2 border-dashed border-purple-400/70 bg-purple-50/40"
+      : confirmationState === "provisional"
+        ? "border border-dashed border-gray-300/60 bg-gray-50/30"
+        : `border ${catConfig.bg} ${catConfig.border}`;
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className={`flex items-center gap-2 py-2.5 px-3 rounded-xl transition-all border ${
-        item.completed
-          ? "opacity-50 bg-gray-50/30 border-transparent"
-          : `${catConfig.bg} ${catConfig.border}`
+      className={`rounded-xl transition-all ${
+        item.completed ? "opacity-50 bg-gray-50/30 border-transparent" : containerClass
       }`}
     >
-      {/* 完了チェック（確定後のみ） */}
-      {confirmed && (
-        <button
-          onClick={() => onToggleComplete(item.id)}
-          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
-            item.completed
-              ? "bg-purple-500 border-purple-500"
-              : "border-gray-300 hover:border-purple-400"
-          }`}
-        >
-          {item.completed && (
-            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-              <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" />
-            </svg>
+      {/* 確定度チップ（左上、confirmed は非表示） */}
+      {!item.completed && confirmationState !== "confirmed" && (
+        <div className="flex items-center gap-1 px-3 pt-1.5">
+          {confirmationState === "needs_answer" ? (
+            <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-purple-100/80 text-purple-600 border border-purple-200/60">
+              <HelpCircle size={9} strokeWidth={2.5} />
+              確認中
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-gray-100/80 text-gray-500 border border-gray-200/60">
+              暫定
+            </span>
           )}
-        </button>
-      )}
-
-      {/* 並べ替えボタン（未確定時のみ） */}
-      {!confirmed && (
-        <div className="flex flex-col gap-0 flex-shrink-0">
-          <button
-            onClick={() => canMoveUp && onMoveUp(item.id)}
-            disabled={!canMoveUp}
-            className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
-            title="上に移動"
-          >
-            ▲
-          </button>
-          <button
-            onClick={() => canMoveDown && onMoveDown(item.id)}
-            disabled={!canMoveDown}
-            className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
-            title="下に移動"
-          >
-            ▼
-          </button>
         </div>
       )}
-
-      {/* 開始時刻（タップで変更） */}
-      <div className="relative flex-shrink-0 w-[42px]">
-        <button
-          onClick={() => !confirmed && setShowTimePicker(!showTimePicker)}
-          className={`text-[12px] font-mono w-full text-left ${
-            confirmed
-              ? "text-gray-400 cursor-default"
-              : "text-gray-500 hover:text-purple-600 cursor-pointer"
-          }`}
-        >
-          {item.startTime ?? "──"}
-        </button>
-        <AnimatePresence>
-          {showTimePicker && (
-            <StartTimePicker
-              current={item.startTime}
-              onSelect={(time) => onStartTimeChange(item.id, time)}
-              onClose={() => setShowTimePicker(false)}
-            />
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* カテゴリアイコン */}
-      <CategoryIcon item={item} size={15} />
 
       {/*
-        CEO 方針 2026-04-17: 新レイアウト
-          活動 ー 場所 (住所は小さく) / 👤 人
-        場所タップで bottom sheet（地図 + 性質情報）を開く
+        行全体の tap で PlaceDetailSheet を開く（PR-11 Step 2）:
+          - item.location?.label が在る時のみ onClick を有効化（空 location で sheet を開かない）
+          - 既存の場所名 button (L659 付近) は keyboard/screen reader の primary trigger として維持
+          - 内側の button/picker には stopPropagation を付与し多重発火/誤動作を防ぐ
+          - a11y: 行 div には tabIndex/role=button を付与しない（既存 place button に任せ、
+            tab 走査ノイズを避ける最小方針）
       */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1 flex-wrap">
-          <span
-            className={`text-[13px] ${
-              item.completed ? "line-through text-gray-400" : "text-gray-800"
+      <div
+        className={`flex items-center gap-2 py-2.5 px-3 ${
+          item.location?.label ? "cursor-pointer" : ""
+        }`}
+        onClick={() => {
+          if (item.location?.label) onPlaceClick(item);
+        }}
+      >
+        {/* 完了チェック（確定後のみ） */}
+        {confirmed && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete(item.id);
+            }}
+            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${
+              item.completed
+                ? "bg-purple-500 border-purple-500"
+                : "border-gray-300 hover:border-purple-400"
             }`}
           >
-            {item.what ?? item.text}
-          </span>
-          {item.location?.label && (
+            {item.completed && (
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            )}
+          </button>
+        )}
+
+        {/* 並べ替えボタン（未確定時のみ） */}
+        {!confirmed && (
+          <div className="flex flex-col gap-0 flex-shrink-0">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveUp) onMoveUp(item.id);
+              }}
+              disabled={!canMoveUp}
+              className={`text-[10px] leading-none p-0.5 ${canMoveUp ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+              title="上に移動"
+            >
+              ▲
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                if (canMoveDown) onMoveDown(item.id);
+              }}
+              disabled={!canMoveDown}
+              className={`text-[10px] leading-none p-0.5 ${canMoveDown ? "text-gray-400 hover:text-purple-500" : "text-gray-200"}`}
+              title="下に移動"
+            >
+              ▼
+            </button>
+          </div>
+        )}
+
+        {/* 開始時刻 slot — whenSharpness で分岐
+            PR-11 Step 2b: 通常行は開始–終了の range 表示。1日の開始点/終点
+            （isDayBoundary=true）は従来通り単一時刻表示。 */}
+        <div className="relative flex-shrink-0 min-w-[42px]">
+          {whenSharpness === "fixed" ? (
             <>
-              <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
               <button
-                onClick={() => onPlaceClick(item)}
-                className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
-                  item.completed
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:text-purple-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!confirmed) setShowTimePicker(!showTimePicker);
+                }}
+                className={`text-[12px] font-mono w-full text-left whitespace-nowrap ${
+                  confirmed
+                    ? "text-gray-400 cursor-default"
+                    : "text-gray-500 hover:text-purple-600 cursor-pointer"
                 }`}
-                title="場所の詳細を見る"
+                title="開始時刻を変更"
               >
-                {item.location.resolvedName ?? item.location.label}
+                {formatStartEndLabel({
+                  startTime: item.startTime,
+                  durationMin: item.durationMin,
+                  isDayBoundary,
+                }) ?? item.startTime}
               </button>
+              <AnimatePresence>
+                {showTimePicker && (
+                  <StartTimePicker
+                    current={item.startTime}
+                    onSelect={(time) => onStartTimeChange(item.id, time)}
+                    onClose={() => setShowTimePicker(false)}
+                  />
+                )}
+              </AnimatePresence>
             </>
+          ) : (
+            // vague / missing — どちらも「時間未確定」ラベル（設計書 §6.3）
+            <span className="text-[10px] text-gray-400 italic whitespace-nowrap" title="時間未確定">
+              [時間未確定]
+            </span>
           )}
         </div>
-        {/* 住所（小さく） */}
-        {item.location?.address && (
-          <div className="text-[10px] text-gray-400 mt-0.5 truncate pl-0">
-            {item.location.address}
-          </div>
-        )}
-        {/* 同伴者 */}
-        {item.withWhom && (
-          <div className="text-[10px] text-purple-400/80 mt-0.5 truncate">
-            👤 {item.withWhom}
-          </div>
-        )}
-        {item.location?.source === "user_inferred" && !item.location?.address && (
-          <div className="text-[10px] text-gray-300 mt-0.5">（同じ場所）</div>
-        )}
-      </div>
 
-      {/* 所要時間（タップで変更） */}
-      <div className="relative flex-shrink-0">
-        <button
-          onClick={() => !confirmed && setShowDurationPicker(!showDurationPicker)}
-          className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
-            confirmed
-              ? "text-gray-400 bg-gray-50/50 cursor-default"
-              : "text-purple-600 bg-purple-50/60 border border-purple-200/40 hover:bg-purple-100/60 cursor-pointer"
-          }`}
-        >
-          {formatDuration(item.durationMin)}
-        </button>
-        <AnimatePresence>
-          {showDurationPicker && (
-            <DurationPicker
-              current={item.durationMin}
-              onSelect={(min) => onDurationChange(item.id, min)}
-              onClose={() => setShowDurationPicker(false)}
-            />
+        {/* カテゴリアイコン */}
+        <CategoryIcon item={item} size={15} />
+
+        {/* 活動 / 場所 slot 群 */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1 flex-wrap">
+            {/* What slot — whatSharpness で分岐（設計書 §5.2(d), §6.3）*/}
+            {whatSharpness === "missing" ? (
+              <span className="text-[10px] text-gray-400 italic" title="内容暫定">
+                [内容暫定]
+              </span>
+            ) : (
+              <>
+                <span
+                  className={`text-[13px] ${
+                    item.completed ? "line-through text-gray-400" : "text-gray-800"
+                  }`}
+                >
+                  {item.what ?? item.text}
+                </span>
+                {whatSharpness === "vague" && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50/80 text-amber-700 border border-amber-200/60 flex-shrink-0">
+                    内容暫定
+                  </span>
+                )}
+              </>
+            )}
+
+            {/* Where slot — whereSharpness + vague sub-kind で分岐（設計書 §6.3）*/}
+            {whereSharpness === "fixed" && item.location?.label ? (
+              <>
+                <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onPlaceClick(item);
+                  }}
+                  className={`text-[12px] underline decoration-dotted decoration-gray-300 underline-offset-2 transition-colors ${
+                    item.completed
+                      ? "text-gray-400"
+                      : "text-gray-700 hover:text-purple-600"
+                  }`}
+                  title="場所の詳細を見る"
+                >
+                  {item.location.resolvedName ?? item.location.label}
+                </button>
+              </>
+            ) : whereSharpness === "vague" ? (
+              // vague は 3 sub-kind で描画を変える
+              subKind === "undecided" ? (
+                <>
+                  <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                  <span className="text-[10px] text-gray-400 italic" title="場所未確定">
+                    [場所未確定]
+                  </span>
+                </>
+              ) : (
+                // anchor / category_chain — 文言残す。category_chain は「店舗暫定」チップ併記。
+                <>
+                  <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                  <span
+                    className={`text-[12px] ${
+                      item.completed ? "text-gray-400" : "text-gray-700"
+                    }`}
+                  >
+                    {item.location?.label ?? item.text}
+                  </span>
+                  {subKind === "category_chain" && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-50/80 text-amber-700 border border-amber-200/60 flex-shrink-0">
+                      店舗暫定
+                    </span>
+                  )}
+                </>
+              )
+            ) : whereSharpness === "missing" && item.location?.label ? (
+              // sharpness=missing だが既存 location がある旧 session 互換
+              <>
+                <span className="text-[12px] text-gray-300 mx-0.5">ー</span>
+                <span className={`text-[12px] ${item.completed ? "text-gray-400" : "text-gray-700"}`}>
+                  {item.location.resolvedName ?? item.location.label}
+                </span>
+              </>
+            ) : null}
+          </div>
+
+          {/* 住所（fixed 場所のみ表示） */}
+          {whereSharpness === "fixed" && item.location?.address && (
+            <div className="text-[10px] text-gray-400 mt-0.5 truncate pl-0">
+              {item.location.address}
+            </div>
           )}
-        </AnimatePresence>
-      </div>
+          {/* 同伴者 */}
+          {item.withWhom && (
+            <div className="text-[10px] text-purple-400/80 mt-0.5 truncate">
+              👤 {item.withWhom}
+            </div>
+          )}
+          {whereSharpness === "fixed" &&
+            item.location?.source === "user_inferred" &&
+            !item.location?.address && (
+              <div className="text-[10px] text-gray-300 mt-0.5">（同じ場所）</div>
+            )}
+        </div>
 
-      {/* 固定予定: 時計マーク（控えめ） */}
-      {item.fixedStart && (
-        <span className="text-[9px] text-gray-300 flex-shrink-0" title="時刻固定">⏱</span>
-      )}
+        {/* 所要時間（タップで変更） */}
+        <div className="relative flex-shrink-0">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!confirmed) setShowDurationPicker(!showDurationPicker);
+            }}
+            className={`text-[11px] px-2 py-0.5 rounded-full transition-all ${
+              confirmed
+                ? "text-gray-400 bg-gray-50/50 cursor-default"
+                : "text-purple-600 bg-purple-50/60 border border-purple-200/40 hover:bg-purple-100/60 cursor-pointer"
+            }`}
+          >
+            {formatDuration(item.durationMin)}
+          </button>
+          <AnimatePresence>
+            {showDurationPicker && (
+              <DurationPicker
+                current={item.durationMin}
+                onSelect={(min) => onDurationChange(item.id, min)}
+                onClose={() => setShowDurationPicker(false)}
+              />
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* 固定予定: 時計マーク（控えめ） */}
+        {item.fixedStart && whenSharpness === "fixed" && (
+          <span className="text-[9px] text-gray-300 flex-shrink-0" title="時刻固定">⏱</span>
+        )}
+      </div>
     </motion.div>
   );
 }
@@ -652,6 +872,9 @@ export default function MorningPlanCard({
   personalizeHints,
   onConfirm,
   onRequestChange,
+  sessionId,
+  events,
+  visualFlowEnabled = false,
 }: MorningPlanCardProps) {
   const [plan, setPlan] = useState(initialPlan);
   // Place detail bottom sheet state（CEO方針 2026-04-17）
@@ -660,31 +883,32 @@ export default function MorningPlanCard({
     if (item.location) setPlaceSheetItem(item);
   }, []);
 
+  // CEO 2026-04-26: events のいずれかが「場所未確定 (missing_semantic_critical=where)」
+  // を持つ間は「これでいく」を hide する。selection で applyPlaceSelection が
+  // "where" を filter すると false に戻り、確定 button が出る。
+  const placeAskPending = useMemo(() => hasPlaceAskPending(events), [events]);
+
   // Sync when parent passes a new plan (e.g. after planEditor edit)
   useEffect(() => {
     setPlan(initialPlan);
   }, [initialPlan]);
 
-  /** 並べ替え後に移動アイテムをA→Bの新しい順序で再生成する */
-  const regenerateTravel = useCallback((nonTravelItems: PlanItem[], prevPlan: MorningPlan): PlanItem[] => {
-    // 既存の travel から transport を推定
-    const existingTravel = prevPlan.items.find(i => i.kind === "travel");
-    const transport = existingTravel?.travelTransport
-      ?? prevPlan.flowContext?.transport
-      ?? prevPlan.dayConditions?.mainTransport
-      ?? "car";
-    const goOut = prevPlan.flowContext?.goOut ?? nonTravelItems.some(i => i.location);
-    // insertTravelItems で場所変化を検出し移動アイテムを挿入
-    const withTravel = insertTravelItems(nonTravelItems, transport, goOut);
-    // CEO P0: departure/arrival anchor を渡す（サーバーの reassignTimes と同一ロジック）
-    return recalculateSchedule(withTravel, {
-      departureTime: prevPlan.departureTime,
-      arrivalTime: prevPlan.arrivalTime,
-    });
-  }, []);
+  /** 並べ替え後に移動アイテムを再生成する（W3-PR-10 Phase 3A: canonical 対応）
+   * 本体は `regenerateTravelForPlan`（pure fn）— canonical mode では travel を落として
+   * server 側の次ターン rebuild に委ねる。詳細はヘルパーファイル参照。
+   */
+  const regenerateTravel = useCallback(
+    (nonTravelItems: PlanItem[], prevPlan: MorningPlan): PlanItem[] =>
+      regenerateTravelForPlan(nonTravelItems, prevPlan),
+    [],
+  );
 
   const handleDurationChange = useCallback(
     (itemId: string, newDuration: number) => {
+      // W3-PR-10 canary — emit を setPlan の外で一度だけ fire するため
+      // reducer 内では args だけ捕まえ、reducer 多重実行（strict mode dev など）では
+      // 同じ値で上書きされるだけなので重複 emit にならない。
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         // 1. 対象アイテムの duration を更新（travel以外）
         const nonTravel = prev.items.filter(i => i.kind !== "travel").map((item) =>
@@ -701,27 +925,50 @@ export default function MorningPlanCard({
           saveDurationStore(newStore);
         }
 
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "duration_edit",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
+
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   const handleStartTimeChange = useCallback(
     (itemId: string, newTime: string) => {
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         // 時刻変更 → travel以外を更新 → 移動アイテムを再生成
         const nonTravel = prev.items.filter(i => i.kind !== "travel").map((item) =>
           item.id === itemId ? { ...item, startTime: newTime, kind: "fixed" as const, fixedStart: true } : item
         );
         const items = regenerateTravel(nonTravel, prev);
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "time_edit",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   const handleMoveUp = useCallback((itemId: string) => {
+    let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
     setPlan((prev) => {
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
@@ -730,11 +977,22 @@ export default function MorningPlanCard({
       [reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]];
       // 移動アイテムを新しい順序で再生成
       const items = regenerateTravel(reordered, prev);
+      emitArgs = {
+        canonical_present: prev.transportSegments !== undefined,
+        transport_segments_count: prev.transportSegments?.length ?? 0,
+        travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+        travel_items_after: items.filter((i) => i.kind === "travel").length,
+        edit_trigger: "reorder",
+        session_id: sessionId ?? null,
+        plan_date: prev.date,
+      };
       return { ...prev, items };
     });
-  }, [regenerateTravel]);
+    if (emitArgs) trackTransportV2EditRegression(emitArgs);
+  }, [regenerateTravel, sessionId]);
 
   const handleMoveDown = useCallback((itemId: string) => {
+    let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
     setPlan((prev) => {
       const nonTravel = prev.items.filter(i => i.kind !== "travel");
       const idx = nonTravel.findIndex(i => i.id === itemId);
@@ -742,9 +1000,19 @@ export default function MorningPlanCard({
       const reordered = [...nonTravel];
       [reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]];
       const items = regenerateTravel(reordered, prev);
+      emitArgs = {
+        canonical_present: prev.transportSegments !== undefined,
+        transport_segments_count: prev.transportSegments?.length ?? 0,
+        travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+        travel_items_after: items.filter((i) => i.kind === "travel").length,
+        edit_trigger: "reorder",
+        session_id: sessionId ?? null,
+        plan_date: prev.date,
+      };
       return { ...prev, items };
     });
-  }, [regenerateTravel]);
+    if (emitArgs) trackTransportV2EditRegression(emitArgs);
+  }, [regenerateTravel, sessionId]);
 
   const handleToggleComplete = useCallback((itemId: string) => {
     setPlan((prev) => ({
@@ -766,6 +1034,7 @@ export default function MorningPlanCard({
    */
   const handleSelectCandidate = useCallback(
     (itemId: string, candidateIndex: number) => {
+      let emitArgs: Parameters<typeof trackTransportV2EditRegression>[0] | null = null;
       setPlan((prev) => {
         const target = prev.items.find((i) => i.id === itemId);
         if (!target || !target.proposedPlaceCandidates) return prev;
@@ -804,10 +1073,20 @@ export default function MorningPlanCard({
           );
         // 場所が変わったので travel を再生成
         const items = regenerateTravel(nonTravel, prev);
+        emitArgs = {
+          canonical_present: prev.transportSegments !== undefined,
+          transport_segments_count: prev.transportSegments?.length ?? 0,
+          travel_items_before: prev.items.filter((i) => i.kind === "travel").length,
+          travel_items_after: items.filter((i) => i.kind === "travel").length,
+          edit_trigger: "place_change",
+          session_id: sessionId ?? null,
+          plan_date: prev.date,
+        };
         return { ...prev, items };
       });
+      if (emitArgs) trackTransportV2EditRegression(emitArgs);
     },
-    [regenerateTravel]
+    [regenerateTravel, sessionId]
   );
 
   /**
@@ -897,31 +1176,158 @@ export default function MorningPlanCard({
           </div>
         )}
 
+        {/*
+          CEO 2026-04-28 Journey 構造: 起点ノード（plan.journeyOrigin）
+            - plan.items の **上** に「現在地 / 自宅」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - homeAnchor が null（座標が無い CEO 案 1: hallucination 防止）→
+              plan.journeyOrigin が undefined → 何も render しない
+        */}
+        {plan.journeyOrigin && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mb-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyOrigin.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">起点</span>
+          </div>
+        )}
+
         {/* アイテムリスト */}
         <div className="space-y-0.5">
-          {plan.items.map((item) => {
-            // 並べ替え対象: travel 以外
-            const nonTravel = plan.items.filter(i => i.kind !== "travel");
-            const ntIdx = nonTravel.findIndex(i => i.id === item.id);
+          {(() => {
+            // nonTravel 一覧は render pass 間で 1 回だけ算出（N^2 回避）。
+            // plan.items は PR-11 render cycle 内で不変。
+            const nonTravel = plan.items.filter((i) => i.kind !== "travel");
+            const nonTravelLastIdx = nonTravel.length - 1;
+            return plan.items.map((item) => {
+              const ntIdx = nonTravel.findIndex((i) => i.id === item.id);
+              // PR-11 Step 2b: 1日の開始点/終点（非 travel の先頭/末尾）は
+              // 時刻 range の対象外。travel 行は自身の startTime 単一表示を維持
+              // （専用 fork L375-404）のため、本 flag は normal item のみ意味を持つ。
+              const isDayBoundary =
+                item.kind !== "travel" &&
+                (ntIdx === 0 || ntIdx === nonTravelLastIdx);
+              return (
+                <PlanItemRow
+                  key={item.id}
+                  item={item}
+                  onDurationChange={handleDurationChange}
+                  onStartTimeChange={handleStartTimeChange}
+                  onToggleComplete={handleToggleComplete}
+                  onMoveUp={handleMoveUp}
+                  onMoveDown={handleMoveDown}
+                  canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
+                  canMoveDown={
+                    item.kind !== "travel" && !item.proposal && ntIdx < nonTravelLastIdx
+                  }
+                  confirmed={plan.confirmed}
+                  onPlaceClick={handlePlaceClick}
+                  onSelectCandidate={handleSelectCandidate}
+                  onDismissCandidates={handleDismissCandidates}
+                  isDayBoundary={isDayBoundary}
+                />
+              );
+            });
+          })()}
+        </div>
+
+        {/*
+          CEO 2026-04-28 Journey 構造: 終点ノード（plan.journeyEnd）
+            - plan.items の **下** に「帰宅 / hotel / friend's house」を render する
+            - 本ノードは plan-level metadata（plan.items に含まれない）。
+              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
+            - journeyEnd が undefined（CEO 案 1）→ 何も render しない
+        */}
+        {plan.journeyEnd && (
+          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mt-1">
+            <div className="w-5 flex-shrink-0 flex items-center justify-center">
+              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+            </div>
+            <span className="text-[11px] text-violet-700 font-medium flex-1">
+              {plan.journeyEnd.label}
+            </span>
+            <span className="text-[9px] text-violet-400/80 italic">終点</span>
+          </div>
+        )}
+
+        {/*
+          W3-PR-13 M3 + M5 fix: MorningMapView — pin map（list view の補助ビュー）
+          gate (v1 OR v2 のいずれかで描画可能):
+            - visualFlowEnabled (server-side flag eval 済み boolean)
+            - events 2 件以上 (v1 経路 = ComprehensionEvent[].where.coordinates)
+            - OR plan.items の fixed-with-coords が 2 件以上 (v2 経路 = MainLocation.lat/lng)
+          子側でさらに:
+            - NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY 未設定で null
+            - valid pin < 2 で null（gate_rejected emit）
+
+          M5 fix の根拠: legacyAdapter が v2 Place Search 経路下では
+          comprehension.events を populate せず persistedEvents=null を返す
+          ケースがあるため、parent gate も v2 plan.items.location を見て
+          子へ両方を渡す。詳細は MorningMapView.tsx の prop docstring を参照。
+         */}
+        {visualFlowEnabled &&
+          (() => {
+            // event pin の予測数（v1 events か v2 planItems のうち多い方）
+            const v1Count = (events ?? []).filter(
+              (e) =>
+                e.where?.coordinates &&
+                typeof e.where.coordinates.lat === "number" &&
+                typeof e.where.coordinates.lng === "number",
+            ).length;
+            const v2Count = (plan.items ?? []).filter(
+              (i) =>
+                i.kind === "fixed" &&
+                typeof i.location?.lat === "number" &&
+                typeof i.location?.lng === "number",
+            ).length;
+            const eventPinCount = Math.max(v1Count, v2Count);
+
+            // CEO 2026-04-28 G5: journey anchor pin を予測数に加える。
+            //   1-event plan + home/current あれば anchor + event = 2 pins で
+            //   map が mount できるようになる。
+            //   round-trip default (origin === endpoint coords) は 1 pin に
+            //   dedupe されるので、両方あっても +1 として扱う。
+            const originValid = !!(
+              plan.journeyOrigin &&
+              Number.isFinite(plan.journeyOrigin.lat) &&
+              Number.isFinite(plan.journeyOrigin.lng)
+            );
+            const endValid = !!(
+              plan.journeyEnd &&
+              Number.isFinite(plan.journeyEnd.lat) &&
+              Number.isFinite(plan.journeyEnd.lng)
+            );
+            const sameAnchorCoords =
+              originValid &&
+              endValid &&
+              plan.journeyOrigin!.lat.toFixed(4) ===
+                plan.journeyEnd!.lat.toFixed(4) &&
+              plan.journeyOrigin!.lng.toFixed(4) ===
+                plan.journeyEnd!.lng.toFixed(4);
+            const journeyPinCount = originValid
+              ? endValid && !sameAnchorCoords
+                ? 2
+                : 1
+              : endValid
+                ? 1
+                : 0;
+
+            const totalEstimate = eventPinCount + journeyPinCount;
+            if (totalEstimate < 2) return null;
+
             return (
-              <PlanItemRow
-                key={item.id}
-                item={item}
-                onDurationChange={handleDurationChange}
-                onStartTimeChange={handleStartTimeChange}
-                onToggleComplete={handleToggleComplete}
-                onMoveUp={handleMoveUp}
-                onMoveDown={handleMoveDown}
-                canMoveUp={item.kind !== "travel" && !item.proposal && ntIdx > 0}
-                canMoveDown={item.kind !== "travel" && !item.proposal && ntIdx < nonTravel.length - 1}
-                confirmed={plan.confirmed}
-                onPlaceClick={handlePlaceClick}
-                onSelectCandidate={handleSelectCandidate}
-                onDismissCandidates={handleDismissCandidates}
+              <MorningMapView
+                events={events}
+                planItems={plan.items}
+                journeyOrigin={plan.journeyOrigin ?? null}
+                journeyEnd={plan.journeyEnd ?? null}
               />
             );
-          })}
-        </div>
+          })()}
 
         {/* 場所詳細 bottom sheet */}
         <PlaceDetailSheet
@@ -931,8 +1337,13 @@ export default function MorningPlanCard({
           onClose={() => setPlaceSheetItem(null)}
         />
 
-        {/* アクションボタン */}
-        {!plan.confirmed && (
+        {/* アクションボタン
+            CEO 2026-04-26: placeAskPending=true（events に missing_semantic_critical=
+            "where" を含む event がある）= 場所未確定 = 確定操作を許可しない hard gate。
+            候補選択 (applyPlaceSelection) で missing_semantic_critical から "where" が
+            filter されると false に戻り、これでいく ボタンが復活する。
+            「変更する」は場所未確定でも有効（再依頼可）のため gate しない。 */}
+        {!plan.confirmed && !placeAskPending && (
           <div className="flex gap-2 mt-4">
             <button
               onClick={handleConfirm}

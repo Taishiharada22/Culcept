@@ -89,9 +89,12 @@ export default function OutfitProposalCard({
                     loader={passthroughLoader} unoptimized
                   />
                 ) : (
-                  <span className="text-lg text-gray-300">
-                    {item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : item.category === "shoes" ? "👟" : item.category === "outerwear" ? "🧥" : "👔"}
-                  </span>
+                  <div className="flex flex-col items-center justify-center gap-0.5">
+                    <div className="w-6 h-1 rounded-full" style={{ backgroundColor: item.colorHex || item.color || "#888", opacity: 0.6 }} />
+                    <span className="text-lg text-gray-300">
+                      {item.category === "tops" ? "👕" : item.category === "bottoms" ? "👖" : item.category === "shoes" ? "👟" : item.category === "outerwear" ? "🧥" : "👔"}
+                    </span>
+                  </div>
                 )}
               </div>
               <p className="text-[7px] text-gray-500 truncate">{item.name}</p>

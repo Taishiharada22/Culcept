@@ -27,12 +27,16 @@ import HomeHeader from "./_home/HomeHeader";
 import ZoneErrorBoundary from "./_home/ZoneErrorBoundary";
 import LoginIntroAnimation from "@/components/home/LoginIntroAnimation";
 import AskHero from "@/components/home/AskHero";
+import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 import type { AlterInsightCard } from "@/lib/stargazer/alterInsightCardBuilder";
 import AnswerCard from "@/components/home/AnswerCard";
 import InlineInnerWeather from "@/components/home/InlineInnerWeather";
 import ContextReel from "@/components/home/ContextReel";
 import HomeQuickAccess from "@/components/home/HomeQuickAccess";
 import DailyFlowChip from "@/components/home/DailyFlowChip";
+import OutfitCalendarEntry from "@/components/home/morning/OutfitCalendarEntry";
+import PlanOutfitViewer from "@/components/home/morning/PlanOutfitViewer";
+import TodayPlanBadge from "@/components/home/morning/TodayPlanBadge";
 import RendezvousQuickStatus from "@/components/rendezvous/RendezvousQuickStatus";
 
 // ─── Overlays ───
@@ -44,7 +48,18 @@ import "./home-animations.css";
 
 
 /* ═══ MAIN COMPONENT ═══ */
-export default function AneurasyncHome() {
+interface AneurasyncHomeProps {
+  /**
+   * W3-PR-13 M3: visualFlow flag gate（server-side eval 済み boolean）。
+   * page.tsx (server) で ALTER_MORNING_FLAGS.visualFlow(user.id) を評価した値。
+   * false の時は MorningMapView の dynamic import 自体が fire しない。
+   */
+  visualFlowEnabled?: boolean;
+}
+
+export default function AneurasyncHome({
+  visualFlowEnabled = false,
+}: AneurasyncHomeProps = {}) {
   const [introComplete, setIntroComplete] = useState(false);
   const [scrollY, setScrollY] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -326,6 +341,27 @@ export default function AneurasyncHome() {
   const [composerQuery, setComposerQuery] = useState("");
   const [composerFocused, setComposerFocused] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Plan & Outfit Retrieval: 日付選択 → 一時表示 Viewer
+  const [retrievalViewer, setRetrievalViewer] = useState<{ isOpen: boolean; selectedDate: string | null; openedAt: number }>({ isOpen: false, selectedDate: null, openedAt: 0 });
+  const handleOutfitDateSelect = useCallback((date: string) => {
+    setRetrievalViewer({ isOpen: true, selectedDate: date, openedAt: Date.now() });
+  }, []);
+  const handleRetrievalClose = useCallback(() => {
+    // 閉じるは非表示であってデータ削除ではない — selectedDate は保持
+    setRetrievalViewer((prev) => ({ ...prev, isOpen: false }));
+  }, []);
+  // CEO方針: コーデ確定後は Alter エリアからカードを退避
+  const [morningCardsDismissed, setMorningCardsDismissed] = useState(false);
+  const handleOutfitCommit = useCallback(() => {
+    setMorningCardsDismissed(true);
+  }, []);
+  // 今日のプランバッジ → PlanOutfitViewer を今日の日付で開く
+  const handleTodayPlanOpen = useCallback(() => {
+    const now = new Date();
+    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const today = jst.toISOString().slice(0, 10);
+    setRetrievalViewer({ isOpen: true, selectedDate: today, openedAt: Date.now() });
+  }, []);
   // 送信済みテキスト追跡（再注入防止用）
   const lastSentTextRef = useRef<string | null>(null);
   // Conversation Starter: focus重複発火ガード（1時間帯で1回だけ）
@@ -652,7 +688,8 @@ export default function AneurasyncHome() {
                 Sync {syncPercent}%
               </span>
             )}
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-1.5">
+              <OutfitCalendarEntry onDateSelect={handleOutfitDateSelect} />
               <DailyFlowChip
                 instrumentUsedToday={instrumentUsedToday}
                 innerWeatherRecorded={!!innerWeather?.recorded}
@@ -701,6 +738,19 @@ export default function AneurasyncHome() {
           {/* ═══ Rendezvous ステータス（コンパクト通知） ═══ */}
           {!isComposing && !composerHasConversation && !isAnonymous && (
             <RendezvousQuickStatus />
+          )}
+
+          {/* ═══ Plan & Outfit Retrieval Viewer（会話とは独立） ═══ */}
+          {retrievalViewer.isOpen && retrievalViewer.selectedDate && (
+            <PlanOutfitViewer
+              key={`viewer-${retrievalViewer.openedAt}`}
+              selectedDate={retrievalViewer.selectedDate}
+              onClose={handleRetrievalClose}
+              onAskAlter={(date) => {
+                handleRetrievalClose();
+                handleComposerSubmit(`${date} の予定について相談したい`);
+              }}
+            />
           )}
 
           {/* ═══ 挨拶（未会話時のみ。入力モード中も残り、初メッセージで消える） ═══ */}
@@ -786,6 +836,8 @@ export default function AneurasyncHome() {
                 morningPlan={alterChat.morningPlan}
                 morningPhase={alterChat.morningPhase}
                 morningPersonalizeHints={alterChat.morningPersonalizeHints}
+                morningEvents={alterChat.morningPersistedEvents ?? undefined}
+                visualFlowEnabled={visualFlowEnabled}
                 onMorningPlanConfirm={(plan) => {
                   alterChat.setMorningPlan(plan);
                   // プラン確定後、コーデ提案を聞く
@@ -852,6 +904,11 @@ export default function AneurasyncHome() {
                 onInsightDismiss={() => setInsightData(null)}
                 composerFocused={composerFocused}
                 scrollRef={scrollRef}
+                onOutfitCommit={handleOutfitCommit}
+                morningCardsDismissed={morningCardsDismissed}
+                morningDialogState={alterChat.morningDialogState}
+                onPlaceSelect={alterChat.selectPlaceCandidate}
+                placeSelectionPending={alterChat.placeSelectionPending}
                 nudge={{
                   stargazerDoneToday: instrumentUsedToday.stargazer,
                   innerWeatherRecorded: !!innerWeather?.recorded,
@@ -897,6 +954,11 @@ export default function AneurasyncHome() {
           ))}
         </div>
 
+        {/* ── 今日のプランバッジ（プラン存在時は常に表示 — 📋 で確認） ── */}
+        <div className="flex justify-end px-3 pb-1">
+          <TodayPlanBadge onOpen={handleTodayPlanOpen} />
+        </div>
+
         {/* ── Composer（外枠全体が入力エリア） ── */}
         <div
           className="flex items-center gap-3 mx-3 mb-1.5 px-4 rounded-2xl transition-all duration-200 cursor-text"
@@ -911,12 +973,12 @@ export default function AneurasyncHome() {
           }}
           onClick={() => composerRef.current?.focus()}
         >
-          <span
-            className="text-lg flex-shrink-0 transition-opacity duration-200"
-            style={{ color: "#6366F1", opacity: composerFocused ? 0.9 : 0.5 }}
-          >
-            ✦
-          </span>
+          <AneurasyncLogo
+            size={30}
+            color="#6366F1"
+            animate={alterChat.loading}
+            style={{ opacity: composerFocused ? 0.9 : 0.5, transition: "opacity 0.2s" }}
+          />
           <div
             data-composer-wrapper=""
             className="flex-1 min-w-0 relative flex items-center"

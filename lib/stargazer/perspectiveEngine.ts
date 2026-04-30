@@ -12,7 +12,7 @@
 
 import { runAI } from "@/lib/ai";
 import { STARGAZER_FLAGS } from "./featureFlags";
-import type { ForceBalance, QueryContext, QuestionCategory } from "./alterHomeAdapter";
+import type { ForceBalance, QueryContext, QuestionCategory, QuestionType } from "./alterHomeAdapter";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -518,6 +518,8 @@ export function evaluateSearchGate(
   hdmPhase: number,
   trustLevel: number,
   responseMode: string,
+  /** P1.9: questionType を受け取り、外部知識要求バイパスに使用 */
+  questionType?: QuestionType,
 ): {
   shouldSearch: boolean;
   searchNeed: number;
@@ -556,8 +558,135 @@ export function evaluateSearchGate(
     return { shouldSearch: false, searchNeed: 0, reason: "implicit_search_off", isExplicitAsk: false, explicitAskBlocked: false };
   }
 
+  // ── L0a: External Knowledge Bypass (案B+案C v2) ──────────────
+  // Phase/Trust ゲート・clarify/repair ブロックより前に判定。
+  // 外部世界に関する知識要求は、Phase=0 / clarify モードでも PE を許可する。
+  // 感情吐露・内面相談は従来通りゲートで守る。
+  //
+  // CEO承認: 2026-04-16
+  // CEO追加指摘: 「特定の言葉がないとWEBリサーチを入れられてない。大きく改善する必要がある」
+  //
+  // v2 改修点（2026-04-16）:
+  //   1. conversation 型を拒否リストから除外 — フォローアップ質問が conversation に
+  //      分類されるケースが多く、外部知識が必要な会話フローを全滅させていた
+  //   2. 外部知識パターンをカテゴリ別に大幅拡張 — 「どこ」「近場」「ビジネスパートナー」
+  //      「交流」「コミュニティ」等、現実世界の情報を求めるシグナルを広範に捕捉
+  //
+  // 設計原則: emotional / self_understanding は厳格に保護。それ以外は
+  // メッセージ内容が外部知識を求めていれば Phase/Trust をバイパスする。
+  const externalKnowledgeBypass = (() => {
+    // 厳密に内面のみの型 — バイパス不可
+    // conversation は除外: フォローアップ質問が頻繁に conversation に分類されるため
+    const strictlyInternalTypes: (QuestionType | undefined)[] = [
+      "emotional", "self_understanding",
+      "greeting", "chat_opening", "meta_question", "ask_me",
+      "scope_disclosure", "factual_recall", "delegation_request",
+    ];
+    if (strictlyInternalTypes.includes(questionType)) return false;
+
+    // ── 広範な外部知識シグナル（カテゴリ別） ──
+    // 参照: Li & Roth (2002) Question Taxonomy, TREC QA, Perplexity search triggers
+    // 原則: 「外部の事実・サービス・場所・手段に関する情報が必要」な質問を捕捉
+    //        感情表現・内面独白はここでは捕捉しない（typeフィルタで守る）
+    const externalSignals: RegExp[] = [
+
+      // ── 1. 場所・位置・施設 ──
+      /どこ|場所|近く|近場|周辺|エリア|地域|お店|店舗|会場|施設|スポット|行ける場|行きたい|立地|アクセス/,
+
+      // ── 2. 人・コミュニティ・出会い ──
+      /交流|コミュニティ|出会[いう]|集まる|集まり|イベント|サークル|グループ|人脈|ネットワーキング|オフ会|勉強会|もくもく会/,
+
+      // ── 3. リスト・候補・推薦 ──
+      /おすすめ|候補|選択肢|一覧|リスト|ランキング|人気|定番|どんな.{0,8}(ある|いる)|何が.{0,8}(ある|いる)|どういう.{0,6}(ある|いる)/,
+
+      // ── 4. 方法・手順・ハウツー ──
+      /やり方|方法|手順|始め方|探し方|見つけ方|作り方|使い方|申し込み|登録|準備|コツ|ポイント|手続き|流れ|ステップ|入門|基礎|基本/,
+
+      // ── 5. 仕事・ビジネス・キャリア ──
+      /会社|企業|仕事|職業|職種|業界|市場|年収|給与|収入|転職|就職|採用|求人|起業|経営|投資|ビジネス|パートナー|案件|副業|フリーランス|稼[ぐげぎ]|独立|開業|事業|営業|マーケティング|スタートアップ/,
+
+      // ── 6. 制度・法律・行政 ──
+      /制度|法律|法令|条例|保険|資格|学校|大学|免許|補助金|助成金|税金|確定申告|手当|権利|義務|届出|申請|マイナンバー|住民票|戸籍|パスポート|ビザ|在留|役所|市役所|区役所|年金|社会保障/,
+
+      // ── 7. サービス・製品・ツール ──
+      /サービス|アプリ|ツール|ソフト|プラットフォーム|価格|料金|費用|プラン|契約|解約|月額|無料|有料|課金|サブスク|定額/,
+
+      // ── 8. リサーチ・具体性シグナル ──
+      /具体的(に|な)|調べ|検索|リサーチ|詳しく|実際(に|の|は)|現実(に|的)|本当(に|の|は)|事実|データ|統計|根拠|エビデンス|ソース|出典/,
+
+      // ── 9. 時制・最新情報・ニュース ──
+      /最新|最近の|今年|来年|2025|2026|トレンド|流行|ニュース|動向|話題|速報|現在|いま(の|は)/,
+
+      // ── 10. 比較・評価・レビュー ──
+      /違い|比較|メリット|デメリット|評判|レビュー|口コミ|どっちが|どちらが|vs|長所|短所|良い点|悪い点|コスパ/,
+
+      // ── 11. 飲食・グルメ ──
+      /レストラン|カフェ|居酒屋|ラーメン|飯屋|食べ(る|たい|られる|に)|グルメ|料理|ランチ|ディナー|予約|テイクアウト|デリバリー|Uber|出前|食事|飲み(屋|に)|バー|寿司|焼肉|イタリアン|フレンチ|中華|和食/,
+
+      // ── 12. 医療・健康 ──
+      /病院|クリニック|医者|医師|症状|治療|薬|健康|病気|診断|検査|体調|アレルギー|歯医者|眼科|皮膚科|整形外科|内科|外科|精神科|心療内科|カウンセリング|セラピー|漢方|サプリ|ワクチン|予防接種/,
+
+      // ── 13. 住居・不動産・引っ越し ──
+      /引っ越し|引越|物件|賃貸|家賃|マンション|アパート|不動産|住む|住まい|部屋(探し|を)|間取り|敷金|礼金|仲介|住宅|リフォーム|リノベ|ローン|住宅ローン/,
+
+      // ── 14. 旅行・観光・移動 ──
+      /旅行|観光|ホテル|宿|旅館|民泊|飛行機|新幹線|チケット|航空券|海外|国内|温泉|リゾート|ツアー|バックパック|パッケージ|レンタカー|空港/,
+
+      // ── 15. 交通・移動手段 ──
+      /電車|バス|タクシー|車|駐車場|路線|時刻表|乗り換え|運転|免許(取|を)|定期|交通費|終電|始発|ルート|ナビ|高速道路/,
+
+      // ── 16. 教育・学習・スキル ──
+      /勉強|学習|講座|セミナー|スクール|教室|塾|研修|独学|資格(取得|を)|試験|受験|合格|英語|語学|プログラミング|オンライン(学習|講座)|通信(教育|講座)|留学|奨学金/,
+
+      // ── 17. エンタメ・文化・趣味 ──
+      /映画|本|書籍|音楽|ゲーム|漫画|アニメ|展示|美術館|博物館|コンサート|ライブ|フェス|チケット(を|が)|配信|ストリーミング|Netflix|YouTube|Spotify|読書|小説|作品|上映/,
+
+      // ── 18. テクノロジー・IT・開発 ──
+      /プログラミング|フレームワーク|ライブラリ|API|クラウド|サーバー|コード|開発|エンジニア|デザイナー|GitHub|AWS|Google|Apple|Microsoft|ChatGPT|Claude|GPT|LLM|機械学習|ディープラーニング|ブロックチェーン|Web3/,
+
+      // ── 19. 金融・資産・マネー ──
+      /貯金|貯蓄|節約|ローン|借金|クレジット|口座|銀行|株|為替|FX|仮想通貨|暗号資産|NISA|iDeCo|投資信託|保険(料|を)|金利|利率|資産(運用|形成)|家計|ポイント(カード|還元)/,
+
+      // ── 20. 美容・ファッション・外見 ──
+      /美容(院|室)|美容師|ヘアサロン|化粧|コスメ|メイク|スキンケア|ネイル|エステ|脱毛|ファッション|ブランド|コーデ|着こなし|サイズ|フィット|ショップ|セレクトショップ|通販|EC/,
+
+      // ── 21. スポーツ・フィットネス・身体 ──
+      /ジム|トレーニング|ダイエット|筋トレ|ヨガ|ピラティス|ランニング|マラソン|スポーツ|フィットネス|パーソナル(トレーナー|ジム)|プール|スタジオ|体重|カロリー|栄養/,
+
+      // ── 22. ペット・動物 ──
+      /ペット|犬|猫|動物病院|飼[いう]方|ペットショップ|トリミング|ドッグラン|キャットフード|ドッグフード/,
+
+      // ── 23. 自然・天気・災害 ──
+      /天気|気温|台風|地震|災害|避難|防災|警報|注意報|花粉|紫外線|気候/,
+
+      // ── 24. 冠婚葬祭・ライフイベント ──
+      /結婚(式|相談)|婚活|マッチング(アプリ|サービス)|相談所|披露宴|葬儀|葬式|お墓|墓地|出産|妊娠|産院|保育園|幼稚園|入園|入学|卒業|成人式|七五三/,
+
+      // ── 25. 定義・知識・概念 ──
+      /って(何|なに)|とは|意味|定義|仕組み|原理|歴史|由来|語源|概要|概念|理論/,
+
+      // ── 26. 数量・価格・スペック ──
+      /いくら|何円|何万|何人|何歳|何年|何時間|何キロ|何(グラム|メートル|リットル)|どのくらい(の|かかる)|相場|平均|目安|スペック|性能/,
+
+      // ── 27. 存在・可用性 ──
+      /売って(る|い)|やって(る|い)|開いて(る|い)|空いて(る|い)|あいて(る|い)|営業(中|時間|して)|在庫|入荷|予約(でき|可)|受付/,
+
+      // ── 28. 社会・政治・経済 ──
+      /政治|選挙|経済|景気|GDP|失業(率|者)|物価|インフレ|デフレ|円安|円高|政府|自治体|都道府県|国会|法案|規制/,
+
+      // ── 29. 修理・DIY・住環境 ──
+      /修理|故障|壊れ|直し(方|て)|リペア|DIY|工事|設備|水漏れ|エアコン|給湯器|換気|害虫|駆除|清掃|クリーニング|ハウス/,
+
+      // ── 30. 資格・検定・証明 ──
+      /検定|認定|証明書|免状|合格率|過去問|テキスト|問題集|対策|スコア|TOEIC|TOEFL|簿記|宅建|FP|IT(パスポート|ストラテジスト)|基本情報/,
+    ];
+
+    return externalSignals.some(pattern => pattern.test(message));
+  })();
+
   // ── L0b: Response mode / greeting exclusions ──────────────────
-  if (responseMode === "clarify" || responseMode === "repair") {
+  // 案C: clarify/repair でも外部知識バイパスが有効なら PE 実行を許可
+  if ((responseMode === "clarify" || responseMode === "repair") && !externalKnowledgeBypass) {
     return { shouldSearch: false, searchNeed: 0, reason: `mode_${responseMode}`, isExplicitAsk: false, explicitAskBlocked: false };
   }
 
@@ -571,17 +700,28 @@ export function evaluateSearchGate(
   }
 
   // ── Phase/Trust gate（暗黙判定にのみ適用）──────────────────────
-  // 緩和: >= 2 → >= 1（Phase 1 から暗黙検索を許可）
-  // 緩和: >= 3 → >= 2（Trust 2 から暗黙検索を許可）
-  if (hdmPhase < 1) {
-    return { shouldSearch: false, searchNeed: 0, reason: "phase_too_low", isExplicitAsk: false, explicitAskBlocked: false };
-  }
-  if (trustLevel < 2) {
-    return { shouldSearch: false, searchNeed: 0, reason: "trust_too_low", isExplicitAsk: false, explicitAskBlocked: false };
+  // 案B: 外部知識バイパス発動時は Phase/Trust ゲートをスキップ
+  // 通常の暗黙検索は引き続き Phase>=1, Trust>=2 を要求
+  if (!externalKnowledgeBypass) {
+    if (hdmPhase < 1) {
+      return { shouldSearch: false, searchNeed: 0, reason: "phase_too_low", isExplicitAsk: false, explicitAskBlocked: false };
+    }
+    if (trustLevel < 2) {
+      return { shouldSearch: false, searchNeed: 0, reason: "trust_too_low", isExplicitAsk: false, explicitAskBlocked: false };
+    }
   }
 
   // ── L1: External Knowledge Need ─────────────────────────────────
   let searchNeed = 0;
+
+  // 外部知識バイパス発動時: searchNeed フロアを設定
+  // バイパスは既に (1) questionType が内面系でない (2) メッセージに外部知識パターンがある
+  // を確認済み。Phase/Trust gate をスキップした以上、search をコミットする。
+  // フロアなしだと、バイパスが通っても scoring が低くて検索されない問題が発生する。
+  // (例: "そんな人どこにいんだよ" → bypass=true, searchNeed=0 → 検索されない)
+  if (externalKnowledgeBypass) {
+    searchNeed = 0.5;
+  }
 
   // 実在エンティティ（固有名詞 + ニッチ度推定）
   // Mallen (ACL 2023): ニッチ情報は検索必須
@@ -1733,6 +1873,8 @@ export async function runPerspectiveEngine(params: {
   conversationSummary?: string;
   /** v5: 既存の ExplorationState（マルチターン探索の継続時） */
   existingExploration?: ExplorationState | null;
+  /** P1.9: questionType（外部知識バイパス判定用） */
+  questionType?: QuestionType;
 }): Promise<PerspectiveEngineResult | null> {
   const startTime = Date.now();
 
@@ -1744,6 +1886,7 @@ export async function runPerspectiveEngine(params: {
     params.hdmPhase,
     params.trustLevel,
     params.responseMode,
+    params.questionType,
   );
 
   const baseAudit: PerspectiveAudit = {

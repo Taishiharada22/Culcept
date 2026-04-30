@@ -37,6 +37,11 @@ import {
   type RecommendationClassification,
 } from "./recommendationClassifier";
 import type { RecommendationIntent } from "./types";
+import {
+  decomposeUtterance,
+  detectRelativeAnchor,
+  isPlaceNewValueAcceptable,
+} from "./utteranceDecomposer";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt for Delta Detection
@@ -111,10 +116,83 @@ export async function detectDelta(
   currentState: PlanState,
   userId?: string,
 ): Promise<PlanDelta | null> {
+  // W2-CEO-Emergency A-1 (2026-04-19): 複合発話の決定論的分解。
+  //   「カフェはマックにする予定。ランチはサドヤだから、会食もその近くにしてください。」
+  //   のような複合発話を句点・改行で分割し、各 clause を個別に処理する。
+  //   これにより LLM が 1 change に畳む / 生文を newValue に入れる事故を構造的に防ぐ。
+  const clauses = decomposeUtterance(userMessage);
+
+  if (clauses.length <= 1) {
+    // 単一 clause は従来どおり 1 回で処理
+    return detectDeltaForClause(userMessage, currentState, userId, null);
+  }
+
+  console.log(
+    "[delta-decompose] composite utterance split",
+    JSON.stringify({ count: clauses.length, clauses }),
+  );
+
+  // 各 clause を順に適用しつつ changes を merge
+  let runningState = currentState;
+  const mergedChanges: DeltaChange[] = [];
+  const turnTypes: DeltaTurnType[] = [];
+  let resolvedAnchorForNextClause: string | null = null;
+
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i];
+
+    // A-2: 相対アンカー検出 — 「その近く」等。
+    //   直前 clause で解決された place を anchor 候補として保持し、
+    //   LLM に文脈付きで渡す。
+    const relMarker = detectRelativeAnchor(clause);
+    const priorAnchor = relMarker
+      ? findMostRecentResolvedLabel(runningState)
+      : null;
+
+    const clauseDelta = await detectDeltaForClause(
+      clause,
+      runningState,
+      userId,
+      relMarker && priorAnchor
+        ? { relativeMarker: relMarker, resolvedAnchor: priorAnchor }
+        : null,
+    );
+    if (!clauseDelta) continue;
+
+    turnTypes.push(clauseDelta.turnType);
+    for (const c of clauseDelta.changes) {
+      mergedChanges.push(c);
+    }
+    // clause N+1 が clause N の新 segment を参照できるように state を更新
+    runningState = applyDelta(runningState, clauseDelta);
+    void resolvedAnchorForNextClause; // silence unused
+  }
+
+  if (mergedChanges.length === 0) return null;
+
+  return {
+    // 複合の場合は addition を優先（どれかが新規追加なら addition、
+    // 全て correction なら correction）
+    turnType: turnTypes.includes("addition") ? "addition" : (turnTypes[0] ?? "clarify_response"),
+    changes: mergedChanges,
+    confirmSummary: "",
+  };
+}
+
+/**
+ * 単一 clause に対する delta 検出。decomposeUtterance で分解した各節、
+ * または分解不要な単一発話から呼ばれる。
+ *
+ * relativeAnchor: 直前 clause で解決された label を持つ。LLM prompt に文脈として渡し、
+ *   「その近く」を `placeSearchHint.nearAnchorLabel=<label>` に解決するよう誘導する。
+ */
+async function detectDeltaForClause(
+  userMessage: string,
+  currentState: PlanState,
+  userId: string | undefined,
+  relativeAnchor: { relativeMarker: string; resolvedAnchor: string } | null,
+): Promise<PlanDelta | null> {
   // CEO方針 2026-04-18 Bug A: LLM 呼び出し前の決定論的短絡。
-  //   place_replacement / departure_time / transport_update などの
-  //   強いパターンは LLM に任せると幻覚 add_segment が起きやすい。
-  //   ここで確定できる発話はそのまま PlanDelta にする（items 爆発を防ぐ）。
   const deterministic = classifyDeltaDeterministic(userMessage, currentState);
   if (deterministic) {
     console.log(
@@ -128,9 +206,6 @@ export async function detectDelta(
   }
 
   // CEO方針 2026-04-19 W2-4: recommendation pre-classifier を LLM より先に実行。
-  //   「おすすめある？」「どこかいい店ない？」等の純粋な提案要求は、
-  //   決定論的に recommendationIntent を emit して LLM の誤分類を避ける。
-  //   explicit_place が含まれる発話ではここで emit しない（CEO 条件 1）。
   const recClassification = classifyRecommendationIntent(userMessage);
   if (recClassification.kind === "recommendation_request") {
     const recDelta = buildRecommendationDelta(
@@ -150,15 +225,18 @@ export async function detectDelta(
       );
       return recDelta;
     }
-    // target 解決不能 → LLM へフォールスルー（ただし LLM は recommendationIntent を emit しない）
   }
 
-  // PlanState を LLM に渡す際は、セグメントの自然言語表現を添える
+  // W2-CEO-Emergency A-2 (2026-04-19): 相対アンカーが検出されたら、
+  //   LLM prompt に「その近く」の指示対象を明示して文脈を与える。
   const stateDescription = formatStateForLLM(currentState);
+  const relativeAnchorPrompt = relativeAnchor
+    ? `\n\n相対指示語の解決:\n  「${relativeAnchor.relativeMarker}」は直前の予定「${relativeAnchor.resolvedAnchor}」を指します。\n  place には入れず、placeSearchHint.nearAnchorLabel="${relativeAnchor.resolvedAnchor}" で出力してください。`
+    : "";
 
   const result = await runAI({
     taskType: "morning_plan_delta",
-    prompt: `現在の予定:\n${stateDescription}\n\nユーザーの発話:\n${userMessage}`,
+    prompt: `現在の予定:\n${stateDescription}\n\nユーザーの発話:\n${userMessage}${relativeAnchorPrompt}`,
     systemPrompt: DELTA_SYSTEM_PROMPT,
     requireJson: true,
     jsonSchema: LLM_DELTA_SCHEMA as Record<string, unknown>,
@@ -182,17 +260,66 @@ export async function detectDelta(
     resolveChange(c, currentState),
   );
 
+  // W2-CEO-Emergency A-2 post-processor: LLM が「その近く」を place に入れた場合、
+  //   placeSearchHint.nearAnchorLabel に rewrite する。LLM prompt だけに頼らない二重防御。
+  const rewrittenChanges = relativeAnchor
+    ? resolvedChanges.map((c) =>
+        rewriteRelativeAnchorChange(c, relativeAnchor.resolvedAnchor),
+      )
+    : resolvedChanges;
+
   const delta: PlanDelta = {
     turnType: normalizeTurnType(raw.turnType),
-    changes: resolvedChanges,
-    confirmSummary: "", // 後で決定論的に生成
+    changes: rewrittenChanges,
+    confirmSummary: "",
   };
 
-  // confirmSummary はコードが生成（LLM に任せない）
-  // applyDelta 後の state で生成するため、ここではダミー値を入れる
-  // 呼び出し元で applyDelta → buildDeltaConfirmMessage の順序で処理
-
   return delta;
+}
+
+/**
+ * 直前の解決済み segment の label を返す（相対アンカー解決用）。
+ *
+ * 優先順位: resolvedPlaceName > placeCanonical > place
+ * 候補がなければ null。
+ */
+function findMostRecentResolvedLabel(state: PlanState): string | null {
+  for (let i = state.segments.length - 1; i >= 0; i--) {
+    const seg = state.segments[i];
+    const label = seg.resolvedPlaceName ?? seg.placeCanonical ?? seg.place;
+    if (label && label.trim()) return label.trim();
+  }
+  return null;
+}
+
+/**
+ * W2-CEO-Emergency A-2: LLM が相対指示語の命令に従わず place に「その近く」を入れた場合、
+ *   placeSearchHint.nearAnchorLabel に書き換える post-processor。
+ */
+function rewriteRelativeAnchorChange(
+  change: DeltaChange,
+  anchorLabel: string,
+): DeltaChange {
+  if (change.field !== "place") return change;
+  const value = typeof change.newValue === "string" ? change.newValue : null;
+  if (!value) return change;
+  // place に相対語そのもの / 相対語を含む値が入っていたら rewrite
+  const RELATIVE_IN_PLACE_RE = /(その|そこ|さっき)(近く|付近|周辺|周り|近辺|のとこ|から)/;
+  if (!RELATIVE_IN_PLACE_RE.test(value)) return change;
+
+  // searchCategory は元の place から相対語を除いた残り、または既存 segment の place を使う
+  const cleaned = value.replace(RELATIVE_IN_PLACE_RE, "").trim();
+  const searchCategory = cleaned.length > 0 ? cleaned : undefined;
+
+  return {
+    ...change,
+    field: "placeSearchHint",
+    newValue: {
+      nearAnchorLabel: anchorLabel,
+      searchCategory,
+      originalQuery: value,
+    } as unknown as Record<string, unknown>,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -348,10 +475,29 @@ function resolveChange(
  * 解決戦略（優先順位順）:
  * 1. activity 完全一致
  * 2. activityCanonical 完全一致
- * 3. timeHint 一致
+ * 3. timeHint 一致（直接 → Bug 2 triage: startTime 逆引き fallback）
  * 4. activity 部分一致
  * 5. place 一致
  */
+
+/**
+ * Bug 2 triage (handoff 2026-04-18): HH:MM から時間帯ラベルを導出。
+ * 不正な文字列は null を返す。
+ */
+function deriveTimeHintFromStartTime(
+  startTime: string | undefined,
+): "morning" | "noon" | "afternoon" | "evening" | null {
+  if (!startTime) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(startTime.trim());
+  if (!m) return null;
+  const hh = Number(m[1]);
+  if (!Number.isFinite(hh) || hh < 0 || hh > 23) return null;
+  if (hh < 11) return "morning";
+  if (hh < 14) return "noon";
+  if (hh < 17) return "afternoon";
+  return "evening";
+}
+
 export function resolveSegmentIdFromHint(
   hint: string,
   state: PlanState,
@@ -380,8 +526,23 @@ export function resolveSegmentIdFromHint(
   };
   for (const [keyword, th] of Object.entries(timeHintMap)) {
     if (normalizedHint.includes(keyword)) {
-      const match = state.segments.find((s) => s.timeHint === th);
-      if (match) return match.id;
+      // 2a. seg.timeHint 直接一致
+      const direct = state.segments.find((s) => s.timeHint === th);
+      if (direct) return direct.id;
+      // 2b. Bug 2 triage (handoff 2026-04-18): startTime からの逆引き。
+      //   Turn 1 で生成される segment は startTime="09:00" のみで timeHint 未設定のことが多い。
+      //   「朝はマックに変更して」が segmentId=null で applyDelta に黙殺される事故の止血。
+      //   規約:
+      //     morning  : HH < 11
+      //     noon     : 11 <= HH < 14
+      //     afternoon: 14 <= HH < 17
+      //     evening  : HH >= 17
+      const derived = state.segments.find((s) => {
+        if (s.timeHint) return false; // 直接一致で既に試行済み
+        const th2 = deriveTimeHintFromStartTime(s.startTime);
+        return th2 === th;
+      });
+      if (derived) return derived.id;
     }
   }
 
@@ -597,6 +758,17 @@ function applyFieldChange(
         return;
       }
       const newPlace = typeof value === "string" ? value : String(value ?? "");
+      // W2-CEO-Emergency A-3 (2026-04-19): 生文が place に入る経路を構造的に遮断。
+      //   CEO 実機 0 点フィードバックで観測: place="ランチはサドヤだから、会食もその近くにしてください"
+      //   のような raw sentence が保存され、確定プランに表示された事故の直接原因。
+      //   validator で拒否すると seg.place 未設定のまま残り、Safety Gate（missingFields: segmentPlace）が拾う。
+      if (!isPlaceNewValueAcceptable(newPlace)) {
+        console.warn(
+          "[place-validator] rejected non-place newValue",
+          JSON.stringify({ segId: seg.id, value: newPlace.slice(0, 80) }),
+        );
+        return;
+      }
       seg.place = newPlace;
       const resolved = resolvePlaceFromText(newPlace);
       seg.placeCanonical = resolved?.place.canonicalLabel ?? newPlace;

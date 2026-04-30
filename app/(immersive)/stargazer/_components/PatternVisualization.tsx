@@ -166,10 +166,11 @@ export function AxisRadarEvolution({
                 {isSignificant && (
                   <motion.circle
                     cx={px} cy={py}
-                    r={8}
+                    r={6}
                     fill="none"
                     stroke={color}
                     strokeWidth={1}
+                    initial={{ r: 6 }}
                     animate={{ r: [6, 12, 6], opacity: [0.6, 0, 0.6] }}
                     transition={{ duration: 2, repeat: Infinity }}
                   />
@@ -479,8 +480,9 @@ export function ContradictionWeb({
                 <motion.circle
                   key={`pulse-${i}`}
                   cx={midX} cy={midY}
-                  r={4}
+                  r={3}
                   fill={color}
+                  initial={{ r: 3 }}
                   animate={{ r: [3, 8, 3], opacity: [0.6, 0, 0.6] }}
                   transition={{ duration: 2, repeat: Infinity, delay: i * 0.3 }}
                 />
@@ -505,11 +507,12 @@ export function ContradictionWeb({
                 {hasContradiction && (
                   <motion.circle
                     cx={pos.x} cy={pos.y}
-                    r={16}
+                    r={14}
                     fill="none"
                     stroke={color}
                     strokeWidth={1}
                     strokeOpacity={0.2}
+                    initial={{ r: 14 }}
                     animate={{ r: [14, 20, 14] }}
                     transition={{ duration: 3, repeat: Infinity }}
                   />

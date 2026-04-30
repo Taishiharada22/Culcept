@@ -709,11 +709,14 @@ describe("checkOutfitSufficiency — コーデ用 gate", () => {
 });
 
 describe("buildOutfitClarifyQuestion — 1 問に束ねた質問", () => {
-  test("transport + mood → 束ねて質問", () => {
+  test("transport + mood → 1文にまとめて質問", () => {
     const question = buildOutfitClarifyQuestion(["transport", "mood"]);
     expect(question).toContain("移動は");
-    expect(question).toContain("服は");
-    expect(question).toContain("コーデ提案するために");
+    // mood vocab aligned with sufficiencyGate.ts single-missing case
+    // ("コーデどんな感じがいい？キレイめ？カジュアル？きっちり？")
+    expect(question).toContain("キレイめかカジュアルか");
+    // Abbreviated form used in the combined prompt ("コーデ組むから教えて。…")
+    expect(question).toContain("コーデ");
   });
 
   test("不足なし → 空文字", () => {

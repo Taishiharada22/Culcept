@@ -155,6 +155,76 @@ describe("evaluatePlanReadiness", () => {
   });
 });
 
+describe("evaluatePlanReadiness — W2-CEO-Emergency C (Rule 4: place_not_resolved)", () => {
+  test("explicit place + resolvedLat 無し + !known_base → place_not_resolved", () => {
+    // CEO 実機 0 点ケース: place="カフェ森の中へ" が座標解決に失敗したが、
+    //   旧 gate はこれを見逃して plan_presented に進んでいた。
+    const state = baseState([
+      seg({
+        id: "seg_cafe",
+        activity: "カフェ",
+        activityCanonical: "カフェ",
+        place: "カフェ森の中へ",
+        placeCanonical: "カフェ森の中へ",
+        placeType: "exact_proper_noun",
+        // resolvedLat / resolvedLng 未定義
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toBe("place_not_resolved");
+    expect(result.segmentId).toBe("seg_cafe");
+    for (const phrase of FORBIDDEN_PHRASES) {
+      expect(result.clarifyMessage).not.toContain(phrase);
+    }
+    expect(result.clarifyMessage).toContain("カフェ森の中へ");
+    expect(result.diagnostic).toContain("seg_cafe");
+  });
+
+  test("known_base（自宅等）は resolvedLat 無しでも通す", () => {
+    const state = baseState([
+      seg({
+        id: "seg_home",
+        activity: "帰宅",
+        place: "自宅",
+        placeType: "known_base",
+        // resolvedLat 無しでも別経路で解決されるのでスルー
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(true);
+  });
+
+  test("placeSearchHint 経路は Rule 1 で拾うので Rule 4 は発火しない", () => {
+    const state = baseState([
+      seg({
+        id: "seg_near",
+        placeSearchHint: { nearAnchorLabel: "甲府", searchCategory: "カフェ" },
+        // place は無し、placeSearchHint のみ
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(false);
+    if (result.ready) return;
+    expect(result.reason).toBe("near_anchor_not_resolved");
+  });
+
+  test("explicit place + resolvedLat あり → 通す", () => {
+    const state = baseState([
+      seg({
+        id: "seg_resolved",
+        place: "スタバ",
+        resolvedLat: 35.66,
+        resolvedLng: 138.56,
+        resolutionConfidence: "high",
+      }),
+    ]);
+    const result = evaluatePlanReadiness(state);
+    expect(result.ready).toBe(true);
+  });
+});
+
 describe("evaluatePlanReadiness — W2-1 window_overflow", () => {
   test("placementStatus=window_overflow → ready=false + window_overflow reason", () => {
     const state = baseState([

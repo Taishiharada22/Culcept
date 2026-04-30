@@ -185,6 +185,7 @@ function ProphecyLoading() {
         <motion.circle
           cx={50} cy={50} r={8}
           fill="rgba(99,102,241,0.08)"
+          initial={{ r: 8 }}
           animate={{ r: [8, 12, 8], opacity: [0.08, 0.2, 0.08] }}
           transition={{ duration: 2.5, repeat: Infinity }}
         />
@@ -322,6 +323,7 @@ function SignatureLoading() {
         <motion.circle
           cx={50} cy={50} r={5}
           fill="rgba(236,72,153,0.1)"
+          initial={{ r: 5 }}
           animate={{ r: [5, 8, 5], opacity: [0.1, 0.25, 0.1] }}
           transition={{ duration: 2, repeat: Infinity }}
         />

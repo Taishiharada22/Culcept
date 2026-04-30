@@ -714,7 +714,36 @@ async function tryResolveExactViaPlacesApi(
   const hasCoords = candidates[0]?.lat != null && candidates[0]?.lng != null;
   if (!hasCoords) return null;
 
-  const { confidence, reason } = determineConfidence(candidates);
+  let { confidence, reason } = determineConfidence(candidates);
+
+  // W2-CEO-Emergency B (2026-04-19): explicit place に対する hard sanity distance check。
+  //   CEO 実機 0 点ケース: place="カフェ森の中へ" が prevAnchor(サドヤ) から 2h 遠のカフェに解決された。
+  //   従来の soft score 減算では候補 1 件の場合に生き残る。ここで sanity cutoff を入れる。
+  //   - prevAnchor.coords があり
+  //   - best candidate の距離が HARD_SANITY_KM_FOR_EXPLICIT を超える
+  //   → confidence を "low" に降格。Safety Gate Rule 2（low_confidence）が拾って率直 clarify。
+  //   fail-open: prevAnchor が無ければスルー（遠方の明示指定は尊重）。
+  const prevAnchorCoords = context.prevAnchor?.coords;
+  if (prevAnchorCoords && candidates[0].lat != null && candidates[0].lng != null) {
+    const distKm = haversineKm(prevAnchorCoords, {
+      lat: candidates[0].lat,
+      lng: candidates[0].lng,
+    });
+    if (distKm > HARD_SANITY_KM_FOR_EXPLICIT) {
+      console.warn(
+        "[place-sanity] explicit place too far from prevAnchor",
+        JSON.stringify({
+          placeName,
+          candidateName: candidates[0].name,
+          distKm: Math.round(distKm),
+          prevAnchorLabel: context.prevAnchor?.label,
+          threshold: HARD_SANITY_KM_FOR_EXPLICIT,
+        }),
+      );
+      confidence = "low";
+      reason = `sanity_distance_${Math.round(distKm)}km_from_prev_anchor`;
+    }
+  }
 
   // low は結局 anchor 化しないので Web search に救済機会を渡す
   if (confidence === "low" || confidence === "unresolved") return null;
@@ -727,6 +756,18 @@ async function tryResolveExactViaPlacesApi(
     reason: `places_api: ${reason}`,
   };
 }
+
+/**
+ * W2-CEO-Emergency B (2026-04-19): explicit place に対する hard sanity 距離。
+ *
+ * 30km を超えて prevAnchor から離れた候補は「狂った解決」とみなし confidence を下げる。
+ * 東京都内の地図規模ならどんなランチでも 30km 以内（山手線直径≒10km）。
+ * 地方でも同プラン内で 30km 超は「2h 移動」を意味し、ユーザーが明示指定しない限り
+ * セマンティクス外。lunch/cafe の通常移動では絶対に超えない距離。
+ *
+ * ただし「絶対棄却」ではなく「low 降格」にして、CEO 方針「率直に確認」を通す。
+ */
+const HARD_SANITY_KM_FOR_EXPLICIT = 30;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Phase B-1: Places API → Candidate Extraction

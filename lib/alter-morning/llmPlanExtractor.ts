@@ -33,6 +33,7 @@ import {
   classifyRecommendationIntent,
   toRecommendationIntent,
 } from "./recommendationClassifier";
+import { isPlaceNewValueAcceptable } from "./utteranceDecomposer";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM System Prompt
@@ -146,7 +147,7 @@ export async function extractPlanFromText(
     return null;
   }
 
-  const state = normalizeLLMOutput(raw);
+  const state = normalizeLLMOutput(raw, userMessage);
   // W2-4（CEO方針 2026-04-19）: Turn 1 でも同じ pre-classifier を適用。
   //   「おすすめある？」「サドヤ近くでおすすめのカフェない？」等を recommendationIntent に
   //   昇格させる。explicit place 付きの segment は壊さない（条件 1）。
@@ -311,7 +312,10 @@ export function mergeLocationActivitySegments(segments: LLMRawSegment[]): LLMRaw
 // LLM 出力の正規化 → PlanState
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export function normalizeLLMOutput(raw: LLMExtractResult): PlanState {
+export function normalizeLLMOutput(
+  raw: LLMExtractResult,
+  userMessage?: string,
+): PlanState {
   // LLMが場所+活動を2セグメントに分割した場合の防御マージ
   const mergedRaw = mergeLocationActivitySegments(raw.segments);
 
@@ -322,7 +326,7 @@ export function normalizeLLMOutput(raw: LLMExtractResult): PlanState {
   const personRegistry = new PersonRegistry();
 
   const segments: PlanSegment[] = mergedRaw.map((seg) =>
-    normalizeSegment(seg, personRegistry),
+    normalizeSegment(seg, personRegistry, userMessage),
   );
 
   // 2-pass rewrite: segment A で「仙洞田」しか出ず、segment B で「仙洞田さん」が出た場合、
@@ -622,6 +626,7 @@ export function applyDeclarativeNearAnchorHints(segments: PlanSegment[]): void {
 function normalizeSegment(
   seg: LLMRawSegment,
   personRegistry?: PersonRegistry,
+  userMessage?: string,
 ): PlanSegment {
   // CEO方針 Block 1 (a) 安全弁: 疑問文 place を scrub
   const scrub = scrubQuestionPlace(seg.place);
@@ -632,7 +637,39 @@ function normalizeSegment(
   //   - 非検出: scrubNonPlaceContent が scrub.place をそのまま返す（pass-through）
   const nonPlaceScrub = scrubNonPlaceContent(scrub.place, seg.companions ?? []);
   // 検出時 null、非検出時は trimmed place が入っている
-  const effectivePlace: string | null = nonPlaceScrub.place;
+  let effectivePlace: string | null = nonPlaceScrub.place;
+
+  // W2-CEO-Emergency A-3 (2026-04-19): Turn 1 でも生文 place を拒否。
+  //   LLM が place に「ランチはサドヤだから、会食もその近くにしてください」のような
+  //   raw sentence を入れた事故（CEO 実機 0 点）の直接的な遮断。
+  //   拒否時は null に戻し、downstream missingFields が拾う。
+  if (effectivePlace && !isPlaceNewValueAcceptable(effectivePlace)) {
+    console.warn(
+      "[place-validator-turn1] rejected non-place LLM output",
+      JSON.stringify({ rawPlace: effectivePlace.slice(0, 80) }),
+    );
+    effectivePlace = null;
+  }
+
+  // Bug 1 triage (handoff 2026-04-18): utterance-source gate
+  //   LLM world knowledge 由来の hallucinate（例: 「カフェ」→「二藍」）を遮断する。
+  //   発話に直接出現しない proper noun を拒否する。ただし次は許可:
+  //     - 既知 base: 自宅/家/職場 など (KNOWN_BASE_RE)
+  //     - chain brand: マック/スタバ など (CHAIN_BRAND_RE)
+  //     - generic place: カフェ/公園 など (GENERIC_PLACE_RE)
+  //   userMessage 未提供時は skip（既存 test 経路・単体呼び出しの互換性保持）
+  if (effectivePlace && userMessage !== undefined) {
+    if (!isPlaceFromUserUtterance(effectivePlace, userMessage)) {
+      console.warn(
+        "[place-validator-turn1] rejected hallucinated place (not in user utterance)",
+        JSON.stringify({
+          rawPlace: effectivePlace.slice(0, 80),
+          userMessageSnippet: userMessage.slice(0, 80),
+        }),
+      );
+      effectivePlace = null;
+    }
+  }
   const rawCompanions = [
     ...(seg.companions ?? []),
     ...nonPlaceScrub.addedCompanions,
@@ -692,6 +729,29 @@ const VALID_PLACE_TYPES = new Set(["exact_proper_noun", "chain_brand", "generic_
 const KNOWN_BASE_RE = /^(自宅|家|うち|オフィス|会社|職場|実家|学校|大学)$/;
 const CHAIN_BRAND_RE = /マック|マクド|スタバ|ドトール|コメダ|タリーズ|サイゼ|ガスト|吉野家|松屋|すき家|CoCo壱|丸亀|セブン|ローソン|ファミマ|TSUTAYA|ツタヤ|ユニクロ|無印|ダイソー|イオン|ブックオフ|鳥貴族|日高屋|大戸屋|やよい軒|モス|ケンタ|サブウェイ|ミスド|コンビニ/i;
 const GENERIC_PLACE_RE = /^(図書館|カフェ|公園|レストラン|駅|病院|銀行|郵便局|スーパー|薬局|ジム|プール|美容院|床屋|役所|市役所|区役所|居酒屋)$/;
+
+/**
+ * Bug 1 triage (handoff 2026-04-18): userMessage 出処ゲート。
+ *
+ * LLM world knowledge 由来の hallucinate（例: 「二藍」「大戸屋市場」のような
+ * 発話外固有名詞）を遮断。以下のいずれかで許可:
+ *   - known base / chain brand / generic place に該当（システム辞書由来で hallucinate ではない）
+ *   - userMessage に文字列として出現する（正規化: lowercase + 空白/句読点除去）
+ *
+ * 注: この関数は「用語が発話に由来するか」のみを判断する。
+ *   形態妥当性は別（isPlaceNewValueAcceptable）。
+ */
+function isPlaceFromUserUtterance(place: string, userMessage: string): boolean {
+  if (!place) return false;
+  if (KNOWN_BASE_RE.test(place)) return true;
+  if (CHAIN_BRAND_RE.test(place)) return true;
+  if (GENERIC_PLACE_RE.test(place)) return true;
+  const norm = (s: string) => s.toLowerCase().replace(/[\s、。,\.!?！？]/g, "");
+  const u = norm(userMessage);
+  const p = norm(place);
+  if (!p) return false;
+  return u.includes(p);
+}
 
 /**
  * LLM出力の placeType を正規化。LLM が判定を返さなかった場合はフォールバック推定。
@@ -833,31 +893,29 @@ function minutesToHHMM(min: number): string {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export function resolveTargetDate(raw: string): { absoluteDate: string; label: string } {
-  const today = todayJST();
-  const todayDate = new Date(today + "T00:00:00+09:00");
+  const today = todayJST(); // "YYYY-MM-DD" anchored on JST
 
   switch (raw) {
-    case "tomorrow": {
-      const d = new Date(todayDate);
-      d.setDate(d.getDate() + 1);
-      return { absoluteDate: formatDate(d), label: "明日" };
-    }
-    case "day_after_tomorrow": {
-      const d = new Date(todayDate);
-      d.setDate(d.getDate() + 2);
-      return { absoluteDate: formatDate(d), label: "明後日" };
-    }
+    case "tomorrow":
+      return { absoluteDate: addDaysJST(today, 1), label: "明日" };
+    case "day_after_tomorrow":
+      return { absoluteDate: addDaysJST(today, 2), label: "明後日" };
     case "today":
     default:
       return { absoluteDate: today, label: "今日" };
   }
 }
 
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+// JST date arithmetic via UTC internals — independent of server TZ.
+// Prior local-time getters broke on UTC CI (tomorrow collapsed to today).
+function addDaysJST(dateStr: string, days: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const y2 = dt.getUTCFullYear();
+  const m2 = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d2 = String(dt.getUTCDate()).padStart(2, "0");
+  return `${y2}-${m2}-${d2}`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

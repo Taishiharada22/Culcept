@@ -9,6 +9,44 @@ import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(c
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
 import type { TimeConstraintType } from "./planState";
+import type { SlotSharpness } from "./comprehension/eventSchema";
+import type { TransportSegment } from "./transport/types";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3-PR-8 Strict Confirmation — 確定度の型
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-strict-confirmation-design.md §3
+//
+// `plan.status` は plan 全体の確定度、`item.confirmationState` は item 単位の
+// 確定度。UI は両方を別々に描画する。
+//
+// 旧セッション / test fixture 互換のため optional で追加。adapter 通過後の
+// item には normalize により必ず値が入る（normalizedPlanItem.ts 参照）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * PlanItem 全体の確定度（plan.status と独立）。
+ *
+ *   - confirmed:    全 slot sharpness="fixed"、pendingClarify 対象外
+ *   - needs_answer: pendingClarify.event_id === this.id（この item を直接質問中）
+ *   - provisional:  それ以外で何らかの slot が vague/missing
+ */
+export type ConfirmationState = "confirmed" | "provisional" | "needs_answer";
+
+/**
+ * whereSharpness="vague" の sub-kind。
+ *
+ *   - anchor:         「甲府駅周辺」「近場」「〇〇市」— 文言そのものが位置情報
+ *   - category_chain: 「スタバ」「カフェ」「図書館」— カテゴリ/チェーン
+ *   - undecided:      「決めてない」「まだ」「たぶん」— 場所の実体なし
+ *
+ * UI は sub-kind ごとに表示を変える（設計書 §5.2）:
+ *   - anchor:         文言残す、チップなし
+ *   - category_chain: 文言残す + 「店舗暫定」チップ
+ *   - undecided:      文言を描画せず `[場所未確定]` ラベルのみ
+ */
+export type WhereVagueSubKind = "anchor" | "category_chain" | "undecided";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MainLocation — 場所はプラン生成の中核フィールド
@@ -360,6 +398,24 @@ export interface PlanItem {
   /** 移動手段（kind: "travel" のみ） */
   travelTransport?: TransportMode;
 
+  // ── 5W1H How 軸 (CEO 2026-04-28 G2): event 単位の移動手段 ──
+  /**
+   * その予定への移動手段（kind: "fixed" | "todo" 用の "How" 軸）。
+   * `event.transport` (raw Japanese e.g., "電車") を vcTypes.TransportMode に
+   * 正規化したもの。`travelTransport` と異なり、travel 行ではなく **event 行**
+   * 自身に紐づく How 情報。
+   *
+   * 用途:
+   *   - PlanItem として 5W1H 完備性を保証する (Audit G2)
+   *   - 将来 UI で event row に小さい移動手段アイコン表示できるようにする
+   *   - dayConditions.mainTransport (day-wide) と event.transport (per-event) の
+   *     gap を埋める。複数 event で各々違う移動手段を持つケースに対応
+   *
+   * 設計: undefined なら field 不在 (conditional spread)。parseJapaneseTransportToVc
+   * で parse 不能だった raw 値は保存しない (hallucination 防止)。
+   */
+  transport?: TransportMode;
+
   // ── Alter 提案フィールド（Gap Fill Engine 由来） ──
   /** true = Alter が提案した soft proposal（ユーザー予定ではない） */
   proposal?: boolean;
@@ -411,11 +467,43 @@ export interface PlanItem {
     /** anchor からの直線距離（m）。丸め済み。UI の「徒歩約 Xm」に使う。 */
     distanceM?: number;
   }>;
+
+  // ── W3-PR-8 Strict Confirmation (2026-04-22) ──
+  //
+  // 設計書: docs/alter-morning-strict-confirmation-design.md §3.1
+  //
+  // optional: 旧セッション / test fixture の後方互換のため。
+  // adapter 通過後は **必ず値が入る**（normalizePlanItem で保証）。
+  // UI 側では `NormalizedPlanItem` 経由で strict に扱い、`??` fallback 禁止。
+
+  /** item 全体の確定度（plan.status と独立） */
+  confirmationState?: ConfirmationState;
+  /** when slot の sharpness（eventSchema.computeWhenSharpness の結果） */
+  whenSharpness?: SlotSharpness;
+  /** where slot の sharpness（eventSchema.computeWhereSharpness の結果） */
+  whereSharpness?: SlotSharpness;
+  /** what slot の sharpness（eventSchema.computeWhatSharpness の結果） */
+  whatSharpness?: SlotSharpness;
+  /** whereSharpness="vague" 時のみ付与。anchor / category_chain / undecided */
+  whereVagueSubKind?: WhereVagueSubKind;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // MorningPlan — 1日のプラン全体
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * W3-PR-7 Commit 4: plan の確定度。
+ *
+ *   confirmed:   全 slot fixed、ASK なし。「これで行ける」plan
+ *   needs_answer: pendingClarify あり、ユーザー回答待ちの仮の流れ
+ *   provisional: ASK は無いが sharpness=vague 残存 / comprehension_failed 時の
+ *                前ターン継承など、未確定要素を含む「仮の流れ」
+ *
+ * UI は status に応じて表示スタイル（点線・薄色・確定スタンプ等）を出し分ける。
+ * 旧コードへの後方互換のため optional。未指定時は legacyAdapter が推定する。
+ */
+export type MorningPlanStatus = "confirmed" | "needs_answer" | "provisional";
 
 export interface MorningPlan {
   date: string; // YYYY-MM-DD
@@ -426,6 +514,11 @@ export interface MorningPlan {
   createdAt: string;
   /** ユーザーが確定したか */
   confirmed: boolean;
+  /**
+   * W3-PR-7 Commit 4: plan 確定度（3 値）。
+   * 未指定の旧 session 互換のため optional。
+   */
+  status?: MorningPlanStatus;
   /** メインの場所（プラン生成の中核フィールド） */
   mainLocation?: MainLocation;
   /** 1日の流れの文脈 */
@@ -450,6 +543,67 @@ export interface MorningPlan {
    * transport / venue が未指定でも plan を組み、推論根拠を記録する。
    */
   autoInferred?: AutoInferredMap;
+  /**
+   * W3-PR-10 Transport Staircase — canonical edge model（flag: ALTER_MORNING_TRANSPORT_V2）。
+   * 隣接 event pair の両端 where.coordinates が揃った場合のみ生成される。
+   * 揃わない pair は segment 不生成（heuristic placeholder 禁止、不完全情報で捏造しない）。
+   * domain consumer（PR-13/14）はこの field を canonical source として読む。
+   * persisted travel PlanItem は display cache 扱いであり canonical ではない。
+   * flag OFF 時は field 自体を plan に含めない（conditional spread、byte-diff ゼロ保証）。
+   */
+  transportSegments?: TransportSegment[];
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO 2026-04-28: Journey 構造（anchor → ... → endpoint）の plan-level metadata
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //
+  // MorningPlanCard が plan.items の **上** に "起点ノード"、**下** に "終点ノード"
+  // を render するための plan-level metadata。
+  //
+  // CEO 提示構造:
+  //   現在地（🏠）         ← plan.journeyOrigin から render
+  //   🚃                   ← plan.items[0] (kind:travel, HOME_SENTINEL→evt_1)
+  //   予定場所             ← plan.items[1..n] (kind:fixed)
+  //   🚃                   ← plan.items[n+1] (kind:travel, evt_last→ENDPOINT_SENTINEL)
+  //   帰宅                 ← plan.journeyEnd から render
+  //
+  // 設計判断（PlanItem に新 kind を追加しない理由）:
+  //   - PlanItemKind="anchor"/"endpoint" の追加は filter / sort / normalize / migration
+  //     の数十箇所に副作用が及ぶ
+  //   - 起点・終点は plan 全体に 1 件ずつしかない singleton → array より plan-level metadata に
+  //     置くほうが論理的かつ局所的
+  //   - render layer (MorningPlanCard) で 2 ブロック追加するだけで完結する
+  //
+  // 値が undefined の場合の挙動:
+  //   homeAnchor が null（CEO 案 1: 現在地・自宅どちらも無い）→ journeyOrigin / journeyEnd
+  //   ともに undefined。MorningPlanCard は何も render せず、travel item も生成されない
+  //   （hallucination 防止）。
+  /**
+   * 起点アンカー（現在地 / 自宅）。CEO 2026-04-28 Journey 構造の最上位ノード。
+   * coords は travel synthesize 用、label は UI render 用。
+   */
+  journeyOrigin?: {
+    /** "現在地" または "自宅" */
+    label: string;
+    lat: number;
+    lng: number;
+    /** どちらの coordinate が採用されたか */
+    source: "current" | "registered_home";
+  };
+  /**
+   * 終点アンカー（帰宅 / hotel / friend's house）。CEO 2026-04-28 Journey 構造の最下位ノード。
+   * MVP: round-trip default → coords は journeyOrigin と同一、label="帰宅"。
+   * 将来拡張: comprehension が utterance から explicit endpoint を抽出した場合 override。
+   *
+   * 注意: 既存 `endpointAnchor` (type/label/area/needsAreaConfirm) は
+   * saveLastEndpoint / 次プラン継承用の legacy 型で、本 field とは役割が異なる。
+   */
+  journeyEnd?: {
+    label: string;
+    lat: number;
+    lng: number;
+    source: "default_round_trip" | "comprehension_explicit" | "user_override";
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -691,9 +845,73 @@ export interface PersonalityContext {
   decision_tempo?: number;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PendingClarify — W3-PR-7 Commit 2
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 設計書: docs/alter-morning-comprehension-first-wave3-pr7-design.md §3.4
+//
+// ターンをまたいで「直前に何を聞いたか」を保持するダイアログ状態。
+// 次ターンの answerBinder はこの情報を使って、ユーザー返答を正しい event/slot に
+// 書き込む（LLM 再 comprehension に頼らない bind）。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** PendingClarify が指し示す slot（書き込み対象） */
+export type PendingSlot =
+  | "when"
+  | "where"
+  | "what"
+  | "transport"
+  | "endpoint";
+
+/**
+ * 質問時の event スコープ情報。再表示・再質問時に「朝の仕事」等と
+ * event を特定して聞き直せるようにする。
+ */
+export interface PendingClarifyScope {
+  /** "朝" | "12:00" | "夜" | null（表示用ラベル） */
+  timeLabel: string | null;
+  /** "仕事" | "ランチ" | null */
+  activityLabel: string | null;
+  /** plan 内で何番目の event か（1 始まり、同時間帯複数時の曖昧解消用） */
+  eventOrdinal: number;
+}
+
+export interface PendingClarify {
+  /** 対象 event（resolveGaps が決めた primary_clarify.event_id） */
+  event_id: string;
+  /** 書き込み対象 slot */
+  slot: PendingSlot;
+  /**
+   * 質問種別（answerBinder の解釈に使う）。
+   * ClarifyKind と等価の string literal。cyclic import を避けるため string 型で持つ。
+   */
+  kind: string;
+  /** 質問時の event スコープ情報（再表示・再質問用） */
+  scope: PendingClarifyScope;
+  /** 質問文（次ターンで再表示する場合用） */
+  question: string;
+  /** 質問したターンの ISO timestamp（staleness 判定用、将来拡張） */
+  askedAt: string;
+  /**
+   * 意味不明応答の連続カウント。CEO 方針 2026-04-22:
+   *   semantic_miss が 2 連続したら pending を破棄し fresh comprehension に戻す。
+   *   system_miss は連続カウントしない（pending 維持）。
+   */
+  semanticMissCount?: number;
+}
+
 export interface MorningSession {
   /** セッションID */
   sessionId: string;
+  /**
+   * Pipeline バージョン識別子（W3-PR-5）。
+   *   - undefined: 旧 processMorningMessage 経路（レガシー既存セッション）
+   *   - "v2":      新 runMorningPipeline 経路（Comprehension-First v1.3+）
+   * 将来 "v3" 以降に拡張することを前提に string literal union で開ける。
+   * 明示フィールドにしているのは sessionId prefix 判定より brittle でないため。
+   */
+  pipelineVersion?: "v2";
   /** 現在のフェーズ */
   phase: MorningPhase;
   /** 収集したユーザー入力（生テキスト） */
@@ -752,6 +970,37 @@ export interface MorningSession {
    */
   userHomeLat?: number | null;
   userHomeLng?: number | null;
+  /**
+   * W3-PR-7 Commit 2: ダイアログ状態。
+   * 直前ターンで発した clarify 質問の情報。次ターンの answerBinder が
+   * ユーザー応答を正しい event.slot に bind するのに使う。
+   */
+  pendingClarify?: PendingClarify | null;
+  /**
+   * W3-PR-7 Commit 2: v2 pipeline が出した最後の events。
+   * 次ターンで LLM 再 comprehension を飛ばす state 起点。
+   * 「文字列連結で過去発話を再抽出」するレガシー方式を将来置換する土台。
+   *
+   * 型: ComprehensionEvent[]（cyclic import 回避のため unknown で持ち、
+   * 実アクセス側で型ガード。serialization は JSON 互換のため lossless）。
+   */
+  persistedEvents?: import("./comprehension/eventSchema").Event[];
+  /**
+   * W3-PR-8 rev 3 Commit 13: DialogState v2（単一会話所有層）。
+   *
+   * 位置づけ:
+   *   `ALTER_MORNING_DIALOG_STATE_V2=true` のときのみ reducer 経路が
+   *   読み書きする optional field。flag OFF の間は undefined のまま放置される
+   *   （既存 pendingClarify / persistedEvents 経路が全量処理）。
+   *
+   * 設計:
+   *   - docs/alter-morning-strict-confirmation-design.md §3.7
+   *   - docs/alter-morning-pr8-rev3-implementation-detail.md §1
+   *
+   * commit 13 段階では本 field を **読み書きするコードは存在しない**。
+   * type landing のみ（後続 commit 14+ で reducer / route.ts が使う）。
+   */
+  dialogState?: import("./dialog/types").DialogState | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
