@@ -517,7 +517,14 @@ import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 // W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
-import { ALTER_MORNING_FLAGS } from "@/lib/alter-morning/dialog/flags";
+import {
+  ALTER_MORNING_FLAGS,
+  evaluateAlterMorningFlags,
+  type AlterMorningFlagSnapshot,
+} from "@/lib/alter-morning/dialog/flags";
+// W3 Commit 16-T: runtime path 証明 trace (副作用ゼロ、_debug にのみ attach)
+import { buildMorningTurnTrace } from "@/lib/alter-morning/dialog/morningTurnTraceBuilder";
+import type { MorningTurnTrace } from "@/lib/alter-morning/types";
 import { advanceDialogState } from "@/lib/alter-morning/dialog/shadowPipeline";
 import type { DialogFocus } from "@/lib/alter-morning/dialog/types";
 // W3-PR-8 rev 3 Commit 19: DialogState v2 user-facing runtime 昇格（flag ON のみ、phase authority 不干渉）
@@ -884,6 +891,53 @@ export async function POST(req: NextRequest) {
   let llmCallCount = 0;
   // P1.7: 全体レイテンシ分解トラッカー
   const latencyTracker: Record<string, number> = {};
+
+  // ── W3 Commit 16-T: runtime path 証明 trace ──
+  // 「route が使った flag = trace に出る flag」を保証するため snapshot を 1 回だけ取得。
+  // 以降の分岐 (L2003 / L2074 / L2253 など) は snapshot 参照に統一する。
+  // CEO 修正条件 3: getter を複数回読む形は禁止、route が使った値と trace に出る値を同一にする。
+  const flagSnapshot: AlterMorningFlagSnapshot = evaluateAlterMorningFlags({
+    nowIso: new Date(routeStart).toISOString(),
+  });
+
+  // trace 用 local 変数（route の各分岐点で実値を更新するだけ、再評価しない）
+  // 不変条件:
+  //   - これらの変数は trace 構築直前まで「実行結果の記録 buffer」として使う。
+  //   - branch 判定 / fallback / 補正には使わない（CEO 修正条件: builder は記録者）。
+  //   - response 構築直前で buildMorningTurnTrace に丸ごと渡す。
+  let traceActiveDialogPath:
+    | "legacyPendingClarify"
+    | "dialogStateV2"
+    | "hybrid_promote_skipped" = "legacyPendingClarify";
+  let tracePendingClarifySource:
+    | "legacy_persisted"
+    | "derived_from_focus"
+    | "null" = "null";
+  let traceShadowDispatched = false;
+  let traceShadowSkipReason: string | null = null;
+  let traceSelectShadowResult:
+    | { chosenTargetEventId: string | null; canContinueFocus: boolean; reason: string }
+    | null = null;
+  let tracePrevFocus:
+    | { event_id: string; slot: string; narrowStep: number }
+    | null = null;
+  let traceNextFocus:
+    | { event_id: string; slot: string; narrowStep: number }
+    | null = null;
+  let tracePrevConvStatus: string | null = null;
+  let traceNextConvStatus: string | null = null;
+  let traceCapturedSubKind: string | null = null;
+  let traceProgressDelta: string | null = null;
+  let tracePromoteFired = false;
+  let tracePromoteSkipReason: string | null = null;
+  let traceDispatchInfo: {
+    comprehensionEventCount: number;
+    operationsExtracted: number;
+    persistedEventCountBefore: number;
+    persistedEventCountAfter: number;
+    eventsFallback: boolean;
+  } | null = null;
+  let traceHasBlockingUnresolvedSlots = false;
 
   try {
     const tierCheck = await checkStargazerTier("alter");
@@ -2000,7 +2054,7 @@ export async function POST(req: NextRequest) {
             //   誤 dispatch を防ぐ（今 turn は recovery 対象ではない）。
             pipelineAbsorbedOuter = true;
             if (
-              ALTER_MORNING_FLAGS.dialogStateV2 &&
+              flagSnapshot.dialogStateV2.enabled &&
               morningSession?.dialogState != null
             ) {
               try {
@@ -2070,12 +2124,35 @@ export async function POST(req: NextRequest) {
         //   - flag ON 時に classify → reducer → persist → derive が通る
         //   - readyForHandoff=true でも morningResponse.phase は clarifying のまま
         //   - reducer throw 時も user-facing 応答は壊れない（try/catch で吸収）
+        // ── W3 Commit 16-T: shadow block 入口判定の trace 記録 ──
+        // 既存 if 条件と同一 snapshot 値を参照（再評価ではなく branch 結果の記録）。
+        // block に入った場合は下の if 内で skipReason=null に上書き。
+        if (!flagSnapshot.dialogStateV2.enabled) {
+          traceShadowSkipReason = "flag_off";
+        } else if (morningSession?.dialogState == null) {
+          traceShadowSkipReason = "no_dialog_state";
+        } else if (typeof message !== "string" || message.length === 0) {
+          traceShadowSkipReason = "empty_message";
+        }
+
         if (
-          ALTER_MORNING_FLAGS.dialogStateV2 &&
+          flagSnapshot.dialogStateV2.enabled &&
           morningSession?.dialogState != null &&
           typeof message === "string" &&
           message.length > 0
         ) {
+          // ── W3 Commit 16-T: shadow block 入った、prev 状態を実値で記録 ──
+          tracePrevFocus = morningSession.dialogState.focus
+            ? {
+                event_id: morningSession.dialogState.focus.event_id,
+                slot: morningSession.dialogState.focus.slot,
+                narrowStep: morningSession.dialogState.focus.narrowStep,
+              }
+            : null;
+          tracePrevConvStatus = morningSession.dialogState.conversationStatus;
+          // skipReason 候補をクリア（block 入ったので skip 理由なし、advance 呼ばれなければ別途上書き）
+          traceShadowSkipReason = null;
+
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
           // W3-PR-8 rev 3 commit 24: PROVIDER_RECOVERED dispatch（shadow 冒頭）
           // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2155,6 +2232,28 @@ export async function POST(req: NextRequest) {
             });
             const targetEventId = targetSelection.chosenTargetEventId;
 
+            // ── W3 Commit 16-T: selectShadowTargetEventId 結果を実値で記録 ──
+            traceSelectShadowResult = {
+              chosenTargetEventId: targetSelection.chosenTargetEventId,
+              canContinueFocus: targetSelection.canContinueFocus,
+              reason: targetSelection.reason,
+            };
+            // shadow block 入ったが advanceDialogState が呼ばれない場合の skipReason 候補
+            if (targetEventId == null || targetSlot == null) {
+              traceShadowSkipReason = "no_target_event_or_slot";
+            }
+
+            // ── W3 Commit 16-T: dispatch info (events scope 内で取れる値のみ記録) ──
+            // CEO 修正条件「取れない値は null、0 で偽装しない」に従い、
+            // route が直接保持しない値 (operationsExtracted / before / fallback) は null。
+            traceDispatchInfo = {
+              comprehensionEventCount: events.length,
+              operationsExtracted: null, // wave3-pr8 で route 直接保持しない
+              persistedEventCountBefore: null, // dispatch 前の値を route が保持しない
+              persistedEventCountAfter: null, // 後で response 構築直前に上書き
+              eventsFallback: null, // PR-50 概念、wave3-pr8 未実装
+            };
+
             if (targetEventId != null && targetSlot != null) {
               // CEO 条件 #2: structured log
               //   prev/pending/events0/chosen/eventChanged/reason を 1 行で出力。
@@ -2190,6 +2289,26 @@ export async function POST(req: NextRequest) {
                 ...morningSession,
                 dialogState: advanced.nextState,
               };
+
+              // ── W3 Commit 16-T: advanceDialogState 完了、next 状態を実値で記録 ──
+              traceShadowDispatched = true;
+              traceShadowSkipReason = null; // 確実に dispatch された
+              traceNextFocus = advanced.nextState.focus
+                ? {
+                    event_id: advanced.nextState.focus.event_id,
+                    slot: advanced.nextState.focus.slot,
+                    narrowStep: advanced.nextState.focus.narrowStep,
+                  }
+                : null;
+              traceNextConvStatus = advanced.nextState.conversationStatus;
+              const lastCapEntry =
+                advanced.nextState.capturedHistory[
+                  advanced.nextState.capturedHistory.length - 1
+                ];
+              traceCapturedSubKind = lastCapEntry?.capture.subKind ?? null;
+              traceProgressDelta = lastCapEntry?.progressDelta ?? null;
+              tracePendingClarifySource =
+                advanced.derived !== null ? "derived_from_focus" : "null";
               // ⚠ advanced.derived は session.pendingClarify に書き戻さない
               //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2218,6 +2337,22 @@ export async function POST(req: NextRequest) {
                 derived: advanced.derived,
               });
               const promoted = morningResponse.message !== beforePromoteMessage;
+
+              // ── W3 Commit 16-T: promote 結果を実値で記録 ──
+              tracePromoteFired = promoted;
+              if (!promoted) {
+                // 不発火理由を実際の判定式から記録 (再計算ではなく実状態の判定)
+                tracePromoteSkipReason =
+                  morningResponse.phase !== "clarifying"
+                    ? "phase_not_clarifying"
+                    : advanced.derived === null
+                      ? "derived_null"
+                      : "empty_question";
+              }
+              traceActiveDialogPath = promoted
+                ? "dialogStateV2"
+                : "hybrid_promote_skipped";
+
               console.info(
                 `[dialog-state-v2:shadow] status=${advanced.nextState.conversationStatus} ` +
                   `narrowStep=${advanced.nextState.focus?.narrowStep ?? 0} ` +
@@ -2250,7 +2385,10 @@ export async function POST(req: NextRequest) {
               //   - parked の参照・再利用
               //   - provider_error の cache 保存
               //   - await を飛ばした fire-and-forget（次 dispatch が state 依存）
-              if (ALTER_MORNING_FLAGS.placesSearch && morningSession.dialogState) {
+              // 旧条件 `ALTER_MORNING_FLAGS.placesSearch && morningSession.dialogState` と等価。
+              // raw を使うことで「flag OFF + 旧 session の dialogState non-null」経路の挙動を維持。
+              // AND gate (effectiveEnabled) の観測は trace 側で別途記録する。
+              if (flagSnapshot.placesSearch.rawEnabled && morningSession.dialogState) {
                 try {
                   const handoff = await orchestratePlacesHandoff({
                     userId,
@@ -9643,6 +9781,81 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── W3 Commit 16-T: runtime path 証明 trace の構築（return 直前、try/catch で fail-open）──
+    // CEO 修正条件:
+    //   - builder は記録者 only（推測 / 補正 / 再計算なし）
+    //   - 失敗時は morningTurnTrace=null で fallback、response 全体を壊さない
+    //   - _debug.morningTurnTrace 以外の response field は変更しない
+    //   - flag は route 入口で取得した snapshot を再評価せず使う
+    let morningTurnTraceForResponse: MorningTurnTrace | null = null;
+    if (morningResponse && morningResponse.phase !== "skipped") {
+      try {
+        // (a) legacy 経路（shadow が advance まで到達しなかった）の pendingClarifySource 判定
+        // morningSession.pendingClarify の実値（non-null か否か）から記録する。
+        if (!traceShadowDispatched) {
+          tracePendingClarifySource =
+            morningSession?.pendingClarify != null
+              ? "legacy_persisted"
+              : "null";
+        }
+
+        // (b) dispatch info の最終値を更新
+        // persistedEventCountAfter は response 構築時点の morningSession から取得。
+        // 取れない値は null のまま（CEO: 0 で偽装禁止）。
+        if (traceDispatchInfo !== null) {
+          traceDispatchInfo = {
+            ...traceDispatchInfo,
+            persistedEventCountAfter:
+              morningSession?.persistedEvents?.length ?? null,
+          };
+        } else {
+          // shadow block 入らなかった場合、dispatch info を最低限記録
+          // events scope 外のため comprehensionEventCount は null
+          traceDispatchInfo = {
+            comprehensionEventCount: null,
+            operationsExtracted: null,
+            persistedEventCountBefore: null,
+            persistedEventCountAfter:
+              morningSession?.persistedEvents?.length ?? null,
+            eventsFallback: null,
+          };
+        }
+
+        morningTurnTraceForResponse = buildMorningTurnTrace({
+          flagSnapshot,
+          dialogStateAvailable: morningSession?.dialogState != null,
+          placesHandoffEligible:
+            flagSnapshot.placesSearch.effectiveEnabled &&
+            morningSession?.dialogState != null,
+          activeDialogPath: traceActiveDialogPath,
+          pendingClarifySource: tracePendingClarifySource,
+          shadow: {
+            dispatched: traceShadowDispatched,
+            skipReason: traceShadowSkipReason,
+            selectResult: traceSelectShadowResult,
+            prevFocus: tracePrevFocus,
+            nextFocus: traceNextFocus,
+            prevConvStatus: tracePrevConvStatus,
+            nextConvStatus: traceNextConvStatus,
+            capturedSubKind: traceCapturedSubKind,
+            progressDelta: traceProgressDelta,
+          },
+          promote: {
+            fired: tracePromoteFired,
+            skipReason: tracePromoteSkipReason,
+          },
+          dispatch: traceDispatchInfo,
+          responsePhase: morningResponse.phase,
+        });
+      } catch (err) {
+        // trace 構築失敗時は response を壊さない（fail-open）
+        console.warn(
+          `[morning-turn-trace] build failed: ${(err as Error).message}`,
+        );
+        morningTurnTraceForResponse = null;
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       sessionId,
@@ -9685,6 +9898,11 @@ export async function POST(req: NextRequest) {
           //   次ターンで返送する。
           ...(morningSession?.dialogState != null
             ? { dialogState: morningSession.dialogState }
+            : {}),
+          // ── W3 Commit 16-T: runtime path 証明 trace ──
+          // 副作用ゼロ、観測のみ。trace 構築失敗時は field 自体を出さない（fail-open）。
+          ...(morningTurnTraceForResponse !== null
+            ? { _debug: { morningTurnTrace: morningTurnTraceForResponse } }
             : {}),
         },
       } : {}),

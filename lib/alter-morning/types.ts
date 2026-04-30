@@ -953,6 +953,173 @@ export interface MorningProtocolResponse {
   clarifyQuestion?: string;
   /** パーソナライズヒント */
   personalizeHints?: string[];
+  /**
+   * Commit 16-T (W3 trace): runtime path 証明用の観測 field。
+   *
+   * 副作用ゼロ:
+   *   - 本 field は user-facing UI に一切影響しない（client は無視）。
+   *   - phase / message / plan / clarifyQuestion / personalizeHints は
+   *     trace 構築の影響を受けない（trace 構築失敗時も response は生成される）。
+   *
+   * PII 制限:
+   *   - 発話本文 / coordinates / userId / 候補地詳細は本 trace に含めない。
+   *   - 出すのは event_id / slot / 状態名 / count / flag source のみ。
+   */
+  _debug?: {
+    morningTurnTrace?: MorningTurnTrace;
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Commit 16-T: MorningTurnTrace — runtime path 証明 trace
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Alter Morning route の 1 turn 分の runtime path を記録する trace。
+ *
+ * 目的:
+ *   - DialogState V2 が runtime で本当に有効かを証明する
+ *   - placesSearch の AND gate が通っているかを証明する
+ *   - shadow pipeline / promote が発火しているかを証明する
+ *   - dispatch / phase authority がどちらの経路で決まったかを記録する
+ *
+ * 設計原則（CEO 修正条件 2026-04-30）:
+ *   1. trace は推測ではなく **実行結果の記録**。
+ *      morningTurnTraceBuilder は受け取った値をコピーするだけの「記録者」であり、
+ *      判定式 / 補正 / 計算ロジックは持たない。
+ *   2. flag は route 入口で `evaluateAlterMorningFlags` を 1 回呼んで取得した
+ *      snapshot をそのまま埋める。trace 構築時に再評価しない。
+ *   3. dialog 系の値（ConversationStatus / CaptureSubKind / ProgressDelta）は
+ *      型エイリアスではなく string で記録する。型で値を絞ることで builder が
+ *      「不正な値を弾く判定者」になることを構造的に防ぐ。
+ *
+ * 不変条件:
+ *   - 本 trace は `_debug.morningTurnTrace` 経由でのみ user に届く（副作用ゼロ）。
+ *   - 構築失敗時は `_debug.morningTurnTrace` を埋めず response を返す。
+ *   - PII（発話本文 / coordinates / userId / 候補地詳細）を含めない。
+ */
+export interface MorningTurnTrace {
+  // ── flag/path 証明 ──
+  /**
+   * route 入口で取得した flag snapshot。
+   * 評価ロジックは `evaluateAlterMorningFlags` 1 箇所のみ（修正条件 3）。
+   */
+  flagSnapshot: import("./dialog/flags").AlterMorningFlagSnapshot;
+
+  // ── state availability（flag effective でも state 無しなら動かない） ──
+  /** `morningSession.dialogState != null` の事実 */
+  dialogStateAvailable: boolean;
+  /** `flag.placesSearch.effectiveEnabled ∧ dialogStateAvailable` の事実 */
+  placesHandoffEligible: boolean;
+
+  // ── active path（route が実際に通った分岐） ──
+  /**
+   * route が 1 turn でどの dialog path を通ったか。
+   *   - "legacyPendingClarify": flag OFF か state 無しで legacy 経路
+   *   - "dialogStateV2":         flag ON + state 有り + promote 発火
+   *   - "hybrid_promote_skipped": flag ON + state 有り だが promote 不発火
+   */
+  activeDialogPath:
+    | "legacyPendingClarify"
+    | "dialogStateV2"
+    | "hybrid_promote_skipped";
+  /**
+   * pendingClarify の source。
+   *   - "legacy_persisted":    session.pendingClarify を直読み
+   *   - "derived_from_focus":  derivePendingClarify 結果を使った
+   *   - "null":                両方 null（質問なし）
+   */
+  pendingClarifySource: "legacy_persisted" | "derived_from_focus" | "null";
+
+  // ── shadow pipeline（advanceDialogState 発火結果） ──
+  shadow: {
+    /** advanceDialogState を呼んだか */
+    dispatched: boolean;
+    /** 呼ばなかった理由（dispatched=false の時のみ非 null） */
+    skipReason: string | null;
+    /**
+     * selectShadowTargetEventId の結果（dispatched=true の時のみ非 null）。
+     * focus 継承可否の決定的根拠。
+     */
+    selectResult: {
+      chosenTargetEventId: string | null;
+      canContinueFocus: boolean;
+      reason: string;
+    } | null;
+    /** prev DialogState.focus（advanceDialogState 直前のスナップショット） */
+    prevFocus: {
+      event_id: string;
+      slot: string;
+      narrowStep: number;
+    } | null;
+    /** next DialogState.focus（advanceDialogState 直後のスナップショット） */
+    nextFocus: {
+      event_id: string;
+      slot: string;
+      narrowStep: number;
+    } | null;
+    /** prev ConversationStatus（string で記録、型エイリアス使わない） */
+    prevConvStatus: string | null;
+    /** next ConversationStatus */
+    nextConvStatus: string | null;
+    /** 直近 capturedHistory entry の subKind（string で記録） */
+    capturedSubKind: string | null;
+    /** 直近 capturedHistory entry の progressDelta（string で記録） */
+    progressDelta: string | null;
+  };
+
+  // ── promote（DialogState → user-facing 装飾レイヤ発火） ──
+  promote: {
+    /** promoteDialogStateToUserFacing が response.message を上書きしたか */
+    fired: boolean;
+    /**
+     * 不発火の理由（fired=false の時のみ非 null）。
+     *   - "phase_not_clarifying": response.phase !== "clarifying"
+     *   - "derived_null":         derive 結果が null
+     *   - "empty_question":       derive.question が空文字
+     *   - "flag_off":              flag OFF で promote 自体が呼ばれなかった
+     *   - "no_dialog_state":       state 無しで promote 自体が呼ばれなかった
+     */
+    skipReason: string | null;
+  };
+
+  // ── dispatch（wave3-pr8 で実観測できる field のみ、PR-50 互換は対象外） ──
+  /**
+   * comprehension / dispatch / persisted の event count 推移。
+   *
+   * CEO 修正条件「実際に存在しない値は 0 で偽装しない、取れないなら null」に従い、
+   * 各 field は nullable。route.ts が直接保持する値のみ非 null で記録する。
+   *
+   * - 値が取れた → number / boolean
+   * - 値が取れない（route が直接保持しない、scope 外、PR-50 概念で wave3-pr8 未実装等）
+   *   → null（推測 / 偽装ではなく「観測不能」を明示）
+   *
+   * dispatch オブジェクト自体が null の場合は「dispatch 関連の観測を一切行わなかった」
+   * （例: pipeline 早期エラーで comprehension に到達しなかった turn）。
+   */
+  dispatch: {
+    /** 今 turn の comprehension が出した events.length（取れない場合 null） */
+    comprehensionEventCount: number | null;
+    /** 今 turn の operations[] 抽出件数（wave3-pr8 で route 直接保持しないなら null） */
+    operationsExtracted: number | null;
+    /** dispatch 前の session.persistedEvents.length（取れない場合 null） */
+    persistedEventCountBefore: number | null;
+    /** dispatch 後の session.persistedEvents.length（取れない場合 null） */
+    persistedEventCountAfter: number | null;
+    /** operations[] 抽出失敗 → events[] fallback したか（取れない場合 null） */
+    eventsFallback: boolean | null;
+  } | null;
+
+  // ── phase authority（legacy が決めた値を実値で記録） ──
+  /**
+   * 最終 response.phase（string で記録）。
+   *
+   * 注: `hasBlockingUnresolvedSlots` は legacyAdapter 内で呼ばれ、route.ts が
+   * 直接値を保持しない。CEO 修正条件「route が実際に使った値を渡す」を厳密に
+   * 守るため、本 trace では含めない（推測ではなく実値の記録のみ）。
+   * phase=clarifying かどうかから blocking 状態の事後推定は CEO 側で行う。
+   */
+  responsePhase: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
