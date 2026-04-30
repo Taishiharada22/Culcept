@@ -269,20 +269,50 @@ const WHERE_SUB_KINDS: ReadonlySet<CaptureSubKind> = new Set<CaptureSubKind>([
   "baseline",
 ]);
 
+/**
+ * P1.6: 全文 sentence guard.
+ *
+ * 「明日の9時に渋谷のスタバ」のような全文 sentence は taxonomy で
+ * chain_with_anchor / category_with_anchor 等として判定される。
+ * しかし answerBinder はこれを where.place_ref に **全文 bind** するため、
+ * place_ref="明日の9時に渋谷のスタバ" のような汚染が発生する (CEO 実機 trace 2026-05-01)。
+ *
+ * 場所回答として自然な短文 (「渋谷」「渋谷駅近く」「マークシティ周辺」) と、
+ * 全文 sentence (時刻 + 場所 + 活動を含む長文) を区別する。
+ *
+ * 判定:
+ *   - 時刻パターン (\d+時 or \d+:\d+) を含む → 全文 sentence の可能性高 → where_refinement 不適格
+ *   - その他は taxonomy 判定のまま許可
+ */
+const TIME_PATTERN_FOR_GUARD = /\d{1,2}(?:時|:\d{1,2})/;
+
+function isFullSentenceLikely(utterance: string): boolean {
+  return TIME_PATTERN_FOR_GUARD.test(utterance);
+}
+
 function classifyWhereRefinement(
   utterance: string,
 ): CandidateIntentResult | null {
   const taxonomy = classifyUtterance(utterance);
-  if (WHERE_SUB_KINDS.has(taxonomy.subKind)) {
-    return {
-      intent: "where_refinement",
-      confidence:
-        taxonomy.subKind === "proper_noun_specific" ? "high" : "medium",
-      reason: `taxonomy:${taxonomy.subKind}`,
-      matchedSpan: taxonomy.rawSpan,
-    };
+  if (!WHERE_SUB_KINDS.has(taxonomy.subKind)) {
+    return null;
   }
-  return null;
+
+  // P1.6: 全文 sentence guard (時刻含む長文を where_refinement から除外)
+  if (isFullSentenceLikely(utterance)) {
+    // taxonomy では subKind が決まっているが、place_ref に全文 bind する危険があるため
+    // where_refinement として通さず noop_other に落として LLM Branch B に委譲する。
+    // null を返すと後続の noop_other fallback に流れる。
+    return null;
+  }
+
+  return {
+    intent: "where_refinement",
+    confidence:
+      taxonomy.subKind === "proper_noun_specific" ? "high" : "medium",
+    reason: `taxonomy:${taxonomy.subKind}`,
+    matchedSpan: taxonomy.rawSpan,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

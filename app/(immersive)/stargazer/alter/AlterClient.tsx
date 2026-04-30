@@ -31,6 +31,20 @@ import { updateEngagementField } from "@/lib/stargazer/engagementScore";
 // Types
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * W3 P2: 候補カード描画用の最小 type (lib/alter-morning/search/normalizedPlace の subset).
+ * server から送られてくる morningProtocol.candidates をそのまま受ける形で型定義.
+ */
+interface AlterMorningCandidate {
+  placeId: string;
+  displayName: string;
+  address: string;
+  coordinates: { lat: number; lng: number };
+  distanceFromAnchor: number | null;
+  category: string | null;
+  chainToken: string | null;
+}
+
 interface ChatMessage {
   id: string;
   role: "alter" | "user" | "system";
@@ -38,6 +52,8 @@ interface ChatMessage {
   mode: AlterMode;
   timestamp: string;
   isInsight?: boolean;
+  /** W3 P2: 朝予定の候補地リスト (search_candidates_presented 状態で server から bridge) */
+  candidates?: AlterMorningCandidate[];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -198,6 +214,50 @@ function getSortedPartsList(): {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Candidate Card List (W3 P2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO 不変条件:
+//   - search_candidates_presented 状態で server が bridge した候補を表示するのみ
+//   - 候補選択は P2 では仕様外 (UI 表示のみ、tap で何も起きない)
+//   - phase / plan / persistedEvents を変更する操作は含めない
+//   - 0 件の時は親側で render しないため、ここでは empty state を持たない
+
+function CandidateCardList({
+  candidates,
+}: {
+  candidates: AlterMorningCandidate[];
+}) {
+  return (
+    <div className="mt-3 space-y-2">
+      <p className="text-[11px] font-medium text-slate-500">
+        候補がいくつか見つかりました
+      </p>
+      {candidates.map((c) => (
+        <div
+          key={c.placeId}
+          className="rounded-xl border border-slate-200/60 bg-white/60 backdrop-blur-sm px-3 py-2 shadow-sm"
+        >
+          <p className="text-[13px] font-semibold text-slate-800 leading-tight">
+            {c.displayName}
+          </p>
+          {c.address && (
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+              {c.address}
+            </p>
+          )}
+          {c.distanceFromAnchor != null && (
+            <p className="text-[10px] text-slate-400 mt-0.5">
+              アンカーから {Math.round(c.distanceFromAnchor)}m
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Message Bubble
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -298,6 +358,11 @@ function AlterBubble({
         >
           {message.content}
         </p>
+
+        {/* W3 P2: 朝予定の候補カード list (activePresentation.candidates が存在する場合のみ) */}
+        {message.candidates && message.candidates.length > 0 && (
+          <CandidateCardList candidates={message.candidates} />
+        )}
 
         {/* Insight highlight */}
         {message.isInsight && (
@@ -763,12 +828,24 @@ export default function AlterClient() {
           setCurrentMode(newMode);
         }
 
+        // W3 P2: 朝予定の候補カードを bridge から取得
+        // server (route.ts) で activePresentation.candidates が
+        // morningProtocol.candidates に spread されている (search_candidates_presented 状態のみ)
+        const candidatesFromServer:
+          | AlterMorningCandidate[]
+          | undefined = Array.isArray(data?.morningProtocol?.candidates)
+          ? (data.morningProtocol.candidates as AlterMorningCandidate[])
+          : undefined;
+
         const alterMsg: ChatMessage = {
           id: `alter_${Date.now()}`,
           role: "alter",
           content: data.response,
           mode: newMode,
           timestamp: new Date().toISOString(),
+          ...(candidatesFromServer && candidatesFromServer.length > 0
+            ? { candidates: candidatesFromServer }
+            : {}),
         };
 
         setMessages((prev) => {

@@ -10067,6 +10067,26 @@ export async function POST(req: NextRequest) {
           ...(morningSession?.dialogState != null
             ? { dialogState: morningSession.dialogState }
             : {}),
+          // ── W3 P2: candidate presentation bridge ──
+          // CEO 不変条件:
+          //   1. search_handoff_blocking は internal only (= bridge しない)
+          //   2. search_candidates_presented は user-facing 昇格
+          //   3. phase / plan / persistedEvents は壊さない
+          //   4. activePresentation.candidates をそのまま正式 field 化
+          //   5. 0 件の場合は activePresentation 自体が null (既存 reducer 仕様) → field 不在
+          //
+          // 実装:
+          //   activePresentation が存在し candidates が 1 件以上ある場合のみ
+          //   morningProtocol.candidates として送出する。client (AlterClient.tsx) は
+          //   このフィールドを読んで候補カードを描画する。
+          //   候補選択は P2 では仕様外 (UI 表示のみ)、P3+ で完成。
+          ...(morningSession?.dialogState?.activePresentation != null &&
+          morningSession.dialogState.activePresentation.candidates.length > 0
+            ? {
+                candidates:
+                  morningSession.dialogState.activePresentation.candidates,
+              }
+            : {}),
           // ── W3 Commit 16-T: runtime path 証明 trace ──
           // 副作用ゼロ、観測のみ。trace 構築失敗時は field 自体を出さない（fail-open）。
           ...(morningTurnTraceForResponse !== null

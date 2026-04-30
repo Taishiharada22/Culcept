@@ -270,6 +270,65 @@ describe("noop_other (Branch B 委譲)", () => {
 // CEO 不変条件: where 汚染を止める
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+describe("P1.6: 全文 sentence guard (CEO 実機 trace 2026-05-01)", () => {
+  // 実機 trace で確定した bug:
+  //   「明日の9時に渋谷のスタバ」が taxonomy で chain_with_anchor 判定 →
+  //   where_refinement として answerBinder に流れ →
+  //   place_ref="明日の9時に渋谷のスタバ" 全文 bind 発生
+  //
+  // P1.6 修正:
+  //   時刻パターン (\d+時 or \d+:\d+) を含む長文は where_refinement から除外し、
+  //   noop_other に落として Branch B (LLM 再 comprehension) に委譲する。
+
+  test("「明日の9時に渋谷のスタバ」→ where_refinement にならない (全文 guard)", () => {
+    const r = classifyCandidateUtterance(
+      "明日の9時に渋谷のスタバ",
+      ctxWithCandidates,
+    );
+    // CEO 不変条件: 全文 bind を防ぐ
+    expect(r.intent).not.toBe("where_refinement");
+    // 既存 P1 の transport / modify / append / reject にも該当しないため noop_other に落ちる
+    expect(r.intent).toBe("noop_other");
+  });
+
+  test("「9時に渋谷」→ where_refinement にならない (時刻含む)", () => {
+    const r = classifyCandidateUtterance("9時に渋谷", ctxWithCandidates);
+    expect(r.intent).not.toBe("where_refinement");
+  });
+
+  test("「9:00 渋谷」→ where_refinement にならない (時刻含む)", () => {
+    const r = classifyCandidateUtterance("9:00 渋谷", ctxWithCandidates);
+    expect(r.intent).not.toBe("where_refinement");
+  });
+
+  test("「渋谷」→ where_refinement (短文、時刻なし、許可)", () => {
+    const r = classifyCandidateUtterance("渋谷", ctxWithCandidates);
+    expect(r.intent).toBe("where_refinement");
+  });
+
+  test("「渋谷駅近く」→ where_refinement (短文、時刻なし、許可)", () => {
+    const r = classifyCandidateUtterance("渋谷駅近く", ctxWithCandidates);
+    expect(r.intent).toBe("where_refinement");
+  });
+
+  test("「マークシティ周辺」→ taxonomy 限界で noop_other 許容 (全文 bind されないことが重要)", () => {
+    // taxonomy の dict に「マークシティ」が anchor として登録がない場合 noop_other に落ちる。
+    // これは taxonomy 拡充の領域 (P1.6 範囲外)。
+    // CEO 不変条件「全文 bind されない」は noop_other → Branch B 委譲で満たされる。
+    const r = classifyCandidateUtterance("マークシティ周辺", ctxWithCandidates);
+    expect([
+      "where_refinement",
+      "candidate_select",
+      "noop_other",
+    ]).toContain(r.intent);
+  });
+
+  test("「自宅」→ where_refinement (baseline、時刻なし、許可)", () => {
+    const r = classifyCandidateUtterance("自宅", ctxWithCandidates);
+    expect(r.intent).toBe("where_refinement");
+  });
+});
+
 describe("CEO 不変条件: where 汚染を止める (P1 成功条件)", () => {
   // gate が answerBinder を skip すべき intent 一覧
   const skipIntents = [
