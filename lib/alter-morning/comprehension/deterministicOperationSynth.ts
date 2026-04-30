@@ -146,8 +146,11 @@ export function detectDeterministicPatterns(
     });
   }
 
-  // 2. transport-only pattern
-  const transport = detectTransportOnly(utterance);
+  // 2. transport-only pattern (「電車」「徒歩」「車」 単独 + 「車に変更」 等)
+  // 2.1. transport-modify pattern (「移動は車に変更」「移動手段を車に変更」 等、Commit 13)
+  //      transport-only より広い pattern。両者を順序付きで evaluate する。
+  const transport =
+    detectTransportOnly(utterance) ?? detectTransportModify(utterance);
   if (transport) {
     out.push({
       type: "modify",
@@ -298,11 +301,68 @@ function detectTransportOnly(utterance: string): string | null {
     .replace(/に変更$/, "")
     .replace(/に変える$/, "")
     .replace(/にする$/, "")
+    .replace(/にして$/, "")
+    .replace(/変えて$/, "")
     .replace(/に$/, "")
     .replace(/で$/, "");
   if (!core) return null;
 
   // 完全一致 check: core 全体が transport vocabulary に等しい
+  return parseTransportExact(core);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Pattern: transport-modify (Commit 13、CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 「移動」「移動手段」 prefix 付きの transport 変更 utterance を判定。
+ *
+ * 認識する例 (CEO 限定 scope 2026-04-30):
+ *   - 「移動は車に変更」「移動は車にする」「移動は車にして」
+ *   - 「移動手段を車に変更」「移動手段は徒歩にする」
+ *   - 「移動を電車に」「移動は徒歩」
+ *
+ * 認識しない (false positive 防止):
+ *   - 「移動は楽しい」 (transport vocabulary 不一致 → null)
+ *   - 「池袋に変更」 (transport prefix なし、parseTransportExact null)
+ *   - 「移動の予定」 (transport vocabulary 不一致)
+ *
+ * 判定ロジック:
+ *   1. utterance を NFKC 正規化 + trim + 句読点除去
+ *   2. 末尾の動詞句 (「に変更」「にする」「変えて」 等) を除去
+ *   3. **先頭の「移動(は|手段(を|は)?)」 prefix を除去**
+ *   4. core が transport vocabulary に完全一致するか check
+ *
+ * `detectTransportOnly` は prefix 除去をしないため「移動は車に変更」 を
+ * hit できなかった。本関数は prefix を除去することで救済する。
+ *
+ * 戻り値: transport vocabulary 正規化後の値 (parseTransportExact の戻り値)。
+ */
+function detectTransportModify(utterance: string): string | null {
+  const u = utterance.normalize("NFKC").trim();
+  if (!u) return null;
+
+  // 1-2. 句読点除去 + 末尾動詞句除去
+  let core = u
+    .replace(/[。.！!？?、,\s]+/g, "")
+    .replace(/に変更$/, "")
+    .replace(/に変える$/, "")
+    .replace(/にする$/, "")
+    .replace(/にして$/, "")
+    .replace(/変えて$/, "")
+    .replace(/に$/, "")
+    .replace(/で$/, "");
+
+  // 3. 先頭の「移動」「移動手段(を|は)」 prefix を除去
+  //    順序重要: 長い pattern (「移動手段を」「移動手段は」) を先に除去
+  core = core
+    .replace(/^移動手段(?:を|は)?/, "")
+    .replace(/^移動(?:を|は)?/, "");
+
+  if (!core) return null;
+
+  // 4. transport vocabulary に完全一致
   return parseTransportExact(core);
 }
 

@@ -207,6 +207,74 @@ describe("detectDeterministicPatterns: transport-only", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Commit 13: detectTransportModify (transport pattern 拡張)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("detectDeterministicPatterns: transport-modify (Commit 13、CEO 2026-04-30)", () => {
+  const prior = [mkPriorEvent()];
+
+  it.each([
+    ["移動は車に変更", "車"],
+    ["移動は車にする", "車"],
+    ["移動は車にして", "車"],
+    ["移動を車に変更", "車"],
+    ["移動手段を車に変更", "車"],
+    ["移動手段は車に変更", "車"],
+    ["移動手段を徒歩に変更", "徒歩"],
+    ["移動は電車に変更", "電車"],
+    ["移動はバスにする", "バス"],
+    ["移動手段を自転車に", "自転車"],
+  ])("「%s」 → modify with patch.transport=%s", (input, expected) => {
+    const ops = detectDeterministicPatterns(input, prior);
+    expect(ops).toHaveLength(1);
+    expect(ops[0].type).toBe("modify");
+    if (ops[0].type === "modify") {
+      expect(ops[0].targetRef).toBe("今日の予定");
+      expect(ops[0].patch.transport).toBe(expected);
+    }
+  });
+
+  it.each([
+    ["「車に変更」", "車に変更", "車"],
+    ["「徒歩に変更」", "徒歩に変更", "徒歩"],
+    ["「電車に変更」", "電車に変更", "電車"],
+    ["「車にする」", "車にする", "車"],
+    ["「徒歩にして」", "徒歩にして", "徒歩"],
+  ])("transport-only path: %s → patch.transport=%s", (_label, input, expected) => {
+    const ops = detectDeterministicPatterns(input, prior);
+    expect(ops).toHaveLength(1);
+    if (ops[0].type === "modify") {
+      expect(ops[0].patch.transport).toBe(expected);
+    }
+  });
+
+  it("false positive: 「移動は楽しい」 (transport vocabulary 不一致) → null", () => {
+    const ops = detectDeterministicPatterns("移動は楽しい", prior);
+    expect(ops).toHaveLength(0);
+  });
+
+  it("false positive: 「池袋に変更」 (place 名、transport ではない) → null", () => {
+    const ops = detectDeterministicPatterns("池袋に変更", prior);
+    expect(ops).toHaveLength(0);
+  });
+
+  it("false positive: 「移動の予定」 (動詞 / transport なし) → null", () => {
+    const ops = detectDeterministicPatterns("移動の予定", prior);
+    expect(ops).toHaveLength(0);
+  });
+
+  it("false positive: 「車で行く」 (動詞含む) → null", () => {
+    const ops = detectDeterministicPatterns("車で行く", prior);
+    expect(ops).toHaveLength(0);
+  });
+
+  it("priorEvents 空 → hit しない (transport-modify でも)", () => {
+    const ops = detectDeterministicPatterns("移動は車に変更", []);
+    expect(ops).toHaveLength(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // synthesizeOperations: 優先順位
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
