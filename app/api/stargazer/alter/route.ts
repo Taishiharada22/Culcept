@@ -541,6 +541,7 @@ import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyF
 //   streak≥1 で user-facing message を alter voice の degrade 文に差し替える。
 //   phase / plan は触らない。次 turn 成功で PROVIDER_RECOVERED が streak=0 に戻す。
 import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
+import { reconcileDialogState } from "@/lib/alter-morning/planning/reconcileEffectiveEvents";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
 import {
@@ -2365,10 +2366,52 @@ export async function POST(req: NextRequest) {
                   morningSession.dialogState.capturedHistory.length + 1,
                 nowIso: new Date().toISOString(),
               });
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // PR-50 Commit 11: post-turn final reconcile (CEO 2026-04-30)
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // 真因 (CEO + GPT 共同確定 2026-04-30):
+              //   advanceDialogState (= dialogReducer の TURN_CAPTURED handler)
+              //   は prev.focus が null でも `action.targetEventId / targetSlot`
+              //   から **focus を新規作成** する (lib/alter-morning/dialog/reducer.ts
+              //   L487-492)。
+              //   これにより adapter 内の reconcileDialogState (PR-50 Commit 9)
+              //   で focus=null に整合した状態が、reducer 後に再び focus=where 等
+              //   に書き戻される (CEO Preview 観測 2026-04-30: focusCleared=true
+              //   なのに dialogState.focus が where で残留)。
+              //
+              // 修正方針 (post-turn finalization):
+              //   adapter reconcile = pipeline 内の整合 (Commit 9、維持)
+              //   route final reconcile = 最終レスポンス前の整合 (本 commit、追加)
+              //   両者は二重防御、最終的に勝つのは route final reconcile。
+              //
+              // ロジック (既存 reconcileDialogState を再利用):
+              //   - reducer 後 state を effectiveEvents (= persistedEvents) と再同期
+              //   - focus が指す slot が fixed なら clear / advance (Rule 3)
+              //   - 全 fixed なら focus=null, status=stable, streak=0 (Rule 3 / next null)
+              //   - slot が依然 vague/missing → focus 維持 (Rule 4)
+              //   - capturedHistory は維持 (reconcileDialogState は ...state spread)
+              //
+              // 不変条件 (本 commit が保証):
+              //   final morningSession.dialogState.focus は events 内で missing
+              //   slot を持つ event の (event_id, slot) を指すか、null (全 fixed)。
+              const finalReconcile = reconcileDialogState(
+                advanced.nextState,
+                events,
+              );
+              const finalDialogState =
+                finalReconcile.state ?? advanced.nextState;
+              if (finalReconcile.focusCleared) {
+                console.info(
+                  `[dialog-state-v2:postTurnReconcile] focus reconciled. ` +
+                    `prev=${advanced.nextState.focus?.slot ?? "null"} ` +
+                    `final=${finalDialogState.focus?.slot ?? "null"} ` +
+                    `status=${finalDialogState.conversationStatus}`,
+                );
+              }
               // persist: session.dialogState のみ更新。pendingClarify は触らない。
               morningSession = {
                 ...morningSession,
-                dialogState: advanced.nextState,
+                dialogState: finalDialogState,
               };
               // ⚠ advanced.derived は session.pendingClarify に書き戻さない
               //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
