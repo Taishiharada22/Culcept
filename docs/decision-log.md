@@ -1954,3 +1954,42 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
    - or: Preview だけで保持 (`feat/coalter-three-stage` で Phase 2 着手後にまとめて Production)
 2. Phase 2 着手のタイミング
 3. Phase 2 で env 追加するか別判断 (CEO 確定済 = Phase 2 で env 追加 + 観測)
+
+## [2026-05-01] [Build] [PR #49 — main 合流準備 (merge commit `1f97abc6` + 14887ff1 retrigger)] [承認: CEO]
+
+### 経緯
+- CEO 判断 Q1 = Option B (regular merge via PR、Vercel UI Promote 不採用) → `feat/coalter-three-stage` → `main` の PR 作成へ
+- 2026-05-01 00:01: PR #49 作成 (https://github.com/Taishiharada22/Culcept/pull/49)
+- 2026-05-01 00:09: GitHub が `mergeable: CONFLICTING` 検出 → 1 file (`docs/decision-log.md`) で実 conflict
+  - feat 側: 2026-04-26 〜 L4-i Phase 1 entries
+  - main 側: 2026-04-21 Phase 0–F entry
+  - 両 timeline を時系列共存させて手動 resolve、merge commit `1f97abc6` で feat に取り込み
+- 2026-05-01 00:10: post-merge test 7208/7208 PASS、push origin
+- 2026-05-01 00:11: PR `mergeable: MERGEABLE`、CI lint-and-test SUCCESS (3:31)、Vercel Preview build PENDING
+- 2026-05-01 00:30: Vercel build が **20 分超 PENDING で stuck** → CEO が Vercel UI で build キャンセル
+- 2026-05-01 00:32: empty commit `14887ff1` で Vercel build retrigger
+
+### 不変 (Phase 1 への影響なし)
+- L4-i Phase 1 commits (`c2472719` + `c409a6be`) 保存、code 変更なし
+- merge commit (`1f97abc6`) は L4-i Phase 1 の挙動を変えない
+- empty commit (`14887ff1`) は CI retrigger のみ、code 変更なし
+- Production behavior 不変原則維持 (env 未設定で fetch ゼロ、UI 文言不変)
+
+### test 結果 (post-merge)
+- coalter test suite: 146 file / 2114 case PASS
+- 全 test suite: 351 file / 7208 case PASS
+- L4-i Phase 1 test (新規 4 file + 既存 1 file 拡張): 5 file / 68 case PASS
+
+### 残り step
+1. Vercel Preview build (retrigger) SUCCESS 待機
+2. CEO PR review + approve
+3. main へ regular merge (squash 不採用、merge commit 採用)
+4. main HEAD 自動 deploy → Production
+5. CEO Production smoke 9 項目検証 (sentry-release / vercel-production / /api/coalter/speech 0 件 / UI / Urgent / breadcrumb)
+
+### CEO 厳守 (Production deploy 前)
+- Production env に `ANTHROPIC_API_KEY` まだ入れない
+- Production env に `COALTER_PRESENCE_SPEECH_LLM=true` まだ入れない
+- Production env に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` まだ入れない
+- Urgent LLM 化しない (Phase 1 範囲外)
+- L4-m / E-3 にまだ進まない
