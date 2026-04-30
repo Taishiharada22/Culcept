@@ -19,9 +19,17 @@ import type { PresenceMode } from "@/lib/coalter/presence/types";
 export interface S2OpeningProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * L4-i Phase 1 (CEO 確定 2026-04-30): 動的 speech body。
+   * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
+   */
+  body?: string;
 }
 
-export default function S2Opening({ mode, onSwitchMode }: S2OpeningProps) {
+const S2_FALLBACK_BODY = "今、間に入れそう 〜";
+
+export default function S2Opening({ mode, onSwitchMode, body }: S2OpeningProps) {
+  const renderedBody = body ?? S2_FALLBACK_BODY;
   return (
     <UpperLayerShell
       statusLabel="発話中"
@@ -40,7 +48,7 @@ export default function S2Opening({ mode, onSwitchMode }: S2OpeningProps) {
             color: "#1a1a2e",
           }}
         >
-          今、間に入れそう 〜
+          {renderedBody}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Chip variant="response">たいし: そうかも</Chip>

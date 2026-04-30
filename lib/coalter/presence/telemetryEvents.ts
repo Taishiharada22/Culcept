@@ -50,6 +50,47 @@ export interface PatternUsedEvent {
   /** §7.10 副次同伴 (S7 F-2 主 + F-1 副次) の有無 */
   hasSecondary: boolean;
   ts: number;
+  /**
+   * L4-i Phase 1 拡張 (CEO 確定 2026-04-30、設計 v2):
+   *
+   * 通常 speech の合成 source。`legacy.fallback` には流用しない (CEO 厳守、
+   * legacy CoAlterCard semantics と分離維持)。Phase 1 default は "static"。
+   *
+   * - "static": flag OFF / fetch gate OFF / 既定経路 (LLM 未関与)
+   * - "llm": LLM 合成成功 (Phase 2 以降で発火)
+   * - "fallback": LLM 試行 → 失敗で static に降りた場合 (Phase 2 以降)
+   *
+   * optional: 既存 emit 経路 (Phase 1 default) との後方互換維持。
+   */
+  speechSource?: "static" | "llm" | "fallback";
+  /**
+   * LLM call の retry 回数 (0 = 1 発で通過、>=1 = retry、-1 = 全 retry 失敗で
+   * fallback)。speechSource="static" で常に 0。
+   */
+  retries?: number;
+  /** LLM call 経過時間 (ms)。speechSource="static" で 0。 */
+  latencyMs?: number;
+  /**
+   * speechValidator が違反検出したか (true でも fallback で safe 表示維持)。
+   * speechSource="static" で常に false。
+   */
+  validationFailed?: boolean;
+  /**
+   * fallback 採用理由 (speechSource="fallback" のときのみ非 null)。
+   *
+   * - "flag_off": server LLM flag OFF (Phase 1 default)
+   * - "rate_limited": API route rate limit 到達
+   * - "llm_error": Anthropic API 5xx / 通信エラー
+   * - "validation_failed": speechValidator 全 retry 後も違反
+   * - "timeout": client 2s timeout
+   */
+  fallbackReason?:
+    | "flag_off"
+    | "rate_limited"
+    | "llm_error"
+    | "validation_failed"
+    | "timeout"
+    | null;
 }
 
 /** ③ 同意 / 再有効化 */

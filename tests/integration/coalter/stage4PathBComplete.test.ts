@@ -113,8 +113,13 @@ export const STAGE_4_L4L_COMPLETION_DEFINITION: ReadonlyArray<Stage4CompletionIt
     description: "speechBuilder LLM 合成 本番稼働",
     status: "missing",
     pathBCommit: null,
-    evidence: "Path B では category-based static fallback (URGENT_FALLBACK_MESSAGES) を採用、LLM 接続未実施",
-    remainingPhase: "L4-i (Anthropic SDK + speechBuilder 経路)",
+    evidence:
+      "Path B では category-based static fallback (URGENT_FALLBACK_MESSAGES) を採用、LLM 接続未実施。" +
+      "L4-i Phase 1 (CEO 確定 2026-04-30) で API route + UpperLayerMount fetch + state component body prop の bridge wire 完了 (commit 後)、" +
+      "ただし client gate (isSpeechFetchEnabled = env 未設定で false) + server gate (presenceSpeechLLMEnabled + ANTHROPIC_API_KEY 未設定) で flag OFF default、" +
+      "Phase 1 では LLM 課金経路に到達しない (Production behavior 完全不変)。本番稼働は L4-i Phase 2 (Vercel Preview env 追加 + 観測) → Phase 3 (Production promote) で達成",
+    remainingPhase:
+      "L4-i Phase 2 (Preview env 追加 + 段階観測 20→100→variant) → L4-i Phase 3 (Production promote)",
   },
   {
     index: 9,

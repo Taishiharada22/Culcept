@@ -22,11 +22,25 @@ import type { PresenceMode } from "@/lib/coalter/presence/types";
 export interface S7ProposalShownProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * L4-i Phase 1 (CEO 確定 2026-04-30): 動的 speech body。
+   * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
+   */
+  body?: string;
 }
+
+const S7_FALLBACK_NODE = (
+  <>
+    <div style={{ fontWeight: 600, marginBottom: 4 }}>提案:</div>
+    <div>〜</div>
+    <div>〜</div>
+  </>
+);
 
 export default function S7ProposalShown({
   mode,
   onSwitchMode,
+  body,
 }: S7ProposalShownProps) {
   return (
     <UpperLayerShell
@@ -47,9 +61,7 @@ export default function S7ProposalShown({
             lineHeight: 1.6,
           }}
         >
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>提案:</div>
-          <div>〜</div>
-          <div>〜</div>
+          {body !== undefined ? <div>{body}</div> : S7_FALLBACK_NODE}
         </div>
         <div
           style={{

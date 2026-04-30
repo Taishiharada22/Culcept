@@ -346,6 +346,15 @@ export function usePresenceExecutor(initial?: {
   );
 
   // ② pattern_used: primaryPattern 変化時 (前値比較で重複防止、毎 render emit を抑止)
+  //
+  // L4-i Phase 1 (CEO 確定 2026-04-30 設計 v2):
+  //   - emit 時の speechSource は "static" を default (variant 決定時点では fetch
+  //     未完了 + Phase 1 default で fetch 起動なし)
+  //   - retries / latencyMs / validationFailed / fallbackReason は default 値
+  //   - Phase 2 で fetch が active になっても、emit timing は variant 変化時点を
+  //     維持 (変化と完了の両方を 1 emit に寄せる設計は別 phase で検討)
+  //   - speech 結果の詳細観測は Sentry HTTP breadcrumb (POST /api/coalter/speech)
+  //     + server captureMessage 経由 (本 emit には冗長に載せない)
   useEffect(() => {
     const current = primaryPattern;
     const last = lastEmittedPatternRef.current;
@@ -358,6 +367,12 @@ export function usePresenceExecutor(initial?: {
         mode,
         hasSecondary: secondaryPattern !== null,
         ts: Date.now(),
+        // L4-i Phase 1 default: variant 決定時点では fetch 未関与 → static
+        speechSource: "static",
+        retries: 0,
+        latencyMs: 0,
+        validationFailed: false,
+        fallbackReason: null,
       });
     }
     lastEmittedPatternRef.current = current;

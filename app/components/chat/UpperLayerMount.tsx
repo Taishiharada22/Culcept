@@ -35,7 +35,7 @@
  *   - viewer 解決曖昧時は MemorySurface 非表示 (情報漏洩リスク回避、CEO 指示)
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
@@ -52,7 +52,12 @@ import {
   type UrgentReleasePath,
 } from "@/lib/coalter/presence/urgentReleaseLogic";
 import type { UrgentCategory } from "@/lib/coalter/presence/urgentTrigger";
-import type { PresenceMode } from "@/lib/coalter/presence/types";
+import type {
+  PatternVariant,
+  PresenceMode,
+  PresenceState,
+} from "@/lib/coalter/presence/types";
+import { isSpeechFetchEnabled } from "@/lib/coalter/presence/speechFetchGate";
 
 /**
  * Urgent fallback message (B-2、static、category-based)。
@@ -232,6 +237,130 @@ function UpperLayerMountActive() {
     [exec.dispatch],
   );
 
+  // ─────────────────────────────────────────────
+  // L4-i Phase 1 (CEO 確定 2026-04-30、設計 v2):
+  // Speech body fetch (S2/S5/S7 のみ、isSpeechFetchEnabled() === true でのみ起動)
+  //
+  // 二重 gate の **client 側**:
+  //   - Phase 1 default: isSpeechFetchEnabled() = false → fetch 起動ゼロ
+  //   - Phase 2 で Vercel Preview env に NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true
+  //     を追加 → 自動的に fetch 起動 (code 変更なし)
+  //
+  // dedupe / abort / stale 防止 / negative cache を全 cover。
+  // 失敗時は speechBody=null (= state component の hardcoded fallback に戻る)。
+  // ─────────────────────────────────────────────
+
+  const [speechBody, setSpeechBody] = useState<string | null>(null);
+  const speechCacheRef = useRef<Map<string, string>>(new Map());
+  const inFlightSpeechRef = useRef<Map<string, Promise<void>>>(new Map());
+  const speechNegativeCacheRef = useRef<Map<string, number>>(new Map());
+  const speechMountedRef = useRef<boolean>(true);
+  useEffect(() => {
+    speechMountedRef.current = true;
+    return () => {
+      speechMountedRef.current = false;
+    };
+  }, []);
+
+  const speechState = exec.state.presence.state;
+  const speechMode = exec.state.mode;
+  const speechVariant = exec.computed.primaryPattern;
+
+  useEffect(() => {
+    // Phase 1 default: gate OFF → fetch 起動ゼロ (Production 不変)
+    if (!isSpeechFetchEnabled()) {
+      setSpeechBody(null);
+      return;
+    }
+    // S2/S5/S7 以外は LLM 対象外
+    if (
+      speechState !== "S2" &&
+      speechState !== "S5" &&
+      speechState !== "S7"
+    ) {
+      setSpeechBody(null);
+      return;
+    }
+    if (speechVariant === null) {
+      setSpeechBody(null);
+      return;
+    }
+    if (threadId === null) {
+      setSpeechBody(null);
+      return;
+    }
+    const cacheKey: string = buildSpeechCacheKey(
+      speechVariant,
+      speechState,
+      speechMode,
+    );
+    // cache hit → 即適用
+    const cached = speechCacheRef.current.get(cacheKey);
+    if (cached !== undefined) {
+      setSpeechBody(cached);
+      return;
+    }
+    // negative cache 中なら fetch せず fallback (state component の hardcoded を使う)
+    const negativeUntil = speechNegativeCacheRef.current.get(cacheKey);
+    if (negativeUntil !== undefined && Date.now() < negativeUntil) {
+      setSpeechBody(null);
+      return;
+    }
+    // in-flight dedupe
+    if (inFlightSpeechRef.current.has(cacheKey)) {
+      return;
+    }
+    const controller = new AbortController();
+    const startTs = Date.now();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const work = (async () => {
+      try {
+        const res = await fetch("/api/coalter/speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            state: speechState,
+            mode: speechMode,
+            variant: speechVariant,
+            threadId,
+          }),
+          signal: controller.signal,
+        });
+        if (!speechMountedRef.current) return;
+        if (!res.ok) {
+          // 401 / 4xx / 5xx → static fallback (UI は壊さない)
+          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+          setSpeechBody(null);
+          return;
+        }
+        const json = (await res.json()) as { body?: unknown };
+        if (!speechMountedRef.current) return;
+        if (typeof json.body === "string" && json.body.length > 0) {
+          // Phase 2 で server が "llm" / "static" を返した場合いずれも client は
+          // body 文字列のみ受け取り、UI に反映する (会話文 / PII を保存しない)。
+          speechCacheRef.current.set(cacheKey, json.body);
+          setSpeechBody(json.body);
+        } else {
+          setSpeechBody(null);
+        }
+      } catch {
+        // abort / timeout / network エラー → negative cache 30s
+        if (!speechMountedRef.current) return;
+        speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+        setSpeechBody(null);
+      } finally {
+        clearTimeout(timeoutId);
+        inFlightSpeechRef.current.delete(cacheKey);
+      }
+    })();
+    inFlightSpeechRef.current.set(cacheKey, work);
+    return () => {
+      // state / mode / variant 変更時に走行中 fetch を abort (stale response 防止)
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
+  }, [speechState, speechMode, speechVariant, threadId]);
+
   /**
    * Urgent dismiss tap handler。
    *
@@ -284,6 +413,7 @@ function UpperLayerMountActive() {
         state={exec.state.presence.state}
         mode={exec.state.mode}
         onSwitchMode={handleModeSwitch}
+        body={speechBody ?? undefined}
       />
       {showMemorySurface && memory.viewer !== null && (
         <MemorySurface
@@ -299,4 +429,20 @@ function UpperLayerMountActive() {
       />
     </>
   );
+}
+
+/**
+ * L4-i Phase 1 (CEO 確定 2026-04-30 設計 v2): speech cache key 生成。
+ *
+ * `(variant, state, mode)` の 3 軸で uniqueness を保証。F1/F2 は variant 軸で
+ * 確実に区別される (variant === "F1" / variant === "F2")。
+ *
+ * 純関数 (test 容易性のため export せず module scope に閉じる)。
+ */
+function buildSpeechCacheKey(
+  variant: PatternVariant,
+  state: PresenceState,
+  mode: PresenceMode,
+): string {
+  return `${variant}|${state}|${mode}`;
 }

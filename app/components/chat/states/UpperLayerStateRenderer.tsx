@@ -35,14 +35,19 @@ import type { UpperLayerStatusLabel } from "./UpperLayerShell";
 import type { PresenceMode, PresenceState } from "@/lib/coalter/presence/types";
 
 /**
- * 各 state component の共通 props 型 (mode + onSwitchMode のみ)。
+ * 各 state component の共通 props 型 (mode + onSwitchMode + 任意 body)。
  *
  * B-1 では mode 切替が唯一のユーザー操作 → 全 state component で共通の signature。
  * B-2 以降で signal dispatch / Chip click 等が加わったら拡張する。
+ *
+ * L4-i Phase 1 (CEO 確定 2026-04-30):
+ *   - body?: 動的 speech body (S2/S5/S7 のみ実体使用、その他は ignore)
+ *   - undefined で各 state の hardcoded fallback に戻る (Production 不変原則)
  */
 interface StateComponentProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  body?: string;
 }
 
 /**
@@ -109,6 +114,11 @@ export interface UpperLayerStateRendererProps {
   state: PresenceState;
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * L4-i Phase 1 (CEO 確定 2026-04-30): 動的 speech body。
+   * S2/S5/S7 のみ実体使用、その他 state は無視。undefined で hardcoded fallback。
+   */
+  body?: string;
 }
 
 /**
@@ -118,16 +128,20 @@ export interface UpperLayerStateRendererProps {
  *
  * aria-live: polite 固定 (CEO 確定 2026-04-30、UrgentLayer の role=alert /
  * aria-live=assertive と分離して二重通知を避ける、isUrgent prop は渡さない)。
+ *
+ * L4-i Phase 1 (2026-04-30): body を受けて Component に流す。S2/S5/S7 のみ
+ * 実体使用 (各 component 側で body ?? hardcoded fallback)、他 state は ignore。
  */
 export default function UpperLayerStateRenderer({
   state,
   mode,
   onSwitchMode,
+  body,
 }: UpperLayerStateRendererProps) {
   const Component = mapStateToComponent(state);
   return (
     <StateAriaWrapper state={state} mode={mode}>
-      <Component mode={mode} onSwitchMode={onSwitchMode} />
+      <Component mode={mode} onSwitchMode={onSwitchMode} body={body} />
     </StateAriaWrapper>
   );
 }

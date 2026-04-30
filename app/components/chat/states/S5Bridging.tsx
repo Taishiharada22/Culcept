@@ -21,9 +21,24 @@ import type { PresenceMode } from "@/lib/coalter/presence/types";
 export interface S5BridgingProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * L4-i Phase 1 (CEO 確定 2026-04-30): 動的 speech body。
+   * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
+   */
+  body?: string;
 }
 
-export default function S5Bridging({ mode, onSwitchMode }: S5BridgingProps) {
+const S5_FALLBACK_NODE = (
+  <>
+    たいしさんは〜
+    <br />
+    みさきさんは〜
+    <br />
+    少し整理しながら話す？
+  </>
+);
+
+export default function S5Bridging({ mode, onSwitchMode, body }: S5BridgingProps) {
   return (
     <UpperLayerShell
       statusLabel="発話中"
@@ -43,11 +58,7 @@ export default function S5Bridging({ mode, onSwitchMode }: S5BridgingProps) {
             lineHeight: 1.6,
           }}
         >
-          たいしさんは〜
-          <br />
-          みさきさんは〜
-          <br />
-          少し整理しながら話す？
+          {body ?? S5_FALLBACK_NODE}
         </div>
         <div
           style={{
