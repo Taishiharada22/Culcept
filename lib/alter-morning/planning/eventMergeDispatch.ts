@@ -32,6 +32,11 @@
 import type { Event } from "../comprehension/eventSchema";
 import type { ModifyOperation } from "../comprehension/planOperation";
 import { resolveTargetRef } from "./modifyRouter";
+import {
+  isSameEventCanonical,
+  isFromCurrentUtterance,
+  countNonEmptyCriticalSlots,
+} from "./canonicalEventIdentity";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -40,6 +45,18 @@ import { resolveTargetRef } from "./modifyRouter";
 export interface MergeDispatchInput {
   currentEvents: Event[];
   priorPersistedEvents: Event[];
+  /**
+   * PR-50 Commit 12 (CEO 2026-04-30): current turn の utterance。
+   *
+   * 用途:
+   *   priorEvents non-empty 時、create event が「current utterance 由来」 か
+   *   「prior の re-extraction」 かを判定するため。re-extraction なら drop
+   *   して duplicate を防ぐ。
+   *
+   *   省略時 (undefined): 既存挙動互換 (Commit 12 以前のテスト) のため、
+   *   utterance チェックを skip して保守的に従来通り処理する。
+   */
+  utterance?: string;
 }
 
 /**
@@ -59,8 +76,11 @@ export interface MergeDispatchDecision {
   action:
     | "modify_applied"
     | "modify_unresolved_fallback_create"
+    | "modify_unresolved_dropped"
     | "merged_into_prior"
-    | "kept_as_new";
+    | "kept_as_new"
+    | "create_re_extraction_dropped"
+    | "create_insufficient_slots_dropped";
   target_event_id?: string;
   /** modify resolveTargetRef.confidence (high/medium/low/null) */
   confidence?: string | null;
@@ -365,7 +385,7 @@ export function generateNonCollidingEventId(
 export function dispatchEventMerge(
   input: MergeDispatchInput,
 ): MergeDispatchResult {
-  const { currentEvents, priorPersistedEvents } = input;
+  const { currentEvents, priorPersistedEvents, utterance } = input;
 
   // 空配列 short-circuit
   if (currentEvents.length === 0) {
@@ -453,52 +473,72 @@ export function dispatchEventMerge(
           return;
         }
       }
-      // 未解決 modify (target_ref なし or 解決失敗 + 複数 prior):
-      //   fallback で kept_as_new (data loss 防止)
-      pushNewWithRename(cur);
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 旧挙動: 未解決 modify を kept_as_new で新規 event 化 (data loss 防止)
+      // 真因 (CEO Preview 2026-04-30):
+      //   LLM が「移動は車に変更」 を target_ref="移動" で 2 件 modify として
+      //   出力 → resolveTargetRef が「移動」 という event を見つけられず失敗
+      //   → 旧挙動で 2 件が ghost event (event_4 / event_5) として persist
+      //   → plan に「[時間未確定] [内容暫定]」 が増殖
+      //
+      // 新挙動: 未解決 modify は **drop** (state 不変)
+      //   - ghost event を作らない
+      //   - user の意図 (transport 変更等) は別経路で拾う:
+      //     * Commit 7 deterministic synth (utterance pattern) で transport modify
+      //       を生成 (= 失敗しない)
+      //     * 万一 deterministic も hit しなければ user は再発話 (UX 上は
+      //       duplicate 増殖よりはるかに mash)
+      //
+      // CEO 確定 (2026-04-30):
+      //   "失敗した modify は絶対に新規予定として保存しない"
       dispatch.push({
         cur_event_id: cur.event_id,
         cur_turn_mode: "modify",
-        action: "modify_unresolved_fallback_create",
+        action: "modify_unresolved_dropped",
       });
       return;
     }
 
-    if (cur.turn_mode === "append") {
-      // ── append: 新規追加。event_id 衝突時は rename (PR #41b-1b: data loss 防止) ──
-      pushNewWithRename(cur);
-      dispatch.push({
-        cur_event_id: cur.event_id,
-        cur_turn_mode: "append",
-        action: "kept_as_new",
-      });
-      return;
-    }
-
-    // ── create: 同一性判定で prior にマッチさせ mergeIntoPriorCreate ──
-    //   CEO 2026-04-29 指摘 (Commit A): position fallback **廃止**。
-    //   旧 logic は length match (cur.length === prior.length) なら index で fallback merge していた。
-    //   これが「新規追加した cur が既存 event と誤合流して上書き」 の真因。
-    //   例: cur=[新ランチ], prior=[ミーティング] (length=1=1) → position 0 で fallback
-    //       → mergeIntoPriorCreate(ミーティング, 新ランチ) → ミーティングの where が「新宿」 に上書き
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PR-50 Commit 12 (CEO 2026-04-30): create / append 共通の strict 経路
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 旧挙動 (PR #41b-1b 以前):
+    //   - create: 厳密な同一性 (event_id OR 完全一致 (when, place_ref)) → merge
+    //             それ以外 → kept_as_new
+    //   - append: 全件 kept_as_new
     //
-    //   新 logic: 厳密な同一性 (event_id OR (when, place_ref)) のみで merge。
-    //   それ以外は kept_as_new で新規追加 → 上書き事故ゼロ化。
-    let priorMatchIdx = priorCopy.findIndex((p) => p.event_id === cur.event_id);
-    if (
-      priorMatchIdx < 0 &&
-      cur.when.startTime != null &&
-      cur.where.place_ref != null
-    ) {
-      priorMatchIdx = priorCopy.findIndex(
-        (p) =>
-          p.when.startTime === cur.when.startTime &&
-          p.where.place_ref === cur.where.place_ref,
-      );
-    }
-    // position fallback: 削除 (CEO 2026-04-29 directive D 完全実装)
-    //   length match による position 合流は data loss/上書き risk が高すぎる。
+    // 真因 (CEO Preview 2026-04-30):
+    //   - LLM の raw place_ref ("スタバ") と persisted resolved
+    //     ("スターバックス コーヒー SHIBUYA TSUTAYA 2F店") は完全一致しない
+    //     → 同じ予定なのに kept_as_new で duplicate
+    //   - 「12時に新宿でランチ」 turn 5 で LLM が prior 4 件を re-extraction
+    //     → 全部 duplicate 化 + 新 append も混じり 8 件に増殖
+    //
+    // 新挙動 (4 段階判定):
+    //   1. canonical identity match → mergeIntoPriorCreate
+    //      (when 一致 + activity 一致 + (place_ref / coordinates / exact_proper_noun
+    //       包含) の厳格判定。substring 単独は禁止)
+    //   2. priorEvents non-empty + current utterance 由来でない → drop
+    //      (= LLM の prior re-extraction 検出)
+    //   3. when/where/what が 2 slot 未満 → drop (中身が空に近い event は弾く)
+    //   4. それ以外 → 本物の append として kept_as_new
+    //
+    // append vs create の区別は本層では削除 (両方同じ判定)。
+    // CEO 確定 (2026-04-30):
+    //   "events[] fallback は安全な append だけを通す"
 
+    // 1. canonical identity match (Commit 12 強化)
+    //    既存 priorCopy のいずれかと canonical 同一なら mergeIntoPriorCreate。
+    //
+    //    旧コード (PR #41b-1a): event_id 一致を優先 check していたが、CEO Case 3
+    //    + collision (LLM が prior と同じ event_id を出す) で誤 merge する不具合
+    //    あり。新コードは canonical identity (when + activity + place) のみで判定し、
+    //    event_id 一致は collision case として pushNewWithRename で処理する。
+    const priorMatchIdx = priorCopy.findIndex((p) =>
+      isSameEventCanonical(p, cur),
+    );
     if (priorMatchIdx >= 0 && priorMatchIdx < priorCopy.length) {
       priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
         priorCopy[priorMatchIdx],
@@ -506,19 +546,45 @@ export function dispatchEventMerge(
       );
       dispatch.push({
         cur_event_id: cur.event_id,
-        cur_turn_mode: "create",
+        cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
         action: "merged_into_prior",
         target_event_id: priorCopy[priorMatchIdx].event_id,
       });
-    } else {
-      // 同一性なし → 新規追加 (event_id 衝突時は rename)
-      pushNewWithRename(cur);
+      return;
+    }
+
+    // 2. priorEvents non-empty + current utterance 由来でない → drop
+    //    (LLM の prior re-extraction を検出して duplicate を防ぐ)
+    //    utterance が undefined (= caller が指定しない) なら check skip (互換性)
+    if (priorCopy.length > 0 && utterance !== undefined) {
+      if (!isFromCurrentUtterance(cur, utterance)) {
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+          action: "create_re_extraction_dropped",
+        });
+        return;
+      }
+    }
+
+    // 3. when/where/what で 2 slot 未満 non-empty → drop
+    //    中身が空に近い event を新規追加しない (defensive)
+    if (countNonEmptyCriticalSlots(cur) < 2) {
       dispatch.push({
         cur_event_id: cur.event_id,
-        cur_turn_mode: "create",
-        action: "kept_as_new",
+        cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+        action: "create_insufficient_slots_dropped",
       });
+      return;
     }
+
+    // 4. 本物の append として kept_as_new (event_id 衝突時は rename)
+    pushNewWithRename(cur);
+    dispatch.push({
+      cur_event_id: cur.event_id,
+      cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+      action: "kept_as_new",
+    });
   });
 
   return {

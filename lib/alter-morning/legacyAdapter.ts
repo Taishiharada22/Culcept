@@ -690,6 +690,10 @@ export function adaptPipelineToLegacy(
     dispatchResult = dispatchEventMerge({
       currentEvents,
       priorPersistedEvents: input.priorPersistedEvents ?? [],
+      // PR-50 Commit 12 (CEO 2026-04-30): utterance を dispatchEventMerge に渡す。
+      //   priorEvents non-empty 時、create event が「current utterance 由来」 か
+      //   「prior の re-extraction」 かを判定するため。re-extraction なら drop。
+      utterance: input.utterance,
     });
     effectiveEvents = dispatchResult.effectiveEvents;
   }
@@ -1044,11 +1048,18 @@ export function adaptPipelineToLegacy(
 
   // ── CEO 2026-04-29 PR #41b-1a: dispatch summary aggregation ──
   //   各 cur event の dispatch 判断を集計し trace に乗せる。
+  //   PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止で新 action 追加:
+  //     - modify_unresolved_dropped: 未解決 modify を drop (旧 _fallback_create の代替)
+  //     - create_re_extraction_dropped: priorEvents 由来の events を drop (duplicate 防止)
+  //     - create_insufficient_slots_dropped: 2 slot 未満の create は drop
   const dispatchSummary = {
     modify_applied: 0,
     modify_unresolved_fallback_create: 0,
+    modify_unresolved_dropped: 0,
     merged_into_prior: 0,
     kept_as_new: 0,
+    create_re_extraction_dropped: 0,
+    create_insufficient_slots_dropped: 0,
   };
   for (const d of dispatchResult.dispatch) {
     dispatchSummary[d.action] += 1;

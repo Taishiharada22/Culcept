@@ -115,8 +115,24 @@ export interface DispatchSummarySnapshot {
    */
   modify_applied: number;
   modify_unresolved_fallback_create: number;
+  /**
+   * PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止後の新 action。
+   *   modify_unresolved_dropped: 未解決 modify を drop した件数 (旧
+   *     _fallback_create の代替)。これが >0 なら ghost event 発生防止に成功。
+   */
+  modify_unresolved_dropped: number;
   merged_into_prior: number;
   kept_as_new: number;
+  /**
+   * PR-50 Commit 12: create event が prior の re-extraction とみなされて drop。
+   * これが >0 なら LLM の prior 再構築を防いだ件数 (duplicate 防止)。
+   */
+  create_re_extraction_dropped: number;
+  /**
+   * PR-50 Commit 12: create event が 2 slot 未満で drop。
+   * 中身が空に近い event の新規追加を防いだ件数。
+   */
+  create_insufficient_slots_dropped: number;
 }
 
 /**
