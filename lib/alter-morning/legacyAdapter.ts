@@ -284,6 +284,80 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W3 P1.5 — targetDate interpretation (CEO 実機 trace 2026-05-01 で確定した bug)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 問題:
+//   LLM が `comprehension.targetDate: "tomorrow"` を返した場合、
+//   既存実装は date: today を直接代入していたため
+//   「明日の予定」が plan.date=今日 に degrade していた。
+//
+// 修正:
+//   interpretTargetDate() で relative date string を実日付に解釈し、
+//   resolvePlanDate() で 3 段階優先順位を確定する。
+//
+// CEO 設計 (PR-50 Commit 15):
+//   priority: priorPlan.date > comprehension.targetDate (interpret) > today
+
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * `comprehension.targetDate` の raw string を実日付に解釈する。
+ *
+ * 受け付ける形式:
+ *   - "today" / "今日"           → today
+ *   - "tomorrow" / "明日"        → today + 1
+ *   - "day_after_tomorrow" / "明後日" → today + 2
+ *   - "YYYY-MM-DD" 厳密形式      → そのまま (validation のみ)
+ *   - null / undefined / 空文字  → today
+ *   - 認識不能な値               → today (fallback)
+ *
+ * 副作用ゼロ。pure 関数。
+ */
+function interpretTargetDate(
+  raw: string | null | undefined,
+  today: string,
+): string {
+  if (!raw) return today;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "today" || trimmed === "今日") return today;
+  if (trimmed === "tomorrow" || trimmed === "明日") return addDaysYmd(today, 1);
+  if (trimmed === "day_after_tomorrow" || trimmed === "明後日") {
+    return addDaysYmd(today, 2);
+  }
+  // YYYY-MM-DD 厳密 (1900-2099 想定)
+  if (/^(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/.test(trimmed)) {
+    return trimmed;
+  }
+  // 認識不能 → today fallback (CEO 不変条件: 不明値で勝手に未来日付を作らない)
+  return today;
+}
+
+/**
+ * plan.date を 3 段階優先順位で確定する。
+ *
+ * priority (CEO PR-50 Commit 15 設計):
+ *   1. priorPlan.date     (前 turn が確定した日付を最優先で維持)
+ *   2. comprehension.targetDate (interpret) (今 turn の LLM 由来)
+ *   3. today fallback
+ */
+function resolvePlanDate(
+  priorPlanDate: string | null | undefined,
+  comprehensionTargetDate: string | null | undefined,
+  today: string,
+): string {
+  if (priorPlanDate && priorPlanDate.length > 0) return priorPlanDate;
+  return interpretTargetDate(comprehensionTargetDate, today);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -422,6 +496,15 @@ export function adaptPipelineToLegacy(
 ): LegacyAdapterOutput {
   const today = input.today ?? todayYmd();
 
+  // ── W3 P1.5: plan.date を 3 段階優先順位で確定 ──
+  // priority: priorPlan.date > comprehension.targetDate (interpret) > today
+  // CEO 実機 trace 2026-05-01 で「明日 → today degrade」bug 確定したため修正。
+  const planDate = resolvePlanDate(
+    input.priorPlan?.date,
+    result.comprehension?.targetDate,
+    today,
+  );
+
   // ── Events 継承（W3-PR-7 Commit 4）──
   //   今ターンの pipeline が events を返せなかった（comprehension_failed 等）場合は
   //   priorPersistedEvents から引き継いで UI 側の plan を消さない。
@@ -491,7 +574,7 @@ export function adaptPipelineToLegacy(
     });
 
     plan = {
-      date: today,
+      date: planDate,
       items,
       dayConditions: {},
       createdAt: new Date().toISOString(),
