@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
+import type { DialogState } from "./dialog/types";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
@@ -60,7 +61,18 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 // CEO 2026-04-28 PR #41b-0: effectiveEvents canonical reconcile (3 layer)。
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
-import { dispatchEventMerge } from "./planning/eventMergeDispatch";
+import {
+  dispatchEventMerge,
+  dedupCanonicalEvents,
+} from "./planning/eventMergeDispatch";
+// PR-50 Commit 14 (CEO 2026-04-30): canonical event invariant enforcement
+//   ghost modify removal で「予定の残骸」 を persistedEvents から filter する。
+import { isGhostModifyEvent } from "./planning/canonicalEventIdentity";
+// PR-50 Commit 4 (CEO 2026-04-30): operations 経路の thin dispatch。
+//   acceptedOperations を applyModifyPatchFromOperation / generateNonCollidingEventId /
+//   bindAnswerToSlot / resolveTargetRef を再利用して effectiveEvents に反映する。
+//   fallbackToEvents===false かつ acceptedOperations.length>0 のときのみ使用。
+import { dispatchOperations } from "./planning/operationDispatcher";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -140,6 +152,26 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): focus reconcile 用の前 turn dialogState。
+   *
+   * 用途:
+   *   reconcileGapStateFromEffectiveEvents の Layer 3 (dialogState focus 同期)
+   *   が pendingClarify=null + slot fixed の場合に focus を clear / advance する。
+   *   既存仕様で priorDialogState=null を固定で渡しており、reconcileDialogState
+   *   が early-return されて focus.where が残留する観測 (Preview 2026-04-30) の
+   *   真因を解消する。
+   *
+   * 渡し方:
+   *   - route.ts (Branch A / B): reducer 後の morningSession.dialogState を渡す
+   *   - 省略 → null (Commit 9 以前と同等の挙動を保つ defensive)
+   *
+   * 出力:
+   *   reconcile 後の dialogState は LegacyAdapterOutput.reconciledDialogState
+   *   に含める (session には乗せない、route.ts 側で merge を判断する)。
+   */
+  priorDialogState?: DialogState | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -155,6 +187,19 @@ export interface LegacyAdapterOutput {
    * production では emit されない → 必ず undefined → response にも乗らない。
    */
   lastTraceSnapshot?: TurnTracePayload;
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): reconcile 後の dialogState。
+   *
+   * 用途:
+   *   priorDialogState (input) を reconcileGapStateFromEffectiveEvents で
+   *   effectiveEvents と再同期した結果。slot fixed → focus advance / clear。
+   *   route.ts は morningSession.dialogState に反映するか判断する
+   *   (現状: adapter 出力 ?? reducer 後 state の優先順)。
+   *
+   * undefined: priorDialogState が null だった場合、または reconcile が必要
+   *   なかった (focus が元から null) 場合。caller は既存 dialogState を維持。
+   */
+  reconciledDialogState?: DialogState | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -387,6 +432,140 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// targetDate preserve (PR-50 Commit 15 / CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 「明日」「明後日」「YYYY-MM-DD」 等の relative / absolute date token を YYYY-MM-DD
+ * に解釈する pure helper。
+ *
+ * 認識する token:
+ *   - "today" → 今日
+ *   - "tomorrow" → 明日 (今日 + 1)
+ *   - "day_after_tomorrow" → 明後日 (今日 + 2)
+ *   - "YYYY-MM-DD" 形式 → そのまま (絶対値)
+ *
+ * 認識しない (return null):
+ *   - 上記以外の token (e.g., "next monday")
+ *
+ * 用途:
+ *   resolvePlanDate で comprehension.targetDate を YYYY-MM-DD に変換。
+ */
+function interpretTargetDate(token: string): string | null {
+  if (token === "today") return todayYmd();
+  if (token === "tomorrow") return addDaysYmd(1);
+  if (token === "day_after_tomorrow") return addDaysYmd(2);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(token)) return token;
+  return null;
+}
+
+function addDaysYmd(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Plan の date を session 全体で preserve する resolver。
+ *
+ * CEO 確定 (2026-04-30) 優先順位:
+ *   1. **priorPlan.date があれば最優先** (= session の最初に決まった日付を維持)
+ *      これにより「明日」 で始まった session が後続 turn で今日に戻るのを防ぐ。
+ *      explicit date modify operation の対応は future PR scope。
+ *   2. **comprehension.targetDate を解釈** ("tomorrow" → 明日 等)
+ *      初回 turn (priorPlan が無い) のみここで決まる。
+ *   3. **input.today ?? today fallback**
+ *      上記 2 つが解釈できない場合の保守的 default。
+ *
+ * 観測 (CEO Preview 2026-04-30 turn 1-5):
+ *   旧コード: const today = input.today ?? todayYmd();
+ *     → priorPlan を見ないため、毎 turn 実際の今日が plan.date になる
+ *     → user「明日の9時に渋谷のスタバ」 → plan.date = 今日 (= 状態機械の破綻)
+ *
+ *   新コード: 上記優先順位で resolve
+ *     → 初回 turn: comprehension.targetDate="tomorrow" → 明日 (= +1日)
+ *     → turn 2 以降: priorPlan.date = 「明日の日付」 が継承される
+ *     → 状態機械の不変条件: session の plan.date は user の意図 (= 最初に決まった
+ *       date) を保持し、後続 turn の LLM / fallback で勝手に書き換わらない。
+ */
+function resolvePlanDate(
+  input: LegacyAdapterInput,
+  comprehension: MorningPipelineResult["comprehension"],
+): string {
+  // 1. priorPlan.date があれば最優先
+  if (input.priorPlan?.date) {
+    return input.priorPlan.date;
+  }
+  // 2. comprehension.targetDate を解釈
+  if (comprehension?.targetDate) {
+    const interpreted = interpretTargetDate(comprehension.targetDate);
+    if (interpreted) return interpreted;
+  }
+  // 3. fallback
+  return input.today ?? todayYmd();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Operations trace builder (PR-50 Commit 5+6 / CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * comprehension result から operations 経路 trace 用 summary を構築する。
+ *
+ * 出力条件 (PR-50 Commit 6 / CEO 2026-04-30 修正):
+ *   **常に summary を返す**。旧仕様で全部 0 のとき null を返していたが、
+ *   観測の盲点 (LLM 不出力 / parser drop / fallback / synth どこで止まったか
+ *   trace に出ない) になっていたため、常時出力に変更。
+ *
+ *   - comprehension が null (= 異常状態) のときのみ null
+ *   - それ以外は { received: 0, ... synthesisSource: "none" } を含めて常に出す
+ *
+ * 含む field:
+ *   - received:         comprehension.operations.length (parsePlanOperations 通過後)
+ *   - accepted:         comprehension.acceptedOperations.length
+ *   - rejected:         comprehension.operationRejections.length
+ *   - fallbackToEvents: comprehension.fallbackToEvents (default true)
+ *   - appliedTypes:     accepted operations の type 配列 (LLM 出力 order を保持)
+ *   - rejectReasons:    reject 理由の string 配列 (重複可)
+ *   - synthesisSource:  Commit 7-8 で synth 層が埋める。Commit 6 段階では
+ *                       受け皿のみ提供 (既存 comprehension で値が無ければ "none" 既定)
+ */
+function buildOperationsTrace(
+  comprehension: MorningPipelineResult["comprehension"],
+): {
+  received: number;
+  accepted: number;
+  rejected: number;
+  fallbackToEvents: boolean;
+  appliedTypes: string[];
+  rejectReasons: string[];
+  synthesisSource:
+    | "llm"
+    | "llm_transformed"
+    | "deterministic"
+    | "deterministic_overrides_llm"
+    | "none";
+} | null {
+  if (!comprehension) return null;
+  const received = comprehension.operations?.length ?? 0;
+  const accepted = comprehension.acceptedOperations?.length ?? 0;
+  const rejections = comprehension.operationRejections ?? [];
+  const rejected = rejections.length;
+  return {
+    received,
+    accepted,
+    rejected,
+    fallbackToEvents: comprehension.fallbackToEvents ?? true,
+    appliedTypes: (comprehension.acceptedOperations ?? []).map((op) => op.type),
+    rejectReasons: rejections.map((r) => r.reason),
+    synthesisSource: comprehension.operationsSynthesisSource ?? "none",
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -523,7 +702,14 @@ export function adaptPipelineToLegacy(
   result: MorningPipelineResult,
   input: LegacyAdapterInput,
 ): LegacyAdapterOutput {
-  const today = input.today ?? todayYmd();
+  // PR-50 Commit 15 (CEO 2026-04-30): targetDate preserve
+  //   priorPlan.date を最優先で採用し、後続 turn の LLM / fallback で
+  //   plan.date が勝手に今日に書き換わるのを防ぐ。
+  //   詳細は resolvePlanDate のコメント参照。
+  //
+  //   変数名は既存の `today` を踏襲 (telemetry の plan_date 等で使われているため)。
+  //   実際の意味は「resolved plan date (= session 全体で preserve される日付)」。
+  const today = resolvePlanDate(input, result.comprehension);
 
   // ── CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard ──
   //   LLM が turn_mode='create' を出した場合でも、utterance pattern (「○時を△時に」等)
@@ -561,11 +747,79 @@ export function adaptPipelineToLegacy(
   //     D. position fallback を turn_mode="create" + length match に限定
   //
   //   詳細: lib/alter-morning/planning/eventMergeDispatch.ts
-  const dispatchResult = dispatchEventMerge({
-    currentEvents,
-    priorPersistedEvents: input.priorPersistedEvents ?? [],
-  });
-  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
+  //
+  // ── PR-50 Commit 4 (CEO 2026-04-30): operations 経路 分岐 ──
+  //   morningPipeline (Commit 3) が ComprehensionResult.fallbackToEvents を
+  //   立てる: false なら全 operations が validation 通過、true なら operations
+  //   空 or 1+ reject。前者のみ operationDispatcher で effectiveEvents 構築、
+  //   後者は既存 dispatchEventMerge に倒す (regression baseline 維持)。
+  //
+  //   分岐条件 (両方満たす):
+  //     - comprehension.fallbackToEvents === false
+  //     - comprehension.acceptedOperations が non-empty
+  //
+  //   どちらの経路でも下流 reconcileGapStateFromEffectiveEvents は同じ呼び出し。
+  //   trace 集計 (L924-) は dispatchResult.dispatch を見るので、両分岐で同 shape
+  //   を保つ。operation 経路では dispatch は空配列にして「turn_mode ベース集計
+  //   に該当なし」を表現する (operation 別 trace は Commit 5 で扱う)。
+  const fallbackToEvents = result.comprehension?.fallbackToEvents ?? true;
+  const acceptedOperations = result.comprehension?.acceptedOperations ?? [];
+  const useOperationsPath =
+    !fallbackToEvents && acceptedOperations.length > 0;
+  let effectiveEvents: ComprehensionEvent[];
+  let dispatchResult: ReturnType<typeof dispatchEventMerge>;
+  if (useOperationsPath) {
+    const opResult = dispatchOperations({
+      acceptedOperations,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+      priorPendingClarify: input.priorPendingClarify ?? null,
+    });
+    effectiveEvents = opResult.effectiveEvents;
+    dispatchResult = { effectiveEvents: opResult.effectiveEvents, dispatch: [] };
+  } else {
+    dispatchResult = dispatchEventMerge({
+      currentEvents,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+      // PR-50 Commit 12 (CEO 2026-04-30): utterance を dispatchEventMerge に渡す。
+      //   priorEvents non-empty 時、create event が「current utterance 由来」 か
+      //   「prior の re-extraction」 かを判定するため。re-extraction なら drop。
+      utterance: input.utterance,
+    });
+    effectiveEvents = dispatchResult.effectiveEvents;
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR-50 Commit 14 (CEO 2026-04-30): canonical event invariant enforcement
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 合言葉: 「増殖は止める。でも、本物の別予定は潰さない」
+  //
+  // dispatchEventMerge / dispatchOperations の **後段** で effectiveEvents の
+  // 不変条件を修復する pure pass。雑な dedup ではなく状態機械の不変条件:
+  //
+  //   1. ghost modify removal: turn_mode=modify + 全 slot missing な event を
+  //      filter (Commit 12 で発生源は断ったが既存 polluted session の defensive)
+  //   2. same canonical event merge: same startTime + same activity + same
+  //      place identity の event を 1 件に統合 (LLM の re-extraction が
+  //      Commit 12 を貫通した場合の最終防御)
+  //
+  // 含まない (= future PR):
+  //   - different startTime をまたぐ transport-only duplicate cleanup
+  //     (本物別予定を潰すリスク高)
+  //
+  // merge 方向 (CEO + GPT 確定):
+  //   先にある event (= base) を維持、duplicate から non-null 情報だけ補完。
+  //   event_id は base 維持 → capturedHistory / dialogState.focus.event_id の
+  //   参照が壊れない。
+  const beforeInvariantCount = effectiveEvents.length;
+  effectiveEvents = effectiveEvents.filter((e) => !isGhostModifyEvent(e));
+  const afterGhostFilterCount = effectiveEvents.length;
+  effectiveEvents = dedupCanonicalEvents(effectiveEvents);
+  const afterDedupCount = effectiveEvents.length;
+  if (beforeInvariantCount !== afterDedupCount) {
+    console.info(
+      `[alter-morning:invariant] events ${beforeInvariantCount} → ${afterGhostFilterCount} (ghost filter) → ${afterDedupCount} (canonical dedup)`,
+    );
+  }
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);
@@ -591,11 +845,12 @@ export function adaptPipelineToLegacy(
     priorDialogState:
       // dialogState は currentEvents 基準で reducer により update 済み。
       // ここでは reducer 後の状態を入力として、effectiveEvents 基準で再評価する。
-      // legacyAdapter の入力には dialogState が直接含まれていないため、
-      // 上位 (chat route / selection route) が reducer を回した後の state を
-      // 参照する必要がある。本 commit では一旦 null を渡し、
-      // dialogState 同期は別途 (route 側 with reducer 統合) で対応する。
-      null,
+      // PR-50 Commit 9 (CEO 2026-04-30):
+      //   route.ts は reducer 後の morningSession.dialogState を input.priorDialogState
+      //   に渡す。null なら reconcileDialogState は early-return する (= 既存挙動維持)。
+      //   非 null なら focus / sharpness を effectiveEvents と再同期し、
+      //   pendingClarify=null + slot fixed → focus clear / advance に至る。
+      input.priorDialogState ?? null,
     originalPhase,
     // comprehension_failed の場合は楽観的に plan_presented に上げない。
     // priorPersistedEvents fallback で effectiveEvents が fully fixed でも、
@@ -916,11 +1171,18 @@ export function adaptPipelineToLegacy(
 
   // ── CEO 2026-04-29 PR #41b-1a: dispatch summary aggregation ──
   //   各 cur event の dispatch 判断を集計し trace に乗せる。
+  //   PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止で新 action 追加:
+  //     - modify_unresolved_dropped: 未解決 modify を drop (旧 _fallback_create の代替)
+  //     - create_re_extraction_dropped: priorEvents 由来の events を drop (duplicate 防止)
+  //     - create_insufficient_slots_dropped: 2 slot 未満の create は drop
   const dispatchSummary = {
     modify_applied: 0,
     modify_unresolved_fallback_create: 0,
+    modify_unresolved_dropped: 0,
     merged_into_prior: 0,
     kept_as_new: 0,
+    create_re_extraction_dropped: 0,
+    create_insufficient_slots_dropped: 0,
   };
   for (const d of dispatchResult.dispatch) {
     dispatchSummary[d.action] += 1;
@@ -934,6 +1196,8 @@ export function adaptPipelineToLegacy(
   // PR #41a Commit 6: emitTurnTrace の戻り値を caller に返却することで、
   //   route handler が response の `_debug.trace` に乗せられるようにする。
   //   CEO が browser DevTools Network tab から trace を観測可能になる。
+  // PR-50 Commit 5: operations 経路の集計値を 1 回だけ計算して trace に乗せる。
+  const operationsTrace = buildOperationsTrace(result.comprehension);
   const traceSnapshot = emitTurnTrace(
     {
       sessionId: input.sessionId,
@@ -963,6 +1227,11 @@ export function adaptPipelineToLegacy(
       //   dispatchSummary.modify_applied >= 1 で「modify が effective に反映」 を pin。
       //   CEO Case 1, Case 2 の merge 条件として使う。
       dispatchSummary,
+      // PR-50 Commit 5 (CEO 2026-04-30): operations 経路 観測
+      //   morningPipeline (Commit 3) で comprehension に積まれた集計値を trace に
+      //   乗せる。operation 解釈率 ≥ 90% KPI の判定材料。
+      //   operations が 1 件も出ていない turn では field 自体を omit (undefined)。
+      ...(operationsTrace ? { operations: operationsTrace } : {}),
       // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
       //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
       //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で
@@ -989,6 +1258,14 @@ export function adaptPipelineToLegacy(
     response,
     ...(traceSnapshot != null
       ? { lastTraceSnapshot: traceSnapshot satisfies TurnTracePayload }
+      : {}),
+    // PR-50 Commit 9: reconcile 後の dialogState を caller に返す。
+    //   priorDialogState が non-null かつ reconcile で focus が変わった場合、
+    //   route.ts はこれを morningSession.dialogState に反映する。
+    //   priorDialogState が null だった場合は reconcile.reconciledDialogState
+    //   も null なので、route.ts は既存 dialogState を維持する。
+    ...(input.priorDialogState !== undefined
+      ? { reconciledDialogState: reconcile.reconciledDialogState }
       : {}),
   };
 }

@@ -30,7 +30,14 @@
  */
 
 import type { Event } from "../comprehension/eventSchema";
+import type { ModifyOperation } from "../comprehension/planOperation";
 import { resolveTargetRef } from "./modifyRouter";
+import {
+  isSameEventCanonical,
+  isFromCurrentUtterance,
+  countNonEmptyCriticalSlots,
+  utteranceImpliesDifferentPlace,
+} from "./canonicalEventIdentity";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -39,6 +46,18 @@ import { resolveTargetRef } from "./modifyRouter";
 export interface MergeDispatchInput {
   currentEvents: Event[];
   priorPersistedEvents: Event[];
+  /**
+   * PR-50 Commit 12 (CEO 2026-04-30): current turn の utterance。
+   *
+   * 用途:
+   *   priorEvents non-empty 時、create event が「current utterance 由来」 か
+   *   「prior の re-extraction」 かを判定するため。re-extraction なら drop
+   *   して duplicate を防ぐ。
+   *
+   *   省略時 (undefined): 既存挙動互換 (Commit 12 以前のテスト) のため、
+   *   utterance チェックを skip して保守的に従来通り処理する。
+   */
+  utterance?: string;
 }
 
 /**
@@ -58,8 +77,11 @@ export interface MergeDispatchDecision {
   action:
     | "modify_applied"
     | "modify_unresolved_fallback_create"
+    | "modify_unresolved_dropped"
     | "merged_into_prior"
-    | "kept_as_new";
+    | "kept_as_new"
+    | "create_re_extraction_dropped"
+    | "create_insufficient_slots_dropped";
   target_event_id?: string;
   /** modify resolveTargetRef.confidence (high/medium/low/null) */
   confidence?: string | null;
@@ -145,6 +167,91 @@ export function applyModifyPatch(prior: Event, cur: Event): Event {
     who: prior.who, // PR-46: 常に prior 維持
     transport: newTransport,
     certainty: cur.certainty ?? prior.certainty,
+    missing_semantic_critical: prior.missing_semantic_critical,
+    missing_solver_blockers: prior.missing_solver_blockers,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyModifyPatchFromOperation — PlanOperation.modify を prior に適用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * `applyModifyPatch(prior, cur: Event)` の operation 版 sibling。
+ *
+ * CEO 2026-04-30 PR-50 Commit 4:
+ *   既存 `applyModifyPatch` は `cur: Event` を取る (turn_mode / target_ref 等を持つ)。
+ *   `PlanOperation.modify` は `targetRef: string` + `patch: EventPatch` の組で、
+ *   Event 型ではない。両者の橋渡しを本関数で行う。
+ *
+ * 適用範囲 (Commit 4 暫定制限):
+ *   - **when.startTime / endTime / timeHint**: patch.when 経由で override
+ *   - **transport**: patch.transport 経由で override
+ *   - **where / what / who**: prior 維持 (touch しない)
+ *
+ * なぜ where / what / who を touch しないか (PR-46 contract):
+ *   modify event の patch.what / patch.where に LLM が **編集命令文字列**
+ *   を入れがち (e.g., patch.what.activity="9時を10時に変更")。これを prior に
+ *   override すると plan_item.text に command 文字列が leak する。
+ *   既存 applyModifyPatch (cur: Event 版) も同 contract で touch しない。
+ *
+ * 将来拡張 (Commit 4 では未実装):
+ *   - 「サドヤから新宿に変更」 のような場所変更を扱う場合、change_scope='replace'
+ *     を schema 層で導入し、where override を **明示的選択肢** として patch に渡す
+ *   - 同様に what / who 変更も明示的 scope で扱う
+ *   - 現状: PlanOperation.modify の patch は当層で when / transport のみ通す
+ *
+ * 戻り値: 新しい Event オブジェクト (prior は不変)。
+ */
+export function applyModifyPatchFromOperation(
+  prior: Event,
+  op: ModifyOperation,
+): Event {
+  const whenPatch = op.patch.when;
+  const newStartTime = whenPatch?.startTime ?? prior.when.startTime;
+  const newEndTime =
+    whenPatch?.endTime !== undefined && whenPatch.endTime !== null
+      ? whenPatch.endTime
+      : (prior.when.endTime ?? null);
+  const newTimeHint = whenPatch?.timeHint ?? prior.when.timeHint;
+  const whenChanged =
+    (whenPatch?.startTime != null) ||
+    (whenPatch?.endTime != null) ||
+    (whenPatch?.timeHint != null);
+  const newWhen = {
+    startTime: newStartTime,
+    endTime: newEndTime,
+    timeHint: newTimeHint,
+    // patch.when.provenance は EventPatch 型に存在しないので、prior の provenance
+    // を維持する。明示変更を反映する場合は将来 patch に provenance を載せる。
+    provenance: whenChanged ? prior.when.provenance : prior.when.provenance,
+  };
+
+  // transport: patch.transport が string なら override、undefined なら prior 維持
+  //   `op.patch.transport` の型は `string | null | undefined`。null は parser が
+  //   omit して undefined にする (parsePlanOperations) ため、ここは string のみ
+  //   override 対象として扱う。
+  const newTransport =
+    typeof op.patch.transport === "string"
+      ? op.patch.transport
+      : prior.transport;
+
+  return {
+    ...prior,
+    event_id: prior.event_id,
+    turn_mode: prior.turn_mode,
+    // target_ref / target_ref_confidence / change_scope: 解決後 clear
+    target_ref: null,
+    target_ref_confidence: null,
+    change_scope: null,
+    when: newWhen,
+    // PR-46 contract: where / what / who は prior 維持 (text leak 防止)
+    //   将来 PR で change_scope='replace' を導入する場合、ここで分岐する。
+    where: prior.where,
+    what: prior.what,
+    who: prior.who,
+    transport: newTransport,
+    certainty: prior.certainty,
     missing_semantic_critical: prior.missing_semantic_critical,
     missing_solver_blockers: prior.missing_solver_blockers,
   };
@@ -279,7 +386,7 @@ export function generateNonCollidingEventId(
 export function dispatchEventMerge(
   input: MergeDispatchInput,
 ): MergeDispatchResult {
-  const { currentEvents, priorPersistedEvents } = input;
+  const { currentEvents, priorPersistedEvents, utterance } = input;
 
   // 空配列 short-circuit
   if (currentEvents.length === 0) {
@@ -367,76 +474,210 @@ export function dispatchEventMerge(
           return;
         }
       }
-      // 未解決 modify (target_ref なし or 解決失敗 + 複数 prior):
-      //   fallback で kept_as_new (data loss 防止)
-      pushNewWithRename(cur);
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 旧挙動: 未解決 modify を kept_as_new で新規 event 化 (data loss 防止)
+      // 真因 (CEO Preview 2026-04-30):
+      //   LLM が「移動は車に変更」 を target_ref="移動" で 2 件 modify として
+      //   出力 → resolveTargetRef が「移動」 という event を見つけられず失敗
+      //   → 旧挙動で 2 件が ghost event (event_4 / event_5) として persist
+      //   → plan に「[時間未確定] [内容暫定]」 が増殖
+      //
+      // 新挙動: 未解決 modify は **drop** (state 不変)
+      //   - ghost event を作らない
+      //   - user の意図 (transport 変更等) は別経路で拾う:
+      //     * Commit 7 deterministic synth (utterance pattern) で transport modify
+      //       を生成 (= 失敗しない)
+      //     * 万一 deterministic も hit しなければ user は再発話 (UX 上は
+      //       duplicate 増殖よりはるかに mash)
+      //
+      // CEO 確定 (2026-04-30):
+      //   "失敗した modify は絶対に新規予定として保存しない"
       dispatch.push({
         cur_event_id: cur.event_id,
         cur_turn_mode: "modify",
-        action: "modify_unresolved_fallback_create",
+        action: "modify_unresolved_dropped",
       });
       return;
     }
 
-    if (cur.turn_mode === "append") {
-      // ── append: 新規追加。event_id 衝突時は rename (PR #41b-1b: data loss 防止) ──
-      pushNewWithRename(cur);
-      dispatch.push({
-        cur_event_id: cur.event_id,
-        cur_turn_mode: "append",
-        action: "kept_as_new",
-      });
-      return;
-    }
-
-    // ── create: 同一性判定で prior にマッチさせ mergeIntoPriorCreate ──
-    //   CEO 2026-04-29 指摘 (Commit A): position fallback **廃止**。
-    //   旧 logic は length match (cur.length === prior.length) なら index で fallback merge していた。
-    //   これが「新規追加した cur が既存 event と誤合流して上書き」 の真因。
-    //   例: cur=[新ランチ], prior=[ミーティング] (length=1=1) → position 0 で fallback
-    //       → mergeIntoPriorCreate(ミーティング, 新ランチ) → ミーティングの where が「新宿」 に上書き
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PR-50 Commit 12 (CEO 2026-04-30): create / append 共通の strict 経路
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 旧挙動 (PR #41b-1b 以前):
+    //   - create: 厳密な同一性 (event_id OR 完全一致 (when, place_ref)) → merge
+    //             それ以外 → kept_as_new
+    //   - append: 全件 kept_as_new
     //
-    //   新 logic: 厳密な同一性 (event_id OR (when, place_ref)) のみで merge。
-    //   それ以外は kept_as_new で新規追加 → 上書き事故ゼロ化。
-    let priorMatchIdx = priorCopy.findIndex((p) => p.event_id === cur.event_id);
-    if (
-      priorMatchIdx < 0 &&
-      cur.when.startTime != null &&
-      cur.where.place_ref != null
-    ) {
-      priorMatchIdx = priorCopy.findIndex(
-        (p) =>
-          p.when.startTime === cur.when.startTime &&
-          p.where.place_ref === cur.where.place_ref,
-      );
-    }
-    // position fallback: 削除 (CEO 2026-04-29 directive D 完全実装)
-    //   length match による position 合流は data loss/上書き risk が高すぎる。
+    // 真因 (CEO Preview 2026-04-30):
+    //   - LLM の raw place_ref ("スタバ") と persisted resolved
+    //     ("スターバックス コーヒー SHIBUYA TSUTAYA 2F店") は完全一致しない
+    //     → 同じ予定なのに kept_as_new で duplicate
+    //   - 「12時に新宿でランチ」 turn 5 で LLM が prior 4 件を re-extraction
+    //     → 全部 duplicate 化 + 新 append も混じり 8 件に増殖
+    //
+    // 新挙動 (4 段階判定):
+    //   1. canonical identity match → mergeIntoPriorCreate
+    //      (when 一致 + activity 一致 + (place_ref / coordinates / exact_proper_noun
+    //       包含) の厳格判定。substring 単独は禁止)
+    //   2. priorEvents non-empty + current utterance 由来でない → drop
+    //      (= LLM の prior re-extraction 検出)
+    //   3. when/where/what が 2 slot 未満 → drop (中身が空に近い event は弾く)
+    //   4. それ以外 → 本物の append として kept_as_new
+    //
+    // append vs create の区別は本層では削除 (両方同じ判定)。
+    // CEO 確定 (2026-04-30):
+    //   "events[] fallback は安全な append だけを通す"
 
+    // 1. canonical identity match (Commit 12 強化)
+    //    既存 priorCopy のいずれかと canonical 同一なら mergeIntoPriorCreate。
+    //
+    //    旧コード (PR #41b-1a): event_id 一致を優先 check していたが、CEO Case 3
+    //    + collision (LLM が prior と同じ event_id を出す) で誤 merge する不具合
+    //    あり。新コードは canonical identity (when + activity + place) のみで判定し、
+    //    event_id 一致は collision case として pushNewWithRename で処理する。
+    //
+    //    PR-50 Commit 12.1 (CEO 2026-04-30): 条件 D (片方 null 救済) match で、
+    //    かつ utterance が新 place を強く示唆する場合は merge を **skip** して
+    //    本物 append として処理続行する。
+    //    例: prior=「09:00 サドヤ コーヒー」 + cur=「12:00 null ランチ」 +
+    //        utterance=「12時に新宿でランチ」 → utterance に "新宿" が出現し
+    //        prior の "サドヤ" と異なる → merge skip → 別予定 append。
+    const priorMatchIdx = priorCopy.findIndex((p) =>
+      isSameEventCanonical(p, cur),
+    );
     if (priorMatchIdx >= 0 && priorMatchIdx < priorCopy.length) {
-      priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
-        priorCopy[priorMatchIdx],
-        cur,
-      );
-      dispatch.push({
-        cur_event_id: cur.event_id,
-        cur_turn_mode: "create",
-        action: "merged_into_prior",
-        target_event_id: priorCopy[priorMatchIdx].event_id,
-      });
-    } else {
-      // 同一性なし → 新規追加 (event_id 衝突時は rename)
-      pushNewWithRename(cur);
-      dispatch.push({
-        cur_event_id: cur.event_id,
-        cur_turn_mode: "create",
-        action: "kept_as_new",
-      });
+      const matched = priorCopy[priorMatchIdx];
+      // 条件 D match (cur.where.place_ref === null + matched が confident) で
+      // utterance が新 place を示唆 → merge skip
+      const isPartialMatch =
+        cur.where.place_ref === null && matched.where.place_ref !== null;
+      const utteranceSignalsDifferentPlace =
+        isPartialMatch &&
+        utterance !== undefined &&
+        matched.where.place_ref !== null &&
+        utteranceImpliesDifferentPlace(utterance, matched.where.place_ref);
+      if (!utteranceSignalsDifferentPlace) {
+        priorCopy[priorMatchIdx] = mergeIntoPriorCreate(
+          priorCopy[priorMatchIdx],
+          cur,
+        );
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+          action: "merged_into_prior",
+          target_event_id: priorCopy[priorMatchIdx].event_id,
+        });
+        return;
+      }
+      // utterance signals different place → 条件 D match を skip して
+      // 続く judgment へ進む (utterance 由来 / slot count / kept_as_new)
     }
+
+    // 2. priorEvents non-empty + current utterance 由来でない → drop
+    //    (LLM の prior re-extraction を検出して duplicate を防ぐ)
+    //    utterance が undefined (= caller が指定しない) なら check skip (互換性)
+    if (priorCopy.length > 0 && utterance !== undefined) {
+      if (!isFromCurrentUtterance(cur, utterance)) {
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+          action: "create_re_extraction_dropped",
+        });
+        return;
+      }
+    }
+
+    // 3. when/where/what で 2 slot 未満 non-empty → drop
+    //    中身が空に近い event を新規追加しない (defensive)
+    if (countNonEmptyCriticalSlots(cur) < 2) {
+      dispatch.push({
+        cur_event_id: cur.event_id,
+        cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+        action: "create_insufficient_slots_dropped",
+      });
+      return;
+    }
+
+    // 4. 本物の append として kept_as_new (event_id 衝突時は rename)
+    pushNewWithRename(cur);
+    dispatch.push({
+      cur_event_id: cur.event_id,
+      cur_turn_mode: cur.turn_mode === "append" ? "append" : "create",
+      action: "kept_as_new",
+    });
   });
 
   return {
     effectiveEvents: [...priorCopy, ...newEvents],
     dispatch,
   };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// dedupCanonicalEvents — PR-50 Commit 14 (CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * events 配列内の **同一 canonical event** を 1 件に統合する dedup pass。
+ *
+ * 設計原則 (CEO 2026-04-30):
+ *   合言葉: 「増殖は止める。でも、本物の別予定は潰さない」
+ *
+ *   merge 条件 (isSameEventCanonical で判定):
+ *     - same startTime
+ *     - same activity
+ *     - same place identity (place_ref 完全一致 / coordinates 近接 /
+ *       exact_proper_noun 包含 / 片方 null + confident 救済)
+ *
+ *   保護される「本物の別予定」 (merge されない):
+ *     - different startTime (例: 10:00 スタバ + 12:00 スタバ → 別予定)
+ *     - different place (例: 10:00 スタバ + 10:00 サドヤ → 別予定)
+ *     - different activity (例: 10:00 スタバ コーヒー + 10:00 スタバ ランチ → 別予定)
+ *
+ * merge 方向 (CEO + GPT 確定 2026-04-30):
+ *   **base (= 先にある event) を維持**、後から来た duplicate から non-null
+ *   情報だけ補完。これにより:
+ *     - event_id は base 維持 → capturedHistory / dialogState.focus.event_id
+ *       の参照が壊れない
+ *     - place は exact_proper_noun / coordinates ありが優先される
+ *       (mergeIntoPriorCreate の priorWhereLocked + cur non-null 採用ロジック
+ *       により自然に達成)
+ *     - transport は non-null を優先 (mergeIntoPriorCreate の cur.transport ?? prior.transport)
+ *
+ * 用途 (legacyAdapter.ts Commit 14 invariant pass):
+ *   effectiveEvents 構築直後に呼び出す。dispatchEventMerge の中で発生する
+ *   merge とは別レイヤ (= 後段の独立 invariant 修復)。
+ *
+ *   既存 polluted session に同一 canonical の event が複数存在する場合、
+ *   ここで 1 件に統合して plan UI の duplicate 表示を防ぐ。
+ *
+ *   different startTime をまたぐ merge は **行わない** (CEO 確定 2026-04-30)。
+ *   それは future PR の scope (本物別予定を潰すリスクが高い)。
+ *
+ * pure: 副作用なし、新配列を返す。
+ *
+ * 計算量: O(n²) だが events 件数は通常 n ≤ 10 程度なので実用上問題なし。
+ */
+export function dedupCanonicalEvents(events: Event[]): Event[] {
+  const result: Event[] = [];
+  for (const ev of events) {
+    const matchIdx = result.findIndex((r) => isSameEventCanonical(r, ev));
+    if (matchIdx >= 0) {
+      // base (result[matchIdx]) を維持し、ev (duplicate) から non-null 情報を
+      // 補完する。mergeIntoPriorCreate(prior, cur) で:
+      //   - event_id: prior 維持
+      //   - startTime / activity: 同一性前提で同じ値
+      //   - where: priorWhereLocked (= prior が exact_proper_noun) なら prior 完全保持、
+      //            それ以外は cur の non-null を採用 (= cur が exact_proper_noun なら
+      //            それを優先する効果)
+      //   - coordinates: cur.where.coordinates ?? prior.where.coordinates (non-null 優先)
+      //   - transport: cur.transport ?? prior.transport (non-null 優先)
+      result[matchIdx] = mergeIntoPriorCreate(result[matchIdx], ev);
+    } else {
+      result.push(ev);
+    }
+  }
+  return result;
 }

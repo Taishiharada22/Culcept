@@ -69,6 +69,7 @@ describe("ComprehensionProvider.extract — priorContext optional 引数", () =>
         return {
           targetDate: "today",
           events: [],
+          operations: [],
           startPoint: null,
           departureTime: null,
           goOut: null,
@@ -91,6 +92,7 @@ describe("ComprehensionProvider.extract — priorContext optional 引数", () =>
         return {
           targetDate: "today",
           events: [],
+          operations: [],
           startPoint: null,
           departureTime: null,
           goOut: null,
@@ -148,6 +150,7 @@ describe("ComprehensionProvider.extract — priorContext optional 引数", () =>
         return {
           targetDate: "today",
           events: [],
+          operations: [],
           startPoint: null,
           departureTime: null,
           goOut: null,
@@ -211,6 +214,7 @@ describe("ComprehensionProvider.extract — priorContext optional 引数", () =>
         return {
           targetDate: "today",
           events: [],
+          operations: [],
           startPoint: null,
           departureTime: null,
           goOut: null,

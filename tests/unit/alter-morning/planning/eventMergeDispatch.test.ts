@@ -432,7 +432,12 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[0].confidence).toBe("medium");
   });
 
-  it("[fallback] modify unresolved (target_ref 解決失敗 + prior 複数) → kept_as_new (data loss 防止)", () => {
+  it("[Commit 12] modify unresolved (target_ref 解決失敗 + prior 複数) → drop (ghost event 防止)", () => {
+    // PR-50 Commit 12 (CEO 2026-04-30): unsafe fallback 廃止。
+    //   旧仕様: 未解決 modify → kept_as_new (= 新規 event 化、data loss 防止)
+    //   新仕様: 未解決 modify → drop (= state 不変、ghost event 防止)
+    //   理由: CEO Preview 観測で event_4 / event_5 のような ghost event が
+    //   plan に表示される問題が発生。data loss より duplicate 防止を優先。
     const prior1 = mkEvent({
       event_id: "e1",
       when: {
@@ -458,12 +463,16 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       currentEvents: [unresolvedModify],
       priorPersistedEvents: [prior1, prior2],
     });
-    // 複数 prior で曖昧 → fallback (single event fallback は length===1 のみ)
-    expect(result.effectiveEvents).toHaveLength(3); // prior1 + prior2 + unresolved
-    expect(result.dispatch[0].action).toBe("modify_unresolved_fallback_create");
+    // 新仕様: prior 2 件のみ (unresolved modify は drop)
+    expect(result.effectiveEvents).toHaveLength(2);
+    expect(result.effectiveEvents[0].event_id).toBe("e1");
+    expect(result.effectiveEvents[1].event_id).toBe("e2");
+    expect(result.dispatch[0].action).toBe("modify_unresolved_dropped");
   });
 
-  it("[create + 同一性] event_id 一致 → mergeIntoPriorCreate", () => {
+  it("[Commit 12] canonical identity 一致 (when + activity + place) → mergeIntoPriorCreate", () => {
+    // PR-50 Commit 12: event_id 単独一致は merge 条件から削除。
+    //   canonical identity (when + activity + place) で判定。
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -471,10 +480,37 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         timeHint: null,
         provenance: utteranceProvenance(["9時"], "high"),
       },
+      where: {
+        place_ref: "スタバ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
     });
     const cur = mkEvent({
-      event_id: "e1", // 一致
+      event_id: "e1",
       turn_mode: "create",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "スタバ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
       transport: "電車",
     });
     const result = dispatchEventMerge({
@@ -535,7 +571,8 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
   });
 
   it("[length mismatch + create + append] cur=2 prior=1 → 各 event 独立処理 (旧 discard 廃止)", () => {
-    // CEO Case 3 シナリオ: 既存 09:00 スタバ + 新規 12:00 新宿ミーティング
+    // CEO Case 3 シナリオ: 既存 09:00 スタバ コーヒー + 新規 12:00 新宿ミーティング
+    // PR-50 Commit 12: canonical identity 必須 (when + activity + place 一致)
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -549,14 +586,30 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         coordinates: null,
         provenance: utteranceProvenance(["スタバ"], "high"),
       },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
     });
     const cur1 = mkEvent({
-      event_id: "e1", // 既存と一致
+      event_id: "e1",
       turn_mode: "create",
       when: {
         startTime: "09:00",
         timeHint: null,
         provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "スタバ",
+        placeType: "chain_brand",
+        coordinates: null,
+        provenance: utteranceProvenance(["スタバ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
       },
     });
     const cur2 = mkEvent({
@@ -593,7 +646,8 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[1].action).toBe("kept_as_new");
   });
 
-  it("[append turn_mode] turn_mode='append' → kept_as_new", () => {
+  it("[append turn_mode] turn_mode='append' + 2 slot 以上 → kept_as_new", () => {
+    // PR-50 Commit 12: append でも 2 slot 以上の condition を要求 (defensive)。
     const prior = mkEvent({ event_id: "e1" });
     const appendCur = mkEvent({
       event_id: "evt_append",
@@ -602,6 +656,17 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         startTime: "12:00",
         timeHint: null,
         provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ランチ",
+        activityCanonical: "ランチ",
+        provenance: utteranceProvenance(["ランチ"], "high"),
       },
     });
     const result = dispatchEventMerge({
@@ -613,10 +678,8 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.dispatch[0].action).toBe("kept_as_new");
   });
 
-  it("[position fallback 廃止] turn_mode='create' + length match でも 同一性なし → kept_as_new", () => {
-    // CEO 2026-04-29 Commit A: position fallback 廃止
-    //   旧 logic: length match なら index 0 で fallback merge → 上書き risk
-    //   新 logic: 厳密な同一性 (event_id / (when, place_ref)) のみで merge
+  it("[position fallback 廃止] turn_mode='create' + 同一性なし + 2 slot 以上 → kept_as_new", () => {
+    // PR-50 Commit 12: 同一性なし + 2 slot 以上で kept_as_new。
     const prior = mkEvent({
       event_id: "e1",
       when: {
@@ -626,23 +689,33 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       },
     });
     const cur = mkEvent({
-      event_id: "e2", // 違う id
+      event_id: "e2",
       turn_mode: "create",
       when: {
         startTime: "10:00",
         timeHint: null,
         provenance: utteranceProvenance(["10時"], "high"),
       },
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ランチ",
+        activityCanonical: "ランチ",
+        provenance: utteranceProvenance(["ランチ"], "high"),
+      },
     });
     const result = dispatchEventMerge({
       currentEvents: [cur],
       priorPersistedEvents: [prior],
     });
-    // 厳密同一性なし (event_id 違う、time も違う、place 両方 null) → kept_as_new
     expect(result.dispatch[0].action).toBe("kept_as_new");
-    expect(result.effectiveEvents).toHaveLength(2); // prior (不変) + new
-    expect(result.effectiveEvents[0].event_id).toBe("e1"); // prior 不変
-    expect(result.effectiveEvents[0].when.startTime).toBe("09:00"); // 不変
+    expect(result.effectiveEvents).toHaveLength(2);
+    expect(result.effectiveEvents[0].event_id).toBe("e1");
+    expect(result.effectiveEvents[0].when.startTime).toBe("09:00");
   });
 
   it("[CEO Case 3 + collision] append cur が prior と event_id 衝突 → fresh id にrename (data loss 防止)", () => {
@@ -700,7 +773,7 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.effectiveEvents[1].where.place_ref).toBe("新宿");
   });
 
-  it("[position fallback 制限] length mismatch + create → fallback fire しない (kept_as_new)", () => {
+  it("[position fallback 制限] length mismatch + create + 2 slot 以上 → kept_as_new", () => {
     const prior1 = mkEvent({ event_id: "e1" });
     const prior2 = mkEvent({ event_id: "e2" });
     const cur = mkEvent({
@@ -711,13 +784,137 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
         timeHint: null,
         provenance: utteranceProvenance(["10時"], "high"),
       },
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ランチ",
+        activityCanonical: "ランチ",
+        provenance: utteranceProvenance(["ランチ"], "high"),
+      },
     });
     const result = dispatchEventMerge({
       currentEvents: [cur],
       priorPersistedEvents: [prior1, prior2],
     });
-    // length mismatch (1 vs 2) → position fallback fire しない
-    expect(result.effectiveEvents).toHaveLength(3); // prior1 + prior2 + cur
+    expect(result.effectiveEvents).toHaveLength(3);
     expect(result.dispatch[0].action).toBe("kept_as_new");
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR-50 Commit 12.1: 条件 D + utterance check (CEO 2026-04-30)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  it("[Commit 12.1] 条件 D match + utterance が新 place を示唆 → merge skip + kept_as_new", () => {
+    // prior: 09:00 サドヤ (exact_proper_noun) コーヒー
+    // cur: 09:00 null コーヒー (LLM partial)、ただし utterance「9時に新宿でコーヒー」
+    //   → utterance に「新宿」 という prior と異なる place が出現
+    //   → 本物 append として扱うべき (条件 D で誤 merge を skip)
+    const prior = mkEvent({
+      event_id: "e1",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "サドヤ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["サドヤ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      event_id: "evt_x",
+      turn_mode: "create",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: null,
+        placeType: null,
+        coordinates: null,
+        provenance: inferredProvenance(),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const result = dispatchEventMerge({
+      currentEvents: [cur],
+      priorPersistedEvents: [prior],
+      utterance: "9時に新宿でコーヒー", // ← prior サドヤ ≠ 新宿
+    });
+    // utterance が「新宿」 を示唆するので merge skip
+    // → cur は本物 append として処理続行 (utterance 由来 + 2 slot 以上 → kept_as_new)
+    expect(result.dispatch[0].action).toBe("kept_as_new");
+    expect(result.effectiveEvents).toHaveLength(2);
+    expect(result.effectiveEvents[0].event_id).toBe("e1"); // prior 維持
+    expect(result.effectiveEvents[0].where.place_ref).toBe("サドヤ");
+  });
+
+  it("[Commit 12.1] 条件 D match + utterance に新 place なし → 通常通り merge", () => {
+    // prior: 09:00 サドヤ コーヒー
+    // cur: 09:00 null コーヒー、utterance「9時にコーヒー」 (place なし)
+    //   → 条件 D match で merge (LLM partial output 救済が動く)
+    const prior = mkEvent({
+      event_id: "e1",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: "サドヤ",
+        placeType: "exact_proper_noun",
+        coordinates: null,
+        provenance: utteranceProvenance(["サドヤ"], "high"),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const cur = mkEvent({
+      event_id: "e1",
+      turn_mode: "create",
+      when: {
+        startTime: "09:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["9時"], "high"),
+      },
+      where: {
+        place_ref: null,
+        placeType: null,
+        coordinates: null,
+        provenance: inferredProvenance(),
+      },
+      what: {
+        activity: "コーヒー",
+        activityCanonical: "コーヒー",
+        provenance: utteranceProvenance(["コーヒー"], "high"),
+      },
+    });
+    const result = dispatchEventMerge({
+      currentEvents: [cur],
+      priorPersistedEvents: [prior],
+      utterance: "9時にコーヒー", // place 抽出 pattern なし
+    });
+    expect(result.dispatch[0].action).toBe("merged_into_prior");
+    expect(result.effectiveEvents).toHaveLength(1);
+    expect(result.effectiveEvents[0].where.place_ref).toBe("サドヤ"); // prior 維持
   });
 });

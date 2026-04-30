@@ -191,6 +191,163 @@ const EVENT_SCHEMA = {
 } as const;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PR-50 (CEO 2026-04-30): PlanOperation schemas
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// LLM が「予定内容の理解」 を表現する operation 単位。
+// 4 種: append / modify / answer / noop
+//
+// strict mode 互換 設計判断:
+//   - 各 operation を別 schema にして anyOf/oneOf すると strict mode の制約 (全
+//     branch で同 required set) で詰まる。
+//   - 解決: 単一 OPERATION_SCHEMA に **全 type の field を持たせ** type を
+//     discriminator に。type 別に該当 field を populate、不要 field は null。
+//   - 各 type の field 整合性 (append なら eventDraft 必須、modify なら
+//     targetRef + patch 必須等) は runtime validation で担保 (validateOperation.ts、
+//     Commit 1 で実装済)。
+//
+// fallback 戦略 (CEO 確定):
+//   - top-level の operations は **required + 空配列許容**
+//   - operations: [] → events[] fallback 経路 (legacy)
+//   - operations: [...] → operations 経路 (PR-50 主)
+//   - operations だけで events[] を空にしない (両方並列に表現)
+
+// EventDraft (append 用): event_id 未発番、event の slot 一式
+//   既存 EVENT_SCHEMA を再利用しても良いが、append 専用に turn_mode 等の
+//   modify field を持たない slimmer schema として明示的に定義する。
+const EVENT_DRAFT_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    when: WHEN_SLOT_SCHEMA,
+    where: WHERE_SLOT_SCHEMA,
+    what: WHAT_SLOT_SCHEMA,
+    who: { type: "array", items: { type: "string" } },
+    transport: { type: ["string", "null"] },
+    certainty: {
+      type: "string",
+      enum: ["asserted", "tentative", "inferred"],
+    },
+  },
+  required: ["when", "where", "what", "who", "transport", "certainty"],
+} as const;
+
+// EventPatch (modify 用): slot 別 partial 値
+//   各 field は null 許容 (patch しないなら null)
+const WHEN_PATCH_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    startTime: { type: ["string", "null"] },
+    endTime: { type: ["string", "null"] },
+    timeHint: {
+      type: ["string", "null"],
+      enum: ["morning", "noon", "afternoon", "evening", null],
+    },
+  },
+  required: ["startTime", "endTime", "timeHint"],
+} as const;
+
+const WHERE_PATCH_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    place_ref: { type: ["string", "null"] },
+    placeType: {
+      type: ["string", "null"],
+      enum: [
+        "exact_proper_noun",
+        "chain_brand",
+        "generic_place",
+        "known_base",
+        null,
+      ],
+    },
+  },
+  required: ["place_ref", "placeType"],
+} as const;
+
+const WHAT_PATCH_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    activity: { type: ["string", "null"] },
+    activityCanonical: { type: ["string", "null"] },
+  },
+  required: ["activity", "activityCanonical"],
+} as const;
+
+const EVENT_PATCH_SCHEMA = {
+  type: ["object", "null"],
+  additionalProperties: false,
+  properties: {
+    when: WHEN_PATCH_SCHEMA,
+    where: WHERE_PATCH_SCHEMA,
+    what: WHAT_PATCH_SCHEMA,
+    transport: { type: ["string", "null"] },
+    who: {
+      type: ["array", "null"],
+      items: { type: "string" },
+    },
+  },
+  required: ["when", "where", "what", "transport", "who"],
+} as const;
+
+// 単一 OPERATION_SCHEMA: type discriminator + 各 type の field 全部持つ
+const OPERATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    type: {
+      type: "string",
+      enum: ["append", "modify", "answer", "noop"],
+      description:
+        "operation 種別。append=新規追加 / modify=既存修正 / answer=pendingClarify 回答 / noop=予定変更なし",
+    },
+    // append 用 (other types では null)
+    eventDraft: EVENT_DRAFT_SCHEMA,
+    // modify 用 (other types では null)
+    targetRef: {
+      type: ["string", "null"],
+      description:
+        "modify: prior event を指す自然言語ヒント (例: '9時の予定' / 'ランチ')",
+    },
+    patch: EVENT_PATCH_SCHEMA,
+    // answer 用 (other types では null)
+    slot: {
+      type: ["string", "null"],
+      enum: ["when", "where", "what", "transport", "endpoint", null],
+      description: "answer: pendingClarify が指している slot",
+    },
+    value: {
+      type: ["string", "null"],
+      description: "answer: 回答 raw 文字列",
+    },
+    // noop 用 (other types では null)
+    reason: {
+      type: ["string", "null"],
+      enum: [
+        "acknowledgement",
+        "status_query",
+        "off_topic",
+        "other",
+        null,
+      ],
+      description: "noop: 副作用なし発話の種別 (debug / trace 用)",
+    },
+  },
+  required: [
+    "type",
+    "eventDraft",
+    "targetRef",
+    "patch",
+    "slot",
+    "value",
+    "reason",
+  ],
+} as const;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Top-level schema
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -205,6 +362,16 @@ export const L1_COMPREHENSION_SCHEMA = {
     events: {
       type: "array",
       items: EVENT_SCHEMA,
+    },
+    // PR-50 (CEO 2026-04-30): operations は **必須**、ただし空配列 [] 許容。
+    //   operations: [] → events[] fallback 経路 (legacy)
+    //   operations: [op, ...] → operations 経路 (PR-50 主)
+    //   両方を populate することで events[] を regression baseline として維持。
+    operations: {
+      type: "array",
+      items: OPERATION_SCHEMA,
+      description:
+        "PR-50: 今 turn の意図単位。operations を出さない場合は空配列 []。events[] と同じ意図を並列表現。",
     },
     startPoint: {
       type: ["object", "null"],
@@ -231,7 +398,14 @@ export const L1_COMPREHENSION_SCHEMA = {
       type: ["boolean", "null"],
     },
   },
-  required: ["targetDate", "events", "startPoint", "departureTime", "goOut"],
+  required: [
+    "targetDate",
+    "events",
+    "operations",
+    "startPoint",
+    "departureTime",
+    "goOut",
+  ],
 } as const;
 
 /**

@@ -29,6 +29,7 @@ function mkRaw(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",

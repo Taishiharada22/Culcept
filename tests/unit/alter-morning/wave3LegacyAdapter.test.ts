@@ -39,6 +39,7 @@ function mkRaw(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
@@ -179,13 +180,22 @@ describe("adaptPipelineToLegacy (W3-PR-4)", () => {
     expect(session.rawInputs).toEqual([TEST_UTTERANCE]);
   });
 
-  test("plan.date は input.today で上書きできる", async () => {
+  test("plan.date: priorPlan / comprehension.targetDate がある場合は input.today より優先 (PR-50 Commit 15)", async () => {
+    // PR-50 Commit 15 (CEO 2026-04-30): targetDate preserve
+    //   優先順位:
+    //     1. priorPlan.date
+    //     2. comprehension.targetDate (interpret)
+    //     3. input.today / today fallback
+    //   旧 test 「input.today で上書きできる」 は新 contract と矛盾するため、
+    //   comprehension.targetDate (= "2026-04-22") の方が優先される挙動に更新。
     const pipelineResult = await runOk();
     const { response } = adaptPipelineToLegacy(pipelineResult, {
       ...mkInput(),
       today: "2099-12-31",
     });
-    expect(response.plan!.date).toBe("2099-12-31");
+    // raw.targetDate="2026-04-22" が comprehension.targetDate として解釈され、
+    // input.today より優先される。
+    expect(response.plan!.date).toBe("2026-04-22");
   });
 
   test("when.startTime が null の event は kind=todo、fixedStart=false", async () => {

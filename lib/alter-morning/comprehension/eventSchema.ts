@@ -18,6 +18,8 @@
 // W3-PR-9: 地理座標は normalizedPlace.ts で reserved 済み（commit 13）。
 // LLM は生成しない。Places API tool 層で user 選択時に注入する設計。
 import type { GeoCoordinates } from "../search/normalizedPlace";
+// PR-50 Commit 3: ComprehensionResult に operations 系 field を追加するため import。
+import type { PlanOperation } from "./planOperation";
 
 export type { GeoCoordinates };
 
@@ -236,6 +238,69 @@ export interface ComprehensionResult {
   } | null;
   /** goOut フラグ */
   goOut: boolean | null;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR-50 (CEO 2026-04-30): operations 経路の伝搬 fields。
+  //   旧設計 (events[] 全 plan 再生成) → 新設計 (operations 単位の意図表明) の
+  //   移行期間中、両方を並列に流す。後段 dispatch 層 (Commit 4 で実装) が
+  //   fallbackToEvents を見て経路選択する。
+  //
+  //   全 optional: 既存 fixture / test を破壊しないため。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * LLM が出力した operations (validation 前の生データ)。
+   * runL1Pipeline が raw.operations から伝搬。priorEvents bypass モードでは [] になる。
+   */
+  operations?: PlanOperation[];
+
+  /**
+   * validatePlanOperations を通過した operations。
+   * morningPipeline で埋める。allAccepted=false の場合は空配列 [] (= 全 reject)。
+   */
+  acceptedOperations?: PlanOperation[];
+
+  /**
+   * 経路選択 signal (Commit 4 で dispatch 側が読む):
+   *   true  → events[] fallback (legacy 経路)
+   *           理由: operations.length===0、または validation で 1+ reject
+   *   false → operations 経路 (PR-50 主)
+   *           条件: operations.length>0 かつ 全 accept
+   *
+   * 既存 fixture (operations 未指定) では undefined → 後段は fallback 扱い。
+   */
+  fallbackToEvents?: boolean;
+
+  /**
+   * validation で reject された operations と reason (debug / trace 用)。
+   * empty なら全 accept、または operations を 1 件も出していない。
+   */
+  operationRejections?: Array<{
+    operation: PlanOperation;
+    reason: string;
+  }>;
+
+  /**
+   * PR-50 Commit 6 (CEO 2026-04-30): operations の出所を trace に出すための field。
+   *
+   * 値:
+   *   - "llm":                          LLM operations をそのまま採用
+   *   - "llm_transformed":              LLM operations のうち 1+ が synth 層で
+   *                                      transform された (e.g., transport-only
+   *                                      duplicate append → modify)
+   *   - "deterministic":                utterance pattern hit、LLM は出していない
+   *   - "deterministic_overrides_llm":  utterance pattern hit、LLM 出力を上書き
+   *   - "none":                         operations 全部空 (legacy events[] 経路)
+   *
+   * Commit 6 段階: schema のみ追加 (default "none")。
+   * Commit 7-8: synth 層が値を埋める。
+   */
+  operationsSynthesisSource?:
+    | "llm"
+    | "llm_transformed"
+    | "deterministic"
+    | "deterministic_overrides_llm"
+    | "none";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

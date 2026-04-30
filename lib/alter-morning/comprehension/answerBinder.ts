@@ -66,14 +66,59 @@ function parseTimeHint(answer: string): "morning" | "noon" | "afternoon" | "even
 
 /**
  * 移動手段を answer から抽出。代表的な語を保守的に検出。
+ *
+ * PR-50 Commit 7 (CEO 2026-04-30): export 化。
+ *   deterministicOperationSynth.ts でも transport token 判定に再利用する。
+ *   transport vocabulary を 1 箇所 (本関数 + parseTransportExact) に集約する
+ *   ことで、新しい token の追加 (e.g., 「自家用車」「タクシー」 等) を
+ *   answerBinder と synth の両方に一括反映できる。
+ *
+ * 検出方式: **contains-based** (answer 文字列に token が含まれるか)。
+ *   - 「電車で行く」 → "電車" を返す (本関数の旧仕様維持)
+ *   - 「9時に電車で渋谷」 → "電車" を返す
+ *   contains 方式は answerBinder の文脈 (pendingClarify 回答) では正しい:
+ *   answer 文字列の中に transport を表す語があれば bind 対象。
+ *
+ * 完全一致が必要な場合は parseTransportExact を使う (synth 層、utterance 全体
+ * が transport token のみであることを保証する用途)。
  */
-function parseTransport(answer: string): string | null {
+export function parseTransport(answer: string): string | null {
   const a = answer.normalize("NFKC");
   if (/電車|地下鉄|JR|私鉄/i.test(a)) return "電車";
   if (/徒歩|歩き|歩いて/.test(a)) return "徒歩";
   if (/自転車|チャリ/.test(a)) return "自転車";
   if (/車|クルマ|タクシー|Uber/i.test(a)) return "車";
   if (/バス/.test(a)) return "バス";
+  return null;
+}
+
+/**
+ * 移動手段を **完全一致** で抽出。synth 層の transport-only 判定用。
+ *
+ * PR-50 Commit 7 (CEO 2026-04-30):
+ *   parseTransport (contains-based) と異なり、token 全体が transport
+ *   vocabulary に等しいことを要求する。
+ *   - 「電車」 → "電車"
+ *   - 「電車で行く」 → null (動詞含む)
+ *   - 「9時に電車」 → null (時刻含む)
+ *
+ * 戻り値: 正規化済 transport (parseTransport と同じ vocabulary)。
+ *   - 電車 / 地下鉄 / JR / 私鉄 → "電車"
+ *   - 徒歩 / 歩き → "徒歩"
+ *   - 自転車 / チャリ → "自転車"
+ *   - 車 / クルマ / タクシー / Uber → "車"
+ *   - バス → "バス"
+ *
+ * caller 側で句読点 / 助詞を除去してから渡すこと。本関数は受け取った文字列
+ * 全体が token に一致することのみを check する。
+ */
+export function parseTransportExact(token: string): string | null {
+  const t = token.normalize("NFKC");
+  if (/^(電車|地下鉄|JR|私鉄)$/i.test(t)) return "電車";
+  if (/^(徒歩|歩き|歩いて)$/.test(t)) return "徒歩";
+  if (/^(自転車|チャリ)$/.test(t)) return "自転車";
+  if (/^(車|クルマ|タクシー|Uber)$/i.test(t)) return "車";
+  if (/^バス$/.test(t)) return "バス";
   return null;
 }
 
