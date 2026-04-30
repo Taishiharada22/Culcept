@@ -432,6 +432,83 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// targetDate preserve (PR-50 Commit 15 / CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 「明日」「明後日」「YYYY-MM-DD」 等の relative / absolute date token を YYYY-MM-DD
+ * に解釈する pure helper。
+ *
+ * 認識する token:
+ *   - "today" → 今日
+ *   - "tomorrow" → 明日 (今日 + 1)
+ *   - "day_after_tomorrow" → 明後日 (今日 + 2)
+ *   - "YYYY-MM-DD" 形式 → そのまま (絶対値)
+ *
+ * 認識しない (return null):
+ *   - 上記以外の token (e.g., "next monday")
+ *
+ * 用途:
+ *   resolvePlanDate で comprehension.targetDate を YYYY-MM-DD に変換。
+ */
+function interpretTargetDate(token: string): string | null {
+  if (token === "today") return todayYmd();
+  if (token === "tomorrow") return addDaysYmd(1);
+  if (token === "day_after_tomorrow") return addDaysYmd(2);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(token)) return token;
+  return null;
+}
+
+function addDaysYmd(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Plan の date を session 全体で preserve する resolver。
+ *
+ * CEO 確定 (2026-04-30) 優先順位:
+ *   1. **priorPlan.date があれば最優先** (= session の最初に決まった日付を維持)
+ *      これにより「明日」 で始まった session が後続 turn で今日に戻るのを防ぐ。
+ *      explicit date modify operation の対応は future PR scope。
+ *   2. **comprehension.targetDate を解釈** ("tomorrow" → 明日 等)
+ *      初回 turn (priorPlan が無い) のみここで決まる。
+ *   3. **input.today ?? today fallback**
+ *      上記 2 つが解釈できない場合の保守的 default。
+ *
+ * 観測 (CEO Preview 2026-04-30 turn 1-5):
+ *   旧コード: const today = input.today ?? todayYmd();
+ *     → priorPlan を見ないため、毎 turn 実際の今日が plan.date になる
+ *     → user「明日の9時に渋谷のスタバ」 → plan.date = 今日 (= 状態機械の破綻)
+ *
+ *   新コード: 上記優先順位で resolve
+ *     → 初回 turn: comprehension.targetDate="tomorrow" → 明日 (= +1日)
+ *     → turn 2 以降: priorPlan.date = 「明日の日付」 が継承される
+ *     → 状態機械の不変条件: session の plan.date は user の意図 (= 最初に決まった
+ *       date) を保持し、後続 turn の LLM / fallback で勝手に書き換わらない。
+ */
+function resolvePlanDate(
+  input: LegacyAdapterInput,
+  comprehension: MorningPipelineResult["comprehension"],
+): string {
+  // 1. priorPlan.date があれば最優先
+  if (input.priorPlan?.date) {
+    return input.priorPlan.date;
+  }
+  // 2. comprehension.targetDate を解釈
+  if (comprehension?.targetDate) {
+    const interpreted = interpretTargetDate(comprehension.targetDate);
+    if (interpreted) return interpreted;
+  }
+  // 3. fallback
+  return input.today ?? todayYmd();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Operations trace builder (PR-50 Commit 5+6 / CEO 2026-04-30)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -625,7 +702,14 @@ export function adaptPipelineToLegacy(
   result: MorningPipelineResult,
   input: LegacyAdapterInput,
 ): LegacyAdapterOutput {
-  const today = input.today ?? todayYmd();
+  // PR-50 Commit 15 (CEO 2026-04-30): targetDate preserve
+  //   priorPlan.date を最優先で採用し、後続 turn の LLM / fallback で
+  //   plan.date が勝手に今日に書き換わるのを防ぐ。
+  //   詳細は resolvePlanDate のコメント参照。
+  //
+  //   変数名は既存の `today` を踏襲 (telemetry の plan_date 等で使われているため)。
+  //   実際の意味は「resolved plan date (= session 全体で preserve される日付)」。
+  const today = resolvePlanDate(input, result.comprehension);
 
   // ── CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard ──
   //   LLM が turn_mode='create' を出した場合でも、utterance pattern (「○時を△時に」等)
