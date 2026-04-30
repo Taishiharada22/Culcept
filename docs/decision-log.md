@@ -1269,3 +1269,70 @@ CEO 判断 (2026-04-30):
 ### rollback 境界
 - 本 phase は code 変更なし → rollback 対象は decision-log entry のみ (`git revert` で除去可能)
 - L4-j Phase 1 wire (`30866d3e` + `a21d2f80`) は本 phase の rollback 対象外
+
+## [2026-04-30] [Build] [L4-j-blocker — Q4 判断: Option 2 採用 (新規 Sentry project / Preview only DSN)] [承認: CEO]
+
+### CEO 判断 Q4-blocker (2026-04-30)
+- **採用**: Option 2 = 新規 Sentry project 作成 + Preview only DSN
+- **却下**: Option 1 (既存復元) — 確認結果から既存 project の根拠が薄い (Vercel Project / Shared / .env.local / repo / git history すべて DSN 痕跡なし、Sentry dashboard project 0 件)
+- **却下**: Option 3 (別 sink 採用) — `@sentry/nextjs` / Sentry config / tunnelRoute / sink 配線が実装済、PostHog 等への切替は scope 過大
+- **却下**: Option 4 (telemetry なしで L4-i 進行) — L4-i は LLM 合成 phase、発火頻度 / 誤発火 / 出力品質 / 安全性を観測できない状態での着手は危険
+
+### 進め方 (CEO 確定方針)
+- いきなり Production へは入れない
+- **まず Preview only で DSN 設定 → Sentry 観測実証 → PASS 後に Production DSN を別判断**
+
+### CEO 担当作業 (2026-04-30 進行中)
+1. Sentry SaaS で新規 Project 作成
+   - Platform: Next.js
+   - Project name: `culcept` (Vercel project 名と一致、混乱回避)
+2. DSN 取得
+3. Vercel Project `culcept` の Environment Variables に追加
+   - key: `NEXT_PUBLIC_SENTRY_DSN`
+   - value: Sentry DSN
+   - scope: **Preview only** (Production / Development には入れない)
+   - 可能なら branch filter: `feat/coalter-three-stage`
+4. Preview redeploy
+
+### Claude 担当作業 (CEO Preview URL 共有後)
+Preview redeploy 完了後に下記 5 項目を確認:
+1. **sentry-release** が最新 commit hash に一致 (HEAD = `37d92eb8` 時点)
+2. **sentry-environment** = `vercel-preview`
+3. DevTools Network で `/monitoring` request が出る (tunnelRoute による Sentry SaaS 転送)
+4. Sentry dashboard に event / breadcrumb / transaction / replay のいずれかが見える
+5. **L4-j Phase 1 の 4 event 観測**:
+   - `coalter.mode.transition` (ModeSwitcher で Daily/通常切替)
+   - `coalter.urgent.triggered` (「もう限界」等 critical keyword 送信)
+   - `coalter.presence.state_transition` (S0→S1/S2 遷移)
+   - `coalter.pattern.used` (pattern 算出)
+
+### 判定基準 (CEO 確定 2026-04-30)
+- Preview で `/monitoring` request が出る
+- Sentry 側で最低限 `coalter.mode.transition` と `coalter.urgent.triggered` の 2 event が確認できる
+- 上記 2 条件 PASS で **Sentry 接続復元 phase 一旦 PASS**
+- その後 Production DSN を入れるかは **別判断** (L4-j-blocker の範囲外)
+
+### 禁止事項 (CEO 厳守 2026-04-30)
+- Production env に DSN を入れない (Preview PASS 後の別判断)
+- Shared Variables で全 project / 全環境に広げない (Project scope 限定)
+- Sentry project を複数作らない (`culcept` 1 個のみ)
+- DSN を code に直書きしない (env 経由のみ)
+- env / package / next-env.d.ts / Supabase は触らない
+- L4-i へ進まない (本 phase PASS 待ち)
+- 別 sink へ飛ばない (Sentry 採用方針維持)
+
+### 不変 (CEO 厳守 2026-04-30)
+- L4-j Phase 1 commits (`30866d3e` + `a21d2f80`) リバートしない ✅
+- ChatClient.tsx 触らない ✅
+- 本 phase は code 変更ゼロ、判断ログ + 観測手順記録のみ ✅
+
+### rollback 境界
+- 本 phase は code 変更なし → rollback 対象は decision-log entry のみ
+- DSN 設定は Vercel UI 操作 → rollback も Vercel UI で env 削除 + redeploy のみ
+- 観測 NG だった場合の次 phase: Sentry 接続トラブルシュート (DSN typo / project scope mismatch / build env 未反映 等) を切り分け、別 phase として記録
+
+### 次ステップ (CEO Preview URL 共有待ち)
+1. CEO が Sentry project 作成 + Vercel Preview env 登録 + redeploy 完了
+2. CEO が Preview URL を共有
+3. Claude が 5 項目検証 → 結果を decision-log に記録
+4. 判定 PASS / NG の双方を別 entry で記録、PASS なら L4-i 着手可否を CEO 判断、NG ならトラブルシュート phase
