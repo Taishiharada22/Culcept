@@ -1514,3 +1514,116 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
 
 ### rollback 境界
 - 本 entry は判断記録のみ、code 変更なし → rollback 対象は decision-log entry
+
+## [2026-04-30] [Build] [L4-i Phase 1 — speech synthesis gated wire 完成 (commit `c2472719`)] [承認: CEO]
+
+### 実装内容
+- 新規 file:
+  - `lib/coalter/presence/speechFetchGate.ts` — client gate (`process.env.NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH === "true"`、Phase 1 default false)
+  - `app/api/coalter/speech/route.ts` — server-side LLM 経路 (二重 gate: presenceExecutor + LLM flag、auth 401 厳格、staticFallback path 整理)
+  - `tests/unit/coalter/speechFetchGate.test.ts`
+  - `tests/unit/coalter/api/speechApiRoute.test.ts`
+  - `tests/unit/coalter/presence/sentryTelemetryL4i.test.ts`
+  - `tests/unit/coalter/upperLayerSpeechFetch.test.ts`
+- 改修 file (Urgent 触らない、CEO 厳守):
+  - `lib/coalter/presence/telemetryEvents.ts` — `PatternUsedEvent` に optional 5 field 追加 (speechSource / retries / latencyMs / validationFailed / fallbackReason)、`legacy.fallback` 流用なし
+  - `app/components/chat/UpperLayerMount.tsx` — speech fetch effect (gate OFF で起動ゼロ、AbortController + 2s timeout + in-flight dedupe + mounted ref + negative cache 30s)
+  - `app/components/chat/states/UpperLayerStateRenderer.tsx` — `body?: string` prop forward
+  - `app/components/chat/states/S2Opening.tsx` / `S5Bridging.tsx` / `S7ProposalShown.tsx` — `body?: string` prop accept、undefined で既存 hardcoded fallback (Production 不変)
+  - `app/components/chat/hooks/usePresenceExecutor.ts` — `emitPatternUsed` に default static speech field 追加
+  - `tests/integration/coalter/stage4PathBComplete.test.ts` — §10.2 #8 evidence 更新 (status は missing 維持、Phase 2 で本番稼働判定)
+
+### CEO 14 必須項目との対応
+| # | 項目 | 検証 |
+|---|---|---|
+| 1 | env 未設定で fetch 0 | `speechFetchGate.test.ts` + `upperLayerSpeechFetch.test.ts` (gate OFF early return) |
+| 2 | env 未設定で UI 文言不変 | S2/S5/S7 `body undefined` で hardcoded fallback render test |
+| 3 | API route で LLM flag OFF なら Anthropic call なし | `speechApiRoute.test.ts` (gate 2 直前で flag_off 経路) |
+| 4 | S2/S5/S7 のみ speech 対象 | `SPEECH_ENABLED_STATES` grep + 6 state 拒否 test |
+| 5 | S0/S1/S3/S4/S6/S8 で fetch なし | `state !== "S2" && state !== "S5" && state !== "S7"` guard grep |
+| 6 | urgentDecision 出ても speech fetch なし | UrgentLayer / UrgentMessageCard / UrgentRelease grep で関連 import 無し |
+| 7 | LLM response 本文 telemetry 不在 | `PatternUsedEvent` 型 grep で禁止 field 不在確認 |
+| 8 | prompt 本文 Sentry 不在 | route.ts grep で `promptText/llmResponseRaw/violationMessage` 禁止 |
+| 9 | validation 違反時 fallback | API route の validation_failed path |
+| 10 | timeout fallback | `setTimeout(..., 2000)` + `controller.abort()` |
+| 11 | in-flight 重複 fetch なし | `inFlightSpeechRef` Map test |
+| 12 | stale response UI 上書きなし | `speechMountedRef` + AbortController return cleanup |
+| 13 | ChatClient.tsx touch なし | git diff + grep で確認、test で固定 |
+| 14 | Production default behavior 不変 | gate OFF / S0-S1/S3-S8 / urgent path 全て fetch ゼロ |
+
+### test 結果
+- 新規 4 test file 全 PASS (45/45 test cases)
+- 既存 coalter 関連 146 test file 全 PASS (2114/2114 test cases)
+- type check: L4-i Phase 1 触った file に error ゼロ (既存 error は Stage4 範囲外で別 phase)
+- 構造 invariant: ChatClient.tsx / UrgentLayer / UrgentMessageCard / UrgentRelease に L4-i 関連 import なし
+
+### 実装の core 原則 (CEO v2 設計反映)
+1. **二重 gate**:
+   - client `isSpeechFetchEnabled()` env 未設定 false (Phase 1 default)
+   - server LLM flag `presenceSpeechLLMEnabled` + `ANTHROPIC_API_KEY` 必須
+   - 二層独立、片方 OFF で完全停止
+2. **Urgent LLM 完全除外**:
+   - UrgentLayer / UrgentMessageCard / UrgentRelease 触らない
+   - urgentMessage は既存 `URGENT_FALLBACK_MESSAGES` static 維持
+   - LLM 化は L4-i Phase 3 以降の別審議
+3. **`legacy.fallback` 流用禁止**:
+   - speech 失敗 / fallback は `coalter.pattern.used` payload に集約
+   - `coalter.legacy.fallback` semantics は legacy CoAlterCard 経路専用維持
+4. **auth 失敗 = 401 厳格**:
+   - static fallback と混ぜない (CEO 厳守)
+   - rate_limited は 200 + speechSource:"static" + fallbackReason:"rate_limited"
+5. **Phase 1 で env 追加なし**:
+   - code 変更のみ、Vercel env は触らない
+   - Phase 2 で Preview env 3 個 (`ANTHROPIC_API_KEY` + `COALTER_PRESENCE_SPEECH_LLM=true` + `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true`) を追加するだけで起動
+
+### Production behavior 不変 確認
+- Phase 1 commit (`c2472719`) を本番 promote しても:
+  - `isSpeechFetchEnabled()` = false → fetch 起動ゼロ → /api/coalter/speech 呼ばれない
+  - `presenceSpeechLLMEnabled` = false → LLM call ゼロ
+  - `ANTHROPIC_API_KEY` 未設定 → setLlmCall(null) (instrumentation.ts 既存挙動維持)
+  - state component body prop = undefined → hardcoded fallback (既存挙動維持)
+  - urgentMessage = `URGENT_FALLBACK_MESSAGES[category]` (既存挙動維持)
+- L4-i Phase 1 commit 後も **LLM はまだ動かない** (CEO 厳守 #7)
+
+### Phase 2 への移行手順 (CEO 操作のみ、code 変更ゼロ)
+1. CEO Vercel Project culcept → Settings → Environment Variables → Preview only に追加:
+   - `ANTHROPIC_API_KEY` = `<Anthropic SaaS API key>`
+   - `COALTER_PRESENCE_SPEECH_LLM` = `true`
+   - `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH` = `true`
+2. Preview redeploy
+3. Stage 2.1 Smoke (20 calls) → Stage 2.2 Observation (100 calls) → Stage 2.3 Variant 別 review (5 sample × 7 variant = 35 sample) の 3 sub-stage 検証
+4. 全 sub-stage PASS で Phase 3 (Production promote) を CEO 別判断
+
+### §10.2 #9 status (CEO Q8 確定方針 維持)
+- partial 維持 (4/8 wire、本 phase で変更なし)
+- L4-i Phase 1 で telemetry payload に new field 追加したが、event 種類は 8 のまま
+- 「§10.2 #9 partial」と「Production-reachable 4 event Preview 観測 PASS」が表現規約
+
+### §10.2 #8 status
+- missing 維持 (本 phase commit 後も)
+- 理由: Phase 1 は wire 完了だが LLM 経路 dormant (Production 稼働ではない)
+- 本番稼働 = L4-i Phase 2 (Preview 観測 PASS) → Phase 3 (Production promote)
+- evidence 更新: bridge wire 完了の事実を記録
+
+### 不変 (CEO 厳守 2026-04-30)
+- ChatClient.tsx 触らない ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 触らない (Phase 1 Urgent LLM 化なし) ✅
+- env / package.json / next-env.d.ts / Supabase 触らない (Phase 1) ✅
+- `legacy.fallback` を speech fallback に流用しない ✅
+- 新 telemetry event 追加しない (`pattern.used` payload 拡張のみ) ✅
+- §10.2 #9 を complete に昇格しない ✅
+- Production DSN 追加しない (Phase 2 Preview only 維持) ✅
+- 別 sink へ飛ばない (Sentry 維持) ✅
+- L4-i Phase 1 後も LLM はまだ動かない ✅
+
+### rollback 境界
+- L0 (env): Vercel env を追加しない → rollback 不要 (Phase 1 commit は Production 影響なし)
+- L1 (code): `git revert c2472719` + push (15-20 分)、L4-k 完了状態 (5c7722ad) に戻る
+- Phase 2 で env 追加後の rollback は env 削除 + redeploy
+
+### 次フェーズ (CEO 判断待ち)
+1. Phase 1 commit を CEO Production promote するか?
+   - 推奨: そのまま Production 反映 (behavior 不変なので安全、git history を main に整える)
+   - or: Preview だけで保持 (`feat/coalter-three-stage` で Phase 2 着手後にまとめて Production)
+2. Phase 2 着手のタイミング
+3. Phase 2 で env 追加するか別判断 (CEO 確定済 = Phase 2 で env 追加 + 観測)
