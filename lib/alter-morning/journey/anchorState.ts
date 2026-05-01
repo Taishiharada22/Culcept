@@ -114,6 +114,31 @@ export type AnchorSource =
   | "registered_home"
   /** PR B-2b: deterministic origin detector 由来。例: 「自宅から」「ホテルから」 */
   | "user_declared"
+  /**
+   * PR B-2c: 前日 plan の journeyEnd を翌朝 origin として継承した場合の source。
+   * 前日 source が default_round_trip 以外 (= confirmed) の場合に使われる。
+   * 例: 前日 「ホテルに泊まる」 → 当日 origin = ホテル / previous_day_endpoint
+   *
+   * 規律 (CEO/GPT 2026-05-02):
+   *   - 前日由来の推論材料であり、ユーザーがその場で明示した発話ではない
+   *   - USER_EXPLICIT_SOURCES に **含めない** (前日由来は明示発話と区別)
+   *   - STRONG_PRIOR_ORIGIN_SOURCES に含む (同 plan 内で守るべき prior)
+   *   - origin 専用 source (journeyEnd に出るのは型レベル不正、cascade guard 対象)
+   */
+  | "previous_day_endpoint"
+  /**
+   * PR B-2c: 前日 plan の journeyEnd (assumed = default_round_trip) を翌朝 origin
+   * として継承した場合の source。
+   * 例: 前日 推定帰宅 (default_round_trip) → 当日 origin = 自宅 / previous_day_assumed_endpoint
+   *
+   * 規律:
+   *   - isAssumedAnchor() で true (UI 「(推定)」 表示連動)
+   *   - 「前日推定 → 翌朝起点」 という assumed-by-inheritance を debug/trace で識別可
+   *   - default_round_trip (当日内帰宅推定) との区別: 前者は当日 end の推定、
+   *     後者は前日 end → 翌朝 origin に継承された推定
+   *   - origin 専用 source (cascade guard 対象)
+   */
+  | "previous_day_assumed_endpoint"
   // ── end sources ──
   /**
    * home anchor からの round-trip default 派生 (assumed end)。
@@ -134,7 +159,16 @@ export type AnchorSource =
    * user_declared (origin 専用) と対称な end 専用 source。
    */
   | "user_explicit_endpoint"
-  /** (将来 PR B-2e) endpoint clarify の user 回答で確定した終点 */
+  /**
+   * (将来 PR B-2e) endpoint clarify の user 回答で確定した終点。
+   *
+   * CEO/GPT 2026-05-02 規律 (PR B-2c での扱い):
+   *   現時点では **endpoint clarify 専用**。origin clarify はまだ実装されていない。
+   *   origin の意味で使われるようになったら、PR B-2e で:
+   *     - STRONG_PRIOR_ORIGIN_SOURCES に追加
+   *     - 「origin / endpoint 両方の clarify 由来」 と意味論を更新
+   *   それまでは endpoint 専用 source として扱う (= origin の STRONG prior には含めない)。
+   */
   | "user_override";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -180,19 +214,34 @@ export type JourneyAnchorState =
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * `source === "default_round_trip"` を識別するヘルパー (CEO/GPT 規律)。
+ * assumed source の集合 (PR B-2c 拡張)。
+ *
+ * 含まれる source:
+ *   - "default_round_trip": 当日内 home anchor からの round-trip default 派生
+ *   - "previous_day_assumed_endpoint": 前日の assumed end (default_round_trip)
+ *     を翌朝 origin として継承したもの
+ *
+ * UI/debug 観点では両方とも「(推定)」 表示で同じ。ただし source 自体が異なるため
+ * trace では「当日内推定」 vs 「前日推定→翌朝継承」 を区別可能。
+ */
+const ASSUMED_SOURCES = new Set<AnchorSource>([
+  "default_round_trip",
+  "previous_day_assumed_endpoint",
+]);
+
+/**
+ * assumed anchor 識別ヘルパー (CEO/GPT 規律、PR B-2c 拡張)。
  *
  * 用途:
- *   - UI: 「(推定)」 ラベル付き描画
+ *   - UI: 「(推定)」 ラベル付き描画 (MorningPlanCard の JourneyAnchorBlock)
  *   - debug: assumed vs confirmed の区別
  *   - 将来 plan_presented 条件 (PR C): confirmed end として扱わない
  *
- * 注意: kind === "known_exact" でも source === "default_round_trip" のときは
- * **confirmed ではなく assumed**。この区別を曖昧にすると「終点を勝手に決めた」
- * UX に見える。
+ * 注意: kind === "known_exact" でも source が ASSUMED_SOURCES に含まれるときは
+ * **confirmed ではなく assumed**。この区別を曖昧にすると「決め打ち」 UX に見える。
  */
 export function isAssumedAnchor(state: JourneyAnchorState): boolean {
-  return state.kind === "known_exact" && state.source === "default_round_trip";
+  return state.kind === "known_exact" && ASSUMED_SOURCES.has(state.source);
 }
 
 /**
@@ -205,6 +254,147 @@ export function hasResolvedCoordinates(
   state: JourneyAnchorState | undefined,
 ): state is JourneyAnchorState & { kind: "known_exact" } {
   return state !== undefined && state.kind === "known_exact";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PR B-2c: Layer 2 previous day endpoint inheritance (CEO/GPT 2026-05-02)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 目的:
+//   前日 plan の journeyEnd を翌朝 origin の inference 材料 (Layer 2) として活用。
+//   推論優先順位:
+//     1. current turn explicit (Layer 1)
+//     2. same-plan strong prior (USER_EXPLICIT or previous_day_*)
+//     3. previous day endpoint (Layer 2、本機能)
+//     4. baseline / current resolver + weak prior fallback (Layer 3-4)
+//     5. unknown
+//
+// 不変条件 (CEO/GPT 規律):
+//   - 前日終点は baseline home より強い (= Layer 2 > Layer 3)
+//   - ただし当 turn の明示発話と同 plan 内の strong prior よりは弱い
+//   - cascade なし (直前 1 日のみ、PR B-5a の fetchPreviousDayPlan 規律と整合)
+
+/**
+ * STRONG_PRIOR_ORIGIN_SOURCES — 同 plan 内で守るべき prior origin source の集合。
+ *
+ * 含まれる:
+ *   - "user_declared":                 PR B-2b 当 turn または以前のユーザー明示
+ *   - "previous_day_endpoint":          前 turn で Layer 2 が決定済 (confirmed 由来)
+ *   - "previous_day_assumed_endpoint":  前 turn で Layer 2 が決定済 (assumed 由来)
+ *
+ * 含まれない (= Layer 2 で上書き対象):
+ *   - "current":          browser geolocation、time-dependent な弱い fallback
+ *   - "registered_home":  baseline、Layer 3 由来の弱い fallback
+ *   - end 専用 source は origin に出ない (構造的に)
+ *   - "user_override":    現時点 endpoint 専用 (PR B-1 で定義)。origin clarify
+ *     (PR B-2e) で origin にも使われるようになったら、ここに追加する。
+ *     CEO/GPT 2026-05-02 規律: endpoint 専用の source を origin の STRONG prior
+ *     として扱うのは意味論的に不適切。
+ *
+ * 用途:
+ *   - preserveStrongPriorOrigin() で「同 plan 内で Layer 2 で上書きすべきでない
+ *     prior」 を識別
+ */
+const STRONG_PRIOR_ORIGIN_SOURCES = new Set<AnchorSource>([
+  "user_declared",
+  "previous_day_endpoint",
+  "previous_day_assumed_endpoint",
+]);
+
+/**
+ * PREVIOUS_DAY_ORIGIN_SOURCES — origin 専用 source (cascade guard 対象)。
+ *
+ * 含まれる:
+ *   - "previous_day_endpoint"
+ *   - "previous_day_assumed_endpoint"
+ *
+ * 用途 (CEO/GPT 2026-05-02 規律):
+ *   - previousEndToOrigin() で「previous_day_* が journeyEnd に出るのは型レベル
+ *     不正状態」 として継承を guard (cascade 事故防止)
+ *   - 将来 PR B-3 で type-level 分離 (AnchorSource を OriginSource | EndSource に
+ *     discriminated union 化) を検討する。それまでは set として明示管理。
+ */
+const PREVIOUS_DAY_ORIGIN_SOURCES = new Set<AnchorSource>([
+  "previous_day_endpoint",
+  "previous_day_assumed_endpoint",
+]);
+
+/**
+ * 前日 plan の journeyEnd を翌朝 origin の inference 材料に変換する純粋関数。
+ *
+ * 変換ルール (CEO/GPT 規律):
+ *   - previousEnd.source === "default_round_trip" (assumed)
+ *     → 翌朝 source = "previous_day_assumed_endpoint" (assumed のまま継承)
+ *   - その他の known previousEnd.source
+ *     → 翌朝 source = "previous_day_endpoint" (confirmed として継承)
+ *
+ * Cascade guard:
+ *   - previousEnd.source ∈ PREVIOUS_DAY_ORIGIN_SOURCES → null
+ *     (origin 専用 source が journeyEnd に出るのは型レベル不正状態。
+ *      継承すると cascade 事故になるため null を返す。)
+ *   - previousEnd.kind === "unknown" → null (継承する材料がない)
+ *
+ * known_label_only も継承する (coords なしでも識別性維持、travel は不生成)。
+ */
+export function previousEndToOrigin(
+  previousEnd: JourneyAnchorState | undefined,
+): JourneyAnchorState | null {
+  if (!previousEnd) return null;
+  if (previousEnd.kind === "unknown") return null;
+
+  // CEO/GPT 2026-05-02 規律: cascade 事故防止
+  //   previous_day_* は origin 専用 source。journeyEnd に出るのは型レベル不正。
+  //   継承すると 「前日の前日の前日...」 と無限に遡る cascade になるため、null で止める。
+  if (PREVIOUS_DAY_ORIGIN_SOURCES.has(previousEnd.source)) return null;
+
+  const newSource: AnchorSource =
+    previousEnd.source === "default_round_trip"
+      ? "previous_day_assumed_endpoint"
+      : "previous_day_endpoint";
+
+  if (previousEnd.kind === "known_exact") {
+    return {
+      kind: "known_exact",
+      label: previousEnd.label,
+      lat: previousEnd.lat,
+      lng: previousEnd.lng,
+      source: newSource,
+    };
+  }
+  // known_label_only も source 変換 (識別性維持、travel は不生成)
+  return {
+    kind: "known_label_only",
+    label: previousEnd.label,
+    source: newSource,
+  };
+}
+
+/**
+ * 同 plan 内で守るべき prior origin を返す純粋関数。
+ *
+ * 守る条件 (全 AND):
+ *   - prior が undefined でない
+ *   - samePlanDate === true (同 plan 編集中、新 plan では prior は弱い fallback)
+ *   - prior.kind !== "unknown" (unknown は守る価値なし)
+ *   - prior.source ∈ STRONG_PRIOR_ORIGIN_SOURCES
+ *
+ * 守らない条件 (= Layer 2 / resolver で上書き対象):
+ *   - samePlanDate === false (新 plan では prior は弱い fallback、applyAnchorFallback 経由のみ)
+ *   - prior.source が STRONG に含まれない (current / registered_home 等の弱い source)
+ *
+ * 用途:
+ *   推論 chain で Layer 2 の前段に挿入。
+ *     explicit → strongPrior → previousDay → resolver+weakFallback
+ */
+export function preserveStrongPriorOrigin(
+  prior: JourneyAnchorState | undefined,
+  opts: { samePlanDate: boolean },
+): JourneyAnchorState | null {
+  if (!prior) return null;
+  if (!opts.samePlanDate) return null;
+  if (prior.kind === "unknown") return null;
+  if (!STRONG_PRIOR_ORIGIN_SOURCES.has(prior.source)) return null;
+  return prior;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
