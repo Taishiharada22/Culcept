@@ -59,6 +59,28 @@ export interface SynthesisContext {
   priorEvents: Event[];
   /** LLM が parsePlanOperations 後に出した operations (空 OK) */
   llmOperations: PlanOperation[];
+  /**
+   * 当 turn 開始時の pendingClarify (PR-50 Commit 4 で追加、PR A で利用)。
+   * detectAppendPattern が defensive check に使う。
+   */
+  priorPendingClarify?: PendingClarify | null;
+  /**
+   * deterministic append fallback (PR A) を許可するか。
+   *
+   * GPT/CEO 2026-05-02 安全側設計:
+   *   未指定 / false → append fallback 不発 (default false、誤爆防止)
+   *   true  → caller が active slot answer 文脈でないことを確認した上で許可
+   *
+   * caller (morningPipeline / legacyAdapter) は以下 5 条件すべて clear のとき
+   * true を渡すことが期待される:
+   *   - priorPendingClarify == null
+   *   - dialogState.focus が active slot answer 状態でない
+   *     (where focus narrowStep<3、または where 以外の slot focus narrowStep=0)
+   *   - dialogState.activePresentation == null
+   *   - conversationStatus が search_candidates_presented でない
+   *   - conversationStatus が search_handoff_blocking でない
+   */
+  allowDeterministicAppend?: boolean;
 }
 
 export type SynthesisSource =
@@ -66,6 +88,8 @@ export type SynthesisSource =
   | "llm_transformed"
   | "deterministic"
   | "deterministic_overrides_llm"
+  | "deterministic_append" // PR A NEW: append 単独 (LLM 空)
+  | "deterministic_append_overrides_llm" // PR A NEW: append hit 時 LLM 破棄
   | "none";
 
 export interface SynthesisResult {
@@ -78,13 +102,16 @@ export interface SynthesisResult {
 /**
  * synth 層メイン entry。
  *
- * 優先順位:
- *   1. utterance pattern hit (deterministic) → LLM ops を上書きして採用
- *   2. LLM operations 非空 → inspect & transform して採用 (Commit 8)
- *   3. operations なし (none)
+ * 優先順位 (PR A 後):
+ *   1. utterance pattern hit (deterministic modify: time-change / transport-only)
+ *      → LLM ops を上書きして採用
+ *   2. NEW PR A: deterministic append (allowDeterministicAppend === true 時のみ)
+ *      → LLM ops を上書きして採用、二重発火防止
+ *   3. LLM operations 非空 → inspect & transform して採用
+ *   4. operations なし (none)
  */
 export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
-  // Layer 1: utterance pattern detector (Commit 7 主体)
+  // Layer 1: utterance pattern detector (deterministic modify)
   const detPatterns = detectDeterministicPatterns(ctx.utterance, ctx.priorEvents);
   if (detPatterns.length > 0) {
     return {
@@ -96,7 +123,27 @@ export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
     };
   }
 
-  // Layer 2: LLM operations inspector (Commit 8)
+  // Layer 2 (NEW PR A): deterministic append fallback
+  //   allowDeterministicAppend === true 厳密 check で誤爆防止 (default false)
+  //   detectAppendPattern が hit したら LLM operations は破棄 (二重発火防止)
+  if (ctx.allowDeterministicAppend === true) {
+    const detAppend = detectAppendPattern(
+      ctx.utterance,
+      ctx.priorEvents,
+      ctx.priorPendingClarify ?? null,
+    );
+    if (detAppend) {
+      return {
+        operations: [detAppend],
+        synthesisSource:
+          ctx.llmOperations.length > 0
+            ? "deterministic_append_overrides_llm"
+            : "deterministic_append",
+      };
+    }
+  }
+
+  // Layer 3: LLM operations inspector
   //   deterministic pattern hit しなかった turn でも、LLM が出した operations を
   //   inspect して transport-only duplicate append → modify に変換する。
   if (ctx.llmOperations.length > 0) {
