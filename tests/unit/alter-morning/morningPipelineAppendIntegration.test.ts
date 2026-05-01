@@ -268,4 +268,90 @@ describe("morningPipeline — deterministic append integration (PR A Commit 6)",
       "deterministic_append",
     );
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR A Commit 7+8 negative integration: 情報損失防止
+  //   stable context (allow=true) でも、utterance 側の detector が
+  //   who/duration/transport/date を含む場合は deterministic_append が不発で
+  //   "none" になることを実証する。
+  //
+  //   LLM stub も空返しのため synthesisSource="none" となる (LLM 経路は別 PR)。
+  //   Plan B 保証範囲: 「拾わない」 ことのみ保証、LLM 経路の event 化は scope 外。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  it("T_neg1 [PR A Commit 7]: stable + 「12時に新宿で高橋とランチ」 → none (人名連結 「と」 で抑制)", async () => {
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "12時に新宿で高橋とランチ",
+        priorPlanForContext: [mkPriorEvent()],
+        priorPendingClarify: null,
+        priorDialogState: mkStableDialogState(),
+      },
+      {
+        comprehension: emptyComprehensionProvider(),
+        narration: stubNarrationProvider,
+        weather: null,
+      },
+    );
+    expect(pipelineResult.comprehension?.operationsSynthesisSource).toBe(
+      "none",
+    );
+  });
+
+  it("T_neg2 [PR A Commit 7]: stable + 「12時に新宿で30分だけランチ」 → none (duration で抑制)", async () => {
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "12時に新宿で30分だけランチ",
+        priorPlanForContext: [mkPriorEvent()],
+        priorPendingClarify: null,
+        priorDialogState: mkStableDialogState(),
+      },
+      {
+        comprehension: emptyComprehensionProvider(),
+        narration: stubNarrationProvider,
+        weather: null,
+      },
+    );
+    expect(pipelineResult.comprehension?.operationsSynthesisSource).toBe(
+      "none",
+    );
+  });
+
+  it("T_neg3 [PR A Commit 7]: stable + 「12時に電車で新宿に行ってランチ」 → none (transport で抑制)", async () => {
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "12時に電車で新宿に行ってランチ",
+        priorPlanForContext: [mkPriorEvent()],
+        priorPendingClarify: null,
+        priorDialogState: mkStableDialogState(),
+      },
+      {
+        comprehension: emptyComprehensionProvider(),
+        narration: stubNarrationProvider,
+        weather: null,
+      },
+    );
+    expect(pipelineResult.comprehension?.operationsSynthesisSource).toBe(
+      "none",
+    );
+  });
+
+  it("T_neg4 [PR A Commit 8]: stable + 「明日12時に新宿でランチ」 → none (date prefix で抑制)", async () => {
+    const pipelineResult = await runMorningPipeline(
+      {
+        utterance: "明日12時に新宿でランチ",
+        priorPlanForContext: [mkPriorEvent()],
+        priorPendingClarify: null,
+        priorDialogState: mkStableDialogState(),
+      },
+      {
+        comprehension: emptyComprehensionProvider(),
+        narration: stubNarrationProvider,
+        weather: null,
+      },
+    );
+    expect(pipelineResult.comprehension?.operationsSynthesisSource).toBe(
+      "none",
+    );
+  });
 });
