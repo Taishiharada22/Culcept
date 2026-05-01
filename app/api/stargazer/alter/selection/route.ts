@@ -65,6 +65,9 @@ import {
   toEndState,
   type AnchorUnknownReason,
 } from "@/lib/alter-morning/journey/anchorState";
+// CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+import { supabaseServer } from "@/lib/supabase/server";
+import { upsertPlanHistory } from "@/lib/alter-morning/persistence/planHistory";
 // CEO 2026-04-28 PR #41a Layer 0: selection 経路の turnTrace emission。
 import {
   emitTurnTrace,
@@ -574,6 +577,25 @@ export async function POST(req: NextRequest) {
           })
         : undefined,
     );
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+    //   selection 後の rebuiltPlan を alter_morning_plan_history に upsert する。
+    //   chat 経路 (route.ts:9897 付近) と同じ pattern。
+    //
+    //   - rebuiltPlan が undefined のときは skip (priorPlan なし path)
+    //   - isPlanWorthSaving guard で空 plan は保存しない (helper 側で reject)
+    //   - DB / Network 失敗時は response を壊さない (try/catch + fail-soft)
+    //   - log は upsertPlanHistory 内で sha256 hash 化済 (PII 排除)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (rebuiltPlan) {
+      try {
+        const supabase = await supabaseServer();
+        await upsertPlanHistory(supabase, userId, rebuiltPlan);
+      } catch {
+        // fail-soft: log は helper 内で処理済み、本 response は壊さない
+      }
+    }
 
     return NextResponse.json({
       accepted: true,

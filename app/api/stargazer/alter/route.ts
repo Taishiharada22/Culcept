@@ -513,6 +513,8 @@ import { runMorningPipeline } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
+// CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+import { upsertPlanHistory } from "@/lib/alter-morning/persistence/planHistory";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -9891,6 +9893,23 @@ export async function POST(req: NextRequest) {
       // L1 breakdown（Chained Exploration）
       if (peResult.latencyBreakdown.l1) {
         latencyTracker.peL1 = peResult.latencyBreakdown.l1;
+      }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+    //   morningResponse.plan を alter_morning_plan_history に upsert する。
+    //   PR B-2c (Layer 2 前日終点 inheritance) の前提となる永続化。
+    //
+    //   - isPlanWorthSaving guard で空 plan は保存しない (helper 側で reject)
+    //   - DB / Network 失敗時は response を壊さない (try/catch + fail-soft)
+    //   - log は upsertPlanHistory 内で sha256 hash 化済 (PII 排除)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (morningResponse?.plan) {
+      try {
+        await upsertPlanHistory(supabase, userId, morningResponse.plan);
+      } catch {
+        // fail-soft: log は helper 内で処理済み、本 response は壊さない
       }
     }
 
