@@ -96,15 +96,40 @@ describe("detectAppendPattern — Positive (event 化)", () => {
     expect(op!.eventDraft.what.activity).toBe("飲み会");
   });
 
-  it("T4: 「明日12時に新宿でランチ」 → append op (明日 prefix は scope 外、時刻のみ抽出)", () => {
+  it("T4 [PR A Commit 8 更新]: 「明日12時に新宿でランチ」 → null (date prefix 抑制、LLM 委任)", () => {
+    // CEO/GPT 2026-05-02 PR A Commit 8 安全側設計:
+    //   targetDate 解決が必要な発話は deterministic では拾わず LLM 経路に委ねる。
+    //   safety-side tradeoff: 5W1H 完全形でも LLM 揺らぎが残るが、
+    //   targetDate 誤動作 (今日扱いで保存) よりは LLM 委任が安全。
     const op = detectAppendPattern(
       "明日12時に新宿でランチ",
       [mkPriorEvent()],
       null,
     );
+    expect(op).toBeNull();
+  });
+
+  it("T4b [PR A Commit 7 positive]: 「12時に新宿駅でランチ」 → append op (place_ref=新宿駅)", () => {
+    const op = detectAppendPattern(
+      "12時に新宿駅でランチ",
+      [mkPriorEvent()],
+      null,
+    );
     expect(op).not.toBeNull();
     expect(op!.eventDraft.when.startTime).toBe("12:00");
-    expect(op!.eventDraft.where.place_ref).toBe("新宿");
+    expect(op!.eventDraft.where.place_ref).toBe("新宿駅");
+    expect(op!.eventDraft.what.activity).toBe("ランチ");
+  });
+
+  it("T4c [PR A Commit 7 positive]: 「12時に新宿三丁目でランチ」 → append op (place_ref=新宿三丁目)", () => {
+    const op = detectAppendPattern(
+      "12時に新宿三丁目でランチ",
+      [mkPriorEvent()],
+      null,
+    );
+    expect(op).not.toBeNull();
+    expect(op!.eventDraft.when.startTime).toBe("12:00");
+    expect(op!.eventDraft.where.place_ref).toBe("新宿三丁目");
     expect(op!.eventDraft.what.activity).toBe("ランチ");
   });
 });
@@ -164,6 +189,68 @@ describe("detectAppendPattern — Negative (拾わない)", () => {
 
   it("T17: 「ランチで」 → null (時刻場所無し)", () => {
     expect(detectAppendPattern("ランチで", [mkPriorEvent()], null)).toBeNull();
+  });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR A Commit 7+8: 情報損失防止 negative cases (CEO/GPT 2026-05-02)
+  //   who / duration / transport / date prefix が混じる発話は LLM 経路に委ねる。
+  //   deterministic_append は 5W1H 完全形 (no extras) のみ拾う safety-side 設計。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  it("T_neg1 [PR A Commit 7 who]: 「12時に新宿で高橋とランチ」 → null (人名連結 「と」 → LLM 委任)", () => {
+    // mid section に「と」 が含まれる → extractExplicitPlace negative pattern hit
+    expect(
+      detectAppendPattern("12時に新宿で高橋とランチ", [mkPriorEvent()], null),
+    ).toBeNull();
+  });
+
+  it("T_neg2 [PR A Commit 7 duration]: 「12時に新宿で30分だけランチ」 → null (明示 duration → LLM 委任)", () => {
+    // mid section に「分」 が含まれる → extractExplicitPlace negative pattern hit
+    expect(
+      detectAppendPattern("12時に新宿で30分だけランチ", [mkPriorEvent()], null),
+    ).toBeNull();
+  });
+
+  it("T_neg3 [PR A Commit 7 transport]: 「12時に電車で新宿に行ってランチ」 → null (transport keyword → LLM 委任)", () => {
+    // mid section に「電車」 が含まれる → extractExplicitPlace negative pattern hit
+    expect(
+      detectAppendPattern(
+        "12時に電車で新宿に行ってランチ",
+        [mkPriorEvent()],
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("T_neg4 [PR A Commit 8 date prefix]: 「明日12時に新宿でランチ」 → null (date prefix → LLM 委任)", () => {
+    // utterance 先頭が 「明日」 → date prefix 抑制 (Commit 8 NEW)
+    expect(
+      detectAppendPattern("明日12時に新宿でランチ", [mkPriorEvent()], null),
+    ).toBeNull();
+  });
+
+  it("T_neg5 [PR A Commit 8 date prefix]: 「明後日18時に渋谷で飲み会」 → null (date prefix → LLM 委任)", () => {
+    expect(
+      detectAppendPattern(
+        "明後日18時に渋谷で飲み会",
+        [mkPriorEvent()],
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("T_neg6 [PR A Commit 8 date prefix]: 「今日12時に新宿でランチ」 → null (date prefix → LLM 委任)", () => {
+    expect(
+      detectAppendPattern("今日12時に新宿でランチ", [mkPriorEvent()], null),
+    ).toBeNull();
+  });
+
+  it("T_neg7 [PR A Commit 7 duration]: 「12時に新宿で2時間ランチ」 → null (時間 duration → LLM 委任)", () => {
+    // 2時 が second time として extractExplicitTimes に検出される or
+    // extractExplicitPlace の 「時間」 negative pattern hit、いずれかで null
+    expect(
+      detectAppendPattern("12時に新宿で2時間ランチ", [mkPriorEvent()], null),
+    ).toBeNull();
   });
 });
 

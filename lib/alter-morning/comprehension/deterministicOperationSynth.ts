@@ -479,6 +479,16 @@ export function inspectAndTransformLlmOperations(
 
 const APPEND_MODIFY_KEYWORDS_RE = /変更|にして|ずらす|→|⇒|にする/;
 
+// CEO/GPT 2026-05-02 PR A Commit 8: date prefix 抑制
+//   utterance 先頭が「明日 / 明後日 / 今日 / 昨日」 (or hiragana 等価) で始まる場合、
+//   targetDate 解決が必要なため deterministic では拾わず LLM 経路に委ねる。
+//
+//   safety-side tradeoff (CEO/GPT 確認 2026-05-02):
+//     「明日12時に新宿でランチ」 のような 5W1H 完全形でも LLM 揺らぎが残る可能性が
+//     あるが、targetDate 誤動作 (今日扱いで保存して翌日表示されない 等) よりは
+//     LLM 委任が安全。本 PR scope では明示的に LLM 経路に委ねる。
+const DATE_PREFIX_RE = /^(明日|明後日|今日|昨日|あした|あさって|きょう|きのう)/;
+
 export function detectAppendPattern(
   utterance: string,
   priorEvents: Event[],
@@ -489,6 +499,10 @@ export function detectAppendPattern(
 
   // 2. defensive: pendingClarify があれば抑制 (Branch A bind が先)
   if (priorPendingClarify !== null) return null;
+
+  // 2b. CEO/GPT 2026-05-02 PR A Commit 8: date prefix 抑制
+  //     「明日 / 明後日 / 今日 / 昨日」 prefix は targetDate 解決が必要 → LLM 委任
+  if (DATE_PREFIX_RE.test(utterance.trim())) return null;
 
   // 3. time-change (modify) と排他
   if (detectTimeChange(utterance) !== null) return null;
