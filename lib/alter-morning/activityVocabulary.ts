@@ -1598,6 +1598,56 @@ function getAliasIndex(): AliasIndex {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
+ * findActivitySpanInUtterance — PR A Commit 1 (CEO 2026-05-02)
+ *
+ * Goal:
+ *   utterance 内で最長一致する activity alias の **位置 index** を返す。
+ *   resolveActivity は内部で normalize により位置情報を破壊するため、
+ *   deterministicOperationSynth.detectAppendPattern で「時刻 span 後 + 活動語直前」
+ *   の場所候補を切り出すには、活動 alias の utterance 内 index が必要。
+ *
+ * 不変条件 (CEO/GPT 2026-05-02):
+ *   - 最長一致優先 (例: 「打ち合わせ」 vs 「合わせ」)
+ *   - 同じ長さなら最も前に出たもの
+ *   - hit しなければ null
+ *
+ * resolveActivity との違い:
+ *   - resolveActivity は normalize で「を/の/に/...」 を除去した text に対して match
+ *     → 位置情報 (index) は破壊される
+ *   - findActivitySpanInUtterance は元 utterance 上で直接 alias を indexOf
+ *     → 元 utterance 内の正確な position を返す
+ *
+ * 戻り値:
+ *   - { entry, span, index }: 最長一致 alias と、それが utterance 内のどこにあるか
+ *   - null: 何の alias も hit しない
+ */
+export function findActivitySpanInUtterance(
+  utterance: string,
+): { entry: ActivityEntry; span: string; index: number } | null {
+  if (!utterance || utterance.length === 0) return null;
+
+  const idx = getAliasIndex();
+  const lowered = utterance.toLowerCase();
+
+  // sortedAliases は長い順にソート済 (getAliasIndex 内で b.length - a.length)
+  // 長い alias から走査し、最初に hit したものを採用 (= 最長一致)
+  for (const alias of idx.sortedAliases) {
+    const aliasLower = alias.toLowerCase();
+    const at = lowered.indexOf(aliasLower);
+    if (at >= 0) {
+      const entry = idx.map.get(alias);
+      if (!entry) continue; // defensive (map.has check は getAliasIndex で確保されているが念押し)
+      return {
+        entry,
+        span: utterance.slice(at, at + alias.length), // 元 utterance の case を保持
+        index: at,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * テキストからアクティビティエントリを解決する。
  *
  * aliases を長い順にスキャンし、テキストに含まれる最長一致のエイリアスに対応する
