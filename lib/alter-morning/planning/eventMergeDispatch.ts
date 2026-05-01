@@ -465,7 +465,34 @@ export function dispatchEventMerge(
     }
 
     if (cur.turn_mode === "append") {
-      // ── append: 新規追加。event_id 衝突時は rename (PR #41b-1b: data loss 防止) ──
+      // ── append: 不変条件「same event_id is the same plan」 (CEO 2026-05-01) ──
+      //
+      //   append でも prior に同じ event_id が存在するなら、それは「新規追加」 ではなく
+      //   「同一予定の slot 単位 in-place update」 である。 turn_mode に関わらず、
+      //   cur.event_id == prior.event_id なら merged_into_prior として既存 event を更新する。
+      //
+      //   この経路は構造上 Branch A (bindAnswerToSlot) でのみ発生する:
+      //     - operations path の append は eventDraftToEvent (operationDispatcher) が
+      //       generateNonCollidingEventId で fresh_id を発行するため prior と衝突しない
+      //     - Branch A bind は priorEvents の event_id を維持して slot 更新するため
+      //       cur.event_id が prior と必ず一致する
+      //
+      //   よって append + id 衝突 = bind path の signal、in-place update が semantic 正解。
+      //
+      //   修正前は append を必ず kept_as_new で複製していたため、Branch A bind の度に
+      //   event_2 / event_3 / event_4 ... と複製が増え続けていた (CEO 観測 2026-05-01)。
+      const matchIdx = priorCopy.findIndex((p) => p.event_id === cur.event_id);
+      if (matchIdx >= 0) {
+        priorCopy[matchIdx] = mergeIntoPriorCreate(priorCopy[matchIdx], cur);
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: "append",
+          action: "merged_into_prior",
+          target_event_id: priorCopy[matchIdx].event_id,
+        });
+        return;
+      }
+      // 通常 append (id 衝突なし) → kept_as_new (PR #41b-1b: data loss 防止)
       pushNewWithRename(cur);
       dispatch.push({
         cur_event_id: cur.event_id,

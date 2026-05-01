@@ -225,9 +225,12 @@ describe("post-candidate-selection action routing", () => {
   });
 
   test("Turn 2 通貫: pipeline (priorEvents=bound) → adapter で event 増えない", async () => {
+    // CEO 2026-05-01 fix: live preview の operations.append 経路により
+    //   persistedEvents[0].turn_mode は "append" になる (operationDispatcher の
+    //   eventDraftToEvent が hardcode)。fixture を実機と整合させる。
     const event1Bound: Event = {
       event_id: "event_1",
-      turn_mode: "create",
+      turn_mode: "append",
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
@@ -282,9 +285,10 @@ describe("post-candidate-selection action routing", () => {
   });
 
   test("Turn 4: 9時を10時に変更 → deterministic synth → modify → event_1.when 更新", async () => {
+    // live 整合: turn_mode="append" (operations path 由来)
     const event1: Event = {
       event_id: "event_1",
-      turn_mode: "create",
+      turn_mode: "append",
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
@@ -425,9 +429,10 @@ describe("post-candidate-selection action routing", () => {
   });
 
   test("Turn 5: 12時に新宿でランチ → LLM append → 新 event 追加", async () => {
+    // live 整合: turn_mode="append" (operations path 由来)
     const event1: Event = {
       event_id: "event_1",
-      turn_mode: "create",
+      turn_mode: "append",
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,

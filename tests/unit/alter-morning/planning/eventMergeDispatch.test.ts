@@ -645,9 +645,23 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
     expect(result.effectiveEvents[0].when.startTime).toBe("09:00"); // 不変
   });
 
-  it("[CEO Case 3 + collision] append cur が prior と event_id 衝突 → fresh id にrename (data loss 防止)", () => {
-    // CEO 2026-04-29 PR #41b-1b: LLM が prior と同じ event_id を再利用してしまった場合、
-    //   そのまま push すると effectiveEvents に duplicate id が入って data 上書きリスク
+  it("[CEO 2026-05-01 不変条件] append cur が prior と event_id 衝突 → merged_into_prior (same event_id is the same plan)", () => {
+    // CEO 2026-05-01 不変条件「same event_id is the same plan」:
+    //   turn_mode に関わらず、cur.event_id が prior に存在するなら同一予定の更新
+    //   (merged_into_prior) として処理する。
+    //
+    // 旧 contract (PR #41b-1b): rename to fresh_id + kept_as_new (data loss 防止)
+    // 新 contract (CEO 2026-05-01): merged_into_prior (mergeIntoPriorCreate semantic)
+    //
+    // 実機の bind path: bindAnswerToSlot は priorEvents の event_id を維持して
+    //   slot 単位で更新するため、cur.event_id が prior と必ず一致する。これを旧
+    //   contract で kept_as_new にすると Branch A bind の度に event が複製される
+    //   (CEO 観測 2026-05-01: 「電車」「ミーティング」 で event_2 / event_3 増殖)。
+    //
+    // この test は (LLM が誤って同 id で別 plan を append しようとした) 病理的
+    // ケースを表現している。新 contract では prior が canonical なので、
+    // priorWhereLocked により where=スタバ が保持され、cur の where=新宿 は無視
+    // される。これは「LLM が壊れた append を出した時の defensive merge」。
     const prior = mkEvent({
       event_id: "event_1",
       when: {
@@ -657,7 +671,7 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       },
       where: {
         place_ref: "スタバ",
-        placeType: "exact_proper_noun",
+        placeType: "exact_proper_noun", // ★ priorWhereLocked
         coordinates: null,
         provenance: utteranceProvenance(["スタバ"], "high"),
       },
@@ -691,13 +705,15 @@ describe("dispatchEventMerge — turn_mode 別 dispatch", () => {
       currentEvents: [appendCur],
       priorPersistedEvents: [prior],
     });
-    expect(result.effectiveEvents).toHaveLength(2);
-    const ids = result.effectiveEvents.map((e) => e.event_id);
-    expect(new Set(ids).size).toBe(2); // ★ 重複なし
+    // 新 contract: merged_into_prior、events 1 件
+    expect(result.effectiveEvents).toHaveLength(1);
     expect(result.effectiveEvents[0].event_id).toBe("event_1");
-    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ"); // prior 上書きされない
-    expect(result.effectiveEvents[1].event_id).toBe("event_2"); // ★ rename
-    expect(result.effectiveEvents[1].where.place_ref).toBe("新宿");
+    // priorWhereLocked により where は prior 維持 (スタバ)
+    expect(result.effectiveEvents[0].where.place_ref).toBe("スタバ");
+    expect(result.effectiveEvents[0].where.placeType).toBe("exact_proper_noun");
+    // dispatch action は merged_into_prior
+    expect(result.dispatch[0].action).toBe("merged_into_prior");
+    expect(result.dispatch[0].cur_turn_mode).toBe("append");
   });
 
   it("[position fallback 制限] length mismatch + create → fallback fire しない (kept_as_new)", () => {
