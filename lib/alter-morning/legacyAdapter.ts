@@ -61,7 +61,15 @@ import {
   toEndState,
   applyAnchorFallback,
   type AnchorUnknownReason,
+  type JourneyAnchorState,
 } from "./journey/anchorState";
+// CEO/GPT 2026-05-02 PR B-2b: explicitAnchorExtractor (Layer 1 detector)
+//   発話から origin / end を deterministic に抽出。USER_EXPLICIT_SOURCES として
+//   prior known_exact を上書きできる強権を持つ (applyAnchorFallback Case #2-bis)。
+import {
+  extractStartPointAnchor,
+  extractEndpointAnchor,
+} from "./journey/explicitAnchorExtractor";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -978,8 +986,27 @@ export function adaptPipelineToLegacy(
     //   入ったときに統合する (現状 selection は label_only ケースを生成しない)。
     const originReason: AnchorUnknownReason = "no_baseline";
     const endReason: AnchorUnknownReason = "no_endpoint_signal";
-    const freshOrigin = toOriginState(homeAnchor, originReason);
-    const freshEnd = toEndState(journeyEnd, endReason);
+
+    // CEO/GPT 2026-05-02 PR B-2b: Layer 1 explicit detector を resolver より優先
+    //   発話に「自宅から」「ホテルに泊まる」 等の明示文言があれば、
+    //   user_declared / user_explicit_endpoint source の label_only state を作る。
+    //   resolver の結果 (current / registered_home 等) より「ユーザー文言尊重」 が上位。
+    //   ただし detector が hit しなければ、従来通り resolver 結果を fresh として使う。
+    const explicitOrigin: JourneyAnchorState | null =
+      extractStartPointAnchor(input.utterance);
+    const explicitEnd: JourneyAnchorState | null =
+      extractEndpointAnchor(input.utterance);
+
+    // fresh の決定:
+    //   - detector hit → user 明示 label_only (USER_EXPLICIT_SOURCES、強権)
+    //   - detector miss → resolver 結果 (toOriginState / toEndState)
+    // applyAnchorFallback で:
+    //   - fresh が user_explicit (label_only) なら Case #2-bis で prior known_exact を上書き
+    //   - fresh が resolver 結果 (known_exact / unknown) なら通常規則
+    const freshOrigin: JourneyAnchorState =
+      explicitOrigin ?? toOriginState(homeAnchor, originReason);
+    const freshEnd: JourneyAnchorState =
+      explicitEnd ?? toEndState(journeyEnd, endReason);
     // PR B-2a: priorPlan を fallback として参照
     //   `today` 変数 = plan.date に使われる「対象日 (currentPlanDate)」 (上記コメント参照)
     //   priorPlan.date === today (= currentPlanDate) なら samePlanDate=true (同じ plan 継続編集)

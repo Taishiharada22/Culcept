@@ -302,3 +302,97 @@ describe("applyAnchorFallback Case #10 [GPT 必須証明] — default_round_trip
     expect(tripResult.kind).toBe("unknown");
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Case 2-bis [GPT/CEO 2026-05-02 PR B-2b 必須証明]
+//   USER_EXPLICIT_SOURCES (user_declared / user_explicit_endpoint) は強権で
+//   prior known_exact を上書きできる。LLM 由来 (comprehension_explicit) は不可。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const labelOnlyUserDeclared: JourneyAnchorState = {
+  kind: "known_label_only",
+  label: "ホテル",
+  source: "user_declared",
+};
+
+const labelOnlyUserExplicitEndpoint: JourneyAnchorState = {
+  kind: "known_label_only",
+  label: "ホテル",
+  source: "user_explicit_endpoint",
+};
+
+const labelOnlyComprehensionExplicit: JourneyAnchorState = {
+  kind: "known_label_only",
+  label: "ホテル",
+  source: "comprehension_explicit",
+};
+
+describe("applyAnchorFallback Case #2-bis [GPT/CEO 2026-05-02 PR B-2b 必須証明] — USER_EXPLICIT は強権 prior 上書き可", () => {
+  it("user_declared label_only は prior 自宅 known_exact を上書き (origin 例: 「ホテルから」)", () => {
+    // CEO 思想: ユーザーが「ホテルから」 と発話したら、prior 自宅は捨てる
+    const result = applyAnchorFallback(
+      labelOnlyUserDeclared,
+      exactRegisteredHome,
+      { samePlanDate: true },
+    );
+    expect(result).toEqual(labelOnlyUserDeclared);
+    // ユーザー文言尊重 = prior coords を捨てる
+  });
+
+  it("user_explicit_endpoint label_only は prior 自宅 known_exact を上書き (end 例: 「ホテルに泊まる」)", () => {
+    const result = applyAnchorFallback(
+      labelOnlyUserExplicitEndpoint,
+      exactRegisteredHome,
+      { samePlanDate: true },
+    );
+    expect(result).toEqual(labelOnlyUserExplicitEndpoint);
+  });
+
+  it("user_explicit_endpoint label_only は prior default_round_trip (assumed end) を上書き", () => {
+    // CEO 思想: ユーザーが「ホテルに泊まる」 と発話したら、推定帰宅は捨てる
+    const result = applyAnchorFallback(
+      labelOnlyUserExplicitEndpoint,
+      exactRoundTrip,
+      { samePlanDate: true },
+    );
+    expect(result).toEqual(labelOnlyUserExplicitEndpoint);
+  });
+
+  it("[GPT 規律 重要] comprehension_explicit (LLM 由来) は強権なし → prior known_exact 維持", () => {
+    // GPT 2026-05-02: LLM 経由の explicit は誤抽出リスクのため強権なし
+    const result = applyAnchorFallback(
+      labelOnlyComprehensionExplicit,
+      exactRegisteredHome,
+      { samePlanDate: true },
+    );
+    // prior が維持される (= LLM の解釈で coords あり anchor を上書きしない)
+    expect(result).toEqual(exactRegisteredHome);
+  });
+
+  it("USER_EXPLICIT は samePlanDate=false でも強権 (date 比較に依存しない)", () => {
+    // user 明示は時刻非依存で強権 (発話したら即座に prior を上書き)
+    const result = applyAnchorFallback(
+      labelOnlyUserDeclared,
+      exactRegisteredHome,
+      { samePlanDate: false },
+    );
+    expect(result).toEqual(labelOnlyUserDeclared);
+  });
+
+  it("USER_EXPLICIT vs comprehension_explicit 対比: 同じ label でも source で挙動が異なる (信頼度 区別)", () => {
+    const userResult = applyAnchorFallback(
+      labelOnlyUserDeclared,
+      exactRegisteredHome,
+      { samePlanDate: true },
+    );
+    const llmResult = applyAnchorFallback(
+      labelOnlyComprehensionExplicit,
+      exactRegisteredHome,
+      { samePlanDate: true },
+    );
+    // user_declared は prior 上書き
+    expect(userResult).toEqual(labelOnlyUserDeclared);
+    // comprehension_explicit は prior 維持 (coords 落とさない、LLM 信頼性 audit 前)
+    expect(llmResult).toEqual(exactRegisteredHome);
+  });
+});
