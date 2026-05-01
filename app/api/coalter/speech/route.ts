@@ -32,7 +32,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { supabaseServer } from "@/lib/supabase/server";
-import { buildPresenceSpeech } from "@/lib/coalter/presence/speechBuilder";
+import {
+  buildPresenceSpeech,
+  hasLlmCallInjected,
+  setLlmCall,
+} from "@/lib/coalter/presence/speechBuilder";
+import { createAnthropicLlmCallFromEnv } from "@/lib/coalter/presence/llmCall";
 import {
   PRESENCE_STATES,
   PRESENCE_MODES,
@@ -302,8 +307,27 @@ export async function POST(req: NextRequest) {
     return staticFallbackResponse(variant, "rate_limited");
   }
 
-  // LLM 呼び出し (Phase 2 以降で実 active、Phase 1 は上の gate で必ず static)
-  const startTs = Date.now();
+  // L4-i Phase 2 (CEO 確定 2026-05-01 fix-forward): lazy init recovery path。
+  //
+  // instrumentation.ts は cold start で setLlmCall(createAnthropicLlmCallFromEnv())
+  // を呼ぶが、Vercel serverless で route の function instance に instrumentation
+  // が反映されていないケース (cold start 時 env 未到達 / 別 instance 等) があるため、
+  // request 時に injection を再確認して null なら復旧させる。
+  //
+  // gate 2 通過 = ANTHROPIC_API_KEY が runtime で読めることを保証しているので、
+  // ここで createAnthropicLlmCallFromEnv() は確実に non-null を返す想定。
+  if (!hasLlmCallInjected()) {
+    const llmFn = createAnthropicLlmCallFromEnv();
+    if (llmFn) {
+      setLlmCall(llmFn);
+    }
+    // null のままなら buildPresenceSpeech 内で source="fallback" /
+    // fallbackReason="llm_error" が返る (本書 SpeechOutput metadata で正直に
+    // propagate される)
+  }
+
+  // LLM 呼び出し (実 source / retries / latencyMs / validationFailed / fallbackReason は
+  // speechBuilder の SpeechOutput metadata から直接 propagate)
   let speechResult: Awaited<ReturnType<typeof buildPresenceSpeech>>;
   try {
     speechResult = await buildPresenceSpeech({
@@ -314,23 +338,18 @@ export async function POST(req: NextRequest) {
       // (会話本文を入れない原則維持)
     });
   } catch {
-    const latencyMs = Date.now() - startTs;
-    return llmFallbackResponse(variant, "llm_error", 0, latencyMs, false);
+    // unexpected throw (speechBuilder 内 try/catch をすり抜けた場合)
+    return llmFallbackResponse(variant, "llm_error", 0, 0, false);
   }
-  const latencyMs = Date.now() - startTs;
 
-  // speechBuilder は flag OFF 経路で static mock を返す。flag ON で LLM 経由
-  // → postValidator 通過 → final body 返却。 flag OFF + flag ON で behavior 一致を
-  // 確保するため、ここでは speechBuilder の出力を素通しで使う。
-  //
-  // Phase 1 では gate 2 で抜けるため本経路に到達しない。Phase 2 で active。
+  // SpeechOutput metadata を SpeechResponse に直接 propagate (mislabel fix)
   const response: SpeechResponse = {
     body: speechResult.body,
-    speechSource: "llm",
-    retries: 0, // speechBuilder 内 postValidator 結果を返す API 拡張は別 phase
-    latencyMs,
-    validationFailed: false,
-    fallbackReason: null,
+    speechSource: speechResult.source,
+    retries: speechResult.retries,
+    latencyMs: speechResult.latencyMs,
+    validationFailed: speechResult.validationFailed,
+    fallbackReason: speechResult.fallbackReason,
   };
   return NextResponse.json(response, { status: 200 });
 }

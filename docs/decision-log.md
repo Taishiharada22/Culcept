@@ -2068,3 +2068,70 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
 ### 次フェーズ: L4-i Phase 2 着手準備
 - Phase 2 = Preview only env 投入 + staged observation (20 calls smoke → 100 calls observation → 5 sample × 7 variant review)
 - Phase 2 着手の CEO 判断後、Claude が手順を提示
+
+## [2026-05-01] [Build] [L4-i Phase 2 Stage 2.1 — 1-call canary NG → mislabel fix-forward] [承認: CEO]
+
+### 経緯
+- CEO が Phase 2 着手を承認、staged approach (1-call canary → 5-call mini smoke → 20-call smoke) で慎重に開始
+- Stage 2.1 第 1 段 1-call canary 実施 (Preview build `4c7e16a5`):
+  - request: `/api/coalter/speech` POST に対して 1 件発火
+  - response: `{body: "今、間に入れそうな間が少しありそう。" (variant A static fallback と一致), speechSource: "llm", latencyMs: 0, retries: 0, validationFailed: false, fallbackReason: null}`
+- **canary NG 判定** (CEO 厳格判定基準):
+  - `latencyMs: 0` = 実 LLM call なし
+  - `body` が static fallback と完全一致 = 内部 fallback path 経由
+  - `speechSource: "llm"` だけ正しいラベルではない = 観測指標が信用できない
+
+### Vercel Redeploy without Build Cache 診断 (1 回限り、CEO GO)
+- 実施: CEO が Vercel UI で `4c7e16a5` deployment を Build Cache OFF で redeploy
+- 結果: **Case B** — `latencyMs: 0` のまま変化なし
+- 解釈: env / injection 問題は build cache 単独の問題ではない。fix-forward 必要
+
+### 根本原因 (推定)
+1. **route mislabel bug**: `app/api/coalter/speech/route.ts` が gate 2 通過後に `speechSource: "llm"` を **固定 return** していた。buildPresenceSpeech の actual source (static / llm / fallback) を伝播していなかった
+2. **buildPresenceSpeech metadata 不足**: `SpeechOutput` interface に source / retries / latencyMs / validationFailed / fallbackReason が定義されておらず、route が伝播できる metadata がなかった
+3. **injection state 推測**: route gate 2 で `process.env.ANTHROPIC_API_KEY` が読めても、buildPresenceSpeech 内 `injectedLlmCall` が null のまま (instrumentation.ts cold start で setLlmCall が呼ばれなかった可能性、Vercel serverless で route function instance に instrumentation が反映されなかった可能性)
+
+### Fix-forward 内容 (CEO 厳守、Stage 2.1 継続前必修)
+
+#### 1. `lib/coalter/presence/speechTypes.ts` — SpeechOutput 拡張
+- `SpeechSource` type 追加: `"static" | "llm" | "fallback"`
+- `SpeechFallbackReason` type 追加: `"flag_off" | "llm_error" | "validation_failed" | "timeout"` (route 側 reason は別途扱う、speechBuilder は llm_error / validation_failed のみ)
+- `SpeechOutput` interface に必須 metadata 5 field 追加: source / retries / latencyMs / validationFailed / fallbackReason
+
+#### 2. `lib/coalter/presence/speechBuilder.ts` — actual source propagation
+- `buildPresenceSpeech` を path 別に metadata 正直設定:
+  - flag OFF: `source:"static"`, `latencyMs:0`, `fallbackReason:null` (intended static path)
+  - flag ON + 注入なし: `source:"fallback"`, `fallbackReason:"llm_error"` (LLM not available)
+  - flag ON + LLM throw: `source:"fallback"`, `fallbackReason:"llm_error"`, latency 実測値
+  - flag ON + LLM 成功 + validator OK: `source:"llm"`, `retries:N`, `latencyMs > 0`
+  - flag ON + LLM 成功 + validator 全 retry 失敗: `source:"fallback"`, `fallbackReason:"validation_failed"`, `validationFailed:true`, `retries:-1`
+- `hasLlmCallInjected()` helper export (route 側 lazy init 判定用)
+
+#### 3. `app/api/coalter/speech/route.ts` — propagation + lazy init
+- `speechSource: "llm"` 固定削除
+- `buildPresenceSpeech` の `result.source / retries / latencyMs / validationFailed / fallbackReason` を SpeechResponse に **直接 propagate**
+- **Lazy init recovery path 追加**: gate 2 通過後、`!hasLlmCallInjected()` なら request 時に `createAnthropicLlmCallFromEnv()` で injection 再試行 (instrumentation cold start で漏れた function instance を recovery)
+- 既存の rate_limited / unauthorized / 4xx 経路は不変
+
+#### 4. Tests
+- 新規: `tests/unit/coalter/presence/speechBuilderMetadata.test.ts` (5 path 全 cover、SpeechOutput 構造 invariant)
+- 既存: `tests/unit/coalter/api/speechApiRoute.test.ts` の import grep を multi-line destructure に対応
+- 全 coalter 147 file / 2123 test PASS、回帰ゼロ
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 触らない ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 触らない (Urgent LLM 化なし) ✅
+- env / package.json / next-env.d.ts / Supabase 触らない ✅
+- §10.2 #9 partial 維持 ✅
+- Production env 触らない ✅
+- L4-m / E-3 / 別 sink へ進まない ✅
+- `legacy.fallback` を speech fallback に流用しない ✅
+
+### 次ステップ
+1. fix-forward push → Preview auto-build
+2. CEO 再 canary (1 call) on fixed build:
+   - 期待 (env 設定 + injection OK): `source:"llm", latencyMs > 100, body 動的`
+   - 期待 (env 不在): `source:"fallback", fallbackReason:"llm_error"` (label 正直化、本当の状態を露呈)
+3. canary PASS なら 5-call mini smoke (15 秒間隔以上、CEO 確定 rate limit 回避)
+4. PASS なら 20-call smoke
+5. 全 PASS なら CEO 判断で Stage 2.2 (100 calls) へ
