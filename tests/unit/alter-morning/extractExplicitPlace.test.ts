@@ -133,4 +133,61 @@ describe("extractExplicitPlace", () => {
     );
     expect(result).toBe("新宿駅");
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR A Commit 7: negative pattern (who / duration / transport keyword)
+  //   mid section に「と」「時間/分/秒」「電車/徒歩/...」 が含まれたら null。
+  //   LLM が拾う方が情報が豊かなケースは deterministic で拾わない。
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  it("PR A Commit 7: 「12時に新宿で高橋とランチ」 → null (人名連結 「と」)", () => {
+    // mid = "新宿で高橋と" → 「と」 hit → null
+    // index map: 1(0) 2(1) 時(2) に(3) 新(4) 宿(5) で(6) 高(7) 橋(8) と(9) ラ(10)
+    const result = extractExplicitPlace(
+      "12時に新宿で高橋とランチ",
+      { value: "12:00", span: "12時", index: 0 },
+      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("PR A Commit 7: 「12時に新宿で30分だけランチ」 → null (明示 duration 「分」)", () => {
+    // mid = "新宿で30分だけ" → 「分」 hit → null
+    const result = extractExplicitPlace(
+      "12時に新宿で30分だけランチ",
+      { value: "12:00", span: "12時", index: 0 },
+      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 12 },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("PR A Commit 7: 「12時に新宿で2時間ランチ」 → null (明示 duration 「時間」)", () => {
+    // mid = "新宿で2時間" → 「時間」 hit → null
+    const result = extractExplicitPlace(
+      "12時に新宿で2時間ランチ",
+      { value: "12:00", span: "12時", index: 0 },
+      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("PR A Commit 7: 「12時に電車で新宿に行ってランチ」 → null (transport keyword 「電車」)", () => {
+    // mid = "電車で新宿に行って" → 「電車」 hit → null
+    const result = extractExplicitPlace(
+      "12時に電車で新宿に行ってランチ",
+      { value: "12:00", span: "12時", index: 0 },
+      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 13 },
+    );
+    expect(result).toBeNull();
+  });
+
+  it("PR A Commit 7: 「12時に新宿三丁目でランチ」 → 新宿三丁目 (詳細地名 OK)", () => {
+    // mid = "新宿三丁目で" → strip 「で」 → 「新宿三丁目」 (5 文字、neg pattern なし)
+    const result = extractExplicitPlace(
+      "12時に新宿三丁目でランチ",
+      { value: "12:00", span: "12時", index: 0 },
+      { entry: { canonical: "ランチ" } as any, span: "ランチ", index: 10 },
+    );
+    expect(result).toBe("新宿三丁目");
+  });
 });

@@ -52,6 +52,20 @@ const NEGATIVE_DICT = [
 // 特殊文字 (句読点等)
 const SPECIAL_CHARS_RE = /[、。！？,.!?]/;
 
+// negative pattern (CEO/GPT 2026-05-02 PR A Commit 7):
+//   mid section に下記 keyword が含まれたら null を返す。
+//   有益情報 (who / duration / transport) を持つ複合発話を deterministic で拾わず、
+//   LLM 経路に委ねる (5W1H 等値ではないため deterministic_append 不発が安全)。
+//
+//   - "と"      : 人名連結 (「高橋と」「友達と」 — さん marker なしの人名)
+//   - "時間/分/秒" : 明示 duration (「30分だけ」「2時間」)
+//   - transport keyword: 移動手段 (「電車で新宿に行って」 で mid="電車で新宿に行って")
+//
+//   pattern が hit する utterance は LLM の who / duration / transport 推定が
+//   deterministic より豊富になり得るため、deterministic_append を不発させる。
+const NEGATIVE_PATTERNS_RE =
+  /と|時間|分|秒|電車|徒歩|自転車|車|バス|タクシー|地下鉄|JR|Uber/i;
+
 interface ActivitySpanLike {
   span: string;
   index: number;
@@ -95,6 +109,12 @@ export function extractExplicitPlace(
     if (mid.includes(neg)) {
       return null;
     }
+  }
+
+  // 9. negative pattern (PR A Commit 7): who / duration / transport keyword 排除
+  //    LLM が拾う方が情報が豊かなケースは deterministic で拾わない。
+  if (NEGATIVE_PATTERNS_RE.test(mid)) {
+    return null;
   }
 
   return mid;
