@@ -589,3 +589,313 @@ describe("reconcileGapStateFromEffectiveEvents — full reconcile (CEO 6 条件)
     expect(result.reconciled.focusCleared).toBe(false);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CEO/GPT 2026-05-01: multi-event places handoff 再入場 (implication AND)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 不変条件 (GPT 2026-05-01):
+//   focus advance 時に「searchQueryDraft が next event のクエリとして整合」
+//   する場合に限り、search_handoff_blocking + narrowStep=2 を維持して再入場する。
+//
+// 整合条件 (implication AND):
+//   - next.slot === "where"
+//   - nextEvent != null
+//   - nextWhereSharpness === "vague"
+//   - searchQueryDraft.readyForHandoff === true
+//   - state.activePresentation === null
+//   - anchorRegion non-null → place_ref に含まれる
+//   - chainToken non-null → place_ref に含まれる
+//   - categoryToken non-null → what.activity に含まれる
+//
+// 旧 OR 条件は禁止 (誤 handoff の温床)。
+
+describe("reconcileDialogState — multi-event places handoff (CEO 2026-05-01)", () => {
+  // 共通 fixture: event_1 fixed (selection 後の渋谷ストリーム店) + event_2 vague
+  function mkEvent2NewTokyoLunch(): Event {
+    return mkEvent({
+      event_id: "event_2",
+      when: {
+        startTime: "12:00",
+        timeHint: null,
+        provenance: utteranceProvenance(["12時"], "high"),
+      },
+      where: {
+        place_ref: "新宿",
+        placeType: "generic_place",
+        coordinates: null,
+        provenance: utteranceProvenance(["新宿"], "high"),
+      },
+      what: {
+        activity: "ランチ",
+        activityCanonical: "ランチ",
+        provenance: utteranceProvenance(["ランチ"], "high"),
+      },
+    });
+  }
+
+  function mkBaseState(): DialogState {
+    return mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: "新宿",
+        categoryToken: "ランチ",
+        chainToken: null,
+        readyForHandoff: true,
+      },
+      activePresentation: null,
+    });
+  }
+
+  it("Test 1: event_1 fixed + event_2 vague + draft 整合 → search_handoff_blocking + narrowStep=2", () => {
+    const state = mkBaseState();
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    expect(result.focusCleared).toBe(true);
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 2, // ★ narrowStep=2 で再入場
+    });
+    expect(result.state!.conversationStatus).toBe("search_handoff_blocking");
+    expect(result.state!.semanticMissStreak).toBe(0);
+  });
+
+  it("Test 2: anchor 不一致 (横浜) → 通常 clarifying advance", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: "横浜", // ★ event_2.where="新宿" と一致しない
+        categoryToken: "ランチ",
+        chainToken: null,
+        readyForHandoff: true,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    expect(result.focusCleared).toBe(true);
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0, // ★ narrowStep=0 (handoff 不発)
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 3: nextWhereSharpness === missing (place_ref 空) → 通常 clarifying advance", () => {
+    const state = mkBaseState();
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent({
+        event_id: "event_2",
+        when: {
+          startTime: "12:00",
+          timeHint: null,
+          provenance: utteranceProvenance(["12時"], "high"),
+        },
+        where: {
+          place_ref: null, // ★ missing
+          placeType: null,
+          coordinates: null,
+          provenance: inferredProvenance(),
+        },
+        what: {
+          activity: "ランチ",
+          activityCanonical: "ランチ",
+          provenance: utteranceProvenance(["ランチ"], "high"),
+        },
+      }),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    expect(result.focusCleared).toBe(true);
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0,
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 4: activePresentation あり → 二重提示防止で handoff しない", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: "新宿",
+        categoryToken: "ランチ",
+        chainToken: null,
+        readyForHandoff: true,
+      },
+      activePresentation: {
+        // ★ 既存 presentation (event_2 用ではない)
+        targetEventId: "event_99",
+        queryFingerprint: "fp_old",
+        candidates: [],
+        presentedAtTurn: 1,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    expect(result.focusCleared).toBe(true);
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0, // ★ handoff 不発
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 5 (regression): 単一 event fully fixed → focus=null + stable (旧挙動維持)", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      searchQueryDraft: {
+        anchorRegion: "新宿",
+        categoryToken: "ランチ",
+        chainToken: null,
+        readyForHandoff: true, // ← この test では advance 不能なので無視される
+      },
+    });
+    const events = [mkFixedEvent("event_1", "10:00", "x")]; // 単一 event 全 fixed
+
+    const result = reconcileDialogState(state, events);
+
+    expect(result.focusCleared).toBe(true);
+    expect(result.state!.focus).toBeNull();
+    expect(result.state!.conversationStatus).toBe("stable");
+  });
+
+  it("Test 6: chainToken non-null + place_ref 不一致 (古い chain 残骸) → handoff しない", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: null,
+        categoryToken: null,
+        chainToken: "スタバ", // ★ event_2.where="新宿" と不一致
+        readyForHandoff: true,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    // chain が "新宿" に含まれない → chainMatches=false → handoff 不発
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0,
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 7: categoryToken だけ一致、anchor 不一致 → handoff しない", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: "渋谷", // ★ event_2.where="新宿" と不一致
+        categoryToken: "ランチ", // ← これは event_2.what="ランチ" と一致するが
+        chainToken: null,
+        readyForHandoff: true,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    // anchor 不一致 → anchorMatches=false (AND 条件) → handoff 不発
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0,
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 8: event_1 由来の古い draft 残骸 → event_2 に誤 handoff しない", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      // ★ event_1 由来 (渋谷+カフェ) の draft が残った状態
+      searchQueryDraft: {
+        anchorRegion: "渋谷",
+        categoryToken: "カフェ",
+        chainToken: null,
+        readyForHandoff: true,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    // anchor=渋谷 が place_ref=新宿 に含まれない → handoff 不発
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0,
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+
+  it("Test 9 (GPT 追加): activePresentation target mismatch (event_99 != event_2) → handoff しない", () => {
+    const state = mkDialogState({
+      focus: { event_id: "event_1", slot: "where", narrowStep: 3 },
+      conversationStatus: "narrowing",
+      searchQueryDraft: {
+        anchorRegion: "新宿",
+        categoryToken: "ランチ",
+        chainToken: null,
+        readyForHandoff: true,
+      },
+      activePresentation: {
+        // ★ next focus event_2 と異なる targetEventId
+        targetEventId: "event_99",
+        queryFingerprint: "fp_other",
+        candidates: [],
+        presentedAtTurn: 1,
+      },
+    });
+    const events = [
+      mkFixedEvent("event_1", "10:00", "スターバックス渋谷ストリーム店"),
+      mkEvent2NewTokyoLunch(),
+    ];
+
+    const result = reconcileDialogState(state, events);
+
+    // activePresentation 非 null で防衛的に handoff 不発 (target mismatch を含む)
+    expect(result.state!.focus).toEqual({
+      event_id: "event_2",
+      slot: "where",
+      narrowStep: 0,
+    });
+    expect(result.state!.conversationStatus).toBe("clarifying");
+  });
+});

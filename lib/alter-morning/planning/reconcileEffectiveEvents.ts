@@ -296,6 +296,81 @@ export function reconcileDialogState(
     // Rule 3: slot fixed → 次の missing に advance、なければ stable
     const next = findNextFocusFromEvents(effectiveEvents);
     if (next) {
+      // ─────────────────────────────────────────────────────────────
+      // CEO/GPT 2026-05-01 不変条件: multi-event places handoff 再入場
+      //
+      // advanceDialogState は targetEventId=event_1 で TURN_CAPTURED を実行し、
+      // capture (例: 「12時に新宿でランチ」 = category_with_anchor) から
+      // searchQueryDraft を新規 query で組む (anchor=新宿, category=ランチ,
+      // readyForHandoff=true)。focus の narrowStep も draft から derive されて 2。
+      // この時点で conversationStatus="search_handoff_blocking" に正しく上がる。
+      //
+      // しかし event_1 は selection で fully fixed → reconcile Rule 3 trigger →
+      // findNextFocusFromEvents は次の vague event (event_2) を見つけるが、
+      // narrowStep=0 hardcoded で focus を切り替え、conversationStatus="clarifying"
+      // に上書きしてしまう。これが orchestratePlacesHandoff が発火しない真因。
+      //
+      // 修正: focus advance 時に「**今 turn の searchQueryDraft が next event のクエリ
+      // として整合**」 する場合に限り、search_handoff_blocking + narrowStep=2 を
+      // 維持して再入場する。
+      //
+      // 整合条件 (implication AND、GPT 2026-05-01 厳密化):
+      //   - next.slot === "where" (other slot は handoff 対象外)
+      //   - nextEvent != null (defensive)
+      //   - nextWhereSharpness === "vague" (chain_brand / generic_place などの曖昧な場所)
+      //     "missing" は place_ref 空 → handoff 不能、"fixed" は handoff 不要
+      //   - searchQueryDraft.readyForHandoff === true (3 token のいずれか non-null)
+      //   - state.activePresentation === null (二重提示防止)
+      //   - **token-level integrity (implication 形)**:
+      //     anchorRegion non-null → place_ref に含まれる
+      //     chainToken non-null → place_ref に含まれる
+      //     categoryToken non-null → what.activity に含まれる
+      //     (古い event の draft 残骸が次 event に流用されないことを保証)
+      //
+      // 古い OR 条件は禁止 (GPT 2026-05-01): chainToken non-null だけで通すと、
+      // 別 event の chain 残骸で誤 handoff する。AND/implication で厳密化。
+      const nextEvent = effectiveEvents.find(
+        (e) => e.event_id === next.event_id,
+      );
+      const nextWhereSharpness = nextEvent
+        ? computeWhereSharpness(nextEvent.where)
+        : "missing";
+
+      const draft = state.searchQueryDraft;
+      const placeRef = nextEvent?.where.place_ref ?? "";
+      const activity = nextEvent?.what.activity ?? "";
+
+      const anchorMatches =
+        draft.anchorRegion === null || placeRef.includes(draft.anchorRegion);
+      const chainMatches =
+        draft.chainToken === null || placeRef.includes(draft.chainToken);
+      const categoryMatches =
+        draft.categoryToken === null ||
+        activity.includes(draft.categoryToken);
+
+      const canHandoff =
+        next.slot === "where" &&
+        nextEvent != null &&
+        nextWhereSharpness === "vague" &&
+        draft.readyForHandoff === true &&
+        state.activePresentation === null &&
+        anchorMatches &&
+        chainMatches &&
+        categoryMatches;
+
+      if (canHandoff) {
+        return {
+          state: {
+            ...state,
+            focus: { ...next, narrowStep: 2 },
+            conversationStatus: "search_handoff_blocking",
+            semanticMissStreak: 0,
+          },
+          focusCleared: true,
+        };
+      }
+
+      // 通常 advance (handoff 条件不満たし、または slot != where)
       return {
         state: {
           ...state,
