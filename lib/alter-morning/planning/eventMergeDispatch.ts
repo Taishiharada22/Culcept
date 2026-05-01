@@ -30,6 +30,7 @@
  */
 
 import type { Event } from "../comprehension/eventSchema";
+import type { ModifyOperation } from "../comprehension/planOperation";
 import { resolveTargetRef } from "./modifyRouter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -145,6 +146,91 @@ export function applyModifyPatch(prior: Event, cur: Event): Event {
     who: prior.who, // PR-46: 常に prior 維持
     transport: newTransport,
     certainty: cur.certainty ?? prior.certainty,
+    missing_semantic_critical: prior.missing_semantic_critical,
+    missing_solver_blockers: prior.missing_solver_blockers,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyModifyPatchFromOperation — PlanOperation.modify を prior に適用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * `applyModifyPatch(prior, cur: Event)` の operation 版 sibling。
+ *
+ * CEO 2026-04-30 PR-50 Commit 4:
+ *   既存 `applyModifyPatch` は `cur: Event` を取る (turn_mode / target_ref 等を持つ)。
+ *   `PlanOperation.modify` は `targetRef: string` + `patch: EventPatch` の組で、
+ *   Event 型ではない。両者の橋渡しを本関数で行う。
+ *
+ * 適用範囲 (Commit 4 暫定制限):
+ *   - **when.startTime / endTime / timeHint**: patch.when 経由で override
+ *   - **transport**: patch.transport 経由で override
+ *   - **where / what / who**: prior 維持 (touch しない)
+ *
+ * なぜ where / what / who を touch しないか (PR-46 contract):
+ *   modify event の patch.what / patch.where に LLM が **編集命令文字列**
+ *   を入れがち (e.g., patch.what.activity="9時を10時に変更")。これを prior に
+ *   override すると plan_item.text に command 文字列が leak する。
+ *   既存 applyModifyPatch (cur: Event 版) も同 contract で touch しない。
+ *
+ * 将来拡張 (Commit 4 では未実装):
+ *   - 「サドヤから新宿に変更」 のような場所変更を扱う場合、change_scope='replace'
+ *     を schema 層で導入し、where override を **明示的選択肢** として patch に渡す
+ *   - 同様に what / who 変更も明示的 scope で扱う
+ *   - 現状: PlanOperation.modify の patch は当層で when / transport のみ通す
+ *
+ * 戻り値: 新しい Event オブジェクト (prior は不変)。
+ */
+export function applyModifyPatchFromOperation(
+  prior: Event,
+  op: ModifyOperation,
+): Event {
+  const whenPatch = op.patch.when;
+  const newStartTime = whenPatch?.startTime ?? prior.when.startTime;
+  const newEndTime =
+    whenPatch?.endTime !== undefined && whenPatch.endTime !== null
+      ? whenPatch.endTime
+      : (prior.when.endTime ?? null);
+  const newTimeHint = whenPatch?.timeHint ?? prior.when.timeHint;
+  const whenChanged =
+    (whenPatch?.startTime != null) ||
+    (whenPatch?.endTime != null) ||
+    (whenPatch?.timeHint != null);
+  const newWhen = {
+    startTime: newStartTime,
+    endTime: newEndTime,
+    timeHint: newTimeHint,
+    // patch.when.provenance は EventPatch 型に存在しないので、prior の provenance
+    // を維持する。明示変更を反映する場合は将来 patch に provenance を載せる。
+    provenance: whenChanged ? prior.when.provenance : prior.when.provenance,
+  };
+
+  // transport: patch.transport が string なら override、undefined なら prior 維持
+  //   `op.patch.transport` の型は `string | null | undefined`。null は parser が
+  //   omit して undefined にする (parsePlanOperations) ため、ここは string のみ
+  //   override 対象として扱う。
+  const newTransport =
+    typeof op.patch.transport === "string"
+      ? op.patch.transport
+      : prior.transport;
+
+  return {
+    ...prior,
+    event_id: prior.event_id,
+    turn_mode: prior.turn_mode,
+    // target_ref / target_ref_confidence / change_scope: 解決後 clear
+    target_ref: null,
+    target_ref_confidence: null,
+    change_scope: null,
+    when: newWhen,
+    // PR-46 contract: where / what / who は prior 維持 (text leak 防止)
+    //   将来 PR で change_scope='replace' を導入する場合、ここで分岐する。
+    where: prior.where,
+    what: prior.what,
+    who: prior.who,
+    transport: newTransport,
+    certainty: prior.certainty,
     missing_semantic_critical: prior.missing_semantic_critical,
     missing_solver_blockers: prior.missing_solver_blockers,
   };
@@ -379,7 +465,34 @@ export function dispatchEventMerge(
     }
 
     if (cur.turn_mode === "append") {
-      // ── append: 新規追加。event_id 衝突時は rename (PR #41b-1b: data loss 防止) ──
+      // ── append: 不変条件「same event_id is the same plan」 (CEO 2026-05-01) ──
+      //
+      //   append でも prior に同じ event_id が存在するなら、それは「新規追加」 ではなく
+      //   「同一予定の slot 単位 in-place update」 である。 turn_mode に関わらず、
+      //   cur.event_id == prior.event_id なら merged_into_prior として既存 event を更新する。
+      //
+      //   この経路は構造上 Branch A (bindAnswerToSlot) でのみ発生する:
+      //     - operations path の append は eventDraftToEvent (operationDispatcher) が
+      //       generateNonCollidingEventId で fresh_id を発行するため prior と衝突しない
+      //     - Branch A bind は priorEvents の event_id を維持して slot 更新するため
+      //       cur.event_id が prior と必ず一致する
+      //
+      //   よって append + id 衝突 = bind path の signal、in-place update が semantic 正解。
+      //
+      //   修正前は append を必ず kept_as_new で複製していたため、Branch A bind の度に
+      //   event_2 / event_3 / event_4 ... と複製が増え続けていた (CEO 観測 2026-05-01)。
+      const matchIdx = priorCopy.findIndex((p) => p.event_id === cur.event_id);
+      if (matchIdx >= 0) {
+        priorCopy[matchIdx] = mergeIntoPriorCreate(priorCopy[matchIdx], cur);
+        dispatch.push({
+          cur_event_id: cur.event_id,
+          cur_turn_mode: "append",
+          action: "merged_into_prior",
+          target_event_id: priorCopy[matchIdx].event_id,
+        });
+        return;
+      }
+      // 通常 append (id 衝突なし) → kept_as_new (PR #41b-1b: data loss 防止)
       pushNewWithRename(cur);
       dispatch.push({
         cur_event_id: cur.event_id,

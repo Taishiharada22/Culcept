@@ -33,6 +33,7 @@ import type {
 } from "./types";
 import type { Event as ComprehensionEvent } from "./comprehension/eventSchema";
 import type { ClarifyRequest } from "./planning/gapResolver";
+import type { DialogState } from "./dialog/types";
 import { buildClarifyQuestion } from "./planning/clarifyQuestionBuilder";
 import { hasBlockingUnresolvedSlots } from "./planning/blockingSlots";
 import { normalizePlanItem } from "./normalizedPlanItem";
@@ -61,6 +62,11 @@ import { resolveTargetRef } from "./planning/modifyRouter";
 //   PR #41a の UX bug (pendingClarify stuck on stale where) を構造的に修復。
 import { reconcileGapStateFromEffectiveEvents } from "./planning/reconcileEffectiveEvents";
 import { dispatchEventMerge } from "./planning/eventMergeDispatch";
+// PR-50 Commit 4 (CEO 2026-04-30): operations 経路の thin dispatch。
+//   acceptedOperations を applyModifyPatchFromOperation / generateNonCollidingEventId /
+//   bindAnswerToSlot / resolveTargetRef を再利用して effectiveEvents に反映する。
+//   fallbackToEvents===false かつ acceptedOperations.length>0 のときのみ使用。
+import { dispatchOperations } from "./planning/operationDispatcher";
 // CEO 2026-04-28 PR #41a Commit 10: deterministic modify guard。
 //   LLM が turn_mode='create' を出した場合でも、utterance pattern から
 //   modify 意図を検出して補正する safety net。
@@ -140,6 +146,26 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): focus reconcile 用の前 turn dialogState。
+   *
+   * 用途:
+   *   reconcileGapStateFromEffectiveEvents の Layer 3 (dialogState focus 同期)
+   *   が pendingClarify=null + slot fixed の場合に focus を clear / advance する。
+   *   既存仕様で priorDialogState=null を固定で渡しており、reconcileDialogState
+   *   が early-return されて focus.where が残留する観測 (Preview 2026-04-30) の
+   *   真因を解消する。
+   *
+   * 渡し方:
+   *   - route.ts (Branch A / B): reducer 後の morningSession.dialogState を渡す
+   *   - 省略 → null (Commit 9 以前と同等の挙動を保つ defensive)
+   *
+   * 出力:
+   *   reconcile 後の dialogState は LegacyAdapterOutput.reconciledDialogState
+   *   に含める (session には乗せない、route.ts 側で merge を判断する)。
+   */
+  priorDialogState?: DialogState | null;
 }
 
 export interface LegacyAdapterOutput {
@@ -155,6 +181,19 @@ export interface LegacyAdapterOutput {
    * production では emit されない → 必ず undefined → response にも乗らない。
    */
   lastTraceSnapshot?: TurnTracePayload;
+  /**
+   * PR-50 Commit 9 (CEO 2026-04-30): reconcile 後の dialogState。
+   *
+   * 用途:
+   *   priorDialogState (input) を reconcileGapStateFromEffectiveEvents で
+   *   effectiveEvents と再同期した結果。slot fixed → focus advance / clear。
+   *   route.ts は morningSession.dialogState に反映するか判断する
+   *   (現状: adapter 出力 ?? reducer 後 state の優先順)。
+   *
+   * undefined: priorDialogState が null だった場合、または reconcile が必要
+   *   なかった (focus が元から null) 場合。caller は既存 dialogState を維持。
+   */
+  reconciledDialogState?: DialogState | null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -387,6 +426,63 @@ function todayYmd(): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Operations trace builder (PR-50 Commit 5+6 / CEO 2026-04-30)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * comprehension result から operations 経路 trace 用 summary を構築する。
+ *
+ * 出力条件 (PR-50 Commit 6 / CEO 2026-04-30 修正):
+ *   **常に summary を返す**。旧仕様で全部 0 のとき null を返していたが、
+ *   観測の盲点 (LLM 不出力 / parser drop / fallback / synth どこで止まったか
+ *   trace に出ない) になっていたため、常時出力に変更。
+ *
+ *   - comprehension が null (= 異常状態) のときのみ null
+ *   - それ以外は { received: 0, ... synthesisSource: "none" } を含めて常に出す
+ *
+ * 含む field:
+ *   - received:         comprehension.operations.length (parsePlanOperations 通過後)
+ *   - accepted:         comprehension.acceptedOperations.length
+ *   - rejected:         comprehension.operationRejections.length
+ *   - fallbackToEvents: comprehension.fallbackToEvents (default true)
+ *   - appliedTypes:     accepted operations の type 配列 (LLM 出力 order を保持)
+ *   - rejectReasons:    reject 理由の string 配列 (重複可)
+ *   - synthesisSource:  Commit 7-8 で synth 層が埋める。Commit 6 段階では
+ *                       受け皿のみ提供 (既存 comprehension で値が無ければ "none" 既定)
+ */
+function buildOperationsTrace(
+  comprehension: MorningPipelineResult["comprehension"],
+): {
+  received: number;
+  accepted: number;
+  rejected: number;
+  fallbackToEvents: boolean;
+  appliedTypes: string[];
+  rejectReasons: string[];
+  synthesisSource:
+    | "llm"
+    | "llm_transformed"
+    | "deterministic"
+    | "deterministic_overrides_llm"
+    | "none";
+} | null {
+  if (!comprehension) return null;
+  const received = comprehension.operations?.length ?? 0;
+  const accepted = comprehension.acceptedOperations?.length ?? 0;
+  const rejections = comprehension.operationRejections ?? [];
+  const rejected = rejections.length;
+  return {
+    received,
+    accepted,
+    rejected,
+    fallbackToEvents: comprehension.fallbackToEvents ?? true,
+    appliedTypes: (comprehension.acceptedOperations ?? []).map((op) => op.type),
+    rejectReasons: rejections.map((r) => r.reason),
+    synthesisSource: comprehension.operationsSynthesisSource ?? "none",
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -561,11 +657,42 @@ export function adaptPipelineToLegacy(
   //     D. position fallback を turn_mode="create" + length match に限定
   //
   //   詳細: lib/alter-morning/planning/eventMergeDispatch.ts
-  const dispatchResult = dispatchEventMerge({
-    currentEvents,
-    priorPersistedEvents: input.priorPersistedEvents ?? [],
-  });
-  const effectiveEvents: ComprehensionEvent[] = dispatchResult.effectiveEvents;
+  //
+  // ── PR-50 Commit 4 (CEO 2026-04-30): operations 経路 分岐 ──
+  //   morningPipeline (Commit 3) が ComprehensionResult.fallbackToEvents を
+  //   立てる: false なら全 operations が validation 通過、true なら operations
+  //   空 or 1+ reject。前者のみ operationDispatcher で effectiveEvents 構築、
+  //   後者は既存 dispatchEventMerge に倒す (regression baseline 維持)。
+  //
+  //   分岐条件 (両方満たす):
+  //     - comprehension.fallbackToEvents === false
+  //     - comprehension.acceptedOperations が non-empty
+  //
+  //   どちらの経路でも下流 reconcileGapStateFromEffectiveEvents は同じ呼び出し。
+  //   trace 集計 (L924-) は dispatchResult.dispatch を見るので、両分岐で同 shape
+  //   を保つ。operation 経路では dispatch は空配列にして「turn_mode ベース集計
+  //   に該当なし」を表現する (operation 別 trace は Commit 5 で扱う)。
+  const fallbackToEvents = result.comprehension?.fallbackToEvents ?? true;
+  const acceptedOperations = result.comprehension?.acceptedOperations ?? [];
+  const useOperationsPath =
+    !fallbackToEvents && acceptedOperations.length > 0;
+  let effectiveEvents: ComprehensionEvent[];
+  let dispatchResult: ReturnType<typeof dispatchEventMerge>;
+  if (useOperationsPath) {
+    const opResult = dispatchOperations({
+      acceptedOperations,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+      priorPendingClarify: input.priorPendingClarify ?? null,
+    });
+    effectiveEvents = opResult.effectiveEvents;
+    dispatchResult = { effectiveEvents: opResult.effectiveEvents, dispatch: [] };
+  } else {
+    dispatchResult = dispatchEventMerge({
+      currentEvents,
+      priorPersistedEvents: input.priorPersistedEvents ?? [],
+    });
+    effectiveEvents = dispatchResult.effectiveEvents;
+  }
 
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);
@@ -591,11 +718,12 @@ export function adaptPipelineToLegacy(
     priorDialogState:
       // dialogState は currentEvents 基準で reducer により update 済み。
       // ここでは reducer 後の状態を入力として、effectiveEvents 基準で再評価する。
-      // legacyAdapter の入力には dialogState が直接含まれていないため、
-      // 上位 (chat route / selection route) が reducer を回した後の state を
-      // 参照する必要がある。本 commit では一旦 null を渡し、
-      // dialogState 同期は別途 (route 側 with reducer 統合) で対応する。
-      null,
+      // PR-50 Commit 9 (CEO 2026-04-30):
+      //   route.ts は reducer 後の morningSession.dialogState を input.priorDialogState
+      //   に渡す。null なら reconcileDialogState は early-return する (= 既存挙動維持)。
+      //   非 null なら focus / sharpness を effectiveEvents と再同期し、
+      //   pendingClarify=null + slot fixed → focus clear / advance に至る。
+      input.priorDialogState ?? null,
     originalPhase,
     // comprehension_failed の場合は楽観的に plan_presented に上げない。
     // priorPersistedEvents fallback で effectiveEvents が fully fixed でも、
@@ -934,6 +1062,8 @@ export function adaptPipelineToLegacy(
   // PR #41a Commit 6: emitTurnTrace の戻り値を caller に返却することで、
   //   route handler が response の `_debug.trace` に乗せられるようにする。
   //   CEO が browser DevTools Network tab から trace を観測可能になる。
+  // PR-50 Commit 5: operations 経路の集計値を 1 回だけ計算して trace に乗せる。
+  const operationsTrace = buildOperationsTrace(result.comprehension);
   const traceSnapshot = emitTurnTrace(
     {
       sessionId: input.sessionId,
@@ -963,6 +1093,11 @@ export function adaptPipelineToLegacy(
       //   dispatchSummary.modify_applied >= 1 で「modify が effective に反映」 を pin。
       //   CEO Case 1, Case 2 の merge 条件として使う。
       dispatchSummary,
+      // PR-50 Commit 5 (CEO 2026-04-30): operations 経路 観測
+      //   morningPipeline (Commit 3) で comprehension に積まれた集計値を trace に
+      //   乗せる。operation 解釈率 ≥ 90% KPI の判定材料。
+      //   operations が 1 件も出ていない turn では field 自体を omit (undefined)。
+      ...(operationsTrace ? { operations: operationsTrace } : {}),
       // CEO 2026-04-28 PR #41b-0 Commit 3: 3-layer reconcile 観測
       //   reconcile.eventsFullyFixed=true + phaseChanged=true で「stuck pendingClarify
       //   bug が解消された」 を pin できる。primaryClarifyDropped=true は guard 補正で
@@ -989,6 +1124,14 @@ export function adaptPipelineToLegacy(
     response,
     ...(traceSnapshot != null
       ? { lastTraceSnapshot: traceSnapshot satisfies TurnTracePayload }
+      : {}),
+    // PR-50 Commit 9: reconcile 後の dialogState を caller に返す。
+    //   priorDialogState が non-null かつ reconcile で focus が変わった場合、
+    //   route.ts はこれを morningSession.dialogState に反映する。
+    //   priorDialogState が null だった場合は reconcile.reconciledDialogState
+    //   も null なので、route.ts は既存 dialogState を維持する。
+    ...(input.priorDialogState !== undefined
+      ? { reconciledDialogState: reconcile.reconciledDialogState }
       : {}),
   };
 }

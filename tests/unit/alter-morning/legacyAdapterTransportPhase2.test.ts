@@ -44,6 +44,7 @@ function mkTwoEventsWithCoords(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
@@ -110,6 +111,7 @@ function mkTwoEventsWithoutCoords(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",

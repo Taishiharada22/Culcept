@@ -79,6 +79,7 @@ describe("Integration: pendingClarify → answerBinder → priorEvents pipeline"
           missing_solver_blockers: [],
         },
       ],
+      operations: [],
       startPoint: null,
       departureTime: null,
       goOut: null,

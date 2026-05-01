@@ -47,6 +47,7 @@ function mkRaw(overrides?: Partial<L1PipelineInput["raw"]>): L1PipelineInput["ra
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
