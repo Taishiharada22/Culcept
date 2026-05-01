@@ -40,8 +40,15 @@
  */
 
 import type { Event } from "./eventSchema";
-import type { PlanOperation } from "./planOperation";
+import { utteranceProvenance } from "./eventSchema";
+import type { PlanOperation, AppendOperation } from "./planOperation";
+import type { PendingClarify } from "../types";
 import { parseTransportExact } from "./answerBinder";
+// PR A (CEO/GPT 2026-05-02) imports for detectAppendPattern:
+import { extractExplicitTimes } from "./rulePreParse";
+import { extendTimeWithModifier } from "./extendTimeWithModifier";
+import { extractExplicitPlace } from "./extractExplicitPlace";
+import { findActivitySpanInUtterance } from "../activityVocabulary";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 公開 API
@@ -52,6 +59,28 @@ export interface SynthesisContext {
   priorEvents: Event[];
   /** LLM が parsePlanOperations 後に出した operations (空 OK) */
   llmOperations: PlanOperation[];
+  /**
+   * 当 turn 開始時の pendingClarify (PR-50 Commit 4 で追加、PR A で利用)。
+   * detectAppendPattern が defensive check に使う。
+   */
+  priorPendingClarify?: PendingClarify | null;
+  /**
+   * deterministic append fallback (PR A) を許可するか。
+   *
+   * GPT/CEO 2026-05-02 安全側設計:
+   *   未指定 / false → append fallback 不発 (default false、誤爆防止)
+   *   true  → caller が active slot answer 文脈でないことを確認した上で許可
+   *
+   * caller (morningPipeline / legacyAdapter) は以下 5 条件すべて clear のとき
+   * true を渡すことが期待される:
+   *   - priorPendingClarify == null
+   *   - dialogState.focus が active slot answer 状態でない
+   *     (where focus narrowStep<3、または where 以外の slot focus narrowStep=0)
+   *   - dialogState.activePresentation == null
+   *   - conversationStatus が search_candidates_presented でない
+   *   - conversationStatus が search_handoff_blocking でない
+   */
+  allowDeterministicAppend?: boolean;
 }
 
 export type SynthesisSource =
@@ -59,6 +88,8 @@ export type SynthesisSource =
   | "llm_transformed"
   | "deterministic"
   | "deterministic_overrides_llm"
+  | "deterministic_append" // PR A NEW: append 単独 (LLM 空)
+  | "deterministic_append_overrides_llm" // PR A NEW: append hit 時 LLM 破棄
   | "none";
 
 export interface SynthesisResult {
@@ -71,13 +102,16 @@ export interface SynthesisResult {
 /**
  * synth 層メイン entry。
  *
- * 優先順位:
- *   1. utterance pattern hit (deterministic) → LLM ops を上書きして採用
- *   2. LLM operations 非空 → inspect & transform して採用 (Commit 8)
- *   3. operations なし (none)
+ * 優先順位 (PR A 後):
+ *   1. utterance pattern hit (deterministic modify: time-change / transport-only)
+ *      → LLM ops を上書きして採用
+ *   2. NEW PR A: deterministic append (allowDeterministicAppend === true 時のみ)
+ *      → LLM ops を上書きして採用、二重発火防止
+ *   3. LLM operations 非空 → inspect & transform して採用
+ *   4. operations なし (none)
  */
 export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
-  // Layer 1: utterance pattern detector (Commit 7 主体)
+  // Layer 1: utterance pattern detector (deterministic modify)
   const detPatterns = detectDeterministicPatterns(ctx.utterance, ctx.priorEvents);
   if (detPatterns.length > 0) {
     return {
@@ -89,7 +123,27 @@ export function synthesizeOperations(ctx: SynthesisContext): SynthesisResult {
     };
   }
 
-  // Layer 2: LLM operations inspector (Commit 8)
+  // Layer 2 (NEW PR A): deterministic append fallback
+  //   allowDeterministicAppend === true 厳密 check で誤爆防止 (default false)
+  //   detectAppendPattern が hit したら LLM operations は破棄 (二重発火防止)
+  if (ctx.allowDeterministicAppend === true) {
+    const detAppend = detectAppendPattern(
+      ctx.utterance,
+      ctx.priorEvents,
+      ctx.priorPendingClarify ?? null,
+    );
+    if (detAppend) {
+      return {
+        operations: [detAppend],
+        synthesisSource:
+          ctx.llmOperations.length > 0
+            ? "deterministic_append_overrides_llm"
+            : "deterministic_append",
+      };
+    }
+  }
+
+  // Layer 3: LLM operations inspector
   //   deterministic pattern hit しなかった turn でも、LLM が出した operations を
   //   inspect して transport-only duplicate append → modify に変換する。
   if (ctx.llmOperations.length > 0) {
@@ -393,4 +447,112 @@ export function inspectAndTransformLlmOperations(
     transformed = true;
   }
   return { operations: out, transformed };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Layer 3 (NEW PR A): deterministic append fallback (CEO/GPT 2026-05-02)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// Goal:
+//   LLM が events / operations を空返ししても、「明示時刻 + 明示場所 + 明示活動」 が
+//   揃った発話 (例: 「12時に新宿でランチ」) は append operation を deterministic に
+//   生成して event 化する。5W1H event creation の安定性を確保する。
+//
+// 不変条件 (全 AND、CEO/GPT 厳密化):
+//   1. priorEvents.length >= 1 (1 件目は LLM 経路)
+//   2. priorPendingClarify === null (defensive、Branch A bind 経路と排他)
+//   3. detectTimeChange が null (時刻変更経路と排他)
+//   4. detectTransportOnly が null (transport-only 経路と排他)
+//   5. 修正キーワード排除 (変更/にして/ずらす/→/かな/しよう/にする)
+//   6. extractExplicitTimes が単一 (複数時刻は LLM 委任、PR A scope 外)
+//   7. findActivitySpanInUtterance が hit (活動 span 取得で位置 index 必要)
+//   8. extractExplicitPlace が hit (時刻 span 後 + 活動語直前 + 助詞接続 + negative dict)
+//
+// 戻り値:
+//   - AppendOperation: 全 8 条件 clear、event_id は dispatch で fresh 発番される
+//   - null: 1 つでも condition 不成立
+//
+// scope (PR A 限定):
+//   - 単一の time-place-activity 追加予定のみ
+//   - 「明日」 prefix の targetDate 解決は別経路 (LLM)
+//   - 複数予定入力は LLM 委任
+
+const APPEND_MODIFY_KEYWORDS_RE = /変更|にして|ずらす|→|⇒|にする/;
+
+// CEO/GPT 2026-05-02 PR A Commit 8: date prefix 抑制
+//   utterance 先頭が「明日 / 明後日 / 今日 / 昨日」 (or hiragana 等価) で始まる場合、
+//   targetDate 解決が必要なため deterministic では拾わず LLM 経路に委ねる。
+//
+//   safety-side tradeoff (CEO/GPT 確認 2026-05-02):
+//     「明日12時に新宿でランチ」 のような 5W1H 完全形でも LLM 揺らぎが残る可能性が
+//     あるが、targetDate 誤動作 (今日扱いで保存して翌日表示されない 等) よりは
+//     LLM 委任が安全。本 PR scope では明示的に LLM 経路に委ねる。
+const DATE_PREFIX_RE = /^(明日|明後日|今日|昨日|あした|あさって|きょう|きのう)/;
+
+export function detectAppendPattern(
+  utterance: string,
+  priorEvents: Event[],
+  priorPendingClarify: PendingClarify | null,
+): AppendOperation | null {
+  // 1. priorEvents 必要 (1 件目は LLM 経路)
+  if (priorEvents.length === 0) return null;
+
+  // 2. defensive: pendingClarify があれば抑制 (Branch A bind が先)
+  if (priorPendingClarify !== null) return null;
+
+  // 2b. CEO/GPT 2026-05-02 PR A Commit 8: date prefix 抑制
+  //     「明日 / 明後日 / 今日 / 昨日」 prefix は targetDate 解決が必要 → LLM 委任
+  if (DATE_PREFIX_RE.test(utterance.trim())) return null;
+
+  // 3. time-change (modify) と排他
+  if (detectTimeChange(utterance) !== null) return null;
+
+  // 4. transport-only (modify) と排他
+  if (detectTransportOnly(utterance) !== null) return null;
+
+  // 5. 修正キーワード排除
+  if (APPEND_MODIFY_KEYWORDS_RE.test(utterance)) return null;
+
+  // 6. 単一時刻のみ (複数時刻は LLM 委任、PR A scope 外)
+  const baseTimes = extractExplicitTimes(utterance);
+  if (baseTimes.length !== 1) return null;
+
+  // 6b. 「午後 / 夜 / 晩」 prefix 補正
+  const adjustedTimes = extendTimeWithModifier(utterance, baseTimes);
+  const startTime = adjustedTimes[0].value;
+  const timeSpan = baseTimes[0]; // index は元 utterance 内の位置
+
+  // 7. 活動 span 取得 (位置 index 必要)
+  const activitySpan = findActivitySpanInUtterance(utterance);
+  if (!activitySpan) return null;
+
+  // 8. 場所抽出 (時刻 span 後 + 活動 span 直前 + 助詞接続 + negative dict)
+  const placeRef = extractExplicitPlace(utterance, timeSpan, activitySpan);
+  if (!placeRef) return null;
+
+  // 全 condition clear → AppendOperation を生成
+  return {
+    type: "append",
+    eventDraft: {
+      turn_mode: "append",
+      when: {
+        startTime,
+        timeHint: null,
+        provenance: utteranceProvenance([timeSpan.span], "high"),
+      },
+      where: {
+        place_ref: placeRef,
+        placeType: "generic_place", // anchor 名 (新宿/渋谷) は generic_place、後段で grounder が処理
+        provenance: utteranceProvenance([placeRef], "high"),
+      },
+      what: {
+        activity: activitySpan.entry.canonical,
+        activityCanonical: activitySpan.entry.canonical,
+        provenance: utteranceProvenance([activitySpan.span], "high"),
+      },
+      who: [],
+      transport: null,
+      certainty: "asserted",
+    },
+  };
 }

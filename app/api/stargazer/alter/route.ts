@@ -1995,6 +1995,11 @@ export async function POST(req: NextRequest) {
                 //   pendingClarify が null なら validation で
                 //   answer_no_pending_clarify reject → events[] fallback。
                 priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
+                // PR A (CEO/GPT 2026-05-02): deterministic append fallback の
+                //   active context check 用。pipeline 内で 5 条件 AND を判定し、
+                //   stable context のみ allowDeterministicAppend=true に設定する。
+                //   未指定 / null は default false (誤爆防止) に倒れる。
+                priorDialogState: rawMorningSession?.dialogState ?? null,
               },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),
