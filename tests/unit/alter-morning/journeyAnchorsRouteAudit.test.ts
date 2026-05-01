@@ -424,3 +424,101 @@ describe("T8: 非 STALE source (registered_home) は date mismatch でも継承 
     }
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T9 [GPT 重大修正 1 必須証明]: 明日プラン継続編集で samePlanDate=true
+//   GPT 指摘:
+//     samePlanDate は「今日比較」 ではなく「同じ plan 対象日 (currentPlanDate)」 比較。
+//     legacyAdapter の `today` 変数は input.today ?? todayYmd() から取得され、
+//     plan.date に使われる「対象日」 = currentPlanDate と同義。
+//
+//   本 test は「明日プランを 2 turn 連続編集」 シナリオで samePlanDate=true が
+//   正しく成立し、anchor が継承されることを assert する (現実の OS の今日と
+//   plan の対象日が異なるケース)。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T9 [GPT 重大修正 1 必須証明]: 明日プラン継続編集で samePlanDate=true", () => {
+  const TOMORROW = "2026-05-03"; // currentPlanDate (today から見て翌日)
+
+  it("input.today=TOMORROW + priorPlan.date=TOMORROW + fresh unknown → prior 維持 (samePlanDate=true)", async () => {
+    // 今日が 2026-05-02 だが、明日 (2026-05-03) のプランを作っているシナリオ。
+    // caller (route.ts) は input.today に TOMORROW を渡す。
+    // priorPlan.date も TOMORROW (前 turn で作った明日プランの継続)。
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TOMORROW,
+      origin: {
+        kind: "known_exact",
+        label: "現在地",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "current",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "明日の予定追加" },
+      {
+        comprehension: createStubComprehensionProvider(
+          mkRaw({ targetDate: TOMORROW }),
+        ),
+        weather: null,
+      },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T9",
+      utterance: "明日の予定追加",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TOMORROW, // ← caller が「対象日 = 明日」 を渡す (CEO/GPT 規律)
+      currentLat: null,
+      currentLng: null,
+      userHomeLat: null,
+      userHomeLng: null,
+    });
+
+    // samePlanDate = (priorPlan.date === today) = (TOMORROW === TOMORROW) = true
+    // → STALE source (current) でも継承可
+    // → prior 維持
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
+    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
+      expect(adapted.session.plan!.journeyOrigin.source).toBe("current");
+      expect(adapted.session.plan!.journeyOrigin.lat).toBe(SHIBUYA_COORDS.lat);
+    }
+  });
+
+  it("対偶: input.today=TODAY (caller bug = 明日プランで input.today 渡し忘れ) + priorPlan.date=TOMORROW → samePlanDate=false → fresh", async () => {
+    // caller responsibility 違反のケース。input.today を渡し忘れたため、
+    // legacyAdapter は todayYmd() (OS の今日 = TODAY) を使う。
+    // priorPlan.date は TOMORROW なので samePlanDate=false → STALE current 拒否。
+    // この挙動は test で固定し、caller bug を早期検出する。
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TOMORROW,
+      origin: {
+        kind: "known_exact",
+        label: "現在地",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "current",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "予定追加" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T9-bug",
+      utterance: "予定追加",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY, // caller が誤って TODAY を渡した (bug シミュレーション)
+      currentLat: null,
+      currentLng: null,
+      userHomeLat: null,
+      userHomeLng: null,
+    });
+
+    // priorPlan.date (TOMORROW) !== today (TODAY) → samePlanDate=false → STALE 拒否
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("unknown");
+  });
+});

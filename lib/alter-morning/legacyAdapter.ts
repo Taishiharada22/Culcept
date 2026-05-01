@@ -941,10 +941,22 @@ export function adaptPipelineToLegacy(
     //
     // CEO/GPT 2026-05-02 PR B-2a: turn 跨ぎ anchor continuity
     //   fresh resolve が unknown のとき、priorPlan の anchor を fallback として継承。
-    //   samePlanDate 判定: priorPlan?.date === today (今日 plan を作成中なので、
-    //   priorPlan.date と一致するかが「同じ plan の継続」 を意味する)。
-    //   GPT 規律 (修正 1): today 比較ではなく priorPlan.date === currentPlanDate
-    //   (本 path では currentPlanDate = today、変数名はそのまま)。
+    //
+    //   samePlanDate 判定 (GPT 規律 修正 1):
+    //     samePlanDate = priorPlan.date === currentPlanDate
+    //
+    //   本 file では `today` 変数 (legacyAdapter.ts:637 で `input.today ?? todayYmd()`
+    //   から取得) が **plan.date に使われる「対象日」** = currentPlanDate と同義。
+    //   caller (route.ts) が「明日のプラン」 を作るときは input.today に "2026-05-03"
+    //   等を渡すため、todayYmd() (OS の今日) ではなく対象日が入る。
+    //
+    //   ただし変数名 `today` が紛らわしい点に注意:
+    //     - 「今日」 と読めるが、実は「組み立てる plan の対象日 = currentPlanDate」
+    //     - caller が input.today を **渡し忘れる** と todayYmd() (OS の今日) が
+    //       使われ、明日プランの継続編集で samePlanDate=false の誤判定が起きる
+    //     - caller responsibility: route.ts は明日プランを作るとき必ず input.today
+    //       を渡すこと (Commit 4 で integration test に T9 を追加して固定)
+    //
     //   STALE_SOURCES (current / default_round_trip) は samePlanDate=false で抑制。
     //
     // TODO (PR B-3): JourneyEndAnchor.derivedFrom field を追加し、
@@ -969,9 +981,17 @@ export function adaptPipelineToLegacy(
     const freshOrigin = toOriginState(homeAnchor, originReason);
     const freshEnd = toEndState(journeyEnd, endReason);
     // PR B-2a: priorPlan を fallback として参照
-    //   priorPlan.date === today なら samePlanDate=true (同じ plan 継続編集)
+    //   `today` 変数 = plan.date に使われる「対象日 (currentPlanDate)」 (上記コメント参照)
+    //   priorPlan.date === today (= currentPlanDate) なら samePlanDate=true (同じ plan 継続編集)
     //   priorPlan.date !== today なら samePlanDate=false (stale 抑制対象)
     //   priorPlan が undefined なら samePlanDate=false (比較対象なし、どちらでも結果同じ)
+    //
+    // 明日プラン継続編集の例:
+    //   Turn N: input.today="2026-05-03" → today="2026-05-03" → plan.date="2026-05-03"
+    //   Turn N+1: input.today="2026-05-03" → today="2026-05-03"
+    //             priorPlan.date="2026-05-03" → samePlanDate=true → 正しく fallback
+    //   Turn N+2: input.today 渡し忘れ → today=todayYmd()="2026-05-02"
+    //             priorPlan.date="2026-05-03" → samePlanDate=false → caller bug 検出
     const samePlanDate = input.priorPlan?.date === today;
     const journeyOrigin = applyAnchorFallback(
       freshOrigin,
