@@ -333,13 +333,42 @@ function UpperLayerMountActive() {
           setSpeechBody(null);
           return;
         }
-        const json = (await res.json()) as { body?: unknown };
+        const json = (await res.json()) as {
+          body?: unknown;
+          speechSource?: unknown;
+          fallbackReason?: unknown;
+        };
         if (!speechMountedRef.current) return;
-        if (typeof json.body === "string" && json.body.length > 0) {
-          // Phase 2 で server が "llm" / "static" を返した場合いずれも client は
-          // body 文字列のみ受け取り、UI に反映する (会話文 / PII を保存しない)。
-          speechCacheRef.current.set(cacheKey, json.body);
-          setSpeechBody(json.body);
+        const bodyOk =
+          typeof json.body === "string" && json.body.length > 0;
+        if (!bodyOk) {
+          setSpeechBody(null);
+          return;
+        }
+        const source = json.speechSource;
+        const reason = json.fallbackReason;
+        // L4-i Phase 2 fix-forward (CEO 確定 2026-05-02):
+        //   - source==="llm": 真の LLM 結果のみ session cache (variant+state+mode 単位 dedupe)
+        //   - source==="static" / "fallback": cache せず (次の state 変化で再 fetch を許す)
+        //   - reason==="rate_limited": negative cache 70s (rate window と整合、即時再 fetch 抑止)
+        //   - reason==="llm_error" / "validation_failed" / "timeout": negative cache 30s (server 側
+        //     一時 error の連投を抑制)
+        if (source === "llm") {
+          speechCacheRef.current.set(cacheKey, json.body as string);
+        } else if (reason === "rate_limited") {
+          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 70_000);
+        } else if (
+          reason === "llm_error" ||
+          reason === "validation_failed" ||
+          reason === "timeout"
+        ) {
+          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+        }
+        // body は受け取っても UI 反映するのは source==="llm" 時のみ。
+        // static / fallback は state component の hardcoded fallback に戻す
+        // (Phase 1 default 挙動を維持、CEO 厳守: LLM の動的文言だけ UI に出す)。
+        if (source === "llm") {
+          setSpeechBody(json.body as string);
         } else {
           setSpeechBody(null);
         }

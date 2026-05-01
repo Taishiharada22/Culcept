@@ -156,6 +156,46 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     expect(content).toMatch(/30_000|30000/);
   });
 
+  it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): source==='llm' のみ cache", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // source === "llm" 分岐で speechCacheRef.set
+    expect(content).toMatch(
+      /source\s*===\s*["']llm["'][\s\S]{0,200}speechCacheRef\.current\.set/,
+    );
+    // rate_limited 時 negative cache 70s
+    expect(content).toMatch(
+      /reason\s*===\s*["']rate_limited["'][\s\S]{0,150}speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*70_000\)/,
+    );
+    // llm_error / validation_failed / timeout 時 negative cache 30s
+    expect(content).toMatch(
+      /reason\s*===\s*["']llm_error["']\s*\|\|[\s\S]{0,120}["']validation_failed["']\s*\|\|[\s\S]{0,120}["']timeout["']/,
+    );
+  });
+
+  it("L4-i Phase 2 fix-forward: source!=='llm' のとき UI に body を流さない (hardcoded fallback 維持)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // setSpeechBody(json.body as string) は source==="llm" 分岐内のみ
+    // それ以外は setSpeechBody(null) で hardcoded fallback に戻す
+    expect(content).toMatch(
+      /if\s*\(source\s*===\s*["']llm["']\)\s*\{[\s\S]{0,150}setSpeechBody\(json\.body\s+as\s+string\)/,
+    );
+    expect(content).toMatch(
+      /\}\s*else\s*\{\s*setSpeechBody\(null\)/,
+    );
+  });
+
   it("cache key に variant が含まれる (S7 F1/F2 を区別、CEO 必須要件)", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
