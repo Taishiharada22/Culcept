@@ -62,13 +62,57 @@ export type AnchorUnknownReason =
  * 「assumed (推定) か confirmed (確定) か」 は kind ではなく source で識別する
  * (CEO/GPT 2026-05-02 案 A: kind を増やすより source 識別が型シンプル)。
  */
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AnchorSource source 意味論固定 (CEO/GPT 2026-05-02 PR B-2b 規律)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 各 source の信頼度と USER_EXPLICIT_SOURCES (= prior 上書き強権) 適格性:
+//
+//   user_declared:
+//     deterministic origin detector 由来 (extractStartPointAnchor)。
+//     例: 「自宅から」「ホテルから」「会社を出る」
+//     強権: ✅ USER_EXPLICIT_SOURCES に含まれる (prior known_exact を上書き可)
+//
+//   user_explicit_endpoint:
+//     deterministic endpoint detector 由来 (extractEndpointAnchor)。
+//     例: 「自宅に帰る」「ホテルに泊まる」「会社に向かう」
+//     強権: ✅ USER_EXPLICIT_SOURCES に含まれる
+//     注意: user_declared は origin 専用、user_explicit_endpoint は end 専用。
+//     対称構造で意味論を区別する (GPT 2026-05-02 規律)。
+//
+//   comprehension_explicit:
+//     LLM / comprehension 経由の explicit extraction。
+//     例: LLM が「ホテルに泊まる」 を解釈して endpoint として抽出した場合等。
+//     強権: ❌ USER_EXPLICIT_SOURCES に **含めない** (PR B-2b 規律)。
+//     理由: LLM 誤抽出リスクが残るため、prior known_exact を上書きする強権を
+//     持たせるのは時期尚早。PR B-2b 後の LLM 信頼性 audit で再評価。
+//
+//   current:
+//     browser geolocation 由来 (時刻依存)。
+//     STALE_SOURCES_ON_DATE_MISMATCH に含まれる (samePlanDate=false で抑制)。
+//
+//   registered_home:
+//     profiles.baseline_home_lat/lng 由来 (時刻非依存)。
+//
+//   default_round_trip:
+//     homeAnchor からの round-trip default 派生 (assumed end)。
+//     isAssumedAnchor() で識別、UI で「(推定)」 表示。
+//     STALE_SOURCES_ON_DATE_MISMATCH に含まれる (homeAnchor が current 由来の
+//     場合 stale current 由来 round-trip となるため安全側で抑制)。
+//
+//   user_override:
+//     endpoint clarify (PR B-2e) の user 回答で確定した終点。
+//     強権: 直接強権なし (応答時に PendingClarify 経由で上書きされるため)。
+//
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 export type AnchorSource =
-  // ── origin sources ──
+  // ── origin sources (deterministic detector 由来) ──
   /** browser geolocation 由来の現在地座標 */
   | "current"
   /** profiles.baseline_home_lat/lng 由来の登録自宅座標 */
   | "registered_home"
-  /** (将来 PR B-3) 発話 「自宅から」 「ホテルから」 等の deterministic 抽出 */
+  /** PR B-2b: deterministic origin detector 由来。例: 「自宅から」「ホテルから」 */
   | "user_declared"
   // ── end sources ──
   /**
@@ -78,9 +122,19 @@ export type AnchorSource =
    * confirmed end として扱わない (将来 PR C scope)。
    */
   | "default_round_trip"
-  /** (将来 PR B-3) 発話 「ホテルに泊まる」 「友達の家に行く」 等の comprehension 抽出 */
+  /**
+   * LLM / comprehension 経由の explicit endpoint 抽出。
+   * PR B-2b 規律: USER_EXPLICIT_SOURCES に **含めない** (LLM 誤抽出リスク)。
+   * 強権 (prior 上書き) を持たせるのは PR B-2b 後の LLM 信頼性 audit 後。
+   */
   | "comprehension_explicit"
-  /** (将来 PR B-2) endpoint clarify の user 回答で確定した終点 */
+  /**
+   * PR B-2b: deterministic endpoint detector 由来。例: 「自宅に帰る」「ホテルに泊まる」
+   * USER_EXPLICIT_SOURCES に含まれ、prior known_exact を上書き可。
+   * user_declared (origin 専用) と対称な end 専用 source。
+   */
+  | "user_explicit_endpoint"
+  /** (将来 PR B-2e) endpoint clarify の user 回答で確定した終点 */
   | "user_override";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -321,6 +375,37 @@ const STALE_SOURCES_ON_DATE_MISMATCH = new Set<AnchorSource>([
   "default_round_trip",
 ]);
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// USER_EXPLICIT_SOURCES (CEO/GPT 2026-05-02 PR B-2b 規律)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// deterministic detector 由来の user 明示発話は prior known_exact を上書き可。
+// = 決定表 #2-bis: fresh.kind="known_label_only" + fresh.source ∈ USER_EXPLICIT
+//   → prior 不問で fresh (label_only) を採用。
+//
+// 含まれる source:
+//   - "user_declared": deterministic origin detector (extractStartPointAnchor)
+//   - "user_explicit_endpoint": deterministic endpoint detector (extractEndpointAnchor)
+//
+// 含まれない source (重要、GPT 規律):
+//   - "comprehension_explicit": LLM 経由 = 誤抽出リスク残るため強権なし。
+//     PR B-2b 後の LLM 信頼性 audit 後に追加検討。
+//
+// 強権の意味:
+//   通常規則 (決定表 #2): fresh known_label_only + prior known_exact → prior 維持
+//   (= coords 落とさない、PR B-2a 不変条件)
+//   USER_EXPLICIT 例外 (#2-bis): user 明示発話なので prior coords を捨てて fresh 採用
+//   (= ユーザー文言尊重、CEO 思想)
+//
+// 副作用 (重要):
+//   USER_EXPLICIT で上書きされた journeyOrigin/End は kind="known_label_only" のため
+//   coords なし → travel item 不生成 (hasResolvedCoordinates=false で skip)。
+//   これは「明示発話を尊重するが、移動を捏造しない」 という規律 (PR B-1 と整合)。
+const USER_EXPLICIT_SOURCES = new Set<AnchorSource>([
+  "user_declared",
+  "user_explicit_endpoint",
+]);
+
 export function applyAnchorFallback(
   fresh: JourneyAnchorState,
   prior: JourneyAnchorState | undefined,
@@ -333,6 +418,14 @@ export function applyAnchorFallback(
 
   // ケース 2-3: fresh known_label_only
   if (fresh.kind === "known_label_only") {
+    // ケース 2-bis [GPT/CEO 2026-05-02 PR B-2b]: USER_EXPLICIT は強権 prior 上書き可
+    //   user 明示発話 (deterministic detector 由来) は coords がなくても prior を上書き。
+    //   travel は生成されない (hasResolvedCoordinates=false で skip)。
+    //   comprehension_explicit (LLM 由来) は USER_EXPLICIT に含まれないため、
+    //   この exception は通らず、通常規則 (#2) に落ちる。
+    if (USER_EXPLICIT_SOURCES.has(fresh.source)) {
+      return fresh;
+    }
     // ケース 2: prior に coords あり (known_exact) なら prior 維持 (coords 落とさない)
     if (prior?.kind === "known_exact") {
       return prior;
