@@ -231,7 +231,6 @@ describe("post-candidate-selection action routing", () => {
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
-      certainty: "asserted",
       when: {
         startTime: "09:00",
         timeHint: null,
@@ -289,7 +288,6 @@ describe("post-candidate-selection action routing", () => {
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
-      certainty: "asserted",
       when: {
         startTime: "09:00",
         timeHint: null,
@@ -381,7 +379,6 @@ describe("post-candidate-selection action routing", () => {
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
-      certainty: "asserted",
       when: {
         startTime: "09:00",
         timeHint: null,
@@ -434,7 +431,6 @@ describe("post-candidate-selection action routing", () => {
       target_ref: null,
       target_ref_confidence: null,
       change_scope: null,
-      certainty: "asserted",
       when: {
         startTime: "10:00",
         timeHint: null,
