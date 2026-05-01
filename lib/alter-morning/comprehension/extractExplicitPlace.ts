@@ -28,6 +28,9 @@
 import type { ExtractedSpan } from "./rulePreParse";
 
 // negative dictionary: 場所候補に紛れ込んだら拾わない単語群
+//   - 修正/判断系: 「変更」 「相談」 「かな」 「しよう」 「にして」 等
+//   - 人名 marker: 「さん」 「様」 「くん」 「ちゃん」
+//     (例: 「12時に新宿で武藤さんとランチ」 で mid="新宿で武藤さんと" を拾わない)
 const NEGATIVE_DICT = [
   "変更",
   "相談",
@@ -39,6 +42,11 @@ const NEGATIVE_DICT = [
   "思う",
   "かもしれない",
   "どうしよう",
+  // 人名 marker (CEO/GPT 2026-05-02 場所候補絞り込み)
+  "さん",
+  "様",
+  "くん",
+  "ちゃん",
 ];
 
 // 特殊文字 (句読点等)

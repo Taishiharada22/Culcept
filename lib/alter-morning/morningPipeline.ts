@@ -26,6 +26,7 @@ import { preParseUtterance, type RulePreParseHints } from "./comprehension/ruleP
 import { validatePlanOperations } from "./comprehension/validateOperation";
 import { synthesizeOperations } from "./comprehension/deterministicOperationSynth";
 import type { PendingClarify } from "./types";
+import type { DialogState } from "./dialog/types";
 
 import { solveTimeLine, type TimeLine } from "./planning/timeSolver";
 import { groundPlaces, type GroundedPlace } from "./planning/placeGrounder";
@@ -161,6 +162,20 @@ export interface MorningPipelineInput {
    *   ケースのみ本 field 経由で operationDispatcher の bind に流れる。
    */
   priorPendingClarify?: PendingClarify | null;
+
+  /**
+   * PR A (CEO/GPT 2026-05-02) deterministic append fallback context:
+   * 当 turn 開始時の dialogState (focus / activePresentation / conversationStatus を読む)。
+   *
+   * 用途:
+   *   synthesizeOperations の allowDeterministicAppend 計算に必要。
+   *   active slot answer 文脈 (5 条件) で deterministic_append を抑制する。
+   *
+   * 渡し方:
+   *   - route.ts: rawMorningSession.dialogState を渡す
+   *   - 単独 test: undefined or null で OK (allowDeterministicAppend=false に倒れる)
+   */
+  priorDialogState?: DialogState | null;
 }
 
 export interface MorningPipelineProviders {
@@ -349,10 +364,54 @@ export async function runMorningPipeline(
   //   理由: LLM が「9時を10時に変更」「電車」 等の意味が一意な発話を、append や
   //   noop として誤判定するケースが実機 (Preview 2026-04-30) で観測されたため。
   //   pattern が確実な発話はコード側で modify を生成して LLM 出力を上書きする。
+  // PR A (CEO/GPT 2026-05-02): allowDeterministicAppend 計算
+  //   active slot answer 文脈で deterministic_append を抑制する 5 条件 AND check。
+  //   全 5 条件 clear でのみ true (= caller responsibility 厳守、既存 test 不破壊)。
+  //
+  //   pre-condition: priorDialogState が non-null (caller が dialogState を渡している)
+  //     priorDialogState=null → 「caller 未対応 / context 不明」 と見て safe default false。
+  //     route.ts は常に rawMorningSession?.dialogState を渡すため、実機で false になるのは
+  //     新規 session のみ。新規 session の 1 turn 目は priorEvents=[] で detectAppendPattern
+  //     も発火しないため挙動矛盾なし。
+  //
+  //   5 条件:
+  //   1. priorPendingClarify == null
+  //   2. dialogState.focus が active slot answer 状態でない
+  //      (where focus narrowStep<3、または where 以外の slot focus narrowStep=0)
+  //   3. dialogState.activePresentation == null
+  //   4. conversationStatus が search_candidates_presented でない
+  //   5. conversationStatus が search_handoff_blocking でない
+  const dialogState = input.priorDialogState ?? null;
+  let allowDeterministicAppend: boolean;
+  if (dialogState === null) {
+    // caller が dialogState を渡さない → safe default false (既存 test fixture 互換)
+    allowDeterministicAppend = false;
+  } else {
+    const isPendingClarify = (input.priorPendingClarify ?? null) !== null;
+    const focus = dialogState.focus ?? null;
+    const isActiveSlotAnswerFocus =
+      focus !== null &&
+      ((focus.slot === "where" && focus.narrowStep < 3) ||
+        (focus.slot !== "where" && focus.narrowStep === 0));
+    const isActivePresentation = dialogState.activePresentation != null;
+    const status = dialogState.conversationStatus ?? null;
+    const isHandoffStatus =
+      status === "search_candidates_presented" ||
+      status === "search_handoff_blocking";
+    allowDeterministicAppend = !(
+      isPendingClarify ||
+      isActiveSlotAnswerFocus ||
+      isActivePresentation ||
+      isHandoffStatus
+    );
+  }
+
   const synthesisResult = synthesizeOperations({
     utterance,
     priorEvents: input.priorPlanForContext ?? [],
     llmOperations: raw.operations ?? [],
+    priorPendingClarify: input.priorPendingClarify ?? null,
+    allowDeterministicAppend,
   });
   const operationsFromRaw = synthesisResult.operations;
   const operationContext = {
