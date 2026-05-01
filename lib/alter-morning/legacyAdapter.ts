@@ -47,6 +47,15 @@ import {
   resolveHomeAnchor,
   resolveJourneyEndAnchor,
 } from "./planning/transportContext";
+// CEO/GPT 2026-05-02 PR B-1: JourneyAnchorState converter
+//   既存 resolver の戻り値 (HomeAnchor | null / JourneyEndAnchor | null) を
+//   converter で MorningPlan.journeyOrigin / journeyEnd に変換。kind 3 値の
+//   discriminated union で unknown を構造的に表現する (silent fail 排除)。
+import {
+  toOriginState,
+  toEndState,
+  type AnchorUnknownReason,
+} from "./journey/anchorState";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -908,25 +917,31 @@ export function adaptPipelineToLegacy(
     const dayConditions: import("./types").DayConditions = derivedTransport
       ? { mainTransport: derivedTransport.vc }
       : {};
-    // CEO 2026-04-28 Journey 構造: plan-level metadata (journeyOrigin / journeyEnd)
+    // CEO/GPT 2026-05-02 PR B-1: plan-level anchor state contract
     //   MorningPlanCard が plan.items の上下に「現在地」「帰宅」ノードを render するため。
-    //   homeAnchor が null（座標が無い CEO 案 1 のケース）→ 両方 undefined → UI 何も出さない。
-    const journeyOrigin = homeAnchor
-      ? {
-          label: homeAnchor.label,
-          lat: homeAnchor.lat,
-          lng: homeAnchor.lng,
-          source: homeAnchor.source,
-        }
-      : undefined;
-    const journeyEndForPlan = journeyEnd
-      ? {
-          label: journeyEnd.label,
-          lat: journeyEnd.lat,
-          lng: journeyEnd.lng,
-          source: journeyEnd.source,
-        }
-      : undefined;
+    //
+    //   PR B-1 不変条件:
+    //     events.length > 0 (本 branch) では journeyOrigin / journeyEnd が必ず設定される。
+    //     - homeAnchor 有 → kind="known_exact"
+    //     - homeAnchor 無 → kind="unknown" + reason (silent fail 排除)
+    //
+    //   reason 決定:
+    //     - currentLat/Lng + userHomeLat/Lng いずれも null → "no_baseline"
+    //     - 上記以外で homeAnchor=null となるケースは現状 resolveHomeAnchor の仕様上
+    //       発生しない (両者とも finite なら採用される)。「denied」 / 「unrequested」 は
+    //       PR B-2 以降で caller (route) から explicit に渡せるよう拡張予定。
+    //   journeyEnd の reason:
+    //     - homeAnchor=null → round-trip default も引けない → "no_endpoint_signal"
+    //
+    //   既存挙動との互換性:
+    //     - homeAnchor 有 ⇒ kind="known_exact" + 同一の coords/label/source。
+    //       hasResolvedCoordinates() === true、buildTransportSegments の挙動は不変。
+    //     - homeAnchor 無 ⇒ 旧: undefined / 新: kind="unknown"。MorningPlanCard 側で
+    //       新 union を読んで「起点未確定」 を表示 (Commit 4 で追加)。
+    const originReason: AnchorUnknownReason = "no_baseline";
+    const endReason: AnchorUnknownReason = "no_endpoint_signal";
+    const journeyOrigin = toOriginState(homeAnchor, originReason);
+    const journeyEndForPlan = toEndState(journeyEnd, endReason);
     plan = {
       date: today,
       items,
@@ -937,8 +952,9 @@ export function adaptPipelineToLegacy(
       ...(built.transportSegments !== undefined
         ? { transportSegments: built.transportSegments }
         : {}),
-      ...(journeyOrigin !== undefined ? { journeyOrigin } : {}),
-      ...(journeyEndForPlan !== undefined ? { journeyEnd: journeyEndForPlan } : {}),
+      // PR B-1: events>0 の場合は必ず set (kind="unknown" を含む)
+      journeyOrigin,
+      journeyEnd: journeyEndForPlan,
     };
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として
