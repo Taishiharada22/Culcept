@@ -15,6 +15,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { GlassCard } from "@/components/ui/glassmorphism-design";
 import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+// CEO/GPT 2026-05-02 PR B-1: anchor state union を読むための helper。
+//   kind 3 値 (known_exact / known_label_only / unknown) を判定し、UI を分岐する。
+import {
+  hasResolvedCoordinates,
+  isAssumedAnchor,
+  type JourneyAnchorState,
+} from "@/lib/alter-morning/journey/anchorState";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
 import { PlaceDetailSheet } from "./PlaceDetailSheet";
 import { formatStartEndLabel } from "./timeLabel";
@@ -1177,23 +1184,21 @@ export default function MorningPlanCard({
         )}
 
         {/*
-          CEO 2026-04-28 Journey 構造: 起点ノード（plan.journeyOrigin）
-            - plan.items の **上** に「現在地 / 自宅」を render する
-            - 本ノードは plan-level metadata（plan.items に含まれない）。
-              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
-            - homeAnchor が null（座標が無い CEO 案 1: hallucination 防止）→
-              plan.journeyOrigin が undefined → 何も render しない
+          CEO 2026-04-28 / CEO/GPT 2026-05-02 PR B-1 Journey 構造: 起点ノード
+            - plan.items の **上** に「現在地 / 自宅 / 起点未確定」を render する
+            - 本ノードは plan-level metadata (plan.items に含まれない)
+            - PR B-1: JourneyAnchorState union を読み、kind に応じて 3 分岐:
+              * known_exact: 通常の anchor block (label + 起点ラベル)
+              * known_label_only: label + 「場所未確定」 hint
+              * unknown: 薄い「起点未確定」 1 行 (silent fail 排除、debug 用 reason 保持)
+            - GPT 規律: source="default_round_trip" は origin では発生しない (caller 仕様)
         */}
         {plan.journeyOrigin && (
-          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mb-1">
-            <div className="w-5 flex-shrink-0 flex items-center justify-center">
-              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
-            </div>
-            <span className="text-[11px] text-violet-700 font-medium flex-1">
-              {plan.journeyOrigin.label}
-            </span>
-            <span className="text-[9px] text-violet-400/80 italic">起点</span>
-          </div>
+          <JourneyAnchorBlock
+            anchor={plan.journeyOrigin}
+            roleLabel="起点"
+            unknownLabel="起点未確定"
+          />
         )}
 
         {/* アイテムリスト */}
@@ -1236,22 +1241,22 @@ export default function MorningPlanCard({
         </div>
 
         {/*
-          CEO 2026-04-28 Journey 構造: 終点ノード（plan.journeyEnd）
-            - plan.items の **下** に「帰宅 / hotel / friend's house」を render する
-            - 本ノードは plan-level metadata（plan.items に含まれない）。
-              新 PlanItemKind を作らず、UI 側で 1 ブロック追加するだけで完結。
-            - journeyEnd が undefined（CEO 案 1）→ 何も render しない
+          CEO 2026-04-28 / CEO/GPT 2026-05-02 PR B-1 Journey 構造: 終点ノード
+            - plan.items の **下** に「帰宅 / hotel / 終点未確定」を render する
+            - PR B-1: JourneyAnchorState union を読み、kind + isAssumedAnchor で 4 分岐:
+              * known_exact + isAssumedAnchor: label + 「(推定)」 (assumed end)
+              * known_exact + !isAssumed: label のみ (confirmed end、user_override / explicit)
+              * known_label_only: label + 「(場所未確定)」
+              * unknown: 薄い「終点未確定」 1 行
+            - GPT 規律: source="default_round_trip" を confirmed と混同しないこと。
+              UI で「(推定)」 ラベルを必ず付ける。
         */}
         {plan.journeyEnd && (
-          <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 mt-1">
-            <div className="w-5 flex-shrink-0 flex items-center justify-center">
-              <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
-            </div>
-            <span className="text-[11px] text-violet-700 font-medium flex-1">
-              {plan.journeyEnd.label}
-            </span>
-            <span className="text-[9px] text-violet-400/80 italic">終点</span>
-          </div>
+          <JourneyAnchorBlock
+            anchor={plan.journeyEnd}
+            roleLabel="終点"
+            unknownLabel="終点未確定"
+          />
         )}
 
         {/*
@@ -1286,45 +1291,54 @@ export default function MorningPlanCard({
             ).length;
             const eventPinCount = Math.max(v1Count, v2Count);
 
-            // CEO 2026-04-28 G5: journey anchor pin を予測数に加える。
-            //   1-event plan + home/current あれば anchor + event = 2 pins で
-            //   map が mount できるようになる。
-            //   round-trip default (origin === endpoint coords) は 1 pin に
-            //   dedupe されるので、両方あっても +1 として扱う。
-            const originValid = !!(
-              plan.journeyOrigin &&
-              Number.isFinite(plan.journeyOrigin.lat) &&
-              Number.isFinite(plan.journeyOrigin.lng)
-            );
-            const endValid = !!(
-              plan.journeyEnd &&
-              Number.isFinite(plan.journeyEnd.lat) &&
-              Number.isFinite(plan.journeyEnd.lng)
-            );
+            // CEO 2026-04-28 G5 / CEO/GPT 2026-05-02 PR B-1: journey anchor pin を予測数に加える
+            //   PR B-1 更新: hasResolvedCoordinates(state) で kind="known_exact" のみを採用。
+            //     known_label_only / unknown は coords を持たないため pin 不生成 (= 捏造禁止)。
+            //   round-trip default (origin === endpoint coords) は 1 pin に dedupe される。
+            const originAnchor = plan.journeyOrigin;
+            const endAnchor = plan.journeyEnd;
+            const originHasCoords = hasResolvedCoordinates(originAnchor);
+            const endHasCoords = hasResolvedCoordinates(endAnchor);
             const sameAnchorCoords =
-              originValid &&
-              endValid &&
-              plan.journeyOrigin!.lat.toFixed(4) ===
-                plan.journeyEnd!.lat.toFixed(4) &&
-              plan.journeyOrigin!.lng.toFixed(4) ===
-                plan.journeyEnd!.lng.toFixed(4);
-            const journeyPinCount = originValid
-              ? endValid && !sameAnchorCoords
+              originHasCoords &&
+              endHasCoords &&
+              originAnchor.lat.toFixed(4) === endAnchor.lat.toFixed(4) &&
+              originAnchor.lng.toFixed(4) === endAnchor.lng.toFixed(4);
+            const journeyPinCount = originHasCoords
+              ? endHasCoords && !sameAnchorCoords
                 ? 2
                 : 1
-              : endValid
+              : endHasCoords
                 ? 1
                 : 0;
 
             const totalEstimate = eventPinCount + journeyPinCount;
             if (totalEstimate < 2) return null;
 
+            // MorningMapView は coords を持つ anchor のみ受け取る。kind="known_exact" を
+            // simple shape に変換 (旧 prop 契約 byte-diff zero)。
             return (
               <MorningMapView
                 events={events}
                 planItems={plan.items}
-                journeyOrigin={plan.journeyOrigin ?? null}
-                journeyEnd={plan.journeyEnd ?? null}
+                journeyOrigin={
+                  originHasCoords
+                    ? {
+                        label: originAnchor.label,
+                        lat: originAnchor.lat,
+                        lng: originAnchor.lng,
+                      }
+                    : null
+                }
+                journeyEnd={
+                  endHasCoords
+                    ? {
+                        label: endAnchor.label,
+                        lat: endAnchor.lat,
+                        lng: endAnchor.lng,
+                      }
+                    : null
+                }
               />
             );
           })()}
@@ -1370,5 +1384,82 @@ export default function MorningPlanCard({
         )}
       </motion.div>
     </GlassCard>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// JourneyAnchorBlock — origin / end anchor の UI 描画 (PR B-1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO/GPT 2026-05-02 PR B-1 規律:
+//   JourneyAnchorState の 3 kind を UI で適切に描画する単一コンポーネント。
+//   GPT 規律: source="default_round_trip" (assumed) と confirmed end を必ず区別。
+//
+// 描画 4 分岐:
+//   - kind="known_exact" + isAssumedAnchor: label + 「(推定)」 (assumed)
+//   - kind="known_exact" + !isAssumed: label のみ (confirmed)
+//   - kind="known_label_only": label + 「(場所未確定)」
+//   - kind="unknown": 薄い「{unknownLabel}」 1 行
+//
+// scope (PR B-1 限定):
+//   - 表示のみ。編集ボタンや clarify trigger は **PR B-2 scope**。
+//   - clickable / on-tap action なし。
+function JourneyAnchorBlock({
+  anchor,
+  roleLabel,
+  unknownLabel,
+}: {
+  anchor: JourneyAnchorState;
+  roleLabel: string; // "起点" | "終点"
+  unknownLabel: string; // "起点未確定" | "終点未確定"
+}) {
+  // unknown: 薄い「未確定」 1 行 (silent fail 排除、UX action は PR B-2)
+  if (anchor.kind === "unknown") {
+    return (
+      <div className="flex items-center gap-2 py-1 px-3 rounded-lg bg-gray-50/30 my-1">
+        <div className="w-5 flex-shrink-0 flex items-center justify-center">
+          <House className="w-4 h-4 text-gray-300" strokeWidth={2} />
+        </div>
+        <span className="text-[11px] text-gray-400 italic flex-1">
+          {unknownLabel}
+        </span>
+        <span className="text-[9px] text-gray-300 italic">{roleLabel}</span>
+      </div>
+    );
+  }
+
+  // known_label_only: label + 「(場所未確定)」 (PR B-3 grounder で coords 解決待ち)
+  if (anchor.kind === "known_label_only") {
+    return (
+      <div className="flex items-center gap-2 py-1 px-3 rounded-lg bg-gray-50/30 my-1">
+        <div className="w-5 flex-shrink-0 flex items-center justify-center">
+          <House className="w-4 h-4 text-gray-300" strokeWidth={2} />
+        </div>
+        <span className="text-[11px] text-gray-500 italic flex-1">
+          {anchor.label}
+          <span className="text-[9px] text-gray-400 ml-1">(場所未確定)</span>
+        </span>
+        <span className="text-[9px] text-gray-300 italic">{roleLabel}</span>
+      </div>
+    );
+  }
+
+  // known_exact: 通常の anchor block。assumed end は 「(推定)」 ラベル付き (GPT 規律)
+  const isAssumed = isAssumedAnchor(anchor);
+  return (
+    <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 my-1">
+      <div className="w-5 flex-shrink-0 flex items-center justify-center">
+        <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
+      </div>
+      <span className="text-[11px] text-violet-700 font-medium flex-1">
+        {anchor.label}
+        {isAssumed && (
+          <span className="text-[9px] text-violet-400 ml-1 italic">
+            (推定)
+          </span>
+        )}
+      </span>
+      <span className="text-[9px] text-violet-400/80 italic">{roleLabel}</span>
+    </div>
   );
 }

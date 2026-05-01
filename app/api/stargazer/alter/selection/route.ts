@@ -58,6 +58,13 @@ import {
   resolveHomeAnchor,
   resolveJourneyEndAnchor,
 } from "@/lib/alter-morning/planning/transportContext";
+// CEO/GPT 2026-05-02 PR B-1: JourneyAnchorState converter (selection 経路でも
+// chat 経路と同じく MorningPlan.journeyOrigin/End に union 化された state を詰める)
+import {
+  toOriginState,
+  toEndState,
+  type AnchorUnknownReason,
+} from "@/lib/alter-morning/journey/anchorState";
 // CEO 2026-04-28 PR #41a Layer 0: selection 経路の turnTrace emission。
 import {
   emitTurnTrace,
@@ -368,24 +375,23 @@ export async function POST(req: NextRequest) {
       const nextDayConditions = derivedTransport
         ? { ...priorPlan.dayConditions, mainTransport: derivedTransport.vc }
         : (priorPlan.dayConditions ?? {});
-      // CEO 2026-04-28 Journey 構造: plan-level metadata
-      //   selectionHomeAnchor が無ければ priorPlan.journeyOrigin / journeyEnd を保持
-      //   （chat 経路で設定されたものを selection が消さないように）。
+      // CEO/GPT 2026-05-02 PR B-1: plan-level anchor state contract (selection 経路)
+      //   chat 経路 (legacyAdapter) と同じ converter を使い、選択により再 resolver
+      //   された anchor を JourneyAnchorState に変換して詰める。
+      //
+      //   priorPlan.journeyOrigin / journeyEnd 維持の意図:
+      //     selectionHomeAnchor が null の場合 (= 選択以降も依然として位置情報なし)、
+      //     chat 経路で既に設定された priorPlan の anchor state を保持する。
+      //     priorPlan.journeyOrigin が undefined (= events 空 plan からの遷移) の
+      //     ケースは現在発生しない (selection は events>0 plan に対して行う) が、
+      //     defensive に optional のまま渡す。
+      const originReason: AnchorUnknownReason = "no_baseline";
+      const endReason: AnchorUnknownReason = "no_endpoint_signal";
       const nextJourneyOrigin = selectionHomeAnchor
-        ? {
-            label: selectionHomeAnchor.label,
-            lat: selectionHomeAnchor.lat,
-            lng: selectionHomeAnchor.lng,
-            source: selectionHomeAnchor.source,
-          }
+        ? toOriginState(selectionHomeAnchor, originReason)
         : priorPlan.journeyOrigin;
       const nextJourneyEnd = selectionJourneyEnd
-        ? {
-            label: selectionJourneyEnd.label,
-            lat: selectionJourneyEnd.lat,
-            lng: selectionJourneyEnd.lng,
-            source: selectionJourneyEnd.source,
-          }
+        ? toEndState(selectionJourneyEnd, endReason)
         : priorPlan.journeyEnd;
       rebuiltPlan = {
         ...priorPlan,
