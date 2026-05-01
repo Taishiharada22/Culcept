@@ -184,6 +184,101 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     );
   });
 
+  it("L4-i Phase 2 Option B' (CEO 確定 2026-05-02): pattern.used emit を fetch 完了後に dedupe ref で実 source/retries/latency/validationFailed/fallbackReason で emit", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // emitPatternUsed import (UpperLayerMount で実 source 反映 emit)
+    expect(content).toMatch(/import\s+\{\s*emitPatternUsed\s*\}/);
+    // dedupe ref
+    expect(content).toMatch(/lastEmittedSpeechTelemetryKeyRef/);
+    expect(content).toMatch(
+      /lastEmittedSpeechTelemetryKeyRef\.current\s*=\s*telemetryKey/,
+    );
+    // dedupe key は (variant, state, mode, source, fallbackReason)
+    expect(content).toMatch(
+      /\$\{speechVariant\}\|\$\{speechState\}\|\$\{speechMode\}\|\$\{source\}/,
+    );
+    // helper 内で emitPatternUsed 呼び出し
+    expect(content).toMatch(
+      /const\s+emitSpeechTelemetry\s*=[\s\S]{0,800}emitPatternUsed/,
+    );
+  });
+
+  it("L4-i Phase 2 Option B': payload に PII (body/prompt/userInput/conversation/transcript) を一切入れない", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // emitPatternUsed call の payload 全 field を locate
+    const callMatch = content.match(
+      /emitPatternUsed\(\s*\{[\s\S]*?\}\s*\)/,
+    );
+    expect(callMatch).not.toBeNull();
+    const payloadBlock = callMatch![0];
+    // 禁止 field が emit payload に存在しない
+    expect(payloadBlock).not.toMatch(/\bbody\s*:/);
+    expect(payloadBlock).not.toMatch(/\bpromptText\s*:|\bprompt\s*:/);
+    expect(payloadBlock).not.toMatch(/\bllmResponse/);
+    expect(payloadBlock).not.toMatch(/\buserMessage\s*:|\buserInput\s*:/);
+    expect(payloadBlock).not.toMatch(/\bconversation\s*:|\btranscript\s*:/);
+    // 許可された 11 field のみ (`field:` も `field,` shorthand も許容)
+    expect(payloadBlock).toMatch(/\bvariant\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bstate\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bmode\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bhasSecondary\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bpairId\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bts\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bspeechSource\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bretries\s*[:,]/);
+    expect(payloadBlock).toMatch(/\blatencyMs\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bvalidationFailed\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bfallbackReason\s*[:,]/);
+  });
+
+  it("L4-i Phase 2 Option B': fetch 完了 path 全網羅で emit (success / non-OK / timeout / network)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // success path: server response の safeSource / safeReason を emit
+    expect(content).toMatch(
+      /emitSpeechTelemetry\([\s\S]{0,200}safeSource[\s\S]{0,200}safeReason/,
+    );
+    // non-OK HTTP path: fallback / llm_error
+    expect(content).toMatch(
+      /res\.ok[\s\S]{0,400}emitSpeechTelemetry\([\s\S]{0,200}["']fallback["'][\s\S]{0,200}["']llm_error["']/,
+    );
+    // catch path: timeout/llm_error 区別
+    expect(content).toMatch(
+      /timeoutFired\s*\?\s*["']timeout["']\s*:\s*["']llm_error["']/,
+    );
+  });
+
+  it("L4-i Phase 2 Option B': cleanup-induced abort では emit しない (stale response 防止)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // catch block 内で isAbort && !timeoutFired なら early return (emit せず)
+    expect(content).toMatch(
+      /isAbort\s*&&\s*!timeoutFired[\s\S]{0,150}setSpeechBody\(null\)[\s\S]{0,50}return/,
+    );
+  });
+
   it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): cleanup-induced abort は negative cache を汚さない", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");

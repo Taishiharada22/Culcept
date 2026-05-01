@@ -58,6 +58,8 @@ import type {
   PresenceState,
 } from "@/lib/coalter/presence/types";
 import { isSpeechFetchEnabled } from "@/lib/coalter/presence/speechFetchGate";
+import { emitPatternUsed } from "@/lib/coalter/presence/telemetry";
+import type { PatternUsedEvent } from "@/lib/coalter/presence/telemetryEvents";
 
 /**
  * Urgent fallback message (B-2、static、category-based)。
@@ -269,6 +271,14 @@ function UpperLayerMountActive() {
   const inFlightSpeechRef = useRef<Map<string, Promise<void>>>(new Map());
   const speechNegativeCacheRef = useRef<Map<string, number>>(new Map());
   const speechMountedRef = useRef<boolean>(true);
+  /**
+   * L4-i Phase 2 Option B' (CEO 確定 2026-05-02): pattern.used emit dedupe key。
+   *
+   * `(variant, state, mode, source, fallbackReason)` の組合せでユニーク化し、
+   * 同 outcome の重複 emit を防ぐ。state 変化や fetch 結果の差で source / reason
+   * が変わるたびに新 emit が走る (Phase 2 観測項目を Sentry 集計可能にする)。
+   */
+  const lastEmittedSpeechTelemetryKeyRef = useRef<string | null>(null);
   useEffect(() => {
     speechMountedRef.current = true;
     return () => {
@@ -333,6 +343,39 @@ function UpperLayerMountActive() {
       timeoutFired = true;
       controller.abort();
     }, SPEECH_FETCH_TIMEOUT_MS);
+    /**
+     * L4-i Phase 2 Option B' (CEO 確定 2026-05-02): pattern.used emit helper。
+     *
+     * fetch 完了後 (success / fallback / error) に Sentry breadcrumb 用の実
+     * metadata を含めて emit する。`(variant, state, mode, source, reason)` で
+     * dedupe、stale 防止のため speechMountedRef を必ず check。
+     */
+    const emitSpeechTelemetry = (
+      source: NonNullable<PatternUsedEvent["speechSource"]>,
+      retries: number,
+      latencyMs: number,
+      validationFailed: boolean,
+      fallbackReason: PatternUsedEvent["fallbackReason"],
+    ) => {
+      if (!speechMountedRef.current) return;
+      if (speechVariant === null) return;
+      const telemetryKey = `${speechVariant}|${speechState}|${speechMode}|${source}|${fallbackReason ?? "none"}`;
+      if (telemetryKey === lastEmittedSpeechTelemetryKeyRef.current) return;
+      emitPatternUsed({
+        pairId: "",
+        variant: speechVariant,
+        state: speechState,
+        mode: speechMode,
+        hasSecondary: exec.computed.secondaryPattern !== null,
+        ts: Date.now(),
+        speechSource: source,
+        retries,
+        latencyMs,
+        validationFailed,
+        fallbackReason,
+      });
+      lastEmittedSpeechTelemetryKeyRef.current = telemetryKey;
+    };
     const work = (async () => {
       try {
         const res = await fetch("/api/coalter/speech", {
@@ -351,18 +394,37 @@ function UpperLayerMountActive() {
           // 401 / 4xx / 5xx → static fallback (UI は壊さない)
           speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
           setSpeechBody(null);
+          // Option B': HTTP non-OK → fallback / llm_error
+          emitSpeechTelemetry(
+            "fallback",
+            0,
+            Date.now() - startTs,
+            false,
+            "llm_error",
+          );
           return;
         }
         const json = (await res.json()) as {
           body?: unknown;
           speechSource?: unknown;
           fallbackReason?: unknown;
+          retries?: unknown;
+          latencyMs?: unknown;
+          validationFailed?: unknown;
         };
         if (!speechMountedRef.current) return;
         const bodyOk =
           typeof json.body === "string" && json.body.length > 0;
         if (!bodyOk) {
           setSpeechBody(null);
+          // Option B': body parse 失敗 → fallback / llm_error として記録
+          emitSpeechTelemetry(
+            "fallback",
+            0,
+            Date.now() - startTs,
+            false,
+            "llm_error",
+          );
           return;
         }
         const source = json.speechSource;
@@ -392,14 +454,46 @@ function UpperLayerMountActive() {
         } else {
           setSpeechBody(null);
         }
+        // Option B': server response の actual metadata を pattern.used へ
+        // propagate (Sentry 集計可能化、PII safety 維持: body / prompt / user
+        // input 等は payload に **入れない**、構造化 enum + number のみ)。
+        const safeSource: NonNullable<PatternUsedEvent["speechSource"]> =
+          source === "llm" || source === "fallback" || source === "static"
+            ? source
+            : "static";
+        const safeReason: PatternUsedEvent["fallbackReason"] =
+          reason === "flag_off" ||
+          reason === "rate_limited" ||
+          reason === "llm_error" ||
+          reason === "validation_failed" ||
+          reason === "timeout"
+            ? reason
+            : null;
+        const safeRetries =
+          typeof json.retries === "number" ? json.retries : 0;
+        const safeLatency =
+          typeof json.latencyMs === "number" ? json.latencyMs : 0;
+        const safeValidationFailed =
+          typeof json.validationFailed === "boolean"
+            ? json.validationFailed
+            : false;
+        emitSpeechTelemetry(
+          safeSource,
+          safeRetries,
+          safeLatency,
+          safeValidationFailed,
+          safeReason,
+        );
       } catch (err) {
         // L4-i Phase 2 fix-forward (CEO 確定 2026-05-02):
         //   AbortError の origin を区別:
         //   - cleanup-induced (state/mode/variant 変化で副次 abort) → negative cache 不要
-        //     (次回同 key の fetch を許可、設計意図)
-        //   - timeout-induced (2s 超 → timeoutFired=true) → negative cache 30s
-        //     (server 真の遅延を抑止)
-        //   - network/parse error → negative cache 30s (server 一時 error 抑止)
+        //     (次回同 key の fetch を許可、設計意図)、pattern.used emit も **しない**
+        //     (stale response 防止 + duplicate 防止)
+        //   - timeout-induced (timeoutFired=true) → negative cache 30s + pattern.used
+        //     emit (`source:"fallback"`, `fallbackReason:"timeout"`)
+        //   - network/parse error → negative cache 30s + pattern.used emit
+        //     (`source:"fallback"`, `fallbackReason:"llm_error"`)
         if (!speechMountedRef.current) return;
         const isAbort =
           err instanceof Error && err.name === "AbortError";
@@ -408,8 +502,17 @@ function UpperLayerMountActive() {
           setSpeechBody(null);
           return;
         }
+        const elapsedMs = Date.now() - startTs;
         speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
         setSpeechBody(null);
+        // Option B': timeout / network error → fallback emit
+        emitSpeechTelemetry(
+          "fallback",
+          0,
+          elapsedMs,
+          false,
+          timeoutFired ? "timeout" : "llm_error",
+        );
       } finally {
         clearTimeout(timeoutId);
         inFlightSpeechRef.current.delete(cacheKey);
