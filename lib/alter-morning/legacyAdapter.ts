@@ -56,10 +56,18 @@ import {
 //   fresh resolve が unknown のとき、priorPlan の anchor を fallback として
 //   継承する。samePlanDate (priorPlan.date === currentPlanDate) 判定で
 //   stale current/default_round_trip を抑制する。
+//
+// CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance)
+//   previousEndToOrigin で前日 plan.journeyEnd を翌朝 origin の inference 材料に変換。
+//   preserveStrongPriorOrigin で同 plan 内の STRONG prior (USER_EXPLICIT or
+//   previous_day_*) を Layer 2 上書きから守る。
+//   推論優先順位: explicit > strong prior > previous_day > resolver+weak fallback
 import {
   toOriginState,
   toEndState,
   applyAnchorFallback,
+  previousEndToOrigin,
+  preserveStrongPriorOrigin,
   type AnchorUnknownReason,
   type JourneyAnchorState,
 } from "./journey/anchorState";
@@ -169,6 +177,22 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+
+  /**
+   * CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用の前日 plan。
+   *
+   * 渡し方 (caller responsibility、CEO/GPT 規律):
+   *   - route.ts (chat 経路) で fetchPreviousDayPlan(supabase, userId, today) を呼び、
+   *     結果 (MorningPlan | null) を本 field に渡す
+   *   - DB query は legacyAdapter 内で行わない (legacyAdapter は pure に保つ)
+   *   - 失敗 / null のときは undefined を渡す → Layer 2 skip → Layer 3 fallback
+   *
+   * 用途:
+   *   events>0 path で previousEndToOrigin(input.previousDayPlan?.journeyEnd) を
+   *   呼び、Layer 2 として推論 chain に組み込む。
+   *   優先順位: explicit > strong prior > previous_day > resolver+weak fallback
+   */
+  previousDayPlan?: MorningPlan | null;
 
   /**
    * PR-50 Commit 9 (CEO 2026-04-30): focus reconcile 用の前 turn dialogState。
@@ -997,34 +1021,56 @@ export function adaptPipelineToLegacy(
     const explicitEnd: JourneyAnchorState | null =
       extractEndpointAnchor(input.utterance);
 
-    // fresh の決定:
-    //   - detector hit → user 明示 label_only (USER_EXPLICIT_SOURCES、強権)
-    //   - detector miss → resolver 結果 (toOriginState / toEndState)
-    // applyAnchorFallback で:
-    //   - fresh が user_explicit (label_only) なら Case #2-bis で prior known_exact を上書き
-    //   - fresh が resolver 結果 (known_exact / unknown) なら通常規則
-    const freshOrigin: JourneyAnchorState =
-      explicitOrigin ?? toOriginState(homeAnchor, originReason);
-    const freshEnd: JourneyAnchorState =
-      explicitEnd ?? toEndState(journeyEnd, endReason);
     // PR B-2a: priorPlan を fallback として参照
     //   `today` 変数 = plan.date に使われる「対象日 (currentPlanDate)」 (上記コメント参照)
     //   priorPlan.date === today (= currentPlanDate) なら samePlanDate=true (同じ plan 継続編集)
     //   priorPlan.date !== today なら samePlanDate=false (stale 抑制対象)
-    //   priorPlan が undefined なら samePlanDate=false (比較対象なし、どちらでも結果同じ)
-    //
-    // 明日プラン継続編集の例:
-    //   Turn N: input.today="2026-05-03" → today="2026-05-03" → plan.date="2026-05-03"
-    //   Turn N+1: input.today="2026-05-03" → today="2026-05-03"
-    //             priorPlan.date="2026-05-03" → samePlanDate=true → 正しく fallback
-    //   Turn N+2: input.today 渡し忘れ → today=todayYmd()="2026-05-02"
-    //             priorPlan.date="2026-05-03" → samePlanDate=false → caller bug 検出
     const samePlanDate = input.priorPlan?.date === today;
-    const journeyOrigin = applyAnchorFallback(
-      freshOrigin,
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance)
+    //
+    // 推論優先順位 (CEO/GPT 規律):
+    //   1. explicit (Layer 1)         — 当 turn のユーザー明示発話
+    //   2. strong prior               — 同 plan 内の USER_EXPLICIT or previous_day_*
+    //   3. previous day endpoint (Layer 2) — 前日 plan の journeyEnd を翌朝 origin に
+    //   4. resolver + weak fallback (Layer 3-4) — baseline_home / current + applyAnchorFallback
+    //   5. unknown
+    //
+    // 重要: previous day endpoint は baseline home より強い (= Layer 2 > Layer 3)。
+    // 前日ホテル泊まり + baseline_home あり → 翌朝 origin = ホテル
+    // (CEO 思想: 推論優先順位を構造的に維持)
+    //
+    // ただし当 turn の明示発話と同 plan 内の strong prior よりは弱い:
+    // - 当 turn 「自宅から」 + 前日 hotel → origin = 自宅 (explicit wins)
+    // - prior user_declared + 前日 hotel + samePlanDate=true → prior wins (STRONG prior 守る)
+    //
+    // PR B-5a の fetchPreviousDayPlan は cascade なし (直前 1 日のみ参照)。
+    // 本 PR でも cascade guard (previousEndToOrigin で previous_day_* を null) で
+    // 「前日の前日 plan からの継承」 を構造的に防ぐ。
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    const previousDayOriginCandidate: JourneyAnchorState | null =
+      previousEndToOrigin(input.previousDayPlan?.journeyEnd);
+    const strongPriorOrigin: JourneyAnchorState | null = preserveStrongPriorOrigin(
       input.priorPlan?.journeyOrigin,
       { samePlanDate },
     );
+
+    // 推論 chain (origin):
+    //   Layer 1 explicit → strong prior → Layer 2 previous_day → Layer 3-4 resolver+weak
+    const journeyOrigin: JourneyAnchorState =
+      explicitOrigin
+      ?? strongPriorOrigin
+      ?? previousDayOriginCandidate
+      ?? applyAnchorFallback(
+        toOriginState(homeAnchor, originReason),
+        input.priorPlan?.journeyOrigin,
+        { samePlanDate },
+      );
+
+    // end は PR B-2c の scope 外 (Layer 1 + resolver + applyAnchorFallback のみ、PR B-2b 維持)
+    const freshEnd: JourneyAnchorState =
+      explicitEnd ?? toEndState(journeyEnd, endReason);
     const journeyEndForPlan = applyAnchorFallback(
       freshEnd,
       input.priorPlan?.journeyEnd,
