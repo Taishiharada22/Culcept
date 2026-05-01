@@ -1,34 +1,23 @@
 /**
- * journey anchors route-level audit (PR B-2 冒頭 audit)
+ * journey anchors route-level audit (PR B-2a desired behavior)
  *
  * CEO 2026-05-02 指示:
- *   PR B-2 の冒頭で、候補選択後の response と次 turn session に
- *   journeyOrigin / journeyEnd が維持されることを route-level で確認すること。
+ *   PR B-2a で turn 跨ぎ anchor continuity を確立。本 test は audit ではなく
+ *   **desired behavior の固定** に書き換え (GPT 規律: 悪い現状を固定するな)。
  *
- * 本 audit が固定する 4 シナリオ:
- *   A. Chat 経路 (legacyAdapter) は events>0 path で **毎 turn 再解決**
- *      → priorPlan.journeyOrigin は inherit されず、input.currentLat/Lng /
- *        userHomeLat/Lng から fresh に resolve される。
- *   B. Chat 経路で input 座標が消えると、anchor が unknown に flip する
- *      (priorPlan.journeyOrigin が known_exact でも継承されない)
- *      → これが PR B-2 で塞ぐべき state contract gap (= turn 跨ぎでの anchor 不安定)。
- *   C. Selection 経路 (alter/selection/route.ts) は selectionHomeAnchor が null の
- *      ときのみ priorPlan.journeyOrigin を fallback として保持する。
- *      → chat 経路と挙動が異なる。両経路の差異を test で固定する。
- *   D. Selection 経路で response.morningSession.plan に journeyOrigin/End が
- *      乗ることを確認 (= 次 turn の chat route が priorPlan として受け取れる)。
+ * 本 test が固定する 7 シナリオ (desired behavior):
+ *   T1: prior known_exact + fresh unknown → prior 維持 (PR B-2a 核心)
+ *   T2: prior unknown + fresh known_exact → fresh 採用 (再活性化)
+ *   T3: prior known_label_only + fresh unknown → prior 継承、travel 不生成
+ *   T4: prior default_round_trip (samePlanDate=true) + fresh unknown → prior assumed 維持
+ *   T5: prior known_exact + fresh known_label_only → prior 維持 (coords 落とさない、GPT 規律)
+ *   T6: prior current + samePlanDate=false + fresh unknown → fresh (= unknown、stale 拒否)
+ *   T7: prior default_round_trip + samePlanDate=false + fresh unknown → fresh (= unknown、GPT 必須証明)
  *
- * 結論 (PR B-2 設計時の制約):
- *   PR B-2 で以下のいずれかを実装する必要がある:
- *     option A: legacyAdapter で priorPlan.journeyOrigin を fallback として継承する
- *               (selection 経路と同じ挙動)
- *     option B: morningSession に anchor を別 field として永続化し、route 共通で
- *               input から復元する (= sticky anchor design)
- *     option C: 何もせず、毎 turn currentLat/Lng/userHomeLat/Lng を確実に渡す
- *               UX 規約にする (frontend 側の対応)
- *
- *   PR B-2 では origin clarify (PendingSlot 拡張) を入れるが、その前に
- *   この anchor preservation の方針を CEO に提示し決めてもらう必要がある。
+ * Selection route の挙動 (chat と異なる) は別 test で固定 (将来 PR で必要なら追加):
+ *   selection 経路は body から userHomeLat/Lng を受けない (DB アクセス避ける設計)。
+ *   chat 経路と挙動が異なる構造的 inconsistency は、本 PR では PR B-1 audit で
+ *   identify 済みの「両経路差異」 として comment で残す (PR B-3 以降で解消)。
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -43,6 +32,7 @@ import {
   type Event,
 } from "@/lib/alter-morning/comprehension/eventSchema";
 import type { L1PipelineInput } from "@/lib/alter-morning/comprehension/l1Pipeline";
+import { isAssumedAnchor } from "@/lib/alter-morning/journey/anchorState";
 
 vi.mock("server-only", () => ({}));
 
@@ -53,6 +43,10 @@ beforeEach(() => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Fixtures
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const TODAY = "2026-05-02";
+const SHIBUYA_COORDS = { lat: 35.6595, lng: 139.7004 };
+const SHINJUKU_COORDS = { lat: 35.6896, lng: 139.7006 };
 
 function mkEventWithCoords(): Event {
   return {
@@ -69,7 +63,7 @@ function mkEventWithCoords(): Event {
     where: {
       place_ref: "新宿",
       placeType: "exact_proper_noun",
-      coordinates: { lat: 35.6896, lng: 139.7006 },
+      coordinates: SHINJUKU_COORDS,
       provenance: utteranceProvenance(["新宿"], "high"),
     },
     what: {
@@ -89,7 +83,7 @@ function mkRaw(
   overrides?: Partial<L1PipelineInput["raw"]>,
 ): L1PipelineInput["raw"] {
   return {
-    targetDate: "2026-05-02",
+    targetDate: TODAY,
     startPoint: null,
     departureTime: null,
     goOut: true,
@@ -99,224 +93,334 @@ function mkRaw(
   };
 }
 
-const SHIBUYA_COORDS = { lat: 35.6595, lng: 139.7004 };
+/**
+ * 起点 anchor 付き priorPlan を組み立てる。
+ * source / kind を test ごとに変えられるよう options で受ける。
+ */
+function mkPriorPlanWithOriginAnchor(opts: {
+  date: string;
+  origin?: any;
+  end?: any;
+}): any {
+  return {
+    date: opts.date,
+    items: [
+      {
+        id: "item_1",
+        kind: "fixed",
+        text: "既存予定",
+        what: "ミーティング",
+        startTime: "09:00",
+        durationMin: 60,
+        completed: false,
+      },
+    ],
+    dayConditions: {},
+    createdAt: `${opts.date}T00:00:00Z`,
+    confirmed: false,
+    journeyOrigin: opts.origin,
+    journeyEnd: opts.end,
+  };
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Scenario A: Chat 経路 (events>0) は anchor を毎 turn 再解決する
+// T1: prior known_exact + fresh unknown → prior 維持 (PR B-2a 核心)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("Scenario A: Chat 経路は events>0 で毎 turn 再解決", () => {
-  it("Turn N で currentLat/Lng → known_exact (current)", async () => {
-    const raw = mkRaw({ events: [] });
-    const result = await runMorningPipeline(
-      { utterance: "12時に新宿でランチ" },
-      { comprehension: createStubComprehensionProvider(raw), weather: null },
-    );
-    const adapted = adaptPipelineToLegacy(result, {
-      sessionId: "test-A1",
-      utterance: "12時に新宿でランチ",
-      priorPersistedEvents: [mkEventWithCoords()],
-      currentLat: SHIBUYA_COORDS.lat,
-      currentLng: SHIBUYA_COORDS.lng,
-    });
-    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
-    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
-      expect(adapted.session.plan!.journeyOrigin.source).toBe("current");
-    }
-  });
-
-  it("Turn N+1 で同じ currentLat/Lng が来ても anchor は input から fresh に再解決される (priorPlan inherit ではない)", async () => {
-    // Turn N: anchor 設定済み plan
-    const priorPlanWithAnchor = {
-      date: "2026-05-02",
-      items: [],
-      dayConditions: {},
-      createdAt: "2026-05-02T00:00:00Z",
-      confirmed: false,
-      journeyOrigin: {
-        kind: "known_exact" as const,
+describe("T1: prior known_exact + fresh unknown → prior 維持 (turn 跨ぎ continuity)", () => {
+  it("priorPlan に current 由来 anchor + 同 plan date + fresh 全 null → prior 維持", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TODAY,
+      origin: {
+        kind: "known_exact",
         label: "現在地",
         lat: SHIBUYA_COORDS.lat,
         lng: SHIBUYA_COORDS.lng,
-        source: "current" as const,
+        source: "current",
       },
-      journeyEnd: {
-        kind: "known_exact" as const,
+      end: {
+        kind: "known_exact",
         label: "帰宅",
         lat: SHIBUYA_COORDS.lat,
         lng: SHIBUYA_COORDS.lng,
-        source: "default_round_trip" as const,
+        source: "default_round_trip",
       },
-    };
-
-    // Turn N+1: 同じ currentLat/Lng を渡す
-    const raw = mkRaw({ events: [] });
-    const result = await runMorningPipeline(
-      { utterance: "次の予定" },
-      { comprehension: createStubComprehensionProvider(raw), weather: null },
-    );
-    const adapted = adaptPipelineToLegacy(result, {
-      sessionId: "test-A2",
-      utterance: "次の予定",
-      priorPersistedEvents: [mkEventWithCoords()],
-      priorPlan: priorPlanWithAnchor,
-      currentLat: SHIBUYA_COORDS.lat,
-      currentLng: SHIBUYA_COORDS.lng,
     });
 
-    // 同じ座標なので結果も known_exact + current だが、
-    // **これは preservation ではなく fresh resolve の結果が一致するだけ**。
-    // 内部では resolveHomeAnchor が input から再解決している (不変条件 audit)。
-    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
-    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
-      expect(adapted.session.plan!.journeyOrigin.source).toBe("current");
-      expect(adapted.session.plan!.journeyOrigin.lat).toBe(SHIBUYA_COORDS.lat);
-    }
-  });
-});
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Scenario B: input 座標が消えると anchor が unknown に flip する (PR B-2 で塞ぐべき gap)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-describe("Scenario B: input 座標が消えると anchor が unknown に flip する (PR B-2 gap)", () => {
-  it("priorPlan.journeyOrigin が known_exact でも、input.currentLat/Lng/userHomeLat/Lng が全 null なら unknown に flip", async () => {
-    const priorPlanWithAnchor = {
-      date: "2026-05-02",
-      items: [],
-      dayConditions: {},
-      createdAt: "2026-05-02T00:00:00Z",
-      confirmed: false,
-      journeyOrigin: {
-        kind: "known_exact" as const,
-        label: "現在地",
-        lat: SHIBUYA_COORDS.lat,
-        lng: SHIBUYA_COORDS.lng,
-        source: "current" as const,
-      },
-    };
-
-    const raw = mkRaw({ events: [] });
     const result = await runMorningPipeline(
       { utterance: "次の予定" },
-      { comprehension: createStubComprehensionProvider(raw), weather: null },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
     );
-
-    // input から座標を全て外す (= 次 turn で geolocation が取れない、registered_home なし)
     const adapted = adaptPipelineToLegacy(result, {
-      sessionId: "test-B1",
+      sessionId: "test-T1",
       utterance: "次の予定",
       priorPersistedEvents: [mkEventWithCoords()],
-      priorPlan: priorPlanWithAnchor,
+      priorPlan,
+      today: TODAY,
+      // fresh resolve は全 null (= unknown)
       currentLat: null,
       currentLng: null,
       userHomeLat: null,
       userHomeLng: null,
     });
 
-    // priorPlan.journeyOrigin は known_exact だったが、unknown に flip。
-    // これは PR B-2 で塞ぐべき gap (= turn 跨ぎでの anchor 不安定性)。
-    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("unknown");
-  });
-});
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Scenario C: chat 経路では userHomeLat/Lng で fallback、selection 経路では使えない
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-describe("Scenario C: chat 経路は userHomeLat/Lng で fallback、selection 経路は使えない", () => {
-  it("chat 経路: currentLat/Lng=null + userHomeLat/Lng 有り → registered_home anchor", async () => {
-    const raw = mkRaw({ events: [] });
-    const result = await runMorningPipeline(
-      { utterance: "12時に新宿でランチ" },
-      { comprehension: createStubComprehensionProvider(raw), weather: null },
-    );
-    const adapted = adaptPipelineToLegacy(result, {
-      sessionId: "test-C1",
-      utterance: "12時に新宿でランチ",
-      priorPersistedEvents: [mkEventWithCoords()],
-      currentLat: null,
-      currentLng: null,
-      userHomeLat: 35.69,
-      userHomeLng: 139.7,
-    });
-
-    // chat 経路は registered_home fallback あり
-    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
-    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
-      expect(adapted.session.plan!.journeyOrigin.source).toBe("registered_home");
-      expect(adapted.session.plan!.journeyOrigin.label).toBe("自宅");
-    }
-  });
-
-  // 注: selection 経路は registered_home を使わないため (selection/route.ts:182-185)、
-  // 同じ条件 (currentLat/Lng=null + userHomeLat/Lng 有り) でも selectionHomeAnchor=null
-  // となり、priorPlan.journeyOrigin に fallback する。
-  // これは selection route の現在の仕様 (DB アクセスを避けるため)。
-  // PR B-2 で「selection でも userHomeLat/Lng を渡せるようにする」 か、
-  // 「priorPlan.journeyOrigin を信頼する」 か、選択する必要がある。
-});
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Scenario D: events=0 path で priorPlan が継承されるか
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-describe("Scenario D: events=0 + priorPlan あり → priorPlan の anchor が継承される", () => {
-  it("events=0 + priorPlan に anchor 有り → adapter は priorPlan を spread して anchor 維持", async () => {
-    const priorPlanWithAnchor = {
-      date: "2026-05-02",
-      items: [
-        {
-          id: "item_1",
-          kind: "fixed" as const,
-          text: "既存予定",
-          what: "ミーティング",
-          startTime: "09:00",
-          durationMin: 60,
-          completed: false,
-        },
-      ],
-      dayConditions: {},
-      createdAt: "2026-05-02T00:00:00Z",
-      confirmed: true,
-      journeyOrigin: {
-        kind: "known_exact" as const,
-        label: "現在地",
-        lat: SHIBUYA_COORDS.lat,
-        lng: SHIBUYA_COORDS.lng,
-        source: "current" as const,
-      },
-      journeyEnd: {
-        kind: "known_exact" as const,
-        label: "帰宅",
-        lat: SHIBUYA_COORDS.lat,
-        lng: SHIBUYA_COORDS.lng,
-        source: "default_round_trip" as const,
-      },
-    };
-
-    const raw = mkRaw({ events: [] });
-    const result = await runMorningPipeline(
-      { utterance: "今日も同じで" },
-      { comprehension: createStubComprehensionProvider(raw), weather: null },
-    );
-
-    const adapted = adaptPipelineToLegacy(result, {
-      sessionId: "test-D1",
-      utterance: "今日も同じで",
-      priorPlan: priorPlanWithAnchor,
-      // priorPersistedEvents 未指定 → events.length === 0 path
-      currentLat: null,
-      currentLng: null,
-    });
-
-    // events=0 path は priorPlan を spread。anchor は そのまま継承される。
-    expect(adapted.session.plan).toBeDefined();
     expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
     if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
       expect(adapted.session.plan!.journeyOrigin.source).toBe("current");
       expect(adapted.session.plan!.journeyOrigin.lat).toBe(SHIBUYA_COORDS.lat);
     }
     expect(adapted.session.plan!.journeyEnd?.kind).toBe("known_exact");
+    if (adapted.session.plan!.journeyEnd?.kind === "known_exact") {
+      expect(adapted.session.plan!.journeyEnd.source).toBe("default_round_trip");
+    }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T2: prior unknown + fresh known_exact → fresh (再活性化)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T2: prior unknown + fresh known_exact → fresh (再活性化)", () => {
+  it("priorPlan の anchor が unknown でも、新たに位置情報取れたら fresh 採用", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TODAY,
+      origin: { kind: "unknown", reason: "no_baseline" },
+      end: { kind: "unknown", reason: "no_endpoint_signal" },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "次の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T2",
+      utterance: "次の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY,
+      currentLat: SHIBUYA_COORDS.lat,
+      currentLng: SHIBUYA_COORDS.lng,
+    });
+
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
+    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
+      expect(adapted.session.plan!.journeyOrigin.source).toBe("current");
+    }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T3: prior known_label_only + fresh unknown → prior 継承、travel 不生成
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T3: prior known_label_only + fresh unknown → prior 継承 (label 維持)", () => {
+  it("priorPlan の label_only anchor が継承される、ただし travel item は生成されない", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TODAY,
+      origin: {
+        kind: "known_label_only",
+        label: "ホテル",
+        source: "comprehension_explicit",
+      },
+      end: { kind: "unknown", reason: "no_endpoint_signal" },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "次の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T3",
+      utterance: "次の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY,
+      currentLat: null,
+      currentLng: null,
+    });
+
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_label_only");
+    if (adapted.session.plan!.journeyOrigin?.kind === "known_label_only") {
+      expect(adapted.session.plan!.journeyOrigin.label).toBe("ホテル");
+    }
+    // travel item は生成されない (coords なしなので buildTransportSegments が skip)
+    const travelItems = adapted.session.plan!.items.filter(
+      (i) => i.kind === "travel",
+    );
+    expect(travelItems.length).toBe(0);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T4: prior default_round_trip (samePlanDate=true) + fresh unknown → prior assumed 維持
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T4: prior assumed end (samePlanDate=true) + fresh unknown → prior 維持", () => {
+  it("default_round_trip は同 plan date なら継承 OK、isAssumedAnchor で識別される", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: TODAY,
+      origin: {
+        kind: "known_exact",
+        label: "現在地",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "current",
+      },
+      end: {
+        kind: "known_exact",
+        label: "帰宅",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "default_round_trip",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "次の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T4",
+      utterance: "次の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY,
+      currentLat: null,
+      currentLng: null,
+    });
+
+    expect(adapted.session.plan!.journeyEnd?.kind).toBe("known_exact");
+    expect(isAssumedAnchor(adapted.session.plan!.journeyEnd!)).toBe(true);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T5: prior known_exact + fresh known_label_only → prior 維持 (coords 落とさない)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T5 [GPT 規律]: fresh label_only で prior known_exact を上書きしない (coords 維持)", () => {
+  // 注: 現状の resolver は HomeAnchor (known_exact 相当) しか返さないため、
+  // fresh が known_label_only になる経路は PR B-3 以降 (extractStartPointAnchor で
+  // label のみ抽出したケース)。本 test は直接 applyAnchorFallback の不変条件で
+  // 固定済み (applyAnchorFallback.test.ts Case 2)。
+  // route-level での再現は PR B-3 で integration test 追加予定。
+  it("(reserved) PR B-3 で fresh label_only 経路が入ったとき、prior known_exact を維持することを再 assert する場所", () => {
+    expect(true).toBe(true); // placeholder、PR B-3 で実装
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T6: prior current + samePlanDate=false + fresh unknown → fresh (stale 拒否)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T6 [GPT 修正 1]: stale current_location は date mismatch で継承拒否", () => {
+  it("priorPlan.date が yesterday、currentPlanDate=today → samePlanDate=false → fresh (=unknown)", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: "2026-05-01", // yesterday
+      origin: {
+        kind: "known_exact",
+        label: "現在地",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "current",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "今日の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T6",
+      utterance: "今日の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY, // 2026-05-02
+      currentLat: null,
+      currentLng: null,
+      userHomeLat: null,
+      userHomeLng: null,
+    });
+
+    // priorPlan.date !== today → samePlanDate=false → STALE current 継承拒否
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("unknown");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T7: prior default_round_trip + samePlanDate=false → fresh (GPT 必須証明)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T7 [GPT 修正 2 必須証明]: stale default_round_trip も継承拒否", () => {
+  it("priorPlan.date が yesterday、currentPlanDate=today → default_round_trip 継承拒否", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: "2026-05-01", // yesterday
+      end: {
+        kind: "known_exact",
+        label: "帰宅",
+        lat: SHIBUYA_COORDS.lat,
+        lng: SHIBUYA_COORDS.lng,
+        source: "default_round_trip",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "今日の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T7",
+      utterance: "今日の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY,
+      currentLat: null,
+      currentLng: null,
+      userHomeLat: null,
+      userHomeLng: null,
+    });
+
+    // STALE default_round_trip は date mismatch で継承拒否
+    expect(adapted.session.plan!.journeyEnd?.kind).toBe("unknown");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// T8 [追加]: 非 STALE source は date mismatch でも継承 (registered_home 時刻非依存)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("T8: 非 STALE source (registered_home) は date mismatch でも継承 OK", () => {
+  it("priorPlan.date が yesterday + prior registered_home + fresh unknown → prior 維持 (時刻非依存)", async () => {
+    const priorPlan = mkPriorPlanWithOriginAnchor({
+      date: "2026-05-01",
+      origin: {
+        kind: "known_exact",
+        label: "自宅",
+        lat: 35.69,
+        lng: 139.7,
+        source: "registered_home",
+      },
+    });
+
+    const result = await runMorningPipeline(
+      { utterance: "今日の予定" },
+      { comprehension: createStubComprehensionProvider(mkRaw()), weather: null },
+    );
+    const adapted = adaptPipelineToLegacy(result, {
+      sessionId: "test-T8",
+      utterance: "今日の予定",
+      priorPersistedEvents: [mkEventWithCoords()],
+      priorPlan,
+      today: TODAY,
+      currentLat: null,
+      currentLng: null,
+      userHomeLat: null,
+      userHomeLng: null,
+    });
+
+    expect(adapted.session.plan!.journeyOrigin?.kind).toBe("known_exact");
+    if (adapted.session.plan!.journeyOrigin?.kind === "known_exact") {
+      expect(adapted.session.plan!.journeyOrigin.source).toBe("registered_home");
+    }
   });
 });

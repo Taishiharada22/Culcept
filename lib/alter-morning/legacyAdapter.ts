@@ -51,9 +51,15 @@ import {
 //   既存 resolver の戻り値 (HomeAnchor | null / JourneyEndAnchor | null) を
 //   converter で MorningPlan.journeyOrigin / journeyEnd に変換。kind 3 値の
 //   discriminated union で unknown を構造的に表現する (silent fail 排除)。
+//
+// CEO/GPT 2026-05-02 PR B-2a: applyAnchorFallback で turn 跨ぎ continuity
+//   fresh resolve が unknown のとき、priorPlan の anchor を fallback として
+//   継承する。samePlanDate (priorPlan.date === currentPlanDate) 判定で
+//   stale current/default_round_trip を抑制する。
 import {
   toOriginState,
   toEndState,
+  applyAnchorFallback,
   type AnchorUnknownReason,
 } from "./journey/anchorState";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
@@ -933,15 +939,32 @@ export function adaptPipelineToLegacy(
     //   journeyEnd の reason:
     //     - homeAnchor=null → round-trip default も引けない → "no_endpoint_signal"
     //
-    //   既存挙動との互換性:
-    //     - homeAnchor 有 ⇒ kind="known_exact" + 同一の coords/label/source。
-    //       hasResolvedCoordinates() === true、buildTransportSegments の挙動は不変。
-    //     - homeAnchor 無 ⇒ 旧: undefined / 新: kind="unknown"。MorningPlanCard 側で
-    //       新 union を読んで「起点未確定」 を表示 (Commit 4 で追加)。
+    // CEO/GPT 2026-05-02 PR B-2a: turn 跨ぎ anchor continuity
+    //   fresh resolve が unknown のとき、priorPlan の anchor を fallback として継承。
+    //   samePlanDate 判定: priorPlan?.date === today (今日 plan を作成中なので、
+    //   priorPlan.date と一致するかが「同じ plan の継続」 を意味する)。
+    //   GPT 規律 (修正 1): today 比較ではなく priorPlan.date === currentPlanDate
+    //   (本 path では currentPlanDate = today、変数名はそのまま)。
+    //   STALE_SOURCES (current / default_round_trip) は samePlanDate=false で抑制。
     const originReason: AnchorUnknownReason = "no_baseline";
     const endReason: AnchorUnknownReason = "no_endpoint_signal";
-    const journeyOrigin = toOriginState(homeAnchor, originReason);
-    const journeyEndForPlan = toEndState(journeyEnd, endReason);
+    const freshOrigin = toOriginState(homeAnchor, originReason);
+    const freshEnd = toEndState(journeyEnd, endReason);
+    // PR B-2a: priorPlan を fallback として参照
+    //   priorPlan.date === today なら samePlanDate=true (同じ plan 継続編集)
+    //   priorPlan.date !== today なら samePlanDate=false (stale 抑制対象)
+    //   priorPlan が undefined なら samePlanDate=false (比較対象なし、どちらでも結果同じ)
+    const samePlanDate = input.priorPlan?.date === today;
+    const journeyOrigin = applyAnchorFallback(
+      freshOrigin,
+      input.priorPlan?.journeyOrigin,
+      { samePlanDate },
+    );
+    const journeyEndForPlan = applyAnchorFallback(
+      freshEnd,
+      input.priorPlan?.journeyEnd,
+      { samePlanDate },
+    );
     plan = {
       date: today,
       items,
@@ -953,6 +976,7 @@ export function adaptPipelineToLegacy(
         ? { transportSegments: built.transportSegments }
         : {}),
       // PR B-1: events>0 の場合は必ず set (kind="unknown" を含む)
+      // PR B-2a: applyAnchorFallback 経由で turn 跨ぎ continuity 確保
       journeyOrigin,
       journeyEnd: journeyEndForPlan,
     };
