@@ -82,6 +82,20 @@ const URGENT_FALLBACK_MESSAGES: Record<UrgentCategory, string> = {
 export const URGENT_AUTO_REFIRE_BLOCK_MS = 60_000;
 
 /**
+ * L4-i Phase 2 Stage 2.1 観測用 client fetch timeout (ms)。
+ *
+ * CEO 確定 2026-05-02: 観測フェーズの安全側設定として 5 秒。
+ *   - LLM 実 latency 観測値 ~2047ms (Stage 2.1 direct probe)
+ *   - 設計 v2 の 2000ms は LLM 実 latency より速く race condition で
+ *     ほぼ全 fetch が abort される問題を解消
+ *   - p95 揺れを cover、Stage 2.1 で latency 分布 / validation 率 /
+ *     fallback 率を正しく観測することが目的 (UX 最適化ではない)
+ *   - **Production 最終値ではない**。Phase 2.2 / Production promote 検討時に
+ *     実測 p95 を見て 3 秒 (CEO promote 基準) へ詰めるか別判断する。
+ */
+export const SPEECH_FETCH_TIMEOUT_MS = 5_000;
+
+/**
  * 本番上部レイヤー mount entry point。flag OFF で null。
  *
  * 本 component は server / client いずれでも render 可。
@@ -318,7 +332,7 @@ function UpperLayerMountActive() {
     const timeoutId = setTimeout(() => {
       timeoutFired = true;
       controller.abort();
-    }, 2000);
+    }, SPEECH_FETCH_TIMEOUT_MS);
     const work = (async () => {
       try {
         const res = await fetch("/api/coalter/speech", {
