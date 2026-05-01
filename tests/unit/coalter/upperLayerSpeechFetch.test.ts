@@ -178,6 +178,27 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     );
   });
 
+  it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): cleanup-induced abort は negative cache を汚さない", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // timeoutFired flag (timeout-induced abort と cleanup-induced abort の区別)
+    expect(content).toMatch(/let\s+timeoutFired\s*=\s*false/);
+    expect(content).toMatch(/timeoutFired\s*=\s*true/);
+    // catch ブロックで AbortError かつ !timeoutFired なら negative cache を **設定しない**
+    expect(content).toMatch(
+      /isAbort[\s\S]{0,50}!timeoutFired[\s\S]{0,150}return/,
+    );
+    // それ以外 (timeout 由来 or 真の error) は negative cache 30s
+    expect(content).toMatch(
+      /speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*30_000\)/,
+    );
+  });
+
   it("L4-i Phase 2 fix-forward: source!=='llm' のとき UI に body を流さない (hardcoded fallback 維持)", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");

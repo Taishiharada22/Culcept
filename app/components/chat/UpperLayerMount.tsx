@@ -312,7 +312,13 @@ function UpperLayerMountActive() {
     }
     const controller = new AbortController();
     const startTs = Date.now();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    // L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): timeout 由来の abort と
+    // cleanup 由来の abort を区別する。timeoutFired=true なら 2s timeout。
+    let timeoutFired = false;
+    const timeoutId = setTimeout(() => {
+      timeoutFired = true;
+      controller.abort();
+    }, 2000);
     const work = (async () => {
       try {
         const res = await fetch("/api/coalter/speech", {
@@ -372,9 +378,22 @@ function UpperLayerMountActive() {
         } else {
           setSpeechBody(null);
         }
-      } catch {
-        // abort / timeout / network エラー → negative cache 30s
+      } catch (err) {
+        // L4-i Phase 2 fix-forward (CEO 確定 2026-05-02):
+        //   AbortError の origin を区別:
+        //   - cleanup-induced (state/mode/variant 変化で副次 abort) → negative cache 不要
+        //     (次回同 key の fetch を許可、設計意図)
+        //   - timeout-induced (2s 超 → timeoutFired=true) → negative cache 30s
+        //     (server 真の遅延を抑止)
+        //   - network/parse error → negative cache 30s (server 一時 error 抑止)
         if (!speechMountedRef.current) return;
+        const isAbort =
+          err instanceof Error && err.name === "AbortError";
+        if (isAbort && !timeoutFired) {
+          // cleanup 由来 → 単に UI を fallback に戻すだけで cache を汚さない
+          setSpeechBody(null);
+          return;
+        }
         speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
         setSpeechBody(null);
       } finally {
