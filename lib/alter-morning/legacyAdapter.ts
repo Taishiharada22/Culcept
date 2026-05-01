@@ -946,6 +946,24 @@ export function adaptPipelineToLegacy(
     //   GPT 規律 (修正 1): today 比較ではなく priorPlan.date === currentPlanDate
     //   (本 path では currentPlanDate = today、変数名はそのまま)。
     //   STALE_SOURCES (current / default_round_trip) は samePlanDate=false で抑制。
+    //
+    // TODO (PR B-3): JourneyEndAnchor.derivedFrom field を追加し、
+    //   default_round_trip が registered_home 由来のとき STALE 判定を緩和する。
+    //   現状は「derivedFrom 不在 → 安全側で全 default_round_trip を STALE 扱い」。
+    //
+    // TODO (PR B-2b/c): inference hierarchy 拡張で、本 fallback の前に:
+    //   - layer 1: extractStartPointAnchor (発話「自宅から」 等) で fresh を埋める
+    //   - layer 2: 前日 plan.journeyEnd を本日 plan.journeyOrigin の inference 材料に
+    //   - layer 4-5: location_history 観測 (Stargazer Human OS 接続)
+    //
+    // TODO (PR B-4): targetDate semantic (今日/明日/明後日) を考慮した
+    //   current_location 適用範囲の time-aware redesign。
+    //
+    // TODO (selection route 統合):
+    //   app/api/stargazer/alter/selection/route.ts:390-395 の simple ternary を
+    //   applyAnchorFallback に統一する。selection は同じ plan 日付なので
+    //   samePlanDate=true 固定で良い。PR B-3 で fresh known_label_only ケースが
+    //   入ったときに統合する (現状 selection は label_only ケースを生成しない)。
     const originReason: AnchorUnknownReason = "no_baseline";
     const endReason: AnchorUnknownReason = "no_endpoint_signal";
     const freshOrigin = toOriginState(homeAnchor, originReason);
