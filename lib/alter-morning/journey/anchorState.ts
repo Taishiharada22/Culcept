@@ -276,3 +276,94 @@ export function toEndState(
     source: anchor.source,
   };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// applyAnchorFallback — chat route turn 跨ぎ continuity (PR B-2a)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO/GPT 2026-05-02 PR B-2a 規律:
+//   chat route の events>0 path で fresh resolve が unknown の場合、priorPlan の
+//   anchor を fallback として継承する。turn 跨ぎでの anchor 不安定 (PR B-1 audit
+//   で identify した gap) を塞ぐ。
+//
+// 不変条件 (10 ケース決定表):
+//   1. fresh.kind === "known_exact" → 常に fresh (新情報優先)
+//   2. fresh.kind === "known_label_only" + prior.kind === "known_exact" → prior
+//      (coords 落とさない、GPT 規律 - label_only で coords 付き anchor を上書きしない)
+//   3. fresh.kind === "known_label_only" + prior unknown/undefined → fresh (label_only)
+//   4. fresh.kind === "unknown" + prior.kind === "known_exact" + STALE source +
+//      !samePlanDate → fresh (= unknown) [stale current/default_round_trip 拒否]
+//   5. fresh unknown + prior known_exact + STALE source + samePlanDate → prior (同日内)
+//   6. fresh unknown + prior known_exact + 非 STALE source → prior (時刻非依存)
+//   7. fresh unknown + prior known_label_only → prior (label 維持、travel 不生成)
+//   8. fresh unknown + prior unknown/undefined → fresh (= unknown、再 resolve 機会維持)
+//
+// STALE_SOURCES (samePlanDate=false で fallback 抑制):
+//   - "current": browser geolocation = 時刻依存 (今日の位置情報を明日の起点にしない)
+//   - "default_round_trip": homeAnchor 由来の round-trip default。homeAnchor の
+//     source が "current" だった場合、stale current 由来の終点になる。derivedFrom
+//     を持てば厳密区別可能 (PR B-3 検討) だが、本 PR では安全側で全 default_round_trip
+//     を STALE 扱い。
+//
+// 非 STALE_SOURCES (samePlanDate に関わらず継承可):
+//   - "registered_home": 登録自宅 = 時刻非依存
+//   - "user_declared": 発話で起点を指定 (PR B-3 で実装)
+//   - "comprehension_explicit": 発話で終点を指定 (PR B-3 で実装)
+//   - "user_override": clarify 経路の user 回答 (PR B-2e で実装)
+//
+// 引数 samePlanDate:
+//   caller (legacyAdapter) で priorPlan?.date === currentPlanDate を計算。
+//   GPT 規律 (a): today 比較ではなく、同じ plan 日付の継続かどうか。
+//   明日プラン継続編集で stale 判定にならないように。
+
+const STALE_SOURCES_ON_DATE_MISMATCH = new Set<AnchorSource>([
+  "current",
+  "default_round_trip",
+]);
+
+export function applyAnchorFallback(
+  fresh: JourneyAnchorState,
+  prior: JourneyAnchorState | undefined,
+  opts: { samePlanDate: boolean },
+): JourneyAnchorState {
+  // ケース 1: fresh known_exact は常に新情報優先
+  if (fresh.kind === "known_exact") {
+    return fresh;
+  }
+
+  // ケース 2-3: fresh known_label_only
+  if (fresh.kind === "known_label_only") {
+    // ケース 2: prior に coords あり (known_exact) なら prior 維持 (coords 落とさない)
+    if (prior?.kind === "known_exact") {
+      return prior;
+    }
+    // ケース 3: prior unknown/undefined/known_label_only なら fresh
+    return fresh;
+  }
+
+  // ケース 4-8: fresh unknown
+  // priorPlan inheritance のロジック。GPT 規律 (3): unknown を unknown のままにせず、
+  // priorPlan に known anchor があれば継承する (turn 跨ぎ continuity の本体)。
+  if (prior === undefined || prior.kind === "unknown") {
+    // ケース 8: prior も unknown / undefined → fresh のまま (再 resolve 機会維持)
+    return fresh;
+  }
+
+  if (prior.kind === "known_label_only") {
+    // ケース 7: label 維持 (coords なしなので travel 不生成、PR B-1 不変条件と整合)
+    return prior;
+  }
+
+  // prior.kind === "known_exact"
+  // ケース 4-6: STALE source 判定 + samePlanDate 判定
+  if (
+    !opts.samePlanDate &&
+    STALE_SOURCES_ON_DATE_MISMATCH.has(prior.source)
+  ) {
+    // ケース 4: stale current/default_round_trip を引き継がない
+    return fresh;
+  }
+  // ケース 5: STALE source + samePlanDate=true → prior (同日内 OK)
+  // ケース 6: 非 STALE source → prior (時刻非依存、registered_home 等)
+  return prior;
+}
