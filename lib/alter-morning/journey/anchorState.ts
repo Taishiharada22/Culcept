@@ -154,6 +154,74 @@ export function hasResolvedCoordinates(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// describeAnchorBlock — UI 描画判断の純粋関数 (PR B-1 Commit 4 補強)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// CEO/GPT 2026-05-02 PR B-1 規律補強:
+//   MorningPlanCard の JourneyAnchorBlock JSX が 3 kind × source 識別で 4 分岐
+//   する。JSX で直接分岐すると test しにくいため、決定ロジックを純粋関数として
+//   抽出し、UI test (RTL) を導入せず Vitest で検証可能にする。
+//
+// 戻り値の variant 4 種:
+//   - "exact_confirmed":  known_exact + 通常 source (label のみ表示)
+//   - "exact_assumed":    known_exact + source="default_round_trip" (label + 「(推定)」)
+//   - "label_only":       known_label_only (label + 「(場所未確定)」)
+//   - "unknown":          unknown (unknownLabel のみ表示)
+//
+// JSX 側はこの variant でシンプルに分岐するだけ。decision logic は本関数で固定。
+
+export type AnchorBlockVariant =
+  | "exact_confirmed"
+  | "exact_assumed"
+  | "label_only"
+  | "unknown";
+
+export interface AnchorBlockDescription {
+  variant: AnchorBlockVariant;
+  /** 主表示テキスト (label or unknownLabel) */
+  primaryText: string;
+  /** 副表示テキスト (「(推定)」 / 「(場所未確定)」 / undefined) */
+  secondaryText?: string;
+  /** 役割ラベル (「起点」 / 「終点」、JSX 側で受け取った roleLabel をそのまま透過) */
+  roleLabel: string;
+}
+
+export function describeAnchorBlock(
+  anchor: JourneyAnchorState,
+  opts: { roleLabel: string; unknownLabel: string },
+): AnchorBlockDescription {
+  if (anchor.kind === "unknown") {
+    return {
+      variant: "unknown",
+      primaryText: opts.unknownLabel,
+      roleLabel: opts.roleLabel,
+    };
+  }
+  if (anchor.kind === "known_label_only") {
+    return {
+      variant: "label_only",
+      primaryText: anchor.label,
+      secondaryText: "(場所未確定)",
+      roleLabel: opts.roleLabel,
+    };
+  }
+  // known_exact
+  if (isAssumedAnchor(anchor)) {
+    return {
+      variant: "exact_assumed",
+      primaryText: anchor.label,
+      secondaryText: "(推定)",
+      roleLabel: opts.roleLabel,
+    };
+  }
+  return {
+    variant: "exact_confirmed",
+    primaryText: anchor.label,
+    roleLabel: opts.roleLabel,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Converters — 既存 HomeAnchor / JourneyEndAnchor を JourneyAnchorState に変換
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

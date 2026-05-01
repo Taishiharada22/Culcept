@@ -292,4 +292,107 @@ describe("morningPipeline — journey anchor state contract (PR B-1 Commit 3)", 
     //  入ったとき、isAssumedAnchor は引き続き default_round_trip のみを true で
     //  返す = 「user 確定済みかどうか」 の不変判定)
   });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // T7 [GPT (3) 補強]: events=0 contract — priorPlan 継承 path で undefined 維持
+  //   GPT 規律: events.length === 0 では journeyOrigin/End は undefined 許容。
+  //   legacyAdapter else if (priorPlan) 分岐で priorPlan に anchor が無ければ
+  //   inheritance 後も undefined のまま (events>0 invariant の対偶)。
+  // ──────────────────────────────────────────────────────────────────────────
+  it("T7 [GPT (3) 補強]: events=0 + priorPlan に anchor なし → journeyOrigin/End は undefined 維持", async () => {
+    // priorPlan が存在するが journeyOrigin/End を持たない (PR B-1 以前の互換 plan)
+    const priorPlanWithoutAnchors = {
+      date: "2026-05-02",
+      items: [
+        {
+          id: "item_legacy",
+          kind: "fixed" as const,
+          text: "既存予定",
+          what: "ミーティング",
+          startTime: "09:00",
+          durationMin: 60,
+          completed: false,
+        },
+      ],
+      dayConditions: {},
+      createdAt: "2026-05-02T08:00:00Z",
+      confirmed: true,
+      // journeyOrigin / journeyEnd 不在 (旧形式の plan、互換性確認)
+    };
+
+    const raw = mkRaw({ events: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "今日はよろしく" },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+
+    const adapted = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-t7",
+      utterance: "今日はよろしく",
+      // priorPersistedEvents 未指定 → events.length === 0 path
+      priorPlan: priorPlanWithoutAnchors,
+      currentLat: SHIBUYA_COORDS.lat,
+      currentLng: SHIBUYA_COORDS.lng,
+    });
+
+    const plan = adapted.session.plan;
+    // priorPlan が継承された plan
+    expect(plan).toBeDefined();
+    // GPT 規律 (3): events=0 では undefined 許容 (events>0 invariant の対偶)
+    expect(plan!.journeyOrigin).toBeUndefined();
+    expect(plan!.journeyEnd).toBeUndefined();
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // T8 [GPT (2) 補強]: selection 経路と chat 経路の converter 一貫性
+  //   GPT 規律: selection route と legacyAdapter は同じ converter (toOriginState
+  //   / toEndState) を呼ぶため、同一入力 → 同一 JourneyAnchorState を返す。
+  //
+  //   本 test は converter 自体の一貫性を assert (両経路が同じ converter を呼ぶ
+  //   コード証拠は legacyAdapter.ts:766+ と selection/route.ts:380+ の grep で
+  //   別途確認済み)。journeyAnchorState.test.ts の converter unit test と合わせて、
+  //   selection 経路の挙動が chat 経路と同等であることを保証する。
+  // ──────────────────────────────────────────────────────────────────────────
+  it("T8 [GPT (2) 補強]: chat 経路の出力 = selection 経路の出力 (converter 経由)", async () => {
+    // chat 経路 (legacyAdapter) で current 座標を渡したときの結果
+    const raw = mkRaw({ events: [] });
+    const pipelineResult = await runMorningPipeline(
+      { utterance: "12時に新宿でランチ" },
+      { comprehension: createStubComprehensionProvider(raw), weather: null },
+    );
+
+    const chatResult = adaptPipelineToLegacy(pipelineResult, {
+      sessionId: "test-t8-chat",
+      utterance: "12時に新宿でランチ",
+      priorPersistedEvents: [mkEventWithCoords()],
+      currentLat: SHIBUYA_COORDS.lat,
+      currentLng: SHIBUYA_COORDS.lng,
+    });
+
+    // 同じ入力で converter を直接呼ぶ (selection 経路の logic と一致)
+    const { resolveHomeAnchor, resolveJourneyEndAnchor } = await import(
+      "@/lib/alter-morning/planning/transportContext"
+    );
+    const { toOriginState, toEndState } = await import(
+      "@/lib/alter-morning/journey/anchorState"
+    );
+    const homeAnchor = resolveHomeAnchor({
+      currentLat: SHIBUYA_COORDS.lat,
+      currentLng: SHIBUYA_COORDS.lng,
+      homeLat: null,
+      homeLng: null,
+    });
+    const endAnchor = resolveJourneyEndAnchor(homeAnchor);
+    const expectedOrigin = toOriginState(homeAnchor, "no_baseline");
+    const expectedEnd = toEndState(endAnchor, "no_endpoint_signal");
+
+    // chat 経路の plan.journeyOrigin と converter 直叩きの結果が一致
+    expect(chatResult.session.plan!.journeyOrigin).toEqual(expectedOrigin);
+    expect(chatResult.session.plan!.journeyEnd).toEqual(expectedEnd);
+    // selection 経路は同じ converter を使うため、selectionHomeAnchor が同じなら
+    // 結果も一致 (selection/route.ts:380+ で確認済み):
+    //   const nextJourneyOrigin = selectionHomeAnchor
+    //     ? toOriginState(selectionHomeAnchor, originReason)
+    //     : priorPlan.journeyOrigin;
+  });
 });

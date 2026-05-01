@@ -17,9 +17,10 @@ import type { MorningPlan, PlanItem, MainLocation } from "@/lib/alter-morning/ty
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
 // CEO/GPT 2026-05-02 PR B-1: anchor state union を読むための helper。
 //   kind 3 値 (known_exact / known_label_only / unknown) を判定し、UI を分岐する。
+//   describeAnchorBlock: UI 描画決定の純粋関数 (Vitest で test 可能、Commit 4 補強)
 import {
   hasResolvedCoordinates,
-  isAssumedAnchor,
+  describeAnchorBlock,
   type JourneyAnchorState,
 } from "@/lib/alter-morning/journey/anchorState";
 import { normalizePlanItem } from "@/lib/alter-morning/normalizedPlanItem";
@@ -1413,53 +1414,61 @@ function JourneyAnchorBlock({
   roleLabel: string; // "起点" | "終点"
   unknownLabel: string; // "起点未確定" | "終点未確定"
 }) {
-  // unknown: 薄い「未確定」 1 行 (silent fail 排除、UX action は PR B-2)
-  if (anchor.kind === "unknown") {
+  // CEO/GPT 2026-05-02 PR B-1 Commit 4 補強:
+  //   描画決定は describeAnchorBlock (純粋関数) に委譲。JSX は variant に応じた
+  //   thin presentational layer。decision logic は Vitest unit test で固定済み
+  //   (tests/unit/alter-morning/anchorBlockDescription.test.ts)。
+  const desc = describeAnchorBlock(anchor, { roleLabel, unknownLabel });
+
+  // unknown: 薄い 1 行 (silent fail 排除、UX action は PR B-2)
+  if (desc.variant === "unknown") {
     return (
       <div className="flex items-center gap-2 py-1 px-3 rounded-lg bg-gray-50/30 my-1">
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
           <House className="w-4 h-4 text-gray-300" strokeWidth={2} />
         </div>
         <span className="text-[11px] text-gray-400 italic flex-1">
-          {unknownLabel}
+          {desc.primaryText}
         </span>
-        <span className="text-[9px] text-gray-300 italic">{roleLabel}</span>
+        <span className="text-[9px] text-gray-300 italic">{desc.roleLabel}</span>
       </div>
     );
   }
 
-  // known_label_only: label + 「(場所未確定)」 (PR B-3 grounder で coords 解決待ち)
-  if (anchor.kind === "known_label_only") {
+  // label_only: label + 「(場所未確定)」 (PR B-3 grounder で coords 解決待ち)
+  if (desc.variant === "label_only") {
     return (
       <div className="flex items-center gap-2 py-1 px-3 rounded-lg bg-gray-50/30 my-1">
         <div className="w-5 flex-shrink-0 flex items-center justify-center">
           <House className="w-4 h-4 text-gray-300" strokeWidth={2} />
         </div>
         <span className="text-[11px] text-gray-500 italic flex-1">
-          {anchor.label}
-          <span className="text-[9px] text-gray-400 ml-1">(場所未確定)</span>
+          {desc.primaryText}
+          <span className="text-[9px] text-gray-400 ml-1">
+            {desc.secondaryText}
+          </span>
         </span>
-        <span className="text-[9px] text-gray-300 italic">{roleLabel}</span>
+        <span className="text-[9px] text-gray-300 italic">{desc.roleLabel}</span>
       </div>
     );
   }
 
-  // known_exact: 通常の anchor block。assumed end は 「(推定)」 ラベル付き (GPT 規律)
-  const isAssumed = isAssumedAnchor(anchor);
+  // exact_confirmed / exact_assumed: 通常の anchor block。
+  // assumed のみ secondaryText="(推定)" が入る (GPT 規律: confirmed と区別)
   return (
     <div className="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-violet-50/40 border border-violet-100/60 my-1">
       <div className="w-5 flex-shrink-0 flex items-center justify-center">
         <House className="w-4 h-4 text-violet-500" strokeWidth={2.2} />
       </div>
       <span className="text-[11px] text-violet-700 font-medium flex-1">
-        {anchor.label}
-        {isAssumed && (
+        {desc.primaryText}
+        {desc.secondaryText && (
           <span className="text-[9px] text-violet-400 ml-1 italic">
-            (推定)
+            {desc.secondaryText}
           </span>
         )}
       </span>
-      <span className="text-[9px] text-violet-400/80 italic">{roleLabel}</span>
+      <span className="text-[9px] text-violet-400/80 italic">{desc.roleLabel}</span>
     </div>
   );
 }
