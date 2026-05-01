@@ -124,6 +124,12 @@ interface SelectionRequestBody {
   currentLng?: number | null;
 }
 
+// CEO/GPT 2026-05-02 PR B-5a Commit 3: Node runtime 明示 (defensive)
+//   chat route (route.ts:552) は明示済。selection route も対称に明示する。
+//   本 route は node:crypto (planHistory.ts:hashUserId 経由) を使うため、
+//   Edge runtime に偶発的に変更されると壊れる。明示で防御。
+export const runtime = "nodejs";
+
 function isString(x: unknown): x is string {
   return typeof x === "string" && x.length > 0;
 }
