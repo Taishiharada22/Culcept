@@ -1,10 +1,20 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMetadata } from "@/lib/stargazer/alterHomeAdapter";
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
+// CEO/GPT 2026-05-02 PR B-2d-b: location opt-in state machine
+import {
+  readLocationOptIn,
+  markGranted,
+  markDeclined,
+  markSnoozed,
+  getEffectiveOptInState,
+  type LocationOptInRecord,
+} from "@/lib/alter-morning/journey/locationOptIn";
+import type { LocationOptInBannerMode } from "@/components/alter-morning/LocationOptInBanner";
 // W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
 //   server が返した dialogState を state 保持 → 次 POST で送り返す。
 //   これが無いと route.ts 側で ensureSessionV1 が毎 turn fresh init し、
@@ -249,32 +259,31 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   const [softBridgePending, setSoftBridgePending] = useState(false);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // CEO 2026-04-28 Option B: 現在地座標 (browser geolocation)
-  //   - hook mount 時に 1 回だけ取得を試みる（失敗時は静かに null）
-  //   - chat / selection request body に乗せ、server で home anchor として優先採用
-  //   - permission 拒否時はパーミッション再要求を強制しない（UX 阻害禁止）
-  //   - 取得済み座標は React state にキャッシュ（同 hook lifecycle 中は不変）
+  // CEO/GPT 2026-05-02 PR B-2d-b: opt-in 経由の現在地座標取得
+  //
+  // B-2d-a の permissionState contract と組み合わせ、ユーザーが Aneurasync として
+  // 明示的に opt-in した時のみ getCurrentPosition を呼ぶ。
+  //
+  // 規律 (CEO/GPT 2026-05-02 確定):
+  //   - mount 時の自動 getCurrentPosition は B-2d-b で **削除**
+  //   - LocationOptInBanner で「位置情報を使う」を押した時に getCurrentPosition を呼ぶ
+  //   - 一度 granted になった次回 mount からは、permissionState===granted のときに
+  //     のみ自動 getCurrentPosition (prompt/unsupported/unavailable は対象外)
+  //   - browser PERMISSION_DENIED 時は declined に遷移、以降は呼ばない
+  //   - 「あとで」押下は snoozed (7 日) に遷移、期限後に再度 banner 表示
+  //
+  // 自動取得の厳格条件 (CEO/GPT 確定):
+  //   shouldAutoFetchLocation =
+  //     getEffectiveOptInState(record) === "granted" &&
+  //     permissionState === "granted"
+  //   → permissionState が prompt/unsupported/unavailable のときは自動取得しない
+  //     (= ユーザー操作なしで browser permission ダイアログが出るリスクを避ける)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const [currentCoords, setCurrentCoords] = useState<{
     lat: number;
     lng: number;
   } | null>(null);
-  // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
-  //   permission 状態を backend に渡し、AnchorUnknownReason の決定材料にする。
-  //   このフィールドは origin の主役ではなく、最終的に origin が unknown になる
-  //   時の理由説明 (denied / unrequested) を提供するためだけに使われる。
-  //
-  //   注意 (CEO/GPT 補強):
-  //     - raw 5 値 (granted/denied/prompt/unsupported/unavailable) を保持
-  //     - currentCoords がある場合、permissionState に関係なく current location が
-  //       採用される (legacyAdapter Layer 4 の優先順位)
-  //
-  //   TODO (PR B-2d-b、CEO 規律):
-  //     既存 mount 時の getCurrentPosition 自動呼び出し (下記) は B-2d-a では維持。
-  //     B-2d-b で one-shot opt-in UI に必ず置き換える (= ユーザーに「位置情報を
-  //     使って起点を推定するか?」 を聞き、許可後にだけ取得)。
-  //     B-2d-a では permission state を知るだけ、getCurrentPosition の新規呼び出しは
-  //     追加しない。
+  // permissionState (B-2d-a で導入、B-2d-b でも継続使用)
   const [permissionState, setPermissionState] = useState<
     | "granted"
     | "denied"
@@ -300,8 +309,107 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       cancelled = true;
     };
   }, []);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR B-2d-b: opt-in state + banner orchestration
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // SSR-safe initial: localStorage 読み取りは mount 後に行う (= 初期は not_asked)
+  const [optInRecord, setOptInRecord] = useState<LocationOptInRecord>(() => ({
+    state: "not_asked",
+    updatedAt: new Date().toISOString(),
+  }));
+  const [bannerMode, setBannerMode] = useState<LocationOptInBannerMode>("normal");
+
   useEffect(() => {
+    // mount 後に localStorage から実 record を読み出す
+    setOptInRecord(readLocationOptIn());
+  }, []);
+
+  /**
+   * snooze expiry を考慮した「今の」effective state。
+   * granted/declined/snoozed-期限内 はそれぞれそのまま、snoozed-期限切れは "not_asked" に降格。
+   */
+  const effectiveOptInState = useMemo(
+    () => getEffectiveOptInState(optInRecord),
+    [optInRecord],
+  );
+
+  /** banner を表示するか? = effectiveOptInState === "not_asked" */
+  const showLocationOptInBanner = effectiveOptInState === "not_asked";
+
+  /**
+   * 「位置情報を使う」押下時のフロー。
+   *
+   * 状態遷移:
+   *   - 成功 → markGranted() + currentCoords 更新
+   *   - PERMISSION_DENIED → markDeclined() (banner unmount)
+   *   - timeout / unavailable → state 不変、bannerMode = "error" (再試行可能)
+   *   - geolocation API 不在 → bannerMode = "error"
+   *
+   * 副作用: localStorage write、currentCoords / bannerMode / optInRecord 更新。
+   */
+  const handleLocationOptInGrant = useCallback(() => {
+    setBannerMode("loading");
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setBannerMode("error");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          setCurrentCoords({ lat, lng });
+          markGranted();
+          setOptInRecord(readLocationOptIn());
+          setBannerMode("normal"); // banner unmount するので reset しておく
+        } else {
+          // coords が NaN/Infinity (異常値) → error 扱い
+          setBannerMode("error");
+        }
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          markDeclined();
+          setOptInRecord(readLocationOptIn());
+          setBannerMode("normal"); // banner unmount するので reset
+        } else {
+          // POSITION_UNAVAILABLE / TIMEOUT: state 不変、ユーザー再操作可能
+          setBannerMode("error");
+        }
+      },
+      { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
+    );
+  }, []);
+
+  /**
+   * 「あとで」押下時のフロー。
+   *
+   * 副作用: markSnoozed() (7 日 snooze)、optInRecord 更新 → banner unmount。
+   */
+  const handleLocationOptInSnooze = useCallback(() => {
+    markSnoozed();
+    setOptInRecord(readLocationOptIn());
+    setBannerMode("normal");
+  }, []);
+
+  /**
+   * 一度 granted になったユーザーの次回 mount 時自動取得。
+   *
+   * 厳格条件 (CEO/GPT 2026-05-02):
+   *   - effectiveOptInState === "granted"
+   *   - permissionState === "granted"  (prompt/unsupported/unavailable は対象外)
+   *   - currentCoords 未取得
+   *
+   * permissionState が prompt/unsupported/unavailable の場合は自動取得しない。
+   * ユーザー操作なしで browser permission ダイアログが出るリスクを避けるため。
+   */
+  useEffect(() => {
+    if (effectiveOptInState !== "granted") return;
+    if (permissionState !== "granted") return;
+    if (currentCoords !== null) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
+
     let cancelled = false;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -312,19 +420,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           setCurrentCoords({ lat, lng });
         }
       },
-      () => {
-        // 拒否 / timeout は黙って無視（registered home が代替）
-        // CEO/GPT 2026-05-02 PR B-2d-a TODO:
-        //   B-2d-b で one-shot opt-in UI に置き換える前提。
-        //   B-2d-a ではこの自動取得は維持 (既存挙動を破壊しない)。
+      (err) => {
+        if (cancelled) return;
+        // browser 側で permission を後から denied にされたケース → declined に降格
+        if (err.code === err.PERMISSION_DENIED) {
+          markDeclined();
+          setOptInRecord(readLocationOptIn());
+        }
+        // timeout / unavailable は黙って無視 (granted のまま、次回 mount で再試行)
       },
-      // 5 秒で諦める（UX 阻害禁止）。high accuracy 不要、cached 値 OK
       { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
     );
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [effectiveOptInState, permissionState, currentCoords]);
 
   /** βテスターフラグ（localStorage → API レスポンスで更新、制限バイパス用） */
   const [isBetaTester, setIsBetaTester] = useState<boolean>(() => {
@@ -828,5 +938,16 @@ export function useAlterChat(options?: UseAlterChatOptions) {
      * 経由なので、flag OFF でも map が描画できるよう events から直接読む。
      */
     morningPersistedEvents,
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PR B-2d-b: location opt-in banner state + handlers (CEO/GPT 2026-05-02)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    /** banner を表示するか (= effectiveOptInState === "not_asked") */
+    showLocationOptInBanner,
+    /** banner の表示モード (normal / loading / error) */
+    locationOptInBannerMode: bannerMode,
+    /** 「位置情報を使う」押下時のハンドラ */
+    handleLocationOptInGrant,
+    /** 「あとで」押下時のハンドラ */
+    handleLocationOptInSnooze,
   } as const;
 }
