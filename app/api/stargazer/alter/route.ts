@@ -929,6 +929,8 @@ export async function POST(req: NextRequest) {
       softBridgePending: rawSoftBridgePending,
       currentLat: rawCurrentLat,
       currentLng: rawCurrentLng,
+      // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+      permissionState: rawPermissionState,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -987,6 +989,16 @@ export async function POST(req: NextRequest) {
        */
       currentLat?: number | null;
       currentLng?: number | null;
+      /**
+       * CEO/GPT 2026-05-02 PR B-2d-a: geolocation permission state contract
+       *
+       * 5 値 raw (granted / denied / prompt / unsupported / unavailable)。
+       * legacyAdapter で homeAnchor=null のときの AnchorUnknownReason 決定に使う。
+       * coords がある場合、permissionState に関係なく current location が採用される。
+       *
+       * 詳細: lib/alter-morning/journey/permissionState.ts
+       */
+      permissionState?: "granted" | "denied" | "prompt" | "unsupported" | "unavailable" | null;
     };
 
     const isHomeAlter = source === "home";
@@ -1879,6 +1891,8 @@ export async function POST(req: NextRequest) {
                   // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
                   currentLat: rawCurrentLat ?? null,
                   currentLng: rawCurrentLng ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+                  permissionState: rawPermissionState ?? null,
                   priorRawInputs: priorInputs,
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
@@ -2043,6 +2057,8 @@ export async function POST(req: NextRequest) {
               // resolveHomeAnchor で registered home より優先される。
               currentLat: rawCurrentLat ?? null,
               currentLng: rawCurrentLng ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+              permissionState: rawPermissionState ?? null,
               // PR-49: rawInputs は audit log (UI / DB 互換) として
               //        legacyAdapter 内で session.rawInputs に蓄積される。
               priorRawInputs: priorInputs,
