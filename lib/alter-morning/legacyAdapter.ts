@@ -83,6 +83,8 @@ import {
 //   currentLat/Lng も baseline home も解決できず origin が unknown になる時の
 //   理由説明として AnchorUnknownReason を決定する。
 import type { GeolocationPermissionState } from "./journey/permissionState";
+// CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+import { evaluateCurrentLocation } from "./journey/currentLocationGating";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -209,6 +211,33 @@ export interface LegacyAdapterInput {
    * 用途: events>0 path で homeAnchor=null のときに reason を決定する。
    */
   permissionState?: GeolocationPermissionState | null;
+
+  /**
+   * CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating fields
+   *
+   * accuracy:
+   *   pos.coords.accuracy (m)。低精度 (> 1000m) を reject する判定材料。
+   *   省略時は accuracy check を skip (= legacy backward compat、寛容)。
+   *
+   * capturedAt:
+   *   ISO 8601 timestamp。new Date(pos.timestamp).toISOString() 由来。
+   *   maximumAge=5min により cached position が返った場合の正しい取得時刻を
+   *   保持する (= new Date() を使うと cached 時に stale 判定が破綻するので不可)。
+   *   省略時は freshness check を skip (= legacy backward compat、寛容)。
+   *
+   * actualTodayYmdJst:
+   *   JST 固定の「実際の今日」 (YYYY-MM-DD)。route.ts の getActualTodayYmdJst() で生成。
+   *   既存 `today` field (= target plan date) と **混同禁止**。命名で前提を明示する。
+   *   user timezone / travel timezone / semantic date 解釈は PR B-4 で扱う。
+   *   省略時は not_today check を skip (= legacy backward compat)。
+   *
+   * 用途: evaluateCurrentLocation で current location を origin 推論に使うか判定。
+   *   reject 時は registered_home / unknown 体系に fallback。新 reason は追加しない。
+   *   debug log に rejectReason のみ出力 (lat/lng/住所/userId/plan は出さない)。
+   */
+  accuracy?: number | null;
+  capturedAt?: string | null;
+  actualTodayYmdJst?: string | null;
 
   /**
    * CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用の前日 plan。
@@ -840,9 +869,45 @@ export function adaptPipelineToLegacy(
     //   2. currentLat/Lng → userHomeLat/Lng → null の優先で homeAnchor を解決
     //   3. journeyEnd を home anchor の round-trip default で派生 (label="帰宅")
     const derivedTransport = deriveDayTransport(effectiveEvents);
+
+    // ── CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating ──
+    //   currentLat/Lng が **存在する** 場合のみ evaluateCurrentLocation を呼ぶ。
+    //   null は「無い」状態であり invalid 扱いしない (= caller responsibility per
+    //   evaluateCurrentLocation の precondition)。
+    //
+    //   reject 時は currentLat/Lng を null に rewrite し、resolveHomeAnchor で
+    //   userHomeLat/Lng (= registered_home) に fallback させる。
+    //
+    //   debug log は rejectReason のみ (lat/lng/住所/userId/plan は出さない、PII 規律)。
+    //   AnchorUnknownReason は新規追加せず、既存体系 (no_baseline) に集約する。
+    let effectiveCurrentLat = input.currentLat ?? null;
+    let effectiveCurrentLng = input.currentLng ?? null;
+    if (effectiveCurrentLat != null && effectiveCurrentLng != null) {
+      const evalResult = evaluateCurrentLocation(
+        {
+          currentLat: effectiveCurrentLat,
+          currentLng: effectiveCurrentLng,
+          accuracy: input.accuracy,
+          capturedAt: input.capturedAt,
+          actualTodayYmdJst: input.actualTodayYmdJst,
+        },
+        today, // legacyAdapter の `today` = target plan date (= currentPlanDate)
+      );
+      if (!evalResult.usable) {
+        console.info("[alter-morning] current location rejected", {
+          rejectReason: evalResult.rejectReason,
+          // PII 排除 (CEO 規律): lat/lng/accuracy/capturedAt/userId/plan は出さない
+          //   accuracy / capturedAt は数値だけだが、推定経由で行動再現に使われる
+          //   リスクがあるため、debug log にも出さない
+        });
+        effectiveCurrentLat = null;
+        effectiveCurrentLng = null;
+      }
+    }
+
     const homeAnchor = resolveHomeAnchor({
-      currentLat: input.currentLat,
-      currentLng: input.currentLng,
+      currentLat: effectiveCurrentLat,
+      currentLng: effectiveCurrentLng,
       homeLat: input.userHomeLat,
       homeLng: input.userHomeLng,
     });
