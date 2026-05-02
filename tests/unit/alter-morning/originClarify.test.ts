@@ -36,6 +36,7 @@ import {
 import {
   resolveGaps,
   PLAN_ORIGIN_SENTINEL_EVENT_ID,
+  CLARIFY_PRIORITY,
 } from "@/lib/alter-morning/planning/gapResolver";
 import { buildClarifyQuestion } from "@/lib/alter-morning/planning/clarifyQuestionBuilder";
 import {
@@ -370,6 +371,63 @@ describe("[Part D] gapResolver 統合", () => {
   it("ctx.originGapDetected 未指定 = legacy caller、origin candidate 追加されない", () => {
     const result = resolveGaps([eventWithResolvedWhere()]);
     expect(result.primary_clarify).toBeNull();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Part D-2: CEO/GPT 確認指示 — origin が **構造的に最低優先** であることの不変条件 test
+//
+// CEO/GPT 2026-05-02 PR B-2e merge 前 確認指示:
+//   「CLARIFY_PRIORITY=50 = 最低」 を where / transport / endpoint など既存 clarify
+//   全種類との数値比較で fix する。
+//
+// 比較ロジック: resolveGaps の `if (score < primaryScore)` → **数字が小さいほど優先**。
+//   origin = 50 が他 全 ClarifyKind の値より大きい → 構造的に最低優先 = 最後の砦。
+//
+// 将来 priority 値が変更されても、本 test で「origin が最大」 が破れたら CI で検出。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("[Part D-2 CEO/GPT 確認指示] origin priority は他 全 ClarifyKind より大きい (= 最低優先)", () => {
+  it("origin (= 50) は他 全 ClarifyKind の priority 値より大きい", () => {
+    const originScore = CLARIFY_PRIORITY.origin;
+    expect(originScore).toBe(50);
+
+    // 他 全 ClarifyKind と比較。origin が最大であることを 1 件ずつ assert。
+    expect(CLARIFY_PRIORITY.target_ref_low).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.coarse_time_bucket).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.specific_time).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.tentative_chain).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.where_center).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.where_pick_from_candidates).toBeLessThan(
+      originScore,
+    );
+    expect(CLARIFY_PRIORITY.activity).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.transport).toBeLessThan(originScore);
+    expect(CLARIFY_PRIORITY.endpoint).toBeLessThan(originScore);
+  });
+
+  it("CLARIFY_PRIORITY 全 entry を網羅し、origin 以外で max を取らない", () => {
+    // dynamic 検証: Object.values で max を取り、それが origin であることを確認。
+    // 将来 ClarifyKind が追加された時、新 kind が origin より大きくなれば test が落ちて検出。
+    const entries = Object.entries(CLARIFY_PRIORITY) as Array<
+      [keyof typeof CLARIFY_PRIORITY, number]
+    >;
+    const max = entries.reduce((acc, [k, v]) =>
+      v > acc[1] ? [k, v] : acc,
+    )[0];
+    expect(max).toBe("origin");
+  });
+
+  it("origin は構造的に最後の砦: 比較ロジック (score < primaryScore) と整合", () => {
+    // 既存比較ロジックの仕様: resolveGaps line ~531
+    //   const score = CLARIFY_PRIORITY[a.request.kind] ?? 99;
+    //   if (score < primaryScore) { primary = a.request; primaryScore = score; }
+    // → 「数字が小さいほど優先」。origin (= 50) が他より大きい = 必ず負ける。
+    //
+    // origin = 50 < ? = 99 (default for unknown kind)。
+    // 意図: 万一 priority table に未登録の kind が出ても、origin より優先される。
+    // (= 未登録 kind は 99 で「origin より優先される」 が default 挙動)
+    expect(CLARIFY_PRIORITY.origin).toBeLessThan(99);
   });
 });
 

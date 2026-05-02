@@ -418,7 +418,14 @@ export function resolveEventGap(
  * Where の新 kind（where_center / where_pick_from_candidates）は Commit 2 で追加。
  * ここでは枠だけ確保する。
  */
-const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
+/**
+ * 数値が小さいほど優先。test 用途で export している (CEO/GPT 2026-05-02 PR B-2e):
+ *   - origin が他 8 kind より大きい (= 最低優先) ことを structural test で fix する
+ *   - 将来 priority 値が変更されても、test で構造的不変条件 (origin = 最大) が破れたら検出
+ *
+ * 比較ロジック: resolveGaps の if (score < primaryScore) → 小さい score で primary 更新。
+ */
+export const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   target_ref_low: 0,        // 最優先（modify の曖昧さ、slot 非依存）
   // ── When（10-14）──
   coarse_time_bucket: 10,   // |semantic|≥2 → 朝/昼/夜?
