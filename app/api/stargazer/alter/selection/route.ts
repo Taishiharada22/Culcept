@@ -103,7 +103,13 @@ type RejectReason =
   | "invalid_place_id"
   | "status_not_presented"
   | "reducer_rejected"
-  | "event_not_found";
+  | "event_not_found"
+  // CEO/GPT 2026-05-03 PR B-3b'-2 (Layer 3 半壊 UX 防止):
+  //   journey_origin / journey_end target の selection は B-3c 未実装のため明示的 reject。
+  //   200 with accepted=false で client に仕様上の reject を伝える (5xx ではない)。
+  //   B-3c で applyPlaceSelectionByTarget が完成したら本 reject reason を削除し、
+  //   journey_origin の selection 経路を有効化する。
+  | "not_implemented_journey_anchor_promotion";
 
 interface SelectionRequestBody {
   turnIndex: number;
@@ -199,10 +205,27 @@ export async function POST(req: NextRequest) {
       return rejectJson("missing_dialog_state");
     }
 
+    // CEO/GPT 2026-05-03 PR B-3b'-2 (Layer 3 半壊 UX 防止):
+    //   journey_origin / journey_end target の SELECTED は B-3c 未実装のため明示 reject。
+    //   - target.kind === "journey_origin" → not_implemented_journey_anchor_promotion
+    //   - target.kind === "journey_end"    → 同上 (= 同じく未実装)
+    //   - target 未指定 / target.kind === "event_where" → 既存 logic で進行
+    //
+    //   200 with accepted=false で client に仕様上の reject を伝える。5xx ではない。
+    //   Layer 2 (= PlaceCandidatePicker disabled) と併せて 3 層 gate を構成する。
+    //   B-3c で applyPlaceSelectionByTarget 完成時に本 gate を削除し、
+    //   journey_origin の selection 経路を有効化する。
+    const prevActive = prevDialogState.activePresentation;
+    if (
+      prevActive?.target?.kind === "journey_origin" ||
+      prevActive?.target?.kind === "journey_end"
+    ) {
+      return rejectJson("not_implemented_journey_anchor_promotion");
+    }
+
     // Step 4: 事前観測（reason 特定用）。reducer は no-op で吸収するが、
     //         client への feedback reason を細かく返すため事前チェックする。
     //         ただし **真の判定は reducer の戻り値**で行う（defense in depth）。
-    const prevActive = prevDialogState.activePresentation;
     let preflightReason: RejectReason | null = null;
     if (!prevActive) {
       preflightReason = "no_active_presentation";

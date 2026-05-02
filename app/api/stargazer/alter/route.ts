@@ -547,6 +547,10 @@ import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import { reconcileDialogState } from "@/lib/alter-morning/planning/reconcileEffectiveEvents";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
+// CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding (新 orchestrator)
+// NOTE (forward-fix for #69 review): classifyLabel は legacyAdapter 側で intent 生成
+//   時に使用される (= 責務分離)。route.ts は intent.classification を読むだけ。
+import { orchestrateJourneyAnchorHandoff } from "@/lib/alter-morning/search/journeyAnchorHandoffOrchestrator";
 import {
   emitShadowStateEvent,
   emitHandoffOutcomeEvent,
@@ -1861,6 +1865,15 @@ export async function POST(req: NextRequest) {
         //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
         //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
         let pipelineAbsorbedOuter = false;
+        // CEO/GPT 2026-05-03 PR B-3b'-2 (forward-fix for #69 review):
+        //   responsibility split を厳格化するため、legacyAdapter が生成した
+        //   journeyOriginGroundingIntent を route.ts が **直接消費** する。
+        //   各 adapt path で adapted.journeyOriginGroundingIntent をここに hoist し、
+        //   後段の wiring block (= L2700 area) で flag 判定 + orchestrator 呼ぶ。
+        //   morningSession.plan.journeyOrigin からの再導出は廃止 (= intent を信頼する)。
+        let pendingJourneyOriginIntent:
+          | import("@/lib/alter-morning/legacyAdapter").JourneyOriginGroundingIntent
+          | undefined;
         // CEO 2026-04-28 PR #41a Commit 6: lastTraceSnapshot は L1485 の outer scope
         //   で宣言済み。Branch A/B/failure すべてここから assign する。
         if (useV2) {
@@ -1952,6 +1965,9 @@ export async function POST(req: NextRequest) {
                   };
                   morningResponse = adapted.response;
                   lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+                  // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+                  pendingJourneyOriginIntent =
+                    adapted.journeyOriginGroundingIntent;
                   console.info(
                     `[morning-protocol:v2:bind] reason=ok boundSlot=origin phase=${morningResponse.phase}`,
                     // PII 排除: label / userId は出さない
@@ -2072,6 +2088,9 @@ export async function POST(req: NextRequest) {
                 morningResponse = adapted.response;
                 // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
                 lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+                // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+                pendingJourneyOriginIntent =
+                  adapted.journeyOriginGroundingIntent;
                 console.info(
                   `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
                 );
@@ -2243,6 +2262,8 @@ export async function POST(req: NextRequest) {
             morningResponse = adapted.response;
             // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
             lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+            // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+            pendingJourneyOriginIntent = adapted.journeyOriginGroundingIntent;
             console.info(
               `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
             );
@@ -2301,6 +2322,8 @@ export async function POST(req: NextRequest) {
             morningResponse = adapted.response;
             // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
             lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+            // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+            pendingJourneyOriginIntent = adapted.journeyOriginGroundingIntent;
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
             );
@@ -2766,6 +2789,106 @@ export async function POST(req: NextRequest) {
                   console.warn(
                     `[places-handoff] unexpected throw`,
                     handoffErr,
+                  );
+                }
+              }
+
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding wiring
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              //
+              // 責務分離 (CEO 補正、forward-fix for #69 review):
+              //   - legacyAdapter: intent 生成 (= journeyOriginGroundingIntent、pure)
+              //     → pendingJourneyOriginIntent に hoist 済み (= 各 adapt path で代入)
+              //   - 本ブロック: legacyAdapter の intent を **直接消費** + flag 判定 + orchestrator
+              //     実行 + reducer dispatch
+              //   - **再導出はしない** (= legacyAdapter の intent を信頼、責務分離厳格)
+              //
+              // 3 重 AND gate (= Layer 1):
+              //   - journeyOriginGrounding(userId) (= journey_origin 専用 flag)
+              //   - placesSearch(userId) (= Places API call が許可されているか)
+              //   - dialogStateV2(userId) (= reducer dispatch 先が存在するか)
+              //
+              // intent 由来 gate (= classification 別):
+              //   - public_poi_proper_noun のみ orchestrator 呼ぶ
+              //   - generic_category / private_semantic / ambiguous は skip
+              //     (= 「ホテル」 だけで即「どのホテル？」 と聞かない、CEO 規律)
+              //
+              // selection は B-3c 未実装:
+              //   - candidate UI は staging で表示される
+              //   - click は Layer 2 (UI disabled、Commit 5) + Layer 3 (server reject、Commit 6) で blocked
+              //
+              // production 影響ゼロ (= flag default false):
+              //   - journeyOriginGrounding default false → 全 gate fail → orchestrator 呼ばれない
+              if (
+                pendingJourneyOriginIntent &&
+                ALTER_MORNING_FLAGS.journeyOriginGrounding(userId) &&
+                ALTER_MORNING_FLAGS.placesSearch(userId) &&
+                ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
+                morningSession.dialogState
+              ) {
+                if (
+                  pendingJourneyOriginIntent.classification ===
+                  "public_poi_proper_noun"
+                ) {
+                  const journeyHandoffStartedAt = Date.now();
+                  try {
+                    const journeyHandoff =
+                      await orchestrateJourneyAnchorHandoff({
+                        userId,
+                        label: pendingJourneyOriginIntent.label,
+                        turnIndex:
+                          morningSession.dialogState.capturedHistory.length,
+                      });
+                    if (journeyHandoff.nextDispatch) {
+                      try {
+                        const afterJourney = dialogReducer(
+                          morningSession.dialogState,
+                          journeyHandoff.nextDispatch,
+                        );
+                        morningSession = {
+                          ...morningSession,
+                          dialogState: afterJourney,
+                        };
+                      } catch (dispatchErr) {
+                        console.warn(
+                          `[journey-origin-grounding:dispatch] reducer throw`,
+                          dispatchErr,
+                        );
+                      }
+                    }
+                    const oc = journeyHandoff.outcome;
+                    if (oc.kind === "error") {
+                      console.warn(
+                        `[journey-origin-grounding:provider_failure] reason=${oc.reason} fp=${oc.fingerprint}`,
+                      );
+                    } else if (oc.kind === "skip_gate") {
+                      console.info(
+                        `[journey-origin-grounding:skip_gate] reason=${oc.reason} fp=${oc.fingerprint}`,
+                      );
+                    } else if (
+                      oc.kind === "presented_from_api" ||
+                      oc.kind === "presented_from_cache"
+                    ) {
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint} count=${oc.candidateCount} latency=${Date.now() - journeyHandoffStartedAt}ms`,
+                      );
+                    } else {
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
+                      );
+                    }
+                  } catch (orchErr) {
+                    console.warn(
+                      `[journey-origin-grounding] unexpected throw`,
+                      orchErr,
+                    );
+                  }
+                } else {
+                  // generic / private_semantic / ambiguous は意図的 skip
+                  // (= CEO 規律「ホテル だけで即どのホテル？」 防止)
+                  console.info(
+                    `[journey-origin-grounding:skip_classification] classification=${pendingJourneyOriginIntent.classification}`,
                   );
                 }
               }

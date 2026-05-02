@@ -88,6 +88,11 @@ import { evaluateCurrentLocation } from "./journey/currentLocationGating";
 // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 統合
 import { shouldAskOriginClarify } from "./journey/originGap";
 import { PLAN_ORIGIN_SENTINEL_EVENT_ID } from "./planning/gapResolver";
+// CEO/GPT 2026-05-03 PR B-3b'-2: label classification (pure)
+import {
+  classifyLabel,
+  type LabelClassification,
+} from "./search/labelClassification";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -335,6 +340,24 @@ export interface LegacyAdapterOutput {
    *   なかった (focus が元から null) 場合。caller は既存 dialogState を維持。
    */
   reconciledDialogState?: DialogState | null;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3b'-2 (forward-fix for #69 review):
+   *   journey_origin grounding の **意図 (= intent)** を caller (route.ts) に
+   *   渡す。legacyAdapter は pure に intent を作るだけで、副作用 (= Places API,
+   *   reducer dispatch) を起こさない。route.ts が flag 判定 + classification
+   *   == public_poi_proper_noun の確認後に orchestrateJourneyAnchorHandoff を
+   *   呼ぶ。
+   *
+   * undefined: journeyOrigin が known_label_only でない (= 既に known_exact、
+   *   または unknown)、もしくは label が空文字。
+   *
+   * 詳細は L1535 付近の生成ロジックと L1595 の type 定義 (= JourneyOriginGroundingIntent)
+   * を参照。
+   */
+  journeyOriginGroundingIntent?: {
+    label: string;
+    classification: LabelClassification;
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1527,6 +1550,34 @@ export function adaptPipelineToLegacy(
       : undefined,
   );
 
+  // CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding intent 生成 (pure)
+  //
+  // 責務分離 (CEO 2026-05-03 補正):
+  //   - legacyAdapter: state 変換 + intent 生成 のみ (= pure 関数、副作用なし)
+  //   - route.ts: flag 判定 + orchestrator 実行 + Places API 副作用 (= 集約)
+  //
+  // intent は journeyOrigin が known_label_only の時のみ生成される。
+  // route.ts 側で以下条件を満たすときに orchestrateJourneyAnchorHandoff を呼ぶ:
+  //   - journeyOriginGroundingIntent !== undefined
+  //   - intent.classification === "public_poi_proper_noun"
+  //   - ALTER_MORNING_FLAGS.journeyOriginGrounding(userId) === true (Layer 1)
+  //   - dialogStateV2 / placesSearch も true (= AND gate)
+  //
+  // 注: classification === "generic_category" / "private_semantic" / "ambiguous"
+  //     の場合は intent が生成されても route.ts 側で skip する (Q1 確定方針)。
+  let journeyOriginGroundingIntent:
+    | { label: string; classification: LabelClassification }
+    | undefined;
+  if (
+    plan?.journeyOrigin?.kind === "known_label_only" &&
+    plan.journeyOrigin.label
+  ) {
+    journeyOriginGroundingIntent = {
+      label: plan.journeyOrigin.label,
+      classification: classifyLabel(plan.journeyOrigin.label),
+    };
+  }
+
   return {
     session,
     response,
@@ -1541,5 +1592,27 @@ export function adaptPipelineToLegacy(
     ...(input.priorDialogState !== undefined
       ? { reconciledDialogState: reconcile.reconciledDialogState }
       : {}),
+    // CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding intent (pure)
+    //   route.ts が flag 判定 + orchestrator 実行する材料として使う。
+    ...(journeyOriginGroundingIntent !== undefined
+      ? { journeyOriginGroundingIntent }
+      : {}),
   };
 }
+
+/**
+ * CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding intent type export。
+ *
+ * legacyAdapter (= pure) が生成し、route.ts (= 副作用集約) が消費する。
+ *   route.ts で:
+ *     - flag 判定 (journeyOriginGrounding + dialogStateV2 + placesSearch)
+ *     - classification === "public_poi_proper_noun" 確認
+ *     - 全条件 true で orchestrateJourneyAnchorHandoff を呼ぶ
+ *     - それ以外 (generic_category / private_semantic / ambiguous) は何もしない
+ */
+export type JourneyOriginGroundingIntent = {
+  /** journeyOrigin.label (= "ホテル", "東京駅" 等) */
+  label: string;
+  /** classifyLabel(label) の結果 (= 4 分類のいずれか) */
+  classification: LabelClassification;
+};
