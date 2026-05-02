@@ -1221,10 +1221,37 @@ export function adaptPipelineToLegacy(
       { samePlanDate },
     );
 
-    // 推論 chain (origin):
-    //   Layer 1 explicit → strong prior → Layer 2 previous_day → Layer 3-4 resolver+weak
+    // ── CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答を最優先で plug ──
+    //   userOverrideOriginLabel は当 turn の origin clarify への明示回答。
+    //   STRONG prior より上位 (= 当 turn の明示は prior より新しい情報、論理的に正しい)。
+    //
+    //   優先順位 (CEO/GPT 確定、修正版):
+    //     1. originClarifyAnswer (= 当 turn clarify 回答)  ← 本 layer
+    //     2. Layer 1 explicit (= deterministic detector)
+    //     3. STRONG prior (= same-plan 内 prior 保護)
+    //     4. previous day endpoint (Layer 2)
+    //     5. resolver + weak fallback (Layer 3-4)
+    //     6. unknown (Layer 5)
+    //
+    //   形式: known_label_only / source = "user_override"
+    //     coords は付けない (= B-3 で grounding する)
+    //     user_override は STRONG_PRIOR_ORIGIN_SOURCES に含まれているので、
+    //     次 turn 以降は priorPlan.journeyOrigin = user_override が STRONG prior として
+    //     samePlanDate=true で守られる (= persistence の自動継承)
+    const originClarifyAnswer: JourneyAnchorState | null =
+      input.userOverrideOriginLabel != null && input.userOverrideOriginLabel !== ""
+        ? {
+            kind: "known_label_only",
+            label: input.userOverrideOriginLabel,
+            source: "user_override",
+          }
+        : null;
+
+    // 推論 chain (origin、PR B-2e' で originClarifyAnswer を最優先に追加):
+    //   originClarifyAnswer → Layer 1 explicit → strong prior → Layer 2 previous_day → Layer 3-4 resolver+weak
     const journeyOrigin: JourneyAnchorState =
-      explicitOrigin
+      originClarifyAnswer
+      ?? explicitOrigin
       ?? strongPriorOrigin
       ?? previousDayOriginCandidate
       ?? applyAnchorFallback(
