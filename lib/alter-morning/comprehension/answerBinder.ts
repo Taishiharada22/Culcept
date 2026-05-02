@@ -202,6 +202,87 @@ function normalizeActivityAnswer(answer: string): string | null {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CEO/GPT 2026-05-02 PR B-2e: origin answer normalization
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Origin clarify への user 回答を anchor label に正規化する。
+ *
+ * CEO/GPT 2026-05-02 PR B-2e 規律:
+ *   ユーザー発話「ホテルから」 → label = "ホテル"
+ *   ユーザー発話「自宅を出る」 → label = "自宅"
+ *   ユーザー発話「駅から出発」 → label = "駅"
+ *   ユーザー発話「ホテル」     → label = "ホテル" (suffix なし)
+ *   ユーザー発話「ホテルから。」→ label = "ホテル" (末尾句読点除去)
+ *
+ * `label` に「から」 や「を出る」 が残ると、
+ *   - UI 表示で違和感
+ *   - B-3 の grounding で query 精度悪化
+ *   - journeyEnd.label との同一性チェック等で壊れる
+ *
+ * suffix 除去の順序 (= 長いものから先に判定):
+ *   "から出る" / "から出発" / "を出発" / "を出る" / "から"
+ *
+ * coords grounding は B-3 の責務 (= 本関数は label のみ)。
+ *
+ * 失敗 (return null) ケース:
+ *   - 空文字 / 空白のみ
+ *   - 全 suffix を剥いた結果が空 (例: 「から」 のみ)
+ *
+ * @param answer ユーザーの raw 回答
+ * @returns 正規化された label、または null (= bind 不能)
+ */
+export function normalizeOriginAnswer(answer: string): string | null {
+  if (!answer) return null;
+  let label = answer.trim();
+  if (label === "") return null;
+
+  // 末尾の句読点・空白を除去
+  label = label.replace(/[。、,.!?\s]+$/g, "");
+  if (label === "") return null;
+
+  // 末尾 suffix 除去 (長いものから順、最初に match した 1 つだけを剥く)
+  const suffixes = ["から出る", "から出発", "を出発", "を出る", "から"];
+  for (const suffix of suffixes) {
+    if (label.endsWith(suffix)) {
+      label = label.slice(0, -suffix.length);
+      break;
+    }
+  }
+
+  label = label.trim();
+  if (label === "") return null;
+  return label;
+}
+
+/**
+ * Origin clarify 回答を bind した結果。
+ * legacyAdapter で journeyOrigin の上書きに使う。
+ */
+export type BindOriginResult =
+  | { bound: true; label: string }
+  | { bound: false; reason: "semantic_miss" };
+
+/**
+ * Origin clarify 回答を bind する。
+ *
+ * pendingClarify.slot === "origin" の時、legacyAdapter が本関数を呼ぶ。
+ * 戻り値の label を journeyOrigin = known_label_only / source=user_override に流す。
+ *
+ * 注意: 本関数は events を更新しない (origin は plan-level、event 単位ではない)。
+ *       legacyAdapter で別経路の plan rebuild に流す。
+ *
+ * @param answer ユーザー回答 (raw 発話)
+ */
+export function bindOriginAnswer(answer: string): BindOriginResult {
+  const label = normalizeOriginAnswer(answer);
+  if (label == null) {
+    return { bound: false, reason: "semantic_miss" };
+  }
+  return { bound: true, label };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main entry
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -366,6 +447,18 @@ export function bindAnswerToSlot(
         // non-null に倒して bind=true を返すが、実際の書き込みは行わない
       }
       break;
+    }
+
+    case "origin": {
+      // CEO/GPT 2026-05-02 PR B-2e: origin clarify は plan-level (= event 単位ではない)。
+      //
+      // 本関数は events を更新するための bind なので、origin slot で bind を試みる
+      // のは構造的に誤り。caller (legacyAdapter) は pending.slot === "origin" の場合、
+      // bindAnswerToSlot を呼ばずに bindOriginAnswer を直接呼ぶこと。
+      //
+      // ここに来た場合は「caller が誤って origin slot で bindAnswerToSlot を呼んだ」
+      // という system_miss として扱う (events は変更せず元のまま返す)。
+      return { events, bound: false, reason: "system_miss" };
     }
   }
 
