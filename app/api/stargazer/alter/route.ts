@@ -567,6 +567,26 @@ function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
+/**
+ * CEO/GPT 2026-05-02 PR B-2d-c: JST 固定の「実際の今日」(YYYY-MM-DD)。
+ *
+ * legacyAdapter の既存 `today` field は target plan date (= currentPlanDate) で、
+ * 「実際の今日」とは別物。混同を避けるため `actualTodayYmdJst` を別 input として渡す。
+ *
+ * 命名で前提を明示: `Jst` suffix で JST 固定であることを示す。
+ * user timezone / travel timezone / semantic date 解釈は PR B-4 (targetDate
+ * time-aware) で扱う。本 PR の scope を超えるため、本関数は JST 固定のまま。
+ *
+ * 使い方:
+ *   adaptPipelineToLegacy(pipelineResult, { actualTodayYmdJst: getActualTodayYmdJst() })
+ *   → legacyAdapter で planDate !== actualTodayYmdJst なら current location を reject (not_today)
+ */
+function getActualTodayYmdJst(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
+}
+
 function looksIncompleteAlterResponse(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return true;
@@ -931,6 +951,9 @@ export async function POST(req: NextRequest) {
       currentLng: rawCurrentLng,
       // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
       permissionState: rawPermissionState,
+      // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating fields
+      accuracy: rawAccuracy,
+      capturedAt: rawCapturedAt,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -999,6 +1022,16 @@ export async function POST(req: NextRequest) {
        * 詳細: lib/alter-morning/journey/permissionState.ts
        */
       permissionState?: "granted" | "denied" | "prompt" | "unsupported" | "unavailable" | null;
+      /**
+       * CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+       *
+       * accuracy = pos.coords.accuracy (m)、容認しきい値 1000m。
+       * capturedAt = new Date(pos.timestamp).toISOString() (cached position 対応)。
+       * legacyAdapter の evaluateCurrentLocation で gate (低精度 / stale / not_today) 判定に使う。
+       * いずれも optional (= legacy caller / 未取得時は省略)。
+       */
+      accuracy?: number | null;
+      capturedAt?: string | null;
     };
 
     const isHomeAlter = source === "home";
@@ -1893,6 +1926,13 @@ export async function POST(req: NextRequest) {
                   currentLng: rawCurrentLng ?? null,
                   // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
                   permissionState: rawPermissionState ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+                  //   accuracy / capturedAt は frontend が pos.coords.accuracy /
+                  //   pos.timestamp 由来で同送。actualTodayYmdJst は server-side
+                  //   生成 (= 時刻ズレ回避のため frontend の値は使わない)。
+                  accuracy: rawAccuracy ?? null,
+                  capturedAt: rawCapturedAt ?? null,
+                  actualTodayYmdJst: getActualTodayYmdJst(),
                   priorRawInputs: priorInputs,
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
@@ -2059,6 +2099,10 @@ export async function POST(req: NextRequest) {
               currentLng: rawCurrentLng ?? null,
               // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
               permissionState: rawPermissionState ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+              accuracy: rawAccuracy ?? null,
+              capturedAt: rawCapturedAt ?? null,
+              actualTodayYmdJst: getActualTodayYmdJst(),
               // PR-49: rawInputs は audit log (UI / DB 互換) として
               //        legacyAdapter 内で session.rawInputs に蓄積される。
               priorRawInputs: priorInputs,
@@ -2126,6 +2170,12 @@ export async function POST(req: NextRequest) {
               //   を「denied / unrequested / no_baseline」のどれにすべきか判別するため、
               //   pipeline throw 時にも permissionState を維持する必要がある。
               permissionState: rawPermissionState ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-c: pipeline throw 吸収経路でも gating fields を維持。
+              //   throw 経路でも buildFailedPipelineResult() 経由で plan が組まれる可能性があり、
+              //   その時の current location 採否を正しく評価するため。
+              accuracy: rawAccuracy ?? null,
+              capturedAt: rawCapturedAt ?? null,
+              actualTodayYmdJst: getActualTodayYmdJst(),
               priorRawInputs: priorInputs,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:
