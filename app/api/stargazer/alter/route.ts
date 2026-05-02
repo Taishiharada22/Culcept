@@ -547,6 +547,9 @@ import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import { reconcileDialogState } from "@/lib/alter-morning/planning/reconcileEffectiveEvents";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
+// CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding (新 orchestrator + label classification)
+import { orchestrateJourneyAnchorHandoff } from "@/lib/alter-morning/search/journeyAnchorHandoffOrchestrator";
+import { classifyLabel } from "@/lib/alter-morning/search/labelClassification";
 import {
   emitShadowStateEvent,
   emitHandoffOutcomeEvent,
@@ -2767,6 +2770,106 @@ export async function POST(req: NextRequest) {
                     `[places-handoff] unexpected throw`,
                     handoffErr,
                   );
+                }
+              }
+
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding wiring
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              //
+              // 責務分離 (CEO 補正):
+              //   - legacyAdapter: intent 生成 (= journeyOriginGroundingIntent、pure)
+              //   - 本ブロック: flag 判定 + orchestrator 実行 + reducer dispatch
+              //
+              // 3 重 AND gate (= Layer 1):
+              //   - journeyOriginGrounding(userId) (= journey_origin 専用 flag)
+              //   - placesSearch(userId) (= Places API call が許可されているか)
+              //   - dialogStateV2(userId) (= reducer dispatch 先が存在するか)
+              //
+              // intent 由来 gate (= classification 別):
+              //   - public_poi_proper_noun のみ orchestrator 呼ぶ
+              //   - generic_category / private_semantic / ambiguous は skip
+              //     (= 「ホテル」 だけで即「どのホテル？」 と聞かない、CEO 規律)
+              //
+              // selection は B-3c 未実装:
+              //   - candidate UI は staging で表示される
+              //   - click は Layer 2 (UI disabled、Commit 5) + Layer 3 (server reject、Commit 6) で blocked
+              //
+              // production 影響ゼロ (= flag default false):
+              //   - journeyOriginGrounding default false → 全 gate fail → orchestrator 呼ばれない
+              if (
+                ALTER_MORNING_FLAGS.journeyOriginGrounding(userId) &&
+                ALTER_MORNING_FLAGS.placesSearch(userId) &&
+                ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
+                morningSession.dialogState
+              ) {
+                const journeyOrigin = morningSession.plan?.journeyOrigin;
+                if (
+                  journeyOrigin?.kind === "known_label_only" &&
+                  journeyOrigin.label
+                ) {
+                  const classification = classifyLabel(journeyOrigin.label);
+                  if (classification === "public_poi_proper_noun") {
+                    const journeyHandoffStartedAt = Date.now();
+                    try {
+                      const journeyHandoff =
+                        await orchestrateJourneyAnchorHandoff({
+                          userId,
+                          label: journeyOrigin.label,
+                          turnIndex:
+                            morningSession.dialogState.capturedHistory.length,
+                        });
+                      if (journeyHandoff.nextDispatch) {
+                        try {
+                          const afterJourney = dialogReducer(
+                            morningSession.dialogState,
+                            journeyHandoff.nextDispatch,
+                          );
+                          morningSession = {
+                            ...morningSession,
+                            dialogState: afterJourney,
+                          };
+                        } catch (dispatchErr) {
+                          console.warn(
+                            `[journey-origin-grounding:dispatch] reducer throw`,
+                            dispatchErr,
+                          );
+                        }
+                      }
+                      const oc = journeyHandoff.outcome;
+                      if (oc.kind === "error") {
+                        console.warn(
+                          `[journey-origin-grounding:provider_failure] reason=${oc.reason} fp=${oc.fingerprint}`,
+                        );
+                      } else if (oc.kind === "skip_gate") {
+                        console.info(
+                          `[journey-origin-grounding:skip_gate] reason=${oc.reason} fp=${oc.fingerprint}`,
+                        );
+                      } else if (
+                        oc.kind === "presented_from_api" ||
+                        oc.kind === "presented_from_cache"
+                      ) {
+                        console.info(
+                          `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint} count=${oc.candidateCount} latency=${Date.now() - journeyHandoffStartedAt}ms`,
+                        );
+                      } else {
+                        console.info(
+                          `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
+                        );
+                      }
+                    } catch (orchErr) {
+                      console.warn(
+                        `[journey-origin-grounding] unexpected throw`,
+                        orchErr,
+                      );
+                    }
+                  } else {
+                    // generic / private_semantic / ambiguous は意図的 skip
+                    // (= CEO 規律「ホテル だけで即どのホテル？」 防止)
+                    console.info(
+                      `[journey-origin-grounding:skip_classification] classification=${classification}`,
+                    );
+                  }
                 }
               }
             }
