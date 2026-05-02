@@ -52,7 +52,9 @@ export type ClarifyKind =
   | "where_center"          // W3-PR-6: place 完全欠損、anchor もなし → どのあたり？
   | "where_pick_from_candidates" // W3-PR-6: ambiguous 候補が多すぎ → どれ？
   | "transport"             // solver_blocker: transport
-  | "endpoint";             // solver_blocker: endpoint / end_time
+  | "endpoint"              // solver_blocker: endpoint / end_time
+  | "origin";               // CEO/GPT 2026-05-02 PR B-2e: 推論失敗時の最後の砦
+                            // (origin が unknown かつ予定本体が解決済みの時のみ発火)
 
 /**
  * clarify 質問時の event scope 情報（W3-PR-7 Commit 3 で追加）。
@@ -419,6 +421,11 @@ const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   // ── How（40-42）──
   transport: 40,
   endpoint: 42,
+  // ── Origin (最低優先 = 50) ──
+  // CEO/GPT 2026-05-02 PR B-2e: origin clarify は「最後の砦」として扱う。
+  // 他に何も clarify がない時だけ origin が出る (= 構造的保証)。
+  // 質問アプリ化を防ぎ、予定本体の解決を邪魔しない設計。
+  origin: 50,
 };
 
 /**
@@ -433,6 +440,9 @@ const KIND_TO_OPT_OUT_SLOT: Partial<Record<ClarifyKind, OptOutSlot>> = {
   activity: "what",
   transport: "how",
   endpoint: "how",
+  // origin は opt-out 対象外: 「出発地を聞かない」は「位置情報を使わない」ではなく
+  // 「予定本体が解けなかった時の最後の砦すら拒否する」 という別の意思表示になり、
+  // PR #58-#61 (B-2d 系) の opt-in 規律と被るため B-2e では opt-out 対象外とする。
 };
 
 export function resolveGaps(

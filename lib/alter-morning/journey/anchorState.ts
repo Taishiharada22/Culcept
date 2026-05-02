@@ -160,14 +160,24 @@ export type AnchorSource =
    */
   | "user_explicit_endpoint"
   /**
-   * (将来 PR B-2e) endpoint clarify の user 回答で確定した終点。
+   * clarify に対するユーザー回答で確定した anchor (PR B-2e で意味論拡張)。
    *
-   * CEO/GPT 2026-05-02 規律 (PR B-2c での扱い):
-   *   現時点では **endpoint clarify 専用**。origin clarify はまだ実装されていない。
-   *   origin の意味で使われるようになったら、PR B-2e で:
-   *     - STRONG_PRIOR_ORIGIN_SOURCES に追加
-   *     - 「origin / endpoint 両方の clarify 由来」 と意味論を更新
-   *   それまでは endpoint 専用 source として扱う (= origin の STRONG prior には含めない)。
+   * CEO/GPT 2026-05-02 PR B-2e 規律 (確定):
+   *   - field 配置で役割を区別する:
+   *     - journeyOrigin に入る → origin override (B-2e で導入)
+   *     - journeyEnd に入る → endpoint override (PR B-1 で先行導入)
+   *   - source 名 (= "user_override") だけでは origin/end を区別しない
+   *   - PR B-3 で AnchorSource を `OriginSource | EndSource` に discriminated union
+   *     化する際は、本 source は両方に重複定義する (もしくは型レベル分離前段の
+   *     共通 source として残す)。
+   *
+   * STRONG_PRIOR_ORIGIN_SOURCES (PR B-2e で追加済み):
+   *   user_override は origin に入った場合、samePlanDate=true で守られる。
+   *   samePlanDate=false (= 別日 plan) では古い user_override は守られない (= stale 解除)。
+   *
+   * 不変条件:
+   *   - clarify 経路でしか入らない (deterministic detector / LLM では立てない)
+   *   - PR B-2e では known_label_only で plug (= coords は B-3 で grounding)
    */
   | "user_override";
 
