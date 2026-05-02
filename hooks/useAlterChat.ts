@@ -279,9 +279,17 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   //   → permissionState が prompt/unsupported/unavailable のときは自動取得しない
   //     (= ユーザー操作なしで browser permission ダイアログが出るリスクを避ける)
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO/GPT 2026-05-02 PR B-2d-c: accuracy / capturedAt も保持する
+  //   - accuracy: GPS 精度 (m)。backend で gating (低精度 reject) に使う
+  //   - capturedAt: pos.timestamp 由来の取得時刻 ISO 8601。
+  //                 cached position が返った場合に正しく stale 判定するため、
+  //                 必ず pos.timestamp を使う (= new Date() ではダメ)
+  //   - lat/lng のみで accuracy/capturedAt は optional (= legacy backward compat)
   const [currentCoords, setCurrentCoords] = useState<{
     lat: number;
     lng: number;
+    accuracy: number | null;
+    capturedAt: string | null;
   } | null>(null);
   // permissionState (B-2d-a で導入、B-2d-b でも継続使用)
   const [permissionState, setPermissionState] = useState<
@@ -359,7 +367,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          setCurrentCoords({ lat, lng });
+          // CEO/GPT 2026-05-02 PR B-2d-c: accuracy + pos.timestamp を採取
+          //   capturedAt = new Date(pos.timestamp).toISOString() が必須。
+          //   maximumAge=5min により cached position が返る場合があり、その時の
+          //   pos.timestamp は cache 取得時刻 (= 古い)。new Date() を使うと stale
+          //   判定が破綻するため、必ず pos.timestamp を使う。
+          setCurrentCoords({
+            lat,
+            lng,
+            accuracy: Number.isFinite(pos.coords.accuracy)
+              ? pos.coords.accuracy
+              : null,
+            capturedAt: Number.isFinite(pos.timestamp)
+              ? new Date(pos.timestamp).toISOString()
+              : null,
+          });
           markGranted();
           setOptInRecord(readLocationOptIn());
           setBannerMode("normal"); // banner unmount するので reset しておく
@@ -417,7 +439,17 @@ export function useAlterChat(options?: UseAlterChatOptions) {
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          setCurrentCoords({ lat, lng });
+          // CEO/GPT 2026-05-02 PR B-2d-c: 自動取得経路でも accuracy + pos.timestamp 採取
+          setCurrentCoords({
+            lat,
+            lng,
+            accuracy: Number.isFinite(pos.coords.accuracy)
+              ? pos.coords.accuracy
+              : null,
+            capturedAt: Number.isFinite(pos.timestamp)
+              ? new Date(pos.timestamp).toISOString()
+              : null,
+          });
         }
       },
       (err) => {
@@ -544,8 +576,20 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
           //   server で home anchor の優先 1 として採用される。
           //   取得に失敗 / 拒否されていれば送らない（registered home が代替）。
+          // CEO/GPT 2026-05-02 PR B-2d-c: accuracy / capturedAt も同送し、
+          //   server 側 evaluateCurrentLocation で gating 判定 (低精度 / stale を reject)。
+          //   accuracy = m、capturedAt = pos.timestamp 由来 ISO 8601 (cached 対応必須)。
           ...(currentCoords
-            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            ? {
+                currentLat: currentCoords.lat,
+                currentLng: currentCoords.lng,
+                ...(currentCoords.accuracy != null
+                  ? { accuracy: currentCoords.accuracy }
+                  : {}),
+                ...(currentCoords.capturedAt != null
+                  ? { capturedAt: currentCoords.capturedAt }
+                  : {}),
+              }
             : {}),
           // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
           //   currentCoords も baseline home も解決できず origin が unknown に
@@ -751,8 +795,18 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           morningSession,
           // CEO 2026-04-28 Option B: 現在地座標（home anchor 優先 1）。
           //   selection endpoint で travel item の home segment 生成に使う。
+          // CEO/GPT 2026-05-02 PR B-2d-c: accuracy / capturedAt も同送 (gating 用)
           ...(currentCoords
-            ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
+            ? {
+                currentLat: currentCoords.lat,
+                currentLng: currentCoords.lng,
+                ...(currentCoords.accuracy != null
+                  ? { accuracy: currentCoords.accuracy }
+                  : {}),
+                ...(currentCoords.capturedAt != null
+                  ? { capturedAt: currentCoords.capturedAt }
+                  : {}),
+              }
             : {}),
         }),
       });
