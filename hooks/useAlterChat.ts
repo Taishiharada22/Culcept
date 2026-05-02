@@ -5,12 +5,13 @@ import type { HomeAlterContextData, AlterReasoningBasis, ActionShape, DecisionMe
 import { isEmotionalQuestion } from "@/lib/stargazer/alterHomeAdapter";
 import type { MorningPlan, MorningPhase, ParsedDayIntent, SufficiencyResult, PendingClarify } from "@/lib/alter-morning/types";
 import type { Event as ComprehensionEvent } from "@/lib/alter-morning/comprehension/eventSchema";
-// CEO/GPT 2026-05-02 PR B-2d-b: location opt-in state machine
+// CEO/GPT 2026-05-02 PR B-2d-b/d: location opt-in state machine + declined recovery
 import {
   readLocationOptIn,
   markGranted,
   markDeclined,
   markSnoozed,
+  markNotAsked, // PR B-2d-d: declined → not_asked recovery
   getEffectiveOptInState,
   type LocationOptInRecord,
 } from "@/lib/alter-morning/journey/locationOptIn";
@@ -291,7 +292,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     accuracy: number | null;
     capturedAt: string | null;
   } | null>(null);
-  // permissionState (B-2d-a で導入、B-2d-b でも継続使用)
+  // permissionState (B-2d-a で導入、B-2d-d で subscribe 版に変更)
+  // CEO/GPT 2026-05-02 PR B-2d-d:
+  //   1 回 query → 継続 subscribe に変更。change event + visibilitychange を監視し、
+  //   permissionState の変化を React state に反映する。
+  //   declined recovery (granted/prompt 検出時に not_asked に降格) のために必要。
   const [permissionState, setPermissionState] = useState<
     | "granted"
     | "denied"
@@ -301,20 +306,24 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     | null
   >(null);
   useEffect(() => {
+    let unsubscribe: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
       try {
-        const { getGeolocationPermissionState } = await import(
+        const { subscribeGeolocationPermissionState } = await import(
           "@/lib/alter-morning/journey/permissionState"
         );
-        const state = await getGeolocationPermissionState();
-        if (!cancelled) setPermissionState(state);
+        if (cancelled) return;
+        unsubscribe = subscribeGeolocationPermissionState((state) => {
+          setPermissionState(state);
+        });
       } catch {
         if (!cancelled) setPermissionState("unavailable");
       }
     })();
     return () => {
       cancelled = true;
+      if (unsubscribe) unsubscribe();
     };
   }, []);
 
@@ -344,6 +353,39 @@ export function useAlterChat(options?: UseAlterChatOptions) {
 
   /** banner を表示するか? = effectiveOptInState === "not_asked" */
   const showLocationOptInBanner = effectiveOptInState === "not_asked";
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // PR B-2d-d: declined recovery
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO/GPT 2026-05-02 規律:
+  //   ユーザーがブラウザ側で permission を granted/prompt に戻した時、
+  //   Aneurasync 側の declined を解除して banner を再表示する。
+  //   recovery しても自動 granted にしない (= ユーザー再 opt-in が必要)。
+  //   recovery しても自動 getCurrentPosition を呼ばない (= banner 経由の明示的 opt-in)。
+  //
+  // 3 trigger 統合:
+  //   permissionState は subscribe 経由で「初回 query / change event /
+  //   visibilitychange 再 query」のいずれかで更新される。
+  //   このため本 useEffect は permissionState の変化を全 trigger 統合で
+  //   検知できる (= 1 useEffect で 3 経路カバー)。
+  //
+  // 適用条件:
+  //   effectiveOptInState === "declined"  (= 永久 lock 状態)
+  //   AND permissionState === "granted" or "prompt"
+  //     (browser 側で許可 or リセット → recovery 妥当)
+  //
+  // 非適用 (declined 維持):
+  //   - permissionState === "denied" (browser 側もまだ拒否)
+  //   - permissionState === "unsupported" (環境問題)
+  //   - permissionState === "unavailable" (一時的問題)
+  useEffect(() => {
+    if (permissionState === null) return; // まだ取得中
+    if (effectiveOptInState !== "declined") return;
+    if (permissionState !== "granted" && permissionState !== "prompt") return;
+    // recovery: declined → not_asked に降格、banner 再表示
+    markNotAsked();
+    setOptInRecord(readLocationOptIn());
+  }, [permissionState, effectiveOptInState]);
 
   /**
    * 「位置情報を使う」押下時のフロー。
