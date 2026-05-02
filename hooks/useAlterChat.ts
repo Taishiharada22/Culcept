@@ -15,6 +15,8 @@ import {
   getEffectiveOptInState,
   type LocationOptInRecord,
 } from "@/lib/alter-morning/journey/locationOptIn";
+// PR B-2d-d: declined recovery 判定を pure helper に切り出し (test 容易性)
+import { shouldRecoverDeclined } from "@/lib/alter-morning/journey/declinedRecovery";
 import type { LocationOptInBannerMode } from "@/components/alter-morning/LocationOptInBanner";
 // W3-PR-8 rev 3 commit 22b: DialogState v2 client round-trip
 //   server が返した dialogState を state 保持 → 次 POST で送り返す。
@@ -379,9 +381,7 @@ export function useAlterChat(options?: UseAlterChatOptions) {
   //   - permissionState === "unsupported" (環境問題)
   //   - permissionState === "unavailable" (一時的問題)
   useEffect(() => {
-    if (permissionState === null) return; // まだ取得中
-    if (effectiveOptInState !== "declined") return;
-    if (permissionState !== "granted" && permissionState !== "prompt") return;
+    if (!shouldRecoverDeclined(effectiveOptInState, permissionState)) return;
     // recovery: declined → not_asked に降格、banner 再表示
     markNotAsked();
     setOptInRecord(readLocationOptIn());
