@@ -37,6 +37,10 @@ import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
 import type { DialogState } from "@/lib/alter-morning/dialog/types";
 import type { Event } from "@/lib/alter-morning/comprehension/eventSchema";
 import { applyPlaceSelection } from "@/lib/alter-morning/search/applyPlaceSelection";
+// CEO/GPT 2026-05-03 PR B-3c-1: applyPlaceSelectionByTarget は target.kind 別 dispatch
+//   pure helper。journey_origin では promoteJourneyOrigin を呼ぶ。
+import { applyPlaceSelectionByTarget } from "@/lib/alter-morning/dialog/applyPlaceSelectionByTarget";
+import type { JourneyAnchorState } from "@/lib/alter-morning/journey/anchorState";
 import { buildPlanAndSegmentsFromEvents } from "@/lib/alter-morning/planning/planRebuild";
 import {
   synthesizeTravelItems,
@@ -105,11 +109,17 @@ type RejectReason =
   | "reducer_rejected"
   | "event_not_found"
   // CEO/GPT 2026-05-03 PR B-3b'-2 (Layer 3 半壊 UX 防止):
-  //   journey_origin / journey_end target の selection は B-3c 未実装のため明示的 reject。
+  //   journey_end target の selection は B-3e 未実装のため明示的 reject。
+  //   journey_origin は B-3c-1 で promotion path を実装済み (= flag-aware narrow)。
   //   200 with accepted=false で client に仕様上の reject を伝える (5xx ではない)。
-  //   B-3c で applyPlaceSelectionByTarget が完成したら本 reject reason を削除し、
-  //   journey_origin の selection 経路を有効化する。
-  | "not_implemented_journey_anchor_promotion";
+  | "not_implemented_journey_anchor_promotion"
+  // CEO/GPT 2026-05-03 PR B-3c-1 (GPT 2nd 補正、半壊 UX 防止):
+  //   journey_origin の candidate は選択されたが、coordinates 不正 / state 不正で
+  //   昇格不可能。activePresentation を clear せず client に明示 reject を返す
+  //   (= 「選んだのに何も変わらない」状態を構造的に禁止)。
+  //   client は同じ presentation を再表示し、別の候補を選ぶか「適切な候補がない」
+  //   UI を出すかを決める (= UI 側の責務、本 PR scope 外)。
+  | "journey_anchor_promotion_not_possible";
 
 interface SelectionRequestBody {
   turnIndex: number;
@@ -205,20 +215,23 @@ export async function POST(req: NextRequest) {
       return rejectJson("missing_dialog_state");
     }
 
-    // CEO/GPT 2026-05-03 PR B-3b'-2 (Layer 3 半壊 UX 防止):
-    //   journey_origin / journey_end target の SELECTED は B-3c 未実装のため明示 reject。
-    //   - target.kind === "journey_origin" → not_implemented_journey_anchor_promotion
-    //   - target.kind === "journey_end"    → 同上 (= 同じく未実装)
-    //   - target 未指定 / target.kind === "event_where" → 既存 logic で進行
+    // CEO/GPT 2026-05-03 PR B-3c-1 (Layer 3 narrow + flag-aware):
+    //   journey_origin は flag ON で promotion path、flag OFF は reject。
+    //   journey_end は flag 関係なく **常に reject** (= B-3e 未実装、必須 #3)。
+    //   target 未指定 / target.kind === "event_where" → 既存 logic で進行 (= 完全不変、必須 #5)。
     //
-    //   200 with accepted=false で client に仕様上の reject を伝える。5xx ではない。
-    //   Layer 2 (= PlaceCandidatePicker disabled) と併せて 3 層 gate を構成する。
-    //   B-3c で applyPlaceSelectionByTarget 完成時に本 gate を削除し、
-    //   journey_origin の selection 経路を有効化する。
+    //   3 層 gate のうち Layer 3 を flag 連動 narrow:
+    //     - journey_origin + flag OFF → not_implemented_journey_anchor_promotion (= 必須 #8)
+    //     - journey_origin + flag ON → 後続の applyPlaceSelectionByTarget へ
+    //     - journey_end (flag 不問) → not_implemented_journey_anchor_promotion (= 必須 #3)
     const prevActive = prevDialogState.activePresentation;
+    const targetKind = prevActive?.target?.kind;
+    if (targetKind === "journey_end") {
+      return rejectJson("not_implemented_journey_anchor_promotion");
+    }
     if (
-      prevActive?.target?.kind === "journey_origin" ||
-      prevActive?.target?.kind === "journey_end"
+      targetKind === "journey_origin" &&
+      !ALTER_MORNING_FLAGS.journeyOriginGrounding(userId)
     ) {
       return rejectJson("not_implemented_journey_anchor_promotion");
     }
@@ -243,6 +256,65 @@ export async function POST(req: NextRequest) {
       preflightReason = "status_not_presented";
     }
 
+    // CEO/GPT 2026-05-03 PR B-3c-1 (GPT 2nd 補正、半壊 UX 防止):
+    //   journey_origin path では reducer dispatch **前** に promotion を試行する。
+    //   理由: candidate.coordinates 不正で blocked になった時、reducer dispatch を
+    //         skip して activePresentation を維持する必要がある (= 「選んだのに
+    //         何も変わらない」状態を構造的に禁止)。
+    //
+    //   event_where path は既存挙動完全不変 (= 必須 #5):
+    //     reducer dispatch → applyPlaceSelection → plan rebuild の順。
+    //
+    //   journey_origin path は GPT 2nd 補正で順序固定:
+    //     1. preflight (= 既に上で実行済み)
+    //     2. candidate find
+    //     3. applyPlaceSelectionByTarget (= promoteJourneyOrigin pure)
+    //     4. blocked → reject (= reducer dispatch しない、必須 #2)
+    //     5. applied → reducer dispatch (= activePresentation clear)
+    //     6. plan rebuild (events 不変、plan.journeyOrigin のみ更新、必須 #4)
+    let promotedJourneyOrigin:
+      | (JourneyAnchorState & { kind: "known_exact" })
+      | undefined;
+    if (targetKind === "journey_origin") {
+      // preflight 済 candidate の存在確認 (= preflightReason に !== null の場合既に reject 済)
+      const candidate = prevActive?.candidates.find(
+        (c) => c.placeId === selectedPlaceId,
+      );
+      if (!candidate) {
+        // preflight が拾うはずだが defensive
+        return rejectJson(preflightReason ?? "invalid_place_id");
+      }
+      const dispatched = applyPlaceSelectionByTarget({
+        target: { kind: "journey_origin" },
+        candidate,
+        events: prevEvents,
+        targetEventId,
+        currentJourneyOrigin: (
+          morningSession.plan as MorningPlan | undefined
+        )?.journeyOrigin,
+      });
+      if (dispatched.kind === "blocked_journey_origin") {
+        // GPT 2nd 補正: activePresentation を clear せず明示 reject。
+        //   reducer dispatch しないため client の activePresentation は維持される
+        //   → user は同じ presentation を再表示し別の候補を選べる。
+        console.info(
+          `[alter-selection:journey_origin] blocked reason=${dispatched.reason} placeId=${selectedPlaceId}`,
+        );
+        return rejectJson("journey_anchor_promotion_not_possible");
+      }
+      // exhaustive check: 想定外の kind が来た場合は defensive reject
+      //   (= future PR で event_where や journey_end が誤って journey_origin
+      //    target で来た場合の type-safe defense)
+      if (dispatched.kind !== "applied_journey_origin") {
+        console.warn(
+          `[alter-selection:journey_origin] unexpected dispatch kind=${dispatched.kind}`,
+        );
+        return rejectJson("journey_anchor_promotion_not_possible");
+      }
+      // applied: 後続の reducer dispatch + plan rebuild に向けて昇格 state を保持
+      promotedJourneyOrigin = dispatched.promotedJourneyOrigin;
+    }
+
     // Step 5: dispatch reducer（常に通す — 真の判定源）
     const nextDialogState = dialogReducer(prevDialogState, {
       type: "SEARCH_CANDIDATE_SELECTED",
@@ -259,15 +331,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 6: event 更新（reducer 受理後のみ）
+    //   journey_origin path では events を変更しない (= 必須 #4)。
+    //   eventUpdate.applied=true として下流 (= plan rebuild) は events をそのまま使う。
     const candidate = prevActive!.candidates.find(
       (c) => c.placeId === selectedPlaceId,
     )!; // preflight で存在確認済み（reducer accepted = candidate exists）
 
-    const eventUpdate = applyPlaceSelection({
-      events: prevEvents,
-      targetEventId,
-      candidate,
-    });
+    const eventUpdate =
+      targetKind === "journey_origin"
+        ? { events: prevEvents, applied: true } // events 不変 (必須 #4)
+        : applyPlaceSelection({
+            events: prevEvents,
+            targetEventId,
+            candidate,
+          });
 
     if (!eventUpdate.applied) {
       // 部分成功を返さない（全か無か）:
@@ -318,11 +395,25 @@ export async function POST(req: NextRequest) {
       const fallbackPlanMode = mapVcTransportToPlanMode(
         priorPlan.dayConditions?.mainTransport,
       );
+      // CEO/GPT 2026-05-03 PR B-3c-1: journey_origin promotion 時は promoted coords
+      //   を effective homeAnchor として使う (= 必須 #7、travel segment が正しい
+      //   origin → first event を表現する)。
+      //   - promotedJourneyOrigin あり → 合成 HomeAnchor (label = candidate.displayName、
+      //     source = "journey_origin_promotion")
+      //   - なし → 既存 selectionHomeAnchor (= currentLat/Lng 由来、event_where 経路と完全一致)
+      const effectiveHomeAnchor = promotedJourneyOrigin
+        ? {
+            lat: promotedJourneyOrigin.lat,
+            lng: promotedJourneyOrigin.lng,
+            label: promotedJourneyOrigin.label,
+            source: "journey_origin_promotion" as const,
+          }
+        : selectionHomeAnchor;
       const built = buildPlanAndSegmentsFromEvents({
         events: eventUpdate.events,
         enableTransportV2,
         mainTransport: derivedTransport?.plan ?? fallbackPlanMode,
-        homeAnchor: selectionHomeAnchor,
+        homeAnchor: effectiveHomeAnchor,
         journeyEnd: selectionJourneyEnd,
       });
 
@@ -362,10 +453,13 @@ export async function POST(req: NextRequest) {
         // ── W3-PR-10 Phase 2: travel display cache interleave ──
         // CEO 2026-04-28 Option B + Journey:
         //   HOME_SENTINEL → homeAnchor.label / ENDPOINT_SENTINEL → journeyEnd.label
+        // CEO/GPT 2026-05-03 PR B-3c-1: journey_origin promotion 時は
+        //   effectiveHomeAnchor (= promoted label "東京駅丸の内口" 等) を使う
+        //   (= travel item の from 表示が正しい origin label になる、必須 #7)
         const entries = synthesizeTravelItems(
           built.transportSegments,
           eventUpdate.events,
-          selectionHomeAnchor,
+          effectiveHomeAnchor,
           selectionJourneyEnd,
         );
         interleavedItems = interleaveTravelItems(built.items, entries);
@@ -417,11 +511,22 @@ export async function POST(req: NextRequest) {
       //     priorPlan.journeyOrigin が undefined (= events 空 plan からの遷移) の
       //     ケースは現在発生しない (selection は events>0 plan に対して行う) が、
       //     defensive に optional のまま渡す。
+      //
+      // CEO/GPT 2026-05-03 PR B-3c-1 補正:
+      //   journey_origin promotion path では promotedJourneyOrigin が known_exact
+      //   として確定済 (= candidate.coordinates 由来)。priorityは:
+      //     1. promotedJourneyOrigin (= 本 turn の journey_origin selection 結果) ★
+      //     2. selectionHomeAnchor 由来 (= 既存 event_where path の挙動)
+      //     3. priorPlan.journeyOrigin (= 維持)
+      //   これにより journey_origin selection 後の plan rebuild で travel segment
+      //   が正しい origin coords を使う (= 必須 #7)。
       const originReason: AnchorUnknownReason = "no_baseline";
       const endReason: AnchorUnknownReason = "no_endpoint_signal";
-      const nextJourneyOrigin = selectionHomeAnchor
-        ? toOriginState(selectionHomeAnchor, originReason)
-        : priorPlan.journeyOrigin;
+      const nextJourneyOrigin = promotedJourneyOrigin
+        ? promotedJourneyOrigin
+        : selectionHomeAnchor
+          ? toOriginState(selectionHomeAnchor, originReason)
+          : priorPlan.journeyOrigin;
       const nextJourneyEnd = selectionJourneyEnd
         ? toEndState(selectionJourneyEnd, endReason)
         : priorPlan.journeyEnd;
