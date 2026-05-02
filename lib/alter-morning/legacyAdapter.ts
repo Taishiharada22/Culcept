@@ -240,6 +240,36 @@ export interface LegacyAdapterInput {
   actualTodayYmdJst?: string | null;
 
   /**
+   * CEO/GPT 2026-05-02 PR B-2e' wire-up: 当 turn origin clarify 回答 label。
+   *
+   * 用途:
+   *   route.ts で `priorPendingClarify.slot === "origin"` を検出した時、
+   *   `bindOriginAnswer(message)` で正規化した label をここに渡す。
+   *   legacyAdapter は journeyOrigin の **最優先 Layer** で plug する:
+   *     - kind: "known_label_only"
+   *     - label: 本 field の値 (= "ホテル" 等、suffix 除去済み)
+   *     - source: "user_override"
+   *
+   * 優先順位 (CEO/GPT 確定):
+   *   1. userOverrideOriginLabel (= 当 turn clarify 回答、最優先)
+   *   2. Layer 1: USER_EXPLICIT_SOURCES (= deterministic detector の自然発話)
+   *   3. Layer 2: same-plan STRONG prior
+   *   4. Layer 3: previous_day_endpoint inheritance
+   *   5. Layer 4: resolveHomeAnchor (current → registered_home → null)
+   *   6. Layer 5: unknown
+   *
+   * 重要規律:
+   *   - 当 turn の明示回答であり、prior より新しい情報なので **STRONG prior より上**
+   *   - coords は付けない (= known_label_only、coords grounding は B-3 の責務)
+   *   - 次 turn 以降は priorPlan.journeyOrigin に persist され、user_override は
+   *     STRONG_PRIOR_ORIGIN_SOURCES に含まれているので samePlanDate=true で守られる
+   *
+   * 省略時 (= 通常 turn):
+   *   既存 flow と完全に同じ挙動 (= backward compat)。
+   */
+  userOverrideOriginLabel?: string | null;
+
+  /**
    * CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用の前日 plan。
    *
    * 渡し方 (caller responsibility、CEO/GPT 規律):
