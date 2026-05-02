@@ -2121,6 +2121,11 @@ export async function POST(req: NextRequest) {
               // resolveHomeAnchor で registered home より優先される。
               currentLat: rawCurrentLat ?? null,
               currentLng: rawCurrentLng ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-a: pipeline throw 吸収経路でも permissionState を
+              //   保持。currentLat/Lng と userHomeLat/Lng が両方 null の時、AnchorUnknownReason
+              //   を「denied / unrequested / no_baseline」のどれにすべきか判別するため、
+              //   pipeline throw 時にも permissionState を維持する必要がある。
+              permissionState: rawPermissionState ?? null,
               priorRawInputs: priorInputs,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:
