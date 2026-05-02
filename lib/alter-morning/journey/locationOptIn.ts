@@ -253,6 +253,31 @@ export function markSnoozed(nowMs: number = Date.now()): void {
 }
 
 /**
+ * declined recovery 用: state を "not_asked" にリセットする。
+ *
+ * CEO/GPT 2026-05-02 PR B-2d-d で導入:
+ *   ユーザーがブラウザ側で permission を granted/prompt に戻したとき、
+ *   Aneurasync 側 localStorage の declined を解除する経路。
+ *
+ * 重要 (CEO/GPT 規律):
+ *   - state を "not_asked" に **戻すだけ**
+ *   - 自動で granted にしない (= ユーザーは再 opt-in が必要)
+ *   - 自動で getCurrentPosition を呼ばない (= banner 再表示で明示的 opt-in を求める)
+ *   - snoozeUntil / grantedAt は **クリア** (= 過去状態のリーク防止)
+ *
+ * 副作用: localStorage write (writeLocationOptIn 経由で updatedAt 自動上書き)。
+ *   snoozeUntil / grantedAt は record に含めないので、書き込み後は両方 undefined。
+ *
+ * 使い場面:
+ *   useAlterChat の recovery useEffect が以下の条件で呼ぶ:
+ *     effectiveOptInState === "declined" &&
+ *     (permissionState === "granted" || permissionState === "prompt")
+ */
+export function markNotAsked(): void {
+  writeLocationOptIn({ state: "not_asked" });
+}
+
+/**
  * デバッグ / テスト用 reset。
  *
  * 副作用: localStorage 削除 (= 次回 readLocationOptIn() で default record を返す)。
