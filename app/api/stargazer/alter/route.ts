@@ -514,7 +514,8 @@ import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehensio
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
 // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
-import { upsertPlanHistory } from "@/lib/alter-morning/persistence/planHistory";
+//   PR B-2c: fetchPreviousDayPlan で前日 plan を取得し Layer 2 inheritance に渡す
+import { upsertPlanHistory, fetchPreviousDayPlan } from "@/lib/alter-morning/persistence/planHistory";
 import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -1858,6 +1859,14 @@ export async function POST(req: NextRequest) {
                     weather: null,
                   },
                 );
+                // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
+                //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
+                const previousDayPlanForBindPath: import("@/lib/alter-morning/types").MorningPlan | null =
+                  await fetchPreviousDayPlan(
+                    supabase,
+                    userId,
+                    new Date().toISOString().slice(0, 10),
+                  ).catch(() => null);
                 const adapted = adaptPipelineToLegacy(pipelineResult, {
                   sessionId: morningSession.sessionId,
                   utterance: message,
@@ -1874,6 +1883,8 @@ export async function POST(req: NextRequest) {
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2c: Layer 2 inheritance の inference 材料
+                  previousDayPlan: previousDayPlanForBindPath,
                   userId, // W3-PR-10 canary: allowlist 判定用
                   // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
                   //   渡して focus reconcile を有効化。slot fixed → focus clear。
@@ -2009,6 +2020,14 @@ export async function POST(req: NextRequest) {
                 weather: null,
               },
             );
+            // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
+            //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
+            const previousDayPlanForBranchB: import("@/lib/alter-morning/types").MorningPlan | null =
+              await fetchPreviousDayPlan(
+                supabase,
+                userId,
+                new Date().toISOString().slice(0, 10),
+              ).catch(() => null);
             const adapted = adaptPipelineToLegacy(pipelineResult, {
               sessionId: morningSession.sessionId,
               // PR-49: current utterance のみ。session.rawInputs (audit log) は
@@ -2031,6 +2050,8 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              // CEO/GPT 2026-05-02 PR B-2c: Layer 2 inheritance の inference 材料
+              previousDayPlan: previousDayPlanForBranchB,
               userId, // W3-PR-10 canary: allowlist 判定用
               // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
               //   渡して focus reconcile を有効化 (Branch B も同様)。
