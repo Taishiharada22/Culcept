@@ -27,6 +27,7 @@ import HomeHeader from "./_home/HomeHeader";
 import ZoneErrorBoundary from "./_home/ZoneErrorBoundary";
 import LoginIntroAnimation from "@/components/home/LoginIntroAnimation";
 import AskHero from "@/components/home/AskHero";
+import LocationOptInBanner from "@/components/alter-morning/LocationOptInBanner";
 import AneurasyncLogo from "@/components/ui/AneurasyncLogo";
 import type { AlterInsightCard } from "@/lib/stargazer/alterInsightCardBuilder";
 import AnswerCard from "@/components/home/AnswerCard";
@@ -814,6 +815,30 @@ export default function AneurasyncHome({
               )}
             </>
           )}
+
+          {/* ═══ Location Opt-in Banner (PR B-2d-b) ═══
+                CEO/GPT 2026-05-02: ユーザーが明示的に「位置情報を使う」を押した時のみ
+                getCurrentPosition を発火する。banner 表示は effectiveOptInState === "not_asked"
+                のときのみ。
+                Aneurasync の "押し付けない" 世界観に合わせ、modal は使わず inline banner で。 */}
+          <AnimatePresence>
+            {alterChat.showLocationOptInBanner && (
+              <motion.div
+                key="location-opt-in-banner"
+                className="px-4 py-2"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25 }}
+              >
+                <LocationOptInBanner
+                  mode={alterChat.locationOptInBannerMode}
+                  onGrant={alterChat.handleLocationOptInGrant}
+                  onSnooze={alterChat.handleLocationOptInSnooze}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* ═══ 会話トランスクリプト ═══ */}
           <ZoneErrorBoundary zoneName="ask">
