@@ -78,6 +78,11 @@ import {
   extractStartPointAnchor,
   extractEndpointAnchor,
 } from "./journey/explicitAnchorExtractor";
+// CEO/GPT 2026-05-02 PR B-2d-a: geolocation permission state contract
+//   permissionState は origin の主役ではない。
+//   currentLat/Lng も baseline home も解決できず origin が unknown になる時の
+//   理由説明として AnchorUnknownReason を決定する。
+import type { GeolocationPermissionState } from "./journey/permissionState";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -177,6 +182,33 @@ export interface LegacyAdapterInput {
    * 取得した user.id を lower-case 前のままここに渡す。正規化は flag getter 側で行う。
    */
   userId?: string;
+
+  /**
+   * CEO/GPT 2026-05-02 PR B-2d-a: geolocation permission state contract
+   *
+   * frontend `navigator.permissions.query` 由来の 5 値 raw 状態。
+   *   - "granted":     user 許可済 (currentLat/Lng が来る前提)
+   *   - "denied":      user 明示拒否
+   *   - "prompt":      まだ user に聞いていない
+   *   - "unsupported": Permissions API 非対応
+   *   - "unavailable": query が throw
+   *
+   * 規律 (CEO 補正 + GPT 補強):
+   *   1. permissionState は **origin の主役ではない**
+   *   2. currentLat/Lng がある → permissionState 不問で current location 採用
+   *   3. currentLat/Lng なし、userHomeLat/Lng あり → registered_home 採用、
+   *      AnchorUnknownReason 不要
+   *   4. current/baseline 両方なし → permissionState から AnchorUnknownReason 決定
+   *      denied → "denied"
+   *      prompt → "unrequested"
+   *      unsupported → "unrequested" (raw 値は debug log に保持、GPT 補強 1)
+   *      unavailable → "unrequested" (raw 値は debug log に保持、GPT 補強 1)
+   *      granted (coords なしの場合) → "no_baseline"
+   *   5. raw 5 値は debug log に出力、enum 集約に丸め込まない
+   *
+   * 用途: events>0 path で homeAnchor=null のときに reason を決定する。
+   */
+  permissionState?: GeolocationPermissionState | null;
 
   /**
    * CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用の前日 plan。
@@ -1008,7 +1040,45 @@ export function adaptPipelineToLegacy(
     //   applyAnchorFallback に統一する。selection は同じ plan 日付なので
     //   samePlanDate=true 固定で良い。PR B-3 で fresh known_label_only ケースが
     //   入ったときに統合する (現状 selection は label_only ケースを生成しない)。
-    const originReason: AnchorUnknownReason = "no_baseline";
+    // CEO/GPT 2026-05-02 PR B-2d-a: permissionState から originReason を決定
+    //
+    // 優先順位 (CEO 補正規律):
+    //   1. homeAnchor !== null (= currentLat/Lng or userHomeLat/Lng が解決された)
+    //      → originReason は使われない (toOriginState で kind="known_exact" になる)
+    //      ただし type 上 reason は要るので "no_baseline" を仮設定
+    //   2. homeAnchor === null かつ permissionState から決定:
+    //      "denied" → reason = "denied"
+    //      "prompt" / "unsupported" / "unavailable" → reason = "unrequested"
+    //        (raw permissionState は下記 debug log で保持、GPT 補強 1)
+    //      "granted" or null → reason = "no_baseline" (granted だが coords なし)
+    //
+    // permissionState は origin の主役ではない。
+    // homeAnchor が null になった時の理由説明として使うだけ。
+    const originReason: AnchorUnknownReason = (() => {
+      if (homeAnchor !== null) {
+        // 使われない (toOriginState で known_exact になる)、type 上のみ
+        return "no_baseline";
+      }
+      // homeAnchor === null = currentLat/Lng も baseline home も解決できず
+      const ps = input.permissionState;
+      if (ps === "denied") return "denied";
+      if (ps === "prompt" || ps === "unsupported" || ps === "unavailable") {
+        return "unrequested";
+      }
+      // granted but no coords (permission なのに coords が来ない)、または ps == null
+      return "no_baseline";
+    })();
+    // CEO/GPT 2026-05-02 PR B-2d-a Commit 4 (debug log): GPT 補強 1
+    //   raw permissionState を debug log に出力。lat/lng/住所/userId/plan は
+    //   出さない (CEO/GPT 規律: PII 排除)。
+    //   homeAnchor が null になった (= origin が unknown に落ちる) ときだけ出力。
+    if (homeAnchor === null) {
+      console.info("[alter-morning] origin unresolved", {
+        permissionStateRaw: input.permissionState ?? "not_provided",
+        derivedReason: originReason,
+        // GPT 規律: PII (lat/lng/住所/userId/plan) は出さない
+      });
+    }
     const endReason: AnchorUnknownReason = "no_endpoint_signal";
 
     // CEO/GPT 2026-05-02 PR B-2b: Layer 1 explicit detector を resolver より優先
