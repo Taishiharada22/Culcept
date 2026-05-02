@@ -52,7 +52,9 @@ export type ClarifyKind =
   | "where_center"          // W3-PR-6: place 完全欠損、anchor もなし → どのあたり？
   | "where_pick_from_candidates" // W3-PR-6: ambiguous 候補が多すぎ → どれ？
   | "transport"             // solver_blocker: transport
-  | "endpoint";             // solver_blocker: endpoint / end_time
+  | "endpoint"              // solver_blocker: endpoint / end_time
+  | "origin";               // CEO/GPT 2026-05-02 PR B-2e: 推論失敗時の最後の砦
+                            // (origin が unknown かつ予定本体が解決済みの時のみ発火)
 
 /**
  * clarify 質問時の event scope 情報（W3-PR-7 Commit 3 で追加）。
@@ -79,8 +81,19 @@ export interface ClarifyScope {
 export interface ClarifyRequest {
   event_id: string;
   kind: ClarifyKind;
-  /** クリア対象 slot（clarify 後の応答をどこに書くか） */
-  target_slot: SemanticCriticalSlot | SolverBlocker | "target_ref";
+  /**
+   * クリア対象 slot（clarify 後の応答をどこに書くか）。
+   *
+   * "origin" は CEO/GPT 2026-05-02 PR B-2e で追加: plan 全体の出発地 clarify。
+   * answerBinder は target_slot === "origin" の場合 event ではなく
+   * journeyOrigin (plan-level) に user_override で書き込む。
+   * event_id は sentinel "__plan_origin__" を使う (= event に紐付かない meta-level entry)。
+   */
+  target_slot:
+    | SemanticCriticalSlot
+    | SolverBlocker
+    | "target_ref"
+    | "origin";
   /** テンプレで使うメタ情報 */
   hint?: string;
   /**
@@ -405,7 +418,14 @@ export function resolveEventGap(
  * Where の新 kind（where_center / where_pick_from_candidates）は Commit 2 で追加。
  * ここでは枠だけ確保する。
  */
-const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
+/**
+ * 数値が小さいほど優先。test 用途で export している (CEO/GPT 2026-05-02 PR B-2e):
+ *   - origin が他 8 kind より大きい (= 最低優先) ことを structural test で fix する
+ *   - 将来 priority 値が変更されても、test で構造的不変条件 (origin = 最大) が破れたら検出
+ *
+ * 比較ロジック: resolveGaps の if (score < primaryScore) → 小さい score で primary 更新。
+ */
+export const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   target_ref_low: 0,        // 最優先（modify の曖昧さ、slot 非依存）
   // ── When（10-14）──
   coarse_time_bucket: 10,   // |semantic|≥2 → 朝/昼/夜?
@@ -419,6 +439,11 @@ const CLARIFY_PRIORITY: Record<ClarifyKind, number> = {
   // ── How（40-42）──
   transport: 40,
   endpoint: 42,
+  // ── Origin (最低優先 = 50) ──
+  // CEO/GPT 2026-05-02 PR B-2e: origin clarify は「最後の砦」として扱う。
+  // 他に何も clarify がない時だけ origin が出る (= 構造的保証)。
+  // 質問アプリ化を防ぎ、予定本体の解決を邪魔しない設計。
+  origin: 50,
 };
 
 /**
@@ -433,7 +458,37 @@ const KIND_TO_OPT_OUT_SLOT: Partial<Record<ClarifyKind, OptOutSlot>> = {
   activity: "what",
   transport: "how",
   endpoint: "how",
+  // origin は opt-out 対象外: 「出発地を聞かない」は「位置情報を使わない」ではなく
+  // 「予定本体が解けなかった時の最後の砦すら拒否する」 という別の意思表示になり、
+  // PR #58-#61 (B-2d 系) の opt-in 規律と被るため B-2e では opt-out 対象外とする。
 };
+
+/**
+ * Origin clarify 用の sentinel event_id。
+ *
+ * CEO/GPT 2026-05-02 PR B-2e:
+ *   origin clarify は event 単位ではなく plan-level (= journeyOrigin への書き込み)。
+ *   ClarifyRequest.event_id は型上必須なので、event に紐付かない meta entry である
+ *   ことを明示する sentinel を使う。answerBinder で target_slot === "origin" の
+ *   分岐に入った時、event_id は無視される。
+ */
+export const PLAN_ORIGIN_SENTINEL_EVENT_ID = "__plan_origin__";
+
+/**
+ * Origin clarify 候補を生成する pure helper。発火条件は detectOriginGap で判定済み前提。
+ *
+ * 質問テンプレートは clarifyQuestionBuilder (Commit 4) で attachClarifyQuestion 経由
+ * で生成される。ここでは骨組みだけを返す。
+ */
+function buildOriginClarifyRequest(): ClarifyRequest {
+  return {
+    event_id: PLAN_ORIGIN_SENTINEL_EVENT_ID,
+    kind: "origin",
+    target_slot: "origin",
+    // hint / scope は不要 (origin は plan-level、event scope なし)
+    question: "", // Commit 4 で attachClarifyQuestion が埋める
+  };
+}
 
 export function resolveGaps(
   events: Event[],
@@ -441,6 +496,16 @@ export function resolveGaps(
     grounded?: GroundedPlace[];
     /** ユーザーが「聞かなくていい」と明示した slot。primary_clarify 選択時にスキップ */
     slotOptOuts?: OptOutSlot[];
+    /**
+     * CEO/GPT 2026-05-02 PR B-2e: origin clarify 発火判定の入力。
+     * 呼び出し側 (legacyAdapter) で detectOriginGap を実行し、true の時のみ
+     * このフラグを true にして渡す。本関数は「優先度比較」のみ担当する。
+     *
+     * 設計分離:
+     *   - detectOriginGap: 発火条件 8 つの strict 判定 (originGap.ts)
+     *   - resolveGaps: ClarifyKind 間の priority 比較 + primary 選択 (本関数)
+     */
+    originGapDetected?: boolean;
   },
 ): GapResolution {
   const grounded = ctx?.grounded;
@@ -448,6 +513,16 @@ export function resolveGaps(
   const actions: GapAction[] = events.map((ev, index) =>
     resolveEventGap(ev, { events, index, grounded }),
   );
+
+  // CEO/GPT 2026-05-02 PR B-2e: origin clarify candidate を追加
+  //   priority=50 (= 最低) なので、他に何も clarify がない時だけ primary に勝つ。
+  //   構造的に「予定本体の解決を邪魔しない」 が保証される。
+  if (ctx?.originGapDetected === true) {
+    actions.push({
+      type: "clarify",
+      request: buildOriginClarifyRequest(),
+    });
+  }
 
   // W3-PR-6 Commit 4: opt-out slot に対応する clarify は primary_clarify 選定から除外。
   // （pass_through ではなく action 自体は残す — 将来 ASK でなく PROVISIONAL 扱い

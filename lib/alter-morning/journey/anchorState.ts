@@ -160,14 +160,24 @@ export type AnchorSource =
    */
   | "user_explicit_endpoint"
   /**
-   * (将来 PR B-2e) endpoint clarify の user 回答で確定した終点。
+   * clarify に対するユーザー回答で確定した anchor (PR B-2e で意味論拡張)。
    *
-   * CEO/GPT 2026-05-02 規律 (PR B-2c での扱い):
-   *   現時点では **endpoint clarify 専用**。origin clarify はまだ実装されていない。
-   *   origin の意味で使われるようになったら、PR B-2e で:
-   *     - STRONG_PRIOR_ORIGIN_SOURCES に追加
-   *     - 「origin / endpoint 両方の clarify 由来」 と意味論を更新
-   *   それまでは endpoint 専用 source として扱う (= origin の STRONG prior には含めない)。
+   * CEO/GPT 2026-05-02 PR B-2e 規律 (確定):
+   *   - field 配置で役割を区別する:
+   *     - journeyOrigin に入る → origin override (B-2e で導入)
+   *     - journeyEnd に入る → endpoint override (PR B-1 で先行導入)
+   *   - source 名 (= "user_override") だけでは origin/end を区別しない
+   *   - PR B-3 で AnchorSource を `OriginSource | EndSource` に discriminated union
+   *     化する際は、本 source は両方に重複定義する (もしくは型レベル分離前段の
+   *     共通 source として残す)。
+   *
+   * STRONG_PRIOR_ORIGIN_SOURCES (PR B-2e で追加済み):
+   *   user_override は origin に入った場合、samePlanDate=true で守られる。
+   *   samePlanDate=false (= 別日 plan) では古い user_override は守られない (= stale 解除)。
+   *
+   * 不変条件:
+   *   - clarify 経路でしか入らない (deterministic detector / LLM では立てない)
+   *   - PR B-2e では known_label_only で plug (= coords は B-3 で grounding)
    */
   | "user_override";
 
@@ -286,10 +296,15 @@ export function hasResolvedCoordinates(
  *   - "current":          browser geolocation、time-dependent な弱い fallback
  *   - "registered_home":  baseline、Layer 3 由来の弱い fallback
  *   - end 専用 source は origin に出ない (構造的に)
- *   - "user_override":    現時点 endpoint 専用 (PR B-1 で定義)。origin clarify
- *     (PR B-2e) で origin にも使われるようになったら、ここに追加する。
- *     CEO/GPT 2026-05-02 規律: endpoint 専用の source を origin の STRONG prior
- *     として扱うのは意味論的に不適切。
+ *
+ * PR B-2e 拡張 (CEO/GPT 2026-05-02):
+ *   - "user_override" を追加。origin clarify (PR B-2e) の user 回答で確定した anchor は
+ *     STRONG prior として扱う (= 同 plan 内で Layer 2 で上書きしない)。
+ *   - user_override は journeyOrigin に入れば origin override、journeyEnd に入れば
+ *     endpoint override (= field 配置で役割を区別)。本 set は origin 用なので、
+ *     journeyOrigin に user_override が入っているケースを意味論的に守る。
+ *   - samePlanDate=true で守られる、samePlanDate=false (= 別日 plan) では古い
+ *     user_override は守られない (= 自動 stale 解除)。
  *
  * 用途:
  *   - preserveStrongPriorOrigin() で「同 plan 内で Layer 2 で上書きすべきでない
@@ -299,6 +314,7 @@ const STRONG_PRIOR_ORIGIN_SOURCES = new Set<AnchorSource>([
   "user_declared",
   "previous_day_endpoint",
   "previous_day_assumed_endpoint",
+  "user_override", // PR B-2e: origin clarify 回答 (clarify 経路で確定)
 ]);
 
 /**

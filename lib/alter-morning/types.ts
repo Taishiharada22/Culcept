@@ -866,7 +866,9 @@ export type PendingSlot =
   | "where"
   | "what"
   | "transport"
-  | "endpoint";
+  | "endpoint"
+  | "origin"; // CEO/GPT 2026-05-02 PR B-2e: origin clarify (= 最後の fallback)
+              // answerBinder で受けた回答は journeyOrigin に user_override で書き込む
 
 /**
  * 質問時の event スコープ情報。再表示・再質問時に「朝の仕事」等と
