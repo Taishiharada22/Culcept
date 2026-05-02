@@ -296,10 +296,15 @@ export function hasResolvedCoordinates(
  *   - "current":          browser geolocation、time-dependent な弱い fallback
  *   - "registered_home":  baseline、Layer 3 由来の弱い fallback
  *   - end 専用 source は origin に出ない (構造的に)
- *   - "user_override":    現時点 endpoint 専用 (PR B-1 で定義)。origin clarify
- *     (PR B-2e) で origin にも使われるようになったら、ここに追加する。
- *     CEO/GPT 2026-05-02 規律: endpoint 専用の source を origin の STRONG prior
- *     として扱うのは意味論的に不適切。
+ *
+ * PR B-2e 拡張 (CEO/GPT 2026-05-02):
+ *   - "user_override" を追加。origin clarify (PR B-2e) の user 回答で確定した anchor は
+ *     STRONG prior として扱う (= 同 plan 内で Layer 2 で上書きしない)。
+ *   - user_override は journeyOrigin に入れば origin override、journeyEnd に入れば
+ *     endpoint override (= field 配置で役割を区別)。本 set は origin 用なので、
+ *     journeyOrigin に user_override が入っているケースを意味論的に守る。
+ *   - samePlanDate=true で守られる、samePlanDate=false (= 別日 plan) では古い
+ *     user_override は守られない (= 自動 stale 解除)。
  *
  * 用途:
  *   - preserveStrongPriorOrigin() で「同 plan 内で Layer 2 で上書きすべきでない
@@ -309,6 +314,7 @@ const STRONG_PRIOR_ORIGIN_SOURCES = new Set<AnchorSource>([
   "user_declared",
   "previous_day_endpoint",
   "previous_day_assumed_endpoint",
+  "user_override", // PR B-2e: origin clarify 回答 (clarify 経路で確定)
 ]);
 
 /**
