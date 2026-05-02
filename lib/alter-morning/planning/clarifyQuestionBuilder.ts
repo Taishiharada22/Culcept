@@ -119,6 +119,12 @@ const TEMPLATES: Record<ClarifyKind, Template> = {
   // solver_blocker: endpoint / end_time が決まらない
   endpoint: (prefix) =>
     prefix ? `${prefix}は何時まで？` : "何時まで？",
+
+  // CEO/GPT 2026-05-02 PR B-2e: origin clarify (= 推論失敗時の最後の砦)
+  //   - prefix は使わない (= origin は plan-level、event scope 不要)
+  //   - 「今」 は使わない (= future plan 対応、tense neutral)
+  //   - シンプルな 1 行 (= 質問アプリ化を防ぐ)
+  origin: () => "出発地はどこにする？",
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
