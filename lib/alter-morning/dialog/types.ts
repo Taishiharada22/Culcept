@@ -240,9 +240,53 @@ export interface LastGoodPlanSnapshot {
  * 別 event に focus が移った場合は activePresentation → parkedPresentations に
  * 退避する（reducer 不変条件）。
  */
+/**
+ * CEO/GPT 2026-05-03 PR B-3b 確定: presentation target の discriminated union。
+ *
+ * fake event を作って origin/end を event.where に偽装する誘惑を構造的に防ぐため、
+ * plan-level anchor を type-level で区別する。
+ *
+ * 3 種:
+ *   - "event_where":    既存 (W3-PR-9) — event の where slot 解決
+ *   - "journey_origin": B-3 で導入 — plan-level origin の grounding
+ *   - "journey_end":    B-3 で導入 — plan-level end の grounding
+ *
+ * backward compat (CEO 2026-05-03 確定):
+ *   - PresentationContext.target は optional
+ *   - 旧 session で target が無い場合、targetEventId から event_where と推定
+ *   - target 必須化 / targetEventId 即時削除はしない
+ *   - B-3d の type-level 分離時に統一を検討
+ */
+export type PresentationTarget =
+  | { kind: "event_where"; eventId: string }
+  | { kind: "journey_origin" }
+  | { kind: "journey_end" };
+
 export interface PresentationContext {
-  /** 対象 event（ComprehensionEvent.event_id） */
+  /**
+   * 対象 event（ComprehensionEvent.event_id）。
+   *
+   * 既存 W3-PR-9 で必須 field として導入。
+   * B-3b で `target?` を追加したが、backward compat のため本 field は残す。
+   * 旧 session / 旧 payload は本 field から `{ kind: "event_where", eventId }`
+   * と推定される (`getPresentationTarget` 経由)。
+   *
+   * journey_origin / journey_end target の場合は sentinel
+   * (PLAN_ORIGIN_SENTINEL_EVENT_ID 等) を入れる暫定対応。B-3d で型分離時に
+   * targetEventId 自体の必要性を再検討する。
+   */
   targetEventId: string;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3b: discriminated union による target 識別。
+   *
+   * 不変条件:
+   *   - 新コード経路では target を必須として扱う (= getPresentationTarget で resolve)
+   *   - 旧 session で target が無い場合、targetEventId から event_where と fallback
+   *   - target.kind === "event_where" のときのみ targetEventId が意味を持つ
+   *   - target.kind === "journey_origin" / "journey_end" のときは
+   *     targetEventId は sentinel (= 旧 sentinel との互換維持)
+   */
+  target?: PresentationTarget;
   /**
    * 当時の searchQueryDraft を要約した指紋。
    * reducer は payload で渡された値をそのまま保存し、比較時は厳密一致で判定。
@@ -253,6 +297,27 @@ export interface PresentationContext {
   candidates: ReadonlyArray<NormalizedPlaceCandidate>;
   /** 提示ターン（analytics / stale 判定の補助） */
   presentedAtTurn: number;
+}
+
+/**
+ * PresentationContext から PresentationTarget を取得する helper (PR B-3b)。
+ *
+ * 旧 session / 旧 payload で target が無い場合、targetEventId から
+ * `{ kind: "event_where", eventId }` を構築する (= backward compat)。
+ *
+ * 不変条件:
+ *   - target があれば常にそれを返す
+ *   - target が無く targetEventId が空文字 → 防御的に event_where + ""
+ *     (= caller 側で targetEventId 必須を validate しているため通常起きない)
+ *
+ * @param ctx PresentationContext
+ * @returns 解決済 PresentationTarget
+ */
+export function getPresentationTarget(
+  ctx: Pick<PresentationContext, "target" | "targetEventId">,
+): PresentationTarget {
+  if (ctx.target) return ctx.target;
+  return { kind: "event_where", eventId: ctx.targetEventId };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -479,6 +544,20 @@ export type DialogAction =
       targetEventId: string;
       queryFingerprint: string;
       candidates: ReadonlyArray<NormalizedPlaceCandidate>;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3b: presentation target を payload で渡す経路。
+       *
+       * - 既存 caller (= W3-PR-9 経路): undefined のまま、reducer は targetEventId
+       *   から `event_where` と推定 (= backward compat)
+       * - 新 caller (= journey_origin / journey_end target): target を明示
+       *
+       * 不変条件:
+       *   - target が指定された場合、reducer は target を PresentationContext.target
+       *     にそのまま記録する
+       *   - target が undefined の場合、reducer は { kind: "event_where", eventId:
+       *     targetEventId } と等価として扱う (= getPresentationTarget helper 経由)
+       */
+      target?: PresentationTarget;
     }
   /**
    * PR-9 commit 2 追加 — user が picker で候補 1 つを選択した。
@@ -501,6 +580,21 @@ export type DialogAction =
       targetEventId: string;
       queryFingerprint: string;
       selectedPlaceId: string;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3b: selection target を payload で渡す経路。
+       *
+       * - 既存 caller (= W3-PR-9 経路): undefined のまま (= event_where と等価)
+       * - 新 caller (= journey_origin / journey_end target): target を明示
+       *
+       * 不変条件:
+       *   - 一致判定: action.target と activePresentation.target が一致する場合のみ accept
+       *   - target が両方 undefined の場合は targetEventId 一致のみで判定 (legacy 経路)
+       *   - target が片方だけ指定されている場合は mismatch として reject
+       *
+       * 注: anchor 更新ロジック (= journeyOrigin/End を known_exact に昇格) は B-3c。
+       *     reducer は target field を受け取り、stale check に使うのみ。
+       */
+      target?: PresentationTarget;
     }
   /**
    * PR-9 commit 2 追加 — Places API 結果が 0 件だった。
