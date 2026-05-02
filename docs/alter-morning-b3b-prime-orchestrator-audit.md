@@ -1,9 +1,11 @@
 # B-3b' Orchestrator Audit (= Wiring Phase Audit)
 
-**Status**: Draft for CEO/GPT review (実装はまだ承認されていない)
-**Date**: 2026-05-03
+**Status**: ✅ Final (CEO/GPT 2026-05-03 確定、本 forward-fix PR で 12 章を判定反映済み)
+**Date**: 2026-05-03 (initial draft) / 2026-05-03 (CEO/GPT 4 論点反映 final 化)
 **Author**: Build Unit (Claude)
 **Scope**: B-3b' — placesHandoffOrchestrator 拡張 + userOverrideOriginLabel wiring の audit。**実装変更ゼロ**。
+**Forward-fix note**: PR #66 で本 doc を draft のまま merge してしまったため、本 PR で
+12 章「論点」 → 「最終方針」 に書き換え + Q3 (flag 命名) を CEO 補正で修正。
 
 **Predecessor**: B-3a (PR #64 audit doc) → B-3b foundation (PR #65 = classifier + types + reducer routing) → 本 doc
 
@@ -392,52 +394,55 @@ CEO 2026-05-03 補正:
 
 ---
 
-## 7. B-3b' 成功条件
+## 7. B-3b' 成功条件 (= journey_origin のみ、CEO 2026-05-03 確定)
 
 ```
 ✅ event_where 既存 flow 不変 (= 全 W3-PR-9 test PASS)
 ✅ journey_origin target で candidate presentation を作れる (staging)
-✅ ただし feature flag OFF では production に表示されない
+✅ journey_end は本 PR scope 外 (= 別 PR、journeyEndGrounding 別 flag)
+✅ feature flag OFF では production に表示されない
 ✅ flag ON staging でも selection click は blocked / not_implemented
 ✅ private_semantic は Places API に流れない (= classifier で reject)
 ✅ generic_category も Places API に流れない (= shouldGroundLabel false)
 ✅ ambiguous_or_demonstrative も流れない
 ✅ zero candidates では known_label_only を維持する
 ✅ selection 後の known_exact 昇格は B-3c に分離
-✅ 「候補選んだ → journeyOrigin 不変」 状態が構造的に起きない (3 層 gate)
+✅ 「候補選んだ → journeyOrigin 不変」 状態が構造的に起きない (3 層 gate = Layer 1+2+3)
 ```
 
 ---
 
 ## 8. B-3b'-2 実装 PR scope
 
-### 8.1 含まれるもの
+### 8.1 含まれるもの (= journey_origin のみ)
 
-1. **新 flag 追加**: `journeyOriginGrounding(userId)` (= AND gate で 3 重防御)
+1. **新 flag 追加**: `journeyOriginGrounding(userId)` (= AND gate で 3 重防御、journey_origin 専用)
 2. **`orchestrateJourneyAnchorHandoff` (新関数)** 追加:
    - gate: flag ON + classifyLabel public POI 確認
    - Places API call (= 既存 executePlacesHandoff の extension or 新関数)
    - dispatch: SEARCH_CANDIDATES_PRESENTED with target=journey_origin
+   - target=journey_end は infrastructure として動く可能性があっても **gate で reject** (= journeyOriginGrounding は origin 専用)
 3. **legacyAdapter / route.ts 統合**:
    - `userOverrideOriginLabel` 検出時に新 orchestrator を呼ぶ
    - flag OFF なら何もしない (= 完全 skip)
 4. **PlaceCandidatePicker** 拡張:
    - `disabledTargetKinds: ReadonlyArray<PresentationTarget["kind"]>` props 追加
    - target.kind が含まれる場合は click 無効化
-5. **selection route gate**:
+5. **selection route gate** (Layer 3):
    - `target.kind === "journey_origin"` で reject (`not_implemented_journey_anchor_promotion`)
 6. **integration tests**:
    - flag OFF: orchestrator 呼ばれない
-   - flag ON + public POI: presentation 作られる
+   - flag ON + public POI: presentation 作られる (journey_origin only)
    - flag ON + private_semantic: orchestrator 呼ばれない (classifier で skip)
-   - flag ON + click: UI level で blocked
-   - flag ON + bypass: server level で reject
+   - flag ON + click: UI level で blocked (Layer 2)
+   - flag ON + bypass: server level で reject (Layer 3)
 7. **regression test**: 既存 event_where 経路完全 preserve
 
-### 8.2 含まれないもの (= B-3c 以降)
+### 8.2 含まれないもの (= B-3c 以降 + journey_end は別 PR)
 
-- ❌ `applyPlaceSelectionByTarget` (= journeyOrigin/End を known_exact に昇格)
-- ❌ travel segment 生成
+- ❌ **journey_end の grounding** (= 別 PR、`journeyEndGrounding` 別 flag)
+- ❌ `applyPlaceSelectionByTarget` (= journeyOrigin/End を known_exact に昇格、B-3c)
+- ❌ travel segment 生成 (B-3c)
 - ❌ flag 削除 (B-3c の最終 commit で実施)
 - ❌ derivedFrom field (= B-3d)
 - ❌ AnchorSource type-level 分離 (= B-3d)
@@ -445,19 +450,21 @@ CEO 2026-05-03 補正:
 
 ---
 
-## 9. flag 命名と削除タイミング
+## 9. flag 命名と削除タイミング (CEO 2026-05-03 確定)
 
-### 9.1 命名
+### 9.1 命名 — **origin 専用** (CEO 補正)
 
 `ALTER_MORNING_FLAGS.journeyOriginGrounding(userId)`
 - 既存 pattern (`dialogStateV2`, `placesSearch`, `transportV2`, `visualFlow`) と整合
-- `journey_end` も同 flag で gate (= 単一 flag で 2 target 管理)
+- **`journey_origin` のみを制御する** (= `journey_end` は管理対象外)
+- `journey_end` 対応時は `journeyEndGrounding` 別 flag を追加 or 安定後に統合検討
 
 ### 9.2 環境変数
 
-`ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING_ENABLED=true|false`
+`ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING=true|false`
 - 既存 pattern と命名整合
 - default false (= production OFF)
+- `_ENABLED` suffix を削除 (= 既存 flag 命名と一致、CEO 補正)
 
 ### 9.3 削除タイミング
 
@@ -474,6 +481,16 @@ CEO 2026-05-03 補正:
 - 全 caller の `if (ALTER_MORNING_FLAGS.journeyOriginGrounding(userId))` 条件を unconditional に
 - env var 削除指示 (= Vercel env からの削除は CEO 手動)
 - 関連 test 更新
+
+### 9.5 journey_end の扱い (= 別 PR 予定)
+
+CEO 2026-05-03 確定:
+- B-3b' / B-3c では journey_origin **のみ** 対応
+- `journey_end` の grounding は **後続 PR** で対応:
+  - 同じ infrastructure (orchestrateJourneyAnchorHandoff) を流用可
+  - ただし `journeyEndGrounding` 別 flag で gate
+  - or origin が production stable になってから統合検討
+- 本 doc 内の「journey_end」 言及はあくまで **infrastructure として準備済み** という意味
 
 ---
 
@@ -534,23 +551,61 @@ CEO 2026-05-03 補正:
 
 ---
 
-## 12. CEO/GPT に確認したい論点
+## 12. 最終方針 (CEO/GPT 2026-05-03 確定)
 
-### 12.1 orchestrator 拡張: Option A (新関数追加) vs Option B (既存関数分岐)
-- 私の推奨: **Option A** (= 既存 event_where 経路を完全 preserve、test 容易)
-- 別案: Option B (= 1 関数で全 target 管理、ただし肥大化)
+### 12.1 orchestrator 拡張 — **Option A 採用**
 
-### 12.2 selection gate: Layer 2 (UI disabled) vs Layer 3 (server reject)
-- 私の推奨: **両方** (= depth-defense)
-- Layer 1 (flag OFF) で production 防御 + Layer 2 で UX 整合 + Layer 3 で server defense
+CEO/GPT 確定方針:
+> 新関数 `orchestrateJourneyAnchorHandoff` を追加。
+> 既存 `orchestratePlacesHandoff` に `journey_origin` を雑に分岐追加しない。
 
-### 12.3 flag 命名: `journeyOriginGrounding` (単一) vs `journeyEndGrounding` 別
-- 私の推奨: **単一 flag** (= origin/end 両方をまとめて管理)
-- B-3b' は origin から、B-3b' 内で end も同時にやるか別 PR か
+理由:
+- 既存 `orchestratePlacesHandoff` は `event_where` 前提が強く、雑に拡張すると
+  既存 W3-PR-9 flow を壊すリスクが高い
+- 新関数として完全分離することで test 容易、regression リスク最小
 
-### 12.4 staging 検証で半壊 UX を許容するか
-- CEO 2026-05-03 補正: **絶対 NG** (= flag ON でも selection blocked)
-- 私の理解: 3 層 gate で「click → journeyOrigin 不変」 を構造的に防ぐ
+### 12.2 selection gate — **Layer 2 + Layer 3 両方必須**
+
+CEO/GPT 確定方針:
+> Layer 2 (UI disabled) + Layer 3 (server reject) **両方必須**。
+
+理由:
+- UI のみでは直接 POST を防げない (= 攻撃 / race condition)
+- server のみでは「選べるように見える」 半壊 UX
+- depth-defense として両方実装
+
+### 12.3 flag 命名 — **origin 専用 flag で開始** (CEO 補正)
+
+**注意: 私の元案 (= 単一 flag で origin/end 両方管理) は CEO により修正された。**
+
+CEO/GPT 確定方針:
+> origin 専用 flag で始める。
+> `env: ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING`
+> `code: journeyOriginGrounding`
+>
+> この flag は **journey_origin のみ** を制御する。
+> `journey_end` まで同じ flag で管理しない。
+> end 対応時は `journeyEndGrounding` 別 flag を追加するか、
+> 両方安定後に統合を検討。
+
+理由:
+- origin / end は機能規模が異なる (= origin の方が複雑)
+- 同 flag で管理すると「origin 安定後 → end staging で問題発生」 時に rollback できない
+- 段階的 rollout は「個別 flag → 統合検討」 の方が安全
+
+### 12.4 staging 検証で半壊 UX を許容するか — **絶対 NG**
+
+CEO 2026-05-03 確定:
+> staging で flag ON でも、selection 後の `known_exact` 昇格が未実装なら
+> 候補クリックを成功扱いにしない。
+>
+> B-3b' は candidate presentation の検証まで。
+> selection click は B-3c 未実装として **blocked / not_implemented** 扱い。
+>
+> 「候補を選んだように見えるが journeyOrigin は known_label_only のまま」
+> という状態は絶対作らない。
+
+実装方針: 3 層 gate (= §6 で定義済) で構造的不可能性を保証。
 
 ---
 
@@ -566,16 +621,24 @@ CEO 2026-05-03 補正:
 
 ---
 
-## Approval needed
+## Approval status (CEO/GPT 2026-05-03 確定)
 
-CEO/GPT は以下を判断してください:
+✅ **B-3b' audit doc は CEO/GPT 確定方針を反映済み (= final)**
 
-1. 本 audit doc が必要 10 項目 (CEO 指示) を網羅しているか
-2. 設計案 (Option A 採用、3 層 gate) が妥当か
-3. 12 章の私の推奨に同意するか / 別方針か
-4. B-3b' 実装 PR の scope (= §8) が適切か
+**Forward-fix history**:
+- PR #66 で本 doc を draft のまま admin merge してしまった (= ミス)
+- 本 forward-fix PR で 12 章 4 論点を CEO/GPT 判断反映 + final 化
+- 並行: PR #67 (infra: vercel.json ignoreCommand) は別 scope で進行中
 
-承認後、B-3b'-2 実装に進みます。
+**CEO 確定 4 判断 (= 12 章 反映済)**:
+- Q1: orchestrator 拡張 → **Option A 採用** (新関数 `orchestrateJourneyAnchorHandoff`)
+- Q2: selection gate → **Layer 2 + Layer 3 両方必須**
+- Q3: flag 命名 → **origin 専用 flag** (= `journeyOriginGrounding`、`journey_end` は別 flag)
+- Q4: staging 半壊 UX → **絶対 NG** (= 3 層 gate で構造的不可能性)
+
+**次のステップ**:
+1. 本 forward-fix PR を merge → audit doc final 化
+2. B-3b'-2 実装に着手 (= journey_origin のみ、journey_end は別 PR)
 
 ---
 
