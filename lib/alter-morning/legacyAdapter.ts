@@ -85,6 +85,9 @@ import {
 import type { GeolocationPermissionState } from "./journey/permissionState";
 // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
 import { evaluateCurrentLocation } from "./journey/currentLocationGating";
+// CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 統合
+import { shouldAskOriginClarify } from "./journey/originGap";
+import { PLAN_ORIGIN_SENTINEL_EVENT_ID } from "./planning/gapResolver";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -869,13 +872,17 @@ export function adaptPipelineToLegacy(
     comprehensionOk: result.status === "ok",
   });
 
-  const phase = reconcile.reconciledPhase;
-  const pendingClarify = reconcile.reconciledPendingClarify;
+  // CEO/GPT 2026-05-02 PR B-2e' wire-up:
+  //   journeyOrigin が unknown 確定 + origin clarify 条件全て満たす場合、
+  //   plan 構築後に pendingClarify / phase / message / planStatus を上書きする。
+  //   そのため `let` で宣言して post-process での再代入を許す。
+  let phase = reconcile.reconciledPhase;
+  let pendingClarify = reconcile.reconciledPendingClarify;
 
   // ── Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）──
   //   clarifying: primary_clarify.question → scope/kind 再生成 → prior.question → generic
   //   plan_presented: narration.text → events から deterministic 再構築 → generic
-  const message =
+  let message =
     phase === "plan_presented"
       ? buildPlanPresentedMessage(result, effectiveEvents)
       : buildClarifyingMessage(result, input, pendingClarify);
@@ -885,7 +892,7 @@ export function adaptPipelineToLegacy(
   //           pendingClarify あり → needs_answer
   //           else (events あるが ASK 無し / comprehension_failed 継承) → provisional
   //   events が完全に空の場合は priorPlan を provisional として継承する。
-  const planStatus: MorningPlanStatus =
+  let planStatus: MorningPlanStatus =
     phase === "plan_presented"
       ? "confirmed"
       : pendingClarify != null
@@ -1292,6 +1299,64 @@ export function adaptPipelineToLegacy(
       status: phase === "plan_presented" ? "confirmed" : planStatus,
       items: input.priorPlan.items.map((item) => normalizePlanItem(item)),
     };
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify を **三重保証** で inject
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //   journeyOrigin が unknown かつ origin clarify 条件全て満たす場合、
+  //   pendingClarify / phase / message / plan.status を上書きする。
+  //
+  // 三重保証 (CEO/GPT 2026-05-02 規律 + B-2e' 補強):
+  //   ① phase !== "plan_presented"
+  //      (= 既に plan 確定状態の時は origin clarify で再降格しない、保守的 rollout)
+  //   ② pendingClarify == null  (= reconcile が他 clarify を立てていない)
+  //   ③ result.gapResolution.actions に clarify type の action がない (= 既存 clarify 0)
+  //   ④ shouldAskOriginClarify() が 8 条件全て true (= 質問アプリ化防止)
+  //
+  // priority=50 で構造的に最低優先 + runtime で三重保証 → 「予定本体の解決を邪魔しない」
+  // が複層的に保証される。
+  //
+  // 注意: input.userOverrideOriginLabel が指定されている場合は、journeyOrigin が
+  //   既に user_override で plug されているため kind === "unknown" ではない →
+  //   shouldAskOriginClarify が false を返す → 本 block は skip される (= 構造的に正しい)。
+  //
+  // 既存 test fixture との互換性 (CEO/GPT 2026-05-02):
+  //   既存 test の多くは home/current 不指定で plan_presented を期待する fixture。
+  //   B-2e' で origin clarify を fire させると test が破綻するが、
+  //   ① phase !== "plan_presented" の guard で既存挙動を保護する (= 保守的 rollout)。
+  //   将来的に「plan_presented + origin unknown」 パターンへの対応は別 PR で判断。
+  if (
+    plan != null &&
+    plan.journeyOrigin?.kind === "unknown" &&
+    phase !== "plan_presented" &&
+    pendingClarify == null &&
+    !(result.gapResolution?.actions?.some((a) => a.type === "clarify") ?? false)
+  ) {
+    const shouldAsk = shouldAskOriginClarify({
+      journeyOrigin: plan.journeyOrigin,
+      events: effectiveEvents,
+      dialogState: input.priorDialogState ?? null,
+      priorPendingClarify: input.priorPendingClarify ?? null,
+    });
+    if (shouldAsk) {
+      // origin clarify question を生成 (clarifyQuestionBuilder template)
+      const originQuestion = buildClarifyQuestion({ kind: "origin" });
+      // pendingClarify を origin clarify で上書き
+      pendingClarify = {
+        event_id: PLAN_ORIGIN_SENTINEL_EVENT_ID,
+        slot: "origin",
+        kind: "origin",
+        scope: { timeLabel: null, activityLabel: null, eventOrdinal: 0 },
+        question: originQuestion,
+        askedAt: new Date().toISOString(),
+      };
+      // phase を clarifying に降格、message と plan.status を同期
+      phase = "clarifying";
+      message = originQuestion;
+      planStatus = "needs_answer";
+      plan = { ...plan, status: "needs_answer" };
+    }
   }
 
   // ── W3-PR-8: items=0 禁則の二層化（CEO 2026-04-22）──
