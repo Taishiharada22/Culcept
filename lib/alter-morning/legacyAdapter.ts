@@ -85,6 +85,9 @@ import {
 import type { GeolocationPermissionState } from "./journey/permissionState";
 // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
 import { evaluateCurrentLocation } from "./journey/currentLocationGating";
+// CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 統合
+import { shouldAskOriginClarify } from "./journey/originGap";
+import { PLAN_ORIGIN_SENTINEL_EVENT_ID } from "./planning/gapResolver";
 // CEO 2026-04-28 PR #41a Layer 0: turn 反復 / merge 真因 pin の diagnostic。
 import {
   emitTurnTrace,
@@ -238,6 +241,36 @@ export interface LegacyAdapterInput {
   accuracy?: number | null;
   capturedAt?: string | null;
   actualTodayYmdJst?: string | null;
+
+  /**
+   * CEO/GPT 2026-05-02 PR B-2e' wire-up: 当 turn origin clarify 回答 label。
+   *
+   * 用途:
+   *   route.ts で `priorPendingClarify.slot === "origin"` を検出した時、
+   *   `bindOriginAnswer(message)` で正規化した label をここに渡す。
+   *   legacyAdapter は journeyOrigin の **最優先 Layer** で plug する:
+   *     - kind: "known_label_only"
+   *     - label: 本 field の値 (= "ホテル" 等、suffix 除去済み)
+   *     - source: "user_override"
+   *
+   * 優先順位 (CEO/GPT 確定):
+   *   1. userOverrideOriginLabel (= 当 turn clarify 回答、最優先)
+   *   2. Layer 1: USER_EXPLICIT_SOURCES (= deterministic detector の自然発話)
+   *   3. Layer 2: same-plan STRONG prior
+   *   4. Layer 3: previous_day_endpoint inheritance
+   *   5. Layer 4: resolveHomeAnchor (current → registered_home → null)
+   *   6. Layer 5: unknown
+   *
+   * 重要規律:
+   *   - 当 turn の明示回答であり、prior より新しい情報なので **STRONG prior より上**
+   *   - coords は付けない (= known_label_only、coords grounding は B-3 の責務)
+   *   - 次 turn 以降は priorPlan.journeyOrigin に persist され、user_override は
+   *     STRONG_PRIOR_ORIGIN_SOURCES に含まれているので samePlanDate=true で守られる
+   *
+   * 省略時 (= 通常 turn):
+   *   既存 flow と完全に同じ挙動 (= backward compat)。
+   */
+  userOverrideOriginLabel?: string | null;
 
   /**
    * CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用の前日 plan。
@@ -839,13 +872,17 @@ export function adaptPipelineToLegacy(
     comprehensionOk: result.status === "ok",
   });
 
-  const phase = reconcile.reconciledPhase;
-  const pendingClarify = reconcile.reconciledPendingClarify;
+  // CEO/GPT 2026-05-02 PR B-2e' wire-up:
+  //   journeyOrigin が unknown 確定 + origin clarify 条件全て満たす場合、
+  //   plan 構築後に pendingClarify / phase / message / planStatus を上書きする。
+  //   そのため `let` で宣言して post-process での再代入を許す。
+  let phase = reconcile.reconciledPhase;
+  let pendingClarify = reconcile.reconciledPendingClarify;
 
   // ── Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）──
   //   clarifying: primary_clarify.question → scope/kind 再生成 → prior.question → generic
   //   plan_presented: narration.text → events から deterministic 再構築 → generic
-  const message =
+  let message =
     phase === "plan_presented"
       ? buildPlanPresentedMessage(result, effectiveEvents)
       : buildClarifyingMessage(result, input, pendingClarify);
@@ -855,7 +892,7 @@ export function adaptPipelineToLegacy(
   //           pendingClarify あり → needs_answer
   //           else (events あるが ASK 無し / comprehension_failed 継承) → provisional
   //   events が完全に空の場合は priorPlan を provisional として継承する。
-  const planStatus: MorningPlanStatus =
+  let planStatus: MorningPlanStatus =
     phase === "plan_presented"
       ? "confirmed"
       : pendingClarify != null
@@ -1191,10 +1228,37 @@ export function adaptPipelineToLegacy(
       { samePlanDate },
     );
 
-    // 推論 chain (origin):
-    //   Layer 1 explicit → strong prior → Layer 2 previous_day → Layer 3-4 resolver+weak
+    // ── CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答を最優先で plug ──
+    //   userOverrideOriginLabel は当 turn の origin clarify への明示回答。
+    //   STRONG prior より上位 (= 当 turn の明示は prior より新しい情報、論理的に正しい)。
+    //
+    //   優先順位 (CEO/GPT 確定、修正版):
+    //     1. originClarifyAnswer (= 当 turn clarify 回答)  ← 本 layer
+    //     2. Layer 1 explicit (= deterministic detector)
+    //     3. STRONG prior (= same-plan 内 prior 保護)
+    //     4. previous day endpoint (Layer 2)
+    //     5. resolver + weak fallback (Layer 3-4)
+    //     6. unknown (Layer 5)
+    //
+    //   形式: known_label_only / source = "user_override"
+    //     coords は付けない (= B-3 で grounding する)
+    //     user_override は STRONG_PRIOR_ORIGIN_SOURCES に含まれているので、
+    //     次 turn 以降は priorPlan.journeyOrigin = user_override が STRONG prior として
+    //     samePlanDate=true で守られる (= persistence の自動継承)
+    const originClarifyAnswer: JourneyAnchorState | null =
+      input.userOverrideOriginLabel != null && input.userOverrideOriginLabel !== ""
+        ? {
+            kind: "known_label_only",
+            label: input.userOverrideOriginLabel,
+            source: "user_override",
+          }
+        : null;
+
+    // 推論 chain (origin、PR B-2e' で originClarifyAnswer を最優先に追加):
+    //   originClarifyAnswer → Layer 1 explicit → strong prior → Layer 2 previous_day → Layer 3-4 resolver+weak
     const journeyOrigin: JourneyAnchorState =
-      explicitOrigin
+      originClarifyAnswer
+      ?? explicitOrigin
       ?? strongPriorOrigin
       ?? previousDayOriginCandidate
       ?? applyAnchorFallback(
@@ -1235,6 +1299,64 @@ export function adaptPipelineToLegacy(
       status: phase === "plan_presented" ? "confirmed" : planStatus,
       items: input.priorPlan.items.map((item) => normalizePlanItem(item)),
     };
+  }
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify を **三重保証** で inject
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //   journeyOrigin が unknown かつ origin clarify 条件全て満たす場合、
+  //   pendingClarify / phase / message / plan.status を上書きする。
+  //
+  // 三重保証 (CEO/GPT 2026-05-02 規律 + B-2e' 補強):
+  //   ① phase !== "plan_presented"
+  //      (= 既に plan 確定状態の時は origin clarify で再降格しない、保守的 rollout)
+  //   ② pendingClarify == null  (= reconcile が他 clarify を立てていない)
+  //   ③ result.gapResolution.actions に clarify type の action がない (= 既存 clarify 0)
+  //   ④ shouldAskOriginClarify() が 8 条件全て true (= 質問アプリ化防止)
+  //
+  // priority=50 で構造的に最低優先 + runtime で三重保証 → 「予定本体の解決を邪魔しない」
+  // が複層的に保証される。
+  //
+  // 注意: input.userOverrideOriginLabel が指定されている場合は、journeyOrigin が
+  //   既に user_override で plug されているため kind === "unknown" ではない →
+  //   shouldAskOriginClarify が false を返す → 本 block は skip される (= 構造的に正しい)。
+  //
+  // 既存 test fixture との互換性 (CEO/GPT 2026-05-02):
+  //   既存 test の多くは home/current 不指定で plan_presented を期待する fixture。
+  //   B-2e' で origin clarify を fire させると test が破綻するが、
+  //   ① phase !== "plan_presented" の guard で既存挙動を保護する (= 保守的 rollout)。
+  //   将来的に「plan_presented + origin unknown」 パターンへの対応は別 PR で判断。
+  if (
+    plan != null &&
+    plan.journeyOrigin?.kind === "unknown" &&
+    phase !== "plan_presented" &&
+    pendingClarify == null &&
+    !(result.gapResolution?.actions?.some((a) => a.type === "clarify") ?? false)
+  ) {
+    const shouldAsk = shouldAskOriginClarify({
+      journeyOrigin: plan.journeyOrigin,
+      events: effectiveEvents,
+      dialogState: input.priorDialogState ?? null,
+      priorPendingClarify: input.priorPendingClarify ?? null,
+    });
+    if (shouldAsk) {
+      // origin clarify question を生成 (clarifyQuestionBuilder template)
+      const originQuestion = buildClarifyQuestion({ kind: "origin" });
+      // pendingClarify を origin clarify で上書き
+      pendingClarify = {
+        event_id: PLAN_ORIGIN_SENTINEL_EVENT_ID,
+        slot: "origin",
+        kind: "origin",
+        scope: { timeLabel: null, activityLabel: null, eventOrdinal: 0 },
+        question: originQuestion,
+        askedAt: new Date().toISOString(),
+      };
+      // phase を clarifying に降格、message と plan.status を同期
+      phase = "clarifying";
+      message = originQuestion;
+      planStatus = "needs_answer";
+      plan = { ...plan, status: "needs_answer" };
+    }
   }
 
   // ── W3-PR-8: items=0 禁則の二層化（CEO 2026-04-22）──

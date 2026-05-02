@@ -516,7 +516,7 @@ import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-mo
 // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
 //   PR B-2c: fetchPreviousDayPlan で前日 plan を取得し Layer 2 inheritance に渡す
 import { upsertPlanHistory, fetchPreviousDayPlan } from "@/lib/alter-morning/persistence/planHistory";
-import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
+import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 // W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
@@ -1880,7 +1880,115 @@ export async function POST(req: NextRequest) {
 
             let usedBindPath = false;
             let bindReason: string | null = null;
+            // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答 label
+            //   pending.slot === "origin" の時、bindOriginAnswer の結果を保持し、
+            //   後続 adaptPipelineToLegacy に渡して journeyOrigin を user_override で plug。
+            let userOverrideOriginLabel: string | null = null;
             if (canBind) {
+              // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin slot は plan-level
+              //   bindAnswerToSlot ではなく bindOriginAnswer を使う:
+              //     - LLM comprehension に流さない (= 「ホテルから」を event として誤解釈するリスク回避)
+              //     - 成功時は events 更新なしで pipeline を流す
+              //     - pendingClarify は legacyAdapter で priorPendingClarify=null として clear
+              //     - 失敗時は既存 semantic_miss path にフォールスルー
+              if (priorPending!.slot === "origin") {
+                const originResult = bindOriginAnswer(message);
+                bindReason = originResult.bound ? "ok" : "semantic_miss";
+                bindReasonOuter = bindReason;
+                if (originResult.bound) {
+                  usedBindPath = true;
+                  userOverrideOriginLabel = originResult.label;
+                  const priorInputs = rawMorningSession?.rawInputs ?? [];
+                  // events 更新なし: priorPersistedEvents をそのまま pipeline に渡す
+                  const pipelineResult = await runMorningPipeline(
+                    {
+                      utterance: message,
+                      priorEvents: priorPersistedEvents!,
+                    },
+                    {
+                      comprehension: createLLMComprehensionProvider({ userId }),
+                      narration: createLLMNarrationProvider({ userId }),
+                      weather: null,
+                    },
+                  );
+                  const previousDayPlanForOriginPath: import("@/lib/alter-morning/types").MorningPlan | null =
+                    await fetchPreviousDayPlan(
+                      supabase,
+                      userId,
+                      new Date().toISOString().slice(0, 10),
+                    ).catch(() => null);
+                  const adapted = adaptPipelineToLegacy(pipelineResult, {
+                    sessionId: morningSession.sessionId,
+                    utterance: message,
+                    personalityContext: personalityCtx,
+                    userPrefecture: morningSession.userPrefecture,
+                    userCity: morningSession.userCity,
+                    userHomeLabel: morningSession.userHomeLabel,
+                    userHomeLat: morningSession.userHomeLat,
+                    userHomeLng: morningSession.userHomeLng,
+                    currentLat: rawCurrentLat ?? null,
+                    currentLng: rawCurrentLng ?? null,
+                    permissionState: rawPermissionState ?? null,
+                    accuracy: rawAccuracy ?? null,
+                    capturedAt: rawCapturedAt ?? null,
+                    actualTodayYmdJst: getActualTodayYmdJst(),
+                    // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答 label を渡す
+                    //   legacyAdapter で journeyOrigin の最優先 Layer で plug される。
+                    userOverrideOriginLabel,
+                    priorRawInputs: priorInputs,
+                    priorPendingClarify: null, // origin clarify 成功 → clear
+                    priorPersistedEvents: priorPersistedEvents ?? undefined,
+                    priorPlan: rawMorningSession?.plan ?? null,
+                    previousDayPlan: previousDayPlanForOriginPath,
+                    userId,
+                    priorDialogState: morningSession.dialogState ?? null,
+                  });
+                  morningSession = {
+                    ...adapted.session,
+                    dialogState:
+                      "reconciledDialogState" in adapted
+                        ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                        : morningSession.dialogState,
+                  };
+                  morningResponse = adapted.response;
+                  lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+                  console.info(
+                    `[morning-protocol:v2:bind] reason=ok boundSlot=origin phase=${morningResponse.phase}`,
+                    // PII 排除: label / userId は出さない
+                  );
+                } else {
+                  // origin semantic_miss: 既存 fallback path と同じ logic で再 ask
+                  const nextCount = (priorPending!.semanticMissCount ?? 0) + 1;
+                  if (nextCount >= 2) {
+                    // 2 連続失敗 → pending 破棄、下の LLM 経路にフォールスルー
+                    console.info(
+                      `[morning-protocol:v2:bind] reason=semantic_miss boundSlot=origin count=${nextCount} → discard pending`,
+                    );
+                  } else {
+                    usedBindPath = true;
+                    morningSession = {
+                      ...morningSession,
+                      phase: "clarifying",
+                      pendingClarify: {
+                        ...priorPending!,
+                        semanticMissCount: nextCount,
+                      },
+                      persistedEvents: priorPersistedEvents!,
+                      rawInputs: [...(rawMorningSession?.rawInputs ?? []), message],
+                    };
+                    morningResponse = {
+                      phase: "clarifying",
+                      message: priorPending!.question || "ごめん、もう少し具体的に教えてくれる？",
+                      clarifyQuestion: priorPending!.question,
+                      personalizeHints: [],
+                    };
+                    console.info(
+                      `[morning-protocol:v2:bind] reason=semantic_miss boundSlot=origin count=${nextCount} → re-ask`,
+                    );
+                  }
+                }
+              } else {
+              // 既存 event-level bind 経路 (PR B-2e' で origin slot のみ分岐に切り出し)
               const bindResult = bindAnswerToSlot(
                 priorPersistedEvents!,
                 priorPending!,
@@ -2019,6 +2127,7 @@ export async function POST(req: NextRequest) {
                   `[morning-protocol:v2:bind] reason=system_miss → maintain pending`,
                 );
               }
+              } // end of else (existing event-level bind path)
             }
 
             if (!usedBindPath) {
