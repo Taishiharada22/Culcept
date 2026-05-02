@@ -259,6 +259,47 @@ export function useAlterChat(options?: UseAlterChatOptions) {
     lat: number;
     lng: number;
   } | null>(null);
+  // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+  //   permission 状態を backend に渡し、AnchorUnknownReason の決定材料にする。
+  //   このフィールドは origin の主役ではなく、最終的に origin が unknown になる
+  //   時の理由説明 (denied / unrequested) を提供するためだけに使われる。
+  //
+  //   注意 (CEO/GPT 補強):
+  //     - raw 5 値 (granted/denied/prompt/unsupported/unavailable) を保持
+  //     - currentCoords がある場合、permissionState に関係なく current location が
+  //       採用される (legacyAdapter Layer 4 の優先順位)
+  //
+  //   TODO (PR B-2d-b、CEO 規律):
+  //     既存 mount 時の getCurrentPosition 自動呼び出し (下記) は B-2d-a では維持。
+  //     B-2d-b で one-shot opt-in UI に必ず置き換える (= ユーザーに「位置情報を
+  //     使って起点を推定するか?」 を聞き、許可後にだけ取得)。
+  //     B-2d-a では permission state を知るだけ、getCurrentPosition の新規呼び出しは
+  //     追加しない。
+  const [permissionState, setPermissionState] = useState<
+    | "granted"
+    | "denied"
+    | "prompt"
+    | "unsupported"
+    | "unavailable"
+    | null
+  >(null);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { getGeolocationPermissionState } = await import(
+          "@/lib/alter-morning/journey/permissionState"
+        );
+        const state = await getGeolocationPermissionState();
+        if (!cancelled) setPermissionState(state);
+      } catch {
+        if (!cancelled) setPermissionState("unavailable");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     let cancelled = false;
@@ -273,6 +314,9 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       },
       () => {
         // 拒否 / timeout は黙って無視（registered home が代替）
+        // CEO/GPT 2026-05-02 PR B-2d-a TODO:
+        //   B-2d-b で one-shot opt-in UI に置き換える前提。
+        //   B-2d-a ではこの自動取得は維持 (既存挙動を破壊しない)。
       },
       // 5 秒で諦める（UX 阻害禁止）。high accuracy 不要、cached 値 OK
       { timeout: 5000, maximumAge: 5 * 60 * 1000, enableHighAccuracy: false },
@@ -393,6 +437,11 @@ export function useAlterChat(options?: UseAlterChatOptions) {
           ...(currentCoords
             ? { currentLat: currentCoords.lat, currentLng: currentCoords.lng }
             : {}),
+          // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+          //   currentCoords も baseline home も解決できず origin が unknown に
+          //   なる時の理由説明として server 側で使用。raw 5 値を保持。
+          //   coords がある場合、permissionState に関係なく current が採用される。
+          ...(permissionState ? { permissionState } : {}),
         }),
       });
 
