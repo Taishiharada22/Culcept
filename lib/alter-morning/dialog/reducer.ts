@@ -934,8 +934,13 @@ function handleSearchCandidatesPresented(
 
   assertAllowedTransition(prev.conversationStatus, "search_candidates_presented");
 
+  // CEO/GPT 2026-05-03 PR B-3b: presentation に target を含める。
+  //   - action.target が指定されていれば そのまま記録
+  //   - 未指定 (= legacy caller) は undefined のまま (= getPresentationTarget で
+  //     targetEventId から event_where と推定される)
   const presentation: PresentationContext = {
     targetEventId: action.targetEventId,
+    ...(action.target ? { target: action.target } : {}),
     queryFingerprint: action.queryFingerprint,
     candidates: action.candidates.slice(),
     presentedAtTurn: action.turnIndex,
@@ -980,6 +985,31 @@ function handleSearchCandidateSelected(
   }
   // S8.c: targetEventId 不一致（別 event の古い picker から来た）
   if (prev.activePresentation.targetEventId !== action.targetEventId) {
+    return prev;
+  }
+  // CEO/GPT 2026-05-03 PR B-3b: target field の stale check (= discriminated union)
+  //   - 既存 W3-PR-9 経路: action.target も presentation.target も undefined
+  //     → targetEventId 一致のみで判定 (= 既存挙動と完全一致)
+  //   - 新 caller 経路: target.kind が一致する必要あり
+  //     (= journey_origin selection が event_where presentation に来たら reject 等)
+  //   - 片方だけ target があるケースは mismatch として reject
+  //     (= legacy/new mix を防ぐ defensive)
+  const presentationTarget = prev.activePresentation.target;
+  const actionTarget = action.target;
+  if (presentationTarget == null && actionTarget == null) {
+    // 両方 undefined: legacy 経路、targetEventId のみで判定済み
+  } else if (presentationTarget == null || actionTarget == null) {
+    // 片方だけ: mismatch (defensive、新旧 mix を防ぐ)
+    return prev;
+  } else if (presentationTarget.kind !== actionTarget.kind) {
+    // kind 不一致: 別の anchor target からの selection を reject
+    return prev;
+  } else if (
+    presentationTarget.kind === "event_where" &&
+    actionTarget.kind === "event_where" &&
+    presentationTarget.eventId !== actionTarget.eventId
+  ) {
+    // event_where 同士で eventId 不一致 (= targetEventId と二重 check、defensive)
     return prev;
   }
   // S8.d: queryFingerprint 不一致（draft が変わった後の stale selection）

@@ -544,6 +544,20 @@ export type DialogAction =
       targetEventId: string;
       queryFingerprint: string;
       candidates: ReadonlyArray<NormalizedPlaceCandidate>;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3b: presentation target を payload で渡す経路。
+       *
+       * - 既存 caller (= W3-PR-9 経路): undefined のまま、reducer は targetEventId
+       *   から `event_where` と推定 (= backward compat)
+       * - 新 caller (= journey_origin / journey_end target): target を明示
+       *
+       * 不変条件:
+       *   - target が指定された場合、reducer は target を PresentationContext.target
+       *     にそのまま記録する
+       *   - target が undefined の場合、reducer は { kind: "event_where", eventId:
+       *     targetEventId } と等価として扱う (= getPresentationTarget helper 経由)
+       */
+      target?: PresentationTarget;
     }
   /**
    * PR-9 commit 2 追加 — user が picker で候補 1 つを選択した。
@@ -566,6 +580,21 @@ export type DialogAction =
       targetEventId: string;
       queryFingerprint: string;
       selectedPlaceId: string;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3b: selection target を payload で渡す経路。
+       *
+       * - 既存 caller (= W3-PR-9 経路): undefined のまま (= event_where と等価)
+       * - 新 caller (= journey_origin / journey_end target): target を明示
+       *
+       * 不変条件:
+       *   - 一致判定: action.target と activePresentation.target が一致する場合のみ accept
+       *   - target が両方 undefined の場合は targetEventId 一致のみで判定 (legacy 経路)
+       *   - target が片方だけ指定されている場合は mismatch として reject
+       *
+       * 注: anchor 更新ロジック (= journeyOrigin/End を known_exact に昇格) は B-3c。
+       *     reducer は target field を受け取り、stale check に使うのみ。
+       */
+      target?: PresentationTarget;
     }
   /**
    * PR-9 commit 2 追加 — Places API 結果が 0 件だった。
