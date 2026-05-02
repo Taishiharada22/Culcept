@@ -86,16 +86,18 @@ export const URGENT_AUTO_REFIRE_BLOCK_MS = 60_000;
 /**
  * L4-i Phase 2 Stage 2.1 観測用 client fetch timeout (ms)。
  *
- * CEO 確定 2026-05-02: 観測フェーズの安全側設定として 5 秒。
- *   - LLM 実 latency 観測値 ~2047ms (Stage 2.1 direct probe)
- *   - 設計 v2 の 2000ms は LLM 実 latency より速く race condition で
- *     ほぼ全 fetch が abort される問題を解消
- *   - p95 揺れを cover、Stage 2.1 で latency 分布 / validation 率 /
- *     fallback 率を正しく観測することが目的 (UX 最適化ではない)
- *   - **Production 最終値ではない**。Phase 2.2 / Production promote 検討時に
- *     実測 p95 を見て 3 秒 (CEO promote 基準) へ詰めるか別判断する。
+ * CEO 確定 2026-05-02: 観測フェーズの安全側設定として 8 秒。
+ *   - 設計 v2 元案 2000ms → race condition で観測不能だった
+ *   - 5000ms → Stage 2.1 canary で `latencyMs:5001` の censored sample が発生
+ *     (client が 5 秒 abort、真の LLM latency は不明、5 秒以上だった可能性のみ)
+ *   - 5 秒以下に絞ると LLM 成功 case まで `fallbackReason:"timeout"` として
+ *     集計され、Phase 2 の LLM 品質評価 (validation reject 率 / fallback 率 /
+ *     latency 分布) が歪む。
+ *   - 8 秒に拡張して **実 LLM 応答を確実に観測**、その後 Production 投入前に
+ *     成功 response の実測 p50 / p95 を見て 3-5 秒へ詰める判断を再実施する。
+ *   - **Production 最終値ではない、Phase 2 観測専用の安全側設定**。
  */
-export const SPEECH_FETCH_TIMEOUT_MS = 5_000;
+export const SPEECH_FETCH_TIMEOUT_MS = 8_000;
 
 /**
  * 本番上部レイヤー mount entry point。flag OFF で null。

@@ -106,7 +106,7 @@ describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
 });
 
 describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止", () => {
-  it("AbortController + SPEECH_FETCH_TIMEOUT_MS timeout (CEO 確定 2026-05-02 = 5_000ms)", async () => {
+  it("AbortController + SPEECH_FETCH_TIMEOUT_MS timeout (CEO 確定 2026-05-02 修正 = 8_000ms)", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -115,9 +115,10 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     );
     const content = fs.readFileSync(file, "utf8");
     expect(content).toMatch(/new\s+AbortController\(\)/);
-    // 定数化済 (magic number 排除)
+    // 定数化済 (magic number 排除)、Stage 2.1 canary で 5_000ms が censored sample を
+    // 生んだため 8_000ms に拡張 (Phase 2 観測専用、Production 最終値ではない)
     expect(content).toMatch(
-      /export\s+const\s+SPEECH_FETCH_TIMEOUT_MS\s*=\s*5_?000/,
+      /export\s+const\s+SPEECH_FETCH_TIMEOUT_MS\s*=\s*8_?000/,
     );
     // setTimeout は定数を参照
     expect(content).toMatch(
