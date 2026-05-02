@@ -60,12 +60,12 @@ function mockCandidate(placeId: string, name: string): NormalizedPlaceCandidate 
   return {
     placeId,
     displayName: name,
-    formattedAddress: `${name} 住所`,
+    address: `${name} 住所`,
     coordinates: { lat: 35.6896, lng: 139.7006 },
-    distanceMeters: null,
-    primaryTypeJa: null,
-    rating: null,
-    rawTypes: [],
+    distanceFromAnchor: null,
+    category: null,
+    chainToken: null,
+    rawRef: { provider: "google_places", placeId },
   };
 }
 

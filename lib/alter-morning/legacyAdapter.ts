@@ -340,6 +340,24 @@ export interface LegacyAdapterOutput {
    *   なかった (focus が元から null) 場合。caller は既存 dialogState を維持。
    */
   reconciledDialogState?: DialogState | null;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3b'-2 (forward-fix for #69 review):
+   *   journey_origin grounding の **意図 (= intent)** を caller (route.ts) に
+   *   渡す。legacyAdapter は pure に intent を作るだけで、副作用 (= Places API,
+   *   reducer dispatch) を起こさない。route.ts が flag 判定 + classification
+   *   == public_poi_proper_noun の確認後に orchestrateJourneyAnchorHandoff を
+   *   呼ぶ。
+   *
+   * undefined: journeyOrigin が known_label_only でない (= 既に known_exact、
+   *   または unknown)、もしくは label が空文字。
+   *
+   * 詳細は L1535 付近の生成ロジックと L1595 の type 定義 (= JourneyOriginGroundingIntent)
+   * を参照。
+   */
+  journeyOriginGroundingIntent?: {
+    label: string;
+    classification: LabelClassification;
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
