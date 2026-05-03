@@ -49,6 +49,20 @@ export type SkipReason =
   | "focus_not_where" //       focus.slot !== "where"
   | "draft_not_ready"; //     searchQueryDraft.readyForHandoff=false
 
+/**
+ * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #2): zero_candidates の internal reason 分離。
+ *
+ * Layer A (= journey_origin orchestrator の coordinateFilter) が必要な理由:
+ *   - 「Places API が 0 件返した」 → Places 検索の限界 (= label 不適切等)
+ *   - 「Places API は返したが Layer A が全除外」 → API anomaly / SDK バグ
+ *
+ * rollout 判断上、両者は意味が完全に違う (= 監視対象が異なる) ため telemetry で分離。
+ * UI 表示は両者とも既存 zero path 流用 (= UX 共通)。
+ */
+export type ZeroCandidatesReason =
+  | "no_candidates_from_places_search"
+  | "no_coordinate_candidates_after_filter";
+
 export type HandoffOrchestrationOutcome =
   | { kind: "skip_gate"; reason: SkipReason; fingerprint: string }
   | { kind: "skip_idempotent"; fingerprint: string }
@@ -61,9 +75,25 @@ export type HandoffOrchestrationOutcome =
       kind: "presented_from_api";
       fingerprint: string;
       candidateCount: number;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3c-2: Layer A filter で除外された invalid coords の数。
+       *   journey_origin orchestrator で set される。
+       *   event_where 経路 (= placesHandoffOrchestrator) では undefined (= byte-diff zero)。
+       */
+      invalidCoordinateCount?: number;
     }
   | { kind: "zero_from_cache"; fingerprint: string }
-  | { kind: "zero_from_api"; fingerprint: string }
+  | {
+      kind: "zero_from_api";
+      fingerprint: string;
+      /**
+       * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正): zero の internal reason。
+       *   journey_origin orchestrator で set。event_where では undefined。
+       */
+      zeroReason?: ZeroCandidatesReason;
+      /** Layer A 全除外のとき入る (= zeroReason="no_coordinate_candidates_after_filter") */
+      invalidCoordinateCount?: number;
+    }
   | {
       kind: "error";
       fingerprint: string;
