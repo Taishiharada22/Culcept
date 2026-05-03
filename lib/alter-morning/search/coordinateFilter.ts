@@ -6,6 +6,10 @@
  *   という半壊 UX (= PR #69 で構造化禁止) を防ぐため、presentation 前に candidates
  *   から coordinates 不正なものを除外する。
  *
+ * NOTE (2026-05-03): vercel.json の ignoreCommand は md-only 変更を skip するため、
+ *   本 doc コメントの単独追加では Vercel build がスキップされる。本コメントは
+ *   non-md 変更を伴う commit と一緒に push されることを前提とする (= rebuild trigger 兼 doc)。
+ *
  * 責務:
  *   - 入力: ReadonlyArray<NormalizedPlaceCandidate>
  *   - 出力: { filtered, originalCount, invalidCount } (= 完全 pure)
