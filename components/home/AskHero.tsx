@@ -175,6 +175,11 @@ type Props = {
   onPlaceSelect?: (placeId: string) => void;
   /** W3-PR-9 commit 5c: 送信中 placeId（null なら非送信中） */
   placeSelectionPending?: string | null;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): selection 失敗時 inline feedback。
+   * picker 上部に warning として表示。半壊 UX 防止。
+   */
+  placeSelectionFeedback?: string | null;
 };
 
 const THINKING_PHRASES = [
@@ -289,6 +294,7 @@ export default function AskHero({
   morningDialogState,
   onPlaceSelect,
   placeSelectionPending = null,
+  placeSelectionFeedback = null,
 }: Props) {
   const router = useRouter();
   const [ctaDismissed, setCtaDismissed] = useState(false);
@@ -459,6 +465,7 @@ export default function AskHero({
               onSelect={onPlaceSelect}
               pending={placeSelectionPending !== null}
               pendingPlaceId={placeSelectionPending}
+              feedbackMessage={placeSelectionFeedback}
             />
           )}
 

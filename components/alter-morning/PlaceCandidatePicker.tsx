@@ -69,6 +69,19 @@ export interface PlaceCandidatePickerProps {
    *   - target 未指定 (= legacy 経路): disabled 判定対象外、通常 click 可
    */
   disabledTargetKinds?: ReadonlyArray<PresentationTarget["kind"]>;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): selection 失敗時の inline 表示文言。
+   *
+   * 用途:
+   *   - selection が `journey_anchor_promotion_not_possible` で reject された時、
+   *     親 (= useAlterChat) が文言を set し、picker 上部に inline message を表示する
+   *   - 「選んだのに何も変わらない」 半壊 UX を防ぐ (= 失敗理由 + 復旧経路提示)
+   *
+   * 不変条件:
+   *   - undefined / null → 通常表示 (= 既存挙動完全維持)
+   *   - string → picker 上部に warning 風 inline 表示
+   */
+  feedbackMessage?: string | null;
 }
 
 export function formatDistance(meters: number | null): string | null {
@@ -147,6 +160,7 @@ export function PlaceCandidatePicker({
   pendingPlaceId = null,
   target,
   disabledTargetKinds,
+  feedbackMessage,
 }: PlaceCandidatePickerProps) {
   // 防御的: 親の契約違反（0 件）時は描画しない
   if (candidates.length === 0) return null;
@@ -165,6 +179,15 @@ export function PlaceCandidatePicker({
       aria-label="候補の店舗"
       aria-busy={pending || undefined}
     >
+      {/* CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): selection 失敗時の inline feedback */}
+      {feedbackMessage && (
+        <div
+          role="alert"
+          className="mb-2 px-3 py-2 rounded-lg bg-amber-50/90 border border-amber-200 text-amber-900 text-[12px] leading-relaxed"
+        >
+          {feedbackMessage}
+        </div>
+      )}
       <ul className="flex flex-col gap-1.5">
         {candidates.map((c) => {
           const isThisPending = pending && pendingPlaceId === c.placeId;
