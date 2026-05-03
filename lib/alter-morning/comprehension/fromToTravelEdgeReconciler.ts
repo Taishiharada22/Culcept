@@ -1,6 +1,10 @@
 /**
  * fromToTravelEdgeReconciler — CEO/GPT 2026-05-03 PR #75
  *
+ * NOTE (2026-05-03 controlled B trigger): vercel.json の ignoreCommand は
+ *   md-only commit を skip するため、 git-webhook の Vercel build を再 trigger
+ *   する目的で本コメントを追加 (= non-md 変更を伴う commit)。
+ *
  * 「明日8時東京駅から渋谷へ」 等の発話で、 LLM comprehension が
  *   - event_1 = 渋谷 + 08:00 + 移動 (= 誤、 8時 は東京駅出発時刻)
  *   - event_2 = 東京駅 + missing + 出発 (= 誤、 segmentOrigin で event ではない)
