@@ -41,6 +41,12 @@ import { applyPlaceSelection } from "@/lib/alter-morning/search/applyPlaceSelect
 //   pure helper。journey_origin では promoteJourneyOrigin を呼ぶ。
 import { applyPlaceSelectionByTarget } from "@/lib/alter-morning/dialog/applyPlaceSelectionByTarget";
 import type { JourneyAnchorState } from "@/lib/alter-morning/journey/anchorState";
+// CEO/GPT 2026-05-03 PR B-3c-2: telemetry emit (PII フリー)
+import {
+  emitPromotionSucceeded,
+  emitPromotionBlocked,
+} from "@/lib/alter-morning/search/journeyOriginPromotionTelemetry";
+import { resolveJourneyOriginGroundingFlagSource } from "@/lib/alter-morning/dialog/flags";
 import { buildPlanAndSegmentsFromEvents } from "@/lib/alter-morning/planning/planRebuild";
 import {
   synthesizeTravelItems,
@@ -300,6 +306,13 @@ export async function POST(req: NextRequest) {
         console.info(
           `[alter-selection:journey_origin] blocked reason=${dispatched.reason} placeId=${selectedPlaceId}`,
         );
+        // CEO/GPT 2026-05-03 PR B-3c-2: blocked telemetry emit (PII フリー)
+        emitPromotionBlocked(userId, {
+          flag_state: true,
+          flag_source: resolveJourneyOriginGroundingFlagSource(userId),
+          candidate_count: prevActive?.candidates.length ?? 0,
+          reject_reason: dispatched.reason,
+        });
         return rejectJson("journey_anchor_promotion_not_possible");
       }
       // exhaustive check: 想定外の kind が来た場合は defensive reject
@@ -548,6 +561,23 @@ export async function POST(req: NextRequest) {
         ...(nextJourneyOrigin !== undefined ? { journeyOrigin: nextJourneyOrigin } : {}),
         ...(nextJourneyEnd !== undefined ? { journeyEnd: nextJourneyEnd } : {}),
       };
+
+      // CEO/GPT 2026-05-03 PR B-3c-2: succeeded telemetry emit (PII フリー)
+      //   journey_origin path のみ。event_where path では emit しない (= byte-diff zero)。
+      //   segment_generated は travel item (= __home__ から始まる) が
+      //   生成されたかで判断 (= 必須 #7)。
+      if (promotedJourneyOrigin) {
+        const segmentGenerated =
+          built.transportSegments?.some(
+            (s) => s.fromEventId === "__home__",
+          ) ?? false;
+        emitPromotionSucceeded(userId, {
+          flag_state: true,
+          flag_source: resolveJourneyOriginGroundingFlagSource(userId),
+          candidate_count: prevActive?.candidates.length ?? 0,
+          segment_generated: segmentGenerated,
+        });
+      }
     }
 
     // Step 7b: canonical morningSession

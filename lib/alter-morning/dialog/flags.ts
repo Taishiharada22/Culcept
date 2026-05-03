@@ -246,6 +246,37 @@ export function resolveVisualFlowFlagSource(
   return null;
 }
 
+/**
+ * CEO/GPT 2026-05-03 PR B-3c-2: journey_origin grounding flag source 解決。
+ *
+ * 用途:
+ *   - telemetry events (`journey_origin_promotion_*`) の metadata.flag_source
+ *   - rollout 判断のための「どの経路で flag が ON だったか」 を識別
+ *
+ * 戻り値:
+ *   - "allowlist": env CSV に userId が含まれる
+ *   - "global": env CSV に含まれないが global flag が true
+ *   - null: flag OFF (= canary 対象外、telemetry も出さない)
+ *
+ * 注意:
+ *   AND gate (= dialogStateV2 + placesSearch) は journeyOriginGrounding(userId) method
+ *   側でのみ適用。本 resolver は journey_origin gate 自身の source を報告するだけ。
+ */
+export function resolveJourneyOriginGroundingFlagSource(
+  userId: string | undefined,
+): FlagSource | null {
+  if (journeyOriginGroundingOverride !== null) {
+    return journeyOriginGroundingOverride ? "global" : null;
+  }
+  if (userId) {
+    const normalized = userId.toLowerCase();
+    if (getJourneyOriginGroundingAllowlistSet().has(normalized))
+      return "allowlist";
+  }
+  if (envBool("ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING", false)) return "global";
+  return null;
+}
+
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
   dialogStateV2Override = next;
