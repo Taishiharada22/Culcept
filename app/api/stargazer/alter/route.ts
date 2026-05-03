@@ -1768,6 +1768,13 @@ export async function POST(req: NextRequest) {
         ? "strong" as const
         : detectMorningIntent(message);
 
+      // CEO/GPT 2026-05-03 diagnostic log: morning protocol detect 結果
+      //   PII 排除 (= raw message は出さず length のみ)。 root cause audit 用。
+      void import("@/lib/alter-morning/journey/journeyOriginDebugLog").then(
+        ({ logMorningProtocolDetect }) =>
+          logMorningProtocolDetect(morningIntent, message.length),
+      ).catch(() => { /* swallow */ });
+
       // Soft Bridge 確認への肯定応答 → strong に昇格
       // ※ 直前のAlter返答がSoft Bridgeだった場合のみ（「はい」等の汎用肯定の誤発火防止）
       if (morningIntent === "none" && rawSoftBridgePending === true && isSoftBridgeConfirm(message)) {
