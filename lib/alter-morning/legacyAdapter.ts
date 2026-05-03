@@ -78,6 +78,13 @@ import {
   extractStartPointAnchor,
   extractEndpointAnchor,
 } from "./journey/explicitAnchorExtractor";
+// CEO/GPT 2026-05-03: 汎用 origin extraction (= 「XからYへ」 で X が固有名)
+import { extractOriginAnchorFromUtterance } from "./journey/originAnchorExtractor";
+// CEO/GPT 2026-05-03: diagnostic log helpers (= PII safe)
+import {
+  logJourneyOriginResolved,
+  logJourneyOriginIntent,
+} from "./journey/journeyOriginDebugLog";
 // CEO/GPT 2026-05-02 PR B-2d-a: geolocation permission state contract
 //   permissionState は origin の主役ではない。
 //   currentLat/Lng も baseline home も解決できず origin が unknown になる時の
@@ -1245,8 +1252,14 @@ export function adaptPipelineToLegacy(
     //   user_declared / user_explicit_endpoint source の label_only state を作る。
     //   resolver の結果 (current / registered_home 等) より「ユーザー文言尊重」 が上位。
     //   ただし detector が hit しなければ、従来通り resolver 結果を fresh として使う。
+    // CEO/GPT 2026-05-03 fix: 「XからYへ」 で X が固有名 (= 駅 / 空港 / 施設等)
+    //   の場合、既存 extractStartPointAnchor (= 6 ラベル制限) では拾えない。
+    //   extractOriginAnchorFromUtterance (= 汎用 origin extraction layer) を chain。
+    //   既存 6 ラベルは extractStartPointAnchor が先取り (= 順序保証)。
+    //   公開地名のみ採用 (= classifyLabel public_poi_proper_noun gate、汎用関数内)。
     const explicitOrigin: JourneyAnchorState | null =
-      extractStartPointAnchor(input.utterance);
+      extractStartPointAnchor(input.utterance) ??
+      extractOriginAnchorFromUtterance(input.utterance);
     const explicitEnd: JourneyAnchorState | null =
       extractEndpointAnchor(input.utterance);
 
@@ -1323,6 +1336,10 @@ export function adaptPipelineToLegacy(
         input.priorPlan?.journeyOrigin,
         { samePlanDate },
       );
+
+    // CEO/GPT 2026-05-03 diagnostic log: journey origin の解決結果を PII safe で emit
+    //   B-3c-2 の起動条件 (= kind === "known_label_only") が成立しているか観測可能。
+    logJourneyOriginResolved(journeyOrigin, "legacy_adapter");
 
     // end は PR B-2c の scope 外 (Layer 1 + resolver + applyAnchorFallback のみ、PR B-2b 維持)
     const freshEnd: JourneyAnchorState =
@@ -1610,6 +1627,24 @@ export function adaptPipelineToLegacy(
       label: plan.journeyOrigin.label,
       classification: classifyLabel(plan.journeyOrigin.label),
     };
+    // CEO/GPT 2026-05-03 diagnostic log: intent generated を PII safe で emit
+    logJourneyOriginIntent({
+      generated: true,
+      label: plan.journeyOrigin.label,
+      classification: journeyOriginGroundingIntent.classification,
+    });
+  } else {
+    // CEO/GPT 2026-05-03 diagnostic log: intent skipped reason を emit
+    //   B-3c-2 が起動しない時に「なぜ起動しないか」 を観測可能に
+    const reason =
+      plan?.journeyOrigin == null
+        ? "journeyOrigin_missing"
+        : plan.journeyOrigin.kind === "known_exact"
+          ? "kind_known_exact"
+          : plan.journeyOrigin.kind === "unknown"
+            ? "kind_unknown"
+            : "label_empty";
+    logJourneyOriginIntent({ generated: false, reason });
   }
 
   return {
