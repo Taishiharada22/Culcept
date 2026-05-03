@@ -101,6 +101,21 @@ export interface PlacesHandoffInput {
   anchorBiasRadiusMeters?: number;
   /** Places API maxResultCount。default 5（Basic tier のコスト最小化） */
   maxResultCount?: number;
+  /**
+   * CEO/GPT 2026-05-03: anchor 単独 query 許可フラグ (= journey_origin grounding 用)。
+   *
+   * 既存 event_where 経路:
+   *   - 不指定 / false → buildTextQuery は anchor + (chain or category) 必須 (= 既存挙動完全維持)
+   *
+   * journey_origin grounding 経路 (= journeyAnchorHandoffOrchestrator):
+   *   - true → buildTextQuery は anchor 単独でも query 生成 (= 「東京駅」 1 token で Places 検索)
+   *   - chain/category 概念が無い journey origin label のため必須
+   *
+   * 不変条件:
+   *   - event_where 経路は **絶対に true を渡さない** (= readyForHandoff invariant 維持)
+   *   - true 指定でも anchor が空 / 空白なら従来通り null (= anchor 必須 invariant)
+   */
+  allowAnchorOnly?: boolean;
 }
 
 /**
@@ -154,13 +169,35 @@ function normalizeToken(raw: string | null | undefined): string {
  *   { anchor:"甲府", chain:null,      category:"カフェ" }   → "甲府 カフェ"
  *   { anchor:null,  chain:"スタバ",  category:null }        → null  （draft_not_ready）
  */
-function buildTextQuery(draft: SearchQueryDraft): string | null {
+/**
+ * CEO/GPT 2026-05-03: opts.allowAnchorOnly オプション化。
+ *
+ * 既存挙動 (= event_where 経路、opts 不指定 or { allowAnchorOnly: false }):
+ *   - anchor + (chain or category) 必須 (= subject 不在なら null)
+ *   - 既存 event_where regression 完全不変
+ *
+ * journey_origin 経路 (= opts.allowAnchorOnly === true):
+ *   - subject 不在でも anchor 単独で query 返却 (= 「東京駅」 等を Places API へ)
+ *   - journey_origin label には chain/category 概念が無いため必須
+ *
+ * 不変条件:
+ *   - anchor 自体が空 / 空白なら **必ず null** (= allowAnchorOnly に関係なく)
+ *   - subject あり時は両 mode で同じ動作 (= `${anchor} ${subject}`)
+ */
+function buildTextQuery(
+  draft: SearchQueryDraft,
+  opts?: { allowAnchorOnly?: boolean },
+): string | null {
   const anchor = draft.anchorRegion?.trim();
   if (!anchor) return null;
   const chain = draft.chainToken?.trim();
   const category = draft.categoryToken?.trim();
   const subject = chain && chain.length > 0 ? chain : category ?? "";
-  if (!subject || subject.length === 0) return null;
+  if (!subject || subject.length === 0) {
+    // event_where 経路 (= opts 不指定 or false): 従来通り null
+    // journey_origin 経路 (= allowAnchorOnly true): anchor 単独 query
+    return opts?.allowAnchorOnly ? anchor : null;
+  }
   return `${anchor} ${subject}`;
 }
 
@@ -244,7 +281,7 @@ export async function executePlacesHandoff(
   input: PlacesHandoffInput,
   deps?: PlacesHandoffDeps,
 ): Promise<PlacesHandoffResult> {
-  const { draft, anchorCoords } = input;
+  const { draft, anchorCoords, allowAnchorOnly } = input;
   const queryFingerprint = buildQueryFingerprint(draft);
 
   if (!draft.readyForHandoff) {
@@ -255,7 +292,10 @@ export async function executePlacesHandoff(
     };
   }
 
-  const textQuery = buildTextQuery(draft);
+  // CEO/GPT 2026-05-03: allowAnchorOnly opts を buildTextQuery に伝搬
+  //   - event_where: input.allowAnchorOnly 不指定 → 従来通り subject 必須
+  //   - journey_origin: input.allowAnchorOnly: true → anchor 単独 query 許可
+  const textQuery = buildTextQuery(draft, { allowAnchorOnly });
   if (!textQuery) {
     return {
       kind: "provider_error",
