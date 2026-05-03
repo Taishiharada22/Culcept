@@ -167,7 +167,13 @@ export async function orchestrateJourneyAnchorHandoff(
   const handoffFn = deps.executePlacesHandoff ?? executePlacesHandoff;
   let result: PlacesHandoffResult;
   try {
-    result = await handoffFn({ draft, anchorCoords });
+    // CEO/GPT 2026-05-03: allowAnchorOnly: true を明示
+    //   journey_origin grounding は label 単独 query 必須 (= chain/category 概念なし)。
+    //   既存 buildTextQuery は subject 必須だったため、本フラグなしでは draft_not_ready
+    //   で provider_failure。CEO 承認で options 追加 → journey_origin path のみ true。
+    //   event_where 経路 (= placesHandoffOrchestrator) は **絶対に true を渡さない**
+    //   (= 既存 readyForHandoff invariant 維持)。
+    result = await handoffFn({ draft, anchorCoords, allowAnchorOnly: true });
   } catch {
     return {
       outcome: {
