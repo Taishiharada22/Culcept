@@ -551,6 +551,13 @@ import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHando
 // NOTE (forward-fix for #69 review): classifyLabel は legacyAdapter 側で intent 生成
 //   時に使用される (= 責務分離)。route.ts は intent.classification を読むだけ。
 import { orchestrateJourneyAnchorHandoff } from "@/lib/alter-morning/search/journeyAnchorHandoffOrchestrator";
+// CEO/GPT 2026-05-03 PR B-3c-2: telemetry emit (PII フリー)
+import {
+  emitPromotionPresented,
+  emitPromotionProviderFailure,
+  emitPromotionZeroCandidates,
+} from "@/lib/alter-morning/search/journeyOriginPromotionTelemetry";
+import { resolveJourneyOriginGroundingFlagSource } from "@/lib/alter-morning/dialog/flags";
 import {
   emitShadowStateEvent,
   emitHandoffOutcomeEvent,
@@ -2858,14 +2865,27 @@ export async function POST(req: NextRequest) {
                       }
                     }
                     const oc = journeyHandoff.outcome;
+                    // CEO/GPT 2026-05-03 PR B-3c-2: telemetry emit (PII フリー)
+                    //   flag_source は journey_origin grounding flag 自身の source。
+                    //   flag OFF 時は本 block 自体に入らない (= AND gate で gate されてる)
+                    //   ため flag_source は通常 "allowlist" or "global" が入る。
+                    const flagSource =
+                      resolveJourneyOriginGroundingFlagSource(userId);
                     if (oc.kind === "error") {
                       console.warn(
                         `[journey-origin-grounding:provider_failure] reason=${oc.reason} fp=${oc.fingerprint}`,
                       );
+                      emitPromotionProviderFailure(userId, {
+                        log_class: oc.logClass,
+                        reason: oc.reason,
+                        flag_state: true,
+                        flag_source: flagSource,
+                      });
                     } else if (oc.kind === "skip_gate") {
                       console.info(
                         `[journey-origin-grounding:skip_gate] reason=${oc.reason} fp=${oc.fingerprint}`,
                       );
+                      // skip_gate は draft_not_ready 等、本 PR では emit 対象外
                     } else if (
                       oc.kind === "presented_from_api" ||
                       oc.kind === "presented_from_cache"
@@ -2873,7 +2893,36 @@ export async function POST(req: NextRequest) {
                       console.info(
                         `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint} count=${oc.candidateCount} latency=${Date.now() - journeyHandoffStartedAt}ms`,
                       );
+                      const invalidCount =
+                        oc.kind === "presented_from_api"
+                          ? (oc.invalidCoordinateCount ?? 0)
+                          : 0; // cache 経路は filter 既適用済 (= invalid count 不明、0 扱い)
+                      emitPromotionPresented(userId, {
+                        flag_state: true,
+                        flag_source: flagSource,
+                        candidate_count_before_filter:
+                          oc.candidateCount + invalidCount,
+                        candidate_count_after_filter: oc.candidateCount,
+                        invalid_coordinate_count: invalidCount,
+                        outcome: oc.kind,
+                      });
+                    } else if (oc.kind === "zero_from_api") {
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
+                      );
+                      // GPT 1st 補正: zeroReason 分離
+                      const zeroReason =
+                        oc.zeroReason ?? "no_candidates_from_places_search";
+                      const invalidCount = oc.invalidCoordinateCount ?? 0;
+                      emitPromotionZeroCandidates(userId, {
+                        flag_state: true,
+                        flag_source: flagSource,
+                        zero_reason: zeroReason,
+                        candidate_count_before_filter: invalidCount, // = zero_after_filter のとき invalidCount=before、それ以外は 0
+                        candidate_count_after_filter: 0,
+                      });
                     } else {
+                      // zero_from_cache / skip_idempotent: telemetry minimal
                       console.info(
                         `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
                       );

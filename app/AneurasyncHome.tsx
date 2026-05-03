@@ -934,6 +934,7 @@ export default function AneurasyncHome({
                 morningDialogState={alterChat.morningDialogState}
                 onPlaceSelect={alterChat.selectPlaceCandidate}
                 placeSelectionPending={alterChat.placeSelectionPending}
+                placeSelectionFeedback={alterChat.placeSelectionFeedback}
                 nudge={{
                   stargazerDoneToday: instrumentUsedToday.stargazer,
                   innerWeatherRecorded: !!innerWeather?.recorded,

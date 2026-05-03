@@ -40,6 +40,8 @@ import type {
   OrchestrationResult,
 } from "./placesHandoffOrchestrator";
 import { PLAN_ORIGIN_SENTINEL_EVENT_ID } from "../planning/gapResolver";
+// CEO/GPT 2026-05-03 PR B-3c-2 (Layer A): coordinates 不正候補の presentation 前除外
+import { filterCandidatesByValidCoordinates } from "./coordinateFilter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -179,9 +181,30 @@ export async function orchestrateJourneyAnchorHandoff(
   }
 
   if (result.kind === "success") {
+    // CEO/GPT 2026-05-03 PR B-3c-2 Layer A: coordinates 不正候補の除外
+    //   Places API success だが coords 不正な candidate が含まれる可能性に対し
+    //   presentation 前に filter する。全候補除外なら zero outcome に分岐 (= GPT 1st 補正
+    //   反映、zeroReason="no_coordinate_candidates_after_filter")。
+    const filterResult = filterCandidatesByValidCoordinates(result.candidates);
+    if (filterResult.filtered.length === 0) {
+      // 全候補 invalid → cache 書かない (= 次回 API 再試行で正常に戻る可能性)
+      // 既存 zero path 流用するが、internal reason を分離して emit (= telemetry 用)
+      return {
+        outcome: {
+          kind: "zero_from_api",
+          fingerprint,
+          zeroReason: "no_coordinate_candidates_after_filter",
+          invalidCoordinateCount: filterResult.invalidCount,
+        },
+        nextDispatch: makeJourneyOriginZeroAction({ turnIndex, fingerprint }),
+      };
+    }
+    // 一部 / 全 valid → presentation
+    //   cache には filter 後 (= validCoordinates: true で marked) を保存。
+    //   再試行時に Layer A 重ねがけしても idempotent。
     const setSuccess = deps.setCacheSuccess ?? setHandoffCacheSuccess;
     try {
-      setSuccess(userId, fingerprint, result.candidates);
+      setSuccess(userId, fingerprint, filterResult.filtered);
     } catch {
       // no-op
     }
@@ -189,12 +212,13 @@ export async function orchestrateJourneyAnchorHandoff(
       outcome: {
         kind: "presented_from_api",
         fingerprint,
-        candidateCount: result.candidates.length,
+        candidateCount: filterResult.filtered.length,
+        invalidCoordinateCount: filterResult.invalidCount,
       },
       nextDispatch: makeJourneyOriginPresentedAction({
         turnIndex,
         fingerprint,
-        candidates: result.candidates,
+        candidates: filterResult.filtered,
       }),
     };
   }
@@ -207,7 +231,12 @@ export async function orchestrateJourneyAnchorHandoff(
       // no-op
     }
     return {
-      outcome: { kind: "zero_from_api", fingerprint },
+      outcome: {
+        kind: "zero_from_api",
+        fingerprint,
+        // GPT 1st 補正: Places API 自体が 0 件 (= label 不適切等)
+        zeroReason: "no_candidates_from_places_search",
+      },
       nextDispatch: makeJourneyOriginZeroAction({ turnIndex, fingerprint }),
     };
   }

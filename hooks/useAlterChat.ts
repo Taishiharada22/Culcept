@@ -248,6 +248,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
    * server canonical response 受信で null に戻る。途中 reject / abort / error でも finally で null。
    */
   const [placeSelectionPending, setPlaceSelectionPending] = useState<string | null>(null);
+  /**
+   * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): selection 失敗時の inline 表示文言。
+   *
+   * - null: 通常状態 (= picker は何も追加表示しない)
+   * - string: 直近 selection で reason 付き reject → picker 上に inline message
+   *
+   * GPT 1st 補正の意図: 「候補を選んだのに何も起きない」 半壊 UX 防止。
+   * activePresentation は維持されるが、user に「なぜ選択が反映されないか」 の
+   * フィードバックを返す。
+   *
+   * クリア trigger: 次の selection 開始時 / presentation 切替時 / 4-5 秒 auto
+   */
+  const [placeSelectionFeedback, setPlaceSelectionFeedback] = useState<
+    string | null
+  >(null);
   const selectionAbortRef = useRef<AbortController | null>(null);
   /**
    * stale-response guard 用の ref。setter 内 closure が最新 state を参照できないため、
@@ -875,8 +890,22 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       if (!data.accepted) {
         // accepted=false は normal no-op（picker は次 server turn で unmount される）
         console.info("[selection] rejected", data.reason);
+        // CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): journey_origin promotion
+        //   blocked 時は user に inline feedback を表示 (= 半壊 UX 防止)。
+        //   activePresentation は維持されるため picker は閉じない。user が次 candidate
+        //   を選ぶか「適切な候補なし」 の場合は cancel する。
+        //   文言は技術用語回避 (= "coordinates" 等を出さない)。
+        if (data.reason === "journey_anchor_promotion_not_possible") {
+          setPlaceSelectionFeedback(
+            "この候補は移動に必要な位置情報が不足しています。別の候補を選ぶか、場所をもう少し具体的に教えてください。",
+          );
+          // 5 秒後 auto-clear (= picker 維持で再選択促す)
+          setTimeout(() => setPlaceSelectionFeedback(null), 5000);
+        }
         return;
       }
+      // accepted=true: 過去の reject feedback をクリア
+      setPlaceSelectionFeedback(null);
 
       // accepted=true: canonical morningSession で置換
       //
@@ -1027,6 +1056,12 @@ export function useAlterChat(options?: UseAlterChatOptions) {
      * picker に pending flag として渡して全ボタン disable する。
      */
     placeSelectionPending,
+    /**
+     * CEO/GPT 2026-05-03 PR B-3c-2 (GPT 1st 補正 #3): selection 失敗時の inline feedback 文言。
+     * picker 上部に inline message として表示することで「選んだのに変わらない」
+     * 半壊 UX を防ぐ。null の時は picker は何も追加表示しない。
+     */
+    placeSelectionFeedback,
     /**
      * W3-PR-13 M3: persisted comprehension events（MorningMapView の pin source）。
      * 既存 internal state (L218) をそのまま expose（非破壊 export）。
