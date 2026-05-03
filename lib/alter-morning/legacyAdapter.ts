@@ -973,6 +973,38 @@ export function adaptPipelineToLegacy(
     });
     const journeyEnd = resolveJourneyEndAnchor(homeAnchor);
 
+    // CEO/GPT 2026-05-03 PR B-3c-1: journey_origin promotion preservation
+    //   selection 経路で promoted されたjourneyOrigin (= known_exact + user_override)
+    //   は STRONG_PRIOR_ORIGIN_SOURCES で samePlanDate=true 時に守られる
+    //   (journeyOrigin chain で priorPlan.journeyOrigin がそのまま preserved される)。
+    //
+    //   homeAnchor は resolveHomeAnchor 由来 (= currentLat/Lng or registered_home)
+    //   なので、travel synthesize 経路でも promoted coords/label を使うために
+    //   effectiveHomeAnchor を別途算出する。
+    //
+    //   この block を入れない場合の半壊 UX:
+    //     - plan card 上部 journeyOrigin label = "東京駅丸の内口" (= 正しい)
+    //     - travel item から label = "現在地" (= 不整合、選択前の coords を使う)
+    //
+    //   override 条件:
+    //     - priorPlan.date === today (= samePlanDate; 別日 plan なら継承しない)
+    //     - priorPlan.journeyOrigin.kind === "known_exact"
+    //     - priorPlan.journeyOrigin.source === "user_override" (= candidate selection 由来)
+    //   いずれか欠ければ既存 homeAnchor をそのまま使う (= byte-diff zero)。
+    const isSamePlanDateForHomeAnchor = input.priorPlan?.date === today;
+    const promotedPriorOrigin = input.priorPlan?.journeyOrigin;
+    const effectiveHomeAnchor =
+      isSamePlanDateForHomeAnchor &&
+      promotedPriorOrigin?.kind === "known_exact" &&
+      promotedPriorOrigin.source === "user_override"
+        ? {
+            lat: promotedPriorOrigin.lat,
+            lng: promotedPriorOrigin.lng,
+            label: promotedPriorOrigin.label,
+            source: "journey_origin_promotion" as const,
+          }
+        : homeAnchor;
+
     // ── W3-PR-10: planRebuild 委譲 ──
     //   events → PlanItem[] と（flag ON 時のみ）TransportSegment[] を
     //   1 回だけ生成する pure function に委譲。flag OFF 時は transportSegments
@@ -982,7 +1014,7 @@ export function adaptPipelineToLegacy(
       events: effectiveEvents,
       enableTransportV2: ALTER_MORNING_FLAGS.transportV2(input.userId),
       mainTransport: derivedTransport?.plan,
-      homeAnchor,
+      homeAnchor: effectiveHomeAnchor,
       journeyEnd,
     });
 
@@ -1041,10 +1073,12 @@ export function adaptPipelineToLegacy(
       // CEO 2026-04-28 Option B + Journey 構造:
       //   HOME_SENTINEL fromEventId の segment は homeAnchor.label を from に使う。
       //   ENDPOINT_SENTINEL toEventId の segment は journeyEnd.label を to に使う。
+      // CEO/GPT 2026-05-03 PR B-3c-1: travel item from label も effectiveHomeAnchor を
+      //   使う (= promoted origin label "東京駅丸の内口" を表示、半壊 UX 防止)
       const entries = synthesizeTravelItems(
         built.transportSegments,
         effectiveEvents,
-        homeAnchor,
+        effectiveHomeAnchor,
         journeyEnd,
       );
       interleavedItems = interleaveTravelItems(built.items, entries);

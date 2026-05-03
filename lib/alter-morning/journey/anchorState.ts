@@ -502,12 +502,20 @@ export function toOriginState(
   if (anchor === null) {
     return { kind: "unknown", reason: fallbackReason };
   }
+  // CEO/GPT 2026-05-03 PR B-3c-1: HomeAnchorSource が AnchorSource より広い
+  //   (= journey_origin_promotion を含む) ため、明示 mapping。
+  //   journey_origin_promotion は意味論的に user_override (= clarify と同じ強権)。
+  //   それ以外 (current / registered_home) は AnchorSource にも同名で存在する。
+  const mappedSource: AnchorSource =
+    anchor.source === "journey_origin_promotion"
+      ? "user_override"
+      : anchor.source;
   return {
     kind: "known_exact",
     label: anchor.label,
     lat: anchor.lat,
     lng: anchor.lng,
-    source: anchor.source,
+    source: mappedSource,
   };
 }
 

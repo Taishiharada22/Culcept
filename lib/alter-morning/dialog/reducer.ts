@@ -1028,7 +1028,15 @@ function handleSearchCandidateSelected(
   if (prev.conversationStatus !== "search_candidates_presented") {
     return prev;
   }
-  if (!prev.focus || prev.focus.slot !== "where") {
+  // CEO/GPT 2026-05-03 PR B-3c-1: focus.slot === "where" の guard は **event_where 専用**。
+  //   journey_origin / journey_end target の selection では focus は plan-level anchor で
+  //   slot=where を持たない (= 当 turn で event clarify していない場合もある)。
+  //   target.kind が event_where 以外なら focus check を skip する (= reject しない)。
+  const isAnchorTarget =
+    presentationTarget != null &&
+    (presentationTarget.kind === "journey_origin" ||
+      presentationTarget.kind === "journey_end");
+  if (!isAnchorTarget && (!prev.focus || prev.focus.slot !== "where")) {
     return prev;
   }
 
@@ -1042,11 +1050,19 @@ function handleSearchCandidateSelected(
     readyForHandoff: false,
   };
 
-  const nextFocus: DialogFocus = {
-    event_id: prev.focus.event_id,
-    slot: "where",
-    narrowStep: 3, // terminal（picker 経由で確定）
-  };
+  // CEO/GPT 2026-05-03 PR B-3c-1: anchor target (journey_origin/end) では prev.focus
+  //   が null のケースを考慮する。event_where 経路では従来通り prev.focus.event_id
+  //   を使い narrowStep terminal にする。anchor target では focus は null のまま維持
+  //   (= plan-level anchor 確定なので event-level focus は持たない)。
+  const nextFocus: DialogFocus | null = isAnchorTarget
+    ? prev.focus // anchor target: 元の focus を維持 (= null or event focus)
+    : prev.focus
+      ? {
+          event_id: prev.focus.event_id,
+          slot: "where",
+          narrowStep: 3, // terminal（picker 経由で確定）
+        }
+      : null;
 
   return {
     version: prev.version,
