@@ -118,6 +118,28 @@ export function isCandidateClickDisabled(
   return disabledTargetKinds.includes(target.kind);
 }
 
+/**
+ * CEO/GPT 2026-05-03 PR B-3c-2: candidate-level coordinates 妥当性判定 (Layer B pure helper)。
+ *
+ * candidate.validCoordinates が明示 false なら disabled。それ以外は enable。
+ *
+ * 規律:
+ *   - 既存 candidate (= validCoordinates undefined) → disabled = false (= 既存挙動完全維持)
+ *   - validCoordinates: true → disabled = false (= Layer A 通過済の通常 candidate)
+ *   - validCoordinates: false → disabled = true (= Layer A をすり抜けた稀ケース、Layer B で防御)
+ *
+ * 通常 Layer A (= journeyAnchorHandoffOrchestrator) で除外されるため、
+ * production で本 helper が true を返すことは稀。defense in depth として実装。
+ *
+ * @param candidate 1 つの NormalizedPlaceCandidate
+ * @returns coords 不正で disabled にすべきなら true
+ */
+export function isCandidateInvalidCoordinates(candidate: {
+  validCoordinates?: boolean;
+}): boolean {
+  return candidate.validCoordinates === false;
+}
+
 export function PlaceCandidatePicker({
   candidates,
   onSelect,
@@ -147,23 +169,33 @@ export function PlaceCandidatePicker({
         {candidates.map((c) => {
           const isThisPending = pending && pendingPlaceId === c.placeId;
           const distanceLabel = formatDistance(c.distanceFromAnchor);
+          // CEO/GPT 2026-05-03 PR B-3c-2 (Layer B): coordinates 不正候補の disabled 判定
+          //   通常 Layer A で除外されるため production では稀。defense in depth。
+          const candidateInvalidCoords = isCandidateInvalidCoordinates(c);
+          const candidateEffectivelyDisabled =
+            effectivelyDisabled || candidateInvalidCoords;
           return (
             <li key={c.placeId}>
               <button
                 type="button"
                 role="option"
                 aria-selected={isThisPending || undefined}
-                disabled={effectivelyDisabled}
-                aria-disabled={effectivelyDisabled || undefined}
+                disabled={candidateEffectivelyDisabled}
+                aria-disabled={candidateEffectivelyDisabled || undefined}
                 title={
                   targetDisabled
                     ? "この機能は準備中です (B-3c で対応予定)"
-                    : undefined
+                    : candidateInvalidCoords
+                      ? "この候補は移動に必要な位置情報が不足しています"
+                      : undefined
                 }
                 onClick={() => {
                   // CEO/GPT 2026-05-03 PR B-3b'-2: target.kind 由来 disabled の場合は no-op
                   // (= Layer 2 半壊 UX 防止)
                   if (targetDisabled) return;
+                  // CEO/GPT 2026-05-03 PR B-3c-2 (Layer B): coords 不正候補は no-op
+                  // (= 半壊 UX 防止、user は disabled UI で気づく)
+                  if (candidateInvalidCoords) return;
                   handleCandidateClick(c.placeId, { pending, onSelect });
                 }}
                 className={[
