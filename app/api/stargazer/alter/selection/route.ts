@@ -316,12 +316,20 @@ export async function POST(req: NextRequest) {
     }
 
     // Step 5: dispatch reducer（常に通す — 真の判定源）
+    //
+    // CEO/GPT 2026-05-03 PR B-3c-1: action.target を必ず渡す。
+    //   reducer は activePresentation.target と action.target の kind 一致で stale check
+    //   を行う。target 未指定 (= legacy 経路) のままだと journey_origin presentation で
+    //   片方 null の mismatch reject になる (= reducer L1001-1003)。
+    //   prevActive?.target が undefined の場合 (= 既存 event_where 経路) は undefined のまま
+    //   渡し、既存 legacy 判定を維持。
     const nextDialogState = dialogReducer(prevDialogState, {
       type: "SEARCH_CANDIDATE_SELECTED",
       turnIndex: body.turnIndex,
       targetEventId,
       queryFingerprint,
       selectedPlaceId,
+      ...(prevActive?.target !== undefined ? { target: prevActive.target } : {}),
     });
 
     const accepted = nextDialogState !== prevDialogState;
