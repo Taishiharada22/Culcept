@@ -78,8 +78,13 @@ import {
   extractStartPointAnchor,
   extractEndpointAnchor,
 } from "./journey/explicitAnchorExtractor";
-// CEO/GPT 2026-05-03: 汎用 origin extraction (= 「XからYへ」 で X が固有名)
+// CEO/GPT 2026-05-03: 汎用 origin extraction (= 明示 day-origin signal、 PR #75 C 案)
 import { extractOriginAnchorFromUtterance } from "./journey/originAnchorExtractor";
+// CEO/GPT 2026-05-03 PR #75: from-to travel edge reconciler
+import {
+  extractFromToTravelEdge,
+  reconcileEventsWithTravelEdge,
+} from "./comprehension/fromToTravelEdgeReconciler";
 // CEO/GPT 2026-05-03: diagnostic log helpers (= PII safe)
 import {
   logJourneyOriginResolved,
@@ -865,6 +870,32 @@ export function adaptPipelineToLegacy(
     effectiveEvents = dispatchResult.effectiveEvents;
   }
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // CEO/GPT 2026-05-03 PR #75: from-to travel edge reconciliation
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //
+  // 「明日8時東京駅から渋谷へ」 → LLM が:
+  //   event_1 = 渋谷 + 08:00 + 移動 (= 誤、 8時 は東京駅出発時刻)
+  //   event_2 = 東京駅 + missing + 出発 (= 誤、 segmentOrigin で event ではない)
+  //
+  // を post-process で repair:
+  //   1. extractFromToTravelEdge → travelEdge { 東京駅, 渋谷, "08:00" }
+  //   2. reconcileEventsWithTravelEdge → 両 event 削除、 deletedEventIds 返却
+  //   3. plan.travelEdges = [edge] に格納 (= MorningPlanCard が render)
+  //   4. 削除済 event_id を指す pendingClarify / focus は後段で null 化
+  //
+  // CEO 規律 (= 不変条件):
+  //   - segmentOrigin を journeyOrigin に **即昇格しない** (= 別 hierarchy で決定)
+  //   - segmentDepartureTime を Y event.startTime に **絶対詰めない**
+  //   - travelEdges 由来 event は items に重複生成しない (= reconciler が削除)
+  const travelEdge = extractFromToTravelEdge(input.utterance);
+  const travelReconcile = reconcileEventsWithTravelEdge(
+    effectiveEvents,
+    travelEdge,
+  );
+  effectiveEvents = travelReconcile.events;
+  const travelDeletedEventIds = travelReconcile.deletedEventIds;
+
   // ── Phase 決定（W3-PR-8: blocking slots を正本、effectiveEvents が必要）──
   const originalPhase = decidePhase(result, effectiveEvents);
 
@@ -909,25 +940,53 @@ export function adaptPipelineToLegacy(
   let phase = reconcile.reconciledPhase;
   let pendingClarify = reconcile.reconciledPendingClarify;
 
+  // CEO/GPT 2026-05-03 PR #75: travel edge reconciliation で削除された event を
+  //   pendingClarify が指していたら null 化 (= 削除済 event の clarify question 出さない)。
+  //   合格条件: 「朝・昼・夜のどれ頃？」 出ない。
+  if (
+    pendingClarify &&
+    travelDeletedEventIds.length > 0 &&
+    travelDeletedEventIds.includes(pendingClarify.event_id)
+  ) {
+    pendingClarify = null;
+  }
+
   // ── Message 決定（W3-PR-7 Commit 4: items=0 禁則 + 厳格 fallback）──
   //   clarifying: primary_clarify.question → scope/kind 再生成 → prior.question → generic
   //   plan_presented: narration.text → events から deterministic 再構築 → generic
-  let message =
-    phase === "plan_presented"
-      ? buildPlanPresentedMessage(result, effectiveEvents)
-      : buildClarifyingMessage(result, input, pendingClarify);
+  // CEO/GPT 2026-05-03 PR #75: travelEdge があり、 events 全削除 / pendingClarify null
+  //   なら travel 確認文を返す。 「明日8時に東京駅から渋谷へ移動だね」
+  let message: string;
+  const travelOnlyConfirmation =
+    travelEdge != null &&
+    pendingClarify == null &&
+    effectiveEvents.length === 0;
+  if (travelOnlyConfirmation) {
+    const time = travelEdge!.segmentDepartureTime
+      ? `${travelEdge!.segmentDepartureTime}に`
+      : "";
+    message = `${time}${travelEdge!.segmentOrigin.label}から${travelEdge!.segmentDestination.label}へ移動だね。`;
+  } else if (phase === "plan_presented") {
+    message = buildPlanPresentedMessage(result, effectiveEvents);
+  } else {
+    message = buildClarifyingMessage(result, input, pendingClarify);
+  }
 
   // ── Plan 構築（W3-PR-7 Commit 4: clarifying 時も provisional として保持）──
   //   status: plan_presented → confirmed
   //           pendingClarify あり → needs_answer
   //           else (events あるが ASK 無し / comprehension_failed 継承) → provisional
   //   events が完全に空の場合は priorPlan を provisional として継承する。
+  // CEO/GPT 2026-05-03 PR #75: travelEdge のみで events 空 → confirmed 扱い
+  //   (= 「移動だね」 確認文が出るので、 needs_answer ではない)。
   let planStatus: MorningPlanStatus =
     phase === "plan_presented"
       ? "confirmed"
-      : pendingClarify != null
-        ? "needs_answer"
-        : "provisional";
+      : travelOnlyConfirmation
+        ? "confirmed"
+        : pendingClarify != null
+          ? "needs_answer"
+          : "provisional";
 
   let plan: MorningPlan | undefined;
   if (effectiveEvents.length > 0) {
@@ -1359,10 +1418,31 @@ export function adaptPipelineToLegacy(
       ...(built.transportSegments !== undefined
         ? { transportSegments: built.transportSegments }
         : {}),
+      // CEO/GPT 2026-05-03 PR #75: travelEdges 配列で保持 (= max 1 で開始)。
+      //   plan-level metadata、 MorningPlanCard が travel row を render する。
+      //   conditional spread で edge が無い場合 plan に含めない (= byte-diff zero)。
+      ...(travelEdge ? { travelEdges: [travelEdge] } : {}),
       // PR B-1: events>0 の場合は必ず set (kind="unknown" を含む)
       // PR B-2a: applyAnchorFallback 経由で turn 跨ぎ continuity 確保
       journeyOrigin,
       journeyEnd: journeyEndForPlan,
+    };
+  } else if (travelEdge) {
+    // CEO/GPT 2026-05-03 PR #75: events 全削除 (= LLM 出力が travel 由来 events のみ
+    //   で reconciler が両方削除した)、 ただし travelEdge は valid。
+    //   この場合 plan 自体は travelEdges のみ保持 (= 「移動だね」 確認文と整合)。
+    //   合格条件: travelEdges が存在する場合 plan 有効扱い、 pendingClarify 出さない。
+    plan = {
+      date: today,
+      items: [],
+      dayConditions: {} as import("./types").DayConditions,
+      createdAt: new Date().toISOString(),
+      confirmed: false,
+      status: "confirmed", // travel-only confirmation
+      travelEdges: [travelEdge],
+      // journeyOrigin / journeyEnd は events 不在のため未確定
+      journeyOrigin: { kind: "unknown", reason: "no_baseline" },
+      journeyEnd: { kind: "unknown", reason: "no_endpoint_signal" },
     };
   } else if (input.priorPlan) {
     // events が無い（今ターン失敗 & prior も空）場合、最後の手段として

@@ -1,10 +1,15 @@
 /**
- * originAnchorExtractor unit tests (= CEO/GPT 2026-05-03 設計)
+ * originAnchorExtractor unit tests (= CEO/GPT 2026-05-03 PR #75 C 案 訂正後)
  *
- * Coverage matrix:
- *   - Positive: public POI 各種 (駅 / 空港 / 施設 / 英文 / 数字混在)
- *   - Negative: 誤爆防止 (これから / 明日から / 8時から / 既存 6 ラベル / generic / private / ambiguous)
- *   - Edge: 空文字 / null / temporal strip / 構文 4 種
+ * 重要 (= CEO 2026-05-03 訂正):
+ *   旧 (PR #73): bare 「Xから」 で X を journeyOrigin に extract
+ *     → 過剰昇格 (= 「明日8時東京駅から渋谷へ」 で「東京駅」 が day-level journeyOrigin に)
+ *   新 (PR #75 C 案): 明示 day-origin signal のみ catch
+ *     - 「Xから一日を始める」「Xから1日を始める」「Xから今日を始める」「Xからスタート」
+ *     - 「Xを出発地にして」「Xを起点に」「Xを始点に」
+ *     - 「X集合で...そのまま|直接|連れて」
+ *
+ *   bare 「XからY」 構文は本関数では catch しない (= fromToTravelEdgeReconciler が travel edge として扱う)。
  */
 
 import { describe, it, expect } from "vitest";
@@ -14,147 +19,97 @@ import {
 } from "@/lib/alter-morning/journey/originAnchorExtractor";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Positive (= public POI 抽出)
+// Positive (= 明示 day-origin signal のみ採用)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("[Positive] public POI extract", () => {
-  it("「東京駅から渋谷へ」 → 東京駅", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅から渋谷へ");
+describe("[Positive] 明示 day-origin signal extract", () => {
+  it("「東京駅から一日を始める」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅から一日を始める");
     expect(r?.kind).toBe("known_label_only");
-    expect(r?.label).toBe("東京駅");
-    expect(r?.source).toBe("user_declared");
+    if (r?.kind === "known_label_only") {
+      expect(r.label).toBe("東京駅");
+      expect(r.source).toBe("user_declared");
+    }
   });
 
-  it("「明日8時東京駅から渋谷へ」 → 東京駅 (= temporal strip)", () => {
-    const r = extractOriginAnchorFromUtterance("明日8時東京駅から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+  it("「東京駅から1日を始める」 → 東京駅 (= 算用数字)", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅から1日を始める");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 
-  it("「明日 8 時東京駅から渋谷へ」 → 東京駅 (= 半角 space 含む temporal strip)", () => {
-    const r = extractOriginAnchorFromUtterance("明日 8 時東京駅から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+  it("「東京駅から今日を始める」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅から今日を始める");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 
-  it("「成田空港から行きます」 → 成田空港", () => {
-    const r = extractOriginAnchorFromUtterance("成田空港から行きます");
-    expect(r?.label).toBe("成田空港");
+  it("「東京駅からスタート」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅からスタート");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 
-  it("「渋谷スクランブルスクエアから」 → 渋谷スクランブルスクエア", () => {
-    const r = extractOriginAnchorFromUtterance("渋谷スクランブルスクエアから");
-    expect(r?.label).toBe("渋谷スクランブルスクエア");
+  it("「東京駅を出発地にして渋谷へ」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅を出発地にして渋谷へ");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 
-  it("「さいたまスーパーアリーナから」 → さいたまスーパーアリーナ", () => {
-    const r = extractOriginAnchorFromUtterance("さいたまスーパーアリーナから");
-    expect(r?.label).toBe("さいたまスーパーアリーナ");
+  it("「東京駅を起点に動く」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅を起点に動く");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 
-  it("「ANAインターコンチネンタルホテル東京から」 → ANAインターコンチネンタルホテル東京", () => {
-    const r = extractOriginAnchorFromUtterance(
-      "ANAインターコンチネンタルホテル東京から",
-    );
-    expect(r?.label).toBe("ANAインターコンチネンタルホテル東京");
-  });
-
-  it("「Shibuya Streamから」 → Shibuya Stream (= internal space 許容)", () => {
-    const r = extractOriginAnchorFromUtterance("Shibuya Streamから");
-    expect(r?.label).toBe("Shibuya Stream");
-  });
-
-  it("「ANA InterContinental Tokyoから」 → ANA InterContinental Tokyo (= 英文 multi-word)", () => {
-    const r = extractOriginAnchorFromUtterance("ANA InterContinental Tokyoから");
-    expect(r?.label).toBe("ANA InterContinental Tokyo");
-  });
-
-  it("「羽田空港第3ターミナルから」 → 羽田空港第3ターミナル (= 数字混在)", () => {
-    const r = extractOriginAnchorFromUtterance("羽田空港第3ターミナルから");
-    expect(r?.label).toBe("羽田空港第3ターミナル");
-  });
-
-  it("「東京駅を出発して渋谷へ」 → 東京駅 (= 構文 2)", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅を出発して渋谷へ");
-    expect(r?.label).toBe("東京駅");
-  });
-
-  it("「東京駅を出て」 → 東京駅 (= 構文 2 動詞 「出て」)", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅を出て");
-    expect(r?.label).toBe("東京駅");
-  });
-
-  it("「東京駅発で行く」 → 東京駅 (= 構文 3)", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅発で行く");
-    expect(r?.label).toBe("東京駅");
-  });
-
-  it("「東京駅発の電車」 → 東京駅 (= 構文 3 「発の」)", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅発の電車");
-    expect(r?.label).toBe("東京駅");
+  it("「東京駅集合でそのまま渋谷へ」 → 東京駅", () => {
+    const r = extractOriginAnchorFromUtterance("東京駅集合でそのまま渋谷へ");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Negative (= 誤爆防止)
+// Negative (= bare 「XからY」 構文は travel edge 扱い、 ここでは catch しない)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("[Negative] 誤爆防止", () => {
-  it("「これから渋谷へ」 → null (= 「これ」 ambiguous)", () => {
-    expect(extractOriginAnchorFromUtterance("これから渋谷へ")).toBeNull();
+describe("[Negative C 案] bare 「XからY」 構文は catch しない (= travel edge 扱い)", () => {
+  it("「東京駅から渋谷へ」 → null (= 単純 travel、 day-origin signal なし)", () => {
+    expect(extractOriginAnchorFromUtterance("東京駅から渋谷へ")).toBeNull();
   });
 
-  it("「だから何？」 → null (= 「だ」 1 char)", () => {
-    expect(extractOriginAnchorFromUtterance("だから何？")).toBeNull();
+  it("「明日8時東京駅から渋谷へ」 → null (= 単純 travel)", () => {
+    expect(
+      extractOriginAnchorFromUtterance("明日8時東京駅から渋谷へ"),
+    ).toBeNull();
   });
 
-  it("「わからない」 → null", () => {
-    expect(extractOriginAnchorFromUtterance("わからない")).toBeNull();
+  it("「成田空港から行きます」 → null (= bare から、 day-origin signal なし)", () => {
+    expect(extractOriginAnchorFromUtterance("成田空港から行きます")).toBeNull();
   });
 
-  it("「明日から会議」 → null (= temporal strip → empty)", () => {
-    expect(extractOriginAnchorFromUtterance("明日から会議")).toBeNull();
+  it("「東京駅を出て渋谷へ」 → null (= 旧 PATTERN_OUT 削除、 travel edge 扱い)", () => {
+    expect(extractOriginAnchorFromUtterance("東京駅を出て渋谷へ")).toBeNull();
   });
 
-  it("「8時から会議」 → null (= temporal strip → empty)", () => {
-    expect(extractOriginAnchorFromUtterance("8時から会議")).toBeNull();
+  it("「東京駅発で渋谷へ」 → null (= 旧 PATTERN_HATSU 削除、 travel edge 扱い)", () => {
+    expect(extractOriginAnchorFromUtterance("東京駅発で渋谷へ")).toBeNull();
+  });
+});
+
+describe("[Negative] 誤爆防止 (= 既存)", () => {
+  it("「これから一日を始める」 → null (= 「これ」 ambiguous)", () => {
+    expect(extractOriginAnchorFromUtterance("これから一日を始める")).toBeNull();
   });
 
-  it("「8 時から会議」 → null (= 半角 space + temporal strip)", () => {
-    expect(extractOriginAnchorFromUtterance("8 時から会議")).toBeNull();
+  it("「明日から始める」 → null (= temporal strip → empty)", () => {
+    expect(extractOriginAnchorFromUtterance("明日から始める")).toBeNull();
   });
 
-  it("「朝から忙しい」 → null (= 「朝」 strip → empty)", () => {
-    expect(extractOriginAnchorFromUtterance("朝から忙しい")).toBeNull();
+  it("「カフェからスタート」 → null (= 「カフェ」 generic、 採用するが要件次第)", () => {
+    // 注: 「カフェ」 は generic_category。 day-origin signal なら採用してもよいが、
+    // 現実的には generic だけで day-origin にするのは過剰。 classifyLabel public_poi のみ採用が
+    // 安全側。 本関数は public_poi_proper_noun のみ採用 → null
+    const r = extractOriginAnchorFromUtterance("カフェからスタート");
+    expect(r).toBeNull();
   });
 
-  it("「そこから歩いて」 → null (= 「そこ」 ambiguous)", () => {
-    expect(extractOriginAnchorFromUtterance("そこから歩いて")).toBeNull();
-  });
-
-  it("「あそこから」 → null (= 「あそこ」 ambiguous)", () => {
-    expect(extractOriginAnchorFromUtterance("あそこから")).toBeNull();
-  });
-
-  it("「ホテルから出る」 → null (= 「ホテル」 generic_category、既存 extractStartPointAnchor 担当)", () => {
-    expect(extractOriginAnchorFromUtterance("ホテルから出る")).toBeNull();
-  });
-
-  it("「カフェから」 → null (= generic)", () => {
-    expect(extractOriginAnchorFromUtterance("カフェから")).toBeNull();
-  });
-
-  it("「自宅から会社へ」 → null (= 「自宅」 既存 6 ラベル、本関数では classify=ambiguous (= 既存 demonstrative regex)、reject)", () => {
-    // 「自宅」 は既存 extractStartPointAnchor 担当 (= 先取り)
-    // 本関数も呼ばれた場合: classifyLabel("自宅") の結果次第
-    // 重要: 結果が public_poi でない限り reject される設計なので安全
-    const r = extractOriginAnchorFromUtterance("自宅から会社へ");
-    // 「自宅」 が public_poi 扱いされない限り null が期待値
-    // 既存 classifyLabel が「自宅」 を generic / private / ambiguous に分類する場合 null
-    // 万一 public_poi に分類されても、既存 extractStartPointAnchor が先に catch するので
-    // legacyAdapter の chain では呼ばれない (= 安全)
-    if (r !== null) {
-      // 万一 public_poi 扱いされた場合は label が「自宅」 になる
-      expect(r.label).toBe("自宅");
-    }
+  it("「あそこからスタート」 → null (= 「あそこ」 ambiguous)", () => {
+    expect(extractOriginAnchorFromUtterance("あそこからスタート")).toBeNull();
   });
 });
 
@@ -167,28 +122,18 @@ describe("[Edge] edge cases", () => {
     expect(extractOriginAnchorFromUtterance("")).toBeNull();
   });
 
-  it("「から」 だけ → null", () => {
+  it("「から」 単独 → null", () => {
     expect(extractOriginAnchorFromUtterance("から")).toBeNull();
   });
 
-  it("「、東京駅から」 → 東京駅 (= 句読点 delimiter)", () => {
-    const r = extractOriginAnchorFromUtterance("、東京駅から");
-    expect(r?.label).toBe("東京駅");
-  });
-
-  it("「『東京駅から』」 → 東京駅 (= 鉤括弧 delimiter)", () => {
-    const r = extractOriginAnchorFromUtterance("『東京駅から』");
-    expect(r?.label).toBe("東京駅");
-  });
-
-  it("複数 「から」 がある場合 → 最初の match", () => {
-    const r = extractOriginAnchorFromUtterance("東京駅から横浜から渋谷へ");
-    expect(r?.label).toBe("東京駅");
+  it("「、東京駅から一日を始める」 → 東京駅 (= 句読点 delimiter)", () => {
+    const r = extractOriginAnchorFromUtterance("、東京駅から一日を始める");
+    expect(r?.kind === "known_label_only" ? r.label : null).toBe("東京駅");
   });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// stripTemporalPrefix unit
+// stripTemporalPrefix (= 既存ヘルパ、 引き続き使用)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("[stripTemporalPrefix]", () => {
