@@ -399,6 +399,7 @@ type OperationSource =
   | "code_location"       // location service (= currentLat-Lng / registered_home)
   | "ui_action"           // user UI 操作 (= candidate tap / clarify answer)
   | "caller_request"      // caller (= route.ts) からの明示要求
+  | "system_default"      // 上位 source 全 unknown 時の最終 fallback (= dispatcher が pipeline 内で生成)
 ```
 
 ---
@@ -455,15 +456,18 @@ type OperationSource =
 | `caller_request` (= UI/route が **明示的に targetDate を指定** した場合のみ) | 1000 |
 | `llm_explicit` (= comprehension.targetDate、 utterance 由来) | 700 |
 | `regex_deterministic` (= extractTargetDate、 「明日」「今日」 等の deterministic match) | 600 |
+| `system_default` (= 上記 3 source が **全て unknown** の時のみ生成、 `payload.date` は actualToday から解決) | 100 |
 
-**重要規律 — `actualToday` / `currentDate` は operation source ではない**:
+**重要規律 — `actualToday` / `currentDate` は operation source ではない、 ただし `plan.date` は必ず operation pipeline 内で書く**:
 
 - `actualToday` / `currentDate` (= 旧称 `input.today`) は **date resolution context** (= 「明日」 → "YYYY-MM-DD" に解決するための基準日)
-- これは `set_target_date` の source ではない。 priority 表に出さない
-- PR-50 50 点評価の真因の 1 つ: LLM が `targetDate = "tomorrow"` を出したのに `legacyAdapter:798` で `input.today ?? todayYmd()` (= 基準日) を `plan.date` として採用した wire 漏れ
-- OP 系では **date resolution context と target date source を絶対に混ぜない**
+- `actualToday` / `currentDate` 自体を operation source として扱わない (= priority 表に出さない)
+- ただし、 `caller_request` / `llm_explicit` / `regex_deterministic` が **全て unknown** の場合は、 dispatcher が **`system_default` source の `set_target_date` operation を生成** して pipeline 内に入れる。 `payload.date` は actualToday / currentDate から解決
+- これにより **`plan.date` は必ず `set_target_date` operation 経由で書かれる** (= single writer 原則完全遵守)
+- **`plan.date` を operation pipeline の外で直接書く経路は禁止** (= caller も含む)
 - naming も `input.today` → `actualToday` / `currentDate` に統一し、 「今日の基準日」 と「targetDate」 の混同を防ぐ
-- 全 source が `set_target_date` を出さない場合: dispatcher は `plan.date` を確定せず、 caller (= route.ts) の責務として `actualToday` を date resolution context として最終 fallback に使う (= operation pipeline の外で resolve)
+- PR-50 50 点評価の真因の 1 つ: LLM が `targetDate = "tomorrow"` を出したのに `legacyAdapter:798` で `input.today ?? todayYmd()` (= 基準日) を `plan.date` として採用した wire 漏れ。 OP 系で **`plan.date` を pipeline 外で書く経路を OP-7 で完全撤去** することでこの種類のバグを構造的に防ぐ
+- OP 系では date resolution context と target date source を絶対に混ぜない
 
 ### 4.6 resolve_place_candidate の priority
 
@@ -489,7 +493,7 @@ function reducePerField<F>(ops: OperationEnvelope[], field: F): OperationEnvelop
 
 | PlanState field | 書ける operation type | 主な source |
 |---|---|---|
-| `plan.date` | `set_target_date` のみ | LLM / regex / caller |
+| `plan.date` | `set_target_date` のみ (= 全 source unknown 時も dispatcher が `system_default` operation を生成、 pipeline 外書き込みは禁止) | LLM / regex / caller / system_default |
 | `plan.events[]` (= append) | `append` のみ | LLM |
 | `plan.events[i]` (= modify) | `modify` / `answer` のみ | LLM / UI |
 | `plan.travelEdges[]` (= **segment-level**) | `add_travel_edge` のみ | LLM segments / regex |
