@@ -169,29 +169,32 @@ describe("OP-3A Invariants — runtime 完全不変", () => {
   // 6. OP-3A scope 厳守 — origin 系 / travel edge 系 factory が含まれない
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  describe("OP-3A scope 厳守 (= origin regex / travel edge 系は OP-3C へ延期)", () => {
+  describe("OP-3A scope 厳守 (= 危険系 file は引き続き不在)", () => {
     const factoryDir = path.join(
       REPO_ROOT,
       "lib/alter-morning/comprehension/operationFactories",
     );
 
     // 注: OP-3A 時点では「targetDate 系 2 file のみ」 を assert していたが、
-    //     OP-3B 着地で location / history / UI factory が追加されるため、
-    //     「2 file 限定」 制約は OP-3B PR で削除する。 ただし以下の本質規律は維持:
+    //     OP-3B 着地で location / history / UI factory、
+    //     OP-3C-1 着地で travelEdgeFromToFactory が追加される。
+    //
+    //     ただし以下の本質規律は維持:
     //
     //     1. origin regex (= bare「X から」 を catch する) factory 不在
-    //     2. travel edge factory 不在 (= PR #75 merge 後の OP-3C で扱う)
+    //     2. extractOriginAnchor 系 factory 不在
+    //     3. fromToTravel 命名の factory 不在 (= PR #75 系の危険命名)
     //
-    //     具体 file 名 pattern: extractOriginAnchor / fromToTravel / travelEdge
+    //     OP-3C-1 で travelEdgeFromToFactory は許可 (= segmentOrigin/Destination
+    //     のみ出力、 journeyOrigin に絶対昇格しない不変条件は別 test で担保)
 
-    it("operationFactories/ 配下に origin regex / travel edge 系 file が存在しない (= OP-3C 延期)", () => {
+    it("operationFactories/ 配下に origin regex / extractOriginAnchor / fromToTravel 系 file が存在しない", () => {
       const files = readdirSync(factoryDir);
       const dangerous = files.filter(
         (f) =>
           f.toLowerCase().includes("originregex") ||
           f.toLowerCase().includes("extractoriginanchor") ||
-          f.toLowerCase().includes("fromtotravel") ||
-          f.toLowerCase().includes("traveledge"),
+          f.toLowerCase().includes("fromtotravel"),
       );
       expect(dangerous).toEqual([]);
     });
