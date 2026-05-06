@@ -2201,3 +2201,121 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
    - **timeout 0 件 / fallback 0-1 件 / validation_failed 0-1 件** 維持
 3. 全 PASS なら Stage 2.2 (20-call → 100-call) へ判断
 4. NG 検出時は分布共有 → 原因特定 → fix-forward (パターン: validator 厳格度調整 / model timeout 上限調整 / max_tokens 削減 等)
+
+## [2026-05-07] [Build] [L4-i Phase 2 Stage 2.1 — 20-call smoke v5 conditional PASS + Stage 2.2 = 20-call block × 5 protocol] [承認: CEO]
+
+### 経緯
+- CEO による 20-call smoke v5 実施 (Preview build `e7682b4a`、observationMode ON、`NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE=true` 維持)
+- 20s 間隔 / 同 thread / mode 切替なし / 別タブ操作なし
+- canary error 投下: 20:49:02 (smoke 直後 1st throw) + 21:01:36 (fresh dump throw、smoke 完了から ~13 分後)
+
+### Stage 2.1 v5 観測結果
+
+#### Network layer (browser DevTools 直接観測)
+| 項目 | 値 |
+|------|-----|
+| user message 送信数 | 20 |
+| POST `/api/coalter/speech` | **20** (全件 status 200) |
+| **過剰発火比 (POST/msg)** | **1.0x** (Tier-1 PASS、Fix C 検討不要) |
+| latency 5000ms+ 件数 | 2 件 |
+
+#### Sentry breadcrumb layer (canary throw fresh dump 抽出)
+| 項目 | 値 | 備考 |
+|------|-----|------|
+| `coalter.pattern.used` 観測件数 | **18 件** | Network 20 POST と 2 件乖離 |
+| `speechSource=llm` | 16 件 | 88.9% (観測 sample 比) |
+| `speechSource=fallback` | 1 件 | fallbackReason=`validation_failed` |
+| `speechSource=static` | 1 件 | fallbackReason=**`rate_limited`** (cause 未確定) |
+| `validationFailed=true` | 1 件 | (#3 と同 row) |
+| `retries` 分布 | -1=1 / 0=11 / 1=6 / 2=0 / 3+=0 | **retries=2 が 5-call v4 の 1 件 → v5 0 件** (改善) |
+| `latency` (llm+fallback、17 値) | p50=2358 / p95=5565 / max=5950 | 全項目 CEO PASS 基準内 (≤3000 / ≤6500 / ≤7500) |
+| `timeout` (>=7900ms) | 0 件 | |
+| PII 漏洩 (data 内 body) | 0 件 | payload 構造的に本文不在 |
+| UrgentLayer | static 維持 | CEO スクショ確認 |
+
+### pattern.used 18/20 件乖離の原因 (推定)
+- Sentry maxBreadcrumbs=500 buffer + heavy polling (`/messages` + `/read` で ~24/min) = 約 12 分過去保持
+- v5 smoke 期間 ~12 分 + canary fresh dump throw が smoke 完了から 13 分後
+- → 最古の 2 件 pattern.used (~20:36-20:43 帯) が buffer から押し出された可能性大
+- 証拠: dump 内最古 event = 20:43:19 (pattern.used 1)、それ以前の polling event ゼロ
+
+**観測 infra 課題、smoke 自体の問題ではない**。Stage 2.2 は smoke 直後 10 秒以内に fresh canary throw する protocol で対処。
+
+### `fallbackReason="rate_limited"` の取り扱い (CEO 厳守)
+- **観測事実 (確定)**: dump 内 1 件、`speechSource=static`, `fallbackReason="rate_limited"`, `latencyMs=0`, `retries=0`
+- **未確定 (CEO 厳守)**: 原因 layer は**断定しない**。Anthropic API rate / app 側 rate gate / route 側制御 / 別 layer どれも候補
+- **記録方針**: 「rate_limited observed」のみ。Stage 2.2 で 100 calls 中の頻度と pattern を観測してから cause 議論
+- **事前対策しない**: server retry / validator 修正 / Anthropic Tier 確認 を Stage 2.2 前に入れない (CEO 確定)
+
+### CEO 判定 (2026-05-07)
+
+#### Q1: pattern.used 18/20 → **条件付き PASS**
+- Request layer (Network 20 POST / 1.0x / 全 200): **PASS**
+- Outcome layer (pattern.used 18/20 / llm 16 / fallback 1 / static 1): **Yellow 付き PASS**
+- Overall: **conditional PASS** (完全 PASS ではない)
+
+#### Q2: rate_limited 1 件 → **Stage 2.2 で観察対象**
+- 原因断定禁止
+- 事前対策禁止 (server retry / validator 等)
+- 100-call 中の頻度・パターンを観測してから議論
+
+#### Q3: Stage 2.2 → **GO、ただし 20-call block × 5 に分割**
+- 100-call 一括禁止
+- 各 block 完了後 10 秒以内に fresh canary throw → buffer overflow 回避
+- block PASS / NG を毎回判定、NG なら停止
+
+### Stage 2.2 protocol (CEO 確定 2026-05-07)
+
+#### 構造: 20-call block × 5 = 100 calls
+
+#### 各 block 手順
+1. 20 回送信 (20s 間隔、同 thread、mode 切替なし、別タブ操作なし)
+2. **送信完了後 10 秒以内に fresh canary throw**: `setTimeout(() => { throw new Error("L4-i Stage 2.2 block N — e7682b4a") }, 0)`
+3. Sentry Breadcrumbs から pattern.used 抽出
+4. 集計 (block PASS / NG 判定)
+5. NG なら停止 → CEO 判断
+6. PASS なら次 block へ (block 間に 1-2 分インターバル推奨、cumulative effect 避ける)
+
+#### Block PASS 条件 (各 20-call で)
+| 項目 | PASS |
+|------|------|
+| POST `/api/coalter/speech` | 20-22 件 |
+| `pattern.used` | 20 件 (最低 19 件) |
+| `speechSource=llm` | 18 件以上 |
+| `fallback` | 0-1 件 |
+| `validation_failed` | 0-1 件 |
+| `rate_limited` | 0-1 件 |
+| `timeout` | 0 件 |
+| PII | 0 件 |
+| UrgentLayer | static 維持 |
+| `latency p95` | ≤ 6500ms |
+
+#### 全体 PASS 条件 (5 blocks 合計 100 calls)
+| 項目 | PASS |
+|------|------|
+| total POST | 100-110 件 |
+| observed `pattern.used` | 95 件以上 |
+| llm 成功率 | 90% 以上 |
+| `timeout` | 0-1 件 |
+| `validation_failed` 比率 | ≤ 5% |
+| `rate_limited` 比率 | ≤ 5% |
+| PII | 0 件 |
+| UrgentLayer | static 維持 |
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 触らない ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 触らない (Urgent LLM 化なし) ✅
+- Production env 触らない (4 env 全て Preview only) ✅
+- §10.2 #9 partial 維持 ✅
+- L4-m / E-3 / 別 sink へ進まない ✅
+- v5 を完全 PASS と書かない ✅
+- rate_limited を Anthropic 起因と断定しない ✅
+- 100-call 一括禁止 ✅
+- NG 時自律 fix-forward 禁止 ✅
+- timeout / validator 勝手変更禁止 ✅
+
+### 次ステップ
+1. CEO Stage 2.2 block 1 (20 calls) 実施
+2. 各 block 結果共有 → Claude が集計 → CEO 判断 → 次 block 進行
+3. 5 blocks 全 PASS なら Stage 2.3 (variant 別 review) へ判断
+4. 任意 block で NG → 停止 → 分布共有 → 原因議論 → fix 候補提示 (自律実行禁止)
