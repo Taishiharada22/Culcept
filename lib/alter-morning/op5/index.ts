@@ -54,3 +54,10 @@ export type {
   TravelEdgesComparison,
 } from "./shadowComparator";
 export { compareShadowVsLegacy } from "./shadowComparator";
+
+// OP-5.3.1: extractLegacySnapshot pure helper
+export { extractLegacySnapshot } from "./extractLegacySnapshot";
+
+// OP-5.3.2: shadow entrypoint (= runtime 接続点候補、 OP-5.3.3 で初接続予定)
+export type { ShadowEntrypointInput } from "./shadowEntrypoint";
+export { runShadowAndCompare } from "./shadowEntrypoint";
