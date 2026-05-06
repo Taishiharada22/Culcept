@@ -194,15 +194,16 @@ describe("OP-3B Invariants — pure wrapper 規律", () => {
   // operationFactories/ 配下: targetDate 2 (OP-3A) + OP-3B 4 = 6 file
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  describe("operationFactories/ 配下 — OP-3A (2) + OP-3B (4) + OP-3C-1 (1) = 7 file", () => {
+  describe("operationFactories/ 配下 — OP-3A (2) + OP-3B (4) + OP-3C-1 (1) + OP-3C-2 (1) = 8 file", () => {
     const factoryDir = path.join(
       REPO_ROOT,
       "lib/alter-morning/comprehension/operationFactories",
     );
 
     it("origin regex / extractOriginAnchor / fromToTravel 系 file が存在しない", () => {
-      // 注: OP-3C-1 で travelEdgeFromToFactory が landed したため
-      //     「traveledge」 prefix は許可。 ただし下記危険命名は引き続き不在。
+      // 注: OP-3C-1 で travelEdgeFromToFactory、 OP-3C-2 で explicitDayOriginFactory が
+      //     landed したため、 「traveledge」 / 「explicitdayorigin」 は許可。
+      //     ただし下記危険命名は引き続き不在。
       const files = readdirSync(factoryDir);
       const dangerous = files.filter(
         (f) =>
@@ -213,9 +214,10 @@ describe("OP-3B Invariants — pure wrapper 規律", () => {
       expect(dangerous).toEqual([]);
     });
 
-    it("operationFactories/ 配下の ts file は OP-3A (2) + OP-3B (4) + OP-3C-1 (1) = 7 file", () => {
+    it("operationFactories/ 配下の ts file は OP-3A (2) + OP-3B (4) + OP-3C-1 (1) + OP-3C-2 (1) = 8 file", () => {
       const files = readdirSync(factoryDir).filter((f) => f.endsWith(".ts")).sort();
       expect(files).toEqual([
+        "explicitDayOriginFactory.ts",
         "historyPreviousDayFactory.ts",
         "historyPriorPlanFactory.ts",
         "llmComprehensionTargetDateFactory.ts",
