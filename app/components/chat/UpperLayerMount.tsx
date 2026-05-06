@@ -383,7 +383,20 @@ function UpperLayerMountActive() {
     ) => {
       if (!speechMountedRef.current) return;
       if (speechVariant === null) return;
-      const telemetryKey = `${speechVariant}|${speechState}|${speechMode}|${source}|${fallbackReason ?? "none"}`;
+      // L4-i Phase 2 Stage 2.1 v4 (CEO 確定 2026-05-07 GPT 補正版):
+      //
+      // dedupe key に observationKey を含めることで:
+      //   - 通常モード: 従来通り (variant, state, mode, source, reason) で重複抑制
+      //     → 同 outcome 連続 emit を防ぐ (Production 不変)
+      //   - 観測モード: observationKey が各 critical signal の (kind:detectedAt) で
+      //     unique → 5 calls 各々が別 telemetry event として emit される
+      //     (Sentry 集計で latency / retries / fallback 分布が観測可能)
+      //   - 同一 request 内の二重 emit は同じ observationKey なので依然抑止される
+      //     (race condition 起因の duplicate を防ぐ最低限の dedupe を維持)
+      const baseKey = `${speechVariant}|${speechState}|${speechMode}|${source}|${fallbackReason ?? "none"}`;
+      const telemetryKey = observationMode
+        ? `${baseKey}|${observationKey}`
+        : baseKey;
       if (telemetryKey === lastEmittedSpeechTelemetryKeyRef.current) return;
       emitPatternUsed({
         pairId: "",
@@ -555,7 +568,27 @@ function UpperLayerMountActive() {
     })();
     inFlightSpeechRef.current.set(cacheKey, work);
     return () => {
-      // state / mode / variant 変更時に走行中 fetch を abort (stale response 防止)
+      // L4-i Phase 2 Stage 2.1 v4 (CEO 確定 2026-05-07 GPT 補正版):
+      //
+      // 観測モード時は cleanup で controller.abort() も clearTimeout() も両方 skip
+      // する。理由:
+      //   - cleanup は observationKey 変化 (新 critical signal) で走るが、観測中は
+      //     前 fetch を完走させたい (5 件分の outcome を取りたい)
+      //   - もし clearTimeout だけ実行すると、前 fetch がハングした場合の 8s
+      //     timeout 保険が消えて in-flight ref が永遠に解放されない (GPT 指摘)
+      //   - timeoutId は fetch の finally block で clearTimeout される (request
+      //     単位の所有)、effect cleanup で消す必要なし
+      //   - observationKey 変化時の二重起動は in-flight dedupe ref で抑止する
+      //     (`inFlightSpeechRef.current.has(cacheKey)` で skip)
+      //
+      // 通常モード (Production default OFF) は従来通り cleanup で abort + clearTimeout
+      // (state 変化時の stale fetch を捨てる)。
+      //
+      // unmount 時の stale UI 更新は別経路 `speechMountedRef.current = false` で防ぐ
+      // (本 cleanup ではなく mount effect の return で実施)。
+      if (observationMode) {
+        return;
+      }
       controller.abort();
       clearTimeout(timeoutId);
     };

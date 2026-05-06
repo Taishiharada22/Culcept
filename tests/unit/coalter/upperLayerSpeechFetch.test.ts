@@ -209,7 +209,7 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     );
     // helper 内で emitPatternUsed 呼び出し
     expect(content).toMatch(
-      /const\s+emitSpeechTelemetry\s*=[\s\S]{0,800}emitPatternUsed/,
+      /const\s+emitSpeechTelemetry\s*=[\s\S]{0,2000}emitPatternUsed/,
     );
   });
 
@@ -369,6 +369,57 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     expect(content).toMatch(/inFlightSpeechRef\.current\.has\(cacheKey\)/);
     expect(content).toMatch(/new\s+AbortController\(\)/);
     expect(content).toMatch(/speechMountedRef/);
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 (CEO 確定 2026-05-07): observationMode の cleanup で abort も clearTimeout も両方 skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // cleanup return block の中で observationMode 時は早期 return
+    // (controller.abort() + clearTimeout(timeoutId) を両方 skip して 8s timeout 保険を維持)
+    expect(content).toMatch(
+      /return\s*\(\s*\)\s*=>\s*\{[\s\S]{0,1000}if\s*\(\s*observationMode\s*\)\s*\{[\s\S]{0,200}return;[\s\S]{0,200}\}[\s\S]{0,200}controller\.abort\(\);?[\s\S]{0,80}clearTimeout\(timeoutId\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 : timeoutId は fetch finally で clear (request 単位の所有)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // finally block で clearTimeout(timeoutId) が呼ばれる
+    // (effect cleanup で消えても timeout 保険を維持するための request 単位所有)
+    expect(content).toMatch(
+      /\}\s*finally\s*\{[\s\S]{0,200}clearTimeout\(timeoutId\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 : telemetry dedupe key に observationMode 時 observationKey を追加", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // baseKey と observationMode 時の augmented key の両方を生成
+    expect(content).toMatch(
+      /const\s+baseKey\s*=\s*`[\s\S]{0,200}\$\{speechVariant\}[\s\S]{0,200}\$\{[\s\S]{0,40}fallbackReason/,
+    );
+    expect(content).toMatch(
+      /const\s+telemetryKey\s*=\s*observationMode[\s\S]{0,150}\$\{baseKey\}\|\$\{observationKey\}[\s\S]{0,150}baseKey/,
+    );
+    // 通常モードの dedupe semantics は維持 (二重 emit 防止)
+    expect(content).toMatch(
+      /telemetryKey\s*===\s*lastEmittedSpeechTelemetryKeyRef\.current[\s\S]{0,80}return/,
+    );
   });
 
   it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): cleanup-induced abort は negative cache を汚さない", async () => {
