@@ -2135,3 +2135,69 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
 3. canary PASS なら 5-call mini smoke (15 秒間隔以上、CEO 確定 rate limit 回避)
 4. PASS なら 20-call smoke
 5. 全 PASS なら CEO 判断で Stage 2.2 (100 calls) へ
+
+## [2026-05-07] [Build] [L4-i Phase 2 Stage 2.1 — 5-call mini smoke v4 PASS + 20-call 進行判断] [承認: CEO]
+
+### 経緯 (fix-forward 5 段の累積)
+1. **v1 mislabel fix** (commit `31440a84`, 2026-05-01): route の `speechSource:"llm"` 固定削除、buildPresenceSpeech metadata 伝播
+2. **v2 cache 汚染 fix** (commit `3ac0e303`): static fallback body を LLM 結果として cache していた問題を `source === "llm"` gate で解消
+3. **v2.5 cleanup-abort fix** (commit `84ef2f16`): cleanup 由来 AbortError が 30s negative cache を立てていた問題を `timeoutFired` flag で区別
+4. **v3 timeout 拡張** (commit `e07509b2`): 2s → 5s → 8s。実 LLM latency ~2047ms 直接 probe 確認、retry 込みで 5s では足りず race
+5. **breadcrumb buffer 拡張** (commit `54cb45bd`): default 100 → 500、polling chatter (~24/min) で 4 分以内に coalter.* 消失する問題を解消
+6. **v3 5-call で 5 success + 5 cancel + 1 emit 観測** (Sentry) → 観測モード必要と判定
+7. **v4 Option C' 観測モード追加** (commit `a741d80d`):
+   - `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE=true` で speech session cache / negative cache を skip
+   - effect deps に `observationKey = ${kind}:${detectedAt}` 追加し signal 毎に再実行
+   - in-flight dedupe / AbortController / 8s timeout は維持
+8. **v4 Fix A/B revised** (commit `e7682b4a`, 本エントリ対象):
+   - **Fix A**: cleanup observationMode 時に `controller.abort()` だけでなく `clearTimeout(timeoutId)` も skip。8s timeout 保険を維持 (timeoutId は finally で clear)
+   - **Fix B**: telemetry dedupe key を observation 時 `${baseKey}|${observationKey}` に拡張。同一 (variant, state, mode) でも observation key 違いで別 emit を許容、同 request 内 dedupe は維持
+   - GPT 補正受領: 当初案 (clearTimeout も実行) は 8s 保険を消すため NG → 完全 skip 案を採用
+
+### Stage 2.1 5-call mini smoke v4 結果 (Sentry breadcrumb 8 件、CEO 共有 2026-05-07)
+
+| # | UTC | latencyMs | retries | speechSource | fallbackReason | validationFailed |
+|---|-----|-----------|---------|--------------|----------------|------------------|
+| 1 | 20:22:29 | 1721 | 0 | llm | null | false |
+| 2 | 20:22:03 | 3987 | 1 | llm | null | false |
+| 3 | 20:25:26 | 6775 | **2** | llm | null | false |
+| 4 | 20:25:51 | 1970 | 0 | llm | null | false |
+| 5 | 20:26:12 | 4123 | 1 | llm | null | false |
+| 6 | 20:26:27 | 2817 | 0 | llm | null | false |
+| 7 | 20:26:49 | 1903 | 0 | llm | null | false |
+| 8 | 20:26:53 | 2204 | 0 | llm | null | false |
+
+- **observationKey 区別 PASS**: 同 thread / 同 (variant=A, state=S2, mode=normal) で 8 件分離 emit (Fix B 機能)
+- **speechSource 分布**: llm 100% (8/8) — LLM 経路完全活性、injection OK、retry 経路含めて全件成功
+- **latency 統計**: median ~2510ms / mean ~3299ms / p95 ~6775ms / max **6775ms (outlier 1)**
+- **retries 分布**: 0=6 (75%) / 1=2 (25%) / 2=1 (12.5%) (重複: outlier 1 件は retries=2 + latency=6775 同一 row)
+- **失敗系 (timeout / fallback / validation_failed / PII)**: 全て 0
+- **UrgentLayer**: スクショ上 dominant_card 維持確認、static text 不変
+
+### CEO PASS 判定根拠 (2026-05-07)
+- pattern.used 5 件以上: ✅ 8 件
+- speechSource=llm 3 件以上: ✅ 8 件
+- fallback 0-1 件: ✅ 0
+- validation_failed 0-1 件: ✅ 0
+- timeout 0-1 件: ✅ 0
+- retries=2 多発なし: ✅ 1 件のみ
+- latency 6-8s 張り付きなし: ✅ 1 件のみ outlier
+- PII 漏洩: ✅ payload 構造的に本文不在
+- UrgentLayer static 維持: ✅
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 触らない ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 触らない (Urgent LLM 化なし) ✅
+- Production env 触らない (4 env 全て Preview only に隔離) ✅
+- §10.2 #9 partial 維持 ✅
+- L4-m / E-3 / 別 sink へ進まない ✅
+- `legacy.fallback` を speech fallback に流用しない ✅
+
+### 次ステップ: 20-call smoke
+1. CEO による 20-call smoke 実施 (Preview 同 build `e7682b4a`、観測モード ON 維持)
+2. **重点観測項目** (CEO 指示):
+   - **latency 分布**: p50 / p95 / p99 / max。p95 5000ms 超 / max 8000ms 到達 = NG ライン
+   - **retries 分布**: retries=2 が 5 件 (25%) 以上 = post-validator 厳格化検討、retries=3+ = SDK retry loop 異常
+   - **timeout 0 件 / fallback 0-1 件 / validation_failed 0-1 件** 維持
+3. 全 PASS なら Stage 2.2 (20-call → 100-call) へ判断
+4. NG 検出時は分布共有 → 原因特定 → fix-forward (パターン: validator 厳格度調整 / model timeout 上限調整 / max_tokens 削減 等)
