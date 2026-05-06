@@ -54,7 +54,7 @@ describe("L4-i Phase 1 #2 — state component の hardcoded fallback (body undef
 });
 
 describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
-  it("isSpeechFetchEnabled を import (client gate)", async () => {
+  it("isSpeechFetchEnabled / isSpeechObservationMode を speechFetchGate から import", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -62,8 +62,11 @@ describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
       "../../../app/components/chat/UpperLayerMount.tsx",
     );
     const content = fs.readFileSync(file, "utf8");
+    // multi-line destructure を許容、両関数 import 必須
+    expect(content).toMatch(/isSpeechFetchEnabled/);
+    expect(content).toMatch(/isSpeechObservationMode/);
     expect(content).toMatch(
-      /import\s+\{\s*isSpeechFetchEnabled\s*\}\s+from\s+["']@\/lib\/coalter\/presence\/speechFetchGate["']/,
+      /@\/lib\/coalter\/presence\/speechFetchGate/,
     );
   });
 
@@ -278,6 +281,94 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     expect(content).toMatch(
       /isAbort\s*&&\s*!timeoutFired[\s\S]{0,150}setSpeechBody\(null\)[\s\S]{0,50}return/,
     );
+  });
+
+  it("L4-i Phase 2 Option C' (CEO 確定 2026-05-07): observationMode で cache read を skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationMode 判定が effect 内に存在
+    expect(content).toMatch(
+      /const\s+observationMode\s*=\s*isSpeechObservationMode\(\)/,
+    );
+    // !observationMode のときだけ cache hit / negative cache check 経路
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechCacheRef\.current\.get\(cacheKey\)/,
+    );
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechNegativeCacheRef\.current\.get\(cacheKey\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationMode で cache write も skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // success path の cache write block が !observationMode で gate
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechCacheRef\.current\.set\(cacheKey/,
+    );
+    // catch path / non-OK path の negative cache write も !observationMode で gate
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,200}speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*30_000\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationKey が effect deps に含まれる", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // effect deps の最後に observationKey が含まれる
+    expect(content).toMatch(
+      /\}\s*,\s*\[speechState,\s*speechMode,\s*speechVariant,\s*threadId,\s*observationKey\]/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationKey は recentSignals.length に依存しない (kind:detectedAt 形式)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationKey が `${kind}:${detectedAt}` 形式 (SIGNAL_LOG_LIMIT 依存回避、CEO 厳守)
+    const observationBlock = content.match(
+      /const\s+observationKey\s*=[\s\S]{0,500};/,
+    );
+    expect(observationBlock).not.toBeNull();
+    expect(observationBlock![0]).toMatch(/kind/);
+    expect(observationBlock![0]).toMatch(/detectedAt/);
+    // recentSignals.length を observationKey に使っていない
+    expect(observationBlock![0]).not.toMatch(/recentSignals\.length/);
+  });
+
+  it("L4-i Phase 2 Option C' : Production default (env 未設定) で従来挙動完全維持", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationMode false 時は observationKey が "off" 固定 (deps 不変、従来挙動)
+    expect(content).toMatch(/observationMode[\s\S]{0,200}["']off["']/);
+    // in-flight dedupe / AbortController / stale guard は両モード共通
+    expect(content).toMatch(/inFlightSpeechRef\.current\.has\(cacheKey\)/);
+    expect(content).toMatch(/new\s+AbortController\(\)/);
+    expect(content).toMatch(/speechMountedRef/);
   });
 
   it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): cleanup-induced abort は negative cache を汚さない", async () => {

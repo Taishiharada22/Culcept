@@ -57,7 +57,10 @@ import type {
   PresenceMode,
   PresenceState,
 } from "@/lib/coalter/presence/types";
-import { isSpeechFetchEnabled } from "@/lib/coalter/presence/speechFetchGate";
+import {
+  isSpeechFetchEnabled,
+  isSpeechObservationMode,
+} from "@/lib/coalter/presence/speechFetchGate";
 import { emitPatternUsed } from "@/lib/coalter/presence/telemetry";
 import type { PatternUsedEvent } from "@/lib/coalter/presence/telemetryEvents";
 
@@ -292,6 +295,21 @@ function UpperLayerMountActive() {
   const speechMode = exec.state.mode;
   const speechVariant = exec.computed.primaryPattern;
 
+  // L4-i Phase 2 Stage 2.1 / 2.2 観測モード (CEO 確定 2026-05-07 Option C')。
+  //
+  // 観測モード ON のとき、最新 signal の (kind:ts) を effect deps に追加して
+  // 各 critical signal arrival ごとに effect を再実行させる。
+  //
+  // **`recentSignals.length` を使わない理由** (CEO 確定):
+  //   SIGNAL_LOG_LIMIT=20 で length が頭打ちになる → 20-call/100-call 観測で
+  //   deps 不変問題が再発する設計脆弱性。`kind:ts` なら 20-call/100-call まで
+  //   一意性が保たれる (timestamps は単調増加、kind で同一 ms 衝突回避)。
+  const observationMode = isSpeechObservationMode();
+  const latestSignal = exec.state.recentSignals.at(-1);
+  const observationKey = observationMode
+    ? `${latestSignal?.kind ?? "none"}:${latestSignal?.detectedAt ?? 0}`
+    : "off";
+
   useEffect(() => {
     // Phase 1 default: gate OFF → fetch 起動ゼロ (Production 不変)
     if (!isSpeechFetchEnabled()) {
@@ -320,19 +338,23 @@ function UpperLayerMountActive() {
       speechState,
       speechMode,
     );
-    // cache hit → 即適用
-    const cached = speechCacheRef.current.get(cacheKey);
-    if (cached !== undefined) {
-      setSpeechBody(cached);
-      return;
+    // 通常モード: cache / negative cache check 経路 (Production 同等の挙動)
+    // 観測モード: cache を全 skip して各 signal arrival で fetch 強制再実行
+    if (!observationMode) {
+      // cache hit → 即適用
+      const cached = speechCacheRef.current.get(cacheKey);
+      if (cached !== undefined) {
+        setSpeechBody(cached);
+        return;
+      }
+      // negative cache 中なら fetch せず fallback (state component の hardcoded を使う)
+      const negativeUntil = speechNegativeCacheRef.current.get(cacheKey);
+      if (negativeUntil !== undefined && Date.now() < negativeUntil) {
+        setSpeechBody(null);
+        return;
+      }
     }
-    // negative cache 中なら fetch せず fallback (state component の hardcoded を使う)
-    const negativeUntil = speechNegativeCacheRef.current.get(cacheKey);
-    if (negativeUntil !== undefined && Date.now() < negativeUntil) {
-      setSpeechBody(null);
-      return;
-    }
-    // in-flight dedupe
+    // in-flight dedupe (両モード共通、同 instance 同時並列 fetch 防止)
     if (inFlightSpeechRef.current.has(cacheKey)) {
       return;
     }
@@ -394,7 +416,10 @@ function UpperLayerMountActive() {
         if (!speechMountedRef.current) return;
         if (!res.ok) {
           // 401 / 4xx / 5xx → static fallback (UI は壊さない)
-          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+          // 観測モード時は negative cache write skip (連続 retry を許可)
+          if (!observationMode) {
+            speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+          }
           setSpeechBody(null);
           // Option B': HTTP non-OK → fallback / llm_error
           emitSpeechTelemetry(
@@ -437,16 +462,20 @@ function UpperLayerMountActive() {
         //   - reason==="rate_limited": negative cache 70s (rate window と整合、即時再 fetch 抑止)
         //   - reason==="llm_error" / "validation_failed" / "timeout": negative cache 30s (server 側
         //     一時 error の連投を抑制)
-        if (source === "llm") {
-          speechCacheRef.current.set(cacheKey, json.body as string);
-        } else if (reason === "rate_limited") {
-          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 70_000);
-        } else if (
-          reason === "llm_error" ||
-          reason === "validation_failed" ||
-          reason === "timeout"
-        ) {
-          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+        // 観測モード時は cache write も skip (再 fetch を毎回許す、
+        // 統計サンプル取得が目的なので cache 永続化しない)
+        if (!observationMode) {
+          if (source === "llm") {
+            speechCacheRef.current.set(cacheKey, json.body as string);
+          } else if (reason === "rate_limited") {
+            speechNegativeCacheRef.current.set(cacheKey, Date.now() + 70_000);
+          } else if (
+            reason === "llm_error" ||
+            reason === "validation_failed" ||
+            reason === "timeout"
+          ) {
+            speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+          }
         }
         // body は受け取っても UI 反映するのは source==="llm" 時のみ。
         // static / fallback は state component の hardcoded fallback に戻す
@@ -505,7 +534,11 @@ function UpperLayerMountActive() {
           return;
         }
         const elapsedMs = Date.now() - startTs;
-        speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+        // 観測モード時は negative cache write skip (連続 retry を許可、
+        // timeout / error の発生分布を取りに行く)
+        if (!observationMode) {
+          speechNegativeCacheRef.current.set(cacheKey, Date.now() + 30_000);
+        }
         setSpeechBody(null);
         // Option B': timeout / network error → fallback emit
         emitSpeechTelemetry(
@@ -526,7 +559,10 @@ function UpperLayerMountActive() {
       controller.abort();
       clearTimeout(timeoutId);
     };
-  }, [speechState, speechMode, speechVariant, threadId]);
+    // observationKey: Phase 2 観測モード時のみ非 "off"。新 signal の (kind:ts) で
+    // 一意に変化するため、同 (variant, state, mode) で連続 signal が来ても effect
+    // 再実行 → fetch 再起動。通常モードは "off" 固定で従来挙動維持。
+  }, [speechState, speechMode, speechVariant, threadId, observationKey]);
 
   /**
    * Urgent dismiss tap handler。
