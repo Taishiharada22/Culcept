@@ -17,6 +17,16 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// OP-5.4.1: Sentry を mock 化 (= 実 ingestion させない)
+vi.mock("@sentry/nextjs", () => ({
+  captureMessage: vi.fn(),
+  // 互換のため他 helper も mock (= 既存 imports が他にあっても OK)
+  addBreadcrumb: vi.fn(),
+  captureException: vi.fn(),
+}));
+
+import * as Sentry from "@sentry/nextjs";
 import { runShadowAndCompare } from "@/lib/alter-morning/op5/shadowEntrypoint";
 import type { ShadowEntrypointInput } from "@/lib/alter-morning/op5/shadowEntrypoint";
 import type { MorningPlan } from "@/lib/alter-morning/types";
@@ -95,6 +105,7 @@ function makePlan(): MorningPlan {
 beforeEach(() => {
   // default 全 OFF
   setEnv({});
+  vi.mocked(Sentry.captureMessage).mockClear();
 });
 
 afterEach(() => {
@@ -345,7 +356,7 @@ describe("runShadowAndCompare — 【CEO invariant】 input mutate なし", () =
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("runShadowAndCompare — 【CEO invariant】 telemetry / DB / persistence なし", () => {
-  it("【invariant】 fetch を呼ばない (= 外部 I/O なし)", () => {
+  it("【invariant】 fetch を呼ばない (= 外部 I/O なし、 Sentry は mock 経由)", () => {
     setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
       async () =>
@@ -360,5 +371,102 @@ describe("runShadowAndCompare — 【CEO invariant】 telemetry / DB / persisten
       }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8. OP-5.4.1: error telemetry (= Sentry に category emit)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("runShadowAndCompare (OP-5.4.1) — success path / no error", () => {
+  it("【invariant】 success path (= canary 内、 通常入力) で Sentry.captureMessage を呼ばない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("【invariant】 success path 多様 input でも Sentry.captureMessage 呼ばれない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    const utterances = [
+      "",
+      "東京駅から渋谷へ",
+      "自宅から始めて、東京駅から渋谷へ、夜はホテルで泊まる",
+    ];
+    for (const utterance of utterances) {
+      runShadowAndCompare(
+        makeBaseInput({ utterance, legacyPlan: makePlan() }),
+      );
+    }
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("runShadowAndCompare (OP-5.4.1) — flag off / allowlist 外で emit しない", () => {
+  it("【invariant】 flag off では error telemetry も emit しない (= shouldRunShadow gate より前で stop)", () => {
+    setEnv({});
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("【invariant】 allowlist 外では error telemetry も emit しない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+        userId: "user-other",
+      }),
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("【invariant】 userId null では error telemetry も emit しない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+        userId: null,
+      }),
+    );
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("runShadowAndCompare (OP-5.4.1) — error category emit", () => {
+  it("【invariant】 caller への throw 伝播は引き続きしない (= silent on caller side)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    expect(() =>
+      runShadowAndCompare(
+        makeBaseInput({
+          utterance: "自宅から始める",
+          legacyPlan: makePlan(),
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("【invariant】 emit される message は op5.shadow.error.<category> 形式のみ (= raw error を含まない)", () => {
+    // success path で Sentry が呼ばれないことを系統検証
+    // (= raw 漏洩リスクの最小化、 message format も固定)
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    // success path では一度も呼ばれない
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 });
