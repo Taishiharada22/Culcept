@@ -47,6 +47,9 @@ import { redactShadowResult } from "./redaction";
 import { compareShadowVsLegacy } from "./shadowComparator";
 import { readOp5Flags, shouldRunShadow } from "./flags";
 import { extractLegacySnapshot } from "./extractLegacySnapshot";
+// OP-5.4.1 (CEO 2026-05-07): shadow path internal error を category enum に丸めて
+//   Sentry に明示 emit する pure helper。 raw error は emit に渡せない型設計。
+import { emitShadowError } from "./errorTelemetry";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Public input
@@ -128,15 +131,29 @@ export interface ShadowEntrypointInput {
  * @returns void
  */
 export function runShadowAndCompare(input: ShadowEntrypointInput): void {
+  // ─── flag / allowlist gate (= emit より前) ───
+  // gate 通過前は error telemetry も emit しない (= production 99%+ 完全 no-op)
+  let flags;
   try {
-    const flags = readOp5Flags();
-    if (!shouldRunShadow(flags, input.userId ?? null)) {
-      // behavior no-op: factories / dispatcher / redaction 起動しない
-      return;
-    }
+    flags = readOp5Flags();
+  } catch {
+    // env 読み込み失敗は silent ignore (= flag off と同等扱い)
+    return;
+  }
+  if (!shouldRunShadow(flags, input.userId ?? null)) {
+    // behavior no-op: factories / dispatcher / redaction 起動しない、 emit もなし
+    return;
+  }
 
-    // shadow 起動
-    const result = runShadowOrchestrator({
+  // ─── 各 step を個別 try / catch して category 識別 ───
+  // OP-5.4.1 (CEO 2026-05-07): silent ignore を段階的に解除。
+  //   各 step の throw を category enum に丸めて Sentry.captureMessage 経由で emit。
+  //   raw error message / stack / cause は **絶対に渡さない** (= type 設計で boundary)。
+  //   caller への throw 伝播は引き続きしない (= response / PlanState / UI 不変)。
+
+  let result;
+  try {
+    result = runShadowOrchestrator({
       utterance: input.utterance,
       sourceTurnIndex: input.sourceTurnIndex,
       actualToday: input.actualToday,
@@ -150,27 +167,38 @@ export function runShadowAndCompare(input: ShadowEntrypointInput): void {
       clarifySlot: input.clarifySlot,
       isOriginClarifyActive: input.isOriginClarifyActive,
     });
-
-    // legacy snapshot 抽出 (= OP-5.3.1 で実装した pure helper)
-    const legacy = extractLegacySnapshot(input.legacyPlan);
-
-    // comparison (= OP-5.2 で実装、 raw label を内部参照のみ、 出力に raw なし)
-    const comparison = compareShadowVsLegacy(legacy, result);
-
-    // redaction passthrough (= OP-5.2 で実装、 telemetry-safe boundary)
-    const redacted = redactShadowResult(result, { level: flags.shadowLogLevel });
-
-    // OP-5.3 では observation 出力なし。
-    // redacted / comparison は計算するが外に出さない。
-    // OP-5.4 で観測手段 (= console.log / 永続化) を追加する際に、
-    // 本関数内に sink を差し込む構造の余地として保持。
-    void redacted;
-    void comparison;
   } catch {
-    // silent ignore - raw error message / category も外に出さない
-    // - throw を caller に伝播しない
-    // - console.log / console.error を呼ばない
-    // - telemetry / Sentry / DB を呼ばない
-    // error telemetry は OP-5.4 で別途設計 (= redacted minimal error 永続化想定)
+    emitShadowError({ category: "orchestrator_error" });
+    return;
   }
+
+  let legacy;
+  try {
+    legacy = extractLegacySnapshot(input.legacyPlan);
+  } catch {
+    emitShadowError({ category: "extractor_error" });
+    return;
+  }
+
+  let comparison;
+  try {
+    comparison = compareShadowVsLegacy(legacy, result);
+  } catch {
+    emitShadowError({ category: "comparator_error" });
+    return;
+  }
+
+  let redacted;
+  try {
+    redacted = redactShadowResult(result, { level: flags.shadowLogLevel });
+  } catch {
+    emitShadowError({ category: "redaction_error" });
+    return;
+  }
+
+  // OP-5.3 では observation 出力なし。
+  // redacted / comparison は計算するが外に出さない。
+  // OP-5.4.2 で success observation の出し方を別レビュー予定 (= 本 PR scope 外)。
+  void redacted;
+  void comparison;
 }

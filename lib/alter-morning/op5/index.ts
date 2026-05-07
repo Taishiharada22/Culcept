@@ -61,3 +61,10 @@ export { extractLegacySnapshot } from "./extractLegacySnapshot";
 // OP-5.3.2: shadow entrypoint (= runtime 接続点候補、 OP-5.3.3 で初接続予定)
 export type { ShadowEntrypointInput } from "./shadowEntrypoint";
 export { runShadowAndCompare } from "./shadowEntrypoint";
+
+// OP-5.4.1: error telemetry (= category enum、 raw を渡さない型設計、 Sentry captureMessage)
+export type {
+  ShadowErrorCategory,
+  ShadowErrorTelemetryInput,
+} from "./errorTelemetry";
+export { emitShadowError } from "./errorTelemetry";
