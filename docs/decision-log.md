@@ -3130,3 +3130,122 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 #### 前回 .tmp/ static dump file (CEO 削除推奨)
 - `2026-05-07_21-05-07-261Z.json/md` は無効データ
 - CEO 操作で削除推奨 (Claude は touch しない)
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 confirm NG (5 fallback) + diagnostic mode 実装 (Round 5)] [承認: CEO]
+
+### confirm 実行結果 (probe PASS 後の 35-call、commit `ffadc633`)
+
+| 項目 | 値 | PASS | 判定 |
+|------|-----|------|------|
+| total | 35 | — | — |
+| source=llm | 30 | 32+ | 🔴 NG (-2) |
+| fallback (合計) | 5 | 0-3 | 🔴 NG (+2) |
+| validation_failed | 5 | 0-2 | 🔴 NG (+3) |
+| timeout (script 内) | 0 | 0 | ✅ |
+| PII | 0 (Claude 予備) | 0 | 予備 ✅ |
+| 危険発話 | 0 (Claude 予備) | 0 | 予備 ✅ |
+
+#### variant 別
+| variant | llm | fallback | retries 0/1/2/-1 | latency 範囲 | 判定 |
+|---------|-----|----------|------------------|-------------|------|
+| A | 4 | 1 | 2/2/0/1 | 2304-8537ms | Yellow |
+| B | 5 | 0 | 5/0/0/0 | 2300-2640ms | PASS |
+| C | 5 | 0 | 4/1/0/0 | 2093-3729ms | PASS (※同一文言 3 件、多様性懸念) |
+| D | 5 | 0 | 3/2/0/0 | 1662-8443ms | PASS |
+| **E** | **2** | **3** | 0/1/1/3 | 6548-14314ms | **🔴 NG dominant** |
+| F1 | 5 | 0 | 5/0/0/0 | 2474-7500ms | PASS |
+| F2 | 4 | 1 | 4/1/0/1 | 2427-13735ms | Yellow |
+
+### 5 件 fallback 全て validation_failed (timeout 0)
+| # | variant | sample | latency | retries | fallbackReason |
+|---|---------|--------|---------|---------|----------------|
+| 1 | A | 4 | 8537ms | -1 | validation_failed |
+| 2 | E | 0 | 14314ms | -1 | validation_failed |
+| 3 | E | 2 | 10761ms | -1 | validation_failed |
+| 4 | E | 4 | 9945ms | -1 | validation_failed |
+| 5 | F2 | 2 | 13735ms | -1 | validation_failed |
+
+### 表現補正 (CEO/GPT 2026-05-08 Round 5)
+- ❌ "timeout 0 だから案 A 効果明確"
+- ✅ "**script 経路では client SPEECH_FETCH_TIMEOUT_MS は無関係** (script は buildPresenceSpeech 直叩き)。script 上では timeout fallback は出ていない、失敗は全て validation_failed。UI 経由なら E#0 14314ms / E#2 10761ms / F2#2 13735ms は **timeout 化する可能性**。案 A の効果検証は Stage 2.2 smoke v8 で完了済"
+- ❌ "variant E = length 制約問題"
+- ✅ "**variant E の reject 原因は未確定**、length_violation 仮説は高確度だが violation type 未観測。確証には diagnostic で attemptViolations 取得必須"
+
+### Stage 2.3-diagnostic 実装 (commit `e9ffe230`)
+
+#### 採用: Case A' (CEO 確定 2026-05-08)
+| variant | sample | 理由 |
+|---------|--------|------|
+| E | 10 | fallback 再現確率高、root cause 主対象 |
+| A | 3 | 補助観察 |
+| F2 | 3 | 補助観察 |
+| 合計 | **16 sample** | LLM call ~32-48 (retry 込)、cost rough estimate |
+
+#### 実装範囲 (CEO 厳守)
+- `scripts/coalter/stage23-variant-quality-review.ts` のみ変更
+- speechValidator / speechPostValidator / speechPromptBuilder / speechBuilder /
+  speechTypes / llmCall / model / max_tokens / timeout constant /
+  Production env / ChatClient / UpperLayerMount / UrgentLayer 全て **import only**
+
+#### 新 env: `STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1`
+- PROBE / CONFIRM / DIAGNOSTIC の 3 mode 排他指定
+- 既存 PROBE / CONFIRM logic 変更なし
+
+#### Diagnostic core (既存 export API のみ)
+- `buildSpeechPrompt(input, override)` → prompt 文字列
+- 1st LLM call → `rawAttempts[0]` capture
+- `postValidateSpeech(initialText, { regenerate: wrapped, ... })`:
+  - wrapped が各 retry の raw output を `rawAttempts[i]` に追加
+  - 戻り値の `attemptViolations: SpeechViolation[][]` 取得
+- 各 attempt 計測: sentenceCount / questionCount / sentenceLengths
+- → **「raw output → violation kind」完全 traceable**
+
+#### 出力 (`.gitignore` 除外、commit 不可)
+- `.tmp/stage23-variant-review-diagnostic-<ts>.{json,md}`
+- MD 構造: 全体集計 (variant 別 violation kind 8 種分布表) + Sample 集計 + variant 別詳細 + 仮説検証
+
+### 仮説検証ライン (CEO 判断対象、Claude 自律禁止)
+| dominant violation kind | 仮説 | 修正方向候補 (CEO 判断) |
+|------------------------|------|------------------------|
+| length_violation | length 制約 vs 翻訳系 prompt ミスマッチ | E のみ length 緩和 / E prompt 文長指示強化 |
+| worldview / judgmental / 等 | prompt の禁止表現指示が effective でない | prompt 修正 (E 専用文言調整) |
+| 複数 kind 混在 | 複合的問題 | 設計レビュー、修正策複雑化 |
+
+### 不変 (CEO 厳守維持)
+- ChatClient / UpperLayerMount / speech route / validator / postValidator /
+  promptBuilder / speechBuilder / model / max_tokens / length_override /
+  timeout constant / Production env / UrgentLayer 全て不変 ✅
+- Sentry に raw output 送らない (local file のみ) ✅
+- Anthropic 起因と断定しない ✅
+- length 制約問題と断定しない (diagnostic 結果で確認後) ✅
+- diagnostic 結果を見るまで length 緩和 / prompt 修正 / validator 修正に進まない ✅
+- 35-call 再実行は CEO 修正方針確定後の判断のみ ✅
+
+### 次ステップ: CEO 実行 protocol
+
+#### Step 1: Diagnostic 実行 (16-call)
+
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+期待出力:
+- E 10 / A 3 / F2 3 sample 実行
+- 各 sample で raw attempts + violation kind 保存
+- `.tmp/stage23-variant-review-diagnostic-<ts>.{json,md}` 生成
+
+#### Step 2: CEO 質的 review
+- MD を読み、variant 別 violation kind 分布表確認
+- variant E の dominant kind 特定 → 仮説検証
+
+#### Step 3: 修正方針 CEO 判断 (diagnostic 結果共有後)
+- length_violation dominant → E のみ length 緩和 議論
+- worldview / 別 kind dominant → prompt 修正 議論
+- 複合 → 設計議論
+
+#### Step 4: 修正実装 (CEO 承認後)、35-call 再実行で再判定
