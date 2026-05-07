@@ -170,16 +170,23 @@ interface DiagnosticSampleResult {
 }
 
 /**
- * Diagnostic 対象 (CEO 確定 Case A' 2026-05-08): E 10 / A 3 / F2 3 = 合計 16 sample。
- * E は fallback 再現確率高 (前回 3/5)、A/F2 は補助観察 (各前回 1/5)。
+ * Diagnostic 対象 (CEO 確定 Round 8 G-1' 2026-05-08): C 5 / D 5 / F2 5 / E 5 = 合計 20 sample。
+ * Round 7 (35-call confirm) で D の視覚情報捏造、F2 の天気推測捏造、C の面談 bot tone 問題が
+ * 発覚。Round 8 では C/D/F2 に grounding/tone contract を追加 (Round 6 の E 修正に追加)。
+ * diagnostic 対象も C/D/F2/E の 4 variant に拡張、E は regression 確認用。
+ * A は今回 scope 外 (Round 7 で問題なし)、Round 8 では除外。
+ *
+ * 旧設定 (Round 6): E 10 / A 3 / F2 3 = 16 (E focus)
+ * 新設定 (Round 8): C 5 / D 5 / F2 5 / E 5 = 20 (C/D/F2 modify + E regression)
  */
 const DIAGNOSTIC_TARGETS: ReadonlyArray<{
   variant: PatternVariant;
   samples: number;
 }> = [
-  { variant: "E", samples: 10 },
-  { variant: "A", samples: 3 },
-  { variant: "F2", samples: 3 },
+  { variant: "C", samples: 5 },
+  { variant: "D", samples: 5 },
+  { variant: "F2", samples: 5 },
+  { variant: "E", samples: 5 },
 ];
 
 // ─────────────────────────────────────────────
@@ -577,8 +584,9 @@ function formatDiagnosticMarkdown(samples: ReadonlyArray<DiagnosticSampleResult>
   }
   lines.push("");
 
-  // variant 別 sample 詳細
-  for (const variant of ["E", "A", "F2"] as const) {
+  // variant 別 sample 詳細 (DIAGNOSTIC_TARGETS 順)
+  for (const target of DIAGNOSTIC_TARGETS) {
+    const variant = target.variant;
     const group = samples.filter((s) => s.variant === variant);
     if (group.length === 0) continue;
     lines.push(`## Variant ${variant} sample 詳細`);
@@ -653,9 +661,11 @@ function formatDiagnosticMarkdown(samples: ReadonlyArray<DiagnosticSampleResult>
 }
 
 async function runDiagnostic(llmCall: ReturnType<typeof createAnthropicLlmCall>): Promise<void> {
-  console.log("=== DIAGNOSTIC MODE: E10 / A3 / F2 3 = 16 sample ===");
+  const totalSamples = DIAGNOSTIC_TARGETS.reduce((s, t) => s + t.samples, 0);
+  const breakdown = DIAGNOSTIC_TARGETS.map((t) => `${t.variant}${t.samples}`).join(" / ");
+  console.log(`=== DIAGNOSTIC MODE: ${breakdown} = ${totalSamples} sample ===`);
   console.log("");
-  console.log("Goal: variant E (validator reject 多発) root cause 特定。");
+  console.log("Goal: variant 別 grounding/tone contract の効果検証 + regression 確認。");
   console.log("各 sample の rawAttempts × attemptViolations を完全保存。");
   console.log("");
 
@@ -883,8 +893,11 @@ async function main(): Promise<void> {
       (s, t) => s + t.samples,
       0,
     );
+    const targetsBreakdown = DIAGNOSTIC_TARGETS.map(
+      (t) => `${t.variant}${t.samples}`,
+    ).join("/");
     console.log(
-      `Estimated LLM calls: ${totalDiagSamples} minimum, more if retries occur (E${DIAGNOSTIC_TARGETS[0].samples}/A${DIAGNOSTIC_TARGETS[1].samples}/F2 ${DIAGNOSTIC_TARGETS[2].samples}).`,
+      `Estimated LLM calls: ${totalDiagSamples} minimum, more if retries occur (${targetsBreakdown}).`,
     );
   } else {
     console.log(
