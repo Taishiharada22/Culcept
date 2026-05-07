@@ -2,7 +2,7 @@
 /**
  * CoAlter L4-i Phase 2 Stage 2.3 — Variant Quality Review (manual script)
  *
- * 正本: layout plan v0.3 §7.9 / CEO 確定方針 (2026-05-08 設計 v3)
+ * 正本: layout plan v0.3 §7.9 / CEO 確定方針 (2026-05-08 設計 v3 + v4 案 C)
  *
  * 目的: 7 variant (A/B/C/D/E/F1/F2) × 5 sample = 35 件の LLM 出力を直接
  *       生成し、CEO による質的レビュー対象を取得する。
@@ -23,20 +23,39 @@
  *   - Anthropic 起因と断定しない
  *   - 数値 PASS でも CEO が「CoAlter らしくない」と判断したら STOP
  *
- * 実行ガード (2 段、CEO/GPT 補正 2026-05-08):
+ * 実行ガード (CEO/GPT 案 C 補正 2026-05-08):
  *   1. STAGE23_VARIANT_REVIEW=true 必須
- *   2. STAGE23_VARIANT_REVIEW_CONFIRM=35 必須 (sample 数と一致確認)
+ *   2. **COALTER_PRESENCE_SPEECH_LLM=true 必須** (LLM gate を ON にしないと
+ *       buildPresenceSpeech が即 static path に落ちる、root cause 修正)
  *   3. ANTHROPIC_API_KEY 必須 (.env.local から dotenv 読み込み)
- *   4. 開始前 5 秒猶予 (Ctrl+C で abort 可、補助的、env guard が主)
+ *   4. mode 排他指定 (必ずどちらか 1 つ):
+ *        - STAGE23_VARIANT_REVIEW_PROBE=1     (1-call probe、variant A のみ)
+ *        - STAGE23_VARIANT_REVIEW_CONFIRM=35  (35-call 本実行)
+ *      両方指定 / どちらも未指定 は refused (誤実行防止)
+ *   5. 開始前 5 秒猶予 (Ctrl+C で abort 可、補助的、env guard が主)
  *
  * 実行方法:
+ *
+ *   # Step 1: probe (1-call、source=llm を確認するまで本実行禁止)
+ *   COALTER_PRESENCE_SPEECH_LLM=true \
+ *   STAGE23_VARIANT_REVIEW=true \
+ *   STAGE23_VARIANT_REVIEW_PROBE=1 \
+ *   npx tsx scripts/coalter/stage23-variant-quality-review.ts
+ *
+ *   # Step 2: probe PASS 後に 35-call 本実行
+ *   COALTER_PRESENCE_SPEECH_LLM=true \
  *   STAGE23_VARIANT_REVIEW=true \
  *   STAGE23_VARIANT_REVIEW_CONFIRM=35 \
  *   npx tsx scripts/coalter/stage23-variant-quality-review.ts
  *
+ * Probe PASS 判定 (案 C):
+ *   - source === "llm"
+ *   - latencyMs > 100
+ *   - fallbackReason === null
+ *
  * 出力 (commit しない、.gitignore で除外):
- *   .tmp/stage23-variant-review-<timestamp>.json (raw data)
- *   .tmp/stage23-variant-review-<timestamp>.md   (CEO 質的 review 用)
+ *   - probe:   .tmp/stage23-variant-review-probe-<timestamp>.{json,md}
+ *   - confirm: .tmp/stage23-variant-review-<timestamp>.{json,md}
  */
 
 // ─────────────────────────────────────────────
@@ -112,16 +131,22 @@ interface SampleResult {
 // guard
 // ─────────────────────────────────────────────
 
-function guardEnv(): void {
+type RunMode = "probe" | "confirm";
+
+function guardEnv(): { mode: RunMode } {
   if (process.env.STAGE23_VARIANT_REVIEW !== "true") {
     console.error(
       "Refused: STAGE23_VARIANT_REVIEW=true required",
     );
     process.exit(1);
   }
-  if (process.env.STAGE23_VARIANT_REVIEW_CONFIRM !== "35") {
+  // CEO/GPT 案 C 補正 2026-05-08: COALTER_PRESENCE_SPEECH_LLM=true がないと
+  // buildPresenceSpeech が即 static path に落ちる (lib/coalter/flags.ts:151,
+  // lib/coalter/presence/speechBuilder.ts:105)。Stage 2.3 = LLM 出力品質レビュー
+  // のため、LLM gate を ON にしないと無効データ (35 件全 source=static) が出る。
+  if (process.env.COALTER_PRESENCE_SPEECH_LLM !== "true") {
     console.error(
-      "Refused: STAGE23_VARIANT_REVIEW_CONFIRM=35 required (matches sample count)",
+      "Refused: COALTER_PRESENCE_SPEECH_LLM=true required (LLM gate must be ON, otherwise buildPresenceSpeech returns static path immediately)",
     );
     process.exit(1);
   }
@@ -131,6 +156,23 @@ function guardEnv(): void {
     );
     process.exit(1);
   }
+
+  // mode 排他指定 (probe / confirm 必ずどちらか 1 つ)
+  const isProbe = process.env.STAGE23_VARIANT_REVIEW_PROBE === "1";
+  const isConfirm = process.env.STAGE23_VARIANT_REVIEW_CONFIRM === "35";
+  if (isProbe && isConfirm) {
+    console.error(
+      "Refused: cannot specify both STAGE23_VARIANT_REVIEW_PROBE=1 and STAGE23_VARIANT_REVIEW_CONFIRM=35 (mutually exclusive)",
+    );
+    process.exit(1);
+  }
+  if (!isProbe && !isConfirm) {
+    console.error(
+      "Refused: must specify either STAGE23_VARIANT_REVIEW_PROBE=1 (1-call probe) or STAGE23_VARIANT_REVIEW_CONFIRM=35 (35-call run)",
+    );
+    process.exit(1);
+  }
+  return { mode: isProbe ? "probe" : "confirm" };
 }
 
 // ─────────────────────────────────────────────
@@ -275,30 +317,120 @@ function formatMarkdown(results: ReadonlyArray<SampleResult>): string {
 // main
 // ─────────────────────────────────────────────
 
-async function main(): Promise<void> {
-  guardEnv();
+async function runProbe(llmCall: ReturnType<typeof createAnthropicLlmCall>): Promise<void> {
+  console.log("=== PROBE MODE: 1 sample (variant A) only ===");
+  console.log("");
+  console.log("Goal: confirm LLM path is reachable before 35-call full run.");
+  console.log("Probe PASS criteria:");
+  console.log("  - source === 'llm'");
+  console.log("  - latencyMs > 100");
+  console.log("  - fallbackReason === null");
+  console.log("");
 
-  console.log("─".repeat(60));
-  console.log("CoAlter L4-i Phase 2 Stage 2.3 — Variant Quality Review");
-  console.log("─".repeat(60));
-  console.log("");
-  console.log(
-    `Estimated LLM calls: ${TOTAL_SAMPLES} minimum, more if retries occur.`,
-  );
-  console.log(
-    `Estimated cost: rough estimate only; depends on model, prompt tokens, and retry count.`,
-  );
-  console.log("Output: .tmp/stage23-variant-review-<timestamp>.json/md");
-  console.log("");
-  console.log(
-    `Press Ctrl+C within ${ABORT_GRACE_MS / 1000} seconds to abort.`,
-  );
-  console.log("");
-  await sleep(ABORT_GRACE_MS);
+  const variant: PatternVariant = "A";
+  const fixture = VARIANT_FIXTURES[variant];
+  console.log(`Variant ${variant} (${fixture.state}/${fixture.mode}):`);
 
-  const llmCall = createAnthropicLlmCall({
-    apiKey: process.env.ANTHROPIC_API_KEY!,
-  });
+  const startTime = Date.now();
+  let result: SampleResult;
+  try {
+    setLlmCall(llmCall);
+    const speech = await buildPresenceSpeech(fixture);
+    const latencyMs = Date.now() - startTime;
+    result = {
+      variant,
+      sampleIndex: 0,
+      body: speech.body,
+      source: speech.source,
+      retries: speech.retries,
+      latencyMs,
+      validationFailed: speech.validationFailed,
+      fallbackReason: speech.fallbackReason,
+      appliedLength: speech.appliedLength,
+      tone: speech.tone,
+    };
+    console.log(
+      `  [1/1 PROBE] source=${speech.source}, retries=${speech.retries}, latency=${latencyMs}ms, fallbackReason=${speech.fallbackReason ?? "null"}`,
+    );
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    result = { variant, sampleIndex: 0, error: errMsg };
+    console.log(`  [1/1 PROBE] ERROR: ${errMsg}`);
+  } finally {
+    setLlmCall(null);
+  }
+
+  // PASS 判定
+  console.log("");
+  console.log("=== PROBE PASS / FAIL JUDGEMENT ===");
+  const sourceOk = result.source === "llm";
+  const latencyOk = typeof result.latencyMs === "number" && result.latencyMs > 100;
+  const fallbackOk = result.fallbackReason === null || result.fallbackReason === undefined;
+  console.log(`  source: ${result.source ?? "?"} ${sourceOk ? "✓" : "✗"} (expected: llm)`);
+  console.log(`  latencyMs: ${result.latencyMs ?? "?"} ${latencyOk ? "✓" : "✗"} (expected: > 100)`);
+  console.log(`  fallbackReason: ${result.fallbackReason ?? "null"} ${fallbackOk ? "✓" : "✗"} (expected: null)`);
+  if (result.error) {
+    console.log(`  ERROR: ${result.error}`);
+  }
+
+  const probePassed = sourceOk && latencyOk && fallbackOk && !result.error;
+  console.log("");
+  if (probePassed) {
+    console.log("→ PROBE PASS — 35-call full run is safe to proceed.");
+    console.log("");
+    console.log("  Next step (CEO judgement required):");
+    console.log("    COALTER_PRESENCE_SPEECH_LLM=true \\");
+    console.log("    STAGE23_VARIANT_REVIEW=true \\");
+    console.log("    STAGE23_VARIANT_REVIEW_CONFIRM=35 \\");
+    console.log("    npx tsx scripts/coalter/stage23-variant-quality-review.ts");
+  } else {
+    console.log("→ PROBE FAIL — 35-call full run is BLOCKED.");
+    console.log("  Investigate: ANTHROPIC_API_KEY validity / LLM gate / SDK call path.");
+  }
+  console.log("");
+
+  // probe dump (本実行と区別)
+  const tmpDir = path.resolve(process.cwd(), ".tmp");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const timestamp = formatTimestamp();
+  const jsonPath = path.join(tmpDir, `stage23-variant-review-probe-${timestamp}.json`);
+  const mdPath = path.join(tmpDir, `stage23-variant-review-probe-${timestamp}.md`);
+  fs.writeFileSync(
+    jsonPath,
+    JSON.stringify(
+      { generatedAt: new Date().toISOString(), mode: "probe", probePassed, result },
+      null,
+      2,
+    ),
+  );
+  const probeBody = result.body ? `\n> ${result.body}\n` : "";
+  fs.writeFileSync(
+    mdPath,
+    `# Stage 2.3 Variant Quality Review — PROBE\n\n` +
+      `Generated at: ${new Date().toISOString()}\n` +
+      `Mode: probe (1-call, variant A only)\n` +
+      `Probe PASS: **${probePassed ? "YES" : "NO"}**\n\n` +
+      `## Probe result\n\n` +
+      `- variant: ${result.variant}\n` +
+      `- source: ${result.source ?? "?"} ${sourceOk ? "(✓ pass)" : "(✗ fail)"}\n` +
+      `- latencyMs: ${result.latencyMs ?? "?"} ${latencyOk ? "(✓ pass)" : "(✗ fail)"}\n` +
+      `- fallbackReason: ${result.fallbackReason ?? "null"} ${fallbackOk ? "(✓ pass)" : "(✗ fail)"}\n` +
+      `- retries: ${result.retries ?? "?"}\n` +
+      `- validationFailed: ${result.validationFailed ?? false}\n` +
+      `${result.error ? `- ERROR: ${result.error}\n` : ""}` +
+      probeBody +
+      `\n## Decision\n\n` +
+      (probePassed
+        ? `→ PROBE PASS。35-call full run is safe to proceed (CEO judgement required).\n`
+        : `→ PROBE FAIL。Investigate before 35-call run.\n`),
+  );
+  console.log(`  JSON: ${jsonPath}`);
+  console.log(`  MD:   ${mdPath}`);
+}
+
+async function runConfirm(llmCall: ReturnType<typeof createAnthropicLlmCall>): Promise<void> {
+  console.log("=== CONFIRM MODE: 35 samples (7 variant × 5) ===");
+  console.log("");
 
   const results: SampleResult[] = [];
 
@@ -362,7 +494,7 @@ async function main(): Promise<void> {
   fs.writeFileSync(
     jsonPath,
     JSON.stringify(
-      { generatedAt: new Date().toISOString(), results },
+      { generatedAt: new Date().toISOString(), mode: "confirm", results },
       null,
       2,
     ),
@@ -381,6 +513,47 @@ async function main(): Promise<void> {
   console.log(
     "Next: CEO が MD を読んで質的 review、Claude に共有 → 数値集計 → 総合判定。",
   );
+}
+
+async function main(): Promise<void> {
+  const { mode } = guardEnv();
+
+  console.log("─".repeat(60));
+  console.log("CoAlter L4-i Phase 2 Stage 2.3 — Variant Quality Review");
+  console.log(`Mode: ${mode}`);
+  console.log("─".repeat(60));
+  console.log("");
+  if (mode === "probe") {
+    console.log("Estimated LLM calls: 1 minimum, more if retries occur.");
+  } else {
+    console.log(
+      `Estimated LLM calls: ${TOTAL_SAMPLES} minimum, more if retries occur.`,
+    );
+  }
+  console.log(
+    `Estimated cost: rough estimate only; depends on model, prompt tokens, and retry count.`,
+  );
+  if (mode === "probe") {
+    console.log("Output: .tmp/stage23-variant-review-probe-<timestamp>.json/md");
+  } else {
+    console.log("Output: .tmp/stage23-variant-review-<timestamp>.json/md");
+  }
+  console.log("");
+  console.log(
+    `Press Ctrl+C within ${ABORT_GRACE_MS / 1000} seconds to abort.`,
+  );
+  console.log("");
+  await sleep(ABORT_GRACE_MS);
+
+  const llmCall = createAnthropicLlmCall({
+    apiKey: process.env.ANTHROPIC_API_KEY!,
+  });
+
+  if (mode === "probe") {
+    await runProbe(llmCall);
+  } else {
+    await runConfirm(llmCall);
+  }
 }
 
 main().catch((e) => {
