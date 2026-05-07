@@ -99,8 +99,18 @@ export const URGENT_AUTO_REFIRE_BLOCK_MS = 60_000;
  *   - 8 秒に拡張して **実 LLM 応答を確実に観測**、その後 Production 投入前に
  *     成功 response の実測 p50 / p95 を見て 3-5 秒へ詰める判断を再実施する。
  *   - **Production 最終値ではない、Phase 2 観測専用の安全側設定**。
+ *
+ * CEO 確定 2026-05-07 (Stage 2.2 Block 3 STOP 後): 8 秒 → **10 秒** に拡張。
+ *   - Block 2 / Block 3 で各 1 件 timeout 発火 (累積 2/55 = 3.6%、CEO STOP ライン到達)
+ *   - timeout 行 2 件とも retries=0 (単発 fetch で 8s 超え、retry / validator 設計と無関係)
+ *   - `/api/coalter/speech` の end-to-end response が 8s を超えるケースが偶発
+ *   - **起因 layer は未確定** (Anthropic / Vercel route / network / client abort timing /
+ *     serverless 挙動 のいずれも候補、CEO 厳守 断定禁止)
+ *   - 案 A: timeout 8s → 10s で provider variance を吸収 (CEO 確定 2026-05-07)
+ *   - 並行: Anthropic Tier / usage / rate / latency 状況を CEO 側で確認 (案 C、別経路)
+ *   - smoke v7 で 20-call 再実施、timeout 0 件確認 → block 4 進行判断
  */
-export const SPEECH_FETCH_TIMEOUT_MS = 8_000;
+export const SPEECH_FETCH_TIMEOUT_MS = 10_000;
 
 /**
  * 本番上部レイヤー mount entry point。flag OFF で null。
