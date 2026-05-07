@@ -2738,3 +2738,82 @@ CEO 確定 8 ケース全て PASS:
 5. PASS なら累積 75 calls 達成 → block 4 進行判断 (CEO)
 6. NG なら停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
 7. CEO 並行: Anthropic Tier 確認結果共有 (timeout 再発した場合の議論材料)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 smoke v7 PASS — 案 A 成功確定 / 次は再現性確認 (もう 1 回 20-call)] [承認: CEO]
+
+### smoke v7 結果 (Sentry "smoke v7 — case A timeout 10s ffadc633" Issue 確定)
+
+#### 数字
+| 項目 | 値 | 案 A 前 (累積 55 calls 中) | 改善 |
+|------|-----|---------------------------|------|
+| user message | 20 | — | — |
+| POST `/api/coalter/speech` | **21** | block 1 v6=20, block 2=20, block 3 partial=15 | 1.05x (軽微過剰、許容内) |
+| **timeout** | **0** | 累積 2 件 (block 2 + block 3 各 1) | ✅ **完全解消** |
+| `validation_failed` | 0 | 累積 2 件 | ✅ 改善 |
+| `fallback` 合計 | 0 | 累積 4 件 | ✅ 改善 |
+| `rate_limited` | 0 | 0 | 維持 |
+| **`latency max`** | **5306ms** | 8005 (block 3 timeout 行) / 6521 (block 2 v_failed) | ✅ **大幅改善 (-1000ms 以上)** |
+| `retries=0` | 15 | — | — |
+| `retries=1` | 4 | — | — |
+| `retries=2` | 1 | — | 累積 3 (基準内) |
+| `retries=-1` (fallback 同行) | 0 | — | — |
+| PII | 0 | 0 | ✅ |
+| UrgentLayer | static 維持 | static | ✅ |
+
+### 案 A の効果証拠
+- **timeout 0/20 件 = 0%** (案 A 前累積: 2/55 = 3.6%)
+- **latency max 5306ms** (5000ms 台 2 件、他 5000ms 未満) — 全 sample が 10s timeout の半分以下
+- **end-to-end response が 10s 内に全件収まった** → 案 A (8s → 10s) で provider variance を吸収
+- 過剰発火 1.05x = Fix C も継続安定 (1.0-1.1x 許容範囲内)
+
+### CEO 厳守: 表現の補正
+- ❌ 「Anthropic SDK default timeout 10 minutes」(SDK default 値断定は不要)
+- ✅ 「`llmCall.ts` では Anthropic client に明示 timeout option を渡していない。speech route / speechBuilder 側にも独自の 8s timeout / AbortController / setTimeout は見つからない。したがって、今回の実効 8s 制限は client 側 `SPEECH_FETCH_TIMEOUT_MS` 由来と見る」
+
+### 累積トレンド (block 1 v6 + block 2 + block 3 partial + smoke v7 = 75 calls)
+| 項目 | 累積 | 累積率 | 議論ライン |
+|------|------|--------|-----------|
+| llm 成功 | 71 | 94.7% | ✅ |
+| validation_failed | 2 | 2.7% | 累積 5+ で議論 |
+| **timeout** | **2** | **2.7%** | ✅ smoke v7 で打ち止め |
+| retries=2 | 3 | 4.0% | 累積 5+ で議論 |
+| rate_limited | 0 | 0% | ✅ |
+| 過剰発火 | 1.0-1.05x | — | ✅ Fix C 安定 |
+| latency max trend | 6336 → 6521 → 6375 → **5306** | 改善 | ✅ |
+
+### CEO 判定 (2026-05-07)
+- **smoke v7 PASS** (clean PASS、案 A 成功確定)
+- **案 A: timeout 8s → 10s は成功** と判断
+- 次: 再現性確認のため **20-call block をもう 1 回だけ**実施
+- **100-call 一括はまだ不要** (smoke v8 PASS 後の CEO 判断で次 phase 決定)
+
+### 運用負債 (smoke v7 後の cleanup 候補、CEO 確定 記録)
+| File:Line | 内容 | 影響 | 対応 |
+|-----------|------|------|------|
+| `lib/coalter/presence/speechFetchGate.ts:43` | コメント "8s timeout は維持" | runtime 影響なし (実値は 10s に更新済) | smoke v8 PASS 後に comment-only cleanup commit、CEO 承認待ち |
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- speech route / validator / model / max_tokens 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- timeout constant のみ変更 (案 A) ✅
+- 100-call 一括禁止 ✅
+- 自律 fix-forward 禁止 ✅
+- Anthropic 起因と断定しない (案 C 確認結果待ち) ✅
+
+### 次ステップ: smoke v8 (再現性確認、20-call block もう 1 回)
+1. CEO smoke v8 実施: 同 protocol (build `ffadc633` または以降、20 秒間隔、新 incognito tab、canary 即時 throw)
+2. canary message: `"L4-i Stage 2.2 smoke v8 — repeatability check (case A timeout 10s)"`
+3. **PASS 条件** (smoke v7 と同じ、再現性):
+   - POST 20-22 件
+   - **timeout 0 件** ← Tier-1 (再現性確認)
+   - validation_failed 0-1 件
+   - fallback 0-1 件
+   - latency max < 10000ms (smoke v7 max=5306ms より悪化していないことが理想)
+   - PII 0 / UrgentLayer static 維持
+4. PASS なら累積 95 calls 達成 → CEO 判断で次 phase
+   - Option A: block 5 で累積 100 calls 達成 → Stage 2.2 完了 → Stage 2.3 進入判断
+   - Option B: 95 calls の trend で判断、Stage 2.3 直接進入
+5. NG なら停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
+6. **100-call 一括禁止維持**
