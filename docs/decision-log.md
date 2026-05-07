@@ -2893,3 +2893,120 @@ CEO 確定 8 ケース全て PASS:
 3. quality review 軸 (数値 + 質的) 設計
 4. CEO 設計承認後に実施
 5. **Production env / observationMode 本番投入禁止維持**
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 設計 v3 確定 + script 実装完了 (実行は CEO 別判断)] [承認: CEO]
+
+### 経緯: 設計 3 round (補正 14 点累積)
+
+#### Round 1 (CEO 補正 v2): tests→scripts、ガード、scope 限定、Sentry 不送信、A も新規
+1. `scripts/coalter/` 配置 (tests/ NG)
+2. Stage 2.3 = LLM 発話品質のみ (到達性別 stage に分離)
+3. Sentry に body 本文を送らない (PII 配慮)
+4. variant A も新規 5 件取得 (条件揃え)
+5. 実行ガード初期案
+
+#### Round 2 (GPT 補正 v3): ガード強化、cost 非断定、API 事前確認
+6. ガード 2 段 (`STAGE23_VARIANT_REVIEW=true` + `STAGE23_VARIANT_REVIEW_CONFIRM=35`)
+7. cost 表現 "rough estimate only; depends on model, prompt tokens, and retry count"
+8. API signature 事前 Explore 確認
+
+#### Round 2.5 (Claude 追加検証 6 点)
+9. fixture 正確性 (Explore 確定)
+10. variant 直接指定可能 (`buildPresenceSpeech` で input.variant 直渡し、selectPattern バイパス)
+11. signal 情報不要 (`BuildPresenceSpeechInput` 4 fields のみ: variant/state/mode/context)
+12. `.env.local` + dotenv config (既存 `scripts/backfillStargazerGenerationCandidates.ts` 慣例)
+13. tsx + `@/*` alias 動作 (tsx ^4.21.0、既存 116 scripts で実証)
+14. dump file 構造詳細化 (JSON + MD、CEO 質的 review format)
+
+#### Round 3 (CEO/GPT 最終補正 5 点)
+15. `__dirname` → `process.cwd()` (ESM 環境で安定)
+16. dotenv config を guardEnv より前 (順序逆だと `.env.local` 読まない)
+17. 実行前 5 秒 abort + estimated 表示 (補助、env guard が主)
+18. try/finally で `setLlmCall(null)` 復元 (構造的 clean さ)
+19. commit 2 分割 (script / decision-log、監査容易性)
+
+### 実装内容 (commit `f7072685`)
+
+#### 新規: `scripts/coalter/stage23-variant-quality-review.ts` (392 行)
+- 実行ガード 2 段 + ANTHROPIC_API_KEY check
+- dotenv config を冒頭で実行 (補正 16)
+- 7 variant × 5 sample loop (`PATTERN_VARIANTS` 反復)
+- variant 別 fixture (Explore 確定):
+  - A: S2/normal / B: S3/normal / C: S4/normal / D: S5/normal
+  - E: S5/normal / F1: S6/normal / F2: S7/daily
+- LLM injection: `setLlmCall(createAnthropicLlmCall({apiKey}))`
+- try/finally で `setLlmCall(null)` 復元 (補正 18)
+- rate limit: 各 sample 間 2s sleep
+- 出力: `.tmp/stage23-variant-review-<timestamp>.{json,md}` (`process.cwd()` 基準、補正 15)
+- MD format: 数値 metric 表 + 全体 PASS/NG 自動判定 + variant 別 sample + CEO 質的 8 観点
+
+#### 改修: `.gitignore` (1 行追加)
+- `.tmp/` を ignore (commit 防止)
+
+### tsc 検証
+- Stage 2.3 script の TypeScript error 0 件
+- 既存 type error は Stage 2.3 scope 外 (urgentLayerDismiss / stargazer)
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- UpperLayerMount.tsx 不変 ✅
+- speech route / validator / model / max_tokens 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- timeout constant (10s) 不変 ✅
+- speechBuilder.ts / llmCall.ts / speechTypes.ts 不変 (import only) ✅
+- Sentry に body 送らない (script 出力は local file のみ) ✅
+- 自律 fix-forward 禁止 ✅
+- Stage 2.4 / variant 到達性検証 / L4-m / E-3 にまだ進まない ✅
+
+### PASS 条件 (script 出力 → CEO 判断、CEO/GPT 確定)
+
+**全体 (35 sample)**:
+| 項目 | PASS | NG |
+|------|------|----|
+| source=llm | 32+/35 (91%+) | 31 以下 |
+| fallback (合計) | 0-3 件 (8.6%) | 4+ 件 |
+| validation_failed | 0-2 件 (5.7%) | 3+ 件 |
+| timeout (>=10s) | 0 件 | 1+ 件 |
+| PII 漏洩 | 0 件 | 1+ 件 (即 STOP) |
+| 危険発話 | 0 件 | 1+ 件 (即 STOP) |
+| length_violation | 0 件 | 1+ 件 |
+
+**variant 別**: 各 5 件中 4+ 件が質的合格 (CEO 8 観点)
+
+**CEO 質的 override**: 数値 PASS でも CEO が「CoAlter らしくない」と判断したら **STOP**
+
+### 質的 review 8 観点 (CEO 読み)
+1. 裁いていないか
+2. どちらかの味方をしていないか
+3. 相手の気持ちを勝手に代弁していないか
+4. 断定していないか
+5. 尋問っぽくないか
+6. 追い詰めていないか
+7. CoAlter の距離感として自然か
+8. variant の役割に合っているか
+
+### 次ステップ: 実行は CEO 別判断 (本 entry は script 完成のみ)
+
+#### CEO 実行手順
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_CONFIRM=35 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+(`ANTHROPIC_API_KEY` は `.env.local` から自動 load)
+
+#### 実行後フロー
+1. `.tmp/stage23-variant-review-<timestamp>.{json,md}` 確認
+2. CEO MD を読んで 35 sample の質的判定 (8 観点)
+3. CEO が PASS / Yellow / NG 判定
+4. NG 時: 自律 fix 禁止、原因議論 (CEO 判断)
+5. PASS 時: 次 stage (variant 到達性検証 等) に進入判断
+
+#### 出力 file の取り扱い (CEO 厳守)
+- `.tmp/` 内の md/json は commit しない (`.gitignore` で除外済)
+- CEO review 完了後、削除推奨 (PII 含む可能性)
+- 数値 metric のみ decision-log に記録
