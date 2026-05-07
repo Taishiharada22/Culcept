@@ -72,3 +72,6 @@ backups/
 
 # Supabase CLI linked project metadata (local runtime)
 supabase/.temp/
+
+# Stage 2.3 variant quality review 一時出力 (CEO 厳守: commit しない、PII 含む可能性)
+.tmp/
