@@ -3010,3 +3010,123 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - `.tmp/` 内の md/json は commit しない (`.gitignore` で除外済)
 - CEO review 完了後、削除推奨 (PII 含む可能性)
 - 数値 metric のみ decision-log に記録
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 script Round 4 — root cause: COALTER_PRESENCE_SPEECH_LLM 欠落 / 案 C 適用 (probe mode + flag guard)] [承認: CEO]
+
+### CEO 1 回目実行結果 (2026-05-07 21:05 UTC)
+
+```
+Variant A (S2/normal):
+  [1/5] source=static, retries=0, latency=1ms
+  ... (全 35 件 source=static / latency=0-2ms)
+```
+
+→ **35 件すべて static path、LLM 1 回も呼ばれていない**。Stage 2.3 品質レビューとして無効データ。
+
+### Root cause (file:line ベースで確定)
+
+`COALTER_PRESENCE_SPEECH_LLM` env が script 実行時に CLI / `.env.local` どちらにも設定されていなかった:
+
+```ts
+// lib/coalter/flags.ts:151-153
+get presenceSpeechLLMEnabled(): boolean {
+  return normalizeBool(process.env.COALTER_PRESENCE_SPEECH_LLM, false);
+}
+```
+
+```ts
+// lib/coalter/presence/speechBuilder.ts:105-116
+if (!COALTER_FLAGS.presenceSpeechLLMEnabled) {
+  return { source: "static", latencyMs: 0, ... };  // ← flag OFF で即 static return
+}
+```
+
+→ `setLlmCall` は呼ばれていたが、buildPresenceSpeech が **flag OFF を理由に即 static return**、`injectedLlmCall` は使われず。
+
+### 表現補正 (CEO 厳守)
+- ❌ "LLM call が走らなかった" 単体での解釈
+- ✅ "**`COALTER_PRESENCE_SPEECH_LLM` env が local script 実行時に入っておらず、`COALTER_FLAGS.presenceSpeechLLMEnabled` が false になり、`buildPresenceSpeech` が即 static path に落ちた**"
+- Anthropic 起因と断定しない (今回は env 設定欠落、provider と無関係)
+
+### CEO 判定 (2026-05-08 案 C GO)
+- 案 C 採用: guard 強化 + 1-call probe option
+- 35 件再実行は **probe PASS 後の CEO 判断後のみ**
+- 自律 35-call 禁止維持
+
+### 修正内容 (commit `835dfa13`)
+
+#### `scripts/coalter/stage23-variant-quality-review.ts` 改修
+
+1. **`guardEnv` に `COALTER_PRESENCE_SPEECH_LLM=true` 必須を追加**:
+   ```ts
+   if (process.env.COALTER_PRESENCE_SPEECH_LLM !== "true") {
+     console.error("Refused: COALTER_PRESENCE_SPEECH_LLM=true required (LLM gate must be ON, otherwise buildPresenceSpeech returns static path immediately)");
+     process.exit(1);
+   }
+   ```
+   → flag 欠落時に即 abort、static-only run を物理的に防ぐ
+
+2. **`STAGE23_VARIANT_REVIEW_PROBE=1` mode 追加**:
+   - variant A 1 件のみ実行
+   - probe / confirm 排他指定 (両方 / どちらも → refused)
+   - PASS 判定: `source === "llm"` かつ `latencyMs > 100` かつ `fallbackReason === null`
+   - 出力: `.tmp/stage23-variant-review-probe-<ts>.{json,md}` (本実行と分離)
+
+3. **mode 分岐の main 関数**:
+   - `runProbe()`: 1-call probe + PASS/FAIL judgement console 出力
+   - `runConfirm()`: 35-call 本実行 (既存 logic)
+
+### 検証
+- script type error 0 件 (Stage 2.3 scope)
+- coalter test 全件回帰なし (touch 範囲 = script のみ)
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- UpperLayerMount.tsx 不変 ✅
+- speech route / validator / model / max_tokens 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- speechBuilder.ts / llmCall.ts / speechTypes.ts 不変 (import only) ✅
+- Sentry に body 送らない ✅
+- Stage 2.3 = LLM 発話品質のみ、到達性別 stage ✅
+- 35 件再実行は probe PASS 後の CEO 判断後のみ ✅
+- Anthropic 起因と断定しない ✅
+
+### 次ステップ: CEO 実行 protocol (2 段)
+
+#### Step 1: probe (1-call)
+
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_PROBE=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+期待出力:
+```
+Variant A (S2/normal):
+  [1/1 PROBE] source=llm, retries=0, latency=2300ms, fallbackReason=null
+
+=== PROBE PASS / FAIL JUDGEMENT ===
+  source: llm ✓ (expected: llm)
+  latencyMs: 2300 ✓ (expected: > 100)
+  fallbackReason: null ✓ (expected: null)
+
+→ PROBE PASS — 35-call full run is safe to proceed.
+```
+
+#### Step 2: probe PASS 後の 35-call 本実行 (CEO 判断後)
+
+```bash
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_CONFIRM=35 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+#### 前回 .tmp/ static dump file (CEO 削除推奨)
+- `2026-05-07_21-05-07-261Z.json/md` は無効データ
+- CEO 操作で削除推奨 (Claude は touch しない)
