@@ -35,13 +35,28 @@ const COMMON_FORBIDDEN_INJECTION = `
  *
  * 本実装は最小限。実際の本番 LLM prompt は CEO 確認後に template doc から
  * 詳細化する。本書は LLM 合成の interface 凍結が目的。
+ *
+ * Variant E grounding contract (CEO 確定 2026-05-08、Stage 2.3-diagnostic Round 5 後):
+ *   diagnostic で variant E が Context: {} (空) にもかかわらず「お母さん / お父さん /
+ *   Aさん / Bさん / 彼女 / ユーザーとシステム / 学校 / ゲーム」等の架空の人物・関係・
+ *   発言を捏造する挙動を確認 (validator は length のみ filter、捏造は無検出)。
+ *   length 緩和だけでは捏造的長文が通るリスク (CEO/GPT 指摘) のため、Variant E
+ *   template に grounding contract を追加し、文脈なし具体化を抑制する。
+ *   speechValidator / speechPostValidator / speechTypes / model / max_tokens /
+ *   length_override は不変 (CEO 厳守)。
  */
 const VARIANT_TEMPLATE: Readonly<Record<string, string>> = {
   A: `Pattern A 入口発話 (§7.3 / §3.x): 短く 1-2 文で「今、間に入れそう」「少し止まって整理してもいい？」のような穏やかな入口。`,
   B: `Pattern B 状況言語化 (§7.4 / §4.x): 観測した関係 signal を非裁定的に言語化。「〜という状態に見えます」形。`,
   C: `Pattern C 確認質問 (§7.5 / §5.x): 1 文の問い返し、? は 1 個まで。確認のみで決定を促さない。`,
   D: `Pattern D 片側フォーカス (§7.6 / §6.x): 片側のみに視線を向ける。代弁せず観測事実のみ。`,
-  E: `Pattern E 橋渡し / 翻訳 (§7.7 / §7.x): 両者間の意味翻訳。裁判官化を避ける、両者を比較しない。`,
+  E: `Pattern E 橋渡し / 翻訳 (§7.7 / §7.x): 両者間の意味翻訳。裁判官化を避ける、両者を比較しない。
+【grounding contract (CEO 確定 2026-05-08)】
+- 文脈 (Context) にない人物・関係・発言を作らない (架空の登場人物・対話を生成しない)
+- Context に具体発言が含まれない場合は、抽象的な橋渡しに留める
+- 「お母さん / お父さん / Aさん / Bさん / 彼女 / ユーザーとシステム」など Context にない人物・関係を勝手に作らない
+- 「片方は『X』、もう片方は『Y』」のように具体 quote するのは、Context に両者の発言内容が **明示的に含まれている場合のみ**
+- 1 文 40 文字以内に収めるため、抽象的に短く言う`,
   F1: `Pattern F-1 関係提案 (§7.8 / §8.x): 関係保護の軽提案。承認チップ前提、強制しない。`,
   F2: `Pattern F-2 生活提案 (§7.9 / §9.x): 生活文脈の軽提案。Daily/Travel mode で default、§7.10 合成可。`,
 };
