@@ -1,41 +1,52 @@
 /**
- * shadowEntrypoint — OP-5.3.2 (CEO 2026-05-06)
+ * shadowEntrypoint — OP-5.3.2 + OP-5.4.1 + OP-5.4.2.2 (CEO 2026-05-07)
  *
- * 将来の OP-5.3.3 で morningPipeline 1 箇所から呼ばれる **接続インフラ**。
- * shadow 起動 → legacy snapshot 抽出 → comparison → redaction passthrough まで
+ * morningPipeline / route.ts から呼ばれる **接続インフラ**。 shadow 起動 →
+ * legacy snapshot 抽出 → comparison → redaction → success observation emit まで
  * 完結する void 関数。
  *
- * 設計の核 (OP-5.3 = 接続インフラ + redaction passthrough のみ):
+ * 設計の核:
  *   - **return void**: caller には何も返さない (= type-level boundary)
- *   - **observation 出力なし**: console.log / Sentry / DB / telemetry なし (OP-5.4 で別途)
- *   - **silent ignore**: 内部 throw を caller に伝播しない、 raw error 出さない
- *   - **redaction passthrough**: redactShadowResult を必ず通す (= OP-5.4 で観測手段を
- *     追加する際に boundary が既に確立されている構造を OP-5.3 で固める)
+ *   - **silent ignore on caller side**: 内部 throw を caller に伝播しない
+ *   - **redaction passthrough**: redactShadowResult を必ず通す
+ *   - **success observation emit** (OP-5.4.2.2): redaction 後に observationSink へ
+ *     side-effect として 1 回 emit する (= aggregator + emit caller、 wiring 責任)
+ *   - **observation_error fallback** (OP-5.4.2.2): aggregator throw 時は
+ *     emitShadowError({ category: "observation_error" }) を呼ぶ (= silent failure 防止)
  *
  * 起動条件 (= 全 AND):
  *   1. shouldRunShadow(flags, userId) === true (= shadowEnabled AND allowlist 内)
- *   2. それ以上の gate なし (= LOG_LEVEL は redaction の中で gate、 NODE_ENV check 不要)
  *
  * 起動しない条件:
  *   - shadowEnabled false → 即 return
  *   - allowlist 外 → 即 return
  *   - userId null/undefined → 即 return
- *   - 上記 case では factories / dispatcher / redaction を一切呼ばない
+ *   - 上記 case では factories / dispatcher / redaction / aggregator / emit を
+ *     一切呼ばない
  *
- * OP-5.3 規律:
- *   - **runtime に接続しない** (= morningPipeline / route / legacyAdapter から
- *     呼ばれない、 OP-5.3.3 で初めて接続される予定)
- *   - **PlanState に書き込まない** (= read-only)
+ * log_level との関係 (OP-5.4.2.2 案A 明文化、 CEO 2026-05-07):
+ *   - **`shadowLogLevel` は success observation の verbosity だけを制御する**
+ *   - **error telemetry は `shadowEnabled + allowlist` で gate され、 `shadowLogLevel`
+ *     の影響を受けない** (= log_level=none でも step throw 時に error event は出る)
+ *   - log_level=none → redactShadowResult が null を返す → success observation skip
+ *   - log_level=summary/verbose → emit される event の level / tags 集合が変わる
+ *
+ * OP-5 規律:
+ *   - **PlanState / response / UI に書き込まない** (= read-only)
  *   - flags.ts / shadowOrchestrator.ts / redaction.ts / shadowComparator.ts /
- *     extractLegacySnapshot.ts の **既存 file は変更しない**
+ *     extractLegacySnapshot.ts / observationSink.ts の **behavior は変更しない**
  *   - 既存 OP-3 系 factory 群 / OP-4 dispatcher 不変
  *   - PR #75 系 module 参照なし
  *   - DB migration / telemetry table なし
+ *   - 副作用は Sentry.captureMessage のみ (= console.* / fetch / DB / Vercel stdout
+ *     を呼ばない)
  *
  * 注意 (= "0ms" / "完全不変" 表現を避ける、 CEO 2026-05-06 補正):
  *   flag off / allowlist 外でも import / helper 呼び出し / env reading のコストは
  *   ゼロではない可能性がある。 「behavior no-op」 (= factories / dispatcher / redaction
- *   が起動しない、 PlanState / response / UI / telemetry に影響なし) と表現する。
+ *   が起動しない、 PlanState / response / UI に影響なし) と表現する。
+ *   ただし success observation emit は flag on + allowlist 内 + log_level !== "none"
+ *   でのみ発生する副作用 (= OP-5.4.2.2 で導入)。
  */
 
 import type { MorningPlan } from "../types";
@@ -48,8 +59,13 @@ import { compareShadowVsLegacy } from "./shadowComparator";
 import { readOp5Flags, shouldRunShadow } from "./flags";
 import { extractLegacySnapshot } from "./extractLegacySnapshot";
 // OP-5.4.1 (CEO 2026-05-07): shadow path internal error を category enum に丸めて
-//   Sentry に明示 emit する pure helper。 raw error は emit に渡せない型設計。
+//   Sentry に明示 emit する helper。 raw error は emit に渡せない型設計。
 import { emitShadowError } from "./errorTelemetry";
+// OP-5.4.2.2 (CEO 2026-05-07): success path で集計 → observationSink へ emit する
+//   wiring。 buildShadowObservationInput は pure aggregator、 emitShadowObservation は
+//   side-effect が Sentry.captureMessage のみに限定された sink。
+import { buildShadowObservationInput } from "./observationAggregator";
+import { emitShadowObservation } from "./observationSink";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Public input
@@ -196,9 +212,27 @@ export function runShadowAndCompare(input: ShadowEntrypointInput): void {
     return;
   }
 
-  // OP-5.3 では observation 出力なし。
-  // redacted / comparison は計算するが外に出さない。
-  // OP-5.4.2 で success observation の出し方を別レビュー予定 (= 本 PR scope 外)。
-  void redacted;
-  void comparison;
+  // ─── OP-5.4.2.2: success observation emit wiring ───
+  // log_level=none では redactShadowResult が null を返す。 自然 gate で emit skip。
+  // (= log_level=none でも step throw 時の error telemetry は出る、 案A 案明文化)
+  if (redacted === null) {
+    return;
+  }
+
+  try {
+    const observationInput = buildShadowObservationInput(
+      result,
+      comparison,
+      redacted,
+    );
+    // observationSink: side-effect は Sentry.captureMessage のみに限定。
+    // 内部 try/catch で silent ignore するため、 通常 throw しない (= OP-5.4.2.1 既設計)。
+    emitShadowObservation(observationInput);
+  } catch {
+    // catch される唯一の経路 = aggregator throw (= 型整合崩れ等の極小 prob)。
+    // 観測 wiring 障害を category event として Sentry に明示記録する (= silent
+    //   failure 防止、 OP-5.4.1 の error telemetry 哲学を観測層にも拡張)。
+    // emitShadowError 自体も内部 try/catch で silent ignore (= 二段階防御)。
+    emitShadowError({ category: "observation_error" });
+  }
 }
