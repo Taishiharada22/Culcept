@@ -40,7 +40,8 @@ export function isSpeechFetchEnabled(): boolean {
  *   1. speech session cache (read/write) を skip
  *   2. negative cache (read) を skip
  *   3. effect deps に最新 signal の一意 key (kind:ts) を含めて毎回再実行
- *   4. in-flight dedupe / AbortController / stale response guard / 8s timeout は維持
+ *   4. in-flight dedupe / AbortController / stale response guard / 10s timeout は維持
+ *      (timeout 値は Stage 2.2 Block 3 STOP 後 CEO 確定 2026-05-07 で 8s → 10s 拡張)
  *   5. pattern.used emit は Option B' 通り fetch 完了後に actual outcome で emit
  *
  * **Production 不変原則**: env 未設定 (本関数 false) なら従来挙動完全維持。観測モードは

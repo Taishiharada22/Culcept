@@ -2817,3 +2817,79 @@ CEO 確定 8 ケース全て PASS:
    - Option B: 95 calls の trend で判断、Stage 2.3 直接進入
 5. NG なら停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
 6. **100-call 一括禁止維持**
+
+## [2026-05-08] [Build] [L4-i Stage 2.2 smoke v8 PASS — Stage 2.2 完了 / Stage 2.3 進入] [承認: CEO]
+
+### smoke v8 結果 (再現性確認)
+
+| 項目 | 値 | smoke v7 | 案 A 前 trend | 判定 |
+|------|-----|----------|--------------|------|
+| user message | 20 | 20 | — | — |
+| POST `/api/coalter/speech` | **20** | 21 | 20 (block 1 v6) | ✅ 1.0x (Fix C 完璧) |
+| **timeout** | **0** | 0 | 累積 2/55 | ✅ **再現** (案 A 確定) |
+| validation_failed | 0 | 0 | 累積 2/55 | ✅ |
+| fallback 合計 | 0 | 0 | 累積 4/55 | ✅ |
+| rate_limited | 0 | 0 | 0 | ✅ |
+| **latency max** | 6100ms | 5306ms | 5306-8005ms | ✅ < 10000ms |
+| `retries=0` | 9 | 15 | — | ↓ 6 件 |
+| `retries=1` | 8 | 4 | — | ↑ 4 件 |
+| `retries=2` | 3 | 1 | 1 | ↑ +2 (累積率注視、後述) |
+| `retries=-1` | 0 | 0 | — | ✅ |
+| PII | 0 | 0 | 0 | ✅ |
+| UrgentLayer | static 維持 | static | static | ✅ |
+
+### CEO 判定 (2026-05-08)
+- **smoke v8 PASS** (clean PASS)
+- timeout 0 / fallback 0 / POST 1.0x が **再現** → 案 A 確定 / Fix C 確定
+- **Stage 2.2 完了**: 累積 95 calls で十分にクリア、これ以上 20-call 繰り返さず Stage 2.3 へ移行
+- 100-call 一括禁止維持
+
+### 累積トレンド (block 1 v6 + block 2 + block 3 partial + smoke v7 + smoke v8 = 95 calls)
+| 項目 | 累積 | 累積率 | 評価 |
+|------|------|--------|------|
+| llm 成功 | 91 | 95.8% | ✅ |
+| validation_failed | 2 | 2.1% | ✅ |
+| timeout | 2 | 2.1% | ✅ smoke v7 / v8 で再現性ある打ち止め |
+| **retries=2** | **6** | **6.3%** | ⚠ 累積 5+ 議論ライン到達 (smoke v8 で 3 件登場、後述) |
+| retries=-1 (fallback 同行) | 2 | 2.1% | ✅ (validation_failed 2 件と一致) |
+| rate_limited | 0 | 0% | ✅ |
+| 過剰発火 | 1.0-1.05x | — | ✅ Fix C 安定 |
+| latency max trend | 6336 → 6521 → 6375 → 5306 → 6100 | 平均 ~6000ms | ✅ < 10000ms 安定 |
+
+### retries=2 累積 6 件についての観察 (CEO 議論材料、Stage 2.3 で観察継続)
+- smoke v8 で +3 件 (block 1 v6=1, block 3 partial=1, smoke v7=1, smoke v8=3)
+- 累積 6/95 = 6.3%、CEO 議論ライン (5+) 到達
+- ただし retries=2 は **LLM が成功した case** (validator が 2 回 retry した結果通った)
+- timeout 0 / fallback 0 と整合 → quality 観点では PASS
+- Stage 2.3 で variant 別 retries 分布を観察し、特定 variant に偏っていないか確認
+
+### 運用負債 cleanup (CEO 確定、本 commit で同時実施)
+- `lib/coalter/presence/speechFetchGate.ts:43` のコメント "8s timeout" → "10s timeout" 更新
+- runtime 影響なし、comment-only
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- speech route / validator / model / max_tokens 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅ (Stage 2.3 でも触らない)
+- observationMode は Production に絶対入れない ✅
+- 100-call 一括禁止 ✅
+- 自律 fix-forward 禁止 ✅
+- Anthropic 起因と断定しない (案 C 確認結果待ち) ✅
+
+### Stage 2.2 完了サマリ (累積 95 calls)
+| Phase | 内容 | 結果 |
+|-------|------|------|
+| Stage 2.1 | 1-call → 5-call → 20-call canary (v1-v6) | PASS (Fix C 適用) |
+| Stage 2.2 block 1 v6 | 20-call (Fix C 確定) | PASS |
+| Stage 2.2 block 2 | 20-call | Yellow PASS (timeout 1) |
+| Stage 2.2 block 3 | 15-call で STOP (timeout 2 件目) | STOP → 案 A 適用 |
+| Stage 2.2 smoke v7 | 20-call (案 A 検証 1 回目) | PASS |
+| Stage 2.2 smoke v8 | 20-call (再現性確認) | **PASS** |
+
+### 次ステップ: Stage 2.3 進入計画 (別 entry で詳細設計)
+1. variant 仕様の調査 (Explore agent file:line ベース)
+2. 5 sample × 7 variant = 35 sample 取得 protocol 設計
+3. quality review 軸 (数値 + 質的) 設計
+4. CEO 設計承認後に実施
+5. **Production env / observationMode 本番投入禁止維持**
