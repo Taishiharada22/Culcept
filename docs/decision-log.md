@@ -2319,3 +2319,90 @@ L4-j-blocker / Sentry 接続復元 phase は PASS として CEO 承認 (2026-04-
 2. 各 block 結果共有 → Claude が集計 → CEO 判断 → 次 block 進行
 3. 5 blocks 全 PASS なら Stage 2.3 (variant 別 review) へ判断
 4. 任意 block で NG → 停止 → 分布共有 → 原因議論 → fix 候補提示 (自律実行禁止)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 block 1 NG — fire-control over-firing 1.45x / Fix C high-confidence root cause] [承認: CEO]
+
+### Stage 2.2 block 1 観測結果 (Sentry "block 1 retry" Issue から確定)
+
+| 項目 | 値 | 判定 |
+|------|-----|------|
+| user message 送信数 | 20 | — |
+| POST `/api/coalter/speech` | **29** | 🔴 NG (基準 20-22) |
+| **過剰発火比 (POST/msg)** | **1.45x** | 🔴 NG (基準 1.0-1.1x、Yellow 上限 1.25x も超過) |
+| status 200 | 全件 | ✅ |
+| `speechSource=llm` | 29 (100%) | ✅ |
+| `fallback` | 0 | ✅ |
+| `validationFailed=true` | 0 | ✅ |
+| cancel | 0 | ✅ |
+| `retries=0` | 23 | ✅ |
+| `retries=1` | 6 | ✅ (基準内) |
+| `retries=2` | 0 | ✅ (v4/v5 より改善) |
+| `latencyMs max` | **4334ms** | ✅ (基準 ≤7500ms) |
+
+**判定**: **LLM 品質 / latency / validation = PASS、発火制御 = NG**
+
+### Root cause (high-confidence、Explore agent file:line 追跡済)
+
+CEO 仮説 = **「optimistic signal + realtime/db echo の二重発火、最大 2 回」** が file:line 証拠で裏付けられた。**確定ではなく high-confidence** (canonical id 不在のため最終的な単一 root か断定保留)。
+
+#### 二重発火の連鎖
+1. `ChatClient.tsx:923` — optimistic message を state に追加 (id=`optimistic-${ts}`)
+2. `PresenceSignalWiring.tsx:84-112` — message 配列の最新を critical detect → publishPresenceSignal → recentSignals に signal 1 (detectedAt=t1)
+3. `UpperLayerMount.tsx:307-311` — observationKey=`critical:t1`、useEffect re-run → speech fetch 1 回目
+4. `ChatClient.tsx:925-931` — POST /messages → fetchMessages() で server から DB 内容再取得
+5. `ChatClient.tsx:788-798` — setMessages(data.messages) で server message を state に追加 (id=`<server-UUID>`、optimistic id とは別物)
+6. `PresenceSignalWiring.tsx:84-86` — `lastSeenIdRef` チェックは id ベース、optimistic id ≠ server UUID で重複 check 通過
+7. 同 body で再度 critical detect → signal 2 (detectedAt=t2)
+8. `UpperLayerMount.tsx:307-311` — observationKey=`critical:t2` (t1 と異なる) → useEffect re-run → speech fetch 2 回目
+
+#### 既存 dedupe 3 層が突破される理由
+- in-flight controller (`${variant}|${state}|${mode}`): 1st fetch 完了後 2nd 来るので block されず
+- telemetry dedupe (baseKey + observationKey): observationKey 変化で別 emit
+- speech cache (`${variant}|${state}|${mode}`): observationMode ON で全 skip (`UpperLayerMount.tsx:343`)
+
+→ **observationMode ON が dedupe を全層解除**しているのが本質。
+
+### Fix C 設計 (CEO 確定方針、実装前)
+
+#### 採用しない案 (CEO 補正済)
+- ❌ **案 A 単独** (`observationKey = kind:messageId`): canonical id 不在のため optimistic id ≠ server UUID で二重発火残る
+- ❌ **案 B (canonical id 付与)**: ChatClient touch (`clientGeneratedMessageId` 注入) が必要 → CEO 厳守「ChatClient 安易に触らない」に抵触
+- ❌ **案 C 単独 (body hash 永久 dedupe)**: 20 秒後の同文連投も殺してしまう
+
+#### 採用方針: optimistic echo 専用 dedupe (CEO 確定)
+PresenceSignalWiring 内で完結する message-level echo dedupe:
+1. optimistic message (id startsWith "optimistic-") → publish signal
+2. server UUID message が直前 optimistic と body+sender 一致 + N 秒以内 (例: 8 秒) → echo 認定 → publish skip
+3. 同文の N 秒外再送 → 別 message として publish (連投を殺さない)
+4. observationMode ON でも message-level echo dedupe は維持
+
+#### 期待効果
+- 1 user message → 1 signal → 1 observationKey → 1 speech fetch
+- 20 user message → speech POST 20-22 件 (1.0-1.1x、PASS 復帰)
+- 連投ケースは正常維持
+
+### CEO 厳守 (Fix C 着手前)
+- ✗ canonical id 前提で実装しない
+- ✗ body hash 単独で永久 dedupe しない
+- ✗ 同文 2 回目以降をずっと抑制しない (window 必須)
+- ✗ ChatClient.tsx を安易に touch しない
+- ✗ observationKey だけ変えて終わりにしない
+- ✗ timeout / validator / Anthropic を触らない
+- ✗ Production env を触らない
+- ✗ UrgentLayer / UrgentMessageCard / UrgentRelease を touch しない
+- ✗ 次 block / 100-call へ進まない (block 1 NG 維持)
+
+### 次ステップ (CEO 確定 protocol)
+1. **追加調査 (実装前必須)** — Explore agent で以下 4 項目確認:
+   - `signal.meta.lastMessageId` に optimistic / server echo で何が入るか (file:line)
+   - canonical id 候補 (`clientGeneratedMessageId` / `requestId` / `temporaryId` / `createdAt` / normalized body / sender id)
+   - ChatClient の POST /messages payload が optimistic id を server に渡しているか
+   - realtime echo / fetchMessages / setMessages のどこで server UUID message が入るか
+2. 調査結果を CEO に提示 → 設計確定 (echo dedupe の具体 key 構成)
+3. PresenceSignalWiring 内で実装 (ChatClient touch なし)
+4. unit test:
+   - optimistic message → signal 1 回 publish
+   - server echo (same body + sender + within window) → signal 0 回 publish
+   - 20 秒後の同文新規 → signal 1 回 publish
+5. Preview smoke v6 (block 1 再実施): 20 送信 → POST 20-22 件 復帰確認
+6. v6 PASS なら block 2 へ進行判断 (CEO 判定)
