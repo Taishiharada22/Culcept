@@ -34,6 +34,12 @@ import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { adaptCritical, adaptImplicit } from "@/lib/coalter/presence/signalAdapter";
 import { publishPresenceSignal } from "@/lib/coalter/presence/productionSignalBus";
 import { detectCriticalKeyword } from "@/lib/coalter/presence/criticalKeywordDetector";
+import {
+  type EchoCacheEntry,
+  buildEchoCandidate,
+  isServerEchoOfRecentOptimistic,
+  pruneEchoCache,
+} from "@/lib/coalter/presence/signalEchoDedupe";
 
 /**
  * 本 component が監視する message の最低限 shape。
@@ -42,6 +48,10 @@ import { detectCriticalKeyword } from "@/lib/coalter/presence/criticalKeywordDet
  *
  * B-2.2 で `body?: string` を追加。critical detection のために body を必要とするが、
  * 既存呼び出し側が body を持っていない場合に compile error を出さないよう optional。
+ *
+ * L4-i Phase 2 Stage 2.2 (2026-05-07 Fix C) で `senderId?: string` を追加。
+ * optimistic-echo dedupe で sender 一致確認に使用。空文字列の場合は dedupe を skip
+ * (caller 側で適切な currentUserId を渡す必要あり、ChatClient.tsx:920 で設定済)。
  */
 export interface ObservedMessage {
   id: string;
@@ -49,6 +59,12 @@ export interface ObservedMessage {
   createdAt?: number | string;
   /** 発話本文。critical keyword 検出に使用。未指定なら critical detection skip */
   body?: string;
+  /**
+   * 送信者の userId。L4-i Stage 2.2 Fix C で追加。
+   * optimistic-echo dedupe の判定に使用 (同 sender であることを必須条件にする)。
+   * 空文字列の場合は dedupe を skip し従来通り publish (回帰防止)。
+   */
+  senderId?: string;
 }
 
 export interface PresenceSignalWiringProps {
@@ -73,6 +89,18 @@ export default function PresenceSignalWiring({
   computeSoftScore,
 }: PresenceSignalWiringProps) {
   const lastSeenIdRef = useRef<string | null>(null);
+  /**
+   * L4-i Phase 2 Stage 2.2 Fix C: optimistic-echo 専用 dedupe cache。
+   *
+   * critical signal の publish 直前に echo check し、optimistic→server echo の二重発火を抑制。
+   * implicit signal は対象外 (state 遷移用、CEO 厳守 Fix C scope を critical のみに限定)。
+   *
+   * 非対称 (asymmetric) dedupe:
+   *   - optimistic candidate → 常に publish + cache に追加
+   *   - server candidate → 直前 optimistic と (sender, body, kind) 一致 + 8s 以内なら skip
+   *   - server 同士 / optimistic 同士は dedupe しない (連投誤殺防止)
+   */
+  const echoCacheRef = useRef<EchoCacheEntry[]>([]);
 
   useEffect(() => {
     if (!COALTER_FLAGS.presenceExecutorEnabled) {
@@ -90,6 +118,36 @@ export default function PresenceSignalWiring({
     if (typeof last.body === "string" && last.body !== "") {
       const critical = detectCriticalKeyword(last.body);
       if (critical) {
+        const now = Date.now();
+        // L4-i Phase 2 Stage 2.2 Fix C: echo dedupe (critical のみ対象)
+        // senderId 空時は dedupe skip (回帰防止、従来通り publish)
+        if (typeof last.senderId === "string" && last.senderId !== "") {
+          // 1. cache を prune (古い entry を window 外で除去)
+          echoCacheRef.current = pruneEchoCache(echoCacheRef.current, now);
+          // 2. candidate を構築
+          const candidate = buildEchoCandidate({
+            id: last.id,
+            senderId: last.senderId,
+            body: last.body,
+            kind: "critical",
+            detectedAt: now,
+          });
+          // 3. server echo 判定: optimistic→server の方向のみ skip
+          if (
+            isServerEchoOfRecentOptimistic(
+              candidate,
+              echoCacheRef.current,
+              now,
+            )
+          ) {
+            // echo 認定: publish skip。implicit fallback もしない (critical だった事実は変わらない)
+            return;
+          }
+          // 4. publish 前に cache 追加 (optimistic も server も入れる、ただし server 同士の
+          //    dedupe には isServerEchoOfRecentOptimistic 内の prev.isOptimistic=true 条件で
+          //    使われない。CEO 補正条件と整合)
+          echoCacheRef.current = [...echoCacheRef.current, candidate];
+        }
         publishPresenceSignal(
           adaptCritical({
             trigger: critical.trigger,
@@ -103,6 +161,7 @@ export default function PresenceSignalWiring({
     }
 
     // critical 不検出: 通常の implicit signal (state 遷移用)
+    // implicit は echo dedupe 対象外 (CEO 厳守 Fix C scope = critical のみ)
     const score = computeSoftScore ? computeSoftScore(messages) : DEFAULT_SOFT_SCORE;
     const signal = adaptImplicit({
       softScore: score,
