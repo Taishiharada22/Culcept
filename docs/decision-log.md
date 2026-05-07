@@ -2647,3 +2647,94 @@ CEO 確定 8 ケース全て PASS:
 3. **重点観測**: timeout / validation_failed の累積件数 (CEO 厳守 stop 条件)
 4. PASS なら block 4 進行 / NG なら停止 → 再評価 phase 議論
 5. 任意 block で timeout または validation_failed が再発 → 停止 (上記 CEO 厳守追加条件)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 Block 3 STOP — 15 件目 timeout / 案 A timeout 8s→10s 実装] [承認: CEO]
+
+### Block 3 結果 (15 件で中断)
+
+#### Sentry breadcrumb 集計 (smoke 本体 15 件、03:30:37-03:36:20 UTC)
+| 件 | UTC | latencyMs | retries | source |
+|----|-----|-----------|---------|--------|
+| 1 | 03:30:37 | 4045 | 1 | llm |
+| 2 | 03:31:02 | **6375** | **2** | llm |
+| 3 | 03:31:23 | 4353 | 1 | llm |
+| 4 | 03:31:46 | 2605 | 0 | llm |
+| 5 | 03:32:09 | 3109 | 0 | llm |
+| 6 | 03:32:32 | 3642 | 1 | llm |
+| 7 | 03:32:55 | 1884 | 0 | llm |
+| 8 | 03:33:19 | 4447 | 1 | llm |
+| 9 | 03:33:41 | 2069 | 0 | llm |
+| 10 | 03:34:05 | 3954 | 1 | llm |
+| 11 | 03:34:42 | 3350 | 0 | llm |
+| 12 | 03:35:07 | 1856 | 0 | llm |
+| 13 | 03:35:32 | **5565** | 1 | llm |
+| 14 | 03:35:50 | 1816 | 0 | llm |
+| **15** | **03:36:20** | **8005** | **0** | **fallback (timeout)** ← STOP |
+
+入室時 03:29:46 latencyMs=3098 の 1 件は smoke 本体外。
+
+### CEO 厳守 stop 条件適用
+> 「次も timeout/停止 または validation_failed が出るなら、Stage 2.2 継続ではなく、
+> validator / timeout / provider latency の再評価に入るべき」
+
+→ Block 2 timeout 1 + Block 3 timeout 1 = 累積 2 件で stop 条件到達 → 即中断
+
+### 累積 (Block 1 v6 + Block 2 + Block 3 partial = 55 calls)
+| 項目 | 値 | 累積率 |
+|------|-----|--------|
+| llm 成功 | 49 | 89.1% |
+| validation_failed | 2 | 3.6% |
+| **timeout** | **2** | **3.6%** ← STOP ライン |
+| retries=2 | 2 | 3.6% |
+| timeout 行 latency | 8003 / 8005 (両件 retries=0) | — |
+| 過剰発火 | 1.0x | ✅ Fix C 安定 |
+
+### 原因候補の証拠ベース分析
+
+| # | 候補 | 確度 | 証拠 |
+|---|------|------|------|
+| 1 | 8s timeout が短い | **高** | timeout 行 retries=0 で latencyMs=8003/8005 (単発で 8s 超え) |
+| 2 | end-to-end response が 8s を超える case | **高** | 同 prompt で 1500-6500ms (4x 変動)、retries=0 でも 8s 級発生 |
+| 3 | retry 込みで 8s 超え | **否定** | timeout 行 retries=0 (リトライ未実行) |
+| 4 | AbortController race | **否定** | fallbackReason="timeout" 正しく記録、Fix C 後 timeoutFired flag 機能 |
+| 5 | provider/API capacity | **可能性、検証必要** | 累積 3.6%、Anthropic dashboard / status 確認は CEO 経由 |
+| 6 | prompt / max_tokens / validator retry | **timeout 単体は否定** | retries=0 で timeout (retry path 通っていない) |
+
+### CEO 厳守: 原因表現の補正 (2026-05-07)
+- ❌ 「provider single-shot latency variance が 8s を超える」(断定表現)
+- ✅ 「`/api/coalter/speech` の **end-to-end response** が 8s を超えるケースがある」
+- 起因 layer **未確定**: Anthropic / Vercel route / network / client abort timing / serverless 挙動 のいずれも候補、断定禁止
+
+### CEO 確定 採用案 (2026-05-07)
+
+#### 案 A: timeout 8s → 10s (実装済、commit `ffadc633`)
+- `app/components/chat/UpperLayerMount.tsx:103` — `SPEECH_FETCH_TIMEOUT_MS = 10_000`
+- `tests/unit/coalter/upperLayerSpeechFetch.test.ts:124` — regex `8_?000` → `10_?000` に更新
+- 全 coalter 147 file / 2148 test PASS、回帰ゼロ
+- 12s/15s は過剰、まず 10s で検証 (CEO 確定)
+
+#### 案 C: Anthropic Tier / usage / rate / latency 確認 (CEO 並行作業)
+- CEO 側で別経路で確認 (Anthropic dashboard / contract / SLA)
+- **Anthropic 起因と断定せず、確認項目として扱う** (CEO 厳守)
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- speech route / validator / model / max_tokens 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- timeout constant のみ変更 (CEO 承認の最小 scope) ✅
+
+### 次ステップ: smoke v7 (block 1 v7 と同じく 20-call)
+1. Vercel preview build 完了確認 (commit `ffadc633` 反映)
+2. CEO smoke v7 実施 (同 protocol、20 秒間隔、新 incognito tab、canary 即時 throw)
+3. canary message: `"L4-i Stage 2.2 smoke v7 — case A timeout 10s ffadc633"`
+4. **PASS 条件**:
+   - POST 20-22 件
+   - **timeout 0 件** (案 A 効果確認、Tier-1)
+   - validation_failed 0-1 件
+   - fallback 0-1 件
+   - **latency max < 10000ms** (10s timeout 内に全て収まる)
+   - PII 0 / UrgentLayer static 維持
+5. PASS なら累積 75 calls 達成 → block 4 進行判断 (CEO)
+6. NG なら停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
+7. CEO 並行: Anthropic Tier 確認結果共有 (timeout 再発した場合の議論材料)
