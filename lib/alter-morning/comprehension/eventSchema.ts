@@ -226,6 +226,8 @@ export interface ComprehensionResult {
   events: Event[];
   /** 全体の targetDate（today / tomorrow / YYYY-MM-DD） */
   targetDate: string;
+  /** targetDate の根拠情報。未取得の場合は undefined。 */
+  targetDateProvenance?: Provenance;
   /** 全体の出発地点（provenance 付き） */
   startPoint: {
     place_ref: string | null;
