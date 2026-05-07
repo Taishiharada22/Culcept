@@ -2406,3 +2406,107 @@ PresenceSignalWiring 内で完結する message-level echo dedupe:
    - 20 秒後の同文新規 → signal 1 回 publish
 5. Preview smoke v6 (block 1 再実施): 20 送信 → POST 20-22 件 復帰確認
 6. v6 PASS なら block 2 へ進行判断 (CEO 判定)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 Fix C 実装完了 — asymmetric optimistic-echo dedupe / smoke v6 待ち] [承認: CEO]
+
+### 経緯 (Q2 追加調査 → 設計確定 → 実装)
+
+**Q2 追加調査結果 (Explore agent file:line ベース)**:
+1. `signal.meta.lastMessageId` = `last.id` (PresenceSignalWiring.tsx:97, 110) → optimistic 時 `optimistic-${ts}` / server echo 時 UUID。**両者異なる文字列**確定
+2. canonical id 候補 = **無し** (clientGeneratedMessageId / requestId / nonce 全て未実装、TalkMessage interface に該当 field なし)
+3. ChatClient POST /messages payload = `{ body }` のみ (`ChatClient.tsx:925-927`)、optimistic id を server に渡していない
+4. server UUID message が state に入る経路 = **3 ルート** (POST 成功直後の fetchMessages / Realtime INSERT / polling 5s or fallback 2s)
+
+→ canonical id route NG (CEO 厳守 ChatClient 触らない)、PresenceSignalWiring 内 echo 専用 dedupe で確定
+
+### CEO 補正 (asymmetric dedupe 必須、2026-05-07)
+
+**初期 Claude 案 (一般 dedupe)**:
+```
+same sender + same body + same kind + within 8s → 全 skip
+```
+→ **NG**: 本物の同文連投も殺す
+
+**CEO 確定方針 (asymmetric)**:
+```
+optimistic candidate → 常に publish + cache 追加
+server candidate → 直前 optimistic と (sender, body, kind) 一致 + 8s 以内 のみ skip
+server 同士 / optimistic 同士は dedupe しない (連投誤殺防止)
+```
+
+### 実装内容 (commit `29ff2746`)
+
+#### 新規 `lib/coalter/presence/signalEchoDedupe.ts` (純関数 lib)
+- `OPTIMISTIC_ID_PREFIX = "optimistic-"` (ChatClient.tsx:919 と一致)
+- `ECHO_DEDUPE_WINDOW_MS = 8_000` (CEO 確定 8 秒、3 ルート + buffer 包含)
+- `normalizeBody(body)`: trim + collapse-whitespace + NFC のみ (lowercase なし、CEO 確定)
+- `pruneEchoCache(cache, now, windowMs?)`: 純関数、元配列 mutate なし
+- `isServerEchoOfRecentOptimistic(candidate, cache, now, windowMs?)`: 非対称判定
+  - candidate.isOptimistic === true → 早期 false (常に publish)
+  - candidate.isOptimistic === false → cache 内 prev.isOptimistic === true で全 4 条件一致 → true (echo 認定)
+- `buildEchoCandidate(input)`: id prefix で isOptimistic 判定
+
+#### 改修 `app/components/chat/PresenceSignalWiring.tsx`
+- `ObservedMessage` interface に `senderId?: string` 追加 (optional、空時は dedupe skip 回帰防止)
+- `echoCacheRef = useRef<EchoCacheEntry[]>([])` 追加
+- critical signal publish 直前に echo check (senderId 空でない時のみ):
+  1. `pruneEchoCache` で window 外を除去
+  2. `buildEchoCandidate` で kind=`"critical"` 候補構築
+  3. `isServerEchoOfRecentOptimistic` で判定 → true なら skip (publish + cache 追加なし)
+  4. false なら cache 追加 → publishPresenceSignal
+- implicit signal は echo dedupe **対象外** (CEO 厳守 Fix C scope = critical のみ)
+- ChatClient touch なし、UpperLayerMount touch なし、speech 系 touch なし
+
+#### 新規 `tests/unit/coalter/presence/signalEchoDedupe.test.ts` (23 件)
+CEO 確定 8 ケース全て PASS:
+- Case 1: optimistic → publish 1 回 ✅
+- Case 2: 1 秒後 server echo (same sender/body/kind) → skip ✅
+- Case 3: 8.5 秒後 server same body → publish (window 外) ✅
+- Case 4: 20 秒後 同文の新規 optimistic → publish (連投) ✅
+- Case 5: 別 sender → publish ✅
+- Case 6: 別 body → publish ✅
+- Case 7: 別 kind (critical vs implicit) → publish ✅
+- Case 8: optimistic 2 件を短時間に連投 → 2 件目も publish (asymmetric の核) ✅
+
+加えて構造 invariant:
+- normalizeBody 4 ケース (trim / collapse-ws / NFC / lowercase なし)
+- buildEchoCandidate 4 ケース (id prefix / 定数値検証)
+- pruneEchoCache 4 ケース (window 内/外/境界/純関数性)
+- 追加 invariant 3 ケース (server-only cache / window 境界正確性 / lib 副作用ゼロ)
+
+### 検証
+- 新規 23 test PASS
+- coalter 全 147 file / **2148 test 全 PASS** (回帰ゼロ)
+- Fix C 関連 TypeScript type error **0 件**
+- 既存 type error は Fix C scope 外 (urgentLayerDismiss / stargazer 系、CEO 厳守: 触らない)
+
+### Vercel preview build
+- push commit: `29ff2746` (2026-05-07 19:08 JST 頃)
+- branch: `feat/coalter-three-stage`
+- alias: `https://culcept-git-feat-coalter-three-stage-taishis-projects-0a8deb17.vercel.app/`
+- auto-trigger build → CEO sentry-release 確認待ち
+
+### 不変 (CEO 厳守、commit log 反映済)
+- ChatClient.tsx 不変 ✅
+- UpperLayerMount.tsx 不変 ✅
+- speech route / speechFetchGate / speechBuilder 不変 ✅
+- timeout / validator / Anthropic 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- canonical id 前提コード書かず ✅
+- body hash 永久 dedupe なし (window 8s 必須) ✅
+- 同文連投を殺さず (asymmetric dedupe) ✅
+
+### 次ステップ: smoke v6 verification
+1. CEO Vercel preview build 完了確認 (release が `29ff2746` で alias 接続)
+2. CEO Stage 2.2 block 1 v6 (20 calls) 実施: 同 protocol、20 秒間隔、新 incognito tab
+3. canary throw 即時 (smoke 完了 10 秒以内)、buffer overflow 回避
+4. Sentry breadcrumb 共有
+5. PASS 条件:
+   - **POST `/api/coalter/speech` = 20-22 件** (Tier-1、1.0-1.1x 復帰確認)
+   - `pattern.used` ≈ 20 件
+   - llm 18+ / fallback 0-1 / validation_failed 0-1 / timeout 0
+   - latency max が悪化していない (< ~5000ms 維持)
+   - UrgentLayer static / PII なし
+6. PASS なら block 2-5 へ順次進行 (CEO 判定)
+7. NG なら停止 → 分布共有 → 原因再議論 (自律 fix 禁止)
