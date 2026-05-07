@@ -9,7 +9,7 @@ import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(c
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
 import type { TimeConstraintType } from "./planState";
-import type { SlotSharpness } from "./comprehension/eventSchema";
+import type { SlotSharpness, Provenance } from "./comprehension/eventSchema";
 import type { TransportSegment } from "./transport/types";
 import type { JourneyAnchorState } from "./journey/anchorState";
 
@@ -318,6 +318,8 @@ export interface ParsedDayIntent {
   locationSequence?: LocationStop[];
   /** 対象日（「明日」→ +1、「明後日」→ +2 等。未指定なら today） */
   targetDate?: string;
+  /** targetDate の根拠情報。未取得の場合は undefined。 */
+  targetDateProvenance?: Provenance;
   /** 終点アンカー（「帰る」が検出された場合）。プランの最終移動の到着地を構造化 */
   endpointAnchor?: EndpointAnchor;
   /** @deprecated returnDestination は EndpointAnchor に移行。後方互換用 */

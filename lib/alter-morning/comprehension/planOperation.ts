@@ -210,6 +210,8 @@ export type PlanOperation =
 export interface ComprehensionResultWithOperations {
   /** 全体の targetDate (today / tomorrow / YYYY-MM-DD) */
   targetDate: string;
+  /** targetDate の根拠情報。未取得の場合は undefined。 */
+  targetDateProvenance?: Provenance;
   /**
    * PR-50 主経路: operation 単位で意図を表現。
    * undefined or 空 → events[] fallback 経路へ。

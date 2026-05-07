@@ -18,6 +18,7 @@
 import {
   type ComprehensionResult,
   type Event,
+  type Provenance,
   generateEventId,
 } from "./eventSchema";
 import type { PlanOperation } from "./planOperation";
@@ -54,6 +55,8 @@ export interface L1PipelineInput {
   /** L1.1 LLM 出力（event_id はまだ採番されていない） */
   raw: {
     targetDate: string;
+    /** targetDate の根拠情報。未取得の場合は undefined。 */
+    targetDateProvenance?: Provenance;
     events: RawEvent[];
     /**
      * PR-50 Commit 3 (CEO 2026-04-30):
