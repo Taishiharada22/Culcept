@@ -25,11 +25,18 @@
  *   Sentry.captureMessage(`op5.shadow.observation.${level}`)
  *
  * scope (OP-5.4.2.1):
- *   - emit pure helper のみ
- *   - **shadowEntrypoint 未接続** (= OP-5.4.2.2 で別レビュー)
+ *   - emit helper のみ
+ *   - **shadowEntrypoint 未接続** (= OP-5.4.2.2 で接続予定)
  *   - **route.ts 未拡充** (= OP-5.4.2.3 で別レビュー、 LLM-derived input 拡充は scope 外)
  *   - **DB migration なし** (= OP-5.5 以降)
  *   - Vercel stdout / console.* なし
+ *
+ * log_level=none との関係 (OP-5.4.2.2 案A 明文化、 CEO 2026-05-07):
+ *   本 sink は呼ばれた時点で常に emit する (= 内部に log_level gate を持たない)。
+ *   log_level=none での emit skip は **caller (= shadowEntrypoint) の責務**
+ *   (= redactShadowResult が null を返した時点で early-return し、 sink を呼ばない)。
+ *   error telemetry は log_level の影響を受けず、 success observation のみが
+ *   log_level で gate される (= 案A)。
  *
  * Sentry 採用理由 (OP-5.4.1 pattern 継承):
  *   - captureMessage で event 明示送信 (= breadcrumb 単独不可)

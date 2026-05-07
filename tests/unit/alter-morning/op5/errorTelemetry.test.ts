@@ -35,6 +35,7 @@ const ALL_CATEGORIES: ReadonlyArray<ShadowErrorCategory> = [
   "extractor_error",
   "comparator_error",
   "redaction_error",
+  "observation_error",
   "unknown",
 ];
 

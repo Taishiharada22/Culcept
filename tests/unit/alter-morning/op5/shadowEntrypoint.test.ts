@@ -26,10 +26,36 @@ vi.mock("@sentry/nextjs", () => ({
   captureException: vi.fn(),
 }));
 
+// OP-5.4.2.2: observationAggregator は pass-through で wrap (= 通常 test では実 logic、
+//   特定 test で mockImplementationOnce で throw 注入 = 観測 wiring failure 検証)
+vi.mock("@/lib/alter-morning/op5/observationAggregator", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/alter-morning/op5/observationAggregator")
+  >("@/lib/alter-morning/op5/observationAggregator");
+  return {
+    ...actual,
+    buildShadowObservationInput: vi.fn(actual.buildShadowObservationInput),
+  };
+});
+
+// OP-5.4.2.2: shadowOrchestrator も pass-through で wrap (= log_level=none + step
+//   throw → error emit invariant のための throw 注入用、 案A 明文化)
+vi.mock("@/lib/alter-morning/op5/shadowOrchestrator", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/alter-morning/op5/shadowOrchestrator")
+  >("@/lib/alter-morning/op5/shadowOrchestrator");
+  return {
+    ...actual,
+    runShadowOrchestrator: vi.fn(actual.runShadowOrchestrator),
+  };
+});
+
 import * as Sentry from "@sentry/nextjs";
 import { runShadowAndCompare } from "@/lib/alter-morning/op5/shadowEntrypoint";
 import type { ShadowEntrypointInput } from "@/lib/alter-morning/op5/shadowEntrypoint";
 import type { MorningPlan } from "@/lib/alter-morning/types";
+import { buildShadowObservationInput } from "@/lib/alter-morning/op5/observationAggregator";
+import { runShadowOrchestrator } from "@/lib/alter-morning/op5/shadowOrchestrator";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // helpers
@@ -102,10 +128,26 @@ function makePlan(): MorningPlan {
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   // default 全 OFF
   setEnv({});
   vi.mocked(Sentry.captureMessage).mockClear();
+  // OP-5.4.2.2: aggregator / orchestrator の mock を pristine 状態にリセット
+  //   (= mockImplementationOnce が次 test に残らないように)
+  const aggregatorActual = await vi.importActual<
+    typeof import("@/lib/alter-morning/op5/observationAggregator")
+  >("@/lib/alter-morning/op5/observationAggregator");
+  vi.mocked(buildShadowObservationInput).mockReset();
+  vi.mocked(buildShadowObservationInput).mockImplementation(
+    aggregatorActual.buildShadowObservationInput,
+  );
+  const orchestratorActual = await vi.importActual<
+    typeof import("@/lib/alter-morning/op5/shadowOrchestrator")
+  >("@/lib/alter-morning/op5/shadowOrchestrator");
+  vi.mocked(runShadowOrchestrator).mockReset();
+  vi.mocked(runShadowOrchestrator).mockImplementation(
+    orchestratorActual.runShadowOrchestrator,
+  );
 });
 
 afterEach(() => {
@@ -375,12 +417,83 @@ describe("runShadowAndCompare — 【CEO invariant】 telemetry / DB / persisten
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 8. OP-5.4.1: error telemetry (= Sentry に category emit)
+// 8. OP-5.4.1 + OP-5.4.2.2: error / success observation telemetry (= Sentry emit)
+//
+// log_level の意味 (OP-5.4.2.2 案A 明文化):
+//   - shadowLogLevel は **success observation の verbosity だけ**を制御する
+//   - error telemetry は shadowEnabled + allowlist で gate され、 log_level の
+//     影響を受けない (= log_level=none でも step throw 時に error event は出る)
+//   - log_level=none → success observation 0 回、 step throw 時 error event 出る
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("runShadowAndCompare (OP-5.4.1) — success path / no error", () => {
-  it("【invariant】 success path (= canary 内、 通常入力) で Sentry.captureMessage を呼ばない", () => {
+describe("runShadowAndCompare (OP-5.4.2.2) — success path / observation event", () => {
+  it("【invariant】 success path (= canary 内、 log_level=summary) で op5.shadow.observation.summary が 1 回 emit される", () => {
     setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+    expect(callArgs[0]).toBe("op5.shadow.observation.summary");
+    const options = callArgs[1] as { level?: string };
+    expect(options?.level).toBe("info");
+  });
+
+  it("【invariant】 success path (= canary 内、 log_level=verbose) で op5.shadow.observation.verbose が 1 回 emit される", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "東京駅から渋谷へ",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+    expect(callArgs[0]).toBe("op5.shadow.observation.verbose");
+  });
+
+  it("【invariant】 success path で op5.shadow.error.* が呼ばれない (= success / observation 排他)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    for (const msg of messages) {
+      expect(msg.startsWith("op5.shadow.observation.")).toBe(true);
+      expect(msg.startsWith("op5.shadow.error.")).toBe(false);
+    }
+  });
+
+  it("【invariant】 success path 多様 input でも observation event は 1 回 / call (= 排他維持)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    const utterances = [
+      "",
+      "東京駅から渋谷へ",
+      "自宅から始めて、東京駅から渋谷へ、夜はホテルで泊まる",
+    ];
+    for (const utterance of utterances) {
+      vi.mocked(Sentry.captureMessage).mockClear();
+      runShadowAndCompare(
+        makeBaseInput({ utterance, legacyPlan: makePlan() }),
+      );
+      expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+      const message = vi.mocked(Sentry.captureMessage).mock.calls[0][0];
+      expect(message).toBe("op5.shadow.observation.verbose");
+    }
+  });
+});
+
+describe("runShadowAndCompare (OP-5.4.2.2) — log_level=none gate (= 案A 明文化)", () => {
+  it("【invariant】 log_level=none では success observation 0 回 (= redacted null gate)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "none" });
     runShadowAndCompare(
       makeBaseInput({
         utterance: "自宅から始める",
@@ -390,24 +503,32 @@ describe("runShadowAndCompare (OP-5.4.1) — success path / no error", () => {
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 
-  it("【invariant】 success path 多様 input でも Sentry.captureMessage 呼ばれない", () => {
-    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
-    const utterances = [
-      "",
-      "東京駅から渋谷へ",
-      "自宅から始めて、東京駅から渋谷へ、夜はホテルで泊まる",
-    ];
-    for (const utterance of utterances) {
-      runShadowAndCompare(
-        makeBaseInput({ utterance, legacyPlan: makePlan() }),
-      );
-    }
+  it("【invariant】 log_level=none default (= env 未設定) でも success observation 0 回", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary" }); // logLevel 未設定 → default "none"
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "東京駅から渋谷へ",
+        legacyPlan: makePlan(),
+      }),
+    );
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it("【invariant】 log_level=none でも shadow path 自体は走る (= return void、 throw なし)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "none" });
+    expect(() =>
+      runShadowAndCompare(
+        makeBaseInput({
+          utterance: "自宅から東京駅へ、夜はホテル",
+          legacyPlan: makePlan(),
+        }),
+      ),
+    ).not.toThrow();
   });
 });
 
-describe("runShadowAndCompare (OP-5.4.1) — flag off / allowlist 外で emit しない", () => {
-  it("【invariant】 flag off では error telemetry も emit しない (= shouldRunShadow gate より前で stop)", () => {
+describe("runShadowAndCompare (OP-5.4.2.2) — flag off / allowlist 外で emit しない", () => {
+  it("【invariant】 flag off では observation も error も emit しない (= shouldRunShadow gate より前で stop)", () => {
     setEnv({});
     runShadowAndCompare(
       makeBaseInput({
@@ -418,8 +539,8 @@ describe("runShadowAndCompare (OP-5.4.1) — flag off / allowlist 外で emit �
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 
-  it("【invariant】 allowlist 外では error telemetry も emit しない", () => {
-    setEnv({ enabled: "true", allowlist: "user-canary" });
+  it("【invariant】 allowlist 外では observation も error も emit しない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
     runShadowAndCompare(
       makeBaseInput({
         utterance: "自宅から始める",
@@ -430,8 +551,8 @@ describe("runShadowAndCompare (OP-5.4.1) — flag off / allowlist 外で emit �
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
   });
 
-  it("【invariant】 userId null では error telemetry も emit しない", () => {
-    setEnv({ enabled: "true", allowlist: "user-canary" });
+  it("【invariant】 userId null では observation も error も emit しない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
     runShadowAndCompare(
       makeBaseInput({
         utterance: "自宅から始める",
@@ -443,7 +564,7 @@ describe("runShadowAndCompare (OP-5.4.1) — flag off / allowlist 外で emit �
   });
 });
 
-describe("runShadowAndCompare (OP-5.4.1) — error category emit", () => {
+describe("runShadowAndCompare (OP-5.4.2.2) — caller side silent", () => {
   it("【invariant】 caller への throw 伝播は引き続きしない (= silent on caller side)", () => {
     setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
     expect(() =>
@@ -456,9 +577,7 @@ describe("runShadowAndCompare (OP-5.4.1) — error category emit", () => {
     ).not.toThrow();
   });
 
-  it("【invariant】 emit される message は op5.shadow.error.<category> 形式のみ (= raw error を含まない)", () => {
-    // success path で Sentry が呼ばれないことを系統検証
-    // (= raw 漏洩リスクの最小化、 message format も固定)
+  it("【invariant】 emit される message は op5.shadow.observation.<level> または op5.shadow.error.<category> 形式のみ", () => {
     setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
     runShadowAndCompare(
       makeBaseInput({
@@ -466,7 +585,269 @@ describe("runShadowAndCompare (OP-5.4.1) — error category emit", () => {
         legacyPlan: makePlan(),
       }),
     );
-    // success path では一度も呼ばれない
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    for (const msg of messages) {
+      expect(msg).toMatch(
+        /^op5\.shadow\.(observation\.(summary|verbose)|error\.(orchestrator_error|extractor_error|comparator_error|redaction_error|observation_error|unknown))$/,
+      );
+    }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 9. OP-5.4.2.2: observation_error fallback (= silent failure 防止)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("runShadowAndCompare (OP-5.4.2.2) — observation_error fallback", () => {
+  it("【invariant】 aggregator throw 時に op5.shadow.error.observation_error が emit される", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    vi.mocked(buildShadowObservationInput).mockImplementationOnce(() => {
+      throw new Error("simulated aggregator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    expect(messages).toContain("op5.shadow.error.observation_error");
+  });
+
+  it("【invariant】 aggregator throw 時に op5.shadow.observation.* は emit されない (= 観測失敗時は error のみ)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    vi.mocked(buildShadowObservationInput).mockImplementationOnce(() => {
+      throw new Error("simulated aggregator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "東京駅から渋谷へ",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    for (const msg of messages) {
+      expect(msg.startsWith("op5.shadow.observation.")).toBe(false);
+    }
+  });
+
+  it("【invariant】 aggregator throw でも caller に throw 伝播しない (= silent on caller side)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    vi.mocked(buildShadowObservationInput).mockImplementationOnce(() => {
+      throw new Error("simulated aggregator failure");
+    });
+    expect(() =>
+      runShadowAndCompare(
+        makeBaseInput({
+          utterance: "自宅から始める",
+          legacyPlan: makePlan(),
+        }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("【invariant】 log_level=none では aggregator が呼ばれない (= 早期 return、 throw も emit も発生しない)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "none" });
+    vi.mocked(buildShadowObservationInput).mockImplementationOnce(() => {
+      throw new Error("should not be called");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(buildShadowObservationInput).not.toHaveBeenCalled();
     expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 10. OP-5.4.2.2: log_level vs error telemetry の独立性 (= 案A 明文化)
+//
+// **error telemetry は shadowLogLevel の影響を受けない**:
+//   step throw → log_level=none でも error event は emit される。
+//   = 安全監視 / SRE 観点と success observation observability を **分離**。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("runShadowAndCompare (OP-5.4.2.2) — error telemetry vs log_level 独立性", () => {
+  it("【invariant】 log_level=none + step throw (= orchestrator) → orchestrator_error event 出る", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "none" });
+    vi.mocked(runShadowOrchestrator).mockImplementationOnce(() => {
+      throw new Error("simulated orchestrator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    expect(messages).toContain("op5.shadow.error.orchestrator_error");
+  });
+
+  it("【invariant】 log_level=summary + step throw → orchestrator_error event 出る (= log_level に依存しない)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    vi.mocked(runShadowOrchestrator).mockImplementationOnce(() => {
+      throw new Error("simulated orchestrator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    expect(messages).toContain("op5.shadow.error.orchestrator_error");
+  });
+
+  it("【invariant】 log_level=verbose + step throw → orchestrator_error event 出る (= log_level に依存しない)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    vi.mocked(runShadowOrchestrator).mockImplementationOnce(() => {
+      throw new Error("simulated orchestrator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    expect(messages).toContain("op5.shadow.error.orchestrator_error");
+  });
+
+  it("【invariant】 step throw 時は success observation event が emit されない (= 排他)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    vi.mocked(runShadowOrchestrator).mockImplementationOnce(() => {
+      throw new Error("simulated orchestrator failure");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    const messages = vi
+      .mocked(Sentry.captureMessage)
+      .mock.calls.map((c) => c[0]);
+    for (const msg of messages) {
+      expect(msg.startsWith("op5.shadow.observation.")).toBe(false);
+    }
+  });
+
+  it("【invariant】 flag off + step throw 想定 → 何も emit されない (= shouldRunShadow gate より前)", () => {
+    setEnv({}); // flag off
+    vi.mocked(runShadowOrchestrator).mockImplementationOnce(() => {
+      throw new Error("should not be called when flag off");
+    });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(runShadowOrchestrator).not.toHaveBeenCalled();
+    expect(Sentry.captureMessage).not.toHaveBeenCalled();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 11. OP-5.4.2.2: emit input の集計値正確性 (= bySource / counts / comparison)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("runShadowAndCompare (OP-5.4.2.2) — emit payload 正確性", () => {
+  it("【invariant】 emit payload tags に集計値 (= count / source / match) が含まれ、 raw が含まれない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "summary" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から始める",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+    const options = callArgs[1] as { tags?: Record<string, unknown> };
+    expect(options).toBeDefined();
+    expect(options.tags).toBeDefined();
+    const tags = options.tags!;
+
+    // bySource (= 既存 OperationSource enum 8 値) keys が存在
+    expect(tags).toHaveProperty("op5_emit_count_llm_explicit");
+    expect(tags).toHaveProperty("op5_emit_count_llm_inferred");
+    expect(tags).toHaveProperty("op5_emit_count_regex_deterministic");
+    expect(tags).toHaveProperty("op5_emit_count_code_history");
+    expect(tags).toHaveProperty("op5_emit_count_code_location");
+    expect(tags).toHaveProperty("op5_emit_count_ui_action");
+    expect(tags).toHaveProperty("op5_emit_count_caller_request");
+    expect(tags).toHaveProperty("op5_emit_count_system_default");
+
+    // 集約 alias (= 「llm」「regex」「deterministic」 等) は **存在しない**
+    expect(tags).not.toHaveProperty("op5_emit_count_llm");
+    expect(tags).not.toHaveProperty("op5_emit_count_regex");
+    expect(tags).not.toHaveProperty("op5_emit_count_deterministic");
+
+    // raw key が tags に **存在しない**
+    expect(tags).not.toHaveProperty("utterance");
+    expect(tags).not.toHaveProperty("label");
+    expect(tags).not.toHaveProperty("userId");
+    expect(tags).not.toHaveProperty("payload");
+    expect(tags).not.toHaveProperty("coords");
+    expect(tags).not.toHaveProperty("matchedSpan");
+  });
+
+  it("【invariant】 emit payload に raw 値 (= 「自宅」「東京駅」 等) が含まれない", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "自宅から東京駅へ、夜はホテルで泊まる",
+        legacyPlan: makePlan(),
+        homeAnchor: {
+          lat: 35.123,
+          lng: 139.456,
+          label: "自宅",
+          source: "registered_home",
+        },
+      }),
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+    const json = JSON.stringify(callArgs);
+    // raw 文字列が一切含まれないことを系統検証
+    expect(json).not.toContain("自宅から東京駅へ");
+    expect(json).not.toContain("自宅");
+    expect(json).not.toContain("東京駅");
+    expect(json).not.toContain("ホテル");
+    expect(json).not.toContain("35.123");
+    expect(json).not.toContain("139.456");
+    expect(json).not.toContain("registered_home");
+  });
+
+  it("【invariant】 emit payload tags は string 型のみ (= Sentry SDK 仕様 + raw 漏洩防止)", () => {
+    setEnv({ enabled: "true", allowlist: "user-canary", logLevel: "verbose" });
+    runShadowAndCompare(
+      makeBaseInput({
+        utterance: "東京駅から渋谷へ",
+        legacyPlan: makePlan(),
+      }),
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+    const callArgs = vi.mocked(Sentry.captureMessage).mock.calls[0];
+    const options = callArgs[1] as { tags?: Record<string, unknown> };
+    const tags = options.tags!;
+    for (const [, value] of Object.entries(tags)) {
+      expect(typeof value).toBe("string");
+    }
   });
 });
