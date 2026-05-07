@@ -516,6 +516,7 @@ import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-mo
 // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
 //   PR B-2c: fetchPreviousDayPlan で前日 plan を取得し Layer 2 inheritance に渡す
 import { upsertPlanHistory, fetchPreviousDayPlan } from "@/lib/alter-morning/persistence/planHistory";
+import { runShadowAndCompare } from "@/lib/alter-morning/op5";
 import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
@@ -10291,6 +10292,14 @@ export async function POST(req: NextRequest) {
       } catch {
         // fail-soft: log は helper 内で処理済み、本 response は壊さない
       }
+
+      // Shadow-only OP pipeline comparison; no response mutation.
+      runShadowAndCompare({
+        legacyPlan: morningResponse.plan,
+        userId,
+        utterance: message,
+        actualToday: getActualTodayYmdJst(),
+      });
     }
 
     return NextResponse.json({
