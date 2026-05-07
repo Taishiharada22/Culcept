@@ -2510,3 +2510,69 @@ CEO 確定 8 ケース全て PASS:
    - UrgentLayer static / PII なし
 6. PASS なら block 2-5 へ順次進行 (CEO 判定)
 7. NG なら停止 → 分布共有 → 原因再議論 (自律 fix 禁止)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 Block 1 v6 PASS — Fix C 効果確定 / Block 2 進行] [承認: CEO]
+
+### Smoke v6 結果 (Sentry "block 1 v6 — Fix C 29ff2746" Issue 確定)
+
+#### 数字
+| 項目 | 値 | block 1 NG (Fix C 前) | 復帰判定 |
+|------|-----|----------------------|----------|
+| user message | 20 | 20 | — |
+| **POST `/api/coalter/speech`** | **20** | 29 | ✅ **過剰発火完全解消 (-9 件)** |
+| **過剰発火比** | **1.0x** | 1.45x | ✅ 完全復帰 |
+| `coalter.pattern.used` (smoke 本体) | 20 件 (+入室時 1 = 計 21 件) | 18 (buffer overflow) | ✅ |
+| `speechSource=llm` | 19 (95%) | 29 (100%) | 同等良好 |
+| `fallback` (validation_failed) | 1 (5%) | 0 | block 1 NG 同等 |
+| `validationFailed=true` | 1 | 0 | 同等 |
+| `retries=0` | 14 | 23 | — |
+| `retries=1` | 4 | 6 | ↓ |
+| `retries=2` | 1 | 0 | ↑ +1 (基準 0-3 内) |
+| `retries=-1` (fallback 同行) | 1 | 0 | 同 fallback 件 |
+| `timeout` (>=7900ms) | 0 | 0 | ✅ |
+| `cancel` | 0 | 0 | ✅ |
+| `latency max` | 6336ms (fallback 行) | 4334ms | ↑ +2000ms (validation 失敗 retry 経路) |
+| PII | 0 | 0 | ✅ |
+| UrgentLayer | static | static | ✅ |
+
+#### Sentry timestamps (smoke 本体 20 件、UTC 02:35:54-02:43:22 の約 8 分)
+- 完全な timestamp + latency / retries / source 一覧は本日の Stage 2.2 block 1 v6 Issue で確定済
+- thread 入室時 02:33:15 の 1 件は smoke 本体外 (state stabilize の自然な signal)
+
+### CEO 判定 (2026-05-07)
+- **block 1 v6 PASS** (Fix C 効果確定、過剰発火 1.45x → 1.0x 完全復帰)
+- **block 2 進行 GO**
+- 自律 fix-forward 禁止 / 100-call 一括禁止 維持
+- **重点観測継続項目** (block 2 以降):
+  1. **validation_failed**: 5% を超えないか (累積 5+ 件で post-validator 議論)
+  2. **retries=2**: 5% を超えないか (累積 5+ 件で SDK retry / model 安定性議論)
+  3. **latency max**: 7500ms を超えないか (validation retry 経路含む)
+
+### Fix C 効果の証拠
+- block 1 NG (Fix C 前): POST 29 / 過剰発火 1.45x / 推定 9 件の echo
+- block 1 v6 (Fix C 後): POST 20 / 過剰発火 1.0x / echo 0 件
+- → optimistic→server echo dedupe (asymmetric) が想定通り機能
+- → 連投誤殺なし (20 user message に対して 20 fetch、不足なし)
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- UpperLayerMount.tsx 不変 ✅
+- speech route / timeout / validator / Anthropic 不変 ✅
+- UrgentLayer / UrgentMessageCard / UrgentRelease 不変 ✅
+- Production env 不変 ✅
+- 100-call 一括禁止 ✅
+- NG 時自律 fix 禁止 ✅
+
+### 次ステップ: Block 2-5 順次進行
+1. CEO Block 2 (20 calls) 実施: 同 protocol (build `29ff2746`、20 秒間隔、新 incognito tab、canary 即時 throw)
+2. canary message: `"L4-i Stage 2.2 block 2 — Fix C 29ff2746"`
+3. PASS 条件 (block 単位、validation_failed / retries=2 / latency max を Tier-1 観測):
+   - POST 20-22 件 / `pattern.used` 20 件
+   - speechSource=llm 18+
+   - fallback 0-1 / validation_failed 0-1 / rate_limited 0-1 / timeout 0
+   - retries=2 0-3 / retries>=3 0
+   - latency p95 ≤ 6500ms / max ≤ 7500ms
+   - PII 0 / UrgentLayer static
+4. PASS なら block 3 → block 4 → block 5 順次進行
+5. 5 blocks 全 PASS なら Stage 2.3 (variant 別 review、5 sample × 7 variant) 進入判断
+6. 任意 block で NG → 停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
