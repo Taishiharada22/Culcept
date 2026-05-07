@@ -68,3 +68,12 @@ export type {
   ShadowErrorTelemetryInput,
 } from "./errorTelemetry";
 export { emitShadowError } from "./errorTelemetry";
+
+// OP-5.4.2.1: runtime 未接続の observation sink helper (= 集計済 safe input only、
+// raw を持てない型設計、 side-effect は Sentry.captureMessage のみに限定、
+// shadowEntrypoint 接続は OP-5.4.2.2 で別レビュー)
+export type {
+  ShadowObservationInput,
+  ShadowEmittedCountsBySource,
+} from "./observationSink";
+export { emitShadowObservation } from "./observationSink";
