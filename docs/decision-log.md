@@ -3249,3 +3249,109 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - 複合 → 設計議論
 
 #### Step 4: 修正実装 (CEO 承認後)、35-call 再実行で再判定
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 Round 6 — diagnostic 結果分析 + 案 A' 実装 (E grounding contract)] [承認: CEO]
+
+### Diagnostic 結果 (commit `e9ffe230` で取得)
+
+#### 数値確定
+| variant | 10/3/3 | fallback | retries 0/1/2/-1 | totalViolations |
+|---------|--------|----------|------------------|-----------------|
+| **E** | **6/10 fallback** (60%) | 6 | 1/3/0/6 | **28** (全 length_violation) |
+| A | 0/3 | 0 | 3/0/0/0 | 0 |
+| F2 | 0/3 | 0 | 1/1/1/0 | 4 (全 length_violation) |
+
+E fallback 率 60% は Stage 2.3 confirm (3/5=60%) と一致 → **再現性確認**。
+
+#### violation kind 分布 (8 種)
+- E: length_violation のみ 28 件、judgmental/evaluative/speak_for_other/premature_certainty/cornering/worldview/interrogative 全て 0
+- A: 全 0
+- F2: length_violation のみ 4 件
+
+→ **validator 直接原因 = length_violation 確定**
+
+### 真の問題 (raw output 観察、CEO/GPT 指摘)
+
+`.tmp/stage23-variant-review-diagnostic-2026-05-07_22-38-36-114Z.md` の variant E raw output 観察:
+- E は **context: {} (空)** にもかかわらず、**架空の人物・関係・発言を捏造**
+- 捏造例:
+  - 「**お母さん**は「ゲームが悪影響」と心配し、**あなた**は「ゲームで得られるもの」を伝えたい」(E#0 attempt 1)
+  - 「**お母さん**は「**学校に行きなさい**」と言い、**あなた**は「**行きたくない**」と答えている」(E#1 attempt 2)
+  - 「**お父さん**は「**早く寝なさい**」と言い、**あなた**は「**もう少しゲームしたい**」」(E#3 attempt 3)
+  - 「**ユーザーとシステム**の間で「優先順位」という言葉の意味が」(E#8 attempt 1) ← 無関係な技術文脈
+  - 「**Aさん**は「期待に応えたい」、**Bさん**は「自分のペースを守りたい」」(E#4 attempt 3)
+- 捏造内容: お母さん / お父さん / Aさん / Bさん / 彼女 / ユーザーとシステム / 学校 / ゲーム / 責任 / 期待 / 将来 / 支援 / 予定 / 「早く寝なさい」「早く決めろ」「もう少しゲームしたい」等
+
+### Validator は捏造を無検出
+
+8 種違反: judgmental / evaluative / speak_for_other / premature_certainty / interrogative / cornering / worldview / length_violation
+- 「お母さん」と捏造しても上記いずれにも該当せず通る
+- → **validator では捏造防止できない** (構造的問題)
+
+### Length が偶然 captioned 捏造の indirect filter になっていた
+
+- 抽象的な発話 (E#2 #1, E#7 #2, E#9 #2) は自然と短く length も通る
+- 捏造内容を入れると自然と長くなる (95-110 字級) → length_violation で reject
+- → **length 制約が偶然 indirect filter として機能**
+- → length 緩和だけだと、捏造的長文 (50-58 字級に詰めれば) が通ってしまう
+
+### CEO/GPT 警告 + Round 6 採用案
+
+**CEO/GPT 警告**: 「length 40→60 だけだと、これまで length で弾かれていた文脈なし具体化が通ってしまう」
+
+**CEO 確定採用**: **案 A'** (E grounding contract 追加、length 緩和は留保)
+
+### 修正内容 (commit `f0945255`)
+
+`lib/coalter/presence/speechPromptBuilder.ts:VARIANT_TEMPLATE.E` に grounding contract 追加:
+1. 文脈 (Context) にない人物・関係・発言を作らない (架空の登場人物・対話を生成しない)
+2. Context に具体発言が含まれない場合は、抽象的な橋渡しに留める
+3. 「お母さん / お父さん / Aさん / Bさん / 彼女 / ユーザーとシステム」など Context にない人物・関係を勝手に作らない
+4. 「片方は『X』、もう片方は『Y』」と具体 quote するのは Context に両者の発言内容が **明示的に含まれている場合のみ**
+5. 1 文 40 文字以内に収めるため、抽象的に短く言う
+
+### 不変 (CEO 厳守維持)
+- 他 variant template 不変 (A/B/C/D/F1/F2) ✅
+- speechValidator / speechPostValidator / speechTypes / speechBuilder 不変 ✅
+- llmCall / model / max_tokens / length_override 不変 ✅
+- ChatClient / UpperLayerMount / speech route / UrgentLayer / timeout constant 不変 ✅
+- Production env 不変 ✅
+
+### 検証
+- speechBuilder.test.ts 15 件全 PASS
+- coalter 全 147 file / 2148 test PASS、回帰なし
+- speechPromptBuilder type error 0
+
+### 次ステップ: CEO 検証 protocol
+
+#### Step 1: Diagnostic 再実行 (16-call、~5 分)
+
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+#### Step 2: CEO 確認項目 (4 つ)
+| 項目 | Round 6 前 | Round 6 後 期待 |
+|------|-----------|----------------|
+| E fallback | 6/10 (60%) | ≤ 2/10 (20%) 期待 |
+| E length_violation | 28 件 | 大幅減 (≤ 10 期待) |
+| 文脈なし捏造 (raw output) | 多発 (お母さん等) | **消えるか確認** (CEO 質的) |
+| A/F2 悪化 | (基準値) | 悪化なし (A 0、F2 ≤ 4 維持) |
+
+#### Step 3: 判定分岐
+- **PASS** (4 項目全て期待通り) → 35-call confirm 再実行 → Stage 2.3 再判定
+- **NG** (E fallback まだ多い / 捏造残る / A/F2 悪化) → CEO 議論
+  - 案 A' 効果不十分 → length 緩和議論 (E のみ 40→60、CEO 判断、未着手)
+  - 別問題発覚 → 設計議論
+
+### CEO 厳守不変 (Round 6 着手後も維持)
+- length 緩和に飛ばない (案 A' で足りない場合のみ別議論)
+- validator 全体を緩めない
+- model / max_tokens 触らない
+- 35-call 再実行は diagnostic PASS 後のみ
+- Anthropic 起因と断定しない
