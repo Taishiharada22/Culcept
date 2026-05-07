@@ -3355,3 +3355,132 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - model / max_tokens 触らない
 - 35-call 再実行は diagnostic PASS 後のみ
 - Anthropic 起因と断定しない
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 Round 7 (confirm Yellow) + Round 8 (G-1' = C/D/F2 grounding/tone 追加)] [承認: CEO]
+
+### Round 7: 35-call confirm 再実行結果
+
+#### 数値 (Round 5 比較)
+| 項目 | Round 5 | **Round 7** | PASS 条件 | 判定 |
+|------|---------|------------|-----------|------|
+| source=llm | 30 | **33** | 32+ | ✅ |
+| fallback | 5 | **2** | 0-3 | ✅ |
+| validation_failed | 5 | **2** | 0-2 | ✅ ギリギリ |
+| **timeout** (latency >=10s) | 0 | **1** (F2#1 latency=13558ms validation_failed) | 0 | **🔴 NG** |
+| script error | 0 | 0 | 0 | ✅ |
+
+→ **clean PASS ではない、Yellow / 未完了**
+
+#### Variant 別
+| variant | source | 質的観察 |
+|---------|--------|----------|
+| A | 4 llm + 1 fallback | A#2 fallback (validation_failed、length 関係) |
+| B | 5 llm | 安定 |
+| C | 5 llm | **🔴 面談 bot tone 違和感**: 「今日はどんなことがあったんですか?」「どんな話をしたいと思って来たんですか?」 |
+| D | 5 llm | **🔴 視覚情報捏造**: D#1「左側の方は、何か言いたそうな表情をされているように見えます」 |
+| E | 5 llm | 案 A' 効果継続、捏造なし、抽象的橋渡し |
+| F1 | 5 llm | 安定 |
+| F2 | 4 llm + 1 fallback | **🔴 天気・気温捏造**: F2#0「肌寒く感じる」/ F2#2「肌寒い」/ F2#3「暖かくなる」 |
+
+### timeout=1 の正体 (CEO 厳守 表現補正)
+- F2 sample 1: latencyMs=13558ms、retries=-1、fallbackReason=`validation_failed`
+- script の自動 timeout 判定 (latencyMs >= 10000) で timeout=1 だが、
+- 真の failure mode は **validation_failed の累積遅延** (3 attempts × 4-5s)
+- 単発 provider timeout ではない、Anthropic 起因と断定しない (CEO 厳守)
+
+### CEO/GPT 質的指摘 3 件 (Claude 前回見落とし、自己批判)
+
+私 (Claude) は前回 §G で「PASS 推奨」と書いたが誤り:
+- 数値で timeout=1 を見落とした
+- 質的分析を E のみに focus、D/C/F2 の捏造・tone 違和感を完全に見落とした
+- F2 Yellow を「length 問題、scope 外」と片付け、内容を見ていなかった
+
+CEO/GPT 指摘で 3 件全て raw output で verify:
+1. D の視覚情報捏造 (E と同種の文脈なし具体化)
+2. C の面談 bot tone (CoAlter 役割逸脱)
+3. F2 の天気・気温事実化 (誤情報 risk)
+
+### Round 8 採用: 案 G-1' (CEO 確定 2026-05-08)
+
+CEO 補正 4 点:
+1. **G-1'** = C/D/F2 に variant 別 grounding/tone 追加 + E grounding 維持
+2. **D**: 視覚情報・物理位置・表情禁止
+3. **F2**: Context にない天気・気温・季節・時間帯・体調・予定を **事実として作らない**、ただし抽象的な生活提案は許可
+4. **C**: 面談 bot 化禁止、確認質問は **二者間スコープに限定**
+5. **timeout=1** は validation_failed 累積遅延として扱う、単発 provider timeout と断定しない
+6. **diagnostic 対象**: C5/D5/F2 5/E5 = 20 sample (必須、A は除外)
+
+### 修正内容 (commit `4ef67afe`)
+
+#### `lib/coalter/presence/speechPromptBuilder.ts`
+- VARIANT_TEMPLATE.C に tone/scope contract 追加:
+  - 面談語彙 (来た/訪問/面談/カウンセリング) 禁止
+  - 個人雑談・近接質問 (今日はどんなことがあった?) 禁止
+  - 二者間スコープ限定
+  - OK/NG 例明示
+- VARIANT_TEMPLATE.D に grounding contract 追加:
+  - 視覚情報・物理位置・表情禁止 (左側/右側/表情/視線/顔つき/仕草/身振り/服装)
+  - 片側フォーカスは「発話・言葉・態度の文脈」限定
+- VARIANT_TEMPLATE.F2 に grounding contract 追加:
+  - 天気・気温・季節・時間帯・体調・予定を事実として作らない
+  - 抽象的な生活提案は許可 (「短い休憩」「少し整える時間」「予定を軽く見直す」)
+  - NG 例明示 (「肌寒い」「暖かくなる」)
+- E grounding contract は不変 (Round 6 のまま、regression 確認用)
+- A/B/F1 不変
+
+#### `scripts/coalter/stage23-variant-quality-review.ts`
+- DIAGNOSTIC_TARGETS を `[C:5, D:5, F2:5, E:5]` に変更 (Round 6 の `[E:10, A:3, F2:3]` から)
+- preamble / runDiagnostic / formatDiagnosticMarkdown を DIAGNOSTIC_TARGETS ベースに汎用化 (variant 順序ハードコード排除)
+
+### 検証
+- speechPromptBuilder.test 15/15 PASS (E template 構造 invariant、新 C/D/F2 contract も regex 検証なし)
+- coalter 全 147 file / 2148 test PASS、回帰なし
+- type error 0 (speechPromptBuilder + script)
+
+### 不変 (CEO 厳守維持)
+- speechValidator / speechPostValidator / speechTypes / speechBuilder / llmCall 不変 ✅
+- model / max_tokens / length_override / timeout constant 不変 ✅
+- ChatClient / UpperLayerMount / speech route / UrgentLayer / Production env 不変 ✅
+- A/B/E/F1 template 不変 ✅
+- 35-call confirm はまず 20-sample diagnostic → 結果確認後 ✅
+- length 緩和に進まない ✅
+- Anthropic 起因と断定しない ✅
+
+### 次ステップ: CEO diagnostic 20-sample 実行 protocol
+
+#### 実行コマンド
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+期待出力:
+- 順序: C 5 → D 5 → F2 5 → E 5
+- LLM call ~20-40 (retry 込)、cost rough estimate
+- `.tmp/stage23-variant-review-diagnostic-<ts>.{json,md}`
+
+#### CEO 確認項目 (Round 8 効果検証)
+
+| # | 項目 | 確認方法 |
+|---|------|---------|
+| 1 | D で視覚情報捏造が消えたか | raw output 検索: 「左側」「右側」「表情」「視線」「顔つき」「仕草」 |
+| 2 | F2 で天気・気温・季節・予定の捏造が消えたか | raw output 検索: 「肌寒」「暖かく」「夕方」「季節」「最近」「今日は〜なる」 |
+| 3 | C が面談 bot ではなく二者間整理の質問になったか | raw output 検索: 「来た」「面談」「今日はどんな」「特別なこと」 |
+| 4 | E が悪化していないか | E 5 sample で捏造 keyword 0 維持確認 (Round 6 時と同パターン) |
+| 5 | fallback / validation_failed / length_violation が増えていないか | 数値 metric で増加トレンド |
+
+#### 判定分岐
+- **PASS** (5 項目全て期待通り) → 35-call confirm 再実行 → Stage 2.3 再判定
+- **NG** → CEO 議論 (case G-1' 効果不十分の場合のみ別議論)
+
+### CEO 厳守不変 (Round 8 着手後も維持)
+- 35-call 再実行は diagnostic PASS 後のみ
+- length 緩和に飛ばない
+- validator / model / max_tokens / timeout 不変
+- Production env / ChatClient / UpperLayerMount / UrgentLayer 不変
+- 自律 fix-forward 禁止
+- Anthropic 起因と断定しない
