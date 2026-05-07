@@ -2576,3 +2576,74 @@ CEO 確定 8 ケース全て PASS:
 4. PASS なら block 3 → block 4 → block 5 順次進行
 5. 5 blocks 全 PASS なら Stage 2.3 (variant 別 review、5 sample × 7 variant) 進入判断
 6. 任意 block で NG → 停止 → 分布共有 → CEO 判断 (自律 fix 禁止)
+
+## [2026-05-07] [Build] [L4-i Stage 2.2 Block 2 Yellow 付き PASS — timeout 1 件登場 / Block 3 監視ライン] [承認: CEO]
+
+### Block 2 結果 (Sentry "block 2 — Fix C 29ff2746" Issue 確定)
+
+#### 数字
+| 項目 | 値 | block 1 v6 | 判定 |
+|------|-----|-----------|------|
+| user message | 20 | 20 | — |
+| **POST `/api/coalter/speech`** | **20** | 20 | ✅ **1.0x 維持** (Fix C 効果継続) |
+| `pattern.used` (smoke 本体) | 20 | 20 | ✅ |
+| `speechSource=llm` | 18 (90%) | 19 (95%) | -1 件 |
+| `speechSource=fallback` | **2** | 1 | ⚠ +1 (timeout 新登場) |
+| `validationFailed=true` | 1 | 1 | 同等 |
+| `retries=0` | 15 | 14 | +1 |
+| `retries=1` | 3 | 4 | -1 |
+| `retries=2` | 0 | 1 | ✅ -1 (改善) |
+| `retries=-1` | 1 | 1 | 同等 (validation_failed 行) |
+| **`timeout`** (fallback timeout / >=7900ms) | **1** | 0 | ⚠ **累積 1 件目** |
+| `latency max` (timeout 除く) | 6521ms | 6336ms | +185ms (微増) |
+| PII | 0 | 0 | ✅ |
+| UrgentLayer | static | static | ✅ |
+
+#### Sentry timestamps (smoke 本体 20 件、03:02:17-03:10:17 UTC、約 8 分間隔 20 秒)
+- 入室時 03:00:57 latencyMs=8002 timeout は smoke 本体外 (state stabilize 前の signal、集計対象外)
+- timeout 行 (smoke 本体内): 03:07:33 latencyMs=8003 retries=0 fallback timeout
+- validation_failed 行: 03:05:41 latencyMs=6521 retries=-1 fallback validation_failed
+
+### CEO 判定 (2026-05-07)
+- **block 2 Yellow 付き PASS** (clean PASS ではない)
+  - 過剰発火制御: ✅ PASS (Fix C 効果継続 1.0x)
+  - LLM 品質: ✅ PASS (llm 90%、fallback 10%)
+  - **timeout/停止 1 件**: ⚠ Yellow (block 1 v6 = 0 から +1)
+  - validation_failed 1 件: ✅ 許容範囲内 (累積 2/40 = 5%)
+  - latency 6521ms: ✅ 単発許容 (基準 ≤7500ms 内)
+- **block 3 進行可** (累積 80 calls まで観測継続)
+- 自律 fix-forward 禁止 / 100-call 一括禁止 維持
+
+### CEO 厳守追加条件 (2026-05-07 Block 2 後)
+> 「次も timeout/停止 または validation_failed が出るなら、Stage 2.2 継続ではなく、
+> validator / timeout / provider latency の再評価に入るべき」
+
+→ **block 3 で timeout OR validation_failed が再発した場合 → Stage 2.2 停止 → 再評価 phase**
+
+### 累積トレンド (block 1 v6 + block 2 = 40 calls)
+| 項目 | 累積 | 議論ライン |
+|------|------|-----------|
+| POST 過剰発火 | 1.0x | ✅ Fix C 安定 |
+| validation_failed | 2 (5%) | 累積 5+ 件で post-validator 議論 |
+| **timeout** | **1 (2.5%)** | **block 3 で再発したら停止** |
+| retries=2 | 1 (2.5%) | 累積 5+ 件で議論 |
+| retries>=3 | 0 | ✅ |
+| rate_limited | 0 | ✅ (累積継続観測) |
+| latency max trend | 6336 → 6521 (+185ms) | block 3 で 7000ms 超なら trend 警戒 |
+| PII / UrgentLayer | 0 / static | ✅ ✅ |
+
+### 不変 (CEO 厳守維持)
+- ChatClient.tsx 不変 ✅
+- UpperLayerMount.tsx 不変 ✅
+- speech route / timeout / validator / Anthropic 不変 ✅
+- UrgentLayer 不変 ✅
+- Production env 不変 ✅
+- 100-call 一括禁止 ✅
+- 自律 fix-forward 禁止 ✅
+
+### 次ステップ: Block 3
+1. CEO Block 3 (20 calls) 実施: 同 protocol (build `29ff2746`、20 秒間隔、新 incognito tab、canary 即時 throw)
+2. canary message: `"L4-i Stage 2.2 block 3 — Fix C 29ff2746"`
+3. **重点観測**: timeout / validation_failed の累積件数 (CEO 厳守 stop 条件)
+4. PASS なら block 4 進行 / NG なら停止 → 再評価 phase 議論
+5. 任意 block で timeout または validation_failed が再発 → 停止 (上記 CEO 厳守追加条件)
