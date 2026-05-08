@@ -3484,3 +3484,128 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - Production env / ChatClient / UpperLayerMount / UrgentLayer 不変
 - 自律 fix-forward 禁止
 - Anthropic 起因と断定しない
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 Round 9 — D template 全面書き換え (視覚メタファー削除)] [承認: CEO]
+
+### Round 8 diagnostic 結果 (CEO/GPT 監査)
+
+#### 数値 (一見良好)
+| variant | retries 0/1/2/-1 | violations | latency 範囲 |
+|---------|------------------|------------|------------|
+| C | 5/0/0/0 | 0 | 1834-2342ms |
+| D | 2/2/1/0 | 4 (length のみ) | 2509-8646ms |
+| F2 | 5/0/0/0 | 0 | 2395-3530ms |
+| E | 5/0/0/0 | 0 | 2462-2713ms |
+
+→ 数値だけ見ると PASS、しかし **質的観察で D が NG**
+
+### 質的 verify (raw output 検証、Claude 確認済)
+
+#### D NG 確定 (9/9 attempts で左右生成)
+| Sample | Attempt | body | 左右 keyword |
+|--------|---------|------|------------|
+| D#0 | 1 | 「**右側の方**は、**左側**の発言を…」 | ⚠ |
+| D#1 | 1 | 「**右側の方**は、**左側**の言葉を…」 | ⚠ |
+| D#2 | 1 | 「**右側の方**は、**左側**の「もう疲れた」」 | ⚠ |
+| D#2 | 2 | 「**右側の方**は、**左側**の言葉に対して」 | ⚠ |
+| D#3 | 1 | 「**右側の方**は…」 | ⚠ |
+| D#3 | 2 | 「**左側**は…**右側**の提案を…」 | ⚠ |
+| D#3 | 3 | 「**右側の方**は、**左側**が使った」 | ⚠ |
+| D#4 | 1 | 「**左の方**は…**右の方**の発言を…」 | ⚠ |
+| D#4 | 2 | 「**右側**の発言が…**左側**からの応答」 | ⚠ |
+
+→ Round 8 grounding contract が **完全に効いていない**
+
+#### F2 (ほぼ PASS)
+- 5/5 件 天気・気温 keyword 0
+- F2#3 のみ「**午後の作業**」← 時間帯軽微
+- CEO 評価: 「天気消えてる、軽微残、35-call で再観測 (D 修正後)」
+
+#### C (PASS、ただし多様性ゼロ)
+- 5/5 件 完全同一文: 「今、二人の間で一番整理したい点はどこでしょうか?」
+- prompt 内 OK 例を LLM が完全 quote (prompt が強すぎ)
+- CEO 評価: 「将来課題、blocker でない」
+
+#### E (PASS、regression なし)
+- 5/5 件 抽象的橋渡し維持、捏造 keyword 0
+
+### Root cause (CEO/GPT 指摘、Claude 自己批判)
+
+私 (Claude) Round 8 修正の見落とし:
+- 元テンプレート文 `Pattern D 片側フォーカス: 片側のみに視線を向ける。` を **そのまま残した**
+- 「視線」「片側のみに視線を向ける」は **視覚メタファー**
+- 後段で grounding contract に「視覚禁止」と書いても、前段の task 定義「視線を向ける」が **prompt 内で強い**
+- LLM は前段優先 → 左右生成
+
+CEO/GPT 修正方針:
+- 元テンプレート文を全面書き換え (視線/視覚メタファー削除)
+- contract に「片側フォーカスは視覚 focus ではなく発話文脈の観点整理」明示
+
+### Round 9 修正内容 (commit `84ecbebe`)
+
+#### `lib/coalter/presence/speechPromptBuilder.ts` D template
+
+**旧** (Round 8 まで):
+```
+Pattern D 片側フォーカス (§7.6 / §6.x): 片側のみに視線を向ける。代弁せず観測事実のみ。
+【grounding contract】
+- 視覚情報・物理位置・表情を作らない
+- 「左側 / 右側 / 左の方 / 右の方 / 表情 / 視線 / 顔つき / 仕草 / 身振り / 服装」等を使わない
+- 片側フォーカスは「片方の発話・言葉・態度の文脈」に限定
+```
+
+**新** (Round 9):
+```
+Pattern D 片側観点の整理 (§7.6 / §6.x): 片方の発話・言葉・反応の文脈にだけ
+一時的に注目する。視覚情報や物理位置は使わず、発話上に現れている要素だけを
+扱う。代弁せず、推論は控えめにする。
+【grounding contract (Round 9 修正: 元テンプレート「視線を向ける」削除 + contract 強化)】
+- 「左側 / 右側 / 左の方 / 右の方 / 左から / 右から」絶対禁止
+- Context に speaker label なしなら「片方 / もう片方 / 一方 / 他方」に留める
+- Context にない具体 quote を作らない
+- 表情・視線・仕草・位置・画面上の配置・服装・身振り 使わない
+- 「片側フォーカス」は視覚的 focus ではなく発話文脈の観点整理と明示
+```
+
+### 検証
+- speechPromptBuilder type error 0
+- coalter 全 147 file / 2148 test PASS、回帰なし
+
+### 不変 (CEO 厳守維持)
+- 修正範囲は speechPromptBuilder.ts D template のみ ✅
+- A/B/C/E/F1/F2 template 不変 ✅
+- speechValidator / speechPostValidator / speechTypes / speechBuilder /
+  llmCall / model / max_tokens / length_override / timeout constant 不変 ✅
+- ChatClient / UpperLayerMount / UrgentLayer / Production env 不変 ✅
+- 35-call confirm はまだ禁止 ✅
+
+### 次ステップ: CEO D 中心 diagnostic 再実行
+
+#### 実行コマンド (前回と同じ、20 sample = C5/D5/F2 5/E5)
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+#### CEO 確認項目 (Round 9 効果検証、3 項目)
+
+| # | 項目 | 確認方法 |
+|---|------|---------|
+| 1 | **D で左右生成が消えたか** | raw output 検索: 「左側」「右側」「左の方」「右の方」「左から」「右から」 |
+| 2 | D が「片方/もう片方/一方/他方」に留まるか (CEO 確定の語彙) | 観察 |
+| 3 | C/F2/E が悪化していないか (regression) | C 多様性 (前回ゼロ)、F2 天気消失維持、E 捏造ゼロ維持 |
+
+#### 判定分岐
+- **PASS** (D 左右消失 + 他 regression なし) → 35-call confirm 再実行 → Stage 2.3 再判定
+- **NG** (D まだ左右生成 / 他 regression) → CEO 議論
+
+### CEO 厳守 (Round 9 着手後も維持)
+- 35-call 再実行は diagnostic PASS 後のみ
+- length 緩和に進まない
+- validator / model / max_tokens / timeout 不変
+- 自律 fix-forward 禁止
+- Anthropic 起因と断定しない
