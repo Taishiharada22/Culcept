@@ -140,9 +140,10 @@ describe("OP-3A Invariants — runtime 完全不変", () => {
   // 5. active L1_COMPREHENSION_SCHEMA / L1_RESPONSE_FORMAT 不変
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  it("active L1_COMPREHENSION_SCHEMA.required が 6 種維持", () => {
+  it("active L1_COMPREHENSION_SCHEMA.required が現行 7 種", () => {
     expect(L1_COMPREHENSION_SCHEMA.required).toEqual([
       "targetDate",
+      "targetDateProvenance",
       "events",
       "operations",
       "startPoint",

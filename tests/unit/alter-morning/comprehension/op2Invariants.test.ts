@@ -35,10 +35,11 @@ function readSource(relativePath: string): string {
   return readFileSync(path.join(REPO_ROOT, relativePath), "utf-8");
 }
 
-describe("OP-2 Invariants — active L1_COMPREHENSION_SCHEMA 不変", () => {
-  it("active L1_COMPREHENSION_SCHEMA.required が既存 6 種のまま", () => {
+describe("OP-2 Invariants — active L1_COMPREHENSION_SCHEMA shape", () => {
+  it("active L1_COMPREHENSION_SCHEMA.required が現行 7 種", () => {
     expect(L1_COMPREHENSION_SCHEMA.required).toEqual([
       "targetDate",
+      "targetDateProvenance",
       "events",
       "operations",
       "startPoint",
@@ -47,11 +48,12 @@ describe("OP-2 Invariants — active L1_COMPREHENSION_SCHEMA 不変", () => {
     ]);
   });
 
-  it("active L1_COMPREHENSION_SCHEMA.properties に新 field が含まれない", () => {
+  it("active L1_COMPREHENSION_SCHEMA.properties に OP-2 で禁止された field が含まれない", () => {
     const props = Object.keys(
       L1_COMPREHENSION_SCHEMA.properties as Record<string, unknown>,
     );
     expect(props).toContain("targetDate");
+    expect(props).toContain("targetDateProvenance");
     expect(props).toContain("events");
     expect(props).toContain("operations");
     expect(props).toContain("startPoint");
@@ -63,11 +65,11 @@ describe("OP-2 Invariants — active L1_COMPREHENSION_SCHEMA 不変", () => {
     expect(props).not.toContain("segments");
   });
 
-  it("active L1_COMPREHENSION_SCHEMA.properties が 6 つ (= 増えていない)", () => {
+  it("active L1_COMPREHENSION_SCHEMA.properties が 7 つ", () => {
     const props = Object.keys(
       L1_COMPREHENSION_SCHEMA.properties as Record<string, unknown>,
     );
-    expect(props).toHaveLength(6);
+    expect(props).toHaveLength(7);
   });
 });
 

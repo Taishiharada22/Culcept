@@ -359,6 +359,24 @@ export const L1_COMPREHENSION_SCHEMA = {
       type: "string",
       description: "today | tomorrow | day_after_tomorrow | YYYY-MM-DD",
     },
+    targetDateProvenance: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      properties: {
+        source_type: { enum: ["utterance", "inferred", "baseline", "tool"] },
+        source_span: { type: "array", items: { type: "string" } },
+        provenance_confidence: { enum: ["low", "medium", "high"] },
+        from_utterance: { type: "boolean" },
+      },
+      required: [
+        "source_type",
+        "source_span",
+        "provenance_confidence",
+        "from_utterance",
+      ],
+      description:
+        "Provenance for targetDate. null when no date evidence in utterance.",
+    },
     events: {
       type: "array",
       items: EVENT_SCHEMA,
@@ -400,6 +418,7 @@ export const L1_COMPREHENSION_SCHEMA = {
   },
   required: [
     "targetDate",
+    "targetDateProvenance",
     "events",
     "operations",
     "startPoint",
