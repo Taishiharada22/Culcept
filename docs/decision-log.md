@@ -3739,3 +3739,244 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - Stage 2.4 / 到達性検証 / L4-m / E-3 進まない (Stage 2.3 Yellow PASS 後の別判断)
 - 自律 fix-forward 禁止
 - Anthropic 起因と断定しない
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 Yellow 付き条件付き PASS 確定 + Stage 2.4 設計提案] [承認: CEO]
+
+### Stage 2.3 Yellow 付き条件付き PASS 確定
+
+#### Round 10 F1 focused diagnostic 結果 (CEO 監査)
+- F1 5 sample: fallback 0 / validation_failed 0 / retries 0 / violations 0 / latency max 2610ms
+- AI 感情表現 0 / 個人 choice 強調 0 / 関係営業表現 0 ✅
+- 二者間の関係保護の軽提案として成立 ✅
+- F1 多様性は OK 例寄り → post-Stage 2.3 refinement (C と同じ、blocker でない)
+
+#### Stage 2.3 全体総括 (Round 1-10 累積)
+
+**解消した問題**:
+- ✅ E grounding (文脈なし捏造): Round 6 完全解消
+- ✅ D 左右・視覚捏造: Round 9 完全解消 (元テンプレート全面書き換え)
+- ✅ F1 カウンセラー寄り: Round 10 完全解消
+- ✅ Fix C 過剰発火 → Stage 2.2 で解決済 (Round 7 では発火問題なし、validator 観点)
+
+**許容範囲内**:
+- ✅ source=llm 32+/35 (案 1 PASS 条件)
+- ✅ fallback ≤3
+- ✅ validation_failed ≤2
+
+**post-Stage 2.3 refinement (Yellow 構成)**:
+- ⚠ C 多様性ゼロ: prompt OK 例の完全 quote、複数 OK 例提示で改善見込み
+- ⚠ F1 多様性: 同上
+- ⚠ F2 軽微残: 「視線/午後/次の作業」の context なし生活状況具体化
+
+**Stage 2.4 で扱う観察事項**:
+- ⚠ latency 異常値: C#2 61909ms (provider 単発 spike) / D#1 13363ms (retries 累積)
+- ⚠ UI 到達性 / state machine routing / SPEECH_FETCH_TIMEOUT_MS との整合
+
+#### Stage 2.3 PASS 判定
+- **Clean PASS**: ✗ (timeout=2 / 多様性軽微残)
+- **Yellow 付き条件付き PASS**: ✅ (CEO 確定 2026-05-08)
+- **Production 反映**: 未承認 (CEO 厳守、Stage 2.4 後の別判断)
+
+### 累積コード変更 (Round 1-10)
+
+| Round | commit | 範囲 |
+|-------|--------|------|
+| 6 (案 A') | f0945255 | E grounding contract 追加 |
+| 8 (G-1') | 4ef67afe | C/D/F2 grounding/tone contract 追加 |
+| 9 | 84ecbebe | D template 全面書き換え (視覚メタファー削除) |
+| 10 (案 1) | b2322991 | F1 grounding/tone contract 追加 |
+
+→ 全変更は **`speechPromptBuilder.ts`** のみ (DIAGNOSTIC_TARGETS は script のみ)、speechValidator / postValidator / speechTypes / speechBuilder / llmCall / model / max_tokens / length_override / timeout constant / Production env / ChatClient / UpperLayerMount / UrgentLayer / speech route 全て **不変** (CEO 厳守完全達成)。
+
+### Stage 2.3 不変事項 (Yellow PASS 後も維持)
+- C 多様性ゼロ / F1 多様性 / F2 軽微 = post-Stage 2.3 refinement
+- latency 異常値 = Stage 2.4 で扱う
+- timeout 値 / model / max_tokens 変更 = Stage 2.4 議論対象
+- Production env = Stage 2.4 PASS 後の別判断
+
+---
+
+## Stage 2.4 設計提案 (CEO 判断対象)
+
+### Stage 2.4 = 「LLM 出力品質以外の観点」検証
+
+CEO 確定 scope: **Production 投入ではなく、到達性・UI 経路・timeout・routing 検証**
+
+### Stage 2.4 を 4 段階に分割 (ゴールから逆算)
+
+#### Stage 2.4-A: state machine routing audit (静的検証)
+
+**目的**: `selectPattern(state, mode, context)` が想定通りの variant を選ぶか確認
+
+**検証対象**:
+- state ⇔ variant 対応表が想定通り (S2→A / S3→B / S4→C / S5→D|E / S6→F1 / S7+daily→F2 等)
+- context flag (needFraming, needTranslation, infoMissing 等) の routing
+- mode 切替 (normal / daily / travel) の routing
+- edge case (state 遷移中、複数 context flag、未定義 state)
+
+**実施方法**:
+- 既存 `selectPattern.test.ts` の coverage 確認
+- 不足 case があれば test 追加 (LLM call なし、純関数 test)
+
+**実装範囲**:
+- `tests/unit/coalter/presence/` 配下の test 拡張のみ
+- 既存 `lib/coalter/presence/patternSelector.ts` 等の **コード変更なし** (audit のみ、修正は Stage 2.4-B 以降)
+
+**PASS 条件**:
+- 各 state × mode × context 組合せで意図した variant 返却
+- coverage 不足 case が test で網羅される
+- 既存 unit test 全 PASS
+
+**所要時間**: 1-2 時間 (Explore + 既存 test 確認 + 不足分追加)
+**cost**: 0 (LLM call なし)
+
+---
+
+#### Stage 2.4-B: variant 到達性 smoke (動的検証 / Preview env)
+
+**目的**: 各 variant が **実 UI で発火する path** が存在するか確認
+
+**検証対象**: 7 variant それぞれについて
+- 起点 user input (variant trigger)
+- state machine 遷移 (S0 → S2/S3/S4/S5/S6/S7)
+- speech fetch 発火
+- UpperLayerMount で speech card render
+
+**シナリオ例 (variant 別 trigger)**:
+| variant | state | trigger 例 |
+|---------|-------|----------|
+| A | S2 | 「もう限界」(Stage 2.2 で実証済) |
+| B | S3 | 関係 signal 検出 (温度差) |
+| C | S4 | infoMissing context |
+| D | S5 + needFraming | 片側偏重 signal |
+| E | S5 + needTranslation | 翻訳要求 signal |
+| F1 | S6 | 関係保護タイミング |
+| F2 | S7 + daily | 生活提案タイミング |
+
+**実施方法**:
+- Preview env で各シナリオ手動再現 (CEO local 操作)
+- Sentry breadcrumb で variant 発火確認
+- もしくは E2E test を追加 (もし既存 e2e test framework あれば)
+
+**実装範囲**:
+- 検証手順書 (decision-log に Markdown で記録)
+- もしくは新規 e2e test (Playwright?)
+
+**PASS 条件**:
+- 7 variant 全て発火確認
+- 不発火 variant があれば routing logic 不足 (Stage 2.4-A 補強)
+
+**所要時間**: 2-4 時間 (シナリオ準備 + 7 variant 実行)
+**cost**: ~$0.50-1.00 (各 variant 数件 × LLM call)
+
+---
+
+#### Stage 2.4-C: UI timeout / fallback 動作確認 (動的検証 / Preview env)
+
+**目的**: provider 遅延 spike 時の UI 挙動確認
+
+**検証対象**:
+- SPEECH_FETCH_TIMEOUT_MS=10000ms で切断時の UrgentLayer fallback
+- speech card 表示遅延時の cache / negative cache 挙動
+- 連続発火時の fetch dedupe (Fix C 効果再確認)
+- Stage 2.3 で観察した C#2 61秒級 spike が UI で再現するか
+
+**実施方法**:
+- 通常 user input + Sentry breadcrumb 観察
+- もしくは mock latency injection (既存コード触らず観察ベース)
+
+**実装範囲**:
+- 検証手順書 (decision-log)
+- 既存コード触らない (CEO 厳守 timeout/UrgentLayer 不変)
+
+**PASS 条件**:
+- timeout 切断時に UrgentLayer fallback が崩れない
+- speech card 表示の最終 UX が許容範囲
+
+**NG 時候補** (CEO 判断対象):
+- timeout 値拡張 (10s → 12s)
+- model 変更
+- UI 側 graceful degradation 強化
+- → 全て CEO 議論後の別 phase
+
+**所要時間**: 1-2 時間
+**cost**: 軽微
+
+---
+
+#### Stage 2.4-D: production-ready audit (Stage 2.4-A/B/C PASS 後)
+
+**目的**: Production reflection 判断材料の整理
+
+**検証対象**:
+- Stage 2.3 PASS 確認 (Yellow 付き条件付き)
+- Stage 2.4-A/B/C PASS 確認
+- post-Stage 2.3 refinement 完了 (C 多様性 / F2 軽微 / F1 多様性) **または別 phase に分離**
+- Production env 反映の前提条件チェックリスト
+
+**実施方法**:
+- decision-log で全観点まとめ
+- Production env 反映計画提案 (CEO 判断対象)
+
+**実装範囲**:
+- ドキュメントのみ、コード変更なし
+
+**PASS 条件**:
+- 全観点 PASS + CEO 質的判断
+- → CEO Production reflection GO/NO-GO 判断
+
+**所要時間**: 1 時間 (整理ドキュメント)
+**cost**: 0
+
+---
+
+### Stage 2.4 進行プロトコル (CEO 確定対象)
+
+```
+Stage 2.4-A (静的 audit、cost 0)
+   ↓ PASS
+Stage 2.4-B (variant 到達性 smoke、cost ~$0.5-1)
+   ↓ PASS
+Stage 2.4-C (UI timeout/fallback 確認、cost 軽微)
+   ↓ PASS
+[post-Stage 2.3 refinement 完了 or 別 phase 確定]
+   ↓
+Stage 2.4-D (production-ready audit、cost 0)
+   ↓ PASS
+[CEO Production 反映判断]
+```
+
+各段階間で **CEO 判断必須**、Claude 自律で次段階に進まない。
+
+### post-Stage 2.3 refinement の位置づけ (CEO 判断対象)
+
+3 軽微残 (C 多様性、F1 多様性、F2 軽微) の対応:
+- (a) **Stage 2.4 と並行**で対応 (効率的だが variant 出力変動 risk)
+- (b) **Stage 2.4 PASS 後**に対応 (安全、Stage 2.4 で観測する挙動が安定)
+- (c) **Production 反映前 audit (Stage 2.4-D) で対応**判断 (要否を最終 CEO 判定)
+
+→ 推奨は **(b)** (Stage 2.4 で variant 出力が安定していることが前提、refinement で出力変わると Stage 2.4 検証無効化 risk)
+
+### CEO 厳守 (Stage 2.4 全期間)
+
+- ✗ Production env 触らない (Stage 2.4-D PASS 後の別判断のみ)
+- ✗ 自律で次段階に進まない (各段階 CEO 判断)
+- ✗ Stage 2.3 修正に戻らない (Yellow PASS 確定、refinement は別 phase)
+- ✗ timeout / model / max_tokens 変更 (Stage 2.4-C で議論候補、今は不変)
+- ✗ ChatClient / UpperLayerMount / UrgentLayer / speech route 触る (audit のみ)
+- ✗ 一気に Stage 2.4-D まで進まない (段階的、CEO 判断挟む)
+
+### 必要な前提情報 (Stage 2.4-A 着手前に Explore で取得)
+
+1. `selectPattern` の現状実装 (どこにあるか、関数 signature)
+2. 既存 test の coverage (どの state × mode × context が test されているか)
+3. variant ↔ state 対応表 (layout plan v0.3 §7.x の現状)
+4. UpperLayerMount の variant 受信 path (既存把握済、Round 1-10 期間中)
+
+→ Stage 2.4-A 着手前に Explore agent fire 1 本で全把握可能
+
+### Stage 2.4 終了後の世界
+
+- **Phase 2 完了** (LLM 合成 speech が Preview で全観点 PASS)
+- Production reflection は CEO 判断
+- Stage 4 L4-m (memory) / E-3 (Stage 4 §10.2 完成) は別 phase
