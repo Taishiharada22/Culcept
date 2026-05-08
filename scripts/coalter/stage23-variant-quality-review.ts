@@ -170,23 +170,22 @@ interface DiagnosticSampleResult {
 }
 
 /**
- * Diagnostic 対象 (CEO 確定 Round 8 G-1' 2026-05-08): C 5 / D 5 / F2 5 / E 5 = 合計 20 sample。
- * Round 7 (35-call confirm) で D の視覚情報捏造、F2 の天気推測捏造、C の面談 bot tone 問題が
- * 発覚。Round 8 では C/D/F2 に grounding/tone contract を追加 (Round 6 の E 修正に追加)。
- * diagnostic 対象も C/D/F2/E の 4 variant に拡張、E は regression 確認用。
- * A は今回 scope 外 (Round 7 で問題なし)、Round 8 では除外。
+ * Diagnostic 対象。
  *
- * 旧設定 (Round 6): E 10 / A 3 / F2 3 = 16 (E focus)
- * 新設定 (Round 8): C 5 / D 5 / F2 5 / E 5 = 20 (C/D/F2 modify + E regression)
+ * Round 6 (2026-05-08): E 10 / A 3 / F2 3 = 16 (E focus、grounding contract 検証)
+ * Round 8 (2026-05-08): C 5 / D 5 / F2 5 / E 5 = 20 (C/D/F2 modify + E regression)
+ * Round 10 (2026-05-08): **F1: 5 = 5 sample** (CEO 確定 case 1、F1 focused)
+ *   - Round 9 (D template rewrite) → 35-call confirm で F1 のカウンセラー寄り発覚
+ *   - Round 10 では F1 に AI 感情/個人 choice/関係営業 禁止の contract 追加
+ *   - F1 のみ 5 sample focused、他 variant は前 round で検証済 (D/E/C/F2)
+ *   - 検証項目: AI 感情表現 0、個人 choice 強調 0、関係営業表現 0、
+ *     二者間の関係保護提案として自然
  */
 const DIAGNOSTIC_TARGETS: ReadonlyArray<{
   variant: PatternVariant;
   samples: number;
 }> = [
-  { variant: "C", samples: 5 },
-  { variant: "D", samples: 5 },
-  { variant: "F2", samples: 5 },
-  { variant: "E", samples: 5 },
+  { variant: "F1", samples: 5 },
 ];
 
 // ─────────────────────────────────────────────
