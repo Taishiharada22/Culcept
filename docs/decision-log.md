@@ -3609,3 +3609,133 @@ npx tsx scripts/coalter/stage23-variant-quality-review.ts
 - validator / model / max_tokens / timeout 不変
 - 自律 fix-forward 禁止
 - Anthropic 起因と断定しない
+
+## [2026-05-08] [Build] [L4-i Stage 2.3 Round 10 — F1 grounding/tone (カウンセラー寄り解消) + Yellow 付き条件付き PASS 方針] [承認: CEO]
+
+### Round 9 後 35-call confirm 結果
+
+#### 数値
+| 項目 | 値 | PASS 条件 | 判定 |
+|------|-----|----------|------|
+| source=llm | 34/35 | 32+ | ✅ |
+| fallback | 1 | 0-3 | ✅ |
+| validation_failed | 1 | 0-2 | ✅ |
+| **timeout** | **2** | 0 | **🔴 NG** |
+| script error | 0 | 0 | ✅ |
+
+#### timeout 2 件の正体 (Round 7 と異なる failure mode)
+| Sample | latency | retries | source | 解釈 |
+|--------|---------|---------|--------|------|
+| C#2 | **61909ms** (61秒!) | 0 | llm | **provider 単発遅延 spike** (Anthropic API rate limit / queue) |
+| D#1 | 13363ms (13秒) | 1 | llm | retries 累積 (2 attempts × 5-7秒) |
+
+→ Round 7 timeout=1 (validation_failed 累積遅延) と異なる failure mode、断定回避
+
+### 質的 verify (CEO/GPT 監査)
+
+| variant | 状態 | 詳細 |
+|---------|------|------|
+| **D** | ✅ Round 9 完全成功 | 5/5 件「片方」のみ、左右 keyword 0 |
+| **E** | ✅ regression なし | 抽象的橋渡し維持、捏造 0 |
+| **F1** | 🔴 **新発見 NG** (Claude 前回見落とし) | 「あなたが決められます」「嬉しいです」「いつでも声をかけて」 → カウンセラー寄り |
+| C | ⚠ 多様性ゼロ続行 | 5/5 件 完全同一文 (prompt OK 例 quote)、blocker でない |
+| F2 | ⚠ 軽微残続行 | 「視線/午後/次の作業」、blocker でない |
+| A/B | ✅ | 安定 |
+
+### Claude 自己批判 (累積見落とし)
+
+私 (Claude) の質的観察の弱点:
+- Round 7: D/C/F2 を見落とし
+- Round 8: D 元テンプレ矛盾を見落とし
+- **Round 10: F1 のカウンセラー寄りを見落とし** (Round 7 raw output に既出)
+
+CEO/GPT の質的観察は私より厳密、subtle な役割逸脱に気付く。
+
+### CEO 確定 案 1 (Round 10)
+
+#### F1 修正 + Yellow 付き条件付き PASS 方針
+- **F1 のみ Round 10 で修正** (CoAlter ブランド毀損 risk、看過不可)
+- **F2/C 軽微 = post-Stage 2.3 refinement** (CEO 確定)
+- **latency 異常値 = Stage 2.4 (UI 到達性) で扱う、観察事項として記録**
+- **F1 修正後即 Yellow PASS にしない、F1 5-sample focused diagnostic 必須** (CEO 確定)
+
+### 修正内容 (commit `b2322991`)
+
+#### `lib/coalter/presence/speechPromptBuilder.ts` F1 template
+
+**追加 contract**:
+- CoAlter は **二者間の上部レイヤー**であり、**相談 AI / カウンセラー** ではない
+- AI 自身の感情表現禁止: 「嬉しい / 心配 / 寂しい / いつでも声をかけて」
+- 個人 choice 強調禁止: 「あなたが決められます / あなたが選ぶことです / あなた次第」
+- 関係営業表現禁止: 「また話して / 定期的に話す機会 / 戻ってきてください」
+- F1 = **二者間の関係保護の軽提案** に限定
+- OK 例: 「今は少し距離を置いてみる選択肢もあります」「二人で時間を取り直すのは一つの方法です」「お互いに少し休む時間を作るのも考えられます」
+
+#### `scripts/coalter/stage23-variant-quality-review.ts` DIAGNOSTIC_TARGETS
+- Round 8: `[C5, D5, F2 5, E5]` = 20
+- **Round 10: `[F1: 5]` = 5 sample** (CEO 確定 F1 focused)
+
+### 検証結果
+- speechPromptBuilder type error 0、stage23 script type error 0
+- coalter 全 147 file / 2148 test PASS、回帰なし
+
+### 不変 (CEO 厳守維持)
+- A/B/C/D/E/F2 template 不変 ✅
+- speechValidator / speechPostValidator / speechTypes / speechBuilder /
+  llmCall / model / max_tokens / length_override / timeout constant 不変 ✅
+- ChatClient / UpperLayerMount / UrgentLayer / Production env 不変 ✅
+- 35-call confirm はまず F1 focused diagnostic → PASS 後 ✅
+
+### 観察事項記録 (Stage 2.3 scope 外、Stage 2.4 で扱う)
+
+#### Latency 異常値
+- C#2: 61909ms (61秒、provider 単発遅延 spike、retries=0)
+- D#1: 13363ms (13秒、retries=1 累積)
+- UI client SPEECH_FETCH_TIMEOUT_MS=10000ms では切断
+- Stage 2.4 (UI 到達性) で扱う、Stage 2.3 では「観察事項」として記録のみ
+- timeout 値 / model / max_tokens 変更は **Stage 2.4 議論対象** (今は不変)
+
+#### Post-Stage 2.3 refinement (Stage 2.3 Yellow 付き PASS 後の改善対象)
+- **C 多様性ゼロ**: prompt OK 例の完全 quote、prompt の OK 例提示方法を改善 (複数提示 / 緩い誘導)
+- **F2 軽微残**: 「視線/午後/次の作業」等の context なし生活状況具体化、F2 contract の微調整
+
+### 次ステップ: CEO F1 focused diagnostic 実行 protocol
+
+#### 実行コマンド (5 sample = F1 のみ)
+```bash
+cd /Users/haradataishi/Culcept-coalter
+
+COALTER_PRESENCE_SPEECH_LLM=true \
+STAGE23_VARIANT_REVIEW=true \
+STAGE23_VARIANT_REVIEW_DIAGNOSTIC=1 \
+npx tsx scripts/coalter/stage23-variant-quality-review.ts
+```
+
+#### CEO 確認項目 (Round 10 効果検証、5 項目)
+| # | 項目 | 確認方法 |
+|---|------|---------|
+| 1 | fallback 0 | F2 5 件全て source=llm |
+| 2 | validation_failed 0 | F2 5 件全て validator 通過 |
+| 3 | AI 感情表現 0 | raw output 検索: 「嬉しい / 心配 / 寂しい / いつでも声をかけて」 |
+| 4 | 個人 choice 強調 0 | raw output 検索: 「あなたが決められ / あなたが選ぶ / あなた次第」 |
+| 5 | 関係営業表現 0 | raw output 検索: 「また話して / 定期的に / 戻ってきて」 |
+| (CEO 質的) | 二者間の関係保護提案として自然 | CEO 質的判定 |
+
+#### 判定分岐
+- **PASS** (5 項目期待達成 + CEO 質的合格) → 35-call confirm 再実行 → Stage 2.3 **Yellow 付き条件付き PASS** 確定
+- **NG** (項目残る) → 自律 fix 禁止、CEO 議論
+
+#### Stage 2.3 Yellow 付き条件付き PASS 確定後 (CEO 判断)
+- Production と **切り離して記録**
+- 観察事項 (latency 異常値) は Stage 2.4 で扱う
+- 軽微残 (C/F2) は post-Stage 2.3 refinement
+- Stage 2.4 (variant 到達性 / state machine routing) は別判断、まだ進まない
+
+### CEO 厳守 (Round 10 着手後も維持)
+- 35-call 再実行は F1 focused diagnostic PASS 後のみ
+- length 緩和に進まない
+- validator / model / max_tokens / timeout 不変
+- Production env 触らない
+- Stage 2.4 / 到達性検証 / L4-m / E-3 進まない (Stage 2.3 Yellow PASS 後の別判断)
+- 自律 fix-forward 禁止
+- Anthropic 起因と断定しない
