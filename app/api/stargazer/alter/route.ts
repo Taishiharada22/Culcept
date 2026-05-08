@@ -1549,6 +1549,13 @@ export async function POST(req: NextRequest) {
     let lastTraceSnapshot:
       | import("@/lib/alter-morning/trace/turnTrace").TurnTracePayload
       | null = null;
+    // OP-5.4.2.4-d: shadow path 用 LLM targetDate provenance capture
+    //   各 v2 / v1 path block で代入し、 final runShadowAndCompare へ渡す。
+    //   default null = shadow へ何も伝えない (= 既存 behavior 維持)。
+    let shadowLlmTargetDate: string | null = null;
+    let shadowLlmTargetDateProvenance:
+      | import("@/lib/alter-morning/comprehension/eventSchema").Provenance
+      | null = null;
     if (isHomeAlter) {
       // ── P1.5 Thin-Slice: Feature Flag + State Reconstruction ──
       thinSliceActive = isThinSliceEnabled(userId);
@@ -1939,6 +1946,8 @@ export async function POST(req: NextRequest) {
                       weather: null,
                     },
                   );
+                  shadowLlmTargetDate = pipelineResult.comprehension?.targetDate ?? null;
+                  shadowLlmTargetDateProvenance = pipelineResult.comprehension?.targetDateProvenance ?? null;
                   const previousDayPlanForOriginPath: import("@/lib/alter-morning/types").MorningPlan | null =
                     await fetchPreviousDayPlan(
                       supabase,
@@ -2043,6 +2052,8 @@ export async function POST(req: NextRequest) {
                     weather: null,
                   },
                 );
+                shadowLlmTargetDate = pipelineResult.comprehension?.targetDate ?? null;
+                shadowLlmTargetDateProvenance = pipelineResult.comprehension?.targetDateProvenance ?? null;
                 // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
                 //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
                 const previousDayPlanForBindPath: import("@/lib/alter-morning/types").MorningPlan | null =
@@ -2217,6 +2228,8 @@ export async function POST(req: NextRequest) {
                 weather: null,
               },
             );
+            shadowLlmTargetDate = pipelineResult.comprehension?.targetDate ?? null;
+            shadowLlmTargetDateProvenance = pipelineResult.comprehension?.targetDateProvenance ?? null;
             // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
             //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
             const previousDayPlanForBranchB: import("@/lib/alter-morning/types").MorningPlan | null =
@@ -2390,6 +2403,9 @@ export async function POST(req: NextRequest) {
             dialogState: morningSession.dialogState,
           };
           morningResponse = result.response;
+          // OP-5.4.2.4-d: v1 path では parsedIntent が埋まる (= morningProtocol)
+          shadowLlmTargetDate = morningSession?.parsedIntent?.targetDate ?? null;
+          shadowLlmTargetDateProvenance = morningSession?.parsedIntent?.targetDateProvenance ?? null;
         }
 
         // W3-PR-7 Commit 2: TS narrowing が nested branch A で失われるため
@@ -10299,6 +10315,8 @@ export async function POST(req: NextRequest) {
         userId,
         utterance: message,
         actualToday: getActualTodayYmdJst(),
+        llmTargetDate: shadowLlmTargetDate,
+        llmTargetDateProvenance: shadowLlmTargetDateProvenance,
       });
     }
 
