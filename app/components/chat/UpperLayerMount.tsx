@@ -283,6 +283,83 @@ function UpperLayerMountActive() {
     [exec.dispatch.presenceEvent],
   );
 
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09 Option A): state machine transition
+   * dispatch wiring。S2/S3/S5/S6/S7 の chip / button tap を既存 reducer event
+   * (S2_ACCEPTED / S3_RESPONSE / S5_DONE / S5_DIRECT_EXIT / S6_PROPOSE / S6_REWORK
+   * / S6_END / S7_DONE) に接続する。
+   *
+   * dev preview (`app/(dev)/coalter-preview/full/page.tsx:177-201`) の各 button
+   * dispatch と完全同一経路。reducer / selectPattern / speech 系 不接触。
+   *
+   * 設計上の選択 (CEO 厳守 Phase 1 一括巨大化注意):
+   *   - 各 dispatch は pure helper `buildXxxDispatch` で test 容易化
+   *   - state-aware bundle を `useMemo` で組み立て、現 state に該当する handler のみ
+   *     Renderer に流す (他 state は undefined のまま、render 動作変化なし)
+   *   - 共有 prop 名 (`onResponseTap` for S2/S3/S5、`onCloseTap` for S5、
+   *     `onResolveTap` for S7) を採用、各 state component は独自 dispatch event に
+   *     bind される (UpperLayerMount で state 判定)
+   */
+  const stateHandlers = useMemo<{
+    onResponseTap?: () => void;
+    onCloseTap?: () => void;
+    onProposeTap?: () => void;
+    onReworkTap?: () => void;
+    onEndTap?: () => void;
+    onResolveTap?: () => void;
+  }>(() => {
+    const dispatch = exec.dispatch.presenceEvent;
+    const state = exec.state.presence.state;
+    switch (state) {
+      case "S2":
+        return { onResponseTap: buildS2AcceptedDispatch(dispatch) };
+      case "S3":
+        return { onResponseTap: buildS3ResponseDispatch(dispatch) };
+      case "S5":
+        return {
+          onResponseTap: buildS5DoneDispatch(dispatch),
+          onCloseTap: buildS5DirectExitDispatch(dispatch),
+        };
+      case "S6":
+        return {
+          onProposeTap: buildS6ProposeDispatch(dispatch),
+          onReworkTap: buildS6ReworkDispatch(dispatch),
+          onEndTap: buildS6EndDispatch(dispatch),
+        };
+      case "S7":
+        return { onResolveTap: buildS7DoneDispatch(dispatch) };
+      default:
+        return {};
+    }
+  }, [exec.dispatch.presenceEvent, exec.state.presence.state]);
+
+  /**
+   * B-3 Phase 1 残作業 — S4 auto-advance (CEO 確定 2026-05-09):
+   *
+   * S4 (理解更新中) は UI 上に user action element を持たない (UI spec §4.3.5
+   * 「許可 action: モード切替 tap のみ」)。state machine 上 S4 → S5 transition
+   * (S4_DONE) trigger は内部 (理解更新完了) 由来だが、production の executor 内
+   * "理解更新完了" event は本 phase scope 外 (§9 保留)。
+   *
+   * 暫定対応として、UpperLayerMount で state===S4 の useEffect 内で `setTimeout`
+   * (`S4_AUTO_ADVANCE_MS`) → `buildS4DoneDispatch` で auto-advance させる。
+   *
+   * CEO 厳守 (二重 dispatch 防止 + cleanup):
+   *   - state===S4 の時のみ timer set (early return otherwise)
+   *   - cleanup で `clearTimeout` (state 変化 / unmount で cleanup 走る)
+   *   - useEffect deps が state / dispatch のみ → state 変化で前 timer cleanup → 新 effect 起動
+   *   - StrictMode double-mount でも cleanup → mount → 1 timer 維持 → 1 dispatch
+   *   - state 変化後 (S4 → S5) は再 mount で early return、新 timer 起動なし
+   */
+  useEffect(() => {
+    if (exec.state.presence.state !== "S4") return;
+    const timer = setTimeout(
+      buildS4DoneDispatch(exec.dispatch.presenceEvent),
+      S4_AUTO_ADVANCE_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [exec.state.presence.state, exec.dispatch.presenceEvent]);
+
   // ─────────────────────────────────────────────
   // L4-i Phase 1 (CEO 確定 2026-04-30、設計 v2):
   // Speech body fetch (S2/S5/S7 のみ、isSpeechFetchEnabled() === true でのみ起動)
@@ -676,6 +753,7 @@ function UpperLayerMountActive() {
         onSwitchMode={handleModeSwitch}
         body={speechBody ?? undefined}
         onChipTap={handleS1ChipTap}
+        {...stateHandlers}
       />
       {showMemorySurface && memory.viewer !== null && (
         <MemorySurface
@@ -726,3 +804,115 @@ export function buildS1EntryConfirmDispatch(
 ): () => void {
   return () => dispatch({ type: "S1_ENTRY_OK" });
 }
+
+// ─────────────────────────────────────────────
+// B-3 Phase 1 残作業 (CEO 確定 2026-05-09 Option A):
+// state machine transition dispatch handler builders (8 pure helpers)
+//
+// dev preview `app/(dev)/coalter-preview/full/page.tsx:177-201` と完全同一経路を
+// production UI で wire するための pure helper 群。test 容易性のため export
+// (関数 invoke 方式、`@testing-library/react` 不要)。reducer / selectPattern /
+// speech 系 不接触。
+// ─────────────────────────────────────────────
+
+/**
+ * S2 response chip tap → `S2_ACCEPTED` dispatch (S2 → S3、応答取得明示拒否なし)。
+ */
+export function buildS2AcceptedDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S2_ACCEPTED" });
+}
+
+/**
+ * S3 response chip tap → `S3_RESPONSE` dispatch (S3 → S4、片方/両方応答取得)。
+ */
+export function buildS3ResponseDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S3_RESPONSE" });
+}
+
+/**
+ * S4 auto-advance dispatch → `S4_DONE` (S4 → S5、理解更新完了)。
+ *
+ * production の executor "理解更新完了" event は §9 保留のため、暫定的に
+ * UpperLayerMount の useEffect 内 `setTimeout(S4_AUTO_ADVANCE_MS)` で auto-advance
+ * させる (CEO 厳守: state===S4 時のみ timer set、cleanup で clearTimeout、
+ * 二重 dispatch 防止)。本 helper は dispatch portion のみ pure 化。
+ */
+export function buildS4DoneDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S4_DONE" });
+}
+
+/**
+ * S5 response chip tap → `S5_DONE` dispatch (S5 → S6、整理完了)。
+ */
+export function buildS5DoneDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S5_DONE" });
+}
+
+/**
+ * S5 close chip tap (いったん戻る) → `S5_DIRECT_EXIT` dispatch (S5 → S8 直接退出)。
+ */
+export function buildS5DirectExitDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S5_DIRECT_EXIT" });
+}
+
+/**
+ * S6 「提案を聞く」 button tap → `S6_PROPOSE` dispatch (S6 → S7)。
+ */
+export function buildS6ProposeDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S6_PROPOSE" });
+}
+
+/**
+ * S6 「もう少し整理する」 button tap → `S6_REWORK` dispatch (S6 → S5、戻る)。
+ */
+export function buildS6ReworkDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S6_REWORK" });
+}
+
+/**
+ * S6 「今はここまでにする」 button tap → `S6_END` dispatch (S6 → S8 退出)。
+ */
+export function buildS6EndDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S6_END" });
+}
+
+/**
+ * S7 approve / close chip tap → `S7_DONE` dispatch (S7 → S8、両者共)。
+ *
+ * UI spec §4.3.8: approve (提案を受ける) と close (× 閉じる) はいずれも S8 退出
+ * (承認 / 不承認どちらも S8)。本 helper を 2 chip 共通 wire する。
+ *
+ * 注: 「この提案をチャットに共有」 (handoff) chip は §2.7 別経路、本 phase
+ * scope 外 (handler 不在のため non-interactive のまま)。
+ */
+export function buildS7DoneDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S7_DONE" });
+}
+
+/**
+ * B-3 Phase 1 残作業: S4 auto-advance timer 値 (ms)。
+ *
+ * S4 (理解更新中) で UI element を持たないため、setTimeout 経由で S4_DONE を
+ * dispatch する暫定値。production 用の executor "理解更新完了" event 確定後
+ * (§9 保留) に廃止候補。本値は smoke 観測 / 体感 UX 調整用 (CEO 別承認なしの
+ * 微調整可、本 phase の最小実装では 1500ms 暫定固定)。
+ */
+export const S4_AUTO_ADVANCE_MS = 1500;

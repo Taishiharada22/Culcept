@@ -17,9 +17,21 @@ import type { PresenceMode } from "@/lib/coalter/presence/types";
 export interface S3AwaitingProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): response chip tap handler。
+   * 指定時 Chip.onClick として 2 chip (S2 残像) 共通 wire される。production
+   * usage では UpperLayerMount が
+   * `exec.dispatch.presenceEvent({ type: "S3_RESPONSE" })` を bind したものを
+   * 渡し、S3 → S4 transition を発火させる。未指定なら non-interactive。
+   */
+  onResponseTap?: () => void;
 }
 
-export default function S3Awaiting({ mode, onSwitchMode }: S3AwaitingProps) {
+export default function S3Awaiting({
+  mode,
+  onSwitchMode,
+  onResponseTap,
+}: S3AwaitingProps) {
   return (
     <UpperLayerShell
       statusLabel="返答待ち"
@@ -43,8 +55,12 @@ export default function S3Awaiting({ mode, onSwitchMode }: S3AwaitingProps) {
           今、間に入れそう 〜
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Chip variant="response">たいし: そうかも</Chip>
-          <Chip variant="response">みさき: …</Chip>
+          <Chip variant="response" onClick={onResponseTap}>
+            たいし: そうかも
+          </Chip>
+          <Chip variant="response" onClick={onResponseTap}>
+            みさき: …
+          </Chip>
         </div>
       </div>
     </UpperLayerShell>

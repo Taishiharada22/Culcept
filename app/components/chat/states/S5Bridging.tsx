@@ -26,6 +26,20 @@ export interface S5BridgingProps {
    * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
    */
   body?: string;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): response chip tap handler。
+   * 指定時 3 chip (近い / 少し違う / 続けて) 共通 wire される。production usage
+   * では UpperLayerMount が `exec.dispatch.presenceEvent({ type: "S5_DONE" })`
+   * を bind したものを渡し、S5 → S6 transition を発火させる。
+   */
+  onResponseTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): close chip tap handler (いったん戻る)。
+   * 指定時 close chip の onClick として wire される。production usage では
+   * UpperLayerMount が `exec.dispatch.presenceEvent({ type: "S5_DIRECT_EXIT" })`
+   * を bind したものを渡し、S5 → S8 transition を発火させる。
+   */
+  onCloseTap?: () => void;
 }
 
 const S5_FALLBACK_NODE = (
@@ -38,7 +52,13 @@ const S5_FALLBACK_NODE = (
   </>
 );
 
-export default function S5Bridging({ mode, onSwitchMode, body }: S5BridgingProps) {
+export default function S5Bridging({
+  mode,
+  onSwitchMode,
+  body,
+  onResponseTap,
+  onCloseTap,
+}: S5BridgingProps) {
   return (
     <UpperLayerShell
       statusLabel="発話中"
@@ -69,11 +89,19 @@ export default function S5Bridging({ mode, onSwitchMode, body }: S5BridgingProps
           }}
         >
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <Chip variant="response">近い</Chip>
-            <Chip variant="response">少し違う</Chip>
-            <Chip variant="response">続けて</Chip>
+            <Chip variant="response" onClick={onResponseTap}>
+              近い
+            </Chip>
+            <Chip variant="response" onClick={onResponseTap}>
+              少し違う
+            </Chip>
+            <Chip variant="response" onClick={onResponseTap}>
+              続けて
+            </Chip>
           </div>
-          <Chip variant="close">いったん戻る</Chip>
+          <Chip variant="close" onClick={onCloseTap}>
+            いったん戻る
+          </Chip>
         </div>
       </div>
     </UpperLayerShell>
