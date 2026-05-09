@@ -328,12 +328,12 @@ daily 09:00 (推奨):
 | 4 | §3.2 Speech route exception Issue Alert (warn + red) | ✅ |
 | 5 | §4.2 Performance Transaction p95 Alert (warn + red、partial proxy) | ✅ |
 | 6 | §4.3 5xx rate Metric Alert (warn + red) | ✅ |
-| 7 | §5 Discover saved query × 6 作成 | ☐ **CEO 次タスク** |
-| 8 | §6.3 Stage 2.4-B 既存 breadcrumb で query 動作確認 | ☐ |
-| 9 | 通知先 test 配信確認 (Slack #aneurasync-alerts) | ☐ |
-| 10 | synthetic event で alert 動作確認 | ☐ |
-| 11 | §5.3 daily review cadence operator 担当確定 (CEO / dev team) | ☐ |
-| 12 | red alert 受信時の rollback plan 周知済 (Stage 2.4-D §5) | ☐ |
+| 7 | §5 Discover saved query × 6 作成 | ✅ |
+| 8 | §6.3 Stage 2.4-B 既存 breadcrumb で query 動作確認 | ✅ |
+| 9 | 通知先 test 配信確認 (Slack #aneurasync-alerts) | 🟡 **Yellow accept (Path B)** — Sentry UI に Issue Alert 用 standard "Send Test Notification" ボタン不在。Slack `Installed` 表示確認済 → 初回 real alert 着火を観測ベース確認 (戻し忘れリスク回避のため Path A synthetic は採用しない) |
+| 10 | synthetic event で alert 動作確認 | ❌ **残リスク永続記録** — 同上 UI 制約 + Production OFF のため synthetic 着火困難。reflection 後 monitoring で初回 real alert を代替観測 |
+| 11 | §5.3 daily review cadence operator 担当確定 (CEO / dev team) | ✅ |
+| 12 | red alert 受信時の rollback plan 周知済 (Stage 2.4-D §5) | ✅ 強化 — CEO 自身 rollback dry-run 達成 (3 reflection 旗 false 明示設定 = Production OFF safety state、§12 参照) |
 
 ### 7.2 Stage 2.4 全 phase 完了 (累積)
 
@@ -345,12 +345,12 @@ daily 09:00 (推奨):
 | 16 | Stage 2.4-B Yellow付きPASS | ✅ (`208494c7`) |
 | 17 | Stage 2.4-C Yellow 付き観察ベース PASS | ✅ (`abb6f8db`) |
 | 18 | Stage 2.4-D docs-only audit | ✅ (`9df69549`) |
-| 19 | Production env で `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT` **未設定** 確認 | ☐ |
-| 20 | Production env で `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` **未設定 or false** 確認 | ☐ |
-| 21 | Production env vars 反映計画確認 (Stage 2.4-D §3.1) | ☐ |
-| 22 | rollback / kill switch plan 周知 (Stage 2.4-D §5) | ☐ |
+| 19 | Production env で `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT` **未設定** 確認 | ✅ |
+| 20 | Production env で `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` **未設定 or false** 確認 | ✅ |
+| 21 | Production env vars 反映計画確認 (Stage 2.4-D §3.1) | ✅ Pre-Step `ANTHROPIC_API_KEY` Production 設定済み (本日 CEO 追加完了)。残 3 reflection 旗のみ reflection 時切替 (§11 参照) |
+| 22 | rollback / kill switch plan 周知 (Stage 2.4-D §5) | ✅ 強化 — CEO 自身 rollback dry-run 達成 (3 旗 false 明示設定 = Production OFF safety state、§12 参照) |
 
-### 7.3 全 22 項目 ✅ → CEO 個別判断で Production reflection 実施可能
+### 7.3 全 22 項目 reflection-ready (Path B + Yellow accept + Production OFF safety state + Pre-Step `ANTHROPIC_API_KEY` Production 完了) → CEO 個別判断で Production reflection 実施可能 (§11 手順)
 
 ---
 
@@ -384,7 +384,83 @@ daily 09:00 (推奨):
 | 版 | 日付 | 内容 |
 |---|---|---|
 | 0.1-draft | 2026-05-09 | Stage 2.4-D 後 Sentry alert handoff doc 初版起草。CEO 既往 4 alerts (Urgent / speech exception / route p95 / 5xx rate) + Slack `#aneurasync-alerts` integration 完了状態を反映。残 6 Discover saved query の click-by-click 手順 (§6) + Production reflection 前チェックリスト 22 項目 (§7) 含む。 6 指標 standard alert 化制約 (§2)、impl 修正なしの代替方針 (§2.3)、Stage 2.5 候補 (§9) 明記 |
+| 0.1-draft.2 | 2026-05-09 | Production reflection 前最終整備 (CEO 確定): Discover saved query × 6 完了 (item 7) + 動作確認完了 (item 8) + daily review cadence 確定 (item 11)。Test Notification 不在を **Path B = Yellow accept** で吸収 (item 9 → 🟡)、synthetic event 動作確認を **残リスク永続記録** で吸収 (item 10 → ❌)。Production OFF safety state 達成 (items 19/20 → ✅、item 22 → ✅ 強化、CEO 自身 rollback dry-run 達成 = 3 reflection 旗 false 明示設定)。**Pre-Step `ANTHROPIC_API_KEY` Production 設定済み** (item 21 → ✅、本日 CEO Preview のみ → Production にも追加完了)。新 §11 reflection 実施手順 (Pre-Step 完了 → Step 1-6 残) + 新 §12 Production OFF safety state 通知 + ANTHROPIC_API_KEY Production status 永続化。22/22 reflection-ready (Path B + Yellow accept + Production OFF safety state + Pre-Step `ANTHROPIC_API_KEY` 完了) |
 
 ---
 
-**End of CoAlter Stage 2.4 Sentry Alert Setup Handoff v0.1-draft**
+## §11 Production reflection 実施手順 (本書 v0.1-draft.2 で確定、CEO 個別判断後に別操作)
+
+### 11.1 前提
+
+- 本書 §7 全 22 項目 reflection-ready 確定 (Path B + Yellow accept + Production OFF safety state + Pre-Step `ANTHROPIC_API_KEY` 完了)
+- reflection 自体は **CEO 個別判断**、本 §11 は **手順書のみ** (Claude 自律実行 ✗)
+- Production env 操作は CEO operator 担当 (本書 §0.4 / §8 表現規約準拠)
+
+### 11.2 Step 表 (Pre-Step + Step 1-6)
+
+| Step | 内容 | 状態 |
+|---|---|---|
+| **Pre-Step** | Vercel Production env で `ANTHROPIC_API_KEY` set 確認 | ✅ **本日完了** (本書 §12 参照) |
+| Step 1 | Vercel Production env で `COALTER_PRESENCE_SPEECH_LLM=true` 切替 | ☐ CEO 個別判断 |
+| Step 2 | Vercel Production env で `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 切替 | ☐ CEO 個別判断 |
+| Step 3 | Vercel Production env で `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` 切替 | ☐ CEO 個別判断 |
+| Step 4 | Vercel Production redeploy 起動 (3 旗反映) | ☐ CEO 個別判断 |
+| Step 5 | Production 低音量 smoke (CEO 自身 Path B 観察ベース、Slack `#aneurasync-alerts` 着火 / Discover query 結果) | ☐ reflection 後 monitoring |
+| Step 6 | red alert 受信時の rollback drill (3 旗 → false 戻し + redeploy) | ☐ rollback dry-run 達成済 (本書 §12 参照、Step 6 は実演習相当ですでに既知手順) |
+
+### 11.3 Path B 観察ベース確認の仕様 (Step 5、本書 v0.1-draft.2 で確定)
+
+- 初回 real alert 着火時に Slack `#aneurasync-alerts` post を **観測ベース** で確認:
+  - post が届いたか
+  - post 内 Sentry link が click 可能 (issue / transaction / event detail へ遷移)
+  - formatting 崩れがないか (channel mention / severity / text)
+- 初回 real alert は urgent triggered (warning rate) もしくは speech route exception を想定 (発生率最も高い 2 種)
+- 観測結果に応じて本書 §10 改訂履歴 v0.1-draft.3 で記録 (CEO 別 commit)
+
+### 11.4 残リスク (本書 v0.1-draft.2 で確定、reflection 後 monitoring に persist)
+
+| リスク | 状態 | 持ち越し先 |
+|---|---|---|
+| Test Notification 配信確認未実施 | 🟡 Yellow accept (Path B、§7.1 item 9) | 初回 real alert 着火で Slack post 動作を観測 (Step 5) |
+| Synthetic event alert 動作確認未実施 | ❌ 残リスク永続記録 (§7.1 item 10) | reflection 後 monitoring (初回 real alert で代替観測) |
+| F-1 secondary daily/travel runtime 未確認 | ☐ Stage 2.4-D §6 既往 | reflection 後 monitoring で代替可 |
+| 2.1.9 D@S5 travel 文脈補完 | ☐ Stage 2.4-D §6 既往 | Stage 2.3 prompt refinement (別 phase) |
+
+---
+
+## §12 Production OFF safety state 通知 + ANTHROPIC_API_KEY Production status (本書 v0.1-draft.2 で永続化)
+
+### 12.1 現在の Production env 状態 (CEO 確定 2026-05-09)
+
+| Env Var | Production 現在値 | 反映計画 (Stage 2.4-D §3.1) | 動作 |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | **set (Production 設定済み、本日 CEO 追加)** | set | 既に反映済み (key 配置のみ) |
+| `COALTER_PRESENCE_SPEECH_LLM` | **false (CEO 明示設定)** | true | reflection 時に true へ切替 (§11 Step 1) |
+| `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH` | **false (CEO 明示設定)** | true | reflection 時に true へ切替 (§11 Step 2) |
+| `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR` | **false (CEO 明示設定)** | true | reflection 時に true へ切替 (§11 Step 3) |
+| `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT` | 未設定 | 未設定 (Preview のみ) | 永久に Production 未設定 |
+| `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` | 未設定 or false | 未設定 (Preview のみ) | 永久に Production 未設定 or false |
+
+### 12.2 Production OFF safety state の意味
+
+- 3 つの reflection 旗 (`SPEECH_LLM` / `SPEECH_FETCH` / `EXECUTOR`) を **明示的に false** 設定 (`unset` ではなく `false` 明示) することで、Production speech / presence は完全 OFF。
+- ANTHROPIC_API_KEY が Production に既配置済みでも、3 旗が false のため LLM call は起動しない。
+- これにより rollback drill (red alert 受信 → 旗 false 戻し + redeploy) を **CEO 自身が予行演習として達成済** (Stage 2.4-D §5 rollback / kill switch plan の動作確認相当)。
+
+### 12.3 Pre-Step `ANTHROPIC_API_KEY` Production 完了の意義
+
+- Stage 2.4-D §3.1 反映計画 4 項目のうち、**key 配置側は前倒しで完了**。
+- reflection 着手時の操作は「3 旗 `false → true` 切替 + redeploy」のみで起動可能。
+- これにより reflection 着手判断時の作業範囲が縮小し、CEO 個別判断後の手順 (§11) が短縮される。
+
+### 12.4 不変境界 (本 §12 + Production reflection 前期間継続、CEO 厳守)
+
+- ✗ Production env 変更しない (本 §12 は記録のみ、3 旗切替 + redeploy は CEO 個別判断後の別操作)
+- ✗ 3 旗の **明示 false 設定** を解除しない (rollback safety state、reflection 着手時のみ true へ切替)
+- ✗ ANTHROPIC_API_KEY を Production env から削除しない (Pre-Step 完了状態を保持)
+- ✗ `SMOKE_CONTEXT` / `OBSERVATION_MODE` env を Production に絶対設定しない (Preview 限定、本書 §0.4)
+- ✗ Path A (synthetic event 経路) 試行しない (Path B 確定、本書 §7.1 item 9)
+
+---
+
+**End of CoAlter Stage 2.4 Sentry Alert Setup Handoff v0.1-draft.2**
