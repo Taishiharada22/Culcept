@@ -692,6 +692,112 @@ Gap 1 (スレッド state が過去 critical signal で既に S0 を超えてい
 - ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
 - ✗ 新規 dep 追加禁止 (`@testing-library/react` 等)
 
+### C.7 凍結解除通知 (2026-05-09、Gap 2 解消確認 + mini-smoke 2.1.1 retry PASS)
+
+CEO 確定 (2026-05-09): B-2 残作業 wiring 実装 commit (`39566cfd`) 完了 + push + Vercel Preview build (`culcept-8q3zli5i2-...`) Ready 後、mini-smoke 2.1.1 を 2 回実施 (attempt 1: fallback、attempt 2 retry: llm success) → **Gap 2 構造的 blocker 解消確認** → **Stage 2.4-B 凍結解除 + full smoke 再開判断 (2.1.2 から)**。
+
+#### C.7.1 mini-smoke 2.1.1 結果 sheet (§7.1.0 形式、完成記録)
+
+| step | attempt 1 | attempt 2 (retry) | 詳細 |
+|---|---|---|---|
+| mini-4 S0→S1 transition | observed (推定、chip 出現から) | observed (推定) | Sentry breadcrumb 確認は CEO 任意 |
+| mini-5 S1 status chip 出現 | **observed** | **observed** | UI 上に表示 (本 commit `39566cfd` で onClick wire) |
+| mini-6 chip tap | **observed (clickable)** | **observed (clickable)** | dispatch 経路 alive |
+| mini-7 S1→S2 transition | observed (推定、speech POST が出ているため) | observed (推定) | Sentry breadcrumb 確認は CEO 任意 |
+| mini-8 /api/coalter/speech POST 新規 | **observed** | **observed** | 新規 fetch 起動 |
+| mini-9 UI 発話本文 | observed (static fallback 文) | observed (LLM 生成文) | screenshot + PII redact 済 |
+| **失敗モード分類 (§6.3.1)** | **A / B / C いずれも該当せず** | **A / B / C いずれも該当せず** | reachability PASS、attempt 1 のみ fallback path 経由 (quality Yellow) |
+| **総合判定** | reachability PASS / quality Yellow (validation_failed) | **reachability PASS / quality PASS (llm success)** | 両 attempt で reachability 安定確認 |
+
+#### C.7.2 mini-smoke response data (両 attempt 完成記録)
+
+**attempt 1 (fallback)**:
+```json
+{
+  "body": "今、間に入れそうな間が少しありそう。",
+  "speechSource": "fallback",
+  "retries": -1,
+  "latencyMs": 8208,
+  "validationFailed": true,
+  "fallbackReason": "validation_failed"
+}
+```
+
+**attempt 2 (retry、llm success)**:
+```json
+{
+  "body": "今、少し間に入ってもいいでしょうか。",
+  "speechSource": "llm",
+  "retries": 0,
+  "latencyMs": 2014,
+  "validationFailed": false,
+  "fallbackReason": null
+}
+```
+
+#### C.7.3 Gap 2 解消の最終確認
+
+```
+[user input]
+  → implicit signal → S0→S1 transition           ← signalAdapter / reducer (既存)
+  → S1 status chip render                         ← UI (本 commit `39566cfd` の S1Approaching)
+  → chip click                                    ← UI interaction
+  → S1Approaching.props.onChipTap()               ← 本 commit 配線
+  → UpperLayerStateRenderer pass-through          ← 本 commit 配線
+  → UpperLayerMount.handleS1ChipTap()             ← 本 commit 配線
+  → buildS1EntryConfirmDispatch(dispatch)()       ← 本 commit pure helper
+  → exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })  ← 既存 dispatch
+  → presenceReducer line 111-112: S1 → S2         ← 既存 reducer
+  → selectPattern("S2", "normal", {}) → "A"       ← 既存 selector
+  → POST /api/coalter/speech (fetch effect)        ← 既存 wire
+  → speech response (両 attempt observed)          ← LLM 経路 alive
+```
+
+**Gap 2 構造的 blocker は解消** (CEO 確定 2026-05-09)。
+
+#### C.7.4 統計的評価
+
+Stage 2.3 Round 7 confirm: A 5/5 source=llm。Wilson 95% CI for n=5 k=0: **0%〜52%**。
+mini-smoke: 1/2 fallback。Wilson 95% CI for n=2 k=1: **9%〜91%**。
+両 CI は **9%〜52% で重複**、1/2 fallback は Stage 2.3 観測 (~5.7% 全体 fallback rate) と統計的に整合。**stochastic noise 寄り**、systematic 断定不可。
+
+#### C.7.5 凍結解除条件の達成状況
+
+| 条件 (§C.4) | 状態 |
+|---|---|
+| 1. B-2 残作業 修正設計 CEO 承認 | ✅ 承認済 (commit `e8d96643` の design proposal) |
+| 2. 上記 4 file 実装 + 既存 test 全 regression なし | ✅ commit `39566cfd` (presence dir 36 files / 576 tests PASS、regression 0) |
+| 3. 新規 test (s1ChipDispatch) PASS | ✅ 11 tests PASS |
+| 4. CEO 個別承認 (Stage 2.4-B 再開 GO) | ✅ 本記録時点で承認 |
+
+→ **凍結解除済**。
+
+#### C.7.6 full smoke 再開条件 (CEO 確定 2026-05-09)
+
+- **2.1.1 は mini-smoke 確認済みとして記録**、full smoke では **skip**
+- full smoke は **2.1.2 から続行** (本書 §6.3 step 1-10、§2.1 シナリオ matrix)
+- 2.1.3〜2.1.13 まで base scenarios 続行
+- base scenarios 完了後 **canary throw #1** (§6.5)
+- F-1 特別シナリオ (2.1.14) 3 試行 (§6.6)
+- 試行完了後 **canary throw #2** (§6.7)
+- 各 scenario 間 **5+ 分 cool-down** (`rate_limited` fallback 防止)
+- 各 scenario 開始前 **新規スレッド or 完全 page reload** (Gap 1 仮説対策、初期 state=S0 から開始、§C.5 推奨)
+
+#### C.7.7 不変 (full smoke 再開期間中も継続、CEO 厳守)
+
+- ✗ Production env 変更しない
+- ✗ timeout / model / max_tokens / validator 変更しない
+- ✗ prompt 修正しない (speechPromptBuilder / variant template 不変)
+- ✗ selectPattern 修正しない
+- ✗ speech route / speechBuilder / speechPostValidator / llmCall 不接触
+- ✗ 1 sample で systematic 断定しない
+- ✗ full smoke 自動再開しない (各 scenario CEO 個別管理 + Claude 個別分析)
+- ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
+- ✗ 新規 dep 追加禁止
+- ✓ chip-tap path 失敗モード 3 分類 (§6.3.1) を別々に記録継続
+- ✓ F-1 三軸分離記録 (§4.5) を 2.1.14 で適用継続
+- ✓ I-10 actual routing state 観察 (§4.1) を B / C / F1 で適用継続
+
 ---
 
 ## Appendix A — 関連文書
@@ -715,6 +821,7 @@ Gap 1 (スレッド state が過去 critical signal で既に S0 を超えてい
 | 0.1-draft.2 | 2026-05-08 | CEO review #1 反映: (1) §1.2 env vars に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 追加、`NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` ON/OFF 記録規約 §1.2.1 追加。 (2) §6.4 / §6.6 (= 当版番号) に Sentry breadcrumb 取得用 canary throw 2 箇所 (base scenarios 後 / F-1 特別観察後) 明記。 (3) §4 F-1 判定を strict 分離 (I primary / II secondary / III 到達不能 を独立 record、secondary を primary PASS 扱いしない明示)。 (4) §1.4 Synthetic input / PII 禁止追加 + §7.3 / §7.4 共有規約に反映 |
 | 0.1-draft.3 | 2026-05-09 | Stage 2.4-B 1 回目試行 (2.1.1 / 2.1.2) で `/api/coalter/speech` 未発火が観測された後の read-only 診断結果反映: (1) §3 #2 観測項目に「通常テキスト入力は S0→S1 で停止、S1→S2 は status chip tap が必須」を明示。 (2) §6.2 Mini-smoke (full smoke 再開判断用、本書 commit 後 1 回限定、シナリオ 2.1.1 のみ) を新規追加。 (3) §6.3 各シナリオ実行 step list を 7 step → 10 step に拡張、S1 status chip 出現確認 + chip tap (`S1_ENTRY_OK` 発火) + S1→S2 transition 観測を明示。 (4) §6.3.1 chip-tap path 失敗モード 3 分類 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず) を新規追加 (mini-smoke + full smoke 共通)。 (5) §6.4-§6.7 を §6.5-§6.8 に renumber (Mini-smoke を §6.2 に挿入したため)。 (6) §7.1 sheet に chip-tap path 失敗モード列追加 + §7.1.0 mini-smoke 専用 sheet 追加。 (7) 過去 fetch 発火実績 (CEO 言及) を最新 build (`g31f4voyb`) 帰属未検証として弱解釈 ("少なくとも critical 経路では過去に発火実績がある") |
 | 0.1-draft.4 | 2026-05-09 | mini-smoke 2.1.1 (CEO 実施) で Failure A 確定 + read-only 診断 第 2 段階で **Gap 2 (S1 chip onClick 未配線、production code 内 `S1_ENTRY_OK` dispatch 経路 0 件)** 検出 → CEO 確定で **Stage 2.4-B 全体凍結**: (1) **Appendix C 新規追加** で凍結通知 + Gap 2 詳細 (構造的 blocker) + 修正設計 cross-reference (decision-log [2026-05-09] entry) + 凍結解除条件 (B-2 残作業 PASS + CEO 承認) + Gap 1 扱い (本命にしない、CEO 確定) + 凍結期間不可侵境界。 (2) §6.2 mini-smoke / §6.3 full smoke 手順は B-2 残作業実装 PASS まで実行しない |
+| 0.1-draft.5 | 2026-05-09 | B-2 残作業 wiring 実装 commit (`39566cfd`) push + Vercel Preview build (`culcept-8q3zli5i2-...`) Ready 後、CEO mini-smoke 2.1.1 実施 (attempt 1 fallback / attempt 2 retry llm success) → **Gap 2 解消確認 + Stage 2.4-B 凍結解除 + full smoke 再開 (2.1.2 から)**: (1) **Appendix C.7 新規追加** で凍結解除通知 + mini-smoke 2.1.1 attempt 1/2 完成 sheet (§7.1.0 形式) + response data 両 attempt 記録 + Gap 2 解消の最終確認 chain + 統計的評価 (1/2 fallback ≈ Stage 2.3 fallback rate、stochastic 寄り) + 凍結解除条件 4 項目 達成状況 + full smoke 再開条件 (2.1.2 から、cool-down 5+ min、新規スレッド推奨、canary throw 順) + 不変境界。 (2) 2.1.1 は mini-smoke 確認済みとして full smoke では skip |
 
 ---
 

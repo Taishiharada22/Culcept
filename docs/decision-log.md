@@ -4219,3 +4219,98 @@ CEO 確定 (2026-05-09): **Stage 2.4-B 全体 (full smoke / mini-smoke) は B-2 
 - ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
 - ✗ 新規 dep 追加禁止 (`@testing-library/react` 等)
 - ✗ 自律で impl に着手しない (CEO 承認後のみ)
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-B Gap 2 解消確認 + mini-smoke 2.1.1 retry PASS + full smoke 再開判断 (2.1.2 から)] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-09): B-2 残作業 wiring 実装 commit (`39566cfd`) push + Vercel Preview build (`culcept-8q3zli5i2-...`) Ready 後、CEO 自身が mini-smoke 2.1.1 を 2 回実施 (1 回目 fallback、retry で llm success)。statistical noise 寄りと判断、Gap 2 解消確認、full smoke 再開判断 (2.1.2 から)。
+
+### mini-smoke 2.1.1 結果 (CEO 実施、Preview URL `culcept-8q3zli5i2-...`、production-like / `OBSERVATION_MODE=false`)
+
+**input** (両 attempt 共通): 「二人で少し話したいことがあって、間に入ってもらえると助かる」 (synthetic、§1.4 PII 禁止 準拠)
+
+#### attempt 1 (fallback、初回試行)
+
+```
+{
+  "body": "今、間に入れそうな間が少しありそう。",
+  "speechSource": "fallback",
+  "retries": -1,
+  "latencyMs": 8208,
+  "validationFailed": true,
+  "fallbackReason": "validation_failed"
+}
+```
+
+- `body` は `speechBuilder.ts:35` `STATIC_MOCK_BY_VARIANT["A"]` = static fallback 文 (LLM 出力ではない)
+- `retries=-1` = 全 retry 失敗 marker (`telemetryEvents.ts:67-69` 注記)
+- `latencyMs=8208` = LLM 3 attempts (1 initial + 2 retries) の合計
+- `validationFailed=true` + `fallbackReason="validation_failed"` = post-validator が 3 attempt 全てで違反検出
+
+#### attempt 2 (retry、llm success)
+
+```
+{
+  "body": "今、少し間に入ってもいいでしょうか。",
+  "speechSource": "llm",
+  "retries": 0,
+  "latencyMs": 2014,
+  "validationFailed": false,
+  "fallbackReason": null
+}
+```
+
+- `body` は LLM 生成出力 (Pattern A 入口発話、1 文、? 1 個、~17 文字、speech template §3 不変核と整合)
+- `retries=0` = 1 発で post-validator 通過
+- `latencyMs=2014` = LLM 単発 latency 約 2 秒、Stage 2.3 中央値と整合
+- `validationFailed=false` + `fallbackReason=null` = LLM 出力採用
+
+### 統計的評価 (1/2 fallback)
+
+| 観測 | n | fallback | Wilson 95% CI |
+|---|---|---|---|
+| Stage 2.3 Round 7 confirm (variant A 5 sample) | 5 | 0 | 0% 〜 52% |
+| 本 mini-smoke 2.1.1 (attempt 1+2) | 2 | 1 | 9% 〜 91% |
+
+両 CI は重複 (9%-52%)。**1/2 fallback は Stage 2.3 観測 (~5.7% 全体 fallback rate) と統計的に整合**。CEO 判定: stochastic noise 寄り、systematic 断定不可。1 sample で impl / validator / prompt 修正には進まない。
+
+### 判定 (CEO 確定 2026-05-09)
+
+| 軸 | 判定 |
+|---|---|
+| **reachability** (Gap 2 解消確認) | **PASS**。S1 chip → S1_ENTRY_OK → S2 → speech fetch の runtime 配線が end-to-end で機能 (commit `39566cfd` の B-2 残作業実装が production で生きている) |
+| **quality** (LLM 発話品質) | **Yellow** (1/2 fallback、retry で llm success 確認済、stochastic noise 寄り) |
+| **mini-smoke 総合** | **mini-PASS** (reachability PASS / quality Yellow with retry confirmation) |
+| **Stage 2.4-B 凍結解除** | **GO** (Gap 2 構造的 blocker は解消、full smoke 再開判断) |
+
+### full smoke 再開判断 (CEO 確定)
+
+- **2.1.1 は mini-smoke で確認済みとして記録**、full smoke では **skip** (重複実施しない)
+- full smoke は **2.1.2 から続行** (Stage 2.4-B 手順書 §6.3 step 1-10、§2.1 シナリオ matrix)
+- 2.1.3〜2.1.13 まで base scenarios 続行
+- base scenarios 完了後に **canary throw #1** (`setTimeout(() => { throw new Error("CoAlter Stage 2.4-B smoke base") }, 0)`)
+- F-1 特別シナリオ (2.1.14) 3 試行
+- 試行完了後に **canary throw #2** (`f1-special`)
+
+### 進行ルール (CEO 確定、各 scenario 共通)
+
+- **cool-down**: 各 scenario 間 5+ 分 (UI spec §1.6 / v1.1 §8.6 同 state 5 分再起動禁止に整合、`rate_limited` fallback 防止)
+- **synthetic input** のみ (§1.4 PII 禁止: 実在人物名 / 実住所 / 実予定 / 実関係トラブル NG)
+- **production-like run** (`OBSERVATION_MODE=false`)
+- **各 scenario で speech response 5 fields 記録**: `speechSource` / `fallbackReason` / `latencyMs` / `validationFailed` / `retries`
+- **chip-tap path 失敗モード 3 分類** (§6.3.1) を別々に記録 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず)
+- **PII redact**: screenshot / Network response 共有時、PII redact 必須 (§1.4.2)
+
+### 不可侵 (CEO 厳守、本 entry でも継続)
+
+- ✗ Production env 変更しない
+- ✗ timeout / model / max_tokens / validator 変更しない
+- ✗ prompt 修正しない (speechPromptBuilder / variant template 不変)
+- ✗ selectPattern 修正しない
+- ✗ 1 sample で systematic 断定しない
+- ✗ full smoke 自動再開しない (各 scenario CEO 個別管理)
+- ✓ Stage 2.4-B Gap 2 blocker 解消確認 (commit `39566cfd` runtime PASS)
+- ✓ mini-smoke 結果は decision-log + Stage 2.4-B 手順書 Appendix C.7 に記録
