@@ -4554,3 +4554,229 @@ useEffect(() => {
 2. Phase 2 (Gap 4) 修正設計 (~3 file / +12 production lines / +180 test lines、smoke-only debug hook、新規 env var) 採用可否
 3. 採用後の impl 着手順序 (Phase 1 → Phase 2 推奨)
 4. 修正設計に追加・変更項目があれば指示
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-B Yellow付きPASS 確定 + 全 16 scenario 集約 + canary status + Yellow notes 5 件 + 残課題 4 件 別 phase へ] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-09): B-2 wiring (`39566cfd`) + B-3 Phase 1 wiring (`ae7b6ecf`) + B-3 Phase 2 smoke harness (`cce40487`) を全て deploy + Preview env で `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT=true` 設定 + redeploy → CEO 自身による mini-smoke 全 13 scenarios + F-1 standalone 3 試行 = **16 sample 実施**。LLM 経路 100% 安定 (16/16 source=llm) + speech template Round 6-9 強化 runtime 準拠確認 → CEO 判断で **Stage 2.4-B Yellow付きPASS 確定**。Yellow notes 5 件 + 残課題 4 件は別 phase / 別 task として明記、本 phase 完了。
+
+### Stage 2.4-B 全 scenario 結果集約 (16 sample)
+
+| # | scenario | mode | path | speechSource | retries | latencyMs | validationFailed | fallbackReason | 判定 |
+|---|---|---|---|---|---|---|---|---|---|
+| 2.1.1 attempt 2 | A@S2 | normal | A | llm | 0 | 2014 | false | null | PASS (mini-smoke 経由) |
+| 2.1.2 | A@S2 | daily | A | llm | 0 | 1851 | false | null | PASS |
+| 2.1.3 | A@S2 | travel | A | llm | 0 | 2248 | false | null | PASS |
+| 2.1.4 | B@S5 | normal | B | llm | 0 | 2380 | false | null | PASS via harness |
+| 2.1.5 | C@S2 | normal | A | llm | 0 | 1620 | false | null | PASS via harness |
+| 2.1.6 | C@S5 | normal | B | llm | 0 | 1882 | false | null | PASS via harness |
+| 2.1.7 | D@S5 | normal | B | llm | 0 | 2291 | false | null | PASS via harness |
+| 2.1.8 | D@S5 | daily | B | llm | 0 | 1949 | false | null | PASS via harness |
+| 2.1.9 | D@S5 | travel | B | llm | 0 | 2347 | false | null | PASS w/ Yellow note (文脈補完強) |
+| 2.1.10 | E@S5 | normal | B | llm | 1 | 4798 | false | null | PASS via harness (retry success) |
+| 2.1.11 | F-2@S7 | normal | C | llm | 0 | 2882 | false | null | PASS via harness |
+| 2.1.12 | F-2@S7 + F-1副次? | daily | C | llm | 0 | 2566 | false | null | F-2 primary PASS / F-1 secondary 未確認 |
+| 2.1.13 | F-2@S7 + F-1副次? | travel | C | llm | 0 | 2850 | false | null | F-2 primary PASS / F-1 secondary 未確認 |
+| 2.1.14a | F-1 standalone 試行 1 | normal | C | llm | 0 | 2652 | false | null | F-2 体観測、(I) primary 未到達 |
+| 2.1.14b | F-1 standalone 試行 2 | normal | C | llm | 0 | 3141 | false | null | 同上 |
+| 2.1.14c | F-1 standalone 試行 3 | normal | C | llm | 0 | 2852 | false | null | 同上 |
+
+### 各 scenario の body 完全記録
+
+```
+2.1.1 attempt 2 (A@S2 normal):
+  「今、少し間に入ってもいいでしょうか。」
+
+2.1.2 (A@S2 daily):
+  「今、少し間に入れそうでしょうか。」
+
+2.1.3 (A@S2 travel):
+  「今、少し間に入れそうな気がするんだけど、ちょっと立ち止まって整理してもいいかな？」
+
+2.1.4 (B@S5 normal):
+  「今、何か引っかかるものがあって言葉が出にくい状態に見えます。」
+
+2.1.5 (C@S2 normal):
+  「今、二人の間で一番整理したい点はどこでしょうか?」
+
+2.1.6 (C@S5 normal):
+  「今、二人の間で一番整理したい点はどこでしょうか」  ← "?" 末尾抜け micro
+
+2.1.7 (D@S5 normal):
+  「片方が何か言ったことに、もう片方が反応したように見えますね。」
+
+2.1.8 (D@S5 daily):
+  「片方の発言だけを整理してみましょうか。」
+
+2.1.9 (D@S5 travel):
+  「片方が何か言葉を発したようですが、もう片方はまだ反応していないように見えます。」  ← Yellow note: 文脈補完強
+
+2.1.10 (E@S5 normal):
+  「片方の言い方と、もう片方の受け取り方に、ずれがあるように見えます。」
+
+2.1.11 (F-2@S7 normal):
+  「少し休憩を挟むと、次の作業に移りやすくなるかもしれません。整理する時間を取るのも一つの選択肢です。」
+
+2.1.12 (F-2@S7 daily):
+  「少し整える時間を取ると、今の流れが変わるかもしれません。短い休憩でも、視点が少し動くことがあります。」
+
+2.1.13 (F-2@S7 travel):
+  「少し体を動かす時間を取ると、気分が変わるかもしれません。短い散歩や軽いストレッチなど、今の状況に合わせて選べます。」
+
+2.1.14a:
+  「少し休憩を挟むと、次の作業に移りやすくなるかもしれません。」
+
+2.1.14b:
+  「少し手を止めて深呼吸する時間を取ると、頭がすっきりするかもしれません。短い休憩を挟むだけでも、次の作業への集中が変わることがあります。」
+
+2.1.14c:
+  「少し体を動かすと、気持ちが切り替わるかもしれません。短い休憩を取るのも一つの方法です。今の流れを少し整えてみるのはどうでしょうか。」
+```
+
+### 統計サマリ (16 sample)
+
+| 軸 | 値 |
+|---|---|
+| 総 sample | 16 (13 base + 3 F-1 試行) |
+| `source==="llm"` | **16/16 = 100%** |
+| `validationFailed===true` | **0/16 = 0%** |
+| `fallbackReason !== null` | **0/16 = 0%** |
+| retries 分布 | 0: **15/16** / 1: **1/16** (2.1.10) / 2 / -1: **0/16** |
+| latencyMs median | ~2400ms (Stage 2.3 中央値と整合) |
+| latencyMs max | 4798ms (2.1.10 E、retry 含む) |
+| latencyMs > 8000ms (timeout 危険域) | **0 件** |
+| Stage 2.3 fallback rate (~5.7%) との整合 | retries=1 が 1/16 ≈ 6%、整合 |
+
+LLM 経路は全 scenarios で安定動作。Stage 2.3 quality と統計的整合。
+
+### Round 6-10 prompt 強化 runtime 準拠確認
+
+| Round | 修正対象 variant | 該当 scenario | 結果 |
+|---|---|---|---|
+| Round 6 | E grounding contract (Context にない人物・関係作らない) | 2.1.10 | **準拠**: 抽象表現、具体 quote なし |
+| Round 7 | F-2 grounding (天気・体温・予定 事実化禁止、抽象提案 OK) | 2.1.11 / 2.1.12 / 2.1.13 / 2.1.14 | **準拠**: 抽象的「短い休憩」「短い散歩」、事実化なし |
+| Round 8 | C tone/scope (面談 bot 化禁止、二者間スコープ) | 2.1.5 / 2.1.6 | **準拠 + Round 8 OK 例完全一致** |
+| Round 9 | D grounding (左右・視覚情報禁止、片側フォーカス = 発話文脈) | 2.1.7 / 2.1.8 / 2.1.9 | **準拠**: 「片方/もう片方」のみ、左右なし、視線なし |
+| Round 10 | F-1 tone/scope (AI 感情禁止、個人 choice 強調禁止、関係営業禁止) | 2.1.14 (F-2 体のみ) | **F-1 primary 未到達のため Round 10 contract 直接観測なし、F-2 fallback 体に違反語含まず** |
+
+**Stage 2.3 Round 6-10 全強化 effect が runtime で confirmed**。Stage 2.3 quality 投資の payoff を mini-smoke で実証。
+
+### F-1 三軸 strict 分離 record (CEO 厳守、§4.5)
+
+| 軸 | 観測元 | 結果 | 判定 |
+|---|---|---|---|
+| **(I) F-1 primary 到達** | 2.1.14a/b/c (3 試行、S7 normal) | **0/3 observed** (全試行 variant=F2 + hasSecondary=false、f1-special canary breadcrumb で確認) | **(I) primary 軸 Yellow** (一試行も観測されず → 到達不能) |
+| **(II) F-1 secondary 到達** | 2.1.12 (Daily) / 2.1.13 (Travel) | **未確認** (response body 上 F-2 primary 体のみ確認、`hasSecondary` field 含 secondaryLine 未取得) / 2.1.14 normal で混入: **未観測** (f1-special canary で hasSecondary=false 確認、normal で異常なし) | **未確認のまま記録** (Sentry Discover 後検索 / 追加 smoke は CEO 別 phase 判断) |
+| **(III) F-1 到達不能** | S7 normal 通算 | (I) と (II) normal で両方 not observed → 部分確定 | **S7 normal で (III) 確定 / Daily・Travel は (II) 未確認のため未確定** |
+
+**確定**: S7 normal で F-1 standalone primary 到達不能 → **Yellow / spec ambiguity confirmed** (NG ではない、A2 commit `e14682cd` observation の runtime 確認)。**impl 修正候補ではなく、別 task で UI spec §7.12 sharpen の根拠**。
+
+### canary throw status
+
+| # | 状態 | 詳細 |
+|---|---|---|
+| #1 base scenarios (2.1.4-2.1.13) 完了後 | **Missing (procedure error)** | CEO 操作 error (DevTools Console ではなく Supabase SQL editor に setTimeout 貼付 → "syntax error at or near setTimeout")。Sentry に Issue 不在 |
+| #2 F-1 special (2.1.14) 完了後 | **Confirmed** | Sentry Issue "CoAlter Stage 2.4-B smoke f1-special" 存在、breadcrumb trail で S0→S1→...→S7 + variant=F2 / hasSecondary=false / state=S7 / mode=normal / speechSource=llm / validationFailed=false / fallbackReason=null / latencyMs=2852 確認 |
+
+#### canary 再実施しない判断 (CEO 確定 + Claude 同意)
+
+- Sentry breadcrumb session は client-side page load 単位 → 過去 base scenarios の breadcrumb は別 session に分散済
+- 今 canary を投げ直しても新 session の Issue に紐付くだけ → **過去 base scenarios の breadcrumb 固定保全にならない**
+- → 価値ゼロ、再実施しない、**「未取得として記録」確定**
+
+### Yellow notes 5 件 (本 phase で明記、追加対応せず別 phase 判断)
+
+#### Yellow note 1: 2.1.6 C@S5 body の "?" 末尾抜け (micro)
+- "今、二人の間で一番整理したい点はどこでしょうか" ← "?" 抜け
+- Round 8 OK 例「どこでしょうか?」と semantic 一致だが文字 "?" 不在
+- validator は `maxQuestions=1` (上限のみ) で reject しない
+- LLM stochastic 生成の偏差、致命でない
+- **追加対応不要、informational のみ**
+
+#### Yellow note 2: 2.1.9 D@S5 travel 文脈補完強 (CEO 指摘)
+- 「言葉を発したようですが、まだ反応していない」← Context (input) に明示されない言語行動を推論
+- Round 9 D grounding contract 「具体 quote (『XX』と言った) 作らない」には抵触せず (具体 quote ではなく抽象推論)
+- Stage 2.3 prompt refinement 候補 → **別 phase (Stage 2.3 prompt refinement) へ残す**
+
+#### Yellow note 3: 2.1.14 F-1 standalone primary 到達不能 (3/3 試行)
+- 全試行で F-2 体観測、`variant=F2 / hasSecondary=false`
+- 事前予測通り (A2 commit `e14682cd` observation の runtime 確認)
+- 構造的には `STATE_PATTERN_PRIORITY[S7]=["F2", "F1"]` + `matchesContextPriority(F2, S7, normal, *)` always returns true → F-2 が priority 1 で常時選択
+- **NG ではなく Yellow / spec ambiguity confirmed**
+- impl 修正候補ではなく、UI spec §7.12 S7 normal の wording sharpen 根拠 → **別 task** へ残す
+
+#### Yellow note 4: 2.1.12 / 2.1.13 F-1 secondary 未確認
+- response body は F-2 primary 体のみ
+- speech response の `secondaryLine` field と Sentry `coalter.pattern.used.hasSecondary` 観測は本 smoke で未取得 (canary base 失敗のため breadcrumb session 固定証跡なし)
+- A2 unit test (`patternSelectorRoutingSpec.test.ts`) で `selectSecondaryPattern` 4-row 完全網羅 PASS 確認済 (関数 invoke レベル)
+- runtime での hasSecondary observation は未確認のまま → **追加 smoke / Sentry Discover 追加調査は別 phase 判断**
+
+#### Yellow note 5: base canary missing (procedure error)
+- DevTools Console と Supabase SQL editor の混同
+- 一回きりの operator error、手順書改善で防止可能 → **Stage 2.4-B 手順書 §6.5 / §6.7 に「貼付先確認 step」追加** (本 commit に含む docs 改善)
+
+### 表現規約 (CEO/GPT 補正準拠、本 phase 終了後も継続)
+
+- Stage 2.4-B Yellow付きPASS は **「smoke harness 経由」の variant fetch path 検証 PASS**
+- **「production reachability PASS」とは呼ばない** (CEO/GPT 補正準拠)
+- production-side context flag detector (executor watcher / heuristic / LLM 検出) は **未実装、別 phase**
+- B-3 Phase 2 を「Gap 4 解消」と呼ばない (smoke-only harness 限定)
+
+### 残課題 (4 件、別 phase / 別 task)
+
+| # | 課題 | 性質 | 残置先 |
+|---|---|---|---|
+| 1 | **Gap 4 production context detection** (executor watcher / heuristic / LLM 検出) | impl 残作業 | **別 phase**、§9 保留継続、本 Stage 2.4-B 範囲外 |
+| 2 | **F-1 standalone primary trigger spec ambiguity** (UI spec §7.12 S7 normal wording) | spec sharpen | **別 task**、UI spec / 統合契約 への追記検討 |
+| 3 | **2.1.9 D@S5 travel 文脈補完** | quality refinement | **別 phase** (Stage 2.3 prompt refinement、CEO 既往 scope 外) |
+| 4 | **F-1 secondary daily/travel runtime 未確認** | observation 追加 | **別 phase 判断** (Sentry Discover 後検索 or 追加 smoke、本 phase は完了) |
+
+### Stage 2.4-B Yellow付きPASS 確定根拠 (CEO 判断)
+
+| 軸 | 結果 | 判定 |
+|---|---|---|
+| variant fetch path reachability via harness (A/B/C/D/E/F-2 全 6 種) | smoke harness 経由 1 件以上 PASS 観測 | **PASS** |
+| LLM speech quality (Round 6-9 不変核準拠) | 16/16 source=llm、validationFailed 0、Round 強化 runtime 準拠、micro quality 1 件 | **PASS w/ 1 Yellow note** |
+| F-1 standalone primary 到達 (S7 normal) | 0/3 → (III) 到達不能確定 (predicted) | **Yellow / spec ambiguity confirmed** |
+| F-1 secondary 同伴 (S7 daily/travel) | response 上未確認 | **未確認のまま記録** |
+| canary throw 証跡 | #1 missing / #2 confirmed | **partial** (operator error 由来) |
+| production reachability (Gap 4 production logic) | 未解消 | **out of scope** (別 phase) |
+
+→ **Stage 2.4-B Yellow付きPASS 確定** (CEO 判断 2026-05-09)
+
+### Stage 2.4-B 完了後の Stage 2.4 進行プロトコル
+
+```
+Stage 2.4-A (静的 audit、commit 34067d98 / e14682cd) ✅ PASS
+   ↓
+Stage 2.4-B (variant 到達性 smoke、commit 39566cfd / ae7b6ecf / cce40487) ✅ Yellow付きPASS (本記録)
+   ↓
+Stage 2.4-C (UI timeout / fallback 確認) ← 次 phase 着手判断
+   ↓
+Stage 2.4-D (production-ready audit) ← Stage 2.4-C 完了後
+   ↓
+[Production reflection は CEO 判断]
+```
+
+### CEO 厳守 (本記録 + Stage 2.4-B 完了後も継続)
+
+- ✗ Production env 変更しない
+- ✗ production context detector 実装しない (Gap 4、別 phase)
+- ✗ selectPattern 修正しない
+- ✗ prompt 修正しない (Round 6-10 確定状態維持)
+- ✗ validator / model / max_tokens / timeout 変更しない
+- ✗ 追加 smoke しない (本 Stage 2.4-B 範囲)
+- ✗ Sentry Discover 追加調査しない (本 Stage 2.4-B 範囲)
+- ✗ Stage 2.4-B 自律完了扱いしない (CEO 個別承認 = 本記録)
+- ✗ Phase 2 を「Gap 4 解消」と呼ばない
+- ✗ Stage 2.4-B Yellow付きPASS を production reachability PASS と呼ばない
+- ✗ Stage 2.4-C / D を自律で着手しない (CEO 個別承認後のみ)
+- ✓ B-2 wire (`39566cfd`) / B-3 Phase 1 (`ae7b6ecf`) / B-3 Phase 2 (`cce40487`) は production code として残置 (Stage 2.4-D 着手判断材料)
+- ✓ Preview env の `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT=true` は Stage 2.4-D で削除判断 (CEO directive)
+
+### 次 phase: Stage 2.4-C / D 着手判断 (CEO directive 待ち)
+
+CEO 個別判断材料として、本 entry の続編で Stage 2.4-C / D 提案を別 commit / 別 entry で出す予定。本記録は Stage 2.4-B Yellow付きPASS の集約に集中。
