@@ -5131,3 +5131,82 @@ Stage 2.4-D ✅ docs-only audit 完了 (2026-05-09、本 commit)
 4. (Optional) `feat/coalter-three-stage` branch の **main merge 判断** (Stage 2.4 全完了後の整理)
 
 Claude は CEO 個別判断を待つ。本 doc を judgement material として CEO 提示。**Stage 2.4-D で本 phase 全完了**、新規 impl / smoke / Production touch なし。
+
+---
+
+## [2026-05-09] [Build] [Sentry alert setup handoff docs 作成 + CEO 既往初期 4 alerts 完了状態反映 + 残 Discover saved query 6 種 click-by-click 手順を repo 永続化] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-09): Stage 2.4-D Production reflection 判断材料 docs commit (`9df69549`) push 後、最優先 Option A (Sentry alert 設定) 着手。CEO 自身が初期 4 alerts (speech route exception / `/api/coalter/speech` p95 latency / 5xx rate / urgent triggered) + Slack integration (`#aneurasync-alerts`) を Sentry dashboard で設定完了。残 Discover saved query 6 種の click-by-click 手順を chat 内のみではなく **repo に永続化** することで、後続 reflection / 運用フェーズの参照書とする。
+
+### 成果物
+
+`docs/coalter-stage24-sentry-alert-setup.md` (新規、475+ 行):
+
+- §0 本書の位置づけ + CEO/GPT 補正準拠 表現規約
+- §1 Sentry プロジェクト前提 + Slack `#aneurasync-alerts` integration 状態
+- §2 **6 指標 standard alert 化制約** (重要発見、impl 修正なしには不可) + 対応方針 3 段
+- §3 Issue Alert 設定済 (CEO 既往完了): urgent triggered / speech route exception
+- §4 Performance Transaction Alert 設定済 (CEO 既往完了、partial proxy): p95 latency / 5xx rate
+- §5 Discover saved query 設計 (6 指標仕様 + threshold + review cadence + Sentry search syntax 注意)
+- §6 **Discover saved query click-by-click 手順** (CEO がそのまま実行可、6 query × Sentry UI step):
+  - common navigation
+  - query 1: timeout fallback (filter / Y-axis / save)
+  - query 2: validation_failed (Q1 と同手順、filter のみ変更)
+  - query 3: latency p95 (p95 集計、breadcrumbs.data.latencyMs)
+  - query 4: llm_error
+  - query 5: rate_limited
+  - query 6: retries=-1
+  - 動作確認手順 (Stage 2.4-B 既存 breadcrumb 2026-05-09 vercel-preview で結果確認)
+  - review 運用 (daily 09:00 推奨)
+- §7 Production reflection 前チェックリスト (22 項目: alert 設定 12 + Stage 2.4 完了 + Production env 確認)
+- §8 不変境界 (CEO 厳守)
+- §9 残課題: custom metric impl (Stage 2.5)、自動 cadence 化、syntax 検証
+- §10 改訂履歴
+
+### CEO 既往完了状態 (本 entry 反映)
+
+| # | alert | 状態 |
+|---|---|---|
+| 1 | speech route exception (warn + red) | ✅ |
+| 2 | /api/coalter/speech p95 latency monitor (warn + red) | ✅ |
+| 3 | /api/coalter/speech 5xx rate monitor (warn + red) | ✅ |
+| 4 | urgent triggered alert (warn + red) | ✅ |
+| Slack integration | `#aneurasync-alerts` Installed | ✅ |
+| Discover saved query × 6 | (CEO 次タスク、本書 §6 click-by-click 提示) | ☐ |
+
+### Sentry standard alert の限界 (再確認、本 entry で permanent 記録)
+
+`coalter.pattern.used` の 6 指標は **breadcrumb の `data` field**。Sentry standard alert (Issue Alert / Metric Alert) では breadcrumb data を直接 trigger 条件にできない。
+
+→ 本 phase 範囲では **Discover saved query + 定期手動 review** で代替 (§5 / §6)。
+→ Production reflection 後の運用改善で **Sentry custom metric impl** を Stage 2.5 候補として残す。
+
+### 表現規約 (CEO/GPT 補正準拠、永続)
+
+- ✅ Sentry alert 設定は **CEO operator 作業**、Claude 自律設定しない
+- ✅ Production env 触らない
+- ✅ Sentry standard alert で 6 指標を直接 metric 化できない制約を明記
+- ✅ Issue Alert / Performance Transaction Alert / Discover saved query / custom metric impl の 4 段代替を明記
+- ✅ Production reflection 前のみ本書で扱う (reflection 自体は CEO 個別判断、本 phase scope 外)
+
+### 不変境界 (本記録 + CEO 操作期間中、CEO 厳守)
+
+- ✗ Production env 変更しない
+- ✗ Production reflection しない (CEO 個別判断)
+- ✗ main merge しない
+- ✗ production context detector 実装しない (Gap 4、Stage 2.5 / 別 milestone)
+- ✗ selectPattern / prompt 修正しない
+- ✗ validator / model / max_tokens / timeout 変更しない
+- ✗ Claude が Sentry alert / Discover query を自律設定しない (CEO operator 担当)
+- ✗ Sentry custom metric impl しない (Stage 2.5 候補)
+- ✗ 追加 smoke しない
+
+### 次の動き
+
+1. **本 entry + 新 doc commit** (docs-only)
+2. CEO Discover saved query 6 種を Sentry UI で設定 (本書 §6 参照)
+3. CEO 動作確認 (Stage 2.4-B 既存 breadcrumb で query 結果確認)
+4. CEO daily review cadence operator 担当確定
+5. Production reflection 前チェックリスト 22 項目 全 ✅ → CEO 個別判断で reflection 実施可
