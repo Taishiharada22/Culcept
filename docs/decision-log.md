@@ -4314,3 +4314,243 @@ CEO 確定 (2026-05-09): B-2 残作業 wiring 実装 commit (`39566cfd`) push + 
 - ✗ full smoke 自動再開しない (各 scenario CEO 個別管理)
 - ✓ Stage 2.4-B Gap 2 blocker 解消確認 (commit `39566cfd` runtime PASS)
 - ✓ mini-smoke 結果は decision-log + Stage 2.4-B 手順書 Appendix C.7 に記録
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-B 2.1.1〜2.1.3 A@S2 3 mode PASS 記録 + Gap 3/4 構造的 blocker 検出 + 2.1.4〜2.1.14 凍結 + B-3 残作業 修正設計提示 (Phase 1: Gap 3 / Phase 2: Gap 4 完全分離、impl は CEO 承認後)] [承認: CEO Option A 採用]
+
+### 経緯
+
+CEO 2.1.1〜2.1.3 (A@S2 normal/daily/travel) full smoke 実施 → 3 mode PASS → 2.1.4 B@S5 進行前に「S5 actual state 到達 UI 手順」要求 → Claude read-only 診断で **production UI に S2/S3/S4/S5/S6/S7 transition dispatch 経路 0 件** + **`setPatternContext` caller 0 件** 検出 → CEO 確定で **Option A 採用** (Gap 3/4 正式 blocker 記録、2.1.4〜2.1.14 凍結、B-3 残作業 設計フェーズへ)。
+
+### 2.1.1〜2.1.3 (A@S2 3 mode) PASS 記録
+
+| # | scenario | mode | response | 判定 |
+|---|---|---|---|---|
+| 2.1.1 attempt 1 | A@S2 normal | normal | speechSource=fallback / retries=-1 / latencyMs=8208 / validationFailed=true / fallbackReason=validation_failed (body=static fallback) | reachability PASS / quality Yellow |
+| 2.1.1 attempt 2 (retry) | A@S2 normal | normal | speechSource=llm / retries=0 / latencyMs=2014 / validationFailed=false / fallbackReason=null (body="今、少し間に入ってもいいでしょうか。") | **PASS** |
+| 2.1.2 | A@S2 daily | daily | speechSource=llm / retries=0 / latencyMs=1851 / validationFailed=false / fallbackReason=null (body="今、少し間に入れそうでしょうか。") | **PASS** |
+| 2.1.3 | A@S2 travel | travel | speechSource=llm / retries=0 / latencyMs=2248 / validationFailed=false / fallbackReason=null (body="今、少し間に入れそうな気がするんだけど、ちょっと立ち止まって整理してもいいかな？") | **PASS** |
+
+**A@S2 系 3 mode PASS 確認** (CEO 確定 2026-05-09)。S0→S1→S2 経路は production UI で機能、S2 entry で variant=A default を speech POST 含めて runtime 確認済。
+
+### Gap 3 群 + Gap 4 検出 (read-only 診断)
+
+#### Gap 3: production UI に state machine transition dispatch 経路 0 件
+
+`grep -rnE "S2_ACCEPTED|S3_RESPONSE|S4_DONE|S5_DONE|S6_PROPOSE|S6_REWORK|S6_END|S7_DONE" app/ lib/ --include="*.ts" --include="*.tsx" | grep -v "test\|spec\|app/(dev)"` → reducer.ts (case 定義) のみ。production code 内 dispatcher **0 件**。
+
+`exec.dispatch.presenceEvent` の利用箇所:
+- `app/components/chat/UpperLayerMount.tsx:282` — `S1_ENTRY_OK` (commit `39566cfd` の B-2 wiring)
+- `app/(dev)/coalter-preview/full/page.tsx:174-201` — preview dev page (production 経路外)
+
+| Gap | 内容 | severity | scope |
+|---|---|---|---|
+| **Gap 3-A** | S2 response chips → `S2_ACCEPTED` 未配線 | 高 | S2Opening + Renderer + UpperLayerMount |
+| **Gap 3-B** | S3 response chips → `S3_RESPONSE` 未配線 | 高 | S3Awaiting + Renderer + UpperLayerMount |
+| **Gap 3-C** | S4 → S5 transition (`S4_DONE`) UI element なし、auto-advance trigger 不在 | 高 | S4 timer logic + UpperLayerMount |
+| **Gap 3-D** | S5 response chips → `S5_DONE` / 「いったん戻る」 → `S5_DIRECT_EXIT` 未配線 | 中 | S5Bridging + Renderer + UpperLayerMount |
+| **Gap 3-E** | S6 3 action buttons → `S6_PROPOSE` / `S6_REWORK` / `S6_END` 未配線 | 中 | S6ReadyForProposal + Renderer + UpperLayerMount |
+| **Gap 3-F** | S7 approve / close chips → `S7_DONE` 未配線 | 中 | S7ProposalShown + Renderer + UpperLayerMount |
+
+#### Gap 4: production UI に `setPatternContext` caller 0 件
+
+`grep -rnE "setPatternContext|patternContext\s*=" app/ lib/ --include="*.ts" --include="*.tsx" | grep -v "test\|spec\|app/(dev)"` → `usePresenceExecutor.ts:203` (定義)、`usePresenceExecutor.ts:536` (export slot)、**production caller 0 件**。
+
+**結果**: production で `patternContext = {}` 固定。S5 で `selectPattern("S5", *, {})` は **defensive null** (CEO 裁定 I-1/I-8、A2 test `patternSelectorRoutingSpec.test.ts` で lock 済) → `UpperLayerMount.tsx:338-341` の `if (speechVariant === null)` early return → speech POST 起動なし。**B/C/D/E variant 観測不可**。
+
+### CEO 判断 (Option A 採用、2026-05-09)
+
+| 選択肢 | CEO 判定 | 理由 |
+|---|---|---|
+| **A. Gap 3/4 正式 blocker 記録 + 2.1.4〜2.1.14 凍結 + B-3 残作業 設計** | ✅ **採用** | Gap 2 と同 pattern の構造的 blocker を一貫して扱う、Stage 2.4-B 全体の正本性維持 |
+| B. Stage 2.4-B partial close (A@S2 系のみ完了扱い) | ✗ 不採用寄り | Stage 2.4-B 本質 = B/C/D/E/F1/F2 含む actual UI reachability、A だけで閉じると検証目的を満たさない |
+| C. 2.1.4 のみ部分修正 (S5 到達のための局所 hack) | ✗ 不採用 | needFraming 等 context flag 設定経路の hack は後の S5/S7 全体 routing を歪ませる |
+
+### B-3 残作業 修正設計 (Phase 1 と Phase 2 完全分離、CEO 厳守)
+
+#### Phase 1 (Gap 3): state machine transition dispatch wiring
+
+**ゴール**: production UI で S2→S3→S4→S5→S6→S7→S8 全 transition を dispatch 可能化。chip / button tap で `presenceEvent` を流す。S4 のみ auto-advance (UI element 不在のため timer-based)。
+
+**設計方針**: B-2 (Gap 2) と完全同 pattern。各 state component に optional callback prop 追加 → `<Chip onClick>` で wire → Renderer pass-through → UpperLayerMount で pure helper builder + handler。
+
+**修正対象 file (推定)**:
+
+| # | file | 変更内容 | 想定 diff |
+|---|---|---|---|
+| 1 | `app/components/chat/states/S2Opening.tsx` | `onResponseTap?: () => void` prop + `<Chip onClick={onResponseTap}>` × 2 (たいし/みさき) | +5 / -2 |
+| 2 | `app/components/chat/states/S3Awaiting.tsx` | `onResponseTap?: () => void` prop + `<Chip onClick={onResponseTap}>` × 2 (残像 chip) | +5 / -2 |
+| 3 | `app/components/chat/states/S4Understanding.tsx` | (chip なし、変更なし。auto-advance は UpperLayerMount で実装) | +0 / -0 |
+| 4 | `app/components/chat/states/S5Bridging.tsx` | `onResponseTap?: () => void` (response chips × 3) + `onCloseTap?: () => void` (「いったん戻る」) | +6 / -2 |
+| 5 | `app/components/chat/states/S6ReadyForProposal.tsx` | `onProposeTap?` / `onReworkTap?` / `onEndTap?` 各 callback + `<Chip onClick>` × 3 | +8 / -3 |
+| 6 | `app/components/chat/states/S7ProposalShown.tsx` | `onApproveTap?` (approve + close 共に) + handoff chip onClick (別 task 候補、本 phase scope 外) | +5 / -2 |
+| 7 | `app/components/chat/states/UpperLayerStateRenderer.tsx` | StateComponentProps + UpperLayerStateRendererProps に `onResponseTap` / `onCloseTap` / `onProposeTap` / `onReworkTap` / `onEndTap` / `onApproveTap` 追加 + pass-through | +12 / -0 |
+| 8 | `app/components/chat/UpperLayerMount.tsx` | pure helper × 6: `buildS2AcceptedDispatch` / `buildS3ResponseDispatch` / `buildS5DoneDispatch` / `buildS5DirectExitDispatch` / `buildS6ProposeDispatch` / `buildS6ReworkDispatch` / `buildS6EndDispatch` / `buildS7DoneDispatch` 追加 + 対応 useCallback handler + Renderer prop wire + **S4 auto-advance useEffect** (state===S4 で setTimeout 1500ms → dispatch S4_DONE、cleanup で clear) | +60 / -0 |
+| 9 | `tests/unit/coalter/presence/stateTransitionDispatch.test.ts` (新規) | 関数 invoke 方式: 8 pure helpers の dispatch contract / 各 state component prop 型 contract / Renderer pass-through / S4 auto-advance helper 関数化 + timer test | +250 / -0 (新規) |
+
+**production diff 合計**: ~+101 / -11
+**test diff**: ~+250 (新規)
+
+**S4 auto-advance 設計**:
+```typescript
+// UpperLayerMount.tsx
+useEffect(() => {
+  if (exec.state.presence.state !== "S4") return;
+  const timer = setTimeout(() => {
+    exec.dispatch.presenceEvent({ type: "S4_DONE" });
+  }, S4_AUTO_ADVANCE_MS); // 例: 1500ms
+  return () => clearTimeout(timer);
+}, [exec.state.presence.state, exec.dispatch.presenceEvent]);
+```
+
+`S4_AUTO_ADVANCE_MS` は const 定義、**timer 値そのものは smoke 観測で調整**、本書では暫定値固定。
+
+**chip 動作 mapping**:
+
+| state | chip | dispatch event |
+|---|---|---|
+| S2 | response chips × 2 | `S2_ACCEPTED` (どの chip tap でも同 event) |
+| S3 | response chips × 2 (残像) | `S3_RESPONSE` |
+| S4 | (chip なし) | `S4_DONE` (auto-advance、timer) |
+| S5 | response chips × 3 (近い/少し違う/続けて) | `S5_DONE` |
+| S5 | close chip (いったん戻る) | `S5_DIRECT_EXIT` |
+| S6 | 提案を聞く | `S6_PROPOSE` |
+| S6 | もう少し整理する | `S6_REWORK` |
+| S6 | 今はここまでにする | `S6_END` |
+| S7 | 提案を受ける / × 閉じる | `S7_DONE` (両者共に S8 退出のため、UI spec §4.3.8) |
+
+**dev preview との整合**: `app/(dev)/coalter-preview/full/page.tsx:174-201` の各 button が dispatch する event と完全一致。production / dev preview 両方で同 pathway。
+
+#### Phase 2 (Gap 4): patternContext flag 設定経路 (smoke-only debug hook)
+
+**ゴール**: smoke 実施時に context flag (`needFraming` / `uncertaintyHigh` / `oneSidedFatigue` / `needTranslation` / `relationshipSignalsClear` / `relationshipNoiseHigh` / `infoMissing`) を立てる経路を **dev / Preview env 限定**で提供。production env では機能しない (env-gated、production 不変原則維持)。
+
+**根拠 — production logic は §9 保留**:
+- CEO 裁定 I-2/I-3/I-4 で「context flag 設定主体・閾値は §9 保留、A2 では mock boolean で test」
+- production 用の context flag 検出 (executor watcher / heuristic / LLM 検出) は **本 phase scope 外**、§9 確定後の別 phase
+- Stage 2.4-B smoke を **§9 保留に依存させない** ためには smoke 専用 hook が最善
+
+**設計方針**: 新規 env var + 新規 helper module + UpperLayerMount での useEffect 起動。
+
+**修正対象 file (推定)**:
+
+| # | file | 変更内容 | 想定 diff |
+|---|---|---|---|
+| 1 | `lib/coalter/presence/smokeContextOverride.ts` (新規) | env gate (`isSmokeContextOverrideEnabled()` getter、`process.env.NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT === "true"`) + `parseSmokeContextFlags(searchParams: URLSearchParams): Partial<PatternContext>` (URL query 解析、許可 flag のみ accept、unknown ignore) | +60 / -0 (新規) |
+| 2 | `app/components/chat/UpperLayerMount.tsx` | useEffect で `isSmokeContextOverrideEnabled()` && URLSearchParams から flag 解析 → `exec.dispatch.setPatternContext` で適用 | +12 / -0 |
+| 3 | `tests/unit/coalter/presence/smokeContextOverride.test.ts` (新規) | env gate / flag parse / unknown flag rejection / 全 flag 許可性 / 関数 invoke 方式 | +120 / -0 (新規) |
+
+**production diff 合計**: ~+12 / -0
+**test diff**: ~+180 (新規 file × 2)
+
+**新規 env var**:
+- 名前: `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT` (default false、build に inline)
+- production env: 未設定 → false → 何もしない (production 不変)
+- Preview env: CEO が必要時 `true` 設定 → smoke 用 hook 起動
+- 環境別動作:
+  - production: env 未設定 → 機能しない
+  - Preview (default): env 未設定 → 機能しない
+  - Preview (smoke 実施時のみ CEO が ON): env true → URL query 経由 flag 設定可
+
+**URL query 仕様**:
+```
+/talk/<thread_id>?coalter_smoke_flag=needFraming
+/talk/<thread_id>?coalter_smoke_flag=needFraming,uncertaintyHigh
+```
+
+複数 flag は `,` 区切り。許可 flag (`PatternContext` の field 名) のみ accept、unknown ignore。
+
+**production 不変保証**:
+- env 未設定 → `isSmokeContextOverrideEnabled()` returns false → useEffect は early return
+- production env を絶対 ON しない (CEO 厳守)
+- query parameter 自体は production env でも URL に付けられるが、env false なら無視される
+
+#### Phase 1 / Phase 2 の依存関係 + 実装順序
+
+| 状況 | smoke 完遂可? |
+|---|---|
+| Phase 1 alone | ❌ S5/S7 で `selectPattern` が context={} → null 返却、speech POST 起動なし |
+| Phase 2 alone | ❌ S5 到達経路ない (Phase 1 必須) |
+| **Phase 1 → Phase 2** | ✅ smoke 完遂可、推奨順序 |
+| Phase 2 → Phase 1 | ✓ 機能上は可だが、Phase 2 only では使い道なし |
+
+**推奨実装順序**: Phase 1 (Gap 3) → Phase 2 (Gap 4) → smoke 再開。CEO 個別承認で各 phase commit。
+
+#### 不可侵範囲 (Phase 1 + Phase 2 共通)
+
+- ✗ `selectPattern` / `constants` / `types`: 不接触
+- ✗ `signalAdapter` / `signalClassifier` / `criticalKeywordDetector`: 不接触
+- ✗ `reducer` (S2_ACCEPTED 等の transition は既存 case で完結): 不接触
+- ✗ `usePresenceExecutor` 本体 (既存 dispatch.presenceEvent / dispatch.setPatternContext を使うのみ): 不変
+- ✗ speech 系 (`validator` / `postValidator` / `builder` / `promptBuilder` / `llmCall`): 不接触
+- ✗ speech route (`app/api/coalter/speech/route.ts`): 不接触
+- ✗ speech prompt: 不変
+- ✗ model / max_tokens / length_override / timeout: 不変
+- ✗ Production env: 不接触
+- ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
+- ✗ 新規 dep 追加禁止 (`@testing-library/react` 等)
+- ✗ ChatClient.tsx: 不接触
+- ✗ UrgentLayer: 不接触
+- ✗ critical signal 経路 (S0→S2 直行): 完全不変
+
+#### 副作用範囲 (Phase 1 + Phase 2)
+
+| 状態 / 機能 | 影響 |
+|---|---|
+| S0Observing | 不変 |
+| S1Approaching | 不変 (B-2 commit `39566cfd` の wiring 維持) |
+| S2/S3/S5/S6/S7 components | optional callback props 追加、未指定時は従来通り (cursor "default") |
+| S4Understanding | 不変 (chip なし、auto-advance は UpperLayerMount 側で完結) |
+| selectPattern / Renderer / Reducer / Executor | logic 不変 (callback 経由 dispatch のみ) |
+| critical signal 経路 | 完全不変 |
+| speech fetch effect | 既存 deps 変化で自動発火 (S5/S7 到達 + variant 算出時) |
+| telemetry | 既存 emit 経路で自動 |
+| Production env | 機能しない (env-gated)、不変 |
+| §9 production logic (context flag 検出) | 触らない、保留継続 |
+
+#### test 方針 (関数 invoke のみ、新規 dep ゼロ)
+
+- file: `tests/unit/coalter/presence/stateTransitionDispatch.test.ts` (Phase 1)
+- file: `tests/unit/coalter/presence/smokeContextOverride.test.ts` (Phase 2)
+- pattern: B-2 と同 (`upperLayerMountActive.test.ts:13` 注記準拠、`@testing-library/react` 不要)
+- coverage:
+  - Phase 1: 8 pure helpers の dispatch contract / 各 state component の prop 型 contract / Renderer pass-through / S4 auto-advance helper 関数化 + timer mock test
+  - Phase 2: env gate / URL query parse / unknown flag rejection / 全 PatternContext flag 受け入れ確認 / production env false 時 no-op
+- **dep 追加**: 0 (`@testing-library/react` 等)
+
+### Stage 2.4-B 凍結状態 (CEO 確定 2026-05-09)
+
+| scenario | 状態 |
+|---|---|
+| 2.1.1〜2.1.3 (A@S2 normal/daily/travel) | **PASS 記録** (B-2 commit `39566cfd` で reachability + LLM 経路確認、quality は 1/4 fallback で stochastic 寄り) |
+| 2.1.4〜2.1.13 (B/C/D/E/F-2 base) | **凍結** (Gap 3 + Gap 4 解消必要) |
+| 2.1.14 (F-1 standalone 3 試行) | **凍結** (同上) |
+| canary throw #1 / #2 | **凍結** (上記 scenarios 完了後) |
+
+### 凍結解除条件
+
+1. CEO が B-3 修正設計 (本 entry の Phase 1 + Phase 2) を承認
+2. Phase 1 (Gap 3) 実装 + 既存 test 全 regression なし + 新規 test PASS
+3. Phase 2 (Gap 4) 実装 + 同上
+4. Phase 1 + Phase 2 build を Vercel Preview env で deploy + env (`NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT=true`) ON
+5. CEO 個別承認 (Stage 2.4-B 再開 GO)
+
+### CEO 厳守 (本記録 + B-3 設計提示時点でも継続)
+
+- ✗ 本記録は **docs-only**、impl 修正なし
+- ✗ Stage 2.4-B 2.1.4〜2.1.14 凍結 (B-3 Phase 1 + Phase 2 PASS まで)
+- ✗ Production env 変更しない
+- ✗ timeout / model / max_tokens / validator 変更しない
+- ✗ prompt 修正しない
+- ✗ selectPattern 修正しない
+- ✗ 自律で B-3 impl に着手しない (CEO 承認後のみ)
+- ✗ Gap 3 と Gap 4 を混ぜて一気に実装しない (CEO 厳守、Phase 1 → Phase 2 順)
+- ✗ Phase 2 で production logic (§9 保留中) を先取り実装しない (smoke-only debug hook に留める)
+
+### CEO 承認待ち項目
+
+1. Phase 1 (Gap 3) 修正設計 (~9 file / +101 production lines / +250 test lines、関数 invoke 方式) 採用可否
+2. Phase 2 (Gap 4) 修正設計 (~3 file / +12 production lines / +180 test lines、smoke-only debug hook、新規 env var) 採用可否
+3. 採用後の impl 着手順序 (Phase 1 → Phase 2 推奨)
+4. 修正設計に追加・変更項目があれば指示

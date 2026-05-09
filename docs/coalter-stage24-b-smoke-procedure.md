@@ -800,6 +800,85 @@ mini-smoke: 1/2 fallback。Wilson 95% CI for n=2 k=1: **9%〜91%**。
 
 ---
 
+## Appendix D — Stage 2.4-B 2.1.4〜2.1.14 凍結通知 (Gap 3 + Gap 4、2026-05-09 確定)
+
+### D.1 凍結状態
+
+CEO 確定 (2026-05-09、Option A 採用): **2.1.1〜2.1.3 (A@S2 3 mode) PASS 記録 + 2.1.4〜2.1.14 凍結**。B-3 残作業 (Gap 3 + Gap 4 修正設計、Phase 1 + Phase 2 完全分離) 実装 + test PASS + CEO 承認まで再開しない。
+
+### D.2 PASS 記録 (2.1.1〜2.1.3)
+
+| # | scenario | mode | response (本書 §7.1 形式) | 判定 |
+|---|---|---|---|---|
+| 2.1.1 attempt 2 | A@S2 normal | normal | source=llm / retries=0 / latencyMs=2014 / validationFailed=false / fallbackReason=null | **PASS** (attempt 1 fallback、retry で llm success) |
+| 2.1.2 | A@S2 daily | daily | source=llm / retries=0 / latencyMs=1851 / validationFailed=false / fallbackReason=null | **PASS** |
+| 2.1.3 | A@S2 travel | travel | source=llm / retries=0 / latencyMs=2248 / validationFailed=false / fallbackReason=null | **PASS** |
+
+A@S2 routing は production で 3 mode 動作確認済 (B-2 commit `39566cfd` の wiring が runtime で機能、quality は 1/4 fallback rate で stochastic noise 寄り)。
+
+### D.3 凍結根拠 — Gap 3 + Gap 4 (構造的 blocker、Gap 2 と同 pattern)
+
+#### Gap 3: state machine transition dispatch 経路 0 件
+
+production code 内に `S2_ACCEPTED` / `S3_RESPONSE` / `S4_DONE` / `S5_DONE` / `S5_DIRECT_EXIT` / `S6_PROPOSE` / `S6_REWORK` / `S6_END` / `S7_DONE` の **dispatch 0 件** (`exec.dispatch.presenceEvent` の利用は `UpperLayerMount.tsx:282` の `S1_ENTRY_OK` のみ、他は preview dev page `app/(dev)/coalter-preview/full/page.tsx:174-201`)。
+
+各 state component の chip / button onClick:
+
+| component | chip / button | onClick wire |
+|---|---|---|
+| **S1Approaching.tsx** | status chip | ✅ commit `39566cfd` (B-2) |
+| **S2Opening.tsx** | response chips × 2 | ❌ 未配線 |
+| **S3Awaiting.tsx** | response chips × 2 (残像) | ❌ 未配線 |
+| **S4Understanding.tsx** | (chip なし) | — (auto-advance trigger 不在) |
+| **S5Bridging.tsx** | response chips × 3 + close chip | ❌ 未配線 |
+| **S6ReadyForProposal.tsx** | action buttons × 3 | ❌ 未配線 |
+| **S7ProposalShown.tsx** | approve + close + handoff chips | ❌ 未配線 |
+
+#### Gap 4: `setPatternContext` caller 0 件
+
+production code 内に `dispatch.setPatternContext` の呼び出し **0 件**。`patternContext = {}` 固定のため `selectPattern("S5", *, {})` は **defensive null** 返却 (CEO 裁定 I-1/I-8、A2 test `patternSelectorRoutingSpec.test.ts` で lock 済) → S5 で variant=null → speech POST 起動なし → B/C/D/E variant 観測不可。
+
+### D.4 修正設計 cross-reference
+
+B-3 残作業 (Gap 3 + Gap 4 修正、Phase 1 + Phase 2 完全分離) の詳細設計は `docs/decision-log.md` の **[2026-05-09] [Build] [Stage 2.4-B 2.1.1〜2.1.3 A@S2 3 mode PASS 記録 + Gap 3/4 構造的 blocker 検出 + 2.1.4〜2.1.14 凍結 + B-3 残作業 修正設計提示 (Phase 1: Gap 3 / Phase 2: Gap 4 完全分離、impl は CEO 承認後)] entry** を参照。
+
+修正範囲サマリ:
+- **Phase 1 (Gap 3)**: ~9 file / +101 production lines / +250 test lines / 関数 invoke 方式
+- **Phase 2 (Gap 4)**: ~3 file / +12 production lines / +180 test lines / 新規 env var (smoke-only debug hook)
+- 順序: Phase 1 → Phase 2 (依存関係)
+
+### D.5 凍結解除条件
+
+1. CEO が B-3 修正設計 (Phase 1 + Phase 2) を承認
+2. Phase 1 (Gap 3) 実装 + 既存 test 全 regression なし + 新規 test PASS
+3. Phase 2 (Gap 4) 実装 + 同上
+4. Phase 1 + Phase 2 build を Vercel Preview env で deploy + env `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT=true` ON
+5. CEO 個別承認 (Stage 2.4-B 再開 GO)
+
+凍結解除後の手順:
+- 2.1.1〜2.1.3 は確認済 (本記録) のため skip
+- 2.1.4 (B@S5 normal) を `?coalter_smoke_flag=needFraming` 付き URL で実施 (Phase 2 hook 経由)
+- 各 scenario で適切な flag を query parameter で立てる
+- 失敗モード (§6.3.1 + 新規 transition 失敗モード) を別々に記録
+- canary throw 順守
+
+### D.6 不可侵 (凍結期間中も継続、CEO 厳守)
+
+- ✗ Stage 2.4-B 2.1.4〜2.1.14 凍結
+- ✗ Stage 2.4-B mini-smoke / full smoke 自律再開しない
+- ✗ B-3 自律 impl 着手しない (CEO 承認後のみ)
+- ✗ Gap 3 と Gap 4 を混ぜて一気に実装しない (Phase 1 → Phase 2 順)
+- ✗ Phase 2 で production logic (§9 保留) を先取り実装しない (smoke-only debug hook に留める)
+- ✗ selectPattern / constants / signalAdapter / signalClassifier / reducer 不接触
+- ✗ speech 系 (validator / postValidator / builder / promptBuilder / llmCall) 不接触
+- ✗ speech route 不接触
+- ✗ model / max_tokens / length_override / timeout 不変
+- ✗ Production env 不接触
+- ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
+- ✗ 新規 dep 追加禁止
+
+---
+
 ## Appendix A — 関連文書
 
 - `docs/coalter-presence-routing-spec.md` (A1-3 正本候補、commit `34067d98`)
@@ -822,6 +901,7 @@ mini-smoke: 1/2 fallback。Wilson 95% CI for n=2 k=1: **9%〜91%**。
 | 0.1-draft.3 | 2026-05-09 | Stage 2.4-B 1 回目試行 (2.1.1 / 2.1.2) で `/api/coalter/speech` 未発火が観測された後の read-only 診断結果反映: (1) §3 #2 観測項目に「通常テキスト入力は S0→S1 で停止、S1→S2 は status chip tap が必須」を明示。 (2) §6.2 Mini-smoke (full smoke 再開判断用、本書 commit 後 1 回限定、シナリオ 2.1.1 のみ) を新規追加。 (3) §6.3 各シナリオ実行 step list を 7 step → 10 step に拡張、S1 status chip 出現確認 + chip tap (`S1_ENTRY_OK` 発火) + S1→S2 transition 観測を明示。 (4) §6.3.1 chip-tap path 失敗モード 3 分類 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず) を新規追加 (mini-smoke + full smoke 共通)。 (5) §6.4-§6.7 を §6.5-§6.8 に renumber (Mini-smoke を §6.2 に挿入したため)。 (6) §7.1 sheet に chip-tap path 失敗モード列追加 + §7.1.0 mini-smoke 専用 sheet 追加。 (7) 過去 fetch 発火実績 (CEO 言及) を最新 build (`g31f4voyb`) 帰属未検証として弱解釈 ("少なくとも critical 経路では過去に発火実績がある") |
 | 0.1-draft.4 | 2026-05-09 | mini-smoke 2.1.1 (CEO 実施) で Failure A 確定 + read-only 診断 第 2 段階で **Gap 2 (S1 chip onClick 未配線、production code 内 `S1_ENTRY_OK` dispatch 経路 0 件)** 検出 → CEO 確定で **Stage 2.4-B 全体凍結**: (1) **Appendix C 新規追加** で凍結通知 + Gap 2 詳細 (構造的 blocker) + 修正設計 cross-reference (decision-log [2026-05-09] entry) + 凍結解除条件 (B-2 残作業 PASS + CEO 承認) + Gap 1 扱い (本命にしない、CEO 確定) + 凍結期間不可侵境界。 (2) §6.2 mini-smoke / §6.3 full smoke 手順は B-2 残作業実装 PASS まで実行しない |
 | 0.1-draft.5 | 2026-05-09 | B-2 残作業 wiring 実装 commit (`39566cfd`) push + Vercel Preview build (`culcept-8q3zli5i2-...`) Ready 後、CEO mini-smoke 2.1.1 実施 (attempt 1 fallback / attempt 2 retry llm success) → **Gap 2 解消確認 + Stage 2.4-B 凍結解除 + full smoke 再開 (2.1.2 から)**: (1) **Appendix C.7 新規追加** で凍結解除通知 + mini-smoke 2.1.1 attempt 1/2 完成 sheet (§7.1.0 形式) + response data 両 attempt 記録 + Gap 2 解消の最終確認 chain + 統計的評価 (1/2 fallback ≈ Stage 2.3 fallback rate、stochastic 寄り) + 凍結解除条件 4 項目 達成状況 + full smoke 再開条件 (2.1.2 から、cool-down 5+ min、新規スレッド推奨、canary throw 順) + 不変境界。 (2) 2.1.1 は mini-smoke 確認済みとして full smoke では skip |
+| 0.1-draft.6 | 2026-05-09 | CEO full smoke 2.1.2 (A@S2 daily) / 2.1.3 (A@S2 travel) 実施 → 両 PASS (source=llm) → **2.1.4 B@S5 進行前に Claude read-only 診断**: production code 内 (1) S2/S3/S4/S5/S6/S7 transition dispatch 経路 **0 件** (Gap 3 群 6 transitions、`UpperLayerMount.tsx` の `S1_ENTRY_OK` のみ wire、他は preview dev page のみ) (2) `setPatternContext` caller **0 件** (Gap 4、`patternContext={}` 固定で `selectPattern("S5",*,{})` defensive null) → CEO 確定 **Option A 採用**: (1) **Appendix D 新規追加** で Gap 3+Gap 4 凍結通知 + 2.1.1〜2.1.3 PASS 記録 + Gap 3 表 (6 transitions) + Gap 4 詳細 + 修正設計 cross-reference (decision-log [2026-05-09] entry の B-3 Phase 1/Phase 2 完全分離設計) + 凍結解除条件 + 凍結期間不可侵境界。 (2) Stage 2.4-B 2.1.4〜2.1.14 凍結。 (3) 2.1.1〜2.1.3 PASS は確認済として B-3 完成後の smoke では skip |
 
 ---
 
