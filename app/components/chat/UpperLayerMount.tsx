@@ -64,6 +64,10 @@ import {
 import { emitPatternUsed } from "@/lib/coalter/presence/telemetry";
 import type { PatternUsedEvent } from "@/lib/coalter/presence/telemetryEvents";
 import type { PresenceEvent } from "@/lib/coalter/presence/reducer";
+import {
+  isSmokeContextOverrideEnabled,
+  parseSmokeContextFlags,
+} from "@/lib/coalter/presence/smokeContextOverride";
 
 /**
  * Urgent fallback message (B-2、static、category-based)。
@@ -359,6 +363,37 @@ function UpperLayerMountActive() {
     );
     return () => clearTimeout(timer);
   }, [exec.state.presence.state, exec.dispatch.presenceEvent]);
+
+  /**
+   * B-3 Phase 2 残作業 — Smoke-only context flag injection harness
+   * (CEO/GPT 確定 2026-05-09 条件付き GO):
+   *
+   * Preview env で `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT=true` の場合のみ、
+   * URL query (`?coalter_smoke_flag=needFraming,uncertaintyHigh` 等) を読んで
+   * `Partial<PatternContext>` を `setPatternContext` に注入する。
+   *
+   * **Gap 4 production logic (executor watcher / heuristic) の解消ではない**。
+   * 本 hook は smoke harness 限定で、結果を production reachability PASS とは
+   * 呼ばない (CEO/GPT 補正)。
+   *
+   * fail-closed 設計:
+   *   - default false (env 未設定で何もしない、production 不変)
+   *   - exact "true" のみ accept ("1" / "yes" / "TRUE" 等は false 評価)
+   *   - whitelist 外の flag は無視 (`parseSmokeContextFlags` で fail-closed)
+   *   - 0 件 flag なら setPatternContext 呼ばない (default {} 維持)
+   *
+   * 実行タイミング: mount-once。`exec.dispatch.setPatternContext` setter 安定参照
+   * (useState 由来) のため effect は実質 1 回のみ実行。Preview env で URL 経由
+   * smoke 実施時、初回 mount で flag が反映される。
+   */
+  useEffect(() => {
+    if (!isSmokeContextOverrideEnabled()) return;
+    const overrideFlags = parseSmokeContextFlags(
+      new URLSearchParams(window.location.search),
+    );
+    if (Object.keys(overrideFlags).length === 0) return;
+    exec.dispatch.setPatternContext(overrideFlags);
+  }, [exec.dispatch.setPatternContext]);
 
   // ─────────────────────────────────────────────
   // L4-i Phase 1 (CEO 確定 2026-04-30、設計 v2):
