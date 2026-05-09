@@ -170,7 +170,7 @@ PII 混入が観測 / 共有後に判明した場合:
 | # | 観測項目 | 観測線 | 期待値 (routing spec / A1-3 由来) |
 |---|---|---|---|
 | 1 | UI 上部レイヤーで variant 発話本文が表示されるか | UI 視認 | variant 別 template に従った発話 (1-6 行、speech template §3-§9) |
-| 2 | `coalter.presence.state_transition` breadcrumb の経路 | Sentry | S0 → S1 → S2 → S3 → S4 → S5 (or S2 / S7) → ... → S8 |
+| 2 | `coalter.presence.state_transition` breadcrumb の経路 | Sentry | **S0 → S1 → (chip tap = S1_ENTRY_OK) → S2 → S3 → S4 → S5 (or S2 / S7) → ... → S8** (critical signal 経路時のみ S0→S2 直行で S1 skip、reducer.ts §1.5)。**通常テキスト入力は S0→S1 で停止、S1→S2 は status chip tap が必須** (§6.3.1 失敗モード 3 分類参照) |
 | 3 | `coalter.pattern.used` breadcrumb の `variant / state / mode` | Sentry | シナリオ表 §2.1 の expected と一致 |
 | 4 | `coalter.pattern.used` の `hasSecondary` | Sentry | 副次同伴がある時 true (F-2 主 + F-1 副次)、それ以外 false |
 | 5 | `/api/coalter/speech` POST response の `source` | Network | 期待 `"llm"` (env 揃っていれば)。`"static"` / `"fallback"` の場合は §5 判定基準に従う |
@@ -289,81 +289,180 @@ CEO 厳守ルール (再強調):
 5. Browser DevTools の Network panel (`/api/coalter/speech` filter) と Console を開く
 6. smoke 結果 sheet (§7 template) を準備
 
-### 6.2 各シナリオ実行 (12 シナリオ + F-1 3 試行)
+### 6.2 Mini-smoke (full smoke 再開判断用、本書 v0.1-draft.3 commit 後 1 回限定)
+
+CEO 厳守: **Stage 2.4-B full smoke (§6.3) 着手前に mini-smoke (本節) を 1 回のみ実施**。mini-smoke が PASS した後、CEO 個別判断で full smoke 再開可否を決める。Stage 2.4-B 1 回目の試行 (2.1.1 / 2.1.2) で fetch 未発火が観測されたため、本書 v0.1-draft.3 で chip tap step を明示後、その妥当性を最小範囲で検証する gate。
+
+#### 6.2.1 mini-smoke 範囲
+
+**シナリオ 2.1.1 (A@S2 normal、synthetic input 1 件) のみ**。F-1 試行 / 他シナリオは含まない。canary throw も実施しない (Sentry session 取得は full smoke で対応)。
+
+#### 6.2.2 mini-smoke 手順 (CEO 厳守 step 順)
+
+```
+[mini-1] Browser DevTools の Network panel を clear (前 session の残存 entry を消す)
+   ↓
+[mini-2] §6.1 事前準備 checklist 5.1〜5.7 を再確認
+   - 特に `g31f4voyb` build URL を使用していること、observation mode OFF run 種別、
+     synthetic input 限定を再確認
+   ↓
+[mini-3] シナリオ 2.1.1 synthetic input を投入
+   「二人で少し話したいことがあって、間に入ってもらえると助かる」
+   ↓
+[mini-4] S0→S1 transition 観測 (Sentry breadcrumb)
+   - coalter.presence.state_transition の (from=S0, to=S1, trigger=implicit) を確認
+   - 観測されない場合: 上流 wiring 全断疑い → §6.3.1 失敗モード A の極端版、CEO 報告
+   ↓
+[mini-5] S1 status chip 出現確認 (UI 視認)
+   - 上部レイヤーに「少し整理できそう」相当の status chip が表示されるか目視
+   - **出現しない場合: §6.3.1 失敗モード A 記録、mini-smoke NG**、CEO 報告 + full smoke 再開保留
+   ↓
+[mini-6] chip tap (operator action、S1_ENTRY_OK 発火源)
+   - chip 要素を 1 回 tap
+   ↓
+[mini-7] S1→S2 transition 観測
+   - coalter.presence.state_transition の (from=S1, to=S2) を確認
+   - **観測されない場合: §6.3.1 失敗モード B 記録、mini-smoke NG**、CEO 報告
+   ↓
+[mini-8] /api/coalter/speech POST observation (Network panel)
+   - mini-3 投入後の **新規** POST entry が 1 件出るか確認
+   - 出る場合: response body (`body / source / fallbackReason / latencyMs / validationFailed / retries`) を全 field 記録
+   - **出ない場合: §6.3.1 失敗モード C 記録、mini-smoke NG**、CEO 報告
+   ↓
+[mini-9] UI 上部レイヤー目視 + screenshot (PII redact 必須、§1.4)
+   - variant 発話本文 (Pattern A 入口発話、1-2 行) を確認 + screenshot
+   ↓
+[mini-10] CEO 報告 (本書 §7 簡略 sheet template)
+   - 全 step (mini-4〜mini-8) の observed / not observed
+   - §6.3.1 失敗モード分類 (A / B / C / 該当なし)
+   - 観測時刻 / Preview URL / Sentry Issue / Network HAR 抜粋
+```
+
+#### 6.2.3 mini-smoke 判定
+
+| 結果 | 判定 |
+|---|---|
+| mini-4〜mini-9 全 observed + speech body 取得成功 | **mini-PASS** → CEO 個別判断で full smoke (§6.3) 再開可 |
+| 失敗モード A / B / C のいずれか 1 つ以上観測 | **mini-NG** → 該当モードの原因 read-only 診断、impl 修正は CEO 個別承認後 |
+| mini-4 自体 not observed (S0→S1 すら起きない) | **wiring 全断疑い** → 根本診断、Stage 2.4-B 全体凍結検討 |
+
+#### 6.2.4 mini-smoke 不可侵
+
+- mini-smoke は **1 回のみ実施**。連続試行禁止
+- mini-NG 時の自律 fix 禁止 (§6.3.1 失敗モード分類記録 + CEO 報告のみ)
+- impl / UI / speech route / validator / model / max_tokens / timeout は触らない (本書 §8 継承)
+- production env 不接触
+
+### 6.3 各シナリオ実行 (full smoke、12 base + 3 F-1 試行、§6.2 mini-PASS 後)
 
 各シナリオで以下を順に実行:
 
 ```
-[Step 1] シナリオ trigger を UI 上の chat に投入
+[Step 1] シナリオ trigger を UI 上の chat に投入 (synthetic input、§1.4 PII 禁止)
    ↓
-[Step 2] presence transition 観測
-   - coalter.presence.state_transition breadcrumb で expected state まで遷移したか
-   - 中間 state (S0→S1→S2→...) も全て記録
+[Step 2] S0 → S1 transition 観測 (Sentry breadcrumb)
+   - coalter.presence.state_transition (from=S0, to=S1) を確認
+   - **critical signal 経路** (kind=critical、§reducer.ts §1.5) のみ S1 skip して S0→S2
+     直行 (例: シナリオが urgent 派生時)。base シナリオは implicit/soft で S0→S1 経路
    ↓
-[Step 3] coalter.pattern.used 観測
+[Step 3] S1 status chip 出現確認 (UI 視認)
+   - 「少し整理できそう」相当の status chip が表示されるか目視
+   - **chip が critical 経路 (S0→S2 直行) では出現しないことに注意** (S1 skip のため)
+   - 通常 base シナリオで chip 出現しない場合: §6.3.1 失敗モード A 記録、当該シナリオ
+     NG として次シナリオへ
+   ↓
+[Step 4] chip tap (S1_ENTRY_OK 発火、operator action)
+   - critical 経路は chip tap step を skip (既に S2)
+   - 通常経路は chip 1 回 tap
+   ↓
+[Step 5] S1 → S2 transition 観測 (critical 経路は S0→S2 直行で本 step は statement のみ)
+   - coalter.presence.state_transition (from=S1, to=S2) を確認
+   - **観測されない場合: §6.3.1 失敗モード B 記録、当該シナリオ NG**
+   ↓
+[Step 6] coalter.pattern.used 観測 (variant 算出後)
    - variant / state / mode / hasSecondary / speechSource / retries / latencyMs /
      validationFailed / fallbackReason を全 field 記録
    ↓
-[Step 4] /api/coalter/speech POST observation
+[Step 7] /api/coalter/speech POST observation (Network)
    - request body (variant / state / mode / context)
    - response body (body / tone / source / retries / latencyMs / validationFailed /
      fallbackReason / secondaryLine?)
+   - **POST が出ない場合: §6.3.1 失敗モード C 記録、当該シナリオ NG**
    ↓
-[Step 5] UI 上部レイヤー目視
+[Step 8] UI 上部レイヤー目視 + screenshot (§1.4 PII redact 必須)
    - variant 発話本文を screenshot 記録 (I-10 対策、actual state での品質確認)
    - 副次同伴 (F-2 主 + F-1 副次) がある時は 1 行追加表示も screenshot
    ↓
-[Step 6] §3 9 観測項目を smoke 結果 sheet に記録
+[Step 9] §3 9 観測項目を smoke 結果 sheet に記録
    ↓
-[Step 7] §5 判定基準で PASS / Yellow / NG 判定
+[Step 10] §5 判定基準で PASS / Yellow / NG 判定 (§6.3.1 失敗モードがあれば NG)
 ```
 
-### 6.3 シナリオ間 cool-down
+### 6.3.1 chip-tap path 失敗モード 3 分類 (CEO 厳守、mini-smoke + full smoke 共通)
+
+S0→S1→chip tap→S2 経路の各段階で失敗が起きた場合、以下 3 モードを **別々に記録** する。複数同時発火時は全て記録 (1 シナリオ 1 モードに集約しない)。これは F-1 三軸分離 (§4) と同じ厳密記録原則。
+
+| モード | 観測条件 | 想定原因 (要 CEO read-only 診断、自律 fix 禁止) |
+|---|---|---|
+| **A. chip 出現せず** | mini-5 / Step 3 で UI 上に S1 status chip が表示されない (S0→S1 transition は出ているのに chip が render されない、もしくは S0→S1 transition 自体出ない) | implicit signal が strength=none に落ちている / signalAdapter softScore 計算不良 / S1Notice (or 同等) component が render 経路に乗っていない / state machine が S1 に到達せず S0 留まり / signal subscribe (`subscribePresenceSignal`) 経路断 |
+| **B. chip tap しても S2 に進まない** | mini-7 / Step 5 で chip tap 後、S1→S2 transition breadcrumb が観測されない | onChipTap → S1_ENTRY_OK dispatch が未配線 / dispatcher 経路で event が drop / cooldown / availability 等の上位 gate / chip element の click handler が effective でない |
+| **C. S2 到達したが /api/coalter/speech が POST されない** | mini-7 / Step 5 で S1→S2 確認、mini-8 / Step 7 で fetch が出ない | speechFetchGate 評価 false (build 不一致) / variant=null (selectPattern で抑制) / state/mode/threadId のいずれかが null / cache hit による fetch skip (§UpperLayerMount cache key 一致) / observationMode 経路逸脱 |
+
+#### 6.3.1.1 失敗モード記録形式 (CEO 報告必須項目)
+
+- 観測されたモード (A / B / C / 複数 / なし)
+- 各モードの観測時刻 (UTC)
+- Sentry breadcrumb の有無 (state_transition / pattern.used / urgent.triggered / mode.transition)
+- Network panel での POST 有無 (request body 抜粋、PII redact 済 synthetic のみ)
+- UI screenshot (PII redact 済)
+- 推測される原因 (CEO 個別判断のため、原因断定はしない、候補列挙)
+
+### 6.4 シナリオ間 cool-down
 
 各シナリオ間で **5 分以上の cool-down** を取る (UI spec §1.6 / v1.1 §8.6 同 state 5 分再起動禁止に整合)。連続実行で `rate_limited` fallback が観測される場合は cool-down 不足として記録。
 
-### 6.4 Canary throw #1 — base scenarios (2.1.1〜2.1.13) 完了後
+### 6.5 Canary throw #1 — base scenarios (2.1.1〜2.1.13) 完了後
 
 base scenarios (シナリオ 2.1.1〜2.1.13、12 行) を全て実施した後、Sentry に **breadcrumb session の export 用 canary error event** を 1 件起こす。Sentry 上では Issue が 1 件作成され、当該 session の breadcrumb trail (4 category 全) が同 event の context として保全される。
 
-#### 6.4.1 実行コマンド (Browser DevTools Console)
+#### 6.5.1 実行コマンド (Browser DevTools Console)
 
 ```javascript
 setTimeout(() => { throw new Error("CoAlter Stage 2.4-B smoke base") }, 0)
 ```
 
-#### 6.4.2 確認
+#### 6.5.2 確認
 
 - Sentry > Issues で `CoAlter Stage 2.4-B smoke base` が 1 件出現することを確認
 - 出現しない場合: Sentry DSN / sample rate / network blocking のいずれかを確認、再実行
 - 出現後: Issue を開いて breadcrumb trail に `coalter.presence.state_transition` / `coalter.pattern.used` / `coalter.mode.transition` (該当時 `coalter.urgent.triggered`) が含まれることを確認
 
-#### 6.4.3 不可侵
+#### 6.5.3 不可侵
 
 - 本 throw 文以外の console 操作 (eval / inject) はしない
 - Production env / production データに対して絶対実行しない (Preview env 限定)
 
-### 6.5 F-1 特別シナリオ (2.1.14) の実施
+### 6.6 F-1 特別シナリオ (2.1.14) の実施
 
 §4.3 の三分類 (I primary 到達 / II secondary 到達 / III 到達不能) を判定するため、シナリオ 2.1.14 のみ **3 回試行** (異なる **synthetic** user 入力パターン、§1.4 PII 禁止)。各試行を 3 軸別 record で残す (§4.5 strict 分離)。
 
-### 6.6 Canary throw #2 — F-1 特別観察 (2.1.14) 完了後
+### 6.7 Canary throw #2 — F-1 特別観察 (2.1.14) 完了後
 
 F-1 特別シナリオ 3 試行 完了後、もう 1 件 canary throw を実行。base scenarios と F-1 特別の breadcrumb session を **別 Issue で分離保全** するため。
 
-#### 6.6.1 実行コマンド (Browser DevTools Console)
+#### 6.7.1 実行コマンド (Browser DevTools Console)
 
 ```javascript
 setTimeout(() => { throw new Error("CoAlter Stage 2.4-B smoke f1-special") }, 0)
 ```
 
-#### 6.6.2 確認
+#### 6.7.2 確認
 
 - Sentry > Issues で `CoAlter Stage 2.4-B smoke f1-special` が 1 件出現
 - breadcrumb trail に F-1 試行 3 回分の `coalter.pattern.used` (variant=F1 or F2 + hasSecondary) が含まれることを確認
 - §4 三分類判定の根拠記録として保全
 
-### 6.7 smoke 終了後
+### 6.8 smoke 終了後
 
 - 全シナリオ結果を §7 template に転記
 - canary throw 2 件の Sentry Issue URL を §7 サマリに添付
@@ -375,20 +474,37 @@ setTimeout(() => { throw new Error("CoAlter Stage 2.4-B smoke f1-special") }, 0)
 
 ## §7 結果報告フォーマット
 
-### 7.1 シナリオ別 結果 sheet (12 base + 3 F-1 試行 = 15 行 + F-1 三軸分離 record)
+### 7.1 シナリオ別 結果 sheet (12 base + 3 F-1 試行 = 15 行 + F-1 三軸分離 record + chip-tap path 記録)
 
-| # | シナリオ | 9 項目観測 | actual state | source | fallbackReason | latencyMs | validationFailed | retries | 発話本文 (UI screenshot、synthetic redact 済) | 判定 (PASS/Yellow/NG) | I-10 観点 (B/C/F-1 のみ) |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 2.1.1 | A@S2 normal | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | (該当なし) |
-| 2.1.4 | **B@S5 normal** | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
-| 2.1.5 | **C@S2 normal** | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
-| 2.1.6 | **C@S5 normal** | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
-| 2.1.12 | F-2 + F-1 副次 (Daily) | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | (副次同伴 = §4 (II)) |
-| 2.1.13 | F-2 + F-1 副次 (Travel) | _/9 | _ | _ | _ | _ | _ | _ | _ | _ | (副次同伴 = §4 (II)) |
-| ... (他シナリオ同様) | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
-| 2.1.14a | F-1 試行 1 | _/9 | _ | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
-| 2.1.14b | F-1 試行 2 | _/9 | _ | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
-| 2.1.14c | F-1 試行 3 | _/9 | _ | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
+| # | シナリオ | 9 項目観測 | actual state | chip-tap path 失敗 (§6.3.1) | source | fallbackReason | latencyMs | validationFailed | retries | 発話本文 (UI screenshot、synthetic redact 済) | 判定 (PASS/Yellow/NG) | I-10 観点 (B/C/F-1 のみ) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2.1.1 | A@S2 normal | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | (該当なし) |
+| 2.1.4 | **B@S5 normal** | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
+| 2.1.5 | **C@S2 normal** | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
+| 2.1.6 | **C@S5 normal** | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | **I-10 PASS/Yellow/NG** |
+| 2.1.12 | F-2 + F-1 副次 (Daily) | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | (副次同伴 = §4 (II)) |
+| 2.1.13 | F-2 + F-1 副次 (Travel) | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | _ | (副次同伴 = §4 (II)) |
+| ... (他シナリオ同様) | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| 2.1.14a | F-1 試行 1 | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
+| 2.1.14b | F-1 試行 2 | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
+| 2.1.14c | F-1 試行 3 | _/9 | _ | A / B / C / なし | _ | _ | _ | _ | _ | _ | I/II/III 別 record | **§4 三軸 record** |
+
+**chip-tap path 失敗モード列**: §6.3.1 の 3 分類 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず) を記録。複数発生時は併記 (例: "A+C")。critical 経路 (S0→S2 直行) のシナリオは「N/A (critical 経路)」と記録。
+
+### 7.1.0 mini-smoke 専用 result sheet (§6.2)
+
+mini-smoke (full smoke 再開判断 gate) は full smoke sheet とは別 sheet で記録する。
+
+| # | step | observed | not observed | 失敗モード (A/B/C) | 詳細 |
+|---|---|---|---|---|---|
+| mini-4 | S0→S1 transition (Sentry) | ✓/✗ | ✓/✗ | _ | breadcrumb URL or trail |
+| mini-5 | S1 status chip 出現 (UI) | ✓/✗ | ✓/✗ | A 候補 | screenshot URL (PII redact 済) |
+| mini-6 | chip tap (operator action) | ✓/✗ | — | _ | tap 時刻 |
+| mini-7 | S1→S2 transition (Sentry) | ✓/✗ | ✓/✗ | B 候補 | breadcrumb URL |
+| mini-8 | /api/coalter/speech POST 新規 | ✓/✗ | ✓/✗ | C 候補 | Network HAR 抜粋 (synthetic only) |
+| mini-9 | UI 発話本文 (Pattern A) | ✓/✗ | ✓/✗ | _ | screenshot URL (PII redact 済) |
+
+**mini-smoke 判定**: mini-4〜mini-9 全 observed → mini-PASS。失敗モード A/B/C のいずれか → mini-NG (§6.2.3 判定基準)。
 
 ### 7.1.1 F-1 三軸分離 record (CEO 厳守、§4.5)
 
@@ -534,7 +650,8 @@ CEO 個別判断要件:
 | 版 | 日付 | 内容 |
 |---|---|---|
 | 0.1-draft | 2026-05-08 | 初版起草 (Stage 2.4-B 手順書、CEO 確認待ち)。A1-3 routing spec + A2 selector test を踏まえた UI 到達性 smoke の前段階 |
-| 0.1-draft.2 | 2026-05-08 | CEO review #1 反映: (1) §1.2 env vars に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 追加、`NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` ON/OFF 記録規約 §1.2.1 追加。 (2) §6.4 / §6.6 に Sentry breadcrumb 取得用 canary throw 2 箇所 (base scenarios 後 / F-1 特別観察後) 明記。 (3) §4 F-1 判定を strict 分離 (I primary / II secondary / III 到達不能 を独立 record、secondary を primary PASS 扱いしない明示)。 (4) §1.4 Synthetic input / PII 禁止追加 + §7.3 / §7.4 共有規約に反映 |
+| 0.1-draft.2 | 2026-05-08 | CEO review #1 反映: (1) §1.2 env vars に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 追加、`NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` ON/OFF 記録規約 §1.2.1 追加。 (2) §6.4 / §6.6 (= 当版番号) に Sentry breadcrumb 取得用 canary throw 2 箇所 (base scenarios 後 / F-1 特別観察後) 明記。 (3) §4 F-1 判定を strict 分離 (I primary / II secondary / III 到達不能 を独立 record、secondary を primary PASS 扱いしない明示)。 (4) §1.4 Synthetic input / PII 禁止追加 + §7.3 / §7.4 共有規約に反映 |
+| 0.1-draft.3 | 2026-05-09 | Stage 2.4-B 1 回目試行 (2.1.1 / 2.1.2) で `/api/coalter/speech` 未発火が観測された後の read-only 診断結果反映: (1) §3 #2 観測項目に「通常テキスト入力は S0→S1 で停止、S1→S2 は status chip tap が必須」を明示。 (2) §6.2 Mini-smoke (full smoke 再開判断用、本書 commit 後 1 回限定、シナリオ 2.1.1 のみ) を新規追加。 (3) §6.3 各シナリオ実行 step list を 7 step → 10 step に拡張、S1 status chip 出現確認 + chip tap (`S1_ENTRY_OK` 発火) + S1→S2 transition 観測を明示。 (4) §6.3.1 chip-tap path 失敗モード 3 分類 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず) を新規追加 (mini-smoke + full smoke 共通)。 (5) §6.4-§6.7 を §6.5-§6.8 に renumber (Mini-smoke を §6.2 に挿入したため)。 (6) §7.1 sheet に chip-tap path 失敗モード列追加 + §7.1.0 mini-smoke 専用 sheet 追加。 (7) 過去 fetch 発火実績 (CEO 言及) を最新 build (`g31f4voyb`) 帰属未検証として弱解釈 ("少なくとも critical 経路では過去に発火実績がある") |
 
 ---
 
