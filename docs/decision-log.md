@@ -4780,3 +4780,223 @@ Stage 2.4-D (production-ready audit) ← Stage 2.4-C 完了後
 ### 次 phase: Stage 2.4-C / D 着手判断 (CEO directive 待ち)
 
 CEO 個別判断材料として、本 entry の続編で Stage 2.4-C / D 提案を別 commit / 別 entry で出す予定。本記録は Stage 2.4-B Yellow付きPASS の集約に集中。
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-C 観察ベース timeout/fallback risk assessment Yellow 付き PASS + Sentry monitoring threshold 案 + 残リスク (fallback path direct observation 未実施) Production reflection 後 monitoring へ持ち越し] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-09): Stage 2.4-B Yellow付きPASS docs commit (`208494c7`) push 後、Stage 2.4-C 着手 GO。CEO 補正で **「UI timeout/fallback 完全確認」「direct runtime confirmation」と呼ばない**、**「観察ベースの timeout/fallback risk assessment」「Yellow 付き観察ベース PASS」「observed-risk acceptable / monitoring 条件付き」** と表現規約。Option C-1 採用 (docs-only、追加 smoke なし、mock latency injection なし、CEO 厳守 impl 修正禁止)。
+
+### 表現規約 (CEO 補正準拠、本 phase 終了後も継続)
+
+- ❌ 「UI timeout/fallback 完全確認」「direct runtime confirmation」と呼ばない
+- ✅ 「観察ベースの timeout/fallback risk assessment」「Yellow 付き観察ベース PASS」
+- ✅ 「observed-risk acceptable / monitoring 条件付き」
+
+### Option 採用根拠 (再確認)
+
+| Option | 内容 | 評価 |
+|---|---|---|
+| **C-1 (採用)** | 観察ベース、docs-only、Stage 2.3 + Stage 2.4-B 既存データ集約 + code-level audit + monitoring 案 | CEO 厳守 + 進度維持、direct observation 不在は monitoring で代替 |
+| C-2 (不採用) | mock latency injection で直接 timeout 再現 | **CEO 厳守違反** (impl 修正禁止、speech route / timeout 不変) |
+| C-3 (不採用) | passive observation (時間経過待ち) | 不確実、進度阻害 |
+
+### §1 過去 timeout 観測履歴
+
+#### §1.1 Stage 2.3 期間 (2026-05-07 〜 2026-05-08)
+
+| 観測時期 | timeout 設定 | timeout 件数 | sample 数 | rate |
+|---|---|---|---|---|
+| Stage 2.2 Block 2 (smoke v6) | **8s** | **1 件** | 20 | 5.0% |
+| Stage 2.2 Block 3 (smoke v6) | **8s** | **1 件** | 累積 ~55 で発火 | — |
+| → CEO Round 7 確定: timeout 8s → 10s 拡張 (`SPEECH_FETCH_TIMEOUT_MS = 10_000`、`UpperLayerMount.tsx:113`) | | | | |
+| Round 7 confirm (smoke v7) | 10s | 0 件 | 20 | 0% |
+| Round 7 confirm (smoke v8) | 10s | 0 件 | 20 | 0% |
+| Round 8 / 9 / 10 (Stage 2.3 final) | 10s | 0 件 | 累積 ~110 | 0% |
+
+統計サマリ:
+- **8s 設定での timeout rate ≈ 3.6%** (累積 2/55)
+- **10s 拡張後 timeout rate 0%** (累積 ~110 sample)
+- 8s→10s 拡張が runtime で支持された (CEO Round 7 案 A 確定の判断 validation)
+
+#### §1.2 Stage 2.4-B 期間 (2026-05-09)
+
+| 観測 | timeout 件数 | latency max | sample |
+|---|---|---|---|
+| Stage 2.4-B mini-smoke 全 16 sample | **0 件** | 4798ms (2.1.10 E@S5、retry 含む) | 16 |
+
+10s timeout に対し **4798ms = 47.98% margin**。
+
+#### §1.3 累積統計
+
+- 10s timeout 拡張後の累積: ~110 (Stage 2.3) + 16 (Stage 2.4-B) = **~126 sample で 10s timeout 発火 0 件**
+- 観察上 **timeout は安定**
+
+### §2 10s timeout margin 妥当性評価
+
+| 軸 | 値 | 評価 |
+|---|---|---|
+| LLM 単発 latency typical (Anthropic Claude Sonnet 4.5) | 1-3 秒 | base reference |
+| Stage 2.4-B 16 sample latency median | ~2400ms | typical 範囲内 |
+| Stage 2.4-B 16 sample latency max | 4798ms (retry 含) | margin 中 |
+| 10s timeout vs typical | 3-10x margin | 妥当 |
+| 10s timeout vs max observed | 2.1x margin | 安全側 |
+
+→ **10s timeout は妥当**。Round 7 8s→10s 拡張判断は runtime で支持された。
+
+### §3 UI fallback path code-level audit (read-only)
+
+`UpperLayerMount.tsx` fetch effect (line 323-608) read-only audit:
+
+#### §3.1 timeout 切断 path (line 376-379, 540-573)
+
+```typescript
+const timeoutId = setTimeout(() => {
+  timeoutFired = true;
+  controller.abort();
+}, SPEECH_FETCH_TIMEOUT_MS);  // 10000ms
+
+// catch block で AbortError + timeoutFired 判定
+if (isAbort && !timeoutFired) {
+  // cleanup 由来 (state/mode/variant 変化での副次 abort) → cache 汚さず
+  setSpeechBody(null);
+  return;
+}
+// timeout 由来 → fallback emit + negative cache
+emitSpeechTelemetry("fallback", 0, elapsedMs, false, "timeout");
+```
+
+→ `source="fallback"` `fallbackReason="timeout"` で telemetry emit、`speechBody=null` で UI を hardcoded fallback (各 state component の `S2_FALLBACK_BODY` 等) に戻す。**UI 崩れない設計**。
+
+#### §3.2 cache / negative cache (line 354-365)
+
+- `(variant, state, mode)` cacheKey で session cache hit → 即適用 (production-like behavior)
+- negative cache 期限:
+  - `timeout` / `llm_error` / `validation_failed` 由来: 30s
+  - `rate_limited` 由来: 70s (rate window 整合)
+- observation mode OFF (Stage 2.4-B 既往) で機能、Production と同等挙動
+
+#### §3.3 in-flight dedupe (line 368-370)
+
+- `(variant, state, mode)` の同 key 並列 fetch を防止 (1 instance 内)
+- cleanup で AbortController 経由 stale 防止
+
+#### §3.4 関数 contract レベル確認 (test layer)
+
+- A2 test (`patternSelectorRoutingSpec.test.ts`): selector layer のみ test、fetch effect 未 cover
+- B-2 / B-3 Phase 1 / Phase 2 test (`s1ChipDispatch` / `stateTransitionDispatch` / `smokeContextOverride`): dispatch / pure helper / env gate test、fetch effect timeout / fallback path は **unit test 未 cover**
+- → **fetch effect の timeout / fallback path は code review only、関数 contract validation 限定**
+
+### §4 Stage 2.4-B での timeout / fallback 観測の意義
+
+- 16/16 で `source="llm"`、validationFailed 0、fallback 0、timeout 0
+- **failure path 直接観測 0 件** (本 phase で観察できなかった軸)
+- ただし success path 100% 安定は **production environment での provider 安定性の根拠**
+
+### §5 timeout/fallback direct reproduction 未実施 (残リスク)
+
+#### §5.1 何を観測していないか
+
+| 軸 | 観測状態 |
+|---|---|
+| timeout 切断時の UrgentLayer fallback 起動 | direct UI observation **なし** |
+| timeout 後の cache / negative cache 動作 | direct observation **なし** |
+| 連続発火時の in-flight dedupe | direct observation **なし** |
+| Stage 2.3 で観察された 60 秒級 spike (Block 3) の UI 再現 | direct observation **なし** |
+
+#### §5.2 残リスクの性質
+
+- Stage 2.3 + Stage 2.4-B 統計: 10s timeout rate 0% (累積 ~126 sample)
+- code-level audit: fallback path は impl 済、関数 contract OK
+- **direct UI 観測なし → Production reflection 後の monitoring 必須**
+
+### §6 Sentry monitoring threshold 案 (Production reflection 必須条件、CEO 補正準拠)
+
+Production env に反映する場合、以下の **Sentry alert 設定を必須条件** とする:
+
+| 指標 | 警告 (yellow alert) | 緊急 (red alert) | 根拠 |
+|---|---|---|---|
+| `coalter.pattern.used.fallbackReason="timeout"` rate (1h window) | **5%** over 1h | **10%** over 15min | Stage 2.3 累積 ~3.6%、増加で alert |
+| `coalter.pattern.used.fallbackReason="validation_failed"` rate (1h window) | **10%** over 1h | **20%** over 15min | Stage 2.3 PASS rate baseline (Round 7 確定) |
+| `coalter.pattern.used.latencyMs` p95 (1h window) | **5000ms** | **8000ms** | LLM 単発 ~2-3 秒、retry 含 ~8 秒 |
+| `coalter.pattern.used.fallbackReason="llm_error"` rate (1h window) | **5%** | **10%** | Anthropic API 5xx / 通信 error 想定 |
+| `coalter.pattern.used.fallbackReason="rate_limited"` rate (1h window) | **1%** | **5%** | Rate window 整合、稀発火想定 |
+| `coalter.pattern.used.retries=-1` rate (全 retry 失敗 fallback) (1h window) | **5%** | **10%** | Stage 2.3 累積 ~3.6% |
+
+#### §6.1 alert 動作仕様
+
+- **警告 (yellow alert)**: Slack notification、CEO + dev team 認知、24h 以内に手動調査
+- **緊急 (red alert)**: 即時 alert、必要に応じ kill switch (`COALTER_PRESENCE_SPEECH_LLM=false`) で speech LLM 経路停止判断
+
+#### §6.2 Production reflection 時の必須条件
+
+これらの threshold で Sentry alert を設定し、CEO 反映承認の前提条件とする。alert 設定なしでの Production reflection は **本 Stage 2.4-C Yellow 付き観察ベース PASS の前提を満たさない**。
+
+### §7 Stage 2.4-C 判定 (Yellow 付き観察ベース PASS、CEO 補正準拠)
+
+| 軸 | 結果 | 判定 |
+|---|---|---|
+| Stage 2.3 timeout 履歴 statistical | 8s 設定 ~3.6% / 10s 拡張後 0% | 観察上安定 |
+| Stage 2.4-B timeout 観測 (10s 設定下) | 0/16 | 観察上安定 |
+| 10s timeout margin (LLM 典型 latency 比較) | 2-10x | 妥当 |
+| UI fallback path code-level | 関数 contract OK (read-only audit) | 関数 contract 確認 |
+| timeout/fallback direct reproduction | **未実施** (CEO 厳守 impl 修正禁止) | **残リスク** |
+| Sentry monitoring threshold 案 | 6 指標提案 | Production reflection **必須条件** |
+| fallback path direct observation | **未実施** | **残リスク (Production reflection 後 monitoring へ持ち越し)** |
+
+→ **Stage 2.4-C Yellow 付き観察ベース PASS** (CEO 補正準拠で「direct runtime confirmation」とは呼ばない、observed-risk acceptable / monitoring 条件付き)
+
+### §8 残リスク (Yellow notes、Production reflection 後 monitoring へ持ち越し)
+
+| # | 内容 | 残置先 |
+|---|---|---|
+| 1 | timeout 切断時 UrgentLayer fallback 起動 direct UI observation 未実施 | Production reflection 後 Sentry alert で実 user 環境観測 |
+| 2 | speech card cache / negative cache 動作 direct observation 未実施 | 同上 |
+| 3 | in-flight dedupe direct observation 未実施 | 同上 |
+| 4 | 60s 級 spike の UI 再現 direct observation 未実施 (Stage 2.3 Block 3 で 1 件観察例あるが、Stage 2.4-B では再現なし) | 同上 |
+
+これらは **本 Stage 2.4 範囲では直接観測しない**。**Production reflection 後の Sentry monitoring (§6) で実 user 環境観測** に持ち越す。**現時点で direct reproduction は CEO 厳守 (impl 修正禁止) で不可能**。
+
+### §9 Stage 2.4 進行プロトコル update
+
+```
+Stage 2.4-A ✅ PASS (commit 34067d98 / e14682cd)
+   ↓
+Stage 2.4-B ✅ Yellow付きPASS (commit 39566cfd / ae7b6ecf / cce40487 + 208494c7 docs)
+   ↓
+Stage 2.4-C ✅ Yellow 付き観察ベース PASS (本記録、docs-only)
+   ↓
+Stage 2.4-D (production-ready audit) ← CEO 個別承認後
+   ↓
+[Production reflection は CEO 判断、§6 Sentry monitoring threshold を必須条件とする]
+```
+
+### §10 不変境界 (Stage 2.4-C 期間中 + 完了後共通、CEO 厳守)
+
+- ✗ Production env 変更しない
+- ✗ production context detector 実装しない (Gap 4、別 phase)
+- ✗ selectPattern 修正しない
+- ✗ prompt 修正しない (Round 6-10 確定状態維持)
+- ✗ validator / model / max_tokens / timeout 変更しない
+- ✗ 追加 smoke しない (本 phase は観察ベース、docs-only)
+- ✗ mock latency injection しない (CEO 厳守)
+- ✗ Stage 2.4-D 自律着手しない (CEO 個別承認後)
+- ✗ 残リスク 4 件を本 phase で direct reproduction しない (Production reflection 後 monitoring へ持ち越し)
+- ✗ Stage 2.4-C を「direct runtime confirmation」と呼ばない (CEO 補正準拠)
+- ✗ B-3 Phase 2 を「Gap 4 解消」と呼ばない
+- ✗ Stage 2.4-B Yellow付きPASS / Stage 2.4-C Yellow 付き観察ベース PASS を **production reachability PASS と呼ばない**
+
+### §11 次 phase 着手判断 (CEO 承認待ち)
+
+Stage 2.4-D (production-ready audit、集約) 着手は CEO 個別承認後。本記録 (Stage 2.4-C) で:
+- Stage 2.4-C Yellow 付き観察ベース PASS 確定
+- §6 Sentry monitoring threshold 案 を Stage 2.4-D で **Production reflection 必須条件** として継承
+- 残リスク 4 件 を Stage 2.4-D で **Production reflection 後 monitoring 計画** として整理
+
+CEO 個別判断要件 (Stage 2.4-D 着手時):
+1. 集約 doc を `docs/coalter-stage24-production-reflection.md` で新規作成 vs decision-log only
+2. Production reflection の **タイミング** (Stage 2.4-D 完了後すぐ / 別タスク化)
+3. Sentry alert 設定の **operator 担当** (CEO / dev team)
+4. kill switch (`COALTER_PRESENCE_SPEECH_LLM=false`) の rollback plan 確定
