@@ -632,6 +632,68 @@ CEO 個別判断要件:
 
 ---
 
+## Appendix C — Stage 2.4-B 凍結通知 (Gap 2 blocker、2026-05-09 確定)
+
+### C.1 凍結状態
+
+CEO 確定 (2026-05-09): **Stage 2.4-B 全体 (full smoke / mini-smoke 含む) は凍結**。本書 §6.2 mini-smoke 手順 / §6.3 full smoke 手順は **B-2 残作業 (S1 chip → S1_ENTRY_OK wiring) 実装 + test PASS + CEO 承認** までは実行しない。
+
+### C.2 凍結根拠 — Gap 2 (構造的 blocker)
+
+mini-smoke 2.1.1 実施 (CEO、2026-05-09) で **Failure A (S1 status chip 出現せず)** 確定 → 第 2 段階 read-only 診断で:
+
+- **Production UI の S1 status chip は onClick 未配線**
+  - `app/components/chat/states/S1Approaching.tsx:38` で `<Chip variant="status">少し整理できそう</Chip>` を render するが onClick prop を渡していない
+  - `app/components/chat/states/Chip.tsx:36-37` の comment 「B-1 では呼び出し側で no-op、B-2 以降で event dispatch」が **B-2 で signal 入力経路のみ実装、chip→dispatch は未実装** で残存
+- **Production code 内に `S1_ENTRY_OK` dispatch 経路が存在しない** (grep 全数 search)
+  - 唯一の dispatch site: `app/(dev)/coalter-preview/full/page.tsx:174` (preview dev page、production 経路外)
+  - production code (`app/(culcept)/...` / `app/components/chat/...`): 0 件
+- 結果: **S1 → S2 advancement は production で構造的に不可能** (critical signal による S0→S2 直行 skip 経路のみ S2 到達可)
+- 通常テキスト input (implicit signal) では Stage 2.4-B mini-smoke / full smoke は完遂不可
+
+### C.3 修正設計 cross-reference
+
+B-2 残作業 (S1 chip wiring) の修正設計提案は `docs/decision-log.md` の **[2026-05-09] [Build] [Stage 2.4-B 凍結 + Gap 2 blocker 確定] entry** に記載。
+
+修正範囲サマリ (4 file、~+13 production lines + 関数 invoke 方式 test):
+- `app/components/chat/states/S1Approaching.tsx`: `onChipTap?: () => void` prop 追加 + `<Chip onClick={onChipTap}>` で渡す
+- `app/components/chat/states/UpperLayerStateRenderer.tsx`: `StateComponentProps` + `UpperLayerStateRendererProps` に `onChipTap` 追加 + pass-through
+- `app/components/chat/UpperLayerMount.tsx`: `handleS1ChipTap` callback 追加 (`exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })`) + Renderer に渡す
+- `tests/unit/coalter/presence/s1ChipDispatch.test.ts` (新規、関数 invoke のみ、`@testing-library/react` 不要)
+
+### C.4 凍結解除条件
+
+以下 全 PASS 後に CEO 承認で凍結解除:
+1. B-2 残作業 修正設計 CEO 承認
+2. 上記 4 file 実装 + 既存 test 全 regression なし
+3. 新規 test (s1ChipDispatch) PASS
+4. CEO 個別承認 (Stage 2.4-B 再開 GO)
+
+凍結解除後の手順:
+- mini-smoke 2.1.1 を再実施 (本書 §6.2.2)
+- mini-PASS 確認 → full smoke (本書 §6.3) 再開判断 (CEO)
+
+### C.5 Gap 1 の扱い (CEO 確定 2026-05-09)
+
+Gap 1 (スレッド state が過去 critical signal で既に S0 を超えていた可能性) は:
+- 未確定 (Sentry 観測未実施、Gap 2 が解消されない限り検証意味なし)
+- 新規スレッド再試行を **本命にしない**
+- B-2 残作業 PASS 後に mini-smoke 再開時、新規スレッド or page reload で初期 state=S0 で実施することは推奨
+
+### C.6 不可侵 (凍結期間中も継続)
+
+- ✗ Stage 2.4-B full smoke / mini-smoke 再開せず
+- ✗ 自律で B-2 残作業 impl に着手しない (CEO 承認後のみ)
+- ✗ selectPattern / constants / signalAdapter / signalClassifier / reducer 不接触
+- ✗ speech 系 (validator / postValidator / builder / promptBuilder / llmCall) 不接触
+- ✗ speech route (`app/api/coalter/speech/route.ts`) 不接触
+- ✗ model / max_tokens / length_override / timeout 不変
+- ✗ Production env 不接触
+- ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
+- ✗ 新規 dep 追加禁止 (`@testing-library/react` 等)
+
+---
+
 ## Appendix A — 関連文書
 
 - `docs/coalter-presence-routing-spec.md` (A1-3 正本候補、commit `34067d98`)
@@ -652,6 +714,7 @@ CEO 個別判断要件:
 | 0.1-draft | 2026-05-08 | 初版起草 (Stage 2.4-B 手順書、CEO 確認待ち)。A1-3 routing spec + A2 selector test を踏まえた UI 到達性 smoke の前段階 |
 | 0.1-draft.2 | 2026-05-08 | CEO review #1 反映: (1) §1.2 env vars に `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` 追加、`NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE` ON/OFF 記録規約 §1.2.1 追加。 (2) §6.4 / §6.6 (= 当版番号) に Sentry breadcrumb 取得用 canary throw 2 箇所 (base scenarios 後 / F-1 特別観察後) 明記。 (3) §4 F-1 判定を strict 分離 (I primary / II secondary / III 到達不能 を独立 record、secondary を primary PASS 扱いしない明示)。 (4) §1.4 Synthetic input / PII 禁止追加 + §7.3 / §7.4 共有規約に反映 |
 | 0.1-draft.3 | 2026-05-09 | Stage 2.4-B 1 回目試行 (2.1.1 / 2.1.2) で `/api/coalter/speech` 未発火が観測された後の read-only 診断結果反映: (1) §3 #2 観測項目に「通常テキスト入力は S0→S1 で停止、S1→S2 は status chip tap が必須」を明示。 (2) §6.2 Mini-smoke (full smoke 再開判断用、本書 commit 後 1 回限定、シナリオ 2.1.1 のみ) を新規追加。 (3) §6.3 各シナリオ実行 step list を 7 step → 10 step に拡張、S1 status chip 出現確認 + chip tap (`S1_ENTRY_OK` 発火) + S1→S2 transition 観測を明示。 (4) §6.3.1 chip-tap path 失敗モード 3 分類 (A: chip 出現せず / B: tap 後 S2 進まず / C: S2 後 speech 出ず) を新規追加 (mini-smoke + full smoke 共通)。 (5) §6.4-§6.7 を §6.5-§6.8 に renumber (Mini-smoke を §6.2 に挿入したため)。 (6) §7.1 sheet に chip-tap path 失敗モード列追加 + §7.1.0 mini-smoke 専用 sheet 追加。 (7) 過去 fetch 発火実績 (CEO 言及) を最新 build (`g31f4voyb`) 帰属未検証として弱解釈 ("少なくとも critical 経路では過去に発火実績がある") |
+| 0.1-draft.4 | 2026-05-09 | mini-smoke 2.1.1 (CEO 実施) で Failure A 確定 + read-only 診断 第 2 段階で **Gap 2 (S1 chip onClick 未配線、production code 内 `S1_ENTRY_OK` dispatch 経路 0 件)** 検出 → CEO 確定で **Stage 2.4-B 全体凍結**: (1) **Appendix C 新規追加** で凍結通知 + Gap 2 詳細 (構造的 blocker) + 修正設計 cross-reference (decision-log [2026-05-09] entry) + 凍結解除条件 (B-2 残作業 PASS + CEO 承認) + Gap 1 扱い (本命にしない、CEO 確定) + 凍結期間不可侵境界。 (2) §6.2 mini-smoke / §6.3 full smoke 手順は B-2 残作業実装 PASS まで実行しない |
 
 ---
 

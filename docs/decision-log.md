@@ -3980,3 +3980,242 @@ Stage 2.4-D (production-ready audit、cost 0)
 - **Phase 2 完了** (LLM 合成 speech が Preview で全観点 PASS)
 - Production reflection は CEO 判断
 - Stage 4 L4-m (memory) / E-3 (Stage 4 §10.2 完成) は別 phase
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-B 凍結 + Gap 2 blocker 確定: S1 chip → S1_ENTRY_OK wiring 未実装 / B-2 残作業 修正設計提案] [承認: CEO 承認待ち (impl)]
+
+### 経緯
+
+Stage 2.4-B 1 回目試行 (2.1.1 / 2.1.2) で `/api/coalter/speech` 未発火を観測 → CEO STOP → read-only 診断 → 手順書 v0.1-draft.3 (`0cda6d07`) で chip tap step 明示化 → mini-smoke 2.1.1 を CEO 実施 → **Failure A (S1 status chip 出現せず)** 確定 → 第 2 段階 read-only 診断で **2 つの impl gap** を検出。
+
+### Gap 分類 (CEO 確定 2026-05-09)
+
+| Gap | 内容 | severity | 状態 |
+|---|---|---|---|
+| **Gap 1** | スレッド state が過去 critical signal (「もう限界」由来) で **既に S0 を超えた状態** で mini-smoke を実行した可能性。non-S0 中の implicit signal は state 不変 (`reducer.ts:168`) → S1 chip 出現せず | 中 | **未確定** (CEO 判断: 優先しない、新規スレッド再試行を本命にしない) |
+| **Gap 2** | **production UI の S1 status chip onClick 未配線** + **production code 内に `S1_ENTRY_OK` dispatch 経路存在せず** (preview dev 経路 `app/(dev)/coalter-preview/full/page.tsx:174` のみ)。S1Approaching.tsx:38 が `<Chip variant="status">` を render するが onClick prop なし。Chip.tsx:36-37 注記「B-1 では呼び出し側で no-op、B-2 以降で event dispatch」が **B-2 で signal 入力経路のみ実装、chip→dispatch は未実装で残存** | **高 (構造的 blocker)** | **CEO 確定: 正式 blocker、B-2 残作業として修正設計に進む** |
+
+### Gap 2 詳細 (構造的 blocker)
+
+#### コード経路の証跡
+
+```
+S1 status chip render path:
+  UpperLayerMount.tsx:122-125  presenceExecutorEnabled flag check
+    → UpperLayerMount.tsx:656-663  <UpperLayerStateRenderer ...>  ← onChipTap 渡さず
+       → UpperLayerStateRenderer.tsx:144  <Component mode={mode} onSwitchMode={onSwitchMode} body={body} />  ← StateComponentProps にも onChipTap 不在
+          → S1Approaching.tsx:24-27  function S1Approaching({ mode, onSwitchMode })  ← onChipTap prop 不在
+             → S1Approaching.tsx:38  <Chip variant="status">少し整理できそう</Chip>  ← onClick 未渡し
+                → Chip.tsx:113  cursor: onClick ? "pointer" : "default"  ← 未渡しで "default"
+                → Chip.tsx:108-109  <button type="button" onClick={undefined}>  ← tap 空関数
+```
+
+#### grep 全数 search 結果 (`S1_ENTRY_OK` dispatch)
+
+| 配置 | 種別 |
+|---|---|
+| `app/(dev)/coalter-preview/full/page.tsx:174` | preview dev page button (production 経路外) |
+| `app/(dev)/coalter-preview/full/scenarios/*` (8 箇所) | preview test scenarios (production 経路外) |
+| **production code** (`app/(culcept)/...` / `app/components/chat/...` 配下) | **0 件** |
+
+#### 影響
+
+- 通常テキスト入力 (implicit signal) では production で **S2 到達不可能**
+- S2 到達は **critical signal 経路 (S0→S2 直行) のみ**
+- Stage 2.4-B mini-smoke / full smoke は **S1 chip → S2 advancement が wire されない限り完遂不可**
+
+### 修正設計 — B-2 残作業 (S1 chip wiring)
+
+#### ゴール (シンプルに、最短経路)
+
+S1 chip tap → S1_ENTRY_OK dispatch → reducer で S1→S2 transition → S2 到達 → speech fetch effect が既存 deps 変化で自動発火 → /api/coalter/speech POST observable。
+
+#### 修正対象ファイル候補 (4 ファイル、極小)
+
+| # | file | 性質 | 想定 diff |
+|---|---|---|---|
+| 1 | `app/components/chat/states/S1Approaching.tsx` | UI component | +3 / -1 (`onChipTap?: () => void` prop 追加 + `<Chip onClick={onChipTap}>` で渡す) |
+| 2 | `app/components/chat/states/UpperLayerStateRenderer.tsx` | UI router | +3 / -0 (`StateComponentProps` + `UpperLayerStateRendererProps` に `onChipTap?: () => void` 追加 + `<Component>` 経由 pass-through) |
+| 3 | `app/components/chat/UpperLayerMount.tsx` | UI mount | +5 / -0 (`useCallback` で `handleS1ChipTap = () => exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })` + Renderer に渡す) |
+| 4 | `tests/unit/coalter/presence/s1ChipDispatch.test.ts` (新規) | test | +30〜50 行 (関数 invoke のみ、`@testing-library/react` 不要) |
+
+**production diff 合計**: ~+13 行 / -1 行 (極小)
+**test diff 合計**: ~+30〜50 行 (新規 file)
+
+#### 各 file の変更内容 (詳細)
+
+**File 1**: `S1Approaching.tsx`
+```typescript
+export interface S1ApproachingProps {
+  mode: PresenceMode;
+  onSwitchMode: (target: PresenceMode) => void;
+  onChipTap?: () => void;  // ← 追加
+}
+
+export default function S1Approaching({
+  mode,
+  onSwitchMode,
+  onChipTap,  // ← 追加
+}: S1ApproachingProps) {
+  return (
+    <UpperLayerShell ...>
+      <div ...>
+        <Chip variant="status" onClick={onChipTap}>少し整理できそう</Chip>  {/* ← onClick 追加 */}
+      </div>
+    </UpperLayerShell>
+  );
+}
+```
+
+**File 2**: `UpperLayerStateRenderer.tsx`
+```typescript
+interface StateComponentProps {
+  mode: PresenceMode;
+  onSwitchMode: (target: PresenceMode) => void;
+  body?: string;
+  onChipTap?: () => void;  // ← 追加 (S1Approaching のみ使用、他 component は無視)
+}
+
+export interface UpperLayerStateRendererProps {
+  state: PresenceState;
+  mode: PresenceMode;
+  onSwitchMode: (target: PresenceMode) => void;
+  body?: string;
+  onChipTap?: () => void;  // ← 追加
+}
+
+export default function UpperLayerStateRenderer({
+  state, mode, onSwitchMode, body,
+  onChipTap,  // ← 追加
+}: UpperLayerStateRendererProps) {
+  const Component = mapStateToComponent(state);
+  return (
+    <StateAriaWrapper state={state} mode={mode}>
+      <Component mode={mode} onSwitchMode={onSwitchMode} body={body} onChipTap={onChipTap} />
+      {/* ↑ onChipTap pass-through */}
+    </StateAriaWrapper>
+  );
+}
+```
+
+**File 3**: `UpperLayerMount.tsx`
+```typescript
+// UpperLayerMountActive 内 (handleModeSwitch の付近に追加)
+const handleS1ChipTap = useCallback(() => {
+  exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" });
+}, [exec.dispatch]);
+
+// 既存 <UpperLayerStateRenderer ... /> に prop 追加
+<UpperLayerStateRenderer
+  state={exec.state.presence.state}
+  mode={exec.state.mode}
+  onSwitchMode={handleModeSwitch}
+  body={speechBody ?? undefined}
+  onChipTap={handleS1ChipTap}  // ← 追加
+/>
+```
+
+**File 4**: `tests/unit/coalter/presence/s1ChipDispatch.test.ts` (新規、関数 invoke のみ)
+```typescript
+import { describe, it, expect, vi } from "vitest";
+import S1Approaching from "@/app/components/chat/states/S1Approaching";
+
+describe("S1Approaching — onChipTap wiring", () => {
+  it("S1Approaching props は onChipTap optional を受ける (型 contract)", () => {
+    // type-level test (compile 時 enforce)
+    const props: Parameters<typeof S1Approaching>[0] = {
+      mode: "normal",
+      onSwitchMode: vi.fn(),
+      onChipTap: vi.fn(),  // ← 受け入れ可能であること
+    };
+    expect(props.onChipTap).toBeDefined();
+  });
+
+  // 実 click イベント test は React 環境必要、新規 dep 禁止のため skip。
+  // 代わりに UpperLayerMount で callback 構造を test する (関数 invoke 方式)。
+});
+
+describe("UpperLayerMount — handleS1ChipTap が S1_ENTRY_OK dispatch する (関数 invoke 方式)", () => {
+  it("handleS1ChipTap helper を export 化して直接 invoke", () => {
+    // UpperLayerMount から handleS1ChipTap を pure helper として extract、test
+    // 例: const handler = buildS1ChipTapHandler(mockDispatch);
+    //     handler();
+    //     expect(mockDispatch).toHaveBeenCalledWith({ type: "S1_ENTRY_OK" });
+  });
+});
+```
+
+> **test 方針メモ**: `@testing-library/react` 未 install (CEO 既往判断、`upperLayerMountActive.test.ts:19` 注記)。本 test は **関数 invoke のみ**で coverage、UI render は test しない。実 click イベント検証は CEO 判断後に E2E (Playwright) で別 phase 候補。
+
+#### 既存 dev preview との整合
+
+`app/(dev)/coalter-preview/full/page.tsx:174`:
+```typescript
+<BtnSm onClick={() => exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })}>
+```
+
+本修正の UpperLayerMount.tsx の `handleS1ChipTap` は **完全同一の dispatch 経路** (`exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })`) を使う。dev preview / production UI の両方で同じ pathway → 整合確保。
+
+#### 不可侵範囲 (本修正で触らない)
+
+- `selectPattern` / `constants` / `types`: 不接触
+- `signalAdapter` / `signalClassifier` / `criticalKeywordDetector`: 不接触
+- `reducer` (S1_ENTRY_OK transition logic は既存 `reducer.ts:111-112` で完結、touch 不要)
+- `usePresenceExecutor` 本体 (既存 `dispatch.presenceEvent` を使うのみ、変更なし)
+- speech 系 (`validator` / `postValidator` / `builder` / `promptBuilder` / `llmCall`): 不接触
+- speech route (`app/api/coalter/speech/route.ts`): 不接触
+- speech prompt: 不接触
+- model / max_tokens / length_override / timeout: 不変
+- production env: 不接触
+- Stage 2.3 prompt / fixture state: 不変
+
+#### 副作用範囲 (S0/S1/S2 以外への影響)
+
+| 状態 | 影響 |
+|---|---|
+| S0Observing / S2Opening / S3Awaiting / S4Understanding / S5Bridging / S6 / S7 / S8 | optional `onChipTap` prop が増えるが使わない、render 動作変化なし |
+| selectPattern | 不接触、existence gate / priority logic 不変 |
+| speech fetch effect (`UpperLayerMount.tsx:323-608`) | 既存 deps `[speechState, speechMode, speechVariant, threadId, observationKey]` のうち `speechState` 変化で自動発火 (S2 到達時に variant=A 算出 → 自動 fetch)、追加 wire 不要 |
+| telemetry (`coalter.presence.state_transition`) | `usePresenceExecutor.ts:444-460` で state 変化時に既存 emit、追加 wire 不要 |
+| urgent path | 不接触、`detectUrgent` / `urgentDecision` も既存維持 |
+| mode reducer | 不接触 |
+| critical signal 経路 (S0→S2 skip) | **完全不変** (signalAdapter / reducer 経由なので touch 不要) |
+
+#### test 方針
+
+**新規 test (UI wiring)**:
+- file: `tests/unit/coalter/presence/s1ChipDispatch.test.ts` (新規)
+- pattern: 関数 invoke / 型 contract / pure helper extraction (CEO 既往: `upperLayerMountActive.test.ts:13`「関数 invoke 方式 (CEO 指示 2026-04-29、新規 dep 追加禁止)」)
+- coverage:
+  - S1Approaching: `onChipTap?: () => void` prop 受け入れ可能 (型 contract)
+  - UpperLayerStateRenderer: state="S1" のとき onChipTap が S1Approaching に届く path 検証 (mapStateToComponent 経由)
+  - UpperLayerMount: `handleS1ChipTap` helper を pure 化して `dispatch.presenceEvent({ type: "S1_ENTRY_OK" })` を呼ぶことを直接 invoke で確認
+
+**既存 test (リグレッション確認)**:
+- `tests/unit/coalter/presence/reducer.test.ts` (既存): S1_ENTRY_OK dispatch → S1→S2 transition の test がある可能性、変更なし
+- `tests/unit/coalter/presence/patternSelector.test.ts` / `patternSelectorRoutingSpec.test.ts` (A2 lock): 不変
+- `tests/unit/coalter/upperLayerMountActive.test.ts` (既存): props 増加でリグレッション無、mapStateToComponent test 通過
+
+**dep 追加**: 0 (`@testing-library/react` 不要、CEO 厳守)
+
+### Stage 2.4-B 凍結通知
+
+CEO 確定 (2026-05-09): **Stage 2.4-B 全体 (full smoke / mini-smoke) は B-2 残作業 (本 wiring 修正) 実装 + test PASS + CEO 承認後まで凍結**。新規スレッドでの再試行は本命にしない (Gap 1 が解消されても Gap 2 が残るため smoke 完遂不可)。
+
+### CEO 承認待ち項目
+
+1. 本修正設計 (4 file / +13 production lines / +30〜50 test lines / 関数 invoke 方式) を採用してよいか
+2. 採用する場合、impl 着手 GO (別 commit で実装、本 commit は記録のみ)
+3. 修正設計に追加・変更項目があれば指示
+
+### CEO 厳守 (本記録 + 修正設計提示時点でも継続)
+
+- ✗ 本記録は **docs-only**、impl 修正なし
+- ✗ Stage 2.4-B full smoke / mini-smoke 再開せず (B-2 残作業 PASS まで凍結)
+- ✗ selectPattern / constants / signalAdapter / reducer / speech 系 全 / speech route 不接触
+- ✗ model / max_tokens / length_override / timeout 不変
+- ✗ Production env 不接触
+- ✗ Stage 2.3 prompt / fixture state を expected に混ぜない
+- ✗ 新規 dep 追加禁止 (`@testing-library/react` 等)
+- ✗ 自律で impl に着手しない (CEO 承認後のみ)
