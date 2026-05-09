@@ -48,6 +48,11 @@ interface StateComponentProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
   body?: string;
+  /**
+   * B-2 残作業 (CEO 確定 2026-05-09): status chip tap handler。
+   * S1Approaching のみ実体使用 (Chip.onClick に渡す)、他 state は無視 (型整合のため optional 受け入れ)。
+   */
+  onChipTap?: () => void;
 }
 
 /**
@@ -119,6 +124,11 @@ export interface UpperLayerStateRendererProps {
    * S2/S5/S7 のみ実体使用、その他 state は無視。undefined で hardcoded fallback。
    */
   body?: string;
+  /**
+   * B-2 残作業 (CEO 確定 2026-05-09): S1 status chip tap handler。
+   * mapStateToComponent("S1") = S1Approaching に pass-through。他 state は無視。
+   */
+  onChipTap?: () => void;
 }
 
 /**
@@ -137,11 +147,17 @@ export default function UpperLayerStateRenderer({
   mode,
   onSwitchMode,
   body,
+  onChipTap,
 }: UpperLayerStateRendererProps) {
   const Component = mapStateToComponent(state);
   return (
     <StateAriaWrapper state={state} mode={mode}>
-      <Component mode={mode} onSwitchMode={onSwitchMode} body={body} />
+      <Component
+        mode={mode}
+        onSwitchMode={onSwitchMode}
+        body={body}
+        onChipTap={onChipTap}
+      />
     </StateAriaWrapper>
   );
 }

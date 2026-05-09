@@ -63,6 +63,7 @@ import {
 } from "@/lib/coalter/presence/speechFetchGate";
 import { emitPatternUsed } from "@/lib/coalter/presence/telemetry";
 import type { PatternUsedEvent } from "@/lib/coalter/presence/telemetryEvents";
+import type { PresenceEvent } from "@/lib/coalter/presence/reducer";
 
 /**
  * Urgent fallback message (B-2、static、category-based)。
@@ -266,6 +267,20 @@ function UpperLayerMountActive() {
       exec.dispatch.modeEvent({ type: "MANUAL_SWITCH", target });
     },
     [exec.dispatch],
+  );
+
+  /**
+   * B-2 残作業 (CEO 確定 2026-05-09): S1 status chip tap → S1_ENTRY_OK dispatch。
+   *
+   * dev preview (`app/(dev)/coalter-preview/full/page.tsx:174`) の
+   * `exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })` と完全同一経路。
+   * production UI で S1 chip tap が実行されたら同じ event を流す。
+   *
+   * pure helper `buildS1EntryConfirmDispatch` 経由 (test 容易性 + canonical path)。
+   */
+  const handleS1ChipTap = useCallback(
+    buildS1EntryConfirmDispatch(exec.dispatch.presenceEvent),
+    [exec.dispatch.presenceEvent],
   );
 
   // ─────────────────────────────────────────────
@@ -660,6 +675,7 @@ function UpperLayerMountActive() {
         mode={exec.state.mode}
         onSwitchMode={handleModeSwitch}
         body={speechBody ?? undefined}
+        onChipTap={handleS1ChipTap}
       />
       {showMemorySurface && memory.viewer !== null && (
         <MemorySurface
@@ -691,4 +707,22 @@ function buildSpeechCacheKey(
   mode: PresenceMode,
 ): string {
   return `${variant}|${state}|${mode}`;
+}
+
+/**
+ * B-2 残作業 (CEO 確定 2026-05-09): S1 chip tap → S1_ENTRY_OK dispatch handler builder。
+ *
+ * dev preview (`app/(dev)/coalter-preview/full/page.tsx:174`) の
+ * `exec.dispatch.presenceEvent({ type: "S1_ENTRY_OK" })` と完全同一経路を
+ * production UI で wire するための pure helper。
+ *
+ * test 容易性のため export (関数 invoke 方式、`@testing-library/react` 不要)。
+ * production usage:
+ *   const handler = useCallback(buildS1EntryConfirmDispatch(exec.dispatch.presenceEvent), [...]);
+ *   <S1Approaching onChipTap={handler} />
+ */
+export function buildS1EntryConfirmDispatch(
+  dispatch: (event: PresenceEvent) => void,
+): () => void {
+  return () => dispatch({ type: "S1_ENTRY_OK" });
 }
