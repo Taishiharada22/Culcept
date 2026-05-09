@@ -5000,3 +5000,134 @@ CEO 個別判断要件 (Stage 2.4-D 着手時):
 2. Production reflection の **タイミング** (Stage 2.4-D 完了後すぐ / 別タスク化)
 3. Sentry alert 設定の **operator 担当** (CEO / dev team)
 4. kill switch (`COALTER_PRESENCE_SPEECH_LLM=false`) の rollback plan 確定
+
+---
+
+## [2026-05-09] [Build] [Stage 2.4-D production-ready audit (docs-only) 完了 + Production reflection 判断材料 集約 doc 新規作成 + reflection 自体は CEO 個別判断] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-09): Stage 2.4-C Yellow 付き観察ベース PASS docs commit (`abb6f8db`) push 後、Stage 2.4-D 着手 GO。**Production 反映ではなく、Production reflection の判断材料を作る docs-only audit**。CEO 補正で「Stage 2.4-B / C を production reachability PASS と呼ばない」「Phase 2 smoke harness を Gap 4 解消と呼ばない」「Production reflection は CEO 判断であり Claude 自律実行しない」を表現規約として永続化。
+
+### 成果物
+
+**1. `docs/coalter-stage24-production-reflection.md`** (新規、450+ 行)
+
+- §0 本書の位置づけ + 表現規約 (CEO/GPT 補正準拠)
+- §1 集約 (Stage 2.3 + Stage 2.4-A/B/C 全結果サマリ)
+- §2 Production reflection 前提条件チェックリスト (10 項目、5 完了 / 5 反映時 CEO 操作)
+- §3 Production env 反映計画案
+  - §3.1 設定 env vars 表 (4 必須 + 既往設定)
+  - §3.2 **Production 絶対設定しない env** 明記 (`SMOKE_CONTEXT` / `OBSERVATION_MODE`)
+  - §3.3 反映後挙動 (Gap 4 由来制約: A@S2 + F-2@S7 のみ runtime variant、S5 系 variant=null は **設計通り**)
+- §4 Sentry monitoring threshold 案 (Stage 2.4-C §6 継承、6 指標 / warn-red 二段 / alert 動作仕様)
+- §5 rollback / kill switch 方針
+  - §5.1 既存 kill switch (server / client、redeploy 要否含)
+  - §5.2 rollback 手順 (soft / hard / 完全停止 三段)
+  - §5.3 即応性 (soft = 数十秒〜分、hard = ~5 分)
+  - §5.4 graduated rollout (現 build 未実装、別 task)
+- §6 残課題整理 (5 件):
+  1. Gap 4 production context detection (別 phase)
+  2. F-1 standalone primary trigger spec ambiguity (別 task)
+  3. 2.1.9 D travel 文脈補完 (別 phase)
+  4. F-1 secondary daily/travel runtime 未確認 (別 phase 判断、reflection 後 monitoring で代替可)
+  5. base canary procedure error (commit `208494c7` で改善済)
+- §7 リスク評価集約 (PASS items / Yellow items / production reachability の意味再確認)
+- §8 Production reflection 判断 (CEO 個別)
+  - §8.1 判断要件 (今実施 vs Gap 4 完成まで延期)
+  - §8.2 反映実施時必須手順 (Sentry alert → env vars → redeploy)
+  - §8.3 reflection 後運用 (monitoring 継続)
+- §9 不変境界 (本 phase + reflection 期間継続、CEO 厳守)
+- §10 Stage 2.4 全体完了通知 + commit chronological + 関連 docs
+- §11 改訂履歴
+
+**2. 本 entry (decision-log)**: Stage 2.4-D 完了通知 (cross-ref to 新 doc)
+
+### Stage 2.4 全 phase 完了状態
+
+| Stage | 状態 | 関連 commit |
+|---|---|---|
+| Stage 2.3 | ✅ Yellow 付き条件付き PASS | `b2322991` / `cab8673f` / `759470d9` |
+| Stage 2.4-A | ✅ PASS | `34067d98` (A1-3) / `e14682cd` (A2) |
+| Stage 2.4-B | ✅ Yellow 付き PASS | `39566cfd` / `ae7b6ecf` / `cce40487` / `208494c7` |
+| Stage 2.4-C | ✅ Yellow 付き観察ベース PASS | `abb6f8db` |
+| **Stage 2.4-D** | ✅ **docs-only audit 完了** | (本 commit) |
+
+### Production reflection 状態
+
+- **未実施** (CEO 個別判断、Claude 自律実行しない)
+- **判断材料は完成** (`docs/coalter-stage24-production-reflection.md`)
+- 反映時の必須手順は §8.2 に記載
+- 反映後の運用は §8.3 に記載
+
+### 表現規約 (CEO/GPT 補正準拠、永続記録)
+
+| 用語 | 意味 |
+|---|---|
+| Stage 2.4-B Yellow 付き PASS | smoke harness 経由 variant fetch path 検証 PASS、**production reachability PASS とは呼ばない** |
+| Stage 2.4-C Yellow 付き観察ベース PASS | 観察ベース risk assessment PASS、**direct runtime confirmation とは呼ばない** |
+| B-3 Phase 2 smoke harness | Preview env 限定 URL query 経由 patternContext 注入機構、**Gap 4 production logic 解消とは呼ばない** |
+| Production reflection | **CEO 判断**、Claude 自律実行しない |
+| `NEXT_PUBLIC_COALTER_PRESENCE_SMOKE_CONTEXT` | **Preview 限定**、Production 絶対設定しない |
+
+### 残課題 5 件 (本 doc §6 で整理)
+
+1. **Gap 4 production context detection** — 別 phase
+2. **F-1 standalone primary trigger spec ambiguity** — 別 task
+3. **2.1.9 D travel 文脈補完** — 別 phase (Stage 2.3 prompt refinement)
+4. **F-1 secondary daily/travel runtime 未確認** — 別 phase 判断、reflection 後 monitoring で代替可
+5. **base canary procedure error** — 完了 (commit `208494c7` で procedure 改善済)
+
+### 不変境界 (Stage 2.4-D + reflection 期間継続、CEO 厳守)
+
+- ✗ Production env 変更しない (本 doc は判断材料、実反映は CEO 個別判断)
+- ✗ Production 反映自体しない (CEO 個別判断後の別タスク)
+- ✗ production context detector 実装しない (Gap 4、別 phase)
+- ✗ selectPattern 修正しない
+- ✗ prompt 修正しない (Round 6-10 確定状態維持)
+- ✗ validator / model / max_tokens / timeout 変更しない
+- ✗ 追加 smoke しない
+- ✗ Sentry alert 実装しない (本 doc は threshold 案のみ、CEO operator 担当)
+- ✗ Stage 2.4-B Yellow付きPASS / Stage 2.4-C Yellow 付き観察ベース PASS を **production reachability PASS と呼ばない**
+- ✗ B-3 Phase 2 smoke harness を **Gap 4 解消と呼ばない**
+- ✗ smoke harness env (`SMOKE_CONTEXT`) を **Production 絶対設定しない** (Preview 限定)
+- ✗ `OBSERVATION_MODE` env を **Production 絶対 true 設定しない** (Preview 限定)
+
+### Stage 2.4 進行プロトコル (確定、本 commit で完了)
+
+```
+Stage 2.3 ✅ Yellow 付き条件付き PASS (2026-05-08)
+   ↓
+Stage 2.4-A ✅ PASS (2026-05-08)
+   ↓
+Stage 2.4-B ✅ Yellow 付き PASS (2026-05-09)
+   ↓
+Stage 2.4-C ✅ Yellow 付き観察ベース PASS (2026-05-09)
+   ↓
+Stage 2.4-D ✅ docs-only audit 完了 (2026-05-09、本 commit)
+   ↓
+[Production reflection は CEO 個別判断、本書 §8 を判断材料]
+   - 反映 GO 判断
+   - Sentry alert 設定 (§4 thresholds)
+   - env vars 反映 (§3.1)
+   - SMOKE_CONTEXT Production 絶対不可 確認 (§3.2)
+   - rollback plan 周知 (§5)
+   ↓
+[reflection 後、Sentry monitoring 継続、別 phase / 別 task 着手判断]
+```
+
+### 次の動き (CEO 個別判断要)
+
+1. **本 commit (Stage 2.4-D docs-only audit) push 許可**
+2. **Production reflection 判断**:
+   - 今実施するか / Gap 4 完成まで延期するか
+   - 実施時の operator 役割 (CEO / dev team)
+   - Sentry alert 設定タイミング
+3. **残課題 5 件の優先順位** (別 phase / 別 task):
+   - Gap 4 production logic 着手判断
+   - F-1 spec sharpen 着手判断
+   - 2.1.9 文脈補完 refinement 判断
+   - F-1 secondary 追加観測判断 (or reflection 後 monitoring 待ち)
+4. (Optional) `feat/coalter-three-stage` branch の **main merge 判断** (Stage 2.4 全完了後の整理)
+
+Claude は CEO 個別判断を待つ。本 doc を judgement material として CEO 提示。**Stage 2.4-D で本 phase 全完了**、新規 impl / smoke / Production touch なし。
