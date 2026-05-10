@@ -5324,3 +5324,157 @@ CEO 確定 (2026-05-09): Sentry alert setup handoff doc (`995748dc`) push 後、
    - Step 6: rollback drill (必要時)
 3. reflection 後 monitoring: 残リスク 4 件 (Test Notification / synthetic / F-1 secondary / 2.1.9 D@S5) を実 alert / Discover query 結果で代替確認
 4. main merge 判断 (CEO 個別判断、別 commit / 別 phase)
+
+---
+
+## [2026-05-10] [Build] [Stage 2.4 Production reflection 完了 (Yellow 付き) — main merge → Production build Ready → 3 旗 true + redeploy → 最小 smoke PASS / Discover query Yellow / Slack alert Path B 継続] [承認: CEO]
+
+### 経緯
+
+CEO 確定 (2026-05-10): PR #95 (`feat/coalter-three-stage` → `main`、main 着地 commit `62dff94b`) を main merge → Vercel Production build 自動 trigger Ready 確認 → Production env で 3 旗 false → true 切替 + Production redeploy 手動 trigger → Production URL `https://culcept.vercel.app` で最小 smoke 実施。`/api/coalter/speech` POST で **speechSource=llm / fallback なし** を観測。Stage 2.4-D Production reflection ゲートを **Yellow 付き PASS** で通過 (Sentry Discover query data 0 件 + Slack real alert 未着火を Yellow accept、Path B 継続)。
+
+**注 (2 次 update、本 entry の merge commit で同時反映)**: PR #95 は当初 GitHub UI で「Create a merge commit」想定だったが、`62dff94b` の実態は **squash merge** (parent = `c6fbf2e6` の 1 つのみ) と post-hoc に判明。これに伴い、本 entry §「失敗時 rollback」hard rollback の手順表記を 2 次補正 (旧: `git revert -m 1 62dff94b` → 新: `git revert 62dff94b`)。詳細は同セクション参照。
+
+### 反映プロトコル (実施済、永続記録)
+
+| Step | 内容 | 状態 |
+|---|---|---|
+| Pre-Step | Vercel Production env で `ANTHROPIC_API_KEY` set 確認 | ✅ (cc9bf7f4 で記録済、本日先行完了) |
+| 1 | PR #95 main merge (実態は GitHub squash merge と判明、本 entry 注記参照) | ✅ `62dff94b` (2026-05-10T03:47:48Z、parent = `c6fbf2e6` の 1 つのみ) |
+| 2 | main HEAD で Vercel Production build 自動 trigger | ✅ 2026-05-10T03:47:54Z 起動 |
+| 3 | Production build Ready 確認 | ✅ 2026-05-10T03:55:16Z 完了 (~7m22s)、deployment id 4635780380 |
+| 4 | Production env で 3 旗 false → true 切替 (CEO 個別操作) | ✅ `COALTER_PRESENCE_SPEECH_LLM=true` / `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` / `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` |
+| 5 | Vercel UI で Production redeploy 手動 trigger (NEXT_PUBLIC* 反映) | ✅ CEO 操作完了 |
+| 6 | Production URL で最小 smoke 実施 | ✅ `https://culcept.vercel.app` |
+| 7 | Slack `#aneurasync-alerts` real alert 着火 | ☐ 未着火 (Path B 継続、initial real alert 待ち) |
+
+### Production 最小 smoke 結果 (Yellow 付き PASS、永続記録)
+
+#### 観測 endpoint
+- URL: `https://culcept.vercel.app`
+- API: `POST /api/coalter/speech` observed
+- UI 上部レイヤー (UpperLayerMount): observed
+
+#### speech response (CEO 観測値)
+```json
+{
+  "body": "少し立ち止まって、今の流れを整理してもいいでしょうか？",
+  "speechSource": "llm",
+  "retries": 1,
+  "latencyMs": 3923,
+  "validationFailed": false,
+  "fallbackReason": null
+}
+```
+
+#### 各 field 評価
+
+| field | 観測値 | 評価 | 根拠 |
+|---|---|---|---|
+| `speechSource` | `llm` | ✅ PASS | LLM 経路で生成 (= fallback ではない、3 旗 true 反映が build artifact に焼き込まれていることを確認) |
+| `fallbackReason` | `null` | ✅ PASS | timeout / validator / llm_error / rate_limited いずれでもなく fallback 発火なし |
+| `validationFailed` | `false` | ✅ PASS | 最終 response は validator gate 通過 |
+| `latencyMs` | `3923` | ✅ PASS | timeout 10s 以内 (Stage 2.2 案 A timeout 拡張済)、Stage 2.4-B 観測 latency range 内 |
+| `retries` | `1` | **観察値** (Yellow blocker ではない) | retry 1 回で成功 (validator や LLM stochastic noise 由来の可能性)、Stage 2.4-B 観測 retry pattern と整合。**単発では Yellow blocker 扱いしない**。頻発時のみ daily review / monthly review で調査対象とする |
+| `body` | 「少し立ち止まって…」 | ✅ PASS | Stage 2.3 prompt contract に整合する応答 (カウンセラー寄りでなく、判断軸寄り) |
+
+→ **Production speech 最小 smoke: PASS**。`retries=1` は **観察値として記録**、Yellow item には含めない (CEO/GPT 補正準拠 2026-05-10)。
+
+### Sentry Discover saved query 状態 (Yellow accept、永続記録)
+
+CEO 確認 (2026-05-10、Sentry Dashboard):
+- saved queries 6 件 (handoff doc §6 で click-by-click 設定済) **表示確認済**
+- query syntax error なし (Sentry search syntax 適切)
+- `[CoAlter] Pattern LLM latency p95` query: 開ける ✅
+- ただし **Sample Count = 0**
+- Environment filter: 画面上 `All Env` 表示 → **Production scope filter 未確定**
+
+#### data 0 件の理由 (CEO/GPT 補正準拠 2026-05-10、技術的根拠付き)
+
+data 0 件は以下 3 要因の複合:
+
+1. **Sentry Discover は Errors dataset 中心**: `coalter.pattern.used` は `Sentry.addBreadcrumb()` で記録される breadcrumb であり、breadcrumb は **error / message / transaction event 送信時に attach** される構造。
+2. **成功した speech response は error event を生成しない**: `/api/coalter/speech` 200 OK / fallback なしの正常応答は exception を発生させないため、Sentry に error event として保存されない → **breadcrumb data も Errors dataset query では 0 件となる**のが構造的に正しい。
+3. **Environment filter 未確定**: 画面上 `All Env` 表示で Production scope に絞り込まれていない可能性。
+
+→ **0 件 = 即 NG ではなく Yellow accept**。Production traffic 累積 (および error / urgent triggered の attach 経路) で経過観察、handoff doc §5.3 / §6.4 の daily review cadence で確認。
+
+→ **構造的限界の解消は Stage 2.5 候補 (handoff doc §9 既出): Sentry custom metric impl で成功 event も直接 metric 化する**。本 phase では実装しない。
+
+### 残リスク / Yellow item (Production reflection 後 monitoring へ持ち越し、永続記録)
+
+| # | リスク | 状態 | 持ち越し先 |
+|---|---|---|---|
+| 1 | Slack `#aneurasync-alerts` real alert 着火確認 | ☐ 未着火 (Path B 継続) | initial real alert 着火で post 動作観測 |
+| 2 | Sentry Discover query data 流入 (Production scope) | 🟡 0 件 (Errors dataset 構造的 + Environment filter 未確定) | daily review で経過観察。構造的解消は Stage 2.5 (custom metric impl) |
+| 3 | F-1 secondary daily/travel runtime 未確認 | ☐ Stage 2.4-D §6 既往 | Production traffic 累積で代替観測 |
+| 4 | 2.1.9 D@S5 travel 文脈補完 | ☐ Stage 2.4-D §6 既往 | Stage 2.3 prompt refinement (別 phase) |
+| 5 | synthetic event alert 動作確認 | ❌ 残リスク永続記録 (Path B、cc9bf7f4 entry で記録済) | 同 #1 で代替観測 |
+
+(注: `retries=1` は **観察値**、Yellow item ではない。本 entry の「speech response 各 field 評価」table 参照)
+
+### 運用フェーズ移行 (本 entry 以降の操作プロトコル)
+
+- **daily review (CEO operator 担当、推奨 09:00 JST)**: Sentry Discover saved query 6 種を順次開いて event count + 分布確認 (handoff doc §5.3 / §6.4 既出)
+- **monthly review**: Stage 2.4 全 phase の累積 metric 観察、red alert 累計、retries 分布、speechSource 比率 (= LLM 成功率)、latencyMs p95
+- **新 alert 着火時**: Slack `#aneurasync-alerts` post 観測 → Sentry link 経由で event detail 確認 → 影響評価 → 必要なら rollback (本 entry 末尾の手順)
+- **retries 観察基準**: 単発の retries=1 は noise 扱い (本 entry 観察値準拠)。daily review で頻度上昇 (例: 5 件/h 以上の retries=1 検出 / retries≥2 出現) を検出した場合のみ monthly review で root cause 調査対象とする
+
+### 失敗時 rollback (本 entry で確定、Stage 2.4-D §5 + cc9bf7f4 entry §12 強化版)
+
+#### soft rollback (CEO 操作 5-10 分、3 旗 false 戻し)
+1. Vercel Production env で 3 旗 true → false 戻し:
+   - `COALTER_PRESENCE_SPEECH_LLM=false`
+   - `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=false`
+   - `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=false`
+2. Vercel UI で **Production redeploy 手動 trigger** (NEXT_PUBLIC* 反映必須)
+3. Production redeploy Ready 確認
+
+→ Production OFF safety state (cc9bf7f4 entry で永続化済) に復帰。
+
+#### hard rollback (CEO 操作 10-15 分、main merge 自体を取消す、CEO/GPT 補正 2 次準拠 2026-05-10)
+
+**PR #95 squash merge 判明 (post-hoc 修正)**: PR #95 は当初「Create a merge commit」想定だったが、`62dff94b` の実態は GitHub UI の **squash merge** (parent = `c6fbf2e6` の 1 つのみ)。本 entry 初版 (CEO/GPT 補正 1 次) で記載した `git revert -m 1 62dff94b` は **merge commit を前提とした記述で誤り**。1-parent commit (squash merge 起因) の revert は **通常 commit revert** として扱う:
+
+```bash
+# 62dff94b は GitHub squash merge による 1-parent commit (parent = c6fbf2e6 = pre-merge main HEAD)
+# `-m` flag は merge commit (2+ parent) でのみ必要、本 commit には不要
+git revert 62dff94b
+git push origin main
+```
+
+→ Vercel auto Production build (~10-15 分) で revert artifact が deploy される。
+
+**caveat (squash merge 起因)**: 後で再 merge する際は、feat/coalter-three-stage の original commits は main から不可達のため、新規 PR を作成する必要がある (revert の revert `git revert <revert-commit>` も可だが、squash merge の boundary 問題を再発させる可能性)。
+
+**今後の運用注**: GitHub UI で PR を merge する際は、merge button 押下前に「**Create a merge commit**」が選択されているか必ず確認する (CEO 既往指示 2026-05-10)。本 entry を含む reflection 期間は事後判明後の整理であり、今後の Stage 2.5 PR 等では merge method 確認を pre-flight check に組み込むこと。
+
+#### 完全停止 (CEO 操作 15-20 分)
+- soft rollback + Vercel Production scope 3 旗 env を **削除** (`unset` / 空に)
+- (上記 hard rollback と組み合わせ可)
+
+### 表現規約 (CEO/GPT 補正準拠、永続)
+
+- ✅ Production reflection は **Yellow 付き PASS** (Path B 継続、Discover data 0 件 Yellow accept)
+- ✅ `retries=1` は **観察値**、Yellow blocker ではない (CEO/GPT 補正 2026-05-10)
+- ✅ Slack real alert 着火は **未確認**、initial real alert 着火を観測ベース確認 (Path B)
+- ✅ Discover query data 0 件は **Errors dataset 構造的 + Environment filter 未確定** が原因。**構造的限界の解消は Stage 2.5 (custom metric impl)**
+- ✅ smoke は **最小 1 件** (CEO 観測)、本 entry 以降は Production traffic で累積観測
+- ✅ hard rollback は **`git revert 62dff94b`** (PR #95 main 着地は実態 squash merge と判明、`62dff94b` は 1-parent commit のため `-m` flag 不要、CEO/GPT 補正 2 次 2026-05-10)
+- ✅ GitHub UI で PR merge 時は **「Create a merge commit」が選択されていることを必ず確認** (PR #95 は実態 squash merge だった、再発防止のため pre-flight check に組み込む)
+
+### 不変境界 (本 entry + 運用フェーズ継続、CEO 厳守)
+
+- ✗ Production env 変更しない (3 旗 true 維持、red alert / smoke 失敗時のみ rollback)
+- ✗ Gap 4 production context detector 実装しない (Stage 2.5 / 別 milestone)
+- ✗ Sentry custom metric impl しない (Stage 2.5 候補、本 entry §「Discover data 0 件」根拠の構造的解消も Stage 2.5)
+- ✗ selectPattern / prompt / validator / model / max_tokens / timeout 変更しない
+- ✗ `SMOKE_CONTEXT` / `OBSERVATION_MODE` env を Production に絶対設定しない (Preview 限定)
+- ✗ 追加 smoke しない (本 entry の最小 1 件で確定、以降は Production traffic 累積観測)
+
+### 次の動き
+
+1. **daily review 開始** (CEO operator 担当、09:00 JST 推奨): Sentry Discover saved query 6 種を順次開いて event count + 分布確認
+2. **initial real alert 着火**: Slack `#aneurasync-alerts` post + Sentry link 経由で event detail 確認 (Path B 観測)
+3. **monthly review** (1 ヶ月後): retries 分布 / speechSource 比率 / red alert 累計 / latencyMs p95 を集約
+4. **Stage 2.5 候補** (CEO 個別判断): Gap 4 production context detector / Sentry custom metric impl (= Discover data 構造的限界の解消) / F-1 secondary runtime 検証
