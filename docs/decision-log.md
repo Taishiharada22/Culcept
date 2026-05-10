@@ -5331,14 +5331,16 @@ CEO 確定 (2026-05-09): Sentry alert setup handoff doc (`995748dc`) push 後、
 
 ### 経緯
 
-CEO 確定 (2026-05-10): PR #95 (`feat/coalter-three-stage` → `main`、merge commit `62dff94b`) を main merge → Vercel Production build 自動 trigger Ready 確認 → Production env で 3 旗 false → true 切替 + Production redeploy 手動 trigger → Production URL `https://culcept.vercel.app` で最小 smoke 実施。`/api/coalter/speech` POST で **speechSource=llm / fallback なし** を観測。Stage 2.4-D Production reflection ゲートを **Yellow 付き PASS** で通過 (Sentry Discover query data 0 件 + Slack real alert 未着火を Yellow accept、Path B 継続)。
+CEO 確定 (2026-05-10): PR #95 (`feat/coalter-three-stage` → `main`、main 着地 commit `62dff94b`) を main merge → Vercel Production build 自動 trigger Ready 確認 → Production env で 3 旗 false → true 切替 + Production redeploy 手動 trigger → Production URL `https://culcept.vercel.app` で最小 smoke 実施。`/api/coalter/speech` POST で **speechSource=llm / fallback なし** を観測。Stage 2.4-D Production reflection ゲートを **Yellow 付き PASS** で通過 (Sentry Discover query data 0 件 + Slack real alert 未着火を Yellow accept、Path B 継続)。
+
+**注 (2 次 update、本 entry の merge commit で同時反映)**: PR #95 は当初 GitHub UI で「Create a merge commit」想定だったが、`62dff94b` の実態は **squash merge** (parent = `c6fbf2e6` の 1 つのみ) と post-hoc に判明。これに伴い、本 entry §「失敗時 rollback」hard rollback の手順表記を 2 次補正 (旧: `git revert -m 1 62dff94b` → 新: `git revert 62dff94b`)。詳細は同セクション参照。
 
 ### 反映プロトコル (実施済、永続記録)
 
 | Step | 内容 | 状態 |
 |---|---|---|
 | Pre-Step | Vercel Production env で `ANTHROPIC_API_KEY` set 確認 | ✅ (cc9bf7f4 で記録済、本日先行完了) |
-| 1 | PR #95 main merge (merge commit 形式、squash 不採用) | ✅ `62dff94b` (2026-05-10T03:47:48Z) |
+| 1 | PR #95 main merge (実態は GitHub squash merge と判明、本 entry 注記参照) | ✅ `62dff94b` (2026-05-10T03:47:48Z、parent = `c6fbf2e6` の 1 つのみ) |
 | 2 | main HEAD で Vercel Production build 自動 trigger | ✅ 2026-05-10T03:47:54Z 起動 |
 | 3 | Production build Ready 確認 | ✅ 2026-05-10T03:55:16Z 完了 (~7m22s)、deployment id 4635780380 |
 | 4 | Production env で 3 旗 false → true 切替 (CEO 個別操作) | ✅ `COALTER_PRESENCE_SPEECH_LLM=true` / `NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH=true` / `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` |
@@ -5430,20 +5432,22 @@ data 0 件は以下 3 要因の複合:
 
 → Production OFF safety state (cc9bf7f4 entry で永続化済) に復帰。
 
-#### hard rollback (CEO 操作 10-15 分、main merge 自体を取消す)
+#### hard rollback (CEO 操作 10-15 分、main merge 自体を取消す、CEO/GPT 補正 2 次準拠 2026-05-10)
 
-main の merge commit `62dff94b` を revert する場合:
+**PR #95 squash merge 判明 (post-hoc 修正)**: PR #95 は当初「Create a merge commit」想定だったが、`62dff94b` の実態は GitHub UI の **squash merge** (parent = `c6fbf2e6` の 1 つのみ)。本 entry 初版 (CEO/GPT 補正 1 次) で記載した `git revert -m 1 62dff94b` は **merge commit を前提とした記述で誤り**。1-parent commit (squash merge 起因) の revert は **通常 commit revert** として扱う:
 
 ```bash
-# 62dff94b は 2-parent merge commit (parent#1 = c6fbf2e6 pre-merge main / parent#2 = 22df1110 feat)
-# 単純な `git revert 62dff94b` は失敗する (`fatal: commit is a merge but no -m option was given`)
-# parent#1 を mainline として指定:
-git revert -m 1 62dff94b
+# 62dff94b は GitHub squash merge による 1-parent commit (parent = c6fbf2e6 = pre-merge main HEAD)
+# `-m` flag は merge commit (2+ parent) でのみ必要、本 commit には不要
+git revert 62dff94b
 git push origin main
 ```
 
 → Vercel auto Production build (~10-15 分) で revert artifact が deploy される。
-→ **caveat (CEO/GPT 補正準拠 2026-05-10)**: 本手順で revert すると、後で再 merge する際に `feat/coalter-three-stage` の変更が main から「除外された」状態になる。再 merge には revert の revert (`git revert <revert-commit>`) または feat branch を別 commit base から rebase / cherry-pick する必要がある (Linus による merge revert documentation 参照)。
+
+**caveat (squash merge 起因)**: 後で再 merge する際は、feat/coalter-three-stage の original commits は main から不可達のため、新規 PR を作成する必要がある (revert の revert `git revert <revert-commit>` も可だが、squash merge の boundary 問題を再発させる可能性)。
+
+**今後の運用注**: GitHub UI で PR を merge する際は、merge button 押下前に「**Create a merge commit**」が選択されているか必ず確認する (CEO 既往指示 2026-05-10)。本 entry を含む reflection 期間は事後判明後の整理であり、今後の Stage 2.5 PR 等では merge method 確認を pre-flight check に組み込むこと。
 
 #### 完全停止 (CEO 操作 15-20 分)
 - soft rollback + Vercel Production scope 3 旗 env を **削除** (`unset` / 空に)
@@ -5456,7 +5460,8 @@ git push origin main
 - ✅ Slack real alert 着火は **未確認**、initial real alert 着火を観測ベース確認 (Path B)
 - ✅ Discover query data 0 件は **Errors dataset 構造的 + Environment filter 未確定** が原因。**構造的限界の解消は Stage 2.5 (custom metric impl)**
 - ✅ smoke は **最小 1 件** (CEO 観測)、本 entry 以降は Production traffic で累積観測
-- ✅ hard rollback は **`git revert -m 1 62dff94b`** が必須 (merge commit revert は parent 指定要、CEO/GPT 補正 2026-05-10)
+- ✅ hard rollback は **`git revert 62dff94b`** (PR #95 main 着地は実態 squash merge と判明、`62dff94b` は 1-parent commit のため `-m` flag 不要、CEO/GPT 補正 2 次 2026-05-10)
+- ✅ GitHub UI で PR merge 時は **「Create a merge commit」が選択されていることを必ず確認** (PR #95 は実態 squash merge だった、再発防止のため pre-flight check に組み込む)
 
 ### 不変境界 (本 entry + 運用フェーズ継続、CEO 厳守)
 
