@@ -24,11 +24,24 @@ export interface S2OpeningProps {
    * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
    */
   body?: string;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09 Option A): response chip tap handler。
+   * 指定時 Chip.onClick として 2 chip 共通 wire される。production usage では
+   * UpperLayerMount が `exec.dispatch.presenceEvent({ type: "S2_ACCEPTED" })` を
+   * bind したものを渡し、S2 → S3 transition を発火させる。
+   * 未指定 (undefined) なら non-interactive (後方互換)。
+   */
+  onResponseTap?: () => void;
 }
 
 const S2_FALLBACK_BODY = "今、間に入れそう 〜";
 
-export default function S2Opening({ mode, onSwitchMode, body }: S2OpeningProps) {
+export default function S2Opening({
+  mode,
+  onSwitchMode,
+  body,
+  onResponseTap,
+}: S2OpeningProps) {
   const renderedBody = body ?? S2_FALLBACK_BODY;
   return (
     <UpperLayerShell
@@ -51,8 +64,12 @@ export default function S2Opening({ mode, onSwitchMode, body }: S2OpeningProps) 
           {renderedBody}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Chip variant="response">たいし: そうかも</Chip>
-          <Chip variant="response">みさき: …</Chip>
+          <Chip variant="response" onClick={onResponseTap}>
+            たいし: そうかも
+          </Chip>
+          <Chip variant="response" onClick={onResponseTap}>
+            みさき: …
+          </Chip>
         </div>
       </div>
     </UpperLayerShell>

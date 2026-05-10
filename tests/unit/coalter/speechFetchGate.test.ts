@@ -73,7 +73,7 @@ describe("L4-i Phase 1 — speechFetchGate.ts 構造 invariant", () => {
     expect(fnMatch![0]).not.toMatch(/process\.env\[/);
   });
 
-  it("純関数 1 個のみ export (test 容易 + 副作用なし)", async () => {
+  it("純関数 export (test 容易 + 副作用なし、Phase 2 観測モード追加で 2 関数)", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -81,9 +81,81 @@ describe("L4-i Phase 1 — speechFetchGate.ts 構造 invariant", () => {
       "../../../lib/coalter/presence/speechFetchGate.ts",
     );
     const content = fs.readFileSync(file, "utf8");
-    // export function は 1 個のみ
+    // export function は isSpeechFetchEnabled + isSpeechObservationMode の 2 個
     const exportFnMatches = content.match(/export\s+function\s+\w+/g) ?? [];
-    expect(exportFnMatches.length).toBe(1);
-    expect(exportFnMatches[0]).toMatch(/isSpeechFetchEnabled/);
+    expect(exportFnMatches.length).toBe(2);
+    expect(exportFnMatches.map((s) => s.replace(/export\s+function\s+/, ""))).toEqual(
+      expect.arrayContaining(["isSpeechFetchEnabled", "isSpeechObservationMode"]),
+    );
+  });
+});
+
+describe("L4-i Phase 2 Stage 2.1 / 2.2 — isSpeechObservationMode (CEO 確定 2026-05-07 Option C')", () => {
+  const ENV_OBS = "NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE";
+  let originalObs: string | undefined;
+
+  beforeEach(() => {
+    originalObs = process.env[ENV_OBS];
+    delete process.env[ENV_OBS];
+  });
+
+  afterEach(() => {
+    if (originalObs === undefined) delete process.env[ENV_OBS];
+    else process.env[ENV_OBS] = originalObs;
+  });
+
+  it("env 未設定で false (Phase 1 default / Production 不変)", async () => {
+    delete process.env[ENV_OBS];
+    const { isSpeechObservationMode } = await import(
+      "@/lib/coalter/presence/speechFetchGate"
+    );
+    expect(isSpeechObservationMode()).toBe(false);
+  });
+
+  it("env=false で false", async () => {
+    process.env[ENV_OBS] = "false";
+    const { isSpeechObservationMode } = await import(
+      "@/lib/coalter/presence/speechFetchGate"
+    );
+    expect(isSpeechObservationMode()).toBe(false);
+  });
+
+  it("env=任意の文字列で false (true 以外は全て fallback)", async () => {
+    const { isSpeechObservationMode } = await import(
+      "@/lib/coalter/presence/speechFetchGate"
+    );
+    process.env[ENV_OBS] = "1";
+    expect(isSpeechObservationMode()).toBe(false);
+    process.env[ENV_OBS] = "TRUE";
+    expect(isSpeechObservationMode()).toBe(false);
+    process.env[ENV_OBS] = "";
+    expect(isSpeechObservationMode()).toBe(false);
+  });
+
+  it("env=true で true (Phase 2 observation active)", async () => {
+    process.env[ENV_OBS] = "true";
+    const { isSpeechObservationMode } = await import(
+      "@/lib/coalter/presence/speechFetchGate"
+    );
+    expect(isSpeechObservationMode()).toBe(true);
+  });
+
+  it("構造 invariant: NEXT_PUBLIC_ 直接アクセス (webpack inline 強制)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../lib/coalter/presence/speechFetchGate.ts",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    expect(content).toMatch(
+      /process\.env\.NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE/,
+    );
+    // 関数本体内で computed access を使わない
+    const fnMatch = content.match(
+      /export\s+function\s+isSpeechObservationMode[\s\S]+?\}\s*$/m,
+    );
+    expect(fnMatch).not.toBeNull();
+    expect(fnMatch![0]).not.toMatch(/process\.env\[/);
   });
 });

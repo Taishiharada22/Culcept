@@ -21,11 +21,30 @@ import type { PresenceMode } from "@/lib/coalter/presence/types";
 export interface S6ReadyForProposalProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): 「提案を聞く」 button tap handler。
+   * production usage では UpperLayerMount が
+   * `exec.dispatch.presenceEvent({ type: "S6_PROPOSE" })` を bind し、S6 → S7。
+   */
+  onProposeTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: 「もう少し整理する」 button tap handler。
+   * `S6_REWORK` を dispatch、S6 → S5 (戻る)。
+   */
+  onReworkTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: 「今はここまでにする」 button tap handler。
+   * `S6_END` を dispatch、S6 → S8 (退出)。
+   */
+  onEndTap?: () => void;
 }
 
 export default function S6ReadyForProposal({
   mode,
   onSwitchMode,
+  onProposeTap,
+  onReworkTap,
+  onEndTap,
 }: S6ReadyForProposalProps) {
   return (
     <UpperLayerShell
@@ -57,9 +76,15 @@ export default function S6ReadyForProposal({
             alignItems: "center",
           }}
         >
-          <Chip variant="action">提案を聞く</Chip>
-          <Chip variant="action">もう少し整理する</Chip>
-          <Chip variant="action">今はここまでにする</Chip>
+          <Chip variant="action" onClick={onProposeTap}>
+            提案を聞く
+          </Chip>
+          <Chip variant="action" onClick={onReworkTap}>
+            もう少し整理する
+          </Chip>
+          <Chip variant="action" onClick={onEndTap}>
+            今はここまでにする
+          </Chip>
         </div>
       </div>
     </UpperLayerShell>

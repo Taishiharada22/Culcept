@@ -27,6 +27,17 @@ export interface S7ProposalShownProps {
    * undefined 時は既存 hardcoded fallback (Phase 1 default 挙動を維持)。
    */
   body?: string;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): approve / close chip tap handler。
+   * UI spec §4.3.8 通り、approve (提案を受ける) と close (× 閉じる) の両者は
+   * いずれも S8 退出のため同一 handler に wire する。production usage では
+   * UpperLayerMount が `exec.dispatch.presenceEvent({ type: "S7_DONE" })` を
+   * bind する。
+   *
+   * **scope 外**: 「この提案をチャットに共有」 (handoff) chip は §2.7 の明示
+   * handoff 機構で別経路、本 phase では touch しない。
+   */
+  onResolveTap?: () => void;
 }
 
 const S7_FALLBACK_NODE = (
@@ -41,6 +52,7 @@ export default function S7ProposalShown({
   mode,
   onSwitchMode,
   body,
+  onResolveTap,
 }: S7ProposalShownProps) {
   return (
     <UpperLayerShell
@@ -71,8 +83,12 @@ export default function S7ProposalShown({
             gap: 8,
           }}
         >
-          <Chip variant="approve">提案を受ける</Chip>
-          <Chip variant="close">× 閉じる</Chip>
+          <Chip variant="approve" onClick={onResolveTap}>
+            提案を受ける
+          </Chip>
+          <Chip variant="close" onClick={onResolveTap}>
+            × 閉じる
+          </Chip>
         </div>
         <div style={{ display: "flex", justifyContent: "center" }}>
           <Chip variant="response" ariaLabel="明示 handoff">

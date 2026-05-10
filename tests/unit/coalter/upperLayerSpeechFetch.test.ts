@@ -54,7 +54,7 @@ describe("L4-i Phase 1 #2 — state component の hardcoded fallback (body undef
 });
 
 describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
-  it("isSpeechFetchEnabled を import (client gate)", async () => {
+  it("isSpeechFetchEnabled / isSpeechObservationMode を speechFetchGate から import", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -62,8 +62,11 @@ describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
       "../../../app/components/chat/UpperLayerMount.tsx",
     );
     const content = fs.readFileSync(file, "utf8");
+    // multi-line destructure を許容、両関数 import 必須
+    expect(content).toMatch(/isSpeechFetchEnabled/);
+    expect(content).toMatch(/isSpeechObservationMode/);
     expect(content).toMatch(
-      /import\s+\{\s*isSpeechFetchEnabled\s*\}\s+from\s+["']@\/lib\/coalter\/presence\/speechFetchGate["']/,
+      /@\/lib\/coalter\/presence\/speechFetchGate/,
     );
   });
 
@@ -106,7 +109,7 @@ describe("L4-i Phase 1 #1, #5 — UpperLayerMount.tsx 構造 invariant", () => {
 });
 
 describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止", () => {
-  it("AbortController + 2s timeout (CEO 必須 #10 timeout 時 fallback)", async () => {
+  it("AbortController + SPEECH_FETCH_TIMEOUT_MS timeout (CEO 確定 2026-05-07 = 10_000ms、Block 3 STOP 後 8s→10s)", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -115,8 +118,17 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     );
     const content = fs.readFileSync(file, "utf8");
     expect(content).toMatch(/new\s+AbortController\(\)/);
-    // setTimeout(...,  2000) — body has nested parens, use looser anchor
-    expect(content).toMatch(/setTimeout\([\s\S]*?,\s*2000\s*\)/);
+    // 定数化済 (magic number 排除)、Stage 2.1 canary で 5_000ms が censored sample を
+    // 生んだため 8_000ms に拡張、Stage 2.2 Block 3 STOP (timeout 累積 2/55=3.6%) で
+    // 10_000ms に拡張 (案 A、CEO 確定 2026-05-07、Phase 2 観測専用)。
+    // 起因 layer は未確定 (Anthropic / Vercel route / network / client / serverless いずれも候補)。
+    expect(content).toMatch(
+      /export\s+const\s+SPEECH_FETCH_TIMEOUT_MS\s*=\s*10_?000/,
+    );
+    // setTimeout は定数を参照
+    expect(content).toMatch(
+      /setTimeout\([\s\S]*?,\s*SPEECH_FETCH_TIMEOUT_MS\)/,
+    );
     expect(content).toMatch(/controller\.abort\(\)/);
   });
 
@@ -154,6 +166,301 @@ describe("L4-i Phase 1 #10, #11, #12 — fetch dedupe / timeout / stale 防止",
     const content = fs.readFileSync(file, "utf8");
     expect(content).toMatch(/speechNegativeCacheRef/);
     expect(content).toMatch(/30_000|30000/);
+  });
+
+  it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): source==='llm' のみ cache", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // source === "llm" 分岐で speechCacheRef.set
+    expect(content).toMatch(
+      /source\s*===\s*["']llm["'][\s\S]{0,200}speechCacheRef\.current\.set/,
+    );
+    // rate_limited 時 negative cache 70s
+    expect(content).toMatch(
+      /reason\s*===\s*["']rate_limited["'][\s\S]{0,150}speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*70_000\)/,
+    );
+    // llm_error / validation_failed / timeout 時 negative cache 30s
+    expect(content).toMatch(
+      /reason\s*===\s*["']llm_error["']\s*\|\|[\s\S]{0,120}["']validation_failed["']\s*\|\|[\s\S]{0,120}["']timeout["']/,
+    );
+  });
+
+  it("L4-i Phase 2 Option B' (CEO 確定 2026-05-02): pattern.used emit を fetch 完了後に dedupe ref で実 source/retries/latency/validationFailed/fallbackReason で emit", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // emitPatternUsed import (UpperLayerMount で実 source 反映 emit)
+    expect(content).toMatch(/import\s+\{\s*emitPatternUsed\s*\}/);
+    // dedupe ref
+    expect(content).toMatch(/lastEmittedSpeechTelemetryKeyRef/);
+    expect(content).toMatch(
+      /lastEmittedSpeechTelemetryKeyRef\.current\s*=\s*telemetryKey/,
+    );
+    // dedupe key は (variant, state, mode, source, fallbackReason)
+    expect(content).toMatch(
+      /\$\{speechVariant\}\|\$\{speechState\}\|\$\{speechMode\}\|\$\{source\}/,
+    );
+    // helper 内で emitPatternUsed 呼び出し
+    expect(content).toMatch(
+      /const\s+emitSpeechTelemetry\s*=[\s\S]{0,2000}emitPatternUsed/,
+    );
+  });
+
+  it("L4-i Phase 2 Option B': payload に PII (body/prompt/userInput/conversation/transcript) を一切入れない", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // emitPatternUsed call の payload 全 field を locate
+    const callMatch = content.match(
+      /emitPatternUsed\(\s*\{[\s\S]*?\}\s*\)/,
+    );
+    expect(callMatch).not.toBeNull();
+    const payloadBlock = callMatch![0];
+    // 禁止 field が emit payload に存在しない
+    expect(payloadBlock).not.toMatch(/\bbody\s*:/);
+    expect(payloadBlock).not.toMatch(/\bpromptText\s*:|\bprompt\s*:/);
+    expect(payloadBlock).not.toMatch(/\bllmResponse/);
+    expect(payloadBlock).not.toMatch(/\buserMessage\s*:|\buserInput\s*:/);
+    expect(payloadBlock).not.toMatch(/\bconversation\s*:|\btranscript\s*:/);
+    // 許可された 11 field のみ (`field:` も `field,` shorthand も許容)
+    expect(payloadBlock).toMatch(/\bvariant\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bstate\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bmode\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bhasSecondary\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bpairId\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bts\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bspeechSource\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bretries\s*[:,]/);
+    expect(payloadBlock).toMatch(/\blatencyMs\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bvalidationFailed\s*[:,]/);
+    expect(payloadBlock).toMatch(/\bfallbackReason\s*[:,]/);
+  });
+
+  it("L4-i Phase 2 Option B': fetch 完了 path 全網羅で emit (success / non-OK / timeout / network)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // success path: server response の safeSource / safeReason を emit
+    expect(content).toMatch(
+      /emitSpeechTelemetry\([\s\S]{0,200}safeSource[\s\S]{0,200}safeReason/,
+    );
+    // non-OK HTTP path: fallback / llm_error
+    expect(content).toMatch(
+      /res\.ok[\s\S]{0,400}emitSpeechTelemetry\([\s\S]{0,200}["']fallback["'][\s\S]{0,200}["']llm_error["']/,
+    );
+    // catch path: timeout/llm_error 区別
+    expect(content).toMatch(
+      /timeoutFired\s*\?\s*["']timeout["']\s*:\s*["']llm_error["']/,
+    );
+  });
+
+  it("L4-i Phase 2 Option B': cleanup-induced abort では emit しない (stale response 防止)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // catch block 内で isAbort && !timeoutFired なら early return (emit せず)
+    expect(content).toMatch(
+      /isAbort\s*&&\s*!timeoutFired[\s\S]{0,150}setSpeechBody\(null\)[\s\S]{0,50}return/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' (CEO 確定 2026-05-07): observationMode で cache read を skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationMode 判定が effect 内に存在
+    expect(content).toMatch(
+      /const\s+observationMode\s*=\s*isSpeechObservationMode\(\)/,
+    );
+    // !observationMode のときだけ cache hit / negative cache check 経路
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechCacheRef\.current\.get\(cacheKey\)/,
+    );
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechNegativeCacheRef\.current\.get\(cacheKey\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationMode で cache write も skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // success path の cache write block が !observationMode で gate
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,400}speechCacheRef\.current\.set\(cacheKey/,
+    );
+    // catch path / non-OK path の negative cache write も !observationMode で gate
+    expect(content).toMatch(
+      /if\s*\(\s*!observationMode\s*\)\s*\{[\s\S]{0,200}speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*30_000\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationKey が effect deps に含まれる", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // effect deps の最後に observationKey が含まれる
+    expect(content).toMatch(
+      /\}\s*,\s*\[speechState,\s*speechMode,\s*speechVariant,\s*threadId,\s*observationKey\]/,
+    );
+  });
+
+  it("L4-i Phase 2 Option C' : observationKey は recentSignals.length に依存しない (kind:detectedAt 形式)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationKey が `${kind}:${detectedAt}` 形式 (SIGNAL_LOG_LIMIT 依存回避、CEO 厳守)
+    const observationBlock = content.match(
+      /const\s+observationKey\s*=[\s\S]{0,500};/,
+    );
+    expect(observationBlock).not.toBeNull();
+    expect(observationBlock![0]).toMatch(/kind/);
+    expect(observationBlock![0]).toMatch(/detectedAt/);
+    // recentSignals.length を observationKey に使っていない
+    expect(observationBlock![0]).not.toMatch(/recentSignals\.length/);
+  });
+
+  it("L4-i Phase 2 Option C' : Production default (env 未設定) で従来挙動完全維持", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // observationMode false 時は observationKey が "off" 固定 (deps 不変、従来挙動)
+    expect(content).toMatch(/observationMode[\s\S]{0,200}["']off["']/);
+    // in-flight dedupe / AbortController / stale guard は両モード共通
+    expect(content).toMatch(/inFlightSpeechRef\.current\.has\(cacheKey\)/);
+    expect(content).toMatch(/new\s+AbortController\(\)/);
+    expect(content).toMatch(/speechMountedRef/);
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 (CEO 確定 2026-05-07): observationMode の cleanup で abort も clearTimeout も両方 skip", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // cleanup return block の中で observationMode 時は早期 return
+    // (controller.abort() + clearTimeout(timeoutId) を両方 skip して 8s timeout 保険を維持)
+    expect(content).toMatch(
+      /return\s*\(\s*\)\s*=>\s*\{[\s\S]{0,1000}if\s*\(\s*observationMode\s*\)\s*\{[\s\S]{0,200}return;[\s\S]{0,200}\}[\s\S]{0,200}controller\.abort\(\);?[\s\S]{0,80}clearTimeout\(timeoutId\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 : timeoutId は fetch finally で clear (request 単位の所有)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // finally block で clearTimeout(timeoutId) が呼ばれる
+    // (effect cleanup で消えても timeout 保険を維持するための request 単位所有)
+    expect(content).toMatch(
+      /\}\s*finally\s*\{[\s\S]{0,200}clearTimeout\(timeoutId\)/,
+    );
+  });
+
+  it("L4-i Phase 2 Stage 2.1 v4 : telemetry dedupe key に observationMode 時 observationKey を追加", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // baseKey と observationMode 時の augmented key の両方を生成
+    expect(content).toMatch(
+      /const\s+baseKey\s*=\s*`[\s\S]{0,200}\$\{speechVariant\}[\s\S]{0,200}\$\{[\s\S]{0,40}fallbackReason/,
+    );
+    expect(content).toMatch(
+      /const\s+telemetryKey\s*=\s*observationMode[\s\S]{0,150}\$\{baseKey\}\|\$\{observationKey\}[\s\S]{0,150}baseKey/,
+    );
+    // 通常モードの dedupe semantics は維持 (二重 emit 防止)
+    expect(content).toMatch(
+      /telemetryKey\s*===\s*lastEmittedSpeechTelemetryKeyRef\.current[\s\S]{0,80}return/,
+    );
+  });
+
+  it("L4-i Phase 2 fix-forward (CEO 確定 2026-05-02): cleanup-induced abort は negative cache を汚さない", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // timeoutFired flag (timeout-induced abort と cleanup-induced abort の区別)
+    expect(content).toMatch(/let\s+timeoutFired\s*=\s*false/);
+    expect(content).toMatch(/timeoutFired\s*=\s*true/);
+    // catch ブロックで AbortError かつ !timeoutFired なら negative cache を **設定しない**
+    expect(content).toMatch(
+      /isAbort[\s\S]{0,50}!timeoutFired[\s\S]{0,150}return/,
+    );
+    // それ以外 (timeout 由来 or 真の error) は negative cache 30s
+    expect(content).toMatch(
+      /speechNegativeCacheRef\.current\.set\(cacheKey,\s*Date\.now\(\)\s*\+\s*30_000\)/,
+    );
+  });
+
+  it("L4-i Phase 2 fix-forward: source!=='llm' のとき UI に body を流さない (hardcoded fallback 維持)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/UpperLayerMount.tsx",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // setSpeechBody(json.body as string) は source==="llm" 分岐内のみ
+    // それ以外は setSpeechBody(null) で hardcoded fallback に戻す
+    expect(content).toMatch(
+      /if\s*\(source\s*===\s*["']llm["']\)\s*\{[\s\S]{0,150}setSpeechBody\(json\.body\s+as\s+string\)/,
+    );
+    expect(content).toMatch(
+      /\}\s*else\s*\{\s*setSpeechBody\(null\)/,
+    );
   });
 
   it("cache key に variant が含まれる (S7 F1/F2 を区別、CEO 必須要件)", async () => {

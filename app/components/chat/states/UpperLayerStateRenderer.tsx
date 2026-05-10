@@ -48,6 +48,41 @@ interface StateComponentProps {
   mode: PresenceMode;
   onSwitchMode: (target: PresenceMode) => void;
   body?: string;
+  /**
+   * B-2 残作業 (CEO 確定 2026-05-09): status chip tap handler。
+   * S1Approaching のみ実体使用 (Chip.onClick に渡す)、他 state は無視 (型整合のため optional 受け入れ)。
+   */
+  onChipTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): response chip tap handler。
+   * S2Opening / S3Awaiting / S5Bridging が実体使用。各 state component で別 dispatch 事象に bind:
+   *   - S2: S2_ACCEPTED / S3: S3_RESPONSE / S5: S5_DONE
+   * 他 state (S0/S1/S4/S6/S7/S8) は無視。
+   */
+  onResponseTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: close chip tap handler (S5 のみ実体使用、いったん戻る → S5_DIRECT_EXIT)。
+   * S7 の close chip は onResolveTap 経由 (S7_DONE)、別 handler。
+   */
+  onCloseTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: 「提案を聞く」 button tap handler (S6 のみ、S6_PROPOSE)。
+   */
+  onProposeTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: 「もう少し整理する」 button tap handler (S6 のみ、S6_REWORK)。
+   */
+  onReworkTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: 「今はここまでにする」 button tap handler (S6 のみ、S6_END)。
+   */
+  onEndTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: approve / close chip tap handler (S7 のみ、S7_DONE)。
+   * UI spec §4.3.8 通り approve と close 両者を同一 handler に wire (両者 → S8 退出)。
+   * handoff chip 「この提案をチャットに共有」 は §2.7 別経路、本 phase scope 外。
+   */
+  onResolveTap?: () => void;
 }
 
 /**
@@ -119,6 +154,36 @@ export interface UpperLayerStateRendererProps {
    * S2/S5/S7 のみ実体使用、その他 state は無視。undefined で hardcoded fallback。
    */
   body?: string;
+  /**
+   * B-2 残作業 (CEO 確定 2026-05-09): S1 status chip tap handler。
+   * mapStateToComponent("S1") = S1Approaching に pass-through。他 state は無視。
+   */
+  onChipTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業 (CEO 確定 2026-05-09): S2/S3/S5 response chip tap handler。
+   * 各 state component で異なる dispatch 事象に bind (UpperLayerMount 側で state-aware 構築)。
+   */
+  onResponseTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: S5 「いったん戻る」 chip tap handler (S5_DIRECT_EXIT)。
+   */
+  onCloseTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: S6 「提案を聞く」 (S6_PROPOSE)。
+   */
+  onProposeTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: S6 「もう少し整理する」 (S6_REWORK)。
+   */
+  onReworkTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: S6 「今はここまでにする」 (S6_END)。
+   */
+  onEndTap?: () => void;
+  /**
+   * B-3 Phase 1 残作業: S7 approve / close chip (両者 → S7_DONE)。
+   */
+  onResolveTap?: () => void;
 }
 
 /**
@@ -137,11 +202,29 @@ export default function UpperLayerStateRenderer({
   mode,
   onSwitchMode,
   body,
+  onChipTap,
+  onResponseTap,
+  onCloseTap,
+  onProposeTap,
+  onReworkTap,
+  onEndTap,
+  onResolveTap,
 }: UpperLayerStateRendererProps) {
   const Component = mapStateToComponent(state);
   return (
     <StateAriaWrapper state={state} mode={mode}>
-      <Component mode={mode} onSwitchMode={onSwitchMode} body={body} />
+      <Component
+        mode={mode}
+        onSwitchMode={onSwitchMode}
+        body={body}
+        onChipTap={onChipTap}
+        onResponseTap={onResponseTap}
+        onCloseTap={onCloseTap}
+        onProposeTap={onProposeTap}
+        onReworkTap={onReworkTap}
+        onEndTap={onEndTap}
+        onResolveTap={onResolveTap}
+      />
     </StateAriaWrapper>
   );
 }

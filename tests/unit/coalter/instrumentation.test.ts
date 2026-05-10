@@ -101,6 +101,20 @@ describe("L4-pre-3 instrumentation-client.ts — client side wiring", () => {
     expect(content).not.toMatch(/setLlmCall/);
     expect(content).not.toMatch(/createAnthropicLlmCallFromEnv/);
   });
+
+  it("L4-i Phase 2 Stage 2.1 (CEO 確定 2026-05-03): maxBreadcrumbs 拡張 (default 100 → 500)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(__dirname, "../../../instrumentation-client.ts");
+    const content = fs.readFileSync(file, "utf8");
+    // talk page polling chatter (~24 fetch/min) で default 100 buffer が ~4 分で
+    // overflow し coalter.* breadcrumb が消失する事案への対策。
+    expect(content).toMatch(/maxBreadcrumbs:\s*500/);
+    // Sentry.init 内に存在 (init option として有効)
+    expect(content).toMatch(
+      /Sentry\.init\([\s\S]*?maxBreadcrumbs:\s*500[\s\S]*?\}\s*\)/,
+    );
+  });
 });
 
 describe("L4-pre-3 null injection 防止 — createAnthropicLlmCallFromEnv 実挙動", () => {

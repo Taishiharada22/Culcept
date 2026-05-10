@@ -218,7 +218,7 @@ describe("L4-i Phase 1 — request validation (CEO 必須 #4 cover)", () => {
 });
 
 describe("L4-i Phase 1 — 構造 invariant (CEO 必須 #3, #6, #8 cover)", () => {
-  it("buildPresenceSpeech を import (LLM 経路は flag ON 時のみ)", async () => {
+  it("buildPresenceSpeech / hasLlmCallInjected / setLlmCall を speechBuilder から import", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const file = path.resolve(
@@ -226,9 +226,14 @@ describe("L4-i Phase 1 — 構造 invariant (CEO 必須 #3, #6, #8 cover)", () =
       "../../../../app/api/coalter/speech/route.ts",
     );
     const content = fs.readFileSync(file, "utf8");
-    expect(content).toMatch(
-      /import\s+\{\s*buildPresenceSpeech\s*\}\s+from\s+["']@\/lib\/coalter\/presence\/speechBuilder["']/,
-    );
+    // multi-line destructure import を許容
+    expect(content).toMatch(/buildPresenceSpeech/);
+    expect(content).toMatch(/hasLlmCallInjected/);
+    expect(content).toMatch(/setLlmCall/);
+    expect(content).toMatch(/@\/lib\/coalter\/presence\/speechBuilder/);
+    // Anthropic LLM wrapper も import (lazy init recovery 用)
+    expect(content).toMatch(/createAnthropicLlmCallFromEnv/);
+    expect(content).toMatch(/@\/lib\/coalter\/presence\/llmCall/);
   });
 
   it("LLM flag check (presenceSpeechLLMEnabled + ANTHROPIC_API_KEY) 二重 gate", async () => {

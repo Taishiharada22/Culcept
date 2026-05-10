@@ -29,3 +29,29 @@
 export function isSpeechFetchEnabled(): boolean {
   return process.env.NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_FETCH === "true";
 }
+
+/**
+ * L4-i Phase 2 Stage 2.1 / 2.2 観測モード (CEO 確定 2026-05-07 Option C')。
+ *
+ * Phase 2 観測中、同 thread / 同 (variant, state, mode) で連続 signal が来ても
+ * cache hit + effect deps 不変で fetch が起動せず統計サンプルが取れない問題を解消する。
+ *
+ * 本 flag が true のとき、UpperLayerMount は:
+ *   1. speech session cache (read/write) を skip
+ *   2. negative cache (read) を skip
+ *   3. effect deps に最新 signal の一意 key (kind:ts) を含めて毎回再実行
+ *   4. in-flight dedupe / AbortController / stale response guard / 10s timeout は維持
+ *      (timeout 値は Stage 2.2 Block 3 STOP 後 CEO 確定 2026-05-07 で 8s → 10s 拡張)
+ *   5. pattern.used emit は Option B' 通り fetch 完了後に actual outcome で emit
+ *
+ * **Production 不変原則**: env 未設定 (本関数 false) なら従来挙動完全維持。観測モードは
+ * Vercel Preview env でのみ ON、Production には絶対入れない (CEO 厳守)。
+ *
+ * 観測モード OFF (= Production / Phase 1 default) でも fetch は機能する
+ * (`isSpeechFetchEnabled()` が ON なら)。本関数は cache / re-trigger 戦略のみ制御。
+ */
+export function isSpeechObservationMode(): boolean {
+  return (
+    process.env.NEXT_PUBLIC_COALTER_PRESENCE_SPEECH_OBSERVATION_MODE === "true"
+  );
+}

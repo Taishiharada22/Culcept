@@ -207,6 +207,71 @@ describe("L4-j #1-4 emit chain — 4 event すべて sink に届く (flag ON)", 
 // CEO 必須 #5: rerender で重複 emit しない (dedupe ref)
 // ─────────────────────────────────────────────
 
+describe("L4-i Phase 2 Option B' (CEO 確定 2026-05-02) — usePresenceExecutor pattern.used emit suppression", () => {
+  it("isSpeechFetchEnabled() を import (Phase 2 fetch enabled 判定)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/hooks/usePresenceExecutor.ts",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    expect(content).toMatch(
+      /import\s+\{\s*isSpeechFetchEnabled\s*\}\s+from\s+["']@\/lib\/coalter\/presence\/speechFetchGate["']/,
+    );
+  });
+
+  it("pattern_used emit は !isSpeechFetchEnabled() のときだけ走る (fetch disabled = static default)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/hooks/usePresenceExecutor.ts",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // pattern_used emit ブロックの中に !isSpeechFetchEnabled() ガード
+    expect(content).toMatch(
+      /if\s*\(\s*!isSpeechFetchEnabled\(\)\s*\)\s*\{[\s\S]{0,400}emitPatternUsed/,
+    );
+  });
+
+  it("speech fetch enabled 時の emit は UpperLayerMount に委譲される (本 hook では emit せず ref のみ更新)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/hooks/usePresenceExecutor.ts",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // lastEmittedPatternRef.current = current は emit guard の外側に出ている
+    // (fetch toggle 跨ぎでの重複防止のため両 path で必ず ref 更新)
+    expect(content).toMatch(
+      /\}\s*\n\s*lastEmittedPatternRef\.current\s*=\s*current/,
+    );
+  });
+
+  it("disabled path で emit される payload は static default (Phase 1 / Production OFF 維持)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const file = path.resolve(
+      __dirname,
+      "../../../app/components/chat/hooks/usePresenceExecutor.ts",
+    );
+    const content = fs.readFileSync(file, "utf8");
+    // !isSpeechFetchEnabled ブロック内の emitPatternUsed payload
+    const guarded = content.match(
+      /if\s*\(\s*!isSpeechFetchEnabled\(\)\s*\)\s*\{[\s\S]{0,500}\}/,
+    );
+    expect(guarded).not.toBeNull();
+    const block = guarded![0];
+    expect(block).toMatch(/speechSource:\s*["']static["']/);
+    expect(block).toMatch(/retries:\s*0/);
+    expect(block).toMatch(/latencyMs:\s*0/);
+    expect(block).toMatch(/validationFailed:\s*false/);
+    expect(block).toMatch(/fallbackReason:\s*null/);
+  });
+});
+
 describe("L4-j #5 dedupe — usePresenceExecutor 内 emit は前値比較で重複抑止", () => {
   it("同 mode に再 emit が抑制される (lastEmittedModeRef pattern、構造 invariant)", async () => {
     const fs = await import("node:fs");
