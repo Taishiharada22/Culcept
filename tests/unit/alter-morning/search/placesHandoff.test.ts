@@ -248,6 +248,137 @@ describe("executePlacesHandoff — zero", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §4 executePlacesHandoff — allowAnchorOnly (CEO/GPT 2026-05-03 PR #74)
+//
+// journey_origin grounding 経路で chain/category null でも anchor 単独 query を
+// 通すための条件付き許可。 event_where 経路は **絶対に true を渡さない**。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("executePlacesHandoff — allowAnchorOnly (CEO/GPT 2026-05-03 PR #74)", () => {
+  // 期待する text query を verify するため searchSpy で arg 確認
+  // searchPlacesByText は { textQuery, ... } 形式の args を受け取る
+  const captureTextQuery = () => {
+    const captured: string[] = [];
+    const spy = vi.fn(async (args: { textQuery: string }) => {
+      captured.push(args.textQuery);
+      return [
+        mkPlace({
+          id: "p_journey",
+          displayName: { text: "東京駅丸の内口", languageCode: "ja" },
+        }),
+      ];
+    });
+    return { spy, captured };
+  };
+
+  it("[journey_origin] allowAnchorOnly: true + anchor only → success with anchor query", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: "東京駅",
+      chainToken: null,
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const { spy, captured } = captureTextQuery();
+    const result = await executePlacesHandoff(
+      { draft, allowAnchorOnly: true },
+      mkDeps({ searchPlacesByText: spy as never }),
+    );
+    expect(result.kind).toBe("success");
+    expect(captured).toEqual(["東京駅"]); // anchor 単独 query
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("[journey_origin] allowAnchorOnly: true + anchor + chain → success with combined query (= 既存 path)", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: "渋谷",
+      chainToken: "スタバ",
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const { spy, captured } = captureTextQuery();
+    const result = await executePlacesHandoff(
+      { draft, allowAnchorOnly: true },
+      mkDeps({ searchPlacesByText: spy as never }),
+    );
+    expect(result.kind).toBe("success");
+    expect(captured).toEqual(["渋谷 スタバ"]); // chain あり時は従来通り
+  });
+
+  it("[event_where] allowAnchorOnly 不指定 + anchor only → draft_not_ready (= 既存挙動完全維持)", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: "東京駅",
+      chainToken: null,
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const searchSpy = vi.fn(async () => []);
+    const result = await executePlacesHandoff(
+      { draft },
+      mkDeps({ searchPlacesByText: searchSpy as never }),
+    );
+    expect(result.kind).toBe("provider_error");
+    if (result.kind === "provider_error") {
+      expect(result.reason).toBe("draft_not_ready");
+    }
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  it("[event_where] allowAnchorOnly: false 明示 + anchor only → draft_not_ready (= 既存挙動完全維持)", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: "東京駅",
+      chainToken: null,
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const searchSpy = vi.fn(async () => []);
+    const result = await executePlacesHandoff(
+      { draft, allowAnchorOnly: false },
+      mkDeps({ searchPlacesByText: searchSpy as never }),
+    );
+    expect(result.kind).toBe("provider_error");
+    if (result.kind === "provider_error") {
+      expect(result.reason).toBe("draft_not_ready");
+    }
+  });
+
+  it("[invariant] allowAnchorOnly: true でも anchor null → draft_not_ready (= anchor 必須)", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: null,
+      chainToken: null,
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const searchSpy = vi.fn(async () => []);
+    const result = await executePlacesHandoff(
+      { draft, allowAnchorOnly: true },
+      mkDeps({ searchPlacesByText: searchSpy as never }),
+    );
+    expect(result.kind).toBe("provider_error");
+    if (result.kind === "provider_error") {
+      expect(result.reason).toBe("draft_not_ready");
+    }
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  it("[invariant] allowAnchorOnly: true でも anchor 空白文字 → draft_not_ready", async () => {
+    const draft: SearchQueryDraft = {
+      anchorRegion: "   ",
+      chainToken: null,
+      categoryToken: null,
+      readyForHandoff: true,
+    };
+    const result = await executePlacesHandoff(
+      { draft, allowAnchorOnly: true },
+      mkDeps({ searchPlacesByText: (async () => []) as never }),
+    );
+    expect(result.kind).toBe("provider_error");
+    if (result.kind === "provider_error") {
+      expect(result.reason).toBe("draft_not_ready");
+    }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // §4 executePlacesHandoff — success
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

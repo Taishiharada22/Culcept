@@ -66,6 +66,11 @@ let cachedTransportAllowlist: AllowlistCache = { raw: undefined, set: new Set() 
 let cachedDialogStateAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
 let cachedPlacesSearchAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
 let cachedVisualFlowAllowlist: AllowlistCache = { raw: undefined, set: new Set() };
+// CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding allowlist
+let cachedJourneyOriginGroundingAllowlist: AllowlistCache = {
+  raw: undefined,
+  set: new Set(),
+};
 
 function getTransportV2AllowlistSet(): Set<string> {
   cachedTransportAllowlist = parseAllowlistCsv(
@@ -100,6 +105,21 @@ function getVisualFlowAllowlistSet(): Set<string> {
 }
 
 /**
+ * CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding allowlist 取得。
+ * env CSV: `ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING_ALLOWLIST`
+ *
+ * journey_origin only (= journey_end は別 PR で別 flag を追加)。
+ * B-3c 完成時に flag 自体を削除予定。
+ */
+function getJourneyOriginGroundingAllowlistSet(): Set<string> {
+  cachedJourneyOriginGroundingAllowlist = parseAllowlistCsv(
+    process.env.ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING_ALLOWLIST,
+    cachedJourneyOriginGroundingAllowlist,
+  );
+  return cachedJourneyOriginGroundingAllowlist.set;
+}
+
+/**
  * テスト override。process.env を触らず flag を上書きする。
  * null でクリア（env 値に戻る）。
  */
@@ -107,6 +127,10 @@ let dialogStateV2Override: boolean | null = null;
 let placesSearchOverride: boolean | null = null;
 let transportV2Override: boolean | null = null;
 let visualFlowOverride: boolean | null = null;
+// CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding gate
+//   journey_origin only (= journey_end は別 flag)
+//   B-3c 完成時に削除予定 (= unconditional 化)
+let journeyOriginGroundingOverride: boolean | null = null;
 
 /**
  * canary flag の「どの経路で ON になったか」を payload に埋める用の共通 type。
@@ -222,6 +246,37 @@ export function resolveVisualFlowFlagSource(
   return null;
 }
 
+/**
+ * CEO/GPT 2026-05-03 PR B-3c-2: journey_origin grounding flag source 解決。
+ *
+ * 用途:
+ *   - telemetry events (`journey_origin_promotion_*`) の metadata.flag_source
+ *   - rollout 判断のための「どの経路で flag が ON だったか」 を識別
+ *
+ * 戻り値:
+ *   - "allowlist": env CSV に userId が含まれる
+ *   - "global": env CSV に含まれないが global flag が true
+ *   - null: flag OFF (= canary 対象外、telemetry も出さない)
+ *
+ * 注意:
+ *   AND gate (= dialogStateV2 + placesSearch) は journeyOriginGrounding(userId) method
+ *   側でのみ適用。本 resolver は journey_origin gate 自身の source を報告するだけ。
+ */
+export function resolveJourneyOriginGroundingFlagSource(
+  userId: string | undefined,
+): FlagSource | null {
+  if (journeyOriginGroundingOverride !== null) {
+    return journeyOriginGroundingOverride ? "global" : null;
+  }
+  if (userId) {
+    const normalized = userId.toLowerCase();
+    if (getJourneyOriginGroundingAllowlistSet().has(normalized))
+      return "allowlist";
+  }
+  if (envBool("ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING", false)) return "global";
+  return null;
+}
+
 /** @internal テスト用 override（jest / vitest から） */
 export function __setDialogStateV2Override(next: boolean | null): void {
   dialogStateV2Override = next;
@@ -240,6 +295,18 @@ export function __setTransportV2Override(next: boolean | null): void {
 /** @internal テスト用 override（PR-13 Visual Flow map pin MVP gate） */
 export function __setVisualFlowOverride(next: boolean | null): void {
   visualFlowOverride = next;
+}
+
+/**
+ * @internal テスト用 override (CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding)
+ *
+ * journey_origin only (= journey_end は本 flag 対象外、別 PR で別 flag を追加)。
+ * B-3c 完成時に flag 自体を削除予定 (= unconditional 化)。
+ */
+export function __setJourneyOriginGroundingOverride(
+  next: boolean | null,
+): void {
+  journeyOriginGroundingOverride = next;
 }
 
 export const ALTER_MORNING_FLAGS = {
@@ -397,5 +464,56 @@ export const ALTER_MORNING_FLAGS = {
       if (getVisualFlowAllowlistSet().has(normalized)) return true;
     }
     return envBool("ALTER_MORNING_VISUAL_FLOW", false);
+  },
+
+  /**
+   * CEO/GPT 2026-05-03 PR B-3b'-2 で導入 — journey_origin grounding の有効化。
+   *
+   * **scope は journey_origin のみ**:
+   *   - `target.kind === "journey_origin"` の placesHandoff 経路を gate
+   *   - `journey_end` は本 flag 対象外 (= 別 PR で `journeyEndGrounding` を追加 or 統合検討)
+   *   - audit doc §9 (CEO/GPT 2026-05-03 確定方針反映)
+   *
+   * **AND gate**: 本 flag が true でも以下を必須:
+   *   - `dialogStateV2(userId)` true (= DialogState がない経路では handoff 不可)
+   *   - `placesSearch(userId)` true (= Places API call が許可されない経路では fire しない)
+   *
+   * 優先順位 (§1-A-1):
+   *   1. test override (`__setJourneyOriginGroundingOverride(true|false)`)
+   *   2. allowlist (`ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING_ALLOWLIST` CSV に userId 含む)
+   *   3. global fallback (`ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING` env、既定 false)
+   *
+   * false (既定):
+   *   - route.ts は orchestrateJourneyAnchorHandoff を呼ばない
+   *   - userOverrideOriginLabel が設定されても journey_origin candidate UI 不表示
+   *   - production global では完全 OFF (= 半壊 UX 防止 Layer 1 gate)
+   *
+   * true:
+   *   - userOverrideOriginLabel + classifyLabel === "public_poi_proper_noun" の時に
+   *     Places API call → SEARCH_CANDIDATES_PRESENTED with target=journey_origin
+   *   - staging で実機検証可能
+   *   - selection click は B-3c 未実装のため Layer 2 (UI disabled) + Layer 3
+   *     (server reject) で blocked
+   *
+   * env keys:
+   *   - `ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING_ALLOWLIST` (CSV) — primary
+   *   - `ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING` (bool) — global fallback
+   *
+   * 削除タイミング:
+   *   B-3c 最終 commit で削除 (= flag を unconditional 化、関数自体を削除)。
+   *   削除責務:
+   *     - ALTER_MORNING_FLAGS から journeyOriginGrounding 削除
+   *     - 全 caller の `if (...)` 条件を unconditional に
+   *     - env var の Vercel env 削除指示 (= CEO 手動)
+   */
+  journeyOriginGrounding(userId?: string): boolean {
+    if (journeyOriginGroundingOverride !== null) {
+      return journeyOriginGroundingOverride;
+    }
+    if (userId) {
+      const normalized = userId.toLowerCase();
+      if (getJourneyOriginGroundingAllowlistSet().has(normalized)) return true;
+    }
+    return envBool("ALTER_MORNING_JOURNEY_ORIGIN_GROUNDING", false);
   },
 };

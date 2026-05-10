@@ -23,6 +23,10 @@ import type { ComprehensionResult, Event } from "./comprehension/eventSchema";
 import type { L1PipelineInput } from "./comprehension/l1Pipeline";
 import { runL1Pipeline } from "./comprehension/l1Pipeline";
 import { preParseUtterance, type RulePreParseHints } from "./comprehension/rulePreParse";
+import { validatePlanOperations } from "./comprehension/validateOperation";
+import { synthesizeOperations } from "./comprehension/deterministicOperationSynth";
+import type { PendingClarify } from "./types";
+import type { DialogState } from "./dialog/types";
 
 import { solveTimeLine, type TimeLine } from "./planning/timeSolver";
 import { groundPlaces, type GroundedPlace } from "./planning/placeGrounder";
@@ -137,6 +141,41 @@ export interface MorningPipelineInput {
    * 用途: route.ts の Branch B で「prior plan あり + 新 utterance」 → modify/append 判定。
    */
   priorPlanForContext?: Event[];
+
+  /**
+   * PR-50 Commit 4 (CEO 2026-04-30): operations 経路の answer operation を
+   * validation 層で検証するための pendingClarify state。
+   *
+   * 用途:
+   *   - validatePlanOperations の context.priorPendingClarify に流す
+   *   - LLM が answer operation を出した場合、slot mismatch / no_pending_clarify
+   *     を validation で検出して、矛盾なら events[] fallback に倒す
+   *
+   * 渡し方:
+   *   - route.ts Branch B (LLM 経路): rawMorningSession.pendingClarify を渡す
+   *   - route.ts Branch A (bind 経路): pipeline は priorEvents bypass モードで
+   *     LLM を呼ばず operations は空のため、本 field の影響なし (流しても無害)
+   *
+   * **answer は secondary safety path** (CEO 2026-04-30):
+   *   主経路は route.ts Branch A の bindAnswerToSlot。Branch A 成功時は LLM が
+   *   呼ばれず operations は空。Branch B で LLM が answer operation を出した
+   *   ケースのみ本 field 経由で operationDispatcher の bind に流れる。
+   */
+  priorPendingClarify?: PendingClarify | null;
+
+  /**
+   * PR A (CEO/GPT 2026-05-02) deterministic append fallback context:
+   * 当 turn 開始時の dialogState (focus / activePresentation / conversationStatus を読む)。
+   *
+   * 用途:
+   *   synthesizeOperations の allowDeterministicAppend 計算に必要。
+   *   active slot answer 文脈 (5 条件) で deterministic_append を抑制する。
+   *
+   * 渡し方:
+   *   - route.ts: rawMorningSession.dialogState を渡す
+   *   - 単独 test: undefined or null で OK (allowDeterministicAppend=false に倒れる)
+   */
+  priorDialogState?: DialogState | null;
 }
 
 export interface MorningPipelineProviders {
@@ -255,6 +294,11 @@ export async function runMorningPipeline(
       ? ({
           targetDate: todayYmd(),
           events: [],
+          // PR-50 Commit 3: priorEvents bypass (answerBinder 経路) では LLM を
+          //   呼ばないので operations は LLM 出力から得られない。空配列で渡す。
+          //   下流の validatePlanOperations は length===0 → fallbackToEvents=true
+          //   を立てるが、bypass モードでは元から既存 events を流す挙動なので整合する。
+          operations: [],
           startPoint: null,
           departureTime: null,
           goOut: null,
@@ -285,6 +329,115 @@ export async function runMorningPipeline(
   //   priorEvents があれば checker は走らない（bind 時に再計算済み）
   const comprehension = runL1Pipeline({ raw, utterance, priorEvents });
   const events = comprehension.events;
+
+  // PR-50 Commit 3 (CEO 2026-04-30): operations 経路の validation を接続。
+  //
+  // 戦略:
+  //   - LLM が出した operations (raw.operations) を validatePlanOperations で
+  //     batch validate。priorEvents (modify target / answer event 解決用) は
+  //     priorPlanForContext を流用 (modify/append 判別と同じ context)。
+  //   - allAccepted=true かつ length>0 → fallbackToEvents=false (operations 経路)
+  //   - それ以外 → fallbackToEvents=true (events[] fallback、legacy)
+  //
+  // 後段 (Commit 4 で実装される dispatch 層) は ComprehensionResult.fallbackToEvents
+  // を見て経路選択する。Commit 3 では伝搬のみで dispatch はしない (既存 events[]
+  // 経路の挙動が変わらないことが regression baseline 合格条件)。
+  //
+  // PR-50 Commit 4 (CEO 2026-04-30): priorPendingClarify を input から拾う。
+  //   - Branch B (LLM 経路): route.ts は rawMorningSession.pendingClarify を渡す。
+  //     answer operation を validation 層で正確に検証 (slot mismatch / no_pending
+  //     を含む)。
+  //   - Branch A (bind 経路): pipeline は priorEvents bypass で raw.operations が
+  //     空のため、context は使われない (validation スキップ相当)。
+  //
+  // PR-50 Commit 7 (CEO 2026-04-30): deterministic operation synthesis 接続。
+  //   LLM raw operations を直接 validation に渡すのではなく、まず synth 層で
+  //   utterance pattern を見て deterministic operations を生成する。
+  //
+  //   優先順位:
+  //     1. utterance pattern hit (時刻変更 / transport-only) → deterministic 採用、
+  //        LLM operations は破棄 (synthesisSource: "deterministic" or
+  //        "deterministic_overrides_llm")
+  //     2. LLM operations 非空 → そのまま採用 (synthesisSource: "llm")
+  //     3. 何もない → none (events[] 経路)
+  //
+  //   理由: LLM が「9時を10時に変更」「電車」 等の意味が一意な発話を、append や
+  //   noop として誤判定するケースが実機 (Preview 2026-04-30) で観測されたため。
+  //   pattern が確実な発話はコード側で modify を生成して LLM 出力を上書きする。
+  // PR A (CEO/GPT 2026-05-02): allowDeterministicAppend 計算
+  //   active slot answer 文脈で deterministic_append を抑制する 5 条件 AND check。
+  //   全 5 条件 clear でのみ true (= caller responsibility 厳守、既存 test 不破壊)。
+  //
+  //   pre-condition: priorDialogState が non-null (caller が dialogState を渡している)
+  //     priorDialogState=null → 「caller 未対応 / context 不明」 と見て safe default false。
+  //     route.ts は常に rawMorningSession?.dialogState を渡すため、実機で false になるのは
+  //     新規 session のみ。新規 session の 1 turn 目は priorEvents=[] で detectAppendPattern
+  //     も発火しないため挙動矛盾なし。
+  //
+  //   5 条件:
+  //   1. priorPendingClarify == null
+  //   2. dialogState.focus が active slot answer 状態でない
+  //      (where focus narrowStep<3、または where 以外の slot focus narrowStep=0)
+  //   3. dialogState.activePresentation == null
+  //   4. conversationStatus が search_candidates_presented でない
+  //   5. conversationStatus が search_handoff_blocking でない
+  const dialogState = input.priorDialogState ?? null;
+  let allowDeterministicAppend: boolean;
+  if (dialogState === null) {
+    // caller が dialogState を渡さない → safe default false (既存 test fixture 互換)
+    allowDeterministicAppend = false;
+  } else {
+    const isPendingClarify = (input.priorPendingClarify ?? null) !== null;
+    const focus = dialogState.focus ?? null;
+    const isActiveSlotAnswerFocus =
+      focus !== null &&
+      ((focus.slot === "where" && focus.narrowStep < 3) ||
+        (focus.slot !== "where" && focus.narrowStep === 0));
+    const isActivePresentation = dialogState.activePresentation != null;
+    const status = dialogState.conversationStatus ?? null;
+    const isHandoffStatus =
+      status === "search_candidates_presented" ||
+      status === "search_handoff_blocking";
+    allowDeterministicAppend = !(
+      isPendingClarify ||
+      isActiveSlotAnswerFocus ||
+      isActivePresentation ||
+      isHandoffStatus
+    );
+  }
+
+  const synthesisResult = synthesizeOperations({
+    utterance,
+    priorEvents: input.priorPlanForContext ?? [],
+    llmOperations: raw.operations ?? [],
+    priorPendingClarify: input.priorPendingClarify ?? null,
+    allowDeterministicAppend,
+  });
+  const operationsFromRaw = synthesisResult.operations;
+  const operationContext = {
+    priorEvents: input.priorPlanForContext ?? [],
+    priorPendingClarify: input.priorPendingClarify ?? null,
+  };
+  const validation = validatePlanOperations(operationsFromRaw, operationContext);
+  const useOperationsPath =
+    operationsFromRaw.length > 0 && validation.allAccepted;
+  // operations は LLM raw output ではなく synth 後を伝搬 (trace 整合性)
+  comprehension.operations = operationsFromRaw;
+  comprehension.acceptedOperations = validation.acceptedOperations;
+  comprehension.fallbackToEvents = !useOperationsPath;
+  comprehension.operationRejections = validation.rejections;
+  comprehension.operationsSynthesisSource = synthesisResult.synthesisSource;
+  if (!useOperationsPath && operationsFromRaw.length > 0) {
+    console.warn(
+      "[alter-morning/morningPipeline] operations rejected, falling back to events[]",
+      {
+        received: operationsFromRaw.length,
+        rejected: validation.rejections.length,
+        reasons: validation.rejections.map((r) => r.reason),
+        synthesisSource: synthesisResult.synthesisSource,
+      },
+    );
+  }
 
   // L2 — Planning（純関数 3 つ）
   // 注: resolveGaps は

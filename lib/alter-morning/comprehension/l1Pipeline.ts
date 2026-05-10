@@ -18,8 +18,10 @@
 import {
   type ComprehensionResult,
   type Event,
+  type Provenance,
   generateEventId,
 } from "./eventSchema";
+import type { PlanOperation } from "./planOperation";
 import { checkEvent } from "./provenanceChecker";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -53,7 +55,30 @@ export interface L1PipelineInput {
   /** L1.1 LLM 出力（event_id はまだ採番されていない） */
   raw: {
     targetDate: string;
+    /** targetDate の根拠情報。未取得の場合は undefined。 */
+    targetDateProvenance?: Provenance;
     events: RawEvent[];
+    /**
+     * PR-50 Commit 3 (CEO 2026-04-30):
+     *   LLM が出力した「今 turn の意図単位 (operations)」。
+     *   schema (structuredSchema.ts L1_COMPREHENSION_SCHEMA) で required。
+     *
+     *   parsing:
+     *     - llmComprehensionProvider の validateRawShape が OPERATION_SCHEMA 形
+     *       (全 field を null/値で含む) を `PlanOperation` discriminated union に
+     *       narrow して格納する。parse 失敗 element は drop。
+     *
+     *   contract:
+     *     - 空配列 [] は許容 (LLM が operations を出さない / 自信なし → events[] fallback)
+     *     - stub provider (test) は明示的に [] を渡す
+     *
+     *   後段 wiring (morningPipeline):
+     *     - validatePlanOperations で context (priorEvents / priorPendingClarify) と
+     *       照合して allAccepted を判定
+     *     - allAccepted=true + length>0 → operations 経路
+     *     - それ以外 → events[] fallback (legacy 経路、warn log)
+     */
+    operations: PlanOperation[];
     startPoint: ComprehensionResult["startPoint"];
     departureTime: ComprehensionResult["departureTime"];
     goOut: boolean | null;
@@ -108,12 +133,17 @@ export function runL1Pipeline(input: L1PipelineInput): ComprehensionResult {
           }),
         );
 
+  // PR-50 Commit 3: operations を ComprehensionResult に伝搬する。
+  //   ここで validation はしない (priorEvents / priorPendingClarify を持たない pure 層)。
+  //   morningPipeline.runMorningPipeline で validatePlanOperations を呼び、
+  //   acceptedOperations / fallbackToEvents / operationRejections を後付けで埋める。
   return {
     events,
     targetDate: raw.targetDate,
     startPoint: raw.startPoint,
     departureTime: raw.departureTime,
     goOut: raw.goOut,
+    operations: raw.operations,
   };
 }
 

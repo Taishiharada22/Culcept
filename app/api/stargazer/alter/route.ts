@@ -513,7 +513,11 @@ import { runMorningPipeline } from "@/lib/alter-morning/morningPipeline";
 import { createLLMComprehensionProvider } from "@/lib/alter-morning/comprehension/llmComprehensionProvider";
 import { createLLMNarrationProvider } from "@/lib/alter-morning/expression/llmNarrationProvider";
 import { adaptPipelineToLegacy, buildFailedPipelineResult } from "@/lib/alter-morning/legacyAdapter";
-import { bindAnswerToSlot } from "@/lib/alter-morning/comprehension/answerBinder";
+// CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+//   PR B-2c: fetchPreviousDayPlan で前日 plan を取得し Layer 2 inheritance に渡す
+import { upsertPlanHistory, fetchPreviousDayPlan } from "@/lib/alter-morning/persistence/planHistory";
+import { runShadowAndCompare } from "@/lib/alter-morning/op5";
+import { bindAnswerToSlot, bindOriginAnswer } from "@/lib/alter-morning/comprehension/answerBinder";
 // W3-PR-8 rev 3 Commit 16: DialogState v2 lazy migration (wiring only / flag-gated dead code)
 import { ensureSessionV1 } from "@/lib/alter-morning/dialog/ensureSessionV1";
 // W3-PR-8 rev 3 Commit 17: DialogState v2 shadow pipeline (flag ON のみ、phase authority 不干渉)
@@ -541,8 +545,20 @@ import { selectClarifyFallback } from "@/lib/alter-morning/dialog/selectClarifyF
 //   streak≥1 で user-facing message を alter voice の degrade 文に差し替える。
 //   phase / plan は触らない。次 turn 成功で PROVIDER_RECOVERED が streak=0 に戻す。
 import { dialogReducer } from "@/lib/alter-morning/dialog/reducer";
+import { reconcileDialogState } from "@/lib/alter-morning/planning/reconcileEffectiveEvents";
 import { computeProviderLatch } from "@/lib/alter-morning/dialog/providerLatch";
 import { orchestratePlacesHandoff } from "@/lib/alter-morning/search/placesHandoffOrchestrator";
+// CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding (新 orchestrator)
+// NOTE (forward-fix for #69 review): classifyLabel は legacyAdapter 側で intent 生成
+//   時に使用される (= 責務分離)。route.ts は intent.classification を読むだけ。
+import { orchestrateJourneyAnchorHandoff } from "@/lib/alter-morning/search/journeyAnchorHandoffOrchestrator";
+// CEO/GPT 2026-05-03 PR B-3c-2: telemetry emit (PII フリー)
+import {
+  emitPromotionPresented,
+  emitPromotionProviderFailure,
+  emitPromotionZeroCandidates,
+} from "@/lib/alter-morning/search/journeyOriginPromotionTelemetry";
+import { resolveJourneyOriginGroundingFlagSource } from "@/lib/alter-morning/dialog/flags";
 import {
   emitShadowStateEvent,
   emitHandoffOutcomeEvent,
@@ -561,6 +577,26 @@ const INCOMPLETE_ENDING_RE =
 
 function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
+}
+
+/**
+ * CEO/GPT 2026-05-02 PR B-2d-c: JST 固定の「実際の今日」(YYYY-MM-DD)。
+ *
+ * legacyAdapter の既存 `today` field は target plan date (= currentPlanDate) で、
+ * 「実際の今日」とは別物。混同を避けるため `actualTodayYmdJst` を別 input として渡す。
+ *
+ * 命名で前提を明示: `Jst` suffix で JST 固定であることを示す。
+ * user timezone / travel timezone / semantic date 解釈は PR B-4 (targetDate
+ * time-aware) で扱う。本 PR の scope を超えるため、本関数は JST 固定のまま。
+ *
+ * 使い方:
+ *   adaptPipelineToLegacy(pipelineResult, { actualTodayYmdJst: getActualTodayYmdJst() })
+ *   → legacyAdapter で planDate !== actualTodayYmdJst なら current location を reject (not_today)
+ */
+function getActualTodayYmdJst(): string {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.toISOString().slice(0, 10);
 }
 
 function looksIncompleteAlterResponse(value: string): boolean {
@@ -925,6 +961,11 @@ export async function POST(req: NextRequest) {
       softBridgePending: rawSoftBridgePending,
       currentLat: rawCurrentLat,
       currentLng: rawCurrentLng,
+      // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+      permissionState: rawPermissionState,
+      // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating fields
+      accuracy: rawAccuracy,
+      capturedAt: rawCapturedAt,
     } = body as {
       sessionId?: string;
       message: unknown;
@@ -983,6 +1024,26 @@ export async function POST(req: NextRequest) {
        */
       currentLat?: number | null;
       currentLng?: number | null;
+      /**
+       * CEO/GPT 2026-05-02 PR B-2d-a: geolocation permission state contract
+       *
+       * 5 値 raw (granted / denied / prompt / unsupported / unavailable)。
+       * legacyAdapter で homeAnchor=null のときの AnchorUnknownReason 決定に使う。
+       * coords がある場合、permissionState に関係なく current location が採用される。
+       *
+       * 詳細: lib/alter-morning/journey/permissionState.ts
+       */
+      permissionState?: "granted" | "denied" | "prompt" | "unsupported" | "unavailable" | null;
+      /**
+       * CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+       *
+       * accuracy = pos.coords.accuracy (m)、容認しきい値 1000m。
+       * capturedAt = new Date(pos.timestamp).toISOString() (cached position 対応)。
+       * legacyAdapter の evaluateCurrentLocation で gate (低精度 / stale / not_today) 判定に使う。
+       * いずれも optional (= legacy caller / 未取得時は省略)。
+       */
+      accuracy?: number | null;
+      capturedAt?: string | null;
     };
 
     const isHomeAlter = source === "home";
@@ -1708,6 +1769,13 @@ export async function POST(req: NextRequest) {
         ? "strong" as const
         : detectMorningIntent(message);
 
+      // CEO/GPT 2026-05-03 diagnostic log: morning protocol detect 結果
+      //   PII 排除 (= raw message は出さず length のみ)。 root cause audit 用。
+      void import("@/lib/alter-morning/journey/journeyOriginDebugLog").then(
+        ({ logMorningProtocolDetect }) =>
+          logMorningProtocolDetect(morningIntent, message.length),
+      ).catch(() => { /* swallow */ });
+
       // Soft Bridge 確認への肯定応答 → strong に昇格
       // ※ 直前のAlter返答がSoft Bridgeだった場合のみ（「はい」等の汎用肯定の誤発火防止）
       if (morningIntent === "none" && rawSoftBridgePending === true && isSoftBridgeConfirm(message)) {
@@ -1812,6 +1880,15 @@ export async function POST(req: NextRequest) {
         //   検知するための flag。catch 内で PROVIDER_FAILED を dispatch した後、
         //   shadow 冒頭の PROVIDER_RECOVERED dispatch を skip するのに使う。
         let pipelineAbsorbedOuter = false;
+        // CEO/GPT 2026-05-03 PR B-3b'-2 (forward-fix for #69 review):
+        //   responsibility split を厳格化するため、legacyAdapter が生成した
+        //   journeyOriginGroundingIntent を route.ts が **直接消費** する。
+        //   各 adapt path で adapted.journeyOriginGroundingIntent をここに hoist し、
+        //   後段の wiring block (= L2700 area) で flag 判定 + orchestrator 呼ぶ。
+        //   morningSession.plan.journeyOrigin からの再導出は廃止 (= intent を信頼する)。
+        let pendingJourneyOriginIntent:
+          | import("@/lib/alter-morning/legacyAdapter").JourneyOriginGroundingIntent
+          | undefined;
         // CEO 2026-04-28 PR #41a Commit 6: lastTraceSnapshot は L1485 の outer scope
         //   で宣言済み。Branch A/B/failure すべてここから assign する。
         if (useV2) {
@@ -1831,7 +1908,118 @@ export async function POST(req: NextRequest) {
 
             let usedBindPath = false;
             let bindReason: string | null = null;
+            // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答 label
+            //   pending.slot === "origin" の時、bindOriginAnswer の結果を保持し、
+            //   後続 adaptPipelineToLegacy に渡して journeyOrigin を user_override で plug。
+            let userOverrideOriginLabel: string | null = null;
             if (canBind) {
+              // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin slot は plan-level
+              //   bindAnswerToSlot ではなく bindOriginAnswer を使う:
+              //     - LLM comprehension に流さない (= 「ホテルから」を event として誤解釈するリスク回避)
+              //     - 成功時は events 更新なしで pipeline を流す
+              //     - pendingClarify は legacyAdapter で priorPendingClarify=null として clear
+              //     - 失敗時は既存 semantic_miss path にフォールスルー
+              if (priorPending!.slot === "origin") {
+                const originResult = bindOriginAnswer(message);
+                bindReason = originResult.bound ? "ok" : "semantic_miss";
+                bindReasonOuter = bindReason;
+                if (originResult.bound) {
+                  usedBindPath = true;
+                  userOverrideOriginLabel = originResult.label;
+                  const priorInputs = rawMorningSession?.rawInputs ?? [];
+                  // events 更新なし: priorPersistedEvents をそのまま pipeline に渡す
+                  const pipelineResult = await runMorningPipeline(
+                    {
+                      utterance: message,
+                      priorEvents: priorPersistedEvents!,
+                    },
+                    {
+                      comprehension: createLLMComprehensionProvider({ userId }),
+                      narration: createLLMNarrationProvider({ userId }),
+                      weather: null,
+                    },
+                  );
+                  const previousDayPlanForOriginPath: import("@/lib/alter-morning/types").MorningPlan | null =
+                    await fetchPreviousDayPlan(
+                      supabase,
+                      userId,
+                      new Date().toISOString().slice(0, 10),
+                    ).catch(() => null);
+                  const adapted = adaptPipelineToLegacy(pipelineResult, {
+                    sessionId: morningSession.sessionId,
+                    utterance: message,
+                    personalityContext: personalityCtx,
+                    userPrefecture: morningSession.userPrefecture,
+                    userCity: morningSession.userCity,
+                    userHomeLabel: morningSession.userHomeLabel,
+                    userHomeLat: morningSession.userHomeLat,
+                    userHomeLng: morningSession.userHomeLng,
+                    currentLat: rawCurrentLat ?? null,
+                    currentLng: rawCurrentLng ?? null,
+                    permissionState: rawPermissionState ?? null,
+                    accuracy: rawAccuracy ?? null,
+                    capturedAt: rawCapturedAt ?? null,
+                    actualTodayYmdJst: getActualTodayYmdJst(),
+                    // CEO/GPT 2026-05-02 PR B-2e' wire-up: origin clarify 回答 label を渡す
+                    //   legacyAdapter で journeyOrigin の最優先 Layer で plug される。
+                    userOverrideOriginLabel,
+                    priorRawInputs: priorInputs,
+                    priorPendingClarify: null, // origin clarify 成功 → clear
+                    priorPersistedEvents: priorPersistedEvents ?? undefined,
+                    priorPlan: rawMorningSession?.plan ?? null,
+                    previousDayPlan: previousDayPlanForOriginPath,
+                    userId,
+                    priorDialogState: morningSession.dialogState ?? null,
+                  });
+                  morningSession = {
+                    ...adapted.session,
+                    dialogState:
+                      "reconciledDialogState" in adapted
+                        ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                        : morningSession.dialogState,
+                  };
+                  morningResponse = adapted.response;
+                  lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+                  // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+                  pendingJourneyOriginIntent =
+                    adapted.journeyOriginGroundingIntent;
+                  console.info(
+                    `[morning-protocol:v2:bind] reason=ok boundSlot=origin phase=${morningResponse.phase}`,
+                    // PII 排除: label / userId は出さない
+                  );
+                } else {
+                  // origin semantic_miss: 既存 fallback path と同じ logic で再 ask
+                  const nextCount = (priorPending!.semanticMissCount ?? 0) + 1;
+                  if (nextCount >= 2) {
+                    // 2 連続失敗 → pending 破棄、下の LLM 経路にフォールスルー
+                    console.info(
+                      `[morning-protocol:v2:bind] reason=semantic_miss boundSlot=origin count=${nextCount} → discard pending`,
+                    );
+                  } else {
+                    usedBindPath = true;
+                    morningSession = {
+                      ...morningSession,
+                      phase: "clarifying",
+                      pendingClarify: {
+                        ...priorPending!,
+                        semanticMissCount: nextCount,
+                      },
+                      persistedEvents: priorPersistedEvents!,
+                      rawInputs: [...(rawMorningSession?.rawInputs ?? []), message],
+                    };
+                    morningResponse = {
+                      phase: "clarifying",
+                      message: priorPending!.question || "ごめん、もう少し具体的に教えてくれる？",
+                      clarifyQuestion: priorPending!.question,
+                      personalizeHints: [],
+                    };
+                    console.info(
+                      `[morning-protocol:v2:bind] reason=semantic_miss boundSlot=origin count=${nextCount} → re-ask`,
+                    );
+                  }
+                }
+              } else {
+              // 既存 event-level bind 経路 (PR B-2e' で origin slot のみ分岐に切り出し)
               const bindResult = bindAnswerToSlot(
                 priorPersistedEvents!,
                 priorPending!,
@@ -1855,6 +2043,14 @@ export async function POST(req: NextRequest) {
                     weather: null,
                   },
                 );
+                // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
+                //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
+                const previousDayPlanForBindPath: import("@/lib/alter-morning/types").MorningPlan | null =
+                  await fetchPreviousDayPlan(
+                    supabase,
+                    userId,
+                    new Date().toISOString().slice(0, 10),
+                  ).catch(() => null);
                 const adapted = adaptPipelineToLegacy(pipelineResult, {
                   sessionId: morningSession.sessionId,
                   utterance: message,
@@ -1867,25 +2063,49 @@ export async function POST(req: NextRequest) {
                   // CEO 2026-04-28 Option B: browser geolocation 由来の現在地座標。
                   currentLat: rawCurrentLat ?? null,
                   currentLng: rawCurrentLng ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+                  permissionState: rawPermissionState ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+                  //   accuracy / capturedAt は frontend が pos.coords.accuracy /
+                  //   pos.timestamp 由来で同送。actualTodayYmdJst は server-side
+                  //   生成 (= 時刻ズレ回避のため frontend の値は使わない)。
+                  accuracy: rawAccuracy ?? null,
+                  capturedAt: rawCapturedAt ?? null,
+                  actualTodayYmdJst: getActualTodayYmdJst(),
                   priorRawInputs: priorInputs,
                   priorPendingClarify: null, // bind 成功 → カウントリセット
                   priorPersistedEvents: priorPersistedEvents ?? undefined,
                   priorPlan: rawMorningSession?.plan ?? null,
+                  // CEO/GPT 2026-05-02 PR B-2c: Layer 2 inheritance の inference 材料
+                  previousDayPlan: previousDayPlanForBindPath,
                   userId, // W3-PR-10 canary: allowlist 判定用
+                  // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
+                  //   渡して focus reconcile を有効化。slot fixed → focus clear。
+                  priorDialogState: morningSession.dialogState ?? null,
                 });
                 // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
                 //   ensureSessionV1 (L1747) で init した dialogState を、
                 //   adaptPipelineToLegacy が返す adapted.session が field 非対応で
                 //   上書き消去してしまうため、明示的に継承する。
-                //   この漏れが原因で commit 17 以降 shadow block が dead のまま
-                //   preview に到達しなかった（2026-04-22 CEO preview で判明）。
+                //
+                // PR-50 Commit 9 (CEO 2026-04-30):
+                //   adapter が reconciledDialogState を返した場合 (= priorDialogState
+                //   を渡した結果 reconcile された) はそちらを優先採用。
+                //   reconcile が null を返した (= focus 全 clear) ケースも明示的に
+                //   反映する (なので ?? でなく hasOwnProperty 相当の判定)。
                 morningSession = {
                   ...adapted.session,
-                  dialogState: morningSession.dialogState,
+                  dialogState:
+                    "reconciledDialogState" in adapted
+                      ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                      : morningSession.dialogState,
                 };
                 morningResponse = adapted.response;
                 // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
                 lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+                // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+                pendingJourneyOriginIntent =
+                  adapted.journeyOriginGroundingIntent;
                 console.info(
                   `[morning-protocol:v2:bind] reason=ok boundSlot=${bindResult.boundSlot} phase=${morningResponse.phase}`,
                 );
@@ -1941,6 +2161,7 @@ export async function POST(req: NextRequest) {
                   `[morning-protocol:v2:bind] reason=system_miss → maintain pending`,
                 );
               }
+              } // end of else (existing event-level bind path)
             }
 
             if (!usedBindPath) {
@@ -1975,6 +2196,20 @@ export async function POST(req: NextRequest) {
                 ...(priorPlanForLLM && priorPlanForLLM.length > 0
                   ? { priorPlanForContext: priorPlanForLLM }
                   : {}),
+                // PR-50 Commit 4 (CEO 2026-04-30): operations 経路の answer
+                //   operation を validation 層で検証するため、pendingClarify を
+                //   morningPipeline.validatePlanOperations の context に流す。
+                //   answer は secondary safety path (主経路は Branch A の
+                //   bindAnswerToSlot)。Branch B で LLM が answer operation を
+                //   出した場合のみ operationDispatcher で補助 bind が走る。
+                //   pendingClarify が null なら validation で
+                //   answer_no_pending_clarify reject → events[] fallback。
+                priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
+                // PR A (CEO/GPT 2026-05-02): deterministic append fallback の
+                //   active context check 用。pipeline 内で 5 条件 AND を判定し、
+                //   stable context のみ allowDeterministicAppend=true に設定する。
+                //   未指定 / null は default false (誤爆防止) に倒れる。
+                priorDialogState: rawMorningSession?.dialogState ?? null,
               },
               {
                 comprehension: createLLMComprehensionProvider({ userId }),
@@ -1982,6 +2217,14 @@ export async function POST(req: NextRequest) {
                 weather: null,
               },
             );
+            // CEO/GPT 2026-05-02 PR B-2c: Layer 2 (前日終点 inheritance) 用に
+            //   前日 plan を取得。fail-soft で null fallback (Layer 3 へ)。
+            const previousDayPlanForBranchB: import("@/lib/alter-morning/types").MorningPlan | null =
+              await fetchPreviousDayPlan(
+                supabase,
+                userId,
+                new Date().toISOString().slice(0, 10),
+              ).catch(() => null);
             const adapted = adaptPipelineToLegacy(pipelineResult, {
               sessionId: morningSession.sessionId,
               // PR-49: current utterance のみ。session.rawInputs (audit log) は
@@ -1997,6 +2240,12 @@ export async function POST(req: NextRequest) {
               // resolveHomeAnchor で registered home より優先される。
               currentLat: rawCurrentLat ?? null,
               currentLng: rawCurrentLng ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-a: permission state contract
+              permissionState: rawPermissionState ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-c: current location inference gating
+              accuracy: rawAccuracy ?? null,
+              capturedAt: rawCapturedAt ?? null,
+              actualTodayYmdJst: getActualTodayYmdJst(),
               // PR-49: rawInputs は audit log (UI / DB 互換) として
               //        legacyAdapter 内で session.rawInputs に蓄積される。
               priorRawInputs: priorInputs,
@@ -2004,17 +2253,32 @@ export async function POST(req: NextRequest) {
               priorPersistedEvents:
                 rawMorningSession?.persistedEvents ?? undefined,
               priorPlan: rawMorningSession?.plan ?? null,
+              // CEO/GPT 2026-05-02 PR B-2c: Layer 2 inheritance の inference 材料
+              previousDayPlan: previousDayPlanForBranchB,
               userId, // W3-PR-10 canary: allowlist 判定用
+              // PR-50 Commit 9 (CEO 2026-04-30): reducer 後の dialogState を
+              //   渡して focus reconcile を有効化 (Branch B も同様)。
+              priorDialogState: morningSession.dialogState ?? null,
             });
             // W3-PR-8 rev 3 commit 21: adapter 跨ぎで dialogState を消失させない
             //   （Branch B 通常 LLM 経路。理由は bind 経路と同じ。）
+            //
+            // PR-50 Commit 9 (CEO 2026-04-30):
+            //   adapter が reconciledDialogState を返したら採用 (focus clear /
+            //   advance を反映)。それ以外は reducer 後の morningSession.dialogState
+            //   を継承。
             morningSession = {
               ...adapted.session,
-              dialogState: morningSession.dialogState,
+              dialogState:
+                "reconciledDialogState" in adapted
+                  ? (adapted.reconciledDialogState ?? morningSession.dialogState)
+                  : morningSession.dialogState,
             };
             morningResponse = adapted.response;
             // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
             lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+            // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+            pendingJourneyOriginIntent = adapted.journeyOriginGroundingIntent;
             console.info(
               `[morning-protocol:v2] status=${pipelineResult.status} phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} events=${pipelineResult.comprehension?.events.length ?? 0} sticky=${isStickyV2 ? "1" : "0"} bindMiss=${bindReason ?? "-"}`,
             );
@@ -2046,6 +2310,17 @@ export async function POST(req: NextRequest) {
               // resolveHomeAnchor で registered home より優先される。
               currentLat: rawCurrentLat ?? null,
               currentLng: rawCurrentLng ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-a: pipeline throw 吸収経路でも permissionState を
+              //   保持。currentLat/Lng と userHomeLat/Lng が両方 null の時、AnchorUnknownReason
+              //   を「denied / unrequested / no_baseline」のどれにすべきか判別するため、
+              //   pipeline throw 時にも permissionState を維持する必要がある。
+              permissionState: rawPermissionState ?? null,
+              // CEO/GPT 2026-05-02 PR B-2d-c: pipeline throw 吸収経路でも gating fields を維持。
+              //   throw 経路でも buildFailedPipelineResult() 経由で plan が組まれる可能性があり、
+              //   その時の current location 採否を正しく評価するため。
+              accuracy: rawAccuracy ?? null,
+              capturedAt: rawCapturedAt ?? null,
+              actualTodayYmdJst: getActualTodayYmdJst(),
               priorRawInputs: priorInputs,
               priorPendingClarify: rawMorningSession?.pendingClarify ?? null,
               priorPersistedEvents:
@@ -2062,6 +2337,8 @@ export async function POST(req: NextRequest) {
             morningResponse = adapted.response;
             // CEO 2026-04-28 PR #41a Commit 6: capture trace for response (_debug.trace)
             lastTraceSnapshot = adapted.lastTraceSnapshot ?? null;
+            // CEO/GPT 2026-05-03 PR B-3b'-2: intent を route.ts に hoist
+            pendingJourneyOriginIntent = adapted.journeyOriginGroundingIntent;
             console.info(
               `[morning-protocol:v2:absorbed] phase=${morningResponse.phase} items=${morningResponse.plan?.items?.length ?? 0} hasPending=${morningSession.pendingClarify != null ? "1" : "0"}`,
             );
@@ -2335,10 +2612,52 @@ export async function POST(req: NextRequest) {
                   morningSession.dialogState.capturedHistory.length + 1,
                 nowIso: new Date().toISOString(),
               });
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // PR-50 Commit 11: post-turn final reconcile (CEO 2026-04-30)
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // 真因 (CEO + GPT 共同確定 2026-04-30):
+              //   advanceDialogState (= dialogReducer の TURN_CAPTURED handler)
+              //   は prev.focus が null でも `action.targetEventId / targetSlot`
+              //   から **focus を新規作成** する (lib/alter-morning/dialog/reducer.ts
+              //   L487-492)。
+              //   これにより adapter 内の reconcileDialogState (PR-50 Commit 9)
+              //   で focus=null に整合した状態が、reducer 後に再び focus=where 等
+              //   に書き戻される (CEO Preview 観測 2026-04-30: focusCleared=true
+              //   なのに dialogState.focus が where で残留)。
+              //
+              // 修正方針 (post-turn finalization):
+              //   adapter reconcile = pipeline 内の整合 (Commit 9、維持)
+              //   route final reconcile = 最終レスポンス前の整合 (本 commit、追加)
+              //   両者は二重防御、最終的に勝つのは route final reconcile。
+              //
+              // ロジック (既存 reconcileDialogState を再利用):
+              //   - reducer 後 state を effectiveEvents (= persistedEvents) と再同期
+              //   - focus が指す slot が fixed なら clear / advance (Rule 3)
+              //   - 全 fixed なら focus=null, status=stable, streak=0 (Rule 3 / next null)
+              //   - slot が依然 vague/missing → focus 維持 (Rule 4)
+              //   - capturedHistory は維持 (reconcileDialogState は ...state spread)
+              //
+              // 不変条件 (本 commit が保証):
+              //   final morningSession.dialogState.focus は events 内で missing
+              //   slot を持つ event の (event_id, slot) を指すか、null (全 fixed)。
+              const finalReconcile = reconcileDialogState(
+                advanced.nextState,
+                events,
+              );
+              const finalDialogState =
+                finalReconcile.state ?? advanced.nextState;
+              if (finalReconcile.focusCleared) {
+                console.info(
+                  `[dialog-state-v2:postTurnReconcile] focus reconciled. ` +
+                    `prev=${advanced.nextState.focus?.slot ?? "null"} ` +
+                    `final=${finalDialogState.focus?.slot ?? "null"} ` +
+                    `status=${finalDialogState.conversationStatus}`,
+                );
+              }
               // persist: session.dialogState のみ更新。pendingClarify は触らない。
               morningSession = {
                 ...morningSession,
-                dialogState: advanced.nextState,
+                dialogState: finalDialogState,
               };
               // ⚠ advanced.derived は session.pendingClarify に書き戻さない
               //   （CEO 条件: PendingClarify を主状態として again 書き戻すな）。
@@ -2485,6 +2804,148 @@ export async function POST(req: NextRequest) {
                   console.warn(
                     `[places-handoff] unexpected throw`,
                     handoffErr,
+                  );
+                }
+              }
+
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // CEO/GPT 2026-05-03 PR B-3b'-2: journey_origin grounding wiring
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              //
+              // 責務分離 (CEO 補正、forward-fix for #69 review):
+              //   - legacyAdapter: intent 生成 (= journeyOriginGroundingIntent、pure)
+              //     → pendingJourneyOriginIntent に hoist 済み (= 各 adapt path で代入)
+              //   - 本ブロック: legacyAdapter の intent を **直接消費** + flag 判定 + orchestrator
+              //     実行 + reducer dispatch
+              //   - **再導出はしない** (= legacyAdapter の intent を信頼、責務分離厳格)
+              //
+              // 3 重 AND gate (= Layer 1):
+              //   - journeyOriginGrounding(userId) (= journey_origin 専用 flag)
+              //   - placesSearch(userId) (= Places API call が許可されているか)
+              //   - dialogStateV2(userId) (= reducer dispatch 先が存在するか)
+              //
+              // intent 由来 gate (= classification 別):
+              //   - public_poi_proper_noun のみ orchestrator 呼ぶ
+              //   - generic_category / private_semantic / ambiguous は skip
+              //     (= 「ホテル」 だけで即「どのホテル？」 と聞かない、CEO 規律)
+              //
+              // selection は B-3c 未実装:
+              //   - candidate UI は staging で表示される
+              //   - click は Layer 2 (UI disabled、Commit 5) + Layer 3 (server reject、Commit 6) で blocked
+              //
+              // production 影響ゼロ (= flag default false):
+              //   - journeyOriginGrounding default false → 全 gate fail → orchestrator 呼ばれない
+              if (
+                pendingJourneyOriginIntent &&
+                ALTER_MORNING_FLAGS.journeyOriginGrounding(userId) &&
+                ALTER_MORNING_FLAGS.placesSearch(userId) &&
+                ALTER_MORNING_FLAGS.dialogStateV2(userId) &&
+                morningSession.dialogState
+              ) {
+                if (
+                  pendingJourneyOriginIntent.classification ===
+                  "public_poi_proper_noun"
+                ) {
+                  const journeyHandoffStartedAt = Date.now();
+                  try {
+                    const journeyHandoff =
+                      await orchestrateJourneyAnchorHandoff({
+                        userId,
+                        label: pendingJourneyOriginIntent.label,
+                        turnIndex:
+                          morningSession.dialogState.capturedHistory.length,
+                      });
+                    if (journeyHandoff.nextDispatch) {
+                      try {
+                        const afterJourney = dialogReducer(
+                          morningSession.dialogState,
+                          journeyHandoff.nextDispatch,
+                        );
+                        morningSession = {
+                          ...morningSession,
+                          dialogState: afterJourney,
+                        };
+                      } catch (dispatchErr) {
+                        console.warn(
+                          `[journey-origin-grounding:dispatch] reducer throw`,
+                          dispatchErr,
+                        );
+                      }
+                    }
+                    const oc = journeyHandoff.outcome;
+                    // CEO/GPT 2026-05-03 PR B-3c-2: telemetry emit (PII フリー)
+                    //   flag_source は journey_origin grounding flag 自身の source。
+                    //   flag OFF 時は本 block 自体に入らない (= AND gate で gate されてる)
+                    //   ため flag_source は通常 "allowlist" or "global" が入る。
+                    const flagSource =
+                      resolveJourneyOriginGroundingFlagSource(userId);
+                    if (oc.kind === "error") {
+                      console.warn(
+                        `[journey-origin-grounding:provider_failure] reason=${oc.reason} fp=${oc.fingerprint}`,
+                      );
+                      emitPromotionProviderFailure(userId, {
+                        log_class: oc.logClass,
+                        reason: oc.reason,
+                        flag_state: true,
+                        flag_source: flagSource,
+                      });
+                    } else if (oc.kind === "skip_gate") {
+                      console.info(
+                        `[journey-origin-grounding:skip_gate] reason=${oc.reason} fp=${oc.fingerprint}`,
+                      );
+                      // skip_gate は draft_not_ready 等、本 PR では emit 対象外
+                    } else if (
+                      oc.kind === "presented_from_api" ||
+                      oc.kind === "presented_from_cache"
+                    ) {
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint} count=${oc.candidateCount} latency=${Date.now() - journeyHandoffStartedAt}ms`,
+                      );
+                      const invalidCount =
+                        oc.kind === "presented_from_api"
+                          ? (oc.invalidCoordinateCount ?? 0)
+                          : 0; // cache 経路は filter 既適用済 (= invalid count 不明、0 扱い)
+                      emitPromotionPresented(userId, {
+                        flag_state: true,
+                        flag_source: flagSource,
+                        candidate_count_before_filter:
+                          oc.candidateCount + invalidCount,
+                        candidate_count_after_filter: oc.candidateCount,
+                        invalid_coordinate_count: invalidCount,
+                        outcome: oc.kind,
+                      });
+                    } else if (oc.kind === "zero_from_api") {
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
+                      );
+                      // GPT 1st 補正: zeroReason 分離
+                      const zeroReason =
+                        oc.zeroReason ?? "no_candidates_from_places_search";
+                      const invalidCount = oc.invalidCoordinateCount ?? 0;
+                      emitPromotionZeroCandidates(userId, {
+                        flag_state: true,
+                        flag_source: flagSource,
+                        zero_reason: zeroReason,
+                        candidate_count_before_filter: invalidCount, // = zero_after_filter のとき invalidCount=before、それ以外は 0
+                        candidate_count_after_filter: 0,
+                      });
+                    } else {
+                      // zero_from_cache / skip_idempotent: telemetry minimal
+                      console.info(
+                        `[journey-origin-grounding:${oc.kind}] fp=${oc.fingerprint}`,
+                      );
+                    }
+                  } catch (orchErr) {
+                    console.warn(
+                      `[journey-origin-grounding] unexpected throw`,
+                      orchErr,
+                    );
+                  }
+                } else {
+                  // generic / private_semantic / ambiguous は意図的 skip
+                  // (= CEO 規律「ホテル だけで即どのホテル？」 防止)
+                  console.info(
+                    `[journey-origin-grounding:skip_classification] classification=${pendingJourneyOriginIntent.classification}`,
                   );
                 }
               }
@@ -9814,6 +10275,31 @@ export async function POST(req: NextRequest) {
       if (peResult.latencyBreakdown.l1) {
         latencyTracker.peL1 = peResult.latencyBreakdown.l1;
       }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CEO/GPT 2026-05-02 PR B-5a: plan history persistence (fail-soft)
+    //   morningResponse.plan を alter_morning_plan_history に upsert する。
+    //   PR B-2c (Layer 2 前日終点 inheritance) の前提となる永続化。
+    //
+    //   - isPlanWorthSaving guard で空 plan は保存しない (helper 側で reject)
+    //   - DB / Network 失敗時は response を壊さない (try/catch + fail-soft)
+    //   - log は upsertPlanHistory 内で sha256 hash 化済 (PII 排除)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (morningResponse?.plan) {
+      try {
+        await upsertPlanHistory(supabase, userId, morningResponse.plan);
+      } catch {
+        // fail-soft: log は helper 内で処理済み、本 response は壊さない
+      }
+
+      // Shadow-only OP pipeline comparison; no response mutation.
+      runShadowAndCompare({
+        legacyPlan: morningResponse.plan,
+        userId,
+        utterance: message,
+        actualToday: getActualTodayYmdJst(),
+      });
     }
 
     return NextResponse.json({

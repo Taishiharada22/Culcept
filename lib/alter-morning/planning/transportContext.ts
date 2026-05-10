@@ -58,13 +58,26 @@ export const ENDPOINT_TRAVEL_SENTINEL_ID = "__endpoint__";
 // HomeAnchor
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export type HomeAnchorSource = "current" | "registered_home";
+export type HomeAnchorSource =
+  | "current"
+  | "registered_home"
+  // CEO/GPT 2026-05-03 PR B-3c-1: journey_origin selection 由来 (= candidate
+  //   selection で promotion された anchor)。selection route が promotedJourneyOrigin
+  //   を effective homeAnchor として渡すときに使う source。
+  | "journey_origin_promotion";
 
 export interface HomeAnchor {
   lat: number;
   lng: number;
-  /** 表示ラベル（"現在地" or "自宅"）。出所と同期する */
-  label: "現在地" | "自宅";
+  /**
+   * 表示ラベル。
+   *
+   * 歴史的に "現在地" / "自宅" のみだったが、B-3c-1 (2026-05-03) で
+   * journey_origin promotion 由来の任意 label (例: "東京駅丸の内口") を許容するため
+   * `string` に緩めた。consumer (= synthesizeTravelItems) は string として
+   * 表示するだけで、literal narrowing は行っていない (= 安全変更)。
+   */
+  label: string;
   /** どちらの coordinate から由来したか（telemetry / debug 用） */
   source: HomeAnchorSource;
 }

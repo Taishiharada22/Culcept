@@ -905,7 +905,7 @@ const TARGET_DATE_MAP: Array<{ pattern: RegExp; offset: number }> = [
  * テキストから対象日を抽出し YYYY-MM-DD で返す。
  * 「明日」→ today + 1、「明後日」→ today + 2、未指定 → undefined（= today 扱い）。
  */
-function extractTargetDate(text: string): string | undefined {
+export function extractTargetDate(text: string): string | undefined {
   for (const { pattern, offset } of TARGET_DATE_MAP) {
     if (pattern.test(text)) {
       if (offset === 0) return undefined; // 「今日」は明示的に today → undefined で十分

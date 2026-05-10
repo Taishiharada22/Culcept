@@ -205,6 +205,56 @@ export interface TurnTraceSnapshot {
    */
   dispatchSummary?: DispatchSummarySnapshot;
 
+  // ── operations 経路 観測 (PR-50 Commit 5 / CEO 2026-04-30) ──
+  /**
+   * LLM が出力した operations[] の処理結果サマリ。
+   *
+   * 観測目的:
+   *   - PR-50 「LLM 出力 = events[] (旧) → operations[] (新)」 移行の進捗計測
+   *   - operation 解釈率 ≥ 90% (CEO 確定 KPI) の達成判定材料
+   *   - reject 原因の分布で LLM prompt 改善 / validation 緩和判断
+   *   - 「LLM 不出力」 vs 「parser drop」 vs 「deterministic synth」 vs 「LLM transformed」
+   *     の区別 (synthesisSource)
+   *
+   * 含む情報:
+   *   - received:         LLM raw output の operations 配列長 (parsePlanOperations 通過後)
+   *   - accepted:         validatePlanOperations 通過数
+   *   - rejected:         validation reject 数 (received = accepted + rejected)
+   *   - fallbackToEvents: true なら events[] 経路 (legacy)、false なら
+   *                       operationDispatcher 経路 (PR-50 主)
+   *   - appliedTypes:     accepted operations の type を出力 order で並べた配列
+   *                       (例: ["modify", "append"])
+   *   - rejectReasons:    reject 理由 (重複可)。OperationValidationResult の reason 列
+   *   - synthesisSource:  どこから operations が生成されたか
+   *     - "llm":                          LLM operations をそのまま採用
+   *     - "llm_transformed":              LLM operations のうち 1+ が synth で transform された
+   *                                        (e.g., transport-only duplicate append → modify)
+   *     - "deterministic":                utterance pattern hit、LLM は出していない
+   *     - "deterministic_overrides_llm":  utterance pattern hit、LLM 出力を上書き
+   *     - "none":                         operations 全部空 (legacy events[] 経路)
+   *
+   * PR-50 Commit 6 (CEO 2026-04-30):
+   *   旧仕様: operations が一切ない turn では field 自体を omit (undefined)。
+   *   新仕様: **常に出す**。LLM 不出力 / parser drop / validation reject / fallback /
+   *          deterministic synth を trace で区別できるようにする。
+   *          undefined → 観測の盲点になっていた (Preview 実機で「なぜ operation が
+   *          動かないか」 が trace に出ない問題)。
+   */
+  operations?: {
+    received: number;
+    accepted: number;
+    rejected: number;
+    fallbackToEvents: boolean;
+    appliedTypes: string[];
+    rejectReasons: string[];
+    synthesisSource?:
+      | "llm"
+      | "llm_transformed"
+      | "deterministic"
+      | "deterministic_overrides_llm"
+      | "none";
+  };
+
   // ── 3-layer reconcile (PR #41b-0 Commit 3 / CEO 2026-04-28) ──
   /**
    * reconcileGapStateFromEffectiveEvents の発火フラグ群。

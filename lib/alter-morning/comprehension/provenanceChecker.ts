@@ -192,3 +192,164 @@ export function checkEvent(ev: Event, utterance: string): Event {
 export function checkEvents(events: Event[], utterance: string): Event[] {
   return events.map((ev) => checkEvent(ev, utterance));
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// targetDate evidence 専用正規化
+//
+// 既存 normalizeForMatch との分離理由:
+//   - normalizeForMatch は span が utterance に実在するか比較するため、
+//     句読点 / 空白を削除する (= 表記揺れ吸収)
+//   - 本関数は span 内で boundary check (= 句読点 / 空白 / 助詞を境界として認識)
+//     を機能させるため、 句読点 / 空白を **保持**する
+//   - 同じ関数を流用すると衝突するため、 専用 helper を分離
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function normalizeForTargetDateEvidence(span: string): string {
+  if (!span) return "";
+  // NFKC: 全角半角統一 (= 全角数字 / 全角句読点 / 全角空白の半角化)
+  // toLowerCase: alphabet のみ影響
+  // trim: 前後空白削除 (= 内部の空白 / 句読点は保持)
+  return span.normalize("NFKC").toLowerCase().trim();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// targetDate evidence boundary check
+//
+// 相対日付 token (= 「明日」 / 「今日」 等) の trailing 文字を検査して、
+// 「明日香」 「今日子」 等の固有名詞内 substring 誤爆を防ぐ。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const PUNCT_BOUNDARY_REGEX = /^[\sのはがをにでへとや、。,.!?]/;
+
+const ALLOWED_TRAILING_KANJI: ReadonlySet<string> = new Set([
+  "中", "朝", "昼", "夜", "晩", "夕", "頃",
+]);
+
+const ALLOWED_TRAILING_WORDS: ReadonlyArray<string> = [
+  "まで", "から", "以降", "以前", "以内",
+];
+
+function hasAllowedBoundary(text: string, afterIdx: number): boolean {
+  const after = text.substring(afterIdx);
+  if (after.length === 0) return true;
+  if (PUNCT_BOUNDARY_REGEX.test(after)) return true;
+  if (ALLOWED_TRAILING_KANJI.has(after[0])) return true;
+  for (const suffix of ALLOWED_TRAILING_WORDS) {
+    if (after.startsWith(suffix)) return true;
+  }
+  return false;
+}
+
+const TIER3_TOKENS_RELATIVE_DAY: ReadonlyArray<string> = [
+  "明後日", "一昨日", "明日", "本日", "今日", "昨日",
+];
+
+const TIER3_TOKENS_RELATIVE_WEEK: ReadonlyArray<string> = [
+  "再来週", "来週", "今週", "先週",
+];
+
+const TIER3_TOKENS_RELATIVE_MONTH: ReadonlyArray<string> = [
+  "来月", "今月", "先月",
+];
+
+function findTier3MatchWithBoundary(
+  norm: string,
+  tokens: ReadonlyArray<string>,
+): boolean {
+  for (const token of tokens) {
+    let idx = 0;
+    while ((idx = norm.indexOf(token, idx)) !== -1) {
+      if (hasAllowedBoundary(norm, idx + token.length)) return true;
+      idx += token.length;
+    }
+  }
+  return false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// public: isTargetDateEvidenceToken
+//
+// span が targetDate の根拠 token として妥当かを deterministic 判定。
+// 「明日」 「来週の月曜」 等を accept、 「明日香」 「祝日」 等を reject。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export function isTargetDateEvidenceToken(span: string): boolean {
+  if (!span) return false;
+  const norm = normalizeForTargetDateEvidence(span);
+  if (!norm) return false;
+
+  // Tier 1: 絶対日付 / 数値相対 (= 数字含む、 boundary check 不要)
+  if (/\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?/.test(norm)) return true;
+  if (/\d{1,2}[/月]\d{1,2}日?/.test(norm)) return true;
+  if (/\d+(日|週間|ヶ月|か月|月)(後|前)/.test(norm)) return true;
+
+  // Tier 2: 月内 / 年内 / 週末固定 (= partial match OK、 固有名詞汚染リスク低)
+  if (/(今週末|来週末|先週末|週末)/.test(norm)) return true;
+  if (/(月末|月初め|月初|年末|年始)/.test(norm)) return true;
+
+  // Tier 3: 相対日付 token (= boundary check 必要)
+  if (findTier3MatchWithBoundary(norm, TIER3_TOKENS_RELATIVE_DAY)) return true;
+  if (findTier3MatchWithBoundary(norm, TIER3_TOKENS_RELATIVE_WEEK)) return true;
+  if (findTier3MatchWithBoundary(norm, TIER3_TOKENS_RELATIVE_MONTH)) return true;
+
+  // 曜日 (= [月火水木金土日]曜(日)? + boundary check)
+  const dayOfWeekRe = /([月火水木金土日])曜(日)?/g;
+  let m: RegExpExecArray | null;
+  while ((m = dayOfWeekRe.exec(norm)) !== null) {
+    if (hasAllowedBoundary(norm, m.index + m[0].length)) return true;
+  }
+
+  return false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// public: checkTargetDateProvenance
+//
+// targetDate の根拠 provenance を deterministic に検証する。
+//
+// 規律:
+//   - utterance 申告で span 不在 / 非日付 token → undefined (= null 化、 inferred 降格しない)
+//   - inferred は全件 undefined (= -b strict mode、 default today inferred 汚染防止)
+//   - baseline / tool はそのまま return (= factory で空配列、 観測値に乗らない)
+//   - targetDate undefined / null / empty / blank は undefined
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export interface CheckTargetDateProvenanceInput {
+  targetDate: string | null | undefined;
+  provenance: Provenance | null | undefined;
+  utterance: string;
+}
+
+export function checkTargetDateProvenance(
+  input: CheckTargetDateProvenanceInput,
+): Provenance | undefined {
+  const { targetDate, provenance, utterance } = input;
+
+  // targetDate guard (= undefined / null / empty / blank)
+  if (!targetDate?.trim() || !provenance) {
+    return undefined;
+  }
+
+  // baseline / tool はそのまま (= factory で空配列、 観測値に乗らない)
+  if (provenance.source_type === "baseline" || provenance.source_type === "tool") {
+    return provenance;
+  }
+
+  // inferred は全件 undefined (= -b strict mode)
+  if (provenance.source_type === "inferred") {
+    return undefined;
+  }
+
+  // utterance 申告は厳格検証
+  // (a) source_span 実在検査 (= 既存 verifySpansInUtterance、 normalizeForMatch 流用)
+  if (!verifySpansInUtterance(provenance.source_span, utterance)) {
+    return undefined;
+  }
+  // (b) lexicon check (= 1 つでも日付 token あり、 normalizeForTargetDateEvidence で boundary)
+  const hasDateToken = provenance.source_span.some(isTargetDateEvidenceToken);
+  if (!hasDateToken) {
+    return undefined;
+  }
+
+  return provenance;
+}

@@ -9,8 +9,9 @@ import type { EventType, VenueType, TransportMode, EventContext } from "@/app/(c
 import type { ActivityCategory } from "./activityVocabulary";
 import type { PlaceCategory } from "./placeTable";
 import type { TimeConstraintType } from "./planState";
-import type { SlotSharpness } from "./comprehension/eventSchema";
+import type { SlotSharpness, Provenance } from "./comprehension/eventSchema";
 import type { TransportSegment } from "./transport/types";
+import type { JourneyAnchorState } from "./journey/anchorState";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // W3-PR-8 Strict Confirmation — 確定度の型
@@ -317,6 +318,8 @@ export interface ParsedDayIntent {
   locationSequence?: LocationStop[];
   /** 対象日（「明日」→ +1、「明後日」→ +2 等。未指定なら today） */
   targetDate?: string;
+  /** targetDate の根拠情報。未取得の場合は undefined。 */
+  targetDateProvenance?: Provenance;
   /** 終点アンカー（「帰る」が検出された場合）。プランの最終移動の到着地を構造化 */
   endpointAnchor?: EndpointAnchor;
   /** @deprecated returnDestination は EndpointAnchor に移行。後方互換用 */
@@ -574,36 +577,39 @@ export interface MorningPlan {
   //     置くほうが論理的かつ局所的
   //   - render layer (MorningPlanCard) で 2 ブロック追加するだけで完結する
   //
-  // 値が undefined の場合の挙動:
-  //   homeAnchor が null（CEO 案 1: 現在地・自宅どちらも無い）→ journeyOrigin / journeyEnd
-  //   ともに undefined。MorningPlanCard は何も render せず、travel item も生成されない
-  //   （hallucination 防止）。
+  // CEO/GPT 2026-05-02 PR B-1 更新:
+  //   旧型 `{label,lat,lng,source} | undefined` から
+  //   `JourneyAnchorState | undefined` に変更。
+  //   3 kind discriminated union (known_exact / known_label_only / unknown) で
+  //   silent fail を排除。converter (journey/anchorState.ts) 経由で詰められる。
+  //
+  // 値が undefined の場合の挙動 (PR B-1 不変条件):
+  //   - events.length === 0: undefined のまま (resolver 不要、互換性)
+  //   - events.length > 0:   必ず known_exact / known_label_only / unknown のどれか
+  //     (silent fail 排除、Commit 3 invariant test で固定)
+  //
+  // 不変条件:
+  //   - hasResolvedCoordinates(state) === true (= kind="known_exact") のときのみ
+  //     buildTransportSegments が travel item を生成する。
+  //   - kind="known_label_only" / "unknown" は travel 不生成 (= 捏造禁止)。
+  //   - source === "default_round_trip" は assumed end として
+  //     isAssumedAnchor() で識別。UI/debug は「(推定)」 扱い。
+  //     plan_presented の完全確定条件 (PR C scope) では confirmed として扱わない。
   /**
-   * 起点アンカー（現在地 / 自宅）。CEO 2026-04-28 Journey 構造の最上位ノード。
-   * coords は travel synthesize 用、label は UI render 用。
+   * 起点アンカー (origin)。CEO 2026-04-28 Journey 構造の最上位ノード。
+   * PR B-1: discriminated union 化、unknown を構造的に表現。
    */
-  journeyOrigin?: {
-    /** "現在地" または "自宅" */
-    label: string;
-    lat: number;
-    lng: number;
-    /** どちらの coordinate が採用されたか */
-    source: "current" | "registered_home";
-  };
+  journeyOrigin?: JourneyAnchorState;
   /**
-   * 終点アンカー（帰宅 / hotel / friend's house）。CEO 2026-04-28 Journey 構造の最下位ノード。
-   * MVP: round-trip default → coords は journeyOrigin と同一、label="帰宅"。
-   * 将来拡張: comprehension が utterance から explicit endpoint を抽出した場合 override。
+   * 終点アンカー (end)。CEO 2026-04-28 Journey 構造の最下位ノード。
+   * MVP: source="default_round_trip" (homeAnchor からの assumed end)。
+   * 将来拡張: PR B-3 で source="comprehension_explicit"、PR B-2 で
+   * source="user_override" が入る。
    *
    * 注意: 既存 `endpointAnchor` (type/label/area/needsAreaConfirm) は
    * saveLastEndpoint / 次プラン継承用の legacy 型で、本 field とは役割が異なる。
    */
-  journeyEnd?: {
-    label: string;
-    lat: number;
-    lng: number;
-    source: "default_round_trip" | "comprehension_explicit" | "user_override";
-  };
+  journeyEnd?: JourneyAnchorState;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -862,7 +868,9 @@ export type PendingSlot =
   | "where"
   | "what"
   | "transport"
-  | "endpoint";
+  | "endpoint"
+  | "origin"; // CEO/GPT 2026-05-02 PR B-2e: origin clarify (= 最後の fallback)
+              // answerBinder で受けた回答は journeyOrigin に user_override で書き込む
 
 /**
  * 質問時の event スコープ情報。再表示・再質問時に「朝の仕事」等と

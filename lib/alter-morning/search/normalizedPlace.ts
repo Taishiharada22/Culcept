@@ -66,4 +66,20 @@ export interface NormalizedPlaceCandidate {
   chainToken: string | null;
   /** Places API 生データへの参照（debug / 追加情報取得用） */
   rawRef: PlacesRawRef;
+  /**
+   * CEO/GPT 2026-05-03 PR B-3c-2 (Layer B): coordinates 妥当性 flag。
+   *
+   * 既定: undefined (= true 扱い、既存挙動完全維持)。
+   * false: NaN / Infinity / 範囲外 / null 等で travel 計算に使えない候補。
+   *   PlaceCandidatePicker は disabled + tooltip で表示する (= Layer B)。
+   *
+   * 通常 Layer A (= journeyAnchorHandoffOrchestrator) で除去されるため、
+   * UI 上 false な候補は現れないはず。本 field は defense in depth として
+   * Layer A をすり抜けた candidate を UI で disabled 化するための signal。
+   *
+   * scope:
+   *   - journey_origin grounding 経路のみ (= B-3c-2)
+   *   - event_where 経路は本 field を立てない (= byte-diff zero)
+   */
+  validCoordinates?: boolean;
 }

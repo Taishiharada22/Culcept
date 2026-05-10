@@ -45,6 +45,7 @@ function mkAllFixedRaw(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
@@ -83,6 +84,7 @@ function mkVaguePlaceRaw(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
@@ -121,6 +123,7 @@ function mkMissingTimeRaw(): L1PipelineInput["raw"] {
     startPoint: null,
     departureTime: null,
     goOut: true,
+    operations: [],
     events: [
       {
         turn_mode: "create",
