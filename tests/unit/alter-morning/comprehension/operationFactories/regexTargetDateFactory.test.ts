@@ -373,11 +373,17 @@ describe("Phase B v3.2 — unit tests", () => {
       ["明日祝日", DATE_TOMORROW],
       ["明日休日", DATE_TOMORROW],
       ["明日平日", DATE_TOMORROW],
-      // 休 series
+      // 休 series (= 6 entries、 v3.2 CEO 補正で 休む/休ん 追加)
       ["明日休み", DATE_TOMORROW],
       ["明日休暇", DATE_TOMORROW],
       ["明日休校", DATE_TOMORROW],
       ["明日休業", DATE_TOMORROW],
+      ["明日休む", DATE_TOMORROW],
+      ["明日休むつもり", DATE_TOMORROW],
+      ["明日休む予定", DATE_TOMORROW],
+      ["明日休んでいい?", DATE_TOMORROW],
+      ["明日休んで病院行く", DATE_TOMORROW],
+      ["明日休んだほうがいい", DATE_TOMORROW],
     ];
     for (const [input, expected] of cases) {
       it(`「${input}」 → ${expected}`, () => {
@@ -757,8 +763,8 @@ describe("Phase B v3.2 — matrix invariant tests", () => {
       "日曜", "日曜日",
       // 日タイプ
       "祝日", "休日", "平日",
-      // 休 series
-      "休み", "休暇", "休校", "休業",
+      // 休 series (= 6 entries、 v3.2 CEO 補正で 休む/休ん 追加)
+      "休み", "休暇", "休校", "休業", "休む", "休ん",
     ];
     for (const w of TIER_0) {
       it(`「明日${w}」 → emit ${DATE_TOMORROW}`, () => {

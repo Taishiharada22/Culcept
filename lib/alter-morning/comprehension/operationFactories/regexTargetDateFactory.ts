@@ -85,11 +85,11 @@ const DANGER_PREFIX_KANJI = new Set<string>([
  * **明示 allowlist** することで「明日美容院 / 明日子供 / 明日花火 / 明日水曜 /
  * 明日祝日 / 明日休み」 等の頻出予定表現を ACCEPT に倒す。
  *
- * 33 entries (= v3.1 12 + v3.2 新規 21):
+ * 35 entries (= v3.1 12 + v3.2 新規 23):
  *   - 美/子/花/麻/香 系 compound (= 12)
  *   - 月〜日 曜日 short/long form (= 14)
  *   - 祝日/休日/平日 (= 3)
- *   - 休み/休暇/休校/休業 (= 4)
+ *   - 休み/休暇/休校/休業/休む/休ん (= 6、 v3.2 CEO 補正で 休む/休ん 追加)
  *
  * 注意: startsWith 判定は length desc sort で行う (= 「美容院」 を「美容」 より先に
  * test するため)。
@@ -115,8 +115,11 @@ const ACCEPT_WORD_PREFIXES: readonly string[] = [
   // ─── 日タイプ (= 3 entries) ───
   "祝日", "休日", "平日",
 
-  // ─── 休 series (= 4 entries) ───
-  "休み", "休暇", "休校", "休業",
+  // ─── 休 series (= 6 entries、 v3.2 CEO 補正で 休む/休ん 追加) ───
+  // 「明日休む / 明日休んでいい? / 明日休んで病院」 等の動詞活用形を ACCEPT に救済。
+  // 未然形「休ま(ない)」 / 仮定形「休め(ば)」 系は narrow start 原則で初期未含む
+  // (= 99% は「明日は休まない」 等で「は」 助詞 boundary に救済される)。
+  "休み", "休暇", "休校", "休業", "休む", "休ん",
 ].sort((a, b) => b.length - a.length);
 
 /**
