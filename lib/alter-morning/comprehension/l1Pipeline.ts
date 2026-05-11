@@ -22,7 +22,7 @@ import {
   generateEventId,
 } from "./eventSchema";
 import type { PlanOperation } from "./planOperation";
-import { checkEvent } from "./provenanceChecker";
+import { checkEvent, checkTargetDateProvenance } from "./provenanceChecker";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LLM 生 JSON → Event（event_id 採番 + checker 通過）
@@ -44,6 +44,45 @@ export function attachEventId(raw: RawEvent): Event {
       ...raw.where,
       coordinates: raw.where.coordinates ?? null,
     },
+  };
+}
+
+/**
+ * Parse optional targetDateProvenance from raw LLM output. Returns undefined for
+ * missing / null / any invalid shape. Never throws. Defensive: invalid provenance
+ * only — the surrounding raw object is not rejected by the caller.
+ */
+export function parseTargetDateProvenance(x: unknown): Provenance | undefined {
+  if (x === undefined || x === null) return undefined;
+  if (typeof x !== "object") return undefined;
+  const o = x as Record<string, unknown>;
+
+  const VALID_SOURCE_TYPES: ReadonlyArray<string> = [
+    "utterance",
+    "inferred",
+    "baseline",
+    "tool",
+  ];
+  if (typeof o.source_type !== "string") return undefined;
+  if (!VALID_SOURCE_TYPES.includes(o.source_type)) return undefined;
+
+  if (!Array.isArray(o.source_span)) return undefined;
+  if (!o.source_span.every((s): s is string => typeof s === "string")) {
+    return undefined;
+  }
+
+  const VALID_CONFIDENCES: ReadonlyArray<string> = ["low", "medium", "high"];
+  if (typeof o.provenance_confidence !== "string") return undefined;
+  if (!VALID_CONFIDENCES.includes(o.provenance_confidence)) return undefined;
+
+  if (typeof o.from_utterance !== "boolean") return undefined;
+
+  return {
+    source_type: o.source_type as Provenance["source_type"],
+    source_span: o.source_span as string[],
+    provenance_confidence:
+      o.provenance_confidence as Provenance["provenance_confidence"],
+    from_utterance: o.from_utterance,
   };
 }
 
@@ -133,6 +172,13 @@ export function runL1Pipeline(input: L1PipelineInput): ComprehensionResult {
           }),
         );
 
+  // targetDateProvenance を deterministic 検証 (priorEvents bypass mode でも一貫して走る)
+  const targetDateProvenance = checkTargetDateProvenance({
+    targetDate: raw.targetDate,
+    provenance: raw.targetDateProvenance,
+    utterance,
+  });
+
   // PR-50 Commit 3: operations を ComprehensionResult に伝搬する。
   //   ここで validation はしない (priorEvents / priorPendingClarify を持たない pure 層)。
   //   morningPipeline.runMorningPipeline で validatePlanOperations を呼び、
@@ -140,6 +186,7 @@ export function runL1Pipeline(input: L1PipelineInput): ComprehensionResult {
   return {
     events,
     targetDate: raw.targetDate,
+    targetDateProvenance,
     startPoint: raw.startPoint,
     departureTime: raw.departureTime,
     goOut: raw.goOut,

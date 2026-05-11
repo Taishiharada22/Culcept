@@ -20,6 +20,7 @@ import "server-only";
 import { runAI } from "@/lib/ai";
 import type { ComprehensionProvider } from "../morningPipeline";
 import type { L1PipelineInput } from "./l1Pipeline";
+import { parseTargetDateProvenance } from "./l1Pipeline";
 import { parsePlanOperations } from "./parsePlanOperations";
 import type { RulePreParseHints } from "./rulePreParse";
 import { formatHintsForPrompt } from "./rulePreParse";
@@ -228,7 +229,39 @@ events[] を fallback として使用します。
 - type="append" なのに targetRef を入れない
 - type="modify" なのに patch が空 (全 slot null) は禁止
 - type="answer" なのに value が空文字 / null は禁止
-- type 別の必須 field 以外は **必ず null** にする (LLM の混乱を防ぐ)`;
+- type 別の必須 field 以外は **必ず null** にする (LLM の混乱を防ぐ)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[targetDate 根拠ルール]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. utterance に明示的な日付根拠 (例: 「明日」「来週」「YYYY-MM-DD」) がある場合のみ
+   targetDateProvenance.source_type を "utterance" にし、
+   source_span に utterance 内の最小文字列を入れる
+2. utterance に日付の言及が一切ない場合 (= default today を埋める時) は
+   targetDateProvenance を null にする
+3. source_span は可能な限り日付根拠の最小文字列にする (= 周辺 word を含めすぎない)
+4. 嘘の source_span (= utterance に存在しない文字列) を出さない
+   (= deterministic checker で降格される)
+
+[targetDate few-shot 例]
+
+例 8 (utterance に日付根拠あり):
+  utterance: "明日 渋谷でランチ"
+  期待出力:
+    targetDate: "tomorrow"
+    targetDateProvenance: {
+      source_type: "utterance",
+      source_span: ["明日"],
+      provenance_confidence: "high",
+      from_utterance: true
+    }
+
+例 9 (utterance に日付根拠なし、default today):
+  utterance: "渋谷でランチ"
+  期待出力:
+    targetDate: "today"
+    targetDateProvenance: null`;
 
 function buildUserPrompt(
   utterance: string,
@@ -297,10 +330,14 @@ function parseRawShape(x: unknown): L1PipelineInput["raw"] | null {
   if (o.departureTime !== null && typeof o.departureTime !== "object") return null;
   if (o.goOut !== null && typeof o.goOut !== "boolean") return null;
 
+  // optional read: invalid provenance only (raw object is not rejected)
+  const targetDateProvenance = parseTargetDateProvenance(o.targetDateProvenance);
+
   const operations = parsePlanOperations(o.operations);
 
   return {
     targetDate: o.targetDate,
+    targetDateProvenance,
     events: o.events as L1PipelineInput["raw"]["events"],
     operations,
     startPoint: o.startPoint as L1PipelineInput["raw"]["startPoint"],

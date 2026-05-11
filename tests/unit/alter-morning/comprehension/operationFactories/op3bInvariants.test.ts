@@ -174,9 +174,10 @@ describe("OP-3B Invariants — pure wrapper 規律", () => {
   // active L1 schema 不変
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  it("active L1_COMPREHENSION_SCHEMA.required が既存 6 種", () => {
+  it("active L1_COMPREHENSION_SCHEMA.required が現行 7 種", () => {
     expect(L1_COMPREHENSION_SCHEMA.required).toEqual([
       "targetDate",
+      "targetDateProvenance",
       "events",
       "operations",
       "startPoint",
