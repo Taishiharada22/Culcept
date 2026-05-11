@@ -36,6 +36,24 @@ import { buildNarrationFromLogic } from "./narrationTemplate";
 import { enrichNarration } from "./narrationEnricher";
 import { sanitizePrimaryQuestion } from "./primaryQuestionGuard";
 
+// [D-1-d 2026-05-11] curator shadow 起動経路の依存。flag OFF 時は dead import。
+import { COALTER_FLAGS } from "./flags";
+import { deriveMovieQuery } from "./movie/queryDerivation";
+import {
+  buildCandidatePool,
+  type CandidateSource,
+} from "./movie/candidatePool";
+import { curate, type CuratorLLMClient } from "./movie/curator";
+import type {
+  PersonalLens,
+  TwoPersonLensToday,
+  UserId,
+} from "./understanding/types";
+
+// [D-2-e2 2026-05-11] COALTER_THREE_STAGE grand kill switch path。
+// flag OFF 時は dead import (本体 call flow 1 bit 不変)。
+import { runThreeStageScaffoldPath } from "./movie/threeStageOrchestratorAdapter";
+
 export interface MovieOrchestratorInput {
   turns: ConversationTurn[];
   analysis: ConversationAnalysis;
@@ -91,6 +109,19 @@ export async function generateMovieProposalV2(
   input: MovieOrchestratorInput,
 ): Promise<MovieOrchestratorOutput> {
   const startedTotal = Date.now();
+
+  // ───────────────────────────────────────────────────
+  // [D-2-e2 2026-05-11] COALTER_THREE_STAGE grand kill switch (Step D Phase M2)
+  // ───────────────────────────────────────────────────
+  // - flag default OFF (本番影響ゼロ、CEO 採用)
+  // - flag OFF 時は本ブロック全体を skip、既存 4-layer pipeline に流れる
+  //   (call flow が 1 bit も変化しない、CEO 採用 D-1-d と同精神)
+  // - flag ON 時のみ runThreeStageScaffoldPath (stub deps + placeholder) で早期 return
+  // - stub / placeholder は scaffold 限定 (実 fetcher / 実 LLM / M0 lens 接続は D-2-e3)
+  // - rollback: env COALTER_THREE_STAGE=false → Production redeploy で即復帰
+  if (COALTER_FLAGS.threeStageEnabled) {
+    return runThreeStageScaffoldPath(input, startedTotal);
+  }
 
   // ── Layer 0: ConversationBrief ──
   const briefResult = await buildConversationBrief({
@@ -267,11 +298,119 @@ export async function generateMovieProposalV2(
     // log 失敗しても本体には影響させない
   }
 
+  // ───────────────────────────────────────────────────
+  // [D-1-d 2026-05-11] D-1-c curator shadow 起動 (Step D Phase M1 wiring)
+  // ───────────────────────────────────────────────────
+  // - flag default OFF (本番影響ゼロ、CEO 採用必須条件 1-2)
+  // - flag ON 時のみ fire-and-forget で shadow 起動 (本流 return 値に 1 bit も
+  //   影響しない、CEO 採用必須条件 3)
+  // - shadow 失敗は内部 try/catch + 呼び出し側 .catch(() => {}) の二重防御
+  //   (CEO 採用必須条件 4: fail-open、Bug-1 §2.3 失敗独立 5 条文の精神)
+  // - CEO 採用 (X1): 3 source = 空配列 stub、CEO 採用必須条件 6 (実 candidate
+  //   fetch なし)
+  // - CEO 採用 (Y1): LLM client = 空 stub、CEO 採用必須条件 5 (実 LLM 接続なし)
+  // - CEO 採用必須条件 7: telemetry / persistence / console log 追加なし
+  if (COALTER_FLAGS.movieCuratorLiveEnabled) {
+    void runMovieCuratorShadow().catch(() => {});
+  }
+
   return {
     card: finalCard,
     telemetry,
     ranked: rankOutput.ranked,
     primaryQuestion: brief.primaryUnresolvedQuestion,
     diagnostics,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// [D-1-d 2026-05-11] D-1-c curator shadow runner (movieOrchestrator.ts inline)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// CEO 採用方針 (handover §5 / D-1-d 設計レビュー §13):
+//   - 接続点: P1 (4-layer pipeline 完了後、return 直前)
+//   - candidate source: X1 (3 source = 空配列 stub)
+//   - LLM client: Y1 (空 stub)
+//   - helper 配置: movieOrchestrator.ts inline
+//
+// 経路 verify が目的: deriveMovieQuery → buildCandidatePool → curate が
+// 例外なく動くことを shadow で確認するだけ。実 LLM / API / candidate fetch なし。
+// 結果は破棄 (CEO 採用必須条件 7: telemetry / persistence / console log 追加なし)。
+//
+// 完全置換 (実接続 + observability) は D-2-e (COALTER_THREE_STAGE) で別 phase。
+
+async function runMovieCuratorShadow(): Promise<void> {
+  try {
+    const lens = buildPlaceholderLens();
+    const query = deriveMovieQuery(lens);
+
+    const emptySource: CandidateSource = async () => [];
+    const pool = await buildCandidatePool(
+      { query },
+      {
+        rankingSource: emptySource,
+        exaSource: emptySource,
+        personalityHistorySource: emptySource,
+      },
+    );
+
+    const stubLLM: CuratorLLMClient = async () => "";
+    await curate(
+      { lens, query, candidatePool: pool.filteredPool },
+      { llmClient: stubLLM },
+    );
+    // 結果は破棄 (CEO 採用条件 7: telemetry / persistence / console log 追加なし)
+  } catch {
+    // 二重防御 fail-open (CEO 採用条件 4)
+  }
+}
+
+/**
+ * D-1-d shadow 用 minimal placeholder lens。
+ *
+ *   実 lens は B-5 (engine.ts の `runMovieShadowUnderstanding`) で別途生成され
+ *   movieOrchestrator には渡されていない。D-1-d shadow は経路 verify が目的
+ *   なので、curator が動作する最小骨格を構築する。pool は空、LLM は空 stub
+ *   なので curator は fallback narration を返すだけ (実害ゼロ)。
+ *
+ *   computedAt は固定値 ("1970-01-01T...") で決定論を維持 (test の reproducibility)。
+ */
+function buildPlaceholderLens(): TwoPersonLensToday {
+  const emptyPersonalLens: PersonalLens = {
+    userId: "shadow-placeholder" as UserId,
+    displayName: "shadow",
+    coreDecisionPrinciples: [],
+    currentEmotionalHue: "",
+    todaySensitivities: [],
+    comfortPathways: [],
+    sourcedFrom: { stargazer: [], alter: [], behavioral: [] },
+  };
+  return {
+    personalLenses: { a: emptyPersonalLens, b: emptyPersonalLens },
+    relationalLens: {
+      temperature: "neutral",
+      dominantDynamic: "",
+      careAxes: [],
+      avoidElements: [],
+      interactionPace: "steady",
+    },
+    todayReading: {
+      mode: "maintain",
+      energyBudget: "mid",
+      timeBudget: "limited",
+      implicitIntent: "",
+      latentNeeds: [],
+      confidence: 0.3,
+    },
+    fairnessAdjustment: {
+      favorSide: null,
+      rationale: null,
+      strength: 0,
+      basedOnSessionCount: 0,
+    },
+    understanding_confidence: 0.3,
+    dataGaps: [],
+    computedAt: "1970-01-01T00:00:00.000Z",
+    lensVersion: "1.0.0",
   };
 }
