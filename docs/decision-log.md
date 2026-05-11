@@ -5516,3 +5516,49 @@ git push origin main
 - **ステータス**: OP-5.4.2.4-d main 着地済 (= main HEAD 7687a8ca)、 Phase A decision-log record draft中 / commit 前
 
 ---
+### [2026-05-11] [Build] Phase B regex_deterministic boundary 強化 — shadow path 限定で 「明日香」 系固有名詞 false positive を抑制
+- **部門**: Build
+- **決定内容**: PR #101 (= squash merge `bb88adec5f9f309da1cbc07f7137bd9305e6891c`) main 着地。 `regexTargetDateFactory.ts` + 同 test の 2 files のみ変更。 Issue #98 で報告された「予定として、明日香さんとランチを入れたい」 等の固有名詞末尾 date substring を `op5_emit_count_regex_deterministic` が拾う挙動を、 shadow path 限定で抑制。
+- **着地内容**:
+  - 5-layer tri-state boundary 導入 (= L0 prev DANGER prefix / L1 EOS-非漢字境界 / L2 ACCEPT_WORD_PREFIXES / L3 ACCEPT_KANJI / L4 NAME_SUFFIX + checkNamePattern / L5 UNKNOWN default)
+  - Tier 0 word prefix allowlist 35 entries (= 美容院/子供/花火/曜日 14 種/祝日/休日/平日/休 series 6 種)
+  - DANGER prefix 9 字 (= 不/未/非/無/説/解/究/証/判) で語内部 date substring を抑制
+  - 多日 ambiguity (= ACCEPT candidate が 2+ distinct offsets) → no emit に倒す
+  - overlap dedup で 長 token 優先 (= 「明明後日」 → +3、 「しあさって」 → +3)
+  - TZ-invariant 日付計算 (= UTC arithmetic で月末/年末 edge case 解消)
+  - code-point safe Unicode (= `\p{Script=Han}/u` + `codePointAt` + `charBefore`)
+  - factory signature 不変 / `trace.ruleId: "extractTargetDate"` 維持 / `source: "regex_deterministic"` 維持 / `priority: 600` 維持 / `source_span: []` 維持
+- **検証**:
+  - regexTargetDateFactory.test.ts: 434 cases all pass (= 既存 13 + Phase B v3.2 unit + matrix invariant + timezone + integration audit)
+  - op3a/op3b/op4 invariant + L1.2 系 + OP-5 系: 累計 257 cases all pass
+  - ESLint clean
+  - Vercel preview build SUCCESS (= release tag `36cae30c6d1a`)
+  - Runtime smoke 6 cases on release `36cae30c6d1a` (= S-3 / S-5 / S-11' / S-12a / S-14c / S-15) で `op5_emit_count_regex_deterministic` が期待値と一致することを確認
+  - main HEAD = `bb88adec5f9f309da1cbc07f7137bd9305e6891c`
+- **言ってよい範囲 (= 規律固定)**:
+  - shadow path 限定で「明日香」 系固有名詞 false positive を抑制
+  - regex_deterministic boundary を 5-layer 構造に強化
+  - preview Sentry smoke 6 cases で期待値と一致を確認
+  - factory signature / ruleId / source / priority / source_span 不変
+- **言ってはいけない範囲 (= 未達 / 別 phase、 literal 表現を避けて言い換え)**:
+  - regex 系 false positive 全般の広い断定 — × (= shadow 限定、 v1 path = `extractTargetDate` 本体は intentParser 内で不変)
+  - LLM 観測の補正断定 — × (= LLM factory は別 phase、 Phase B scope 外)
+  - production canary 実施の断定 — × (= production env OFF 維持)
+  - OP-6 着手可能の断定 — × (= 本流書き込みは別 phase)
+  - 「明日水曜」「明日休み」「明日休む」 単発短文の挙動補正断定 — × (= morning path 起動条件は OP-4 / OP-5 orchestrator 領域、 Phase B scope 外)
+- **scope 外 (= Issue #98 close 時に CEO 認識、 別 Issue / 別 phase で扱う)**:
+  - 「明日水曜」「明日休み」「明日休む」 単発短文での event 未 emit / morning path 未到達 (= OP-4 / OP-5 orchestrator 領域)
+  - LLM factory 側 `op5_emit_count_llm_explicit = 1` の挙動 (= `llmComprehensionTargetDateFactory` 領域)
+- **設計レビュー履歴 (= CEO 4 回判断)**:
+  - v3 (= 5-layer boundary 導入提案)
+  - v3.1 (= ACCEPT_WORD_PREFIXES Tier 0 縮小 / S-12 矛盾修正 / UTC arithmetic / charBefore / matrix test 導入)
+  - v3.2 (= 曜日/休日/平日/休 series 追加 / 多日 ambiguity → no emit / DANGER matrix 5b 補強)
+  - v3.2 CEO 補正 (= 休む / 休ん の Tier 0 追加で 35 entries)
+- **後続別 phase (= 整理した順序)**:
+  - Phase C: OP-5.5 / production canary 設計レビュー (= production env 変更、 CEO 別承認必須、 currently v1.2 設計、 v1.3 補正中)
+  - Phase D: OP-6 本流書き込み設計レビュー (= PlanState writer、 別軸)
+- **production env 状態**: OFF 維持 (= `ALTER_MORNING_OP5_*` env 3 件すべて production / development 未設定、 preview のみ true / allowlist / summary)
+- **承認**: CEO (= 設計 4 回 + GitHub UI squash merge)
+- **ステータス**: PR #101 main 着地済 (= main HEAD `bb88adec`)、 Issue #98 close 済 (= closedAt 2026-05-11 21:49:12 UTC)、 Phase B decision-log entry この PR で着地予定
+
+---
