@@ -5541,7 +5541,7 @@ git push origin main
   - preview Sentry smoke 6 cases で期待値と一致を確認
   - factory signature / ruleId / source / priority / source_span 不変
 - **言ってはいけない範囲 (= 未達 / 別 phase、 literal 表現を避けて言い換え)**:
-  - regex 系 false positive 全般の完了断定 — × (= shadow 限定、 v1 path = `extractTargetDate` 本体は intentParser 内で不変)
+  - regex 系 false positive 全般の広い断定 — × (= shadow 限定、 v1 path = `extractTargetDate` 本体は intentParser 内で不変)
   - LLM 観測の補正断定 — × (= LLM factory は別 phase、 Phase B scope 外)
   - production canary 実施の断定 — × (= production env OFF 維持)
   - OP-6 着手可能の断定 — × (= 本流書き込みは別 phase)
