@@ -25,6 +25,11 @@ import {
   regexTargetDateFactory,
   type RegexTargetDateInput,
 } from "@/lib/alter-morning/comprehension/operationFactories/regexTargetDateFactory";
+// Phase B v3.2 integration audit (CEO 2026-05-11):
+//   shadow path 全体 (= route.ts → shadowEntrypoint → shadowOrchestrator → factory)
+//   で input が変形されないことを確認するための read-only import。
+//   shadowOrchestrator.ts 自体は変更しない (= op5/* 触らない規律維持)。
+import { runShadowOrchestrator } from "@/lib/alter-morning/op5/shadowOrchestrator";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 既存 13 cases (= OP-3A 不破壊 regression)
@@ -960,4 +965,158 @@ describe("Phase B v3.2 — multi-date policy", () => {
     const r = regexTargetDateFactory({ utterance: "明日香、明日仕事" });
     expect(r[0].payload.date).toBe(DATE_TOMORROW);
   });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase B v3.2 — shadow path integration audit (= CEO 2026-05-11 切り分け要請)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * CEO smoke S-11 で Sentry が `op5_emit_count_regex_deterministic = 1` を出した。
+ * factory 単体 unit test は PASS していたが、 shadow path 上流 (= shadowOrchestrator
+ * / shadowEntrypoint / route.ts) で utterance が変形されている可能性を CEO が指摘。
+ *
+ * コード読みで shadow path 全体の input flow を確認した結果 (CEO 2026-05-11):
+ *   - route.ts:1183: const message = truncateString(rawMessage.trim(), 2000)
+ *     → trim + 2000 char truncate のみ。 「不明日に会議」 (6 chars) は影響ゼロ
+ *   - shadowEntrypoint.ts: input.utterance を runShadowOrchestrator に passthrough
+ *   - shadowOrchestrator.ts: input.utterance を regexTargetDateFactory に passthrough
+ *
+ * → shadow path 全体で normalization は **コード上存在しない**
+ *
+ * 本 describe block で runShadowOrchestrator 経由で各 smoke ケースを直接検証する。
+ * すべて PASS なら、 factory + shadow orchestrator は健全であり、
+ * Sentry FAIL の真因は環境側 (= Vercel build cache / event 混同 / 入力 typo 等)
+ * のいずれかに絞り込まれる。
+ *
+ * import 先 (= shadowOrchestrator.ts) は変更しない (= op5/* 触らない規律維持)。
+ */
+describe("Phase B v3.2 — shadow path integration audit", () => {
+  const cases: ReadonlyArray<{
+    utterance: string;
+    shouldEmitRegex: boolean;
+    label: string;
+  }> = [
+    // ─── CEO smoke S-11 主 ───
+    { utterance: "不明日に会議", shouldEmitRegex: false, label: "S-11 raw (= DANGER 不)" },
+    {
+      utterance: "予定として、不明日に会議を入れたい",
+      shouldEmitRegex: false,
+      label: "S-11 morning-path 型",
+    },
+
+    // ─── Issue #98 主 / S-3 ───
+    {
+      utterance: "予定として、明日香さんとランチを入れたい",
+      shouldEmitRegex: false,
+      label: "S-3 Issue #98 主",
+    },
+
+    // ─── 救済系 ───
+    {
+      utterance: "明日香、明日ランチに行く",
+      shouldEmitRegex: true,
+      label: "S-5 複数 occurrence 救済",
+    },
+    {
+      utterance: "明日美容院に行く",
+      shouldEmitRegex: true,
+      label: "S-9 Tier 0 美容院",
+    },
+    {
+      utterance: "明日水曜",
+      shouldEmitRegex: true,
+      label: "S-13 Tier 0 曜日 (= factory level)",
+    },
+    {
+      utterance: "明日休み",
+      shouldEmitRegex: true,
+      label: "S-14a Tier 0 休 (= factory level)",
+    },
+    {
+      utterance: "明日休む",
+      shouldEmitRegex: true,
+      label: "S-14b Tier 0 CEO 補正 (= factory level)",
+    },
+    {
+      utterance: "明日休んで病院行く",
+      shouldEmitRegex: true,
+      label: "S-14c Tier 0 CEO 補正",
+    },
+
+    // ─── 別 DANGER / SMP / 多日 ───
+    {
+      utterance: "明日𠮷さんと打合せ",
+      shouldEmitRegex: false,
+      label: "S-12a SMP UNKNOWN",
+    },
+    {
+      utterance: "明日と明後日でやる",
+      shouldEmitRegex: false,
+      label: "S-15 多日 ambiguity",
+    },
+
+    // ─── DANGER 弾き + 後続 ACCEPT 救済 ───
+    {
+      utterance: "説明日が明日です",
+      shouldEmitRegex: true,
+      label: "DANGER 弾き + 後続救済 (= 説)",
+    },
+    {
+      utterance: "判明日が明日です",
+      shouldEmitRegex: true,
+      label: "DANGER 弾き + 後続救済 (= 判)",
+    },
+    {
+      utterance: "証明日について話す",
+      shouldEmitRegex: false,
+      label: "DANGER 単独 (= 証)",
+    },
+
+    // ─── morning-path 型 (= CEO 修正 smoke 設計案) ───
+    {
+      utterance: "予定として、明日水曜に確認を入れたい",
+      shouldEmitRegex: true,
+      label: "S-13' morning-path 型",
+    },
+    {
+      utterance: "予定として、明日休みを入れたい",
+      shouldEmitRegex: true,
+      label: "S-14a' morning-path 型",
+    },
+    {
+      utterance: "予定として、明日休む予定を入れたい",
+      shouldEmitRegex: true,
+      label: "S-14b' morning-path 型",
+    },
+    {
+      utterance: "予定として、明日休んで病院に行く予定を入れたい",
+      shouldEmitRegex: true,
+      label: "S-14c' morning-path 型",
+    },
+    {
+      utterance: "予定として、明日𠮷さんと打合せを入れたい",
+      shouldEmitRegex: false,
+      label: "S-12a' morning-path 型 (= SMP UNKNOWN)",
+    },
+  ];
+
+  for (const c of cases) {
+    it(`shadow integration: 「${c.utterance}」 → regex_deterministic ${
+      c.shouldEmitRegex ? "emit" : "no emit"
+    } (${c.label})`, () => {
+      const result = runShadowOrchestrator({
+        utterance: c.utterance,
+        actualToday: "2026-05-10",
+      });
+      const regexEmissions = result.emittedCandidates.targetDate.filter(
+        (env) => env.source === "regex_deterministic",
+      );
+      if (c.shouldEmitRegex) {
+        expect(regexEmissions.length).toBeGreaterThanOrEqual(1);
+      } else {
+        expect(regexEmissions.length).toBe(0);
+      }
+    });
+  }
 });
