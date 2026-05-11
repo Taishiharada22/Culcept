@@ -317,13 +317,14 @@ describe("expandAreaConcentrically — immutability", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("expandAreaConcentrically — shape", () => {
-  it("返り値は 5 fields (tier / state / theaters / triedAreas / foundAtArea)", async () => {
+  it("返り値は 6 fields (tier / state / theaters / triedAreas / foundAtArea / stage3FallbackSourceUsed)", async () => {
     const result: AreaExpansionResult = await expandAreaConcentrically(
       buildInput(),
       buildDeps(),
     );
     expect(Object.keys(result).sort()).toEqual([
       "foundAtArea",
+      "stage3FallbackSourceUsed",
       "state",
       "theaters",
       "tier",
@@ -355,5 +356,52 @@ describe("expandAreaConcentrically — shape", () => {
       const result = await expandAreaConcentrically(buildInput(), deps);
       expect([0, 1, 2]).toContain(result.tier);
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. stage3FallbackSourceUsed propagation (D-2-e1 additive)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("expandAreaConcentrically — stage3FallbackSourceUsed propagation", () => {
+  it("Tier 0 success: theaterResolver の使用 source ('official') が propagate", async () => {
+    // officialFetcher が non-empty → SOURCE_ORDER 通り "official" が採用される
+    const deps = buildDeps({ 渋谷: [buildListing("劇場", "渋谷")] });
+    const result = await expandAreaConcentrically(buildInput(), deps);
+    expect(result.state).toBe("success");
+    expect(result.stage3FallbackSourceUsed).toBe("official");
+  });
+
+  it("Tier 0 success: eiga fetcher 由来時は 'eiga' が propagate (fallback chain 経由)", async () => {
+    // official empty + eiga non-empty → "eiga" 採用
+    const deps: AreaExpansionDeps = {
+      resolverDeps: {
+        officialFetcher: buildEmptyFetcher(),
+        eigaFetcher: vi.fn().mockResolvedValue([buildListing("劇場", "渋谷")]),
+        yahooFetcher: buildEmptyFetcher(),
+        exaFetcher: buildEmptyFetcher(),
+      },
+    };
+    const result = await expandAreaConcentrically(buildInput(), deps);
+    expect(result.state).toBe("success");
+    expect(result.stage3FallbackSourceUsed).toBe("eiga");
+  });
+
+  it("Tier 1 success: 採用 area の resolveTheater の source が propagate", async () => {
+    const firstAdjacent = ADJACENCY_TABLE.渋谷[0];
+    const deps = buildDeps({
+      [firstAdjacent]: [buildListing("劇場", firstAdjacent)],
+    });
+    const result = await expandAreaConcentrically(buildInput(), deps);
+    expect(result.state).toBe("tier1_expanded_success");
+    // Tier 1 で found した area の officialFetcher が採用 → "official"
+    expect(result.stage3FallbackSourceUsed).toBe("official");
+  });
+
+  it("tier2_fail 時は 'none' で固定", async () => {
+    const deps = buildDeps({}); // 全 empty
+    const result = await expandAreaConcentrically(buildInput(), deps);
+    expect(result.state).toBe("tier2_fail");
+    expect(result.stage3FallbackSourceUsed).toBe("none");
   });
 });

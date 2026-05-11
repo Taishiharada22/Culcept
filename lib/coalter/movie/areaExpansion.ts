@@ -31,6 +31,7 @@
 
 import {
   resolveTheater,
+  type Stage3FallbackSource,
   type TheaterListing,
   type TheaterResolverDeps,
   type TheaterResolverInput,
@@ -64,6 +65,14 @@ export type AreaExpansionResult = {
   triedAreas: readonly string[];
   /** found した area (success / tier1_expanded_success 時のみ non-null) */
   foundAtArea: string | null;
+  /**
+   * 採用 fallback source (D-2-a `resolveTheater` の `stage3FallbackSourceUsed` を
+   * 確定した tier の resolveTheater 呼び出しから propagate)。tier2_fail 時は "none"。
+   *
+   * D-2-e (三段式本線置換) で `ThreeStageDiagnostics.stage3FallbackSourceUsed` に
+   * 流し込むための型安全 propagation field。
+   */
+  stage3FallbackSourceUsed: Stage3FallbackSource | "none";
 };
 
 /** expandAreaConcentrically の入力。 */
@@ -121,6 +130,7 @@ export async function expandAreaConcentrically(
       theaters: tier0Result.theaters,
       triedAreas: [...triedAreas],
       foundAtArea: input.tier0Area,
+      stage3FallbackSourceUsed: tier0Result.diagnostics.stage3FallbackSourceUsed,
     };
   }
 
@@ -143,6 +153,8 @@ export async function expandAreaConcentrically(
         theaters: tier1Result.theaters,
         triedAreas: [...triedAreas],
         foundAtArea: adjacentArea,
+        stage3FallbackSourceUsed:
+          tier1Result.diagnostics.stage3FallbackSourceUsed,
       };
     }
   }
@@ -154,5 +166,6 @@ export async function expandAreaConcentrically(
     theaters: [],
     triedAreas: [...triedAreas],
     foundAtArea: null,
+    stage3FallbackSourceUsed: "none",
   };
 }
