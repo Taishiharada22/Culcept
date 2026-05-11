@@ -121,6 +121,27 @@ export const COALTER_FLAGS = {
     return normalizeBool(process.env.COALTER_UNDERSTANDING_SHADOW_MOVIE, false);
   },
   /**
+   * [D-1-d 2026-05-11] `movieCuratorLiveEnabled`
+   *   - movieOrchestrator の `generateMovieProposalV2` で D-1-c curator を
+   *     **shadow 並走** するか決める kill switch (Step D D-1-d、handover
+   *     `docs/coalter-handoff-2026-05-11-stepd.md` §5 / 三段式 §6 Phase M1)。
+   *   - 既定 OFF。**flag OFF 時は movieOrchestrator の 4-layer pipeline call flow が
+   *     1 bit も変化しない**。新 path import は残るが実行されない (dead import)。
+   *   - ON 時: `runMovieCuratorShadow` を 4-layer pipeline 完了後 (return 直前) に
+   *     **fire-and-forget** で起動。shadow 結果は本流の card / ranked / telemetry /
+   *     diagnostics に **1 bit も反映しない**。
+   *   - shadow 失敗は runMovieCuratorShadow 内 try/catch で握り潰し、呼び出し側でも
+   *     `.catch(() => {})` で二重防御 (fail-open、Bug-1 §2.3 失敗独立 5 条文の精神)。
+   *   - D-1-d scope (CEO 採用 X1 + Y1): 3 source は空配列 stub、LLM client は
+   *     空 stub (実 LLM / API 接続なし、実 candidate fetch なし、telemetry / persistence /
+   *     console log 追加なし)。
+   *   - 完全置換は D-2-e `COALTER_THREE_STAGE` grand kill switch で別 phase。
+   *   - env から外せば即座に pre-D-1-d 状態へ戻る。
+   */
+  get movieCuratorLiveEnabled(): boolean {
+    return normalizeBool(process.env.COALTER_MOVIE_CURATOR_LIVE, false);
+  },
+  /**
    * [CEO lock 2026-04-20 F-6] `foodTierLoop`
    *   - foodOrchestrator で `runTieredRanking`（T0→T1a→T1b→T2 順次）を
    *     走らせるかの kill switch。F-5 (`foodLensWired`) と独立。
