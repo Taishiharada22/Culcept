@@ -142,6 +142,30 @@ export const COALTER_FLAGS = {
     return normalizeBool(process.env.COALTER_MOVIE_CURATOR_LIVE, false);
   },
   /**
+   * [D-2-e2 2026-05-11] `threeStageEnabled` (`COALTER_THREE_STAGE`)
+   *   - movie 三段式本線 (`runThreeStagePipeline` D-2-e1 scaffold) を起動する
+   *     grand kill switch (Step D Phase M2、handover
+   *     `docs/coalter-handoff-2026-05-11-stepd.md` §6 / 三段式 §6 Phase M2)。
+   *   - 既定 OFF。**flag OFF 時は generateMovieProposalV2 の 4-layer pipeline
+   *     call flow が 1 bit も変化しない** (D-1-d `movieCuratorLiveEnabled` と同精神)。
+   *   - ON 時: 4-layer pipeline を **bypass** し、`runThreeStageScaffoldPath`
+   *     (`lib/coalter/movie/threeStageOrchestratorAdapter.ts`) で stub deps
+   *     (4 fetcher = 空配列、LLM client = 空文字列、3 candidate source = 空配列、
+   *     lens = placeholder、userArea = "") で `runThreeStagePipeline` を起動し、
+   *     結果を `MovieOrchestratorOutput` 互換 shape に adapter で変換して返す。
+   *   - D-2-e2 scope (structural scaffold complete): 実 fetcher / 実 LLM / M0
+   *     lens 接続なし、telemetry / persistence / console log 追加なし。
+   *   - 実接続 (実 candidate / 実 LLM / M0 lens) は **D-2-e3** で別 phase。
+   *     Step E (Production observation) は **D-2-e3 + Step E-0 の実接続レビュー
+   *     後** にしか起動できない。
+   *   - rollback: 環境変数 `COALTER_THREE_STAGE` を `false` / unset / 環境から
+   *     削除 → Production redeploy → 即座に pre-D-2-e2 状態 (4-layer pipeline
+   *     のみ) に復帰。コード revert 不要。
+   */
+  get threeStageEnabled(): boolean {
+    return normalizeBool(process.env.COALTER_THREE_STAGE, false);
+  },
+  /**
    * [CEO lock 2026-04-20 F-6] `foodTierLoop`
    *   - foodOrchestrator で `runTieredRanking`（T0→T1a→T1b→T2 順次）を
    *     走らせるかの kill switch。F-5 (`foodLensWired`) と独立。

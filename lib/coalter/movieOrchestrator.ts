@@ -50,6 +50,10 @@ import type {
   UserId,
 } from "./understanding/types";
 
+// [D-2-e2 2026-05-11] COALTER_THREE_STAGE grand kill switch path。
+// flag OFF 時は dead import (本体 call flow 1 bit 不変)。
+import { runThreeStageScaffoldPath } from "./movie/threeStageOrchestratorAdapter";
+
 export interface MovieOrchestratorInput {
   turns: ConversationTurn[];
   analysis: ConversationAnalysis;
@@ -105,6 +109,19 @@ export async function generateMovieProposalV2(
   input: MovieOrchestratorInput,
 ): Promise<MovieOrchestratorOutput> {
   const startedTotal = Date.now();
+
+  // ───────────────────────────────────────────────────
+  // [D-2-e2 2026-05-11] COALTER_THREE_STAGE grand kill switch (Step D Phase M2)
+  // ───────────────────────────────────────────────────
+  // - flag default OFF (本番影響ゼロ、CEO 採用)
+  // - flag OFF 時は本ブロック全体を skip、既存 4-layer pipeline に流れる
+  //   (call flow が 1 bit も変化しない、CEO 採用 D-1-d と同精神)
+  // - flag ON 時のみ runThreeStageScaffoldPath (stub deps + placeholder) で早期 return
+  // - stub / placeholder は scaffold 限定 (実 fetcher / 実 LLM / M0 lens 接続は D-2-e3)
+  // - rollback: env COALTER_THREE_STAGE=false → Production redeploy で即復帰
+  if (COALTER_FLAGS.threeStageEnabled) {
+    return runThreeStageScaffoldPath(input, startedTotal);
+  }
 
   // ── Layer 0: ConversationBrief ──
   const briefResult = await buildConversationBrief({
