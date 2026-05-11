@@ -5478,3 +5478,41 @@ git push origin main
 2. **initial real alert 着火**: Slack `#aneurasync-alerts` post + Sentry link 経由で event detail 確認 (Path B 観測)
 3. **monthly review** (1 ヶ月後): retries 分布 / speechSource 比率 / red alert 累計 / latencyMs p95 を集約
 4. **Stage 2.5 候補** (CEO 個別判断): Gap 4 production context detector / Sentry custom metric impl (= Discover data 構造的限界の解消) / F-1 secondary runtime 検証
+
+---
+### [2026-05-09] [Build] OP-5.4.2.4 phase 全 sub-phase main 着地 — LLM targetDateProvenance を shadow path 上で確認
+- **部門**: Build
+- **決定内容**: OP-5.4.2.4-a ~ -d の 4 sub-phase を順次 main 着地。 LLM targetDateProvenance が shadow input に渡る path が完成し、 preview combined smoke で shadow path 上での観測を確認。
+- **着地 phase 一覧 (= 着地順)**:
+  - PR #92 OP-5.4.2.4-a (7f386b5d) — optional `targetDateProvenance` type fields (= ParsedDayIntent / ComprehensionResult / L1PipelineInput.raw / ComprehensionResultWithOperations)
+  - PR #93 OP-5.4.2.4-b (c6fbf2e6) — `checkTargetDateProvenance` + `isTargetDateEvidenceToken` (= L1.2 boundary check / default today 汚染防止 / 固有名詞内 substring 誤爆防止)
+  - PR #94 OP-5.4.2.4-c (73c776f3) — active LLM schema / prompt / parser / l1Pipeline 接続 (= 9 files、 invariant test 4 件 世代更新含む)
+  - PR #99 OP-5.4.2.4-d (7687a8ca) — route-local shadow input capture (= route.ts 1 file / +18 / -0)
+- **検証 (= Preview combined Sentry smoke、 2026-05-11)**:
+  - Smoke 1 「明日 渋谷でランチ」: `op5_emit_count_llm_explicit = 1` → LLM targetDateProvenance observation を shadow path 上で確認
+  - Smoke 2 「予定として、 渋谷でランチを入れたい」: `op5_emit_count_llm_explicit = 0` → default today 汚染は LLM 観点で確認
+  - Smoke 3 「予定として、 明日香さんとランチを入れたい」: `op5_emit_count_llm_explicit = 0` → 明日香は LLM 観点では誤認していない
+- **言ってよい範囲 (= 規律固定)**:
+  - LLM targetDateProvenance が shadow input に渡った
+  - preview Sentry smoke で `op5_emit_count_llm_explicit = 1` を確認した
+  - LLM targetDateProvenance observation を shadow path 上で確認した
+  - default today 汚染は LLM 観点で確認した
+  - 明日香は LLM 観点では誤認していない
+- **言ってはいけない範囲 (= 未達 / 別 phase、 literal 表現を避けて言い換え)**:
+  - targetDate に限定しない広い LLM 観測の完了断定 — × (= 「shadow path 上で確認」 までが正確、 broad な完了表現は避ける)
+  - LLM 操作全体が済んだという断定 — × (= 他 5W1H field は別 phase)
+  - OP-5 全体が済んだという断定 — × (= shadow path のみ、 本流書き込みは別 phase)
+  - active plan.date の正規化が済んだという断定 — × (= legacyAdapter:1201 TODO 残、 「明日」 → plan.date 反映は別 layer)
+  - targetDate 全般が正確化されたという断定 — × (= regex 系 factory は別)
+  - regex 側の false positive が解消済みという断定 — × (= Issue #98 別 phase)
+  - production canary が実施済みという断定 — × (= production env OFF 維持)
+  - OP-6 着手可能という断定 — × (= 本流書き込み設計レビュー未着手)
+- **後続別 phase (= 整理した順序)**:
+  - **Phase B**: Issue #98 (= `regex targetDate factory false-positives on names containing 明日`、 regex 系 factory 内の「明日香」 substring 反応) の設計レビュー → 実装
+  - **Phase C**: OP-5.5 / production canary 設計レビュー (= production env 変更、 CEO 別承認必須)
+  - **Phase D**: OP-6 本流書き込み設計レビュー (= PlanState writer、 別軸)
+- **production env 状態**: OFF 維持 (= `ALTER_MORNING_OP5_*` env 3 件すべて production / development 未設定、 preview のみ true / allowlist / summary)
+- **承認**: CEO (= PR #92 / #93 / #94 / #99 各 merge GO、 Issue #98 作成 GO、 Phase A decision-log record 起草 GO)
+- **ステータス**: OP-5.4.2.4-d main 着地済 (= main HEAD 7687a8ca)、 Phase A decision-log record draft中 / commit 前
+
+---
