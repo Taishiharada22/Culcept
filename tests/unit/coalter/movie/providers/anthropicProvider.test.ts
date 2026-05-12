@@ -1,10 +1,10 @@
 /**
- * D-2-e3-a1f anthropicProvider 単体テスト (mock-only、cache token observability + cost accuracy)。
+ * D-2-e3-a1g anthropicProvider 単体テスト (mock-only、inference_geo observability + opt-in multiplier hook)。
  *
- * a1-impl-1e (PR #115) からの差分:
- *   - computeCostEstimateCents の cache-aware 拡張 (5m / 1h tier + cache read)
- *   - extractDiagnostics の cache token observability (tokenCacheCreate / tokenCacheRead)
- *   - 既存テストは全て影響なし (cache token 不在時の挙動は PR #114 と完全互換)
+ * a1-impl-1f (PR #116) からの差分:
+ *   - extractDiagnostics の inference_geo observability (string | null → trim 済 string or 未設定)
+ *   - computeCostEstimateCents への geoMultipliers opt-in hook (default snapshot で未設定、cost 不変)
+ *   - 既存テストは全て影響なし (default snapshot 不変、inference_geo null/未設定時は PR #116 と byte-equivalent)
  *
  * 検証軸 (PR #111-#115 継承 + a1-impl-1f 追加):
  *
@@ -1058,6 +1058,304 @@ describe("computeCostEstimateCents — pricing 未設定 cache field の gracefu
     // observability field は SDK usage から拾うので反映される
     expect(result.rawDiagnostics?.tokenCacheCreate).toBe(1000);
     expect(result.rawDiagnostics?.tokenCacheRead).toBe(500);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractDiagnostics — inference_geo observability (a1-impl-1g 追加)
+//
+// `usage.inference_geo` (string | null、SDK 公開 field) を observability layer で観測。
+// value semantic は SDK / docs で未定義のため、本 phase では opaque string として保持のみ。
+// default snapshot の costEstimateCents は完全不変 (PR #116 と byte-equivalent)。
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("extractDiagnostics — inference_geo observability (a1-impl-1g)", () => {
+  it("usage.inference_geo = 'us' → diagnostics.inferenceGeo = 'us'", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: "us",
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBe("us");
+  });
+
+  it("usage.inference_geo = 'eu' → diagnostics.inferenceGeo = 'eu' (opaque 保持)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: "eu",
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBe("eu");
+  });
+
+  it("usage.inference_geo = null → diagnostics.inferenceGeo は未設定 (no-info)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBeUndefined();
+  });
+
+  it("usage.inference_geo = 空文字 → diagnostics.inferenceGeo は未設定", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: "",
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBeUndefined();
+  });
+
+  it("usage.inference_geo = whitespace のみ → diagnostics.inferenceGeo は未設定", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: "   ",
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBeUndefined();
+  });
+
+  it("usage.inference_geo = '  us  ' (padded) → trim 後 'us'", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      inference_geo: "  us  ",
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.inferenceGeo).toBe("us");
+  });
+
+  it("rawDiagnostics shape: inference_geo を含む完全 case", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // default snapshot (geoMultipliers 未設定) → cost = (200*5 + 80*25)/10000 = 3000/10000 = 0.3 cents
+    expect(result.rawDiagnostics).toEqual({
+      tokenInput: 200,
+      tokenOutput: 80,
+      inferenceGeo: "us",
+      costEstimateCents: 0.3,
+    });
+  });
+});
+
+describe("computeCostEstimateCents — default snapshot で inference_geo 反映なし (a1-impl-1g、PR #116 backward compat)", () => {
+  it("inference_geo = 'us' でも default snapshot (geoMultipliers 未設定) → cost 不変", () => {
+    const { provider } = makeProvider();
+    // 既存 PR #114 テスト相当: input=250, output=120, search=2 → 2.425 cents
+    // inference_geo を追加しても default snapshot の cost は完全不変
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 250,
+      output_tokens: 120,
+      inference_geo: "us",
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 2,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(2.425);
+    expect(result.rawDiagnostics?.inferenceGeo).toBe("us");
+  });
+
+  it("inference_geo = null でも default snapshot → cost 完全不変 (PR #116 と byte-equivalent)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 250,
+      output_tokens: 120,
+      inference_geo: null,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 2,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(2.425);
+  });
+});
+
+describe("computeCostEstimateCents — geoMultipliers opt-in 適用 (a1-impl-1g、custom snapshot)", () => {
+  it("custom snapshot に geoMultipliers = { us: 1.1 } 注入 + inference_geo = 'us' → token base に 1.1x 適用", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: 1.1 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // input=200, output=80 → token base = 200*5 + 80*25 = 3000 μ¢
+    // adjusted = 3000 * 1.1 = 3300 μ¢ (1.1 は二進浮動小数で厳密表現できないため誤差を許容)
+    // web search なし → total ≒ 3300 μ¢ ≒ 0.33 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeCloseTo(0.33, 10);
+  });
+
+  it("geoMultipliers 適用 scope: token cost のみ、web search は multiplier 非適用", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: 1.1 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // input=200, output=80, search=1, inference_geo="us"
+    // tokenBase = 200*5 + 80*25 = 3000 μ¢
+    // adjusted = 3000 * 1.1 ≒ 3300 μ¢ (token only、1.1 は非厳密)
+    // webSearchContrib = 1 * 10000 = 10000 μ¢ (multiplier 非適用、整数演算で厳密)
+    // total ≒ 13300 μ¢ ≒ 1.33 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 1,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeCloseTo(1.33, 10);
+  });
+
+  it("multiplier 適用は cache cost にも及ぶ (token-based)", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: 1.1 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // cache_5m=8000 → 8000*6.25 = 50000 μ¢
+    // adjusted = 50000 * 1.1 ≒ 55000 μ¢ ≒ 5.5 cents (1.1 は二進非厳密)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      inference_geo: "us",
+      cache_creation: {
+        ephemeral_5m_input_tokens: 8000,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 8000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeCloseTo(5.5, 10);
+  });
+
+  it("inference_geo が geoMultipliers に entry なし (unknown geo) → multiplier 1.0", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: 1.1 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // inference_geo="global" は entry なし → multiplier 1.0
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "global",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 200*5 + 80*25 = 3000 μ¢ = 0.3 cents (no multiplier)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.3);
+  });
+
+  it("inference_geo = null + geoMultipliers 定義あり → multiplier 1.0", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: 1.1 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: null,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 200*5 + 80*25 = 3000 μ¢ = 0.3 cents (no multiplier、null geo)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.3);
+  });
+
+  it("multiplier 値が NaN → graceful 1.0", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: NaN },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.3);
+  });
+
+  it("multiplier 値が Infinity → graceful 1.0", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: Infinity },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.3);
+  });
+
+  it("multiplier 値が non-number (string 等) → graceful 1.0", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { us: "1.1" as unknown as number },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "us",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.3);
+  });
+
+  it("multiplier < 1.0 も適用される (例: 0.5x の hypothetical 割引)", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      ...ANTHROPIC_PRICING_2026_05_12,
+      geoMultipliers: { discounted: 0.5 },
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      inference_geo: "discounted",
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 3000 * 0.5 = 1500 μ¢ = 0.15 cents
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.15);
   });
 });
 
