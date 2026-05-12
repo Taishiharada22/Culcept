@@ -1,34 +1,32 @@
 /**
- * CoAlter D-2-e3-a1d Provider Foundation — Anthropic Provider (cost estimate 単体追加)
+ * CoAlter D-2-e3-a1e Provider Foundation — Anthropic Provider (source candidate semantic 分離)
  *
- * a1-impl-1a (PR #112、scaffold) → a1-impl-1b (PR #113、extractTheaters 構造化抽出) → 本 phase。
- * 本 phase (a1-impl-1d) は **provider 単体内に閉じた cost estimation 追加**:
- *   - `usage.input_tokens` / `output_tokens` / `server_tool_use.web_search_requests` から
- *     `ProviderRawDiagnostics.costEstimateCents` を計算
- *   - pricing constants は **date-stamped snapshot + override 可能** (`AnthropicProviderOptions.pricing`)
- *   - **observability 用 estimate のみ、billing source of truth ではない** (Anthropic invoice = 正本)
- *   - rounding policy 明示: 内部 integer micro-cents (μ¢ = 1/10000 cent)、出力時 `μ¢ / 10000` で cents 化
+ * a1-impl-1a (PR #112、scaffold) → a1-impl-1b (PR #113、extractTheaters) → a1-impl-1d (PR #114、cost estimate) → 本 phase。
  *
- * 設計原則 (D-2-e3-a1d phase):
+ * 本 phase (a1-impl-1e) は **canonical Citation と raw source candidate の semantic layer 分離**:
+ *   - `WebSearchToolResultBlock` 内 `WebSearchResultBlock[]` を `SourceCandidate[]` として抽出
+ *   - **canonical citations (`text_block.citations[]` の `web_search_result_location` のみ) には混ぜない**
+ *   - UI 「出典」表示は canonical Citation[] のみが対象、SourceCandidate[] は observability 用
+ *   - URL の dedup + 軽い正規化 (host 小文字化 / fragment 除去) を provider 内で実施
+ *
+ * 設計原則 (D-2-e3-a1e phase):
+ *   - **types.ts additive 変更 OK** (新 `SourceCandidate` interface + `ProviderRetrievalResult.sourceCandidates?` 追加、CEO 承認)
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
- *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし** (env 経由は a2 で別 phase)
- *   - **movieOrchestrator wiring なし** (a3 で別 phase)
- *   - **`BudgetUsageProvider` 実装なし** (interface inject のみ、Supabase 実装は a1-impl-1c で別 phase)
- *   - **`types.ts` touch なし** (`costEstimateCents` 既存 field を使用、PR #110 §2.2 で凍結済み)
+ *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし**
+ *   - **movieOrchestrator / flags / ProviderSelector wiring なし** (a3 で別 phase)
+ *   - **anti-hallucination guard なし** (sourceCandidates の semantic 分離が前段、guard は次 PR 以降)
+ *   - **suspicious citation の reject / filter なし** (canonical 抽出ロジックは PR #113 から変更なし)
  *
- * extractTheaters 実装 path (a1-impl-1b 継承):
- *   - **P1 第一候補**: JSON 強制 prompt + JSON.parse
- *   - **P2 conservative fallback**: 明示 label + input.area、hallucination 禁止、不足時 `[]`
- *
- * R6 (theaters=[] success 扱い) への対応:
- *   - **a3 wiring phase で Option C** (existing 4-layer passthrough fallback) で吸収予定
- *   - 本 file では touch なし
+ * 既存挙動の継承 (touch なし):
+ *   - extractTheaters (P1 JSON + P2 conservative、PR #113)
+ *   - extractCitations (TextBlock.citations の web_search_result_location のみ、PR #112)
+ *   - cost estimate (PR #114)
  *
  * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
- *   - 既存 lib/coalter/movie/providers/ 配下の他 file touch なし
  *   - Alter Morning 系 file touch なし
+ *   - citationNormalizer / safeProviderCall / theaterResolver touch なし (canonical 経路は変更なし)
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -48,6 +46,7 @@ import type {
   ProviderRawDiagnostics,
   ProviderRetrievalInput,
   ProviderRetrievalResult,
+  SourceCandidate,
 } from "./types";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -299,7 +298,9 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *
    *   - `theaters`: a1-impl-1b で P1 (JSON parse) + P2 (conservative regex fallback) で構造化抽出
    *   - `citations`: text block 内 `citations[]` から `CitationsWebSearchResultLocation` を抽出し canonical へ
-   *   - `rawDiagnostics`: `usage` から token / search call count を抽出
+   *   - `sourceCandidates` (a1-impl-1e): `WebSearchToolResultBlock` 内 raw search result URL を抽出
+   *     (canonical citations とは別 layer、UI 非露出、observability 用)
+   *   - `rawDiagnostics`: `usage` から token / search call count / cost estimate を抽出
    *
    *   signature 補正 (a1-impl-1b): `input` を引数に追加 (P2 fallback で `input.area` を必要 field として使用)。
    */
@@ -311,6 +312,7 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     return {
       theaters: this.extractTheaters(rawMessage, input),
       citations: this.extractCitations(rawMessage),
+      sourceCandidates: this.extractSourceCandidates(rawMessage),
       providerId: this.id,
       latencyMs,
       rawDiagnostics: this.extractDiagnostics(rawMessage),
@@ -615,6 +617,13 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *   - text block 以外の content block (server_tool_use / web_search_tool_result 等) は skip
    *   - citation type が `web_search_result_location` 以外 (PDF/text 等) も skip
    *   - title が null の場合は url を fallback として title に使用
+   *
+   *   **重要 (a1-impl-1e、CEO 凍結要件)**:
+   *     本 method は **text block の citations[] のみ** を canonical Citation 化する。
+   *     `WebSearchToolResultBlock` の raw search result URL は **canonical citations に混ぜない**
+   *     (混ぜると LLM が cite していない URL も UI 出典として表示される risk あり)。
+   *     raw search result URL は `extractSourceCandidates` で別 layer (`sourceCandidates[]`)
+   *     として抽出する (UI 非露出、observability 用)。
    */
   private extractCitations(
     message: Anthropic.Messages.Message,
@@ -637,6 +646,86 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
       }
     }
     return normalizeAnthropicCitations(raws);
+  }
+
+  /**
+   * Anthropic Message 内の `WebSearchToolResultBlock` から `SourceCandidate[]` を抽出
+   * (a1-impl-1e、canonical Citation とは別 layer)。
+   *
+   *   ⚠️ **本 method の output は UI に「出典」として表示してはならない**:
+   *     `SourceCandidate[]` は LLM が text で actually cite していない URL を含む可能性が高い。
+   *     UI の「公式 site で確認」link 等には `extractCitations()` の canonical `Citation[]` を使う。
+   *     `sourceCandidates` は observability / debug / 将来の anti-hallucination guard signal 用。
+   *
+   *   抽出処理:
+   *     1. `block.type === "web_search_tool_result"` の WebSearchToolResultBlock のみ対象
+   *     2. `block.content` が array (success) なら each WebSearchResultBlock を candidate 化
+   *     3. `block.content` が `WebSearchToolResultError` (失敗) なら該当 block を skip
+   *     4. URL を `normalizeSourceCandidateUrl` で正規化 (host 小文字化 / fragment 除去 / trim)
+   *     5. 正規化後 URL を key に dedup (insertion order 保持、最初の occurrence の metadata を保持)
+   *     6. URL parse 失敗時は trim 結果を fallback key として使用 (drop しない)
+   *
+   *   providerSource は固定値 `ANTHROPIC_DEFAULTS.WEB_SEARCH_TOOL_TYPE`、
+   *   `toolUseId` は parent WebSearchToolResultBlock の `tool_use_id` から取得。
+   */
+  private extractSourceCandidates(
+    message: Anthropic.Messages.Message,
+  ): readonly SourceCandidate[] {
+    const contentBlocks = Array.isArray(message.content) ? message.content : [];
+    const result: SourceCandidate[] = [];
+    const seen = new Set<string>();
+    for (const block of contentBlocks) {
+      if (block.type !== "web_search_tool_result") continue;
+      const wsBlock = block as Anthropic.Messages.WebSearchToolResultBlock;
+      // content は WebSearchToolResultError | Array<WebSearchResultBlock>
+      if (!Array.isArray(wsBlock.content)) continue;
+      for (const item of wsBlock.content) {
+        if (!item || item.type !== "web_search_result") continue;
+        const normalized = this.normalizeSourceCandidateUrl(item.url);
+        if (normalized === null) continue;
+        if (seen.has(normalized)) continue;
+        seen.add(normalized);
+        result.push({
+          url: normalized,
+          title: typeof item.title === "string" ? item.title : null,
+          pageAge: item.page_age ?? null,
+          providerSource: ANTHROPIC_DEFAULTS.WEB_SEARCH_TOOL_TYPE,
+          toolUseId:
+            typeof wsBlock.tool_use_id === "string"
+              ? wsBlock.tool_use_id
+              : null,
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * URL を軽く正規化して dedup key を生成 (a1-impl-1e)。
+   *
+   *   保守的な正規化 (RFC 3986 ベース、aggressive 正規化なし):
+   *     - 前後 whitespace を trim
+   *     - host を小文字化 (RFC 3986: host は case-insensitive)
+   *     - fragment (#...) を除去 (RFC 3986: fragment は client-side only)
+   *     - query は **保持** (映画館 URL の ?id=XXX 等は資源 identifier の可能性)
+   *     - trailing slash は **保持** (server 解釈で異なる resource の可能性)
+   *
+   *   URL parse 失敗時は trim 結果を返す (drop しない、保守的)。
+   *   空文字 / non-string は null 返却で reject。
+   */
+  private normalizeSourceCandidateUrl(rawUrl: unknown): string | null {
+    if (typeof rawUrl !== "string") return null;
+    const trimmed = rawUrl.trim();
+    if (trimmed.length === 0) return null;
+    try {
+      const u = new URL(trimmed);
+      u.hash = ""; // fragment 除去
+      // URL ctor は host を自動で小文字化、query / pathname は保持
+      return u.href;
+    } catch {
+      // URL parse 失敗時は trim 結果を fallback (provider 内部 dedup key として使用)
+      return trimmed;
+    }
   }
 
   /**
