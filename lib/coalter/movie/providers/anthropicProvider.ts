@@ -1,31 +1,32 @@
 /**
- * CoAlter D-2-e3-a1a Provider Foundation — Anthropic Provider (mock-only scaffold)
+ * CoAlter D-2-e3-a1b Provider Foundation — Anthropic Provider (extractTheaters 構造化抽出)
  *
- * PR #111 (D-2-e3-a1 real provider connection design review) で凍結された設計を
- * **mock-only scaffold** として実装した最小 wrapper。
+ * PR #111 (D-2-e3-a1 design review) で凍結された設計に基づき、a1-impl-1a (PR #112、scaffold) から
+ * `extractTheaters` を **空配列 scaffold → 構造化抽出** に発展。
  *
- * 設計原則 (D-2-e3-a1a phase):
+ * 設計原則 (D-2-e3-a1b phase):
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
- *   - **ANTHROPIC_API_KEY 参照なし** (API key は caller が `Anthropic` client 作成時に注入する DI)
- *   - **process.env 参照なし** (env 経由は a2 で別 phase で導入)
+ *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし** (env 経由は a2 で別 phase)
  *   - **movieOrchestrator wiring なし** (a3 で別 phase)
- *   - **Production deploy 前必須**: Anthropic Console (/settings/privacy) で web search admin enable (a1-impl-1b 以降)
  *
- * D-2-e3-a1a scope:
- *   - Anthropic tool args builder (`buildWebSearchTool`)
- *   - Anthropic prompt builder (`buildPrompt`)
- *   - Anthropic response parser (`parseResponse` + `extractCitations` + `extractDiagnostics`)
- *   - Anthropic citation → canonical `Citation` 変換 (`normalizeAnthropicCitations` 既存利用)
- *   - `ProviderRetrievalResult` への変換
- *   - `MovieRetrievalProvider` interface 実装 (D-2-e1 pure foundation 整合)
+ * extractTheaters 実装 path (CEO + GPT 補正、a1-impl-1b 凍結):
+ *   - **P1 第一候補**: JSON 強制 prompt + JSON.parse
+ *     - `buildPrompt` で LLM に JSON schema 出力を強制
+ *     - response text から JSON 抽出 (code block strip + balanced brace)
+ *     - shape validation (theaterName + area 必須、optional showtimes / officialUrl)
+ *   - **P2 conservative fallback** (JSON parse 失敗時のみ、極めて保守的):
+ *     - 明示 label (theater / cinema / 映画館) 必須
+ *     - input.area を必須 area として使用 (自由文から area 推測しない)
+ *     - hallucination 的補完禁止
+ *     - 不足時 `[]` を返す (空配列 OK、UX fallback は a3 phase の F1 4-layer passthrough で吸収)
  *
- * scaffold 限定:
- *   - `extractTheaters` は **空配列返却** (structured theater extraction は a1-impl-1b 以降で実装予定)
- *   - `BudgetUsageProvider` 実装は別 file (本 phase scope 外)
- *   - 実 client 生成 (`new Anthropic({apiKey: ...})`) は caller (a3 wiring) で行う
+ * R6 (theaters=[] success 扱い) への対応:
+ *   - **本 phase では実装しない** (a1-impl-1b は extractTheaters 構造化抽出に集中)
+ *   - ProviderSelector / provider 側で empty 判定変更しない (CEO 補正)
+ *   - a3 wiring phase で Option C (existing 4-layer passthrough fallback) で吸収予定
  *
- * 凍結線 (PR #111 §1.3 / §3.7.2 継承):
+ * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / 等) touch なし
  *   - 既存 lib/coalter/movie/providers/ 配下の他 file touch なし
  *   - Alter Morning 系 file touch なし
@@ -186,37 +187,53 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *
    *   - 「{title} を {area} 近辺で上映している映画館」を主旨
    *   - sourceHint (公式 URL / 配給) があれば参考情報として embed
-   *   - 出力フォーマット (theater / area / showtime / officialUrl)、最大件数、citation 指示を含む
+   *   - **JSON 出力強制** (a1-impl-1b、P1 path 用): theaters[] を strict schema で要求
+   *   - 余分な前置き文 / 後置き文を抑制 (LLM が code block で囲む case も parser で対応)
    */
   buildPrompt(input: ProviderRetrievalInput): string {
+    const maxResults = input.maxResults ?? 5;
     const lines: string[] = [
       `「${input.title}」を ${input.area} 近辺で上映している映画館を探してください。`,
     ];
     const hint = this.buildSourceHintText(input.sourceHint);
     if (hint) lines.push(hint);
-    lines.push("回答は以下を含めてください：");
-    lines.push("- 映画館名 (theater)");
-    lines.push("- 上映エリア (area)");
-    lines.push("- 上映時刻 (showtime) — 取得できれば");
-    lines.push("- 公式 URL (officialUrl) — 取得できれば");
-    lines.push(`最大 ${input.maxResults ?? 5} 件まで。`);
-    lines.push("信頼できる出典 URL を citations として付けてください。");
+    lines.push("");
+    lines.push("回答は以下の JSON 形式で返してください (前置き / 説明は不要):");
+    lines.push("```json");
+    lines.push("{");
+    lines.push(`  "theaters": [`);
+    lines.push("    {");
+    lines.push(`      "theaterName": "映画館名 (必須)",`);
+    lines.push(`      "area": "上映エリア (必須、駅名 / 地名)",`);
+    lines.push(`      "showtimes": ["19:00", "21:30"],`);
+    lines.push(`      "officialUrl": "https://..."`);
+    lines.push("    }");
+    lines.push("  ]");
+    lines.push("}");
+    lines.push("```");
+    lines.push(`- 最大 ${maxResults} 件まで`);
+    lines.push("- `showtimes` / `officialUrl` は取得できれば、不明なら省略");
+    lines.push("- 不確実な情報は含めない (hallucination 禁止)");
+    lines.push("- 出典 URL は citations として返してください (text 引用元)");
     return lines.join("\n");
   }
 
   /**
    * Anthropic Message を `ProviderRetrievalResult` に変換 (pure、SDK type 準拠)。
    *
-   *   - `theaters`: scaffold では空配列 (a1-impl-1b 以降で structured extractor 追加)
+   *   - `theaters`: a1-impl-1b で P1 (JSON parse) + P2 (conservative regex fallback) で構造化抽出
    *   - `citations`: text block 内 `citations[]` から `CitationsWebSearchResultLocation` を抽出し canonical へ
    *   - `rawDiagnostics`: `usage` から token / search call count を抽出
+   *
+   *   signature 補正 (a1-impl-1b): `input` を引数に追加 (P2 fallback で `input.area` を必要 field として使用)。
    */
   parseResponse(
     rawMessage: Anthropic.Messages.Message,
+    input: ProviderRetrievalInput,
     latencyMs: number,
   ): ProviderRetrievalResult {
     return {
-      theaters: this.extractTheaters(rawMessage),
+      theaters: this.extractTheaters(rawMessage, input),
       citations: this.extractCitations(rawMessage),
       providerId: this.id,
       latencyMs,
@@ -249,7 +266,7 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
       messages: [{ role: "user", content: prompt }],
       tools: [tool],
     });
-    return this.parseResponse(message, Date.now() - startedAt);
+    return this.parseResponse(message, input, Date.now() - startedAt);
   }
 
   private buildSourceHintText(
@@ -279,13 +296,240 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
   }
 
   /**
-   * scaffold: theater 構造化抽出は a1-impl-1b 以降で実装予定 (LLM text response からの抽出)。
-   * 本 phase は空配列を返し、retrieve 全体の flow / citation 抽出を verify する。
+   * Anthropic Message から TheaterListing[] を構造化抽出 (a1-impl-1b 実装)。
+   *
+   *   - **P1 第一候補**: JSON 強制 prompt + JSON parse (`tryParseJsonTheaters`)
+   *   - **P2 conservative fallback**: 明示 label (theater / cinema / 映画館) + input.area で extract (`conservativeRegexTheaters`)
+   *   - **P1 / P2 共に失敗時は `[]`** (空配列 OK、UX fallback は a3 phase の F1 4-layer passthrough で吸収予定)
+   *   - hallucination 防御: P2 では shape 不完全な candidate を作らない
    */
   private extractTheaters(
-    _message: Anthropic.Messages.Message,
+    message: Anthropic.Messages.Message,
+    input: ProviderRetrievalInput,
   ): readonly TheaterListing[] {
-    return [];
+    const fullText = this.collectTextContent(message);
+    if (fullText.length === 0) return [];
+
+    // P1: JSON 強制 prompt が return した JSON を parse 試行
+    const fromJson = this.tryParseJsonTheaters(fullText);
+    if (fromJson !== null) return fromJson;
+
+    // P2: conservative fallback (極めて保守的、hallucination 防御)
+    return this.conservativeRegexTheaters(fullText, input.area);
+  }
+
+  /**
+   * message.content の TextBlock の text を結合。
+   *
+   *   text 以外の block (server_tool_use / web_search_tool_result 等) は skip。
+   */
+  private collectTextContent(message: Anthropic.Messages.Message): string {
+    const blocks = Array.isArray(message.content) ? message.content : [];
+    const texts: string[] = [];
+    for (const block of blocks) {
+      if (block.type !== "text") continue;
+      const textBlock = block as Anthropic.Messages.TextBlock;
+      if (typeof textBlock.text === "string" && textBlock.text.length > 0) {
+        texts.push(textBlock.text);
+      }
+    }
+    return texts.join("\n");
+  }
+
+  /**
+   * P1: text から JSON object を抽出 + parse + shape validate。
+   *
+   *   - code block (```json ... ```) を strip
+   *   - 最初の `{` から対応する `}` まで balanced brace で抽出
+   *   - `JSON.parse` 失敗 / shape invalid → `null` 返却 (P2 へ fallback)
+   *   - shape valid + theaters array empty → `[]` 返却 (P2 へ fallback **しない**、LLM が「該当なし」を明示と解釈)
+   */
+  private tryParseJsonTheaters(
+    text: string,
+  ): readonly TheaterListing[] | null {
+    const jsonStr = this.extractJsonObject(text);
+    if (jsonStr === null) return null;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      return null;
+    }
+
+    if (!parsed || typeof parsed !== "object") return null;
+    const root = parsed as Record<string, unknown>;
+    const theatersRaw = root.theaters;
+    if (!Array.isArray(theatersRaw)) return null;
+
+    const result: TheaterListing[] = [];
+    for (const item of theatersRaw) {
+      const listing = this.validateAndBuildTheaterListing(item);
+      if (listing !== null) result.push(listing);
+    }
+    return result;
+  }
+
+  /**
+   * text から JSON object 文字列を抽出 (code block strip + balanced brace 抽出)。
+   *
+   *   抽出順:
+   *     1. ```json ... ``` ブロックを優先 (code block fenced)
+   *     2. ``` ... ``` ブロック (言語 hint なし)
+   *     3. 自由 text 中の `{` から対応 `}` までを balanced brace で抽出
+   */
+  private extractJsonObject(text: string): string | null {
+    // 1. ```json ... ```
+    const jsonFenceMatch = text.match(/```json\s*([\s\S]*?)```/);
+    if (jsonFenceMatch) {
+      const candidate = jsonFenceMatch[1].trim();
+      if (candidate.startsWith("{") && candidate.endsWith("}")) {
+        return candidate;
+      }
+    }
+    // 2. ``` ... ```
+    const plainFenceMatch = text.match(/```\s*([\s\S]*?)```/);
+    if (plainFenceMatch) {
+      const candidate = plainFenceMatch[1].trim();
+      if (candidate.startsWith("{") && candidate.endsWith("}")) {
+        return candidate;
+      }
+    }
+    // 3. balanced brace から自由 text 内最初の object 抽出
+    const start = text.indexOf("{");
+    if (start === -1) return null;
+    let depth = 0;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * raw item から TheaterListing を build + validate。
+   *
+   *   - `theaterName` 必須 (non-empty string)
+   *   - `area` 必須 (non-empty string)
+   *   - `showtimes`: string[] (非 string 要素 skip)、空配列なら undefined
+   *   - `officialUrl`: string | null、空文字 → null、それ以外 string そのまま
+   *   - 必須 field 不足 → null 返却 (hallucination 防御、PR #112 R1 整合)
+   */
+  private validateAndBuildTheaterListing(
+    item: unknown,
+  ): TheaterListing | null {
+    if (!item || typeof item !== "object") return null;
+    const raw = item as Record<string, unknown>;
+
+    const theaterName = this.asNonEmptyString(raw.theaterName);
+    const area = this.asNonEmptyString(raw.area);
+    if (theaterName === null || area === null) return null;
+
+    const listing: TheaterListing = { theaterName, area };
+
+    const showtimesRaw = raw.showtimes;
+    if (Array.isArray(showtimesRaw)) {
+      const showtimes: string[] = [];
+      for (const st of showtimesRaw) {
+        if (typeof st === "string" && st.trim().length > 0) {
+          showtimes.push(st.trim());
+        }
+      }
+      if (showtimes.length > 0) {
+        listing.showtimes = showtimes;
+      }
+    }
+
+    const officialUrlRaw = raw.officialUrl;
+    if (typeof officialUrlRaw === "string") {
+      const trimmed = officialUrlRaw.trim();
+      listing.officialUrl = trimmed.length > 0 ? trimmed : null;
+    } else if (officialUrlRaw === null) {
+      listing.officialUrl = null;
+    }
+
+    return listing;
+  }
+
+  /**
+   * P2: conservative regex fallback (CEO + GPT 強制限、hallucination 禁止)。
+   *
+   *   厳しい条件:
+   *     1. 行に **明示 label** (theater / cinema / 映画館) が含まれる
+   *     2. その行から theaterName を抽出可能 (label 前の名詞 phrase)
+   *     3. area は **input.area** を使用 (自由文から area 推測しない)
+   *     4. 上記全てが揃わない行は skip (`[]` を返す)
+   *
+   *   抽出できなければ `[]` を返す (UX fallback は a3 phase の F1 で吸収予定)。
+   */
+  private conservativeRegexTheaters(
+    text: string,
+    fallbackArea: string,
+  ): readonly TheaterListing[] {
+    if (!fallbackArea || fallbackArea.trim().length === 0) return [];
+
+    const trimmedArea = fallbackArea.trim();
+    const lines = text.split(/\r?\n/);
+    const labelPattern = /(映画館|theater|theatre|cinema|シネマ|シアター)/i;
+    const result: TheaterListing[] = [];
+    const seen = new Set<string>();
+
+    for (const line of lines) {
+      if (!labelPattern.test(line)) continue;
+      const theaterName = this.extractTheaterNameFromLine(line);
+      if (theaterName === null) continue;
+      if (seen.has(theaterName)) continue;
+      seen.add(theaterName);
+      result.push({
+        theaterName,
+        area: trimmedArea,
+      });
+    }
+    return result;
+  }
+
+  /**
+   * 1 行から theaterName を抽出 (P2 限定、conservative)。
+   *
+   *   抽出条件:
+   *     - label (映画館 / cinema / シネマ 等) を含む行
+   *     - label の前にある名詞 phrase (日本語 / ASCII 連続文字) を theaterName とする
+   *     - 「TOHO シネマズ 渋谷」「ヒューマントラストシネマ渋谷」「109 シネマズ」等を想定
+   *     - label 単独 (theaterName 推測不能) → null
+   *     - 抽出 candidate が 1 文字以下 / 記号のみ → null
+   */
+  private extractTheaterNameFromLine(line: string): string | null {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) return null;
+
+    // 「シネマ」「シアター」「映画館」「Theater」を含む word phrase を抽出
+    // 日本語 / 英数 / 半角 space / ハイフン / 中点 を許容、句読点 / 括弧で区切る
+    // - 先頭側 (leading): label の前にある名詞 phrase (空白超え許容)
+    // - 末尾側 (trailing): label 直後の連続 chars (空白なし、「シネマ渋谷」「ヒューマントラストシネマ渋谷」のような連結名を救う)
+    const tokenPattern =
+      /([゠-ヿ぀-ゟ一-龯\w\s\-・]+(?:映画館|シネマ|シアター|theater|theatre|cinema)[゠-ヿ぀-ゟ一-龯\w\-・]*)/i;
+    const match = trimmed.match(tokenPattern);
+    if (!match) return null;
+
+    const candidate = match[1].trim().replace(/\s+/g, " ");
+    // 1 文字以下、記号のみは reject
+    if (candidate.length < 2) return null;
+    // label 単体 (前置 name なし) を reject。「・シネマ」「- シネマ」のような bullet 付きも reject。
+    const labelOnly =
+      /^[・\-\s]*(映画館|シネマ|シアター|theater|theatre|cinema)[・\-\s]*$/i;
+    if (labelOnly.test(candidate)) return null;
+
+    return candidate;
+  }
+
+  /** value が non-empty string か判定し、trim 済 string を返す helper。 */
+  private asNonEmptyString(value: unknown): string | null {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
   }
 
   /**

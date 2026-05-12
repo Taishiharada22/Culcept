@@ -1,42 +1,42 @@
 /**
- * D-2-e3-a1a anthropicProvider 単体テスト (mock-only scaffold)。
+ * D-2-e3-a1b anthropicProvider 単体テスト (mock-only、extractTheaters 構造化抽出を追加)。
  *
- * 検証軸 (PR #111 §2.1 / §3.6.2):
+ * a1-impl-1a (PR #112) からの差分:
+ *   - parseResponse signature: (message, latencyMs) → (message, input, latencyMs)
+ *     (P2 fallback で `input.area` を必須 area field として使用するため)
+ *   - extractTheaters: 空配列 scaffold → P1 (JSON parse) + P2 (conservative regex fallback)
  *
- * constructor / DI:
- *   1. options.enabled が enabled field に反映
- *   2. options.client が DI される (mock client が retrieve で使われる)
+ * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b 追加):
  *
- * buildWebSearchTool:
- *   3. default: type / name / max_uses の最小構成
- *   4. allowedDomains 指定時に allowed_domains が tool に含まれる
- *   5. blockedDomains 指定時に blocked_domains が tool に含まれる
- *   6. allowedDomains + blockedDomains 両指定 → allowed 優先 (Anthropic SDK 排他制約)
- *   7. deriveUserLocation default (area name + JP/Asia/Tokyo)
- *   8. deriveUserLocation custom override
- *   9. area 空文字 → user_location undefined
+ * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall:
+ *   PR #112 と同等 (signature 変更を反映)
  *
- * buildPrompt:
- *  10. input.title / input.area が prompt に含まれる
- *  11. sourceHint (officialUrl / distributor) が hint として embed
- *  12. sourceHint なし → hint 行なし
- *  13. maxResults 指定で「最大 N 件まで」に反映
+ * parseResponse (citations + diagnostics, PR #112 から継承):
+ *   - citations 抽出: text block の web_search_result_location 経由
+ *   - web_search_result_location 以外 (page_location 等) を skip
+ *   - text block 以外の content block (server_tool_use 等) は skip
+ *   - title null の citation → url を title に fallback
+ *   - rawDiagnostics: usage.input_tokens / output_tokens / server_tool_use.web_search_requests
  *
- * parseResponse:
- *  14. citations 抽出: text block の web_search_result_location 経由
- *  15. citations は web_search_result_location 以外 (page_location 等) を skip
- *  16. text block 以外の content block (server_tool_use 等) は skip
- *  17. title null の citation → url を title に fallback
- *  18. rawDiagnostics: usage.input_tokens / output_tokens / server_tool_use.web_search_requests
- *  19. extractTheaters scaffold → 常に空配列
+ * extractTheaters P1 (JSON 強制 prompt + JSON.parse、a1-impl-1b 追加):
+ *   - ```json ... ``` code block 内 JSON parse → TheaterListing[]
+ *   - ``` ... ``` 言語 hint なし fence の場合も parse
+ *   - code block なし、自由 text 中の balanced brace から JSON 抽出
+ *   - theaterName / area 必須、不足 item を skip
+ *   - showtimes / officialUrl optional handling
+ *   - theaters 空配列 → 空配列 (P2 fallback しない、LLM の「該当なし」明示を尊重)
+ *   - invalid JSON → P2 fallback
  *
- * retrieve (executeRetrieve + safeProviderCall):
- *  20. happy path: client.messages.create が tools + messages で呼ばれ、結果が parse される
- *  21. 5xx-like error → safeProviderCall の retry policy で 2 回試行
- *  22. timeout → ProviderCallTimeoutError throw
- *  23. budget exceeded → ProviderBudgetExceededError throw、client.messages.create 呼ばれず
+ * extractTheaters P2 (conservative regex fallback、a1-impl-1b 追加):
+ *   - 明示 label (映画館 / cinema / シネマ / シアター 等) を含む行のみ抽出
+ *   - input.area を必須 area として使用 (自由文から area 推測しない)
+ *   - input.area 空 → 空配列 (area 推測なし、hallucination 防御)
+ *   - label なし行 → 空配列
+ *   - label 単独行 (theaterName 推測不能) → reject
+ *   - 同 theaterName 重複 → dedup
+ *   - 連結名 (ヒューマントラストシネマ渋谷) を救う trailing 拡張
  *
- * D-2-e3-a1a scope:
+ * D-2-e3-a1b scope:
  *   - mock client only、実 Anthropic API call なし
  *   - process.env / ANTHROPIC_API_KEY 参照なし
  *   - SDK type は @anthropic-ai/sdk v0.91.1 既存、import OK
@@ -117,6 +117,50 @@ function makeAnthropicMessageWithCitations(
       {
         type: "text",
         text: "test response",
+        citations: citations as Anthropic.Messages.TextCitation[] | null,
+      },
+    ],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      inference_geo: null,
+      server_tool_use: null,
+      service_tier: null,
+      ...usage,
+    } as Anthropic.Messages.Usage,
+  } as Anthropic.Messages.Message;
+}
+
+/**
+ * 任意 text を text block に含む Anthropic Message を生成する fixture (a1-impl-1b 追加)。
+ *
+ *   P1 (JSON parse) / P2 (conservative regex) の入力 text を制御するために使用。
+ */
+function makeMessageWithText(
+  text: string,
+  citations: Array<{
+    type: string;
+    url?: string;
+    title?: string | null;
+    cited_text?: string;
+    encrypted_index?: string;
+  }> = [],
+  usage?: Partial<Anthropic.Messages.Usage>,
+): Anthropic.Messages.Message {
+  return {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    model: "claude-opus-4-7",
+    content: [
+      {
+        type: "text",
+        text,
         citations: citations as Anthropic.Messages.TextCitation[] | null,
       },
     ],
@@ -313,7 +357,7 @@ describe("parseResponse", () => {
         encrypted_index: "enc-abc",
       },
     ]);
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.citations).toHaveLength(1);
     expect(result.citations[0]).toEqual({
       url: "https://eiga.com/movie/12345/",
@@ -339,7 +383,7 @@ describe("parseResponse", () => {
         encrypted_index: "idx",
       },
     ]);
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.citations).toHaveLength(1);
     expect(result.citations[0].url).toBe("https://eiga.com/movie/x/");
   });
@@ -372,7 +416,7 @@ describe("parseResponse", () => {
         service_tier: null,
       } as Anthropic.Messages.Usage,
     } as Anthropic.Messages.Message;
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.citations).toEqual([]);
   });
 
@@ -387,7 +431,7 @@ describe("parseResponse", () => {
         encrypted_index: "i",
       },
     ]);
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.citations[0].title).toBe("https://eiga.com/no-title/");
   });
 
@@ -401,7 +445,7 @@ describe("parseResponse", () => {
         web_search_requests: 2,
       } as Anthropic.Messages.ServerToolUsage,
     });
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.rawDiagnostics).toEqual({
       tokenInput: 250,
       tokenOutput: 120,
@@ -416,7 +460,7 @@ describe("parseResponse", () => {
       output_tokens: 5,
       server_tool_use: null,
     });
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.rawDiagnostics).toEqual({
       tokenInput: 10,
       tokenOutput: 5,
@@ -424,8 +468,10 @@ describe("parseResponse", () => {
     expect(result.rawDiagnostics?.searchCallCount).toBeUndefined();
   });
 
-  it("extractTheaters scaffold → 常に空配列", () => {
+  it("extractTheaters: label なし / JSON なし → 空配列 (citation の cited_text は theater extraction に使われない)", () => {
     const { provider } = makeProvider();
+    // text block の text は "test response" (makeAnthropicMessageWithCitations の default)、label なし
+    // citation の cited_text に "TOHO 渋谷で上映" があるが、これは theater extraction の入力ではない (text block の text のみ)
     const message = makeAnthropicMessageWithCitations([
       {
         type: "web_search_result_location",
@@ -435,16 +481,414 @@ describe("parseResponse", () => {
         encrypted_index: "i",
       },
     ]);
-    const result = provider.parseResponse(message, 100);
+    const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.theaters).toEqual([]);
   });
 
   it("providerId / latencyMs が正しく設定", () => {
     const { provider } = makeProvider();
     const message = makeAnthropicMessageWithCitations([]);
-    const result = provider.parseResponse(message, 1234);
+    const result = provider.parseResponse(message, makeInput(), 1234);
     expect(result.providerId).toBe("anthropic");
     expect(result.latencyMs).toBe(1234);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractTheaters — P1: JSON 強制 prompt + JSON.parse (a1-impl-1b 追加)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("extractTheaters — P1 JSON parse", () => {
+  it("```json``` code block 内の theaters[] が parse される (full fields)", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "結果は以下の通りです:",
+      "```json",
+      "{",
+      '  "theaters": [',
+      "    {",
+      '      "theaterName": "TOHO シネマズ 渋谷",',
+      '      "area": "渋谷",',
+      '      "showtimes": ["19:00", "21:30"],',
+      '      "officialUrl": "https://hlo.tohotheater.jp/net/schedule/035/TNPI2000J01.do"',
+      "    }",
+      "  ]",
+      "}",
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0]).toEqual({
+      theaterName: "TOHO シネマズ 渋谷",
+      area: "渋谷",
+      showtimes: ["19:00", "21:30"],
+      officialUrl:
+        "https://hlo.tohotheater.jp/net/schedule/035/TNPI2000J01.do",
+    });
+  });
+
+  it("``` (言語 hint なし) fence でも JSON parse される", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```",
+      '{"theaters":[{"theaterName":"渋谷シネクイント","area":"渋谷"}]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toBe("渋谷シネクイント");
+    expect(result.theaters[0].area).toBe("渋谷");
+  });
+
+  it("code block fence なし、balanced brace で自由 text 中の JSON 抽出", () => {
+    const { provider } = makeProvider();
+    const text =
+      '結果: {"theaters":[{"theaterName":"新宿ピカデリー","area":"新宿"}]} 以上です。';
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toBe("新宿ピカデリー");
+  });
+
+  it("複数 theaters が parse される (順序保持)", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      "{",
+      '  "theaters": [',
+      '    {"theaterName": "A シネマ", "area": "渋谷"},',
+      '    {"theaterName": "B シネマ", "area": "新宿"},',
+      '    {"theaterName": "C シネマ", "area": "池袋"}',
+      "  ]",
+      "}",
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters.map((t) => t.theaterName)).toEqual([
+      "A シネマ",
+      "B シネマ",
+      "C シネマ",
+    ]);
+  });
+
+  it("theaterName 不足 → 該当 item を skip (他 item は残る)", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      "{",
+      '  "theaters": [',
+      '    {"area": "渋谷"},',
+      '    {"theaterName": "OK シネマ", "area": "渋谷"}',
+      "  ]",
+      "}",
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toBe("OK シネマ");
+  });
+
+  it("area 不足 → 該当 item を skip", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      '{"theaters":[{"theaterName":"X シネマ"}]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("theaters 空配列 → 空配列 (P2 fallback しない、LLM の「該当なし」明示を尊重)", () => {
+    const { provider } = makeProvider();
+    // text に label を含めて、もし P2 へ fallback された場合に [] と区別できるようにする
+    const text = [
+      "該当なし: TOHO シネマズ 渋谷 では上映されていません。",
+      "```json",
+      '{"theaters":[]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    // P1 が `theaters: []` で success → P2 へ fallback せず、空配列 return
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("invalid JSON (parse error) → P2 fallback (自由 text 中 label から extract)", () => {
+    const { provider } = makeProvider();
+    // ```json``` 内が unquoted keys で JSON.parse 失敗、自由 text に label 含む行あり
+    const text = [
+      "```json",
+      "{theaters: [{theaterName: TOHO, area: 渋谷}]}",
+      "```",
+      "TOHO シネマズ 渋谷 で上映中。",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters.length).toBeGreaterThanOrEqual(1);
+    expect(result.theaters[0].theaterName).toContain("シネマ");
+    expect(result.theaters[0].area).toBe("渋谷");
+  });
+
+  it("showtimes / officialUrl 省略時の optional 処理 (undefined / null)", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      '{"theaters":[{"theaterName":"X シネマ","area":"渋谷"}]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters[0]).toEqual({
+      theaterName: "X シネマ",
+      area: "渋谷",
+    });
+    expect(result.theaters[0].showtimes).toBeUndefined();
+    expect(result.theaters[0].officialUrl).toBeUndefined();
+  });
+
+  it("showtimes に非 string 要素混在 → string のみ抽出", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      '{"theaters":[{"theaterName":"X","area":"渋谷","showtimes":["19:00",null,"21:30",123]}]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters[0].showtimes).toEqual(["19:00", "21:30"]);
+  });
+
+  it("officialUrl 空文字 → null に正規化", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      '{"theaters":[{"theaterName":"X","area":"渋谷","officialUrl":""}]}',
+      "```",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.theaters[0].officialUrl).toBeNull();
+  });
+
+  it("theaters key 不在 → P2 fallback", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "```json",
+      '{"result":"none"}',
+      "```",
+      "TOHO シネマズ 渋谷 で上映中。",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    // theaters key なし → P1 が null 返却 → P2 fallback
+    expect(result.theaters.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractTheaters — P2: conservative regex fallback (a1-impl-1b 追加)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("extractTheaters — P2 conservative regex fallback", () => {
+  it("明示 label (シネマ) + input.area → extract", () => {
+    const { provider } = makeProvider();
+    // JSON parse 失敗するように、JSON 構造なしの自由文
+    const text = "TOHO シネマズ 渋谷 で上映中です。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toContain("シネマ");
+    expect(result.theaters[0].area).toBe("渋谷");
+  });
+
+  it("明示 label (映画館) + input.area → extract", () => {
+    const { provider } = makeProvider();
+    const text = "渋谷東宝映画館 にて上映。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toBe("渋谷東宝映画館");
+    expect(result.theaters[0].area).toBe("渋谷");
+  });
+
+  it("連結名 (label の前後で連続するアジア文字) → trailing も保持", () => {
+    const { provider } = makeProvider();
+    const text = "ヒューマントラストシネマ渋谷 で上映中。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    // trailing 「渋谷」が保持される
+    expect(result.theaters[0].theaterName).toBe("ヒューマントラストシネマ渋谷");
+  });
+
+  it("label なし行 → 空配列 (hallucination 防御、自由文から area / 名前を推測しない)", () => {
+    const { provider } = makeProvider();
+    const text = "君の名は。が渋谷で上映中です。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("input.area 空文字 → 空配列 (area 推測なし)", () => {
+    const { provider } = makeProvider();
+    const text = "TOHO シネマズ 渋谷 で上映中。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "" }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("input.area が whitespace のみ → 空配列", () => {
+    const { provider } = makeProvider();
+    const text = "TOHO シネマズ 渋谷 で上映中。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "   " }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("label 単体行 (theaterName 推測不能) → reject", () => {
+    const { provider } = makeProvider();
+    const text = "映画館\nシネマ\nシアター\ntheater";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("bullet 付き label 単体 (・シネマ 等) → reject", () => {
+    const { provider } = makeProvider();
+    const text = "・シネマ\n- 映画館\n  シアター";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("複数行 + 同 theaterName 重複 → dedup", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "TOHO シネマズ 渋谷 で上映中。",
+      "TOHO シネマズ 渋谷 の 19:00 の回が空席あり。",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+  });
+
+  it("複数 unique theaters → 複数件 extract", () => {
+    const { provider } = makeProvider();
+    const text = [
+      "ヒューマントラストシネマ渋谷 で上映。",
+      "渋谷東宝映画館 でも上映。",
+    ].join("\n");
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(2);
+    const names = result.theaters.map((t) => t.theaterName);
+    expect(names).toContain("ヒューマントラストシネマ渋谷");
+    expect(names).toContain("渋谷東宝映画館");
+  });
+
+  it("英語 label (cinema / theater) + 半角空白 → extract", () => {
+    const { provider } = makeProvider();
+    const text = "TOHO Cinemas Shibuya で上映中。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    // "cinema" が含まれる token として extract される (trailing 's' は保持)
+    expect(result.theaters[0].theaterName.toLowerCase()).toContain("cinema");
+    expect(result.theaters[0].area).toBe("渋谷");
+  });
+
+  it("text 完全に空 → 空配列", () => {
+    const { provider } = makeProvider();
+    const message = makeMessageWithText("");
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("showtimes / officialUrl は P2 では設定されない (conservative、optional は P1 でのみ充填)", () => {
+    const { provider } = makeProvider();
+    const text = "TOHO シネマズ 渋谷 で上映中。19:00 の回。";
+    const message = makeMessageWithText(text);
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].showtimes).toBeUndefined();
+    expect(result.theaters[0].officialUrl).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractTheaters — text block 集約 (a1-impl-1b 追加)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("extractTheaters — text block 集約", () => {
+  it("複数 text block の text が結合され、JSON / regex extraction に使われる", () => {
+    const { provider } = makeProvider();
+    const message: Anthropic.Messages.Message = {
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-7",
+      content: [
+        { type: "text", text: "前置き: 結果は以下のとおりです。", citations: null },
+        {
+          type: "text",
+          text: '```json\n{"theaters":[{"theaterName":"X","area":"渋谷"}]}\n```',
+          citations: null,
+        },
+      ],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
+      } as Anthropic.Messages.Usage,
+    } as Anthropic.Messages.Message;
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toHaveLength(1);
+    expect(result.theaters[0].theaterName).toBe("X");
+  });
+
+  it("text block 以外 (server_tool_use / web_search_tool_result) は extraction 対象外", () => {
+    const { provider } = makeProvider();
+    const message: Anthropic.Messages.Message = {
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-7",
+      content: [
+        {
+          type: "server_tool_use",
+          id: "srv_1",
+          name: "web_search",
+          input: { query: "TOHO シネマズ 渋谷" },
+        },
+      ],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
+      } as Anthropic.Messages.Usage,
+    } as Anthropic.Messages.Message;
+    const result = provider.parseResponse(message, makeInput({ area: "渋谷" }), 100);
+    expect(result.theaters).toEqual([]);
   });
 });
 
