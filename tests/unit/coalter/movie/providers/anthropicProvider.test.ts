@@ -1,44 +1,32 @@
 /**
- * D-2-e3-a1b anthropicProvider 単体テスト (mock-only、extractTheaters 構造化抽出を追加)。
+ * D-2-e3-a1d anthropicProvider 単体テスト (mock-only、cost estimate 単体追加)。
  *
- * a1-impl-1a (PR #112) からの差分:
- *   - parseResponse signature: (message, latencyMs) → (message, input, latencyMs)
- *     (P2 fallback で `input.area` を必須 area field として使用するため)
- *   - extractTheaters: 空配列 scaffold → P1 (JSON parse) + P2 (conservative regex fallback)
+ * a1-impl-1b (PR #113) からの差分:
+ *   - 既存 rawDiagnostics tests に `costEstimateCents` field 追加 (CEO 補正 pricing 反映)
+ *   - computeCostEstimateCents 単体検証 group 追加
  *
- * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b 追加):
+ * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b + a1-impl-1d 追加):
  *
- * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall:
- *   PR #112 と同等 (signature 変更を反映)
+ * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall / extractTheaters:
+ *   PR #112 / #113 と同等 (本 phase で変更なし)
  *
- * parseResponse (citations + diagnostics, PR #112 から継承):
- *   - citations 抽出: text block の web_search_result_location 経由
- *   - web_search_result_location 以外 (page_location 等) を skip
- *   - text block 以外の content block (server_tool_use 等) は skip
- *   - title null の citation → url を title に fallback
+ * parseResponse (citations + diagnostics):
  *   - rawDiagnostics: usage.input_tokens / output_tokens / server_tool_use.web_search_requests
+ *   - **costEstimateCents (a1-impl-1d 追加)**: usage から default pricing (ANTHROPIC_PRICING_2026_05_12) で計算
  *
- * extractTheaters P1 (JSON 強制 prompt + JSON.parse、a1-impl-1b 追加):
- *   - ```json ... ``` code block 内 JSON parse → TheaterListing[]
- *   - ``` ... ``` 言語 hint なし fence の場合も parse
- *   - code block なし、自由 text 中の balanced brace から JSON 抽出
- *   - theaterName / area 必須、不足 item を skip
- *   - showtimes / officialUrl optional handling
- *   - theaters 空配列 → 空配列 (P2 fallback しない、LLM の「該当なし」明示を尊重)
- *   - invalid JSON → P2 fallback
+ * computeCostEstimateCents (a1-impl-1d 追加):
+ *   - default pricing 反映 (Opus 4.7、$5 / $25 / $10 per 1k searches、CEO 補正)
+ *   - pricing snapshot override (DI 経由)
+ *   - 未登録 model → undefined (silent skip、誤計算防止)
+ *   - usage.input_tokens / output_tokens / server_tool_use.web_search_requests 不在時の graceful degradation
+ *   - rounding policy: integer micro-cents → cents 化 (`microCents / 10000`、丸めない)
+ *   - all-zero usage → 0 cents (実行されたが token 消費ゼロ、稀有 case)
+ *   - **billing source of truth ではない明示** (Anthropic invoice = authoritative)
  *
- * extractTheaters P2 (conservative regex fallback、a1-impl-1b 追加):
- *   - 明示 label (映画館 / cinema / シネマ / シアター 等) を含む行のみ抽出
- *   - input.area を必須 area として使用 (自由文から area 推測しない)
- *   - input.area 空 → 空配列 (area 推測なし、hallucination 防御)
- *   - label なし行 → 空配列
- *   - label 単独行 (theaterName 推測不能) → reject
- *   - 同 theaterName 重複 → dedup
- *   - 連結名 (ヒューマントラストシネマ渋谷) を救う trailing 拡張
- *
- * D-2-e3-a1b scope:
+ * D-2-e3-a1d scope:
  *   - mock client only、実 Anthropic API call なし
  *   - process.env / ANTHROPIC_API_KEY 参照なし
+ *   - types.ts touch なし (`costEstimateCents` は PR #110 §2.2 で凍結済 canonical field)
  *   - SDK type は @anthropic-ai/sdk v0.91.1 既存、import OK
  */
 
@@ -46,7 +34,9 @@ import { describe, it, expect, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   ANTHROPIC_DEFAULTS,
+  ANTHROPIC_PRICING_2026_05_12,
   AnthropicMovieRetrievalProvider,
+  type AnthropicPricingSnapshot,
   type AnthropicProviderOptions,
 } from "@/lib/coalter/movie/providers/anthropicProvider";
 import {
@@ -435,7 +425,7 @@ describe("parseResponse", () => {
     expect(result.citations[0].title).toBe("https://eiga.com/no-title/");
   });
 
-  it("rawDiagnostics: token + server_tool_use.web_search_requests", () => {
+  it("rawDiagnostics: token + server_tool_use.web_search_requests + costEstimateCents (a1-impl-1d)", () => {
     const { provider } = makeProvider();
     const message = makeAnthropicMessageWithCitations([], {
       input_tokens: 250,
@@ -446,14 +436,19 @@ describe("parseResponse", () => {
       } as Anthropic.Messages.ServerToolUsage,
     });
     const result = provider.parseResponse(message, makeInput(), 100);
+    // cost 計算 (default ANTHROPIC_PRICING_2026_05_12、Claude Opus 4.7):
+    //   microCents = 250 * 5 + 120 * 25 + 2 * 10000
+    //              = 1250 + 3000 + 20000 = 24250 μ¢
+    //   cents      = 24250 / 10000 = 2.425 ¢
     expect(result.rawDiagnostics).toEqual({
       tokenInput: 250,
       tokenOutput: 120,
       searchCallCount: 2,
+      costEstimateCents: 2.425,
     });
   });
 
-  it("rawDiagnostics: server_tool_use null → searchCallCount 含まれず", () => {
+  it("rawDiagnostics: server_tool_use null → searchCallCount 含まれず、costEstimateCents は token 分のみ", () => {
     const { provider } = makeProvider();
     const message = makeAnthropicMessageWithCitations([], {
       input_tokens: 10,
@@ -461,9 +456,11 @@ describe("parseResponse", () => {
       server_tool_use: null,
     });
     const result = provider.parseResponse(message, makeInput(), 100);
+    // cost 計算: 10 * 5 + 5 * 25 + 0 = 175 μ¢ = 0.0175 ¢
     expect(result.rawDiagnostics).toEqual({
       tokenInput: 10,
       tokenOutput: 5,
+      costEstimateCents: 0.0175,
     });
     expect(result.rawDiagnostics?.searchCallCount).toBeUndefined();
   });
@@ -491,6 +488,248 @@ describe("parseResponse", () => {
     const result = provider.parseResponse(message, makeInput(), 1234);
     expect(result.providerId).toBe("anthropic");
     expect(result.latencyMs).toBe(1234);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// computeCostEstimateCents (a1-impl-1d 追加、observability 用 estimate)
+//
+// CEO 補正 pricing (Anthropic 公式、2026-05-12 snapshot):
+//   - Claude Opus 4.7 input:  $5  / 1,000,000 tokens → 5 μ¢ / token
+//   - Claude Opus 4.7 output: $25 / 1,000,000 tokens → 25 μ¢ / token
+//   - Web search:             $10 / 1,000 searches  → 10,000 μ¢ / request
+//
+// 内部 unit: integer micro-cents (1 cent = 10,000 μ¢)、出力時 `microCents / 10000`。
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("computeCostEstimateCents — default pricing snapshot (Opus 4.7、CEO 補正)", () => {
+  it("ANTHROPIC_PRICING_2026_05_12 のメタ情報 (snapshotDate / source) が公開されている", () => {
+    expect(ANTHROPIC_PRICING_2026_05_12.snapshotDate).toBe("2026-05-12");
+    expect(ANTHROPIC_PRICING_2026_05_12.source).toContain(
+      "platform.claude.com",
+    );
+  });
+
+  it("Opus 4.7 の pricing 値が CEO 補正値と一致 (input 5 μ¢ / output 25 μ¢ / web search 10000 μ¢)", () => {
+    const opus = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-7"];
+    expect(opus).toBeDefined();
+    expect(opus?.inputMicroCentsPerToken).toBe(5);
+    expect(opus?.outputMicroCentsPerToken).toBe(25);
+    expect(
+      ANTHROPIC_PRICING_2026_05_12.webSearchMicroCentsPerRequest,
+    ).toBe(10_000);
+  });
+
+  it("full usage (token + search) → cost を正しく計算", () => {
+    const { provider } = makeProvider();
+    // input 1000 * 5 + output 500 * 25 + search 2 * 10000
+    //   = 5000 + 12500 + 20000 = 37500 μ¢ = 3.75 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 1000,
+      output_tokens: 500,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 2,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(3.75);
+  });
+
+  it("token のみ (search なし) → token 分の cost のみ", () => {
+    const { provider } = makeProvider();
+    // input 200 * 5 + output 100 * 25 = 1000 + 2500 = 3500 μ¢ = 0.35 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 100,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.35);
+  });
+
+  it("search のみ (token=0) → search 分の cost のみ", () => {
+    const { provider } = makeProvider();
+    // search 3 * 10000 = 30000 μ¢ = 3.0 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 3,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(3);
+  });
+
+  it("all-zero usage → cost 0 (但し field は含まれる)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0);
+  });
+
+  it("rounding policy: 1 token のみ → 0.0005 ¢ (fractional cents 許容、丸めない)", () => {
+    const { provider } = makeProvider();
+    // input 1 * 5 = 5 μ¢ = 0.0005 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 1,
+      output_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.0005);
+  });
+});
+
+describe("computeCostEstimateCents — DI override (pricing snapshot)", () => {
+  it("AnthropicProviderOptions.pricing で override 可能", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      snapshotDate: "2099-01-01",
+      source: "https://example.test/custom-pricing",
+      models: {
+        "claude-opus-4-7": {
+          // 異常に高い override 値で override が効いている事を確認
+          inputMicroCentsPerToken: 100,
+          outputMicroCentsPerToken: 200,
+        },
+      },
+      webSearchMicroCentsPerRequest: 50_000,
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // input 10 * 100 + output 10 * 200 + search 1 * 50000
+    //   = 1000 + 2000 + 50000 = 53000 μ¢ = 5.3 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10,
+      output_tokens: 10,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 1,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(5.3);
+  });
+
+  it("override snapshot に対象 model entry なし → costEstimateCents 未設定 (silent skip)", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      snapshotDate: "2099-01-01",
+      source: "https://example.test/no-opus",
+      models: {
+        // claude-opus-4-7 entry が無い
+        "claude-sonnet-9-x": {
+          inputMicroCentsPerToken: 3,
+          outputMicroCentsPerToken: 15,
+        },
+      },
+      webSearchMicroCentsPerRequest: 10_000,
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // default model = claude-opus-4-7、override snapshot にない → undefined
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeUndefined();
+    // 他の diagnostics field は残る
+    expect(result.rawDiagnostics?.tokenInput).toBe(100);
+    expect(result.rawDiagnostics?.tokenOutput).toBe(50);
+  });
+
+  it("options.model 切替え + 該当 model の pricing 反映", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      snapshotDate: "2099-01-01",
+      source: "https://example.test/multi-model",
+      models: {
+        "claude-opus-4-7": {
+          inputMicroCentsPerToken: 5,
+          outputMicroCentsPerToken: 25,
+        },
+        "claude-sonnet-9-x": {
+          inputMicroCentsPerToken: 3,
+          outputMicroCentsPerToken: 15,
+        },
+      },
+      webSearchMicroCentsPerRequest: 10_000,
+    };
+    const { provider } = makeProvider({
+      pricing: customPricing,
+      model: "claude-sonnet-9-x",
+    });
+    // sonnet pricing: input 100 * 3 + output 50 * 15 = 300 + 750 = 1050 μ¢ = 0.105 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.105);
+  });
+});
+
+describe("computeCostEstimateCents — graceful degradation", () => {
+  it("usage.input_tokens 非 number → 0 として扱う", () => {
+    const { provider } = makeProvider();
+    // output 100 * 25 = 2500 μ¢ = 0.25 ¢、input は 0 扱い
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: undefined as unknown as number, // 型を強制的に欠損
+      output_tokens: 100,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.25);
+    // tokenInput field は number チェックで弾かれて未設定
+    expect(result.rawDiagnostics?.tokenInput).toBeUndefined();
+  });
+
+  it("usage.output_tokens 非 number → 0 として扱う", () => {
+    const { provider } = makeProvider();
+    // input 100 * 5 = 500 μ¢ = 0.05 ¢、output は 0 扱い
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: undefined as unknown as number,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.05);
+  });
+
+  it("usage 自体が undefined → rawDiagnostics 全体 undefined (cost も含めて)", () => {
+    const { provider } = makeProvider();
+    const message: Anthropic.Messages.Message = {
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-7",
+      content: [{ type: "text", text: "x", citations: null }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: undefined as unknown as Anthropic.Messages.Usage,
+    } as Anthropic.Messages.Message;
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics).toBeUndefined();
+  });
+
+  it("usage.server_tool_use.web_search_requests 非 number → 0 として扱う", () => {
+    const { provider } = makeProvider();
+    // input 50 * 5 + output 25 * 25 = 250 + 625 = 875 μ¢ = 0.0875 ¢
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 50,
+      output_tokens: 25,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: undefined as unknown as number,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.0875);
   });
 });
 

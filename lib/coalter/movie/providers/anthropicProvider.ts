@@ -1,33 +1,32 @@
 /**
- * CoAlter D-2-e3-a1b Provider Foundation — Anthropic Provider (extractTheaters 構造化抽出)
+ * CoAlter D-2-e3-a1d Provider Foundation — Anthropic Provider (cost estimate 単体追加)
  *
- * PR #111 (D-2-e3-a1 design review) で凍結された設計に基づき、a1-impl-1a (PR #112、scaffold) から
- * `extractTheaters` を **空配列 scaffold → 構造化抽出** に発展。
+ * a1-impl-1a (PR #112、scaffold) → a1-impl-1b (PR #113、extractTheaters 構造化抽出) → 本 phase。
+ * 本 phase (a1-impl-1d) は **provider 単体内に閉じた cost estimation 追加**:
+ *   - `usage.input_tokens` / `output_tokens` / `server_tool_use.web_search_requests` から
+ *     `ProviderRawDiagnostics.costEstimateCents` を計算
+ *   - pricing constants は **date-stamped snapshot + override 可能** (`AnthropicProviderOptions.pricing`)
+ *   - **observability 用 estimate のみ、billing source of truth ではない** (Anthropic invoice = 正本)
+ *   - rounding policy 明示: 内部 integer micro-cents (μ¢ = 1/10000 cent)、出力時 `μ¢ / 10000` で cents 化
  *
- * 設計原則 (D-2-e3-a1b phase):
+ * 設計原則 (D-2-e3-a1d phase):
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
  *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし** (env 経由は a2 で別 phase)
  *   - **movieOrchestrator wiring なし** (a3 で別 phase)
+ *   - **`BudgetUsageProvider` 実装なし** (interface inject のみ、Supabase 実装は a1-impl-1c で別 phase)
+ *   - **`types.ts` touch なし** (`costEstimateCents` 既存 field を使用、PR #110 §2.2 で凍結済み)
  *
- * extractTheaters 実装 path (CEO + GPT 補正、a1-impl-1b 凍結):
+ * extractTheaters 実装 path (a1-impl-1b 継承):
  *   - **P1 第一候補**: JSON 強制 prompt + JSON.parse
- *     - `buildPrompt` で LLM に JSON schema 出力を強制
- *     - response text から JSON 抽出 (code block strip + balanced brace)
- *     - shape validation (theaterName + area 必須、optional showtimes / officialUrl)
- *   - **P2 conservative fallback** (JSON parse 失敗時のみ、極めて保守的):
- *     - 明示 label (theater / cinema / 映画館) 必須
- *     - input.area を必須 area として使用 (自由文から area 推測しない)
- *     - hallucination 的補完禁止
- *     - 不足時 `[]` を返す (空配列 OK、UX fallback は a3 phase の F1 4-layer passthrough で吸収)
+ *   - **P2 conservative fallback**: 明示 label + input.area、hallucination 禁止、不足時 `[]`
  *
  * R6 (theaters=[] success 扱い) への対応:
- *   - **本 phase では実装しない** (a1-impl-1b は extractTheaters 構造化抽出に集中)
- *   - ProviderSelector / provider 側で empty 判定変更しない (CEO 補正)
- *   - a3 wiring phase で Option C (existing 4-layer passthrough fallback) で吸収予定
+ *   - **a3 wiring phase で Option C** (existing 4-layer passthrough fallback) で吸収予定
+ *   - 本 file では touch なし
  *
  * 凍結線 (PR #111 §1.3 継承):
- *   - 既存 file (movieOrchestrator / flags / 等) touch なし
+ *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
  *   - 既存 lib/coalter/movie/providers/ 配下の他 file touch なし
  *   - Alter Morning 系 file touch なし
  */
@@ -80,6 +79,76 @@ export const ANTHROPIC_DEFAULTS = {
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 1.5 Pricing Snapshot (a1-impl-1d 追加、cost estimate 用)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Anthropic pricing snapshot (cost ESTIMATION 用、observability only)。
+ *
+ *   **重要**: これは observability 用の estimated value であり、**billing source of truth ではない**。
+ *   Anthropic 公式 invoice (Console / API billing) が authoritative。
+ *
+ *   設計上の choice:
+ *     - **date-stamped snapshot**: `snapshotDate` field で「いつ時点の pricing か」を traceable に
+ *     - **override 可能**: `AnthropicProviderOptions.pricing` で caller が任意 snapshot を注入可能
+ *     - **integer micro-cents 内部 unit**: 1 cent = 10,000 μ¢ (= 1/1,000,000 dollar)。
+ *       float drift を回避し、test 上の数値比較が決定論的になる。
+ *     - **rounding policy**: 出力は `microCents / 10000` で cents 化 (fractional cents 許容)。
+ *       caller が integer cents 必要なら別途 `Math.round` 適用 (本 provider は丸めない)。
+ *
+ *   model entry 不在時:
+ *     `models[model]` が undefined の場合、`computeCostEstimateCents` は undefined を返し、
+ *     `costEstimateCents` 自体が diagnostics に含まれない (silent skip)。
+ */
+export interface AnthropicPricingSnapshot {
+  /** snapshot 取得日 (YYYY-MM-DD、traceability) */
+  readonly snapshotDate: string;
+  /** 公開 pricing 出典 URL */
+  readonly source: string;
+  /** per-model token pricing (micro-cents per token) */
+  readonly models: Readonly<
+    Record<
+      string,
+      {
+        /** input token あたり micro-cents (1 cent = 10000 μ¢) */
+        readonly inputMicroCentsPerToken: number;
+        /** output token あたり micro-cents */
+        readonly outputMicroCentsPerToken: number;
+      }
+    >
+  >;
+  /** web_search tool 1 request あたり micro-cents (PR #111 §2.1.2 想定) */
+  readonly webSearchMicroCentsPerRequest: number;
+}
+
+/**
+ * Anthropic pricing as of 2026-05-12 (CEO 補正反映)。
+ *
+ *   Source: https://platform.claude.com/docs/en/about-claude/pricing
+ *
+ *   Claude Opus 4.7:
+ *     - input:  $5  / 1,000,000 tokens → 5 μ¢ / token
+ *     - output: $25 / 1,000,000 tokens → 25 μ¢ / token
+ *
+ *   Web search tool:
+ *     - $10 / 1,000 searches → 1¢ / search → 10,000 μ¢ / request
+ *
+ *   注: 本 constant は date-stamped snapshot、Anthropic 公式 pricing 変動時は新 snapshot を追加し、
+ *   caller (a3 wiring) が `AnthropicProviderOptions.pricing` で切替える運用。
+ */
+export const ANTHROPIC_PRICING_2026_05_12: AnthropicPricingSnapshot = {
+  snapshotDate: "2026-05-12",
+  source: "https://platform.claude.com/docs/en/about-claude/pricing",
+  models: {
+    "claude-opus-4-7": {
+      inputMicroCentsPerToken: 5,
+      outputMicroCentsPerToken: 25,
+    },
+  },
+  webSearchMicroCentsPerRequest: 10_000,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 // 2. Public Types — Options
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -114,6 +183,13 @@ export interface AnthropicProviderOptions {
   blockedDomains?: readonly string[];
   /** user_location 推定関数 (default は area name + JP/Asia/Tokyo) */
   deriveUserLocation?: (area: string) => Anthropic.Messages.UserLocation | undefined;
+  /**
+   * pricing snapshot override (default `ANTHROPIC_PRICING_2026_05_12`、a1-impl-1d 追加)。
+   *
+   *   - cost estimate 計算用 (observability、billing source of truth ではない)
+   *   - caller (a3 wiring 等) は将来 Anthropic pricing 変動時に新 snapshot を注入する責務
+   */
+  pricing?: AnthropicPricingSnapshot;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -567,7 +643,7 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    * Anthropic Message の `usage` から observability 用 diagnostics を抽出。
    *
    *   - tokenInput / tokenOutput / searchCallCount (server_tool_use.web_search_requests)
-   *   - cost 推定は本 phase 範囲外 (a1-impl-1b で `costEstimateCents` 計算追加予定)
+   *   - costEstimateCents (a1-impl-1d 追加、`computeCostEstimateCents` 経由、observability 用 estimate)
    */
   private extractDiagnostics(
     message: Anthropic.Messages.Message,
@@ -588,6 +664,60 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     ) {
       diagnostics.searchCallCount = serverToolUse.web_search_requests;
     }
+    const costEstimate = this.computeCostEstimateCents(usage);
+    if (costEstimate !== undefined) {
+      diagnostics.costEstimateCents = costEstimate;
+    }
     return Object.keys(diagnostics).length > 0 ? diagnostics : undefined;
+  }
+
+  /**
+   * 推定 cost (USD cents) を `usage` から計算 (a1-impl-1d 追加)。
+   *
+   *   **observability 用 estimated value、billing source of truth ではない**。
+   *   Anthropic 公式 invoice (Console / API billing) が authoritative。
+   *
+   *   計算式 (内部 unit: integer micro-cents、1 cent = 10,000 μ¢):
+   *     microCents =
+   *       inputTokens  * pricing.models[model].inputMicroCentsPerToken
+   *     + outputTokens * pricing.models[model].outputMicroCentsPerToken
+   *     + webSearches  * pricing.webSearchMicroCentsPerRequest
+   *
+   *   出力 (cents):
+   *     `microCents / 10000` (fractional cents 許容、本 provider は丸めない)
+   *
+   *   undefined 返却条件:
+   *     - `pricing.models[model]` が undefined (未登録 model、silent skip で billing 系の誤計算を避ける)
+   *
+   *   token 欠損時の扱い:
+   *     - `usage.input_tokens` / `output_tokens` が non-number → 0 として扱う (graceful degradation)
+   *     - `usage.server_tool_use?.web_search_requests` が non-number → 0
+   */
+  private computeCostEstimateCents(
+    usage: Anthropic.Messages.Usage,
+  ): number | undefined {
+    const pricing = this.options.pricing ?? ANTHROPIC_PRICING_2026_05_12;
+    const model = this.options.model ?? ANTHROPIC_DEFAULTS.MODEL;
+    const modelPricing = pricing.models[model];
+    if (!modelPricing) return undefined;
+
+    const inputTokens =
+      typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+    const outputTokens =
+      typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+    const serverToolUse = usage.server_tool_use;
+    const webSearches =
+      serverToolUse &&
+      typeof serverToolUse.web_search_requests === "number"
+        ? serverToolUse.web_search_requests
+        : 0;
+
+    const microCents =
+      inputTokens * modelPricing.inputMicroCentsPerToken +
+      outputTokens * modelPricing.outputMicroCentsPerToken +
+      webSearches * pricing.webSearchMicroCentsPerRequest;
+
+    // 10,000 μ¢ = 1 ¢ (cent)。fractional cents (e.g. 2.425) を許容。
+    return microCents / 10_000;
   }
 }
