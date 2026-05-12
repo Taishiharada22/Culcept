@@ -157,6 +157,20 @@ export interface ProviderRawDiagnostics {
   tokenInput?: number;
   /** output token (同上) */
   tokenOutput?: number;
+  /**
+   * cache creation input tokens (a1-impl-1f 追加、Anthropic `usage.cache_creation_input_tokens`)。
+   *
+   *   5m / 1h tier の合計値。tier 別 breakdown は本 field では露出しない (provider 内 cost 計算で使用)。
+   *   cache 機能未使用時は undefined (Anthropic API が null を返す場合に相当)。
+   */
+  tokenCacheCreate?: number;
+  /**
+   * cache read input tokens (a1-impl-1f 追加、Anthropic `usage.cache_read_input_tokens`)。
+   *
+   *   cache hit 時の読み出し token 数。通常 input より遥かに安価 ($0.50/MTok @ Opus 4.7 想定)。
+   *   cache hit なしの場合は undefined / 0。
+   */
+  tokenCacheRead?: number;
   /** search call 回数 (Anthropic max_uses 等で複数 search が走った場合) */
   searchCallCount?: number;
   /** 推定 cost (USD cents、observability 用) */
