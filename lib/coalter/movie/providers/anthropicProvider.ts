@@ -1,44 +1,40 @@
 /**
- * CoAlter D-2-e3-a1f Provider Foundation — Anthropic Provider (cache token observability + cost accuracy)
+ * CoAlter D-2-e3-a1g Provider Foundation — Anthropic Provider (inference_geo observability + opt-in multiplier hook)
  *
- * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 本 phase。
+ * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 1f (PR #116) → 本 phase。
  *
- * 本 phase (a1-impl-1f) は **cache-aware cost estimation で PR #114 cost 精度を抜本向上**:
- *   - Anthropic `usage.cache_creation` (`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`) を
- *     primary source として tier 別単価で正確に積算
- *   - SDK breakdown が無く `usage.cache_creation_input_tokens` (flat sum) のみ存在する legacy / partial
- *     response では `AnthropicProviderOptions.cacheCreationTier` (default "5m") を tier hint として使用
- *   - `usage.cache_read_input_tokens` を cache read 単価で積算 ($0.50/MTok @ Opus 4.7 想定)
- *   - 観測 field `tokenCacheCreate` / `tokenCacheRead` を `ProviderRawDiagnostics` に additive 追加
- *   - **cache token がない既存 response では現行挙動完全不変** (backward compat、test 担保)
+ * 本 phase (a1-impl-1g) は PR #116 で「scope 外」と明記した **`inference_geo` を observability layer で回収**:
+ *   - Anthropic `usage.inference_geo` (string | null、SDK 公開 field) を観測 → `ProviderRawDiagnostics.inferenceGeo?`
+ *   - **default snapshot では cost に未反映** (PR #116 cost 値 完全互換、backward compat 維持)
+ *   - 将来 region 別 multiplier (例: US-only 1.1x) を反映する余地として `AnthropicPricingSnapshot.geoMultipliers?` を opt-in hook 追加
+ *   - default `ANTHROPIC_PRICING_2026_05_12` は `geoMultipliers` を定義しない → 既存 estimate 値完全不変
+ *   - caller (a3 wiring 等) が公式 semantic 確定後に custom snapshot で multipliers を注入する想定
+ *   - multiplier scope: token-based costs (input / output / cache_*) のみ、web search は per-request 固定なので multiplier 非適用
  *   - **billing source of truth ではない継続明示** (Anthropic invoice = authoritative)
  *
- * CEO 補正 pricing (Anthropic 公式 2026-05-12 snapshot、Opus 4.7):
- *   - input:                     $5    / MTok = 5    μ¢/token
- *   - output:                    $25   / MTok = 25   μ¢/token
- *   - cache create (5m default): $6.25 / MTok = 6.25 μ¢/token
- *   - cache create (1h):         $10   / MTok = 10   μ¢/token
- *   - cache read:                $0.50 / MTok = 0.5  μ¢/token
- *   - web search:                $10 / 1k searches = 10,000 μ¢/request
+ * inference_geo value semantics:
+ *   - SDK は `string | null` のみ宣言、value enum (例: "us" / "eu" / "global") の公式定義なし
+ *   - 本 PR は **opaque string として観測のみ**、value semantic 推測しない
+ *   - null / 空文字 / whitespace のみ → "no info" として diagnostic field 未設定
  *
- * Pricing unit 補正 (a1-impl-1d → 1f):
- *   - PR #114 では "integer micro-cents" と称していたが、cache pricing で 6.25 / 0.5 等 fractional μ¢ が必要
- *   - 本 phase で **fractional μ¢ を許容**、内部演算は依然 float、`microCents / 10000` で cents 化
- *   - rounding policy 不変: 本 provider は丸めない、caller が必要なら `Math.round` 適用
+ * CEO 補正 pricing (Anthropic 公式 2026-05-12 snapshot、Opus 4.7、PR #116 から不変):
+ *   - input / output / cache 系 / web search は PR #116 と同値
+ *   - **inference_geo multiplier は default snapshot に未設定** (公式 semantic 未確定のため)
  *
- * 設計原則 (D-2-e3-a1f phase):
- *   - **types.ts additive 変更 OK** (新 `tokenCacheCreate?` / `tokenCacheRead?`、CEO 承認)
+ * 設計原則 (D-2-e3-a1g phase):
+ *   - **types.ts additive 変更 OK** (新 `inferenceGeo?`、CEO 承認)
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
  *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし**
  *   - **movieOrchestrator / flags / ProviderSelector wiring なし** (a3 で別 phase)
- *   - **`BudgetUsageProvider` 実装なし** (interface inject のみ、Supabase 実装は a1-impl-1c で別 phase)
- *   - **anti-hallucination guard なし** (sourceCandidates の semantic 分離は PR #115 で完了、guard 自体は別 PR)
+ *   - **`BudgetUsageProvider` 実装なし**
+ *   - **anti-hallucination guard なし**
+ *   - **Provider Capability Registry 実装なし** (CEO 補正、抽象設計先行を回避)
+ *   - **costEstimateCents の既存値は不用意に変えない** (default snapshot 不変、test で担保)
  *
  * 既存挙動の継承 (touch なし):
- *   - extractTheaters (PR #113)
- *   - extractCitations (PR #112)
- *   - extractSourceCandidates (PR #115)
+ *   - extractTheaters (PR #113) / extractCitations (PR #112) / extractSourceCandidates (PR #115)
+ *   - cache-aware cost estimate (PR #116) は本 PR で multiplier hook を追加するのみ、default 適用なし
  *
  * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
@@ -156,10 +152,27 @@ export interface AnthropicPricingSnapshot {
   >;
   /** web_search tool 1 request あたり micro-cents (PR #111 §2.1.2 想定) */
   readonly webSearchMicroCentsPerRequest: number;
+  /**
+   * inference geo region 別 multiplier (a1-impl-1g 追加、optional hook)。
+   *
+   *   `usage.inference_geo` の値 (e.g. "us" / "eu" / "global") を key とする token-based cost への
+   *   乗数 mapping。**default `ANTHROPIC_PRICING_2026_05_12` では未設定**、適用なし。
+   *
+   *   caller (a3 wiring 等) が Anthropic 公式 region 別 multiplier の semantic 確定後に custom
+   *   snapshot で injection する想定。例:
+   *     `{ geoMultipliers: { us: 1.1 } }` → inference_geo="us" の case で token base * 1.1
+   *
+   *   適用 scope (本 provider 実装):
+   *     - **token-based costs (input / output / cache_5m / cache_1h / cache_read) に適用**
+   *     - **web search は per-request 固定なので multiplier 非適用**
+   *
+   *   未一致 (inference_geo が `geoMultipliers` に entry なし) / null / 空文字 / whitespace → multiplier 1.0 (no change)
+   */
+  readonly geoMultipliers?: Readonly<Record<string, number>>;
 }
 
 /**
- * Anthropic pricing as of 2026-05-12 (CEO 補正反映、a1-impl-1f で cache 系追加)。
+ * Anthropic pricing as of 2026-05-12 (CEO 補正反映、a1-impl-1f で cache 系追加、a1-impl-1g で geoMultipliers hook 追加)。
  *
  *   Source: https://platform.claude.com/docs/en/about-claude/pricing
  *
@@ -172,6 +185,12 @@ export interface AnthropicPricingSnapshot {
  *
  *   Web search tool:
  *     - $10 / 1,000 searches → 1¢ / search → 10,000 μ¢ / request
+ *
+ *   **inference_geo multiplier** (a1-impl-1g):
+ *     - **default 未設定**: `geoMultipliers` を本 snapshot で定義しない。
+ *     - 理由: Anthropic 公式 region 別 multiplier の semantic (US-only 1.1x 等) が SDK / docs で
+ *       明示されていないため、default 適用は costEstimateCents の意味を不安定化させる。
+ *     - 将来 semantic 確定後、新 date-stamped snapshot で `geoMultipliers` を定義する運用。
  *
  *   注: 本 constant は date-stamped snapshot、Anthropic 公式 pricing 変動時は新 snapshot を追加し、
  *   caller (a3 wiring) が `AnthropicProviderOptions.pricing` で切替える運用。
@@ -189,6 +208,7 @@ export const ANTHROPIC_PRICING_2026_05_12: AnthropicPricingSnapshot = {
     },
   },
   webSearchMicroCentsPerRequest: 10_000,
+  // geoMultipliers は意図的に未設定 (a1-impl-1g: 公式 semantic 未確定のため default 適用なし)
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -791,7 +811,8 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *
    *   - tokenInput / tokenOutput / searchCallCount (server_tool_use.web_search_requests)
    *   - tokenCacheCreate / tokenCacheRead (a1-impl-1f 追加、cache_*_input_tokens が non-number 時は未設定)
-   *   - costEstimateCents (a1-impl-1d 追加 / a1-impl-1f cache-aware 化)
+   *   - costEstimateCents (a1-impl-1d 追加 / a1-impl-1f cache-aware / a1-impl-1g geo multiplier opt-in)
+   *   - inferenceGeo (a1-impl-1g 追加、null/空文字/whitespace 時は未設定で no-info 扱い)
    */
   private extractDiagnostics(
     message: Anthropic.Messages.Message,
@@ -819,6 +840,11 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     ) {
       diagnostics.searchCallCount = serverToolUse.web_search_requests;
     }
+    // a1-impl-1g: inference geo observability (null / 空文字 / whitespace は未設定で no-info)
+    const inferenceGeo = this.normalizeInferenceGeo(usage.inference_geo);
+    if (inferenceGeo !== null) {
+      diagnostics.inferenceGeo = inferenceGeo;
+    }
     const costEstimate = this.computeCostEstimateCents(usage);
     if (costEstimate !== undefined) {
       diagnostics.costEstimateCents = costEstimate;
@@ -827,26 +853,45 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
   }
 
   /**
-   * 推定 cost (USD cents) を `usage` から計算 (a1-impl-1d / a1-impl-1f で cache-aware 化)。
+   * `usage.inference_geo` を normalize (a1-impl-1g)。
+   *
+   *   - 非 string / null / 空文字 / whitespace のみ → `null` (no-info)
+   *   - non-empty string → trim 済 string
+   *
+   *   value semantic は SDK で定義されていないため、本 method は **opaque string として trim のみ**。
+   *   呼び出し側 (`extractDiagnostics` / `computeCostEstimateCents`) は trimmed value を key として
+   *   `pricing.geoMultipliers` lookup 等に使用する。
+   */
+  private normalizeInferenceGeo(rawGeo: unknown): string | null {
+    if (typeof rawGeo !== "string") return null;
+    const trimmed = rawGeo.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  /**
+   * 推定 cost (USD cents) を `usage` から計算 (a1-impl-1d / 1f / 1g 拡張)。
    *
    *   **observability 用 estimated value、billing source of truth ではない**。
    *   Anthropic 公式 invoice (Console / API billing) が authoritative。
    *
    *   計算式 (内部 unit: micro-cents、1 cent = 10,000 μ¢、a1-impl-1f から fractional 許容):
-   *     microCents =
-   *       inputTokens         * inputMicroCentsPerToken
-   *     + outputTokens        * outputMicroCentsPerToken
-   *     + cache5mTokens       * cacheCreate5mMicroCentsPerToken  (a1-impl-1f)
-   *     + cache1hTokens       * cacheCreate1hMicroCentsPerToken  (a1-impl-1f)
-   *     + cacheReadTokens     * cacheReadMicroCentsPerToken      (a1-impl-1f)
-   *     + webSearches         * webSearchMicroCentsPerRequest
+   *     tokenMicroCents =
+   *         inputTokens     * inputMicroCentsPerToken
+   *       + outputTokens    * outputMicroCentsPerToken
+   *       + cache5mTokens   * cacheCreate5mMicroCentsPerToken
+   *       + cache1hTokens   * cacheCreate1hMicroCentsPerToken
+   *       + cacheReadTokens * cacheReadMicroCentsPerToken
+   *
+   *     geoMultiplier (a1-impl-1g、opt-in)::
+   *       `pricing.geoMultipliers?.[inference_geo]` が定義されていれば tokenMicroCents に乗算
+   *       未定義 / inference_geo が null/空 → 1.0 (no change)
+   *
+   *     microCents = tokenMicroCents * geoMultiplier
+   *                + webSearches * webSearchMicroCentsPerRequest  (web search は multiplier 非適用)
    *
    *   Cache token source resolution (a1-impl-1f):
    *     1. **Primary**: `usage.cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`
-   *        が存在する場合、tier 別に正確に積算 (SDK が breakdown を返した case)
-   *     2. **Fallback**: `cache_creation` が null/不在で `cache_creation_input_tokens` (flat sum) のみ
-   *        存在する case では、`AnthropicProviderOptions.cacheCreationTier` (default `"5m"`) を tier hint
-   *        として使用、flat sum 全量をその tier の単価で計算
+   *     2. **Fallback**: `cache_creation_input_tokens` (flat sum) + `cacheCreationTier` (default "5m")
    *
    *   出力 (cents):
    *     `microCents / 10000` (fractional cents 許容、本 provider は丸めない)
@@ -855,9 +900,13 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *     - `pricing.models[model]` が undefined (未登録 model、silent skip で誤計算を避ける)
    *
    *   token 欠損時の扱い:
-   *     - `usage.input_tokens` / `output_tokens` / cache 系 / `server_tool_use.web_search_requests` が
-   *       non-number → 0 として扱う (graceful degradation)
-   *     - pricing snapshot 側で cache 単価 field が未設定 → 0 cost (graceful、PR #114 互換)
+   *     - `usage.input_tokens` / `output_tokens` / cache 系 / `web_search_requests` が non-number → 0
+   *     - pricing snapshot 側で cache 単価 / geoMultipliers が未設定 → 0 cost / multiplier 1.0 (graceful)
+   *
+   *   **本 phase での default 不変保証**:
+   *     `ANTHROPIC_PRICING_2026_05_12` は `geoMultipliers` を定義しないため、default caller の cost
+   *     値は PR #116 と byte-equivalent。caller が custom snapshot で `geoMultipliers` を inject した
+   *     場合のみ multiplier 適用。
    */
   private computeCostEstimateCents(
     usage: Anthropic.Messages.Usage,
@@ -905,6 +954,17 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     const cacheReadPrice = modelPricing.cacheReadMicroCentsPerToken ?? 0;
     const cacheReadMicroCents = cacheReadTokens * cacheReadPrice;
 
+    // token-based cost subtotal (a1-impl-1g: geoMultiplier 適用 scope)
+    const tokenMicroCents =
+      inputTokens * modelPricing.inputMicroCentsPerToken +
+      outputTokens * modelPricing.outputMicroCentsPerToken +
+      cacheCreateMicroCents +
+      cacheReadMicroCents;
+
+    // a1-impl-1g: geo multiplier (opt-in、default snapshot で未設定 → 1.0)
+    const geoMultiplier = this.resolveGeoMultiplier(pricing, usage);
+    const tokenMicroCentsAdjusted = tokenMicroCents * geoMultiplier;
+
     const serverToolUse = usage.server_tool_use;
     const webSearches =
       serverToolUse &&
@@ -913,13 +973,34 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
         : 0;
 
     const microCents =
-      inputTokens * modelPricing.inputMicroCentsPerToken +
-      outputTokens * modelPricing.outputMicroCentsPerToken +
-      cacheCreateMicroCents +
-      cacheReadMicroCents +
+      tokenMicroCentsAdjusted +
       webSearches * pricing.webSearchMicroCentsPerRequest;
 
     // 10,000 μ¢ = 1 ¢ (cent)。fractional cents 許容 (e.g. 2.425、0.0005)。
     return microCents / 10_000;
+  }
+
+  /**
+   * inference_geo に対応する multiplier を pricing snapshot から resolve (a1-impl-1g)。
+   *
+   *   - `pricing.geoMultipliers` が未定義 (default snapshot) → 1.0 (no change、PR #116 互換)
+   *   - `inference_geo` が null / 空文字 / whitespace → 1.0
+   *   - `geoMultipliers[trimmedGeo]` が定義されていれば その値 (e.g. 1.1)
+   *   - 一致しない (unknown geo) → 1.0 (conservative、誤算回避)
+   *   - multiplier 値が non-number / 非有限 (NaN / Infinity) → 1.0 (graceful)
+   */
+  private resolveGeoMultiplier(
+    pricing: AnthropicPricingSnapshot,
+    usage: Anthropic.Messages.Usage,
+  ): number {
+    const multipliers = pricing.geoMultipliers;
+    if (!multipliers) return 1;
+    const geo = this.normalizeInferenceGeo(usage.inference_geo);
+    if (geo === null) return 1;
+    const candidate = multipliers[geo];
+    if (typeof candidate !== "number" || !Number.isFinite(candidate)) {
+      return 1;
+    }
+    return candidate;
   }
 }

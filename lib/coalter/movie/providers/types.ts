@@ -175,6 +175,19 @@ export interface ProviderRawDiagnostics {
   searchCallCount?: number;
   /** 推定 cost (USD cents、observability 用) */
   costEstimateCents?: number;
+  /**
+   * inference geographic region (a1-impl-1g 追加、Anthropic `usage.inference_geo`)。
+   *
+   *   provider が処理した推論の地理 region を示す opaque 文字列。SDK は string | null を返し、
+   *   value semantics (例: "us" / "eu" / "global" 等) は SDK / Anthropic 公式 doc で明示されていないため、
+   *   本 field は **observability only** として保持し、cost への自動反映は **default では行わない**。
+   *
+   *   将来 Anthropic 公式 doc で region 別 multiplier (例: US-only 1.1x) の semantic が確定した場合、
+   *   provider 個別実装側で pricing snapshot 内の hook (例: `geoMultipliers`) 経由で反映可能。
+   *
+   *   null / 空文字 / whitespace のみ → 本 field は未設定 (no info としての扱い、backward compat)。
+   */
+  inferenceGeo?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
