@@ -104,6 +104,14 @@ Sentry.init({
   tracesSampleRate: process.env.NODE_ENV === "production" ? 0.1 : 1.0,
   enabled: !!(process.env.SENTRY_DSN ?? process.env.NEXT_PUBLIC_SENTRY_DSN),
 
+  // v5 minimum (= GPT 監査 + CEO 確定 2026-05-12):
+  //   SDK 側で IP / cookies / 一部 PII を payload に含めない。
+  //   Sentry server 側 IP 由来 geo enrichment の input を削減し、
+  //   user.geo (= country_code / city / subdivision / region) の自動付与を抑制する。
+  //   Sentry server-side scrubbing rules ($user.geo.** 等) との組合せで final
+  //   payload から geo を取り除く path を確立する。
+  sendDefaultPii: false,
+
   beforeBreadcrumb(breadcrumb, _hint) {
     const category = breadcrumb.category ?? "";
 
@@ -183,6 +191,14 @@ Sentry.init({
         event.contexts = cleanedContexts as typeof event.contexts;
       }
 
+      // (d-2) v5 minimum: contexts.trace の防御的二重削除。
+      //   SDK auto-instrumentation (= @sentry/nextjs httpIntegration 等) が
+      //   beforeSend の後段で trace context を再付与する可能性に対する防御。
+      //   contexts allowlist の完全置き換えが何らかの理由で trace を残した場合の保険。
+      if (event.contexts && "trace" in event.contexts) {
+        delete (event.contexts as Record<string, unknown>).trace;
+      }
+
       // (e) tags: prefix match + exact match (= GPT 補正 1)
       if (event.tags) {
         const cleanedTags: Record<string, unknown> = {};
@@ -203,6 +219,11 @@ Sentry.init({
 
       // (g) user 削除 (= CEO 補正 2、 防御的、 OP-5 event に user 情報不要)
       delete event.user;
+
+      // (h) v5 minimum: _meta 削除。
+      //   _meta.contexts.trace 等 SDK normalization metadata を payload から外す。
+      //   preview smoke v1 で _meta.contexts.trace が残存していた事実から防御的に削除。
+      delete (event as Sentry.Event & { _meta?: unknown })._meta;
 
       return event;
     }
