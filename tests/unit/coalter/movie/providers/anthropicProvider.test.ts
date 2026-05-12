@@ -1,36 +1,36 @@
 /**
- * D-2-e3-a1e anthropicProvider 単体テスト (mock-only、source candidate semantic 分離追加)。
+ * D-2-e3-a1f anthropicProvider 単体テスト (mock-only、cache token observability + cost accuracy)。
  *
- * a1-impl-1d (PR #114) からの差分:
- *   - extractSourceCandidates 単体検証 group 追加
- *   - canonical citations と sourceCandidates の semantic 分離保証 (regression group)
+ * a1-impl-1e (PR #115) からの差分:
+ *   - computeCostEstimateCents の cache-aware 拡張 (5m / 1h tier + cache read)
+ *   - extractDiagnostics の cache token observability (tokenCacheCreate / tokenCacheRead)
+ *   - 既存テストは全て影響なし (cache token 不在時の挙動は PR #114 と完全互換)
  *
- * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b / 1d / 1e 追加):
+ * 検証軸 (PR #111-#115 継承 + a1-impl-1f 追加):
  *
- * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall / extractTheaters /
- * computeCostEstimateCents:
- *   PR #112 / #113 / #114 と同等 (本 phase で変更なし)
+ * 既存軸 (本 phase で変更なし):
+ *   constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall /
+ *   extractTheaters / extractSourceCandidates / canonical/SourceCandidate 分離
  *
- * extractSourceCandidates (a1-impl-1e 追加):
- *   - WebSearchToolResultBlock.content (success array) → SourceCandidate[] 抽出
- *   - WebSearchToolResultBlock.content (error) → 該当 block skip
- *   - 複数 WebSearchToolResultBlock の集約
- *   - URL 正規化 (host 小文字化 / fragment 除去 / trim) + dedup
- *   - query 違いは別 entry (資源 identifier として保持)
- *   - invalid URL は trim 結果を fallback key として保持 (drop しない)
- *   - providerSource 固定値 "web_search_20250305"、toolUseId は parent block から
+ * computeCostEstimateCents — cache-aware (a1-impl-1f 追加):
+ *   - pricing snapshot 拡張: cacheCreate5m / 1h / read μ¢/token 値が CEO 補正値と一致
+ *   - SDK breakdown path: usage.cache_creation の ephemeral_5m / ephemeral_1h を tier 別単価で積算
+ *   - Fallback path: cache_creation 不在 + flat sum のみある case で cacheCreationTier option を使用
+ *   - SDK breakdown 優先: cache_creation がある場合 option を無視
+ *   - graceful: pricing snapshot に cache field がない場合は cache cost 0
  *
- * canonical Citation と SourceCandidate の semantic 分離 (a1-impl-1e、CEO 凍結要件):
- *   - TextBlock.citations[] は canonical citations にのみ入る (既存挙動維持)
- *   - WebSearchToolResultBlock の raw URL は canonical citations に **入らない** (key requirement)
- *   - WebSearchToolResultBlock の raw URL は sourceCandidates に **のみ** 入る
- *   - 同一 URL が両 layer に存在することは可能 (LLM が cite した && 検索結果にあった、自然な状態)
+ * extractDiagnostics — cache token observability (a1-impl-1f 追加):
+ *   - tokenCacheCreate: usage.cache_creation_input_tokens (number) → 反映
+ *   - tokenCacheRead: usage.cache_read_input_tokens (number) → 反映
+ *   - null 時は field 未設定 (backward compat、PR #114 形と完全互換)
+ *   - 0 (number) は field に設定 (cache 機能使用、token 消費なし)
  *
- * D-2-e3-a1e scope:
+ * D-2-e3-a1f scope:
  *   - mock client only、実 Anthropic API call なし
  *   - process.env / ANTHROPIC_API_KEY 参照なし
- *   - types.ts additive 変更 (新 SourceCandidate + ProviderRetrievalResult.sourceCandidates?、CEO 承認)
+ *   - types.ts additive 変更 (tokenCacheCreate? / tokenCacheRead? 追加、CEO 承認)
  *   - SDK type は @anthropic-ai/sdk v0.91.1 既存、import OK
+ *   - billing source of truth ではない明示継続 (Anthropic invoice = authoritative)
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -733,6 +733,331 @@ describe("computeCostEstimateCents — graceful degradation", () => {
     });
     const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.rawDiagnostics?.costEstimateCents).toBe(0.0875);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// computeCostEstimateCents — cache-aware (a1-impl-1f 追加)
+//
+// Anthropic 公式 pricing (Opus 4.7、CEO 補正):
+//   - cache create 5m: $6.25 / MTok = 6.25 μ¢/token (default tier)
+//   - cache create 1h: $10   / MTok = 10   μ¢/token
+//   - cache read:      $0.50 / MTok = 0.5  μ¢/token
+//
+// 計算 source (a1-impl-1f):
+//   - Primary: usage.cache_creation の ephemeral_5m / ephemeral_1h breakdown を tier 別単価で積算
+//   - Fallback: cache_creation 不在で cache_creation_input_tokens のみある場合は cacheCreationTier option (default "5m") で計算
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("computeCostEstimateCents — pricing snapshot 拡張 (cache 系)", () => {
+  it("ANTHROPIC_PRICING_2026_05_12 に Opus 4.7 cache 単価が含まれる (CEO 補正値)", () => {
+    const opus = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-7"];
+    expect(opus?.cacheCreate5mMicroCentsPerToken).toBe(6.25);
+    expect(opus?.cacheCreate1hMicroCentsPerToken).toBe(10);
+    expect(opus?.cacheReadMicroCentsPerToken).toBe(0.5);
+  });
+});
+
+describe("computeCostEstimateCents — SDK breakdown path (primary、a1-impl-1f)", () => {
+  it("ephemeral_5m_input_tokens のみ → 5m 単価で計算 (6.25 μ¢/token)", () => {
+    const { provider } = makeProvider();
+    // input=0, output=0, cache 5m=8000, cache 1h=0
+    // microCents = 8000 * 6.25 = 50000 = 5 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 8000,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 8000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(5);
+  });
+
+  it("ephemeral_1h_input_tokens のみ → 1h 単価で計算 (10 μ¢/token)", () => {
+    const { provider } = makeProvider();
+    // cache 1h=1000 → 10000 μ¢ = 1 cent
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 0,
+        ephemeral_1h_input_tokens: 1000,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1);
+  });
+
+  it("mixed tier (5m + 1h) → tier 別単価で正確に積算", () => {
+    const { provider } = makeProvider();
+    // cache 5m=800, cache 1h=200
+    // microCents = 800 * 6.25 + 200 * 10 = 5000 + 2000 = 7000 = 0.7 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 800,
+        ephemeral_1h_input_tokens: 200,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.7);
+  });
+
+  it("cache_read_input_tokens → cache read 単価で計算 (0.5 μ¢/token)", () => {
+    const { provider } = makeProvider();
+    // cache_read=20000 → 10000 μ¢ = 1 cent
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: 20_000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1);
+  });
+
+  it("input + output + cache 5m + cache read + 全部組み合わせ", () => {
+    const { provider } = makeProvider();
+    // input=200, output=80, cache 5m=160, cache read=2000
+    // = 200*5 + 80*25 + 160*6.25 + 2000*0.5
+    // = 1000 + 2000 + 1000 + 1000 = 5000 μ¢ = 0.5 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 160,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 160,
+      cache_read_input_tokens: 2000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.5);
+  });
+
+  it("cache_creation 内の per-tier field 非 number → 0 として graceful 扱い", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: undefined as unknown as number,
+        ephemeral_1h_input_tokens: 1000,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 5m=0 (graceful), 1h=1000 → 10000 μ¢ = 1 cent
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1);
+  });
+});
+
+describe("computeCostEstimateCents — fallback path (cache_creation 不在、flat sum + tier option、a1-impl-1f)", () => {
+  it("cache_creation null + flat sum + default tier '5m' → 5m 単価で計算", () => {
+    const { provider } = makeProvider();
+    // cache_creation=null, flat=1000, tier default = "5m"
+    // microCents = 1000 * 6.25 = 6250 = 0.625 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: null,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.625);
+  });
+
+  it("cache_creation null + flat sum + tier override '1h' → 1h 単価で計算", () => {
+    const { provider } = makeProvider({ cacheCreationTier: "1h" });
+    // flat=1000, tier="1h"
+    // microCents = 1000 * 10 = 10000 = 1 cent
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: null,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1);
+  });
+
+  it("cache_creation null + flat sum 不在 (null) → cache create cost 0 (graceful)", () => {
+    const { provider } = makeProvider();
+    // both null → cache create cost 0
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 100*5 + 50*25 = 500 + 1250 = 1750 μ¢ = 0.175 cents (PR #114 behavior 互換)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.175);
+  });
+
+  it("SDK breakdown 優先: cache_creation がある場合は option を無視", () => {
+    const { provider } = makeProvider({ cacheCreationTier: "1h" });
+    // cache_creation 提供時は option ('1h') を無視、breakdown どおり計算
+    // breakdown: 5m=400 → 400 * 6.25 = 2500 μ¢ = 0.25 cents
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 400,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 400,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // option "1h" にも関わらず breakdown どおり 5m 単価で計算
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.25);
+  });
+});
+
+describe("extractDiagnostics — cache token observability (a1-impl-1f)", () => {
+  it("cache_creation_input_tokens (number) → tokenCacheCreate field に反映", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: 1234,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.tokenCacheCreate).toBe(1234);
+  });
+
+  it("cache_read_input_tokens (number) → tokenCacheRead field に反映", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: 567,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.tokenCacheRead).toBe(567);
+  });
+
+  it("cache 系 null → tokenCacheCreate / tokenCacheRead は undefined (backward compat)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.tokenCacheCreate).toBeUndefined();
+    expect(result.rawDiagnostics?.tokenCacheRead).toBeUndefined();
+    // PR #114 cost 不変
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.175);
+  });
+
+  it("cache_creation_input_tokens = 0 (number) → tokenCacheCreate = 0 (number 0 は field 設定)", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.tokenCacheCreate).toBe(0);
+    expect(result.rawDiagnostics?.tokenCacheRead).toBe(0);
+  });
+
+  it("rawDiagnostics shape: cache 含む完全 case", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 200,
+      output_tokens: 80,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 160,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 160,
+      cache_read_input_tokens: 2000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 200*5 + 80*25 + 160*6.25 + 2000*0.5 = 1000 + 2000 + 1000 + 1000 = 5000 μ¢ = 0.5 cents
+    expect(result.rawDiagnostics).toEqual({
+      tokenInput: 200,
+      tokenOutput: 80,
+      tokenCacheCreate: 160,
+      tokenCacheRead: 2000,
+      costEstimateCents: 0.5,
+    });
+  });
+});
+
+describe("computeCostEstimateCents — pricing 未設定 cache field の graceful (a1-impl-1f)", () => {
+  it("custom pricing が cache field を持たない → cache cost 0 (graceful、後方互換)", () => {
+    const customPricing: AnthropicPricingSnapshot = {
+      snapshotDate: "2099-01-01",
+      source: "https://example.test/no-cache",
+      models: {
+        "claude-opus-4-7": {
+          inputMicroCentsPerToken: 5,
+          outputMicroCentsPerToken: 25,
+          // cache 系 field 一切なし
+        },
+      },
+      webSearchMicroCentsPerRequest: 10_000,
+    };
+    const { provider } = makeProvider({ pricing: customPricing });
+    // cache_creation_input_tokens=1000 but pricing 未設定 → cache cost 0
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 1000,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 1000,
+      cache_read_input_tokens: 500,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 100*5 + 50*25 + 0 + 0 = 1750 μ¢ = 0.175 cents (cache 系 0)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(0.175);
+    // observability field は SDK usage から拾うので反映される
+    expect(result.rawDiagnostics?.tokenCacheCreate).toBe(1000);
+    expect(result.rawDiagnostics?.tokenCacheRead).toBe(500);
   });
 });
 

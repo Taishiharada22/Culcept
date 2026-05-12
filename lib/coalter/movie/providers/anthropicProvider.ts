@@ -1,32 +1,49 @@
 /**
- * CoAlter D-2-e3-a1e Provider Foundation — Anthropic Provider (source candidate semantic 分離)
+ * CoAlter D-2-e3-a1f Provider Foundation — Anthropic Provider (cache token observability + cost accuracy)
  *
- * a1-impl-1a (PR #112、scaffold) → a1-impl-1b (PR #113、extractTheaters) → a1-impl-1d (PR #114、cost estimate) → 本 phase。
+ * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 本 phase。
  *
- * 本 phase (a1-impl-1e) は **canonical Citation と raw source candidate の semantic layer 分離**:
- *   - `WebSearchToolResultBlock` 内 `WebSearchResultBlock[]` を `SourceCandidate[]` として抽出
- *   - **canonical citations (`text_block.citations[]` の `web_search_result_location` のみ) には混ぜない**
- *   - UI 「出典」表示は canonical Citation[] のみが対象、SourceCandidate[] は observability 用
- *   - URL の dedup + 軽い正規化 (host 小文字化 / fragment 除去) を provider 内で実施
+ * 本 phase (a1-impl-1f) は **cache-aware cost estimation で PR #114 cost 精度を抜本向上**:
+ *   - Anthropic `usage.cache_creation` (`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`) を
+ *     primary source として tier 別単価で正確に積算
+ *   - SDK breakdown が無く `usage.cache_creation_input_tokens` (flat sum) のみ存在する legacy / partial
+ *     response では `AnthropicProviderOptions.cacheCreationTier` (default "5m") を tier hint として使用
+ *   - `usage.cache_read_input_tokens` を cache read 単価で積算 ($0.50/MTok @ Opus 4.7 想定)
+ *   - 観測 field `tokenCacheCreate` / `tokenCacheRead` を `ProviderRawDiagnostics` に additive 追加
+ *   - **cache token がない既存 response では現行挙動完全不変** (backward compat、test 担保)
+ *   - **billing source of truth ではない継続明示** (Anthropic invoice = authoritative)
  *
- * 設計原則 (D-2-e3-a1e phase):
- *   - **types.ts additive 変更 OK** (新 `SourceCandidate` interface + `ProviderRetrievalResult.sourceCandidates?` 追加、CEO 承認)
+ * CEO 補正 pricing (Anthropic 公式 2026-05-12 snapshot、Opus 4.7):
+ *   - input:                     $5    / MTok = 5    μ¢/token
+ *   - output:                    $25   / MTok = 25   μ¢/token
+ *   - cache create (5m default): $6.25 / MTok = 6.25 μ¢/token
+ *   - cache create (1h):         $10   / MTok = 10   μ¢/token
+ *   - cache read:                $0.50 / MTok = 0.5  μ¢/token
+ *   - web search:                $10 / 1k searches = 10,000 μ¢/request
+ *
+ * Pricing unit 補正 (a1-impl-1d → 1f):
+ *   - PR #114 では "integer micro-cents" と称していたが、cache pricing で 6.25 / 0.5 等 fractional μ¢ が必要
+ *   - 本 phase で **fractional μ¢ を許容**、内部演算は依然 float、`microCents / 10000` で cents 化
+ *   - rounding policy 不変: 本 provider は丸めない、caller が必要なら `Math.round` 適用
+ *
+ * 設計原則 (D-2-e3-a1f phase):
+ *   - **types.ts additive 変更 OK** (新 `tokenCacheCreate?` / `tokenCacheRead?`、CEO 承認)
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
  *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし**
  *   - **movieOrchestrator / flags / ProviderSelector wiring なし** (a3 で別 phase)
- *   - **anti-hallucination guard なし** (sourceCandidates の semantic 分離が前段、guard は次 PR 以降)
- *   - **suspicious citation の reject / filter なし** (canonical 抽出ロジックは PR #113 から変更なし)
+ *   - **`BudgetUsageProvider` 実装なし** (interface inject のみ、Supabase 実装は a1-impl-1c で別 phase)
+ *   - **anti-hallucination guard なし** (sourceCandidates の semantic 分離は PR #115 で完了、guard 自体は別 PR)
  *
  * 既存挙動の継承 (touch なし):
- *   - extractTheaters (P1 JSON + P2 conservative、PR #113)
- *   - extractCitations (TextBlock.citations の web_search_result_location のみ、PR #112)
- *   - cost estimate (PR #114)
+ *   - extractTheaters (PR #113)
+ *   - extractCitations (PR #112)
+ *   - extractSourceCandidates (PR #115)
  *
  * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
  *   - Alter Morning 系 file touch なし
- *   - citationNormalizer / safeProviderCall / theaterResolver touch なし (canonical 経路は変更なし)
+ *   - citationNormalizer / safeProviderCall / theaterResolver touch なし
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -104,15 +121,36 @@ export interface AnthropicPricingSnapshot {
   readonly snapshotDate: string;
   /** 公開 pricing 出典 URL */
   readonly source: string;
-  /** per-model token pricing (micro-cents per token) */
+  /** per-model token pricing (micro-cents per token、a1-impl-1f で cache 系拡張) */
   readonly models: Readonly<
     Record<
       string,
       {
-        /** input token あたり micro-cents (1 cent = 10000 μ¢) */
+        /** input token あたり micro-cents (1 cent = 10000 μ¢、a1-impl-1f から fractional 許容) */
         readonly inputMicroCentsPerToken: number;
         /** output token あたり micro-cents */
         readonly outputMicroCentsPerToken: number;
+        /**
+         * cache creation (5m TTL) input token あたり micro-cents (a1-impl-1f 追加、default tier)。
+         *
+         *   Anthropic 公式 pricing @ Opus 4.7: $6.25 / MTok = 6.25 μ¢/token (fractional)。
+         *   未設定 (undefined) の場合は cache 5m write 0 cost として扱う (graceful)。
+         */
+        readonly cacheCreate5mMicroCentsPerToken?: number;
+        /**
+         * cache creation (1h TTL) input token あたり micro-cents (a1-impl-1f 追加)。
+         *
+         *   Anthropic 公式 pricing @ Opus 4.7: $10 / MTok = 10 μ¢/token。
+         *   未設定 (undefined) の場合は cache 1h write 0 cost として扱う。
+         */
+        readonly cacheCreate1hMicroCentsPerToken?: number;
+        /**
+         * cache read input token あたり micro-cents (a1-impl-1f 追加)。
+         *
+         *   Anthropic 公式 pricing @ Opus 4.7: $0.50 / MTok = 0.5 μ¢/token (fractional)。
+         *   未設定の場合は cache hit 0 cost (graceful)。
+         */
+        readonly cacheReadMicroCentsPerToken?: number;
       }
     >
   >;
@@ -121,13 +159,16 @@ export interface AnthropicPricingSnapshot {
 }
 
 /**
- * Anthropic pricing as of 2026-05-12 (CEO 補正反映)。
+ * Anthropic pricing as of 2026-05-12 (CEO 補正反映、a1-impl-1f で cache 系追加)。
  *
  *   Source: https://platform.claude.com/docs/en/about-claude/pricing
  *
  *   Claude Opus 4.7:
- *     - input:  $5  / 1,000,000 tokens → 5 μ¢ / token
- *     - output: $25 / 1,000,000 tokens → 25 μ¢ / token
+ *     - input:                $5    / 1,000,000 tokens → 5    μ¢ / token
+ *     - output:               $25   / 1,000,000 tokens → 25   μ¢ / token
+ *     - cache create 5m TTL:  $6.25 / 1,000,000 tokens → 6.25 μ¢ / token (default tier)
+ *     - cache create 1h TTL:  $10   / 1,000,000 tokens → 10   μ¢ / token
+ *     - cache read:           $0.50 / 1,000,000 tokens → 0.5  μ¢ / token
  *
  *   Web search tool:
  *     - $10 / 1,000 searches → 1¢ / search → 10,000 μ¢ / request
@@ -142,6 +183,9 @@ export const ANTHROPIC_PRICING_2026_05_12: AnthropicPricingSnapshot = {
     "claude-opus-4-7": {
       inputMicroCentsPerToken: 5,
       outputMicroCentsPerToken: 25,
+      cacheCreate5mMicroCentsPerToken: 6.25,
+      cacheCreate1hMicroCentsPerToken: 10,
+      cacheReadMicroCentsPerToken: 0.5,
     },
   },
   webSearchMicroCentsPerRequest: 10_000,
@@ -189,6 +233,20 @@ export interface AnthropicProviderOptions {
    *   - caller (a3 wiring 等) は将来 Anthropic pricing 変動時に新 snapshot を注入する責務
    */
   pricing?: AnthropicPricingSnapshot;
+  /**
+   * cache creation tier hint (a1-impl-1f 追加、default `"5m"`)。
+   *
+   *   **使用条件**: Anthropic API response の `usage.cache_creation` (`ephemeral_5m_input_tokens` /
+   *   `ephemeral_1h_input_tokens` の tier 別 breakdown) が **欠落** していて、`usage.cache_creation_input_tokens`
+   *   (flat sum) のみ存在する legacy / partial response の場合に、どの tier として cost 計算するかを決定。
+   *
+   *   **SDK breakdown がある場合は本 option を無視** し、`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`
+   *   をそれぞれの単価で正確に積算 (primary path)。
+   *
+   *   - `"5m"`: 5 分 TTL、$6.25/MTok @ Opus 4.7 (推奨 / 標準利用、default)
+   *   - `"1h"`: 1 時間 TTL、$10/MTok @ Opus 4.7
+   */
+  cacheCreationTier?: "5m" | "1h";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -732,7 +790,8 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    * Anthropic Message の `usage` から observability 用 diagnostics を抽出。
    *
    *   - tokenInput / tokenOutput / searchCallCount (server_tool_use.web_search_requests)
-   *   - costEstimateCents (a1-impl-1d 追加、`computeCostEstimateCents` 経由、observability 用 estimate)
+   *   - tokenCacheCreate / tokenCacheRead (a1-impl-1f 追加、cache_*_input_tokens が non-number 時は未設定)
+   *   - costEstimateCents (a1-impl-1d 追加 / a1-impl-1f cache-aware 化)
    */
   private extractDiagnostics(
     message: Anthropic.Messages.Message,
@@ -745,6 +804,13 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     }
     if (typeof usage.output_tokens === "number") {
       diagnostics.tokenOutput = usage.output_tokens;
+    }
+    // a1-impl-1f: cache token observability (null/non-number 時は未設定で backward compat)
+    if (typeof usage.cache_creation_input_tokens === "number") {
+      diagnostics.tokenCacheCreate = usage.cache_creation_input_tokens;
+    }
+    if (typeof usage.cache_read_input_tokens === "number") {
+      diagnostics.tokenCacheRead = usage.cache_read_input_tokens;
     }
     const serverToolUse = usage.server_tool_use;
     if (
@@ -761,26 +827,37 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
   }
 
   /**
-   * 推定 cost (USD cents) を `usage` から計算 (a1-impl-1d 追加)。
+   * 推定 cost (USD cents) を `usage` から計算 (a1-impl-1d / a1-impl-1f で cache-aware 化)。
    *
    *   **observability 用 estimated value、billing source of truth ではない**。
    *   Anthropic 公式 invoice (Console / API billing) が authoritative。
    *
-   *   計算式 (内部 unit: integer micro-cents、1 cent = 10,000 μ¢):
+   *   計算式 (内部 unit: micro-cents、1 cent = 10,000 μ¢、a1-impl-1f から fractional 許容):
    *     microCents =
-   *       inputTokens  * pricing.models[model].inputMicroCentsPerToken
-   *     + outputTokens * pricing.models[model].outputMicroCentsPerToken
-   *     + webSearches  * pricing.webSearchMicroCentsPerRequest
+   *       inputTokens         * inputMicroCentsPerToken
+   *     + outputTokens        * outputMicroCentsPerToken
+   *     + cache5mTokens       * cacheCreate5mMicroCentsPerToken  (a1-impl-1f)
+   *     + cache1hTokens       * cacheCreate1hMicroCentsPerToken  (a1-impl-1f)
+   *     + cacheReadTokens     * cacheReadMicroCentsPerToken      (a1-impl-1f)
+   *     + webSearches         * webSearchMicroCentsPerRequest
+   *
+   *   Cache token source resolution (a1-impl-1f):
+   *     1. **Primary**: `usage.cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`
+   *        が存在する場合、tier 別に正確に積算 (SDK が breakdown を返した case)
+   *     2. **Fallback**: `cache_creation` が null/不在で `cache_creation_input_tokens` (flat sum) のみ
+   *        存在する case では、`AnthropicProviderOptions.cacheCreationTier` (default `"5m"`) を tier hint
+   *        として使用、flat sum 全量をその tier の単価で計算
    *
    *   出力 (cents):
    *     `microCents / 10000` (fractional cents 許容、本 provider は丸めない)
    *
    *   undefined 返却条件:
-   *     - `pricing.models[model]` が undefined (未登録 model、silent skip で billing 系の誤計算を避ける)
+   *     - `pricing.models[model]` が undefined (未登録 model、silent skip で誤計算を避ける)
    *
    *   token 欠損時の扱い:
-   *     - `usage.input_tokens` / `output_tokens` が non-number → 0 として扱う (graceful degradation)
-   *     - `usage.server_tool_use?.web_search_requests` が non-number → 0
+   *     - `usage.input_tokens` / `output_tokens` / cache 系 / `server_tool_use.web_search_requests` が
+   *       non-number → 0 として扱う (graceful degradation)
+   *     - pricing snapshot 側で cache 単価 field が未設定 → 0 cost (graceful、PR #114 互換)
    */
   private computeCostEstimateCents(
     usage: Anthropic.Messages.Usage,
@@ -794,6 +871,40 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
       typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
     const outputTokens =
       typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+
+    // a1-impl-1f: cache creation cost (primary = SDK breakdown、fallback = flat sum + tier option)
+    const cache5mPrice = modelPricing.cacheCreate5mMicroCentsPerToken ?? 0;
+    const cache1hPrice = modelPricing.cacheCreate1hMicroCentsPerToken ?? 0;
+    let cacheCreateMicroCents = 0;
+    const cacheCreation = usage.cache_creation;
+    if (cacheCreation) {
+      // Primary path: SDK が tier breakdown を提供
+      const tier5mTokens =
+        typeof cacheCreation.ephemeral_5m_input_tokens === "number"
+          ? cacheCreation.ephemeral_5m_input_tokens
+          : 0;
+      const tier1hTokens =
+        typeof cacheCreation.ephemeral_1h_input_tokens === "number"
+          ? cacheCreation.ephemeral_1h_input_tokens
+          : 0;
+      cacheCreateMicroCents =
+        tier5mTokens * cache5mPrice + tier1hTokens * cache1hPrice;
+    } else if (typeof usage.cache_creation_input_tokens === "number") {
+      // Fallback path: flat sum のみ → option の tier hint で計算
+      const tier = this.options.cacheCreationTier ?? "5m";
+      const pricePerToken = tier === "1h" ? cache1hPrice : cache5mPrice;
+      cacheCreateMicroCents =
+        usage.cache_creation_input_tokens * pricePerToken;
+    }
+
+    // a1-impl-1f: cache read cost
+    const cacheReadTokens =
+      typeof usage.cache_read_input_tokens === "number"
+        ? usage.cache_read_input_tokens
+        : 0;
+    const cacheReadPrice = modelPricing.cacheReadMicroCentsPerToken ?? 0;
+    const cacheReadMicroCents = cacheReadTokens * cacheReadPrice;
+
     const serverToolUse = usage.server_tool_use;
     const webSearches =
       serverToolUse &&
@@ -804,9 +915,11 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     const microCents =
       inputTokens * modelPricing.inputMicroCentsPerToken +
       outputTokens * modelPricing.outputMicroCentsPerToken +
+      cacheCreateMicroCents +
+      cacheReadMicroCents +
       webSearches * pricing.webSearchMicroCentsPerRequest;
 
-    // 10,000 μ¢ = 1 ¢ (cent)。fractional cents (e.g. 2.425) を許容。
+    // 10,000 μ¢ = 1 ¢ (cent)。fractional cents 許容 (e.g. 2.425、0.0005)。
     return microCents / 10_000;
   }
 }
