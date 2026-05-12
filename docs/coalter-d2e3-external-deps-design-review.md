@@ -1,10 +1,10 @@
-# CoAlter D-2-e3 External Dependencies Design Review (provider-based revision)
+# CoAlter D-2-e3 External Dependencies Design Review (provider verify update)
 
-**Status**: Draft (docs-only、provider-based 前提に revision)
-**Branch**: `docs/coalter-d2e3-provider-based-revision`
-**Base**: `main` (HEAD `049572e2`)
-**前提**: PR #102 (Step D structural scaffold complete) + PR #103 (本 doc 旧版、direct fetch 前提) + PR #104 (source compliance 旧版、direct fetch 前提) merged 済
-**本 doc PR の scope**: docs-only、**実装着手なし**。CEO 判断 (2026-05-12) で provider-based retrieval 優先方針が確定したため、PR #103 旧 doc を本 doc で revise する。
+**Status**: Draft (docs-only、**provider verify 結果 + provider-agnostic 設計 update**)
+**Branch**: `docs/coalter-d2e3-provider-verify-update`
+**Base**: `main` (HEAD `31293370`、PR #106 merge 後)
+**前提**: PR #106 (provider-based revision) merged 済
+**本 doc PR の scope**: docs-only、**実装着手なし**。本 PR で **provider 一次調査結果** を反映 + Primary を Anthropic 固定とせず Anthropic / OpenAI を Primary 候補、EXA を Secondary 候補とする **provider-agnostic** 実装方針を明示する。
 **生成日**: 2026-05-12
 
 ---
@@ -123,14 +123,23 @@ provider 経由でも全 sub-module fail-open は変更なし:
 - `areaExpansion` (resolver 失敗 → 次 area へ)
 - `tierFailNarration` (Tier 2 fail → alt narration)
 
-### 2.3 provider-agnostic 設計 (CEO 補正 2 反映)
+### 2.3 provider-agnostic 設計 (一次調査結果反映、CEO 補正 2 + GPT 補正 4 整合)
 
 | 項目 | 方針 |
 |---|---|
-| Primary provider 固定 | **しない** |
-| provider 選定タイミング | 実装着手時 (契約 + API 可用性 + cost 確認後) |
+| Primary provider 固定 | **しない** (Anthropic / OpenAI を Primary 候補、両方並走可) |
+| provider 選定タイミング | 実装着手時 (契約 + API 可用性 + cost + verify 進度 確認後) |
 | provider 切替え容易性 | DI 経由で provider client を置換可能 |
-| Secondary fallback | Primary とは異なる provider (single point of failure 回避) |
+| Secondary fallback | EXA (ToS PDF verify 後)、Primary 1 個故障時に切替え |
+| **provider-agnostic interface 先行** | safeProviderCall / providerSelector / responseParser を **provider 実装より先に設計** (interface 凍結後に provider client 着手) |
+
+#### 一次調査結果 (source-compliance doc §3 参照、要約):
+
+| Provider | 一次判定 | 役割 |
+|---|---|---|
+| Anthropic | **PASS conditional** | Primary 候補 (1)、verify 範囲最大 |
+| OpenAI | **PARTIAL PASS / LEGAL AMBIG** | Primary 候補 (2)、policy page manual verify 残 |
+| EXA | **AMBIG** | Secondary 候補、ToS PDF verify 残 |
 
 ### 2.4 curator と retrieval provider の分離 (CEO 補正 3 反映)
 
@@ -196,14 +205,23 @@ provider 単独障害は **Sentry alert + 該当 provider 自動 disable** (cool
 | rate limit 上限 | 中 | provider plan |
 | 出典 URL 出力 | 高 | ToS 内 attribution 条項 |
 
-#### 3.2.2 候補 provider (固定なし)
+#### 3.2.2 候補 provider (Primary 非固定、一次調査結果反映)
 
-source compliance doc §1.1 参照。本 doc では Primary を確定しない。
+source compliance doc §1.1 / §3 参照:
 
-実装着手時の判定例:
-- 既存契約 + 商用 OK + web search 可 → Primary candidate
-- 既存契約のみ → Secondary fallback candidate
-- 新規契約必要 → CEO 判断後 candidate
+| Provider | 一次判定 | Primary / Secondary 候補 | 採用判断条件 |
+|---|---|---|---|
+| Anthropic Claude (web search tool) | PASS conditional | **Primary 候補 (1)** | (a) commercial 契約、(b) Console で web search enable、(c) citation UI 実装、(d) cost cap |
+| OpenAI (gpt-4o + web search) | PARTIAL PASS / LEGAL AMBIG | **Primary 候補 (2)** | (a) Business Terms manual verify、(b) 既存契約 / 新規契約判断、(c) inline citations clearly visible + clickable 実装 |
+| EXA API | AMBIG | **Secondary 候補** | (a) ToS PDF verify、(b) cache 戦略、(c) query data の personal info 除外 |
+
+**Primary 選定戦略 (CEO 判断、実装着手時)**:
+- 案 A: **Anthropic 単独 Primary** (verify 範囲最大、即着手可)
+- 案 B: **Anthropic + OpenAI 両 Primary** (multi-provider fallback、A/B 比較可、provider-agnostic interface 必須)
+- 案 C: **OpenAI 単独 Primary** (verify 完了後)
+
+**推奨**: 案 B が SPOF 回避 + 比較学習で長期的に強い。
+ただし **provider-agnostic interface** を先に設計し、Primary 1 個から開始して順次拡張する path も合理的。
 
 #### 3.2.3 endpoint allowlist (source compliance doc §4.2 引用)
 
