@@ -39,6 +39,32 @@
 | 3 | OpenAI は Secondary candidate として保持、**enable は OpenAI 契約細部 + cache 可否 + API key 運用確認後** | §3.2 / §9.3 |
 | 4 | EXA は Tertiary candidate / **disabled stub**、ToS PDF + cache + data retention + attribution 確認後に enable 判断 | §3.2 / §9.3 |
 
+### 0.4 CEO 補正 (2026-05-12、本 PR review 時、design 致命的不整合の修正)
+
+CEO が PR #109 review で指摘した design 致命的不整合 + 修正方針:
+
+| # | 問題 | CEO 修正方針 | 本 doc 反映 |
+|---|---|---|---|
+| A | docs 内で「fallback to 4-layer pipeline」と「Option F1 = placeholder return」が **混在**、同義扱いになっていた | 切り分ける | §8 完全書き直し |
+| B | D-2-e3-a runtime fallback の第一候補に **placeholder return** を採用していた (UX 劣化 risk) | placeholder return は第一候補にしない、**existing 4-layer result passthrough を第一候補** | §8.2 で順序入れ替え |
+| C | placeholder return が **Production runtime** と **dev/test scaffold** を混同 | placeholder return は dev/test scaffold または **emergency 最終手段** として明示し、Production runtime fallback とは分ける | §8.3 / §8.4 |
+| D | `COALTER_THREE_STAGE=true` 時に provider failure で UX が **既存 4-layer より劣化** しないことが設計条件として記述されていなかった | 設計条件として明示 | §8.1 / §11 |
+| E | provider failure / timeout / all disabled / all failed の各 case の **期待挙動** が明示されていなかった | 各 case 別に明示 | §8.5 |
+| F | **既存 4-layer output 互換性** を壊さないテスト方針が記述されていなかった | テスト方針追加 | §8.6 |
+
+#### claude self-correction
+
+前 turn で私が書いた `Option F1 = placeholder return 推奨` の判断は誤り:
+- 「凍結線維持」を理由に movieOrchestrator.ts への additive touch を拒否した
+- 結果として Production UX を degraded する設計を提案した
+- これは CEO が §1 で要求していた「fallback to existing 4-layer pipeline」と矛盾
+
+修正方針:
+- **movieOrchestrator.ts への additive touch (4-layer pipeline body の関数 extract + export) は D-2-e3-a 実装着手 PR で許容範囲**と再定義
+- 既存 4-layer pipeline body の **logic** は touch なし (extract のみ)、caller (`generateMovieProposalV2`) も既存挙動完全互換
+- adapter から `runFourLayerPipelineInternal(input)` を呼べる構造に refactor
+- これは凍結線違反ではなく、**adapter / 既存 4-layer pipeline の interface 整合化**
+
 ---
 
 ## §1 採用方針
@@ -89,16 +115,33 @@ DI / env 経由で Primary / Secondary / Tertiary は **任意に切替え可能
 - `COALTER_THREE_STAGE` flag + adapter
 - 4-layer pipeline 不変性
 
-### 1.5 凍結線 (本 doc + 実装 phase 共通)
+### 1.5 凍結線 (本 doc + 実装 phase 共通、CEO 補正反映で一部緩和)
 
-各 sub-phase は **以下に touch してはいけない** (PR #106 §1.5 維持):
+各 sub-phase は **以下に touch してはいけない**:
 - `lib/coalter/webConnector.ts` / `movieCatalog.ts` / `movieRanker.ts`
 - `lib/coalter/narrationBuilder.ts` / `narrationEnricher.ts`
 - `lib/coalter/foodOrchestrator.ts` / `coalterDispatch.ts` / `triggerDetection.ts`
 - `lib/coalter/emotion/` / `understanding/` / `presence/` (全 directory)
 - Alter Morning 系 file (path-bounded grep 0 必須)
-- `lib/coalter/movieOrchestrator.ts` (D-2-e3-a では touch なし)
 - `lib/coalter/engine.ts` (**D-2-e3-d のみ touch 許可**、D-2-e3-a では touch なし)
+
+#### 1.5.1 `lib/coalter/movieOrchestrator.ts` の touch 規律 (CEO 補正 0.4 反映で更新)
+
+**前 turn の凍結線定義は CEO 補正 0.4 で緩和**:
+
+| 項目 | 規律 |
+|---|---|
+| 4-layer pipeline body の **logic** | **touch なし** (既存挙動完全維持) |
+| 4-layer pipeline body の **関数 extract + export** (新 entry point 追加) | **D-2-e3-a 実装着手 PR で許可** (additive structural refactor) |
+| 既存 caller (`generateMovieProposalV2`) の挙動 | flag OFF / flag ON 両方で既存出力と完全互換 (test で verify、§8.6) |
+| `MovieOrchestratorInput` の type 拡張 | **D-2-e3-d のみ touch 許可** (D-2-e3-a では touch なし) |
+
+つまり D-2-e3-a 実装着手 PR で:
+- `lib/coalter/movieOrchestrator.ts` に `runFourLayerPipelineInternal(input)` を export 追加可
+- 既存 4-layer pipeline body を関数 extract、`generateMovieProposalV2` から呼ぶ形に refactor
+- adapter (`threeStageOrchestratorAdapter.ts`) から `runFourLayerPipelineInternal` を呼べる構造を作る
+
+これは前 turn の「a/b/c/e では movieOrchestrator.ts touch なし」を **D-2-e3-a に限り、fallback 実装目的の additive structural refactor は許可** に緩和したもの。
 
 ---
 
@@ -610,58 +653,158 @@ export function parseExaResponse(raw: ExaResponse, input: ProviderRetrievalInput
 
 ---
 
-## §8 fallback to existing 4-layer pipeline 設計
+## §8 fallback 設計 (CEO 補正 0.4 反映、完全書き直し)
 
-### 8.1 fallback trigger
+### 8.1 設計条件 (前 turn の design ミス修正)
 
-ProviderSelector が `"quaternary"` を返す条件:
-- 全 enable 済 provider が失敗 (`all_providers_failed`)
-- 全 provider disabled (`all_providers_disabled`)
+**重要な設計条件 (CEO 補正、絶対遵守)**:
 
-これに加えて:
-- master `COALTER_THREE_STAGE=false` 時は movieOrchestrator.ts 内で adapter が呼ばれない → 4-layer pipeline へ自然に流れる
+> `COALTER_THREE_STAGE=true` の Production runtime で、provider failure / timeout / all disabled / all failed のいずれの case でも、**user 体験が既存 4-layer pipeline より degraded しない** こと。
 
-### 8.2 fallback 実装 options (CEO 判断要)
+これを満たすために:
+- D-2-e3-a runtime fallback の **第一候補は existing 4-layer result passthrough** (F1)
+- placeholder return は **dev/test scaffold または emergency 最終手段** として明示し、Production runtime fallback とは分ける (F2)
+- movieOrchestrator 再実行は **二重実行 / 副作用 risk のため原則避ける** (F3)
 
-ProviderSelector が `"quaternary"` を返した場合、adapter はどう振る舞うか:
+### 8.2 fallback options (3 案、CEO 補正方針)
 
-| Option | 動作 | 利点 | 欠点 |
+| Option | 動作 | 用途 | Production 採用 |
 |---|---|---|---|
-| **F1** ⭐推奨 | placeholder `MovieOrchestratorOutput` を返す (現状 D-2-e2 stub と同等) | 凍結線完全維持、最も simple | 全 provider 失敗時 user 体験 degraded |
-| F2 | adapter から movieOrchestrator.ts 内の 4-layer pipeline entry へ recursive call (flag 一時 OFF) | user 体験 graceful degradation | movieOrchestrator.ts touch 必要、flag mutate logic 美しくない |
-| F3 | 4-layer pipeline 部分を別 file に extract、両方から呼べるようにする | 構造美しい | extract = 凍結線違反、本 phase 不可 |
+| **F1** ⭐推奨 | **Existing 4-layer result passthrough fallback**: adapter が provider 全失敗時に既存 4-layer pipeline 内部 entry (`runFourLayerPipelineInternal`) を呼んで結果をそのまま返す | Production runtime fallback (第一候補) | ✅ **採用** |
+| **F2** | **Placeholder fallback**: D-2-e2 stub と同等の placeholder `MovieOrchestratorOutput` を返す | dev/test scaffold (現 D-2-e2 状態) または **emergency 最終手段** (4-layer pipeline 自体も break した時の極限) | ⚠️ 限定採用 (緊急時のみ) |
+| **F3** | **movieOrchestrator 再実行 fallback**: adapter から `generateMovieProposalV2` を再帰的に呼ぶ (flag 一時 OFF) | (採用しない) | ❌ **原則避ける** (二重実行 / 副作用 risk) |
 
-**推奨**: **Option F1** 採用 (本 phase)。
-- 本 phase の主目的は **provider-agnostic interface 凍結**
-- 全 provider 失敗時の真の 4-layer fallback (F2) は D-2-e3 後の別 phase で検討
-- F1 でも `COALTER_THREE_STAGE=false` で 4-layer pipeline へ降ろせる (master kill switch、rollback path)
+### 8.3 Option F1 (recommended) — 4-layer result passthrough
 
-### 8.3 Option F1 の design 仕様
+#### 8.3.1 movieOrchestrator.ts 内部 entry point
 
 ```typescript
-// adapter 内擬似 code (D-2-e3-a 実装着手時)
-async function runThreeStageScaffoldPath(input, startedTotal) {
+// lib/coalter/movieOrchestrator.ts (D-2-e3-a 実装着手 PR で additive refactor、§1.5.1 で許可)
+
+/**
+ * 4-layer pipeline (Layer 0-3) の internal entry point。
+ *
+ *   - 既存 generateMovieProposalV2 の 4-layer pipeline body を関数 extract したもの
+ *   - logic は完全に既存維持、caller 経路だけ変更
+ *   - adapter (provider 全失敗時) から fallback として呼ばれる
+ *   - 既存 caller (generateMovieProposalV2 flag OFF path) からも呼ばれる
+ */
+export async function runFourLayerPipelineInternal(
+  input: MovieOrchestratorInput,
+  startedTotal: number,
+): Promise<MovieOrchestratorOutput>;
+
+export async function generateMovieProposalV2(
+  input: MovieOrchestratorInput,
+): Promise<MovieOrchestratorOutput> {
+  const startedTotal = Date.now();
+
+  if (COALTER_FLAGS.threeStageEnabled) {
+    return runThreeStageScaffoldPath(input, startedTotal);
+  }
+
+  // flag OFF: 既存挙動 (4-layer pipeline) — extract された関数を呼ぶだけ
+  return runFourLayerPipelineInternal(input, startedTotal);
+}
+```
+
+#### 8.3.2 adapter 側 fallback logic
+
+```typescript
+// lib/coalter/movie/threeStageOrchestratorAdapter.ts (D-2-e3-a 実装着手 PR)
+
+async function runThreeStageScaffoldPath(
+  input: MovieOrchestratorInput,
+  startedTotal: number,
+): Promise<MovieOrchestratorOutput> {
+  // 1. provider chain で retrieve 試行
   const retrievalResult = await selectAndRetrieve(retrievalInput, providerChainConfig);
 
   if (retrievalResult.kind === "quaternary") {
-    // F1: placeholder を返す
-    // (D-2-e2 stub と同等、Production で flag ON 時の最終 fallback)
-    return adaptToPlaceholderOutput(input, startedTotal, /* hint: provider all failed */);
+    // F1: 既存 4-layer pipeline へ passthrough
+    // → user 体験は既存 4-layer pipeline と完全互換 (UX 劣化なし)
+    // → Sentry alert で incident 通知
+    emitProviderAllFailedAlert(retrievalResult.reason);
+    return runFourLayerPipelineInternal(input, startedTotal);
   }
 
-  // provider success → 通常 path
+  // provider success → 通常 path (provider 結果を adapter で変換)
   return adaptToMovieOrchestratorOutput(retrievalResult.result, input, startedTotal);
 }
 ```
 
-placeholder 返却時の挙動:
-- `MovieOrchestratorOutput` 5 field shape 互換 (D-2-e2 同等)
-- `ranked: []` / `primaryQuestion: null` / `diagnostics 7 field 全 0`
-- `card`: placeholder narration (例: 「現在 retrieval に失敗中、しばらく後にもう一度お試しください」)
-- Sentry alert: 全 provider 失敗 (CEO 通知)
+#### 8.3.3 F1 の利点
 
-→ user 体験は degraded だが、Production 全停止は回避される。
-→ Sentry 経由で incident 検出 → CEO 手動 rollback (`COALTER_THREE_STAGE=false`) で 4-layer pipeline 復帰可能。
+- **UX**: provider 失敗時に既存 4-layer pipeline 結果を返す → user は劣化に気付かない
+- **互換性**: `MovieOrchestratorOutput` shape は既存 4-layer 100% 一致 (passthrough のため)
+- **観測**: Sentry alert で provider failure を CEO / Build に通知、user 影響は最小化
+- **凍結線**: movieOrchestrator.ts への **additive structural refactor** (関数 extract + export 追加)、logic touch なし
+
+### 8.4 Option F2 (limited) — Placeholder fallback
+
+#### 8.4.1 用途
+
+- **dev/test scaffold**: D-2-e2 stub 段階 (現状)、provider client 未実装 / disabled で動作確認時
+- **emergency 最終手段**: provider 全失敗 **かつ** 4-layer pipeline 自体も break した極限 case (極めて稀)
+
+#### 8.4.2 F2 を Production runtime 第一候補にしない理由
+
+| 観点 | F2 (placeholder) | F1 (passthrough) |
+|---|---|---|
+| 全 provider 失敗時 UX | "現在 retrieval に失敗中" 等の placeholder narration → 既存 4-layer より劣化 | 既存 4-layer 結果と同等 |
+| user 期待値 | flag ON / OFF で出力差 | flag ON / OFF で出力差なし |
+| incident 検出 | placeholder return から推測 | Sentry alert で明示検出 |
+
+#### 8.4.3 F2 の限定採用範囲
+
+- 現 D-2-e2 stub (provider 未実装、disabled) では F2 が default 動作 (provider call 自体が空配列を返すため、結果として placeholder)
+- D-2-e3-a 実装 PR では:
+  - provider 実装後は F1 を default fallback として採用
+  - F2 は **emergency only** (`runFourLayerPipelineInternal` 自体も throw する case で safety net)
+
+### 8.5 期待挙動 (各 case 別、CEO 補正 E 反映)
+
+| Case | 期待挙動 |
+|---|---|
+| **provider failure (single)** | ProviderSelector が次 enable 済 provider へ自動切替え、user は劣化に気付かない |
+| **provider timeout (single)** | timeout 受信 → throw → ProviderSelector が次 provider へ。Sentry alert (1h window でしきい値超過時のみ通知) |
+| **all providers disabled** | ProviderSelector が `quaternary` 返却 → **F1**: `runFourLayerPipelineInternal` 呼び → 既存 4-layer pipeline 結果返却。Sentry warning (config 異常検出) |
+| **all providers failed** | 同上 → **F1**: `runFourLayerPipelineInternal` 呼び → 既存 4-layer pipeline 結果返却。Sentry critical alert (CEO 通知) |
+| **F1 (4-layer pipeline) 自体も throw** (極稀) | **F2**: placeholder return (emergency)。Sentry critical alert (CEO + Build 緊急通知) |
+| **master `COALTER_THREE_STAGE=false`** | adapter 呼ばれない → `generateMovieProposalV2` 直接 4-layer pipeline へ (既存挙動)。これは rollback path |
+
+### 8.6 既存 4-layer output 互換性テスト方針 (CEO 補正 F 反映)
+
+D-2-e3-a 実装 PR で、以下テストを必須:
+
+#### 8.6.1 4-layer pipeline 既存 output 不変性テスト
+
+- `runFourLayerPipelineInternal(input, startedTotal)` の output が、refactor 前の `generateMovieProposalV2(input)` flag OFF 経路の output と **同一** であること
+- 既存 `movieOrchestratorEmotion.test.ts` / `movieOrchestratorShadowInvariance.test.ts` 等の test 全 PASS 維持
+
+#### 8.6.2 adapter via 4-layer fallback の output shape compatibility test
+
+- flag ON + provider 全失敗 (mock で強制) + F1 passthrough → output が flag OFF 経路 (= 直接 4-layer pipeline) と shape + value で完全互換であることを verify
+- 観測値の確認:
+  - `card.candidates` / `priorities` / `summary` 等の主要 field
+  - `telemetry.narrationMode` / `briefSource` 等
+  - `ranked[]` (4-layer 経路で得られるべき値、空でない)
+  - `diagnostics 7 field` (実 4-layer count、placeholder の 0 ではない)
+
+#### 8.6.3 互換性違反検出 test
+
+- F1 passthrough 経路の output が **明確に 4-layer pipeline 結果と一致** することを assert
+- 違反検出時は test failure → 実装 PR で fix 必須
+
+#### 8.6.4 5 gate 強化
+
+D-2-e3-a 実装 PR で `lib/coalter/movieOrchestrator.ts` を touch する場合の 5 gate verify:
+
+1. typecheck baseline (1099) 維持
+2. vitest: 全 `tests/unit/coalter/movieOrchestrator*.test.ts` PASS + 新規 fallback compatibility test PASS
+3. build: `npm run build` BUILD_EXIT=0
+4. 凍結線 grep: §1.5 list (movieOrchestrator.ts は §1.5.1 で限定許可、touch 内容 review)
+5. Alter Morning grep: 0 hits
 
 ---
 
@@ -768,27 +911,46 @@ D-2-e3-a 着手 PR では:
 8. safeProviderCall 設計 (本 doc §4) review + 合意
 9. citation normalizer 設計 (本 doc §5) review + 合意
 10. cost guard 設計 (本 doc §6) review + 合意
-11. fallback 設計 (本 doc §8 Option F1) review + 合意
+11. fallback 設計 (本 doc §8、**F1 = 4-layer passthrough を Production 第一候補**) review + 合意
+12. movieOrchestrator.ts への additive structural refactor (§1.5.1 / §8.3.1、`runFourLayerPipelineInternal` extract) review + 合意
+13. 既存 4-layer output 互換性テスト方針 (§8.6) review + 合意
 
 ### 11.3 着手 GO 判定
 
-11 条件 **全充足** で D-2-e3-a 着手 GO。
+13 条件 **全充足** で D-2-e3-a 着手 GO。
 新 branch (`feat/coalter-d2e3a-implementation` 想定) で実装着手。
+
+### 11.4 D-2-e3-a 実装着手 PR で必須の確認 (CEO 補正 D 反映)
+
+設計条件 §8.1:
+> `COALTER_THREE_STAGE=true` の Production runtime で、provider failure / timeout / all disabled / all failed のいずれの case でも、user 体験が既存 4-layer pipeline より degraded しない。
+
+verify 方法:
+- §8.6.1 4-layer pipeline 既存 output 不変性テスト → 全 PASS
+- §8.6.2 adapter via 4-layer fallback の output shape compatibility test → 全 PASS
+- §8.6.3 互換性違反検出 test → 違反検出 0 件
+- staging で flag ON + provider mock 全失敗 → 4-layer pipeline 同等 output 確認
 
 ---
 
 ## §12 rollback path
 
-### 12.1 provider 単独障害 (層別自動 fallback)
+### 12.1 provider 単独障害 (層別自動 fallback、CEO 補正 0.4 反映)
 
 ```
 Primary 失敗 → Secondary へ (Secondary enable 済の場合)
 Secondary 失敗 → Tertiary へ (Tertiary enable 済の場合)
-Tertiary 失敗 → Quaternary (Option F1: placeholder return)
+Tertiary 失敗 → Quaternary = F1 (Existing 4-layer result passthrough)
+                  → runFourLayerPipelineInternal(input) 呼び出し
+                  → 既存 4-layer pipeline 結果を user に返却 (UX 劣化なし)
+F1 自体も throw (極稀) → F2 (placeholder return、emergency only) + CEO + Build 緊急通知
 ```
 
 Sentry alert + CEO 通知 (連続失敗時)。
 24h cool-down 後自動復帰 or CEO 手動復帰。
+
+**重要**: 設計条件 §8.1 により、provider failure 時の自動 fallback は **F1 (4-layer passthrough) を Production 第一候補**。
+F2 (placeholder) は dev/test scaffold または emergency 最終手段、Production runtime fallback とは分ける。
 
 ### 12.2 三段式全停止 (master kill switch)
 
@@ -861,7 +1023,7 @@ PR #106 / #107 §10 維持 + 本 doc 追加:
 
 ---
 
-## 付録 A: 本 doc が満たす CEO 指定項目 (15 項目) チェック
+## 付録 A: 本 doc が満たす CEO 指定項目 (15 項目) チェック (CEO 補正 0.4 反映 update)
 
 | # | CEO 指定 | 本 doc 反映 section |
 |---|---|---|
@@ -874,12 +1036,23 @@ PR #106 / #107 §10 維持 + 本 doc 追加:
 | 7 | timeout / retry / rate-limit / budget guard | §4.3 / §4.4 / §4.5 / §4.6 / §6 |
 | 8 | citation normalizer | §5 |
 | 9 | provider response schema | §7 |
-| 10 | fallback to existing 4-layer pipeline | §8 (Option F1 推奨) |
+| 10 | fallback to existing 4-layer pipeline | §8 (**F1 = 4-layer passthrough 推奨**、F2 = placeholder dev/test only) |
 | 11 | env flag / enable 条件 | §9 |
 | 12 | no real API connection in this phase | §10 |
-| 13 | D-2-e3-a 実装着手条件 | §11 (11 条件全充足) |
-| 14 | rollback path | §12 |
+| 13 | D-2-e3-a 実装着手条件 | §11 (**13 条件全充足**、CEO 補正で追加 2 件) |
+| 14 | rollback path | §12 (CEO 補正反映、F1 = 4-layer passthrough を明示) |
 | 15 | Step E 開始条件 | §13 (13 条件) |
+
+### A.1 CEO 補正 0.4 (本 PR review 時) 追加事項
+
+| # | 補正 | 反映 section |
+|---|---|---|
+| A | fallback 設計の混在を切り分け | §8 完全書き直し、F1 / F2 / F3 明示分離 |
+| B | placeholder return を第一候補にしない、4-layer passthrough を第一候補 | §8.2 / §8.3 |
+| C | placeholder return は dev/test scaffold または emergency 最終手段 | §8.4 |
+| D | UX 劣化禁止条件 (`COALTER_THREE_STAGE=true` 時に既存 4-layer より degraded しない) を設計条件化 | §8.1 / §11.4 |
+| E | provider failure / timeout / all disabled / all failed の期待挙動明示 | §8.5 |
+| F | 既存 4-layer output 互換性テスト方針明示 | §8.6 |
 
 ---
 
@@ -914,16 +1087,19 @@ PR #106 / #107 §10 維持 + 本 doc 追加:
 
 ---
 
-## 付録 C: 凍結線 (handover §4.2 継承)
-
-(PR #106 / #107 付録 B 維持、本 doc でも touch ゼロ)
+## 付録 C: 凍結線 (handover §4.2 継承、CEO 補正 0.4 で一部緩和)
 
 - `lib/coalter/webConnector.ts`
 - `lib/coalter/movieCatalog.ts`
 - `lib/coalter/movieRanker.ts`
 - `lib/coalter/narrationBuilder.ts` / `narrationEnricher.ts`
 - `lib/coalter/foodOrchestrator.ts` / `coalterDispatch.ts` / `triggerDetection.ts`
-- `lib/coalter/movieOrchestrator.ts` (本 phase で touch なし、D-2-e3-d のみ input type 拡張)
+- `lib/coalter/movieOrchestrator.ts`:
+  - **本 doc PR (docs-only) では touch ゼロ**
+  - **D-2-e3-a 実装着手 PR では additive structural refactor 許可** (§1.5.1 / §8.3.1):
+    - 既存 4-layer pipeline body を `runFourLayerPipelineInternal` に extract + export
+    - logic は完全に既存維持 (test で verify、§8.6)
+    - D-2-e3-d で別途 `MovieOrchestratorInput.lens?` field 追加 (別 phase)
 - `lib/coalter/engine.ts` (D-2-e3-d のみ touch)
 - `lib/coalter/emotion/` / `understanding/` / `presence/` (全 directory)
 - Alter Morning 系 file (path-bounded grep 0 必須)
@@ -955,3 +1131,39 @@ claude 自身の self-correction:
 - 数値断定の性急さを認識、本 doc では定性的記述のみ採用
 - 「Primary 固定」は provider-agnostic architecture と矛盾する表現として撤回
 - design doc は provider 切替え自由度を最大化する方向で書き直し
+
+---
+
+## 付録 F: CEO 補正 (2026-05-12、本 PR review 時) との対応関係
+
+CEO が PR #109 review で指摘した design 致命的不整合 + 修正方針:
+
+| CEO 補正 | 問題 | 本 doc 反映 | claude 自己反省 |
+|---|---|---|---|
+| A | docs 内で「fallback to 4-layer pipeline」と「Option F1 = placeholder return」が **混在**、同義扱い | §8 完全書き直し、F1 / F2 / F3 明示分離 | 前 turn で「fallback to 4-layer pipeline」を Option F1 (placeholder return) と同義にした表現は誤り、撤回 |
+| B | D-2-e3-a runtime fallback の第一候補に **placeholder return** を採用 (UX 劣化 risk) | §8.2 で順序入れ替え、F1 = 4-layer passthrough を Production 第一候補 | 前 turn で「凍結線維持のため Option F1 (placeholder) 推奨」と書いた判断は誤り、撤回 |
+| C | placeholder return が **Production runtime** と **dev/test scaffold** を混同 | §8.3 (F1 Production) / §8.4 (F2 dev/test or emergency) で明示分離 | dev/test scaffold (D-2-e2 stub 段階) と Production runtime fallback は明確に異なる用途として認識 |
+| D | UX 劣化禁止条件が設計条件として記述されていなかった | §8.1 で「`COALTER_THREE_STAGE=true` 時に既存 4-layer より degraded しない」を絶対遵守条件として明示。§11.4 で D-2-e3-a 実装 PR で必須 verify | UX 劣化禁止は CoAlter 世界観の core 要件 (CLAUDE.md「整合性と世界観優先」)、設計段階で見落とした |
+| E | 各 case (provider failure / timeout / all disabled / all failed) の期待挙動明示 | §8.5 表で 6 case 全期待挙動を表化 | edge case 別の挙動明示は design doc の基本要件、補完必要 |
+| F | 既存 4-layer output 互換性テスト方針 | §8.6 で 4 sub-section (不変性 / shape compat / 違反検出 / 5 gate 強化) | structural refactor 時の compatibility test は必須、本 doc に組込 |
+
+### F.1 claude self-correction (重要)
+
+前 turn で私が書いた `Option F1 = placeholder return 推奨` の判断は **重大な design 誤り**:
+
+| 私の前 turn の誤り | 正しい認識 (CEO 補正反映) |
+|---|---|
+| 「凍結線維持」を理由に movieOrchestrator.ts への additive touch を拒否 | additive structural refactor (関数 extract + export 追加) は logic touch ではない、許可範囲 |
+| Production runtime fallback で placeholder return を推奨 | Production runtime fallback は **既存 4-layer pipeline 結果 passthrough** が第一候補 |
+| 全 provider 失敗時に user 体験 degraded を許容 | UX 劣化禁止が絶対遵守条件、`COALTER_THREE_STAGE=true` 時に既存 4-layer より degraded させない |
+
+### F.2 凍結線解釈の自己修正
+
+PR #106 §1.4 で書いた「a/b/c/e では movieOrchestrator.ts touch なし」は **D-2-e3-a の fallback 実装に必要な additive structural refactor を阻害する** 過剰な解釈だった。
+
+CEO 補正で:
+- **logic touch (既存 4-layer pipeline body の挙動変更) は禁止** ← これは継続
+- **additive structural refactor (関数 extract + export 追加で既存挙動完全互換) は許可** ← 本 doc §1.5.1 で明示
+
+これは凍結線の **緩和** ではなく、**正確な解釈** への補正。
+既存挙動互換性は §8.6 のテスト方針で **絶対担保**。
