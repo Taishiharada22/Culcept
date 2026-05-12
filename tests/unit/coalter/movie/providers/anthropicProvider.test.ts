@@ -1,32 +1,35 @@
 /**
- * D-2-e3-a1d anthropicProvider 単体テスト (mock-only、cost estimate 単体追加)。
+ * D-2-e3-a1e anthropicProvider 単体テスト (mock-only、source candidate semantic 分離追加)。
  *
- * a1-impl-1b (PR #113) からの差分:
- *   - 既存 rawDiagnostics tests に `costEstimateCents` field 追加 (CEO 補正 pricing 反映)
- *   - computeCostEstimateCents 単体検証 group 追加
+ * a1-impl-1d (PR #114) からの差分:
+ *   - extractSourceCandidates 単体検証 group 追加
+ *   - canonical citations と sourceCandidates の semantic 分離保証 (regression group)
  *
- * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b + a1-impl-1d 追加):
+ * 検証軸 (PR #111 §2.1 / §3.6.2 + a1-impl-1b / 1d / 1e 追加):
  *
- * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall / extractTheaters:
- *   PR #112 / #113 と同等 (本 phase で変更なし)
+ * constructor / DI / buildWebSearchTool / buildPrompt / retrieve / safeProviderCall / extractTheaters /
+ * computeCostEstimateCents:
+ *   PR #112 / #113 / #114 と同等 (本 phase で変更なし)
  *
- * parseResponse (citations + diagnostics):
- *   - rawDiagnostics: usage.input_tokens / output_tokens / server_tool_use.web_search_requests
- *   - **costEstimateCents (a1-impl-1d 追加)**: usage から default pricing (ANTHROPIC_PRICING_2026_05_12) で計算
+ * extractSourceCandidates (a1-impl-1e 追加):
+ *   - WebSearchToolResultBlock.content (success array) → SourceCandidate[] 抽出
+ *   - WebSearchToolResultBlock.content (error) → 該当 block skip
+ *   - 複数 WebSearchToolResultBlock の集約
+ *   - URL 正規化 (host 小文字化 / fragment 除去 / trim) + dedup
+ *   - query 違いは別 entry (資源 identifier として保持)
+ *   - invalid URL は trim 結果を fallback key として保持 (drop しない)
+ *   - providerSource 固定値 "web_search_20250305"、toolUseId は parent block から
  *
- * computeCostEstimateCents (a1-impl-1d 追加):
- *   - default pricing 反映 (Opus 4.7、$5 / $25 / $10 per 1k searches、CEO 補正)
- *   - pricing snapshot override (DI 経由)
- *   - 未登録 model → undefined (silent skip、誤計算防止)
- *   - usage.input_tokens / output_tokens / server_tool_use.web_search_requests 不在時の graceful degradation
- *   - rounding policy: integer micro-cents → cents 化 (`microCents / 10000`、丸めない)
- *   - all-zero usage → 0 cents (実行されたが token 消費ゼロ、稀有 case)
- *   - **billing source of truth ではない明示** (Anthropic invoice = authoritative)
+ * canonical Citation と SourceCandidate の semantic 分離 (a1-impl-1e、CEO 凍結要件):
+ *   - TextBlock.citations[] は canonical citations にのみ入る (既存挙動維持)
+ *   - WebSearchToolResultBlock の raw URL は canonical citations に **入らない** (key requirement)
+ *   - WebSearchToolResultBlock の raw URL は sourceCandidates に **のみ** 入る
+ *   - 同一 URL が両 layer に存在することは可能 (LLM が cite した && 検索結果にあった、自然な状態)
  *
- * D-2-e3-a1d scope:
+ * D-2-e3-a1e scope:
  *   - mock client only、実 Anthropic API call なし
  *   - process.env / ANTHROPIC_API_KEY 参照なし
- *   - types.ts touch なし (`costEstimateCents` は PR #110 §2.2 で凍結済 canonical field)
+ *   - types.ts additive 変更 (新 SourceCandidate + ProviderRetrievalResult.sourceCandidates?、CEO 承認)
  *   - SDK type は @anthropic-ai/sdk v0.91.1 既存、import OK
  */
 
@@ -730,6 +733,387 @@ describe("computeCostEstimateCents — graceful degradation", () => {
     });
     const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.rawDiagnostics?.costEstimateCents).toBe(0.0875);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractSourceCandidates (a1-impl-1e 追加)
+//
+// observability / debug 用 raw search candidate URL の抽出と URL 正規化 / dedup を検証。
+// canonical Citation との分離保証は別 group で。
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * WebSearchResultBlock fixture (a1-impl-1e、SDK 型に最小準拠)。
+ */
+function makeWebSearchResult(
+  url: string,
+  title: string = "Result",
+  pageAge: string | null = null,
+): Anthropic.Messages.WebSearchResultBlock {
+  return {
+    type: "web_search_result",
+    url,
+    title,
+    page_age: pageAge,
+    encrypted_content: "enc-content",
+  };
+}
+
+/**
+ * WebSearchToolResultBlock fixture (success path、results 配列)。
+ */
+function makeWebSearchToolResultBlockSuccess(
+  toolUseId: string,
+  results: Anthropic.Messages.WebSearchResultBlock[],
+): Anthropic.Messages.WebSearchToolResultBlock {
+  return {
+    type: "web_search_tool_result",
+    tool_use_id: toolUseId,
+    content: results,
+    // caller field は SDK 型上必須だが、本 phase の provider extract logic は caller を参照しないため
+    // 最小 stub で OK (実 SDK response 経由で渡される)。
+    caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+  };
+}
+
+/**
+ * WebSearchToolResultBlock fixture (error path)。
+ */
+function makeWebSearchToolResultBlockError(
+  toolUseId: string,
+): Anthropic.Messages.WebSearchToolResultBlock {
+  return {
+    type: "web_search_tool_result",
+    tool_use_id: toolUseId,
+    content: {
+      type: "web_search_tool_result_error",
+      error_code: "unavailable",
+    } as Anthropic.Messages.WebSearchToolResultError,
+    caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+  };
+}
+
+/**
+ * 任意 content blocks から Message を作る fixture (text / search blocks の自由組み合わせ)。
+ */
+function makeMessageWithContentBlocks(
+  blocks: Array<
+    | Anthropic.Messages.TextBlock
+    | Anthropic.Messages.WebSearchToolResultBlock
+    | Anthropic.Messages.ServerToolUseBlock
+  >,
+): Anthropic.Messages.Message {
+  return {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    model: "claude-opus-4-7",
+    content: blocks as unknown as Anthropic.Messages.ContentBlock[],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: {
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation: null,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      inference_geo: null,
+      server_tool_use: null,
+      service_tier: null,
+    } as Anthropic.Messages.Usage,
+  } as Anthropic.Messages.Message;
+}
+
+describe("extractSourceCandidates — success path", () => {
+  it("WebSearchToolResultBlock の results を sourceCandidates に抽出 (full fields)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://eiga.com/movie/12345/", "作品 X", "1d"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0]).toEqual({
+      url: "https://eiga.com/movie/12345/",
+      title: "作品 X",
+      pageAge: "1d",
+      providerSource: "web_search_20250305",
+      toolUseId: "tu_1",
+    });
+  });
+
+  it("page_age が null → pageAge field に null", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_x", [
+      makeWebSearchResult("https://example.com/page", "Page", null),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates?.[0].pageAge).toBeNull();
+  });
+
+  it("複数 WebSearchToolResultBlocks → 集約 (insertion order 保持)", () => {
+    const { provider } = makeProvider();
+    const block1 = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://example.com/a", "A"),
+    ]);
+    const block2 = makeWebSearchToolResultBlockSuccess("tu_2", [
+      makeWebSearchResult("https://example.com/b", "B"),
+      makeWebSearchResult("https://example.com/c", "C"),
+    ]);
+    const message = makeMessageWithContentBlocks([block1, block2]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates?.map((c) => c.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/c",
+    ]);
+    expect(result.sourceCandidates?.[0].toolUseId).toBe("tu_1");
+    expect(result.sourceCandidates?.[1].toolUseId).toBe("tu_2");
+    expect(result.sourceCandidates?.[2].toolUseId).toBe("tu_2");
+  });
+
+  it("WebSearchToolResultBlock なし → sourceCandidates は空配列", () => {
+    const { provider } = makeProvider();
+    const message = makeMessageWithContentBlocks([]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toEqual([]);
+  });
+
+  it("WebSearchToolResultBlock の content が error → 該当 block skip", () => {
+    const { provider } = makeProvider();
+    const errorBlock = makeWebSearchToolResultBlockError("tu_fail");
+    const okBlock = makeWebSearchToolResultBlockSuccess("tu_ok", [
+      makeWebSearchResult("https://example.com/ok", "OK"),
+    ]);
+    const message = makeMessageWithContentBlocks([errorBlock, okBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].url).toBe("https://example.com/ok");
+  });
+
+  it("providerSource は固定値 'web_search_20250305' (ANTHROPIC_DEFAULTS.WEB_SEARCH_TOOL_TYPE)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://example.com/", "X"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates?.[0].providerSource).toBe(
+      ANTHROPIC_DEFAULTS.WEB_SEARCH_TOOL_TYPE,
+    );
+  });
+});
+
+describe("extractSourceCandidates — URL normalization / dedup", () => {
+  it("dedup: 同一 URL 複数 → 1 entry (最初の occurrence の metadata 保持)", () => {
+    const { provider } = makeProvider();
+    const block1 = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://example.com/page", "First", "1d"),
+    ]);
+    const block2 = makeWebSearchToolResultBlockSuccess("tu_2", [
+      makeWebSearchResult("https://example.com/page", "Second", "5d"),
+    ]);
+    const message = makeMessageWithContentBlocks([block1, block2]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    // 最初の occurrence の metadata
+    expect(result.sourceCandidates?.[0].title).toBe("First");
+    expect(result.sourceCandidates?.[0].pageAge).toBe("1d");
+    expect(result.sourceCandidates?.[0].toolUseId).toBe("tu_1");
+  });
+
+  it("dedup: host case-insensitive (HTTPS://EXAMPLE.COM == https://example.com)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("HTTPS://EXAMPLE.COM/Path", "Upper"),
+      makeWebSearchResult("https://example.com/Path", "Lower"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    // path は case 保持、host は小文字化
+    expect(result.sourceCandidates?.[0].url).toBe(
+      "https://example.com/Path",
+    );
+  });
+
+  it("dedup: fragment 違いだけは同一視 (fragment 除去)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://example.com/page#section-a", "A"),
+      makeWebSearchResult("https://example.com/page#section-b", "B"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].url).toBe(
+      "https://example.com/page",
+    );
+  });
+
+  it("non-dedup: query 違いは別 entry (資源 identifier として保持)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://example.com/?id=1", "A"),
+      makeWebSearchResult("https://example.com/?id=2", "B"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(2);
+  });
+
+  it("invalid URL (parse 失敗) → trim 結果を url field として保持、drop しない", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("not-a-url ", "Invalid"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].url).toBe("not-a-url");
+  });
+
+  it("empty URL (空文字 / whitespace) → 該当 item skip", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("", "EmptyA"),
+      makeWebSearchResult("   ", "WhitespaceB"),
+      makeWebSearchResult("https://example.com/ok", "OK"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].title).toBe("OK");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// canonical Citation vs SourceCandidate semantic 分離 (a1-impl-1e、CEO 凍結要件)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Citation / SourceCandidate semantic 分離 (CEO key requirement)", () => {
+  it("regression: TextBlock.citations の URL は canonical citations にのみ入る", () => {
+    const { provider } = makeProvider();
+    const textBlock: Anthropic.Messages.TextBlock = {
+      type: "text",
+      text: "本文",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: "https://text-cited.example/",
+          title: "Text Cited",
+          cited_text: "snippet",
+          encrypted_index: "idx-1",
+        },
+      ] as Anthropic.Messages.TextCitation[],
+    };
+    const message = makeMessageWithContentBlocks([textBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.citations).toHaveLength(1);
+    expect(result.citations[0].url).toBe("https://text-cited.example/");
+    // WebSearchToolResultBlock なし → sourceCandidates 空
+    expect(result.sourceCandidates).toEqual([]);
+  });
+
+  it("**CEO key**: WebSearchToolResultBlock の raw URL は canonical citations に **入らない**", () => {
+    const { provider } = makeProvider();
+    const searchBlock = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://only-in-search.example/", "Search Only"),
+    ]);
+    const message = makeMessageWithContentBlocks([searchBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // canonical citations は空 (text 引用なし)
+    expect(result.citations).toEqual([]);
+    // sourceCandidates にのみ entry
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].url).toBe(
+      "https://only-in-search.example/",
+    );
+  });
+
+  it("TextBlock.citations と WebSearchToolResultBlock が両方ある → 両 layer に分離独立、混ざらない", () => {
+    const { provider } = makeProvider();
+    const textBlock: Anthropic.Messages.TextBlock = {
+      type: "text",
+      text: "本文",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: "https://canonical.example/",
+          title: "Canonical",
+          cited_text: "snippet",
+          encrypted_index: "idx-1",
+        },
+      ] as Anthropic.Messages.TextCitation[],
+    };
+    const searchBlock = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult("https://raw-search.example/", "Raw Search"),
+    ]);
+    const message = makeMessageWithContentBlocks([textBlock, searchBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // canonical は text 引用のみ
+    expect(result.citations.map((c) => c.url)).toEqual([
+      "https://canonical.example/",
+    ]);
+    // sourceCandidates は raw search のみ
+    expect(result.sourceCandidates?.map((c) => c.url)).toEqual([
+      "https://raw-search.example/",
+    ]);
+  });
+
+  it("同一 URL が text-cited && 検索結果両方にある場合 → 両 layer に独立 entry (自然な状態)", () => {
+    const { provider } = makeProvider();
+    const sharedUrl = "https://shared.example/page";
+    const textBlock: Anthropic.Messages.TextBlock = {
+      type: "text",
+      text: "本文",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: sharedUrl,
+          title: "Shared",
+          cited_text: "snippet",
+          encrypted_index: "idx-1",
+        },
+      ] as Anthropic.Messages.TextCitation[],
+    };
+    const searchBlock = makeWebSearchToolResultBlockSuccess("tu_1", [
+      makeWebSearchResult(sharedUrl, "Shared"),
+    ]);
+    const message = makeMessageWithContentBlocks([textBlock, searchBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // canonical citations に存在
+    expect(result.citations.map((c) => c.url)).toContain(sharedUrl);
+    // sourceCandidates にも存在 (独立 entry)
+    expect(result.sourceCandidates?.map((c) => c.url)).toContain(sharedUrl);
+  });
+
+  it("backward compat: sourceCandidates が空でも citations / theaters / rawDiagnostics は影響なし", () => {
+    const { provider } = makeProvider();
+    const textBlock: Anthropic.Messages.TextBlock = {
+      type: "text",
+      text: "test response",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: "https://x.example/",
+          title: "X",
+          cited_text: "snip",
+          encrypted_index: "i",
+        },
+      ] as Anthropic.Messages.TextCitation[],
+    };
+    const message = makeMessageWithContentBlocks([textBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // sourceCandidates 空
+    expect(result.sourceCandidates).toEqual([]);
+    // 既存 field は影響なし
+    expect(result.citations).toHaveLength(1);
+    expect(result.theaters).toEqual([]);
+    expect(result.providerId).toBe("anthropic");
+    expect(result.rawDiagnostics?.tokenInput).toBe(100);
   });
 });
 

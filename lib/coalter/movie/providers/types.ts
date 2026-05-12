@@ -12,6 +12,10 @@
  *   - 既存 file (movieOrchestrator / webConnector / movieCatalog / 等) touch なし
  *   - Anthropic / OpenAI / EXA SDK import なし
  *   - env / API key 参照なし
+ *
+ * a1-impl-1e (本 PR) additive 拡張:
+ *   - `SourceCandidate` interface 追加 (canonical Citation とは別物、UI 非露出)
+ *   - `ProviderRetrievalResult.sourceCandidates?` 追加 (observability / debug 用)
  */
 
 import type { TheaterListing } from "../theaterResolver";
@@ -94,6 +98,15 @@ export interface ProviderRetrievalResult {
   theaters: readonly TheaterListing[];
   /** canonical citations (§4 で詳述) */
   citations: readonly Citation[];
+  /**
+   * search 候補 URL (a1-impl-1e、§6 で詳述、observability / debug 用)。
+   *
+   *   **canonical Citation とは別物**、UI に「出典」として表示してはならない (LLM が actually cite
+   *   していない URL を含むため)。詳細は `SourceCandidate` 型 docblock 参照。
+   *
+   *   provider が source candidate を支援しない場合 (e.g. EXA、将来) は undefined。
+   */
+  sourceCandidates?: readonly SourceCandidate[];
   /** どの provider が処理したか (diagnostics) */
   providerId: ProviderId;
   /** retrieval latency (ms) */
@@ -148,4 +161,64 @@ export interface ProviderRawDiagnostics {
   searchCallCount?: number;
   /** 推定 cost (USD cents、observability 用) */
   costEstimateCents?: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Source Candidate Schema (a1-impl-1e additive、canonical Citation と完全分離)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Source candidate (検索候補) — **canonical `Citation` とは別物の semantic layer**。
+ *
+ *   provider の web search tool が返した raw search result URL を、**LLM が text で actually
+ *   引用したか否かに関わらず** 観測用に保持する。
+ *
+ *   ⚠️ **UI に「出典」として表示してはならない**:
+ *     LLM が cite していない URL を含むため、canonical Citation (text-cited only) と混ぜると
+ *     user trust を毀損する可能性がある。UI 「公式 site で確認」link は `Citation[]` のみを使う。
+ *
+ *   主用途 (observability layer):
+ *     - **recall 評価**: 検索結果数 vs 実引用数の比較
+ *     - **debug**: 「LLM はなぜ X URL を cite しなかったか」分析
+ *     - **将来の anti-hallucination guard**: citation の URL が searchedUrls 集合に含まれない場合は
+ *       suspicious と判定する signal source (本 PR では実装しない)
+ *     - **将来の citation confidence scoring**: searched ∧ cited なら confidence boost
+ *
+ *   provider 別 mapping (実装時):
+ *     - **Anthropic**: `WebSearchToolResultBlock` 内 `WebSearchResultBlock[]` (本 PR a1-impl-1e で対応)
+ *     - **OpenAI**: 将来 (search returned URLs that didn't become `url_citation` annotations)
+ *     - **EXA**: 将来 (returned results without highlights being cited in answer)
+ *
+ *   設計上の不変条件:
+ *     - `Citation[]` (canonical) と `SourceCandidate[]` (raw) は **strict にレイヤー分離**
+ *     - 同一 URL が両 layer に存在することは許される (LLM が cite した && 検索結果に存在した、自然な状態)
+ *     - canonical citation に raw search result を「補完」混入してはならない
+ */
+export interface SourceCandidate {
+  /** 候補 URL (canonical Citation の url とは独立、UI 表示禁止) */
+  url: string;
+  /**
+   * 候補 title (null 許容、provider 別)。
+   *
+   *   Anthropic SDK の WebSearchResultBlock.title は non-null だが、provider-agnostic schema
+   *   としては null 許容で定義 (将来の OpenAI / EXA で null を返す可能性あり)。
+   */
+  title: string | null;
+  /** ページ年齢 hint (Anthropic `page_age` 等、optional) */
+  pageAge?: string | null;
+  /**
+   * provider source identifier (e.g. "web_search_20250305"、optional)。
+   *
+   *   provider 内 sub-tool の識別用 (同一 provider でも複数 search tool バージョンを混在
+   *   利用する将来運用に備える)。
+   */
+  providerSource?: string | null;
+  /**
+   * server_tool_use の `tool_use_id` (Anthropic 限定、optional)。
+   *
+   *   同一 message 内で複数 search が走った場合に、どの search invocation の result かを
+   *   trace する。debug / 将来の query 単位観測 (本 PR では query 自体は保存しない、
+   *   user 文脈含有の可能性) に使用。
+   */
+  toolUseId?: string | null;
 }
