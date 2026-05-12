@@ -1,10 +1,12 @@
 /**
- * D-2-e3-a1g anthropicProvider 単体テスト (mock-only、inference_geo observability + opt-in multiplier hook)。
+ * D-2-e3-a1h anthropicProvider 単体テスト (mock-only、pricing snapshot multi-model 化)。
  *
- * a1-impl-1f (PR #116) からの差分:
- *   - extractDiagnostics の inference_geo observability (string | null → trim 済 string or 未設定)
- *   - computeCostEstimateCents への geoMultipliers opt-in hook (default snapshot で未設定、cost 不変)
- *   - 既存テストは全て影響なし (default snapshot 不変、inference_geo null/未設定時は PR #116 と byte-equivalent)
+ * a1-impl-1g (PR #117) からの差分:
+ *   - ANTHROPIC_PRICING_2026_05_12 に Opus 4.7/4.6/4.5 / Sonnet 4.6/4.5 / Haiku 4.5 の 6 model pricing 追加
+ *   - 各 tier の pricing 値が CEO 補正値 (Anthropic 公式 2026-05-12 と一致) であることを検証
+ *   - model 切替時の cost 計算検証 (Sonnet $3 / $15 / Haiku $1 / $5)
+ *   - 未登録 model graceful fallback regression (PR #114 から継承)
+ *   - default model (claude-opus-4-7) cost は PR #116/#117 と完全同値 (backward compat)
  *
  * 検証軸 (PR #111-#115 継承 + a1-impl-1f 追加):
  *
@@ -1356,6 +1358,241 @@ describe("computeCostEstimateCents — geoMultipliers opt-in 適用 (a1-impl-1g�
     const result = provider.parseResponse(message, makeInput(), 100);
     // 3000 * 0.5 = 1500 μ¢ = 0.15 cents
     expect(result.rawDiagnostics?.costEstimateCents).toBe(0.15);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// computeCostEstimateCents — Multi-model pricing (a1-impl-1h 追加)
+//
+// ANTHROPIC_PRICING_2026_05_12 に Opus 4.7/4.6/4.5 / Sonnet 4.6/4.5 / Haiku 4.5 の
+// 6 model 全てを追加。各 tier の pricing 値を CEO 補正値 (Anthropic 公式 2026-05-12) で検証。
+// 公式 pricing 確認: https://platform.claude.com/docs/en/about-claude/pricing
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("ANTHROPIC_PRICING_2026_05_12 — multi-model pricing 値 (a1-impl-1h、CEO 補正 = 公式一致)", () => {
+  it("Opus tier (4.7 / 4.6 / 4.5) は全て同一料金 (input $5 / output $25 / cache 5m $6.25 / 1h $10 / read $0.50)", () => {
+    const opus47 = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-7"];
+    const opus46 = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-6"];
+    const opus45 = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-5"];
+    const expected = {
+      inputMicroCentsPerToken: 5,
+      outputMicroCentsPerToken: 25,
+      cacheCreate5mMicroCentsPerToken: 6.25,
+      cacheCreate1hMicroCentsPerToken: 10,
+      cacheReadMicroCentsPerToken: 0.5,
+    };
+    expect(opus47).toEqual(expected);
+    expect(opus46).toEqual(expected);
+    expect(opus45).toEqual(expected);
+  });
+
+  it("Sonnet tier (4.6 / 4.5) は全て同一料金 (input $3 / output $15 / cache 5m $3.75 / 1h $6 / read $0.30)", () => {
+    const sonnet46 = ANTHROPIC_PRICING_2026_05_12.models["claude-sonnet-4-6"];
+    const sonnet45 = ANTHROPIC_PRICING_2026_05_12.models["claude-sonnet-4-5"];
+    const expected = {
+      inputMicroCentsPerToken: 3,
+      outputMicroCentsPerToken: 15,
+      cacheCreate5mMicroCentsPerToken: 3.75,
+      cacheCreate1hMicroCentsPerToken: 6,
+      cacheReadMicroCentsPerToken: 0.3,
+    };
+    expect(sonnet46).toEqual(expected);
+    expect(sonnet45).toEqual(expected);
+  });
+
+  it("Haiku 4.5 pricing (input $1 / output $5 / cache 5m $1.25 / 1h $2 / read $0.10)", () => {
+    const haiku45 = ANTHROPIC_PRICING_2026_05_12.models["claude-haiku-4-5"];
+    expect(haiku45).toEqual({
+      inputMicroCentsPerToken: 1,
+      outputMicroCentsPerToken: 5,
+      cacheCreate5mMicroCentsPerToken: 1.25,
+      cacheCreate1hMicroCentsPerToken: 2,
+      cacheReadMicroCentsPerToken: 0.1,
+    });
+  });
+
+  it("Opus と Sonnet の input 比率は 5:3 (CEO 補正値由来、公式整合)", () => {
+    const opus = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-7"];
+    const sonnet = ANTHROPIC_PRICING_2026_05_12.models["claude-sonnet-4-6"];
+    expect(opus?.inputMicroCentsPerToken).toBe(5);
+    expect(sonnet?.inputMicroCentsPerToken).toBe(3);
+  });
+
+  it("Opus と Haiku の input 比率は 5:1 (CEO 補正値由来、公式整合)", () => {
+    const opus = ANTHROPIC_PRICING_2026_05_12.models["claude-opus-4-7"];
+    const haiku = ANTHROPIC_PRICING_2026_05_12.models["claude-haiku-4-5"];
+    expect(opus?.inputMicroCentsPerToken).toBe(5);
+    expect(haiku?.inputMicroCentsPerToken).toBe(1);
+  });
+
+  it("model 数は 6 件 (Opus 4.7/4.6/4.5 + Sonnet 4.6/4.5 + Haiku 4.5)", () => {
+    const modelIds = Object.keys(ANTHROPIC_PRICING_2026_05_12.models);
+    expect(modelIds.sort()).toEqual(
+      [
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-haiku-4-5",
+      ].sort(),
+    );
+  });
+});
+
+describe("computeCostEstimateCents — model 切替え (a1-impl-1h、各 tier の cost 計算)", () => {
+  it("default model (claude-opus-4-7) → PR #116/#117 と完全同値 (backward compat)", () => {
+    const { provider } = makeProvider();
+    // PR #114 既存テスト相当: input=250, output=120, search=2 → 2.425 cents (PR #116 で確認済)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 250,
+      output_tokens: 120,
+      server_tool_use: {
+        web_fetch_requests: 0,
+        web_search_requests: 2,
+      } as Anthropic.Messages.ServerToolUsage,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(2.425);
+  });
+
+  it("Opus 4.5 model 指定 → Opus 4.7 と同価格 (tier 共通)", () => {
+    const { provider } = makeProvider({ model: "claude-opus-4-5" });
+    // input=10000 → 10000 * 5 / 10000 = 5 cents (exact)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10_000,
+      output_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(5);
+  });
+
+  it("Opus 4.6 model 指定 → Opus 4.7 と同価格", () => {
+    const { provider } = makeProvider({ model: "claude-opus-4-6" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10_000,
+      output_tokens: 2_000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 10000*5 + 2000*25 = 50000 + 50000 = 100000 μ¢ = 10 cents (exact)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(10);
+  });
+
+  it("Sonnet 4.6 model 指定 → Sonnet tier pricing 反映 (input $3 / output $15)", () => {
+    const { provider } = makeProvider({ model: "claude-sonnet-4-6" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10_000,
+      output_tokens: 2_000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 10000*3 + 2000*15 = 30000 + 30000 = 60000 μ¢ = 6 cents (exact)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(6);
+  });
+
+  it("Sonnet 4.5 model 指定 → Sonnet 4.6 と同価格", () => {
+    const { provider } = makeProvider({ model: "claude-sonnet-4-5" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10_000,
+      output_tokens: 2_000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(6);
+  });
+
+  it("Haiku 4.5 model 指定 → Haiku tier pricing 反映 (input $1 / output $5)", () => {
+    const { provider } = makeProvider({ model: "claude-haiku-4-5" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 10_000,
+      output_tokens: 2_000,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 10000*1 + 2000*5 = 10000 + 10000 = 20000 μ¢ = 2 cents (exact)
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(2);
+  });
+
+  it("Sonnet model + cache 5m → tier 別 cache 単価 ($3.75/MTok) 反映", () => {
+    const { provider } = makeProvider({ model: "claude-sonnet-4-6" });
+    // cache_5m=4000 → 4000 * 3.75 = 15000 μ¢ = 1.5 cents (exact、3.75 = 15/4 binary-exact)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 4_000,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 4_000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1.5);
+  });
+
+  it("Haiku model + cache 5m → Haiku tier cache 単価 ($1.25/MTok) 反映", () => {
+    const { provider } = makeProvider({ model: "claude-haiku-4-5" });
+    // cache_5m=8000 → 8000 * 1.25 = 10000 μ¢ = 1 cent (exact、1.25 = 5/4 binary-exact)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 8_000,
+        ephemeral_1h_input_tokens: 0,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 8_000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(1);
+  });
+
+  it("Sonnet model + cache 1h → Sonnet tier 1h cache 単価 ($6/MTok) 反映", () => {
+    const { provider } = makeProvider({ model: "claude-sonnet-4-6" });
+    // cache_1h=5000 → 5000 * 6 = 30000 μ¢ = 3 cents (exact)
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 0,
+      output_tokens: 0,
+      cache_creation: {
+        ephemeral_5m_input_tokens: 0,
+        ephemeral_1h_input_tokens: 5_000,
+      } as Anthropic.Messages.CacheCreation,
+      cache_creation_input_tokens: 5_000,
+      cache_read_input_tokens: 0,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBe(3);
+  });
+
+  it("model 未登録 (claude-future-2099) → costEstimateCents 未設定 (graceful fallback、PR #114 regression)", () => {
+    const { provider } = makeProvider({ model: "claude-future-2099" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeUndefined();
+    // tokenInput / tokenOutput は反映される (model 不在の影響は cost のみ)
+    expect(result.rawDiagnostics?.tokenInput).toBe(100);
+    expect(result.rawDiagnostics?.tokenOutput).toBe(50);
+  });
+
+  it("model 未登録 (Opus 4 等 older、本 PR scope 外) → cost 未設定 (graceful)", () => {
+    // Opus 4 ($15 input / $75 output) は本 snapshot に未登録 → cost undefined
+    const { provider } = makeProvider({ model: "claude-opus-4" });
+    const message = makeAnthropicMessageWithCitations([], {
+      input_tokens: 100,
+      output_tokens: 50,
+      server_tool_use: null,
+    });
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.costEstimateCents).toBeUndefined();
   });
 });
 

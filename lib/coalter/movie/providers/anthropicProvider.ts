@@ -1,45 +1,51 @@
 /**
- * CoAlter D-2-e3-a1g Provider Foundation — Anthropic Provider (inference_geo observability + opt-in multiplier hook)
+ * CoAlter D-2-e3-a1h Provider Foundation — Anthropic Provider (pricing snapshot multi-model 化)
  *
- * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 1f (PR #116) → 本 phase。
+ * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 1f (PR #116) → 1g (PR #117) → 本 phase。
  *
- * 本 phase (a1-impl-1g) は PR #116 で「scope 外」と明記した **`inference_geo` を observability layer で回収**:
- *   - Anthropic `usage.inference_geo` (string | null、SDK 公開 field) を観測 → `ProviderRawDiagnostics.inferenceGeo?`
- *   - **default snapshot では cost に未反映** (PR #116 cost 値 完全互換、backward compat 維持)
- *   - 将来 region 別 multiplier (例: US-only 1.1x) を反映する余地として `AnthropicPricingSnapshot.geoMultipliers?` を opt-in hook 追加
- *   - default `ANTHROPIC_PRICING_2026_05_12` は `geoMultipliers` を定義しない → 既存 estimate 値完全不変
- *   - caller (a3 wiring 等) が公式 semantic 確定後に custom snapshot で multipliers を注入する想定
- *   - multiplier scope: token-based costs (input / output / cache_*) のみ、web search は per-request 固定なので multiplier 非適用
- *   - **billing source of truth ではない継続明示** (Anthropic invoice = authoritative)
+ * 本 phase (a1-impl-1h) は **`ANTHROPIC_PRICING_2026_05_12` を multi-model 化** (将来 a3 wiring 時の model 切替対応):
+ *   - **Opus tier** (4.7 / 4.6 / 4.5) — 全て同一料金、$5 input / $25 output (PR #116 で既存)
+ *   - **Sonnet tier** (4.6 / 4.5) — 全て同一料金、$3 input / $15 output (新規追加)
+ *   - **Haiku tier** (4.5) — $1 input / $5 output (新規追加)
+ *   - 各 tier の cache 系 (5m / 1h / read) も同様の比率で追加
+ *   - **model 未登録時の graceful fallback 維持** (PR #114 から継承、`computeCostEstimateCents` undefined return)
+ *   - **pricing snapshot は estimated only**、Anthropic invoice / billing dashboard が最終正
+ *   - **default model (`claude-opus-4-7`) の cost 値は完全不変** (既存 caller 影響なし、test 担保)
  *
- * inference_geo value semantics:
- *   - SDK は `string | null` のみ宣言、value enum (例: "us" / "eu" / "global") の公式定義なし
- *   - 本 PR は **opaque string として観測のみ**、value semantic 推測しない
- *   - null / 空文字 / whitespace のみ → "no info" として diagnostic field 未設定
+ * 公式 pricing 確認結果 (WebFetch: https://platform.claude.com/docs/en/about-claude/pricing):
+ *   - Opus 4.7 / 4.6 / 4.5: input $5 / cache 5m $6.25 / cache 1h $10 / cache read $0.50 / output $25 (全て一致)
+ *   - Sonnet 4.6 / 4.5:     input $3 / cache 5m $3.75 / cache 1h $6  / cache read $0.30 / output $15 (全て一致)
+ *   - Haiku 4.5:            input $1 / cache 5m $1.25 / cache 1h $2  / cache read $0.10 / output $5  (全て一致)
+ *   - CEO 予備値と公式 pricing が完全一致 → CEO 補正値そのまま採用
  *
- * CEO 補正 pricing (Anthropic 公式 2026-05-12 snapshot、Opus 4.7、PR #116 から不変):
- *   - input / output / cache 系 / web search は PR #116 と同値
- *   - **inference_geo multiplier は default snapshot に未設定** (公式 semantic 未確定のため)
+ * scope 外 (本 PR で未追加、必要なら caller が custom snapshot で injection):
+ *   - Opus 4 / 4.1 / Opus 3 (older、$15 input / $75 output、3x higher)
+ *   - Sonnet 3.7 / Sonnet 3 (older)
+ *   - Haiku 3.5 / Haiku 3 (older)
+ *   - Batch API 50% discount (caller-side application)
+ *   - Fast mode 6x premium (caller-side)
+ *   - `inference_geo: "us"` 1.1x multiplier — PR #117 の opt-in hook で扱う (default 未設定維持)
  *
- * 設計原則 (D-2-e3-a1g phase):
- *   - **types.ts additive 変更 OK** (新 `inferenceGeo?`、CEO 承認)
+ * 設計原則 (D-2-e3-a1h phase):
+ *   - **anthropicProvider.ts の pricing constant 拡張のみ** (logic 変更なし)
+ *   - **types.ts touch なし** (PR #117 の AnthropicPricingSnapshot interface 構造を再利用)
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
- *   - **実 API call は mock のみ** (本 file 自身は実 HTTP fetch を持たない)
+ *   - **実 API call は mock のみ**
  *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし**
- *   - **movieOrchestrator / flags / ProviderSelector wiring なし** (a3 で別 phase)
- *   - **`BudgetUsageProvider` 実装なし**
- *   - **anti-hallucination guard なし**
- *   - **Provider Capability Registry 実装なし** (CEO 補正、抽象設計先行を回避)
- *   - **costEstimateCents の既存値は不用意に変えない** (default snapshot 不変、test で担保)
+ *   - **movieOrchestrator / flags / ProviderSelector / safeProviderCall / citationNormalizer / theaterResolver touch なし**
+ *   - **`BudgetUsageProvider` 実装なし**、**anti-hallucination guard なし**
+ *   - **Provider Capability Registry 実装なし**
+ *   - **WebSearch error observability なし** (CEO 凍結事項)
+ *   - **OpenAI / EXA scaffold なし**
  *
  * 既存挙動の継承 (touch なし):
  *   - extractTheaters (PR #113) / extractCitations (PR #112) / extractSourceCandidates (PR #115)
- *   - cache-aware cost estimate (PR #116) は本 PR で multiplier hook を追加するのみ、default 適用なし
+ *   - cache-aware cost estimate (PR #116)
+ *   - inference_geo observability + opt-in geoMultipliers hook (PR #117)
  *
  * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
  *   - Alter Morning 系 file touch なし
- *   - citationNormalizer / safeProviderCall / theaterResolver touch なし
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -172,25 +178,51 @@ export interface AnthropicPricingSnapshot {
 }
 
 /**
- * Anthropic pricing as of 2026-05-12 (CEO 補正反映、a1-impl-1f で cache 系追加、a1-impl-1g で geoMultipliers hook 追加)。
+ * Anthropic pricing as of 2026-05-12 (CEO 補正反映、a1-impl-1f で cache 系追加、a1-impl-1g で geoMultipliers hook 追加、
+ * a1-impl-1h で multi-model 拡張)。
  *
  *   Source: https://platform.claude.com/docs/en/about-claude/pricing
  *
- *   Claude Opus 4.7:
- *     - input:                $5    / 1,000,000 tokens → 5    μ¢ / token
- *     - output:               $25   / 1,000,000 tokens → 25   μ¢ / token
- *     - cache create 5m TTL:  $6.25 / 1,000,000 tokens → 6.25 μ¢ / token (default tier)
- *     - cache create 1h TTL:  $10   / 1,000,000 tokens → 10   μ¢ / token
- *     - cache read:           $0.50 / 1,000,000 tokens → 0.5  μ¢ / token
+ *   **Opus tier** (Claude Opus 4.7 / 4.6 / 4.5、全て同一料金):
+ *     - input:                $5    / MTok → 5    μ¢ / token
+ *     - output:               $25   / MTok → 25   μ¢ / token
+ *     - cache create 5m TTL:  $6.25 / MTok → 6.25 μ¢ / token (default tier)
+ *     - cache create 1h TTL:  $10   / MTok → 10   μ¢ / token
+ *     - cache read:           $0.50 / MTok → 0.5  μ¢ / token
  *
- *   Web search tool:
+ *   **Sonnet tier** (Claude Sonnet 4.6 / 4.5、全て同一料金、Opus の約 60%):
+ *     - input:                $3    / MTok → 3    μ¢ / token
+ *     - output:               $15   / MTok → 15   μ¢ / token
+ *     - cache create 5m TTL:  $3.75 / MTok → 3.75 μ¢ / token
+ *     - cache create 1h TTL:  $6    / MTok → 6    μ¢ / token
+ *     - cache read:           $0.30 / MTok → 0.3  μ¢ / token
+ *
+ *   **Haiku tier** (Claude Haiku 4.5、Opus の約 20%):
+ *     - input:                $1    / MTok → 1    μ¢ / token
+ *     - output:               $5    / MTok → 5    μ¢ / token
+ *     - cache create 5m TTL:  $1.25 / MTok → 1.25 μ¢ / token
+ *     - cache create 1h TTL:  $2    / MTok → 2    μ¢ / token
+ *     - cache read:           $0.10 / MTok → 0.1  μ¢ / token
+ *
+ *   **Web search tool**:
  *     - $10 / 1,000 searches → 1¢ / search → 10,000 μ¢ / request
+ *
+ *   **scope 外 (本 snapshot に未反映)**:
+ *     - Opus 4.7 の新 tokenizer (公式 doc: up to 35% more tokens for same fixed text) → token count 変動
+ *       の影響であり、token あたり単価は本 snapshot で同値
+ *     - Opus 4 / 4.1 / Opus 3 等 older models ($15/$75 base、3x higher) → 必要なら caller が
+ *       custom snapshot で injection
+ *     - Sonnet 3.7 / Sonnet 3 / Haiku 3.5 / Haiku 3 等 older models → 同上
+ *     - Batch API 50% discount → caller 側で適用
+ *     - Fast mode 6x premium → caller 側で適用
+ *     - `inference_geo: "us"` 1.1x multiplier (Opus 4.6+ / Sonnet 4.6+ / Haiku 4.5+) → a1-impl-1g の
+ *       `geoMultipliers` hook で opt-in (default snapshot で未設定)
  *
  *   **inference_geo multiplier** (a1-impl-1g):
  *     - **default 未設定**: `geoMultipliers` を本 snapshot で定義しない。
- *     - 理由: Anthropic 公式 region 別 multiplier の semantic (US-only 1.1x 等) が SDK / docs で
- *       明示されていないため、default 適用は costEstimateCents の意味を不安定化させる。
- *     - 将来 semantic 確定後、新 date-stamped snapshot で `geoMultipliers` を定義する運用。
+ *     - 理由: 公式 doc では US-only 1.1x multiplier 記載あり (Opus 4.6+ 以降) だが、本 snapshot は
+ *       default standard / global routing 前提を維持し、caller が必要時に明示的 opt-in する設計
+ *     - 将来 default で multipliers を反映する場合は新 date-stamped snapshot で定義する運用。
  *
  *   注: 本 constant は date-stamped snapshot、Anthropic 公式 pricing 変動時は新 snapshot を追加し、
  *   caller (a3 wiring) が `AnthropicProviderOptions.pricing` で切替える運用。
@@ -199,6 +231,7 @@ export const ANTHROPIC_PRICING_2026_05_12: AnthropicPricingSnapshot = {
   snapshotDate: "2026-05-12",
   source: "https://platform.claude.com/docs/en/about-claude/pricing",
   models: {
+    // Opus tier (4.7 / 4.6 / 4.5 共通)
     "claude-opus-4-7": {
       inputMicroCentsPerToken: 5,
       outputMicroCentsPerToken: 25,
@@ -206,9 +239,46 @@ export const ANTHROPIC_PRICING_2026_05_12: AnthropicPricingSnapshot = {
       cacheCreate1hMicroCentsPerToken: 10,
       cacheReadMicroCentsPerToken: 0.5,
     },
+    "claude-opus-4-6": {
+      inputMicroCentsPerToken: 5,
+      outputMicroCentsPerToken: 25,
+      cacheCreate5mMicroCentsPerToken: 6.25,
+      cacheCreate1hMicroCentsPerToken: 10,
+      cacheReadMicroCentsPerToken: 0.5,
+    },
+    "claude-opus-4-5": {
+      inputMicroCentsPerToken: 5,
+      outputMicroCentsPerToken: 25,
+      cacheCreate5mMicroCentsPerToken: 6.25,
+      cacheCreate1hMicroCentsPerToken: 10,
+      cacheReadMicroCentsPerToken: 0.5,
+    },
+    // Sonnet tier (4.6 / 4.5 共通)
+    "claude-sonnet-4-6": {
+      inputMicroCentsPerToken: 3,
+      outputMicroCentsPerToken: 15,
+      cacheCreate5mMicroCentsPerToken: 3.75,
+      cacheCreate1hMicroCentsPerToken: 6,
+      cacheReadMicroCentsPerToken: 0.3,
+    },
+    "claude-sonnet-4-5": {
+      inputMicroCentsPerToken: 3,
+      outputMicroCentsPerToken: 15,
+      cacheCreate5mMicroCentsPerToken: 3.75,
+      cacheCreate1hMicroCentsPerToken: 6,
+      cacheReadMicroCentsPerToken: 0.3,
+    },
+    // Haiku tier (4.5)
+    "claude-haiku-4-5": {
+      inputMicroCentsPerToken: 1,
+      outputMicroCentsPerToken: 5,
+      cacheCreate5mMicroCentsPerToken: 1.25,
+      cacheCreate1hMicroCentsPerToken: 2,
+      cacheReadMicroCentsPerToken: 0.1,
+    },
   },
   webSearchMicroCentsPerRequest: 10_000,
-  // geoMultipliers は意図的に未設定 (a1-impl-1g: 公式 semantic 未確定のため default 適用なし)
+  // geoMultipliers は意図的に未設定 (a1-impl-1g: 公式 semantic 確定済だが、default standard routing 前提を維持)
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
