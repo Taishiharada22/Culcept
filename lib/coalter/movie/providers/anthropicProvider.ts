@@ -1,47 +1,41 @@
 /**
- * CoAlter D-2-e3-a1h Provider Foundation — Anthropic Provider (pricing snapshot multi-model 化)
+ * CoAlter D-2-e3-a1i Provider Foundation — Anthropic Provider (WebSearch error observability)
  *
- * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 1f (PR #116) → 1g (PR #117) → 本 phase。
+ * a1-impl-1a (PR #112) → 1b (PR #113) → 1d (PR #114) → 1e (PR #115) → 1f (PR #116) → 1g (PR #117) → 1h (PR #118) → 本 phase。
  *
- * 本 phase (a1-impl-1h) は **`ANTHROPIC_PRICING_2026_05_12` を multi-model 化** (将来 a3 wiring 時の model 切替対応):
- *   - **Opus tier** (4.7 / 4.6 / 4.5) — 全て同一料金、$5 input / $25 output (PR #116 で既存)
- *   - **Sonnet tier** (4.6 / 4.5) — 全て同一料金、$3 input / $15 output (新規追加)
- *   - **Haiku tier** (4.5) — $1 input / $5 output (新規追加)
- *   - 各 tier の cache 系 (5m / 1h / read) も同様の比率で追加
- *   - **model 未登録時の graceful fallback 維持** (PR #114 から継承、`computeCostEstimateCents` undefined return)
- *   - **pricing snapshot は estimated only**、Anthropic invoice / billing dashboard が最終正
- *   - **default model (`claude-opus-4-7`) の cost 値は完全不変** (既存 caller 影響なし、test 担保)
+ * 本 phase (a1-impl-1i) は **WebSearch tool error 観測** を provider 単体内 observability layer として追加:
+ *   - Anthropic `WebSearchToolResultBlock.content` が `WebSearchToolResultError` 型 (web_search_tool_result_error)
+ *     の場合に件数 + 最後の `error_code` を `ProviderRawDiagnostics` に記録
+ *   - `ProviderRawDiagnostics.webSearchErrorCount?` / `webSearchLastErrorCode?` を additive 追加
+ *   - **observability only** — provider は **action しない**:
+ *     - reject / retry / fallback / ProviderSelector 切替: なし
+ *     - sourceCandidates / canonical citations / extractTheaters の挙動変更: なし
+ *     - UI 表示判定: なし (caller dashboard 用)
+ *   - error がない既存 response → 既存挙動完全不変 (test 担保)
  *
- * 公式 pricing 確認結果 (WebFetch: https://platform.claude.com/docs/en/about-claude/pricing):
- *   - Opus 4.7 / 4.6 / 4.5: input $5 / cache 5m $6.25 / cache 1h $10 / cache read $0.50 / output $25 (全て一致)
- *   - Sonnet 4.6 / 4.5:     input $3 / cache 5m $3.75 / cache 1h $6  / cache read $0.30 / output $15 (全て一致)
- *   - Haiku 4.5:            input $1 / cache 5m $1.25 / cache 1h $2  / cache read $0.10 / output $5  (全て一致)
- *   - CEO 予備値と公式 pricing が完全一致 → CEO 補正値そのまま採用
+ * SDK 事前確認 (`@anthropic-ai/sdk` v0.91.1):
+ *   - `WebSearchToolResultBlockContent = WebSearchToolResultError | Array<WebSearchResultBlock>`
+ *   - `WebSearchToolResultError { error_code: WebSearchToolResultErrorCode; type: 'web_search_tool_result_error' }`
+ *   - `WebSearchToolResultErrorCode = 'invalid_tool_input' | 'unavailable' | 'max_uses_exceeded' |
+ *      'too_many_requests' | 'query_too_long' | 'request_too_large'` (6 値)
  *
- * scope 外 (本 PR で未追加、必要なら caller が custom snapshot で injection):
- *   - Opus 4 / 4.1 / Opus 3 (older、$15 input / $75 output、3x higher)
- *   - Sonnet 3.7 / Sonnet 3 (older)
- *   - Haiku 3.5 / Haiku 3 (older)
- *   - Batch API 50% discount (caller-side application)
- *   - Fast mode 6x premium (caller-side)
- *   - `inference_geo: "us"` 1.1x multiplier — PR #117 の opt-in hook で扱う (default 未設定維持)
- *
- * 設計原則 (D-2-e3-a1h phase):
- *   - **anthropicProvider.ts の pricing constant 拡張のみ** (logic 変更なし)
- *   - **types.ts touch なし** (PR #117 の AnthropicPricingSnapshot interface 構造を再利用)
+ * 設計原則 (D-2-e3-a1i phase):
+ *   - **types.ts additive 変更 OK** (`webSearchErrorCount?` / `webSearchLastErrorCode?` 追加、CEO 承認)
+ *   - **観測のみ、action なし** (Anti-Hallucination Guard / suspicious citation reject / filter とは別)
+ *   - **`extractSourceCandidates` (PR #115) の skip 挙動は完全不変** (本 phase で touch なし)
+ *   - **`extractCitations` / `extractTheaters` の挙動完全不変**
  *   - **Anthropic SDK type import OK** (`@anthropic-ai/sdk` v0.91.1 既存)
  *   - **実 API call は mock のみ**
  *   - **ANTHROPIC_API_KEY 参照なし**、**process.env 参照なし**
  *   - **movieOrchestrator / flags / ProviderSelector / safeProviderCall / citationNormalizer / theaterResolver touch なし**
- *   - **`BudgetUsageProvider` 実装なし**、**anti-hallucination guard なし**
+ *   - **`BudgetUsageProvider` 実装なし**、**Anti-Hallucination Guard 実装なし**
  *   - **Provider Capability Registry 実装なし**
- *   - **WebSearch error observability なし** (CEO 凍結事項)
  *   - **OpenAI / EXA scaffold なし**
  *
  * 既存挙動の継承 (touch なし):
  *   - extractTheaters (PR #113) / extractCitations (PR #112) / extractSourceCandidates (PR #115)
- *   - cache-aware cost estimate (PR #116)
- *   - inference_geo observability + opt-in geoMultipliers hook (PR #117)
+ *   - cache-aware cost estimate (PR #116) / inference_geo observability + opt-in geoMultipliers hook (PR #117)
+ *   - multi-model pricing snapshot (PR #118)
  *
  * 凍結線 (PR #111 §1.3 継承):
  *   - 既存 file (movieOrchestrator / flags / ProviderSelector / 等) touch なし
@@ -883,6 +877,7 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
    *   - tokenCacheCreate / tokenCacheRead (a1-impl-1f 追加、cache_*_input_tokens が non-number 時は未設定)
    *   - costEstimateCents (a1-impl-1d 追加 / a1-impl-1f cache-aware / a1-impl-1g geo multiplier opt-in)
    *   - inferenceGeo (a1-impl-1g 追加、null/空文字/whitespace 時は未設定で no-info 扱い)
+   *   - webSearchErrorCount / webSearchLastErrorCode (a1-impl-1i 追加、observability only、action なし)
    */
   private extractDiagnostics(
     message: Anthropic.Messages.Message,
@@ -919,7 +914,57 @@ export class AnthropicMovieRetrievalProvider implements MovieRetrievalProvider {
     if (costEstimate !== undefined) {
       diagnostics.costEstimateCents = costEstimate;
     }
+    // a1-impl-1i: WebSearch error observability (observability only、action なし)
+    const wsErrors = this.extractWebSearchErrors(message);
+    if (wsErrors.count > 0) {
+      diagnostics.webSearchErrorCount = wsErrors.count;
+      if (wsErrors.lastErrorCode !== null) {
+        diagnostics.webSearchLastErrorCode = wsErrors.lastErrorCode;
+      }
+    }
     return Object.keys(diagnostics).length > 0 ? diagnostics : undefined;
+  }
+
+  /**
+   * Anthropic Message 内の `WebSearchToolResultBlock` で content が **error 型**
+   * (`web_search_tool_result_error`) の block を集計 (a1-impl-1i 追加、observability only)。
+   *
+   *   - count: error block の総数 (1 message 内で複数 search 試行 + 一部失敗 case を集計)
+   *   - lastErrorCode: 最後 (iteration 順) の error_code (string) — 非 string なら null
+   *
+   *   **observability only**: 本 method は count / code を観測 **のみ**、reject / retry / fallback /
+   *   ProviderSelector 切替は **しない**。`extractSourceCandidates` (PR #115) の skip 挙動は
+   *   完全独立で維持。`extractCitations` / `extractTheaters` も touch なし。
+   *
+   *   robust 化:
+   *     - block.content が array (success path) → skip (count に含めない)
+   *     - block.content が object (error path) → count + 1、error_code を string と確認できれば lastErrorCode 更新
+   *     - block.content が malformed (なし / null) → silent skip (誤 count 回避)
+   */
+  private extractWebSearchErrors(
+    message: Anthropic.Messages.Message,
+  ): { count: number; lastErrorCode: string | null } {
+    const contentBlocks = Array.isArray(message.content) ? message.content : [];
+    let count = 0;
+    let lastErrorCode: string | null = null;
+    for (const block of contentBlocks) {
+      if (block.type !== "web_search_tool_result") continue;
+      const wsBlock = block as Anthropic.Messages.WebSearchToolResultBlock;
+      // success path: content is Array<WebSearchResultBlock> → skip (extractSourceCandidates 担当)
+      if (Array.isArray(wsBlock.content)) continue;
+      // content が object かつ error path
+      const errorContent = wsBlock.content;
+      if (!errorContent || typeof errorContent !== "object") continue;
+      count++;
+      // SDK 型は WebSearchToolResultError だが、SDK 想定外の malformed response への防御として
+      // error_code が string であることを runtime で再確認 (graceful fallback)
+      const errorContentRecord = errorContent as unknown as Record<string, unknown>;
+      const errorCode = errorContentRecord.error_code;
+      if (typeof errorCode === "string" && errorCode.length > 0) {
+        lastErrorCode = errorCode;
+      }
+    }
+    return { count, lastErrorCode };
   }
 
   /**

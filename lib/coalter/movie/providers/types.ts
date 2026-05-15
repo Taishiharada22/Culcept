@@ -188,6 +188,33 @@ export interface ProviderRawDiagnostics {
    *   null / 空文字 / whitespace のみ → 本 field は未設定 (no info としての扱い、backward compat)。
    */
   inferenceGeo?: string;
+  /**
+   * web search tool error 件数 (a1-impl-1i 追加、observability only)。
+   *
+   *   provider の web search tool 実行時に返された error block (Anthropic では
+   *   `WebSearchToolResultBlock.content` が `WebSearchToolResultError` 型) の累計件数。
+   *   1 message 内で複数 error が起きた場合は合計値。
+   *
+   *   **observability only**: 本 field を観測した時点で provider は **action しない**
+   *   (reject / retry / fallback / ProviderSelector 切替なし)。dashboard / debug 用。
+   *
+   *   web search 未使用 / 全 success の場合は undefined (no error)。
+   */
+  webSearchErrorCount?: number;
+  /**
+   * web search tool 最後に観測された error code (a1-impl-1i 追加、observability only)。
+   *
+   *   1 message 内で最後に発生した error の `error_code` (provider 別 opaque string)。
+   *   Anthropic provider の場合は `WebSearchToolResultErrorCode` enum:
+   *   `invalid_tool_input` / `unavailable` / `max_uses_exceeded` / `too_many_requests` /
+   *   `query_too_long` / `request_too_large`。
+   *
+   *   **observability only**: 値の解釈や retry 判定は caller (a3 wiring 等) の責務、
+   *   本 provider 内では action しない。
+   *
+   *   error 未発生 / `error_code` 非 string → undefined。
+   */
+  webSearchLastErrorCode?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
