@@ -10,6 +10,10 @@
  */
 
 import type { EmotionTag } from "./emotion/types";
+// [Gap 4 D4] Client receive only — additive optional field on CoAlterOutput.
+//   - server (D3) で route が optional に返す observation field
+//   - client (D4) で type-safe に受領可能、UI / Pattern activation なし
+import type { Gap4RouteObservationField } from "./presence/contextDetectionMode";
 
 // ─────────────────────────────────────────────
 // Session & State
@@ -1294,6 +1298,17 @@ export interface CoAlterOutput {
    *     欠落させ、default 値を意味ある信号と誤読させない
    */
   stage1?: Stage1Snapshot;
+  /**
+   * [Gap 4 D3 (server, PR #141)] Route observation field (additive、default OFF).
+   * [Gap 4 D4 (client, PR #142)] Type-only addition、client が type-safe に受領可。
+   *
+   *   - 既定 OFF: `COALTER_GAP4_OBSERVATION_MODE` 未設定 / "off" で field 欠落
+   *   - ON: server が contextDetector D2 を走らせて結果を付与 (additive)
+   *   - **本 D4 PR では UI 表示 / Pattern activation / state mutation なし**
+   *   - 受領は lib/coalter/presence/clientObservationReceive.ts の pure helper 経由
+   *   - activation は server / client 二重 gate で必ず false (D7 で扱う)
+   */
+  gap4ContextObservation?: Gap4RouteObservationField;
 }
 
 // ─────────────────────────────────────────────
