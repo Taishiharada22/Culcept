@@ -151,13 +151,27 @@ export type TravelConstraintConflictReasonCode =
 // ─────────────────────────────────────────────
 
 /**
- * "What would make this feasible" suggestion code:
+ * "What would make this feasible" suggestion code.
  *
- *   - relax_*_one_step: enum 段階で 1 step 緩和 (人間超越 Idea M)
+ * **重要 (CEO 2026-05-15 補正、red-line policy)**:
+ *   - red-line / veto constraint は **automatic relaxation 不可** (user/pair が明示した
+ *     hard block であり、AI が「緩めれば成立」と提案する対象ではない)
+ *   - red-line 候補の relaxation suggestion は `requires_explicit_red_line_revision`
+ *     または `no_relaxation_possible_due_to_red_line` を返す (説明のみ、runtime
+ *     action ではない)
+ *   - changing red-line requires explicit future user revision (本 PR では runtime
+ *     action ではなく reason code / note に留める)
+ *
+ * Suggestion code 4 種:
+ *   - relax_*_one_step: enum 段階で 1 step 緩和 (人間超越 Idea M、non-red-line only)
  *   - shift_to_*: 別 seed に shift
  *   - accept_*: warning を受容
- *   - relax_red_line_*: red_line を緩和 (caller hint 必要、警告付き)
- *   - no_relaxation_possible: 全制約 red_line または不可
+ *   - red-line family (緩和ではなく説明のみ、minimalRelaxationSet から除外):
+ *     - `red_line_not_relaxable`: red-line constraint marker
+ *     - `requires_explicit_red_line_revision`: explicit user revision 必要
+ *     - `blocked_by_red_line`: red-line で block されている (他制約を緩めても解決せず)
+ *     - `no_relaxation_possible_due_to_red_line`: red-line で完全不可
+ *   - no_relaxation_possible: 緩和不可一般 (sentinel)
  */
 export type TravelConstraintRelaxationCode =
   | "relax_budget_one_step"
@@ -170,10 +184,10 @@ export type TravelConstraintRelaxationCode =
   | "accept_weather_risk"
   | "accept_pair_split"
   | "accept_pareto_dominated"
-  | "relax_red_line_no_long_drive"
-  | "relax_red_line_no_long_transit"
-  | "relax_red_line_max_budget"
-  | "relax_red_line_max_fatigue"
+  | "red_line_not_relaxable"
+  | "requires_explicit_red_line_revision"
+  | "blocked_by_red_line"
+  | "no_relaxation_possible_due_to_red_line"
   | "no_relaxation_possible";
 
 // ─────────────────────────────────────────────
@@ -270,7 +284,7 @@ export type TravelConstraintReasonCode =
   | "all_hard_blocked"
   | "partial_resolved"
   | "soft_warnings_present"
-  | "minimal_relaxation_computed"
+  | "greedy_relaxation_candidate_set_computed"
   | "conflict_graph_built"
   | "cascade_high_detected"
   | "cascade_medium_detected"
@@ -285,7 +299,10 @@ export type TravelConstraintReasonCode =
   | "tradeoff_compatibility_computed"
   | "conflict_heatmap_built"
   | "constraint_genealogy_tagged"
-  | "feasibility_delta_computed";
+  | "feasibility_delta_computed"
+  | "red_line_marked_non_relaxable"
+  | "requires_explicit_red_line_revision_present"
+  | "relaxation_set_is_heuristic_not_globally_minimal";
 
 // ─────────────────────────────────────────────
 // enum: missing input (progressive narrowing 用)
@@ -333,13 +350,36 @@ export interface TravelSoftWarningEntry {
 }
 
 // ─────────────────────────────────────────────
-// Minimal relaxation set (人間超越 Idea B、greedy)
+// Minimal relaxation set (人間超越 Idea B、greedy heuristic)
 // ─────────────────────────────────────────────
 
+/**
+ * **Greedy minimal relaxation candidate set** (heuristic、not guaranteed globally minimal).
+ *
+ * **CEO 2026-05-15 補正**:
+ *   - 本 set は **greedy heuristic** であり、mathematically minimal ではない
+ *   - 結果は **deterministic and explainable** だが globally minimal は保証されない
+ *   - 利用者は "greedy minimal relaxation candidate set" として扱うべき
+ *
+ * **Red-line policy**:
+ *   - red-line / veto constraint は **本 set に含めない** (automatic relaxation 不可)
+ *   - red-line で block された候補が残る場合、relaxationCodes に
+ *     `red_line_not_relaxable` marker が追加される (説明のみ、runtime action ではない)
+ */
 export interface TravelMinimalRelaxationSet {
-  /** Greedy で選ばれた relaxation codes (重複なし、deterministic sort) */
+  /**
+   * Greedy で選ばれた relaxation codes (重複なし、deterministic lexicographic sort).
+   *
+   * red-line family (red_line_not_relaxable / requires_explicit_red_line_revision /
+   * blocked_by_red_line / no_relaxation_possible_due_to_red_line) は marker のみで
+   * automatic relaxation 候補ではない。
+   */
   relaxationCodes: TravelConstraintRelaxationCode[];
-  /** Estimated unblocked count (この relaxation で unblock される候補数) */
+  /**
+   * Estimated unblocked count (この relaxation で unblock される候補数).
+   *
+   * red-line で残る hardBlock は count に含めない。
+   */
   estimatedUnblockedCount: number;
   /** Cascade level (relaxation で何候補影響するか) */
   cascade: TravelConstraintCascadeLevel;
@@ -640,16 +680,22 @@ function conflictReasonToAffectedAxes(
 // Helper: relaxation suggestion derive from conflict reason
 // ─────────────────────────────────────────────
 
+/**
+ * Conflict reason → relaxation suggestion code mapping (pure).
+ *
+ * **CEO 2026-05-15 補正 (red-line policy)**:
+ *   - red-line / veto conflict は **automatic relaxation 不可**
+ *   - red_line_* reasons → `requires_explicit_red_line_revision` または
+ *     `no_relaxation_possible_due_to_red_line` (説明のみ)
+ *   - これらは `computeMinimalRelaxationSet` から除外される (skip target)
+ */
 function deriveRelaxationSuggestion(
   reason: TravelConstraintConflictReasonCode,
 ): TravelConstraintRelaxationCode {
+  // Non-red-line relaxable constraints
   if (reason === "budget_over_band") return "relax_budget_one_step";
-  if (reason === "red_line_max_budget") return "relax_red_line_max_budget";
   if (reason === "fatigue_over_ceiling") return "relax_fatigue_one_step";
-  if (reason === "red_line_max_fatigue") return "relax_red_line_max_fatigue";
   if (reason === "transit_extreme") return "relax_transit_one_step";
-  if (reason === "red_line_no_long_drive") return "relax_red_line_no_long_drive";
-  if (reason === "red_line_no_long_transit") return "relax_red_line_no_long_transit";
   if (reason === "cognitive_load_ceiling_exceeded") return "relax_anchor_density";
   if (reason === "anchor_overloaded") return "relax_anchor_density";
   if (reason === "anchor_underloaded") return "shift_to_different_destination";
@@ -660,7 +706,15 @@ function deriveRelaxationSuggestion(
   if (reason === "dominated_in_pareto") return "accept_pareto_dominated";
   if (reason === "missing_lodging_seed") return "shift_to_different_lodging";
   if (reason === "missing_destination_seed") return "shift_to_different_destination";
-  if (reason === "red_line_no_overseas") return "no_relaxation_possible";
+
+  // Red-line / veto constraints — **non-relaxable by default** (CEO 2026-05-15)
+  // automatic relaxation 不可。説明のみ、runtime action ではない。
+  if (reason === "red_line_no_overseas") return "no_relaxation_possible_due_to_red_line";
+  if (reason === "red_line_no_long_drive") return "requires_explicit_red_line_revision";
+  if (reason === "red_line_no_long_transit") return "requires_explicit_red_line_revision";
+  if (reason === "red_line_max_budget") return "requires_explicit_red_line_revision";
+  if (reason === "red_line_max_fatigue") return "requires_explicit_red_line_revision";
+
   return "no_relaxation_possible";
 }
 
@@ -733,15 +787,56 @@ function deriveCascadeLevel(
 // ─────────────────────────────────────────────
 
 /**
- * Greedy set cover: 全 hardBlock を unblock する最小 relaxation set を計算.
+ * Skip-list: red-line / veto / sentinel relaxation codes.
  *
- * Approach:
- *   1. relaxationCode 別に該当 hardBlock 数を集計
- *   2. 最大 hardBlock を cover する relaxation を greedy で 1 つ選ぶ
- *   3. その hardBlock を集合から外す
- *   4. 残 hardBlock があれば step 1 へ
+ * これらは **automatic relaxation 候補に含めない** (CEO 2026-05-15 補正):
+ *   - red_line_not_relaxable / requires_explicit_red_line_revision /
+ *     blocked_by_red_line / no_relaxation_possible_due_to_red_line:
+ *     red-line / veto は AI が緩めて良い対象ではない
+ *   - no_relaxation_possible: sentinel (cover 不可)
  *
- * Deterministic: relaxation code lexicographic で tie-break.
+ * → これらの code を suggestion に持つ hardBlock は cover されない (block 継続)。
+ */
+const RED_LINE_OR_NON_RELAXABLE_CODES: ReadonlySet<TravelConstraintRelaxationCode> = new Set([
+  "red_line_not_relaxable",
+  "requires_explicit_red_line_revision",
+  "blocked_by_red_line",
+  "no_relaxation_possible_due_to_red_line",
+  "no_relaxation_possible",
+]);
+
+/**
+ * **Greedy minimal relaxation candidate set** computation (pure、heuristic).
+ *
+ * **重要 (CEO 2026-05-15 補正)**:
+ *   - 本関数は **greedy heuristic** であり、**mathematically minimal** ではない
+ *   - 結果は **deterministic and explainable** だが **not guaranteed globally minimal**
+ *   - 出力は "greedy minimal relaxation candidate set" として扱うべき
+ *
+ * **Red-line policy (CEO 2026-05-15)**:
+ *   - red-line / veto constraint は **automatic relaxation 候補に含めない**
+ *   - red_line_* / no_relaxation_possible_due_to_red_line / requires_explicit_red_line_revision /
+ *     blocked_by_red_line を持つ hardBlock は cover されない (block 継続)
+ *   - red-line を変えられるのは将来 user が明示的に red-line 自体を再設定した場合のみ
+ *
+ * Greedy approach:
+ *   1. 各 hardBlock の relaxationSuggestionCode が red-line family 以外なら集計対象
+ *   2. relaxationCode 別に cover する hardBlock 数を集計
+ *   3. 最大 cover を greedy で 1 つ選ぶ (deterministic: count desc → code lexicographic)
+ *   4. 該当 hardBlock を集合から外す
+ *   5. 残 hardBlock があれば step 2 へ (cover 可能な relaxation がなければ終了)
+ *   6. red-line で残った hardBlock が存在すれば red_line_marked_non_relaxable を含む
+ *
+ * Deterministic: relaxation code lexicographic で tie-break、最終 result も sort。
+ *
+ * **本結果が globally minimal でない例**:
+ *   - hardBlock = { A→{relax_X, relax_Y}, B→{relax_X}, C→{relax_Y} } (各 block が
+ *     複数 relaxation で cover 可能なら、最小 set は {X,Y} だが、greedy は count
+ *     優先で 1 つ目を選ぶため non-minimal の可能性がある)
+ *
+ *   本実装では各 hardBlock は relaxationSuggestionCode を 1 つだけ持つ設計
+ *   (deriveRelaxationSuggestion で単一 code) のため、実用上は globally minimal に
+ *   近い結果になるが、設計上は heuristic と扱う。
  */
 function computeMinimalRelaxationSet(
   hardBlocks: TravelHardBlockEntry[],
@@ -756,19 +851,24 @@ function computeMinimalRelaxationSet(
 
   const remainingBlocks = hardBlocks.slice();
   const selectedRelaxations: TravelConstraintRelaxationCode[] = [];
+  let redLineBlocksRemain = false;
 
   while (remainingBlocks.length > 0) {
     // 各 relaxation code が cover する hardBlock 数を集計
+    // (red-line family / sentinel は skip)
     const coverage = new Map<TravelConstraintRelaxationCode, number>();
     for (const block of remainingBlocks) {
       const r = block.relaxationSuggestionCode;
-      if (r === undefined || r === "no_relaxation_possible") continue;
+      if (r === undefined) continue;
+      if (RED_LINE_OR_NON_RELAXABLE_CODES.has(r)) {
+        redLineBlocksRemain = true;
+        continue;
+      }
       coverage.set(r, (coverage.get(r) ?? 0) + 1);
     }
 
     if (coverage.size === 0) {
       // 緩和不可な hardBlock のみ残る
-      selectedRelaxations.push("no_relaxation_possible");
       break;
     }
 
@@ -798,16 +898,31 @@ function computeMinimalRelaxationSet(
     if (remainingBlocks.length === beforeLen) break; // safety
   }
 
+  // red-line で残った hardBlock があれば marker を追加 (説明用、relaxation ではない)
+  if (redLineBlocksRemain) {
+    selectedRelaxations.push("red_line_not_relaxable");
+  }
+
+  // 全 hardBlock が緩和不可で 1 つも選ばれなかった場合
+  if (selectedRelaxations.length === 0 && remainingBlocks.length > 0) {
+    selectedRelaxations.push("no_relaxation_possible");
+  }
+
   // sort relaxation codes deterministically
   selectedRelaxations.sort((a, b) => a.localeCompare(b));
 
+  // red-line marker は estimatedUnblockedCount に含めない
+  const nonRedLineCovered = selectedRelaxations.filter(
+    (r) => !RED_LINE_OR_NON_RELAXABLE_CODES.has(r),
+  );
   const unblocked = hardBlocks.length - remainingBlocks.length;
+  const trueUnblocked = nonRedLineCovered.length > 0 ? unblocked : 0;
 
   return {
     relaxationCodes: selectedRelaxations,
-    estimatedUnblockedCount: unblocked,
+    estimatedUnblockedCount: trueUnblocked,
     cascade: deriveCascadeLevel(
-      unblocked,
+      trueUnblocked,
       PROVISIONAL_CASCADE_HIGH_THRESHOLD,
       PROVISIONAL_CASCADE_MEDIUM_THRESHOLD,
     ),
@@ -1184,10 +1299,27 @@ export function resolveTravelConstraints(
     });
   }
 
-  // 10. minimal relaxation set (greedy)
+  // 10. greedy minimal relaxation candidate set (heuristic、CEO 2026-05-15 補正)
   const minimalRelaxationSet = computeMinimalRelaxationSet(hardBlocks);
   if (hardBlocks.length > 0) {
-    reasonCodes.push("minimal_relaxation_computed");
+    reasonCodes.push("greedy_relaxation_candidate_set_computed");
+    // 本結果は heuristic であり globally minimal は保証されない (明示)
+    reasonCodes.push("relaxation_set_is_heuristic_not_globally_minimal");
+  }
+  // red-line family が hardBlocks に存在すれば marker reason 追加
+  if (minimalRelaxationSet.relaxationCodes.includes("red_line_not_relaxable")) {
+    reasonCodes.push("red_line_marked_non_relaxable");
+  }
+  // hardBlocks 内に requires_explicit_red_line_revision suggestion を持つ block が
+  // あれば reason 追加 (greedy set からは除外されているが、説明用 reason は立てる)
+  const hasExplicitRedLineRevision = hardBlocks.some(
+    (h) => h.relaxationSuggestionCode === "requires_explicit_red_line_revision",
+  );
+  if (hasExplicitRedLineRevision) {
+    reasonCodes.push("requires_explicit_red_line_revision_present");
+    if (!reasonCodes.includes("red_line_marked_non_relaxable")) {
+      reasonCodes.push("red_line_marked_non_relaxable");
+    }
   }
 
   // 11. feasibility delta (1-step relaxation)

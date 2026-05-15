@@ -320,8 +320,8 @@ describe("resolveTravelConstraints — transit hard conflict", () => {
 // Test 6: red-line hard block
 // ─────────────────────────────────────────────
 
-describe("resolveTravelConstraints — red-line hard block", () => {
-  it("T3 blocked red_line_violation (no_long_drive) → relax_red_line_no_long_drive", () => {
+describe("resolveTravelConstraints — red-line hard block (non-relaxable)", () => {
+  it("T3 blocked red_line_violation (no_long_drive) → requires_explicit_red_line_revision (NOT auto-relaxable)", () => {
     const blocked: TravelBlockedItineraryCandidate = {
       candidateId: "c1",
       blockedReasonCode: "red_line_violation",
@@ -332,8 +332,9 @@ describe("resolveTravelConstraints — red-line hard block", () => {
     );
     const hb = out.hardBlocks[0];
     expect(hb.blockReasonCode).toBe("red_line_violation" satisfies TravelConstraintHardBlockCode);
+    // CEO 2026-05-15: red-line は automatic relaxation 対象ではない
     expect(hb.relaxationSuggestionCode).toBe(
-      "relax_red_line_no_long_drive" satisfies TravelConstraintRelaxationCode,
+      "requires_explicit_red_line_revision" satisfies TravelConstraintRelaxationCode,
     );
   });
 
@@ -471,7 +472,7 @@ describe("resolveTravelConstraints — minimal relaxation set (greedy)", () => {
     expect(out.minimalRelaxationSet.cascade).toBe("none");
   });
 
-  it("no_relaxation_possible (海外 red_line) → no_relaxation_possible reason", () => {
+  it("no_overseas red_line → red_line_not_relaxable marker (CEO 2026-05-15、NOT auto-relaxable)", () => {
     const blocked: TravelBlockedItineraryCandidate = {
       candidateId: "c1",
       blockedReasonCode: "red_line_violation",
@@ -480,11 +481,180 @@ describe("resolveTravelConstraints — minimal relaxation set (greedy)", () => {
     const out = resolveTravelConstraints(
       makeInput(undefined, { blockedCandidates: [blocked], rankedCandidates: [] }, { rankedCandidates: [] }),
     );
-    // no_overseas は no_relaxation_possible
+    // CEO 2026-05-15: red-line は automatic relaxation 候補に含めない
+    // → red_line_not_relaxable marker のみ relaxationCodes に追加
     expect(out.minimalRelaxationSet.relaxationCodes).toContain(
-      "no_relaxation_possible" satisfies TravelConstraintRelaxationCode,
+      "red_line_not_relaxable" satisfies TravelConstraintRelaxationCode,
     );
-    expect(out.reasonCodes).toContain("no_relaxation_possible" satisfies TravelConstraintReasonCode);
+    expect(out.reasonCodes).toContain(
+      "red_line_marked_non_relaxable" satisfies TravelConstraintReasonCode,
+    );
+    // estimatedUnblockedCount は 0 (red-line は unblock しない)
+    expect(out.minimalRelaxationSet.estimatedUnblockedCount).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────
+// Test 10b: red-line policy verification (CEO 2026-05-15 補正、6 sub-tests)
+// ─────────────────────────────────────────────
+
+describe("resolveTravelConstraints — red-line policy (CEO 2026-05-15、non-relaxable)", () => {
+  it("red-line conflict は hardBlock になる (severity=red_line)", () => {
+    const blocked: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_long_drive_violation",
+    };
+    const out = resolveTravelConstraints(
+      makeInput(undefined, { blockedCandidates: [blocked], rankedCandidates: [] }, { rankedCandidates: [] }),
+    );
+    expect(out.hardBlocks.length).toBeGreaterThan(0);
+    const conflictNode = out.conflictGraph.find((n) => n.severity === "red_line");
+    expect(conflictNode).toBeDefined();
+  });
+
+  it("red-line conflict は minimalRelaxationSet automatic candidates に入らない (marker のみ)", () => {
+    const blocked: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_long_drive_violation",
+    };
+    const out = resolveTravelConstraints(
+      makeInput(undefined, { blockedCandidates: [blocked], rankedCandidates: [] }, { rankedCandidates: [] }),
+    );
+    // requires_explicit_red_line_revision は automatic 緩和 set に入らない
+    expect(out.minimalRelaxationSet.relaxationCodes).not.toContain(
+      "requires_explicit_red_line_revision" satisfies TravelConstraintRelaxationCode,
+    );
+    // marker のみ追加される
+    expect(out.minimalRelaxationSet.relaxationCodes).toContain(
+      "red_line_not_relaxable" satisfies TravelConstraintRelaxationCode,
+    );
+    // automatic relaxable codes (relax_budget_one_step 等) は含まれない
+    expect(out.minimalRelaxationSet.relaxationCodes).not.toContain(
+      "relax_budget_one_step" satisfies TravelConstraintRelaxationCode,
+    );
+  });
+
+  it("red-line + budget conflict → budget relaxation だけでは feasible にならない (red-line block 継続)", () => {
+    const blocked1: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_long_drive_violation",
+    };
+    const blocked2: TravelBlockedItineraryCandidate = {
+      candidateId: "c2",
+      blockedReasonCode: "budget_over_band",
+    };
+    const out = resolveTravelConstraints(
+      makeInput(
+        undefined,
+        { blockedCandidates: [blocked1, blocked2], rankedCandidates: [] },
+        { rankedCandidates: [] },
+      ),
+    );
+    // budget relaxation は c2 のみ unblock、c1 (red-line) は残る
+    expect(out.minimalRelaxationSet.estimatedUnblockedCount).toBe(1);
+    // red_line_not_relaxable marker 追加
+    expect(out.minimalRelaxationSet.relaxationCodes).toContain(
+      "red_line_not_relaxable" satisfies TravelConstraintRelaxationCode,
+    );
+    // budget relaxation は automatic set に含まれる
+    expect(out.minimalRelaxationSet.relaxationCodes).toContain(
+      "relax_budget_one_step" satisfies TravelConstraintRelaxationCode,
+    );
+  });
+
+  it("red-line conflict reason → requires_explicit_red_line_revision または no_relaxation_possible_due_to_red_line", () => {
+    const blocked1: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_long_drive_violation",
+    };
+    const blocked2: TravelBlockedItineraryCandidate = {
+      candidateId: "c2",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_overseas_violation",
+    };
+    const out = resolveTravelConstraints(
+      makeInput(
+        undefined,
+        { blockedCandidates: [blocked1, blocked2], rankedCandidates: [] },
+        { rankedCandidates: [] },
+      ),
+    );
+    // 各 hardBlock の suggestion は requires_explicit_red_line_revision または
+    // no_relaxation_possible_due_to_red_line
+    for (const hb of out.hardBlocks) {
+      expect([
+        "requires_explicit_red_line_revision",
+        "no_relaxation_possible_due_to_red_line",
+      ]).toContain(hb.relaxationSuggestionCode);
+    }
+    // reason に requires_explicit_red_line_revision_present 含む
+    expect(out.reasonCodes).toContain(
+      "requires_explicit_red_line_revision_present" satisfies TravelConstraintReasonCode,
+    );
+  });
+
+  it("red-line reasonCodes に raw text / PII が入らない (構造的検証)", () => {
+    const blocked: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_overseas_violation",
+    };
+    const out = resolveTravelConstraints({
+      ...makeInput(undefined, { blockedCandidates: [blocked], rankedCandidates: [] }, { rankedCandidates: [] }),
+      redLineCodes: ["potentially-pii-suspicious-string-not-allowed"],
+    });
+    // reasonCodes / minimalRelaxationSet には raw text 含まれない (enum only)
+    for (const code of out.reasonCodes) {
+      expect(code).toMatch(/^[a-z_]+$/);
+      expect(code).not.toContain("pii");
+      expect(code).not.toContain("suspicious");
+    }
+    for (const code of out.minimalRelaxationSet.relaxationCodes) {
+      expect(code).toMatch(/^[a-z_]+$/);
+      expect(code).not.toContain("pii");
+    }
+    for (const hb of out.hardBlocks) {
+      expect(hb.blockReasonCode).toMatch(/^[a-z_]+$/);
+      if (hb.relaxationSuggestionCode !== undefined) {
+        expect(hb.relaxationSuggestionCode).toMatch(/^[a-z_]+$/);
+      }
+    }
+  });
+
+  it("red-line + non-red-line mixed → deterministic order 維持 + greedy heuristic 明示", () => {
+    const blocked1: TravelBlockedItineraryCandidate = {
+      candidateId: "c1",
+      blockedReasonCode: "red_line_violation",
+      detailCode: "no_long_drive_violation",
+    };
+    const blocked2: TravelBlockedItineraryCandidate = {
+      candidateId: "c2",
+      blockedReasonCode: "budget_over_band",
+    };
+    const input = makeInput(
+      undefined,
+      { blockedCandidates: [blocked1, blocked2], rankedCandidates: [] },
+      { rankedCandidates: [] },
+    );
+    // 100 回連続呼出で完全同一 output
+    const baseline = JSON.stringify(resolveTravelConstraints(input));
+    for (let i = 0; i < 100; i++) {
+      expect(JSON.stringify(resolveTravelConstraints(input))).toBe(baseline);
+    }
+    // greedy heuristic 明示 reason
+    const out = resolveTravelConstraints(input);
+    expect(out.reasonCodes).toContain(
+      "relaxation_set_is_heuristic_not_globally_minimal" satisfies TravelConstraintReasonCode,
+    );
+    // relaxation codes は lexicographic sort
+    const sorted = [...out.minimalRelaxationSet.relaxationCodes].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    expect(out.minimalRelaxationSet.relaxationCodes).toEqual(sorted);
   });
 });
 
