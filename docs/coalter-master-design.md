@@ -945,10 +945,17 @@ PR #128 Batch-B で 3 audit 完了:
 
 | status | 件数 | 主な領域 |
 |---|---|---|
-| ✅ implemented | 5 | Phase 1 decision / Phase 2 3-mode (凍結) / Layout L4-l (PR #95) / Step C Bug-1 / Step B M0 / PR #102 scaffold |
-| 📋 design completion | 7 | 3-Axes Orthogonal / Travel domain / Activity domain / Daily Dispatch / Gap 4 / Cross-PR flag consolidation / Step E generalization |
-| ⚠ proposal | 多数 (各 design 内の claude 推奨案) | Alt B+C / Travel-β / Alt D Hybrid 等 |
-| 🔵 frozen | 2 | Phase 3 reflect / D-2-e3-a 内部 (a1-impl-1c/2/3, a2, a3, a4) |
-| ❌ not implemented / future | 3 | Phase 4 / 海外旅行 / API 予約連携 / Activity half-day 以上 等 |
+| ✅ implemented (production reach 済 / production-grade) | 5 | Phase 1 decision (production deploy 済) / Phase 2 3-mode body 完了 + 凍結 (CEO 6.D 合格 2026-04-19) / Layout L4-l (PR #95、2026-05-10、3 旗 ON 反映) / Step C Bug-1 (CEO Option α 2026-05-11) / Step B M0 Stage 1 Understand |
+| ✅ implemented (code merged、production reach 0 / dormant) | 2 | PR #102 scaffold (D-1〜D-2-e2、code in main、`movieCuratorLiveEnabled` + `threeStageEnabled` 両方 default OFF、production behavior 0 変化) / PR #110-#119 provider foundation (a0 + a1-impl-1a〜1i、code in main、mock-only、real API 接続なし、a3 wiring 未) |
+| 📋 design completion (claude 推奨整理結果、CEO 採用判断待ち、impl 未) | 7 | 3-Axes Orthogonal / Travel domain (1-2 泊国内 MVP) / Activity domain (7 軸 Taxonomy) / Daily × Domain Dispatch (Alt D Hybrid) / Gap 4 (Alt 5 Hybrid) / Cross-PR Flag Consolidation (Alt B+C) / Step E 5 domain generalization |
+| ⚠ proposal (claude 推奨、CEO 採用判断待ち) | 多数 (各 design 内の claude 推奨案、別途 CEO 採用判断必要) | Alt B+C ハイブリッド / Travel-β / Alt D Hybrid / Alt 5 Hybrid / 5 段階 Step A-E rollout 順序 等 |
+| 🔵 frozen (CEO 判断による解除待ち) | 2 | Phase 3 reflect / D-2-e3-a 内部 (a1-impl-1c / 2 / 3, a2, a3, a4) |
+| ❌ not implemented / future (本 v1.2 範囲外) | 3 | Phase 4 (関係性インテリジェンス) / 海外旅行 / API 予約連携 / Activity half-day 以上 等 |
 
-→ v1.2 = **CoAlter 設計の中間 snapshot**、implementation completion は別 phase。
+**重要 (CEO 2026-05-15 補正再確認、誤読防止)**:
+
+- ✅ implemented でも「production reach 済」と「code merged but production reach 0 (dormant)」は **異なる状態**。本集計で 2 行に分離 (上 2 行)。
+- 📋 design completion / ⚠ proposal の各項目 (Travel runtime / Activity runtime / Daily × Domain dispatch runtime / Gap 4 detector runtime / Step E 5-domain rollout / Mode enum implementation) は **全て runtime 未実装**。「CEO 採用済み」「実装方針確定」と読まれないよう、それぞれ「claude 推奨整理結果、CEO 採用判断待ち、impl 未」と明示。
+- v1.2 merge = Master Design v1.2 の **正本化**、各 📋 / ⚠ 項目の CEO 採用判断 / runtime impl は **別 PR / 別判断**。
+
+→ v1.2 = **CoAlter 設計の中間 snapshot**、implementation completion は別 phase。**proposal レベルの設計案 (Alt B+C / Travel-β / Alt D Hybrid / Alt 5 Hybrid 等) は CEO 採用判断待ち**、v1.2 merge で「採用済み」とはならない。
