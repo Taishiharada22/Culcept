@@ -1,12 +1,12 @@
 /**
- * D-2-e3-a1h anthropicProvider 単体テスト (mock-only、pricing snapshot multi-model 化)。
+ * D-2-e3-a1i anthropicProvider 単体テスト (mock-only、WebSearch error observability)。
  *
- * a1-impl-1g (PR #117) からの差分:
- *   - ANTHROPIC_PRICING_2026_05_12 に Opus 4.7/4.6/4.5 / Sonnet 4.6/4.5 / Haiku 4.5 の 6 model pricing 追加
- *   - 各 tier の pricing 値が CEO 補正値 (Anthropic 公式 2026-05-12 と一致) であることを検証
- *   - model 切替時の cost 計算検証 (Sonnet $3 / $15 / Haiku $1 / $5)
- *   - 未登録 model graceful fallback regression (PR #114 から継承)
- *   - default model (claude-opus-4-7) cost は PR #116/#117 と完全同値 (backward compat)
+ * a1-impl-1h (PR #118) からの差分:
+ *   - extractDiagnostics に WebSearchToolResultError 観測追加 (count + last error_code)
+ *   - **observability only** — provider は action しない (reject / retry / fallback / ProviderSelector 切替なし)
+ *   - extractSourceCandidates (PR #115) の skip 挙動は完全独立で維持
+ *   - canonical citations / extractTheaters は touch なし
+ *   - error がない既存 response → 既存挙動完全不変 (test 担保)
  *
  * 検証軸 (PR #111-#115 継承 + a1-impl-1f 追加):
  *
@@ -1593,6 +1593,275 @@ describe("computeCostEstimateCents — model 切替え (a1-impl-1h、各 tier �
     });
     const result = provider.parseResponse(message, makeInput(), 100);
     expect(result.rawDiagnostics?.costEstimateCents).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// extractDiagnostics — WebSearch error observability (a1-impl-1i 追加)
+//
+// `WebSearchToolResultBlock.content` が `WebSearchToolResultError` 型 (web_search_tool_result_error)
+// の場合に件数 + 最後の error_code を `ProviderRawDiagnostics` に記録。
+//
+// **observability only** — provider は action しない (reject / retry / fallback / ProviderSelector
+// 切替なし)。`extractSourceCandidates` (PR #115) の skip 挙動は完全独立で維持。
+//
+// SDK enum (`@anthropic-ai/sdk` v0.91.1):
+//   WebSearchToolResultErrorCode = 'invalid_tool_input' | 'unavailable' | 'max_uses_exceeded' |
+//                                  'too_many_requests' | 'query_too_long' | 'request_too_large'
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("extractDiagnostics — WebSearch error observability (a1-impl-1i)", () => {
+  it("error block 1 件 (unavailable) → webSearchErrorCount = 1, webSearchLastErrorCode = 'unavailable'", () => {
+    const { provider } = makeProvider();
+    const errorBlock: Anthropic.Messages.WebSearchToolResultBlock = {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_err_1",
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "unavailable",
+      } as Anthropic.Messages.WebSearchToolResultError,
+      caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+    };
+    const message: Anthropic.Messages.Message = {
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-7",
+      content: [errorBlock] as unknown as Anthropic.Messages.ContentBlock[],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 5,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
+      } as Anthropic.Messages.Usage,
+    } as Anthropic.Messages.Message;
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBe("unavailable");
+  });
+
+  it("複数 error block (異なる error_code) → count = N、lastErrorCode は最後の error", () => {
+    const { provider } = makeProvider();
+    const block1 = makeWebSearchToolResultBlockError("tu_1");
+    // 2 つ目を別 error_code で構築
+    const block2: Anthropic.Messages.WebSearchToolResultBlock = {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_2",
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "max_uses_exceeded",
+      } as Anthropic.Messages.WebSearchToolResultError,
+      caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+    };
+    const block3: Anthropic.Messages.WebSearchToolResultBlock = {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_3",
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "too_many_requests",
+      } as Anthropic.Messages.WebSearchToolResultError,
+      caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+    };
+    const message = makeMessageWithContentBlocks([block1, block2, block3]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(3);
+    // 最後 (iteration 順) の error_code
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBe(
+      "too_many_requests",
+    );
+  });
+
+  it("混在 (success block + error block) → success は extractSourceCandidates 経由、error のみ count", () => {
+    const { provider } = makeProvider();
+    const successBlock = makeWebSearchToolResultBlockSuccess("tu_ok", [
+      makeWebSearchResult("https://example.com/page", "OK"),
+    ]);
+    const errorBlock = makeWebSearchToolResultBlockError("tu_err");
+    const message = makeMessageWithContentBlocks([successBlock, errorBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // error 観測
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBe("unavailable");
+    // success 側 (extractSourceCandidates) 完全不変、PR #115 挙動維持
+    expect(result.sourceCandidates).toHaveLength(1);
+    expect(result.sourceCandidates?.[0].url).toBe("https://example.com/page");
+  });
+
+  it("error block なし (success only) → webSearchErrorCount / webSearchLastErrorCode 未設定 (backward compat)", () => {
+    const { provider } = makeProvider();
+    const block = makeWebSearchToolResultBlockSuccess("tu_only_ok", [
+      makeWebSearchResult("https://example.com/", "OK"),
+    ]);
+    const message = makeMessageWithContentBlocks([block]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBeUndefined();
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBeUndefined();
+  });
+
+  it("WebSearchToolResultBlock 一切なし (text block only) → webSearchErrorCount / webSearchLastErrorCode 未設定", () => {
+    const { provider } = makeProvider();
+    const message = makeAnthropicMessageWithCitations([]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBeUndefined();
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBeUndefined();
+  });
+
+  it("error_code が非 string (malformed) → count は 1 だが lastErrorCode 未設定 (graceful)", () => {
+    const { provider } = makeProvider();
+    // SDK 型は string union だが、malformed response (undefined 等) を runtime defensive で扱う test
+    const malformedBlock: Anthropic.Messages.WebSearchToolResultBlock = {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_bad",
+      content: {
+        type: "web_search_tool_result_error",
+        // unknown 経由で型 strict check を意図的に bypass (malformed runtime case)
+        error_code: undefined as unknown,
+      } as unknown as Anthropic.Messages.WebSearchToolResultError,
+      caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+    };
+    const message = makeMessageWithContentBlocks([malformedBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBeUndefined();
+  });
+
+  it("error_code が空文字 → count は 1 だが lastErrorCode 未設定", () => {
+    const { provider } = makeProvider();
+    const malformedBlock: Anthropic.Messages.WebSearchToolResultBlock = {
+      type: "web_search_tool_result",
+      tool_use_id: "tu_empty",
+      content: {
+        type: "web_search_tool_result_error",
+        error_code: "" as unknown,
+      } as unknown as Anthropic.Messages.WebSearchToolResultError,
+      caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+    };
+    const message = makeMessageWithContentBlocks([malformedBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+    expect(result.rawDiagnostics?.webSearchLastErrorCode).toBeUndefined();
+  });
+});
+
+describe("extractDiagnostics — WebSearch error_code 各 enum 値検証 (a1-impl-1i、SDK enum 6 値)", () => {
+  // SDK: WebSearchToolResultErrorCode = 'invalid_tool_input' | 'unavailable' | 'max_uses_exceeded' |
+  //                                     'too_many_requests' | 'query_too_long' | 'request_too_large'
+  // 注: `Anthropic.Messages.WebSearchToolResultErrorCode` は SDK でネスト export されているが、
+  //     本 test では opaque string として扱う方針 (provider 実装も string で受ける) なので string[] で宣言
+  const errorCodes: readonly string[] = [
+    "invalid_tool_input",
+    "unavailable",
+    "max_uses_exceeded",
+    "too_many_requests",
+    "query_too_long",
+    "request_too_large",
+  ];
+
+  for (const code of errorCodes) {
+    it(`error_code = "${code}" → opaque string として保持`, () => {
+      const { provider } = makeProvider();
+      const errorBlock: Anthropic.Messages.WebSearchToolResultBlock = {
+        type: "web_search_tool_result",
+        tool_use_id: `tu_${code}`,
+        content: {
+          type: "web_search_tool_result_error",
+          error_code: code,
+        } as unknown as Anthropic.Messages.WebSearchToolResultError,
+        caller: {} as unknown as Anthropic.Messages.WebSearchToolResultBlock["caller"],
+      };
+      const message = makeMessageWithContentBlocks([errorBlock]);
+      const result = provider.parseResponse(message, makeInput(), 100);
+      expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+      expect(result.rawDiagnostics?.webSearchLastErrorCode).toBe(code);
+    });
+  }
+});
+
+describe("extractDiagnostics — WebSearch error の action なし regression (a1-impl-1i、CEO 凍結事項遵守)", () => {
+  it("error 観測時も extractSourceCandidates の success path は完全不変 (PR #115 挙動維持)", () => {
+    const { provider } = makeProvider();
+    const successBlock = makeWebSearchToolResultBlockSuccess("tu_ok", [
+      makeWebSearchResult("https://example.com/a", "A"),
+      makeWebSearchResult("https://example.com/b", "B"),
+    ]);
+    const errorBlock = makeWebSearchToolResultBlockError("tu_err");
+    const message = makeMessageWithContentBlocks([successBlock, errorBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // success path (extractSourceCandidates): 完全不変
+    expect(result.sourceCandidates).toHaveLength(2);
+    expect(result.sourceCandidates?.map((c) => c.url)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+    ]);
+    // error path (extractDiagnostics、本 PR 追加): 観測のみ
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+    // canonical citations / theaters は touch されない (本 message に text block なし → 空)
+    expect(result.citations).toEqual([]);
+    expect(result.theaters).toEqual([]);
+  });
+
+  it("error 観測時も canonical citations (extractCitations、PR #112) は完全不変", () => {
+    const { provider } = makeProvider();
+    const textBlock: Anthropic.Messages.TextBlock = {
+      type: "text",
+      text: "本文",
+      citations: [
+        {
+          type: "web_search_result_location",
+          url: "https://canonical.example/",
+          title: "Canonical",
+          cited_text: "snippet",
+          encrypted_index: "i",
+        },
+      ] as Anthropic.Messages.TextCitation[],
+    };
+    const errorBlock = makeWebSearchToolResultBlockError("tu_err");
+    const message = makeMessageWithContentBlocks([textBlock, errorBlock]);
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // canonical citations 完全不変 (PR #112 挙動維持)
+    expect(result.citations).toHaveLength(1);
+    expect(result.citations[0].url).toBe("https://canonical.example/");
+    // error 観測
+    expect(result.rawDiagnostics?.webSearchErrorCount).toBe(1);
+  });
+
+  it("error 観測時も rawDiagnostics shape は他 field と共存 (token + cost + error fields)", () => {
+    const { provider } = makeProvider();
+    const errorBlock = makeWebSearchToolResultBlockError("tu_err");
+    const message: Anthropic.Messages.Message = {
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-4-7",
+      content: [errorBlock] as unknown as Anthropic.Messages.ContentBlock[],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 100,
+        output_tokens: 50,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        server_tool_use: null,
+        service_tier: null,
+      } as Anthropic.Messages.Usage,
+    } as Anthropic.Messages.Message;
+    const result = provider.parseResponse(message, makeInput(), 100);
+    // 100*5 + 50*25 = 500 + 1250 = 1750 μ¢ = 0.175 ¢
+    expect(result.rawDiagnostics).toEqual({
+      tokenInput: 100,
+      tokenOutput: 50,
+      costEstimateCents: 0.175,
+      webSearchErrorCount: 1,
+      webSearchLastErrorCode: "unavailable",
+    });
   });
 });
 
