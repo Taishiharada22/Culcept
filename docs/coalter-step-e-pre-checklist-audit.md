@@ -14,6 +14,11 @@ CoAlter **Step E (Production observation)** 開始前の pre-checklist を整理
 - 本 audit は **claude 整理結果**、CEO 採用判断ではない
 - Step E 開始 timing そのものを決定するものではない
 
+**重要 — merge の意味 (CEO 2026-05-15 補正)**:
+- 本 PR の merge は、本 audit material を **正本化し、main に保存**することを意味する。
+- merge ≠ claude 推奨案 (Step E 5 domain generalization 等) を CEO が採用した、ではない。
+- 各 audit の推奨案は、**別途 CEO 採用判断が必要**。
+
 ### §0.2 Source-of-truth Hierarchy
 
 - **Tier 1**: `docs/coalter-implementation-plan-mainstream.md` §4 (E-1/E-2/E-3 既存定義) + §5 (kill switch 地図)

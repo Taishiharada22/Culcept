@@ -19,6 +19,12 @@ Master Design v1.1 (2026-04-15) 以降、PR #120-#127 で多数の design 追加
 - 本 audit は claude 整理結果、Master Design v1.2 update を確定したものではない
 - 「反映すべき」「優先度高」等は claude 側の判断材料提示
 
+**重要 — merge の意味 (CEO 2026-05-15 補正)**:
+- 本 PR の merge は、本 audit material を **正本化し、main に保存**することを意味する。
+- merge ≠ claude 推奨案 (v1.2 update 必要 / Option A 即時 timing 等) を CEO が採用した、ではない。
+- 各 audit の推奨案は、**別途 CEO 採用判断が必要**。
+- v1.2 本体更新 PR の起草は、本 audit merge + CEO 「v1.2 update 着手承認」の **両方を満たした後**。
+
 ### §0.2 Source-of-truth Hierarchy
 
 - **Tier 1**: `docs/coalter-master-design.md` v1.1 (2026-04-15、CEO 承認) — 本書の base reference

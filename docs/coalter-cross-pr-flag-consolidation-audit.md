@@ -15,6 +15,11 @@ PR #123-#127 で **個別に提案された 5 mode enum** (Gap 4 / Travel / Dail
 - 採用 / 不採用 / 修正 の最終判断は **CEO 承認待ち**
 - 「推奨」「望ましい」等の表現は **claude 側の判断材料提示**
 
+**重要 — merge の意味 (CEO 2026-05-15 補正)**:
+- 本 PR の merge は、本 audit material を **正本化し、main に保存**することを意味する。
+- merge ≠ claude 推奨案 (Alt B+C ハイブリッド等) を CEO が採用した、ではない。
+- 各 audit の推奨案は、**別途 CEO 採用判断が必要**。
+
 ### §0.2 Source-of-truth Hierarchy
 
 - **Tier 1**: PR #123 (`78cf93b6`) §6.4 / PR #124 (`fa8f301b`) §11.1 / PR #125 (`3de29349`) §6 / PR #126 (`27b6102d`) §10.1 / PR #127 (`31f0c7f4`) Audit 1 §5
