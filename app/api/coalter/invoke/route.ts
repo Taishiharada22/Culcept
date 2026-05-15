@@ -30,6 +30,14 @@ import type {
   CoAlterOutput,
   Stage1Snapshot,
 } from "@/lib/coalter/types";
+// [Gap 4 D3] Route observation only (additive、default OFF)
+//   詳細: lib/coalter/presence/contextDetectionMode.ts JSDoc 参照
+import {
+  buildGap4RouteObservationFromEnv,
+  GAP4_OBSERVATION_MODE_ENV_VAR,
+  type ContextDetectorInput,
+  type Gap4RouteObservationField,
+} from "@/lib/coalter/presence/contextDetectionMode";
 
 export async function POST(request: Request) {
   try {
@@ -203,9 +211,36 @@ export async function POST(request: Request) {
       ? { ...result, stage1: stage1Snapshot }
       : result;
 
+    // [Gap 4 D3] Route observation field (additive、default OFF、CEO 2026-05-16)
+    //   - env COALTER_GAP4_OBSERVATION_MODE = "off" / "observe" / "live"
+    //   - default OFF → field 完全不在 (既存 response 維持、backward compat)
+    //   - observe → detector 走らせる、additive field のみ、UI 不変
+    //   - live → 本 D3 PR では activation: false 固定 (D7 で扱う)
+    //   - raw user text を detector に渡さない (signalsHint は caller pre-binarized only)
+    //   - body.gap4SignalsHint が optional に Partial<ContextDetectorInput> を含む
+    //     場合のみ受領、無ければ skippedReason: "insufficient_structured_signals"
+    //   - 本 PR では env file / production env / Vercel env 変更なし
+    //   - ChatClient / UpperLayerMount / UI / Pattern activation touch なし
+    const gap4SignalsHint = (body as InvokeRequest & {
+      gap4SignalsHint?: Partial<ContextDetectorInput>;
+    }).gap4SignalsHint;
+    const gap4Observation: Gap4RouteObservationField | undefined =
+      buildGap4RouteObservationFromEnv(
+        process.env[GAP4_OBSERVATION_MODE_ENV_VAR],
+        gap4SignalsHint,
+      );
+
+    // additive: existing client は gap4ContextObservation を無視可能
+    //   CoAlterOutput type は本 PR では touch しない (additive cast)
+    const responseDataWithObservation: CoAlterOutput =
+      gap4Observation !== undefined
+        ? ({ ...responseData, gap4ContextObservation: gap4Observation } as CoAlterOutput &
+            { gap4ContextObservation: Gap4RouteObservationField })
+        : responseData;
+
     return NextResponse.json<CoAlterApiResponse<CoAlterOutput>>({
       ok: true,
-      data: responseData,
+      data: responseDataWithObservation,
     });
   } catch (e) {
     console.error("[CoAlter] Invoke error:", e);
