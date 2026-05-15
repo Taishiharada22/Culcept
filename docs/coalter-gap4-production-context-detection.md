@@ -300,15 +300,18 @@ threshold τ (e.g., 0.5) 以上の (value=true, confidence ≥ τ) のみ `Patte
 - **Smoke harness 互換維持**: smoke override (Preview only URL query) は client side で **先に** 適用 (Preview debug 用)、production response field が **後に** 適用 (production 用)
 - **Confidence-graded firing**: 各 flag に (value, confidence) 内部表現、threshold τ で発火
 - **Observability**: telemetry で 7 fields 発火率 + variant 発火率分布を Sentry に flush
-- **Feature flag**: `NEXT_PUBLIC_COALTER_PRESENCE_CONTEXT_DETECTION` で全体 kill switch (default OFF)
-- **Observability-only mode**: flag を 2 段階で導入 (`OBSERVE` mode で detector 動作 + telemetry のみ、variant 発火に影響しない → `LIVE` mode で実 variant 発火)
+- **mode enum 3 値**: `COALTER_GAP4_CONTEXT_DETECTION_MODE = "off" | "observe" | "live"` (CEO 2026-05-15 補正反映、§6.4 詳述)
+  - `off`: 完全停止 (既定 default)
+  - `observe`: detection 走るが variant 発火なし、telemetry のみ
+  - `live`: canary / allowlist 下で variant 発火許可
+- **enum exact match parser** (whitelist + fail-closed): unknown / typo / accidental truthy 全て `off` 扱い、production accidental `live` を構造的に防止
 
 **利点**:
 - Alt 2 (DB stateful) + Alt 4 (additive injection) の利点を統合
 - smoke harness と共存 (debug 性維持)
 - confidence-graded で誤発火抑止
-- 2 段階 rollout (observe → live) で risk 段階解放
-- kill switch で即座 rollback 可
+- **3-stage rollout** (`off` → `observe` → `live`) で risk 段階解放
+- **3-stage rollback** (`live` → `observe` → `off`) で code 変更なく即座復帰可
 
 **欠点**:
 - 実装範囲が広い (detector lib + API + client + telemetry + flag 4 件)
@@ -326,9 +329,9 @@ threshold τ (e.g., 0.5) 以上の (value=true, confidence ≥ τ) のみ `Patte
 | **runtime risk** | 中 | 中 | 高 | 中 | 低 |
 | **UI 影響** | 低 (server 内) | 低 | 高 (client state) | 低 (additive) | 低 (additive + flag OFF default) |
 | **production safety** | 中 (route 拡張) | 中 (DB read 追加) | 高 (state 肥大化) | 高 (additive) | **最高 (observability-first + 2 段階)** |
-| **rollout しやすさ** | 中 | 中 | 低 (client deploy) | 中 | **最高 (2 段階 OBSERVE→LIVE)** |
+| **rollout しやすさ** | 中 | 中 | 低 (client deploy) | 中 | **最高 (3-stage `off`→`observe`→`live`)** |
 | **test しやすさ** | 中 (route mock 要) | **高 (純関数)** | 低 (state hook 複雑) | 中 (response mock 要) | **最高 (detector lib 純関数 + 段階 e2e)** |
-| **rollback しやすさ** | 中 | 中 (env で detector OFF) | 低 (client state migration 要) | 高 (response field OFF で OK) | **最高 (1 env flag で全 OFF)** |
+| **rollback しやすさ** | 中 | 中 (env で detector OFF) | 低 (client state migration 要) | 高 (response field OFF で OK) | **最高 (mode enum 3 段階 rollback、code 変更不要)** |
 | **signal access** | 高 | **最高 (DB stateful)** | 低 | 高 (server) | **最高 (server + client smoke 互換)** |
 | **latency 影響** | 中 (route 内) | 中 (DB read +N ms) | 低 (in-memory) | 中 (server compute) | 中 (server compute、cache 可) |
 | **smoke harness 互換** | 一部 | 一部 | 一部 | 全 (response が後勝ち想定) | **完全 (smoke が先勝ち、override 維持)** |
@@ -447,19 +450,47 @@ export function detectPatternContext(
 }
 ```
 
-### §6.4 段階 rollout phase 分解 (CEO 承認 gate 各 phase)
+### §6.4 mode enum 設計 (CEO 補正、kill switch 強化)
 
-| Phase | 内容 | CEO 承認 | runtime 影響 |
-|---|---|---|---|
-| **D1** (本 PR) | docs-only 設計確定 | 本 PR merge 判断 | 0 |
-| **D2** | `contextDetector` 純関数 library + unit test (production behavior 不変) | CEO 承認 | 0 (library 単体、未呼出) |
-| **D3** | invoke route で detector 呼出 + response に additive field 追加 (flag OFF 既定で field 省略) | CEO 承認 | 0 (flag OFF) |
-| **D4** | `UpperLayerMount` で response 受領 + smokeContextOverride との priority logic 確定 (response 後勝ち) | CEO 承認 | 0 (flag OFF) |
-| **D5** | env flag `NEXT_PUBLIC_COALTER_PRESENCE_CONTEXT_DETECTION` 追加、**OBSERVE mode** で detector + telemetry のみ動作、`setPatternContext` 呼出**しない** (variant 発火に影響 0) | CEO 承認 + Preview smoke | 0 (OBSERVE = 観測 only) |
-| **D6** | telemetry 観測 (1-2 週間、Sentry / supabase 集計) で detector 精度 calibrate、threshold τ 調整 | CEO 観測 + 判断 | 0 (継続 OBSERVE) |
-| **D7** | flag `LIVE` mode で `setPatternContext` 経由実 variant 発火、canary rollout (CEO 1 test pair → 数 pair → 全 user) | **CEO 戦略判断 (Step E 統合可能)** | **+ (実 variant 発火)** |
+**重要**: 単一 boolean kill switch ではなく **mode enum** で運用粒度を確保する。
 
-### §6.5 confidence-graded firing 実装方針 (人間超越 idea 2)
+**正本**: 本 §6.4 で確定、CEO 2026-05-15 補正反映。
+
+```
+COALTER_GAP4_CONTEXT_DETECTION_MODE = "off" | "observe" | "live"
+```
+
+| Mode 値 | 意味 | detector 動作 | telemetry | variant 発火 | rollback 性 |
+|---|---|---|---|---|---|
+| **`off`** (既定 default) | 完全停止 | 走らない | 出さない | 影響なし (`patternContext` field 省略) | N/A (常時 off) |
+| **`observe`** | 観測 only | 走る | 出す | **しない** (`setPatternContext` 呼出抑止) | mode を `off` に戻すだけ |
+| **`live`** | canary / allowlist 下で発火許可 | 走る | 出す | **する** (実 variant 発火) | mode を `observe` or `off` に戻す |
+
+**重要設計原則**:
+
+- **enum exact match parser** (whitelist): "off" / "observe" / "live" 以外の値は **fail-closed で `off` 扱い**。smoke harness の `isSmokeContextOverrideEnabled` (exact "true" only accept) と同思想 (人間超越 Idea 4 統合)
+- **default `off`**: env 未設定 / 空文字 / 不正値 / typo すべて `off`
+- **production accidental `live` 防止**: enum exact match により `"LIVE"` 大文字 / `"1"` / `"true"` / 任意の truthy 文字列で `live` に切り替わらない
+- **mode 値を Sentry telemetry に attach**: 各 detection event に現 mode を tag、observability dashboard で mode 分布可視化
+
+### §6.5 段階 rollout phase 分解 (CEO 承認 gate 各 phase)
+
+| Phase | 内容 | env mode 値 | CEO 承認 | runtime 影響 |
+|---|---|---|---|---|
+| **D1** (本 PR) | docs-only 設計確定 | (env 不在) | 本 PR merge 判断 | 0 |
+| **D2** | `contextDetector` 純関数 library + unit test (production behavior 不変) | (env 不在) | CEO 承認 | 0 (library 単体、未呼出) |
+| **D3** | invoke route で detector 呼出 + response に additive field 追加 (mode `off` 既定で field 省略) | `off` | CEO 承認 | 0 |
+| **D4** | `UpperLayerMount` で response 受領 + smokeContextOverride との priority logic 確定 (response 後勝ち) | `off` | CEO 承認 | 0 |
+| **D5** | env mode `observe` 切替、detector + telemetry のみ動作、`setPatternContext` 呼出**しない** (variant 発火に影響 0) | `observe` | CEO 承認 + Preview smoke | 0 (`observe` = 観測 only) |
+| **D6** | telemetry 観測 (1-2 週間、Sentry / supabase 集計) で detector 精度 calibrate、threshold τ 調整、`observe` 継続 | `observe` | CEO 観測 + 判断 | 0 (継続 `observe`) |
+| **D7** | env mode `live` 切替で `setPatternContext` 経由実 variant 発火、canary / allowlist rollout (CEO 1 test pair → 数 pair → 全 user) | `live` | **CEO 戦略判断 (Step E 統合可能)** | **+ (実 variant 発火)** |
+
+**rollback path** (mode enum による段階的 rollback):
+- `live` で問題発生 → mode を `observe` に切替 = 即座 variant 発火停止、telemetry 継続で原因分析可
+- `observe` でも問題発生 (detector logic 自体に bug) → mode を `off` に切替 = 即座完全停止
+- 全段階で **env value 変更 + Vercel redeploy or env hot-reload** のみ、code 変更不要
+
+### §6.6 confidence-graded firing 実装方針 (人間超越 idea 2)
 
 各 detector function:
 
@@ -470,11 +501,29 @@ function detectInfoMissing(input: ContextDetectorInput): { value: boolean; confi
   if (input.understandingBundle?.outcome === "failed") confidence += 0.4;
   if (input.recentMessages.length === 0) confidence += 0.3;
   // ...
-  return { value: confidence >= 0.5, confidence: Math.min(confidence, 1.0) };
+  return { value: confidence >= threshold, confidence: Math.min(confidence, 1.0) };
 }
 ```
 
-**threshold τ = 0.5 default**、env 経由 override 可能 (rollout 時 τ tune)。
+**threshold τ の扱い** (CEO 2026-05-15 補正反映):
+
+- `τ = 0.5` は **provisional default candidate / initial hypothesis** であり、**確定値ではない**
+- 最終値は **D5 `observe` phase 中の実 telemetry data + D6 calibration phase で実 production data を見て決定**
+- D2 phase の unit test 段階では τ=0 / τ=0.5 / τ=1.0 で sensitivity test を実施し、**τ がどの範囲で何が起きるか**を確認するのが目的 (τ 値の妥当性主張ではない)
+- env 経由 τ override 可能設計: `COALTER_GAP4_CONTEXT_DETECTION_THRESHOLD` (e.g., "0.5" / "0.6" / "0.3" を直接指定、parse 失敗時 fail-closed で τ=1.0 = 全 detector 抑止)
+- 7 fields each で **異なる τ** が最適である可能性: D6 で per-field calibration を検討、final API は `Record<keyof PatternContext, number>` 型 threshold map を許容する設計余地を残す
+
+**D6 calibration phase で観測する指標** (実 data 見て τ を決める判断材料):
+
+| 指標 | 計算方法 | 判断 |
+|---|---|---|
+| **発火率** | mode `observe` で各 flag が true になる頻度 (per turn / per pair) | 高すぎれば τ を上げる、低すぎれば下げる |
+| **発火 distribution** | confidence score 自体の分布 (histogram) | bimodal なら decision boundary が明確、unimodal なら τ 設定困難 |
+| **false positive proxy** | 「発火したが実 user / pair で対応 pattern が不自然」と CEO / dogfood で判定された比率 | < 10% を目標 |
+| **false negative proxy** | 「発火すべきだったが発火しなかった」(dogfood / 手動 review) | rare event 除外、定性判断 |
+| **per-field correlation** | 複数 fields が同時に立つ頻度 (e.g., `oneSidedFatigue` ∧ `needTranslation`) | 過剰相関なら signal source の重複疑 |
+
+最終 τ は D6 で **観測 data に基づいて確定**、CEO 承認後 D7 で `live` 切替。
 
 ---
 
@@ -499,23 +548,26 @@ function detectInfoMissing(input: ContextDetectorInput): { value: boolean; confi
 | Latency 観測 | DB read 追加 latency が p95 で < +50 ms |
 | 既存 client 互換 | 既存 client (Preview / Production) で response 受領 OK |
 
-### §7.3 D5 (OBSERVE mode) phase gate
+### §7.3 D5 (`observe` mode) phase gate
 
 | Gate | 内容 |
 |---|---|
-| Preview smoke | Preview env で OBSERVE 動作確認、smoke harness 並走可 |
-| Sentry telemetry | `coalter.gap4.context_detected` event 流出、7 fields confidence 分布 |
-| Production behavior 不変 | OBSERVE では `setPatternContext` 呼出しない → variant 発火率 0 維持 |
-| Detector 精度 baseline | 1-2 週間で各 flag の発火率 baseline 確定 (CEO 観測判断材料) |
+| env mode = `observe` 設定 | `COALTER_GAP4_CONTEXT_DETECTION_MODE=observe` (exact match parser、unknown 値は fail-closed `off`) |
+| Preview smoke | Preview env で `observe` 動作確認、smoke harness 並走可 (smoke 先勝ち、response 後勝ち) |
+| Sentry telemetry | `coalter.gap4.context_detected` event 流出、各 event に現 mode tag (`observe`) を attach、7 fields confidence 分布 |
+| Production behavior 不変 | `observe` mode では `setPatternContext` 呼出しない → variant 発火率 0 維持 |
+| Detector 精度 baseline | 1-2 週間で各 flag の発火率 baseline 確定 (CEO 観測判断材料、D6 calibration の input) |
 
-### §7.4 D7 (LIVE mode) phase gate
+### §7.4 D7 (`live` mode) phase gate
 
 | Gate | 内容 |
 |---|---|
-| Detector 精度 sufficient | D6 観測で各 flag false positive rate < 10% |
-| Variant 発火率 observable | Sentry で Pattern A-F-2 発火率分布計測可能 |
-| Rollback procedure | env flag = OFF で即座 Gap 4 前状態 (variant=null 復帰) |
-| Canary plan | CEO 1 test pair → 5 pair → 50 pair → 全 user の段階 plan |
+| env mode = `live` 設定 | `COALTER_GAP4_CONTEXT_DETECTION_MODE=live` (exact match parser、production accidental `live` は enum で構造的に防止) |
+| Detector 精度 sufficient | D6 calibration で各 flag false positive proxy < 10% (※閾値も D6 観測で確定、provisional 10%) |
+| τ 確定 | D6 で per-field τ map (or 単一 τ) を実 data 観測後確定、CEO 承認後反映 |
+| Variant 発火率 observable | Sentry で Pattern A-F-2 発火率分布計測可能、mode `live` 切替前後で対比可 |
+| Rollback procedure (3 段階) | (a) mode `live` → `observe` で即座 variant 発火停止、(b) `observe` → `off` で完全停止、(c) いずれも code 変更不要、env 値変更のみ |
+| Canary plan | CEO 1 test pair → 5 pair → 50 pair → 全 user の段階 plan、各段階で telemetry green 確認 |
 | Step E 統合 | observability infrastructure を Step E と統合 (Step E-0 詳細化 timing と整合) |
 
 ### §7.5 Step E との関係
@@ -525,7 +577,11 @@ Gap 4 解消 = Pattern variant が production user に届く = **Step E (観測 
 - Step E は movie domain (provider foundation a3 wiring 含む) を主軸とする観測 phase (PR #109)
 - Gap 4 は Layout 全体の variant 発火を主軸とする検出 phase
 - 両者は **observability infrastructure を共有**可能 (Sentry telemetry / Supabase coalter_provider_cost_log 等)
-- D5 OBSERVE mode + D7 LIVE rollout を Step E の rollout pattern と同期可能 (CEO 戦略判断要項 §7 #15 + #13)
+- D5 `observe` mode + D7 `live` mode rollout を Step E の rollout pattern (shadow → canary → flip) と **直接 mapping**:
+  - Step E shadow ≈ Gap 4 `observe` (実行はするが影響しない)
+  - Step E canary ≈ Gap 4 `live` + allowlist (limited user 限定)
+  - Step E flip ≈ Gap 4 `live` + 全 user
+- 両者で mode enum 設計を共通化することで、observability dashboard / runbook を統合可能 (CEO 戦略判断要項 §7 #15 + #13)
 
 ---
 
@@ -539,17 +595,23 @@ Gap 4 解消 = Pattern variant が production user に届く = **Step E (観測 
 
 **人間超越点**: 人間設計者は単一 signal に偏りがち。Multi-source は signal 不在領域を補完し、誤発火を抑止。
 
-### §8.2 Idea 2: Confidence-graded firing
+### §8.2 Idea 2: Confidence-graded firing (provisional τ + calibration)
 
 7 fields each に (value, confidence) 内部表現、τ threshold で boolean 確定。
 
-**人間超越点**: 「true / false」の 2-value 設計は誤発火しやすい。confidence-graded は弱 signal を切捨て、強 signal で確定、kill switch (τ=1.0) で即座抑止可。
+**重要 (CEO 2026-05-15 補正)**:
+- τ = 0.5 は **provisional default candidate / initial hypothesis** (確定値ではない)
+- 最終 τ は D5 `observe` phase で telemetry 収集 → D6 calibration phase で実 data 観測後確定
+- env override 可能 (`COALTER_GAP4_CONTEXT_DETECTION_THRESHOLD`、parse 失敗時 fail-closed τ=1.0)
+- 7 fields each で異なる τ が最適な可能性 → per-field τ map 設計余地
+
+**人間超越点**: 「true / false」の 2-value 設計は誤発火しやすい。confidence-graded は弱 signal を切捨て、強 signal で確定。**τ 固定ではなく実 data calibration を前提とする設計** が「人間設計者の感覚で決めた閾値で運用」を超える本質。
 
 ### §8.3 Idea 3: Observability-first incremental rollout
 
-D5 OBSERVE mode (detector + telemetry のみ、variant 発火 0) で **calibrate してから** D7 LIVE mode に進む。
+D5 `observe` mode (detector + telemetry のみ、variant 発火 0) で **calibrate してから** D7 `live` mode に進む。
 
-**人間超越点**: 人間設計者は impl 直後に LIVE にしがち。OBSERVE first は precision/recall を実 data で calibrate してから switch、risk 段階解放。
+**人間超越点**: 人間設計者は impl 直後に `live` にしがち。`observe` first は precision/recall を実 data で calibrate してから switch、risk 段階解放。
 
 ### §8.4 Idea 4: Smoke and Production unify
 
@@ -559,20 +621,35 @@ D5 OBSERVE mode (detector + telemetry のみ、variant 発火 0) で **calibrate
 - Server detector output と Smoke harness override を **同 API shape** (`Partial<PatternContext>`) に揃える
 - Client UpperLayerMount で **smoke 先勝ち、production response 後勝ち** の priority 確定
 - Preview env で smoke + detector 並走可能 (debug 性維持)
-- Production env で smoke 必ず OFF (CEO 厳守) + detector ON 切替
+- Production env で smoke 必ず OFF (CEO 厳守) + detector mode (`off` / `observe` / `live`) 切替
+- **同思想**: mode enum exact match parser を smokeContextOverride の exact "true" parser と **同 fail-closed 構造**で実装
 
-**人間超越点**: debug 環境と production 環境を分断せず、同 contract で運用。debug 中の発見が直接 production logic 改善に繋がる。
+**人間超越点**: debug 環境と production 環境を分断せず、同 contract / 同 parser 思想で運用。debug 中の発見が直接 production logic 改善に繋がる。
 
-### §8.5 Idea 5: Rollback-friendly atomic switching
+### §8.5 Idea 5: Rollback-friendly atomic switching (mode enum 強化、CEO 2026-05-15 補正)
 
-1 env flag (`NEXT_PUBLIC_COALTER_PRESENCE_CONTEXT_DETECTION`) で全 detector OFF。即座に Gap 4 前状態 (variant=null) に復帰可能。
+**単一 boolean kill switch** ではなく **mode enum 3 値** で運用粒度を確保:
 
-加えて:
-- `MODE` enum (`OBSERVE` / `LIVE` / `OFF`) で 3 段階切替
-- detector library は OFF 時 0 ms (early return)、production performance 影響 0
-- response shape は OFF 時 field 省略 → 既存 client 100% 互換
+```
+COALTER_GAP4_CONTEXT_DETECTION_MODE = "off" | "observe" | "live"
+```
 
-**人間超越点**: 障害時の rollback 手順を **設計時に確定** することで、運用 risk を構造的に削減。
+| Mode | 用途 | 即座 rollback path |
+|---|---|---|
+| `off` | 完全停止 (既定 / 緊急時) | N/A (既に最安全状態) |
+| `observe` | calibration / 段階移行 | `off` に切替 (即座完全停止) |
+| `live` | canary / 全 user 発火 | `observe` に切替 (発火停止、telemetry 継続) or `off` (完全停止) |
+
+**設計上の利点**:
+- **3 段階 rollback**: `live` → `observe` → `off`、各段階で **code 変更不要、env 値変更 + redeploy/hot-reload のみ**
+- **production accidental `live` 防止**: enum **exact match parser** (whitelist) により `"LIVE"` 大文字 / `"1"` / `"true"` / 任意 truthy で `live` に切り替わらない
+- **fail-closed default**: 不正値 / 未設定 / typo すべて `off` 扱い
+- **observability-friendly**: 各 telemetry event に現 mode tag attach、Sentry / dashboard で mode 分布可視化
+- **Step E rollout pattern 直接 mapping**: shadow ≈ `observe`、canary ≈ `live` + allowlist、flip ≈ `live` + 全 user
+- detector library は `off` 時 0 ms (early return)、production performance 影響 0
+- response shape は `off` 時 field 省略 → 既存 client 100% 互換
+
+**人間超越点**: 単一 boolean kill switch は「on/off」しか表現できず、段階移行 / canary / calibration が言語化されない。mode enum は **設計時点で運用 phase の意味論を構造化**し、運用ミス (accidental `live` / 不正値で意図せぬ動作) を構造的に排除する。CEO directive (mode enum 推奨) を反映した本設計は、「rollback 容易性」だけでなく「**rollback を考えなくて良い構造**」(各 mode が独立 well-defined、誤動作領域が enum 外に閉じ込められる) を目指す。
 
 ---
 
@@ -583,7 +660,8 @@ D5 OBSERVE mode (detector + telemetry のみ、variant 発火 0) で **calibrate
 - ❌ `contextDetector` library 実装着手 (D2 phase、別 PR)
 - ❌ `/api/coalter/invoke` route 修正 (D3 phase、別 PR)
 - ❌ `UpperLayerMount` 修正 (D4 phase、別 PR)
-- ❌ `flags.ts` への新規 env flag 追加 (D5 phase、別 PR)
+- ❌ `flags.ts` への新規 env mode enum 追加 (`COALTER_GAP4_CONTEXT_DETECTION_MODE`、D5 phase、別 PR)
+- ❌ env override threshold 追加 (`COALTER_GAP4_CONTEXT_DETECTION_THRESHOLD`、D5 phase、別 PR)
 - ❌ `usePresenceExecutor` 修正 (本書範囲外、内部 state は不変)
 - ❌ `patternSelector.ts` / `PatternContext` 型 修正 (型は既存、本書は追加 detector のみ)
 - ❌ `lib/coalter/presence/**` の既存 file touch
@@ -597,7 +675,7 @@ D5 OBSERVE mode (detector + telemetry のみ、variant 発火 0) で **calibrate
 
 ### §9.3 production / env / API
 
-- ❌ env 変更 (`NEXT_PUBLIC_COALTER_PRESENCE_CONTEXT_DETECTION` 等の追加なし)
+- ❌ env 変更 (`COALTER_GAP4_CONTEXT_DETECTION_MODE` / `COALTER_GAP4_CONTEXT_DETECTION_THRESHOLD` 等の追加なし、本 PR は設計提案のみ)
 - ❌ Production env / Vercel deploy 操作
 - ❌ Anthropic Console / 実 API call / API key 操作
 - ❌ Supabase migration 新規追加 / 既存 migration touch
@@ -635,10 +713,11 @@ D5 OBSERVE mode (detector + telemetry のみ、variant 発火 0) で **calibrate
 ## §11 CEO 判断請求事項
 
 1. **本 doc の merge 判断**
-2. **Alt 5 Hybrid 推奨案の承認** (Server detector + additive response + client receive + smoke unify + confidence-graded firing + 2-stage OBSERVE→LIVE rollout)
-3. **D2 (detector library 実装着手) timing 判断** — 本 doc merge 後の next phase 着手承認
-4. **Step E との統合 timing 判断** — Gap 4 D5 OBSERVE と Step E observability infrastructure の同期戦略
-5. **threshold τ default 値 (0.5) の妥当性確認** — 後段 D6 phase で実 data 観測後 calibrate
+2. **Alt 5 Hybrid 推奨案の承認** (Server detector + additive response + client receive + smoke unify + confidence-graded firing + **mode enum 3 値 (`off` / `observe` / `live`) による 3-stage rollout**)
+3. **mode enum 値 `off` / `observe` / `live` の意味論承認** — accidental `live` 防止のため enum exact match parser を採用する設計方針の確認
+4. **D2 (detector library 実装着手) timing 判断** — 本 doc merge 後の next phase 着手承認
+5. **Step E との統合 timing 判断** — Gap 4 D5 `observe` と Step E observability infrastructure の同期戦略 (Step E shadow ≈ Gap 4 `observe`、Step E canary ≈ Gap 4 `live` + allowlist の mapping 承認)
+6. **threshold τ provisional 0.5 の扱い** — 確定値ではなく **initial hypothesis として D5 `observe` → D6 calibration で実 data 観測後決定** する設計方針の承認 (per-field τ map 採用可能性含む)
 
 ---
 
