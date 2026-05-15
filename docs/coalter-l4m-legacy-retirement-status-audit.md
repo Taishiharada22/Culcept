@@ -10,7 +10,11 @@
 
 PR #122 §6 6-State Incomplete 定義で「Layout L4-m 着手未達」(🟡) と分類された L4-m (legacy CoAlterCard 完全退役) の状態を、**main merge 済 commit + 既存 docs (L4-l runbook / legacy retirement plan) を一次資料**として棚卸しする。
 
-L4-l (PR #95、2026-05-10) 完了から本 audit 時点 (2026-05-15) で 5 日経過。L4-m 着手 timing を確定し、Layout / UpperLayer / Gap 4 / production reachability の残りを整理。
+L4-l (PR #95、2026-05-10) 完了から本 audit 時点 (2026-05-15) で 5 日経過。L4-m 着手 timing の **判断材料 (audit material)** を整理し、Layout / UpperLayer / Gap 4 / production reachability の残りを棚卸し (**最終採用判断は CEO 承認待ち**)。
+
+**重要 (CEO 2026-05-15 補正)**:
+- 本 audit は L4-m 着手 timing そのものを決定するものではない。
+- claude 側の整理結果として「急がない推奨」「Phase 3 後 cleanup 推奨」等を提示するが、**最終採用判断は CEO 承認待ち**。
 
 ### §0.2 Source-of-truth Hierarchy
 

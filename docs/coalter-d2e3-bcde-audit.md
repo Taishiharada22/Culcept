@@ -8,9 +8,12 @@
 
 ### §0.1 目的
 
-PR #120 audit v2 §6.3 #9 で挙げられた「**D-2-e3-b / c / d / e 詳細 (本 audit で未把握) の説明**」を解消する。既存 design docs を一次資料として、各 sub-phase の正体・完了状態・実装着手順序を確定する。
+PR #120 audit v2 §6.3 #9 で挙げられた「**D-2-e3-b / c / d / e 詳細 (本 audit で未把握) の説明**」について、**audit material を整理し decision-ready 状態にする**。既存 design docs を一次資料として、各 sub-phase の正体・完了状態・実装着手順序の整理を提示する (**最終採用判断は CEO 承認待ち**)。
 
-CEO 戦略判断要項 §6.3 14 項目のうち、本 audit で **#9 が解消**。
+**重要 (CEO 2026-05-15 補正)**:
+- 本 audit は **decision completion ではない**。CEO 戦略判断要項 §6.3 #9 の **判断材料を整理 (audit material 整理)** したのみ。
+- 採用 / 不採用 / 修正 の最終判断は **CEO 承認待ち**。
+- 本書の「正体特定」「順序提示」等の表現は **claude 側の整理結果**であり、CEO の最終決定ではない。
 
 ### §0.2 Source-of-truth Hierarchy
 
