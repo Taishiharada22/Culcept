@@ -33,6 +33,9 @@ import type {
 import { candidateKey } from "@/lib/coalter/axes";
 import type { PlanItem } from "@/lib/coalter/planShelf";
 import type { RefineCandidate, RefineDirection } from "@/lib/coalter/refineDirections";
+// [Gap 4 D4] Client receive only — no-op receive、no state mutation、no UI、no Pattern activation.
+//   詳細: lib/coalter/presence/clientObservationReceive.ts JSDoc 参照
+import { receiveGap4Observation } from "@/lib/coalter/presence/clientObservationReceive";
 
 export type { PlanItem };
 
@@ -483,6 +486,14 @@ export function useCoAlter(threadId: string) {
         });
         const data: CoAlterApiResponse<CoAlterOutput> = await res.json();
 
+        // [Gap 4 D4] no-op receive (CEO 2026-05-16 client receive only).
+        //   - default OFF (env 未設定 / "off" で field 不在 → no-op)
+        //   - observe/live mode でも UI に出さない、state に入れない、storage 保存しない
+        //   - activation は server (D3) + client (D4) 二重 gate で必ず false
+        //   - 戻り値を void で消費 (no state mutation、no UI、no Pattern activation)
+        //   - D5 phase で telemetry hook 追加時に同じ call point を活用 (本 PR 不実装)
+        void receiveGap4Observation(data.data);
+
         if (data.ok && data.data) {
           const serverKeys = data.data.seenCandidateKeys ?? [];
           const localKeys = data.data.proposalCard.candidates.map((c) =>
@@ -568,6 +579,9 @@ export function useCoAlter(threadId: string) {
         signal: controller.signal,
       });
       const data: CoAlterApiResponse<CoAlterOutput> = await res.json();
+
+      // [Gap 4 D4] no-op receive (reroll path、同様の no-op)
+      void receiveGap4Observation(data.data);
 
       if (data.ok && data.data) {
         const serverKeys = data.data.seenCandidateKeys ?? [];
