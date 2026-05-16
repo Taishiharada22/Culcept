@@ -31,8 +31,10 @@ const SAMPLE_INTERNAL_STATE: InternalRelationshipState = {
   stateVersion: 5,
   observationCount: 10,
   lastObservationAt: "2026-05-16T07:30:00Z",
+  // Phase A-1b: ExecutorAvailability 値（既存 presence layer 整合）
   observerActivationState: "active",
-  modeContext: "on",
+  // Phase A-1b: PresenceMode 値（既存 presence layer 整合）
+  modeContext: "normal",
   conversationPhase: "exploring",
   alignmentBucket: "positive",
   ruptureFlag: false,
@@ -224,10 +226,33 @@ describe("redactInternalState", () => {
 
   it("preserves observerActivationState / modeContext / conversationPhase / ruptureFlag", () => {
     const snap = redactInternalState(SAMPLE_INTERNAL_STATE, TEST_SALT);
+    // Phase A-1b: ExecutorAvailability "active" / PresenceMode "normal"
     expect(snap.observerActivationState).toBe("active");
-    expect(snap.modeContext).toBe("on");
+    expect(snap.modeContext).toBe("normal");
     expect(snap.conversationPhase).toBe("exploring");
     expect(snap.ruptureFlag).toBe(false);
+  });
+
+  it("preserves modeContext = null (no signal received)", () => {
+    const stateWithNullMode: InternalRelationshipState = {
+      ...SAMPLE_INTERNAL_STATE,
+      modeContext: null,
+    };
+    const snap = redactInternalState(stateWithNullMode, TEST_SALT);
+    expect(snap.modeContext).toBeNull();
+  });
+
+  it("PresenceMode is NOT PII (kept in redacted snapshot per CEO/GPT 2026-05-16 B3 NO)", () => {
+    // PresenceMode ("normal" / "daily" / "travel") は observer 文脈の重要 dimension。
+    // PII forbidden list には入れない (B3 NO 判断)。
+    for (const mode of ["normal", "daily", "travel"] as const) {
+      const state: InternalRelationshipState = {
+        ...SAMPLE_INTERNAL_STATE,
+        modeContext: mode,
+      };
+      const snap = redactInternalState(state, TEST_SALT);
+      expect(snap.modeContext).toBe(mode);
+    }
   });
 
   it("creates defensive copy of reasonCodes (mutation does not affect original)", () => {
