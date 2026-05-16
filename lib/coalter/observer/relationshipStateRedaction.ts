@@ -64,6 +64,14 @@ export const PII_FORBIDDEN_FIELD_NAMES = [
   "thread_id",
   "sessionId",
   "session_id",
+  // message identifier (Phase A-2b 追加 — presence signal meta.lastMessageId 由来、
+  // tracking identifier として raw 保持禁止、hash 化して redactedMessageKey を使う)
+  "messageId",
+  "messageid",
+  "message_id",
+  "lastMessageId",
+  "lastmessageid",
+  "last_message_id",
   // contact / network
   "email",
   "Email",

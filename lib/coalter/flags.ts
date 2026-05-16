@@ -270,6 +270,40 @@ export const COALTER_FLAGS = {
   get understandingBufferFanoutEnabled(): boolean {
     return normalizeBool(process.env.COALTER_UNDERSTANDING_BUFFER_FANOUT, false);
   },
+  /**
+   * [A-2b 2026-05-16] `presenceObserverEnabled` (`NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER`)
+   *   - CoAlter Always-On Observer (AOO) の presence signal bus subscribe を
+   *     有効化する kill switch。
+   *   - 既定 OFF。Production env は触らない (default false 維持)。
+   *   - **flag OFF 時は observer subscribe を一切しない**。既存 presence layer の
+   *     動作は 1 bit も変わらない (subscribers fan-out に observer が加わらないため、
+   *     既存 subscriber `usePresenceExecutor` の挙動も完全不変)。
+   *   - ON 時: A-2c で実装される client wiring が
+   *     `subscribePresenceSignal(handler)` 呼出を許可される。本 A-2b 段階では
+   *     library のみ準備、実 subscribe call なし。
+   *   - **A-2b scope**: getter 追加のみ。env 操作なし。Preview env に
+   *     `NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER=true` を追加するのは CEO 判断後の
+   *     別オペレーション。
+   *
+   *   **NEXT_PUBLIC_ prefix + 直接アクセス必須 (presenceExecutorEnabled と同根拠)**:
+   *   AOO observer は client side で subscribe する (productionSignalBus は現状
+   *   client side でのみ publish/subscribe される)。webpack DefinePlugin の
+   *   inline 置換対象は `process.env.NEXT_PUBLIC_X` (member access) のみで、
+   *   computed access は browser polyfill で undefined → fallback。本 getter は
+   *   既存 `presenceExecutorEnabled` と同じ直接記述パターンを踏襲する。
+   *
+   *   関連:
+   *   - 設計: docs/coalter-always-on-observer-design.md (PR #151)
+   *   - 訂正: docs/coalter-aoo-presence-reconciliation.md (PR #154)
+   *   - audit: docs/coalter-aoo-a2-presence-signal-bus-audit.md (PR #156)
+   *   - preflight: docs/coalter-aoo-a2b-implementation-preflight.md (PR #157)
+   */
+  get presenceObserverEnabled(): boolean {
+    return normalizeBool(
+      process.env.NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER,
+      false,
+    );
+  },
 };
 
 // ─────────────────────────────────────────────
