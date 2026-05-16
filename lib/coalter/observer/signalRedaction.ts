@@ -1,12 +1,15 @@
 /**
- * CoAlter Always-On Observer — Signal Redaction (Phase A-2b)
+ * CoAlter Always-On Observer — Signal Redaction (Phase A-2b + A-2c crypto fix)
  *
  * 正本:
  *   - docs/coalter-aoo-a2-presence-signal-bus-audit.md (PR #156)
  *   - docs/coalter-aoo-a2b-implementation-preflight.md (PR #157)
- *   - CEO/GPT 補正 2026-05-16:
+ *   - CEO/GPT 補正 2026-05-16 (A-2b):
  *       補正1: matchedPattern 厳格化 (raw 禁止、bucket 化)
  *       補正2: salt 設計 (env salt 使わない、session-local ephemeral / caller-provided)
+ *   - CEO/GPT 補正 2026-05-16 (A-2c crypto fix):
+ *       node:crypto を client bundle から完全排除
+ *       js-sha256 (sync, browser+node 両対応) に置換
  *
  * 役割:
  *   PresenceSignal → RedactedPresenceSignal 変換。
@@ -19,6 +22,7 @@
  *   - hash 値を console / log に出さない
  *   - LLM call / fetch / DB / storage / console 一切なし
  *   - Date.now / Math.random に依存しない (caller-provided salt で deterministic)
+ *   - node:crypto を使わない (client bundle 安全性、A-2c webpack 制約遵守)
  *
  * 並走原則:
  *   - presence layer の signal 構造は変えない (PresenceSignal は immutable)
@@ -26,12 +30,36 @@
  *   - 既存 publisher / subscriber に影響なし
  */
 
-import { createHash } from "node:crypto";
+import { sha256 } from "js-sha256";
 import type {
   PresenceSignal,
   SignalKind,
   SignalStrength,
 } from "../presence/types";
+
+// ─────────────────────────────────────────────
+// Base64url encoding (browser + node 両対応)
+// ─────────────────────────────────────────────
+
+/**
+ * Uint8Array を base64url 文字列に変換 (browser + node 両対応)。
+ *
+ * 用途: js-sha256 の arrayBuffer 出力を base64url に encode。
+ * 旧 node:crypto の `digest("base64url")` 相当の出力を再現する (SHA-256 出力は
+ * deterministic、入力同じなら同じ base64url 文字列、長さ 43 chars)。
+ *
+ * `btoa` は Node 16+ / browser 共通 global。`Buffer` は使わない (browser 不在)。
+ */
+function uint8ArrayToBase64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
 
 // ─────────────────────────────────────────────
 // Schema version
@@ -124,11 +152,12 @@ export function computeRedactedMessageKey(
   if (typeof salt !== "string" || salt.length === 0) {
     throw new Error("computeRedactedMessageKey: salt must be a non-empty string");
   }
-  const hash = createHash("sha256");
-  hash.update(salt, "utf8");
-  hash.update(":message:", "utf8");
-  hash.update(messageId, "utf8");
-  return hash.digest("base64url");
+  // js-sha256: salt + ":message:" + messageId を sha256 → ArrayBuffer → base64url
+  const hasher = sha256.create();
+  hasher.update(salt);
+  hasher.update(":message:");
+  hasher.update(messageId);
+  return uint8ArrayToBase64url(new Uint8Array(hasher.arrayBuffer()));
 }
 
 // ─────────────────────────────────────────────
