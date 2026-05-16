@@ -248,6 +248,28 @@ export const COALTER_FLAGS = {
       false,
     );
   },
+  /**
+   * [A3 2026-05-16] `understandingBufferFanoutEnabled` (`COALTER_UNDERSTANDING_BUFFER_FANOUT`)
+   *   - emitUnderstandingDiagnostics 内で、A2 redacted diagnostics buffer
+   *     (`lib/coalter/understanding/redactedDiagnosticsBuffer.ts`) への
+   *     **memory-only fan-out** を起動する kill switch。
+   *   - 既定 OFF。**flag OFF 時は emit call flow が 1 bit も変化しない**
+   *     (fanOut helper は早期 return)。既存 console emit 経路は不変。
+   *   - ON 時: emit 内で fanOutUnderstandingDiagnosticsToBuffer が走り、
+   *     raw UnderstandingDiagnostics を redacted CreateInput に transform、
+   *     A2 buffer に memory-only append。
+   *   - 既存 `COALTER_UNDERSTANDING_DIAGNOSTICS` (console emit kill switch) に
+   *     **依存しない** (完全独立 flag)。buffer fan-out path は console-free。
+   *   - 失敗は内部 try/catch + 呼び出し側 try/catch の二重防御 (fail-open)。
+   *   - **A3 scope**: fan-out only。read-only retrieval API / Sentry / telemetry
+   *     send / console / DB / storage は **追加しない**。
+   *   - rollback: 環境変数 `COALTER_UNDERSTANDING_BUFFER_FANOUT=false` /
+   *     unset → 即座に pre-A3 状態 (console emit のみ) に復帰。コード revert 不要。
+   *   - **本 PR で env file / Vercel env 変更なし** (Preview env 設定は別判断)。
+   */
+  get understandingBufferFanoutEnabled(): boolean {
+    return normalizeBool(process.env.COALTER_UNDERSTANDING_BUFFER_FANOUT, false);
+  },
 };
 
 // ─────────────────────────────────────────────

@@ -30,6 +30,10 @@ import type {
   UnderstandingDiagnostics,
   UnderstandingOutcome,
 } from "./types";
+// [A3 2026-05-16] Memory-only fan-out to A2 redacted buffer (default OFF、
+//   independent flag、no console / no storage / no DB / no external side effect).
+//   詳細: lib/coalter/understanding/diagnosticsFanout.ts JSDoc 参照
+import { fanOutUnderstandingDiagnosticsToBuffer } from "./diagnosticsFanout";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Diagnostics emitter signature（stub）
@@ -79,6 +83,17 @@ export function isLLMShadowEnabled(): boolean {
 }
 
 export const emitUnderstandingDiagnostics: EmitUnderstandingDiagnostics = (d) => {
+  // [A3 2026-05-16] Buffer fan-out (independent flag、二重 try-catch の外側、
+  //   既存 console emit と完全独立、no external side effect、no console)
+  //   - flag OFF (default) → 早期 return、既存 emit path 完全不変
+  //   - flag ON → A2 redacted buffer に memory-only append
+  //   - 失敗は内部 try/catch + 本 try/catch の二重防御 (fail-open)
+  try {
+    fanOutUnderstandingDiagnosticsToBuffer(d);
+  } catch {
+    // swallow: fan-out 失敗で既存 console emit 経路を倒さない
+  }
+
   if (!isDiagnosticsEnabled()) return; // デフォルト OFF = no-op
 
   // ON 時: prefix 付き console.info で 1 行。型が UnderstandingDiagnostics のため
