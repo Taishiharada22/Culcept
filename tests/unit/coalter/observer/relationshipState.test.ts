@@ -1,19 +1,29 @@
 /**
- * Tests for relationshipState.ts (Phase A-1)
+ * Tests for relationshipState.ts (Phase A-1b — PresenceMode alignment)
+ *
+ * Phase A-1b 変更:
+ *   - modeContext: "unknown"|"off"|"on" → PresenceMode | null
+ *   - observerActivationState: 独自 → ExecutorAvailability (5 値)
+ *   - schemaVersion: 1 → 2
  *
  * 検証項目:
  *   1. Initial state (empty container, key 未登録)
- *   2. Create / update with patches
+ *   2. Create / update with patches (PresenceMode 整合)
  *   3. observation count increments
  *   4. Defensive copy on read/write
  *   5. Multi-key isolation
  *   6. Reset / clear behavior
- *   7. Reason codes FIFO cap
- *   8. ModeContext future-compatibility (off/on/unknown 動作)
- *   9. Caller-provided observedAt (no Date.now dependency)
- *  10. Error inputs (empty / non-string key)
- *  11. Redacted snapshot via container
- *  12. Process-local behavior (clearAllForTests で reset)
+ *   7. Reason codes FIFO cap (Phase A-1b 新 reason codes)
+ *   8. PresenceMode 互換性 (normal / daily / travel / null 受容)
+ *   9. ExecutorAvailability 5 値受容
+ *  10. modeContext null clear (undefined と null の区別)
+ *  11. Caller-provided observedAt (no Date.now dependency)
+ *  12. Error inputs (empty / non-string key)
+ *  13. Redacted snapshot via container
+ *  14. Process-local behavior (clearAllForTests で reset)
+ *  15. schemaVersion = 2
+ *  16. Presence layer file 不触
+ *  17. Runtime callsite 不在
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
@@ -54,8 +64,10 @@ describe("relationshipState — initial state", () => {
     const state = updateRelationshipState(KEY_A, {});
     expect(state.observationCount).toBe(0);
     expect(state.lastObservationAt).toBeNull();
-    expect(state.modeContext).toBe("unknown");
-    expect(state.observerActivationState).toBe("unknown");
+    // Phase A-1b: modeContext default = null (mode signal 未受領)
+    expect(state.modeContext).toBeNull();
+    // Phase A-1b: observerActivationState default = "inactive" (ExecutorAvailability 中性値)
+    expect(state.observerActivationState).toBe("inactive");
     expect(state.conversationPhase).toBe("unknown");
     expect(state.alignmentBucket).toBe("unknown");
     expect(state.uncertaintyBucket).toBe("unknown");
@@ -69,10 +81,10 @@ describe("relationshipState — initial state", () => {
     expect(state.stateVersion).toBe(1);
   });
 
-  it("schemaVersion is fixed", () => {
+  it("schemaVersion is fixed (Phase A-1b: bumped to 2)", () => {
     const state = updateRelationshipState(KEY_A, {});
     expect(state.schemaVersion).toBe(RELATIONSHIP_STATE_SCHEMA_VERSION);
-    expect(state.schemaVersion).toBe(1);
+    expect(state.schemaVersion).toBe(2);
   });
 
   it("internalKey is set to the provided key", () => {
@@ -105,9 +117,9 @@ describe("relationshipState — observation recording", () => {
 
   it("does NOT increment observationCount without recordingObservation", () => {
     updateRelationshipState(KEY_A, {
-      modeContext: "on",
+      modeContext: "normal",
     });
-    const s = updateRelationshipState(KEY_A, { modeContext: "off" });
+    const s = updateRelationshipState(KEY_A, { modeContext: "daily" });
     expect(s.observationCount).toBe(0);
     expect(s.lastObservationAt).toBeNull();
   });
@@ -183,14 +195,14 @@ describe("relationshipState — patch fields", () => {
 
   it("preserves unspecified fields", () => {
     updateRelationshipState(KEY_A, {
-      modeContext: "on",
+      modeContext: "normal",
       alignmentBucket: "positive",
       ruptureFlag: true,
     });
     const s = updateRelationshipState(KEY_A, {
-      modeContext: "off",
+      modeContext: "daily",
     });
-    expect(s.modeContext).toBe("off");
+    expect(s.modeContext).toBe("daily");
     expect(s.alignmentBucket).toBe("positive");
     expect(s.ruptureFlag).toBe(true);
   });
@@ -224,10 +236,10 @@ describe("relationshipState — defensive copy on read", () => {
   });
 
   it("update returns defensive copy (mutation does not affect store)", () => {
-    const returned = updateRelationshipState(KEY_A, { modeContext: "on" });
-    (returned as unknown as { modeContext: string }).modeContext = "off";
+    const returned = updateRelationshipState(KEY_A, { modeContext: "normal" });
+    (returned as unknown as { modeContext: string }).modeContext = "daily";
     const fresh = getRelationshipStateSnapshotInternal(KEY_A);
-    expect(fresh?.modeContext).toBe("on");
+    expect(fresh?.modeContext).toBe("normal");
   });
 });
 
@@ -241,12 +253,12 @@ describe("relationshipState — multi-key isolation", () => {
   });
 
   it("states for different keys are isolated", () => {
-    updateRelationshipState(KEY_A, { modeContext: "on" });
-    updateRelationshipState(KEY_B, { modeContext: "off" });
+    updateRelationshipState(KEY_A, { modeContext: "normal" });
+    updateRelationshipState(KEY_B, { modeContext: "travel" });
     const a = getRelationshipStateSnapshotInternal(KEY_A);
     const b = getRelationshipStateSnapshotInternal(KEY_B);
-    expect(a?.modeContext).toBe("on");
-    expect(b?.modeContext).toBe("off");
+    expect(a?.modeContext).toBe("normal");
+    expect(b?.modeContext).toBe("travel");
   });
 
   it("observation count is per-key", () => {
@@ -366,31 +378,92 @@ describe("relationshipState — reason codes FIFO cap", () => {
 });
 
 // ─────────────────────────────────────────────
-// ModeContext future-compatibility
+// PresenceMode 互換性 (Phase A-1b: PresenceMode | null 整合)
 // ─────────────────────────────────────────────
 
-describe("relationshipState — modeContext future-compatibility", () => {
+describe("relationshipState — PresenceMode 互換性", () => {
   beforeEach(() => {
     clearAllRelationshipStatesForTests();
   });
 
-  it("accepts 'off'", () => {
-    const s = updateRelationshipState(KEY_A, { modeContext: "off" });
-    expect(s.modeContext).toBe("off");
+  it("accepts 'normal' (PresenceMode value)", () => {
+    const s = updateRelationshipState(KEY_A, { modeContext: "normal" });
+    expect(s.modeContext).toBe("normal");
   });
 
-  it("accepts 'on'", () => {
-    const s = updateRelationshipState(KEY_A, { modeContext: "on" });
-    expect(s.modeContext).toBe("on");
+  it("accepts 'daily' (PresenceMode value)", () => {
+    const s = updateRelationshipState(KEY_A, { modeContext: "daily" });
+    expect(s.modeContext).toBe("daily");
   });
 
-  it("accepts 'unknown'", () => {
-    const s = updateRelationshipState(KEY_A, { modeContext: "unknown" });
-    expect(s.modeContext).toBe("unknown");
+  it("accepts 'travel' (PresenceMode value)", () => {
+    const s = updateRelationshipState(KEY_A, { modeContext: "travel" });
+    expect(s.modeContext).toBe("travel");
   });
 
-  // Note: Phase B+ で 'normal' / 'daily' / 'travel' を type union に追加した時、
-  //       本 test ファイルに該当値の受け入れテストを追加する。
+  it("accepts null (mode signal 未受領 / clear)", () => {
+    // First set to a value
+    updateRelationshipState(KEY_A, { modeContext: "normal" });
+    // Then explicitly clear with null
+    const s = updateRelationshipState(KEY_A, { modeContext: null });
+    expect(s.modeContext).toBeNull();
+  });
+
+  it("null clear distinguished from undefined omit (critical bug fix Phase A-1b)", () => {
+    // Set mode to "daily"
+    updateRelationshipState(KEY_A, { modeContext: "daily" });
+    // Update WITHOUT modeContext field (undefined) → preserves "daily"
+    const sOmit = updateRelationshipState(KEY_A, { alignmentBucket: "positive" });
+    expect(sOmit.modeContext).toBe("daily");
+    // Update WITH modeContext: null → clears to null
+    const sClear = updateRelationshipState(KEY_A, { modeContext: null });
+    expect(sClear.modeContext).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────
+// ExecutorAvailability 互換性 (Phase A-1b: 5 値受容)
+// ─────────────────────────────────────────────
+
+describe("relationshipState — ExecutorAvailability 互換性", () => {
+  beforeEach(() => {
+    clearAllRelationshipStatesForTests();
+  });
+
+  it("accepts 'disabled'", () => {
+    const s = updateRelationshipState(KEY_A, {
+      observerActivationState: "disabled",
+    });
+    expect(s.observerActivationState).toBe("disabled");
+  });
+
+  it("accepts 'inactive'", () => {
+    const s = updateRelationshipState(KEY_A, {
+      observerActivationState: "inactive",
+    });
+    expect(s.observerActivationState).toBe("inactive");
+  });
+
+  it("accepts 'pending_consent'", () => {
+    const s = updateRelationshipState(KEY_A, {
+      observerActivationState: "pending_consent",
+    });
+    expect(s.observerActivationState).toBe("pending_consent");
+  });
+
+  it("accepts 'enabled'", () => {
+    const s = updateRelationshipState(KEY_A, {
+      observerActivationState: "enabled",
+    });
+    expect(s.observerActivationState).toBe("enabled");
+  });
+
+  it("accepts 'active'", () => {
+    const s = updateRelationshipState(KEY_A, {
+      observerActivationState: "active",
+    });
+    expect(s.observerActivationState).toBe("active");
+  });
 });
 
 // ─────────────────────────────────────────────
@@ -512,10 +585,10 @@ describe("relationshipState — redacted snapshot via container", () => {
 
   it("reflects current state version", () => {
     updateRelationshipState(KEY_A, {});
-    updateRelationshipState(KEY_A, { modeContext: "on" });
+    updateRelationshipState(KEY_A, { modeContext: "normal" });
     const snap = getRedactedRelationshipStateSnapshot(KEY_A, SALT);
     expect(snap?.stateVersion).toBe(2);
-    expect(snap?.modeContext).toBe("on");
+    expect(snap?.modeContext).toBe("normal");
   });
 });
 
@@ -563,11 +636,11 @@ describe("relationshipState — type-level constraints (smoke)", () => {
     //   - rawText, utterance, message, body, content, userId, pairId, etc.
     // If someone adds a forbidden field to the patch type, this comment is the trail.
     const patch: RelationshipStatePatch = {
-      modeContext: "on",
+      modeContext: "normal",
       observerActivationState: "active",
       ruptureFlag: false,
     };
-    expect(patch.modeContext).toBe("on");
+    expect(patch.modeContext).toBe("normal");
   });
 
   it("update returns deeply readonly snapshot shape", () => {

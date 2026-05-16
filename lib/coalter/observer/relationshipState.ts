@@ -1,8 +1,19 @@
 /**
- * CoAlter Always-On Observer — Relationship State Container (Phase A-1)
+ * CoAlter Always-On Observer — Relationship State Container (Phase A-1b)
  *
- * 正本: docs/coalter-always-on-observer-design.md §3 Layer 3, §4 Phase A-1
- *       docs/coalter-aoo-phase-a0-mode-state-audit.md §1.10, §2.4 (CEO 補正)
+ * 正本:
+ *   - docs/coalter-aoo-presence-reconciliation.md §3.3, §4.2 (PR #154, 2026-05-16 訂正)
+ *   - docs/coalter-always-on-observer-design.md §3 Layer 3, §4 Phase A-1 (PR #151, correction notice 適用)
+ *   - docs/coalter-aoo-phase-a0-mode-state-audit.md §1.10, §2.4 (PR #152, correction notice 適用)
+ *
+ * Phase A-1b 変更 (PresenceMode alignment):
+ *   - 独自 ModeContext / ObserverActivationState を削除し、既存
+ *     presence layer の PresenceMode / ExecutorAvailability に整合
+ *   - schemaVersion 1 → 2 (breaking type change、A-1 deliverable に外部
+ *     caller ゼロのため安全)
+ *   - initialStateFor() の default 値を新型に整合:
+ *       observerActivationState: "inactive" (ExecutorAvailability の中性値)
+ *       modeContext: null (mode signal 未受領)
  *
  * 役割:
  *   関係状態を保持する **self-contained in-memory state container**。
@@ -13,24 +24,32 @@
  *     - self-contained in-memory state container
  *     - process-local
  *     - ephemeral
- *     - runtime-unwired (Phase A-1 段階ではどこからも呼ばれない)
+ *     - runtime-unwired (Phase A-1b 段階でも依然どこからも呼ばれない)
  *     - no external side effects (LLM / fetch / DB / console / storage 一切なし)
- *     - not production source of truth (production の正本は別途設計)
+ *     - not production source of truth (production の正本は既存 sharedState)
  *
  * 設計原則:
  *   1. raw `pairStateId` は internal key only。external snapshot に出さない。
  *   2. external 出力は必ず `getRedactedRelationshipStateSnapshot()` 経由。
- *   3. raw text / utterance / userId / pairId / threadId / email / URL を保持しない。
+ *   3. raw text / utterance / userId / pairId / threadId / email / URL を保持しない
+ *      (PresenceMode は PII ではない、snapshot に含めて良い — CEO/GPT 判断 B3 NO)。
  *   4. LLM call 0 (rule-based のみ)。
  *   5. Date.now / Math.random に依存しない。timestamp は caller-provided observedAt。
  *   6. deterministic test 可能。
  *   7. defensive copy (read/write 両方で内部状態を caller から保護)。
  *   8. process-local + ephemeral (Vercel cold start で reset される前提)。
  *
+ * 既存 presence layer との関係 (並走、責務分離):
+ *   - presence layer = runtime state machine / mode UI / escalation / production source of truth
+ *   - observer layer (本 module) = observation 蓄積 / PII firewall snapshot / A4 retrieval 用 cache
+ *   - 一方向 dependency: observer は presence の型を read-only で参照、書き込みは presence layer のみ
+ *   - 既存 presence layer file は一切 touch しない (不可侵境界)
+ *
  * Process isolation 注意:
  *   - Vercel serverless では process 毎に container instance が独立。
  *   - 同一 pair の観測が異なる process に着地すると state は分散する。
  *   - 本 container は **debug / observation 用途**。production の正本ではない。
+ *   - production の真の正本は既存 sharedState (server 同期、両 client broadcast)。
  */
 
 import {
@@ -92,7 +111,16 @@ function cloneState(
   };
 }
 
-/** Initial state for a new key. observation 未記録、全 field unknown。 */
+/**
+ * Initial state for a new key.
+ *
+ * Phase A-1b 更新:
+ *   - observerActivationState: "inactive" (ExecutorAvailability の中性値)
+ *     既存 ExecutorAvailability lifecycle: disabled / inactive / pending_consent /
+ *     enabled / active のうち、observer が起動していない状態を最も明確に表現
+ *   - modeContext: null (mode signal 未受領、旧 "unknown" 相当)
+ *   - 他 field は変更なし
+ */
 function initialStateFor(
   key: InternalPairStateKey,
 ): InternalRelationshipState {
@@ -102,8 +130,8 @@ function initialStateFor(
     stateVersion: 0,
     observationCount: 0,
     lastObservationAt: null,
-    observerActivationState: "unknown",
-    modeContext: "unknown",
+    observerActivationState: "inactive",
+    modeContext: null,
     conversationPhase: "unknown",
     alignmentBucket: "unknown",
     ruptureFlag: false,
@@ -181,6 +209,15 @@ export function updateRelationshipState(
     mergedReasonCodes.splice(0, mergedReasonCodes.length - reasonCodeCap);
   }
 
+  // Phase A-1b: modeContext は null を「明示的に signal clear」として扱うため、
+  // nullish coalescing (??) は使えない (null も nullish のため existing にfall through)。
+  // undefined を「omit (既存値維持)」、null を「明示 clear (PresenceMode → null)」と
+  // 区別するため、`!== undefined` チェックを使う。
+  const nextModeContext =
+    patch.modeContext !== undefined
+      ? patch.modeContext
+      : existing.modeContext;
+
   const updated: InternalRelationshipState = {
     schemaVersion: existing.schemaVersion,
     internalKey: existing.internalKey,
@@ -189,7 +226,7 @@ export function updateRelationshipState(
     lastObservationAt: nextLastObservationAt,
     observerActivationState:
       patch.observerActivationState ?? existing.observerActivationState,
-    modeContext: patch.modeContext ?? existing.modeContext,
+    modeContext: nextModeContext,
     conversationPhase:
       patch.conversationPhase ?? existing.conversationPhase,
     alignmentBucket: patch.alignmentBucket ?? existing.alignmentBucket,

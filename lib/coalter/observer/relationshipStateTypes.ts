@@ -1,42 +1,71 @@
 /**
- * CoAlter Always-On Observer — Relationship State Types (Phase A-1)
+ * CoAlter Always-On Observer — Relationship State Types (Phase A-1b)
  *
- * 正本: docs/coalter-always-on-observer-design.md §3 Layer 3, §4 Phase A-1
- *       docs/coalter-aoo-phase-a0-mode-state-audit.md §1.10
+ * 正本:
+ *   - docs/coalter-aoo-presence-reconciliation.md §4.2 (PR #154, 2026-05-16 訂正)
+ *   - docs/coalter-always-on-observer-design.md §3 Layer 3, §4 Phase A-1 (PR #151, correction notice 適用)
+ *   - docs/coalter-aoo-phase-a0-mode-state-audit.md §1.10 (PR #152, correction notice 適用)
  *
  * 役割:
  *   Relationship State Container の型定義。runtime-unwired。
  *
- * CRITICAL 設計原則（CEO/GPT 補正 2026-05-16 反映）:
+ * Phase A-1b (PresenceMode alignment) の変更:
+ *   - 独自 `ModeContext` 型を削除、`PresenceMode | null` を使う
+ *     (既存 `lib/coalter/presence/types.ts` の canonical 型と整合、責務分離維持)
+ *   - 独自 `ObserverActivationState` 型を削除、`ExecutorAvailability` を使う
+ *   - schemaVersion 1 → 2 にbump (breaking type change のため、A-1 deliverable に外部
+ *     caller ゼロのため安全)
+ *   - ReasonCode の mode 関連を PresenceMode 値に整合
+ *   - PresenceMode は PII ではない（observer 文脈の重要 dimension）→ redacted snapshot
+ *     にそのまま含めて良い (CEO/GPT 判断 2026-05-16: B3 NO)
+ *
+ * 並走原則 (CEO/GPT 判断 2026-05-16: 並走、型整合必須):
+ *   - presence layer = runtime state machine / mode UI / escalation / cooldown (server 正本)
+ *   - observer layer = observation 時系列蓄積 / PII firewall snapshot / A4 retrieval 用 cache
+ *   - 両者は責務が異なる並走 layer。observer は presence の値を read-only で参照、
+ *     書き込みは presence layer のみ (一方向 dependency)
+ *
+ * CRITICAL 設計原則 (継続):
  *   1. 本モジュールは "pure module" ではなく "self-contained in-memory state
  *      container" の型定義。container 自体は stateful（module-level Map を持つ）
  *      が、本ファイルは型のみ。
  *   2. raw `pairStateId` は internal key only。external snapshot に出さない。
  *   3. external 出力時は `redactedRelationshipKey` (sha256 派生) を使う。
  *   4. raw `userId` / `pairId` / `threadId` / `email` / URL / message text / utterance
- *      を保持・出力しない。
+ *      を保持・出力しない (PresenceMode はこれに該当しない、PII ではない)。
  *   5. LLM call 0 (rule-based only)。
  *   6. Date.now / Math.random に依存しない。timestamp は caller-provided observedAt。
  *   7. deterministic test 可能。
- *   8. modeContext は Phase A では off/on/unknown のみ。Phase B+ で normal/daily/travel
- *      を union 追加で拡張可能（既存 value 削除なし＝non-breaking）。
- *   9. relationship state は production source of truth ではなく、observer 用の
- *      temporary / process-local / ephemeral state。
- *  10. runtime-unwired (本 module は Phase A-1 段階ではどこからも呼ばれない)。
+ *   8. relationship state は production source of truth ではなく、observer 用の
+ *      temporary / process-local / ephemeral state (production 正本は既存 sharedState)。
+ *   9. runtime-unwired (本 module は Phase A-1b 段階でも依然どこからも呼ばれない)。
+ *  10. 既存 presence layer (lib/coalter/presence/ 30+ files, app/components/chat/
+ *      17 files) を一切 touch しない。
  *
  * 既存型との関係:
  *   - `lib/coalter/types.ts` の `CoAlterMode` (decision/negotiate/clarify/reflect) は
- *     LLM router 内部用。本 module の `ModeContext` (off/on/unknown) は UX activation
- *     mode。完全に別概念（CEO Vision の "通常/Daily/Travel" は ModeContext の Phase B+
- *     拡張に対応）。
+ *     LLM router 内部用、本 module とは無関係 (CEO Vision の mode UX とは別概念)。
+ *   - `lib/coalter/presence/types.ts` の `PresenceMode` (normal/daily/travel) と
+ *     `ExecutorAvailability` (disabled/inactive/pending_consent/enabled/active) を
+ *     本 module で **import して使う** (Phase A-1b で型整合済)。
  */
+
+import type {
+  ExecutorAvailability,
+  PresenceMode,
+} from "../presence/types";
 
 // ─────────────────────────────────────────────
 // Schema version
 // ─────────────────────────────────────────────
 
-/** Container schema version。後方互換管理用。 */
-export const RELATIONSHIP_STATE_SCHEMA_VERSION = 1 as const;
+/**
+ * Container schema version。後方互換管理用。
+ *
+ * - v1: A-1 初版 (独自 ModeContext / ObserverActivationState)
+ * - v2: A-1b PresenceMode alignment (PresenceMode | null / ExecutorAvailability)
+ */
+export const RELATIONSHIP_STATE_SCHEMA_VERSION = 2 as const;
 
 export type RelationshipStateSchemaVersion =
   typeof RELATIONSHIP_STATE_SCHEMA_VERSION;
@@ -68,50 +97,16 @@ export type RedactedRelationshipKey = string;
 export type ObservedAtIso = string;
 
 // ─────────────────────────────────────────────
-// Mode context (CEO Vision)
+// Conversation phase (observer 独自 abstraction、presence S0-S8 とは別 layer)
 // ─────────────────────────────────────────────
 
 /**
- * CoAlter activation mode context。
+ * 会話 phase 推論結果 (Speak Decision Engine 用、Phase A は推論 only)。
  *
- * Phase A: `unknown` / `off` / `on` のみ。
- * Phase B+: 必要に応じて `normal` / `daily` / `travel` を union 追加（既存 value 削除
- *           なし＝non-breaking）。
- *
- * 既存 CoAlterMode (lib/coalter/types.ts:87) は LLM router 内部 mode で本 type とは
- * 完全に別概念。
- *
- * 設計判断:
- *   - `unknown` は mode signal 未受領状態 (mode UI 未確認 / observer hook 未配線時)
- *   - `off` は明示的に CoAlter 観測停止
- *   - `on` は mode ON だが sub-mode 不確定 (Phase A の暫定値)
- *   - 将来 `normal` / `daily` / `travel` を追加: type union 拡張のみで対応
+ * 既存 `PresenceState` (S0-S8) は state machine の runtime status。
+ * 本 `ConversationPhase` は observer layer の独自 abstraction (時系列を超えた phase 推論)。
+ * 両者は別 layer の概念として並走可。
  */
-export type ModeContext =
-  | "unknown"
-  | "off"
-  | "on";
-// Phase B+ で追加予定 (CEO Vision):
-//   | "normal"
-//   | "daily"
-//   | "travel"
-
-// ─────────────────────────────────────────────
-// Observer activation state
-// ─────────────────────────────────────────────
-
-/** observer pipeline の起動状態 (mode とは独立)。 */
-export type ObserverActivationState =
-  | "unknown"
-  | "active"
-  | "inactive"
-  | "suspended";
-
-// ─────────────────────────────────────────────
-// Conversation phase
-// ─────────────────────────────────────────────
-
-/** 会話 phase 推論結果 (Speak Decision Engine 用、Phase A は推論 only)。 */
 export type ConversationPhase =
   | "unknown"
   | "opening"
@@ -157,6 +152,13 @@ export type SilenceBudgetBucket =
 /**
  * State 変更の理由を表す固定 enum。free text を許可しない (PII 流入防止)。
  *
+ * Phase A-1b 変更:
+ *   - 削除: mode_changed_to_unknown / mode_changed_to_off / mode_changed_to_on
+ *     (旧 ModeContext 専用)
+ *   - 追加: mode_changed_to_normal / mode_changed_to_daily / mode_changed_to_travel
+ *     (PresenceMode 値整合)
+ *   - 追加: mode_signal_received / mode_signal_cleared (null ↔ PresenceMode 切替)
+ *
  * 新規 reason 追加は本 union への追記で対応 (Phase B+)。
  */
 export type ReasonCode =
@@ -168,9 +170,12 @@ export type ReasonCode =
   | "phase_inferred"
   | "silence_budget_replenished"
   | "silence_budget_consumed"
-  | "mode_changed_to_unknown"
-  | "mode_changed_to_off"
-  | "mode_changed_to_on"
+  | "mode_changed_to_normal"
+  | "mode_changed_to_daily"
+  | "mode_changed_to_travel"
+  | "mode_signal_received"
+  | "mode_signal_cleared"
+  | "observer_availability_changed"
   | "uncertainty_shift_detected"
   | "container_reset";
 
@@ -185,6 +190,11 @@ export type ReasonCode =
  * を使う。
  *
  * 全 field `readonly` (immutable snapshot)。更新は新規 object 作成で対応。
+ *
+ * Phase A-1b 変更:
+ *   - modeContext: `ModeContext` → `PresenceMode | null`
+ *     null = mode signal 未受領 (旧 "unknown" 相当)
+ *   - observerActivationState: `ObserverActivationState` → `ExecutorAvailability`
  */
 export interface InternalRelationshipState {
   /** Schema version (immutable)。 */
@@ -197,11 +207,17 @@ export interface InternalRelationshipState {
   readonly observationCount: number;
   /** Caller-provided ISO timestamp of last observation. null if未観測。 */
   readonly lastObservationAt: ObservedAtIso | null;
-  /** observer pipeline の起動状態。 */
-  readonly observerActivationState: ObserverActivationState;
-  /** CoAlter activation mode (Phase A: off/on/unknown)。 */
-  readonly modeContext: ModeContext;
-  /** 推論された会話 phase。 */
+  /**
+   * Observer pipeline の起動状態 (既存 ExecutorAvailability 整合)。
+   * disabled / inactive / pending_consent / enabled / active の 5 段階。
+   */
+  readonly observerActivationState: ExecutorAvailability;
+  /**
+   * CoAlter activation mode (既存 PresenceMode 整合)。
+   * normal / daily / travel の 3 値、または null (signal 未受領)。
+   */
+  readonly modeContext: PresenceMode | null;
+  /** 推論された会話 phase (observer 独自、PresenceState S0-S8 とは別)。 */
   readonly conversationPhase: ConversationPhase;
   /** 両者の方向一致度 bucket。 */
   readonly alignmentBucket: AlignmentBucket;
@@ -227,6 +243,10 @@ export interface InternalRelationshipState {
  * A4 retrieval / diagnostics / UI で出してよい (PII 不在保証)。
  *
  * 全 field `readonly` (defensive copy 推奨)。
+ *
+ * Phase A-1b 変更:
+ *   - modeContext / observerActivationState を InternalRelationshipState と同じ型に整合
+ *   - PresenceMode は PII ではない (CEO/GPT 判断 2026-05-16 B3 NO)、snapshot にそのまま含めてよい
  */
 export interface RedactedRelationshipStateSnapshot {
   readonly schemaVersion: RelationshipStateSchemaVersion;
@@ -235,8 +255,8 @@ export interface RedactedRelationshipStateSnapshot {
   readonly stateVersion: number;
   readonly observationCount: number;
   readonly lastObservationAt: ObservedAtIso | null;
-  readonly observerActivationState: ObserverActivationState;
-  readonly modeContext: ModeContext;
+  readonly observerActivationState: ExecutorAvailability;
+  readonly modeContext: PresenceMode | null;
   readonly conversationPhase: ConversationPhase;
   readonly alignmentBucket: AlignmentBucket;
   readonly ruptureFlag: boolean;
@@ -257,12 +277,15 @@ export interface RedactedRelationshipStateSnapshot {
  *     (型レベル firewall)
  *   - observedAt は caller-provided (container 内で Date.now しない)
  *   - recordingObservation が true の時のみ observationCount / lastObservationAt 更新
+ *
+ * Phase A-1b 変更:
+ *   - modeContext / observerActivationState の型を整合
  */
 export interface RelationshipStatePatch {
-  /** observer 起動状態の変更。 */
-  observerActivationState?: ObserverActivationState;
-  /** mode context の変更。 */
-  modeContext?: ModeContext;
+  /** observer 起動状態の変更 (ExecutorAvailability 整合)。 */
+  observerActivationState?: ExecutorAvailability;
+  /** mode context の変更 (PresenceMode 整合、null で clear)。 */
+  modeContext?: PresenceMode | null;
   /** 推論 phase の更新。 */
   conversationPhase?: ConversationPhase;
   /** 一致度 bucket の更新。 */
