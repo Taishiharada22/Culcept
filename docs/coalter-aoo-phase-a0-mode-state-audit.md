@@ -1,6 +1,26 @@
 # CoAlter Always-On Observer — Phase A-0 Mode State Audit
 
-**ステータス**: A-0 完了（docs-only PR）
+> ## 🔴 訂正通知（2026-05-16）
+>
+> **本 audit §0.1 / §1.1 / §1.2 等の「mode tabs UI が main に存在しない」結論は誤りです。**
+>
+> 別セッション report による独立検証 + 私自身の再検証により、以下が確認されました:
+> - `app/components/chat/ModeSwitcher.tsx` 実在（blob `9834cf0f`、main HEAD `ea230df9` 時点で確認）
+> - 内部 LABELS: `{ normal: "通常", daily: "Daily", travel: "Travel" }`
+> - `lib/coalter/presence/types.ts:56` に `PresenceMode = "normal" | "daily" | "travel"` 実在
+> - presence layer 全体（30+ files）が production deployed
+>
+> 見落とし原因（後述 §1.3）:
+> - 検索 directory が `components/coalter/` のみで `app/components/chat/` と `lib/coalter/presence/` を見落とした
+> - 「tab」keyword で grep したが実装は `role="radiogroup"`
+>
+> 訂正正本: `docs/coalter-aoo-presence-reconciliation.md` (PR #154)
+>
+> 本 audit を意思決定の根拠として使わないでください。reconciliation doc が**正本**です。
+>
+> ---
+
+**ステータス**: A-0 完了（docs-only PR）→ **重大訂正済（2026-05-16）**
 **作成日**: 2026-05-16
 **前提**: 設計書 `docs/coalter-always-on-observer-design.md` (PR #151, 2026-05-16 merge)
 **目的**: Phase A 実装着手前のコード現状調査。「mode」概念の実体把握と、observer hook 位置の意思決定材料整備。
@@ -11,6 +31,8 @@
 ## 0. Executive Summary
 
 ### 0.1 最重要発見
+
+> 🔴 **本項の結論は誤り**。`app/components/chat/ModeSwitcher.tsx` が main に実在。詳細は冒頭訂正通知参照。
 
 **「通常 / Daily / Travel」mode tabs UI は、現状の main 上に存在しません**（main HEAD = `a86558a4` 時点）。
 
