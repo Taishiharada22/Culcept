@@ -3,6 +3,10 @@
 // is short-lived; will be discarded after auth smoke (production→404 /
 // no-token preview→401 / invalid-token preview→403). Valid-token check is
 // CEO-side (Claude never sees the token).
+// Phase 2: COALTER_UNDERSTANDING_BUFFER_FANOUT=true added to Preview only —
+// movie conversation should fan out redacted observations into A2 in-memory
+// buffer, then retrieval shows eventCount>0 (subject to Vercel serverless
+// per-process isolation — if eventCount=0, suspect process boundary first).
 /**
  * CoAlter Movie Understanding — Diagnostics Retrieval Route (A4 phase)
  *
