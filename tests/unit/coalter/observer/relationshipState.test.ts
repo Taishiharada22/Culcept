@@ -36,6 +36,7 @@ import {
   setReasonCodeCapForTests,
   getReasonCodeCapForTests,
   getStoreSizeForTests,
+  iterateRedactedSnapshotsForDebug,
 } from "@/lib/coalter/observer/relationshipState";
 import {
   RELATIONSHIP_STATE_SCHEMA_VERSION,
@@ -647,5 +648,80 @@ describe("relationshipState — type-level constraints (smoke)", () => {
     const s: InternalRelationshipState = updateRelationshipState(KEY_A, {});
     // Type-level readonly enforced; runtime checks defensive copy elsewhere
     expect(s.schemaVersion).toBe(RELATIONSHIP_STATE_SCHEMA_VERSION);
+  });
+});
+
+// ─────────────────────────────────────────────
+// iterateRedactedSnapshotsForDebug (A-2e canary)
+// ─────────────────────────────────────────────
+
+describe("iterateRedactedSnapshotsForDebug — A-2e canary", () => {
+  beforeEach(() => {
+    clearAllRelationshipStatesForTests();
+  });
+
+  it("returns empty array when no states", () => {
+    const result = iterateRedactedSnapshotsForDebug(SALT);
+    expect(result).toEqual([]);
+  });
+
+  it("returns 1 snapshot when 1 state exists", () => {
+    updateRelationshipState(KEY_A, { modeContext: "normal" });
+    const result = iterateRedactedSnapshotsForDebug(SALT);
+    expect(result.length).toBe(1);
+    expect(result[0].modeContext).toBe("normal");
+  });
+
+  it("returns N snapshots when N states exist", () => {
+    updateRelationshipState(KEY_A, { modeContext: "normal" });
+    updateRelationshipState(KEY_B, { modeContext: "daily" });
+    updateRelationshipState("pair-c", { modeContext: "travel" });
+    const result = iterateRedactedSnapshotsForDebug(SALT);
+    expect(result.length).toBe(3);
+    const modes = result.map((s) => s.modeContext).sort();
+    expect(modes).toEqual(["daily", "normal", "travel"]);
+  });
+
+  it("snapshots use provided salt (deterministic with same salt)", () => {
+    updateRelationshipState(KEY_A, {});
+    const r1 = iterateRedactedSnapshotsForDebug(SALT);
+    const r2 = iterateRedactedSnapshotsForDebug(SALT);
+    expect(r1[0].redactedRelationshipKey).toBe(r2[0].redactedRelationshipKey);
+  });
+
+  it("snapshots use provided salt (different salt → different keys)", () => {
+    updateRelationshipState(KEY_A, {});
+    const r1 = iterateRedactedSnapshotsForDebug("salt-X");
+    const r2 = iterateRedactedSnapshotsForDebug("salt-Y");
+    expect(r1[0].redactedRelationshipKey).not.toBe(r2[0].redactedRelationshipKey);
+  });
+
+  it("raw pairStateId not in any snapshot JSON (PII firewall)", () => {
+    updateRelationshipState(KEY_A, {});
+    updateRelationshipState(KEY_B, {});
+    const result = iterateRedactedSnapshotsForDebug(SALT);
+    const json = JSON.stringify(result);
+    expect(json.includes(KEY_A)).toBe(false);
+    expect(json.includes(KEY_B)).toBe(false);
+  });
+
+  it("each snapshot has redactedRelationshipKey field (length 43)", () => {
+    updateRelationshipState(KEY_A, {});
+    updateRelationshipState(KEY_B, {});
+    const result = iterateRedactedSnapshotsForDebug(SALT);
+    for (const snap of result) {
+      expect(snap.redactedRelationshipKey).toBeDefined();
+      expect(snap.redactedRelationshipKey.length).toBe(43);
+    }
+  });
+
+  it("throws on empty salt", () => {
+    expect(() => iterateRedactedSnapshotsForDebug("")).toThrow();
+  });
+
+  it("throws on non-string salt", () => {
+    expect(() =>
+      iterateRedactedSnapshotsForDebug(null as unknown as string),
+    ).toThrow();
   });
 });

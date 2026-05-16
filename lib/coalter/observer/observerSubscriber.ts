@@ -53,8 +53,13 @@ import type { InternalPairStateKey } from "./relationshipStateTypes";
  *   - crypto unavailable → **throw** (fail-closed、caller の try/catch で握りつぶす)
  *
  * 出力: 32 random bytes → base64url 文字列 (43 chars)
+ *
+ * **export 理由 (A-2e canary 2026-05-17)**:
+ *   `hooks/useObserverSubscription.ts` の debug global expose も同じ
+ *   session-local ephemeral salt 設計を使うため (CEO/GPT 補正で hardcoded salt
+ *   禁止)。debug-gated caller のみ。
  */
-function generateEphemeralSalt(): string {
+export function generateEphemeralSalt(): string {
   if (
     typeof globalThis.crypto === "undefined" ||
     typeof globalThis.crypto.getRandomValues !== "function"

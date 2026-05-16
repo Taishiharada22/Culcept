@@ -304,6 +304,45 @@ export const COALTER_FLAGS = {
       false,
     );
   },
+  /**
+   * [A-2e canary 2026-05-17] `presenceObserverDebugExposeEnabled`
+   * (`NEXT_PUBLIC_COALTER_OBSERVER_DEBUG_EXPOSE`)
+   *
+   *   CoAlter Always-On Observer の **debug global expose** を canary 観測中に
+   *   許可する kill switch。
+   *
+   *   - 既定 OFF。**A-2e canary 以外では絶対 ON しない**。
+   *   - **canary branch scoped Preview env のみ** で `true` に設定 (CEO 操作)。
+   *   - Production env / all Preview branches scope は**絶対追加しない** (CEO 厳守)。
+   *
+   *   ⚠️ **重要 (GPT 補正 2026-05-17 反映)**:
+   *   `NODE_ENV === "production"` で除外する double-gate は **採用しない**。
+   *   理由: Vercel Preview build も `next build` = production build なので、
+   *   NODE_ENV gate を入れると Preview canary でも debug が出ず、観測目的を
+   *   満たせない。
+   *
+   *   代わりに 7 層防御で安全性確保:
+   *     L1 env flag default false
+   *     L2 env scope = branch scoped Preview only
+   *     L3 PR merge 禁止 (draft only)
+   *     L4 branch 短命 (canary smoke 完了後破棄)
+   *     L5 15 min 時限 expire (install 後自動 invalidate)
+   *     L6 smoke 後 env 削除 (CEO 操作)
+   *     L7 raw 露出禁止 (redacted snapshot only、raw pairStateId は closure 内のみ)
+   *
+   *   debug global expose の実体は `hooks/useObserverSubscription.ts` 内で
+   *   `presenceObserverEnabled === true` かつ `presenceObserverDebugExposeEnabled
+   *   === true` の **両方 ON 時のみ** install。
+   *
+   *   関連:
+   *   - preflight: docs/coalter-aoo-a2e-state-observation-preflight.md (PR #161)
+   */
+  get presenceObserverDebugExposeEnabled(): boolean {
+    return normalizeBool(
+      process.env.NEXT_PUBLIC_COALTER_OBSERVER_DEBUG_EXPOSE,
+      false,
+    );
+  },
 };
 
 // ─────────────────────────────────────────────

@@ -31,6 +31,8 @@ import {
   _runObserverSubscriptionEffect,
   __getSubscriptionRegistrySizeForTests,
   __clearSubscriptionRegistryForTests,
+  __clearDebugGlobalForTests,
+  __isDebugGlobalInstalledForTests,
 } from "@/hooks/useObserverSubscription";
 import {
   publishPresenceSignal,
@@ -427,5 +429,196 @@ describe("useObserverSubscription — PII firewall (E2E)", () => {
     const json = JSON.stringify(state);
     expect(json.includes(futureFieldSecret)).toBe(false);
     expect(json.includes("someFutureField")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────
+// A-2e canary: Debug global expose
+// ─────────────────────────────────────────────
+
+describe("useObserverSubscription — A-2e canary debug global expose", () => {
+  const ENV_KEY = "NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER";
+  const DEBUG_ENV_KEY = "NEXT_PUBLIC_COALTER_OBSERVER_DEBUG_EXPOSE";
+  let originalEnv: string | undefined;
+  let originalDebugEnv: string | undefined;
+
+  beforeEach(() => {
+    originalEnv = process.env[ENV_KEY];
+    originalDebugEnv = process.env[DEBUG_ENV_KEY];
+    __resetSignalBus();
+    __clearSubscriptionRegistryForTests();
+    clearAllRelationshipStatesForTests();
+    __clearDebugGlobalForTests();
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+    if (originalDebugEnv === undefined) delete process.env[DEBUG_ENV_KEY];
+    else process.env[DEBUG_ENV_KEY] = originalDebugEnv;
+    __clearSubscriptionRegistryForTests();
+    __clearDebugGlobalForTests();
+  });
+
+  it("debug global NOT installed when PRESENCE_OBSERVER OFF + DEBUG_EXPOSE OFF", () => {
+    delete process.env[ENV_KEY];
+    delete process.env[DEBUG_ENV_KEY];
+    _runObserverSubscriptionEffect("pair-debug-1");
+    expect(__isDebugGlobalInstalledForTests()).toBe(false);
+  });
+
+  it("debug global NOT installed when only DEBUG_EXPOSE ON (observer subscribe skipped)", () => {
+    delete process.env[ENV_KEY];
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-2");
+    expect(__isDebugGlobalInstalledForTests()).toBe(false);
+  });
+
+  it("debug global NOT installed when only PRESENCE_OBSERVER ON (debug expose OFF)", () => {
+    process.env[ENV_KEY] = "true";
+    delete process.env[DEBUG_ENV_KEY];
+    _runObserverSubscriptionEffect("pair-debug-3");
+    expect(__isDebugGlobalInstalledForTests()).toBe(false);
+  });
+
+  it("debug global installed when BOTH ON", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-4");
+    expect(__isDebugGlobalInstalledForTests()).toBe(true);
+  });
+
+  it("debug global has expected API shape", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-5");
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      meta: { installedAt: number; expiresAt: number; version: string };
+      getRegistrySize: () => number;
+      getCurrentRedactedSnapshot: () => unknown;
+      getAllRedactedSnapshots: () => unknown[];
+      selfDestroy: () => void;
+    };
+    expect(dbg).toBeDefined();
+    expect(typeof dbg.meta.installedAt).toBe("number");
+    expect(typeof dbg.meta.expiresAt).toBe("number");
+    expect(dbg.meta.version).toBe("a2e-canary-v2");
+    expect(typeof dbg.getRegistrySize).toBe("function");
+    expect(typeof dbg.getCurrentRedactedSnapshot).toBe("function");
+    expect(typeof dbg.getAllRedactedSnapshots).toBe("function");
+    expect(typeof dbg.selfDestroy).toBe("function");
+  });
+
+  it("debug global getRegistrySize returns subscriber count", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-6");
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getRegistrySize: () => number;
+    };
+    expect(dbg.getRegistrySize()).toBe(1);
+  });
+
+  it("debug global getCurrentRedactedSnapshot returns redacted snapshot (no raw pairStateId)", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    const PAIR_RAW = "pair-debug-redaction-test-zzz";
+    _runObserverSubscriptionEffect(PAIR_RAW);
+    publishPresenceSignal({
+      kind: "implicit",
+      strength: "soft",
+      detectedAt: 1,
+      meta: { lastMessageId: "msg-1" },
+    });
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getCurrentRedactedSnapshot: () => Record<string, unknown> | null;
+    };
+    const snap = dbg.getCurrentRedactedSnapshot();
+    expect(snap).not.toBeNull();
+    const json = JSON.stringify(snap);
+    expect(json.includes(PAIR_RAW)).toBe(false);
+    expect(snap?.redactedRelationshipKey).toBeDefined();
+  });
+
+  it("debug global getAllRedactedSnapshots returns all states", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-multi-1");
+    // Note: subscribe registry is per-pair but state container is also per-pair
+    publishPresenceSignal({
+      kind: "implicit",
+      strength: "soft",
+      detectedAt: 1,
+    });
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getAllRedactedSnapshots: () => unknown[];
+    };
+    const snapshots = dbg.getAllRedactedSnapshots();
+    expect(snapshots.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("debug global selfDestroy removes global", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-selfdestroy");
+    expect(__isDebugGlobalInstalledForTests()).toBe(true);
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      selfDestroy: () => void;
+    };
+    dbg.selfDestroy();
+    expect(__isDebugGlobalInstalledForTests()).toBe(false);
+  });
+
+  it("debug global cleaned up when cleanup is called", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    const cleanup = _runObserverSubscriptionEffect("pair-debug-cleanup");
+    expect(__isDebugGlobalInstalledForTests()).toBe(true);
+    cleanup?.();
+    expect(__isDebugGlobalInstalledForTests()).toBe(false);
+  });
+
+  it("debug global snapshot does NOT contain forbidden PII fields", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-pii-test");
+    const RAW_MSG = "msg-uuid-pii-leak-check-yyyy";
+    publishPresenceSignal({
+      kind: "critical",
+      strength: "strong",
+      detectedAt: 1,
+      meta: {
+        lastMessageId: RAW_MSG,
+        matchedPattern: "safety:self-harm-raw-suffix-xxxxx",
+      },
+    });
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getAllRedactedSnapshots: () => unknown[];
+    };
+    const snapshots = dbg.getAllRedactedSnapshots();
+    const json = JSON.stringify(snapshots);
+    // raw values not in output
+    expect(json.includes(RAW_MSG)).toBe(false);
+    expect(json.includes("safety:self-harm-raw-suffix-xxxxx")).toBe(false);
+    expect(json.includes("xxxxx")).toBe(false);
+    // forbidden field names not in output
+    const piiFieldNames = [
+      "userId", "pairId", "threadId", "email", "lastMessageId",
+      "messageId", "message", "utterance", "matchedPattern",
+    ];
+    for (const piiField of piiFieldNames) {
+      expect(json.includes(`"${piiField}":`)).toBe(false);
+    }
+  });
+
+  it("debug global API does NOT expose getRedactedStateForPair (raw pairStateId input禁止)", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-no-raw-input");
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as Record<
+      string,
+      unknown
+    >;
+    expect(dbg.getRedactedStateForPair).toBeUndefined();
   });
 });

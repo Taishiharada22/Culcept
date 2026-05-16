@@ -42,9 +42,16 @@
 import { useEffect } from "react";
 import {
   createObserverSession,
+  generateEphemeralSalt,
   makeSignalHandler,
 } from "@/lib/coalter/observer/observerSubscriber";
 import { isPresenceObserverEnabled } from "@/lib/coalter/observer/observerSubscriberGate";
+import {
+  getRedactedRelationshipStateSnapshot,
+  iterateRedactedSnapshotsForDebug,
+} from "@/lib/coalter/observer/relationshipState";
+import type { RedactedRelationshipStateSnapshot } from "@/lib/coalter/observer/relationshipStateTypes";
+import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { subscribePresenceSignal } from "@/lib/coalter/presence/productionSignalBus";
 
 /**
@@ -61,6 +68,130 @@ const subscriptionRegistry: Map<string, () => void> = new Map<
   string,
   () => void
 >();
+
+// ─────────────────────────────────────────────
+// A-2e canary: Debug global expose state (closure, never externally accessible)
+// ─────────────────────────────────────────────
+
+/** Debug session salt (closure 内のみ、external 不可、destroyDebugGlobal で破棄)。 */
+let debugSessionSalt: string | null = null;
+/** 現在 mount 中の ObserverHost に紐づく pairStateId (closure 内、external 不可)。 */
+let currentActivePairStateIdForDebug: string | null = null;
+/** Debug global install timestamp (expire 検査用)。 */
+let debugInstalledAt: number | null = null;
+
+/** Debug global 自動 expire 時間 (15 min、CEO/GPT 補正)。 */
+const DEBUG_EXPIRE_MS = 15 * 60 * 1000;
+
+/** Debug global の globalThis key (外部公開可能、ただし内容は redacted only)。 */
+const DEBUG_GLOBAL_KEY = "__AOO_DEBUG_STATE__";
+
+/**
+ * Debug global を破棄する (manual selfDestroy / 自動 expire / cleanup から呼ばれる)。
+ *
+ * 全 closure variable をクリアし、globalThis から delete する。
+ */
+function destroyDebugGlobal(): void {
+  if (typeof globalThis !== "undefined") {
+    delete (globalThis as Record<string, unknown>)[DEBUG_GLOBAL_KEY];
+  }
+  debugSessionSalt = null;
+  currentActivePairStateIdForDebug = null;
+  debugInstalledAt = null;
+}
+
+/**
+ * Debug global を install する (env-gated)。
+ *
+ * **設計 (CEO/GPT 補正 2026-05-17 全面反映)**:
+ *   - `presenceObserverDebugExposeEnabled` flag ON 時のみ install
+ *   - NODE_ENV gate なし (Preview build = production build なので NODE_ENV gate は
+ *     canary を無効化する、GPT 補正で削除)
+ *   - session-local ephemeral salt 使用 (hardcoded salt は使わない)
+ *   - 15 min 後自動 expire (各 accessor 呼出時に check)
+ *   - selfDestroy() で manual cleanup 可能
+ *   - raw pairStateId は closure 内のみ、external 不可
+ *   - 露出 API: getRegistrySize / getCurrentRedactedSnapshot / getAllRedactedSnapshots / selfDestroy / meta
+ *   - 禁止 API: getRedactedStateForPair(pairStateId) — CEO に raw pairStateId 入力させない
+ */
+function installDebugGlobalIfEnabled(pairStateId: string): void {
+  if (typeof globalThis === "undefined") return;
+  if (!COALTER_FLAGS.presenceObserverDebugExposeEnabled) return;
+
+  // Session-local ephemeral salt: install ごとに 1 回生成
+  // (HMR / 再 mount で同 salt 再利用すると redactedKey が一致するため subscribe 切替で
+  // 必ず新規生成)
+  let saltGenerationFailed = false;
+  if (debugSessionSalt === null) {
+    try {
+      debugSessionSalt = generateEphemeralSalt();
+    } catch {
+      // crypto unavailable → debug install skip (fail-closed)
+      saltGenerationFailed = true;
+    }
+  }
+  if (saltGenerationFailed || debugSessionSalt === null) return;
+
+  const installedAt = Date.now();
+  const expiresAt = installedAt + DEBUG_EXPIRE_MS;
+
+  debugInstalledAt = installedAt;
+  currentActivePairStateIdForDebug = pairStateId;
+
+  const checkExpire = (): void => {
+    if (debugInstalledAt === null) {
+      throw new Error(`${DEBUG_GLOBAL_KEY} already destroyed`);
+    }
+    if (Date.now() > debugInstalledAt + DEBUG_EXPIRE_MS) {
+      destroyDebugGlobal();
+      throw new Error(`${DEBUG_GLOBAL_KEY} expired (15 min)`);
+    }
+  };
+
+  (globalThis as Record<string, unknown>)[DEBUG_GLOBAL_KEY] = {
+    meta: {
+      installedAt,
+      expiresAt,
+      version: "a2e-canary-v2",
+    },
+    getRegistrySize: (): number => {
+      checkExpire();
+      return subscriptionRegistry.size;
+    },
+    getCurrentRedactedSnapshot: (): RedactedRelationshipStateSnapshot | null => {
+      checkExpire();
+      if (currentActivePairStateIdForDebug === null) return null;
+      if (debugSessionSalt === null) return null;
+      return getRedactedRelationshipStateSnapshot(
+        currentActivePairStateIdForDebug,
+        debugSessionSalt,
+      );
+    },
+    getAllRedactedSnapshots: (): RedactedRelationshipStateSnapshot[] => {
+      checkExpire();
+      if (debugSessionSalt === null) return [];
+      return iterateRedactedSnapshotsForDebug(debugSessionSalt);
+    },
+    selfDestroy: (): void => {
+      destroyDebugGlobal();
+    },
+  };
+}
+
+/**
+ * Debug global の cleanup tracking (subscribe cleanup と連動)。
+ *
+ * cleanup された pairStateId が `currentActivePairStateIdForDebug` と一致するなら、
+ * debug global も破棄する (active session 消滅 → debug 不要)。
+ *
+ * **設計判断**: subscribe cleanup で debug global を消す方が safe。subscribe が
+ * 動いていないのに debug global が残ると、CEO が誤って空の snapshot を見続ける。
+ */
+function maybeDestroyDebugGlobalOnCleanup(pairStateId: string): void {
+  if (currentActivePairStateIdForDebug === pairStateId) {
+    destroyDebugGlobal();
+  }
+}
 
 /**
  * Effect callback の **pure 抽出版**。React 非依存、テスト可能。
@@ -108,6 +239,13 @@ export function _runObserverSubscriptionEffect(
     return null;
   }
 
+  // A-2e canary: Debug global install (flag-gated、subscribe 成功時のみ)
+  try {
+    installDebugGlobalIfEnabled(pairStateId);
+  } catch {
+    // debug install 失敗は握りつぶす (observer 本体には影響させない)
+  }
+
   return () => {
     // Cleanup: registry から自分の unsubscribe を取り出し実行
     // strict mode double-invoke でも leak しないよう registry の現状と比較
@@ -126,6 +264,13 @@ export function _runObserverSubscriptionEffect(
       } catch {
         // unsubscribe 失敗は握りつぶす
       }
+    }
+
+    // A-2e canary: cleanup された pairStateId が current active なら debug global も破棄
+    try {
+      maybeDestroyDebugGlobalOnCleanup(pairStateId);
+    } catch {
+      // debug cleanup 失敗は握りつぶす
     }
   };
 }
@@ -175,4 +320,24 @@ export function __clearSubscriptionRegistryForTests(): void {
     }
   }
   subscriptionRegistry.clear();
+}
+
+/**
+ * Debug global / debug closure state を強制クリアする。**tests only**。
+ *
+ * 各 test の beforeEach / afterEach で reset (debug session salt / current pair /
+ * installed timestamp / globalThis.__AOO_DEBUG_STATE__ を全クリア)。
+ */
+export function __clearDebugGlobalForTests(): void {
+  destroyDebugGlobal();
+}
+
+/**
+ * Debug global の現在 install 状態を取得する。**tests only**。
+ *
+ * @returns true if `globalThis.__AOO_DEBUG_STATE__` が install 済
+ */
+export function __isDebugGlobalInstalledForTests(): boolean {
+  if (typeof globalThis === "undefined") return false;
+  return DEBUG_GLOBAL_KEY in (globalThis as Record<string, unknown>);
 }

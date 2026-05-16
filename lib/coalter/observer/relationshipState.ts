@@ -281,6 +281,45 @@ export function resetRelationshipState(key: InternalPairStateKey): void {
 }
 
 // ─────────────────────────────────────────────
+// Debug-only helper (Phase A-2e canary、env-gated caller のみ)
+// ─────────────────────────────────────────────
+
+/**
+ * 全 stateStore entry を salt で redact し配列で返す debug 専用 helper。
+ *
+ * 用途: A-2e canary で debug global expose (`window.__AOO_DEBUG_STATE__`)
+ *       経由で全 active observer state を確認する。
+ *
+ * 安全性:
+ *   - raw pairStateId は internal iterate のみ、戻り値配列には含まれない
+ *     (redactedRelationshipKey + bucket 化された field のみ)
+ *   - caller (debug global) は salt を session-local ephemeral salt で渡す
+ *   - 出力は完全 redacted、A-1/A-1b の PII firewall 保証を継承
+ *
+ * 制約:
+ *   - 本関数は debug 用途想定。production runtime path で呼ばない。
+ *   - caller 側で env flag gate 必須 (`presenceObserverDebugExposeEnabled`)。
+ *
+ * @param salt redact 用 salt (caller-provided、debug session ephemeral)
+ * @returns 全 active state の redacted snapshot 配列 (空配列 OK)
+ */
+export function iterateRedactedSnapshotsForDebug(
+  salt: string,
+): RedactedRelationshipStateSnapshot[] {
+  if (typeof salt !== "string" || salt.length === 0) {
+    throw new Error(
+      "iterateRedactedSnapshotsForDebug: salt must be a non-empty string",
+    );
+  }
+  const result: RedactedRelationshipStateSnapshot[] = [];
+  for (const [key] of stateStore.entries()) {
+    const snapshot = getRedactedRelationshipStateSnapshot(key, salt);
+    if (snapshot !== null) result.push(snapshot);
+  }
+  return result;
+}
+
+// ─────────────────────────────────────────────
 // Test-only helpers
 // ─────────────────────────────────────────────
 
