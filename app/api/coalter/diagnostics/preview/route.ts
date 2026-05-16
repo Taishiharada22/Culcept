@@ -1,3 +1,8 @@
+// A4 smoke trigger (PR #150) — single-line marker to bypass vercel.json
+// ignoreCommand which skips builds when only .md files change. This branch
+// is short-lived; will be discarded after auth smoke (production→404 /
+// no-token preview→401 / invalid-token preview→403). Valid-token check is
+// CEO-side (Claude never sees the token).
 /**
  * CoAlter Movie Understanding — Diagnostics Retrieval Route (A4 phase)
  *
