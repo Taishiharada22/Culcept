@@ -20,7 +20,7 @@
  *   2. raw `lastMessageId` / `matchedPattern` を保持・出力しない (redaction 必須)
  *   3. listener throw を **二重 try/catch** で握りつぶす (presence layer 不可侵)
  *   4. LLM / fetch / DB / storage / console / telemetry / Sentry 一切なし
- *   5. Date.now / Math.random に依存しない (session salt は caller-provided か crypto.randomBytes)
+ *   5. Date.now / Math.random に依存しない (session salt は caller-provided か globalThis.crypto.getRandomValues)
  *   6. session-local ephemeral salt で session 終了時に salt 自動消滅
  *   7. raw lastMessageId は state / snapshot / output に絶対出さない
  *
@@ -30,7 +30,6 @@
  *   - presence layer の動作は 1 bit も変えない
  */
 
-import { randomBytes } from "node:crypto";
 import type { PresenceSignal } from "../presence/types";
 import {
   redactSignal,
@@ -38,6 +37,46 @@ import {
 } from "./signalRedaction";
 import { updateRelationshipState } from "./relationshipState";
 import type { InternalPairStateKey } from "./relationshipStateTypes";
+
+// ─────────────────────────────────────────────
+// Ephemeral salt generation (browser + node 両対応、A-2c crypto fix)
+// ─────────────────────────────────────────────
+
+/**
+ * Session-local ephemeral salt を生成する。
+ *
+ * 実装 (CEO/GPT 補正 2026-05-16 遵守):
+ *   - `globalThis.crypto.getRandomValues()` を使う (Web 標準 API、Node 19+ global、
+ *     全 modern browser サポート)
+ *   - `node:crypto.randomBytes` は使わない (client bundle 不可)
+ *   - `Math.random` fallback は**禁止** (cryptographic 強度確保のため)
+ *   - crypto unavailable → **throw** (fail-closed、caller の try/catch で握りつぶす)
+ *
+ * 出力: 32 random bytes → base64url 文字列 (43 chars)
+ */
+function generateEphemeralSalt(): string {
+  if (
+    typeof globalThis.crypto === "undefined" ||
+    typeof globalThis.crypto.getRandomValues !== "function"
+  ) {
+    // fail-closed: cryptographic random unavailable → observer subscribe must skip
+    // Math.random fallback は CEO/GPT 補正で禁止
+    throw new Error(
+      "generateEphemeralSalt: globalThis.crypto.getRandomValues unavailable, observer subscribe must skip",
+    );
+  }
+  const bytes = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(bytes);
+  // base64url encode (btoa は Node 16+ / browser 共通 global、Buffer は使わない)
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
 
 // ─────────────────────────────────────────────
 // Session (salt management + state binding)
@@ -71,7 +110,7 @@ export interface ObserverSession {
  *
  * Salt 設計 (CEO/GPT 補正2 遵守):
  *   - testSalt 指定: そのまま使う (deterministic test)
- *   - testSalt 未指定: crypto.randomBytes(32) で **session-local ephemeral salt** を生成
+ *   - testSalt 未指定: globalThis.crypto.getRandomValues で **session-local ephemeral salt** を生成 (A-2c crypto fix)
  *   - salt は session lifetime のみ保持、外部から取得不可
  *   - process / browser session 終了で自動消滅
  *   - **env salt は使わない** (A-2b scope 外、env 操作なし)
@@ -88,7 +127,7 @@ export function createObserverSession(options: {
   const salt =
     typeof options.testSalt === "string" && options.testSalt.length > 0
       ? options.testSalt
-      : randomBytes(32).toString("base64url");
+      : generateEphemeralSalt();
   return {
     _internalSalt: salt,
     _internalKey: options.pairStateId,

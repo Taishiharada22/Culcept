@@ -15,18 +15,44 @@
  *   - LLM call / fetch / DB / console 一切なし
  *   - Date.now / Math.random 一切なし
  *   - PII fields は型と runtime audit list の二重 firewall
+ *   - node:crypto を使わない (client bundle 安全性、A-2c webpack 制約遵守)
  *
  * 既存 A2 buffer (lib/coalter/understanding/redactedDiagnosticsBuffer.ts) の
  * PII_FORBIDDEN_FIELD_NAMES と整合する monitoring list を保持。
+ *
+ * Phase A-2c crypto fix (2026-05-16):
+ *   node:crypto を js-sha256 に置換 (browser bundle 不可問題への対応)。
+ *   出力 deterministic / 出力長 43 chars 維持、SHA-256 アルゴリズム不変。
  */
 
-import { createHash } from "node:crypto";
+import { sha256 } from "js-sha256";
 import {
   type InternalPairStateKey,
   type InternalRelationshipState,
   type RedactedRelationshipKey,
   type RedactedRelationshipStateSnapshot,
 } from "./relationshipStateTypes";
+
+// ─────────────────────────────────────────────
+// Base64url encoding (browser + node 両対応)
+// ─────────────────────────────────────────────
+
+/**
+ * Uint8Array を base64url 文字列に変換 (browser + node 両対応)。
+ *
+ * `btoa` は Node 16+ / browser 共通 global。`Buffer` は使わない (browser 不在)。
+ * 旧 node:crypto の `digest("base64url")` 相当の出力を再現。
+ */
+function uint8ArrayToBase64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
 
 // ─────────────────────────────────────────────
 // PII firewall — forbidden field audit list
@@ -144,11 +170,12 @@ export function computeRedactedRelationshipKey(
       "computeRedactedRelationshipKey: salt must be a non-empty string",
     );
   }
-  const hash = createHash("sha256");
-  hash.update(salt, "utf8");
-  hash.update(":", "utf8");
-  hash.update(internalKey, "utf8");
-  return hash.digest("base64url");
+  // js-sha256: salt + ":" + internalKey を sha256 → ArrayBuffer → base64url
+  const hasher = sha256.create();
+  hasher.update(salt);
+  hasher.update(":");
+  hasher.update(internalKey);
+  return uint8ArrayToBase64url(new Uint8Array(hasher.arrayBuffer()));
 }
 
 // ─────────────────────────────────────────────
