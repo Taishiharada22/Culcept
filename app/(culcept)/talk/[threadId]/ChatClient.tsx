@@ -16,6 +16,8 @@ import CoAlterCardDispatcher from "@/components/coalter/CoAlterCardDispatcher";
 import UpperLayerMount from "@/app/components/chat/UpperLayerMount";
 // Stage 4 L4-b: signal adapter 本番接続 (flag OFF 既定で signal 発火ゼロ、メインチャット UI 影響ゼロ)
 import PresenceSignalWiring from "@/app/components/chat/PresenceSignalWiring";
+// AOO A-2c: Always-On Observer null-render host (presenceObserverEnabled flag OFF 既定で subscribe しない、UI 不変)
+import { ObserverHost } from "@/components/coalter/observer/ObserverHost";
 // Stage 4 L4-c: legacyCardAutoInsertEnabled flag (既定 ON、L4-l flip で OFF)
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import type { HandoffLogPayload } from "@/components/coalter/CoAlterCandidateDetailSheet";
@@ -1521,6 +1523,9 @@ export default function ChatClient({ threadId }: Props) {
 
       {/* L4-b: signal adapter 本番接続 (flag OFF で signal 発火ゼロ、render null) */}
       <PresenceSignalWiring messages={messages} />
+
+      {/* AOO A-2c: Always-On Observer subscription host (presenceObserverEnabled flag OFF 既定で subscribe しない、null render) */}
+      <ObserverHost pairStateId={coalter.pairStateId} />
 
       {/* ═══ メッセージエリア ═══ */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto max-w-lg mx-auto w-full relative" role="log" aria-label="メッセージ履歴" aria-live="polite">
