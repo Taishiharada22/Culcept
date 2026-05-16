@@ -1,3 +1,8 @@
+// A-2d canary trigger (2026-05-17): minor comment to bypass vercel.json
+// ignoreCommand (Smart Skip would block empty / .md-only commits).
+// All-Preview-scope flag NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER=true requires
+// a real build to inline the value via webpack DefinePlugin.
+// Branch is short-lived (canary trigger only); CEO observation after deploy.
 /**
  * CoAlter Always-On Observer — Host Component (Phase A-2c)
  *
