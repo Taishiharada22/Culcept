@@ -1,6 +1,26 @@
 # CoAlter Always-On Observer 設計
 
-**ステータス**: 設計確定（docs-only PR、実装未着手）
+> ## 🔴 訂正通知（2026-05-16）
+>
+> **本設計書 §1〜§14 は、既存 Stage 4 Presence Layer の存在を見落として書かれました。**
+>
+> 既存 `lib/coalter/presence/` (30+ files) と `app/components/chat/` (17 files) に、Always-On Observer の core architecture が完全実装済（production deployed、`NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true`）。本設計書の Layer 1-6 の多くは既存実装の**再発明**です。
+>
+> 訂正正本: `docs/coalter-aoo-presence-reconciliation.md` (PR #154)
+>
+> 本設計書を新規実装の正本として参照しないでください。reconciliation doc が**正本**です。
+>
+> 既存 presence layer との関係:
+> - Mode Layer (本書 §3 Layer 1) → 既存 `PresenceMode` + `ModeSwitcher.tsx`
+> - Observer Loop (本書 §3 Layer 2) → 既存 `signalAdapter.ts` (implicit signal 検出)
+> - Relationship State (本書 §3 Layer 3) → 既存 `sharedState.ts` (server 正本)
+> - Speak Decision Engine (本書 §3 Layer 4) → 既存 `reducer.ts` (S0-S8 state machine)
+> - Generation Layer (本書 §3 Layer 5) → 既存 `UpperLayerMount.tsx` (UrgentLayer + MemorySurface)
+> - UI Layer (本書 §3 Layer 6) → 既存 `ModeSwitcher.tsx` + 17 chat components
+>
+> ---
+
+**ステータス**: 設計確定（docs-only PR、実装未着手）→ **重大訂正済（2026-05-16）**
 **作成日**: 2026-05-16
 **承認**: CEO（Always-On 方向性 / Phase A から着手 / 自動発話なし維持）
 **前提変更**: 本設計は CoAlter を「呼ばれて答える Reactive 型」から「mode ON 中は常時静かに観察する Active 型」へ転換するための正本。

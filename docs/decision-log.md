@@ -13,6 +13,31 @@
 ```
 
 ---
+### 2026-05-16 CoAlter Always-On Observer 設計の重大訂正（Presence Layer 見落とし）
+- **部門**: Build
+- **決定内容**: PR #151 (design doc) / PR #152 (A-0 audit) / PR #153 (A-1 implementation) に重大な見落としを訂正する correction docs PR を起票（#154）。既存 `lib/coalter/presence/` (30+ files) と `app/components/chat/` (17 files) が Always-On Observer の core architecture を完全実装済（Stage 4 L4-f / `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` production deployed）であることを正本記録
+- **理由**:
+  - A-0 audit (PR #152) で「mode tabs UI が main に存在しない」と結論したが誤り
+  - 別セッション report による独立検証で `app/components/chat/ModeSwitcher.tsx` (blob `9834cf0f`) 実在を発見
+  - 私の見落とし原因: 検索 directory が `components/coalter/` のみで `app/components/chat/` と `lib/coalter/presence/` を見落とした / 「tab」keyword で grep したが実装は `role="radiogroup"`
+  - 設計書 (PR #151) Layer 1-6 の大半が既存実装の再発明だった
+- **対応**:
+  - 新規 docs: `docs/coalter-aoo-presence-reconciliation.md` を正本とする
+  - PR #151 / #152 docs 本文に correction notice 追加（誤読防止）
+  - PR #153 A-1 deliverable は revert せず並走（CEO/GPT 判断 = 並走、型整合必須）
+  - 次フェーズ: A-1b で `ModeContext` / `ObserverActivationState` を既存 `PresenceMode` / `ExecutorAvailability` に整合
+  - A-2 hook 位置は再 audit（候補に E. presence signal bus / F. UpperLayerMount 追加）
+  - 既存 presence layer touch 禁止（不可侵境界）
+- **学び**:
+  - 「無い」を結論する前に複数 directory pattern で確認する
+  - UI 機能の検証は型から逆引きする（`PresenceMode` 等の typed identifier）
+  - 別セッション report の主張を鵜呑みにせず徹底検証することで自分の誤りも検出できる
+- **承認**: CEO/GPT 判断「並走、型整合必須」（2026-05-16）
+- **ステータス**: 実行中（本 entry 起票）
+- **関連 PR**: #151, #152, #153, #154 (correction)
+- **不変境界**: 既存 presence layer (`lib/coalter/presence/` 30+ files, `app/components/chat/` 17 files) を一切 touch しない。Production env 触らない。
+
+---
 ### 2026-04-24 W3-PR-12 / 12.5 系クローズ + PR-13 開発本線移行
 - **部門**: Build / Product
 - **決定内容**: PR-12 / PR-12.5 系を開発本線からクローズし、Stage 2 canary は運用タスクとして並行継続。次の開発本線 = PR-13（map / timeline / visual flow への最短導線）に移行
