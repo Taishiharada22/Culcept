@@ -150,11 +150,21 @@ CREATE POLICY "plan_drift_events_owner_insert"
   ON plan_drift_events FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
--- UPDATE: pattern_key の後付けや repetition_count の集計バッチ用（Wave 4）
-CREATE POLICY "plan_drift_events_owner_update"
-  ON plan_drift_events FOR UPDATE
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- UPDATE policy は意図的に作成しない（W1-5b CEO 判断 2026-04-30）
+--
+-- plan_drift_events は append-only イベントログ。観測の改竄を防ぎ、
+-- Rhythm Fabric の派生計算（§2.5）の信頼性を物理層で守るため、
+-- ユーザーからの直接 UPDATE は RLS で禁止する（policy 不在 = 全 UPDATE 拒否）。
+--
+-- Wave 4 で evidence_strength の動的昇格 / repetition_count の集計が
+-- 必要になった場合は、以下のいずれかで別途設計する:
+--   - server-side RPC + SECURITY DEFINER 関数
+--   - service_role 鍵での内部バッチ
+--   - 派生テーブル / materialized view（元 plan_drift_events は不変）
+--
+-- 「policy 漏れではなく意図的不在」であることを明示するためのコメント。
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 -- DELETE: ユーザーのプライバシー権（自分の drift 履歴削除可能）
 CREATE POLICY "plan_drift_events_owner_delete"
@@ -166,7 +176,7 @@ CREATE POLICY "plan_drift_events_owner_delete"
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 COMMENT ON TABLE plan_drift_events IS
-  'Alter Plan PlanDriftEvent. Polymorphic target log without FK (target existence checked at API layer). See docs/alter-plan-foundation-design.md §2.3';
+  'Alter Plan PlanDriftEvent. APPEND-ONLY event log: SELECT/INSERT/DELETE allowed (user-scoped). UPDATE intentionally NOT permitted via RLS — Wave 4 mutations must use server-side RPC with service_role or derived tables. Polymorphic target without FK (target existence checked at API layer). See docs/alter-plan-foundation-design.md §2.3';
 COMMENT ON COLUMN plan_drift_events.target_type IS
   'external_anchor / plan_seed / draft_plan_item / outfit_calendar_item. CEO 2026-04-30 decision: NO foreign key (some target tables do not exist yet at W1-5).';
 COMMENT ON COLUMN plan_drift_events.target_id IS
