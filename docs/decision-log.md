@@ -13,6 +13,30 @@
 ```
 
 ---
+### 2026-05-17 CoAlter AOO Phase A 正式完了宣言（CEO 実機 A-2e canary 観測 FULL PASS）
+- **部門**: Build / Product
+- **決定内容**: CoAlter Always-On Observer (AOO) Phase A を CEO 実機 A-2e canary 観測の FULL PASS 結果をもって正式完了とする。完了正本は新規 docs `docs/coalter-aoo-phase-a-completion.md`。設計書 `docs/coalter-always-on-observer-design.md` 冒頭に Phase A 完了通知 banner を追加
+- **完了根拠（A-2e v2.2 canary 実機観測 2026-05-17）**:
+  - 5 観測目的全達成: (1) ObserverHost mount / (2) productionSignalBus subscribe / (3) presence signal receive / (4) RelationshipState update / (5) PII firewall verify
+  - `getDebugCounters()` 結果: `signalReceivedCount > 0` / `stateUpdateSuccessCount > 0` / `lastSkipReason = "none"`
+  - `getCurrentRedactedSnapshot()` 結果: `observationCount > 0` / `lastObservationAt` 更新 / `redactedRelationshipKey` のみ露出（raw pairStateId 非露出 = PII firewall 機能）
+  - v2.1 で発見した `observationCount` 未更新 root cause（`handlePresenceSignal` が `recordingObservation: true` + `observedAt` を渡していなかった）を v2.2 commit `fd647068` で fix、再観測で更新を確認
+- **Phase A 成果サマリ**:
+  - 12 PR 着地（#151 design / #152 A-0 audit / #153 A-1 / #154 Presence Reconciliation / #155 A-1b / #156-#158 A-2/A-2b 系列 / #159 A-2c runtime wiring / #160-#161 A-2d/A-2e canary build / 内部観測のみ A-2e v2.1-v2.2）
+  - 観測専用基盤: presence signal bus subscribe → relationship state update → PII firewall（sha256 + ephemeral salt + base64url redacted key）→ debug global 15min expire
+  - 7 層防御確立（env flag default false / env scope branch-only / PR merge 禁止 / branch 短命 / 15min expire / smoke 後 env 削除 / raw 露出禁止）
+  - 「Always-On ≠ auto-speak」原則を維持（観測のみ、Question/Proposal 自動発火なし）
+- **副次観察 3 件（Phase B 設計時に再評価）**:
+  - `observerActivationState` semantics（existing `ExecutorAvailability` との関係）
+  - `modeContext` の Speak Decision Engine 入力としての扱い
+  - `matchedPatternCategory` bucket（safety_concern / rupture_signal / unknown_category / null）の使い分け
+- **Phase B 方向性**: Mirror Channel 設計 docs-only PR を別途起票。Mirror = reflection（提案ではなく反射）/ Default STAY_SILENT / Expected Relationship Value (ERV) Speak Decision Engine / Three-Gate Mirror (Observe / Worth / Safe) / Mirror taxonomy 5 種（State / Difference / Tempo / Fairness / Repair）。Mirror design PR は **CEO レビュー必須、自律 merge 禁止**
+- **不変境界**: 既存 presence layer (`lib/coalter/presence/` 30+ files, `app/components/chat/` 17 files) を一切 touch しない。Production env 触らない。Question / Proposal 自動発火しない
+- **CEO 残作業**: Preview branch-scoped orphan env 2 件削除（`NEXT_PUBLIC_COALTER_OBSERVER_DEBUG_EXPOSE` / `NEXT_PUBLIC_COALTER_PRESENCE_OBSERVER` on branch `chore/coalter-aoo-a2e-canary`）
+- **承認**: CEO/GPT 判断「Phase A 正式完了宣言 docs PR 起票 GO」（2026-05-17）
+- **ステータス**: 実行中（本 docs PR 起票）
+
+---
 ### 2026-05-16 CoAlter Always-On Observer 設計の重大訂正（Presence Layer 見落とし）
 - **部門**: Build
 - **決定内容**: PR #151 (design doc) / PR #152 (A-0 audit) / PR #153 (A-1 implementation) に重大な見落としを訂正する correction docs PR を起票（#154）。既存 `lib/coalter/presence/` (30+ files) と `app/components/chat/` (17 files) が Always-On Observer の core architecture を完全実装済（Stage 4 L4-f / `NEXT_PUBLIC_COALTER_PRESENCE_EXECUTOR=true` production deployed）であることを正本記録
