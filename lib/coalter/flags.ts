@@ -304,6 +304,42 @@ export const COALTER_FLAGS = {
       false,
     );
   },
+
+  /**
+   * **Phase B B-1 (2026-05-17)** — Mirror Channel kill switch (strict parser)
+   *
+   * 用途:
+   *   `components/coalter/mirror/MirrorHost` が読み、
+   *   - false なら `return null` (完全 no-op、DOM 出力なし)
+   *   - true なら `<MirrorSurface />` mount (B-1 段階は hidden shell のみ)
+   *
+   * **strict parser** (CEO 補正 1 / B-0 plan §3.3):
+   *   - 既存 `normalizeBool` の "" → true 挙動とは**明示的に異なる**
+   *   - Mirror Channel は user との関係に直接影響するため、空文字 / 曖昧値で
+   *     意図せず ON になるリスクを排除する
+   *   - `process.env.NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED === "true"` のみ true
+   *   - unset / "" / "false" / "0" / "1" / "on" / "yes" / 不明値 すべて false
+   *   - 既存 `presenceExecutorEnabled` / `presenceObserverEnabled` の normalizeBool 挙動には
+   *     触らない (Phase A の挙動を維持、global 副作用なし)
+   *
+   * webpack DefinePlugin:
+   *   `process.env.NEXT_PUBLIC_X` (member access) を build 時 string 値で inline 置換。
+   *   computed access (`process.env[name]`) は browser polyfill で undefined → fallback。
+   *   本 getter は既存 `presenceExecutorEnabled` と同じ member access 直接記述。
+   *
+   * env scope (Phase B 計画):
+   *   - B-1 merge: env 投入なし (default false → MirrorHost null-render)
+   *   - B-2 〜 B-4 merge: env 投入なし
+   *   - B-5 canary: branch-scoped Preview only (CEO 承認後)
+   *   - Production: Phase B 全期間で投入禁止
+   *
+   * 関連:
+   *   - 設計: docs/coalter-aoo-phase-b-mirror-channel-design.md (PR #164)
+   *   - 実装計画: docs/coalter-aoo-phase-b-implementation-plan.md (PR #165)
+   */
+  get mirrorChannelEnabled(): boolean {
+    return process.env.NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED === "true";
+  },
 };
 
 // ─────────────────────────────────────────────
