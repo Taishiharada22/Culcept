@@ -1,5 +1,17 @@
 # CoAlter Always-On Observer 設計
 
+> ## ✅ Phase A 完了通知（2026-05-17）
+>
+> **Phase A は CEO 実機 A-2e canary 観測により正式完了**。
+>
+> 完了根拠: 5 観測目的 (mount / subscribe / signal receive / state update / PII firewall) 全達成。
+>
+> 完了正本: `docs/coalter-aoo-phase-a-completion.md`
+>
+> Phase B Mirror Channel 設計は別 docs PR で扱う。本設計書の Layer 1-6 構想は Phase B 設計時に再評価する。
+>
+> ---
+
 > ## 🔴 訂正通知（2026-05-16）
 >
 > **本設計書 §1〜§14 は、既存 Stage 4 Presence Layer の存在を見落として書かれました。**
