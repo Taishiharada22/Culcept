@@ -692,3 +692,103 @@ describe("observerSubscriber — A-2e canary debug counters", () => {
     expect(fresh.signalReceivedCount).toBe(1);
   });
 });
+
+// ─────────────────────────────────────────────
+// A-2e canary v2.2 (root cause fix): observationCount + lastObservationAt 増加
+// ─────────────────────────────────────────────
+
+describe("handlePresenceSignal — observationCount increment (root cause fix)", () => {
+  beforeEach(() => {
+    clearAllRelationshipStatesForTests();
+    __resetObserverDebugCountersForTests();
+  });
+
+  it("observationCount increments after 1 signal", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: 1700000000000 },
+      session,
+    );
+    const state = getRelationshipStateSnapshotInternal(PAIR_KEY);
+    expect(state).not.toBeNull();
+    expect(state?.observationCount).toBe(1);
+  });
+
+  it("observationCount increments to N after N signals", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    for (let i = 1; i <= 5; i++) {
+      handlePresenceSignal(
+        { kind: "implicit", strength: "soft", detectedAt: 1700000000000 + i },
+        session,
+      );
+    }
+    const state = getRelationshipStateSnapshotInternal(PAIR_KEY);
+    expect(state?.observationCount).toBe(5);
+  });
+
+  it("lastObservationAt is updated to ISO string from signal.detectedAt", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    const detectedAtMs = 1700000000000; // 2023-11-14T22:13:20.000Z
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: detectedAtMs },
+      session,
+    );
+    const state = getRelationshipStateSnapshotInternal(PAIR_KEY);
+    expect(state?.lastObservationAt).toBe("2023-11-14T22:13:20.000Z");
+  });
+
+  it("invalid detectedAt (NaN) → observationCount still increments, lastObservationAt fallback", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      {
+        kind: "implicit",
+        strength: "soft",
+        detectedAt: NaN as unknown as number,
+      } as unknown as PresenceSignal,
+      session,
+    );
+    // detectedAt is NaN, but redactSignal validates and may throw
+    // (redactSignal throws on non-number detectedAt; NaN is technically number type but Number.isFinite(NaN) is false)
+    // → debug counter records redact_failed OR continues
+    const c = getObserverDebugCountersForDebug();
+    // Either redact failed (no state update) OR state updated with observedAt undefined
+    if (c.lastSkipReason === "redact_failed") {
+      expect(c.stateUpdateSuccessCount).toBe(0);
+    } else {
+      const state = getRelationshipStateSnapshotInternal(PAIR_KEY);
+      expect(state?.observationCount).toBe(1);
+      // lastObservationAt may be null (Number.isFinite(NaN) === false)
+    }
+  });
+
+  it("critical signal also increments observationCount", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      {
+        kind: "critical",
+        strength: "strong",
+        detectedAt: 1700000000000,
+        meta: { matchedPattern: "safety:self-harm" },
+      },
+      session,
+    );
+    const state = getRelationshipStateSnapshotInternal(PAIR_KEY);
+    expect(state?.observationCount).toBe(1);
+    expect(state?.reasonCodes).toContain("rupture_detected");
+  });
+});

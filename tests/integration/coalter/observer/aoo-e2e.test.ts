@@ -197,7 +197,9 @@ describe("AOO E2E — subscription lifecycle", () => {
       strength: "soft",
       detectedAt: 1,
     });
-    expect(getRelationshipStateSnapshotInternal(PAIR)?.observationCount).toBe(0);
+    // A-2e canary v2.2 (2026-05-17): observationCount は signal 受信で +1 する
+    // (handlePresenceSignal が recordingObservation: true を渡すように修正済)
+    expect(getRelationshipStateSnapshotInternal(PAIR)?.observationCount).toBe(1);
     expect(getRelationshipStateSnapshotInternal(PAIR)?.reasonCodes).toContain(
       "observation_recorded",
     );

@@ -330,8 +330,33 @@ export function handlePresenceSignal(
     return;
   }
 
+  // A-2e canary v2.2 (2026-05-17 修正): observationCount を増やすには
+  // `recordingObservation: true` + `observedAt` (caller-provided ISO timestamp) を
+  // 渡す必要がある (relationshipState.ts:193-200 logic)。
+  // 旧実装は newReasonCodes だけだったため reasonCodes は append されたが
+  // observationCount が永遠に 0 のままだった (CEO 観測 2026-05-17 で発見)。
+  //
+  // signal.detectedAt は number (epoch ms or ISO 8601)。state container は ISO 文字列
+  // を期待するため new Date(...).toISOString() に変換。
+  // detectedAt が不正値の場合は ISO 変換失敗の可能性 → try/catch で握りつぶし、
+  // observationCount のみ skip (state container 全体は壊さない)。
+  let observedAtIso: string | undefined;
+  if (
+    typeof signal.detectedAt === "number" &&
+    Number.isFinite(signal.detectedAt)
+  ) {
+    try {
+      observedAtIso = new Date(signal.detectedAt).toISOString();
+    } catch {
+      // ISO 変換失敗 (e.g., out-of-range) → observedAt 未指定で fallback
+      observedAtIso = undefined;
+    }
+  }
+
   try {
     updateRelationshipState(session._internalKey, {
+      recordingObservation: true,
+      observedAt: observedAtIso,
       newReasonCodes: [reasonCode],
     });
     debugCounters.stateUpdateSuccessCount += 1;
