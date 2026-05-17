@@ -51,10 +51,21 @@ interface FailQueueKey {
 export interface MockSupabaseClient extends Pick<SupabaseClient, "from"> {
   /** 失敗注入: 次回 op×table で発火する error を queue */
   failNext(op: MockOperation, table: string, error: Partial<PostgrestError>): void;
-  /** 全 store / fail queue をクリア */
+  /** 全 store / fail queue / auth state をクリア */
   reset(): void;
   /** デバッグ用 store 参照（read-only） */
   inspect(table: string): ReadonlyArray<Record<string, unknown>>;
+  /** auth.getUser() で返す user。null なら認証なし */
+  setAuthUser(user: { id: string; email?: string } | null): void;
+  /** auth.getUser() に error を発火させる（次の 1 回のみ） */
+  failAuthNext(error: { message: string }): void;
+  /** auth API（@supabase/supabase-js 互換の最小 shape） */
+  auth: {
+    getUser(): Promise<{
+      data: { user: { id: string; email?: string } | null };
+      error: { message: string } | null;
+    }>;
+  };
   /** 真の SupabaseClient として渡せるよう、unknown キャスト用ヘルパ */
   asSupabaseClient(): SupabaseClient;
 }
@@ -271,6 +282,10 @@ export function createMockSupabaseClient(
     return builder;
   }
 
+  // auth state
+  let authUser: { id: string; email?: string } | null = null;
+  let authFailNext: { message: string } | null = null;
+
   const client: MockSupabaseClient = {
     from(table: string) {
       return makeBuilder(table) as unknown as ReturnType<SupabaseClient["from"]>;
@@ -282,9 +297,27 @@ export function createMockSupabaseClient(
       store.clear();
       failQueue.length = 0;
       seq = 0;
+      authUser = null;
+      authFailNext = null;
     },
     inspect(table) {
       return Array.from(tableStore(table).values());
+    },
+    setAuthUser(user) {
+      authUser = user;
+    },
+    failAuthNext(error) {
+      authFailNext = error;
+    },
+    auth: {
+      async getUser() {
+        if (authFailNext) {
+          const err = authFailNext;
+          authFailNext = null;
+          return { data: { user: null }, error: err };
+        }
+        return { data: { user: authUser }, error: null };
+      },
     },
     asSupabaseClient() {
       return this as unknown as SupabaseClient;
