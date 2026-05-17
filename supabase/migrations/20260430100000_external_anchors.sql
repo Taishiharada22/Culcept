@@ -133,9 +133,11 @@ CREATE TABLE IF NOT EXISTS external_anchors (
   -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   title TEXT NOT NULL,
 
-  -- HH:mm 形式 or ISO 8601 時刻。検証は API 層
-  start_time TEXT NOT NULL,
-  end_time TEXT,
+  -- 開始/終了時刻（PostgreSQL TIME 型、HH:MM[:SS]）
+  -- 日付は anchor_kind = 'one_off' なら date、'recurring' なら valid_from + RRULE で扱う
+  -- 翌日にまたがる予定（22:00→02:00 等）は end_time < start_time で API 層が判定する
+  start_time TIME NOT NULL,
+  end_time TIME,
 
   location_text TEXT,
   location_category TEXT
