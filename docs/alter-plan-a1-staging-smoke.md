@@ -102,6 +102,33 @@ unset STAGING_DB_URL  # shell 履歴からも削除推奨
 
 CEO は migration 適用後、以下を**この順序**で実行：
 
+### Pre-step: staging Auth に test user を 1 人作成（A-1 必須）
+
+Behavior smoke は FK (`auth.users`) 違反を回避するため、staging Auth に
+実 test user を 1 人作成し、その UUID を smoke SQL に貼り付ける。
+
+**Supabase hosted SQL Editor では `session_replication_role = replica` の
+SET が権限不足で拒否される**（superuser-only パラメータ）。そのため
+superuser-only な FK 一時無効化は使わず、実 test user UUID で FK を満たす方式
+を採用する。
+
+CEO 操作:
+
+```
+1. staging Dashboard → Authentication → Users → "Add user" (manual)
+2. Email:        smoke-test@culcept.staging（dummy で OK）
+3. Password:     Dashboard 自動生成 → CEO 保管（Claude には渡さない）
+4. Confirm:      yes（or auto-confirm 設定で skip）
+5. 作成された user の UUID をコピー（例: 550e8400-e29b-41d4-a716-...）
+6. Claude に渡す sanitized output に「test user UUID = <UUID>」を含める
+```
+
+**test user UUID は public でも機密でもない**（test 専用、本人 user data なし）。
+sanitized output と同列扱いで Claude に渡してよい。Email / Password は CEO のみ
+保管、Claude に渡さない。
+
+smoke 完了後も test user は staging に残してよい（A-1 再実行 / A-2 で再利用）。
+
 ### Step 1: Schema smoke（read-only、副作用ゼロ）
 
 ```
@@ -117,6 +144,21 @@ scripts/staging-smoke/alter-plan-w1-schema-smoke.sql
 - pg_policies で各テーブルの policy 数
 - **plan_drift_events に UPDATE policy 不在**（append-only）
 - COMMENT が設計書 §X.Y 参照を含む
+
+### Step 2: Behavior smoke（transaction-scoped、ROLLBACK で副作用ゼロ）
+
+```
+scripts/staging-smoke/alter-plan-w1-behavior-smoke.sql
+```
+
+**実行前の必須操作**: SQL ファイル内の `<REPLACE_WITH_STAGING_TEST_USER_UUID>`
+を、上記 Pre-step で作成した test user の UUID に置換してから Dashboard
+SQL Editor で Run する。
+
+含まれない方針（superuser-only 操作回避）:
+- `SET LOCAL session_replication_role = replica` 等の Supabase hosted で
+  権限拒否される設定変更は一切使わない
+- FK は実 test user UUID で満たす
 
 → 完全に SELECT のみ、副作用ゼロ。
 
@@ -163,6 +205,7 @@ psql で connection string 経由でも同様（postgres role）。
 | RLS policy 一覧 | policy name + cmd + qual | ✅ |
 | Behavior smoke の RAISE NOTICE 出力 | `TEST 1 PASSED: anchor_kind_one_off rejected validFrom` | ✅ |
 | 件数 | `SELECT count(*) FROM external_anchors` 等 | ✅ |
+| **staging 用 test user UUID**（Pre-step §4 で作成、test 専用、本人 data なし） | `550e8400-e29b-41d4-a716-...` | ✅ |
 
 ## 7. CEO が Claude に**絶対**渡してはいけない output
 

@@ -18,21 +18,38 @@
 --   - 結果は RAISE NOTICE で CEO が読める形式（PASSED / FAILED）
 --
 -- 重要:
---   smoke は FK (auth.users) 違反を回避するため、冒頭で
---   session_replication_role = replica を SET し、FK / trigger を一時無効化する。
---   これは transaction-scoped、ROLLBACK で完全に元に戻る。
---   CHECK 制約は影響を受けない（smoke の主検証対象として正しく動作）。
+--   smoke は FK (auth.users) 違反を回避するため、CEO が staging Auth に
+--   事前に test user を 1 人作成し、その UUID を `test_user_id` に設定する。
+--   詳細手順は docs/alter-plan-a1-staging-smoke.md の "A-1 Pre-step" 参照。
+--
+--   Supabase hosted SQL Editor では session_replication_role / replica の
+--   設定変更は権限不足で拒否されるため、本 smoke では superuser-only な
+--   PostgreSQL パラメータを一切使わない方針とする。代わりに実 test user
+--   UUID で FK (auth.users) を満たす。
+--
+--   CHECK 制約は smoke の主検証対象として正しく動作する。
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 BEGIN;
 
--- 副作用ゼロのため、FK / trigger を transaction 内だけ無効化
--- （ROLLBACK で完全に元に戻る、staging への永続影響なし）
-SET LOCAL session_replication_role = replica;
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- CEO 操作: 下記の '<REPLACE_WITH_STAGING_TEST_USER_UUID>' を、
+-- staging Authentication で作成した test user の UUID に書き換えてから Run。
+--
+-- 手順:
+--   1. staging Dashboard → Authentication → Users → "Add user" (manual)
+--   2. Email: smoke-test@culcept.staging（dummy で OK）
+--   3. Password: Dashboard 自動生成 → CEO 保管（Claude には渡さない）
+--   4. Confirm: yes（or auto-confirm 設定で skip）
+--   5. 作成された user の UUID をコピーして下記に貼り付け
+--
+-- test user UUID は public でも機密でもない（test 専用、本人 user data なし）。
+-- 必要なら Claude に渡してよい（sanitized output と同列扱い）。
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 DO $$
 DECLARE
-  test_user_id UUID := '00000000-0000-0000-0000-000000000001';
+  test_user_id UUID := '<REPLACE_WITH_STAGING_TEST_USER_UUID>'::uuid;
   test_source_id UUID;
 BEGIN
   -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
