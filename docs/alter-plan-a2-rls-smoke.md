@@ -63,6 +63,7 @@ cp staging.env.example .env.staging.local
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://<staging-project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<staging-anon-public-key>
+STAGING_SUPABASE_PROJECT_REF=<staging-project-ref>
 STAGING_USER_A_EMAIL=<user-a@example.com>
 STAGING_USER_A_PASSWORD=<user-a-password>
 STAGING_USER_B_EMAIL=<user-b@example.com>
@@ -70,10 +71,13 @@ STAGING_USER_B_PASSWORD=<user-b-password>
 STAGING_API_BASE=http://localhost:3000
 ```
 
+**`STAGING_SUPABASE_PROJECT_REF` の取り方**: Supabase Dashboard → Project Settings → General → Reference ID（20 文字の小文字英数）。`NEXT_PUBLIC_SUPABASE_URL` の `https://<ref>.supabase.co` の `<ref>` 部分と完全一致させる。
+
 ⚠️ **絶対書かない**:
 - service_role key（anon key のみ）
 - DB password / connection string
 - production URL
+- production の project ref
 
 `.env.staging.local` は `.env*.local` パターンで gitignored。コミットされない。
 
@@ -150,12 +154,20 @@ SUMMARY: 12 PASSED, 0 FAILED, 0 SKIPPED
 
 | 条件 | 終了コード | メッセージ |
 |------|-----------|-----------|
-| 必須 env が未設定 | 1 | `Missing env: ...` |
-| URL が staging / localhost / 127.0.0.1 を含まない | 1 | `PRODUCTION GUARD: ...` |
+| 必須 env が未設定（`STAGING_SUPABASE_PROJECT_REF` を含む） | 1 | `Missing env: ...` |
+| `STAGING_SUPABASE_PROJECT_REF` が 20 文字小文字英数の形式違反 | 1 | `... is not a valid Supabase project ref ...` |
+| URL host が `<ref>.supabase.co` / `.in` 形式違反（pooler 等を含む） | 1 | `PRODUCTION GUARD: ... unrecognized host` |
+| URL host の subdomain が `STAGING_SUPABASE_PROJECT_REF` と不一致 | 1 | `PRODUCTION GUARD: ... does not match STAGING_SUPABASE_PROJECT_REF ...` |
 | ANON KEY 文字列に "service_role" を含む | 1 | `SECRET GUARD: ...` |
 | sign in 失敗（email/password 不正） | 1 | `Sign-in failed for ...` |
 
 これらは **fail-fast** 設計。production を間違って指定しても、API を一度も叩かずに止まる。
+
+**Production guard の原理**: substring 一致（URL に "staging" を含むか）ではなく、
+`URL.host` から subdomain を抽出して `STAGING_SUPABASE_PROJECT_REF` env と
+**厳格な文字列一致** で照合する。Supabase project ref はランダム英数なので
+substring 方式では誤判定するため。`localhost` / `127.0.0.1` は subdomain 照合を
+bypass し、ref 設定の要請も無視する（self-hosted / 開発環境用）。
 
 ---
 
@@ -190,6 +202,18 @@ SUMMARY: 12 PASSED, 0 FAILED, 0 SKIPPED
 
 - `.env.local` が staging を上書きしていないか確認
 - `npx dotenv -e .env.staging.local -- npm run dev` を使う（`npm run dev` 単独だと `.env.local` が読まれる）
+
+### `PRODUCTION GUARD: ... does not match STAGING_SUPABASE_PROJECT_REF` が出る
+
+- `NEXT_PUBLIC_SUPABASE_URL` の `<ref>` 部分と `STAGING_SUPABASE_PROJECT_REF` env が一致しているか確認
+- 例: URL=`https://hjcrvndumgiovyfdacwc.supabase.co` なら `STAGING_SUPABASE_PROJECT_REF=hjcrvndumgiovyfdacwc`
+- 両方とも Supabase Dashboard → Project Settings → General → Reference ID から取得可能
+
+### `[dotenv@17.x] injecting env (0)` と表示される
+
+- これは **正常**。`dotenv-cli` 経由で実行している場合、env は process 起動時に既に inject 済み。
+  script 内 `dotenv.config()` は重複を上書きしない仕様で 0 個 inject と表示する。
+- env が実際に届いているかは `console.log(process.env.NEXT_PUBLIC_SUPABASE_URL)` 等で確認
 
 ---
 

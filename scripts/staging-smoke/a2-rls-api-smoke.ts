@@ -21,9 +21,12 @@
  *   5. 二重防御: RLS + 明示 .eq('user_id', userId)
  *
  * 安全防御:
- *   - production URL guard: NEXT_PUBLIC_SUPABASE_URL が "staging" / "localhost" /
- *     "127.0.0.1" を含まないと即 fail
- *   - service_role 不使用（anon key + user JWT のみ）
+ *   - production URL guard: NEXT_PUBLIC_SUPABASE_URL の host subdomain が
+ *     STAGING_SUPABASE_PROJECT_REF env と厳格一致しなければ即 fail。
+ *     localhost / 127.0.0.1 は subdomain 照合を bypass（self-hosted 用）。
+ *   - project ref shape sanity: 20 文字小文字英数 (/^[a-z0-9]{20}$/) 違反で fail
+ *   - SECRET GUARD: anon key 文字列に "service_role" を含むと fail
+ *   - service_role 不使用（anon key + email/password sign-in のみ）
  *   - Pre-cleanup / Post-cleanup で test user の data を残さない
  */
 
@@ -38,6 +41,7 @@ loadDotenv({ path: ".env.staging.local" });
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const STAGING_PROJECT_REF = process.env.STAGING_SUPABASE_PROJECT_REF ?? "";
 const USER_A_EMAIL = process.env.STAGING_USER_A_EMAIL ?? "";
 const USER_A_PASSWORD = process.env.STAGING_USER_A_PASSWORD ?? "";
 const USER_B_EMAIL = process.env.STAGING_USER_B_EMAIL ?? "";
@@ -105,6 +109,7 @@ function preflight() {
   const missing: string[] = [];
   if (!SUPABASE_URL) missing.push("NEXT_PUBLIC_SUPABASE_URL");
   if (!SUPABASE_ANON_KEY) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  if (!STAGING_PROJECT_REF) missing.push("STAGING_SUPABASE_PROJECT_REF");
   if (!USER_A_EMAIL) missing.push("STAGING_USER_A_EMAIL");
   if (!USER_A_PASSWORD) missing.push("STAGING_USER_A_PASSWORD");
   if (!USER_B_EMAIL) missing.push("STAGING_USER_B_EMAIL");
@@ -116,15 +121,49 @@ function preflight() {
     );
   }
 
-  // production URL guard
-  // staging / localhost / 127.0.0.1 を含まなければ fail
-  const isProductionShape = !/staging|test|localhost|127\.0\.0\.1/i.test(SUPABASE_URL);
-  if (isProductionShape) {
+  // Supabase project ref shape: 20 文字の小文字英数（typo 防御）。
+  // 形式違反は誤入力扱いで即 fail。
+  if (!/^[a-z0-9]{20}$/.test(STAGING_PROJECT_REF)) {
     fatal(
-      `PRODUCTION GUARD: NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}" ` +
-        `does not contain "staging" / "test" / "localhost" / "127.0.0.1". ` +
-        `Refusing to run smoke against suspected production URL.`
+      `STAGING_SUPABASE_PROJECT_REF="${STAGING_PROJECT_REF}" is not a valid ` +
+        `Supabase project ref (expected 20 lowercase alphanumeric characters). ` +
+        `Copy from Supabase Dashboard → Project Settings → General → Reference ID.`
     );
+  }
+
+  // ── Production guard: URL の host から project ref を抽出して STAGING_SUPABASE_PROJECT_REF と一致するか厳格照合 ──
+  // substring 一致（"staging" を含む 等）は staging project ref がランダム英数で
+  // あるため誤判定する。Host 構造を parse して subdomain を ref として取り出す。
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(SUPABASE_URL);
+  } catch {
+    fatal(`NEXT_PUBLIC_SUPABASE_URL="${SUPABASE_URL}" is not a valid URL`);
+  }
+  const host = parsedUrl.host.toLowerCase();
+
+  const isLoopback = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
+  if (isLoopback) {
+    // self-hosted Supabase / 開発環境用の bypass。project ref 不要。
+    // 念のため SECRET GUARD のみ後段で実施。
+  } else {
+    // host は <ref>.supabase.co の形式を要求（pooler 等の派生 host は許可しない）
+    const m = host.match(/^([a-z0-9]+)\.supabase\.(co|in)$/);
+    if (!m) {
+      fatal(
+        `PRODUCTION GUARD: NEXT_PUBLIC_SUPABASE_URL host="${host}" does not match ` +
+          `expected shape "<ref>.supabase.co" (or .in). Refusing to run smoke ` +
+          `against unrecognized host.`
+      );
+    }
+    const ref = m[1]!;
+    if (ref !== STAGING_PROJECT_REF) {
+      fatal(
+        `PRODUCTION GUARD: NEXT_PUBLIC_SUPABASE_URL project_ref="${ref}" does not ` +
+          `match STAGING_SUPABASE_PROJECT_REF="${STAGING_PROJECT_REF}". ` +
+          `Refusing to run smoke against non-staging Supabase project.`
+      );
+    }
   }
 
   // service_role が誤って入っていないかの軽い check（JWT の role claim 検査ではなく文字列）
