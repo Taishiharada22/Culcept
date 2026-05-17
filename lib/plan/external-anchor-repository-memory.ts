@@ -25,10 +25,7 @@ import type {
   RecurringExternalAnchor,
 } from "./external-anchor";
 import type { ExternalAnchorSource } from "./external-anchor-source";
-import type {
-  AnchorInputValidationError,
-  CreateExternalAnchorInput,
-} from "./external-anchor-input";
+import type { CreateExternalAnchorInput } from "./external-anchor-input";
 import { validateCreateExternalAnchorInput } from "./external-anchor-input";
 import type {
   BundleError,
@@ -39,98 +36,7 @@ import type {
   ExternalAnchorRepository,
   ExternalAnchorRepositoryDependencies,
 } from "./external-anchor-repository";
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Source の最小 validation
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-const ALLOWED_SOURCE_TYPES = [
-  "manual",
-  "template",
-  "pdf",
-  "image",
-  "chat",
-] as const;
-
-const ALLOWED_RAW_RETENTION = ["discarded", "stored"] as const;
-
-/**
- * source 入力の最小検証。
- *   - sourceType の許可値
- *   - rawRetention の整合（discarded ↔ path/expires NULL）
- *
- * 詳細形式（ファイル名 / path / expires_at）の format チェックは API 層の責務。
- */
-function validateSourceInput(
-  source: CreateExternalAnchorSourceInput
-): AnchorInputValidationError[] {
-  const errors: AnchorInputValidationError[] = [];
-
-  if (
-    typeof source.sourceType !== "string" ||
-    !(ALLOWED_SOURCE_TYPES as readonly string[]).includes(source.sourceType)
-  ) {
-    errors.push({
-      field: "source.sourceType",
-      code: "not_allowed_value",
-      message: `sourceType must be one of: ${ALLOWED_SOURCE_TYPES.join(", ")}`,
-    });
-  }
-
-  const retention = source.rawRetention ?? "discarded";
-  if (
-    typeof retention !== "string" ||
-    !(ALLOWED_RAW_RETENTION as readonly string[]).includes(retention)
-  ) {
-    errors.push({
-      field: "source.rawRetention",
-      code: "not_allowed_value",
-      message: `rawRetention must be one of: ${ALLOWED_RAW_RETENTION.join(", ")}`,
-    });
-    return errors;
-  }
-
-  if (retention === "discarded") {
-    if (source.rawStoragePath !== undefined) {
-      errors.push({
-        field: "source.rawStoragePath",
-        code: "logical_conflict",
-        message:
-          "rawStoragePath must not be set when rawRetention='discarded'",
-      });
-    }
-    if (source.rawExpiresAt !== undefined) {
-      errors.push({
-        field: "source.rawExpiresAt",
-        code: "logical_conflict",
-        message: "rawExpiresAt must not be set when rawRetention='discarded'",
-      });
-    }
-  } else if (retention === "stored") {
-    if (
-      typeof source.rawStoragePath !== "string" ||
-      source.rawStoragePath.length === 0
-    ) {
-      errors.push({
-        field: "source.rawStoragePath",
-        code: "required",
-        message: "rawStoragePath is required when rawRetention='stored'",
-      });
-    }
-    if (
-      typeof source.rawExpiresAt !== "string" ||
-      source.rawExpiresAt.length === 0
-    ) {
-      errors.push({
-        field: "source.rawExpiresAt",
-        code: "required",
-        message: "rawExpiresAt is required when rawRetention='stored'",
-      });
-    }
-  }
-
-  return errors;
-}
+import { collectSourceInputErrors } from "./external-anchor-source-input";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Default deps
@@ -261,8 +167,8 @@ export function createMemoryExternalAnchorRepository(
     ): Promise<CreateSourceWithAnchorsResult> {
       const errors: BundleError[] = [];
 
-      // 1. source 検証
-      const sourceErrors = validateSourceInput(input.source);
+      // 1. source 検証（A-2 で pure module に extract、Supabase 実装と共用）
+      const sourceErrors = collectSourceInputErrors(input.source);
       if (sourceErrors.length > 0) {
         errors.push({ kind: "source_invalid", errors: sourceErrors });
       }
