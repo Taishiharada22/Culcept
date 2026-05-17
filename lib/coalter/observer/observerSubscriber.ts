@@ -30,7 +30,11 @@
  *   - presence layer の動作は 1 bit も変えない
  */
 
-import type { PresenceSignal } from "../presence/types";
+import type {
+  PresenceSignal,
+  SignalKind,
+  SignalStrength,
+} from "../presence/types";
 import {
   redactSignal,
   type RedactedPresenceSignal,
@@ -140,6 +144,132 @@ export function createObserverSession(options: {
 }
 
 // ─────────────────────────────────────────────
+// A-2e canary: Redacted debug counters (PII-free observation metrics)
+// ─────────────────────────────────────────────
+
+/**
+ * Skip reason enum for handlePresenceSignal flow tracking.
+ *
+ * 全 enum 値、raw text / raw IDs 含まない、PII firewall 安全。
+ */
+export type HandlerSkipReason =
+  | "none"
+  | "redact_failed"
+  | "state_update_failed"
+  | "unknown_kind_dropped";
+
+/**
+ * Observer debug counters (redacted)。
+ *
+ * 用途: A-2e canary で `getDebugCounters()` 経由で観測。signal が handler に届いて
+ * いるか、どこで止まっているかを切り分ける。
+ *
+ * **絶対に raw text / raw IDs を含まない**:
+ *   - kind / strength / matchedPatternCategory / reasonCode は固定 enum (PII でない)
+ *   - lastObservedAt は signal.detectedAt の epoch ms (PII でない)
+ *   - 全 counter は integer
+ */
+export interface ObserverDebugCounters {
+  /** handler が呼ばれた累計 (presence bus → observer 到達の証明) */
+  readonly signalReceivedCount: number;
+  /** redactSignal で throw した累計 */
+  readonly redactFailureCount: number;
+  /** updateRelationshipState 成功累計 (stateStore 更新の証明) */
+  readonly stateUpdateSuccessCount: number;
+  /** updateRelationshipState 失敗累計 */
+  readonly stateUpdateFailureCount: number;
+  /** 直近受信 signal の kind (固定 enum) */
+  readonly lastSignalKind: SignalKind | null;
+  /** 直近受信 signal の strength (固定 enum) */
+  readonly lastSignalStrength: SignalStrength | null;
+  /** 直近 redact 後の matchedPatternCategory (固定 enum) */
+  readonly lastMatchedPatternCategory:
+    | "safety_concern"
+    | "rupture_signal"
+    | "unknown_category"
+    | null;
+  /** 直近 append した reason code (固定 enum) */
+  readonly lastReasonCode:
+    | "rupture_detected"
+    | "mode_signal_received"
+    | "observation_recorded"
+    | null;
+  /** 直近 signal の detectedAt (epoch ms、PII でない) */
+  readonly lastObservedAt: number | null;
+  /** 直近 handler 処理の skip 理由 (none = 正常完了) */
+  readonly lastSkipReason: HandlerSkipReason | null;
+}
+
+const debugCounters: {
+  signalReceivedCount: number;
+  redactFailureCount: number;
+  stateUpdateSuccessCount: number;
+  stateUpdateFailureCount: number;
+  lastSignalKind: SignalKind | null;
+  lastSignalStrength: SignalStrength | null;
+  lastMatchedPatternCategory:
+    | "safety_concern"
+    | "rupture_signal"
+    | "unknown_category"
+    | null;
+  lastReasonCode:
+    | "rupture_detected"
+    | "mode_signal_received"
+    | "observation_recorded"
+    | null;
+  lastObservedAt: number | null;
+  lastSkipReason: HandlerSkipReason | null;
+} = {
+  signalReceivedCount: 0,
+  redactFailureCount: 0,
+  stateUpdateSuccessCount: 0,
+  stateUpdateFailureCount: 0,
+  lastSignalKind: null,
+  lastSignalStrength: null,
+  lastMatchedPatternCategory: null,
+  lastReasonCode: null,
+  lastObservedAt: null,
+  lastSkipReason: null,
+};
+
+/**
+ * Observer debug counters の defensive copy を返す。
+ *
+ * 用途: A-2e canary debug global expose 経由で CEO 観測。
+ * 出力は **redacted only** (raw text / raw IDs 含まない、固定 enum + integer のみ)。
+ */
+export function getObserverDebugCountersForDebug(): ObserverDebugCounters {
+  return {
+    signalReceivedCount: debugCounters.signalReceivedCount,
+    redactFailureCount: debugCounters.redactFailureCount,
+    stateUpdateSuccessCount: debugCounters.stateUpdateSuccessCount,
+    stateUpdateFailureCount: debugCounters.stateUpdateFailureCount,
+    lastSignalKind: debugCounters.lastSignalKind,
+    lastSignalStrength: debugCounters.lastSignalStrength,
+    lastMatchedPatternCategory: debugCounters.lastMatchedPatternCategory,
+    lastReasonCode: debugCounters.lastReasonCode,
+    lastObservedAt: debugCounters.lastObservedAt,
+    lastSkipReason: debugCounters.lastSkipReason,
+  };
+}
+
+/**
+ * Debug counters をリセットする。**tests only**。
+ */
+export function __resetObserverDebugCountersForTests(): void {
+  debugCounters.signalReceivedCount = 0;
+  debugCounters.redactFailureCount = 0;
+  debugCounters.stateUpdateSuccessCount = 0;
+  debugCounters.stateUpdateFailureCount = 0;
+  debugCounters.lastSignalKind = null;
+  debugCounters.lastSignalStrength = null;
+  debugCounters.lastMatchedPatternCategory = null;
+  debugCounters.lastReasonCode = null;
+  debugCounters.lastObservedAt = null;
+  debugCounters.lastSkipReason = null;
+}
+
+// ─────────────────────────────────────────────
 // Signal handler (presence bus → observer state container)
 // ─────────────────────────────────────────────
 
@@ -154,28 +284,62 @@ export function createObserverSession(options: {
  * **本関数は library export だが、A-2b では呼ばれない** (runtime-unwired)。
  * A-2c で client wiring が `subscribePresenceSignal(makeHandler(session))` を呼ぶ。
  *
+ * A-2e canary: 各 phase で `debugCounters` を increment (redacted only)。
+ *
  * @param signal  presence bus からの raw PresenceSignal
  * @param session createObserverSession() で作成した session
  *
  * 副作用:
  *   - relationship state container の update (in-memory)
+ *   - debugCounters の update (in-memory、redacted)
  *   - その他副作用なし (console / fetch / DB / storage 等は一切なし)
  */
 export function handlePresenceSignal(
   signal: PresenceSignal,
   session: ObserverSession,
 ): void {
+  // A-2e canary: handler 到達の証明 (presence bus → observer)
+  debugCounters.signalReceivedCount += 1;
+  if (signal && typeof signal === "object") {
+    if (typeof signal.kind === "string") {
+      debugCounters.lastSignalKind = signal.kind as SignalKind;
+    }
+    if (typeof signal.strength === "string") {
+      debugCounters.lastSignalStrength = signal.strength as SignalStrength;
+    }
+    if (typeof signal.detectedAt === "number") {
+      debugCounters.lastObservedAt = signal.detectedAt;
+    }
+  }
+
+  let redacted: RedactedPresenceSignal;
   try {
-    const redacted = redactSignal(signal, session._internalSalt);
-    // signal kind から reason code を導出 (raw text 一切使わない)
-    const reasonCode = deriveReasonCodeFromSignal(redacted);
-    updateRelationshipState(session._internalKey, {
-      newReasonCodes: reasonCode ? [reasonCode] : [],
-    });
+    redacted = redactSignal(signal, session._internalSalt);
+    debugCounters.lastMatchedPatternCategory = redacted.matchedPatternCategory;
   } catch {
-    // 二重防御: redact / update の failure を握りつぶす
-    // presence layer / bus への throw 伝播を絶対に防ぐ
-    // log / console / telemetry 出さない (PII 流出回避 + 不可侵原則)
+    // redact 失敗 (malformed signal / salt 不正 等)
+    debugCounters.redactFailureCount += 1;
+    debugCounters.lastSkipReason = "redact_failed";
+    return;
+  }
+
+  // signal kind から reason code を導出 (raw text 一切使わない)
+  const reasonCode = deriveReasonCodeFromSignal(redacted);
+  if (reasonCode === null) {
+    debugCounters.lastSkipReason = "unknown_kind_dropped";
+    return;
+  }
+
+  try {
+    updateRelationshipState(session._internalKey, {
+      newReasonCodes: [reasonCode],
+    });
+    debugCounters.stateUpdateSuccessCount += 1;
+    debugCounters.lastReasonCode = reasonCode;
+    debugCounters.lastSkipReason = "none";
+  } catch {
+    debugCounters.stateUpdateFailureCount += 1;
+    debugCounters.lastSkipReason = "state_update_failed";
   }
 }
 

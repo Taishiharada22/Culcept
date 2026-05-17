@@ -24,6 +24,8 @@ import {
   createObserverSession,
   handlePresenceSignal,
   makeSignalHandler,
+  getObserverDebugCountersForDebug,
+  __resetObserverDebugCountersForTests,
   type ObserverSession,
 } from "@/lib/coalter/observer/observerSubscriber";
 import {
@@ -520,5 +522,173 @@ describe("A-2b runtime-unwired check", () => {
       testSalt: TEST_SALT,
     });
     expect(typeof session._internalSalt).toBe("string");
+  });
+});
+
+// ─────────────────────────────────────────────
+// A-2e canary v2.1: Redacted debug counters
+// ─────────────────────────────────────────────
+
+describe("observerSubscriber — A-2e canary debug counters", () => {
+  beforeEach(() => {
+    clearAllRelationshipStatesForTests();
+    __resetObserverDebugCountersForTests();
+  });
+
+  it("counters all start at 0 / null", () => {
+    const c = getObserverDebugCountersForDebug();
+    expect(c.signalReceivedCount).toBe(0);
+    expect(c.redactFailureCount).toBe(0);
+    expect(c.stateUpdateSuccessCount).toBe(0);
+    expect(c.stateUpdateFailureCount).toBe(0);
+    expect(c.lastSignalKind).toBeNull();
+    expect(c.lastSignalStrength).toBeNull();
+    expect(c.lastMatchedPatternCategory).toBeNull();
+    expect(c.lastReasonCode).toBeNull();
+    expect(c.lastObservedAt).toBeNull();
+    expect(c.lastSkipReason).toBeNull();
+  });
+
+  it("signalReceivedCount increments on each handlePresenceSignal call", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: 1 },
+      session,
+    );
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: 2 },
+      session,
+    );
+    expect(getObserverDebugCountersForDebug().signalReceivedCount).toBe(2);
+  });
+
+  it("stateUpdateSuccessCount increments on valid signal", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: 1 },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    expect(c.signalReceivedCount).toBe(1);
+    expect(c.stateUpdateSuccessCount).toBe(1);
+    expect(c.stateUpdateFailureCount).toBe(0);
+    expect(c.lastSkipReason).toBe("none");
+    expect(c.lastReasonCode).toBe("observation_recorded");
+  });
+
+  it("lastSignalKind / lastSignalStrength / lastObservedAt reflect latest signal", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      { kind: "critical", strength: "strong", detectedAt: 1234567890 },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    expect(c.lastSignalKind).toBe("critical");
+    expect(c.lastSignalStrength).toBe("strong");
+    expect(c.lastObservedAt).toBe(1234567890);
+  });
+
+  it("lastMatchedPatternCategory reflects redacted bucket", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      {
+        kind: "critical",
+        strength: "strong",
+        detectedAt: 1,
+        meta: { matchedPattern: "safety:self-harm" },
+      },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    expect(c.lastMatchedPatternCategory).toBe("safety_concern");
+    expect(c.lastReasonCode).toBe("rupture_detected");
+  });
+
+  it("lastSkipReason = 'unknown_kind_dropped' on unknown kind", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      {
+        kind: "future_new_kind" as unknown as "implicit",
+        strength: "soft",
+        detectedAt: 1,
+      },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    expect(c.signalReceivedCount).toBe(1);
+    expect(c.stateUpdateSuccessCount).toBe(0);
+    expect(c.lastSkipReason).toBe("unknown_kind_dropped");
+  });
+
+  it("lastSkipReason = 'redact_failed' on malformed signal (missing required fields)", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    // PresenceSignal type 違反 (detectedAt が string で redactSignal validation で throw)
+    handlePresenceSignal(
+      {
+        kind: "implicit",
+        strength: "soft",
+        detectedAt: "not-a-number",
+      } as unknown as PresenceSignal,
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    expect(c.signalReceivedCount).toBe(1);
+    expect(c.redactFailureCount).toBe(1);
+    expect(c.lastSkipReason).toBe("redact_failed");
+  });
+
+  it("counters output contains no raw PII (only enums + integers)", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    const rawMsgId = "msg-uuid-distinct-debug-counter-test-zzz";
+    handlePresenceSignal(
+      {
+        kind: "implicit",
+        strength: "soft",
+        detectedAt: 1,
+        meta: { lastMessageId: rawMsgId },
+      },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    const json = JSON.stringify(c);
+    expect(json.includes(rawMsgId)).toBe(false);
+    expect(json.includes(PAIR_KEY)).toBe(false);
+    expect(json.includes(TEST_SALT)).toBe(false);
+  });
+
+  it("counters are defensive copy (mutation does not affect internal state)", () => {
+    const session = createObserverSession({
+      pairStateId: PAIR_KEY,
+      testSalt: TEST_SALT,
+    });
+    handlePresenceSignal(
+      { kind: "implicit", strength: "soft", detectedAt: 1 },
+      session,
+    );
+    const c = getObserverDebugCountersForDebug();
+    (c as unknown as { signalReceivedCount: number }).signalReceivedCount = 999;
+    const fresh = getObserverDebugCountersForDebug();
+    expect(fresh.signalReceivedCount).toBe(1);
   });
 });

@@ -43,7 +43,9 @@ import { useEffect } from "react";
 import {
   createObserverSession,
   generateEphemeralSalt,
+  getObserverDebugCountersForDebug,
   makeSignalHandler,
+  type ObserverDebugCounters,
 } from "@/lib/coalter/observer/observerSubscriber";
 import { isPresenceObserverEnabled } from "@/lib/coalter/observer/observerSubscriberGate";
 import {
@@ -171,6 +173,17 @@ function installDebugGlobalIfEnabled(pairStateId: string): void {
       checkExpire();
       if (debugSessionSalt === null) return [];
       return iterateRedactedSnapshotsForDebug(debugSessionSalt);
+    },
+    /**
+     * A-2e canary v2.1 (2026-05-17 追加):
+     * handler 到達 / redact / state update の各 phase の redacted counter を返す。
+     * 用途: stateStore 空の原因切り分け (signal が届いていない / handler skip /
+     * redact 失敗 / state_update 失敗 のどれか)。
+     * raw text / raw IDs は一切含まない (固定 enum + integer のみ)。
+     */
+    getDebugCounters: (): ObserverDebugCounters => {
+      checkExpire();
+      return getObserverDebugCountersForDebug();
     },
     selfDestroy: (): void => {
       destroyDebugGlobal();

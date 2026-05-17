@@ -621,4 +621,48 @@ describe("useObserverSubscription — A-2e canary debug global expose", () => {
     >;
     expect(dbg.getRedactedStateForPair).toBeUndefined();
   });
+
+  it("debug global exposes getDebugCounters (A-2e canary v2.1)", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-counters");
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getDebugCounters: () => {
+        signalReceivedCount: number;
+        redactFailureCount: number;
+        stateUpdateSuccessCount: number;
+        stateUpdateFailureCount: number;
+        lastSignalKind: string | null;
+        lastSkipReason: string | null;
+      };
+    };
+    expect(typeof dbg.getDebugCounters).toBe("function");
+    const counters = dbg.getDebugCounters();
+    expect(typeof counters.signalReceivedCount).toBe("number");
+    expect(typeof counters.stateUpdateSuccessCount).toBe("number");
+    // initially 0 (or 1 if the subscribe registered immediately and a signal fired,
+    // but in test we control bus state)
+  });
+
+  it("debug counters reflect signal publish → handler 到達 (E2E via debug global)", () => {
+    process.env[ENV_KEY] = "true";
+    process.env[DEBUG_ENV_KEY] = "true";
+    _runObserverSubscriptionEffect("pair-debug-e2e");
+    publishPresenceSignal({
+      kind: "implicit",
+      strength: "soft",
+      detectedAt: 1,
+    });
+    const dbg = (globalThis as Record<string, unknown>).__AOO_DEBUG_STATE__ as {
+      getDebugCounters: () => {
+        signalReceivedCount: number;
+        stateUpdateSuccessCount: number;
+        lastSkipReason: string | null;
+      };
+    };
+    const counters = dbg.getDebugCounters();
+    expect(counters.signalReceivedCount).toBeGreaterThanOrEqual(1);
+    expect(counters.stateUpdateSuccessCount).toBeGreaterThanOrEqual(1);
+    expect(counters.lastSkipReason).toBe("none");
+  });
 });
