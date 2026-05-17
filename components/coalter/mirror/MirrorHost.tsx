@@ -1,19 +1,24 @@
 "use client";
 
 /**
- * CoAlter AOO Phase B — Mirror Channel Host Component (B-1)
+ * CoAlter AOO Phase B — Mirror Channel Host Component (B-1 + B-5a + B-5b)
  *
  * 正本:
  *   - 設計: docs/coalter-aoo-phase-b-mirror-channel-design.md (PR #164)
  *   - 実装計画: docs/coalter-aoo-phase-b-implementation-plan.md (PR #165)
  *
- * 役割 (B-1 段階):
- *   `MirrorSurface` を mount する **null-render wrapper component**。
- *   - flag OFF (既定) → `return null` (DOM 出力なし、完全 no-op)
- *   - flag ON → `<MirrorSurface />` (hidden shell only、視覚 0)
+ * 役割:
+ *   - B-1 (確定): `MirrorSurface` (hidden shell) を mount。flag OFF で完全 no-op。
+ *   - B-5a (確定): `useMirrorEngine()` で shadow mode engine 実行 + diagnostic snapshot。
+ *   - B-5b (本 PR): visible Mirror surface + sleep control を mount。
+ *       - `<MirrorVisibleSurface />`: engine が visible candidate を出した時のみ render
+ *           (sleep / cap / 7-layer verification を通過した State Mirror text のみ)
+ *       - `<SleepUIToggle />`: ユーザーが session-local に sleep ON/OFF を toggle
+ *       - flag OFF なら全 visible component 一切 mount しない
+ *       - env 投入は B-5c。flag OFF (env 未投入) なら DOM 出力は **B-1 hidden shell のみ**
  *
  *   Phase A `components/coalter/observer/ObserverHost.tsx` の pattern を踏襲:
- *     ChatClient.tsx に最小差分 (≤ 5 行 = 1 import + 1 JSX mount) で mount する
+ *     ChatClient.tsx に最小差分 (1 import + 1 JSX mount) で mount する
  *     ため、UI 影響ゼロで Mirror Channel の足場を確立する。
  *
  * No-Effect Contract (B-1 preflight CEO 補正 4 反映):
@@ -60,21 +65,48 @@
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
 import { useMirrorEngine } from "@/hooks/useMirrorEngine";
 import MirrorSurface from "./MirrorSurface";
+import MirrorVisibleSurface from "./MirrorVisibleSurface";
+import SleepUIToggle from "./SleepUIToggle";
 
 export default function MirrorHost() {
-  // B-5a: shadow mode engine 実行 (flag OFF 時は hook 内で early return、副作用なし)
-  // - mount 時 1 回 useEffect で decideMirror() を呼ぶ
-  // - 結果は session-local diagnostic snapshot に redacted 記録
-  // - **B-5a では visible 出力なし** (MIRROR_CANDIDATE でも MirrorSurface は hidden shell のまま)
-  // - 4 層 flag gating defense の L4: hook 内で flag OFF → engine 一切呼ばない
-  useMirrorEngine();
+  // B-5a + B-5b:
+  //   - shadow mode engine 実行 (mount 1 回、flag OFF 時は hook 内 early return)
+  //   - B-5b: visible candidate evaluation を hook 内で実施 (sleep / cap / verification 通過時のみ)
+  //   - 4 層 flag gating defense の L4: hook 内で flag OFF → engine 一切呼ばない
+  //   - 戻り値:
+  //       - visible: 表示すべき text (null なら表示なし)
+  //       - sleepOn: 現在の sleep 状態
+  //       - onDismiss / onSleepRequest / onSleepResume: handlers
+  const engine = useMirrorEngine();
 
   if (!COALTER_FLAGS.mirrorChannelEnabled) {
     // flag OFF (既定): 真の no-op — DOM 出力なし、listener / state / effect / subscription / network / storage / timer / console すべてなし
     return null;
   }
-  // flag ON: hidden shell mount のみ (B-1 〜 B-5a 全期間で同形状を維持、CEO 補正 1)
-  // - B-5a で useMirrorEngine が shadow mode で engine を実行するが、visible 出力なし
-  // - B-5b で可視 Mirror surface は**別 component として新規実装** (本 hidden shell は CSS で可視化しない)
-  return <MirrorSurface />;
+
+  // flag ON:
+  //   - MirrorSurface (B-1 hidden shell、不変、test marker / mount 拠点)
+  //   - MirrorVisibleSurface (B-5b、visible なら mount。reflection-only、Question/Proposal/Suggestion なし)
+  //   - SleepUIToggle (B-5b、いつでも sleep 制御。session-local、persistence なし)
+  //
+  // env 投入は B-5c。本 component が flag ON でも、`NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED`
+  // env が "true" でなければ flag は false のため、Production / Preview ともに DOM 出力なし。
+  return (
+    <>
+      <MirrorSurface />
+      {engine.visible ? (
+        <MirrorVisibleSurface
+          text={engine.visible.text}
+          templateId={engine.visible.templateId}
+          onDismiss={engine.onDismiss}
+          onSleepRequest={engine.onSleepRequest}
+        />
+      ) : null}
+      <SleepUIToggle
+        sleepOn={engine.sleepOn}
+        onSleepRequest={engine.onSleepRequest}
+        onSleepResume={engine.onSleepResume}
+      />
+    </>
+  );
 }
