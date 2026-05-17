@@ -352,3 +352,165 @@ export type PatternCategoryBucketResult =
       readonly bucket: "unknown_category";
       readonly canProceedToMirrorDecision: false;
     };
+
+// =============================================================================
+// B-4a (2026-05-17): Decision Engine 型基盤 (types only, no logic)
+// =============================================================================
+//
+// 設計原則:
+//   - **B-4a は型のみ**: ERV / Gate / Counterfactual / Engine の実装 logic は
+//     B-4b〜B-4d で順次追加 (本 file は読み取り専用に維持される予定)
+//   - **discriminated union による型レベル epistemic safety** (B-2 / B-3 と同じパターン):
+//     `MirrorDecision` は `type` で discriminate / `GateResult` は `passed` で discriminate
+//     / consumer は narrowing 必須
+//   - **Default-STAY_SILENT を型で保証**: `MirrorDecision` の 1 variant は STAY_SILENT、
+//     もう 1 variant が MIRROR_CANDIDATE。consumer が明示的に MIRROR_CANDIDATE を生成
+//     しない限り STAY_SILENT (structural default)
+//   - **PII firewall を型レベルで強制**: `MirrorDecisionInput` には B-2/B-3 結果 +
+//     4 axes (novelty / phase / time / rupture / sleep) のみ。raw text / message id /
+//     user id / pair id / session id を**書けない**
+//   - **reason enum は `decisionConstants.ts` を source-of-truth**:
+//     `MirrorStaySilentReason` 型は decisionConstants.ts の `(typeof MIRROR_STAY_SILENT_REASON)[keyof ...]`
+//     由来 (typo 防止 + IDE autocomplete)
+
+/**
+ * 会話 phase の literal union。
+ *
+ * 値:
+ *   - `"greeting"`: 会話冒頭 (Mirror 不可)
+ *   - `"in_progress"`: 進行中 (Mirror 候補可)
+ *   - `"closing"`: 会話末尾 (Mirror 不可)
+ *   - `"emergent"`: 緊急性検出 (Mirror 不可)
+ *   - `"unknown"`: 推定不能 (Mirror 不可、fail-closed)
+ *
+ * Phase B 初期 canary では `"in_progress"` のみ Worth Gate PASS する設計
+ * (B-0 plan §4.2 / B-4 preflight §3)。`"unknown"` も明示 first-class value として
+ * 持つ (B-2 modeContext / B-3 bucket の unknown 設計と一貫)。
+ */
+export type ConversationPhase =
+  | "greeting"
+  | "in_progress"
+  | "closing"
+  | "emergent"
+  | "unknown";
+
+/**
+ * Mirror Channel が STAY_SILENT を返す理由の literal union 型。
+ *
+ * 値は `./decisionConstants.ts` の `MIRROR_STAY_SILENT_REASON` から自動生成。
+ * 直接の文字列リテラル使用ではなく、必ず `MIRROR_STAY_SILENT_REASON.<KEY>` 経由で参照する
+ * (magic string 禁止、typo 防止)。
+ */
+export type { MirrorStaySilentReason } from "./decisionConstants";
+
+import type { MirrorStaySilentReason as _MirrorStaySilentReason } from "./decisionConstants";
+
+/**
+ * Decision Engine 入力統合型。
+ *
+ * 構成:
+ *   - B-2 modeContext 結果
+ *   - B-3 4 bucket 結果 (alignment / uncertainty / silenceBudget / patternCategory)
+ *   - B-4 追加 4 axes (B-3 で bucket 化されていない、本 input で直接受け取り):
+ *     - `observationNovelty`: 0..1 数値 (B-4b/c で inline validate)
+ *     - `conversationPhase`: ConversationPhase enum
+ *     - `timeSinceLastSpeakTurns`: 非負整数
+ *     - `ruptureFlag`: boolean (precautionary、unknown は true 扱いせず Safe Gate fail)
+ *     - `userOverrideSleep`: boolean (true で必ず Safe Gate fail)
+ *
+ * **PII firewall (型レベル)**:
+ *   raw text / message id / user id / pair id / session id / email / phone / IP 等の
+ *   PII field は**型に存在しない**。caller が `as unknown as MirrorDecisionInput` cast
+ *   で injection しても、Decision Engine は宣言された 10 field しか参照しない。
+ *
+ * 全 field が `readonly` (immutability)、optional 4 axes は `undefined` 経路で
+ * unknown 扱い (Gate fail)。
+ */
+export interface MirrorDecisionInput {
+  readonly modeContext: MirrorModeContextResult;
+  readonly alignment: AlignmentBucketResult;
+  readonly uncertainty: UncertaintyBucketResult;
+  readonly silenceBudget: SilenceBudgetBucketResult;
+  readonly patternCategory: PatternCategoryBucketResult;
+  readonly observationNovelty?: number | null;
+  readonly conversationPhase?: ConversationPhase;
+  readonly timeSinceLastSpeakTurns?: number | null;
+  readonly ruptureFlag?: boolean | null;
+  readonly userOverrideSleep?: boolean | null;
+}
+
+/**
+ * Gate 関数 (B-4b で実装される checkObserveGate / checkWorthGate / checkSafeGate)
+ * の共通 result 型 (discriminated union)。
+ *
+ * 型レベル invariant:
+ *   - `passed === true`: reason field なし
+ *   - `passed === false`: reason field 必須 (MirrorStaySilentReason)
+ *
+ * TypeScript narrowing:
+ *   ```ts
+ *   if (gate.passed) {
+ *     // gate.reason に access 不可 (compile error)
+ *   } else {
+ *     const r: MirrorStaySilentReason = gate.reason;  // OK
+ *   }
+ *   ```
+ */
+export type GateResult =
+  | { readonly passed: true }
+  | { readonly passed: false; readonly reason: _MirrorStaySilentReason };
+
+/**
+ * Counterfactual Silence Test の 4 outcome (B-0 plan §10.2)。
+ *
+ * 値:
+ *   - `"user_misses_small_observation"`: ERV bar 未達 → STAY_SILENT (許容)
+ *   - `"user_misses_meaningful_insight"`: bar 通過 + 条件成立 → SPEAK 候補維持
+ *   - `"user_takes_harmful_action"`: safety / rupture_high routing → STAY_SILENT
+ *     (本来 Safe Gate で先に捕捉されるが、CST にも redundant check 残す)
+ *   - `"no_difference"`: 中立 (travel mode 等) → STAY_SILENT
+ *
+ * **defense-in-depth**: COUNTERFACTUAL_ERV_BAR (0.85) は SPEAK_THRESHOLD_BASE (0.75)
+ * よりも高く設定。ERV ≥ 0.75 で SPEAK 候補となった案件のうち、ERV ≥ 0.85 のみが
+ * Counterfactual を通過。Mirror 発話を更に絞る (CEO 北極星「黙る・誤読を避ける」)。
+ */
+export type CounterfactualOutcome =
+  | "user_misses_small_observation"
+  | "user_misses_meaningful_insight"
+  | "user_takes_harmful_action"
+  | "no_difference";
+
+/**
+ * Mirror Channel の Decision Engine 出力 (discriminated union)。
+ *
+ * 型レベル invariant:
+ *   - `type === "STAY_SILENT"`: reason field 必須 (MirrorStaySilentReason) / ervScore なし
+ *   - `type === "MIRROR_CANDIDATE"`: ervScore field 必須 (number) / reason は固定値 "speak_passed"
+ *
+ * **Default-STAY_SILENT 構造保証**:
+ *   - 2 variant のみ。caller / engine は明示的に MIRROR_CANDIDATE を生成しない限り
+ *     STAY_SILENT を返すしかない
+ *   - 関数末尾の fallback も型上 STAY_SILENT を選ぶしかない (MIRROR_CANDIDATE 生成には
+ *     ervScore: number が必須、未計算では生成不可)
+ *
+ * TypeScript narrowing:
+ *   ```ts
+ *   if (decision.type === "MIRROR_CANDIDATE") {
+ *     const score: number = decision.ervScore;
+ *     // decision.reason は "speak_passed" literal
+ *   } else {
+ *     const r: MirrorStaySilentReason = decision.reason;
+ *     // decision.ervScore access 不可 (compile error)
+ *   }
+ *   ```
+ */
+export type MirrorDecision =
+  | {
+      readonly type: "STAY_SILENT";
+      readonly reason: _MirrorStaySilentReason;
+    }
+  | {
+      readonly type: "MIRROR_CANDIDATE";
+      readonly ervScore: number;
+      readonly reason: "speak_passed";
+    };
