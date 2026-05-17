@@ -29,13 +29,15 @@
  * test 検証:
  *   `data-testid="mirror-surface-shell"` で mount を query 可能
  *
- * **Phase B+ 計画 (重要): この hidden shell をそのまま可視化はしない**:
- *   - B-2 〜 B-4: 内部 logic を段階追加 (modeContext read / bucket / ERV / Three-Gate 等) するが
- *     UI 表示には反映させない (引き続き hidden)
- *   - B-5 canary: 可視 Mirror surface を**別 component として実装**
+ * **Phase B+ 計画 (重要、CEO 補正 1 反映): この hidden shell をそのまま可視化はしない / 内部 logic 追加もしない**:
+ *   - B-2 〜 B-4 の logic は **`lib/coalter/mirror/*` の pure / read layer** に置く
+ *     (例: B-2 modeContextReader, B-3 buckets/*, B-4 erv / gates / decisionEngine 等)
+ *   - **MirrorSurface には B-2 〜 B-4 全期間で内部 logic / state / effect / subscription を一切追加しない**
+ *     (引き続き hidden shell のまま、`lib/coalter/mirror/*` の logic は本 component から参照しない)
+ *   - B-5 canary: 可視 Mirror surface を**別 component として新規実装**
  *     (本 hidden shell をそのまま CSS で visible にする方針は禁止、
  *      a11y / focus / animation / focus trap 等の責務が別領域のため)
- *   - 本 hidden shell は B-1 段階の "mount 拠点 / test marker" 専用
+ *   - 本 hidden shell は B-1 段階の "mount 拠点 / test marker" 専用、B-2 〜 B-4 でも同形状で維持
  *
  * 不可侵境界 (B-0 §9 / Phase A 継承):
  *   - lib/coalter/presence/ 全 30+ files 不可侵

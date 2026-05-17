@@ -36,13 +36,20 @@
  *   - Production env 不可侵 (env 投入なし、default false)
  *   - Question / Proposal / Suggestion 自動発火禁止
  *
- * Phase B+ 計画 (本 component は MirrorSurface mount lifecycle のみ担当):
- *   - B-2: modeContext read path (`lib/coalter/mirror/modeContextReader.ts` 新規)
- *   - B-3: bucket inference pure logic (`lib/coalter/mirror/buckets/*` 新規)
- *   - B-4: ERV / Three-Gate / Counterfactual / Anticipatory Withdrawal / Diversity Quota
- *     (`lib/coalter/mirror/erv.ts` / `gates/*` / 等)
- *   - B-5: Mirror Surface 実描画 + Post-Speak Verification + Channel Lock + sleepDetector
- *   - 本 component は Speak logic を一切持たない (常に MirrorSurface mount のみ)
+ * Phase B+ 計画 (CEO 補正 1 反映: 本 component は B-5 まで最小 composition boundary に留める):
+ *   - **B-2 〜 B-4 の logic はすべて `lib/coalter/mirror/*` の pure / read layer に新設**
+ *     (UI component には logic を入れない、関心分離の原則):
+ *     - B-2: modeContext read path (`lib/coalter/mirror/modeContextReader.ts` 新規)
+ *     - B-3: bucket inference pure logic (`lib/coalter/mirror/buckets/*` 新規)
+ *     - B-4: ERV / Three-Gate / Counterfactual / Anticipatory Withdrawal / Diversity Quota
+ *       (`lib/coalter/mirror/erv.ts` / `gates/*` / `decisionEngine.ts` / 等)
+ *   - **B-2 〜 B-4 では MirrorHost / MirrorSurface に diff を入れない**
+ *     (本 component は flag 確認 + hidden MirrorSurface mount のみを担当)
+ *   - B-5 canary: 可視 Mirror surface を**別 component として新規実装**
+ *     (Post-Speak Verification / Channel Lock / sleepDetector も `lib/coalter/mirror/*` に配置)
+ *     - B-5 で本 component が可視 surface を mount するための **最小拡張**を初めて検討
+ *       (本 hidden shell の CSS で可視化はしない、別 component に切り替える)
+ *   - 本 component は Speak logic を一切持たない (常に hidden shell mount のみ、B-5 までは現状形)
  *
  * Phase A ObserverHost との関係:
  *   - 別 component (subscription lifecycle と Mirror UI mount は責務分離)
@@ -58,9 +65,10 @@ export default function MirrorHost() {
     // flag OFF (既定): 真の no-op — DOM 出力なし、listener / state / effect / subscription / network / storage / timer / console すべてなし
     return null;
   }
-  // flag ON (B-1 段階): hidden shell mount のみ
-  // - B-2 以降で MirrorSurface に modeContext / bucket / Speak Decision の logic を段階追加するが、
-  //   B-1 段階では shell は完全 hidden (visual 0 / a11y 中立)
-  // - 可視 Mirror surface は B-5 で別 component として実装 (本 hidden shell は可視化せず)
+  // flag ON: hidden shell mount のみ (B-1 〜 B-4 全期間で同形状を維持、CEO 補正 1)
+  // - B-2 〜 B-4 の logic は `lib/coalter/mirror/*` の pure / read layer に置く
+  //   (MirrorSurface には内部 logic を追加しない、関心分離原則)
+  // - B-5 で可視 Mirror surface は別 component として新規実装する
+  //   (本 hidden shell の CSS で可視化はしない)
   return <MirrorSurface />;
 }
