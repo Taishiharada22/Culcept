@@ -58,17 +58,23 @@
  */
 
 import { COALTER_FLAGS } from "@/lib/coalter/flags";
+import { useMirrorEngine } from "@/hooks/useMirrorEngine";
 import MirrorSurface from "./MirrorSurface";
 
 export default function MirrorHost() {
+  // B-5a: shadow mode engine 実行 (flag OFF 時は hook 内で early return、副作用なし)
+  // - mount 時 1 回 useEffect で decideMirror() を呼ぶ
+  // - 結果は session-local diagnostic snapshot に redacted 記録
+  // - **B-5a では visible 出力なし** (MIRROR_CANDIDATE でも MirrorSurface は hidden shell のまま)
+  // - 4 層 flag gating defense の L4: hook 内で flag OFF → engine 一切呼ばない
+  useMirrorEngine();
+
   if (!COALTER_FLAGS.mirrorChannelEnabled) {
     // flag OFF (既定): 真の no-op — DOM 出力なし、listener / state / effect / subscription / network / storage / timer / console すべてなし
     return null;
   }
-  // flag ON: hidden shell mount のみ (B-1 〜 B-4 全期間で同形状を維持、CEO 補正 1)
-  // - B-2 〜 B-4 の logic は `lib/coalter/mirror/*` の pure / read layer に置く
-  //   (MirrorSurface には内部 logic を追加しない、関心分離原則)
-  // - B-5 で可視 Mirror surface は別 component として新規実装する
-  //   (本 hidden shell の CSS で可視化はしない)
+  // flag ON: hidden shell mount のみ (B-1 〜 B-5a 全期間で同形状を維持、CEO 補正 1)
+  // - B-5a で useMirrorEngine が shadow mode で engine を実行するが、visible 出力なし
+  // - B-5b で可視 Mirror surface は**別 component として新規実装** (本 hidden shell は CSS で可視化しない)
   return <MirrorSurface />;
 }
