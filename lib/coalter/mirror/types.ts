@@ -514,3 +514,50 @@ export type MirrorDecision =
       readonly ervScore: number;
       readonly reason: "speak_passed";
     };
+
+// =============================================================================
+// B-5a (2026-05-17): Local in-memory diagnostic snapshot 型 (session-only)
+// =============================================================================
+//
+// 設計原則:
+//   - **PII 非保持を型レベルで強制**:
+//     raw text / message id / user id / pair id / session id 等の **PII field を
+//     型に書けない**。caller が `as unknown as` cast で injection しても、診断
+//     snapshot 側は型に従って参照しないので leak しない。
+//   - **redacted enum / bucket / number / timestamp のみ**:
+//     decision result の構造化情報を session-local in-memory に蓄積、
+//     B-5c canary smoke で CEO が developer tools 経由で観察する用途。
+//   - **二重 flag gating** (B-5a flags.ts):
+//     `mirrorChannelEnabled === true` ∧ `mirrorDiagnosticExposeEnabled === true`
+//     の両方が満たされたときのみ window global expose される。
+//   - **15-min auto-expire**:
+//     install から 15 分経過後は debug global の getSnapshot が "expired" を返す
+//     (setTimeout 不使用、各 read で elapsed time check)。
+
+/**
+ * Mirror diagnostic snapshot の 1 entry。
+ *
+ * Fields (すべて redacted、PII なし):
+ *   - `decision`: STAY_SILENT / MIRROR_CANDIDATE
+ *   - `reason`: MirrorStaySilentReason | "speak_passed"
+ *   - `ervScore`: MIRROR_CANDIDATE のとき number、それ以外 undefined
+ *   - `modeContextStatus`: "known" | "unknown"
+ *   - `mode`: MirrorPresenceMode | null
+ *   - `alignmentBucket` / `uncertaintyBucket` / `silenceBudgetBucket` / `patternCategoryBucket`: bucket enum 文字列
+ *   - `timestamp`: Date.now() (相対時刻 number、tab 起点)
+ *
+ * **PII fields は型に存在しない**: raw text / message id / user id / pair id /
+ * session id / email / phone / ipAddress 等を**書けない**。
+ */
+export interface MirrorDiagnosticEntry {
+  readonly decision: "STAY_SILENT" | "MIRROR_CANDIDATE";
+  readonly reason: _MirrorStaySilentReason | "speak_passed";
+  readonly ervScore: number | undefined;
+  readonly modeContextStatus: "known" | "unknown";
+  readonly mode: MirrorPresenceMode | null;
+  readonly alignmentBucket: MirrorAlignmentBucket;
+  readonly uncertaintyBucket: MirrorUncertaintyBucket;
+  readonly silenceBudgetBucket: MirrorSilenceBudgetBucket;
+  readonly patternCategoryBucket: MirrorPatternCategoryBucket;
+  readonly timestamp: number;
+}

@@ -105,3 +105,76 @@ describe("B-1 mirrorChannelEnabled — boundary preservation [既存 normalizeBo
     expect(COALTER_FLAGS.mirrorChannelEnabled).toBe(false);
   });
 });
+
+// =============================================================================
+// B-5a (2026-05-17): mirrorDiagnosticExposeEnabled strict flag parser
+// =============================================================================
+//
+// B-5a 設計:
+//   - 第2 flag、debug global 公開専用 (mirrorChannelEnabled とは独立)
+//   - 同じ strict parser (`=== "true"` のみ)
+//   - 既定 OFF、production / preview / development 全環境で空 / unset → false
+//   - mirrorChannelEnabled と AND 連結で debug global 公開を gate (4-layer defense L1)
+//
+const DIAG_ENV_KEY = "NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE";
+
+describe("B-5a mirrorDiagnosticExposeEnabled — strict parser invariant", () => {
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    originalEnv = process.env[DIAG_ENV_KEY];
+    delete process.env[DIAG_ENV_KEY];
+  });
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[DIAG_ENV_KEY];
+    else process.env[DIAG_ENV_KEY] = originalEnv;
+  });
+
+  it("env 未設定 → false (既定 OFF)", () => {
+    delete process.env[DIAG_ENV_KEY];
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+  });
+
+  it('env="" (空文字) → false [strict parser: normalizeBool 非経由]', () => {
+    process.env[DIAG_ENV_KEY] = "";
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+  });
+
+  it('env="true" → true', () => {
+    process.env[DIAG_ENV_KEY] = "true";
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
+  });
+
+  it('env="false" → false', () => {
+    process.env[DIAG_ENV_KEY] = "false";
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+  });
+
+  it('曖昧な truthy 値はすべて false', () => {
+    for (const v of ["1", "on", "yes", "TRUE", "True", "YES"]) {
+      process.env[DIAG_ENV_KEY] = v;
+      expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+    }
+  });
+
+  it('前後 whitespace はすべて false', () => {
+    for (const v of [" true ", "true ", " true", "TRUE "]) {
+      process.env[DIAG_ENV_KEY] = v;
+      expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+    }
+  });
+
+  it('mirrorChannelEnabled とは独立 (片方 true でも他方が default false)', () => {
+    process.env[DIAG_ENV_KEY] = "true";
+    delete process.env[ENV_KEY];
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorChannelEnabled).toBe(false);
+  });
+
+  it('複数回読み取りで安定 (idempotent)', () => {
+    process.env[DIAG_ENV_KEY] = "true";
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
+  });
+});

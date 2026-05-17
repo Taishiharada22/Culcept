@@ -340,6 +340,42 @@ export const COALTER_FLAGS = {
   get mirrorChannelEnabled(): boolean {
     return process.env.NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED === "true";
   },
+
+  /**
+   * **Phase B B-5a (2026-05-17)** — Mirror Diagnostic debug global expose (strict parser)
+   *
+   * 用途:
+   *   `lib/coalter/mirror/diagnosticDebugGlobal.ts` が読み、
+   *   - false なら window global を install しない (完全 no-op)
+   *   - true なら `window.__coalterMirrorDiagnostic` に 15-min expire debug API を expose
+   *
+   * **二重 flag gating**:
+   *   debug global は **両方の flag が true** のときのみ install:
+   *     1. `mirrorChannelEnabled === true` (Mirror Channel 自体が ON)
+   *     2. `mirrorDiagnosticExposeEnabled === true` (diagnostic 公開を明示)
+   *
+   *   片方だけ ON では install されない。
+   *
+   * **strict parser** (B-1 mirror flag と同パターン、global 副作用なし):
+   *   - `process.env.NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE === "true"` のみ true
+   *   - unset / "" / "false" / "0" / "1" / "on" / "yes" / 不明値 すべて false
+   *   - 既存 `normalizeBool` helper は使わない (Phase A 挙動を保護、B-1 と同方針)
+   *
+   * env scope (Phase B 計画):
+   *   - B-5a merge: env 投入なし (default false → debug global install されない)
+   *   - B-5c canary (CEO 操作): branch-scoped Preview only で `=== "true"` を投入
+   *   - Production: Phase B 全期間で投入禁止
+   *
+   * webpack DefinePlugin:
+   *   member access 直接記述 (B-1 mirror channel flag と同形式)。
+   *
+   * 関連:
+   *   - 設計: docs/coalter-aoo-phase-b-mirror-channel-design.md (PR #164) §10.8 Transparent Reticence
+   *   - 実装: lib/coalter/mirror/diagnosticDebugGlobal.ts (B-5a)
+   */
+  get mirrorDiagnosticExposeEnabled(): boolean {
+    return process.env.NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE === "true";
+  },
 };
 
 // ─────────────────────────────────────────────
