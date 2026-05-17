@@ -364,6 +364,18 @@ pending → editing → confirmed
        ↘ snoozed
 ```
 
+**Terminal vs Paused（W1-7b 補足）**:
+
+| state | 分類 | 再アクション |
+|---|---|---|
+| `pending` | active | 全 action 可 |
+| `editing` | active | 全 action 可（edit は idempotent） |
+| `snoozed` | **paused（non-terminal）** | 全 action 可（accept / edit / reject で再開、snooze は idempotent） |
+| `confirmed` | **terminal** | 不可（no-op） |
+| `rejected` | **terminal** | 不可（no-op） |
+
+`snoozed` は「拒否」ではなく「後で決める」であり、`accept` / `edit` / `reject` で再開可能。時間経過による `pending` 自動復帰は API/UI 層の責務（FSM 外）。
+
 状態遷移は 3 シーン共通。同一 hook / state machine で実装する。これがないと 3 箇所で重複実装され、バグの温床になる。
 
 ### 4.3 表現層（シーン別 UI）

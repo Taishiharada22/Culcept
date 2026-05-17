@@ -74,6 +74,18 @@ export type TransitionPayload = {
 
 /**
  * 終端状態か（再アクション不可、不変原則 2）。
+ *
+ * Terminal states:
+ *   - confirmed: 最終確定（accept 経由）
+ *   - rejected:  最終棄却（reject 経由）
+ *
+ * Non-terminal states:
+ *   - pending:   初期状態
+ *   - editing:   編集中
+ *   - snoozed:   一時停止 / 再開可能（"paused"）。
+ *                snooze は「拒否」ではなく「後で決める」であり、
+ *                snoozed から accept / edit / reject に遷移できる。
+ *                時間経過による pending 自動復帰は API/UI 層の責務（FSM 外）。
  */
 export function isTerminal(state: AlterConfirmationState): boolean {
   return state === "confirmed" || state === "rejected";
@@ -97,8 +109,19 @@ export function canTransition(
 /**
  * 初期状態を作る helper。
  *
- * terminal / snoozed を初期状態にすると throw する。
- * これらは action 経由でしか到達できない（不変原則 1 系の延長）。
+ * 初期状態として渡せるのは "pending" / "editing" のみ。
+ *   - "pending":  default、新規 confirmation の起点
+ *   - "editing":  下書きから再開する場合等
+ *
+ * 以下は action 経由でのみ到達可能なため、bootstrap を禁止する（throw）:
+ *   - "confirmed": action='accept' 経由
+ *   - "rejected":  action='reject' 経由
+ *   - "snoozed":   action='snooze' 経由
+ *     ※ snoozed は terminal ではなく paused（再開可能）。
+ *        ただし「snooze は判断行為」であり、初期状態にはなり得ない。
+ *
+ * これは「未確認 AI 推測の confirmed 化禁止（§10 永久 OUT）」を始め、
+ * 「判断系状態は action 経由でのみ到達」という原則の延長。
  */
 export function createInitialState(
   meta: AlterConfirmationMeta,

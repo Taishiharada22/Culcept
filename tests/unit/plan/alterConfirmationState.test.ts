@@ -59,6 +59,9 @@ describe("AlterConfirmation State Machine", () => {
       expect(s.meta).toEqual(META);
     });
 
+    // snoozed は terminal ではなく paused（再開可能）だが、
+    // snoozed への到達は必ず snooze action 経由であるため bootstrap は禁止する。
+    // confirmed / rejected は terminal、加えて accept / reject 経由必須。
     it.each(["confirmed", "rejected", "snoozed"] as AlterConfirmationState[])(
       "%s を初期状態にすると throw（action 経由でないと到達できない）",
       (s) => {
@@ -76,6 +79,38 @@ describe("AlterConfirmation State Machine", () => {
 
     it.each(ACTIVE_STATES)("%s は非終端", (s) => {
       expect(isTerminal(s)).toBe(false);
+    });
+
+    // 設計意図の固定: snoozed は terminal ではなく paused（再開可能）
+    it("snoozed は terminal ではない（paused / 再開可能）", () => {
+      expect(isTerminal("snoozed")).toBe(false);
+    });
+  });
+
+  // ── snoozed semantics（再開可能性の固定） ──
+
+  describe("snoozed semantics — non-terminal / paused", () => {
+    it("snoozed 到達後も isTerminal は false", () => {
+      const s = transition(createInitialState(META), "snooze", { now: FIXED_NOW });
+      expect(isTerminal(s.state)).toBe(false);
+    });
+
+    it("snoozed から accept で confirmed に再開できる", () => {
+      const snoozed = transition(createInitialState(META), "snooze", { now: FIXED_NOW });
+      const next = transition(snoozed, "accept", { now: FIXED_LATER });
+      expect(next.state).toBe("confirmed");
+    });
+
+    it("snoozed から edit で editing に再開できる", () => {
+      const snoozed = transition(createInitialState(META), "snooze", { now: FIXED_NOW });
+      const next = transition(snoozed, "edit", { draft: "resume" });
+      expect(next.state).toBe("editing");
+    });
+
+    it("snoozed から reject で rejected に進める", () => {
+      const snoozed = transition(createInitialState(META), "snooze", { now: FIXED_NOW });
+      const next = transition(snoozed, "reject", { now: FIXED_LATER });
+      expect(next.state).toBe("rejected");
     });
   });
 
