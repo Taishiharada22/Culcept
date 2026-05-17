@@ -83,6 +83,15 @@ Founder / CEO（Taishi）── 最終決裁者
 - **セッション終了時**: 未コミット変更がある場合は WIPコミット（`git commit -m "WIP: <内容>"`)を作成してから終了する
 - **根拠**: 2026-04-01 事故 — セッション8adff4baが `git stash → pop失敗 → stash drop` で3/31の全変更を消失
 
+### 8. Work-Start Verification（作業開始・commit 前確認 — 2026-04-30 制定）
+- **必須 3 点確認**: 作業を開始する前、および `git commit` 実行前に、必ず以下 3 コマンドを実行してブランチと作業ツリー状態を確認する：
+  - `git branch --show-current`
+  - `git status --short --untracked-files=all`
+  - `git log --oneline --max-count=5`
+- **意図しないブランチへの commit 防止**: 別セッションや外部 process がブランチを切り替える可能性があるため、commit 直前にも再確認する
+- **作業前後の対称性**: 作業開始時の確認 → 作業 → commit 前の再確認、の 2 タイミングで実行する
+- **根拠**: 2026-04-30 事故 — 作業開始時のブランチ未確認により Plan W1-3 commit が意図しない `chore/pre-mac-mini-migration` に乗った。前回セッションでも W1-1 が `feat/alter-morning-wave3-pr8` 上で commit されてブランチが Plan 汚染された。両事故とも作業前の `git branch --show-current` 1 コマンドで予防可能だった。
+
 ## Tech Stack（Build Unit 参照）
 - Next.js 15 App Router + Supabase + Tailwind CSS 4
 - Glassmorphism design system: `components/ui/glassmorphism-design.tsx`
