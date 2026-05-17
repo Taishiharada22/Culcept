@@ -95,3 +95,260 @@ export type MirrorModeContextResult =
       readonly source: MirrorModeContextSource;
       readonly canProceedToMirrorDecision: false;
     };
+
+// =============================================================================
+// B-3 (2026-05-17): Bucket types for `lib/coalter/mirror/buckets/*`
+// =============================================================================
+//
+// 設計原則:
+//   - **既存 Phase A observer (`lib/coalter/observer/relationshipStateTypes.ts`)
+//     の `AlignmentBucket` / `UncertaintyBucket` / `SilenceBudgetBucket` /
+//     `MatchedPatternCategory` と構造的に一致する**:
+//     - Mirror 側は独立定義 (Phase A type を import しない)
+//     - 値の集合は Phase A 側と一致 (driftが発生した場合は別 PR で adapter / migration)
+//     - 例外: `MirrorPatternCategoryBucket` は Phase A の `"rupture_signal"` を
+//       severity 別 (`"rupture_signal_high"` / `"rupture_signal_mild"`) に拡張する
+//       (B-0 plan §9.3 設計に従う、Phase A 側 raw → Mirror 側 bucket の adapter は
+//       将来 B-3+ で実装、現状は caller がすでに severity 既知の前提で入力)
+//
+//   - **discriminated union による型レベル epistemic safety** (B-2 と同じパターン):
+//     `known` / `unknown` で discriminate、`canProceedToMirrorDecision` は literal
+//     `true` / `false` で TypeScript narrowing が機能する
+//
+//   - **unknown は first-class**:
+//     null / undefined / NaN / Infinity / 範囲外 / 不明 string すべて `"unknown"` bucket
+//     に正規化、`canProceedToMirrorDecision: false` を返す (fail-closed)
+//
+//   - **PII を型レベルで受け取らない**:
+//     入力は numeric / boolean / enum のみ。raw text / message id / user id / pair id /
+//     session id は構造的に拒否
+
+/**
+ * alignment bucket — 関係性 alignment score (-1..+1) の 5 段階分類 + unknown。
+ *
+ * 値域: -1.0 (完全な不一致) → 0.0 (中立) → +1.0 (強い一致)
+ * Phase A `lib/coalter/observer/relationshipStateTypes.ts` の `AlignmentBucket` と
+ * 構造的に一致する (Mirror 側は独立定義)。
+ */
+export type MirrorAlignmentBucket =
+  | "unknown"
+  | "strongly_negative"
+  | "negative"
+  | "neutral"
+  | "positive"
+  | "strongly_positive";
+
+/**
+ * uncertainty bucket — 観測不確実性 (0..1) の 3 段階分類 + unknown。
+ *
+ * 値域: 0.0 (確信) → 1.0 (完全な不確実)
+ * Phase A `lib/coalter/observer/relationshipStateTypes.ts` の `UncertaintyBucket` と
+ * 構造的に一致する (Mirror 側は独立定義)。
+ */
+export type MirrorUncertaintyBucket =
+  | "unknown"
+  | "low_0_to_30"
+  | "mid_30_to_70"
+  | "high_70_to_100";
+
+/**
+ * silence budget bucket — 会話内発話量比率 (0..1) の 3 段階分類 + unknown。
+ *
+ * 値域: 0.0 (発話なし、余裕あり) → 1.0 (満杯)
+ * Phase A `lib/coalter/observer/relationshipStateTypes.ts` の `SilenceBudgetBucket` と
+ * 構造的に一致する (Mirror 側は独立定義)。
+ */
+export type MirrorSilenceBudgetBucket =
+  | "unknown"
+  | "low_0_to_30"
+  | "mid_30_to_70"
+  | "high_70_to_100";
+
+/**
+ * pattern category bucket — 観測 pattern の category 分類 + unknown。
+ *
+ * Phase A `lib/coalter/observer/signalRedaction.ts` の `MatchedPatternCategory`
+ * (`"safety_concern" | "rupture_signal" | "unknown_category" | null`) を
+ * Mirror 側で severity 拡張:
+ *   - `"null_pattern"`: pattern なし (Phase A の `null` 相当)
+ *   - `"safety_concern"`: 安全関心 (Phase B 発話禁止、B-0 §9.3)
+ *   - `"rupture_signal_high"`: 高リスク rupture (STAY_SILENT、B-0 §9.3)
+ *   - `"rupture_signal_mild"`: 軽微 rupture (Repair Mirror 候補、B-0 §9.3)
+ *   - `"unknown_category"`: 不明 (Observe Gate fail)
+ *
+ * Phase A 側 raw `"rupture_signal"` → Mirror 側 severity 別の bridge adapter は
+ * 別 PR で実装。本 bucket function は **caller が severity 既知の前提**で受け取る
+ * (caller が severity を判定できない場合は safety-first で `"rupture_signal_high"`
+ * を渡すべき)。
+ */
+export type MirrorPatternCategoryBucket =
+  | "null_pattern"
+  | "safety_concern"
+  | "rupture_signal_high"
+  | "rupture_signal_mild"
+  | "unknown_category";
+
+/**
+ * alignment bucket reader の入力。
+ *
+ * - `alignmentSignal`: -1..+1 範囲の数値、null / undefined / NaN / Infinity / 範囲外 → unknown
+ *
+ * **PII 非受理**: raw text / message id / user id / pair id / session id を含まない。
+ */
+export interface AlignmentBucketInput {
+  readonly alignmentSignal?: number | null;
+}
+
+/**
+ * uncertainty bucket reader の入力。
+ *
+ * - `uncertainty`: 0..1 範囲の数値、null / undefined / NaN / Infinity / 範囲外 → unknown
+ *
+ * **PII 非受理**。
+ */
+export interface UncertaintyBucketInput {
+  readonly uncertainty?: number | null;
+}
+
+/**
+ * silence budget bucket reader の入力。
+ *
+ * - `silenceBudget`: 0..1 範囲の数値、null / undefined / NaN / Infinity / 範囲外 → unknown
+ *
+ * **PII 非受理**。
+ */
+export interface SilenceBudgetBucketInput {
+  readonly silenceBudget?: number | null;
+}
+
+/**
+ * pattern category bucket reader の入力。
+ *
+ * - `category`: 既知 enum / null (= null_pattern) / undefined / 不明 string → unknown_category
+ *
+ * **PII 非受理**。raw matched pattern string は受け取らない (caller が事前に bucketize 済)。
+ */
+export interface PatternCategoryBucketInput {
+  readonly category?:
+    | "null_pattern"
+    | "safety_concern"
+    | "rupture_signal_high"
+    | "rupture_signal_mild"
+    | "unknown_category"
+    | null;
+}
+
+/**
+ * alignment bucket reader の出力 (discriminated union)。
+ *
+ * 型レベル invariant:
+ *   - `status === "known"` ⇔ `bucket !== "unknown"` ⇔ `raw !== null` ⇔ `canProceed === true`
+ *   - `status === "unknown"` ⇔ `bucket === "unknown"` ⇔ `raw === null` ⇔ `canProceed === false`
+ *
+ * canProceed 設計: alignment はすべての known level で canProceed = true。
+ * alignment 値そのものは Mirror 発話を gate しない (ERV 入力としてのみ使う、B-4)。
+ */
+export type AlignmentBucketResult =
+  | {
+      readonly status: "known";
+      readonly bucket: Exclude<MirrorAlignmentBucket, "unknown">;
+      readonly raw: number;
+      readonly canProceedToMirrorDecision: true;
+    }
+  | {
+      readonly status: "unknown";
+      readonly bucket: "unknown";
+      readonly raw: null;
+      readonly canProceedToMirrorDecision: false;
+    };
+
+/**
+ * uncertainty bucket reader の出力 (discriminated union)。
+ *
+ * canProceed 設計: B-0 §6.1 / §4.3 (Safe Gate):
+ *   - `low_0_to_30` / `mid_30_to_70` → canProceed = true (Speak 判定へ進めてよい)
+ *   - `high_70_to_100` → canProceed = false (高不確実性、Safe Gate fail)
+ *   - `unknown` → canProceed = false (入力なし、fail-closed)
+ *
+ * 注: B-0 plan の `uncertainty > 0.4` 閾値とは異なる (Phase A の 30/70 区切りに合わせ、
+ * B-4 ERV engine で `> 0.4` 閾値を別途適用する。本 bucket は categorical 分類のみ)。
+ */
+export type UncertaintyBucketResult =
+  | {
+      readonly status: "known";
+      readonly bucket: "low_0_to_30" | "mid_30_to_70";
+      readonly raw: number;
+      readonly canProceedToMirrorDecision: true;
+    }
+  | {
+      readonly status: "known";
+      readonly bucket: "high_70_to_100";
+      readonly raw: number;
+      readonly canProceedToMirrorDecision: false;
+    }
+  | {
+      readonly status: "unknown";
+      readonly bucket: "unknown";
+      readonly raw: null;
+      readonly canProceedToMirrorDecision: false;
+    };
+
+/**
+ * silence budget bucket reader の出力 (discriminated union)。
+ *
+ * canProceed 設計: B-0 §4.2 (Worth Gate):
+ *   - `low_0_to_30` / `mid_30_to_70` → canProceed = true (発話余裕あり)
+ *   - `high_70_to_100` → canProceed = false (既に十分発話している、Worth Gate fail)
+ *   - `unknown` → canProceed = false (fail-closed)
+ *
+ * 注: B-0 plan の `silence_budget ≥ 0.7` 閾値と一致 (high_70_to_100 開始 = 0.7)。
+ */
+export type SilenceBudgetBucketResult =
+  | {
+      readonly status: "known";
+      readonly bucket: "low_0_to_30" | "mid_30_to_70";
+      readonly raw: number;
+      readonly canProceedToMirrorDecision: true;
+    }
+  | {
+      readonly status: "known";
+      readonly bucket: "high_70_to_100";
+      readonly raw: number;
+      readonly canProceedToMirrorDecision: false;
+    }
+  | {
+      readonly status: "unknown";
+      readonly bucket: "unknown";
+      readonly raw: null;
+      readonly canProceedToMirrorDecision: false;
+    };
+
+/**
+ * pattern category bucket reader の出力 (discriminated union)。
+ *
+ * canProceed 設計: B-0 §9.3:
+ *   - `null_pattern` → canProceed = true (通常評価)
+ *   - `rupture_signal_mild` → canProceed = true (Repair Mirror 候補、B-5 で
+ *     §6.5 設計書の grammar 制約で出力)
+ *   - `safety_concern` → canProceed = false (Phase B 全期間発話禁止)
+ *   - `rupture_signal_high` → canProceed = false (STAY_SILENT)
+ *   - `unknown_category` → canProceed = false (Observe Gate fail)
+ *
+ * 注: 本 bucket は raw numeric 入力を持たないため `raw` field なし。
+ */
+export type PatternCategoryBucketResult =
+  | {
+      readonly status: "known";
+      readonly bucket: "null_pattern" | "rupture_signal_mild";
+      readonly canProceedToMirrorDecision: true;
+    }
+  | {
+      readonly status: "known";
+      readonly bucket: "safety_concern" | "rupture_signal_high";
+      readonly canProceedToMirrorDecision: false;
+    }
+  | {
+      readonly status: "unknown";
+      readonly bucket: "unknown_category";
+      readonly canProceedToMirrorDecision: false;
+    };
