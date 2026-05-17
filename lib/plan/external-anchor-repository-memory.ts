@@ -35,6 +35,7 @@ import type {
   CreateExternalAnchorSourceInput,
   CreateSourceWithAnchorsInput,
   CreateSourceWithAnchorsResult,
+  DeleteExternalAnchorSourceResult,
   ExternalAnchorRepository,
   ExternalAnchorRepositoryDependencies,
 } from "./external-anchor-repository";
@@ -341,22 +342,23 @@ export function createMemoryExternalAnchorRepository(
     async deleteSource(
       userId: string,
       sourceId: string
-    ): Promise<{ deleted: number }> {
+    ): Promise<DeleteExternalAnchorSourceResult> {
       const source = sources.get(sourceId);
-      // 不在 or 越境 → no-op
+      // 不在 or 越境 → どちらも { deletedSource: false, deletedAnchors: 0 }
+      // 意図: 情報漏洩防止（攻撃者に「他人の sourceId」を判定させない）
       if (!source || source.userId !== userId) {
-        return { deleted: 0 };
+        return { deletedSource: false, deletedAnchors: 0 };
       }
 
-      let deleted = 0;
+      let deletedAnchors = 0;
       for (const [id, a] of anchors.entries()) {
         if (a.sourceId === sourceId) {
           anchors.delete(id);
-          deleted++;
+          deletedAnchors++;
         }
       }
       sources.delete(sourceId);
-      return { deleted };
+      return { deletedSource: true, deletedAnchors };
     },
   };
 }

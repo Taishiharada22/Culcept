@@ -350,8 +350,8 @@ describe("User 分離 — 越境アクセス禁止", () => {
 // Cascade delete
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("deleteSource — cascade", () => {
-  it("source 削除で関連 anchors も消える", async () => {
+describe("deleteSource — cascade + 戻り値の曖昧さ排除（W1-4pre-3b）", () => {
+  it("source 削除で関連 anchors も消える（deletedSource=true, deletedAnchors=N）", async () => {
     const repo = makeRepo();
     const created = await repo.createSourceWithAnchors("user-A", {
       source: makeManualSource(),
@@ -364,26 +364,35 @@ describe("deleteSource — cascade", () => {
     if (!created.ok) throw new Error("expected ok");
     const sourceId = created.source.id;
 
-    const { deleted } = await repo.deleteSource("user-A", sourceId);
-    expect(deleted).toBe(3);
+    const result = await repo.deleteSource("user-A", sourceId);
+    expect(result.deletedSource).toBe(true);
+    expect(result.deletedAnchors).toBe(3);
 
     expect(await repo.listSources("user-A")).toEqual([]);
     expect(await repo.listAnchors("user-A")).toEqual([]);
   });
 
-  it("削除された anchors の数を正確に返す（anchors 0 のとき deleted=0）", async () => {
+  it("source-only bundle 削除: deletedSource=true, deletedAnchors=0", async () => {
     const repo = makeRepo();
     const created = await repo.createSourceWithAnchors("user-A", {
       source: makeManualSource(),
       anchors: [],
     });
     if (!created.ok) throw new Error("expected ok");
-    const { deleted } = await repo.deleteSource("user-A", created.source.id);
-    expect(deleted).toBe(0);
+    const result = await repo.deleteSource("user-A", created.source.id);
+    expect(result.deletedSource).toBe(true);
+    expect(result.deletedAnchors).toBe(0);
     expect(await repo.listSources("user-A")).toEqual([]);
   });
 
-  it("他 user の source は削除できない（no-op）", async () => {
+  it("不在 sourceId: deletedSource=false, deletedAnchors=0", async () => {
+    const repo = makeRepo();
+    const result = await repo.deleteSource("user-A", "non-existent-id");
+    expect(result.deletedSource).toBe(false);
+    expect(result.deletedAnchors).toBe(0);
+  });
+
+  it("他 user の source: deletedSource=false, deletedAnchors=0", async () => {
     const repo = makeRepo();
     const created = await repo.createSourceWithAnchors("user-A", {
       source: makeManualSource(),
@@ -391,17 +400,32 @@ describe("deleteSource — cascade", () => {
     });
     if (!created.ok) throw new Error("expected ok");
 
-    const { deleted } = await repo.deleteSource("user-B", created.source.id);
-    expect(deleted).toBe(0);
+    const result = await repo.deleteSource("user-B", created.source.id);
+    expect(result.deletedSource).toBe(false);
+    expect(result.deletedAnchors).toBe(0);
     // user-A のデータは残っている
     expect(await repo.listSources("user-A")).toHaveLength(1);
     expect(await repo.listAnchors("user-A")).toHaveLength(1);
   });
 
-  it("不在 sourceId は no-op", async () => {
+  it("情報漏洩防止: user 不一致と不在 sourceId は同じ戻り値", async () => {
     const repo = makeRepo();
-    const { deleted } = await repo.deleteSource("user-A", "non-existent-id");
-    expect(deleted).toBe(0);
+    const created = await repo.createSourceWithAnchors("user-A", {
+      source: makeManualSource(),
+      anchors: [makeOneOff()],
+    });
+    if (!created.ok) throw new Error("expected ok");
+
+    const fromMismatchedUser = await repo.deleteSource(
+      "user-B",
+      created.source.id
+    );
+    const fromNonExistent = await repo.deleteSource(
+      "user-B",
+      "non-existent-id"
+    );
+    // 戻り値が同一でないと、攻撃者が「この sourceId は他人のもの」と判定できてしまう
+    expect(fromMismatchedUser).toEqual(fromNonExistent);
   });
 
   it("複数 source のうち 1 つを削除しても他 source の anchors は残る", async () => {
@@ -416,10 +440,99 @@ describe("deleteSource — cascade", () => {
     });
     if (!s1.ok || !s2.ok) throw new Error("expected ok");
 
-    await repo.deleteSource("user-A", s1.source.id);
+    const result = await repo.deleteSource("user-A", s1.source.id);
+    expect(result.deletedSource).toBe(true);
+    expect(result.deletedAnchors).toBe(1);
+
     const remainingAnchors = await repo.listAnchors("user-A");
     expect(remainingAnchors).toHaveLength(1);
     expect(remainingAnchors[0].sourceId).toBe(s2.source.id);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// rawRetention 整合性（W1-4pre-3b で専用 describe に集約）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("rawRetention 整合性", () => {
+  it("omitted → 'discarded' に補完される", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: { sourceType: "manual" }, // rawRetention 未指定
+      anchors: [],
+    });
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.source.rawRetention).toBe("discarded");
+  });
+
+  it("'stored' + path + expiresAt → valid", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: {
+        sourceType: "pdf",
+        rawRetention: "stored",
+        rawStoragePath: "user-A/file.pdf",
+        rawExpiresAt: "2026-06-01T00:00:00.000Z",
+      },
+      anchors: [],
+    });
+    expect(r.ok).toBe(true);
+  });
+
+  it("'stored' + path 欠落 → source_invalid（required）", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: {
+        sourceType: "pdf",
+        rawRetention: "stored",
+        rawExpiresAt: "2026-06-01T00:00:00.000Z",
+      },
+      anchors: [],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const srcErr = r.errors.find((e) => e.kind === "source_invalid");
+      expect(srcErr).toBeDefined();
+    }
+  });
+
+  it("'stored' + expiresAt 欠落 → source_invalid（required）", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: {
+        sourceType: "pdf",
+        rawRetention: "stored",
+        rawStoragePath: "user-A/file.pdf",
+      },
+      anchors: [],
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it("'discarded' なのに path 指定 → source_invalid（logical_conflict）", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: {
+        sourceType: "manual",
+        rawRetention: "discarded",
+        rawStoragePath: "should-not-be-here",
+      },
+      anchors: [],
+    });
+    expect(r.ok).toBe(false);
+  });
+
+  it("'discarded' なのに expiresAt 指定 → source_invalid（logical_conflict）", async () => {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: {
+        sourceType: "manual",
+        rawRetention: "discarded",
+        rawExpiresAt: "2026-06-01T00:00:00.000Z",
+      },
+      anchors: [],
+    });
+    expect(r.ok).toBe(false);
   });
 });
 

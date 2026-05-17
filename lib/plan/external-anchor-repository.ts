@@ -99,6 +99,31 @@ export type CreateSourceWithAnchorsResult =
     };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// deleteSource 戻り値（W1-4pre-3b で明示化）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Source 削除の結果。
+ *
+ *   - deletedSource: source が実際に削除されたか
+ *   - deletedAnchors: cascade で削除された anchors の数（0 可）
+ *
+ * 戻り値の組み合わせ:
+ *   - source あり + user 一致 + anchors N 件 → { deletedSource: true,  deletedAnchors: N }
+ *   - source あり + user 一致 + anchors 0 件 → { deletedSource: true,  deletedAnchors: 0 }
+ *   - source なし                              → { deletedSource: false, deletedAnchors: 0 }
+ *   - source あり + user 不一致                → { deletedSource: false, deletedAnchors: 0 }
+ *
+ * 意図的に「user 不一致」と「source 不在」を同じ戻り値にしている。
+ * これは情報漏洩防止（攻撃者に「この sourceId は他人のもの」と判定させない）。
+ * 内部 logging では区別してよいが、API 戻り値には含めない。
+ */
+export type DeleteExternalAnchorSourceResult = {
+  deletedSource: boolean;
+  deletedAnchors: number;
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Repository Interface
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -140,13 +165,15 @@ export interface ExternalAnchorRepository {
 
   /**
    * Source を削除する（cascade で関連 anchors も削除）。
-   *   - userId 不一致 or 不在 sourceId → no-op（`{ deleted: 0 }`）
-   *   - 一致したら cascade 削除し、削除された anchors 数を返す
+   *
+   * 戻り値仕様は DeleteExternalAnchorSourceResult を参照。
+   * 「source-only」「anchors 0 件削除」「user 不一致」「source 不在」
+   * の 4 ケースを {deletedSource, deletedAnchors} で曖昧さなく区別する。
    */
   deleteSource(
     userId: string,
     sourceId: string
-  ): Promise<{ deleted: number }>;
+  ): Promise<DeleteExternalAnchorSourceResult>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
