@@ -4,7 +4,7 @@
  * 正本: lib/coalter/mirror/frequencyCap.ts
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   incrementEngineInvoked,
   incrementCandidateCount,
@@ -116,5 +116,63 @@ describe("B-5a frequencyCap — getTimeSinceLastSpeakTurns", () => {
     incrementVisibleSpeak(); // lastVisibleSpeakInvokeNumber = 1
     // engine invoke count は increment しない → diff = 0
     expect(getTimeSinceLastSpeakTurns()).toBe(0);
+  });
+});
+
+// =============================================================================
+// C-3 (2026-05-18): Forced canary mode の effective cap override
+// =============================================================================
+
+describe("C-3 frequencyCap — getEffectiveVisibleCap (forced mode override)", () => {
+  const FORCED_ENV_KEY = "NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED";
+  let origForced: string | undefined;
+
+  beforeEach(() => {
+    __resetForTest();
+    origForced = process.env[FORCED_ENV_KEY];
+    delete process.env[FORCED_ENV_KEY];
+  });
+  afterEach(() => {
+    __resetForTest();
+    if (origForced === undefined) delete process.env[FORCED_ENV_KEY];
+    else process.env[FORCED_ENV_KEY] = origForced;
+  });
+
+  it("forced flag OFF → effective cap は INITIAL_VISIBLE_CAP (= 1)", async () => {
+    delete process.env[FORCED_ENV_KEY];
+    const { getEffectiveVisibleCap } = await import("@/lib/coalter/mirror/frequencyCap");
+    expect(getEffectiveVisibleCap()).toBe(1);
+  });
+
+  it("forced flag ON → effective cap は FORCED_CANARY_VISIBLE_CAP (= 10)", async () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const { getEffectiveVisibleCap } = await import("@/lib/coalter/mirror/frequencyCap");
+    expect(getEffectiveVisibleCap()).toBe(10);
+  });
+
+  it("forced OFF: cap=1 を超えると isVisibleCapReached true", () => {
+    delete process.env[FORCED_ENV_KEY];
+    expect(isVisibleCapReached()).toBe(false);
+    incrementVisibleSpeak();
+    expect(isVisibleCapReached()).toBe(true); // cap 1 到達
+  });
+
+  it("forced ON: cap=10 で 9 回 visible OK、10 回目で cap reached", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    for (let i = 0; i < 9; i++) {
+      expect(isVisibleCapReached()).toBe(false);
+      incrementVisibleSpeak();
+    }
+    // 10 回目 increment 前は ok、increment 後 reached
+    incrementVisibleSpeak();
+    expect(isVisibleCapReached()).toBe(true);
+  });
+
+  it("forced ON → OFF 切り替え: cap 直ちに反映 (env 動的)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    incrementVisibleSpeak(); // count=1
+    expect(isVisibleCapReached()).toBe(false); // cap=10 のため
+    delete process.env[FORCED_ENV_KEY];
+    expect(isVisibleCapReached()).toBe(true); // cap=1 に戻り、count=1 で reached
   });
 });

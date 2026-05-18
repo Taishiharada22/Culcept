@@ -376,6 +376,44 @@ export const COALTER_FLAGS = {
   get mirrorDiagnosticExposeEnabled(): boolean {
     return process.env.NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE === "true";
   },
+
+  /**
+   * Mirror Channel forced canary mode flag (Phase C C-3、CEO 補正反映)。
+   *
+   *   - default: false
+   *   - true なら `forcedCanaryMode` が安全な mock engine input を engineAdapter
+   *     に inject (visible 経路を controlled に実機到達させるための canary)
+   *
+   * **緩和される範囲は cap override + mock input のみ**:
+   *   - visibleSpeak cap: 1 → 10 (observation density 確保)
+   *   - mock engine input: 5 axis (mode/alignment/uncertainty/silenceBudget/
+   *     patternCategory) + 4 axis (novelty/phase/time/rupture) を safe baseline 値で
+   *
+   * **絶対に緩めないもの** (Phase B canon §7.4 維持):
+   *   - postSpeakVerification 7-layer
+   *   - sleepStore (sleep ON → visible 不可、real `getSleep()` 経由)
+   *   - PII firewall (型 + runtime)
+   *   - 4-gate orchestration
+   *   - State Mirror only template
+   *   - Question / Proposal / Suggestion 禁止
+   *
+   * **strict parser** (B-1 / C-1 と同 pattern):
+   *   - `process.env.NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED === "true"` のみ true
+   *   - unset / "" / "false" / "0" / "1" / "on" / "yes" / 不明値 すべて false
+   *   - 既存 `normalizeBool` helper は使わない (空文字 false 扱い、strict)
+   *
+   * env scope (Phase C 計画):
+   *   - C-3 merge: env 投入なし (default false → forced mode 無効、完全 no-op)
+   *   - C-4 canary smoke (CEO 操作): branch-scoped Preview only で `=== "true"` 投入
+   *   - **Production / 全 Preview / Development には絶対投入禁止** (Phase C 不可侵境界)
+   *
+   * 関連:
+   *   - 設計: docs/coalter-aoo-phase-c-integration-design.md §4.3 / Appendix F
+   *   - 実装: lib/coalter/mirror/forcedCanaryMode.ts (C-3)
+   */
+  get mirrorForcedCanaryEnabled(): boolean {
+    return process.env.NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED === "true";
+  },
 };
 
 // ─────────────────────────────────────────────

@@ -178,3 +178,78 @@ describe("B-5a mirrorDiagnosticExposeEnabled — strict parser invariant", () =>
     expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(true);
   });
 });
+
+// =============================================================================
+// C-3 (2026-05-18): mirrorForcedCanaryEnabled strict flag parser
+// =============================================================================
+//
+// C-3 設計:
+//   - 第3 flag、forced canary mode 専用 (channel / diagnostic とは独立)
+//   - 同じ strict parser (`=== "true"` のみ)
+//   - 既定 OFF、production / preview / development 全環境で空 / unset → false
+//   - branch-scoped Preview のみで CEO 手動投入 (C-4 smoke 用)
+//
+const FORCED_ENV_KEY = "NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED";
+
+describe("C-3 mirrorForcedCanaryEnabled — strict parser invariant", () => {
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    originalEnv = process.env[FORCED_ENV_KEY];
+    delete process.env[FORCED_ENV_KEY];
+  });
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[FORCED_ENV_KEY];
+    else process.env[FORCED_ENV_KEY] = originalEnv;
+  });
+
+  it("env 未設定 → false (既定 OFF)", () => {
+    delete process.env[FORCED_ENV_KEY];
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(false);
+  });
+
+  it('env="" (空文字) → false [strict parser]', () => {
+    process.env[FORCED_ENV_KEY] = "";
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(false);
+  });
+
+  it('env="true" → true [strict parser: exact match]', () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(true);
+  });
+
+  it('env="false" → false', () => {
+    process.env[FORCED_ENV_KEY] = "false";
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(false);
+  });
+
+  it('曖昧な truthy 値はすべて false [strict parser]', () => {
+    for (const v of ["1", "on", "yes", "TRUE", "True", "YES"]) {
+      process.env[FORCED_ENV_KEY] = v;
+      expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(false);
+    }
+  });
+
+  it('前後 whitespace はすべて false', () => {
+    for (const v of [" true ", "true ", " true", "TRUE "]) {
+      process.env[FORCED_ENV_KEY] = v;
+      expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(false);
+    }
+  });
+
+  it('mirrorChannelEnabled / mirrorDiagnosticExposeEnabled とは独立', () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    delete process.env[ENV_KEY];
+    delete process.env[DIAG_ENV_KEY];
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorChannelEnabled).toBe(false);
+    expect(COALTER_FLAGS.mirrorDiagnosticExposeEnabled).toBe(false);
+  });
+
+  it('複数回読み取りで安定 (idempotent)', () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(true);
+    expect(COALTER_FLAGS.mirrorForcedCanaryEnabled).toBe(true);
+  });
+});

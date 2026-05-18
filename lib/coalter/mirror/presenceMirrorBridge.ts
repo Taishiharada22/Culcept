@@ -72,6 +72,11 @@ import type {
   MirrorPatternCategoryBucket,
   MirrorPresenceMode,
 } from "./types";
+// Phase C C-3: forced canary mode (Preview-only)。
+// forcedCanaryMode は MirrorReadInput 型のみ本 file から import (`import type`)、
+// 本 file は forcedCanaryMode の runtime getter のみ import (循環 import なし、
+// type-only import は TypeScript runtime で erase される)。
+import { getForcedCanaryMockReadInput } from "./forcedCanaryMode";
 
 // =============================================================================
 // Public types — PII firewall (型レベル)
@@ -234,19 +239,31 @@ export function disposeBridge(): void {
 /**
  * 最新の Mirror read input を取得する pure getter (read-only)。
  *
- * @returns 最新 signal 由来の `MirrorReadInput`、または初期化前/signal 未受領なら `null`
+ * **Phase C C-3 拡張** (forced canary mode 経由 mock injection):
+ *   - `forcedCanaryMode.getForcedCanaryMockReadInput()` が non-null (forced ON) なら
+ *     real subscribe cache を**バイパス**して mock を返す
+ *   - forced flag OFF (default、env 未投入) なら従来通り `_cache` を返す (完全 no-op)
+ *   - 通常 subscribe 経路 (handler 経由 cache 更新) は forced flag 状態に**関わらず維持**
+ *     (real signal も handler で bucketize + cache 更新されるが、forced ON 時は read
+ *     結果として mock が優先される)
+ *
+ * @returns 最新 signal 由来の `MirrorReadInput` / forced mock / null
  *
  * 戻り値は **immutable** (Mirror 内で mutate されない、caller は型レベル readonly)。
  *
  * @example
+ *   // forced flag OFF: 従来通り
  *   const input = getMirrorReadInput();
- *   if (input === null) {
- *     // 従来通り全 axis unknown
- *   } else {
- *     // input.patternCategoryBucket を使用、他 axis は依然 unknown
- *   }
+ *   // input === null → 全 axis unknown
+ *
+ *   // forced flag ON: mock が返る (mode=normal, patternCategory=null_pattern)
+ *   const input = getMirrorReadInput();
+ *   // → { mode: "normal", patternCategoryBucket: "null_pattern", capturedAt: ... }
  */
 export function getMirrorReadInput(): MirrorReadInput | null {
+  // Phase C C-3: forced canary mode injection (real cache をバイパス)
+  const forcedMock = getForcedCanaryMockReadInput();
+  if (forcedMock !== null) return forcedMock;
   return _cache;
 }
 
