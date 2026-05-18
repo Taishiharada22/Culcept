@@ -1,0 +1,114 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Alter Plan A-4 — Staging RLS API Smoke (Manual Trigger)
+#
+# 設計書: docs/alter-plan-a4-ci-integration-mini-design.md
+#
+# 不変原則:
+#   1. workflow_dispatch のみ（PR push 自動 trigger は別 wave で昇格判断）
+#   2. Environment "staging-smoke" + required reviewers (CEO 承認) 必須
+#   3. secret は Environment secrets 経由のみ（repository secrets ではない）
+#   4. concurrency で 1 本化、staging データの race を防ぐ
+#   5. secret は env: で受け、明示的 echo 禁止
+#   6. artifact には smoke 出力のみ保存（secret 流出防止）
+#
+# CEO 必須事前操作:
+#   - Settings → Environments → "staging-smoke" 作成
+#   - Required reviewers に CEO を追加
+#   - Environment secrets に 7 件設定（docs §5 参照）
+#   - 🚫 service_role / DB password / connection string / JWT secret は絶対設定しない
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+name: Staging RLS API Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you running this smoke? (audit log purpose)"
+        required: false
+        default: "manual verification"
+
+concurrency:
+  group: staging-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: staging-smoke
+    env:
+      # GitHub Actions は env value を log で自動 redaction (***) する。
+      # script 内で明示的に echo / console.log しないこと。
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+      STAGING_SUPABASE_PROJECT_REF: ${{ secrets.STAGING_SUPABASE_PROJECT_REF }}
+      STAGING_USER_A_EMAIL: ${{ secrets.STAGING_USER_A_EMAIL }}
+      STAGING_USER_A_PASSWORD: ${{ secrets.STAGING_USER_A_PASSWORD }}
+      STAGING_USER_B_EMAIL: ${{ secrets.STAGING_USER_B_EMAIL }}
+      STAGING_USER_B_PASSWORD: ${{ secrets.STAGING_USER_B_PASSWORD }}
+      STAGING_API_BASE: http://localhost:3000
+      PLAN_ROUTE_LIVE: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Print run context (no secrets)
+        run: |
+          echo "Reason: ${{ github.event.inputs.reason }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Smoke target host: STAGING (env-injected, redacted)"
+
+      - name: Start Next.js dev server (background)
+        run: |
+          # 同一 env が dev server にも渡る（concurrency で 1 本化済み）
+          nohup npm run dev > /tmp/dev.log 2>&1 &
+          echo "DEV_PID=$!" >> $GITHUB_ENV
+
+      - name: Wait for dev server ready
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:3000 -o /dev/null; then
+              echo "dev server ready at attempt $i"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "dev server did not become ready"
+          cat /tmp/dev.log || true
+          exit 1
+
+      - name: Run RLS API smoke
+        id: smoke
+        run: |
+          # smoke script 自体が production guard を持つ（URL host parse + ref 一致）
+          # exit code 0 = pass、非 0 = fail（GitHub UI に反映）
+          npx tsx scripts/staging-smoke/a2-rls-api-smoke.ts | tee /tmp/smoke.log
+
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -n "$DEV_PID" ]; then
+            kill "$DEV_PID" 2>/dev/null || true
+          fi
+
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-smoke-log
+          path: |
+            /tmp/smoke.log
+          retention-days: 14

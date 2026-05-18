@@ -335,6 +335,7 @@ async function main() {
 
   // ── 3. User A creates a bundle ──
   let aSourceId: string | null = null;
+  let aAnchorId: string | null = null;
   {
     const res = await apiCall("POST", "/api/plan/anchors", {
       cookieHeader: userA.cookieHeader,
@@ -343,13 +344,20 @@ async function main() {
     const j = asRecord(res.json);
     const data = asRecord(j.data);
     const source = asRecord(data.source);
+    const anchorsArr = Array.isArray(data.anchors) ? data.anchors : [];
+    const firstAnchor = asRecord(anchorsArr[0]);
     const ok = res.status === 200 && j.ok === true && typeof source.id === "string";
-    if (ok) aSourceId = source.id as string;
+    if (ok) {
+      aSourceId = source.id as string;
+      if (typeof firstAnchor.id === "string") {
+        aAnchorId = firstAnchor.id as string;
+      }
+    }
     recordResult(
       3,
       "User A: POST /api/plan/anchors → 200, data returned",
       ok ? "PASSED" : "FAILED",
-      `status=${res.status} sourceId=${aSourceId?.slice(0, 8) ?? "null"}`
+      `status=${res.status} sourceId=${aSourceId?.slice(0, 8) ?? "null"} anchorId=${aAnchorId?.slice(0, 8) ?? "null"}`
     );
   }
 
@@ -433,13 +441,125 @@ async function main() {
     recordResult(7, "User A: source still exists check", "SKIPPED", "aSourceId not captured");
   }
 
-  // ── 8-10. No-auth must be 401 on all 3 endpoints (auth gate validation) ──
+  // ── 8. User A PATCH own anchor → 200 + title 更新 (W1-X2) ──
+  if (aAnchorId) {
+    const res = await apiCall("PATCH", `/api/plan/anchor-items/${aAnchorId}`, {
+      cookieHeader: userA.cookieHeader,
+      body: { title: "smoke A patched" },
+    });
+    const j = asRecord(res.json);
+    const data = asRecord(j.data);
+    const anchor = asRecord(data.anchor);
+    const ok =
+      res.status === 200 && j.ok === true && anchor.title === "smoke A patched";
+    recordResult(
+      8,
+      "User A: PATCH own anchor → 200 + title updated",
+      ok ? "PASSED" : "FAILED",
+      `status=${res.status} title=${String(anchor.title)?.slice(0, 32) ?? "null"}`
+    );
+  } else {
+    recordResult(8, "User A: PATCH own anchor", "SKIPPED", "aAnchorId not captured");
+  }
+
+  // ── 9. User B PATCH on User A's anchor → 404 (info leak prevention) ──
+  if (aAnchorId) {
+    const res = await apiCall("PATCH", `/api/plan/anchor-items/${aAnchorId}`, {
+      cookieHeader: userB.cookieHeader,
+      body: { title: "STOLEN by B" },
+    });
+    recordResult(
+      9,
+      "User B: PATCH on User A anchor → 404 (no info leak)",
+      res.status === 404 ? "PASSED" : "FAILED",
+      `status=${res.status}`
+    );
+  } else {
+    recordResult(9, "User B: PATCH on User A anchor", "SKIPPED", "aAnchorId not captured");
+  }
+
+  // ── 10. Invalid PATCH (startTime format) → 422 ──
+  if (aAnchorId) {
+    const res = await apiCall("PATCH", `/api/plan/anchor-items/${aAnchorId}`, {
+      cookieHeader: userA.cookieHeader,
+      body: { startTime: "25:99" },
+    });
+    const j = asRecord(res.json);
+    const errors = Array.isArray(j.errors) ? j.errors : [];
+    const ok =
+      res.status === 422 &&
+      errors.some((e: unknown) => (e as { field?: string }).field === "startTime");
+    recordResult(
+      10,
+      "User A: PATCH invalid startTime → 422 + errors",
+      ok ? "PASSED" : "FAILED",
+      `status=${res.status} errors=${errors.length}`
+    );
+  } else {
+    recordResult(10, "Invalid PATCH startTime", "SKIPPED", "aAnchorId not captured");
+  }
+
+  // ── 11. anchorKind 変更 patch → 200 + existing kind 維持 ──
+  if (aAnchorId) {
+    const res = await apiCall("PATCH", `/api/plan/anchor-items/${aAnchorId}`, {
+      cookieHeader: userA.cookieHeader,
+      body: {
+        anchorKind: "recurring",
+        validFrom: "2026-06-01",
+        recurrenceRule: "FREQ=WEEKLY;BYDAY=MO",
+      },
+    });
+    const j = asRecord(res.json);
+    const data = asRecord(j.data);
+    const anchor = asRecord(data.anchor);
+    // 元の anchorKind=one_off が維持されているか確認
+    const ok = res.status === 200 && anchor.anchorKind === "one_off";
+    recordResult(
+      11,
+      "User A: PATCH anchorKind=recurring → 200 + kind unchanged (one_off)",
+      ok ? "PASSED" : "FAILED",
+      `status=${res.status} kind=${String(anchor.anchorKind)}`
+    );
+  } else {
+    recordResult(11, "anchorKind change patch", "SKIPPED", "aAnchorId not captured");
+  }
+
+  // ── 12. id / userId / sourceId 改竄 patch → 200 + 元値維持 ──
+  if (aAnchorId) {
+    const res = await apiCall("PATCH", `/api/plan/anchor-items/${aAnchorId}`, {
+      cookieHeader: userA.cookieHeader,
+      body: {
+        id: "ATTACK",
+        userId: "EVIL",
+        sourceId: "STOLEN",
+        title: "anti-tamper test",
+      },
+    });
+    const j = asRecord(res.json);
+    const data = asRecord(j.data);
+    const anchor = asRecord(data.anchor);
+    const ok =
+      res.status === 200 &&
+      anchor.id === aAnchorId && // 元の id 維持
+      anchor.userId === userA.userId && // 元の userId 維持
+      anchor.title === "anti-tamper test"; // title は変更
+    recordResult(
+      12,
+      "User A: PATCH with id/userId/sourceId tamper → 200 + ignored",
+      ok ? "PASSED" : "FAILED",
+      `status=${res.status} id_kept=${anchor.id === aAnchorId}`
+    );
+  } else {
+    recordResult(12, "id/userId/sourceId tamper patch", "SKIPPED", "aAnchorId not captured");
+  }
+
+  // ── 13-16. No-auth must be 401 on all 4 endpoints ──
   {
     const res = await apiCall("POST", "/api/plan/anchors", {
       body: makeValidBundle("noauth"),
     });
     recordResult(
-      8,
+      13,
       "No JWT: POST /api/plan/anchors → 401",
       res.status === 401 ? "PASSED" : "FAILED",
       `status=${res.status}`
@@ -448,7 +568,7 @@ async function main() {
   {
     const res = await apiCall("GET", "/api/plan/anchors");
     recordResult(
-      9,
+      14,
       "No JWT: GET /api/plan/anchors → 401",
       res.status === 401 ? "PASSED" : "FAILED",
       `status=${res.status}`
@@ -457,8 +577,19 @@ async function main() {
   {
     const res = await apiCall("DELETE", "/api/plan/anchors/abc");
     recordResult(
-      10,
+      15,
       "No JWT: DELETE /api/plan/anchors/abc → 401",
+      res.status === 401 ? "PASSED" : "FAILED",
+      `status=${res.status}`
+    );
+  }
+  {
+    const res = await apiCall("PATCH", "/api/plan/anchor-items/abc", {
+      body: { title: "X" },
+    });
+    recordResult(
+      16,
+      "No JWT: PATCH /api/plan/anchor-items/abc → 401",
       res.status === 401 ? "PASSED" : "FAILED",
       `status=${res.status}`
     );
@@ -479,7 +610,7 @@ async function main() {
     const aClean = Array.isArray(aData.sources) && aData.sources.length === 0;
     const bClean = Array.isArray(bData.sources) && bData.sources.length === 0;
     recordResult(
-      11,
+      17,
       "POST-CLEANUP: A and B data fully removed",
       aClean && bClean ? "PASSED" : "FAILED",
       `a_sources=${(aData.sources as unknown[])?.length ?? "n/a"} b_sources=${(bData.sources as unknown[])?.length ?? "n/a"}`

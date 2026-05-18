@@ -229,13 +229,24 @@ CEO 判断で：
 
 ## 8. 次への接続
 
-A-2 PASS 後の次の wave 候補（CEO 判断）:
+A-2 PASS 後の次の wave（着地済 / 進行中）:
 
-- **A-3**: Vercel preview 環境（staging Supabase + smoke を CI 化）
-- **A-4**: ephemeral Supabase test container を立てて完全 CI integration
-- **W1-Y**: Postgres RPC `create_external_anchor_bundle()` migration で完全 atomicity 化
-- **W1-5**: Plan UI / Plan 画面接続（Home 不変更）
-- **W1-6**: passive drift logging（plan_drift_events 書き込み導線）
-- **W1-8**: Home → Plan 導線
+- ✅ **A-3** Vercel preview staging env（完了）
+- ✅ **W1-5** Plan UI（完了）/ **W1-X1** Manual Anchor Input（完了）
+- ✅ **W1-X3** Cell add affordances（完了）/ **W1-X2** Anchor edit UI（完了）
+- ▶ **A-4** GitHub Actions による staging smoke 自動化（本 smoke を CI から呼ぶ、`docs/alter-plan-a4-ci-integration-mini-design.md` 参照）
+- ⏸ **W1-Y** Postgres RPC `create_external_anchor_bundle()` migration（CEO migration 解禁待ち）
+- ⏸ **W1-6** passive drift logging / **W1-8** Home 導線（CEO 凍結中）
 
-A-2 PASS は **凍結 branch ではない `feat/alter-plan-w14-real`** に対する PR mergeable 判定の前提条件。
+## 9. A-4 連携（GitHub Actions）
+
+A-4 で本 smoke を GitHub Actions の `workflow_dispatch` から実行可能になる。
+ローカル手動実行（本 doc）と CI 実行（A-4）は同 script を共用：
+
+| 実行方法 | 用途 |
+|---------|------|
+| ローカル `npx tsx scripts/staging-smoke/a2-rls-api-smoke.ts` | CEO の動作確認、debug |
+| GitHub Actions `workflow_dispatch` | merge 前/後の退行検知（CEO 承認下） |
+
+GitHub Actions 経由は **Environment `staging-smoke` + required reviewers** で保護される。
+詳細: `docs/alter-plan-a4-ci-integration-mini-design.md`
