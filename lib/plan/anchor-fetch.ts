@@ -14,6 +14,10 @@
 
 import type { ExternalAnchor } from "./external-anchor";
 import type { ExternalAnchorSource } from "./external-anchor-source";
+import type {
+  BundleError,
+  CreateSourceWithAnchorsInput,
+} from "./external-anchor-repository";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -24,6 +28,24 @@ export interface AnchorListData {
 
 export type AnchorFetchResult =
   | { ok: true; data: AnchorListData }
+  | { ok: false; status: number; error: string };
+
+export interface CreateAnchorBundleSuccess {
+  source: ExternalAnchorSource;
+  anchors: ExternalAnchor[];
+}
+
+export type CreateAnchorBundleResult =
+  | { ok: true; data: CreateAnchorBundleSuccess }
+  | { ok: false; status: number; error: string; errors?: BundleError[] };
+
+export interface DeleteAnchorSourceData {
+  deletedSource: boolean;
+  deletedAnchors: number;
+}
+
+export type DeleteAnchorSourceResult =
+  | { ok: true; data: DeleteAnchorSourceData }
   | { ok: false; status: number; error: string };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -109,5 +131,173 @@ export async function fetchAnchors(): Promise<AnchorFetchResult> {
       sources: sources as ExternalAnchorSource[],
       anchors: anchors as ExternalAnchor[],
     },
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// POST /api/plan/anchors — bundle 作成 (W1-X1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * POST /api/plan/anchors を呼んで bundle を作成する。
+ *
+ *   - same-origin、credentials は cookie 自動付与
+ *   - 200 → { ok:true, data: { source, anchors } }
+ *   - 422 → { ok:false, errors: BundleError[] } を含む（validation error）
+ *   - 401 / 5xx → { ok:false, status, error }
+ *   - JSON parse 失敗も ok:false
+ */
+export async function createAnchorBundle(
+  input: CreateSourceWithAnchorsInput
+): Promise<CreateAnchorBundleResult> {
+  let res: Response;
+  try {
+    res = await fetch("/api/plan/anchors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(input),
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      error: e instanceof Error ? e.message : "network error",
+    };
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { ok: false, status: res.status, error: "invalid JSON response" };
+  }
+
+  if (!res.ok) {
+    const obj = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+    const errMsg =
+      typeof obj.error === "string" ? obj.error : `request failed: ${res.status}`;
+    const out: CreateAnchorBundleResult = {
+      ok: false,
+      status: res.status,
+      error: errMsg,
+    };
+    if (Array.isArray(obj.errors)) {
+      (out as { errors?: BundleError[] }).errors = obj.errors as BundleError[];
+    }
+    return out;
+  }
+
+  if (
+    !json ||
+    typeof json !== "object" ||
+    !("ok" in json) ||
+    !("data" in json)
+  ) {
+    return {
+      ok: false,
+      status: res.status,
+      error: "unexpected response shape",
+    };
+  }
+
+  const data = (json as { data: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return { ok: false, status: res.status, error: "response.data missing" };
+  }
+  const source = (data as { source?: unknown }).source;
+  const anchors = (data as { anchors?: unknown }).anchors;
+  if (!source || typeof source !== "object" || !Array.isArray(anchors)) {
+    return {
+      ok: false,
+      status: res.status,
+      error: "response.data.source/anchors invalid",
+    };
+  }
+
+  return {
+    ok: true,
+    data: {
+      source: source as ExternalAnchorSource,
+      anchors: anchors as ExternalAnchor[],
+    },
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DELETE /api/plan/anchors/[sourceId] (W1-X1)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * DELETE /api/plan/anchors/[sourceId] を呼んで source を cascade 削除する。
+ *
+ *   - cookie auth 自動付与
+ *   - 200 + { deletedSource, deletedAnchors }
+ *   - user 不一致 / source 不在 → 200 + { deletedSource: false, deletedAnchors: 0 }
+ *     （interface 不変原則: 情報漏洩防止のため両者を同一視）
+ *   - 401 / 5xx → { ok:false, status, error }
+ */
+export async function deleteAnchorSource(
+  sourceId: string
+): Promise<DeleteAnchorSourceResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/plan/anchors/${encodeURIComponent(sourceId)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      error: e instanceof Error ? e.message : "network error",
+    };
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { ok: false, status: res.status, error: "invalid JSON response" };
+  }
+
+  if (!res.ok) {
+    const obj = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+    const errMsg =
+      typeof obj.error === "string" ? obj.error : `request failed: ${res.status}`;
+    return { ok: false, status: res.status, error: errMsg };
+  }
+
+  if (
+    !json ||
+    typeof json !== "object" ||
+    !("ok" in json) ||
+    !("data" in json)
+  ) {
+    return {
+      ok: false,
+      status: res.status,
+      error: "unexpected response shape",
+    };
+  }
+
+  const data = (json as { data: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return { ok: false, status: res.status, error: "response.data missing" };
+  }
+  const deletedSource = (data as { deletedSource?: unknown }).deletedSource;
+  const deletedAnchors = (data as { deletedAnchors?: unknown }).deletedAnchors;
+  if (typeof deletedSource !== "boolean" || typeof deletedAnchors !== "number") {
+    return {
+      ok: false,
+      status: res.status,
+      error: "response.data shape invalid",
+    };
+  }
+
+  return {
+    ok: true,
+    data: { deletedSource, deletedAnchors },
   };
 }
