@@ -1,30 +1,53 @@
 /**
- * Plan Page (Wave 1 / W1-2 — shell skeleton)
+ * /plan — Alter Plan View (W1-5 本実装)
  *
- * Plan route の server entry point。feature flag で表示制御する。
- *   PLAN_FLAGS.planRouteLive = false → notFound()（本番デフォルト）
- *   PLAN_FLAGS.planRouteLive = true  → PlanShell を描画
+ * Server Component: feature flag + auth gate のみ。実 data fetch は client 側
+ * （cookie auth + GET /api/plan/anchors の RLS-aware path）。
  *
- * 含めない（W1-2 範囲外）:
- *   - 実データ取得（API / DB / Supabase）
- *   - auth / redirect（W1-4 以降）
- *   - Home 接続 / 横スワイプ（W1-8）
- *   - Map SDK
- *   - コーデカレンダー統合（lib/shared/wearEvents 等）
+ * 設計書: docs/alter-plan-w15-ui-mini-design.md
  *
- * 設計書: docs/alter-plan-foundation-design.md §8, §9.2 (W1-2)
+ * Flow:
+ *   1. PLAN_FLAGS.planRouteLive === false → notFound（本番 default）
+ *   2. auth 未認証 → /login?next=/plan
+ *   3. anonymous user → AnonymousRegistrationPage で誘導
+ *   4. それ以外 → PlanClient（client root）に委譲
+ *
+ * 範囲外:
+ *   - Home / MAIN_NAV 変更
+ *   - baseline 強制（Alter Plan は baseline 不要、固定予定は baseline 前にも持ちうる）
+ *   - DraftPlan generator
+ *   - W1-6 passive drift logging
+ *   - W1-8 Home 導線
  */
 
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+
+import { supabaseServer } from "@/lib/supabase/server";
 import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
-import { PlanShell } from "./PlanShell";
+import AnonymousRegistrationPage from "@/components/auth/AnonymousRegistrationPage";
+
+import PlanClient from "./PlanClient";
 
 export const dynamic = "force-dynamic";
 
-export default function PlanPage() {
+export default async function PlanPage() {
+  // 1. Feature flag gate (W1-2 から継承)
   if (!PLAN_FLAGS.planRouteLive) {
     notFound();
   }
 
-  return <PlanShell />;
+  // 2. Auth gate (W1-5 で追加)
+  const supabase = await supabaseServer();
+  const { data: auth } = await supabase.auth.getUser();
+
+  if (!auth?.user) {
+    redirect("/login?next=/plan");
+  }
+
+  if (auth.user.is_anonymous) {
+    return <AnonymousRegistrationPage featureName="Plan" />;
+  }
+
+  // 3. Hand-off to client
+  return <PlanClient />;
 }
