@@ -1,5 +1,5 @@
 /**
- * CoAlter AOO Phase B B-5a/B-5b — useMirrorEngine hook
+ * CoAlter AOO Phase B B-5a/B-5b + Phase C C-2 — useMirrorEngine hook
  *
  * 正本:
  *   - 設計: docs/coalter-aoo-phase-b-mirror-channel-design.md (PR #164) §3 / §10.8
@@ -60,6 +60,10 @@ import { pushDiagnosticEntry } from "@/lib/coalter/mirror/diagnosticSnapshot";
 import { installDiagnosticDebugGlobalIfEnabled } from "@/lib/coalter/mirror/diagnosticDebugGlobal";
 import { getSleep, setSleep } from "@/lib/coalter/mirror/sleepStore";
 import { evaluateVisibleMirror } from "@/lib/coalter/mirror/visibleMirrorEvaluator";
+import {
+  initializeBridgeOnce,
+  disposeBridge,
+} from "@/lib/coalter/mirror/presenceMirrorBridge";
 import type {
   MirrorDecisionInput,
   MirrorDecision,
@@ -119,19 +123,25 @@ export interface UseMirrorEngineResult {
 }
 
 /**
- * Shadow mode + visible candidate evaluation を行う React hook (B-5a + B-5b)。
+ * Shadow mode + visible candidate evaluation + presence bridge lifecycle を行う
+ * React hook (B-5a + B-5b + Phase C C-2)。
  *
  * **B-5a path (shadow mode、不変)**:
  *   1. flag OFF → 一切何もしない
  *   2. debug global install (二重 flag check)
  *   3. channelLock 取得
- *   4. engineAdapter で MirrorDecisionInput 構築
+ *   4. engineAdapter で MirrorDecisionInput 構築 (C-2: bridge cache 反映)
  *   5. decideMirror() 呼出 + diagnostic push + 候補 count increment
  *
  * **B-5b path (visible candidate 評価、追加)**:
  *   6. visibleMirrorEvaluator で 4-gate (sleep / cap / generation / verification)
  *   7. visible なら setState + incrementVisibleSpeak + recentlyEmittedTemplateIds 追記
- *   8. absent なら diagnostic に reason 追記 (visible 経路の reject 記録)
+ *   8. absent なら diagnostic に reason 追記
+ *
+ * **Phase C C-2 path (presenceMirrorBridge lifecycle、追加)**:
+ *   - 分離 useEffect で mount 時 `initializeBridgeOnce()` (二重 subscribe 防止は内部)
+ *   - unmount 時 cleanup で `disposeBridge()` (unsubscribe + cache clear)
+ *   - flag OFF 時 initialize しない (4-layer flag gating defense と整合)
  *
  * @returns {@link UseMirrorEngineResult} (visible / handlers / sleepOn)
  */
@@ -143,6 +153,23 @@ export function useMirrorEngine(): UseMirrorEngineResult {
 
   // recentlyEmittedTemplateIds — duplicate verification 用、session-local (mount 中のみ)
   const recentlyEmittedRef = useRef<VisibleMirrorTemplateId[]>([]);
+
+  // ─────────────────────────────────────────────
+  // Phase C C-2: presenceMirrorBridge lifecycle (mount initialize / unmount dispose)
+  // ─────────────────────────────────────────────
+  // 分離 useEffect: bridge subscribe / unsubscribe は engine 実行 effect と独立
+  // - flag OFF → initialize しない (4-layer flag gating defense と整合)
+  // - 二重 initialize は bridge 内で防止 (idempotent)
+  // - unmount 時に dispose で必ず unsubscribe + cache clear (session-local 原則)
+  useEffect(() => {
+    if (!COALTER_FLAGS.mirrorChannelEnabled) {
+      return;
+    }
+    initializeBridgeOnce();
+    return () => {
+      disposeBridge();
+    };
+  }, []);
 
   // visible cap は visibleSpeak count = 1 の time-of-evaluation で固定 (B-5b 段階で session=1)
   // visible state 更新時に React に再 render 通知する handler set
