@@ -1,5 +1,5 @@
 /**
- * CoAlter AOO Phase B B-5a — diagnosticDebugGlobal invariant test
+ * CoAlter AOO Phase B B-5a + Phase C C-1 — diagnosticDebugGlobal invariant test
  *
  * 正本: lib/coalter/mirror/diagnosticDebugGlobal.ts
  *
@@ -7,7 +7,8 @@
  *   - 二重 flag gating (mirrorChannel AND diagnosticExpose 両方 ON のときのみ install)
  *   - flag いずれか OFF → install されない
  *   - SSR (window undefined) → install されない
- *   - production NODE_ENV → install されない
+ *   - **Phase C C-1**: production NODE_ENV でも install される (NODE_ENV guard 削除済、
+ *     Phase A §3.5 学び反映、Phase A 7-layer defense で代替)
  *   - 15-min expire (各 read で elapsed time check)
  *   - selfDestroy で削除
  *   - idempotent install (2 回呼んでも 1 回扱い)
@@ -108,13 +109,28 @@ describe("B-5a diagnosticDebugGlobal — 二重 flag gating", () => {
     expect(getDebugGlobal()).toBeDefined();
   });
 
-  it("両 flag ON + production NODE_ENV → install されない (defensive)", () => {
+  // Phase C C-1: NODE_ENV === "production" guard を削除した。
+  // 理由: Vercel Preview build は Next.js production build (NODE_ENV=production)
+  // のため、本 guard が Preview canary 観測を意図せず block していた (Phase B
+  // B-5c smoke で発覚、Phase B 完了 docs §7.1、Phase A §3.5 学び反映)。
+  // 削除しても安全な根拠: Phase A §3.7 7-layer defense (env scope branch-scoped
+  // only / 15-min expire / canary draft / cleanup / redacted only) が多重防御を構成。
+  it("両 flag ON + production NODE_ENV → install される (C-1 で NODE_ENV guard 削除)", () => {
     process.env[MIRROR_ENV_KEY] = "true";
     process.env[DIAG_ENV_KEY] = "true";
     (process.env as Record<string, string | undefined>).NODE_ENV = "production";
     installDiagnosticDebugGlobalIfEnabled();
-    expect(__getInstalledForTest()).toBe(false);
-    expect(getDebugGlobal()).toBeUndefined();
+    expect(__getInstalledForTest()).toBe(true);
+    expect(getDebugGlobal()).toBeDefined();
+  });
+
+  it("両 flag ON + NODE_ENV 未設定 → install される (production / preview / development 全 build 対応)", () => {
+    process.env[MIRROR_ENV_KEY] = "true";
+    process.env[DIAG_ENV_KEY] = "true";
+    delete (process.env as Record<string, string | undefined>).NODE_ENV;
+    installDiagnosticDebugGlobalIfEnabled();
+    expect(__getInstalledForTest()).toBe(true);
+    expect(getDebugGlobal()).toBeDefined();
   });
 
   it("idempotent install (2 回呼んでも 1 度のみ install)", () => {
