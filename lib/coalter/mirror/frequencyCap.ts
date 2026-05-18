@@ -41,7 +41,14 @@
  *   - vitest beforeEach で reset 必須
  */
 
-/** Visible Mirror の session 内発話上限 (initial canary)。 */
+// Phase C C-3: forced canary mode の cap override (Preview only).
+// flag OFF (default) 時は本 import は no-op (関数戻り値 false / cap = INITIAL_VISIBLE_CAP)。
+import {
+  isForcedCanaryActive,
+  getForcedCanaryVisibleCap,
+} from "./forcedCanaryMode";
+
+/** Visible Mirror の session 内発話上限 (initial canary、通常 mode)。 */
 const INITIAL_VISIBLE_CAP = 1 as const;
 
 /** engine 走った回数 (decideMirror 呼出回数)。 */
@@ -86,12 +93,35 @@ export function incrementVisibleSpeak(): void {
 }
 
 /**
- * Visible cap に達しているかを判定する (B-5b で enforce)。
+ * Phase C C-3 拡張: forced canary mode 時の effective visible cap を返す。
+ *
+ *   - forced flag OFF (default、env 未投入): `INITIAL_VISIBLE_CAP = 1` (Phase B 設計)
+ *   - forced flag ON (CEO 手動 branch-scoped Preview only): `FORCED_CANARY_VISIBLE_CAP = 10`
+ *
+ * **緩和は cap のみ**。sleep / verification / 4-gate / PII firewall は strict 維持。
+ *
+ * 設計詳細: `lib/coalter/mirror/forcedCanaryMode.ts` および
+ * `docs/coalter-aoo-phase-c-integration-design.md` §4.3。
+ *
+ * @returns 現在 effective な visible cap (1 or 10)
+ */
+export function getEffectiveVisibleCap(): number {
+  if (isForcedCanaryActive()) {
+    return getForcedCanaryVisibleCap();
+  }
+  return INITIAL_VISIBLE_CAP;
+}
+
+/**
+ * Visible cap に達しているかを判定する (B-5b で enforce、C-3 で effective cap 化)。
+ *
+ * Phase C C-3 拡張: `getEffectiveVisibleCap()` 経由で forced canary mode の
+ * cap override (1 → 10) を反映。
  *
  * @returns true: cap 到達 (visible 出力禁止) / false: まだ余裕あり
  */
 export function isVisibleCapReached(): boolean {
-  return _visibleSpeakCount >= INITIAL_VISIBLE_CAP;
+  return _visibleSpeakCount >= getEffectiveVisibleCap();
 }
 
 /**

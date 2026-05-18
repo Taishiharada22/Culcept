@@ -362,3 +362,132 @@ describe("C-2 engineAdapter — presenceMirrorBridge 統合", () => {
     expect(input.silenceBudget.canProceedToMirrorDecision).toBe(false);
   });
 });
+
+// =============================================================================
+// C-3 (2026-05-18): Forced canary mode 統合 — 完全 mock input + sleep real override
+// =============================================================================
+
+describe("C-3 engineAdapter — forced canary mode 統合", () => {
+  const FORCED_ENV_KEY = "NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED";
+  let origForced: string | undefined;
+
+  beforeEach(() => {
+    resetSleep();
+    resetFreq();
+    resetBridge();
+    __resetSignalBus();
+    origForced = process.env[FORCED_ENV_KEY];
+    delete process.env[FORCED_ENV_KEY];
+  });
+  afterEach(() => {
+    resetSleep();
+    resetBridge();
+    __resetSignalBus();
+    if (origForced === undefined) delete process.env[FORCED_ENV_KEY];
+    else process.env[FORCED_ENV_KEY] = origForced;
+  });
+
+  it("forced flag OFF → 通常 path (C-2 互換、bridge 経由)", () => {
+    delete process.env[FORCED_ENV_KEY];
+    const input = buildMirrorDecisionInput({});
+    // C-2 互換: bridge 未 initialize → 全 axis unknown
+    expect(input.modeContext.status).toBe("unknown");
+    expect(input.alignment.status).toBe("unknown");
+    expect(input.patternCategory.status).toBe("unknown");
+  });
+
+  it("forced flag ON → 全 axis known (Observe Gate pass の happy path mock)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const input = buildMirrorDecisionInput({});
+    // mode: normal
+    expect(input.modeContext.status).toBe("known");
+    if (input.modeContext.status === "known") {
+      expect(input.modeContext.mode).toBe("normal");
+      expect(input.modeContext.canProceedToMirrorDecision).toBe(true);
+    }
+    // alignment: strongly_positive (raw 1.0)
+    expect(input.alignment.status).toBe("known");
+    if (input.alignment.status === "known") {
+      expect(input.alignment.bucket).toBe("strongly_positive");
+      expect(input.alignment.raw).toBe(1.0);
+      expect(input.alignment.canProceedToMirrorDecision).toBe(true);
+    }
+    // uncertainty: low (raw 0)
+    expect(input.uncertainty.status).toBe("known");
+    if (input.uncertainty.status === "known") {
+      expect(input.uncertainty.bucket).toBe("low_0_to_30");
+      expect(input.uncertainty.raw).toBe(0);
+      expect(input.uncertainty.canProceedToMirrorDecision).toBe(true);
+    }
+    // silenceBudget: low (raw 0)
+    expect(input.silenceBudget.status).toBe("known");
+    if (input.silenceBudget.status === "known") {
+      expect(input.silenceBudget.bucket).toBe("low_0_to_30");
+      expect(input.silenceBudget.raw).toBe(0);
+      expect(input.silenceBudget.canProceedToMirrorDecision).toBe(true);
+    }
+    // patternCategory: null_pattern (canProceed true)
+    expect(input.patternCategory.status).toBe("known");
+    if (input.patternCategory.status === "known") {
+      expect(input.patternCategory.bucket).toBe("null_pattern");
+      expect(input.patternCategory.canProceedToMirrorDecision).toBe(true);
+    }
+    // 他 axis
+    expect(input.observationNovelty).toBe(1.0);
+    expect(input.conversationPhase).toBe("in_progress");
+    expect(input.timeSinceLastSpeakTurns).toBe(20);
+    expect(input.ruptureFlag).toBe(false);
+  });
+
+  it("[CEO 必須 6] forced flag ON でも sleep ON なら userOverrideSleep が true (real getSleep() override)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    setSleep(true); // real sleep ON
+    const input = buildMirrorDecisionInput({});
+    // mock の userOverrideSleep は false だが、engineAdapter は real getSleep() で override
+    expect(input.userOverrideSleep).toBe(true);
+    // 結果: Safe Gate fail で MIRROR_CANDIDATE 出ない (engine 統合 test は decisionEngine.test.ts)
+  });
+
+  it("forced flag ON + sleep OFF → userOverrideSleep false (Safe Gate pass)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    setSleep(false);
+    const input = buildMirrorDecisionInput({});
+    expect(input.userOverrideSleep).toBe(false);
+  });
+
+  it("forced flag ON でも PII leak なし (mock は enum/number/boolean のみ)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const input = buildMirrorDecisionInput({});
+    const serialized = JSON.stringify(input);
+    expect(serialized).not.toMatch(
+      /rawText|userId|messageId|pairId|sessionId|email|embedding/i,
+    );
+  });
+
+  it("forced ON → OFF 切り替え: 通常 path に戻る (env 動的)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    expect(buildMirrorDecisionInput({}).modeContext.status).toBe("known");
+    delete process.env[FORCED_ENV_KEY];
+    expect(buildMirrorDecisionInput({}).modeContext.status).toBe("unknown");
+  });
+
+  it("forced flag ON → input keys は MirrorDecisionInput の 10 field のみ (構造維持)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const input = buildMirrorDecisionInput({});
+    const keys = Object.keys(input).sort();
+    expect(keys).toEqual(
+      [
+        "alignment",
+        "conversationPhase",
+        "modeContext",
+        "observationNovelty",
+        "patternCategory",
+        "ruptureFlag",
+        "silenceBudget",
+        "timeSinceLastSpeakTurns",
+        "uncertainty",
+        "userOverrideSleep",
+      ].sort(),
+    );
+  });
+});

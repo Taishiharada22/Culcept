@@ -319,3 +319,74 @@ describe("C-2 presenceMirrorBridge — fail-open + input mutation invariant", ()
     }
   });
 });
+
+// =============================================================================
+// C-3 (2026-05-18): forced canary mode injection (getMirrorReadInput が mock を優先)
+// =============================================================================
+
+describe("C-3 presenceMirrorBridge — forced canary mode injection", () => {
+  const FORCED_ENV_KEY = "NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED";
+  let origForced: string | undefined;
+
+  beforeEach(() => {
+    __resetForTest();
+    __resetSignalBus();
+    origForced = process.env[FORCED_ENV_KEY];
+    delete process.env[FORCED_ENV_KEY];
+  });
+  afterEach(() => {
+    __resetForTest();
+    __resetSignalBus();
+    if (origForced === undefined) delete process.env[FORCED_ENV_KEY];
+    else process.env[FORCED_ENV_KEY] = origForced;
+  });
+
+  it("forced OFF (default) + 未 initialize → null (regression: C-2 互換)", () => {
+    delete process.env[FORCED_ENV_KEY];
+    expect(getMirrorReadInput()).toBeNull();
+  });
+
+  it("forced ON + 未 initialize → mock 返る (real cache バイパス)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const result = getMirrorReadInput();
+    expect(result).not.toBeNull();
+    if (result !== null) {
+      expect(result.mode).toBe("normal");
+      expect(result.patternCategoryBucket).toBe("null_pattern");
+    }
+  });
+
+  it("forced ON + signal received (real cache あり) でも mock が優先", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    initializeBridgeOnce();
+    // real signal を inject (rupture)
+    publishPresenceSignal(makeSignal({ meta: { matchedPattern: "rupture:test" } }));
+    // real cache は rupture_signal_high になるが、forced ON のため mock の null_pattern が返る
+    const result = getMirrorReadInput();
+    expect(result?.patternCategoryBucket).toBe("null_pattern");
+  });
+
+  it("forced ON → OFF 切り替え: mock 即解除、real cache に戻る", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    initializeBridgeOnce();
+    publishPresenceSignal(makeSignal({ meta: { matchedPattern: "safety:test" } }));
+    expect(getMirrorReadInput()?.patternCategoryBucket).toBe("null_pattern"); // mock 優先
+
+    delete process.env[FORCED_ENV_KEY];
+    expect(getMirrorReadInput()?.patternCategoryBucket).toBe("safety_concern"); // real cache に戻る
+  });
+
+  it("forced ON でも mock に PII field が含まれない (regression)", () => {
+    process.env[FORCED_ENV_KEY] = "true";
+    const result = getMirrorReadInput();
+    expect(result).not.toBeNull();
+    if (result !== null) {
+      const keys = Object.keys(result).sort();
+      expect(keys).toEqual(["capturedAt", "mode", "patternCategoryBucket"].sort());
+      const serialized = JSON.stringify(result);
+      expect(serialized).not.toMatch(
+        /rawText|userId|messageId|pairId|sessionId|email|embedding/i,
+      );
+    }
+  });
+});

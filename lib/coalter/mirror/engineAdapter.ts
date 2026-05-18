@@ -53,11 +53,72 @@ import {
   getMirrorReadInput,
   type MirrorReadInput,
 } from "./presenceMirrorBridge";
+import {
+  getForcedCanaryMockEngineInput,
+  type ForcedCanaryMockEngineInput,
+} from "./forcedCanaryMode";
 import type {
   MirrorDecisionInput,
   ConversationPhase,
   MirrorPatternCategoryBucket,
 } from "./types";
+
+/**
+ * Phase C C-3: forced canary mock から完全 `MirrorDecisionInput` を構築する pure helper。
+ *
+ * **Phase B canon §7.4 維持**:
+ *   - mock の `userOverrideSleep` は適当値 (false 固定)、本 helper では **real
+ *     `getSleep()` で override** する (sleep ON → Safe Gate fail → STAY_SILENT、
+ *     CEO 補正 6 「forced ON でも sleep ON なら visible 不可」と整合)
+ *   - mock の他 axis (mode/alignment/uncertainty/silenceBudget/patternCategory/
+ *     novelty/phase/time/rupture) はそのまま反映
+ *   - PII firewall: mock は enum/number/boolean のみ、本 helper も同様に raw 値持たない
+ *
+ * forced canary mode 時、本 helper の戻り値は engine の Observe + Worth + Safe Gate +
+ * ERV + Counterfactual すべてを通過する **happy path 等価** input (sleep が ON なら
+ * 当然 Safe Gate fail で STAY_SILENT)。
+ */
+function buildForcedCanaryDecisionInput(
+  mock: ForcedCanaryMockEngineInput,
+): MirrorDecisionInput {
+  return {
+    modeContext: {
+      status: "known",
+      mode: mock.mode,
+      source: "presence_state",
+      canProceedToMirrorDecision: true,
+    },
+    alignment: {
+      status: "known",
+      bucket: mock.alignmentBucket,
+      raw: mock.alignmentRaw,
+      canProceedToMirrorDecision: true,
+    },
+    uncertainty: {
+      status: "known",
+      bucket: mock.uncertaintyBucket,
+      raw: mock.uncertaintyRaw,
+      canProceedToMirrorDecision: true,
+    },
+    silenceBudget: {
+      status: "known",
+      bucket: mock.silenceBudgetBucket,
+      raw: mock.silenceBudgetRaw,
+      canProceedToMirrorDecision: true,
+    },
+    patternCategory: {
+      status: "known",
+      bucket: mock.patternCategoryBucket,
+      canProceedToMirrorDecision: true,
+    },
+    observationNovelty: mock.observationNovelty,
+    conversationPhase: mock.conversationPhase,
+    timeSinceLastSpeakTurns: mock.timeSinceLastSpeakTurns,
+    ruptureFlag: mock.ruptureFlag,
+    // Real sleepStore を必ず参照 (CEO 補正 6: forced ON でも sleep ON なら visible 不可)
+    userOverrideSleep: getSleep(),
+  };
+}
 
 /**
  * Phase C C-2: bridge cache の `patternCategoryBucket` から Mirror engine の
@@ -161,6 +222,15 @@ export interface AdapterContext {
  *     //   (default-STAY_SILENT 維持)
  */
 export function buildMirrorDecisionInput(ctx: AdapterContext): MirrorDecisionInput {
+  // (00) Phase C C-3: forced canary mode 経由 mock input (Preview canary 専用)
+  // flag OFF (default) なら null → 通常 (C-2) path へ。
+  // flag ON なら mock を complete MirrorDecisionInput に組み立てて即 return。
+  // sleepStore は real getSleep() で必ず参照 (forced ON でも sleep ON → Safe Gate fail)。
+  const forcedMock = getForcedCanaryMockEngineInput();
+  if (forcedMock !== null) {
+    return buildForcedCanaryDecisionInput(forcedMock);
+  }
+
   // (0) Phase C C-2: bridge から read input を取得 (null = 初期化前 / signal 未受領)
   const bridgeInput: MirrorReadInput | null = getMirrorReadInput();
 
