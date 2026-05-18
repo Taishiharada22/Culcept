@@ -19,6 +19,7 @@ import {
   anchorsForDay,
   categoryOf,
   countOccurrences,
+  FLOW_GAP_MIN_MINUTES,
   formatGap,
   formatJpDate,
   formatTime,
@@ -28,6 +29,8 @@ import {
   groupAnchorsByLocation,
   isoDate,
   LOCATION_GROUP_ORDER,
+  shouldShowGapAdd,
+  suggestGapStartTime,
   minutesOf,
   utcMidnight,
   WEEKDAY_LABELS,
@@ -377,5 +380,58 @@ describe("groupAnchorsByLocation", () => {
       utc("2026-04-30")
     );
     expect(out.map((g) => g.category)).toEqual(["home", "unknown", "none"]);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Flow gap add affordance helpers (W1-X3)", () => {
+  describe("shouldShowGapAdd", () => {
+    it("default threshold 30 分", () => {
+      expect(FLOW_GAP_MIN_MINUTES).toBe(30);
+    });
+
+    it.each([
+      [0, false],
+      [10, false],
+      [29, false],
+      [30, true],
+      [60, true],
+      [120, true],
+    ])("%d 分 → %s", (mins, expected) => {
+      expect(shouldShowGapAdd(mins)).toBe(expected);
+    });
+
+    it("threshold を引数で上書き可能", () => {
+      expect(shouldShowGapAdd(40, 60)).toBe(false);
+      expect(shouldShowGapAdd(70, 60)).toBe(true);
+    });
+  });
+
+  describe("suggestGapStartTime", () => {
+    it("10:00 → 12:00 の中央 11:00 (15 分単位ピッタリ)", () => {
+      expect(suggestGapStartTime("10:00", "12:00")).toBe("11:00");
+    });
+
+    it("10:00 → 10:50 の中央 10:25 → 15 分丸めで 10:15", () => {
+      expect(suggestGapStartTime("10:00", "10:50")).toBe("10:15");
+    });
+
+    it("9:00 → 11:30 の中央 10:15 → 15 分丸めで 10:15", () => {
+      expect(suggestGapStartTime("09:00", "11:30")).toBe("10:15");
+    });
+
+    it("13:00 → 13:40 の中央 13:20 → 15 分丸めで 13:15", () => {
+      expect(suggestGapStartTime("13:00", "13:40")).toBe("13:15");
+    });
+
+    it("HH:MM:SS 形式も受け付ける (秒は無視)", () => {
+      expect(suggestGapStartTime("10:00:30", "12:00:45")).toBe("11:00");
+    });
+
+    it("出力は常に HH:MM zero-padded", () => {
+      expect(suggestGapStartTime("00:00", "00:30")).toBe("00:15");
+      expect(suggestGapStartTime("23:00", "23:30")).toBe("23:15");
+    });
   });
 });

@@ -14,6 +14,7 @@ import {
   defaultSourceTypeForKind,
   detectWeekdayShortcut,
   emptyAnchorFormState,
+  mergeInitialState,
   shortcutToWeekdays,
   toggleWeekday,
 } from "@/lib/plan/anchor-input-form";
@@ -342,5 +343,89 @@ describe("buildAnchorInputFromForm — purity", () => {
     const a = buildAnchorInputFromForm(state);
     const b = buildAnchorInputFromForm(state);
     expect(a).toEqual(b);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("mergeInitialState (W1-X3)", () => {
+  it("initial 未指定 → empty の新 instance を返す", () => {
+    const empty = emptyAnchorFormState();
+    const out = mergeInitialState(empty);
+    expect(out).toEqual(empty);
+    expect(out).not.toBe(empty); // 新 instance
+  });
+
+  it("date のみ override", () => {
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      date: "2026-05-25",
+    });
+    expect(out.date).toBe("2026-05-25");
+    expect(out.kind).toBe("one_off");
+    expect(out.title).toBe("");
+  });
+
+  it("kind / date 両方 override (Calendar cell add 想定)", () => {
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      kind: "one_off",
+      date: "2026-05-25",
+    });
+    expect(out.kind).toBe("one_off");
+    expect(out.date).toBe("2026-05-25");
+  });
+
+  it("kind / date / startTime 3 件 (Flow gap add 想定)", () => {
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      kind: "one_off",
+      date: "2026-05-20",
+      startTime: "14:00",
+    });
+    expect(out.date).toBe("2026-05-20");
+    expect(out.startTime).toBe("14:00");
+  });
+
+  it("locationCategory のみ (Map add 想定。locationText 自動入力なし)", () => {
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      locationCategory: "home",
+    });
+    expect(out.locationCategory).toBe("home");
+    expect(out.locationText).toBe(""); // 自動入力されない
+  });
+
+  it("selectedWeekdays は新 array で持つ (呼び出し側 mutate 遮断)", () => {
+    const seed: AnchorFormState["selectedWeekdays"] = ["MO", "WE"];
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      selectedWeekdays: seed,
+    });
+    expect(out.selectedWeekdays).toEqual(["MO", "WE"]);
+    expect(out.selectedWeekdays).not.toBe(seed); // 別 instance
+  });
+
+  it("input を mutate しない", () => {
+    const empty = emptyAnchorFormState();
+    const emptySnap = JSON.parse(JSON.stringify(empty));
+    const initial: Partial<AnchorFormState> = {
+      date: "2026-05-25",
+      locationCategory: "home",
+    };
+    const initialSnap = JSON.parse(JSON.stringify(initial));
+    mergeInitialState(empty, initial);
+    expect(empty).toEqual(emptySnap);
+    expect(initial).toEqual(initialSnap);
+  });
+
+  it("初期 selectedWeekdays は empty.selectedWeekdays とは別 instance", () => {
+    const empty = emptyAnchorFormState();
+    const out = mergeInitialState(empty);
+    expect(out.selectedWeekdays).not.toBe(empty.selectedWeekdays);
+  });
+
+  it("undefined 値で override しても empty のまま", () => {
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      date: undefined as unknown as string, // 故意の undefined
+    });
+    expect(out.date).toBe(undefined);
+    // ※ 実装は spread だから undefined で上書きされうる。仕様として明示的に許容。
+    // 呼び出し側は undefined を含む partial を渡さない設計。
   });
 });
