@@ -1,18 +1,20 @@
 "use client";
 
 /**
- * PlanClient — Alter Plan UI root (W1-5 + W1-X1)
+ * PlanClient — Alter Plan UI root (W1-5 + W1-X1 + W1-X3)
  *
  * 設計書:
  *   - docs/alter-plan-w15-ui-mini-design.md (3 レンズ)
  *   - docs/alter-plan-w1x1-mini-design.md (Add/Delete UI)
+ *   - docs/alter-plan-w1x3-cell-add-mini-design.md (cell add 導線)
  *
  * 責務:
  *   - GET /api/plan/anchors を 1 回 fetch（mount 時）+ POST/DELETE 成功時に refetch
  *   - tab state を管理
  *   - empty / loading / error を中央で扱う
- *   - 3 tab に共通データ (anchors[]) を渡す
+ *   - 3 tab に共通データ (anchors[]) + onAddRequest callback を渡す
  *   - "+ 教える" / "📋 教えた予定" の 2 modal を制御
+ *   - W1-X3: pending initialState / contextSubtitle を modal に渡す
  *
  * 範囲外:
  *   - PATCH/PUT 編集
@@ -32,6 +34,7 @@ import {
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
+import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { SourceListModal } from "./components/SourceListModal";
@@ -58,12 +61,20 @@ type FetchState =
   | { kind: "ok"; sources: ExternalAnchorSource[]; anchors: ExternalAnchor[] }
   | { kind: "error"; message: string; status: number };
 
+/** W1-X3: cell add 起動時の pre-fill */
+export interface AddRequest {
+  initial?: Partial<AnchorFormState>;
+  subtitle?: string;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export default function PlanClient() {
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [addOpen, setAddOpen] = useState(false);
+  const [addInitial, setAddInitial] = useState<Partial<AnchorFormState> | undefined>(undefined);
+  const [addSubtitle, setAddSubtitle] = useState<string | undefined>(undefined);
   const [listOpen, setListOpen] = useState(false);
 
   const load = async () => {
@@ -80,10 +91,25 @@ export default function PlanClient() {
     void load();
   }, []);
 
+  const openAdd = (req: AddRequest = {}) => {
+    setAddInitial(req.initial);
+    setAddSubtitle(req.subtitle);
+    setAddOpen(true);
+  };
+
+  const handleAddClose = () => {
+    setAddOpen(false);
+    // initial / subtitle は modal の close→reset 副作用と合わせるため、
+    // 次の open までは保持しておいて構わない（次 open 時に setAddInitial で上書きされる）
+  };
+
   const handleAddSuccess = () => {
     setAddOpen(false);
+    setAddInitial(undefined);
+    setAddSubtitle(undefined);
     void load();
   };
+
   const handleDeleteSuccess = () => {
     void load();
   };
@@ -100,7 +126,7 @@ export default function PlanClient() {
             あなたの生活、3 つのレンズ
           </h1>
           <div className="flex gap-2">
-            <GlassButton size="sm" variant="primary" onClick={() => setAddOpen(true)}>
+            <GlassButton size="sm" variant="primary" onClick={() => openAdd()}>
               + 教える
             </GlassButton>
             <GlassButton size="sm" variant="secondary" onClick={() => setListOpen(true)}>
@@ -160,13 +186,19 @@ export default function PlanClient() {
           />
         )}
         {state.kind === "ok" && state.anchors.length === 0 && (
-          <EmptyState onStartTeaching={() => setAddOpen(true)} />
+          <EmptyState onStartTeaching={() => openAdd()} />
         )}
         {state.kind === "ok" && state.anchors.length > 0 && (
           <>
-            {activeTab === "calendar" && <CalendarTab anchors={state.anchors} />}
-            {activeTab === "flow" && <FlowTab anchors={state.anchors} />}
-            {activeTab === "map" && <MapTab anchors={state.anchors} />}
+            {activeTab === "calendar" && (
+              <CalendarTab anchors={state.anchors} onAddRequest={openAdd} />
+            )}
+            {activeTab === "flow" && (
+              <FlowTab anchors={state.anchors} onAddRequest={openAdd} />
+            )}
+            {activeTab === "map" && (
+              <MapTab anchors={state.anchors} onAddRequest={openAdd} />
+            )}
           </>
         )}
       </section>
@@ -174,8 +206,10 @@ export default function PlanClient() {
       {/* ── Modals ── */}
       <AddAnchorModal
         isOpen={addOpen}
-        onClose={() => setAddOpen(false)}
+        onClose={handleAddClose}
         onSuccess={handleAddSuccess}
+        initialState={addInitial}
+        contextSubtitle={addSubtitle}
       />
       <SourceListModal
         isOpen={listOpen}
