@@ -13,6 +13,35 @@
 ```
 
 ---
+### 2026-05-18 CoAlter AOO Mirror Channel — Phase C C-0 integration design 起票 (docs-only)
+- **部門**: Build / Product
+- **決定内容**: Phase C 統合設計 docs `docs/coalter-aoo-phase-c-integration-design.md` を起票 (docs only / code 0 / package.json 0 / env 未変更)。Phase C は **6 sub-PR (C-1 〜 C-6) sequential** で構成、各 PR は risk increment が明示的に小→大。各 sub-PR の修正範囲・acceptance criteria・LOC budget・CEO 判断 point・rollback 経路を pre-defined
+- **Phase C 北極星**: 「shadow mode で構造完成した Mirror を、安全な実 input で動かす」。Phase C 完了 ≠ Production rollout 開始 (Phase D で別途扱う)
+- **Phase C sub-PR scope (sequential、本 docs §4)**:
+  - C-1: Preview-safe diagnostic exposure fix (1 line removal、`diagnosticDebugGlobal.ts:111` の `NODE_ENV === "production"` guard 削除、Phase A §3.5 学び反映、Phase A 7-layer defense は維持)
+  - C-2: Read-only presence / relationship state adapter (`engineAdapter` 拡張 + 新規 `presenceMirrorBridge.ts`、推奨 source: observer `getRedactedRelationshipStateSnapshot` — PII firewall 既適用)
+  - C-3: Controlled visible path canary (`forcedCanaryMode.ts` 新規、新 env flag `NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY`、cap=10 override、他 gate strict 維持)
+  - C-4: close / sleep / cap / verification 実機確認 smoke
+  - C-5: Taxonomy 拡張検討 docs (Difference / Tempo / Fairness / Repair、実装ではない)
+  - C-6: Phase C 全体 canary smoke + Phase C 完了 docs
+- **Phase C で許容される境界緩和 (3 件のみ、本 docs §5)**:
+  1. diagnostic global `NODE_ENV === "production"` guard 削除 (C-1、Phase A 7-layer defense 既存)
+  2. presence layer **read-only** access (C-2、observer 経由推奨)
+  3. visible 経路 forced canary mode (C-3、cap override のみ、他 gate strict)
+- **Phase C で絶対緩めない不可侵境界 (本 docs §5.1)**:
+  - Production env / all Preview env / Development env 投入禁止
+  - presence layer write / chat layer touch / ChatClient.tsx / MirrorSurface.tsx 0 diff
+  - DB / API / Sentry / LLM / raw text / raw id 保存 / Question-Proposal 自動発火 / cross-session persistence / Alter Morning 混入 / package.json 変更 すべて禁止
+  - Phase A canon + Phase B canon §7.4 全項目維持
+  - `linguisticStopDetector` runtime 接続 (chat touch 必要のため Phase C scope 外)
+- **Phase C 成功条件 (本 docs §6、CEO 提示 7 項目 + Claude 詳細化)**: diagnostic global Preview 確認 / visible Mirror controlled 発火 / close-sleep-cap 実機確認 / PII leak 0 / console error 0 / env cleanup all scopes 0 / Production impact 0
+- **Phase A→B 学び取り込み漏れの構造的再発防止 (本 docs §2)**: 次 Phase 着手前に **前 Phase 完了 docs §3 系 (重要発見・訂正) 必読 checklist** を新 Phase design docs 冒頭に導入 (Phase C → D → E にも適用)
+- **Phase C 学術基盤 (本 docs §13)**: Therapeutic alliance research (Lambert) / Motivational Interviewing reflective listening (Miller & Rollnick) / Just-in-time adaptive interventions (Nahum-Shani) を visible reflective intervention の背景に追加
+- **C-1 着手**: CEO 承認後に別 PR で起票 (本 PR は docs only)
+- **承認**: CEO 判断「C-0 docs only PR 起票 GO、実装禁止、env 投入禁止、canary 再開禁止」(2026-05-18)
+- **ステータス**: 実行中 (本 docs PR 起票)
+
+---
 ### 2026-05-18 CoAlter AOO Mirror Channel — Phase B 正式 close + Phase C handoff (Option C 採用)
 - **部門**: Build / Product
 - **決定内容**: CoAlter Mirror Channel **Phase B** を **conditional pass** で正式 close。新規 docs `docs/coalter-aoo-phase-b-completion.md` を完了正本とする。設計書 `docs/coalter-aoo-phase-b-mirror-channel-design.md` 冒頭に Phase B 完了 banner を追加。CEO 判断「Option C 採用」(2026-05-18) に従い、**B-5d 修正 PR は今は切らず**、未到達項目 (visible Mirror 経路 / diagnostic Preview / close/sleep/cap 実機 / linguistic stop runtime / taxonomy 拡張) は **Phase C** で扱う
