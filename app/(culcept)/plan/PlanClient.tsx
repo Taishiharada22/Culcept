@@ -37,6 +37,7 @@ import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
+import { EditAnchorModal } from "./components/EditAnchorModal";
 import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
@@ -76,6 +77,9 @@ export default function PlanClient() {
   const [addInitial, setAddInitial] = useState<Partial<AnchorFormState> | undefined>(undefined);
   const [addSubtitle, setAddSubtitle] = useState<string | undefined>(undefined);
   const [listOpen, setListOpen] = useState(false);
+  // W1-X2: edit modal state
+  const [editAnchor, setEditAnchor] = useState<ExternalAnchor | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   const load = async () => {
     setState({ kind: "loading" });
@@ -111,6 +115,21 @@ export default function PlanClient() {
   };
 
   const handleDeleteSuccess = () => {
+    void load();
+  };
+
+  // W1-X2: edit handlers
+  const openEdit = (anchor: ExternalAnchor) => {
+    setEditAnchor(anchor);
+    setEditOpen(true);
+  };
+  const handleEditClose = () => {
+    setEditOpen(false);
+    // editAnchor は次の open まで保持（次 open 時に setEditAnchor で上書き）
+  };
+  const handleEditSuccess = () => {
+    setEditOpen(false);
+    setEditAnchor(null);
     void load();
   };
 
@@ -217,6 +236,17 @@ export default function PlanClient() {
         sources={state.kind === "ok" ? state.sources : []}
         anchors={state.kind === "ok" ? state.anchors : []}
         onSuccess={handleDeleteSuccess}
+        onEditRequest={(a) => {
+          // SourceListModal から「教え直す」が呼ばれたら、SourceList を閉じて EditModal を開く
+          setListOpen(false);
+          openEdit(a);
+        }}
+      />
+      <EditAnchorModal
+        isOpen={editOpen}
+        onClose={handleEditClose}
+        onSuccess={handleEditSuccess}
+        anchor={editAnchor}
       />
     </main>
   );
