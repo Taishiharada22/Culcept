@@ -152,6 +152,57 @@ export function buildWeekdayRRule(days: ReadonlyArray<Weekday>): string {
   return `FREQ=WEEKLY;BYDAY=${canonical.join(",")}`;
 }
 
+/**
+ * RRULE 文字列から Weekday[] を逆引きする (W1-X2)。
+ *
+ * 対応範囲:
+ *   - `FREQ=WEEKLY;BYDAY=MO,WE,FR` 形式のみ
+ *   - W1-5 recurrence-expander と同範囲（INTERVAL / COUNT / UNTIL 等は範囲外）
+ *
+ * @returns 範囲内なら canonical Weekday[]、範囲外 / 不正 なら null
+ *
+ * @example
+ * parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO,WE,FR")
+ *   → ["MO", "WE", "FR"]
+ * parseWeekdaysFromRRule("FREQ=DAILY")
+ *   → null
+ */
+export function parseWeekdaysFromRRule(rrule: string): Weekday[] | null {
+  if (typeof rrule !== "string" || rrule.length === 0) return null;
+  const parts = rrule.split(";");
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    const eq = p.indexOf("=");
+    if (eq <= 0) return null;
+    const key = p.slice(0, eq).toUpperCase();
+    const value = p.slice(eq + 1);
+    if (key in map) return null; // duplicate
+    map[key] = value;
+  }
+
+  if ((map.FREQ ?? "").toUpperCase() !== "WEEKLY") return null;
+  const byday = map.BYDAY;
+  if (!byday) return null;
+  if ("INTERVAL" in map && map.INTERVAL !== "1") return null;
+  const allowedKeys = new Set(["FREQ", "BYDAY", "INTERVAL"]);
+  for (const k of Object.keys(map)) {
+    if (!allowedKeys.has(k)) return null;
+  }
+
+  const tokens = byday
+    .split(",")
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+
+  const days: Weekday[] = [];
+  for (const t of tokens) {
+    if (!isWeekday(t)) return null;
+    days.push(t as Weekday);
+  }
+  return canonicalizeWeekdays(days);
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main builder
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

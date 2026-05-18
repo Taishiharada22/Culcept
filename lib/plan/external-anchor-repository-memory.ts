@@ -37,6 +37,7 @@ import type {
   ExternalAnchorRepositoryDependencies,
 } from "./external-anchor-repository";
 import { collectSourceInputErrors } from "./external-anchor-source-input";
+import { validateAnchorUpdate } from "./anchor-update-validation";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Default deps
@@ -265,6 +266,42 @@ export function createMemoryExternalAnchorRepository(
       }
       sources.delete(sourceId);
       return { deletedSource: true, deletedAnchors };
+    },
+
+    async updateAnchor(userId, anchorId, patch) {
+      const existing = anchors.get(anchorId);
+      // 不在 or user 越境 → どちらも not_found（情報漏洩防止、deleteSource と同パターン）
+      if (!existing || existing.userId !== userId) {
+        return { ok: false, kind: "not_found" };
+      }
+
+      // existing + sanitized patch を validate
+      const r = validateAnchorUpdate(existing, patch);
+      if (!r.valid) {
+        return { ok: false, kind: "invalid", errors: r.errors };
+      }
+
+      // merged input から新 anchor を再構築（id / userId / sourceId / confirmedAt は existing 維持）
+      const valid = r.merged;
+      const updated: ExternalAnchor =
+        valid.anchorKind === "one_off"
+          ? buildOneOffAnchor({
+              id: existing.id,
+              userId: existing.userId,
+              sourceId: existing.sourceId,
+              confirmedAt: existing.confirmedAt,
+              input: valid,
+            })
+          : buildRecurringAnchor({
+              id: existing.id,
+              userId: existing.userId,
+              sourceId: existing.sourceId,
+              confirmedAt: existing.confirmedAt,
+              input: valid,
+            });
+
+      anchors.set(anchorId, updated);
+      return { ok: true, anchor: updated };
     },
   };
 }

@@ -120,6 +120,7 @@ export function createMockSupabaseClient(
     const filters: Array<[string, unknown]> = [];
     let returnRows = false;
     let isSingle = false;
+    let isMaybeSingle = false;
     let isHead = false;
     let countMode: "exact" | "planned" | "estimated" | undefined;
 
@@ -155,6 +156,11 @@ export function createMockSupabaseClient(
         isSingle = true;
         return builder;
       },
+      maybeSingle() {
+        // single() と違い、0 件で error を返さない（null を返す）
+        isMaybeSingle = true;
+        return builder;
+      },
       // Promise-like
       then<T>(
         resolve: (value: {
@@ -184,16 +190,14 @@ export function createMockSupabaseClient(
       error: PostgrestError | null;
       count: number | null;
     } {
-      // ── error injection（最優先） ──
-      if (op !== "update") {
-        const failure = takeFail(op, table);
-        if (failure) {
-          return {
-            data: null,
-            error: makePostgrestError(failure),
-            count: null,
-          };
-        }
+      // ── error injection（最優先、update も含む） ──
+      const failure = takeFail(op, table);
+      if (failure) {
+        return {
+          data: null,
+          error: makePostgrestError(failure),
+          count: null,
+        };
       }
 
       const s = tableStore(table);
@@ -241,6 +245,10 @@ export function createMockSupabaseClient(
             count: countMode ? filtered.length : null,
           };
         }
+        if (isMaybeSingle) {
+          // 0 件でも error にしない（real Supabase の maybeSingle 仕様）
+          return { data: filtered[0] ?? null, error: null, count: null };
+        }
         if (isSingle) {
           if (filtered.length === 0) {
             return {
@@ -275,7 +283,41 @@ export function createMockSupabaseClient(
         };
       }
 
-      // update (未使用、防御的)
+      if (op === "update") {
+        const all = Array.from(s.values());
+        const target = applyFilters(all);
+        const updated: Record<string, unknown>[] = [];
+        for (const row of target) {
+          // payload を merge（undefined は無視せず null として上書き、real Supabase 同等）
+          const next: Record<string, unknown> = { ...row, ...(updatePayload ?? {}) };
+          const id = row.id as string;
+          s.set(id, next);
+          updated.push(next);
+        }
+        if (isSingle || isMaybeSingle) {
+          if (updated.length === 0 && isSingle) {
+            return {
+              data: null,
+              error: makePostgrestError({
+                code: "PGRST116",
+                message: "No rows returned",
+              }),
+              count: null,
+            };
+          }
+          return {
+            data: returnRows ? (updated[0] ?? null) : null,
+            error: null,
+            count: null,
+          };
+        }
+        return {
+          data: returnRows ? updated : null,
+          error: null,
+          count: null,
+        };
+      }
+
       return { data: null, error: null, count: null };
     }
 

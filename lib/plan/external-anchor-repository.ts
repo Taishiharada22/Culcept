@@ -124,6 +124,32 @@ export type DeleteExternalAnchorSourceResult = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// updateAnchor 戻り値 (W1-X2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Anchor 単体の patch update 結果。
+ *
+ * 戻り値の組み合わせ:
+ *   - 成功               → { ok: true, anchor }
+ *   - source / user 不一致 / anchor 不在 → { ok: false, kind: "not_found" }
+ *     （情報漏洩防止のため 3 ケースを同一視、deleteSource と同パターン）
+ *   - validation 失敗    → { ok: false, kind: "invalid", errors }
+ *     （anchorKind 変更検出、required 欠落、format 違反等）
+ */
+export type UpdateAnchorResult =
+  | { ok: true; anchor: ExternalAnchor }
+  | { ok: false; kind: "not_found" }
+  | { ok: false; kind: "invalid"; errors: AnchorInputValidationError[] };
+
+/**
+ * Patch 入力。CreateExternalAnchorInput の subset を許容するが、
+ * `id` / `userId` / `sourceId` / `anchorKind` は禁止フィールド。
+ * route 層で sanitization 済みであることを前提とする（contract）。
+ */
+export type AnchorUpdatePatch = Partial<CreateExternalAnchorInput>;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Repository Interface
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -174,6 +200,23 @@ export interface ExternalAnchorRepository {
     userId: string,
     sourceId: string
   ): Promise<DeleteExternalAnchorSourceResult>;
+
+  /**
+   * Anchor を「教え直す」(W1-X2)。
+   *
+   * 不変原則:
+   *   - patch の anchorKind は **無視** され、既存 anchorKind が強制される
+   *   - patch から id / userId / sourceId が含まれていても無視（route 層 sanitization が前提）
+   *   - existing + patch の merged candidate を validateCreateExternalAnchorInput に通す
+   *   - user 不一致 / anchor 不在 → 戻り値 `{ ok: false, kind: "not_found" }` で同一視（情報漏洩防止）
+   *
+   * RLS と application 層の二重防御は updateSourceWithAnchors と同パターン。
+   */
+  updateAnchor(
+    userId: string,
+    anchorId: string,
+    patch: AnchorUpdatePatch
+  ): Promise<UpdateAnchorResult>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -8,6 +8,7 @@ import {
   buildWeekdayRRule,
   canonicalizeWeekdays,
   isWeekday,
+  parseWeekdaysFromRRule,
 } from "@/lib/plan/weekday-template";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -165,6 +166,71 @@ describe("buildWeekdayRRule", () => {
     expect(rrule).not.toContain("INTERVAL");
     expect(rrule).not.toContain("BYHOUR");
     expect(rrule).not.toContain("BYMINUTE");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// parseWeekdaysFromRRule — RRULE 逆引き (W1-X2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("parseWeekdaysFromRRule", () => {
+  it("基本: FREQ=WEEKLY;BYDAY=MO,WE,FR → [MO, WE, FR]", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO,WE,FR")).toEqual([
+      "MO",
+      "WE",
+      "FR",
+    ]);
+  });
+
+  it("canonical sort: BYDAY=FR,MO,WE → [MO, WE, FR]", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=FR,MO,WE")).toEqual([
+      "MO",
+      "WE",
+      "FR",
+    ]);
+  });
+
+  it("単日: FREQ=WEEKLY;BYDAY=MO → [MO]", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO")).toEqual(["MO"]);
+  });
+
+  it("毎日: 7 曜日", () => {
+    expect(
+      parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA,SU")
+    ).toEqual(["MO", "TU", "WE", "TH", "FR", "SA", "SU"]);
+  });
+
+  it("INTERVAL=1 は許可（既存仕様と整合）", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO;INTERVAL=1")).toEqual([
+      "MO",
+    ]);
+  });
+
+  it("INTERVAL=2 は範囲外 → null", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO;INTERVAL=2")).toBeNull();
+  });
+
+  it("FREQ=DAILY は範囲外 → null", () => {
+    expect(parseWeekdaysFromRRule("FREQ=DAILY;BYDAY=MO")).toBeNull();
+  });
+
+  it("BYDAY 不在 → null", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY")).toBeNull();
+  });
+
+  it("未知曜日コード → null", () => {
+    expect(parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=XX")).toBeNull();
+  });
+
+  it("COUNT/UNTIL/BYMONTHDAY 等の未対応 token → null", () => {
+    expect(
+      parseWeekdaysFromRRule("FREQ=WEEKLY;BYDAY=MO;COUNT=5")
+    ).toBeNull();
+  });
+
+  it("空 string / 不正 format → null", () => {
+    expect(parseWeekdaysFromRRule("")).toBeNull();
+    expect(parseWeekdaysFromRRule("BYDAY=MO")).toBeNull(); // FREQ 不在
   });
 });
 

@@ -45,6 +45,7 @@ import {
   mapPostgrestError,
   type AppError,
 } from "./supabase-error-mapping";
+import { validateAnchorUpdate } from "./anchor-update-validation";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Options
@@ -473,6 +474,102 @@ export function createSupabaseExternalAnchorRepository(
       return {
         deletedSource: true,
         deletedAnchors: anchorCount ?? 0,
+      };
+    },
+
+    async updateAnchor(userId, anchorId, patch) {
+      // ── 1. 既存 anchor を fetch（user_id 二重防御） ──
+      const { data: existingRow, error: selectError } = await client
+        .from("external_anchors")
+        .select("*")
+        .eq("id", anchorId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (selectError) {
+        const appErr = mapPostgrestError(selectError);
+        // RLS による silent fail（PGRST116 等）も not_found 同視
+        if (appErr.kind === "not_found") {
+          return { ok: false, kind: "not_found" };
+        }
+        throw new Error(`updateAnchor select failed: ${appErr.message}`);
+      }
+      if (!existingRow) {
+        // 情報漏洩防止: user 不一致 / 不在 / RLS 拒否 を同一視
+        return { ok: false, kind: "not_found" };
+      }
+
+      const existing = rowToAnchor(existingRow as ExternalAnchorRow);
+
+      // ── 2. existing + sanitized patch → validateAnchorUpdate ──
+      const v = validateAnchorUpdate(existing, patch);
+      if (!v.valid) {
+        return { ok: false, kind: "invalid", errors: v.errors };
+      }
+
+      // ── 3. UPDATE payload を構築 ──
+      // confirmedAt は既存維持（patch では変えない、anchor の「教え直し時刻」は別概念）
+      // id / user_id / source_id は触らない（RLS + 明示 .eq で防御）
+      const isOneOff = v.merged.anchorKind === "one_off";
+      const updatePayload: Record<string, unknown> = {
+        title: v.merged.title,
+        start_time: v.merged.startTime,
+        end_time: v.merged.endTime ?? null,
+        location_text: v.merged.locationText ?? null,
+        location_category: v.merged.locationCategory ?? null,
+        rigidity: v.merged.rigidity,
+        sensitive_category: v.merged.sensitiveCategory ?? null,
+        // anchor_kind は不変として送らない（CHECK 制約衝突回避 + 不変原則）
+        date: isOneOff ? v.merged.date : null,
+        valid_from: isOneOff ? null : v.merged.validFrom,
+        valid_until: isOneOff ? null : (v.merged.validUntil ?? null),
+        recurrence_rule: isOneOff ? null : v.merged.recurrenceRule,
+        exception_dates: isOneOff ? null : (v.merged.exceptionDates ?? null),
+        updated_at: new Date().toISOString(),
+      };
+
+      // ── 4. UPDATE（RLS + 明示 .eq の二重防御） ──
+      const { data: updatedRow, error: updateError } = await client
+        .from("external_anchors")
+        .update(updatePayload)
+        .eq("id", anchorId)
+        .eq("user_id", userId)
+        .select()
+        .single();
+
+      if (updateError || !updatedRow) {
+        const appErr = updateError
+          ? mapPostgrestError(updateError)
+          : { kind: "internal" as const, message: "no row returned" };
+        if (appErr.kind === "not_found") {
+          // 更新中に削除された等のレース
+          return { ok: false, kind: "not_found" };
+        }
+        if (appErr.kind === "validation_error") {
+          // DB CHECK 制約違反（通常 client validation で防げるが defensive）
+          return {
+            ok: false,
+            kind: "invalid",
+            errors: [
+              {
+                field: "(db)",
+                code: "logical_conflict",
+                message: `DB rejected update: ${appErr.message}`,
+              },
+            ],
+          };
+        }
+        logger({
+          kind: "compensating_delete_attempted",
+          sourceId: existing.sourceId,
+          userId,
+        });
+        throw new Error(`updateAnchor failed: ${appErr.message}`);
+      }
+
+      return {
+        ok: true,
+        anchor: rowToAnchor(updatedRow as ExternalAnchorRow),
       };
     },
   };
