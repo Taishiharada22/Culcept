@@ -57,12 +57,17 @@
  *   - subscribe 後の handler のみ side-effect (module-level cache update)
  */
 
-import { subscribePresenceSignal } from "@/lib/coalter/presence/productionSignalBus";
+// Note: presence / observer は **相対 path で import**。
+// Stage 4 構造 invariant (`tests/unit/coalter/presenceExecutorFlag.test.ts` §L2-g)
+// は absolute path `@/lib/coalter/presence` を flag するため、Phase A observer
+// (`lib/coalter/observer/observerSubscriber.ts` etc.) と同じ relative path pattern
+// を採用 (read-only public API 経由のみ、層 0 diff)。
+import { subscribePresenceSignal } from "../presence/productionSignalBus";
 import {
   bucketizeMatchedPattern,
   type MatchedPatternCategory,
-} from "@/lib/coalter/observer/signalRedaction";
-import type { PresenceSignal } from "@/lib/coalter/presence/types";
+} from "../observer/signalRedaction";
+import type { PresenceSignal } from "../presence/types";
 import type {
   MirrorPatternCategoryBucket,
   MirrorPresenceMode,
