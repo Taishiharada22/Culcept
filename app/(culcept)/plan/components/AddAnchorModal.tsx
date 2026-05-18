@@ -18,7 +18,7 @@
  *   - notes / extractedAt / raw storage
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   GlassBadge,
@@ -34,6 +34,7 @@ import {
   detectWeekdayShortcut,
   emptyAnchorFormState,
   LOCATION_CATEGORY_OPTIONS,
+  mergeInitialState,
   RIGIDITY_OPTIONS,
   SENSITIVE_CATEGORY_OPTIONS,
   shortcutToWeekdays,
@@ -74,14 +75,39 @@ export function AddAnchorModal({
   isOpen,
   onClose,
   onSuccess,
+  initialState,
+  contextSubtitle,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /** W1-X3: cell add 起動時の pre-fill。modal open ごとに反映 + close で reset。 */
+  initialState?: Partial<AnchorFormState>;
+  /** W1-X3: modal title 下に表示する context（"カレンダー / 4月8日(水) から" 等） */
+  contextSubtitle?: string;
 }) {
-  const [form, setForm] = useState<AnchorFormState>(() => emptyAnchorFormState());
+  const [form, setForm] = useState<AnchorFormState>(() =>
+    mergeInitialState(emptyAnchorFormState(), initialState)
+  );
   const [showOptional, setShowOptional] = useState(false);
   const [state, setState] = useState<SubmitState>({ kind: "idle" });
+
+  // Modal open transition: empty + initialState を merge して reset
+  // close 時も reset（次回 open に state が漏れない）
+  // initialState は deps から意図的に外す（親が render ごとに新 object を返しても reset 連鎖しない）
+  useEffect(() => {
+    if (isOpen) {
+      setForm(mergeInitialState(emptyAnchorFormState(), initialState));
+      setShowOptional(false);
+      setState({ kind: "idle" });
+    } else {
+      // close 時 reset (CEO 補正 4)
+      setForm(emptyAnchorFormState());
+      setShowOptional(false);
+      setState({ kind: "idle" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const errorsByField = useMemo(() => {
     if (state.kind !== "error") return new Map<string, string>();
@@ -156,6 +182,16 @@ export function AddAnchorModal({
   return (
     <GlassModal isOpen={isOpen} onClose={resetAndClose} title="Alter に教える" size="md">
       <div className="space-y-4">
+        {/* Context subtitle (W1-X3: pre-fill 起点を明示) */}
+        {contextSubtitle && (
+          <p
+            className="text-xs font-medium text-indigo-600"
+            data-testid="plan-add-context-subtitle"
+          >
+            {contextSubtitle}
+          </p>
+        )}
+
         {/* Kind segmented */}
         <div className="flex gap-2">
           {(["one_off", "recurring"] as const).map((k) => {

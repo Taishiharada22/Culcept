@@ -80,6 +80,42 @@ export function formatGap(mins: number): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Flow gap add affordance helpers (W1-X3)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** Flow gap add 導線を出すしきい値（CEO 補正 2: 30 分未満は出さない） */
+export const FLOW_GAP_MIN_MINUTES = 30;
+
+/** anchor 間 gap が add 導線を出すべきサイズか */
+export function shouldShowGapAdd(
+  gapMins: number,
+  minGapMins: number = FLOW_GAP_MIN_MINUTES
+): boolean {
+  return gapMins >= minGapMins;
+}
+
+/**
+ * anchor 間 gap の「中央時刻」を 15 分単位で下方丸めして返す。
+ *
+ * 例: prev.endTime=10:00, next.startTime=12:00 → mid=11:00 → "11:00"
+ *     prev.endTime=10:00, next.startTime=10:50 → mid=10:25 → "10:15"
+ *
+ * CEO 補正 2: 15 分単位丸めで Flow gap pre-fill を整える。
+ */
+export function suggestGapStartTime(
+  prevEndOrStart: string,
+  nextStart: string
+): string {
+  const prev = minutesOf(prevEndOrStart);
+  const next = minutesOf(nextStart);
+  const mid = Math.floor((prev + next) / 2);
+  const rounded = Math.floor(mid / 15) * 15;
+  const h = Math.floor(rounded / 60);
+  const m = rounded % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Anchor expansion helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

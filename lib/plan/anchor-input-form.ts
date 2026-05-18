@@ -205,6 +205,40 @@ export function defaultSourceTypeForKind(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Initial state merge (W1-X3 — cell add prefill)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * empty state を base に initial で override した state を返す pure 関数。
+ *
+ * 用途:
+ *   - W1-X3 の cell add 導線で、各 tab から AddAnchorModal 起動時に
+ *     date / startTime / locationCategory を pre-fill する
+ *   - selectedWeekdays は array で新 instance を作る（呼び出し側 mutate 遮断）
+ *
+ * 不変原則:
+ *   - 入力 (empty, initial) を mutate しない
+ *   - initial が undefined なら empty の新 instance を返す
+ *   - 未指定 key は empty の値が残る
+ */
+export function mergeInitialState(
+  empty: AnchorFormState,
+  initial?: Partial<AnchorFormState>
+): AnchorFormState {
+  if (!initial) {
+    return { ...empty, selectedWeekdays: [...empty.selectedWeekdays] };
+  }
+  return {
+    ...empty,
+    ...initial,
+    selectedWeekdays:
+      initial.selectedWeekdays !== undefined
+        ? [...initial.selectedWeekdays]
+        : [...empty.selectedWeekdays],
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Build CreateExternalAnchorInput
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
