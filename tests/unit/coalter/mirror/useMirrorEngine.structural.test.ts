@@ -55,6 +55,22 @@ describe("B-5a useMirrorEngine — shadow mode path (B-5a 維持)", () => {
   });
 });
 
+describe("C-2 useMirrorEngine — presenceMirrorBridge lifecycle", () => {
+  it("initializeBridgeOnce import + 呼出", () => {
+    expect(SOURCE).toMatch(/initializeBridgeOnce/);
+  });
+  it("disposeBridge import + cleanup での呼出", () => {
+    expect(SOURCE).toMatch(/disposeBridge/);
+  });
+  it("bridge initialize / dispose は separate useEffect (engine effect と独立)", () => {
+    const useEffectCount = (SOURCE.match(/useEffect\(/g) || []).length;
+    expect(useEffectCount).toBeGreaterThanOrEqual(2);
+  });
+  it("bridge initialize 経路に flag check (mirrorChannelEnabled) が存在", () => {
+    expect(SOURCE).toMatch(/mirrorChannelEnabled/);
+  });
+});
+
 describe("B-5b useMirrorEngine — visible candidate evaluation 経路", () => {
   it("evaluateVisibleMirror import + 呼出", () => {
     expect(SOURCE).toMatch(/evaluateVisibleMirror/);

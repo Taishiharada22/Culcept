@@ -14,7 +14,7 @@
  *   - PII 非受理 (型に raw text / id field なし)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildMirrorDecisionInput,
   type AdapterContext,
@@ -25,6 +25,26 @@ import {
   incrementEngineInvoked,
   incrementVisibleSpeak,
 } from "@/lib/coalter/mirror/frequencyCap";
+import {
+  __resetForTest as resetBridge,
+  initializeBridgeOnce,
+  disposeBridge,
+} from "@/lib/coalter/mirror/presenceMirrorBridge";
+import {
+  publishPresenceSignal,
+  __resetSignalBus,
+} from "@/lib/coalter/presence/productionSignalBus";
+import type { PresenceSignal } from "@/lib/coalter/presence/types";
+
+// C-2 test fixture: make signal helper
+function makeSignal(overrides: Partial<PresenceSignal> = {}): PresenceSignal {
+  return {
+    kind: "implicit",
+    strength: "soft",
+    detectedAt: Date.now(),
+    ...overrides,
+  };
+}
 
 describe("B-5a engineAdapter — presence-derived axes すべて unknown", () => {
   beforeEach(() => {
@@ -216,5 +236,129 @@ describe("B-5a engineAdapter — invariants", () => {
     expect(a).not.toBe(b); // 別 reference
     expect(a.modeContext).not.toBe(b.modeContext);
     expect(a.alignment).not.toBe(b.alignment);
+  });
+});
+
+// =============================================================================
+// Phase C C-2: presenceMirrorBridge 統合 (patternCategory が known に進む)
+// =============================================================================
+
+describe("C-2 engineAdapter — presenceMirrorBridge 統合", () => {
+  beforeEach(() => {
+    resetSleep();
+    resetFreq();
+    resetBridge();
+    __resetSignalBus();
+  });
+  afterEach(() => {
+    resetBridge();
+    __resetSignalBus();
+  });
+
+  it("bridge 未 initialize → patternCategory 依然 unknown (regression: B-5a 互換)", () => {
+    const input = buildMirrorDecisionInput({});
+    expect(input.patternCategory.status).toBe("unknown");
+    expect(input.patternCategory.bucket).toBe("unknown_category");
+    expect(input.patternCategory.canProceedToMirrorDecision).toBe(false);
+  });
+
+  it("bridge initialize + signal なし → patternCategory 依然 unknown (cache 空)", () => {
+    initializeBridgeOnce();
+    const input = buildMirrorDecisionInput({});
+    expect(input.patternCategory.status).toBe("unknown");
+    expect(input.patternCategory.bucket).toBe("unknown_category");
+  });
+
+  it("bridge initialize + null_pattern signal → patternCategory known (null_pattern, canProceed true)", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(makeSignal({ kind: "implicit" })); // → null_pattern
+    const input = buildMirrorDecisionInput({});
+    expect(input.patternCategory.status).toBe("known");
+    expect(input.patternCategory.bucket).toBe("null_pattern");
+    if (input.patternCategory.status === "known") {
+      expect(input.patternCategory.canProceedToMirrorDecision).toBe(true);
+    }
+  });
+
+  it("bridge initialize + safety:* signal → patternCategory known (safety_concern, canProceed false)", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(
+      makeSignal({ meta: { matchedPattern: "safety:risk" } }),
+    );
+    const input = buildMirrorDecisionInput({});
+    expect(input.patternCategory.status).toBe("known");
+    expect(input.patternCategory.bucket).toBe("safety_concern");
+    if (input.patternCategory.status === "known") {
+      expect(input.patternCategory.canProceedToMirrorDecision).toBe(false);
+    }
+  });
+
+  it("bridge initialize + rupture:* signal → patternCategory known (rupture_signal_high, canProceed false)", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(
+      makeSignal({ meta: { matchedPattern: "rupture:hostility" } }),
+    );
+    const input = buildMirrorDecisionInput({});
+    expect(input.patternCategory.status).toBe("known");
+    expect(input.patternCategory.bucket).toBe("rupture_signal_high");
+    if (input.patternCategory.status === "known") {
+      expect(input.patternCategory.canProceedToMirrorDecision).toBe(false);
+    }
+  });
+
+  it("bridge initialize 後でも 他 axis (mode/alignment/uncertainty/silenceBudget) は unknown 維持", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(makeSignal({ kind: "implicit" }));
+    const input = buildMirrorDecisionInput({});
+    expect(input.modeContext.status).toBe("unknown");
+    expect(input.alignment.status).toBe("unknown");
+    expect(input.uncertainty.status).toBe("unknown");
+    expect(input.silenceBudget.status).toBe("unknown");
+  });
+
+  it("dispose 後 → patternCategory 再び unknown (regression: B-5a 互換)", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(makeSignal({ kind: "implicit" }));
+    expect(buildMirrorDecisionInput({}).patternCategory.status).toBe("known");
+    disposeBridge();
+    expect(buildMirrorDecisionInput({}).patternCategory.status).toBe("unknown");
+  });
+
+  it("PII firewall regression: bridge 経由でも output に PII 漏れなし", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(
+      makeSignal({
+        meta: {
+          matchedPattern: "safety:test",
+          lastMessageId: "raw_msg_xxx",
+          rawText: "PII本音テキスト",
+          userId: "user_pii",
+          pairId: "pair_pii",
+          sessionId: "sess_pii",
+        },
+      }),
+    );
+    const input = buildMirrorDecisionInput({});
+    const serialized = JSON.stringify(input);
+    expect(serialized).not.toContain("raw_msg_xxx");
+    expect(serialized).not.toContain("PII本音テキスト");
+    expect(serialized).not.toContain("user_pii");
+    expect(serialized).not.toContain("pair_pii");
+    expect(serialized).not.toContain("sess_pii");
+    // safety:test raw も含まれない (bucket category のみ反映)
+    expect(serialized).not.toContain("safety:test");
+  });
+
+  it("default STAY_SILENT 維持: bridge known でも他 axis unknown により Observe Gate fail 想定", () => {
+    initializeBridgeOnce();
+    publishPresenceSignal(makeSignal({ kind: "implicit" })); // null_pattern (canProceed true)
+    const input = buildMirrorDecisionInput({});
+    // patternCategory は canProceed true だが、他 axis (modeContext / alignment /
+    // uncertainty / silenceBudget) が unknown のため、Observe Gate は依然 fail する想定
+    // (engine 統合 test は decisionEngine.test.ts でカバー)
+    expect(input.modeContext.canProceedToMirrorDecision).toBe(false);
+    expect(input.alignment.canProceedToMirrorDecision).toBe(false);
+    expect(input.uncertainty.canProceedToMirrorDecision).toBe(false);
+    expect(input.silenceBudget.canProceedToMirrorDecision).toBe(false);
   });
 });
