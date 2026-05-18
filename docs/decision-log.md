@@ -13,6 +13,51 @@
 ```
 
 ---
+### 2026-05-18 CoAlter AOO Mirror Channel — Phase B 正式 close + Phase C handoff (Option C 採用)
+- **部門**: Build / Product
+- **決定内容**: CoAlter Mirror Channel **Phase B** を **conditional pass** で正式 close。新規 docs `docs/coalter-aoo-phase-b-completion.md` を完了正本とする。設計書 `docs/coalter-aoo-phase-b-mirror-channel-design.md` 冒頭に Phase B 完了 banner を追加。CEO 判断「Option C 採用」(2026-05-18) に従い、**B-5d 修正 PR は今は切らず**、未到達項目 (visible Mirror 経路 / diagnostic Preview / close/sleep/cap 実機 / linguistic stop runtime / taxonomy 拡張) は **Phase C** で扱う
+- **Phase B 達成定義 (CEO 補正の正確な表現、絶対遵守)**:
+  - ✅ **safe default / no-disruption / no-leak / runtime guarded foundation validated**
+  - ❌ **NOT "Phase B full visible success" / NOT "visible Mirror fully validated"**
+- **完了根拠 (CEO 実機 B-5c smoke 2026-05-18 + 構造完成証跡)**:
+  - default STAY_SILENT 100% (Mirror 一度も出現せず) — 北極星「黙る」を構造的に達成
+  - 既存 UI / chat / presence layer 影響なし (実機 0 件)
+  - env 流出 0 (production / all-preview / development 全 scope 0 件、CEO 削除後 Claude 検証)
+  - PII leak 0 (DOM / Network / console 確認可能範囲)
+  - rollback trigger 0
+  - 構造完成: 4-gate orchestration + 7-layer postSpeakVerification + PII firewall (型 + runtime) + 4-layer flag gating defense + hedged grammar template (unit test 全 PASS、実機 default-STAY_SILENT で構造起動を間接的に確認)
+- **構造的未到達項目 (Phase C handoff、`docs/coalter-aoo-phase-b-completion.md` §4 / §5)**:
+  - visible Mirror 経路: `engineAdapter` が presence-derived axes を unknown に倒すため (chat/presence touch 禁止と整合)、Observe Gate で必ず fail → MIRROR_CANDIDATE 不発火 → **C-2 read-only presence adapter + C-3 visible canary path** で対応
+  - diagnostic global Preview 表示: `lib/coalter/mirror/diagnosticDebugGlobal.ts:111` の `process.env.NODE_ENV === "production"` guard により Vercel Preview (= Next.js production build) で install 抑止 → **C-1 で `VERCEL_ENV` ベース guard に緩和 (1 line fix)** で対応
+  - close / sleep / cap / verification 実機: visible 経路発火に依存 → C-3 後の **C-4 実機 smoke** で対応
+  - `linguisticStopDetector` runtime: chat layer touch 必要 (現状禁止) → Phase C scope 再判断、別 PR 候補
+  - taxonomy 拡張 (Difference/Tempo/Fairness/Repair): **C-5 で検討のみ**、実装は別 PR + CEO 承認
+- **Phase A → Phase B 学び取り込み漏れ (重要、Phase C で修正)**:
+  - 🔴 Phase A 完了 docs §3.5 で「**NODE_ENV gate は Vercel Preview build (= production build) で canary を無効化するため採用禁止 (A-2e 補正)**」と明示されていたが、Phase B B-5a 設計時に取り込めていなかった → B-5c smoke で `diagnostic global undefined` の root cause として顕在化
+  - 学び: 次 Phase 着手前に **前 Phase 完了 docs §3 系 (重要発見・訂正) 必読 checklist** を C-0 design 冒頭に導入する
+- **なぜ B-5d を切らないか (CEO 判断 + Claude 補強)**:
+  - Phase B 境界の自然な終端 (B-5 の最後 B-5c が「shadow + UI primitive + smoke」で完結)
+  - visible 検証には presence 接続設計が必要、それは Phase C-0 integration design の本質
+  - diagnostic guard 緩和 (C-1) は 1 line だが Phase A 学びと連動、単独で行わず Phase C-0 design 後に整合的に
+  - core safety は実証済み、急いで visible を Phase B に押し込む実需が低い
+- **Phase C scope (C-0 〜 C-6、`docs/coalter-aoo-phase-b-completion.md` §8、sequential)**:
+  - C-0 Phase C integration design (docs)
+  - C-1 Preview-safe diagnostic exposure (1 line fix)
+  - C-2 read-only presence / relationship state adapter
+  - C-3 visible path forced canary or controlled candidate
+  - C-4 close / sleep / cap / verification 実機確認 smoke
+  - C-5 taxonomy 拡張検討 (docs、実装ではない)
+  - C-6 Phase C 全体 canary smoke
+- **Phase C でも維持する不可侵境界 (canon、`docs/coalter-aoo-phase-b-completion.md` §9 + Appendix C)**:
+  - Production env / all Preview env / DB / API route / Sentry / remote telemetry / LLM call / raw text 保存 / raw id 保存 / Question/Proposal 自動発火 / cross-session persistence / Alter Morning 混入 / package.json 変更 すべて禁止
+  - presence layer **write** 絶対禁止 (C-2 で read-only 限定許容)
+  - chat layer / ChatClient.tsx / MirrorSurface.tsx は 0 diff 維持
+  - Phase B canon §7.4 全 10 原則維持 (shadow mode pattern / default-STAY_SILENT / 7-layer postSpeakVerification / 4-gate orchestration / PII firewall / 4-layer flag gating / hedged grammar / retreat affordance / session-local / enum-locked template id)
+- **Phase B 構成**: B-1〜B-5c の 14 PR (B-0 design 2 + 実装 12)、tests 4425 件全 PASS、code 4 layer / docs 4 件
+- **承認**: CEO 判断「Option C 採用、B-5d 不起票、conditional pass 表現維持、B-6 起票」(2026-05-18)
+- **ステータス**: 実行中 (本 docs PR 起票)
+
+---
 ### 2026-05-18 CoAlter AOO Phase B B-5c Preview Canary Smoke 結果（conditional pass / CEO 判断材料提示）
 - **部門**: Build / Product
 - **smoke 実施日時**: 2026-05-18 JST
