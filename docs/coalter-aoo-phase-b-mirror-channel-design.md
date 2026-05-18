@@ -1,10 +1,35 @@
 # CoAlter Always-On Observer — Phase B Mirror Channel 設計
 
-**ステータス**: 設計 docs 概ね承認 (CEO レビュー 2026-05-17) / 実装着手は未承認 / merge は CEO 判断
+**ステータス**: Phase B **conditional pass で正式 close** (2026-05-18、`docs/coalter-aoo-phase-b-completion.md` 正本) / 本設計書は設計 reference として保持
 **起票日**: 2026-05-17
+**Phase B 完了日**: 2026-05-18 (CEO 実機 B-5c smoke で core safety 全項目 PASS / visible Mirror full validation は Phase C 持ち越し)
 **CEO レビュー反映日**: 2026-05-17（10 決定点を §10.2 RESOLVED 表 / §10.4 / §10.5 に反映）
 **前提**: Phase A 正式完了 (`docs/coalter-aoo-phase-a-completion.md`)
 **学術基盤**: Mixed-initiative interaction (Horvitz, 1999) / Reflective listening (Rogers) / Expected Value of Information (decision theory) / OECD AI agent definition (2024)
+
+> ## 🏁 Phase B 完了通知 (2026-05-18)
+>
+> 本設計書 (PR #164) の Phase B 実装 (B-1〜B-5c、PR #171〜#183) は **2026-05-18 に conditional pass で正式 close**。
+> 完了正本: `docs/coalter-aoo-phase-b-completion.md`
+>
+> ### Phase B 達成定義 (CEO 補正の正確な表現、絶対遵守)
+> - ✅ **safe default / no-disruption / no-leak / runtime guarded foundation validated**
+> - ❌ **NOT "visible Mirror fully validated"** — visible Mirror 経路の実機検証は **Phase C** で行う
+>
+> ### 未到達項目 (Phase C handoff scope、`coalter-aoo-phase-b-completion.md` §4 / §8)
+> - visible Mirror 経路の実機発火 (C-2 read-only presence adapter + C-3 visible canary)
+> - close / sleep / cap / verification の実機確認 (C-4)
+> - diagnostic global の Preview 表示 (C-1 で `NODE_ENV` guard 緩和、Phase A §3.5 学び反映)
+> - `linguisticStopDetector` runtime 接続 (Phase C scope 再判断、別 PR 候補)
+> - taxonomy 拡張 Difference / Tempo / Fairness / Repair (C-5 で検討、実装は別)
+>
+> ### Phase B canon (Phase C 以降不変、`coalter-aoo-phase-b-completion.md` §7.4)
+> default-STAY_SILENT 構造保証 / 7-layer postSpeakVerification / 4-gate visible orchestration / PII firewall (型 + runtime) / 4-layer flag gating / hedged grammar template only / retreat affordance / session-local persistence のみ / enum-locked template id / shadow mode pattern
+>
+> ### 本設計書の今後の扱い
+> 設計書本体 (§0〜§10) は **Phase C 設計の reference** として保持。新規実装は本設計書ではなく、`docs/coalter-aoo-phase-b-completion.md` + Phase C C-0 design (起票予定) を正本とする。
+
+---
 
 > ## ✅ CEO レビュー結果反映済 (2026-05-17)
 >
@@ -15,7 +40,7 @@
 > - Phase B 完了基準 → §10.5
 > - 関連 inline 反映: §2.3 (頻度上限 1/session 初期) / §3.3 (SPEAK_THRESHOLD = 0.75) / §5 (time_since_last_speak 必須) / §6.5 (Repair Mirror 軽微限定) / §7.6 (rollback 拡張) / §8.2-8.3 (Option A 確定 + 言語停止導線必須) / §9 (Phase B 前必須項目化)
 >
-> **実装着手・PR #164 merge・Ready 化は引き続き CEO 判断待ち**。
+> **実装着手・PR #164 merge・Ready 化は引き続き CEO 判断待ち** (本注記は 2026-05-17 時点、Phase B は 2026-05-18 完了済み)。
 
 ---
 
