@@ -15,9 +15,11 @@
 import type { ExternalAnchor } from "./external-anchor";
 import type { ExternalAnchorSource } from "./external-anchor-source";
 import type {
+  AnchorUpdatePatch,
   BundleError,
   CreateSourceWithAnchorsInput,
 } from "./external-anchor-repository";
+import type { AnchorInputValidationError } from "./external-anchor-input";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -47,6 +49,19 @@ export interface DeleteAnchorSourceData {
 export type DeleteAnchorSourceResult =
   | { ok: true; data: DeleteAnchorSourceData }
   | { ok: false; status: number; error: string };
+
+export interface UpdateAnchorSuccessData {
+  anchor: ExternalAnchor;
+}
+
+export type UpdateAnchorResult =
+  | { ok: true; data: UpdateAnchorSuccessData }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      errors?: AnchorInputValidationError[];
+    };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -299,5 +314,95 @@ export async function deleteAnchorSource(
   return {
     ok: true,
     data: { deletedSource, deletedAnchors },
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PATCH /api/plan/anchor-items/[anchorId] (W1-X2)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 既存 anchor を「教え直す」。
+ *
+ *   - cookie auth 自動付与
+ *   - 200 + { anchor }
+ *   - 401 / 404 / 422 / 5xx → ok:false（404 は user 不一致 / 不在を同一視）
+ *   - 422 validation error 時に errors 配列を伝搬
+ */
+export async function updateAnchor(
+  anchorId: string,
+  patch: AnchorUpdatePatch
+): Promise<UpdateAnchorResult> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `/api/plan/anchor-items/${encodeURIComponent(anchorId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify(patch),
+      }
+    );
+  } catch (e) {
+    return {
+      ok: false,
+      status: 0,
+      error: e instanceof Error ? e.message : "network error",
+    };
+  }
+
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { ok: false, status: res.status, error: "invalid JSON response" };
+  }
+
+  if (!res.ok) {
+    const obj = (json && typeof json === "object" ? json : {}) as Record<string, unknown>;
+    const errMsg =
+      typeof obj.error === "string" ? obj.error : `request failed: ${res.status}`;
+    const out: UpdateAnchorResult = {
+      ok: false,
+      status: res.status,
+      error: errMsg,
+    };
+    if (Array.isArray(obj.errors)) {
+      (out as { errors?: AnchorInputValidationError[] }).errors =
+        obj.errors as AnchorInputValidationError[];
+    }
+    return out;
+  }
+
+  if (
+    !json ||
+    typeof json !== "object" ||
+    !("ok" in json) ||
+    !("data" in json)
+  ) {
+    return {
+      ok: false,
+      status: res.status,
+      error: "unexpected response shape",
+    };
+  }
+
+  const data = (json as { data: unknown }).data;
+  if (!data || typeof data !== "object") {
+    return { ok: false, status: res.status, error: "response.data missing" };
+  }
+  const anchor = (data as { anchor?: unknown }).anchor;
+  if (!anchor || typeof anchor !== "object") {
+    return {
+      ok: false,
+      status: res.status,
+      error: "response.data.anchor missing",
+    };
+  }
+
+  return {
+    ok: true,
+    data: { anchor: anchor as ExternalAnchor },
   };
 }

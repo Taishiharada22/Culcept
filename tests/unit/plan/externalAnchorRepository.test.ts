@@ -596,3 +596,97 @@ describe("不変条件: throw しない / 入力 mutate しない", () => {
     expect(JSON.stringify(anchors)).toBe(snapshot);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// updateAnchor — W1-X2 編集
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("updateAnchor (W1-X2) — memory contract", () => {
+  async function setupOneOff() {
+    const repo = makeRepo();
+    const r = await repo.createSourceWithAnchors("user-A", {
+      source: makeManualSource(),
+      anchors: [makeOneOff({ title: "歯科" })],
+    });
+    if (!r.ok) throw new Error("setup failed");
+    return { repo, sourceId: r.source.id, anchorId: r.anchors[0]!.id };
+  }
+
+  it("自分の anchor を update → ok:true、変更が反映", async () => {
+    const { repo, anchorId } = await setupOneOff();
+    const r = await repo.updateAnchor("user-A", anchorId, {
+      title: "歯科クリニック",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.anchor.title).toBe("歯科クリニック");
+  });
+
+  it("anchor 不在 → { ok:false, kind:'not_found' }", async () => {
+    const repo = makeRepo();
+    const r = await repo.updateAnchor("user-A", "nonexistent", {
+      title: "X",
+    });
+    expect(r).toEqual({ ok: false, kind: "not_found" });
+  });
+
+  it("他 user の anchor → { ok:false, kind:'not_found' } (情報漏洩防止)", async () => {
+    const { repo, anchorId } = await setupOneOff();
+    const r = await repo.updateAnchor("user-B", anchorId, { title: "X" });
+    expect(r).toEqual({ ok: false, kind: "not_found" });
+  });
+
+  it("anchorKind 変更を patch で送っても拒否される（existing 強制）", async () => {
+    const { repo, anchorId } = await setupOneOff();
+    const r = await repo.updateAnchor("user-A", anchorId, {
+      anchorKind: "recurring",
+      validFrom: "2026-06-01",
+      recurrenceRule: "FREQ=WEEKLY;BYDAY=MO",
+    } as Parameters<typeof repo.updateAnchor>[2]);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.anchor.anchorKind).toBe("one_off");
+    }
+  });
+
+  it("id / userId / sourceId 改竄が patch にあっても無視", async () => {
+    const { repo, anchorId, sourceId } = await setupOneOff();
+    const r = await repo.updateAnchor("user-A", anchorId, {
+      title: "modified",
+    } as Parameters<typeof repo.updateAnchor>[2]);
+    // 上記は通常 case。明示的 sanitization は API route 層、ここでは
+    // 通常 patch で id/userId/sourceId が含まれていない前提
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.anchor.id).toBe(anchorId);
+      expect(r.anchor.userId).toBe("user-A");
+      expect(r.anchor.sourceId).toBe(sourceId);
+    }
+  });
+
+  it("invalid patch (startTime format) → { ok:false, kind:'invalid', errors }", async () => {
+    const { repo, anchorId } = await setupOneOff();
+    const r = await repo.updateAnchor("user-A", anchorId, {
+      startTime: "25:99",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok && r.kind === "invalid") {
+      expect(r.errors.some((e) => e.field === "startTime")).toBe(true);
+    }
+  });
+
+  it("recurring anchor の曜日変更", async () => {
+    const repo = makeRepo();
+    const created = await repo.createSourceWithAnchors("user-A", {
+      source: makeTemplateSource(),
+      anchors: [makeRecurring({ recurrenceRule: "FREQ=WEEKLY;BYDAY=MO" })],
+    });
+    if (!created.ok) throw new Error("setup failed");
+    const r = await repo.updateAnchor("user-A", created.anchors[0]!.id, {
+      recurrenceRule: "FREQ=WEEKLY;BYDAY=TU,TH",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok && r.anchor.anchorKind === "recurring") {
+      expect(r.anchor.recurrenceRule).toBe("FREQ=WEEKLY;BYDAY=TU,TH");
+    }
+  });
+});

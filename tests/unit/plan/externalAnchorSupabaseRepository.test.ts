@@ -374,4 +374,82 @@ describe("SupabaseExternalAnchorRepository — contract", () => {
       expect(result).toEqual({ deletedSource: false, deletedAnchors: 0 });
     });
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // updateAnchor — W1-X2 (Supabase impl)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  describe("updateAnchor (W1-X2)", () => {
+    async function setupOneOff() {
+      const { repo, client } = makeRepo();
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff({ title: "歯科" })])
+      );
+      if (!r.ok) throw new Error("setup failed");
+      return { repo, client, anchorId: r.anchors[0]!.id };
+    }
+
+    it("自分の anchor を update → ok:true、変更が DB に反映", async () => {
+      const { repo, client, anchorId } = await setupOneOff();
+      const r = await repo.updateAnchor(USER_A, anchorId, {
+        title: "歯科クリニック",
+      });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.anchor.title).toBe("歯科クリニック");
+      // store にも反映
+      const row = client
+        .inspect("external_anchors")
+        .find((x) => x.id === anchorId);
+      expect((row as { title: string } | undefined)?.title).toBe(
+        "歯科クリニック"
+      );
+    });
+
+    it("anchor 不在 → { ok:false, kind:'not_found' }", async () => {
+      const { repo } = makeRepo();
+      const r = await repo.updateAnchor(USER_A, "nonexistent", { title: "X" });
+      expect(r).toEqual({ ok: false, kind: "not_found" });
+    });
+
+    it("他 user → { ok:false, kind:'not_found' } (情報漏洩防止)", async () => {
+      const { repo, anchorId } = await setupOneOff();
+      const r = await repo.updateAnchor(USER_B, anchorId, { title: "X" });
+      expect(r).toEqual({ ok: false, kind: "not_found" });
+    });
+
+    it("invalid patch → { ok:false, kind:'invalid', errors }", async () => {
+      const { repo, anchorId } = await setupOneOff();
+      const r = await repo.updateAnchor(USER_A, anchorId, {
+        startTime: "25:99",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok && r.kind === "invalid") {
+        expect(r.errors.some((e) => e.field === "startTime")).toBe(true);
+      }
+    });
+
+    it("anchorKind 変更 patch は existing kind 強制", async () => {
+      const { repo, anchorId } = await setupOneOff();
+      const r = await repo.updateAnchor(USER_A, anchorId, {
+        anchorKind: "recurring",
+        validFrom: "2026-06-01",
+        recurrenceRule: "FREQ=WEEKLY;BYDAY=MO",
+      } as Parameters<typeof repo.updateAnchor>[2]);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.anchor.anchorKind).toBe("one_off");
+    });
+
+    it("SELECT で DB error → throw", async () => {
+      const { repo, anchorId, client } = await setupOneOff();
+      client.failNext("select", "external_anchors", {
+        code: "MOCK_ERROR",
+        message: "boom",
+      });
+      await expect(
+        repo.updateAnchor(USER_A, anchorId, { title: "X" })
+      ).rejects.toThrow(/updateAnchor/);
+    });
+  });
 });
