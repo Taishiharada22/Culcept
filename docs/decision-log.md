@@ -13,6 +13,102 @@
 ```
 
 ---
+### 2026-05-18 CoAlter AOO Phase B B-5c Preview Canary Smoke 結果（conditional pass / CEO 判断材料提示）
+- **部門**: Build / Product
+- **smoke 実施日時**: 2026-05-18 JST
+- **対象 branch**: `chore/coalter-mirror-b5c-canary` (HEAD `b58f50be`、main `d280d105` ベース、PR #181 B-5c smoke plan merged 後の empty commit)
+- **Preview URL (canonical)**: https://culcept-kk1fecqow-taishis-projects-0a8deb17.vercel.app (`dpl_H2EbjbszFJfdrQPN7cbmEsSHfB78`、target=preview、status=Ready、gitCommitRef 一致)
+- **deploy 経緯**: 当初 git-integration build は `vercel.json` の `ignoreCommand` (`.md` 以外の変更がない場合 skip) により Canceled。`npx vercel --force` で IBS を bypass し、git-attributed Preview build を生成 (code / docs / package.json 一切無変更、bypass は CLI flag のみ)
+- **env 投入**:
+  - `NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED=true` → `Preview (chore/coalter-mirror-b5c-canary)` のみ
+  - `NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE=true` → 同上
+  - Production / 全 Preview (branch 非指定) / Development には一切投入されず (Claude 投入前後・削除後で 3 scope strict 確認、全 0)
+- **env 削除確認 (CEO 削除完了後、Claude 検証)**: `NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED` / `NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE` 共に production / preview / development の **全 scope で 0 件**
+
+#### CEO 実機 smoke 観測結果
+| Phase 1 Sanity (5 項目) | 結果 |
+|---|---|
+| console error 重大なし | ✅ |
+| UI 崩れなし | ✅ |
+| presence layer / CoAlter chat UI 影響なし | ✅ |
+| Network outbound (Mirror 関連) 0 | ✅ (確認可能範囲) |
+| MirrorSurface (B-1 hidden shell) mount | ✅ (env baked, build healthy) |
+
+| Phase 2 通常会話 (7 項目) | 結果 |
+|---|---|
+| default で MirrorVisibleSurface 出ない | ✅ (一度も visible 出現せず、`default STAY_SILENT` 許容範囲) |
+| State Mirror only | **N/A** (visible 未出現) |
+| text ≤ 60 chars | **N/A** |
+| Question/Proposal/Suggestion 見えない | **N/A** |
+| 命令形 / 共感演技なし | **N/A** |
+| 「閉じる」が効く | **N/A** (CEO 報告: 「未確認」) |
+
+| Phase 3 Edge case (7 項目) | 結果 |
+|---|---|
+| 「黙ってもらう」が効く | **N/A** (CEO 報告: 「未確認」) |
+| sleep ON 状態挙動 | **N/A** |
+| SleepUIToggle 動作 | **N/A** (mount はされているが visual 未確認) |
+| session cap 1 効く | **N/A** (発火経路がない) |
+| duplicate template 出ない | **N/A** |
+| linguistic stop runtime 接続なし (合格) | ✅ (B-5b 設計通り、runtime 接続なし) |
+| dismiss 明示 click のみ | **N/A** |
+
+| Diagnostic (`window.__coalterMirrorDiagnostic`) | 結果 |
+|---|---|
+| install 確認 | ❌ **undefined** (production NODE_ENV guard で install 抑止、`lib/coalter/mirror/diagnosticDebugGlobal.ts:111` の defensive layer) |
+| getSnapshot() の PII 一致なし | **N/A** (global 未 install のため検査不能) |
+
+| PII / Safety | 結果 |
+|---|---|
+| Network outbound 0 (Mirror 関連) | ✅ |
+| DOM text に PII pattern 一致なし | ✅ (確認可能範囲) |
+| console に PII pattern 一致なし | ✅ |
+| Production env 流出 | 0 ✅ |
+| 全 Preview env 流出 | 0 ✅ |
+
+- **観測サマリ**:
+  - diagnostic entry 数: 観測不能 (debug global 未 install)
+  - MIRROR_CANDIDATE 発火数: 不明 (debug global 未 install、ただし visible 未出現から推定 0 or 全 verification reject)
+  - visible 表示数: **0** (構造的、§理由参照)
+  - console error: 重大なし
+  - PII leak (確認可能範囲): 0
+  - UI / presence / chat 影響: なし
+  - rollback trigger: 0
+
+#### 判定: **conditional pass (B-5 core 安全達成、visible / diagnostic 観測は構造的未到達)**
+
+##### pass 部分 (core 安全性)
+- B-5a/B-5b の **不可侵境界 (chat / presence / observer / production env / package.json / DB / Sentry / fetch / storage / LLM 一切なし)** が **本番環境で実証された**
+- 既存 presence layer / CoAlter chat UI / console を一切壊さなかった
+- env 流出 0 (branch-scoped only)
+- PII leak 0 (確認可能範囲)
+- default STAY_SILENT 100% (Mirror が一度も出現せず) — 北極星「黙る」を構造的に達成
+
+##### N/A 部分 (構造的に観測未到達、ただしこれは設計通りの帰結)
+- **visible Mirror 経路の観測 N/A**: B-5b の `engineAdapter` は presence-derived axes (modeContext / alignment / uncertainty / silenceBudget / patternCategory) を**全て `unknown` に倒している** (chat/presence layer touch 禁止と整合)。これにより `decideMirror()` は必ず Observe Gate を `observe_gate_unknown_modeContext` で fail → STAY_SILENT。MIRROR_CANDIDATE が出ない設計のため、visible Mirror / 「閉じる」 / 「黙ってもらう」 / cap / sleep / verification の実機検証は構造的に不可能
+- **diagnostic global 観測 N/A**: `lib/coalter/mirror/diagnosticDebugGlobal.ts:111` の `process.env.NODE_ENV === "production"` guard が install を抑止。Vercel Preview build は `NODE_ENV=production` (Next.js production build) のため、`NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE=true` を投入しても guard が優先される
+
+#### 副次提案 (CEO 判断対象、3 つの選択肢)
+1. **Option A — Phase B 完了宣言 (B-6 起票)**: core 安全達成を根拠に Phase B 完了とする。visible 経路の実機検証は Phase C (Difference / Tempo / Fairness / Repair Mirror) 実装時に presence 接続を統合して実機検証する。最速で Phase B を閉じられる。
+2. **Option B — 修正 PR (B-5d) → 再 smoke → Phase B 完了**: (i) `diagnosticDebugGlobal.ts` の production guard を `VERCEL_ENV !== "production"` ベース等に緩和 (1 line)、(ii) `engineAdapter.ts` に最小限の presence read-only 接続を追加 (chat layer は依然 touch しない、presence layer も既存の公開 API 経由 read-only)、を含む B-5d 修正 PR → 再 canary smoke → Phase B 完了。「visible 経路まで実機で見届けてから Phase B 完了」を厳格にする path。
+3. **Option C — Phase C 統合実機検証**: B-5 は構造完成として close (B-6 docs 起票はする) し、visible 経路の実機検証は Phase C 設計時に presence 接続と一緒に実施する。Option A と似るが、Phase B 完了宣言の文面に「visible 経路は Phase C 実機検証で確定」と明記する点で異なる。
+
+#### Claude 推奨
+- **Option A** または **Option C** が現実的。理由:
+  - B-5b 段階で **visible 経路を実機で見届けることは、設計上の不可侵境界 (chat/presence touch 禁止) と矛盾**するため、無理に B-5d を切ると境界違反のリスクが増える
+  - core 安全性 (UI 不変 / PII 0 / 構造的 default STAY_SILENT) は B-5c smoke で実証済み
+  - visible 経路は Phase C で **presence 接続 + Difference/Tempo/Fairness/Repair taxonomy 設計と一緒に** 検証するのが整合性高い
+- ただし **Option B も妥当** — 「Phase B 完了の境界を厳格に定義」する観点では、visible 経路まで実機で見届けてから閉じる方が安全
+
+#### 次 action (CEO 判断待ち)
+- (A) Phase B 完了 → B-6 docs 起票
+- (B) B-5d 修正 PR 起票 → 再 smoke → Phase B 完了
+- (C) B-6 docs 起票 (Phase B 完了) + Phase C 設計で visible 経路実機検証を明記
+
+- **承認**: CEO 判断待ち (3 options 提示済み)
+- **ステータス**: 実行済 (smoke 完了 / env 削除 / 確認 / 判定提示)
+
+---
 ### 2026-05-17 CoAlter AOO Phase A 正式完了宣言（CEO 実機 A-2e canary 観測 FULL PASS）
 - **部門**: Build / Product
 - **決定内容**: CoAlter Always-On Observer (AOO) Phase A を CEO 実機 A-2e canary 観測の FULL PASS 結果をもって正式完了とする。完了正本は新規 docs `docs/coalter-aoo-phase-a-completion.md`。設計書 `docs/coalter-always-on-observer-design.md` 冒頭に Phase A 完了通知 banner を追加

@@ -630,3 +630,47 @@ for SCOPE in production preview development; do
   vercel env ls $SCOPE | grep -iE "MIRROR|DIAGNOSTIC" || echo "(none)"
 done
 ```
+
+> **改善メモ (2026-05-18 smoke 後)**: `grep -iE "MIRROR|DIAGNOSTIC"` は Phase A 由来の `COALTER_DIAGNOSTICS_TOKEN_CURRENT` / `COALTER_UNDERSTANDING_DIAGNOSTICS` を false positive で拾う。今後の audit では strict match `grep -E "(NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED|NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE)"` を推奨。
+
+---
+
+## §15 Smoke 実施結果 (2026-05-18、追記)
+
+### 15.1 実施環境
+
+| 項目 | 値 |
+|---|---|
+| 実施日 | 2026-05-18 JST |
+| canary branch | `chore/coalter-mirror-b5c-canary` (HEAD `b58f50be`、empty commit) |
+| Preview URL | https://culcept-kk1fecqow-taishis-projects-0a8deb17.vercel.app |
+| deployment id | `dpl_H2EbjbszFJfdrQPN7cbmEsSHfB78` (target=preview, status=Ready, gitCommitRef=chore/coalter-mirror-b5c-canary) |
+| env 投入 / 削除 | branch-scoped only、全 scope 削除確認済み |
+
+### 15.2 観測結果サマリ (詳細は `docs/decision-log.md` 2026-05-18 entry)
+
+#### pass (core 安全性)
+- console error 重大なし / UI 崩れなし / presence・chat 影響なし
+- env 流出 0 / PII leak 0 (確認可能範囲)
+- default STAY_SILENT 100% (Mirror 一度も出現せず)
+- rollback trigger 0
+
+#### N/A (構造的に観測未到達 — これは設計通り)
+- **visible Mirror 経路**: `engineAdapter` が presence-derived axes を全て `unknown` に倒すため (chat/presence layer touch 禁止と整合)、Observe Gate が必ず `observe_gate_unknown_modeContext` で fail → MIRROR_CANDIDATE 不発火。よって閉じる / 黙ってもらう / cap / sleep / verification の **実機検証は構造的に不可能**
+- **diagnostic global**: `diagnosticDebugGlobal.ts:111` の `process.env.NODE_ENV === "production"` guard により Preview build (Next.js production build) では install 抑止。`NEXT_PUBLIC_COALTER_MIRROR_DIAGNOSTIC_EXPOSE=true` を投入しても guard が優先
+
+### 15.3 判定: **conditional pass (B-5 core 安全達成、visible / diagnostic は構造的未到達)**
+
+### 15.4 副次論点 (CEO 判断対象、3 options)
+
+| Option | 内容 | 利点 | 欠点 |
+|---|---|---|---|
+| **A** | Phase B 完了宣言 (B-6 起票)、visible 経路は Phase C で検証 | 最速で Phase B close、Phase C と統合で整合 | visible 経路の実機保証が Phase C にずれ込む |
+| **B** | B-5d 修正 PR (diagnostic guard 緩和 + presence read-only 接続) → 再 smoke → Phase B 完了 | visible 経路まで実機で見届けて Phase B close | 不可侵境界が緩む可能性、PR 1 本増 |
+| **C** | B-6 起票 (Phase B 完了) + Phase C 設計に visible 経路実機検証を明記 | Phase B 完了の責務を Phase C にも分散明記 | A と実質ほぼ同じ |
+
+**Claude 推奨**: **Option A** or **Option C** (整合性高、不可侵境界維持)。
+
+### 15.5 副次副次提案 — smoke 観測 false positive 改善
+
+§10 cleanup / §2 pre-flight の env scan command を strict match に変更 (`NEXT_PUBLIC_COALTER_MIRROR_*` 限定) すると、Phase A 由来の DIAGNOSTIC 系 env が false positive で拾われない。次の smoke runbook で反映予定。
