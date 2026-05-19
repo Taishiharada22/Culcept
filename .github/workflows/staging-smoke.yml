@@ -81,15 +81,25 @@ jobs:
           echo "DEV_PID=$!" >> $GITHUB_ENV
 
       - name: Wait for dev server ready
+        # ready check は `/` (Home page) ではなく `/api/plan/anchors` を叩く。
+        # 理由: Home page は supabaseAdmin を読む可能性があり、
+        # service_role を持たない CI 環境では render 失敗で false fail になる。
+        # `/api/plan/anchors` は cookie auth ベース、未認証では 401 を返す。
+        # 401 を「dev server が API route として動いている」signal とみなす。
+        # 200 は cookie が刺さっていないので想定外、401 以外は retry。
         run: |
-          for i in $(seq 1 90); do
-            if curl -sf http://localhost:3000 -o /dev/null; then
-              echo "dev server ready at attempt $i"
+          last_status=""
+          for i in $(seq 1 120); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" \
+              http://localhost:3000/api/plan/anchors || echo "000")
+            last_status="$status"
+            if [ "$status" = "401" ]; then
+              echo "dev server ready at attempt $i (got 401 as expected)"
               exit 0
             fi
             sleep 1
           done
-          echo "dev server did not become ready"
+          echo "dev server did not become ready (last status: $last_status)"
           cat /tmp/dev.log || true
           exit 1
 
