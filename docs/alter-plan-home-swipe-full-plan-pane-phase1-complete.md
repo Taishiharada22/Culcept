@@ -157,7 +157,7 @@ W1-Z apply 完了 + 1 週間観測で `rpc_fallback` 0 確認後、別 wave で:
 
 | # | 判断 | 選択肢 |
 |---|------|--------|
-| 1 | **W1-Z apply の timing** | A. 即時 / B. β user 招待前 / C. Phase 2 着手前 / D. 永続 fallback (apply しない) |
+| 1 | **W1-Z apply の timing** | A. 即時 (推奨) / C. Phase 2 着手前 / D. 永続 fallback (apply しない) |
 | 2 | **Phase 2 着手順序** | 2-A → 2-B → 2-C / 2-A のみ / 全部保留 |
 | 3 | **Phase 3 (空き日 → ALTER flow) の優先度** | Phase 2 完了後 / Stargazer 観測完了後 / 別 wave |
 | 4 | **W1-Z+ cleanup の timing** | apply + 1 週観測後 / 必要性が確認できたら |
