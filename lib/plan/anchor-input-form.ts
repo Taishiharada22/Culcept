@@ -422,10 +422,10 @@ export function buildAnchorInputFromForm(
     exceptionDates: string[];
   }> = {};
   if (state.validUntil) recurringExtra.validUntil = state.validUntil;
-  // W1-X4: exception dates。空配列は input に含めない（SoT validator は undefined を許容）
-  if (state.exceptionDates.length > 0) {
-    recurringExtra.exceptionDates = [...state.exceptionDates];
-  }
+  // W1-X4: exception dates は**常に**含める（空配列も明示）。
+  // 理由: PATCH update で削除を表現するには空配列を送る必要がある。
+  // SoT validator は空配列を valid として透過する。
+  recurringExtra.exceptionDates = [...state.exceptionDates];
 
   const candidate = {
     anchorKind: "recurring" as const,

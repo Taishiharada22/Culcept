@@ -538,7 +538,7 @@ describe("buildAnchorInputFromForm — exceptionDates (W1-X4)", () => {
     }
   });
 
-  it("recurring + 空 exceptionDates → input.exceptionDates は undefined", () => {
+  it("recurring + 空 exceptionDates → input.exceptionDates は [] (PATCH 削除を表現するため明示)", () => {
     const state: AnchorFormState = {
       ...emptyAnchorFormState(),
       kind: "recurring",
@@ -551,9 +551,8 @@ describe("buildAnchorInputFromForm — exceptionDates (W1-X4)", () => {
     const r = buildAnchorInputFromForm(state);
     expect(r.valid).toBe(true);
     if (r.valid && r.input.anchorKind === "recurring") {
-      expect(
-        (r.input as Record<string, unknown>).exceptionDates
-      ).toBeUndefined();
+      // 空配列は明示で含める（PATCH update で削除を表現するため）
+      expect(r.input.exceptionDates).toEqual([]);
     }
   });
 
