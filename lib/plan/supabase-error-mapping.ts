@@ -162,3 +162,40 @@ export function isPostgrestErrorShape(value: unknown): value is PostgrestError {
   const o = value as Record<string, unknown>;
   return typeof o.message === "string" && (typeof o.code === "string" || o.code === undefined || o.code === null);
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// W1-Y: RPC fallback 判定
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * RPC 呼び出し error から「function missing / RPC unavailable」を判定する。
+ *
+ * production migration が未 apply な環境で、staging で着地した RPC 実装を
+ * 安全に fallback させるための gate。
+ *
+ * Fallback すべき条件（function 自体が存在しない / PostgREST 経路の構造異常）:
+ *   - PGRST202: "Could not find the function ..."
+ *   - PGRST100: PostgREST parser error
+ *   - PostgreSQL 42883 (undefined_function)
+ *
+ * Fallback **してはならない** 条件（function はあるが authentic な error）:
+ *   - 42501 (insufficient_privilege)
+ *   - 23xxx (check / not_null / unique / foreign_key violation)
+ *   - その他 PostgrestError (network / 5xx 等は伝播)
+ *
+ * 設計書: docs/alter-plan-w1y-rpc-atomicity-mini-design.md §3
+ */
+export function shouldFallbackFromRpcError(err: PostgrestError | null | undefined): boolean {
+  if (!err) return false;
+  const code = err.code ?? "";
+  // PostgREST function 不在
+  if (code === "PGRST202") return true;
+  // PostgREST parser error
+  if (code === "PGRST100") return true;
+  // PostgreSQL 「unknown function」
+  if (code === "42883") return true;
+  // message ベース fallback（PostgREST が code を出さないケースの安全網）
+  const msg = (err.message ?? "").toLowerCase();
+  if (msg.includes("could not find the function")) return true;
+  return false;
+}
