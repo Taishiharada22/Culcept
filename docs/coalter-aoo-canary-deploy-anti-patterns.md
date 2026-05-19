@@ -223,26 +223,71 @@ git push -u origin chore/coalter-mirror-c<N>-canary
 # 5. §4 Supabase ref grep verify
 ```
 
-### Option B: empty commit + Vercel UI 経由 redeploy (deploy ID 経由) — 試験中
+### Option B: `.canary-trigger.json` + `vercel.json` `ignoreCommand` 拡張 (Phase D-2 で**実装済**)
 
-empty commit 単独は IBS で skip されるが、Vercel UI の Redeploy button から trigger すると git attribution が付く可能性。Phase D で確認。
+Phase D-2 で `vercel.json` の `ignoreCommand` を**最小拡張**し、新規 dedicated metadata file `.canary-trigger.json` の変更を canary build trigger として認識する経路を確立。
 
-### Option C: vercel.json `ignoreCommand` を canary branch 限定で例外化 — 設計案
+#### 実装 (D-2 main 配置)
 
+**`vercel.json` ignoreCommand** (1 line):
 ```json
-// vercel.json 拡張案 (Phase D-0 design で検討)
-{
-  "ignoreCommand": "
-    if [[ \"$VERCEL_GIT_COMMIT_REF\" =~ ^chore/coalter-mirror-c[0-9]+-canary$ ]]; then
-      exit 1;  // canary branch は常に build
-    else
-      [ -z \"$(git diff --name-only HEAD^ HEAD | grep -v '\\.md$')\" ] && exit 0 || exit 1
-    fi
-  "
-}
+"ignoreCommand": "git diff --name-only HEAD^ HEAD | grep -q '^\\.canary-trigger\\.json$' && exit 1; [ -z \"$(git diff --name-only HEAD^ HEAD | grep -v '\\.md$')\" ] && exit 0 || exit 1"
 ```
 
-これは code 変更 (vercel.json) のため、Phase D の正式 design + CEO 承認後にのみ実施。
+**判定 logic** (CEO 補正 2026-05-19 厳守、tests/unit/coalter/canaryTriggerIgnoreCommand.test.ts §"shouldBuild pure logic mirror" で永続検証):
+
+| 変更内容 | exit | 挙動 |
+|---|---|---|
+| `.md` のみ | 0 | **skip** (Vercel build しない、既存挙動維持) |
+| `.canary-trigger.json` のみ | 1 | **build** (D-2 で追加) |
+| `.md + .canary-trigger.json` | 1 | **build** (canary-trigger 優先、D-2 で追加) |
+| code (`.ts/.tsx/etc`) のみ | 1 | **build** (既存挙動維持) |
+| `.md + code` | 1 | **build** (既存挙動維持) |
+| 空 | 0 | skip (defensive) |
+
+**`.canary-trigger.json`** (repo root):
+- canary smoke 専用 metadata file
+- 含むもの: `phase` / `smoke_purpose` / `canary_branch` / `expected_supabase_ref` / `forbidden_supabase_ref` / `trigger_at` / `trigger_count`
+- **絶対に含めないもの**: secret / token / API key / PII (test で invariant 強制、§"secret-free")
+
+#### Phase D-2 以降 canary smoke の git-attributed trigger 標準手順
+
+```bash
+# 1. canary branch を作成 + checkout
+git checkout main && git pull
+git checkout -b chore/coalter-mirror-c<N>-canary
+
+# 2. .canary-trigger.json の metadata を更新
+#    phase / canary_branch / trigger_at / trigger_count をそれぞれ修正
+#    あるいは trigger_count を increment するだけでも file diff が発生
+$EDITOR .canary-trigger.json
+
+# 3. commit + push
+git add .canary-trigger.json
+git commit -m "chore(coalter): trigger C-<N> canary build (canary-trigger metadata update)"
+git push -u origin chore/coalter-mirror-c<N>-canary
+
+# 4. Vercel GitHub integration が自動 build trigger
+#    → source: github / gitSource.ref: chore/coalter-mirror-c<N>-canary 確実
+#    → branch-scoped Preview env を build に baked-in
+
+# 5. §3.4 verify-canary-deploy.ts (D-1) で 3 gate 検証 (Gate 2 で git attribution、Gate 3 で Supabase ref)
+```
+
+#### D-2 と Option A の関係
+
+| 項目 | Option A (`.ts/.tsx` 最小 trigger commit) | Option B (`.canary-trigger.json` + ignoreCommand、D-2 実装済) |
+|---|---|---|
+| 実装 | docs / 運用手順 (D-0 §4.3 案) | **D-2 で実装済** (vercel.json + .canary-trigger.json) |
+| 利用シーン | D-2 実装前の fallback / 緊急時 | **Phase D-2 以降の標準** (canary smoke すべて) |
+| code 変更 | 各 canary で必要 (jsdoc 5 行) | trigger metadata 更新のみ (`trigger_count` increment 等) |
+| 履歴汚染 | 各 canary に jsdoc commit | `.canary-trigger.json` の commit 履歴のみ |
+
+→ **Phase D-2 以降は Option B (`.canary-trigger.json` + ignoreCommand) を標準**として使う。Option A は緊急時の fallback。
+
+### Option C: Vercel UI で canary branch を IBS 例外化 — D-3 で再評価
+
+Vercel Dashboard 設定の機能存在 / 安定性は D-2 実装後に未確認。D-3 で env 分離戦略 (Mirror 専用 Preview Supabase project 等) と一緒に CEO 判断。
 
 ---
 
