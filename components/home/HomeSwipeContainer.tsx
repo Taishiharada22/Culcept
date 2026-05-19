@@ -174,10 +174,37 @@ export default function HomeSwipeContainer({
               aria-roledescription="swipeable pane"
               aria-hidden={inactive}
               tabIndex={inactive ? -1 : 0}
-              className="flex-shrink-0 h-full overflow-hidden"
+              // inert: 旧仕様の "inactive" 状態の代替。React 19 / Next 15 で
+              // 標準サポート。tabindex / pointer-events / aria-hidden の全てを
+              // recursively 一発で適用 (a11y + 操作の二重防御)。
+              // 型に inert がない場合は string 化で問題なく動作。
+              {...((inactive ? { inert: "" } : {}) as Record<string, string>)}
+              className="flex-shrink-0 h-full overflow-hidden relative"
               style={{
                 width: `${100 / PANE_COUNT}%`,
+                // CSS containing block 修正 (CEO 補正 #2、2026-05-19):
+                //
+                // 問題:
+                //   AneurasyncHome の root は `position: fixed; inset: 0; w-full h-full`、
+                //   BottomNav も `fixed bottom-0 left-0 right-0`。これら fixed 子孫は
+                //   通常 viewport を containing block にするが、motion.div が `transform`
+                //   を持つため、motion.div が containing block に格上げされる
+                //   (CSS Positioned Layout 仕様)。motion.div は `width: 200%` のため、
+                //   fixed inset-0 は motion.div の 200% 幅全体を覆い、Plan pane を
+                //   完全に隠す = "Plan pane がほぼ空白に見える" の root cause。
+                //
+                // 修正:
+                //   pane div 自身に `transform` (= `translateZ(0)`) と `contain: layout paint`
+                //   を設定し、fixed 子孫の containing block を **各 pane** に閉じ込める。
+                //   motion.div の translate と一緒に動く pane div を containing block に
+                //   することで、Pane 0 が off-screen に移動するとき、その fixed 子孫
+                //   (AneurasyncHome root, BottomNav, Composer 等) も一緒に off-screen に。
+                //
+                // ref: https://developer.mozilla.org/en-US/docs/Web/CSS/position#fixed_positioning
+                transform: "translateZ(0)",
+                contain: "layout paint",
                 // non-active pane は pointer events 無効 → 内部 click が誤発火しない
+                // (inert と二重防御、inert 非対応 browser での fallback)
                 pointerEvents: inactive ? "none" : "auto",
               }}
               data-testid={`home-pane-${id}`}
