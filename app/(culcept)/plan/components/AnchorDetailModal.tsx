@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import {
   GlassBadge,
   GlassButton,
@@ -79,6 +80,12 @@ export function AnchorDetailModal({
   // Modal close 時に confirm state 必ず reset
   useEffect(() => {
     if (!isOpen) setDeleteState({ kind: "idle" });
+  }, [isOpen]);
+
+  // Phase 1 C3 (2026-05-20): Home swipe lock register (CEO 補正 #3)
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerHomeSwipeModalOpen();
   }, [isOpen]);
 
   const impact = useMemo(

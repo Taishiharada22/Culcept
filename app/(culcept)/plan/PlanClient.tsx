@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * PlanClient — Alter Plan UI root (W1-5 + W1-X1 + W1-X3)
+ * PlanClient — Alter Plan UI root (W1-5 + W1-X1 + W1-X3 + W1-Home-Swipe Phase 1)
  *
  * 設計書:
  *   - docs/alter-plan-w15-ui-mini-design.md (3 レンズ)
  *   - docs/alter-plan-w1x1-mini-design.md (Add/Delete UI)
  *   - docs/alter-plan-w1x3-cell-add-mini-design.md (cell add 導線)
+ *   - docs/alter-plan-home-swipe-full-plan-pane-mini-design.md (Phase 1 設計)
  *
  * 責務:
  *   - GET /api/plan/anchors を 1 回 fetch（mount 時）+ POST/DELETE 成功時に refetch
@@ -16,11 +17,19 @@
  *   - "+ 教える" / "📋 教えた予定" の 2 modal を制御
  *   - W1-X3: pending initialState / contextSubtitle を modal に渡す
  *
- * 範囲外:
- *   - PATCH/PUT 編集
- *   - DraftPlan / 横スワイプ
- *   - W1-6 passive drift logging
- *   - W1-8 Home 導線
+ * W1-Home-Swipe Phase 1 (2026-05-20):
+ *   - `displayMode?: "route" | "pane"` prop で chrome 出し分け
+ *   - route mode (default): /plan 直 URL 経由の単独画面、従来 chrome
+ *   - pane mode: Home 横スワイプ pane 1 として embed、簡素 chrome、薄紫 gradient
+ *   - fetch / Modal / tab logic は両 mode 共通 (機能差分なし)
+ *   - /plan 直 URL は従来通り route mode で render される
+ *
+ * 範囲外 (Phase 1):
+ *   - CalendarTab を月ビュー化 (現週ビュー継続、Phase 2)
+ *   - FlowTab を image thumbnail 化 (Phase 2)
+ *   - MapTab Google Maps integration (Phase 2)
+ *   - 空き日 → ALTER 提案 flow (Phase 3)
+ *   - DraftPlan / W1-6 passive drift logging
  */
 
 import { useEffect, useState } from "react";
@@ -48,14 +57,16 @@ import { MapTab } from "./tabs/MapTab";
 
 type PlanTab = "calendar" | "flow" | "map";
 
+// Phase 1 C2 (2026-05-20): tab label を CEO mock 寄せ ("Flow"→"リスト"、"聖地"→"地図")
+// 旧 hint subtitle は pill segmented design では表示しない (mock 整合)。
+// `key` は不変、内部の CalendarTab / FlowTab / MapTab には影響なし。
 const TABS: ReadonlyArray<{
   key: PlanTab;
   label: string;
-  hint: string;
 }> = [
-  { key: "calendar", label: "カレンダー", hint: "今週どう過ごす？" },
-  { key: "flow", label: "Flow", hint: "今日 1 日がどう流れる？" },
-  { key: "map", label: "聖地", hint: "あなたはどこによく行く？" },
+  { key: "calendar", label: "カレンダー" },
+  { key: "flow", label: "リスト" },
+  { key: "map", label: "地図" },
 ];
 
 type FetchState =
@@ -71,7 +82,25 @@ export interface AddRequest {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export default function PlanClient() {
+/** display mode (Phase 1 で追加) */
+export type PlanDisplayMode = "route" | "pane";
+
+export interface PlanClientProps {
+  /**
+   * display mode (W1-Home-Swipe Phase 1):
+   *   - "route" (default): /plan 直 URL 経由、full chrome (min-h-screen)
+   *   - "pane": Home 横スワイプ pane 1、簡素 chrome (h-full overflow-y-auto)
+   *
+   * 両 mode で機能は完全同等。chrome / 配色のみ差分。
+   */
+  displayMode?: PlanDisplayMode;
+}
+
+export default function PlanClient({
+  displayMode = "route",
+}: PlanClientProps = {}) {
+  const isPane = displayMode === "pane";
+
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [addOpen, setAddOpen] = useState(false);
@@ -156,16 +185,33 @@ export default function PlanClient() {
     void load();
   };
 
+  // ── chrome 出し分け (Phase 1) ──
+  // route mode: min-h-screen + white→slate gradient + full header chrome
+  // pane mode : h-full overflow-y-auto + 薄紫 gradient + 簡素 chrome
+  const containerClass = isPane
+    ? "h-full overflow-y-auto bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30 px-4 py-6"
+    : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
+
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8">
-      {/* ── Header ── */}
+    <main className={containerClass} data-display-mode={displayMode}>
+      {/* ── Header (mode で chrome 出し分け、機能 button は両 mode 共通) ── */}
       <header className="mx-auto mb-6 max-w-3xl">
-        <p className="text-xs font-medium uppercase tracking-widest text-indigo-600">
-          ALTER · PLAN
-        </p>
-        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-3">
-          <h1 className="text-2xl font-bold text-slate-900">
-            あなたの生活、3 つのレンズ
+        {!isPane && (
+          <p className="text-xs font-medium uppercase tracking-widest text-indigo-600">
+            ALTER · PLAN
+          </p>
+        )}
+        <div className={
+          isPane
+            ? "flex flex-wrap items-baseline justify-between gap-3"
+            : "mt-1 flex flex-wrap items-baseline justify-between gap-3"
+        }>
+          <h1 className={
+            isPane
+              ? "text-3xl font-semibold text-slate-900"
+              : "text-2xl font-bold text-slate-900"
+          }>
+            {isPane ? "Plan" : "あなたの生活、3 つのレンズ"}
           </h1>
           <div className="flex gap-2">
             <GlassButton size="sm" variant="primary" onClick={() => openAdd()}>
@@ -176,40 +222,43 @@ export default function PlanClient() {
             </GlassButton>
           </div>
         </div>
-        <p className="mt-2 text-sm text-slate-500">
-          同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。
-        </p>
+        {!isPane && (
+          <p className="mt-2 text-sm text-slate-500">
+            同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。
+          </p>
+        )}
       </header>
 
-      {/* ── Tab nav ── */}
+      {/* ── Tab nav (Phase 1 C2 で pill segmented control に refactor、CEO mock 寄せ) ── */}
       <nav
         role="tablist"
         aria-label="Plan tabs"
-        className="mx-auto mb-6 flex max-w-3xl gap-2 border-b border-slate-200"
+        className="mx-auto mb-6 max-w-3xl"
       >
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`plan-panel-${tab.key}`}
-              id={`plan-tab-${tab.key}`}
-              onClick={() => setActiveTab(tab.key)}
-              className={
-                "-mb-px flex flex-col items-start border-b-2 px-4 py-3 text-left transition-colors " +
-                (isActive
-                  ? "border-indigo-500 text-indigo-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700")
-              }
-            >
-              <span className="text-sm font-semibold">{tab.label}</span>
-              <span className="text-xs text-slate-400">{tab.hint}</span>
-            </button>
-          );
-        })}
+        <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`plan-panel-${tab.key}`}
+                id={`plan-tab-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
+                className={
+                  "px-5 py-2 rounded-full text-sm font-medium transition-all " +
+                  (isActive
+                    ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-800")
+                }
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* ── Content area ── */}

@@ -1,9 +1,18 @@
 # Alter Plan Home Swipe — Visual Smoke Runbook
 
-**作成日**: 2026-05-19
-**Status**: 採択待ち（CEO smoke 実施時の手順）
-**実装**: `feat/alter-plan-home-swipe-integration` ブランチ
-**関連**: `docs/alter-plan-home-integration-mini-design.md`
+**作成日**: 2026-05-19 (initial) / 2026-05-20 (Phase 1 完成形対応)
+**Status**: Phase 1 完了後の smoke 手順
+**実装**: `feat/alter-plan-full-plan-pane` ブランチ (Phase 1)
+**関連**:
+  - `docs/alter-plan-home-integration-mini-design.md` (Phase 0 設計)
+  - `docs/alter-plan-home-swipe-full-plan-pane-mini-design.md` (Phase 1 設計)
+
+## 履歴
+
+| 段階 | Pane 1 内容 | smoke 重点 |
+|------|-------------|------------|
+| 初版 (2026-05-19) | HomePlanPane (summary view) | summary 表示 + CTA tap で /plan へ |
+| **Phase 1 (2026-05-20)** | **PlanClient (full、displayMode="pane")** | **本体 CRUD + Modal 動作 + Modal 開時 swipe disable** |
 
 ---
 
@@ -53,77 +62,116 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 
 ✅ PASS 条件: 既存 Home 体験が何ら変わっていない
 
-### Step 3: 左 swipe で Plan pane に遷移
+### Step 3: 左 swipe で Plan pane (full PlanClient) に遷移
 
 - 画面上で**左方向**に swipe (画面幅の 30% 以上 OR 速度 500 px/s 以上)
 - 画面が Plan pane (右側) にスライド
 - dot indicator が "○ •" に変化 (右 active = Plan)
 
-✅ PASS 条件:
+✅ PASS 条件 (Phase 1):
 - Plan pane に切り替わる
-- header「この先」/ subheader「あなたの予定が、ここにあります」
-- (anchor あれば) 次の予定 / 今日 / 明日 / 今週 summary が表示
-- (anchor 無し) "あなたのこの先がここに置かれていきます" の empty state
-- "Plan を開く" CTA が画面下部に固定表示
+- header「Plan」(pane mode 簡素 chrome) + 「+ 教える」/「📋 教えた予定」 button
+- Pill segmented tab "カレンダー / リスト / 地図" が表示、Calendar が default active
+- pane mode の薄紫 gradient bg
+- (anchor あれば) Calendar tab に anchor 表示、リスト tab / 地図 tab も切替で機能
+- (anchor 無し) Plan empty state 表示
+- ※ 旧版の "この先" header / "Plan を開く" CTA は **削除済** (HomePlanPane 廃止)
 
-### Step 4: 右 swipe で Home に戻る
+### Step 4: Plan pane で tab 切替
 
-- 画面上で**右方向**に swipe (画面幅の 30% 以上)
-- Home pane に戻る
-- Home の状態（scroll position / Alter chat 入力中の場合は入力内容も）が**保持**されている
+- "リスト" tab tap → FlowTab content 表示
+- "地図" tab tap → MapTab content 表示
+- "カレンダー" tab tap → CalendarTab に戻る
+
+✅ PASS 条件: 3 tab すべて切替動作、active tab が pill 紫 fill
+
+### Step 5: Plan pane で Modal 動作 (CRUD verify)
+
+- "+ 教える" tap → AddAnchorModal が pane 内 overlay 表示
+- modal に anchor 入力 → 登録 → Plan content が refresh、新 anchor 表示
+- "📋 教えた予定" tap → SourceListModal 表示、登録済 source 一覧
+- anchor row tap → AnchorDetailModal 表示
+- "教え直す" tap → EditAnchorModal に遷移
+- "この登録元ごと忘れさせる" → confirm → 削除 → Plan refresh
+
+✅ PASS 条件: 全 4 modal (Add / Edit / Detail / SourceList) が動作、CRUD 完走
+
+### Step 6: **Modal 開時の swipe disable 確認** (Phase 1 C3 新規)
+
+- AddAnchorModal / EditAnchorModal / AnchorDetailModal / SourceListModal のいずれかを開く
+- modal 表示中に**横 swipe を試す** → **pane が動かない**
+- modal 表示中に**矢印キー ← →** → **pane 切替しない**
+- modal を閉じる → swipe / keyboard nav が**復活**
+
+✅ PASS 条件: modal 開時の swipe / keyboard 両方が完全に disable
+
+### Step 7: 右 swipe で Home に戻る
+
+- modal を閉じてから右 swipe → Home pane に戻る
+- Home の状態 (scroll position / Alter chat 入力中の場合は入力内容も) が**保持**
 - dot indicator が "• ○" に戻る
 
-✅ PASS 条件: Home 状態が swipe 前と一致
+✅ PASS 条件: Home 状態が swipe 前と一致、Plan pane の tab 選択 / Modal state も保持
 
-### Step 5: dot indicator click でも切替可能
+### Step 8: dot indicator click でも切替可能
 
-- dot indicator の右 dot を click → Plan pane へ
-- dot indicator の左 dot を click → Home pane へ
+- dot indicator の右 dot click → Plan pane へ
+- dot indicator の左 dot click → Home pane へ
 
 ✅ PASS 条件: click 切替動作 (swipe できない環境のフォールバック)
 
-### Step 6: keyboard 切替（desktop）
+### Step 9: keyboard 切替 (desktop)
 
-- Plan pane で **←** 矢印 key 押下 → Home へ
-- Home pane で **→** 矢印 key 押下 → Plan へ
-- ただし input / textarea にフォーカス中は keyboard 切替**無効**
+- Plan pane で **←** 矢印 key → Home へ
+- Home pane で **→** 矢印 key → Plan へ
+- input / textarea にフォーカス中は keyboard 切替**無効**
+- Modal 開時も keyboard 切替**無効** (Step 6 と同)
 
-✅ PASS 条件: keyboard nav 動作 + 入力時は無効
+✅ PASS 条件: keyboard nav 動作 + 入力時 / modal 時は無効
 
-### Step 7: 縦スクロール vs 横スワイプの衝突確認
+### Step 10: 縦スクロール vs 横スワイプの衝突確認
 
-- Home pane で会話 transcript を**縦 scroll**
+- Plan pane で content を**縦 scroll**
 - 縦 scroll 中に小さな横揺れがあっても、pane は切り替わらない (threshold 30% 強制)
+- Home pane も同様
 
 ✅ PASS 条件: 縦 scroll が横 swipe を誘発しない
 
-### Step 8: Plan pane → "Plan を開く" CTA で /plan へ遷移
-
-- Plan pane の "Plan を開く" CTA tap
-- `/plan` route に navigate (PlanClient 単独表示、wrapper なし)
-- Browser back で Home に戻る (Home swipe 状態は維持されない、初期 pane=0 で開く想定)
-
-✅ PASS 条件: /plan 直 URL が wrapper なしで render
-
-### Step 9: /plan 直 URL access の独立性確認
+### Step 11: /plan 直 URL access の独立性確認
 
 - 新 tab で `https://<preview>/plan` を直接開く
-- PlanClient が wrapper なしで表示
+- PlanClient が **route mode** で表示 (full chrome: "ALTER · PLAN" tag + 大見出し + 説明文)
 - HomeSwipeContainer / HomePaneIndicator が render されない
+- Modal 動作 / Tab 切替は同様に機能
 
-✅ PASS 条件: /plan は本 wave の影響を受けない (deep link 整合)
+✅ PASS 条件: /plan は wrapper の影響を受けない (deep link 整合)
 
 ---
 
-## 3. PASS 判定
+## 3. PASS 判定 (Phase 1 D-O-D)
 
-§2 全 Step PASS なら **D-O-D 合格**:
+§2 全 Step PASS なら **Phase 1 完成**:
 - Home 既存体験 不変 ✅
-- Plan pane 表示動作 ✅
+- Plan pane に **full PlanClient** 表示 ✅
+- 3 tab (Calendar / List / Map) 切替動作 ✅
+- 4 Modal CRUD 動作 ✅
+- **Modal 開時の swipe / keyboard disable** ✅ (Phase 1 C3 新規)
 - swipe / dot / keyboard 3 経路で pane 切替動作 ✅
 - 縦 scroll 衝突なし ✅
-- /plan 直 URL 不影響 ✅
-- a11y (aria-live announcement、focus 管理) 動作 ✅
+- /plan 直 URL 不影響 (route mode で従来表示) ✅
+- a11y (aria-live announcement / focus 管理 / inert) 動作 ✅
+
+## W1-Z 未適用問題 (Phase 1 PASS 後の課題、CEO 補正 #3)
+
+Phase 1 は UI / 構造統合まで。**Production Supabase に Plan tables 未 migrate** な状態では:
+- `/api/plan/anchors` GET が 500 を返す
+- PlanClient が ErrorState 表示 ("読み込みに失敗しました")
+
+これは **Phase 1 D-O-D の合否に影響しない** (UI 統合は完成)。Production で完全稼働させるには **W1-Z production migration apply** が必要 (CEO 判断、別 wave)。
+
+W1-Z 判断材料:
+- `docs/alter-plan-w1z-production-migration-decision.md` §11 Decision Tree
+- Phase 1 smoke の Step 5 (CRUD) が ErrorState で止まる場合、W1-Z apply 判断材料
 
 ---
 
@@ -134,6 +182,10 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 | Home pane の既存 UI が壊れる | flag を false に戻す (env rm)、再 deploy、root cause investigation |
 | swipe が動かない | DevTools Console で motion / drag 系 error 確認、再現条件記録 |
 | 縦 scroll で誤って pane 切替する | threshold / velocity の現実値を Console で計測、調整 PR |
+| Plan pane が空白 / Home UI が漏れる | PR #214 の containing block fix が効いていない、CSS 退行確認 |
+| **Modal 開時に swipe で pane が動く** | **registerHomeSwipeModalOpen の hook 漏れ確認 (該当 modal の useEffect 追加)** |
+| Plan pane で Modal が開かない | PlanClient 内 button click の event propagation 確認 |
+| Plan pane で `/api/plan/anchors` が 500 | **Production tables 未 migrate (W1-Z 待ち)、UI 統合 PASS 判定には影響なし** |
 | /plan 直 URL が壊れる | wrapper の影響経路を audit (本来不影響なため、code bug の signal) |
 | Composer 入力欄が swipe で誤発火する | composer focused state check 追加 (別 PR) |
 
