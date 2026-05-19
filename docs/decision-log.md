@@ -88,10 +88,32 @@
   - E-2-3 `feat/coalter-e2-3-sentry-baseline-drill`: Sentry baseline + drill (3-5 days、canary scope 7 envs 一時投入)
   - E-2-α `feat/coalter-e2-alpha-production-rollout`: **Production env 2 keys 投入 + 7-day 観測 + 反転テスト**
   - Production env touch は E-2-α のみ、それまでは 0 touch
+- **CEO Q1-Q8 answer (2026-05-20 approved、§16.1 に永続反映)**:
+  - **Q1: YES** — sub-phase 再編成承認 (E-2-1 → E-2-2 → E-2-3 → E-2-α sequential)
+  - **Q2: YES** — phase-e-plan footnote 同梱、ただし E-0 本体は大きく書き換えず E-2-0 を正本として参照
+  - **Q3: sequential** — 並列実装はしない
+  - **Q4: 14.1 / 14.2 / 14.4 / 14.5 / 14.8 を必須** (14.8 FORCED_CANARY Production 禁止 canon 化を追加採用)
+  - **Q5: YES** — drill scenarios 5 個承認、ただし E-2-α 前 drill は canary / non-production 相当で実施、Production env には触らない
+  - **Q6: YES** — Sentry baseline read-only / secret 露出なし、Sentry 未設定 / 取得不能なら E-2-3 で blocker として記録
+  - **Q7: YES** — L3 read fail-closed canon (Mirror OFF) 確定
+  - **Q8: 条件付き YES** — E-2-1 Supabase migration PR 起票承認、ただし DB apply / Production 適用は別途 CEO 承認まで禁止、必要なら E-2-1a / E-2-1b に分割
+- **CEO 追加補正 (§16.1.1、Phase E 全期間遵守)**:
+  - E-2-1 PR splitting: migration PR と DB apply を明確分離、Claude 推奨 split (E-2-1a SQL/docs + E-2-1b runtime)
+  - E-2-1 段階 Production 禁止: Production env 変更 0、Production DB apply 0 (CEO 明示承認後のみ)、all-Preview 0、Development 0
+  - L3 kill switch 必須要件: fail-closed + 監査ログあり + rollback 容易性あり
+  - FORCED_CANARY Production 投入を Phase E canon として永続禁止明記
+- **§15.3 不可侵境界更新** (CEO Q4 + 追加補正反映):
+  - ★ L3 read fail-closed (CEO Q7)
+  - ★ L3 監査ログ必須 (CEO 追加補正 #3)
+  - ★ L3 rollback 容易性必須 (CEO 追加補正 #3)
+  - ★ FORCED_CANARY Production 投入永続禁止 (CEO Q4 + 追加補正 #4)
+  - ★ migration PR 着地 ≠ DB apply、Production DB apply は CEO 明示承認後のみ (CEO Q8 補正)
+  - Drill canary / non-production 相当のみ (CEO Q5 補正)
+  - Sentry 未設定なら E-2-3 blocker (CEO Q6 補正)
 - **本 PR scope (E-2-0)**: docs only、runtime app code 0 diff、env 0 touch、Supabase migration 0、Production / all-Preview / Development 全 scope 0 操作
-- **承認**: CEO (PR #215 review で残 4 condition canonical 化 + GPT 補正で sequencing 起票指示 + Phase E-1 close 承認後)
-- **ステータス**: Draft PR 起票後 CEO review + Q1-Q8 answer 待ち
-- **次 phase**: E-2-1 (本 PR merge + Q1-Q8 answer 後、別 PR `feat/coalter-e2-1-kill-switch-foundation` で Claude 起票)
+- **承認**: CEO (PR #215 review で残 4 condition canonical 化 + GPT 補正で sequencing 起票指示 + Phase E-1 close 承認 + 本 PR Q1-Q8 answer + 追加補正で明示承認)
+- **ステータス**: Q1-Q8 answer + 追加補正反映後 push、checks green 後 Claude 自立で merge (CEO 明示指示)
+- **次 phase**: **E-2-1 implementation plan** (本 PR merge 後、Claude が text 出力で plan を提示、実装には進まない)
 
 ---
 ### 2026-05-19 CoAlter AOO Phase E-1 正式 close (visible Mirror smoke PASS、E-2-α gate condition #3 達成)

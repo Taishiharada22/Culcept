@@ -560,19 +560,24 @@ PR #215 で確定した E-2-α 着手 gate 8 condition を、本 E-2-0 の sub-p
 
 ## §13. 次 PR 案 (具体的な PR splitting)
 
-### 13.1 推奨順序 (sequential)
+### 13.1 推奨順序 (sequential、CEO Q8 補正で E-2-1 を split)
 
 ```
 [本 PR: E-2-0 docs sequencing] ← merge 待ち
         ↓ merge
-[E-2-1: kill switch foundation (L1 + L3)]
+[E-2-1a: Supabase migration + audit table + RLS (SQL/docs only)]
+        ↓ merge (= PR 着地、Production DB apply は別 step)
+        ↓ CEO 明示承認 + DB apply (manual)
+[E-2-1b: runtime read code + L1 script + tests + runbook]
         ↓ merge
 [E-2-2: allowlist Option A implementation]
         ↓ merge
-[E-2-3: Sentry baseline + drill (canary)]
+[E-2-3: Sentry baseline + drill (canary、Production env touch なし)]
         ↓ merge + drill PASS
 [E-2-α: Production env touch + 7-day 観測]
 ```
+
+注: E-2-1a の **DB apply は CEO 明示承認後**。PR merge ≠ DB apply (分離)。
 
 ### 13.2 各 PR の概算
 
@@ -750,35 +755,78 @@ E-2-3 drill scenario 1 の精度を上げる。
 | D-1 verification 3 gates | ✅ E-2-3 drill で再活用 |
 | reflection-only canon CI test (E-1) | ✅ 維持 |
 
-### 15.3 Phase E-2 以降で **新たに不可侵化** する原則
+### 15.3 Phase E-2 以降で **新たに不可侵化** する原則 (CEO Q4 + 追加補正反映、2026-05-20 確定)
 
 | 新 canon | 内容 | 起源 sub-phase |
 |---|---|---|
 | L1 + L3 kill switch は両層必須 | (Phase E-0 §13.2 既存) | E-2-1 で実装 |
-| L3 read 失敗は fail-closed (Mirror OFF) | §14.4 新規 | E-2-1 で canon 化 |
+| **L3 read 失敗は fail-closed (Mirror OFF)** ★ | §14.4 (CEO Q7 確定) | E-2-1b で実装 |
 | Production env 緩和は 2 keys のみ | (Phase E-0 §12.1 既存) | E-2-α で発動 |
-| FORCED_CANARY は canary でのみ | §14.8 で正式 canon 化 | E-2-1 で anti-patterns doc 更新 |
-| Drill = 5 scenarios の連続 exercise + 全 PASS で gate 通過 | §8 新規 | E-2-3 で実施 |
-| Preflight assertion script を E-2-α gate に組み込む | §14.1 新規 | E-2-α PR で実装 |
-| L3 audit trail (`coalter_mirror_kill_switch_audit` table) | §14.2 新規 | E-2-1 migration に含める |
-| Circuit breaker (24h 3+ kills で 7 days lockout) | §14.7 新規 | E-3' (post-α) で実装 (E-2-α では人手判断) |
+| **L3 kill switch は監査ログあり** ★ | CEO 追加補正 (§16.1.1 #3、`coalter_mirror_kill_switch_audit` table) | E-2-1a migration |
+| **L3 kill switch は rollback 容易性あり** ★ | CEO 追加補正 (§16.1.1 #3、Supabase Studio で flag 値を元に戻すだけで即時復旧) | E-2-1a + E-2-1b |
+| **FORCED_CANARY は canary でのみ、Production / all-Preview / Development 投入永続禁止** ★ | CEO Q4 + 追加補正 (§16.1.1 #4、§14.8 正式 canon 化) | E-2-1 で anti-patterns 1.6 追記 |
+| **migration PR 着地 ≠ DB apply、Production DB apply は CEO 明示承認後のみ** ★ | CEO Q8 補正 (§16.1.1 #2) | E-2-1a 起票時 |
+| Drill = 5 scenarios、Production env touch なし、canary / non-production 相当のみ | CEO Q5 補正 (§16.1) | E-2-3 で実施 |
+| Sentry 未設定 / 取得不能なら E-2-3 で blocker として記録 | CEO Q6 補正 (§16.1) | E-2-3 で実装 |
+| Preflight assertion script を E-2-α gate に組み込む | §14.1 (CEO Q4 必須採用) | E-2-α PR で実装 |
+| L3 audit trail (`coalter_mirror_kill_switch_audit` table) | §14.2 (CEO Q4 必須採用) | E-2-1a migration |
+| Reversibility test in E-2-α (env 投入直後 1 分 revert 実機確認) | §14.5 (CEO Q4 必須採用) | E-2-α 開始時 |
+| Circuit breaker (24h 3+ kills で 7 days lockout) | §14.7 (CEO Q4 非必須) | E-3' (post-α) で検討 |
+
+(★ = CEO 直接補正で確定した canon、優先度 highest)
 
 ---
 
 ## §16. 本 E-2-0 起票後の次 action
 
-### 16.1 CEO 判断希望項目
+### 16.1 CEO answers (Q1-Q8、2026-05-20 approved)
 
-| # | 質問 | Claude 推奨 default |
-|---|---|---|
-| Q1 | sub-phase 再編成案 (§4.2) を承認するか | YES (5-PR sequential) |
-| Q2 | `docs/coalter-aoo-phase-e-plan.md` への 1 行 footnote 追加 (§12.1) を本 PR に同梱するか | YES (Option C、両方修正) |
-| Q3 | E-2-1 と E-2-2 を **sequential** で進めるか **並列** で進めるか | sequential (人的 review cost 最小) |
-| Q4 | §14 の人間超越 idea 10 個のうち、E-2 期間に組み込むものを選択 | 14.1 (preflight script) + 14.2 (L3 audit trail) + 14.4 (fail-closed canon) + 14.5 (reversibility test) は必須、他は CEO 判断 |
-| Q5 | drill scenarios (§8.1、5 scenarios) を承認するか、追加/削除するか | 5 scenarios で開始、E-2-3 起票時に CEO 補正可 |
-| Q6 | Sentry baseline metric の取得方法 (§7.2) を承認するか | Sentry MCP 経由で Claude 取得可、env touch 0、CEO 判断 |
-| Q7 | L3 read 失敗時 fail-closed (§14.4) で確定するか | YES (Mirror OFF が安全) |
-| Q8 | E-2-1 の Supabase migration (新規 `app_settings` table) を承認するか | YES (CEO §12.1 で migration は明確に分離されており、Mirror Channel 限定で必要) |
+CEO 直接判定済 (PR #217 review 時、E-2-1 以降の sub-phase 設計に永続反映):
+
+| # | 質問 | **CEO answer** | 根拠 / 制約 |
+|---|---|---|---|
+| Q1 | sub-phase 再編成案 (§4.2) 承認 | **YES** | E-2-1 kill switch foundation → E-2-2 allowlist → E-2-3 Sentry baseline + drill → E-2-α の順で進める |
+| Q2 | phase-e-plan に footnote 同梱 (Option C) | **YES** | ただし **E-0 本体を大きく書き換えず**、**E-2-0 を正本として参照させる** (本 §12.1 の footnote 方式で確定) |
+| Q3 | sequential vs 並列 | **sequential** | E-2-α 前 gate は順番に潰す、並列実装はしない |
+| Q4 | §14 10 idea の E-2 期間導入を選択 | **14.1 + 14.2 + 14.4 + 14.5 + 14.8 を必須** | (14.1 preflight / 14.2 L3 audit / 14.4 fail-closed / 14.5 reversibility / **14.8 FORCED_CANARY Production 禁止 canon 化** 追加) |
+| Q5 | drill scenarios 5 個承認 | **YES** | ただし E-2-α 前 drill は **canary / non-production 相当** で実施、**Production env には触らない** |
+| Q6 | Sentry baseline 取得方法承認 | **YES** | read-only、secret 露出なし。**Sentry 未設定 / 取得不能なら E-2-3 で blocker として記録** |
+| Q7 | L3 read fail-closed canon 確定 | **YES** | L3 read 失敗時は Mirror OFF |
+| Q8 | E-2-1 Supabase migration 承認 | **条件付き YES** | **migration PR 起票は承認**。ただし **DB apply / Production 適用は別途 CEO 承認まで禁止**。**migration + runtime read を一気に大きくしすぎる場合は E-2-1a / E-2-1b に分割** |
+
+### 16.1.1 CEO 追加補正 (Phase E 全期間遵守、本 PR review 時に明示要求)
+
+1. **E-2-1 PR splitting 方針**:
+   - **「migration を PR に入れること」と「DB へ apply すること」を明確に分離** (PR review = code change のみ、apply = 別 step CEO 直接承認後)
+   - migration + runtime read の合計 diff が大きい場合は **E-2-1a (migration + audit table + RLS、SQL/docs only) + E-2-1b (runtime read code + tests + integration)** に分割
+   - **Claude 判断**: 推定 diff ~595 lines (§13.2 概算)。境界線にあるため **split 推奨** (本 doc §2.2 参照)
+
+2. **E-2-1 段階の Production 禁止事項** (canon、本 PR で明示固定):
+   - **Production env 変更禁止** (E-2-α まで)
+   - **Production DB apply 禁止** (CEO 明示承認後のみ apply 可)
+   - **all-Preview env 変更禁止**
+   - **Development env 変更禁止**
+
+3. **L3 kill switch 必須要件** (canon、本 PR で明示固定):
+   - **fail-closed** (read 失敗 → Mirror OFF、Q7 で確定)
+   - **監査ログあり** (L3 flip ごとに audit trail row insert、§14.2 の `coalter_mirror_kill_switch_audit` table)
+   - **rollback 容易性あり** (Supabase Studio で flag 値を元に戻すだけで即時復旧、L3 flip → L3 unflip が atomic operation)
+
+4. **FORCED_CANARY Production 投入禁止を Phase E canon として明記** (§14.8 を canon 昇格):
+   - `NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED` は **canary branch-scoped Preview のみ**
+   - **Production / all-Preview / Development scope への投入を永続禁止**
+   - E-2-1 PR 同梱で `docs/coalter-aoo-canary-deploy-anti-patterns.md` に新 anti-pattern 1.6 として追記
+
+### 16.1.2 E-2-1 split 判断 (CEO Q8 補正反映、Claude 推奨)
+
+Q8 補正に従い、E-2-1 を以下に分割することを推奨:
+
+| Sub-PR | scope | 推定 diff | DB apply | 起票順 |
+|---|---|---|---|---|
+| **E-2-1a** | Supabase migration SQL + audit table + RLS policies + trigger function + 移行 runbook (docs / SQL only、**runtime code 0 diff**) | ~250 lines | **migration PR 着地 = SQL 投入のみ、Production DB apply は別途 CEO 承認** | 1 |
+| **E-2-1b** | runtime read code (`lib/coalter/mirror/runtimeKillSwitch.ts` + MirrorHost 統合) + L1 script + L1 + L3 operator runbook + tests | ~350 lines | (DB 変更なし、E-2-1a apply 済 が前提) | 2 (E-2-1a merge + Production DB apply 後) |
+
+→ 合計 ~600 lines を 2 PR に分割、各 PR が独立 review 可能、Production DB apply gating が明示される。
 
 ### 16.2 次 PR 案 (推奨 sequential)
 
