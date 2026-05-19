@@ -52,6 +52,112 @@ export function getWeekDays(now: Date): Date[] {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Month helpers (Phase 2-A: Compact week strip + selected day agenda)
+//
+// 設計書: docs/alter-plan-phase2-a-calendar-month-view-mini-design.md §4.3
+// 不変原則:
+//   - すべて pure (副作用なし、現在時刻参照なし、入力 mutate なし)
+//   - timezone: UTC 内部 (既存 helper と統一)
+//   - test deterministic
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** 与えられた Date が含まれる月の月初 (1 日 UTC midnight) を返す */
+export function getMonthStart(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+/**
+ * 月末日を返す (28/29/30/31)。閏年対応。
+ *
+ * @param year 西暦年 (例: 2026)
+ * @param month 0-indexed (Date.getUTCMonth() と同じ、0=Jan, 11=Dec)
+ */
+export function getLastDayOfMonth(year: number, month: number): number {
+  // JS の Date は month overflow で次月の "0 日" = 当月末日になる
+  // 例: new Date(Date.UTC(2026, 2, 0)) = 2026-02-28 (Feb 末日)
+  return new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+}
+
+/**
+ * 指定日付を target year/month に clamp。同日が存在しない場合は target month の末日。
+ *
+ * @example
+ *   clampDateToMonth(2026, 1, 31) // → 2026-02-28 (Feb 28、非閏年)
+ *   clampDateToMonth(2028, 1, 31) // → 2028-02-29 (Feb 29、閏年)
+ *   clampDateToMonth(2026, 4, 31) // → 2026-05-31 (May は 31 日まである)
+ *   clampDateToMonth(2026, 1, 15) // → 2026-02-15 (普通の case)
+ */
+export function clampDateToMonth(
+  year: number,
+  month: number,
+  day: number
+): Date {
+  const lastDay = getLastDayOfMonth(year, month);
+  const clampedDay = Math.min(Math.max(1, day), lastDay);
+  return new Date(Date.UTC(year, month, clampedDay));
+}
+
+/**
+ * 月加算。月末 overflow は最終日に clamp (1/31 → 2/28 or 2/29 閏年)。
+ *
+ * @example
+ *   addMonths(new Date("2026-01-31"), 1) // → 2026-02-28
+ *   addMonths(new Date("2028-01-31"), 1) // → 2028-02-29 (閏年)
+ *   addMonths(new Date("2026-12-15"), 1) // → 2027-01-15 (年跨ぎ)
+ *   addMonths(new Date("2026-01-15"), -1) // → 2025-12-15 (前月、年跨ぎ)
+ */
+export function addMonths(d: Date, n: number): Date {
+  const totalMonths = d.getUTCMonth() + n;
+  const newYear = d.getUTCFullYear() + Math.floor(totalMonths / 12);
+  const newMonth = ((totalMonths % 12) + 12) % 12;
+  return clampDateToMonth(newYear, newMonth, d.getUTCDate());
+}
+
+/**
+ * 1 週ストリップ用の cell 配列を返す (Phase 2-A の compact week strip 用)。
+ *
+ * selectedDate が属する ISO 週 (月-日 7 日) を返す。月跨ぎ週も含む
+ * (例: 4/29 月曜 から 5/5 日曜)。各 cell に inCurrentMonth flag 付き
+ * (currentMonth と異なる月の日は薄色表示用)。
+ */
+export function buildWeekStrip(
+  selectedDate: Date,
+  currentMonth: Date
+): WeekStripCell[] {
+  const monday = getMondayOf(selectedDate);
+  const currentMonthIndex = currentMonth.getUTCMonth();
+  const currentMonthYear = currentMonth.getUTCFullYear();
+  return Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(monday, i);
+    return {
+      date,
+      iso: isoDate(date),
+      dayOfMonth: date.getUTCDate(),
+      inCurrentMonth:
+        date.getUTCMonth() === currentMonthIndex &&
+        date.getUTCFullYear() === currentMonthYear,
+    };
+  });
+}
+
+export interface WeekStripCell {
+  date: Date;
+  iso: string;
+  dayOfMonth: number;
+  /** false = currentMonth と異なる月の日 (薄色表示用) */
+  inCurrentMonth: boolean;
+}
+
+/**
+ * 月名 + 年の日本語表示 (CEO mock 整合: "4月 2026"、月-スペース-年)
+ *
+ * @example formatJpYearMonth(new Date("2026-04-15")) // → "4月 2026"
+ */
+export function formatJpYearMonth(d: Date): string {
+  return `${d.getUTCMonth() + 1}月 ${d.getUTCFullYear()}`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Time helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
