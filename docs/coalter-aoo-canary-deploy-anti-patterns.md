@@ -163,6 +163,8 @@ Vercel token 解決順: `--vercel-token` flag > `VERCEL_TOKEN` env > `~/Library/
 
 ## §4. 必須 post-deploy verification — Supabase project ref grep (literal command)
 
+> 📜 **Ref source-of-truth canon (D-3-α 以降)**: 本 §4 で使う `expected_ref` / `forbidden_ref` の正本は `docs/coalter-supabase-ref-canon.md` (§1 machine-readable JSON block) である。本 doc と canon の表記が drift した場合は `tests/unit/coalter/supabaseRefCanon.test.ts` で構造的に fail する。Ref を変更する PR は canon §4 protocol に従って同 PR で全参照先を同期する。
+
 下記コマンドを **canary deploy Ready 直後 + CEO smoke 開始前** に必ず実行:
 
 ```bash
