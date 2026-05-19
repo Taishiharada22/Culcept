@@ -52,16 +52,37 @@
   - Phase D canon 永続継承 (lib/supabase anon-only / Mirror No-Effect Contract / Supabase ref canon / D-1 3 gates / canary-smoke template)
   - Phase E で**新たに不可侵化**: forced_canary は canary でのみ / Production env Mirror 関連 2 key のみ許容 / kill switch L1+L3 必須 / reflection-only canon CI test 必須
   - **絶対に行わない**: Mirror runtime No-Effect 違反 / SUPABASE_SERVICE_ROLE_KEY 任意投入 / Mirror への Question/Proposal/Suggestion 追加 / 全 user 公開 / `vercel.json` ignoreCommand 変更 / D-1 logic 変更
-- **CEO 判定希望項目 (§12、Q1-Q10)**:
-  - Q1: Production env canon 緩和承認 (推奨 YES)
-  - Q2: allowlist Option (推奨 A env-based)
-  - Q3: kill switch tier (推奨 L1+L3)
-  - Q4: E-1 close/sleep click 試行 (推奨 表示確認のみ)
-  - Q5-Q10: reflection canon CI test / tooltip / drill / event log / A/B / 期間 — 各推奨 default を明示
+- **CEO Q1-Q10 answer (2026-05-19 approved、§12 に永続反映)**:
+  - **Q1: YES** — E-2 で Mirror Channel 限定の Production env 緩和を承認。**2 key のみ** (`NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED` + `_ALLOWLIST_USER_IDS`)、allowlist 必須、kill switch 必須
+  - **Q2: Option A** — env-based allowlist 採用確定
+  - **Q3: L1 + L3 両方必須** — env kill switch + runtime kill switch (Supabase `app_settings`) 必須化
+  - **Q4: 表示確認のみ** — E-1 で close/sleep button は押さない (state 変化禁止)
+  - **Q5: E-1 と同時** — reflection-only canon CI test は E-1 PR 内で着地
+  - **Q6: YES、E-2-β 以降** — user onboarding tooltip は E-2-α では不要、E-2-β invited user 向けに導入
+  - **Q7: YES、E-2-α 前必須** — failure injection drill PASS なしで Production env touch しない
+  - **Q8: YES、E-3 で実装** — reflection text catalog (Mirror event log) Production rollout audit trail
+  - **Q9: Deferred** — A/B rollout は Phase E では見送り、後継 phase で再検討
+  - **Q10: 3-4 週間目安で OK、ただし PII leak / user discomfort / false positive 観測時は即停止** (期間より安全優先、CEO 補正)
+- **CEO 追加補正 (§12.1、Phase E 全期間遵守)**:
+  - Production env touch は E-2 以降、**E-1 では Production env を絶対に触らない**
+  - E-1 は canary visible smoke、Production rollout ではない
+  - E-1 で `FORCED_CANARY_ENABLED=true` は branch-scoped Preview でのみ投入、Production / all-Preview 絶対投入禁止
+  - E-1 で close/sleep button は表示確認のみ、click しない (Q4 反復)
+  - **E-2 着手 gate condition** (§3.9 + §9.2): E-1 visible smoke PASS + canary cleanup 完了 + E-1 close 記録着地 — この 3 つ揃って初めて E-2-α 着手可
+  - 安全優先停止 trigger (§12.2): PII leak / user discomfort / false positive 観測時は期間より優先して即停止 + kill switch 発動
+- **§9.2 Production env touch を許容する gate を 5 → 8 condition に拡張** (CEO 補正 §3.9 反映):
+  1. E-1 PASS (3 gates + 7 PASS conditions)
+  2. E-1 cleanup 完了
+  3. E-1 close 記録着地
+  4. kill switch L1 + L3 drill 済
+  5. allowlist 実装着地
+  6. reflection-only canon CI test 着地
+  7. CEO 直接承認
+  8. Sentry baseline 記録済
 - **本 PR scope**: docs only、runtime app code 0 diff、env 0 touch、Supabase 0 touch、Production / all-Preview / Development 全 scope 0 操作
-- **承認**: CEO (D-5 close 完了 + AskUserQuestion で「本線 = Mirror Channel 製品化」判定後、Phase E-0 起票を Claude が docs として準備)
-- **ステータス**: Draft PR 起票後 CEO review + §12 Q1-Q10 answer 待ち
-- **次 phase**: E-1 visible smoke (本 PR merge + Q1-Q10 answer 後、別 PR `feat/coalter-e1-visible-smoke-canary` で Claude 起票)
+- **承認**: CEO (D-5 close 完了 + 「本線 = Mirror Channel 製品化」判定後 + 本 entry の Q1-Q10 answer + §12.1 追加補正で明示承認)
+- **ステータス**: Q1-Q10 answer + §12.1 追加補正を docs/PR body に反映後 push、checks green 確認後 CEO が Ready 化 + squash merge 判断
+- **次 phase**: E-1 visible smoke (本 PR merge 後、別 PR `feat/coalter-e1-visible-smoke-canary` で Claude 起票)
 
 ---
 ### 2026-05-19 CoAlter AOO Phase D 正式 close (D-5、Phase E Mirror Channel 製品化へ hand-off)
