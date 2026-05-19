@@ -13,6 +13,162 @@
 ```
 
 ---
+### 2026-05-20 CoAlter AOO Phase E-2-0 起票 — Prerequisite Sequencing Plan (Phase E-0 contradiction 解消)
+- **部門**: Build / Product
+- **決定内容**: Phase E-1 close (PR #215 merged `b07eeab5`) を受けて E-2-α 着手前の残 4 gate (kill switch L1+L3 drill 済 / allowlist Option A 着地 / CEO 直接承認 / Sentry baseline 記録) の実施順を確定する Phase E-2-0 sequencing plan を docs-only で起票。Phase E-0 plan §2.1 sub-phase 構成内に潜在していた **時系列矛盾** (kill switch / Sentry baseline / drill が「E-3 で実施」と「E-2-α 着手 gate」の両方に存在) を構造的に解消する。**Phase E-2 実装には進まない**、CEO 承認後に E-2-1 / E-2-2 / E-2-3 / E-2-α を sequential 起票。
+- **本 PR 起票理由 (矛盾の正体)**:
+  - Phase E-0 plan §2.1 で E-3 を「E-2 in progress (並列可)」と定義
+  - しかし §9.2 E-2-α gate condition #4 (kill switch L1+L3 drill 済) と #8 (Sentry baseline 記録済) は E-2-α の **前提**
+  - 「並列だが先行が必要」という時系列不整合
+  - 加えて gate #5 (allowlist 実装) は E-0 plan で sub-phase 帰属が未明示
+- **修正方針 (本 PR で実施、Option C 採用)**:
+  - 本 doc `docs/coalter-aoo-phase-e2-0-sequencing.md` を新規作成 (15 sections、永続 reference)
+  - 既存 `docs/coalter-aoo-phase-e-plan.md` §2.1 に **1 行 footnote** を追加 (E-2-0 sequencing で修正されている旨を明示、reader が即座に修正の存在を知る)
+- **Sub-phase 再編成 (Phase E-0 §2.1 修正、E-2-0 §4.2 で確定)**:
+  - 旧 E-3 (monitoring + kill switch) を分割:
+    - **kill switch L1 + L3 → E-2-1** (E-2-α 前提、prerequisite)
+    - **Sentry baseline + failure injection drill → E-2-3** (E-2-α 前提、prerequisite)
+    - **allowlist 実装 (E-0 で未明示) → E-2-2** (E-2-α 前提、明示帰属)
+    - **continuous monitoring + Mirror event log catalog → E-3'** (post-α observability、E-2-α 後並列で OK)
+  - 新 sub-phase 構成: E-0 / E-1 / **E-2-0** (本 PR) / E-2-1 / E-2-2 / E-2-3 / E-2-α / E-2-β / E-2-γ / E-3' / E-4
+- **残 4 gate の正しい実施順 (E-2-0 §3 で確定、依存逆算)**:
+  1. E-2-1: kill switch L1 + L3 foundation (Supabase migration + runtime code + tests + L1 script + runbook)
+  2. E-2-2: allowlist Option A implementation (runtime code + tests)
+  3. E-2-3: Sentry baseline 観測 + failure injection drill (canary infra 再利用、5 scenarios)
+  4. E-2-α: Production env touch + CEO 直接承認 + 7-day 観測
+- **kill switch L1 / L3 の定義 (E-2-0 §6 で確定)**:
+  - L1 (env-level、~5 分): `vercel env rm NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED production --yes` で恒久 OFF
+  - L3 (runtime-level、<1 秒): Supabase `app_settings` table の `mirror_channel_enabled` row を false に update で即時 OFF
+  - 使い分け: L3 = 第一手 (即時)、L1 = 第二手 (恒久)
+  - L3 read 失敗時の **fail-closed canon** 確定 (Claude 推奨、§14.4): DB connection 失敗時は Mirror OFF (安全側)
+- **Sentry baseline 取得方法 (E-2-0 §7 で確定)**:
+  - 取得 metric: Mirror module Sentry event 数 / 1h、error rate、render 回数 (E-3' で本格化)
+  - 取得方法: Sentry MCP 経由 (Claude 実行可、env touch 0、read-only 観測)
+  - baseline doc: `docs/coalter-aoo-phase-e2-3-sentry-baseline.md` に時系列記録
+  - E-1 時点では Mirror が Production で動いていないため baseline ≈ 0 (canon 記録、E-2-α 後の任意 Mirror error が baseline 逸脱とする)
+- **failure injection drill の内容 (E-2-0 §8 で確定、scenario library 方式)**:
+  - Scenario 1: 合成 Sentry alert → L1 kill (env 削除) → propagation 計測
+  - Scenario 2: 合成 Sentry alert → L3 kill (Supabase flag flip) → propagation 計測
+  - Scenario 3: false positive Mirror render → SleepUIToggle (user-level) → 影響範囲確認
+  - Scenario 4: PII leak 疑い → L1 + L3 同時発動 + post-mortem
+  - Scenario 5: canon 違反疑い → canon CI test gate 動作確認
+  - PASS 条件: 全 5 scenarios が期待 outcome 通り完了 + alert→mitigation 時間が SLA threshold 内
+- **allowlist Option A 実装範囲 (E-2-0 §9 で確定)**:
+  - env var: `NEXT_PUBLIC_MIRROR_ALLOWLIST_USER_IDS` (comma-separated UUID list)
+  - runtime check: `lib/coalter/mirror/userAllowlist.ts` 新規 + `useMirrorEngine` 内 mount 時に check 追加
+  - **fail-closed default**: env 未設定 / 空文字 / 不正 format → allowlist match = false → Mirror OFF
+  - 4-layer flag gating (Phase E-0 §13.2 既存) を運用化: L1 (env) → L2 (flag) → **L3 (allowlist、本 PR で追加)** → L4 (SleepUIToggle)
+- **CEO 直接承認の取得タイミング (E-2-0 §10 で確定、計 5 ポイント)**:
+  - 本 PR (E-2-0): sequencing 方針承認 + phase-e-plan footnote 修正承認
+  - E-2-1 PR: Supabase migration 承認 (新規 `app_settings` table)、L3 read logic 承認
+  - E-2-2 PR: runtime code 変更承認、env var name 確定
+  - E-2-3 PR: drill scenarios 承認、canary infra 再構築承認
+  - **E-2-α PR**: **Production env 2 keys 投入の最終承認 (canon §12.1 緩和の単一発動点)**
+- **E-2-α 着手の最終条件 (E-2-0 §11、8 condition 再整理 + sub-phase 帰属確定)**:
+  - 達成済 (4): #1 E-1 PASS / #2 cleanup / #3 close 着地 (PR #215) / #6 canon CI test (PR #213)
+  - 未達 (4):
+    - **#4 kill switch L1 + L3 drill 済 → E-2-3 で達成**
+    - **#5 allowlist 実装 (Option A) 着地 → E-2-2 で達成**
+    - **#7 CEO 直接承認 → E-2-α 起票時取得**
+    - **#8 Sentry baseline 記録 → E-2-3 で達成**
+- **Claude 自立推論 10 idea (E-2-0 §14、人間超越設計)**:
+  1. Preflight assertion script (`scripts/coalter/e2a-preflight.ts`、E-2-α gate を機械的 verify)
+  2. L3 kill switch audit trail (`coalter_mirror_kill_switch_audit` table、forensic 記録)
+  3. Drill scenario library と双方向 link (`docs/coalter-aoo-phase-e-drill-results.md`)
+  4. L3 read 失敗時の fail-closed canon (推奨 default 確定)
+  5. Reversibility test in E-2-α (env 投入直後の 1 分 revert 実機確認)
+  6. Pre-mortem workshop (E-2-3 並列、想定外 scenario 発掘)
+  7. Defense-in-depth circuit breaker (24h 3+ kills で 7 days lockout、E-3')
+  8. FORCED_CANARY の Production 禁止を正式 canon 化 (anti-patterns doc 追加、E-2-1)
+  9. Allowlist deny-list precedence (optional、E-2-β で検討)
+  10. Reflection text catalog as drill subject (drill scenario 1 の精度向上)
+- **次 PR 案 (推奨 sequential、5 PR)**:
+  - E-2-1 `feat/coalter-e2-1-kill-switch-foundation`: kill switch L1 + L3 (3-5 days、Supabase migration 1 件)
+  - E-2-2 `feat/coalter-e2-2-allowlist-option-a`: allowlist Option A (2-3 days)
+  - E-2-3 `feat/coalter-e2-3-sentry-baseline-drill`: Sentry baseline + drill (3-5 days、canary scope 7 envs 一時投入)
+  - E-2-α `feat/coalter-e2-alpha-production-rollout`: **Production env 2 keys 投入 + 7-day 観測 + 反転テスト**
+  - Production env touch は E-2-α のみ、それまでは 0 touch
+- **CEO Q1-Q8 answer (2026-05-20 approved、§16.1 に永続反映)**:
+  - **Q1: YES** — sub-phase 再編成承認 (E-2-1 → E-2-2 → E-2-3 → E-2-α sequential)
+  - **Q2: YES** — phase-e-plan footnote 同梱、ただし E-0 本体は大きく書き換えず E-2-0 を正本として参照
+  - **Q3: sequential** — 並列実装はしない
+  - **Q4: 14.1 / 14.2 / 14.4 / 14.5 / 14.8 を必須** (14.8 FORCED_CANARY Production 禁止 canon 化を追加採用)
+  - **Q5: YES** — drill scenarios 5 個承認、ただし E-2-α 前 drill は canary / non-production 相当で実施、Production env には触らない
+  - **Q6: YES** — Sentry baseline read-only / secret 露出なし、Sentry 未設定 / 取得不能なら E-2-3 で blocker として記録
+  - **Q7: YES** — L3 read fail-closed canon (Mirror OFF) 確定
+  - **Q8: 条件付き YES** — E-2-1 Supabase migration PR 起票承認、ただし DB apply / Production 適用は別途 CEO 承認まで禁止、必要なら E-2-1a / E-2-1b に分割
+- **CEO 追加補正 (§16.1.1、Phase E 全期間遵守)**:
+  - E-2-1 PR splitting: migration PR と DB apply を明確分離、Claude 推奨 split (E-2-1a SQL/docs + E-2-1b runtime)
+  - E-2-1 段階 Production 禁止: Production env 変更 0、Production DB apply 0 (CEO 明示承認後のみ)、all-Preview 0、Development 0
+  - L3 kill switch 必須要件: fail-closed + 監査ログあり + rollback 容易性あり
+  - FORCED_CANARY Production 投入を Phase E canon として永続禁止明記
+- **§15.3 不可侵境界更新** (CEO Q4 + 追加補正反映):
+  - ★ L3 read fail-closed (CEO Q7)
+  - ★ L3 監査ログ必須 (CEO 追加補正 #3)
+  - ★ L3 rollback 容易性必須 (CEO 追加補正 #3)
+  - ★ FORCED_CANARY Production 投入永続禁止 (CEO Q4 + 追加補正 #4)
+  - ★ migration PR 着地 ≠ DB apply、Production DB apply は CEO 明示承認後のみ (CEO Q8 補正)
+  - Drill canary / non-production 相当のみ (CEO Q5 補正)
+  - Sentry 未設定なら E-2-3 blocker (CEO Q6 補正)
+- **本 PR scope (E-2-0)**: docs only、runtime app code 0 diff、env 0 touch、Supabase migration 0、Production / all-Preview / Development 全 scope 0 操作
+- **承認**: CEO (PR #215 review で残 4 condition canonical 化 + GPT 補正で sequencing 起票指示 + Phase E-1 close 承認 + 本 PR Q1-Q8 answer + 追加補正で明示承認)
+- **ステータス**: Q1-Q8 answer + 追加補正反映後 push、checks green 後 Claude 自立で merge (CEO 明示指示)
+- **次 phase**: **E-2-1 implementation plan** (本 PR merge 後、Claude が text 出力で plan を提示、実装には進まない)
+
+---
+### 2026-05-19 CoAlter AOO Phase E-1 正式 close (visible Mirror smoke PASS、E-2-α gate condition #3 達成)
+- **部門**: Build / Product
+- **決定内容**: Phase E-1 を本日正式 close。E-1 visible smoke を CEO 実機実施で PASS、`MirrorVisibleSurface` が canary build で reflection-only canon を遵守して render することを構造的に実証。canary infra (env 6 件 / branch / worktree) cleanup 完了、E-1 close docs `docs/coalter-aoo-phase-e1-close.md` を新規起票して永続記録化。Phase E-2-α 着手 gate condition #3 (E-1 close 記録 main 着地) 達成。
+- **本 entry 関連 PR**: PR #213 (E-1 実装 + canon CI test + runbook + lint fix、merge commit `f37a684d`)
+- **E-1 visible smoke 観測 (CEO 実機実施、2026-05-19)**:
+  - canonical URL `https://culcept-b0weep0zr-taishis-projects-0a8deb17.vercel.app` (user alias 不使用)
+  - `/talk/[threadId]` 到達、counterpart 実 user 名 `kumi` 表示 ("ユーザー" placeholder ではない、production-equivalent flow 成立)
+  - CoAlter header「見守り中」 + activate 済 state 維持
+  - DevTools: `mirror-surface-shell` + `mirror-sleep-toggle` (shadow shell) + **`mirror-visible-surface` 表示 (E-1 核心、FORCED_CANARY=true で発火)**
+  - visible text = **「少し、間がほしいような…そんな雰囲気でした」** (5 templates の 1 つ、reflection-only canon 遵守)
+  - close/sleep button 表示確認のみ、**click 0** (CEO Q4 厳守)
+  - a11y: `aria-live="polite"` + `aria-atomic="true"` 確認
+  - message 送信 / bottom sheet / intent UI / Proposal 操作 / CoAlter end: **0 実施** (CEO §7.1 禁止操作完全遵守)
+  - console 重大 error 0、staging 混入なし、PII leak 0
+- **E-1 PASS 判定 (10 acceptance criteria)**: 10/10 達成
+- **E-1 cleanup 実施事項** (本 close PR 起票直前):
+  - canary scope env 6 件削除 (`NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED` / `_CHANNEL_ENABLED` / `NEXT_PUBLIC_SUPABASE_URL` / `_ANON_KEY` / `SUPABASE_URL` / `SUPABASE_ANON_KEY`)
+  - canary branch `feat/coalter-e1-visible-smoke-canary` 削除 (origin remote + local + worktree)
+  - 削除確認: `vercel env ls preview | grep "feat/coalter-e1-visible-smoke-canary"` → **0 件**
+  - 最終 D-1 reverify: **3 gates 全 PASS** (build artifact 不変、env 削除は既 build deploy artifact に影響なし、Phase D-5 と同 pattern)
+- **不可侵境界 (Phase E-1 全期間維持)**:
+  - Production env / all-Preview env / Development env: **0 touch**
+  - `SUPABASE_SERVICE_ROLE_KEY` canary scope 追加投入: **0** (inheritance のみ、Mirror code anon-only contract で構造的に未消費)
+  - Supabase schema / migration: **0**
+  - runtime app code: **0 diff** (Phase E-1 は infra/test/docs phase)
+  - `vercel.json` / `package.json` / `package-lock.json`: **0 diff**
+  - Mirror runtime / ChatClient / useMirrorEngine / CoAlter API routes: **0 diff**
+- **Phase E-1 で永続化された artifacts** (PR #213 merge + 本 PR で main 着地):
+  - `tests/unit/coalter/mirror/reflectionCanonInvariant.test.ts` (46 tests、Phase E own canon CI test、CEO Q5 同時着地)
+  - `docs/coalter-aoo-phase-e1-visible-smoke-runbook.md` (10 sections、E-1 CEO 実機 smoke 手順)
+  - 本 close docs (`docs/coalter-aoo-phase-e1-close.md`、本 PR で着地)
+- **Mirror canary 関連 test 集計 (Phase D + E-1)**: 169 tests (D-1: 58 + D-2: 20 + D-3-α: 45 + **E-1: 46**)、永続 regression guard
+- **CEO Q1-Q10 (Phase E-0 承認) と E-1 達成項目の対応**:
+  - **Q4 (close/sleep 表示確認のみ): ✅ 完全遵守、click 0**
+  - **Q5 (canon CI test E-1 同時着地): ✅ 46 tests main 着地**
+  - 他 Q1-Q3, Q6-Q10 は E-2 / E-3 で順次実施 (E-1 では未着手)
+- **E-2-α 着手 gate condition の現状** (Phase E-0 §9.2 で確定された 8 condition):
+  - **4 達成**: #1 (E-1 PASS) / #2 (cleanup) / #3 (close 記録、本 PR で着地) / #6 (canon CI test 着地、PR #213)
+  - **残 4 condition (canonical 一覧、CEO 期待表現と完全一致)**:
+    1. **kill switch L1 + L3 drill 済** (E-3 phase で実施、未着手)
+    2. **allowlist 実装 (Option A env-based) 着地** (E-2-α 前の別 PR、未着手)
+    3. **CEO 直接承認** (E-2-α 起票 PR で取得、未取得)
+    4. **Sentry baseline 記録** (E-3 phase で実施、未着手)
+  - → **残 4 condition すべて達成まで Production env touch 不可** (canon §12.1 補正 + §9.2 gate 厳守)
+- **Phase E-2 実装ステータス (本 entry 時点)**:
+  - **Phase E-2 実装は未着手** (E-2-α / E-2-β / E-2-γ いずれも 0 着手)
+  - Production env touch 0 (Phase E-1 全期間 + 本 close PR 全期間維持)
+  - **C-5 着手なし** (Phase C-5 系作業は Phase E と独立、本 PR 範囲外)
+- **次 phase**: E-2-α (Production gradual rollout、CEO のみ、別 起票)
+- **承認**: CEO (E-1 visible smoke 実機実施 PASS 判定 + 本 close docs 内容承認)
+- **ステータス**: 実行済 (E-1 cleanup 完了 + 本 close docs PR 起票後 merge 待ち)
+
+---
 ### 2026-05-19 CoAlter AOO Phase E-0 起票 — Mirror Channel Productization Plan (docs-only)
 - **部門**: Build / Product
 - **決定内容**: Phase D close (`docs/coalter-aoo-phase-d-close.md`、PR #210 merged `e299b243`) を受け、Phase E (Mirror Channel 製品化) を docs-only で起票。`docs/coalter-aoo-phase-e-plan.md` を新規作成、Phase E-0 〜 E-4 の 5 sub-phase 構成 + safety gates + cleanup/rollback + monitoring/kill switch 設計 + Phase D artifacts 引き継ぎ map を網羅。**Phase E 実装には進まない**、CEO 承認後に各 sub-phase 別 PR で sequential 起票。

@@ -1,19 +1,22 @@
 /**
- * HomeSwipeContainer — Home 横スワイプ wrapper
+ * HomeSwipeContainer — Home 横スワイプ wrapper (W1-Home-Swipe Phase 1 で full Plan pane 化)
  *
  * 役割:
- *   既存 AneurasyncHome (Pane 0) と HomePlanPane (Pane 1) を横スワイプで
- *   切り替える wrapper。CEO 補正 (2026-05-19) の必須補正 1-7 を機械的に実装。
+ *   既存 AneurasyncHome (Pane 0) と PlanClient(displayMode="pane") (Pane 1) を
+ *   横スワイプで切り替える wrapper。CEO 補正 (2026-05-19/20) の必須補正を機械実装。
  *
- * 設計書: docs/alter-plan-home-integration-mini-design.md §4
+ * 設計書:
+ *   - docs/alter-plan-home-integration-mini-design.md §4 (initial)
+ *   - docs/alter-plan-home-swipe-full-plan-pane-mini-design.md (Phase 1、full pane 化)
  *
  * CEO 補正反映:
  *   1. Home 既存体験を壊さない (AneurasyncHome は as-is、wrapper のみ)
  *   2. Gesture 競合対策 (dragDirectionLock + threshold + velocity + iOS edge back ignore)
- *   3. /plan 本体は触らない (PlanClient 不変、HomePlanPane は summary のみ)
+ *   3. Plan 本体は as-is、PlanClient に displayMode prop 追加で chrome のみ切替
  *   4. Feature flag は app/(culcept)/page.tsx で server-side eval
  *   5. Zone isolation (各 pane を <ZoneErrorBoundary> でラップ)
  *   6. a11y (dot indicator / keyboard 左右矢印 / aria-live announcement)
+ *   7. Modal 開時の drag disable (Phase 1 で追加、Plan 内 modal が頻発するため)
  *
  * Beyond (自立推論):
  *   - prefers-reduced-motion 対応 (spring → instant)
@@ -44,6 +47,7 @@ import {
   evaluateSwipeIntent,
   applySwipeAction,
 } from "@/lib/plan/home-swipe-intent";
+import { useHomeSwipeModalLock } from "@/lib/home-swipe-modal-lock";
 
 import HomePaneIndicator from "./HomePaneIndicator";
 
@@ -61,7 +65,7 @@ const DRAG_ELASTIC = 0.2;
 interface HomeSwipeContainerProps {
   /** Pane 0: 既存 AneurasyncHome (構造不変) */
   homePane: ReactNode;
-  /** Pane 1: HomePlanPane (summary view) */
+  /** Pane 1: Plan 本体 (Phase 1 で PlanClient(displayMode="pane") に置換) */
   planPane: ReactNode;
   /** test 用、初期 pane index (default: 0) */
   initialIndex?: number;
@@ -85,6 +89,11 @@ export default function HomeSwipeContainer({
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
+  // Phase 1 C3 (2026-05-20、CEO 補正 #3 / GPT 補正):
+  //   pane 内で modal (AddAnchor / EditAnchor / AnchorDetail / SourceList 等) が
+  //   開いている時、horizontal swipe で pane が動くと modal が一緒に流れて UX が
+  //   壊れる。本 hook で modal lock state を subscribe し、true なら drag 無効化。
+  const isModalOpen = useHomeSwipeModalLock();
 
   // ── container width measurement (ResizeObserver) ──
   useEffect(() => {
@@ -101,6 +110,8 @@ export default function HomeSwipeContainer({
   // ── keyboard navigation (左右矢印キー) ──
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Modal 開時は keyboard nav 無効化 (drag と対称、Phase 1 C3)
+      if (isModalOpen) return;
       const target = e.target as HTMLElement | null;
       // 入力中は keyboard nav を無効化 (composer / form 入力との衝突回避)
       if (
@@ -118,7 +129,7 @@ export default function HomeSwipeContainer({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [isModalOpen]);
 
   // ── swipe gesture handler (pure 判定は home-swipe-intent.ts) ──
   const handleDragEnd = useCallback(
@@ -152,7 +163,8 @@ export default function HomeSwipeContainer({
         style={{ width: `${PANE_COUNT * 100}%` }}
         animate={{ x }}
         transition={carrierTransition}
-        drag={containerWidth > 0 ? "x" : false}
+        // drag gate: container 幅未計測 OR modal 開時は無効化 (Phase 1 C3)
+        drag={containerWidth > 0 && !isModalOpen ? "x" : false}
         dragDirectionLock
         dragConstraints={{
           left: -(PANE_COUNT - 1) * containerWidth,

@@ -16,7 +16,7 @@
  *   - anchor kind 変更（編集は EditAnchorModal で kindMutable=false）
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   GlassBadge,
@@ -24,6 +24,7 @@ import {
   GlassCard,
   GlassModal,
 } from "@/components/ui/glassmorphism-design";
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import { deleteAnchorSource } from "@/lib/plan/anchor-fetch";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
@@ -63,6 +64,12 @@ export function SourceListModal({
   onEditRequest?: (anchor: ExternalAnchor) => void;
 }) {
   const [state, setState] = useState<DeleteState>({ kind: "idle" });
+
+  // Phase 1 C3 (2026-05-20): Home swipe lock register (CEO 補正 #3)
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerHomeSwipeModalOpen();
+  }, [isOpen]);
 
   // source.id → 関連 anchor 配列
   const sourceAnchors = useMemo(() => {
