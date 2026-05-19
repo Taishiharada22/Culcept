@@ -13,6 +13,57 @@
 ```
 
 ---
+### 2026-05-19 CoAlter AOO Phase E-0 起票 — Mirror Channel Productization Plan (docs-only)
+- **部門**: Build / Product
+- **決定内容**: Phase D close (`docs/coalter-aoo-phase-d-close.md`、PR #210 merged `e299b243`) を受け、Phase E (Mirror Channel 製品化) を docs-only で起票。`docs/coalter-aoo-phase-e-plan.md` を新規作成、Phase E-0 〜 E-4 の 5 sub-phase 構成 + safety gates + cleanup/rollback + monitoring/kill switch 設計 + Phase D artifacts 引き継ぎ map を網羅。**Phase E 実装には進まない**、CEO 承認後に各 sub-phase 別 PR で sequential 起票。
+- **Phase E 構成 (5 sub-phase)**:
+  - **E-0** (本 PR): productization plan (docs only)
+  - E-1: visible smoke (canary FORCED_CANARY=true、env 追加 1 + smoke、3-5 days)
+  - E-2: Production gradual rollout (CEO + invited allowlist、**Production env touch を伴う**、1-3 weeks)
+    - E-2-α: CEO のみ Production 有効化 (7 日観測)
+    - E-2-β: invited user 1-3 名 allowlist 拡張 (7 日観測)
+    - E-2-γ: 拡大判断 (CEO 判定)
+  - E-3: monitoring + kill switch (Sentry / Mirror event log / L1 env + L3 runtime / drill、1 week)
+  - E-4: Phase E close (docs only、1 day)
+- **CEO 提示 6 項目 完全 cover** (本 docs):
+  1. Phase D 成果引き継ぎ → §1 (artifacts re-use map、改造可否表)
+  2. E-1 visible smoke 計画 → §3 (FORCED_CANARY 取り扱い、PASS/FAIL、close/sleep 不押し、reflection-only canon)
+  3. E-2 gradual rollout 計画 → §4 (CEO-only / invited / allowlist Option A/B/C / Production env touch)
+  4. safety gates → §7 (PII / false positive / discomfort / console error / service_role 回避)
+  5. cleanup / rollback → §8 (sub-phase 別 matrix、kill switch tier、DB row 扱い)
+  6. 実装分割案 → §2 (E-0/E-1/E-2/E-3/E-4 + 依存関係 graph)
+- **Claude 自立推論 10 idea (人間超越設計、§11)**:
+  1. reflection-only canon の CI gate (Question/Proposal/Suggestion 検出 test、§11.1)
+  2. multi-tier kill switch L1+L3 (env + Supabase runtime、§11.2)
+  3. DIAGNOSTIC_EXPOSE dry-run for allowlist user (§11.3、optional)
+  4. A/B-style measured rollout (§11.4、E では deferred)
+  5. reflection text catalog + offline review (Mirror event log table、§11.5)
+  6. user onboarding tooltip (初回 visible Mirror 時、§11.6)
+  7. failure-injection drill in canary (kill switch 動作確認、§11.7)
+  8. phased rollout invitation canon (E-2-β stage 設計、§11.8)
+  9. reflection quality scoring (LLM eval、§11.9、deferred)
+  10. Stargazer mission alignment monitor (月次 alignment review、§11.10)
+- **Production env touch policy (Phase E の構造的 pivot、§9)**:
+  - Phase D 全期間で守った「Production env 触らない」canon を、Mirror Channel **限定で** E-2 で緩和
+  - Production env touch を許容する 5 condition (E-1 PASS / drill 済 / allowlist 実装 / CEO 直接承認 / Sentry baseline)
+  - 触る env 2 key のみ (`NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED` + `_ALLOWLIST_USER_IDS`)、いずれも新規 key で既存 env を上書きしない、ロールバックは key 削除のみ
+- **Phase E exit criteria (§10、10 項目)**: E-1 PASS / kill switch drill / E-2-α 7 日 / E-2-β 7 日 / PII 0 / canon 違反 0 / Sentry 7 日 / positive feedback 1 名 / monitoring 永続化 / E-4 close docs
+- **不可侵境界 (Phase E 全期間、§13)**:
+  - Phase D canon 永続継承 (lib/supabase anon-only / Mirror No-Effect Contract / Supabase ref canon / D-1 3 gates / canary-smoke template)
+  - Phase E で**新たに不可侵化**: forced_canary は canary でのみ / Production env Mirror 関連 2 key のみ許容 / kill switch L1+L3 必須 / reflection-only canon CI test 必須
+  - **絶対に行わない**: Mirror runtime No-Effect 違反 / SUPABASE_SERVICE_ROLE_KEY 任意投入 / Mirror への Question/Proposal/Suggestion 追加 / 全 user 公開 / `vercel.json` ignoreCommand 変更 / D-1 logic 変更
+- **CEO 判定希望項目 (§12、Q1-Q10)**:
+  - Q1: Production env canon 緩和承認 (推奨 YES)
+  - Q2: allowlist Option (推奨 A env-based)
+  - Q3: kill switch tier (推奨 L1+L3)
+  - Q4: E-1 close/sleep click 試行 (推奨 表示確認のみ)
+  - Q5-Q10: reflection canon CI test / tooltip / drill / event log / A/B / 期間 — 各推奨 default を明示
+- **本 PR scope**: docs only、runtime app code 0 diff、env 0 touch、Supabase 0 touch、Production / all-Preview / Development 全 scope 0 操作
+- **承認**: CEO (D-5 close 完了 + AskUserQuestion で「本線 = Mirror Channel 製品化」判定後、Phase E-0 起票を Claude が docs として準備)
+- **ステータス**: Draft PR 起票後 CEO review + §12 Q1-Q10 answer 待ち
+- **次 phase**: E-1 visible smoke (本 PR merge + Q1-Q10 answer 後、別 PR `feat/coalter-e1-visible-smoke-canary` で Claude 起票)
+
+---
 ### 2026-05-19 CoAlter AOO Phase D 正式 close (D-5、Phase E Mirror Channel 製品化へ hand-off)
 - **部門**: Build / Product
 - **決定内容**: Phase D (D-0 〜 D-4) を本日正式 close。D-4 minimum smoke を CEO 実機実施で PASS、production-equivalent CoAlter flow が canary deploy で構造的に成立することを実証。canary infra (env / branch / worktree) を完全 cleanup、Phase D close docs `docs/coalter-aoo-phase-d-close.md` を新規起票して永続記録化。次 phase は **Mirror Channel 製品化 (Phase E)** で別 起票。
