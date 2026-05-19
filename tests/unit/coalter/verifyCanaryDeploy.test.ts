@@ -113,22 +113,80 @@ describe("D-1 parseDeployMeta — Vercel API response parser", () => {
     expect(r.meta.gitCommitRef).toBeNull();
   });
 
-  it("gitSource.ref null → isGitAttributed false (CEO 必須 2)", () => {
+  it("gitSource.type 欠落 → isGitAttributed false (D-3-β 修正、provider 識別必須)", () => {
     const r = parseDeployMeta({
       source: "github",
-      gitSource: { ref: null },
+      gitSource: { ref: "chore/foo" }, // no type field
       meta: { githubCommitRef: "chore/foo" },
     });
     expect(r.isGitAttributed).toBe(false);
+    expect(r.meta.gitSourceType).toBeNull();
   });
 
-  it("meta.githubCommitRef null → isGitAttributed false (CEO 必須 2)", () => {
+  it("gitSource.ref null + meta.githubCommitRef 存在 + type=github → isGitAttributed true (D-3-β CEO criterion 6 緩和、片方 ref で attribution 成立)", () => {
     const r = parseDeployMeta({
       source: "github",
-      gitSource: { ref: "chore/foo" },
+      gitSource: { ref: null, type: "github" },
+      meta: { githubCommitRef: "chore/foo" },
+    });
+    expect(r.isGitAttributed).toBe(true);
+    expect(r.meta.gitSourceType).toBe("github");
+    expect(r.meta.gitSourceRef).toBeNull();
+    expect(r.meta.gitCommitRef).toBe("chore/foo");
+  });
+
+  it("meta.githubCommitRef null + gitSource.ref 存在 + type=github → isGitAttributed true (D-3-β CEO criterion 6 緩和)", () => {
+    const r = parseDeployMeta({
+      source: "github",
+      gitSource: { ref: "chore/foo", type: "github" },
+      meta: {},
+    });
+    expect(r.isGitAttributed).toBe(true);
+    expect(r.meta.gitSourceType).toBe("github");
+    expect(r.meta.gitSourceRef).toBe("chore/foo");
+    expect(r.meta.gitCommitRef).toBeNull();
+  });
+
+  it("gitSource.ref null + meta.githubCommitRef null + type=github → isGitAttributed false (D-3-β CEO criterion 6、両方欠落 FAIL)", () => {
+    const r = parseDeployMeta({
+      source: "github",
+      gitSource: { type: "github" },
       meta: {},
     });
     expect(r.isGitAttributed).toBe(false);
+    expect(r.meta.gitSourceType).toBe("github");
+    expect(r.meta.gitSourceRef).toBeNull();
+    expect(r.meta.gitCommitRef).toBeNull();
+  });
+
+  it("source=git + gitSource.type=github + ref 存在 → isGitAttributed true (D-3-β 実機 case)", () => {
+    const r = parseDeployMeta({
+      source: "git",
+      gitSource: {
+        ref: "chore/coalter-mirror-d3b-canary",
+        type: "github",
+        sha: "ae3faaee36b456328a08577dc6ccb0ade665b2f9",
+      },
+      meta: {
+        githubCommitRef: "chore/coalter-mirror-d3b-canary",
+        githubCommitSha: "ae3faaee36b456328a08577dc6ccb0ade665b2f9",
+      },
+    });
+    expect(r.isGitAttributed).toBe(true);
+    expect(r.meta.source).toBe("git");
+    expect(r.meta.gitSourceType).toBe("github");
+    expect(r.meta.gitSourceRef).toBe("chore/coalter-mirror-d3b-canary");
+    expect(r.meta.gitSourceSha).toBe("ae3faaee36b456328a08577dc6ccb0ade665b2f9");
+  });
+
+  it("gitSource.type=gitlab → isGitAttributed false (D-3-β、github 以外 provider 不可)", () => {
+    const r = parseDeployMeta({
+      source: "git",
+      gitSource: { ref: "chore/foo", type: "gitlab" },
+      meta: { gitlabCommitRef: "chore/foo" },
+    });
+    expect(r.isGitAttributed).toBe(false);
+    expect(r.meta.gitSourceType).toBe("gitlab");
   });
 
   it("empty / undefined input → defensive null", () => {
@@ -227,10 +285,178 @@ describe("D-1 evaluateGate1Url — canonical URL gate (CEO 必須 3, 4)", () => 
 // Gate 2: Deploy meta git attribution
 // =============================================================================
 
-describe("D-1 evaluateGate2Meta — git attribution gate (CEO 必須 1, 2)", () => {
+describe("D-1 evaluateGate2Meta — git attribution gate (CEO 補正 2026-05-19 D-3-β 10 criteria)", () => {
   const expected = "chore/coalter-mirror-c4-canary";
 
-  it("source=github + matching ref → PASS", () => {
+  // ── Criterion 1 + 10: source=cli は必ず FAIL (C-4 BLOCKED root cause) ──
+  it("[criterion 1] source=cli → FAIL with C-4 root cause message", () => {
+    const r = evaluateGate2Meta(
+      { source: "cli", gitSource: null, meta: {} },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("source=cli");
+    expect(r.reason).toContain("C-4 BLOCKED");
+  });
+
+  it("[criterion 10] C-4 同型 (source=cli / gitSource=null / refs 全欠落) → FAIL 確実", () => {
+    const r = evaluateGate2Meta(
+      { source: "cli", gitSource: null, meta: {} },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("source=cli");
+  });
+
+  // ── Criterion 2: gitSource.type === "github" 必須 ──
+  it("[criterion 2] gitSource.type が undefined → FAIL", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected },
+        meta: { githubCommitRef: expected },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain('gitSource.type は "github" であるべき');
+  });
+
+  it("[criterion 2] gitSource.type が gitlab → FAIL (github 以外は不可)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "git",
+        gitSource: { ref: expected, type: "gitlab" },
+        meta: { gitlabCommitRef: expected },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain('gitSource.type は "github" であるべき');
+  });
+
+  it("[criterion 2] gitSource そのものが null → FAIL (type 取得不可)", () => {
+    const r = evaluateGate2Meta(
+      { source: "git", gitSource: null, meta: { githubCommitRef: expected } },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain('gitSource.type は "github" であるべき');
+  });
+
+  // ── Criterion 3 + 7: gitSource.ref がある場合、expectedBranch と一致必須 ──
+  it("[criterion 3 + 7] gitSource.ref mismatch (別 branch) → FAIL", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: "feat/another-branch", type: "github" },
+        meta: { githubCommitRef: "feat/another-branch" },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("gitSource.ref mismatch");
+  });
+
+  // ── Criterion 4 + 7: meta.githubCommitRef がある場合、expectedBranch と一致必須 ──
+  it("[criterion 4 + 7] meta.githubCommitRef mismatch → FAIL", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github" },
+        meta: { githubCommitRef: "feat/another-branch" },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("meta.githubCommitRef mismatch");
+  });
+
+  // ── Criterion 5: gitSource.sha と meta.githubCommitSha が両方ある場合、一致必須 ──
+  it("[criterion 5] gitSource.sha と meta.githubCommitSha 不一致 → FAIL", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github", sha: "abc1234567890" },
+        meta: { githubCommitRef: expected, githubCommitSha: "def4567890abc" },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("gitSource.sha");
+    expect(r.reason).toContain("meta.githubCommitSha 不一致");
+  });
+
+  it("[criterion 5] gitSource.sha + meta.githubCommitSha 一致 → PASS", () => {
+    const sha = "abc1234567890abcdef0123456789abcdef01234";
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github", sha },
+        meta: { githubCommitRef: expected, githubCommitSha: sha },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  it("[criterion 5] gitSource.sha 存在 + meta.githubCommitSha null → PASS (片方欠落は許容)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github", sha: "abc1234567890" },
+        meta: { githubCommitRef: expected },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  it("[criterion 5] gitSource.sha null + meta.githubCommitSha 存在 → PASS (片方欠落は許容)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github" },
+        meta: { githubCommitRef: expected, githubCommitSha: "abc1234567890" },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  // ── Criterion 6: gitSource.ref と meta.githubCommitRef 両方欠落 → FAIL ──
+  it("[criterion 6] gitSource.ref / meta.githubCommitRef 両方欠落 → FAIL", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { type: "github" },
+        meta: {},
+      },
+      expected,
+    );
+    expect(r.pass).toBe(false);
+    expect(r.reason).toContain("両方欠落");
+  });
+
+  // ── Criterion 8 (主要追加): source=git + gitSource.type=github + 一致 → PASS (D-3-β 実機 case) ──
+  it("[criterion 8] source=git + gitSource.type=github + matching ref → PASS (D-3-β 実機 case)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "git",
+        gitSource: { ref: expected, type: "github", sha: "ae3faaee36b4" },
+        meta: { githubCommitRef: expected, githubCommitSha: "ae3faaee36b4" },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+    expect(r.gate).toBe(2);
+    expect(r.reason).toContain("git-attributed deploy");
+    expect(r.reason).toContain("source=git");
+    expect(r.reason).toContain("gitSource.type=github");
+  });
+
+  // ── 既存 PASS テスト: source=github + matching ref → PASS (古い Vercel API 互換) ──
+  it("[backward compat] source=github + gitSource.type=github + matching ref → PASS", () => {
     const r = evaluateGate2Meta(
       {
         source: "github",
@@ -243,53 +469,62 @@ describe("D-1 evaluateGate2Meta — git attribution gate (CEO 必須 1, 2)", () 
     expect(r.gate).toBe(2);
   });
 
-  it("source=cli → FAIL with C-4 root cause message (CEO 必須 1)", () => {
+  // ── Criterion 4 緩和: meta.githubCommitRef null + gitSource.ref 一致 → PASS ──
+  it("[criterion 4 緩和] gitSource.ref 一致 + meta.githubCommitRef null → PASS (片方の ref で attribution 成立)", () => {
     const r = evaluateGate2Meta(
-      { source: "cli", gitSource: null, meta: {} },
+      {
+        source: "github",
+        gitSource: { ref: expected, type: "github" },
+        meta: {},
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  // ── Criterion 3 緩和: gitSource.ref null + meta.githubCommitRef 一致 → PASS ──
+  it("[criterion 3 緩和] gitSource.ref null + meta.githubCommitRef 一致 → PASS (片方の ref で attribution 成立)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "github",
+        gitSource: { type: "github" },
+        meta: { githubCommitRef: expected },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  // ── Criterion 9: source=github でも branch 情報欠落なら FAIL ──
+  it("[criterion 9] source=github でも refs 両方欠落 → FAIL (criterion 6 で gate)", () => {
+    const r = evaluateGate2Meta(
+      { source: "github", gitSource: { type: "github" }, meta: {} },
       expected,
     );
     expect(r.pass).toBe(false);
-    expect(r.reason).toContain("source=cli");
-    expect(r.reason).toContain("C-4 BLOCKED");
+    expect(r.reason).toContain("両方欠落");
   });
 
-  it("source other than github / cli → FAIL", () => {
+  // ── 任意 source (import 等) でも gitSource.type で gate ──
+  it("source=import + gitSource.type=github + matching ref → PASS (source 種別に依存しない)", () => {
+    const r = evaluateGate2Meta(
+      {
+        source: "import",
+        gitSource: { ref: expected, type: "github" },
+        meta: { githubCommitRef: expected },
+      },
+      expected,
+    );
+    expect(r.pass).toBe(true);
+  });
+
+  it("source=import + gitSource.type 欠落 → FAIL", () => {
     const r = evaluateGate2Meta(
       { source: "import", gitSource: { ref: expected }, meta: { githubCommitRef: expected } },
       expected,
     );
     expect(r.pass).toBe(false);
-  });
-
-  it("gitSource.ref null → FAIL (CEO 必須 2)", () => {
-    const r = evaluateGate2Meta(
-      { source: "github", gitSource: { ref: null }, meta: { githubCommitRef: expected } },
-      expected,
-    );
-    expect(r.pass).toBe(false);
-    expect(r.reason).toContain("gitSource.ref が null");
-  });
-
-  it("gitSource.ref mismatch (別 branch) → FAIL", () => {
-    const r = evaluateGate2Meta(
-      {
-        source: "github",
-        gitSource: { ref: "feat/another-branch" },
-        meta: { githubCommitRef: "feat/another-branch" },
-      },
-      expected,
-    );
-    expect(r.pass).toBe(false);
-    expect(r.reason).toContain("mismatch");
-  });
-
-  it("meta.githubCommitRef null → FAIL (CEO 必須 2)", () => {
-    const r = evaluateGate2Meta(
-      { source: "github", gitSource: { ref: expected }, meta: {} },
-      expected,
-    );
-    expect(r.pass).toBe(false);
-    expect(r.reason).toContain("githubCommitRef が null");
+    expect(r.reason).toContain('gitSource.type は "github" であるべき');
   });
 });
 
