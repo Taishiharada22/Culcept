@@ -130,6 +130,35 @@ print('meta.githubCommitSha:', (m.get('githubCommitSha') or '')[:12])
 # 本 §4 verification command を使う
 ```
 
+### 3.4 Phase D-1 機械化された pre-flight + post-deploy verification (recommended)
+
+Phase D-1 で `scripts/coalter/verify-canary-deploy.ts` が実装された。本 script は §3.1 (deploy meta verify) + §4 (HTML bundle Supabase ref grep) を **1 コマンドで 3 gates 順次評価** する。
+
+```bash
+npx tsx scripts/coalter/verify-canary-deploy.ts \
+  --deployment-url=https://culcept-<canonical-hash>-taishis-projects-0a8deb17.vercel.app \
+  --deployment-id=dpl_<your-deploy-id> \
+  --expected-branch=chore/coalter-mirror-c<N>-canary \
+  --expected-supabase=aljavfujeqcwnqryjmhl \
+  --forbidden-supabase=hjcrvndumgiovyfdacwc
+```
+
+3 gates 順次 fail-closed 評価:
+1. **Gate 1**: URL canonical-ness (user alias / git branch alias 禁止)
+2. **Gate 2**: Deploy meta git attribution (`source: github` + `gitSource.ref` + `meta.githubCommitRef` が対象 branch)
+3. **Gate 3**: HTML bundle Supabase ref (expected あり / forbidden なし)
+
+Exit code:
+- `0`: 3 gates 全 PASS (smoke 開始可能)
+- `1`: いずれか FAIL (smoke 中止、§5 git-attributed deploy 経路で再 deploy)
+- `2`: CLI argument error
+
+Vercel token 解決順: `--vercel-token` flag > `VERCEL_TOKEN` env > `~/Library/Application Support/com.vercel.cli/auth.json` (macOS) > `~/.config/vercel/auth.json` (Linux)。
+
+詳細は `scripts/coalter/verify-canary-deploy.ts` 冒頭 docstring + `tests/unit/coalter/verifyCanaryDeploy.test.ts` (47+ tests) を参照。
+
+**本 script は read-only**: env 変更なし / deploy 作成なし / vercel env rm/add 一切使わない。HTTP GET (Vercel API + HTML bundle) のみ。
+
 ---
 
 ## §4. 必須 post-deploy verification — Supabase project ref grep (literal command)
