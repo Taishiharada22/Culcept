@@ -19,4 +19,21 @@ export const PLAN_FLAGS = {
    * 達するまで有効化しない。
    */
   planRouteLive: process.env.PLAN_ROUTE_LIVE === "true",
+
+  /**
+   * Home 横スワイプ統合を有効化するか（W1-Home-Swipe）。
+   *   true  : Home が <HomeSwipeContainer> でラップされ、Plan pane が swipe で到達可能
+   *   false : Home は従来通り単独 <AneurasyncHome />（本番デフォルト、CEO 補正 2026-05-19）
+   *
+   * env: PLAN_HOME_SWIPE_ENABLED=true で有効化
+   *
+   * 設計書: docs/alter-plan-home-integration-mini-design.md
+   * CEO 補正 (2026-05-19、PR #209 採択方針):
+   *   - flag は server-side のみ評価（NEXT_PUBLIC_ prefix なし）
+   *   - flag=true でも /plan 直 URL は wrapper なしで単独 PlanClient（既存通り）
+   *   - flag=true でも AneurasyncHome.tsx の内部は不変
+   *   - Plan pane は summary view のみ（full PlanClient embed は禁止）
+   *   - Production deploy 時は default false、Preview で env 投入してから検証
+   */
+  homeSwipeEnabled: process.env.PLAN_HOME_SWIPE_ENABLED === "true",
 } as const;

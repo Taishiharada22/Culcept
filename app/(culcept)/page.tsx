@@ -4,6 +4,9 @@ import { supabaseServer } from "@/lib/supabase/server";
 import AneurasyncHome from "../AneurasyncHome";
 import { resolveVisualFlowFlagSource } from "@/lib/alter-morning/dialog/flags";
 import { emitVisualFlowFlagEvaluated } from "@/lib/alter-morning/visualFlow/analyticsServer";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
+import HomeSwipeContainer from "@/components/home/HomeSwipeContainer";
+import HomePlanPane from "@/components/home/HomePlanPane";
 
 /**
  * / の役割を1つに固定:
@@ -73,10 +76,28 @@ export default async function HomePage() {
             });
         }
 
-        return <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
+        // ── W1-Home-Swipe: feature flag に基づいて Home swipe wrapper を適用 ──
+        //
+        // CEO 補正 (2026-05-19、PR #209 採択方針):
+        //   - flag=true (Preview で env 投入時): AneurasyncHome を pane 0、
+        //     HomePlanPane を pane 1 として swipe wrapper で統合
+        //   - flag=false (production default): 従来通り単独 AneurasyncHome
+        //   - /plan 直 URL は本 wrapper の影響を受けず、PlanClient 単独で render
+        //     (app/(culcept)/plan/page.tsx 側、本 file 不変)
+        //   - AneurasyncHome 内部は不変 (Alter 体験完全保持)
+        const homeElement = <AneurasyncHome visualFlowEnabled={visualFlowEnabled} />;
+        if (PLAN_FLAGS.homeSwipeEnabled) {
+            return (
+                <HomeSwipeContainer
+                    homePane={homeElement}
+                    planPane={<HomePlanPane />}
+                />
+            );
+        }
+        return homeElement;
     } catch (e: any) {
         if (e?.digest?.includes("NEXT_REDIRECT")) throw e;
-        // auth errors は非致命的 — fallback として Home を表示
+        // auth errors は非致命的 — fallback として Home を表示 (swipe wrapper なし、最小経路)
         return <AneurasyncHome />;
     }
 }
