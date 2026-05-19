@@ -50,9 +50,17 @@
   - **Q5 (canon CI test E-1 同時着地): ✅ 46 tests main 着地**
   - 他 Q1-Q3, Q6-Q10 は E-2 / E-3 で順次実施 (E-1 では未着手)
 - **E-2-α 着手 gate condition の現状** (Phase E-0 §9.2 で確定された 8 condition):
-  - **4 達成**: #1 (E-1 PASS) / #2 (cleanup) / #3 (close 記録、本 PR で着地予定) / #6 (canon CI test 着地)
-  - **4 残**: #4 (kill switch L1+L3 drill、E-3) / #5 (allowlist 実装、E-2-α 前別 PR) / #7 (CEO 直接承認、E-2-α 起票時) / #8 (Sentry baseline、E-3)
-  - → **8/8 揃うまで Production env touch 不可** (canon §12.1 補正厳守)
+  - **4 達成**: #1 (E-1 PASS) / #2 (cleanup) / #3 (close 記録、本 PR で着地) / #6 (canon CI test 着地、PR #213)
+  - **残 4 condition (canonical 一覧、CEO 期待表現と完全一致)**:
+    1. **kill switch L1 + L3 drill 済** (E-3 phase で実施、未着手)
+    2. **allowlist 実装 (Option A env-based) 着地** (E-2-α 前の別 PR、未着手)
+    3. **CEO 直接承認** (E-2-α 起票 PR で取得、未取得)
+    4. **Sentry baseline 記録** (E-3 phase で実施、未着手)
+  - → **残 4 condition すべて達成まで Production env touch 不可** (canon §12.1 補正 + §9.2 gate 厳守)
+- **Phase E-2 実装ステータス (本 entry 時点)**:
+  - **Phase E-2 実装は未着手** (E-2-α / E-2-β / E-2-γ いずれも 0 着手)
+  - Production env touch 0 (Phase E-1 全期間 + 本 close PR 全期間維持)
+  - **C-5 着手なし** (Phase C-5 系作業は Phase E と独立、本 PR 範囲外)
 - **次 phase**: E-2-α (Production gradual rollout、CEO のみ、別 起票)
 - **承認**: CEO (E-1 visible smoke 実機実施 PASS 判定 + 本 close docs 内容承認)
 - **ステータス**: 実行済 (E-1 cleanup 完了 + 本 close docs PR 起票後 merge 待ち)
