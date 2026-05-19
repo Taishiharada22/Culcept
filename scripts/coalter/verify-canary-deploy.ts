@@ -81,7 +81,21 @@ export interface CanonicalUrlResult {
 
 export interface DeployMeta {
   readonly source: string | null;
+  /**
+   * Vercel API の `gitSource.type` (provider 種別)。
+   * GitHub 経由の deploy なら "github" を返す。CLI deploy / gitSource 欠落時は null。
+   *
+   * Gate 2 (D-3-β 後の修正、Vercel API field semantics 進化対応):
+   *   - top-level `source` は "git" / "github" / "cli" の variant を取りうる
+   *   - 実際の provider 識別は `gitSource.type === "github"` で判定する (より stable)
+   */
+  readonly gitSourceType: string | null;
   readonly gitSourceRef: string | null;
+  /**
+   * Vercel API の `gitSource.sha` (deploy 対象 commit SHA)。
+   * `meta.githubCommitSha` と整合確認に使う (criterion 5)。
+   */
+  readonly gitSourceSha: string | null;
   readonly gitCommitRef: string | null;
   readonly gitCommitSha: string | null;
 }
@@ -189,10 +203,15 @@ export function parseCanonicalUrl(url: string): CanonicalUrlResult {
  * @param apiResponse - Vercel API v13 deployment response の任意 JSON
  * @returns DeployMetaParseResult
  *
- * isGitAttributed の判定条件 (全て true):
- *   - source === "github" (NOT "cli")
- *   - gitSource.ref が non-null
- *   - meta.githubCommitRef が non-null
+ * isGitAttributed の判定条件 (D-3-β 後の修正、CEO 補正 2026-05-19):
+ *   - source !== "cli" (cli deploy は C-4 BLOCKED root cause)
+ *   - gitSource.type === "github" (provider 識別、より stable な field)
+ *   - gitSource.ref または meta.githubCommitRef のいずれかが non-null
+ *
+ * 補足 (Vercel API field semantics 進化対応):
+ *   D-1 起票時 (C-4 closure 直後) は top-level `source: "github"` を想定したが、
+ *   Vercel API は新しく `source: "git"` + `gitSource.type: "github"` という形式を
+ *   返すようになった (D-3-β で実機観測)。本 parser は新形式に対応する。
  */
 export function parseDeployMeta(apiResponse: unknown): DeployMetaParseResult {
   // unknown を defensively narrow
@@ -201,7 +220,9 @@ export function parseDeployMeta(apiResponse: unknown): DeployMetaParseResult {
   const gitSource = (obj.gitSource ?? {}) as Record<string, unknown>;
 
   const source = typeof obj.source === "string" ? obj.source : null;
+  const gitSourceType = typeof gitSource.type === "string" ? gitSource.type : null;
   const gitSourceRef = typeof gitSource.ref === "string" ? gitSource.ref : null;
+  const gitSourceSha = typeof gitSource.sha === "string" ? gitSource.sha : null;
   const gitCommitRef =
     typeof meta.githubCommitRef === "string"
       ? meta.githubCommitRef
@@ -215,10 +236,17 @@ export function parseDeployMeta(apiResponse: unknown): DeployMetaParseResult {
         ? (meta.gitlabCommitSha as string)
         : null;
 
-  const isGitAttributed = source === "github" && gitSourceRef !== null && gitCommitRef !== null;
+  // 新しい isGitAttributed 判定 (D-3-β 修正、CEO criterion 10 fail-closed + 8 PASS 条件):
+  //   - source === "cli" → false (C-4 BLOCKED root cause、criterion 1 + 10)
+  //   - gitSource.type === "github" 必須 (criterion 2)
+  //   - gitSource.ref / meta.githubCommitRef のいずれかが存在 (criterion 6 の対偶)
+  const isGitAttributed =
+    source !== "cli" &&
+    gitSourceType === "github" &&
+    (gitSourceRef !== null || gitCommitRef !== null);
 
   return {
-    meta: { source, gitSourceRef, gitCommitRef, gitCommitSha },
+    meta: { source, gitSourceType, gitSourceRef, gitSourceSha, gitCommitRef, gitCommitSha },
     isGitAttributed,
   };
 }
@@ -283,21 +311,45 @@ export function evaluateGate1Url(url: string): GateResult {
 }
 
 /**
- * Gate 2: Deploy meta git attribution 判定
+ * Gate 2: Deploy meta git attribution 判定 (D-3-β CEO 補正 2026-05-19 で改修)
  *
- *   PASS: source=github + gitSource.ref === expectedBranch + meta.githubCommitRef === expectedBranch
- *   FAIL: いずれかが不適 (特に source=cli の場合 C-4 BLOCKED の root cause パターン)
+ * 改修の根拠:
+ *   - D-3-β implementation で Vercel API が `source: "git"` (top-level) + `gitSource.type: "github"`
+ *     という形式を返すことを実機観測 (dpl_8zycPH9sMNLycqR4Gszk4dU7HTf7)。
+ *   - C-4 BLOCKED 時の `source: "cli"` (git attribution 完全欠落) とは構造的に異なり、
+ *     git attribution は実質完全に取得されていた (gitSource.ref / githubCommitRef / githubCommitSha 全 OK)。
+ *   - 旧 logic は `source === "github"` 厳格 check で D-3-β を spurious FAIL させていた。
+ *   - 修正方針: provider 識別は **`gitSource.type === "github"` で判定** (より stable な field)。
+ *     ただし C-4 同型 (`source: "cli"` / gitSource null / ref 全欠落) は確実に FAIL を維持。
+ *
+ * CEO 提示 10 判定 criteria (本 fn で実装):
+ *   1. source === "cli" は必ず FAIL (C-4 root cause、最優先 gate)
+ *   2. gitSource.type === "github" を必須 (provider 識別)
+ *   3. gitSource.ref がある場合、expectedBranch と一致必須
+ *   4. meta.githubCommitRef がある場合、expectedBranch と一致必須
+ *   5. gitSource.sha / meta.githubCommitSha 両方ある場合、一致必須
+ *   6. gitSource.ref と meta.githubCommitRef が両方欠落なら FAIL
+ *   7. branch mismatch は FAIL (3 + 4 と等価)
+ *   8. source === "git" + gitSource.type === "github" + branch 一致 → PASS (新パターン)
+ *   9. source === "github" でも、branch 情報欠落なら FAIL (6 で被覆)
+ *  10. C-4 同型 (source=cli / gitSource=null / ref 全欠落) は確実に FAIL (1 で被覆)
+ *
+ *   PASS: 上記 criteria 全 satisfy
+ *   FAIL: いずれかが不適
  */
 export function evaluateGate2Meta(apiResponse: unknown, expectedBranch: string): GateResult {
   const r = parseDeployMeta(apiResponse);
   const evidence = {
     source: r.meta.source,
+    gitSourceType: r.meta.gitSourceType,
     gitSourceRef: r.meta.gitSourceRef,
+    gitSourceSha: r.meta.gitSourceSha ? r.meta.gitSourceSha.slice(0, 12) : null,
     gitCommitRef: r.meta.gitCommitRef,
     gitCommitSha: r.meta.gitCommitSha ? r.meta.gitCommitSha.slice(0, 12) : null,
     isGitAttributed: r.isGitAttributed,
   };
 
+  // ── Criterion 1 + 10: source === "cli" → FAIL (C-4 BLOCKED root cause、最優先 fail-closed) ──
   if (r.meta.source === "cli") {
     return {
       gate: 2,
@@ -306,29 +358,38 @@ export function evaluateGate2Meta(apiResponse: unknown, expectedBranch: string):
       reason:
         "source=cli は git attribution を inject しない (C-4 BLOCKED の root cause)。" +
         "branch-scoped Preview env が build に到達しないため smoke 中止。" +
-        "Phase D-0 §4.3 git-attributed deploy 経路 (.ts/.tsx 最小 trigger commit) で再 deploy。",
+        "Phase D-0 §4.3 git-attributed deploy 経路 (.canary-trigger.json increment or .ts/.tsx 最小 trigger commit) で再 deploy。",
       evidence,
     };
   }
-  if (r.meta.source !== "github") {
+
+  // ── Criterion 2: gitSource.type === "github" 必須 (provider 識別) ──
+  if (r.meta.gitSourceType !== "github") {
     return {
       gate: 2,
       name: "Deploy meta git attribution",
       pass: false,
-      reason: `source は "github" であるべき (実際: ${r.meta.source ?? "null"})`,
+      reason:
+        `gitSource.type は "github" であるべき (実際: ${r.meta.gitSourceType ?? "null"})。` +
+        "GitHub 経由でない deploy は Mirror canary smoke の前提を満たさない。",
       evidence,
     };
   }
-  if (r.meta.gitSourceRef === null) {
+
+  // ── Criterion 6: gitSource.ref と meta.githubCommitRef が両方欠落 → FAIL ──
+  if (r.meta.gitSourceRef === null && r.meta.gitCommitRef === null) {
     return {
       gate: 2,
       name: "Deploy meta git attribution",
       pass: false,
-      reason: "gitSource.ref が null (git attribution 欠落、C-4 BLOCKED と同型)",
+      reason:
+        "gitSource.ref と meta.githubCommitRef が両方欠落 (git attribution 完全欠落、C-4 BLOCKED と同型)。",
       evidence,
     };
   }
-  if (r.meta.gitSourceRef !== expectedBranch) {
+
+  // ── Criterion 3 + 7: gitSource.ref がある場合、expectedBranch と一致必須 ──
+  if (r.meta.gitSourceRef !== null && r.meta.gitSourceRef !== expectedBranch) {
     return {
       gate: 2,
       name: "Deploy meta git attribution",
@@ -337,16 +398,9 @@ export function evaluateGate2Meta(apiResponse: unknown, expectedBranch: string):
       evidence,
     };
   }
-  if (r.meta.gitCommitRef === null) {
-    return {
-      gate: 2,
-      name: "Deploy meta git attribution",
-      pass: false,
-      reason: "meta.githubCommitRef が null (git attribution 欠落)",
-      evidence,
-    };
-  }
-  if (r.meta.gitCommitRef !== expectedBranch) {
+
+  // ── Criterion 4 + 7: meta.githubCommitRef がある場合、expectedBranch と一致必須 ──
+  if (r.meta.gitCommitRef !== null && r.meta.gitCommitRef !== expectedBranch) {
     return {
       gate: 2,
       name: "Deploy meta git attribution",
@@ -355,11 +409,33 @@ export function evaluateGate2Meta(apiResponse: unknown, expectedBranch: string):
       evidence,
     };
   }
+
+  // ── Criterion 5: gitSource.sha と meta.githubCommitSha が両方ある場合、一致必須 ──
+  if (
+    r.meta.gitSourceSha !== null &&
+    r.meta.gitCommitSha !== null &&
+    r.meta.gitSourceSha !== r.meta.gitCommitSha
+  ) {
+    return {
+      gate: 2,
+      name: "Deploy meta git attribution",
+      pass: false,
+      reason:
+        `gitSource.sha と meta.githubCommitSha 不一致 ` +
+        `(gitSource.sha=${r.meta.gitSourceSha.slice(0, 12)}, meta.githubCommitSha=${r.meta.gitCommitSha.slice(0, 12)})。` +
+        "deploy artifact の commit 整合性に疑義。",
+      evidence,
+    };
+  }
+
+  // ── 全 criteria PASS (criterion 8: source=git でも gitSource.type=github + branch 一致なら OK) ──
   return {
     gate: 2,
     name: "Deploy meta git attribution",
     pass: true,
-    reason: `git-attributed deploy (source=github, ref=${expectedBranch})`,
+    reason:
+      `git-attributed deploy ` +
+      `(source=${r.meta.source}, gitSource.type=github, ref=${expectedBranch})`,
     evidence,
   };
 }
