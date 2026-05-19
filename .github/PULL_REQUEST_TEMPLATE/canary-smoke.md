@@ -26,7 +26,10 @@ CoAlter AOO Canary Smoke PR Template (Phase D-0 §9 + D-1 機械化)
 - [ ] **L2 Mirror visible smoke** (MirrorVisibleSurface 実機表示、forced canary mock injection 経由、production-equivalent context ではない)
 - [ ] **L3 CoAlter chat smoke** (production-equivalent: login → /talk → 既存 thread → CoAlter button → activate → Mirror visible)
 
-### Expected / Forbidden env 値 (Phase D-0 §5.4)
+### Expected / Forbidden env 値 (Phase D-0 §5.4 + D-3-α canon)
+
+> 📜 **Ref source-of-truth canon (D-3-α 以降)**: `docs/coalter-supabase-ref-canon.md` (§1 machine-readable JSON block) が正本。本 template の下記値が drift したら `tests/unit/coalter/supabaseRefCanon.test.ts` で fail する。Ref を変更する PR は canon §4 protocol に従って同 PR で全参照先を同期する。
+
 - [ ] **expected Supabase ref**: `aljavfujeqcwnqryjmhl` (Aneurasync Production Supabase)
 - [ ] **forbidden Supabase ref**: `hjcrvndumgiovyfdacwc` (Alter staging — Mirror canary では絶対 NG)
 - [ ] branch-scoped env が必要な場合は **§4.3 git-attributed deploy 経路** を使う (`vercel --force` は **L1 Mount smoke のみ** 許容)

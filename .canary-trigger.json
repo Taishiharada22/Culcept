@@ -1,5 +1,6 @@
 {
   "$schema_note": "CoAlter AOO Phase D-2 — Canary Trigger Metadata File. Only metadata, NO secrets/tokens/keys.",
+  "$ref_canon_pointer": "expected_supabase_ref / forbidden_supabase_ref の正本は docs/coalter-supabase-ref-canon.md (§1 machine-readable JSON block)。drift 検出は tests/unit/coalter/supabaseRefCanon.test.ts。本 file の値を変更する場合は canon §4 protocol に従って同 PR で全参照先 (anti-patterns doc / canary-smoke PR template / D-1 fixtures / canon 自身) を同期する。",
   "purpose": "vercel.json の ignoreCommand を bypass して canary Preview build を git-attributed で trigger する dedicated marker file。本 file を変更 + git push すると Vercel が build を実行 (source=github + git attribution あり)。",
   "phase": "D-2",
   "smoke_purpose": "build route initial commit (D-2 自身が dogfood test)",
@@ -11,10 +12,12 @@
   "notes_to_future_users": [
     "本 file を新規 canary smoke で利用するには、phase / smoke_purpose / canary_branch / trigger_at / trigger_count を更新して commit + push する",
     "trigger_count を increment するだけでも file 差分が発生し、Vercel build が trigger される",
-    "expected_supabase_ref / forbidden_supabase_ref は通常変更しない (Mirror canary では aljavfujeqcwnqryjmhl 必須、hjcrvndumgiovyfdacwc 検出時 D-1 verify-canary-deploy script が即停止)",
+    "expected_supabase_ref / forbidden_supabase_ref の正本は docs/coalter-supabase-ref-canon.md (D-3-α 起点)。drift 防止は tests/unit/coalter/supabaseRefCanon.test.ts で構造的に enforce",
+    "Mirror canary では aljavfujeqcwnqryjmhl 必須 (Aneurasync Production Supabase)、hjcrvndumgiovyfdacwc 検出時 (Alter staging) は D-1 verify-canary-deploy script が即停止",
     "本 file には secret / token / API key を**絶対に**書かない (anti-patterns canon)"
   ],
   "related_docs": [
+    "docs/coalter-supabase-ref-canon.md (D-3-α、ref source-of-truth canon、本 file の expected/forbidden の正本)",
     "docs/coalter-aoo-canary-deploy-anti-patterns.md (§5 + §3.4)",
     "docs/coalter-aoo-phase-d0-canary-deploy-route-design.md §4.3 Option β",
     "scripts/coalter/verify-canary-deploy.ts (D-1 verification script)"
