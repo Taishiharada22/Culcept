@@ -55,10 +55,13 @@ export function FlowTab({
   anchors,
   now,
   onAddRequest,
+  onAnchorClick,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
   onAddRequest?: (req: AddRequest) => void;
+  /** W1-X5: anchor item クリック / Enter / Space で detail modal を開く */
+  onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
   const baseDay = utcMidnight(now ?? new Date());
   const [offset, setOffset] = useState<FlowOffset>(0);
@@ -167,7 +170,10 @@ export function FlowTab({
                     {showGapAdd && suggestedTime && (
                       <button
                         type="button"
-                        onClick={() => handleGapAdd(suggestedTime)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleGapAdd(suggestedTime);
+                        }}
                         aria-label={`${selectedDayLabel} ${suggestedTime} 頃に予定を教える`}
                         data-testid={`plan-flow-gap-add-${a.id}`}
                         className="rounded-full border border-indigo-200 px-2 py-0.5 text-xs font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
@@ -177,25 +183,54 @@ export function FlowTab({
                     )}
                   </div>
                 )}
-                <GlassCard className="p-3">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-mono text-indigo-700">
-                      {formatTime(a.startTime)}
-                      {a.endTime ? ` – ${formatTime(a.endTime)}` : ""}
-                    </span>
-                    {a.rigidity === "hard" && (
-                      <GlassBadge variant="default" size="sm">
-                        固定
-                      </GlassBadge>
+                <div
+                  {...(onAnchorClick
+                    ? {
+                        role: "button" as const,
+                        tabIndex: 0,
+                        "aria-label": `${a.title} の詳細を見る`,
+                        onClick: (e: React.MouseEvent<HTMLDivElement>) => {
+                          e.stopPropagation();
+                          onAnchorClick(a);
+                        },
+                        onKeyDown: (
+                          e: React.KeyboardEvent<HTMLDivElement>
+                        ) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onAnchorClick(a);
+                          }
+                        },
+                      }
+                    : {})}
+                  data-testid={`plan-flow-anchor-${a.id}`}
+                  className={
+                    onAnchorClick
+                      ? "cursor-pointer rounded-2xl transition hover:ring-2 hover:ring-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      : ""
+                  }
+                >
+                  <GlassCard className="p-3">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-mono text-indigo-700">
+                        {formatTime(a.startTime)}
+                        {a.endTime ? ` – ${formatTime(a.endTime)}` : ""}
+                      </span>
+                      {a.rigidity === "hard" && (
+                        <GlassBadge variant="default" size="sm">
+                          固定
+                        </GlassBadge>
+                      )}
+                    </div>
+                    <p className="mt-1 text-base font-medium text-slate-900">
+                      {a.title}
+                    </p>
+                    {a.locationText && (
+                      <p className="text-xs text-slate-500">{a.locationText}</p>
                     )}
-                  </div>
-                  <p className="mt-1 text-base font-medium text-slate-900">
-                    {a.title}
-                  </p>
-                  {a.locationText && (
-                    <p className="text-xs text-slate-500">{a.locationText}</p>
-                  )}
-                </GlassCard>
+                  </GlassCard>
+                </div>
               </li>
             );
           })}

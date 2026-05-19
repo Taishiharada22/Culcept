@@ -37,6 +37,7 @@ import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
+import { AnchorDetailModal } from "./components/AnchorDetailModal";
 import { EditAnchorModal } from "./components/EditAnchorModal";
 import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
@@ -80,6 +81,9 @@ export default function PlanClient() {
   // W1-X2: edit modal state
   const [editAnchor, setEditAnchor] = useState<ExternalAnchor | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  // W1-X5: detail modal state
+  const [detailAnchor, setDetailAnchor] = useState<ExternalAnchor | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const load = async () => {
     setState({ kind: "loading" });
@@ -130,6 +134,25 @@ export default function PlanClient() {
   const handleEditSuccess = () => {
     setEditOpen(false);
     setEditAnchor(null);
+    void load();
+  };
+
+  // W1-X5: detail modal handlers
+  const openDetail = (anchor: ExternalAnchor) => {
+    setDetailAnchor(anchor);
+    setDetailOpen(true);
+  };
+  const handleDetailClose = () => {
+    setDetailOpen(false);
+  };
+  const handleDetailEditRequest = (anchor: ExternalAnchor) => {
+    // Detail を閉じて Edit を開く（modal の重ね合わせ回避）
+    setDetailOpen(false);
+    openEdit(anchor);
+  };
+  const handleDetailDeleteSuccess = () => {
+    setDetailOpen(false);
+    setDetailAnchor(null);
     void load();
   };
 
@@ -210,13 +233,25 @@ export default function PlanClient() {
         {state.kind === "ok" && state.anchors.length > 0 && (
           <>
             {activeTab === "calendar" && (
-              <CalendarTab anchors={state.anchors} onAddRequest={openAdd} />
+              <CalendarTab
+                anchors={state.anchors}
+                onAddRequest={openAdd}
+                onAnchorClick={openDetail}
+              />
             )}
             {activeTab === "flow" && (
-              <FlowTab anchors={state.anchors} onAddRequest={openAdd} />
+              <FlowTab
+                anchors={state.anchors}
+                onAddRequest={openAdd}
+                onAnchorClick={openDetail}
+              />
             )}
             {activeTab === "map" && (
-              <MapTab anchors={state.anchors} onAddRequest={openAdd} />
+              <MapTab
+                anchors={state.anchors}
+                onAddRequest={openAdd}
+                onAnchorClick={openDetail}
+              />
             )}
           </>
         )}
@@ -247,6 +282,19 @@ export default function PlanClient() {
         onClose={handleEditClose}
         onSuccess={handleEditSuccess}
         anchor={editAnchor}
+      />
+      <AnchorDetailModal
+        isOpen={detailOpen}
+        onClose={handleDetailClose}
+        anchor={detailAnchor}
+        allAnchors={state.kind === "ok" ? state.anchors : []}
+        source={
+          state.kind === "ok" && detailAnchor
+            ? state.sources.find((s) => s.id === detailAnchor.sourceId) ?? null
+            : null
+        }
+        onEditRequest={handleDetailEditRequest}
+        onDeleteSuccess={handleDetailDeleteSuccess}
       />
     </main>
   );

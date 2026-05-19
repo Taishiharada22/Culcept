@@ -39,12 +39,15 @@ export function CalendarTab({
   anchors,
   now,
   onAddRequest,
+  onAnchorClick,
 }: {
   anchors: ExternalAnchor[];
   /** inject 可能、test deterministic 化のため */
   now?: Date;
   /** W1-X3: 「+」button タップで modal を pre-fill 起動 */
   onAddRequest?: (req: AddRequest) => void;
+  /** W1-X5: anchor 行クリック / Enter / Space で detail modal を開く */
+  onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
   const baseNow = now ?? new Date();
   const days = getWeekDays(baseNow);
@@ -93,7 +96,10 @@ export function CalendarTab({
                 {onAddRequest && (
                   <button
                     type="button"
-                    onClick={handleAdd}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAdd();
+                    }}
                     aria-label={`${formatJpDate(day)}に予定を教える`}
                     data-testid={`plan-calendar-add-${iso}`}
                     className="flex h-6 w-6 items-center justify-center rounded-full border border-indigo-200 text-xs font-bold text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
@@ -107,10 +113,43 @@ export function CalendarTab({
               <p className="text-xs text-slate-400">予定なし</p>
             ) : (
               <ul className="space-y-2">
-                {dayAnchors.map((anchor) => (
+                {dayAnchors.map((anchor) => {
+                  const handleAnchorClick = (
+                    e:
+                      | React.MouseEvent<HTMLLIElement>
+                      | React.KeyboardEvent<HTMLLIElement>
+                  ) => {
+                    if (!onAnchorClick) return;
+                    e.stopPropagation();
+                    onAnchorClick(anchor);
+                  };
+                  const clickable = !!onAnchorClick;
+                  return (
                   <li
                     key={anchor.id}
-                    className="rounded-lg border border-slate-200 bg-white/60 p-2"
+                    {...(clickable
+                      ? {
+                          role: "button" as const,
+                          tabIndex: 0,
+                          "aria-label": `${anchor.title} の詳細を見る`,
+                          onClick: handleAnchorClick,
+                          onKeyDown: (
+                            e: React.KeyboardEvent<HTMLLIElement>
+                          ) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleAnchorClick(e);
+                            }
+                          },
+                        }
+                      : {})}
+                    data-testid={`plan-calendar-anchor-${anchor.id}`}
+                    className={
+                      "rounded-lg border border-slate-200 bg-white/60 p-2 " +
+                      (clickable
+                        ? "cursor-pointer transition hover:border-indigo-300 hover:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        : "")
+                    }
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono text-indigo-700">
@@ -129,7 +168,8 @@ export function CalendarTab({
                       <p className="text-xs text-slate-500">{anchor.locationText}</p>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </GlassCard>

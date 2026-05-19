@@ -43,11 +43,14 @@ export function MapTab({
   now,
   windowDays = DEFAULT_WINDOW_DAYS,
   onAddRequest,
+  onAnchorClick,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
   windowDays?: number;
   onAddRequest?: (req: AddRequest) => void;
+  /** W1-X5: anchor 行クリック / Enter / Space で detail modal を開く */
+  onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
   const today = utcMidnight(now ?? new Date());
   const end = addDays(today, windowDays - 1);
@@ -106,10 +109,43 @@ export function MapTab({
                     </GlassBadge>
                   </header>
                   <ul className="space-y-2">
-                    {g.anchors.map(({ anchor, count }) => (
+                    {g.anchors.map(({ anchor, count }) => {
+                      const clickable = !!onAnchorClick;
+                      const handleClick = (
+                        e:
+                          | React.MouseEvent<HTMLLIElement>
+                          | React.KeyboardEvent<HTMLLIElement>
+                      ) => {
+                        if (!onAnchorClick) return;
+                        e.stopPropagation();
+                        onAnchorClick(anchor);
+                      };
+                      return (
                       <li
                         key={anchor.id}
-                        className="rounded-lg border border-slate-200 bg-white/60 p-2"
+                        {...(clickable
+                          ? {
+                              role: "button" as const,
+                              tabIndex: 0,
+                              "aria-label": `${anchor.title} の詳細を見る`,
+                              onClick: handleClick,
+                              onKeyDown: (
+                                e: React.KeyboardEvent<HTMLLIElement>
+                              ) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  handleClick(e);
+                                }
+                              },
+                            }
+                          : {})}
+                        data-testid={`plan-map-anchor-${anchor.id}`}
+                        className={
+                          "rounded-lg border border-slate-200 bg-white/60 p-2 " +
+                          (clickable
+                            ? "cursor-pointer transition hover:border-indigo-300 hover:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            : "")
+                        }
                       >
                         <div className="flex items-baseline justify-between gap-2">
                           <p className="text-sm font-medium text-slate-900">
@@ -128,13 +164,17 @@ export function MapTab({
                           </p>
                         )}
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                   {isAddable && onAddRequest && (
                     <div className="mt-3 flex justify-end">
                       <button
                         type="button"
-                        onClick={() => handleCategoryAdd(g.category)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCategoryAdd(g.category);
+                        }}
                         aria-label={`${meta.label}での予定を教える`}
                         data-testid={`plan-map-add-${g.category}`}
                         className="rounded-full border border-indigo-200 px-3 py-1 text-xs font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
