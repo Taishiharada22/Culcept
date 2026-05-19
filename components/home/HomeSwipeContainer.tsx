@@ -143,67 +143,72 @@ export default function HomeSwipeContainer({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col h-[100dvh]"
+      className="relative h-[100dvh] overflow-hidden"
       data-testid="home-swipe-container"
     >
-      {/* ─── Carrier (swipe area) ─── */}
-      <div className="flex-1 min-h-0 overflow-hidden relative">
-        <motion.div
-          className="flex h-full"
-          style={{ width: `${PANE_COUNT * 100}%` }}
-          animate={{ x }}
-          transition={carrierTransition}
-          drag={containerWidth > 0 ? "x" : false}
-          dragDirectionLock
-          dragConstraints={{
-            left: -(PANE_COUNT - 1) * containerWidth,
-            right: 0,
-          }}
-          dragElastic={DRAG_ELASTIC}
-          dragMomentum={false}
-          onDragEnd={handleDragEnd}
-          data-testid="home-swipe-carrier"
-        >
-          {PANE_IDS.map((id, i) => {
-            const element = i === 0 ? homePane : planPane;
-            const inactive = i !== currentIndex;
-            return (
-              <div
-                key={id}
-                role="region"
-                aria-label={PANE_LABELS[i]}
-                aria-roledescription="swipeable pane"
-                aria-hidden={inactive}
-                tabIndex={inactive ? -1 : 0}
-                className="flex-shrink-0 h-full overflow-hidden"
-                style={{
-                  width: `${100 / PANE_COUNT}%`,
-                  // non-active pane は pointer events 無効 → 内部 click が誤発火しない
-                  pointerEvents: inactive ? "none" : "auto",
-                }}
-                data-testid={`home-pane-${id}`}
-              >
-                <ZoneErrorBoundary zoneName={`home-pane-${id}`}>
-                  {element}
-                </ZoneErrorBoundary>
-              </div>
-            );
-          })}
-        </motion.div>
-      </div>
+      {/* ─── Carrier (swipe area、full container 高さ、indicator は absolute overlay) ─── */}
+      <motion.div
+        className="flex h-full"
+        style={{ width: `${PANE_COUNT * 100}%` }}
+        animate={{ x }}
+        transition={carrierTransition}
+        drag={containerWidth > 0 ? "x" : false}
+        dragDirectionLock
+        dragConstraints={{
+          left: -(PANE_COUNT - 1) * containerWidth,
+          right: 0,
+        }}
+        dragElastic={DRAG_ELASTIC}
+        dragMomentum={false}
+        onDragEnd={handleDragEnd}
+        data-testid="home-swipe-carrier"
+      >
+        {PANE_IDS.map((id, i) => {
+          const element = i === 0 ? homePane : planPane;
+          const inactive = i !== currentIndex;
+          return (
+            <div
+              key={id}
+              role="region"
+              aria-label={PANE_LABELS[i]}
+              aria-roledescription="swipeable pane"
+              aria-hidden={inactive}
+              tabIndex={inactive ? -1 : 0}
+              className="flex-shrink-0 h-full overflow-hidden"
+              style={{
+                width: `${100 / PANE_COUNT}%`,
+                // non-active pane は pointer events 無効 → 内部 click が誤発火しない
+                pointerEvents: inactive ? "none" : "auto",
+              }}
+              data-testid={`home-pane-${id}`}
+            >
+              <ZoneErrorBoundary zoneName={`home-pane-${id}`}>
+                {element}
+              </ZoneErrorBoundary>
+            </div>
+          );
+        })}
+      </motion.div>
 
       {/* aria-live for screen reader pane change announcement */}
       <div aria-live="polite" aria-atomic="true" className="sr-only">
         {PANE_LABELS[currentIndex] ?? ""} を表示中
       </div>
 
-      {/* ─── Bottom indicator ─── */}
-      <HomePaneIndicator
-        count={PANE_COUNT}
-        currentIndex={currentIndex}
-        onSelect={setCurrentIndex}
-        labels={PANE_LABELS}
-      />
+      {/* ─── Bottom indicator (absolute overlay、AneurasyncHome 内部レイアウト不変保護) ─── */}
+      <div
+        className="absolute bottom-0 left-0 right-0 pointer-events-none flex justify-center"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
+        <div className="pointer-events-auto rounded-full bg-white/85 backdrop-blur-md shadow-sm px-3">
+          <HomePaneIndicator
+            count={PANE_COUNT}
+            currentIndex={currentIndex}
+            onSelect={setCurrentIndex}
+            labels={PANE_LABELS}
+          />
+        </div>
+      </div>
     </div>
   );
 }
