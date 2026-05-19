@@ -101,8 +101,58 @@ CEO 禁止事項を守る限り、production-equivalent CoAlter smoke を canary
 - C-6 (Phase C 全体 smoke): **未着手**
 - Phase D: 本 entry の root cause + 再設計課題を Phase D-0 integration design で正面から扱う
 
-- **承認**: CEO 判断「Option G 採用、C-4 blocked、production-equivalent CoAlter smoke 未達として記録、C-5 未着手、Phase D で canary entry 経路を完全修正する設計が必要」(2026-05-19)
-- **ステータス**: 実行済 (env cleanup + branch cleanup + 本 docs PR 起票)
+#### 再発防止 — 7 項目 canon (CEO 補正 2026-05-19、Phase D 以降不変)
+
+**1. C-4 達成判定の不変**
+   - ❌ NOT "C-4 success"
+   - ❌ NOT "production-equivalent CoAlter smoke complete"
+   - ❌ NOT "visible Mirror full validation"
+   - ✅ **BLOCKED**: production-equivalent CoAlter smoke 未達
+
+**2. Production-equivalent CoAlter smoke は未達** として永続記録。Mount smoke / Mirror visible smoke / CoAlter chat smoke の 3 layer 分類 canon は `docs/coalter-aoo-canary-deploy-anti-patterns.md` §8 を正本とする。
+
+**3. `/talk/<任意 uuid>` 直打ちは Mount smoke であり、CoAlter 正規導線ではない**
+   - production-equivalent: login → `/talk` (thread list、`requireBaseline` 通過) → 既存 thread 選択 → `/talk/[threadId]` → ChatClient + CoAlterButton + MirrorHost → POST `/api/coalter/activate`
+   - 上記全工程に `talk_threads` + `genome_connections` + `profiles` の DB 行が必須
+   - `/talk/[threadId]/page.tsx` は auth/baseline gate なし設計 (`<ChatClient threadId={threadId} />` のみ) → 任意 uuid 直打ちで mount 自体は通るが、これは **Mount smoke** までの確認手段
+
+**4. Root cause (構造的、Phase D 以降の design 入力)**
+   - `npx vercel --force` (CLI deploy) → Vercel API meta が **`source: cli`** / **`gitSource.ref: None`** / **`gitCommitRef: None`**
+   - Vercel は git context 無しの CLI deploy に対し **branch-scoped Preview env を resolve しない**
+   - all-preview scope (Alter 別作業の staging Supabase URL `hjcrvndumgiovyfdacwc`、22h ago 投入) が build に **baked-in**
+   - branch-scoped (`chore/coalter-mirror-c4-canary`) の正しい Production Supabase env (`aljavfujeqcwnqryjmhl`) は build に到達せず
+   - 確証: `curl -sL <canonical-url> | grep "supabase.co"` で `https://hjcrvndumgiovyfdacwc.supabase.co` が直接観測 (HTML bundle 内 baked-in)
+
+**5. 今後の禁止 (Phase D 以降不変、`docs/coalter-aoo-canary-deploy-anti-patterns.md` §2 を正本)**
+   - ❌ branch-scoped env が必要な canary で `npx vercel --force` を使わない
+   - ❌ git attribution なし deploy (source=cli) を smoke 本命にしない
+   - ❌ user alias URL (`culcept-th7328aish-1775-...`) を smoke 本命 URL として使わない
+   - ❌ 削除済 / 別 phase branch 起源の old preview URL を smoke 対象 / redeploy 対象にしない
+   - ❌ env injection 後の deploy artifact 検証 (Supabase ref grep) を skip しない
+
+**6. 今後の必須 pre-flight / post-deploy 確認 (`docs/coalter-aoo-canary-deploy-anti-patterns.md` §3 + §4 を正本)**
+   - ✅ Vercel API で `gitSource.ref` / `gitCommitRef` が**対象 canary branch** であることを deploy 直後に確認
+   - ✅ canonical deployment URL (`culcept-<8-char-hash>-...`) を使う (user alias / git branch alias は補助)
+   - ✅ HTML bundle grep で Supabase project ref を確認: `curl -sL <url> | grep -oE "https://[a-z0-9]+\.supabase\.co"`
+   - 🔴 `hjcrvndumgiovyfdacwc` (Alter staging) が build に含まれていたら**即停止**して env / git attribution / 再 deploy 経路を audit
+
+**7. Phase D / C-4R で解決すべき設計課題 (`docs/coalter-aoo-canary-deploy-anti-patterns.md` §7 を正本、Phase D-0 design で正面から扱う)**
+   - **7-1**. **git-attributed Preview deploy 経路の確立**: `.ts/.tsx` 最小 trigger commit (Phase A §3.4) を canary smoke の標準手順に格上げ、もしくは Vercel UI redeploy 経由 trigger の git attribution 挙動を実機確認、もしくは `vercel.json` `ignoreCommand` の canary branch 限定例外化 design
+   - **7-2**. **IBS / `ignoreCommand` の正面取り扱い**: empty commit が build trigger にならない現状の構造解決
+   - **7-3**. **Alter staging Supabase ↔ CoAlter Mirror canary の env 分離戦略**: Mirror canary 専用 Preview Supabase project 分離、もしくは canary-only allowlist branch の Vercel UI 設定
+   - **7-4**. **Production-equivalent CoAlter smoke の正式手順設計**: Production env への gradual rollout (allowlist user) / 別 staging Supabase に CEO data migration / Mirror 専用 Preview Supabase + Production data subset migration のいずれか
+   - **7-5**. **「前 Phase 完了 docs §3 系 必読 checklist」の機械的強制**: 新 Phase 起票 PR template に本 anti-patterns doc + Phase A/B/C §3 系の読了 checkbox 必須化
+
+#### 関連 docs (Phase D 以降の必読 reference)
+
+- **永続 anti-patterns doc (新規)**: `docs/coalter-aoo-canary-deploy-anti-patterns.md` (本 closure と同 PR で起票)
+- smoke 実施結果 詳細: `docs/coalter-aoo-phase-b-b5c-preview-canary-smoke.md` §16
+- Phase A 学び (本 C-4 root cause の前提): Phase A 完了 docs §3.4 (empty commit IBS skip) / §3.5 (NODE_ENV gate 禁止、C-1 で取り込み済) / §3.7 (7-layer defense)
+- Phase B 学び (Phase A→B 取り込み漏れの記録): Phase B 完了 docs §7
+- Phase C C-0 design §2 (Phase 間学び連鎖の構造的再発防止 meta-process)
+
+- **承認**: CEO 判断「Option G 採用、C-4 blocked、production-equivalent CoAlter smoke 未達として記録、再発防止 7 項目を構造的に永続記録 (decision-log + smoke docs §16 + 新規 anti-patterns doc)、C-5 未着手、Phase D で canary entry 経路を完全修正する設計が必要」(2026-05-19)
+- **ステータス**: 実行済 (env cleanup + branch cleanup + 本 docs PR 起票 + 永続 anti-patterns doc 新規 + 再発防止 7 項目永続化)
 
 ---
 ### 2026-05-18 CoAlter AOO Mirror Channel — Phase C C-0 integration design 起票 (docs-only)
