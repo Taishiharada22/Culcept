@@ -17,15 +17,27 @@
  *   - /plan 全機能の完全埋め込み
  *   - 重い編集 UI (新規登録 form / edit form / detail modal)
  *   - モーダル大量展開
+ *   - 技術 error UI (CEO 補正 #3 2026-05-19、graceful degradation 採用、後述)
  *
  * Beyond 設計 (philosophy 整合):
  *   - empty state copy: "あなたのこの先がここに置かれていきます" (Aneurasync 文脈)
  *   - header: "この先" (= "予定リスト" ではなく "第二の自己が知る、自分のこの先")
- *   - error は subtle、retry button のみ
+ *
+ * CEO 補正 #3 (2026-05-19、PR #214 後の smoke 観測で確認):
+ *   - HomePlanPane は Home の **peripheral / discovery** 機能 (primary は /plan)
+ *   - fetch 失敗 (network / 500 / 401 / schema 不一致 / Production tables 未 migrate 等)
+ *     を user-facing error で alarming に表示するのは Aneurasync の "押し付けない
+ *     世界観" に反する
+ *   - **fetch 失敗 = anchors 0 件として扱い、empty state に graceful degradation**
+ *   - empty state copy「あなたのこの先がここに置かれていきます」が常に表示される
+ *   - 失敗理由は console.warn (Sentry 観測可) で残し、user には透過
+ *   - PlanClient (primary feature) とは UX 判断が異なる (PlanClient は error 可視化を持つ)
+ *   - W1-Z apply 後、Production Supabase に Plan tables が揃えば auto-recovery
  *
  * 不変原則:
- *   - PlanClient / lib/plan/ の編集系を一切 touch しない
- *   - fetch は /api/plan/anchors (既存 GET、anon key + RLS、service_role 不使用)
+ *   - PlanClient / lib/plan/external-anchor-* の編集系を一切 touch しない
+ *   - fetch は proven wrapper `fetchAnchors` (lib/plan/anchor-fetch.ts) を再利用
+ *     (anon key + cookie auth + RLS、service_role 不使用)
  *   - anchor の操作 (edit / delete) は /plan に navigate して行う (本 pane では tap のみ)
  */
 
@@ -39,14 +51,14 @@ import {
   buildHomePlanSummary,
   type PlanSummary,
 } from "@/lib/plan/home-plan-summary";
+import { fetchAnchors } from "@/lib/plan/anchor-fetch";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Fetch state
+// Fetch state (CEO 補正 #3 2026-05-19: error 状態廃止、empty に統合)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 type FetchState =
   | { status: "loading" }
-  | { status: "error"; message: string }
   | { status: "ready"; anchors: ExternalAnchor[] };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -75,31 +87,23 @@ export default function HomePlanPane({
     if (injectedAnchors) return;
     let cancelled = false;
     (async () => {
-      try {
-        const res = await fetch("/api/plan/anchors", {
-          credentials: "same-origin",
+      // CEO 補正 #3 (2026-05-19):
+      //   - proven `fetchAnchors` wrapper を使用 (PlanClient と同じ path、整合性)
+      //   - fetch 失敗 (network / 500 / 401 / shape mismatch / Production tables 未 migrate) は
+      //     console.warn で残し、UI は empty state (anchors: []) に graceful degradation
+      //   - error 状態を作らない (Aneurasync philosophy: peripheral 機能で alarming UI 禁止)
+      const result = await fetchAnchors();
+      if (cancelled) return;
+      if (result.ok) {
+        setState({ status: "ready", anchors: result.data.anchors });
+      } else {
+        // 失敗理由を console に残す (Sentry / DevTools observability)、
+        // user には透過、empty state を見せる
+        console.warn("[HomePlanPane] anchors fetch failed, falling back to empty state:", {
+          status: result.status,
+          error: result.error,
         });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const body = (await res.json()) as {
-          ok?: boolean;
-          data?: { anchors?: ExternalAnchor[] };
-          error?: string;
-        };
-        if (cancelled) return;
-        if (body.ok && body.data?.anchors) {
-          setState({ status: "ready", anchors: body.data.anchors });
-        } else {
-          setState({
-            status: "error",
-            message: body.error ?? "unknown error",
-          });
-        }
-      } catch (e: unknown) {
-        if (cancelled) return;
-        setState({
-          status: "error",
-          message: e instanceof Error ? e.message : "fetch failed",
-        });
+        setState({ status: "ready", anchors: [] });
       }
     })();
     return () => {
@@ -113,7 +117,7 @@ export default function HomePlanPane({
       data-testid="home-plan-pane"
     >
       <div className="flex-1 px-5 pt-8 pb-6">
-        {/* ─── Header (philosophy 文脈) ─── */}
+        {/* ─── Header (philosophy 文脈、常時表示) ─── */}
         <header className="mb-6">
           <h2 className="text-2xl font-semibold text-slate-800">この先</h2>
           <p className="text-sm text-slate-500 mt-1">
@@ -121,7 +125,7 @@ export default function HomePlanPane({
           </p>
         </header>
 
-        {/* ─── Loading ─── */}
+        {/* ─── Loading (初回 fetch 中、約 100-300ms) ─── */}
         {state.status === "loading" && (
           <div
             className="text-slate-400 text-sm py-10 text-center"
@@ -131,26 +135,7 @@ export default function HomePlanPane({
           </div>
         )}
 
-        {/* ─── Error (subtle) ─── */}
-        {state.status === "error" && (
-          <div
-            className="text-slate-400 text-xs py-10 text-center"
-            data-testid="home-plan-pane-error"
-          >
-            <p>予定を取得できませんでした</p>
-            <button
-              type="button"
-              onClick={() => {
-                if (typeof window !== "undefined") window.location.reload();
-              }}
-              className="mt-2 text-indigo-500 underline hover:no-underline"
-            >
-              再試行
-            </button>
-          </div>
-        )}
-
-        {/* ─── Ready ─── */}
+        {/* ─── Ready (anchors 0 件 = empty state、anchors > 0 = summary) ─── */}
         {state.status === "ready" && (
           <ReadyContent anchors={state.anchors} now={now} />
         )}
