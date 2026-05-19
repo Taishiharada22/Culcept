@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "[ -z \"$(git diff --name-only HEAD^ HEAD | grep -v '\\.md$')\" ] && exit 0 || exit 1",
+  "ignoreCommand": "git diff --name-only HEAD^ HEAD | grep -q '^\\.canary-trigger\\.json$' && exit 1; [ -z \"$(git diff --name-only HEAD^ HEAD | grep -v '\\.md$')\" ] && exit 0 || exit 1",
   "crons": [
     {
       "path": "/api/cron/stargazer-growth",
