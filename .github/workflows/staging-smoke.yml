@@ -58,7 +58,10 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          # ci.yml (lint-and-test) と揃える。package-lock.json は Node 24 で
+          # 生成されており、Node 22 だと @swc/helpers 等の解決不一致で
+          # `npm ci` が fail する。
+          node-version: 24
           cache: "npm"
 
       - name: Install deps
