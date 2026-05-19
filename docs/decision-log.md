@@ -13,6 +13,148 @@
 ```
 
 ---
+### 2026-05-19 CoAlter AOO Mirror Channel — Phase C C-4 Preview Canary Smoke **BLOCKED** (Option G closure)
+- **部門**: Build / Product
+- **決定内容**: Phase C **C-4 (close / sleep / cap / verification 実機確認 smoke)** を **blocked (未達)** として正式 close。CEO 判断「Option G (現状の不可侵境界を一切壊さず blocked closure、Phase D で本来課題を再設計)」採用 (2026-05-19)
+- **C-4 達成定義 (CEO 補正、誤読防止)**:
+  - ❌ **NOT "C-4 success" / NOT "production-equivalent CoAlter smoke complete" / NOT "visible Mirror full validation"**
+  - ✅ Mount smoke は構造完成 + unit test (B-5b 575 tests) で既担保
+  - ⚠️ Mirror visible UI surface は forced canary mock injection で生成可能を構造的に実証 (B-5b 設計通り) ただし production-equivalent な context ではない
+  - ❌ **Production-equivalent CoAlter chat 経路 (login → /talk → 既存 thread → CoAlter button → activate → visible Mirror 観測) は未検証**
+
+#### 🔴 Root cause (Vercel CLI deploy + branch-scoped env の構造的衝突)
+
+CEO の hypothesis「ブランチきってない方の preview (Alter 別作業 all-preview) に staging Supabase が設定されており、それが canary でも優先されている」が **完全に正しい**。証拠付きで確定:
+
+- **HTML bundle 直接確認**: `curl -sL https://culcept-1h8ychlul-...vercel.app | grep "supabase.co"` → `https://hjcrvndumgiovyfdacwc.supabase.co` (= Alter staging Supabase)
+- **意図された値**: `https://aljavfujeqcwnqryjmhl.supabase.co` (= Aneurasync Production Supabase)
+- **不一致の構造的原因**:
+  1. Vercel CLI `npx vercel --force` で deploy すると Vercel API meta が `source: cli` / `gitSource.ref: None` / `gitCommitRef: None` になる (deploy `1h8ychlul` / `cpx2wyiwb` / `g59fiqeau` で全て確認)
+  2. Vercel は git branch context なしの CLI deploy に対し **branch-scoped env を resolve しない**
+  3. 結果として **all-preview scope env (Alter 別作業の staging Supabase URL)** が build に baked-in
+  4. CEO が branch-scoped (`chore/coalter-mirror-c4-canary`) で投入した正しい Production Supabase env は **build に到達しない**
+
+#### CEO 観測との符合 (CEO スクリーンショット解釈)
+
+| 観測 | 原因 |
+|---|---|
+| canary `/talk/<production-threadId>` 開いても counterpart が default 「ユーザー」表示 | staging Supabase DB に Production thread / profile 不在 → 404 → UI placeholder |
+| chat 履歴空 | `GET /api/talk/threads/<id>/messages` 404 → ChatClient silent fail (`if (!res.ok) return;` L795) |
+| chat 送信不可 | `POST /api/talk/threads/<id>/messages` 401 |
+| baseline 保存失敗「ベースライン保存に失敗しました」 | staging Supabase DB に CEO profile row なし、profiles.update() が対象なし |
+| /baseline → /plan に飛ぶ | code 上の自動 redirect なし。`PLAN_ROUTE_LIVE=true` が all-preview に投入されているため、CEO が URL bar 直入力で /plan page 表示可能 (Alter Plan W1-5 UI) |
+
+#### Phase B/C canon の不可侵境界では構造的に解決不能
+
+CEO 禁止事項を守る限り、production-equivalent CoAlter smoke を canary で再現する path は存在しない (Option A-F すべて禁止違反):
+- A. `vercel.json` `ignoreCommand` 一時無効化 → **code 変更禁止**
+- B. `.ts/.tsx` 最小 trigger commit → **code 変更禁止**
+- C. CLI `--meta gitCommitRef=...` 強制 attribution → **試行錯誤 redeploy 禁止**
+- D. canary branch の全 env を Production Supabase で force-promote → **env 変更禁止**
+- E. all-preview Alter staging Supabase env 削除 → **Alter 別作業に影響 + env 変更禁止**
+- F. staging Supabase に CEO 個人 data migration → **Supabase migration 禁止**
+
+#### Cleanup 実行 (Claude 2026-05-19)
+
+- ✅ branch-scoped Preview env 5 件削除 (Mirror 3 + Supabase 2): `NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED` / `_DIAGNOSTIC_EXPOSE` / `_FORCED_CANARY_ENABLED` / `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- ✅ canary branch (`chore/coalter-mirror-c4-canary`) 削除 (local + remote)
+- ✅ canary worktree 削除
+- ✅ 保護対象不変: Production env / all-Preview Alter env / Development env / SUPABASE_URL (server) / SUPABASE_SERVICE_ROLE_KEY (server) すべて touch なし
+- ✅ Alter 別作業 (all-preview Supabase / PLAN_ROUTE_LIVE 等) に**影響なし**
+- ✅ code 変更 0 / Supabase migration 0 / redeploy 0
+
+#### Phase C smoke の再定義 (3 layer 分離、Phase D へ持ち越し)
+
+| Smoke type | C-4 結果 | 達成手段 |
+|---|---|---|
+| **Mount smoke** (MirrorHost mount + useMirrorEngine 起動) | ✅ unit test + 構造確認で既担保 | B-5a/b 完了時に達成済 |
+| **Mirror visible smoke** (MirrorVisibleSurface 表示 + close/sleep/cap 動作) | ⚠️ forced canary mock で生成可能性のみ実証、production-equivalent context ではない | Phase D で再設計 |
+| **CoAlter chat smoke** (production-equivalent login → /talk → thread → activate → visible Mirror) | ❌ **未達** (構造的に不可能) | Phase D で canary entry 経路を完全再設計する必要 |
+
+#### Phase D で再設計が必要な本来課題 (本 entry で記録、Phase D 起票時に正面から扱う)
+
+1. **canary deploy 経路の git attribution 確保**:
+   - 現状 `vercel --force` CLI は git context を inject しない → branch-scoped env 不適用
+   - Phase A §3.4 学び (`.ts/.tsx` 最小 trigger commit) を canary smoke 標準手順に格上げ
+   - もしくは `vercel.json` の `ignoreCommand` を canary branch 限定で例外化する design 検討
+2. **Mirror canary 専用 Preview Supabase project の必要性検討**:
+   - Alter 別作業の all-preview Supabase と Mirror 専用 canary Supabase の分離戦略
+   - もしくは canary-only allowlist branch を Vercel UI で project 設定する design
+3. **Production-equivalent smoke の代替手段**:
+   - Production env への gradual rollout (allowlist user) で smoke 代替する path 設計
+   - Phase B/C canon「Production env 触らない」を緩めるか、別 staging project に CEO data を migration するか
+
+#### 副次論点 (本 entry で記録)
+
+- /talk/[threadId] の page level に auth / baseline gate がない実装。`/talk` (thread list) 経由なら `requireBaseline()` ある。`/talk/[threadId]` 直 URL は thread fetch 404 を silent ignore 設計 (`if (!res.ok) return;`) → mount smoke 用 backdoor として機能するが、production-equivalent flow ではない
+- PLAN_ROUTE_LIVE は all-preview に 21h ago 投入 (Alter 別作業)。CEO が URL bar 直入力で /plan に到達できるのはこの env の効果。Mirror canary とは無関係
+
+#### Phase Gate
+
+- Phase B: conditional pass で正式 close (PR #185 merged 67f3a085)
+- C-0: integration design (PR #186 merged 9c357ea8)
+- C-1: Preview-safe diagnostic exposure (PR #188 merged c93572fc)
+- C-2: Read-only presence bridge (PR #189 merged a5ed2ecf)
+- C-3: Controlled visible canary mode (PR #191 merged 1eaaee77)
+- **C-4: BLOCKED (本 entry、Option G closure)** ← production-equivalent CoAlter smoke は構造的に未達
+- C-5 (taxonomy 拡張検討): **未着手** (CEO 禁止維持)
+- C-6 (Phase C 全体 smoke): **未着手**
+- Phase D: 本 entry の root cause + 再設計課題を Phase D-0 integration design で正面から扱う
+
+#### 再発防止 — 7 項目 canon (CEO 補正 2026-05-19、Phase D 以降不変)
+
+**1. C-4 達成判定の不変**
+   - ❌ NOT "C-4 success"
+   - ❌ NOT "production-equivalent CoAlter smoke complete"
+   - ❌ NOT "visible Mirror full validation"
+   - ✅ **BLOCKED**: production-equivalent CoAlter smoke 未達
+
+**2. Production-equivalent CoAlter smoke は未達** として永続記録。Mount smoke / Mirror visible smoke / CoAlter chat smoke の 3 layer 分類 canon は `docs/coalter-aoo-canary-deploy-anti-patterns.md` §8 を正本とする。
+
+**3. `/talk/<任意 uuid>` 直打ちは Mount smoke であり、CoAlter 正規導線ではない**
+   - production-equivalent: login → `/talk` (thread list、`requireBaseline` 通過) → 既存 thread 選択 → `/talk/[threadId]` → ChatClient + CoAlterButton + MirrorHost → POST `/api/coalter/activate`
+   - 上記全工程に `talk_threads` + `genome_connections` + `profiles` の DB 行が必須
+   - `/talk/[threadId]/page.tsx` は auth/baseline gate なし設計 (`<ChatClient threadId={threadId} />` のみ) → 任意 uuid 直打ちで mount 自体は通るが、これは **Mount smoke** までの確認手段
+
+**4. Root cause (構造的、Phase D 以降の design 入力)**
+   - `npx vercel --force` (CLI deploy) → Vercel API meta が **`source: cli`** / **`gitSource.ref: None`** / **`gitCommitRef: None`**
+   - Vercel は git context 無しの CLI deploy に対し **branch-scoped Preview env を resolve しない**
+   - all-preview scope (Alter 別作業の staging Supabase URL `hjcrvndumgiovyfdacwc`、22h ago 投入) が build に **baked-in**
+   - branch-scoped (`chore/coalter-mirror-c4-canary`) の正しい Production Supabase env (`aljavfujeqcwnqryjmhl`) は build に到達せず
+   - 確証: `curl -sL <canonical-url> | grep "supabase.co"` で `https://hjcrvndumgiovyfdacwc.supabase.co` が直接観測 (HTML bundle 内 baked-in)
+
+**5. 今後の禁止 (Phase D 以降不変、`docs/coalter-aoo-canary-deploy-anti-patterns.md` §2 を正本)**
+   - ❌ branch-scoped env が必要な canary で `npx vercel --force` を使わない
+   - ❌ git attribution なし deploy (source=cli) を smoke 本命にしない
+   - ❌ user alias URL (`culcept-th7328aish-1775-...`) を smoke 本命 URL として使わない
+   - ❌ 削除済 / 別 phase branch 起源の old preview URL を smoke 対象 / redeploy 対象にしない
+   - ❌ env injection 後の deploy artifact 検証 (Supabase ref grep) を skip しない
+
+**6. 今後の必須 pre-flight / post-deploy 確認 (`docs/coalter-aoo-canary-deploy-anti-patterns.md` §3 + §4 を正本)**
+   - ✅ Vercel API で `gitSource.ref` / `gitCommitRef` が**対象 canary branch** であることを deploy 直後に確認
+   - ✅ canonical deployment URL (`culcept-<8-char-hash>-...`) を使う (user alias / git branch alias は補助)
+   - ✅ HTML bundle grep で Supabase project ref を確認: `curl -sL <url> | grep -oE "https://[a-z0-9]+\.supabase\.co"`
+   - 🔴 `hjcrvndumgiovyfdacwc` (Alter staging) が build に含まれていたら**即停止**して env / git attribution / 再 deploy 経路を audit
+
+**7. Phase D / C-4R で解決すべき設計課題 (`docs/coalter-aoo-canary-deploy-anti-patterns.md` §7 を正本、Phase D-0 design で正面から扱う)**
+   - **7-1**. **git-attributed Preview deploy 経路の確立**: `.ts/.tsx` 最小 trigger commit (Phase A §3.4) を canary smoke の標準手順に格上げ、もしくは Vercel UI redeploy 経由 trigger の git attribution 挙動を実機確認、もしくは `vercel.json` `ignoreCommand` の canary branch 限定例外化 design
+   - **7-2**. **IBS / `ignoreCommand` の正面取り扱い**: empty commit が build trigger にならない現状の構造解決
+   - **7-3**. **Alter staging Supabase ↔ CoAlter Mirror canary の env 分離戦略**: Mirror canary 専用 Preview Supabase project 分離、もしくは canary-only allowlist branch の Vercel UI 設定
+   - **7-4**. **Production-equivalent CoAlter smoke の正式手順設計**: Production env への gradual rollout (allowlist user) / 別 staging Supabase に CEO data migration / Mirror 専用 Preview Supabase + Production data subset migration のいずれか
+   - **7-5**. **「前 Phase 完了 docs §3 系 必読 checklist」の機械的強制**: 新 Phase 起票 PR template に本 anti-patterns doc + Phase A/B/C §3 系の読了 checkbox 必須化
+
+#### 関連 docs (Phase D 以降の必読 reference)
+
+- **永続 anti-patterns doc (新規)**: `docs/coalter-aoo-canary-deploy-anti-patterns.md` (本 closure と同 PR で起票)
+- smoke 実施結果 詳細: `docs/coalter-aoo-phase-b-b5c-preview-canary-smoke.md` §16
+- Phase A 学び (本 C-4 root cause の前提): Phase A 完了 docs §3.4 (empty commit IBS skip) / §3.5 (NODE_ENV gate 禁止、C-1 で取り込み済) / §3.7 (7-layer defense)
+- Phase B 学び (Phase A→B 取り込み漏れの記録): Phase B 完了 docs §7
+- Phase C C-0 design §2 (Phase 間学び連鎖の構造的再発防止 meta-process)
+
+- **承認**: CEO 判断「Option G 採用、C-4 blocked、production-equivalent CoAlter smoke 未達として記録、再発防止 7 項目を構造的に永続記録 (decision-log + smoke docs §16 + 新規 anti-patterns doc)、C-5 未着手、Phase D で canary entry 経路を完全修正する設計が必要」(2026-05-19)
+- **ステータス**: 実行済 (env cleanup + branch cleanup + 本 docs PR 起票 + 永続 anti-patterns doc 新規 + 再発防止 7 項目永続化)
+
+---
 ### 2026-05-18 CoAlter AOO Mirror Channel — Phase C C-0 integration design 起票 (docs-only)
 - **部門**: Build / Product
 - **決定内容**: Phase C 統合設計 docs `docs/coalter-aoo-phase-c-integration-design.md` を起票 (docs only / code 0 / package.json 0 / env 未変更)。Phase C は **6 sub-PR (C-1 〜 C-6) sequential** で構成、各 PR は risk increment が明示的に小→大。各 sub-PR の修正範囲・acceptance criteria・LOC budget・CEO 判断 point・rollback 経路を pre-defined
