@@ -13,6 +13,59 @@
 ```
 
 ---
+### 2026-05-19 CoAlter AOO Phase E-1 正式 close (visible Mirror smoke PASS、E-2-α gate condition #3 達成)
+- **部門**: Build / Product
+- **決定内容**: Phase E-1 を本日正式 close。E-1 visible smoke を CEO 実機実施で PASS、`MirrorVisibleSurface` が canary build で reflection-only canon を遵守して render することを構造的に実証。canary infra (env 6 件 / branch / worktree) cleanup 完了、E-1 close docs `docs/coalter-aoo-phase-e1-close.md` を新規起票して永続記録化。Phase E-2-α 着手 gate condition #3 (E-1 close 記録 main 着地) 達成。
+- **本 entry 関連 PR**: PR #213 (E-1 実装 + canon CI test + runbook + lint fix、merge commit `f37a684d`)
+- **E-1 visible smoke 観測 (CEO 実機実施、2026-05-19)**:
+  - canonical URL `https://culcept-b0weep0zr-taishis-projects-0a8deb17.vercel.app` (user alias 不使用)
+  - `/talk/[threadId]` 到達、counterpart 実 user 名 `kumi` 表示 ("ユーザー" placeholder ではない、production-equivalent flow 成立)
+  - CoAlter header「見守り中」 + activate 済 state 維持
+  - DevTools: `mirror-surface-shell` + `mirror-sleep-toggle` (shadow shell) + **`mirror-visible-surface` 表示 (E-1 核心、FORCED_CANARY=true で発火)**
+  - visible text = **「少し、間がほしいような…そんな雰囲気でした」** (5 templates の 1 つ、reflection-only canon 遵守)
+  - close/sleep button 表示確認のみ、**click 0** (CEO Q4 厳守)
+  - a11y: `aria-live="polite"` + `aria-atomic="true"` 確認
+  - message 送信 / bottom sheet / intent UI / Proposal 操作 / CoAlter end: **0 実施** (CEO §7.1 禁止操作完全遵守)
+  - console 重大 error 0、staging 混入なし、PII leak 0
+- **E-1 PASS 判定 (10 acceptance criteria)**: 10/10 達成
+- **E-1 cleanup 実施事項** (本 close PR 起票直前):
+  - canary scope env 6 件削除 (`NEXT_PUBLIC_COALTER_MIRROR_FORCED_CANARY_ENABLED` / `_CHANNEL_ENABLED` / `NEXT_PUBLIC_SUPABASE_URL` / `_ANON_KEY` / `SUPABASE_URL` / `SUPABASE_ANON_KEY`)
+  - canary branch `feat/coalter-e1-visible-smoke-canary` 削除 (origin remote + local + worktree)
+  - 削除確認: `vercel env ls preview | grep "feat/coalter-e1-visible-smoke-canary"` → **0 件**
+  - 最終 D-1 reverify: **3 gates 全 PASS** (build artifact 不変、env 削除は既 build deploy artifact に影響なし、Phase D-5 と同 pattern)
+- **不可侵境界 (Phase E-1 全期間維持)**:
+  - Production env / all-Preview env / Development env: **0 touch**
+  - `SUPABASE_SERVICE_ROLE_KEY` canary scope 追加投入: **0** (inheritance のみ、Mirror code anon-only contract で構造的に未消費)
+  - Supabase schema / migration: **0**
+  - runtime app code: **0 diff** (Phase E-1 は infra/test/docs phase)
+  - `vercel.json` / `package.json` / `package-lock.json`: **0 diff**
+  - Mirror runtime / ChatClient / useMirrorEngine / CoAlter API routes: **0 diff**
+- **Phase E-1 で永続化された artifacts** (PR #213 merge + 本 PR で main 着地):
+  - `tests/unit/coalter/mirror/reflectionCanonInvariant.test.ts` (46 tests、Phase E own canon CI test、CEO Q5 同時着地)
+  - `docs/coalter-aoo-phase-e1-visible-smoke-runbook.md` (10 sections、E-1 CEO 実機 smoke 手順)
+  - 本 close docs (`docs/coalter-aoo-phase-e1-close.md`、本 PR で着地)
+- **Mirror canary 関連 test 集計 (Phase D + E-1)**: 169 tests (D-1: 58 + D-2: 20 + D-3-α: 45 + **E-1: 46**)、永続 regression guard
+- **CEO Q1-Q10 (Phase E-0 承認) と E-1 達成項目の対応**:
+  - **Q4 (close/sleep 表示確認のみ): ✅ 完全遵守、click 0**
+  - **Q5 (canon CI test E-1 同時着地): ✅ 46 tests main 着地**
+  - 他 Q1-Q3, Q6-Q10 は E-2 / E-3 で順次実施 (E-1 では未着手)
+- **E-2-α 着手 gate condition の現状** (Phase E-0 §9.2 で確定された 8 condition):
+  - **4 達成**: #1 (E-1 PASS) / #2 (cleanup) / #3 (close 記録、本 PR で着地) / #6 (canon CI test 着地、PR #213)
+  - **残 4 condition (canonical 一覧、CEO 期待表現と完全一致)**:
+    1. **kill switch L1 + L3 drill 済** (E-3 phase で実施、未着手)
+    2. **allowlist 実装 (Option A env-based) 着地** (E-2-α 前の別 PR、未着手)
+    3. **CEO 直接承認** (E-2-α 起票 PR で取得、未取得)
+    4. **Sentry baseline 記録** (E-3 phase で実施、未着手)
+  - → **残 4 condition すべて達成まで Production env touch 不可** (canon §12.1 補正 + §9.2 gate 厳守)
+- **Phase E-2 実装ステータス (本 entry 時点)**:
+  - **Phase E-2 実装は未着手** (E-2-α / E-2-β / E-2-γ いずれも 0 着手)
+  - Production env touch 0 (Phase E-1 全期間 + 本 close PR 全期間維持)
+  - **C-5 着手なし** (Phase C-5 系作業は Phase E と独立、本 PR 範囲外)
+- **次 phase**: E-2-α (Production gradual rollout、CEO のみ、別 起票)
+- **承認**: CEO (E-1 visible smoke 実機実施 PASS 判定 + 本 close docs 内容承認)
+- **ステータス**: 実行済 (E-1 cleanup 完了 + 本 close docs PR 起票後 merge 待ち)
+
+---
 ### 2026-05-19 CoAlter AOO Phase E-0 起票 — Mirror Channel Productization Plan (docs-only)
 - **部門**: Build / Product
 - **決定内容**: Phase D close (`docs/coalter-aoo-phase-d-close.md`、PR #210 merged `e299b243`) を受け、Phase E (Mirror Channel 製品化) を docs-only で起票。`docs/coalter-aoo-phase-e-plan.md` を新規作成、Phase E-0 〜 E-4 の 5 sub-phase 構成 + safety gates + cleanup/rollback + monitoring/kill switch 設計 + Phase D artifacts 引き継ぎ map を網羅。**Phase E 実装には進まない**、CEO 承認後に各 sub-phase 別 PR で sequential 起票。
