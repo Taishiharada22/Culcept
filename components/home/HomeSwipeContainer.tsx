@@ -1,19 +1,22 @@
 /**
- * HomeSwipeContainer — Home 横スワイプ wrapper
+ * HomeSwipeContainer — Home 横スワイプ wrapper (W1-Home-Swipe Phase 1 で full Plan pane 化)
  *
  * 役割:
- *   既存 AneurasyncHome (Pane 0) と HomePlanPane (Pane 1) を横スワイプで
- *   切り替える wrapper。CEO 補正 (2026-05-19) の必須補正 1-7 を機械的に実装。
+ *   既存 AneurasyncHome (Pane 0) と PlanClient(displayMode="pane") (Pane 1) を
+ *   横スワイプで切り替える wrapper。CEO 補正 (2026-05-19/20) の必須補正を機械実装。
  *
- * 設計書: docs/alter-plan-home-integration-mini-design.md §4
+ * 設計書:
+ *   - docs/alter-plan-home-integration-mini-design.md §4 (initial)
+ *   - docs/alter-plan-home-swipe-full-plan-pane-mini-design.md (Phase 1、full pane 化)
  *
  * CEO 補正反映:
  *   1. Home 既存体験を壊さない (AneurasyncHome は as-is、wrapper のみ)
  *   2. Gesture 競合対策 (dragDirectionLock + threshold + velocity + iOS edge back ignore)
- *   3. /plan 本体は触らない (PlanClient 不変、HomePlanPane は summary のみ)
+ *   3. Plan 本体は as-is、PlanClient に displayMode prop 追加で chrome のみ切替
  *   4. Feature flag は app/(culcept)/page.tsx で server-side eval
  *   5. Zone isolation (各 pane を <ZoneErrorBoundary> でラップ)
  *   6. a11y (dot indicator / keyboard 左右矢印 / aria-live announcement)
+ *   7. Modal 開時の drag disable (Phase 1 で追加、Plan 内 modal が頻発するため)
  *
  * Beyond (自立推論):
  *   - prefers-reduced-motion 対応 (spring → instant)
@@ -61,7 +64,7 @@ const DRAG_ELASTIC = 0.2;
 interface HomeSwipeContainerProps {
   /** Pane 0: 既存 AneurasyncHome (構造不変) */
   homePane: ReactNode;
-  /** Pane 1: HomePlanPane (summary view) */
+  /** Pane 1: Plan 本体 (Phase 1 で PlanClient(displayMode="pane") に置換) */
   planPane: ReactNode;
   /** test 用、初期 pane index (default: 0) */
   initialIndex?: number;
