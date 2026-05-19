@@ -238,3 +238,23 @@ orphan 発生時の UX 影響は「空の source が listSources に出る」の
 ---
 
 **結論**: A-2 では best-effort atomicity で前進する。完全 atomicity は W1-Y で migration を追加してから RPC で達成する。この trade-off は安全性ではなく **完璧主義** との trade-off であり、A-2 制約下では合理的選択である。
+
+---
+
+## 10. ✅ W1-Y で達成（staging only）
+
+**2026-05-19** に W1-Y `create_external_anchor_bundle` RPC を実装着地。
+詳細: `docs/alter-plan-w1y-rpc-atomicity-mini-design.md`
+
+### 達成事項
+- ✅ Postgres function `create_external_anchor_bundle(p_user_id, p_source, p_anchors)` 新規 migration 追加 (`supabase/migrations/20260519100000_create_external_anchor_bundle.sql`)
+- ✅ Supabase Repository を **RPC-first + fallback** パターンに変更
+  - RPC が成功 → 1 transaction の atomic INSERT、orphan source 不可
+  - RPC が `PGRST202` (function missing) → 既存 sequential + compensating delete に fallback、structured log
+  - 実 error (42501 / 23xxx / 等) は fallback せず伝播
+- ✅ `SECURITY INVOKER` で RLS 通常発火、auth.uid() check 二重防御
+
+### 残課題（W1-Z で対応）
+- ⏸ **production migration apply**: CEO 判断後、別 wave で staging と同じ migration を production に apply
+- ⏸ **fallback path / orphan logger 削除**: production migration 完了後の cleanup wave
+- ⏸ それまでは `rpc_fallback` log が production で発火する可能性がある（観測対象）
