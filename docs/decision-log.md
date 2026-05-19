@@ -13,6 +13,57 @@
 ```
 
 ---
+### 2026-05-19 CoAlter AOO Mirror Channel — Phase D-0 / C-4R: Production-equivalent Canary Deploy Route Design 起票 (docs-only)
+- **部門**: Build / Product
+- **決定内容**: C-4 BLOCKED closure (PR #195 merged `9b294164`) の後継として、**Phase D-0 (= C-4R)** を起票。production-equivalent canary smoke 経路を構造的に reproduce 可能にする design docs を `docs/coalter-aoo-phase-d0-canary-deploy-route-design.md` に正本化。本 PR は **docs-only**、Phase D 実装 (D-1〜D-5) は本 design 完了 + CEO 承認後に sub-PR で sequential
+- **目的**: branch-scoped env が確実に効く Preview deploy 経路を設計、CLI `vercel --force` source=cli 事故を再発させない、Alter all-preview staging Supabase と CoAlter canary を構造分離、production-equivalent CoAlter smoke を再実行可能な状態にする
+- **CEO 課題 10 項目を本 design で網羅** (本 docs §2.1 一覧表で各 § 参照):
+  1. `npx vercel --force` 原則禁止条件 → §4.1
+  2. git attribution 付き Preview build → §4.2 + §4.3
+  3. IBS / `ignoreCommand` 回避方法 (Option α/β/γ) → §4.3
+  4. branch-scoped env 検証方法 → §5
+  5. Supabase project ref 確認 (expected `aljavfujeqcwnqryjmhl` / forbidden `hjcrvndumgiovyfdacwc`) → §5.4
+  6. user alias 禁止 → §5.2
+  7. all-preview env を信用しない運用 → §6
+  8. Alter staging env と CoAlter canary env の分離 (3 options A/B/C) → §6.2
+  9. production-equivalent CoAlter 正規導線 (login → /talk → 既存 thread → activate → Mirror visible) → §7
+  10. rollback / cleanup 手順 → §8
+- **Claude 自立推論で追加 5 項目** (人間超越設計):
+  11. Smoke 起票時 **mandatory PR description checklist** (機械的 gate) → §9
+  12. Smoke layer 3 分類 (Mount / Mirror visible / CoAlter chat) の **明示宣言義務化** → §10
+  13. **Failure mode catalog** (永続更新、anti-patterns doc §1 拡張) → §11
+  14. **deploy → smoke → cleanup の gate 付き cycle** (各 step 通過判定) → §12
+  15. **Phase 跨ぎ学び継承の自動化** (新 Phase 起票 PR template の checkbox 機械化) → §13
+- **Phase D 構成案 (本 docs §0.2)**:
+  - D-0 (本 PR): docs-only route design
+  - D-1: smoke verification automation script + PR template 機械化
+  - D-2: `vercel.json` `ignoreCommand` 拡張 (Option β `.canary-trigger.json` 経路)
+  - D-3: env 分離戦略実装 (CEO 選択 Option A/B/C)
+  - D-4: re-smoke (production-equivalent CoAlter smoke)
+  - D-5: Phase D close + Phase C 完了判定
+- **追加 canon (Phase D 以降不変、本 docs §3.2)**:
+  - canon 11: canary deploy は git-attributed Preview build のみを smoke 本命にする
+  - canon 12: smoke layer 3 分類 (Mount / Mirror visible / CoAlter chat) を起票 PR で明示宣言
+  - canon 13: Failure mode catalog を新規 failure 発覚都度追記 (anti-patterns doc §1 拡張)
+- **env 分離戦略 (本 docs §6.2、Phase D-3 で CEO 選択)**:
+  - Option A: Mirror canary 専用 Preview Supabase project の新規分離 (canon 維持、Claude 推奨)
+  - Option B: Production env への gradual rollout (allowlist user) (canon 緩和、Production env touch、CEO 承認必須)
+  - Option C: Vercel UI canary-only allowlist branch (Vercel 機能依存、Phase D-2 で実機確認)
+- **本 PR scope (CEO 補正の禁止事項を全遵守)**:
+  - docs-only
+  - code 変更 0
+  - env 投入 0
+  - redeploy 0
+  - Supabase migration 0
+  - Production env 変更 0
+  - all-Preview env 変更 0
+  - Phase D 実装着手 0 (D-1〜D-5 は本 design 完了 + CEO 承認後)
+  - smoke 再実行 0
+  - C-5 着手 0
+- **承認**: CEO 補正「C-4R / D-0 起票、docs-only、code/env/redeploy 禁止、CEO 10 項目を必ず扱う、Phase D 実装には進まない」(2026-05-19)
+- **ステータス**: 実行中 (本 docs PR 起票)
+
+---
 ### 2026-05-19 CoAlter AOO Mirror Channel — Phase C C-4 Preview Canary Smoke **BLOCKED** (Option G closure)
 - **部門**: Build / Product
 - **決定内容**: Phase C **C-4 (close / sleep / cap / verification 実機確認 smoke)** を **blocked (未達)** として正式 close。CEO 判断「Option G (現状の不可侵境界を一切壊さず blocked closure、Phase D で本来課題を再設計)」採用 (2026-05-19)
