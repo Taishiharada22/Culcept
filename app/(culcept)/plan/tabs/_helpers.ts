@@ -116,19 +116,29 @@ export function addMonths(d: Date, n: number): Date {
 /**
  * 1 週ストリップ用の cell 配列を返す (Phase 2-A の compact week strip 用)。
  *
- * selectedDate が属する ISO 週 (月-日 7 日) を返す。月跨ぎ週も含む
- * (例: 4/29 月曜 から 5/5 日曜)。各 cell に inCurrentMonth flag 付き
- * (currentMonth と異なる月の日は薄色表示用)。
+ * selectedDate が属する週 (日-土 7 日、日本標準) を返す。月跨ぎ週も含む。
+ * 各 cell に inCurrentMonth flag 付き (currentMonth と異なる月の日は薄色表示用)。
+ *
+ * 日本標準: 週の始まりは **日曜日** (iOS / Google Calendar 日本ロケール default)
+ *
+ * @param selectedDate 選択日 (UTC)
+ * @param currentMonth 現在表示中の月 (月初 1 日 UTC) — inCurrentMonth 判定用
  */
 export function buildWeekStrip(
   selectedDate: Date,
   currentMonth: Date
 ): WeekStripCell[] {
-  const monday = getMondayOf(selectedDate);
+  // 当週の日曜日 (UTC midnight) を計算
+  const utc = utcMidnight(selectedDate);
+  const dayOfWeek = utc.getUTCDay(); // 0 = Sun
+  utc.setUTCDate(utc.getUTCDate() - dayOfWeek);
+  const sunday = new Date(utc);
+
   const currentMonthIndex = currentMonth.getUTCMonth();
   const currentMonthYear = currentMonth.getUTCFullYear();
+
   return Array.from({ length: 7 }, (_, i) => {
-    const date = addDays(monday, i);
+    const date = addDays(sunday, i);
     return {
       date,
       iso: isoDate(date),

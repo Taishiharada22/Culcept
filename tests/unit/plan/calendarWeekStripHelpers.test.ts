@@ -226,15 +226,19 @@ describe("addMonths", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("buildWeekStrip", () => {
+  // 日本標準: Sun-Sat 7 日 (週始まり = 日曜)
+  // 2026 年の参考: Apr 1 = Wed, Apr 12 = Sun, Apr 15 = Wed, Apr 18 = Sat
+  // → Apr 15 (Wed) が含まれる週 = Apr 12 (Sun) ～ Apr 18 (Sat)
+
   describe("基本動作", () => {
-    it("水曜 4/15 含む週 → 月-日 7 日 (4/13-4/19)", () => {
+    it("水曜 4/15 含む週 → 日-土 7 日 (4/12-4/18)", () => {
       const cells = buildWeekStrip(
         new Date(Date.UTC(2026, 3, 15)), // Wed 4/15
         new Date(Date.UTC(2026, 3, 1))   // April 2026
       );
       expect(cells).toHaveLength(7);
-      expect(cells[0]!.iso).toBe("2026-04-13"); // Monday
-      expect(cells[6]!.iso).toBe("2026-04-19"); // Sunday
+      expect(cells[0]!.iso).toBe("2026-04-12"); // Sunday
+      expect(cells[6]!.iso).toBe("2026-04-18"); // Saturday
     });
 
     it("各 cell に date / iso / dayOfMonth / inCurrentMonth がある", () => {
@@ -242,7 +246,7 @@ describe("buildWeekStrip", () => {
         new Date(Date.UTC(2026, 3, 15)),
         new Date(Date.UTC(2026, 3, 1))
       );
-      const wed = cells[2]; // 4/15
+      const wed = cells[3]; // Wed = index 3 (Sun=0)
       expect(wed?.iso).toBe("2026-04-15");
       expect(wed?.dayOfMonth).toBe(15);
       expect(wed?.inCurrentMonth).toBe(true);
@@ -251,65 +255,70 @@ describe("buildWeekStrip", () => {
   });
 
   describe("月跨ぎ inCurrentMonth flag", () => {
-    it("4/29 (Wed) 含む週 (4/27-5/3) で前半=4月、後半=5月", () => {
+    // 2026/4/30 = Thu、5/1 = Fri、5/2 = Sat
+    // → 4/26 (Sun) ～ 5/2 (Sat) が 1 週
+    it("4/30 (Thu) 含む週 (4/26-5/2)、currentMonth=April なら 5/1-5/2 = false", () => {
       const cells = buildWeekStrip(
-        new Date(Date.UTC(2026, 3, 29)), // Wed 4/29
+        new Date(Date.UTC(2026, 3, 30)), // Thu 4/30
         new Date(Date.UTC(2026, 3, 1))   // April 2026
       );
-      expect(cells[0]!.iso).toBe("2026-04-27"); // Mon (April)
-      expect(cells[3]!.iso).toBe("2026-04-30"); // Thu (April 末日)
-      expect(cells[4]!.iso).toBe("2026-05-01"); // Fri (May)
-      expect(cells[6]!.iso).toBe("2026-05-03"); // Sun (May)
+      expect(cells[0]!.iso).toBe("2026-04-26"); // Sun (April)
+      expect(cells[4]!.iso).toBe("2026-04-30"); // Thu (April 末日)
+      expect(cells[5]!.iso).toBe("2026-05-01"); // Fri (May)
+      expect(cells[6]!.iso).toBe("2026-05-02"); // Sat (May)
 
-      // currentMonth=April 想定なので 5 月の日は inCurrentMonth=false
-      expect(cells[0]!.inCurrentMonth).toBe(true);  // 4/27
-      expect(cells[3]!.inCurrentMonth).toBe(true);  // 4/30
-      expect(cells[4]!.inCurrentMonth).toBe(false); // 5/1
-      expect(cells[6]!.inCurrentMonth).toBe(false); // 5/3
+      expect(cells[0]!.inCurrentMonth).toBe(true);  // 4/26
+      expect(cells[4]!.inCurrentMonth).toBe(true);  // 4/30
+      expect(cells[5]!.inCurrentMonth).toBe(false); // 5/1
+      expect(cells[6]!.inCurrentMonth).toBe(false); // 5/2
     });
 
-    it("月末 (4/30 Thu) 含む週で currentMonth=April なら 5/1-5/3 が inCurrentMonth=false", () => {
+    it("5/1 (Fri) 含む週で currentMonth=May に変更すれば inCurrentMonth が反転", () => {
       const cells = buildWeekStrip(
-        new Date(Date.UTC(2026, 3, 30)),
-        new Date(Date.UTC(2026, 3, 1))
-      );
-      expect(cells[5]!.inCurrentMonth).toBe(false); // 5/2
-    });
-
-    it("currentMonth=May に変更すれば、同 selectedDate でも inCurrentMonth が反転", () => {
-      const cells = buildWeekStrip(
-        new Date(Date.UTC(2026, 3, 29)), // Wed 4/29
+        new Date(Date.UTC(2026, 4, 1)),  // Fri 5/1
         new Date(Date.UTC(2026, 4, 1))   // May 2026
       );
-      expect(cells[0]!.inCurrentMonth).toBe(false); // 4/27 (April)
-      expect(cells[4]!.inCurrentMonth).toBe(true);  // 5/1 (May)
+      expect(cells[0]!.iso).toBe("2026-04-26"); // Sun (April)
+      expect(cells[5]!.iso).toBe("2026-05-01"); // Fri (May)
+      expect(cells[0]!.inCurrentMonth).toBe(false); // 4/26 = April
+      expect(cells[5]!.inCurrentMonth).toBe(true);  // 5/1 = May
     });
   });
 
   describe("年跨ぎ", () => {
+    // 2026/12/31 = Thu、2027/1/1 = Fri、1/2 = Sat
+    // → 2026/12/27 (Sun) ～ 2027/1/2 (Sat) が 1 週
     it("12/31 含む週で 1/x 部分は inCurrentMonth=false (currentMonth=December)", () => {
       const cells = buildWeekStrip(
         new Date(Date.UTC(2026, 11, 31)),
         new Date(Date.UTC(2026, 11, 1))
       );
-      // 2026/12/28 月 - 2027/01/03 日 が 1 週
-      expect(cells[0]!.iso).toBe("2026-12-28");
-      expect(cells[3]!.iso).toBe("2026-12-31");
-      expect(cells[4]!.iso).toBe("2027-01-01");
-      expect(cells[6]!.iso).toBe("2027-01-03");
-      expect(cells[3]!.inCurrentMonth).toBe(true);
-      expect(cells[4]!.inCurrentMonth).toBe(false);
+      expect(cells[0]!.iso).toBe("2026-12-27"); // Sun
+      expect(cells[4]!.iso).toBe("2026-12-31"); // Thu
+      expect(cells[5]!.iso).toBe("2027-01-01"); // Fri
+      expect(cells[6]!.iso).toBe("2027-01-02"); // Sat
+      expect(cells[4]!.inCurrentMonth).toBe(true);
+      expect(cells[5]!.inCurrentMonth).toBe(false);
     });
   });
 
-  describe("Sunday 入力 → 当週の月-日", () => {
-    it("4/19 (Sun) → 当週は 4/13-4/19、cells[6] が Sunday=4/19", () => {
+  describe("曜日端の入力", () => {
+    it("Sunday 入力 → cells[0] が自身 (4/12 Sun)", () => {
       const cells = buildWeekStrip(
-        new Date(Date.UTC(2026, 3, 19)), // Sun 4/19
+        new Date(Date.UTC(2026, 3, 12)), // Sun 4/12
         new Date(Date.UTC(2026, 3, 1))
       );
-      expect(cells[0]!.iso).toBe("2026-04-13"); // Mon
-      expect(cells[6]!.iso).toBe("2026-04-19"); // Sun
+      expect(cells[0]!.iso).toBe("2026-04-12");
+      expect(cells[6]!.iso).toBe("2026-04-18");
+    });
+
+    it("Saturday 入力 → cells[6] が自身 (4/18 Sat)", () => {
+      const cells = buildWeekStrip(
+        new Date(Date.UTC(2026, 3, 18)), // Sat 4/18
+        new Date(Date.UTC(2026, 3, 1))
+      );
+      expect(cells[0]!.iso).toBe("2026-04-12"); // Sun (前週から)
+      expect(cells[6]!.iso).toBe("2026-04-18");
     });
   });
 });
