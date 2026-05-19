@@ -141,3 +141,42 @@ describe("domainToFormState — purity", () => {
     expect(domainToFormState(a)).toEqual(domainToFormState(a));
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("domainToFormState — exceptionDates (W1-X4)", () => {
+  it("recurring + exceptionDates 既存 → form に反映", () => {
+    const a = recurring({
+      exceptionDates: ["2026-05-03", "2026-07-17"],
+    });
+    const f = domainToFormState(a);
+    expect(f.exceptionDates).toEqual(["2026-05-03", "2026-07-17"]);
+  });
+
+  it("recurring + exceptionDates 未指定 → 空配列", () => {
+    const a = recurring();
+    const f = domainToFormState(a);
+    expect(f.exceptionDates).toEqual([]);
+  });
+
+  it("canonical sort 維持: 順不同 input → ascending", () => {
+    const a = recurring({
+      exceptionDates: ["2026-07-17", "2026-05-03"],
+    });
+    const f = domainToFormState(a);
+    expect(f.exceptionDates).toEqual(["2026-05-03", "2026-07-17"]);
+  });
+
+  it("one_off → exceptionDates は空（recurring 専用）", () => {
+    const f = domainToFormState(oneOff());
+    expect(f.exceptionDates).toEqual([]);
+  });
+
+  it("anchor.exceptionDates を mutate しない", () => {
+    const dates = ["2026-07-17", "2026-05-03"];
+    const a = recurring({ exceptionDates: dates });
+    const snap = JSON.stringify(dates);
+    domainToFormState(a);
+    expect(JSON.stringify(dates)).toBe(snap); // 元 array 不変
+  });
+});

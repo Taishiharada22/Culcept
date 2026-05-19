@@ -17,15 +17,18 @@
  *   - data fetch / Modal open/close 制御
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import {
+  addExceptionDate,
   type AnchorFormKind,
   type AnchorFormState,
   defaultSourceTypeForKind,
   detectWeekdayShortcut,
+  formatExceptionDateLabel,
   LOCATION_CATEGORY_OPTIONS,
+  removeExceptionDate,
   RIGIDITY_OPTIONS,
   SENSITIVE_CATEGORY_OPTIONS,
   shortcutToWeekdays,
@@ -91,6 +94,18 @@ export function AnchorFormFields({
     [form.selectedWeekdays]
   );
   const sourceTypeDefault = defaultSourceTypeForKind(form.kind);
+
+  // W1-X4: exception dates の add 候補（form state には含めない、submit 対象でない）
+  const [exceptionCandidate, setExceptionCandidate] = useState("");
+
+  function handleAddException() {
+    if (!exceptionCandidate) return;
+    onChange(
+      "exceptionDates",
+      addExceptionDate(form.exceptionDates, exceptionCandidate)
+    );
+    setExceptionCandidate("");
+  }
 
   return (
     <div className="space-y-4">
@@ -222,6 +237,77 @@ export function AnchorFormFields({
                   );
                 })}
               </div>
+            </div>
+          </Field>
+
+          {/* W1-X4: Exception dates（祝日や出張をスキップ） */}
+          <Field
+            label="例外日（任意）"
+            error={errorsByField.get("exceptionDates")}
+          >
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400">
+                祝日や出張など、この日だけスキップする日を教えます
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  value={exceptionCandidate}
+                  onChange={(e) => setExceptionCandidate(e.target.value)}
+                  disabled={submitting}
+                  data-testid="plan-form-exception-candidate"
+                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddException}
+                  disabled={submitting || !exceptionCandidate}
+                  data-testid="plan-form-exception-add"
+                  className="rounded-lg border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  + 追加
+                </button>
+              </div>
+              {form.exceptionDates.length === 0 ? (
+                <p
+                  className="text-xs text-slate-400"
+                  data-testid="plan-form-exception-empty"
+                >
+                  例外日なし（毎週繰り返し）
+                </p>
+              ) : (
+                <ul
+                  className="space-y-1"
+                  data-testid="plan-form-exception-list"
+                >
+                  {form.exceptionDates.map((d) => (
+                    <li
+                      key={d}
+                      className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-1.5"
+                      data-testid={`plan-form-exception-item-${d}`}
+                    >
+                      <span className="text-sm text-slate-700">
+                        {formatExceptionDateLabel(d)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onChange(
+                            "exceptionDates",
+                            removeExceptionDate(form.exceptionDates, d)
+                          )
+                        }
+                        disabled={submitting}
+                        aria-label={`${formatExceptionDateLabel(d)} を例外日から削除`}
+                        data-testid={`plan-form-exception-remove-${d}`}
+                        className="rounded-full p-1 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </Field>
         </>
