@@ -13,6 +13,49 @@
 ```
 
 ---
+### 2026-05-20 CoAlter Mirror Channel E-2-1a 起票 — Kill Switch Migration SQL (4 CEO 補正反映、DB apply 別 step)
+- **部門**: Build / Product
+- **決定内容**: Phase E-2-0 sequencing (PR #217 merged `36b21518`) で確定した E-2-1a (Supabase migration foundation) を起票。`supabase/migrations/20260520120000_coalter_mirror_app_settings.sql` 新規作成 + `docs/coalter-aoo-phase-e2-1a-migration-runbook.md` 新規作成。**Production DB apply は本 PR merge とは別 step**、CEO 明示承認後に CEO 手元で manual 実行。E-2-1b runtime 実装は本 PR では未着手 (CEO HOLD、補正 #3-4 反映の corrected plan 提示後の判断待ち)。
+- **CEO 4 補正 (2026-05-20、E-2-1a 起票時に永続反映)**:
+  1. **service_role は RLS bypass** (Supabase canon): "RLS policy で service_role を制限する" 表現を禁止、operator-only operation table として扱う、audit は tamper-evident (not tamper-proof) と表現
+  2. **audit table immutability defense**: UPDATE/DELETE 禁止 trigger を DB-side で追加、ただし postgres owner では DROP TRIGGER 経由で bypass 可能 (Postgres 仕様、tamper-evident で十分とする)
+  3. **SECURITY DEFINER function**: `search_path = pg_catalog, public` を固定、副作用は audit insert / RAISE EXCEPTION のみ
+  4. **L1 kill switch 正確な反映時間**: `NEXT_PUBLIC_*` env は `next build` 時に bundle へ inline されるため、env 削除だけでは既存 deploy に反映されない。L1 = "env 削除 + 次回 Production deploy で反映される恒久停止手段" (即時ではない)。即時停止は L3 (mount 時、E-2-1b 設計次第)
+- **E-2-1a で着地する artifacts (2 files、SQL/docs only、runtime code 0 diff)**:
+  - `supabase/migrations/20260520120000_coalter_mirror_app_settings.sql` (~220 lines):
+    - `app_settings` table (operator-only operation、anon SELECT で key whitelist)
+    - initial seed row (`mirror_channel_enabled = {"enabled": true}`)
+    - `coalter_mirror_kill_switch_audit` table (tamper-evident forensic、indexed)
+    - `audit_mirror_kill_switch()` trigger function (SECURITY DEFINER + search_path 固定)
+    - `prevent_audit_row_modify()` trigger function (UPDATE/DELETE 禁止、CEO 補正 #2)
+    - RLS policies (anon/authenticated 向け、service_role は bypass する旨明記)
+    - GRANT/REVOKE (defensive、public role 権限剥奪)
+  - `docs/coalter-aoo-phase-e2-1a-migration-runbook.md` (~330 lines): apply 手順、prerequisite、post-verify query、rollback 手順、service_role/RLS canon、tamper-evident vs tamper-proof 説明、L1 反映時間 canon
+- **DB apply 禁止範囲 (本 PR 全期間 + merge 後の永続原則)**:
+  - 本 PR merge = SQL ファイル着地のみ、Production DB schema 変更なし
+  - `npx supabase db push` / `supabase migration up` Production 実行は CEO 明示承認後の別 step
+  - Supabase Studio から table 作成 / row insert を CEO 直接以外で実行禁止
+  - apply 後の audit table への直接 INSERT / UPDATE / DELETE 禁止 (trigger 経由のみ)
+- **E-2-1b HOLD 理由 (本 PR 内で corrected plan を text 出力、CEO 再判断待ち)**:
+  - CEO 補正 #3 (client/server 境界): `components/coalter/mirror/MirrorHost.tsx` は `"use client"` directive 付き = **client component**。`supabaseServer()` 直 import 不可、browser anon client か read-only API route のどちらか再設計必要
+  - CEO 補正 #4 (L3 propagation 強化): per-mount read は E-2-α CEO-only では暫定可、E-2-β 以降は focus 時 / route change 時 / 15-30 秒 polling のいずれかを比較必要
+- **不可侵境界 (本 PR 全期間、永続 canon に追加)**:
+  - runtime app code (`app/` / `lib/` / `components/` / `hooks/`): 0 diff
+  - Mirror runtime / ChatClient / useMirrorEngine / CoAlter API routes: 0 diff
+  - `package.json` / `package-lock.json` / `vercel.json` / `.canary-trigger.json`: 0 diff
+  - tests / `scripts/coalter/`: 0 diff
+  - Production env / all-Preview env / Development env: 0 touch
+  - canary scope env: 0
+  - `SUPABASE_SERVICE_ROLE_KEY` 任意 scope 追加投入: 0
+  - **Production DB apply: 0** (apply は別 step CEO 明示承認後 manual)
+  - **E-2-1b runtime 実装: 0** (HOLD、CEO 補正 #3-4 反映後)
+  - **E-2-2 / E-2-3 / E-2-α 着手: 0**
+  - **C-5 着手: 0**
+- **承認**: CEO (Phase E-2-0 sequencing plan PR #217 merged 後 + E-2-1a 4 補正提示 + 本 PR 起票指示 + E-2-1b HOLD 指示)
+- **ステータス**: Draft PR 起票後 CEO review + DB apply 明示承認待ち、E-2-1b corrected plan は同報告内で text 出力 (CEO 再判断後に E-2-1b GO/HOLD)
+- **次 phase**: E-2-1b corrected plan を CEO review、承認後に runtime 実装 (本 PR scope 外)
+
+---
 ### 2026-05-20 CoAlter AOO Phase E-2-0 起票 — Prerequisite Sequencing Plan (Phase E-0 contradiction 解消)
 - **部門**: Build / Product
 - **決定内容**: Phase E-1 close (PR #215 merged `b07eeab5`) を受けて E-2-α 着手前の残 4 gate (kill switch L1+L3 drill 済 / allowlist Option A 着地 / CEO 直接承認 / Sentry baseline 記録) の実施順を確定する Phase E-2-0 sequencing plan を docs-only で起票。Phase E-0 plan §2.1 sub-phase 構成内に潜在していた **時系列矛盾** (kill switch / Sentry baseline / drill が「E-3 で実施」と「E-2-α 着手 gate」の両方に存在) を構造的に解消する。**Phase E-2 実装には進まない**、CEO 承認後に E-2-1 / E-2-2 / E-2-3 / E-2-α を sequential 起票。
