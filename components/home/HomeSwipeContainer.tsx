@@ -47,6 +47,7 @@ import {
   evaluateSwipeIntent,
   applySwipeAction,
 } from "@/lib/plan/home-swipe-intent";
+import { useHomeSwipeModalLock } from "@/lib/home-swipe-modal-lock";
 
 import HomePaneIndicator from "./HomePaneIndicator";
 
@@ -88,6 +89,11 @@ export default function HomeSwipeContainer({
   const [containerWidth, setContainerWidth] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const reducedMotion = useReducedMotion();
+  // Phase 1 C3 (2026-05-20、CEO 補正 #3 / GPT 補正):
+  //   pane 内で modal (AddAnchor / EditAnchor / AnchorDetail / SourceList 等) が
+  //   開いている時、horizontal swipe で pane が動くと modal が一緒に流れて UX が
+  //   壊れる。本 hook で modal lock state を subscribe し、true なら drag 無効化。
+  const isModalOpen = useHomeSwipeModalLock();
 
   // ── container width measurement (ResizeObserver) ──
   useEffect(() => {
@@ -104,6 +110,8 @@ export default function HomeSwipeContainer({
   // ── keyboard navigation (左右矢印キー) ──
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Modal 開時は keyboard nav 無効化 (drag と対称、Phase 1 C3)
+      if (isModalOpen) return;
       const target = e.target as HTMLElement | null;
       // 入力中は keyboard nav を無効化 (composer / form 入力との衝突回避)
       if (
@@ -121,7 +129,7 @@ export default function HomeSwipeContainer({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [isModalOpen]);
 
   // ── swipe gesture handler (pure 判定は home-swipe-intent.ts) ──
   const handleDragEnd = useCallback(
@@ -155,7 +163,8 @@ export default function HomeSwipeContainer({
         style={{ width: `${PANE_COUNT * 100}%` }}
         animate={{ x }}
         transition={carrierTransition}
-        drag={containerWidth > 0 ? "x" : false}
+        // drag gate: container 幅未計測 OR modal 開時は無効化 (Phase 1 C3)
+        drag={containerWidth > 0 && !isModalOpen ? "x" : false}
         dragDirectionLock
         dragConstraints={{
           left: -(PANE_COUNT - 1) * containerWidth,

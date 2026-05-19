@@ -23,6 +23,7 @@ import {
   GlassButton,
   GlassModal,
 } from "@/components/ui/glassmorphism-design";
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import {
   type AnchorFormState,
   buildAnchorInputFromForm,
@@ -102,6 +103,12 @@ export function EditAnchorModal({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, anchor?.id]);
+
+  // Phase 1 C3 (2026-05-20): Home swipe lock register (CEO 補正 #3)
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerHomeSwipeModalOpen();
+  }, [isOpen]);
 
   const errorsByField = useMemo(() => {
     if (state.kind !== "error") return new Map<string, string>();

@@ -19,6 +19,7 @@ import {
   GlassButton,
   GlassModal,
 } from "@/components/ui/glassmorphism-design";
+import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import {
   type AnchorFormKind,
   type AnchorFormState,
@@ -71,6 +72,14 @@ export function AddAnchorModal({
       setState({ kind: "idle" });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
+  // Phase 1 C3 (2026-05-20): modal 開時に Home swipe lock を register。
+  // pane 内で本 modal が表示されている間、HomeSwipeContainer の horizontal drag
+  // が disable される (CEO 補正 #3 / GPT 補正、Plan pane 統合に必須)。
+  useEffect(() => {
+    if (!isOpen) return;
+    return registerHomeSwipeModalOpen();
   }, [isOpen]);
 
   const errorsByField = useErrorMap(state);
