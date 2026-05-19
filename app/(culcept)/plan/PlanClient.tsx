@@ -57,14 +57,16 @@ import { MapTab } from "./tabs/MapTab";
 
 type PlanTab = "calendar" | "flow" | "map";
 
+// Phase 1 C2 (2026-05-20): tab label を CEO mock 寄せ ("Flow"→"リスト"、"聖地"→"地図")
+// 旧 hint subtitle は pill segmented design では表示しない (mock 整合)。
+// `key` は不変、内部の CalendarTab / FlowTab / MapTab には影響なし。
 const TABS: ReadonlyArray<{
   key: PlanTab;
   label: string;
-  hint: string;
 }> = [
-  { key: "calendar", label: "カレンダー", hint: "今週どう過ごす？" },
-  { key: "flow", label: "Flow", hint: "今日 1 日がどう流れる？" },
-  { key: "map", label: "聖地", hint: "あなたはどこによく行く？" },
+  { key: "calendar", label: "カレンダー" },
+  { key: "flow", label: "リスト" },
+  { key: "map", label: "地図" },
 ];
 
 type FetchState =
@@ -227,35 +229,36 @@ export default function PlanClient({
         )}
       </header>
 
-      {/* ── Tab nav ── */}
+      {/* ── Tab nav (Phase 1 C2 で pill segmented control に refactor、CEO mock 寄せ) ── */}
       <nav
         role="tablist"
         aria-label="Plan tabs"
-        className="mx-auto mb-6 flex max-w-3xl gap-2 border-b border-slate-200"
+        className="mx-auto mb-6 max-w-3xl"
       >
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`plan-panel-${tab.key}`}
-              id={`plan-tab-${tab.key}`}
-              onClick={() => setActiveTab(tab.key)}
-              className={
-                "-mb-px flex flex-col items-start border-b-2 px-4 py-3 text-left transition-colors " +
-                (isActive
-                  ? "border-indigo-500 text-indigo-700"
-                  : "border-transparent text-slate-500 hover:text-slate-700")
-              }
-            >
-              <span className="text-sm font-semibold">{tab.label}</span>
-              <span className="text-xs text-slate-400">{tab.hint}</span>
-            </button>
-          );
-        })}
+        <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`plan-panel-${tab.key}`}
+                id={`plan-tab-${tab.key}`}
+                onClick={() => setActiveTab(tab.key)}
+                className={
+                  "px-5 py-2 rounded-full text-sm font-medium transition-all " +
+                  (isActive
+                    ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-800")
+                }
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </nav>
 
       {/* ── Content area ── */}
