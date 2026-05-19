@@ -601,6 +601,10 @@ describe("SupabaseExternalAnchorRepository — contract", () => {
       const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
       const fb = events.find((e) => e.kind === "rpc_fallback");
       expect(fb).toBeDefined();
+      if (fb && fb.kind === "rpc_fallback") {
+        expect(fb.reason).toBe("function_missing");
+        expect(fb.rpcCode).toBe("42883");
+      }
     });
 
     it("RPC 想定外 shape (data だけ object でない) → throw", async () => {
@@ -630,7 +634,122 @@ describe("SupabaseExternalAnchorRepository — contract", () => {
       );
       expect(r.ok).toBe(true);
       const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
-      expect(events.find((e) => e.kind === "rpc_fallback")).toBeDefined();
+      const fb = events.find((e) => e.kind === "rpc_fallback");
+      expect(fb).toBeDefined();
+      if (fb && fb.kind === "rpc_fallback") {
+        expect(fb.reason).toBe("function_missing");
+      }
+    });
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CEO 補正 (2026-05-19): fallback は「function 不在」class に限定する
+    // — 以下の error は function が存在する authentic な失敗なので、
+    //   sequential path で隠さず実 error として伝播する
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    it("RPC が PGRST100 (parser error) → fallback しない、実 error 伝播", async () => {
+      // PGRST100 は RPC payload 構築バグの signal。fallback で隠すと観測性が壊れる
+      const logger = vi.fn();
+      const { repo, client } = makeRepo(logger);
+      client.registerRpcHandler("create_external_anchor_bundle", () => ({
+        error: {
+          code: "PGRST100",
+          message: "parse error",
+        },
+      }));
+
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff()])
+      );
+      expect(r.ok).toBe(false);
+      // sequential path 不実行
+      expect(client.inspect("external_anchor_sources")).toHaveLength(0);
+      // fallback log 出ない
+      const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
+      expect(events.find((e) => e.kind === "rpc_fallback")).toBeUndefined();
+    });
+
+    it("RPC が PGRST203 (function overload ambiguous) → fallback しない", async () => {
+      // function は存在する (overload 衝突)。fallback は誤った経路。
+      const logger = vi.fn();
+      const { repo, client } = makeRepo(logger);
+      client.registerRpcHandler("create_external_anchor_bundle", () => ({
+        error: {
+          code: "PGRST203",
+          message: "Could not choose the best candidate function",
+        },
+      }));
+
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff()])
+      );
+      expect(r.ok).toBe(false);
+      expect(client.inspect("external_anchor_sources")).toHaveLength(0);
+      const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
+      expect(events.find((e) => e.kind === "rpc_fallback")).toBeUndefined();
+    });
+
+    it("RPC が 23502 (not_null_violation) → fallback しない", async () => {
+      const logger = vi.fn();
+      const { repo, client } = makeRepo(logger);
+      client.registerRpcHandler("create_external_anchor_bundle", () => ({
+        error: {
+          code: "23502",
+          message: "null value in column violates not-null constraint",
+        },
+      }));
+
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff()])
+      );
+      expect(r.ok).toBe(false);
+      expect(client.inspect("external_anchor_sources")).toHaveLength(0);
+      const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
+      expect(events.find((e) => e.kind === "rpc_fallback")).toBeUndefined();
+    });
+
+    it("RPC が 23505 (unique_violation) → fallback しない", async () => {
+      const logger = vi.fn();
+      const { repo, client } = makeRepo(logger);
+      client.registerRpcHandler("create_external_anchor_bundle", () => ({
+        error: {
+          code: "23505",
+          message: "duplicate key value violates unique constraint",
+        },
+      }));
+
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff()])
+      );
+      expect(r.ok).toBe(false);
+      expect(client.inspect("external_anchor_sources")).toHaveLength(0);
+      const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
+      expect(events.find((e) => e.kind === "rpc_fallback")).toBeUndefined();
+    });
+
+    it("PGRST202 fallback log の reason / rpcCode が正しい", async () => {
+      // 既存 PGRST202 fallback テストの reason verify を強化 (CEO 補正後の単一 reason)
+      const logger = vi.fn();
+      const { repo } = makeRepo(logger);
+      // handler 未登録 → mock が PGRST202 を返す
+
+      const r = await repo.createSourceWithAnchors(
+        USER_A,
+        makeBundle([makeOneOff()])
+      );
+      expect(r.ok).toBe(true);
+      const events = logger.mock.calls.map((c) => c[0] as SupabaseRepoLogEvent);
+      const fb = events.find((e) => e.kind === "rpc_fallback");
+      expect(fb).toBeDefined();
+      if (fb && fb.kind === "rpc_fallback") {
+        expect(fb.reason).toBe("function_missing");
+        expect(fb.rpcCode).toBe("PGRST202");
+        expect(fb.userId).toBe(USER_A);
+      }
     });
   });
 });

@@ -168,33 +168,48 @@ export function isPostgrestErrorShape(value: unknown): value is PostgrestError {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * RPC 呼び出し error から「function missing / RPC unavailable」を判定する。
+ * RPC 呼び出し error から「function 自体が存在しない」を判定する。
  *
  * production migration が未 apply な環境で、staging で着地した RPC 実装を
  * 安全に fallback させるための gate。
  *
- * Fallback すべき条件（function 自体が存在しない / PostgREST 経路の構造異常）:
- *   - PGRST202: "Could not find the function ..."
- *   - PGRST100: PostgREST parser error
+ * **設計原則**: fallback は「RPC function が DB に存在しない」ケースに限定する。
+ * function が存在するが authentic に拒否された error (auth / RLS / CHECK / parse) は
+ * sequential path に流すと同じ拒否を別経路で再発させるか、RPC 実装バグを
+ * client-side 経路で隠蔽することになり、観測性を破壊する。
+ *
+ * Fallback すべき条件（function 自体が存在しない）:
+ *   - PGRST202: "Could not find the function ..." (PostgREST schema cache miss)
  *   - PostgreSQL 42883 (undefined_function)
+ *   - message ベース安全網: "could not find the function" を含む（PostgREST が
+ *     code を出さない縁ケースのみ。十分限定的）
  *
  * Fallback **してはならない** 条件（function はあるが authentic な error）:
- *   - 42501 (insufficient_privilege)
- *   - 23xxx (check / not_null / unique / foreign_key violation)
- *   - その他 PostgrestError (network / 5xx 等は伝播)
+ *   - PGRST100: PostgREST query string / request parse error
+ *     → RPC 呼び出し側の payload 構築バグの可能性。fallback で隠さず伝播。
+ *   - PGRST203: function name ambiguous (overload 衝突)
+ *     → function は存在する。fallback は誤った経路。
+ *   - 42501: insufficient_privilege (auth / RLS 拒否)
+ *     → sequential path も同じ拒否を受ける。伝播。
+ *   - 23502: not_null_violation
+ *   - 23514: check_violation
+ *   - 23505: unique_violation
+ *   - 23503: foreign_key_violation
+ *     → DB CHECK / NOT NULL / UNIQUE / FK 違反。fallback も同じ違反。伝播。
+ *   - その他 PostgrestError (network / 5xx 等)
+ *     → 伝播。
  *
  * 設計書: docs/alter-plan-w1y-rpc-atomicity-mini-design.md §3
  */
 export function shouldFallbackFromRpcError(err: PostgrestError | null | undefined): boolean {
   if (!err) return false;
   const code = err.code ?? "";
-  // PostgREST function 不在
+  // PostgREST: function 不在（schema cache miss）
   if (code === "PGRST202") return true;
-  // PostgREST parser error
-  if (code === "PGRST100") return true;
-  // PostgreSQL 「unknown function」
+  // PostgreSQL: undefined_function
   if (code === "42883") return true;
-  // message ベース fallback（PostgREST が code を出さないケースの安全網）
+  // message ベース安全網（PostgREST が code を出さない縁ケース。
+  // 「function が見つからない」と明示しているメッセージのみ許容）
   const msg = (err.message ?? "").toLowerCase();
   if (msg.includes("could not find the function")) return true;
   return false;

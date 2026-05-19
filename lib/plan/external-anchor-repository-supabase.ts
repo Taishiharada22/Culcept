@@ -75,9 +75,14 @@ export type SupabaseRepoLogEvent =
     }
   // W1-Y: RPC が function missing で fallback したことを観測する。
   // production migration 完了後は発火数 = 0 になるべき。
+  //
+  // reason は単一値 "function_missing"。fallback は「function 自体が存在しない」
+  // ケースに限定するため (shouldFallbackFromRpcError 参照)、他の理由ラベルは持たない。
+  // PGRST100 等の parse error は fallback せず実 error として伝播するため、
+  // この log event の対象外。
   | {
       kind: "rpc_fallback";
-      reason: "function_missing" | "rpc_unavailable";
+      reason: "function_missing";
       rpcCode?: string;
       rpcMessage?: string;
       userId: string;
@@ -421,9 +426,11 @@ export function createSupabaseExternalAnchorRepository(
       if (rpcError) {
         if (shouldFallbackFromRpcError(rpcError)) {
           // function 不在 → fallback path へフォールスルー
+          // 全 fallback 条件は「function が DB に存在しない」class に限定されるため、
+          // reason は "function_missing" で固定。
           logger({
             kind: "rpc_fallback",
-            reason: rpcError.code === "PGRST202" ? "function_missing" : "rpc_unavailable",
+            reason: "function_missing",
             ...(rpcError.code ? { rpcCode: rpcError.code } : {}),
             ...(rpcError.message ? { rpcMessage: rpcError.message } : {}),
             userId,
