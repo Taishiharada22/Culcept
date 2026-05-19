@@ -13,6 +13,57 @@
 ```
 
 ---
+### 2026-05-19 CoAlter AOO Phase D 正式 close (D-5、Phase E Mirror Channel 製品化へ hand-off)
+- **部門**: Build / Product
+- **決定内容**: Phase D (D-0 〜 D-4) を本日正式 close。D-4 minimum smoke を CEO 実機実施で PASS、production-equivalent CoAlter flow が canary deploy で構造的に成立することを実証。canary infra (env / branch / worktree) を完全 cleanup、Phase D close docs `docs/coalter-aoo-phase-d-close.md` を新規起票して永続記録化。次 phase は **Mirror Channel 製品化 (Phase E)** で別 起票。
+- **D-4 smoke 観測** (CEO 実機実施):
+  - canonical URL `https://culcept-jyq5mnif8-taishis-projects-0a8deb17.vercel.app` で smoke、user alias 不使用
+  - `/talk/[threadId]` 到達、counterpart 実 user 名 `kumi` 表示 ("ユーザー" placeholder ではない)
+  - 既存 thread / 既存 message が Production data 由来で表示
+  - CoAlter header「見守り中」 + CoAlterButton 表示
+  - DevTools で `mirror-surface-shell` + `mirror-sleep-toggle` mount 確認 (画面左下「観測を控える」chip = SleepUIToggle UI)
+  - `mirror-visible-surface` は FORCED_CANARY 未投入で null 期待 (shadow mode、CEO Console 確認)
+  - staging ref `hjcrvndumgiovyfdacwc` 不在を D-1 で構造的保証
+- **D-5 cleanup 実施事項** (本 PR 起票直前):
+  - canary scope env 5 件削除 (`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `NEXT_PUBLIC_COALTER_MIRROR_CHANNEL_ENABLED`)
+  - canary branch `chore/coalter-mirror-d3b-canary` 削除 (origin remote + local + worktree)
+  - 削除確認: `vercel env ls preview | grep "chore/coalter-mirror-d3b-canary"` → 0 件
+  - 最終 D-1 reverify: 3 gates 全 PASS (build artifact 不変、env 削除は既 build deploy artifact に影響なし)
+- **不可侵境界 (Phase D 全期間維持)**:
+  - Production env (Vercel scope) / all-Preview env (Alter 別作業) / Development env: **0 touch** (Phase D 全期間)
+  - `SUPABASE_SERVICE_ROLE_KEY` の canary scope 追加投入: **0** (inheritance のみ、Mirror code は anon-only contract で構造的に未消費)
+  - Supabase schema / migration: **0**
+  - runtime app code (Mirror runtime / ChatClient / CoAlter API routes): **0 diff** (Phase D は infra phase)
+  - `vercel.json`: D-2 ignoreCommand 1-line diff のみ (Phase D 全期間内では D-2 以降不変)
+  - `package.json` / `package-lock.json`: **0 diff** (Phase D 全期間)
+- **Phase D で確立された永続 artifacts**:
+  - `vercel.json` ignoreCommand 2 段ゲート (D-2)
+  - `.canary-trigger.json` (D-2、metadata-only trigger marker)
+  - `scripts/coalter/verify-canary-deploy.ts` + 58 tests (D-1 + D-1 fix PR #205)
+  - `docs/coalter-supabase-ref-canon.md` + `tests/unit/coalter/supabaseRefCanon.test.ts` 45 tests (D-3-α、ref source-of-truth)
+  - `.github/PULL_REQUEST_TEMPLATE/canary-smoke.md` (D-1、機械化 checklist)
+  - `docs/coalter-aoo-canary-deploy-anti-patterns.md` (Phase D 以前から、Phase D で canon 12/13 追加)
+  - `docs/coalter-aoo-phase-d-close.md` (D-5、本 PR)
+- **Phase D 全期間の merged PR**:
+  - #197 D-0 design (`aa49a99f`)
+  - #198 D-1 initial (`837b46f1`)
+  - #200 D-2 trigger route (`635cb30b`)
+  - #203 D-3-α canon (`8eb9eca7`)
+  - #205 D-1 fix (`e80d8eb8`)
+  - #206 D-3-β trigger commit (`d3042b40`)
+  - (本 PR) D-5 close
+- **Service_role inheritance 永続記録** (D-3-β-0 audit 結論、Phase D 全期間維持):
+  - `SUPABASE_SERVICE_ROLE_KEY` は all-Preview scope (125d ago) → canary deploy `process.env` に inheritance
+  - canary scope への追加投入 0、`lib/supabase` は anon-only contract で構造的に service_role を未消費
+  - D-4 minimum smoke 経路で trigger される唯一の service_role route = `/api/talk/threads` (READ-only、CEO 自身参加 thread のみ)
+- **次 phase (Phase E、別 起票)**:
+  - Mirror Channel 製品化 (forced_canary mode → 段階的 visible → Production gradual rollout)
+  - Phase D 確立の artifacts を再利用 (D-1 / canon / PR template / anti-patterns)
+  - Phase D close docs (`docs/coalter-aoo-phase-d-close.md`) §7 hand-off section を Phase E 起票時必読
+- **承認**: CEO (D-4 minimum smoke 結果確認 + 本 D-5 close docs 内容承認、AskUserQuestion 経由で「今すぐ cleanup + D-5 close」「本線 = Mirror Channel 製品化」を CEO 判定)
+- **ステータス**: 実行済 (cleanup 完了 + 本 D-5 close docs PR 起票後 merge 待ち)
+
+---
 ### 2026-05-19 CoAlter AOO Mirror Channel — Phase D-0 / C-4R: Production-equivalent Canary Deploy Route Design 起票 (docs-only)
 - **部門**: Build / Product
 - **決定内容**: C-4 BLOCKED closure (PR #195 merged `9b294164`) の後継として、**Phase D-0 (= C-4R)** を起票。production-equivalent canary smoke 経路を構造的に reproduce 可能にする design docs を `docs/coalter-aoo-phase-d0-canary-deploy-route-design.md` に正本化。本 PR は **docs-only**、Phase D 実装 (D-1〜D-5) は本 design 完了 + CEO 承認後に sub-PR で sequential
