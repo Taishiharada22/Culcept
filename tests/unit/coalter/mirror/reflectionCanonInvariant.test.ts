@@ -204,11 +204,15 @@ describe("Phase E-1 reflection canon — forced canary mode 構造的不変", ()
     // forcedCanaryMode は engineAdapter 用 mock engine input を提供するが、template text
     // 自体は MIRROR_TEXT_TEMPLATES から enum-locked id 経由でのみ resolve される。
     // 本 test は forcedCanaryMode に raw text が漏れていないかを構造的に確認。
-    const module = await import("@/lib/coalter/mirror/forcedCanaryMode");
-    const exportedKeys = Object.keys(module);
+    //
+    // NOTE: 変数名は `loadedModule` を使用 (`module` は Next.js ESLint rule
+    // `@next/next/no-assign-module-variable` で禁止、Node.js global `module` の
+    // shadow を避けるため)。
+    const loadedModule = await import("@/lib/coalter/mirror/forcedCanaryMode");
+    const exportedKeys = Object.keys(loadedModule);
     // forcedCanaryMode から template text を直接 export してはいけない (anti-pattern)
     for (const key of exportedKeys) {
-      const value = (module as Record<string, unknown>)[key];
+      const value = (loadedModule as Record<string, unknown>)[key];
       if (typeof value === "string") {
         // 任意 string export がある場合、それが template text であってはならない
         for (const t of MIRROR_TEXT_TEMPLATES) {
