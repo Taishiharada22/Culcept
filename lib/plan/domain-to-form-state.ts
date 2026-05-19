@@ -45,11 +45,14 @@ export function domainToFormState(anchor: ExternalAnchor): AnchorFormState {
 
   // recurring
   const weekdays = parseWeekdaysFromRRule(anchor.recurrenceRule) ?? [];
+  // W1-X4: exception dates を form に流し込む（既存の DB 値を尊重、canonical sort）
+  const exceptionDates = [...(anchor.exceptionDates ?? [])].sort();
   return {
     ...base,
     kind: "recurring",
     validFrom: anchor.validFrom,
     validUntil: anchor.validUntil ?? "",
     selectedWeekdays: weekdays,
+    exceptionDates,
   };
 }

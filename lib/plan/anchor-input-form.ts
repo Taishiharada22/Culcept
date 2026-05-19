@@ -63,6 +63,8 @@ export interface AnchorFormState {
   validFrom: string;            // YYYY-MM-DD
   validUntil: string;           // YYYY-MM-DD、空文字なら未指定
   selectedWeekdays: Weekday[];  // canonical 化前で OK
+  /** W1-X4: recurring 中の「この日だけスキップ」例外日。canonical ascending sort 済み */
+  exceptionDates: string[];     // YYYY-MM-DD[]
 }
 
 /**
@@ -84,6 +86,7 @@ export function emptyAnchorFormState(): AnchorFormState {
     validFrom: "",
     validUntil: "",
     selectedWeekdays: [],
+    exceptionDates: [],
   };
 }
 
@@ -226,7 +229,11 @@ export function mergeInitialState(
   initial?: Partial<AnchorFormState>
 ): AnchorFormState {
   if (!initial) {
-    return { ...empty, selectedWeekdays: [...empty.selectedWeekdays] };
+    return {
+      ...empty,
+      selectedWeekdays: [...empty.selectedWeekdays],
+      exceptionDates: [...empty.exceptionDates],
+    };
   }
   return {
     ...empty,
@@ -235,7 +242,67 @@ export function mergeInitialState(
       initial.selectedWeekdays !== undefined
         ? [...initial.selectedWeekdays]
         : [...empty.selectedWeekdays],
+    exceptionDates:
+      initial.exceptionDates !== undefined
+        ? [...initial.exceptionDates]
+        : [...empty.exceptionDates],
   };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Exception date helpers (W1-X4)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** YYYY-MM-DD format validator (pure) */
+function isValidIsoDateString(s: string): boolean {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.toISOString().slice(0, 10) === s;
+}
+
+/**
+ * exception date を追加する。
+ *
+ *   - 既存に同 date があれば silent ignore（重複 silent dedup）
+ *   - 不正な format（YYYY-MM-DD 違反）は silent ignore（UI 側の早期 reject 想定）
+ *   - 結果は canonical ascending sort
+ *   - 入力 mutate しない（新 array を返す）
+ */
+export function addExceptionDate(
+  current: ReadonlyArray<string>,
+  date: string
+): string[] {
+  if (!isValidIsoDateString(date)) return [...current];
+  if (current.includes(date)) return [...current];
+  return [...current, date].sort();
+}
+
+/**
+ * exception date を削除する。
+ *
+ *   - 該当 date が無ければ silent ignore
+ *   - canonical sort は維持（既存配列も sort 済み前提）
+ *   - 入力 mutate しない
+ */
+export function removeExceptionDate(
+  current: ReadonlyArray<string>,
+  date: string
+): string[] {
+  return current.filter((d) => d !== date);
+}
+
+/**
+ * YYYY-MM-DD を 日本語日付 `5月3日(日)` 形式で表示する pure helper。
+ * 不正 date は元 string をそのまま返す（UI fail-safe）。
+ */
+export function formatExceptionDateLabel(date: string): string {
+  if (!isValidIsoDateString(date)) return date;
+  const d = new Date(`${date}T00:00:00Z`);
+  const m = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+  const wd = ["日", "月", "火", "水", "木", "金", "土"][d.getUTCDay()];
+  return `${m}月${day}日(${wd})`;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -350,8 +417,15 @@ export function buildAnchorInputFromForm(
   if (errors.length > 0) return { valid: false, errors };
 
   const rrule = buildWeekdayRRule(state.selectedWeekdays);
-  const recurringExtra: Partial<{ validUntil: string }> = {};
+  const recurringExtra: Partial<{
+    validUntil: string;
+    exceptionDates: string[];
+  }> = {};
   if (state.validUntil) recurringExtra.validUntil = state.validUntil;
+  // W1-X4: exception dates。空配列は input に含めない（SoT validator は undefined を許容）
+  if (state.exceptionDates.length > 0) {
+    recurringExtra.exceptionDates = [...state.exceptionDates];
+  }
 
   const candidate = {
     anchorKind: "recurring" as const,

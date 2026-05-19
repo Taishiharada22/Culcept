@@ -8,13 +8,16 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  addExceptionDate,
   type AnchorFormState,
   buildAnchorInputFromForm,
   buildSourceInputFromForm,
   defaultSourceTypeForKind,
   detectWeekdayShortcut,
   emptyAnchorFormState,
+  formatExceptionDateLabel,
   mergeInitialState,
+  removeExceptionDate,
   shortcutToWeekdays,
   toggleWeekday,
 } from "@/lib/plan/anchor-input-form";
@@ -427,5 +430,149 @@ describe("mergeInitialState (W1-X3)", () => {
     expect(out.date).toBe(undefined);
     // ※ 実装は spread だから undefined で上書きされうる。仕様として明示的に許容。
     // 呼び出し側は undefined を含む partial を渡さない設計。
+  });
+
+  it("exceptionDates も新 array で持つ", () => {
+    const seed: string[] = ["2026-05-03"];
+    const out = mergeInitialState(emptyAnchorFormState(), {
+      exceptionDates: seed,
+    });
+    expect(out.exceptionDates).toEqual(["2026-05-03"]);
+    expect(out.exceptionDates).not.toBe(seed); // 別 instance
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("addExceptionDate / removeExceptionDate / formatExceptionDateLabel (W1-X4)", () => {
+  describe("addExceptionDate", () => {
+    it("空 → 新規追加", () => {
+      expect(addExceptionDate([], "2026-05-03")).toEqual(["2026-05-03"]);
+    });
+
+    it("canonical sort: 既存 7/17 + 5/3 → ascending", () => {
+      expect(addExceptionDate(["2026-07-17"], "2026-05-03")).toEqual([
+        "2026-05-03",
+        "2026-07-17",
+      ]);
+    });
+
+    it("重複は silent ignore（同 date 追加で no-op）", () => {
+      expect(addExceptionDate(["2026-05-03"], "2026-05-03")).toEqual([
+        "2026-05-03",
+      ]);
+    });
+
+    it("不正 format → silent ignore", () => {
+      expect(addExceptionDate(["2026-05-03"], "bad")).toEqual(["2026-05-03"]);
+      expect(addExceptionDate(["2026-05-03"], "2026/05/04")).toEqual([
+        "2026-05-03",
+      ]);
+    });
+
+    it("物理的無効日 (2026-02-30) → silent ignore", () => {
+      expect(addExceptionDate([], "2026-02-30")).toEqual([]);
+    });
+
+    it("入力 array を mutate しない", () => {
+      const seed = ["2026-05-03"];
+      const out = addExceptionDate(seed, "2026-07-17");
+      expect(seed).toEqual(["2026-05-03"]); // 不変
+      expect(out).not.toBe(seed);
+    });
+  });
+
+  describe("removeExceptionDate", () => {
+    it("該当 date を削除", () => {
+      expect(
+        removeExceptionDate(["2026-05-03", "2026-07-17"], "2026-05-03")
+      ).toEqual(["2026-07-17"]);
+    });
+
+    it("存在しない date → silent ignore", () => {
+      expect(
+        removeExceptionDate(["2026-05-03"], "2026-01-01")
+      ).toEqual(["2026-05-03"]);
+    });
+
+    it("入力 array を mutate しない", () => {
+      const seed = ["2026-05-03", "2026-07-17"];
+      removeExceptionDate(seed, "2026-05-03");
+      expect(seed).toEqual(["2026-05-03", "2026-07-17"]);
+    });
+  });
+
+  describe("formatExceptionDateLabel", () => {
+    it.each([
+      ["2026-05-03", "5月3日(日)"],
+      ["2026-01-01", "1月1日(木)"],
+      ["2026-12-31", "12月31日(木)"],
+    ])("%s → %s", (input, expected) => {
+      expect(formatExceptionDateLabel(input)).toBe(expected);
+    });
+
+    it("不正 format → 入力そのまま（UI fail-safe）", () => {
+      expect(formatExceptionDateLabel("bad")).toBe("bad");
+    });
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildAnchorInputFromForm — exceptionDates (W1-X4)", () => {
+  it("recurring + 例外日 2 件 → input に exceptionDates が含まれる", () => {
+    const state: AnchorFormState = {
+      ...emptyAnchorFormState(),
+      kind: "recurring",
+      title: "週次",
+      validFrom: "2026-05-18",
+      selectedWeekdays: ["MO"],
+      startTime: "10:00",
+      rigidity: "soft",
+      exceptionDates: ["2026-05-25", "2026-07-13"],
+    };
+    const r = buildAnchorInputFromForm(state);
+    expect(r.valid).toBe(true);
+    if (r.valid && r.input.anchorKind === "recurring") {
+      expect(r.input.exceptionDates).toEqual(["2026-05-25", "2026-07-13"]);
+    }
+  });
+
+  it("recurring + 空 exceptionDates → input.exceptionDates は undefined", () => {
+    const state: AnchorFormState = {
+      ...emptyAnchorFormState(),
+      kind: "recurring",
+      title: "週次",
+      validFrom: "2026-05-18",
+      selectedWeekdays: ["MO"],
+      startTime: "10:00",
+      rigidity: "soft",
+    };
+    const r = buildAnchorInputFromForm(state);
+    expect(r.valid).toBe(true);
+    if (r.valid && r.input.anchorKind === "recurring") {
+      expect(
+        (r.input as Record<string, unknown>).exceptionDates
+      ).toBeUndefined();
+    }
+  });
+
+  it("one_off では exceptionDates は無視（input に乗らない）", () => {
+    const state: AnchorFormState = {
+      ...emptyAnchorFormState(),
+      kind: "one_off",
+      title: "歯科",
+      date: "2026-05-25",
+      startTime: "14:30",
+      rigidity: "hard",
+      exceptionDates: ["2026-05-25"], // recurring 専用、one_off では無視
+    };
+    const r = buildAnchorInputFromForm(state);
+    expect(r.valid).toBe(true);
+    if (r.valid) {
+      expect(
+        (r.input as Record<string, unknown>).exceptionDates
+      ).toBeUndefined();
+    }
   });
 });
