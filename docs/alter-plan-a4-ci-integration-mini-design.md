@@ -170,6 +170,14 @@ on:
 
 ただし auto-trigger 移行は **A-5 として別 PR / 別 CEO 判断**。本 wave では含めない。
 
+### ✅ Stage 2 (A-5) 着地完了
+
+A-5 (`docs/alter-plan-a5-auto-trigger-mini-design.md`) で上記 `pull_request` trigger
+を追加済。**Environment "staging-smoke" + required reviewers** ゲートは継続発火するため、
+auto-trigger でも CEO 承認なしには smoke 実行されない。安全境界は不変。
+
+次の昇格判断 (A-6) は **required reviewers 緩和** だが、これは安定運用観察後の別判断。
+
 ---
 
 ## 7. やらない（A-4 範囲外）

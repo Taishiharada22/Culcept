@@ -232,21 +232,23 @@ CEO 判断で：
 A-2 PASS 後の次の wave（着地済 / 進行中）:
 
 - ✅ **A-3** Vercel preview staging env（完了）
-- ✅ **W1-5** Plan UI（完了）/ **W1-X1** Manual Anchor Input（完了）
-- ✅ **W1-X3** Cell add affordances（完了）/ **W1-X2** Anchor edit UI（完了）
-- ▶ **A-4** GitHub Actions による staging smoke 自動化（本 smoke を CI から呼ぶ、`docs/alter-plan-a4-ci-integration-mini-design.md` 参照）
+- ✅ **W1-5** Plan UI / **W1-X1** Manual Anchor Input / **W1-X2** Edit UI /
+  **W1-X3** Cell add / **W1-X4** Exception dates / **W1-X5** Anchor detail（完了）
+- ✅ **A-4** GitHub Actions workflow_dispatch（完了）
+- ✅ **A-5** Plan 関連 PR の auto-trigger 昇格（完了）
 - ⏸ **W1-Y** Postgres RPC `create_external_anchor_bundle()` migration（CEO migration 解禁待ち）
-- ⏸ **W1-6** passive drift logging / **W1-8** Home 導線（CEO 凍結中）
+- ⏸ **A-6** required reviewers 緩和（A-5 安定運用観察後の別判断）
+- ⏸ **W1-6** passive drift logging / **W1-8** Home 導線 / **DraftPlan** / **自動祝日 API**（CEO 凍結中）
 
-## 9. A-4 連携（GitHub Actions）
+## 9. A-4 / A-5 連携（GitHub Actions）
 
-A-4 で本 smoke を GitHub Actions の `workflow_dispatch` から実行可能になる。
-ローカル手動実行（本 doc）と CI 実行（A-4）は同 script を共用：
+ローカル手動実行（本 doc）と CI 実行（A-4 / A-5）は同 script を共用：
 
-| 実行方法 | 用途 |
-|---------|------|
-| ローカル `npx tsx scripts/staging-smoke/a2-rls-api-smoke.ts` | CEO の動作確認、debug |
-| GitHub Actions `workflow_dispatch` | merge 前/後の退行検知（CEO 承認下） |
+| 実行方法 | trigger | 用途 |
+|---------|---------|------|
+| ローカル `npx tsx scripts/staging-smoke/a2-rls-api-smoke.ts` | 手動 | CEO 動作確認、debug |
+| GitHub Actions `workflow_dispatch` (A-4) | 手動 | 緊急時 / 任意 timing の確認（CEO 承認下） |
+| GitHub Actions `pull_request` paths-filter (A-5) | Plan 関連 PR push 時 | 退行検知の auto-trigger（CEO 承認下） |
 
-GitHub Actions 経由は **Environment `staging-smoke` + required reviewers** で保護される。
-詳細: `docs/alter-plan-a4-ci-integration-mini-design.md`
+いずれの GitHub Actions 経路でも **Environment `staging-smoke` + required reviewers** で保護される。
+詳細: `docs/alter-plan-a4-ci-integration-mini-design.md` / `docs/alter-plan-a5-auto-trigger-mini-design.md`

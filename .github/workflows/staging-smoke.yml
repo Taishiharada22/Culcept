@@ -1,17 +1,24 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Alter Plan A-4 — Staging RLS API Smoke (Manual Trigger)
+# Alter Plan A-4 / A-5 — Staging RLS API Smoke
 #
-# 設計書: docs/alter-plan-a4-ci-integration-mini-design.md
+# Stage 1 (A-4): workflow_dispatch 手動 trigger（緊急時手段として継続維持）
+# Stage 2 (A-5): pull_request paths-filter で Plan 関連 PR の自動 trigger
+#                Environment 保護により CEO 承認なしには smoke が走らない
+#
+# 設計書:
+#   - docs/alter-plan-a4-ci-integration-mini-design.md (Stage 1)
+#   - docs/alter-plan-a5-auto-trigger-mini-design.md (Stage 2)
 #
 # 不変原則:
-#   1. workflow_dispatch のみ（PR push 自動 trigger は別 wave で昇格判断）
+#   1. workflow_dispatch + pull_request paths-filter の併存
 #   2. Environment "staging-smoke" + required reviewers (CEO 承認) 必須
+#      → auto-trigger でも承認なしには smoke 実行されない
 #   3. secret は Environment secrets 経由のみ（repository secrets ではない）
 #   4. concurrency で 1 本化、staging データの race を防ぐ
 #   5. secret は env: で受け、明示的 echo 禁止
 #   6. artifact には smoke 出力のみ保存（secret 流出防止）
 #
-# CEO 必須事前操作:
+# CEO 必須事前操作 (A-4 で完了済、A-5 で追加なし):
 #   - Settings → Environments → "staging-smoke" 作成
 #   - Required reviewers に CEO を追加
 #   - Environment secrets に 7 件設定（docs §5 参照）
@@ -27,6 +34,16 @@ on:
         description: "Why are you running this smoke? (audit log purpose)"
         required: false
         default: "manual verification"
+  # A-5 Stage 2: Plan 関連 PR push 時の auto-trigger
+  # Environment ゲートで CEO 承認待ちになる（auto-run ではない）
+  pull_request:
+    paths:
+      - "lib/plan/**"
+      - "app/api/plan/**"
+      - "app/api/plan-items/**"
+      - "app/(culcept)/plan/**"
+      - "scripts/staging-smoke/**"
+      - ".github/workflows/staging-smoke.yml"
 
 concurrency:
   group: staging-smoke
