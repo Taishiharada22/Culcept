@@ -674,3 +674,91 @@ done
 ### 15.5 副次副次提案 — smoke 観測 false positive 改善
 
 §10 cleanup / §2 pre-flight の env scan command を strict match に変更 (`NEXT_PUBLIC_COALTER_MIRROR_*` 限定) すると、Phase A 由来の DIAGNOSTIC 系 env が false positive で拾われない。次の smoke runbook で反映予定。
+
+---
+
+## §16 Phase C C-4 Smoke Result (2026-05-19、追記、**BLOCKED**)
+
+### 16.1 実施環境
+
+| 項目 | 値 |
+|---|---|
+| 実施日 | 2026-05-19 JST |
+| canary branch | `chore/coalter-mirror-c4-canary` (empty commit `44e895d9`、main `1eaaee77` ベース、削除済) |
+| 試行 deployment (1h8ychlul) | `dpl_7geSSMRjn74Xpbw8VVsUEAvg8ezz`、`npx vercel --force` CLI、status Ready |
+| env 投入 (CEO 手動、branch-scoped Preview のみ) | Mirror 3件 + Supabase NEXT_PUBLIC 2件 |
+| env cleanup (Claude 2026-05-19) | 5件すべて削除確認 (全 scope 0) |
+| 保護対象不変 | Production env / all-Preview Alter env / Development env / `SUPABASE_URL` (server) / `SUPABASE_SERVICE_ROLE_KEY` (server) すべて touch なし |
+
+### 16.2 判定: **BLOCKED (Option G closure、production-equivalent CoAlter smoke 未達)**
+
+CEO 判断「production-equivalent CoAlter smoke 未達として記録、Mount smoke level で成功扱いしない、C-5 未着手」(2026-05-19)。
+
+### 16.3 Root cause (HTML bundle 直接確認で確定)
+
+```
+$ curl -sL https://culcept-1h8ychlul-...vercel.app | grep "supabase.co"
+https://hjcrvndumgiovyfdacwc.supabase.co  ← Alter staging Supabase (意図外)
+```
+
+意図された `https://aljavfujeqcwnqryjmhl.supabase.co` (Aneurasync Production) は build に反映されず。
+
+#### 構造的原因チェーン
+
+1. `npx vercel --force` で deploy → Vercel API meta が `source: cli` / `gitSource.ref: None` / `gitCommitRef: None` (3 deploy で同確認: g59fiqeau / cpx2wyiwb / 1h8ychlul)
+2. Vercel は git context 無しの CLI deploy に対し **branch-scoped Preview env を resolve しない**
+3. all-preview scope (Alter 別作業の staging Supabase URL、22h ago 投入) が build に baked-in
+4. CEO が branch-scoped (`chore/coalter-mirror-c4-canary`) で投入した正しい Production Supabase env は build に到達せず
+
+### 16.4 観測結果 (3 layer 分離)
+
+| Smoke layer | 結果 |
+|---|---|
+| **Mount smoke** (MirrorHost mount + useMirrorEngine 起動) | ✅ unit test + 構造確認で既担保 (B-5a/b 完了時に達成済) |
+| **Mirror visible smoke** (forced canary mock injection 経由) | ⚠️ mock data で MirrorVisibleSurface 生成可能性のみ実証、production-equivalent context ではない |
+| **CoAlter chat smoke** (Production-equivalent: login → /talk → 既存 thread → CoAlter button → activate → visible Mirror) | ❌ **未達** (staging Supabase に Production data 不在で全工程失敗) |
+
+### 16.5 CEO 観測との符合 (CEO スクリーンショット解釈)
+
+| 観測 | 原因 |
+|---|---|
+| canary `/talk/<production-threadId>` 開いても counterpart が default 「ユーザー」表示 | staging Supabase DB に Production thread / profile 不在 → 404 → UI placeholder |
+| chat 履歴空 | `GET /api/talk/threads/<id>/messages` 404 → ChatClient silent fail (`if (!res.ok) return;` L795) |
+| chat 送信不可 | `POST /api/talk/threads/<id>/messages` 401 |
+| baseline 保存失敗 | staging Supabase DB に CEO profile row なし、profiles.update() 対象なし |
+| /baseline → /plan に飛ぶ | code 上の自動 redirect なし。`PLAN_ROUTE_LIVE=true` が all-preview に 21h ago 投入されているため、CEO が URL bar 直入力で /plan page 表示可能 (Alter Plan W1-5 UI)。Mirror canary とは無関係 |
+
+### 16.6 CEO 禁止事項を守る限り構造的に解決不能
+
+Option A-F (`vercel.json` 変更 / `.ts/.tsx` 最小 trigger commit / CLI `--meta` 強制 attribution / canary 全 env force-promote / all-Preview Alter env 削除 / staging Supabase migration) すべて禁止違反。**Option G (blocked closure) のみ規約準拠**。
+
+### 16.7 Phase D で再設計が必要な本来課題
+
+1. **canary deploy 経路の git attribution 確保**:
+   - 現状 Vercel CLI `vercel --force` は git context を inject しない → branch-scoped env 不適用
+   - Phase A §3.4 学び (`.ts/.tsx` 最小 trigger commit) を canary smoke 標準手順に格上げ
+   - もしくは `vercel.json` の `ignoreCommand` を canary branch 限定で例外化する design 検討
+
+2. **Mirror canary 専用 Preview Supabase project の分離設計**:
+   - Alter 別作業の all-preview Supabase と Mirror canary 専用 Supabase の分離戦略
+   - canary-only allowlist branch を Vercel UI で project 設定する design
+
+3. **Production-equivalent smoke の代替手段**:
+   - Production env への gradual rollout (allowlist user) で smoke 代替する path 設計
+   - Phase B/C canon「Production env 触らない」を緩めるか、別 staging project に CEO 個人 data を migration するか
+
+### 16.8 Phase Gate
+
+| Phase | 状態 |
+|---|---|
+| Phase B | conditional pass close (PR #185) |
+| C-0 | merged (PR #186) |
+| C-1 | merged (PR #188) |
+| C-2 | merged (PR #189) |
+| C-3 | merged (PR #191) |
+| **C-4** | **BLOCKED (本 entry、Option G、production-equivalent smoke 未達)** |
+| C-5 (taxonomy 検討) | 未着手 (CEO 禁止維持) |
+| C-6 (Phase C 全体 smoke) | 未着手 |
+| Phase D | C-4 root cause + 3 再設計課題を Phase D-0 design で正面から扱う |
+
+詳細 root cause + Phase D 課題は `docs/decision-log.md` 2026-05-19 entry も参照。
