@@ -43,6 +43,7 @@ import type {
 } from "./external-anchor-repository";
 import {
   mapPostgrestError,
+  shouldFallbackFromRpcError,
   type AppError,
 } from "./supabase-error-mapping";
 import { validateAnchorUpdate } from "./anchor-update-validation";
@@ -70,6 +71,20 @@ export type SupabaseRepoLogEvent =
   | {
       kind: "compensating_delete_attempted";
       sourceId: string;
+      userId: string;
+    }
+  // W1-Y: RPC が function missing で fallback したことを観測する。
+  // production migration 完了後は発火数 = 0 になるべき。
+  //
+  // reason は単一値 "function_missing"。fallback は「function 自体が存在しない」
+  // ケースに限定するため (shouldFallbackFromRpcError 参照)、他の理由ラベルは持たない。
+  // PGRST100 等の parse error は fallback せず実 error として伝播するため、
+  // この log event の対象外。
+  | {
+      kind: "rpc_fallback";
+      reason: "function_missing";
+      rpcCode?: string;
+      rpcMessage?: string;
       userId: string;
     };
 
@@ -255,6 +270,79 @@ function anchorInsertPayload(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RPC payload / result helpers (W1-Y)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * RPC `create_external_anchor_bundle` に渡す source 形 (snake_case)。
+ *
+ * - user_id は p_user_id で渡すため payload には含めない
+ * - id / captured_at / created_at は DB DEFAULT で補完
+ */
+function sourceInsertPayloadForRpc(
+  input: CreateSourceWithAnchorsInput["source"]
+): Record<string, unknown> {
+  return {
+    source_type: input.sourceType,
+    original_filename: input.originalFilename ?? null,
+    extracted_at: input.extractedAt ?? null,
+    raw_retention: input.rawRetention ?? "discarded",
+    raw_storage_path: input.rawStoragePath ?? null,
+    raw_expires_at: input.rawExpiresAt ?? null,
+    notes: input.notes ?? null,
+  };
+}
+
+/**
+ * RPC に渡す anchor 形 (snake_case)。
+ *
+ * - user_id / source_id / confirmed_at は function 内で埋める
+ *   (p_user_id / v_source.id / NOW())
+ * - id / created_at / updated_at は DB DEFAULT
+ */
+function anchorInsertPayloadForRpc(
+  input: CreateExternalAnchorInput
+): Record<string, unknown> {
+  const isOneOff = input.anchorKind === "one_off";
+  return {
+    title: input.title,
+    start_time: input.startTime,
+    end_time: input.endTime ?? null,
+    location_text: input.locationText ?? null,
+    location_category: input.locationCategory ?? null,
+    rigidity: input.rigidity,
+    confidence: null,
+    sensitive_category: input.sensitiveCategory ?? null,
+    anchor_kind: input.anchorKind,
+    date: isOneOff ? input.date : null,
+    valid_from: isOneOff ? null : input.validFrom,
+    valid_until: isOneOff ? null : (input.validUntil ?? null),
+    recurrence_rule: isOneOff ? null : input.recurrenceRule,
+    exception_dates: isOneOff ? null : (input.exceptionDates ?? null),
+  };
+}
+
+/**
+ * RPC `create_external_anchor_bundle` の戻り値 (jsonb) を
+ * CreateSourceWithAnchorsResult に変換する。
+ *
+ * 期待 shape: { source: ExternalAnchorSourceRow, anchors: ExternalAnchorRow[] }
+ *
+ * @returns 想定通りなら ok:true 結果、shape 違反なら null (呼び出し側で throw)
+ */
+function parseRpcBundleResult(
+  rpcData: unknown
+): CreateSourceWithAnchorsResult | null {
+  if (!rpcData || typeof rpcData !== "object") return null;
+  const obj = rpcData as { source?: unknown; anchors?: unknown };
+  if (!obj.source || typeof obj.source !== "object") return null;
+  if (!Array.isArray(obj.anchors)) return null;
+  const source = rowToSource(obj.source as ExternalAnchorSourceRow);
+  const anchors = (obj.anchors as ExternalAnchorRow[]).map(rowToAnchor);
+  return { ok: true, source, anchors };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Factory
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -306,7 +394,76 @@ export function createSupabaseExternalAnchorRepository(
         return { ok: false, errors };
       }
 
-      // ── 2. source INSERT（DB が id / captured_at を補完、RETURNING で取得） ──
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // 2. RPC 試行 (W1-Y: atomic via create_external_anchor_bundle)
+      //    - function が存在する staging では 1 transaction で完全 atomic
+      //    - function 不在 production では fallback (既存 sequential path)
+      //    - 実 error (auth / RLS / CHECK) は fallback せず伝播
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      const validInputs = validatedAnchors as CreateExternalAnchorInput[];
+      const rpcSourcePayload = sourceInsertPayloadForRpc(input.source);
+      const rpcAnchorsPayload = validInputs.map((a) =>
+        anchorInsertPayloadForRpc(a)
+      );
+
+      const { data: rpcData, error: rpcError } = await client.rpc(
+        "create_external_anchor_bundle",
+        {
+          p_user_id: userId,
+          p_source: rpcSourcePayload,
+          p_anchors: rpcAnchorsPayload,
+        }
+      );
+
+      if (!rpcError && rpcData) {
+        // RPC 成功: function が { source, anchors } の JSONB を返す
+        const parsed = parseRpcBundleResult(rpcData);
+        if (parsed) return parsed;
+        // 想定外 shape は internal error として伝播（fallback しない、bug の可能性）
+        throw new Error("create_external_anchor_bundle returned unexpected shape");
+      }
+
+      if (rpcError) {
+        if (shouldFallbackFromRpcError(rpcError)) {
+          // function 不在 → fallback path へフォールスルー
+          // 全 fallback 条件は「function が DB に存在しない」class に限定されるため、
+          // reason は "function_missing" で固定。
+          logger({
+            kind: "rpc_fallback",
+            reason: "function_missing",
+            ...(rpcError.code ? { rpcCode: rpcError.code } : {}),
+            ...(rpcError.message ? { rpcMessage: rpcError.message } : {}),
+            userId,
+          });
+          // fall through to legacy sequential path below
+        } else {
+          // 実 error (42501 / 23xxx / network 等) はそのまま bundle error として整形
+          const appErr = mapPostgrestError(rpcError);
+          return {
+            ok: false,
+            errors: [
+              {
+                // どの kind か判定不能なので anchor_invalid に寄せる (validation_error は CHECK 違反の可能性)
+                kind: "anchor_invalid",
+                index: 0,
+                errors: [
+                  {
+                    field: "(rpc)",
+                    code:
+                      appErr.kind === "validation_error"
+                        ? "logical_conflict"
+                        : "invalid_format",
+                    message: `RPC rejected bundle: ${appErr.message}`,
+                  },
+                ],
+              },
+            ],
+          };
+        }
+      }
+
+      // ── 3. (Fallback) source INSERT（DB が id / captured_at を補完、RETURNING で取得） ──
+      //      RPC が function missing で fallback したケースのみここに到達。
       const { data: sourceRow, error: sourceError } = await client
         .from("external_anchor_sources")
         .insert(sourceInsertPayload(userId, input.source))

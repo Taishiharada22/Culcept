@@ -66,6 +66,19 @@ export interface MockSupabaseClient extends Pick<SupabaseClient, "from"> {
       error: { message: string } | null;
     }>;
   };
+  /** W1-Y: RPC handler を登録（test 中に function を「実装」する） */
+  registerRpcHandler(
+    name: string,
+    handler: (args: Record<string, unknown>) => {
+      data?: unknown;
+      error?: Partial<PostgrestError>;
+    }
+  ): void;
+  /** Supabase JS の rpc() 互換 */
+  rpc(
+    name: string,
+    args?: Record<string, unknown>
+  ): Promise<{ data: unknown; error: PostgrestError | null }>;
   /** 真の SupabaseClient として渡せるよう、unknown キャスト用ヘルパ */
   asSupabaseClient(): SupabaseClient;
 }
@@ -328,6 +341,15 @@ export function createMockSupabaseClient(
   let authUser: { id: string; email?: string } | null = null;
   let authFailNext: { message: string } | null = null;
 
+  // W1-Y: RPC handlers
+  const rpcHandlers = new Map<
+    string,
+    (args: Record<string, unknown>) => {
+      data?: unknown;
+      error?: Partial<PostgrestError>;
+    }
+  >();
+
   const client: MockSupabaseClient = {
     from(table: string) {
       return makeBuilder(table) as unknown as ReturnType<SupabaseClient["from"]>;
@@ -341,6 +363,7 @@ export function createMockSupabaseClient(
       seq = 0;
       authUser = null;
       authFailNext = null;
+      rpcHandlers.clear();
     },
     inspect(table) {
       return Array.from(tableStore(table).values());
@@ -360,6 +383,27 @@ export function createMockSupabaseClient(
         }
         return { data: { user: authUser }, error: null };
       },
+    },
+    registerRpcHandler(name, handler) {
+      rpcHandlers.set(name, handler);
+    },
+    async rpc(name, args) {
+      const handler = rpcHandlers.get(name);
+      if (!handler) {
+        // function 未登録 → PGRST202 で fallback テストを可能に
+        return {
+          data: null,
+          error: makePostgrestError({
+            code: "PGRST202",
+            message: `Could not find the function public.${name}`,
+          }),
+        };
+      }
+      const result = handler(args ?? {});
+      return {
+        data: result.data ?? null,
+        error: result.error ? makePostgrestError(result.error) : null,
+      };
     },
     asSupabaseClient() {
       return this as unknown as SupabaseClient;
