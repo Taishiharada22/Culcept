@@ -301,6 +301,7 @@ export function MapTab({
             allPins.find((p) => p.anchor.id === selectedAnchorForCard.id)?.kind ??
             "baseline"
           }
+          baselineCoords={baselineCoords}
           onOpenDetail={onAnchorClick}
         />
       )}
@@ -806,10 +807,12 @@ function MapPlaceholder({
 function SelectedAnchorCard({
   anchor,
   pinKind,
+  baselineCoords,
   onOpenDetail,
 }: {
   anchor: ExternalAnchor;
   pinKind: "resolved" | "baseline";
+  baselineCoords: BaselineCoords | null;
   onOpenDetail?: (anchor: ExternalAnchor) => void;
 }) {
   const cat = categoryOf(anchor);
@@ -823,6 +826,19 @@ function SelectedAnchorCard({
   const displayTitle = isSensitive
     ? `[${SENSITIVE_LABEL[anchor.sensitiveCategory!]}] (詳細は modal で)`
     : anchor.title;
+
+  // baseline source 透明性 (CEO 補正: 「成田市 中心 付近」 等で具体性を伝達)
+  const baselineSourceLabel = (() => {
+    if (pinKind !== "baseline" || !baselineCoords) return null;
+    const granularity =
+      baselineCoords.source === "home"
+        ? "自宅"
+        : baselineCoords.source === "city"
+          ? "市区町村中心"
+          : "県中心"; // prefecture
+    const where = baselineCoords.label ?? granularity;
+    return `場所未定 — ${where} (${granularity}) 付近に置いています`;
+  })();
 
   return (
     <section
@@ -857,14 +873,19 @@ function SelectedAnchorCard({
               📍 {anchor.locationText}
             </p>
           )}
-          {pinKind === "baseline" && !isSensitive && (
-            <p className="text-xs text-amber-600 mt-1 italic">
-              場所未定 — baseline 周辺の概算 pin
+          {pinKind === "baseline" && !isSensitive && baselineSourceLabel && (
+            <p
+              className="text-xs text-amber-600 mt-1 italic"
+              data-testid="plan-map-selected-baseline-source"
+            >
+              {baselineSourceLabel}
             </p>
           )}
           {isSensitive && (
             <p className="text-xs text-slate-500 mt-1 italic">
               敏感カテゴリのため場所は外部に送信されません
+              {baselineCoords &&
+                ` (${baselineCoords.label ?? "baseline"} 付近に置いています)`}
             </p>
           )}
         </div>

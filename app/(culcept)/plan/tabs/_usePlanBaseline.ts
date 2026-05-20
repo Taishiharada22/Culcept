@@ -4,15 +4,22 @@
  * Plan MapTab 用 client-side baseline coord 解決 hook
  *
  * 設計書: docs/alter-plan-phase2-c-map-tab-mini-design.md
- * CEO 補正 (2026-05-20): 「予定ができたら必ず pin にする」 哲学整合のため、
+ *
+ * CEO 補正 (2026-05-20 第 1 弾): 「予定ができたら必ず pin にする」 哲学整合のため、
  *   resolved anchor の lat/lng がなくても baseline で pin を出す。
- *   baseline 優先順位:
- *     1. homeCoords (user の home として保存された coord)
- *     2. prefecture → PREFECTURE_COORDS (県庁所在地 fallback)
- *     3. null (baseline 未設定 or 未収録 prefecture)
+ *
+ * CEO 補正 (2026-05-20 第 2 弾、本 commit): baseline 優先順位を修正。
+ *   旧: home → prefecture (city step skip = 県代表座標に落ちる、Narita ユーザー → Chiba City)
+ *   新: home → city → prefecture (city level を中間 priority に)
+ *
+ * baseline 優先順位 (本 fix 後):
+ *   1. homeCoords (user の home として保存された具体 coord、最も precise)
+ *   2. municipalityCoords (city level、市区町村中心、CEO 補正で priority 2)
+ *   3. PREFECTURE_COORDS (県庁所在地 fallback、最後寄り)
+ *   4. null (baseline 未設定 or 未収録)
  *
  * 範囲外:
- *   - GPS / 現在地取得 (Layer 3、未実装、別 wave)
+ *   - GPS / 現在地取得 (Layer 3、未実装、Phase 2-D mini design で扱う予定)
  *   - server-side で baseline 解決 (client で /api/baseline GET 1 回)
  *   - baseline 更新時の live refresh (user は MapTab を re-mount すれば再 fetch)
  */
@@ -20,15 +27,21 @@
 import { useEffect, useState } from "react";
 
 import { PREFECTURE_COORDS } from "@/lib/shared/location";
+import { getMunicipalityCoords } from "@/lib/shared/municipalityCoords";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface BaselineCoords {
   lat: number;
   lng: number;
-  /** "home" = user の home として保存された具体 coord、"prefecture" = 県庁所在地 fallback */
-  source: "home" | "prefecture";
-  /** UI 表示用 label (例: "東京都 渋谷区" or "東京都")、null 可 */
+  /**
+   * source precision (高い順):
+   *   - "home" = user の home として保存された具体 coord (最高 precision)
+   *   - "city" = 市区町村中心 (CEO 補正、Narita 等)
+   *   - "prefecture" = 県庁所在地 (最後 fallback)
+   */
+  source: "home" | "city" | "prefecture";
+  /** UI 表示用 label (例: "千葉県 成田市" or "千葉県")、null 可 */
   label: string | null;
 }
 
@@ -76,6 +89,8 @@ export function usePlanBaseline(): UsePlanBaselineResult {
         const b = res.baseline;
 
         // (1) homeCoords (具体 coord) を最優先
+        //
+        // home label は prefecture + city を combine (user 識別用、座標 precision は home)
         if (
           b.homeCoords &&
           typeof b.homeCoords.lat === "number" &&
@@ -92,7 +107,24 @@ export function usePlanBaseline(): UsePlanBaselineResult {
           return;
         }
 
-        // (2) prefecture → PREFECTURE_COORDS fallback (lon→lng normalize)
+        // (2) CEO 補正: city (市区町村中心) を prefecture より優先
+        //
+        // 例: prefecture="千葉県" + city="成田市" → MUNICIPALITY_COORDS["成田市"] → 成田市中心 coord
+        // (lon→lng normalize、PREFECTURE_COORDS と同様の data shape)
+        if (b.city) {
+          const mc = getMunicipalityCoords(b.city);
+          if (mc) {
+            setBaselineCoords({
+              lat: mc.lat,
+              lng: mc.lon,
+              source: "city",
+              label: b.prefecture ? `${b.prefecture} ${b.city}` : b.city,
+            });
+            return;
+          }
+        }
+
+        // (3) prefecture → PREFECTURE_COORDS fallback (city が未収録 or city なし)
         if (b.prefecture) {
           const pc = PREFECTURE_COORDS[b.prefecture];
           if (pc) {
@@ -106,7 +138,7 @@ export function usePlanBaseline(): UsePlanBaselineResult {
           }
         }
 
-        // (3) baseline 未設定 or 未収録 prefecture
+        // (4) baseline 未設定 or 未収録 prefecture
         setBaselineCoords(null);
       })
       .catch(() => {
