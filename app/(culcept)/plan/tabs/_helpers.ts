@@ -516,3 +516,122 @@ export function normalizeLocationText(text: string): string {
 export function confidenceAtLeastMedium(confidence: string): boolean {
   return confidence === "medium" || confidence === "high";
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2-C MapTab voice / signature helpers (additive)
+//
+// 設計書: docs/alter-plan-phase2-c-map-tab-mini-design.md §3.3 + §12.3.2-3
+// 不変原則:
+//   - すべて pure (副作用なし、現在時刻参照なし、入力 mutate なし)
+//   - test deterministic
+//   - server / client 両方で import 可能
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 期間内の visit count を Aneurasync voice (自然語) で返す。
+ *
+ * - count=0 → "今は静か" (Phase 2-B §11.10 / Phase 2-C §0.5.2 empty as silence 哲学整合)
+ * - count >= windowDays/7 → "週 N 回" (週 1+ ペース)
+ * - 0 < count < windowDays/7 → 30 日換算 → "月 N 回"
+ * - 計算不能 (e.g. windowDays<=0) → "{count} 回" (フォールバック)
+ *
+ * 例 (windowDays=14):
+ *   - count=0 → "今は静か"
+ *   - count=14 → "週 7 回"
+ *   - count=7 → "週 4 回" (Math.round(7 / 2) = 4)
+ *   - count=2 → "週 1 回" (Math.round(2 / 2) = 1)
+ *   - count=1 → "月 2 回" (1 * (30/14) = ~2.14 → Math.round = 2)
+ */
+export function categoryFrequencyVoice(
+  count: number,
+  windowDays: number,
+): string {
+  if (count <= 0) return "今は静か";
+  if (windowDays <= 0) return `${count} 回`;
+  const perWeek = count / (windowDays / 7);
+  if (perWeek >= 1) return `週 ${Math.max(1, Math.round(perWeek))} 回`;
+  const perMonth = count * (30 / windowDays);
+  if (perMonth >= 1) return `月 ${Math.max(1, Math.round(perMonth))} 回`;
+  return `${count} 回 (${windowDays} 日間)`;
+}
+
+/**
+ * Anchor 集合の startTime を集計して、生活リズムの voice を返す。
+ *
+ * 時間帯定義 (24h):
+ *   - 朝   = 5-10 時
+ *   - 日中 = 11-16 時
+ *   - 夜   = 17-21 時
+ *   - 深夜 = 22-4 時
+ *
+ * Voice 判定 (優先順):
+ *   1. anchors 空 → null
+ *   2. 過半数 (>= 50%) が単一帯 → "朝中心" / "日中中心" / "夜中心" / "深夜中心"
+ *   3. 朝 + 夜 の合計 >= 60% → "朝晩中心"
+ *   4. それ以外 → null (signature を出さない、混在しすぎ)
+ *
+ * pure: anchors 配列を mutate しない、現在時刻参照なし。
+ */
+export type AnchorWithStartTime = { startTime: string };
+
+export function categoryTimeSignature(
+  anchors: ReadonlyArray<AnchorWithStartTime>,
+): string | null {
+  if (anchors.length === 0) return null;
+
+  let morning = 0; // 5-10
+  let day = 0; // 11-16
+  let evening = 0; // 17-21
+  let night = 0; // 22-4
+
+  for (const a of anchors) {
+    const hour = Number(a.startTime.slice(0, 2)) || 0;
+    if (hour >= 5 && hour <= 10) morning++;
+    else if (hour >= 11 && hour <= 16) day++;
+    else if (hour >= 17 && hour <= 21) evening++;
+    else night++;
+  }
+
+  const total = anchors.length;
+  const top = Math.max(morning, day, evening, night);
+
+  // 単一帯過半数
+  if (top / total >= 0.5) {
+    if (top === morning) return "朝中心";
+    if (top === day) return "日中中心";
+    if (top === evening) return "夜中心";
+    if (top === night) return "深夜中心";
+  }
+
+  // 朝晩混在 (= 通勤・通学・夕食パターン)
+  if ((morning + evening) / total >= 0.6) return "朝晩中心";
+
+  // それ以外: 混在しすぎで signature 出さない
+  return null;
+}
+
+/**
+ * Category-themed marker icon spec (Map pin の色 + emoji symbol mapping)。
+ *
+ * 設計書 §4.3:
+ *   - locationCategory 別の色 + emoji で「これは家 / 職場 / カフェ」 を pin 視覚で即時識別
+ *   - sensitive anchor は CATEGORY_META[cat].emoji を使わず 🔒 (privacy)
+ *   - Google Maps Marker.icon に渡す SVG path + fillColor として消費
+ */
+export const MAP_CATEGORY_MARKER: Record<
+  LocationGroupKey,
+  { color: string; emoji: string }
+> = {
+  home: { color: "#6366f1", emoji: "🏠" }, // indigo
+  office: { color: "#475569", emoji: "🏢" }, // slate
+  school: { color: "#0ea5e9", emoji: "🎓" }, // sky
+  cafe: { color: "#d97706", emoji: "☕" }, // amber
+  outdoor: { color: "#16a34a", emoji: "🌿" }, // green
+  public: { color: "#7c3aed", emoji: "🏛️" }, // violet
+  transit: { color: "#64748b", emoji: "🚃" }, // slate-500
+  unknown: { color: "#94a3b8", emoji: "📍" }, // slate-400
+  none: { color: "#cbd5e1", emoji: "·" }, // slate-300
+};
+
+/** Sensitive marker (privacy preserved、locationCategory 不問) */
+export const MAP_SENSITIVE_MARKER = { color: "#94a3b8", emoji: "🔒" };
