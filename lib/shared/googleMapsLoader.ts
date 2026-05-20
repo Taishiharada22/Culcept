@@ -100,9 +100,33 @@ export interface GmapsLatLngBounds {
   isEmpty(): boolean;
 }
 
+export interface GmapsPolylineOptions {
+  path?: GmapsLatLng[];
+  strokeColor?: string;
+  strokeOpacity?: number;
+  strokeWeight?: number;
+  geodesic?: boolean;
+  map?: GmapsMap;
+  icons?: Array<{
+    icon: {
+      path: string | number;
+      strokeOpacity?: number;
+      strokeColor?: string;
+      scale?: number;
+    };
+    offset?: string;
+    repeat?: string;
+  }>;
+}
+
+export interface GmapsPolyline {
+  setMap(m: GmapsMap | null): void;
+}
+
 export interface GmapsApi {
   Map: new (el: HTMLElement, opts?: GmapsMapOptions) => GmapsMap;
   Marker: new (opts?: GmapsMarkerOptions) => GmapsMarker;
+  Polyline: new (opts?: GmapsPolylineOptions) => GmapsPolyline;
   LatLngBounds: new () => GmapsLatLngBounds;
   Point: new (x: number, y: number) => GmapsPoint;
   /** SymbolPath constants (CIRCLE=0、BACKWARD_CLOSED_ARROW=1 等) */

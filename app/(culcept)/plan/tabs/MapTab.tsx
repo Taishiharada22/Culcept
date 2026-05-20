@@ -40,11 +40,15 @@ import {
   MAP_SENSITIVE_MARKER,
   SENSITIVE_LABEL,
   addDays,
+  anchorsForDay,
   categoryFrequencyVoice,
   categoryOf,
   categoryTimeSignature,
   countOccurrences,
+  formatJpDate,
+  formatTime,
   groupAnchorsByLocation,
+  isoDate,
   utcMidnight,
   type CategoryGroup,
   type LocationCategory,
@@ -55,14 +59,22 @@ import {
   type GmapsLatLng,
   type GmapsMap,
   type GmapsMarker,
+  type GmapsPolyline,
 } from "@/lib/shared/googleMapsLoader";
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const DEFAULT_WINDOW_DAYS = 14;
-const MAP_HEIGHT_PX = 280;
+/**
+ * CategoryGrid (= 9 categories 集計) 用の window 日数。
+ *
+ * CEO 補正 (2026-05-20): MapTab の **主視点は selectedDate (= 1 日)** に shift。
+ * CategoryGrid の window は anchor 集計の context として 14 日 default を維持
+ * (= "私の地理の全体傾向" を見るための meta view)。
+ */
+const CATEGORY_AGGREGATE_WINDOW_DAYS = 14;
+const MAP_HEIGHT_PX = 380;
 const MAP_DEFAULT_ZOOM_FOR_RESOLVED_SINGLE = 14;
 const MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE = 11;
 const SAME_POINT_TOLERANCE_DIGITS = 4; // 4 桁 ≒ 11m
@@ -106,36 +118,81 @@ interface AnchorWithCoord {
 export function MapTab({
   anchors,
   now,
-  windowDays = DEFAULT_WINDOW_DAYS,
   onAddRequest,
   onAnchorClick,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
-  windowDays?: number;
   onAddRequest?: (req: AddRequest) => void;
   /** W1-X5: anchor 行クリック / Enter / Space で detail modal を開く */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
-  const today = utcMidnight(now ?? new Date());
-  const end = addDays(today, windowDays - 1);
+  const baseNow = now ?? new Date();
+  const todayDate = utcMidnight(baseNow);
 
-  // ── Lazy resolve: window 内 occurrence のある anchor のみ geocode 対象 (§5.9.1) ──
-  const visibleAnchors = useMemo(
-    () => anchors.filter((a) => countOccurrences(a, today, end) > 0),
-    [anchors, today, end],
+  // ── selectedDate state (CEO 補正: MapTab は selectedDate-centric) ──
+  // default は今日。前日 / 翌日 切替で変更。
+  const [selectedDate, setSelectedDate] = useState<Date>(todayDate);
+  const isToday = isoDate(selectedDate) === isoDate(todayDate);
+
+  // ── selectedAnchorId state (mockup の "tap で詳細" UX、bottom card で表示中の anchor) ──
+  const [selectedAnchorId, setSelectedAnchorId] = useState<string | null>(null);
+
+  // ── CategoryGrid 用 window (14 日固定、anchor 集計 context) ──
+  const aggregateEnd = useMemo(
+    () => addDays(todayDate, CATEGORY_AGGREGATE_WINDOW_DAYS - 1),
+    [todayDate],
   );
 
+  // ── selectedDate 当日の anchor を取得 (recurring 展開 + exception_dates 全継承) ──
+  const dayAnchors = useMemo(
+    () => anchorsForDay(anchors, selectedDate),
+    [anchors, selectedDate],
+  );
+
+  // ── Geocode は selectedDate 当日 anchor のみ (lazy resolve) ──
   const { resolutions, loading: geocodeLoading, apiAvailable } =
-    usePlanGeocode(visibleAnchors);
+    usePlanGeocode(dayAnchors);
   const { baselineCoords, loading: baselineLoading } = usePlanBaseline();
   const loading = geocodeLoading || baselineLoading;
 
-  // ── Category groups (v1 設計の core、CategoryGrid + UnresolvedAnchorsSection に流用) ──
+  // ── visibleAnchors = dayAnchors (day-centric) ──
+  const visibleAnchors = dayAnchors;
+
+  // ── Category groups (CategoryGrid 用、aggregateEnd window で集計) ──
   const groups = useMemo(
-    () => groupAnchorsByLocation(anchors, today, end),
-    [anchors, today, end],
+    () => groupAnchorsByLocation(anchors, todayDate, aggregateEnd),
+    [anchors, todayDate, aggregateEnd],
   );
+
+  // ── day switcher handlers (day 切替で selected anchor リセット) ──
+  const handlePrevDay = () => {
+    setSelectedDate((d) => addDays(d, -1));
+    setSelectedAnchorId(null);
+  };
+  const handleNextDay = () => {
+    setSelectedDate((d) => addDays(d, 1));
+    setSelectedAnchorId(null);
+  };
+  const handleGoToday = () => {
+    setSelectedDate(todayDate);
+    setSelectedAnchorId(null);
+  };
+
+  // ── pin tap → bottom card 表示切替 (and AnchorDetailModal は別 button から起動) ──
+  const handlePinTap = (anchor: ExternalAnchor) => {
+    setSelectedAnchorId(anchor.id);
+  };
+
+  // ── 現在 bottom card で表示する anchor (default = day の最初の anchor) ──
+  const selectedAnchorForCard = useMemo<ExternalAnchor | null>(() => {
+    if (selectedAnchorId) {
+      const found = dayAnchors.find((a) => a.id === selectedAnchorId);
+      if (found) return found;
+    }
+    // default fallback: 日の最初の anchor (時刻順 先頭)
+    return dayAnchors[0] ?? null;
+  }, [selectedAnchorId, dayAnchors]);
 
   // ── 全 anchor を pin 化 (CEO 補正: 予定 → pin guarantee) ──
   //
@@ -213,8 +270,18 @@ export function MapTab({
     <div data-testid="plan-map-tab" className="relative pb-24">
       <header className="mb-3">
         <h2 className="text-sm font-semibold text-slate-900">あなたの地理</h2>
-        <p className="text-xs text-slate-500">今後 {windowDays} 日間で訪れる場所</p>
+        <p className="text-xs text-slate-500">
+          {isToday ? "今日の予定がある場所" : "選択日の予定がある場所"}
+        </p>
       </header>
+
+      <DaySwitcher
+        selectedDate={selectedDate}
+        todayDate={todayDate}
+        onPrev={handlePrevDay}
+        onNext={handleNextDay}
+        onGoToday={handleGoToday}
+      />
 
       <PlanMapView
         pins={allPins}
@@ -222,12 +289,25 @@ export function MapTab({
         loading={loading}
         apiAvailable={apiAvailable}
         anchorsWithoutPinCount={anchorsWithoutPin.length}
-        onPinClick={onAnchorClick}
+        selectedAnchorId={selectedAnchorForCard?.id ?? null}
+        onPinClick={handlePinTap}
       />
+
+      {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button */}
+      {selectedAnchorForCard && (
+        <SelectedAnchorCard
+          anchor={selectedAnchorForCard}
+          pinKind={
+            allPins.find((p) => p.anchor.id === selectedAnchorForCard.id)?.kind ??
+            "baseline"
+          }
+          onOpenDetail={onAnchorClick}
+        />
+      )}
 
       <CategoryGrid
         groups={groups}
-        windowDays={windowDays}
+        windowDays={CATEGORY_AGGREGATE_WINDOW_DAYS}
         onAddCategory={onAddRequest ? handleCategoryAdd : undefined}
         onAnchorClick={onAnchorClick}
       />
@@ -266,6 +346,94 @@ export function MapTab({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// DaySwitcher (CEO 補正: MapTab は selectedDate-centric、前日/今日/翌日 切替)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function DaySwitcher({
+  selectedDate,
+  todayDate,
+  onPrev,
+  onNext,
+  onGoToday,
+}: {
+  selectedDate: Date;
+  todayDate: Date;
+  onPrev: () => void;
+  onNext: () => void;
+  onGoToday: () => void;
+}) {
+  const isToday = isoDate(selectedDate) === isoDate(todayDate);
+  const dateLabel = isToday ? `今日 · ${formatJpDate(selectedDate)}` : formatJpDate(selectedDate);
+  const prevDate = addDays(selectedDate, -1);
+  const nextDate = addDays(selectedDate, 1);
+
+  return (
+    <div
+      data-testid="plan-map-day-switcher"
+      className="mb-3 flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-2"
+    >
+      <button
+        type="button"
+        onClick={onPrev}
+        aria-label={`前日 (${formatJpDate(prevDate)}) を表示`}
+        data-testid="plan-map-prev-day"
+        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M15 18l-6-6 6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      <div className="flex flex-1 flex-col items-center text-center">
+        <p
+          className={
+            "text-sm font-semibold " + (isToday ? "text-indigo-700" : "text-slate-900")
+          }
+          data-testid="plan-map-selected-date-label"
+        >
+          {dateLabel}
+        </p>
+        {!isToday && (
+          <button
+            type="button"
+            onClick={onGoToday}
+            aria-label="今日へ戻る"
+            data-testid="plan-map-go-today"
+            className="text-xs font-medium text-indigo-600 hover:underline"
+          >
+            今日へ戻る
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onNext}
+        aria-label={`翌日 (${formatJpDate(nextDate)}) を表示`}
+        data-testid="plan-map-next-day"
+        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M9 18l6-6-6-6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PlanMapView (vanilla Google Maps)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -275,6 +443,7 @@ function PlanMapView({
   loading,
   apiAvailable,
   anchorsWithoutPinCount,
+  selectedAnchorId,
   onPinClick,
 }: {
   pins: AnchorWithCoord[];
@@ -283,6 +452,8 @@ function PlanMapView({
   apiAvailable: boolean;
   /** Map に pin 化されていない anchor の件数 (baseline なし → pin 不能) */
   anchorsWithoutPinCount: number;
+  /** 現在 selected な anchor id (= bottom card で表示中)、pin marker emphasis 用 */
+  selectedAnchorId: string | null;
   onPinClick?: (anchor: ExternalAnchor) => void;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
@@ -290,6 +461,18 @@ function PlanMapView({
   const mapInstanceRef = useRef<GmapsMap | null>(null);
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
+
+  // ── selected day の active categories (legend 用、hooks rule で early return 前に declare) ──
+  const activeCategories = useMemo(() => {
+    const set = new Set<LocationGroupKey>();
+    for (const pin of pins) {
+      // sensitive は legend にも表示しない (privacy)
+      if (pin.anchor.sensitiveCategory) continue;
+      set.add(categoryOf(pin.anchor));
+    }
+    // LOCATION_GROUP_ORDER 順で並べる
+    return LOCATION_GROUP_ORDER.filter((c) => set.has(c));
+  }, [pins]);
 
   // ─── Effect 1: Map instance を 1 度だけ作成 (keyAvailable + ready 確定時) ───
   //
@@ -366,32 +549,74 @@ function PlanMapView({
       map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // markers
+    // ── route polyline (時刻順 pin を dashed 線で connect、CEO mockup 整合) ──
+    //
+    // 設計:
+    //   - sortedPath は anchor.startTime ascending、pin.kind 不問
+    //   - 1 pin 以下は polyline 描画しない
+    //   - dashed style: strokeOpacity=0 で solid 線を隠し、icons で dashed pattern を repeat
+    //   - polyline は pin marker の下層 (z-index 自動、marker が上に重なる)
+    //
+    // 注: baseline pin が混在すると line が baseline 経由になる (= "今日この順で動く" 視覚化)。
+    // CEO 補正「予定→pin guarantee」 整合: baseline pin も日程の一部として line に含める。
+    const sortedPins = [...pins].sort((a, b) =>
+      a.anchor.startTime.localeCompare(b.anchor.startTime),
+    );
+    let polyline: GmapsPolyline | null = null;
+    if (sortedPins.length >= 2 && !isSamePointCluster(sortedPins.map((p) => p.coord))) {
+      polyline = new maps.Polyline({
+        map,
+        path: sortedPins.map((p) => p.coord),
+        strokeOpacity: 0, // solid 線を隠す
+        strokeColor: "#94a3b8", // slate-400 (subtle)
+        icons: [
+          {
+            icon: {
+              path: "M 0,-1 0,1", // 1px の縦線
+              strokeOpacity: 0.8,
+              strokeColor: "#94a3b8",
+              scale: 3,
+            },
+            offset: "0",
+            repeat: "12px", // 12px 毎に縦線を打つ → dashed 風
+          },
+        ],
+      });
+    }
+
+    // ── markers (pin label 含む) ──
     const markers: GmapsMarker[] = [];
     for (const pin of pins) {
       const markerSpec = pin.anchor.sensitiveCategory
         ? MAP_SENSITIVE_MARKER
         : MAP_CATEGORY_MARKER[categoryOf(pin.anchor)];
 
-      // resolved = filled circle (具体 location)、baseline = hollow circle (approximate)
+      const isSelected = pin.anchor.id === selectedAnchorId;
+      // selected pin は scale 大きめで強調 (mockup の "tap で詳細" UX 整合)
+      const baseScale = pin.kind === "resolved" ? 12 : 10;
+      const scale = isSelected ? baseScale + 4 : baseScale;
+
+      // resolved = filled circle、baseline = hollow circle (approximate)
       const iconStyle =
         pin.kind === "resolved"
           ? {
               path: maps.SymbolPath.CIRCLE,
-              scale: 12,
+              scale,
               fillColor: markerSpec.color,
               fillOpacity: 1,
               strokeColor: "#ffffff",
               strokeWeight: 2,
+              // label を pin の下に表示 (mockup の "time + name" box style に近い)
+              labelOrigin: new maps.Point(0, scale + 12),
             }
           : {
-              // baseline: outline-only (hollow)、scale 小さめ、approximate を visual に表現
               path: maps.SymbolPath.CIRCLE,
-              scale: 10,
+              scale,
               fillColor: "#ffffff",
               fillOpacity: 0.95,
               strokeColor: markerSpec.color,
               strokeWeight: 2.5,
+              labelOrigin: new maps.Point(0, scale + 12),
             };
 
       const baseTitle = pin.anchor.sensitiveCategory
@@ -402,11 +627,21 @@ function PlanMapView({
           ? `${baseTitle} (場所未定 — baseline 周辺の概算)`
           : baseTitle;
 
+      // pin label = 時刻 ("09:00")。mockup の "time + name" box は OverlayView 別途必要だが、
+      // marker.label で minimum viable 時刻表示。name は marker.title (hover) と bottom card で見れる。
+      const labelText = formatTime(pin.anchor.startTime);
+
       const marker = new maps.Marker({
         map,
         position: pin.coord,
         title: markerTitle,
         icon: iconStyle,
+        label: {
+          text: labelText,
+          color: isSelected ? "#1e1b4b" : "#374151", // selected は濃いめ
+          fontSize: isSelected ? "12px" : "11px",
+          fontWeight: "600",
+        },
       });
       marker.addListener("click", () => {
         onPinClickRef.current?.(pin.anchor);
@@ -415,10 +650,11 @@ function PlanMapView({
     }
 
     return () => {
-      // pin / baseline 変化で markers 破棄、Map instance は keep alive
+      // pin / baseline / selected 変化で markers + polyline 破棄、Map instance は keep alive
       for (const m of markers) m.setMap(null);
+      polyline?.setMap(null);
     };
-  }, [pins, baselineCoords]);
+  }, [pins, baselineCoords, selectedAnchorId]);
 
   // ─── render: keyAvailable=false / script 未 ready のみ placeholder、それ以外は Map 本体 ───
 
@@ -486,7 +722,7 @@ function PlanMapView({
         ref={mapRef}
         data-testid="plan-map-view"
         role="region"
-        aria-label="地図 (今後の予定の場所)"
+        aria-label="地図 (選択日の予定の場所)"
         className="w-full rounded-2xl overflow-hidden border border-slate-200"
         style={{ height: `${MAP_HEIGHT_PX}px` }}
       />
@@ -501,6 +737,37 @@ function PlanMapView({
             </p>
             <p className="text-xs text-slate-500 mt-1">{overlay.sub}</p>
           </div>
+        </div>
+      )}
+
+      {/* Category legend overlay (mockup: bottom-left、active categories のみ) */}
+      {activeCategories.length > 0 && (
+        <div
+          data-testid="plan-map-legend"
+          aria-label="カテゴリ凡例"
+          className="absolute bottom-3 left-3 max-w-[60%] pointer-events-none"
+        >
+          <ul className="bg-white/95 backdrop-blur-sm rounded-xl px-3 py-2 shadow-sm border border-slate-200 flex flex-wrap gap-x-3 gap-y-1">
+            {activeCategories.map((cat) => {
+              const meta = CATEGORY_META[cat];
+              const marker = MAP_CATEGORY_MARKER[cat];
+              return (
+                <li
+                  key={cat}
+                  className="flex items-center gap-1.5 text-xs text-slate-700"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="inline-block w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: marker.color }}
+                  />
+                  <span>
+                    {meta.emoji} {meta.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </div>
@@ -533,7 +800,96 @@ function MapPlaceholder({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// CategoryGrid (v1 で設計、v3 で維持)
+// SelectedAnchorCard (mockup の bottom sheet 相当、day-centric の詳細 panel)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function SelectedAnchorCard({
+  anchor,
+  pinKind,
+  onOpenDetail,
+}: {
+  anchor: ExternalAnchor;
+  pinKind: "resolved" | "baseline";
+  onOpenDetail?: (anchor: ExternalAnchor) => void;
+}) {
+  const cat = categoryOf(anchor);
+  const meta = CATEGORY_META[cat];
+  const marker = anchor.sensitiveCategory
+    ? MAP_SENSITIVE_MARKER
+    : MAP_CATEGORY_MARKER[cat];
+  const isSensitive = !!anchor.sensitiveCategory;
+
+  // sensitive は title を masked 表示 (privacy preserve、modal で実 title 開示)
+  const displayTitle = isSensitive
+    ? `[${SENSITIVE_LABEL[anchor.sensitiveCategory!]}] (詳細は modal で)`
+    : anchor.title;
+
+  return (
+    <section
+      data-testid="plan-map-selected-card"
+      role="region"
+      aria-label="選択中の予定の詳細"
+      className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+    >
+      <div className="flex items-start gap-3">
+        {/* category emoji icon (filled circle、mockup の左端 icon に対応) */}
+        <div
+          className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: marker.color + "20" /* 色 + 12% 透明 */ }}
+          aria-hidden="true"
+        >
+          <span className="text-2xl">{isSensitive ? "🔒" : meta.emoji}</span>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          {/* time + title (mockup の "09:00 / 甲府駅近くのカフェ" 構造) */}
+          <p className="text-sm font-mono text-indigo-700">
+            {formatTime(anchor.startTime)}
+            {anchor.endTime ? ` – ${formatTime(anchor.endTime)}` : ""}
+          </p>
+          <h3 className="text-base font-semibold text-slate-900 truncate">
+            {displayTitle}
+          </h3>
+
+          {/* locationText with pin-kind indicator */}
+          {anchor.locationText && !isSensitive && (
+            <p className="text-xs text-slate-500 mt-1 truncate">
+              📍 {anchor.locationText}
+            </p>
+          )}
+          {pinKind === "baseline" && !isSensitive && (
+            <p className="text-xs text-amber-600 mt-1 italic">
+              場所未定 — baseline 周辺の概算 pin
+            </p>
+          )}
+          {isSensitive && (
+            <p className="text-xs text-slate-500 mt-1 italic">
+              敏感カテゴリのため場所は外部に送信されません
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Action button: 詳細 (AnchorDetailModal 起動、W1-X5 既存) */}
+      {onOpenDetail && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={() => onOpenDetail(anchor)}
+            aria-label={`${displayTitle} の詳細を見る`}
+            data-testid="plan-map-selected-detail"
+            className="rounded-full border border-indigo-200 px-4 py-1.5 text-sm font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
+          >
+            詳細を見る
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// CategoryGrid (v1 で設計、v3 で維持、aggregateEnd window で集計)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function CategoryGrid({

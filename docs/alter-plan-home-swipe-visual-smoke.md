@@ -379,7 +379,49 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 - [ ] cache miss anchor → Places API call (server-side、browser 観点では 1 endpoint call で完結)
 - [ ] Places API throw / unavailable → 該当 anchor が unresolved に move、UI 落ちない
 
-### Map 描画戦略 (CEO 補正 2026-05-20: 予定 → pin guarantee 整合)
+### Day-centric design (CEO 補正 2026-05-20、mockup 整合 + GPT range fix)
+
+**重要設計** (Phase 2-C evolution、mockup の day-centric pattern を採用):
+旧: 「今後 14 日間で訪れる場所」 (window aggregate)
+新: 「{selected day} の予定がある場所」 (selectedDate-centric、前日/今日/翌日 切替)
+
+- [ ] MapTab header: 今日表示なら "今日の予定がある場所"、他日表示なら "選択日の予定がある場所" (data-testid="plan-map-tab" 内)
+- [ ] **DaySwitcher** (data-testid="plan-map-day-switcher") が header 下に表示
+  - 前日 button (data-testid="plan-map-prev-day"、◀ icon、aria-label="前日 (M月D日(曜)) を表示")
+  - 中央 label (data-testid="plan-map-selected-date-label"、今日なら "今日 · M月D日(曜)" + text-indigo-700、他日なら "M月D日(曜)" + text-slate-900)
+  - 翌日 button (data-testid="plan-map-next-day"、▶ icon)
+  - 他日表示中: "今日へ戻る" link (data-testid="plan-map-go-today")
+- [ ] 前日 / 翌日 tap → MapTab content (pin / overlay / SelectedAnchorCard) が当該日に再描画
+- [ ] 今日 → 翌日 → 前日 (= 今日) で MapTab 状態が初期化される
+
+### Pin label + Route line (mockup 整合の visual evolution)
+
+- [ ] 各 pin marker に **時刻 label** ("09:00" 等) が pin の下に表示 (`marker.label.text` + `icon.labelOrigin`)
+- [ ] selected pin: scale 16 + label fontSize 12px + color text-indigo-900 (visual emphasis)
+- [ ] 非 selected pin: scale 12 (resolved) / 10 (baseline)、label fontSize 11px + color text-slate-700
+- [ ] **Route polyline**: 時刻順 pin を **dashed gray (#94a3b8)** で connect、pin.startTime ascending、pins ≥ 2 + 非 same-point cluster で描画
+- [ ] route line は marker の下層 (marker が前面)
+
+### Selected Anchor Card (mockup の bottom sheet 相当)
+
+- [ ] Map の直下に **SelectedAnchorCard** (data-testid="plan-map-selected-card") が常時表示
+- [ ] default 表示: day の最初の anchor (時刻順先頭)
+- [ ] pin tap → 該 anchor が card に表示切替 (state: `selectedAnchorId`)
+- [ ] card 内容:
+  - 左: category emoji icon (filled circle、category color + 12% bg)
+  - 中: 時刻 (font-mono indigo-700) / title / locationText (📍 prefix) / pin-kind indicator (baseline なら "場所未定 — baseline 周辺の概算"、sensitive なら "敏感カテゴリのため場所は外部に送信されません")
+  - 右下: "詳細を見る" button (W1-X5 AnchorDetailModal 起動)
+- [ ] sensitive anchor card: emoji 🔒、title masked、locationText 不表示
+
+### Category legend overlay (mockup 左下)
+
+- [ ] Map の左下 (`absolute bottom-3 left-3`) に **CategoryLegend** (data-testid="plan-map-legend") overlay
+- [ ] 当日の active categories のみ表示 (sensitive 除く)
+- [ ] LOCATION_GROUP_ORDER 順に並べる (home / office / school / cafe / public / outdoor / transit / unknown / none)
+- [ ] 各 entry: 色 dot (`w-2.5 h-2.5 rounded-full`、category color) + emoji + label (text-xs)
+- [ ] pointer-events-none で Map gesture を阻害しない
+
+### 旧設計から維持
 
 **重要設計** (Phase 2-C blocker fix 第 2 弾):
 CEO 指示「位置情報 or 予定が既にあるならその予定。位置情報つけてないなら baseline。
