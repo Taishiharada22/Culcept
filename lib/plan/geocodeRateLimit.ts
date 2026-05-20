@@ -24,13 +24,19 @@
 export const GEOCODE_RATE_LIMIT_PER_HOUR = 100;
 export const GEOCODE_RATE_WINDOW_MS = 60 * 60 * 1000;
 
+/** Phase 2-D autocomplete 用 rate limit (geocode より低め、頻度高想定) */
+export const PLACE_SEARCH_RATE_LIMIT_PER_HOUR = 60;
+
 interface RateRecord {
   count: number;
   windowStartMs: number;
 }
 
-/** process-local 状態。Vercel serverless では instance ごとに独立。 */
+/** process-local 状態 (geocode 用)。Vercel serverless では instance ごとに独立。 */
 const userRates = new Map<string, RateRecord>();
+
+/** Phase 2-D autocomplete 用 process-local state (geocode と別 counter) */
+const userPlaceSearchRates = new Map<string, RateRecord>();
 
 /**
  * userId の geocode rate を check & increment。
@@ -57,9 +63,34 @@ export function checkAndIncrementGeocodeRate(
 }
 
 /**
+ * userId の Place Search rate を check & increment (Phase 2-D autocomplete)。
+ *
+ * geocode と **別 counter**: autocomplete UX で頻度高くなり得るが、batch geocode と
+ * cost 性質が異なるため independent に制限。
+ *
+ * @returns true = 通常処理 OK、false = limit 超え (429)
+ */
+export function checkAndIncrementPlaceSearchRate(
+  userId: string,
+  nowMs: number,
+): boolean {
+  const record = userPlaceSearchRates.get(userId);
+  if (!record || nowMs - record.windowStartMs >= GEOCODE_RATE_WINDOW_MS) {
+    userPlaceSearchRates.set(userId, { count: 1, windowStartMs: nowMs });
+    return true;
+  }
+  if (record.count >= PLACE_SEARCH_RATE_LIMIT_PER_HOUR) {
+    return false;
+  }
+  record.count++;
+  return true;
+}
+
+/**
  * test 用: process-local rate map をクリア。
  * production code から呼ばない (beforeEach hook 用)。
  */
 export function _resetGeocodeRateLimitForTest(): void {
   userRates.clear();
+  userPlaceSearchRates.clear();
 }
