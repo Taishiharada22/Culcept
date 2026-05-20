@@ -208,6 +208,129 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 
 ---
 
+## Phase 2-B 追加 smoke check (FlowTab 7 日リスト + AnchorThumbnail + 静的 ALTER card + FAB)
+
+### 基本構造 (リスト tab 切替)
+
+- [ ] Plan pane / /plan route で "リスト" tab tap → FlowTab content 表示
+- [ ] 旧 timeline / 旧「昨日 / 今日 / 明日」セレクタが画面上に存在しない
+- [ ] 旧 W1-X3 "+ HH:MM 頃を教える" link が画面上に存在しない (helpers は code-level で残るが render 0、CEO 補正 #3)
+- [ ] 7 日 (今日含む) 分の `<section>` が縦に並ぶ (data-testid="plan-flow-section-{iso}")
+
+### Section header (sticky、count badge、曜日色)
+
+- [ ] 各 section header に "今日 · 5月20日(水)" / "明日 · 5月21日(木)" / "5月22日(金)" 形式の label
+- [ ] 今日 section: text-indigo-700 font-semibold (Beyond §11.5)
+- [ ] 日曜 section: text-rose-500 (JP locale 標準)
+- [ ] 土曜 section: text-blue-500 (JP locale 標準)
+- [ ] 平日 section: text-slate-900
+- [ ] 予定あり日: 件数 badge "N 件" 表示 (text-xs text-slate-400、控えめ)
+- [ ] 予定なし日: 件数 badge なし、代わりに "予定なし ›" button
+
+### Sticky header behavior (Beyond §11.11)
+
+- [ ] FlowTab を縦 scroll すると、現在の日の header が top に張り付く (sticky position)
+- [ ] 次の日の header が来ると、現在 header が push されて入れ替わる
+- [ ] backdrop-blur 効果で下層 anchor が薄く透けて見える (bg-white/95 + backdrop-blur-sm)
+- [ ] /plan route mode (document scroll) でも sticky 動作
+- [ ] Home pane mode (PlanClient h-full overflow-y-auto) でも sticky 動作
+
+### AnchorRow (時刻 + title + sub + 右端 thumbnail)
+
+- [ ] 各 anchor 行に左から: 時刻 / title / locationText (sub) / 右端 thumbnail
+- [ ] 時刻: text-sm font-mono text-indigo-700 ("09:30" or "09:30 – 12:30")
+- [ ] title: text-base font-medium text-slate-900 truncate
+- [ ] locationText 存在時: text-xs text-slate-500 truncate
+- [ ] rigidity="hard" の anchor は "固定" badge 表示
+- [ ] thumbnail: w-14 h-14 rounded-xl bg-slate-100、中央 emoji 配置
+- [ ] anchor row tap → AnchorDetailModal 起動 (W1-X5 既存)
+
+### AnchorThumbnail (locationCategory emoji + sensitive privacy)
+
+- [ ] locationCategory=cafe → ☕ icon (data-testid="plan-flow-thumb-cafe")
+- [ ] locationCategory=office → 🏢 icon (data-testid="plan-flow-thumb-office")
+- [ ] locationCategory=school → 🎓 icon
+- [ ] locationCategory=outdoor → 🌿 icon
+- [ ] locationCategory=transit → 🚃 icon
+- [ ] locationCategory=public → 🏛️ icon
+- [ ] locationCategory=home → 🏠 icon
+- [ ] locationCategory なし、locationText あり → 📍 icon (unknown)
+- [ ] locationCategory なし、locationText なし → · icon (none)
+- [ ] sensitiveCategory 設定済 → 🔒 generic icon (data-testid="plan-flow-thumb-sensitive"、privacy 配慮)
+- [ ] thumbnail aria-label が screen reader で正しく読み上げ ("カテゴリ: 〇〇" or "敏感カテゴリ")
+
+### 「予定なし ›」 inline button (CEO 補正 #1)
+
+- [ ] 予定なし日の header 右に "予定なし ›" button が表示 (data-testid="plan-flow-empty-{iso}")
+- [ ] button hit area ≥ 44pt 縦 (min-h-[44px]、Apple HIG / WCAG 2.5.5 AAA)
+- [ ] button tap → AddAnchorModal 起動、date=該当日 prefill
+  - 例: "5月22日(金)" 行の "予定なし ›" → AddAnchorModal で date=2026-05-22, subtitle="リスト / 5月22日(金) から"
+- [ ] Phase 3 の ALTER 提案 flow ではなく、既存 AddAnchorModal の流用
+- [ ] hover で text-slate-600 + bg-slate-50 (subtle transition)
+- [ ] aria-label に該当日含む ("5月22日(金) に予定を追加")
+
+### 静的 ALTER 提案 card placeholder (CEO 補正 #2)
+
+- [ ] 7 日内に "予定なし" 日が 1 つでもある → 末尾に static card 表示 (data-testid="plan-flow-static-alter-card")
+- [ ] 全日に anchor あり → static card 非表示
+- [ ] card の最初の "予定なし" 日 label を参照: 例 "5月22日(金) は何する？"
+- [ ] card 文言:
+  - "予定のない日には、ALTER が提案を置きにくる予定です"
+  - "(Phase 3 で動作予定 — 今は説明だけ)"
+- [ ] **絶対 NG (CEO 補正 #2 違反)**:
+  - [ ] card 全体に onClick / cursor:pointer / hover effect が **無いこと**
+  - [ ] DevTools で確認: outer `<section>` に cursor:default、内側 div に shadow なし
+  - [ ] tabIndex なし → Tab navigation で focus 取らない
+  - [ ] select-none で text 選択も防止
+- [ ] role="region" + aria-label "ALTER 提案 (今後の機能、Phase 3 で実装予定)"
+
+### FAB (Phase 2-A 同 pattern、今日 prefill)
+
+- [ ] FAB 右下 fixed (data-testid="plan-flow-fab")、bottom-20 right-6 z-30
+- [ ] 56px (w-14 h-14) rounded-full、紫 gradient (indigo-500 → purple-500)
+- [ ] hover で shadow-xl + active:scale-95 (tactile feedback)
+- [ ] FAB tap → AddAnchorModal 起動、date=今日 prefill (`subtitle="リスト / 今日 から"`)
+- [ ] FAB が pane 内に閉じ込まる (PR #214 containing block 効果、Plan pane swipe 中も pane と一緒に移動)
+- [ ] FAB の安全領域 (iOS notch / home bar): marginBottom: env(safe-area-inset-bottom) 適用
+- [ ] aria-label に "今日 (5月20日(水)) に予定を追加" 形式
+
+### 既存導線の不変 (Phase 2-A / Phase 1 整合性)
+
+- [ ] PlanClient header「+ 教える」 button は両 mode で機能 (FAB と並行)
+- [ ] anchor row tap → AnchorDetailModal 起動 → 編集 / 削除 動作 (W1-X5 既存)
+- [ ] AddAnchorModal の signature 不変 (`initialState` / `contextSubtitle` を流用)
+- [ ] Phase 2-A の CalendarTab に不影響 (本 wave touch なし)
+- [ ] Phase 1 の HomeSwipeContainer / Modal lock に不影響
+
+### Recurring + exception_dates + validity (既存 anchorsForDay 動作)
+
+- [ ] FREQ=WEEKLY recurring anchor が当週同曜日 (該当 day) に表示
+- [ ] FREQ=DAILY recurring anchor が 7 日全日に表示
+- [ ] exception_dates 適用 (除外日は anchor 非表示)
+- [ ] valid_until 後の日は anchor 非表示
+- [ ] one-off anchor が指定日のみ表示
+
+### A11y (Phase 2-B 範囲)
+
+- [ ] 各 section: `<section aria-label="今日 · 5月20日(水) · 3 件">` 形式で screen reader 識別
+- [ ] anchor row: role="button" + tabIndex=0 + Enter/Space tap (W1-X5 既存)
+- [ ] thumbnail: role="img" + aria-label カテゴリ表現
+- [ ] 「予定なし ›」 button: 該当日 aria-label
+- [ ] FAB: aria-label に今日含む
+- [ ] 静的 ALTER card: role="region" + aria-label "ALTER 提案 (今後の機能、Phase 3 で実装予定)"
+- [ ] touch target 44pt 最小 (button / row 全て)
+- [ ] prefers-reduced-motion でも UI 変化なし (FlowTab は animation 控えめ)
+
+### Network / Console (Phase 2-B)
+
+- [ ] Network: Production Supabase (aljavfujeqcwnqryjmhl) のみ、Alter staging (hjcrvndumgiovyfdacwc) 0 hit
+- [ ] Network: `/api/coalter` / `/api/talk` / `/api/mirror` → 0 hit
+- [ ] Console: `[Mirror]` / `[CoAlter]` / `[Phase 3]` 系 0 error
+- [ ] Console: React 19 warning (e.g. 旧 inert / sensitive PropTypes) 0
+- [ ] Console: framer-motion warning 0
+
+---
+
 ## W1-Z 未適用問題 (Phase 1 PASS 後の課題、CEO 補正 #3)
 
 Phase 1 は UI / 構造統合まで。**Production Supabase に Plan tables 未 migrate** な状態では:
@@ -240,6 +363,15 @@ W1-Z 判断材料:
 | **Phase 2-A: 月送り animation がガクッとする** | reducedMotion の OS 設定 / framer-motion version 退行 |
 | **Phase 2-A: 「今日へ」 button が表示されない** | selectedDate === today AND currentMonth === today's month の判定漏れ |
 | **Phase 2-A: 月跨ぎ recurring anchor が表示されない** | anchorsForDay の expandRecurrence 退行、本 wave で touch していないので前提復元 |
+| **Phase 2-B: リスト tab が空白 / blank** | FlowTab.tsx import error or render error、Console 確認、buildFlowDateRange / anchorsForDay の deps を再走 |
+| **Phase 2-B: sticky header が機能しない** | scroll context (route mode = document、pane mode = main h-full overflow-y-auto) の上位に overflow:hidden が混入していないか確認 |
+| **Phase 2-B: 「予定なし ›」 tap で modal が起動しない** | onAddRequest の渡し漏れ、PlanClient の `<FlowTab onAddRequest={openAdd} />` が真値か確認 |
+| **Phase 2-B: 「予定なし ›」 tap で別日 modal が開く (date prefill 不一致)** | handleEmptyDayClick の `day` capture を確認 (closure 退行)、`initial.date` が isoDate(day) に一致するか DevTools で確認 |
+| **Phase 2-B: 静的 ALTER card が tap で何か起こる (CEO 補正 #2 違反)** | StaticAlterSuggestionCard の cursor:default / tabIndex なし / onClick なし を即時確認、退行は revert |
+| **Phase 2-B: thumbnail emoji が表示されない** | CATEGORY_META / categoryOf 退行、unit test 再走、locationCategory 値が enum 外でないか確認 |
+| **Phase 2-B: sensitive anchor の内容が thumbnail に漏れる (CEO 補正 §4.4 違反)** | AnchorThumbnail の sensitiveCategory 早期 return を確認、🔒 generic icon に統一 |
+| **Phase 2-B: FAB が tap できない / pane 外に出る** | Phase 2-A FAB と同 pattern、PR #214 containing block 効果を確認 (Phase 2-A の FAIL 対処と同じ) |
+| **Phase 2-B: 旧 W1-X3 gap link が render される (CEO 補正 #3 違反)** | FlowTab.tsx で gap helpers (gapMinutes 等) を import していないか確認、render 0 を保つ |
 
 ---
 
