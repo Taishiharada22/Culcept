@@ -30,6 +30,11 @@
  */
 
 import { useState } from "react";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+} from "framer-motion";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
@@ -77,12 +82,15 @@ export function CalendarTab({
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
   const todayIso = isoDate(todayDate);
+  const todayMonthStart = getMonthStart(baseNow);
 
   // ── state ──
-  const [currentMonth, setCurrentMonth] = useState<Date>(() =>
-    getMonthStart(baseNow)
-  );
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => todayMonthStart);
   const [selectedDate, setSelectedDate] = useState<string>(todayIso);
+  /** 月送り animation の方向 (-1 = 前月、+1 = 翌月、0 = 初回) */
+  const [slideDirection, setSlideDirection] = useState<-1 | 0 | 1>(0);
+
+  const reducedMotion = useReducedMotion();
 
   // ── derived ──
   const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
@@ -104,6 +112,7 @@ export function CalendarTab({
       newMonth.getUTCMonth(),
       dayOfMonth
     );
+    setSlideDirection(delta > 0 ? 1 : -1);
     setCurrentMonth(newMonth);
     setSelectedDate(isoDate(clampedDate));
   };
@@ -116,6 +125,41 @@ export function CalendarTab({
       subtitle: `カレンダー / ${formatJpDate(selectedDateObj)} から`,
     });
   };
+
+  /**
+   * 「今日へ」 button (C3、Beyond 採用):
+   *   - selectedDate ≠ today OR currentMonth ≠ today's month の時のみ表示
+   *   - tap で currentMonth = 今月、selectedDate = 今日 にジャンプ
+   *   - iOS / Google Calendar 標準機能、世界トップアプリ整合
+   */
+  const isCurrentMonthThisMonth =
+    currentMonth.getUTCFullYear() === todayMonthStart.getUTCFullYear() &&
+    currentMonth.getUTCMonth() === todayMonthStart.getUTCMonth();
+  const showTodayButton =
+    selectedDate !== todayIso || !isCurrentMonthThisMonth;
+
+  const handleGoToday = () => {
+    // 月送り animation 抑制 (jump 動作のため slideDirection = 0)
+    setSlideDirection(0);
+    setCurrentMonth(todayMonthStart);
+    setSelectedDate(todayIso);
+  };
+
+  // ── animation variants (framer-motion、月送り 200ms slide) ──
+  const slideVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? "100%" : dir < 0 ? "-100%" : 0,
+      opacity: 0,
+    }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({
+      x: dir > 0 ? "-100%" : dir < 0 ? "100%" : 0,
+      opacity: 0,
+    }),
+  };
+  const slideTransition = reducedMotion
+    ? { duration: 0 }
+    : { type: "tween" as const, duration: 0.2, ease: "easeOut" as const };
 
   return (
     <div data-testid="plan-calendar-tab" className="relative pb-24">
@@ -182,39 +226,64 @@ export function CalendarTab({
         ))}
       </div>
 
-      {/* ── Week strip (1 行 × 7 col、tap で selectedDate 更新) ── */}
-      <div
-        role="grid"
-        aria-label={`${formatJpYearMonth(currentMonth)} の週`}
-        className="grid grid-cols-7 gap-1 px-2 mb-6"
-        data-testid="plan-calendar-week-strip"
-      >
-        {weekStrip.map((cell) => {
-          const isSelected = cell.iso === selectedDate;
-          const isToday = cell.iso === todayIso;
-          return (
-            <button
-              key={cell.iso}
-              type="button"
-              role="gridcell"
-              aria-selected={isSelected}
-              aria-current={isToday ? "date" : undefined}
-              aria-label={`${formatJpDate(cell.date)} を選択`}
-              onClick={() => handleSelectDate(cell.iso)}
-              data-testid={`plan-calendar-day-${cell.iso}`}
-              className={cellClasses(cell, isToday, isSelected)}
+      {/* ── Week strip + Selected day (月送り animation で同時 slide、C3 polish) ── */}
+      <div className="overflow-hidden relative">
+        <AnimatePresence mode="wait" custom={slideDirection} initial={false}>
+          <motion.div
+            key={`${currentMonth.getUTCFullYear()}-${currentMonth.getUTCMonth()}`}
+            custom={slideDirection}
+            variants={slideVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={slideTransition}
+          >
+            {/* Week strip (1 行 × 7 col) */}
+            <div
+              role="grid"
+              aria-label={`${formatJpYearMonth(currentMonth)} の週`}
+              className="grid grid-cols-7 gap-1 px-2 mb-6"
+              data-testid="plan-calendar-week-strip"
             >
-              <span className="text-sm font-medium">{cell.dayOfMonth}</span>
-            </button>
-          );
-        })}
-      </div>
+              {weekStrip.map((cell) => {
+                const isSelected = cell.iso === selectedDate;
+                const isToday = cell.iso === todayIso;
+                return (
+                  <button
+                    key={cell.iso}
+                    type="button"
+                    role="gridcell"
+                    aria-selected={isSelected}
+                    aria-current={isToday ? "date" : undefined}
+                    aria-label={`${formatJpDate(cell.date)} を選択`}
+                    onClick={() => handleSelectDate(cell.iso)}
+                    data-testid={`plan-calendar-day-${cell.iso}`}
+                    className={cellClasses(cell, isToday, isSelected)}
+                  >
+                    <span className="text-sm font-medium">{cell.dayOfMonth}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-      {/* ── Selected day agenda section ── */}
-      <section data-testid="plan-calendar-selected-day" className="px-4">
-        <h3 className="text-base font-semibold text-slate-800 mb-3">
-          {formatJpDate(selectedDateObj)}
-        </h3>
+            {/* Selected day agenda section (slide animation 内、月送りで一緒に動く) */}
+            <section data-testid="plan-calendar-selected-day" className="px-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-semibold text-slate-800">
+                  {formatJpDate(selectedDateObj)}
+                </h3>
+                {showTodayButton && (
+                  <button
+                    type="button"
+                    onClick={handleGoToday}
+                    aria-label="今日へ戻る"
+                    data-testid="plan-calendar-go-today"
+                    className="text-xs font-medium text-indigo-600 hover:underline"
+                  >
+                    今日
+                  </button>
+                )}
+              </div>
 
         {selectedDayAnchors.length === 0 ? (
           <div
@@ -294,7 +363,10 @@ export function CalendarTab({
             })}
           </ul>
         )}
-      </section>
+            </section>
+          </motion.div>
+        </AnimatePresence>
+      </div>
 
       {/* ── FAB (右下 fixed、紫 gradient、選択日 prefill) ── */}
       {/* CEO mock 整合、PR #214 containing block で pane 内に閉じ込まる */}

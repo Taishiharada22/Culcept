@@ -12,7 +12,8 @@
 | 段階 | Pane 1 内容 | smoke 重点 |
 |------|-------------|------------|
 | 初版 (2026-05-19) | HomePlanPane (summary view) | summary 表示 + CTA tap で /plan へ |
-| **Phase 1 (2026-05-20)** | **PlanClient (full、displayMode="pane")** | **本体 CRUD + Modal 動作 + Modal 開時 swipe disable** |
+| Phase 1 (2026-05-20) | PlanClient (full、displayMode="pane") | 本体 CRUD + Modal 動作 + Modal 開時 swipe disable |
+| **Phase 2-A (2026-05-20)** | **PlanClient + CalendarTab を Compact Week Strip + Selected Day Agenda + FAB に refactor** | **月送り / selectedDate clamp / FAB / Today button / 月送り animation** |
 
 ---
 
@@ -161,6 +162,52 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 - /plan 直 URL 不影響 (route mode で従来表示) ✅
 - a11y (aria-live announcement / focus 管理 / inert) 動作 ✅
 
+## Phase 2-A 追加 smoke check (Compact Week Strip + FAB + Today button)
+
+### 月送り navigation (◀ / ▶ tap)
+
+- [ ] 月 header の ◀ ▶ tap で月送り動作 (Plan pane / /plan 両方)
+- [ ] 月送り transition が 200ms slide animation で滑らか
+- [ ] prefers-reduced-motion 設定時は instant (no animation)
+- [ ] 12 月 → 1 月で年が +1、1 月 → 12 月で年が -1
+
+### selectedDate clamp (GPT 補正 3)
+
+- [ ] selectedDate = 1/31 → ▶ → 2/28 (非閏年 2026)
+- [ ] selectedDate = 1/31 → ▶ → 2/29 (閏年 2028 想定、unit test で固定)
+- [ ] selectedDate = 1/15 → ▶ → 2/15 (普通の day 維持)
+- [ ] selectedDate = 5/31 → ▶ → 6/30 (6 月は 30 日まで)
+
+### Selected day section
+
+- [ ] Week strip cell tap で selectedDate 更新、紫円 移動
+- [ ] SelectedDay header に "X月Y日" 表示
+- [ ] 選択日が予定なし → 灰背景 + "予定なし" + 「+ この日に予定を追加」link
+- [ ] 選択日が予定あり → anchor list (時刻 + title + locationText)
+- [ ] anchor row tap で AnchorDetailModal 起動 (W1-X5 既存挙動)
+
+### FAB (右下 紫 gradient)
+
+- [ ] FAB が pane 右下 (bottom-20、HomePaneIndicator と重ねない位置) に表示
+- [ ] FAB tap で AddAnchorModal 起動、date pre-filled (selectedDate)
+- [ ] FAB が pane 内に閉じ込まる (PR #214 containing block 効果、Plan pane swipe 中も pane と一緒に移動)
+- [ ] FAB の安全領域 (iOS notch / home bar): safe-area-inset-bottom 適用
+
+### Today button (Beyond 採用)
+
+- [ ] selectedDate ≠ today OR currentMonth ≠ today's month → "今日" button 表示
+- [ ] selectedDate = today AND currentMonth = today's month → "今日" button 非表示
+- [ ] "今日" button tap で currentMonth = 今月, selectedDate = 今日 にジャンプ
+
+### a11y (Phase 2-A 範囲)
+
+- [ ] 月送り button: aria-label "前月" / "翌月" (screen reader 読み上げ)
+- [ ] Week strip: role="grid"、各 cell role="gridcell" + aria-selected + aria-current="date"
+- [ ] Cell hit area ≥ 44×44px (min-h-[44px])
+- [ ] FAB aria-label に選択日含む
+
+---
+
 ## W1-Z 未適用問題 (Phase 1 PASS 後の課題、CEO 補正 #3)
 
 Phase 1 は UI / 構造統合まで。**Production Supabase に Plan tables 未 migrate** な状態では:
@@ -183,11 +230,16 @@ W1-Z 判断材料:
 | swipe が動かない | DevTools Console で motion / drag 系 error 確認、再現条件記録 |
 | 縦 scroll で誤って pane 切替する | threshold / velocity の現実値を Console で計測、調整 PR |
 | Plan pane が空白 / Home UI が漏れる | PR #214 の containing block fix が効いていない、CSS 退行確認 |
-| **Modal 開時に swipe で pane が動く** | **registerHomeSwipeModalOpen の hook 漏れ確認 (該当 modal の useEffect 追加)** |
+| Modal 開時に swipe で pane が動く | registerHomeSwipeModalOpen の hook 漏れ確認 (該当 modal の useEffect 追加) |
 | Plan pane で Modal が開かない | PlanClient 内 button click の event propagation 確認 |
-| Plan pane で `/api/plan/anchors` が 500 | **Production tables 未 migrate (W1-Z 待ち)、UI 統合 PASS 判定には影響なし** |
+| Plan pane で `/api/plan/anchors` が 500 | Production tables 未 migrate (W1-Z 待ち)、UI 統合 PASS 判定には影響なし |
 | /plan 直 URL が壊れる | wrapper の影響経路を audit (本来不影響なため、code bug の signal) |
 | Composer 入力欄が swipe で誤発火する | composer focused state check 追加 (別 PR) |
+| **Phase 2-A: 月送り tap で日付が壊れる** | clampDateToMonth helper の異常、unit test 再走で確認 |
+| **Phase 2-A: FAB が tap できない / 位置が変** | z-index 衝突 / position fixed 退行、PR #214 containing block 効果を確認 |
+| **Phase 2-A: 月送り animation がガクッとする** | reducedMotion の OS 設定 / framer-motion version 退行 |
+| **Phase 2-A: 「今日へ」 button が表示されない** | selectedDate === today AND currentMonth === today's month の判定漏れ |
+| **Phase 2-A: 月跨ぎ recurring anchor が表示されない** | anchorsForDay の expandRecurrence 退行、本 wave で touch していないので前提復元 |
 
 ---
 
