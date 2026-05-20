@@ -359,17 +359,35 @@ export async function POST(request: Request) {
         const { latitude, longitude } = top.location;
 
         // (7d) cache write (Plan は confidence="medium" 固定、L2 は fire-and-forget 内部実装)
+        // setCachedResolution(userId, placeText, area, resolution: PlaceResolution, placeType?)
+        //   - placeType を渡すと L2 (Supabase) にも永続化される
+        //   - Plan は generic な anchor location なので placeType="generic_place" を採用
+        //   - source="places_api" にして L2 write 条件を満たす
         try {
-          await setCachedResolution(auth.userId, userText, undefined, {
-            resolvedName: top.displayName?.text ?? userText,
+          const candidate = {
+            name: top.displayName?.text ?? userText,
             ...(top.formattedAddress !== undefined
               ? { address: top.formattedAddress }
               : {}),
             placeId: top.id,
             lat: latitude,
             lng: longitude,
-            confidence: "medium",
-          });
+            source: "places_api" as const,
+            matchScore: 1.0,
+          };
+          await setCachedResolution(
+            auth.userId,
+            userText,
+            undefined,
+            {
+              originalText: userText,
+              candidates: [candidate],
+              bestCandidate: candidate,
+              confidence: "medium",
+              reason: "plan_geocode_resolved",
+            },
+            "generic_place",
+          );
         } catch (err) {
           // cache 書き込み失敗は fail-open (解決結果は client に返す)
           console.warn(

@@ -534,15 +534,21 @@ describe("POST /api/plan/anchors/geocode", () => {
       });
       expect(json.data.results[0].reason).toBe("resolved_api");
       // cache write 検証 (confidence="medium" 固定、§5.5)
+      // setCachedResolution(userId, placeText, area, resolution, placeType)
       expect(mockSetCached).toHaveBeenCalledTimes(1);
-      const [setUserId, setText, setArea, setEntry] = mockSetCached.mock.calls[0]!;
+      const [setUserId, setText, setArea, setResolution, setPlaceType] =
+        mockSetCached.mock.calls[0]!;
       expect(setUserId).toBe(USER_A);
       expect(setText).toBe("東京タワー");
       expect(setArea).toBeUndefined(); // §5.3 area=undefined
-      expect(setEntry).toMatchObject({
+      expect(setPlaceType).toBe("generic_place"); // L2 write 条件 (placeType + source!=cache)
+      expect(setResolution).toMatchObject({
         confidence: "medium",
-        lat: 35.6586,
-        lng: 139.7454,
+        bestCandidate: expect.objectContaining({
+          lat: 35.6586,
+          lng: 139.7454,
+          source: "places_api", // L2 write 条件
+        }),
       });
     });
   });
