@@ -65,6 +65,23 @@ const MAP_HEIGHT_PX = 280;
 const MAP_DEFAULT_ZOOM_FOR_SINGLE_PIN = 14;
 const SAME_POINT_TOLERANCE_DIGITS = 4; // 4 桁 ≒ 11m
 
+/**
+ * resolved pins が 0 件のときに Map を描画するための default center / zoom。
+ *
+ * GPT 補正 (2026-05-20、Phase 2-C local smoke fail を受けた blocker fix):
+ *   resolved pins=0 でも Map 本体を描画する設計に変更 (Aneurasync 哲学整合:
+ *   「MapTab なのに地図がない」 inconsistency 解消)。
+ *
+ * 選択理由:
+ *   - 東京 (35.6812, 139.7671): JP user の 60%+ が首都圏 (= 最も多くの user の "近い場所")
+ *   - zoom 10: 首都圏全域 (東京 23 区 + 神奈川 / 千葉 / 埼玉の一部) が可視
+ *   - 別 wave で baseline.prefecture-aware center に upgrade 可 (本 wave 範囲外)
+ *
+ * 注: pins>=1 のときは pin の coord に center する。default center は pins=0 のみ。
+ */
+const DEFAULT_MAP_CENTER = { lat: 35.6812, lng: 139.7671 };
+const DEFAULT_MAP_ZOOM = 10;
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 interface AnchorWithCoord {
@@ -217,19 +234,18 @@ function PlanMapView({
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<GmapsMap | null>(null);
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
 
-  // ── Failsafe states (semantic fallback only、Map 描画なし) ──
-  // ① browserKey 未設定: API key 不在 → Map 描画不能 → placeholder
-  // ② server 側 GOOGLE_MAPS_API_KEY 未設定: pins は全 unresolved → Map 描画する pin がない → placeholder
-  // ③ pin が 1 個以下: fitBounds が機能しない、Morning と同 pattern で Map mount しない
-  // ④ loading 中: 場所を確認中... placeholder
-  const showMap = keyAvailable && ready && pins.length >= 2;
-
-  // ── Map mount + markers (effect は ready / pins / mapRef 変化時) ──
+  // ─── Effect 1: Map instance を 1 度だけ作成 (keyAvailable + ready 確定時) ───
+  //
+  // GPT 補正 (2026-05-20、blocker fix):
+  //   旧設計は pins.length >= 2 のときだけ Map mount だったが、
+  //   pins=0 でも Map 本体を描画する設計に変更 (Aneurasync 哲学整合: MapTab=必ず地図 visible)。
+  //   Map instance を ref に保持して pins 変化で再 mount しない (UI ちらつき回避)。
   useEffect(() => {
-    if (!showMap) return;
+    if (!keyAvailable || !ready) return;
     const el = mapRef.current;
     if (!el) return;
     const maps = window.google?.maps;
@@ -239,18 +255,43 @@ function PlanMapView({
       gestureHandling: "cooperative",
       disableDefaultUI: true,
       clickableIcons: false,
+      center: DEFAULT_MAP_CENTER,
+      zoom: DEFAULT_MAP_ZOOM,
     });
+    mapInstanceRef.current = map;
 
-    const allSamePoint = isSamePointCluster(pins.map((p) => p.coord));
-    if (allSamePoint) {
+    return () => {
+      mapInstanceRef.current = null;
+    };
+  }, [keyAvailable, ready]);
+
+  // ─── Effect 2: pins 変化に応じて center/zoom + markers を update ───
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const maps = window.google?.maps;
+    if (!maps) return;
+
+    // center / zoom 戦略
+    if (pins.length === 0) {
+      // resolved pins 0 件 → default center (Tokyo) で Map 描画継続
+      map.setCenter(DEFAULT_MAP_CENTER);
+      map.setZoom(DEFAULT_MAP_ZOOM);
+    } else if (
+      pins.length === 1 ||
+      isSamePointCluster(pins.map((p) => p.coord))
+    ) {
+      // 1 pin / 全 same point cluster → 該 pin の coord 中心、固定 zoom
       map.setCenter(pins[0]!.coord);
       map.setZoom(MAP_DEFAULT_ZOOM_FOR_SINGLE_PIN);
     } else {
+      // 2 件以上の異なる coord → fitBounds で全 pin を画面内に
       const bounds = new maps.LatLngBounds();
       for (const p of pins) bounds.extend(p.coord);
       map.fitBounds(bounds);
     }
 
+    // markers (pins>=1 のときのみ)
     const markers: GmapsMarker[] = [];
     for (const pin of pins) {
       const markerSpec = pin.anchor.sensitiveCategory
@@ -271,20 +312,19 @@ function PlanMapView({
           strokeWeight: 2,
         },
       });
-      const listener = marker.addListener("click", () => {
+      marker.addListener("click", () => {
         onPinClickRef.current?.(pin.anchor);
       });
       markers.push(marker);
-      // listener cleanup は marker.setMap(null) で連動的に消える想定 (Morning と同 pattern)
-      void listener;
     }
 
     return () => {
+      // pin 変化で markers を破棄 (Map instance は keep alive)
       for (const m of markers) m.setMap(null);
     };
-  }, [showMap, pins]);
+  }, [pins]);
 
-  // ── render ──
+  // ─── render: keyAvailable=false / script 未 ready のみ placeholder、それ以外は Map 本体 ───
 
   if (!keyAvailable) {
     return (
@@ -295,53 +335,67 @@ function PlanMapView({
       />
     );
   }
-  if (!apiAvailable) {
+  if (!ready) {
+    // Google Maps script load 中 (NEXT_PUBLIC_*MAPS*BROWSER_KEY 設定済、JS API 取得中)
     return (
       <MapPlaceholder
-        text="場所の解決が一時的に利用できません"
-        sub="カテゴリ一覧と予定リストは下に表示されます"
-        testId="plan-map-api-unavailable"
-      />
-    );
-  }
-  if (loading) {
-    return (
-      <MapPlaceholder
-        text="あなたの地理を確認中..."
-        sub="場所が解決されると地図に並びます"
-        testId="plan-map-loading"
-      />
-    );
-  }
-  if (pins.length === 0) {
-    return (
-      <MapPlaceholder
-        text="地図に出せる場所がまだありません"
-        sub="locationText が解決された予定が地図に並びます"
-        testId="plan-map-no-pins"
-      />
-    );
-  }
-  if (pins.length === 1) {
-    // 1 pin: Map mount しない (Morning と同 pattern)、subtle 1-pin info を表示
-    return (
-      <MapPlaceholder
-        text={`${pins[0]!.resolvedName} に予定が 1 件`}
-        sub="2 件以上の場所が解決されると地図にまとまります"
-        testId="plan-map-single-pin"
+        text="地図を読み込んでいます..."
+        sub="少しお待ちください"
+        testId="plan-map-loading-script"
       />
     );
   }
 
+  // keyAvailable && ready: Map 本体は常に描画。状態は overlay で重ねる。
+  const overlay = (() => {
+    if (loading) {
+      return {
+        text: "あなたの地理を確認中...",
+        sub: "場所を解決中、解決され次第 pin が並びます",
+        testId: "plan-map-overlay-loading",
+      };
+    }
+    if (!apiAvailable) {
+      return {
+        text: "場所の解決が一時的に利用できません",
+        sub: "地図は表示できますが、予定の場所は pin に出ません",
+        testId: "plan-map-overlay-api-unavailable",
+      };
+    }
+    if (pins.length === 0) {
+      return {
+        text: "場所付きの予定を追加すると、ここに並びます",
+        sub: "予定の locationText (例: 「東京タワー」) が解決されると pin に出ます",
+        testId: "plan-map-overlay-no-pins",
+      };
+    }
+    return null;
+  })();
+
   return (
-    <div
-      ref={mapRef}
-      data-testid="plan-map-view"
-      role="region"
-      aria-label="地図 (今後の予定の場所)"
-      className="w-full rounded-2xl overflow-hidden border border-slate-200 mb-4"
-      style={{ height: `${MAP_HEIGHT_PX}px` }}
-    />
+    <div className="relative w-full mb-4">
+      <div
+        ref={mapRef}
+        data-testid="plan-map-view"
+        role="region"
+        aria-label="地図 (今後の予定の場所)"
+        className="w-full rounded-2xl overflow-hidden border border-slate-200"
+        style={{ height: `${MAP_HEIGHT_PX}px` }}
+      />
+      {overlay && (
+        <div
+          data-testid={overlay.testId}
+          className="absolute inset-x-3 top-3 pointer-events-none"
+        >
+          <div className="bg-white/90 backdrop-blur-sm rounded-xl px-4 py-3 shadow-sm border border-slate-200">
+            <p className="text-sm font-medium text-slate-700">
+              {overlay.text}
+            </p>
+            <p className="text-xs text-slate-500 mt-1">{overlay.sub}</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

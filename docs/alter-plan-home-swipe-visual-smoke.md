@@ -379,15 +379,32 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 - [ ] cache miss anchor → Places API call (server-side、browser 観点では 1 endpoint call で完結)
 - [ ] Places API throw / unavailable → 該当 anchor が unresolved に move、UI 落ちない
 
-### Failsafe (graceful degradation、Map placeholder)
+### Failsafe (Map 描画戦略、GPT 補正 2026-05-20 blocker fix 整合)
+
+**重要設計** (Phase 2-C smoke fail を受けた blocker fix):
+旧設計は pins<2 で Map を描画しなかったが、新設計は **resolved pins=0 でも Map 本体を描画**
+(Aneurasync 哲学整合: "MapTab=必ず地図 visible")。状態は **overlay** で Map 上に重ねる。
+
+#### Map placeholder (Map 描画不能ケースのみ、本当の fallback)
 
 - [ ] `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 未設定 → "地図の表示には API キーが設定されていません" placeholder (data-testid="plan-map-key-missing")
-- [ ] server 側 `GOOGLE_MAPS_API_KEY` 未設定 → "場所の解決が一時的に利用できません" placeholder (data-testid="plan-map-api-unavailable")
-- [ ] usePlanGeocode loading 中 → "あなたの地理を確認中..." placeholder (data-testid="plan-map-loading")
-- [ ] 全 anchor unresolved (resolvable pin 0) → "地図に出せる場所がまだありません" placeholder (data-testid="plan-map-no-pins")
-- [ ] resolvable pin 1 件のみ → "{resolvedName} に予定が 1 件" placeholder、Map mount せず (data-testid="plan-map-single-pin")
-- [ ] script load fail (network error) → Map 非表示、CategoryGrid + Unresolved は機能
-- [ ] geocode endpoint 500 / timeout → 全 anchor null、Map placeholder、CategoryGrid のみ機能
+- [ ] Google Maps script load 中 → "地図を読み込んでいます..." placeholder (data-testid="plan-map-loading-script")
+- [ ] script load fail (network error) → script-loading placeholder のまま、CategoryGrid + Unresolved は機能
+
+#### Map 本体 + Overlay (script ready 後、Map は常に描画)
+
+- [ ] keyAvailable=true && ready=true → **Map element (Google Maps) が data-testid="plan-map-view" で常に描画**
+- [ ] resolved pins=0 (= 全 anchor unresolved) → Map 中心は **DEFAULT_MAP_CENTER (東京)、zoom 10**、overlay "場所付きの予定を追加すると、ここに並びます" (data-testid="plan-map-overlay-no-pins")
+- [ ] usePlanGeocode loading 中 → Map 描画 + overlay "あなたの地理を確認中..." (data-testid="plan-map-overlay-loading")
+- [ ] server 側 `GOOGLE_MAPS_API_KEY` 未設定 (apiAvailable=false) → Map 描画 + overlay "場所の解決が一時的に利用できません" (data-testid="plan-map-overlay-api-unavailable")
+- [ ] resolvable pin 1 件 → Map 描画 + pin の coord に center + zoom 14、overlay なし
+- [ ] resolvable pin 2 件以上 → Map 描画 + fitBounds + 全 pin marker 表示、overlay なし
+
+#### Overlay の visual spec
+
+- [ ] overlay は Map の **左上 (inset-x-3 top-3)** に配置、pointer-events-none で Map gesture を阻害しない
+- [ ] overlay は `bg-white/90 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200`
+- [ ] overlay text: `text-sm font-medium text-slate-700` (主) + `text-xs text-slate-500` (sub)
 
 ### Optimistic UI (lazy resolve + Map async populate)
 
@@ -534,8 +551,8 @@ W1-Z 判断材料:
 | **Phase 2-B: sensitive anchor の内容が thumbnail に漏れる (CEO 補正 §4.4 違反)** | AnchorThumbnail の sensitiveCategory 早期 return を確認、🔒 generic icon に統一 |
 | **Phase 2-B: FAB が tap できない / pane 外に出る** | Phase 2-A FAB と同 pattern、PR #214 containing block 効果を確認 (Phase 2-A の FAIL 対処と同じ) |
 | **Phase 2-B: 旧 W1-X3 gap link が render される (CEO 補正 #3 違反)** | FlowTab.tsx で gap helpers (gapMinutes 等) を import していないか確認、render 0 を保つ |
-| **Phase 2-C: Map が表示されない** | 1. browserKey 未設定 → placeholder "API キー..." を CEO 確認、2. script load fail → Network で `maps.googleapis.com/maps/api/js` の status、3. pins<2 → semantic fallback (正常)、4. それ以外 → DevTools Console で script error |
-| **Phase 2-C: Map に pin が出ない (全 anchor unresolved)** | 1. `/api/plan/anchors/geocode` の response で resolution が null か確認、2. server log `[plan/geocode]` で reason 観測 (api_throw / api_unavailable / not_owned / sensitive / low_confidence)、3. locationText が解決可能な値か (例: "ここ" は地理 unresolvable) |
+| **Phase 2-C: Map が表示されない (resolved pins=0 でも Map は描画される設計)** | 1. browserKey 未設定 → placeholder "API キー..." を CEO 確認、2. script load fail → Network で `maps.googleapis.com/maps/api/js` の status、3. ready=true で pins=0 の場合は overlay "場所付きの予定を追加..." + Tokyo 中心 Map が描画されるはず (= 正常)、4. それ以外 → DevTools Console で script error |
+| **Phase 2-C: Map に pin が出ない (全 anchor unresolved)** | (これは Map 非表示ではなく、Map は表示されるが pin がない状態) 1. `/api/plan/anchors/geocode` の response で resolution が null か確認、2. server log `[plan/geocode]` で reason 観測 (api_throw / api_unavailable / not_owned / sensitive / low_confidence)、3. locationText が解決可能な値か (例: "ここ" は地理 unresolvable)、4. user が anchor に locationText を入力しているか (UI 側 AnchorFormFields で確認) |
 | **Phase 2-C: sensitive anchor の locationText が地図 / pin に漏れる (CEO 補正 #2 違反)** | server endpoint で sensitive anchor は unresolved_sensitive で返す設計 (C1)。違反した場合 route.ts の sensitive check (sensitiveSet.has) を確認、即時 revert |
 | **Phase 2-C: 静的 ALTER card が tap で何か起こる (CEO 補正 #2 違反)** | StaticAlterSuggestionCard の cursor:default / tabIndex なし / onClick なし を即時確認、退行は revert |
 | **Phase 2-C: Places API への request body に anchor metadata 混入 (GPT 補正 2 違反)** | C1 endpoint の outbound payload は textQuery / languageCode / maxResultCount のみ。違反は致命、即時 revert + privacy review |
