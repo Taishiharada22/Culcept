@@ -379,32 +379,62 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 - [ ] cache miss anchor → Places API call (server-side、browser 観点では 1 endpoint call で完結)
 - [ ] Places API throw / unavailable → 該当 anchor が unresolved に move、UI 落ちない
 
-### Failsafe (Map 描画戦略、GPT 補正 2026-05-20 blocker fix 整合)
+### Map 描画戦略 (CEO 補正 2026-05-20: 予定 → pin guarantee 整合)
 
-**重要設計** (Phase 2-C smoke fail を受けた blocker fix):
-旧設計は pins<2 で Map を描画しなかったが、新設計は **resolved pins=0 でも Map 本体を描画**
-(Aneurasync 哲学整合: "MapTab=必ず地図 visible")。状態は **overlay** で Map 上に重ねる。
+**重要設計** (Phase 2-C blocker fix 第 2 弾):
+CEO 指示「位置情報 or 予定が既にあるならその予定。位置情報つけてないなら baseline。
+あくまでも、予定ができた時に、その予定をピンにするのが必要」 を実装。
 
-#### Map placeholder (Map 描画不能ケースのみ、本当の fallback)
+#### Pin 戦略 (3 階層)
+
+- [ ] **resolved pin** (locationText を Places API で解決済): pin coord = 具体 lat/lng、marker = category color filled circle (scale 12)
+- [ ] **baseline pin** (locationText 解決不能 or sensitive、baseline coord 存在): pin coord = baseline (home > prefecture)、marker = outline-only hollow circle (scale 10、stroke category color)、title に "(場所未定 — baseline 周辺の概算)" 付記
+- [ ] **no pin** (locationText 解決不能 + baseline なし): Map に pin なし、UnresolvedAnchorsSection に表示
+
+#### Map center 戦略 (4 階層)
+
+- [ ] **pins.length >= 2 (異なる coord)** → fitBounds 全 pin (resolved + baseline 両方含む)
+- [ ] **pins.length >= 2 (全 same point)** → 該 coord 中心、kind 混在は resolved 優先 (zoom 14 or 11)
+- [ ] **pins.length == 1** → 該 pin coord、resolved=zoom 14 / baseline=zoom 11
+- [ ] **pins.length == 0 + baselineCoords あり** → baseline 中心、zoom 11
+- [ ] **pins.length == 0 + baselineCoords なし** → TEMPORARY_FALLBACK (Tokyo 暫定、35.6812/139.7671) 中心、zoom 10
+
+#### Map placeholder (Map 描画不能ケースのみ)
 
 - [ ] `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 未設定 → "地図の表示には API キーが設定されていません" placeholder (data-testid="plan-map-key-missing")
 - [ ] Google Maps script load 中 → "地図を読み込んでいます..." placeholder (data-testid="plan-map-loading-script")
 - [ ] script load fail (network error) → script-loading placeholder のまま、CategoryGrid + Unresolved は機能
 
-#### Map 本体 + Overlay (script ready 後、Map は常に描画)
+#### Map 本体 + Overlay (script ready 後、Map は常に描画、状態は overlay で重ねる)
 
 - [ ] keyAvailable=true && ready=true → **Map element (Google Maps) が data-testid="plan-map-view" で常に描画**
-- [ ] resolved pins=0 (= 全 anchor unresolved) → Map 中心は **DEFAULT_MAP_CENTER (東京)、zoom 10**、overlay "場所付きの予定を追加すると、ここに並びます" (data-testid="plan-map-overlay-no-pins")
+- [ ] **pins=0 + baselineCoords なし** → overlay "予定 + baseline を設定すると、ここに並びます" (data-testid="plan-map-overlay-no-pins-no-baseline")、map 中心 = TEMPORARY_FALLBACK
+- [ ] **pins=0 + baselineCoords あり (今後 N 日の予定なし)** → overlay "今後の予定がまだありません" + sub "予定を追加すると、{baseline.label} の pin として並びます" (data-testid="plan-map-overlay-no-anchors")、map 中心 = baseline
 - [ ] usePlanGeocode loading 中 → Map 描画 + overlay "あなたの地理を確認中..." (data-testid="plan-map-overlay-loading")
-- [ ] server 側 `GOOGLE_MAPS_API_KEY` 未設定 (apiAvailable=false) → Map 描画 + overlay "場所の解決が一時的に利用できません" (data-testid="plan-map-overlay-api-unavailable")
-- [ ] resolvable pin 1 件 → Map 描画 + pin の coord に center + zoom 14、overlay なし
-- [ ] resolvable pin 2 件以上 → Map 描画 + fitBounds + 全 pin marker 表示、overlay なし
+- [ ] server 側 `GOOGLE_MAPS_API_KEY` 未設定 (apiAvailable=false) + pins あり (baseline pin) → Map 描画 + overlay "場所の解決が一時的に利用できません" + sub "予定は baseline 周辺の概算 pin として表示されます" (data-testid="plan-map-overlay-api-unavailable")
+- [ ] resolved pin 1+ 件 → overlay なし、pins 表示 + 適切な center
+- [ ] resolved pin + baseline pin 混在 → overlay なし、両 pin 表示 (filled / hollow で kind 区別)
+
+#### baseline 取得 (`/api/baseline` GET)
+
+- [ ] MapTab mount 時に `usePlanBaseline()` が `GET /api/baseline` を 1 回 fetch
+- [ ] response の `homeCoords` (homeCoords は home 座標) → baseline pin coord
+- [ ] homeCoords なし + `prefecture` あり → `PREFECTURE_COORDS` で fallback (lon→lng normalize)
+- [ ] prefecture も unresolved or 未設定 → baseline=null、Map は TEMPORARY_FALLBACK 中心、unresolved anchor は no-pin
+- [ ] fetch fail (401 / network) → fail-open、baseline=null
 
 #### Overlay の visual spec
 
 - [ ] overlay は Map の **左上 (inset-x-3 top-3)** に配置、pointer-events-none で Map gesture を阻害しない
 - [ ] overlay は `bg-white/90 backdrop-blur-sm rounded-xl shadow-sm border border-slate-200`
 - [ ] overlay text: `text-sm font-medium text-slate-700` (主) + `text-xs text-slate-500` (sub)
+
+#### Sensitive anchor の pin (privacy 保証)
+
+- [ ] sensitive anchor は server 側で `resolution=null` (unresolved_sensitive) のため client では baseline pin になる
+- [ ] sensitive baseline pin の marker color は slate-400 (= MAP_SENSITIVE_MARKER.color)、🔒 不採用 (Marker title に sensitive label 含む)
+- [ ] marker title: "[敏感] (詳細は modal で) (場所未定 — baseline 周辺の概算)"
+- [ ] 具体 location は外送信されない (server で外部 API call せず unresolved_sensitive)、baseline は user 既知 area
 
 ### Optimistic UI (lazy resolve + Map async populate)
 

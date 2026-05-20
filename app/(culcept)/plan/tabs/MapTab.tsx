@@ -56,38 +56,47 @@ import {
   type GmapsMap,
   type GmapsMarker,
 } from "@/lib/shared/googleMapsLoader";
+import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const DEFAULT_WINDOW_DAYS = 14;
 const MAP_HEIGHT_PX = 280;
-const MAP_DEFAULT_ZOOM_FOR_SINGLE_PIN = 14;
+const MAP_DEFAULT_ZOOM_FOR_RESOLVED_SINGLE = 14;
+const MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE = 11;
 const SAME_POINT_TOLERANCE_DIGITS = 4; // 4 桁 ≒ 11m
 
 /**
- * resolved pins が 0 件のときに Map を描画するための default center / zoom。
+ * Map 描画 fallback center / zoom.
  *
- * GPT 補正 (2026-05-20、Phase 2-C local smoke fail を受けた blocker fix):
- *   resolved pins=0 でも Map 本体を描画する設計に変更 (Aneurasync 哲学整合:
- *   「MapTab なのに地図がない」 inconsistency 解消)。
+ * CEO 補正 (2026-05-20): center 優先順位は **解決済 anchor > baseline > 本 fallback**。
+ *   本 default は baseline すら取得できない例外時の最後の暫定。
  *
- * 選択理由:
- *   - 東京 (35.6812, 139.7671): JP user の 60%+ が首都圏 (= 最も多くの user の "近い場所")
- *   - zoom 10: 首都圏全域 (東京 23 区 + 神奈川 / 千葉 / 埼玉の一部) が可視
- *   - 別 wave で baseline.prefecture-aware center に upgrade 可 (本 wave 範囲外)
+ * 仮説 (確定値ではない):
+ *   - 東京 (35.6812, 139.7671) + zoom 10: 暫定 fallback、将来 baseline-aware center upgrade で消える
+ *   - 別 wave で GPS / 現在地 center に upgrade も可
  *
- * 注: pins>=1 のときは pin の coord に center する。default center は pins=0 のみ。
+ * 注: pins>=1 → pin coord 中心、baseline 存在 → baseline 中心。本 default は pins=0 + baseline=null の例外時のみ。
  */
-const DEFAULT_MAP_CENTER = { lat: 35.6812, lng: 139.7671 };
-const DEFAULT_MAP_ZOOM = 10;
+const TEMPORARY_FALLBACK_MAP_CENTER = { lat: 35.6812, lng: 139.7671 };
+const TEMPORARY_FALLBACK_MAP_ZOOM = 10;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * Map pin の coord 解決方式:
+ *   - "resolved": locationText を Places API で解決済 (具体 coord)
+ *   - "baseline": locationText 解決不能 (sensitive 含む) → baseline coord に fallback
+ *
+ * CEO 補正 (2026-05-20): 「予定ができたら必ず pin にする」 哲学整合のため、
+ *   不解決 anchor も baseline で pin 表示。visual で kind を区別 (resolved=filled、baseline=outlined)。
+ */
 interface AnchorWithCoord {
   anchor: ExternalAnchor;
   coord: GmapsLatLng;
   resolvedName: string;
+  kind: "resolved" | "baseline";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -117,7 +126,10 @@ export function MapTab({
     [anchors, today, end],
   );
 
-  const { resolutions, loading, apiAvailable } = usePlanGeocode(visibleAnchors);
+  const { resolutions, loading: geocodeLoading, apiAvailable } =
+    usePlanGeocode(visibleAnchors);
+  const { baselineCoords, loading: baselineLoading } = usePlanBaseline();
+  const loading = geocodeLoading || baselineLoading;
 
   // ── Category groups (v1 設計の core、CategoryGrid + UnresolvedAnchorsSection に流用) ──
   const groups = useMemo(
@@ -125,19 +137,52 @@ export function MapTab({
     [anchors, today, end],
   );
 
-  // ── Resolved (= pin 化対象) と Unresolved の分類 ──
-  const { resolvedPins, unresolvedAnchors } = useMemo(() => {
-    const resolved: AnchorWithCoord[] = [];
-    const unresolved: ExternalAnchor[] = [];
+  // ── 全 anchor を pin 化 (CEO 補正: 予定 → pin guarantee) ──
+  //
+  // 戦略:
+  //   1. resolution あり (locationText 解決済) → resolved pin (具体 coord、category color filled)
+  //   2. resolution なし + baselineCoords あり → baseline pin (baseline coord、outline-only、approximate)
+  //   3. resolution なし + baselineCoords なし → no pin、semantic fallback list のみ
+  //
+  // sensitive anchor は server 側で resolution=null (unresolved_sensitive) のため自動的に
+  // baselineCoords に流れる (privacy: 具体 location は外送信されない、baseline は user 既知 area)。
+  const { allPins, anchorsWithoutPin } = useMemo(() => {
+    const pins: AnchorWithCoord[] = [];
+    const noPin: ExternalAnchor[] = [];
     for (const anchor of visibleAnchors) {
       const r = resolutions.get(anchor.id);
       if (r && isValidLatLng(r.lat, r.lng)) {
-        resolved.push({ anchor, coord: { lat: r.lat, lng: r.lng }, resolvedName: r.resolvedName });
+        pins.push({
+          anchor,
+          coord: { lat: r.lat, lng: r.lng },
+          resolvedName: r.resolvedName,
+          kind: "resolved",
+        });
+      } else if (baselineCoords) {
+        pins.push({
+          anchor,
+          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
+          resolvedName: baselineCoords.label ?? "baseline 周辺",
+          kind: "baseline",
+        });
       } else {
-        unresolved.push(anchor);
+        noPin.push(anchor);
       }
     }
-    return { resolvedPins: resolved, unresolvedAnchors: unresolved };
+    return { allPins: pins, anchorsWithoutPin: noPin };
+  }, [visibleAnchors, resolutions, baselineCoords]);
+
+  // ── Map 上に pin 化されていない anchor (= baseline すらない) ──
+  // UnresolvedAnchorsSection に表示する (transparency: user が "何が pin にならない" を理解)
+  const unresolvedAnchors = useMemo(() => {
+    // baseline ありなら全 unresolved が baseline pin になるが、user に「これは具体場所ではなく
+    // baseline pin」 と明示するため、resolution=null の anchor を section にも残す
+    const out: ExternalAnchor[] = [];
+    for (const anchor of visibleAnchors) {
+      const r = resolutions.get(anchor.id);
+      if (!r || !isValidLatLng(r.lat, r.lng)) out.push(anchor);
+    }
+    return out;
   }, [visibleAnchors, resolutions]);
 
   // ── handlers ──
@@ -172,9 +217,11 @@ export function MapTab({
       </header>
 
       <PlanMapView
-        pins={resolvedPins}
+        pins={allPins}
+        baselineCoords={baselineCoords}
         loading={loading}
         apiAvailable={apiAvailable}
+        anchorsWithoutPinCount={anchorsWithoutPin.length}
         onPinClick={onAnchorClick}
       />
 
@@ -188,6 +235,7 @@ export function MapTab({
       <UnresolvedAnchorsSection
         anchors={unresolvedAnchors}
         loading={loading}
+        baselineCoords={baselineCoords}
         onAnchorClick={onAnchorClick}
       />
 
@@ -223,13 +271,18 @@ export function MapTab({
 
 function PlanMapView({
   pins,
+  baselineCoords,
   loading,
   apiAvailable,
+  anchorsWithoutPinCount,
   onPinClick,
 }: {
   pins: AnchorWithCoord[];
+  baselineCoords: BaselineCoords | null;
   loading: boolean;
   apiAvailable: boolean;
+  /** Map に pin 化されていない anchor の件数 (baseline なし → pin 不能) */
+  anchorsWithoutPinCount: number;
   onPinClick?: (anchor: ExternalAnchor) => void;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
@@ -240,10 +293,8 @@ function PlanMapView({
 
   // ─── Effect 1: Map instance を 1 度だけ作成 (keyAvailable + ready 確定時) ───
   //
-  // GPT 補正 (2026-05-20、blocker fix):
-  //   旧設計は pins.length >= 2 のときだけ Map mount だったが、
-  //   pins=0 でも Map 本体を描画する設計に変更 (Aneurasync 哲学整合: MapTab=必ず地図 visible)。
-  //   Map instance を ref に保持して pins 変化で再 mount しない (UI ちらつき回避)。
+  // pins / baseline 変化で再 mount しない (UI ちらつき回避)。
+  // 初期 center は TEMPORARY_FALLBACK で開始、Effect 2 で baseline / pins に応じて即 update。
   useEffect(() => {
     if (!keyAvailable || !ready) return;
     const el = mapRef.current;
@@ -255,8 +306,8 @@ function PlanMapView({
       gestureHandling: "cooperative",
       disableDefaultUI: true,
       clickableIcons: false,
-      center: DEFAULT_MAP_CENTER,
-      zoom: DEFAULT_MAP_ZOOM,
+      center: TEMPORARY_FALLBACK_MAP_CENTER,
+      zoom: TEMPORARY_FALLBACK_MAP_ZOOM,
     });
     mapInstanceRef.current = map;
 
@@ -265,7 +316,13 @@ function PlanMapView({
     };
   }, [keyAvailable, ready]);
 
-  // ─── Effect 2: pins 変化に応じて center/zoom + markers を update ───
+  // ─── Effect 2: pins / baseline 変化に応じて center/zoom + markers を update ───
+  //
+  // CEO 補正 (2026-05-20) center 優先順位:
+  //   1. pins.length >= 2 → fitBounds 全 pin (resolved + baseline 両方含む)
+  //   2. pins.length == 1 → 該 pin coord 中心、kind に応じて zoom (resolved=14、baseline=11)
+  //   3. pins.length == 0 + baselineCoords あり → baseline 中心、zoom 11
+  //   4. pins.length == 0 + baselineCoords なし → TEMPORARY_FALLBACK (Tokyo) 中心、zoom 10
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
@@ -273,44 +330,83 @@ function PlanMapView({
     if (!maps) return;
 
     // center / zoom 戦略
-    if (pins.length === 0) {
-      // resolved pins 0 件 → default center (Tokyo) で Map 描画継続
-      map.setCenter(DEFAULT_MAP_CENTER);
-      map.setZoom(DEFAULT_MAP_ZOOM);
-    } else if (
-      pins.length === 1 ||
-      isSamePointCluster(pins.map((p) => p.coord))
-    ) {
-      // 1 pin / 全 same point cluster → 該 pin の coord 中心、固定 zoom
-      map.setCenter(pins[0]!.coord);
-      map.setZoom(MAP_DEFAULT_ZOOM_FOR_SINGLE_PIN);
+    if (pins.length >= 2) {
+      // 異なる coord が複数 → fitBounds
+      const allSame = isSamePointCluster(pins.map((p) => p.coord));
+      if (allSame) {
+        // 全 pin 同点 → 中心 + 固定 zoom (kind 混在の場合は resolved 優先)
+        const hasResolved = pins.some((p) => p.kind === "resolved");
+        map.setCenter(pins[0]!.coord);
+        map.setZoom(
+          hasResolved
+            ? MAP_DEFAULT_ZOOM_FOR_RESOLVED_SINGLE
+            : MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE,
+        );
+      } else {
+        const bounds = new maps.LatLngBounds();
+        for (const p of pins) bounds.extend(p.coord);
+        map.fitBounds(bounds);
+      }
+    } else if (pins.length === 1) {
+      // 1 pin → 該 pin 中心、kind に応じて zoom
+      const single = pins[0]!;
+      map.setCenter(single.coord);
+      map.setZoom(
+        single.kind === "resolved"
+          ? MAP_DEFAULT_ZOOM_FOR_RESOLVED_SINGLE
+          : MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE,
+      );
+    } else if (baselineCoords) {
+      // pins=0 + baseline あり → baseline 中心
+      map.setCenter({ lat: baselineCoords.lat, lng: baselineCoords.lng });
+      map.setZoom(MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE);
     } else {
-      // 2 件以上の異なる coord → fitBounds で全 pin を画面内に
-      const bounds = new maps.LatLngBounds();
-      for (const p of pins) bounds.extend(p.coord);
-      map.fitBounds(bounds);
+      // pins=0 + baseline なし → TEMPORARY_FALLBACK
+      map.setCenter(TEMPORARY_FALLBACK_MAP_CENTER);
+      map.setZoom(TEMPORARY_FALLBACK_MAP_ZOOM);
     }
 
-    // markers (pins>=1 のときのみ)
+    // markers
     const markers: GmapsMarker[] = [];
     for (const pin of pins) {
       const markerSpec = pin.anchor.sensitiveCategory
         ? MAP_SENSITIVE_MARKER
         : MAP_CATEGORY_MARKER[categoryOf(pin.anchor)];
+
+      // resolved = filled circle (具体 location)、baseline = hollow circle (approximate)
+      const iconStyle =
+        pin.kind === "resolved"
+          ? {
+              path: maps.SymbolPath.CIRCLE,
+              scale: 12,
+              fillColor: markerSpec.color,
+              fillOpacity: 1,
+              strokeColor: "#ffffff",
+              strokeWeight: 2,
+            }
+          : {
+              // baseline: outline-only (hollow)、scale 小さめ、approximate を visual に表現
+              path: maps.SymbolPath.CIRCLE,
+              scale: 10,
+              fillColor: "#ffffff",
+              fillOpacity: 0.95,
+              strokeColor: markerSpec.color,
+              strokeWeight: 2.5,
+            };
+
+      const baseTitle = pin.anchor.sensitiveCategory
+        ? `[${SENSITIVE_LABEL[pin.anchor.sensitiveCategory]}] (詳細は modal で)`
+        : pin.anchor.title;
+      const markerTitle =
+        pin.kind === "baseline"
+          ? `${baseTitle} (場所未定 — baseline 周辺の概算)`
+          : baseTitle;
+
       const marker = new maps.Marker({
         map,
         position: pin.coord,
-        title: pin.anchor.sensitiveCategory
-          ? `[${SENSITIVE_LABEL[pin.anchor.sensitiveCategory]}] (詳細は modal で)`
-          : pin.anchor.title,
-        icon: {
-          path: maps.SymbolPath.CIRCLE,
-          scale: 12,
-          fillColor: markerSpec.color,
-          fillOpacity: 1,
-          strokeColor: "#ffffff",
-          strokeWeight: 2,
-        },
+        title: markerTitle,
+        icon: iconStyle,
       });
       marker.addListener("click", () => {
         onPinClickRef.current?.(pin.anchor);
@@ -319,10 +415,10 @@ function PlanMapView({
     }
 
     return () => {
-      // pin 変化で markers を破棄 (Map instance は keep alive)
+      // pin / baseline 変化で markers 破棄、Map instance は keep alive
       for (const m of markers) m.setMap(null);
     };
-  }, [pins]);
+  }, [pins, baselineCoords]);
 
   // ─── render: keyAvailable=false / script 未 ready のみ placeholder、それ以外は Map 本体 ───
 
@@ -347,6 +443,7 @@ function PlanMapView({
   }
 
   // keyAvailable && ready: Map 本体は常に描画。状態は overlay で重ねる。
+  // CEO 補正: 「予定 → pin guarantee」 反映、overlay 文言を pin の有無 + baseline 状況で adaptive 化。
   const overlay = (() => {
     if (loading) {
       return {
@@ -355,20 +452,31 @@ function PlanMapView({
         testId: "plan-map-overlay-loading",
       };
     }
+    if (pins.length === 0 && !baselineCoords) {
+      // pin 0 + baseline 未設定 → user に baseline 設定を促す
+      return {
+        text: "予定 + baseline を設定すると、ここに並びます",
+        sub: "/baseline で居住地を設定すると、場所未定の予定も baseline 周辺の pin として表示されます",
+        testId: "plan-map-overlay-no-pins-no-baseline",
+      };
+    }
+    if (pins.length === 0 && baselineCoords) {
+      // pin 0 + baseline あり (=今後 N 日の予定が 0 件)
+      return {
+        text: "今後の予定がまだありません",
+        sub: `予定を追加すると、${baselineCoords.label ?? "あなたの地理"} の pin として並びます`,
+        testId: "plan-map-overlay-no-anchors",
+      };
+    }
     if (!apiAvailable) {
+      // pin あるが server geocode 不能 → resolved pin は出ないが baseline pin は出る
       return {
         text: "場所の解決が一時的に利用できません",
-        sub: "地図は表示できますが、予定の場所は pin に出ません",
+        sub: "予定は baseline 周辺の概算 pin として表示されます",
         testId: "plan-map-overlay-api-unavailable",
       };
     }
-    if (pins.length === 0) {
-      return {
-        text: "場所付きの予定を追加すると、ここに並びます",
-        sub: "予定の locationText (例: 「東京タワー」) が解決されると pin に出ます",
-        testId: "plan-map-overlay-no-pins",
-      };
-    }
+    // pin あり (resolved または baseline)、overlay なし
     return null;
   })();
 
@@ -622,29 +730,39 @@ function CategoryCard({
 function UnresolvedAnchorsSection({
   anchors,
   loading,
+  baselineCoords,
   onAnchorClick,
 }: {
   anchors: ExternalAnchor[];
   loading: boolean;
+  baselineCoords: BaselineCoords | null;
   onAnchorClick?: (anchor: ExternalAnchor) => void;
 }) {
   // loading 中は section を隠す (optimistic UI: 確定後に表示)
   if (loading || anchors.length === 0) return null;
 
+  // baseline あり → これら anchor は baseline pin として地図に出ている (transparency 表示)
+  // baseline なし → これら anchor は地図に出ていない (locationText 入力 or baseline 設定が必要)
+  const hasBaseline = baselineCoords !== null;
+  const headerText = hasBaseline ? "📍 場所未確定の予定" : "📂 場所が曖昧 / 未指定";
+  const headerSub = hasBaseline
+    ? `これらは ${baselineCoords.label ?? "baseline"} 周辺の概算 pin として地図に表示されています — 具体的な場所を予定に追加すると正確な pin になります`
+    : "地図に出せなかった予定 — 予定に場所 (locationText) を追加するか、/baseline で居住地を設定すると pin に出ます";
+
   return (
     <section
       role="region"
-      aria-label="場所が曖昧 / 未指定の予定"
+      aria-label={
+        hasBaseline
+          ? "場所未確定の予定 (baseline 周辺で表示中)"
+          : "場所が曖昧 / 未指定の予定"
+      }
       data-testid="plan-map-unresolved"
       className="mb-4 rounded-2xl bg-slate-50 p-4"
     >
       <header className="mb-2">
-        <h3 className="text-sm font-semibold text-slate-700">
-          📂 場所が曖昧 / 未指定
-        </h3>
-        <p className="text-xs italic text-slate-500">
-          地図に出せなかった予定 — 場所が空、または地理が特定できなかった
-        </p>
+        <h3 className="text-sm font-semibold text-slate-700">{headerText}</h3>
+        <p className="text-xs italic text-slate-500">{headerSub}</p>
       </header>
       <ul className="space-y-2">
         {anchors.map((anchor) => {
