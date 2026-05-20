@@ -267,56 +267,79 @@ export function PlaceCandidatesPanel({
         mt-2 rounded-xl border border-slate-200 bg-white p-3
         max-h-60 overflow-y-auto
         relative
+        shadow-sm
       "
     >
-      {/* close button (× icon、右上) */}
+      {/* close button (× icon、右上、tap target 28px、C3 polish) */}
       <button
         type="button"
         onClick={handleClose}
         aria-label="場所候補パネルを閉じる"
         data-testid="plan-place-candidates-close"
-        className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        className="
+          absolute top-2 right-2 w-7 h-7
+          flex items-center justify-center rounded-full
+          text-slate-400
+          transition-colors duration-150
+          hover:bg-slate-100 hover:text-slate-700
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+          active:scale-95
+        "
       >
         ✕
       </button>
 
-      {/* privacy-first hint (proactive disclosure) */}
-      <p
-        className="text-[10px] text-slate-400 italic mb-1 pr-6"
-        data-testid="plan-place-candidates-privacy-hint"
-      >
-        あなたが入力した場所を Google に確認します (キャンセル可能)
-      </p>
-
-      {/* header: title + bias label */}
-      <header className="flex items-baseline justify-between mb-2 pr-6 gap-2">
-        <p className="text-xs font-semibold text-slate-600 flex-shrink-0">
-          ✨ 候補から場所を選ぶ (任意)
-        </p>
-        {biasContext.label && (
-          <p
-            className="text-xs italic text-slate-500 truncate"
-            title={biasContext.label}
-            data-testid="plan-place-candidates-bias-label"
-          >
-            {biasContext.label}
+      {/* header: bias label 1 段目 (情報量主、slate-700)、privacy hint 2 段目 (補助、slate-500、C3 polish) */}
+      <header className="mb-3 pr-9">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-xs font-semibold text-slate-700 flex-shrink-0">
+            ✨ 候補から場所を選ぶ (任意)
           </p>
-        )}
+          {biasContext.label && (
+            <p
+              className="text-xs italic text-slate-600 truncate"
+              title={biasContext.label}
+              data-testid="plan-place-candidates-bias-label"
+            >
+              {biasContext.label}
+            </p>
+          )}
+        </div>
+        <p
+          className="text-[10px] text-slate-500 italic mt-1"
+          data-testid="plan-place-candidates-privacy-hint"
+        >
+          あなたが入力した場所を Google に確認します (キャンセル可能)
+        </p>
       </header>
 
-      {/* loading state */}
+      {/* loading state: 3 行 skeleton shimmer (C3 polish、候補の長さ感を予告) */}
       {loading && (
-        <p
-          className="text-xs text-slate-400 py-2"
+        <div
+          className="space-y-1.5 py-1"
+          aria-busy="true"
+          aria-label="場所候補を取得中"
           data-testid="plan-place-candidates-loading"
         >
-          候補を確認中...
-        </p>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="
+                w-full rounded-lg border border-slate-100 bg-slate-50/70
+                p-2 animate-pulse
+              "
+            >
+              <div className="h-3 w-3/4 rounded bg-slate-200" />
+              <div className="h-2 w-1/2 rounded bg-slate-100 mt-1.5" />
+            </div>
+          ))}
+        </div>
       )}
 
-      {/* error state (friendly message + skip 推奨) */}
+      {/* error state (friendly message + skip 推奨、C3 polish: アクセス可能な role) */}
       {!loading && errorMessage && (
         <p
+          role="alert"
           className="text-xs text-slate-500 py-2 italic"
           data-testid="plan-place-candidates-error"
         >
@@ -324,17 +347,17 @@ export function PlaceCandidatesPanel({
         </p>
       )}
 
-      {/* empty state */}
+      {/* empty state (C3 polish: 文言整理、自由入力で保存できることを明示) */}
       {!loading && !errorMessage && results.length === 0 && (
         <p
-          className="text-xs text-slate-400 py-2"
+          className="text-xs text-slate-500 py-2"
           data-testid="plan-place-candidates-empty"
         >
-          候補が見つかりませんでした (このまま保存しても OK)
+          該当する場所が見つかりませんでした (このまま自由入力で保存できます)
         </p>
       )}
 
-      {/* candidates list */}
+      {/* candidates list (C3 polish: 56px tap target、focus-visible ring、active scale) */}
       {!loading && results.length > 0 && (
         <ul className="space-y-1.5" data-testid="plan-place-candidates-list">
           {results.map((c) => (
@@ -346,8 +369,12 @@ export function PlaceCandidatesPanel({
                 className="
                   w-full text-left rounded-lg
                   border border-slate-100 bg-white
-                  hover:border-indigo-300 hover:bg-indigo-50
-                  p-2 transition
+                  min-h-14 p-2.5
+                  transition-colors duration-150
+                  hover:border-indigo-300 hover:bg-indigo-50/60
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+                  focus-visible:border-indigo-300
+                  active:scale-[0.98]
                 "
               >
                 {/* displayName 主 (太字、 truncate)、address 補足 (薄字、 truncate)
@@ -356,10 +383,10 @@ export function PlaceCandidatesPanel({
                   {c.name}
                 </p>
                 {c.address && (
-                  <p className="text-xs text-slate-500 truncate">{c.address}</p>
+                  <p className="text-xs text-slate-500 truncate mt-0.5">{c.address}</p>
                 )}
                 {c.distanceMeters !== null && (
-                  <p className="text-xs text-slate-400">
+                  <p className="text-[10px] text-slate-400 tabular-nums mt-0.5">
                     {formatDistance(c.distanceMeters)}
                   </p>
                 )}
@@ -369,13 +396,19 @@ export function PlaceCandidatesPanel({
         </ul>
       )}
 
-      {/* skip option (常時 visible、user の skip 明示) */}
+      {/* skip option (常時 visible、user の skip 明示、C3 polish: focus ring + tap target) */}
       <div className="mt-3 text-center">
         <button
           type="button"
           onClick={handleSkip}
           data-testid="plan-place-candidates-skip"
-          className="text-xs text-slate-500 underline hover:text-slate-700"
+          className="
+            inline-block px-3 py-1.5 rounded-md
+            text-xs text-slate-500 underline
+            transition-colors duration-150
+            hover:text-slate-700 hover:bg-slate-50
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+          "
         >
           場所を選ばずに保存
         </button>

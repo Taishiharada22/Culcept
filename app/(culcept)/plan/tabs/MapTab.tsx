@@ -31,6 +31,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -873,6 +874,26 @@ function SelectedAnchorCard({
               📍 {anchor.locationText}
             </p>
           )}
+          {/*
+           * Phase 2-D C3: 場所未確定 banner (subtle muted、tap で行動誘導しない)
+           * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
+           *
+           * pinKind="baseline" の baselineSourceLabel とは異なる概念:
+           *   - baseline: 完全に座標なし、baseline 中心に置いている (= 既存表示)
+           *   - unconfirmed: locationText は入っているが canonical でない (= 本 banner)
+           * 両者が重なるケース (baseline + unconfirmed) は baseline label を優先
+           * (より具体的な状態説明なので)。
+           */}
+          {!isSensitive &&
+            pinKind !== "baseline" &&
+            isPlaceUnconfirmed(anchor.locationText) && (
+              <p
+                data-testid="plan-map-selected-unconfirmed-banner"
+                className="text-xs text-slate-500 mt-1 italic"
+              >
+                場所未確定 — もっと具体的にできます
+              </p>
+            )}
           {pinKind === "baseline" && !isSensitive && baselineSourceLabel && (
             <p
               className="text-xs text-amber-600 mt-1 italic"

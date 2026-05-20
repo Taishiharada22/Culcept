@@ -1555,6 +1555,81 @@ git push -u origin feat/alter-plan-phase2-d-place-picker
 
 ---
 
+## 19. C3 Smoke Checklist + Future Improvement (CEO 指示 2026-05-21)
+
+### 19.1 Cost 検証
+- [ ] **place search rate limit**: 60 query/hour per user。61 個目で 429。
+  - 確認方法: 同一 user の 5 秒間隔 60 連続 query → 61 個目で 429 + friendly message
+- [ ] **geocode と独立カウンター**: place_search と geocode (100/h) は別 map に積算。
+  - 確認方法: place search 60 + geocode 0 状態で geocode が機能、逆も同じ
+- [ ] **debounce 500ms**: 5 個連続入力 → outbound 1 req のみ。
+  - 確認方法: Network tab で `POST /api/plan/places/search` の数を count
+
+### 19.2 Privacy 検証
+- [ ] **outbound payload**: `{ query, bias? }` のみ、anchor metadata 一切無し。
+  - 確認方法: Network tab で request body inspect、sensitiveCategory / category / time / title が含まれないこと
+- [ ] **sensitive anchor 抑制**: sensitiveCategory set 時、panel 完全非表示 + in-flight abort。
+  - 確認方法: panel 開いた状態で sensitiveCategory 選択 → panel 消失 + Network で in-flight が `(cancelled)`
+- [ ] **server log redaction**: query 文字列は server log に出力しない (or hash 化)。
+
+### 19.3 Fail-open 検証
+- [ ] **PLACES_API_KEY 無効**: empty results + apiAvailable=false、UI 壊れず。
+  - 確認方法: dev で `PLACES_API_KEY=invalid` で起動、query 入力 → empty state 表示
+- [ ] **Network error**: server 落ち / fetch throw → friendly error + skip 推奨。
+- [ ] **429 受信**: rate limit hit → 「少し時間をおいて」 message。
+
+### 19.4 Canonical text 反映
+- [ ] **候補 tap**: locationText が `${displayName} · ${address}` 形式に更新。
+- [ ] **canonical 入力**: locationText がすでに canonical な anchor は panel 自動非表示 (isActive=false)。
+- [ ] **EditAnchorModal**: 既存 canonical text を持つ anchor を編集開始 → panel 出ない。
+
+### 19.5 Cross-tab indicator (C3 新規)
+- [ ] **判定単一仕様**: CalendarTab / FlowTab / SelectedAnchorCard 全てが `isPlaceUnconfirmed` のみ使用。
+  - 確認方法: `grep "isPlaceUnconfirmed" app/(culcept)/plan/` で 3 箇所すべての import 確認
+- [ ] **空欄 false positive 防止**: locationText 空 / null / whitespace → indicator 出ない。
+  - 確認方法: title だけ「家で考える」「資料整理」の anchor 作成 → indicator なし (= GPT 補正核心)
+- [ ] **canonical false positive 防止**: 候補 tap 後の anchor → indicator なし。
+- [ ] **vague text true**: 「成田のスタバ」入力で保存 → 3 tab 全てで indicator 表示。
+- [ ] **MapTab baseline 優先**: pinKind=baseline かつ unconfirmed の場合は baselineSourceLabel 優先 (subtle banner 非表示)。
+
+### 19.6 Visual polish 検証
+- [ ] **focus-visible ring**: Tab キー navigation で全 button / input に indigo ring。
+- [ ] **hover transition**: candidate row hover で 150ms duration の background 変化。
+- [ ] **active scale**: tap 時 0.98 scale で物理感。
+- [ ] **tap target**: candidate row min-h-14 (56px)、close button 28px。
+- [ ] **loading skeleton**: 3 行 shimmer (single spinner ではない)。
+
+### 19.7 Future Improvement (C3 scope 外、別 PR 提案)
+
+以下は **思想として正しい改善** だが C3 scope (= indicator + visual polish) を超えるため別 PR:
+
+1. **canonical text の displayName 抽出表示**
+   - 現状: 「スターバックス 成田空港店 · 千葉県成田市古込1番地」がそのまま CalendarTab / FlowTab に表示される → noisy
+   - 改善案: `extractDisplayNameForUI(canonical)` で displayName 主表示 + address は AnchorDetailModal で確認
+   - 該当 helper は既に `lib/shared/canonicalLocationText.ts` line 117-126 に存在、呼び出し側未使用
+   - GPT 補正の世界トップ pattern (Apple Maps / Google Maps / Notion 同 pattern) 整合
+   - 別 PR の理由: 「表示挙動の変更」であり、indicator の追加とは性質が異なる。CEO 補正 4 (PlaceCandidatesPanel 挙動変更なし) 原則に揃え、tab 表示挙動変更も別判定とする
+
+2. **`requiresLocation` flag 導入で空欄も未確定化可能に**
+   - 将来 ExternalAnchor に `requiresLocation?: boolean` を追加 (migration 必要)
+   - `isPlaceUnconfirmed(text, requiresLocation)` の 2-arg 版を追加可能 (現 1-arg 版 backward compatible)
+   - migration を伴うため CEO 承認案件
+
+3. **indicator tap → inline 候補展開**
+   - 現状: indicator tap で AnchorDetailModal → 教え直す → EditAnchorModal flow (3 step)
+   - 改善案: indicator tap で inline に PlaceCandidatesPanel 展開 (1 step)
+   - 別 PR の理由: tab 内 state 設計の複雑化、Phase 2-D+ scope
+
+### 19.8 Smoke 実施手順 (CEO)
+
+1. dev server 起動: `PLAN_ROUTE_LIVE=true PLAN_HOME_SWIPE_ENABLED=true npm run dev`
+2. ブラウザで `http://localhost:3000/plan`
+3. 19.1-19.6 を上から順に確認
+4. ✅ all → C3 PASS → Phase 2-D branch 凍結
+5. ❌ any → 該当項目を Claude に報告
+
+---
+
 **End of Phase 2-D Mini Design**. CEO レビュー → 判断 1-11 → 実装 wave (3 commits) GO/NO-GO 判断をお待ちします。
 
 CEO 指示「予定追加時の明確な場所のリンクは追加するときに必要 (ただし、強制ではないようにする)」 を mockup pattern + biasing 戦略 + privacy-safe + cost guard + sensitive 配慮 で実装可能な最小設計に落とし込みました。Phase 2-C で確立した「予定 → pin guarantee + baseline fallback + privacy spec」 を継承しつつ、anchor 追加時の "明確な場所選択" UX を Aneurasync 哲学 (強制ではない / skip 可能 / privacy 強) で組み立て。

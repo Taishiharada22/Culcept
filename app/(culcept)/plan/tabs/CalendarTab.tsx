@@ -38,6 +38,7 @@ import {
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -354,8 +355,22 @@ export function CalendarTab({
                     {anchor.title}
                   </p>
                   {anchor.locationText && (
-                    <p className="text-xs text-slate-500">
-                      {anchor.locationText}
+                    <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                      <span className="truncate">{anchor.locationText}</span>
+                      {/*
+                       * Phase 2-D C3: 場所未確定 indicator (subtle gray dot)
+                       * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
+                       * dot 8px + ring-slate-500/30 (WCAG 1.4.11 Non-text Contrast 配慮)
+                       */}
+                      {isPlaceUnconfirmed(anchor.locationText) && (
+                        <span
+                          role="img"
+                          aria-label="場所未確定"
+                          title="場所未確定 (まだ Places で確定されていません)"
+                          data-testid={`plan-calendar-anchor-${anchor.id}-unconfirmed-dot`}
+                          className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-slate-400 ring-1 ring-slate-500/30"
+                        />
+                      )}
                     </p>
                   )}
                 </li>

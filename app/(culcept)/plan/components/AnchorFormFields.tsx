@@ -385,6 +385,10 @@ export function AnchorFormFields({
        * - locationCategory は disclosure 内に残す (CEO C2 scope minimum、locationText のみ昇格)
        */}
       <Field label="場所（任意）" error={errorsByField.get("locationText")}>
+        {/*
+         * Phase 2-D C3 polish: focus-visible ring 統一 (PlaceCandidatesPanel と整合)
+         * keyboard focus 時に subtle indigo ring、mouse focus 時は不要
+         */}
         <input
           type="text"
           value={form.locationText}
@@ -392,7 +396,13 @@ export function AnchorFormFields({
           disabled={submitting}
           placeholder="例: 成田のスタバ / 渋谷歯科クリニック"
           data-testid="plan-form-location-text"
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+          className="
+            w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+            transition-colors duration-150
+            focus:border-indigo-400 focus:outline-none
+            focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+            disabled:opacity-50
+          "
         />
         <PlaceCandidatesPanel
           query={form.locationText}

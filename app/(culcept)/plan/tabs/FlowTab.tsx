@@ -40,6 +40,7 @@ import { useMemo } from "react";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -343,9 +344,30 @@ function AnchorRow({
           {anchor.title}
         </p>
         {anchor.locationText && (
-          <p className="text-xs text-slate-500 truncate">
-            {anchor.locationText}
-          </p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <p className="text-xs text-slate-500 truncate flex-1 min-w-0">
+              {anchor.locationText}
+            </p>
+            {/*
+             * Phase 2-D C3: 場所未確定 indicator (dot + text-xs label)
+             * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
+             * リストは情報密度許容、CalendarTab より説明文を 1 段足す
+             */}
+            {isPlaceUnconfirmed(anchor.locationText) && (
+              <span
+                data-testid={`plan-flow-anchor-${anchor.id}-unconfirmed`}
+                aria-label="場所未確定"
+                title="場所未確定 (まだ Places で確定されていません)"
+                className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] text-slate-500"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block h-2 w-2 rounded-full bg-slate-400 ring-1 ring-slate-500/30"
+                />
+                <span>場所未確定</span>
+              </span>
+            )}
+          </div>
         )}
       </div>
 
