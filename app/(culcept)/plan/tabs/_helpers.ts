@@ -468,3 +468,51 @@ export function formatJpDate(d: Date): string {
   const wd = WEEKDAY_LABELS[d.getUTCDay()];
   return `${m}月${day}日(${wd})`;
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Geocoding helpers (Phase 2-C v3、§5.2 / §5.9 / §0.5.2 強化 4)
+//
+// 設計書: docs/alter-plan-phase2-c-map-tab-mini-design.md
+// 不変原則:
+//   - すべて pure (副作用なし、現在時刻参照なし、入力 mutate なし)
+//   - test deterministic
+//   - server-side / client-side 両方で import 可能
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 同 locationText を持つ複数 anchor を 1 Places API call に dedupe するための normalize。
+ *
+ * - `NFKC`: 全角英数字 → 半角英数字、半角カナ → 全角カナの統一 (Unicode normalization)
+ * - lowercase: ASCII / 全角英大文字 を統一 ("Tokyo" === "tokyo" === "ＴＯＫＹＯ")
+ * - whitespace 連続 → 1 個 ("Tokyo  Tower" === "Tokyo Tower")
+ * - trim: 前後空白除去
+ *
+ * 例:
+ *   - "スターバックス 代官山店" === "スターバックス　代官山店" (全角→半角空白)
+ *   - "Tokyo Tower" === "tokyo tower" (lowercase)
+ *   - "  渋谷駅  " === "渋谷駅" (trim)
+ *
+ * 注意: 半角カナ→全角カナの変換も NFKC で起こるが、これは Places API クエリでも好ましい
+ * (Places API 側で半角カナを認識する保証がないため、全角統一が安全)。
+ */
+export function normalizeLocationText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * placeResolver の cache に保存される ResolutionConfidence のうち、
+ * Plan の MapTab で pin として **表示してよい** 信頼度か判定する。
+ *
+ * Phase 2-C v3 §0.5.2 強化 5 (Cached low-confidence guard):
+ *   - Alter Morning の resolver は context (chain_brand / generic_place / area match 等) で
+ *     "low" confidence を返すことがある (例: "図書館" のみで area 不明)
+ *   - Plan の anchor は user 自己申告で「私の予定 = 私の地理」 なので、誤 pin (= 違う場所を pin にしてしまう) は混乱を招く
+ *   - そこで Plan 側では "medium" 以上の confidence のみ pin に採用、"low" は semantic fallback に回す
+ */
+export function confidenceAtLeastMedium(confidence: string): boolean {
+  return confidence === "medium" || confidence === "high";
+}
