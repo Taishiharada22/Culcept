@@ -331,6 +331,168 @@ echo "true" | npx vercel env add PLAN_HOME_SWIPE_ENABLED preview feat/alter-plan
 
 ---
 
+## Phase 2-C 追加 smoke check (MapTab Google Maps view + semantic fallback)
+
+設計書: `docs/alter-plan-phase2-c-map-tab-mini-design.md` v3 (GPT 補正 4 件 + 自立推論強化 5 件反映)
+
+### 基本構造 (地図 tab 切替)
+
+- [ ] Plan pane / /plan route で "地図" tab tap → MapTab content 表示
+- [ ] header: "あなたの地理" + "今後 14 日間で訪れる場所"
+- [ ] 旧 「あなたの聖地マップ」 header が画面上に存在しない (Phase 2-C で文言 update)
+- [ ] 全体構造 (上から下):
+  - 地図 view (PlanMapView)
+  - カテゴリ別 grid (CategoryGrid、9 categories、active + empty 両表示)
+  - 場所が曖昧 / 未指定 セクション (UnresolvedAnchorsSection)
+  - 静的 ALTER 提案 card (StaticAlterSuggestionCard)
+  - FAB (右下 紫 gradient)
+
+### Map view 表示 (PlanMapView、resolvable anchor 2+ 件)
+
+- [ ] Google Maps view が height ~280px で mount (data-testid="plan-map-view")
+- [ ] fitBounds で全 pin が画面内に収まる (全 same point cluster なら zoom=14 で中心 set)
+- [ ] gesture: 2-finger pan で Map pan、pinch zoom 可能、1-finger では Map 反応せず縦 scroll 優先
+- [ ] disableDefaultUI: zoom control / map type / fullscreen 等の Google デフォ UI なし
+- [ ] clickableIcons: false (Google デフォの POI icon クリック無効)
+
+### Pin display (category-themed marker)
+
+- [ ] 各 pin: SVG circle (path=SymbolPath.CIRCLE) + category color + white stroke (#ffffff、weight 2、scale 12)
+- [ ] locationCategory=home → indigo (#6366f1)
+- [ ] locationCategory=office → slate (#475569)
+- [ ] locationCategory=school → sky (#0ea5e9)
+- [ ] locationCategory=cafe → amber (#d97706)
+- [ ] locationCategory=outdoor → green (#16a34a)
+- [ ] locationCategory=public → violet (#7c3aed)
+- [ ] locationCategory=transit → slate-500 (#64748b)
+- [ ] locationCategory=unknown → slate-400 (#94a3b8)
+- [ ] locationCategory=none → slate-300 (#cbd5e1)
+- [ ] sensitive anchor → slate-400 (#94a3b8) (privacy 配慮、category 色を出さない)
+- [ ] marker title (hover): 通常 anchor は anchor.title、sensitive は "[敏感] (詳細は modal で)" 形式
+- [ ] marker tap → onAnchorClick(anchor) → AnchorDetailModal 起動 (W1-X5 既存)
+
+### Geocoding flow (server endpoint 経由)
+
+- [ ] MapTab mount 時に `/api/plan/anchors/geocode` POST 1 リクエストで batch resolve
+- [ ] DevTools Network で endpoint request body は `{ items: [{ anchorId, locationText }] }` のみ確認 (extra field なし)
+- [ ] cache hit (L1 / L2) anchor → resolved_cache、Places API 呼ばれない (Network で `places.googleapis.com` 不可視)
+- [ ] cache miss anchor → Places API call (server-side、browser 観点では 1 endpoint call で完結)
+- [ ] Places API throw / unavailable → 該当 anchor が unresolved に move、UI 落ちない
+
+### Failsafe (graceful degradation、Map placeholder)
+
+- [ ] `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 未設定 → "地図の表示には API キーが設定されていません" placeholder (data-testid="plan-map-key-missing")
+- [ ] server 側 `GOOGLE_MAPS_API_KEY` 未設定 → "場所の解決が一時的に利用できません" placeholder (data-testid="plan-map-api-unavailable")
+- [ ] usePlanGeocode loading 中 → "あなたの地理を確認中..." placeholder (data-testid="plan-map-loading")
+- [ ] 全 anchor unresolved (resolvable pin 0) → "地図に出せる場所がまだありません" placeholder (data-testid="plan-map-no-pins")
+- [ ] resolvable pin 1 件のみ → "{resolvedName} に予定が 1 件" placeholder、Map mount せず (data-testid="plan-map-single-pin")
+- [ ] script load fail (network error) → Map 非表示、CategoryGrid + Unresolved は機能
+- [ ] geocode endpoint 500 / timeout → 全 anchor null、Map placeholder、CategoryGrid のみ機能
+
+### Optimistic UI (lazy resolve + Map async populate)
+
+- [ ] MapTab mount 時、CategoryGrid + StaticAlterCard + FAB は **即 render** (geocode 待たない)
+- [ ] Map 領域は loading placeholder で表示、geocode 完了次第 Map / Unresolved に populate
+- [ ] Lazy resolve: window 外 (windowDays 14 外) の anchor は geocode 送信対象に含まない (DevTools で request body の items 数を window 内 anchor 数と比較)
+
+### CategoryGrid (v1 から維持)
+
+- [ ] 9 categories 全表示 (active + empty)
+- [ ] emoji が text-4xl で大型表示
+- [ ] hint (italic、Aneurasync voice、CATEGORY_META.hint) が visible
+- [ ] frequencyVoice 表示: count=0 で "今は静か" / count≥windowDays/7 で "週 N 回" / 0<count<windowDays/7 で "月 N 回"
+- [ ] timeSignature 表示: "朝中心" / "日中中心" / "夜中心" / "深夜中心" / "朝晩中心"、混在しすぎは表示しない
+- [ ] empty card: opacity-60 で de-emphasize、frequencyVoice は "今は静か"
+- [ ] per-category add link: "+ <カテゴリ> での予定を教える" (W1-X3 既存、locationCategory pre-fill)
+- [ ] anchor row tap → AnchorDetailModal 起動 (W1-X5 既存)
+
+### UnresolvedAnchorsSection (semantic fallback)
+
+- [ ] locationText 空 / Places API miss / sensitive anchor が下部 section に表示 (data-testid="plan-map-unresolved")
+- [ ] section header: "📂 場所が曖昧 / 未指定"
+- [ ] each row: title + (emoji + category label) + locationText (in quotes) + sensitive badge (if any)
+- [ ] row tap → AnchorDetailModal 起動 (W1-X5 既存)
+- [ ] loading 中は section 非表示 (確定後に出現、optimistic UI)
+
+### 静的 ALTER 提案 card (CEO 補正 #2 整合、Phase 2-B §3.4 と同 pattern)
+
+- [ ] tap 動作なし (cursor:default、tabIndex なし、onClick なし)
+- [ ] hover/shadow/transition なし、role="region"
+- [ ] 文言: "あなたの地理を、ALTER が読みに来る予定です" + "あなたの場所のパターン、見てみますか?" + "(Phase 3 で動作予定 — 今は説明だけ)"
+- [ ] DevTools: outer に `cursor:default`、内側 div に `shadow-md` 等の elevation なし
+
+### FAB (Phase 2-A / 2-B 同 pattern)
+
+- [ ] 右下 fixed (bottom-20 right-6 z-30)、56px 紫 gradient
+- [ ] FAB tap → AddAnchorModal 起動、locationCategory **未指定** (user が modal 内で選ぶ)
+- [ ] subtitle: "地理 / カテゴリ未指定 から"
+- [ ] pane 内 containing block 効果 (PR #214、swipe で一緒に移動)
+- [ ] safe-area-inset-bottom 適用
+
+### Privacy audit (GPT 補正 2 整合)
+
+- [ ] DevTools Network で `places.googleapis.com/v1` への request は **server-side のみ** (browser から見えない)
+- [ ] `/api/plan/anchors/geocode` への request body には `textQuery` / `anchorId` / `userId` / `title` / `sensitiveCategory` の **anchor metadata は一切含まれない**
+- [ ] sensitive anchor が含まれる items を送信 → 該当 anchor は resolution=null、reason="unresolved_sensitive" で返ってくる (server console で確認可)
+- [ ] audit log (server console.warn) には locationText 実値 / Places API response body が出ない
+
+### Rate limit / Ownership smoke
+
+- [ ] 同一 user から 101 回 endpoint call → 101 回目は 429 + Retry-After 3600 header (manual test、curl or DevTools)
+- [ ] 他 user の anchorId を含む body で endpoint call → 該当 anchor は resolution=null、reason="unresolved_not_owned" (server で silently 除外)
+
+### 既存導線の不変 (Phase 2-A / Phase 2-B / Phase 1 整合性)
+
+- [ ] PlanClient header「+ 教える」 button は両 mode で機能 (FAB と並行)
+- [ ] anchor row tap → AnchorDetailModal 起動 → 編集 / 削除 動作 (W1-X5 既存)
+- [ ] AddAnchorModal の signature 不変 (`initialState` / `contextSubtitle` を流用)
+- [ ] Phase 2-A の CalendarTab に不影響 (本 wave touch なし)
+- [ ] Phase 2-B の FlowTab に不影響 (本 wave touch なし)
+- [ ] Phase 1 の HomeSwipeContainer / Modal lock に不影響
+
+### Alter Morning regression check (GPT 補正 3 重要)
+
+- [ ] **Alter Morning の MorningMapView 機能 (Home の朝 plan の地図) が regression 0 で動作**
+- [ ] DevTools Network で Morning の地図 script load も `script.id="alter-morning-gmaps"` (= Plan と共有)
+- [ ] Morning の plan 表示 / pin / route 表示 / analytics emit (`visual_flow_*`) すべて従前通り
+- [ ] `npx vitest run tests/unit/alter-morning/` 全 PASS
+
+### Recurring + exception_dates + validity (既存挙動)
+
+- [ ] FREQ=WEEKLY recurring anchor が countOccurrences で正しく count、windowDays 内 visit のみ geocode 対象
+- [ ] exception_dates 適用 (除外日は count に含まれない)
+- [ ] valid_until 後の anchor は count なし、geocode 対象外
+
+### A11y (Phase 2-C 範囲)
+
+- [ ] Map view: `<div role="region" aria-label="地図 (今後の予定の場所)">`
+- [ ] CategoryGrid: `<section role="region" aria-label="カテゴリ別の地理">`
+- [ ] each CategoryCard: `aria-label="<label> · <hint> · <frequencyVoice>"`
+- [ ] UnresolvedAnchorsSection: `<section role="region" aria-label="場所が曖昧 / 未指定の予定">`
+- [ ] anchor row: role="button" + tabIndex=0 + Enter/Space (W1-X5 既存)
+- [ ] FAB: aria-label "場所カテゴリ未指定で予定を追加"
+- [ ] 静的 ALTER card: role="region" + aria-label "ALTER 提案 (今後の機能、Phase 3 で実装予定)"
+- [ ] touch target 44pt 最小 (anchor row / per-category add button / FAB)
+- [ ] prefers-reduced-motion でも UI 変化なし (Phase 2-C は animation 控えめ)
+
+### Network / Console (Phase 2-C)
+
+- [ ] Network: `maps.googleapis.com/maps/api/js?key=...` (script tag、1 回のみ singleton、Morning と共有)
+- [ ] Network: `places.googleapis.com/v1` への request は **server-side のみ** (browser 観測 0)
+- [ ] Network: `/api/plan/anchors/geocode` 1 request (MapTab mount 時、re-fetch は anchor 変化時のみ)
+- [ ] Network: `aljavfujeqcwnqryjmhl` (Production Supabase) のみ、`hjcrvndumgiovyfdacwc` (Alter staging) 0 hit
+- [ ] Network: `/api/coalter` / `/api/talk` / `/api/mirror` → 0 hit
+- [ ] Console: Google Maps related warning は Morning 由来のもののみ (新規 0)
+- [ ] Console: React 19 warning 0
+
+### Cost / Build (実装後 観測フェーズ)
+
+- [ ] `npm run build`: Phase 2-B baseline から +10% 以内
+- [ ] Vercel deploy 後、Google Cloud Console の Places API usage を週次 review (hypothesis $0.19/user/month の 2 倍超え = §19 中断 trigger)
+- [ ] cache hit 率を観測 (`place_resolution_cache` table SELECT、Plan からの insert 増を監視)
+
+---
+
 ## W1-Z 未適用問題 (Phase 1 PASS 後の課題、CEO 補正 #3)
 
 Phase 1 は UI / 構造統合まで。**Production Supabase に Plan tables 未 migrate** な状態では:
@@ -372,6 +534,16 @@ W1-Z 判断材料:
 | **Phase 2-B: sensitive anchor の内容が thumbnail に漏れる (CEO 補正 §4.4 違反)** | AnchorThumbnail の sensitiveCategory 早期 return を確認、🔒 generic icon に統一 |
 | **Phase 2-B: FAB が tap できない / pane 外に出る** | Phase 2-A FAB と同 pattern、PR #214 containing block 効果を確認 (Phase 2-A の FAIL 対処と同じ) |
 | **Phase 2-B: 旧 W1-X3 gap link が render される (CEO 補正 #3 違反)** | FlowTab.tsx で gap helpers (gapMinutes 等) を import していないか確認、render 0 を保つ |
+| **Phase 2-C: Map が表示されない** | 1. browserKey 未設定 → placeholder "API キー..." を CEO 確認、2. script load fail → Network で `maps.googleapis.com/maps/api/js` の status、3. pins<2 → semantic fallback (正常)、4. それ以外 → DevTools Console で script error |
+| **Phase 2-C: Map に pin が出ない (全 anchor unresolved)** | 1. `/api/plan/anchors/geocode` の response で resolution が null か確認、2. server log `[plan/geocode]` で reason 観測 (api_throw / api_unavailable / not_owned / sensitive / low_confidence)、3. locationText が解決可能な値か (例: "ここ" は地理 unresolvable) |
+| **Phase 2-C: sensitive anchor の locationText が地図 / pin に漏れる (CEO 補正 #2 違反)** | server endpoint で sensitive anchor は unresolved_sensitive で返す設計 (C1)。違反した場合 route.ts の sensitive check (sensitiveSet.has) を確認、即時 revert |
+| **Phase 2-C: 静的 ALTER card が tap で何か起こる (CEO 補正 #2 違反)** | StaticAlterSuggestionCard の cursor:default / tabIndex なし / onClick なし を即時確認、退行は revert |
+| **Phase 2-C: Places API への request body に anchor metadata 混入 (GPT 補正 2 違反)** | C1 endpoint の outbound payload は textQuery / languageCode / maxResultCount のみ。違反は致命、即時 revert + privacy review |
+| **Phase 2-C: rate limit が機能しない** | lib/plan/geocodeRateLimit.ts の checkAndIncrementGeocodeRate 確認、429 が返らない場合は実装 retreat |
+| **Phase 2-C: cost spike (Google Cloud Console で観測)** | Vercel analytics で /api/plan/anchors/geocode の call 頻度確認、cache hit 率を `place_resolution_cache` table で観測、§19 中断 trigger 該当時は CEO 確認 |
+| **Phase 2-C: Alter Morning の地図 (MorningMapView) が壊れる (GPT 補正 3 重大違反)** | googleMapsLoader.ts は MorningMapView 不可触のはず。SCRIPT_ID が "alter-morning-gmaps" と一致しているか、Morning script load が干渉していないか、`npx vitest run tests/unit/alter-morning/` を再走 |
+| **Phase 2-C: Map gesture が縦 scroll を阻害** | gestureHandling: "cooperative" を確認 (1-finger pan は scroll 優先)、2-finger pinch zoom は許可 |
+| **Phase 2-C: 旧 「あなたの聖地マップ」 header が残る** | MapTab.tsx の `<h2>あなたの地理</h2>` を確認、Phase 2-C v3 §13.10 / §14 判断 11 整合 |
 
 ---
 
