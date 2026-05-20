@@ -1,9 +1,13 @@
 # Alter Plan Phase 2-D — 予定追加時の場所候補選択 (Place Picker) Mini Design
 
 **作成日**: 2026-05-20
-**Status**: 採択待ち (CEO 承認後、実装 wave に進む)
+**Status**: **v2 採択待ち** (Option B、GPT 8 補正 + 自立推論強化を反映済、CEO 採択後に Phase 2-D 実装着手)
 **branch**: `docs/alter-plan-phase2-d-place-picker-mini-design` (Phase 2-C impl branch の上に stack、5 段)
-**実装範囲**: 本 PR は **docs only**。実装は CEO 承認後の別 PR (stacked branch、推定 1 PR / 3-4 commits)
+**実装範囲**: 本 PR は **docs only**。実装は CEO v2 採択後の別 PR (stacked branch、推定 1 PR / 3-4 commits)
+
+**version 履歴 (本 file 単独の改訂)**:
+  - **v2 (2026-05-20、本 commit)**: GPT 8 補正 + 自立推論 hidden weakness 解消を反映。具体: ①W1 locationText を disclosure 外へ昇格 (要件化、§0.4 やらないこと から解除)、②W2 post-select edit live update + AbortController、③W3 locationText を canonical text 化 (cache 衝突回避、migration なし)、④W4 sensitive で in-flight cancel、⑤W5 Phase 2-C+2-D combined budget table + observable metrics、⑥regionCode: JP default + bias transparency UI、⑦Panel close button + ARIA "complementary" + max-height、⑧privacy-first hint header
+  - v1 (2026-05-20、commit 10c59eca): 初版起票、17 sections / 1100 行。CEO 「強制ではない場所候補選択」 を mockup pattern + biasing 戦略 + privacy-safe + cost guard で組み立て
 
 **前提**:
   - Phase 2-A 完了凍結 (CalendarTab refactor)
@@ -64,15 +68,59 @@
 
 - ❌ **ExternalAnchor schema 変更** (placeId / lat / lng field 追加、migration、別 wave)
 - ❌ **forced selection** (skip option 必須、自動選択禁止)
-- ❌ **AnchorFormFields の全面 refactor** (touch は locationText input 周辺 + PlaceCandidatesPanel 追加のみ、他 field は不可触)
+- ❌ **AnchorFormFields の全面 refactor** (touch は locationText 入力 area + PlaceCandidatesPanel 追加 + **"もっと細かく" disclosure 構造の最小限変更** に限定、他 field の挙動は不可触)
 - ❌ **AddAnchorModal の signature 変更** (parent 不可触、本 wave は AnchorFormFields internal のみ)
 - ❌ **PlanClient / HomeSwipeContainer / Modal lock 変更**
 - ❌ **Alter Morning 側 logic 改変** (placesApiClient / placeResolver の内部 logic touch なし、call signature 経由のみ)
 - ❌ **新 env / 新 migration / 新 dep / @vis.gl** (Phase 2-C 制約継承)
+- ❌ **per-anchor cache (`place_resolution_cache` table に `anchor_id` column 追加)** (Phase 2-D v2 で却下、Phase 2-D+ 預け。代わりに **locationText canonical 化** で衝突回避、§0.5.1 W3 解決策)
+- ❌ **localStorage / sessionStorage への persistence** (recent places memory は **session-only in-memory Map** のみ、永続不可。Aneurasync privacy 哲学整合)
+- ❌ **永続 recent history / favorites** (Phase 2-D+ で migration を経て検討、本 wave スコープ外)
 - ❌ **CoAlter / Mirror / /talk / D-* / W1-6 / DraftPlan / fallback path** 関連
 - ❌ **Phase 3 ALTER 提案 flow との結合** (本 wave は静的 selection のみ、Phase 3 で AI 提案接続)
 - ❌ **browser geolocation auto-prompt** (user に opt-in 経由でのみ、permission 強制不可)
 - ❌ **server-side candidate ranking / 機械学習 personalization** (本 wave は Places API の order を尊重)
+
+### 0.5 v2 補正 (GPT 8 補正 + 自立推論 hidden weakness 解消)
+
+v1 self-review (本 doc 起票後の review turn) で 5 件の hidden weakness を発見、CEO が Option B (= 実装前に docs 補正) を採択。本 v2 で全て解消:
+
+#### 0.5.1 GPT 8 補正の実装
+
+| # | 補正 | v2 反映場所 | core 内容 |
+|---|---|---|---|
+| **1** | locationText を disclosure 外へ昇格 (W1) | §0.4 やらないこと の解除 / §1.2 audit / §5.1 PlaceCandidatesPanel 配置 / §10 C2 | locationText 入力を **主要 form field 化**、"もっと細かく" は notes / sensitive / endTime 等 advanced field のみに残す。skip / close は常に可能 |
+| **2** | PlaceCandidatesPanel 非強制 UI | §5.2 拡張、§5.7 (新) | close button (×) 右上、`role="complementary"` (ARIA 補助 UI、modal ではない)、max-height 240px + overflow-y-auto で modal 圧迫回避、"場所を選ばずに保存" link 常時表示 |
+| **3** | 曖昧入力精度向上 | §3.5 (新)、§3.6 (新) | `regionCode: "JP"` default (Places API)、bias source を panel header で **user 透明化** (例: "成田市周辺から探しています") |
+| **4** | cache 衝突対策 (W3、canonical text 化) | §5.3 (大幅 update)、§5.4 (新) | 候補 tap で locationText を **canonical text** に update。例: "近所のスタバ" → "スターバックス コーヒー 成田空港第1ターミナル店 / 千葉県成田市古込1番地"。cache key 衝突回避 + MapTab pin 精度向上 + migration 不要 |
+| **5** | post-select edit live update (W2) | §5.5 (新)、§5.6 (新) | user が選択後 locationText を編集 → panel が **live update** で新 query 候補表示、既存 selection と input 値が乖離 → 「場所候補が未確定」 扱いに戻る (= cache 不参照、MapTab で baseline pin) |
+| **6** | sensitive AbortController cancel (W4) | §5.6 (新)、§7.6 (新) | sensitiveCategory が `false → true` の瞬間: (a) panel close、(b) in-flight fetch を AbortController で **cancel** (= 外送信を最小化)、(c) sensitive draft では panel 完全非表示 |
+| **7** | cost guard (W5、combined budget) | §8.4 (新)、§8.5 (新)、§8.6 (新) | Phase 2-C + 2-D combined budget table、observable metrics (cache hit 率 / daily calls / cost-per-anchor / user 当たり call 数)、段階的 limit (warning → 一時 disable) |
+| **8** | Beyond 採用 (session memory / 未確定 indicator / bias transparency / privacy hint) | §16 Beyond 拡張 | session-only recent places (in-memory Map、 lifecycle はページ load → close)、Calendar/Flow/Map 全 tab で「場所未確定」 indicator (UI subtle 表示)、bias source mapping を user-facing label に、Privacy-first hint (Panel header に "あなたの場所を Google に確認します" proactive disclosure) |
+
+#### 0.5.2 自立推論で v2 に追加した強化
+
+- **canonical update の transparency**: tap 直後に「locationText が `〇〇` に更新されます」 を 1.5 秒間 subtle toast 表示 (= user に意思確認、強制感の払拭)
+- **session-only recent memory の lifecycle 明示**: ページ load → close で flush、別タブ間共有なし、user identifiable info を server に送らない
+- **bias source の 7 階層 user-facing mapping**: 同日 anchor / 直近高頻度 / geolocation / baseline (home/city/prefecture) / なし — 各々の panel header 文言を明文化
+- **未確定 indicator の cross-tab consistency**: Calendar/Flow/Map 全 tab で同じ visual (🔍 small icon + "場所未確定" 文言) で表示、user の自己発見を促す
+- **AbortController pattern の徹底**: debounce 中の新 query / panel close / sensitive set / unmount すべてで cancel
+
+#### 0.5.3 v2 の最終 stance
+
+| 観点 | v1 (10c59eca) | v2 (本 commit) |
+|---|---|---|
+| W1 locationText UX | disclosure 内 (CEO 指示の core 未解決) | **disclosure 外昇格** (主要 field) |
+| W2 post-select edit | 想定なし | live update + AbortController cancel |
+| W3 cache 衝突 | 想定なし | **canonical text 化** (migration なし、cache key 衝突回避) |
+| W4 sensitive 後 set | panel 非表示のみ | AbortController で in-flight cancel + cache write 阻止 |
+| W5 cost | 単独 hypothesis | Phase 2-C + 2-D combined budget table + observable metrics + 段階的 limit |
+| regionCode | 未指定 (global search) | **JP default** |
+| bias transparency | 言及あり (label) | **7 階層 mapping を明文化** |
+| Privacy hint | 言及なし | **proactive disclosure** (panel header) |
+| close button | 言及なし | **× icon 右上** (非強制 UI 補強) |
+| ARIA role | 言及なし | `role="complementary"` (補助 UI、modal ではない) |
+| Beyond | B1-B5 5 件 | **B1-B10 10 件** (5 件新規、§16 拡張) |
 
 ---
 
@@ -88,7 +136,9 @@
 | 流用 | `lib/alter-morning/placesApiClient.ts` `searchPlacesByText({textQuery, locationBias, maxResultCount, languageCode})` | Places API Text Search、複数候補可 |
 | 流用 | `lib/alter-morning/placeResolver.ts` `setCachedResolution()` | L1 + L2 cache write、Phase 2-C 流用 pattern と同 |
 
-### 1.2 現在の locationText 入力 UX (problem)
+### 1.2 現在の locationText 入力 UX (problem、v2 補正で disclosure 構造変更要件化)
+
+#### v1 想定 (= 現状の AnchorFormFields)
 
 ```
 AnchorFormFields:
@@ -104,7 +154,28 @@ AnchorFormFields:
     [endTime, sensitiveCategory, etc.]
 ```
 
-→ **CEO 観察**: 「もっと細かく」 disclosure に入っているので、user が一度も開かないと locationText が常に未入力。 結果として MapTab で全 anchor が baseline pin になる。
+→ **CEO 観察**: 「もっと細かく」 disclosure に入っているので、user が一度も開かないと locationText が常に未入力。結果として MapTab で全 anchor が baseline pin になる。
+
+#### v2 補正 (W1、disclosure 構造変更要件化)
+
+```
+AnchorFormFields (v2 補正後):
+  [title input]
+  [date input]
+  [startTime input]
+  [endTime input (optional)]
+  [rigidity radio]
+  [📍 場所 (オプション) input]               ← **disclosure 外、主要 field に昇格 (W1 解決)**
+  ↓ user が "成田のスタバ" 入力 + 500ms debounce
+  [PlaceCandidatesPanel]                   ← 直下に出現、非強制 (close × ボタン + skip link)
+    [候補 1] [候補 2] [候補 3] [候補 4] [候補 5]
+    [場所を選ばずに保存]
+  [locationCategory select]                ← 引き続き optional 表示
+  [もっと細かく教える ▼ disclosure]
+    [notes / sensitiveCategory / endTime 等 advanced field のみ]
+```
+
+→ user は disclosure を開かなくても locationText 入力 + candidate selection が natural flow。CEO 指示「教える の奥に埋もれている」 の core が解消。
 
 ### 1.3 ExternalAnchor の location 関連 field
 
@@ -273,6 +344,35 @@ interface BiasContext {
 ```
 
 → PlaceCandidatesPanel は biasContext.label を表示することで、user に「なぜこの候補が出ているか」 を transparent に伝達。
+
+### 3.5 regionCode JP default (v2 新規、GPT 補正 3)
+
+Places API call で **`regionCode: "JP"` を default** に指定:
+
+- 日本ロケール限定 search (= "スタバ" で global Starbucks ではなく日本国内店舗のみ返却)
+- 同 query で noise 削減 (例: "成田のスタバ" → "Narita Starbucks" の英語 SEO で混入する海外店舗を排除)
+- Places API cost に影響なし (regionCode は free parameter)
+- 設定: server endpoint で固定値 `regionCode: "JP"` を request 送信
+
+### 3.6 Bias source の user-facing transparency mapping (v2 新規、GPT 補正 8)
+
+biasContext.label を panel header に表示する具体的 mapping:
+
+| bias source | panel header 表示 |
+|---|---|
+| same-day resolved anchor | `今日の予定 {anchor.title} ({anchor.startTime}) の近くから探しています` |
+| recent freq resolved | `よく行く {anchor.title} の近くから探しています` |
+| geolocation (opt-in) | `現在地の近くから探しています` |
+| baseline.home | `あなたの自宅 ({label}) の近くから探しています` |
+| baseline.city | `あなたの居住地 ({label}) 周辺から探しています` |
+| baseline.prefecture | `あなたの居住地 ({prefecture}) の範囲から探しています` |
+| none | `場所候補を探しています` (bias なし、free search、regionCode JP のみ) |
+
+各 entry の右に "?" icon、tap で **詳細展開** (= "なぜこの bias が選ばれているか" を user に明示):
+
+例: same-day anchor 選択時の "?" tap → "今日の予定『朝食 (08:00)』 の場所『スターバックス 渋谷店』 を基準にしています。近い場所を優先的に表示中。"
+
+→ user の自己発見を促す Aneurasync 哲学整合 + privacy 透明性確保。
 
 ### 3.4 client-side resolution の判断ルート
 
@@ -568,7 +668,179 @@ async function persistPlaceResolutionCache(candidate: PlaceCandidate): Promise<v
 server 側で setCachedResolution() を call、L1+L2 (= place_resolution_cache table) に write。
 → 次に MapTab open すると、user の locationText (resolved name に updated) で cache hit → resolved pin が即出る。
 
-### 5.4 biasContext を AnchorFormFields から PlaceCandidatesPanel に渡すフロー
+### 5.4 locationText を canonical text に update (v2 新規、GPT 補正 4、W3 解決)
+
+**問題 (v1 で hidden)**: 同 locationText で 2 つの異なる place を別 anchor に紐づけると、`place_resolution_cache` の key が同じ → 後の write が前を上書き → 1 つ目 anchor が間違った場所を指す。
+
+**v2 解決策 (migration なし)**: 候補 tap 時に locationText を **canonical text** に update。
+
+```ts
+function onSelect(candidate: PlaceCandidate) {
+  // v2 補正: locationText を canonical text に更新
+  // canonical text = `${displayName} / ${formattedAddress}`
+  // 例: "近所のスタバ" → "スターバックス コーヒー 成田空港第1ターミナル店 / 千葉県成田市古込1番地"
+  const canonicalText =
+    candidate.address && candidate.address.length > 0
+      ? `${candidate.name} / ${candidate.address}`
+      : candidate.name;
+
+  setLocationText(canonicalText);
+
+  // 1.5 秒の subtle toast で user に明示 (transparency)
+  showToast(`場所を「${candidate.name}」 として保存します`);
+
+  // background で place_resolution_cache に write
+  void persistPlaceResolutionCache({
+    query: canonicalText,  // ← canonical text を cache key にする (= 衝突回避)
+    candidate,
+  });
+}
+```
+
+**効果**:
+
+1. **cache key 衝突回避** (W3 解決): 同 user の 2 つの anchor が「近所のスタバ」 入力 → tap で別 canonical (= 各々の店舗名 + 住所) → cache key 異なる → 上書きなし
+2. **MapTab pin 精度向上**: 次回 MapTab open で canonical text → cache hit → resolved pin
+3. **migration なし**: ExternalAnchor schema 不変、cache table schema 不変
+4. **user transparency**: tap 直後の toast で「locationText を 〇〇 として保存」 を明示
+
+**Edge case 対策**:
+
+- candidate.address が空: `displayName` のみで canonical (例: "Starbucks Coffee 成田空港第1ターミナル店")
+- canonical text が長すぎ (e.g., >100 文字): UI truncate (display only)、storage は full
+- user が tap **後に** locationText を編集 → §5.5 live update + 「未確定」 戻り
+
+### 5.5 post-select edit live update (v2 新規、GPT 補正 5、W2 解決)
+
+**問題 (v1 で hidden)**: 候補 tap 後 user が locationText を再編集 → cache key 変化 → MapTab で cache miss → 再 geocode (or baseline pin)。
+
+**v2 解決策**:
+
+```tsx
+useEffect(() => {
+  if (debouncedQuery.trim().length < 3) {
+    setResults([]);
+    setSelectedCandidate(null);  // ← 編集で既存 selection クリア
+    return;
+  }
+
+  // 既存 selection と input 値が乖離 → 「未確定」 扱いに戻す
+  if (selectedCandidate && debouncedQuery !== selectedCandidate.canonicalText) {
+    setSelectedCandidate(null);
+  }
+
+  // AbortController で前 fetch を cancel
+  const controller = new AbortController();
+  setLoading(true);
+  fetch("/api/plan/places/search", {
+    method: "POST",
+    signal: controller.signal,
+    body: JSON.stringify({ query: debouncedQuery, bias: biasContext.coord }),
+  })
+    .then(/* ... */)
+    .catch((err) => {
+      if (err.name === "AbortError") return;  // 期待された cancel
+      /* ... fail-open ... */
+    })
+    .finally(() => setLoading(false));
+
+  return () => controller.abort();  // unmount / re-run で cancel
+}, [debouncedQuery, biasContext.coord]);
+```
+
+**user 体験**:
+
+- user が "近所のスタバ" 入力 → "スターバックス 成田空港..." を tap → locationText が canonical に update
+- user が canonical text を編集 (e.g., 末尾の住所を削除) → debounce 後 panel が live update、新 query で候補表示
+- 既存 selection と乖離 → 既存 selection clear、user は新 candidate を tap or skip
+- skip で保存 → cache 不参照 (= 「未確定」)、MapTab で baseline pin
+
+### 5.6 AbortController in-flight cancel (v2 新規、GPT 補正 5+6、W4 解決)
+
+cancel する trigger:
+
+| trigger | 動作 |
+|---|---|
+| 新 query (debounce 中) | 前 fetch を `controller.abort()` |
+| panel close (× button) | in-flight fetch cancel + state clear |
+| sensitive set (`false → true`) | in-flight fetch cancel + panel close + cache write 阻止 |
+| component unmount | in-flight fetch cancel + listener cleanup |
+
+```tsx
+// sensitive 変化を watch
+useEffect(() => {
+  if (sensitiveCategory) {
+    // 在中の controller があれば cancel
+    abortControllerRef.current?.abort();
+    setResults([]);
+    setLoading(false);
+    setPanelOpen(false);
+  }
+}, [sensitiveCategory]);
+```
+
+→ **sensitive 後 set 時の外送信 risk を minimum 化** (= 既に発火した fetch も cancel、cache write も阻止)。
+
+### 5.7 PlaceCandidatesPanel UI specs (v2 拡張、GPT 補正 2)
+
+```tsx
+<section
+  role="complementary"                      // ← ARIA: 補助 UI (modal ではない)
+  aria-label="場所候補 (任意)"
+  className="
+    mt-2 rounded-xl border border-slate-200 bg-white p-3
+    max-h-60 overflow-y-auto                // ← max-height で modal 圧迫回避
+    relative
+  "
+>
+  {/* close button (右上、明示的に閉じる、非強制 UI) */}
+  <button
+    type="button"
+    onClick={onClose}
+    aria-label="場所候補パネルを閉じる"
+    className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+  >
+    ✕
+  </button>
+
+  {/* privacy-first hint (proactive disclosure) */}
+  <p className="text-[10px] text-slate-400 italic mb-1">
+    あなたが入力した場所を Google に確認します (キャンセル可能)
+  </p>
+
+  {/* bias transparency header */}
+  <header className="flex items-baseline justify-between mb-2 pr-6">
+    <p className="text-xs font-semibold text-slate-600">
+      ✨ 候補から場所を選ぶ (任意)
+    </p>
+    {biasContext.label && (
+      <p className="text-xs italic text-slate-500 truncate" title={biasContext.label}>
+        {biasContext.label}
+      </p>
+    )}
+  </header>
+
+  {/* candidates list */}
+  {/* ... (v1 通り) ... */}
+
+  {/* skip option (常時 visible) */}
+  <div className="mt-3 text-center">
+    <button type="button" onClick={onSkip} className="text-xs text-slate-500 underline">
+      場所を選ばずに保存
+    </button>
+  </div>
+</section>
+```
+
+**Key visual constraints**:
+
+- max-height 240px (overflow-y-auto): mobile modal でも form 全体 scroll を圧迫しない
+- close button (× icon): 右上、tap で panel state を "closed"、closed 中は同 locationText で再 fetch しない (= user 意思尊重、新 locationText 入力で reset)
+- ARIA `role="complementary"`: assistive technology に "補助 UI" と伝達、modal ではないため focus trap 不要
+- privacy hint: 候補表示前に proactive disclosure (Google に query が送信されることを明示)
+- skip option: 常時 visible、user が「場所を選ばないで保存」 と選択する path
+
+### 5.8 biasContext を AnchorFormFields から PlaceCandidatesPanel に渡すフロー
 
 ```
 AnchorFormFields の親 (AddAnchorModal)
@@ -672,6 +944,55 @@ draft anchor に `sensitiveCategory` が設定済の場合:
 - `GOOGLE_MAPS_API_KEY` (server) で認証
 - `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` は MapTab の地図描画専用、本 wave で touch なし
 
+### 7.7 AbortController で in-flight fetch cancel (v2 新規、GPT 補正 5+6、W4 完全解決)
+
+`fetch()` を AbortController で wrap し、以下 trigger で abort:
+
+| trigger | abort 必須性 | 効果 |
+|---|---|---|
+| 新 query (debounce 中) | ✅ | 古い fetch の結果が new query 後に到着しても old result を display しない (race condition 防御) |
+| panel close (× button) | ✅ | user 意思の即時尊重、無駄 API call 終了 |
+| sensitive set (`false → true`) | ✅ | sensitive 設定後の外送信を最大限抑制 (in-flight でも cancel、cache write 阻止) |
+| component unmount | ✅ | memory leak 防御、effect cleanup の標準 pattern |
+
+実装 pattern (§5.6 参照):
+
+```tsx
+const abortControllerRef = useRef<AbortController | null>(null);
+
+// fetch 開始時
+abortControllerRef.current?.abort();
+abortControllerRef.current = new AbortController();
+fetch(url, { signal: abortControllerRef.current.signal });
+
+// sensitive 監視
+useEffect(() => {
+  if (sensitiveCategory) {
+    abortControllerRef.current?.abort();
+    setPanelOpen(false);
+    setResults([]);
+  }
+}, [sensitiveCategory]);
+```
+
+→ 「sensitive 設定済 anchor の locationText が Google に届く」 という worst case を **アーキテクチャ的に阻止**。
+
+### 7.8 Privacy-first hint (v2 新規、GPT 補正 8、proactive disclosure)
+
+PlaceCandidatesPanel header に **常時表示**:
+
+```
+あなたが入力した場所を Google に確認します (キャンセル可能)
+```
+
+文字サイズ 10px、薄色 italic で subtle。tap で詳細展開可能 (option):
+
+> 検索クエリ (例: "成田のスタバ") と検索バイアス座標が Google に送信されます。
+> その他の情報 (予定タイトル / メモ / カテゴリ / 機密設定 等) は送信されません。
+> いつでも × でキャンセル、場所を選ばずに保存することもできます。
+
+→ user に **「何が外送信されるか」 を proactive に開示**、Aneurasync 透明性哲学整合。GDPR / privacy-by-design 整合。
+
 ---
 
 ## 8. Cost guard (Phase 2-C より高頻度 query 想定の autocomplete 用)
@@ -707,6 +1028,47 @@ debounce + min length + max results + rate limit + dedupe + sensitive skip
 = 同一 user の典型 1 日 query 数を 5-10 に compress
 ```
 
+### 8.4 Combined budget table (Phase 2-C + Phase 2-D、v2 新規、GPT 補正 7、W5 解決)
+
+Phase 2-C と Phase 2-D で Places API call が **両 wave で発生**。combined hypothesis (確定値ではない):
+
+| wave | endpoint | trigger | hypothesis (通常 user) | hypothesis (heavy user) |
+|---|---|---|---|---|
+| Phase 2-C | `/api/plan/anchors/geocode` | MapTab open 時、batch resolve、cache hit 70% | **$0.19/user/month** | $3.8/user/month (上限) |
+| Phase 2-D | `/api/plan/places/search` | anchor 追加時 autocomplete、debounce + min length + cache | **$1-2/user/month** | $28.8/user/month (上限) |
+| **combined** | — | — | **$1.19-$2.19/user/month** | **$32.6/user/month** (極端 worst case) |
+| **combined median** | — | (典型 use) | **$1.50/user/month** | — |
+
+→ **実装後 actual を観測必須**、上限 case の 2 倍超え (= combined > $5/user/month median) で §15 中断 trigger 該当。
+
+### 8.5 Observable metrics (v2 新規、運用 dashboard 用)
+
+実装後、Google Cloud Console + Vercel analytics + Supabase admin で観測する指標:
+
+| metric | source | 閾値 / 観測目安 |
+|---|---|---|
+| **Phase 2-C cache hit 率** | `place_resolution_cache` table の `use_count` 集計 | 60% 以上維持 (50% 以下で §15 trigger) |
+| **Phase 2-D cache hit 率** | 同上 (cache write が canonical text key で重複しないか) | 30% 以上目標 (autocomplete は cache miss 多め) |
+| **daily calls / user** | server log の `[plan/geocode]` + `[plan/places/search]` count | 通常 user < 5/day、heavy user < 30/day |
+| **cost per anchor** | daily Places API spend / daily anchor create count | $0.05-$0.15/anchor (hypothesis) |
+| **cost per query** | daily Places API spend / daily place_search call count | $0.032/query (Basic field mask、SKU 単価通り) |
+| **429 rate** | server log 429 response count | per user 1 日 0 件目標、>10 件/日で abuse 疑い |
+
+→ 月次 review、threshold 超え → CEO に報告 + §15 trigger 判断。
+
+### 8.6 段階的 limit (v2 新規、GPT 補正 7)
+
+per-user で本来の rate limit (60/hour、Phase 2-D) を超えた場合の段階対応:
+
+| level | 条件 | 動作 |
+|---|---|---|
+| **normal** | 60 calls/hour 以内 | 通常動作 |
+| **warning** | 60 calls 到達 (= rate limit 発火) | client に 429 + Retry-After 3600、user に "少し時間をおいて再試行..." 表示 (現 v1 設計) |
+| **soft-disable** (v2 新規) | 1 user で月 500 calls 超え (持続的 abuse / bug) | server で 7 日間 disable、user は手入力 locationText のまま保存可 (= panel 非表示)、CEO に admin notification |
+| **hard-disable** (v2 新規) | server-wide で月 cost が hypothesis の 5 倍超え (= combined $7.5+ /user 平均) | server-wide で endpoint 一時 disable、CEO 緊急判断 |
+
+実装上は **warning までを v1 範囲、soft/hard-disable は Phase 2-D 実装の C3 polish で追加**。本 wave で hard-disable 機構を最小実装 (= env flag で endpoint kill switch を準備、Phase 2-D+ で本格運用)。
+
 ---
 
 ## 9. やらないこと (制約再宣言)
@@ -740,31 +1102,42 @@ debounce + min length + max results + rate limit + dedupe + sensitive skip
 
 ---
 
-## 10. Commit 階段 (実装 wave 用、本 PR では実装しない)
+## 10. Commit 階段 (実装 wave 用、v2 補正反映、本 PR では実装しない)
 
 ### C1: server endpoints + helpers + tests
 
 **Files**:
-- `app/api/plan/places/search/route.ts` (新規、POST autocomplete-style search)
-- `app/api/plan/places/cache-write/route.ts` (新規、候補選択時の cache 書き込み)
-- `lib/plan/geocodeRateLimit.ts` (既存に additive 追加: `checkAndIncrementPlaceSearchRate`、別 counter)
-- `tests/unit/plan/planPlacesSearchRoute.test.ts` (新規)
-- `tests/unit/plan/planPlacesCacheWriteRoute.test.ts` (新規)
+- `app/api/plan/places/search/route.ts` (新規、POST autocomplete-style search、`regionCode: "JP"` default + bias 対応)
+- `app/api/plan/places/cache-write/route.ts` (新規、候補選択時の cache 書き込み + canonical text を key に使う)
+- `lib/plan/geocodeRateLimit.ts` (既存に additive 追加: `checkAndIncrementPlaceSearchRate`、別 counter、60/hour)
+- (Optional kill switch flag) `lib/plan/placesSearchKillSwitch.ts` (env flag で server-wide disable、Phase 2-D+ で本格運用、本 wave は minimum 実装)
+- `tests/unit/plan/planPlacesSearchRoute.test.ts` (新規、regionCode JP / bias / rate limit / privacy validation / fail-open / abort 対応)
+- `tests/unit/plan/planPlacesCacheWriteRoute.test.ts` (新規、canonical text key で write、Phase 2-C cache lookup 整合性確認)
 
-### C2: client UI + hooks + AnchorFormFields integration
+### C2: client UI + hooks + AnchorFormFields refactor (v2 補正で disclosure 構造変更含む)
 
 **Files**:
-- `app/(culcept)/plan/components/PlaceCandidatesPanel.tsx` (新規)
-- `app/(culcept)/plan/components/_useBiasContext.ts` (新規 internal hook)
+- `app/(culcept)/plan/components/PlaceCandidatesPanel.tsx` (新規、close button + ARIA `complementary` + max-height + privacy hint + bias transparency + locationText canonical update + skip)
+- `app/(culcept)/plan/components/_useBiasContext.ts` (新規 internal hook、§3.6 bias source mapping)
 - `app/(culcept)/plan/components/_useRecentResolvedAnchors.ts` (新規 internal hook)
-- `app/(culcept)/plan/components/AnchorFormFields.tsx` (refactor: locationText input 直下に PlaceCandidatesPanel 追加、他 field 不可触)
-- tests for hook / panel
+- `app/(culcept)/plan/components/_useSessionRecentPlaces.ts` (新規、session-only in-memory Map、localStorage 不使用)
+- `app/(culcept)/plan/components/AnchorFormFields.tsx` (refactor: **disclosure 構造変更**、locationText を主要 field に昇格、PlaceCandidatesPanel を直下に配置、"もっと細かく" disclosure には advanced field のみ残す)
+- `app/(culcept)/plan/components/AddAnchorModal.tsx` (signature 不可触、AnchorFormFields の structure 変化は modal 内 layout 整理のみで吸収)
+- AbortController pattern: panel close / new query / sensitive set / unmount で in-flight cancel
+- tests for hooks / panel + AnchorFormFields refactor 整合性
 
-### C3: visual polish + smoke docs
+### C3: Beyond features + cross-tab indicator + smoke docs
 
 **Files**:
-- `app/(culcept)/plan/components/PlaceCandidatesPanel.tsx` (micro polish)
-- `docs/alter-plan-home-swipe-visual-smoke.md` (Phase 2-D 追加 smoke check)
+- `app/(culcept)/plan/components/PlaceCandidatesPanel.tsx` (Beyond polish: privacy hint + canonical toast)
+- `app/(culcept)/plan/components/_useSessionRecentPlaces.ts` (session memory wire + UI 反映)
+- Cross-tab `未確定 indicator`:
+  - `app/(culcept)/plan/tabs/CalendarTab.tsx` 内 SelectedDayAnchorRow (Phase 2-A) に "🔍 場所未確定" subtle indicator
+  - `app/(culcept)/plan/tabs/FlowTab.tsx` 内 AnchorRow (Phase 2-B) に同 indicator
+  - `app/(culcept)/plan/tabs/MapTab.tsx` 内 SelectedAnchorCard (Phase 2-C v2) で既存 "場所未定 — baseline 周辺" 文言に統合
+- 判定: `anchor.locationText` が空 or canonical 化されていない (= "/ 千葉県成田市..." 形式ではない) → 未確定 indicator 表示
+- `docs/alter-plan-home-swipe-visual-smoke.md` (Phase 2-D 追加 smoke section)
+- `app/api/plan/places/search/route.ts` の kill switch env flag (Optional、Phase 2-D+ で本格運用)
 
 ---
 
@@ -838,6 +1211,58 @@ debounce + min length + max results + rate limit + dedupe + sensitive skip
 - [ ] `npx vitest run tests/unit/alter-morning/` 全 PASS
 - [ ] MorningMapView / placesApiClient / placeResolver の挙動不変
 - [ ] place_resolution_cache table への Plan 経由 write が Morning 側 cache 読み込みで問題なし (= cache 共有が positive 効果のみ)
+
+### 11.11 v2 補正の verification (新規 smoke)
+
+#### W1: disclosure 構造変更
+- [ ] AddAnchorModal を open → locationText input が **disclosure 外** に visible (主要 field 化)
+- [ ] "もっと細かく" disclosure を開かずに locationText 入力 + PlaceCandidatesPanel 動作確認
+- [ ] "もっと細かく" 内には notes / sensitiveCategory / endTime のみ表示
+
+#### W2: post-select edit live update
+- [ ] 候補 tap で locationText が canonical text に update
+- [ ] update 後の locationText を user が編集 → 500ms debounce 後 panel が **live update** (new query で候補)
+- [ ] selectedCandidate と input 値が乖離 → 既存 selection clear、"未確定" 戻り
+- [ ] AbortController で前 fetch cancel (Network panel で確認、古い response は無視)
+
+#### W3: canonical text 化 + cache 衝突回避
+- [ ] locationText="近所のスタバ" で "Starbucks 成田空港" tap → locationText が "スターバックス コーヒー 成田空港第1ターミナル店 / 千葉県成田市古込1番地" に update
+- [ ] subtle toast "場所を「スターバックス コーヒー 成田空港第1ターミナル店」 として保存します" 表示
+- [ ] 別 anchor で同じ "近所のスタバ" → 別店舗 tap → canonical 異なる、cache 衝突なし
+- [ ] anchor 保存後 MapTab で **resolved pin** (具体 location) 即表示
+
+#### W4: sensitive AbortController cancel
+- [ ] AnchorFormFields で locationText 入力 → panel が候補 fetch 中 (loading 状態)
+- [ ] sensitiveCategory を "medical" に set → **panel 即 close + in-flight fetch cancel** (Network panel で abort 確認)
+- [ ] cache_resolution_cache に write されないこと確認 (server log)
+
+#### W5: combined cost + observable metrics
+- [ ] Google Cloud Console で Phase 2-C + Phase 2-D combined daily API call count を観測
+- [ ] cache hit 率を `place_resolution_cache` table の `use_count` 集計で確認
+- [ ] cost per anchor / cost per query を月次 review
+
+#### regionCode JP
+- [ ] DevTools Network で `/api/plan/places/search` request body に regionCode 含まない (server で固定)
+- [ ] server log で Places API call が regionCode="JP" で発火 (国内 results のみ返却)
+
+#### Bias transparency
+- [ ] panel header に "{bias label} から探しています" 形式の文言表示
+- [ ] "?" tap で詳細展開 (= "なぜこの bias?" を user に明示)
+- [ ] 7 階層 (same-day / recent / geolocation / home / city / prefecture / none) 各々で文言確認
+
+#### Privacy-first hint
+- [ ] panel header 上部に "あなたが入力した場所を Google に確認します (キャンセル可能)" 常時表示
+- [ ] text size 10px、薄色 italic で subtle (UI 圧迫しない)
+
+#### Close button + ARIA
+- [ ] panel 右上に × icon button 表示
+- [ ] tap で panel close、closed 状態は同 locationText で再 fetch しない
+- [ ] 新 locationText 入力で panel state reset
+- [ ] ARIA: `role="complementary"`、aria-label 含む
+
+#### Cross-tab 未確定 indicator
+- [ ] anchor の locationText が空 or canonical 化されていない → CalendarTab AnchorRow / FlowTab AnchorRow / MapTab SelectedAnchorCard に "🔍 場所未確定" indicator 表示
+- [ ] canonical 化済み anchor (= "/ 住所" 形式) → indicator 非表示
 
 ---
 
@@ -1025,13 +1450,48 @@ panel 非表示時に user が混乱しないよう:
 - mobile では tap が中心 (本 wave 必須)
 - keyboard nav は Phase 2-D+ 預け (mobile-first で v1 は tap focus)
 
+### 16.8 Beyond v2 追加 (GPT 補正 8 + 自立推論強化、B6-B10)
+
+#### B6. canonical text 戦略 (GPT 採用、§5.4 と整合)
+
+- 候補 tap で locationText を `${displayName} / ${formattedAddress}` 形式に update
+- cache key 衝突回避 (W3 解決) + MapTab pin 精度向上 + migration なし
+- subtle toast (1.5 秒) で user に transparency
+- canonical text が長すぎる場合は UI truncate (display only、storage は full)
+
+#### B7. disclosure 構造変更 (GPT 採用、§1.2 v2 / §10 C2 と整合)
+
+- locationText を AnchorFormFields の主要 field に昇格
+- "もっと細かく" disclosure には advanced (notes / sensitiveCategory / endTime) のみ残す
+- CEO 指示「教える の奥に埋もれている」 の core 解決
+
+#### B8. Cross-tab "場所未確定" indicator (自立推論強化)
+
+- Calendar/Flow/Map 全 tab で同一 visual ("🔍 場所未確定" subtle text or icon) で表示
+- 判定: `locationText` が空 or canonical 化されていない (= "/" 区切りで displayName + address 形式ではない) → 未確定
+- 効果: user が「この予定の場所、後で設定したい」 と気づける self-recognition
+
+#### B9. Bias source transparency 7 階層 mapping (§3.6 と整合)
+
+- panel header に「{bias source の自然語} から探しています」 を表示
+- "?" tap で詳細展開 (= "なぜこの bias?" を user に明示)
+- 7 階層 (same-day / recent freq / geolocation / home / city / prefecture / none) を一覧化
+
+#### B10. AbortController in-flight cancel pattern の徹底 (W4 完全解決)
+
+- panel close / new query / sensitive set / unmount すべてで cancel
+- race condition 防御 (古い fetch の結果が new query 後に到着しても無効化)
+- sensitive 設定後の外送信を最大限抑制
+- worst case (sensitive set 直前に query 発火 + 直後に set) でも、in-flight cancel + cache write 阻止
+
 ---
 
 ## 17. 変更履歴
 
 | 日付 | 変更 | 承認 |
 |------|------|------|
-| 2026-05-20 | Phase 2-D mini design 起票、CEO 指示「予定追加時の明確な場所候補選択」 + GPT 整理を反映。Phase 2-C impl branch (8 commits) の上に 5 段 stacked。docs only、実装は CEO 採択後 | CEO レビュー待ち (GitHub 復旧後 push) |
+| 2026-05-20 v1 (commit 10c59eca) | Phase 2-D mini design 起票、CEO 指示「予定追加時の明確な場所候補選択」 + GPT 整理を反映。Phase 2-C impl branch (8 commits) の上に 5 段 stacked。docs only。1100 行 17 sections | CEO + GPT review → 5 件 hidden weakness 発見、Option B 採択 |
+| **2026-05-20 v2 (本 commit)** | **GPT 8 補正 + 自立推論強化を反映**: ①W1 locationText を disclosure 外昇格 (主要 field、§0.4 やらないこと 解除)、②W2 post-select edit live update + AbortController、③W3 locationText canonical text 化 (cache 衝突回避、migration なし)、④W4 sensitive in-flight cancel、⑤W5 Phase 2-C+2-D combined budget table + observable metrics + 段階的 limit、⑥regionCode JP default、⑦Panel close button + ARIA complementary + max-height + privacy-first hint、⑧Beyond B6-B10 5 件追加 (canonical / disclosure 変更 / cross-tab indicator / bias transparency / AbortController pattern) | CEO 採択待ち (実装 GO 判断) |
 
 ---
 
