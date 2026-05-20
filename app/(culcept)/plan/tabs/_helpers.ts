@@ -168,6 +168,85 @@ export function formatJpYearMonth(d: Date): string {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Flow list helpers (Phase 2-B: 今後 N 日リスト表示)
+//
+// 設計書: docs/alter-plan-phase2-b-flow-list-mini-design.md §8 C1
+// 不変原則:
+//   - すべて pure (副作用なし、現在時刻参照なし、入力 mutate なし)
+//   - timezone: UTC 内部 (既存 helper と統一)
+//   - test deterministic
+//
+// 注: formatFlowSectionLabel が formatJpDate を forward reference するが、
+// function declaration の hoisting で runtime 解決される (既存 pattern 踏襲)。
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/** Phase 2-B 標準: Flow list の表示日数 (今日含む) */
+export const FLOW_LIST_DEFAULT_COUNT = 7;
+
+/**
+ * 今日を起点に count 日分の UTC midnight Date 配列を返す。
+ *
+ * @param now 現在時刻 (test 用に引数で受ける)
+ * @param count 取得日数 (default: FLOW_LIST_DEFAULT_COUNT = 7)
+ *
+ * @example
+ *   buildFlowDateRange(new Date("2026-05-20T12:00:00Z"), 7)
+ *   // → [5/20, 5/21, 5/22, 5/23, 5/24, 5/25, 5/26] (UTC midnight 7 件)
+ *
+ *   buildFlowDateRange(new Date("2026-12-30T12:00:00Z"), 7)
+ *   // → [12/30, 12/31, 1/1, 1/2, 1/3, 1/4, 1/5] (年跨ぎ)
+ */
+export function buildFlowDateRange(
+  now: Date,
+  count: number = FLOW_LIST_DEFAULT_COUNT
+): Date[] {
+  if (count <= 0) return [];
+  const today = utcMidnight(now);
+  return Array.from({ length: count }, (_, i) => addDays(today, i));
+}
+
+/**
+ * Flow list の section header label を返す。
+ *
+ * 今日 → "今日 · 5月20日(水)"
+ * 明日 → "明日 · 5月21日(木)"
+ * それ以外 → "5月22日(金)"
+ *
+ * @param day 対象日 (UTC midnight)
+ * @param today 今日 (UTC midnight、test 用に引数で受ける)
+ */
+export function formatFlowSectionLabel(day: Date, today: Date): string {
+  const dayIso = isoDate(day);
+  const todayIso = isoDate(today);
+  const tomorrowIso = isoDate(addDays(today, 1));
+  const base = formatJpDate(day);
+  if (dayIso === todayIso) return `今日 · ${base}`;
+  if (dayIso === tomorrowIso) return `明日 · ${base}`;
+  return base;
+}
+
+/**
+ * Flow list の section header tone (色味の分類)。
+ *
+ * 優先順位: today > sunday > saturday > weekday
+ * Tailwind class mapping は UI 側 (FlowTab) に閉じる。helper は pure な分類のみ。
+ *
+ * - today: 今日。最優先 (日曜・土曜よりも先に判定)
+ * - sunday: 日曜 (text-rose-500 等の locale 色)
+ * - saturday: 土曜 (text-blue-500 等の locale 色)
+ * - weekday: 月-金 (中立色)
+ */
+export type FlowWeekdayTone = "today" | "sunday" | "saturday" | "weekday";
+
+export function weekdayTone(day: Date, today: Date): FlowWeekdayTone {
+  if (isoDate(day) === isoDate(today)) return "today";
+  const dow = day.getUTCDay();
+  if (dow === 0) return "sunday";
+  if (dow === 6) return "saturday";
+  return "weekday";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Time helpers
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
