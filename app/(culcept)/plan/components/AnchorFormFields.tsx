@@ -38,6 +38,12 @@ import {
 } from "@/lib/plan/anchor-input-form";
 import type { Weekday } from "@/lib/plan/weekday-template";
 
+import {
+  PlaceCandidatesPanel,
+  type PlaceCandidate,
+} from "./PlaceCandidatesPanel";
+import { useBiasContext } from "./_useBiasContext";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const WEEKDAY_LABELS: ReadonlyArray<{ value: Weekday; label: string }> = [
@@ -94,6 +100,25 @@ export function AnchorFormFields({
     [form.selectedWeekdays]
   );
   const sourceTypeDefault = defaultSourceTypeForKind(form.kind);
+
+  // Phase 2-D: PlaceCandidatesPanel 用 bias context (baseline-only v1)
+  const { biasContext } = useBiasContext();
+
+  // Phase 2-D: PlaceCandidatesPanel handlers
+  // 候補 tap → locationText を canonical text に更新 (= "displayName · address")
+  const handlePlaceCandidateSelect = (
+    canonicalText: string,
+    _candidate: PlaceCandidate,
+  ) => {
+    onChange("locationText", canonicalText);
+    // Note: cache write to place_resolution_cache は本 wave 範囲外 (Phase 2-D+ 預け)。
+    // MapTab 初回 geocode で resolved になる (+1 Places API call、cache 化される)。
+  };
+
+  // 候補を選ばずに保存 → 何もしない (panel 内部で close 処理)
+  const handlePlaceCandidateSkip = () => {
+    // no-op: 親では locationText を変えない、panel が closed 状態に
+  };
 
   // W1-X4: exception dates の add 候補（form state には含めない、submit 対象でない）
   const [exceptionCandidate, setExceptionCandidate] = useState("");
@@ -350,6 +375,34 @@ export function AnchorFormFields({
         </div>
       </Field>
 
+      {/*
+       * Phase 2-D 補正 (CEO 補正 2026-05-21): locationText を「もっと細かく」 disclosure 外の
+       * 主要 field へ昇格。CEO 指示「場所の設定が教える の下に埋もれている」 の core 解決。
+       *
+       * - input は常時 visible (rigidity の直下)
+       * - 直下に PlaceCandidatesPanel (非強制 UI、close/skip 可)
+       * - sensitiveCategory が set されたら panel は完全抑制
+       * - locationCategory は disclosure 内に残す (CEO C2 scope minimum、locationText のみ昇格)
+       */}
+      <Field label="場所（任意）" error={errorsByField.get("locationText")}>
+        <input
+          type="text"
+          value={form.locationText}
+          onChange={(e) => onChange("locationText", e.target.value)}
+          disabled={submitting}
+          placeholder="例: 成田のスタバ / 渋谷歯科クリニック"
+          data-testid="plan-form-location-text"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+        />
+        <PlaceCandidatesPanel
+          query={form.locationText}
+          biasContext={biasContext}
+          sensitive={!!form.sensitiveCategory}
+          onSelect={handlePlaceCandidateSelect}
+          onSkip={handlePlaceCandidateSkip}
+        />
+      </Field>
+
       {/* Optional 折り畳み */}
       <button
         type="button"
@@ -405,16 +458,11 @@ export function AnchorFormFields({
             </select>
           </Field>
 
-          <Field label="場所名（任意）" error={errorsByField.get("locationText")}>
-            <input
-              type="text"
-              value={form.locationText}
-              onChange={(e) => onChange("locationText", e.target.value)}
-              disabled={submitting}
-              placeholder="渋谷歯科クリニック 等"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
-            />
-          </Field>
+          {/*
+           * Phase 2-D 補正: locationText (場所名) は disclosure 外の主要 field へ昇格済 (上記参照)。
+           * 本 disclosure には locationCategory / sensitiveCategory / endTime / validUntil 等の
+           * advanced field のみ残す。
+           */}
 
           <Field label="敏感カテゴリ（任意）" error={errorsByField.get("sensitiveCategory")}>
             <select
