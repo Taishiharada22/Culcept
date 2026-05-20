@@ -1,9 +1,13 @@
-# Alter Plan Phase 2-C — MapTab「自分の地理」 Mini Design
+# Alter Plan Phase 2-C — MapTab「自分の地理」 Mini Design (v2: Google Maps あり本命)
 
 **作成日**: 2026-05-20
-**Status**: 採択待ち (CEO 承認後、実装 wave に進む)
+**Status**: v2 採択待ち (CEO 補正により v1 から大幅改訂、補正後 GO/NO-GO 判断待ち)
 **branch**: `docs/alter-plan-phase2-c-map-tab-mini-design` (Phase 2-B impl branch の上に stack、GitHub suspension 中の local-first 運用)
 **実装範囲**: 本 PR は **docs only**。実装は CEO 承認後の別 PR (stacked branch、推定 1 PR / 3 commits)
+
+**version 履歴 (本 file 単独の改訂)**:
+  - **v2 (2026-05-20、本 commit)**: **Google Maps あり 本命** に redirect。既存 Alter Morning 資産 (Places API client / 2-layer cache / vanilla JS script loader / NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY) を流用。CEO 方針 「Alter Morning 用 API 資産は Alter Plan で普通に使ってよい」 + 「使える資産は積極流用」 を反映
+  - v1 (2026-05-20、commit 59dbb3c5、**撤回**): Google Maps なし semantic-only 設計。empirical audit 不足で「現 MapTab は地図 API を使わない pattern」 をそのまま v1 結論にしたが、Alter Morning に既存 Google Maps integration 資産が豊富 (Places API + L1+L2 cache + vanilla script loader) であり、流用すれば real-map MapTab が migration / env / 新 dep なしで実現可能と判明。CEO 確認の上で本 v2 に補正
 
 **前提**:
   - Phase 1 完全 PASS (PR #219 + W1-Z apply 済)
@@ -13,997 +17,1486 @@
 
 **関連**:
   - `docs/alter-plan-phase2-a-calendar-month-view-mini-design.md` (Phase 2-A mini design、CalendarTab refactor の前例)
-  - `docs/alter-plan-phase2-b-flow-list-mini-design.md` (Phase 2-B mini design、FlowTab refactor + CEO 補正 1-3 + Beyond 改善の前例)
+  - `docs/alter-plan-phase2-b-flow-list-mini-design.md` (Phase 2-B mini design、CEO 補正 1-3 + Beyond 改善 + 静的 ALTER card pattern の前例)
   - `app/(culcept)/plan/tabs/MapTab.tsx` (本命修正対象、現 194 行)
   - `app/(culcept)/plan/tabs/_helpers.ts` (helper、本 wave で軽量拡張)
-  - `lib/plan/external-anchor.ts` (ExternalAnchor 型、lat/lng なし)
-  - `components/home/morning/MorningMapView.tsx` (Alter Morning の Google Maps script-injection 前例、PR #31 で `@vis.gl/react-google-maps` reject、本 wave では参照のみ)
-  - `lib/alter-morning/routesApiClient.ts` (Google Maps API key 利用箇所、本 wave で touch なし)
-  - CEO 方針: 「地図アプリではなく自分の地理」「pins は単なる場所ではなく生活の意味を持つ点」
+  - `lib/plan/external-anchor.ts` (ExternalAnchor 型、lat/lng なし、本 wave で touch なし)
+  - `components/home/morning/MorningMapView.tsx` (vanilla Google Maps JS script loader pattern、本 wave で参照 + 抽出して reuse)
+  - `lib/alter-morning/placesApiClient.ts` (Google Places API Text Search、本 wave で server-side endpoint から流用)
+  - `lib/alter-morning/placeResolver.ts` (2-layer cache + resolver、本 wave で `getCachedResolution` / `setCachedResolution` を流用)
+  - `lib/alter-morning/placeCacheStore.ts` (Supabase L2、既存 table `place_resolution_cache` migration 20260416100000 既適用、本 wave で touch なしで利用)
+  - `lib/alter-morning/locationResolver.ts` (PREFECTURE_COORDS / municipalityCoords fallback、本 wave で参照可能性あり)
+  - CEO 方針: 「Alter Morning 用 API 資産は Alter Plan で普通に使ってよい」「使える資産は積極流用」「@vis.gl/react-google-maps は NG (PR #31 timeout)、vanilla JS API は OK」
 
 ---
 
-## 0. ゴール (CEO 方針由来)
+## 0. ゴール (v2、CEO 補正反映)
 
-### 0.1 CEO 方針の本質
+### 0.1 v1 撤回 → v2 redirection の経緯
+
+v1 (commit 59dbb3c5) は「Google Maps なし、semantic category grid」 で設計したが、CEO 補正 (2026-05-20):
+
+> Alter Morning 用 API 資産は Alter Plan で普通に使ってよい。
+> Google Maps API も既にあるなら使ってよい。
+> 使える資産は積極使うべき。
+
+を受けて、empirical audit を再実施。**Alter Morning が既に保有する Google Maps 統合資産** が判明:
+
+| 資産 | 用途 | 本 wave 流用 |
+|------|------|--------------|
+| `placesApiClient.searchPlacesByText` | Google Places API (New) Text Search | ✅ |
+| `placeResolver.getCachedResolution` | L1 (in-memory) + L2 (Supabase) cache 読み込み | ✅ |
+| `placeResolver.setCachedResolution` | L1 + L2 cache 書き込み (L2 は fire-and-forget) | ✅ |
+| `placeCacheStore` の Supabase `place_resolution_cache` table | 永続 cache、migration 20260416100000 既適用、30 日 TTL | ✅ (touch なしで利用) |
+| `MorningMapView` 内 vanilla JS script loader pattern | `script.id="alter-morning-gmaps"` singleton、failsafe、`NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 利用 | ✅ (抽出 + 共有 module 化、もしくは inline 再現) |
+| `MorningMapView` 内 pure helpers (`isValidCoord` / `isSamePointCluster` / `computeBounds`) | pin 描画前提条件チェック | ✅ (再 export または import) |
+| `GOOGLE_MAPS_API_KEY` (server-side env) | Places API 認証 | ✅ (既存 env、追加なし) |
+| `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` (browser-side env) | Maps JS API 認証 | ✅ (既存 env、追加なし) |
+| `lib/shared/location.ts` の `PREFECTURE_COORDS` | 都道府県 fallback 座標 (47 都府県) | ✅ (必要時に参照) |
+| `lib/shared/municipalityCoords.ts` の `getMunicipalityCoords` | 市区町村 fallback 座標 | ✅ (必要時に参照) |
+
+→ v1 結論「Google Maps なし」 は overly conservative。**v2 = Google Maps あり本命** に補正。
+
+### 0.2 CEO 方針の本質 (v1 から維持)
 
 > Phase 2-C は「地図アプリ」ではなく「自分の地理」。
 > pin は単なる場所ではなく、生活の意味を持つ点として扱う。
 > category / locationCategory / anchor を活かす。
-> 最初から完璧な Google Maps 統合に飛ばず、最小安全設計を出す。
 
-これは Aneurasync 哲学の自然な延長:
+これは v2 でも変わらない。重要な変化:
+- v1: 「地図アプリではない = 地図そのものを使わない」 と過剰一般化
+- **v2**: 「地図アプリではない = 地図 を 自分の地理 のキャンバスとして使う」 ← 正しい解釈
 
-- **「この機能は、ユーザーの第二の自己として必要か?」**
-  - Google 級の正確な GPS マップは「第二の自己」ではない (どのマップアプリでも提供される)
-  - 「ここは私が労働する場所」「ここは私が一息つく場所」という **意味の地理** は第二の自己でしか提示できない
-- **「自分って、そういう人間だったのか」 体験**
-  - 「私は週 5 回ここに行く」「私の "聖域" は実はここ」が見える
-  - GPS 座標ではなく、**category × frequency × time-signature** の組み合わせで現れる
-- **Heart Dynamics Model 整合 (memory: `heart-dynamics-model-v1.md`)**
-  - 時間構造 (気候 + 季節 + 天気) と並ぶ「**空間構造**」: 領土 (全カテゴリ) + 街 (頻訪先) + 部屋 (今日の場)
-  - 場所もまた generative space (= 将来 ALTER が「ここで何する?」を提案する起点)
+「地図アプリ」 (Apple Maps / Google Maps consumer) は「他人事の地理」(全世界対象、generic)。**Aneurasync の MapTab は「私の地理」 (my anchors only、my categories、my voice) を Google Maps の地理キャンバスの上に重ねる**。これが distinct contribution。
 
-### 0.2 Phase 2-C v1 の goal (実装する範囲)
+### 0.3 v2 の goal (実装する範囲)
 
 | 達成 | 詳細 |
 |------|------|
-| **MapTab を「カテゴリ別の場所リスト」 から「自分の地理」 view へ昇格** | 現 MapTab は機能としては正しいが、視覚 / voice / 哲学的整合が薄い。Phase 2-C v1 で richer な category grid + Aneurasync 独自 voice + 静的 ALTER 提案 placeholder を載せる |
-| **既存 ExternalAnchor + locationCategory + helper を 100% 流用** | migration 0、新 field 0、API key 0、env 変更 0 |
-| **Google Maps は使わない** (CEO 方針 + 技術現実) | ExternalAnchor に lat/lng がなく、地図描画する素材がない。地図 API を導入しても「自分の地理」 体験は出ない。実 map は将来 wave (lat/lng + reverse-geocoding 設計後) |
-| **CalendarTab / FlowTab との役割分離** | 時間軸 (Calendar = 月、Flow = 7 日) ≠ 空間軸 (Map = カテゴリ別)。同じ anchor を 3 つの視点で見る価値を強化 |
-| **完全 local-first 実装可能** | Phase 2-A / Phase 2-B と同様に GitHub 復旧待ちの間に C1-C3 を local commit のみで完了できる |
+| **Google Maps view を MapTab に統合**、anchor を pin として描画 | vanilla JS script loader (MorningMapView pattern) + `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` (既存) |
+| **locationText → 座標解決を server-side endpoint で集約**、cache reuse | 新 `app/api/plan/anchors/geocode/route.ts` 1 ファイル、内部で `placesApiClient` + `placeResolver` cache を call。新 dep / migration / env なし |
+| **semantic category overlay** (category 別 pin color / icon、voice integration) | v1 で設計した CATEGORY_META.hint + frequency voice + time signature を pin and panel に統合 |
+| **semantic fallback list** (座標解決できない anchor を地図下に list 表示) | locationText 曖昧 / 空 / Places API miss の anchor は地図に pin を出さず、下部 list 表示 |
+| **CalendarTab / FlowTab との役割分離** | 時間軸 (Calendar/Flow) ≠ 空間軸 (Map)、3 レンズ pattern (v1 から維持) |
+| **完全 local-first 実装可能** | Phase 2-A / Phase 2-B と同様 GitHub 復旧待ちの間に C1-C3 を local commit のみで完了 |
+| **migration / 新 env / 新 dep / @vis.gl すべてなし** | 既存資産流用、新規追加 0 |
 
-### 0.3 Phase 2-C で **やらないこと** (CEO 制約、本 wave スコープ外)
+### 0.4 Phase 2-C で **やらないこと** (CEO 制約)
 
-- ❌ **Google Maps integration** (PR #31 reject 前例 + ExternalAnchor 座標なし + Aneurasync 哲学逸脱)
+#### 削除 (v1 から、v2 では制約解除)
+
+- ~~❌ Google Maps integration~~ → **使う** (v2、CEO 補正)
+- ~~❌ Real-map 描画~~ → **使う** (v2)
+- ~~❌ locationText → 座標解決~~ → **既存 Alter Morning Places API + cache を流用する** (v2)
+
+#### 維持 (v1 から継続、v2 でも禁止)
+
+- ❌ **`@vis.gl/react-google-maps` dep 追加** (PR #31 で Vercel build 45:22 timeout、vanilla JS API のみ採用)
 - ❌ **ExternalAnchor 型に lat / lng / geo_point field 追加** (migration、別 wave)
-- ❌ **locationText → coordinates の reverse geocoding service** (別 wave、需要発生時)
-- ❌ **API key (NEXT_PUBLIC_*MAPS*) の Plan 用追加 / 流用** (CEO 確認に戻る)
-- ❌ **env 変数追加 / 修正** (Production / Preview / Development いずれも)
+- ❌ **新 migration ファイル追加** (既存 `place_resolution_cache` table 流用は migration ではない、新 table / column 追加禁止)
+- ❌ **新 env 追加** (`NEXT_PUBLIC_*MAPS*` の Plan 専用 key 追加 / 既存外の新 key)
+- ❌ **新 dep install** (geo / map 系ライブラリ、`leaflet` / `mapbox-gl` / `@vis.gl/react-google-maps` 等)
 - ❌ **Production / all-Preview env 変更**
 - ❌ **service_role / DB password / connection string 使用**
-- ❌ **migration 追加**
 - ❌ **CoAlter / Mirror / /talk / D-* / W1-6 / DraftPlan / fallback path 関連**
 - ❌ **Phase 2-A / Phase 2-B branch への追加 commit** (本 PR は別 branch)
 - ❌ **Phase 2-A の CalendarTab / Phase 2-B の FlowTab の改修**
 - ❌ **HomeSwipeContainer / PlanClient / Modal logic 変更** (CalendarTab / FlowTab refactor と同 pattern、touch なし)
-- ❌ **Phase 3 ALTER 提案 flow 動作実装** (本 wave は静的 placeholder のみ)
-- ❌ **real-time location tracking** / ユーザーの GPS 取得 (locationOptIn は別 feature)
-- ❌ **長押し quick action menu** (Phase 2-C+ 預け、Phase 2-B と同 defer)
+- ❌ **AddAnchorModal の signature 変更** (既存 `initialState` / `contextSubtitle` を流用)
+- ❌ **Phase 3 ALTER 提案 flow 動作実装** (本 wave は静的 placeholder のみ、Phase 2-B と同)
+- ❌ **`MorningMapView.tsx` の改修** (Alter Morning 側の component、本 wave touch なし。Plan 側で再実装または pure helper のみ import)
+- ❌ **`placeResolver` 等の改修** (Alter Morning 側、本 wave で API call のみ、内部 logic touch なし)
+- ❌ **`place_resolution_cache` table への schema 変更** (column 追加 / index 追加すべて NG)
+- ❌ **real-time location tracking** / ユーザーの GPS 取得 (Layer 3 GPS は locationResolver で「未実装」プレースホルダー、本 wave スコープ外)
+- ❌ **長押し quick action menu** (Phase 2-B と同 defer)
+- ❌ **MapTab を default tab に変更** (現在 Calendar = default 維持)
 
 ---
 
-## 1. 現在の MapTab 構造 (read-only audit)
+## 1. 既存 Alter Morning 資産 audit (流用範囲の確定)
 
-### 1.1 ファイル
+### 1.1 server-side API resources (本 wave で API call 流用)
 
-| layer | path | 役割 |
-|-------|------|------|
-| component | `app/(culcept)/plan/tabs/MapTab.tsx` (194 行) | 地理レンズ (自分の聖地マップ)、locationCategory 別 anchor group view |
-| helper | `app/(culcept)/plan/tabs/_helpers.ts` | `groupAnchorsByLocation` / `CATEGORY_META` / `SENSITIVE_LABEL` / `LOCATION_GROUP_ORDER` / `countOccurrences` 等を再利用 |
-| parent | `PlanClient.tsx` | data fetch、Modal 制御、`onAddRequest` / `onAnchorClick` callback |
-
-### 1.2 現状の表示構造 (W1-5 + W1-X3)
-
-```
-<MapTab>
-  ├ header: "あなたの聖地マップ" + "今後 N 日間で訪れる場所"
-  ├ Empty 状態: GlassCard "今後 N 日間に予定された場所がありません"
-  └ ul (category groups):
-      ├ group card per category (LOCATION_GROUP_ORDER 順):
-      │   ├ header: emoji + label + hint + "N 日で X 回" badge
-      │   ├ anchor list (sorted by count desc):
-      │   │   ├ anchor row: title + ×count + locationText? + sensitive badge?
-      │   │   └ ...
-      │   └ W1-X3: "+ <カテゴリ>での予定を教える" button
-      │     (locationCategory のみ pre-fill、locationText 自動入力なし、CEO 補正 3)
-      └ ...
-</MapTab>
-```
-
-### 1.3 重要な既存資産 (本 wave で 100% 再利用、touch なし)
-
-- `groupAnchorsByLocation(anchors, start, end): CategoryGroup[]` — category 別の集計 (count 降順、title asc tie-break)
-- `LOCATION_GROUP_ORDER`: `["home", "office", "school", "cafe", "public", "outdoor", "transit", "unknown", "none"]` — 表示順
-- `categoryOf(anchor)`: locationCategory → LocationGroupKey (locationCategory なし / locationText あり = "unknown"、なし = "none")
-- `CATEGORY_META`: 9 カテゴリ × { label, emoji, hint } の意味の地理データ
-- `SENSITIVE_LABEL`: AnchorSensitiveCategory → 日本語 label
-- `countOccurrences(anchor, start, end)`: recurring 展開 + exception_dates + validity の出現数カウント
-- props signature: `anchors / now? / windowDays? / onAddRequest? / onAnchorClick?` (Phase 2-A の CalendarTab / Phase 2-B の FlowTab と共通)
-
-### 1.4 CATEGORY_META = 「意味の地理」 のソース of truth
+#### 1.1.1 `placesApiClient.searchPlacesByText`
 
 ```ts
-// _helpers.ts
-CATEGORY_META = {
-  home:    { label: "家",      emoji: "🏠", hint: "自分の聖域" },
-  office:  { label: "職場",    emoji: "🏢", hint: "労働の場" },
-  school:  { label: "学校",    emoji: "🎓", hint: "学びの場" },
-  cafe:    { label: "カフェ",  emoji: "☕", hint: "ひと息の場" },
-  outdoor: { label: "屋外",    emoji: "🌿", hint: "外の空気" },
-  public:  { label: "公共",    emoji: "🏛️", hint: "市民の場" },
-  transit: { label: "移動",    emoji: "🚃", hint: "通り道" },
-  unknown: { label: "未分類",  emoji: "📍", hint: "場所カテゴリ未設定" },
-  none:    { label: "場所なし", emoji: "·", hint: "場所が指定されていない予定" },
+// lib/alter-morning/placesApiClient.ts
+export async function searchPlacesByText(options: {
+  textQuery: string;
+  locationBias?: { lat: number; lng: number; radius: number };
+  languageCode?: string;
+  maxResultCount?: number;
+}): Promise<PlacesApiPlace[]>
+
+interface PlacesApiPlace {
+  id: string;
+  displayName: { text: string; languageCode: string };
+  formattedAddress?: string;
+  shortFormattedAddress?: string;
+  location?: { latitude: number; longitude: number };  // ← Plan MapTab pin 用
+  types?: string[];
+  businessStatus?: string;  // OPERATIONAL | CLOSED_TEMPORARILY | CLOSED_PERMANENTLY
 }
 ```
 
-**重要**: `hint` は単なる説明ではなく **Aneurasync voice** (「自分の聖域」「ひと息の場」 等)。Phase 2-C v1 で **voice を card に visible 表示** することで「意味の地理」を視覚化する。
+**特性**:
+- server-side のみ (uses `process.env.GOOGLE_MAPS_API_KEY`)
+- cost-optimized: Basic field mask (~$0.032/req)、`maxResultCount=5` default
+- `isPlacesApiAvailable()` で事前チェック可能 (key 未設定時は false、fail-open)
+- fail 時 throw、resolver 側 catch → fail-open
 
-### 1.5 ExternalAnchor 型 (geo coordinate field の現状)
+**Plan 流用方針**: 新 server-side endpoint (§5.2) から薄く呼び出すのみ。internal logic touch なし。
+
+#### 1.1.2 `placeResolver.getCachedResolution` / `setCachedResolution`
 
 ```ts
-// lib/plan/external-anchor.ts (確認済)
+// lib/alter-morning/placeResolver.ts
+export async function getCachedResolution(
+  userId: string,
+  placeText: string,
+  area?: string,
+): Promise<PlaceResolutionCacheEntry | null>
+
+export async function setCachedResolution(
+  userId: string,
+  placeText: string,
+  area: string | undefined,
+  entry: Omit<PlaceResolutionCacheEntry, "cachedAt" | "lastUsedAt" | "useCount">,
+): Promise<void>
+
+interface PlaceResolutionCacheEntry {
+  resolvedName: string;
+  address?: string;
+  placeId?: string;
+  lat?: number;  // ← Plan MapTab pin 用
+  lng?: number;  // ← Plan MapTab pin 用
+  confidence: ResolutionConfidence;
+  cachedAt: string;
+  lastUsedAt: string;
+  useCount: number;
+}
+```
+
+**特性**:
+- 2-layer cache: L1 (in-memory Map) → miss → L2 (Supabase `place_resolution_cache`)
+- L1 hit → 高速 path
+- L2 hit → L1 に書き戻し → return
+- write: L1 + L2 (L2 は fire-and-forget)
+- 30 日 TTL (`CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000`)
+- key: `userId:placeText.lower():area.lower()` (`cacheKey()` 内部関数)
+- fail-open: L2 障害時は L1 のみで動作継続
+- low / unresolved は L2 に保存しない (アプリ層で制御)
+
+**Plan 流用方針**: そのまま使う。`userId` は requesting user、`placeText` は anchor.locationText、`area` は user の baseline prefecture (optional、§5.3)。
+
+#### 1.1.3 `placeCacheStore` の Supabase L2 table
+
+```sql
+-- supabase/migrations/20260416100000_place_resolution_cache.sql (既適用)
+CREATE TABLE place_resolution_cache (
+  id UUID PRIMARY KEY,
+  user_id UUID NOT NULL,
+  place_text TEXT NOT NULL,
+  coarse_area TEXT NOT NULL,
+  resolved_name TEXT NOT NULL,
+  address TEXT,
+  place_id TEXT,
+  place_type TEXT,
+  confidence TEXT,
+  source TEXT,
+  lat DOUBLE PRECISION,
+  lng DOUBLE PRECISION,
+  use_count INT,
+  created_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ
+);
+```
+
+**特性**:
+- migration 既適用 (Production / staging 両方)
+- user_id RLS あり想定 (placeCacheStore 内 query は user_id 指定)
+- `lat`, `lng` column 既存 → Plan の pin 描画にそのまま使える
+
+**Plan 流用方針**: **touch なし**。`placeResolver.getCachedResolution` / `setCachedResolution` 経由でのみ参照。**schema 変更禁止** (column 追加 / index 追加すべて NG)。
+
+#### 1.1.4 `locationResolver` の fallback coords
+
+```ts
+// lib/alter-morning/locationResolver.ts
+export function resolveLayer1(base: SavedBase | null): ResolvedOrigin
+
+// fallback chain:
+// - layer1_city: baseline.prefecture + baseline.city → municipalityCoords
+// - layer1_prefecture: baseline.prefecture → PREFECTURE_COORDS
+```
+
+```ts
+// lib/shared/location.ts
+export const PREFECTURE_COORDS: Record<Prefecture, LatLng>  // 47 都道府県
+```
+
+```ts
+// lib/shared/municipalityCoords.ts
+export function getMunicipalityCoords(prefecture, city): LatLng | null
+```
+
+**Plan 流用方針**: Phase 2-C v2 で **採用しない** (= 使わない)。
+- 理由 1: anchor.locationText が空 or 解決不可なら **semantic fallback list に回す** が筋 (artificial coord を出すと「ここに行ったことになる」 という嘘になる)
+- 理由 2: locationResolver の 3-layer は Alter Morning の routing 用 (origin / endpoint 算出)、Plan MapTab の pin (= anchor の場所) と用途が異なる
+- 例外: 将来 wave で「ユーザーの活動範囲を bounds で限定する」 機能を追加するなら、baseline-based bounds に使える (本 wave スコープ外)
+
+### 1.2 client-side resources (本 wave で抽出 / 再現)
+
+#### 1.2.1 `MorningMapView.tsx` の vanilla JS script loader pattern
+
+```ts
+// components/home/morning/MorningMapView.tsx (要点抜粋)
+const browserKey = process.env.NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY;
+const SCRIPT_ID = "alter-morning-gmaps";
+const SCRIPT_URL_BASE = "https://maps.googleapis.com/maps/api/js";
+
+useEffect(() => {
+  if (!browserKey || typeof window === "undefined") return;
+  if (window.google?.maps) { setMapsReady(true); return; }
+
+  const existing = document.getElementById(SCRIPT_ID);
+  if (existing) {
+    existing.addEventListener("load", () => setMapsReady(true), { once: true });
+    return;
+  }
+
+  const script = document.createElement("script");
+  script.id = SCRIPT_ID;
+  script.async = true;
+  script.defer = true;
+  script.src = `${SCRIPT_URL_BASE}?key=${encodeURIComponent(browserKey)}`;
+  script.addEventListener("load", () => setMapsReady(true), { once: true });
+  script.addEventListener("error", () => { /* graceful */ }, { once: true });
+  document.head.appendChild(script);
+}, [browserKey]);
+```
+
+**Plan 流用方針 (3 候補、CEO 判断 §14)**:
+
+- **A. shared module 抽出 (推奨)**: `lib/shared/googleMapsLoader.ts` を新規作成、MorningMapView と Plan MapTab 両方が import。SCRIPT_ID は単一 ("alter-morning-gmaps" を維持 or "aneurasync-gmaps" にリネーム)、load 状態 hook (`useGoogleMapsScript()`) を提供
+- B. Plan 側 inline 再現 (= MorningMapView の loader code をコピー)、SCRIPT_ID は別 (例: "alter-plan-gmaps")。両 component 独立 load (DRY 違反、script 2 個になり cost も増える)
+- C. Plan 側 inline 再現、SCRIPT_ID は同 ("alter-morning-gmaps")。両 component が同 script を share、後 mount 側が既存 script を待つ (簡素だが loader 重複)
+
+A 推奨。既存 MorningMapView を refactor して shared loader を使うように更新する必要があるが、これは「Alter Morning touch なし」 制約と衝突する → CEO 判断必要。代替で B / C も可。
+
+#### 1.2.2 `MorningMapView.tsx` の pure helpers
+
+```ts
+// すべて export 済、test 確認済
+export function isValidCoord(c): boolean
+export function extractPins(events): PinPoint[]
+export function extractPinsFromPlanItems(items): PinPoint[]
+export function extractJourneyPins(origin, end): PinPoint[]
+export function composeJourneyPinList(journeyPins, eventPins): PinPoint[]
+export function isSamePointCluster(pins): boolean
+export function computeBounds(pins): { north, south, east, west } | null
+```
+
+**Plan 流用方針**:
+- `isValidCoord`, `isSamePointCluster`, `computeBounds` は **直接 import** (汎用 pure logic)
+- `extractPins*` / `extractJourneyPins` は Morning-specific (events / planItems / journey 用)、Plan は別 helper (`extractAnchorPins`) を C1 で新規作成
+
+### 1.3 env / secrets (本 wave で touch なし)
+
+| env | 種別 | 利用箇所 | Plan で touch |
+|-----|------|---------|---------------|
+| `GOOGLE_MAPS_API_KEY` | server-side | `placesApiClient` / `routesApiClient` 等 | **既存 env を server endpoint から indirect 利用** (placesApiClient call の deep 経由、Plan の code から直接 `process.env.GOOGLE_MAPS_API_KEY` を読まない) |
+| `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` | browser-side (public、bundle に入る) | `MorningMapView` | **既存 env を Plan MapTab で直接 utilize** (script loader URL に注入) |
+
+→ **新 env 追加なし**。命名が "ALTER_MORNING_" prefix なのは由来であり、Plan 用に rename したくなった場合は **CEO 確認に戻る** (§19 中断 trigger)。本 wave では prefix 維持で利用。
+
+### 1.4 結論: 流用可能性
+
+| 観点 | v1 想定 (撤回) | v2 (本 mini design) |
+|------|---------------|---------------------|
+| API key 追加 | 「Plan 用に必要」 | **不要** (既存 env 流用) |
+| migration 追加 | 「lat/lng 追加に必須」 | **不要** (既存 cache table 流用、anchor schema 不変) |
+| 新 dep | 「`@vis.gl/react-google-maps` 等」 | **不要** (vanilla JS script tag) |
+| 座標解決 | 「Reverse Geocoding service が必要」 | **不要** (既存 Places API + cache を server endpoint 経由で reuse) |
+| 永続 cache | 「新 table 必要」 | **不要** (既存 `place_resolution_cache` table 流用) |
+| build performance | 「@vis.gl で timeout」 | **影響 0** (vanilla script tag は runtime load) |
+
+→ **v2 は migration 0 / 新 env 0 / 新 dep 0 / 新 table 0** で実現可能。CEO 補正の「最小安全設計」 整合。
+
+---
+
+## 2. 現在の MapTab 構造 (read-only audit、v1 から維持)
+
+### 2.1 ファイル
+
+| layer | path | 役割 |
+|-------|------|------|
+| component | `app/(culcept)/plan/tabs/MapTab.tsx` (194 行) | 地理レンズ (自分の聖地マップ)、locationCategory 別 anchor group view (現状 = 地図 なし) |
+| helper | `app/(culcept)/plan/tabs/_helpers.ts` | `groupAnchorsByLocation` / `CATEGORY_META` / `SENSITIVE_LABEL` / `LOCATION_GROUP_ORDER` 等を再利用 |
+| parent | `PlanClient.tsx` | data fetch、Modal 制御、callback |
+
+### 2.2 既存 helper (本 wave で 100% 維持、touch なし)
+
+- `groupAnchorsByLocation(anchors, start, end): CategoryGroup[]` — category 別集計
+- `LOCATION_GROUP_ORDER`: 9 categories 順序
+- `categoryOf(anchor)`: locationCategory → LocationGroupKey
+- `CATEGORY_META`: 9 categories × { label, emoji, hint }
+- `SENSITIVE_LABEL`: AnchorSensitiveCategory → label
+- `countOccurrences(anchor, start, end)`: recurring 展開 + exception_dates + validity
+
+### 2.3 CATEGORY_META = 「意味の地理」 のソース of truth (v1 から維持)
+
+```ts
+home:    🏠 自分の聖域      cafe:    ☕ ひと息の場
+office:  🏢 労働の場        outdoor: 🌿 外の空気
+school:  🎓 学びの場        public:  🏛️ 市民の場
+transit: 🚃 通り道          unknown: 📍 場所カテゴリ未設定
+none:    ·  場所が指定されていない予定
+```
+
+v1 で導入した「hint を visible voice として表示」 は v2 でも維持。**地図 (Google Maps) の上に重ねる category overlay + voice panel** の核データ。
+
+### 2.4 ExternalAnchor 型 (lat/lng なし、本 wave で touch なし)
+
+```ts
 interface ExternalAnchorBase {
   id, userId, title, startTime, endTime?,
-  locationText?,            // 自由 string ("スターバックス 代官山店")
-  locationCategory?,        // enum (home/office/school/cafe/outdoor/public/transit/unknown)
+  locationText?,        // 自由 string ("スターバックス 代官山店")
+  locationCategory?,    // enum 8 種
   rigidity, sourceId, confirmedAt, confidence?, sensitiveCategory?
 }
 ```
 
-→ **`latitude` / `longitude` / `geo_point` field なし**。本 wave で migration 追加もしない (CEO 制約)。
-→ Google Maps を描画する素材がない → 地図 API 不採用が技術的に確定。
-
-### 1.6 周辺の Google Maps 利用状況 (本 wave で不可触)
-
-| ファイル | 用途 | 本 wave 取り扱い |
-|---------|------|------|
-| `lib/alter-morning/routesApiClient.ts` | Alter Morning の Routes API (`GOOGLE_MAPS_API_KEY` server-side) | 不可触 |
-| `components/home/morning/MorningMapView.tsx` | Alter Morning の Map View (`NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` browser-side、script injection) | **参照のみ** (script load fail-safe / pin-only / fitBounds pattern が将来 real-map 時の reference) |
-| `@vis.gl/react-google-maps` (PR #31 で reject) | React wrapper | **使わない** (Vercel build 45:22 timeout 前例) |
-
-→ Phase 2-C v1 で **これらの env / key / dependency を一切参照しない** (CEO 制約)。
+- **lat / lng なし** → migration 追加せず、render-time に locationText から座標解決
+- **既存 schema 不変** → Phase 2-A / Phase 2-B / 他 feature への影響 0
 
 ---
 
-## 2. CEO mock との差分
+## 3. CEO mock との差分 (v2、Google Maps 統合)
 
-### 2.1 想定 mock (具体 mock 不在の場合の汎用ターゲット)
-
-CEO mock の具体スクショ (MapTab specific) は不在のため、CEO 方針 + Aneurasync 哲学 + Phase 2-A/2-B との一貫性から逆算した完成形を仮定:
+### 3.1 想定 mock (v2、Google Maps view 含む)
 
 ```
-あなたの地理 (or 自分の地理 / 生活が起こる場所 — CEO 判断)
+あなたの地理 (or "聖地マップ" etc.、§14 判断 1)
 今後 14 日間で訪れる場所
 
-┌──────────────────┐  ┌──────────────────┐
-│ 🏠 (large)        │  │ 🏢 (large)        │
-│ 家                │  │ 職場              │
-│ 自分の聖域          │  │ 労働の場          │
-│ 週 7 回 · 朝晩中心   │  │ 週 5 回 · 9-18 中心 │
-│ ───────────       │  │ ───────────       │
-│ 朝食 × 7           │  │ 定例会議 × 3       │
-│ 夕食 × 6           │  │ 個人作業 × 5       │
-│ + ここでの予定を教える│  │ + ここでの予定を教える│
-└──────────────────┘  └──────────────────┘
-┌──────────────────┐  ┌──────────────────┐
-│ ☕ (large)        │  │ 🎓 (large)        │
-│ カフェ             │  │ 学校              │
-│ ひと息の場          │  │ 学びの場 (今は静か) │
-│ 週 2 回 · 午後中心   │  │ ―                 │
-│ ───────────       │  │                   │
-│ 読書 × 2           │  │                   │
-│ + ここでの予定を教える│  │ + ここでの予定を教える│
-└──────────────────┘  └──────────────────┘
-... (outdoor / public / transit / unknown / none)
+┌────────────────────────────────────────┐
+│ [Google Map (height: ~280px)]          │  ← Google Maps view (vanilla JS API)
+│                                         │
+│       📍 (pin: 🏠 home anchor)         │
+│   📍 (pin: 🏢)                          │
+│           📍 (pin: ☕)                  │
+│   📍 (pin: 🚃)                          │
+│                                         │
+│   [fitBounds で全 pin を含む zoom]       │
+└────────────────────────────────────────┘
 
-┌──────────────────────────────────────┐
-│ 静的 ALTER 提案 card (CEO 補正 #2 整合)│
-│ "ALTER があなたの地理を読みに..."       │
-│ (Phase 3 で動作予定)                  │
-└──────────────────────────────────────┘
+カテゴリ概要 (semantic overlay panel、map と並ぶ or 下)
+┌──────────────────┐  ┌──────────────────┐
+│ 🏠 家             │  │ 🏢 職場           │
+│ 自分の聖域         │  │ 労働の場          │
+│ 週 7 回 · 朝晩中心  │  │ 週 5 回 · 9-18 中心│
+│ ─────             │  │ ─────             │
+│ 朝食 × 7 (📍 maps)│  │ 定例会議 × 3 (📍) │
+│ 夕食 × 6 (📍 maps)│  │ 個人作業 × 5 (📍) │
+│ + ここでの予定を   │  │ + ここでの予定を   │
+└──────────────────┘  └──────────────────┘
+
+座標解決できない予定 (semantic fallback、地図に出ない)
+┌────────────────────────────────────────┐
+│ 📂 場所が曖昧 / 未指定                  │
+│ "近所のカフェ" × 2 (☕ カフェ category) │  ← 解決失敗の anchor
+│ "公園で散歩" × 1 (🌿 屋外 category)     │
+│ + 場所をはっきりさせる                  │  ← optional add link
+└────────────────────────────────────────┘
+
+┌────────────────────────────────────────┐
+│ 静的 ALTER 提案 card (Phase 2-B 整合)   │
+│ "あなたの地理を、ALTER が..."           │
+│ (Phase 3 で動作予定)                    │
+└────────────────────────────────────────┘
 
                                       [+]
                                      FAB
 ```
 
-### 2.2 現 MapTab との差分 (Phase 2-C v1 で追加するもの)
+### 3.2 現 MapTab → Phase 2-C v2 の差分 matrix
 
-| 項目 | 現 MapTab (W1-5 + W1-X3) | Phase 2-C v1 (CEO mock 整合) | 差分種別 |
-|------|---------------------------|------------------------------|----------|
-| **layout** | 縦 1 列 list、各 group が 1 card | **2 列 grid** (mobile responsive、wider では 2-3 列) | 構造変更 |
-| **card visual** | header (emoji + label + count badge) + anchor list + add link | **emoji を text-4xl 大型化** + **hint を visible voice 表示** + 頻度/時間 signature + 充実した anchor list | 視覚強化 |
-| **frequency 表現** | "N 日で X 回" (literal) | **"週 N 回" / "月 N 回" 自然語** (Aneurasync voice) | 表現変更 |
-| **time signature** | (なし) | **"朝晩中心" / "9-18 中心" / "午後中心"** (anchors の startTime 集計) | 新規 |
-| **empty category 表現** | 非表示 (`totalCount=0` の group は filter) | **静かなトーンで表示** (`(今は静か)` voice、Aneurasync "未来 = generative space" 哲学整合、Phase 2-B §11.10 と同) | 構造変更 |
-| **静的 ALTER 提案 card** | (なし) | **末尾に static placeholder** (Phase 2-B §3.4 と同 pattern、ボタン風禁止、CEO 補正 #2 整合) | 新規 |
-| **FAB** | (なし、per-category add のみ) | **global FAB** (Phase 2-A / 2-B 同視覚) + **per-category add 維持** | 新規 (per-category と共存) |
-| **header copy** | "あなたの聖地マップ" + "今後 N 日間で訪れる場所" | **"あなたの地理" or 候補から CEO 判断**, sub copy 同 | 用語確認 |
-| **sensitive privacy** | anchor row に `<GlassBadge>{sensitive}</GlassBadge>` 表示 | **`🔒 ⟨敏感⟩ 〇〇` 形式 + 同 badge 維持** (Phase 2-B AnchorThumbnail の sensitive ロジックと整合) | 整合 |
+| 項目 | 現 MapTab (W1-5 + W1-X3) | Phase 2-C v2 | 差分種別 |
+|------|---------------------------|--------------|----------|
+| **地図 view** | なし (地図 API 不採用) | **vanilla Google Maps JS API で view 表示** (height ~280px、fitBounds 自動) | **新規追加** |
+| **anchor pin** | なし | **locationText 解決 anchor に pin、category color / icon overlay** | **新規追加** |
+| **座標解決** | なし | **server-side endpoint 経由で Places API + cache** | **新規 endpoint 追加** |
+| **解決不可 anchor** | 全 anchor をリストに含めるだけ | **「曖昧 / 未指定」 専用 section に分離**、地図には出さない | **新規構造** |
+| **category cards** | 縦 1 列 list | **2 列 grid** (v1 で設計、v2 でも維持)、map の下に配置 | 構造変更 |
+| **frequency / time signature** | "N 日で X 回" | **"週 N 回 · 朝晩中心" 等の voice** (v1 で設計、v2 維持) | 表現変更 |
+| **empty category** | 隠す | **静かなトーンで表示** ("今は静か"、v1 で設計、v2 維持) | 構造変更 |
+| **静的 ALTER 提案 card** | なし | **末尾に static placeholder** (v1 で設計、v2 維持) | 新規 |
+| **FAB** | なし | **追加** (v1 で設計、v2 維持) | 新規 |
+| **header copy** | "あなたの聖地マップ" | **CEO 判断 §14** (5 候補) | 用語確認 |
 
 ---
 
-## 3. MapTab 完成形 (Phase 2-C v1)
+## 4. MapTab 完成形 (v2)
 
-### 3.1 全体構造
+### 4.1 全体構造
 
 ```tsx
 <MapTab>
   ├ <header>
-  │   ├ <h2>あなたの地理</h2>  (or CEO 判断による header copy)
+  │   ├ <h2>あなたの地理</h2>  (or CEO 確定 copy)
   │   └ <p>今後 14 日間で訪れる場所</p>
-  ├ {groups.length === 0 → Empty card (静的、Phase 2-B EmptyCategoryStillness 哲学整合)}
-  ├ <ul role="list" className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-  │   {LOCATION_GROUP_ORDER.map(cat => (
-  │     <li key={cat}>
-  │       <CategoryCard ... />  ← active category も empty category も同 component、active flag で出し分け
-  │     </li>
-  │   ))}
-  └ </ul>
-  ├ {showStaticAlterCard && <StaticAlterSuggestionCard ... />}  (CEO 判断、Phase 2-B 整合)
-  └ {onAddRequest && <FAB ... />}                                 (CEO 判断、Phase 2-B 整合)
+  ├ <PlanMapView>  ← 新 component (vanilla Google Maps JS API)
+  │   ├ Google Maps script loader (singleton)
+  │   ├ map mount + fitBounds + markers (category-themed)
+  │   ├ marker tap → onAnchorClick (AnchorDetailModal)
+  │   └ failsafe: script load fail / browserKey 不在 / pins<2 → empty placeholder
+  ├ <CategoryGrid>  ← v1 で設計、v2 維持
+  │   └ {LOCATION_GROUP_ORDER.map(cat => <CategoryCard ... />)}
+  ├ <UnresolvedAnchorsSection>  ← 新 component (semantic fallback list)
+  │   └ {unresolved.map(a => <UnresolvedAnchorRow ... />)}
+  ├ <StaticAlterSuggestionCard>  (v1 維持、CEO 補正 #2 整合)
+  └ <FAB>  (v1 維持)
 </MapTab>
 ```
 
-### 3.2 CategoryCard 構造
+### 4.2 PlanMapView (新 component)
 
 ```tsx
-<CategoryCard category="home" group={...} timeSignature={...} onAdd={...} onAnchorClick={...}>
-  <header>
-    <span className="text-4xl">{emoji}</span>
-    <div>
-      <h3 className="text-lg font-semibold">{label}</h3>
-      <p className="text-xs italic text-slate-500">{hint}</p>  ← voice visible 化
-    </div>
-  </header>
+function PlanMapView({
+  anchors,          // ExternalAnchor[]
+  resolutions,      // Map<anchorId, { lat, lng, confidence } | null>  座標解決結果
+  onAnchorClick,    // (anchor) => void
+}: {...}) {
+  // (1) script loader (MorningMapView の pattern 流用)
+  const { ready, key } = useGoogleMapsScript();  // shared loader hook (§5.1 候補 A の場合)
 
-  {active === false && (
-    <p className="text-xs text-slate-400">今は静か</p>  ← empty category の voice
-  )}
+  // (2) resolvable anchors のみ pin 化
+  const pins = useMemo(() => {
+    const out: AnchorPin[] = [];
+    for (const a of anchors) {
+      const r = resolutions.get(a.id);
+      if (!r || !isValidCoord({ lat: r.lat, lng: r.lng })) continue;
+      out.push({ anchor: a, coord: { lat: r.lat, lng: r.lng } });
+    }
+    return out;
+  }, [anchors, resolutions]);
 
-  {active === true && (
-    <>
-      <p className="text-xs text-indigo-600">
-        {frequencyLabel}  ← "週 N 回" / "月 N 回" (Aneurasync voice)
-        {timeSignature && ` · ${timeSignature}`}  ← "朝晩中心" / "9-18 中心" (時間 signature)
-      </p>
+  // (3) fallback: pins<2 or 全 same point → map mount しない (Morning と同 pattern)
+  const allSamePoint = isSamePointCluster(pins.map(p => p.coord));
+  const bounds = computeBounds(pins.map(p => p.coord));
+
+  // (4) failsafe states:
+  if (!key) return <MapKeyMissingPlaceholder />;     // browserKey 未設定
+  if (!ready) return <MapLoadingPlaceholder />;      // script loading
+  if (pins.length === 0) return <MapNoPinsPlaceholder />;  // 解決済み anchor なし
+  if (pins.length < 2) {
+    // 1 pin only: single-point center + default zoom
+    return <SinglePinMap pin={pins[0]} />;
+  }
+
+  // (5) full map view
+  return <FullMapView pins={pins} bounds={bounds} onPinClick={onAnchorClick} />;
+}
+```
+
+**設計判断**:
+- `height: ~280px` (CEO 判断 §14 候補 80 / 180 / 280 / 360px)
+- `gestureHandling: "cooperative"` (Morning と同、scroll 衝突回避)
+- `disableDefaultUI: true` (custom layer のみ)
+- markers: legacy `google.maps.Marker` (Map ID 不要、Morning と同)
+- marker color / icon: category-themed (例: `🏠 home` → indigo / `🏢 office` → slate / `☕ cafe` → amber)
+- marker tap: `addListener("click", () => onAnchorClick(anchor))`
+
+### 4.3 Anchor Pin の category-themed design
+
+```ts
+// 候補: SVG icon as marker (Google Maps の Marker.icon を SVG path で指定)
+const CATEGORY_MARKER: Record<LocationGroupKey, { color: string; emoji: string }> = {
+  home:    { color: "#6366f1", emoji: "🏠" },  // indigo
+  office:  { color: "#475569", emoji: "🏢" },  // slate
+  school:  { color: "#0ea5e9", emoji: "🎓" },  // sky
+  cafe:    { color: "#d97706", emoji: "☕" },  // amber
+  outdoor: { color: "#16a34a", emoji: "🌿" },  // green
+  public:  { color: "#7c3aed", emoji: "🏛️" }, // violet
+  transit: { color: "#64748b", emoji: "🚃" },  // slate
+  unknown: { color: "#94a3b8", emoji: "📍" },  // slate-400
+  none:    { color: "#cbd5e1", emoji: "·" },   // slate-300
+};
+```
+
+**Sensitive 配慮**: `anchor.sensitiveCategory` がある場合は emoji を `🔒` に強制置換、color は灰色 (Phase 2-B AnchorThumbnail と整合)。
+
+### 4.4 CategoryGrid (v1 で設計、v2 維持)
+
+§3.2 / §3.3 / §12.3 (v1 内容) を維持。grid layout、emoji 大型、hint voice visible、frequency natural language、time signature、empty as silence、per-category add link、sensitive privacy。
+
+(v2 で削除しない、すべて v1 通り。地図の **下** に配置。)
+
+### 4.5 UnresolvedAnchorsSection (新 component、座標解決失敗 anchor の fallback)
+
+```tsx
+function UnresolvedAnchorsSection({
+  anchors,
+  resolutions,
+  onAnchorClick,
+  onAddRequest,
+}: {...}) {
+  // resolution が null (Places API miss) or locationText が空の anchor
+  const unresolved = useMemo(() => {
+    return anchors.filter(a => {
+      const r = resolutions.get(a.id);
+      return !r || !isValidCoord({ lat: r.lat, lng: r.lng });
+    });
+  }, [anchors, resolutions]);
+
+  if (unresolved.length === 0) return null;
+
+  return (
+    <section role="region" aria-label="場所が曖昧 / 未指定の予定">
+      <header>
+        <h3>📂 場所が曖昧 / 未指定</h3>
+        <p className="text-xs italic text-slate-500">
+          地図に出せなかった予定 — locationText がない、または Places API で特定できなかった
+        </p>
+      </header>
       <ul>
-        {anchors.map(({ anchor, count }) => (
-          <li key={anchor.id} role="button" ...>
-            <span>{anchor.title}</span>
-            <span>× {count}</span>
-            {anchor.locationText && <p>{anchor.locationText}</p>}
-            {anchor.sensitiveCategory && <span className="🔒 badge">{...}</span>}
+        {unresolved.map(a => (
+          <li key={a.id} role="button" onClick={() => onAnchorClick(a)}>
+            <span>{a.title} × {count}</span>
+            <span className="text-xs">({CATEGORY_META[categoryOf(a)].label})</span>
+            {a.locationText && <p className="text-xs">"{a.locationText}"</p>}
           </li>
         ))}
       </ul>
-    </>
-  )}
-
-  {isAddable && onAdd && (
-    <button onClick={onAdd}>+ {label} での予定を教える</button>
-  )}
-</CategoryCard>
-```
-
-### 3.3 時間 signature の計算 (新 helper、本 wave C1)
-
-```ts
-// app/(culcept)/plan/tabs/_helpers.ts (additive)
-
-/** anchor 集合の時間 signature を返す (anchor の startTime 集計) */
-export function categoryTimeSignature(anchors: ExternalAnchor[]): string | null {
-  if (anchors.length === 0) return null;
-  const hours = anchors.map(a => Number(a.startTime.slice(0, 2)) || 0);
-  const morningCount = hours.filter(h => h >= 5 && h < 11).length;
-  const dayCount = hours.filter(h => h >= 11 && h < 17).length;
-  const eveningCount = hours.filter(h => h >= 17 && h < 22).length;
-  const nightCount = hours.filter(h => h >= 22 || h < 5).length;
-  // 過半数が同帯 → その時間帯 voice、混在なら最頻 + "中心"
-  const total = hours.length;
-  const top = Math.max(morningCount, dayCount, eveningCount, nightCount);
-  if (top / total >= 0.5) {
-    if (top === morningCount) return "朝中心";
-    if (top === dayCount) return "日中中心";
-    if (top === eveningCount) return "夜中心";
-    if (top === nightCount) return "深夜中心";
-  }
-  // 朝晩集中 (morning + evening が過半数) → "朝晩中心"
-  if ((morningCount + eveningCount) / total >= 0.6) return "朝晩中心";
-  // それ以外 → null (signature 表示しない)
-  return null;
-}
-
-/** 期間内の visit 頻度を自然語 voice で返す */
-export function categoryFrequencyVoice(count: number, windowDays: number): string {
-  if (count === 0) return "今は静か";
-  const perWeek = count / (windowDays / 7);
-  if (perWeek >= 1) return `週 ${Math.round(perWeek)} 回`;
-  const perMonth = count * (30 / windowDays);
-  if (perMonth >= 1) return `月 ${Math.round(perMonth)} 回`;
-  return `${count} 回 (${windowDays} 日間)`;
+    </section>
+  );
 }
 ```
 
-両 helper とも:
-- pure (副作用なし)
-- test deterministic
-- 既存 `_helpers.ts` の Phase 2-A / Phase 2-B 拡張パターン踏襲 (additive only)
+**意義**:
+- 「Phase 2-C は地図アプリではなく自分の地理」 哲学整合: 解決できない anchor も「私の地理の一部」 として無視せず尊重
+- ユーザーが「あ、ここ locationText が曖昧だな」 と気づく self-recognition の起点
 
-### 3.4 静的 ALTER 提案 card (Phase 2-B §3.4 と同 pattern)
+### 4.6 静的 ALTER 提案 card (v1 維持、Phase 2-B §3.4 と同 pattern)
 
-```tsx
-{/*
-  CEO 補正 #2 (Phase 2-B 整合): 静的 placeholder、ボタン風禁止
-  - <section role="region">、cursor: default、tabIndex なし、onClick なし
-  - 文言は CTA 想起を作らない
-  - hover/shadow/transition なし
-  - Phase 3 で初めて button-like styling に切り替え
-*/}
-<StaticAlterSuggestionCard>
-  <p className="italic text-slate-500">あなたの地理を、ALTER が読みに来る予定です</p>
-  <div className="border bg-white/70 px-4 py-3">
-    <p>あなたの "聖域" を見てみたいですか?</p>  ← CEO 判断、文言バリエーション §13
-    <p className="text-slate-400">(Phase 3 で動作予定 — 今は説明だけ)</p>
-  </div>
-</StaticAlterSuggestionCard>
-```
+§3.4 (v1 内容) を維持。tap 動作なし、ボタン風 styling 禁止、role="region"。文言は CEO 判断 §14 候補 3 件。
 
-### 3.5 FAB (Phase 2-A / 2-B 同 pattern)
+### 4.7 FAB (v1 維持、Phase 2-A / 2-B 同 pattern)
 
-```tsx
-{onAddRequest && (
-  <button
-    type="button"
-    onClick={handleFabClick}
-    aria-label="場所カテゴリ未指定で予定を追加"
-    data-testid="plan-map-fab"
-    className="
-      fixed bottom-20 right-6 z-30
-      w-14 h-14 rounded-full
-      bg-gradient-to-br from-indigo-500 to-purple-500
-      ...
-    "
-  >+</button>
-)}
-```
+§3.5 (v1 内容) を維持。locationCategory 未指定で AddAnchorModal 起動。`fixed bottom-20 right-6 z-30`。
 
-- prefill: locationCategory なし (= 未指定、AddAnchorModal で user が選ぶ)
-- subtitle: `地理 / カテゴリ未指定 から` or `地理 / 自分の場所から` (CEO 判断、§13)
-- per-category add (W1-X3 既存) と並行: FAB は generic entry、card 内 add は category-prefilled entry
+### 4.8 anchor detail 導線 (W1-X5 既存、不変)
 
-### 3.6 anchor detail 導線 (W1-X5 既存、不変)
+- map marker tap → `onAnchorClick(anchor)` → AnchorDetailModal
+- semantic card 内 anchor row tap → 同
+- unresolved row tap → 同
+- 既存 `onAnchorClick` callback signature 不変、本 wave で touch なし
 
-- AnchorCard 内の anchor row tap → `onAnchorClick(anchor)` → AnchorDetailModal 起動
-- 既存挙動 (role="button" + tabIndex + Enter/Space 対応) 継承
-- AnchorDetailModal は Phase 1 / W1-X5 で完成、本 wave 不可触
-
-### 3.7 + 教える 導線の整理
+### 4.9 + 教える 導線整理 (v1 から微更新)
 
 | 場所 | 状態 | 用途 |
 |------|------|------|
 | PlanClient header 「+ 教える」 | 継続 (両 mode) | route mode で primary entry |
-| MapTab FAB (Phase 2-C 新規) | **追加** (Phase 2-A / 2-B 整合) | 主要 entry on mobile (カテゴリ未指定) |
-| 各 CategoryCard 内 「+ <カテゴリ> での予定を教える」 | **継続** (W1-X3 既存、locationCategory pre-fill) | category-context 追加 |
-| 静的 ALTER 提案 card | tap 不可 (CEO 補正 #2 と同) | Phase 3 で動作実装 |
-| empty category (active=false) | tap 動作? | CEO 判断 §13: A. add link 表示 / B. tap 不可 (本 wave) |
+| MapTab FAB | 追加 | 主要 entry on mobile (カテゴリ未指定) |
+| 各 CategoryCard 内 「+ <カテゴリ> での予定を教える」 | **継続** (W1-X3 既存、category prefill) | category-context 追加 |
+| 静的 ALTER 提案 card | tap 不可 (CEO 補正 #2 整合) | Phase 3 で動作実装 |
+| empty category card | CEO 判断 §14 | A. add link 表示 / B. tap 不可 |
+| **UnresolvedAnchorsSection の "場所をはっきりさせる" link** (Beyond、§13) | CEO 判断 §14 | A. 表示 (EditAnchorModal 起動、locationText 編集 prompt) / B. 表示しない (本 wave) |
 
 ---
 
-## 4. Google Maps を使う場合 / 使わない場合の比較
+## 5. 既存資産流用戦略
 
-### 4.1 Side-by-side
+### 5.1 vanilla Google Maps JS script loader の共有
 
-| 観点 | Google Maps **使う** | Google Maps **使わない** (Phase 2-C v1 推奨) |
-|------|---------------------|-------------------------------------------|
-| **ExternalAnchor data** | lat/lng 必須 → **migration 必須**: anchors.latitude / longitude (or geo_point PostGIS) + backfill | 既存 locationCategory / locationText のみで成立 |
-| **Geocoding** | locationText → coordinates の reverse service 必要 (Google Geocoding API / Mapbox / OpenStreetMap、cost/rate-limit/privacy) | 不要 |
-| **API key** | `NEXT_PUBLIC_*MAPS*` の Plan 専用 key or Alter Morning key 流用 → **env 変更必須** | 不要 |
-| **build performance** | PR #31 で `@vis.gl/react-google-maps` reject (45:22 timeout)。script injection なら OK だが追加 KB / network roundtrip | 影響 0 |
-| **license attribution** | Google ロゴ表示義務、ToS 遵守 | 不要 |
-| **privacy** | Google への HTTP リクエスト発生 (anchor location が直接送られはしないが domain access はある) | ローカル完結 |
-| **cost** | usage-based pricing (低頻度は無料枠だが scale 時はコスト発生) | 0 |
-| **「自分の地理」 哲学整合** | 弱い (= Google Maps 自体が「他人事の地理」、汎用 map API) | **強い** (= category + voice + frequency が「私の地理」を露出) |
-| **「pin = 生活の意味を持つ点」 整合** | 弱い (= GPS pin は意味を持たず単なる点) | **強い** (= CategoryCard が意味を持つ単位) |
-| **CalendarTab / FlowTab との分離度** | 弱い (= 「地図 vs リスト」になり、地図側が distinct 価値を提示しにくい) | **強い** (= 時間軸 (Calendar/Flow) ≠ 空間軸 (Map)、3 レンズ pattern が成立) |
-| **「最初から完璧な統合に飛ばない」 整合** | × (= 最大限の依存追加) | ✅ |
-| **将来 lat/lng 追加時の switch コスト** | 既に統合済 → 微調整のみ | 別 wave で wrapping component を切り替え (lat/lng based pin overlay を v1 grid と並べる or 別 view mode 追加) |
-| **CEO 制約「Google Maps API key や env 変更が必要なら CEO 確認に戻る」** | **トリガー発火 → 即停止** | 不発火 |
+CEO 判断 §14 候補 3 (再掲):
 
-### 4.2 結論
+- **A. shared module 抽出 (推奨)**: `lib/shared/googleMapsLoader.ts` を新規作成、`useGoogleMapsScript()` hook export、MorningMapView + Plan PlanMapView 両方が import
+  - script.id 統一 ("alter-morning-gmaps" 維持 or "aneurasync-gmaps" rename)
+  - MorningMapView を refactor して新 hook を使うように変更 (本 wave で Alter Morning に touch する正当な範囲)
+- B. Plan 側 inline 再現、script.id は別 ("alter-plan-gmaps")、script 2 個 load (cost 増、推奨しない)
+- C. Plan 側 inline 再現、script.id は同 ("alter-morning-gmaps")、後 mount 側が既存 script を待つ (Morning に touch なし、loader code 重複)
 
-**Phase 2-C v1 は Google Maps を使わない**。理由は 12 観点中 11 で「使わない」 が優位、唯一の懸念 (「将来 switch コスト」) は別 wave (lat/lng 追加 wave) で対応可能。
+#### A の実装例
 
-**将来 wave (= Phase 2-C+ / Phase 2-D / 別命名) の起点**:
-- 条件: ExternalAnchor に lat/lng が追加された (= migration が承認・適用された) 後
-- 内容: 既存 v1 grid の **side-by-side or toggle 切替** で real-map view を追加 (v1 grid は残す、両立)
-- 採用判断は CEO が別 wave 起票時に判断
+```ts
+// lib/shared/googleMapsLoader.ts (新規)
+import { useEffect, useState } from "react";
+
+const SCRIPT_ID = "aneurasync-gmaps";  // CEO 判断、現 "alter-morning-gmaps" 維持も可
+const SCRIPT_URL_BASE = "https://maps.googleapis.com/maps/api/js";
+
+interface UseGoogleMapsScriptResult {
+  ready: boolean;
+  keyAvailable: boolean;
+}
+
+export function useGoogleMapsScript(): UseGoogleMapsScriptResult {
+  const browserKey = process.env.NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY;
+  const [ready, setReady] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!browserKey) return;
+    if (typeof window === "undefined") return;
+    if (window.google?.maps) { setReady(true); return; }
+
+    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+    if (existing) {
+      const handler = () => setReady(true);
+      existing.addEventListener("load", handler, { once: true });
+      return () => existing.removeEventListener("load", handler);
+    }
+
+    const script = document.createElement("script");
+    script.id = SCRIPT_ID;
+    script.async = true;
+    script.defer = true;
+    script.src = `${SCRIPT_URL_BASE}?key=${encodeURIComponent(browserKey)}`;
+    script.addEventListener("load", () => setReady(true), { once: true });
+    script.addEventListener("error", () => { /* graceful */ }, { once: true });
+    document.head.appendChild(script);
+  }, [browserKey]);
+
+  return { ready, keyAvailable: !!browserKey };
+}
+```
+
+#### Morning 側の touch 範囲 (A の場合)
+
+`MorningMapView.tsx` の script loader code (line 388-430) を:
+- `const { ready: mapsReady, keyAvailable } = useGoogleMapsScript();` に置換
+- 既存の `emitVisualFlowClientEvent("visual_flow_script_loaded")` analytics を hook 側に移すか、Morning 側にラッパーを残す
+
+→ Alter Morning に最小限 touch することになる。本 wave の制約「Alter Morning touch なし」 と衝突する可能性 → CEO 判断 §14 で明示。代替: B / C も提案。
+
+### 5.2 server-side geocoding endpoint
+
+```ts
+// app/api/plan/anchors/geocode/route.ts (新規)
+
+import { NextResponse } from "next/server";
+import { getUserId } from "@/lib/auth-helpers";
+import {
+  getCachedResolution,
+  setCachedResolution,
+} from "@/lib/alter-morning/placeResolver";
+import {
+  searchPlacesByText,
+  isPlacesApiAvailable,
+} from "@/lib/alter-morning/placesApiClient";
+
+interface BatchGeocodeRequest {
+  // anchor.id + locationText のみ。server で auth されたユーザーの anchor 限定
+  items: Array<{ anchorId: string; locationText: string }>;
+}
+
+interface GeocodeResultEntry {
+  anchorId: string;
+  resolution: { lat: number; lng: number; confidence: string; resolvedName: string } | null;
+}
+
+interface BatchGeocodeResponse {
+  results: GeocodeResultEntry[];
+  apiAvailable: boolean;
+}
+
+export async function POST(req: Request): Promise<NextResponse<BatchGeocodeResponse>> {
+  const userId = await getUserId(req);
+  if (!userId) return new NextResponse("Unauthorized", { status: 401 });
+
+  const body: BatchGeocodeRequest = await req.json();
+  const apiAvailable = isPlacesApiAvailable();
+  const results: GeocodeResultEntry[] = [];
+
+  for (const item of body.items) {
+    const trimmed = item.locationText?.trim();
+    if (!trimmed) {
+      results.push({ anchorId: item.anchorId, resolution: null });
+      continue;
+    }
+
+    // (1) cache lookup (L1 → L2)
+    const cached = await getCachedResolution(userId, trimmed, undefined);
+    if (cached && cached.lat !== undefined && cached.lng !== undefined) {
+      results.push({
+        anchorId: item.anchorId,
+        resolution: {
+          lat: cached.lat,
+          lng: cached.lng,
+          confidence: cached.confidence,
+          resolvedName: cached.resolvedName,
+        },
+      });
+      continue;
+    }
+
+    // (2) cache miss → Places API (or fail-open)
+    if (!apiAvailable) {
+      results.push({ anchorId: item.anchorId, resolution: null });
+      continue;
+    }
+
+    try {
+      const places = await searchPlacesByText({
+        textQuery: trimmed,
+        maxResultCount: 1,
+        languageCode: "ja",
+      });
+      const top = places[0];
+      if (!top?.location) {
+        results.push({ anchorId: item.anchorId, resolution: null });
+        continue;
+      }
+      const { latitude, longitude } = top.location;
+
+      // (3) cache write (fire-and-forget は内部で実施)
+      await setCachedResolution(userId, trimmed, undefined, {
+        resolvedName: top.displayName.text,
+        address: top.formattedAddress,
+        placeId: top.id,
+        lat: latitude,
+        lng: longitude,
+        confidence: "medium",  // §5.5 で詳述
+      });
+
+      results.push({
+        anchorId: item.anchorId,
+        resolution: {
+          lat: latitude,
+          lng: longitude,
+          confidence: "medium",
+          resolvedName: top.displayName.text,
+        },
+      });
+    } catch (err) {
+      // fail-open: anchor を null で返す (semantic fallback に回る)
+      console.warn("[plan/geocode] failed for", item.anchorId, err);
+      results.push({ anchorId: item.anchorId, resolution: null });
+    }
+  }
+
+  return NextResponse.json({ results, apiAvailable });
+}
+```
+
+**特性**:
+- POST only (body は anchorId + locationText の配列)
+- per-anchor cache lookup → miss なら Places API → cache write
+- fail-open: 任意の anchor で失敗しても null を返す (Promise.all 中の reject なし)
+- batch (= N anchors を 1 round-trip で処理)、client が 1 リクエストで全 anchor を地理解決
+
+**security**:
+- `getUserId(req)` で session 認証
+- locationText は user-provided、server 側で trim のみ
+- Places API のレスポンスは server 内部で利用、client には lat/lng + confidence + resolvedName のみ返す (rich Places metadata は隠す)
+
+### 5.3 cache key の area パラメータ
+
+`getCachedResolution(userId, placeText, area?)` の `area` (coarse_area):
+- Alter Morning: baseline.prefecture + city を `coarseArea` として渡す (resolver 内部で多用)
+- Plan v2 で同 area を渡すべきか? → CEO 判断 §14
+
+**option A (推奨)**: `area = undefined` (= "unknown" として cache 化)
+- pros: Alter Morning と Plan で cache が share される (= 同 locationText でも area が違うと別 entry になる Alter Morning と独立)
+- cons: 厳密には Plan は area context を持たない (= user area = baseline、Plan は anchor 自体に locationText)
+
+**option B**: `area = user.baseline.prefecture` (= Alter Morning と同じ規約)
+- pros: cache の共有度が上がる (同 user の同 locationText は area で互換)
+- cons: Plan の context (anchor 単位) と area (user 単位) が乖離する場面で混乱
+
+→ A 推奨 (= Plan 用は area unknown、Alter Morning とは別キャッシュ entry になる、シンプル)。CEO 別判断あれば B も可。
+
+### 5.4 client-side hook for batch geocoding
+
+```ts
+// app/(culcept)/plan/tabs/_usePlanGeocode.ts (新規 internal hook)
+
+import { useEffect, useState } from "react";
+import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+
+interface ResolutionMap extends Map<string, { lat: number; lng: number; confidence: string; resolvedName: string } | null> {}
+
+export function usePlanGeocode(anchors: ExternalAnchor[]): {
+  resolutions: ResolutionMap;
+  loading: boolean;
+  apiAvailable: boolean;
+} {
+  const [resolutions, setResolutions] = useState<ResolutionMap>(new Map());
+  const [loading, setLoading] = useState<boolean>(false);
+  const [apiAvailable, setApiAvailable] = useState<boolean>(true);  // optimistic
+
+  useEffect(() => {
+    // anchor の uniqueness は (id) で良い、locationText が空のものは API call せず即 null
+    const items = anchors
+      .filter(a => a.locationText && a.locationText.trim().length > 0)
+      .map(a => ({ anchorId: a.id, locationText: a.locationText!.trim() }));
+
+    if (items.length === 0) {
+      setResolutions(new Map(anchors.map(a => [a.id, null])));
+      return;
+    }
+
+    setLoading(true);
+    fetch("/api/plan/anchors/geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    })
+      .then(r => r.json())
+      .then((res: { results: GeocodeResultEntry[]; apiAvailable: boolean }) => {
+        const m = new Map<string, ResolutionEntry | null>();
+        // null anchors (locationText 空) を先に埋める
+        for (const a of anchors) m.set(a.id, null);
+        for (const r of res.results) m.set(r.anchorId, r.resolution);
+        setResolutions(m);
+        setApiAvailable(res.apiAvailable);
+      })
+      .catch(() => {
+        // network error: fail-open、全 anchor を null に
+        setResolutions(new Map(anchors.map(a => [a.id, null])));
+      })
+      .finally(() => setLoading(false));
+  }, [anchors]);
+
+  return { resolutions, loading, apiAvailable };
+}
+```
+
+**特性**:
+- `useEffect` で anchors 変化時に再 fetch (PlanClient の再 load 時のみ)
+- in-memory `Map` で結果保持 (tab 切替で keep、tab close で release)
+- fail-open: network error / API unavailable で全 anchor を null (= semantic fallback)
+- loading state: UI 側で "場所を解決中..." 表示可能 (CEO 判断 §14、進捗 indicator の有無)
+
+### 5.5 confidence の扱い
+
+`searchPlacesByText` の結果は **常に confidence="medium"** として cache に書く (Plan v2 では):
+- Alter Morning の resolver (`determineConfidence()`) は context (chain_brand / generic_place / area match 等) を考慮するが、Plan は context 簡素 (anchor 1 件 = 1 locationText) なので "medium" 固定
+- 将来 Plan の confidence 判定が必要になれば別 wave で
+
+**意義**:
+- "high" にしない (over-confidence による誤 pin リスク回避)
+- "low" にしない (cache 保存しない閾値、resolver 内部仕様)
+- → "medium" が安全な default
+
+### 5.6 流用構造図
+
+```
+[MapTab.tsx]
+   │
+   ├ usePlanGeocode(anchors) ─────────┐
+   │                                  │
+   ├ useGoogleMapsScript() ─────────┐ │
+   │                                │ │
+   ├ <PlanMapView                   │ │
+   │   pins={...}                   │ │
+   │   onAnchorClick={...} />       │ │
+   │                                │ │
+   ├ <CategoryGrid ... />           │ │
+   │                                │ │
+   ├ <UnresolvedAnchorsSection ... />│ │
+   │                                │ │
+   ├ <StaticAlterSuggestionCard />  │ │
+   │                                │ │
+   └ <FAB />                        │ │
+                                    │ │
+[lib/shared/googleMapsLoader.ts]   ◀┘ │
+   │                                  │
+   └ window.google.maps script tag    │
+                                      │
+[app/api/plan/anchors/geocode/route]◀─┘
+   │
+   ├ getCachedResolution(userId, text, undefined) ─────► [placeResolver.ts]
+   │                                                            │
+   ├ searchPlacesByText({ textQuery }) ─────► [placesApiClient.ts]
+   │                                                │
+   │                                       Google Places API
+   │                                                │
+   └ setCachedResolution(userId, text, ...) ─────► [placeResolver.ts]
+                                                            │
+                                                  [placeCacheStore.ts]
+                                                            │
+                                                  Supabase L2 cache table
+```
+
+→ **Plan 側で新規作成する file**: `lib/shared/googleMapsLoader.ts` (option A) / `app/api/plan/anchors/geocode/route.ts` / `app/(culcept)/plan/tabs/_usePlanGeocode.ts` / `app/(culcept)/plan/tabs/MapTab.tsx` (refactor) / `tests/unit/plan/planGeocodeRoute.test.ts` (新規 test) + α。
+→ **Alter Morning 側 touch**: option A の場合 `MorningMapView.tsx` の script loader を hook 利用に置換、option B/C なら touch なし。
+→ **`placesApiClient.ts` / `placeResolver.ts` / `placeCacheStore.ts` / `place_resolution_cache` table**: 完全 read-only 流用、touch なし。
 
 ---
 
-## 5. 既存 Google Maps env / API key の有無に依存しない最小設計
+## 6. 「migrationなし / envなし / depなし / @vis.gl なし」 で実現する最小設計
 
-### 5.1 設計原則
+### 6.1 migration なし
 
-本 wave で実装する MapTab.tsx + helper 群は以下を **必ず満たす**:
+- 既存 `place_resolution_cache` table を流用 (`placeResolver` の API 経由のみ、direct SQL なし)
+- ExternalAnchor 型は touch なし (lat/lng 追加なし)
+- 新 table / column / index / constraint 追加なし
 
-1. **`process.env.GOOGLE_MAPS_API_KEY` を参照しない**
-2. **`process.env.NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` を参照しない**
-3. **`@vis.gl/react-google-maps` / `google-map-react` 等の geo dependency を import しない**
-4. **Google Maps の script tag (`maps.googleapis.com/maps/api/js`) を読み込まない**
-5. **lat / lng / coordinates の field / type を扱わない** (ExternalAnchor の現 schema に存在しないため誤参照のリスクすらない)
-6. **外部 geocoding API call を発行しない** (locationText は free string のまま、reverse なし)
-7. **MorningMapView / routesApiClient の import / 関数呼び出しを行わない** (本 wave touch なし)
+### 6.2 env なし
 
-### 5.2 検証手順 (実装 wave 後)
+- `GOOGLE_MAPS_API_KEY` (既存 server env) は `placesApiClient` 経由で indirect 利用
+- `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` (既存 browser env) は `useGoogleMapsScript` 経由で directly 利用 (env 値そのものは新規取得しない)
+- Plan 専用 key 追加なし (rename も CEO 確認に戻る、§19)
 
-- [ ] `grep -rn "GOOGLE_MAPS\|MAPBOX\|MAP_API\|google-maps\|mapbox\|leaflet\|maps.googleapis" app/(culcept)/plan/` → 0 hit
-- [ ] `grep -rn "latitude\|longitude\|geo_point\|coordinates" app/(culcept)/plan/tabs/MapTab.tsx app/(culcept)/plan/tabs/_helpers.ts` → 0 hit
-- [ ] DevTools Network: MapTab タブ表示中の `maps.googleapis.com` / `maps.gstatic.com` への request → 0 件
-- [ ] DevTools Console: Google Maps related warning / error → 0 件
-- [ ] `npm run build`: Vercel build 時間が Phase 2-B baseline から +5% 以内 (geo dependency 追加なしを実測)
+### 6.3 dep なし
 
-### 5.3 CEO 確認に戻るトリガー (CEO 制約遵守)
+- `@vis.gl/react-google-maps` 不採用 (PR #31 timeout)
+- `@types/google.maps` 不採用 (MorningMapView は inline declare global で最小型を定義、Plan は shared loader hook で同パターン)
+- `leaflet` / `mapbox-gl` / `google-map-react` / `react-leaflet` 等の代替 dep 不採用
+- 既存 dep のみで完結
 
-実装 wave 中に以下のいずれかが必要になった瞬間、**実装を中断して CEO に判断を仰ぐ**:
+### 6.4 build performance への影響
 
-- ExternalAnchor 型に lat / lng / geo_point field を追加する必要が生じた
-- migration ファイルを作成する必要が生じた
-- Production / Preview env に新 key (`NEXT_PUBLIC_*MAPS*` / `*GEO*` / `*MAP*`) を追加する必要が生じた
-- 既存 `GOOGLE_MAPS_API_KEY` / `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` を Plan tab で読みたくなった
-- 外部 geocoding / map tile / static map API を call したくなった
-- `@vis.gl/react-google-maps` / `google-map-react` / `leaflet` / `mapbox-gl` 等の dependency を install したくなった
+- script tag は runtime load、build time に bundle に組み込まれない
+- bundle size 増加: shared loader hook の数十行のみ
+- Vercel build 時間: Phase 2-B baseline から +1% 以内予測 (実測は実装後)
+- 検証: `npm run build` で比較、退行検出時は B / C option へ rollback
 
-→ いずれも本 wave スコープ外。
+### 6.5 中断 trigger (CEO 確認に戻る条件、§19 で詳述)
+
+実装中に以下のいずれかが必要になった瞬間 → **中断 + CEO 確認**:
+
+- ExternalAnchor 型に lat / lng / geo_point field 追加 (migration)
+- `place_resolution_cache` table への column 追加 / index 追加
+- 新 env (`NEXT_PUBLIC_*MAPS*` の Plan 用 key、または rename)
+- 新 dep (`@vis.gl/react-google-maps` / `leaflet` / `mapbox-gl` / etc.)
+- `@types/google.maps` install
+- 既存 `GOOGLE_MAPS_API_KEY` の usage spike (cost 急増)
+- Vercel build 時間 +10% 以上 増加
+- Alter Morning 機能の退行 (MorningMapView の behavior 変化、視覚 / analytics)
 
 ---
 
-## 6. local-first 中に実装できる範囲 / GitHub 復旧後にすべき範囲
+## 7. local-first / GitHub 復旧後の分離
 
-### 6.1 local-first 中に実装できる (= GitHub 復旧待ちで進められる)
-
-すべて GitHub 操作 0 で進行可能 (Phase 2-A / Phase 2-B と同 pattern):
+### 7.1 local-first で実装可能 (= GitHub 復旧待ちで進められる)
 
 | 範囲 | 詳細 |
 |------|------|
-| **C1: helpers + tests** | `_helpers.ts` に `categoryTimeSignature` / `categoryFrequencyVoice` 等を additive 追加、`tests/unit/plan/mapTabHelpers.test.ts` を新規作成 |
-| **C2: MapTab refactor** | `MapTab.tsx` を grid + voice + frequency + time signature + empty category stillness + 静的 ALTER card + FAB の構造に refactor |
-| **C3: visual polish + smoke docs 更新** | hover transition / focus ring / micro-typography 調整 + `docs/alter-plan-home-swipe-visual-smoke.md` に Phase 2-C 追加 smoke check |
-| **local test / build** | `npx tsc --noEmit` / `npx eslint <files>` / `npx vitest run tests/unit/plan/` / `npm run build` |
-| **CEO local smoke** | CEO 環境で実機検証 |
-| **blocker fix** | smoke 中に見つかった blocker を本 branch 上で修正 commit |
+| **C1: server endpoint + tests** | `app/api/plan/anchors/geocode/route.ts` + `tests/unit/plan/planGeocodeRoute.test.ts` (Places API mock + cache stub) |
+| **C2: shared loader (option A の場合) + client hook + MapTab refactor** | `lib/shared/googleMapsLoader.ts` + `app/(culcept)/plan/tabs/_usePlanGeocode.ts` + `app/(culcept)/plan/tabs/MapTab.tsx` refactor + `app/(culcept)/plan/tabs/_helpers.ts` 拡張 (前 v1 と同 helpers) + `tests/unit/plan/mapTabHelpers.test.ts` (v1 で設計) + (option A の場合) `components/home/morning/MorningMapView.tsx` の loader 抽出 |
+| **C3: visual polish + smoke docs 更新** | hover / focus / category-themed marker SVG + smoke docs |
+| **local test / build** | `npx tsc --noEmit` / `npx eslint <files>` / `npx vitest run tests/unit/plan/` + `npm run build` |
+| **CEO local smoke** | CEO 環境で実機検証 (browserKey が dev env にあること前提) |
 
-### 6.2 GitHub 復旧後にすべき (= 復旧を待つ操作)
+### 7.2 GitHub 復旧後にすべき (= 復旧を待つ操作)
 
 | 操作 | 順番 |
 |------|------|
-| Phase 2-A push (PR #223 更新) | 1 |
-| Phase 2-A merge | 2 |
-| Phase 2-B push (新 PR) | 3 (Phase 2-A merge 後) |
-| Phase 2-B merge | 4 |
-| 本 docs PR push (新 PR、本 mini design 採択用) | 5 (Phase 2-B merge 後、stack の論理順) |
-| 本 docs PR merge | 6 |
-| Phase 2-C impl branch を最新 main に rebase + push + 新 PR | 7 (Phase 2-C 実装が本 docs 承認後着手の場合) |
-| (Optional) 別 wave for real-map: ExternalAnchor lat/lng + migration | 後日、CEO 別判断 |
+| Phase 2-A push & merge (PR #223) | 1 |
+| Phase 2-B push & merge (新 PR) | 2 |
+| 本 docs PR push & merge | 3 |
+| Phase 2-C impl branch rebase + push + 新 PR | 4 (本 docs 採択 + 実装後) |
+| (Optional) 別 wave for real-map enhancement (clustering / heatmap / lat/lng persist) | 後日、CEO 別判断 |
 
-### 6.3 stacked branch の整合
+### 7.3 stacked branch (4 段) — v1 と同
 
 ```
-local main b07eeab5  (suspension 時の snapshot、復旧後 pull で advance)
-   ↑ merge-base
-Phase 2-A  feat/alter-plan-phase2-a-calendar-week-strip @ 6e37ad38   (凍結、5 commits)
-   ↑ stacked
-Phase 2-B  feat/alter-plan-phase2-b-flow-list @ 99e7c02a   (凍結、3 commits)
-   ↑ stacked
-Phase 2-C docs  docs/alter-plan-phase2-c-map-tab-mini-design @ HEAD  (本 PR、docs only、1 commit)
-   ↑ (実装 wave 後) stacked
-Phase 2-C impl  feat/alter-plan-phase2-c-map-tab @ ...   (推定 3 commits)
+local main b07eeab5 → Phase 2-A 6e37ad38 → Phase 2-B 99e7c02a → Phase 2-C docs HEAD → (実装後) Phase 2-C impl
 ```
 
-復旧後 rebase は Phase 2-B mini design §16 と同 pattern (Merge commit / Squash / Rebase merge 3 方式すべて対応可能、`--onto` 含む)。
+復旧後 rebase は Phase 2-B mini design §16 と同 pattern (`--onto` 含む 3 方式すべて対応)。
 
 ---
 
-## 7. Home swipe / scroll / modal lock 干渉対策
+## 8. Home swipe / scroll / modal lock / Google Maps gesture 干渉対策
 
-### 7.1 Home swipe (HomeSwipeContainer) との関係
+### 8.1 Home swipe (HomeSwipeContainer) vs Google Maps gesture
 
-- MapTab は **縦 scroll** (CategoryCard grid が 2 列で並び、9 categories → 4-5 行 = ~600-800px の縦長)
-- HomeSwipeContainer は **X 軸 dragDirectionLock** (Phase 1 C1)
-- → 衝突なし (Phase 2-A CalendarTab / Phase 2-B FlowTab と同 pattern)
-- → MapTab が縦に長くなっても sticky header (Phase 2-B §11.11 と同) は **本 wave では不要** (grid の見出しが少なく orientation 維持必要性低い)
+**新規論点**: Google Maps view は drag / pan / pinch zoom の gesture を持つ。HomeSwipeContainer の X-axis dragDirectionLock と衝突しないか?
 
-### 7.2 Modal lock (Phase 1 C3) との関係
+**解決策**: Morning と同じ `gestureHandling: "cooperative"` を指定:
+- 1 finger pan: ❌ (= scroll に preserve、Map は反応しない)
+- 2 finger pan: ✅ (= Map pan)
+- 1 finger pinch: ✅ (= Map zoom)
+- Ctrl + scroll: ✅ (= Map zoom on desktop)
 
-- AnchorDetailModal (anchor row tap → 起動) / AddAnchorModal (FAB or per-category add → 起動) 開時は HomeSwipeContainer drag disable (既存)
-- 本 wave で **追加 modal なし、新規 lock 不要**
-- 静的 ALTER 提案 card は tap で何も起きない → modal lock 影響なし
+→ 1 finger touch では HomeSwipeContainer / vertical scroll が priority、Map gesture は user 明示の 2-finger / pinch のみ。Home pane swipe / Plan tab vertical scroll の両方と非衝突。
 
-### 7.3 縦 scroll vs 横 swipe の衝突
+### 8.2 Modal lock (Phase 1 C3) との関係
 
-- HomePane (Plan pane) で縦 scroll 中、small 横揺れがあっても swipe threshold (画面幅 30%) に達せず pane 切替しない (Phase 1 既存挙動)
-- Phase 2-C は grid layout で縦 scroll が短め (sticky header なし) → 衝突リスクむしろ低い
+- AnchorDetailModal (pin tap → 起動) / AddAnchorModal (FAB or per-category add → 起動) は既存 Modal lock 対応済
+- 本 wave で **追加 modal なし**、新規 lock 不要
 
-### 7.4 pane mode の overflow-y context
+### 8.3 縦 scroll vs 横 swipe (Phase 1 既存)
 
-- `displayMode="pane"`: PlanClient の `<main className="h-full overflow-y-auto ...">` が scroll context
-- MapTab は scroll context 内で `<div className="space-y-4">` 直下に grid を置く
-- 縦 scroll が成立 (Phase 2-B FlowTab と同)
-- pane width 制約: pane は viewport 幅 100%、grid は `grid-cols-1 sm:grid-cols-2` で responsive
+- MapTab 縦 scroll: Map view + CategoryGrid + UnresolvedAnchorsSection + StaticAlterCard が縦に並ぶ (~1200-1500px)
+- 横 swipe (HomeSwipeContainer) は画面幅 30% threshold (Phase 1 既存)
+- 縦 scroll で誤 swipe 発火しない
 
-### 7.5 PR #214 containing block 効果
+### 8.4 PR #214 containing block (pane mode)
 
-- FAB は `fixed bottom-20 right-6 z-30` (Phase 2-A / 2-B と同)
-- Plan pane の `transform: translateZ(0)` + `contain: layout paint` (PR #214) で fixed が pane 内に閉じ込まる
-- Plan pane swipe 中も FAB が pane と一緒に移動 (Phase 2-A / 2-B で実証済)
+- Plan pane の `transform: translateZ(0)` + `contain: layout paint` で fixed が pane 内
+- Map element も containing block 内 (Map は absolute / fixed 不使用、`<div ref={mapRef}>` で flow layout)
+- FAB は fixed、pane 内 containing block 効果 (Phase 2-A / 2-B と同)
 
 ---
 
-## 8. MapTab と CalendarTab / FlowTab の役割分離
+## 9. MapTab vs CalendarTab / FlowTab の役割分離 (v2 reaffirmed)
 
-### 8.1 3 レンズ pattern (PlanClient header の謳い文句整合)
-
-PlanClient header:
-> 同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。
-
-各 tab の distinct contribution:
+### 9.1 3 レンズ pattern (v1 と同)
 
 | Tab | 軸 | 質問 | 単位 |
 |-----|-----|------|------|
-| **CalendarTab (Phase 2-A)** | 時間 (月単位) | 「今月はどんな日々か?」 | 日 (date) |
-| **FlowTab (Phase 2-B)** | 時間 (週単位、近未来) | 「今後 7 日は何があるか?」 | 日 + 時刻 (datetime sequence) |
-| **MapTab (Phase 2-C)** | 空間 (カテゴリ単位、生活ドメイン) | 「私の生活はどこで起こるか?」 | カテゴリ (life domain) |
+| **CalendarTab** | 時間 (月) | 「今月はどんな日々か?」 | 日 |
+| **FlowTab** | 時間 (週、近未来) | 「今後 7 日は何があるか?」 | 日 + 時刻 |
+| **MapTab** | **空間 (生活ドメイン + 地理座標)** | 「私の生活はどこで起こるか? / どの場所が主か?」 | カテゴリ + lat/lng |
 
-### 8.2 同 anchor を 3 視点で見る価値
+v2 で MapTab は **「空間 = カテゴリ × 地理」 の双方を提示**:
+- 「自分の地理 = カテゴリの分布」 (v1 で設計)
+- + 「自分の地理 = 地理座標の分布」 (v2 で追加、Google Maps view)
 
-例: 「9:00 スターバックス 代官山店で打ち合わせ」 という anchor
+両者は同じ anchor を **異なる角度で見せる**:
+- カテゴリ視点: 「私の聖域は home、平日の中心は office」 (semantic understanding)
+- 地理視点: 「私の生活は渋谷-原宿の三角形に集中している」 (spatial understanding)
 
-- **Calendar**: 5月20日(水)の selected day agenda に表示 (時間軸 = 日)
-- **Flow**: 今後 7 日リストの 5/20 section に時刻順 anchor として表示 (時間軸 = 連続性)
-- **Map**: 「☕ カフェ」 カテゴリの anchor list に "× 1" として表示、time signature "午後中心" に寄与 (空間軸 = 生活ドメイン)
+→ MapTab は **「カテゴリで意味を、地図で空間を」** の dual-lens viewer。
 
-3 つの異なる文脈で同 anchor が **意味づけられる** → ユーザーの自己理解が深まる。
+### 9.2 MapTab unique 情報 (v2 拡張)
 
-### 8.3 重複しない情報
-
-| 情報 | Calendar | Flow | Map |
-|------|----------|------|-----|
+| 情報 | Calendar | Flow | Map v2 |
+|------|----------|------|--------|
 | 月の overview | ✓ | | |
-| 月送り navigation | ✓ | | |
-| 今日 / 明日 prefix | | ✓ | |
-| 連続日 (7 日) の sequence | | ✓ | |
+| 日付別 sequence | ✓ | ✓ | |
 | 時刻軸 + gap | | ✓ | |
 | カテゴリ別の集計 | | | ✓ |
-| 頻度 voice (週 N 回) | | | ✓ |
-| 時間 signature (朝晩中心) | | | ✓ |
-| 場所の意味 (hint voice) | | | ✓ |
+| 頻度 voice | | | ✓ |
+| 時間 signature | | | ✓ |
+| hint voice | | | ✓ |
+| **地理座標の分布** | | | **✓ (v2 新規)** |
+| **pin clustering visualization** | | | **✓ (v2 新規、自動 fitBounds)** |
 | anchor 詳細 (modal) | ✓ | ✓ | ✓ |
 | anchor 追加 (modal) | ✓ | ✓ | ✓ |
 
-→ Map のみが提供する unique 情報: **カテゴリ集計 / 頻度 voice / 時間 signature / hint voice**。これらが MapTab の existence justification。
-
 ---
 
-## 9. Commit 階段 (実装 wave 用、本 PR では実装しない)
+## 10. Commit 階段 (実装 wave 用、本 PR では実装しない)
 
-### C1: helpers + tests
-
-**Files**:
-- `app/(culcept)/plan/tabs/_helpers.ts` (additive only)
-  - 新規 `categoryTimeSignature(anchors: ExternalAnchor[]): string | null` — 朝/日/夜/深夜/朝晩中心の voice
-  - 新規 `categoryFrequencyVoice(count: number, windowDays: number): string` — 週 N 回 / 月 N 回 / N 回 (windowDays 日間) / 今は静か
-  - (optional) 新規 `CATEGORY_VOICE_TONE` enum or const — 4 段階 of voice 強度 (CEO 判断、§13 候補)
-- `tests/unit/plan/mapTabHelpers.test.ts` (新規)
-  - `categoryTimeSignature` の境界 (空配列 / 過半数判定 / 朝晩混在 / 4 帯均等)
-  - `categoryFrequencyVoice` の境界 (count=0 / count<windowDays/7 / count>=windowDays/7 / windowDays=1 / pure な deterministic)
-- 既存 `groupAnchorsByLocation` / `LOCATION_GROUP_ORDER` / `CATEGORY_META` / `categoryOf` / `countOccurrences` は **不可触** (additive only、削除なし、変更なし)
-
-### C2: MapTab refactor + 新 component
+### C1: server endpoint + tests + Plan-side helpers (v1 helpers と統合)
 
 **Files**:
-- `app/(culcept)/plan/tabs/MapTab.tsx` — refactor (194 行 → 推定 350-420 行)
-  - 旧 縦 1 列 list → 2 列 grid (`grid-cols-1 sm:grid-cols-2 gap-3`)
-  - `LOCATION_GROUP_ORDER` を全て render (active + empty 両方)、`groupAnchorsByLocation` で取得した active group は data 注入、empty は静的 placeholder
-  - `<CategoryCard>` internal component (各カテゴリ 1 card、active / empty 出し分け)
-  - emoji を text-4xl 大型化
-  - hint を visible italic text-xs で voice 化
-  - `categoryFrequencyVoice` 表示 (active: 週 N 回 / 月 N 回 / 今は静か)
-  - `categoryTimeSignature` 表示 (active かつ非 null の場合のみ)
-  - anchor list (既存) + per-category add link (W1-X3 既存)
-  - empty card: subtle opacity (`opacity-60`) + "今は静か" voice
-  - 末尾に **静的 ALTER 提案 card** (Phase 2-B §3.4 と同 pattern、ボタン風禁止、CEO 補正 #2 整合)
-  - 右下 **FAB** (Phase 2-A / 2-B 同 pattern、locationCategory なしで AddAnchorModal を開く)
-  - sensitive anchor: title 表示 + `<GlassBadge>` で sensitive label (Phase 2-B AnchorThumbnail の sensitive ロジックと整合)
+- `app/api/plan/anchors/geocode/route.ts` (新規) — POST endpoint、§5.2
+- `tests/unit/plan/planGeocodeRoute.test.ts` (新規) — Places API mock + cache stub
+  - cache hit (L1 / L2 mock) → API 不呼び出し
+  - cache miss → Places API mock → cache write
+  - locationText 空 → null
+  - Places API throw → null (fail-open)
+  - apiAvailable=false → null (key 未設定時)
+- `app/(culcept)/plan/tabs/_helpers.ts` (additive) — v1 で設計した `categoryTimeSignature` / `categoryFrequencyVoice` を維持 + 新 helper:
+  - `categoryMarkerStyle(category): { color: string; emoji: string }` (§4.3 mapping)
+- `tests/unit/plan/mapTabHelpers.test.ts` (v1 から拡張)
+
+### C2: shared loader + client hook + MapTab refactor
+
+**Files**:
+- `lib/shared/googleMapsLoader.ts` (新規、option A の場合) — `useGoogleMapsScript()` hook
+- `tests/unit/shared/googleMapsLoader.test.ts` (新規、option A の場合) — script tag injection / singleton / fail-open
+- `app/(culcept)/plan/tabs/_usePlanGeocode.ts` (新規) — client hook、§5.4
+- `app/(culcept)/plan/tabs/MapTab.tsx` — refactor (194 行 → 推定 480-600 行)
+  - Map view (PlanMapView component) を追加
+  - CategoryGrid を 2 列 grid に
+  - UnresolvedAnchorsSection を追加
+  - 静的 ALTER 提案 card を追加
+  - FAB を追加
+- (option A の場合) `components/home/morning/MorningMapView.tsx` — loader 部分のみ refactor、`useGoogleMapsScript` を使用するように変更 (= Alter Morning に最小 touch)
+- `tests/unit/plan/planMapView.test.ts` (新規) — failsafe paths (keyAvailable=false / pins<2 / 全 same point) の確認 (Google Maps API は jsdom で mount できないので、render-only test + classNames / data-testid 検証)
 
 ### C3: visual polish + smoke docs 更新
 
 **Files**:
-- `app/(culcept)/plan/tabs/MapTab.tsx` — micro polish (hover transition / focus ring / spacing 調整)
-- `docs/alter-plan-home-swipe-visual-smoke.md` — Phase 2-C 追加 smoke check (新 grid UI 確認項目)
+- `app/(culcept)/plan/tabs/MapTab.tsx` — marker SVG icon polish、hover/focus、category overlay
+- `docs/alter-plan-home-swipe-visual-smoke.md` — Phase 2-C 追加 smoke check (新 Map UI + fallback + cache)
 
 ---
 
-## 10. Smoke 項目 (実装 wave 用)
+## 11. Smoke 項目 (実装 wave 用、v2)
 
-### 10.1 /plan route (route mode)
+### 11.1 /plan route (route mode)
 
 - [ ] /plan 直 URL で 3 tab 表示 (カレンダー / リスト / 地図)
 - [ ] "地図" tab tap → MapTab content 表示
 - [ ] header: "あなたの地理" (or CEO 確定 copy) + "今後 14 日間で訪れる場所"
-- [ ] grid layout: 2 列 (sm 以上)、1 列 (xs)
+- [ ] Google Maps view が height ~280px で mount される (browserKey 設定済 + pins ≥ 2)
+- [ ] fitBounds で全 pin が画面内に収まる
+- [ ] gesture: 2-finger pan で Map pan、pinch zoom 可能、1-finger では Map 反応せず縦 scroll が優先
+
+### 11.2 Pin display (Map view)
+
+- [ ] resolvable anchor は category color / emoji icon の marker として描画
+- [ ] sensitive anchor は 🔒 icon (内容 leak 防止)
+- [ ] marker tap → AnchorDetailModal 起動 (W1-X5 既存)
+- [ ] pins 全て同点 (4 桁精度 ≒ 11m) → single fallback zoom (Morning と同 pattern)
+- [ ] resolved name が Map info (marker title) として hover で見える
+
+### 11.3 Geocoding flow
+
+- [ ] MapTab mount → `/api/plan/anchors/geocode` 1 リクエストで全 anchor を batch resolve
+- [ ] cache hit (L1 / L2) → API call 0、即座に pin 表示
+- [ ] cache miss → Places API call → pin 描画
+- [ ] Places API throw → semantic fallback (= unresolved section に move)
+- [ ] locationText 空 → API call せず unresolved section に move
+
+### 11.4 Failsafe (graceful degradation)
+
+- [ ] `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 未設定 → Map view 非表示、placeholder ("地図 key 未設定" 等)、CategoryGrid + UnresolvedAnchorsSection は表示
+- [ ] `GOOGLE_MAPS_API_KEY` 未設定 (server) → geocode endpoint が apiAvailable=false 返す、全 anchor 未解決、CategoryGrid + UnresolvedAnchorsSection のみ表示
+- [ ] script load fail (network error) → Map view 非表示、CategoryGrid 等は機能
+- [ ] geocode endpoint 500 / timeout → 全 anchor 未解決、CategoryGrid + UnresolvedAnchorsSection で完結
+
+### 11.5 UnresolvedAnchorsSection
+
+- [ ] locationText 空 / Places API miss の anchor が下部 section に表示
+- [ ] section header: "📂 場所が曖昧 / 未指定"
+- [ ] each row: title × count + category label + locationText (if any)
+- [ ] row tap → AnchorDetailModal 起動 (W1-X5 既存)
+- [ ] sensitive anchor も同 section に出るが title masking は §14 判断による
+
+### 11.6 CategoryGrid (v1 で設計、v2 維持)
+
 - [ ] 9 categories (LOCATION_GROUP_ORDER 順) が全て表示 (active + empty 両方)
-
-### 10.2 CategoryCard 内容 (active カテゴリ)
-
 - [ ] emoji が text-4xl で大型表示
-- [ ] label (text-lg font-semibold)
-- [ ] hint (text-xs italic text-slate-500) が visible
-- [ ] frequencyVoice (例: "週 5 回") が表示
-- [ ] timeSignature (例: "朝晩中心") が表示 (null の場合は表示しない)
-- [ ] anchor list: title × count + locationText? + sensitive badge?
-- [ ] sensitive anchor: title 表示 + `<GlassBadge>{label}</GlassBadge>` (Phase 2-B AnchorThumbnail integration)
+- [ ] hint (italic、Aneurasync voice) が visible
+- [ ] frequencyVoice ("週 N 回") + timeSignature ("朝晩中心") が表示
+- [ ] empty category: opacity-60 + "今は静か"
 - [ ] per-category add link: "+ <カテゴリ> での予定を教える" (W1-X3 既存)
-- [ ] anchor row tap → AnchorDetailModal 起動 (W1-X5 既存)
 
-### 10.3 Empty category (active=false)
+### 11.7 静的 ALTER 提案 card / FAB (v1 維持、Phase 2-B 整合)
 
-- [ ] CategoryCard 表示は維持 (隠さない、Aneurasync 哲学整合)
-- [ ] opacity-60 で subtle に de-emphasize
-- [ ] voice: "今は静か"
-- [ ] anchor list 表示なし
-- [ ] frequencyVoice / timeSignature 表示なし
-- [ ] per-category add link: CEO 判断 §13 (A. 表示する / B. 表示しない)
-- [ ] aria-label に "今は静か" 含む (screen reader にも伝える)
+- [ ] 静的 card: tap 動作なし、ボタン風 styling 禁止、role="region"
+- [ ] FAB: 右下 fixed、紫 gradient、locationCategory 未指定 prefill
 
-### 10.4 静的 ALTER 提案 card (CEO 補正 #2 整合、Phase 2-B §3.4 と同 pattern)
+### 11.8 Cache behavior
 
-- [ ] tap 動作なし (cursor:default、tabIndex なし、onClick なし)
-- [ ] hover/shadow/transition なし
-- [ ] role="region" + aria-label
-- [ ] 文言は CTA 想起を作らない (Phase 3 で動作予定明記)
-- [ ] DevTools で確認: outer に `cursor:default`、内側 div に `shadow-md` 以上の elevation なし
+- [ ] 同じ MapTab を 2 回開く → 2 回目は API call 0 (L1 cache hit)
+- [ ] tab close → 別 page → MapTab に戻る → L1 in-memory が生きていれば cache hit、L1 expire していれば L2 から復元
+- [ ] 30 日経過した cache entry → 自動 expire (placeResolver 側で削除)
 
-### 10.5 FAB (Phase 2-A / 2-B 同 pattern)
+### 11.9 Recurring + exception_dates + validity (既存 groupAnchorsByLocation)
 
-- [ ] 右下 fixed (bottom-20 right-6 z-30)、56px 紫 gradient
-- [ ] FAB tap → AddAnchorModal 起動、locationCategory **未指定** (= user が modal 内で選ぶ)
-- [ ] subtitle: "地理 / カテゴリ未指定 から" or "地理 から" (CEO 確定 copy)
-- [ ] pane 内 containing block 効果 (PR #214、Plan pane swipe で一緒に移動)
-- [ ] safe-area-inset-bottom 適用
+- [ ] FREQ=WEEKLY recurring が windowDays 期間内に正しく count
+- [ ] exception_dates 適用
+- [ ] valid_until 後の日は count なし
 
-### 10.6 Recurring + exception_dates + validity (既存 groupAnchorsByLocation 動作)
-
-- [ ] FREQ=WEEKLY recurring anchor が windowDays 期間内の対応曜日カウントに反映
-- [ ] FREQ=DAILY recurring anchor が windowDays カウントに反映
-- [ ] exception_dates 適用 (除外日カウントなし)
-- [ ] valid_until 後の日は count に含まれない
-
-### 10.7 Home pane 統合 (pane mode)
+### 11.10 Home pane 統合 (pane mode)
 
 - [ ] Home → 左 swipe → Plan pane → 地図 tab tap → 同 UI
-- [ ] FAB / anchor row tap → Modal 起動、Modal 開時 swipe disable (Phase 1 C3)
-- [ ] grid 縦 scroll で横 swipe 誤発火しない
+- [ ] Map gesture (2-finger pan / pinch zoom) は機能、1-finger 縦 scroll は priority
+- [ ] FAB / marker tap → Modal、Modal 開時 swipe disable (Phase 1 C3)
 
-### 10.8 Network / Console (Phase 2-C 独自検証)
+### 11.11 Network / Console (v2 cost 確認)
 
-- [ ] Network: **`maps.googleapis.com` / `maps.gstatic.com` への request 0 件**
-- [ ] Network: `aljavfujeqcwnqryjmhl` (Production Supabase) のみ、`hjcrvndumgiovyfdacwc` (Alter staging) 0 hit
+- [ ] Network: `maps.googleapis.com/maps/api/js?key=...` (script tag、1 回のみ singleton)
+- [ ] Network: `places.googleapis.com/v1` への request は **server-side** (browser から見えない、`/api/plan/anchors/geocode` への internal call として観測可能)
+- [ ] Network: `aljavfujeqcwnqryjmhl` (Production Supabase) のみ
+- [ ] Network: `hjcrvndumgiovyfdacwc` (Alter staging) 0 hit
 - [ ] Network: `/api/coalter` / `/api/talk` / `/api/mirror` → 0 hit
-- [ ] Console: Google Maps related warning / error → 0 件
 - [ ] Console: React 19 warning 0
-- [ ] Console: framer-motion warning 0
-- [ ] grep `app/(culcept)/plan/tabs/MapTab.tsx` for `GOOGLE_MAPS\|maps.googleapis\|@vis.gl` → 0 hit
+- [ ] Console: Google Maps related warning は Morning 由来のもののみ (新規 0)
 
-### 10.9 A11y
+### 11.12 A11y
 
-- [ ] 各 CategoryCard: `<section aria-label="家 · 自分の聖域 · 週 7 回">` 形式
-- [ ] empty card: aria-label に "今は静か" 含む
-- [ ] anchor row: role="button" + tabIndex=0 + Enter/Space (W1-X5 既存)
-- [ ] FAB: aria-label に "場所カテゴリ未指定で予定を追加"
-- [ ] 静的 ALTER card: role="region" + aria-label "ALTER 提案 (今後の機能、Phase 3 で実装予定)"
-- [ ] grid 内 tab 順: card 順 (LOCATION_GROUP_ORDER 順)、各 card 内 anchor 順
-- [ ] touch target 44pt 最小 (anchor row / per-category add button / FAB)
+- [ ] Map view: aria-label "地図 (今後 14 日間の予定の場所)"
+- [ ] marker: aria-label "<title> (<category>)、開く"
+- [ ] CategoryGrid card: aria-label "<category> · <voice>"
+- [ ] UnresolvedAnchorsSection: aria-label "場所が曖昧 / 未指定の予定"
+- [ ] keyboard: Tab で map → grid → unresolved → static card → FAB の順
+- [ ] touch target 44pt 最小
+
+### 11.13 Build / cost / privacy (一度きりの検証)
+
+- [ ] `npm run build`: Phase 2-B baseline から +1% 以内
+- [ ] Google Maps script size: ~80KB (already used in Morning、追加なし)
+- [ ] 初回 geocode batch のレスポンス時間: 1-3 秒 (N anchors × Places API、cache miss 時)
+- [ ] 2 回目以降: 100ms 以内 (cache hit)
+- [ ] Places API cost: 月 100 anchor × 4 回更新 / user (= 400 calls) × $0.032 = $12.8/user/month (cache hit 率 70% と仮定すると $3.8/user/month)、CEO budget 判断 §14
 
 ---
 
-## 11. やらないこと (制約再宣言)
+## 12. やらないこと (制約再宣言、v2 補正)
 
-### CEO 補正による制約 (Phase 2-A / 2-B 通算)
+### CEO 補正による制約 (Phase 2-A / 2-B 通算、本 wave で再確認)
 
 - ❌ CoAlter / Mirror / /talk / D-* 関連
 - ❌ Production env / all-Preview env 変更
-- ❌ migration 追加 (ExternalAnchor lat/lng 含む)
+- ❌ **新 env 追加** (`NEXT_PUBLIC_*MAPS*` の Plan 専用 key 追加、既存 key の rename)
+- ❌ **新 migration 追加** (ExternalAnchor lat/lng / `place_resolution_cache` schema 変更すべて)
 - ❌ service_role / DB password / connection string 使用
 - ❌ DraftPlan generator / W1-6 passive drift logging
 - ❌ W1-Z+ cleanup (apply 後 1 週間観測、別 wave)
 - ❌ fallback path 削除
-- ❌ **Phase 2-A branch (`feat/alter-plan-phase2-a-calendar-week-strip`) への追加 commit**
-- ❌ **Phase 2-B branch (`feat/alter-plan-phase2-b-flow-list`) への追加 commit**
+- ❌ Phase 2-A branch (`feat/alter-plan-phase2-a-calendar-week-strip`) への追加 commit
+- ❌ Phase 2-B branch (`feat/alter-plan-phase2-b-flow-list`) への追加 commit
 
-### Phase 2-C 固有の制約 (CEO 方針整合)
+### Phase 2-C 固有の制約 (v2 補正)
 
-- ❌ **Google Maps integration** (PR #31 reject + ExternalAnchor 座標なし + 哲学逸脱)
-- ❌ **ExternalAnchor 型に lat / lng / geo_point field 追加** (migration 必須、別 wave)
-- ❌ **locationText → coordinates の reverse geocoding service** (別 wave)
-- ❌ **API key (NEXT_PUBLIC_*MAPS*) の Plan 用追加 / Alter Morning key 流用** (即時 CEO 確認に戻る)
-- ❌ **env 変数追加 / 修正** (Production / Preview / Development いずれも)
-- ❌ **`@vis.gl/react-google-maps` / `google-map-react` / `leaflet` / `mapbox-gl` 等の geo dependency install**
-- ❌ **`maps.googleapis.com` / `maps.gstatic.com` への request 発生**
-- ❌ **MorningMapView / routesApiClient の import / 関数呼び出し**
-- ❌ **MapTab に "Coming soon" / "Phase 3" のような未実装 placeholder の addition** (静的 ALTER 提案 card 以外)
-- ❌ **real-time location tracking** / ユーザーの GPS 取得 (locationOptIn は Home の別 feature)
-- ❌ **長押し quick action menu** (Phase 2-C+ 預け、Phase 2-B と同 defer)
-- ❌ **MapTab を default tab に変更** (現在 Calendar = default は維持)
+#### v1 から維持 (v2 でも禁止)
+
+- ❌ **`@vis.gl/react-google-maps` dep 追加** (PR #31 timeout)
+- ❌ **新 dep install** (geo / map 系)、`leaflet` / `mapbox-gl` / `google-map-react` / `@types/google.maps` 等
+- ❌ **ExternalAnchor 型に lat / lng / geo_point field 追加** (migration)
+- ❌ **MapTab を default tab に変更** (現 Calendar = default 維持)
 - ❌ **PlanClient / HomeSwipeContainer / Modal lock 変更**
-- ❌ **Phase 2-A の CalendarTab / Phase 2-B の FlowTab の改修** (本 wave は MapTab.tsx + _helpers.ts のみ)
-- ❌ **AddAnchorModal の signature 変更** (既存 `initialState` / `contextSubtitle` を流用)
+- ❌ **AddAnchorModal の signature 変更**
+- ❌ **Phase 2-A の CalendarTab / Phase 2-B の FlowTab の改修**
+- ❌ **Phase 3 ALTER 提案 flow 動作実装** (本 wave は静的 placeholder のみ)
+- ❌ **real-time location tracking** / GPS 取得 (Layer 3)
+- ❌ **長押し quick action menu** (Phase 2-C+ 預け)
+
+#### v1 から変更 (v2 では解除、v1 撤回)
+
+- ~~❌ Google Maps integration~~ → **使う** (v2)
+- ~~❌ `maps.googleapis.com` への request~~ → **使う** (v2)
+- ~~❌ MorningMapView / placesApiClient / placeResolver の利用~~ → **流用する** (v2)
+- ~~❌ Real-map view 描画~~ → **描画する** (v2)
+- ~~❌ locationText → 座標解決~~ → **server endpoint で解決する** (v2)
+
+#### v2 で新規追加 (実装中に発生したら CEO 確認に戻る)
+
+- ❌ **既存 `place_resolution_cache` table への schema 変更** (column / index / constraint すべて)
+- ❌ **新 server-side env variable 読み込み** (placesApiClient 経由の indirect 利用は OK、直接 `process.env.*MAPS*` を Plan code から読まない)
+- ❌ **Alter Morning 側の `placesApiClient` / `placeResolver` / `placeCacheStore` の内部 logic 改変** (call sigature 利用のみ)
+- ❌ **`@types/google.maps` install** (inline minimal type declaration で対応、Morning と同 pattern)
+- ❌ **Plan-specific GOOGLE_MAPS_API_KEY rotation / new key** (既存 key 流用)
 
 ### 削除しないもの (irreversibility 原則、Phase 2-B CEO 補正 #3 整合)
 
 - ✅ `groupAnchorsByLocation` / `LOCATION_GROUP_ORDER` / `categoryOf` / `countOccurrences` helpers — **不可触**
-- ✅ `CATEGORY_META` (9 categories 全部) — **不可触** (label / emoji / hint いずれも)
+- ✅ `CATEGORY_META` (9 categories 全部) — **不可触**
 - ✅ `SENSITIVE_LABEL` — **不可触**
-- ✅ 既存 test (helper test + MapTab integration test if any) — **継続 PASS**
-- ✅ Phase 2-A / Phase 2-B helpers (Phase 2-A の月 helpers / Phase 2-B の flow list helpers) — **不可触**
+- ✅ 既存 test (helper test + MapTab test if any) — **継続 PASS**
+- ✅ Phase 2-A / Phase 2-B helpers — **不可触**
+- ✅ `lib/alter-morning/*` の `placesApiClient` / `placeResolver` / `placeCacheStore` / `locationResolver` — **内部 logic 不可触** (call signature 経由の利用のみ)
+- ✅ `place_resolution_cache` table schema — **不可触**
 
 ---
 
-## 12. 自立推論 — Beyond 設計 (世界トップアプリ研究 + Aneurasync 哲学)
+## 13. Beyond 改善 (v2 expanded、世界トップアプリ研究 + Aneurasync 哲学)
 
-### 12.1 世界トップアプリの「自分の地理」 比較
+v1 で設計した Beyond 改善 12 件 (hint voice / frequency natural language / time signature / empty as silence / per-category add for empty / 静的 ALTER card / FAB / header copy / sensitive privacy / restraint UI / a11y / reduced-motion) は **すべて v2 でも維持**。
 
-| アプリ | アプローチ | Phase 2-C との関係 |
-|--------|------------|---------------------|
-| **Apple Maps Memories** | 「N 年前の今日 Paris に居た」 story-like 表示、real map base | 時間 × 場所の物語、Aneurasync は時間 (Calendar/Flow) と分離、空間 lens を独自に |
-| **Google Maps Timeline** | 日次 GPS history + route + place visit | 「行った場所」 の記録、Aneurasync は「行く場所 = 意味の地理」 (= 未来志向) |
-| **Foursquare / Swarm** | チェックイン + badge ゲーミフィケーション | ユーザー操作型、Aneurasync は anchor data を自動集計 (passive 観測) |
-| **Day One** | journal + location tag (optional) | 個人のジャーナリング、Aneurasync は anchor を「生活の意味」 として読み解く |
-| **Strava Heatmap** | 個人の running path heatmap | 移動の集約、Aneurasync は domain (カテゴリ) の集約 |
-| **Spotify Wrapped Geography** | 年次の地理 story (聴いた場所) | 年次 retrospective、Aneurasync は近未来 (windowDays 14) prospective |
-| **Mint / Money Forward** | カテゴリ別 spending visualization | 金銭の「意味の集計」、Aneurasync の「場所の意味の集計」 と構造類似 (= 同 pattern が空間に応用される) |
+v2 で追加する Beyond 改善:
 
-→ **Aneurasync Phase 2-C の unique 立ち位置**:
-- **prospective** (今後 N 日)、retrospective ではない
-- **passive 観測** (anchor data 自動集計、user の追加操作不要)
-- **categorical** (カテゴリ = 生活ドメイン)、geographic (GPS coord) ではない
-- **voice 入り** (hint / frequency / time signature が Aneurasync 声で語る)
+### 13.1 Map view を auxiliary 扱い、Category Grid を main 扱い
 
-### 12.2 Aneurasync 哲学整合 (Heart Dynamics Model 整合)
+- 一般的な Map app: Map が main、補助 UI が下
+- Phase 2-C v2: **Category Grid が main の役割**、Map は **「補助的な地理 lens」** として上に置く
+- 理由: 「自分の地理 = カテゴリ + voice + 頻度」 は Aneurasync の核心、Map は spatial cluster の visualization
 
-**HDM の時間構造** (memory: `heart-dynamics-model-v1.md`):
-- 気候 (年): 長期傾向
-- 季節 (月): 中期傾向
-- 天気 (日): 短期状態
+→ 視覚的 hierarchy:
+1. 上: Map (height 280px、固定)
+2. 中: Category Grid (主要 viewport、scroll で深く)
+3. 下: UnresolvedAnchorsSection + static ALTER card + FAB
 
-**Phase 2-C で対応する空間構造の提案**:
-- **領土** (= 全カテゴリ): あなたが訪れる場所の全体像 — MapTab の grid 全体
-- **街** (= 頻訪カテゴリ): あなたの "聖域" / 主要ドメイン — frequency 高い CategoryCard
-- **部屋** (= 今日の場): 今日 anchor がある category — 別 wave で highlight (本 wave スコープ外)
+### 13.2 Pin color = category-themed (semantic overlay on map)
 
-これらは Aneurasync の「自己理解」の **空間版**。HDM の generative space 哲学を空間にも extends。
+§4.3 の `CATEGORY_MARKER` mapping を実装。Map 上で pin の色が即座に「家か職場か」 を伝える。Google Maps デフォルト pin (赤い水滴) より情報密度高い。
 
-### 12.3 Beyond 改善 (本 wave で採用)
+### 13.3 Confidence 表現 (Beyond、CEO 判断 §14 候補)
 
-#### 12.3.1 hint visible 化 = voice integration
+`searchPlacesByText` の結果は `confidence: "medium"` で cache 化。Pin / list row に **confidence 表現** をどうするか?
 
-現在: hint は表示されない (data として保持のみ)
-Phase 2-C v1: hint を `text-xs italic text-slate-500` で visible 表示
+- A. 表現しない (v2 default 推奨): user は地図と semantic list を見るだけ、confidence は internal metadata
+- B. low confidence pin を dashed border / 透明度低めで render: 視覚的に「これ自信ないかも」 を伝える
+- C. confidence < threshold の anchor を unresolved section に move: 厳密なフィルタリング
 
-```
-🏠 家
-自分の聖域       ← hint visible (italic、subtle)
-週 7 回 · 朝晩中心
-```
+→ A 推奨 (本 wave シンプル)、B/C は Phase 2-C+ で。
 
-**意義**: CATEGORY_META.hint は Aneurasync が用意した「voice」。表示することで「カテゴリ」が単なる label から「意味」 へ昇格する。
+### 13.4 Empty Map state の voice (Beyond)
 
-#### 12.3.2 Frequency natural language voice
+全 anchor が unresolved / pins=0 → 「地図に出せる予定がまだない」 voice。
+全 anchor が same point → 「あなたの活動は 1 つの場所に集中している」 voice (= self-recognition の起点)。
 
-現在: "N 日で X 回" (literal、機械的)
-Phase 2-C v1: "週 N 回" / "月 N 回" / "今は静か" (自然語、aneurasync voice)
+→ A 推奨 (CEO 判断 §14)、空白 placeholder ではなく Aneurasync voice 入り。
 
-**実装** (§3.3 `categoryFrequencyVoice`):
-- 14 日内 7 回以上 → "週 N 回"
-- 14 日内 1-6 回 → 30 日換算 → "月 N 回"
-- 0 回 → "今は静か"
+### 13.5 Cluster な視覚 (Beyond、Phase 2-C+ 預け)
 
-#### 12.3.3 Time signature
+Many anchors at one location: Google Maps marker clustering library (e.g. `@googlemaps/markerclusterer`) を使うと自動 cluster 表示できる。本 wave では dep 追加禁止 (§12) → Phase 2-C+ 預け。
 
-現在: なし
-Phase 2-C v1: anchor の startTime を集計して "朝中心" / "日中中心" / "夜中心" / "深夜中心" / "朝晩中心" / null
+### 13.6 Heatmap 視覚 (Beyond、別 wave)
 
-**実装** (§3.3 `categoryTimeSignature`):
-- 5-10 時 = 朝、11-16 時 = 日中、17-21 時 = 夜、22-4 時 = 深夜
-- 過半数 → 該当帯 + "中心"
-- 朝晩 ≥ 60% → "朝晩中心"
-- 均等 → null (表示しない)
+Google Maps Heatmap layer で「私の活動 heat」 表示。dep `@googlemaps/markerclusterer` or 別 lib 必要 → 別 wave。
 
-**意義**: 同じ category でも「朝のカフェ」と「夜のカフェ」では意味が違う。time signature で **生活リズムの空間版** が露出する。
+### 13.7 「場所をはっきりさせる」 link (UnresolvedAnchorsSection、Beyond)
 
-#### 12.3.4 Empty category as silence (Phase 2-B §11.10 と同 哲学)
+Unresolved anchor の row に "Edit" link を追加 → EditAnchorModal を起動 → locationText を編集 prompt。
+A. 追加 (推奨、user が「曖昧 → 具体」 の self-improvement loop)、B. 追加しない (本 wave シンプル)
 
-現在: `totalCount=0` の group は完全 filter (`groupAnchorsByLocation` で除外済)
-Phase 2-C v1: **全 9 categories を表示**、empty は `opacity-60` + "今は静か" voice
+### 13.8 Sensitive pin の総数表示 (Beyond)
 
-**意義**: Apple Maps / Google Maps は空 category を隠す (= 「ない場所は存在しない」)。Aneurasync は「ない = 静か」 として尊重する (= 「未来 = generative space」哲学整合)。
+Sensitive anchor の locationText が地図に pin として出る (🔒 icon)。CEO judgment §14:
+A. 出す + 🔒 (v2 default、現 MapTab anchor row と整合): user に「ここに敏感予定あり」 を可視化、内容は modal で
+B. 出さない (semantic fallback に強制 move): privacy 最大
+C. 出す + count obfuscation (例: 「敏感予定 N 件 (位置非表示)」 という cluster pin): privacy 中庸
 
-ユーザーは「私の学校カテゴリは静かだな」「私の屋外カテゴリは空白だな」 と気づく → 「学びを増やしたい」「外に出たい」 の self-recognition の起点になる。
+A 推奨 (本 wave シンプル + Phase 2-B AnchorThumbnail 整合)。
 
-#### 12.3.5 Per-category add for empty categories
+### 13.9 Tap-on-Map で empty area の add 起動 (Beyond、別 wave)
 
-empty category にも "+ <カテゴリ> での予定を教える" link を表示するか?
-- A. 表示する (CEO 判断 §13 推奨): empty を埋める導線が自然に提供される
-- B. 表示しない: ノイズ削減、active のみに focus
+Map の白地に tap → AddAnchorModal を起動、緯度経度を coords prefill → 自動 reverse-geocode で locationText 候補。
+→ ExternalAnchor に lat/lng 必要 (migration) → 別 wave。
 
-→ **CEO 判断 §13**。推奨は A (empty を「埋める」 のは Aneurasync の核心体験)。
+### 13.10 World-leading 比較 (v2 update、v1 から拡張)
 
-#### 12.3.6 Static ALTER suggestion card (Phase 2-B §3.4 と同 pattern)
+| アプリ | アプローチ | Phase 2-C v2 との関係 |
+|--------|------------|------------------------|
+| **Apple Maps Memories** | 「N 年前の今日 Paris に居た」 retrospective story-like、real map | Aneurasync は prospective (今後 14 日)、real-map 部分は共通 |
+| **Google Maps Timeline** | 日次 GPS history + route | passive 自動収集、Aneurasync は anchor 自己申告 (= user-curated geography) |
+| **Foursquare / Swarm** | チェックイン + badge | gamification、Aneurasync は passive aggregation (= 私の予定の自然な集約) |
+| **Spotify Wrapped Geography** | 年次 retrospective story | Aneurasync は近未来 prospective + 私の voice |
+| **Mint / Money Forward** | カテゴリ別 spending + 地図表示なし | categorical aggregation pattern (Aneurasync の Category Grid と類似)、Aneurasync は + 地図 lens |
+| **Apple Health App (Walk Map)** | 自動 GPS 履歴 + heat | passive 観測、Aneurasync は user-anchor based curated |
 
-末尾に静的 placeholder card:
-- 文言: "あなたの地理を、ALTER が読みに来る予定です" + "(Phase 3 で動作予定 — 今は説明だけ)"
-- 内側 card: "あなたの "聖域" を見てみたいですか?" (CEO 判断、§13 候補)
-- ボタン風 styling 禁止 (Phase 2-B CEO 補正 #2 と同)
-- tabIndex なし、cursor:default、select-none
-
-**意義**: Phase 3 接続点を視覚的に予告。MapTab のみ で完結する閉じた view ではなく、ALTER が将来関与する hook を見せる。
-
-#### 12.3.7 FAB (Phase 2-A / 2-B 同 pattern)
-
-global FAB を追加 (per-category add は維持):
-- FAB: locationCategory **未指定** (user が modal 内で選ぶ)
-- per-category: locationCategory **prefill** (即時 context 渡し)
-- 2 つの mental model: 「予定を追加 (今 category 不明)」 vs 「○○ での予定を追加」
-
-#### 12.3.8 Header copy refinement
-
-現在: "あなたの聖地マップ" + "今後 14 日間で訪れる場所"
-Phase 2-C v1 候補 (CEO 判断 §13):
-
-A. "あなたの地理" + "今後 14 日間で訪れる場所" ← 推奨 (simple、CEO 方針 "自分の地理" 直訳)
-B. "あなたの場所" + "今後 14 日間で訪れる場所"
-C. "生活が起こる場所" + "今後 14 日間"
-D. "聖地マップ" を維持 + sub copy のみ更新
-E. "自分の地理" + "あなたの生活舞台" (大胆な poetic copy)
-
-#### 12.3.9 Sensitive privacy 整合 (Phase 2-B AnchorThumbnail 整合)
-
-Phase 2-B では sensitive anchor の thumbnail を 🔒 generic icon に統一。
-Phase 2-C では anchor row の title + locationText が表示される (現 MapTab 既存)。
-
-Option:
-A. **現状維持** (title 表示 + sensitive badge): 詳細情報は AnchorDetailModal で明らかにする pattern、現 MapTab 整合
-B. **title 抹消** (sensitive anchor の title を "🔒 ⟨敏感⟩" に置換、AnchorDetailModal でのみ実 title 表示): privacy 最大化
-C. **title + 🔒 prefix** (title 維持 + 🔒 prefix): privacy 軽度配慮、視覚的に sensitive を明示
-
-→ **CEO 判断 §13**。推奨は A (現状維持)。Phase 2-B の "thumbnail は 🔒、title は通常" pattern と整合 (= title は AnchorRow level で表示、thumbnail/icon level でのみ 🔒 抑制)。
-
-#### 12.3.10 Restraint UI (Phase 2-B §11.16 整合)
-
-- 色: indigo (active) / slate (subtle) / 曜日色なし (時間色は MapTab に不要)
-- shadow: card hover でのみ subtle
-- typography: emoji 大 (text-4xl) + label / hint / voice の細やかな contrast
-- gradient (static ALTER card): `/60` で薄く
-
-#### 12.3.11 a11y semantic
-
-- `<section role="region" aria-label="家 · 自分の聖域 · 週 7 回">` 形式
-- empty: `aria-label="家 · 自分の聖域 · 今は静か"`
-- screen reader が「カテゴリ + voice + 頻度」 を 1 行で読み上げる
-- grid 内 keyboard nav: Tab で card 順 → card 内 anchor 順 → 次 card
-- arrow key nav は採用しない (本 wave で keyboard composer 系の衝突を避けるため、Phase 2-A の week strip と同 simple Tab 順)
-
-#### 12.3.12 prefers-reduced-motion 対応
-
-- Phase 2-C は animation 不要 (FlowTab と同)
-- card hover transition のみ、reduced-motion でも disable 不要 (transition は subtle で acceptable)
-
-### 12.4 採用しない improvements (Phase 2-C+ / 別 wave 預け)
-
-| 改善 | 理由 | 預け先 |
-|------|------|-------|
-| **Today's stage highlight** (今日 anchor がある category を強調) | 本 wave は windowDays-aggregate focus、「今日」 は Calendar/Flow で見れる | Phase 2-C+ |
-| **windowDays toggle** (7 / 14 / 30 / all) | UI 複雑化、現 14 日固定で価値検証 | Phase 2-C+ |
-| **Drill-down (category tap → 詳細 view)** | grid のシンプルさが価値、tap で別 page は flow を分断 | Phase 2-C+ / Phase 3 |
-| **Long-press quick action** | Phase 2-B と同 defer 理由 (mobile only / framer-motion 衝突) | Phase 2-C+ |
-| **Real map (Google Maps + lat/lng)** | ExternalAnchor 座標なし、migration 必要 | 別 wave (lat/lng 追加後) |
-| **Pin clustering** | 座標前提、本 wave は categorical | 別 wave |
-| **Path drawing (transit ↔ home)** | 移動軌跡、座標前提 | 別 wave |
-| **Category-specific stats (e.g. 「カフェ訪問の平均滞在時間」)** | endTime を集計するロジック必要、価値検証は後 | Phase 2-C+ |
-| **Category への custom name (e.g. 「サードプレイス」)** | enum 拡張、migration 必要 | 別 wave |
-| **Heat indicator (頻度を visual gradient で)** | 視覚過剰、frequency voice で十分 | 別 wave、否決の可能性高い |
+→ Aneurasync v2 の unique 立ち位置: **user-curated + prospective + 意味の地理 voice + real-map lens (auxiliary)** = どれとも overlap しない。
 
 ---
 
-## 13. CEO 判断点 (本 PR merge 後の実装 wave 起票前)
+## 14. CEO 判断点 (本 PR merge 後の実装 wave 起票前)
 
-### 判断 1: layout (§3.1)
+### 判断 1: 地図 view の height (§4.2)
 
-- **A. 2 列 grid (mobile responsive、wider で 2-3 列)** ← 推奨
+- A. 280px (推奨、十分な pin 視認 + scroll bypass しすぎない)
+- B. 180px (Morning と同、より控えめ)
+- C. 360px (大きめ、map を主役寄り)
+- D. dynamic (full-bleed、aspect 16:9)
+
+### 判断 2: Script loader option (§5.1)
+
+- **A. shared `lib/shared/googleMapsLoader.ts` 抽出** (推奨、DRY、両 component で 1 script、Morning 側に最小 touch)
+- B. Plan 側 inline 再現、SCRIPT_ID 別 (script 2 個、cost 増、Morning 不可触)
+- C. Plan 側 inline 再現、SCRIPT_ID 同 (loader code 重複、cost 同、Morning 不可触)
+
+### 判断 3: Cache area parameter (§5.3)
+
+- **A. `area = undefined`** (推奨、Plan 専用 cache entry、Alter Morning と独立)
+- B. `area = user.baseline.prefecture` (Alter Morning と互換 cache 共有)
+
+### 判断 4: Cost / budget (§11.13)
+
+- Places API cost: cache hit 70% 想定で **約 $3.8/user/month** (月 400 calls × $0.032 / hit 30% = ~120 paid calls)
+- A. **CEO budget 承認、cache 効率改善は実装後に観測** (推奨)
+- B. cache hit 率の事前評価必要 → Phase 2-C 実装一時保留
+- C. budget 制限導入 (例: user 当たり 月 50 calls 上限)、超過時は graceful degradation
+
+### 判断 5: Layout (§4.1 / §13.1)
+
+- **A. Map 上、Category Grid 下、Unresolved さらに下** (推奨、Map auxiliary)
+- B. Category Grid 上、Map 下 (map を後置、grid を main 強調)
+- C. Side-by-side (desktop only、mobile は A と同)
+- D. Tab 切替 (Map / Category 切替 toggle、深い refactor)
+
+### 判断 6: layout (§3.1 v1 維持) — Category Grid layout
+
+- **A. 2 列 grid (推奨、v1 と同)** — mobile responsive、wider で 2-3 列
 - B. 縦 1 列 list (現 MapTab 維持)、CategoryCard 内部のみ refactor
-- C. semantic spatial layout (SVG custom、center=home、外周に other categories) — Phase 2-C+ 預け
-- D. Frequency-based size variation (大きい card / 小さい card)、heatmap feel — Phase 2-C+ 預け
+- (C-D は v1 で却下、Phase 2-C+ 預け)
 
-### 判断 2: empty category 表示 (§3.2、§12.3.4)
+### 判断 7: empty category 表示 (§13、v1 維持)
 
-- **A. 全 9 categories 常時表示、empty は opacity-60 + "今は静か" voice** ← 推奨 (Aneurasync 哲学整合)
-- B. active のみ表示 (現 MapTab 既存挙動維持)
-- C. empty は collapsed default、tap で expand
+- **A. 全 9 categories 常時表示、empty は "今は静か" voice** (推奨、Aneurasync 哲学整合)
+- B. active のみ表示 (現 MapTab 既存挙動)
 
-### 判断 3: empty category per-category add link (§12.3.5)
+### 判断 8: empty category per-category add link (§13.7、v1 維持)
 
-- **A. 表示する** (empty を埋める導線、Aneurasync 「未来 = generative space」 整合) ← 推奨
-- B. 表示しない (active のみ add link)
+- **A. 表示する** (推奨、Aneurasync "未来 = generative space")
+- B. 表示しない
 
-### 判断 4: 静的 ALTER 提案 card 表示 (§3.4、§12.3.6)
+### 判断 9: 静的 ALTER 提案 card (§4.6、v1 維持)
 
-- **A. 表示する** (Phase 2-B integration、Phase 3 接続点予告) ← 推奨
-- B. 表示しない (MapTab は category-only に閉じる)
+- **A. 表示する** (推奨、Phase 2-B integration)
+- B. 表示しない
 
-### 判断 5: FAB の有無 (§3.5、§12.3.7)
+### 判断 10: FAB (§4.7、v1 維持)
 
-- **A. global FAB を追加** (Phase 2-A / 2-B 整合、per-category add と共存) ← 推奨
-- B. per-category add のみ (現 MapTab 既存挙動)
+- **A. global FAB を追加** (推奨、Phase 2-A / 2-B 整合)
+- B. per-category add のみ
 
-### 判断 6: header copy (§12.3.8)
+### 判断 11: header copy (§13.10、v1 から)
 
-- **A. "あなたの地理" + "今後 14 日間で訪れる場所"** ← 推奨 (CEO 方針 "自分の地理" 直訳)
-- B. "あなたの場所" + "今後 14 日間で訪れる場所"
-- C. "生活が起こる場所" + "今後 14 日間"
-- D. "聖地マップ" を維持 + sub copy のみ更新 (旧 voice 維持)
+- **A. "あなたの地理" + "今後 14 日間で訪れる場所"** (推奨、CEO 方針直訳)
+- B. "あなたの場所" + 同
+- C. "生活が起こる場所" + 同
+- D. "聖地マップ" 維持
 - E. "自分の地理" + "あなたの生活舞台" (poetic)
 
-### 判断 7: sensitive anchor の title 表示 (§12.3.9)
+### 判断 12: sensitive anchor の title 表示 (§13.8、v1 から)
 
-- **A. 現状維持** (title + locationText 表示 + sensitive badge) ← 推奨 (Phase 2-B AnchorThumbnail integration 整合)
-- B. title を "🔒 ⟨敏感⟩" に置換、AnchorDetailModal でのみ実 title (privacy 最大化)
-- C. title + 🔒 prefix (中庸)
+- **A. 現状維持** (title + 🔒 badge、Phase 2-B AnchorThumbnail 整合) — 推奨
+- B. title masking → AnchorDetailModal でのみ実 title
+- C. title + 🔒 prefix
 
-### 判断 8: windowDays default (§3.1)
-
-- **A. 14 (現 default 維持)** ← 推奨 (現 MapTab 既存挙動)
-- B. 7 (Phase 2-B FlowTab と整合)
-- C. 30
-- D. 設定可能 (toggle UI 追加、Phase 2-C+ 預け)
-
-### 判断 9: 静的 ALTER 提案 card の文言 (§3.4、§12.3.6)
+### 判断 13: 静的 ALTER 提案 card 文言 (v1 から)
 
 - A. "あなたの "聖域" を見てみたいですか?" + "(Phase 3 で動作予定)"
 - B. "ALTER があなたの地理を読み解きます" + "(Phase 3 で動作予定)"
-- **C. "あなたの場所のパターンを、ALTER が読みに来る予定です" + "(Phase 3 で動作予定)"** ← 推奨 (Aneurasync voice + 控えめ + Phase 3 明示)
-- D. CEO 別案
+- **C. "あなたの場所のパターンを、ALTER が読みに来る予定です" + "(Phase 3 で動作予定)"** (推奨、Aneurasync voice + 控えめ + Phase 3 明示)
 
-### 判断 10: Phase 2-C 後の次フェーズ優先順位
+### 判断 14: 「場所をはっきりさせる」 link (UnresolvedAnchorsSection、§13.7)
+
+- A. 表示する (Edit anchor へ direct、self-improvement loop)
+- **B. 表示しない (本 wave)、Phase 2-C+ 預け** (推奨、本 wave シンプル維持)
+
+### 判断 15: Confidence 表現 (§13.3)
+
+- **A. 表現しない (本 wave default)** — 推奨
+- B. low confidence pin を dashed / 透明 render — Phase 2-C+
+- C. low confidence を unresolved に強制 move — Phase 2-C+
+
+### 判断 16: Empty Map state voice (§13.4)
+
+- **A. Aneurasync voice 入り** (「地図に出せる予定がまだない」 等) — 推奨
+- B. 空白 placeholder
+
+### 判断 17: Phase 2-C 後の次フェーズ優先順位
 
 | Phase | 内容 | 推奨 timing |
-|-------|------|--------------|
-| **Phase 3** | 空き日 → ALTER 質問 → 提案 flow (FlowTab / MapTab integration) | Stargazer / Alter engine 接続 (大型) |
-| **Phase 2-C+** | MapTab に Today's stage / windowDays toggle / drill-down | Phase 2-C 着地後 |
-| **別 wave (Real Map)** | ExternalAnchor lat/lng migration + reverse geocoding + Google Maps integration | 需要発生時、CEO 別判断 |
+|-------|------|-------------|
+| **Phase 3** | 空き日 → ALTER 質問 → 提案 flow | Stargazer / Alter engine 接続 (大型) |
+| **Phase 2-C+** | clustering / heatmap / "場所をはっきりさせる" link / Today's stage / windowDays toggle | Phase 2-C 着地後 |
+| **別 wave (Real Map enhancement)** | ExternalAnchor lat/lng migration + reverse geocoding 自動化 + Tap-on-Map add 起動 | 需要発生時、CEO 別判断 |
 | **Phase 2-A+** | Full month grid view mode 追加 | 別 design |
 | **W1-Z+ cleanup** | Repository fallback path 削除 | apply 後 1 週間観測 |
 
 ---
 
-## 14. 制約遵守 (本 PR 通算)
+## 15. 制約遵守 (本 PR 通算、v2 補正)
 
 - ✅ docs only (実装 / migration / env 変更 0)
-- ✅ Phase 2-A branch (`feat/alter-plan-phase2-a-calendar-week-strip`) への混入なし (本 PR は別 branch)
-- ✅ Phase 2-B branch (`feat/alter-plan-phase2-b-flow-list`) への混入なし (本 PR は別 branch、Phase 2-B impl の上に stack)
+- ✅ Phase 2-A branch (`feat/alter-plan-phase2-a-calendar-week-strip` @ 6e37ad38) への追加 commit 0、不可触
+- ✅ Phase 2-B branch (`feat/alter-plan-phase2-b-flow-list` @ 99e7c02a) への追加 commit 0、不可触
 - ✅ GitHub 操作 0 (suspension 中、push / pull / fetch / gh 全禁止維持)
 - ✅ CoAlter / Mirror / /talk / D-* / W1-6 / DraftPlan / fallback path 不触
 - ✅ Production / all-Preview env 不触
-- ✅ migration 追加なし (ExternalAnchor lat/lng は別 wave)
+- ✅ **新 env 追加なし** (既存 `GOOGLE_MAPS_API_KEY` + `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY` 流用)
+- ✅ **新 migration なし** (既存 `place_resolution_cache` table 流用、ExternalAnchor schema 不変)
+- ✅ **新 dep なし** (`@vis.gl/react-google-maps` / `@types/google.maps` / `leaflet` / `mapbox-gl` 等)
 - ✅ service_role / DB password / connection string 不使用
-- ✅ Google Maps API key (`GOOGLE_MAPS_API_KEY` / `NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY`) Plan 用追加 / 流用なし
-- ✅ MorningMapView / routesApiClient / `@vis.gl/react-google-maps` 不可触
-- ✅ Phase 2-A 実装 (CalendarTab / SelectedDay / 月送り animation / Today button) 不変
+- ✅ Alter Morning 側 `placesApiClient` / `placeResolver` / `placeCacheStore` 内部 logic 不可触 (call signature 経由のみ)
+- ✅ Phase 2-A 実装 (CalendarTab) 不変
 - ✅ Phase 2-B 実装 (FlowTab / AnchorThumbnail / 静的 ALTER card / FAB / sticky header) 不変
-- ✅ Phase 2-C / Phase 3 / Phase 2-A+ / Phase 2-B+ は別 wave 預け
+- ✅ Phase 3 / 別 wave 預け事項を明確化 (§17)
 
 ---
 
-## 15. References
+## 16. References
 
 ### 既存 files (本 PR で touch しない、実装 wave で touch する file 含む)
 
-- `app/(culcept)/plan/tabs/MapTab.tsx` (本命修正対象、194 行、本 PR で touch しない)
-- `app/(culcept)/plan/tabs/_helpers.ts` (既存 helper、本 wave で軽量拡張のみ)
-- `app/(culcept)/plan/PlanClient.tsx` (parent、本 wave で touch しない)
-- `lib/plan/external-anchor.ts` (ExternalAnchor 型、本 wave で touch しない、lat/lng なし確認)
-- `app/(culcept)/plan/components/AnchorDetailModal.tsx` (W1-X5 既存、本 wave で touch しない)
-- `app/(culcept)/plan/components/AddAnchorModal.tsx` (W1-X1/X2 既存、本 wave で touch しない)
+- `app/(culcept)/plan/tabs/MapTab.tsx` (本命修正対象、194 行)
+- `app/(culcept)/plan/tabs/_helpers.ts` (既存 helper、軽量拡張)
+- `app/(culcept)/plan/PlanClient.tsx` (parent、不可触)
+- `lib/plan/external-anchor.ts` (ExternalAnchor 型、不可触、lat/lng なし確認済)
+- `app/(culcept)/plan/components/AnchorDetailModal.tsx` (W1-X5、不可触)
+- `app/(culcept)/plan/components/AddAnchorModal.tsx` (W1-X1/X2、不可触)
+- `lib/alter-morning/placesApiClient.ts` (流用、内部 logic 不可触)
+- `lib/alter-morning/placeResolver.ts` (流用、内部 logic 不可触)
+- `lib/alter-morning/placeCacheStore.ts` (流用、内部 logic 不可触)
+- `lib/alter-morning/locationResolver.ts` (参照のみ、本 wave 利用なし)
+- `lib/shared/location.ts` (PREFECTURE_COORDS、参照のみ、本 wave 利用なし)
+- `lib/shared/municipalityCoords.ts` (参照のみ、本 wave 利用なし)
+- `components/home/morning/MorningMapView.tsx` (loader 抽出時に最小 touch、それ以外は参照)
+- `supabase/migrations/20260416100000_place_resolution_cache.sql` (既適用、不可触)
 
 ### 関連設計書
 
@@ -1016,108 +1509,158 @@ C. **title + 🔒 prefix** (title 維持 + 🔒 prefix): privacy 軽度配慮、
 
 ### Aneurasync 哲学 references (memory)
 
-- `memory/aneurasync-philosophy.md` (中心問い "第二の自己として必要か?")
-- `memory/heart-dynamics-model-v1.md` (時間構造 + generative space 哲学)
-- `memory/project_phase2-direction.md` (Phase 2 方針)
+- `memory/aneurasync-philosophy.md`
+- `memory/heart-dynamics-model-v1.md` (時間構造 + 空間構造 (v2 提案))
+- `memory/project_phase2-direction.md`
 
-### Google Maps 関連 (本 wave で参照のみ、touch なし)
+### Google Maps 関連
 
-- `components/home/morning/MorningMapView.tsx` (script injection pattern、将来 real-map wave の reference)
-- `lib/alter-morning/routesApiClient.ts` (server-side API key 利用、本 wave で touch なし)
 - PR #31 (`@vis.gl/react-google-maps` 採用試行 → Vercel build 45:22 timeout で reject)
-- PR #34 (M1 pin-only MVP landed 8d0ce253)
+- PR #34 (M1 pin-only MVP landed 8d0ce253 — vanilla JS API pattern 確立)
 
-### 世界トップアプリ参考 (§12.1)
+### 世界トップアプリ参考 (§13.10)
 
-- Apple Maps Memories (iOS / macOS)
-- Google Maps Timeline
-- Foursquare / Swarm
-- Day One
-- Strava Heatmap
-- Spotify Wrapped Geography
-- Mint / Money Forward (categorical aggregation pattern)
+- Apple Maps Memories / Google Maps Timeline / Foursquare / Day One / Strava / Spotify Wrapped / Mint / Apple Health
 
 ---
 
-## 16. GitHub 復旧後の手順 (3-level stacked branch)
+## 17. GitHub 復旧後の手順 (4 段 stacked branch)
 
-### 16.1 stacked branch の構造
+### 17.1 stacked branch 構造
 
 ```
-local main             b07eeab5  (suspension 時点 snapshot、復旧後 pull で advance)
-                       ↑
+local main             b07eeab5  (#215、suspension snapshot)
+                       ↑ merge-base
 Phase 2-A              6e37ad38  (feat/alter-plan-phase2-a-calendar-week-strip、5 commits、凍結)
-                       ↑
+                       ↑ stacked
 Phase 2-B              99e7c02a  (feat/alter-plan-phase2-b-flow-list、3 commits、凍結)
-                       ↑
-Phase 2-C docs         HEAD       (docs/alter-plan-phase2-c-map-tab-mini-design、本 PR、1 commit)
+                       ↑ stacked
+Phase 2-C docs         HEAD       (docs/alter-plan-phase2-c-map-tab-mini-design、2 commits = v1 起票 + 本 v2 補正)
                        ↑ (実装 wave 着手後)
-Phase 2-C impl         ...        (feat/alter-plan-phase2-c-map-tab、推定 3 commits)
+Phase 2-C impl         ...        (feat/alter-plan-phase2-c-map-tab、推定 3 commits、未着手)
 ```
 
-### 16.2 復旧後 procedure (CEO 操作、本 docs は AI が事前に整理)
+### 17.2 復旧後 procedure (Phase 2-B mini design §16 と同 pattern)
 
 ```bash
-# (1) suspension 解除確認
-gh auth status
+gh auth status  # suspension 解除確認
 
-# (2) Phase 2-A push & merge
+# (1) Phase 2-A push & merge
 git checkout feat/alter-plan-phase2-a-calendar-week-strip
 git push origin feat/alter-plan-phase2-a-calendar-week-strip
-# → PR #223 自動更新、CI / CEO review → merge
+# PR #223 自動更新 → CI / CEO review → merge
 
-# (3) Phase 2-B push & merge
+# (2) Phase 2-B rebase & push & merge
 git checkout feat/alter-plan-phase2-b-flow-list
-# (5-a/b/c) Phase 2-A の merge 方式に応じて rebase
-git rebase main  # or `git rebase --onto main 6e37ad38 ...` (Squash の場合)
+git rebase main  # or --onto (Squash の場合)
 git push -u origin feat/alter-plan-phase2-b-flow-list
-# 新 PR 起票、CI / CEO review → merge
+# 新 PR → CI / CEO review → merge
 
-# (4) Phase 2-C docs push & merge (本 PR)
+# (3) Phase 2-C docs rebase & push & merge (本 PR)
 git checkout docs/alter-plan-phase2-c-map-tab-mini-design
-git rebase main  # or `--onto` (Phase 2-B merge 方式に応じて)
+git rebase main  # or --onto
 git push -u origin docs/alter-plan-phase2-c-map-tab-mini-design
-# 新 PR 起票、CI (docs only なので軽い) / CEO review → merge
+# 新 PR (docs only、軽い CI) → CEO review → merge
 
-# (5) (実装 wave 着手後) Phase 2-C impl branch push & merge
-git checkout feat/alter-plan-phase2-c-map-tab  # 本 docs merge 後に切る
-git rebase main
+# (4) Phase 2-C impl branch 着手 (本 docs 採択後)
+git checkout main
+git pull origin main
+git checkout -b feat/alter-plan-phase2-c-map-tab
+# C1 / C2 / C3 実装 + local smoke
 git push -u origin feat/alter-plan-phase2-c-map-tab
-# 新 PR 起票、CI / CEO review → merge
+# 新 PR → CI / CEO review → merge
 ```
 
-### 16.3 merge 方式の柔軟性 (Phase 2-B §16 と同 pattern)
+### 17.3 merge 方式の柔軟性
 
-Phase 2-B mini design §16 と同じく、Phase 2-A / 2-B / 2-C docs / 2-C impl のいずれの merge 方式 (Merge commit / Squash / Rebase merge) でも `--onto` 含む 3 方式すべて対応可能。CEO は復旧時の repo 設定 / 状況に合わせて選んで OK。
+Phase 2-B mini design §16 と同、Merge commit / Squash / Rebase merge いずれも `--onto` で対応可能。
 
-### 16.4 復旧前の禁止事項 (継続)
+### 17.4 復旧前禁止事項 (継続)
 
 - ❌ `git push` / `git pull` / `git fetch`
-- ❌ `gh auth login` / `gh pr` (任意の gh コマンド)
-- ❌ `git branch -D` / `git branch -d` / `git checkout -B`
+- ❌ `gh auth login` / `gh pr`
+- ❌ `git branch -D / -d` / `git checkout -B`
 - ❌ `git reset --hard` / `git checkout --` / `git restore .` / `git clean -f` / `git stash`
-- ❌ Phase 2-A branch / Phase 2-B branch / Phase 2-C docs branch (本 branch) 以外への commit
-- ❌ local main (`main`) への commit
-- ❌ Phase 2-A / Phase 2-B 凍結 branch への追加 commit (本 docs PR で違反検出時は revert)
+- ❌ Phase 2-A / Phase 2-B / 本 docs / Phase 2-C impl 以外への commit
+- ❌ local main へ commit
+- ❌ Phase 2-A / Phase 2-B 凍結 branch への追加 commit
 
-### 16.5 復旧前にできること (継続)
+### 17.5 復旧前にできること (継続)
 
-- ✅ 本 PR (Phase 2-C mini design docs) への補正 commit (必要なら複数 commit OK)
-- ✅ CEO レビュー → 判断 1-10 確定 → 別 branch で Phase 2-C 実装着手
+- ✅ 本 PR (Phase 2-C mini design) への補正 commit (本 commit が v1 → v2 補正の例)
+- ✅ CEO レビュー → 判断 1-17 確定 → Phase 2-C 実装着手
 - ✅ Phase 2-C 実装 branch を本 docs branch から派生 (= 4 段 stacked)
-- ✅ local test (`npx tsc --noEmit` / `npx vitest run` / `npm run build`)
-- ✅ CEO local smoke
+- ✅ local test / build / smoke
+- ✅ blocker fix commit
 
 ---
 
-## 17. 変更履歴
+## 18. 変更履歴 + v1 撤回経緯
 
 | 日付 | 変更 | 承認 |
 |------|------|------|
-| 2026-05-20 | Phase 2-C (MapTab 「自分の地理」 view) mini design 起票、GitHub suspension 中 local-first 運用、Phase 2-B impl branch (99e7c02a) の上に stack、Phase 2-A / 2-B branch とは完全分離。Google Maps 不採用 (ExternalAnchor 座標なし + PR #31 reject 前例 + CEO 哲学整合)、既存 helper 100% 流用、最小安全設計。CEO 判断点 10 件 + Beyond 改善 12 件 (hint visible / frequency natural voice / time signature / empty stillness / per-category add for empty / static ALTER card / FAB / header copy / sensitive privacy / restraint UI / a11y / reduced-motion) | CEO レビュー待ち (GitHub 復旧後) |
+| 2026-05-20 v1 (commit 59dbb3c5、**撤回**) | 「Google Maps なし semantic-only」 で起票。empirical audit が不十分で「現 MapTab は地図 API 使わない pattern なので Phase 2-C も使わない」 を結論 | CEO レビューで補正指示 |
+| 2026-05-20 v2 (本 commit) | **「Google Maps あり 本命」 に redirect**。CEO 補正「Alter Morning 用 API 資産は Alter Plan で普通に使ってよい」 + GPT 提案「`@vis.gl` は使わない、vanilla JS は使う」 を反映。empirical audit を再実施し、既存 Alter Morning 資産 (placesApiClient / placeResolver / placeCacheStore / vanilla script loader / 既存 env / 既存 cache table migration) の流用可能性を確認 | CEO レビュー待ち (GitHub 復旧後 push) |
+
+### 18.1 v1 撤回理由 (audit trail)
+
+**v1 が overly conservative だった原因**:
+1. 「現 MapTab は地図 API 使わない pattern」 を 「Phase 2-C も使わない」 に過剰一般化
+2. Alter Morning の Google Maps 統合資産の **深さを過小評価** (Places API client / 2-layer cache / shared loader pattern / 既存 env のすべてが Plan で reusable)
+3. ExternalAnchor 座標なしを「migration 必要」 と短絡 (= render-time 解決 + cache で migration なしで実現可能)
+4. CEO 方針 「使える資産は使う」 を 「使わない方が安全」 と保守解釈
+
+**v2 で修正した点**:
+1. Alter Morning 資産の empirical audit を実施 (§1)、12 種の reusable assets を確認
+2. server-side geocoding endpoint で migration なし、cache table 流用で migration なし、vanilla script loader で dep なし、既存 env で env 追加なし → **「使う」 と「最小安全設計」 は両立** と判明
+3. v1 で設計した semantic-only UI (CategoryGrid / 静的 ALTER card / FAB / voice 等) は **すべて v2 で維持**、Map view を **上に追加** するだけ → v1 の作業も無駄にならない
+4. 中断 trigger (§19) を明文化、本当に migration / env が必要になった瞬間に CEO 確認に戻る規律を維持
+
+→ **v2 は v1 + Map view 統合 + 既存資産流用** の上位互換構造。v1 の semantic 設計は v2 でも「Category Grid」 として完全継続。
+
+### 18.2 v2 を採用した CEO 方針整合
+
+CEO 方針:
+> alter の API は全て流用して使っていい。alter-morning 専用じゃなくて、こっちで普通に使っていい。
+> Google マップも普通に api 入ってるから使っていい。使える資産は使うべき。
+
+v2 はこれを実現:
+- ✅ Alter Morning API (placesApiClient / placeResolver / placeCacheStore) を Plan で流用
+- ✅ Google Maps API (server: GOOGLE_MAPS_API_KEY / browser: NEXT_PUBLIC_ALTER_MORNING_MAPS_BROWSER_KEY) を Plan で utilize
+- ✅ 既存 cache table 流用、shared loader 抽出 (option A)
+- ✅ 新 env / migration / dep すべてゼロ → CEO の「最小安全設計」 制約も維持
+
+GPT 補正方針 (本 commit で全面採用):
+1. ✅ Phase 2-C は Google Maps 利用を本命に再設計
+2. ✅ `@vis.gl/react-google-maps` 使わない、vanilla JS API 採用
+3. ✅ 既存 Alter 資産を read-only で再監査 (§1)
+4. ✅ ExternalAnchor lat/lng なし制約は認める、ただし Map を出さない理由にはしない
+5. ✅ migration なしで最小案 (server endpoint + cache reuse)
+6. ✅ 永続 lat/lng は本 wave で追加しない、必要時 CEO 確認
+7. ✅ env 追加なし、既存 key 使用
+8. ✅ 本 commit が補正 commit
 
 ---
 
-**End of Mini Design**. CEO レビュー → 判断 1-10 → 実装 wave (3 commits) GO/NO-GO 判断をお待ちします。
+## 19. 中断 trigger (実装中に CEO 確認に戻る条件)
 
-復旧前に既に許可された範囲は §6.1 + §16.5、復旧後手順は §16.2-16.3。実装は 4 段 stacked branch (Phase 2-A → Phase 2-B → Phase 2-C docs → Phase 2-C impl) で安全に進行可能。実装中に Google Maps API key / migration / env 変更が必要になった瞬間、本 wave を中断して CEO 確認に戻る (§5.3 のトリガー)。
+実装中、以下のいずれかが必要になった瞬間 → **作業中断 + CEO 確認**:
+
+| カテゴリ | 具体 trigger |
+|---------|-------------|
+| **migration** | ExternalAnchor 型に lat / lng / geo_point field 追加が必要 / `place_resolution_cache` table への column / index / constraint 追加が必要 / 新 table 作成が必要 |
+| **env** | 新 env variable 追加が必要 (`NEXT_PUBLIC_*MAPS*` の Plan 用 key、`*GEO*`、`*MAP*` 等) / 既存 env の rename / Plan 用に key rotation / 既存 key の secret 露出範囲変更 |
+| **dependency** | `@vis.gl/react-google-maps` / `@googlemaps/markerclusterer` / `@types/google.maps` / `leaflet` / `mapbox-gl` / `google-map-react` / 他 geo / map / clustering / heatmap 系 dep install |
+| **Alter Morning 側 logic 改変** | `placesApiClient` の field mask / quota 変更 / `placeResolver` の cacheKey 規約変更 / `placeCacheStore` の TTL / table 名変更 / `MorningMapView` の behavior 変更 (visual / analytics) |
+| **cost spike** | Places API call が想定 ($3.8/user/month) を 2 倍以上超過 / cache hit 率が 50% 以下 |
+| **build performance** | Vercel build 時間が Phase 2-B baseline から +10% 以上 増加 |
+| **privacy** | locationText 以外のユーザーデータ (e.g. GPS history) を Google に送る必要 / log に locationText を 明示的に書く必要 |
+| **scope creep** | Phase 3 ALTER 動作実装が必要 / Phase 2-A / Phase 2-B の改修が必要 / CoAlter / Mirror / W1-6 / DraftPlan 接続が必要 |
+
+→ いずれも CEO 確認後、再着手 / scope 修正 / 別 wave 移行を決定。
+
+---
+
+**End of Mini Design v2**. CEO レビュー → 判断 1-17 → 実装 wave (3 commits) GO/NO-GO 判断をお待ちします。
+
+復旧前に既に許可された範囲は §7.1 + §17.5、復旧後手順は §17.2-17.3。実装は 4 段 stacked branch (Phase 2-A → Phase 2-B → Phase 2-C docs → Phase 2-C impl) で安全に進行可能。実装中に §19 のいずれかが trigger → 中断 + CEO 確認。
