@@ -414,4 +414,105 @@ describe("POST /api/plan/places/search", () => {
       expect(json.data.results).toHaveLength(5);
     });
   });
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Phase 2-H: title 受取、 query combine、 ambiguous 早期 return
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  describe("Phase 2-H: title-aware query combine", () => {
+    beforeEach(() => {
+      currentMockClient.setAuthUser({ id: USER_A });
+    });
+
+    it("title 受取 200: title='ショッピング' + query='新宿' → combine textQuery='新宿 ショッピング' で API call", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(
+        makePostRequest({ query: "新宿", title: "ショッピング" }),
+      );
+      expect(res.status).toBe(200);
+      expect(mockSearchPlaces).toHaveBeenCalledTimes(1);
+      const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
+      expect(callArg.textQuery).toBe("新宿 ショッピング");
+    });
+
+    it("intent_only: title 単独 (query 空) → API call textQuery=title", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(
+        makePostRequest({ query: "", title: "ショッピング" }),
+      );
+      expect(res.status).toBe(200);
+      expect(mockSearchPlaces).toHaveBeenCalledTimes(1);
+      const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
+      expect(callArg.textQuery).toBe("ショッピング");
+    });
+
+    it("explicit_place: locationText に施設キーワード → query をそのまま (既存 Phase 2-D 挙動)", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(
+        makePostRequest({ query: "スターバックス 新宿南口", title: "ショッピング" }),
+      );
+      expect(res.status).toBe(200);
+      const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
+      // explicit_place は title combine しない、 query のみ
+      expect(callArg.textQuery).toBe("スターバックス 新宿南口");
+    });
+
+    it("ambiguous: title 空 + query 空 → 200 + empty results (no API call)", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(makePostRequest({ query: "", title: "" }));
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.data.results).toEqual([]);
+      expect(mockSearchPlaces).not.toHaveBeenCalled();
+    });
+
+    it("ambiguous: title 短すぎ (1 文字) + query 空 → 200 + empty (no API call)", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(makePostRequest({ query: "", title: "あ" }));
+      expect(res.status).toBe(200);
+      expect(mockSearchPlaces).not.toHaveBeenCalled();
+    });
+
+    it("title が string でない → 400", async () => {
+      const res = await POST(
+        makePostRequest({ query: "新宿", title: 123 }),
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toContain("title");
+    });
+
+    it("title が 300 文字超 → 400", async () => {
+      const res = await POST(
+        makePostRequest({
+          query: "新宿",
+          title: "あ".repeat(301),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toContain("title");
+    });
+
+    it("title 未渡し (= optional 不在) → 既存挙動 (= explicit_place で query のまま)", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      const res = await POST(makePostRequest({ query: "成田のスタバ" }));
+      expect(res.status).toBe(200);
+      const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
+      expect(callArg.textQuery).toBe("成田のスタバ");
+    });
+
+    it("Privacy: title は textQuery に combine 後送信、独立 field では送られない", async () => {
+      mockSearchPlaces.mockResolvedValue([]);
+      await POST(
+        makePostRequest({ query: "新宿", title: "ショッピング" }),
+      );
+      const callArg = mockSearchPlaces.mock.calls[0]![0] as Record<string, unknown>;
+      // title field 単独では送らない (= 既存 privacy guarantee 維持)
+      expect(callArg.title).toBeUndefined();
+      // 送信 keys は { textQuery, maxResultCount, languageCode } のみ (= bias なし)
+      const sentKeys = Object.keys(callArg).sort();
+      expect(sentKeys).toEqual(["languageCode", "maxResultCount", "textQuery"]);
+    });
+  });
 });
