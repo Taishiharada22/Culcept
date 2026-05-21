@@ -49,12 +49,20 @@ import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
 //     dev/smoke 用 bypass は本 file で行わない (= 既存 unit test の testOverride 経路で対応)。
 //
 // J-6e-1 範囲: read-only display (= proposalsByDate を CalendarTab/MapTab に渡すだけ)
-// J-6e-2 範囲 (= 本 commit): dismiss callback wiring
+// J-6e-2 範囲: dismiss callback wiring
 //   - 「無視」 link tap → recordDismissToStorage で localStorage write
 //   - dismissEvents state refresh → useMemo proposalsByDate 再計算 → chip 静かに消える
 //   - 7 日 cross-day memory (= 既存 dismissLog filter) で再表示抑制
 //   - 24h dismiss 3+ で Theory-of-Mind Pause 自然発動 (= computeProposals 内 gate)
-// J-6e-3/4 範囲 (= 未着手): accept + Quiet Undo / modify + AddAnchorModal
+// J-6e-3 範囲: accept transaction + Quiet Undo Window
+//   - 5-layer dup defense (L1 ref guard / L2 state lock / L3 in-session / L4 source.notes 由来 / L5 limit)
+//   - subtle pending UX (= opacity-60 + pointer-events-none + aria-busy)
+//   - 5 分 Quiet Undo (= 「戻す」 link、 警告色なし)
+// J-6e-4 範囲 (= 本 commit): modify + AddAnchorModal wiring
+//   - 「教え直す」 link tap → proposalDraftToFormState で prefill → openAdd で modal 起動
+//   - localStorage 書込なし (= write key 2 種固定維持)
+//   - source.notes trace baked しない (= accept と独立 sentiment)
+//   - Aneurasync 思想: 「Alter の見立てを編集して取り入れる」 は user の意思決定 (= 通常の手動入力と区別不可な anchor を生成)
 import {
   createStorageBackedDismissLogReader,
   getBrowserDismissStorage,
@@ -78,6 +86,8 @@ import {
   undoProposalAccept,
   type UndoRecord,
 } from "@/lib/plan/proposal/quietUndoWindow";
+// J-6e-4: modify path (= AddAnchorModal を proposal draft で prefill)
+import { proposalDraftToFormState } from "@/lib/plan/proposal/proposalToFormState";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
@@ -431,6 +441,41 @@ export default function PlanClient({
     [refreshUndoRecords],
   );
 
+  // ── Phase 3-J-6e-4: modify callback (= AddAnchorModal を proposal draft で prefill して開く) ──
+  //
+  // 不変原則 (= CEO 制約 + Aneurasync 思想整合):
+  //   - proposal.draft を pure helper proposalDraftToFormState で AnchorFormState に変換
+  //   - sensitive は proposalDraftToFormState で除外済 (= Invariant 4 privacy first、 三重防御の三段目)
+  //   - **既存 openAdd 経路を再利用** (= modify 専用 modal を増やさない、 J-5 設計と一致)
+  //   - subtle subtitle で context を明示 (= contextSubtitle、 通知 / 警告色 / pulse なし)
+  //   - dismiss log / accept transaction には書かない (= modify は単独 action、 Theory-of-Mind 中立)
+  //   - **localStorage 書込しない** (= write key 2 種固定 [proposalDismiss.v1 / proposalUndo.v1] を 3 種目で汚さない)
+  //   - **source.notes prefix `alter-proposal:<id>` を baked しない** (= modify は user の意思決定であり、
+  //       accept とは別の意味論。 通常の手動入力 anchor と区別不可な anchor を生成する)
+  //   - L1-L5 accept dup defense と無関係 (= modify path 独立、 二重作成 guard 不要 = modal 1 個しか開かない)
+  //
+  // post-modify chip 挙動:
+  //   - 本 callback は modal 起動のみ。 anchor 作成は AddAnchorModal の onSubmit → load() 経由
+  //   - 作成後の chip 可視性は computeProposals の deterministic logic に委ねる:
+  //     · user が同 group (= 同曜日 + 同 hour + 同 verb) で submit → 次 computeProposals で reinforce、 chip 継続
+  //     · 異なる group で submit → 元 proposal の group は変わらず、 chip は元のまま (= 自然挙動)
+  //     · 明示 silencing が欲しい場合は user が 「無視」 link で dismiss する (= J-3 既存導線)
+  //   - これは CEO 制約 「accept と modify を別 sentiment に保つ」 + Invariant 39 No Penalty for Ignore と整合
+  //
+  // useCallback dependency 注:
+  //   setAddInitial / setAddSubtitle / setAddOpen は useState setter (= stable identity、 依存配列に不要)
+  //   proposalDraftToFormState は pure module-level function (= 依存不要)
+  const handleProposalModify = useCallback((proposal: ProposedAnchor) => {
+    const initial = proposalDraftToFormState(proposal);
+    const dateSuffix =
+      typeof proposal.draft.date === "string" && proposal.draft.date.length > 0
+        ? ` / ${proposal.draft.date}`
+        : "";
+    setAddInitial(initial);
+    setAddSubtitle(`提案を編集${dateSuffix}`);
+    setAddOpen(true);
+  }, []);
+
   const load = async () => {
     setState({ kind: "loading" });
     const r: AnchorFetchResult = await fetchAnchors();
@@ -604,9 +649,9 @@ export default function PlanClient({
              * Phase 3-J-6e-3: onProposalAccept + acceptingProposalIds + recentUndoRecords + onProposalUndo を pass
              *                  (= accept transaction + Quiet Undo Window UI)
              *                  filteredProposalsByDate (= L3 in-session + L4 source.notes 由来 suppression 適用後)
-             *
-             * 未配線 (= 別 commit / phase):
-             *   - onProposalModify (= J-6e-4 modify + AddAnchorModal)
+             * Phase 3-J-6e-4: onProposalModify を pass (= AddAnchorModal 起動 + proposal draft prefill)
+             *                  - 既存 openAdd 経路再利用 (= 専用 modal なし)
+             *                  - dismiss / accept とは独立 sentiment (= localStorage 書込なし、 source.notes trace なし)
              *
              * proposalTemplateVariables は未指定 (= ProposalChip 側で draft fallback)
              * FlowTab は J-6 scope 外 (= Phase 3.5 預け)、 proposal props 渡さない
@@ -618,6 +663,7 @@ export default function PlanClient({
                 onAnchorClick={openDetail}
                 proposalsByDate={filteredProposalsByDate}
                 onProposalAccept={handleProposalAccept}
+                onProposalModify={handleProposalModify}
                 onProposalDismiss={handleProposalDismiss}
                 acceptingProposalIds={acceptingProposalIds}
                 recentUndoRecords={recentUndoRecords}
@@ -638,6 +684,7 @@ export default function PlanClient({
                 onAnchorClick={openDetail}
                 proposalsByDate={filteredProposalsByDate}
                 onProposalAccept={handleProposalAccept}
+                onProposalModify={handleProposalModify}
                 onProposalDismiss={handleProposalDismiss}
                 acceptingProposalIds={acceptingProposalIds}
                 recentUndoRecords={recentUndoRecords}

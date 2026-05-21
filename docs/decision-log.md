@@ -6296,3 +6296,150 @@ git push origin main
 - **ステータス**: PR #101 main 着地済 (= main HEAD `bb88adec`)、 Issue #98 close 済 (= closedAt 2026-05-11 21:49:12 UTC)、 Phase B decision-log entry この PR で着地予定
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-J-6e-3 実装 PASS + real UI proposal visibility smoke は data gate 未成立により deferred + J-6e-4 着手承認] [承認: CEO]
+
+- **J-6e-3 status (= Path C 採用、 CEO 判断 2026-05-22)**:
+  - 実装: PASS (= `75f07dea` on `feat/alter-plan-phase3-j6-tab-integration`)
+  - unit / integration / grep tests: PASS (= proposalToAnchorInput 14 件 + proposalAcceptedFromSources 6 件 + proposalAcceptAndUndo 8 件追加 + proposalPlanClientHelpers grep 全 PASS)
+  - 9-gate pipeline (Onboarding Quietude → Theory-of-Mind Pause → Sensitive → pattern_repeat → Dismiss → Reversibility → Self-Contradiction → Entropy Budget → Compliance) 完全配線
+  - 5-layer accept dup defense (L1 ref guard / L2 state lock / L3 in-session / L4 source.notes 由来 / L5 server idempotency なし = 限界明示) 機械検証
+  - SSR hydration safety (= mount-deferred now / dismissEvents) 維持
+  - subtle pending UX (= opacity-60 + pointer-events-none + aria-busy) で Memory Chip 思想維持 (= 警告色 / pulse / drop-shadow 禁止)
+  - CEO 5 補正全反映: ref guard 二段防御 / source.notes 由来 reload-safe suppression / transaction order 厳守 / subtle pending 表現 / smoke item 5 統一
+
+- **real UI proposal visibility smoke は deferred (= 設計上の data gate 未成立)**:
+  - 構造的理由: `/api/plan/anchors` POST は `confirmedAt` を受け付けず server `now()` で固定 (= `external-anchor-repository-supabase.ts:260` / `external-anchor-repository-memory.ts:213`)
+  - 結果: UI / API 経由で過去日付 `confirmedAt` を持つ anchor を作成不可能
+  - proposal 発火条件: `firstUseDate proxy (= min(anchor.confirmedAt))` が **8 日以上前** AND 過去 4 週同曜日 + 同 hour + 同 verb の one_off anchor が **3 件以上**反復
+  - これは「smoke 失敗」 ではなく **「現設計では出ないことが正しい挙動」** (= Onboarding Quietude Invariant 36 + pattern_repeat 閾値 Idea ι の意図された結果)
+
+- **検討された 3 経路**:
+  - 経路 A: 8 日以上前 confirmedAt の dev account を使う → 採用可だが既存 dev account に条件が自然に揃っているかどうか不確定 (= 時間依存)
+  - 経路 B: API が confirmedAt 指定を受け付ける → **構造的不可能** (= `CreateExternalAnchorInput` に field なし、 server-side 固定。 schema 変更を伴うため CEO 制約 「confirmedAt 操作の schema / API 変更しない」 と非整合)
+  - 経路 C (= 採用): unit / integration / grep tests PASS を根拠に J-6e-3 実装 PASS 扱い、 UI smoke は data gate 未成立により deferred
+
+- **J-6e-3 で取得した不変保証**:
+  - sensitive 除外 (= Invariant 4) は **三重防御** で保証: ProposalIntegrityContract 型レベル / computeProposals 上流 filter / buildAnchorInputFromProposal で defensive reject
+  - L1-L5 dup defense は accept transaction で機械検証 + ref guard sync + source.notes prefix `alter-proposal:${id}` 由来 reload-safe suppression
+  - localStorage write key は **2 種固定**: `aneurasync.plan.proposalDismiss.v1` + `aneurasync.plan.proposalUndo.v1` (= 3 種目を追加しない設計維持)
+  - subtle pending UX は警告色 / pulse / drop-shadow なし (= Memory Chip Invariant 42)
+
+- **J-6e-4 (= 次 sub-phase) 制約 (CEO 明示)**:
+  - modify + AddAnchorModal wiring に進む
+  - proposal chip が real data で出ない可能性を前提に、 unit / integration で検証する
+  - TestOverrideContext は production path に入れない (= 永続制約)
+  - DB 直接 insert/update/delete しない
+  - localStorage を勝手に消さない
+  - confirmedAt 操作の schema / API 変更しない
+  - J-7 smoke で「proposal 表示は data 条件依存」 と明記する
+
+- **scope 外 (= 別 phase 預け、 CEO 禁止継続)**:
+  - K (= DayGraph 本実装) / L (= Transport API) / M (= Arrival Risk Memory) / N (= Counter-Factual Bookmark)
+  - migration / env / new dependency 全禁止
+  - push / pull / fetch / gh / reset / restore / stash / branch delete 全禁止
+
+- **承認**: CEO (= 2026-05-22 read-only diagnostic 結果を受けた Path C 採用判断)
+- **ステータス**: branch `feat/alter-plan-phase3-j6-tab-integration` HEAD `75f07dea`、 working tree clean (= supabase/.temp と PNG 以外 code 変更 0)、 次 commit は J-6e-4 modify wiring 予定
+
+---
+
+## [2026-05-22] [Build] [Phase 3-J-6e-4 implementation PASS + Option A 採用 (= dev fixture API 不採用) + J-7 limited smoke/audit 設計に進む] [承認: CEO]
+
+### J-6e-4 status (= 本 commit、 wording 厳守)
+
+- **J-6e-3 / J-6e-4 implementation PASS** (= unit / integration / grep tests 全 PASS)
+  - plan unit tests: 1463 / 1463 PASS
+  - J-6e-4 影響範囲 affected tests: 93 / 93 PASS
+  - tsc J-6e-4 surface (PlanClient.tsx + proposalPlanClientHelpers.test.ts): errors = 0
+  - 既存 tsc carry-over (= `proposalToAnchorInput.test.ts` line 26 の test helper 型 narrowing) は J-6e-3 commit `75f07dea` 由来で本 commit が introduce したものではない (runtime PASS で test 実行に影響なし)
+
+- **real-data proposal chip visibility smoke is deferred due to data gate not satisfied**
+  - deferred 理由 1: Onboarding Quietude (Invariant 36) — `min(anchor.confirmedAt)` が 8 日以上前である必要
+  - deferred 理由 2: pattern_repeat 閾値 (Idea ι) — 過去 28 日内 / 同曜日 / 同 hour / 同 verb / one_off / 3 件以上反復が必要
+  - 「smoke 失敗」 ではなく 「現設計では出ないことが正しい挙動」 (= Onboarding Quietude + pattern_repeat の意図された結果)
+  - 実 UI smoke は 「自然な data 累積が成立した時点」 で real user 経由で観測する方針 (= 知人テストユーザー利用 1-2 週間後を想定)
+
+### Option A 採用判断 (= CEO 確定)
+
+- **dev fixture API は実装しない** (= 「dev-only API」 という新規 surface 追加は今段階で重い)
+- **confirmedAt を意図的に操作する導線を作らない** (= Onboarding Quietude 思想と衝突)
+- **TestOverrideContext を production path に入れない方針を維持**
+- **J-6e-4 は既存 AddAnchorModal 経路の再利用** であり、 unit/integration で十分に検証可能
+- **proposal chip 実表示は自然データが成立した時点で別途 real smoke する方が本質的**
+
+### J-6e-4 production code 変更
+
+- `app/(culcept)/plan/PlanClient.tsx` (+57 / -3):
+  - `proposalDraftToFormState` import 追加
+  - `handleProposalModify` useCallback 追加 (= proposalDraftToFormState で prefill → setAddInitial + setAddSubtitle + setAddOpen で既存 openAdd 経路再利用)
+  - `<CalendarTab>` + `<MapTab>` に `onProposalModify={handleProposalModify}` を pass
+  - file header / inline コメント更新 (= J-6e-3/4 範囲記述を 「J-6e-3 範囲」 + 「J-6e-4 範囲 (= 本 commit)」 に分割)
+
+- `tests/unit/plan/proposalPlanClientHelpers.test.ts` (+55 / -20):
+  - 「modify callback は **未配線** (= J-6e-4 預け)」 test を inversion → 「modify callback IS wired (= J-6e-4)」
+  - 「J-6e-4 範囲の write helpers は **未** import」 を inversion → 「proposalDraftToFormState IS imported」
+  - 新規 grep test 追加:
+    - `handleProposalModify は openAdd 経路を再利用 (= setAddInitial + setAddSubtitle + setAddOpen)`
+    - `handleProposalModify は localStorage 書込みしない (= write key 2 種固定維持)`
+
+### 思想整合の機械保証 (= grep test で永続検証)
+
+- **localStorage write key は 2 種固定維持**: `aneurasync.plan.proposalDismiss.v1` (J-6e-2) + `aneurasync.plan.proposalUndo.v1` (J-6e-3) のみ。 modify path は書込しない
+- **modify は accept と独立 sentiment**: `handleProposalModify` 内で `acceptProposal` / `recordUndoToStorage` / `undoProposalAccept` / `recordDismissToStorage` を呼ばないことを grep で保証
+- **source.notes prefix `alter-proposal:<id>` は baked しない**: modify path は通常の手動入力 anchor と区別不可な anchor を生成 (= 「Alter の見立てを編集して取り入れる」 は user の意思決定であり accept とは別意味論)
+- **L1-L5 accept dup defense は modify path 無関係**: modal 1 個しか開かない設計のため二重作成 guard 不要
+
+### post-modify chip 挙動 (= 明示記録、 設計判断)
+
+- 本 callback は modal 起動のみ。 anchor 作成は AddAnchorModal の onSubmit → load() 経由
+- 作成後の chip 可視性は computeProposals の deterministic logic に委ねる:
+  - user が同 group (= 同曜日 + 同 hour + 同 verb) で submit → 次 computeProposals で reinforce、 chip 継続
+  - 異なる group で submit → 元 proposal の group は変わらず、 chip は元のまま (= 自然挙動)
+  - 明示 silencing が欲しい場合は user が 「無視」 link で dismiss (= J-3 既存導線)
+- これは CEO 制約 「accept と modify を別 sentiment に保つ」 + Invariant 39 No Penalty for Ignore と整合
+
+### CEO 制約遵守の機械確認 (= 本 commit 範囲)
+
+| 制約 | 遵守確認 |
+|---|---|
+| production path へ TestOverrideContext を入れていない | grep test 継続 PASS (proposalPlanClientHelpers.test.ts) |
+| DB 直接 insert/update/delete なし | コード差分 0 (= API 呼出経路は既存 AddAnchorModal `createAnchorBundle` のみ) |
+| confirmedAt 操作なし | コード差分 0 (= schema / API 不触) |
+| localStorage 勝手に消さない | modify callback 内 storage helpers 不使用、 grep test で機械保証 |
+| env file 変更なし | コード差分 0 |
+| reset / restore / stash / branch delete なし | git log 確認、 stash 禁止 Hook で機械 block 済 |
+
+### J-7 limited smoke/audit に進む (= 次 phase)
+
+- J-7 で観測する範囲 (= CEO 指定):
+  - /plan 表示
+  - Home → Plan swipe
+  - 既存予定表示
+  - AddAnchorModal 通常起動
+  - Calendar / Map / Flow 回帰
+  - source.notes の proposalId 露出なし
+  - proposal chip が出ない場合は data gate deferred として扱う
+- これは **「J-7 limited smoke/audit PASS」** であり 「fully smoke PASS」 ではない (= wording 厳守)
+- proposal chip 実 UI smoke は **deferred** のまま、 J-7 完了 = data gate 解消の条件は付けない
+
+### 引き続き禁止 (= 永続制約)
+
+- dev fixture API 実装
+- TestOverrideContext production 注入
+- DB 直接 insert/update/delete
+- confirmedAt schema / API 変更
+- K / L / M / N phase 着手
+- Transport API
+- Arrival Risk Memory
+- migration / env / new dependency 追加
+- push / pull / fetch / gh
+- reset / restore / stash / branch delete
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 Option A 採用判断、 J-7 limited smoke/audit 設計 GO)
+- **ステータス**: J-6e-4 commit 予定 (= 本 entry 着地と同時)、 branch `feat/alter-plan-phase3-j6-tab-integration`、 次は J-7 smoke + audit 設計 (= 実行は CEO 承認後)
+- **J-6e 全体 closing**: J-6e-1 (read-only display) + J-6e-2 (dismiss) + J-6e-3 (accept + Quiet Undo) + J-6e-4 (modify) すべて implementation PASS、 real-data UI smoke のみ deferred
+
+---

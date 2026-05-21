@@ -13,8 +13,9 @@
  * 不変原則 (= 本 test で機械的に強制):
  *   - pure (= 副作用 / mutate なし)
  *   - TestOverrideContext production import 禁止
- *   - callback (onProposalAccept/Modify/Dismiss) は J-6e-1 では未配線
- *   - localStorage write は J-6e-1 では発生しない (= read only)
+ *   - callback (onProposalAccept/Modify/Dismiss) は J-6e-2/3/4 で順次配線
+ *   - J-6e-4: modify callback IS wired (= AddAnchorModal prefill 起動経路)
+ *   - localStorage write は dismiss (J-6e-2) と undo (J-6e-3) の 2 種のみ (= modify は書込なし)
  */
 
 import { describe, expect, it } from "vitest";
@@ -273,15 +274,42 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     );
   });
 
-  // ── Phase 3-J-6e-4 預け: modify callback は **まだ** 未配線 ──
+  // ── Phase 3-J-6e-4: modify callback IS wired ──
 
-  it("modify callback は **未配線** (= J-6e-4 預け)", () => {
-    const calendarMatch = content.match(/<CalendarTab[\s\S]*?\/>/);
-    const mapMatch = content.match(/<MapTab[\s\S]*?\/>/);
-    expect(calendarMatch).not.toBeNull();
-    expect(mapMatch).not.toBeNull();
-    expect(calendarMatch![0]).not.toContain("onProposalModify");
-    expect(mapMatch![0]).not.toContain("onProposalModify");
+  it("modify callback IS wired (= J-6e-4、 CalendarTab + MapTab に handleProposalModify を pass)", () => {
+    expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalModify=\{handleProposalModify\}/);
+    expect(content).toMatch(/<MapTab[\s\S]*?onProposalModify=\{handleProposalModify\}/);
+  });
+
+  it("proposalDraftToFormState IS imported (= J-6e-4 modify path の pure converter)", () => {
+    expect(content).toMatch(
+      /import\s+\{\s*proposalDraftToFormState\s*\}\s+from\s+["']@\/lib\/plan\/proposal\/proposalToFormState["']/,
+    );
+  });
+
+  it("handleProposalModify は openAdd 経路を再利用 (= setAddInitial + setAddSubtitle + setAddOpen)", () => {
+    // 専用 modal を増やさない設計の機械的保証
+    const modifyMatch = content.match(
+      /const\s+handleProposalModify\s*=\s*useCallback\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]*?\}\s*,\s*\[\s*\]\s*\)/,
+    );
+    expect(modifyMatch).not.toBeNull();
+    expect(modifyMatch![0]).toContain("proposalDraftToFormState");
+    expect(modifyMatch![0]).toContain("setAddInitial");
+    expect(modifyMatch![0]).toContain("setAddSubtitle");
+    expect(modifyMatch![0]).toContain("setAddOpen");
+  });
+
+  it("handleProposalModify は localStorage 書込みしない (= write key 2 種固定維持)", () => {
+    const modifyMatch = content.match(
+      /const\s+handleProposalModify\s*=\s*useCallback\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]*?\}\s*,\s*\[\s*\]\s*\)/,
+    );
+    expect(modifyMatch).not.toBeNull();
+    // dismiss / undo storage helpers を modify callback 内で呼ばないこと
+    expect(modifyMatch![0]).not.toContain("recordDismissToStorage");
+    expect(modifyMatch![0]).not.toContain("recordUndoToStorage");
+    expect(modifyMatch![0]).not.toContain("undoProposalAccept");
+    // acceptProposal も呼ばない (= sentiment 独立)
+    expect(modifyMatch![0]).not.toContain("acceptProposal(");
   });
 
   // ── localStorage write import 制約 ──
@@ -310,10 +338,9 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     );
   });
 
-  it("J-6e-4 範囲の write helpers は **未** import (= 預け)", () => {
-    // proposalDraftToFormState は J-6e-4 範囲
-    expect(content).not.toMatch(
-      /import[\s\S]*?proposalDraftToFormState[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/proposalToFormState["']/,
+  it("proposalDraftToFormState IS imported (= J-6e-4 配線済)", () => {
+    expect(content).toMatch(
+      /import\s+\{\s*proposalDraftToFormState\s*\}\s+from\s+["']@\/lib\/plan\/proposal\/proposalToFormState["']/,
     );
   });
 
