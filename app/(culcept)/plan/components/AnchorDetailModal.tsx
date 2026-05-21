@@ -41,6 +41,7 @@ import {
 } from "@/lib/plan/anchor-detail-format";
 import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
 import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
+import { displayProposalAwareNotes } from "@/lib/plan/proposal/displayNotes";
 import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 import { deleteAnchorSource } from "@/lib/plan/anchor-fetch";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
@@ -227,12 +228,21 @@ export function AnchorDetailModal({
           </DetailRow>
         )}
 
-        {/* 登録元 (source) */}
+        {/* 登録元 (source)
+         *
+         * Phase 3-J-6b: source.notes は displayProposalAwareNotes 経由で表示する。
+         * proposal accept 由来 anchor の notes には trace prefix "alter-proposal:..." が
+         * 入るが、 これは internal only。 表示時には strip + 「提案から追加」 label に
+         * 変換 (= proposalId 完全 hide、 Invariant 17)。
+         */}
         {source && (
           <DetailRow label="登録元">
             {SOURCE_TYPE_LABEL[source.sourceType]} ·{" "}
             {source.capturedAt.slice(0, 10)} に登録
-            {source.notes ? ` · ${source.notes}` : ""}
+            {(() => {
+              const notesDisplay = displayProposalAwareNotes(source.notes);
+              return notesDisplay ? ` · ${notesDisplay}` : "";
+            })()}
           </DetailRow>
         )}
 
