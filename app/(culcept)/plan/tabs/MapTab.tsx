@@ -42,6 +42,7 @@ import {
   selectFirstProposalForDate,
   type CalendarProposalProps,
 } from "@/lib/plan/proposal/calendarProposalSelector";
+import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
@@ -148,6 +149,10 @@ export function MapTab({
   onProposalAccept,
   onProposalModify,
   onProposalDismiss,
+  // ── Phase 3-J-6e-3 ──
+  acceptingProposalIds,
+  recentUndoRecords,
+  onProposalUndo,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
@@ -363,8 +368,8 @@ export function MapTab({
 
       {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button
        *
-       * Phase 3-J-6d: proposal hint props も pass-through (= 全 optional)。
-       * SelectedAnchorCard 末尾で anchor.date に対応する proposal を 1 件表示。
+       * Phase 3-J-6d: proposal hint props pass-through。
+       * Phase 3-J-6e-3: accept transaction + Quiet Undo Window 関連 props も pass-through。
        */}
       {selectedAnchorForCard && (
         <SelectedAnchorCard
@@ -381,6 +386,9 @@ export function MapTab({
           onProposalAccept={onProposalAccept}
           onProposalModify={onProposalModify}
           onProposalDismiss={onProposalDismiss}
+          acceptingProposalIds={acceptingProposalIds}
+          recentUndoRecords={recentUndoRecords}
+          onProposalUndo={onProposalUndo}
         />
       )}
 
@@ -898,6 +906,10 @@ function SelectedAnchorCard({
   onProposalAccept,
   onProposalModify,
   onProposalDismiss,
+  // ── Phase 3-J-6e-3: accept transaction + Quiet Undo ──
+  acceptingProposalIds,
+  recentUndoRecords,
+  onProposalUndo,
 }: {
   anchor: ExternalAnchor;
   /** Phase 2-G: "lived_geography" を追加 (= 信頼度つき生活圏 fallback) */
@@ -1109,24 +1121,55 @@ function SelectedAnchorCard({
       )}
 
       {/*
-       * Phase 3-J-6d: Proposal hint chip (= SelectedAnchorCard 末尾、 max 1 chip / day)
+       * Phase 3-J-6d / J-6e-3: Proposal hint chip + Quiet Undo 「戻す」 link
        *
        * 配置: 「詳細を見る」 button の **更に下**、 SelectedAnchorCard 全体の最末尾。
        *       Phase 2-G の lived_geography banner / Phase 2-I の icon と物理分離。
        *
+       * 表示優先 (= mutually exclusive):
+       *   1. active undo record (= 5 分以内 accept 直後) → 「戻す」 link
+       *   2. それ以外 + proposal 存在 → ProposalChip (= accept in-flight 中は subtle pending)
+       *
        * 条件:
        *   - anchor が one_off (= MVP 範囲、 recurring は次 phase)
-       *   - proposalsByDate に anchor.date 対応の proposal が存在
-       *   - sensitive proposal は computeProposals 上流で除外済 (= 二重防御で信頼)
+       *   - 「戻す」 link / chip の選択は anchor.date 基準
        *
        * 視覚規約:
-       *   - Memory Chip style (= dashed border + italic + slate-500)
-       *   - 通知 metaphor 禁止 (= drop-shadow / pulse / warning 色 一切なし)
-       *   - proposal 不在 → 何も render しない (= Phase 2 と完全同じ表示)
+       *   - 「戻す」 link: text-xs italic text-slate-400 underline (= 警告色なし)
+       *   - chip: Memory Chip style 維持
+       *   - subtle pending: opacity-60 + pointer-events-none + aria-busy (= 二重 tap 防止)
        */}
       {(() => {
         if (anchor.anchorKind !== "one_off") return null;
         const anchorDate = anchor.date;
+
+        // [1] active undo for anchor.date
+        const activeUndo = recentUndoRecords
+          ? selectActiveUndoForDate(
+              recentUndoRecords,
+              anchorDate,
+              new Date().toISOString(),
+            )
+          : null;
+        if (activeUndo) {
+          return (
+            <div
+              className="mt-3"
+              data-testid={`plan-map-undo-${activeUndo.proposalId}`}
+            >
+              <button
+                type="button"
+                className="text-xs italic text-slate-400 underline transition hover:text-slate-500 motion-reduce:transition-none"
+                onClick={() => onProposalUndo?.(activeUndo.proposalId)}
+                aria-label="提案を戻す"
+              >
+                戻す
+              </button>
+            </div>
+          );
+        }
+
+        // [2] proposal chip (= 通常)
         const proposalForAnchor = selectFirstProposalForDate(
           proposalsByDate,
           anchorDate,
@@ -1136,15 +1179,23 @@ function SelectedAnchorCard({
           proposalForAnchor,
           proposalTemplateVariables,
         );
+        const isAccepting =
+          acceptingProposalIds?.has(proposalForAnchor.id) ?? false;
         return (
           <div
-            className="mt-3"
+            className={
+              "mt-3 " +
+              (isAccepting
+                ? "opacity-60 pointer-events-none motion-reduce:transition-none"
+                : "")
+            }
+            aria-busy={isAccepting || undefined}
             data-testid={`plan-map-proposal-${anchorDate}`}
           >
             <ProposalChip
               proposal={proposalForAnchor}
               variables={variables}
-              onTap={onProposalAccept}
+              onTap={isAccepting ? undefined : onProposalAccept}
               onModify={onProposalModify}
               onDismiss={onProposalDismiss}
             />

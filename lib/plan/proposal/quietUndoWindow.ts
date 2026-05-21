@@ -45,6 +45,14 @@ export interface UndoRecord {
   readonly anchorSourceId: string;
   /** accept 時刻 (= ISO 8601) */
   readonly acceptedAt: string;
+  /**
+   * 該当 proposal の date (= "YYYY-MM-DD")。 Phase 3-J-6e-3 で追加 (= optional、 backward compat)。
+   *
+   * UI (= CalendarTab / MapTab) が 「戻す」 link を **どの date cell に表示するか** 決定するため使用。
+   * 既存 v1 record (= 本 field 不在) は undefined のまま、 該当 cell に link 表示できない (= degraded、
+   * 但し 5 分超過の expired record は read filter で除外されるため実害なし)。
+   */
+  readonly proposalDate?: string;
 }
 
 /**
@@ -72,17 +80,43 @@ function isValidUndoRecord(value: unknown): value is UndoRecord {
 
 /**
  * UndoRecord を pure に構築 (= test 容易)。
+ *
+ * Phase 3-J-6e-3: proposalDate (optional) を受領可能に拡張。
  */
 export function buildUndoRecord(input: {
   proposalId: string;
   anchorSourceId: string;
   acceptedAt: string;
+  proposalDate?: string;
 }): UndoRecord {
-  return {
+  const record: UndoRecord = {
     proposalId: input.proposalId,
     anchorSourceId: input.anchorSourceId,
     acceptedAt: input.acceptedAt,
   };
+  if (typeof input.proposalDate === "string" && input.proposalDate.length > 0) {
+    return { ...record, proposalDate: input.proposalDate };
+  }
+  return record;
+}
+
+/**
+ * 指定 ISO 日付の active な undo record (= 5 分以内 + proposalDate 一致) を返す。
+ *
+ * Phase 3-J-6e-3 で追加。 CalendarTab / MapTab が 「戻す」 link 配置先 date を決めるため使用。
+ * proposalDate 不在 (= 旧 v1 record) は **無視** (= 配置先不明)。
+ */
+export function selectActiveUndoForDate(
+  records: ReadonlyArray<UndoRecord>,
+  dateIso: string,
+  now: string,
+): UndoRecord | null {
+  for (const r of records) {
+    if (r.proposalDate !== dateIso) continue;
+    if (!isUndoWindowActive(r, now)) continue;
+    return r;
+  }
+  return null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

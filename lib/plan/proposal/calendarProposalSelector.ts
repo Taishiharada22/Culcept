@@ -19,6 +19,7 @@
  */
 
 import type { ProposedAnchor } from "./proposalTypes";
+import type { UndoRecord } from "./quietUndoWindow";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Types
@@ -45,6 +46,30 @@ export interface CalendarProposalProps {
   onProposalModify?: (proposal: ProposedAnchor) => void;
   /** 「無視」 tap (= dismiss、 J-3 recordDismissToStorage の caller) */
   onProposalDismiss?: (proposal: ProposedAnchor) => void;
+
+  // ── Phase 3-J-6e-3: accept in-flight pending UI + Quiet Undo Window ──
+
+  /**
+   * Accept transaction in-flight 中の proposal id 集合。
+   * CalendarTab / MapTab はこの set に含まれる proposal の chip を
+   * subtle pending 表示 (= opacity-60 + pointer-events-none + aria-busy) する。
+   *
+   * 警告色 / pulse / drop-shadow 禁止 (= Memory Chip 思想維持)。
+   */
+  acceptingProposalIds?: ReadonlySet<string>;
+
+  /**
+   * active な undo record (= 5 分以内、 filterActiveUndos で抽出済) の配列。
+   * CalendarTab / MapTab は selectActiveUndoForDate で該当 date の record を引いて
+   * 「戻す」 link を render する。
+   */
+  recentUndoRecords?: ReadonlyArray<import("./quietUndoWindow").UndoRecord>;
+
+  /**
+   * 「戻す」 link tap callback (= undo action 起動)。
+   * proposalId を渡し、 PlanClient 側で undoProposalAccept を call する。
+   */
+  onProposalUndo?: (proposalId: string) => void;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -43,6 +43,7 @@ import {
   readUndoRecords,
   recordUndoToStorage,
   removeUndoFromStorage,
+  selectActiveUndoForDate,
   undoProposalAccept,
   type UndoRecord,
 } from "@/lib/plan/proposal/quietUndoWindow";
@@ -490,5 +491,93 @@ describe("undoProposalAccept action", () => {
       expect(result.reason).toBe("no_active_undo");
     }
     expect(deleteSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// J-6e-3: proposalDate field + selectActiveUndoForDate
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildUndoRecord — proposalDate optional (= J-6e-3 additive)", () => {
+  it("proposalDate 指定なし → field なし (= backward compat v1)", () => {
+    const r = buildUndoRecord({
+      proposalId: "p1",
+      anchorSourceId: "src1",
+      acceptedAt: "2026-05-22T00:00:00.000Z",
+    });
+    expect(r.proposalDate).toBeUndefined();
+  });
+
+  it("proposalDate 指定 → field 設定", () => {
+    const r = buildUndoRecord({
+      proposalId: "p1",
+      anchorSourceId: "src1",
+      acceptedAt: "2026-05-22T00:00:00.000Z",
+      proposalDate: "2026-05-22",
+    });
+    expect(r.proposalDate).toBe("2026-05-22");
+  });
+
+  it("proposalDate 空文字 → field なし (= defensive)", () => {
+    const r = buildUndoRecord({
+      proposalId: "p1",
+      anchorSourceId: "src1",
+      acceptedAt: "2026-05-22T00:00:00.000Z",
+      proposalDate: "",
+    });
+    expect(r.proposalDate).toBeUndefined();
+  });
+});
+
+describe("selectActiveUndoForDate", () => {
+  const NOW = "2026-05-22T12:00:00.000Z";
+
+  function rec(
+    proposalId: string,
+    proposalDate: string | undefined,
+    acceptedAt: string,
+  ): UndoRecord {
+    return buildUndoRecord({
+      proposalId,
+      anchorSourceId: `src_${proposalId}`,
+      acceptedAt,
+      proposalDate,
+    });
+  }
+
+  it("空 records → null", () => {
+    expect(selectActiveUndoForDate([], "2026-05-22", NOW)).toBeNull();
+  });
+
+  it("該当 date + active window → 該当 record", () => {
+    const r = rec("p1", "2026-05-22", "2026-05-22T11:58:00.000Z"); // 2 分前
+    const out = selectActiveUndoForDate([r], "2026-05-22", NOW);
+    expect(out?.proposalId).toBe("p1");
+  });
+
+  it("該当 date + 5 分超過 → null", () => {
+    const r = rec("p1", "2026-05-22", "2026-05-22T11:50:00.000Z"); // 10 分前
+    expect(selectActiveUndoForDate([r], "2026-05-22", NOW)).toBeNull();
+  });
+
+  it("異 date → null", () => {
+    const r = rec("p1", "2026-05-23", "2026-05-22T11:58:00.000Z");
+    expect(selectActiveUndoForDate([r], "2026-05-22", NOW)).toBeNull();
+  });
+
+  it("proposalDate なし (= 旧 v1 record) → null (= 配置先不明)", () => {
+    const r = rec("p1", undefined, "2026-05-22T11:58:00.000Z");
+    expect(selectActiveUndoForDate([r], "2026-05-22", NOW)).toBeNull();
+  });
+
+  it("複数 records → 該当 1 件", () => {
+    const r1 = rec("p1", "2026-05-22", "2026-05-22T11:58:00.000Z");
+    const r2 = rec("p2", "2026-05-23", "2026-05-22T11:58:00.000Z");
+    expect(selectActiveUndoForDate([r1, r2], "2026-05-22", NOW)?.proposalId).toBe(
+      "p1",
+    );
+    expect(selectActiveUndoForDate([r1, r2], "2026-05-23", NOW)?.proposalId).toBe(
+      "p2",
+    );
   });
 });

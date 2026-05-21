@@ -213,12 +213,13 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     );
   });
 
-  it("CalendarTab に proposalsByDate prop が pass されている", () => {
-    expect(content).toMatch(/<CalendarTab[\s\S]*?proposalsByDate=\{proposalsByDate\}/);
+  it("CalendarTab に proposalsByDate prop が pass されている (= J-6e-3 で filteredProposalsByDate に進化、 後続 test 参照)", () => {
+    // J-6e-3: filteredProposalsByDate (= L3+L4 suppression 適用後) を pass
+    expect(content).toMatch(/<CalendarTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/);
   });
 
-  it("MapTab に proposalsByDate prop が pass されている", () => {
-    expect(content).toMatch(/<MapTab[\s\S]*?proposalsByDate=\{proposalsByDate\}/);
+  it("MapTab に proposalsByDate prop が pass されている (= 同上)", () => {
+    expect(content).toMatch(/<MapTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/);
   });
 
   it("FlowTab には proposalsByDate を渡さない (= J-6 scope 外)", () => {
@@ -244,16 +245,35 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     expect(flowMatch![0]).not.toContain("onProposalDismiss");
   });
 
-  // ── Phase 3-J-6e-3/4 預け: accept / modify callback は **まだ** 未配線 ──
+  // ── Phase 3-J-6e-3: accept callback IS wired ──
 
-  it("accept callback は **未配線** (= J-6e-3 預け)", () => {
-    const calendarMatch = content.match(/<CalendarTab[\s\S]*?\/>/);
-    const mapMatch = content.match(/<MapTab[\s\S]*?\/>/);
-    expect(calendarMatch).not.toBeNull();
-    expect(mapMatch).not.toBeNull();
-    expect(calendarMatch![0]).not.toContain("onProposalAccept");
-    expect(mapMatch![0]).not.toContain("onProposalAccept");
+  it("accept callback IS wired (= J-6e-3)", () => {
+    expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalAccept=\{handleProposalAccept\}/);
+    expect(content).toMatch(/<MapTab[\s\S]*?onProposalAccept=\{handleProposalAccept\}/);
   });
+
+  it("acceptingProposalIds prop が pass されている (= subtle pending UI)", () => {
+    expect(content).toMatch(/<CalendarTab[\s\S]*?acceptingProposalIds=\{acceptingProposalIds\}/);
+    expect(content).toMatch(/<MapTab[\s\S]*?acceptingProposalIds=\{acceptingProposalIds\}/);
+  });
+
+  it("recentUndoRecords + onProposalUndo prop が pass されている (= Quiet Undo Window)", () => {
+    expect(content).toMatch(/<CalendarTab[\s\S]*?recentUndoRecords=\{recentUndoRecords\}/);
+    expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalUndo=\{handleProposalUndo\}/);
+    expect(content).toMatch(/<MapTab[\s\S]*?recentUndoRecords=\{recentUndoRecords\}/);
+    expect(content).toMatch(/<MapTab[\s\S]*?onProposalUndo=\{handleProposalUndo\}/);
+  });
+
+  it("filteredProposalsByDate が pass されている (= L3+L4 suppression 適用後)", () => {
+    expect(content).toMatch(
+      /<CalendarTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/,
+    );
+    expect(content).toMatch(
+      /<MapTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/,
+    );
+  });
+
+  // ── Phase 3-J-6e-4 預け: modify callback は **まだ** 未配線 ──
 
   it("modify callback は **未配線** (= J-6e-4 預け)", () => {
     const calendarMatch = content.match(/<CalendarTab[\s\S]*?\/>/);
@@ -272,18 +292,37 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     );
   });
 
-  it("J-6e-3/4 範囲の write helpers は **未** import (= 預け)", () => {
-    // recordUndoToStorage は J-6e-3 範囲
-    expect(content).not.toMatch(
-      /import[\s\S]*?recordUndoToStorage[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/quietUndoWindow["']/,
+  it("acceptProposal + recordUndoToStorage + undoProposalAccept IS imported (= J-6e-3)", () => {
+    expect(content).toMatch(
+      /import\s+\{\s*acceptProposal\s*\}\s+from\s+["']@\/lib\/plan\/proposal\/acceptProposal["']/,
     );
-    // acceptProposal は J-6e-3 範囲
-    expect(content).not.toMatch(
-      /import[\s\S]*?acceptProposal[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/acceptProposal["']/,
+    expect(content).toMatch(
+      /import\s+\{[\s\S]*?recordUndoToStorage[\s\S]*?\}\s+from\s+["']@\/lib\/plan\/proposal\/quietUndoWindow["']/,
     );
+    expect(content).toMatch(
+      /import\s+\{[\s\S]*?undoProposalAccept[\s\S]*?\}\s+from\s+["']@\/lib\/plan\/proposal\/quietUndoWindow["']/,
+    );
+    expect(content).toMatch(
+      /import\s+\{[\s\S]*?buildAnchorInputFromProposal[\s\S]*?\}\s+from\s+["']@\/lib\/plan\/proposal\/proposalToAnchorInput["']/,
+    );
+    expect(content).toMatch(
+      /import\s+\{[\s\S]*?extractAcceptedProposalIdsFromSources[\s\S]*?\}\s+from\s+["']@\/lib\/plan\/proposal\/acceptedFromSources["']/,
+    );
+  });
+
+  it("J-6e-4 範囲の write helpers は **未** import (= 預け)", () => {
     // proposalDraftToFormState は J-6e-4 範囲
     expect(content).not.toMatch(
       /import[\s\S]*?proposalDraftToFormState[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/proposalToFormState["']/,
     );
+  });
+
+  it("useRef が import されている (= ref guard L1 同期防御)", () => {
+    expect(content).toMatch(/import\s+\{[\s\S]*?useRef[\s\S]*?\}\s+from\s+["']react["']/);
+  });
+
+  it("acceptingRef + undoingRef state が定義されている (= ref guard 二段)", () => {
+    expect(content).toMatch(/acceptingRef\s*=\s*useRef/);
+    expect(content).toMatch(/undoingRef\s*=\s*useRef/);
   });
 });

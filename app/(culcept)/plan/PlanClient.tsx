@@ -32,7 +32,7 @@
  *   - DraftPlan / W1-6 passive drift logging
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   GlassBadge,
@@ -67,6 +67,17 @@ import {
   groupProposalsByDate,
 } from "@/lib/plan/proposal/planClientProposalHelpers";
 import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
+// J-6e-3: accept transaction + Quiet Undo Window
+import { acceptProposal } from "@/lib/plan/proposal/acceptProposal";
+import { extractAcceptedProposalIdsFromSources } from "@/lib/plan/proposal/acceptedFromSources";
+import { buildAnchorInputFromProposal } from "@/lib/plan/proposal/proposalToAnchorInput";
+import {
+  buildUndoRecord,
+  filterActiveUndos,
+  recordUndoToStorage,
+  undoProposalAccept,
+  type UndoRecord,
+} from "@/lib/plan/proposal/quietUndoWindow";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
@@ -204,6 +215,221 @@ export default function PlanClient({
     const reader = createStorageBackedDismissLogReader(storage);
     setDismissEvents(reader.readAll());
   }, []);
+
+  // ── Phase 3-J-6e-3: accept transaction + Quiet Undo Window ──
+  //
+  // 二重作成防止 (= CEO 補正 1):
+  //   L1: useRef synchronous guard (= acceptingRef、 React batching を超えて即時 reject)
+  //   L2: useState UI 反映 (= acceptingProposalIds、 subtle pending 表示用)
+  //   L3: in-session suppression (= inSessionAcceptedIds、 accept 成功直後 chip 即除外)
+  //   L4: source.notes 由来 suppression (= reload-safe、 補正 2 で導入)
+  //   L5: server-side idempotency なし (= 限界、 Phase 3-K)
+  //
+  // Transaction order (= CEO 補正 3 厳守):
+  //   1. ref guard check (sync)
+  //   2. state lock + ref lock
+  //   3. buildAnchorInputFromProposal (= pure)
+  //   4. acceptProposal API call
+  //   5. on success: recordUndoToStorage (= proposalUndo localStorage key)
+  //   6. setInSessionAcceptedIds (= chip 即消滅)
+  //   7. refreshUndoRecords (= 「戻す」 link 表示用)
+  //   8. await load() (= anchors refetch、 source.notes 経由 reload-safe suppress 確定)
+  //   9. finally: ref/state lock 解放
+  //
+  // dismiss log には書かない (= 「採用は試行、 戻すも観察」 思想、 Theory-of-Mind 分離)
+  const acceptingRef = useRef<Set<string>>(new Set());
+  const undoingRef = useRef<Set<string>>(new Set());
+  const [acceptingProposalIds, setAcceptingProposalIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const [inSessionAcceptedIds, setInSessionAcceptedIds] = useState<
+    ReadonlySet<string>
+  >(new Set());
+  const [recentUndoRecords, setRecentUndoRecords] = useState<
+    ReadonlyArray<UndoRecord>
+  >([]);
+  const [undoTick, setUndoTick] = useState(0); // 1 分 tick で undo 期限自動失効反映
+
+  // undo records 再計算 helper
+  const refreshUndoRecords = useCallback(() => {
+    const storage = getBrowserDismissStorage();
+    if (!storage) {
+      setRecentUndoRecords([]);
+      return;
+    }
+    setRecentUndoRecords(filterActiveUndos(storage, new Date().toISOString()));
+  }, []);
+
+  // mount 後 + 1 分 tick で undo records 自動 refresh
+  useEffect(() => {
+    refreshUndoRecords();
+    const interval = setInterval(() => {
+      setUndoTick((t) => t + 1);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [refreshUndoRecords]);
+
+  // undoTick 更新時に records refresh (= 5 分超過 record 自動消滅)
+  useEffect(() => {
+    if (undoTick === 0) return; // 初回 mount は別 useEffect で済
+    refreshUndoRecords();
+  }, [undoTick, refreshUndoRecords]);
+
+  // sources から accept 済 proposalId を server-derived で抽出 (= 補正 2、 reload-safe)
+  const serverDerivedAcceptedIds = useMemo<ReadonlySet<string>>(() => {
+    if (state.kind !== "ok") return new Set();
+    return extractAcceptedProposalIdsFromSources(state.sources);
+  }, [state]);
+
+  // in-session + server-derived の合算 (= chip filter 用)
+  const allAcceptedIds = useMemo<ReadonlySet<string>>(() => {
+    if (serverDerivedAcceptedIds.size === 0 && inSessionAcceptedIds.size === 0) {
+      return new Set();
+    }
+    const merged = new Set<string>();
+    serverDerivedAcceptedIds.forEach((id) => merged.add(id));
+    inSessionAcceptedIds.forEach((id) => merged.add(id));
+    return merged;
+  }, [serverDerivedAcceptedIds, inSessionAcceptedIds]);
+
+  // accept 済 proposal を proposalsByDate から filter (= chip 即消滅 + reload-safe)
+  const filteredProposalsByDate = useMemo<
+    Readonly<Record<string, ReadonlyArray<ProposedAnchor>>>
+  >(() => {
+    if (allAcceptedIds.size === 0) return proposalsByDate;
+    const out: Record<string, ReadonlyArray<ProposedAnchor>> = {};
+    for (const [date, list] of Object.entries(proposalsByDate)) {
+      const filtered = list.filter((p) => !allAcceptedIds.has(p.id));
+      if (filtered.length > 0) out[date] = filtered;
+    }
+    return out;
+  }, [proposalsByDate, allAcceptedIds]);
+
+  // accept callback (= 9-step transaction、 ref + state 二段防御)
+  const handleProposalAccept = useCallback(
+    async (proposal: ProposedAnchor) => {
+      // [1] L1 ref guard (sync) — rapid tap 即時 reject
+      if (acceptingRef.current.has(proposal.id)) return;
+      acceptingRef.current.add(proposal.id);
+      // [2] L2 state lock — UI subtle pending 表示
+      setAcceptingProposalIds((s) => {
+        const n = new Set(s);
+        n.add(proposal.id);
+        return n;
+      });
+
+      try {
+        // [3] pure converter (= ProposedAnchor → CreateExternalAnchorInput)
+        const buildResult = buildAnchorInputFromProposal(proposal);
+        if (!buildResult.ok) {
+          // silent (= dev console 出力のみ、 user toast 出さない)
+          console.warn(
+            "[Phase 3-J-6e-3 accept] build failed:",
+            buildResult.reason,
+            proposal.id,
+          );
+          return;
+        }
+
+        // [4] API call (= acceptProposal → createAnchorBundle POST)
+        const apiResult = await acceptProposal(proposal, buildResult.input);
+        if (!apiResult.ok) {
+          // silent (= toast / banner 禁止)
+          console.warn(
+            "[Phase 3-J-6e-3 accept] API failed:",
+            apiResult.error,
+            proposal.id,
+          );
+          return;
+        }
+
+        // [5] recordUndoToStorage (= 補正 3 厳守: API success 後にのみ undo record 作成)
+        const storage = getBrowserDismissStorage();
+        if (storage) {
+          recordUndoToStorage(
+            storage,
+            buildUndoRecord({
+              proposalId: proposal.id,
+              anchorSourceId: apiResult.data.source.id,
+              acceptedAt: new Date().toISOString(),
+              proposalDate:
+                typeof proposal.draft.date === "string"
+                  ? proposal.draft.date
+                  : undefined,
+            }),
+          );
+        }
+
+        // [6] L3 in-session suppression (= 即座に chip 消滅)
+        setInSessionAcceptedIds((s) => {
+          const n = new Set(s);
+          n.add(proposal.id);
+          return n;
+        });
+
+        // [7] undo records refresh (= 「戻す」 link 表示開始)
+        refreshUndoRecords();
+
+        // [8] anchors refetch (= L4 source.notes 由来 suppression 確定)
+        await load();
+      } finally {
+        // [9] ref / state lock 解放
+        acceptingRef.current.delete(proposal.id);
+        setAcceptingProposalIds((s) => {
+          const n = new Set(s);
+          n.delete(proposal.id);
+          return n;
+        });
+      }
+    },
+    [refreshUndoRecords],
+  );
+
+  // undo callback (= 「戻す」 link tap、 anchor 削除 + record cleanup)
+  const handleProposalUndo = useCallback(
+    async (proposalId: string) => {
+      // 同期 ref guard
+      if (undoingRef.current.has(proposalId)) return;
+      undoingRef.current.add(proposalId);
+
+      try {
+        const storage = getBrowserDismissStorage();
+        if (!storage) {
+          console.warn(
+            "[Phase 3-J-6e-3 undo] storage unavailable",
+            proposalId,
+          );
+          return;
+        }
+        const result = await undoProposalAccept(
+          storage,
+          proposalId,
+          new Date().toISOString(),
+        );
+        if (!result.ok) {
+          // silent (= toast / banner 禁止)
+          console.warn(
+            "[Phase 3-J-6e-3 undo] failed:",
+            result.reason,
+            proposalId,
+          );
+          return;
+        }
+        // success: in-session 解除 (= chip 復活可能、 「採用は試行、 戻すも観察」 思想)
+        setInSessionAcceptedIds((s) => {
+          const n = new Set(s);
+          n.delete(proposalId);
+          return n;
+        });
+        // dismiss log には書かない (= 補正 3、 sentiment 中立、 Theory-of-Mind 分離)
+        refreshUndoRecords();
+        await load();
+      } finally {
+        undoingRef.current.delete(proposalId);
+      }
+    },
+    [refreshUndoRecords],
+  );
 
   const load = async () => {
     setState({ kind: "loading" });
@@ -375,9 +601,11 @@ export default function PlanClient({
             {/*
              * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass (= read-only display)
              * Phase 3-J-6e-2: onProposalDismiss callback を pass (= silent dismiss、 localStorage write)
+             * Phase 3-J-6e-3: onProposalAccept + acceptingProposalIds + recentUndoRecords + onProposalUndo を pass
+             *                  (= accept transaction + Quiet Undo Window UI)
+             *                  filteredProposalsByDate (= L3 in-session + L4 source.notes 由来 suppression 適用後)
              *
              * 未配線 (= 別 commit / phase):
-             *   - onProposalAccept (= J-6e-3 accept + Quiet Undo)
              *   - onProposalModify (= J-6e-4 modify + AddAnchorModal)
              *
              * proposalTemplateVariables は未指定 (= ProposalChip 側で draft fallback)
@@ -388,8 +616,12 @@ export default function PlanClient({
                 anchors={state.anchors}
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
-                proposalsByDate={proposalsByDate}
+                proposalsByDate={filteredProposalsByDate}
+                onProposalAccept={handleProposalAccept}
                 onProposalDismiss={handleProposalDismiss}
+                acceptingProposalIds={acceptingProposalIds}
+                recentUndoRecords={recentUndoRecords}
+                onProposalUndo={handleProposalUndo}
               />
             )}
             {activeTab === "flow" && (
@@ -404,8 +636,12 @@ export default function PlanClient({
                 anchors={state.anchors}
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
-                proposalsByDate={proposalsByDate}
+                proposalsByDate={filteredProposalsByDate}
+                onProposalAccept={handleProposalAccept}
                 onProposalDismiss={handleProposalDismiss}
+                acceptingProposalIds={acceptingProposalIds}
+                recentUndoRecords={recentUndoRecords}
+                onProposalUndo={handleProposalUndo}
               />
             )}
           </>

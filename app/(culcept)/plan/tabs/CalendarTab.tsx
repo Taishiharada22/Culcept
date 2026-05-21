@@ -46,6 +46,7 @@ import {
   selectFirstProposalForDate,
   type CalendarProposalProps,
 } from "@/lib/plan/proposal/calendarProposalSelector";
+import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
@@ -87,6 +88,10 @@ export function CalendarTab({
   onProposalAccept,
   onProposalModify,
   onProposalDismiss,
+  // ── Phase 3-J-6e-3 ──
+  acceptingProposalIds,
+  recentUndoRecords,
+  onProposalUndo,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -310,16 +315,46 @@ export function CalendarTab({
               </div>
 
               {/*
-               * Phase 3-J-6c: Proposal chip 導線 (= max 1 chip / day)
+               * Phase 3-J-6c / J-6e-3: Proposal chip 導線 + Quiet Undo 「戻す」 link (= max 1 / day)
+               *
+               * 表示優先 (= mutually exclusive):
+               *   1. active な undo record (= 5 分以内 accept 直後) → 「戻す」 link
+               *   2. それ以外 + proposal 存在 → ProposalChip (= accept in-flight 中は subtle pending)
                *
                * - presentational のみ (= proposalsByDate prop で受領、 内部 state なし)
-               * - 当日 (= selectedDate) の **最初の** proposal を表示
-               * - proposal 不在 / props 未指定 → 何も render しない (= Phase 2 と完全同じ表示)
-               * - sensitive proposal は computeProposals 上流で除外済 (= 二重防御で意識的)
-               * - 通知 metaphor 禁止 (= Memory Chip style 維持、 警告色 / drop-shadow / pulse なし)
-               * - callback 未指定なら chip は表示のみ (= 後 J-6e で PlanClient 接続)
+               * - sensitive proposal は computeProposals 上流で除外済
+               * - 通知 metaphor 禁止 (= Memory Chip style、 警告色 / drop-shadow / pulse なし)
+               * - 「戻す」 link は subtle (= text-slate-400 italic underline、 警告色なし)
+               * - subtle pending: opacity-60 + pointer-events-none + aria-busy (= 二重 tap 防止視覚化)
                */}
               {(() => {
+                // [1] active undo for selected date が最優先 (= accept 直後 5 分)
+                const activeUndo = recentUndoRecords
+                  ? selectActiveUndoForDate(
+                      recentUndoRecords,
+                      selectedDate,
+                      new Date().toISOString(),
+                    )
+                  : null;
+                if (activeUndo) {
+                  return (
+                    <div
+                      className="mb-3"
+                      data-testid={`plan-calendar-undo-${activeUndo.proposalId}`}
+                    >
+                      <button
+                        type="button"
+                        className="text-xs italic text-slate-400 underline transition hover:text-slate-500 motion-reduce:transition-none"
+                        onClick={() => onProposalUndo?.(activeUndo.proposalId)}
+                        aria-label="提案を戻す"
+                      >
+                        戻す
+                      </button>
+                    </div>
+                  );
+                }
+
+                // [2] proposal chip (= 通常)
                 const proposalForToday = selectFirstProposalForDate(
                   proposalsByDate,
                   selectedDate,
@@ -329,15 +364,23 @@ export function CalendarTab({
                   proposalForToday,
                   proposalTemplateVariables,
                 );
+                const isAccepting =
+                  acceptingProposalIds?.has(proposalForToday.id) ?? false;
                 return (
                   <div
-                    className="mb-3"
+                    className={
+                      "mb-3 " +
+                      (isAccepting
+                        ? "opacity-60 pointer-events-none motion-reduce:transition-none"
+                        : "")
+                    }
+                    aria-busy={isAccepting || undefined}
                     data-testid={`plan-calendar-proposal-${selectedDate}`}
                   >
                     <ProposalChip
                       proposal={proposalForToday}
                       variables={variables}
-                      onTap={onProposalAccept}
+                      onTap={isAccepting ? undefined : onProposalAccept}
                       onModify={onProposalModify}
                       onDismiss={onProposalDismiss}
                     />
