@@ -34,6 +34,7 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
+import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -873,14 +874,23 @@ function SelectedAnchorCard({
       className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
     >
       <div className="flex items-start gap-3">
-        {/* category emoji icon (filled circle、mockup の左端 icon に対応) */}
-        <div
-          className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: marker.color + "20" /* 色 + 12% 透明 */ }}
-          aria-hidden="true"
-        >
-          <span className="text-2xl">{isSensitive ? "🔒" : meta.emoji}</span>
-        </div>
+        {/*
+         * Phase 2-I: emoji → Aneurasync Category Icon System (SVG)
+         * filled circle 維持、 内側に細線 SVG icon (stroke 1.5px、 currentColor)
+         * sensitive anchor は pickCategoryIcon で CategorySensitiveIcon に自動置換
+         */}
+        {(() => {
+          const Icon = pickCategoryIcon({ category: cat, sensitive: isSensitive });
+          return (
+            <div
+              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
+              style={{ backgroundColor: marker.color + "20" /* 色 + 12% 透明 */ }}
+              aria-hidden="true"
+            >
+              <Icon className="w-6 h-6 text-slate-700" title={meta.hint} />
+            </div>
+          );
+        })()}
 
         <div className="flex-1 min-w-0">
           {/* time + title (mockup の "09:00 / 甲府駅近くのカフェ" 構造) */}
@@ -1072,9 +1082,14 @@ function CategoryCard({
       }
     >
       <header className="mb-3 flex items-start gap-3">
-        <span className="text-4xl leading-none" aria-hidden="true">
-          {meta.emoji}
-        </span>
+        {/*
+         * Phase 2-I: CategoryCard header の emoji → Aneurasync Category Icon System (SVG)
+         * 細線 SVG (stroke 1.5px、 currentColor) で世界観統一
+         */}
+        {(() => {
+          const Icon = pickCategoryIcon({ category });
+          return <Icon className="w-9 h-9 text-slate-600 flex-shrink-0" />;
+        })()}
         <div className="flex-1 min-w-0">
           <h4 className="text-base font-semibold text-slate-900">
             {meta.label}

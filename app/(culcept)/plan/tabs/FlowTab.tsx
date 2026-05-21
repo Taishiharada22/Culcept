@@ -43,6 +43,7 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
+import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -456,8 +457,11 @@ function AnchorRow({
  *     1 行 switch すれば easy migration
  */
 function AnchorThumbnail({ anchor }: { anchor: ExternalAnchor }) {
-  // Sensitive anchor は内容を visual に晒さない (privacy 配慮、mini design §4.4)
+  // Phase 2-I: emoji thumbnail → Aneurasync Category Icon System (SVG)
+  // sensitive anchor は CategorySensitiveIcon に置換 (= privacy 優先、 pickCategoryIcon 内で対応)
+  // 既存 CATEGORY_META.emoji は legacy/fallback として残す (= 段階移行)
   if (anchor.sensitiveCategory) {
+    const Icon = pickCategoryIcon({ sensitive: true });
     return (
       <div
         role="img"
@@ -465,23 +469,25 @@ function AnchorThumbnail({ anchor }: { anchor: ExternalAnchor }) {
         className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"
         data-testid="plan-flow-thumb-sensitive"
       >
-        <span className="text-2xl text-slate-400" aria-hidden="true">
-          🔒
-        </span>
+        <Icon className="w-7 h-7 text-slate-400" />
       </div>
     );
   }
 
   const cat = categoryOf(anchor);
   const meta = CATEGORY_META[cat];
+  const Icon = pickCategoryIcon({ category: cat });
   return (
     <div
       role="img"
       aria-label={`カテゴリ: ${meta.label}`}
+      title={meta.hint}
       className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"
       data-testid={`plan-flow-thumb-${cat}`}
     >
-      <span className="text-2xl" aria-hidden="true">
+      <Icon className="w-7 h-7 text-slate-500" />
+      {/* emoji legacy fallback (= hidden visually、 SVG が render される限り表示されない) */}
+      <span className="sr-only" aria-hidden="true">
         {meta.emoji}
       </span>
     </div>
