@@ -40,6 +40,7 @@ import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
+import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -324,6 +325,9 @@ export function CalendarTab({
                 onAnchorClick(anchor);
               };
               const clickable = !!onAnchorClick;
+              // Phase 2-F: Compact density (primary only)、title に fullLabel
+              const { primary: locationPrimary, fullLabel: locationFullLabel } =
+                formatLocationDisplayParts(anchor);
               return (
                 <li
                   key={anchor.id}
@@ -383,12 +387,21 @@ export function CalendarTab({
                   <p className="mt-1 text-sm font-medium text-slate-900">
                     {anchor.title}
                   </p>
-                  {anchor.locationText && (
+                  {locationPrimary && (
                     <p className="text-xs text-slate-500 flex items-center gap-1.5">
-                      <span className="truncate">{anchor.locationText}</span>
+                      {/*
+                       * Phase 2-F: Compact density (primary only)
+                       * title 属性に fullLabel (= mouse hover で full 情報)
+                       * 非 interactive な <span> なので aria-label は付けない (W3C ARIA 1.2)
+                       * 既存 anchor row 全体の aria-label は完全不変
+                       */}
+                      <span className="truncate" title={locationFullLabel}>
+                        {locationPrimary}
+                      </span>
                       {/*
                        * Phase 2-D C3: 場所未確定 indicator (subtle gray dot)
-                       * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
+                       * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用、
+                       * 引数は元 anchor.locationText で完全不変 (Phase 2-F の display 整形と判定は分離)
                        * dot 8px + ring-slate-500/30 (WCAG 1.4.11 Non-text Contrast 配慮)
                        */}
                       {isPlaceUnconfirmed(anchor.locationText) && (

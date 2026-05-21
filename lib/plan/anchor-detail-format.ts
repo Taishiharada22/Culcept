@@ -19,6 +19,7 @@ import type {
 import type { LocationCategory } from "./location-category";
 import type { ExternalAnchorSource } from "./external-anchor-source";
 import { parseWeekdaysFromRRule, type Weekday } from "./weekday-template";
+import { parseCanonicalLocationText } from "@/lib/shared/canonicalLocationText";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Date / time
@@ -145,6 +146,89 @@ export function formatLocation(anchor: ExternalAnchor): string {
   if (catLabel && text) return `${catLabel} / ${text}`;
   if (catLabel) return catLabel;
   return text ?? "場所未指定";
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 2-F: Place Identity Contract / 場所アイデンティティ表示契約 (display layer)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 場所表示の part 分解 (Compact / Detail density で共有)。
+ *
+ * 設計書: docs/alter-plan-phase2-f-display-coherence-mini-design.md
+ *
+ * - categoryLabel: raw label (debug / 内部用、UI は displayCategoryLabel を使う)
+ * - displayCategoryLabel: UI 用 (補正 6: categoryLabel === primary (trim normalize) なら undefined)
+ * - primary: 主名 (canonical なら displayName、空なら locationText.trim() fallback / 補正 2)
+ * - secondary: 補助 (canonical の address)
+ * - fullLabel: accessibility / title 用 (補正 5: primary + "、" (全角読点) + secondary、category 含めず)
+ */
+export interface LocationDisplayParts {
+  categoryLabel?: string;
+  displayCategoryLabel?: string;
+  primary?: string;
+  secondary?: string;
+  fullLabel?: string;
+}
+
+/**
+ * Phase 2-F: canonical location text の display 用 part 分解。
+ *
+ * 既存 formatLocation(anchor): string は **不変** (= 補正 1、他 caller を壊さない)。
+ * 本 helper は AnchorDetailModal + 3 tab で display layer 専用に使う。
+ *
+ * 不変原則 (mini design CEO/GPT 補正 1-7 厳守):
+ *   - 補正 1: formatLocation 戻り値仕様を変更しない (= 別 helper として追加)
+ *   - 補正 2: displayName 空でも locationText.trim() fallback で保存情報を消さない
+ *   - 補正 3: parseCanonicalLocationText に渡すのは anchor.locationText のみ
+ *             (locationCategory と canonical text を混ぜて parse しない)
+ *   - 補正 5: fullLabel = primary + "、" + secondary、categoryLabel は含めない
+ *   - 補正 6: categoryLabel === primary (trim normalize) なら displayCategoryLabel を抑制
+ *   - sensitive 区別なし (= 時刻重なり helper と同思想、UI 側で privacy 配慮)
+ *
+ * @param anchor ExternalAnchor (sensitive / category / text 等を含む)
+ * @returns LocationDisplayParts (= 空フィールド undefined、3 段 density で使い分け)
+ */
+export function formatLocationDisplayParts(
+  anchor: ExternalAnchor,
+): LocationDisplayParts {
+  const cat = anchor.locationCategory;
+  const text = anchor.locationText;
+
+  const categoryLabel = cat ? LOCATION_CATEGORY_LABEL[cat] : undefined;
+
+  // 補正 2: locationText が空 / whitespace-only → primary undefined (= UI 行を出さない)
+  //   ただし locationCategory のみあれば categoryLabel は返す
+  if (!text || !text.trim()) {
+    if (!categoryLabel) return {};
+    // primary なし → 重複比較不要、displayCategoryLabel = categoryLabel
+    return {
+      categoryLabel,
+      displayCategoryLabel: categoryLabel,
+    };
+  }
+
+  // 補正 3: anchor.locationText のみを parse 対象 (categoryLabel と混ぜない)
+  const { displayName, address } = parseCanonicalLocationText(text);
+
+  // 補正 2: displayName 空でも保存情報を消さない → original text.trim() fallback
+  const primary = displayName || text.trim();
+  const secondary = address ?? undefined;
+
+  // 補正 6: categoryLabel === primary (trim normalize 後) なら displayCategoryLabel を抑制
+  const isDuplicate =
+    !!categoryLabel && categoryLabel.trim() === primary.trim();
+  const displayCategoryLabel =
+    categoryLabel && !isDuplicate ? categoryLabel : undefined;
+
+  // 補正 5: fullLabel = primary + "、" + secondary、categoryLabel は含めない
+  const fullLabel = secondary ? `${primary}、${secondary}` : primary;
+
+  const result: LocationDisplayParts = { primary, fullLabel };
+  if (categoryLabel) result.categoryLabel = categoryLabel;
+  if (displayCategoryLabel) result.displayCategoryLabel = displayCategoryLabel;
+  if (secondary) result.secondary = secondary;
+  return result;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

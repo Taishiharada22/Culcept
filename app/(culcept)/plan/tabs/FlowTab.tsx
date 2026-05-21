@@ -42,6 +42,7 @@ import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
+import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -321,6 +322,9 @@ function AnchorRow({
   onClick?: (anchor: ExternalAnchor) => void;
 }) {
   const clickable = !!onClick;
+  // Phase 2-F: Compact density (primary only)、title に fullLabel
+  const { primary: locationPrimary, fullLabel: locationFullLabel } =
+    formatLocationDisplayParts(anchor);
   const handleClick = (
     e:
       | React.MouseEvent<HTMLLIElement>
@@ -393,14 +397,24 @@ function AnchorRow({
         <p className="mt-1 text-base font-medium text-slate-900 truncate">
           {anchor.title}
         </p>
-        {anchor.locationText && (
+        {locationPrimary && (
           <div className="flex items-center gap-1.5 mt-0.5">
-            <p className="text-xs text-slate-500 truncate flex-1 min-w-0">
-              {anchor.locationText}
+            {/*
+             * Phase 2-F: Compact density (primary only)
+             * title 属性に fullLabel (= mouse hover で full 情報)
+             * 非 interactive な <p> なので aria-label は付けない (W3C ARIA 1.2)
+             * 既存 AnchorRow 全体の aria-label "${anchor.title} の詳細を見る" は完全不変
+             */}
+            <p
+              className="text-xs text-slate-500 truncate flex-1 min-w-0"
+              title={locationFullLabel}
+            >
+              {locationPrimary}
             </p>
             {/*
              * Phase 2-D C3: 場所未確定 indicator (dot + text-xs label)
-             * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
+             * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用、
+             * 引数は元 anchor.locationText で完全不変 (Phase 2-F の display 整形と判定は分離)
              * リストは情報密度許容、CalendarTab より説明文を 1 段足す
              */}
             {isPlaceUnconfirmed(anchor.locationText) && (

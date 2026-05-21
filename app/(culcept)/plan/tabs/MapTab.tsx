@@ -33,6 +33,7 @@ import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
+import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -841,6 +842,11 @@ function SelectedAnchorCard({
     : MAP_CATEGORY_MARKER[cat];
   const isSensitive = !!anchor.sensitiveCategory;
 
+  // Phase 2-F: Compact density (primary only)、title に fullLabel
+  // sensitive 配慮は既存の `!isSensitive` gate で gate される (= 場所表示自体 sensitive 時非表示)
+  const { primary: locationPrimary, fullLabel: locationFullLabel } =
+    formatLocationDisplayParts(anchor);
+
   // sensitive は title を masked 表示 (privacy preserve、modal で実 title 開示)
   const displayTitle = isSensitive
     ? `[${SENSITIVE_LABEL[anchor.sensitiveCategory!]}] (詳細は modal で)`
@@ -886,10 +892,19 @@ function SelectedAnchorCard({
             {displayTitle}
           </h3>
 
-          {/* locationText with pin-kind indicator */}
-          {anchor.locationText && !isSensitive && (
-            <p className="text-xs text-slate-500 mt-1 truncate">
-              📍 {anchor.locationText}
+          {/*
+           * Phase 2-F: Compact density (primary only)
+           * title 属性に fullLabel (= mouse hover で full 情報)
+           * 非 interactive な <p> なので aria-label は付けない (W3C ARIA 1.2)
+           * 既存 SelectedAnchorCard 全体の `role="region" aria-label="選択中の予定の詳細"` は完全不変
+           * sensitive 配慮は既存の `!isSensitive` gate (= 場所表示自体 sensitive 時非表示) 完全維持
+           */}
+          {locationPrimary && !isSensitive && (
+            <p
+              className="text-xs text-slate-500 mt-1 truncate"
+              title={locationFullLabel}
+            >
+              📍 {locationPrimary}
             </p>
           )}
           {/*
