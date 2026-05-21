@@ -6443,3 +6443,90 @@ git push origin main
 - **J-6e 全体 closing**: J-6e-1 (read-only display) + J-6e-2 (dismiss) + J-6e-3 (accept + Quiet Undo) + J-6e-4 (modify) すべて implementation PASS、 real-data UI smoke のみ deferred
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-J-7 limited smoke/audit PASS + branch `feat/alter-plan-phase3-j6-tab-integration` 凍結] [承認: CEO]
+
+### J-7 limited smoke/audit PASS — CEO 確認済項目 (= real browser smoke)
+
+- `/plan` 表示 OK
+- Home → Plan swipe OK
+- 既存予定表示 OK
+- Calendar / Flow / Map 基本表示 OK
+- AddAnchorModal 通常起動 OK
+- 既存 Plan 機能の大きな崩れなし
+
+### J-7 deferred 項目 (= data gate 未成立により real UI smoke 不能、 これは FAIL ではない)
+
+- **proposal chip visibility**: data gate 未成立により deferred
+- **dismiss real UI smoke**: 同上 (= chip が出ないため操作経路に到達不能)
+- **accept real UI smoke**: 同上
+- **undo real UI smoke**: 同上
+- **modify real UI smoke**: 同上
+
+### Deferred 理由 (= 構造的、 設計上の正常挙動)
+
+- CEO 現在 dev account には 「8 日以上前からの Plan 履歴 / confirmedAt 条件 / pattern_repeat 条件」 が成立していない
+- proposal chip 発火条件: Onboarding Quietude 解除 (= `min(anchor.confirmedAt)` ≥ 8 日前) AND pattern_repeat 閾値 (= 過去 28 日 / 同曜日 / 同 hour / 同 verb / one_off / 3 件以上)
+- これは「現設計では出ないことが正しい挙動」 (= Invariant 36 Onboarding Quietude + Idea ι Reverse-Engineered Pattern Highlight の意図された結果)
+- proposal 系の real UI smoke は **自然な data 累積が成立した時点** (= 初期テストユーザー利用 1-2 週間後を想定) で別 phase で観測予定
+
+### Wording 厳守 (= CEO 補正)
+
+- **OK**: 「J-7 limited smoke/audit PASS」 / 「J-6e-3 implementation PASS」 / 「J-6e-4 implementation PASS」 / 「real-data proposal chip visibility smoke is deferred due to data gate not satisfied」
+- **NG**: 「J-6e-4 / J-7 fully smoke PASS」 (= 本 entry / 本 branch / 以後の記録すべてで使用禁止)
+
+### CEO 永続制約 遵守確認 (= J-6 全 sub-phase 範囲)
+
+| 制約 | 遵守状態 |
+|---|---|
+| dev fixture API 実装なし | コード差分 0 |
+| TestOverrideContext production 注入なし | grep test 継続 PASS |
+| DB 直接 insert/update/delete なし | API 呼出経路は既存 AddAnchorModal `createAnchorBundle` のみ |
+| confirmedAt schema / API 変更なし | コード差分 0 |
+| migration / env file / new dependency 変更なし | コード差分 0 |
+| push / pull / fetch / gh 実行なし | 全 commit は local のみ |
+| reset / restore / stash / branch delete 実行なし | Hook で機械 block、 log 確認済 |
+
+### Branch 凍結 (= CEO 明示指示 2026-05-22)
+
+- **凍結対象**: `feat/alter-plan-phase3-j6-tab-integration`
+- **branch HEAD**: 本 commit (= J-7 entry 記録 commit) 着地後の HEAD
+- **以後の方針**:
+  - 本 branch へ追加 commit しない
+  - 本 branch を delete しない (= CEO 永続制約)
+  - 本 branch を rebase / force push しない
+  - 次 phase は **別 branch** で立てる
+- **Branch 内容のサマリ**:
+  - 8 commits (= J-6a / J-6b / J-6c / J-6d / J-6e-1 / J-6e-2 / J-6e-3 / J-6e-4) + 本 J-7 entry 1 commit = 計 9 commits
+  - main (= `b07eeab5`) からの直接派生
+  - J-1 〜 J-5 は事前に integration branch 経由で main 着地済 (= 本 branch 非依存)
+
+### 残 deferred 項目 (= 本 branch closing 時点の未消化)
+
+| 項目 | 理由 | 解消手段 |
+|---|---|---|
+| proposal chip 実 UI smoke | data gate 未成立 (= Onboarding Quietude + pattern_repeat) | 初期テストユーザー利用 1-2 週間後の別 phase で観測 |
+| dismiss real UI smoke | proposal chip 不表示のため操作経路到達不能 | 同上 |
+| accept real UI smoke | 同上 | 同上 |
+| undo real UI smoke | 同上 | 同上 |
+| modify real UI smoke | 同上 | 同上 |
+| `proposalToAnchorInput.test.ts:26` の test helper 型 narrowing | J-6e-3 commit `75f07dea` 由来 carry-over、 runtime 影響なし | 別 commit / 別 branch で軽量修正可能 (= 優先度低) |
+
+### 引き続き禁止 (= 永続制約)
+
+- K / L / M / N 実装
+- Transport API
+- Arrival Risk Memory
+- dev fixture API 実装
+- TestOverrideContext production 注入
+- DB 直接 insert/update/delete
+- confirmedAt schema / API 変更
+- push / pull / fetch / gh
+- reset / restore / stash / branch delete
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 J-7 limited smoke/audit PASS 確定 + branch 凍結指示)
+- **ステータス**: 本 entry 記録 commit をもって `feat/alter-plan-phase3-j6-tab-integration` 凍結完了。 次 phase に進む前に branch state / 残 deferred / 次の選択肢を整理して停止する (= CEO 明示指示)
+
+---
