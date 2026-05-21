@@ -35,13 +35,24 @@ import {
   formatCanonicalLocationText,
   isCanonicalLocationText,
 } from "@/lib/shared/canonicalLocationText";
+import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
 
 import type { BiasContext } from "./_useBiasContext";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const DEBOUNCE_MS = 500;
-const MIN_QUERY_LENGTH = 3;
+
+/**
+ * Phase 2-H smoke fix (2026-05-21):
+ *   MIN_QUERY_LENGTH = 3 を撤廃。
+ *   理由: 「新宿」 「渋谷」 等の 2 文字日本語地名で reject されていた。
+ *   過剰 fetch 防止は classifyPlaceIntent の ambiguous 判定 (= title 短すぎ + locationText 空) に委ねる。
+ *   - intent_with_area:  title + locationText 両方ある → 必ず active (= 短い地名でも検索)
+ *   - intent_only:       title >= 2 (= classifyPlaceIntent で保証)
+ *   - explicit_place:    locationText keyword match
+ *   - ambiguous:         panel 非表示
+ */
 
 /** Places API endpoint response の PlaceCandidate と同 shape (server で normalize 済) */
 export interface PlaceCandidate {
@@ -67,6 +78,13 @@ interface SearchApiResponse {
 export interface PlaceCandidatesPanelProps {
   /** AnchorFormFields の locationText 値 (debounce 前の生入力) */
   query: string;
+  /**
+   * Phase 2-H: AnchorFormFields の title 値 (= 予定名)。
+   * server に title field として送信、 server 側で query + title を combine。
+   * panel header の文言で intent transparency 表示 (= 「『◯◯』 を ▲▲ 周辺で探しています」)。
+   * 不在 (= "") なら既存 Phase 2-D 挙動 (= query のみで explicit_place 検索)。
+   */
+  title?: string;
   /** useBiasContext() の biasContext (= Places API locationBias 用) */
   biasContext: BiasContext;
   /** sensitiveCategory が設定済か (true なら panel 完全抑制 + in-flight cancel) */
@@ -81,31 +99,44 @@ export interface PlaceCandidatesPanelProps {
    * 親への通知のみ、panel の close logic は内部で完結。
    */
   onSkip: () => void;
-  /** test 用、初期 closedAtQuery (default: null) */
-  initialClosedAtQuery?: string;
+  /**
+   * test 用、初期 closedAtSearchKey (default: null)。
+   * Phase 2-H smoke fix: closedAtQuery → closedAtSearchKey に rename
+   * (= intentType + title + locationText の 3 軸 key で 「同一検索」 を判定)。
+   */
+  initialClosedAtSearchKey?: string;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export function PlaceCandidatesPanel({
   query,
+  title = "",
   biasContext,
   sensitive,
   onSelect,
   onSkip,
-  initialClosedAtQuery = null as unknown as string,
+  initialClosedAtSearchKey = null as unknown as string,
 }: PlaceCandidatesPanelProps) {
   const [debouncedQuery, setDebouncedQuery] = useState<string>(query);
+  const [debouncedTitle, setDebouncedTitle] = useState<string>(title);
   const [results, setResults] = useState<PlaceCandidate[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   /**
-   * close × button / skip link でユーザーが明示的に閉じた query を記録。
-   * 同 query では panel が再開しない (user 意思尊重)。
-   * 新 query で reset され再表示可能 (= mini design §5.7 整合)。
+   * Phase 2-H smoke fix: close × / skip link で user が閉じた searchKey を記録。
+   * searchKey = `${intentType}|${title}|${locationText}` (= 3 軸)。
+   * title or locationText のいずれかが変われば searchKey が変わり、 close 解除 → 再 open される。
+   *
+   * 例:
+   *   1. title="ショッピング" + locationText="" → searchKey="intent_only|ショッピング|"
+   *      user が close → closedAtSearchKey = "intent_only|ショッピング|"
+   *   2. user が locationText="新宿" を追加
+   *      → searchKey = "intent_with_area|ショッピング|新宿" (= 新 key)
+   *      → closedAtSearchKey と一致しない → close 解除 → 再 fetch
    */
-  const [closedAtQuery, setClosedAtQuery] = useState<string | null>(
-    initialClosedAtQuery,
+  const [closedAtSearchKey, setClosedAtSearchKey] = useState<string | null>(
+    initialClosedAtSearchKey,
   );
   const abortRef = useRef<AbortController | null>(null);
 
@@ -115,34 +146,51 @@ export function PlaceCandidatesPanel({
     return () => clearTimeout(timer);
   }, [query]);
 
-  // ── closed reset on query change ──
+  // Phase 2-H: title も同 debounce で fetch trigger に integrate
   useEffect(() => {
-    if (closedAtQuery !== null && closedAtQuery !== debouncedQuery) {
-      setClosedAtQuery(null);
+    const timer = setTimeout(() => setDebouncedTitle(title), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [title]);
+
+  // ── intent + searchKey 導出 (Phase 2-H smoke fix) ──
+  // searchKey = `${intentType}|${title}|${locationText}` で 3 軸統合 key
+  // title or locationText のいずれかが変われば必ず別検索として扱う (= GPT 補正)。
+  const intentType = classifyPlaceIntent({
+    title: debouncedTitle,
+    locationText: debouncedQuery,
+  });
+  const searchKey = `${intentType}|${debouncedTitle.trim()}|${debouncedQuery.trim()}`;
+
+  // ── closed reset on searchKey change ──
+  // Phase 2-H smoke fix: searchKey が変われば closed 解除 (= title or locationText 変更で再 open)
+  useEffect(() => {
+    if (closedAtSearchKey !== null && closedAtSearchKey !== searchKey) {
+      setClosedAtSearchKey(null);
     }
-  }, [debouncedQuery, closedAtQuery]);
+  }, [searchKey, closedAtSearchKey]);
 
   // ── Sensitive 監視: abort + auto-close ──
   useEffect(() => {
     if (sensitive) {
       abortRef.current?.abort();
-      // 現 query を closed として記録、sensitive 解除後も自動再 open しない (user 明示再 trigger 必要)
-      setClosedAtQuery(query);
+      // 現 searchKey を closed として記録、sensitive 解除後も自動再 open しない
+      setClosedAtSearchKey(searchKey);
       setResults([]);
       setLoading(false);
       setErrorMessage(null);
     }
-  }, [sensitive, query]);
+  }, [sensitive, searchKey]);
 
   // ── isActive 判定 ──
-  // closed (user 意思) / canonical (確定済) / sensitive / 短すぎ query では panel 非アクティブ
-  const isClosedAtCurrentQuery =
-    closedAtQuery !== null && closedAtQuery === debouncedQuery;
+  // Phase 2-H smoke fix: MIN_QUERY_LENGTH 制約を撤廃、 ambiguous 判定 (= classifyPlaceIntent) に委ねる
+  // intent_with_area の場合、 locationText が 2 文字 (= 「新宿」) でも active になるべき。
+  const isClosedAtCurrentSearchKey =
+    closedAtSearchKey !== null && closedAtSearchKey === searchKey;
   const isCanonical = isCanonicalLocationText(debouncedQuery);
   const isActive =
     !sensitive &&
-    !isClosedAtCurrentQuery &&
-    debouncedQuery.trim().length >= MIN_QUERY_LENGTH &&
+    !isClosedAtCurrentSearchKey &&
+    intentType !== "ambiguous" &&
     !isCanonical;
 
   // ── Fetch effect ──
@@ -162,7 +210,11 @@ export function PlaceCandidatesPanel({
     setLoading(true);
     setErrorMessage(null);
 
+    // Phase 2-H: title を server に送信 (= server 側で combine、 outbound privacy 維持)
     const body: Record<string, unknown> = { query: debouncedQuery.trim() };
+    if (debouncedTitle.trim().length > 0) {
+      body.title = debouncedTitle.trim();
+    }
     if (biasContext.coord) {
       body.bias = {
         lat: biasContext.coord.lat,
@@ -218,10 +270,13 @@ export function PlaceCandidatesPanel({
 
     return () => controller.abort();
     // errorMessage は dep に含めない (intentionally、loop 防止)
+    // Phase 2-H smoke fix: searchKey を dep に (= title or locationText 変更で再 fetch)
+    // searchKey は debouncedTitle / debouncedQuery / intentType から導出されるため、
+    // searchKey 1 つで title / locationText / intent 変更すべてを cover。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isActive,
-    debouncedQuery,
+    searchKey,
     biasContext.coord?.lat,
     biasContext.coord?.lng,
     biasContext.radiusMeters,
@@ -243,14 +298,16 @@ export function PlaceCandidatesPanel({
 
   const handleClose = () => {
     abortRef.current?.abort();
-    setClosedAtQuery(debouncedQuery);
+    // Phase 2-H smoke fix: searchKey 単位で close 抑制 (= title / locationText 変更で再 open)
+    setClosedAtSearchKey(searchKey);
     setResults([]);
     setErrorMessage(null);
   };
 
   const handleSkip = () => {
     abortRef.current?.abort();
-    setClosedAtQuery(debouncedQuery);
+    // Phase 2-H smoke fix: searchKey 単位で close 抑制
+    setClosedAtSearchKey(searchKey);
     setResults([]);
     setErrorMessage(null);
     onSkip();
@@ -289,11 +346,31 @@ export function PlaceCandidatesPanel({
         ✕
       </button>
 
-      {/* header: bias label 1 段目 (情報量主、slate-700)、privacy hint 2 段目 (補助、slate-500、C3 polish) */}
+      {/*
+       * header: Phase 2-H で intent transparency 表示
+       *   - intent_with_area: 「『◯◯』 を ▲▲ 周辺で探しています」
+       *   - intent_only:      「『◯◯』 候補を探しています」
+       *   - explicit_place:   「✨ 候補から場所を選ぶ (任意)」 (= 既存 Phase 2-D 文言)
+       *   - ambiguous:        panel 自体非表示 (= isActive=false)
+       */}
       <header className="mb-3 pr-9">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-xs font-semibold text-slate-700 flex-shrink-0">
-            ✨ 候補から場所を選ぶ (任意)
+          <p
+            className="text-xs font-semibold text-slate-700 flex-shrink-0"
+            data-testid="plan-place-candidates-intent-label"
+          >
+            {(() => {
+              const titleTrim = debouncedTitle.trim();
+              const queryTrim = debouncedQuery.trim();
+              if (intentType === "intent_with_area") {
+                return `「${titleTrim}」 を ${queryTrim} 周辺で探しています`;
+              }
+              if (intentType === "intent_only") {
+                return `「${titleTrim}」 候補を探しています`;
+              }
+              // explicit_place
+              return "✨ 候補から場所を選ぶ (任意)";
+            })()}
           </p>
           {biasContext.label && (
             <p

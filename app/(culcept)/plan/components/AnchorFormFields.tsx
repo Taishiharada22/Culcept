@@ -43,6 +43,8 @@ import {
   type PlaceCandidate,
 } from "./PlaceCandidatesPanel";
 import { useBiasContext } from "./_useBiasContext";
+import { inferLocationCategory } from "@/lib/plan/categoryInference";
+import { LOCATION_CATEGORY_LABEL } from "@/lib/plan/anchor-detail-format";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -406,6 +408,7 @@ export function AnchorFormFields({
         />
         <PlaceCandidatesPanel
           query={form.locationText}
+          title={form.title}
           biasContext={biasContext}
           sensitive={!!form.sensitiveCategory}
           onSelect={handlePlaceCandidateSelect}
@@ -466,6 +469,41 @@ export function AnchorFormFields({
                 </option>
               ))}
             </select>
+            {/*
+             * Phase 2-H: Category Inference suggestion chip (= subtle、非強制)
+             * - 予定名から推定したカテゴリと、user 選択値が違う場合のみ表示
+             * - tap で auto-apply (= 強制ではなく user 選択を補助)
+             * - 推定不能 (null) なら chip 非表示
+             * - 警告色なし、 muted slate / italic で Aneurasync 思想整合
+             */}
+            {(() => {
+              const inferred = inferLocationCategory(form.title);
+              if (!inferred) return null;
+              if (form.locationCategory === inferred) return null;
+              const label = LOCATION_CATEGORY_LABEL[inferred];
+              return (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange(
+                      "locationCategory",
+                      inferred as AnchorFormState["locationCategory"],
+                    )
+                  }
+                  disabled={submitting}
+                  data-testid="plan-form-category-suggestion-chip"
+                  className="
+                    mt-1.5 inline-flex items-center gap-1
+                    text-xs text-slate-500 italic
+                    hover:text-indigo-600
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+                    rounded-md px-1
+                  "
+                >
+                  💡 「{form.title}」 → <span className="font-medium">{label}</span> ですか?
+                </button>
+              );
+            })()}
           </Field>
 
           {/*
