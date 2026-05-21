@@ -44,6 +44,8 @@ import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
+import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
+import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -457,9 +459,9 @@ function AnchorRow({
  *     1 行 switch すれば easy migration
  */
 function AnchorThumbnail({ anchor }: { anchor: ExternalAnchor }) {
-  // Phase 2-I: emoji thumbnail → Aneurasync Category Icon System (SVG)
-  // sensitive anchor は CategorySensitiveIcon に置換 (= privacy 優先、 pickCategoryIcon 内で対応)
-  // 既存 CATEGORY_META.emoji は legacy/fallback として残す (= 段階移行)
+  // Phase 2-I 拡張: brand-specific icon を最優先 (= ぱっと見でスタバとわかる)
+  // 優先順位: sensitive > brand > category fallback
+  // 1. sensitive anchor → CategorySensitiveIcon (= privacy 最優先、 brand 露出させない)
   if (anchor.sensitiveCategory) {
     const Icon = pickCategoryIcon({ sensitive: true });
     return (
@@ -474,9 +476,28 @@ function AnchorThumbnail({ anchor }: { anchor: ExternalAnchor }) {
     );
   }
 
+  // 2. brand-specific icon (= filled style、 brand color)
+  const brandHit = pickBrandIcon(anchor.locationText);
+  if (brandHit) {
+    const BrandIcon = brandHit.icon;
+    return (
+      <div
+        role="img"
+        aria-label={brandHit.displayName}
+        title={brandHit.displayName}
+        className="w-14 h-14 rounded-xl bg-white border border-slate-200 flex items-center justify-center flex-shrink-0 overflow-hidden"
+        data-testid={`plan-flow-thumb-brand-${brandHit.brand}`}
+      >
+        <BrandIcon className="w-12 h-12" />
+      </div>
+    );
+  }
+
+  // 3. category fallback (= outlined SVG、 category color)
   const cat = categoryOf(anchor);
   const meta = CATEGORY_META[cat];
   const Icon = pickCategoryIcon({ category: cat });
+  const colorClass = pickCategoryColorClass({ category: cat });
   return (
     <div
       role="img"
@@ -485,7 +506,7 @@ function AnchorThumbnail({ anchor }: { anchor: ExternalAnchor }) {
       className="w-14 h-14 rounded-xl bg-slate-100 flex items-center justify-center flex-shrink-0"
       data-testid={`plan-flow-thumb-${cat}`}
     >
-      <Icon className="w-7 h-7 text-slate-500" />
+      <Icon className={`w-7 h-7 ${colorClass}`} />
       {/* emoji legacy fallback (= hidden visually、 SVG が render される限り表示されない) */}
       <span className="sr-only" aria-hidden="true">
         {meta.emoji}

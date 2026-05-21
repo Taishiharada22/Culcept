@@ -35,6 +35,8 @@ import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
+import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
+import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -875,19 +877,47 @@ function SelectedAnchorCard({
     >
       <div className="flex items-start gap-3">
         {/*
-         * Phase 2-I: emoji → Aneurasync Category Icon System (SVG)
-         * filled circle 維持、 内側に細線 SVG icon (stroke 1.5px、 currentColor)
-         * sensitive anchor は pickCategoryIcon で CategorySensitiveIcon に自動置換
+         * Phase 2-I 拡張: brand-specific icon を最優先
+         * 優先順位: sensitive > brand > category
+         * - sensitive: pickCategoryIcon が CategorySensitiveIcon を返す、 brand 露出させない
+         * - brand: filled style、 brand color (= white background container)
+         * - category fallback: outlined + category color
          */}
         {(() => {
-          const Icon = pickCategoryIcon({ category: cat, sensitive: isSensitive });
+          if (isSensitive) {
+            const Icon = pickCategoryIcon({ sensitive: true });
+            return (
+              <div
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
+                style={{ backgroundColor: marker.color + "20" }}
+                aria-hidden="true"
+              >
+                <Icon className="w-6 h-6 text-slate-500" />
+              </div>
+            );
+          }
+          const brandHit = pickBrandIcon(anchor.locationText);
+          if (brandHit) {
+            const BrandIcon = brandHit.icon;
+            return (
+              <div
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full overflow-hidden bg-white border border-slate-200"
+                aria-hidden="true"
+                title={brandHit.displayName}
+              >
+                <BrandIcon className="w-10 h-10" />
+              </div>
+            );
+          }
+          const Icon = pickCategoryIcon({ category: cat });
+          const colorClass = pickCategoryColorClass({ category: cat });
           return (
             <div
               className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
-              style={{ backgroundColor: marker.color + "20" /* 色 + 12% 透明 */ }}
+              style={{ backgroundColor: marker.color + "20" }}
               aria-hidden="true"
             >
-              <Icon className="w-6 h-6 text-slate-700" title={meta.hint} />
+              <Icon className={`w-6 h-6 ${colorClass}`} title={meta.hint} />
             </div>
           );
         })()}
@@ -1083,12 +1113,13 @@ function CategoryCard({
     >
       <header className="mb-3 flex items-start gap-3">
         {/*
-         * Phase 2-I: CategoryCard header の emoji → Aneurasync Category Icon System (SVG)
-         * 細線 SVG (stroke 1.5px、 currentColor) で世界観統一
+         * Phase 2-I 拡張: CategoryCard header の emoji → category-specific colored SVG
+         * 細線 SVG (stroke 1.5px) + category color で識別性追加
          */}
         {(() => {
           const Icon = pickCategoryIcon({ category });
-          return <Icon className="w-9 h-9 text-slate-600 flex-shrink-0" />;
+          const colorClass = pickCategoryColorClass({ category });
+          return <Icon className={`w-9 h-9 ${colorClass} flex-shrink-0`} />;
         })()}
         <div className="flex-1 min-w-0">
           <h4 className="text-base font-semibold text-slate-900">

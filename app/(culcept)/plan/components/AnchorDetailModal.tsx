@@ -40,6 +40,8 @@ import {
   SOURCE_TYPE_LABEL,
 } from "@/lib/plan/anchor-detail-format";
 import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
+import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
+import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 import { deleteAnchorSource } from "@/lib/plan/anchor-fetch";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
@@ -175,17 +177,29 @@ export function AnchorDetailModal({
             if (!parts.displayCategoryLabel && !parts.primary) {
               return <span className="text-slate-400">場所未指定</span>;
             }
-            // Phase 2-I: displayCategoryLabel の隣に SVG icon を追加 (= Phase 2-F Detail density 補強)
-            // sensitive anchor は pickCategoryIcon で CategorySensitiveIcon に自動置換
+            // Phase 2-I 拡張: brand 優先 (= 「スタバなら スタバ icon」)
+            // 優先順位: sensitive > brand > category
+            const isSensitive = !!anchor.sensitiveCategory;
+            const brandHit = !isSensitive
+              ? pickBrandIcon(anchor.locationText)
+              : null;
             const CategoryIcon = pickCategoryIcon({
               category: anchor.locationCategory,
-              sensitive: !!anchor.sensitiveCategory,
+              sensitive: isSensitive,
+            });
+            const colorClass = pickCategoryColorClass({
+              category: anchor.locationCategory,
+              sensitive: isSensitive,
             });
             return (
               <div className="flex flex-col gap-0.5">
                 {parts.displayCategoryLabel && (
                   <span className="text-xs text-slate-500 inline-flex items-center gap-1">
-                    <CategoryIcon className="w-3.5 h-3.5" />
+                    {brandHit ? (
+                      <brandHit.icon className="w-3.5 h-3.5" />
+                    ) : (
+                      <CategoryIcon className={`w-3.5 h-3.5 ${colorClass}`} />
+                    )}
                     {parts.displayCategoryLabel}
                   </span>
                 )}
