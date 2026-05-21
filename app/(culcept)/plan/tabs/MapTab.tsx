@@ -66,6 +66,10 @@ import {
 } from "@/lib/shared/googleMapsLoader";
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
+import {
+  computeLivedGeographyFallback,
+  type LivedGeographyFallback,
+} from "@/lib/plan/livedGeographyFallback";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -111,7 +115,11 @@ interface AnchorWithCoord {
   anchor: ExternalAnchor;
   coord: GmapsLatLng;
   resolvedName: string;
-  kind: "resolved" | "baseline";
+  /**
+   * Phase 2-G: "lived_geography" 追加 (= 信頼度つき生活圏 fallback)
+   * 優先順位: resolved > (home baseline) > lived_geography > city/prefecture baseline
+   */
+  kind: "resolved" | "baseline" | "lived_geography";
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -213,20 +221,51 @@ export function MapTab({
   //   3. resolution なし + baselineCoords なし → no pin、semantic fallback list のみ
   //
   // sensitive anchor は server 側で resolution=null (unresolved_sensitive) のため自動的に
-  // baselineCoords に流れる (privacy: 具体 location は外送信されない、baseline は user 既知 area)。
+  // baselineCoords / lived_geography に流れる (privacy: 具体 location は外送信されない、 fallback は user 既知 area)。
+  //
+  // Phase 2-G: Lived Geography Confidence Fallback を baseline 優先順位に挿入。
+  // 優先順位 (= mini design §2.2):
+  //   1. resolved anchor (= place_resolution_cache hit、 最高信頼)
+  //   2. baseline.source === "home" → home pin (= user 明示・安定 base、 最優先)
+  //   3. lived_geography (= confidence gate 通過時のみ)
+  //   4. baseline.source === "city" / "prefecture" → 既存 baseline pin
+  //   5. なし → noPin
+  const livedGeography: LivedGeographyFallback | null = useMemo(
+    () => computeLivedGeographyFallback(anchors, resolutions, new Date()),
+    [anchors, resolutions],
+  );
+
   const { allPins, anchorsWithoutPin } = useMemo(() => {
     const pins: AnchorWithCoord[] = [];
     const noPin: ExternalAnchor[] = [];
     for (const anchor of visibleAnchors) {
       const r = resolutions.get(anchor.id);
       if (r && isValidLatLng(r.lat, r.lng)) {
+        // 1. resolved (= 最優先)
         pins.push({
           anchor,
           coord: { lat: r.lat, lng: r.lng },
           resolvedName: r.resolvedName,
           kind: "resolved",
         });
+      } else if (baselineCoords && baselineCoords.source === "home") {
+        // 2. home baseline 優先 (= user 明示拠点)
+        pins.push({
+          anchor,
+          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
+          resolvedName: baselineCoords.label ?? "自宅 周辺",
+          kind: "baseline",
+        });
+      } else if (livedGeography) {
+        // 3. lived_geography (= 信頼度 gate 通過時、 city/prefecture より上位)
+        pins.push({
+          anchor,
+          coord: { lat: livedGeography.lat, lng: livedGeography.lng },
+          resolvedName: "最近の場所傾向",
+          kind: "lived_geography",
+        });
       } else if (baselineCoords) {
+        // 4. city / prefecture baseline (= 既存 fallback)
         pins.push({
           anchor,
           coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
@@ -234,11 +273,12 @@ export function MapTab({
           kind: "baseline",
         });
       } else {
+        // 5. no pin
         noPin.push(anchor);
       }
     }
     return { allPins: pins, anchorsWithoutPin: noPin };
-  }, [visibleAnchors, resolutions, baselineCoords]);
+  }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
 
   // ── Map 上に pin 化されていない anchor (= baseline すらない) ──
   // UnresolvedAnchorsSection に表示する (transparency: user が "何が pin にならない" を理解)
@@ -635,10 +675,13 @@ function PlanMapView({
       const baseTitle = pin.anchor.sensitiveCategory
         ? `[${SENSITIVE_LABEL[pin.anchor.sensitiveCategory]}] (詳細は modal で)`
         : pin.anchor.title;
+      // Phase 2-G: pinKind 別に title suffix を分岐
       const markerTitle =
         pin.kind === "baseline"
           ? `${baseTitle} (場所未定 — baseline 周辺の概算)`
-          : baseTitle;
+          : pin.kind === "lived_geography"
+            ? `${baseTitle} (場所未定 — 最近の場所傾向の仮置き)`
+            : baseTitle;
 
       // pin label = 時刻 ("09:00")。mockup の "time + name" box は OverlayView 別途必要だが、
       // marker.label で minimum viable 時刻表示。name は marker.title (hover) と bottom card で見れる。
@@ -819,12 +862,14 @@ function MapPlaceholder({
 function SelectedAnchorCard({
   anchor,
   pinKind,
+  // Phase 2-G で type 拡張、 prop name 不変
   baselineCoords,
   hasOverlap,
   onOpenDetail,
 }: {
   anchor: ExternalAnchor;
-  pinKind: "resolved" | "baseline";
+  /** Phase 2-G: "lived_geography" を追加 (= 信頼度つき生活圏 fallback) */
+  pinKind: "resolved" | "baseline" | "lived_geography";
   baselineCoords: BaselineCoords | null;
   /**
    * Phase 2-E: 同日内で時刻が他 anchor と重なるか。
@@ -853,7 +898,12 @@ function SelectedAnchorCard({
     : anchor.title;
 
   // baseline source 透明性 (CEO 補正: 「成田市 中心 付近」 等で具体性を伝達)
+  // Phase 2-G: pinKind="lived_geography" の場合は信頼度 fallback 文言を表示
   const baselineSourceLabel = (() => {
+    if (pinKind === "lived_geography") {
+      // GPT 補正 5 採用文言 (= 断定回避、 「仮置き」 で暫定を明示)
+      return "場所未定 — 最近の場所傾向をもとに仮置きしています";
+    }
     if (pinKind !== "baseline" || !baselineCoords) return null;
     const granularity =
       baselineCoords.source === "home"
@@ -917,8 +967,9 @@ function SelectedAnchorCard({
            * 両者が重なるケース (baseline + unconfirmed) は baseline label を優先
            * (より具体的な状態説明なので)。
            */}
+          {/* Phase 2-G: pinKind !== "resolved" の場合は fallback、 unconfirmed indicator を非表示 (= baseline / lived_geography の透明性表示で十分) */}
           {!isSensitive &&
-            pinKind !== "baseline" &&
+            pinKind === "resolved" &&
             isPlaceUnconfirmed(anchor.locationText) && (
               <p
                 data-testid="plan-map-selected-unconfirmed-banner"
@@ -927,10 +978,23 @@ function SelectedAnchorCard({
                 場所未確定 — もっと具体的にできます
               </p>
             )}
+          {/*
+           * Phase 2-G: pinKind が baseline / lived_geography の場合に baselineSourceLabel を表示
+           * - baseline: 「自宅 / 市区町村中心 / 県中心 付近に置いています」 (= 既存 text-amber-600 維持)
+           * - lived_geography: 「最近の場所傾向をもとに仮置きしています」 (= muted slate、 警告色なし)
+           */}
           {pinKind === "baseline" && !isSensitive && baselineSourceLabel && (
             <p
               className="text-xs text-amber-600 mt-1 italic"
               data-testid="plan-map-selected-baseline-source"
+            >
+              {baselineSourceLabel}
+            </p>
+          )}
+          {pinKind === "lived_geography" && !isSensitive && baselineSourceLabel && (
+            <p
+              className="text-xs text-slate-500 mt-1 italic"
+              data-testid="plan-map-selected-lived-geography-source"
             >
               {baselineSourceLabel}
             </p>
