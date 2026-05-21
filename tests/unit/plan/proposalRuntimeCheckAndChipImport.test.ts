@@ -27,18 +27,16 @@ import { runtimeNoAiSubjectCheck } from "@/lib/plan/proposal/copy/noAiSubjectRun
 
 describe("runtimeNoAiSubjectCheck — dev / test mode", () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
-  let originalNodeEnv: string | undefined;
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    originalNodeEnv = process.env.NODE_ENV;
     // ensure not production
-    process.env.NODE_ENV = "test";
+    vi.stubEnv("NODE_ENV", "test");
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
-    process.env.NODE_ENV = originalNodeEnv;
+    vi.unstubAllEnvs();
   });
 
   it("violation triggers console.warn", () => {
@@ -68,17 +66,15 @@ describe("runtimeNoAiSubjectCheck — dev / test mode", () => {
 
 describe("runtimeNoAiSubjectCheck — production no-op", () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
-  let originalNodeEnv: string | undefined;
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
-    process.env.NODE_ENV = originalNodeEnv;
+    vi.unstubAllEnvs();
   });
 
   it("production: violation does NOT trigger warn", () => {

@@ -386,8 +386,9 @@ describe("PROPOSAL_COPY_TABLE — No-AI-Subject 全件 PASS (= 機械的強制)"
 
     it(`subtext "${key}" passes No-AI-Subject lint (if present)`, () => {
       const template = PROPOSAL_COPY_TABLE[key];
-      if (template.subtext) {
-        expect(() => assertNoAiSubject(template.subtext)).not.toThrow();
+      const subtext = template.subtext;
+      if (subtext) {
+        expect(() => assertNoAiSubject(subtext)).not.toThrow();
       }
     });
   }
