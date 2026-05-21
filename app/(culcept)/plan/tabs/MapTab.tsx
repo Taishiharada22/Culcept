@@ -37,7 +37,13 @@ import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
 import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
 import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
 import { pickBrandIcon } from "@/lib/plan/brandIconMap";
+import {
+  buildVariablesForProposal,
+  selectFirstProposalForDate,
+  type CalendarProposalProps,
+} from "@/lib/plan/proposal/calendarProposalSelector";
 
+import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
 import {
   CATEGORY_META,
@@ -134,13 +140,21 @@ export function MapTab({
   now,
   onAddRequest,
   onAnchorClick,
+  // ── Phase 3-J-6d: Proposal hint 導線 (= presentational 寄り) ──
+  // 全 optional。 未指定なら Phase 2 と完全同じ表示 (= backward compat 100%)。
+  // 実 proposal 生成 + state 接続は J-6e で PlanClient が担当。
+  proposalsByDate,
+  proposalTemplateVariables,
+  onProposalAccept,
+  onProposalModify,
+  onProposalDismiss,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
   onAddRequest?: (req: AddRequest) => void;
   /** W1-X5: anchor 行クリック / Enter / Space で detail modal を開く */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
-}) {
+} & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
 
@@ -347,7 +361,11 @@ export function MapTab({
         onPinClick={handlePinTap}
       />
 
-      {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button */}
+      {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button
+       *
+       * Phase 3-J-6d: proposal hint props も pass-through (= 全 optional)。
+       * SelectedAnchorCard 末尾で anchor.date に対応する proposal を 1 件表示。
+       */}
       {selectedAnchorForCard && (
         <SelectedAnchorCard
           anchor={selectedAnchorForCard}
@@ -358,6 +376,11 @@ export function MapTab({
           baselineCoords={baselineCoords}
           hasOverlap={dayAnchorsOverlapSet.has(selectedAnchorForCard.id)}
           onOpenDetail={onAnchorClick}
+          proposalsByDate={proposalsByDate}
+          proposalTemplateVariables={proposalTemplateVariables}
+          onProposalAccept={onProposalAccept}
+          onProposalModify={onProposalModify}
+          onProposalDismiss={onProposalDismiss}
         />
       )}
 
@@ -869,6 +892,12 @@ function SelectedAnchorCard({
   baselineCoords,
   hasOverlap,
   onOpenDetail,
+  // ── Phase 3-J-6d: Proposal hint 導線 ──
+  proposalsByDate,
+  proposalTemplateVariables,
+  onProposalAccept,
+  onProposalModify,
+  onProposalDismiss,
 }: {
   anchor: ExternalAnchor;
   /** Phase 2-G: "lived_geography" を追加 (= 信頼度つき生活圏 fallback) */
@@ -882,7 +911,7 @@ function SelectedAnchorCard({
    */
   hasOverlap: boolean;
   onOpenDetail?: (anchor: ExternalAnchor) => void;
-}) {
+} & CalendarProposalProps) {
   const cat = categoryOf(anchor);
   const meta = CATEGORY_META[cat];
   const marker = anchor.sensitiveCategory
@@ -1078,6 +1107,50 @@ function SelectedAnchorCard({
           </button>
         </div>
       )}
+
+      {/*
+       * Phase 3-J-6d: Proposal hint chip (= SelectedAnchorCard 末尾、 max 1 chip / day)
+       *
+       * 配置: 「詳細を見る」 button の **更に下**、 SelectedAnchorCard 全体の最末尾。
+       *       Phase 2-G の lived_geography banner / Phase 2-I の icon と物理分離。
+       *
+       * 条件:
+       *   - anchor が one_off (= MVP 範囲、 recurring は次 phase)
+       *   - proposalsByDate に anchor.date 対応の proposal が存在
+       *   - sensitive proposal は computeProposals 上流で除外済 (= 二重防御で信頼)
+       *
+       * 視覚規約:
+       *   - Memory Chip style (= dashed border + italic + slate-500)
+       *   - 通知 metaphor 禁止 (= drop-shadow / pulse / warning 色 一切なし)
+       *   - proposal 不在 → 何も render しない (= Phase 2 と完全同じ表示)
+       */}
+      {(() => {
+        if (anchor.anchorKind !== "one_off") return null;
+        const anchorDate = anchor.date;
+        const proposalForAnchor = selectFirstProposalForDate(
+          proposalsByDate,
+          anchorDate,
+        );
+        if (!proposalForAnchor) return null;
+        const variables = buildVariablesForProposal(
+          proposalForAnchor,
+          proposalTemplateVariables,
+        );
+        return (
+          <div
+            className="mt-3"
+            data-testid={`plan-map-proposal-${anchorDate}`}
+          >
+            <ProposalChip
+              proposal={proposalForAnchor}
+              variables={variables}
+              onTap={onProposalAccept}
+              onModify={onProposalModify}
+              onDismiss={onProposalDismiss}
+            />
+          </div>
+        );
+      })()}
     </section>
   );
 }
