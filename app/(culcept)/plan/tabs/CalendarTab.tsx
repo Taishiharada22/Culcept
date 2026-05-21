@@ -41,7 +41,13 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
 import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
+import {
+  buildVariablesForProposal,
+  selectFirstProposalForDate,
+  type CalendarProposalProps,
+} from "@/lib/plan/proposal/calendarProposalSelector";
 
+import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
 import {
   addMonths,
@@ -73,6 +79,14 @@ export function CalendarTab({
   now,
   onAddRequest,
   onAnchorClick,
+  // ── Phase 3-J-6c: Proposal chip 導線 (= presentational 寄り) ──
+  // 全 optional。 未指定なら Phase 2 と完全同じ振る舞い (= backward compat)。
+  // 実 proposal 生成 + state 接続は J-6e で PlanClient が担当。
+  proposalsByDate,
+  proposalTemplateVariables,
+  onProposalAccept,
+  onProposalModify,
+  onProposalDismiss,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -81,7 +95,7 @@ export function CalendarTab({
   onAddRequest?: (req: AddRequest) => void;
   /** anchor row click で AnchorDetailModal 起動 (W1-X5 既存) */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
-}) {
+} & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
   const todayIso = isoDate(todayDate);
@@ -294,6 +308,42 @@ export function CalendarTab({
                   </button>
                 )}
               </div>
+
+              {/*
+               * Phase 3-J-6c: Proposal chip 導線 (= max 1 chip / day)
+               *
+               * - presentational のみ (= proposalsByDate prop で受領、 内部 state なし)
+               * - 当日 (= selectedDate) の **最初の** proposal を表示
+               * - proposal 不在 / props 未指定 → 何も render しない (= Phase 2 と完全同じ表示)
+               * - sensitive proposal は computeProposals 上流で除外済 (= 二重防御で意識的)
+               * - 通知 metaphor 禁止 (= Memory Chip style 維持、 警告色 / drop-shadow / pulse なし)
+               * - callback 未指定なら chip は表示のみ (= 後 J-6e で PlanClient 接続)
+               */}
+              {(() => {
+                const proposalForToday = selectFirstProposalForDate(
+                  proposalsByDate,
+                  selectedDate,
+                );
+                if (!proposalForToday) return null;
+                const variables = buildVariablesForProposal(
+                  proposalForToday,
+                  proposalTemplateVariables,
+                );
+                return (
+                  <div
+                    className="mb-3"
+                    data-testid={`plan-calendar-proposal-${selectedDate}`}
+                  >
+                    <ProposalChip
+                      proposal={proposalForToday}
+                      variables={variables}
+                      onTap={onProposalAccept}
+                      onModify={onProposalModify}
+                      onDismiss={onProposalDismiss}
+                    />
+                  </div>
+                );
+              })()}
 
         {selectedDayAnchors.length === 0 ? (
           <div
