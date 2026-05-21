@@ -32,7 +32,7 @@
  *   - DraftPlan / W1-6 passive drift logging
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   GlassBadge,
@@ -44,12 +44,21 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
-// ── Phase 3-J-6e-1: Proposal read-only 接続 ──
+// ── Phase 3-J-6e-1 / J-6e-2: Proposal 接続 ──
 // 注: TestOverrideContext は import しない (= production import 禁止)。
 //     dev/smoke 用 bypass は本 file で行わない (= 既存 unit test の testOverride 経路で対応)。
+//
+// J-6e-1 範囲: read-only display (= proposalsByDate を CalendarTab/MapTab に渡すだけ)
+// J-6e-2 範囲 (= 本 commit): dismiss callback wiring
+//   - 「無視」 link tap → recordDismissToStorage で localStorage write
+//   - dismissEvents state refresh → useMemo proposalsByDate 再計算 → chip 静かに消える
+//   - 7 日 cross-day memory (= 既存 dismissLog filter) で再表示抑制
+//   - 24h dismiss 3+ で Theory-of-Mind Pause 自然発動 (= computeProposals 内 gate)
+// J-6e-3/4 範囲 (= 未着手): accept + Quiet Undo / modify + AddAnchorModal
 import {
   createStorageBackedDismissLogReader,
   getBrowserDismissStorage,
+  recordDismissToStorage,
 } from "@/lib/plan/proposal/dismissAction";
 import type { DismissLogEntry } from "@/lib/plan/proposal/dismissLog";
 import { computeProposals } from "@/lib/plan/proposal/computeProposals";
@@ -57,6 +66,7 @@ import {
   computeFirstUseDateFromAnchors,
   groupProposalsByDate,
 } from "@/lib/plan/proposal/planClientProposalHelpers";
+import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
@@ -153,9 +163,9 @@ export default function PlanClient({
     }
   }, []);
 
-  const proposalsByDate = useMemo<Readonly<
-    Record<string, ReadonlyArray<import("@/lib/plan/proposal/proposalTypes").ProposedAnchor>>
-  >>(() => {
+  const proposalsByDate = useMemo<
+    Readonly<Record<string, ReadonlyArray<ProposedAnchor>>>
+  >(() => {
     if (!now) return {}; // SSR / mount 前 → 空
     if (state.kind !== "ok") return {};
     const nowIso = now.toISOString();
@@ -169,6 +179,31 @@ export default function PlanClient({
     });
     return groupProposalsByDate(result.proposals);
   }, [now, state, dismissEvents]);
+
+  // ── Phase 3-J-6e-2: dismiss callback (= localStorage write、 silent preference) ──
+  //
+  // 不変原則 (= CEO 指示 + 思想整合):
+  //   - silent: 通知 / トーストなし、 「無視しました」 系コピー禁止
+  //   - sentiment 中立: dismiss しても source.notes / anchor は不変
+  //   - immediate refresh: setDismissEvents で useMemo 再計算 → chip 静かに消える
+  //   - 7 日 cross-day memory (= 既存 dismissLog filter で再表示抑制)
+  //   - 24h dismiss 3+ で Theory-of-Mind Pause 自然発動 (= 別 commit ではなく既存 computeProposals 内 gate)
+  //
+  // 注:
+  //   - SSR / non-browser env では getBrowserDismissStorage が null を返し、 silent no-op
+  //   - 同 proposal 連続 dismiss は localStorage に entry 2 件追加するが count >= 3 gate で harmless
+  //   - localStorage write key は `aneurasync.plan.proposalDismiss.v1` のみ
+  const handleProposalDismiss = useCallback((proposal: ProposedAnchor) => {
+    const storage = getBrowserDismissStorage();
+    if (!storage) return; // SSR / non-browser → silent
+    recordDismissToStorage(storage, {
+      proposal,
+      dismissedAt: new Date().toISOString(),
+    });
+    // 即座に dismissEvents state 更新 → useMemo proposalsByDate 再計算 → chip 消える
+    const reader = createStorageBackedDismissLogReader(storage);
+    setDismissEvents(reader.readAll());
+  }, []);
 
   const load = async () => {
     setState({ kind: "loading" });
@@ -338,10 +373,15 @@ export default function PlanClient({
         {state.kind === "ok" && state.anchors.length > 0 && (
           <>
             {/*
-             * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass。
-             * - callback (onProposalAccept/Modify/Dismiss) は **未配線** (= J-6e-2/3/4 預け)
-             * - proposalTemplateVariables は未指定 (= ProposalChip 側で draft fallback)
-             * - FlowTab は J-6 scope 外 (= Phase 3.5 預け)、 proposal props 渡さない
+             * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass (= read-only display)
+             * Phase 3-J-6e-2: onProposalDismiss callback を pass (= silent dismiss、 localStorage write)
+             *
+             * 未配線 (= 別 commit / phase):
+             *   - onProposalAccept (= J-6e-3 accept + Quiet Undo)
+             *   - onProposalModify (= J-6e-4 modify + AddAnchorModal)
+             *
+             * proposalTemplateVariables は未指定 (= ProposalChip 側で draft fallback)
+             * FlowTab は J-6 scope 外 (= Phase 3.5 預け)、 proposal props 渡さない
              */}
             {activeTab === "calendar" && (
               <CalendarTab
@@ -349,6 +389,7 @@ export default function PlanClient({
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
                 proposalsByDate={proposalsByDate}
+                onProposalDismiss={handleProposalDismiss}
               />
             )}
             {activeTab === "flow" && (
@@ -364,6 +405,7 @@ export default function PlanClient({
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
                 proposalsByDate={proposalsByDate}
+                onProposalDismiss={handleProposalDismiss}
               />
             )}
           </>

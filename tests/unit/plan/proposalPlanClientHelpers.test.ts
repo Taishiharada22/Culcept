@@ -228,25 +228,51 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     expect(flowMatch![0]).not.toContain("proposalsByDate");
   });
 
-  it("accept / modify / dismiss callback は **未配線** (= J-6e-2/3/4 預け)", () => {
-    // CalendarTab / MapTab JSX 内に onProposalAccept/Modify/Dismiss が渡されていない
+  // ── Phase 3-J-6e-2: dismiss callback IS wired (= 本 sub-phase で配線) ──
+
+  it("CalendarTab に onProposalDismiss callback が pass されている (= J-6e-2)", () => {
+    expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalDismiss=\{handleProposalDismiss\}/);
+  });
+
+  it("MapTab に onProposalDismiss callback が pass されている (= J-6e-2)", () => {
+    expect(content).toMatch(/<MapTab[\s\S]*?onProposalDismiss=\{handleProposalDismiss\}/);
+  });
+
+  it("FlowTab には onProposalDismiss を渡さない (= J-6 scope 外)", () => {
+    const flowMatch = content.match(/<FlowTab[\s\S]*?\/>/);
+    expect(flowMatch).not.toBeNull();
+    expect(flowMatch![0]).not.toContain("onProposalDismiss");
+  });
+
+  // ── Phase 3-J-6e-3/4 預け: accept / modify callback は **まだ** 未配線 ──
+
+  it("accept callback は **未配線** (= J-6e-3 預け)", () => {
     const calendarMatch = content.match(/<CalendarTab[\s\S]*?\/>/);
     const mapMatch = content.match(/<MapTab[\s\S]*?\/>/);
     expect(calendarMatch).not.toBeNull();
     expect(mapMatch).not.toBeNull();
     expect(calendarMatch![0]).not.toContain("onProposalAccept");
-    expect(calendarMatch![0]).not.toContain("onProposalModify");
-    expect(calendarMatch![0]).not.toContain("onProposalDismiss");
     expect(mapMatch![0]).not.toContain("onProposalAccept");
-    expect(mapMatch![0]).not.toContain("onProposalModify");
-    expect(mapMatch![0]).not.toContain("onProposalDismiss");
   });
 
-  it("localStorage write を行う関数を import していない (= read only J-6e-1 規約)", () => {
-    // recordDismissToStorage は write (= J-6e-2 範囲)
-    expect(content).not.toMatch(
-      /import[\s\S]*?recordDismissToStorage[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/dismissAction["']/,
+  it("modify callback は **未配線** (= J-6e-4 預け)", () => {
+    const calendarMatch = content.match(/<CalendarTab[\s\S]*?\/>/);
+    const mapMatch = content.match(/<MapTab[\s\S]*?\/>/);
+    expect(calendarMatch).not.toBeNull();
+    expect(mapMatch).not.toBeNull();
+    expect(calendarMatch![0]).not.toContain("onProposalModify");
+    expect(mapMatch![0]).not.toContain("onProposalModify");
+  });
+
+  // ── localStorage write import 制約 ──
+
+  it("recordDismissToStorage IS imported (= J-6e-2 範囲)", () => {
+    expect(content).toMatch(
+      /import\s+\{[\s\S]*?recordDismissToStorage[\s\S]*?\}\s+from\s+["']@\/lib\/plan\/proposal\/dismissAction["']/,
     );
+  });
+
+  it("J-6e-3/4 範囲の write helpers は **未** import (= 預け)", () => {
     // recordUndoToStorage は J-6e-3 範囲
     expect(content).not.toMatch(
       /import[\s\S]*?recordUndoToStorage[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/quietUndoWindow["']/,
@@ -254,6 +280,10 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     // acceptProposal は J-6e-3 範囲
     expect(content).not.toMatch(
       /import[\s\S]*?acceptProposal[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/acceptProposal["']/,
+    );
+    // proposalDraftToFormState は J-6e-4 範囲
+    expect(content).not.toMatch(
+      /import[\s\S]*?proposalDraftToFormState[\s\S]*?from\s+["']@\/lib\/plan\/proposal\/proposalToFormState["']/,
     );
   });
 });
