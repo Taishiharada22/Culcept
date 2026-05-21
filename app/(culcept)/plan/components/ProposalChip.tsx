@@ -48,9 +48,17 @@ export interface ProposalChipProps {
   proposal: ProposedAnchor;
   /** Template placeholder 変数 (= 例: { title, location, weekday }) */
   variables: Readonly<Record<string, string>>;
-  /** Chip 全体 tap (= J-4 accept / J-5 modify の起動点になる予定、 J-2 では caller hook のみ) */
+  /**
+   * Chip 全体 tap (= 主 action、 J-4 で accept path に接続)。
+   * intentional_break_observed は非 interactive (= 観測文、 tap 無効化)。
+   */
   onTap?: (proposal: ProposedAnchor) => void;
-  /** 「無視」 ボタン tap (= J-3 dismiss path の起動点) */
+  /**
+   * 「教え直す」 link tap (= J-5 modify path、 EditAnchorModal / AddAnchorModal 起動の hook)。
+   * 提供されると subtle 「教え直す」 link を render する。
+   */
+  onModify?: (proposal: ProposedAnchor) => void;
+  /** 「無視」 ボタン tap (= J-3 dismiss path) */
   onDismiss?: (proposal: ProposedAnchor) => void;
   className?: string;
 }
@@ -61,6 +69,7 @@ export function ProposalChip({
   proposal,
   variables,
   onTap,
+  onModify,
   onDismiss,
   className,
 }: ProposalChipProps) {
@@ -127,19 +136,37 @@ export function ProposalChip({
       {rendered.subtext && (
         <span className="text-xs text-slate-500">{rendered.subtext}</span>
       )}
-      {onDismiss && (
-        <button
-          type="button"
-          className="self-end text-xs text-slate-400 underline hover:text-slate-500 motion-reduce:transition-none"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(proposal);
-          }}
-          aria-label="無視"
-          data-testid={`plan-proposal-chip-${proposal.id}-dismiss`}
-        >
-          無視
-        </button>
+      {(onModify || onDismiss) && (
+        <div className="mt-1 flex items-center justify-end gap-3">
+          {onModify && !isObservation && (
+            <button
+              type="button"
+              className="text-xs text-slate-400 underline hover:text-slate-500 motion-reduce:transition-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                onModify(proposal);
+              }}
+              aria-label="教え直す"
+              data-testid={`plan-proposal-chip-${proposal.id}-modify`}
+            >
+              教え直す
+            </button>
+          )}
+          {onDismiss && (
+            <button
+              type="button"
+              className="text-xs text-slate-400 underline hover:text-slate-500 motion-reduce:transition-none"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDismiss(proposal);
+              }}
+              aria-label="無視"
+              data-testid={`plan-proposal-chip-${proposal.id}-dismiss`}
+            >
+              無視
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

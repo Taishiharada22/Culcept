@@ -35,8 +35,10 @@ export interface ProposalSheetProps {
   proposals: ReadonlyArray<ProposedAnchor>;
   /** ProposalId → template variables map */
   variablesByProposal: Readonly<Record<string, Readonly<Record<string, string>>>>;
-  /** Chip tap (= J-4 accept / J-5 modify 接続点) */
+  /** Chip 全体 tap (= 主 action、 J-4 accept path) */
   onProposalTap?: (proposal: ProposedAnchor) => void;
+  /** 「教え直す」 link tap (= J-5 modify path、 AddAnchorModal 起動) */
+  onProposalModify?: (proposal: ProposedAnchor) => void;
   /** Chip 「無視」 tap (= J-3 dismiss path) */
   onProposalDismiss?: (proposal: ProposedAnchor) => void;
   className?: string;
@@ -48,6 +50,7 @@ export function ProposalSheet({
   proposals,
   variablesByProposal,
   onProposalTap,
+  onProposalModify,
   onProposalDismiss,
   className,
 }: ProposalSheetProps) {
@@ -71,6 +74,7 @@ export function ProposalSheet({
           proposal={p}
           variables={variablesByProposal[p.id] ?? {}}
           onTap={onProposalTap}
+          onModify={onProposalModify}
           onDismiss={onProposalDismiss}
         />
       ))}
