@@ -35,6 +35,7 @@ import {
   formatCanonicalLocationText,
   isCanonicalLocationText,
 } from "@/lib/shared/canonicalLocationText";
+import { classifyPlaceIntent } from "@/lib/plan/intentClassification";
 
 import type { BiasContext } from "./_useBiasContext";
 
@@ -67,6 +68,13 @@ interface SearchApiResponse {
 export interface PlaceCandidatesPanelProps {
   /** AnchorFormFields の locationText 値 (debounce 前の生入力) */
   query: string;
+  /**
+   * Phase 2-H: AnchorFormFields の title 値 (= 予定名)。
+   * server に title field として送信、 server 側で query + title を combine。
+   * panel header の文言で intent transparency 表示 (= 「『◯◯』 を ▲▲ 周辺で探しています」)。
+   * 不在 (= "") なら既存 Phase 2-D 挙動 (= query のみで explicit_place 検索)。
+   */
+  title?: string;
   /** useBiasContext() の biasContext (= Places API locationBias 用) */
   biasContext: BiasContext;
   /** sensitiveCategory が設定済か (true なら panel 完全抑制 + in-flight cancel) */
@@ -89,6 +97,7 @@ export interface PlaceCandidatesPanelProps {
 
 export function PlaceCandidatesPanel({
   query,
+  title = "",
   biasContext,
   sensitive,
   onSelect,
@@ -96,6 +105,7 @@ export function PlaceCandidatesPanel({
   initialClosedAtQuery = null as unknown as string,
 }: PlaceCandidatesPanelProps) {
   const [debouncedQuery, setDebouncedQuery] = useState<string>(query);
+  const [debouncedTitle, setDebouncedTitle] = useState<string>(title);
   const [results, setResults] = useState<PlaceCandidate[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -114,6 +124,12 @@ export function PlaceCandidatesPanel({
     const timer = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
+
+  // Phase 2-H: title も同 debounce で fetch trigger に integrate
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTitle(title), DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [title]);
 
   // ── closed reset on query change ──
   useEffect(() => {
@@ -135,14 +151,27 @@ export function PlaceCandidatesPanel({
   }, [sensitive, query]);
 
   // ── isActive 判定 ──
-  // closed (user 意思) / canonical (確定済) / sensitive / 短すぎ query では panel 非アクティブ
+  // closed (user 意思) / canonical (確定済) / sensitive で panel 非アクティブ
   const isClosedAtCurrentQuery =
     closedAtQuery !== null && closedAtQuery === debouncedQuery;
   const isCanonical = isCanonicalLocationText(debouncedQuery);
+  // Phase 2-H: intent classification 結果。 ambiguous なら panel 非アクティブ。
+  // 既存 MIN_QUERY_LENGTH check は intent_only ケース (= title only) では緩める設計だが、
+  // classifyPlaceIntent が ambiguous 判定 (= title 短すぎ + locationText 空) を担う。
+  // explicit_place の場合は既存 MIN_QUERY_LENGTH を維持 (= 1-2 文字 query で過剰 fetch 回避)。
+  const intentType = classifyPlaceIntent({
+    title: debouncedTitle,
+    locationText: debouncedQuery,
+  });
+  const queryLengthOk =
+    intentType === "intent_only"
+      ? debouncedTitle.trim().length >= MIN_QUERY_LENGTH
+      : debouncedQuery.trim().length >= MIN_QUERY_LENGTH;
   const isActive =
     !sensitive &&
     !isClosedAtCurrentQuery &&
-    debouncedQuery.trim().length >= MIN_QUERY_LENGTH &&
+    intentType !== "ambiguous" &&
+    queryLengthOk &&
     !isCanonical;
 
   // ── Fetch effect ──
@@ -162,7 +191,11 @@ export function PlaceCandidatesPanel({
     setLoading(true);
     setErrorMessage(null);
 
+    // Phase 2-H: title を server に送信 (= server 側で combine、 outbound privacy 維持)
     const body: Record<string, unknown> = { query: debouncedQuery.trim() };
+    if (debouncedTitle.trim().length > 0) {
+      body.title = debouncedTitle.trim();
+    }
     if (biasContext.coord) {
       body.bias = {
         lat: biasContext.coord.lat,
@@ -218,10 +251,12 @@ export function PlaceCandidatesPanel({
 
     return () => controller.abort();
     // errorMessage は dep に含めない (intentionally、loop 防止)
+    // Phase 2-H: debouncedTitle を dep に追加 (= title 変化で再 fetch、 intent_with_area / intent_only で重要)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isActive,
     debouncedQuery,
+    debouncedTitle,
     biasContext.coord?.lat,
     biasContext.coord?.lng,
     biasContext.radiusMeters,
@@ -289,11 +324,31 @@ export function PlaceCandidatesPanel({
         ✕
       </button>
 
-      {/* header: bias label 1 段目 (情報量主、slate-700)、privacy hint 2 段目 (補助、slate-500、C3 polish) */}
+      {/*
+       * header: Phase 2-H で intent transparency 表示
+       *   - intent_with_area: 「『◯◯』 を ▲▲ 周辺で探しています」
+       *   - intent_only:      「『◯◯』 候補を探しています」
+       *   - explicit_place:   「✨ 候補から場所を選ぶ (任意)」 (= 既存 Phase 2-D 文言)
+       *   - ambiguous:        panel 自体非表示 (= isActive=false)
+       */}
       <header className="mb-3 pr-9">
         <div className="flex items-baseline justify-between gap-2">
-          <p className="text-xs font-semibold text-slate-700 flex-shrink-0">
-            ✨ 候補から場所を選ぶ (任意)
+          <p
+            className="text-xs font-semibold text-slate-700 flex-shrink-0"
+            data-testid="plan-place-candidates-intent-label"
+          >
+            {(() => {
+              const titleTrim = debouncedTitle.trim();
+              const queryTrim = debouncedQuery.trim();
+              if (intentType === "intent_with_area") {
+                return `「${titleTrim}」 を ${queryTrim} 周辺で探しています`;
+              }
+              if (intentType === "intent_only") {
+                return `「${titleTrim}」 候補を探しています`;
+              }
+              // explicit_place
+              return "✨ 候補から場所を選ぶ (任意)";
+            })()}
           </p>
           {biasContext.label && (
             <p
