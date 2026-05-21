@@ -29,7 +29,7 @@
  *   - anchor density indicator
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AnimatePresence,
   motion,
@@ -39,6 +39,7 @@ import {
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
+import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -97,6 +98,13 @@ export function CalendarTab({
   const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
   const selectedDayAnchors = anchorsForDay(anchors, selectedDateObj);
+
+  // Phase 2-E: 時刻重なり気付き indicator 用、selected day の overlap Set を 1 回 useMemo
+  // 判定は detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、独自判定なし
+  const selectedDayOverlapSet = useMemo(
+    () => detectTimedAnchorOverlaps(selectedDayAnchors),
+    [selectedDayAnchors],
+  );
 
   // ── handlers ──
 
@@ -349,6 +357,27 @@ export function CalendarTab({
                       <GlassBadge variant="default" size="sm">
                         固定
                       </GlassBadge>
+                    )}
+                    {/*
+                     * Phase 2-E: 時刻重なり気付き indicator
+                     * - 警告ではなく「気付き」(muted slate のみ、警告色禁止)
+                     * - sensitive anchor でも表示 (= 外部送信でも内容開示でもない、Cross-tab 一貫性)
+                     * - 文言は banner 固定、他 anchor 名・件数は出さない
+                     */}
+                    {selectedDayOverlapSet.has(anchor.id) && (
+                      <span
+                        role="img"
+                        aria-label="この時刻に他の予定があります"
+                        title="この時刻に他の予定があります"
+                        data-testid={`plan-calendar-anchor-${anchor.id}-overlap`}
+                        className="inline-flex items-center gap-1 text-[10px] text-slate-500"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-2 w-2 rounded-full bg-slate-400 ring-1 ring-slate-500/30"
+                        />
+                        <span>重なり</span>
+                      </span>
                     )}
                   </div>
                   <p className="mt-1 text-sm font-medium text-slate-900">

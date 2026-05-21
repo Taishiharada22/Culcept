@@ -41,6 +41,7 @@ import { useMemo } from "react";
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
+import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -122,6 +123,21 @@ export function FlowTab({
     return null; // 全日に anchor あり → card 非表示
   }, [days, dayAnchorsMap]);
 
+  /**
+   * Phase 2-E: 時刻重なり気付き indicator 用、各日の overlap Set を pre-compute。
+   * 判定は detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、独自判定なし。
+   * Map<isoDate, Set<anchorId>> で各 FlowDaySection → AnchorRow に prop drilling。
+   */
+  const dayOverlapsMap = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const d of days) {
+      const iso = isoDate(d);
+      const anchorsOfDay = dayAnchorsMap.get(iso) ?? [];
+      m.set(iso, detectTimedAnchorOverlaps(anchorsOfDay));
+    }
+    return m;
+  }, [days, dayAnchorsMap]);
+
   const handleEmptyDayClick = (day: Date) => {
     onAddRequest?.({
       initial: { kind: "one_off", date: isoDate(day) },
@@ -142,12 +158,14 @@ export function FlowTab({
       {days.map((day) => {
         const iso = isoDate(day);
         const dayAnchors = dayAnchorsMap.get(iso) ?? [];
+        const dayOverlaps = dayOverlapsMap.get(iso) ?? new Set<string>();
         return (
           <FlowDaySection
             key={iso}
             day={day}
             today={today}
             anchors={dayAnchors}
+            dayOverlaps={dayOverlaps}
             onEmptyClick={
               onAddRequest ? () => handleEmptyDayClick(day) : undefined
             }
@@ -194,12 +212,15 @@ function FlowDaySection({
   day,
   today,
   anchors,
+  dayOverlaps,
   onEmptyClick,
   onAnchorClick,
 }: {
   day: Date;
   today: Date;
   anchors: ExternalAnchor[];
+  /** Phase 2-E: 同日の overlap anchor id Set (= 親から detectTimedAnchorOverlaps の結果) */
+  dayOverlaps: ReadonlySet<string>;
   /** 予定なし日の inline button onClick (onAddRequest あり時のみ undefined でない) */
   onEmptyClick?: () => void;
   onAnchorClick?: (anchor: ExternalAnchor) => void;
@@ -272,7 +293,12 @@ function FlowDaySection({
       {hasAnchors && (
         <ul className="flex flex-col gap-2 px-4 py-3">
           {anchors.map((a) => (
-            <AnchorRow key={a.id} anchor={a} onClick={onAnchorClick} />
+            <AnchorRow
+              key={a.id}
+              anchor={a}
+              hasOverlap={dayOverlaps.has(a.id)}
+              onClick={onAnchorClick}
+            />
           ))}
         </ul>
       )}
@@ -286,9 +312,12 @@ function FlowDaySection({
 
 function AnchorRow({
   anchor,
+  hasOverlap,
   onClick,
 }: {
   anchor: ExternalAnchor;
+  /** Phase 2-E: 同日内で時刻が他 anchor と重なるか */
+  hasOverlap: boolean;
   onClick?: (anchor: ExternalAnchor) => void;
 }) {
   const clickable = !!onClick;
@@ -329,7 +358,7 @@ function AnchorRow({
     >
       {/* Time + title + sub (flex-1、truncate で overflow 防止) */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline gap-2 flex-wrap">
           <span className="text-sm font-mono text-indigo-700">
             {formatTime(anchor.startTime)}
             {anchor.endTime ? ` – ${formatTime(anchor.endTime)}` : ""}
@@ -338,6 +367,27 @@ function AnchorRow({
             <GlassBadge variant="default" size="sm">
               固定
             </GlassBadge>
+          )}
+          {/*
+           * Phase 2-E: 時刻重なり気付き indicator (時刻 row 内)
+           * - 警告ではなく「気付き」(muted slate のみ、警告色禁止)
+           * - sensitive anchor でも表示 (Cross-tab 一貫性、GPT 補正 1 反映)
+           * - 文言は固定、他 anchor 名・件数は出さない
+           */}
+          {hasOverlap && (
+            <span
+              role="img"
+              aria-label="この時刻に他の予定があります"
+              title="この時刻に他の予定があります"
+              data-testid={`plan-flow-anchor-${anchor.id}-overlap`}
+              className="inline-flex items-center gap-1 text-[10px] text-slate-500"
+            >
+              <span
+                aria-hidden="true"
+                className="inline-block h-2 w-2 rounded-full bg-slate-400 ring-1 ring-slate-500/30"
+              />
+              <span>重なり</span>
+            </span>
           )}
         </div>
         <p className="mt-1 text-base font-medium text-slate-900 truncate">

@@ -333,7 +333,7 @@ return (
 SelectedAnchorCard 内:
 
 ```tsx
-{hasOverlap && !isSensitive && (
+{hasOverlap && (
   <p
     data-testid="plan-map-selected-overlap-banner"
     className="text-xs text-slate-500 mt-1 italic"
@@ -343,12 +343,26 @@ SelectedAnchorCard 内:
 )}
 ```
 
-#### 5.5.3 sensitive anchor 配慮
+#### 5.5.3 sensitive anchor 配慮 (GPT 補正 2026-05-21 反映)
 
-sensitive anchor が overlap している場合:
-- 表示は「この時刻に他の予定があります」 のみ
-- 他 anchor の title / 場所 / 詳細を一切開示しない (= count / list なし)
-- → 既存 sensitive privacy 仕様維持
+**結論: sensitive anchor でも time overlap indicator は 3 tab すべてで表示する** (= Cross-tab 一貫性、`!isSensitive` gate は時刻重なり indicator には**適用しない**)。
+
+根拠:
+- 時刻重なり indicator は **外部送信ではない** (server 通信なし、pure helper による local 判定)
+- **場所情報の開示でもない** (時刻のみ)
+- **内容の開示でもない** (表示文言は「この時刻に他の予定があります」のみ)
+- 他 anchor の title / 場所 / 件数 / 内容を一切出さない (= privacy 完全維持)
+
+CalendarTab / FlowTab で sensitive anchor に indicator を出すのに、MapTab だけ非表示にすると **Cross-tab 一貫性が壊れる**。したがって 3 tab で sensitive 区別なく indicator 表示。
+
+ただし以下は厳守:
+- 他 anchor 名は出さない (= banner 文言固定)
+- 件数は出さない (= count なし)
+- tooltip で詳細を出さない
+- existing sensitive title masking は維持 (Phase 2-C 既存挙動)
+- 場所未確定 indicator (Phase 2-D C3) の sensitive gate は既存方針のまま (= !isSensitive 維持)
+
+→ 時刻重なり と 場所未確定 で sensitive policy が異なる理由: **「外部送信に関わる情報」 vs 「時間関係の事実」** で privacy semantics が違う。Phase 2-E は後者のみで privacy 影響なし。
 
 ### 5.6 既存挙動への影響 (なし)
 
@@ -655,10 +669,16 @@ describe("isAnchorOverlapping", () => {
 - [ ] recurring anchor の occurrence が同日 timed anchor と overlap → indicator 出る
 - [ ] exception_dates の日は展開されず、その日に他 anchor あっても影響なし
 
-### 12.5 sensitive 配慮
+### 12.5 sensitive 配慮 (GPT 補正 2026-05-21 反映)
 
-- [ ] sensitive anchor が overlap → indicator 出る (count なし、他 anchor 名なし)
+- [ ] sensitive anchor が overlap → **3 tab すべて** で indicator 出る (= Cross-tab 一貫)
+  - CalendarTab: 時刻 row に 「● 重なり」 (sensitive でも表示)
+  - FlowTab: 時刻 chip 行に 「● 重なり」 (sensitive でも表示)
+  - **MapTab SelectedAnchorCard**: 「この時刻に他の予定があります」 banner (sensitive でも表示、`!isSensitive` gate を時刻 indicator には適用しない)
+- [ ] count なし、他 anchor 名なし、tooltip 詳細なし (= 文言は banner 固定)
 - [ ] sensitive anchor の title は依然 masked (Phase 2-C 既存挙動維持)
+- [ ] 場所未確定 indicator (Phase 2-D C3) の sensitive gate は **既存方針のまま** (= sensitive 時は非表示、変更なし)
+- [ ] → time overlap と location-unconfirmed で sensitive policy が **意図的に異なる** 整合性確認
 
 ### 12.6 UI 思想整合 (= 「気付き」 vs 「警告」 境界)
 
@@ -758,6 +778,16 @@ describe("isAnchorOverlapping", () => {
 ---
 
 ## 15. 変更履歴
+
+### 2026-05-21 v1.1 (GPT 補正反映、implementation 着手前 docs 補正)
+
+- **sensitive 方針修正**: §5.5.3 / §12.5
+  - 時刻重なり indicator は sensitive anchor でも **3 tab すべてで表示**
+  - 場所未確定 indicator (Phase 2-D C3) の sensitive gate は変更なし
+  - 理由: 時刻重なり indicator は外部送信ではなく場所情報でもない、表示文言「この時刻に他の予定があります」のみで privacy 影響なし
+  - GPT 指摘の Cross-tab 一貫性矛盾を解消
+- 実装 branch: docs branch から `feat/alter-plan-phase2-e-time-overlap` を派生 (CEO 補正 2)
+- 検証コマンド方針: 実在 script (`npm run test:unit` 既存確認済) を優先、baseline 問題は新規問題と区別して報告 (CEO 補正 3)
 
 ### 2026-05-21 v1 (本起票)
 

@@ -32,6 +32,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
+import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
 
 import type { AddRequest } from "../PlanClient";
 import {
@@ -195,6 +196,14 @@ export function MapTab({
     return dayAnchors[0] ?? null;
   }, [selectedAnchorId, dayAnchors]);
 
+  // ── Phase 2-E: 時刻重なり気付き indicator 用、dayAnchors の overlap Set を pre-compute ──
+  // 判定は detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、独自判定なし
+  // CEO 補正 3 第一候補: MapTab で pre-compute、SelectedAnchorCard に hasOverlap prop で渡す
+  const dayAnchorsOverlapSet = useMemo(
+    () => detectTimedAnchorOverlaps(dayAnchors),
+    [dayAnchors],
+  );
+
   // ── 全 anchor を pin 化 (CEO 補正: 予定 → pin guarantee) ──
   //
   // 戦略:
@@ -303,6 +312,7 @@ export function MapTab({
             "baseline"
           }
           baselineCoords={baselineCoords}
+          hasOverlap={dayAnchorsOverlapSet.has(selectedAnchorForCard.id)}
           onOpenDetail={onAnchorClick}
         />
       )}
@@ -809,11 +819,19 @@ function SelectedAnchorCard({
   anchor,
   pinKind,
   baselineCoords,
+  hasOverlap,
   onOpenDetail,
 }: {
   anchor: ExternalAnchor;
   pinKind: "resolved" | "baseline";
   baselineCoords: BaselineCoords | null;
+  /**
+   * Phase 2-E: 同日内で時刻が他 anchor と重なるか。
+   * 判定は MapTab 側の detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、
+   * SelectedAnchorCard 内で独自判定しない。
+   * sensitive anchor でも `true` の場合は表示 (= 外部送信でも内容開示でもない、文言固定)。
+   */
+  hasOverlap: boolean;
   onOpenDetail?: (anchor: ExternalAnchor) => void;
 }) {
   const cat = categoryOf(anchor);
@@ -907,6 +925,21 @@ function SelectedAnchorCard({
               敏感カテゴリのため場所は外部に送信されません
               {baselineCoords &&
                 ` (${baselineCoords.label ?? "baseline"} 付近に置いています)`}
+            </p>
+          )}
+          {/*
+           * Phase 2-E: 時刻重なり気付き banner (場所未確定 banner / sensitive 説明の下、muted slate)
+           * - 警告ではなく「気付き」(muted slate のみ、警告色禁止)
+           * - sensitive anchor でも表示 (= 外部送信でも内容開示でもない、Cross-tab 一貫性、GPT 補正 1)
+           * - 文言固定、他 anchor 名・件数・内容は出さない
+           * - 既存場所未確定 banner と同 tone / 同 余白 (mt-1 italic text-xs slate-500) で並ぶ
+           */}
+          {hasOverlap && (
+            <p
+              data-testid="plan-map-selected-overlap-banner"
+              className="text-xs text-slate-500 mt-1 italic"
+            >
+              この時刻に他の予定があります
             </p>
           )}
         </div>
