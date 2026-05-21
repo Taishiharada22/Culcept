@@ -32,7 +32,7 @@
  *   - DraftPlan / W1-6 passive drift logging
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   GlassBadge,
@@ -44,6 +44,19 @@ import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
 import { fetchAnchors, type AnchorFetchResult } from "@/lib/plan/anchor-fetch";
 import type { AnchorFormState } from "@/lib/plan/anchor-input-form";
+// ── Phase 3-J-6e-1: Proposal read-only 接続 ──
+// 注: TestOverrideContext は import しない (= production import 禁止)。
+//     dev/smoke 用 bypass は本 file で行わない (= 既存 unit test の testOverride 経路で対応)。
+import {
+  createStorageBackedDismissLogReader,
+  getBrowserDismissStorage,
+} from "@/lib/plan/proposal/dismissAction";
+import type { DismissLogEntry } from "@/lib/plan/proposal/dismissLog";
+import { computeProposals } from "@/lib/plan/proposal/computeProposals";
+import {
+  computeFirstUseDateFromAnchors,
+  groupProposalsByDate,
+} from "@/lib/plan/proposal/planClientProposalHelpers";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
@@ -113,6 +126,49 @@ export default function PlanClient({
   // W1-X5: detail modal state
   const [detailAnchor, setDetailAnchor] = useState<ExternalAnchor | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+
+  // ── Phase 3-J-6e-1: Proposal state (= read-only) ──
+  //
+  // SSR hydration safety: now / dismissEvents は mount 後に確定 (= initial null / [])。
+  // server render は always empty proposalsByDate → client mount 後 useEffect で localStorage read。
+  // ProposalChip は callback 未渡し (= 非 interactive、 J-6e-2/3/4 で wiring 予定)。
+  //
+  // Onboarding Quietude (= Invariant 36): 利用初期 7 日 silent。
+  // dev/smoke で proposal を確認するには:
+  //   - anchor を confirmedAt 30 日以上前で fixture inject (= API 経由)
+  //   - もしくは unit test の testOverride.forceOnboardingPhase="normal_30d_plus" を使用
+  // (= 詳細は commit message 参照)
+  const [now, setNow] = useState<Date | null>(null);
+  const [dismissEvents, setDismissEvents] = useState<
+    ReadonlyArray<DismissLogEntry>
+  >([]);
+
+  useEffect(() => {
+    // mount 後に now / dismissEvents を確定 (= SSR mismatch 防止)
+    setNow(new Date());
+    const storage = getBrowserDismissStorage();
+    if (storage) {
+      const reader = createStorageBackedDismissLogReader(storage);
+      setDismissEvents(reader.readAll());
+    }
+  }, []);
+
+  const proposalsByDate = useMemo<Readonly<
+    Record<string, ReadonlyArray<import("@/lib/plan/proposal/proposalTypes").ProposedAnchor>>
+  >>(() => {
+    if (!now) return {}; // SSR / mount 前 → 空
+    if (state.kind !== "ok") return {};
+    const nowIso = now.toISOString();
+    const firstUseDate = computeFirstUseDateFromAnchors(state.anchors, nowIso);
+    const result = computeProposals({
+      anchors: state.anchors,
+      now: nowIso,
+      firstUseDate,
+      dismissEvents,
+      // testOverride は production code path では渡さない (= Invariant 38)
+    });
+    return groupProposalsByDate(result.proposals);
+  }, [now, state, dismissEvents]);
 
   const load = async () => {
     setState({ kind: "loading" });
@@ -281,11 +337,18 @@ export default function PlanClient({
         )}
         {state.kind === "ok" && state.anchors.length > 0 && (
           <>
+            {/*
+             * Phase 3-J-6e-1: proposalsByDate を CalendarTab / MapTab に pass。
+             * - callback (onProposalAccept/Modify/Dismiss) は **未配線** (= J-6e-2/3/4 預け)
+             * - proposalTemplateVariables は未指定 (= ProposalChip 側で draft fallback)
+             * - FlowTab は J-6 scope 外 (= Phase 3.5 預け)、 proposal props 渡さない
+             */}
             {activeTab === "calendar" && (
               <CalendarTab
                 anchors={state.anchors}
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
+                proposalsByDate={proposalsByDate}
               />
             )}
             {activeTab === "flow" && (
@@ -300,6 +363,7 @@ export default function PlanClient({
                 anchors={state.anchors}
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
+                proposalsByDate={proposalsByDate}
               />
             )}
           </>
