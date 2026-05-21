@@ -62,18 +62,26 @@ export const SENSITIVE_CATEGORY_ICON = CategorySensitiveIcon;
  *
  * 優先順位:
  *   1. sensitive=true → CategorySensitiveIcon (= privacy 優先、 category 無視)
- *   2. category=valid → CATEGORY_ICON_MAP[category]
- *   3. category=undefined / 不明 → CategoryUnknownIcon (= fallback)
+ *   2. category=valid LocationCategory → CATEGORY_ICON_MAP[category]
+ *   3. category="none" (= LocationGroupKey、 「場所なし」) → CategoryUnknownIcon (= 概念的近接)
+ *   4. category=undefined / 不明 → CategoryUnknownIcon (= fallback)
  *
- * @param args.category locationCategory (= 既存 anchor.locationCategory)
+ * category 引数は `LocationCategory | "none" | undefined` を受ける。
+ * "none" は `LocationGroupKey` (= MapTab CategoryGrid の 9 categories grid 用) で
+ * 使われる 「場所なし」 anchor を表現する型。 icon としては「未分類」 と同視。
+ *
+ * @param args.category locationCategory or LocationGroupKey "none"
  * @param args.sensitive sensitive anchor か (= !!anchor.sensitiveCategory)
- * @returns React component (= JSX で render 可能)
+ * @returns React component (= JSX で render 可能、 必ず非 undefined を返す)
  */
 export function pickCategoryIcon(args: {
-  category?: LocationCategory;
+  category?: LocationCategory | "none";
   sensitive?: boolean;
 }): React.ComponentType<CategoryIconProps> {
   if (args.sensitive) return SENSITIVE_CATEGORY_ICON;
-  const cat = args.category ?? "unknown";
-  return CATEGORY_ICON_MAP[cat];
+  // "none" / undefined / 不明 はすべて unknown icon に fallback (= 必ず component を返す保証)
+  if (!args.category || args.category === "none") {
+    return CATEGORY_ICON_MAP.unknown;
+  }
+  return CATEGORY_ICON_MAP[args.category];
 }

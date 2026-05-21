@@ -111,6 +111,35 @@ describe("pickCategoryIcon", () => {
       expect(pickCategoryIcon({ sensitive: true })).toBe(CategorySensitiveIcon);
     });
   });
+
+  describe('"none" (LocationGroupKey、 MapTab CategoryGrid 用)', () => {
+    it('category="none" → CategoryUnknownIcon (= 「場所なし」 を unknown と同視)', () => {
+      expect(pickCategoryIcon({ category: "none" })).toBe(CategoryUnknownIcon);
+    });
+
+    it('category="none" + sensitive=true → CategorySensitiveIcon (= sensitive 優先)', () => {
+      expect(pickCategoryIcon({ category: "none", sensitive: true })).toBe(
+        CategorySensitiveIcon,
+      );
+    });
+  });
+
+  describe("defensive: helper は必ず component を返す (undefined を返さない)", () => {
+    it.each(["home", "office", "school", "cafe", "outdoor", "public", "transit", "unknown", "none"] as const)(
+      'category="%s" → 必ず component (= undefined ではない)',
+      (cat) => {
+        const Icon = pickCategoryIcon({ category: cat });
+        expect(Icon).toBeDefined();
+        expect(typeof Icon).toBe("function");
+      },
+    );
+
+    it("sensitive=true + 任意 category → 必ず component", () => {
+      const Icon = pickCategoryIcon({ category: "none", sensitive: true });
+      expect(Icon).toBeDefined();
+      expect(typeof Icon).toBe("function");
+    });
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
