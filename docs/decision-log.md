@@ -7894,3 +7894,86 @@ L-3 設計判断の base となる K phase の事実:
 - **ステータス**: 本 commit 着地と同時に `docs/plan-phase3-l-3-readiness-audit` を **frozen 扱い** とする (= 16 frozen branches 計)。 以後の commit 禁止。 次は CEO 判断 (= §6 の 6 質問) を経て L-3a 実装 branch を別途切る。
 
 ---
+
+## 2026-05-22 [Build] L-3a + L-3b 実装着地 (= Cascade Orchestrator + Overlay Layer、 161 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-3 readiness audit 後、 CEO + GPT 合議で **L-3a + L-3b まで連続 GO** が承認された。 L-4 以降 (= UI / geocode / telemetry sink) は引き続き禁止。 GPT 補正 6 件 + Claude 自律補強 5 件を全反映。
+
+### CEO + GPT 6 判断回答 (= 全 YES)
+
+| Q | 内容 | 判断 |
+|---|---|---|
+| Q1 | overlay 採用 | **YES** (= K の computed projection 思想継承) |
+| Q2 | L-3 で geocode 能動呼出 NO | **YES** (= caller が coords を渡す pattern) |
+| Q3 | L-3 で telemetry runtime sink なし / type only | **YES** |
+| Q4 | L-3 で UI 接続 NO | **YES** (= 「→ 移動」 固定文言維持) |
+| Q5 | L-3a + L-3b 細分化 | **YES** |
+| Q6 | L-3a + L-3b 連続 GO、 L-4 以降 NO | **YES** |
+
+### GPT 補正 6 件 (= 必須要件、 全反映)
+
+| # | 補正 | 実装場所 |
+|---|---|---|
+| 1 | manual_user は明示 override 入力ある transition のみ試行 (= 空が常勝しない) | `cascadeOrchestrator.runCascade` 内 構造的 skip |
+| 2 | missing coords → unresolved (= geocode 呼ばない) | `movementSegmentOverlay.computeDefaultPrivacyClass` |
+| 3 | sensitiveProximity → unresolved (= coords あっても resolve しない) | 同上 (= sensitive_both → cascade early-exit) |
+| 4 | overlay は DayGraph mutate しない | `resolveMovementSegmentOverlay` snapshotId runtime assertion |
+| 5 | transitionKey / warnings / result に raw title / locationText 含めない | `buildTransitionKey` (= node id + index) |
+| 6 | provider exception は transition 単位で吸収 | cascade `callProviderSafely` + overlay `Promise.all` catch |
+
+### 自律補強 5 件 (= GPT 案を超える人間超越設計)
+
+| 補強 | 内容 |
+|---|---|
+| A | Per-transition pure 分離 — cascade は単一 transition のみ扱い、 overlay が並列実行 + isolation。 自然な isolation 成立 + future parallel への path |
+| B1 | transitionKey deterministic、 K phase の `MovementTransitionView.key` と同形式 → 既存 K view と join 可能 |
+| B3 | Graph immutability **runtime assertion** — overlay 実行前後で `snapshotId` 不変 check、 mutation 検出時 throw |
+| C1 | Privacy is **structural, not procedural** — `OverlayResult` type に title/locationText/userId/anchorId 不存在、 PII leak の構造的不可能性 |
+| E + F1 | Cascade trace (= attemptedProviders / decidedBy / earlyExitReason) + tracingId passthrough + 集計 field (= L-4+ UI 用素材) |
+
+### 実装結果
+
+| 項目 | 内容 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-3a-l-3b-cascade-overlay` (= `d885e5cd` 起点) |
+| L-3a commit | **`8a0a2df4`** (= cascadeOrchestrator.ts + 22 tests) |
+| L-3b commit | **`68b569dc`** (= movementSegmentOverlay.ts + 25 tests) |
+| **合計 L-3 tests** | **47 PASS / 0 fail** |
+| **合計 transport tests** | **106 PASS** (= 36 L-1 + 23 L-2 + 22 L-3a + 25 L-3b) |
+| **K regression** | **55/55 PASS** (= buildDayGraph + dayGraphTypesAndContracts 既存 tests) |
+| **総合 tests** | **161 PASS** |
+| 新規 files | 2 lib + 2 test = 4 files |
+| 既存 file 変更 | **0** (= L-1/L-2 file 無変更、 K phase 無変更、 dayGraph 全 file 無変更) |
+| DB / env / package / dependency | **0** |
+| UI 変更 | **0** |
+| geocode active call | **0** |
+
+### 思想の transmission (= 設計の北極星)
+
+- K phase DayGraph = **「ユーザーが宣言した時間構造」** (= computed projection)
+- L-3 overlay = **「現実の物理移動の影」**
+- **影は本体を mutate しない** (= snapshotId runtime assertion で機械保証)
+- L-3 は「移動が確定したか / されていないか」 を **観測** する layer (= Mobility Truth Layer)、 推奨 / 最適化はしない
+- Privacy は手続きで「忘れる」 ものではなく、 型で「**持てない**」 もの (= structural)
+
+### STOP 条件 (= 着手前 必須クリア) 全件達成
+
+- ✅ `buildDayGraph` async 化なし (= overlay 採用で同期 pure 維持)
+- ✅ L-3 で geocode 能動呼出しない (= caller が coords を渡す pattern)
+- ✅ telemetry runtime sink なし (= type passthrough のみ)
+- ✅ `MovementTransitionView.label` 「→ 移動」 固定文言を L-3 で touch しない
+- ✅ K phase 既存 55 tests 全件 PASS 維持
+- ✅ 新 env / migration / package / dependency / API 追加 = 0
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4 以降の着手 / geocode active call / UI 変更 / DayGraph 型破壊的変更 / `buildDayGraph` async 化 / DB-env-package-dependency 変更 / localStorage / runtime telemetry sink / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-3 readiness audit 後 「L-3a + L-3b 連続 GO、 L-4 以降 NO」 指示、 GPT 補正 6 件 + 自律補強 5 件全反映)
+- **ステータス**: 本 commit 着地と同時に `feat/alter-plan-phase3-l-3a-l-3b-cascade-overlay` を **frozen 扱い** とする (= 17 frozen branches 計)。 以後の commit 禁止。 次は CEO 判断 (= L-4 readiness audit / 別軸 pivot / 別 PARTIAL)。
+
+---
