@@ -255,12 +255,12 @@ describe("§4. CalendarTab — L-4d-b1 着地後 selected day のみ拡張", () 
   });
 });
 
-describe("§4b. FlowTab — L-4d-b1 着地後 today のみ拡張", () => {
-  it("useMapTabMovementDisplay を import (= today のみ)", () => {
-    expect(flowTabContent).toMatch(/useMapTabMovementDisplay/);
+describe("§4b. FlowTab — L-4d-b2 着地後 7 day 全件拡張", () => {
+  it("useFlowWeekMovementDisplay を import (= 7 day 用、 L-4d-b1 useMapTabMovementDisplay 単独 import から発展)", () => {
+    expect(flowTabContent).toMatch(/useFlowWeekMovementDisplay/);
   });
 
-  it("movementDisplayByTransitionIndex prop を渡す (= today section のみ)", () => {
+  it("movementDisplayByTransitionIndex prop を渡す (= 7 day 全件)", () => {
     expect(flowTabContent).toMatch(/movementDisplayByTransitionIndex/);
   });
 });

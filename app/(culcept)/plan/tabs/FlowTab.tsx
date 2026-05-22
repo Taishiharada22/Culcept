@@ -48,7 +48,7 @@ import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
 import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
-import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
+import { useFlowWeekMovementDisplay } from "./_useFlowWeekMovementDisplay";
 import { usePlanGeocode } from "./_usePlanGeocode";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { AddRequest } from "../PlanClient";
@@ -155,18 +155,35 @@ export function FlowTab({
     return m;
   }, [days, dayAnchorsMap]);
 
-  // ── L-4d-b1 (= 2026-05-22 CEO 承認): today timeline のみ移動時間表示 ──
-  //    既存 usePlanGeocode を **today anchors の最小 subset に限定** して利用。
-  //    7 day 全件 geocode は行わない (= L-4d-b2、 別 audit)。
-  //    PlanClient core 引き上げなし、 新規 endpoint なし。
-  //    pipeline 解決前 / 失敗時は空 Map → today section は K view fallback で「→ 移動」 表示。
-  const todayIso = isoDate(today);
-  const todayAnchors = dayAnchorsMap.get(todayIso) ?? [];
-  const { resolutions: todayResolutions } = usePlanGeocode(todayAnchors);
-  const todayMovementDisplayByTransitionIndex = useMapTabMovementDisplay(
-    todayAnchors,
-    todayIso,
-    todayResolutions,
+  // ── L-4d-b2 (= 2026-05-22 CEO 承認): FlowTab 7 day 全件への移動時間展開 ──
+  //    L-4d-b1 today only path から発展、 visible week 全 anchors を **dedupe して
+  //    1 系統の usePlanGeocode** で resolve。 各 day timeline に movement display を配る。
+  //
+  //    過剰 resolve / PlanClient core 引き上げ / 新規 endpoint は行わない:
+  //      - week 全 anchors を dedupe して 1 batch resolve (= per-user rate limit 範囲内)
+  //      - 7 day 全件 並列 pipeline (= Promise.all、 per-day isolation)
+  //      - PlanClient core 改変 0
+  //      - 新規 endpoint なし
+  //
+  //    fail-safe: pipeline 失敗時は per-day で EMPTY → K view fallback で「→ 移動」 表示。
+  const visibleWeekAnchors = useMemo(() => {
+    // 同 anchor id (= recurring 等) が複数 day に登場する可能性があるため dedupe
+    const seen = new Set<string>();
+    const out: ExternalAnchor[] = [];
+    for (const dayAnchors of dayAnchorsMap.values()) {
+      for (const a of dayAnchors) {
+        if (seen.has(a.id)) continue;
+        seen.add(a.id);
+        out.push(a);
+      }
+    }
+    return out;
+  }, [dayAnchorsMap]);
+
+  const { resolutions: weekResolutions } = usePlanGeocode(visibleWeekAnchors);
+  const movementDisplayByDay = useFlowWeekMovementDisplay(
+    dayAnchorsMap,
+    weekResolutions,
   );
 
   const handleEmptyDayClick = (day: Date) => {
@@ -192,8 +209,8 @@ export function FlowTab({
         const dayOverlaps = dayOverlapsMap.get(iso) ?? new Set<string>();
         // K-3c-ii: dayGraphByDate[iso] が存在すれば section 内で timeline 表示
         const dayGraphResult = dayGraphByDate?.[iso] ?? null;
-        // L-4d-b1: today のみ movement display を渡し、 他 6 day は K view fallback で「→ 移動」 維持
-        const isToday = iso === todayIso;
+        // L-4d-b2: 7 day 全件で movement display を配る (= L-4d-b1 today only から発展)
+        const dayMovementDisplay = movementDisplayByDay.get(iso);
         return (
           <FlowDaySection
             key={iso}
@@ -206,9 +223,7 @@ export function FlowTab({
             }
             onAnchorClick={onAnchorClick}
             dayGraphResult={dayGraphResult}
-            movementDisplayByTransitionIndex={
-              isToday ? todayMovementDisplayByTransitionIndex : undefined
-            }
+            movementDisplayByTransitionIndex={dayMovementDisplay}
           />
         );
       })}

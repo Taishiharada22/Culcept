@@ -89,50 +89,63 @@ describe("§1. CalendarTab — selected day detail のみ拡張", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §2. FlowTab — today section のみ拡張
+// §2. FlowTab — L-4d-b2 着地後 7 day 全件に拡張 (= 旧 today only path は置換)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// L-4d-b1 時点では FlowTab は today section のみ拡張だった。
+// L-4d-b2 着地 (= 2026-05-22 CEO 承認) で 7 day 全件に発展:
+//   - useMapTabMovementDisplay (= 1 day 用) から useFlowWeekMovementDisplay (= 7 day 用) に置換
+//   - todayAnchors only → visibleWeekAnchors (= dedupe 後 1 batch) に置換
+//   - isToday 判定削除、 各 day timeline に movement display を配る
+//
+// 但し:
+//   - usePlanGeocode は引き続き利用 (= 既存 endpoint、 新規 endpoint なし)
+//   - PlanClient core 引き上げなし
+//   - Calendar 月 grid / L-4d-b3 は引き続き禁止
 
-describe("§2. FlowTab — today section のみ拡張", () => {
-  it("useMapTabMovementDisplay を import", () => {
+describe("§2. FlowTab — L-4d-b2 着地後 7 day 全件拡張", () => {
+  it("useFlowWeekMovementDisplay を import (= 新 hook、 7 day 用)", () => {
     expect(flowTabContent).toMatch(
-      /import\s+\{\s*useMapTabMovementDisplay\s*\}\s+from\s+["']\.\/_useMapTabMovementDisplay["']/,
+      /import\s+\{\s*useFlowWeekMovementDisplay\s*\}\s+from\s+["']\.\/_useFlowWeekMovementDisplay["']/,
     );
   });
 
-  it("usePlanGeocode を import", () => {
+  it("usePlanGeocode を import (= 既存 hook、 新規 endpoint なし)", () => {
     expect(flowTabContent).toMatch(
       /import\s+\{\s*usePlanGeocode\s*\}\s+from\s+["']\.\/_usePlanGeocode["']/,
     );
   });
 
-  it("todayAnchors のみを usePlanGeocode に渡す (= 7 day 全件ではない)", () => {
-    expect(flowTabContent).toMatch(/usePlanGeocode\s*\(\s*todayAnchors\s*\)/);
+  it("visibleWeekAnchors を usePlanGeocode に渡す (= 1 batch resolve、 dedupe 後)", () => {
+    expect(flowTabContent).toMatch(/usePlanGeocode\s*\(\s*visibleWeekAnchors\s*\)/);
   });
 
-  it("7 day 全件 (= dayAnchorsMap 全件) を usePlanGeocode に渡していない", () => {
-    // dayAnchorsMap を spread して全件 resolve する pattern を禁止
-    expect(flowTabContent).not.toMatch(/usePlanGeocode\s*\(\s*Array\.from\(\s*dayAnchorsMap/);
-    expect(flowTabContent).not.toMatch(/usePlanGeocode\s*\(\s*anchors\s*\)/);
+  it("L-4d-b1 の todayAnchors only path は削除済", () => {
+    expect(flowTabContent).not.toMatch(/usePlanGeocode\s*\(\s*todayAnchors\s*\)/);
+    expect(flowTabContent).not.toMatch(/const\s+todayAnchors\s*=/);
   });
 
   it("FlowDaySection に movementDisplayByTransitionIndex prop を渡す", () => {
     expect(flowTabContent).toMatch(/movementDisplayByTransitionIndex=\{/);
   });
 
-  it("today 判定で他 6 day は undefined になる (= isToday ? ... : undefined)", () => {
-    expect(flowTabContent).toMatch(
-      /isToday\s*\?\s*todayMovementDisplayByTransitionIndex\s*:\s*undefined/,
+  it("L-4d-b1 の isToday 判定は削除済 (= 7 day 全件で表示)", () => {
+    expect(flowTabContent).not.toMatch(
+      /isToday\s*\?\s*todayMovementDisplayByTransitionIndex/,
     );
   });
 
-  it("FlowDaySection の props 定義に movementDisplayByTransitionIndex が optional として追加", () => {
+  it("movementDisplayByDay.get(iso) で 7 day 全件に prop drilling", () => {
+    expect(flowTabContent).toMatch(/movementDisplayByDay\.get\(iso\)/);
+  });
+
+  it("FlowDaySection の props 定義に movementDisplayByTransitionIndex が optional として残る", () => {
     expect(flowTabContent).toMatch(
       /movementDisplayByTransitionIndex\?\s*:\s*ReadonlyMap<\s*number\s*,\s*MovementDisplayView\s*>/,
     );
   });
 
-  it("FlowDaySection 内 DayGraphTimeline へ prop transmit", () => {
-    // 「movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}」 を section 内で渡す
+  it("FlowDaySection 内 DayGraphTimeline へ prop transmit (= L-4d-b1 から継続)", () => {
     const sectionInnerMatch = flowTabContent.match(
       /<DayGraphTimeline[\s\S]+?movementDisplayByTransitionIndex=\{movementDisplayByTransitionIndex\}/,
     );
