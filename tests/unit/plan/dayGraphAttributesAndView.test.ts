@@ -89,7 +89,7 @@ describe("computeDayGraphAttributes — empty + light + heavy", () => {
     expect(attr.dayMood).toBe("recovery");
     expect(attr.hasOverlap).toBe(false);
     expect(attr.hasSensitive).toBe(false);
-    expect(attr.timeBucketCoverage.size).toBe(0);
+    expect(attr.timeBucketCoverage.length).toBe(0); // v1.2 §22.9 Array
   });
 
   it("1 anchor: density=sparse, dayMood=light", () => {
@@ -198,10 +198,33 @@ describe("computeDayGraphAttributes — timeBucketCoverage + flags", () => {
       anchors: [],
       eventNodes: evs,
     });
-    expect(attr.timeBucketCoverage.size).toBe(3);
-    expect(attr.timeBucketCoverage.has("morning")).toBe(true);
-    expect(attr.timeBucketCoverage.has("noon")).toBe(true);
-    expect(attr.timeBucketCoverage.has("evening")).toBe(true);
+    expect(attr.timeBucketCoverage.length).toBe(3);
+    expect(attr.timeBucketCoverage).toContain("morning");
+    expect(attr.timeBucketCoverage).toContain("noon");
+    expect(attr.timeBucketCoverage).toContain("evening");
+    // K-1f-β: canonical order (= morning, noon, evening は順序固定)
+    expect(attr.timeBucketCoverage).toEqual(["morning", "noon", "evening"]);
+  });
+
+  it("K-1f-β: timeBucketCoverage は canonical order (= early_morning → late_night)", () => {
+    const evs = [
+      makeEvent({ id: "n", anchorId: "n", timeBucket: "night" }),
+      makeEvent({ id: "m", anchorId: "m", timeBucket: "morning" }),
+      makeEvent({ id: "e", anchorId: "e", timeBucket: "early_morning" }),
+      makeEvent({ id: "a", anchorId: "a", timeBucket: "afternoon" }),
+    ];
+    const attr = computeDayGraphAttributes({
+      date: DATE,
+      anchors: [],
+      eventNodes: evs,
+    });
+    // input 順 (night, morning, early_morning, afternoon) ではなく canonical 順
+    expect(attr.timeBucketCoverage).toEqual([
+      "early_morning",
+      "morning",
+      "afternoon",
+      "night",
+    ]);
   });
 
   it("hasOverlap: overlapsWithNodeIds 非空 → true", () => {
@@ -263,7 +286,7 @@ function makeGraphWithSensitive(): DayGraph {
     anchorCount: 2,
     verbDistribution: { eat: 0, work: 0, rest: 0, move: 0, care: 0, social: 0, unknown: 2 },
     density: "balanced",
-    timeBucketCoverage: new Set(["afternoon"]),
+    timeBucketCoverage: ["afternoon"], // v1.2 §22.9 Array
     hasOverlap: false,
     hasSensitive: true,
   };

@@ -19,10 +19,11 @@ import type { AnchorVerb } from "./anchorVerbMap";
 import {
   inferDayMood,
 } from "./dayMood";
-import type {
-  DayGraphAttributes,
-  EventNode,
-  TimeBucket,
+import {
+  TIME_BUCKET_CANONICAL_ORDER,
+  type DayGraphAttributes,
+  type EventNode,
+  type TimeBucket,
 } from "./dayGraphTypes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -83,16 +84,22 @@ export function computeDayGraphAttributes(input: {
   readonly eventNodes: ReadonlyArray<EventNode>;
 }): DayGraphAttributes {
   const verbDistribution = emptyVerbDistribution();
-  const timeBucketCoverage = new Set<TimeBucket>();
+  // 内部集約は Set で O(1) 重複排除、 最後に canonical Array 化 (= v1.2 §22.9、 JSON-safe)
+  const timeBucketSet = new Set<TimeBucket>();
   let hasOverlap = false;
   let hasSensitive = false;
 
   for (const ev of input.eventNodes) {
     verbDistribution[ev.verb] += 1;
-    timeBucketCoverage.add(ev.timeBucket);
+    timeBucketSet.add(ev.timeBucket);
     if (ev.overlapsWithNodeIds.length > 0) hasOverlap = true;
     if (ev.sensitive) hasSensitive = true;
   }
+
+  // canonical order に従って Array 化 (= deterministic、 同 input → 同 output)
+  const timeBucketCoverage: TimeBucket[] = TIME_BUCKET_CANONICAL_ORDER.filter(
+    (b) => timeBucketSet.has(b),
+  );
 
   const dayMood = inferDayMood({ anchors: input.anchors });
 

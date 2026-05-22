@@ -128,7 +128,7 @@ function makeValidGraph(overrides: Partial<DayGraph> = {}): DayGraph {
         eat: 1, work: 0, rest: 0, move: 0, care: 0, social: 0, unknown: 0,
       },
       density: "sparse",
-      timeBucketCoverage: new Set(["afternoon"]),
+      timeBucketCoverage: ["afternoon"], // v1.2 §22.9: Array (was Set)
       hasOverlap: false,
       hasSensitive: false,
     },
@@ -178,7 +178,7 @@ describe("DayGraphIntegrityContract — valid graph passes", () => {
     expect(() => assertDayGraphCompliance(graph)).not.toThrow();
   });
 
-  it("contract object 形式が正しい", () => {
+  it("contract object 形式が正しい (= v1.2 で 12 invariant)", () => {
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.nodesTimeOrdered).toBe(true);
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.singleStartNode).toBe(true);
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.singleEndNode).toBe(true);
@@ -190,6 +190,76 @@ describe("DayGraphIntegrityContract — valid graph passes", () => {
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.transitionsReferenceEventNodes).toBe(true);
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.snapshotIdNonEmpty).toBe(true);
     expect(DAY_GRAPH_INTEGRITY_CONTRACT.redactionEnforced).toBe(true);
+    expect(DAY_GRAPH_INTEGRITY_CONTRACT.jsonSafeOutput).toBe(true); // K-1f-β
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-1f-β: JSON-safe structure (= assertJsonSafeStructure)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("K-1f-β: JSON-safe structure check", () => {
+  it("valid graph (= 全 Array、 Set なし) → JSON.parse(JSON.stringify) で同一", () => {
+    const g = makeValidGraph();
+    const roundTrip = JSON.parse(JSON.stringify(g));
+    expect(roundTrip.attributes.timeBucketCoverage).toEqual(["afternoon"]);
+    expect(JSON.stringify(roundTrip)).toBe(JSON.stringify(g));
+  });
+
+  it("timeBucketCoverage が Set のまま渡されたら → jsonSafeOutput 違反", () => {
+    const g = makeValidGraph();
+    const badGraph = {
+      ...g,
+      attributes: {
+        ...g.attributes,
+        // 意図的に Set を混入 (= future regression simulation)
+        timeBucketCoverage: new Set(["afternoon"]) as unknown as ReadonlyArray<"afternoon">,
+      },
+    };
+    expect(() => assertDayGraphCompliance(badGraph)).toThrow(DayGraphIntegrityError);
+    expect(() => assertDayGraphCompliance(badGraph)).toThrow(/jsonSafeOutput/);
+  });
+
+  it("Map 混入も検出", () => {
+    const g = makeValidGraph();
+    const badGraph = {
+      ...g,
+      // attributes 内に Map を強制混入 (= 防御 test)
+      attributes: {
+        ...g.attributes,
+        verbDistribution: new Map([["eat", 1]]) as unknown as Readonly<Record<string, number>>,
+      },
+    };
+    expect(() => assertDayGraphCompliance(badGraph)).toThrow(/jsonSafeOutput/);
+  });
+
+  it("function 混入も検出", () => {
+    const g = makeValidGraph();
+    // structural type allows excess property、 cast 経由で混入
+    const badGraph = {
+      ...g,
+      attributes: {
+        ...g.attributes,
+        someFn: () => 1,
+      },
+    } as unknown as DayGraph;
+    expect(() => assertDayGraphCompliance(badGraph)).toThrow(/jsonSafeOutput/);
+  });
+
+  it("Array 内 Set 混入も再帰検出", () => {
+    const g = makeValidGraph();
+    // 意図的に nodes 配列内に Set 持つ object 混入
+    const badGraph = {
+      ...g,
+      nodes: [
+        ...g.nodes.slice(0, 2),
+        {
+          ...g.nodes[2]!,
+          weirdSet: new Set(["x"]),
+        },
+      ],
+    } as unknown as DayGraph;
+    expect(() => assertDayGraphCompliance(badGraph)).toThrow(/jsonSafeOutput/);
   });
 });
 

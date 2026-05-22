@@ -62,6 +62,22 @@ export type TimeBucket =
   | "night"         // 20:00-23:00
   | "late_night";   // 23:00-05:00 (= 翌日跨ぎ含む)
 
+/**
+ * TimeBucket canonical order (= v1.2 §22.9、 K-1f-β)。
+ *
+ * `DayGraphAttributes.timeBucketCoverage` を deterministic Array に変換する際の順序。
+ * 同 input → 同 output を保証する (= snapshotId と同思想)。
+ */
+export const TIME_BUCKET_CANONICAL_ORDER: ReadonlyArray<TimeBucket> = [
+  "early_morning",
+  "morning",
+  "noon",
+  "afternoon",
+  "evening",
+  "night",
+  "late_night",
+] as const;
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BoundaryRationale (= StartNode / EndNode の意味出所)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -236,8 +252,12 @@ export interface DayGraphAttributes {
   readonly verbDistribution: Readonly<Record<AnchorVerb, number>>;
   /** 1 日の密度 (= 設計 §4.6) */
   readonly density: "sparse" | "balanced" | "packed";
-  /** event が触れた時間帯集合 (= Set 化、 7 帯のうちいくつか) */
-  readonly timeBucketCoverage: ReadonlySet<TimeBucket>;
+  /**
+   * event が触れた時間帯集合 (= canonical order の Array、 v1.2 §22.9、 JSON-safe)。
+   * 順序は TIME_BUCKET_CANONICAL_ORDER 固定 (= early_morning → late_night)。
+   * 「集合」 として扱うが Set ではない理由は JSON.stringify 互換性のため。
+   */
+  readonly timeBucketCoverage: ReadonlyArray<TimeBucket>;
   /** overlap event が存在するか */
   readonly hasOverlap: boolean;
   /** sensitive event が存在するか */

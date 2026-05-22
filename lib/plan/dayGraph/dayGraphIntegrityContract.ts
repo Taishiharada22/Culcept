@@ -38,6 +38,11 @@ export interface DayGraphIntegrityContract {
   readonly transitionsReferenceEventNodes: true;
   readonly snapshotIdNonEmpty: true;
   readonly redactionEnforced: true;
+  /**
+   * graph object は JSON-safe (= Set / Map / function / symbol / bigint なし、 v1.2 §22.9)。
+   * 将来 Layer 1/2/3 attribute 追加時の Set 混入 regression を防ぐ。
+   */
+  readonly jsonSafeOutput: true;
 }
 
 export const DAY_GRAPH_INTEGRITY_CONTRACT: DayGraphIntegrityContract = {
@@ -52,6 +57,7 @@ export const DAY_GRAPH_INTEGRITY_CONTRACT: DayGraphIntegrityContract = {
   transitionsReferenceEventNodes: true,
   snapshotIdNonEmpty: true,
   redactionEnforced: true,
+  jsonSafeOutput: true,
 } as const;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -214,4 +220,83 @@ export function assertDayGraphCompliance(
 
   // 12. redaction enforced (= 別 contract 委譲)
   assertRedactionCompliance(graph);
+
+  // 13. JSON-safe structure (= v1.2 §22.9、 K-1f-β)
+  //     Set / Map / function / symbol / bigint が graph 内部に存在しないことを再帰検証。
+  //     将来 Layer 1/2/3 attribute 追加時の Set 混入を自動検出。
+  assertJsonSafeStructure(graph);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// JSON-safe structure check (= K-1f-β)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * graph object を再帰 traverse し、 JSON.stringify で消失する型を検出。
+ *
+ * 検出対象:
+ *   - Set instance (= JSON.stringify で {} になり data lost)
+ *   - Map instance (= 同上)
+ *   - function (= JSON.stringify で undefined → field 消失)
+ *   - symbol (= 同上)
+ *   - bigint (= JSON.stringify で error)
+ *
+ * 許容:
+ *   - null / undefined (= primitive)
+ *   - string / number / boolean (= primitive)
+ *   - Array (= 再帰 check)
+ *   - plain object (= 再帰 check)
+ */
+export function assertJsonSafeStructure(graph: DayGraph): void {
+  function check(val: unknown, path: string): void {
+    if (val === null || val === undefined) return;
+    const t = typeof val;
+    if (t === "string" || t === "number" || t === "boolean") return;
+    if (val instanceof Set) {
+      throw new DayGraphIntegrityError(
+        "jsonSafeOutput",
+        `Set instance detected at "${path}" (= JSON.stringify will lose data)`,
+      );
+    }
+    if (val instanceof Map) {
+      throw new DayGraphIntegrityError(
+        "jsonSafeOutput",
+        `Map instance detected at "${path}" (= JSON.stringify will lose data)`,
+      );
+    }
+    if (t === "function") {
+      throw new DayGraphIntegrityError(
+        "jsonSafeOutput",
+        `function detected at "${path}" (= JSON.stringify will drop field)`,
+      );
+    }
+    if (t === "symbol") {
+      throw new DayGraphIntegrityError(
+        "jsonSafeOutput",
+        `symbol detected at "${path}" (= not JSON-serializable)`,
+      );
+    }
+    if (t === "bigint") {
+      throw new DayGraphIntegrityError(
+        "jsonSafeOutput",
+        `bigint detected at "${path}" (= JSON.stringify will throw)`,
+      );
+    }
+    if (Array.isArray(val)) {
+      val.forEach((item, i) => check(item, `${path}[${i}]`));
+      return;
+    }
+    if (t === "object") {
+      for (const k of Object.keys(val as object)) {
+        check((val as Record<string, unknown>)[k], `${path}.${k}`);
+      }
+      return;
+    }
+    // 未知の type (= 防御)
+    throw new DayGraphIntegrityError(
+      "jsonSafeOutput",
+      `unexpected type "${t}" at "${path}"`,
+    );
+  }
+  check(graph, "graph");
 }
