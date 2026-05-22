@@ -7683,3 +7683,128 @@ L. Graceful Degradation Cascade (= §12、 5 段階)
 - **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-l-0-readiness-audit` 凍結。 14 frozen branches 計。 次は CEO 判断 (= L-pure 実装着手 / 別軸 / partial)。
 
 ---
+
+## 2026-05-22 [Build] L-0 readiness audit wording 補正 + L-1/L-2 PARTIAL 採用決定 [承認: CEO]
+
+### 背景
+
+L-0 readiness audit (= `docs/alter-plan-phase3-l-0-readiness-audit.md` @ `1f3ed736`) を GPT が review。 「内容は良いが、 一部の wording が言い切りすぎ」 と指摘。 CEO は GPT 指摘を採用し、 wording 補正 + 実装範囲を **PARTIAL (= L-1-pure 〜 L-2-pure)** に絞ることを決定。
+
+### Wording 補正 (= 永続規約、 本 entry 以降の全 docs に適用)
+
+L-0 audit の以下の wording は **言い切りすぎ** であり、 補正を必須とする:
+
+| ❌ NG (= L-0 audit 旧 wording) | ✅ OK (= 本 entry 以降の正規 wording) |
+|---|---|
+| 「3-L MVP は **完全実装可能**」 | 「Transport API なしで 3-L MVP の **最小価値は検証可能**」 |
+| 「第三者送信 **0**」 | 「**新規 Transport API への第三者送信は 0**」 |
+| 「privacy policy **不要**」 | 「**既存 geocode 経路を使う場合は、 既存 privacy 方針内か再確認が必要**。 また、 **privacy policy 更新は新規 Routes API 導入時より軽いが、 不要とは断定しない**」 |
+
+**根拠** (= 補正の論理):
+- 既存 geocode endpoint (= Phase 2-C `app/api/plan/anchors/geocode/route.ts`) は **既に外部 (= Places API) と通信**しており、 「第三者送信 0」 は新規 Transport API 文脈に限定して述べるべき
+- 既存 privacy policy が geocode の sensitive blocking / rate limit / fail-open 等を既にカバーしているか、 改めて確認する必要がある (= 確認なし不要断定は危険)
+- L-1/L-2 pure 範囲は確かに API なしで動くが、 「完全実装」 という言葉は L-3+ (= cascade / safe telemetry / DayGraph integration / UI 接続) を含意するため不適切
+
+### PARTIAL 採用 決定
+
+CEO 判断: **L-1-pure 〜 L-2-pure のみ先行 GO**。 L-3 以降は **本 commit 着地後に再 audit**。
+
+#### L-1-pure scope (= GO)
+
+- Transport / MovementSegment 関連の **type contract** 定義
+- Provider-independent types (= adapter abstraction)
+- Resolution status / confidence / privacy class
+- Integrity contract (= 8 invariants + assert function)
+- tests
+- **禁止**: UI / API / geocode call / localStorage / DB / env / package / dependency 一切
+
+#### L-2-pure scope (= GO)
+
+- `HeuristicDistanceProvider` (= 既存 alter-morning `estimateNeutralDurationMin` reuse)
+- `UnresolvedProvider` (= 常に unresolved を返す sentinel)
+- `ManualUserProvider` (= **shell only**、 type / signature のみ、 localStorage 永続化なし)
+- tests
+- **禁止**: API / geocode 能動呼出 / localStorage / UI
+
+#### L-2 で **まだ** やらない (= 明示 deferred、 L-3+)
+
+- User Override Learning localStorage 永続化
+- Travel Diary
+- Safe telemetry runtime sink (= type 定義のみ OK)
+- DayGraph integration
+- UI update
+- 単純を超える mode 推定 (= mode は常に "unknown" 固定)
+- geocode 能動呼出
+- L-3 以降全範囲
+
+#### STOP 条件 (= 着手中断要件)
+
+- `durationHeuristic` signature mismatch (= 既存 fn の引数 / 戻り値型が想定と異なる)
+- alter-morning 型を壊す変更が必要
+- geocode 呼出が必要
+- localStorage 使用が必要
+- UI 変更が必要
+- DB / env / package / dependency 変更が必要
+
+### 実装結果
+
+| 項目 | 内容 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-1-l-2-pure-implementation` (= `docs/plan-phase3-l-0-readiness-audit @ 1f3ed736` を base) |
+| L-1 commit | `23fa6c8c` (= types + integrity contract + 36 tests PASS) |
+| L-2 commit | `5e5c4c88` (= 3 providers + 23 tests PASS) |
+| **合計 tests** | **59 tests PASS** (= 36 L-1 + 23 L-2、 0 fail) |
+| 新規 files | 4 lib files + 2 test files = 6 files |
+| 既存 file 変更 | **0** (= dayGraphTypes / durationHeuristic / geocode route 全て無変更) |
+| DB migration | **0** |
+| env / package / dependency | **0** |
+| UI 変更 | **0** |
+
+### Reuse 確認 (= 既存資産の活用)
+
+| 既存資産 | 用途 | 変更有無 |
+|---|---|---|
+| `lib/alter-morning/transport/durationHeuristic.ts` | `HeuristicDistanceProvider` が `estimateNeutralDurationMin` を import | **無変更** |
+| `lib/plan/dayGraph/dayGraphTypes.ts` (= `MovementTransition`) | L-1 `MovementSegment` の base 型 (= `Omit<MovementTransition, "timingStatus">` composition) | **無変更** (= K phase frozen 維持) |
+| `app/api/plan/anchors/geocode/route.ts` | 参照のみ (= 設計 doc での言及)、 import / 呼出 | **無し** (= 完全に touch していない) |
+
+### Verification
+
+- L-1: `tests/unit/plan/transportTypesAndContract.test.ts` — 36 tests PASS
+- L-2: `tests/unit/plan/transportProviders.test.ts` — 23 tests PASS
+- tsc surface (= `lib/plan/transport/*` + 新 test files): **0 error**
+- 既存 unrelated tsc errors (= `app/api/stargazer/alter/route.ts` 等) は本 commit と無関係。 本 work で増えていない
+- 既存 alter-morning durationHeuristic signature 確認: `estimateNeutralDurationMin(fromCoords: Coords, toCoords: Coords): number | null` — 想定通り、 STOP 条件未発動
+
+### Provider-Independent 設計の検証
+
+L-2 で 3 種類の provider (= heuristic / unresolved / manual_user) が **同一 interface** (= `TransportResolutionProvider`) を満たして動くことを確認。 将来 Google Routes / OSRM / NAVITIME を追加しても本 file 群は変更不要 (= 後方互換)。
+
+### CEO 判断ポイント (= L-3 以降への進行可否)
+
+| 選択肢 | 結果 |
+|---|---|
+| **YES** | L-3-pure (= cascade orchestrator + safe telemetry type) へ着手。 但し再 audit 経由必須 |
+| **NO (= 別軸優先)** | K-3+ refinement / 初期ユーザー獲得 / Deploy 準備等へ pivot |
+| **PARTIAL (= 別の絞り)** | 例: cascade のみ / telemetry のみ / 等の細分化 |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+- ❌ L-3 以降の着手 (= 再 audit 経由必須)
+- ❌ Routes API 接続
+- ❌ env / API key 追加
+- ❌ DB migration
+- ❌ package / dependency 変更
+- ❌ warning UI / recommendation / optimization 文言
+- ❌ Arrival Risk Memory
+- ❌ frozen branches への commit (= 14 frozen branches)
+- ❌ fetch / push / gh
+- ❌ reset / restore / stash / branch delete
+- ❌ LLM 呼出
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 GPT review 採用 + PARTIAL 範囲指示)
+- **ステータス**: L-1-pure + L-2-pure 着地完了 (= `5e5c4c88`)。 本 commit 着地と同時に `feat/alter-plan-phase3-l-1-l-2-pure-implementation` を **frozen 扱い** とする (= 15 frozen branches 計)。 次は CEO 判断 (= L-3 着手 / 別軸 / 別 PARTIAL)。
+
+---
