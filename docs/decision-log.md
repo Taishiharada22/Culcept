@@ -7460,3 +7460,118 @@ K 系: feat/k1 / feat/k2 / feat/k3a / feat/k3b / feat/k3c / feat/k3c-iii
 - **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-k-closeout` 凍結。 Phase 3-K 完全 closeout 完了。 次は 3-L design review (= 応答 text、 別 file commit なし) → CEO 設計レビュー判断 → 3-L 実装は CEO 別承認後の別 branch。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-L Transport Layer 1 Design v0.2 docs 着地 (= GPT 7 補正 + Claude 自立 12 革新)] [承認: CEO 設計レビュー]
+
+### 動機
+
+GPT design review 補正受領 (= v0.1 のままでは実装着手 NG):
+- localStorage cache 30 日 危険
+- Google Routes API 既存 key 即 OK は甘い
+- 電車/バス/飛行機 断定しない
+- 「徒歩 default」 は危険、 modeCandidate + confidence
+- API failure 内部観測必須 (= safe telemetry)
+- Sensitive proximity UI 最小化
+- Provider-independent type
+
+### 着地物
+
+新 file: `docs/alter-plan-phase3-l-transport-design.md` (= 21 section、 v0.2)
+
+### 設計核心 (= 世界トップ超越革新)
+
+**Mobility Truth Layer 思想**:
+- Google Maps / Apple Maps / Citymapper は全て **「最適化」** で訴求
+- Aneurasync 3-L は **「観察」 のみ、 最適化しない**
+- 「最短」 「速く」 「最適」 → 永続禁止
+- 「移動 約 30 分」 「移動」 のみ
+
+### GPT 7 補正 全反映
+
+| # | 補正 | docs section |
+|---|---|---|
+| 1 | localStorage cache 危険 → memory only | §5 Cache Policy |
+| 2 | Google Routes API 設計必須 | §6 Routes API Usage |
+| 3 | 電車/バス/飛行機 断定しない | §7 Transit/Flight |
+| 4 | 「徒歩 default」 → modeCandidate | §8 Mode Candidate |
+| 5 | Safe telemetry 必須 | §9 Safe Telemetry |
+| 6 | Sensitive proximity UI 最小化 | §10 Blackout |
+| 7 | Provider-independent type | §4 Type Contract |
+
+### Claude 自立 12 革新
+
+A. Mobility Truth Layer 思想 (= §0)
+B. Provenance + Confidence + Privacy 3 軸 (= §4)
+C. Provider Health + Circuit Breaker (= §6.3)
+D. Adapter Pattern (= §4.7)
+E. TimeBudget hint to 3-M (= §4.6 slackAnalysis)
+F. 「移動の dignity」 視覚 (= §11、 K-3c-iii 階層 2 維持)
+G. Privacy-Aware Cache Key (= §5.3)
+H. 「自然な失敗」 表現 (= §12)
+I. Safe Telemetry Schema (= §9)
+J. User Override 永続化 (= §5.4、 Google data と分離)
+K. Multi-day Cache Sharing (= §5.5)
+L. Graceful Degradation Cascade (= §12、 5 段階)
+
+### Type Contract (= v0.2 確定型)
+
+- `MovementResolutionStatus` (= "unresolved" | "resolved")
+- `TransportProvider` (= "google_routes" | "heuristic_distance" | "manual_user" | "none")
+- `TransportMode` + `TransportModeCandidate` + `MovementConfidence`
+- `MovementPrivacyClass` (= "normal" | "sensitive_adjacent" | "sensitive_both" | "location_unknown")
+- `MovementSegment` (= discriminated union: Unresolved | Resolved)
+- `MovementUnresolvedReason` (= 8 種)
+- `TransportResolutionProvider` interface (= adapter pattern)
+- `ProviderHealth` (= "healthy" | "degraded" | "down" | "unknown")
+- `MovementResolutionTelemetry` (= PII なし schema)
+
+### Commit 階段 (= 7 commits、 実装着手は CEO 別承認後)
+
+| Commit | 範囲 |
+|---|---|
+| L-1 | Type 拡張 + tests |
+| L-2 | Distance heuristic + tests |
+| L-3 | Routes API client + cache + anonymization + tests (mock) |
+| L-4 | Privacy guard + cost cap + rate limit + circuit breaker + tests |
+| L-5 | DayGraph integration + tests |
+| L-6 | UI 拡張 (= K-3c-iii 階層 2 維持) + tests |
+| L-7 | closeout + freeze |
+
+### STOP 条件 (= 実装着手前、 CEO 判断対象 7 項目)
+
+1. ❌ Routes API 有効化
+2. ❌ env / API key 追加 (= 永続制約緩和)
+3. ❌ Monthly cost cap 承認 (= ~$50/月 想定)
+4. ❌ Service Specific Terms 確認 (= 法務)
+5. ❌ Privacy policy 更新 (= 法務)
+6. △ dev environment sample data 採用判断
+7. ❌ 実装 GO 明示承認
+
+**全 7 条件クリアまで 3-L 実装着手なし**。
+
+### Branch / commit 状態
+
+- 新 branch: `docs/plan-phase3-l-transport-design-review-v02`
+- base: `docs/plan-phase3-k-closeout` @ `2a476055`
+- 本 commit 着地と同時に **本 branch も frozen 扱い**
+
+### 永続禁止 (= 3-L 全範囲)
+
+- Optimization / Recommendation / Warning / AI-Subject 文言
+- Amber / orange / red 警告色
+- Sensitive raw data の API 送信
+- Persistent route cache (= Google data の localStorage 保存、 法務確認まで)
+- 全座標精度 (= ~10m 以下) で API call
+- anchor.id / userId / title の API / telemetry 含む
+- Real-time traffic / multi-stop optimization / buffer 自動追加
+- Arrival Risk 推論 (= 3-M 領域)
+- LLM 呼出
+- DB migration / new dependency
+- Frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 GPT 7 補正受け、 v0.2 docs commit 着手 GO)
+- **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-l-transport-design-review-v02` 凍結。 13 frozen branches 計。 3-L 実装は **CEO 7 条件クリア + 別 branch + 別承認** が必須。
+
+---
