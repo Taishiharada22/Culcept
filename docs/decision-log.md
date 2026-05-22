@@ -7022,3 +7022,95 @@ Phase 3-J (= proposal 層) 全 sub-phase 完了 + 4 frozen branches 整理済の
 - **ステータス**: 本 entry 着地と同時に `feat/alter-plan-phase3-k-daygraph-foundation` を凍結。 K-1 = Layer 0 DayGraph foundation 完成。 K-2 / L / M / N は別 phase / 別 branch で立てる。 6 frozen branches 構造で GitHub 復旧後 PR 化準備済 (= addendum §8.5 strategy 適用可能)。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-K-2 PlanClient 接続 実装 PASS + closeout audit PASS + branch `feat/alter-plan-phase3-k2-planclient-integration` 凍結] [承認: CEO]
+
+### K-2 実装着地
+
+- 新 branch: `feat/alter-plan-phase3-k2-planclient-integration`
+- base: `feat/alter-plan-phase3-k-daygraph-foundation` @ `12b6a8d0`
+- K-2 commit: `703487b3` (= 6 files / +534 insertions / -0 deletions)
+
+### K-2 範囲 (= CEO 制約遵守)
+
+- **計算 wiring のみ**: PlanClient で DayGraph computed projection を保持
+- **UI 表示なし**: tabs は dayGraphByDate prop を受け取るが render しない (= K-3 預け)
+- **lib/ → app/ 依存ゼロ**: caller 注入型 `AnchorsForDateResolver` で境界保持
+
+### K-2 closeout audit 7 項目 全 PASS
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | diff scope (= 6 files: helper + test + PlanClient + 3 tabs) | ✅ PASS |
+| 2 | UI 不変性 (= tabs 内 className / DOM 差分 0、 grep 確認) | ✅ PASS |
+| 3 | unused prop / lint (= `_dayGraphByDate` underscore + `eslint-disable` 3 tab 統一) | ✅ PASS |
+| 4 | compute scope (= today + one_off date 限定、 §14 K-2 placeholder 整合) | ✅ PASS |
+| 5 | pure boundary (= lib/ → app/ 依存 0、 resolver caller 注入) | ✅ PASS |
+| 6 | SSR / hydration (= `if (!now)` guard、 既存 proposal pattern 踏襲) | ✅ PASS |
+| 7 | tests (= 1651/1651 PASS) + tsc K-2 surface (= errors 0) | ✅ PASS |
+
+### K-2 設計判断 (= 自立補強記録)
+
+- **対象 date**: `collectAnchoredDateStrings` で「今日 + one_off anchor の date」 に絞る (= 過剰計算回避、 recurring 展開は anchorsForDay resolver 委譲)
+- **Map vs Record**: **`Record<string, BuildDayGraphResult>`** 採用 (= JSON-safe、 §22.9 整合)
+- **resolver injection**: `AnchorsForDateResolver` 型を caller 注入 (= lib/ → app/ 依存方向を作らない)
+- **buildDayGraph options**: default (= 06:00-23:00 / 30 min gap)、 user override は K-3 以降
+- **warnings**: 計算結果として保持、 UI 表示しない (= K-2 制約、 dev / debug のみ)
+- **tabs への propagation**: 全 3 tab に optional prop 追加、 未使用で受領 (= K-3 で render 追加時の prop drilling 削減)
+
+### Branch 凍結 (= CEO 明示指示)
+
+- **凍結対象**: `feat/alter-plan-phase3-k2-planclient-integration`
+- **凍結時 HEAD**: 本 commit (= K-2 closeout 記録)
+- **以後の方針**:
+  - 本 branch へ追加 commit しない (= K-3 は別 branch)
+  - 本 branch を delete / rebase / force push しない
+  - K-3 は **別 branch** で立てる (= 仮称 `feat/alter-plan-phase3-k3-daygraph-rendering`)
+- **Branch 内容のサマリ**:
+  - 1 commit (= K-2 のみ)
+  - base: `feat/alter-plan-phase3-k-daygraph-foundation` @ `12b6a8d0`
+  - 6 files / +534 / -0
+  - 18 tests 追加 (= helper unit、 累計 plan unit 1651)
+
+### 全 frozen branches (= 7 件、 J 系 5 + K-1 + K-2)
+
+| Branch | HEAD | 状態 |
+|---|---|---|
+| `feat/alter-plan-phase3-j6-tab-integration` | `68d41d32` | 🔒 frozen |
+| `chore/plan-proposalToAnchorInput-tsc-carryover` | `bf25ec17` | 🔒 frozen |
+| `docs/plan-phase3-j-closeout` | `8399caf8` | 🔒 frozen |
+| `docs/plan-phase3-j-pr-runbook-diff-safety-addendum` | `790881d1` | 🔒 frozen |
+| `docs/plan-phase3-k-daygraph-design` | `30343adc` | 🔒 frozen |
+| `feat/alter-plan-phase3-k-daygraph-foundation` | `12b6a8d0` | 🔒 frozen |
+| `feat/alter-plan-phase3-k2-planclient-integration` | (= 本 commit) | 🔒 frozen 確定 (= 本 entry 着地後) |
+
+### CEO 永続制約 全遵守 (= K-2 全範囲)
+
+| 制約 | 状態 |
+|---|---|
+| DayGraph UI rendering | ❌ なし |
+| Calendar/Map/Flow tab の見た目変更 | ❌ なし (= grep 確認) |
+| MovementTransition / Gap / warning UI 表示 | ❌ なし |
+| Transport API / Arrival Risk Memory | ❌ なし |
+| L / M / N 着手 | ❌ なし |
+| DB migration / env / package / dependency / crypto 変更 | ❌ なし |
+| confirmedAt schema/API 変更 | ❌ なし |
+| TestOverrideContext production 注入 | ❌ なし |
+| Phase 3-J / K-1 frozen branches への commit | ❌ なし |
+| fetch / push / gh | ❌ なし |
+| reset / restore / stash / branch delete / force push | ❌ なし |
+
+### K-3 預け (= 設計提案のみ、 実装は CEO 別承認後)
+
+- DayGraph UI rendering (= 視覚化 component)
+- timeline visual (= start → events → gaps → end の vertical timeline)
+- warnings の dev UI 表示判断
+- visible date range の動的拡張 (= 今は今日 + one_off date のみ)
+- user settings 由来 boundary override UI
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 K-2 closeout audit GO + 凍結指示 + K-3 設計提案 GO)
+- **ステータス**: 本 entry 着地と同時に `feat/alter-plan-phase3-k2-planclient-integration` を凍結。 K-2 = PlanClient 接続層完成 (= UI 表示なし)。 K-3 (= UI rendering) は **設計のみ提出**、 実装は CEO 別承認後の別 branch で立てる。
+
+---
