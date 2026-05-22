@@ -41,6 +41,7 @@ import type {
   BuildDayGraphResult,
   DayGraphView,
 } from "@/lib/plan/dayGraph/dayGraphTypes";
+import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -82,6 +83,24 @@ export interface DayGraphTimelineProps {
    * FlowTab のみ true を渡す。
    */
   readonly compact?: boolean;
+  /**
+   * L-4d MapTab-only UI 接続 (= 2026-05-22 CEO + GPT 承認):
+   *   transitionIndex → MovementDisplayView の optional map。
+   *
+   * 渡された transition に対し、 K view の固定文言 (= 「→ 移動」) を **置換**する。
+   *
+   * - undefined / 該当 index なし → K view の「→ 移動」 維持 (= CalendarTab/FlowTab で本 prop 不要)
+   * - variant "unresolved" の view → 「→ 移動」 と同じ表示
+   * - variant "sensitive" の view → 「移動」
+   * - variant "duration_only" の view → 「移動 約 N 分」
+   *
+   * 階調 / className / styling は **K-3c-iii のまま** (= slate-300、 amber/orange/red 不使用)。
+   * label / ariaLabel のみ override。
+   *
+   * 注: caller (= MapTab) は transitionIndex を持つ MovementDisplayView を渡す。
+   *      transitionIndex は K view の MovementTransitionView 出現順 (= buildMovementTransitions の配列順) と一致。
+   */
+  readonly movementDisplayByTransitionIndex?: ReadonlyMap<number, MovementDisplayView>;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -116,6 +135,25 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
   // 3. timeline view 構築 (= sensitive redaction + view 適用済)
   const tl = buildTimelineView(props.result.graph, props.view ?? "user_self");
 
+  // L-4d: transition の出現順 index を fromNodeId 別に pre-compute (= MovementDisplayView lookup 用)。
+  // K phase の buildMovementTransitions は nodes の出現順に transitions を生成するため、
+  // 「event node 内で transition を持つもの」 を順に数えれば index が一致する。
+  //
+  // 注: EventNodeView は K-3a で `anchorId` field のみ持つ (= `id` field は型上欠落)。
+  //      K phase 不変条件で `EventNode.id === EventNode.anchorId` (= 同値)、
+  //      `transitionsByFromNodeId` は EventNode.id (= anchor.id) でキーづけられる。
+  //      → ここでは `anchorId` を transition key の lookup に使用 (= type-safe)。
+  const transitionIndexByFromNodeId = new Map<string, number>();
+  {
+    let nextIdx = 0;
+    for (const node of tl.nodes) {
+      if (node.kind === "event" && tl.transitionsByFromNodeId[node.anchorId]) {
+        transitionIndexByFromNodeId.set(node.anchorId, nextIdx);
+        nextIdx++;
+      }
+    }
+  }
+
   // 3. render
   //    - 外側: role="list" + 縦並び
   //    - 各 node: 時刻 + label + (event のみ click 可)
@@ -133,11 +171,16 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
       {tl.nodes.map((node) => (
         <Fragment key={node.key}>
           {renderNode(node, props.onEventClick)}
-          {/* event の直後に transition があれば inline 表示 */}
-          {node.kind === "event" && tl.transitionsByFromNodeId[node.id] && (
+          {/* event の直後に transition があれば inline 表示 (= K phase 不変: id === anchorId) */}
+          {node.kind === "event" && tl.transitionsByFromNodeId[node.anchorId] && (
             <TransitionItem
-              key={tl.transitionsByFromNodeId[node.id]!.key}
-              view={tl.transitionsByFromNodeId[node.id]!}
+              key={tl.transitionsByFromNodeId[node.anchorId]!.key}
+              view={tl.transitionsByFromNodeId[node.anchorId]!}
+              displayOverride={
+                props.movementDisplayByTransitionIndex?.get(
+                  transitionIndexByFromNodeId.get(node.anchorId)!,
+                )
+              }
             />
           )}
         </Fragment>
@@ -272,21 +315,53 @@ function EventItem({ node, onEventClick }: EventItemProps): ReactElement {
   );
 }
 
-// ── MovementTransition (= 「→ 移動」 のみ、 Negative Capability) ─────────
+// ── MovementTransition (= K-3c-iii fallback「→ 移動」 + L-4d optional override) ─
 
 interface TransitionItemProps {
   readonly view: import("@/lib/plan/dayGraph/dayGraphTimelinePresentation").MovementTransitionView;
+  /**
+   * L-4d: MovementDisplayView (= optional)。
+   *   - undefined → K view の固定文言 (= 「→ 移動」) を維持
+   *   - 指定あり → label / ariaLabel を override (= className は K-3c-iii のまま維持)
+   */
+  readonly displayOverride?: MovementDisplayView;
 }
 
-function TransitionItem({ view }: TransitionItemProps): ReactElement {
+/**
+ * L-4d helper: MovementDisplayView から ariaLabel を組み立てる。
+ *
+ * 規約:
+ *   - variant "duration_only" → "場所の移動、 約 N 分"
+ *   - variant "sensitive" / "unresolved" → "場所の移動" (= K view と同形)
+ *
+ * 注: warning / recommendation / optimization 文言は含めない (= L-4b NG 文言リスト遵守)。
+ */
+function buildAriaLabelFromDisplay(display: MovementDisplayView): string {
+  if (display.variant === "duration_only") {
+    // displayText は L-4a で「移動 約 N 分」 形式に固定済
+    // → 「場所の移動、 約 N 分」 に変換 (= a11y、 user の readout は冗長を避けつつ duration 伝達)
+    const suffix = display.displayText.replace(/^移動 /, "");
+    return `場所の移動、 ${suffix}`;
+  }
+  return "場所の移動";
+}
+
+function TransitionItem({ view, displayOverride }: TransitionItemProps): ReactElement {
+  // L-4d: label / ariaLabel を optional override (= className / data-testid は K のまま)
+  const label = displayOverride?.displayText ?? view.label;
+  const ariaLabel = displayOverride
+    ? buildAriaLabelFromDisplay(displayOverride)
+    : view.ariaLabel;
+
   return (
     <li
       role="listitem"
-      aria-label={view.ariaLabel}
+      aria-label={ariaLabel}
       className={view.className}
       data-testid="day-graph-transition"
+      data-variant={displayOverride?.variant ?? "k-fallback"}
     >
-      {view.label}
+      {label}
     </li>
   );
 }

@@ -77,6 +77,7 @@ import {
 } from "@/lib/shared/googleMapsLoader";
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
+import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
 import {
   computeLivedGeographyFallback,
   type LivedGeographyFallback,
@@ -196,6 +197,16 @@ export function MapTab({
   // ── Geocode は selectedDate 当日 anchor のみ (lazy resolve) ──
   const { resolutions, loading: geocodeLoading, apiAvailable } =
     usePlanGeocode(dayAnchors);
+
+  // ── L-4d MapTab-only: bridge → pipeline で MovementDisplayView を取得 ──
+  //    既存 resolutions を読むだけ (= 新規 geocode call なし、 fetch なし、 localStorage なし)。
+  //    結果は下の DayGraphTimeline.movementDisplayByTransitionIndex に渡す。
+  //    pipeline 解決前 / エラー時は空 Map で、 K view fallback (= 「→ 移動」) が維持される。
+  const movementDisplayByTransitionIndex = useMapTabMovementDisplay(
+    dayAnchors,
+    isoDate(selectedDate),
+    resolutions,
+  );
   const { baselineCoords, loading: baselineLoading } = usePlanBaseline();
   const loading = geocodeLoading || baselineLoading;
 
@@ -431,6 +442,7 @@ export function MapTab({
               if (anchor) onAnchorClick(anchor);
             }}
             dataTestId="plan-map-day-graph-timeline"
+            movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}
           />
         </div>
       )}

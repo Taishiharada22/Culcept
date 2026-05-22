@@ -130,10 +130,22 @@ describe("DayGraphTimeline component — structural invariants", () => {
     expect(content).not.toMatch(/useEffect\b/);
   });
 
-  it("Transport / Arrival Risk Memory に依存しない", () => {
-    expect(content).not.toMatch(/transport/i);
+  it("Arrival Risk Memory / MovementSegment 直接依存なし (= L-4d 着地後の維持規約)", () => {
+    // L-4d (= 2026-05-22 CEO + GPT 承認) で limited transport 依存を導入:
+    //   - `MovementDisplayView` (= L-4a の PII-free 公開 view) のみ import 許可
+    //   - `MovementSegment` (= L-3c overlay の内部型) 直接 import は引き続き禁止
+    //   - Arrival Risk Memory は L-4 範囲外、 永続禁止維持
     expect(content).not.toMatch(/arrivalRisk/i);
-    expect(content).not.toMatch(/MovementSegment/);
+    expect(content).not.toMatch(/MovementSegment\b/); // \b で MovementSegmentXxx 系を除外検出
+    // 許可されている transport 依存: L-4a の MovementDisplayView のみ
+    //   (= movementDisplayFormatter からの type import に限定、 他 transport 型は引き込まない)
+    const transportImports = content.match(
+      /import\s+(?:type\s+)?\{[^}]+\}\s+from\s+["']@\/lib\/plan\/transport\/[^"']+["']/g,
+    ) ?? [];
+    for (const importLine of transportImports) {
+      expect(importLine).toMatch(/movementDisplayFormatter/);
+      expect(importLine).toMatch(/MovementDisplayView/);
+    }
   });
 });
 
