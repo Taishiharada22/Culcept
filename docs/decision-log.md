@@ -7184,3 +7184,103 @@ Phase 3-J (= proposal 層) 全 sub-phase 完了 + 4 frozen branches 整理済の
 - **ステータス**: 本 entry 着地で `feat/alter-plan-phase3-k3a-daygraph-timeline-component` 凍結。 K-3b に進む。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-K-3b CalendarTab visual smoke PASS + branch 凍結] [承認: CEO 実機 smoke]
+
+### K-3b 着地
+
+- branch: `feat/alter-plan-phase3-k3b-calendartab-integration`
+- base: `feat/alter-plan-phase3-k3a-daygraph-timeline-component` @ `38ea3b55`
+- commit: `29880573` (= 2 files / +221 / -6)
+- tests 累計: 1710 / 1710 PASS (= K-3b 20 件追加)
+
+### CEO 実機 visual smoke 結果 (= 2026-05-22)
+
+**Wording 厳守**: 「K-3b **CalendarTab visual smoke PASS**」 (= 「K-3b fully smoke PASS」 ではない、 全 smoke 完了の意ではない)。
+
+#### Visual smoke 確認済 (= CEO 実機)
+
+- ✅ CalendarTab が表示される
+- ✅ 既存予定リストが残っている (= K-3b 後も置換なし、 完全並列)
+- ✅ 既存表示の大きな崩れなし
+- ✅ 「1 日の構造」 が予定リスト下に **静かに**追加されている
+- ✅ DayGraphTimeline が派手すぎない
+- ✅ warning / recommendation / optimization 的な見え方なし
+- ✅ Map / Flow への展開はまだしていない (= K-3c 預け)
+
+#### Deferred / not applicable (= 正直記録)
+
+- **sensitive redaction visual smoke**: **deferred / not applicable** (= CEO dev 現アカウントに sensitive 予定の実データなし、 data gate 未成立)
+  - unit test では sensitive redaction 検証済 (= 28 件中複数件)
+  - 実 UI smoke は将来の sensitive データ追加後に実施
+- **EventNode click smoke**: **未確認** (= 実機 tap 未試験)
+  - unit test では onEventClick callback 配線済 (= bridge 検証済)
+  - 実 UI tap smoke は別 session で確認可能
+
+### K-3b 最小 closeout audit 全 PASS
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | diff scope (= 2 files: CalendarTab + 統合 test) | ✅ PASS |
+| 2 | UI 不変性 (= anchor list / proposal chip / FAB 不変、 grep + visual 二重確認) | ✅ PASS |
+| 3 | dayGraphByDate active 利用 (= _dayGraphByDate underscore 廃止確認) | ✅ PASS |
+| 4 | onEventClick → onAnchorClick bridge 配線 | ✅ PASS |
+| 5 | tests 1710/1710 + tsc K-3b surface errors 0 | ✅ PASS |
+| 6 | warning color / 推奨文言なし (= file-grep 機械検証) | ✅ PASS |
+| 7 | MapTab / FlowTab / PlanClient core logic 不触 | ✅ PASS |
+| 8 | CEO 実機 visual smoke PASS (= 上記 6 項目) | ✅ PASS |
+
+### Wording 規約 (= 永続維持)
+
+- **OK**: 「K-3b CalendarTab visual smoke PASS」 / 「sensitive redaction smoke deferred (= data gate)」 / 「event click smoke 未確認」
+- **NG**: 「K-3b fully smoke PASS」 / 「K-3b 完全完了」 / 「全 smoke PASS」
+
+### Branch 凍結 (= CEO 明示指示)
+
+- **凍結対象**: `feat/alter-plan-phase3-k3b-calendartab-integration`
+- **凍結時 HEAD**: 本 commit (= K-3b closeout + visual smoke 記録)
+- **K-3c は別 branch** で立てる (= MapTab / FlowTab 統合、 但し CEO 別承認後の実装)
+
+### 9 frozen branches 全状態 (= J 系 5 + K-1 + K-2 + K-3a + K-3b)
+
+| Branch | HEAD | 状態 |
+|---|---|---|
+| `feat/alter-plan-phase3-j6-tab-integration` | `68d41d32` | 🔒 |
+| `chore/plan-proposalToAnchorInput-tsc-carryover` | `bf25ec17` | 🔒 |
+| `docs/plan-phase3-j-closeout` | `8399caf8` | 🔒 |
+| `docs/plan-phase3-j-pr-runbook-diff-safety-addendum` | `790881d1` | 🔒 |
+| `docs/plan-phase3-k-daygraph-design` | `30343adc` | 🔒 |
+| `feat/alter-plan-phase3-k-daygraph-foundation` | `12b6a8d0` | 🔒 |
+| `feat/alter-plan-phase3-k2-planclient-integration` | `fd5a395b` | 🔒 |
+| `feat/alter-plan-phase3-k3a-daygraph-timeline-component` | `38ea3b55` | 🔒 |
+| `feat/alter-plan-phase3-k3b-calendartab-integration` | (= 本 commit) | 🔒 frozen 確定 |
+
+### CEO 永続制約 全遵守 (= K-3b 全範囲)
+
+| 制約 | 状態 |
+|---|---|
+| MapTab / FlowTab 統合 | ❌ なし (= K-3c 預け) |
+| K-3c 実装 | ❌ なし (= 設計のみ提出予定) |
+| Transport API / Arrival Risk Memory | ❌ なし |
+| L / M / N | ❌ なし |
+| warning UI / recommendation / optimization 文言 | ❌ なし (= grep 機械検証) |
+| DB migration / env / package / dependency 変更 | ❌ なし |
+| frozen branches への commit | ❌ なし |
+| fetch / push / gh | ❌ なし |
+| reset / restore / stash / branch delete / force push | ❌ なし |
+
+### 残 deferred / not applicable 項目 (= 明示記録)
+
+| 項目 | 状態 | 解消手段 |
+|---|---|---|
+| sensitive redaction visual smoke | deferred (= data gate 未成立) | dev account に sensitive 予定追加 → 別 session で実機確認 |
+| EventNode click smoke | 未確認 | 別 session で実機 tap 確認 |
+| MapTab DayGraph 統合 visual smoke | 未着手 | K-3c 実装後 |
+| FlowTab DayGraph 統合 visual smoke | 未着手 | K-3c 実装後 |
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 K-3b CalendarTab visual smoke PASS + closeout audit GO + 凍結指示 + K-3c 設計着手 GO)
+- **ステータス**: 本 entry 着地で `feat/alter-plan-phase3-k3b-calendartab-integration` 凍結。 K-3c 設計提案を別 branch で出す (= 実装は CEO 別承認後)。
+
+---
