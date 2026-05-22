@@ -8057,3 +8057,75 @@ L-3a/L-3b 着地報告 (= 161 tests PASS) を受け、 CEO + GPT 合議で「fre
 - **ステータス**: 本 commit 着地と同時に `docs/plan-phase3-l-3-post-implementation-audit` を **frozen 扱い** とする (= 18 frozen branches 計)。 以後の commit 禁止。 次は CEO 判断 (= §9) を経て L-3c 実装 branch を別途切る。
 
 ---
+
+## 2026-05-22 [Build] L-3c 実装着地 — Privacy + Mutation Hardening (= 4 critical 修正、 184 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-3 post-implementation audit で 4 critical 実害が runtime 実証された (= snapshotId guard 弱さ、 transitionKey の anchor id 漏洩、 sensitive_adjacent resolve 通過、 raw locationText 漏洩)。 CEO + GPT 合議で:
+- L-3a/L-3b freeze HOLD + L-3c 着手 YES
+- 修正案 6A 採用 (= overlay layer で sanitize、 L-1 freeze 維持)
+- branch 名 `feat/alter-plan-phase3-l-3c-privacy-mutation-hardening`
+- 追加条件: nodeId も overlay output に出さない、 privacy assertion 関数化
+
+### 修正内容 (= 6 修正案 + 追加条件 全反映)
+
+| # | 修正 | 実装 |
+|---|---|---|
+| 1A | snapshotId 比較 → JSON snapshot 比較 | `assertImmutability` 関数で deep equality |
+| 1B | 配列長 + 第一要素 reference 同一性 早期検出 | 同上、 2 段 check (= cheap + deep) |
+| 2A | transitionKey を `transition_${index}` 単独に | `buildTransitionKey(index)` API 変更 |
+| 3A | cascade early-exit に sensitive_adjacent | `cascadeOrchestrator.ts:226-238` |
+| 3B | doc に resolve 禁止規約を明記 | `transportTypes.ts` MovementPrivacyClass コメント |
+| 6A | overlay output sanitize (= 新型 OverlaySegmentView) | L-1 freeze 維持、 overlay layer で structural sanitize |
+| 追加 | nodeId / locationText 不存在 | OverlaySegmentView 型 + assertOverlayResultCompliance |
+| 追加 | privacy assertion 関数化 | `assertOverlayResultCompliance` 9 PII key を runtime 禁止 |
+
+### 思想の transmission
+
+- **Privacy is structural** — L-1 freeze 維持 + overlay sanitize の二重防御
+- **type system の honesty** — overlay 出力専用型を分離し、 PII を持てない構造
+- **runtime assertion = type-level の補強** — type 経路を抜けた PII を捕捉
+- **mutation guard = cheap (= ref check) + deep (= JSON snapshot) の二段構え**
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-3c-privacy-mutation-hardening` (= `484356c2` 起点) |
+| commit | **`bfaf4411`** |
+| **合計 tests** | **184 PASS** (= 161 → 184、 +23) |
+| 内訳 | L-1 36 / L-2 23 / L-3a 23 / L-3b 29 / **L-3c 18** / K regression 55 |
+| 変更 file | 5 file modify + 1 file new = 6 |
+| 既存 K phase file 変更 | **0** |
+| **L-1 type 変更** | **0** (= freeze 維持) |
+| DB / env / package / dependency | **0** |
+| UI 変更 | **0** |
+| geocode active call / fetch / localStorage | **0** |
+
+### Critical 修正結果 (= 4 件全件解決)
+
+| Critical | runtime 実害 (audit 時) | L-3c 修正後 |
+|---|---|---|
+| 1. snapshotId guard | mutation 検出不能 | JSON snapshot 比較で内部 mutation も検出、 test で確認 |
+| 2. transitionKey anchor id | `transition_0_move_morning_move_afternoon` 露出 | `transition_0` 単独、 anchor id 露出 0 |
+| 3. sensitive_adjacent | cascade で resolved = 25min | cascade early-exit で必ず unresolved "sensitive_proximity" |
+| 6. raw locationText | `segment.fromLocationText: "新宿"` 露出 | OverlaySegmentView 型で持てない、 runtime assertion で機械保証 |
+
+### L-3 freeze 状態 (= L-3c PASS により完全 freeze)
+
+- L-3a/L-3b branch `feat/alter-plan-phase3-l-3a-l-3b-cascade-overlay` は HOLD 状態維持 (= 完全 freeze 適用)
+- L-3c branch `feat/alter-plan-phase3-l-3c-privacy-mutation-hardening` を本 commit 着地と同時に **frozen 扱い** とする (= 19 frozen branches 計)
+- 以後の commit 禁止
+- **L-3 全体の完全 freeze 確立**
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4 以降の着手 / UI 変更 / geocode active call / DB-env-package-dependency 変更 / localStorage / runtime telemetry sink / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-3 post-audit で 4 critical 確認後 「L-3c 修正は必須 GO、 6A 採用、 L-1 freeze 維持」 指示)
+- **ステータス**: L-3c 着地完了。 4 critical 全件 runtime 解決。 184 tests PASS、 K regression 0。 L-3 完全 freeze 確立 (= 19 frozen branches 計)。 次は CEO 判断 (= L-4 readiness audit / 別軸 pivot / 別 PARTIAL)。
+
+---
