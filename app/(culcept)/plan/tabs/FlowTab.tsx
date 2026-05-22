@@ -86,6 +86,10 @@ export function FlowTab({
   now,
   onAddRequest,
   onAnchorClick,
+  // ── Phase 3-K-2: DayGraph computed projection (= optional、 K-2 では使用しない) ──
+  // K-3 以降で UI 接続予定。 K-2 では受け取るが render しない。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  dayGraphByDate: _dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -94,6 +98,11 @@ export function FlowTab({
   onAddRequest?: (req: AddRequest) => void;
   /** anchor row click で AnchorDetailModal 起動 (W1-X5 既存) */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
+  /**
+   * K-2 接続層: PlanClient で計算した DayGraph。
+   * K-2 では tab 側は使用しない (= K-3 以降で UI 接続予定)。
+   */
+  dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
 }) {
   const baseNow = now ?? new Date();
   const today = useMemo(

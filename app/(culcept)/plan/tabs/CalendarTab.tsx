@@ -92,6 +92,12 @@ export function CalendarTab({
   acceptingProposalIds,
   recentUndoRecords,
   onProposalUndo,
+  // ── Phase 3-K-2: DayGraph computed projection (= optional、 K-2 では使用しない) ──
+  // K-3 以降で UI 接続予定。 K-2 では受け取るが render しない (= API 表面の早期確立)。
+  // 実装注意: `// eslint-disable-next-line @typescript-eslint/no-unused-vars` で参照を保つこと禁止。
+  // 単に destructure するだけで「受け取った」 ことになる。
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  dayGraphByDate: _dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -100,6 +106,12 @@ export function CalendarTab({
   onAddRequest?: (req: AddRequest) => void;
   /** anchor row click で AnchorDetailModal 起動 (W1-X5 既存) */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
+  /**
+   * K-2 接続層: PlanClient で計算した DayGraph (= date 別 BuildDayGraphResult)。
+   * K-2 では tab 側は使用しない (= K-3 以降で UI 接続予定)。
+   * optional のため未指定でも既存 UI は不変。
+   */
+  dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
 } & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);

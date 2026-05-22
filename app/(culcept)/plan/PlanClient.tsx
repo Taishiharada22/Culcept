@@ -88,6 +88,14 @@ import {
 } from "@/lib/plan/proposal/quietUndoWindow";
 // J-6e-4: modify path (= AddAnchorModal を proposal draft で prefill)
 import { proposalDraftToFormState } from "@/lib/plan/proposal/proposalToFormState";
+// K-2: DayGraph (= Layer 0、 computed projection) を PlanClient で計算
+//      但し UI 表示は **行わない** (= K-3 以降預け、 §14)。
+//      計算結果は tabs に optional prop として渡すが、 tab 側 render 不変。
+import {
+  collectAnchoredDateStrings,
+  computeDayGraphMapForAnchors,
+} from "@/lib/plan/dayGraph/planClientDayGraphHelpers";
+import type { BuildDayGraphResult } from "@/lib/plan/dayGraph/dayGraphTypes";
 
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
@@ -96,6 +104,7 @@ import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
 import { MapTab } from "./tabs/MapTab";
+import { anchorsForDay } from "./tabs/_helpers";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -314,6 +323,42 @@ export default function PlanClient({
     }
     return out;
   }, [proposalsByDate, allAcceptedIds]);
+
+  // ── Phase 3-K-2: DayGraph (= Layer 0 computed projection) を計算 ──
+  //
+  // 不変原則:
+  //   - pure computed projection (= 永続化なし、 mutation なし)
+  //   - UI render は K-2 では行わない (= K-3 以降預け、 tab には optional prop として渡すが
+  //     tab 側は受け取って **使わない**)
+  //   - SSR hydration safety: now が null の間は空 Record を返す (= 既存 proposal 経路と同 pattern)
+  //   - JSON-safe output (= Record<string, BuildDayGraphResult>、 Set / Map なし、 §22.9)
+  //   - 警告 (= warnings) も保持するが UI 表示しない (= dev / debug 用、 K-2 範囲外)
+  //
+  // 設計判断:
+  //   - 対象 date は collectAnchoredDateStrings で「今日 + one_off anchor の date」 に絞る
+  //     (= recurring 展開は anchorsForDay (= resolver) に委ねる、 visible range は K-3 で決める)
+  //   - anchorsForDay (= 既存 _helpers.ts) を resolver として inject (= lib/ → app/ 依存なし)
+  //   - buildDayGraph option (= startTime / endTime / minGapMinutes) は default (= 06:00-23:00 / 30 min)
+  //   - K-3 以降で user settings 由来 options を追加可能
+  const dayGraphState = useMemo<{
+    byDate: Readonly<Record<string, BuildDayGraphResult>>;
+    allWarnings: ReadonlyArray<import("@/lib/plan/dayGraph/dayGraphTypes").DayGraphWarning>;
+  }>(() => {
+    if (!now) return { byDate: {}, allWarnings: [] };
+    if (state.kind !== "ok") return { byDate: {}, allWarnings: [] };
+    const dateStrings = collectAnchoredDateStrings({
+      anchors: state.anchors,
+      nowDate: now,
+    });
+    return computeDayGraphMapForAnchors({
+      anchors: state.anchors,
+      dateStrings,
+      resolveAnchorsForDate: (allAnchors, date) =>
+        anchorsForDay([...allAnchors], date),
+    });
+  }, [now, state]);
+  // K-2: tab に渡す optional prop。 tab は受け取るが使わない (= UI 不変)。
+  const dayGraphByDate = dayGraphState.byDate;
 
   // accept callback (= 9-step transaction、 ref + state 二段防御)
   const handleProposalAccept = useCallback(
@@ -668,6 +713,7 @@ export default function PlanClient({
                 acceptingProposalIds={acceptingProposalIds}
                 recentUndoRecords={recentUndoRecords}
                 onProposalUndo={handleProposalUndo}
+                dayGraphByDate={dayGraphByDate}
               />
             )}
             {activeTab === "flow" && (
@@ -675,6 +721,7 @@ export default function PlanClient({
                 anchors={state.anchors}
                 onAddRequest={openAdd}
                 onAnchorClick={openDetail}
+                dayGraphByDate={dayGraphByDate}
               />
             )}
             {activeTab === "map" && (
@@ -689,6 +736,7 @@ export default function PlanClient({
                 acceptingProposalIds={acceptingProposalIds}
                 recentUndoRecords={recentUndoRecords}
                 onProposalUndo={handleProposalUndo}
+                dayGraphByDate={dayGraphByDate}
               />
             )}
           </>
