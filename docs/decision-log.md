@@ -8320,3 +8320,105 @@ L-4c-pure 着地で停止。 以下は **必ず別 audit / CEO review 経由**:
 - **ステータス**: L-4c-pure 着地完了。 4 layer 合成 helper 確立、 286 tests PASS、 K regression 0、 既存 freeze 全件維持。 次は CEO 判断 (= L-4c-mapbridge / L-4d UI smoke / 別軸 pivot)。
 
 ---
+
+## 2026-05-22 [Build] L-4c-mapbridge readiness audit + L-4c-mapbridge-pure 連続着地 (= 306 tests PASS、 MapTab geocode bridge) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4c-pure 着地後、 CEO + GPT 合議で「L-4d UI 接続にはまだ進まず、 L-4c-mapbridge readiness audit に進む。 audit 結果が pure helper / tests だけで済む low-risk なら連続実装 OK」 指示。 read-only 調査で既存 MapTab geocode hook の state shape を完全把握。
+
+### 主要発見 (= read-only 調査)
+
+| 発見 | 含意 |
+|---|---|
+| 既存 `_usePlanGeocode.ts` の output shape = `Map<string, AnchorResolution \| null>` | bridge の input source 確定 |
+| `AnchorResolution = { lat: number; lng: number; confidence: string; resolvedName: string }` | bridge は `{lat, lng}` のみ抽出、 残り 2 field を捨てる (= PII 最小化) |
+| `null` は統一 unresolved fallback (= sensitive / locationText 空 / api 不可 / rate limit 等) | bridge は null を一律 skip |
+| stale は hook 側 cancelled flag で完結 | bridge は気にしない |
+| in-memory のみ規約 (= 既存 hook) | bridge も in-memory、 永続化なし |
+
+→ **bridge は「shape mismatch を 1 関数で埋める」** で完全に成立。 連続 GO 判定。
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| audit Branch | `docs/plan-phase3-l-4c-mapbridge-readiness-audit` (= `e18b8122` freeze、 23 frozen branches 計) |
+| impl Branch | `feat/alter-plan-phase3-l-4c-mapbridge-pure-helper` (= `c59a18bd` 起点) |
+| L-4c-mapbridge-pure commit | **`d8d26f47`** (= helper + 20 tests) |
+| **L-4c-mapbridge tests** | **20 PASS** |
+| **総合 tests** | **306 PASS** (= 286 → +20) |
+| K regression | 55/55 PASS |
+| 新規 files | 1 lib + 1 test + 1 doc = 3 |
+| **既存 file 変更** | **0** (= `_usePlanGeocode.ts` / MapTab / PlanClient 全件無変更) |
+| DB / env / package / dependency / UI 変更 | **0** |
+| geocode active call / fetch / localStorage / network | **0** |
+
+### L-4c-mapbridge-pure 設計
+
+```typescript
+buildCoordsByAnchorIdFromGeocodeResults(
+  resolutions: ReadonlyMap<string, AnchorResolution | null>,
+): ReadonlyMap<string, BridgedCoords>
+```
+
+変換ルール:
+- `null` → skip (= unresolved 統一)
+- lat/lng が NaN / Infinity / non-number → skip (= 防御)
+- 空文字列 anchorId → skip
+- `confidence` / `resolvedName` → **捨てる** (= PII 最小化)
+- output に lat / lng のみ抽出
+
+### 思想の transmission
+
+1. **bridge は「shape mismatch を 1 関数で埋める」** — それ以上のことをしない
+2. **既存 hook を改変しない** — `_usePlanGeocode.ts` は Phase 2-C 確立済、 触らない
+3. **privacy 最小化** — `resolvedName` (= Places API 正規化名、 PII 可能性) を捨てる安全側
+4. **stale / null / NaN は全て一律 skip** — 「unresolved として扱う」 で統一
+5. **L-4d UI 接続前の必要十分な抽象化** — UI 接続時に caller は helper 1 行で `coordsByAnchorId` を作れる
+
+### 停止境界 (= 本 commit 着地と同時に発火)
+
+L-4c-mapbridge-pure 着地で停止。 以下は **必ず別 audit / CEO smoke 経由**:
+
+- **L-4d UI 接続** — PlanClient で `usePlanGeocode` + bridge + `runMovementDisplayPipeline` を呼び CalendarTab/MapTab/FlowTab に表示開始 (= K-3c-iii 階層 2 厳守 + amber/orange/red 絶対 NG + K の「→ 移動」 を override するか共存するかの方針確定)
+- **L-4e telemetry runtime sink** — `tracingId` を保存する経路 (= privacy policy 直結)
+- **L-3+ mode 推定** — 「歩いて」「車で」 等の表示 (= L-4 範囲外)
+
+### freeze 状態
+
+本 commit 着地と同時に:
+- `docs/plan-phase3-l-4c-mapbridge-readiness-audit` (= `e18b8122`) を **frozen 扱い**
+- `feat/alter-plan-phase3-l-4c-mapbridge-pure-helper` (= `d8d26f47`) を **frozen 扱い**
+
+合計 **24 frozen branches**。 以後 commit 禁止。
+
+### CEO 判断ポイント (= L-4c-mapbridge-pure 着地後)
+
+| Q | 内容 |
+|---|---|
+| Q1 | L-4c-mapbridge-pure 着地で L-4c 全範囲 freeze するか |
+| Q2 | 次は L-4d UI 接続 readiness audit / smoke に進むか、 別軸 pivot か |
+| Q3 | L-4d UI 接続前に CEO smoke (= preview で「移動 約 30 分」 表示確認) を挟むか |
+| Q4 | UI 接続時、 K の `MovementTransitionView.label = "→ 移動"` を L-4a の displayText で **置換**するか、 **共存** (= K view を残し、 L overlay を別 chip で表示) するか |
+
+### 残リスク (= L-4d 着手前に CEO 視点で確認が必要)
+
+| リスク | 内容 |
+|---|---|
+| K-3c-iii 階層侵食 | L-4a 出力 (= 「移動 約 30 分」) を K view と同 chip / 別 chip / 縦並び 等のどれにするか UI 判断必要 |
+| K view label 置換可否 | 「→ 移動」 を「移動 約 30 分」 に書き換えると K view の Negative Capability 思想を破壊する可能性 |
+| amber/orange/red 混入 | K-3c-iii は slate 階調限定、 confidence band soft/strong による色変化が amber 系を呼び込まないか確認 |
+| sensitive 表示退行 | sensitive proximity の transition は「移動」 のみ (= L-4a variant "sensitive")、 UI で confidence band を読まないこと |
+| stale / loading state | `_usePlanGeocode.loading` が true の間の表示方針 (= K view fallback で待つか) |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4d / L-4e 以降の着手 / UI 変更 / geocode active call / DB-env-package-dependency 変更 / localStorage / runtime telemetry sink / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4c-pure 着地後 「L-4c-mapbridge readiness audit → 低 risk なら連続実装、 UI 接続 NO」 指示)
+- **ステータス**: L-4c-mapbridge-pure 着地完了。 既存 MapTab hook 改変 0 で bridge 確立、 306 tests PASS、 K regression 0、 既存 freeze 全件維持。 次は CEO 判断 (= L-4d UI smoke / 別軸 pivot)。
+
+---
