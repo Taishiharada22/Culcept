@@ -8914,3 +8914,89 @@ L-4d-b readiness audit 後、 CEO + GPT 合議で「L-4d-b1 のみ GO、 L-4d-b2
 - **ステータス**: L-4d-b1 実装着地完了。 486 tests PASS、 K regression 0、 L-1〜L-4d freeze 全件維持、 PlanClient core 改変 0。 **CEO visual smoke 待ち**。 smoke PASS 後に完全 freeze 確定 + closeout audit。
 
 ---
+
+## 2026-05-22 [Build] L-4d-b1 visual smoke PASS + closeout audit 着地 (= 34 frozen branches、 観測 layer minimum 完成) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4d-b1 (= `ea808877`) について CEO + GPT が実機 visual smoke を実施、 **PASS 報告**。 L-4d-b1 closeout audit + 完全 freeze 確定 + dev server 再起動 + 次実装候補提示で停止。
+
+### visual smoke 結果 (= CEO 確認)
+
+| 観点 | 結果 |
+|---|---|
+| CalendarTab selected day detail 「移動 約 N 分」 表示 | ✅ PASS |
+| CalendarTab month/grid cell 移動時間 0 | ✅ PASS |
+| FlowTab today section 「移動 約 N 分」 表示 | ✅ PASS |
+| FlowTab 他 6 day 「→ 移動」 維持 | ✅ PASS |
+| 既存 anchor list / FAB / 詳細導線 崩れなし | ✅ PASS |
+| K-3c-iii 階層維持 | ✅ PASS |
+| amber / orange / red 不使用 | ✅ PASS |
+| warning / recommendation / optimization 文言 0 | ✅ PASS |
+
+### Deferred / not applicable 項目
+
+| Item | 状態 |
+|---|---|
+| L-4d-b1-S1: sensitive 実データ smoke | deferred (= 実データ蓄積後、 L-4d MapTab と同 pattern) |
+| L-4d-b1-S2: geocode loading 中チラつき | not observed / deferred |
+| L-4d-b1-S3: month/7-day 全件展開 | out of scope (= L-4d-b2/b3、 反直感的提案で NO 寄り) |
+
+### freeze 状態 (= 完全 freeze 確立)
+
+- `feat/alter-plan-phase3-l-4d-b1-calendar-flow-selected-day` (= `6de1b8a0`): visual smoke PASS で **完全 frozen 扱い**
+- `docs/plan-phase3-l-4d-b1-closeout` (= 本 commit): 着地と同時に **frozen 扱い**
+- 合計 **34 frozen branches**
+
+### L 観測 layer の最小完成
+
+L-4d MapTab + L-4d-b1 Calendar/Flow selected day 着地で:
+
+```
+MapTab (selectedDate-centric)  : 「移動 約 N 分」 表示 ✅
+CalendarTab selected day detail: 「移動 約 N 分」 表示 ✅
+CalendarTab month grid          : 既存挙動維持 (= 表示なし)
+FlowTab today section           : 「移動 約 N 分」 表示 ✅
+FlowTab 他 6 day section        : 「→ 移動」 維持 (= K view fallback)
+```
+
+**観測 layer minimum 完成体**到達。 過剰拡張 (= 月 grid 全件) は意図的に行わない。
+
+### 思想 transmission
+
+1. minimum scope の段階拡張が正解 — 全 Tab 一括ではなく Tab 別最小範囲
+2. 既存 hook 名固有名許容 — `useMapTabMovementDisplay` を Calendar/Flow から import
+3. 「fetch 追加なし」 vs 「新規 endpoint なし」 の区別 — 既存 endpoint の限定利用は OK
+4. CEO smoke は実装後 — 実装前 smoke は見るものがない
+5. 反直感的提案を維持 — L-4d-b2/b3 は不要寄りを維持
+
+### dev server 再起動
+
+CEO 指示の flag 付きコマンドで再起動 (= 本 commit と分離した別 phase):
+```
+PLAN_ROUTE_LIVE=true \
+PLAN_HOME_SWIPE_ENABLED=true \
+PORT=3001 \
+NODE_OPTIONS=--max-old-space-size=8192 \
+npx next dev --webpack
+```
+
+確認: `lsof -i :3001` / `curl -sI http://localhost:3001/plan`
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4d-b2 / L-4d-b3 (= 月 grid / 7 day 全件 geocode) の着手 / PlanClient core geocode state 化 / 新規 geocode endpoint / runtime telemetry sink / localStorage / Arrival Risk Memory / warning-recommendation-optimization 文言 / mode 表示 / distance 表示 / DB-env-package-dependency 変更 / frozen branches への commit / fetch-push-gh / reset-restore-stash-branch delete
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | L-4d-b1 完全 freeze 確認 (= 本 closeout で確定) |
+| Q2 | 次実装候補の選択 (= 別軸 pivot / L-4e / L-5 / L-4d-b2-b3 引き続き不要寄り) |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4d-b1 visual smoke PASS 報告後、 「closeout audit + dev server 再起動 + 次候補提示で停止」 指示)
+- **ステータス**: L-4d-b1 完全 freeze 確定。 L 観測 layer の minimum 完成体到達。 486 tests PASS、 K regression 0、 全 freeze 維持。 34 frozen branches 計。 dev server 再起動を別 phase で実施、 次実装候補提示で停止。
+
+---
