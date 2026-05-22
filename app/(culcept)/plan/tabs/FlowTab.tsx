@@ -47,6 +47,7 @@ import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
 import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
 import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
+import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import type { AddRequest } from "../PlanClient";
 import {
   CATEGORY_META,
@@ -86,10 +87,10 @@ export function FlowTab({
   now,
   onAddRequest,
   onAnchorClick,
-  // ── Phase 3-K-2: DayGraph computed projection (= optional、 K-2 では使用しない) ──
-  // K-3 以降で UI 接続予定。 K-2 では受け取るが render しない。
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  dayGraphByDate: _dayGraphByDate,
+  // ── Phase 3-K-3c-ii: DayGraph UI 接続 (= 各 day card に静かに追加) ──
+  // K-2 から受領していた dayGraphByDate を、 ここで active 利用。
+  // 各 FlowDaySection に dayGraphResult prop として渡す (= section 側で render)。
+  dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -99,8 +100,8 @@ export function FlowTab({
   /** anchor row click で AnchorDetailModal 起動 (W1-X5 既存) */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
   /**
-   * K-2 接続層: PlanClient で計算した DayGraph。
-   * K-2 では tab 側は使用しない (= K-3 以降で UI 接続予定)。
+   * K-3c-ii: PlanClient で計算した DayGraph (= K-3c-0 で visible window 拡張済)。
+   * 各 FlowDaySection で dayGraphByDate[iso] を lookup して timeline 表示。
    */
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
 }) {
@@ -172,6 +173,8 @@ export function FlowTab({
         const iso = isoDate(day);
         const dayAnchors = dayAnchorsMap.get(iso) ?? [];
         const dayOverlaps = dayOverlapsMap.get(iso) ?? new Set<string>();
+        // K-3c-ii: dayGraphByDate[iso] が存在すれば section 内で timeline 表示
+        const dayGraphResult = dayGraphByDate?.[iso] ?? null;
         return (
           <FlowDaySection
             key={iso}
@@ -183,6 +186,7 @@ export function FlowTab({
               onAddRequest ? () => handleEmptyDayClick(day) : undefined
             }
             onAnchorClick={onAnchorClick}
+            dayGraphResult={dayGraphResult}
           />
         );
       })}
@@ -228,6 +232,7 @@ function FlowDaySection({
   dayOverlaps,
   onEmptyClick,
   onAnchorClick,
+  dayGraphResult,
 }: {
   day: Date;
   today: Date;
@@ -237,6 +242,13 @@ function FlowDaySection({
   /** 予定なし日の inline button onClick (onAddRequest あり時のみ undefined でない) */
   onEmptyClick?: () => void;
   onAnchorClick?: (anchor: ExternalAnchor) => void;
+  /**
+   * K-3c-ii: 当日の DayGraph (= 親 FlowTab で dayGraphByDate[iso] lookup 済)。
+   * null なら timeline section render しない (= 既存 UI のみ)。
+   */
+  dayGraphResult?: import(
+    "@/lib/plan/dayGraph/dayGraphTypes"
+  ).BuildDayGraphResult | null;
 }) {
   const iso = isoDate(day);
   const label = formatFlowSectionLabel(day, today);
@@ -314,6 +326,39 @@ function FlowDaySection({
             />
           ))}
         </ul>
+      )}
+
+      {/*
+       * Phase 3-K-3c-ii: DayGraphTimeline を当日の構造として **静かに**追加表示。
+       *
+       * 不変原則:
+       *   - 既存 anchor list / empty state header は不変
+       *   - dayGraphResult が null なら何も render しない (= K-3c-0 で計算済 day のみ表示)
+       *   - 空 day (= anchor 0) でも entry あれば timeline 表示 (= start + gap + end、
+       *     Aneurasync 「観察文化」、 「何もない日も構造として表現」)
+       *   - 控えめ separator (= mx-4 mt-3 mb-1 / border-t border-slate-100 / pt-3)
+       *   - heading は省略 (= FlowTab は 7 day 連続表示のため、 各 section の heading が
+       *     冗長になる)。 timeline 自体が「1 日の構造」 を表す
+       *   - warnings / duration / mode / risk 表示なし
+       *   - onEventClick → anchors.find → onAnchorClick(anchor) bridge
+       *   - React.memo 適用済 (= K-3c-ii、 FlowTab 7 timeline 性能担保)
+       */}
+      {dayGraphResult && (
+        <div
+          className="mx-4 mt-3 mb-1 pt-3 border-t border-slate-100"
+          data-testid={`plan-flow-day-graph-section-${iso}`}
+        >
+          <DayGraphTimeline
+            result={dayGraphResult}
+            view="user_self"
+            onEventClick={(anchorId: string) => {
+              if (!onAnchorClick) return;
+              const anchor = anchors.find((a) => a.id === anchorId);
+              if (anchor) onAnchorClick(anchor);
+            }}
+            dataTestId={`plan-flow-day-graph-timeline-${iso}`}
+          />
+        </div>
       )}
     </section>
   );

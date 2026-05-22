@@ -25,11 +25,15 @@ import { readFileSync } from "node:fs";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("DayGraphTimeline component module import", () => {
-  it("named export 'DayGraphTimeline' が function として存在", async () => {
+  it("named export 'DayGraphTimeline' が renderable component として存在", async () => {
     const mod = await import(
       "@/app/(culcept)/plan/components/DayGraphTimeline"
     );
-    expect(typeof mod.DayGraphTimeline).toBe("function");
+    expect(mod.DayGraphTimeline).toBeDefined();
+    // K-3c-ii で React.memo 適用後は typeof === "object" (= MemoExoticComponent)。
+    // K-3a 時点の plain function (= typeof "function") も両対応。
+    const t = typeof mod.DayGraphTimeline;
+    expect(t === "function" || t === "object").toBe(true);
   });
 
   it("default export が存在しない (= named export 強制)", async () => {

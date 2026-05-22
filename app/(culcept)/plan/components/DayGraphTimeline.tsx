@@ -28,7 +28,7 @@
  *   - CalendarTab / MapTab / FlowTab 統合
  */
 
-import { Fragment, type ReactElement } from "react";
+import { Fragment, memo, type ReactElement } from "react";
 
 import {
   buildTimelineView,
@@ -71,7 +71,11 @@ export interface DayGraphTimelineProps {
 // Component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export function DayGraphTimeline(props: DayGraphTimelineProps): ReactElement | null {
+/**
+ * 内部 component (= memo 適用前の実体)。
+ * K-3c-ii で React.memo 適用 (= FlowTab 7 timeline 同時 render の性能担保)。
+ */
+function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | null {
   // 1. null guard (= result 未取得 / state.kind !== "ok" 時)
   if (!props.result) return null;
 
@@ -252,3 +256,21 @@ function TransitionItem({ view }: TransitionItemProps): ReactElement {
     </li>
   );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 公開 export — Phase 3-K-3c-ii で React.memo 適用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * memoized DayGraphTimeline。
+ *
+ * 性質:
+ *   - props (= result / view / onEventClick / className / dataTestId) が
+ *     referentially equal なら re-render skip
+ *   - FlowTab で 7 timeline を render する場面で性能担保
+ *   - PlanClient の useMemo で `dayGraphByDate` が stable なら、 各 [iso] lookup も stable
+ *     (= memoization が効く)
+ *   - default shallow compare で十分 (= 全 props が primitives or stable references)
+ */
+export const DayGraphTimeline = memo(DayGraphTimelineInner);
+DayGraphTimeline.displayName = "DayGraphTimeline";
