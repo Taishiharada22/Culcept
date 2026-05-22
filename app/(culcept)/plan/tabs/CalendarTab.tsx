@@ -49,6 +49,8 @@ import {
 import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
+import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
+import { usePlanGeocode } from "./_usePlanGeocode";
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
 import {
@@ -130,6 +132,17 @@ export function CalendarTab({
   const selectedDateObj = new Date(selectedDate + "T00:00:00.000Z");
   const weekStrip = buildWeekStrip(selectedDateObj, currentMonth);
   const selectedDayAnchors = anchorsForDay(anchors, selectedDateObj);
+
+  // ── L-4d-b1 (= 2026-05-22 CEO 承認): selected day timeline のみ移動時間表示 ──
+  //    既存 usePlanGeocode を **selected day anchors の最小 subset に限定** して利用。
+  //    PlanClient core への引き上げなし、 新規 endpoint なし、 月 grid 全件 geocode なし。
+  //    pipeline 解決前 / 失敗時は空 Map → DayGraphTimeline は K view fallback で「→ 移動」 表示。
+  const { resolutions: selectedDayResolutions } = usePlanGeocode(selectedDayAnchors);
+  const calendarMovementDisplayByTransitionIndex = useMapTabMovementDisplay(
+    selectedDayAnchors,
+    selectedDate,
+    selectedDayResolutions,
+  );
 
   // Phase 2-E: 時刻重なり気付き indicator 用、selected day の overlap Set を 1 回 useMemo
   // 判定は detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、独自判定なし
@@ -554,6 +567,7 @@ export function CalendarTab({
                 if (anchor) onAnchorClick(anchor);
               }}
               dataTestId="plan-calendar-day-graph-timeline"
+              movementDisplayByTransitionIndex={calendarMovementDisplayByTransitionIndex}
             />
           </div>
         )}

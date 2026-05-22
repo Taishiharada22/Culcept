@@ -235,26 +235,33 @@ describe("§3. MapTab wiring — hook + prop", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §4. CalendarTab / FlowTab は MapTab-only 影響なし (= 既存挙動維持)
+// §4. CalendarTab / FlowTab L-4d-b1 着地後の規約
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// L-4d 時点 (= 2026-05-22 午前) では Calendar / Flow は MapTab-only 影響なしだった。
+// L-4d-b1 着地 (= 2026-05-22 午後、 CEO 承認) で意図的に下記範囲のみ展開:
+//   - CalendarTab: selected day detail のみ
+//   - FlowTab: today section のみ (= 7 day 全件には出さない)
+// PlanClient core への geocode state 引き上げは引き続き禁止 (= 別 test で検証)。
+// 月 grid 全件 / 7 day 全件 geocode は引き続き禁止 (= calendarFlowMovementDisplayWiring.test.ts で検証)。
 
-describe("§4. CalendarTab — MapTab-only 影響なし", () => {
-  it("useMapTabMovementDisplay を import しない", () => {
-    expect(calendarTabContent).not.toMatch(/useMapTabMovementDisplay/);
+describe("§4. CalendarTab — L-4d-b1 着地後 selected day のみ拡張", () => {
+  it("useMapTabMovementDisplay を import (= selected day のみ)", () => {
+    expect(calendarTabContent).toMatch(/useMapTabMovementDisplay/);
   });
 
-  it("movementDisplayByTransitionIndex prop を渡さない", () => {
-    expect(calendarTabContent).not.toMatch(/movementDisplayByTransitionIndex/);
+  it("movementDisplayByTransitionIndex prop を渡す (= selected day timeline のみ)", () => {
+    expect(calendarTabContent).toMatch(/movementDisplayByTransitionIndex/);
   });
 });
 
-describe("§4b. FlowTab — MapTab-only 影響なし", () => {
-  it("useMapTabMovementDisplay を import しない", () => {
-    expect(flowTabContent).not.toMatch(/useMapTabMovementDisplay/);
+describe("§4b. FlowTab — L-4d-b1 着地後 today のみ拡張", () => {
+  it("useMapTabMovementDisplay を import (= today のみ)", () => {
+    expect(flowTabContent).toMatch(/useMapTabMovementDisplay/);
   });
 
-  it("movementDisplayByTransitionIndex prop を渡さない", () => {
-    expect(flowTabContent).not.toMatch(/movementDisplayByTransitionIndex/);
+  it("movementDisplayByTransitionIndex prop を渡す (= today section のみ)", () => {
+    expect(flowTabContent).toMatch(/movementDisplayByTransitionIndex/);
   });
 });
 

@@ -48,6 +48,9 @@ import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
 import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
+import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
+import { usePlanGeocode } from "./_usePlanGeocode";
+import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { AddRequest } from "../PlanClient";
 import {
   CATEGORY_META,
@@ -152,6 +155,20 @@ export function FlowTab({
     return m;
   }, [days, dayAnchorsMap]);
 
+  // ── L-4d-b1 (= 2026-05-22 CEO 承認): today timeline のみ移動時間表示 ──
+  //    既存 usePlanGeocode を **today anchors の最小 subset に限定** して利用。
+  //    7 day 全件 geocode は行わない (= L-4d-b2、 別 audit)。
+  //    PlanClient core 引き上げなし、 新規 endpoint なし。
+  //    pipeline 解決前 / 失敗時は空 Map → today section は K view fallback で「→ 移動」 表示。
+  const todayIso = isoDate(today);
+  const todayAnchors = dayAnchorsMap.get(todayIso) ?? [];
+  const { resolutions: todayResolutions } = usePlanGeocode(todayAnchors);
+  const todayMovementDisplayByTransitionIndex = useMapTabMovementDisplay(
+    todayAnchors,
+    todayIso,
+    todayResolutions,
+  );
+
   const handleEmptyDayClick = (day: Date) => {
     onAddRequest?.({
       initial: { kind: "one_off", date: isoDate(day) },
@@ -175,6 +192,8 @@ export function FlowTab({
         const dayOverlaps = dayOverlapsMap.get(iso) ?? new Set<string>();
         // K-3c-ii: dayGraphByDate[iso] が存在すれば section 内で timeline 表示
         const dayGraphResult = dayGraphByDate?.[iso] ?? null;
+        // L-4d-b1: today のみ movement display を渡し、 他 6 day は K view fallback で「→ 移動」 維持
+        const isToday = iso === todayIso;
         return (
           <FlowDaySection
             key={iso}
@@ -187,6 +206,9 @@ export function FlowTab({
             }
             onAnchorClick={onAnchorClick}
             dayGraphResult={dayGraphResult}
+            movementDisplayByTransitionIndex={
+              isToday ? todayMovementDisplayByTransitionIndex : undefined
+            }
           />
         );
       })}
@@ -233,6 +255,7 @@ function FlowDaySection({
   onEmptyClick,
   onAnchorClick,
   dayGraphResult,
+  movementDisplayByTransitionIndex,
 }: {
   day: Date;
   today: Date;
@@ -249,6 +272,11 @@ function FlowDaySection({
   dayGraphResult?: import(
     "@/lib/plan/dayGraph/dayGraphTypes"
   ).BuildDayGraphResult | null;
+  /**
+   * L-4d-b1: today section のみ親が渡す MovementDisplayView map (= 「移動 約 N 分」 表示)。
+   * 他 6 day は undefined → DayGraphTimeline は K view fallback で「→ 移動」 維持。
+   */
+  movementDisplayByTransitionIndex?: ReadonlyMap<number, MovementDisplayView>;
 }) {
   const iso = isoDate(day);
   const label = formatFlowSectionLabel(day, today);
@@ -365,6 +393,7 @@ function FlowDaySection({
               if (anchor) onAnchorClick(anchor);
             }}
             dataTestId={`plan-flow-day-graph-timeline-${iso}`}
+            movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}
           />
         </div>
       )}
