@@ -8524,3 +8524,84 @@ K-3c-iii の className (= `slate-300 / text-slate-500 / italic / text-xs / dashe
 - **ステータス**: L-4d MapTab-only 着地完了。 既存 component / hook / Tab 全件改変最小、 K-3c-iii 階調維持、 475 tests PASS、 K regression 0、 全 freeze 維持。 **CEO visual smoke 待ち**。 smoke 通過後、 branch 完全 freeze。 次は CEO 判断 (= L-4d-b 拡張 / L-4e sink / 別軸 pivot)。
 
 ---
+
+## 2026-05-22 [Build] L-4d MapTab-only visual smoke PASS + closeout audit + 次実装計画 4 候補比較 [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4d MapTab-only UI 接続 (= commit `a87f752b`) について CEO が実機 visual smoke を実施、 **PASS** 報告。 次は L-4d closeout audit + freeze 記録 + 次実装計画 4 候補比較 を docs として固定。 実装には進まずに停止。
+
+### visual smoke 結果 (= CEO 確認)
+
+| 観点 | 結果 |
+|---|---|
+| MapTab 破壊なし | ✅ PASS |
+| SelectedAnchorCard / 「1 日の構造」 維持 | ✅ PASS |
+| unresolved 表示 「→ 移動」 | ✅ PASS |
+| resolved 表示 「移動 約 90 分」 | ✅ PASS |
+| K-3c-iii 階層 2 維持 (= 予定カードより弱い) | ✅ PASS |
+| amber / orange / red 不使用 | ✅ PASS |
+| warning / recommendation / optimization 文言 0 | ✅ PASS |
+| 既存 UI 連携 (= 予定カード / FAB / 詳細導線) | ✅ PASS |
+
+### Deferred / not applicable 項目 ledger
+
+| Item | 状態 |
+|---|---|
+| L-4d-S1: sensitive / location_unknown 実データ smoke | deferred (= 実データ蓄積後) |
+| L-4d-S2: geocode loading 中チラつき | not observed / deferred (= 別 session で観測可能) |
+| L-4d-S3: CalendarTab / FlowTab への移動時間表示 | out of scope (= L-4d-b 別 audit) |
+
+### freeze 状態 (= 完全確立)
+
+- `feat/alter-plan-phase3-l-4d-maptab-only-ui` (= `46bc8dc1`): visual smoke PASS で **HOLD 解除 → 完全 freeze**
+- `docs/plan-phase3-l-4d-closeout-and-next-plan` (= 本 commit): **frozen 扱い**
+- 合計 **26 frozen branches**
+
+### 次実装計画 4 候補比較 (= docs/alter-plan-phase3-l-next-implementation-comparison.md 詳述)
+
+| 候補 | リスク | コスト | 価値 | 着手判定 |
+|---|---|---|---|---|
+| 1. L-4d-b (Calendar/Flow 拡張) | 高 | 中-高 | 中-高 | audit 先行 |
+| 2. L-4e (telemetry sink) | 高 | 高 | 高 | 後回し (= CEO 既存方針) |
+| 3. L closeout docs | **低** | 中 | **高** | **即着手推奨** |
+| 4. L-5 readiness | 中 | 中 | 中 | 後回し (= 整理が先) |
+
+### 自律推奨順序
+
+**第 1 phase (= 即着手)**:
+- 候補 3 **L closeout docs** — 26 frozen branches を 1 doc で読める形に整理
+
+**第 2 phase (= L closeout 後)**:
+- 候補 1 **L-4d-b readiness audit** — PlanClient state 引き上げの是非を厳密検討
+
+**第 3 phase (= audit 結果次第)**:
+- L-4d-b 実装 (= low-risk なら) / L-5 readiness / 別軸 pivot
+
+### 思想の transmission
+
+1. 観測 layer の最小完成 — 「移動が確定したか / されていないか」 を表記する layer
+2. 置換は共存より honest — 同 transition には 1 つの表現
+3. K-3c-iii 階層 2 を侵さない
+4. MapTab-only から始める段階性 — 全 Tab 一括は危険
+5. CEO visual smoke は機械検証の補完 — 視覚的侵食を人間が確認
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | L-4d 完全 freeze 確認 (= 本 closeout で確定) |
+| Q2 | 自律推奨順序 (= L closeout docs → L-4d-b audit) を採用するか |
+| Q3 | 候補 2 (= L-4e) を先に挟むか — 推奨 NO |
+| Q4 | 候補 4 (= L-5) を先に挟むか — 推奨 NO |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ CalendarTab / FlowTab への移動時間表示の **実装** (= audit はOK) / PlanClient core の geocode state 化の **実装** (= audit はOK) / 新規 geocode endpoint 呼出 / runtime telemetry sink の **実装** / DB-env-package-dependency 変更 / localStorage / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4d visual smoke PASS 報告後、 「L-4d closeout audit + freeze 記録 + 次実装計画提示で停止」 指示)
+- **ステータス**: L-4d 完全 freeze 確定、 closeout audit + 4 候補比較 docs 着地。 26 frozen branches 計。 次は CEO 最終判断 (= 自律推奨順序採用 or 別軸) を待ち、 計画決定後に着手 phase へ。
+
+---
