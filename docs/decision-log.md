@@ -6898,3 +6898,127 @@ Phase 3-J (= proposal 層) 全 sub-phase 完了 + 4 frozen branches 整理済の
 - **ステータス**: Phase 3-K 設計 docs v1.0 着地完了。 実装は CEO 別承認待ち。 GitHub 復旧後の最初の実装 branch は `feat/alter-plan-phase3-k-daygraph-foundation` (= 仮称) を origin/main から派生予定。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-K-1 (= K-1a 〜 K-1f) 全実装 PASS + branch `feat/alter-plan-phase3-k-daygraph-foundation` 凍結] [承認: CEO K-1 final closeout audit GO]
+
+### K-1 全体完了範囲
+
+| sub-phase | commit | 内容 |
+|---|---|---|
+| K-0 | `34c77602` | docs(plan): design v1.1 — actual code audit 補正反映 (= 7 軽微補正) |
+| K-1a | `a6138b38` | DayGraph types + Integrity + Redaction contracts (= 27 tests) |
+| K-1b | `656035ee` | timeFormat + StartEnd nodes + EventNode generator (= 57 tests) |
+| K-1c | `956a5c0b` | GapNode + MovementTransition generators (= 25 tests) |
+| K-1d | `0f5dad29` | DayGraph Attributes + View perspective (= 17 tests) |
+| K-1e | `472c1234` | buildDayGraph orchestration + ASCII + fixtures + redaction (= 32 tests) |
+| K-1f-α | `4396a767` | duration provenance 2 field (= durationSource + boundaryClipped、 6 件追加 test) |
+| K-1f-β | `da24aea5` | JSON-safe output (= Array + jsonSafeOutput invariant + assertJsonSafeStructure、 6 件追加 test) |
+
+### K-1 final closeout audit 10 項目 全 PASS (= read-only)
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | diff scope (= 22 files、 全 `lib/plan/dayGraph/` + tests + docs) | ✅ PASS |
+| 2 | `app/(culcept)/plan` / PlanClient / CalendarTab / MapTab / FlowTab 不触 | ✅ PASS |
+| 3 | migration / env / package.json / next.config / tsconfig 不触 | ✅ PASS |
+| 4 | pure helper boundary (= forbidden imports なし) | ✅ PASS |
+| 5 | DayGraph output JSON-safe (= public type に Set なし + assertJsonSafeStructure auto-invoked) | ✅ PASS |
+| 6 | sensitive redaction 完全 (= lib/ に raw 文字列 0、 EventNode + Transition + warnings + snapshotId + ASCII + fixtures 全 safe) | ✅ PASS |
+| 7 | duration provenance 完全 (= 全 EventNode に durationSource + boundaryClipped、 4 状態 fully tested) | ✅ PASS |
+| 8 | warnings vs IntegrityError 分離 (= 6 warnings.push + 25 throws、 eventNodes/buildDayGraph で throw 0) | ✅ PASS |
+| 9 | input anchor mutation 不可 (= 3 mutation test) | ✅ PASS |
+| 10 | tests (= 1633 / 1633 PASS) + tsc K surface (= errors 0) | ✅ PASS |
+
+### 設計革新 (= K-1 で確立した不変原則)
+
+- **DayGraph = computed projection** (= stored entity ではない、 anchors から都度計算)
+- **Pure deterministic + immutable** (= 同 input → 同 output、 mutation 不可)
+- **4 種 node (start / event / gap / end) + MovementTransition (= edge attribute、 GPT 補正 1)**
+- **2 field duration provenance**: `durationSource: "explicit" | "assumed_default"` + `boundaryClipped: boolean` (= 4 状態 orthogonal、 GPT 補正 K-1f-α)
+- **JSON-safe output**: `ReadonlyArray<TimeBucket>` canonical order + `assertJsonSafeStructure` 再帰検出 (= 将来 Set 漏洩自動検出、 K-1f-β)
+- **DayGraphRedactionContract**: `displayLabel` always-safe + sensitive title/locationText 物理 undefined
+- **`BuildDayGraphResult = { graph, warnings }`**: invalid anchor を silent skip しない (= 6 warning kind)
+- **snapshotId deterministic string**: crypto なし、 v1 prefix で algorithm 進化対応
+- **DayGraphView (user_self / shared_view)**: view perspective primitive
+- **DayGraphIntegrityContract 12 invariants** + **DayGraphRedactionContract 4 invariants** で機械保証
+- **Layered design (= Layer 0/1/2/3)**: 3-K Layer 0 のみ、 3-L/M/N で attribute 注入予定
+
+### 後 phase 接続点 (= 別 phase 預け、 明示)
+
+- **K-2** (= PlanClient で `dayGraphByDate` を useMemo 計算 + Tab で利用): 別 commit / 別 phase
+- **3-L** (= MovementTransition → MovementSegment 昇格、 Transport API 接続): 別 phase
+- **3-M** (= Arrival Risk Memory 連携、 boundaryClipped + latencyTolerance + durationSource 活用): 別 phase
+- **3-N** (= Counter-Factual alternative graph): 別 phase
+- **DayGraph UI rendering**: 3.5 / 別 phase
+
+### Branch 凍結 (= CEO 明示指示 2026-05-22)
+
+- **凍結対象**: `feat/alter-plan-phase3-k-daygraph-foundation`
+- **凍結時 HEAD**: 本 commit (= K-1 closeout 記録) 着地後の HEAD
+- **以後の方針**:
+  - 本 branch へ追加 commit しない (= K-2 は別 branch)
+  - 本 branch を delete しない (= CEO 永続制約)
+  - 本 branch を rebase / force push しない
+  - K-2 は **別 branch** で立てる (= 仮称 `feat/alter-plan-phase3-k2-planclient-integration`)
+- **Branch 内容のサマリ**:
+  - 9 commits (= K-0 docs + K-1a 〜 K-1f-β)
+  - base: `docs/plan-phase3-k-daygraph-design` @ `30343adc`
+  - 22 files / +5151 insertions / -2 deletions
+  - 12 production files + 8 test files + 1 fixtures + 1 docs (= v1.2)
+
+### 全 frozen branches 一覧 (= 6 件、 J 系 5 + K 1)
+
+| Branch | HEAD | 状態 |
+|---|---|---|
+| `feat/alter-plan-phase3-j6-tab-integration` | `68d41d32` | 🔒 frozen |
+| `chore/plan-proposalToAnchorInput-tsc-carryover` | `bf25ec17` | 🔒 frozen |
+| `docs/plan-phase3-j-closeout` | `8399caf8` | 🔒 frozen |
+| `docs/plan-phase3-j-pr-runbook-diff-safety-addendum` | `790881d1` | 🔒 frozen |
+| `docs/plan-phase3-k-daygraph-design` | `30343adc` | 🔒 frozen |
+| `feat/alter-plan-phase3-k-daygraph-foundation` | (= 本 commit) | 🔒 frozen 確定 (= 本 entry 着地後) |
+
+### CEO 永続制約 全遵守 (= K-1 全範囲)
+
+| 制約 | 状態 |
+|---|---|
+| K-2 UI 接続 / PlanClient 修正 / Tab 修正 | ❌ なし |
+| L / M / N 着手 | ❌ なし |
+| Transport API / Arrival Risk Memory / 遅刻学習 / 実移動ルート最適化 | ❌ なし |
+| DB migration / env / package / dependency 変更 | ❌ なし |
+| crypto module 使用 | ❌ なし |
+| TestOverrideContext production 注入 | ❌ なし |
+| DB 直接 insert/update/delete | ❌ なし |
+| confirmedAt schema/API 変更 | ❌ なし |
+| Phase 3-J frozen branches (= 5 件) への commit | ❌ なし |
+| fetch / push / gh | ❌ なし |
+| reset / restore / stash / branch delete / force push | ❌ なし |
+| dev fixture API | ❌ なし |
+| LLM 呼出 | ❌ なし |
+| anchor mutation | ❌ なし |
+
+### 引き続き禁止 (= 永続継続)
+
+- K-2 着手 (= CEO 別承認まで)
+- L / M / N 実装
+- Transport API / Arrival Risk Memory
+- dev fixture API
+- TestOverrideContext production 注入
+- DB 直接 insert/update/delete
+- confirmedAt schema / API 変更
+- frozen branches (= 6 件) への追加 commit
+- fetch / push / gh (= GitHub 復旧承認まで)
+- reset / restore / stash / branch delete
+- force push (= 永続)
+
+### Next CEO 判断ポイント
+
+- (a) **K-2 GO** → PlanClient 接続、 別 branch で立てる (= 仮称 `feat/alter-plan-phase3-k2-planclient-integration`)
+- (b) **K closeout docs commit** → Phase 3-K 全体の closeout-audit / deferred-ledger / pr-runbook 一式を docs として整理 (= J 系と同 pattern)
+- (c) **別軸 / 保留** → 別 phase 設計、 運用観測、 Deploy 準備等
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 K-1 final closeout audit GO + 凍結指示)
+- **ステータス**: 本 entry 着地と同時に `feat/alter-plan-phase3-k-daygraph-foundation` を凍結。 K-1 = Layer 0 DayGraph foundation 完成。 K-2 / L / M / N は別 phase / 別 branch で立てる。 6 frozen branches 構造で GitHub 復旧後 PR 化準備済 (= addendum §8.5 strategy 適用可能)。
+
+---
