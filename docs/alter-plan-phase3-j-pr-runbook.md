@@ -300,3 +300,242 @@ git log origin/main --oneline --max-count=10
 
 が含まれた時点で、 **Phase 3-J 全体の main 着地完了**。 次 phase に進む整合状態となる。
 
+---
+
+## 8. Diff Safety Addendum (= GitHub 復旧後の必須補強、 2026-05-22 追加)
+
+### 8.0 本 addendum の動機 (= 「PR A/B/C のままで進めると危険」)
+
+§2-§3 までの runbook は **「remote main が直接祖先 (= ancestral)」 という理想ケース** を前提にしている。
+しかし local main が長く同期されていない場合、 remote main には過去 PR (= Phase 2-A〜2-I、 Phase 3-J-1〜J-5、 coalter #217-#220 等) が **squash merge** で着地している可能性が高い。
+
+このとき、 frozen branches (= feat / chore / closeout) の history には **pre-squash original commits** が残っているため、 GitHub PR を作ると **巨大 diff として表示** される可能性がある。 これは 「本当の差分が大きい」 のではなく、 **「merge-base が古い位置で固定されているため」**。
+
+本 addendum はこのリスクを機械的に検出し、 必要なら clean rebuild に分岐するための手順を定義する。
+
+### 8.1 GitHub PR は three-dot diff で表示される
+
+| 表記 | 意味 | 我々が見るタイミング |
+|---|---|---|
+| `A..B` (two-dot) | `git diff` では tree(A) と tree(B) の差分 (= 中身が同じなら 0) | local で `git diff` を打ったとき |
+| `A...B` (three-dot) | `git diff` では merge-base(A,B) から B への差分 (= 「branch が追加した変更」) | **GitHub PR の "Files changed" タブ** |
+
+→ GitHub PR の Files changed は **three-dot 表示**。 これが本 addendum の核心。
+
+### 8.2 two-dot と three-dot が乖離する発火条件
+
+```
+過去に PR が squash merge されている
+  ↓
+remote main: 元 commits が消えて 1 個の squash commit Z に置換
+  ↓
+local feat: 元 commits (= A1, A2, A3, ...) が残ったまま
+  ↓
+merge-base(remote main, feat) = squash 以前の古い位置で固定
+  ↓
+two-dot:   tree 比較なので squash 後と一致 = 小さく見える
+three-dot: merge-base から feat HEAD まで = 巨大に見える
+  ↓
+GitHub PR: three-dot 基準のため reviewer が混乱 + CI が過剰実行
+```
+
+→ 「squash merge が past PR で行われたか」 が判定軸。 GitHub 復旧後の fetch で remote main 状態を観測してから判定する。
+
+### 8.3 GitHub 復旧後の必須診断コマンド (= 9 件、 §3 Phase 0.5 強化)
+
+`git fetch origin main` 完了後、 **必ず以下 9 コマンドを順次実行** して観測値を確定:
+
+```bash
+# 1. two-dot diff (= tree 比較)
+git diff --stat origin/main..feat/alter-plan-phase3-j6-tab-integration | tail -3
+
+# 2. three-dot diff (= GitHub PR が表示する実体)
+git diff --stat origin/main...feat/alter-plan-phase3-j6-tab-integration | tail -3
+
+# 3. merge-base の SHA
+git merge-base origin/main feat/alter-plan-phase3-j6-tab-integration
+
+# 4. merge-base の identity (= 「いつの時点で分岐したか」)
+git log --oneline -1 $(git merge-base origin/main feat/alter-plan-phase3-j6-tab-integration)
+
+# 5. remote main の最近 commits (= 何が乗っているか)
+git log origin/main --oneline --max-count=10
+
+# 6. merge-base が origin/main HEAD 自体か (= 直接 ancestral 判定)
+test "$(git merge-base origin/main feat/alter-plan-phase3-j6-tab-integration)" = "$(git rev-parse origin/main)" \
+  && echo "ANCESTRAL: origin/main is direct ancestor of feat (= Scenario Z 候補)" \
+  || echo "DIVERGED: origin/main is NOT direct ancestor of feat (= Scenario X or Y)"
+
+# 7. tree-level content 等価チェック (= J-6/J-7 surface だけ抽出)
+git diff origin/main..feat/alter-plan-phase3-j6-tab-integration -- 'lib/plan/*' 'app/(culcept)/plan/*' | wc -l
+
+# 8. 真の J-6/J-7 範囲の commit list (= cherry-pick 候補)
+git log --oneline 7e5f59d5..feat/alter-plan-phase3-j6-tab-integration
+
+# 9. sensitive file が含まれるか (= 永続制約違反検出)
+git diff origin/main...feat/alter-plan-phase3-j6-tab-integration --name-only \
+  | grep -E "(supabase/migrations|package\.json|\.env|next\.config|tsconfig)" | head -10
+```
+
+### 8.4 Scenario 分類 (= 9 コマンド観測値から判定)
+
+#### Scenario Z (= 理想、 既存 §2-§3 ルートで OK)
+
+| 観測 | 値 |
+|---|---|
+| #6 ANCESTRAL? | `ANCESTRAL` |
+| #1 two-dot | ~22 files |
+| #2 three-dot | ~22 files (= 一致) |
+| #9 sensitive | 0 件 |
+
+→ **既存 §3 Phase 1-3 をそのまま実行**。 feat / chore / closeout を そのまま push、 PR A/B/C を順次作成。
+
+#### Scenario X (= squash 履歴乖離、 clean rebuild 必須)
+
+| 観測 | 値 |
+|---|---|
+| #6 ANCESTRAL? | `DIVERGED` |
+| #1 two-dot | ~22 files (= 小) |
+| #2 three-dot | **100+ files (= 巨大)** |
+| #9 sensitive | 0 件 |
+
+→ **既存 §3 ルート不可**。 §8.5 clean rebuild strategy へ分岐。
+
+#### Scenario Y (= remote main 未取込、 PR stack 再設計)
+
+| 観測 | 値 |
+|---|---|
+| #6 ANCESTRAL? | `ANCESTRAL` |
+| #1 two-dot | **100+ files (= 巨大)** |
+| #2 three-dot | 同上巨大 |
+| #5 remote main | Phase 2-A〜J-5 / coalter 等が **見当たらない** |
+
+→ remote main が真に古い。 Phase 2-A〜J-5 を含む PR stack の再設計が必要。 **CEO 別判断**。 J-6 単独の closeout 範囲を超えるため本 runbook scope 外。
+
+#### Scenario W (= 永続制約違反検出、 push 停止)
+
+| 観測 | 値 |
+|---|---|
+| #9 sensitive | **1 件以上** (= migration / package.json / .env / next.config / tsconfig) |
+
+→ **push 停止**。 sensitive file が混入している。 CEO 判断、 通常は scope 外 PR として別 branch 整理。
+
+### 8.5 Scenario X 発生時の Clean Rebuild Strategy
+
+**原則**:
+- frozen branches (= feat / chore / closeout) は **不触** (= 永続制約)
+- 新 branch を `origin/main` から派生
+- 必要な commits だけ **cherry-pick で複製** (= 新 SHA だが同 content)
+- 元の sub-phase 粒度は維持 (= squash は GitHub UI の merge 設定で行う)
+
+**手順** (= fetch 完了後の実行):
+
+```bash
+# Step 1: feat の clean 版を origin/main から派生
+git checkout -b feat/plan-phase3-j6-clean origin/main
+git cherry-pick 378c0744^..68d41d32
+# ↑ J-6a (378c0744) の親〜J-7 (68d41d32) = 9 commits
+# 各 cherry-pick 後に conflict 検出: git status で "working tree clean" 期待
+
+# Step 2: chore の clean 版を feat clean の上に
+git checkout -b chore/plan-tsc-carryover-clean feat/plan-phase3-j6-clean
+git cherry-pick 43991b58 bf25ec17
+# ↑ 2 commits
+
+# Step 3: closeout の clean 版を chore clean の上に
+git checkout -b docs/plan-phase3-j-closeout-clean chore/plan-tsc-carryover-clean
+git cherry-pick 8399caf8
+# ↑ 1 commit
+
+# Step 4: 本 addendum 自身の clean 版を closeout clean の上に
+git checkout -b docs/plan-phase3-j-pr-runbook-diff-safety-addendum-clean docs/plan-phase3-j-closeout-clean
+git cherry-pick <本 addendum commit SHA>
+
+# Step 5: 各 clean branch の new SHA を取得して decision-log に記録
+git log feat/plan-phase3-j6-clean origin/main --oneline   # 9 new SHAs
+git log chore/plan-tsc-carryover-clean feat/plan-phase3-j6-clean --oneline  # 2 new SHAs
+git log docs/plan-phase3-j-closeout-clean chore/plan-tsc-carryover-clean --oneline  # 1 new SHA
+git log docs/plan-phase3-j-pr-runbook-diff-safety-addendum-clean docs/plan-phase3-j-closeout-clean --oneline  # 1 new SHA
+
+# Step 6: clean branches を push、 PR は clean branch を base に作成
+git push -u origin feat/plan-phase3-j6-clean
+git push -u origin chore/plan-tsc-carryover-clean
+git push -u origin docs/plan-phase3-j-closeout-clean
+git push -u origin docs/plan-phase3-j-pr-runbook-diff-safety-addendum-clean
+# GitHub UI で PR を順次作成 (= 既存 §5 の template を使用、 branch 名だけ clean 版に変更)
+```
+
+**SHA tracking**:
+- **frozen branch SHA** (= 68d41d32 / bf25ec17 / 8399caf8 + 本 addendum SHA) → **歴史的記録**として decision-log に残す
+- **clean branch SHA** (= cherry-pick で生成された新 SHA) → **実 PR 着地**の SHA として decision-log に追記
+- 両者を **明示的に区別**
+
+**conflict 発生時**:
+- 通常は 0 になる想定 (= 中身は同じ)
+- もし conflict 発生 → **frozen branch は触らず CEO 判断**
+- conflict resolution を clean branch 上だけで行う
+
+### 8.6 push 前 STOP 条件 (= §8.3-§8.4 観測の結果による分岐ロック)
+
+以下のいずれかに該当する場合は **push 停止** + **CEO 判断**:
+
+| STOP 条件 | 発火源 |
+|---|---|
+| #2 three-dot が #1 two-dot より大きく乖離 (= 例 22 vs 155) | Scenario X 確定、 clean rebuild へ |
+| #9 sensitive file 検出 | Scenario W、 sensitive を含む branch は push しない |
+| #4 merge-base が予想外の SHA (= 例 b07eeab5 でなく更に古い) | 何かおかしい、 CEO 判断 |
+| #5 remote main HEAD が想定外 (= 例 main が削除されている) | catastrophe、 CEO 判断 |
+| `git fetch` 自体が error (= auth / network / GitHub down) | 復旧未完了、 CEO 再確認 |
+| #8 commit list が 9 件でない | J-6/J-7 範囲が想定と異なる、 確認必要 |
+
+→ いずれの STOP 条件でも **frozen branches 不触**、 **force push 禁止**、 **branch delete 禁止** を維持。
+
+### 8.7 frozen branch 不触原則 (= 再確認)
+
+clean rebuild に分岐したとしても以下は **不変**:
+
+- ❌ `feat/alter-plan-phase3-j6-tab-integration` への追加 commit / rebase / delete / force push
+- ❌ `chore/plan-proposalToAnchorInput-tsc-carryover` への追加 commit / rebase / delete / force push
+- ❌ `docs/plan-phase3-j-closeout` への追加 commit / rebase / delete / force push
+- ❌ `docs/plan-phase3-j-pr-runbook-diff-safety-addendum` (= 本 branch) への追加 commit (= 本 addendum commit 完了後は frozen 扱い)
+
+→ frozen branches は **歴史的記録** として保持。 clean rebuild は **新 branch で同 content を複製**するだけ。
+
+### 8.8 force push / reset / branch delete 禁止 (= 永続)
+
+GitHub 復旧後も以下は **永続禁止**:
+
+- ❌ `git push --force` (= 任意 branch 対象)
+- ❌ `git push --force-with-lease` (= 同上)
+- ❌ `git reset --hard` (= local でも禁止、 CLAUDE.md Rule 7)
+- ❌ `git restore .` / `git checkout .` (= 同上)
+- ❌ `git stash` / `git stash pop` / `git stash drop` (= CLAUDE.md Rule 7、 2026-04-01 事故由来)
+- ❌ `git branch -D <frozen branch>` (= delete 禁止、 CEO 永続制約)
+- ❌ `git clean -f` (= CLAUDE.md Rule 7)
+
+### 8.9 関連 docs (= 本 addendum との交差参照)
+
+- `docs/alter-plan-phase3-j-closeout-audit.md` — Phase 3-J 全 sub-phase 完了監査
+- `docs/alter-plan-phase3-j-deferred-smoke-ledger.md` — Real UI smoke deferred 5 項目
+- `docs/decision-log.md` — Diff Safety Addendum entry (= 本 addendum 着地時記録)
+- `CLAUDE.md` — Rule 7 (State Safety) + Rule 8 (Work-Start Verification)
+
+### 8.10 本 addendum 適用後の runbook 利用順
+
+GitHub 復旧後の正しい順序:
+
+1. CEO 復旧承認
+2. **§3 Phase 0** 実行 (= fetch + remote main 同期)
+3. **§8.3** 9 コマンド診断実行
+4. **§8.4** Scenario 判定 (= Z / X / Y / W)
+5. **§8.6** STOP 条件チェック
+6. 分岐:
+   - Z → **§3 Phase 1-3** をそのまま実行
+   - X → **§8.5** clean rebuild strategy 経由で **§3 Phase 1-3** を clean branch で実行
+   - Y → **CEO 別判断** (= 本 runbook scope 外)
+   - W → **CEO 判断**、 sensitive 整理
+7. **§3 Phase 4** 最終確認
+8. **§7** 完了判定
+
+---
+
