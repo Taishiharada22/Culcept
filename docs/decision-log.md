@@ -9000,3 +9000,120 @@ npx next dev --webpack
 - **ステータス**: L-4d-b1 完全 freeze 確定。 L 観測 layer の minimum 完成体到達。 486 tests PASS、 K regression 0、 全 freeze 維持。 34 frozen branches 計。 dev server 再起動を別 phase で実施、 次実装候補提示で停止。
 
 ---
+
+## 2026-05-22 [Build] L-4d-b2 実装着地 — FlowTab 7 day 全件 movement display 展開 (= 530 tests PASS、 CEO smoke 待ち) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4d-b1 closeout 後、 CEO + GPT が「Deploy Readiness Audit は判断ミス、 L-4d-b2 (= Flow 7 day 全件展開) に進む」 と訂正。 重要設計指示: **visible week anchors を集約 + dedupe、 1 系統の usePlanGeocode で resolve、 各 day timeline に override を配る**。
+
+### L-4d-b2 scope
+
+- FlowTab visible 7 days の anchors を **集約 + dedupe**
+- 既存 `usePlanGeocode` を **1 回だけ呼出** (= 7 day 全件 union を渡す)
+- 各 day timeline に `Map<isoDate, MovementDisplayView>` を配る
+- 新規 endpoint なし
+- PlanClient core 引き上げなし
+- CalendarTab は touch しない (= 引き続き selected day のみ)
+- L-4d-b3 (= 月 grid 全件) は引き続き NO
+
+### 設計判断 (= 自律推論)
+
+| 論点 | 採用案 | 根拠 |
+|---|---|---|
+| 7 day 全件 hook | **新 hook `useFlowWeekMovementDisplay`** | 既存 `useMapTabMovementDisplay` は 1 day 用、 7 day 用 logic 別途必要 |
+| pipeline 並列実行 | **`Promise.all`** | per-day isolation (= 1 day 失敗が他に伝搬しない) |
+| coords map | **week 共通 1 map** | bridge は 1 回、 各 day pipeline で再利用 |
+| anchor dedupe | **Set ID-based** | 同 anchor が複数 day に登場する可能性 (= recurring) を dedupe |
+| L-4d-b1 path 削除 | **YES** (= 旧 todayAnchors 系 3 var 削除) | b2 で 7 day 全件に発展、 b1 path は不要 |
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-4d-b2-flow-7day-expansion` (= `d313663d` 起点) |
+| commit | **`ad01e10c`** |
+| **L-4d-b2 wiring tests** | **43 PASS** (新規) |
+| **既存 test update** | 全件 PASS (= L-4d-b1 規約から L-4d-b2 規約に update) |
+| **総合 tests** | **530 PASS** (= 全 transport / K regression / integration) |
+| 変更 file | 5 (= 1 modify + 1 new lib + 1 new test + 2 test update) |
+| **PlanClient core 変更** | **0** |
+| **L-1〜L-4d-b1 既存 lib 変更** | **0** |
+| **既存 K phase 変更** | **0** |
+| **CalendarTab 変更** | **0** (= L-4d-b1 維持) |
+| **MapTab 変更** | **0** (= L-4d 維持) |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 endpoint / 新規 fetch | **0** |
+
+### 変更 file 群
+
+| File | 変更内容 |
+|---|---|
+| `app/(culcept)/plan/tabs/_useFlowWeekMovementDisplay.ts` (新規) | 7 day 並列 pipeline hook (= `Promise.all` + per-day isolation + cancelled flag) |
+| `app/(culcept)/plan/tabs/FlowTab.tsx` | useMapTabMovementDisplay import 削除 / useFlowWeekMovementDisplay import 追加 / L-4d-b1 today only 3 var 削除 / visibleWeekAnchors dedupe + week resolve / days.map で `movementDisplayByDay.get(iso)` を全 day に配る |
+| `tests/unit/plan/flowWeekMovementDisplayWiring.test.ts` (新規) | 43 tests — 新 hook / FlowTab 改修 / K-3c-iii / NG 文言 / PlanClient 無改変 / 新規 endpoint 0 / CalendarTab/MapTab 無変更 |
+| `tests/unit/plan/calendarFlowMovementDisplayWiring.test.ts` (update) | §2 FlowTab 規約を L-4d-b1 → L-4d-b2 に update |
+| `tests/unit/plan/mapTabMovementDisplayWiring.test.ts` (update) | §4b FlowTab 規約を update |
+
+### 危険境界遵守 (= 全件機械検証)
+
+| 境界 | 結果 |
+|---|---|
+| PlanClient core geocode state 化 | **0** (= §5) |
+| Calendar 月 grid 全件 geocode | **0** (= L-4d-b3 引き続き禁止) |
+| 新規 geocode endpoint 呼出 | **0** (= §6) |
+| 新規 fetch / network | **0** (= §6) |
+| runtime telemetry sink | **0** (= §2 hook) |
+| localStorage / Arrival Risk | **0** (= §2) |
+| amber / orange / red | **0** (= §3) |
+| L-4b NG 文言 | **0** (= §4) |
+| CalendarTab 改変 | **0** (= §7、 L-4d-b1 維持) |
+| MapTab 改変 | **0** (= §8、 L-4d 維持) |
+
+### 許容範囲 (= CEO 明示)
+
+- 既存 `usePlanGeocode` の **visible week anchors (= dedupe 後) batch 利用** → active geocode call 発生 (= 1 batch のみ)
+- 各 day pipeline 並列実行 (= 7 並列、 既存 4 layer の合成のみ)
+- per-user 100/hour rate limit 範囲内 (= 1 batch、 server dedupe あり)
+
+### 思想 transmission
+
+1. **「過剰 fetch を避ける」 vs 「全体観測」 のバランス** — week 全 anchors を 1 batch で resolve、 各 day は並列 pipeline (= 重複 0)
+2. **L-4d-b1 path は b2 で意図的に上書き** — 既存 freeze (= b1 着地時の today only) は b1 branch に残るが、 b2 branch 上で本 commit が新規約
+3. **CalendarTab / MapTab は touch しない** — 各 Tab の責務分離、 b1 / L-4d 維持
+4. **per-day isolation** — 1 day pipeline 失敗が他 6 day に伝搬しない (= Promise.all + catch、 EMPTY_DAY_DISPLAY fallback)
+5. **「new hook 名」 で意図明示** — `useFlowWeekMovementDisplay` (= 7 day 用)、 `useMapTabMovementDisplay` (= 1 day 用) を共存
+
+### CEO visual smoke 確認項目 (= 実装後の必須 step)
+
+| # | 観点 | 期待挙動 |
+|---|---|---|
+| 1 | FlowTab 7 day 全件で「移動 約 N 分」 表示 | resolved 時に各 day timeline で表示、 unresolved は「→ 移動」 |
+| 2 | empty day は compact 表示維持 | K-3c-iii の「予定なし · 06:00-23:00」 fallback 維持 |
+| 3 | sensitive proximity day | 「移動」 のみ表示 (= 二重防御維持) |
+| 4 | K-3c-iii 階層 2 維持 | slate-300 / italic / dashed、 amber/orange/red 0 |
+| 5 | 既存 anchor list / FAB / 詳細導線 / ALTER 提案 card | 完全維持 |
+| 6 | CalendarTab / MapTab | L-4d-b1 / L-4d 既存挙動完全維持 |
+
+### freeze 状態 (= CEO smoke 待ち)
+
+本 commit 着地と同時に `feat/alter-plan-phase3-l-4d-b2-flow-7day-expansion` を **frozen 扱い** (= 35 frozen branches 計)、 但し **CEO visual smoke 待ち**。 smoke PASS で完全 freeze 確定 + closeout audit。
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | preview smoke 結果 (= 6 観点全件 PASS か) |
+| Q2 | L-4d-b2 完全 freeze 確定 (= smoke PASS 後) |
+| Q3 | 次は L-4d-b2 closeout audit か、 L-4d-b3 (= Calendar 月 grid 全件) judgment か、 L-5 / L-4e / 別軸 pivot か |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4d-b3 (= Calendar 月 grid 全件) 実装 / PlanClient core geocode state 化 / 新規 geocode endpoint / runtime telemetry sink / Arrival Risk Memory / mode 表示 / distance 表示 / warning-recommendation-optimization 文言 / DB-env-package-dependency 変更 / localStorage / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4d-b1 closeout 後 「Deploy 撤回、 L-4d-b2 GO」 訂正指示)
+- **ステータス**: L-4d-b2 実装着地完了。 530 tests PASS、 K regression 0、 L-1〜L-4d-b1 freeze 全件維持、 PlanClient core / CalendarTab / MapTab 改変 0。 **CEO visual smoke 待ち**。 smoke PASS 後に完全 freeze 確定 + closeout audit。
+
+---
