@@ -8804,3 +8804,113 @@ L closeout overview (= `49303a05`) は厳密に「L-0 〜 L-4d MapTab-only compl
 - **ステータス**: L-4d-b readiness audit 着地。 補正 2 件永続規約化、 3 Option 比較、 段階分割提案、 反直感的提案 (= L-4d-b2/b3 着手しない選択肢) を整理。 32 frozen branches 計。 docs only で実装変更 0。 次は CEO 判断 (= L-4d-b1 着手 / 別軸 pivot / L-4d-b 全範囲不要判断 / L-5 readiness)。
 
 ---
+
+## 2026-05-22 [Build] L-4d-b1 実装着地 — Calendar selected day / Flow today (= 486 tests PASS、 CEO smoke 待ち) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4d-b readiness audit 後、 CEO + GPT 合議で「L-4d-b1 のみ GO、 L-4d-b2/b3 は NO、 visual smoke は実装後」 指示。 加えて重要補正:
+- 「fetch 追加なし」 とは書かない (= 既存 usePlanGeocode の限定利用は許容)
+- L-4d-b1 着手前 visual smoke ではなく、 **実装後** CEO smoke
+
+### L-4d-b1 scope (= 最小)
+
+- CalendarTab: **selected day detail のみ** 拡張
+- FlowTab: **today section のみ** 拡張 (= 7 day 全件は対象外)
+- 各 Tab で独立 `usePlanGeocode` (= 既存 hook) の限定 subset 利用
+- 既存 `useMapTabMovementDisplay` (= L-4d hook、 名前は MapTab 固有だが logic 汎用) を再利用
+- PlanClient core 改変 0
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-4d-b1-calendar-flow-selected-day` (= `aff146bb` 起点) |
+| commit | **`ea808877`** |
+| **L-4d-b1 wiring tests** | **43 PASS** (新規) |
+| **L-4d wiring update** | 47/47 PASS (= §4/§4b 規約 update 含む) |
+| **総合 tests** | **486 PASS** (= 全 transport / K regression / integration) |
+| K regression | 全件 PASS |
+| 変更 file | 4 (= 2 modify + 1 new + 1 update test) |
+| **PlanClient core 変更** | **0** |
+| **L-1〜L-4d 既存 lib 変更** | **0** |
+| **既存 K phase 変更** | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 endpoint / 新規 fetch | **0** |
+| **既存 endpoint の限定利用** | **OK** (= CEO 許容範囲、 selected day / today subset のみ) |
+
+### 変更 file 群
+
+| File | 変更 |
+|---|---|
+| `app/(culcept)/plan/tabs/CalendarTab.tsx` | + import 2 行 / + hook 呼出 + selectedDayAnchors 限定 / + DayGraphTimeline prop 渡し |
+| `app/(culcept)/plan/tabs/FlowTab.tsx` | + import 3 行 / + today hook 呼出 / + FlowDaySection に optional prop drilling / + isToday 判定で他 6 day は undefined |
+| `tests/unit/plan/calendarFlowMovementDisplayWiring.test.ts` (新規) | 43 tests — 限定 subset / prop 渡し / PlanClient 無改変 / NG 文言 / localStorage 0 / fetch 0 |
+| `tests/unit/plan/mapTabMovementDisplayWiring.test.ts` (update) | §4/§4b を L-4d-b1 着地後の規約に変更 (= MapTab-only ではなく Calendar/Flow も import 許可) |
+
+### 表示置換規約 (= MapTab L-4d と同)
+
+- unresolved → 「→ 移動」 (= K view fallback と同形)
+- sensitive / location_unknown → 「移動」
+- duration_only → 「移動 約 N 分」
+
+### 危険境界遵守 (= 全件触れていない)
+
+| 境界 | 結果 |
+|---|---|
+| PlanClient core geocode state 化 | **0** (= 機械検証 §5) |
+| Flow 7 day 全件 geocode | **0** (= todayAnchors 限定、 §2) |
+| Calendar 月 grid 全件 geocode | **0** (= selectedDayAnchors 限定、 §1) |
+| 新規 geocode endpoint 呼出 | **0** (= §6) |
+| 新規 fetch / network | **0** (= §6) |
+| runtime telemetry sink | **0** (= §7) |
+| localStorage / sessionStorage / IndexedDB | **0** (= §7) |
+| Arrival Risk Memory | **0** (= §7) |
+| amber / orange / red | **0** (= §3) |
+| L-4b NG 文言 | **0** (= §4) |
+
+### 許容範囲 (= CEO 補正で明示)
+
+- 既存 `usePlanGeocode` (= Phase 2-C) の selected day / today subset 利用 → **active geocode call は発生**
+- per-user 100/hour rate limit 範囲内 (= 各 Tab で 1 batch のみ、 server dedupe あり)
+
+### freeze 状態 (= CEO smoke 待ち)
+
+本 commit 着地と同時に `feat/alter-plan-phase3-l-4d-b1-calendar-flow-selected-day` を **frozen 扱い** (= 33 frozen branches 計)、 但し **CEO visual smoke 待ち**。 smoke PASS で完全 freeze 確定。
+
+### CEO visual smoke 確認項目
+
+| # | 観点 | 期待挙動 |
+|---|---|---|
+| 1 | CalendarTab で日付選択 → 選択日 detail | 「1 日の構造」 セクションで「移動 約 N 分」 表示 (= resolved 時)、 K-3c-iii 階調維持 |
+| 2 | CalendarTab 月 grid | 月 grid cell には移動時間表示なし (= 既存挙動維持) |
+| 3 | FlowTab today section | 「→ 移動」 → 「移動 約 N 分」 置換 (= resolved 時) |
+| 4 | FlowTab 他 6 day section | 「→ 移動」 のまま (= K view fallback 維持) |
+| 5 | 既存 anchor list / FAB / 詳細導線 | 完全維持 (= 崩れなし) |
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | preview smoke 結果 (= 5 観点全件 PASS か) |
+| Q2 | L-4d-b1 完全 freeze 確定 (= smoke PASS 後) |
+| Q3 | 次は L-4d-b1 closeout audit か、 別軸 pivot か |
+| Q4 | L-4d-b2 / b3 は引き続き NO 推奨 (= 反直感的提案維持) |
+
+### 思想 transmission
+
+1. **CEO smoke は実装後** — 「実装前 smoke」 は不可 (= 見るものがない)
+2. **「fetch 追加なし」 は不正確** — 既存 endpoint の限定利用は許容、 新規 endpoint は禁止
+3. **段階的拡張は安全策** — 全展開せず、 selected day / today から
+4. **既存 hook 名は固定** — frozen file の rename はしない、 import するだけ
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4d-b2 (= Flow 7 day 全件) / L-4d-b3 (= Calendar 月 grid 全件) の着手 / PlanClient core geocode state 化 / 新規 geocode endpoint / runtime telemetry sink / localStorage / Arrival Risk Memory / warning-recommendation-optimization 文言 / mode 表示 / distance 表示 / DB-env-package-dependency 変更 / frozen branches への commit / fetch-push-gh / reset-restore-stash-branch delete
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4d-b audit 着地後 「L-4d-b1 GO、 b2/b3 NO、 smoke は実装後」 指示)
+- **ステータス**: L-4d-b1 実装着地完了。 486 tests PASS、 K regression 0、 L-1〜L-4d freeze 全件維持、 PlanClient core 改変 0。 **CEO visual smoke 待ち**。 smoke PASS 後に完全 freeze 確定 + closeout audit。
+
+---
