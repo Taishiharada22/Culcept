@@ -23,7 +23,9 @@
  *      undefined なら **構造的に skip** (= 空 manual provider が常勝しない)。
  *   2. **Missing coords は unresolved** (= 補正 2): caller が coords を渡さなければ provider 内 guard で unresolved。
  *      cascade は geocode を呼ばない (= L-3 範囲外)。
- *   3. **sensitiveProximity は unresolved** (= 補正 3): sensitive_both privacy class は early-exit で unresolved 確定、
+ *   3. **sensitive (= adjacent / both 両方) は unresolved** (= 補正 3 + L-3c post-audit 強化):
+ *      `sensitive_both` **および** `sensitive_adjacent` の両方を early-exit で unresolved 確定。
+ *      片側 sensitive でも duration / mode を resolve しない (= privacy-first、 「移動」 以上の情報を出さない)。
  *      heuristic / routes_api を呼ばない。
  *   4. **mutation なし**: cascade は input を mutate せず、 新 object を返す。
  *   5. **PII 含まない**: trace / result に raw title / locationText を含めない。 provider id 列のみ。
@@ -266,8 +268,13 @@ export async function runCascade(
   // (1) Early-exit gate
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  // 補正 3: sensitive_both は provider を呼ばずに unresolved
-  if (input.resolution.privacyClass === "sensitive_both") {
+  // 補正 3 + L-3c post-audit 強化:
+  // `sensitive_both` **および** `sensitive_adjacent` の両方を provider を呼ばずに unresolved。
+  // 片側 sensitive でも duration / mode を resolve しない (= privacy-first、 「移動」 以上の情報を出さない)。
+  if (
+    input.resolution.privacyClass === "sensitive_both" ||
+    input.resolution.privacyClass === "sensitive_adjacent"
+  ) {
     return {
       ok: false,
       reason: "sensitive_proximity",

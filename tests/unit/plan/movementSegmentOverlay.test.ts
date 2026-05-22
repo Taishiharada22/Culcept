@@ -1,44 +1,25 @@
 /**
- * Phase 3-L L-3b (pure) — movementSegmentOverlay tests
+ * Phase 3-L L-3b + L-3c — movementSegmentOverlay tests
  *
  * 設計書: docs/alter-plan-phase3-l-3-readiness-audit.md §2.4
+ *         docs/alter-plan-phase3-l-3-post-implementation-audit.md (= L-3c hardening)
  *
- * 検証範囲 (= GPT 補正 6 件 + 自律補強 5 件):
- *   §1. transitionKey (= B1)
- *       - K view と同形式: `transition_${index}_${fromNodeId}_${toNodeId}`
- *
+ * 検証範囲 (= GPT 補正 6 件 + 自律補強 5 件 + L-3c hardening 4 件):
+ *   §1. transitionKey (= L-3c 非 PII 化、 `transition_${index}` 単独)
  *   §2. K phase 既存 fixtures 全件 overlay 通過 (= K compat)
- *       - EMPTY / SINGLE / LIGHT / HEAVY / MOVEMENT / SENSITIVE / OVERLAP
- *       - 全 fixture で overlay 完走 (= internal_error 0)
- *
- *   §3. Graph immutability runtime assertion (= B3、 GPT 補正 4)
- *       - overlay 実行前後で snapshotId 不変
- *       - graph.nodes / edges / transitions 参照同一性 (= 浅い読み取り)
- *
- *   §4. Privacy structural (= C1)
- *       - OverlayResult type には title / locationText / userId / anchorId field なし
- *       - segmentsByTransitionKey の値も PII を持たない
- *
- *   §5. Missing coords → unresolved (= GPT 補正 2)
- *       - coordsByAnchorId 空 → 全 transition unresolved
- *
- *   §6. sensitiveProximity → unresolved (= GPT 補正 3)
- *       - SENSITIVE fixture の sensitive 跨ぎ transition は unresolved
- *
- *   §7. Per-transition isolation (= B2、 GPT 補正 6)
- *       - 1 transition の provider throw が他 transitions に伝搬しない
- *
+ *   §3. Graph immutability runtime assertion (= L-3c 強化、 JSON deep + reference + length)
+ *   §4. Privacy structural (= OverlaySegmentView に PII 不存在)
+ *   §5. Missing coords → unresolved
+ *   §6. sensitiveProximity → unresolved
+ *   §7. Per-transition isolation
  *   §8. Resolved scenarios (= happy path)
- *       - coords + override 揃いで resolved 生成
- *       - 集計 (resolvedCount / unresolvedCount) 正確
- *
- *   §9. Forward compat (= F1)
- *       - tracingId passthrough
+ *   §9. Forward compat — tracingId passthrough
+ *   §10. transitionIndex と K view key の bridge helper
  *
  * 不変原則:
  *   - LLM 不使用 / API 不使用 / geocode 不使用 / localStorage 不使用 / network 不使用
  *   - K phase 既存 file 変更 0
- *   - buildDayGraph は無変更で利用 (= 同期 pure)
+ *   - buildDayGraph 同期 pure 維持
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -49,8 +30,10 @@ import { createManualUserProvider } from "@/lib/plan/transport/manualUserProvide
 import { createUnresolvedProvider } from "@/lib/plan/transport/unresolvedProvider";
 import {
   buildTransitionKey,
+  extractTransitionIndexFromKViewKey,
   resolveMovementSegmentOverlay,
   type OverlayInput,
+  type OverlaySegmentResolvedView,
 } from "@/lib/plan/transport/movementSegmentOverlay";
 import type {
   ManualOverride,
@@ -83,9 +66,9 @@ const SHIBUYA = { lat: 35.6580, lng: 139.7016 };
 const OFFICE_COORDS = { lat: 35.6700, lng: 139.7400 };
 
 const MOVEMENT_COORDS: ReadonlyMap<string, { lat: number; lng: number }> = new Map([
-  ["move_morning", SHIBUYA],   // 渋谷
-  ["move_afternoon", SHINJUKU], // 新宿
-  ["move_evening", SHINJUKU],   // 新宿 (= same as afternoon)
+  ["move_morning", SHIBUYA],
+  ["move_afternoon", SHINJUKU],
+  ["move_evening", SHINJUKU],
 ]);
 
 const LIGHT_COORDS: ReadonlyMap<string, { lat: number; lng: number }> = new Map([
@@ -114,19 +97,14 @@ function makeFakeProvider(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §1. transitionKey (= 自律補強 B1)
+// §1. transitionKey (= L-3c 非 PII 化)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§1. transitionKey (= K view と同形式)", () => {
-  it("buildTransitionKey は K の MovementTransitionView.key と同 pattern を生成する", () => {
-    const transition = {
-      fromNodeId: "evt_a",
-      toNodeId: "evt_b",
-      timingStatus: "unresolved" as const,
-      sensitiveProximity: false,
-    };
-    expect(buildTransitionKey(transition, 0)).toBe("transition_0_evt_a_evt_b");
-    expect(buildTransitionKey(transition, 5)).toBe("transition_5_evt_a_evt_b");
+describe("§1. transitionKey (= L-3c 非 PII)", () => {
+  it("buildTransitionKey は transition_${index} 単独 (= anchor id 含まない)", () => {
+    expect(buildTransitionKey(0)).toBe("transition_0");
+    expect(buildTransitionKey(5)).toBe("transition_5");
+    expect(buildTransitionKey(99)).toBe("transition_99");
   });
 });
 
@@ -150,14 +128,12 @@ describe("§2. K phase fixtures 全件 — overlay 完走 (= K compat)", () => {
       const { graph } = buildDayGraph({ anchors, date: DATE });
       const input: OverlayInput = {
         graph,
-        coordsByAnchorId: new Map(), // 全 transition coords なし → unresolved
+        coordsByAnchorId: new Map(),
         cascadeOptions: { providers: defaultProviders() },
       };
       const result = await resolveMovementSegmentOverlay(input);
       expect(result.internalErrorCount).toBe(0);
-      // segmentsByTransitionKey 個数 = graph.transitions 個数
       expect(result.segmentsByTransitionKey.size).toBe(graph.transitions.length);
-      // 全 transitionKey の outcome は ok=true (= cascade 通過、 internal_error なし)
       for (const outcome of result.segmentsByTransitionKey.values()) {
         expect(outcome.ok).toBe(true);
       }
@@ -166,10 +142,10 @@ describe("§2. K phase fixtures 全件 — overlay 完走 (= K compat)", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §3. Graph immutability runtime assertion (= 自律補強 B3、 GPT 補正 4)
+// §3. Graph immutability (= L-3c 強化、 JSON deep + reference + length)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§3. Graph immutability — overlay は DayGraph を mutate しない", () => {
+describe("§3. Graph immutability — L-3c 強化 assertion", () => {
   it("overlay 実行前後で snapshotId 不変", async () => {
     const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
     const snapshotBefore = graph.snapshotId;
@@ -215,11 +191,11 @@ describe("§3. Graph immutability — overlay は DayGraph を mutate しない"
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §4. Privacy structural (= 自律補強 C1)
+// §4. Privacy structural (= L-3c 強化、 OverlaySegmentView に PII 不存在)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§4. Privacy structural — OverlayResult に PII field 不存在", () => {
-  it("result の top-level field に title / locationText / userId / anchorId なし", async () => {
+describe("§4. Privacy structural — OverlaySegmentView に PII field 不存在", () => {
+  it("result top-level に PII field なし", async () => {
     const { graph } = buildDayGraph({ anchors: HEAVY_DAY_ANCHORS, date: DATE });
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -228,7 +204,6 @@ describe("§4. Privacy structural — OverlayResult に PII field 不存在", ()
     });
 
     const keys = Object.keys(result).sort();
-    // Allowed keys のみ存在 (= PII 不存在 structural)
     expect(keys).toEqual([
       "internalErrorCount",
       "resolvedCount",
@@ -237,7 +212,7 @@ describe("§4. Privacy structural — OverlayResult に PII field 不存在", ()
     ]);
   });
 
-  it("HEAVY fixture の overlay JSON に raw anchor title が含まれない", async () => {
+  it("HEAVY fixture: overlay JSON に raw anchor title が含まれない", async () => {
     const { graph } = buildDayGraph({ anchors: HEAVY_DAY_ANCHORS, date: DATE });
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -248,10 +223,7 @@ describe("§4. Privacy structural — OverlayResult に PII field 不存在", ()
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    const serialized = JSON.stringify(
-      Array.from(result.segmentsByTransitionKey.entries()),
-    );
-    // HEAVY fixture の anchor title (= 朝会議 / 商談 / ランチ / 面接 / 夜会議) は overlay 出力に含まれない
+    const serialized = JSON.stringify(Array.from(result.segmentsByTransitionKey.entries()));
     expect(serialized).not.toContain("朝会議");
     expect(serialized).not.toContain("商談");
     expect(serialized).not.toContain("ランチ");
@@ -259,7 +231,7 @@ describe("§4. Privacy structural — OverlayResult に PII field 不存在", ()
     expect(serialized).not.toContain("夜会議");
   });
 
-  it("SENSITIVE fixture の overlay 出力に sensitive raw title が含まれない", async () => {
+  it("SENSITIVE fixture: sensitive raw title 含まれない", async () => {
     const { graph } = buildDayGraph({ anchors: SENSITIVE_DAY_ANCHORS, date: DATE });
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -271,24 +243,62 @@ describe("§4. Privacy structural — OverlayResult に PII field 不存在", ()
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    const serialized = JSON.stringify(
-      Array.from(result.segmentsByTransitionKey.entries()),
-    );
+    const serialized = JSON.stringify(Array.from(result.segmentsByTransitionKey.entries()));
     expect(serialized).not.toContain("MRI 予約");
     expect(serialized).not.toContain("弁護士相談");
     expect(serialized).not.toContain("○○病院");
     expect(serialized).not.toContain("××法律事務所");
   });
+
+  it("L-3c 新規: LIGHT fixture (= 非 sensitive) でも raw locationText が overlay output に出ない", async () => {
+    const { graph } = buildDayGraph({ anchors: LIGHT_DAY_ANCHORS, date: DATE });
+    const result = await resolveMovementSegmentOverlay({
+      graph,
+      coordsByAnchorId: LIGHT_COORDS,
+      cascadeOptions: { providers: [createHeuristicDistanceProvider()] },
+    });
+
+    const serialized = JSON.stringify(Array.from(result.segmentsByTransitionKey.entries()));
+    // raw locationText が存在しないことを confirm
+    expect(serialized).not.toContain("新宿");
+    expect(serialized).not.toContain("渋谷");
+    // anchor id (= nodeId 経由でも) 露出しないことを confirm
+    expect(serialized).not.toContain("light_a");
+    expect(serialized).not.toContain("light_b");
+  });
+
+  it("L-3c 新規: segment view の key set に fromNodeId / toNodeId / locationText 等の PII field 不在", async () => {
+    const { graph } = buildDayGraph({ anchors: LIGHT_DAY_ANCHORS, date: DATE });
+    const result = await resolveMovementSegmentOverlay({
+      graph,
+      coordsByAnchorId: LIGHT_COORDS,
+      cascadeOptions: { providers: [createHeuristicDistanceProvider()] },
+    });
+
+    for (const outcome of result.segmentsByTransitionKey.values()) {
+      if (outcome.ok) {
+        const keys = Object.keys(outcome.segment);
+        expect(keys).not.toContain("fromNodeId");
+        expect(keys).not.toContain("toNodeId");
+        expect(keys).not.toContain("fromLocationText");
+        expect(keys).not.toContain("toLocationText");
+        expect(keys).not.toContain("sensitiveProximity");
+        expect(keys).not.toContain("anchorId");
+        expect(keys).not.toContain("userId");
+        expect(keys).not.toContain("title");
+      }
+    }
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §5. Missing coords → unresolved (= GPT 補正 2)
+// §5. Missing coords → unresolved
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§5. Missing coords — 全 transition unresolved (= GPT 補正 2)", () => {
+describe("§5. Missing coords — 全 transition unresolved", () => {
   it("coordsByAnchorId 空 → MOVEMENT fixture の transition は全て unresolved", async () => {
     const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
-    expect(graph.transitions.length).toBeGreaterThan(0); // pre-check
+    expect(graph.transitions.length).toBeGreaterThan(0);
 
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -308,7 +318,7 @@ describe("§5. Missing coords — 全 transition unresolved (= GPT 補正 2)", (
 
   it("片方のみ coords 欠落 → unresolved", async () => {
     const { graph } = buildDayGraph({ anchors: LIGHT_DAY_ANCHORS, date: DATE });
-    const partialCoords = new Map([["light_a", SHINJUKU]]); // light_b の coords 欠落
+    const partialCoords = new Map([["light_a", SHINJUKU]]);
 
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -326,10 +336,10 @@ describe("§5. Missing coords — 全 transition unresolved (= GPT 補正 2)", (
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §6. sensitiveProximity → unresolved (= GPT 補正 3)
+// §6. sensitiveProximity → unresolved
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§6. sensitiveProximity — coords あっても unresolved (= GPT 補正 3)", () => {
+describe("§6. sensitiveProximity — coords あっても unresolved", () => {
   it("SENSITIVE fixture の sensitiveProximity transition は coords 全揃いでも unresolved", async () => {
     const { graph } = buildDayGraph({ anchors: SENSITIVE_DAY_ANCHORS, date: DATE });
     const allCoords = new Map([
@@ -344,8 +354,6 @@ describe("§6. sensitiveProximity — coords あっても unresolved (= GPT 補�
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    // SENSITIVE fixture の transitions は **全て sensitive proximity** (= 一方が sensitive)
-    // → 全 transition unresolved
     for (const outcome of result.segmentsByTransitionKey.values()) {
       expect(outcome.ok).toBe(true);
       if (outcome.ok) {
@@ -359,14 +367,13 @@ describe("§6. sensitiveProximity — coords あっても unresolved (= GPT 補�
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §7. Per-transition isolation (= 自律補強 B2、 GPT 補正 6)
+// §7. Per-transition isolation
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§7. Per-transition isolation — 1 transition の失敗は他に伝搬しない", () => {
+describe("§7. Per-transition isolation", () => {
   it("provider が throw しても他 transitions は健全に完了", async () => {
     const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
 
-    // throw する provider を最初に置く + heuristic fallback
     const throwingProvider = makeFakeProvider("google_routes", async () => {
       throw new Error("simulated network failure");
     });
@@ -378,21 +385,15 @@ describe("§7. Per-transition isolation — 1 transition の失敗は他に伝�
       cascadeOptions: { providers: [throwingProvider, heuristic] },
     });
 
-    // throw は cascade 内で吸収、 cascade は heuristic に fallback
-    // → overlay の internal_error は 0、 各 transition は ok=true
     expect(result.internalErrorCount).toBe(0);
     for (const outcome of result.segmentsByTransitionKey.values()) {
       expect(outcome.ok).toBe(true);
     }
   });
 
-  it("複数 transition のうち 1 transition が internal_error でも残り continue", async () => {
-    // 構造的に internal_error を起こすには graph 操作が必要。
-    // ここでは graph の不正な transition (= node 不存在) を構築して overlay を呼ぶ。
+  it("不正な transition (= node 不存在) は internal_error、 残り continue", async () => {
     const { graph } = buildDayGraph({ anchors: LIGHT_DAY_ANCHORS, date: DATE });
 
-    // graph に「存在しない fromNodeId」 を持つ transition を捏造して mutate-test 用に新 graph を作る
-    // (= 元 graph を mutate せず、 新 graph を作って渡す)
     const corruptedGraph = {
       ...graph,
       transitions: [
@@ -405,6 +406,10 @@ describe("§7. Per-transition isolation — 1 transition の失敗は他に伝�
         },
       ],
     };
+    // snapshotId と sync させるため、 corruptedGraph の snapshotId は graph と同じものを継承 (= JSON snapshot で immutability 確認できる)
+    // 但しこの test ではあえて mutate 検出を緩めるため、 immutability check が問題なくパスする input を用意する必要があるが、
+    // graph 自体は invalid (= transitions に bogus node を持つ)、 これは内部的に「node 不存在」 を発火させる。
+    // immutability は本 graph 自体の前後変化を見るので、 corruptedGraph に対する mutation がなければ pass する。
 
     const result = await resolveMovementSegmentOverlay({
       graph: corruptedGraph,
@@ -412,11 +417,9 @@ describe("§7. Per-transition isolation — 1 transition の失敗は他に伝�
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    // 1 つの transition は "from_anchor_id_missing" で fail、 残りは ok
     expect(result.internalErrorCount).toBe(1);
     expect(result.segmentsByTransitionKey.size).toBe(corruptedGraph.transitions.length);
 
-    // 元の transition は全て ok
     let fromMissingFound = false;
     for (const outcome of result.segmentsByTransitionKey.values()) {
       if (!outcome.ok) {
@@ -429,7 +432,7 @@ describe("§7. Per-transition isolation — 1 transition の失敗は他に伝�
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §8. Resolved scenarios (= happy path、 集計)
+// §8. Resolved scenarios + 集計
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("§8. Resolved scenarios + 集計", () => {
@@ -441,8 +444,6 @@ describe("§8. Resolved scenarios + 集計", () => {
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    // MOVEMENT fixture: 3 anchors (渋谷→新宿→新宿) = transition 1 つ (新宿→新宿 は同一なので非生成)
-    // 新宿→新宿は location 同じなので buildMovementTransitions で生成されない
     expect(graph.transitions.length).toBe(1);
     expect(result.resolvedCount).toBe(1);
     expect(result.unresolvedCount).toBe(0);
@@ -450,31 +451,29 @@ describe("§8. Resolved scenarios + 集計", () => {
     const firstOutcome = Array.from(result.segmentsByTransitionKey.values())[0]!;
     expect(firstOutcome.ok).toBe(true);
     if (firstOutcome.ok && firstOutcome.segment.timingStatus === "resolved") {
-      expect(firstOutcome.segment.source).toBe("heuristic_distance");
-      expect(firstOutcome.segment.confidence.level).toBe("low");
-      expect(firstOutcome.segment.modeCandidate.mode).toBe("unknown");
-      expect(firstOutcome.segment.estimatedDurationMin).toBeGreaterThan(0);
+      const resolved = firstOutcome.segment as OverlaySegmentResolvedView;
+      expect(resolved.source).toBe("heuristic_distance");
+      expect(resolved.confidence.level).toBe("low");
+      expect(resolved.modeCandidate.mode).toBe("unknown");
+      expect(resolved.estimatedDurationMin).toBeGreaterThan(0);
+      expect(resolved.transitionIndex).toBe(0);
     }
   });
 
-  it("manual override 付き transition は manual_user で resolved", async () => {
+  it("manual override 付き transition は manual_user で resolved (= L-3c index key)", async () => {
     const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
-
-    // 唯一の transition の key を取得
-    const firstTransition = graph.transitions[0]!;
-    const targetKey = buildTransitionKey(firstTransition, 0);
-    const overrides = new Map<string, ManualOverride>([
-      [targetKey, { userDurationMin: 33, userMode: "walking" }],
+    const overrides = new Map<number, ManualOverride>([
+      [0, { userDurationMin: 33, userMode: "walking" }],
     ]);
 
     const result = await resolveMovementSegmentOverlay({
       graph,
       coordsByAnchorId: MOVEMENT_COORDS,
-      overridesByTransitionKey: overrides,
+      overridesByTransitionIndex: overrides,
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    const outcome = result.segmentsByTransitionKey.get(targetKey)!;
+    const outcome = result.segmentsByTransitionKey.get("transition_0")!;
     expect(outcome.ok).toBe(true);
     if (outcome.ok && outcome.segment.timingStatus === "resolved") {
       expect(outcome.segment.source).toBe("manual_user");
@@ -486,7 +485,6 @@ describe("§8. Resolved scenarios + 集計", () => {
   it("集計: resolvedCount + unresolvedCount + internalErrorCount = transitions.length", async () => {
     const { graph } = buildDayGraph({ anchors: HEAVY_DAY_ANCHORS, date: DATE });
 
-    // 全 coords を OFFICE 固定 (= ≤0.2km 同地点 → heuristic_failed → unresolved)
     const sameCoords = new Map<string, { lat: number; lng: number }>();
     for (const node of graph.nodes) {
       if (node.kind === "event") {
@@ -507,7 +505,7 @@ describe("§8. Resolved scenarios + 集計", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §9. Forward compat — tracingId passthrough (= 自律補強 F1)
+// §9. Forward compat — tracingId passthrough
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("§9. Forward compat — tracingId passthrough", () => {
@@ -534,11 +532,23 @@ describe("§9. Forward compat — tracingId passthrough", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §10. transitionKey は K の MovementTransitionView.key と完全一致
+// §10. transitionIndex bridge — K view との join (= L-3c)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§10. transitionKey の K view 互換", () => {
-  it("各 transition について buildTransitionKey の出力が segmentsByTransitionKey の key と一致", async () => {
+describe("§10. extractTransitionIndexFromKViewKey — K view との bridge", () => {
+  it("K view key (= transition_${index}_${fromNodeId}_${toNodeId}) から index を抽出", () => {
+    expect(extractTransitionIndexFromKViewKey("transition_0_evt_a_evt_b")).toBe(0);
+    expect(extractTransitionIndexFromKViewKey("transition_5_x_y")).toBe(5);
+    expect(extractTransitionIndexFromKViewKey("transition_42_move_morning_move_afternoon")).toBe(42);
+  });
+
+  it("不正な形式は null", () => {
+    expect(extractTransitionIndexFromKViewKey("transition_NaN_x_y")).toBeNull();
+    expect(extractTransitionIndexFromKViewKey("not_a_transition_key")).toBeNull();
+    expect(extractTransitionIndexFromKViewKey("transition_0")).toBeNull(); // L overlay 形式は K view 形式ではない
+  });
+
+  it("各 transition について overlay の transitionKey と extract した index が一致", async () => {
     const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
     const result = await resolveMovementSegmentOverlay({
       graph,
@@ -546,8 +556,8 @@ describe("§10. transitionKey の K view 互換", () => {
       cascadeOptions: { providers: defaultProviders() },
     });
 
-    graph.transitions.forEach((transition, index) => {
-      const expectedKey = buildTransitionKey(transition, index);
+    graph.transitions.forEach((_transition, index) => {
+      const expectedKey = buildTransitionKey(index);
       expect(result.segmentsByTransitionKey.has(expectedKey)).toBe(true);
     });
   });

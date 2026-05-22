@@ -122,6 +122,39 @@ function makeFakeProvider(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("§1. Early-exit gates", () => {
+  // L-3c hardening: sensitive_adjacent も early-exit に追加
+  it("sensitive_adjacent → unresolved 'sensitive_proximity', no provider called (= L-3c 強化)", async () => {
+    const heuristicSpy = vi.fn(async (): Promise<MovementResolutionResult> => ({
+      ok: true,
+      segment: {
+        fromNodeId: "x",
+        toNodeId: "y",
+        sensitiveProximity: false,
+        timingStatus: "resolved",
+        estimatedDurationMin: 10,
+        modeCandidate: { mode: "unknown", confidence: { level: "low", reason: "heuristic_distance_only" } },
+        source: "heuristic_distance",
+        confidence: { level: "low", reason: "heuristic_distance_only" },
+        privacyClass: "normal",
+      },
+    }));
+    const fakeHeuristic = makeFakeProvider("heuristic_distance", heuristicSpy);
+
+    const result = await runCascade(
+      makeInput({ resolution: { privacyClass: "sensitive_adjacent", fromCoords: TOKYO, toCoords: SHINJUKU } }),
+      { providers: [fakeHeuristic] },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("sensitive_proximity");
+      expect(result.trace.earlyExitReason).toBe("sensitive_proximity");
+      expect(result.trace.attemptedProviders).toEqual([]);
+      expect(result.trace.decidedBy).toBe("none");
+    }
+    expect(heuristicSpy).not.toHaveBeenCalled();
+  });
+
   it("sensitive_both → unresolved 'sensitive_proximity', no provider called", async () => {
     const heuristicSpy = vi.fn(async (): Promise<MovementResolutionResult> => ({
       ok: true,

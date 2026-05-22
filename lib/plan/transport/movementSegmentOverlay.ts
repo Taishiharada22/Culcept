@@ -1,5 +1,5 @@
 /**
- * Phase 3-L-3b (pure) — MovementSegment Overlay Layer
+ * Phase 3-L-3b + L-3c (pure) — MovementSegment Overlay Layer
  *
  * 役割 (= K の「computed projection」 に対する「現実の影」):
  *   K phase の DayGraph は「ユーザーが宣言した時間構造」、
@@ -8,42 +8,47 @@
  *   `buildDayGraph` の出力 (= DayGraph + MovementTransition[]) と、 caller が用意した
  *   `coordsByAnchorId` map + `overridesByTransitionKey` map を入力に、
  *   各 transition を cascade orchestrator で resolve し、
- *   `segmentsByTransitionKey` map を返す。
+ *   PII-sanitize 済の `segmentsByTransitionKey` map を返す。
  *
  * 思想 (= Mobility Truth Layer):
  *   - 移動が確定したか / されていないかを **観測** する layer
  *   - K の computed projection 純度を一切破壊しない
  *   - 「→ 移動」 は K のまま、 overlay は「移動 約 30 分」 等の view 層 (= L-4+) に渡る素材を提供するだけ
+ *   - **Privacy is structural** — overlay 出力に nodeId / locationText / title 等の PII を **持てない**
  *
- * GPT 補正 6 件 + 自律補強 5 件 全反映:
+ * L-3b 設計 (= 初版、 2026-05-22):
+ *   - GPT 補正 6 件全反映
+ *   - 自律補強 5 件 (= A / B1 / B3 / C1 / F1)
  *
- *   GPT 補正:
- *   1. manual_user は明示 override input がある transition のみ試行 (= cascade 内構造)
- *   2. missing coords → unresolved (= caller が coords を渡さなければ self-resolve しない)
- *   3. sensitiveProximity → unresolved (= privacy_class 判定で確定)
- *   4. **overlay は DayGraph を mutate しない** (= snapshotId 不変 assertion で機械保証)
- *   5. transitionKey に raw title / locationText を含めない (= node id + index、 既存 K view と同形式)
- *   6. provider exception は transition 単位で吸収 (= Promise.allSettled で構造的解決)
+ * L-3c post-audit hardening (= 2026-05-22 PM、 4 critical 実害修正):
+ *   1A. **mutation guard 強化** — snapshotId 比較 → JSON.stringify snapshot 比較
+ *       (= computeSnapshotId は anchor 集合から計算するため、 graph 内部 mutate 検出不能だった)
+ *   1B. 配列長 + 第一要素 reference 同一性 早期検出
+ *   2A. **transitionKey を非 PII 化** — `transition_${index}` 単独 (= EventNode.id === anchor.id だったため anchor id 漏洩していた)
+ *   3A. **cascade で sensitive_adjacent も early-exit** (= cascade 側で対応済、 overlay default 計算も整合)
+ *   6A. **overlay 出力で nodeId / locationText を強制 sanitize** — 新型 `OverlaySegmentView` 導入
+ *       (= MovementSegment は L-1 で raw locationText を持てる構造、 L-3c は overlay layer で sanitize)
  *
- *   自律補強 (= GPT 案を超える人間超越設計):
- *   B1. transitionKey deterministic 生成 (= K phase `MovementTransitionView.key` と同形式、 join 可能)
- *   B2. per-transition isolation (= Promise.allSettled、 1 失敗で overlay 全体落とさない)
- *   B3. **graph immutability runtime assertion** (= snapshotId 不変 check、 mutation 検出)
- *   C1. Privacy structural: result type に title / locationText / userId field を **持てない**
- *   F1. Forward compat: tracingId opaque field、 unresolvedCount 集計 (= L-4+ UI 用素材)
+ *   追加条件 (= CEO 2026-05-22 PM 指示):
+ *   - result / warnings / traces に **nodeId を出さない** (= anchor id 相当)
+ *   - transitionIndex は OK
+ *   - transitionKey は `transition_${index}` のみ
+ *   - fromNodeId / toNodeId は **内部処理のみで使い、 overlay output には出さない**
+ *   - sanitize 済 segment を返す前に **privacy assertion** をかける
  *
- * L-3b-pure scope:
+ * L-3c scope:
  *   - LLM 不使用 / API 不使用 / geocode 不使用 / localStorage 不使用
  *   - DB / env / package / dependency 変更 0
  *   - UI 変更 0
- *   - K phase 既存 file 変更 0 (= 純追加)
- *   - DayGraph mutation 一切なし (= 受け取った graph は無傷で返さない)
+ *   - K phase 既存 file 変更 0
+ *   - L-1 type 変更 0 (= freeze 維持、 overlay layer で sanitize)
+ *   - DayGraph mutation 一切なし
  *
  * 参照:
- *   - docs/alter-plan-phase3-l-3-readiness-audit.md §2.4 / §3
- *   - lib/plan/transport/cascadeOrchestrator.ts (= L-3a)
+ *   - docs/alter-plan-phase3-l-3-post-implementation-audit.md (= 4 critical 詳述)
+ *   - docs/alter-plan-phase3-l-3-readiness-audit.md (= L-3 pre-audit)
+ *   - lib/plan/transport/cascadeOrchestrator.ts (= L-3a + L-3c sensitive_adjacent 強化)
  *   - lib/plan/dayGraph/dayGraphTypes.ts (= K phase 無変更)
- *   - lib/plan/dayGraph/dayGraphTimelinePresentation.ts (= transition key 同形式)
  */
 
 import type {
@@ -58,36 +63,192 @@ import {
   type ManualOverride,
 } from "./cascadeOrchestrator";
 import type {
+  MovementConfidence,
   MovementPrivacyClass,
-  MovementSegment,
   MovementUnresolvedReason,
+  TransportModeCandidate,
   TransportProvider,
   TransportResolutionProvider,
 } from "./transportTypes";
-import { assertMovementSegmentCompliance } from "./transportIntegrityContract";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// transitionKey (= K phase の MovementTransitionView.key と同形式)
+// L-3c hardening: transitionKey (= 非 PII 化、 anchor id を含まない)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * K phase の `dayGraphTimelinePresentation.ts` line 285 と同形式:
- *   `transition_${index}_${fromNodeId}_${toNodeId}`
+ * Overlay 出力用の transitionKey 生成 (= L-3c 修正案 2A)。
  *
- * 設計判断 (= 自律補強 B1):
- *   - K phase の MovementTransitionView.key と **同形式** にすることで、
- *     L-3 overlay の出力と K view を transitionKey で **join 可能** にする
- *   - K phase は本 file を import しない (= 一方向依存、 K 無変更維持)
- *   - PII を含まない (= node id は K phase で sensitive 由来でも anchorId base、 raw title なし)
+ * 形式: `transition_${index}`
  *
- * @param transition - K phase の MovementTransition
- * @param index - transitions 配列内の index (= K phase と同 index 採番)
+ * L-3b 旧形式 `transition_${index}_${fromNodeId}_${toNodeId}` は anchor id 漏洩していたため廃止。
+ * fromNodeId / toNodeId は overlay output に **出さない** (= EventNode.id === anchor.id のため)。
+ *
+ * 同 graph 内で `index` は一意、 graph 跨ぎでは衝突可能だが、
+ * overlay は単一 DayGraph に対する処理なので問題ない。
+ *
+ * @param index - transitions 配列内の index (= K phase と同 index 採番、 caller が graph.transitions 順を維持する責務)
  */
-export function buildTransitionKey(
-  transition: MovementTransition,
-  index: number,
-): string {
-  return `transition_${index}_${transition.fromNodeId}_${transition.toNodeId}`;
+export function buildTransitionKey(index: number): string {
+  return `transition_${index}`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// L-3c hardening: OverlaySegmentView (= PII-free 公開出力型)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Overlay 出力公開 view (= **Privacy is structural** の構造的保証)。
+ *
+ * **L-1 `MovementSegmentResolved/Unresolved` を再利用せず、 overlay 専用 view 型を新設**。
+ * これにより:
+ *   - `fromNodeId` / `toNodeId` (= EventNode.id === anchor.id) を **持てない**
+ *   - `fromLocationText` / `toLocationText` (= raw location 名) を **持てない**
+ *   - `sensitiveProximity` (= 内部 flag) を **持てない**
+ *   - L-1 freeze を維持しつつ、 overlay output から PII を構造的に排除
+ *
+ * 設計判断:
+ *   - L-1 MovementSegment は「型レベル」 と「内部処理」 で必要
+ *   - L overlay の public output は別 type にして、 caller は本 type だけを見る
+ *   - 思想: 「K view (= render only) が anchor id を含む、 L overlay (= 永続化素材) は含まない」 という責任分離
+ *
+ * 必要な対応:
+ *   - caller (= L-4+ で UI 接続時) は本 view に「移動 約 30 分」 等の duration を出すために
+ *     K view の location 名と本 view の duration を **transitionIndex で join** する
+ *   - K view の `MovementTransitionView.key = transition_${index}_${fromNodeId}_${toNodeId}` から
+ *     index を抽出する helper `extractTransitionIndexFromKViewKey` を提供 (= 後述)
+ */
+export type OverlaySegmentView = OverlaySegmentResolvedView | OverlaySegmentUnresolvedView;
+
+export interface OverlaySegmentResolvedView {
+  readonly timingStatus: "resolved";
+  readonly transitionIndex: number;
+  readonly estimatedDurationMin: number;
+  readonly modeCandidate: TransportModeCandidate;
+  readonly source: Exclude<TransportProvider, "none">;
+  readonly confidence: MovementConfidence;
+  readonly privacyClass: MovementPrivacyClass;
+  /** 距離 (m)、 内部 telemetry 用、 UI 非露出。 caller が log out するかは別判断 */
+  readonly distanceM?: number;
+}
+
+export interface OverlaySegmentUnresolvedView {
+  readonly timingStatus: "unresolved";
+  readonly transitionIndex: number;
+  readonly unresolvedReason: MovementUnresolvedReason;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// L-3c hardening: Privacy Assertion (= sanitize 機械保証)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Overlay 出力に PII が混入していないことを runtime に機械保証する assertion (= L-3c 修正案)。
+ *
+ * Check 内容:
+ *   - segment view の key set に `fromNodeId` / `toNodeId` / `fromLocationText` / `toLocationText`
+ *     / `sensitiveProximity` / `title` / `userId` / `anchorId` 等 PII field が **存在しない**
+ *   - result top-level に同 PII field が **存在しない**
+ *   - 違反検出時は `OverlayPrivacyAssertionError` を throw
+ *
+ * 用途:
+ *   - resolveMovementSegmentOverlay の最終段で必ず呼ぶ (= 出荷品質保証)
+ *   - test での assertion (= regression guard)
+ *
+ * 制約:
+ *   - 本関数は **runtime check**、 type system での PII 不存在は OverlaySegmentView 型で別途保証
+ *   - 「runtime check + type 構造」 の二重防御
+ */
+const FORBIDDEN_KEYS_IN_SEGMENT: ReadonlyArray<string> = [
+  "fromNodeId",
+  "toNodeId",
+  "fromLocationText",
+  "toLocationText",
+  "sensitiveProximity",
+  "title",
+  "locationText",
+  "userId",
+  "anchorId",
+];
+
+const FORBIDDEN_KEYS_IN_RESULT_TOP: ReadonlyArray<string> = [
+  ...FORBIDDEN_KEYS_IN_SEGMENT,
+];
+
+export class OverlayPrivacyAssertionError extends Error {
+  readonly violation: string;
+  constructor(violation: string, detail?: string) {
+    const suffix = detail ? ` (${detail})` : "";
+    super(`[L-3c] Overlay privacy assertion violated: ${violation}${suffix}`);
+    this.name = "OverlayPrivacyAssertionError";
+    this.violation = violation;
+  }
+}
+
+function assertSegmentViewPrivacy(view: OverlaySegmentView): void {
+  const keys = Object.keys(view);
+  for (const forbidden of FORBIDDEN_KEYS_IN_SEGMENT) {
+    if (keys.includes(forbidden)) {
+      throw new OverlayPrivacyAssertionError(
+        "segment_view_contains_pii_field",
+        `key="${forbidden}" found in segment view`,
+      );
+    }
+  }
+}
+
+/**
+ * Overlay の最終 result が PII を含まないことを runtime に assertion する。
+ * resolveMovementSegmentOverlay の出荷直前に必ず呼ぶ。
+ */
+export function assertOverlayResultCompliance(result: OverlayResult): void {
+  // (1) top-level field check
+  const topKeys = Object.keys(result);
+  for (const forbidden of FORBIDDEN_KEYS_IN_RESULT_TOP) {
+    if (topKeys.includes(forbidden)) {
+      throw new OverlayPrivacyAssertionError(
+        "result_top_contains_pii_field",
+        `key="${forbidden}"`,
+      );
+    }
+  }
+
+  // (2) transitionKey 形式 check (= L-3c 2A、 非 PII 形式に固定)
+  for (const transitionKey of result.segmentsByTransitionKey.keys()) {
+    if (!/^transition_\d+$/.test(transitionKey)) {
+      throw new OverlayPrivacyAssertionError(
+        "transition_key_format_violation",
+        `key="${transitionKey}" does not match /^transition_\\d+$/`,
+      );
+    }
+  }
+
+  // (3) 各 segment view の field check
+  for (const outcome of result.segmentsByTransitionKey.values()) {
+    if (outcome.ok) {
+      assertSegmentViewPrivacy(outcome.segment);
+    }
+    // ok=false (= internal_error etc.) は { ok, reason } のみで PII を持たない構造
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// L-3c hardening: K view との bridge (= caller が transitionIndex で join するため)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * K view の `MovementTransitionView.key` (= `transition_${index}_${fromNodeId}_${toNodeId}`)
+ * から transitionIndex を抽出する helper。
+ *
+ * caller は K view の location 名と L overlay の duration を join する際に、
+ * 本 helper で K view key から index を取り出し、 L overlay の `transition_${index}` と一致確認できる。
+ *
+ * @returns index (= number) or null if format mismatch
+ */
+export function extractTransitionIndexFromKViewKey(kViewKey: string): number | null {
+  const match = /^transition_(\d+)_/.exec(kViewKey);
+  if (!match) return null;
+  const n = Number.parseInt(match[1]!, 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -96,31 +257,20 @@ export function buildTransitionKey(
 
 /**
  * Overlay input。
- *
- * 設計判断:
- *   - DayGraph を直接受け取り、 transitions[] と node 情報を内部で参照
- *   - coordsByAnchorId は caller が用意 (= L-3 では geocode を呼ばないため、 caller 責任)
- *   - overridesByTransitionKey で transition 別に manual override を渡せる
- *   - providers は cascade に渡す配列、 順序は caller が決定
  */
 export interface OverlayInput {
   /**
    * K phase の DayGraph (= 同期 pure で生成済)。
    *
    * 本 overlay は本 graph を **読み取りのみ**、 mutate しない。
-   * snapshotId は overlay 実行前後で不変 (= runtime assertion で機械保証)。
+   * L-3c hardening: JSON snapshot 比較 + 配列 reference 同一性 二重 check で機械保証。
    */
   readonly graph: DayGraph;
 
   /**
    * anchorId → coords の map。
-   *
-   * 設計判断 (= GPT 補正 2):
-   *   - L-3 では geocode endpoint を能動的に呼ばない
-   *   - caller (= L-3+ で MapTab integration 時に既存 geocode 結果を渡す) が用意する
-   *   - 空 Map を渡せば全 transition が coords なしで unresolved (= 構造的保証)
-   *
-   * Note: anchorId は EventNode.anchorId と一致する想定。 graph.nodes から逆引き。
+   * caller (= L-3+ で MapTab integration 時に既存 geocode 結果を渡す) が用意する。
+   * 空 Map なら全 transition が unresolved。
    */
   readonly coordsByAnchorId: ReadonlyMap<
     string,
@@ -128,57 +278,42 @@ export interface OverlayInput {
   >;
 
   /**
-   * Privacy class を transition 別に上書きする optional map。
+   * Privacy class を transitionIndex 別に上書きする optional map (= L-3c で key 変更)。
+   * default は K phase の `sensitiveProximity` から自動計算。
    *
-   * 設計判断:
-   *   - default は K phase の `sensitiveProximity` から自動計算
-   *     - sensitiveProximity === true → sensitive_both
-   *     - coords 欠落 → location_unknown
-   *     - それ以外 → normal
-   *   - caller が「片方 sensitive」 等を細かく指定したい場合に override 可能
-   *   - L-3 では default 計算のみ想定、 caller が override しないのが推奨
+   * **L-3c 強化**: K の `sensitiveProximity = true` は片方 / 両方を区別せず、
+   * overlay 内で全て `sensitive_both` に倒す (= 保守的、 cascade で必ず unresolved)。
+   * 細分化したい場合は caller が本 map で override する pattern。
    */
-  readonly privacyClassByTransitionKey?: ReadonlyMap<string, MovementPrivacyClass>;
+  readonly privacyClassByTransitionIndex?: ReadonlyMap<number, MovementPrivacyClass>;
 
   /**
-   * Manual override map (= transition 別の user-explicit duration)。
-   *
-   * GPT 補正 1 の構造的解決:
-   *   - 該当 transitionKey に override が存在する場合のみ manual_user provider が試行
-   *   - undefined (= map に key なし) なら cascade 内で manual_user 構造的 skip
+   * Manual override map (= transitionIndex 別の user-explicit duration)。
+   * 該当 index に override が存在する場合のみ manual_user provider が試行 (= L-3a 構造的 skip)。
    */
-  readonly overridesByTransitionKey?: ReadonlyMap<string, ManualOverride>;
+  readonly overridesByTransitionIndex?: ReadonlyMap<number, ManualOverride>;
 
-  /**
-   * Cascade options (= provider 配列、 順序が cascade 試行順を決定)。
-   */
+  /** Cascade options (= provider 配列、 順序が cascade 試行順を決定) */
   readonly cascadeOptions: CascadeOptions;
 
-  /**
-   * Opaque tracing id (= 自律補強 F1)。
-   * L-3 では unused、 L-4+ telemetry sink で活用する hook を予約。
-   */
+  /** Opaque tracing id (= L-4+ telemetry sink 用 hook、 L-3 では unused) */
   readonly tracingId?: string;
 }
 
 /**
- * Per-transition outcome — discriminated union (= ok / fail)。
- * 全 transition について Map に積まれる。
+ * Per-transition outcome — discriminated union。
+ *
+ * ok=true → sanitize 済 OverlaySegmentView + trace
+ * ok=false → 事前判定 failure (= 内部 error 等、 PII なし)
  */
 export type OverlayTransitionOutcome =
   | {
       readonly ok: true;
-      readonly segment: MovementSegment; // resolved or unresolved (= integrity contract 通過済)
+      readonly segment: OverlaySegmentView;
       readonly trace: CascadeTrace;
     }
   | {
       readonly ok: false;
-      /**
-       * Cascade を呼ぶ前の事前判定 failure。
-       *   - "from_anchor_id_missing": transition の fromNodeId に対応する EventNode が無い
-       *   - "to_anchor_id_missing": 同 toNodeId
-       *   - "internal_error": overlay 内 unexpected exception (= 補正 6 isolation の最終 catch)
-       */
       readonly reason:
         | "from_anchor_id_missing"
         | "to_anchor_id_missing"
@@ -186,41 +321,16 @@ export type OverlayTransitionOutcome =
     };
 
 /**
- * Overlay result。
- *
- * 設計判断 (= 自律補強 C1: Privacy structural):
- *   - 本 type には title / locationText / userId / anchorId field が **存在しない**
- *   - segmentsByTransitionKey の MovementSegment にも raw title / userId は含まれない
- *     (= MovementSegment 自身が PII-free 設計、 L-1 で型保証済)
- *   - unresolvedCount は集計のみ、 個別 segment の特定 PII を露出しない
+ * Overlay result (= top-level、 PII-free structural 保証)。
  */
 export interface OverlayResult {
   /**
-   * transitionKey → outcome の map。
-   *
-   * Key 形式: `transition_${index}_${fromNodeId}_${toNodeId}` (= K view と同形式)
-   * (= 自律補強 B1)
+   * transitionKey (= `transition_${index}`) → outcome の map。
    */
   readonly segmentsByTransitionKey: ReadonlyMap<string, OverlayTransitionOutcome>;
-
-  /**
-   * Resolved transition の数 (= 集計、 L-4+ UI 用素材)。
-   */
   readonly resolvedCount: number;
-
-  /**
-   * Unresolved transition の数 (= 集計、 L-4+ UI 用素材)。
-   */
   readonly unresolvedCount: number;
-
-  /**
-   * Internal error が発生した transition の数 (= 補正 6 isolation の発火回数)。
-   */
   readonly internalErrorCount: number;
-
-  /**
-   * Opaque tracing id (= input から passthrough)。
-   */
   readonly tracingId?: string;
 }
 
@@ -232,15 +342,14 @@ export interface OverlayResult {
  * Transition から default privacy class を計算する pure helper。
  *
  * 規則:
- *   - sensitiveProximity === true → sensitive_both (= GPT 補正 3)
- *   - 両端 anchor の coords どちらも欠落 → location_unknown (= GPT 補正 2)
- *   - 片方欠落 → location_unknown (= 安全側、 resolve しない)
- *   - 両端 anchor の coords 揃い → normal
+ *   - sensitiveProximity === true → sensitive_both (= K では片方/両方区別なし、 保守的に倒す)
+ *   - 両端 anchor の coords どちらも欠落 → location_unknown
+ *   - 片方欠落 → location_unknown (= 安全側)
+ *   - 両端揃い → normal
  *
- * 注: K phase の `sensitiveProximity` は前後の anchor.sensitive どちらかが true なら true。
- *      これを sensitive_both に mapping するのは「sensitive 跨ぎの cascade で API を呼ばない」
- *      ための GPT 補正 3 整合。 sensitive_adjacent (= 片方 sensitive) は L-3 では使わない
- *      (= 安全側に倒す、 L-3+ で UI 接続時に細分化を検討)。
+ * L-3c 注: cascade は `sensitive_adjacent` も unresolved にするため、
+ *           caller が privacyClassByTransitionIndex で sensitive_adjacent を指定しても
+ *           cascade は早期 unresolved を返す。
  */
 function computeDefaultPrivacyClass(
   transition: MovementTransition,
@@ -257,13 +366,9 @@ function computeDefaultPrivacyClass(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// EventNode anchorId 逆引き
+// EventNode anchorId 逆引き (= 内部処理のみ、 overlay output 非露出)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * DayGraph の nodes から `EventNode.id` で逆引きして `anchorId` を返す。
- * EventNode 以外 (= start/gap/end) は anchorId を持たないため undefined。
- */
 function findAnchorIdByNodeId(graph: DayGraph, nodeId: string): string | undefined {
   for (const node of graph.nodes) {
     if (node.kind === "event" && node.id === nodeId) {
@@ -274,25 +379,68 @@ function findAnchorIdByNodeId(graph: DayGraph, nodeId: string): string | undefin
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Per-transition resolution (= isolation 単位)
+// L-3c hardening: Sanitize — MovementSegment → OverlaySegmentView 変換
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 1 transition について resolve を試行する pure-ish 関数。
+ * Cascade result の MovementSegmentResolved を OverlaySegmentResolvedView に変換 (= sanitize)。
  *
- * GPT 補正 6 + 自律補強 B2 (= per-transition isolation):
- *   - 本関数内の unexpected exception は最終的に Promise.allSettled で catch
- *   - cascade orchestrator 内の exception は cascade 側で吸収済 (= L-3a の責務)
- *   - 本関数の責務は「事前 input 組み立て + cascade 呼出」
+ * 削除する field:
+ *   - fromNodeId / toNodeId (= anchor id 相当、 L-3c 必須 sanitize)
+ *   - fromLocationText / toLocationText (= raw 値、 L-3c 必須 sanitize)
+ *   - sensitiveProximity (= 内部 flag)
+ *   - slackAnalysis (= L-1 type にあるが overlay output には不要、 L-3 では unused)
  */
+function sanitizeResolvedSegment(
+  cascadeSegment: {
+    readonly estimatedDurationMin: number;
+    readonly modeCandidate: TransportModeCandidate;
+    readonly source: Exclude<TransportProvider, "none">;
+    readonly confidence: MovementConfidence;
+    readonly privacyClass: MovementPrivacyClass;
+    readonly distanceM?: number;
+  },
+  transitionIndex: number,
+): OverlaySegmentResolvedView {
+  const view: OverlaySegmentResolvedView = {
+    timingStatus: "resolved",
+    transitionIndex,
+    estimatedDurationMin: cascadeSegment.estimatedDurationMin,
+    modeCandidate: cascadeSegment.modeCandidate,
+    source: cascadeSegment.source,
+    confidence: cascadeSegment.confidence,
+    privacyClass: cascadeSegment.privacyClass,
+    ...(cascadeSegment.distanceM !== undefined
+      ? { distanceM: cascadeSegment.distanceM }
+      : {}),
+  };
+  return view;
+}
+
+/**
+ * Unresolved の場合の sanitize (= overlay layer での view 生成)。
+ */
+function buildUnresolvedView(
+  transitionIndex: number,
+  reason: MovementUnresolvedReason,
+): OverlaySegmentUnresolvedView {
+  return {
+    timingStatus: "unresolved",
+    transitionIndex,
+    unresolvedReason: reason,
+  };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Per-transition resolution (= isolation 単位)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 async function resolveSingleTransition(
   input: OverlayInput,
   transition: MovementTransition,
   index: number,
 ): Promise<OverlayTransitionOutcome> {
-  const transitionKey = buildTransitionKey(transition, index);
-
-  // anchorId 逆引き (= EventNode → anchorId)
+  // anchorId 逆引き (= 内部処理のみ、 overlay output に出さない)
   const fromAnchorId = findAnchorIdByNodeId(input.graph, transition.fromNodeId);
   if (!fromAnchorId) {
     return { ok: false, reason: "from_anchor_id_missing" };
@@ -302,19 +450,21 @@ async function resolveSingleTransition(
     return { ok: false, reason: "to_anchor_id_missing" };
   }
 
-  // Coords 取得 (= caller の coordsByAnchorId Map から)
+  // Coords 取得
   const fromCoords = input.coordsByAnchorId.get(fromAnchorId);
   const toCoords = input.coordsByAnchorId.get(toAnchorId);
 
   // Privacy class 決定 (= override 優先、 default は自動計算)
-  const overrideClass = input.privacyClassByTransitionKey?.get(transitionKey);
+  const overrideClass = input.privacyClassByTransitionIndex?.get(index);
   const privacyClass =
     overrideClass ?? computeDefaultPrivacyClass(transition, fromCoords, toCoords);
 
   // Manual override 取得
-  const manualOverride = input.overridesByTransitionKey?.get(transitionKey);
+  const manualOverride = input.overridesByTransitionIndex?.get(index);
 
   // Cascade input 組み立て
+  // segmentBase に fromLocationText / toLocationText を渡すが、 これは provider 内部の話。
+  // overlay 出力 (= OverlaySegmentView) には sanitize で除去される。
   const cascadeInput: CascadeInput = {
     resolution: {
       privacyClass,
@@ -334,52 +484,123 @@ async function resolveSingleTransition(
   // Cascade 実行
   const result = await runCascade(cascadeInput, input.cascadeOptions);
 
+  // L-3c sanitize: cascade 出力 → OverlaySegmentView
   if (result.ok) {
-    // 出荷品質: integrity contract 機械保証 (= L-1)
-    assertMovementSegmentCompliance(result.segment);
-    return { ok: true, segment: result.segment, trace: result.trace };
+    if (result.segment.timingStatus !== "resolved") {
+      // type-level に到達不能 (= cascade ok=true は resolved 限定)、 防御
+      const view = buildUnresolvedView(index, "no_provider_available");
+      return { ok: true, segment: view, trace: result.trace };
+    }
+    const view = sanitizeResolvedSegment(
+      {
+        estimatedDurationMin: result.segment.estimatedDurationMin,
+        modeCandidate: result.segment.modeCandidate,
+        source: result.segment.source,
+        confidence: result.segment.confidence,
+        privacyClass: result.segment.privacyClass,
+        distanceM: result.segment.distanceM,
+      },
+      index,
+    );
+    return { ok: true, segment: view, trace: result.trace };
   }
-  // Unresolved も MovementSegment として包む (= caller が discriminated union で扱える)
-  const unresolvedSegment: MovementSegment = {
-    fromNodeId: transition.fromNodeId,
-    toNodeId: transition.toNodeId,
-    fromLocationText: transition.fromLocationText,
-    toLocationText: transition.toLocationText,
-    sensitiveProximity: transition.sensitiveProximity,
-    timingStatus: "unresolved",
-    unresolvedReason: result.reason,
+
+  // Unresolved view 構築
+  const view = buildUnresolvedView(index, result.reason);
+  return { ok: true, segment: view, trace: result.trace };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// L-3c hardening: Graph immutability — JSON snapshot 比較 + 配列 reference
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export class MovementOverlayMutationError extends Error {
+  readonly violation: string;
+  constructor(violation: string, detail?: string) {
+    const suffix = detail ? ` (${detail})` : "";
+    super(`[L-3c] Overlay violated graph immutability: ${violation}${suffix}`);
+    this.name = "MovementOverlayMutationError";
+    this.violation = violation;
+  }
+}
+
+interface ImmutabilityCheckpoint {
+  readonly snapshotId: string;
+  readonly jsonSnapshot: string;
+  readonly nodesLength: number;
+  readonly transitionsLength: number;
+  readonly edgesLength: number;
+  readonly firstNodeRef: unknown;
+  readonly firstTransitionRef: unknown;
+}
+
+function captureImmutabilityCheckpoint(graph: DayGraph): ImmutabilityCheckpoint {
+  return {
+    snapshotId: graph.snapshotId,
+    jsonSnapshot: JSON.stringify(graph),
+    nodesLength: graph.nodes.length,
+    transitionsLength: graph.transitions.length,
+    edgesLength: graph.edges.length,
+    firstNodeRef: graph.nodes[0],
+    firstTransitionRef: graph.transitions[0],
   };
-  // integrity 通過確認 (= 機械保証)
-  assertMovementSegmentCompliance(unresolvedSegment);
-  return { ok: true, segment: unresolvedSegment, trace: result.trace };
+}
+
+function assertImmutability(
+  graph: DayGraph,
+  checkpoint: ImmutabilityCheckpoint,
+): void {
+  // (1) 早期検出: snapshotId / 配列長 / 第一要素 reference
+  if (graph.snapshotId !== checkpoint.snapshotId) {
+    throw new MovementOverlayMutationError(
+      "snapshot_id_changed",
+      `before=${checkpoint.snapshotId}, after=${graph.snapshotId}`,
+    );
+  }
+  if (graph.nodes.length !== checkpoint.nodesLength) {
+    throw new MovementOverlayMutationError(
+      "nodes_length_changed",
+      `before=${checkpoint.nodesLength}, after=${graph.nodes.length}`,
+    );
+  }
+  if (graph.transitions.length !== checkpoint.transitionsLength) {
+    throw new MovementOverlayMutationError(
+      "transitions_length_changed",
+      `before=${checkpoint.transitionsLength}, after=${graph.transitions.length}`,
+    );
+  }
+  if (graph.edges.length !== checkpoint.edgesLength) {
+    throw new MovementOverlayMutationError(
+      "edges_length_changed",
+      `before=${checkpoint.edgesLength}, after=${graph.edges.length}`,
+    );
+  }
+  if (graph.nodes[0] !== checkpoint.firstNodeRef) {
+    throw new MovementOverlayMutationError("first_node_reference_changed");
+  }
+  if (graph.transitions[0] !== checkpoint.firstTransitionRef) {
+    throw new MovementOverlayMutationError("first_transition_reference_changed");
+  }
+
+  // (2) 完全 deep equality: JSON.stringify 比較 (= 内部 field mutation を検出)
+  const currentJson = JSON.stringify(graph);
+  if (currentJson !== checkpoint.jsonSnapshot) {
+    throw new MovementOverlayMutationError(
+      "deep_structure_changed",
+      "JSON.stringify mismatch — internal field mutation detected",
+    );
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Main: resolveMovementSegmentOverlay
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * Overlay layer の main entry。
- *
- * 設計の核 (= 自律補強 B3 + GPT 補正 4):
- *   - 入力 graph を mutate しない
- *   - 実行前後の `graph.snapshotId` が **完全一致** であることを runtime assertion (= snapshotIdBefore / snapshotIdAfter)
- *   - mutation が検出された場合は throw (= internal bug の即座 detection)
- *
- * Isolation (= 自律補強 B2 + GPT 補正 6):
- *   - 各 transition は Promise.allSettled で並列実行
- *   - 1 transition の internal error は他 transitions に伝搬しない
- *   - rejected promise は "internal_error" として記録、 segmentsByTransitionKey に積む
- *
- * Privacy structural (= 自律補強 C1):
- *   - OverlayResult type に title / locationText / userId / anchorId 不存在
- *   - segmentsByTransitionKey の各 MovementSegment は L-1 で PII-free 保証済
- */
 export async function resolveMovementSegmentOverlay(
   input: OverlayInput,
 ): Promise<OverlayResult> {
-  // Graph immutability assertion (= 自律補強 B3、 GPT 補正 4)
-  const snapshotIdBefore = input.graph.snapshotId;
+  // L-3c hardening: Immutability checkpoint (= JSON snapshot + 配列長 + reference)
+  const checkpoint = captureImmutabilityCheckpoint(input.graph);
 
   // 各 transition を並列実行 + per-transition isolation
   const tasks = input.graph.transitions.map((transition, index) =>
@@ -392,12 +613,8 @@ export async function resolveMovementSegmentOverlay(
 
   const outcomes = await Promise.all(tasks);
 
-  // Graph immutability runtime assertion (= mutation 検出 → throw)
-  if (input.graph.snapshotId !== snapshotIdBefore) {
-    throw new Error(
-      `[L-3b] Overlay violated graph immutability: snapshotId mutated from "${snapshotIdBefore}" to "${input.graph.snapshotId}"`,
-    );
-  }
+  // L-3c hardening: 強化 immutability assertion (= JSON deep + reference + length)
+  assertImmutability(input.graph, checkpoint);
 
   // Result 集計
   const segmentsByTransitionKey = new Map<string, OverlayTransitionOutcome>();
@@ -405,8 +622,8 @@ export async function resolveMovementSegmentOverlay(
   let unresolvedCount = 0;
   let internalErrorCount = 0;
 
-  input.graph.transitions.forEach((transition, index) => {
-    const transitionKey = buildTransitionKey(transition, index);
+  input.graph.transitions.forEach((_transition, index) => {
+    const transitionKey = buildTransitionKey(index); // L-3c: 非 PII 形式
     const outcome = outcomes[index]!;
     segmentsByTransitionKey.set(transitionKey, outcome);
 
@@ -421,13 +638,18 @@ export async function resolveMovementSegmentOverlay(
     }
   });
 
-  return {
+  const result: OverlayResult = {
     segmentsByTransitionKey,
     resolvedCount,
     unresolvedCount,
     internalErrorCount,
     ...(input.tracingId !== undefined ? { tracingId: input.tracingId } : {}),
   };
+
+  // L-3c hardening: 出荷直前 privacy assertion (= runtime structural 保証)
+  assertOverlayResultCompliance(result);
+
+  return result;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -442,7 +664,6 @@ export type {
 } from "./cascadeOrchestrator";
 
 export type {
-  MovementSegment,
   MovementUnresolvedReason,
   TransportProvider,
   TransportResolutionProvider,

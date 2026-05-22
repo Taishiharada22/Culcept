@@ -146,14 +146,20 @@ export interface MovementConfidence {
  *                          → 「移動 約 30 分」 + mode 表示可能
  *
  * - "sensitive_adjacent":  片方 sensitive
- *                          → 「移動 約 30 分」 (= mode 削除、 duration のみ)
+ *                          → 「移動」 のみ
+ *                          → **L-3c post-audit (2026-05-22) 強化**: provider 不試行、 cascade で必ず unresolved。
+ *                          → 「sensitive_adjacent でも duration を出さない」 が L-3c 以降の確定方針。
  *
  * - "sensitive_both":      両方 sensitive (= 完全 blackout)
  *                          → 「移動」 のみ (= duration も削除)
- *                          → provider は呼ばない (= caller 責任、 §10)
+ *                          → provider は呼ばない (= cascade で必ず unresolved、 §10)
  *
  * - "location_unknown":    location 不明
  *                          → 「移動」 のみ (= 3-K K-3c-iii と同じ unresolved 表示)
+ *
+ * **Resolve 禁止規約** (= L-3c 永続):
+ *   `sensitive_adjacent` / `sensitive_both` / `location_unknown` は cascade で必ず unresolved。
+ *   provider に到達させない (= caller / cascade どちらの責任でもよいが、 二重防御を推奨)。
  */
 export type MovementPrivacyClass =
   | "normal"
