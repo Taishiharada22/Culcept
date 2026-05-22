@@ -136,3 +136,39 @@ describe("DayGraphTimeline component — structural invariants", () => {
     expect(content).not.toMatch(/MovementSegment/);
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-iii: compact mode (= empty day 1 行 summary)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("DayGraphTimeline component — K-3c-iii compact mode", () => {
+  it("buildCompactSummaryView を import している", () => {
+    expect(content).toMatch(
+      /buildCompactSummaryView[\s\S]{0,200}?from\s+["']@\/lib\/plan\/dayGraph\/dayGraphTimelinePresentation["']/,
+    );
+  });
+
+  it("props.compact が optional boolean として定義されている", () => {
+    expect(content).toMatch(/compact\?:\s*boolean/);
+  });
+
+  it("compact mode 分岐 (= if (props.compact) ...) 存在", () => {
+    expect(content).toMatch(/if\s*\(\s*props\.compact\s*\)/);
+  });
+
+  it("CompactEmptyDayLine 内部 component 定義", () => {
+    expect(content).toMatch(/function CompactEmptyDayLine/);
+  });
+
+  it("CompactEmptyDayLine の role='note' (= 補助情報、 action なし)", () => {
+    expect(content).toMatch(/role=["']note["']/);
+  });
+
+  it("CompactEmptyDayLine data-testid default 'day-graph-compact-empty'", () => {
+    expect(content).toMatch(/day-graph-compact-empty/);
+  });
+
+  it("dot separator '·' (= 静かな視覚 separator)", () => {
+    expect(content).toMatch(/·/);
+  });
+});

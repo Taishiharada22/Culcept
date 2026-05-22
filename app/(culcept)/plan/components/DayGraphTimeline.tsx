@@ -31,7 +31,9 @@
 import { Fragment, memo, type ReactElement } from "react";
 
 import {
+  buildCompactSummaryView,
   buildTimelineView,
+  type CompactSummaryView,
   type EventNodeView,
   type NodeView,
 } from "@/lib/plan/dayGraph/dayGraphTimelinePresentation";
@@ -65,6 +67,21 @@ export interface DayGraphTimelineProps {
   readonly className?: string;
   /** dev/debug 用 data-testid (= optional) */
   readonly dataTestId?: string;
+  /**
+   * K-3c-iii: compact mode (= FlowTab empty day 用、 default false)。
+   *
+   * **採用条件 (= internal で AND 判定)**:
+   *   1. compact === true
+   *   2. result.graph.attributes.anchorCount === 0
+   *   3. result.warnings.length === 0
+   *
+   * いずれか満たさない場合は通常 timeline を render (= fallback)。
+   * 「予定なし」 と誤表示しない (= Negative Capability、 CEO 補正 2)。
+   *
+   * CalendarTab / MapTab は **未指定** (= default false、 既存挙動維持)。
+   * FlowTab のみ true を渡す。
+   */
+  readonly compact?: boolean;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,12 +91,29 @@ export interface DayGraphTimelineProps {
 /**
  * 内部 component (= memo 適用前の実体)。
  * K-3c-ii で React.memo 適用 (= FlowTab 7 timeline 同時 render の性能担保)。
+ * K-3c-iii で compact mode (= empty day 用 1 行 summary) 分岐追加。
  */
 function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | null {
   // 1. null guard (= result 未取得 / state.kind !== "ok" 時)
   if (!props.result) return null;
 
-  // 2. timeline view 構築 (= sensitive redaction + view 適用済)
+  // 2. K-3c-iii: compact mode 判定 (= compact && empty && no warnings)
+  //    採用条件は buildCompactSummaryView 内に集約 (= 「予定なし」 誤表示防止)
+  if (props.compact) {
+    const summary = buildCompactSummaryView(props.result);
+    if (summary) {
+      return (
+        <CompactEmptyDayLine
+          view={summary}
+          dataTestId={props.dataTestId}
+          className={props.className}
+        />
+      );
+    }
+    // summary === null → 通常 timeline に fallback (= warnings あり / anchor あり)
+  }
+
+  // 3. timeline view 構築 (= sensitive redaction + view 適用済)
   const tl = buildTimelineView(props.result.graph, props.view ?? "user_self");
 
   // 3. render
@@ -254,6 +288,51 @@ function TransitionItem({ view }: TransitionItemProps): ReactElement {
     >
       {view.label}
     </li>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-iii: Compact empty-day line (= FlowTab empty day 用、 1 行 summary)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+interface CompactEmptyDayLineProps {
+  readonly view: CompactSummaryView;
+  readonly dataTestId?: string;
+  readonly className?: string;
+}
+
+/**
+ * 「予定なし · 06:00–23:00」 形式の 1 行 summary。
+ *
+ * 思想:
+ *   - 「観察対象」 維持 (= 境界時刻表示)
+ *   - 「静かな日」 として 1 行に縮約 (= 通常 timeline ~150px → ~24px)
+ *   - 「予定なし」 文言は既存 FlowTab 「予定なし ›」 と統一 (= i18n / locale 共通)
+ *   - action UI なし (= 「No Action UI」 維持、 div として render)
+ *
+ * a11y:
+ *   - role="note" (= 補助情報、 click 不可)
+ *   - aria-label に「観測の境界 + 予定なし」 含む
+ */
+function CompactEmptyDayLine({
+  view,
+  dataTestId,
+  className,
+}: CompactEmptyDayLineProps): ReactElement {
+  return (
+    <div
+      role="note"
+      aria-label={view.ariaLabel}
+      className={
+        view.className +
+        (className ? ` ${className}` : "")
+      }
+      data-testid={dataTestId ?? "day-graph-compact-empty"}
+    >
+      <span>{view.label}</span>
+      <span className="text-slate-300" aria-hidden="true">·</span>
+      <span>{view.startTime}–{view.endTime}</span>
+    </div>
   );
 }
 

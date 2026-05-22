@@ -31,6 +31,7 @@
 
 import { applyDayGraphView } from "./dayGraphView";
 import type {
+  BuildDayGraphResult,
   DayGraph,
   DayGraphNode,
   DayGraphView,
@@ -126,18 +127,32 @@ export type NodeView =
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Memory Chip 階調:
- *   - start / end (= 最も implicit、 「日の境界」): dashed slate-300
- *   - gap     (= implicit、 「空白」):              dashed slate-400
- *   - movement (= implicit、 「未確定移動」):       dashed slate-400 (= K-3a CEO 補正、 amber 使わない)
- *   - event   (= explicit、 「user の意思の痕跡」): solid slate-400
+ * Memory Chip 階調 (= K-3c-iii 強化、 3 階層):
+ *
+ *   階層 1 (= 最も静か、 implicit 「日の境界 / 空白」):
+ *     - start / end:  dashed slate-200 + text-slate-400 + text-xs + py-1
+ *     - gap:          dashed slate-200 + text-slate-400 + text-xs + py-1
+ *
+ *   階層 2 (= 中間 implicit、 「未確定移動」):
+ *     - movement:     dashed slate-300 + text-slate-500 + text-xs + py-0.5
+ *
+ *   階層 3 (= explicit、 「user の意思の痕跡」、 維持):
+ *     - event non-sensitive: solid slate-400 + text-slate-800 + py-2
+ *     - event sensitive:     solid slate-400 + text-slate-700 + py-2
+ *
+ * 設計判断 (= CEO K-3c-iii 補正):
+ *   - Start/End / Gap を同 shade (= slate-200) に統一 → 形 (点 vs 帯) で区別
+ *   - Movement を 1 段薄く (= slate-300) して階調明確化
+ *   - Event は維持 → 階調差: Event > Movement > {Boundary, Gap}
+ *   - 色は neutral slate のみ (= amber/orange/red 永続禁止)
+ *   - 「No Aura」 維持 (= sensitive 強調なし、 generic 見た目)
  */
 const CLASS_BOUNDARY =
-  "border border-dashed border-slate-300 text-slate-500 italic " +
-  "bg-white/60 rounded-md px-3 py-1.5 motion-reduce:transition-none";
+  "border border-dashed border-slate-200 text-slate-400 italic text-xs " +
+  "bg-white/60 rounded-md px-3 py-1 motion-reduce:transition-none";
 const CLASS_GAP =
-  "border border-dashed border-slate-400 text-slate-500 italic " +
-  "bg-white/40 rounded-md px-3 py-1.5 motion-reduce:transition-none";
+  "border border-dashed border-slate-200 text-slate-400 italic text-xs " +
+  "bg-white/40 rounded-md px-3 py-1 motion-reduce:transition-none";
 const CLASS_EVENT_NON_SENSITIVE =
   "border border-solid border-slate-400 text-slate-800 " +
   "bg-white rounded-md px-3 py-2 motion-reduce:transition-none";
@@ -146,9 +161,17 @@ const CLASS_EVENT_SENSITIVE =
   "border border-solid border-slate-400 text-slate-700 " +
   "bg-white rounded-md px-3 py-2 motion-reduce:transition-none";
 const CLASS_TRANSITION =
-  // slate only (= K-3a CEO 補正 4、 amber/orange 不使用)
-  "border border-dashed border-slate-400 text-slate-500 italic " +
-  "bg-transparent rounded-md px-2 py-0.5 text-sm motion-reduce:transition-none";
+  // K-3c-iii: slate-300 + text-xs (= 中間階層、 階調明確化、 amber/orange 不使用)
+  "border border-dashed border-slate-300 text-slate-500 italic " +
+  "bg-transparent rounded-md px-2 py-0.5 text-xs motion-reduce:transition-none";
+
+/**
+ * K-3c-iii: Compact empty-day line class (= 1 行 single-line summary)。
+ * 「予定なし · 06:00–23:00」 形式。 padding 控えめ、 text-xs。
+ */
+const CLASS_COMPACT_EMPTY =
+  "flex items-center gap-2 text-xs text-slate-400 italic " +
+  "px-3 py-1 motion-reduce:transition-none";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Helpers
@@ -308,4 +331,75 @@ export function buildTimelineView(
     transitionsByFromNodeId[t.fromNodeId] = t;
   }
   return { nodes, transitions, transitionsByFromNodeId };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-iii: Compact empty-day summary view (= FlowTab 空日 noise 抑制)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Compact empty-day summary (= 1 行 single-line 表現)。
+ *
+ * FlowTab で連続 empty day が縦に伸びる UX noise を抑える目的。
+ * 思想保持: 「観察対象」 として日の境界 (= start / end 時刻) は表示維持。
+ * 但し event 0 件かつ warning 0 件の **本当に空の日のみ** 採用。
+ */
+export interface CompactSummaryView {
+  /** discriminated tag */
+  readonly kind: "compact_empty";
+  /** "HH:MM" 開始境界 (= StartNode.startTime) */
+  readonly startTime: string;
+  /** "HH:MM" 終了境界 (= EndNode.startTime) */
+  readonly endTime: string;
+  /** 表示 label (= "予定なし"、 既存 FlowTab 「予定なし ›」 と統一) */
+  readonly label: string;
+  /** a11y label (= screen reader 向け、 raw 文字列含まず) */
+  readonly ariaLabel: string;
+  /** Tailwind class (= single-line layout、 text-xs、 slate-400 italic) */
+  readonly className: string;
+}
+
+/**
+ * BuildDayGraphResult から compact summary を生成する pure 関数。
+ *
+ * 採用条件 (= K-3c-iii CEO 補正 2、 critical):
+ *   1. result.graph.attributes.anchorCount === 0 (= event 0 件)
+ *   2. result.warnings.length === 0           (= invalid anchor / 不完全データなし)
+ *
+ * 両方満たす場合のみ CompactSummaryView を返す。 それ以外は null。
+ *
+ * **null の場合の caller 動作**:
+ *   - anchorCount > 0:   通常 timeline (= event 描画あり) を render
+ *   - warnings あり:     通常 timeline (= 空でも「データはあるが展示不能」 状態を境界 + gap で表現)
+ *   → 「予定なし」 と誤表示しない (= 思想 「分からないことは分からない」 整合、 Negative Capability)
+ *
+ * 不変原則:
+ *   - pure (= side effects なし、 mutation なし)
+ *   - graph mutation 不可
+ *   - sensitive raw 文字列を ariaLabel / label に含めない (= 空日なので元々無関係だが防御)
+ */
+export function buildCompactSummaryView(
+  result: BuildDayGraphResult,
+): CompactSummaryView | null {
+  // 1. anchorCount === 0 でなければ通常 timeline
+  if (result.graph.attributes.anchorCount !== 0) return null;
+  // 2. warnings あり → invalid anchor 等の可能性、 「予定なし」 と誤表示しない
+  if (result.warnings.length > 0) return null;
+
+  // 3. start / end node から境界時刻を取得 (= IntegrityContract で 1 個ずつ存在保証)
+  const startNode = result.graph.nodes.find((n) => n.kind === "start");
+  const endNode = result.graph.nodes.find((n) => n.kind === "end");
+  if (!startNode || !endNode) return null; // 防御 (= 通常起きない)
+
+  const startTime = startNode.startTime;
+  const endTime = endNode.startTime;
+
+  return {
+    kind: "compact_empty",
+    startTime,
+    endTime,
+    label: "予定なし",
+    ariaLabel: `${startTime} から ${endTime} まで、 予定なし`,
+    className: CLASS_COMPACT_EMPTY,
+  };
 }

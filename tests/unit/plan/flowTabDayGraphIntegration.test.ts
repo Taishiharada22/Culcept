@@ -209,3 +209,28 @@ describe("DayGraphTimeline React.memo 適用確認 (= K-3c-ii)", () => {
     );
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-iii: compact={true} 配線確認
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("FlowTab K-3c-iii — compact prop 配線", () => {
+  it("FlowDaySection で DayGraphTimeline に compact={true} を渡す", () => {
+    expect(content).toMatch(/compact=\{true\}/);
+  });
+
+  it("compact prop は FlowTab に限定 (= CalendarTab / MapTab には渡さない)", () => {
+    // 既存 CalendarTab / MapTab を直接 grep
+    const calendarTab = readFileSync(
+      "app/(culcept)/plan/tabs/CalendarTab.tsx",
+      "utf-8",
+    );
+    const mapTab = readFileSync(
+      "app/(culcept)/plan/tabs/MapTab.tsx",
+      "utf-8",
+    );
+    // K-3c-iii では Calendar/Map に compact を渡さない (= default false で既存挙動維持)
+    expect(calendarTab).not.toMatch(/compact=\{true\}/);
+    expect(mapTab).not.toMatch(/compact=\{true\}/);
+  });
+});

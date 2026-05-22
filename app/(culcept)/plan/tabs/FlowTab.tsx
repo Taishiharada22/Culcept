@@ -348,9 +348,17 @@ function FlowDaySection({
           className="mx-4 mt-3 mb-1 pt-3 border-t border-slate-100"
           data-testid={`plan-flow-day-graph-section-${iso}`}
         >
+          {/*
+           * K-3c-iii: compact={true} を渡すことで、 anchor 0 件かつ warnings 0 件
+           * の **本当に空の日**は 1 行 summary 表示になる (= 縦 density 抑制)。
+           * anchor あり日 / warnings あり日は通常 timeline (= fallback、
+           * 「予定なし」 と誤表示しない、 Negative Capability)。
+           * CalendarTab / MapTab は compact 未指定 = false default。
+           */}
           <DayGraphTimeline
             result={dayGraphResult}
             view="user_self"
+            compact={true}
             onEventClick={(anchorId: string) => {
               if (!onAnchorClick) return;
               const anchor = anchors.find((a) => a.id === anchorId);

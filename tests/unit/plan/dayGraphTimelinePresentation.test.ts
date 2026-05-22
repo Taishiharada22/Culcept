@@ -17,6 +17,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildDayGraph } from "@/lib/plan/dayGraph/buildDayGraph";
 import {
+  buildCompactSummaryView,
   buildEndTimeHint,
   buildTimelineView,
 } from "@/lib/plan/dayGraph/dayGraphTimelinePresentation";
@@ -220,32 +221,60 @@ describe("buildTimelineView — color discipline (= neutral slate only)", () => 
 // Memory Chip 階調 (= 採用 革新 1)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("buildTimelineView — Memory Chip 階調 (= 採用革新)", () => {
-  it("start/end は dashed slate-300 (= 最も implicit)", () => {
+describe("buildTimelineView — Memory Chip 階調 (= K-3c-iii 強化、 3 階層)", () => {
+  it("start/end は dashed slate-200 + text-xs (= 最も静か、 階層 1)", () => {
     const { graph } = buildDayGraph({ anchors: EMPTY_DAY_ANCHORS, date: DATE });
     const tl = buildTimelineView(graph);
     const start = tl.nodes.find((n) => n.kind === "start")!;
     const end = tl.nodes.find((n) => n.kind === "end")!;
     expect(start.className).toMatch(/border-dashed/);
-    expect(start.className).toMatch(/border-slate-300/);
+    expect(start.className).toMatch(/border-slate-200/);
+    expect(start.className).toMatch(/text-xs/);
     expect(end.className).toMatch(/border-dashed/);
-    expect(end.className).toMatch(/border-slate-300/);
+    expect(end.className).toMatch(/border-slate-200/);
+    expect(end.className).toMatch(/text-xs/);
   });
 
-  it("gap は dashed slate-400 (= 中間 implicit)", () => {
+  it("gap は dashed slate-200 + text-xs (= 階層 1、 start/end と統一 shade)", () => {
     const { graph } = buildDayGraph({ anchors: SINGLE_DAY_ANCHORS, date: DATE });
     const tl = buildTimelineView(graph);
     const gap = tl.nodes.find((n) => n.kind === "gap")!;
     expect(gap.className).toMatch(/border-dashed/);
-    expect(gap.className).toMatch(/border-slate-400/);
+    expect(gap.className).toMatch(/border-slate-200/);
+    expect(gap.className).toMatch(/text-xs/);
   });
 
-  it("event (non-sensitive) は solid slate-400 (= explicit)", () => {
+  it("movement transition は dashed slate-300 + text-xs (= 階層 2、 中間)", () => {
+    const { graph } = buildDayGraph({ anchors: MOVEMENT_DAY_ANCHORS, date: DATE });
+    const tl = buildTimelineView(graph);
+    expect(tl.transitions.length).toBeGreaterThan(0);
+    for (const t of tl.transitions) {
+      expect(t.className).toMatch(/border-dashed/);
+      expect(t.className).toMatch(/border-slate-300/);
+      expect(t.className).toMatch(/text-xs/);
+    }
+  });
+
+  it("event (non-sensitive) は solid slate-400 (= 階層 3、 explicit、 維持)", () => {
     const { graph } = buildDayGraph({ anchors: SINGLE_DAY_ANCHORS, date: DATE });
     const tl = buildTimelineView(graph);
     const ev = tl.nodes.find((n) => n.kind === "event")!;
     expect(ev.className).toMatch(/border-solid/);
     expect(ev.className).toMatch(/border-slate-400/);
+  });
+
+  it("階調差 (= event > movement > {boundary, gap}) を className shade で確認", () => {
+    const { graph: movementGraph } = buildDayGraph({
+      anchors: MOVEMENT_DAY_ANCHORS,
+      date: DATE,
+    });
+    const tl = buildTimelineView(movementGraph);
+    const start = tl.nodes.find((n) => n.kind === "start")!;
+    const event = tl.nodes.find((n) => n.kind === "event")!;
+    const transition = tl.transitions[0]!;
+    expect(start.className).toMatch(/slate-200/); // 階層 1
+    expect(transition.className).toMatch(/slate-300/); // 階層 2
+    expect(event.className).toMatch(/slate-400/); // 階層 3
   });
 });
 
@@ -310,5 +339,89 @@ describe("buildTimelineView — graph mutation 不可", () => {
     const frozen = JSON.stringify(graph);
     buildTimelineView(graph);
     expect(JSON.stringify(graph)).toBe(frozen);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-iii: buildCompactSummaryView (= empty day 1 行 summary)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("K-3c-iii: buildCompactSummaryView — 採用条件", () => {
+  it("anchor 0 件 + warnings 0 件 → CompactSummaryView を返す", () => {
+    const result = buildDayGraph({ anchors: EMPTY_DAY_ANCHORS, date: DATE });
+    expect(result.graph.attributes.anchorCount).toBe(0);
+    expect(result.warnings.length).toBe(0);
+    const summary = buildCompactSummaryView(result);
+    expect(summary).not.toBeNull();
+    expect(summary!.kind).toBe("compact_empty");
+  });
+
+  it("anchor あり (= anchorCount > 0) → null (= 通常 timeline 採用)", () => {
+    const result = buildDayGraph({ anchors: SINGLE_DAY_ANCHORS, date: DATE });
+    expect(result.graph.attributes.anchorCount).toBeGreaterThan(0);
+    const summary = buildCompactSummaryView(result);
+    expect(summary).toBeNull();
+  });
+
+  it("warnings あり (= invalid_time 等) → null (= 「予定なし」 誤表示防止、 CEO 補正 2)", () => {
+    // invalid startTime の anchor → anchorCount 0 + warning 1
+    const result = buildDayGraph({
+      anchors: [
+        // SINGLE_DAY pattern を base に startTime を壊す
+        {
+          ...SINGLE_DAY_ANCHORS[0]!,
+          startTime: "INVALID",
+        },
+      ],
+      date: DATE,
+    });
+    // event 化失敗 → anchorCount 0、 ただし warning あり
+    expect(result.graph.attributes.anchorCount).toBe(0);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    const summary = buildCompactSummaryView(result);
+    expect(summary).toBeNull(); // 通常 timeline に fallback、 「予定なし」 誤表示しない
+  });
+
+  it("anchor 0 件 + warnings 0 件 (= 真の空日) の summary shape", () => {
+    const result = buildDayGraph({ anchors: EMPTY_DAY_ANCHORS, date: DATE });
+    const summary = buildCompactSummaryView(result)!;
+    expect(summary.kind).toBe("compact_empty");
+    expect(summary.startTime).toBe("06:00"); // default boundary
+    expect(summary.endTime).toBe("23:00"); // default boundary
+    expect(summary.label).toBe("予定なし");
+    expect(summary.ariaLabel).toContain("予定なし");
+    expect(summary.ariaLabel).toContain("06:00");
+    expect(summary.ariaLabel).toContain("23:00");
+  });
+
+  it("summary.className は neutral slate のみ + text-xs (= UI 弱化)", () => {
+    const result = buildDayGraph({ anchors: EMPTY_DAY_ANCHORS, date: DATE });
+    const summary = buildCompactSummaryView(result)!;
+    expect(summary.className).toMatch(/text-xs/);
+    expect(summary.className).toMatch(/text-slate-/);
+    expect(summary.className).toMatch(/italic/);
+    expect(summary.className).not.toMatch(/amber-/);
+    expect(summary.className).not.toMatch(/orange-/);
+    expect(summary.className).not.toMatch(/-red-\d/);
+    expect(summary.className).not.toMatch(/yellow-/);
+  });
+
+  it("summary は raw sensitive 文字列を含まない (= 防御、 空日なので元々無関係)", () => {
+    const result = buildDayGraph({ anchors: EMPTY_DAY_ANCHORS, date: DATE });
+    const summary = buildCompactSummaryView(result)!;
+    // 防御: 空日でも sensitive raw が漏れない設計
+    expect(summary.label).not.toMatch(/MRI|病院|弁護士/);
+    expect(summary.ariaLabel).not.toMatch(/MRI|病院|弁護士/);
+  });
+
+  it("user 境界 override (= options.startTime / endTime) も summary に反映", () => {
+    const result = buildDayGraph({
+      anchors: EMPTY_DAY_ANCHORS,
+      date: DATE,
+      options: { startTime: "08:00", endTime: "22:00" },
+    });
+    const summary = buildCompactSummaryView(result)!;
+    expect(summary.startTime).toBe("08:00");
+    expect(summary.endTime).toBe("22:00");
   });
 });
