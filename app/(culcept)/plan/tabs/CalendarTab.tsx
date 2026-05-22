@@ -48,6 +48,7 @@ import {
 } from "@/lib/plan/proposal/calendarProposalSelector";
 import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
+import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
 import {
@@ -92,12 +93,11 @@ export function CalendarTab({
   acceptingProposalIds,
   recentUndoRecords,
   onProposalUndo,
-  // ── Phase 3-K-2: DayGraph computed projection (= optional、 K-2 では使用しない) ──
-  // K-3 以降で UI 接続予定。 K-2 では受け取るが render しない (= API 表面の早期確立)。
-  // 実装注意: `// eslint-disable-next-line @typescript-eslint/no-unused-vars` で参照を保つこと禁止。
-  // 単に destructure するだけで「受け取った」 ことになる。
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  dayGraphByDate: _dayGraphByDate,
+  // ── Phase 3-K-3b: DayGraph UI 接続 (= selected day timeline で静かに表示) ──
+  // K-2 から受領していた dayGraphByDate を、 ここで初めて active 利用。
+  // 既存 anchor list は **置換しない**、 timeline を **静かに追加**するだけ。
+  // proposal chip 位置不変、 onAnchorClick への bridge 経由で詳細を開く。
+  dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   /** test 用 inject、現在時刻 (default: new Date()) */
@@ -524,6 +524,38 @@ export function CalendarTab({
               );
             })}
           </ul>
+        )}
+
+        {/*
+         * Phase 3-K-3b: DayGraphTimeline を選択日の構造として **静かに**追加表示。
+         *
+         * 不変原則 (= CEO 補正):
+         *   - 既存 anchor list を置換しない (= 完全並列、 上の anchor list は不変)
+         *   - proposal chip 位置を壊さない (= chip は上のブロックに既存維持)
+         *   - 視覚的に控えめ (= neutral slate、 small heading、 静かな margin)
+         *   - warnings / duration / mode / risk 表示なし (= K-3b scope 外)
+         *   - dayGraphByDate[selectedDate] が undefined / null なら何も render しない
+         *   - onEventClick → 既存 onAnchorClick (= AnchorDetailModal 起動経路) に bridge
+         */}
+        {dayGraphByDate?.[selectedDate] && (
+          <div
+            className="mt-6 pt-4 border-t border-slate-100"
+            data-testid="plan-calendar-day-graph-section"
+          >
+            <h4 className="text-xs font-medium text-slate-500 italic mb-2">
+              1 日の構造
+            </h4>
+            <DayGraphTimeline
+              result={dayGraphByDate[selectedDate] ?? null}
+              view="user_self"
+              onEventClick={(anchorId: string) => {
+                if (!onAnchorClick) return;
+                const anchor = selectedDayAnchors.find((a) => a.id === anchorId);
+                if (anchor) onAnchorClick(anchor);
+              }}
+              dataTestId="plan-calendar-day-graph-timeline"
+            />
+          </div>
         )}
             </section>
           </motion.div>
