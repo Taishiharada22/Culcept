@@ -8129,3 +8129,100 @@ L-3 post-implementation audit で 4 critical 実害が runtime 実証された (
 - **ステータス**: L-3c 着地完了。 4 critical 全件 runtime 解決。 184 tests PASS、 K regression 0。 L-3 完全 freeze 確立 (= 19 frozen branches 計)。 次は CEO 判断 (= L-4 readiness audit / 別軸 pivot / 別 PARTIAL)。
 
 ---
+
+## 2026-05-22 [Build] L-4 readiness audit + L-4a/L-4b 連続実装着地 (= pure display formatter、 264 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-3 完全 freeze 後、 CEO + GPT 合議で「L-4 readiness audit → audit 結果次第で L-4a/L-4b pure formatter は連続 GO」 指示。 「細かく設計、 低リスクなら連続、 危険境界で停止」 を採用。
+
+### L-4 全体責務分解 (= 一括にしない)
+
+| Sub | 責務 | 着手 |
+|---|---|---|
+| L-4 readiness audit | doc only | ✅ 完了 |
+| **L-4a** | OverlayResult → MovementDisplayView pure formatter | ✅ **完了** |
+| **L-4b** | display contract (= NG 文言 grep + 6 invariants 機械保証) | ✅ **完了** |
+| L-4c | MapTab / geocode result bridge | 別 readiness audit (= 停止) |
+| L-4d | UI 接続 (= CalendarTab/MapTab/FlowTab) | 別 CEO review (= 停止) |
+| L-4e | telemetry runtime sink | 別 CEO 判断 (= 停止、 type-only 維持推奨) |
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| Branch | `feat/alter-plan-phase3-l-4a-l-4b-pure-display-formatter` (= `8dfe9c16` 起点) |
+| audit commit | `e78b6c84` (= docs only) |
+| L-4a commit | `ae86d3f5` (= formatter + 29 tests) |
+| L-4b commit | `cd11fb27` (= contract + 51 tests) |
+| **合計 L-4 tests** | **80 PASS** (= 29 L-4a + 51 L-4b) |
+| **合計 transport tests** | **186 PASS** (= 106 L-1/L-2/L-3 + 80 L-4) |
+| K regression | 55/55 PASS |
+| **総合** | **264 PASS / 0 fail** (= 184 → +80) |
+| 新規 files | 4 lib + tests = 5 |
+| 既存 file 変更 | **0** |
+| **L-1/L-2/L-3 freeze 維持** | **✅** |
+| DB / env / package / dependency | **0** |
+| UI 変更 | **0** |
+| geocode active call / fetch / localStorage / network | **0** |
+
+### L-4a 設計確定
+
+| variant | 発火条件 | displayText |
+|---|---|---|
+| `unresolved` | `timingStatus === "unresolved"` | "→ 移動" |
+| `sensitive` | `resolved` かつ `privacyClass ∈ {sensitive_both, sensitive_adjacent, location_unknown}` | "移動" |
+| `duration_only` | `resolved` かつ `privacyClass === "normal"` | "移動 約 N 分" (= N は 1 以上の整数) |
+
+- tier = `"tier_2_movement"` 固定 (= K-3c-iii 階層 2 整合)
+- confidenceBand = soft (= low) / strong (= medium 以上)、 unresolved / sensitive では undefined
+- mode / distance / risk 表示なし (= L-4 範囲外)
+- duration 丸め: `Math.max(1, Math.round(...))` で「0 分」 構造的防御
+
+### L-4b 6 invariants (= 機械保証)
+
+1. `noPiiInDisplayText`
+2. `noPiiInViewKeys` (= 15 forbidden keys: fromNodeId/toNodeId/locationText 系/source/confidence 等)
+3. `tierIsTier2Movement`
+4. `variantIsOneOfThree`
+5. `noNgWordingInDisplayText` (= 20 NG word substring: 早めに/快適/注意/歩いて/km/from 等)
+6. `displayTextMatchesOkPattern` (= 3 OK 正規表現完全一致)
+
+### 思想の transmission
+
+1. **pure formatter は「観測の表記」 担当** — duration → text 変換が最小拡張
+2. **K の「→ 移動」 は無変更維持** — L-4a は augment、 caller が選ぶ
+3. **mode/distance/risk は L-4 範囲外** — Mobility Truth Layer 思想 (= 推奨 / 最適化なし)
+4. **K-3c-iii 階層 2 規格尊重** — slate 階調、 amber/orange/red 不使用
+5. **Privacy is structural** (= L-3c 継承) — MovementDisplayView は raw 値を持てない構造
+
+### 停止境界 (= 本 commit 着地と同時に発火)
+
+L-4a/L-4b 着地で停止。 以下は **必ず別 audit / CEO review 経由**:
+
+- L-4c MapTab / geocode bridge (= coords source 設計)
+- L-4d UI 接続 (= CalendarTab/MapTab/FlowTab で表示開始)
+- L-4e telemetry runtime sink (= 保存先 / 保持期間 / 第三者送信 確認)
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4c/L-4d/L-4e 以降の着手 / UI 変更 / geocode active call / DB-env-package-dependency 変更 / localStorage / runtime telemetry sink / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### freeze 状態
+
+本 commit 着地と同時に `feat/alter-plan-phase3-l-4a-l-4b-pure-display-formatter` を **frozen 扱い** とする (= 20 frozen branches 計)。 以後の commit 禁止。
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | L-4a/L-4b 着地で十分か (= L-4 範囲を本 commit で freeze するか) |
+| Q2 | 次は L-4c bridge readiness audit に進むか、 別軸 pivot か |
+| Q3 | UI 接続 (L-4d) 前に smoke test 等の小ステップを挟むか |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-3 完了報告後 「L-4 readiness audit → 連続 GO、 危険境界で停止」 指示)
+- **ステータス**: L-4a/L-4b 着地完了。 264 tests PASS、 K regression 0、 L-1/L-2/L-3 freeze 維持。 本 commit と同時に branch を frozen 扱い (= 20 frozen branches 計)。 次は CEO 判断 (= L-4c bridge / 別軸 pivot)。
+
+---
