@@ -6530,3 +6530,65 @@ git push origin main
 - **ステータス**: 本 entry 記録 commit をもって `feat/alter-plan-phase3-j6-tab-integration` 凍結完了。 次 phase に進む前に branch state / 残 deferred / 次の選択肢を整理して停止する (= CEO 明示指示)
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-J-6 branch base lineage 表記補正 (= 「main から直接派生」 は誤り、 integration branch 経由が正)] [承認: CEO]
+
+### 補正対象 (= 直前 entry の誤記)
+
+- **NG**: 「main (= `b07eeab5`) からの直接派生」
+- **OK** (= 正確な系譜):
+  - **logical base**: `integration/plan-phase3-j-on-g-h-i @ 7e5f59d5` (= J-1〜J-5 + Phase 2-G/H/I を統合した integration branch)
+  - **upstream historical root**: `b07eeab5` / `b4ab331e` 系 (= `git merge-base HEAD main` が示す共通祖先で、 logical base ではない)
+  - **branch contents**: J-6a 〜 J-6e-4 (= 8 commits) + J-7 docs commit (= 1 commit) = 計 9 commits
+  - **J-7 status**: limited smoke/audit PASS (= 「fully smoke PASS」 ではない、 wording 厳守)
+  - **proposal chip real UI smoke**: remains deferred (= data gate 未成立、 これは FAIL ではない)
+
+### 補正の根拠 (= git log 検証)
+
+- `git log feat/alter-plan-phase3-j6-tab-integration` で系譜を確認:
+  - 本 branch (frozen HEAD `68d41d32`) 直前に J-6 commits (= 378c0744 〜 1e6a92a8) が積まれている
+  - その下に `7e5f59d5 merge: Phase 3-J accept + modify path into integration/plan-phase3-j-on-g-h-i` (= integration branch の merge commit)
+  - さらに下に integration branch の他 merge commits (= `8ede126e` / `67e5da89` / `27a14503` / `4c7aac16`)
+  - **operational base** = integration branch `7e5f59d5` (= 本 branch が新規 commit を積み始めた起点)
+  - **git merge-base** = `b07eeab5` (= main と本 branch の共通祖先、 historical root であって operational base ではない)
+
+### 系譜整理 (= 正確な記録)
+
+```
+b07eeab5 / b4ab331e 系  (= upstream historical root、 main と本 branch の共通祖先)
+       │
+       ↓
+[integration/plan-phase3-j-on-g-h-i 系列]
+   ├ J-1a / J-1b / J-1c / J-1d / J-1e  (= 8ede126e で merge)
+   ├ J-2 / J-3 / J-4 / J-5             (= 7e5f59d5 で merge)
+   ├ Phase 2-G / 2-H / 2-I             (= 4c7aac16 / 27a14503 / 67e5da89 で merge)
+       │
+       ↓
+[feat/alter-plan-phase3-j6-tab-integration @ 7e5f59d5 から派生]  ★ logical base
+   ├ J-6a (378c0744) ← computeProposals orchestration
+   ├ J-6b (17dac1df) ← displayProposalAwareNotes + UI 露出修正
+   ├ J-6c (972243a6) ← CalendarTab proposal chip 導線
+   ├ J-6d (f6b1ce66) ← MapTab proposal hint 導線
+   ├ J-6e-1 (080b8ba9) ← read-only display
+   ├ J-6e-2 (506bab48) ← dismiss callback wiring
+   ├ J-6e-3 (75f07dea) ← accept transaction + Quiet Undo Window
+   ├ J-6e-4 (1e6a92a8) ← modify + AddAnchorModal wiring
+   ├ J-7 (68d41d32) ← limited smoke/audit PASS + branch 凍結記録
+       │
+       ↓
+[frozen ── 以後 commit 追加禁止]
+```
+
+### 本補正の commit 経路 (= frozen branch に commit しない方法)
+
+- frozen branch (`feat/alter-plan-phase3-j6-tab-integration`) には **追加 commit 不可** (= CEO 永続制約)
+- 本補正は **別 branch** (`chore/plan-proposalToAnchorInput-tsc-carryover`) の docs commit として記録
+- 同 branch で実施する J-6e-3 由来 tsc carry-over の軽量修正 (= 別 entry で記録) と同居
+- frozen branch の commit graph は不変、 本 entry は 「frozen 後の補正記録」 として decision-log 上で系譜を正確化
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 base lineage 表記補正指示)
+- **ステータス**: 本補正は新 branch `chore/plan-proposalToAnchorInput-tsc-carryover` の docs commit として記録 (= frozen branch 不触)、 frozen branch HEAD `68d41d32` は不変
+
+---
