@@ -8605,3 +8605,90 @@ L-4d MapTab-only UI 接続 (= commit `a87f752b`) について CEO が実機 visu
 - **ステータス**: L-4d 完全 freeze 確定、 closeout audit + 4 候補比較 docs 着地。 26 frozen branches 計。 次は CEO 最終判断 (= 自律推奨順序採用 or 別軸) を待ち、 計画決定後に着手 phase へ。
 
 ---
+
+## 2026-05-22 [Build] L 全体 closeout overview 着地 (= 1 doc で L phase 全体把握、 31 frozen branches) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4d closeout 着地後、 CEO + GPT 合議で「候補 3 (L closeout docs) へ進む、 実装には進まず L 全体 closeout docs を作成、 その後 L-4d-b readiness audit へ進むか判断」 指示。 自律推奨順序を採用。
+
+### 実装結果 (= docs のみ、 実装変更 0)
+
+| 項目 | 値 |
+|---|---|
+| Branch | `docs/plan-phase3-l-closeout-overview` (= `3cf999a5` 起点) |
+| commit | (= 本 commit) |
+| 新規 files | 1 (= `alter-plan-phase3-l-closeout-overview.md`) + decision-log |
+| **既存 source / tests / config 変更** | **0** |
+| **既存 freeze branches** | 全件維持 |
+| DB / env / package / dependency 変更 | **0** |
+
+### 着地物 (= 16 章構成、 大規模整理 doc)
+
+`docs/alter-plan-phase3-l-closeout-overview.md`:
+
+| § | 内容 |
+|---|---|
+| 0 | Executive Summary |
+| 1 | L phase 全体 architecture (= 10 layer diagram) |
+| 2 | Sub-phase list + commit hash + 累計 tests (= 475 tests 到達) |
+| 3 | file 一覧 (= 11 lib + 14 tests + 9 docs + 2 UI files) |
+| 4 | 26 + 5 = 31 frozen branches map |
+| 5 | 既存資産との依存関係 (= L が依存する 9 files、 改修した 3 files) |
+| 6 | 残課題 / Deferred ledger 統合 (= L-4d-S1/S2/S3 + L-4e hooks) |
+| 7 | 永続禁止 list 統合 (= 機能 / 構造 / 操作 / privacy 4 分類) |
+| 8 | 思想 transmission (= Mobility Truth / 影は本体を mutate しない / Privacy is structural 等) |
+| 9 | GitHub PR runbook 拡張 (= 12 PR 構成、 K runbook と整合) |
+| 10 | テスト統計 (= sub-phase 別累計 + K regression 維持確認) |
+| 11 | 次 phase 候補 (= L-4d-b / L-4e / L-5、 自律推奨) |
+| 12 | 「新 dev / 別 session」 Quick Start (= 4 step 読書順序) |
+| 13 | CEO 判断ポイント |
+| 14 | 関連 docs 全 reference index |
+| 15 | 着地状態 + freeze 確定 |
+| 16 | 結語 — L phase の到達点 |
+
+### L phase 到達点
+
+- **475 tests PASS** (= 全 transport / K regression / integration)
+- **0 既存 file 破壊** (= K phase / Phase 2-C geocode / PlanClient core 完全無変更)
+- **0 新規 dependency** (= DB / env / package / dependency 0)
+- **0 privacy 違反** (= L-3c structural privacy 機械保証 + L-4b 6 invariants)
+- **K-3c-iii 階調完全維持** (= MapTab UI で「移動 約 N 分」 が予定カードより弱い、 visual smoke PASS)
+
+### 自律推奨順序 (= 確認)
+
+第 1 phase (= 完了): L closeout docs (= 本 doc)
+第 2 phase (= 次): L-4d-b readiness audit (= 実装ではなく audit のみ)
+第 3 phase (= audit 結果次第): L-4d-b 実装 / L-5 readiness / 別軸 pivot
+
+### freeze 状態
+
+本 commit 着地と同時に `docs/plan-phase3-l-closeout-overview` を **frozen 扱い** (= 31 frozen branches 計、 以後 commit 禁止)。
+
+### CEO 判断ポイント
+
+| Q | 内容 |
+|---|---|
+| Q1 | L 全体 closeout 確認 (= 本 doc で確定) |
+| Q2 | 次は L-4d-b readiness audit に進むか (= 自律推奨) |
+| Q3 | 別軸 pivot (= 初期テストユーザー獲得 / Deploy 準備等) を挟むか |
+| Q4 | L-4e (= telemetry sink) を先に挟むか — NO 推奨 |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L closeout overview 改変 / L-4d-b 等の **実装** (= audit はOK) / Arrival Risk Memory / recommendation / optimization / warning 文言 / mode 表示 / distance 表示 / 新規 geocode endpoint 呼出 / runtime telemetry sink 実装 / DB-env-package-dependency 変更 / localStorage / K phase 改変 / L-1 type 改変 / frozen branches への commit / fetch-push-gh / reset-restore-stash-branch delete
+
+### 思想の transmission
+
+1. 「観測のみ」 — L phase = Mobility Truth Layer、 推奨 / 最適化はしない
+2. 「影は本体を mutate しない」 — K に対する L の不可侵関係
+3. 「Privacy is structural」 — 型で「持てない」 設計
+4. 「整理 → 判断 → 実装」 — 各 sub-phase で readiness audit を経由
+5. 「audit doc は freeze 単位」 — 全 31 branches が独立追跡可能
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4d closeout 着地後 「候補 3 (L closeout docs) へ進む、 実装は止める」 指示、 自律推奨採用)
+- **ステータス**: L 全体 closeout overview 着地完了。 1 doc で L phase 全 architecture / sub-phase / files / branches / deferred / 永続禁止 / 思想 / 次 phase 判断 hint を網羅。 31 frozen branches 計。 既存 source / freeze 全件無変更。 次は CEO 判断 (= L-4d-b audit / 別軸 / L-4e / L-5) を待つ。
+
+---
