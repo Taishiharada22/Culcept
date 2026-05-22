@@ -38,6 +38,8 @@ function makeEvent(overrides: Partial<EventNode> = {}): EventNode {
     verb: "unknown",
     rigidity: "soft",
     latencyTolerance: "flexible",
+    durationSource: "explicit",
+    boundaryClipped: false,
     sensitive: false,
     overlapsWithNodeIds: [],
     ...overrides,

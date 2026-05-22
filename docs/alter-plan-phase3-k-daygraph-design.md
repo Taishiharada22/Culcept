@@ -825,7 +825,8 @@ tests/unit/plan/
 | version | 日付 | 変更内容 | 承認 |
 |---|---|---|---|
 | v1.0 | 2026-05-22 | 初版。 GPT 6 補正 + Claude 自立 8 補強反映 | CEO 設計 GO |
-| **v1.1** | **2026-05-22** | **実装着手前 actual code audit 結果反映 (= 軽微 5 件補正、 下 §22)** | **CEO 実装 GO** |
+| v1.1 | 2026-05-22 | 実装着手前 actual code audit 結果反映 (= 軽微 5 件補正、 下 §22) | CEO 実装 GO |
+| **v1.2** | **2026-05-22** | **K-1f 補正: §22.8 durationSource + boundaryClipped 2 field / §22.9 JSON-safe output (= Set → Array)** | **CEO K-1f GO** |
 | (将来) v2.0 | TBD | 3-L 接続点 (= MovementSegment 昇格仕様) 追記 | TBD |
 
 ---
@@ -878,6 +879,133 @@ tests/unit/plan/
 ### 22.7 StartNode / EndNode の durationMin
 
 - **v1.1 明示**: StartNode / EndNode は **「点」** として配置、 `startTime === endTime`、 `durationMin = 0`
+
+---
+
+## 22.8 K-1f-α: Duration Provenance (= 2 field 方式、 v1.2)
+
+### 動機
+
+EventNode が「endTime の由来」 を保持しないと、 3-L / 3-M / 3-N で **仮置きの 60 分を user 明示と同じ「事実」** として扱ってしまう。 これは Transport / Arrival Risk / Counter-Factual の精度を毀損する。
+
+### 補正 (= CEO 確定 + Claude 自立補強)
+
+3 値 enum (`explicit | assumed_default | clipped_boundary`) は orthogonal な 2 軸を混在させる欠陥。 正しい設計は **2 field 直交**:
+
+```typescript
+export type DurationSource = "explicit" | "assumed_default";
+
+interface EventNode {
+  ...
+  /** anchor.endTime が明示か、 DEFAULT_EVENT_DURATION_MIN で補完されたか */
+  readonly durationSource: DurationSource;
+  /** endTime が observation boundary を超えて clip されたか (= durationSource とは別軸) */
+  readonly boundaryClipped: boolean;
+  ...
+}
+```
+
+### 4 状態完全網羅 (= 全 case 後 phase で区別可能)
+
+| anchor.endTime | endTime boundary 内 | endTime boundary 越 |
+|---|---|---|
+| 明示 | durationSource="explicit", boundaryClipped=false | durationSource="explicit", boundaryClipped=true |
+| 欠落 | durationSource="assumed_default", boundaryClipped=false | durationSource="assumed_default", boundaryClipped=true |
+
+### 後 phase での活用 (= L/M/N 接続点)
+
+- **3-L** (Transport): `durationSource === "explicit"` の event は移動時間計算で正確に余白扱い、 `assumed_default` は弱信号として扱う
+- **3-M** (Arrival Risk): `boundaryClipped === true` の event は「実は 21:00-25:00 の event を 23:00 まで観察した」 可能性を考慮、 後続予定への影響を保守的に評価
+- **3-N** (Counter-Factual): 仮置きの 60 分を変えて alternative graph 生成する場合、 `durationSource === "assumed_default"` のみを対象に
+
+### Display 規約
+
+- `formatDayGraphAsAscii` 等の dev/UI は durationSource / boundaryClipped を **基本表示しない** (= 内部 attribute、 後 phase 向け)
+- 必要な場合のみ debug 出力 (= 例 `formatDayGraphAsAscii(graph, { showInternalProvenance: true })`、 K では未実装)
+
+### 実装範囲 (= K-1f-α commit)
+
+- `dayGraphTypes.ts`: `DurationSource` type export + EventNode 2 field 追加
+- `eventNodes.ts`: `normalizeAnchorTime` 戻り値に 2 field 追加 + `buildEventNodeFromAnchor` で注入
+- tests: 4 状態 完全 case + orthogonal 確認 + 既存 test fixture 更新
+
+---
+
+## 22.9 K-1f-β: JSON-safe Output (= ReadonlyArray、 v1.2)
+
+### 動機
+
+`DayGraphAttributes.timeBucketCoverage: ReadonlySet<TimeBucket>` は `JSON.stringify` で空 object `{}` になり、 **data lost**。 後 phase で graph を serialize する場面 (= API / persistence / debug) で破綻。
+
+### 補正
+
+```typescript
+interface DayGraphAttributes {
+  ...
+  /** canonical 順序の Array (= JSON-safe、 v1.2 §22.9) */
+  readonly timeBucketCoverage: ReadonlyArray<TimeBucket>;
+  ...
+}
+```
+
+### Canonical order (= deterministic 順序保証)
+
+```typescript
+export const TIME_BUCKET_CANONICAL_ORDER: ReadonlyArray<TimeBucket> = [
+  "early_morning",
+  "morning",
+  "noon",
+  "afternoon",
+  "evening",
+  "night",
+  "late_night",
+] as const;
+```
+
+attribute 計算時、 内部 Set で集約 → canonical order に従って Array 化。 これにより同 input → 同 output (= snapshotId と同思想の deterministic)。
+
+### 新 invariant: `jsonSafeOutput`
+
+`DayGraphIntegrityContract` に 12 番目の invariant として追加:
+
+```typescript
+interface DayGraphIntegrityContract {
+  ...
+  /** graph object は JSON-safe (= Set / Map / function / symbol / bigint なし) */
+  readonly jsonSafeOutput: true;
+}
+```
+
+### 実装: `assertJsonSafeStructure`
+
+`assertDayGraphCompliance` 内で graph を再帰的に traverse し、 Set / Map / function / symbol / bigint を検出 → throw `DayGraphIntegrityError("jsonSafeOutput", ...)`。
+
+```typescript
+function assertJsonSafeStructure(graph: DayGraph): void {
+  function check(val: unknown, path: string): void {
+    if (val === null || val === undefined) return;
+    if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") return;
+    if (val instanceof Set) throw new DayGraphIntegrityError("jsonSafeOutput", `Set at ${path}`);
+    if (val instanceof Map) throw new DayGraphIntegrityError("jsonSafeOutput", `Map at ${path}`);
+    if (Array.isArray(val)) { val.forEach((item, i) => check(item, `${path}[${i}]`)); return; }
+    if (typeof val === "object") {
+      for (const k of Object.keys(val)) check((val as Record<string, unknown>)[k], `${path}.${k}`);
+      return;
+    }
+    throw new DayGraphIntegrityError("jsonSafeOutput", `non-JSON ${typeof val} at ${path}`);
+  }
+  check(graph, "graph");
+}
+```
+
+将来の Set / Map 混入を **自動検出** (= 将来の Layer 1/2/3 attribute 追加時の regression 防止)。
+
+### 実装範囲 (= K-1f-β commit)
+
+- `dayGraphTypes.ts`: `TIME_BUCKET_CANONICAL_ORDER` export + `timeBucketCoverage` Array 化 + `jsonSafeOutput` invariant
+- `dayGraphAttributes.ts`: Set → canonical-ordered Array 変換
+- `dayGraphIntegrityContract.ts`: `assertJsonSafeStructure` 統合
+- tests: `.has()` → `.includes()` 変換 + JSON round-trip test 追加 + Set 混入検出 test
 
 ---
 

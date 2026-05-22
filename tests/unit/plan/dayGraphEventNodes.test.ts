@@ -86,7 +86,7 @@ describe("buildDisplayLabel", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("buildEventNodeFromAnchor — ok cases", () => {
-  it("通常 anchor → EventNode 完全変換", () => {
+  it("通常 anchor → EventNode 完全変換 (= durationSource=explicit / boundaryClipped=false)", () => {
     const anchor = makeAnchor();
     const r = buildEventNodeFromAnchor({
       anchor,
@@ -109,12 +109,14 @@ describe("buildEventNodeFromAnchor — ok cases", () => {
     expect(r.node.verb).toBe("eat");
     expect(r.node.rigidity).toBe("soft");
     expect(r.node.latencyTolerance).toBe("flexible");
+    expect(r.node.durationSource).toBe("explicit");  // K-1f-α
+    expect(r.node.boundaryClipped).toBe(false);       // K-1f-α
     expect(r.node.sensitive).toBe(false);
     expect(r.node.displayLabel).toBe("カフェ");
     expect(r.node.overlapsWithNodeIds).toEqual([]);
   });
 
-  it("endTime 欠落 → DEFAULT_EVENT_DURATION_MIN (60 分) で補完", () => {
+  it("endTime 欠落 → DEFAULT_EVENT_DURATION_MIN (60 分) で補完 + durationSource=assumed_default", () => {
     const anchor = makeAnchor({ endTime: undefined });
     const r = buildEventNodeFromAnchor({
       anchor,
@@ -127,9 +129,11 @@ describe("buildEventNodeFromAnchor — ok cases", () => {
     expect(r.node.startTime).toBe("14:00");
     expect(r.node.endTime).toBe("15:00");
     expect(r.node.durationMin).toBe(60);
+    expect(r.node.durationSource).toBe("assumed_default"); // K-1f-α
+    expect(r.node.boundaryClipped).toBe(false);
   });
 
-  it("endTime > boundary → boundary に clip (= warning なし)", () => {
+  it("endTime > boundary → clip + boundaryClipped=true (= durationSource は不変)", () => {
     const anchor = makeAnchor({ startTime: "22:00", endTime: "23:30" });
     const r = buildEventNodeFromAnchor({
       anchor,
@@ -141,6 +145,96 @@ describe("buildEventNodeFromAnchor — ok cases", () => {
     if (!r.ok) return;
     expect(r.node.endTime).toBe("23:00"); // clipped
     expect(r.node.durationMin).toBe(60);
+    expect(r.node.durationSource).toBe("explicit");  // anchor.endTime 由来 (= 23:30 → clipped に変わっても explicit は不変)
+    expect(r.node.boundaryClipped).toBe(true);        // K-1f-α
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-1f-α: 4 状態 (durationSource × boundaryClipped) 全網羅
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("K-1f-α: duration provenance 4 状態", () => {
+  it("[1/4] explicit + not clipped: 通常 anchor、 endTime あり、 boundary 内", () => {
+    const a = makeAnchor({ startTime: "14:00", endTime: "15:00" });
+    const r = buildEventNodeFromAnchor({
+      anchor: a, allDayAnchors: [a], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.node.durationSource).toBe("explicit");
+    expect(r.node.boundaryClipped).toBe(false);
+    expect(r.node.durationMin).toBe(60);
+  });
+
+  it("[2/4] explicit + clipped: endTime あり、 endTime が boundary 超 → clip", () => {
+    const a = makeAnchor({ startTime: "22:00", endTime: "24:00" });
+    const r = buildEventNodeFromAnchor({
+      anchor: a, allDayAnchors: [a], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    // "24:00" は parseHHMM で reject。 strict spec のため invalid_time。
+    // → これを test するために "23:30" を使う
+    expect(r.ok).toBe(false); // 24:00 reject
+  });
+
+  it("[2/4 valid] explicit + clipped: endTime '23:30' → '23:00' clip", () => {
+    const a = makeAnchor({ startTime: "22:00", endTime: "23:30" });
+    const r = buildEventNodeFromAnchor({
+      anchor: a, allDayAnchors: [a], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.node.durationSource).toBe("explicit");   // user 明示 由来
+    expect(r.node.boundaryClipped).toBe(true);         // clip 発火
+    expect(r.node.endTime).toBe("23:00");
+    expect(r.node.durationMin).toBe(60); // 22:00-23:00
+  });
+
+  it("[3/4] assumed_default + not clipped: endTime 欠落、 boundary 内", () => {
+    const a = makeAnchor({ startTime: "14:00", endTime: undefined });
+    const r = buildEventNodeFromAnchor({
+      anchor: a, allDayAnchors: [a], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.node.durationSource).toBe("assumed_default");
+    expect(r.node.boundaryClipped).toBe(false);
+    expect(r.node.durationMin).toBe(60);
+  });
+
+  it("[4/4] assumed_default + clipped: endTime 欠落、 default 60 分が boundary 超 → clip", () => {
+    // startTime "22:30" + default 60min = "23:30" → boundary "23:00" で clip
+    const a = makeAnchor({ startTime: "22:30", endTime: undefined });
+    const r = buildEventNodeFromAnchor({
+      anchor: a, allDayAnchors: [a], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.node.durationSource).toBe("assumed_default"); // 由来は仮置きのまま
+    expect(r.node.boundaryClipped).toBe(true);              // clip 発火
+    expect(r.node.endTime).toBe("23:00");
+    expect(r.node.durationMin).toBe(30); // 22:30-23:00
+  });
+
+  it("4 状態は orthogonal: durationSource と boundaryClipped は別軸", () => {
+    // explicit + clipped と assumed + clipped が **異なる** durationSource を持つことを確認
+    const a1 = makeAnchor({ id: "a1", startTime: "22:00", endTime: "23:30" });
+    const a2 = makeAnchor({ id: "a2", startTime: "22:30", endTime: undefined });
+    const r1 = buildEventNodeFromAnchor({
+      anchor: a1, allDayAnchors: [a1], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    const r2 = buildEventNodeFromAnchor({
+      anchor: a2, allDayAnchors: [a2], overlapsIds: new Set(), bounds: DEFAULT_BOUNDS,
+    });
+    if (!r1.ok || !r2.ok) {
+      expect.fail("expected both to succeed");
+      return;
+    }
+    expect(r1.node.boundaryClipped).toBe(true);
+    expect(r2.node.boundaryClipped).toBe(true);
+    // 重要: 両方 clipped でも durationSource は分離している
+    expect(r1.node.durationSource).toBe("explicit");
+    expect(r2.node.durationSource).toBe("assumed_default");
   });
 });
 

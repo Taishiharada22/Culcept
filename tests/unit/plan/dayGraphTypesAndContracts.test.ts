@@ -90,6 +90,8 @@ function makeEventNode(overrides: Partial<EventNode> = {}): EventNode {
     verb: "eat",
     rigidity: "soft",
     latencyTolerance: "flexible",
+    durationSource: "explicit",
+    boundaryClipped: false,
     sensitive: false,
     overlapsWithNodeIds: [],
     ...overrides,

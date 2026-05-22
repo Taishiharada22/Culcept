@@ -28,6 +28,7 @@ import { inferAnchorVerb } from "./anchorVerbMap";
 import {
   DEFAULT_EVENT_DURATION_MIN,
   type DayGraphWarning,
+  type DurationSource,
   type EventNode,
 } from "./dayGraphTypes";
 import { inferLatencyTolerance } from "./latencyToleranceMap";
@@ -84,7 +85,17 @@ interface BoundsMinutes {
 interface NormalizedTime {
   readonly startMin: number;
   readonly endMin: number;
-  readonly endTimeClipped: boolean;
+  /**
+   * duration 由来 (= v1.2 §22.8、 K-1f-α)。
+   *   "explicit"        — anchor.endTime が明示
+   *   "assumed_default" — 欠落 + DEFAULT_EVENT_DURATION_MIN 補完
+   */
+  readonly durationSource: DurationSource;
+  /**
+   * endTime が boundary 超で clip されたか (= 設計 §22.6 + v1.2 §22.8)。
+   * durationSource と直交。
+   */
+  readonly boundaryClipped: boolean;
 }
 
 /**
@@ -125,9 +136,10 @@ function normalizeAnchorTime(
     };
   }
 
-  // 3. endTime decide
+  // 3. endTime decide (= durationSource を同時に確定、 K-1f-α)
   let endMin: number;
-  let endTimeClipped = false;
+  let boundaryClipped = false;
+  let durationSource: DurationSource;
   if (typeof anchor.endTime === "string" && anchor.endTime.length > 0) {
     const parsed = parseHHMMtoMinutes(anchor.endTime);
     if (parsed === null) {
@@ -151,15 +163,18 @@ function normalizeAnchorTime(
       };
     }
     endMin = parsed;
+    durationSource = "explicit";
   } else {
     // endTime 欠落 → default duration (= v1.1 §22.2)
     endMin = startMin + DEFAULT_EVENT_DURATION_MIN;
+    durationSource = "assumed_default";
   }
 
   // 4. endTime が boundary を超える → clip (= warning なし、 §22.6)
+  //    durationSource は不変 (= clip は別軸、 K-1f-α §22.8)
   if (endMin > bounds.endMin) {
     endMin = bounds.endMin;
-    endTimeClipped = true;
+    boundaryClipped = true;
   }
 
   // 5. clip 後に endMin <= startMin になる edge case (= boundary start に張り付いた場合等)
@@ -177,7 +192,7 @@ function normalizeAnchorTime(
 
   return {
     ok: true,
-    normalized: { startMin, endMin, endTimeClipped },
+    normalized: { startMin, endMin, durationSource, boundaryClipped },
   };
 }
 
@@ -204,10 +219,10 @@ export function buildEventNodeFromAnchor(input: {
 }): { ok: true; node: EventNode } | { ok: false; warning: DayGraphWarning } {
   const { anchor, overlapsIds } = input;
 
-  // 1. 時刻 normalize
+  // 1. 時刻 normalize (= durationSource / boundaryClipped 含む、 K-1f-α)
   const norm = normalizeAnchorTime(anchor, input.bounds);
   if (!norm.ok) return { ok: false, warning: norm.warning };
-  const { startMin, endMin } = norm.normalized;
+  const { startMin, endMin, durationSource, boundaryClipped } = norm.normalized;
 
   // 2. sensitive flag (= sensitiveCategory != null)
   const sensitive = anchor.sensitiveCategory != null;
@@ -262,6 +277,8 @@ export function buildEventNodeFromAnchor(input: {
     verb,
     rigidity: anchor.rigidity,
     latencyTolerance,
+    durationSource,    // = K-1f-α: "explicit" or "assumed_default"
+    boundaryClipped,   // = K-1f-α: endTime boundary clip 由来
     sensitive,
     sensitiveCategory: anchor.sensitiveCategory,
     overlapsWithNodeIds,

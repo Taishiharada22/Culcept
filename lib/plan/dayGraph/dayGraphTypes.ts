@@ -111,6 +111,20 @@ export interface EndNode extends DayGraphNodeBase {
   readonly boundaryRationale: BoundaryRationale;
 }
 
+/**
+ * EventNode の duration 由来 (= v1.2 §22.8、 K-1f-α 補正)。
+ *
+ * 3-L / 3-M / 3-N で「仮置きの 60 分」 を事実扱いしないために導入。
+ *   - "explicit":        anchor.endTime が明示されており、 EventNode.durationMin は user 由来
+ *   - "assumed_default": anchor.endTime 欠落、 DEFAULT_EVENT_DURATION_MIN で補完済
+ *
+ * `boundaryClipped` (= 別 field) と直交:
+ *   - durationSource × boundaryClipped で 4 状態を区別
+ *   - 「明示 endTime が boundary で clip された」 と
+ *     「仮置きの 60 分が boundary で clip された」 を後 phase で区別可能
+ */
+export type DurationSource = "explicit" | "assumed_default";
+
 export interface EventNode extends DayGraphNodeBase {
   readonly kind: "event";
   readonly origin: "explicit";
@@ -136,6 +150,16 @@ export interface EventNode extends DayGraphNodeBase {
    * 3-M で activate 予定、 3-K では値持つだけ。
    */
   readonly latencyTolerance: LatencyTolerance;
+  /**
+   * duration の由来 (= v1.2 §22.8、 K-1f-α)。
+   * 後 phase で「仮置きの時間を事実扱いしない」 ために使用。
+   */
+  readonly durationSource: DurationSource;
+  /**
+   * endTime が observation boundary を超えたため clip されたか (= v1.2 §22.8、 K-1f-α)。
+   * durationSource と直交する別軸 (= explicit / assumed 共に clipped 可能)。
+   */
+  readonly boundaryClipped: boolean;
   /** sensitive flag (= anchor.sensitiveCategory != null) */
   readonly sensitive: boolean;
   /** anchor.sensitiveCategory (= 種類分類、 displayLabel branching 用) */
