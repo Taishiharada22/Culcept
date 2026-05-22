@@ -7284,3 +7284,102 @@ Phase 3-J (= proposal 層) 全 sub-phase 完了 + 4 frozen branches 整理済の
 - **ステータス**: 本 entry 着地で `feat/alter-plan-phase3-k3b-calendartab-integration` 凍結。 K-3c 設計提案を別 branch で出す (= 実装は CEO 別承認後)。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-K-3c 全 sub-phase 完了 + CEO visual smoke PASS + branch `feat/alter-plan-phase3-k3c-iii-visual-density-refinement` 凍結] [承認: CEO 実機 smoke]
+
+### K-3c 全 4 sub-phase 着地 (= 1 active branch、 4 commits)
+
+| sub-phase | commit | 範囲 |
+|---|---|---|
+| K-3c-0 | `9ebb6ed9` | `dayGraphByDate` 計算対象を visible date window (= today ± 7 day) に拡張、 recurring-only / 空 day も entry あり |
+| K-3c-i | `b5648e3e` | MapTab SelectedAnchorCard 直後に DayGraphTimeline 静かに追加 (= 場所→時間 bridge) |
+| K-3c-ii | `b73afa3f` | FlowTab 各 day card に DayGraphTimeline 追加 + React.memo 適用 (= 7 timeline 性能担保) |
+| K-3c-iii | `7fd40363` | Visual density refinement: 階調 3 階層強化 + compact empty day + warnings あり日は誤表示しない (= Negative Capability) |
+
+### CEO 実機 visual smoke PASS 確認 (= 2026-05-22)
+
+**Wording 厳守**: 「K-3c-iii visual smoke PASS」 (= 「fully smoke PASS」 ではない)
+
+#### Visual smoke 確認済 (= K-3c-iii 範囲)
+
+- ✅ FlowTab 連続予定なし日が 1 行 compact 表示 (= 「予定なし · 06:00–23:00」)
+- ✅ FlowTab 予定あり日は通常 timeline 維持
+- ✅ Gap / Start / End が全 tab で薄く (= 階調強化、 K-3a より弱い slate-200)
+- ✅ MovementTransition が中間階層 (= slate-300、 amber/orange なし)
+- ✅ Event 表示強度は維持 (= 階層 3 explicit、 K-3a-c と不変)
+- ✅ CalendarTab / MapTab の機能 / layout 不変
+- ✅ 既存 anchor list / proposal chip / FAB すべて維持
+- ✅ warning / recommendation / optimization 文言なし
+- ✅ 強い警告色 (red / orange / amber) なし
+
+#### Deferred / not applicable (= 正直記録)
+
+- **sensitive redaction visual smoke**: **deferred / not applicable** (= dev account に sensitive 予定実データなし、 unit test 検証済)
+- **warning あり日 visual smoke**: **deferred / not applicable** (= 該当データなし、 unit test で「warnings あり → 通常 timeline fallback」 検証済)
+- **EventNode click smoke**: K-3b と同様に **未確認** (= unit test では bridge 配線済)
+
+### K-3c 最小 closeout audit 7 項目 全 PASS
+
+| # | 項目 | 結果 |
+|---|---|---|
+| 1 | diff scope (= K-3c-0/i/ii/iii で 1 branch 4 commits、 想定通り) | ✅ |
+| 2 | UI 不変性 (= CalendarTab/MapTab/FlowTab 機能不変、 階調 subtle 視覚変化のみ) | ✅ |
+| 3 | dayGraphByDate visible window 拡張 (= K-3c-0、 recurring-only / 空 day 含む) | ✅ |
+| 4 | Compact mode 採用条件 `anchorCount===0 AND warnings.length===0` (= 誤表示防止) | ✅ |
+| 5 | tests (= plan unit 1787/1787 PASS) + tsc K-3c surface (= errors 0) | ✅ |
+| 6 | warning color / 推奨文言なし (= file-grep 機械検証、 全 tab) | ✅ |
+| 7 | 9 frozen branches HEAD 不変 + migration/env/package/dependency 変更 0 | ✅ |
+
+### 重要設計成果 (= K-3c で確立)
+
+- **階調 3 階層**: 階層 1 (Boundary/Gap、 slate-200) / 階層 2 (Movement、 slate-300) / 階層 3 (Event、 slate-400)
+- **「予定なし」 誤表示防止**: invalid anchor で warning が出る日は compact 化せず通常 timeline (= Negative Capability 整合)
+- **visible date window**: today ± 7 day を計算対象に含めることで FlowTab 7 day + recurring-only day を統一 cover
+- **React.memo 適用**: FlowTab 7 timeline 同時 render の性能担保
+- **No Aura 維持**: sensitive 強調なし、 generic 見た目で漏洩源を作らない
+- **「→ 移動」 のみ**: Negative Capability (= duration / mode は 3-L で resolve)
+
+### Branch 凍結 (= CEO 明示指示)
+
+- **凍結対象**: `feat/alter-plan-phase3-k3c-iii-visual-density-refinement`
+- **凍結時 HEAD**: 本 commit (= K-3c closeout 記録)
+- **以後の方針**: 追加 commit / rebase / delete / force push 禁止
+- **Phase 3-K 全体 closeout docs** は別 branch で立てる (= 仮称 `docs/plan-phase3-k-closeout`)
+
+### 全 10 frozen branches (= J 系 5 + K-1 + K-2 + K-3a + K-3b + K-3c)
+
+| Branch | HEAD | 状態 |
+|---|---|---|
+| `feat/alter-plan-phase3-j6-tab-integration` | `68d41d32` | 🔒 |
+| `chore/plan-proposalToAnchorInput-tsc-carryover` | `bf25ec17` | 🔒 |
+| `docs/plan-phase3-j-closeout` | `8399caf8` | 🔒 |
+| `docs/plan-phase3-j-pr-runbook-diff-safety-addendum` | `790881d1` | 🔒 |
+| `docs/plan-phase3-k-daygraph-design` | `30343adc` | 🔒 |
+| `feat/alter-plan-phase3-k-daygraph-foundation` | `12b6a8d0` | 🔒 |
+| `feat/alter-plan-phase3-k2-planclient-integration` | `fd5a395b` | 🔒 |
+| `feat/alter-plan-phase3-k3a-daygraph-timeline-component` | `38ea3b55` | 🔒 |
+| `feat/alter-plan-phase3-k3b-calendartab-integration` | `d22d06f8` | 🔒 |
+| `feat/alter-plan-phase3-k3c-maptab-flowtab-integration` | `b73afa3f` | 🔒 |
+| `feat/alter-plan-phase3-k3c-iii-visual-density-refinement` | (= 本 commit) | 🔒 frozen 確定 |
+
+### CEO 永続制約 全遵守
+
+| 制約 | 状態 |
+|---|---|
+| Transport API / Arrival Risk Memory | ❌ なし |
+| L / M / N | ❌ なし |
+| warning UI / recommendation / optimization 文言 | ❌ なし |
+| amber / orange / red 警告色 | ❌ なし |
+| Map / Flow 既存 UI 置換 | ❌ なし (= 静かな追加のみ) |
+| DB migration / env / package / dependency | ❌ なし |
+| crypto / new dependency | ❌ なし |
+| frozen branches への commit | ❌ なし |
+| fetch / push / gh | ❌ なし |
+| reset / restore / stash / branch delete / force push | ❌ なし |
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 K-3c-iii visual smoke PASS + 全 K-3c closeout + 凍結指示 + K 全体 closeout docs + 3-L design review GO)
+- **ステータス**: 本 entry 着地と同時に `feat/alter-plan-phase3-k3c-iii-visual-density-refinement` 凍結。 11 frozen branches 計、 Phase 3-K 実装は完了。 次は (a) K 全体 closeout docs 整理、 (b) 3-L design review。
+
+---
