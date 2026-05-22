@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildVisibleDateWindow,
   collectAnchoredDateStrings,
   computeDayGraphMapForAnchors,
   type AnchorsForDateResolver,
@@ -139,6 +140,143 @@ describe("collectAnchoredDateStrings", () => {
     const frozen = JSON.stringify(anchors);
     collectAnchoredDateStrings({ anchors, nowDate: NOW });
     expect(JSON.stringify(anchors)).toBe(frozen);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-0: extraDateStrings 拡張
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("K-3c-0: collectAnchoredDateStrings extraDateStrings", () => {
+  it("extraDateStrings を渡すと union に含める", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [],
+      nowDate: NOW,
+      extraDateStrings: ["2026-05-20", "2026-05-25"],
+    });
+    expect(r).toEqual(["2026-05-20", "2026-05-22", "2026-05-25"]);
+  });
+
+  it("extraDateStrings 省略時は backward compat (= K-2 動作)", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [anchor({ id: "x", date: "2026-05-23" })],
+      nowDate: NOW,
+    });
+    expect(r).toEqual(["2026-05-22", "2026-05-23"]);
+  });
+
+  it("不正 format string は skip (= 防御、 'YYYY-MM-DD' 以外)", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [],
+      nowDate: NOW,
+      extraDateStrings: ["2026-05-20", "BAD", "26-5-25", "2026-13-01", "2026-05-22"],
+    });
+    // "2026-13-01" は format pass するが意味的に不正 — 但し K-3c-0 では format
+    // check のみ (= regex pass 通すと invalid date でも一旦含む)。
+    // buildDayGraph 側で各 date を Date 化する際に弾く想定 (= warning 経由)。
+    expect(r).toContain("2026-05-20");
+    expect(r).toContain("2026-05-22");
+    expect(r).not.toContain("BAD");
+    expect(r).not.toContain("26-5-25");
+  });
+
+  it("重複は集約 (= today と extra が同じ date)", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [],
+      nowDate: NOW,
+      extraDateStrings: ["2026-05-22"], // today と同じ
+    });
+    expect(r).toEqual(["2026-05-22"]);
+  });
+
+  it("one_off date + extra date の union", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [
+        anchor({ id: "a", date: "2026-05-20" }),
+        anchor({ id: "b", date: "2026-05-23" }),
+      ],
+      nowDate: NOW,
+      extraDateStrings: ["2026-05-25", "2026-05-23"], // 23 は重複
+    });
+    expect(r).toEqual([
+      "2026-05-20",
+      "2026-05-22",
+      "2026-05-23",
+      "2026-05-25",
+    ]);
+  });
+
+  it("recurring-only シナリオ (= one_off date なし、 extra で補完)", () => {
+    const r = collectAnchoredDateStrings({
+      anchors: [
+        anchor({
+          id: "rec",
+          anchorKind: "recurring",
+          validFrom: "2026-01-01",
+          recurrenceRule: "FREQ=WEEKLY",
+        }),
+      ],
+      nowDate: NOW,
+      extraDateStrings: ["2026-05-25"], // recurring 該当日 (= visible window)
+    });
+    expect(r).toEqual(["2026-05-22", "2026-05-25"]);
+  });
+
+  it("extraDateStrings は immutable (= 入力配列 mutate しない)", () => {
+    const extra = ["2026-05-20"];
+    const frozen = JSON.stringify(extra);
+    collectAnchoredDateStrings({
+      anchors: [],
+      nowDate: NOW,
+      extraDateStrings: extra,
+    });
+    expect(JSON.stringify(extra)).toBe(frozen);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// K-3c-0: buildVisibleDateWindow
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("K-3c-0: buildVisibleDateWindow", () => {
+  it("default (± 7 days) → 計 15 day", () => {
+    const r = buildVisibleDateWindow(NOW);
+    expect(r.length).toBe(15);
+  });
+
+  it("中心日を含む", () => {
+    const r = buildVisibleDateWindow(NOW);
+    expect(r).toContain("2026-05-22");
+  });
+
+  it("7 day 後の date を含む (= 2026-05-29)", () => {
+    const r = buildVisibleDateWindow(NOW);
+    expect(r).toContain("2026-05-29");
+  });
+
+  it("7 day 前の date を含む (= 2026-05-15)", () => {
+    const r = buildVisibleDateWindow(NOW);
+    expect(r).toContain("2026-05-15");
+  });
+
+  it("custom daysBefore / daysAfter", () => {
+    const r = buildVisibleDateWindow(NOW, 2, 3);
+    expect(r.length).toBe(6); // 2 + 1 + 3
+    expect(r[0]).toBe("2026-05-20"); // -2
+    expect(r[r.length - 1]).toBe("2026-05-25"); // +3
+  });
+
+  it("daysBefore / daysAfter 負数 → 0 に clamp (= 防御)", () => {
+    const r = buildVisibleDateWindow(NOW, -5, -5);
+    expect(r.length).toBe(1); // center only
+    expect(r[0]).toBe("2026-05-22");
+  });
+
+  it("結果は昇順 sort (= deterministic)", () => {
+    const r = buildVisibleDateWindow(NOW);
+    for (let i = 0; i < r.length - 1; i++) {
+      expect(r[i]!.localeCompare(r[i + 1]!)).toBeLessThan(0);
+    }
   });
 });
 

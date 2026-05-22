@@ -55,33 +55,104 @@ export interface CollectAnchoredDatesInput {
   readonly anchors: ReadonlyArray<ExternalAnchor>;
   /** 「今日」 (= UTC midnight or any time)、 always 含める */
   readonly nowDate: Date;
+  /**
+   * 追加 date strings (= "YYYY-MM-DD" 配列、 K-3c-0 補正)。
+   *
+   * 用途:
+   *   - FlowTab 7 day visible window
+   *   - CalendarTab 選択週 visible dates
+   *   - recurring-only day (= one_off date は持たないが anchorsForDay で展開される日)
+   *
+   * 不正 format ("YYYY-MM-DD" 以外) は skip (= 防御)。
+   * union + sort で deterministic 昇順を保証。
+   */
+  readonly extraDateStrings?: ReadonlyArray<string>;
 }
+
+/** "YYYY-MM-DD" strict format check (= K-3c-0 補正、 防御) */
+const YMD_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * DayGraph を計算する候補 date strings (= "YYYY-MM-DD") を抽出。
  *
- * 規則 (= K-2 最小):
+ * 規則:
  *   - 今日 (= nowDate の YYYY-MM-DD) を必ず含める
  *   - 全 one_off anchor の `date` を含める
- *   - recurring anchor の展開 date は **含めない** (= caller が visible range を別途決める)
+ *   - extraDateStrings (= K-3c-0 補正) を含める (= visible dates / recurring-only day カバー)
+ *   - 不正 format の extraDateStrings entry は skip
  *
  * 戻り値: 一意な date strings の **昇順** 配列 (= deterministic 順序)。
  *
  * 性質:
  *   - 同 input → 同 output (= sort 済)
  *   - JSON-safe (= 配列、 Set ではない)
+ *   - backward compat (= extraDateStrings 省略時は K-2 と完全同動作)
  */
 export function collectAnchoredDateStrings(
   input: CollectAnchoredDatesInput,
 ): ReadonlyArray<string> {
   const set = new Set<string>();
+  // 1. today
   set.add(formatDateString(input.nowDate));
+  // 2. one_off anchor dates
   for (const a of input.anchors) {
     if (a.anchorKind === "one_off" && typeof a.date === "string" && a.date.length > 0) {
       set.add(a.date);
     }
   }
+  // 3. extra visible dates (= K-3c-0 補正、 FlowTab 7 day / recurring-only day 等)
+  if (input.extraDateStrings) {
+    for (const s of input.extraDateStrings) {
+      if (typeof s !== "string") continue;
+      if (!YMD_PATTERN.test(s)) continue; // 防御: 不正 format skip
+      set.add(s);
+    }
+  }
   return Array.from(set).sort();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Visible date window helper (= K-3c-0、 caller convenience)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const MS_PER_DAY = 86400000;
+
+/**
+ * 「today ± N days」 の visible date window を生成する pure helper。
+ *
+ * 用途 (= K-3c-0):
+ *   PlanClient で FlowTab 7 day + CalendarTab 選択週 + buffer を覆う range を
+ *   宣言的に作る。 collectAnchoredDateStrings の extraDateStrings として渡す。
+ *
+ * 規則:
+ *   - centerDate を UTC midnight に正規化
+ *   - centerDate ± daysBefore / daysAfter の date strings を生成
+ *   - 昇順 sort 済
+ *
+ * @param centerDate 中心日付 (= 通常 now)
+ * @param daysBefore 過去側 day 数 (= default 7)
+ * @param daysAfter 未来側 day 数 (= default 7)
+ * @returns "YYYY-MM-DD" 配列、 昇順 (= 計 daysBefore + daysAfter + 1 個)
+ */
+export function buildVisibleDateWindow(
+  centerDate: Date,
+  daysBefore = 7,
+  daysAfter = 7,
+): ReadonlyArray<string> {
+  const safeDaysBefore = Math.max(0, Math.floor(daysBefore));
+  const safeDaysAfter = Math.max(0, Math.floor(daysAfter));
+  const centerMs = Date.UTC(
+    centerDate.getUTCFullYear(),
+    centerDate.getUTCMonth(),
+    centerDate.getUTCDate(),
+  );
+  const result: string[] = [];
+  for (let i = -safeDaysBefore; i <= safeDaysAfter; i++) {
+    const d = new Date(centerMs + i * MS_PER_DAY);
+    result.push(formatDateString(d));
+  }
+  // 昇順 sort (= 既に時系列順だが defensive)
+  return result.slice().sort();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

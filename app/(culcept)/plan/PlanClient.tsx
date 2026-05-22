@@ -89,9 +89,10 @@ import {
 // J-6e-4: modify path (= AddAnchorModal を proposal draft で prefill)
 import { proposalDraftToFormState } from "@/lib/plan/proposal/proposalToFormState";
 // K-2: DayGraph (= Layer 0、 computed projection) を PlanClient で計算
-//      但し UI 表示は **行わない** (= K-3 以降預け、 §14)。
-//      計算結果は tabs に optional prop として渡すが、 tab 側 render 不変。
+// K-3c-0: visible date window を計算対象に拡張 (= FlowTab 7 day + CalendarTab 選択週 +
+//          recurring-only day 等を carve in)。 既存 UI に影響しない (= entry が増えるだけ)。
 import {
+  buildVisibleDateWindow,
   collectAnchoredDateStrings,
   computeDayGraphMapForAnchors,
 } from "@/lib/plan/dayGraph/planClientDayGraphHelpers";
@@ -346,9 +347,15 @@ export default function PlanClient({
   }>(() => {
     if (!now) return { byDate: {}, allWarnings: [] };
     if (state.kind !== "ok") return { byDate: {}, allWarnings: [] };
+    // K-3c-0: visible date window (= today ± 7 days = 計 15 days) を extra として
+    // 渡す。 これにより FlowTab 7 day 表示 / CalendarTab 選択週 / recurring-only day
+    // が dayGraphByDate に含まれるようになる (= K-3c-i / ii の前提)。
+    // 既存 K-3b CalendarTab 動作は不変 (= entry が増えるだけで lookup は同じ key)。
+    const visibleWindow = buildVisibleDateWindow(now, 7, 7);
     const dateStrings = collectAnchoredDateStrings({
       anchors: state.anchors,
       nowDate: now,
+      extraDateStrings: visibleWindow,
     });
     return computeDayGraphMapForAnchors({
       anchors: state.anchors,
