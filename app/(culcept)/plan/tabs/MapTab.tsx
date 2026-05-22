@@ -44,6 +44,7 @@ import {
 } from "@/lib/plan/proposal/calendarProposalSelector";
 import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
+import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
 import {
@@ -153,10 +154,10 @@ export function MapTab({
   acceptingProposalIds,
   recentUndoRecords,
   onProposalUndo,
-  // ── Phase 3-K-2: DayGraph computed projection (= optional、 K-2 では使用しない) ──
-  // K-3 以降で UI 接続予定。 K-2 では受け取るが render しない。
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  dayGraphByDate: _dayGraphByDate,
+  // ── Phase 3-K-3c-i: DayGraph UI 接続 (= SelectedAnchorCard 下に静かに追加) ──
+  // K-2 から受領していた dayGraphByDate を、 ここで active 利用。
+  // 既存 SelectedAnchorCard / proposal hint / CategoryGrid 等は不変、 timeline を静かに追加。
+  dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
@@ -399,6 +400,39 @@ export function MapTab({
           recentUndoRecords={recentUndoRecords}
           onProposalUndo={onProposalUndo}
         />
+      )}
+
+      {/*
+       * Phase 3-K-3c-i: DayGraphTimeline を **selected day の 1 日構造**として
+       * SelectedAnchorCard 直後に静かに追加。
+       *
+       * 不変原則:
+       *   - 既存 Map / SelectedAnchorCard / CategoryGrid / FAB 等は不変
+       *   - selectedDate (= MapTab state) から ISO date string 化 (= isoDate helper)
+       *   - dayGraphByDate[isoDate] が undefined / null なら何も render しない
+       *   - 「場所文脈 → 時間文脈」 の自然な bridge (= where + when)
+       *   - warnings / duration / mode / risk 表示なし
+       *   - onEventClick → dayAnchors.find → 既存 onAnchorClick bridge
+       */}
+      {dayGraphByDate?.[isoDate(selectedDate)] && (
+        <div
+          className="mt-6 pt-4 border-t border-slate-100"
+          data-testid="plan-map-day-graph-section"
+        >
+          <h4 className="text-xs font-medium text-slate-500 italic mb-2">
+            1 日の構造
+          </h4>
+          <DayGraphTimeline
+            result={dayGraphByDate[isoDate(selectedDate)] ?? null}
+            view="user_self"
+            onEventClick={(anchorId: string) => {
+              if (!onAnchorClick) return;
+              const anchor = dayAnchors.find((a) => a.id === anchorId);
+              if (anchor) onAnchorClick(anchor);
+            }}
+            dataTestId="plan-map-day-graph-timeline"
+          />
+        </div>
       )}
 
       <CategoryGrid
