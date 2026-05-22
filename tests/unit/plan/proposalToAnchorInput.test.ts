@@ -18,19 +18,28 @@ import { buildAnchorInputFromProposal } from "@/lib/plan/proposal/proposalToAnch
 import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
 
 function proposal(draftOverride: Partial<ProposedAnchor["draft"]> = {}): ProposedAnchor {
+  // 注:
+  //   draft は ProposedAnchor["draft"] = Partial<ExternalAnchor> 型。
+  //   ExternalAnchor は anchorKind を discriminant にする union (= OneOff | Recurring)。
+  //   本 helper はテスト目的で anchorKind="recurring" や anchorKind=undefined の draft も
+  //   生成する (= unsupported_anchor_kind の defensive reject path を検証するため)。
+  //   spread 後の literal 型は union のどの narrow にも一致しない (= "one_off" | "recurring" 等の
+  //   合成) ため、 ProposedAnchor["draft"] に cast して discriminant narrowing を bypass する。
+  //   runtime 変化なし、 test fixture 表現の型整合のみ。
+  const draft = {
+    title: "カフェ",
+    startTime: "14:00",
+    rigidity: "soft",
+    anchorKind: "one_off",
+    date: "2026-05-22",
+    ...draftOverride,
+  } as ProposedAnchor["draft"];
   return {
     id: "proposal_test",
     reason: "pattern_repeat",
     direction: "continue_pattern",
     confidence: "medium",
-    draft: {
-      title: "カフェ",
-      startTime: "14:00",
-      rigidity: "soft",
-      anchorKind: "one_off",
-      date: "2026-05-22",
-      ...draftOverride,
-    },
+    draft,
     source: {
       signalType: "pattern_repeat",
       evidenceCount: 3,
