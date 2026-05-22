@@ -8226,3 +8226,97 @@ L-4a/L-4b 着地で停止。 以下は **必ず別 audit / CEO review 経由**:
 - **ステータス**: L-4a/L-4b 着地完了。 264 tests PASS、 K regression 0、 L-1/L-2/L-3 freeze 維持。 本 commit と同時に branch を frozen 扱い (= 20 frozen branches 計)。 次は CEO 判断 (= L-4c bridge / 別軸 pivot)。
 
 ---
+
+## 2026-05-22 [Build] L-4c bridge readiness audit + L-4c-pure 連続実装着地 (= 286 tests PASS、 4 layer pipeline helper) [承認: CEO + GPT 合議]
+
+### 背景
+
+L-4a/L-4b 着地後、 CEO + GPT 合議で「L-4c bridge readiness audit に進む、 audit 結果が pure helper / tests だけで済む low-risk なら連続実装 OK」 指示。 read-only 調査で 4 つの構造的発見:
+
+1. `ExternalAnchor` は coords 未保持 (= locationText のみ、 lat/lng schema 未追加)
+2. 既存 geocode endpoint (= Phase 2-C `app/api/plan/anchors/geocode/route.ts`) は MapTab 専用で privacy / rate limit / fail-open 全実装済
+3. L-3c overlay の `coordsByAnchorId` は caller 責任で渡す設計
+4. K phase 同期 pure / L-3c 非同期 pure / L-4a 同期 pure / L-4b 同期 pure の 4 layer は全純度確立済
+
+→ L-4c-pure は **「caller が既に持っている coordsByAnchorId を受け取って 4 layer を pipe する pure helper」** に絞れる。 連続 GO 判断成立。
+
+### L-4c 全体責務分解
+
+| Sub | 責務 | 着手 |
+|---|---|---|
+| **L-4c-pure** | 4 layer 合成 pure pipeline helper | ✅ **完了** |
+| L-4c-mapbridge | MapTab state → coords map 変換 helper | 停止 (= 別 audit) |
+| L-4c-telemetry | tracingId sink 経路 | 停止 (= L-4e 別 audit) |
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| audit Branch | `docs/plan-phase3-l-4c-bridge-readiness-audit` (= `163b46d8` freeze 済、 21 frozen branches 計) |
+| impl Branch | `feat/alter-plan-phase3-l-4c-pure-pipeline-helper` (= `e71c7ea7` 起点) |
+| L-4c-pure commit | **`174e0b12`** (= pipeline helper + 22 tests) |
+| **L-4c tests** | **22 PASS** |
+| **総合 tests** | **286 PASS** (= 264 → +22) |
+| K regression | 55/55 PASS |
+| 新規 files | 1 lib + 1 test = 2 |
+| **既存 file 変更** | **0** (= L-1/L-2/L-3/L-4a/L-4b 全 freeze 維持) |
+| DB / env / package / dependency / UI 変更 | **0** |
+| geocode active call / fetch / localStorage / network | **0** |
+
+### L-4c-pure 設計
+
+```typescript
+runMovementDisplayPipeline(input: MovementDisplayPipelineInput): Promise<MovementDisplayPipelineResult>
+```
+
+Step:
+- (1) `buildDayGraph` (= 同期 pure)
+- (2) `resolveMovementSegmentOverlay` (= 非同期 pure)
+- (3) `formatOverlayResultForDisplay` (= 同期 pure)
+- (4) `assertMovementDisplayResultCompliance` (= L-4b 出荷直前 機械保証)
+
+Input: `anchors / date / buildOptions / coordsByAnchorId / providers / overrides / privacyClassByTransitionIndex / tracingId`
+Output: `display / buildWarnings / overlayCounts / tracingId`
+
+### 思想の transmission
+
+1. **L-4c-pure は「合成のみ」 担当** — 既存 4 layer の純度を破壊せず caller の便利のため pipe
+2. **coords acquire は L-4c の責任外** — caller が事前に持っている前提
+3. **同期 / 非同期境界の維持** — buildDayGraph 同期、 overlay 非同期、 pipeline async
+4. **L-4b assertion を出荷直前必ず実行** — privacy structural を pipeline 末端で再保証
+5. **危険境界の明確化** — geocode active call / UI / telemetry sink は本 layer で絶対に触れない
+
+### 停止境界 (= 本 commit 着地と同時に発火)
+
+L-4c-pure 着地で停止。 以下は **必ず別 audit / CEO review 経由**:
+
+- L-4c-mapbridge (= MapTab state → coords map 変換 helper、 client-side state 依存)
+- L-4d UI 接続 (= CalendarTab/MapTab/FlowTab で「移動 約 30 分」 を render 開始)
+- L-4e telemetry runtime sink (= 保存先 / 保持期間 / 第三者送信 確認)
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ L-4c-mapbridge / L-4d / L-4e 以降の着手 / UI 変更 / geocode active call / DB-env-package-dependency 変更 / localStorage / runtime telemetry sink / Arrival Risk Memory / warning-recommendation-optimization 文言 / fetch-push-gh / reset-restore-stash-branch delete / frozen branches への commit
+
+### freeze 状態
+
+本 commit 着地と同時に:
+- `docs/plan-phase3-l-4c-bridge-readiness-audit` (= `163b46d8`) を frozen 扱い
+- `feat/alter-plan-phase3-l-4c-pure-pipeline-helper` (= `174e0b12`) を frozen 扱い
+
+合計 **22 frozen branches 計**。 以後 commit 禁止。
+
+### CEO 判断ポイント (= L-4c-pure 着地後)
+
+| Q | 内容 |
+|---|---|
+| Q1 | L-4c-pure 着地で十分か (= L-4c 範囲を本 commit で freeze するか) |
+| Q2 | 次は L-4c-mapbridge readiness audit か、 L-4d UI 接続 (= smoke 経由) か、 別軸 pivot か |
+| Q3 | L-4d UI 接続前に CEO smoke (= preview で「移動 約 30 分」 表示を見る) を挟むか |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-22 L-4a/L-4b 着地後 「L-4c readiness audit → 低 risk なら連続実装」 指示)
+- **ステータス**: L-4c-pure 着地完了。 4 layer 合成 helper 確立、 286 tests PASS、 K regression 0、 既存 freeze 全件維持。 次は CEO 判断 (= L-4c-mapbridge / L-4d UI smoke / 別軸 pivot)。
+
+---
