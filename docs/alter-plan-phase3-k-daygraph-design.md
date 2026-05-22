@@ -824,9 +824,60 @@ tests/unit/plan/
 
 | version | 日付 | 変更内容 | 承認 |
 |---|---|---|---|
-| v1.0 | 2026-05-22 | 初版。 GPT 6 補正 + Claude 自立 8 補強反映 | CEO 設計 GO 待ち |
-| (将来) v1.1 | TBD | 実装着手前の actual code audit 結果反映 | TBD |
+| v1.0 | 2026-05-22 | 初版。 GPT 6 補正 + Claude 自立 8 補強反映 | CEO 設計 GO |
+| **v1.1** | **2026-05-22** | **実装着手前 actual code audit 結果反映 (= 軽微 5 件補正、 下 §22)** | **CEO 実装 GO** |
 | (将来) v2.0 | TBD | 3-L 接続点 (= MovementSegment 昇格仕様) 追記 | TBD |
+
+---
+
+## 22. v1.1 Audit 補正 (= 2026-05-22 actual code audit 反映)
+
+実 code 精査の結果、 設計 v1.0 と実 helper / 既存 type の間で軽微差分 5 件を発見。 v1.1 で正式反映。
+
+### 22.1 startTime / endTime の strict "HH:MM" 化
+
+- **背景**: `ExternalAnchor.startTime` のコメントは「HH:mm 形式 or ISO 8601」 だが、 既存 helper (`anchorOverlap.ts:toMinutes`) は "HH:MM" / "HH:MM:SS" のみ accept、 ISO 8601 を **reject**
+- **v1.1**: K 内部の time parser は **strict "HH:MM"** (= "HH:MM:SS" tolerant、 ISO 8601 reject)
+- 既存 `toMinutes` の strict 仕様を流用 (= 再実装、 dependency 増やさない)
+- ISO 8601 形式の入力は `invalid_time` warning として弾く
+
+### 22.2 endTime 欠落時 `DEFAULT_EVENT_DURATION_MIN = 60`
+
+- **背景**: `endTime?: string` (= optional)
+- **v1.1**: `DEFAULT_EVENT_DURATION_MIN = 60` を K-1b で明示 export
+- endTime 欠落時、 endTime = startTime + 60 分 (= 23:59 までで cap)
+- 後 phase で configurable 化余地あり
+
+### 22.3 locationCategory "unknown" は movement 判定に **使わない**
+
+- **背景**: `LocationCategory` 8 値の 1 つに "unknown" あり
+- **v1.1**: Movement detection は **`locationText` のみ**で判定 (= 設計 v1.0 §6.3 と整合)
+- `locationCategory` は分類補助、 場所 identity ではない (= 「unknown カテゴリの home」 と 「unknown カテゴリの office」 が同じカテゴリだが異なる場所)
+
+### 22.4 `verbDistribution` に "unknown" key を含める
+
+- **背景**: `AnchorVerb` の 7 値の 1 つに "unknown" あり
+- **v1.1**: `verbDistribution: Readonly<Record<AnchorVerb, number>>` の AnchorVerb は 7 値全て (= "unknown" 含む)
+- すべての key が 0 で初期化、 集計時 increment
+
+### 22.5 `latencyTolerance` は **required** に補正
+
+- **背景**: `inferLatencyTolerance` は **常に値返す** (= default "flexible")
+- **設計 v1.0 §4.3**: `latencyTolerance?: LatencyTolerance` (= optional)
+- **v1.1**: `latencyTolerance: LatencyTolerance` (= **required**)
+- EventNode 生成時に必ず inferLatencyTolerance を呼び、 値を必ず注入する
+- 「未推論」 という状態は MVP では持たない (= "flexible" が default 推論結果)
+
+### 22.6 out-of-bound event の扱い (= ★新規明示)
+
+- StartNode boundary (default "06:00") より前の anchor、 EndNode boundary (default "23:00") より後の anchor の扱い
+- **v1.1**: out-of-bound event は `anchor_outside_boundary` warning + **skip** (= node を生成しない)
+- endTime のみ bound を超えるケース (= startTime in-bound、 endTime out-of-bound) は endTime を boundary に **clip** (= warning なし、 graph 形状維持)
+- 後 phase で user override (= boundary 拡張) 可能
+
+### 22.7 StartNode / EndNode の durationMin
+
+- **v1.1 明示**: StartNode / EndNode は **「点」** として配置、 `startTime === endTime`、 `durationMin = 0`
 
 ---
 
