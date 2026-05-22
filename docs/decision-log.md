@@ -7575,3 +7575,111 @@ L. Graceful Degradation Cascade (= §12、 5 段階)
 - **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-l-transport-design-review-v02` 凍結。 13 frozen branches 計。 3-L 実装は **CEO 7 条件クリア + 別 branch + 別承認** が必須。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-L-0 Readiness Audit — API なし 3-L MVP 完全実装可能性確定] [承認: CEO L-0 audit GO]
+
+### 衝撃の発見 (= 戦略転換)
+
+**3-L MVP は Google Routes API なしで完全実装可能**。
+
+理由:
+1. 既存 `alter-morning/transport/durationHeuristic.ts` (= CEO 2026-04-24 確定) を **そのまま reuse**
+2. 既存 `alter-morning/transport/types.ts` の TransportMode / DurationSource を **reuse**
+3. 既存 Phase 2-C geocode endpoint (= privacy-aware、 sensitive 弾く、 rate-limited、 cache あり) を **reuse**
+4. 新規実装 範囲: ~2,500 行 (= test 含む)、 production code ~1,000 行
+5. **新規 dependency / env / migration / API key 追加 0**
+
+### 戦略的優位 (= API なし)
+
+| 項目 | API あり (v0.2 想定) | **API なし pure** |
+|---|---|---|
+| Cost | ~$50/月 | **$0** |
+| Privacy 第三者送信 | あり | **0** |
+| Privacy policy 更新 | 必要 | **不要** |
+| 法務確認 | 必要 | **不要** |
+| Google Service Terms | 確認必要 | **N/A** |
+| env / API key 追加 | 必要 (= 永続制約緩和) | **不要** |
+| Cloud setup | 必要 | **不要** |
+| STOP 条件 | 7 項目 | **1 項目** (= 実装 GO 明示承認のみ) |
+
+### Aneurasync 思想整合
+
+- **観察 > 推論**: heuristic で「移動 約 30 分」 で十分、 「精密 27 分」 は最適化思想
+- **Privacy first**: 第三者送信ゼロ → Invariant 4 完璧
+- **No optimization**: 「最短」 「速く」 等の文言禁止維持
+- **Negative Capability**: heuristic で不確実なら mode 表示しない、 confidence low
+
+### 着地物
+
+新 file: `docs/alter-plan-phase3-l-0-readiness-audit.md` (= 15 section、 v0.1)
+
+主要 section:
+- §0 Executive Summary (= API なし MVP 可能性)
+- §1 既存資産 inventory (= 7 件 inventory)
+- §2 API なし 3-L MVP 実現可能性
+- §3 STOP 条件削減 (= 7 → 1)
+- §4 Commit plan (= L-1-pure 〜 L-7-pure)
+- §5 既存資産 dependency 図
+- §6 Cache policy (= memory-only)
+- §7 Privacy 監査 (= 第三者送信 0)
+- §8 UI 表示 (= K-3c-iii 階層 2 維持)
+- §9 3-M 境界
+- §10 CEO 判断 frame
+- §11 5 革新 (= L-pure 世界水準化)
+- §12 結論
+
+### 推奨 commit plan (= L-pure、 7 commits、 API なし)
+
+| Commit | 範囲 |
+|---|---|
+| L-1-pure | Type 拡張 (= MovementSegment / Provider / Privacy class 等) |
+| L-2-pure | HeuristicDistanceProvider + ManualUserProvider + UnresolvedProvider |
+| L-3-pure | mode inference helper (= distance + time-of-day) |
+| L-4-pure | resolveMovement orchestration + privacy guard + telemetry |
+| L-5-pure | DayGraph integration (= MovementTransition → MovementSegment 昇格) |
+| L-6-pure | UI 拡張 (= DayGraphTimeline、 階層 2 維持) |
+| L-7-pure | closeout + freeze |
+
+合計 ~2,500 行、 1-3 週間想定 (= 各 commit CEO 判断挟む)。
+
+### Google Routes API は将来 Stage 5+ (= 別 phase 預け)
+
+- L-pure 完成後の **価値検証ベース**で CEO 判断
+- 不要なら永続 API なし運用
+- 必要なら adapter pattern により plug-in 追加可能 (= pure layer 不変)
+
+### Branch / commit 状態
+
+- 新 branch: `docs/plan-phase3-l-0-readiness-audit`
+- base: `docs/plan-phase3-l-transport-design-review-v02` @ `57504078`
+- 本 commit 着地と同時に **本 branch も frozen 扱い** (= 14 frozen branches 計)
+
+### CEO 判断ポイント (= 1 項目のみ)
+
+**Q: L-1-pure 〜 L-7-pure 実装着手 (= API なし MVP) を承認するか?**
+
+| 選択肢 | 結果 |
+|---|---|
+| **YES** | API なし 3-L MVP 着手、 cost $0、 privacy 問題なし、 ~2-3 週間で完成想定 |
+| **NO (= 別軸優先)** | K-3+ refinement / 初期ユーザー獲得 / Deploy 準備等へ |
+| **PARTIAL** | L-1-pure / L-2-pure (= type + heuristic) のみ先行 → smoke 後判断 |
+
+### 永続禁止 (= 本 audit 範囲)
+
+- ❌ 3-L 実装着手 (= 本 L-0 docs only)
+- ❌ Transport API 接続
+- ❌ env / API key 追加
+- ❌ DB migration / package / dependency 変更
+- ❌ warning UI / recommendation / optimization 文言
+- ❌ Arrival Risk Memory
+- ❌ frozen branches への commit
+- ❌ fetch / push / gh
+- ❌ reset / restore / stash / branch delete
+- ❌ LLM 呼出
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 GPT L-0 audit 推奨 + Claude 自立補強で「API なし MVP 可能性」 確定)
+- **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-l-0-readiness-audit` 凍結。 14 frozen branches 計。 次は CEO 判断 (= L-pure 実装着手 / 別軸 / partial)。
+
+---
