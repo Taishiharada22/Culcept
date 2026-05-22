@@ -7383,3 +7383,80 @@ Phase 3-J (= proposal 層) 全 sub-phase 完了 + 4 frozen branches 整理済の
 - **ステータス**: 本 entry 着地と同時に `feat/alter-plan-phase3-k3c-iii-visual-density-refinement` 凍結。 11 frozen branches 計、 Phase 3-K 実装は完了。 次は (a) K 全体 closeout docs 整理、 (b) 3-L design review。
 
 ---
+
+## [2026-05-22] [Build] [Phase 3-K 全体 closeout docs 着地 + 3-L design review への移行] [承認: CEO]
+
+### Closeout 一括成果 (= 本 branch `docs/plan-phase3-k-closeout`)
+
+#### 新規 docs 3 件
+
+1. **`docs/alter-plan-phase3-k-closeout-audit.md`** — Phase 3-K 全体の完了監査
+   - K-1 (foundation) 〜 K-3c-iii (visual density) の全 21 commits を 6 branches で構造化
+   - 不変原則 13 件の機械保証検証 結果 (= 全 PASS)
+   - Layered design (= Layer 0/1/2/3) 確立記録
+   - CEO 永続制約 12 項目遵守確認
+   - 結論: 「計画通りの境界線で停止」
+
+2. **`docs/alter-plan-phase3-k-deferred-smoke-ledger.md`** — Real UI smoke 3 項目台帳
+   - Item K-1: sensitive redaction visual smoke (= deferred / not applicable)
+   - Item K-2: EventNode click visual smoke (= 未確認、 別 session)
+   - Item K-3: warnings あり日 visual smoke (= deferred / not applicable)
+   - 解消条件 + 解消手段 + 解消 NG 手段 + 担当 全明記
+   - K-3+ refinement 10 候補 (= 未実装機能、 別 phase 預け、 not deferred bugs)
+   - Wording 規約 永続化
+
+3. **`docs/alter-plan-phase3-k-pr-runbook.md`** — GitHub 復旧後 PR 順序
+   - K 系 6 PRs (= PR F-L) を J 系 5 PRs (= PR A-E) の延長として位置付け
+   - 各 PR title + body template 完備
+   - three-dot / two-dot / merge-base 診断必須 (= J 系 addendum §8 を K にも適用)
+   - Clean rebuild strategy (= Scenario X) + 停止条件
+   - 永続禁止 list (= 復旧後も継続)
+
+### Phase 3-K 全体完了範囲 (= 全 6 branches、 計 21 commits)
+
+| Branch | HEAD | commits | 内容 |
+|---|---|---|---|
+| `feat/alter-plan-phase3-k-daygraph-foundation` | `12b6a8d0` | 9 | K-1 (= types + helpers + buildDayGraph + K-1f-α/β + closeout) |
+| `feat/alter-plan-phase3-k2-planclient-integration` | `fd5a395b` | 2 | K-2 (= PlanClient wiring + closeout) |
+| `feat/alter-plan-phase3-k3a-daygraph-timeline-component` | `38ea3b55` | 2 | K-3a (= component + closeout) |
+| `feat/alter-plan-phase3-k3b-calendartab-integration` | `d22d06f8` | 2 | K-3b (= CalendarTab + closeout) |
+| `feat/alter-plan-phase3-k3c-maptab-flowtab-integration` | `b73afa3f` | 3 | K-3c-0/i/ii (= MapTab + FlowTab + window 拡張) |
+| `feat/alter-plan-phase3-k3c-iii-visual-density-refinement` | `eeb0a3e6` | 2 | K-3c-iii + closeout |
+
+### 全 12 frozen branches (= J 系 5 + K 系 6 + 本 K closeout docs)
+
+J 系: feat/j6 / chore / docs/j-closeout / docs/j-addendum / docs/k-design (= K design docs)
+K 系: feat/k1 / feat/k2 / feat/k3a / feat/k3b / feat/k3c / feat/k3c-iii
+新規: docs/plan-phase3-k-closeout (= 本 commit 着地後 frozen 予定)
+
+### 次フェーズ: Phase 3-L Transport design review
+
+- 目的: K-1 MovementTransition を Transport 情報で **MovementSegment** に昇格する設計
+- **実装着手なし** (= CEO 別承認まで永続待ち)
+- design review として:
+  - Transport API 候補
+  - 徒歩 / 電車 / バス / 飛行機の扱い
+  - origin / destination ロジック
+  - location 不明時 fallback
+  - API failure 挙動 / privacy / cost cap / rate limit
+  - UI 表示 vs 内部のみ
+  - DayGraph / Arrival Risk Memory 接続点
+  - 3-M / 3-N データ契約
+  - commit 階段
+
+### 引き続き禁止 (= 永続継続)
+
+- 3-L 実装 / Transport API 接続 / Arrival Risk Memory
+- L / M / N 実装
+- warning UI / recommendation / optimization 文言
+- DB migration / env / package / dependency / crypto 変更
+- frozen branches (= 12 件) への commit
+- fetch / push / gh
+- reset / restore / stash / branch delete / force push
+
+### 承認 + ステータス
+
+- **承認**: CEO (= 2026-05-22 K 全体 closeout docs 着手 GO + 3-L design review 開始 GO)
+- **ステータス**: 本 entry 着地と同時に `docs/plan-phase3-k-closeout` 凍結。 Phase 3-K 完全 closeout 完了。 次は 3-L design review (= 応答 text、 別 file commit なし) → CEO 設計レビュー判断 → 3-L 実装は CEO 別承認後の別 branch。
+
+---
