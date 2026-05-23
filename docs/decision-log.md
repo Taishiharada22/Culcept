@@ -11617,3 +11617,98 @@ CEO + GPT 訂正 (= 2026-05-23):
 - **ステータス**: Phase 3-N Plan Completion Audit 着地完了。 N 全責務 8 件確定 + 5 phase 分割 + 矛盾発見 + /plan complete 条件 5 件 + 「やらない」 ルール明文化 + 残工程明確化 + CEO 判断 5 件。 52 frozen branches。 連続実装可能範囲は **N-1 Home/Plan Final Surface Audit (= docs only)** まで。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-1 Home/Plan Final Surface Audit — 全 surface 棚卸し + 3 stage CEO smoke 計画 [承認: CEO + GPT 連続 GO]
+
+### 背景
+
+N Plan Completion Audit `95d15ea6` で N 全責務 + 5 phase 分割が確定。 CEO 許可で連続 GO (= N-1 docs only)。
+
+### 棚卸し内容
+
+**Home surface**:
+- AneurasyncHome / HomeSwipeContainer
+
+**Plan surface**:
+- PlanClient (= displayMode route/pane)
+- 3 tab: MapTab / CalendarTab / FlowTab
+- Modal stack: AddAnchorModal / AnchorDetailModal / EditAnchorModal / ProposalSheet/Chip / SourceListModal
+
+**12 主要 user journey**:
+- J1 Home swipe → Plan / J2 /plan 直 URL / J3 tab 切替 / J4 予定追加
+- J5 詳細閲覧 / J6 編集 / J7 削除 / J8 提案受諾
+- J9 feasibility disclosure 観測 / J10 空き日 tap / J11 カテゴリ追加 / J12 Map pin tap
+
+### 3 stage CEO Smoke 計画
+
+| stage | 範囲 | 想定時間 |
+|---|---|---|
+| stage 1 | Home + swipe + Plan 3 tab の visual sweep | 30-60 分 |
+| stage 2 | 主要 journey J1-J9 の操作 sweep | 30-60 分 |
+| stage 3 | Modal stack J5-J11 + edge cases | 30-60 分 |
+
+### polish 候補 form (= 3 次元 tag)
+
+各候補項目を `[surface] : [現状] : [気になった点] : [priority] : [scope] : [risk]` 形式で記録:
+- **priority**: 高 (= 第一印象) / 中 (= 細部) / 低 (= nice-to-have)
+- **scope**: 小 (= 1 file) / 中 (= 1-2 component) / 大 (= 構造変更、 CEO 判断必要)
+- **risk**: 低 (= backward compat) / 中 (= 既存改変) / 高 (= 構造変更、 別 audit)
+
+### N-2 wave 計画準備
+
+- 1 wave = 1-2 候補
+- 1 wave は 1-3 日
+- 各 wave で CEO smoke
+- 優先順: 高+小+低 → 高+中+低 → 中+小-中+低 → CEO 判断
+
+### 革新的アイデア 5 件
+
+1. surface 階層を maximal で list 化 (= 漏れ防止)
+2. 3 stage smoke (= 認知負荷分散 + 集中度↑)
+3. candidate form を構造化 (= priority/scope/risk の 3 次元)
+4. 「観測の幕間」 を全 journey で確認規約化
+5. CEO smoke 「気になった項目」 のテンプレ化
+
+### CEO 判断項目 4 件
+
+1. smoke stage の進め方 (= 3 stage / 連続 / 別)
+2. smoke の timing (= 即時 / 後日 / 段階的)
+3. N-2 wave 計画の優先順承認 (= priority/scope/risk 基準)
+4. 本 audit 着地後の N-2 wave 計画 audit (= 別 doc) timing
+
+### N-1 完了の条件 5 件
+
+| # | 条件 | 状態 |
+|---|---|---|
+| 1 | 本棚卸し doc の完成 | ✅ (= 本 commit) |
+| 2 | CEO smoke 実施 | ⏸️ |
+| 3 | polish 候補リスト確定 (= smoke 後) | ⏸️ |
+| 4 | N-2 wave 計画 doc 作成 (= 別 audit、 CEO 判断後) | ⏸️ |
+| 5 | N-1 closeout audit | ⏸️ |
+
+### freeze 状態
+
+- `docs/plan-phase3-n-1-home-plan-final-surface-audit` (= 本 commit): **frozen 予定**
+- 合計 **53 frozen branches** (= 52 + 1)
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- M phase の追加変更: 0
+- 大規模 refactor: 0
+- N-3 / N-4 の検討: 0
+- 新規 component / hook 追加: 0
+- N 項目の勝手な defer: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 連続 GO (= 2026-05-23 N completion audit 後 「N-1 連続 OK if low-risk」 指示、 自律推論で 9 章 doc 着地)
+- **ステータス**: Phase 3-N-1 Home/Plan Final Surface Audit 着地完了。 全 surface 棚卸し + 3 stage smoke 計画 + polish form + 革新 5 件 + CEO 判断 4 件。 53 frozen branches。 次は CEO smoke 実施 → polish 候補リスト確定 → N-2 wave 計画 audit。
+
+---
