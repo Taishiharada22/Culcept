@@ -12964,3 +12964,66 @@ CEO + GPT 連続 GO 判定で wave 3 impl `4b77d896` 着地後、 PlaceCandidate
 - **ステータス**: N-2 wave 3a 着地完了 (= commit `df41a2de`、 L 453 1 line + 4 new tests、 2666 PASS、 regression 14 + ring regime 26 + plan 全体 2666 全 PASS、 plan-wide brand-color focus surface grep 0 hit、 edited files tsc-clean、 wave 3 既存 file 不変)。 **規約 24-extended plan 全 surface 完全閉鎖** (= wave 1/2/3/3a 累計)。 freeze 候補 (= wave 3 + 3a closeout audit 後)。 次は wave 3 + 3a closeout audit → N-2 phase 完了判定 → N-3 (空き日 → ALTER flow) へ。
 
 ---
+
+## 2026-05-23 [Build/Product] Phase 3-N-2 完了宣言 (= 規約 24-extended plan 全 surface 完全閉鎖、 6 条件全達成) [承認: CEO 判断]
+
+### 背景
+
+Wave 3 + 3a closeout audit `f6ac65d4` 着地後、 CEO 判断 (= 「今回の報告内容なら、 N-2 完了進言は妥当です」) により Phase 3-N-2 完了を正式宣言。 前回までの「approved scope 完了だが plan 全体は未完」 という状態を脱した。
+
+### 完了根拠 (= handoff doc §C の 6 条件、 全達成)
+
+| # | 条件 | 状態 | 根拠 commit |
+|---|---|---|---|
+| 1 | Wave 1 / Wave 2 / Wave 3 / Wave 3a 完了 | ✅ | `3d9bf8f5` / `94bcd220` / `4b77d896` / `df41a2de` |
+| 2 | L 453 residual wave 3a で修正 (= GPT 標準進路 a 採用) | ✅ | `df41a2de` |
+| 3 | visual smoke PASS (= 計 6 件、 wave 3: 5 + wave 3a: 1) | ✅ | CEO 確認 |
+| 4 | Wave 3 + 3a closeout audit PASS | ✅ | `f6ac65d4` |
+| 5 | decision-log 記録 | ✅ | 6 entry (= plan / impl / log / 補正 / wave 3a impl / wave 3a log) |
+| 6 | working tree 保存状態明確 | ✅ | wave 関連 未 commit 差分 0 |
+
+### 達成事項 (= N-2 全期間 累計)
+
+| 項目 | 値 |
+|---|---|
+| 規約 24-extended 適用範囲 | plan 全 focus surface (= ring / border / outline) |
+| 編集 file (wave 1/2/3/3a 累計) | 主要 7 file (= MapTab / FlowTab / CalendarTab / AnchorFormFields / ProposalChip / PlaceCandidatesPanel / EditAnchorModal 系) |
+| 機械保証 test 件数 | **40 件** (= 規約 24-extended border 14 + 規約 24 ring 26) |
+| 全 plan tests | **2666 PASS** (= 2652 → +14) |
+| plan-wide brand-color focus surface grep | **0 hit** |
+| frozen branches | 60 → **63 件** (= +3: wave 3 + wave 3a + closeout audit) |
+| brand color 復活 / 規約離脱 | **0 件** (= CEO 前提 ①② 完全遵守) |
+
+### Phase 3-N の進捗状態
+
+| Phase | 内容 | 状態 |
+|---|---|---|
+| N-1 | Home/Plan final surface audit | ✅ 完了 (= 前 session 着地) |
+| **N-2** | **small polish wave implementation** | ✅ **本宣言で完了** |
+| N-3 | empty day → ALTER flow readiness + implementation | ⏸️ readiness audit から着手 |
+| N-4 | Counter-Factual Observation + Pattern Truth Layer | ⏸️ 未着手 (= N-3 後) |
+| N-5 | /plan final closeout audit | ⏸️ 未着手 (= 全 phase 完了後) |
+
+### 次 (= CEO 承認済)
+
+- **N-3 readiness audit 着手** (= CEO 「N-3 readiness audit 着手提案までは進めてよい」)
+- readiness audit の整理項目: scope / invariants / success scenario / failure scenario / 既存 docs 整合
+- N-3 実装 は readiness 着地後 CEO 判断 (= 即断禁止)
+
+### 別論点 (= CEO 指示で分離報告)
+
+- **branch merge 戦略**: wave 3 / wave 3a / closeout audit / 各 docs branch 計 63 frozen branches の main merge 戦略は別論点。 本宣言には含めない。
+
+### 思想 transmission
+
+- 「観測層 OS visual 規約」 が plan 全 focus surface に閉じた (= wave 1/2/3/3a 累計)
+- 「観測の幕間」 を border surface まで拡張完了 (= mouse stuck visual 排除)
+- 「観測しない時は静か」 の実装範囲完成 (= brand color 焼き付き排除)
+- mouse hover (= 観測中) と focus context (= 観測の幕間) の二項分離 機械保証
+
+### 承認 + ステータス
+
+- **承認**: CEO 判断 (= 2026-05-23 wave 3 + 3a closeout audit `f6ac65d4` 着地後、 「N-2 完了進言は妥当」)
+- **ステータス**: **Phase 3-N-2 完了**。 規約 24-extended plan 全 surface 完全閉鎖。 N-3 readiness audit 着手承認済。 branch merge 戦略は別論点として CEO 判断待ち。
+
+---
