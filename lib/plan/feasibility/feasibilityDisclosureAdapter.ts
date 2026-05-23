@@ -8,12 +8,14 @@
  *   一括管理できる。
  *
  * 思想 (= M-3b-pure 規範を N-fold lift):
- *   - **default = 全 hidden** (= EMPTY_EXPANDED_INDICES 永続定数)
+ *   - **default = 全 hidden** (= resetAllDisclosures() で取得、 永続定数の外部公開なし)
  *   - **expanded transition の index 集合のみ保持**
  *   - **hidden は補集合** (= 暗黙、 set に含まれない index は hidden)
  *   - **passive_idle で state 不変** (= 圧防止、 M-3b 継承)
  *   - **per-transition で独立** (= 異 index 操作で他 index 不影響)
  *   - **tab/day 切替で reset** (= 「観測の幕間」、 革新 5 永続規約化)
+ *   - **空 Set 永続定数を外部公開しない** (= 革新 M-1、 mutation 攻撃面構造的除去、
+ *     GPT 補正反映 M-3c-pure-harden 2026-05-23)
  *
  * Aneurasync 中心問いとの接続:
  *   - 「自分って、 そういう人間だったのか」 体験 = user 自身が個別 transition を能動観測
@@ -89,27 +91,35 @@ import {
 export type ExpandedTransitionIndices = ReadonlySet<number>;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §2. EMPTY_EXPANDED_INDICES — 永続定数 (= 「全 hidden」 の唯一の正本)
+// §2. createEmptyExpandedIndices — 「全 hidden」 の唯一の正本 (= function-only API)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * **空 Set<number> 永続定数**。
+ * **空 Set<number> 生成 helper (= internal、 export しない)**。
  *
- * 思想:
- *   - 「全 transition が hidden」 状態は **常にこの定数 1 つ** で表現
- *   - 初期 state / reset 後の state は **必ずこの定数 reference** を返す
- *   - これにより:
- *     1. React useState の初期値として stable reference を提供 → re-render 削減 hook
- *     2. 「全 hidden = この定数」 が機械保証 (= 別 instance を作らない規約)
- *     3. assertion で「empty 検知」 が O(1) で可能 (= reference 同値性)
+ * GPT 補正反映 (= 2026-05-23、 M-3c-pure-harden):
+ *   - 「永続定数 Set を外部公開する」 設計は **runtime mutation 危険**
+ *   - TypeScript の `ReadonlySet<number>` は type-time だけで、
+ *     `(set as Set<number>).add(0)` で runtime 破壊可能
+ *   - もし永続定数が mutation されると、 「全 default hidden」 不変条件が崩壊
  *
- * 注: 「**ReadonlySet<number>** 型」 + 「Object.freeze」 を併用しない理由:
- *   - TypeScript 型 narrowing で `add` / `delete` / `clear` を call 不能
- *   - runtime freeze は overhead、 type-time の保証で十分
- *   - 別 caller が `as Set<number>` で type assertion して mutate するのは
- *     CEO 規約違反 (= 規約は機械保証ではなく規範遵守)
+ * 修正方針 (= 自律推論):
+ *   - **stable reference を外部公開しない** (= EMPTY_EXPANDED_INDICES export 削除)
+ *   - caller は `resetAllDisclosures()` 経由で **毎回新規 Set** を取得
+ *   - reference equality (= 同 instance 共有) は意図的に放棄
+ *   - その代わり mutation 攻撃面を **構造的に除去**
+ *
+ * 性能影響:
+ *   - reset / 初期化時のみ alloc (= hot path ではない)
+ *   - applyDisclosureAction の idempotency (= 入力 set 同参照保持) は維持
+ *   - React useState 初期値は 1 度しか呼ばれないため、 stable reference 不要
+ *
+ * 注: 本 helper は **internal**、 export しない。
+ *     外部公開 API は `resetAllDisclosures()` のみ。
  */
-export const EMPTY_EXPANDED_INDICES: ExpandedTransitionIndices = new Set<number>();
+function createEmptyExpandedIndices(): ExpandedTransitionIndices {
+  return new Set<number>();
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // §3. getDisclosureStateForIndex — Set + index → 単一 state
@@ -225,20 +235,32 @@ export function applyDisclosureAction(
  *   - localStorage 禁止と整合 (= persist しない = reset で新鮮な観測再起動)
  *   - 「観測したことを忘れる」 体験 (= revolutionary 9、 forgetting curve 設計)
  *
- * 実装:
- *   - 常に `EMPTY_EXPANDED_INDICES` を返す (= 永続定数の同参照)
- *   - 副作用 0、 deterministic
+ * 実装 (= 2026-05-23 M-3c-pure-harden 修正後):
+ *   - **毎回新規 empty Set を返す** (= reference equality 意図的放棄)
+ *   - GPT 補正反映: 永続定数の外部公開は runtime mutation 危険のため不採用
+ *   - 副作用 0、 deterministic (= 「空 Set を返す」 は決定的)
  *
  * caller の使い方:
  *   ```
  *   // tab 切替 / 別 day 移動時
  *   setExpandedIndices(resetAllDisclosures());
+ *
+ *   // 初期 state (= React lazy initial state pattern 推奨)
+ *   const [expanded, setExpanded] = useState<ExpandedTransitionIndices>(
+ *     resetAllDisclosures,
+ *   );
  *   ```
  *
- * @returns EMPTY_EXPANDED_INDICES (= 永続定数の同参照)
+ * 設計判断 (= reference equality 放棄の正当化):
+ *   - React useState 初期値は 1 度しか呼ばれない → stable reference 不要
+ *   - reset は tab/day 切替時のみ呼ばれる (= 高頻度ではない)
+ *   - applyDisclosureAction の idempotency (= 入力同参照保持) は維持済み
+ *   - mutation 攻撃面を構造的に除去 (= 永続定数を外部公開しない)
+ *
+ * @returns 新規空 Set (= 毎回別 instance、 mutation しても次回 reset に影響しない)
  */
 export function resetAllDisclosures(): ExpandedTransitionIndices {
-  return EMPTY_EXPANDED_INDICES;
+  return createEmptyExpandedIndices();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -271,7 +293,7 @@ export function getExpandedCount(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Per-transition disclosure adapter の不変条件 (= 10 invariants)。
+ * Per-transition disclosure adapter の不変条件 (= 11 invariants、 M-3c-pure-harden で +1)。
  *
  * 1. emptySetIsAllHidden:              空 Set ⇔ 全 transition が hidden
  * 2. hiddenIsComplement:               set に含まれない index は "hidden"
@@ -282,7 +304,11 @@ export function getExpandedCount(
  * 7. idempotency:                      同 action 連続適用で同参照 (= O(1) 再 set 削減)
  * 8. perTransitionIndependence:        index_a の操作で index_b の state 不影響
  * 9. inputSetNotMutated:               input set の mutation 0
- * 10. resetReturnsEmptyConstant:       resetAllDisclosures() → EMPTY_EXPANDED_INDICES 同参照
+ * 10. resetReturnsFreshEmpty:          resetAllDisclosures() → **毎回新規** empty set
+ *                                      (= 永続定数の外部 mutation 攻撃面を構造的に除去、
+ *                                         GPT 補正反映 M-3c-pure-harden)
+ * 11. noExternallyMutableEmptyConstant: 「空 Set 永続定数」 を外部公開しない
+ *                                       (= EMPTY_EXPANDED_INDICES export なし)
  */
 export interface FeasibilityDisclosureAdapterContract {
   readonly emptySetIsAllHidden: true;
@@ -294,7 +320,8 @@ export interface FeasibilityDisclosureAdapterContract {
   readonly idempotency: true;
   readonly perTransitionIndependence: true;
   readonly inputSetNotMutated: true;
-  readonly resetReturnsEmptyConstant: true;
+  readonly resetReturnsFreshEmpty: true;
+  readonly noExternallyMutableEmptyConstant: true;
 }
 
 export const FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT: FeasibilityDisclosureAdapterContract = {
@@ -307,7 +334,8 @@ export const FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT: FeasibilityDisclosureAdapt
   idempotency: true,
   perTransitionIndependence: true,
   inputSetNotMutated: true,
-  resetReturnsEmptyConstant: true,
+  resetReturnsFreshEmpty: true,
+  noExternallyMutableEmptyConstant: true,
 } as const;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -410,10 +438,10 @@ export function assertValidExpandedIndices(value: unknown): void {
 }
 
 /**
- * 10 invariants 全件を機械検証する pure function。
+ * 11 invariants 全件を機械検証する pure function (= M-3c-pure-harden で +1)。
  *
  * 検証範囲:
- *   1. emptySetIsAllHidden: EMPTY_EXPANDED_INDICES の全 lookup が "hidden"
+ *   1. emptySetIsAllHidden: 新規 empty Set の全 lookup が "hidden"
  *      (= sample indices で確認、 0 / 1 / 100 / Number.MAX_SAFE_INTEGER)
  *   2. hiddenIsComplement: set 外 index は "hidden"
  *   3. expandedIsMembership: set 内 index は "expanded"
@@ -423,7 +451,11 @@ export function assertValidExpandedIndices(value: unknown): void {
  *   7. idempotency (= 同 action 連続で同参照)
  *   8. perTransitionIndependence (= 異 index 操作で他 index 不影響)
  *   9. inputSetNotMutated (= original set の size 不変)
- *   10. resetReturnsEmptyConstant (= EMPTY_EXPANDED_INDICES 同参照)
+ *   10. resetReturnsFreshEmpty (= resetAllDisclosures() で毎回新規 empty set、
+ *                                 reference equality は意図的に放棄、
+ *                                 GPT 補正反映 M-3c-pure-harden)
+ *   11. noExternallyMutableEmptyConstant (= 空 Set 永続定数を外部公開しない、
+ *                                          GPT 補正反映、 mutation 攻撃面構造的除去)
  *
  * 用途:
  *   - dev / test 時に呼び出して contract が壊れていないことを確認
@@ -434,15 +466,16 @@ export function assertValidExpandedIndices(value: unknown): void {
 export function assertNFoldDisclosureCompliance(): void {
   const sampleIndices: ReadonlyArray<number> = [0, 1, 2, 5, 10, 100, Number.MAX_SAFE_INTEGER];
 
-  // 1. emptySetIsAllHidden
-  if (EMPTY_EXPANDED_INDICES.size !== 0) {
+  // 1. emptySetIsAllHidden (= 新規 empty set で確認)
+  const emptySet1 = createEmptyExpandedIndices();
+  if (emptySet1.size !== 0) {
     throw new FeasibilityDisclosureAdapterError(
       "emptySetIsAllHidden",
-      `EMPTY_EXPANDED_INDICES.size=${EMPTY_EXPANDED_INDICES.size}`,
+      `createEmptyExpandedIndices().size=${emptySet1.size}`,
     );
   }
   for (const idx of sampleIndices) {
-    if (getDisclosureStateForIndex(EMPTY_EXPANDED_INDICES, idx) !== "hidden") {
+    if (getDisclosureStateForIndex(emptySet1, idx) !== "hidden") {
       throw new FeasibilityDisclosureAdapterError(
         "emptySetIsAllHidden",
         `empty set lookup at ${idx} did not return "hidden"`,
@@ -469,7 +502,8 @@ export function assertNFoldDisclosureCompliance(): void {
 
   // 4. requestExpandAddsIndex
   {
-    const result = applyDisclosureAction(EMPTY_EXPANDED_INDICES, 2, "request_expand");
+    const empty = createEmptyExpandedIndices();
+    const result = applyDisclosureAction(empty, 2, "request_expand");
     if (!result.has(2)) {
       throw new FeasibilityDisclosureAdapterError("requestExpandAddsIndex", "index 2 not added");
     }
@@ -502,7 +536,8 @@ export function assertNFoldDisclosureCompliance(): void {
     }
   }
 
-  // 7. idempotency (= 同 action 連続で同参照)
+  // 7. idempotency (= 同 action 連続で同参照、 但し 「empty + collapse」 は新規 vs 同参照 検証外
+  //    → 「expanded + expand」 の idempotency のみ検証で十分)
   {
     const initial: ExpandedTransitionIndices = new Set([4]);
     const r1 = applyDisclosureAction(initial, 4, "request_expand"); // 既に expanded
@@ -512,8 +547,10 @@ export function assertNFoldDisclosureCompliance(): void {
         "request_expand on expanded did not return same reference",
       );
     }
-    const r2 = applyDisclosureAction(EMPTY_EXPANDED_INDICES, 4, "request_collapse"); // 既に hidden
-    if (r2 !== EMPTY_EXPANDED_INDICES) {
+    // 「hidden + collapse」 idempotency は同参照保持を検証
+    const startEmpty = createEmptyExpandedIndices();
+    const r2 = applyDisclosureAction(startEmpty, 4, "request_collapse");
+    if (r2 !== startEmpty) {
       throw new FeasibilityDisclosureAdapterError(
         "idempotency",
         "request_collapse on hidden did not return same reference",
@@ -562,11 +599,50 @@ export function assertNFoldDisclosureCompliance(): void {
     }
   }
 
-  // 10. resetReturnsEmptyConstant
-  if (resetAllDisclosures() !== EMPTY_EXPANDED_INDICES) {
-    throw new FeasibilityDisclosureAdapterError(
-      "resetReturnsEmptyConstant",
-      "resetAllDisclosures() did not return EMPTY_EXPANDED_INDICES constant",
-    );
+  // 10. resetReturnsFreshEmpty (= 毎回新規 empty set、 reference equality 放棄)
+  {
+    const r1 = resetAllDisclosures();
+    const r2 = resetAllDisclosures();
+    if (r1.size !== 0) {
+      throw new FeasibilityDisclosureAdapterError(
+        "resetReturnsFreshEmpty",
+        `resetAllDisclosures() size=${r1.size}, expected 0`,
+      );
+    }
+    if (r2.size !== 0) {
+      throw new FeasibilityDisclosureAdapterError(
+        "resetReturnsFreshEmpty",
+        `resetAllDisclosures() second call size=${r2.size}, expected 0`,
+      );
+    }
+    // 別 instance であること (= reference equality 放棄 = mutation 攻撃面除去)
+    if (r1 === r2) {
+      throw new FeasibilityDisclosureAdapterError(
+        "resetReturnsFreshEmpty",
+        "resetAllDisclosures() returned same reference (= should be fresh per call after harden)",
+      );
+    }
+  }
+
+  // 11. noExternallyMutableEmptyConstant (= 構造保証検証)
+  //     - 「外部から mutation しても次回 reset が破壊されない」 ことを実機検証
+  //     - reset 結果に対し (set as Set<number>).add(0) を試みた後、 別 reset で空が返る
+  {
+    const corrupted = resetAllDisclosures() as Set<number>;
+    corrupted.add(999); // ← 攻撃シミュレーション (= 外部 caller の意図的破壊)
+    // 攻撃後に再度 reset → 攻撃の影響がない新 empty set を返すか
+    const fresh = resetAllDisclosures();
+    if (fresh.size !== 0) {
+      throw new FeasibilityDisclosureAdapterError(
+        "noExternallyMutableEmptyConstant",
+        `after external mutation attempt, reset returned non-empty set (size=${fresh.size}). Persistent constant leaked.`,
+      );
+    }
+    if (fresh.has(999)) {
+      throw new FeasibilityDisclosureAdapterError(
+        "noExternallyMutableEmptyConstant",
+        "external mutation leaked into fresh reset result",
+      );
+    }
   }
 }

@@ -10008,3 +10008,141 @@ M-3c readiness audit (= `db1ccd9d`) で連続 GO 判定後、 CEO 指示「M-3c-
 - **ステータス**: M-3c-pure 着地完了。 75 + 2493 tests PASS。 K / L / M-1 / M-2 / M-3a / M-3b 既存 file 改変 0。 46 frozen branches 計。 次は M-3c-ui readiness audit (= CEO 別承認) または N phase / 別軸 pivot。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3c-pure-harden — EMPTY_EXPANDED_INDICES Mutation Risk 構造的除去 (= GPT 補正反映、 80 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3c-pure 着地 (= `11312aa7`) 後、 GPT 補正:
+> 「EMPTY_EXPANDED_INDICES を外部公開している点だけ確認してください。 Set は TypeScript 上 ReadonlySet にしても、 実体が Set なら runtime では .add() で壊せる可能性があります。 もし誰かが誤って mutable に触ると、 全 default hidden の前提が壊れる危険があります」
+
+自律推論で risk を確認:
+- 型 `ReadonlySet<number>` は type-time のみ保護
+- 実体は `Set<number>` で `(set as Set<number>).add(0)` で runtime mutation 可能
+- 永続定数の破壊 → default hidden 不変条件崩壊
+
+→ **freeze 前に harden 必要**と判断、 GPT 補正案 1+2+3 を組合せて修正。
+
+### 修正方針 (= 自律推論で確定)
+
+**修正案の比較**:
+| 案 | 評価 | 採用 |
+|---|---|---|
+| Object.freeze(Set) | Set methods が依然動く (= V8 / Node 実装)、 効果なし | ❌ |
+| Proxy wrapper | overhead + 設計複雑性 | ❌ |
+| **export 削除 + 毎回新規 Set** | 最も simple、 攻撃面を構造的に除去 | ✅ **採用** |
+
+### 着地内容
+
+1. **`EMPTY_EXPANDED_INDICES` の export 削除** (= 外部参照不能化)
+2. **`createEmptyExpandedIndices()` を internal-only helper** に変更
+3. **`resetAllDisclosures()` で毎回新規 empty Set 返却** (= reference equality を意図的に放棄)
+4. **`applyDisclosureAction` の idempotency 維持** (= 入力 set 同参照で caller-side hook 保持)
+5. **contract に 2 invariants 追加** (= 10 → 11):
+   - `resetReturnsFreshEmpty` (= 毎回新規)
+   - `noExternallyMutableEmptyConstant` (= 永続定数外部公開なし)
+6. **mutation regression tests 追加** (= 5 件、 「外部 mutation しても次回 reset が壊れない」 を機械保証)
+7. **`assertNFoldDisclosureCompliance` を更新** (= invariant 10/11 の検証ロジック追加、 実機 mutation シミュレーション含む)
+
+### 攻撃シナリオ test (= 革新的 mutation harden 検証)
+
+| シナリオ | 内容 | 結果 |
+|---|---|---|
+| A | reset 結果を `(set as Set<number>).add(999)` 攻撃 → 次回 reset 検証 | ✅ 新鮮な空 set を返す |
+| B | reset 結果に add → clear() → 次回 reset 検証 | ✅ 新鮮な空 set を返す |
+| C | 攻撃された input を applyDisclosureAction に渡す → caller 責任範囲、 但し reset は独立 | ✅ reset は影響なし |
+| D | 100 回連続 reset で全 hidden 維持 | ✅ 全件 size===0 |
+| E | namespace import で EMPTY_EXPANDED_INDICES export 不在を構造的確認 | ✅ undefined |
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| harden branch | `feat/alter-plan-phase3-m-3c-pure-harden-empty-set-mutation` |
+| 変更 file | 2 (= adapter + tests) |
+| **M-3c-pure-harden tests** | **80 PASS** (= 75 + 5 new harden tests) |
+| **全 plan tests regression** | **2498 PASS** (= 2493 → +5) |
+| tsc errors on feasibility files | **0** |
+| 既存 file 改変 (= K/L/M-1〜M-3b/decision-log 以外) | **0** |
+| DB / env / package / dependency / UI 変更 | **0** |
+
+### 公開 API (= 全 pure、 EMPTY_EXPANDED_INDICES 削除後)
+
+- ~~`EMPTY_EXPANDED_INDICES`~~ → **削除** (= mutation 攻撃面除去)
+- `getDisclosureStateForIndex(set, index)` → `"expanded" | "hidden"`
+- `applyDisclosureAction(set, index, action)` → 新 set (= idempotency 同参照保持)
+- `resetAllDisclosures()` → **毎回新規** 空 Set (= GPT 補正反映)
+- `getExpandedCount(set)` → number
+- `assertValidTransitionIndex` / `assertValidExpandedIndices` / `assertNFoldDisclosureCompliance`
+- `FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT` (= **11** literal record、 +2 from harden)
+- `FeasibilityDisclosureAdapterError` class
+- `ExpandedTransitionIndices` type alias
+
+### 11 Invariants (= 機械保証、 harden で +2)
+
+1-9. (= 既存)
+10. **`resetReturnsFreshEmpty`** — resetAllDisclosures() → **毎回新規** empty set (= NEW、 reference equality 意図的放棄)
+11. **`noExternallyMutableEmptyConstant`** — 永続定数 Set を **外部公開しない** (= NEW、 mutation 攻撃面構造的除去)
+
+### caller-side 影響 (= 将来 M-3c-ui で考慮)
+
+```typescript
+// 旧 (= M-3c-pure)
+useState<ExpandedTransitionIndices>(EMPTY_EXPANDED_INDICES);
+
+// 新 (= M-3c-pure-harden 後、 GPT 補正反映)
+useState<ExpandedTransitionIndices>(resetAllDisclosures);  // ← React lazy initial state pattern
+// または
+useState<ExpandedTransitionIndices>(() => resetAllDisclosures());
+```
+
+性能影響:
+- React useState 初期値は 1 度しか呼ばれない → stable reference 不要
+- reset は tab/day 切替時のみ → 高頻度ではない
+- applyDisclosureAction の idempotency は維持 → React.memo 最適化 hook 残存
+
+### 危険境界遵守
+
+| 境界 | 結果 |
+|---|---|
+| UI 接続 | **0** (= M-3c-ui 別 phase) |
+| MapTab / CalendarTab / FlowTab / DayGraphTimeline 改変 | **0** |
+| 「不足 N 分」 / 「余白 N 分」 画面表示 | **0** |
+| Arrival Risk Memory / 警告文言 | **0** |
+| amber / orange / red 警告色 / icon | **0** |
+| localStorage / DB / env / package / dependency | **0** |
+| K / L / M-1 / M-2 / M-3a / M-3b 既存 file 改変 | **0** |
+| fetch / endpoint / runtime telemetry / Counterfactual / Routes API | **0** |
+| reset / restore / stash / branch delete / gh / push | **0** |
+
+### 革新的アイデア (= harden で導出)
+
+1. **mutation 攻撃面の構造的除去** = 永続定数の外部公開なし
+2. **reference equality を意図的放棄** = security > performance hook
+3. **caller は always-function-call 規約** = 「定数 import」 を構造的に不可能化
+4. **攻撃シナリオ test 駆動 harden** = 実機 mutation シミュレーションで invariant を機械検証
+5. **namespace import 経由の export 不在検証** = TypeScript narrowing を抜けた runtime 検査
+
+### 思想 transmission (= harden 後の永続規約)
+
+1. 観測の主導権を user に渡す (= M-3b 継承)
+2. default = 全 hidden 永続規約 (= M-3b N-fold lift)
+3. per-transition は M-3b-pure を N-fold lift
+4. tab/day 切替で reset (= 「観測の幕間」)
+5. expandedIndices = Set<number> (= 最小 representation)
+6. bulk operation 意図的不提供 (= user 能動性を守る)
+7. **永続 Set 定数を外部公開しない** (= NEW、 mutation 攻撃面構造的除去)
+8. **caller は always-function-call** (= NEW、 規約遵守)
+
+### freeze 状態
+
+- `feat/alter-plan-phase3-m-3c-pure-harden-empty-set-mutation` (= 本 commit): **frozen 予定**
+- 元の `feat/alter-plan-phase3-m-3c-pure-per-transition-disclosure-adapter` (= `11312aa7`) は **superseded** (= harden 適用前なので個別 freeze せず)
+- 合計 **46 frozen branches** (= 既存維持、 harden は同じ phase 内のため new freeze)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3c-pure 着地後 「EMPTY_EXPANDED_INDICES mutation risk 確認、 問題があれば小修正」 指示、 自律推論で risk 確認 + harden 着地)
+- **ステータス**: M-3c-pure-harden 着地完了。 80 + 2498 tests PASS。 mutation 攻撃面構造的除去。 次は M-3c-ui readiness audit (= CEO 別承認) または N phase / 別軸 pivot。
+
+---

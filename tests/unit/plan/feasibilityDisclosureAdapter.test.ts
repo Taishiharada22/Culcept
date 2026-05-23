@@ -5,7 +5,7 @@
  * 実装   : lib/plan/feasibility/feasibilityDisclosureAdapter.ts
  *
  * 検証範囲:
- *   §1. EMPTY_EXPANDED_INDICES 永続規約
+ *   §1. resetAllDisclosures 永続規約 + mutation harden (= GPT 補正反映)
  *   §2. getDisclosureStateForIndex — set in/out / 補集合 / 永続定数
  *   §3. applyDisclosureAction — 全 action × 多 index combinations
  *   §4. expand / collapse の independence (= per-transition)
@@ -35,7 +35,6 @@ import {
   type FeasibilityDisclosureAction,
 } from "@/lib/plan/feasibility/feasibilityDisclosureState";
 import {
-  EMPTY_EXPANDED_INDICES,
   FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT,
   FeasibilityDisclosureAdapterError,
   applyDisclosureAction,
@@ -47,6 +46,17 @@ import {
   resetAllDisclosures,
   type ExpandedTransitionIndices,
 } from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
+import * as DisclosureAdapter from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
+
+/**
+ * Test-local helper: 「全 hidden の初期 set」 を取得する規約
+ * (= M-3c-pure-harden 後、 EMPTY_EXPANDED_INDICES export は削除されたため、
+ *    test 内では `resetAllDisclosures()` 経由で取得する。
+ *    これにより 「caller も常に function 経由」 という規約を test で再現)
+ */
+function createEmptySet(): ExpandedTransitionIndices {
+  return resetAllDisclosures();
+}
 
 const ALL_ACTIONS: ReadonlyArray<FeasibilityDisclosureAction> = [
   "request_expand",
@@ -55,27 +65,106 @@ const ALL_ACTIONS: ReadonlyArray<FeasibilityDisclosureAction> = [
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §1. EMPTY_EXPANDED_INDICES 永続規約
+// §1. resetAllDisclosures 永続規約 + mutation harden (= GPT 補正反映)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("Phase 3-M-3c-pure §1. EMPTY_EXPANDED_INDICES 永続規約", () => {
-  it("size === 0", () => {
-    expect(EMPTY_EXPANDED_INDICES.size).toBe(0);
+describe("Phase 3-M-3c-pure §1. resetAllDisclosures 永続規約 + mutation harden", () => {
+  it("resetAllDisclosures() で取得した empty set の size === 0", () => {
+    expect(createEmptySet().size).toBe(0);
   });
 
-  it("instanceof Set", () => {
-    expect(EMPTY_EXPANDED_INDICES instanceof Set).toBe(true);
+  it("resetAllDisclosures() の結果は instanceof Set", () => {
+    expect(createEmptySet() instanceof Set).toBe(true);
   });
 
-  it("複数 module access で同参照 (= 永続定数の唯一性)", () => {
-    expect(EMPTY_EXPANDED_INDICES).toBe(EMPTY_EXPANDED_INDICES);
+  it("resetAllDisclosures() は毎回**異なる instance** を返す (= mutation harden)", () => {
+    const a = resetAllDisclosures();
+    const b = resetAllDisclosures();
+    // GPT 補正: 永続定数を外部公開しない → 毎回新規 Set
+    expect(a).not.toBe(b);
+    expect(a.size).toBe(0);
+    expect(b.size).toBe(0);
   });
 
   it("空 Set で任意 index lookup → 全 hidden (= 永続規約)", () => {
     const samples = [0, 1, 2, 5, 10, 100, 1000, Number.MAX_SAFE_INTEGER];
+    const empty = createEmptySet();
     for (const idx of samples) {
-      expect(getDisclosureStateForIndex(EMPTY_EXPANDED_INDICES, idx)).toBe("hidden");
+      expect(getDisclosureStateForIndex(empty, idx)).toBe("hidden");
     }
+  });
+
+  // === Mutation regression tests (= GPT 補正反映 M-3c-pure-harden) ===
+
+  it("攻撃シナリオ A: reset 結果を外部 mutation → 次回 reset は新鮮", () => {
+    // 外部 caller が type assertion で mutation 攻撃を試みる
+    const corrupted = resetAllDisclosures() as Set<number>;
+    corrupted.add(999);
+    corrupted.add(0);
+    expect(corrupted.size).toBe(2);
+
+    // 攻撃後、 再度 reset → 新鮮な空 set が返る (= 永続定数破壊リスクなし)
+    const fresh = resetAllDisclosures();
+    expect(fresh.size).toBe(0);
+    expect(fresh.has(999)).toBe(false);
+    expect(fresh.has(0)).toBe(false);
+  });
+
+  it("攻撃シナリオ B: reset 結果を clear() → 次回 reset は新鮮", () => {
+    const a = resetAllDisclosures() as Set<number>;
+    a.add(1);
+    a.add(2);
+    a.add(3);
+    a.clear();
+    expect(a.size).toBe(0);
+
+    const b = resetAllDisclosures();
+    expect(b.size).toBe(0);
+    expect(b).not.toBe(a);
+  });
+
+  it("攻撃シナリオ C: applyDisclosureAction の input が攻撃された場合 → 結果 set 経由でも漏れない", () => {
+    // 攻撃された input set を渡してみる
+    const malicious = resetAllDisclosures() as Set<number>;
+    malicious.add(666);
+
+    const result = applyDisclosureAction(malicious, 0, "request_expand");
+
+    // result は malicious の copy + add(0) なので 666 を含む
+    // (= input の mutation を adapter が「修正」する責任は持たない、 caller 規約)
+    expect(result.has(0)).toBe(true);
+    expect(result.has(666)).toBe(true);
+
+    // 但し adapter が新規 empty を生成する側 (= resetAllDisclosures) では漏れない
+    const fresh = resetAllDisclosures();
+    expect(fresh.size).toBe(0);
+    expect(fresh.has(666)).toBe(false);
+  });
+
+  it("「全 default hidden」 不変条件 — 100 回連続 reset で全 hidden 維持", () => {
+    for (let i = 0; i < 100; i++) {
+      const set = resetAllDisclosures();
+      expect(set.size).toBe(0);
+      // 任意 index で hidden
+      expect(getDisclosureStateForIndex(set, 0)).toBe("hidden");
+      expect(getDisclosureStateForIndex(set, 100)).toBe("hidden");
+    }
+  });
+
+  it("**EMPTY_EXPANDED_INDICES export 不在** (= module export に存在しないことを namespace import で確認)", () => {
+    // namespace import で module の全 export を取得
+    // TypeScript narrowing 上、 `EMPTY_EXPANDED_INDICES` プロパティは type definitions に存在しないため、
+    // unknown cast 経由で runtime 検査
+    const exports = DisclosureAdapter as unknown as Record<string, unknown>;
+    expect(exports.EMPTY_EXPANDED_INDICES).toBeUndefined();
+    expect(exports).not.toHaveProperty("EMPTY_EXPANDED_INDICES");
+
+    // 公式 API は存在
+    expect(exports).toHaveProperty("resetAllDisclosures");
+    expect(exports).toHaveProperty("applyDisclosureAction");
+    expect(exports).toHaveProperty("getDisclosureStateForIndex");
+    expect(exports).toHaveProperty("getExpandedCount");
+    expect(exports).toHaveProperty("FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT");
   });
 });
 
@@ -100,7 +189,7 @@ describe("Phase 3-M-3c-pure §2. getDisclosureStateForIndex", () => {
   });
 
   it("DEFAULT_DISCLOSURE_STATE === 'hidden' と一致 (= 補集合の規約整合)", () => {
-    const result = getDisclosureStateForIndex(EMPTY_EXPANDED_INDICES, 0);
+    const result = getDisclosureStateForIndex(createEmptySet(), 0);
     expect(result).toBe(DEFAULT_DISCLOSURE_STATE);
   });
 
@@ -121,19 +210,22 @@ describe("Phase 3-M-3c-pure §2. getDisclosureStateForIndex", () => {
 describe("Phase 3-M-3c-pure §3. applyDisclosureAction", () => {
   describe("hidden index に対する action", () => {
     it("request_expand → set に追加", () => {
-      const result = applyDisclosureAction(EMPTY_EXPANDED_INDICES, 0, "request_expand");
+      const result = applyDisclosureAction(createEmptySet(), 0, "request_expand");
       expect(result.has(0)).toBe(true);
       expect(result.size).toBe(1);
     });
 
-    it("request_collapse → set 不変 (= 同参照 idempotency)", () => {
-      const result = applyDisclosureAction(EMPTY_EXPANDED_INDICES, 0, "request_collapse");
-      expect(result).toBe(EMPTY_EXPANDED_INDICES);
+    it("request_collapse → input set 同参照 (= idempotency 維持)", () => {
+      const input = createEmptySet();
+      const result = applyDisclosureAction(input, 0, "request_collapse");
+      // input reference equality (= adapter の idempotency 規約) は維持
+      expect(result).toBe(input);
     });
 
-    it("passive_idle → set 不変 (= 同参照)", () => {
-      const result = applyDisclosureAction(EMPTY_EXPANDED_INDICES, 0, "passive_idle");
-      expect(result).toBe(EMPTY_EXPANDED_INDICES);
+    it("passive_idle → input set 同参照", () => {
+      const input = createEmptySet();
+      const result = applyDisclosureAction(input, 0, "passive_idle");
+      expect(result).toBe(input);
     });
   });
 
@@ -207,7 +299,7 @@ describe("Phase 3-M-3c-pure §4. per-transition independence", () => {
   });
 
   it("10 個の異 index に対し連続 expand → 全件 set に存在", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     for (let i = 0; i < 10; i++) {
       set = applyDisclosureAction(set, i, "request_expand");
     }
@@ -218,7 +310,7 @@ describe("Phase 3-M-3c-pure §4. per-transition independence", () => {
   });
 
   it("10 個 expand 後、 5 個 collapse → 残 5 個 expanded", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     for (let i = 0; i < 10; i++) {
       set = applyDisclosureAction(set, i, "request_expand");
     }
@@ -296,7 +388,7 @@ describe("Phase 3-M-3c-pure §6. deterministic / idempotent", () => {
   });
 
   it("request_expand 連続適用 (= idempotency 同参照)", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 5, "request_expand"); // 1st: hidden → expanded
     const afterFirst = set;
     for (let i = 0; i < 100; i++) {
@@ -329,20 +421,26 @@ describe("Phase 3-M-3c-pure §6. deterministic / idempotent", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §7. resetAllDisclosures — 永続定数返却 + 全 hidden
+// §7. resetAllDisclosures — 毎回新規 empty (= GPT 補正反映 M-3c-pure-harden)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("Phase 3-M-3c-pure §7. resetAllDisclosures", () => {
-  it("EMPTY_EXPANDED_INDICES 同参照を返す", () => {
-    expect(resetAllDisclosures()).toBe(EMPTY_EXPANDED_INDICES);
+describe("Phase 3-M-3c-pure §7. resetAllDisclosures (= harden 後)", () => {
+  it("毎回 size === 0 の Set を返す", () => {
+    expect(resetAllDisclosures().size).toBe(0);
   });
 
-  it("複数回呼び出しでも同参照 (= deterministic)", () => {
+  it("毎回**新規 instance** を返す (= reference equality 放棄、 mutation 攻撃面除去)", () => {
     const r1 = resetAllDisclosures();
     const r2 = resetAllDisclosures();
     const r3 = resetAllDisclosures();
-    expect(r1).toBe(r2);
-    expect(r2).toBe(r3);
+    // GPT 補正: 永続定数の外部公開を削除したため、 毎回新規 Set
+    expect(r1).not.toBe(r2);
+    expect(r2).not.toBe(r3);
+    expect(r1).not.toBe(r3);
+    // 但し全て空 + 全件 hidden の意味的同等性は保証
+    expect(r1.size).toBe(0);
+    expect(r2.size).toBe(0);
+    expect(r3.size).toBe(0);
   });
 
   it("reset 後、 全 index が hidden", () => {
@@ -353,7 +451,7 @@ describe("Phase 3-M-3c-pure §7. resetAllDisclosures", () => {
   });
 
   it("「観測の幕間」 シナリオ — 操作後 reset → 全 hidden", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 1, "request_expand");
     set = applyDisclosureAction(set, 2, "request_expand");
     set = applyDisclosureAction(set, 3, "request_expand");
@@ -362,7 +460,7 @@ describe("Phase 3-M-3c-pure §7. resetAllDisclosures", () => {
     // tab 切替シミュレーション
     set = resetAllDisclosures();
     expect(set.size).toBe(0);
-    expect(set).toBe(EMPTY_EXPANDED_INDICES);
+    // reference equality は意図的放棄、 size === 0 のみ確認
   });
 });
 
@@ -371,8 +469,8 @@ describe("Phase 3-M-3c-pure §7. resetAllDisclosures", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("Phase 3-M-3c-pure §8. getExpandedCount", () => {
-  it("EMPTY → 0", () => {
-    expect(getExpandedCount(EMPTY_EXPANDED_INDICES)).toBe(0);
+  it("空 Set → 0", () => {
+    expect(getExpandedCount(createEmptySet())).toBe(0);
   });
 
   it("1 要素 → 1", () => {
@@ -385,7 +483,7 @@ describe("Phase 3-M-3c-pure §8. getExpandedCount", () => {
   });
 
   it("expand 操作後、 count が増える", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     expect(getExpandedCount(set)).toBe(0);
     set = applyDisclosureAction(set, 1, "request_expand");
     expect(getExpandedCount(set)).toBe(1);
@@ -400,8 +498,8 @@ describe("Phase 3-M-3c-pure §8. getExpandedCount", () => {
 // §9. FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT literal true
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("Phase 3-M-3c-pure §9. FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT literal", () => {
-  it("10 invariants 全件 true", () => {
+describe("Phase 3-M-3c-pure §9. FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT literal (= 11 invariants after harden)", () => {
+  it("11 invariants 全件 true", () => {
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.emptySetIsAllHidden).toBe(true);
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.hiddenIsComplement).toBe(true);
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.expandedIsMembership).toBe(true);
@@ -411,11 +509,13 @@ describe("Phase 3-M-3c-pure §9. FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT literal
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.idempotency).toBe(true);
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.perTransitionIndependence).toBe(true);
     expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.inputSetNotMutated).toBe(true);
-    expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.resetReturnsEmptyConstant).toBe(true);
+    // M-3c-pure-harden で +2 (= GPT 補正反映)
+    expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.resetReturnsFreshEmpty).toBe(true);
+    expect(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT.noExternallyMutableEmptyConstant).toBe(true);
   });
 
-  it("contract key 数 10 件 (= 増減検知)", () => {
-    expect(Object.keys(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT).length).toBe(10);
+  it("contract key 数 11 件 (= 増減検知、 M-3c-pure-harden で +2)", () => {
+    expect(Object.keys(FEASIBILITY_DISCLOSURE_ADAPTER_CONTRACT).length).toBe(11);
   });
 });
 
@@ -463,7 +563,7 @@ describe("Phase 3-M-3c-pure §10. assertValidTransitionIndex", () => {
 
 describe("Phase 3-M-3c-pure §11. assertValidExpandedIndices", () => {
   it("空 Set → throw なし", () => {
-    expect(() => assertValidExpandedIndices(EMPTY_EXPANDED_INDICES)).not.toThrow();
+    expect(() => assertValidExpandedIndices(createEmptySet())).not.toThrow();
     expect(() => assertValidExpandedIndices(new Set())).not.toThrow();
   });
 
@@ -505,8 +605,8 @@ describe("Phase 3-M-3c-pure §11. assertValidExpandedIndices", () => {
 // §12. assertNFoldDisclosureCompliance — 10 invariants 機械検証
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("Phase 3-M-3c-pure §12. assertNFoldDisclosureCompliance", () => {
-  it("10 invariants 全件 PASS で throw なし", () => {
+describe("Phase 3-M-3c-pure §12. assertNFoldDisclosureCompliance (= 11 invariants after harden)", () => {
+  it("11 invariants 全件 PASS で throw なし", () => {
     expect(() => assertNFoldDisclosureCompliance()).not.toThrow();
   });
 
@@ -523,7 +623,7 @@ describe("Phase 3-M-3c-pure §12. assertNFoldDisclosureCompliance", () => {
 
 describe("Phase 3-M-3c-pure §13. PII grep", () => {
   it("expandedIndices の serialize に PII patterns 不在", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     for (let i = 0; i < 10; i++) {
       set = applyDisclosureAction(set, i, "request_expand");
     }
@@ -584,7 +684,7 @@ describe("Phase 3-M-3c-pure §14. N-fold lift of M-3b invariants", () => {
 
   it("全 index で request_expand → 'expanded' (= M-3b request_expand reaches expanded の N-fold lift)", () => {
     for (const idx of [0, 1, 5, 100]) {
-      const result = applyDisclosureAction(EMPTY_EXPANDED_INDICES, idx, "request_expand");
+      const result = applyDisclosureAction(createEmptySet(), idx, "request_expand");
       expect(getDisclosureStateForIndex(result, idx)).toBe("expanded");
     }
   });
@@ -604,25 +704,24 @@ describe("Phase 3-M-3c-pure §14. N-fold lift of M-3b invariants", () => {
 
 describe("Phase 3-M-3c-pure §15. observational disclosure N-fold 規範", () => {
   it("初期 state から user action なしで全 index が hidden に維持", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     for (let i = 0; i < 100; i++) {
       for (let idx = 0; idx < 10; idx++) {
         set = applyDisclosureAction(set, idx, "passive_idle");
       }
     }
     expect(set.size).toBe(0);
-    expect(set).toBe(EMPTY_EXPANDED_INDICES);
   });
 
   it("user 能動 1 action で個別 index を expanded 化可能", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 3, "request_expand");
     expect(getDisclosureStateForIndex(set, 3)).toBe("expanded");
     expect(getDisclosureStateForIndex(set, 2)).toBe("hidden"); // 他 index は hidden
   });
 
   it("user 能動 collapse で hidden に戻れる (= 観測の終わり方を user が決める)", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 3, "request_expand");
     expect(getDisclosureStateForIndex(set, 3)).toBe("expanded");
     set = applyDisclosureAction(set, 3, "request_collapse");
@@ -630,7 +729,7 @@ describe("Phase 3-M-3c-pure §15. observational disclosure N-fold 規範", () =>
   });
 
   it("複数 index 同時 expanded → 「観測フォーカスの集合」 形成", () => {
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 0, "request_expand");
     set = applyDisclosureAction(set, 2, "request_expand");
     set = applyDisclosureAction(set, 5, "request_expand");
@@ -645,7 +744,7 @@ describe("Phase 3-M-3c-pure §15. observational disclosure N-fold 規範", () =>
 
   it("「観測の幕間」 シナリオ — tab/day 切替で全 hidden 再起動", () => {
     // user が複数 transition を観測
-    let set: ExpandedTransitionIndices = EMPTY_EXPANDED_INDICES;
+    let set: ExpandedTransitionIndices = createEmptySet();
     set = applyDisclosureAction(set, 0, "request_expand");
     set = applyDisclosureAction(set, 1, "request_expand");
     set = applyDisclosureAction(set, 2, "request_expand");
@@ -654,8 +753,7 @@ describe("Phase 3-M-3c-pure §15. observational disclosure N-fold 規範", () =>
     // tab 切替 (= 観測の幕間)
     set = resetAllDisclosures();
 
-    // 全 hidden に戻る
-    expect(set).toBe(EMPTY_EXPANDED_INDICES);
+    // 全 hidden に戻る (= reference equality は意図的放棄、 意味的同等のみ)
     expect(set.size).toBe(0);
 
     // 再度 user 能動 1 action で起動 (= 観測の再起動)
