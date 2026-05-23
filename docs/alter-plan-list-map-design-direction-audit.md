@@ -283,7 +283,8 @@ redesign で新規追加する interactive surface は:
 | 1 日 = 集約された予定 | 1 日 = **観測される時間の流れ** | 「自分って、 そういう 1 日を組み立てる人間だったのか」 |
 | Alter 不在 | Alter 補助文 (= 控えめ、 push しない) | 「**観測の幕間**」 = entry visible だが modal user initiated |
 | empty day = 「予定なし」 (= 否定) | empty day = 「**観測の余地**」 (= 肯定) | 「観測の幕間」 を入口に明示 |
-| 評価 score (= 78% バランス) | **観測中** chip (= 「リズムを観測中」) | optimization / push の語彙排除 |
+| 評価 score (= 78% バランス) | **観測中** chip (= §11.5 確定) | optimization / push の語彙排除 |
+| 時間帯限定 section label (= `ALTER MORNING`) | **「観測中」 section label** (= §11.5 確定、 動的 / 時間帯独立) | brand 重複 / 思想不整合 解消 |
 
 ### 5.3 「観測される 1 日」 framing の意味
 
@@ -385,12 +386,12 @@ redesign で新規追加する interactive surface は:
 │   ANEURASYNC ALTER (= brand, fixed)      │
 ├─────────────────────────────────────────┤
 │ [section label]                          │
-│   ALTER MORNING (= subtle caps, 紫小)     │
+│   観測中 (= subtle 紫 caps、 §11.5 確定)   │
 ├─────────────────────────────────────────┤
 │ [title block]                            │
 │   今日のプラン (= display large)          │
-│   時間の流れを観測する 1 日。 (= subtitle、 │
-│     観測 framing、 命令形回避)            │
+│   時間として観測する 1 日。 (= subtitle、  │
+│     §11.5 確定、 観測 framing)            │
 ├─────────────────────────────────────────┤
 │ [toggle]                                 │
 │   地図 | リスト (= right-aligned)         │
@@ -406,7 +407,7 @@ redesign で新規追加する interactive surface は:
 │            │ │ semantic visual        │   │
 │            │ └──────────────────────┘   │
 │            │                              │
-│   ── 移動 ─ ─ ─ ─ ─ ─ ─ ─ ─ 11:00-12:00 │
+│   ── 移動・余白 ── ── ── ── 11:00-12:00 │
 │            │                              │
 │   12:00 ●──┤ ┌──────────────────────┐   │
 │            ├─┤ event card #2          │   │
@@ -418,11 +419,12 @@ redesign で新規追加する interactive surface は:
 │   「ALTER で見る ›」 (= N-3a 連携)        │
 ├─────────────────────────────────────────┤
 │ [summary card]                            │
-│   1 日を観測中 (= optimization 排除)      │
+│   観測中 (= §11.5 確定、 評価 score 排除)  │
+│   集中と休息の時間が、 今日に流れています。│
 │   「リズムを見る ›」 (= observation CTA)  │
 ├─────────────────────────────────────────┤
 │ [bottom tab nav]                          │
-│   今日のプラン / インサイト / AI メモ / 設定 │
+│   今日のプラン / インサイト / Alter メモ / 設定 │
 └─────────────────────────────────────────┘
 ```
 
@@ -481,8 +483,8 @@ redesign で新規追加する interactive surface は:
 ```
 ┌─────────────────────────────────────────┐
 │ [header / section label / title]          │
-│   (= List と共通)                         │
-│   subtitle: 「場所として観測する 1 日。」 │
+│   (= List と共通、 §11.5 確定 copy)        │
+│   subtitle: 「空間として観測する 1 日。」 │
 ├─────────────────────────────────────────┤
 │ [toggle / date selector]                  │
 ├─────────────────────────────────────────┤
@@ -603,6 +605,98 @@ N-3a で実装済:
 ### 11.3 entry tap の挙動 (= N-3b 以降)
 
 本 audit では entry の **visual** のみ確定。 tap 挙動 (= modal 起動) は N-3b 以降で別 plan audit。
+
+---
+
+## 11.5 Copy contract 自律確定 (= CEO 指示「ALTER MORNING はおかしい」 受けた再構築)
+
+### 11.5.1 背景
+
+CEO 指示 (= 2026-05-24): 「見出しや、 ラベル、 最上部の文言等は、 君のリサーチの上で、 違う内容にしてください。 少なくとも、 alter morning の文言はおかしいです。 文言系は変えるようにしてください。 変えなくてもいいと判断したらそれでいいです。」
+
+→ 「ALTER MORNING」 の問題点を自律推論 + 世界トップアプリ literature で再構築。 「変えなくてもいい」 判断と「変える」 判断を外科的に分離。
+
+### 11.5.2 「ALTER MORNING」 の問題点 (= 5 件、 自律分析)
+
+| # | 問題 | 詳細 |
+|---|---|---|
+| 1 | **時間帯限定** | 朝限定の表現だが、 「今日のプラン」 は朝 / 昼 / 夜 全てを含む — 時間帯不整合 |
+| 2 | **英語混在の不自然さ** | 主見出し「今日のプラン」 が日本語、 section label が英語のみ — 読みづらさ |
+| 3 | **意味の曖昧さ** | 「ALTER の朝」 = 「Alter の朝モード」 という意味か明確でない |
+| 4 | **brand redundant** | header に既に「ANEURASYNC ALTER」 存在、 もう一度「ALTER」 を出すのは冗長 |
+| 5 | **思想不整合** | 「観測される 1 日」 vision (= 1 日全体) と「MORNING」 限定が矛盾 |
+
+### 11.5.3 リサーチ (= 世界トップアプリの hero label patterns)
+
+| app | hero label | 性質 |
+|---|---|---|
+| Things 3 | TODAY | 全大文字、 simple |
+| Fantastical | Today | Title case、 simple |
+| Apple Health | Summary | 全大文字 |
+| Calm | TODAY + emotional copy | hybrid |
+| Headspace | Today + mood label | hybrid |
+| Notion Daily | (= label なし) | 日付主体 |
+
+→ 世界トップアプリは **「TODAY」 系 simple universal label** が多数。 「ALTER MORNING」 は独自すぎ + 時間限定 + brand 重複 で参照に値しない。
+
+### 11.5.4 採用案 (= 自律確定)
+
+**section label「ALTER MORNING」 → 「観測中」**
+
+理由:
+- 「観測される 1 日」 vision (= §6.1) と直接接続
+- 時間帯限定なし (= 1 日全体カバー)
+- brand 重複なし (= ANEURASYNC ALTER と差別化)
+- 動的 variant 可能 (= 「観測中」 / 「観測済」 / 「観測前」、 詳細は別 audit)
+
+visual spec:
+- subtle 紫 (= indigo-500/600 系) + caps (= 既存参考画像と整合)
+- letter-spacing 広め
+- size: text-xs - text-sm
+
+### 11.5.5 全 copy contract 自律確定 (= 本 audit 範囲、 14 項目)
+
+| 位置 | before (= 参考画像) | after (= 自律修正) | 修正理由 |
+|---|---|---|---|
+| header brand | `ANEURASYNC ALTER` | (= 維持) | brand identity |
+| **section label** | **`ALTER MORNING`** | **「観測中」** | §11.5.2 の 5 問題点解消 |
+| 主見出し | 「今日のプラン」 | (= 維持) | 1 日 framing、 参考画像と整合 |
+| **subtitle (List)** | 「時間の流れを把握して、 心地よい 1 日に。」 | **「時間として観測する 1 日。」** | 命令形 / optimization 排除、 観測 framing |
+| **subtitle (Map)** | 「場所を地図で確認して、 流れをつかみましょう。」 | **「空間として観測する 1 日。」** | 命令形 排除、 framing 統一 |
+| toggle | 「地図」 / 「リスト」 | (= 維持) | universal 用語、 既に observation 中立 |
+| date selector | `< 6月12日 (木) >` | (= 維持) | 標準 UX、 修正不要 |
+| **transition chip** | 「移動・リフレッシュ」 / 「移動」 | **「移動・余白」 / 「移動」** | 「リフレッシュ」 = optimization 排除、 「余白」 = 観測 framing |
+| **summary 主表現** | 「78% バランス良好」 | **「観測中」** | 評価 score 排除 (= 「良い/悪い」 暗示なし) |
+| **summary 説明** | 「集中と休息のバランスが取れた良いプランです。」 | **「集中と休息の時間が、 今日に流れています。」** | 評価 / 命令 排除、 観測 framing |
+| **summary CTA** | 「リズムを整えるヒント ›」 | **「リズムを見る ›」** | push 排除 (= 「整える」 → 「見る」 = observation) |
+| **Alter 補助文 example** | 「集中しやすい静かなカフェで、 今日の計画を整理しましょう。」 | **「集中しやすい静かなカフェで、 今日の計画を観測する余白。」** | 命令形 → 名詞形 + 「整理」 → 「観測」 で Aneurasync 思想 framing 強化 (= §9.2 統一) |
+| CTA buttons | 「詳細を見る」 / 「ここへの経路」 | (= 維持) | observation + functional、 修正不要 |
+| **bottom tab #3** | **「AI メモ」** | **「Alter メモ」** | 「AI」 (= generic) → 「Alter」 (= brand integration、 「第二の自己」 思想接続) |
+| bottom tab 他 | 「今日のプラン」 / 「インサイト」 / 「設定」 | (= 維持) | 既存整合 |
+
+### 11.5.6 統計
+
+- **変更**: 8 件 (= section label / List subtitle / Map subtitle / transition chip / summary 主 / summary 説明 / summary CTA / Alter example / bottom tab AI メモ — 計 9 unique copy contract 更新)
+- **維持**: 6 件 (= header brand / 主見出し / toggle / date selector / CTA buttons / bottom tab 他 3)
+- **合計**: 14 項目 確定
+
+### 11.5.7 N-3a empty day entry との整合
+
+- `EMPTY_DAY_ENTRY_LABEL = "ALTER で見る ›"` (= N-3a `d55aab5f` 確定)
+- 「ALTER」 = brand integration、 §11.5.5 の「Alter メモ」 と整合
+- 「で見る」 = 観測 framing、 §11.5.5 の「リズムを見る」 と整合
+- 「›」 = tap UX 慣習、 §11.5.5 の summary CTA / Alter example と整合
+- → **N-3a foundation と本 copy contract は完全整合** ✅
+
+### 11.5.8 詳細 copy contract は別 audit
+
+本 §11.5 で **方向性 copy 14 項目** を自律確定。 以下は別 audit で完全列挙:
+- 全 page copy (= settings / インサイト / Alter メモ tab 内 等)
+- micro-copy (= empty state、 loading、 error message)
+- tooltip / aria-label
+- date variants (= 過去日 / 未来日 / today の section label 動的 variant)
+
+→ **copy contract audit** (= 別 doc、 別 branch) で詳細化。
 
 ---
 
@@ -782,13 +876,13 @@ design redesign は大規模 refactor を含むため:
 |---|---|
 | 1 | 「観測される 1 日」 framing 採用 (= GPT 「体験」 を Aneurasync 「観測」 に深化) |
 | 2 | 1 画面 1 主役 (= List 時間軸 / Map 空間軸) 採用 |
-| 3 | 参考画像の copy tone を Aneurasync 整合に書き換え (= 「整理しましょう」 → 観測 framing) |
+| 3 | ~~参考画像の copy tone を Aneurasync 整合に書き換え~~ — **§11.5 で自律確定済** (= CEO 2026-05-24 指示受け、 14 copy contract 確定、 8 件変更 / 6 件維持) |
 
 ### 17.2 visual / structure
 
 | # | 判断項目 |
 |---|---|
-| 4 | 「ALTER MORNING」 section label 採用 (= 時間帯 / モードの明示) |
+| 4 | ~~「ALTER MORNING」 section label 採用~~ — **§11.5 で「観測中」 に変更確定済** (= 時間帯限定 + brand redundant 解消) |
 | 5 | image source 決定 (= semantic visual + ambient gradient で start、 後段 audit) |
 | 6 | bottom sheet 3 段階 (= peek / half / full) 採用 |
 
@@ -817,7 +911,8 @@ design redesign は大規模 refactor を含むため:
 3. Aneurasync 思想との **統合 vision** = 「**観測される 1 日**」
 4. List / Map redesign direction の **詳細方針** 固定
 5. 既存資産整合 + 実装順序 + 禁止事項 + smoke 観点
-6. **17 CEO 判断項目** 明示
+6. **8 CEO 判断項目** + **4 後段 audit** 明示 (= §17)
+7. **Copy contract 自律確定 14 項目** (= §11.5、 CEO 2026-05-24 「ALTER MORNING はおかしい」 指示受けた再構築、 8 件変更 / 6 件維持)
 
 ### 18.2 redesign の本質 (= 1 文)
 
@@ -825,10 +920,11 @@ design redesign は大規模 refactor を含むため:
 
 ### 18.3 次のアクション (= CEO 判断後)
 
-1. CEO 判断 (= §17 の 8 項目 + 後段 4 audit の優先順)
+1. CEO 判断 (= §17 の 8 項目 + 後段 4 audit の優先順、 #3 / #4 は §11.5 で自律確定済)
 2. 採用なら **design system extraction audit** に進む (= 別 audit、 別 branch)
 3. その後 List redesign plan audit → impl の順
 4. 各 sub-phase で CEO smoke 必須 (= 連続 GO 不可)
+5. 詳細 copy contract (= micro-copy / error / date variants) は **copy contract audit** で完全列挙 (= 別 audit、 §11.5.8)
 
 ### 18.4 自律推奨 (= 思考原則 ⑤ ゴールから逆算)
 
