@@ -11712,3 +11712,117 @@ N Plan Completion Audit `95d15ea6` で N 全責務 + 5 phase 分割が確定。 
 - **ステータス**: Phase 3-N-1 Home/Plan Final Surface Audit 着地完了。 全 surface 棚卸し + 3 stage smoke 計画 + polish form + 革新 5 件 + CEO 判断 4 件。 53 frozen branches。 次は CEO smoke 実施 → polish 候補リスト確定 → N-2 wave 計画 audit。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-1 Closeout Audit — smoke PASS 9 項目 + polish 候補 8 件棚卸し + wave 1 推奨 [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3d bugfix 後の CEO smoke 9 項目全件 PASS、 N-1 棚卸し smoke 大きな問題なし。
+CEO + GPT 指示「次に進む」 + GPT 指摘 polish 候補 2 件提示。
+
+### CEO Smoke 結果 (= 9 項目 PASS)
+
+| # | 確認項目 | 結果 |
+|---|---|---|
+| 1 | CalendarTab selected day で「移動 約 90 分 詳細」 表示 | ✅ |
+| 2 | Calendar month/grid に disclosure 出ない (= 規約遵守) | ✅ |
+| 3 | FlowTab で「移動 約 90 分 詳細」 表示 | ✅ |
+| 4 | FlowTab 「詳細」 欠落問題解消 (= bugfix 実証) | ✅ |
+| 5 | MapTab で「移動 約 90 分 閉じる」「余白 20 分」 表示 | ✅ |
+| 6 | 詳細 disclosure 開閉動作 | ✅ |
+| 7 | 既存 UI 大きな崩れなし | ✅ |
+| 8 | amber/orange/red なし | ✅ |
+| 9 | warning/recommendation/optimization 文言 + icon/badge なし | ✅ |
+
+### GPT 指摘 polish 候補 2 件 (= 自律分析)
+
+**P-001: focus ring 統一**:
+- DayGraphTimeline.tsx L 402 EventItem `focus:ring-2 focus:ring-indigo-300` (= 青、 強、 K-3a 由来)
+- M-3c-ui で追加した TransitionItem は L 526 `focus-visible:ring-2 focus-visible:ring-slate-300` (= 灰、 弱)
+- → **EventItem を slate-300 + focus-visible に統一する案**
+- priority: 中、 scope: 小 (= 1 行)、 risk: 低
+- 自律推奨: **wave 1 採用**
+
+**P-002: spacing 統一**:
+- M-2a: `余白 ${N} 分` / `不足 ${N} 分` / L-4a: `移動 約 N 分` → すべて半角スペース統一済
+- M-2a/L-4a の文言は freeze 規約 (= 思想保護)
+- 自律 4 案検討: (a) 何もしない / (b) スペース削除 / (c) 「約」 を「〜」 / (d) 「約」 削除
+- 自律推奨: **(a) 何もしない** (= freeze 規約遵守、 既に統一)
+- 但し GPT が specific 提案を持つなら CEO 判断必要
+
+### 自律探索 polish 候補 6 件 (= 棚卸し)
+
+| ID | surface | priority | scope | risk |
+|---|---|---|---|---|
+| P-003 | DayGraphTimeline hint span 位置 (= ml-2) | 低-中 | 小 | 低 |
+| P-004 | FeasibilityDisclosureLine padding (= pl-8) | 低 | 小 | 低 |
+| P-005 | Plan header copy tone 統一 | 低-中 | 小 | 低 |
+| P-006 | Modal animation polish | 低 | 中 | 低 |
+| P-007 | Empty state copy 統一 | 低-中 | 小 | 低 |
+| P-008 | swipe boundary 体験 (= 端 snap/bounce) | 低-中 | 中 | 低-中 |
+
+### Wave 1 自律推奨
+
+**wave 1 範囲**: **P-001 のみ** (= 最小、 risk 低、 1 行修正)
+- file 1: `DayGraphTimeline.tsx` L 402
+- 1 行修正: `focus:ring-2 focus:ring-indigo-300` → `focus-visible:ring-2 focus-visible:ring-slate-300`
+- 効果: 「強い青 ring」 が mouse click 後消える、 keyboard a11y は維持
+- 思想整合: M phase の slate-* 基調と統一
+
+**wave 2 以降の候補**:
+- P-002 (= CEO 判断後)
+- P-003〜P-008 (= smoke 評価後)
+
+### N-1 完了の条件 (= 5 件、 全達成)
+
+| # | 条件 | 状態 |
+|---|---|---|
+| 1 | 棚卸し doc (= N-1 readiness `5c8600f2`) | ✅ |
+| 2 | CEO smoke 実施 (= 9 項目 PASS) | ✅ |
+| 3 | polish 候補リスト確定 (= 8 件、 3 次元 tag) | ✅ |
+| 4 | N-2 wave 計画 doc 作成 | ⏸️ 次 (= 連続 GO 候補) |
+| 5 | N-1 closeout audit (= 本 commit) | ✅ |
+
+→ **N-1 phase 完了**。
+
+### freeze 状態
+
+- `docs/plan-phase3-n-1-closeout-audit` (= 本 commit): **frozen 予定**
+- N-1 readiness audit `5c8600f2`: frozen
+- 合計 **54 frozen branches** (= 53 + 1)
+
+### 思想 transmission (= N-1 closeout 永続規約 candidate)
+
+1-20. (= 既存 M phase 完了規約継承)
+21. polish 棚卸しは 3 次元 tag で機械化 (= priority/scope/risk、 wave 計画自動化)
+22. freeze 規約 (= 文言 / 階調) は polish で touch しない (= 思想保護)
+23. GPT 指摘は「確認の問い」 として解釈 (= 自律推論で判定、 必須変更とは限らない)
+
+### CEO 判断項目 5 件
+
+1. P-001 (= focus ring 統一) を wave 1 として進めるか
+2. P-002 (= spacing 統一) の取扱 (= GPT 具体提案 / 自律推奨 (a))
+3. wave 1 範囲 (= P-001 のみ / 他候補も含む)
+4. N-2 wave 1 plan audit を連続 GO で進めるか
+5. wave 1 完了後 CEO smoke の timing
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0 (= freeze 規約遵守)
+- N 項目の勝手な defer: 0
+- Counter-Factual / Pattern / empty day ALTER flow の勝手な scope 外化: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 N-1 smoke PASS、 「N-1 smoke 記録 + polish 候補整理 + N-2 wave plan 提示」 指示、 自律推論で 8 章 doc 着地)
+- **ステータス**: N-1 closeout audit 着地完了。 smoke PASS 9 項目 + polish 候補 8 件 + wave 1 推奨 (= P-001) + 3 永続規約 + CEO 判断 5 件。 N-1 phase 正式完了。 次は N-2 wave 1 plan audit (= 連続 GO 候補)。
+
+---
