@@ -949,3 +949,75 @@ Wave 3 実装は runtime 的に重くなる変更ではなく、 11 line の Tai
 - §C (= N-2 完了条件 6 点)
 
 これにより handoff 評価が 80 点 → かなり安全 に向上。
+
+---
+
+# §E. 最新 HEAD 状態 (= 2026-05-23 後刻補正、 GPT 指示)
+
+> **追記理由**: addendum 本体 (= §A〜§D) では HEAD 状態を本文 §3.1 (= `4b77d896`) + §A-1 (= `ed94835c` 期待) の二段で書いた。 但し addendum 自体が次 commit (`b3e03f4e`) として積まれたため、 新 session が見る現 HEAD は `b3e03f4e`。 GPT 指示で本 §E に確定 anchor を置く。
+
+## §E-1. commit 階層 (= 確定、 上から新しい順)
+
+| # | commit | 種別 | 位置 / 内容 |
+|---|---|---|---|
+| 1 | **`b3e03f4e`** | docs | **最新 handoff addendum commit / 現 HEAD** (= 本 §E 追記後はさらに次 commit が HEAD) |
+| 2 | `ed94835c` | docs | handoff 本体 commit (= §0〜§8) |
+| 3 | `4b77d896` | docs | **Wave 3 実装側の実質最終 commit** (= GPT 表現補正反映) |
+| 4 | `c15beff4` | docs | Wave 3 decision-log 追記 |
+| 5 | `0f6b0ae6` | feat | Wave 3 impl 本体 (= 11 line + 10 tests、 2662 PASS) |
+| 6 | `051662a9` | docs | Wave 3 plan audit |
+| 7 | `41461b95` | docs | Wave 2 closeout audit |
+| 8 | `94bcd220` | feat | Wave 2 impl (= frozen) |
+
+## §E-2. branch (= 確定)
+
+```
+feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended
+```
+
+## §E-3. 新 session 開始時の最初の確認コマンド (= GPT 指定)
+
+新 session は **最初にこれを実行**:
+
+```bash
+cd /Users/haradataishi/Culcept
+pwd
+git branch --show-current
+git log --oneline --max-count=8
+git status --short --untracked-files=all
+```
+
+## §E-4. 期待結果 (= GPT 指定、 これと差異があれば停止)
+
+| 項目 | 期待値 |
+|---|---|
+| pwd | `/Users/haradataishi/Culcept` |
+| branch | `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` |
+| HEAD | `b3e03f4e` (= 本 §E 追記前の場合、 追記後はさらに次 commit) |
+| HEAD の下 | `ed94835c` が直下に存在 |
+| Wave 3 実装最終 | `4b77d896` が log 内に存在 |
+| wave 3 関連の未 commit 差分 | **なし** |
+| untracked | `supabase/.temp/cli-latest` と PNG 程度なら **scope 外 noise** (= 無視 OK) |
+
+## §E-5. 期待差異時の対応
+
+| 差異 | 対応 |
+|---|---|
+| HEAD が `b3e03f4e` でない | log を遡って `b3e03f4e` を探す。 別 commit が積まれていれば内容確認 |
+| branch が違う | switch せず CEO に確認 |
+| wave 3 関連の未 commit 差分あり | 内容確認、 CEO に報告 (= 独断 commit せず) |
+| `4b77d896` が log にない | reset / restore が起きた可能性、 即停止 + CEO 報告 |
+
+## §E-6. anchor 確定 (= 新 session の精神的支柱)
+
+新 session が context ゼロから始まる時、 **本 §E が最初の足場**。
+
+- 「branch / HEAD / wave 3 実装の足跡」 が §E-1 で全て分かる
+- §E-3 のコマンドで 30 秒で現在地確認できる
+- §E-4 と差異あれば即停止 (= 独断進行禁止)
+
+→ §E が新 session の「現在地確定」 の単一 source of truth。
+
+---
+
+**完了**: §E 追記で最新 HEAD anchor 確定。 新 session は §0 → §8 → §A〜§D → §E の順で全読み込み可能。 §E-3 のコマンドで開始直後に現在地確定。 期待差異あれば §E-5 で即停止 + CEO 報告。
