@@ -10490,3 +10490,132 @@ M-3c-ui readiness audit @ `d3803f2b` の後、 CEO + GPT 判断:
 - **ステータス**: M-3c-ui MapTab-only 実装着地完了。 52 + 2550 tests PASS。 K / L / M-1 / M-2 / M-3a / M-3b / M-3c-pure-harden 既存 file 改変 0。 **freeze 保留**、 CEO visual smoke 待ち。 次は smoke → 結果に応じて freeze or revise or rollback。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3c-ui Closeout Audit — Visual Smoke PASS + freeze (= 11 項目全件 PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3c-ui MapTab-only 実装 @ `e5527f1b` の CEO visual smoke を実施、 **11 項目全件 PASS**:
+
+| # | 確認項目 | 結果 |
+|---|---|---|
+| 1 | MapTab の「1 日の構造」 で「詳細」 が見える | ✅ |
+| 2 | 「詳細」 tap で「余白 N 分」 / 「不足 N 分」 表示 | ✅ |
+| 3 | 初期状態で余白/不足が表示されていない | ✅ |
+| 4 | hidden 時に余白/不足が押し出されていない | ✅ |
+| 5 | 「閉じる」 で補助行が消える | ✅ |
+| 6 | 見た目が警告に見えない | ✅ |
+| 7 | 「不足」 だけ強調されていない | ✅ |
+| 8 | amber / orange / red なし | ✅ |
+| 9 | icon / badge / warning box なし | ✅ |
+| 10 | CalendarTab / FlowTab には出ていない | ✅ |
+| 11 | 既存 MapTab 表示に大きな崩れなし | ✅ |
+
+→ visual + 機械 (= 52 wiring tests) の **二重保証**で M-3c-ui MapTab-only 成立。
+
+### 達成事項 (= 永続規約 candidate)
+
+| 達成 | 内容 |
+|---|---|
+| 三重防御の完成 | データ層 (= M-2a) + 状態層 (= expandedTransitionIndices) + 表示層 (= conditional DOM render) |
+| conditional DOM render 確立 | hidden 時に DOM 不在 (= 視覚 hidden ではなく React conditional)、 screen reader にも完全不在 |
+| 3 props セット AND 条件 | feasibilityDisplayByTransitionIndex + expandedTransitionIndices + onToggleFeasibilityDisclosure の 3 つで初めて UI 活性化 |
+| 「詳細」 / 「閉じる」 textual hint | 中立 2 文字、 警告感 0、 発見性 smoke で実証 |
+| React lazy initial state | `useState(resetAllDisclosures)` で default hidden 機械保証 |
+| `useEffect([selectedDate])` 自動 reset | localStorage 不使用で 「観測の幕間」 実現 |
+| observational disclosure 思想の UI 実装成立 | M-3b-pure の規範を画面まで貫徹 |
+
+### freeze 宣言
+
+- **`feat/alter-plan-phase3-m-3c-ui-maptab-only`** @ `e5527f1b`: **frozen** (= 追加 commit 禁止)
+- 関連 audit `docs/plan-phase3-m-3c-ui-closeout-audit` (= 本 commit): frozen 予定
+- 合計 **48 frozen branches** (= 47 + 1)
+
+### 残論点 / Deferred 一覧
+
+**短期 deferred (= M-3d / M-3c-extend)**:
+- CalendarTab disclosure 展開 (= 別 audit + CEO smoke)
+- FlowTab disclosure 展開 (= density guard 必要)
+- density guard (= 1 日 transition >= N で single-open mode)
+- N 人 visual smoke (= 1 人 smoke の質的範囲拡張)
+
+**中期 deferred (= M-4+)**:
+- daily counts disclosure (= 集計警告化リスク要検証)
+- progressive trust building (= 初回/2回目/多日後で disclosure 進化)
+- per-transition counts pattern (= 統計化)
+
+**構造的 deferred (= M-5+)**:
+- ambient indicator (= 警告化リスク大)
+- 集計 disclosure 別軸
+- 共有モード制御
+- mobile gesture
+
+**「やらない」 と決めた事項**:
+- 警告色 / icon / badge / warning box (= Aneurasync 思想反)
+- hover-only trigger (= mobile a11y 欠落)
+- localStorage / persist (= 「観測の幕間」 設計と整合)
+- 「不足を指摘する」 文言 (= 中心問いと逆)
+
+### M-3c-ui の限界 (= 明示認識)
+
+- 1 人 smoke の限界 (= N 人検証は別 phase)
+- 「不足」 文言の影響範囲未確定 (= M-4+ で再検討余地)
+- mode 推定なし (= 全 transition で同様の disclosure)
+- 1 日 transition 数の上限未制御 (= density guard 必要)
+- user 学習の単発性 (= progressive trust は M-4+)
+
+### 思想 transmission (= M-3c-ui 永続規約 15 件)
+
+1-12. (= 既存 M-3a/M-3b/M-3c/M-3c-pure/harden/ui-audit 継承)
+13. **conditional DOM render** (= 視覚 hidden 禁止)
+14. **3 props セット AND 条件** で disclosure UI 活性化
+15. **`useState(resetAllDisclosures)` + `useEffect([selectedDate])`** で default hidden + 自動 reset 機械保証
+
+### Aneurasync 中心問いとの接続
+
+> **「自分って、 そういう人間だったのか」**
+
+M-3c-ui で:
+- AI が「不足だ」 指摘 pattern を **構造的に排除** (= push 表示構造的不可能)
+- user 能動 tap で観測体験成立
+- 「観測したくない時は tap しない」 で agency 100% 尊重
+- 余白 / 不足 同 styling で偏見排除
+
+→ 「第二の自己」 として feasibility 観測を提供する設計が成立。
+
+### 「観測層 4 層構造」 の完成
+
+```
+Plan tab (= 場所 + 時間 + 移動 + 余白/不足 観測)
+├─ K phase: 時間構造観測 ✅
+├─ L phase: 移動構造観測 ✅
+├─ M phase: 余白/不足観測
+│   ├─ M-1 ✅ / M-2 ✅ / M-3a ✅ / M-3b ✅ / M-3c-pure-harden ✅ / M-3c-ui ✅
+└─ N+: 別観測層 (= TBD)
+```
+
+### 次への接続
+
+- **M current-range closeout audit** (= 別 doc) で M-1〜M-3c-ui 全体俯瞰 + 4 候補比較 (= A: M-3d / B: N phase / C: 別軸 pivot / D: M-3c-ui 小改善)
+- GPT 暫定推奨: M-3c-ui freeze → M current-range closeout → M-3d vs N の判断
+- CEO 上位方針 (= Stargazer 深層観測 + 初期ユーザー獲得) と照らして判断
+
+### 危険境界遵守 (= 本 audit 範囲)
+
+| 境界 | 結果 |
+|---|---|
+| 実装変更 | **0** (= docs only) |
+| frozen branches への追加 commit | **0** |
+| CalendarTab / FlowTab 接続 | **0** |
+| 「不足 N 分」 常時表示 | **0** |
+| Arrival Risk / 警告文言 / amber/orange/red / icon | **0** |
+| localStorage / DB / env / package / dependency | **0** |
+| fetch / endpoint / runtime telemetry / Counterfactual / Routes API | **0** |
+| reset / restore / stash / branch delete / gh / push | **0** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3c-ui MapTab-only smoke PASS、 「closeout audit + freeze に進む」 指示)
+- **ステータス**: M-3c-ui MapTab-only closeout audit 着地完了。 freeze 宣言。 48 frozen branches。 次は M current-range closeout (= 別 doc + 4 候補比較)。
+
+---
