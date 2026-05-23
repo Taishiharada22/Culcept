@@ -119,7 +119,7 @@ export function ProposalChip({
         // interactive
         "transition-opacity duration-200 motion-reduce:transition-none",
         isInteractive
-          ? "cursor-pointer hover:border-slate-400 focus:border-slate-400 focus:outline-none"
+          ? "cursor-pointer hover:border-slate-400 focus:outline-none focus-visible:border-slate-400"
           : "",
         className ?? "",
       ]

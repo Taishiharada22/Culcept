@@ -187,7 +187,7 @@ export function AnchorFormFields({
           onChange={(e) => onChange("title", e.target.value)}
           disabled={submitting}
           placeholder="歯科予約 / 週次ミーティング 等"
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
         />
       </Field>
 
@@ -199,7 +199,7 @@ export function AnchorFormFields({
             value={form.date}
             onChange={(e) => onChange("date", e.target.value)}
             disabled={submitting}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
           />
         </Field>
       ) : (
@@ -210,7 +210,7 @@ export function AnchorFormFields({
               value={form.validFrom}
               onChange={(e) => onChange("validFrom", e.target.value)}
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             />
           </Field>
           <Field label="曜日" error={errorsByField.get("recurrenceRule")}>
@@ -283,7 +283,7 @@ export function AnchorFormFields({
                   onChange={(e) => setExceptionCandidate(e.target.value)}
                   disabled={submitting}
                   data-testid="plan-form-exception-candidate"
-                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
                 />
                 <button
                   type="button"
@@ -347,7 +347,7 @@ export function AnchorFormFields({
           value={form.startTime}
           onChange={(e) => onChange("startTime", e.target.value)}
           disabled={submitting}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
         />
       </Field>
 
@@ -401,7 +401,7 @@ export function AnchorFormFields({
           className="
             w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
             transition-colors duration-150
-            focus:border-indigo-400 focus:outline-none
+            focus:outline-none focus-visible:border-slate-300
             focus-visible:ring-2 focus-visible:ring-slate-300
             disabled:opacity-50
           "
@@ -434,7 +434,7 @@ export function AnchorFormFields({
               value={form.endTime}
               onChange={(e) => onChange("endTime", e.target.value)}
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             />
           </Field>
 
@@ -445,7 +445,7 @@ export function AnchorFormFields({
                 value={form.validUntil}
                 onChange={(e) => onChange("validUntil", e.target.value)}
                 disabled={submitting}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
               />
             </Field>
           )}
@@ -460,7 +460,7 @@ export function AnchorFormFields({
                 )
               }
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             >
               <option value="">未選択</option>
               {LOCATION_CATEGORY_OPTIONS.map((o) => (
@@ -522,7 +522,7 @@ export function AnchorFormFields({
                 )
               }
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             >
               <option value="">未選択</option>
               {SENSITIVE_CATEGORY_OPTIONS.map((o) => (
