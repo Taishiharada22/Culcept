@@ -12769,12 +12769,13 @@ wave 2 は **完全に visual のみ** の変更:
 | 既存 file 改変行数 | **11 line** (= class 文字列のみ) |
 | **新規 regression tests** | **10 PASS** (= 8 invariants + 2 cross-file) |
 | **全 plan tests regression** | **2662 PASS** (= 2652 → +10、 0 fail) |
-| 編集 file tsc errors | **0** (= 全 pre-existing errors は無関係 stargazer/test file) |
+| **編集 file tsc-clean** | **0 errors** (= edited files のみ、 **full tsc は OOM で完走せず**、 pre-existing errors は別 file の無関係 stargazer/test、 wave 3 起源ではない) |
 | K / L / M / wave 1 / wave 2 既存 file 改変 | **0** |
 | DB / env / package / dependency 変更 | **0** |
 | 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
-| 違反 grep 確認 | 完全違反/部分違反/`focus:border-slate` 全 0 hit |
-| 肯定系 grep 確認 | `focus-visible:border-slate-300` 10 箇所 + `focus-visible:border-slate-400` 1 箇所 |
+| **違反 grep 確認 (= wave 3 approved scope 内)** | 完全違反/部分違反/`focus:border-slate` 全 0 hit (= AnchorFormFields + ProposalChip 範囲) |
+| **plan 全体での residual** | PlaceCandidatesPanel.tsx L 453 `focus-visible:border-indigo-300` (= wave 3 scope 外、 §「残発見」 参照) |
+| 肯定系 grep 確認 | `focus-visible:border-slate-300` 10 箇所 + `focus-visible:border-slate-400` 1 箇所 (= wave 3 修正分) |
 
 ### 残発見 (= CEO 判断必要、 wave 3 範囲外)
 
@@ -12791,11 +12792,16 @@ wave 2 は **完全に visual のみ** の変更:
 **規約 24-extended**:
 > すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*` を使い、 `focus:` (= focus-visible なし) と brand color (= indigo, purple) を組み合わせない。
 
-wave 3 で:
+wave 3 approved scope (= 2 file 11 line) で:
 - AnchorFormFields 10 input field で mouse stuck brand border を排除 (= UX 改善)
 - ProposalChip で `focus:` → `focus-visible:` 化、 slate-400 維持 (= visibility 優先、 GPT 補正)
 - 「観測の幕間」 を border surface まで拡張 (= 「観測しない時は静か」 を form field でも実証)
-- regression test 10 件で永続規約化
+- regression test 10 件で approved scope を永続規約化
+
+**plan 全体での到達点 (= 厳密表現)**:
+- ✅ **wave 3 approved scope では規約 24-extended 完成**
+- ⚠️ **plan 全体としては residual 1 箇所**: PlaceCandidatesPanel L 453 `focus-visible:border-indigo-300`
+- N-2 phase **完了とはまだ言わない** (= CEO smoke 後 L 453 を a) wave 3a or b) exception 管理で判断)
 
 ### CEO 前提 4 点遵守 (= 完全)
 
@@ -12827,17 +12833,32 @@ wave 3 で:
 - Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
 - frozen branches への追加 commit: 0
 - reset / restore / stash / branch delete / gh / push: 0
-- brand color の focus 文脈での復活: 0 (= CEO 前提 ① 完全遵守)
+- **brand color の focus 文脈での復活 (= wave 3 起源)**: 0 (= CEO 前提 ① 完全遵守、 但し L 453 は wave 3 で touch しなかった pre-existing residual)
 - slate 系 focus-visible 規約からの離脱: 0 (= CEO 前提 ② 完全遵守)
+
+### 表現補正 (= GPT 指摘、 2026-05-23 反映)
+
+GPT 指摘:
+> `PlaceCandidatesPanel.tsx L453` に `focus-visible:border-indigo-300` が残っているなら、
+> - 「違反 grep 全 0 hit」
+> - 「brand color をやめる ✅」
+> は plan 全体については言い切れない。 正確には「wave 3 approved scope は完了、 ただし residual 1 箇所あり」。
+
+補正反映:
+- ✅ 「違反 grep 全 0 hit」 → 「wave 3 approved scope 内で 0 hit、 PlaceCandidatesPanel L 453 は scope 外 residual」
+- ✅ 「brand color をやめる」 → 「wave 3 approved scope で完了、 plan 全体としては L 453 residual あり」
+- ✅ 「tsc full pass」 → 「edited files tsc-clean (= full tsc は OOM で完走せず、 pre-existing errors は無関係)」
+
+→ 「approved scope」 と「plan 全体」 を明示区別し、 論理ずれを排除。
 
 ### freeze 状態
 
-- `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` (= 本 commit `0f6b0ae6`): **freeze 候補** (= CEO visual smoke 5 件 pending)
-- 完全 freeze はしない (= smoke PASS 待ち)
+- `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` (= 本 commit `0f6b0ae6`): **freeze 候補** (= CEO visual smoke 5 件 + L 453 判断 pending)
+- 完全 freeze はしない (= smoke PASS + L 453 判断後)
 
 ### 承認 + ステータス
 
-- **承認**: CEO + GPT 連続 GO + 補正 1 点反映 (= 2026-05-23 wave 3 plan audit 着地後、 「P-010 wave 3 は GO、 補正反映」)
-- **ステータス**: N-2 wave 3 impl 着地完了。 10 + 2662 tests PASS。 11 line 修正 + 10 regression test。 freeze 保留 (= CEO visual smoke 5 件待ち)。 次は CEO smoke → wave 3 closeout audit (= L 453 残発見の CEO 判断含む) → wave 4 (= 必要なら) or N-2 phase 完了判定。
+- **承認**: CEO + GPT 連続 GO + 補正 1 点反映 + GPT 表現補正 3 点反映 (= 2026-05-23 wave 3 plan audit 着地後、 「P-010 wave 3 は GO、 補正反映」 + smoke 後 L 453 判断)
+- **ステータス**: N-2 wave 3 impl 着地完了 (= approved scope 完了)。 10 + 2662 tests PASS。 11 line 修正 + 10 regression test。 GPT 表現補正 3 点反映済 (= 上記)。 **plan 全体としては L 453 residual あり**。 freeze 保留 (= CEO visual smoke 5 件 + L 453 判断待ち)。 **N-2 完了とはまだ言わない**。 次は CEO smoke → L 453 判断 (a wave 3a 1 line or b exception 管理、 GPT 推奨 a) → wave 3 closeout audit → N-2 phase 完了判定。
 
 ---
