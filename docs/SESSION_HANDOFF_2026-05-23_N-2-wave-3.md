@@ -602,3 +602,350 @@ grep -rn "focus:border\|focus-visible:border-indigo" app/\(culcept\)/plan/ --inc
 ---
 
 **完了**: このドキュメントは新 session の context として直接読める形式で構成。 frozen branches / 永続禁止リスト / 規約 24-extended 思想 / 残タスク順序 / ゴール の全構造を網羅。 新 session 開始時は §7 確認手順から開始することを推奨。
+
+---
+
+# Addendum (= 2026-05-23、 GPT 補正 7 点 + 現在地・詰まり・確認・次工程 5 ブロック)
+
+> **追記理由**: handoff 本文 (= §0〜§8) は 80 点。 但しそのまま新 session へ渡すと「N-2 後の残工程が誤って縮む」 危険あり。 GPT 指摘:
+>   - post-handoff commit / HEAD 状態が本文に未反映
+>   - N-3/N-4/N-5 順序の補正必要 (= 空き日 ALTER flow が落ちる危険)
+>   - Counter-Factual の generation vs Observation の区別が曖昧
+>   - L453 を「判断待ち」 と並列に書いていたが、 標準進路は wave 3a 修正
+>   - 環境負荷対策が kill 系並列で危険
+>   - dev server 起動 flag (= PLAN_ROUTE_LIVE / PLAN_HOME_SWIPE_ENABLED) が未明示
+>   - Stargazer pivot 禁止が弱い
+>
+> 本 addendum で 7 点を補正し、 「現在地・詰まり・確認・次工程」 を新 session 向けに明文化する。
+
+---
+
+## A. 必須補正 Addendum (= 7 点)
+
+### A-1. post-handoff commit / HEAD 状態を明確化
+
+handoff 本文 §3.1 では `HEAD commit: 4b77d896` と書いてある。 但し実際にはこの handoff doc 自体が次の commit (`ed94835c`) として積まれた。
+
+**commit 階層 (= 新 session が見る git log)**:
+
+| commit | 種別 | 内容 |
+|---|---|---|
+| `ed94835c` | docs | SESSION_HANDOFF doc commit (= 本 doc) |
+| `4b77d896` | docs | Wave 3 impl の GPT 表現補正 (= 実質最終 impl commit) |
+| `c15beff4` | docs | Wave 3 impl decision-log 追記 |
+| `0f6b0ae6` | feat | Wave 3 impl 本体 (= 11 line + 10 tests) |
+| `051662a9` | docs | Wave 3 plan audit |
+| `41461b95` | docs | Wave 2 closeout audit |
+| `94bcd220` | feat | Wave 2 impl (= frozen `94bcd220`) |
+| `73a7405d` | docs | Wave 2 plan audit (= frozen) |
+
+**新 session 冒頭で必ず確認**:
+
+```bash
+git branch --show-current
+git log --oneline --max-count=8
+git status --short --untracked-files=all
+```
+
+**重要**:
+- 現在 HEAD = `ed94835c` (= 本 addendum commit 後) なら、 `4b77d896` は HEAD ではなく「Wave 3 impl の実質最終 commit」 として扱う
+- handoff commit 後に未 commit 差分がないか確認
+
+### A-2. N 完了までの順序 (= 本文 §4 を補正、 N-3 縮みリスク排除)
+
+handoff 本文 §4.3 では:
+> N-3: Counter-Factual / Pattern Truth Layer
+> N-4: Home/Plan polish 残り
+> N-5: /plan complete 宣言
+
+これは **不十分**。 「空き日 → ALTER flow」 が落ちている。 また Counter-Factual の扱いが曖昧。
+
+**正しい順序** (= 本 addendum で確定):
+
+| Phase | 内容 |
+|---|---|
+| **N-2** | Home/Plan polish wave completion。 Wave 3 + (必要なら) Wave 3a を完了し、 規約 24-extended を plan focus surface 全体に閉じる |
+| **N-3** | **空き日 → ALTER flow** readiness + implementation。 勝手に defer しない。 CEO 明示 defer がない限り実装対象 |
+| **N-4** | **Pattern Truth Layer + Counter-Factual Observation** readiness + implementation。 Counter-Factual **generation ではない** |
+| **N-5** | final /plan closeout audit。 ここで初めて /plan complete 判定 |
+
+→ N-3 をいきなり Counter-Factual / Pattern にしない。 「空き日 → ALTER flow」 が先。
+
+### A-3. Counter-Factual の再定義 (= generation vs Observation)
+
+handoff 本文 §0「今はやらないこと」 に `Counter-Factual generation` と書いた一方、 §4.3 で `N-3: Counter-Factual / Pattern Truth Layer` とも書いた。 これは **矛盾**。
+
+**正確な定義** (= 本 addendum で確定):
+
+**禁止** (= 永続):
+- Counter-Factual **generation**
+- AI が別の 1 日を提案すること
+- 「おすすめ」 「こっちの方が良い」 「最適化」
+- warning / recommendation / optimization 文言
+- Arrival Risk Memory
+
+**許可** (= N-4 で実装対象):
+- Counter-Factual **Observation** (= 観測)
+- 選ばれなかった余地の観測
+- 過去 / 現在の自分の選択構造の差分観測
+- 予定なし日と予定あり日の構造差分
+- Pattern Truth Layer としての中立観測
+
+→ N-4 ではこの定義を採用。 AI が「別の 1 日を生成」 することは永続禁止、 user の選択構造を「観測」 することは許可。
+
+### A-4. L453 residual の標準進路 (= 本文 §4.2 Step 3 を補正)
+
+handoff 本文 §4.2 Step 3 では a) wave 3a or b) exception を **並列** に書いた。 但し方針は /plan を最後まで完了させること。 規約 24-extended を閉じるなら、 **標準進路は wave 3a 修正**。
+
+**確定**:
+
+| 進路 | 採用条件 |
+|---|---|
+| **a) wave 3a で 1 line 修正** (= 標準進路) | デフォルト |
+| b) exception 管理 | **CEO が明示的に例外を選んだ場合のみ** |
+
+**a) の具体**:
+- `PlaceCandidatesPanel.tsx` L 453 `focus-visible:border-indigo-300` → `focus-visible:border-slate-300` (or 視認性上必要なら `slate-400`)
+- 既存 regression test `tests/unit/plan/planComponentsFocusBorderRegimeWiring.test.ts` に PlaceCandidatesPanel を追加 (= TARGET_FILES に 3 件目として)
+
+### A-5. 環境負荷対応の安全規約 (= 本文 §4.1 を補正)
+
+handoff 本文 §4.1 で kill 候補 a-e を **並列** に書いた。 これは危険。 新 session が独断で kill する可能性がある。
+
+**確定優先順** (= 本 addendum で確定):
+
+1. **CEO 手動で Claude Desktop 再起動 or 不要タブ閉じ** (= 最優先、 最大効果)
+2. **Mac 再起動も選択肢** (= swap 強制クリア)
+3. 他 Claude code session / metis eslint / VS Code kill は **CEO 明示承認後のみ**
+4. **PID 7980 Claude Helper Renderer を直接 kill しない** (= 私の session も切れる)
+5. 他 session / Metis 作業が保存済か確認してから kill
+
+**新 session ルール**:
+- kill 系操作は **CEO 明示承認後のみ**
+- 独断で `kill <PID>` 実行禁止
+
+### A-6. dev server / flag 確認 (= 本文 §7.1 を強化)
+
+過去に `/plan 404` 原因 = flag 不足。 新 session 復旧時は必ず確認:
+
+**必要 flag**:
+- `PLAN_ROUTE_LIVE=true`
+- `PLAN_HOME_SWIPE_ENABLED=true`
+
+**確認手順**:
+
+```bash
+# .env.local に flag があるか
+cat .env.local | grep -E "PLAN_ROUTE_LIVE|PLAN_HOME_SWIPE_ENABLED"
+```
+
+- `.env.local` にあるなら `npm run dev` で OK
+- ない場合は runtime env 付きで起動:
+
+```bash
+PLAN_ROUTE_LIVE=true PLAN_HOME_SWIPE_ENABLED=true PORT=3000 NODE_OPTIONS=--max-old-space-size=8192 npm run dev
+```
+
+### A-7. Stargazer / Deploy / 初期ユーザー獲得への pivot 禁止 (= 強化)
+
+handoff 本文 §0 で長期ゴールとして Stargazer を書いたが、 「/plan complete 前にやらない」 が弱い。
+
+**確定** (= 本 addendum で強化):
+
+Stargazer は **長期ゴール**として記録 OK。 但し **/plan complete 前の次アクションではない**。
+
+**永続禁止** (= 本 addendum で再列挙):
+- Deploy readiness audit
+- Stargazer pivot
+- Rendezvous / Genome pivot
+- 初期ユーザー獲得
+- 実 API / Routes API
+- Arrival Risk Memory
+- Counter-Factual generation
+- warning / recommendation / optimization 文言
+- DB / env / package / dependency 変更
+- fetch / push / gh
+- reset / restore / stash / branch delete
+
+**次の正しい順序** (= 1 本道):
+
+```
+環境改善
+  → Wave 3 visual smoke
+  → L453 wave 3a 判断/実装
+  → Wave 3 closeout audit
+  → N-2 phase 完了
+  → N-3 空き日 ALTER flow
+  → N-4 Pattern Truth Layer + Counter-Factual Observation
+  → N-5 final /plan closeout audit
+  → /plan complete 宣言
+  → (= 初めて) Stargazer 等の次 phase へ
+```
+
+---
+
+## B. 現在地・詰まり・確認・次工程 (= 新 session 直読用)
+
+### B-1. 今何をしているか
+
+現在は **Phase 3-N-2 Wave 3** の途中。
+
+**目的**: 規約 24-extended を /plan の focus surface 全体に閉じる。
+
+**Wave 3 approved scope は完了済** (= `0f6b0ae6` + `c15beff4` + `4b77d896`):
+- `AnchorFormFields.tsx` 10 箇所 (= `focus:border-indigo-400 focus:outline-none` → `focus:outline-none focus-visible:border-slate-300`)
+- `ProposalChip.tsx` 1 箇所 (= `focus:border-slate-400` → `focus-visible:border-slate-400`、 slate-400 維持で GPT 補正反映)
+- focus border を `focus:` + brand color から `focus-visible:` + slate 系へ変更
+- regression tests 10 件追加 (= `planComponentsFocusBorderRegimeWiring.test.ts`、 否定系 3 + 肯定系 1)
+- plan tests **2662 PASS**
+- edited files tsc-clean
+
+**但し Wave 3 全体はまだ closeout していない**。 理由:
+- visual smoke が未実施 (= 環境負荷で判定不能)
+- L453 residual 判断が未完了
+
+### B-2. 何に詰まっているか
+
+**詰まりはコードではない**。
+
+Wave 3 実装は runtime 的に重くなる変更ではなく、 11 line の Tailwind class 変更のみ。 ページが応答しない問題は **環境負荷が主因**。
+
+**確認済**:
+- dev server 自体は軽い (= next-server PID 53698 = RSS 24 MB、 CPU 0.0%)
+- API は 200 応答 (= dev log で全 endpoint 完走確認)
+- `/plan` は未認証時に `/login` redirect (= HTTP 307、 0.1s)
+- swap が高い (= 79.9%、 thrashing 直前)
+- Claude Helper Renderer (PID 7980) が単独で **1.04 GB** 占有
+- MacBook Air M1 8 GB 環境で thrashing 気味
+
+**したがって現時点の blocker**:
+1. 環境負荷により CEO visual smoke が判定不能
+2. `PlaceCandidatesPanel.tsx` L 453 に `focus-visible:border-indigo-300` residual が 1 箇所
+3. Wave 3 closeout / N-2 complete がまだ言えない
+
+### B-3. 次に何を確認するか (= 新 session 開始後、 read-only)
+
+**新 session 開始後、 まず read-only で確認**:
+
+#### 必須確認 10 点
+
+1. `pwd` (= `/Users/haradataishi/Culcept` 期待)
+2. `git branch --show-current` (= `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` 期待)
+3. `git log --oneline --max-count=8` (= `ed94835c` が HEAD 期待)
+4. `git status --short --untracked-files=all` (= 未 commit 差分なし期待)
+5. handoff commit `ed94835c` が HEAD かどうか
+6. Wave 3 実装最終 commit `4b77d896` との関係 (= `ed94835c` の親が `4b77d896` 期待)
+7. dev server が動いているか (= `lsof -i :3000` で LISTEN 確認)
+8. port は 3000 か 3001 か (= 3000 期待、 CEO 確認済)
+9. `.env.local` の flag (= `PLAN_ROUTE_LIVE=true` / `PLAN_HOME_SWIPE_ENABLED=true`)
+10. swap / memory が改善しているか (= `sysctl vm.swapusage`)
+
+#### 環境安定後の Visual Smoke 5 件
+
+1. AddAnchorModal の input を mouse click して、 stuck indigo border が出ない
+2. AddAnchorModal の input を Tab key で focus して、 slate 系 border が出る
+3. EditAnchorModal の input も同じ
+4. ProposalChip click 後、 stuck slate/brand border が残らない
+5. Plan 全 tab で Add/Edit modal 起動と入力動作が壊れていない
+
+### B-4. それができたら次に何をするか
+
+#### visual smoke PASS 後 → L453 residual 処理
+
+**標準進路** (= A-4 で確定): wave 3a で 1 line 修正
+- `PlaceCandidatesPanel.tsx` L 453 `focus-visible:border-indigo-300` → `focus-visible:border-slate-300` (or 視認性上必要なら `slate-400`)
+- 既存 regression test に `PlaceCandidatesPanel` を追加 (= TARGET_FILES に 3 件目)
+
+#### L453 修正後
+
+1. wave 3a tests (= 既存 + 新規 invariants)
+2. plan tests (= 2662 → +X PASS 維持確認)
+3. focus grep (= 違反 0 hit、 肯定系 12 箇所 期待)
+4. visual smoke 1 件 (= PlaceCandidatesPanel button focus 動作確認)
+5. wave 3 closeout audit (= L453 修正含む、 N-2 phase 完了宣言)
+6. N-2 phase complete 判定
+
+#### N-2 完了後 (= A-2 で確定)
+
+- **N-3**: 空き日 → ALTER flow readiness + implementation (= 勝手に defer しない)
+- **N-4**: Pattern Truth Layer + Counter-Factual **Observation** readiness + implementation (= generation 禁止)
+- **N-5**: final /plan closeout audit
+
+### B-5. やってはいけないこと
+
+#### 永続禁止 (= 全 session 共通、 absolutely)
+
+- Deploy readiness audit
+- Stargazer / Rendezvous / Genome pivot
+- 初期ユーザー獲得
+- 実 API / Routes API
+- Arrival Risk Memory
+- Counter-Factual **generation** (= Observation は OK)
+- warning / recommendation / optimization 文言
+- DB / env / package / dependency 変更
+- fetch / push / gh
+- reset / restore / stash / branch delete
+- **kill 操作の独断実行** (= CEO 明示承認後のみ)
+
+#### kill 系の運用 (= A-5 で確定)
+
+優先順:
+1. **CEO 手動で Claude Desktop 再起動 / 不要タブ閉じ** (= 最優先)
+2. **Mac 再起動も選択肢** (= swap 強制クリア)
+3. 他 Claude code session / metis eslint / VS Code kill は **CEO 明示承認後のみ**
+4. **PID 7980 Claude Helper Renderer を直接 kill しない**
+
+---
+
+## C. N-2 完了条件 (= 厳密、 GPT 指定)
+
+**N-2 complete = 以下を全て満たした時のみ**:
+
+| # | 条件 |
+|---|---|
+| 1 | Wave 1 (= `3d9bf8f5`) / Wave 2 (= `94bcd220`) / Wave 3 (= `4b77d896`) 完了 |
+| 2 | L453 residual が wave 3a で修正済、 または CEO 明示の例外管理済 |
+| 3 | visual smoke PASS (= Wave 3 5 件 + 必要なら wave 3a 1 件) |
+| 4 | Wave 3 closeout audit PASS |
+| 5 | decision-log 記録済 |
+| 6 | working tree の保存状態が明確 (= 未 commit 差分なし) |
+
+→ 上記 6 条件全達成で **初めて N-2 phase 完了** を宣言。
+
+---
+
+## D. 思想 transmission (= addendum 強化)
+
+### Counter-Factual の正確な扱い (= A-3 再掲)
+
+**禁止**:
+> AI が「あなたの 1 日はこうした方が良い」 と提案すること
+
+**許可**:
+> AI が「あなたが選ばなかった余地、 過去と現在の選択構造の差分、 予定なし日と予定あり日の差分を、 中立的に観測する」 こと
+
+これは Aneurasync 中心問い 「自分って、 そういう人間だったのか」 に直接接続する。 AI が「より良い 1 日」 を**生成**するのではなく、 user が選んだ余地と選ばなかった余地を**観測**することで、 user 自身が自己の選択構造に気付く。
+
+### 規約 24-extended の完成形 (= N-2 完了時)
+
+> すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*` を使い、 `focus:` (= focus-visible なし) と brand color (= indigo, purple) を組み合わせない。
+
+完成形では plan 全 interactive surface (= card / button / field / chip) で:
+- mouse click 後の stuck visual 排除 (= 「観測の幕間」)
+- brand color 焼き付き排除 (= 「観測しない時は静か」)
+- keyboard a11y 維持 (= focus-visible で slate-* 階調)
+- regression tests で永続規約化 (= 26 wave 2 + 10 wave 3 + (wave 3a) tests)
+
+---
+
+**完了**: 本 addendum を末尾に追記。 新 session は §0〜§8 を読んだ後、 必ず本 addendum (§A〜§D) も読むこと。 特に:
+- §A-2 (= N-3/N-4/N-5 順序補正)
+- §A-3 (= Counter-Factual の generation vs Observation)
+- §A-4 (= L453 standard route = wave 3a)
+- §A-5 (= kill 系 CEO 明示承認後のみ)
+- §A-6 (= dev server flag 確認)
+- §A-7 (= pivot 禁止強化)
+- §B-3 (= 確認 10 点)
+- §C (= N-2 完了条件 6 点)
+
+これにより handoff 評価が 80 点 → かなり安全 に向上。
