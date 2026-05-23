@@ -9481,3 +9481,129 @@ M-2 で新規追加:
 - **ステータス**: M-2a/M-2b 着地完了。 95 + 2336 tests PASS。 K / L / M-1 既存 file 改変 0。 40 frozen branches 計。 次は CEO 判断 (= M-3 readiness audit / 別軸 pivot / N phase)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3 readiness audit + M-3a 連続実装着地 (= Pre-UI Feasibility Pipeline、 24 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-2 完全 freeze 後、 CEO + GPT 指示通り M-3 readiness audit + M-3a を一気に着地。
+core mission: **「余白 N 分 / 不足 N 分」 を画面に出す前の安全な合成 layer**。
+UI 接続 (= M-3b+) は別 audit + CEO smoke 必須、 本 commit では着手しない。
+
+### M-3 分割計画
+
+- **M-3a**: pure pipeline helper (= 本 commit) — 連続 GO
+- M-3b: MapTab-only UI 接続 — 別 audit、 CEO smoke 必須
+- M-3c: Calendar / Flow 拡張 — 別 audit
+
+### M-3a 責務定義
+
+**Pre-UI Feasibility Pipeline** = L-4c-pure と対称な軽量 sync pure helper:
+- input: graph + overlayResult + tracingId?
+- output: feasibilityDisplay + feasibilityCounts (= 完全) + tracingId
+- 内部: M-1 computation + M-2a format + M-2b assertion
+
+### 設計判断 (= 自律推論)
+
+- **Option B 採用** (= 軽量 helper、 L-4c-pure と独立、 重複計算 0)
+- Option A (= anchors から full pipeline) は重複計算リスク不採用
+- Option C (= L + M 統合 pipeline) は scope 拡大、 M-4+ 検討余地
+
+### 「ユーザーへの圧」 最小化 5 原則 (= M-3b+ 用 hint、 本 audit で永続規約化)
+
+1. 「余白」 と「不足」 を完全同 styling (= 視覚差なし)
+2. movement line の **下に補助行**配置 (= 同 row にしない)
+3. slate 系 italic / text-xs / dashed (= K-3c-iii 階層 2)
+4. **chip / badge にしない** (= 平文 text)
+5. not_applicable は表示しない (= 既に M-2a で実装済)
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| audit branch | `docs/plan-phase3-m-3-readiness-audit` (= `460e9e6b` freeze) |
+| impl branch | `feat/alter-plan-phase3-m-3a-pure-feasibility-display-pipeline` (= `abab28ae` 起点) |
+| **M-3a impl commit** | **`4646a2fd`** (= 2 files = 1 lib + 1 test) |
+| **M-3a tests** | **24 PASS** |
+| **全 plan tests regression** | **2360 PASS** (= 2336 → +24) |
+| 新規 files | audit 1 + impl 2 = 計 3 |
+| **既存 file 変更** | **0** (= K phase / L / M-1 / M-2 全 freeze 維持) |
+| DB / env / package / dependency / UI 変更 | **0** |
+| 新規 endpoint / fetch / localStorage | **0** |
+
+### 革新的アイデア (= 自律推論で導出)
+
+1. **counts 完全保持** — display layer (= not_applicable 除外) と data layer (= 全件) を分離
+2. **軽量 helper 設計** — 統合 pipeline ではなく責務分離、 重複計算 0
+3. **「観測層 3 段構造 pipeline」 の対称性確立** — L-4c-pure / M-3a 同 pattern、 N 以降に継承可能
+4. **tracingId passthrough の継承** — L-3c hook 整合、 L-4e telemetry sink 用 (= 後回し)
+5. **sync pure** — async なし、 caller の useMemo / inline 計算可能
+6. **per-transition のみ** — day-level summary は M-4+ 別 phase
+7. **data 層で warning 化を防止する 3 重防御** — contract + pipeline + UI hint
+
+### 危険境界遵守 (= 全件機械検証)
+
+| 境界 | 結果 |
+|---|---|
+| UI 接続 | **0** (= M-3b+ 別 phase) |
+| Calendar / Map / Flow 触る | **0** |
+| Arrival Risk Memory / 警告文言 | **0** |
+| 記号系 (= ⚠ / ❗ / ❌ / ! / ?) | **0** |
+| localStorage / DB / env / package / dependency | **0** |
+| mode 表示 / distance 表示 / Routes API | **0** |
+| K phase / L / M-1 / M-2 既存 file 改変 | **0** |
+
+### freeze 状態
+
+- `docs/plan-phase3-m-3-readiness-audit` (= `460e9e6b`): **frozen**
+- `feat/alter-plan-phase3-m-3a-pure-feasibility-display-pipeline` (= `4646a2fd`): **frozen** (= UI なし、 機械検証で完結)
+- 合計 **42 frozen branches**
+
+### UI 接続前の残リスク (= M-3b+ 着手前 確認)
+
+| リスク | 内容 |
+|---|---|
+| 「不足 N 分」 が UI で警告に見える | M-3b で MapTab-only から段階的検証 |
+| L「移動 約 N 分」 と M「余白 N 分」 隣接表示 | tier 階調差、 補助行配置 |
+| Calendar / Flow / MapTab 全展開 | L-4d-b1/b2 と同 pattern (= 段階的) |
+| 「不足」 表示が user に圧 | M-3b で UX 設計 + CEO visual smoke 必須 |
+| sensitive 予定の前後表示 | M-1/M-2/M-3a で防御済 (= 構造的保証) |
+| K view との階層侵食 | tier「tier_2_movement_aux」 で hint 固定 |
+
+### CEO 判断ポイント
+
+| Q | 内容 | 自律推奨 |
+|---|---|---|
+| Q1 | M-3a 責務「Pre-UI Feasibility Pipeline」 と定義 | **YES** |
+| Q2 | M-3a 完全 freeze (= UI なし、 機械検証で完結) | **YES** |
+| Q3 | 次は M-3b readiness audit (= MapTab-only UI 接続) か、 N phase / 別軸 pivot か | CEO 判断 |
+| Q4 | M-3b 着手前は別 readiness audit + CEO visual smoke 必須 | **YES** |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ M-3a で UI 接続 (= M-3b+ 別 audit)
+❌ Calendar / Map / Flow を触る
+❌ 「不足 N 分」 を画面に直接出す
+❌ Arrival Risk Memory / warning / recommendation / optimization / 質的評価語 / 緊急感表現 / 相対表現
+❌ 記号 (= ⚠ / ❗ / ❌ / ‼ / ! / ? / ！ / ？)
+❌ mode / distance 表示 / Routes API / Counterfactual
+❌ DB / env / package / dependency 変更
+❌ localStorage / runtime telemetry sink
+❌ K / L / M-1 / M-2 既存 types 改変
+❌ frozen branches への commit (= 42 branches)
+❌ fetch / push / gh / reset / restore / stash / branch delete
+
+### 思想 transmission
+
+1. **画面に出す前の安全な合成 layer** — UI 接続前の data shape で warning 化防止
+2. **counts 完全保持** — 表示と集計の分離、 caller の柔軟性
+3. **軽量 helper 設計** — 統合 pipeline ではなく責務分離
+4. **観測層 pipeline の標準 template** — L-4c-pure / M-3a の対称
+5. **「警告化要素 5 dimension」 機械検証継承** — M-2b assertion を出荷直前必須
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-2 完全 freeze 後 「M-3 readiness audit + M-3a 連続実装」 指示、 audit で連続 GO 判定成立)
+- **ステータス**: M-3a 着地完了。 24 + 2360 tests PASS。 K / L / M-1 / M-2 既存 file 改変 0。 42 frozen branches 計。 次は CEO 判断 (= M-3b readiness audit / N phase / 別軸 pivot)。
+
+---
