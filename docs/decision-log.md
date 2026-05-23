@@ -10619,3 +10619,176 @@ Plan tab (= 場所 + 時間 + 移動 + 余白/不足 観測)
 - **ステータス**: M-3c-ui MapTab-only closeout audit 着地完了。 freeze 宣言。 48 frozen branches。 次は M current-range closeout (= 別 doc + 4 候補比較)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M Current-Range Closeout — 全 M phase 俯瞰 + 15 永続規約 + 4 候補比較 [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3c-ui closeout audit @ `39c87663` 着地後、 CEO + GPT 指示「M current-range closeout + 4 候補 (= A/B/C/D) 比較 + 自律推奨 + CEO 判断待ち停止」。
+
+自律推論で M-1 から M-3c-ui までの全 phase 俯瞰、 達成事項言語化、 永続規約 15 件、 deferred 全件整理、 4 候補 deep 比較を実施。
+
+### M phase 俯瞰 (= 7 sub-phase 全着地)
+
+| Phase | commit | tests | 凍結 |
+|---|---|---|---|
+| M-1 (= Day Feasibility Truth Layer) | `fd2808f8` | 69 | ✅ |
+| M-2a/M-2b (= display formatter + contract) | `f42cf539` | 95 | ✅ |
+| M-3a (= Pre-UI Pipeline) | `4646a2fd` | 24 | ✅ |
+| M-3b-pure (= disclosure state machine) | `0b560b55` | 58 | ✅ |
+| M-3c-pure (= superseded) | `11312aa7` | 75 | ⚪ |
+| M-3c-pure-harden (= mutation 防御) | `399c5783` | 80 | ✅ |
+| M-3c-ui (= MapTab-only UI 接続) | `e5527f1b` | 52 | ✅ |
+| **M phase 累計** | — | **378** | **6 ✅ + 1 superseded** |
+
+### 数値的達成
+
+| 項目 | 値 |
+|---|---|
+| M phase 累計 tests | **378 件** |
+| 全 plan tests | **2550 PASS** (= 0 fail、 regression 0) |
+| M phase 関連 file 数 | 21 個 |
+| K / L 既存 file 改変 | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+| frozen branches 累積 | **48 件** (= M phase 関連 14 + K/L 関連 34) |
+
+### 達成事項 (= 構造的)
+
+1. Day Feasibility Truth Layer 確立 (= M-1)
+2. 「観測層 pipeline 標準 template」 確立 (= L-4c-pure / M-3a 対称、 N 以降に継承可能)
+3. observational disclosure 思想 (= 「観測の主導権を user に渡す」、 M-3b)
+4. default = 全 hidden 永続規約 (= M-3b)
+5. N-fold lift pattern (= M-3c-pure)
+6. mutation 攻撃面構造的除去 (= M-3c-pure-harden、 GPT 補正反映)
+7. 三重防御 (= データ層 + 状態層 + 表示層、 push 表示構造的不可能化、 M-3c-ui)
+8. conditional DOM render (= 視覚 hidden 禁止、 M-3c-ui)
+9. **「観測層 4 層構造」 の M 担当完成** (= 時間 + 移動 + 余白 観測の連携基盤)
+
+### 永続規約 15 件
+
+1-12. (= 既存 M-3a/M-3b/M-3c/M-3c-pure/harden/ui-audit/closeout 継承)
+13. conditional DOM render (= M-3c-ui)
+14. 3 props セット AND 条件で disclosure UI 活性化 (= M-3c-ui)
+15. useState(resetAllDisclosures) + useEffect([selectedDate]) で default hidden + 自動 reset (= M-3c-ui)
+
+### Deferred 全件
+
+**短期 (= M-3d / M-3c-extend)**:
+- CalendarTab disclosure 展開
+- FlowTab disclosure 展開
+- density guard (= 1 日 transition >= N で single-open mode)
+- N 人 visual smoke
+
+**中期 (= M-4+)**:
+- daily counts disclosure
+- progressive trust building
+- per-transition counts pattern
+
+**構造的 (= M-5+)**:
+- ambient indicator (= 警告化リスク大)
+- 集計 disclosure 別軸
+- 共有モード制御 / mobile gesture
+
+**「やらない」**:
+- 警告色 / icon / badge / hover-only / localStorage / persist
+- 「不足を指摘する」 文言 / 永続 Set 定数の外部公開
+
+### 4 候補比較 (= A / B / C / D)
+
+| 候補 | 内容 | 上位方針整合 | 着地時間 | リスク |
+|---|---|---|---|---|
+| **A. M-3d** | Calendar/Flow feasibility 展開 | 中 | 1-2 週間 | density guard 未整備、 N 人 smoke なし |
+| **B. N phase** | M 完結扱い、 次観測層へ | 中 | 2-4 週間 | 「次の観測層」 未定義 |
+| **C. 別軸 pivot** | Stargazer / Rendezvous / Genome 等 | **高** | 不確定 | Plan 軸の不連続性 |
+| **D. M-3c-ui 小改善** | density guard / N 人 smoke / progressive trust | 低 | 数日 | 戦略インパクト低 |
+
+### 自律推奨 (= CEO 上位方針整合で導出)
+
+| 順位 | 候補 | 理由 |
+|---|---|---|
+| **1** | **C (= 別軸 pivot to Stargazer 系)** | CEO 上位方針 (= 「Stargazer 深層観測の完成」、 「初期 user 獲得」、 「世界観の確立」) と直結 |
+| 2 | A (= M-3d) | Plan tab 完成度↑、 但し density guard + N 人 smoke の追加 audit 必要 |
+| 3 | B (= N phase) | 観測層拡張、 但し未定義範囲大 |
+| 4 | D (= 小改善) | 縦深、 戦略インパクト低 |
+
+### 第 1 候補 C の deep 比較 (= 別軸)
+
+| 別軸 | 現状 (= memory より) | 上位方針整合 |
+|---|---|---|
+| **Stargazer** | HDM v1 / P3 / P4 / P5 / Baseline 4 層 / Episodic Recall / Perspective Engine 等多数 | **最優先テーマ** |
+| Rendezvous | Counselor 統合戦略 (= P2-P4+)、 Phase 0 既知ペア検証 | 高 |
+| Genome Card | Genome データ→カード→交換→相互理解 | 中-高 |
+| Origin β | β運用、 機能凍結・観測フェーズ | 中 |
+| Calendar / My-Style | Shared Style Domain 構築済 | 中 |
+| Home Alter | Ambiguity / Relational / Daily Guidance 等多数 | 中-高 |
+
+→ **Stargazer 系が最優先**、 但し別軸の現状を CEO + GPT に確認後、 readiness audit から始める path が安全。
+
+### 「M phase 完結」 の根拠
+
+- MapTab-only で disclosure UI 実用化済 (= smoke PASS)
+- Calendar/Flow 展開は deferred で十分 (= 急ぐ理由なし)
+- N 人 smoke / density guard も deferred
+- M phase の核心機能 (= Day Feasibility Truth Layer + observational disclosure) は完成
+
+### CEO 判断項目 6 件 (= 報告で停止)
+
+1. **次候補の選択**: A / B / C / D / 別案
+2. **C を選んだ場合**: どの別軸へ pivot するか
+3. **A を選んだ場合**: density guard 先 / 直接 Calendar/Flow / 別前提
+4. **B を選んだ場合**: N phase の責務候補
+5. **D を選んだ場合**: 最初に着手する小改善
+6. **M phase の正式完結宣言**: 完結 / 進行中
+
+### Aneurasync 中心問いとの接続
+
+> 「自分って、 そういう人間だったのか」
+
+M phase で:
+- AI 指摘 pattern を構造的に排除
+- user 能動 expand で観測体験成立
+- 「観測したくない時は tap しない」 で agency 100%
+- 余白 / 不足 同 styling で偏見排除
+- 「観測の幕間」 で習慣化を防ぐ
+- counts は disclosure しない (= 集計警告化防止)
+
+→ 「第二の自己」 として feasibility 観測を提供する設計が成立。
+
+### M phase の戦略的位置付け
+
+- **観測層 4 層構造 (= K/L/M/N+) の M 担当完成**
+- N 以降に継承される template:
+  - 観測層 pipeline 標準 template
+  - state machine + N-fold lift pattern
+  - mutation harden pattern
+  - 三重防御
+  - conditional DOM render
+  - CEO 1 人 smoke + 機械検証の二重保証
+- **M phase は「観測層 OS」 の prototype**
+
+### freeze 状態
+
+- `docs/plan-phase3-m-current-range-closeout` (= 本 commit): **frozen 予定**
+- 合計 **49 frozen branches** (= 48 + 1)
+
+### 危険境界遵守 (= 本 audit 範囲)
+
+| 境界 | 結果 |
+|---|---|
+| 実装変更 | **0** (= docs only) |
+| frozen branches への追加 commit | **0** |
+| 候補実装 (= A/B/C/D) | **0** (= 本 audit は判断材料のみ) |
+| CalendarTab / FlowTab 接続 | **0** |
+| 「不足 N 分」 常時表示 | **0** |
+| Arrival Risk / 警告文言 / amber/orange/red / icon | **0** |
+| localStorage / DB / env / package / dependency | **0** |
+| fetch / endpoint / runtime telemetry / Counterfactual / Routes API | **0** |
+| reset / restore / stash / branch delete / gh / push | **0** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3c-ui closeout 後 「M current-range closeout + 4 候補比較 + 自律推奨」 指示、 自律推論で 9 章 doc を着地)
+- **ステータス**: M current-range closeout audit 着地完了。 49 frozen branches。 CEO 判断 6 件待ち。 自律推奨は **C (= 別軸 pivot to Stargazer 系)**、 第 2 候補 A (= M-3d)。
+
+---
