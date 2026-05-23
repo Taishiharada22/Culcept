@@ -13027,3 +13027,68 @@ Wave 3 + 3a closeout audit `f6ac65d4` 着地後、 CEO 判断 (= 「今回の報
 - **ステータス**: **Phase 3-N-2 完了**。 規約 24-extended plan 全 surface 完全閉鎖。 N-3 readiness audit 着手承認済。 branch merge 戦略は別論点として CEO 判断待ち。
 
 ---
+
+## 2026-05-23 [Build/Product] N-3 哲学的境界 B/C hybrid 確定 + N-3 plan audit 着地 + merge 戦略 frozen 維持 [承認: CEO + GPT 合議]
+
+### CEO + GPT 補正による確定事項 (= readiness 後の正式決定)
+
+1. **N-3 哲学的境界**: 解釈 **B/C hybrid**
+   - B: 観測の入口 + user 選択尊重
+   - C: AI が勝手にプッシュしない、 user が開いた時だけ
+   - 全体像: 「空き日に ALTER 入口を出す。 ただし AI が勝手におすすめを押し出さない。 user が開いた時だけ、 観測・見立て・下書きとして出す」
+
+2. **禁止表現** 確定 (= 全 N-3 sub-phase で regression test 必須):
+   - 「おすすめ」 / 「これをした方がいい」 / 「最適」 / 「推奨」 / 「改善」
+   - 「警告」 / 「危険」 / 「注意」 / 「リスク」
+
+3. **許可表現** 確定 (= entry copy contract 候補、 modal copy 候補):
+   - 「見立て」 / 「下書き」 / 「空き日の観測」 / 「今日を組む」 / 「ALTER で見る」
+
+4. **既存資産の扱い**:
+   - read-only 調査 ✅
+   - 既存 endpoint の呼び出し ✅ (= 後段 N-3d 以降)
+   - engine 内部改変 ❌ (= Stargazer pivot 越境)
+
+5. **merge 戦略**: /plan complete まで **frozen 維持** (= 戦略 C)
+   - GitHub / push / fetch / gh は引き続き禁止
+   - N-5 final closeout 後に PR/merge 戦略を再判断
+
+### N-3 plan audit 着地 (= commit `04ccca51`)
+
+- doc: `docs/alter-plan-phase3-n-3-plan-audit.md` (= 534 lines、 16 section)
+- 内容: CEO 指定 10 項目への回答 + 既存 empty day surface inventory + N-3a 最小 scope 確定
+- sub-phase 順序: a (= pure layer) → b (= entry UI) → c (= modal placeholder) → d plan (= LLM 接続 audit) → d impl → e → closeout
+- 連続 GO 不可 (= 各 sub-phase で CEO smoke 必須)
+
+### N-3a 確定 scope (= CEO 暫定候補完全踏襲)
+
+| 項目 | 内容 |
+|---|---|
+| pure type / view model | `EmptyDayEntryViewModel` |
+| empty day 判定 helper | `isEmptyDay(anchors): boolean` |
+| entry copy contract | `EMPTY_DAY_ENTRY_LABEL = "ALTER で見る ›"` |
+| tests | helper unit + 禁止/許可語 regression |
+| 新規 file | 2 件 (= `lib/plan/emptyDayObservation.ts` + test) |
+| 既存 file 改変 | **0** (= 触らない) |
+| LLM / API / DB / env / package / dependency | **0** |
+| push recommendation | **0** |
+
+### 重要発見 (= read-only 調査結果)
+
+- **FlowTab L 142** 「ALTER 提案 card」 命名 → 「提案」 は禁止寄り、 N-3 後段で「ALTER 観測 card」 等の許可表現に更新が必要
+- **AlterModal** は `app/` 内に **不在** (= grep 0 hit、 N-3c で plan 専用 modal を新規構築)
+- **alterHomeAdapter Home** 「次の一手」 → 「ALTER 提案」 偏り risk、 N-3d で新 mode 必要性 audit
+- **MapTab** 「empty as silence」 voice → 思想整合 voice 既確立、 N-3 で踏襲
+
+### 次 (= CEO 判断後)
+
+- N-3a 実装着手 (= 別 branch `feat/alter-plan-phase3-n-3a-empty-day-pure-layer` 想定、 pure layer + helper + copy + test)
+- N-3a 完了後 CEO smoke → N-3b 着手判断 (= 連続 GO 不可)
+- merge 戦略は引き続き frozen 維持 (= /plan complete まで)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 N-2 完了 `afaa8eb0` + N-3 readiness `cf869f6d` 着地後、 GPT 補正 「N-3 = 観測入口、 おすすめ提案ではない / 禁止/許可表現確定 / merge frozen 維持」、 CEO 「次: N-3 plan audit / N-3a 最小実装設計へ進む。 ただし『おすすめ提案』 ではなく『空き日 → ALTER 観測入口』 として設計」)
+- **ステータス**: N-3 plan audit 着地 (= `04ccca51`)。 N-3a 最小 scope 確定 (= pure layer のみ、 既存 file 不触)。 N-3a 実装着手は CEO 判断後。 merge 戦略は /plan complete まで frozen 維持 (= 戦略 C 確定)。
+
+---
