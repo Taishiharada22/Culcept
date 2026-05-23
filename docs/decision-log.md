@@ -11184,3 +11184,131 @@ Plan tab (= 場所 + 時間 + 移動 + 余白/不足 観測)
 - **ステータス**: M-3d bugfix closeout audit 着地完了。 freeze 宣言 (= `98cd6b2a`)、 superseded 記録 (= `0352bdae`)、 50 frozen branches。 次は M full closeout audit。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M Full Closeout — M phase 完了宣言 (= 8 sub-phase 全着地、 20 永続規約) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3d bugfix closeout audit @ `251113f3` 着地後、 CEO + GPT 指示「M full closeout audit に進む → Phase 3-N readiness audit」。
+
+### M Phase 完了宣言 (= 公式)
+
+**Phase 3-M (= Day Feasibility Truth Layer) を 2026-05-23 をもって正式完了とする。**
+
+- 全 8 sub-phase 着地済
+- CEO visual smoke 2 回 PASS
+- 全 3 tab (= MapTab / CalendarTab / FlowTab) で disclosure UI 成立
+- 機械検証 2625 全 plan tests PASS
+- 50 frozen branches
+
+### M phase 8 sub-phase 履歴
+
+| Phase | commit | tests | freeze |
+|---|---|---|---|
+| M-1 (= Day Feasibility Truth Layer) | `fd2808f8` | 69 | ✅ |
+| M-2a/M-2b (= display formatter + contract) | `f42cf539` | 95 | ✅ |
+| M-3a (= Pre-UI Pipeline) | `4646a2fd` | 24 | ✅ |
+| M-3b-pure (= disclosure state machine) | `0b560b55` | 58 | ✅ |
+| M-3c-pure (= superseded) | `11312aa7` | 75 | ⚪ |
+| M-3c-pure-harden (= mutation 防御) | `399c5783` | 80 | ✅ |
+| M-3c-ui MapTab-only | `e5527f1b` | 52 | ✅ |
+| M-3d (= superseded) | `0352bdae` | 75 | ⚪ |
+| M-3d-bugfix | `98cd6b2a` | 42 (= 36 + 6 regression) | ✅ |
+
+### 構造的達成 10 件
+
+1. Day Feasibility Truth Layer 確立
+2. 「観測層 pipeline 標準 template」 確立 (= L-4c-pure / M-3a 対称)
+3. observational disclosure 思想
+4. default = 全 hidden 永続規約
+5. N-fold lift pattern
+6. mutation 攻撃面構造的除去 (= harden、 GPT 補正反映)
+7. 三重防御 (= push 表示構造的不可能化)
+8. conditional DOM render (= 視覚 hidden 禁止)
+9. **「観測層 4 層構造 (= K/L/M/N+) の M 担当」 完成** (= 3 tab 全展開)
+10. per-day state + stable fallback pattern (= bugfix)
+
+### 永続規約 20 件 (= 完全リスト)
+
+1-15. (= M-3c-ui まで確立分)
+16. per-tab independent hook
+17. per-day disclosure state (= FlowTab)
+18. 「観測の幕間」 を week-level に lift
+19. 「month / grid 不変」 規約 (= CalendarTab)
+20. per-day state pattern では stable empty fallback (= useMemo) を提供する (= bugfix)
+
+### Deferred 全件 確定 (= N+ への引き継ぎ)
+
+- 短期 (= M-3d-extend): N 人 smoke / density guard
+- 中期 (= M-4+): daily counts disclosure / progressive trust / per-transition counts
+- 構造的 (= M-5+): ambient indicator / 集計 disclosure 別軸 / 共有モード制御
+- 「やらない」 永続規約: 警告色 / icon / hover-only / localStorage / 「指摘」 文言 / 永続定数外部公開 / Arrival Risk Memory / warning/recommendation/optimization
+
+### M current-range closeout の supersedes
+
+- `ce5dfd6d` (= 2026-05-23 早期、 MapTab-only までの範囲): **superseded by 本 audit**
+- 本 doc が M phase 完了の **公式正本**
+
+### freeze 状態
+
+- `docs/plan-phase3-m-full-closeout` (= 本 commit): **frozen 予定**
+- 全 50 frozen branches 継承 (= 既存)
+- 全 51 (= 50 + 本 closeout audit) になる予定 (= 但し `0352bdae` superseded で実態 50 維持か、 厳密に +1 で 51 か は通算管理)
+
+### 「観測層 OS」 の prototype 確立
+
+M phase は「観測層 OS」 の prototype。 N 以降に継承される template:
+- 観測層 pipeline 標準 template
+- state machine + N-fold lift pattern
+- mutation harden pattern
+- 三重防御
+- conditional DOM render
+- per-tab independent hook + per-day state + stable fallback
+- CEO 1 人 smoke + 機械検証の二重保証
+
+### Aneurasync 中心問いとの直結
+
+> 「自分って、 そういう人間だったのか」
+
+M phase で「第二の自己」 が feasibility 観測を支援する形が成立。 AI 指摘 pattern 構造的排除、 user 能動性 100% 尊重、 push 表示構造的不可能、 偏見排除。
+
+### 次への接続 (= Phase 3-N readiness audit)
+
+**N の責務 (= 元計画 + CEO 補正)**:
+- 元計画: Counter-Factual / Pattern Truth Layer
+- CEO 補正: Home / Plan final surface polish
+
+**N readiness audit で整理 (= GPT 明示)**:
+1. original Phase 3 docs 上の N 責務
+2. Counter-Factual / Pattern が N に含まれるか
+3. Home / Plan final surface polish を N に含めるか
+4. Home デザイン / レイアウト / Plan 導線 / swipe / tab 体験の未完了項目
+5. N-1 として実装すべき最小 scope
+6. N でやらないこと
+7. /plan final closeout までの残工程
+
+**/plan complete 前の禁止 (= CEO 補正反映)**:
+- Deploy readiness / 本番 deploy
+- Stargazer / Rendezvous / Genome への pivot
+- 初期ユーザー獲得
+- Routes API / 実交通 API 連携
+- Arrival Risk Memory (= 永続禁止)
+- warning / recommendation / optimization 文言 (= 永続禁止)
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- 「不足 N 分」 常時表示: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3d bugfix closeout 後 「M full closeout audit に進む」 指示)
+- **ステータス**: Phase 3-M 正式完了宣言。 8 sub-phase + 20 永続規約 + 全 deferred 確定。 次は Phase 3-N readiness audit (= Counter-Factual/Pattern + Home/Plan polish + N-1 最小 scope + /plan final closeout 残工程)。
+
+---
