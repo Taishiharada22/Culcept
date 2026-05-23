@@ -108,6 +108,29 @@ describe("§3. per-day disclosure state (= 革新 M-3d-1)", () => {
   it("setExpandedByDay state setter 存在", () => {
     expect(flowTabContent).toMatch(/setExpandedByDay/);
   });
+
+  // === M-3d-bugfix regression (= 2026-05-23 CEO smoke FAIL 訂正) ===
+
+  it("stableEmptyExpanded (= useMemo) で per-day undefined fallback 提供", () => {
+    // 「詳細」 hint が tap 前から表示されるための必須 wiring
+    expect(flowTabContent).toMatch(
+      /const stableEmptyExpanded\s*=\s*useMemo\(\(\)\s*=>\s*resetAllDisclosures\(\),\s*\[\]\)/,
+    );
+  });
+
+  it("dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded で fallback chain", () => {
+    expect(flowTabContent).toMatch(
+      /const dayExpanded\s*=\s*expandedByDay\[iso\]\s*\?\?\s*stableEmptyExpanded/,
+    );
+  });
+
+  it("dayExpanded は決して undefined にならない (= disclosure UI activatable from initial state)", () => {
+    // dayExpanded が undefined になる path がないことを構造的確認
+    // (= ?? stableEmptyExpanded で必ず Set instance に解決される)
+    expect(flowTabContent).not.toMatch(
+      /const dayExpanded\s*=\s*expandedByDay\[iso\];/,
+    );
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

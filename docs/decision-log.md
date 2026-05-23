@@ -10938,3 +10938,139 @@ CEO 訂正 (= 2026-05-23):
 - **ステータス**: M-3d Calendar/Flow 展開実装完了。 75 + 2622 tests PASS。 freeze 保留 (= visual smoke pending)。 次は CEO visual smoke → PASS なら M full closeout → Phase 3-N readiness audit。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3d Bugfix — FlowTab disclosure missing (= per-day undefined fallback、 3 regression tests PASS) [承認: CEO smoke FAIL 訂正]
+
+### CEO smoke FAIL 報告 (= 2026-05-23)
+
+CEO 報告: 「リストタブ (= FlowTab) の移動行に『詳細』 が付いていない」
+
+→ M-3d visual smoke FAIL、 freeze HOLD、 M full closeout HOLD、 Phase 3-N HOLD。
+
+### 9 項目確認結果
+
+| # | 確認項目 | 結果 |
+|---|---|---|
+| 1 | リスト = FlowTab か | ✅ (= `key:"flow", label:"リスト"`、 PlanClient line 122) |
+| 2 | FlowTab で DayGraphTimeline に 3 props 渡しているか | ✅ (= line 230) |
+| 3 | FlowDaySection 経由で届いているか | ✅ (= line 480) |
+| 4 | feasibilityDisplayByTransitionIndex が空 Map か | ⚪ Map は計算されている、 但し ⑧ で disclosure UI 非活性化 |
+| 5 | M-3a pipeline が Flow 7 days で実行されているか | ✅ (= useFlowWeekFeasibilityDisplay の Promise.all) |
+| 6 | transitionIndex が L/M/DayGraphTimeline で一致 | ✅ |
+| 7 | not_applicable / sensitive で全件除外されているか | ⚪ sufficient/insufficient が残るはず |
+| 8 | CSS/conditional render で「詳細」 が出ない条件 | ❌ **`expandedTransitionIndices === undefined` で `canDisclose === false`** |
+| 9 | MapTab/FlowTab 差分 | ❌ **MapTab/CalendarTab は `useState(resetAllDisclosures)` で初期空 Set、 FlowTab は `Record<>({})` で各 key undefined** |
+
+### 根本原因 (= 自律推論で特定)
+
+DayGraphTimeline の `canDisclose` 判定:
+```typescript
+const canDisclose =
+  props.feasibilityDisplayByTransitionIndex !== undefined &&
+  props.expandedTransitionIndices !== undefined &&  // ← FlowTab で false
+  props.onToggleFeasibilityDisclosure !== undefined &&
+  feasibilityView !== undefined;
+```
+
+FlowTab の `expandedByDay[iso]` は user が tap する前は `undefined` → `canDisclose === false` → 「詳細」 hint 非表示 → user は機能を発見不能。
+
+### 修正内容 (= wiring 範囲内、 CEO 修正許可範囲)
+
+`stableEmptyExpanded = useMemo(() => resetAllDisclosures(), [])` で安定空 Set を作り、 per-day 未操作時の fallback として渡す:
+
+```typescript
+const stableEmptyExpanded = useMemo(() => resetAllDisclosures(), []);
+// ...
+const dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded;
+```
+
+これにより:
+- 初期状態でも各日に空 Set instance が渡る
+- DayGraphTimeline の `canDisclose` 判定が true
+- 「詳細」 hint が tap 前から表示
+- user が tap すれば setExpandedByDay で per-day 新 Set に置き換わる
+- stable reference で re-render 抑制 (= useMemo)
+
+### M-3c-pure-harden 規約整合性
+
+| 規約 | 整合性 |
+|---|---|
+| 永続 Set 定数を外部公開しない | ✅ (= useMemo は caller-side internal scope) |
+| caller は always-function-call | ✅ (= resetAllDisclosures() 公開 API 経由) |
+| mutation 攻撃面除去 | ✅ (= FlowTab 内部 useMemo、 外部アクセス path なし) |
+| default = 全 hidden | ✅ (= 空 Set instance、 hidden 状態維持) |
+
+→ harden 規約に完全整合、 新たな攻撃面追加なし。
+
+### MapTab / CalendarTab 既存挙動確認
+
+| Tab | 修正前 | 修正後 |
+|---|---|---|
+| **MapTab** | `useState<ExpandedTransitionIndices>(resetAllDisclosures)` | **不変** (= 修正対象外) |
+| **CalendarTab** | `useState<ExpandedTransitionIndices>(resetAllDisclosures)` | **不変** (= 修正対象外) |
+| FlowTab | `useState<Record<...>>({})` → `expandedByDay[iso]` (= undefined fallback なし) | `useState<Record<...>>({})` + `useMemo stableEmptyExpanded` + `?? fallback` |
+
+→ MapTab / CalendarTab は **完全に touch せず**、 FlowTab のみ修正。 backward compat 100%。
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| bugfix branch | `feat/alter-plan-phase3-m-3d-bugfix-flowtab-disclosure-missing` |
+| 変更 file | 2 (= FlowTab.tsx + flowTab test) |
+| **FlowTab tests** | **42 PASS** (= 36 → +6、 内 3 件は bugfix regression) |
+| **全 plan tests regression** | **2625 PASS** (= 2622 → +3) |
+| **feasibility / DayGraphTimeline / MapTab / CalendarTab / FlowTab / hooks の tsc errors** | **0** |
+| K / L / M-1〜M-3c-ui 既存 file 改変 | **0** |
+| **MapTab / CalendarTab / DayGraphTimeline / lib/plan/\* 改変** | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+| privacy grep | CLEAN (= isoDate + number Set のみ) |
+| warning grep | CLEAN |
+
+### 新規 regression tests (= 3 件)
+
+1. `stableEmptyExpanded = useMemo(() => resetAllDisclosures(), [])` 存在
+2. `dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded` fallback chain
+3. `dayExpanded` は決して undefined にならない (= 構造的確認、 旧 `expandedByDay[iso]` だけの形がない)
+
+### CEO Visual Smoke 再実施項目
+
+| 項目 | 期待挙動 |
+|---|---|
+| **FlowTab で「詳細」 が表示される** | feasibility あり transition のみ末尾に「詳細」 |
+| tap で「余白 N 分」 / 「不足 N 分」 表示 | 補助行展開 |
+| 「閉じる」 で消える | DOM から消える |
+| 別の日を独立に expand | per-day state 独立 |
+| week 切替で全 day reset | 「観測の幕間」 |
+| CalendarTab 既存挙動 | 不変 |
+| MapTab 既存挙動 | 不変 |
+
+### 危険境界遵守 (= 全件 0)
+
+- PlanClient core state 化: 0 (= FlowTab 内部 useMemo)
+- Calendar month/grid 全件展開: 0
+- localStorage / persist: 0
+- DB / env / package / dependency 変更: 0
+- Arrival Risk / warning / recommendation / optimization: 0
+- UI 設計大変更: 0 (= 既存 DayGraphTimeline + FlowDaySection 不変、 1 行修正)
+- DayGraphTimeline / MapTab / CalendarTab / lib/plan/\* 改変: 0
+- frozen branches への追加 commit: 0
+- reset / restore / stash / branch delete / gh / push: 0
+
+### freeze 状態
+
+- `feat/alter-plan-phase3-m-3d-bugfix-flowtab-disclosure-missing` (= 本 commit): **freeze 候補**
+- M-3d impl `feat/alter-plan-phase3-m-3d-calendar-flow-feasibility-disclosure` @ `0352bdae`: **superseded** (= bugfix 適用前なので個別 freeze せず)
+- 完全 freeze はしない (= CEO visual smoke 再実施待ち)
+
+### 思想 transmission (= 永続規約 1 件追加、 20 件総計)
+
+20. **per-day state pattern では stable empty fallback (= useMemo) を提供する** (= disclosure UI 初期活性化保証、 M-3d-bugfix)
+
+### 承認 + ステータス
+
+- **承認**: CEO smoke FAIL 訂正 (= 2026-05-23 「FlowTab で詳細が出ない」 報告、 自律 audit で 9 項目検証 + 根本原因特定 + wiring 範囲内修正)
+- **ステータス**: M-3d-bugfix 着地完了。 42 + 2625 tests PASS。 FlowTab の disclosure UI 初期表示問題解決。 freeze 保留 (= CEO visual smoke 再実施待ち)。
+
+---

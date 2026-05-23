@@ -212,6 +212,22 @@ export function FlowTab({
     Record<string, ExpandedTransitionIndices>
   >({});
 
+  // M-3d-bugfix (= 2026-05-23 CEO smoke FAIL 訂正):
+  //   per-day 初期状態 (= expandedByDay[iso] === undefined) のとき
+  //   DayGraphTimeline の canDisclose 判定で「expandedTransitionIndices === undefined」 となり
+  //   disclosure UI 全体が非活性化 → 「詳細」 hint 不表示。
+  //
+  //   対策: stable empty set (= useMemo) を fallback として用意し、
+  //         user が初めて tap する前から「空 Set」 を渡す。
+  //         これにより 3 props セット AND 条件を満たし、 「詳細」 が表示される。
+  //
+  //   PII 0 / mutation harden 整合:
+  //     - useMemo 内部スコープのみ、 外部公開なし
+  //     - resetAllDisclosures() は M-3c-pure-harden の公開 API
+  //     - 同 instance を全 day で共有しても問題なし (= user 操作で setExpandedByDay 経由で
+  //       per-day 新 Set に置き換わるため、 共有 instance が mutate される path なし)
+  const stableEmptyExpanded = useMemo(() => resetAllDisclosures(), []);
+
   // M-3d: today (= visible week の anchor) 変化で全 day reset (= 「観測の幕間」 を week-level に lift、 革新 M-3d-2)
   //   localStorage 禁止と整合: persist なし、 week 切替で fresh observation 再起動。
   const weekKey = isoDate(today);
@@ -261,7 +277,10 @@ export function FlowTab({
         const dayMovementDisplay = movementDisplayByDay.get(iso);
         // M-3d: per-day feasibility display + expansion state (= 革新 M-3d-1)
         const dayFeasibilityDisplay = feasibilityDisplayByDay.get(iso);
-        const dayExpanded = expandedByDay[iso];
+        // M-3d-bugfix: per-day 未操作時の undefined fallback (= stable empty set 経由)
+        //   これにより DayGraphTimeline canDisclose 判定が initial state でも true、
+        //   「詳細」 hint が tap 前から表示される。
+        const dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded;
         // disclosure 機能は 3 props 全件揃った時のみ活性化 (= M-3c-ui 規約)
         const dayOnToggleDisclosure = dayFeasibilityDisplay
           ? handleToggleFeasibilityDisclosureForDay(iso)
