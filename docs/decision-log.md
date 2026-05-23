@@ -12710,3 +12710,134 @@ wave 2 は **完全に visual のみ** の変更:
 - **ステータス**: N-2 wave 3 plan audit 着地完了。 残候補 P-002〜P-008 の全 7 件不採用 + 新発見 P-010 surface + wave 3 範囲確定 (= 2 file 11 line + 8 tests) + 連続 GO 判定 ✅ + CEO 前提 4 点完全遵守。 次は **CEO 判断待ち** (= wave 3 impl 連続 GO 承認、 5 件)。 承認後 wave 3 impl (= 別 branch、 連続 GO 候補)。
 
 ---
+
+## [2026-05-23] [Build/Product] Phase 3-N-2 Wave 3 Impl 着地 (= P-010 規約 24-extended focus border 拡張、 11 line + 10 tests) [承認: CEO + GPT 合議 + 補正 1 点]
+
+### 背景
+
+- 直前: N-2 wave 3 plan audit `051662a9` 着地 (= 残候補全 7 件不採用 + 新発見 P-010 + 連続 GO 判定)
+- CEO + GPT 合議: 「P-010 wave 3 は GO でよいです。 ただし1点補正してください」
+- **補正 1 点** (= 本質明示化):
+  - brand color をやめる (= 必須)
+  - `focus:` を `focus-visible:` にする (= 必須)
+  - focus visibility を失わない (= 必須)
+  - 「slate-300 固定」 自体は目的化しない、 visibility 優先で 300/400 選択
+- 補正反映:
+  - AnchorFormFields の `focus:border-indigo-400` → `focus-visible:border-slate-300` (= 妥当、 既存と同 spirit)
+  - ProposalChip の `focus:border-slate-400` → `focus-visible:border-slate-400` (= **slate-400 維持**、 GPT 補正に従い既存 visibility 階調尊重)
+  - test は wave 2 と同様、 否定系 3 + 肯定系 1 の二重 assertion
+
+### 変更内容 (= 2 file 11 line)
+
+**AnchorFormFields.tsx** (= 10 line):
+
+| line | 変更 |
+|---|---|
+| L 190, 202, 213, 286, 350, 437, 448, 463, 525 | `focus:border-indigo-400 focus:outline-none` → `focus:outline-none focus-visible:border-slate-300` |
+| L 404 (multi-line form) | 同上 |
+
+**ProposalChip.tsx** (= 1 line):
+
+| line | 変更 |
+|---|---|
+| L 122 | `focus:border-slate-400 focus:outline-none` → `focus:outline-none focus-visible:border-slate-400` (= GPT 補正、 slate-400 維持) |
+
+### 維持された class
+
+- `focus:outline-none` (= ブラウザ標準 outline 上書き保証)
+- ProposalChip の `slate-400` (= GPT 補正、 visibility 階調尊重)
+- 他全 class
+
+### 新規 regression test (= 10 tests)
+
+**file**: `tests/unit/plan/planComponentsFocusBorderRegimeWiring.test.ts`
+
+**構造** (= GPT 補正反映、 否定系 3 + 肯定系 1):
+- 2 target files × 4 invariants = 8 件:
+  - §1 `focus:border-indigo` 不在 (= 完全違反禁止)
+  - §2 `focus-visible:border-indigo` 不在 (= 部分違反禁止)
+  - §3 `focus:border-slate` 不在 (= visibility なし slate も禁止)
+  - **§4 `focus-visible:border-slate-(300|400)` 存在 (= 肯定系)**
+- cross-file 宣言 2 件
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| impl branch | `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` |
+| 変更 file | 3 (= 2 既存 + 1 新規 test) |
+| 既存 file 改変行数 | **11 line** (= class 文字列のみ) |
+| **新規 regression tests** | **10 PASS** (= 8 invariants + 2 cross-file) |
+| **全 plan tests regression** | **2662 PASS** (= 2652 → +10、 0 fail) |
+| 編集 file tsc errors | **0** (= 全 pre-existing errors は無関係 stargazer/test file) |
+| K / L / M / wave 1 / wave 2 既存 file 改変 | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+| 違反 grep 確認 | 完全違反/部分違反/`focus:border-slate` 全 0 hit |
+| 肯定系 grep 確認 | `focus-visible:border-slate-300` 10 箇所 + `focus-visible:border-slate-400` 1 箇所 |
+
+### 残発見 (= CEO 判断必要、 wave 3 範囲外)
+
+**PlaceCandidatesPanel.tsx L 453**: `focus-visible:border-indigo-300`
+- 文脈: L 451 `hover:border-indigo-300` と paired (= mouse hover / keyboard focus の visual parity)
+- 厳密に GPT 「brand color をやめる」 原則違反 (= keyboard 限定 + brand color)
+- 但し wave 3 plan で意図的に scope 外として残した:
+  - wave 2 で適用済 file (= PlaceCandidatesPanel は wave 2 で focus ring を slate-300 に変更)
+  - CEO 前提 ④ 「他候補を混ぜず」 遵守 (= wave 3 plan 時点で surface したが含めず)
+- **CEO 判断項目**: wave 3a (= 1 line 追加修正) or wave 4 候補
+
+### 思想 transmission (= 規約 24-extended)
+
+**規約 24-extended**:
+> すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*` を使い、 `focus:` (= focus-visible なし) と brand color (= indigo, purple) を組み合わせない。
+
+wave 3 で:
+- AnchorFormFields 10 input field で mouse stuck brand border を排除 (= UX 改善)
+- ProposalChip で `focus:` → `focus-visible:` 化、 slate-400 維持 (= visibility 優先、 GPT 補正)
+- 「観測の幕間」 を border surface まで拡張 (= 「観測しない時は静か」 を form field でも実証)
+- regression test 10 件で永続規約化
+
+### CEO 前提 4 点遵守 (= 完全)
+
+| 前提 | 遵守 |
+|---|---|
+| ① brand color には戻さない | ✅ AnchorFormFields の indigo → slate-300 |
+| ② slate 系 focus-visible 規約を維持 | ✅ 規約 24-extended で focus-visible: + slate-* 統一 |
+| ③ wave 2 visual-only closeout | ✅ wave 2 の focus ring (= MapTab / FlowTab / CalendarTab / DayGraph / PlaceCandidatesPanel / AnchorFormFields ring) は touch せず、 border のみ修正 |
+| ④ 残候補 P-002〜P-008 の再評価から始める | ✅ wave 3 plan で全 7 件 detailed 再評価 + 新発見 P-010 surface |
+
+### CEO Visual Smoke 計画 (= 5 件 / 5-10 分)
+
+1. AddAnchorModal の入力 field click → mouse 後 stuck indigo border 消える
+2. AddAnchorModal の入力 field Tab key → slate-300 border 出現
+3. EditAnchorModal の入力 field 動作 同上
+4. ProposalChip click → mouse 後 stuck slate-400 border 消える (= 既存 slate-400 維持、 visibility 維持)
+5. 全 plan tab で AddAnchorModal/EditAnchorModal 起動 + 入力動作 機能不変
+
+### 危険境界遵守 (= 全件 0)
+
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- wave 1 / wave 2 適用済 file (= focus ring 規約) への追加変更: 0
+- 他 polish 候補 (P-002〜P-008) の wave 3 混入: 0
+- 新規 component / hook 追加: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- frozen branches への追加 commit: 0
+- reset / restore / stash / branch delete / gh / push: 0
+- brand color の focus 文脈での復活: 0 (= CEO 前提 ① 完全遵守)
+- slate 系 focus-visible 規約からの離脱: 0 (= CEO 前提 ② 完全遵守)
+
+### freeze 状態
+
+- `feat/alter-plan-phase3-n-2-wave-3-focus-border-regime-extended` (= 本 commit `0f6b0ae6`): **freeze 候補** (= CEO visual smoke 5 件 pending)
+- 完全 freeze はしない (= smoke PASS 待ち)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 連続 GO + 補正 1 点反映 (= 2026-05-23 wave 3 plan audit 着地後、 「P-010 wave 3 は GO、 補正反映」)
+- **ステータス**: N-2 wave 3 impl 着地完了。 10 + 2662 tests PASS。 11 line 修正 + 10 regression test。 freeze 保留 (= CEO visual smoke 5 件待ち)。 次は CEO smoke → wave 3 closeout audit (= L 453 残発見の CEO 判断含む) → wave 4 (= 必要なら) or N-2 phase 完了判定。
+
+---
