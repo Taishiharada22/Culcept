@@ -450,7 +450,7 @@ export function PlaceCandidatesPanel({
                   transition-colors duration-150
                   hover:border-indigo-300 hover:bg-indigo-50/60
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
-                  focus-visible:border-indigo-300
+                  focus-visible:border-slate-300
                   active:scale-[0.98]
                 "
               >

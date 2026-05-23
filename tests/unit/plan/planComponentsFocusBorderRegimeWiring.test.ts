@@ -1,5 +1,5 @@
 /**
- * Phase 3-N-2 wave 3 — 「観測層 OS visual 規約」 を focus border surface に拡張 (= 規約 24-extended)
+ * Phase 3-N-2 wave 3 + 3a — 「観測層 OS visual 規約」 を focus border surface に拡張 (= 規約 24-extended)
  *
  * 規約 24-extended (= wave 3 で確立、 wave 1+2 の ring 規約を border に自然拡張):
  *   - すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*`
@@ -38,7 +38,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Target files (= 規約 24-extended border 拡張対象、 2 file)
+// Target files (= 規約 24-extended border 拡張対象、 wave 3 で 2 file + wave 3a で 1 file = 3 file)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const TARGET_FILES: ReadonlyArray<{ path: string; description: string }> = [
@@ -52,14 +52,19 @@ const TARGET_FILES: ReadonlyArray<{ path: string; description: string }> = [
     description:
       "ProposalChip (= dashed border の提案 chip、 wave 3 で 1 line 修正、 slate-400 維持)",
   },
+  {
+    path: "app/(culcept)/plan/components/PlaceCandidatesPanel.tsx",
+    description:
+      "PlaceCandidatesPanel (= place candidate button、 wave 3a で L 453 focus-visible:border を slate-300 化、 L 451 hover-border-indigo は維持)",
+  },
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Per-file invariants (= 各 file 4 assertions、 計 2 file × 4 = 8 tests)
+// Per-file invariants (= 各 file 4 assertions、 計 3 file × 4 = 12 tests)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 for (const { path, description } of TARGET_FILES) {
-  describe(`N-2 wave 3 規約 24-extended 適用: ${description}`, () => {
+  describe(`N-2 wave 3 + 3a 規約 24-extended 適用: ${description}`, () => {
     const content = readFileSync(path, "utf-8");
 
     // ── 否定系 (= 違反 pattern の不在) ────────────────────────────────────
@@ -99,14 +104,14 @@ for (const { path, description } of TARGET_FILES) {
 // Cross-file 規約宣言 (= 規約 24-extended 永続性の構造的保証)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("N-2 wave 3 規約 24-extended 永続性宣言 (= 2 file 全件)", () => {
+describe("N-2 wave 3 + 3a 規約 24-extended 永続性宣言 (= 3 file 全件)", () => {
   it("全 target file が読込可能 (= file 削除や rename を検知)", () => {
     for (const { path } of TARGET_FILES) {
       expect(() => readFileSync(path, "utf-8")).not.toThrow();
     }
   });
 
-  it("規約 24-extended は 2 file に適用 (= TARGET_FILES の数で永続管理)", () => {
-    expect(TARGET_FILES.length).toBe(2);
+  it("規約 24-extended は 3 file に適用 (= TARGET_FILES の数で永続管理)", () => {
+    expect(TARGET_FILES.length).toBe(3);
   });
 });
