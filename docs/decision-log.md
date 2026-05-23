@@ -11463,3 +11463,157 @@ GPT 明示の整理項目 7 件:
 - **ステータス**: Phase 3-N readiness audit 着地完了。 N 責務確定 (= 段階分割型自律推奨) + Home/Plan polish 現状棚卸し + N-1 最小 scope + /plan final closeout 残工程 + CEO 判断 6 件。 51 frozen branches。 次は CEO 判断 → N-1a 棚卸し audit。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N Plan Completion Audit — N 全責務漏れなき確定 + 5 phase 分割 + 矛盾発見 [承認: CEO + GPT 訂正反映]
+
+### 背景
+
+CEO + GPT 訂正 (= 2026-05-23):
+> 「Step C の結論は補正。 N-1 完了 = /plan complete はまだ採用しない。 元計画上の N が Counter-Factual / Pattern を含むなら、 それを勝手に N-2 deferred に落として完了扱いにするのは、 また『途中で別方向へ行く』 動き」
+
+前回 audit `11e18134` の問題:
+- 「N-1 完了 = /plan complete」 ❌ 勝手な scope 縮小
+- Counter-Factual / Pattern を勝手に N-2 / 別 phase / 中長期保留 ❌
+- 空き日 → ALTER flow を別軸推奨 ❌
+
+→ 本 completion audit で **N 全責務を漏れなく確定**、 「やらない」 判断は CEO 明示承認のみ。
+
+### N の全責務 (= 元計画 + CEO 補正、 漏れなき 8 件)
+
+| # | 責務 | 出典 | scope |
+|---|---|---|---|
+| 1 | Counter-Factual (= 反事実 / 別の 1 日選択肢) | L transport-design §0.3 | 大、 **矛盾あり** |
+| 2 | Pattern Truth Layer (= 複数日傾向観測) | M readiness §0/§9 | 大、 観測のみ ✅ |
+| 3 | 空き日 → ALTER 提案 flow | 別ロードマップ Phase 3 | 大、 Stargazer engine 接続 |
+| 4 | Home design / layout polish | CEO 補正 | 小-中 |
+| 5 | Plan 全体見た目 + tab 統一感 | CEO 補正 | 小-中 |
+| 6 | swipe 体験 polish | CEO 補正 | 小 |
+| 7 | 空き日 / 予定なし日の見え方 | CEO 補正 | 小-中 |
+| 8 | dev smoke 違和感 | CEO 補正 | TBD (= N-1 棚卸し後) |
+
+### 重要発見: 矛盾 (= CEO 確認必要)
+
+| docs | N の定義 |
+|---|---|
+| L transport-design (= 2026-05-22) | **N = Counter-Factual** |
+| **M readiness audit (= 2026-05-23、 newer)** | **Counterfactual generation は永続禁止** (= 「推奨に近づく」、 思想違反) |
+
+→ **CEO 判断必要**:
+- A. N = Pattern Truth Layer のみ (= M readiness 解釈採用)
+- B. N = Counter-Factual + Pattern 両方 (= 元計画維持)
+- C. Counter-Factual を「観測形」 に再定義
+
+### 5 phase 分割 (= GPT 明示)
+
+| Phase | 内容 | 性質 | 規模 |
+|---|---|---|---|
+| **N-1** | Home/Plan final surface audit (= 全 Plan 体験棚卸し + CEO smoke) | docs + smoke | 小 |
+| **N-2** | small polish wave implementation (= 1 wave / 1-2 件、 都度 smoke) | 実装 | 中 (= 累積) |
+| **N-3** | empty day → ALTER flow readiness + implementation | readiness + 実装 | 大 (= Stargazer 接続) |
+| **N-4** | Counter-Factual / Pattern readiness + implementation | readiness + 実装 | 大 (= 矛盾解消 + 観測 layer 拡張) |
+| **N-5** | /plan final closeout audit | docs + 完了監査 | 小 |
+
+### 各 phase の責務マッピング
+
+- 責務 1, 2 (= Counter-Factual / Pattern) → N-4
+- 責務 3 (= 空き日 ALTER flow) → N-3
+- 責務 4-8 (= polish 系) → N-1 → N-2
+
+### /plan complete の条件 (= GPT 明示 5 件)
+
+1. J / K / L / M 完了 ✅
+2. N で定義された残項目の **実装** または **CEO 明示 defer** ⏸️
+3. Home/Plan polish smoke PASS ⏸️
+4. final closeout audit (= N-5) PASS ⏸️
+5. その後に初めて Deploy readiness / 別軸 pivot
+
+### 「やらない」 判断ルール (= GPT 明示反映)
+
+| 判断 | フロー |
+|---|---|
+| 「実装する」 | phase 完了として記録 |
+| 「明示 defer」 | **CEO 明示承認のみ可** + defer 理由 + 暫定 timeline 記録 |
+
+**Claude 側で禁止される判断**:
+- 自律で「N-X を defer」
+- 「Counterfactual 永続禁止のため N-4 skip」 (= CEO 確認必要)
+- 「空き日 ALTER flow scope 大のため N-3 skip」 (= CEO 確認必要)
+- 「中長期 vision / 将来 phase」 等の曖昧表現
+
+### 進行禁止リスト (= /plan complete 前)
+
+**CEO 明示禁止**:
+- Deploy readiness / 本番 deploy
+- Stargazer / Rendezvous / Genome への pivot
+- 初期ユーザー獲得
+- N 項目の勝手な defer
+- Counter-Factual / Pattern の勝手な scope 外化
+- empty day ALTER flow の勝手な scope 外化
+
+**永続禁止**:
+- Arrival Risk Memory
+- warning / recommendation / optimization 文言
+- amber / orange / red / icon / badge
+- localStorage / persist
+- DB / env / package / dependency 変更
+- runtime telemetry sink
+- fetch / push / gh / reset / restore / stash / branch delete
+
+### 連続実装可能範囲 (= CEO 許可済)
+
+- 本 audit (= 完了)
+- **N-1 Home/Plan Final Surface Audit** (= docs only + CEO smoke 計画) ← **連続 OK if low-risk**
+- 各 phase の readiness audit → CEO 判断 → 実装
+
+### N-1 の low-risk 判定
+
+- ✅ 実装変更 0
+- ✅ frozen branches への追加 commit 0
+- ✅ DB / env / package / dependency 変更 0
+- ✅ Aneurasync 整合性
+- → **N-1 連続 GO 候補**
+
+### CEO 判断項目 5 件 (= 報告で停止)
+
+1. **Counter-Factual と M readiness の矛盾**: A (Pattern のみ) / B (元計画維持) / C (観測形再定義)
+2. **N-3 (= 空き日 ALTER flow)**: 実装 / 別軸 (= Stargazer 単独 phase) / 明示 defer
+3. **N-4 (= Counter-Factual / Pattern)**: 実装 / 明示 defer / 観測形に縮小
+4. **N-1 連続 GO 判定**: 本 audit 着地後、 N-1 棚卸し audit に連続して進むか
+5. **N の進行順序**: Path 候補 1 (= 自然順序) / Path 候補 2 (= 並列 readiness audit)
+
+### 残工程
+
+```
+本 audit ✅ → N-1 棚卸し audit → CEO 判断 → N-2 polish 実装
+  → CEO 判断 → N-3 readiness → CEO 判断 → N-3 実装
+  → CEO 判断 → N-4 readiness → CEO 判断 → N-4 実装
+  → N-5 final closeout → (/plan complete)
+  → (後): Deploy / Stargazer 等
+```
+
+### freeze 状態
+
+- `docs/plan-phase3-n-completion-audit` (= 本 commit): **frozen 予定**
+- 前 audit `11e18134` (= readiness 訂正前): 「N-1 完了 = /plan complete」 は **撤回**、 棚卸し部分は本 audit に統合
+- 合計 **52 frozen branches** (= 51 + 1)
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- M phase の追加変更: 0
+- N 項目の勝手な defer: 0
+- Counter-Factual / Pattern の勝手な scope 外化: 0
+- empty day ALTER flow の勝手な scope 外化: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual generation / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 訂正反映 (= 2026-05-23 「N-1 完了 = /plan complete 撤回、 N 全責務漏れなき確定」 指示、 自律推論で 10 章 doc + 矛盾発見 + 5 phase 分割を着地)
+- **ステータス**: Phase 3-N Plan Completion Audit 着地完了。 N 全責務 8 件確定 + 5 phase 分割 + 矛盾発見 + /plan complete 条件 5 件 + 「やらない」 ルール明文化 + 残工程明確化 + CEO 判断 5 件。 52 frozen branches。 連続実装可能範囲は **N-1 Home/Plan Final Surface Audit (= docs only)** まで。
+
+---
