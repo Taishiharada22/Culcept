@@ -10327,3 +10327,166 @@ M-3c-pure-harden @ `399c5783` freeze 完了後、 CEO + GPT 指示:
 - **ステータス**: M-3c-ui readiness audit 着地完了。 docs only。 CEO 判断 7 件待ち。 自律推奨は **「条件付き UI 接続」** (= smoke 後実装)。 「pure で完結」 path も第 2 候補として提示。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3c-ui MapTab-only 実装着地 — Feasibility Disclosure UI (= 52 tests PASS、 CEO visual smoke pending) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3c-ui readiness audit @ `d3803f2b` の後、 CEO + GPT 判断:
+- M-3c-ui MapTab-only **実装 GO**
+- smoke は **CEO 1 人** で行う (= 5 人ではない)
+- **hidden 時は DOM にも出さない** (= conditional render、 視覚 hidden 禁止)
+- 実装後 **完全 freeze しない** (= visual smoke pending として停止)
+
+### M-3c-ui 着地 scope (= CEO 明示)
+
+#### DayGraphTimeline に optional props 3 つ追加
+
+- `feasibilityDisplayByTransitionIndex?: ReadonlyMap<number, FeasibilityDisplayView>`
+- `expandedTransitionIndices?: ReadonlySet<number>`
+- `onToggleFeasibilityDisclosure?: (transitionIndex: number) => void`
+
+→ **3 props 全部 + feasibilityView 存在** の AND 条件で初めて disclosure UI 活性化。 1 つでも欠ければ既存 K-3c-iii / L-4d 通り (= backward compat 100%)。
+
+#### MapTab 改変
+
+- `useMapTabFeasibilityDisplay` 新 hook (= 別 file、 ~140 行)
+- `useState<ExpandedTransitionIndices>(resetAllDisclosures)` (= React lazy initial state、 default hidden 機械保証)
+- `useEffect([selectedDate])` で reset (= 「観測の幕間」)
+- `handleToggleFeasibilityDisclosure` callback (= M-3c-pure-harden adapter 経由)
+
+#### TransitionItem 拡張
+
+- 3 props 全揃 + feasibility あり → interactive 化:
+  - tap (= onClick) で toggle
+  - keyboard (= Enter/Space) で toggle、 **hover-only 禁止**
+  - 末尾に「詳細」 / 「閉じる」 textual hint (= 中立 2 文字、 警告感 0)
+  - aria-expanded / aria-controls / tabIndex 付与
+  - focus-visible ring
+  - hint span に aria-hidden (= screen reader 二重読み上げ回避)
+
+#### FeasibilityDisclosureLine subcomponent (= 新規)
+
+- expanded 時のみ **DOM に render** (= conditional render、 視覚 hidden 禁止)
+- screen reader / a11y ツリーにも出さない
+- styling = K-3c-iii tier_2 同階調 (= text-xs italic text-slate-400 pl-8)
+- background / border / icon / amber/orange/red **0**
+- aria-label は `view.displayText` 直接 (= 中立)
+- variant は data-attribute のみ (= 余白 / 不足 同 styling、 偏見 0)
+
+### 三重防御の構造 (= push 表示構造的不可能化)
+
+```
+[L overlay] → [M-1] → [M-2a] → [M-3a] → [M-3c-ui]
+                                           ↓
+                feasibilityDisplayByTransitionIndex.has(idx) ← Layer 1: データ層
+                                           ↓
+                expandedTransitionIndices.has(idx) ← Layer 2: 状態層
+                                           ↓
+                <FeasibilityDisclosureLine> render ← Layer 3: 表示層 (= conditional DOM)
+```
+
+1 層でも false → 「不足 N 分」 が画面に**出ない**。
+
+### 革新的アイデア (= 5 件、 M-3c-ui 固有)
+
+1. **conditional DOM render** (= CEO 補正反映、 視覚 hidden ではなく完全不在化)
+2. **3 props セット AND 条件** で UI 活性化 (= backward compat 100% 保証)
+3. **「詳細」 / 「閉じる」 textual hint** (= 警告感 0、 発見性確保)
+4. **React lazy initial state** (= `useState(resetAllDisclosures)`、 mutation 攻撃面除去)
+5. **`useEffect([selectedDate])` 自動 reset** (= 「観測の幕間」、 localStorage 不使用)
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| impl branch | `feat/alter-plan-phase3-m-3c-ui-maptab-only` |
+| 新規 file | 2 (= `_useMapTabFeasibilityDisplay.ts` + 新 test) |
+| 既存 file 変更 | 3 (= `DayGraphTimeline.tsx` + `MapTab.tsx` + 既存 L-4d test 微修正) |
+| **M-3c-ui wiring tests** | **52 PASS** (= 0 fail) |
+| **全 plan tests regression** | **2550 PASS** (= 2498 → +52) |
+| **feasibility / DayGraphTimeline / MapTab / hook の tsc errors** | **0** |
+| 全 baseline tsc errors | unchanged (= 増減なし、 我々の touched file 0 errors) |
+| K phase / L / M-1 / M-2 / M-3a / M-3b / M-3c-pure-harden 既存 file 改変 | **0** |
+| DB / env / package / dependency / fetch / localStorage / telemetry 変更 | **0** |
+
+### 11 検証項目 (= CEO 明示) の機械保証
+
+| # | 項目 | 機械検証 |
+|---|---|---|
+| 1 | DayGraphTimeline default backward compatibility | §4 backward compat tests (= 8 件) |
+| 2 | MapTab wiring tests | §3 (= 6 件) |
+| 3 | **hidden 時 DOM 不在** | §6 conditional render テスト |
+| 4 | expanded 時のみ表示 | §1 + §6 |
+| 5 | collapse で消える | §1 hint 「閉じる」 + state machine |
+| 6 | selectedDate reset | §3 useEffect([selectedDate]) |
+| 7 | no amber/orange/red | §1 (= grep) |
+| 8 | no warning/recommendation/optimization 文言 | §1 (= comment 除外 grep) |
+| 9 | privacy grep | §5 (= 3 件) |
+| 10 | K/L/M regression | 2498 → 2550 PASS、 既存 file 改変 0 |
+| 11 | feasibility files tsc / MapTab surface tsc | 0 errors on touched files |
+
+### Backward Compatibility 保証
+
+- CalendarTab: feasibility hook 不使用、 props 渡さない (= §4 検証)
+- FlowTab: 同上
+- 既存 K-3c-iii compact mode: 不変
+- 既存 L-4d MovementDisplayView 接続: 不変
+- 既存 EventItem / GapItem / BoundaryItem: 不変
+
+### Privacy 機械保証
+
+- state element 型 = `number` (= 非 PII 構造)
+- props key も transitionIndex (= L-3c 形式継承)
+- DayGraphTimeline 内で anchorId / locationText / title / userId を渡さない (= §5 grep)
+- hook で localStorage / fetch / network 不使用 (= §2 grep)
+- FeasibilityDisclosureLine は view.displayText のみ render (= 「余白 N 分」 / 「不足 N 分」)
+
+### 危険境界遵守 (= 全件 0)
+
+| 境界 | 結果 |
+|---|---|
+| CalendarTab / FlowTab 接続 | **0** (= MapTab-only) |
+| 「余白 / 不足」 の常時表示 | **0** (= conditional DOM render) |
+| localStorage / persist | **0** |
+| Arrival Risk Memory / 警告文言 | **0** |
+| amber / orange / red 警告色 | **0** |
+| icon / badge / warning box | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| runtime telemetry sink | **0** |
+| Counterfactual / Routes API | **0** |
+| fetch / endpoint / gh / push / reset / restore / stash / branch delete | **0** |
+
+### 思想 transmission (= 永続規約 candidate)
+
+1-12. (= 既存 M-3a/M-3b/M-3c/M-3c-pure/harden/ui-audit 継承)
+13. **hidden 時は DOM にも出さない** (= conditional render、 視覚 hidden 禁止) — NEW
+14. **3 props セット AND 条件** で disclosure UI 活性化 — NEW
+15. **「詳細」 / 「閉じる」 textual hint** で発見性確保 + 警告感 0 — NEW
+16. **useState(resetAllDisclosures)** で default hidden 機械保証 — NEW
+17. **useEffect([selectedDate])** で 「観測の幕間」 自動 reset — NEW
+
+### freeze 状態 (= CEO 補正反映)
+
+- `feat/alter-plan-phase3-m-3c-ui-maptab-only` (= 本 commit): **freeze 候補** (= CEO visual smoke pending)
+- **完全 freeze はしない** (= CEO 明示)
+- "implementation landed / visual smoke pending / freeze candidate" として停止
+
+### CEO Visual Smoke 計画 (= 1 人 smoke)
+
+| 確認項目 | 期待挙動 |
+|---|---|
+| MapTab で「詳細」 hint が見える | feasibility あり transition のみ末尾に「詳細」 |
+| tap で展開 | 「余白 N 分」 / 「不足 N 分」 補助行が現れる |
+| 「閉じる」 で閉じる | 補助行が DOM から消える |
+| selectedDate 切替で reset | 全 hidden に戻る |
+| 体験として「圧」 を感じない | (= 質的判定) |
+| keyboard (= Enter/Space) で同様の動作 | (= a11y 確認) |
+| Calendar / Flow に出ない | backward compat 確認 |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3c-ui readiness audit 後 「MapTab-only 実装 GO、 1 人 smoke、 hidden 時 DOM 不在、 完全 freeze しない」 指示、 自律推論で実装着地)
+- **ステータス**: M-3c-ui MapTab-only 実装着地完了。 52 + 2550 tests PASS。 K / L / M-1 / M-2 / M-3a / M-3b / M-3c-pure-harden 既存 file 改変 0。 **freeze 保留**、 CEO visual smoke 待ち。 次は smoke → 結果に応じて freeze or revise or rollback。
+
+---

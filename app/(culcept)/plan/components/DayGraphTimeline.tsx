@@ -28,7 +28,7 @@
  *   - CalendarTab / MapTab / FlowTab 統合
  */
 
-import { Fragment, memo, type ReactElement } from "react";
+import { Fragment, memo, type KeyboardEvent, type ReactElement } from "react";
 
 import {
   buildCompactSummaryView,
@@ -42,6 +42,7 @@ import type {
   DayGraphView,
 } from "@/lib/plan/dayGraph/dayGraphTypes";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
+import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Props
@@ -101,6 +102,53 @@ export interface DayGraphTimelineProps {
    *      transitionIndex は K view の MovementTransitionView 出現順 (= buildMovementTransitions の配列順) と一致。
    */
   readonly movementDisplayByTransitionIndex?: ReadonlyMap<number, MovementDisplayView>;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // M-3c-ui: per-transition Feasibility Disclosure (= 2026-05-23 CEO + GPT 承認)
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * M-3c-ui: transitionIndex → FeasibilityDisplayView (= optional)。
+   *
+   * M-3a `runFeasibilityDisplayPipeline` 出力を caller (= MapTab) が
+   * `feasibilityDisplayByTransitionKey.values()` から
+   * `transitionIndex → view` map に変換して渡す想定。
+   *
+   * **使用条件 (= 3 props セットで disclosure 有効化)**:
+   *   - feasibilityDisplayByTransitionIndex !== undefined
+   *   - expandedTransitionIndices !== undefined
+   *   - onToggleFeasibilityDisclosure !== undefined
+   *   - 1 つでも欠ければ disclosure UI 完全無効 (= 既存 K-3c-iii / L-4d 通り、 backward compat 100%)
+   *
+   * **表示しない条件**:
+   *   - not_applicable / sensitive / unresolved / location_unknown → M-2a で map から除外済
+   *   - map.has(transitionIndex) === false の場合は「詳細」 hint も補助行も DOM に出さない
+   */
+  readonly feasibilityDisplayByTransitionIndex?: ReadonlyMap<number, FeasibilityDisplayView>;
+
+  /**
+   * M-3c-ui: 現在 expanded な transitionIndex の Set (= optional)。
+   *
+   * default は空 Set (= 全 hidden、 永続規約)。
+   * caller は M-3c-pure-harden `resetAllDisclosures()` で初期化する規約。
+   *
+   * **hidden 時の DOM 取扱**:
+   *   - expanded set に含まれない transitionIndex の補助行は **DOM に出さない** (= conditional render)
+   *   - aria-hidden / display:none ではなく、 React conditional で完全不在化
+   *   - screen reader / a11y ツリーにも出さない (= 「不足 N 分」 を勝手に伝達しない)
+   */
+  readonly expandedTransitionIndices?: ReadonlySet<number>;
+
+  /**
+   * M-3c-ui: 「詳細 / 閉じる」 tap callback (= optional)。
+   *
+   * caller (= MapTab) は M-3c-pure-harden `applyDisclosureAction` 経由で
+   * `expandedTransitionIndices` を更新する想定。
+   *
+   * - transition line の tap / Enter / Space で発火
+   * - hover では発火しない (= CEO 規約)
+   */
+  readonly onToggleFeasibilityDisclosure?: (transitionIndex: number) => void;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -168,23 +216,68 @@ function DayGraphTimelineInner(props: DayGraphTimelineProps): ReactElement | nul
       }
       data-testid={props.dataTestId ?? "day-graph-timeline"}
     >
-      {tl.nodes.map((node) => (
-        <Fragment key={node.key}>
-          {renderNode(node, props.onEventClick)}
-          {/* event の直後に transition があれば inline 表示 (= K phase 不変: id === anchorId) */}
-          {node.kind === "event" && tl.transitionsByFromNodeId[node.anchorId] && (
+      {tl.nodes.map((node) => {
+        // event 以外は単純 render
+        if (node.kind !== "event" || !tl.transitionsByFromNodeId[node.anchorId]) {
+          return (
+            <Fragment key={node.key}>
+              {renderNode(node, props.onEventClick)}
+            </Fragment>
+          );
+        }
+        // event + transition combination
+        const transitionView = tl.transitionsByFromNodeId[node.anchorId]!;
+        const transitionIndex = transitionIndexByFromNodeId.get(node.anchorId)!;
+        const movementOverride = props.movementDisplayByTransitionIndex?.get(
+          transitionIndex,
+        );
+
+        // M-3c-ui: disclosure 機能の有効化判定
+        //   3 props 全て指定 + feasibility view が存在する場合のみ有効化
+        const feasibilityView = props.feasibilityDisplayByTransitionIndex?.get(
+          transitionIndex,
+        );
+        const canDisclose =
+          props.feasibilityDisplayByTransitionIndex !== undefined &&
+          props.expandedTransitionIndices !== undefined &&
+          props.onToggleFeasibilityDisclosure !== undefined &&
+          feasibilityView !== undefined;
+
+        const isExpanded =
+          canDisclose &&
+          (props.expandedTransitionIndices?.has(transitionIndex) ?? false);
+
+        const handleToggle = canDisclose
+          ? () => props.onToggleFeasibilityDisclosure!(transitionIndex)
+          : undefined;
+
+        return (
+          <Fragment key={node.key}>
+            {renderNode(node, props.onEventClick)}
             <TransitionItem
-              key={tl.transitionsByFromNodeId[node.anchorId]!.key}
-              view={tl.transitionsByFromNodeId[node.anchorId]!}
-              displayOverride={
-                props.movementDisplayByTransitionIndex?.get(
-                  transitionIndexByFromNodeId.get(node.anchorId)!,
-                )
-              }
+              key={transitionView.key}
+              view={transitionView}
+              displayOverride={movementOverride}
+              // M-3c-ui props (= 3 件揃った時のみ disclosure UI が活性化)
+              feasibilityView={canDisclose ? feasibilityView : undefined}
+              isExpanded={canDisclose ? isExpanded : undefined}
+              onToggleDisclosure={handleToggle}
+              transitionIndex={transitionIndex}
             />
-          )}
-        </Fragment>
-      ))}
+            {/*
+             * M-3c-ui: expanded 時のみ補助行を DOM に出す。
+             * CEO 補正 (= 2026-05-23): hidden 時は DOM 不在 (= screen reader 不在)。
+             * 視覚的に隠す (= aria-hidden / display:none) ではなく conditional render。
+             */}
+            {canDisclose && isExpanded && feasibilityView && (
+              <FeasibilityDisclosureLine
+                view={feasibilityView}
+                transitionIndex={transitionIndex}
+              />
+            )}
+          </Fragment>
+        );
+      })}
     </ol>
   );
 }
@@ -315,7 +408,7 @@ function EventItem({ node, onEventClick }: EventItemProps): ReactElement {
   );
 }
 
-// ── MovementTransition (= K-3c-iii fallback「→ 移動」 + L-4d optional override) ─
+// ── MovementTransition (= K-3c-iii fallback「→ 移動」 + L-4d optional override + M-3c-ui disclosure) ─
 
 interface TransitionItemProps {
   readonly view: import("@/lib/plan/dayGraph/dayGraphTimelinePresentation").MovementTransitionView;
@@ -325,6 +418,41 @@ interface TransitionItemProps {
    *   - 指定あり → label / ariaLabel を override (= className は K-3c-iii のまま維持)
    */
   readonly displayOverride?: MovementDisplayView;
+
+  /**
+   * M-3c-ui: 該当 transition の FeasibilityDisplayView (= optional)。
+   *
+   * 指定された場合:
+   *   - 「詳細 / 閉じる」 textual hint を line 末尾に追加
+   *   - transition line が interactive (= tap / Enter / Space で toggle)
+   *   - aria-expanded / aria-controls 付与
+   *
+   * 未指定の場合:
+   *   - 既存 L-4d / K-3c-iii 通りの挙動 (= 文字列表示のみ、 interactive 無効)
+   */
+  readonly feasibilityView?: FeasibilityDisplayView;
+
+  /**
+   * M-3c-ui: 該当 transition が expanded か (= optional)。
+   *
+   * - true → 「閉じる」 hint、 aria-expanded="true"
+   * - false → 「詳細」 hint、 aria-expanded="false"
+   * - undefined → disclosure UI 無効
+   */
+  readonly isExpanded?: boolean;
+
+  /**
+   * M-3c-ui: toggle callback (= optional)。
+   *
+   * 既に transitionIndex に bind 済の関数を受け取る (= caller 責任)。
+   * undefined なら disclosure UI 無効。
+   */
+  readonly onToggleDisclosure?: () => void;
+
+  /**
+   * M-3c-ui: 該当 transition の index (= aria-controls の id 生成用)。
+   */
+  readonly transitionIndex?: number;
 }
 
 /**
@@ -346,22 +474,122 @@ function buildAriaLabelFromDisplay(display: MovementDisplayView): string {
   return "場所の移動";
 }
 
-function TransitionItem({ view, displayOverride }: TransitionItemProps): ReactElement {
+function TransitionItem({
+  view,
+  displayOverride,
+  feasibilityView,
+  isExpanded,
+  onToggleDisclosure,
+  transitionIndex,
+}: TransitionItemProps): ReactElement {
   // L-4d: label / ariaLabel を optional override (= className / data-testid は K のまま)
   const label = displayOverride?.displayText ?? view.label;
   const ariaLabel = displayOverride
     ? buildAriaLabelFromDisplay(displayOverride)
     : view.ariaLabel;
 
+  // M-3c-ui: disclosure 機能の有効化判定
+  //   - feasibilityView + onToggleDisclosure の両方が指定された時のみ
+  //   - isExpanded は boolean / undefined のどちらでも、 active 時に必ず boolean を取る
+  const isInteractive = feasibilityView !== undefined && onToggleDisclosure !== undefined;
+  const expanded = isInteractive && (isExpanded ?? false);
+
+  // M-3c-ui: aria-controls の id (= expanded 時のみ生成、 補助行 li の id と一致)
+  const ariaControlsId =
+    isInteractive && expanded && transitionIndex !== undefined
+      ? `feasibility-disclosure-${transitionIndex}`
+      : undefined;
+
+  // M-3c-ui: keyboard handler (= Enter / Space で toggle、 hover-only 禁止)
+  const handleKeyDown = isInteractive
+    ? (e: KeyboardEvent<HTMLLIElement>) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onToggleDisclosure?.();
+        }
+      }
+    : undefined;
+
+  // M-3c-ui: hint テキスト (= collapsed: 「詳細」、 expanded: 「閉じる」)
+  //   - amber/orange/red 色なし、 icon なし、 中立 textual hint
+  //   - styling = K-3c-iii tier_2 と同階調 (= text-xs italic text-slate-400)
+  //   - aria-hidden で screen reader への二重読み上げを回避 (= aria-expanded が代替伝達)
+  const hintText = isInteractive ? (expanded ? "閉じる" : "詳細") : null;
+
   return (
     <li
       role="listitem"
       aria-label={ariaLabel}
-      className={view.className}
+      className={
+        view.className +
+        (isInteractive
+          ? " cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded"
+          : "")
+      }
       data-testid="day-graph-transition"
       data-variant={displayOverride?.variant ?? "k-fallback"}
+      data-has-disclosure={isInteractive ? "true" : undefined}
+      data-expanded={isInteractive ? (expanded ? "true" : "false") : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      onClick={isInteractive ? onToggleDisclosure : undefined}
+      onKeyDown={handleKeyDown}
+      aria-expanded={isInteractive ? expanded : undefined}
+      aria-controls={ariaControlsId}
     >
-      {label}
+      <span>{label}</span>
+      {hintText !== null && (
+        <span
+          className="ml-2 text-xs italic text-slate-400"
+          aria-hidden="true"
+          data-testid="day-graph-transition-hint"
+        >
+          {hintText}
+        </span>
+      )}
+    </li>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// M-3c-ui: Feasibility Disclosure Line (= expanded 時のみ DOM に出す補助行)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 「余白 N 分」 / 「不足 N 分」 を観測表示する補助行。
+ *
+ * 設計判断 (= 2026-05-23 CEO + GPT 承認):
+ *   - **expanded 時のみ DOM に出す** (= conditional render、 視覚 hidden 禁止)
+ *   - styling = K-3c-iii tier_2_movement_aux と同階調
+ *     (= text-xs italic text-slate-400、 background なし、 border なし、 icon なし)
+ *   - variant (= slack / shortfall) で class 違いなし (= data attribute のみ)
+ *   - amber / orange / red 不使用 → alert 化 risk 0
+ *   - aria-label は displayText 直接 (= 中立、 「危険」 「不足しています」 等の禁止文言 0)
+ *
+ * 危険境界遵守:
+ *   - warning / recommendation / optimization 文言 0
+ *   - icon / badge / warning box 0
+ *   - amber / orange / red 0
+ */
+interface FeasibilityDisclosureLineProps {
+  readonly view: FeasibilityDisplayView;
+  readonly transitionIndex: number;
+}
+
+function FeasibilityDisclosureLine({
+  view,
+  transitionIndex,
+}: FeasibilityDisclosureLineProps): ReactElement {
+  return (
+    <li
+      role="listitem"
+      id={`feasibility-disclosure-${transitionIndex}`}
+      aria-label={view.displayText}
+      className="text-xs italic text-slate-400 pl-8"
+      data-testid="day-graph-feasibility-disclosure"
+      data-variant={view.variant}
+      data-tier={view.tier}
+    >
+      {view.displayText}
     </li>
   );
 }

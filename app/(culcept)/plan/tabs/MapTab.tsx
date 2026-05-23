@@ -27,7 +27,7 @@
  *   - Lazy resolve: visible window 内 anchor のみ geocode 対象
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
@@ -78,6 +78,13 @@ import {
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
 import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
+import { useMapTabFeasibilityDisplay } from "./_useMapTabFeasibilityDisplay";
+import {
+  applyDisclosureAction,
+  getDisclosureStateForIndex,
+  resetAllDisclosures,
+  type ExpandedTransitionIndices,
+} from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
 import {
   computeLivedGeographyFallback,
   type LivedGeographyFallback,
@@ -207,6 +214,46 @@ export function MapTab({
     isoDate(selectedDate),
     resolutions,
   );
+
+  // ── M-3c-ui MapTab-only: feasibility display + per-transition disclosure ──
+  //    既存 resolutions を読むだけ (= 新規 fetch なし、 localStorage なし、 telemetry なし)。
+  //    pipeline は parallel computation (= L-4c-pure の result が overlay を露出しないため)。
+  //    結果は DayGraphTimeline.feasibilityDisplayByTransitionIndex に渡す。
+  //    not_applicable は M-2a で map から除外済 (= sensitive / unresolved / location_unknown 対策)。
+  const feasibilityDisplayByTransitionIndex = useMapTabFeasibilityDisplay(
+    dayAnchors,
+    isoDate(selectedDate),
+    resolutions,
+  );
+
+  // M-3c-ui disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
+  //   React lazy initial state pattern (= `resetAllDisclosures` 関数 ref を渡す)。
+  //   - 初期 state は必ず新規 empty Set (= mutation 攻撃面 0)
+  //   - re-render 時に再計算されない (= function ref が安定)
+  const [expandedTransitionIndices, setExpandedTransitionIndices] = useState<
+    ExpandedTransitionIndices
+  >(resetAllDisclosures);
+
+  // M-3c-ui: selectedDate 変化で reset (= 「観測の幕間」、 革新 5)
+  //   localStorage 禁止と整合: persist なし、 日切替で fresh observation 再起動。
+  useEffect(() => {
+    setExpandedTransitionIndices(resetAllDisclosures());
+  }, [selectedDate]);
+
+  // M-3c-ui: per-transition disclosure toggle handler
+  //   transition line tap / Enter / Space で呼ばれる。
+  //   M-3c-pure-harden の applyDisclosureAction (= idempotency 同参照保持) 経由で状態更新。
+  const handleToggleFeasibilityDisclosure = useCallback(
+    (transitionIndex: number) => {
+      setExpandedTransitionIndices((current) => {
+        const currentState = getDisclosureStateForIndex(current, transitionIndex);
+        const action = currentState === "expanded" ? "request_collapse" : "request_expand";
+        return applyDisclosureAction(current, transitionIndex, action);
+      });
+    },
+    [],
+  );
+
   const { baselineCoords, loading: baselineLoading } = usePlanBaseline();
   const loading = geocodeLoading || baselineLoading;
 
@@ -443,6 +490,9 @@ export function MapTab({
             }}
             dataTestId="plan-map-day-graph-timeline"
             movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}
+            feasibilityDisplayByTransitionIndex={feasibilityDisplayByTransitionIndex}
+            expandedTransitionIndices={expandedTransitionIndices}
+            onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
           />
         </div>
       )}

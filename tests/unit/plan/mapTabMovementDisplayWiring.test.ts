@@ -97,8 +97,14 @@ describe("§1. DayGraphTimeline component — L-4d optional prop 追加", () => 
     expect(dayGraphContent).toMatch(/`場所の移動、\s*\$\{suffix\}`/);
   });
 
-  it("TransitionItem の className は view.className のまま (= K-3c-iii 階調保護)", () => {
-    expect(dayGraphContent).toMatch(/className=\{\s*view\.className\s*\}/);
+  it("TransitionItem の className は view.className を基底として継承 (= K-3c-iii 階調保護)", () => {
+    // M-3c-ui 着地 (= 2026-05-23) で TransitionItem className は
+    // `view.className + (isInteractive ? " cursor-pointer ... " : "")` の合成形になった。
+    // K-3c-iii 階調保護 (= view.className を base に使う) は維持されているため、
+    // 「view.className を含む」 を検証する。
+    expect(dayGraphContent).toMatch(/className=\{[\s\S]*?view\.className[\s\S]*?\}/);
+    // 但し base styling (= view.className) は依然 K-3c-iii のもの (= 階調保護不変)
+    expect(dayGraphContent).toMatch(/view\.className/);
   });
 
   it("data-variant 属性で variant が露出 (= debug / test 用)", () => {
