@@ -399,7 +399,7 @@ function EventItem({ node, onEventClick }: EventItemProps): ReactElement {
       <button
         type="button"
         onClick={() => onEventClick(node.anchorId)}
-        className="text-left w-full block focus:outline-none focus:ring-2 focus:ring-indigo-300 rounded-md"
+        className="text-left w-full block focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded-md"
         aria-label={node.ariaLabel}
       >
         {inner}

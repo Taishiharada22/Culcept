@@ -11959,3 +11959,99 @@ N-1 closeout `8f1d7432` 着地後、 CEO + GPT 「N-2 wave plan 提示 + low-ris
 - **ステータス**: N-2 wave 1 plan audit 着地完了。 wave 1 範囲確定 (= P-001 のみ) + 1 行修正設計 + risk 全件 low + 連続 GO 判定 ✅ + CEO 判断 4 件。 次は N-2 wave 1 impl (= 別 branch、 連続 GO 候補)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-2 Wave 1 impl — P-001 EventItem focus ring 統一 (= 1 行修正 + 1 regression test、 2626 PASS) [承認: CEO + GPT 連続 GO]
+
+### 背景
+
+N-2 wave 1 plan audit `d3bf0cc8` で連続 GO 判定済。 1 行修正 + 1 件 regression test の最小実装、 外科的緻密。
+
+### 修正内容
+
+**file**: `app/(culcept)/plan/components/DayGraphTimeline.tsx` L 402
+
+```diff
+-        className="text-left w-full block focus:outline-none focus:ring-2 focus:ring-indigo-300 rounded-md"
++        className="text-left w-full block focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 rounded-md"
+```
+
+**変更要素**:
+1. `focus:` → `focus-visible:` (= mouse click 後 ring 消える、 keyboard ring 維持)
+2. `ring-indigo-300` → `ring-slate-300` (= 青 → 灰、 M phase 階調統一)
+
+### 新規 regression test (= 永続規約化)
+
+**file**: `tests/unit/plan/dayGraphTimelineComponent.test.ts`
+
+```typescript
+it("N-2 wave 1 P-001: EventItem button は focus-visible:ring-slate-300 を使う (= M phase visual 規約継承)", () => {
+  expect(content).toMatch(
+    /button[\s\S]*?className="[^"]*focus-visible:ring-2 focus-visible:ring-slate-300/,
+  );
+  expect(content).not.toMatch(/focus:ring-indigo/);
+});
+```
+
+→ 将来 EventItem button class が indigo-300 / focus:ring に戻ることを構造的に禁止 (= 永続規約)。
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| impl branch | `feat/alter-plan-phase3-n-2-wave-1-focus-ring-unify` |
+| 変更 file | 2 (= DayGraphTimeline.tsx + dayGraphTimelineComponent.test.ts) |
+| 既存 file 改変行数 | **2 行** (= L 402 修正 + test 1 件追加) |
+| **dayGraphTimeline tests** | **24 PASS** (= 23 既存 + 1 regression) |
+| **全 plan tests regression** | **2626 PASS** (= 2625 → +1) |
+| DayGraphTimeline tsc errors | **0** |
+| K / L / M-1〜M-3d-bugfix 既存 file 改変 | **0** (= K-3a `<button>` の class polish のみ、 機能不変) |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+
+### 思想 transmission (= 永続規約 24 件、 +1)
+
+24. **M phase で確立した slate-* + focus-visible 階調を「観測層 OS visual 規約」 として永続規約化** (= regression test で機械保証、 N-2 wave 1)
+
+### 効果 (= 期待 CEO smoke)
+
+- mouse click 後の「stuck 青 ring」 が消える (= UX 改善)
+- keyboard user (= Tab) には引き続き slate-300 弱 ring 表示 (= a11y 維持)
+- TransitionItem (= M-3c-ui で確立した slate-300) と視覚統一感
+- 既存 MapTab / Calendar / Flow / Modal 動作不変
+
+### freeze 状態
+
+- `feat/alter-plan-phase3-n-2-wave-1-focus-ring-unify` (= 本 commit): **freeze 候補** (= CEO visual smoke pending)
+- 完全 freeze はしない (= smoke PASS 待ち)
+- 合計 **55 frozen branches** (= 既存維持)
+
+### CEO Visual Smoke 計画 (= 5 件 / 5-10 分)
+
+| # | 確認項目 | 期待挙動 |
+|---|---|---|
+| 1 | mouse で予定 card click | 強い青 ring が出ない / 残らない |
+| 2 | Tab key で focus 移動 | EventItem button に slate-300 弱 ring |
+| 3 | Enter / Space で modal 起動 | 動作不変 |
+| 4 | TransitionItem との視覚整合 | 両方 slate-300、 統一感 |
+| 5 | 既存 UI 動作 | 大きな崩れなし |
+
+### 危険境界遵守 (= 全件 0)
+
+- M phase の追加変更: 0 (= K-3a EventItem class polish のみ)
+- M-2a / L-4a 文言の変更: 0
+- TransitionItem (= 既に slate-300) 変更: 0
+- 他 polish 候補 (P-002〜P-008) wave 1 混入: 0
+- 新規 component / hook 追加: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- frozen branches への追加 commit: 0
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 連続 GO (= 2026-05-23 N-2 wave 1 plan 連続 GO 判定 + 1 行修正で実装着地)
+- **ステータス**: N-2 wave 1 impl 着地完了。 24 + 2626 tests PASS。 1 行修正 + 1 regression test。 freeze 保留 (= CEO visual smoke 5 件再実施待ち)。 次は CEO smoke → wave 1 closeout audit。
+
+---

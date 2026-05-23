@@ -147,6 +147,28 @@ describe("DayGraphTimeline component — structural invariants", () => {
       expect(importLine).toMatch(/MovementDisplayView/);
     }
   });
+
+  // Phase 3-N-2 wave 1 (= 2026-05-23 CEO + GPT 合議): P-001 focus ring 統一規約
+  //
+  // EventItem button は M-3c-ui の TransitionItem (= slate-300 + focus-visible) と
+  // 統一すること。 旧 K-3a 由来の indigo-300 / focus:ring (= focus-visible なし) は禁止。
+  //
+  // 設計書:
+  //   - docs/alter-plan-phase3-n-2-wave-1-plan-audit.md
+  //   - docs/alter-plan-phase3-n-1-closeout-audit.md §2.2 (= P-001 詳細分析)
+  //
+  // 思想:
+  //   - mouse click 後の「stuck ring」 を排除 (= UX 改善、 「観測の幕間」 整合)
+  //   - keyboard user には focus-visible で ring を維持 (= WCAG 2.1 a11y)
+  //   - M phase で確立した slate-* 階調と統一 (= 「観測層 OS visual 規約」)
+  it("N-2 wave 1 P-001: EventItem button は focus-visible:ring-slate-300 を使う (= M phase visual 規約継承)", () => {
+    // EventItem button が新規約 (= focus-visible + slate-300) を使う
+    expect(content).toMatch(
+      /button[\s\S]*?className="[^"]*focus-visible:ring-2 focus-visible:ring-slate-300/,
+    );
+    // 旧規約 (= indigo / focus-visible なし) パターンが存在しないこと
+    expect(content).not.toMatch(/focus:ring-indigo/);
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
