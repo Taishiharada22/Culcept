@@ -11826,3 +11826,136 @@ CEO + GPT 指示「次に進む」 + GPT 指摘 polish 候補 2 件提示。
 - **ステータス**: N-1 closeout audit 着地完了。 smoke PASS 9 項目 + polish 候補 8 件 + wave 1 推奨 (= P-001) + 3 永続規約 + CEO 判断 5 件。 N-1 phase 正式完了。 次は N-2 wave 1 plan audit (= 連続 GO 候補)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-2 Wave 1 Plan Audit — P-001 focus ring 統一 + 連続 GO 判定 [承認: CEO + GPT 連続 GO]
+
+### 背景
+
+N-1 closeout `8f1d7432` 着地後、 CEO + GPT 「N-2 wave plan 提示 + low-risk なら wave 1 実装連続 GO」 指示。
+本 audit は wave 1 範囲を **1 行修正に限定**、 外科的緻密設計 + 連続 GO 判定を提示。
+
+### CEO 方針 7 点との整合
+
+| # | 方針 | 対応 |
+|---|---|---|
+| ① 前提を疑う | spacing 統一は「自律 (a) 何もしない」 で対応 |
+| ② 時間をかけて | wave 1 を 1 行に限定 |
+| ③ シンプル | 最小修正、 副作用なし |
+| ④ 外科的緻密 | line 番号特定、 影響評価 |
+| ⑤ ゴール逆算 | /plan complete 最短 path |
+| ⑥ 推論力 | focus-visible 採用根拠を機械検証 |
+| ⑦ 革新 | slate-* 階調を「観測層 OS visual 規約」 永続規約化 |
+
+### Wave 1 範囲 (= P-001 のみ採用)
+
+**変更対象**:
+- file: `app/(culcept)/plan/components/DayGraphTimeline.tsx`
+- L 402 (= EventItem button class)
+
+**変更 diff**:
+```
+- focus:ring-2 focus:ring-indigo-300
++ focus-visible:ring-2 focus-visible:ring-slate-300
+```
+
+**変更要素**:
+1. `focus:` → `focus-visible:` (= mouse click 後 ring 消える、 keyboard ring 維持)
+2. `ring-indigo-300` → `ring-slate-300` (= 青 → 灰、 M phase 階調統一)
+
+### 採用しない (= wave 1 範囲外)
+
+| 候補 | 理由 |
+|---|---|
+| P-002 spacing 統一 | freeze 規約、 自律 (a) 何もしない、 CEO 具体提案待ち |
+| P-003〜P-008 | priority 低-中、 wave 2+ で smoke 後判定 |
+
+### 実装プロトコル
+
+1. L 402 class 文字列を diff で 1 行修正
+2. tsc 確認 (= file 単独で 0 errors)
+3. 全 plan tests 確認 (= 2625 PASS 維持)
+4. 新規 regression test 1 件追加 (= grep pattern):
+   - `tests/unit/plan/dayGraphTimelineComponent.test.ts`
+   - 「EventItem button が focus-visible:ring-slate-300 を使う」 永続化
+5. commit
+
+### Risk Matrix (= 全件 low)
+
+| Risk | level |
+|---|---|
+| visual regression | 低 (= EventItem 内部 visual のみ) |
+| a11y regression | 低 (= focus-visible は keyboard でも発火) |
+| user 混乱 | 低 (= mouse 後 ring 消える方が UX 改善) |
+| M phase 規約違反 | 0 (= slate-* 統一) |
+| freeze 規約違反 | 0 (= K-3a EventItem の class は polish 範囲) |
+
+### 「ring を青で残す意義」 (= 前提を疑う ①)
+
+| 観点 | 自律分析 |
+|---|---|
+| brand color | indigo は AneurasyncHome FAB / button 用、 focus ring 固有意味なし |
+| 強調 | TransitionItem も同等 click target だが slate-300 (= 統一規約) |
+| 識別 | mouse の cursor 自体が示す、 ring は重複 |
+
+→ 「青で残す」 意義なし、 slate-300 + focus-visible が思想整合。
+
+### 革新点 (= ⑦)
+
+- focus-visible 採用 = WCAG 2.1 推奨 + 「観測の幕間」 思想整合 (= 「観測しない時は何も主張しない」)
+- M phase slate-* 階調を「観測層 OS visual 規約」 として永続規約化
+
+### CEO Smoke 計画 (= 5 件 / 5-10 分)
+
+1. mouse で予定 card click → 強い青 ring 消える
+2. Tab key で focus → EventItem に slate-300 弱 ring
+3. Enter/Space で modal 起動 → 動作不変
+4. TransitionItem との視覚整合
+5. 既存 MapTab/Calendar/Flow/Modal 不変
+
+### 連続 GO 判定
+
+✅ **N-2 wave 1 impl 連続 GO**:
+- 全判定軸 low-risk
+- 既存規約整合
+- 1 file / 1 line + 1 test 追加
+- ロールバック容易 (= 1 行戻す)
+
+### 着地予定
+
+- branch: `feat/alter-plan-phase3-n-2-wave-1-focus-ring-unify`
+- 変更 file: 2 (= DayGraphTimeline.tsx + test)
+- 既存 file 改変: 1 (= DayGraphTimeline.tsx の L 402 のみ)
+
+### freeze 状態
+
+- `docs/plan-phase3-n-2-wave-1-plan-audit` (= 本 commit): **frozen 予定**
+- 合計 **55 frozen branches** (= 54 + 1)
+
+### CEO 判断項目 4 件
+
+1. P-001 wave 1 impl 連続 GO 承認
+2. 新規 regression test 内容承認 (= grep pattern)
+3. CEO smoke 5 件で十分か
+4. wave 1 完了後の進行 (= wave 1 closeout audit → smoke → wave 2 plan)
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= 本 audit は docs only)
+- frozen branches への追加 commit: 0
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- TransitionItem (= 既に slate-300) への変更: 0
+- 他 polish 候補 (P-002〜P-008) の wave 1 混入: 0
+- 新規 component / hook 追加: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 N-1 closeout 後 「wave 1 plan + 連続 GO 候補」 指示、 自律推論で 9 章 doc 着地)
+- **ステータス**: N-2 wave 1 plan audit 着地完了。 wave 1 範囲確定 (= P-001 のみ) + 1 行修正設計 + risk 全件 low + 連続 GO 判定 ✅ + CEO 判断 4 件。 次は N-2 wave 1 impl (= 別 branch、 連続 GO 候補)。
+
+---
