@@ -9225,3 +9225,113 @@ NO 寄り維持:
 - **ステータス**: L-4d-b2 完全 freeze 確定。 Phase 3-L は **5 完了基準全件達成**で「一旦完了 (= current range)」 判断可能状態に到達。 36 frozen branches 計。 docs only で実装変更 0。 次は CEO 最終判断 (= Phase 3-L 完了確定 + 別軸 pivot 採用)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M Readiness Audit + M-1 連続実装着地 (= Day Feasibility Truth Layer、 69 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+Phase 3-L 一旦完了判断後、 CEO + GPT 「Deploy 撤回、 Phase 3-M readiness audit、 audit 結果が low-risk なら M-1 連続実装 OK」 指示。 自律推論で M の責務を「Day Feasibility Truth Layer」 と定義、 audit + M-1 を **一気に着地**。
+
+### M の責務定義 (= 自律推論で導出)
+
+**Phase 3-M = Day Feasibility Truth Layer** = 各 transition の前後 anchor 間「余白 / 不足」 の観測。
+
+「観測層 3 段構造」 思想:
+- K = 時間構造観測 (= computed projection)
+- L = 移動観測 (= Mobility Truth Layer)
+- **M = 余白観測 (= Feasibility Truth Layer)** ← 本 commit
+- N 以降 = pattern 観測 (= 別 phase)
+
+### Arrival Risk との明示分離 (= 永続規約化)
+
+| 項目 | Day Feasibility (M) | Arrival Risk (永続禁止) |
+|---|---|---|
+| 出力 | 「余白 N 分」 / 「不足 N 分」 | 「遅刻リスク 70%」 / 「危険度 High」 |
+| 性質 | 量的中立表記 | 評価 / 確率 / 警告 |
+| 思想 | 観測のみ (= 整合) | 推奨 / 警告 (= 永続禁止) |
+
+→ M は Feasibility のみ。 Arrival Risk には絶対に近づかない。
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| audit branch | `docs/plan-phase3-m-readiness-audit` (= `27419eed` freeze) |
+| impl branch | `feat/alter-plan-phase3-m-1-pure-feasibility-types-helper` (= `9919b936` 起点) |
+| M-1 commit | **`fd2808f8`** (= 4 files + 69 tests) |
+| **M-1 tests** | **69 PASS** (= 33 types/contract + 36 helper) |
+| **全 plan tests regression** | **2241 PASS** (= 既存 L / K / J integration 全件維持) |
+| 新規 files | 3 lib + 2 tests = 5 |
+| **既存 file 変更** | **0** (= K phase / L 全 freeze 維持) |
+| DB / env / package / dependency / UI 変更 | **0** |
+| 新規 endpoint / fetch / localStorage | **0** |
+
+### 着地物
+
+| File | 役割 |
+|---|---|
+| `lib/plan/feasibility/feasibilityTypes.ts` | SlackStatus / FeasibilitySlackView / DayFeasibilityResult (= L-1 対称) |
+| `lib/plan/feasibility/feasibilityIntegrityContract.ts` | 9 invariants + assert function (= L-4b 対称) |
+| `lib/plan/feasibility/dayFeasibilityComputation.ts` | computeDayFeasibility pure helper |
+| `tests/unit/plan/feasibilityTypesAndContract.test.ts` | 33 tests |
+| `tests/unit/plan/dayFeasibilityComputation.test.ts` | 36 tests (= 7 fixture + sensitive + manual override + PII grep) |
+
+### 表記規約 (= 永続)
+
+- ✅ 「余白 N 分」 / 「不足 N 分」 / 「該当なし」
+- ❌ 「ギリギリ」 「快適」 「危険」 「リスク」 「遅刻」 「お急ぎ」 等の質的評価語
+
+### 危険境界遵守 (= 全件機械検証)
+
+- UI 変更 0
+- DB / env / package / dependency 変更 0
+- localStorage / Arrival Risk Memory 0
+- warning / recommendation / optimization 文言 0
+- mode 表示 / distance 表示 0
+- Routes API / 新 geocode 0
+- K phase / L-1 既存 file 改変 0
+- LLM 不使用 / API 不使用 / fetch 不使用 / network 0
+
+### 革新的アイデア (= 自律推論で導出)
+
+1. **「観測層 3 段構造」 思想** — K/L/M で「観測のみ」 を積み重ね
+2. **対称性 = 開発予測可能性** — L-1 と M-1 を同 pattern で実装
+3. **negative / positive 両側を中立表記** — 「不足」 も警告ではない
+4. **M phase Negative Capability** — 余白の質を勝手に評価しない
+5. **L-3c sanitize 維持 + M-1 計算成立** — graph.transitions から逆引き
+6. **Feasibility は L overlay の resolved 上にのみ意味** — not_applicable を first-class
+7. **UI 接続は M-2 以降** — いきなり警告 UI を出さない (= ユーザーに圧を与えない)
+
+### freeze 状態 (= 本 commit 着地と同時)
+
+- `docs/plan-phase3-m-readiness-audit` (= `27419eed`): **frozen 扱い**
+- `feat/alter-plan-phase3-m-1-pure-feasibility-types-helper` (= `fd2808f8`): **frozen 扱い** (= visual smoke は M-1 に UI なし、 機械検証のみで完結)
+- 合計 **38 frozen branches**
+
+### CEO 判断ポイント (= 本 commit 着地後)
+
+| Q | 内容 | 自律推奨 |
+|---|---|---|
+| Q1 | M の責務「Day Feasibility Truth Layer」 と Arrival Risk との明示分離を永続規約化 | **YES** |
+| Q2 | M-1 完全 freeze (= UI なし、 機械検証のみで完結、 visual smoke 不要) | **YES** |
+| Q3 | 次は M-2 readiness audit (= UI 接続検討) か、 別軸 pivot か | CEO 判断 |
+| Q4 | M-2 着手は別 audit 経由 (= いきなり警告 UI を出さないため) | **YES** |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ M で Arrival Risk Memory / Arrival Risk 評価
+❌ M で warning / recommendation / optimization / urgency 文言
+❌ M で「ギリギリ」 「快適」 等の質的評価語
+❌ M で UI 表示 (= M-2 以降は別 audit)
+❌ M で DB / env / package / dependency 変更
+❌ M で localStorage / runtime telemetry sink
+❌ M で Counterfactual / mode 推定 / Routes API
+❌ K / L 既存 types 改変
+❌ frozen branches への commit (= 38 branches)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 Phase 3-L 一旦完了後 「Phase 3-M readiness audit + M-1 連続実装」 指示、 自律推論で「Day Feasibility Truth Layer」 と責務定義)
+- **ステータス**: M-1 着地完了。 69 tests PASS + 2241 全 plan tests regression PASS。 K / L 既存 file 改変 0。 38 frozen branches 計。 次は CEO 判断 (= M-2 readiness audit / 別軸 pivot / 別 phase)。
+
+---
