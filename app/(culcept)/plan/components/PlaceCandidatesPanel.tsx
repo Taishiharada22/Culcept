@@ -339,7 +339,7 @@ export function PlaceCandidatesPanel({
           text-slate-400
           transition-colors duration-150
           hover:bg-slate-100 hover:text-slate-700
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
           active:scale-95
         "
       >
@@ -449,7 +449,7 @@ export function PlaceCandidatesPanel({
                   min-h-14 p-2.5
                   transition-colors duration-150
                   hover:border-indigo-300 hover:bg-indigo-50/60
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
                   focus-visible:border-indigo-300
                   active:scale-[0.98]
                 "
@@ -484,7 +484,7 @@ export function PlaceCandidatesPanel({
             text-xs text-slate-500 underline
             transition-colors duration-150
             hover:text-slate-700 hover:bg-slate-50
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
           "
         >
           場所を選ばずに保存

@@ -12315,3 +12315,133 @@ P-009 評価:
 - **ステータス**: N-2 wave 2 plan audit 着地完了。 P-009 採用 (= 規約 24 全展開) + 5 file/9 line + 18 tests + risk 全件 low + 連続 GO 判定 ✅ + CEO 判断 5 件。 次は N-2 wave 2 impl (= 別 branch、 連続 GO 候補)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-2 Wave 2 impl — P-009 規約 24 全 plan component 適用 (= 9 line 修正 + 26 regression tests、 2652 PASS) [承認: CEO + GPT 連続 GO + 補正反映]
+
+### 背景
+
+N-2 wave 2 plan audit `73a7405d` で連続 GO 判定済。
+CEO + GPT 承認内容:
+1. P-009 wave 2 impl: 承認、 scope は 4 file 9 line + regression test に閉じる
+2. regression test: 方向性承認、 但し **「肯定系 assertion 追加」 (= `focus-visible:ring-slate-300` 存在確認) 必須補正**
+3. ring-offset 全削除: 原則承認、 smoke で例外時は slate 系で調整可
+4. smoke 6 件で十分
+5. 順序: wave 2 impl → smoke → wave 2 closeout → wave 3 plan
+
+### GPT 補正反映 (= 「肯定系 assertion」)
+
+**補正前 (= plan 案)**: 否定系 grep のみ (= 18 tests)
+- focus:ring-indigo 不在
+- focus-visible:ring-indigo 不在
+- focus-visible:ring-offset-* 不在
+
+**補正後 (= 本 impl)**: 否定系 + 肯定系 = **24 tests** + cross-file 宣言 = **26 tests**
+- 否定系 3 件 × 6 file = 18 件 (= 既存案維持)
+- **肯定系 1 件 × 6 file = 6 件 (= NEW)**: `focus-visible:ring-slate-300` が存在
+- cross-file 宣言: 2 件 (= file 存在 + 規約 24 適用範囲 = 6 file)
+
+→ 「focus ring 自体が消えても通る」 risk を構造的に排除。
+
+### 修正内容
+
+**9 line 修正完了** (= 全件 grep で違反 0、 肯定系 11 箇所で slate-300 確認):
+
+**完全違反 → 規約 24 (= 4 line)**:
+| file | line | 修正 |
+|---|---|---|
+| MapTab.tsx | 1463 | `focus:ring-2 focus:ring-indigo-400` → `focus-visible:ring-2 focus-visible:ring-slate-300` |
+| MapTab.tsx | 1586 | 同上 |
+| FlowTab.tsx | 566 | 同上 |
+| CalendarTab.tsx | 516 | 同上 |
+
+**部分違反 → 規約 24 (= 5 line)**:
+| file | line | 修正 |
+|---|---|---|
+| PlaceCandidatesPanel.tsx | 342 | `focus-visible:ring-indigo-300 ring-offset-1` → `focus-visible:ring-slate-300` |
+| PlaceCandidatesPanel.tsx | 452 | 同上 |
+| PlaceCandidatesPanel.tsx | 487 | 同上 |
+| AnchorFormFields.tsx | 405 | 同上 |
+| AnchorFormFields.tsx | 499 | 同上 |
+
+### 新規 regression test (= 26 tests)
+
+**file**: `tests/unit/plan/planComponentsFocusRingRegimeWiring.test.ts`
+
+**構造**:
+- 6 target files × 4 invariants = 24 件:
+  - §1 `focus:ring-indigo` 不在 (= 完全違反禁止)
+  - §2 `focus-visible:ring-indigo` 不在 (= 部分違反禁止)
+  - §3 `focus-visible:ring-offset-*` 不在 (= 「観測の幕間」 思想整合)
+  - **§4 `focus-visible:ring-slate-300` が存在 (= 肯定系、 GPT 補正反映)**
+- cross-file 宣言 2 件:
+  - 全 target file が読込可能
+  - 規約 24 適用範囲 = 6 file
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| impl branch | `feat/alter-plan-phase3-n-2-wave-2-focus-ring-regime-applied` |
+| 変更 file | 6 (= 5 既存 + 1 新規 test) |
+| 既存 file 改変行数 | **9 line** (= class 文字列のみ) |
+| **新規 regression tests** | **26 PASS** (= 24 invariants + 2 cross-file) |
+| **全 plan tests regression** | **2652 PASS** (= 2626 → +26) |
+| target file tsc errors | **0** |
+| K / L / M-1〜M-3d-bugfix / wave 1 既存 file 改変 | **0** (= class 文字列 polish のみ、 機能不変) |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+| 違反 grep 確認 | 完全違反/部分違反 **0 hit** |
+| 肯定系 grep 確認 | `focus-visible:ring-slate-300` **11 箇所**で確認 (= wave 1 の 2 + wave 2 の 9) |
+
+### 思想 transmission (= 永続規約 24 件、 wave 2 で全展開達成)
+
+**24. 「観測層 OS visual 規約」 (= focus-visible: + slate-300)** を **全 plan component に適用済**:
+- wave 1: DayGraphTimeline EventItem ✅
+- M-3c-ui: DayGraphTimeline TransitionItem ✅
+- wave 2: MapTab / FlowTab / CalendarTab / PlaceCandidatesPanel / AnchorFormFields ✅
+- 計 6 file 11 箇所で統一
+- 否定系 + 肯定系の二重 regression test で永続規約化
+
+### 効果 (= 期待 CEO smoke)
+
+- 全 plan component で「強い青 stuck ring」 消える (= UX 改善)
+- keyboard user に slate-300 弱 ring 維持 (= WCAG 2.1 a11y)
+- AddAnchorModal / EditAnchorModal 内 input field でも統一感
+- 既存機能動作不変
+
+### freeze 状態
+
+- `feat/alter-plan-phase3-n-2-wave-2-focus-ring-regime-applied` (= 本 commit): **freeze 候補** (= CEO visual smoke pending)
+- 完全 freeze はしない (= smoke PASS 待ち)
+
+### CEO Visual Smoke 計画 (= 6 件 / 10-15 分)
+
+1. MapTab で予定 / カテゴリ card click → 強い青 ring 消える
+2. FlowTab で予定 card click → 同上
+3. CalendarTab で予定 card click → 同上
+4. AddAnchorModal の入力 field focus / PlaceCandidatesPanel → slate ring + offset 消える
+5. EditAnchorModal の入力 field focus → 同上
+6. 全 component の Tab navigation で focus-visible 維持 → slate-300 統一
+
+→ smoke で例外あれば slate 系で調整可 (= CEO 補正範囲)。
+
+### 危険境界遵守 (= 全件 0)
+
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- DayGraphTimeline (= wave 1 適用済) への追加変更: 0
+- 他 polish 候補 (P-002〜P-008) の wave 2 混入: 0
+- 新規 component / hook 追加: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- frozen branches への追加 commit: 0
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 連続 GO + 補正反映 (= 2026-05-23 wave 2 plan 連続 GO + 「肯定系 assertion 追加」 補正、 9 line 修正 + 26 tests 着地)
+- **ステータス**: N-2 wave 2 impl 着地完了。 26 + 2652 tests PASS。 9 line 修正 + 26 regression test。 freeze 保留 (= CEO visual smoke 6 件再実施待ち)。 次は CEO smoke → wave 2 closeout audit → wave 3 plan。
+
+---

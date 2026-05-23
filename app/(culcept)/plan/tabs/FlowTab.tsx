@@ -563,7 +563,7 @@ function AnchorRow({
       className={
         "flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 " +
         (clickable
-          ? "cursor-pointer transition hover:border-indigo-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          ? "cursor-pointer transition hover:border-indigo-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           : "")
       }
     >

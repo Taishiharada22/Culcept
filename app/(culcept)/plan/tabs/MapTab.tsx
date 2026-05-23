@@ -1460,7 +1460,7 @@ function CategoryCard({
                 className={
                   "rounded-lg border border-slate-100 bg-white/60 p-2 " +
                   (clickable
-                    ? "cursor-pointer transition hover:border-indigo-300 hover:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                    ? "cursor-pointer transition hover:border-indigo-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
                     : "")
                 }
               >
@@ -1583,7 +1583,7 @@ function UnresolvedAnchorsSection({
               className={
                 "rounded-lg border border-slate-200 bg-white p-2 " +
                 (clickable
-                  ? "cursor-pointer transition hover:border-indigo-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                  ? "cursor-pointer transition hover:border-indigo-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
                   : "")
               }
             >
