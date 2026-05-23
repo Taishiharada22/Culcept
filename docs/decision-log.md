@@ -12565,3 +12565,148 @@ wave 2 は **完全に visual のみ** の変更:
 - **ステータス**: N-2 wave 2 closeout audit 着地完了。 visual smoke 6 件 PASS 記録 + freeze 宣言 (= `94bcd220`、 frozen branches 59 件) + 規約 24 全展開完成 (= plan 全 11 箇所統一) + Visual-Only Closeout 性格明示。 次は **N-2 wave 3 plan audit** (= 別 doc、 残候補 P-002〜P-008 再評価から開始、 CEO 前提 4 点維持)。
 
 ---
+
+## [2026-05-23] [Build/Product] Phase 3-N-2 Wave 3 Plan Audit (= 残候補 P-002〜P-008 再評価 + 新発見 P-010 surface + 連続 GO 判定) [承認: CEO + GPT 合議]
+
+### 背景
+
+- 直前: N-2 wave 2 closeout audit `41461b95` 着地 (= regulation 24 全展開完成 + frozen branches 59)
+- CEO + GPT 指示: 「1. wave 2 closeout audit 2. freeze 宣言 3. wave 3 plan audit の順で進めてください」
+- CEO 前提 4 点:
+  - brand color には戻さない
+  - slate 系 focus-visible 規約を維持
+  - wave 2 は visual-only closeout として閉じる
+  - 他候補を混ぜず、 wave 3 は残候補 P-002〜P-008 の再評価から始める
+
+### CEO 方針 7 点との整合
+
+| # | 方針 | 対応 |
+|---|---|---|
+| ① 前提を疑う | wave 2 完了後の「規約 24 完成」 前提を疑う → border surface に同 spirit 違反 11 箇所発見 (= P-010) |
+| ② 時間をかけて | 残候補 7 件の各実態再調査 + 自律探索で新発見 |
+| ③ シンプル + 論理 | P-010 は wave 2 P-009 と同 pattern、 focus 規約 24 spirit の border 拡張 |
+| ④ 外科的緻密 | 11 違反 line を特定、 影響評価完了 |
+| ⑤ ゴール逆算 | /plan complete までの最短 path = 規約 24 spirit を border まで完全展開 |
+| ⑥ 推論力 | 「polish 候補」 と「規約 spirit 拡張」 を区別、 border と ring の違いを丁寧に分析 |
+| ⑦ 革新 | 規約 24 を「ring 限定」 → 「focus surface 全般」 へ自然拡張 (= 規約 24-extended) |
+
+### 達成事項
+
+#### 残候補 P-002〜P-008 の各 detailed 再評価 (= 全 7 件不採用)
+
+| ID | 候補 | wave 3 採否 | 理由 |
+|---|---|---|---|
+| P-002 | M-2a/L-4a spacing | ❌ | 既に統一、 CEO 具体提案待ち |
+| P-003 | hint span 位置 | ❌ | smoke PASS で違和感報告なし、 規約 24 と整合 |
+| P-004 | 補助行 padding | ❌ | 視覚階層に意味あり、 違和感なし |
+| P-005 | Plan header tone | ❌ | 各 tab 機能差を反映した意図的差、 統一非推奨 |
+| P-006 | Modal animation | ❌ | plan 範囲外の共通 component、 scope 中-大 |
+| P-007 | Empty state copy | ❌ | 既に統一感、 wave 2 plan で確定済 |
+| P-008 | swipe boundary | ❌ | plan 範囲外、 scope/risk 大 |
+
+→ **残候補 7 件全件 wave 3 不採用**。
+
+#### 新発見 P-010 (= 規約 24 の border 拡張、 wave 2 P-009 と同 pattern)
+
+**違反 surface** (= 2 file / 11 箇所):
+
+| file | line 数 | 違反種別 |
+|---|---|---|
+| `AnchorFormFields.tsx` | 10 (= L 190, 202, 213, 286, 350, 404, 437, 448, 463, 525) | 完全違反 (= `focus:border-indigo-400`) |
+| `ProposalChip.tsx` | 1 (= L 122) | 部分違反 (= `focus:border-slate-400`) |
+
+→ **計 11 箇所**で「focus surface に focus-visible: なし」 違反。
+
+#### 規約 24-extended の正式提案
+
+**規約 24-extended**:
+> すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*` を使い、 `focus:` (= focus-visible なし) と brand color (= indigo, purple) を組み合わせない。
+
+### wave 3 範囲確定 (= 自律推奨)
+
+採用: **P-010 のみ** (= 最小、 規約 spirit 拡張)
+
+**変更**:
+- 完全違反: `focus:border-indigo-400` → `focus-visible:border-slate-300` (= 10 line)
+- 部分違反: `focus:border-slate-400` → `focus-visible:border-slate-400` (= 1 line)
+- `focus:outline-none` は維持 (= ブラウザ標準 outline 上書き保証)
+
+**新規 regression test**:
+- file: `tests/unit/plan/planComponentsFocusBorderRegimeWiring.test.ts`
+- 構造: 2 file × 3 invariants + 2 cross-file = **8 tests**
+- 否定系 (= `focus:border-indigo` 不在 / `focus:border-slate` 不在) + 肯定系 (= `focus-visible:border-slate-*` 存在) で GPT 補正反映
+
+### Risk 評価 (= 全項目 low)
+
+| Risk | level | 緩和策 |
+|---|---|---|
+| visual regression | 低 | wave 2 で同種修正適用済、 user は slate-* に慣れている |
+| a11y regression | 0 | focus-visible で keyboard a11y 維持 |
+| user 混乱 | 低 | wave 2 で同様の修正済、 user 経験は連続 |
+| AddAnchorModal 入力体験 | 低 | mouse stuck border 排除で改善 |
+| 既存 wave 2 regression test | 0 | ring と border は分離 test |
+| frozen branches | 0 | wave 1/2 file は touch しない |
+| CEO 前提 4 点違反 | 0 | Option A (= focus-visible:border-slate-300) で全 4 点遵守 |
+
+### CEO 前提 4 点との整合 (= 完全遵守)
+
+| 前提 | 整合 |
+|---|---|
+| ① brand color には戻さない | ✅ Option A で brand color → slate |
+| ② slate 系 focus-visible 規約を維持 | ✅ 規約 24-extended で focus-visible: + slate-* 統一 |
+| ③ wave 2 は visual-only closeout として閉じる | ✅ wave 2 file は touch しない |
+| ④ 他候補を混ぜず、 残候補 P-002〜P-008 の再評価から始める | ✅ §1 で 7 候補全 detailed 再評価、 §2 で新発見 P-010 surface (= wave 2 と同 pattern) |
+
+### 連続 GO 判定
+
+| 判定軸 | 評価 |
+|---|---|
+| 危険境界 (= 機能変更 / 文言 / 警告色 / DB等) | 0 |
+| 既存 file 改変範囲 | 2 file / 11 line |
+| backward compat | 100% |
+| 既存 tests への影響 | 0 |
+| 既存 wave 2 regression test への影響 | 0 |
+| 思想整合性 (= 規約 24-extended 全展開) | **最高** |
+| ロールバック容易性 | 高 |
+| 機械検証可能性 | 高 (= 8 tests 追加) |
+| CEO smoke 簡潔性 | 高 (= 5 件 / 5-10 分) |
+
+✅ **N-2 wave 3 impl 連続 GO**
+
+### CEO 判断項目 (= 5 件)
+
+1. P-010 wave 3 impl 連続 GO 承認
+2. 「規約 24-extended」 命名承認
+3. `focus-visible:border-slate-300` 採用承認 (= Option A)
+4. CEO smoke 計画 5 件承認
+5. wave 3 完了後の進行承認
+
+### 思想 transmission (= 規約 24-extended)
+
+- focus surface の「観測の幕間」 を border まで拡張
+- 「観測しない時は静か」 を form field でも実証
+- brand color (= indigo) を focus context から完全排除 (= ring + border)
+- regulation 24-extended で plan 全 interactive surface を統一
+
+### 危険境界遵守 (= 全件 0)
+
+- frozen branches への追加 commit: 0
+- wave 1/2 file への追加変更: 0
+- 規約 24 違反の復活: 0
+- brand color (= indigo, purple) の focus 文脈での復活: 0
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+- 他 polish 候補 (P-002〜P-008) の wave 3 混入: 0
+- 新規 component / hook 追加: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 wave 2 closeout 着地後 「wave 3 plan audit」 指示 + 前提 4 点)
+- **ステータス**: N-2 wave 3 plan audit 着地完了。 残候補 P-002〜P-008 の全 7 件不採用 + 新発見 P-010 surface + wave 3 範囲確定 (= 2 file 11 line + 8 tests) + 連続 GO 判定 ✅ + CEO 前提 4 点完全遵守。 次は **CEO 判断待ち** (= wave 3 impl 連続 GO 承認、 5 件)。 承認後 wave 3 impl (= 別 branch、 連続 GO 候補)。
+
+---
