@@ -12172,3 +12172,146 @@ N-2 wave 1 impl `3d9bf8f5` 着地後、 CEO + GPT 指示「wave 1 closeout audit
 - **ステータス**: N-2 wave 1 closeout audit 着地完了。 smoke PASS 5 件 + freeze 宣言 (= `3d9bf8f5`) + 達成事項 + 永続規約 24 件目 + wave 2 自律推奨 (= P-007/P-003)。 56 frozen branches。 次は N-2 wave 2 plan audit。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-N-2 Wave 2 Plan Audit — 残候補 7 件分析 + 重大発見 P-009 + 連続 GO 判定 [承認: CEO + GPT 連続 GO]
+
+### 背景
+
+N-2 wave 1 closeout `8449bb64` 着地後、 CEO + GPT 指示「wave 2 plan」。
+wave 1 残候補 7 件 (= P-002〜P-008) を自律分析する過程で、 **重大発見**: 規約 24 違反を 4 file 9 箇所で発見 → 新 candidate P-009 提案。
+
+### 重大発見: P-009 (= 規約 24 違反 surface)
+
+wave 1 で確立した「観測層 OS visual 規約」 (= focus-visible: + slate-300) を **4 file 9 箇所**で違反:
+
+| file | line | 違反 |
+|---|---|---|
+| MapTab.tsx | 1463, 1586 | `focus:ring-2 focus:ring-indigo-400` (= **完全違反**) |
+| FlowTab.tsx | 566 | 同上 |
+| CalendarTab.tsx | 516 | 同上 |
+| PlaceCandidatesPanel.tsx | 342, 452, 487 | `focus-visible:ring-indigo-300 ring-offset-1` (= **部分違反**) |
+| AnchorFormFields.tsx | 405, 499 | 同上 |
+
+P-009 評価:
+- priority: **高** (= 規約整合性、 思想保護)
+- scope: **中** (= 4 file 9 line の同 pattern 修正)
+- risk: **低** (= visual のみ、 機能不変)
+
+### 残 7 候補の自律分析結果
+
+| ID | 候補 | wave 2 採否 | 理由 |
+|---|---|---|---|
+| P-002 | spacing 統一 | ❌ | CEO 具体提案待ち、 freeze 規約あり |
+| P-003 | hint span 位置 (= ml-2) | ⚠️ | smoke 評価次第、 wave 2 候補 |
+| P-004 | 補助行 padding (= pl-8) | ❌ | 違和感なし、 現状維持 |
+| P-005 | Plan header tone 統一 | ❌ | wave 3+ (= 機能差を尊重) |
+| P-006 | Modal animation | ❌ | scope 中-大、 wave 3+ |
+| **P-007** | **Empty state copy 統一** | ❌ **(= 自律推奨改訂)** | 実態調査で「既に統一感、 各 tab 機能差」 と判定 |
+| P-008 | swipe boundary | ❌ | wave 3+ |
+| **P-009** | **規約 24 全 component 適用** | ✅ **wave 2 採用** | 規約整合性、 priority 高、 risk 低 |
+
+→ N-1 closeout で「P-007 第 1 推奨」 だったが、 実態調査で polish 不要と判定、 wave 2 推奨を **P-009 に改訂**。
+
+### Wave 2 範囲 (= P-009 のみ)
+
+**変更対象**: 4 file 9 line + 新規 test file
+
+**diff (= 完全違反箇所、 4 line)**:
+```
+- focus:outline-none focus:ring-2 focus:ring-indigo-400
++ focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
+```
+
+**diff (= 部分違反箇所、 5 line)**:
+```
+- focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-1
++ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
+```
+
+### 新規 regression test (= 18 tests)
+
+`tests/unit/plan/planComponentsFocusRingRegimeWiring.test.ts`:
+- 6 file × 3 invariants:
+  - `focus:ring-indigo` 不在
+  - `focus-visible:ring-indigo` 不在
+  - `focus-visible:ring-offset-*` 不在
+
+### Risk Matrix (= 全件 low)
+
+| Risk | level |
+|---|---|
+| visual regression | 低 |
+| a11y regression | 0 (= focus-visible 維持) |
+| user 混乱 | 低 (= wave 1 で同 pattern) |
+| 既存 Modal 挙動 | 低 (= class のみ) |
+| ring-offset 削除違和感 | 低 (= 元々 brand color と組合せ前提) |
+| M phase 規約違反 | 0 (= 規約 24 完成) |
+
+### 「ring-offset を残す意義」 (= 前提を疑う ①)
+
+| 観点 | 自律分析 |
+|---|---|
+| visual hierarchy | brand color (= indigo) 前提、 slate-300 では意味なし |
+| brand expression | 「観測の幕間」 思想と矛盾 (= ring 前面化) |
+| a11y | slate-300 自体が WCAG 2.1 contrast 満たす |
+
+→ 「残す」 意義なし、 規約 24 完全準拠が思想整合。
+
+### CEO Smoke 計画 (= 6 件 / 10-15 分)
+
+1. MapTab で予定/カテゴリ card click → 強い青 ring 消える
+2. FlowTab で予定 card click → 同上
+3. CalendarTab で予定 card click → 同上
+4. AddAnchorModal の入力 field focus / PlaceCandidatesPanel → slate ring + offset 消える
+5. EditAnchorModal の入力 field focus → 同上
+6. 全 component の Tab navigation で focus-visible 維持 → slate-300 統一
+
+### 連続 GO 判定
+
+✅ **N-2 wave 2 impl 連続 GO**:
+- 全判定軸 low-risk
+- wave 1 で確立した規約 24 の自然な拡張
+- 5 file / 9 line + 18 tests で完結
+- ロールバック容易 (= 各 line 独立)
+
+### 着地予定
+
+- branch: `feat/alter-plan-phase3-n-2-wave-2-focus-ring-regime-applied`
+- 変更 file: 6 (= 5 既存 + 1 新規 test file)
+- 修正行数: 9 line (= class 文字列のみ)
+- 新規 tests: 18 件
+
+### freeze 状態
+
+- `docs/plan-phase3-n-2-wave-2-plan-audit` (= 本 commit): **frozen 予定**
+- 合計 **57 frozen branches** (= 56 + 1)
+
+### CEO 判断項目 5 件
+
+1. P-009 wave 2 impl 連続 GO 承認
+2. 新規 regression test 内容承認 (= 18 tests)
+3. 「ring-offset 全削除」 承認 (= 思想整合)
+4. CEO smoke 6 件で十分か
+5. wave 2 完了後の進行 (= wave 2 closeout → smoke → wave 3 plan)
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- DayGraphTimeline (= wave 1 適用済) への追加変更: 0
+- 他 polish 候補 (P-002〜P-008) の wave 2 混入: 0
+- 新規 component / hook 追加: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 連続 GO (= 2026-05-23 wave 1 closeout 後 「wave 2 plan」 指示、 自律推論で 残 7 候補分析 + 重大発見 P-009 + 11 章 doc 着地)
+- **ステータス**: N-2 wave 2 plan audit 着地完了。 P-009 採用 (= 規約 24 全展開) + 5 file/9 line + 18 tests + risk 全件 low + 連続 GO 判定 ✅ + CEO 判断 5 件。 次は N-2 wave 2 impl (= 別 branch、 連続 GO 候補)。
+
+---
