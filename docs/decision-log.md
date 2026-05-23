@@ -9335,3 +9335,149 @@ Phase 3-L 一旦完了判断後、 CEO + GPT 「Deploy 撤回、 Phase 3-M readi
 - **ステータス**: M-1 着地完了。 69 tests PASS + 2241 全 plan tests regression PASS。 K / L 既存 file 改変 0。 38 frozen branches 計。 次は CEO 判断 (= M-2 readiness audit / 別軸 pivot / 別 phase)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-2 readiness audit + M-2a/M-2b 連続実装着地 (= Feasibility Display Layer、 95 tests PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-1 着地後、 CEO + GPT 指示通り M-2 readiness audit + M-2a/M-2b を一気に着地。 重要 mission: **「不足 N 分」 を出しても警告に見えない設計**。
+
+### M-1 補正 2 件 永続規約化 (= M-2 audit §0)
+
+**補正 1**: M-1 file 数記載訂正
+- 当時「新規 files 5 (= 3 lib + 2 tests + 1 audit doc)」 は不整合
+- 正確: audit doc commit 1 file + impl commit 5 files = 計 6
+- **永続規約**: audit doc commit と impl commit を分けて記述
+
+**補正 2**: privacy discipline (= L-3c 同水準)
+- M-1 helper の graph.transitions 逆引きで nodeId / locationText を内部 touch
+- 但し output / warnings / trace に PII 漏洩なし (= 既存 9 invariants で機械保証済)
+- **永続規約**: M output / warnings / trace に PII を持たせない、 L-3c 同水準
+
+### M-2 責務定義
+
+**Phase 3-M-2 = Feasibility Display Layer** = M-1 pure data → pure display view の formatter + contract。
+
+L-4a/L-4b と完全対称 pattern:
+| Layer | data | display formatter | display contract |
+|---|---|---|---|
+| L (Mobility) | OverlayResult | MovementDisplayFormatter | MovementDisplayContract |
+| M (Feasibility) | DayFeasibilityResult | FeasibilityDisplayFormatter | FeasibilityDisplayContract |
+
+### 「不足を警告に見せない」 3 重防御 (= 革新的設計)
+
+- **layer 1 文言**: 「不足 N 分」 中立、 NG 文言不在
+- **layer 2 視覚**: slate のみ (= caller 責任、 tier "tier_2_movement_aux" hint)
+- **layer 3 構造**: 「余白」 と「不足」 完全同 styling 想定
+
+### 警告化要素 5 dimension 全件防御
+
+1. **色** — slate のみ (= contract に color なし、 caller 責任)
+2. **形容詞** — NG list (= 「ギリギリ」 等)
+3. **記号** — ⚠ / ❗ / ❌ / ‼ / ! / ? / ！ / ？ 全件禁止 (= 新規)
+4. **強調** — tier 階層 2 維持
+5. **動詞命令** — 「急いで」 等 NG
+
+### NG 文言 list 拡張 (= 30+ substring)
+
+M-2 で新規追加:
+- 「間に合わない」 「おすすめ」 「推奨」 「提案」 「推測」 「予測」 「予想」
+- 「あと 」 「もう少し」 「足りない」 「余る」 「ピッタリ」 「ちょうど」
+- 「⚠」 「❗」 「❌」 「‼」 「！」 「？」 「!」 「?」
+- 「Achtung」 「warning」 「alert」 「OK」 (= 外国語警告)
+
+### 実装結果
+
+| 項目 | 値 |
+|---|---|
+| audit branch | `docs/plan-phase3-m-2-readiness-audit` (= `9c762e9e` freeze) |
+| impl branch | `feat/alter-plan-phase3-m-2a-m-2b-pure-feasibility-display` (= `e07af3d3` 起点) |
+| **M-2 impl commit** | **`f42cf539`** (= 4 files = 2 lib + 2 tests) |
+| **M-2 tests** | **95 PASS** (= 18 formatter + 77 contract) |
+| **全 plan tests regression** | **2336 PASS** (= 2241 → +95) |
+| **既存 file 変更** | **0** (= K phase / L / M-1 全 freeze 維持) |
+| DB / env / package / dependency / UI 変更 | **0** |
+| 新規 endpoint / fetch / localStorage | **0** |
+
+### 着地物
+
+| File | 役割 |
+|---|---|
+| `lib/plan/feasibility/feasibilityDisplayFormatter.ts` | M-2a formatter (= L-4a 対称) |
+| `lib/plan/feasibility/feasibilityDisplayContract.ts` | M-2b contract (= 9 invariants、 L-4b 対称) |
+| `tests/unit/plan/feasibilityDisplayFormatter.test.ts` | 18 tests |
+| `tests/unit/plan/feasibilityDisplayContract.test.ts` | 77 tests |
+
+### 表示置換規約 (= 永続)
+
+| variant | displayText | tier |
+|---|---|---|
+| `slack` (= sufficient) | 「余白 N 分」 | tier_2_movement_aux |
+| `shortfall` (= insufficient) | 「不足 N 分」 | tier_2_movement_aux |
+| (not_applicable) | **map から除外**、 表示しない | - |
+
+### 革新的アイデア (= 自律推論で導出)
+
+1. **警告化要素 5 dimension の機械検証** — 色 / 形容詞 / 記号 / 強調 / 命令
+2. **3 重防御** — 文言 / 視覚 / 構造で「不足を警告に見せない」
+3. **not_applicable は map から除外** — 観測根拠なし、 「該当なし」 表記もしない
+4. **新 tier「tier_2_movement_aux」** — L 補助情報階層
+5. **「ユーザーの自由意思を尊重」** — M は推奨せず観測のみ、 user 判断
+6. **per-transition のみ** — day-level summary は M-3+ 別 audit
+7. **confidenceBand を発火させない** — 全 view 同 visual tone (= L-4a と異なる選択)
+
+### 危険境界遵守 (= 全件機械検証)
+
+| 境界 | 結果 |
+|---|---|
+| UI 変更 | **0** (= M-3+ 以降の別 phase) |
+| Calendar / Map / Flow 触る | **0** |
+| Arrival Risk Memory | **0** |
+| warning / recommendation / optimization 文言 | **0** (= 30+ NG word grep) |
+| 記号系 | **0** (= ⚠ ❗ ❌ ! ? 全件 grep) |
+| localStorage / DB / env / package / dependency | **0** |
+| Routes API / mode 推定 / distance 表示 | **0** |
+| K phase / L / M-1 既存 file 改変 | **0** |
+
+### freeze 状態
+
+- `docs/plan-phase3-m-2-readiness-audit` (= `9c762e9e`): **frozen**
+- `feat/alter-plan-phase3-m-2a-m-2b-pure-feasibility-display` (= `f42cf539`): **frozen** (= UI なし、 機械検証のみで完結)
+- 合計 **40 frozen branches**
+
+### CEO 判断ポイント
+
+| Q | 内容 | 自律推奨 |
+|---|---|---|
+| Q1 | M-1 補正 2 件永続規約化 | **YES** |
+| Q2 | M-2 完全 freeze (= UI なし、 機械検証で完結) | **YES** |
+| Q3 | 次は M-3 readiness audit (= UI 接続検討) か、 N phase / 別軸 pivot か | CEO 判断 |
+| Q4 | M-3 着手前は別 readiness audit 経由 (= 「不足」 UI 表示の慎重設計) | **YES** |
+
+### 永続禁止 (= 本 commit 以降に維持)
+
+❌ M-2 で UI 接続 (= M-3+ は別 readiness audit)
+❌ Calendar / Map / Flow を触る
+❌ Arrival Risk Memory / warning / recommendation / optimization 文言
+❌ 「ギリギリ」 「快適」 「危険」 「間に合わない」 「あと N 分」 等の質的評価語 / 緊急感表現 / 相対表現
+❌ 記号 (= ⚠ / ❗ / ❌ / ‼ / ! / ? / ！ / ？)
+❌ mode 推定 / distance 表示 / Routes API / Counterfactual
+❌ DB / env / package / dependency 変更
+❌ localStorage / runtime telemetry sink
+❌ K / L / M-1 既存 types 改変
+❌ frozen branches への commit (= 40 branches)
+
+### 思想 transmission
+
+1. **「警告化要素 5 dimension」 機械検証** — 色 / 形容詞 / 記号 / 強調 / 命令で防御
+2. **「3 重防御」** — 文言 / 視覚 / 構造の組み合わせ
+3. **「not_applicable は表示しない」** — 観測根拠のないものは見せない、 思想極致
+4. **新 tier「tier_2_movement_aux」** — L 補助情報の階層化
+5. **ユーザーの自由意思を尊重** — M は推奨せず観測のみ提供
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-1 着地後 「M-2 readiness audit → low-risk なら M-2a/M-2b 連続実装」 指示、 audit で連続 GO 判定成立)
+- **ステータス**: M-2a/M-2b 着地完了。 95 + 2336 tests PASS。 K / L / M-1 既存 file 改変 0。 40 frozen branches 計。 次は CEO 判断 (= M-3 readiness audit / 別軸 pivot / N phase)。
+
+---
