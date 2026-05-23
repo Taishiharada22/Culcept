@@ -10146,3 +10146,184 @@ useState<ExpandedTransitionIndices>(() => resetAllDisclosures());
 - **ステータス**: M-3c-pure-harden 着地完了。 80 + 2498 tests PASS。 mutation 攻撃面構造的除去。 次は M-3c-ui readiness audit (= CEO 別承認) または N phase / 別軸 pivot。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3c-ui Readiness Audit — 「本当に見せるべきか / どの条件なら見せてよいか」 [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3c-pure-harden @ `399c5783` freeze 完了後、 CEO + GPT 指示:
+- M-3c-ui readiness audit に進む、 但し UI 実装にはまだ入らない
+- 「pure 層は堅固、 UI に出す瞬間は別の危険境界」 思想厳守
+- 10 項目確認 + smoke 計画 + CEO 判断項目を整理
+
+自律推論で **「本当に見せるべきか / どの条件なら見せてよいか」** を中心問いとして deep audit。
+
+### M-3c-ui 中心問い (= GPT 補正で確定)
+
+> **「不足 N 分」 を user 画面に出すことが、 Aneurasync の自己理解体験を本当に育てるか?**
+
+「user 能動 expand」 限定なら Aneurasync 整合だが、 「観測したらきつい」 体験が許容範囲か **smoke 必須**。
+
+### CEO + GPT 指定 10 項目への自律推論回答
+
+| # | 項目 | 結論 |
+|---|---|---|
+| 1 | MapTab-only で始めるべきか | **YES** (= selectedDate-centric、 自然な path) |
+| 2 | disclosure trigger を何にするか | transition line **単一 tap toggle** + keyboard (Enter/Space) |
+| 3 | 発見性をどう担保するか | **革新 U1: 最小 textual hint「詳細」** (= 2 文字、 中立、 警告感 0) |
+| 4 | default hidden を UI でどう守るか | `useState(resetAllDisclosures)` (= React lazy initial state pattern) |
+| 5 | tab/day 切替時 reset | `useEffect([selectedDate])` で自動 reset (= 「観測の幕間」) |
+| 6 | localStorage / persist | 完全禁止 (= harden 規約継承) |
+| 7 | transitionIndex のみで state 管理 | `ExpandedTransitionIndices = ReadonlySet<number>` 遵守 |
+| 8 | 「不足 N 分」 は user request_expand 後のみ | データ層 + 状態層 + 表示層の **三重防御** |
+| 9 | sensitive / not_applicable / unresolved 非表示 | M-2a で自動 skip + M-3c-ui 二重防御 |
+| 10 | K-3c-iii / L-4d 階層を侵さない | optional prop 追加のみ、 styling 完全継承 |
+
+### 発見性 affordance — 「最小 textual hint」 革新
+
+| 候補 | 評価 | 採用 |
+|---|---|---|
+| A. 視覚 affordance 0 | 発見不能リスク (= GPT 補正指摘) | ❌ |
+| B. icon / chevron / dot | 警告感 / icon 禁止 | ❌ |
+| C. badge / chip | 警告化リスク | ❌ |
+| D. amber/orange/red 文字色 | 警告色禁止 | ❌ |
+| E. hover-only | hover-only 禁止 | ❌ |
+| **F. 最小 textual hint「詳細」** | 中立、 警告感 0、 発見性確保 | ✅ **採用** |
+| G. underline / dashed | 装飾 (= 警告感の可能性) | ⚠️ 補助 |
+
+**自律推奨**: 「詳細」 (= 2 文字、 中立、 K-3c-iii tier_2 同階調)。 expanded 時は「閉じる」 に切替 (= a11y 補完)。
+
+### 革新的アイデア — 10 件
+
+1. 最小 textual hint「詳細」 採用 (= 発見不能と警告化の両回避)
+2. expanded 時の文言切替「詳細」→「閉じる」 (= icon 不使用で state 示唆)
+3. **三重防御で push 表示構造的不可能化** (= データ層 + 状態層 + 表示層)
+4. React lazy initial state で default hidden 機械保証
+5. `useEffect([selectedDate])` で 「観測の幕間」 自動 reset
+6. 「3 props セット」 で disclosure 有効化 (= backward compat 100%)
+7. tap target は line 全体、 textual hint は guide のみ
+8. variant 別 styling 0 で偏見排除 (= data attribute のみ)
+9. density-aware progressive disclosure (= 将来 M-3c-extend)
+10. **5 人 visual smoke で「不足体験」 を質的検証** (= 圧体験 0/5 人 必須)
+
+### ユーザー心理シナリオ — 10 件深掘り
+
+1. 初めて MapTab を見た user → 「詳細」 で発見 + 能動 expand 体験
+2. 全 transition tap で全部見たい → density guard 将来対応
+3. 不足を見たくない user → push なし、 agency 100%
+4. うっかり tap → tap toggle で完全可逆
+5. 不足を見て焦る user → ⚠️ smoke 必要 (= 圧体験許容範囲判定)
+6. 不足を見て自己理解する user → Aneurasync 中心問い直結 ✅
+7. 忙しく tab 切替する user → 「観測の幕間」 自動 reset
+8. 観測しすぎを自覚する user → user agency で習慣化を制御
+9. 共有 user (= 友人に画面を見せる) → PII 0 + tab 切替 reset
+10. sensitive な日の user → 三重防御で構造的保護
+
+### 三重防御の構造
+
+```
+[L overlay] → [M-1 dayFeasibility] → [M-2a display formatter] → [M-3a pipeline] → [M-3c-ui]
+                                                                                       ↓
+                                          [feasibilityDisplayByTransitionIndex.has(idx)] ← Layer 1: データ層
+                                                                                       ↓
+                                                                          [expandedTransitionIndices.has(idx)] ← Layer 2: 状態層
+                                                                                       ↓
+                                                                            [render <FeasibilityDisclosureLine>] ← Layer 3: 表示層
+```
+
+1 層でも false → render しない (= push 表示構造的不可能)。
+
+### 5 人 Visual Smoke 計画 (= 質的検証)
+
+| 質問 | 合格条件 |
+|---|---|
+| 「ここに観測がある」 を発見できるか | 5 人中 4 人以上が tap 可能性に気付く |
+| 「不足 40 分」 を見た時の体験 | **「焦る」 「圧」 を感じる user 0/5 人 必須** |
+| 「閉じる」 で閉じられるか | 5 人中 5 人 |
+| selectedDate 切替で reset 体感 | 5 人中 3 人以上 |
+| 「観測したい時」 と「観測したくない時」 理解 | 5 人中 5 人 |
+
+**1 つでも不合格 → M-3c-ui rollback または revise**。
+
+### M-3c-ui 実装範囲 (= CEO 承認後の最小 scope)
+
+**DayGraphTimeline 拡張 props (= 3 つ追加)**:
+- `feasibilityDisplayByTransitionIndex?: ReadonlyMap<number, FeasibilityDisplayView>`
+- `expandedTransitionIndices?: ReadonlySet<number>`
+- `onToggleFeasibilityDisclosure?: (transitionIndex: number) => void`
+
+**MapTab 改変**:
+- `useMapTabFeasibilityDisplay` 新 hook
+- `useState<ExpandedTransitionIndices>(resetAllDisclosures)`
+- `useEffect([selectedDate])` で reset
+- `handleToggleDisclosure` callback
+
+**変更しない**:
+- CalendarTab / FlowTab / PlanClient / 他全 tab
+- 既存 K-3c-iii compact mode / L-4d MovementDisplayView 接続
+
+### Backward Compat 保証
+
+- 3 optional props 全て未指定 → 既存 K-3c-iii / L-4d 通り
+- 1 つでも欠ければ disclosure 無効
+- 既存 caller (= CalendarTab / FlowTab) 影響 0
+
+### 「UI 接続しない」 選択肢 (= 自律で別案提示)
+
+| Path | 内容 | メリット | デメリット |
+|---|---|---|---|
+| **第 1 候補**: 条件付き UI 接続 (= 本 audit 推奨) | smoke 後実装 | 段階的 risk 抑制、 質的検証 | smoke 失敗時 rollback コスト |
+| 第 2 候補: pure で完結 + N phase | M-3c-pure-harden で停止 | 危険境界回避、 思想最大尊重 | 自己理解体験への直結遅延 |
+| 第 3 候補: 集計 disclosure 別軸 | M-4+ で別 audit | 個別不足の警告化回避 | 大規模設計、 ロードマップ延長 |
+
+### CEO 判断項目 7 件 (= 報告で停止)
+
+1. M-3c-ui 着手 timing (= 本 audit 直後 / smoke 後 / N phase 後 / pivot)
+2. 「不足 N 分」 画面表示の最終容認 (= ✅ 容認 / 別文言 / 取りやめ)
+3. 発見性 affordance「詳細」 採用 (= 採用 / 別文言 / 視覚 0 維持)
+4. tab/day reset 設計 (= useEffect 自動 / 別手段 / persist 検討)
+5. 5 人 visual smoke 計画 (= 採用 / 1-3 人 / 不要)
+6. density-aware 取入れ (= M-3c-extend / M-3c-ui 含む / 不要)
+7. 「不要なら不採用」 選択肢 (= 着手 / 取りやめ / 保留)
+
+### Critical Boundary (= CEO 必須判断)
+
+- **G1**: 「不足 N 分」 が画面に実初露出 (= M-3c-ui で発生)
+- **G2**: 発見性 affordance vs 警告化 (= 「詳細」 採用、 smoke 必要)
+- **G3**: reset 設計の妥当性 (= useEffect 自動 vs 明示 button)
+- **G4**: smoke 5 人不足の保証 (= 圧体験 0/5 人 必須)
+- **G5**: 「pure で完結する」 選択肢 (= 第 2 候補 path)
+
+### 思想 transmission (= M-3c-ui 永続規約 candidate)
+
+1-8. (= M-3a/M-3b/M-3c-pure/harden 継承)
+9. **「pure 層は堅固、 UI に出す瞬間は別の危険境界」** (= NEW)
+10. **最小 textual hint「詳細」 で発見性確保 + 警告化回避** (= NEW)
+11. **三重防御 (= データ層 + 状態層 + 表示層) で push 表示構造的不可能化** (= NEW)
+12. **5 人 visual smoke で質的検証必須** (= NEW)
+
+### 危険境界遵守 (= 本 audit + M-3c-ui readiness 範囲)
+
+| 境界 | 結果 |
+|---|---|
+| UI 実装 | **0** (= 本 audit は docs only) |
+| MapTab / CalendarTab / FlowTab / DayGraphTimeline 改変 | **0** |
+| 「不足 N 分」 画面表示 | **0** |
+| Arrival Risk Memory / 警告文言 | **0** |
+| amber / orange / red 警告色 / icon | **0** |
+| localStorage / DB / env / package / dependency | **0** |
+| K / L / M-1 / M-2 / M-3a / M-3b / M-3c-pure-harden 既存 file 改変 | **0** |
+| fetch / endpoint / runtime telemetry / Counterfactual / Routes API | **0** |
+| reset / restore / stash / branch delete / gh / push | **0** |
+
+### freeze 状態
+
+- `docs/plan-phase3-m-3c-ui-readiness-audit` (= 本 commit): **frozen 予定**
+- 合計 **47 frozen branches** (= 46 + 1)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3c-pure-harden freeze 後 「M-3c-ui readiness audit、 UI 実装には進まない」 指示、 10 項目確認 + smoke 計画 + 自律推論を着地)
+- **ステータス**: M-3c-ui readiness audit 着地完了。 docs only。 CEO 判断 7 件待ち。 自律推奨は **「条件付き UI 接続」** (= smoke 後実装)。 「pure で完結」 path も第 2 候補として提示。
+
+---
