@@ -10792,3 +10792,149 @@ M phase で:
 - **ステータス**: M current-range closeout audit 着地完了。 49 frozen branches。 CEO 判断 6 件待ち。 自律推奨は **C (= 別軸 pivot to Stargazer 系)**、 第 2 候補 A (= M-3d)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3d Calendar/Flow Feasibility Disclosure 展開 — readiness audit + 連続実装 (= 75 tests PASS、 CEO visual smoke pending) [承認: CEO + GPT 訂正]
+
+### 背景
+
+CEO 訂正 (= 2026-05-23):
+> 「/plan の計画完了が最優先、 別軸 pivot 撤回、 M-3d → N → /plan complete」
+
+前回の「別軸 pivot 推奨」 を撤回。 自律推論で Phase 3 J/K/L/M/N 残範囲棚卸し:
+- J/K/L 完了、 M は MapTab-only まで → M-3d (= Calendar/Flow) が必須残
+
+### Phase 3 残範囲棚卸し結果
+
+| Phase | 責務 | 状態 |
+|---|---|---|
+| J Proposal Layer | ✅ 完了 |
+| K DayGraph Layer | ✅ 完了 |
+| L Mobility Truth Layer | ✅ 完了 |
+| **M Day Feasibility Truth Layer** | ⏳ MapTab-only まで、 **M-3d で完結** |
+| N Counter-Factual / Pattern + Home/Plan polish | ⏸️ 未着手 |
+
+### M-3d 実装内容
+
+**新規 file (= 4):**
+- `app/(culcept)/plan/tabs/_useCalendarTabFeasibilityDisplay.ts` (~140 行、 MapTab hook の写し)
+- `app/(culcept)/plan/tabs/_useFlowWeekFeasibilityDisplay.ts` (~165 行、 7 日 per-day map)
+- `tests/unit/plan/calendarTabFeasibilityDisclosureWiring.test.ts` (~39 tests)
+- `tests/unit/plan/flowTabFeasibilityDisclosureWiring.test.ts` (~36 tests)
+
+**既存 file 改変 (= 3):**
+- `app/(culcept)/plan/tabs/CalendarTab.tsx` (= hook + state + reset + handler + 3 props pass)
+- `app/(culcept)/plan/tabs/FlowTab.tsx` (= per-day hook + per-day state + week reset + curry handler + 3 props pass)
+- `tests/unit/plan/mapTabFeasibilityDisclosureWiring.test.ts` (= §4 backward compat 更新、 post-M-3d 仕様反映)
+
+**変更しない:**
+- DayGraphTimeline (= M-3c-ui 3 props 拡張をそのまま再利用)
+- MapTab (= M-3c-ui で確立、 不変)
+- lib/plan/feasibility / lib/plan/transport / lib/plan/dayGraph 全 file
+
+### 革新的アイデア 5 件 (= M-3d 固有)
+
+1. **per-day disclosure state** (= `Record<isoDate, ExpandedTransitionIndices>`、 各日独立 observation context)
+2. **「観測の幕間」 を week-level に lift** (= week 切替で全 day reset、 同 week 内 day 切替で reset せず)
+3. **per-day handler curry** (= `(iso: string) => (transitionIndex: number) => void`)
+4. **「3 props セット AND 条件」 の再利用** (= DayGraphTimeline 改変 0、 backward compat 100%)
+5. **「month / grid 不変」 規約** (= CalendarTab の月 grid は disclosure UI を出さない、 selected day detail のみ)
+
+### 検証結果
+
+| 項目 | 値 |
+|---|---|
+| readiness audit commit | `ed789adc` (= docs/plan-phase3-m-3d-readiness-audit) |
+| impl branch | `feat/alter-plan-phase3-m-3d-calendar-flow-feasibility-disclosure` |
+| **M-3d wiring tests (= Calendar + Flow)** | **75 PASS** (= 39 + 36) |
+| **全 plan tests regression** | **2622 PASS** (= 2550 → +72、 既存 §4 backward compat 修正 -3) |
+| **feasibility / DayGraphTimeline / MapTab / CalendarTab / FlowTab / hooks の tsc errors** | **0** |
+| K phase / L / M-1〜M-3c-ui 既存 file 改変 | **0** (= 拡張のみ) |
+| DayGraphTimeline / MapTab / lib/plan/* 改変 | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+
+### 三重防御の継承 (= M-3c-ui からの規約継承)
+
+```
+[L overlay] → [M-1] → [M-2a] → [M-3a] → [M-3d caller]
+                                           ↓
+                feasibilityDisplayByTransitionIndex.has(idx) ← Layer 1: データ層
+                                           ↓
+                expandedTransitionIndices.has(idx) ← Layer 2: 状態層
+                                           ↓
+                <FeasibilityDisclosureLine> render ← Layer 3: 表示層 (= conditional DOM、 M-3c-ui)
+```
+
+3 tab すべて (= MapTab / CalendarTab / FlowTab) で同 三重防御が稼働。
+
+### CEO Visual Smoke 計画 (= CEO 1 人)
+
+**CalendarTab smoke:**
+- 「詳細」 hint が selected day timeline に出る
+- tap で「余白 N 分」 / 「不足 N 分」 展開
+- 「閉じる」 で消える
+- selectedDate 切替で reset
+- 月 grid に「詳細」 / 補助行が出ない (= month/grid 不変)
+- 警告に見えない
+
+**FlowTab smoke:**
+- 「詳細」 hint が visible 7 days に出る
+- 任意の日で tap で展開 (= 該当日のみ、 他日不影響)
+- 「閉じる」 で消える
+- 別の日を独立に expand 可能
+- 同 week 内 day 切替で reset せず
+- 7 日同時 expansion で UI 圧を感じない (= density 質的判定、 圧体験あれば density guard 追加 audit)
+- 警告に見えない
+
+**backward compat smoke:**
+- MapTab 既存 disclosure 動作不変
+- DayGraphTimeline 既存 K-3c-iii compact mode 不変
+- L-4d movement display 不変
+
+### 危険境界遵守 (= 全件 0)
+
+| 境界 | 結果 |
+|---|---|
+| Calendar month/grid 全件展開 | **0** (= scope outside、 selected day detail のみ) |
+| PlanClient core state 化 | **0** (= 各 tab local state) |
+| localStorage / persist | **0** |
+| 「不足 N 分」 常時表示 | **0** (= conditional DOM render 継承) |
+| Arrival Risk Memory / 警告文言 | **0** |
+| amber / orange / red 警告色 | **0** |
+| icon / badge / warning box | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint | **0** |
+| runtime telemetry sink | **0** |
+| Counterfactual / Routes API / 実 API 連携 | **0** |
+| K / L / M-1〜M-3c-ui / lib/plan/* 既存 file 改変 | **0** |
+| DayGraphTimeline / MapTab 改変 | **0** |
+| frozen branches への追加 commit | **0** |
+| reset / restore / stash / branch delete / gh / push | **0** |
+
+### freeze 状態 (= CEO 補正反映)
+
+- `feat/alter-plan-phase3-m-3d-calendar-flow-feasibility-disclosure` (= 本 commit): **freeze 候補**
+- 完全 freeze はしない (= CEO 明示、 visual smoke pending)
+- "implementation landed / visual smoke pending / freeze candidate" として停止
+
+### CEO 判断 (= 報告で停止)
+
+1. **CEO visual smoke 実施** (= CalendarTab + FlowTab + backward compat)
+2. **density 体験許容範囲** (= FlowTab 7 日同時 expansion 圧、 smoke 後判定)
+3. **smoke PASS なら M full closeout 着手**
+4. **Phase 3-N readiness audit に進む** (= Home/Plan final polish 含む)
+
+### 思想 transmission (= M-3d で確立、 永続規約 4 件追加)
+
+1-15. (= 既存 M-3c-ui 継承)
+16. **per-tab independent hook** (= MapTab / CalendarTab / FlowTab で独立 namespace)
+17. **per-day disclosure state** (= FlowTab、 Record<isoDate, ExpandedTransitionIndices>)
+18. **「観測の幕間」 を week-level に lift** (= week 切替で全 day reset)
+19. **「month / grid 不変」 規約** (= CalendarTab 月 grid に disclosure UI を出さない)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 訂正 (= 2026-05-23 「/plan 計画完了が最優先、 M-3d → N」 指示、 自律 readiness audit + 連続 GO 判定 + 実装着地)
+- **ステータス**: M-3d Calendar/Flow 展開実装完了。 75 + 2622 tests PASS。 freeze 保留 (= visual smoke pending)。 次は CEO visual smoke → PASS なら M full closeout → Phase 3-N readiness audit。
+
+---

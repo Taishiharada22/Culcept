@@ -36,7 +36,7 @@
  *   - AddAnchorModal / PlanClient / HomeSwipeContainer / Modal lock 不可触
  */
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
@@ -49,8 +49,16 @@ import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import { useFlowWeekMovementDisplay } from "./_useFlowWeekMovementDisplay";
+import { useFlowWeekFeasibilityDisplay } from "./_useFlowWeekFeasibilityDisplay";
 import { usePlanGeocode } from "./_usePlanGeocode";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
+import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
+import {
+  applyDisclosureAction,
+  getDisclosureStateForIndex,
+  resetAllDisclosures,
+  type ExpandedTransitionIndices,
+} from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
 import type { AddRequest } from "../PlanClient";
 import {
   CATEGORY_META,
@@ -186,6 +194,46 @@ export function FlowTab({
     weekResolutions,
   );
 
+  // ── M-3d MapTab pattern を FlowTab 7 day に lift ──
+  //    feasibility display + per-day disclosure state。
+  //    既存 weekResolutions を読むだけ (= 新規 fetch なし)。
+  //    not_applicable / sensitive / unresolved は M-2a で map から除外済。
+  //    visible 7 days のみ (= 月全件 / 別 week は構造的に不可能)。
+  const feasibilityDisplayByDay = useFlowWeekFeasibilityDisplay(
+    dayAnchorsMap,
+    weekResolutions,
+  );
+
+  // M-3d per-day disclosure state (= 革新 M-3d-1)
+  //   Record<isoDate, ExpandedTransitionIndices> で各日独立 disclosure context。
+  //   PII 0: key = isoDate (= 非 PII)、 value = ReadonlySet<number> (= transitionIndex のみ)。
+  //   初期 state は空 Record (= 全 day 全 hidden)。
+  const [expandedByDay, setExpandedByDay] = useState<
+    Record<string, ExpandedTransitionIndices>
+  >({});
+
+  // M-3d: today (= visible week の anchor) 変化で全 day reset (= 「観測の幕間」 を week-level に lift、 革新 M-3d-2)
+  //   localStorage 禁止と整合: persist なし、 week 切替で fresh observation 再起動。
+  const weekKey = isoDate(today);
+  useEffect(() => {
+    setExpandedByDay({});
+  }, [weekKey]);
+
+  // M-3d: per-day toggle handler (= 革新 M-3d-3、 curry pattern)
+  //   各日に bound handler を返す (= DayGraphTimeline は (transitionIndex) => void を受ける)。
+  const handleToggleFeasibilityDisclosureForDay = useCallback(
+    (iso: string) => (transitionIndex: number) => {
+      setExpandedByDay((current) => {
+        const dayExpanded = current[iso] ?? resetAllDisclosures();
+        const currentState = getDisclosureStateForIndex(dayExpanded, transitionIndex);
+        const action = currentState === "expanded" ? "request_collapse" : "request_expand";
+        const next = applyDisclosureAction(dayExpanded, transitionIndex, action);
+        return { ...current, [iso]: next };
+      });
+    },
+    [],
+  );
+
   const handleEmptyDayClick = (day: Date) => {
     onAddRequest?.({
       initial: { kind: "one_off", date: isoDate(day) },
@@ -211,6 +259,13 @@ export function FlowTab({
         const dayGraphResult = dayGraphByDate?.[iso] ?? null;
         // L-4d-b2: 7 day 全件で movement display を配る (= L-4d-b1 today only から発展)
         const dayMovementDisplay = movementDisplayByDay.get(iso);
+        // M-3d: per-day feasibility display + expansion state (= 革新 M-3d-1)
+        const dayFeasibilityDisplay = feasibilityDisplayByDay.get(iso);
+        const dayExpanded = expandedByDay[iso];
+        // disclosure 機能は 3 props 全件揃った時のみ活性化 (= M-3c-ui 規約)
+        const dayOnToggleDisclosure = dayFeasibilityDisplay
+          ? handleToggleFeasibilityDisclosureForDay(iso)
+          : undefined;
         return (
           <FlowDaySection
             key={iso}
@@ -224,6 +279,9 @@ export function FlowTab({
             onAnchorClick={onAnchorClick}
             dayGraphResult={dayGraphResult}
             movementDisplayByTransitionIndex={dayMovementDisplay}
+            feasibilityDisplayByTransitionIndex={dayFeasibilityDisplay}
+            expandedTransitionIndices={dayExpanded}
+            onToggleFeasibilityDisclosure={dayOnToggleDisclosure}
           />
         );
       })}
@@ -271,6 +329,9 @@ function FlowDaySection({
   onAnchorClick,
   dayGraphResult,
   movementDisplayByTransitionIndex,
+  feasibilityDisplayByTransitionIndex,
+  expandedTransitionIndices,
+  onToggleFeasibilityDisclosure,
 }: {
   day: Date;
   today: Date;
@@ -288,10 +349,25 @@ function FlowDaySection({
     "@/lib/plan/dayGraph/dayGraphTypes"
   ).BuildDayGraphResult | null;
   /**
-   * L-4d-b1: today section のみ親が渡す MovementDisplayView map (= 「移動 約 N 分」 表示)。
-   * 他 6 day は undefined → DayGraphTimeline は K view fallback で「→ 移動」 維持。
+   * L-4d-b2: visible 7 day 全件で親が渡す MovementDisplayView map (= 「移動 約 N 分」 表示)。
+   * 未指定なら DayGraphTimeline は K view fallback で「→ 移動」 維持。
    */
   movementDisplayByTransitionIndex?: ReadonlyMap<number, MovementDisplayView>;
+  /**
+   * M-3d: 当日の FeasibilityDisplayView map (= 「余白 N 分」 / 「不足 N 分」 表示候補)。
+   * 未指定なら disclosure UI 無効 (= 既存挙動)。
+   */
+  feasibilityDisplayByTransitionIndex?: ReadonlyMap<number, FeasibilityDisplayView>;
+  /**
+   * M-3d: 当日の expanded transitionIndices (= disclosure state)。
+   * 未指定なら disclosure UI 無効。
+   */
+  expandedTransitionIndices?: ExpandedTransitionIndices;
+  /**
+   * M-3d: 当日の disclosure toggle callback (= 親で iso に bound 済)。
+   * 未指定なら disclosure UI 無効。
+   */
+  onToggleFeasibilityDisclosure?: (transitionIndex: number) => void;
 }) {
   const iso = isoDate(day);
   const label = formatFlowSectionLabel(day, today);
@@ -409,6 +485,9 @@ function FlowDaySection({
             }}
             dataTestId={`plan-flow-day-graph-timeline-${iso}`}
             movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}
+            feasibilityDisplayByTransitionIndex={feasibilityDisplayByTransitionIndex}
+            expandedTransitionIndices={expandedTransitionIndices}
+            onToggleFeasibilityDisclosure={onToggleFeasibilityDisclosure}
           />
         </div>
       )}

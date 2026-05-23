@@ -320,40 +320,34 @@ describe("§3. MapTab wiring", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §4. CalendarTab / FlowTab — MapTab-only 影響なし (= backward compat 100%)
+// §4. CalendarTab / FlowTab — MapTab hook 独立性 + tab 独立性 (= post-M-3d)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("§4. CalendarTab / FlowTab — backward compat", () => {
-  it("CalendarTab は useMapTabFeasibilityDisplay を呼ばない", () => {
+// 注: M-3d (= 2026-05-23) で CalendarTab / FlowTab も feasibility disclosure を持つようになった。
+//     ただし、 各 tab は **独立 hook** (= useCalendarTabFeasibilityDisplay / useFlowWeekFeasibilityDisplay)
+//     を持ち、 MapTab の hook (= useMapTabFeasibilityDisplay) を再利用していない。
+//     よって本 §4 は「MapTab hook が他 tab に拡散していないこと」 を検証する形に再定義。
+
+describe("§4. MapTab hook 独立性 + tab 独立性 (= post-M-3d)", () => {
+  it("CalendarTab は MapTab 固有の useMapTabFeasibilityDisplay を呼ばない (= 独立 hook 経由)", () => {
     expect(calendarTabContent).not.toMatch(/useMapTabFeasibilityDisplay/);
   });
 
-  it("FlowTab は useMapTabFeasibilityDisplay を呼ばない", () => {
+  it("FlowTab は MapTab 固有の useMapTabFeasibilityDisplay を呼ばない (= 独立 hook 経由)", () => {
     expect(flowTabContent).not.toMatch(/useMapTabFeasibilityDisplay/);
   });
 
-  it("CalendarTab は feasibilityDisplayByTransitionIndex prop を渡さない", () => {
-    expect(calendarTabContent).not.toMatch(/feasibilityDisplayByTransitionIndex/);
+  it("CalendarTab は useCalendarTabFeasibilityDisplay を呼ぶ (= M-3d 独立 hook)", () => {
+    expect(calendarTabContent).toMatch(/useCalendarTabFeasibilityDisplay/);
   });
 
-  it("FlowTab は feasibilityDisplayByTransitionIndex prop を渡さない", () => {
-    expect(flowTabContent).not.toMatch(/feasibilityDisplayByTransitionIndex/);
+  it("FlowTab は useFlowWeekFeasibilityDisplay を呼ぶ (= M-3d 独立 hook)", () => {
+    expect(flowTabContent).toMatch(/useFlowWeekFeasibilityDisplay/);
   });
 
-  it("CalendarTab は expandedTransitionIndices prop を渡さない", () => {
-    expect(calendarTabContent).not.toMatch(/expandedTransitionIndices/);
-  });
-
-  it("FlowTab は expandedTransitionIndices prop を渡さない", () => {
-    expect(flowTabContent).not.toMatch(/expandedTransitionIndices/);
-  });
-
-  it("CalendarTab は onToggleFeasibilityDisclosure prop を渡さない", () => {
-    expect(calendarTabContent).not.toMatch(/onToggleFeasibilityDisclosure/);
-  });
-
-  it("FlowTab は onToggleFeasibilityDisclosure prop を渡さない", () => {
-    expect(flowTabContent).not.toMatch(/onToggleFeasibilityDisclosure/);
+  it("MapTab は useCalendarTabFeasibilityDisplay / useFlowWeekFeasibilityDisplay を呼ばない", () => {
+    expect(mapTabContent).not.toMatch(/useCalendarTabFeasibilityDisplay/);
+    expect(mapTabContent).not.toMatch(/useFlowWeekFeasibilityDisplay/);
   });
 });
 

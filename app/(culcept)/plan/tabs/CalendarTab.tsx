@@ -29,7 +29,7 @@
  *   - anchor density indicator
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AnimatePresence,
   motion,
@@ -50,6 +50,13 @@ import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
 import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
+import { useCalendarTabFeasibilityDisplay } from "./_useCalendarTabFeasibilityDisplay";
+import {
+  applyDisclosureAction,
+  getDisclosureStateForIndex,
+  resetAllDisclosures,
+  type ExpandedTransitionIndices,
+} from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
 import { usePlanGeocode } from "./_usePlanGeocode";
 import { ProposalChip } from "../components/ProposalChip";
 import type { AddRequest } from "../PlanClient";
@@ -142,6 +149,45 @@ export function CalendarTab({
     selectedDayAnchors,
     selectedDate,
     selectedDayResolutions,
+  );
+
+  // ── M-3d MapTab pattern を CalendarTab selected day に展開 ──
+  //    feasibility display + per-transition disclosure state。
+  //    既存 selectedDayResolutions を読むだけ (= 新規 fetch なし、 localStorage なし)。
+  //    pipeline 解決前 / エラー時は空 Map で disclosure UI 非活性化。
+  //    not_applicable / sensitive / unresolved は M-2a で map から除外済。
+  //    month / grid 全件展開は **絶対禁止** (= selected day detail のみ)。
+  const calendarFeasibilityDisplayByTransitionIndex = useCalendarTabFeasibilityDisplay(
+    selectedDayAnchors,
+    selectedDate,
+    selectedDayResolutions,
+  );
+
+  // M-3d disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
+  //   React lazy initial state pattern (= 関数 ref を渡す)。
+  //   - 初期 state は必ず新規 empty Set (= mutation 攻撃面 0)
+  const [expandedTransitionIndices, setExpandedTransitionIndices] = useState<
+    ExpandedTransitionIndices
+  >(resetAllDisclosures);
+
+  // M-3d: selectedDate 変化で reset (= 「観測の幕間」、 革新 5 継承)
+  //   localStorage 禁止と整合: persist なし、 日切替で fresh observation 再起動。
+  useEffect(() => {
+    setExpandedTransitionIndices(resetAllDisclosures());
+  }, [selectedDate]);
+
+  // M-3d: per-transition disclosure toggle handler
+  //   transition line tap / Enter / Space で呼ばれる。
+  //   M-3c-pure-harden adapter 経由で状態更新 (= idempotency 同参照保持)。
+  const handleToggleFeasibilityDisclosure = useCallback(
+    (transitionIndex: number) => {
+      setExpandedTransitionIndices((current) => {
+        const currentState = getDisclosureStateForIndex(current, transitionIndex);
+        const action = currentState === "expanded" ? "request_collapse" : "request_expand";
+        return applyDisclosureAction(current, transitionIndex, action);
+      });
+    },
+    [],
   );
 
   // Phase 2-E: 時刻重なり気付き indicator 用、selected day の overlap Set を 1 回 useMemo
@@ -568,6 +614,9 @@ export function CalendarTab({
               }}
               dataTestId="plan-calendar-day-graph-timeline"
               movementDisplayByTransitionIndex={calendarMovementDisplayByTransitionIndex}
+              feasibilityDisplayByTransitionIndex={calendarFeasibilityDisplayByTransitionIndex}
+              expandedTransitionIndices={expandedTransitionIndices}
+              onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
             />
           </div>
         )}
