@@ -11074,3 +11074,113 @@ const dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded;
 - **ステータス**: M-3d-bugfix 着地完了。 42 + 2625 tests PASS。 FlowTab の disclosure UI 初期表示問題解決。 freeze 保留 (= CEO visual smoke 再実施待ち)。
 
 ---
+
+## 2026-05-23 [Build] Phase 3-M-3d Bugfix Closeout Audit — CEO Visual Smoke PASS + freeze 宣言 (= 9 項目全件 PASS) [承認: CEO + GPT 合議]
+
+### 背景
+
+M-3d bugfix `98cd6b2a` の CEO visual smoke 再実施、 **9 項目全件 PASS**。
+CEO 指示: 「M-3d bugfix closeout audit + freeze 記録 → M full closeout → Phase 3-N readiness audit」
+
+### CEO Visual Smoke 結果 (= 9 項目 PASS)
+
+| # | 確認項目 | 結果 |
+|---|---|---|
+| 1 | FlowTab / リストタブで「詳細」 が表示される | ✅ (= bugfix 直接効果) |
+| 2 | tap で「余白 N 分」 / 「不足 N 分」 表示 | ✅ |
+| 3 | 「閉じる」 で消える | ✅ |
+| 4 | 別の日でも独立して展開できる | ✅ (= per-day state 動作確認) |
+| 5 | CalendarTab 既存挙動に大きな崩れなし | ✅ (= backward compat 100%) |
+| 6 | MapTab 既存挙動に大きな崩れなし | ✅ (= 完全不変) |
+| 7 | warning / recommendation / optimization 文言なし | ✅ |
+| 8 | amber / orange / red なし | ✅ |
+| 9 | icon / warning badge なし | ✅ |
+
+### freeze 宣言
+
+- **`feat/alter-plan-phase3-m-3d-bugfix-flowtab-disclosure-missing`** @ **`98cd6b2a`**: **frozen** (= CEO smoke PASS で確定)
+- M-3d readiness audit `docs/plan-phase3-m-3d-readiness-audit` @ `ed789adc`: **frozen**
+- 本 closeout audit `docs/plan-phase3-m-3d-bugfix-closeout-audit` (= 本 commit): **frozen 予定**
+- 合計 **50 frozen branches** (= 既存 49 + readiness audit + bugfix closeout − superseded `0352bdae`)
+
+### supersedes 記録
+
+- **`feat/alter-plan-phase3-m-3d-calendar-flow-feasibility-disclosure`** @ `0352bdae`: **superseded by `98cd6b2a`** (= bugfix 適用前)
+- 個別 freeze せず
+
+### 達成事項
+
+| 項目 | 詳細 |
+|---|---|
+| root cause 確定 | FlowTab の `expandedByDay[iso]` が user tap 前 `undefined` → DayGraphTimeline `canDisclose` で false |
+| MapTab/FlowTab 差分特定 | MapTab/CalendarTab は `useState(resetAllDisclosures)`、 FlowTab は `Record<>({})` で各 key undefined |
+| 修正 | `useMemo(() => resetAllDisclosures(), [])` + `dayExpanded = expandedByDay[iso] ?? stableEmptyExpanded` |
+| harden 規約整合性 | 永続 Set 定数を外部公開しない / always-function-call / mutation 攻撃面除去 全件保持 |
+| 永続規約 20 件目追加 | **「per-day state pattern では stable empty fallback (= useMemo) を提供する」** |
+
+### 数値的達成
+
+| 項目 | 値 |
+|---|---|
+| M-3d bugfix tests (= FlowTab) | **42 PASS** (= 36 → +6、 内 3 件は bugfix regression) |
+| 全 plan tests regression | **2625 PASS** (= 2622 → +3) |
+| feasibility / DayGraphTimeline / MapTab / CalendarTab / FlowTab / hooks の tsc errors | **0** |
+| 変更 file | 2 (= FlowTab.tsx + flowTab test) |
+| MapTab / CalendarTab / DayGraphTimeline / lib/plan/\* 改変 | **0** |
+| K / L / M-1〜M-3c-ui 既存 file 改変 | **0** |
+| DB / env / package / dependency 変更 | **0** |
+
+### 「観測層 4 層構造 (= K/L/M/N+) の M 担当」 完成宣言
+
+```
+Plan tab (= 場所 + 時間 + 移動 + 余白/不足 観測)
+├─ K phase: 時間構造観測 ✅
+├─ L phase: 移動構造観測 ✅
+├─ M phase: 余白/不足観測 ✅ (= M-1〜M-3d-bugfix まで 3 tab 完全展開)
+└─ N+: 別観測層 + Home/Plan polish ⏸️ (= 次)
+```
+
+### 思想 transmission (= 永続規約 20 件、 +1)
+
+20. **per-day state pattern では stable empty fallback (= useMemo) を提供する** (= NEW、 bugfix で確立)
+
+### 残論点 / Deferred
+
+**短期 (= M-3d-extend)**:
+- N 人 visual smoke
+- density guard (= FlowTab 7 日 × N transition 圧緩和)
+
+**中期 (= M-4+)**:
+- daily counts disclosure / progressive trust / per-transition counts pattern
+
+**構造的 (= M-5+)**:
+- ambient indicator / 集計 disclosure 別軸 / 共有モード制御 / mobile gesture
+
+**「やらない」 永続規約**:
+- 警告色 / icon / badge / hover-only / localStorage / 「指摘」 文言 / 永続 Set 外部公開 / per-day state で undefined
+
+### 次への接続 (= 段階的)
+
+1. **Step B**: M full closeout audit (= M phase 完了宣言)
+2. **Step C**: Phase 3-N readiness audit (= 大規模 doc、 Counter-Factual/Pattern + Home/Plan polish)
+3. **Step D**: N-1 実装
+4. **Step E**: /plan final closeout
+5. **(後)**: Deploy readiness / Stargazer / 初期 user 獲得 — /plan complete 後
+
+### 危険境界遵守 (= 全件 0)
+
+- 実装変更: 0 (= docs only)
+- frozen branches への追加 commit: 0
+- 「不足 N 分」 常時表示: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 M-3d bugfix smoke PASS、 「closeout + freeze + M full closeout + Phase 3-N readiness audit に進む」 指示)
+- **ステータス**: M-3d bugfix closeout audit 着地完了。 freeze 宣言 (= `98cd6b2a`)、 superseded 記録 (= `0352bdae`)、 50 frozen branches。 次は M full closeout audit。
+
+---
