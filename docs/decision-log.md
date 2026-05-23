@@ -12862,3 +12862,105 @@ GPT 指摘:
 - **ステータス**: N-2 wave 3 impl 着地完了 (= approved scope 完了)。 10 + 2662 tests PASS。 11 line 修正 + 10 regression test。 GPT 表現補正 3 点反映済 (= 上記)。 **plan 全体としては L 453 residual あり**。 freeze 保留 (= CEO visual smoke 5 件 + L 453 判断待ち)。 **N-2 完了とはまだ言わない**。 次は CEO smoke → L 453 判断 (a wave 3a 1 line or b exception 管理、 GPT 推奨 a) → wave 3 closeout audit → N-2 phase 完了判定。
 
 ---
+
+## 2026-05-23 [Build/Product] Phase 3-N-2 Wave 3a 着地 (= L 453 規約 24-extended 完全閉鎖、 1 line + 4 tests、 2666 PASS) [承認: CEO Visual Smoke PASS + 監査 PASS]
+
+### 背景
+
+CEO + GPT 連続 GO 判定で wave 3 impl `4b77d896` 着地後、 PlaceCandidatesPanel.tsx L 453 `focus-visible:border-indigo-300` を scope 外 residual として明示。 CEO Visual Smoke (= wave 3 範囲 5 件 + wave 3a 範囲 1 件) 計 6 件全 PASS。 GPT 推奨の標準進路 (= a wave 3a 1 line 修正) を CEO 承認、 wave 3a 着手 (= commit `df41a2de`)。
+
+### 変更内容 (= 2 file)
+
+**PlaceCandidatesPanel.tsx** (= 1 line):
+- L 453: `focus-visible:border-indigo-300` → `focus-visible:border-slate-300`
+- brand-color residual を除去しつつ visibility を維持 (= L 452 既存 `focus-visible:ring-slate-300` と同階調で focus 視認性十分)
+- L 451 `hover:border-indigo-300 hover:bg-indigo-50/60` は維持 (= hover は focus context 外、 brand identity の自然な visual)
+
+**planComponentsFocusBorderRegimeWiring.test.ts** (= 拡張):
+- TARGET_FILES に PlaceCandidatesPanel を 3 件目追加
+- Cross-file 永続宣言 `toBe(2)` → `toBe(3)`
+- describe 命名 + comment を `wave 3 + 3a` に整合
+- 新規 invariants 4 件 (= §1 focus:border-indigo 不在 / §2 focus-visible:border-indigo 不在 / §3 focus:border-slate 不在 / §4 focus-visible:border-slate-* 存在)
+
+### 検証結果 (= 外科的 pass 確認、 CEO 厳格 threshold 全クリア)
+
+| 項目 | 値 |
+|---|---|
+| branch | `feat/alter-plan-phase3-n-2-wave-3a-focus-border-residual-fix` |
+| 編集 file | 2 (= PlaceCandidatesPanel.tsx + 既存 regression test) |
+| 既存 file 改変行数 | **1 line** (= L 453 のみ) |
+| regression tests | **14 PASS** (= 3 file × 4 invariants + Cross-file 2、 wave 3 から +4) |
+| 全 plan tests | **2666 PASS** (= 2662 + 4 new、 0 fail) |
+| focus ring regime test (wave 1/2) | **26 PASS** (= 影響 0、 wave 1/2 規約 24 不変) |
+| plan-wide brand+warning focus surface grep | **0 hit** (= border / ring / outline 全 surface、 indigo/purple/amber/orange/red) |
+| plan-wide bare `focus:` 残存 | **0 hit** (= `focus:outline-none` 除く) |
+| edited files tsc errors | **0** (= PlaceCandidatesPanel + test、 pre-existing 11 件は無関係、 handoff doc §3.1 と一致) |
+| AnchorFormFields / ProposalChip diff | 空 (= wave 3 frozen 維持) |
+| DB / env / package / dependency 変更 | **0** |
+| 新規 fetch / endpoint / localStorage / runtime telemetry | **0** |
+
+### 達成 (= 規約 24-extended が plan 全 surface に閉じる)
+
+> すべての focus surface (= ring / border / outline) は `focus-visible:` + `slate-*` を使い、 `focus:` (= focus-visible なし) と brand color (= indigo, purple) を組み合わせない。
+
+- wave 1 (= 規約 24、 focus ring 確立)
+- wave 2 (= plan 主要 6 file の ring 展開)
+- wave 3 (= 規約 24-extended、 border surface 拡張、 AnchorFormFields + ProposalChip)
+- **wave 3a (= L 453 residual 解消、 plan 全 surface 完全閉鎖)**
+
+### 思想 transmission
+
+- 「観測の幕間」 = mouse click 後の stuck visual 排除 (= focus-visible: + slate-*)
+- 「観測しない時は静か」 = brand color 焼き付き排除 (= focus context の brand 不使用)
+- mouse hover (= L 451 indigo) は意図的に維持 (= 観測**中**の hover visual identity、 観測の **幕間** とは別 dimension、 focus context ではない)
+- regression test で永続規約化 (= 3 file × 4 invariants で将来 brand focus 復活を構造的に禁止)
+
+### CEO 前提 4 点遵守 (= 完全)
+
+| 前提 | 遵守 |
+|---|---|
+| ① brand color には戻さない | ✅ L 453 indigo-300 → slate-300 |
+| ② slate 系 focus-visible 規約を維持 | ✅ 規約 24-extended で focus-visible: + slate-* 統一 |
+| ③ wave 2 visual-only closeout | ✅ wave 2 file の他 class 一切 touch せず、 L 453 1 line のみ |
+| ④ 残候補 P-002〜P-008 の再評価から始める | ✅ wave 3 plan audit で再評価済、 wave 3a は L 453 scope 限定 |
+
+### 危険境界遵守 (= 全件 0)
+
+- M phase / M-2a / L-4a / wave 1 / wave 2 既存 file の追加変更: 0
+- 他 polish 候補 (P-002〜P-008) の混入: 0
+- 新規 component / hook / effect / state: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon / badge / warning box: 0
+- localStorage / DB / env / package / dependency / persist: 0
+- fetch / endpoint / runtime telemetry / Counterfactual generation / Routes API: 0
+- Deploy readiness / Stargazer pivot: 0 (= /plan complete 前)
+- frozen branches への追加 commit: 0
+- reset / restore / stash / branch delete / gh / push: 0
+
+### CEO Visual Smoke 結果 (= 計 6 件 全 PASS)
+
+| # | smoke | 範囲 | 結果 |
+|---|---|---|---|
+| 1 | AddAnchorModal input click → stuck indigo border 不出現 | wave 3 | PASS |
+| 2 | AddAnchorModal input Tab focus → slate border 出現 | wave 3 | PASS |
+| 3 | EditAnchorModal input 動作 | wave 3 | PASS |
+| 4 | ProposalChip click → stuck slate-400 border 不残存 | wave 3 | PASS |
+| 5 | 全 plan tab で Add/Edit modal 起動 + 入力動作 不変 | wave 3 | PASS |
+| 6 | PlaceCandidatesPanel button focus → slate-300 border 出現 | wave 3a | PASS |
+
+### 残発見
+
+- plan/ scope 内 brand-color focus surface residual: **0 件** (= 規約 24-extended plan 全 surface 完全閉鎖)
+- pre-existing tsc errors 11 件 (= anchorUpdateValidation / externalAnchorSupabaseRepository / stargazer 系): wave 3a と **無関係** (= 前 session の handoff doc §3.1 「pre-existing errors は無関係」 と一致)
+
+### 次 (= CEO 判断待ち)
+
+- wave 3 + 3a closeout audit (= 本 entry + wave 3 impl + 表現補正 + wave 3a を統合した closeout doc)
+- N-2 phase 完了判定 (= wave 1 / 2 / 3 / 3a 全完了、 規約 24-extended plan 全 surface 適用済)
+- N-3 phase (= 空き日 → ALTER flow readiness + implementation)
+
+### 承認 + ステータス
+
+- **承認**: CEO Visual Smoke PASS (= AnchorFormFields + ProposalChip + PlaceCandidatesPanel 計 6 件) + 私 (Claude) のコード監査 PASS (= 外科的 pass 確認 10 項目全クリア、 CEO 厳格 threshold)
+- **ステータス**: N-2 wave 3a 着地完了 (= commit `df41a2de`、 L 453 1 line + 4 new tests、 2666 PASS、 regression 14 + ring regime 26 + plan 全体 2666 全 PASS、 plan-wide brand-color focus surface grep 0 hit、 edited files tsc-clean、 wave 3 既存 file 不変)。 **規約 24-extended plan 全 surface 完全閉鎖** (= wave 1/2/3/3a 累計)。 freeze 候補 (= wave 3 + 3a closeout audit 後)。 次は wave 3 + 3a closeout audit → N-2 phase 完了判定 → N-3 (空き日 → ALTER flow) へ。
+
+---
