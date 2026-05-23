@@ -12445,3 +12445,123 @@ CEO + GPT 承認内容:
 - **ステータス**: N-2 wave 2 impl 着地完了。 26 + 2652 tests PASS。 9 line 修正 + 26 regression test。 freeze 保留 (= CEO visual smoke 6 件再実施待ち)。 次は CEO smoke → wave 2 closeout audit → wave 3 plan。
 
 ---
+
+## [2026-05-23] [Build/Product] Phase 3-N-2 Wave 2 Closeout Audit (= P-009 規約 24 全 plan component 適用 smoke PASS + freeze 宣言) [承認: CEO + GPT 合議]
+
+### 背景
+
+- 直前: N-2 wave 2 impl `94bcd220` 着地 (= 9 line 修正 + 26 regression tests)
+- CEO + GPT: 「visual smoke 6 件とも問題ありません。 PASS として進めてください。 次は予定どおり、 1. wave 2 closeout audit、 2. freeze 宣言、 3. wave 3 plan audit の順で進めてください」
+- CEO 前提:
+  - brand color には戻さない
+  - slate 系 focus-visible 規約を維持
+  - 今回の wave 2 は visual-only closeout として閉じる
+  - 他候補を混ぜず、 wave 3 は残候補 P-002〜P-008 の再評価から始める
+
+### 達成事項
+
+#### CEO Visual Smoke 結果 (= 6 件 PASS)
+
+| # | 確認項目 | 結果 |
+|---|---|---|
+| 1 | MapTab 予定 / カテゴリ card click | ✅ PASS |
+| 2 | FlowTab 予定 card click | ✅ PASS |
+| 3 | CalendarTab 予定 card click | ✅ PASS |
+| 4 | AddAnchorModal field / PlaceCandidatesPanel | ✅ PASS |
+| 5 | EditAnchorModal field | ✅ PASS |
+| 6 | Tab navigation で focus-visible 統一 | ✅ PASS |
+
+→ **6 件全件 PASS、 wave 2 visual-only closeout 成立**。
+
+#### 永続規約 24 全展開完成
+
+| component | wave |
+|---|---|
+| DayGraphTimeline EventItem | wave 1 |
+| DayGraphTimeline TransitionItem | M-3c-ui (= 既存) |
+| MapTab 予定/カテゴリ card × 2 | wave 2 |
+| FlowTab 予定 card | wave 2 |
+| CalendarTab 予定 card | wave 2 |
+| PlaceCandidatesPanel button × 3 | wave 2 |
+| AnchorFormFields field × 2 | wave 2 |
+
+→ **plan 主要 interactive surface 全 11 箇所で規約 24 統一完成**。
+
+#### 数値的達成
+
+| 項目 | 値 |
+|---|---|
+| **新規 regression tests** | **26 PASS** (= 6 file × 4 invariants + 2 cross-file 宣言) |
+| **全 plan tests** | **2652 PASS** (= 0 fail) |
+| 修正 file | 6 (= 5 既存 + 1 新規 test) |
+| 既存 file 改変行数 | **9 line** (= class 文字列のみ) |
+| 機能変更 | **0** (= visual-only) |
+| K / L / M phase / wave 1 既存 invariants 影響 | **0** |
+| DB / env / package / dependency 変更 | **0** |
+| CEO smoke 確認項目 | **6 件全件 PASS** |
+
+### Freeze 宣言 (= 正式記録)
+
+- **`feat/alter-plan-phase3-n-2-wave-2-focus-ring-regime-applied`** @ **`94bcd220`**: **frozen** (= CEO smoke PASS 6 件で確定)
+- N-2 wave 2 plan audit `docs/plan-phase3-n-2-wave-2-plan-audit` @ `73a7405d`: frozen (= 既存)
+- 本 audit `docs/plan-phase3-n-2-wave-2-closeout-audit`: frozen (= 本 commit 着地後)
+
+### frozen branches 合計
+
+- **59 frozen branches**:
+  - 既存 56 (= wave 1 closeout 時点)
+  - + N-2 wave 2 plan audit `73a7405d` → 57
+  - + N-2 wave 2 impl `94bcd220` → 58
+  - + N-2 wave 2 closeout audit (= 本 commit) → 59
+
+### Visual-Only Closeout 性格 (= 明示)
+
+wave 2 は **完全に visual のみ** の変更:
+- 機能変更: 0
+- API 変更: 0
+- DB / env / package / dependency 変更: 0
+- 新規 component / hook / 関数追加: 0
+- 既存 test 既存 invariants 影響: 0
+
+→ wave 2 は「観測層 OS visual 規約」 の **思想保護完成** を目的とした最小実装。
+
+### Wave 3 への接続
+
+- 残候補 P-002〜P-008 を wave 3 plan audit で再評価
+- CEO 前提 4 点維持:
+  - brand color には戻さない
+  - slate 系 focus-visible 規約を維持
+  - wave 2 は visual-only closeout として閉じる
+  - 他候補を混ぜず、 残候補 P-002〜P-008 の再評価から始める
+- wave 3 plan audit で wave 3 範囲確定 + 連続 GO 判定
+
+### 思想 transmission (= 永続規約 24 全展開達成)
+
+**24. 「観測層 OS visual 規約」 (= focus-visible: + slate-300)** は wave 2 で **plan 主要 component に全展開**:
+- focus ring は **全て** `focus-visible:` + `slate-300`
+- `focus:` (= focus-visible なし) + brand color (= indigo, purple) は **plan 全 component で禁止**
+- `ring-offset-*` も「観測の幕間」 思想に合わない (= ring が前面に出る = 観測の主張) → **plan 全 component で禁止**
+- 否定系 3 + 肯定系 1 の二重 regression test (= 26 件) で永続規約化
+- 「観測の幕間」 を plan 全 component で visual 実証 (= 全 card / field click 後 ring が消える)
+
+### 危険境界遵守 (= 全件 0)
+
+- frozen branches への追加 commit: 0
+- N-2 wave 2 の追加変更: 0
+- DayGraphTimeline (= wave 1 適用済) への追加変更: 0
+- 規約 24 違反の復活: 0
+- brand color (= indigo, purple) の focus ring 文脈での復活: 0
+- M phase の追加変更: 0
+- M-2a / L-4a 文言の変更: 0
+- Arrival Risk / 警告文言 / amber/orange/red / icon: 0
+- localStorage / DB / env / package / dependency: 0
+- fetch / endpoint / runtime telemetry / Counterfactual / Routes API: 0
+- Deploy readiness / 別軸 pivot: 0 (= /plan complete 前)
+- reset / restore / stash / branch delete / gh / push: 0
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-23 wave 2 impl 着地後 「visual smoke 6 件問題なし PASS、 closeout audit → freeze → wave 3 plan の順」 指示)
+- **ステータス**: N-2 wave 2 closeout audit 着地完了。 visual smoke 6 件 PASS 記録 + freeze 宣言 (= `94bcd220`、 frozen branches 59 件) + 規約 24 全展開完成 (= plan 全 11 箇所統一) + Visual-Only Closeout 性格明示。 次は **N-2 wave 3 plan audit** (= 別 doc、 残候補 P-002〜P-008 再評価から開始、 CEO 前提 4 点維持)。
+
+---
