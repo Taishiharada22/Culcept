@@ -129,70 +129,77 @@ export type SummaryFooterProps = {
 };
 
 /**
- * SummaryFooter — 1 日全体の解釈レイヤーの器 (= 8c)
+ * SummaryFooter — 1 日全体の解釈レイヤーの器 (= 8c + 8c-2 corrective 強化)
  *
- * 構造 (= mock 整合):
- *   - container: rounded-2xl border bg-white shadow-sm (= card-like)
- *   - 左: SummaryRingIcon (= 円形 indicator 視覚枠)
- *   - 中央: 状態名 (= text-sm font-medium、 中立)
- *   - 右: 一言解釈 (= text-xs text-slate-500、 観測寄り)
- *   - 末尾右: subtle CTA (= text-xs text-indigo-600 + ›)
+ * 8c-2 補正 (= CEO 「弱い」 「存在感不足」 「下部固定 / スクロールしても見切れない」):
+ *   - 下部固定 (= 親 container を fixed bottom-0 inset-x-0、 z-index で FAB 等の上)
+ *   - 内部階層強化: padding 増 + 状態名 font-semibold + shadow-md + 解釈 「面」 感
+ *   - 左 indicator size 40 → 48
+ *   - 中央 状態名 text-sm → text-base
+ *   - 右 一言解釈 text-xs (= 維持、 状態名と差を出して階層)
+ *   - 末尾 CTA に padding 増 + 視覚的 weight up
  *
- * 8c 範囲:
- *   - 数値 0 / score 0 / 強い評価 0
- *   - 固定 copy (= constants 経由)
- *   - 押し感 subtle (= CTA 「強くない押し」)
+ * 構造 (= mock 整合 左/中央/右 役割明確):
+ *   - 左: SummaryRingIcon (= 円形 indicator、 大きく)
+ *   - 中央 flex-1: 状態名 (= 大、 black) + 一言解釈 (= 小、 slate-500、 縦並び)
+ *   - 右: subtle CTA (= padding 増、 視覚 weight)
  */
 export function SummaryFooter({ onCtaTap }: SummaryFooterProps): ReactNode {
   return (
-    <section
-      data-testid="plan-list-summary-footer"
-      aria-label="1日全体の解釈"
-      className={[
-        "mx-auto max-w-3xl",
-        "flex items-center gap-3",
-        "rounded-2xl border border-slate-100 bg-white shadow-sm",
-        "px-4 py-3",
-      ].join(" ")}
+    <div
+      className="fixed bottom-0 inset-x-0 z-40 px-4 pb-4 pt-2 pointer-events-none"
+      data-testid="plan-list-summary-footer-container"
     >
-      {/* 左: 視覚サマリー枠 (= 円形、 数値なし) */}
-      <SummaryRingIcon size={40} />
-
-      {/* 中央 + 右: 状態名 + 一言解釈 (= 縦並び flex-1) */}
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-sm font-medium text-slate-700"
-          data-testid="plan-list-summary-footer-state"
-        >
-          {SUMMARY_FOOTER_STATE_LABEL}
-        </p>
-        <p
-          className="text-xs text-slate-500 mt-0.5"
-          data-testid="plan-list-summary-footer-interpretation"
-        >
-          {SUMMARY_FOOTER_INTERPRETATION}
-        </p>
-      </div>
-
-      {/* 末尾: subtle CTA (= 規約 24-extended focus-visible:border-slate-300) */}
-      <button
-        type="button"
-        onClick={onCtaTap}
-        data-testid="plan-list-summary-footer-cta"
+      <section
+        data-testid="plan-list-summary-footer"
+        aria-label="1日全体の解釈"
         className={[
-          "flex-shrink-0",
-          "text-xs text-indigo-600",
-          "rounded-md",
-          "px-2 py-1",
-          "border border-transparent",
-          "transition-colors duration-150",
-          "hover:bg-slate-50",
-          "focus:outline-none focus-visible:border-slate-300",
+          "mx-auto max-w-3xl",
+          "flex items-center gap-4",
+          "rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-md shadow-lg",
+          "px-5 py-4",
+          "pointer-events-auto",
         ].join(" ")}
-        aria-label={SUMMARY_FOOTER_CTA_LABEL}
       >
-        {SUMMARY_FOOTER_CTA_LABEL} ›
-      </button>
-    </section>
+        {/* 左: 視覚サマリー枠 (= 8c-2 大きく size 48) */}
+        <SummaryRingIcon size={48} />
+
+        {/* 中央: 状態名 (= 8c-2 強化 text-base + font-semibold) + 一言解釈 (= 階層差) */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-base font-semibold text-slate-900"
+            data-testid="plan-list-summary-footer-state"
+          >
+            {SUMMARY_FOOTER_STATE_LABEL}
+          </p>
+          <p
+            className="text-xs text-slate-500 mt-1"
+            data-testid="plan-list-summary-footer-interpretation"
+          >
+            {SUMMARY_FOOTER_INTERPRETATION}
+          </p>
+        </div>
+
+        {/* 右: subtle CTA (= 8c-2 padding 増 + 視覚 weight up) */}
+        <button
+          type="button"
+          onClick={onCtaTap}
+          data-testid="plan-list-summary-footer-cta"
+          className={[
+            "flex-shrink-0",
+            "text-xs font-medium text-indigo-600",
+            "rounded-lg",
+            "px-3 py-2",
+            "border border-indigo-100",
+            "transition-colors duration-150",
+            "hover:bg-indigo-50",
+            "focus:outline-none focus-visible:border-slate-300",
+          ].join(" ")}
+          aria-label={SUMMARY_FOOTER_CTA_LABEL}
+        >
+          {SUMMARY_FOOTER_CTA_LABEL} ›
+        </button>
+      </section>
+    </div>
   );
 }

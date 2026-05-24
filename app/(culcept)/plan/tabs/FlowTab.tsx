@@ -311,7 +311,7 @@ export function FlowTab({
   const selectedDay = days[safeSelectedIndex];
 
   return (
-    <div data-testid="plan-flow-tab" className="relative pb-24">
+    <div data-testid="plan-flow-tab" className={LIST_NEW_TIMELINE_ENABLED ? "relative pb-40" : "relative pb-24"}>
       {/* 8b-10: date picker 小さく + 余白縮小 (= mb-4→mb-2, p-3→p-2, text-sm→text-xs) */}
       {LIST_NEW_TIMELINE_ENABLED && selectedDay && (
         <div
@@ -407,27 +407,32 @@ export function FlowTab({
         <StaticAlterSuggestionCard firstEmptyDayLabel={firstEmptyDayLabel} />
       )}
 
-      {/* FAB (Phase 2-A 同 pattern、今日 prefill、HomePaneIndicator z-30 と重ねない bottom-20) */}
+      {/* FAB (Phase 2-A 同 pattern、 8c-2: flag ON で SummaryFooter 干渉避けるため bottom-36 に持ち上げ) */}
       {onAddRequest && (
         <button
           type="button"
           onClick={handleFabClick}
           aria-label={`今日 (${formatJpDate(today)}) に予定を追加`}
           data-testid="plan-flow-fab"
-          className="
-            fixed bottom-20 right-6 z-30
-            w-14 h-14 rounded-full
-            bg-gradient-to-br from-indigo-500 to-purple-500
-            text-white text-3xl font-light leading-none
-            shadow-lg hover:shadow-xl active:scale-95
-            transition-all
-            flex items-center justify-center
-          "
+          className={[
+            "fixed right-6 z-30",
+            LIST_NEW_TIMELINE_ENABLED ? "bottom-36" : "bottom-20",
+            "w-14 h-14 rounded-full",
+            "bg-gradient-to-br from-indigo-500 to-purple-500",
+            "text-white text-3xl font-light leading-none",
+            "shadow-lg hover:shadow-xl active:scale-95",
+            "transition-all",
+            "flex items-center justify-center",
+          ].join(" ")}
           style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
         >
           +
         </button>
       )}
+
+      {/* 8c-2: SummaryFooter fixed bottom (= 全 day 共通 1 つ、 スクロールしても常時表示)
+          flag ON のみ render */}
+      {LIST_NEW_TIMELINE_ENABLED && <SummaryFooter />}
     </div>
   );
 }
@@ -552,12 +557,8 @@ function FlowDaySection({
             />
           )}
         </div>
-        {/* 8c: SummaryFooter (= non-empty day で TimelineSpine 下に render、 1日全体の解釈レイヤー器) */}
-        {hasAnchors && (
-          <div className="px-4 pb-3">
-            <SummaryFooter />
-          </div>
-        )}
+        {/* 8c-2: SummaryFooter は FlowTab top で fixed bottom 1 つだけ render (= スクロール非依存)。
+            FlowDaySection 内では render しない (= 旧 8c の per-day SummaryFooter 廃止) */}
       </section>
     );
   }

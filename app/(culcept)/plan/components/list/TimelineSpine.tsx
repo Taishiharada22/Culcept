@@ -147,6 +147,10 @@ export type TimelineSpineProps = {
   readonly transitions?: ReadonlyArray<TransitionViewModel>;
   /** Optional: event tap handler (= id を受け取る、 詳細 sheet open trigger 等) */
   readonly onEventTap?: (id: string) => void;
+  /**
+   * Optional: 8c-2 追加、 transition 詳細 tap handler (= fromTime, toTime を受け取る、 詳細 sheet 等)
+   */
+  readonly onTransitionDetailTap?: (fromTime: string, toTime: string) => void;
 };
 
 /**
@@ -165,6 +169,7 @@ export function TimelineSpine({
   events,
   transitions,
   onEventTap,
+  onTransitionDetailTap,
 }: TimelineSpineProps): ReactNode {
   if (events.length === 0) {
     return (
@@ -223,9 +228,20 @@ export function TimelineSpine({
                       aria-hidden="true"
                     />
                   </div>
-                  {/* 右 column: 「移動」 pill */}
+                  {/* 右 column: 「移動」 pill (= 8c-2 で 詳細 button 接続) */}
                   <div className="flex-1 min-w-0 py-1.5 pl-2">
-                    <TransitionChip transition={matchingTransition} />
+                    <TransitionChip
+                      transition={matchingTransition}
+                      onDetailTap={
+                        onTransitionDetailTap
+                          ? () =>
+                              onTransitionDetailTap(
+                                matchingTransition.fromTime,
+                                matchingTransition.toTime,
+                              )
+                          : undefined
+                      }
+                    />
                   </div>
                 </li>
               )}
