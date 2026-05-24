@@ -14030,3 +14030,84 @@ Map spec audit v1 (= commit `1c544a56` 8 論点 1 次案) 提示後、 CEO + GPT
 - **ステータス**: Map spec audit v2 **提示完了**。 CEO 採用判定 → spec 凍結 → 次 phase (= A → C → impl) 着手。
 
 ---
+
+## 2026-05-24 [Build/Product] Map spec audit v3 補正 (= CEO + GPT 3 点指摘反映: 「確定」 softening + label policy 明文化 + sheet state 固定) + 次 phase impl readiness 着手準備 [承認: CEO + GPT 「v2 概ね採用、 3 点補正してから readiness へ」]
+
+### 背景
+
+Map spec audit v2 (= commit `b73cb6f2` CEO 画像分析統合版) を CEO + GPT 確認。 「v2 は概ね採用でよい、 ただし 3 点補正してから次へ」 判定。 採用 4 点 (= 本 audit / 各 spec 項目 / 次 phase A→C→impl / inventory 不触) は全 OK。
+
+### CEO + GPT 3 点補正 (= 本 commit で反映)
+
+| # | 指摘 | v3 反映 |
+|---|---|---|
+| 1 | 「確定」 表現を弱める | header status → **「spec freeze candidate (= v3)」**、 全 §19 マッピング 「確定」 → 「採用方向」 |
+| 2 | Map 上ラベル出し方明文化 | §6.5 + §6.6 で **selected pin のみ採用** 明文化 (= 全 pin / tap toggle / zoom 級別 不採用、 参考画像準拠) |
+| 3 | bottom sheet 段階状態 readiness 前固定 | §9.5 で **half + expanded 2 段階採用、 collapsed v3 scope 外** 固定 |
+
+### CEO + GPT 採用 4 点 (= 継続確認)
+
+1. **本 audit v2 (= v3 補正後)**: 採用
+2. **各 spec 項目**: 概ね採用
+3. **次 phase**: **A → C → impl** 採用
+4. **既存 MapTab inventory 不触判定**: 次 phase で妥当
+
+### v3 spec freeze candidate ステータス
+
+- 「確定」 (= CEO 明示採用前) は **使用しない**
+- 「採用方向」 / 「freeze candidate」 で表現
+- CEO 明示採用後に 「freeze」 + spec 凍結
+
+### 次 phase 進行 (= A → C → impl 確定)
+
+| phase | 内容 | 状態 |
+|---|---|---|
+| **A** | v3 採用 + spec freeze | 本 commit で v3 提示、 CEO 採用判定後 freeze |
+| **C** | impl readiness doc 新規 (= 別 doc、 sub-phase 候補 + file mapping) | CEO A 採用後 着手 |
+| **impl** | sub-phase 単位で着手 (= 案 1b flag pattern 流用) | readiness 後 |
+
+### Map impl readiness で扱う項目 (= 次 doc で展開)
+
+CEO + GPT 「readiness で落とし切る」 4 領域:
+- selected pin label policy 細部 (= §6.5 で大枠採用済、 細部は readiness)
+- sheet state 細部 (= §9.5 で大枠採用済、 state transition 細部は readiness)
+- route rendering source (= Google Polyline / inline SVG line どれ、 §5 で抽象線採用、 source は readiness)
+- legend / controls / CTA 優先順位 (= §21 で sheet 優先、 細かい順位は readiness)
++ 既存 MapTab 改修計画 (= §18 inventory ベース、 sub-phase 候補)
+
+### docs 更新 (= 本 commit)
+
+改変:
+- `docs/alter-plan-map-redesign-spec-audit.md` (= v2 → v3、 3 点補正反映、 §6.5/6.6 + §9.5 新規追加、 §19 全項 softening、 §20.4/20.5 補正履歴 + 1 点判断仰ぐに整理)
+
+新規追加なし。
+
+### 不採用 案 継続 (= CEO + GPT 確定)
+- ❌ B IA Audit (= v2/v3 で IA 相当吸収済、 不要寄り)
+- ❌ D 直接 impl (= sheet 周りでぶれる、 危険、 readiness 必須)
+- ❌ List 8d (= 今やらない)
+- ❌ 別 task 転換 (= 「論外」)
+
+### 次
+
+- 本 v3 を CEO 採用判定
+- CEO OK → **C: Map impl readiness 着手** (= 別 doc 新規、 sub-phase 候補 + 4 領域細部)
+- merge: /plan complete まで frozen 維持
+
+**まだやらない**:
+- Map impl (= readiness 後)
+- spec の 「確定」 表現 (= CEO 明示採用前は freeze candidate 維持)
+
+### 補正履歴 (= 累計 29+ commit + 4 docs)
+
+| commit | 内容 |
+|---|---|
+| `b73cb6f2` | Map spec audit v2 (= CEO 画像深層分析統合版) |
+| **本 commit** | **Map spec audit v3 (= 3 点補正反映: 表現 softening + label policy 明文化 + sheet state 固定)** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「v2 は採用でよい、 3 点補正してから readiness へ」)
+- **ステータス**: Map spec audit v3 **3 点補正反映完了**。 CEO 採用判定 → Map impl readiness 着手 (= 別 doc)。
+
+---
