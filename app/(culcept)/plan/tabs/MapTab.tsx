@@ -977,6 +977,29 @@ function PlanMapView({
     };
   }, [pins, baselineCoords, selectedAnchorId, newMode]);
 
+  // 9a-impl: 現在地 button handler (= newMode 専用、 navigator.geolocation で center 移動)
+  //   CEO + GPT 着手条件 B 「controls 維持」 整合: zoom (= Maps native) + current location (= 自前) を 9a でも残す
+  //   失敗時は silent (= permission denied / unavailable で UI 不変)
+  //
+  //   ★ Rules of Hooks 厳守: 早期 return (= keyAvailable / ready) より **前** に useCallback を declare。
+  //     ready=false → ready=true 遷移時に hook 数が変わって 「Rendered more hooks than during the previous render」
+  //     error が出るのを防ぐ (= 9a-impl-fix1 後に判明、 fix2 で修正)。
+  const handleGoToCurrentLocation = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const map = mapInstanceRef.current;
+        if (!map) return;
+        // setCenter のみ使用 (= GmapsMap 型 contract、 panTo は未公開)
+        map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        /* silent fail (= permission denied 等) */
+      },
+      { timeout: 8000 },
+    );
+  }, []);
+
   // ─── render: keyAvailable=false / script 未 ready のみ placeholder、それ以外は Map 本体 ───
 
   if (!keyAvailable) {
@@ -1036,25 +1059,6 @@ function PlanMapView({
     // pin あり (resolved または baseline)、overlay なし
     return null;
   })();
-
-  // 9a-impl: 現在地 button handler (= newMode 専用、 navigator.geolocation で center 移動)
-  //   CEO + GPT 着手条件 B 「controls 維持」 整合: zoom (= Maps native) + current location (= 自前) を 9a でも残す
-  //   失敗時は silent (= permission denied / unavailable で UI 不変)
-  const handleGoToCurrentLocation = useCallback(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const map = mapInstanceRef.current;
-        if (!map) return;
-        // setCenter のみ使用 (= GmapsMap 型 contract、 panTo は未公開)
-        map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-      },
-      () => {
-        /* silent fail (= permission denied 等) */
-      },
-      { timeout: 8000 },
-    );
-  }, []);
 
   return (
     <div className="relative w-full mb-4">
