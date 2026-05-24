@@ -70,7 +70,10 @@ import { usePlanGeocode } from "./_usePlanGeocode";
 //     - lib/plan/list/featureFlags.ts
 //     - lib/plan/list/adapters/externalAnchorAdapter.ts
 import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
-import { convertExternalAnchorListToTimelineEvents } from "@/lib/plan/list/adapters/externalAnchorAdapter";
+import {
+  convertExternalAnchorListToTimelineEvents,
+  convertExternalAnchorListToTransitions,
+} from "@/lib/plan/list/adapters/externalAnchorAdapter";
 import { TimelineSpine } from "../components/list/TimelineSpine";
 import { EmptyDayEntry } from "../components/list/EmptyDayEntry";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
@@ -437,6 +440,12 @@ function FlowDaySection({
     const newTimelineEvents = hasAnchors
       ? convertExternalAnchorListToTimelineEvents(anchors)
       : [];
+    // 8b-4: TransitionChip 接続 (= 隣り合う events から自動生成、 label '移動' 固定)
+    //   - truth なき distance/mode 主張なし、 単純な 「流れ」 表現
+    //   - 0 件 / 1 件 / 連続時刻 では空配列、 TimelineSpine 内で何も挟まれない
+    const newTimelineTransitions = hasAnchors
+      ? convertExternalAnchorListToTransitions(anchors)
+      : [];
     return (
       <section
         data-testid={`plan-flow-section-${iso}`}
@@ -485,6 +494,7 @@ function FlowDaySection({
           {hasAnchors && (
             <TimelineSpine
               events={newTimelineEvents}
+              transitions={newTimelineTransitions}
               onEventTap={
                 onAnchorClick
                   ? (id: string) => {

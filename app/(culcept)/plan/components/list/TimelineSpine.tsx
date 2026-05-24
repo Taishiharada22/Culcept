@@ -19,12 +19,13 @@
  *   - lib/plan/list/sourceProvenance.ts
  */
 
-import { type ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import {
   type StrictEventCardViewModel,
 } from "@/lib/plan/list/sourceProvenance";
-import { type EventCategory } from "@/lib/plan/list/types";
+import { type EventCategory, type TransitionViewModel } from "@/lib/plan/list/types";
 import { EventCard } from "./EventCard";
+import { TransitionChip } from "./TransitionChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Category circle bg + 時刻 text color (= Spec §8.2 + EventCard 整合)
@@ -67,6 +68,15 @@ const CATEGORY_ICON: Record<EventCategory, string> = {
 
 export type TimelineSpineProps = {
   readonly events: ReadonlyArray<StrictEventCardViewModel>;
+  /**
+   * Optional: events 間に挿入する transitions (= 8b-4 追加、 後方互換)
+   *
+   * - undefined or 空配列 → transition render なし (= 既存 sub-phase 4 動作)
+   * - transition.fromTime <= 直前 event.endTime かつ transition.toTime >= 直後 event.startTime に
+   *   合致する transition を、 events 間に時系列順で interleave で render
+   * - 不一致な transition は skip (= silent、 throw しない)
+   */
+  readonly transitions?: ReadonlyArray<TransitionViewModel>;
   /** Optional: event tap handler (= id を受け取る、 詳細 sheet open trigger 等) */
   readonly onEventTap?: (id: string) => void;
 };
@@ -81,7 +91,11 @@ export type TimelineSpineProps = {
  *
  * spine line は absolute 配置で背景に置く (= 各 row の circle が接続)
  */
-export function TimelineSpine({ events, onEventTap }: TimelineSpineProps): ReactNode {
+export function TimelineSpine({
+  events,
+  transitions,
+  onEventTap,
+}: TimelineSpineProps): ReactNode {
   if (events.length === 0) {
     return (
       <div
@@ -106,38 +120,67 @@ export function TimelineSpine({ events, onEventTap }: TimelineSpineProps): React
       />
 
       <ul className="flex flex-col gap-4 list-none m-0 p-0" role="list">
-        {events.map((event) => (
-          <li
-            key={event.id}
-            className="relative flex items-start gap-4"
-            role="listitem"
-          >
-            {/* 左 column: 時刻 label */}
-            <div
-              className={`w-14 flex-shrink-0 pt-3 text-base font-medium tabular-nums ${CATEGORY_TIME_TEXT_CLASS[event.category]}`}
-            >
-              {event.startTime}
-            </div>
-
-            {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー) */}
-            <div className="relative flex-shrink-0 z-10 pt-2">
-              <div
-                className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-sm leading-none`}
-                aria-hidden="true"
+        {events.map((event, index) => {
+          // 8b-4: 直前 event の endTime と現 event の startTime に一致する transition があれば interleave
+          //   - 隣り合う events 間でのみ判定 (= index > 0)
+          //   - transitions が undefined / 空 / 一致なし の場合は何も挟まない (= 後方互換)
+          //   - 「truth なき semantics 主張禁止」 のため、 一致しない transition は silent skip
+          const prevEvent = index > 0 ? events[index - 1] : null;
+          const matchingTransition =
+            prevEvent !== null && prevEvent.endTime !== undefined
+              ? transitions?.find(
+                  (t) =>
+                    t.fromTime === prevEvent.endTime &&
+                    t.toTime === event.startTime,
+                )
+              : undefined;
+          return (
+            <Fragment key={event.id}>
+              {matchingTransition && (
+                <li
+                  className="relative flex items-center"
+                  role="listitem"
+                >
+                  {/* 左 column 余白 (= 時刻 column 幅と合わせる、 transition 自体は中央に出す) */}
+                  <div className="w-14 flex-shrink-0" aria-hidden="true" />
+                  {/* 中央 + 右 (= TransitionChip は flex-1 で中央寄せ済) */}
+                  <div className="flex-1 min-w-0">
+                    <TransitionChip transition={matchingTransition} />
+                  </div>
+                </li>
+              )}
+              <li
+                className="relative flex items-start gap-4"
+                role="listitem"
               >
-                {CATEGORY_ICON[event.category]}
-              </div>
-            </div>
+                {/* 左 column: 時刻 label */}
+                <div
+                  className={`w-14 flex-shrink-0 pt-3 text-base font-medium tabular-nums ${CATEGORY_TIME_TEXT_CLASS[event.category]}`}
+                >
+                  {event.startTime}
+                </div>
 
-            {/* 右 column: EventCard */}
-            <div className="flex-1 min-w-0">
-              <EventCard
-                event={event}
-                onTap={onEventTap ? () => onEventTap(event.id) : undefined}
-              />
-            </div>
-          </li>
-        ))}
+                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー) */}
+                <div className="relative flex-shrink-0 z-10 pt-2">
+                  <div
+                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-sm leading-none`}
+                    aria-hidden="true"
+                  >
+                    {CATEGORY_ICON[event.category]}
+                  </div>
+                </div>
+
+                {/* 右 column: EventCard */}
+                <div className="flex-1 min-w-0">
+                  <EventCard
+                    event={event}
+                    onTap={onEventTap ? () => onEventTap(event.id) : undefined}
+                  />
+                </div>
+              </li>
+            </Fragment>
+          );
+        })}
       </ul>
     </div>
   );

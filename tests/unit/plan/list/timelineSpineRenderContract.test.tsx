@@ -132,3 +132,79 @@ describe("TimelineSpine render contract §3. events 1+ → spine + events render
     expect(html).toContain('💼'); // work icon
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §4 transitions interleave (= 8b-4 追加、 events 間に TransitionChip 挿入)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("TimelineSpine render contract §4. transitions interleave (= 8b-4)", () => {
+  it("§4.1 transitions undefined → 既存挙動 (= 後方互換、 transition render なし)", () => {
+    const events = [
+      createUserEvent({ id: 'e1', title: 'A', startTime: '09:00', endTime: '11:00', category: 'cafe' }),
+      createUserEvent({ id: 'e2', title: 'B', startTime: '12:00', endTime: '13:00', category: 'meal' }),
+    ];
+    const html = renderToStaticMarkup(<TimelineSpine events={events} />);
+    expect(html).not.toContain('plan-list-transition');
+    expect(html).not.toContain('aria-label="transition:');
+  });
+
+  it("§4.2 transitions 一致 (= fromTime == 前 endTime, toTime == 次 startTime) → 挿入", () => {
+    const events = [
+      createUserEvent({ id: 'e3', title: 'A', startTime: '09:00', endTime: '11:00', category: 'cafe' }),
+      createUserEvent({ id: 'e4', title: 'B', startTime: '12:00', endTime: '13:00', category: 'meal' }),
+    ];
+    const transitions = [
+      { fromTime: '11:00', toTime: '12:00', label: '移動' as const },
+    ];
+    const html = renderToStaticMarkup(
+      <TimelineSpine events={events} transitions={transitions} />,
+    );
+    expect(html).toContain('plan-list-transition-11:00-12:00');
+    expect(html).toContain('aria-label="transition: 移動 11:00-12:00"');
+    expect(html).toContain('移動');
+  });
+
+  it("§4.3 transitions 不一致 → silent skip (= throw しない、 何も出ない)", () => {
+    const events = [
+      createUserEvent({ id: 'e5', title: 'A', startTime: '09:00', endTime: '11:00', category: 'cafe' }),
+      createUserEvent({ id: 'e6', title: 'B', startTime: '12:00', endTime: '13:00', category: 'meal' }),
+    ];
+    const transitions = [
+      { fromTime: '99:99', toTime: '99:99', label: '移動' as const }, // 完全不一致
+    ];
+    const html = renderToStaticMarkup(
+      <TimelineSpine events={events} transitions={transitions} />,
+    );
+    expect(html).not.toContain('plan-list-transition');
+  });
+
+  it("§4.4 events 1 件 → transition 出ない (= 隣り合うペアなし)", () => {
+    const events = [
+      createUserEvent({ id: 'e7', title: 'A', startTime: '09:00', endTime: '11:00', category: 'cafe' }),
+    ];
+    const transitions = [
+      { fromTime: '11:00', toTime: '12:00', label: '移動' as const },
+    ];
+    const html = renderToStaticMarkup(
+      <TimelineSpine events={events} transitions={transitions} />,
+    );
+    expect(html).not.toContain('plan-list-transition');
+  });
+
+  it("§4.5 複数 transitions で全 interleave", () => {
+    const events = [
+      createUserEvent({ id: 'e8', title: 'A', startTime: '09:00', endTime: '11:00', category: 'cafe' }),
+      createUserEvent({ id: 'e9', title: 'B', startTime: '12:00', endTime: '13:00', category: 'meal' }),
+      createUserEvent({ id: 'e10', title: 'C', startTime: '14:00', endTime: '15:00', category: 'work' }),
+    ];
+    const transitions = [
+      { fromTime: '11:00', toTime: '12:00', label: '移動' as const },
+      { fromTime: '13:00', toTime: '14:00', label: '移動' as const },
+    ];
+    const html = renderToStaticMarkup(
+      <TimelineSpine events={events} transitions={transitions} />,
+    );
+    expect(html).toContain('plan-list-transition-11:00-12:00');
+    expect(html).toContain('plan-list-transition-13:00-14:00');
+  });
+});
