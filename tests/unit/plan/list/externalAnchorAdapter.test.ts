@@ -339,39 +339,39 @@ describe("externalAnchorAdapter §8. 8b 範囲外 (= executionLayerCounts undefi
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("externalAnchorAdapter §9. alterNote 注入 (= 8b-2、 categoryMeaning 経由)", () => {
-  it("§9.1 cafe 朝 (= morning、 location なし) → 8b-7 getNarrative 「集中しやすい静かな朝のひととき」", () => {
+  it("§9.1 cafe 朝 (= morning、 location なし) → 8b-8 mock 整合文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k1', startTime: '08:00', locationCategory: 'cafe' }),
     );
-    expect(event.alterNote).toBe('集中しやすい静かな朝のひととき');
+    expect(event.alterNote).toBe('静かなカフェで、今日の計画を整理しましょう');
   });
 
-  it("§9.2 office (= work) 午後、 location なし → 8b-7 「午後の仕事を着実に進める時間」", () => {
+  it("§9.2 office (= work) 午後、 location なし → 8b-8 「午後の集中タイム、大切なタスクを進めましょう」", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k2', startTime: '14:00', locationCategory: 'office' }),
     );
-    expect(event.alterNote).toBe('午後の仕事を着実に進める時間');
+    expect(event.alterNote).toBe('午後の集中タイム、大切なタスクを進めましょう');
   });
 
-  it("§9.3 home 夜、 location なし → 8b-7 「自分の余白を取り戻す夜」", () => {
+  it("§9.3 home 夜、 location なし → 8b-8 「ゆっくり過ごして、明日への活力に」", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k3', startTime: '19:30', locationCategory: 'home' }),
     );
-    expect(event.alterNote).toBe('自分の余白を取り戻す夜');
+    expect(event.alterNote).toBe('ゆっくり過ごして、明日への活力に');
   });
 
-  it("§9.6 8b-7: cafe morning + location → 5W1H 「朝の{location}で、 一日の計画を静かに整える時間」", () => {
+  it("§9.6 8b-8: cafe morning + location → mock 整合文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k6', startTime: '08:00', locationCategory: 'cafe', locationText: '甲府駅前カフェ' }),
     );
-    expect(event.alterNote).toBe('朝の甲府駅前カフェで、 一日の計画を静かに整える時間');
+    expect(event.alterNote).toBe('甲府駅前カフェで、今日の計画を静かに整理しましょう');
   });
 
-  it("§9.7 8b-7: work afternoon + location → 5W1H 自然な文章", () => {
+  it("§9.7 8b-8: work afternoon + location → mock 整合文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k7', startTime: '14:00', locationCategory: 'office', locationText: '甲府オフィス' }),
     );
-    expect(event.alterNote).toBe('甲府オフィスで、 午後の仕事を着実に進める');
+    expect(event.alterNote).toBe('甲府オフィスで午後の集中タイム、タスクを進めましょう');
   });
 
   it("§9.4 'other' 相当 (= locationCategory undefined) → alterNote undefined", () => {
@@ -502,7 +502,7 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
     expect(event.category).toBe('work');
   });
 
-  it("§11.2 priority 2: 「週次ミーティング」 (= CEO real case) → work + 8b-7 getNarrative (location なし)", () => {
+  it("§11.2 priority 2: 「週次ミーティング」 (= CEO real case) → work + 8b-8 文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({
         id: 'p2-1',
@@ -512,10 +512,10 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
       }),
     );
     expect(event.category).toBe('work');
-    expect(event.alterNote).toBe('午前を区切るお昼の時間'); // 8b-7: work × lunch (location なし)
+    expect(event.alterNote).toBe('午前を区切るランチ前のひととき');
   });
 
-  it("§11.3 priority 2: 「会食」 (= CEO real case) → meal + 8b-7 5W1H location 込み", () => {
+  it("§11.3 priority 2: 「会食」 (= CEO real case) → meal + 8b-8 location 込み", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({
         id: 'p2-2',
@@ -525,8 +525,7 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
       }),
     );
     expect(event.category).toBe('meal');
-    // 8b-7: location あり → 5W1H 文 「ふきぬき成田店で、 軽くお腹を満たすひと品を楽しむ」
-    expect(event.alterNote).toBe('ふきぬき成田店で、 軽くお腹を満たすひと品を楽しむ');
+    expect(event.alterNote).toBe('ふきぬき成田店で軽く、おやつのひと休み');
   });
 
   it("§11.4 priority 3: title hit なし、 locationText で hit (= 「ふきぬき成田店」 は keyword 不在、 fallback 例)", () => {

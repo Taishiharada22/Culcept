@@ -102,7 +102,7 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
     expect(html).not.toContain('>•<');
   });
 
-  it("§1.6 8b-6: spine line position = 88px (= circle 中心、 旧 72px は左端でズレ原因)", () => {
+  it("§1.6 8b-8: spine line position = 95px (= w-12 circle 中心、 8b-6 88px→8b-8 95px に icon 大型化で調整)", () => {
     const event = createUserEvent({
       id: 'icon-position',
       title: 'カフェ',
@@ -110,8 +110,23 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('left:88px');
+    expect(html).toContain('left:95px');
+    expect(html).not.toContain('left:88px');
     expect(html).not.toContain('left:72px');
+    // 8b-8: dashed style (= border-dashed) で mock 整合
+    expect(html).toContain('border-dashed');
+  });
+
+  it("§1.7 8b-8: icon circle 大型化 (= w-12 h-12、 旧 w-8 から拡大)", () => {
+    const event = createUserEvent({
+      id: 'icon-big',
+      title: 'カフェ',
+      startTime: '09:00',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
+    expect(html).toContain('w-12 h-12'); // 大きい circle
+    expect(html).not.toMatch(/w-8 h-8/); // 旧 size 廃止
   });
 });
 

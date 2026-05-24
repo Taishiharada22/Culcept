@@ -359,6 +359,34 @@ const ARRIVAL_BUFFER_MIN = 30;
  *   - virtual events id: 'virtual-departure' / 'virtual-arrival'
  *   - virtual events alterNote は固定 (= getNarrative 通さず、 mock 整合短文)
  */
+/**
+ * 8b-8 追加: 既存 events 配列から transitions 生成 (= bookends 込み events に対して使う)
+ *
+ * - 隣り合うペアの endTime → startTime で transition 生成
+ * - **endTime がない event の後でも、 次 event との gap > 0 なら生成** (= mock 整合、 必ず移動 chip を出す)
+ * - label = '移動' 固定
+ * - 入力 mutate なし
+ */
+export function convertEventsToTransitions(
+  events: ReadonlyArray<StrictEventCardViewModel>,
+): ReadonlyArray<TransitionViewModel> {
+  if (events.length < 2) {
+    return [];
+  }
+  const transitions: TransitionViewModel[] = [];
+  for (let i = 0; i < events.length - 1; i += 1) {
+    const current = events[i];
+    const next = events[i + 1];
+    // fromTime: 現 event の endTime (= 必ず推論で補われている前提) / なければ startTime
+    const fromTime = current.endTime ?? current.startTime;
+    const toTime = next.startTime;
+    // gap > 0 のみ生成 (= 重複 / 連続は skip、 二重表示防止)
+    if (toTime <= fromTime) continue;
+    transitions.push({ fromTime, toTime, label: '移動' });
+  }
+  return transitions;
+}
+
 export function convertExternalAnchorListWithDayBookends(
   anchors: ReadonlyArray<ExternalAnchor>,
 ): ReadonlyArray<StrictEventCardViewModel> {

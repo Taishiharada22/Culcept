@@ -636,17 +636,48 @@ export default function PlanClient({
                 ? "当日のプラン"
                 : "あなたの生活、3 つのレンズ"}
           </h1>
-          <div className="flex gap-2">
-            <GlassButton size="sm" variant="primary" onClick={() => openAdd()}>
-              + 教える
-            </GlassButton>
-            {/* 8b-7-B: 「教えた予定」 button は flag ON で非表示 (= CEO 「いらない、 消してください」) */}
-            {!LIST_NEW_TIMELINE_ENABLED && (
+          {/* 8b-8: flag ON で title 行右側に tabs を配置 (= CEO 「カレンダー/リスト/地図 は当日のプラン右側」) */}
+          {LIST_NEW_TIMELINE_ENABLED ? (
+            <div
+              className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner"
+              role="tablist"
+              aria-label="Plan tabs"
+            >
+              {TABS.map((tab) => {
+                const isActive = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`plan-panel-${tab.key}`}
+                    id={`plan-tab-${tab.key}`}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-all " +
+                      (isActive
+                        ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
+                        : "text-slate-600 hover:text-slate-800")
+                    }
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              {/* 8b-7-B / 8b-8: 「+ 教える」 button は flag ON で非表示 (= CEO 「+教える 消していい」)
+                  flag OFF (= 既存 default) では維持 */}
+              <GlassButton size="sm" variant="primary" onClick={() => openAdd()}>
+                + 教える
+              </GlassButton>
               <GlassButton size="sm" variant="secondary" onClick={() => setListOpen(true)}>
                 📋 教えた予定
               </GlassButton>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         {!isPane && (
           <p className="mt-2 text-sm text-slate-500">
@@ -658,37 +689,39 @@ export default function PlanClient({
         )}
       </header>
 
-      {/* ── Tab nav (Phase 1 C2 で pill segmented control に refactor、CEO mock 寄せ) ── */}
-      <nav
-        role="tablist"
-        aria-label="Plan tabs"
-        className="mx-auto mb-6 max-w-3xl"
-      >
-        <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
-          {TABS.map((tab) => {
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`plan-panel-${tab.key}`}
-                id={`plan-tab-${tab.key}`}
-                onClick={() => setActiveTab(tab.key)}
-                className={
-                  "px-5 py-2 rounded-full text-sm font-medium transition-all " +
-                  (isActive
-                    ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
-                    : "text-slate-600 hover:text-slate-800")
-                }
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </nav>
+      {/* ── Tab nav (= flag OFF default、 既存 placement 維持) ── */}
+      {!LIST_NEW_TIMELINE_ENABLED && (
+        <nav
+          role="tablist"
+          aria-label="Plan tabs"
+          className="mx-auto mb-6 max-w-3xl"
+        >
+          <div className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner">
+            {TABS.map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`plan-panel-${tab.key}`}
+                  id={`plan-tab-${tab.key}`}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={
+                    "px-5 py-2 rounded-full text-sm font-medium transition-all " +
+                    (isActive
+                      ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
+                      : "text-slate-600 hover:text-slate-800")
+                  }
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
 
       {/* ── Content area ── */}
       <section

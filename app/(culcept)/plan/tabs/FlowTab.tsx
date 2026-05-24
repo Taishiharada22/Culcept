@@ -72,7 +72,7 @@ import { usePlanGeocode } from "./_usePlanGeocode";
 import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
 import {
   convertExternalAnchorListWithDayBookends,
-  convertExternalAnchorListToTransitions,
+  convertEventsToTransitions,
 } from "@/lib/plan/list/adapters/externalAnchorAdapter";
 import { TimelineSpine } from "../components/list/TimelineSpine";
 import { EmptyDayEntry } from "../components/list/EmptyDayEntry";
@@ -489,12 +489,9 @@ function FlowDaySection({
     const newTimelineEvents = hasAnchors
       ? convertExternalAnchorListWithDayBookends(anchors)
       : [];
-    // 8b-4: TransitionChip 接続 (= 隣り合う events から自動生成、 label '移動' 固定)
-    //   - truth なき distance/mode 主張なし、 単純な 「流れ」 表現
-    //   - 0 件 / 1 件 / 連続時刻 では空配列、 TimelineSpine 内で何も挟まれない
-    const newTimelineTransitions = hasAnchors
-      ? convertExternalAnchorListToTransitions(anchors)
-      : [];
+    // 8b-8: bookends 込み events から transitions 生成 (= 出発↔最初、 最後↔帰宅 にも移動 chip)
+    //   - convertEventsToTransitions は events 配列から直接、 bookends 込みで通せる
+    const newTimelineTransitions = convertEventsToTransitions(newTimelineEvents);
     return (
       <section
         data-testid={`plan-flow-section-${iso}`}

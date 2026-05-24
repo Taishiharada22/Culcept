@@ -186,11 +186,11 @@ export function TimelineSpine({
       className="relative"
       data-testid="plan-list-timeline-spine"
     >
-      {/* 8b-6 corrective: spine line position fix (= 56px + 16px gap + 16px = 88px = circle 中心)
-          旧 72px は circle 左端 → ズレ原因 */}
+      {/* 8b-6 corrective + 8b-8: spine line position fix (= 56px + 16px gap + 24px = 96px = w-12 circle 中心)
+          8b-8: dashed line (= mock 整合、 solid → dotted dashed vertical) */}
       <div
-        className="absolute top-4 bottom-4 w-0.5 bg-slate-200 pointer-events-none"
-        style={{ left: '88px' }}
+        className="absolute top-6 bottom-6 pointer-events-none border-l border-dashed border-slate-300"
+        style={{ left: '95px' }}
         aria-hidden="true"
       />
 
@@ -235,17 +235,16 @@ export function TimelineSpine({
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + SVG icon (= 節点マーカー、 白抜き)
-                    8b-6 corrective: emoji → SVG component (= stroke="currentColor" + text-white で白抜き)、
-                    spine line と circle 中心が一致 */}
-                <div className="relative flex-shrink-0 z-10 pt-2">
+                {/* 中央 column: category circle (= 8b-8 大きく w-8 → w-12、 24px icon)
+                    spine line と circle 中心が一致 (= 88→95 位置調整、 w-12 中心 = 56+16+24) */}
+                <div className="relative flex-shrink-0 z-10 pt-1">
                   <div
-                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white`}
+                    className={`w-12 h-12 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
                     aria-hidden="true"
                   >
                     {(() => {
                       const Icon = CATEGORY_ICON_COMPONENT[event.category];
-                      return <Icon size={16} className="text-white" />;
+                      return <Icon size={22} className="text-white" />;
                     })()}
                   </div>
                 </div>

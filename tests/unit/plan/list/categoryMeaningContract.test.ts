@@ -78,32 +78,32 @@ describe("categoryMeaning §2. getMeaningText 全網羅", () => {
 
   const expected: Record<Exclude<EventCategory, 'other'>, Record<TimeOfDay, string>> = {
     cafe: {
-      morning: '集中の入り口にちょうどいい朝',
-      lunch: '気持ちが少し緩むひととき',
-      afternoon: 'ペースを取り戻す午後',
-      evening: '夜にひと息つくひととき',
-      late_night: '夜更けの静かなひととき',
+      morning: '静かなカフェで、今日の計画を整理しましょう',
+      lunch: 'カフェでひと息ついて、気分を切り替えましょう',
+      afternoon: 'カフェタイムで気分をリセットしましょう',
+      evening: '夜のカフェで、静かに過ごす時間',
+      late_night: '夜更けのカフェで、ゆったりと',
     },
     meal: {
-      morning: '朝をはじめる食卓',
-      lunch: '半日を区切るランチ',
-      afternoon: '軽くお腹を満たすひと品',
-      evening: '夜のゆっくりした食卓',
-      late_night: '夜更けの軽い食事',
+      morning: '朝食をゆっくり、一日のはじまり',
+      lunch: '美味しいランチで、リフレッシュしましょう',
+      afternoon: '軽くおやつで、ひと休み',
+      evening: '夜の食卓で、ゆっくり食事を楽しみましょう',
+      late_night: '夜更けの軽い食事で、無理なく',
     },
     work: {
-      morning: '朝の集中が乗りやすい仕事',
-      lunch: '午前を区切るお昼',
-      afternoon: '午後の仕事を進める',
-      evening: '仕事を締めにいく時間帯',
-      late_night: '残作業を片付ける時間帯',
+      morning: '朝の集中時間、落ち着いて仕事に取り組みましょう',
+      lunch: '午前を区切るランチ前のひととき',
+      afternoon: '午後の集中タイム、大切なタスクを進めましょう',
+      evening: '一日の仕事を、しっかり締めくくりましょう',
+      late_night: '残りを片付けて、無理なく切り上げましょう',
     },
     home: {
-      morning: '一日のスタートを整える朝',
-      lunch: '家で少しゆっくり休む昼',
-      afternoon: '家でひと息つく午後',
-      evening: '自分の余白に戻る夜',
-      late_night: 'ゆっくり休みに入る夜更け',
+      morning: '一日を整える朝、ゆっくり準備をしましょう',
+      lunch: '家で少し休んで、午後に備えましょう',
+      afternoon: '家でひと息ついて、ペースを取り戻しましょう',
+      evening: 'ゆっくり過ごして、明日への活力に',
+      late_night: 'ぐっすり休んで、明日に備えましょう',
     },
   };
 
@@ -150,9 +150,11 @@ describe("categoryMeaning §4. 文体制約 (= Aneurasync 哲学 + CEO + GPT 合
     expect(allMeanings.length).toBe(20);
   });
 
-  it("§4.2 命令形 0 (= 「ましょう」 / 「ください」 / 「しよう」 / 「しなさい」)", () => {
+  it("§4.2 強い命令形 0 (= 8b-8 で 「ましょう」 「しよう」 緩和、 mock 文体準拠、 「しなさい」 「しろ」 等は禁止維持)", () => {
+    // 8b-8 corrective: mock 文体 「集中しやすい静かなカフェで、 今日の計画を整理しましょう」 を許容
+    // ただし 「しなさい」 「しろ」 「やれ」 等の強い命令形は引き続き禁止
     for (const meaning of allMeanings) {
-      expect(meaning, `「${meaning}」 に命令形が含まれる`).not.toMatch(/ましょう|ください|しよう|しなさい/);
+      expect(meaning, `「${meaning}」 に強い命令形`).not.toMatch(/しなさい|しろ|やれ|やめろ|やりなさい/);
     }
   });
 
@@ -170,10 +172,10 @@ describe("categoryMeaning §4. 文体制約 (= Aneurasync 哲学 + CEO + GPT 合
     }
   });
 
-  it("§4.5 文字数 8-22 字 (= 8b-6 で上限緩和、 自然な長さ)", () => {
+  it("§4.5 文字数 8-32 字 (= 8b-8 で更に上限緩和、 mock 文体の自然な長さ)", () => {
     for (const meaning of allMeanings) {
       expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeGreaterThanOrEqual(8);
-      expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeLessThanOrEqual(22);
+      expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeLessThanOrEqual(32);
     }
   });
 
@@ -193,7 +195,7 @@ describe("categoryMeaning §4. 文体制約 (= Aneurasync 哲学 + CEO + GPT 合
 describe("categoryMeaning §5. 入力不正 fallback", () => {
   it("§5.1 HH:MM 数値抽出不可 (= 「abc」) → morning fallback", () => {
     expect(getTimeOfDay('abc')).toBe('morning');
-    expect(getMeaningText('cafe', 'abc')).toBe('集中の入り口にちょうどいい朝');
+    expect(getMeaningText('cafe', 'abc')).toBe('静かなカフェで、今日の計画を整理しましょう');
   });
 
   it("§5.2 空文字 → morning fallback", () => {
