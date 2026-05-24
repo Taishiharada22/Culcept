@@ -123,8 +123,10 @@ describe("FlowTab K-3c-ii — onEventClick bridge", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("FlowTab K-3c-ii — 既存 UI 不変", () => {
-  it("7-day list (= days.map) 維持", () => {
-    expect(content).toMatch(/days\.map\(\(day\)/);
+  it("7-day list (= daysToRender.map / days.map) 維持", () => {
+    // sub-phase 8b-7-B 以降: LIST_NEW_TIMELINE_ENABLED 分岐により `daysToRender` 経由で render
+    // OFF path = days (= 旧 7-day 全配列) / ON path = daysToRender (= 選択日 1 件) 両対応
+    expect(content).toMatch(/(daysToRender|days)\.map\(\(day\)/);
   });
 
   it("FlowDaySection sticky header 維持", () => {
