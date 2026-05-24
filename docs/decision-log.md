@@ -13943,3 +13943,90 @@ CEO + GPT 判定理由:
 - **ステータス**: List redesign **closeout 確定**。 Map spec audit 着手 → 8 論点 1 次案 → CEO 判断仰ぐ。
 
 ---
+
+## 2026-05-24 [Build/Product] Map spec audit v2 (= CEO 画像深層分析統合版) docs commit + 設計原則確定 [承認: CEO 「この前提で具体化してください」]
+
+### 背景
+
+Map spec audit v1 (= commit `1c544a56` 8 論点 1 次案) 提示後、 CEO + GPT が参考画像 1 枚を **構造 / 役割 / 視線 / 情報密度 / 品の作り方** まで分解した深層分析を提示。 CEO 「この前提で、 Map spec audit をさらに具体化してください」 指示。
+
+### CEO 画像分析の本質要約 (= 一文確定)
+
+> **Map は 「場所の流れを見る面」、 意味と行動は選択中の sheet に集約する。**
+
+これが Map 全項目の根本原則。
+
+### 4 レイヤー構造 確定 (= CEO 分析)
+
+| Layer | 役割 |
+|---|---|
+| A | 上部 = 画面の意味づけ (= subtitle 「場所を地図で確認して、 流れをつかみましょう」 で List 「時間の流れ」 と空間軸で差別) |
+| B | 中央 = Map 主体 (= pin / route / 軽ラベル、 長文 / source 載せず) |
+| C | 補助 UI = legend / zoom / current location (= 全 脇役) |
+| D | Bottom sheet = **Map 完成度の中心** (= handle / 大 icon / time/title/location / meaning / image / 2 CTA) |
+
+### 設計原則 確定 (= CEO 全項目横断)
+
+| 原則 | 内容 |
+|---|---|
+| **pin は軽く、 sheet は深く** | map 上に最低限、 詳細は sheet |
+| **chip ではなく線** | List transition chip を map 上に持ち込まない |
+| **点で強く、 面で薄く** | pin / time / 大 icon / primary CTA は強色、 全面はベタ塗りしない |
+| **絵文字 (= 📍) 禁止** | 専用 UI icon 統一 (= List LocationPinIcon 流用) |
+| **CTA 2 段構え** | secondary 詳細を見る + primary ここへの経路 |
+| **意味文は sheet 内** | map 上ではなく bottom sheet meaning box |
+| **route 抽象線** | ナビではなく流れの可視化、 距離 / mode 主張禁止 |
+
+### List rule との対比 確定 (= 持ち込み OK 9 領域 / NG 8 領域 / 保留 3 領域)
+
+**持ち込み OK**:
+- 規約 24-extended + 禁止語 grep + 命令しすぎない文体 + semantic color + SVG icon system + flag pattern + pure adapter + testing pattern + location icon 専用
+
+**NG (= Map 別扱い)**:
+- timeline event row + transition chip + footer 主役構造 + provenance 強主張 + map 上長文 + 出発/帰宅 virtual events + 1 日表示 nav + EventCard 三角形
+
+**保留** (= CEO 判断後): pin source 最終 / sheet 起動 anim / 「マップ」 統一範囲
+
+### v1 → v2 主要変化
+
+| v1 1 次案 | CEO 補正 | v2 確定 |
+|---|---|---|
+| pin 案 A | ✅ | 涙型 + 白抜き SVG + selected 軽ラベル |
+| route 案 C 番号 + 線 | ⚠ 線 主、 番号 副 | 細 中立 破線 + やや曲がる、 番号控えめ |
+| source 案 A | ✅ | pin 0、 sheet 内に統合 |
+| selected sheet 案 C | ✅ + 「主戦場」 | flag 切替 + 新 sheet 4 段構造 |
+| 役割分担 案 X | ✅ | map=空間、 list=時間 確定 |
+| 移動 案 A | ✅ | chip 禁止、 線のみ |
+| 意味文 案 A + B | ✅ A | sheet 内 meaning box |
+| 表記 案 B | ✅ | user 目視 5 件統一 |
+
+### docs 更新 (= 本 commit)
+
+改変:
+- `docs/alter-plan-map-redesign-spec-audit.md` → v2 大幅 rewrite (= CEO 画像分析統合、 §0 本質 / §3 4 レイヤー / §4-§17 15 spec / §18 inventory / §19 v1→v2 マッピング / §20 readiness 結論 / §21 sheet 優先順位)
+
+新規追加なし。
+
+### 不採用 案 (= CEO + GPT 確定継続)
+- List 8d (= 今やらない)
+- 別 task 転換 (= 「論外」)
+
+### 次
+
+- 本 audit v2 を CEO 採用判定 → spec 凍結
+- Claude 推奨次 phase: **A → C → impl** (= spec 確定 → impl readiness → impl)
+- 別 phase 候補: B IA Audit (= 重複可能性大、 既存 MapTab inventory 明確のため不要寄り) / D 直接 impl (= readiness 省略、 リスク)
+
+### 補正履歴 (= 累計 28+ commit + 4 docs)
+
+| commit | 内容 |
+|---|---|
+| `1c544a56` | List closeout 採用 + Map spec audit v1 (= 8 論点 1 次案) |
+| **本 commit** | **Map spec audit v2 (= CEO 画像深層分析統合) + 設計原則 / 4 レイヤー / 15 spec 項目 / 持ち込み OK NG 確定** |
+
+### 承認 + ステータス
+
+- **承認**: CEO 「この前提で、 Map spec audit をさらに具体化してください」 (= 2026-05-24)
+- **ステータス**: Map spec audit v2 **提示完了**。 CEO 採用判定 → spec 凍結 → 次 phase (= A → C → impl) 着手。
+
+---

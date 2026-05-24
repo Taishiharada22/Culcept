@@ -1,9 +1,34 @@
-# Map Redesign Spec Audit (= Map 固有 8 論点 1 次案 + 既存 MapTab inventory + List 設計 rule との対比)
+# Map Redesign Spec Audit (= CEO 画像深層分析統合版)
 
 **日付**: 2026-05-24
-**作成判断**: CEO + GPT 「List closeout 採用 + 次 A: Map spec audit + 設計 rule そのままコピー禁止 + map 固有 8 論点先定義」
-**前提**: List redesign closeout audit (= 別 file) 完了済
-**status**: **readiness 段階** (= CEO 採用判断仰ぐ前の 1 次案)
+**作成判断**: CEO 「この前提で、 Map spec audit をさらに具体化してください」 (= 参考画像 1 枚を構造 / 役割 / 視線 / 情報密度 / 品の作り方まで分解した分析を提示後)
+**前提**: List redesign closeout audit 完了 + CEO 画像深層分析
+**status**: **spec 1 次案 (= CEO 分析統合)** (= CEO 採用判断仰ぐ前)
+**revision**: v2 (= v1 8 論点 1 次案 → v2 CEO 画像分析統合)
+
+---
+
+## §0 本質 (= CEO 一文要約)
+
+> **Map は 「場所の流れを見る面」、 意味と行動は選択中の sheet に集約する。**
+
+Map は予定一覧の別表示ではない。 **1 日の予定を、 空間の流れとして見るための主画面**。
+
+### 役割分担
+
+| 要素 | 役割 |
+|---|---|
+| **Map** | どこへ、 どう流れるか |
+| **Pin** | その場所の節点 |
+| **Route** | 1 日の空間的な流れ |
+| **Bottom sheet** | 選択中予定の **意味と行動** |
+| **Legend / controls** | 補助 |
+
+### 重要原則
+
+**地図上には最低限だけを置き、 意味と行動は下の sheet に寄せる。**
+
+これが Map 全項目の根本。 全 spec はこの原則の派生。
 
 ---
 
@@ -11,399 +36,560 @@
 
 ### 1.1 なぜ Map redesign が必要か
 
-- List redesign sub-phase 8 で 「当日のプラン」 + tabs カレンダー / リスト / マップ 構造が確立
-- List 側は 8a / 8b / 8c / 8c-2 で mock 整合まで到達 (= CEO smoke PASS)
-- **マップ tab に切り替えた時の体験はまだ List と同密度で詰められていない**
-- 既存 MapTab.tsx は 1673 lines、 Phase 2-C / M-3d 等で実装済だが、 List redesign の文体規約 / 視覚規約 / SVG icon system に未追随
+- List redesign sub-phase 8 (= 16 commit) で 「当日のプラン」 + tabs 構造確立
+- List 側 mock 整合 (= CEO smoke PASS)
+- **Map tab は List と同密度で詰められていない**
+- 既存 `app/(culcept)/plan/tabs/MapTab.tsx` は 1673 lines、 Phase 2-C / M-3d 等で実装済だが List redesign の文体規約 / 視覚規約 / SVG icon system に未追随
 
 ### 1.2 本 audit の scope
 
-- **Map 固有 8 論点の 1 次案整理** (= CEO + GPT 明示)
-- **List 設計 rule との対比** (= 持ち込み / 上書き / 別扱い の判断)
-- **既存 MapTab inventory** (= 何を残し、 何を置換、 何を不触)
-- **readiness 結論** (= 次 phase 候補、 IA audit / Spec audit / impl の進行案)
+- **画面本質と 4 レイヤー構造** (= §0 + §3)
+- **15 spec 項目** (= §4-§17、 CEO 分解表採用)
+- **List rule との対比** (= §16 持ち込み OK / NG)
+- **既存 MapTab inventory + 不触判定** (= §18)
+- **v1 8 論点 1 次案 → CEO 補正マッピング** (= §19)
+- **readiness 結論 + 次 phase 候補** (= §20)
 
-### 1.3 本 audit でやらないこと
+### 1.3 やらないこと
 
 - Map 実装 (= 本 audit は readiness、 impl は CEO 判断後別 phase)
-- Google Maps API integration の再設計 (= 既存仕様 不触)
-- List の残課題 (= 8d は別領域、 本 audit 範囲外)
-- Map の score / 評価 logic (= List と同じく解釈レイヤーで凍結)
+- Google Maps API integration 再設計 (= 既存仕様不触)
+- List 残課題 (= 8d は別領域、 本 audit 範囲外)
+- Map score / 評価 logic (= List と同じく解釈レイヤーで凍結)
 
-### 1.4 重要条件 (= GPT 明示)
+### 1.4 重要条件 (= GPT 明示 + CEO 補正)
 
 > List の設計 rule を Map にそのままコピーしない。 Map 固有の論点を先に定義する。
-
-→ 本 audit は **Map 固有性を先に詰める** ことを最優先する。 List rule は §10 で対比表として最後にまとめる (= 「持ち込む / 持ち込まない」 判断を保留しつつ、 影響範囲を可視化)。
+> Map の完成度は **selected pin sheet の質** で決まる。
 
 ---
 
-## §2 論点 1: pin の情報密度
+## §3 4 レイヤー構造 (= CEO 画像分析)
 
-### 2.1 問い
+### Layer A: 画面意味づけヘッダー
 
-Map 上の pin は、 何を 「見せる / 隠す」 べきか? List の EventCard と同じ情報量? それとも Map らしく削ぎ落とすか?
+| 要素 | 内容 |
+|---|---|
+| 上左 | ハンバーガー |
+| 上中央 | ANEURASYNC ALTER ロゴ |
+| 上右 | sparkle アイコン |
+| section label | ALTER MORNING |
+| title | 「今日のプラン」 (= List と共通) |
+| **subtitle** | 「場所を地図で確認して、 流れをつかみましょう。」 (= **空間軸**、 List 「時間の流れを把握して、 心地よい 1 日に。」 と差別) |
+| toggle | カレンダー / リスト / マップ |
 
-### 2.2 List 側 EventCard の情報軸 (= 参考)
+#### Layer A spec
 
-| 軸 | List 表現 | Map で再利用? |
+- title は主役、 subtitle は薄く小さく
+- subtitle は **空間軸** を言う (= 「場所」 「流れ」 「つかむ」)
+- List の文体をそのままコピーしない (= GPT 明示)
+- 「マップ」 表記統一 (= §17 詳細)
+
+### Layer B: Map 主体レイヤー
+
+| 要素 | 内容 |
+|---|---|
+| 地図 | 背景、 薄め、 彩度低め |
+| pin | 涙型 + semantic color + 白抜き icon |
+| route | 細い中立色 破線 |
+| ラベル | 時刻 + 短 title のみ |
+
+#### Layer B spec
+
+- 地図は背景でありつつ流れを読む土台
+- map 上に **長文 / provenance / source semantics 載せない**
+- 詳細情報は全部 sheet に寄せる
+
+### Layer C: 補助 UI レイヤー
+
+| 要素 | 位置 |
+|---|---|
+| 凡例 | 左下 |
+| zoom in/out | 右側 |
+| current location | 右下 |
+
+#### Layer C spec
+
+- すべて脇役
+- 白背景 + 軽 shadow + 角丸
+- map 主役を邪魔しない
+- 触れる が 目立ちすぎない
+
+### Layer D: Bottom sheet (= Map 完成度の中心)
+
+| 要素 | 内容 |
+|---|---|
+| handle | 上部 |
+| 大 category icon | 左 |
+| time + title + location | 中央 |
+| image | 右 |
+| meaning text box | 下段 |
+| CTA × 2 | 下段末尾 |
+| bottom nav | 最下部 |
+
+#### Layer D spec
+
+- sheet は 「詳細」 ではなく **「意味の面」**
+- map で不足する情報をここに集約
+- **pin は軽く、 sheet は深く**
+
+---
+
+## §4 Pin spec
+
+### 4.1 形状
+- **涙型 pin** (= 先端下指)
+- 軽い shadow
+- map 上で埋もれない
+- 派手すぎない
+
+### 4.2 色 (= semantic color)
+- cafe = 紫 (indigo)
+- meal = 橙 (orange)
+- work = 青 (blue)
+- home = 緑 (emerald)
+- other = 中立 slate
+
+### 4.3 色のルール
+- pin の色は強くてよい
+- 画面全体を塗らない
+- **強い色は pin と time に集中**
+- 面では薄く使う
+
+### 4.4 アイコン
+- **白抜き** (= stroke="currentColor" + text-white)
+- pin 中央配置
+- 一瞬で意味が分かるもの
+- **絵文字禁止、 UI icon のみ**
+
+### 4.5 必須 icon
+| category | icon source |
+|---|---|
+| cafe | CategoryCafeIcon (= 既存) |
+| meal | MealIcon (= 8b-6 inline) |
+| work | BriefcaseIcon (= 8b-7-A inline) |
+| home | CategoryHomeIcon (= 既存) |
+| other | CategoryUnknownIcon (= 既存) |
+
+### 4.6 selected state
+- 軽いラベル (= time + 短 title)
+- pin の上方に吹き出し
+- 派手にしない
+
+---
+
+## §5 Route spec
+
+### 5.1 役割
+**ナビではなく、 1 日の流れの可視化線**。
+
+CEO 「map の line に交通情報や正確経路を背負わせすぎると重くなる。 ここから、 ここへ、 こう流れる を見せるだけに留めている」
+
+### 5.2 見た目
+- **細い**
+- **中立色** (= slate-300 等)
+- **破線寄り** (= List transition chip と統一)
+- **少し曲がる** (= 直線でなく自然 curve)
+- pin と pin をやさしく結ぶ
+
+### 5.3 やらないこと (= 重要)
+- 交通手段を強く表示しない
+- 所要時間を主張しない
+- **List の 「移動 chip」 を map 上にそのまま持ち込まない**
+- 太すぎる線にしない
+- category 色で route を塗らない
+
+### 5.4 結論
+map では移動は **chip ではなく線** が主役。
+
+---
+
+## §6 Map 上ラベル spec
+
+### 6.1 含む情報
+- time
+- short title (= 4-8 文字想定)
+
+### 6.2 含まない情報
+- 長い説明
+- 住所全文
+- provenance
+- CTA
+- 評価文
+
+### 6.3 見た目
+- 白背景
+- 小 shadow
+- 角丸
+- pin の近く
+- 軽い吹き出し感
+
+### 6.4 役割
+- 選択中 / 重要 pin を一目で認識
+- ただし map を汚さない
+
+---
+
+## §7 Legend spec
+
+### 7.1 位置
+左下
+
+### 7.2 含むもの
+- icon
+- label
+- dropdown / collapse affordance
+
+### 7.3 役割
+- semantic color とカテゴリの対応を補助説明
+- map 上の色の意味を支える
+
+### 7.4 スタイル
+- 白い小 panel
+- 角丸
+- shadow 小
+- 縦並び
+- compact
+- 「読ませる」 より 「見れば分かる」 に寄せる
+
+### 7.5 ルール
+- 目立たせすぎない
+- map 主役を壊さない
+- 常時表示でも邪魔にならない size
+
+---
+
+## §8 Map controls spec
+
+### 8.1 zoom
+- `+` / `-`
+- 1 つの白い縦パネル内
+
+### 8.2 current location
+- 独立した小ボタン
+
+### 8.3 ルール
+- 右側にまとめる
+- すべて white surface
+- shadow 軽く
+- タップしやすいが派手でない
+
+---
+
+## §9 Bottom sheet spec (= Map 完成度の中心)
+
+### 9.1 sheet 全体
+- map の下からせり上がる
+- 上部に handle
+- 丸すぎず柔らかい角丸
+- 背景は白
+- 上品な shadow
+- map との境界は自然
+
+### 9.2 上段構造
+| 配置 | 内容 |
+|---|---|
+| 左 | 大きい category icon circle (= List の TimelineSpine 円形を流用) |
+| 中央 | time + title + location row |
+| 右 | image |
+
+### 9.3 下段構造
+| 配置 | 内容 |
+|---|---|
+| 全幅 | meaning text box (= 淡背景、 spark + 2 行) |
+| 末尾 | CTA × 2 (= secondary + primary) |
+
+### 9.4 設計原則
+- pin は軽く、 sheet は深く
+- **Map の完成度は sheet の質で決まる** (= CEO 強調)
+- ここに List EventCard 相当の情報密度を集約
+
+---
+
+## §10 Sheet 内 time / title / location spec
+
+### 10.1 time
+- category 色
+- title より小、 ただし十分目立つ
+- List では時刻が左 column、 **Map では sheet 内** (= 空間が主役なので時間は detail 面)
+
+### 10.2 title
+- 黒
+- 太
+- sheet 内で最重要
+
+### 10.3 location row
+- ⚠ **絵文字 (= 📍) 禁止**
+- **専用 UI icon** (= List で実装した `LocationPinIcon` 流用)
+- メタテキストは灰色 (= text-slate-400 / -500)
+- 主張しすぎない
+
+---
+
+## §11 Meaning text box spec
+
+### 11.1 役割
+- その予定が **1 日の中で何を意味するか**
+- Alter が **静かに意味づけを返す場所**
+- map 上ではなく、 **sheet で出す** (= CEO 「map では意味文は sheet 側に寄せる」)
+
+### 11.2 構造
+- 左に小さな sparkle (= ✨ or spark glyph)
+- 淡い背景色 (= 例 indigo-50/30)
+- 2 行前後
+- 説明ではなく **意味**
+
+### 11.3 文体方針 (= List CategoryMeaning と整合、 ただし Map 固有)
+- 状態 / 解釈型
+- 強命令 (= 「しなさい」 「しろ」) 0
+- 評価形容詞 (= 「最適」 「重要」 「良い」) 0
+- 過剰に長くしない
+- 「ましょう」 OK (= List 8b-8 pattern)
+
+### 11.4 例の方向性
+- 「集中しやすい静かな時間」
+- 「ひと息つける時間」
+- 「午後に深く入る時間」
+- 「余白に戻る時間」
+
+(= List CategoryMeaning getNarrative 再利用候補、 ただし Map 固有 fine-tune を別途検討)
+
+---
+
+## §12 Image spec
+
+### 12.1 役割
+- 雰囲気補強
+- detail 質感づくり
+- title / meaning text の **裏付け**
+
+### 12.2 ルール
+- image を主役にしない
+- 正方形寄り
+- 角丸
+- 右側に配置
+- **image truth がない場合は無理に fake を出さない** (= GPT List 「画像 optional」 と整合)
+
+### 12.3 結論
+image は map の主役ではない。 **sheet 質感の底上げ補助要素**。
+
+---
+
+## §13 CTA spec
+
+### 13.1 secondary
+- `詳細を見る`
+- outline / light surface
+- 深掘り 用
+
+### 13.2 primary
+- `ここへの経路`
+- semantic / brand に寄った強ボタン
+- 行動 用
+
+### 13.3 ルール
+- 深掘り (= secondary) と 行動 (= primary) を分ける
+- 並列だが強弱をつける
+- 両方とも十分押しやすい size
+
+---
+
+## §14 Bottom nav spec
+
+### 14.1 維持
+下タブは Map 画面でも維持。 ただし主役ではない。
+
+### 14.2 ルール
+- active state 明確
+- map 画面でも UI 一貫性
+- sheet や CTA と競合しない高さ
+
+---
+
+## §15 色のルール (= 全項目横断 原則)
+
+### 15.1 基本原則
+**点で強く、 面で薄く。**
+
+### 15.2 強い色を使う場所
+- pin
+- time
+- 大 category icon
+- primary CTA
+
+### 15.3 薄く使う場所
+- meaning text box 背景
+- 軽 semantic tint
+- 補助 surface
+
+### 15.4 中立色を使う場所
+- route
+- location row
+- secondary text
+- control panel
+- legend base
+
+---
+
+## §16 List rule との対比 (= GPT 「そのままコピー禁止」 + CEO 補正)
+
+### 16.1 持ち込み OK (= 共通基盤)
+
+| 領域 | List rule | Map 適用 |
 |---|---|---|
-| 時刻 range | 時刻 col + EventCard 内 startTime-endTime | pin tooltip / selected sheet |
-| title | EventCard title text-base font-semibold | pin label or selected sheet |
-| location | SVG pin + 短文 | pin 自体が location なので別軸 |
-| alterNote | ✨ + 1 行自然な日本語 | selected sheet で表示 |
-| category | 左 border + 背景 tint + spine icon | pin 色 / 形 |
-| source (= origin) | SourceIndicator compact | pin 上で出さない (= 詳細 sheet) |
-| execution counts | ExecutionLayerChip | 出さない (= 8c-2 で確定) |
-
-### 2.3 Map 固有 制約
-- pin は **緯度経度** に bind される → 位置が固定
-- 同一座標に複数 anchor がある可能性 (= clustering)
-- 画面解像度に対して pin が混雑する可能性
-
-### 2.4 設計選択肢
-
-**案 A**: pin に最小情報 (= category 色 + icon のみ)、 詳細は selected pin → bottom sheet
-**案 B**: pin に title 短縮 (= 4-6 文字) を載せる、 視覚密度 up
-**案 C**: zoom 級別に密度切替 (= 遠視 minimal / 近視 title 付き)
-
-### 2.5 Claude 1 次案
-
-**案 A 寄り**: pin は色 + icon のみ、 title / 時刻 / alterNote は bottom sheet。 理由:
-- mock 1 日表示 (= 数 pin) なら混雑しないが、 複数日分にすると pin 密集
-- 「マップ = 位置の俯瞰、 List = 内容の俯瞰」 の役割分担と整合
-- List 側で title text-base を出している → Map で重複出す必要なし
-
-ただし **case 確認**: 4-6 pin (= 1 日分) なら案 B も視覚的に richで OK。
-
-→ **CEO 判断仰ぐ**: 案 A / B / C どれを基本方針にするか
-
----
-
-## §3 論点 2: route / flow の見せ方
-
-### 3.1 問い
-
-Map 上で 1 日の 「流れ」 (= 出発 → 予定 → 予定 → 帰宅) をどう表現するか?
-
-### 3.2 List 側 (= 参考)
-- TimelineSpine 1 本軸 + 移動 chip + dashed line
-- 時間順 + spine line で 「線」 表現
-- 「移動」 はラベル 1 つ (= 距離 / 所要時間は表示せず)
-
-### 3.3 Map 固有 制約
-
-- pin 間に **物理的距離** がある (= List と違って distance 自明)
-- 順序を示すには **番号** か **線** が必要
-- Google Maps Polyline で route 描画可能
-
-### 3.4 設計選択肢
-
-**案 A**: pin に **番号** (= 1, 2, 3...) で訪問順
-**案 B**: pin 間に **細い線** で flow (= 直線 / 曲線 / Polyline)
-**案 C**: 案 A + B 併用 (= 番号 + 線)
-**案 D**: hover / selected pin で **次の pin にハイライト線**
-
-### 3.5 Claude 1 次案
-
-**案 C 寄り**: 番号 + 細い線。 ただし線は **直線細 dashed** (= List の transition dashed と整合) で 「正確な route」 を主張しすぎない (= GPT 「truth なき semantics 主張禁止」 適用)。
-
-理由:
-- List で 「移動」 を抽象的に表現した思想と整合
-- 実 route (= 経由地 / mode / 所要時間) は別 truth、 現段階で持たない
-- 番号で 「順序」 を示し、 線で 「繋がり」 を示す
-
-→ **CEO 判断仰ぐ**: route の truth (= Google Directions API 呼出) を取りに行くか / 抽象 line で留めるか
-
----
-
-## §4 論点 3: map 上での source semantics の見せ方
-
-### 4.1 問い
-
-EventCard の SourceIndicator (= origin axis) を Map pin で表現するか? しないか?
-
-### 4.2 List 側 (= 参考、 第 12 補正 #2 hierarchy)
-- main card (= compact): user origin → null、 imported → slate-500 dot + 📄、 alter_proposed → indigo-400 dot + ✨、 alter_accepted → null (= dot 消滅)
-- detail sheet (= full): 全 origin 表示 + 「Alter 提案を受け入れ済」 caption
-
-### 4.3 Map 固有 制約
-- pin は 既に category 色を使う → source 色を併用すると混乱
-- pin サイズ が小さい → dot 追加は視覚密度 up
-- selected pin → bottom sheet で詳細表示可能
-
-### 4.4 設計選択肢
-
-**案 A**: pin 上は source 一切出さない、 bottom sheet (= selected) で SourceIndicator full
-**案 B**: pin に小さい source badge (= 角に 📄 / ✨)、 詳細は bottom sheet
-**案 C**: imported / alter_proposed のみ pin に視覚 marker、 user origin は marker なし
-
-### 4.5 Claude 1 次案
-
-**案 A**: pin は category 色のみ、 source は bottom sheet で full 表示。 理由:
-- 第 12 補正 #2 hierarchy (= main card で user 同等視) を Map にも持ち込む (= ただし bottom sheet を List の 「詳細 sheet」 相当として位置付ける)
-- pin 視覚密度を最小化、 category 色を強化
-- bottom sheet で SourceIndicator full variant (= 既存 sub-phase 6 で実装済) を活用 = List との一貫性
-
-→ **CEO 判断仰ぐ**: pin 上の source 表示は完全 0 で OK か / proposed (= 未受け入れ) のみ marker 付与か
-
----
-
-## §5 論点 4: selected pin と bottom sheet の関係
-
-### 5.1 問い
-
-Map で pin を tap した時、 何をどう表示するか? 既存 SelectedAnchorCard の構造を活かすか?
-
-### 5.2 既存 MapTab SelectedAnchorCard inventory
-- 1001-1280 行、 bottom sheet 風 card
-- title / location / 時刻 / 詳細 / unconfirmed banner / source badges / overlap banner / undo 等
-- 既に複雑、 wave 1/2/3/J-6e 等 多次重ね
-
-### 5.3 設計選択肢
-
-**案 A**: 既存 SelectedAnchorCard を維持 + List の EventCard / SourceIndicator full / alterNote をそのまま統合
-**案 B**: 既存 SelectedAnchorCard を新 BottomSheet に置換 (= List EventCard 縦長版)
-**案 C**: 既存維持 + flag ON で別 view (= 二重表示防止 hard rule で排他、 案 1b pattern 流用)
-
-### 5.4 Claude 1 次案
-
-**案 C**: flag 制御 (= MAP_NEW_BOTTOM_SHEET_ENABLED 等) で新旧切替、 既存 SelectedAnchorCard を flag OFF default で維持。 理由:
-- 既存 1001-1280 行の機能が wave 1-3 で詰められている (= 失わない)
-- 新 bottom sheet を新規実装 (= List EventCard と同密度 + SourceIndicator full + alterNote)
-- 案 1b pattern 流用 (= flag OFF 完全不変、 ON で同責務範囲置換)
-
-→ **CEO 判断仰ぐ**: 案 A / B / C どれが妥当か (= 既存維持 vs 新規置換 vs flag 切替)
-
----
-
-## §6 論点 5: list と map の役割分担
-
-### 6.1 問い
-
-List と Map の使い分けはどうあるべきか? 完全並列 (= 同じ情報の表示違い)? 補完関係?
-
-### 6.2 List 側 役割 (= 8c で確定)
-- 時間の流れ (= timeline) を主役に
-- 1 日の構造 (= 出発 / 予定 / 移動 / 帰宅) を縦並びで把握
-- 「集中と休息のリズム」 等の解釈レイヤー
-- SummaryFooter で 1 日全体を俯瞰
-
-### 6.3 Map 候補 役割
-
-**役割 A**: **空間の俯瞰** (= 1 日の予定が物理的にどこに分布しているか)
-**役割 B**: **場所の探索** (= 候補地探し、 「ここに何を入れるか」)
-**役割 C**: **route 検証** (= 訪問順 / 移動距離 / 物理的実現性)
-
-### 6.4 設計選択肢
-
-**案 X**: Map は空間俯瞰のみ (= 役割 A、 シンプル)
-**案 Y**: Map は俯瞰 + route 検証 (= A + C)
-**案 Z**: Map は 3 役割全部 (= A + B + C、 複雑)
-
-### 6.5 Claude 1 次案
-
-**案 X 寄り** (= 役割 A の俯瞰中心)。 理由:
-- 役割 B (= 場所探索) は List + Add modal (= 「+ 教える」) で代替可能
-- 役割 C (= route 検証) は Map 上の番号 + 抽象線で最低限可、 詳細 API は scope 外
-- 「マップ = 空間の地理感を取り戻す」 がシンプルで mock 整合
-
-→ **CEO 判断仰ぐ**: Map の主役割を絞るか / 複数役割を共存させるか
-
----
-
-## §7 論点 6: map における 「移動」 の扱い
-
-### 7.1 問い
-
-List で 「移動 ----- 時刻」 と表現した transition を、 Map ではどう表現するか?
-
-### 7.2 List 側 (= 参考、 sub-phase 8b-8 / 8c-2)
-- TransitionChip: 「移動」 pill (= rounded-md bg-white border-slate-200) + dashed line + 時刻 + 詳細 button
-- 出発 → 予定 / 予定 → 予定 / 予定 → 帰宅 全箇所
-- 抽象的 「移動」 ラベル (= 距離 / mode の truth なし)
-
-### 7.3 Map 固有 制約
-- 移動は **2 pin 間の距離** で物理化される
-- List の 「時刻 range」 (= 例 11:00-12:00) は Map では時間軸非表示
-- 線 (= §3 案 B / C) があれば 「流れ」 は表現可能、 「移動」 ラベルが別途必要か
-
-### 7.4 設計選択肢
-
-**案 A**: 線のみ (= 「移動」 ラベル不要、 線が flow を示す)
-**案 B**: 線 + 線中央に小 「移動」 label (= 時刻 range なし)
-**案 C**: 線 + selected pin に 「次への移動 = N 分」 ラベル (= Google Directions API)
-
-### 7.5 Claude 1 次案
-
-**案 A**: 線のみ (= 抽象 dashed)、 「移動」 ラベルは Map に出さない。 理由:
-- Map の役割は空間俯瞰 (= 役割 A)、 「移動」 強調は List の領分
-- 線が流れを示す → ラベル冗長
-- 「N 分」 等の truth は scope 外
-
-→ **CEO 判断仰ぐ**: 案 A / B / C のどれが Map らしいか
-
----
-
-## §8 論点 7: map でも 「意味文」 をどう使うか
-
-### 8.1 問い
-
-List で alterNote (= ✨ + 自然な日本語) を確立した。 Map でも同様に意味文を出すか? どこに?
-
-### 8.2 List 側 (= 参考、 sub-phase 8b-8)
-- EventCard 内 ✨ + 1 行自然な日本語
-- CategoryMeaning / getNarrative で deterministic 生成
-- 例: 「静かなカフェで、 今日の計画を整理しましょう」
-
-### 8.3 Map 固有 制約
-- pin 上に意味文を出すと **視覚密度 up + 重複** (= List で既出)
-- bottom sheet (= selected pin) で出すなら自然 (= List の詳細 sheet 相当)
-- Map 全体の解釈 (= List の SummaryFooter 相当) を Map にも置くか別問題
-
-### 8.4 設計選択肢
-
-**案 A**: pin に出さない、 bottom sheet で alterNote 表示 (= List EventCard 流用)
-**案 B**: 案 A + Map 全体に 「空間の解釈」 SummaryFooter 相当 (= 「予定が南北に分布しています」 等の中立解釈)
-**案 C**: pin tap 時 hover で 1 行表示
-
-### 8.5 Claude 1 次案
-
-**案 A + B 検討**: bottom sheet に alterNote + Map 全体 解釈 footer。 ただし Map 全体解釈は 「空間」 の解釈 (= List の 「時間」 解釈と別軸)、 文体方針も別途検討必要。
-
-→ **CEO 判断仰ぐ**: Map 全体 解釈 footer の要否 + 文体方針
-
----
-
-## §9 論点 8: 「地図」 → 「マップ」 表記統一
-
-### 9.1 現状 inventory (= grep 結果)
-
-| file | line | 文字列 |
-|---|---|---|
-| MapTab.tsx | 859 | "地図の表示には API キーが設定されていません" |
-| MapTab.tsx | 869 | "地図を読み込んでいます..." |
-| MapTab.tsx | 920 | aria-label="地図 (選択日の予定の場所)" |
-| MapTab.tsx | 1529 | "これら anchor は baseline pin として地図に出ている" (= コメント) |
-| MapTab.tsx | 1530 | "これら anchor は地図に出ていない" (= コメント) |
-| MapTab.tsx | 1534 | "地図に表示されています" |
-| MapTab.tsx | 1535 | "地図に出せなかった予定" |
-| PlanClient.tsx | 116 | 旧コメント (= "聖地"→"地図") |
-
-**別領域 (= 不触)**:
-- components/home/YourSelfSection.tsx 473 「自分を知る旅の地図」 (= 比喩、 触らない)
-
-### 9.2 設計選択肢
-
-**案 A**: 全 「地図」 → 「マップ」 統一 (= comment 含む)
-**案 B**: ユーザー目視可能 string (= aria-label / placeholder text) のみ統一、 コメントは不触
-**案 C**: tab label のみ統一 (= 既に 8b-9 で実施)
-
-### 9.3 Claude 1 次案
-
-**案 B**: ユーザー目視 string のみ統一 (= MapTab.tsx 859 / 869 / 920 / 1534 / 1535 の 5 件)、 コメント不触 (= 1529 / 1530)、 PlanClient 旧コメント不触 (= 116)
-
-→ **CEO 判断仰ぐ**: 案 A / B / C どこまで統一範囲を広げるか
-
----
-
-## §10 List 設計 rule との対比 (= GPT 「そのままコピー禁止」 反映)
-
-### 10.1 持ち込み妥当 (= List rule をそのまま適用、 共通基盤)
-
-| 領域 | List rule | Map 適用 妥当性 |
-|---|---|---|
-| 規約 24-extended (= focus-visible:slate-300) | 全 component | ✅ 持ち込み妥当 |
-| 禁止語 10 件 grep | 全 component | ✅ 持ち込み妥当 |
-| 文体 (= 命令形 0 / 評価形容詞 0 / 数値 0) | CategoryMeaning + SummaryFooter | ✅ 持ち込み妥当 (= bottom sheet / map 解釈 footer) |
-| SVG icon system (= CategoryCafe/Home/Office/Unknown + Briefcase/Meal/LocationPin/Calendar/List/MapPin) | TimelineSpine / EventCard / PlanClient | ✅ 持ち込み妥当 (= Map pin icon / category card) |
-| flag 制御 pattern (= 案 1b コード内 const / default false / OFF 完全不変) | featureFlags.ts | ✅ 持ち込み妥当 (= MAP_NEW_BOTTOM_SHEET_ENABLED 等) |
-| testing pattern (= renderToStaticMarkup contract) | 全 component test | ✅ 持ち込み妥当 |
-| pure module adapter (= ExternalAnchor → ViewModel) | externalAnchorAdapter | ✅ 持ち込み妥当 (= ExternalAnchor → MapPinViewModel) |
-
-### 10.2 上書き / 別扱い (= Map 固有性のため List rule をそのまま使わない)
+| 規約 24-extended (= focus-visible:slate-300) | 全 component | ✅ 持ち込み |
+| 禁止語 10 件 grep | 全 component | ✅ 持ち込み |
+| 命令しすぎない文体 (= 強命令 0、 評価 0) | CategoryMeaning + SummaryFooter | ✅ 持ち込み (= sheet meaning text) |
+| semantic color system (= 4 + other) | EventCard tint + spine icon | ✅ 持ち込み (= pin 色) |
+| SVG icon 統一設計 (= CategoryCafe/Home + Briefcase/Meal/LocationPin/Calendar/List/MapPin inline) | TimelineSpine / EventCard | ✅ 持ち込み (= pin icon / sheet category icon / location row icon) |
+| flag 制御 pattern (= 案 1b コード内 const) | featureFlags.ts | ✅ 持ち込み (= MAP_NEW_*_ENABLED) |
+| pure adapter pattern | externalAnchorAdapter | ✅ 持ち込み (= ExternalAnchor → MapPinViewModel) |
+| testing pattern (= renderToStaticMarkup contract) | 全 component test | ✅ 持ち込み |
+| location icon 専用 (= 📍禁止) | EventCard LocationPinIcon | ✅ 持ち込み (= sheet location row) |
+
+### 16.2 そのまま持ち込まない (= Map 固有性、 別扱い)
 
 | 領域 | List rule | Map 別扱い 理由 |
 |---|---|---|
-| category 表現 | EventCard 背景 tint + border + spine icon | Map は pin 色 + 形のみ (= 背景 tint なし、 §2) |
-| timeline 軸 (= 1 本軸 + dashed line) | TimelineSpine items-stretch | Map は緯度経度軸、 timeline 軸なし (= §3 線で flow 代替) |
-| 出発 / 帰宅 virtual events | adapter convertExternalAnchorListWithDayBookends | Map では出発 / 帰宅 pin の表現が別 (= 物理座標が同 = 自宅、 重複可能性、 §6) |
-| 「移動」 chip | TransitionChip | Map では §7 で別軸 (= 線のみ / ラベルなし) |
-| 1 日表示 (= date picker 左右 nav) | FlowTab daysToRender slice | Map 既存 DaySwitcher を維持 / 統一? (= §11 で検討) |
-| SummaryFooter (= 解釈レイヤーの器、 下部固定) | List 上 | Map 用 「空間の解釈」 footer は別軸 (= §8) |
+| timeline 的 event row | TimelineSpine + 縦 spine line | Map は 緯度経度軸、 timeline 軸なし、 線は route で別表現 |
+| transition chip | TransitionChip | Map では **線のみ**、 chip を map 上に持ち込まない |
+| footer 主役構造 | SummaryFooter 下部固定 | Map では sheet が主役、 footer 構造の検討は別 (= §11 で sheet meaning が代替) |
+| provenance 強主張 | List sub-phase 6 SourceIndicator | Map では sheet 内に統合、 pin 上に出さない (= 第 12 補正 #2 hierarchy 拡張) |
+| map 上の長文 | EventCard alterNote 2 行 | Map 上ラベルは time + 短 title のみ、 alterNote は sheet meaning text |
+| 出発 / 帰宅 virtual events | adapter convertExternalAnchorListWithDayBookends | 物理座標が同 = 自宅 で重複可能、 Map 表現は別検討 (= 同 pin に複数 / pin merge 等) |
+| 1 日表示 + 左右 nav | FlowTab daysToRender slice + date picker | Map 既存 DaySwitcher と統一 / 別表示か検討 (= §18 で議論) |
+| EventCard 全周 border + 左尖り | EventCard | sheet 内 detail は別 layout (= card 三角不要、 sheet は handle 表現) |
 
-### 10.3 保留 (= CEO 判断後決定)
+### 16.3 保留 (= CEO 採用判断後決定)
 
-- pin 上 source semantics (= §4)
-- selected pin と bottom sheet 統合 / 置換 (= §5)
-- 「マップ」 表記統一範囲 (= §9)
+- pin 上 source semantics の最終扱い (= §4 で 「pin 上 0」 確定方向だが、 proposed 等の case 検討余地)
+- selected pin → bottom sheet 起動アニメーション
+- 「マップ」 表記統一範囲 (= §17 で 1 次案、 CEO 採用後確定)
 
 ---
 
-## §11 既存 MapTab inventory + 不触判定
+## §17 文体 + 「マップ」 表記統一
 
-### 11.1 既存 component (= app/(culcept)/plan/tabs/MapTab.tsx 1673 lines)
+### 17.1 文体方針 (= 全 Map UI 横断)
+
+| UI 要素 | 文体 |
+|---|---|
+| subtitle | 「場所を地図で確認して、 流れをつかみましょう。」 (= 「マップ」 統一なら 「マップ」 / 「地図」 どちらに合わせるか §17.2) |
+| sheet meaning text | List CategoryMeaning 流用 (= mock 文体準拠、 状態/解釈型) |
+| CTA | secondary 「詳細を見る」 + primary 「ここへの経路」 |
+| 凡例 | category 名 (= カフェ / 食事 / 仕事 / 帰宅 / その他) |
+| 禁止 | 強命令、 評価形容詞、 数値表現、 score |
+
+### 17.2 「マップ」 表記統一 inventory (= List 8b-9 で tab label のみ反映済)
+
+| file | line | 文字列 | 案 |
+|---|---|---|---|
+| MapTab.tsx | 859 | "地図の表示には API キーが設定されていません" | 「マップの表示には…」 |
+| MapTab.tsx | 869 | "地図を読み込んでいます..." | 「マップを読み込んでいます…」 |
+| MapTab.tsx | 920 | aria-label="地図 (選択日の予定の場所)" | aria-label="マップ…" |
+| MapTab.tsx | 1534 | "地図に表示されています" | 「マップに表示されています」 |
+| MapTab.tsx | 1535 | "地図に出せなかった予定" | 「マップに出せなかった予定」 |
+| MapTab.tsx | 1529-1530 | コメント "地図" | (= 不触、 user 目視不可) |
+| PlanClient.tsx | 116 | 旧コメント "聖地→地図" | (= 不触、 履歴コメント) |
+| YourSelfSection.tsx | 473 | 「自分を知る旅の地図」 | (= 不触、 比喩表現、 別領域) |
+
+**統一範囲**: user 目視可能 5 件 (= MapTab.tsx 859/869/920/1534/1535)、 コメント 3 件不触
+
+---
+
+## §18 既存 MapTab inventory + 不触判定
+
+### 18.1 既存 component (= 1673 lines)
 
 | 関数 | 役割 | redesign 影響 |
 |---|---|---|
-| MapTab (= main) | tab orchestration + DaySwitcher + PlanMapView + SelectedAnchorCard + FAB + CategoryGrid | 改修候補 |
-| DaySwitcher | 日付 ‹ 日付 › today、 List date picker と同役割 | List date picker と統一検討 |
-| PlanMapView | Google Maps + Polyline + pin render | 不触維持 (= Maps API、 spec 外) |
-| MapPlaceholder | 「地図の表示には API キーが設定されていません」 等 | §9 表記統一 |
-| SelectedAnchorCard | bottom sheet (= 1001-1280) | §5 で flag 切替 検討 |
-| CategoryGrid + CategoryCard | category 別 grouping (= 9 categories) | mock に存在しない、 List redesign 後の Map 役割と整合確認必要 |
-| FAB | 「+ 教える」 起動 | List で flag ON 削除済 (= 8b-7-B)、 Map でも同様検討 |
+| MapTab (= main) | tab orchestration + DaySwitcher + PlanMapView + SelectedAnchorCard + FAB + CategoryGrid | **改修候補** |
+| DaySwitcher | 日付 ‹ 日付 › today | List date picker と統一検討 (= 案 X 統合 / 案 Y 別維持) |
+| PlanMapView | Google Maps + Polyline + pin render | **不触維持** (= Maps API、 spec 外) |
+| MapPlaceholder | placeholder text | §17.2 「マップ」 統一対象 |
+| SelectedAnchorCard | bottom sheet (= 1001-1280) | **§9 で flag 切替で新 sheet 検討** (= 既存維持 + 新 sheet で同責務範囲置換) |
+| CategoryGrid + CategoryCard | category 別 grouping (= 9 categories) | mock に存在せず、 List redesign 後の Map 役割と整合確認必要 |
+| FAB | 「+ 教える」 起動 | List で flag ON 削除済 (= 8b-7-B + 8b-8)、 Map でも同様検討 |
 
-### 11.2 既存 hooks / 関連 file
+### 18.2 既存 hooks
 
-- `_useMapTabMovementDisplay.ts` (= L-4d-b1 movement display)
-- `_useMapTabFeasibilityDisplay.ts` (= M-3d feasibility)
-- `_usePlanGeocode.ts` (= geocoding)
+- `_useMapTabMovementDisplay.ts` (= L-4d-b1 movement display): 不触
+- `_useMapTabFeasibilityDisplay.ts` (= M-3d feasibility): 不触
+- `_usePlanGeocode.ts` (= geocoding): 不触
 
-### 11.3 frozen 判定 (= List redesign 中触らずに来た範囲)
-
+### 18.3 frozen 判定 (= List redesign 中触らずに来た範囲)
 - PlanMapView (= Google Maps integration): 不触
-- _useMapTabMovementDisplay / _useMapTabFeasibilityDisplay: 不触
-- _usePlanGeocode: 不触
+- 3 hooks: 不触
 - → 改修対象は MapTab.tsx 内の SelectedAnchorCard / DaySwitcher / CategoryGrid + 文字列 string
 
 ---
 
-## §12 readiness 結論 + 次 phase 候補
+## §19 v1 8 論点 1 次案 → CEO 画像分析 補正後マッピング
 
-### 12.1 本 audit 1 次案サマリー
-
-| 論点 | Claude 1 次案 |
-|---|---|
-| §2 pin 情報密度 | 案 A 寄り (= 色 + icon のみ、 詳細は bottom sheet) |
-| §3 route / flow | 案 C (= 番号 + 細線 dashed、 抽象) |
-| §4 source semantics | 案 A (= pin 上は 0、 bottom sheet full) |
-| §5 selected pin sheet | 案 C (= flag 切替で既存維持 + 新規) |
-| §6 list / map 役割分担 | 案 X (= 空間俯瞰中心) |
-| §7 「移動」 扱い | 案 A (= 線のみ、 ラベルなし) |
-| §8 意味文 | 案 A + B 検討 (= bottom sheet + Map 解釈 footer) |
-| §9 表記統一 | 案 B (= ユーザー目視 string のみ) |
-
-### 12.2 次 phase 候補
-
-**A. Map IA Audit 着手** (= List と同 pattern、 拘束条件確立 + 1 次案を spec audit と分離)
-**B. Map Spec audit 確定** (= 本 audit に CEO 採用判定を入れて確定、 spec として固定)
-**C. Map impl readiness** (= 既存 MapTab inventory + 8 論点判断後、 impl 着手準備)
-
-### 12.3 Claude 推奨
-
-**B → C → impl** (= 本 audit を CEO 採用判定で spec として確定 → impl readiness → impl)。 理由:
-- List で IA → Spec → impl の 3 段階を経たが、 Map は既存 MapTab inventory がある (= 完全新規ではない)
-- IA Audit は新規構造に対して有効 (= List は新規 List 視点だった)、 Map は既存改修中心 → spec audit + impl readiness で十分
-- 8 論点に CEO 判断が入れば spec として確定可能
-
-### 12.4 CEO 判断仰ぐ事項
-
-1. **本 audit 採用 OK か** (= 1 次案 spec として確定するか、 1 次案修正後採用か)
-2. **8 論点それぞれの Claude 1 次案**: 採用 / 修正 / 別案
-3. **次 phase 候補**: A / B / C どれを採用
-4. **List 8d は今やらないという判断** の継続確認
+| v1 論点 | v1 1 次案 | CEO 補正 | v2 確定方向 |
+|---|---|---|---|
+| §2 pin 情報密度 | 案 A 寄り (= pin 色 + icon、 詳細 sheet) | ✅ 「pin 上は軽くてよい。 詳細は sheet 側」 | **§4 確定** (= 涙型 + 白抜き + selected 軽ラベル) |
+| §3 route / flow | 案 C (= 番号 + 線) | ⚠ 「線そのものの自然さが大事。 番号を強くしすぎない」 | **§5 修正** (= **番号は副、 線が主**、 細 中立 破線 少し曲がる) |
+| §4 source semantics | 案 A (= pin 上 0、 sheet full) | ✅ 「pin 上では 0 に近くてよい。 source は sheet 側」 | **§4 + §9 確定** (= pin 上 0、 sheet 内に統合) |
+| §5 selected pin sheet | 案 C flag 切替 | ✅ 「ここが主戦場。 map の完成度は sheet の質で決まる」 | **§9 確定** (= flag 切替 + 新 sheet を 4 段構造で実装) |
+| §6 list / map 役割分担 | 案 X 空間俯瞰 | ✅ 「完全に正しい」 | **§0 + §3 確定** (= map = 空間、 list = 時間) |
+| §7 「移動」 扱い | 案 A 線のみ | ✅ 「ラベルなしで線のみはかなり正しい」 | **§5 確定** (= chip 持ち込み禁止、 線のみ) |
+| §8 意味文 | 案 A + B 検討 | ✅ 「bottom sheet が正解、 map 上ではなく sheet」 | **§11 確定** (= sheet 内 meaning box) |
+| §9 「マップ」 表記 | 案 B (= user 目視 string 5 件) | (= 補正なし、 CEO 黙認) | **§17.2 確定** |
 
 ---
 
-**本 audit は readiness 1 次案**。 CEO 採用判断後、 spec として確定 + 次 phase 着手。
+## §20 readiness 結論 + 次 phase 候補
+
+### 20.1 本 audit v2 の到達状況
+
+- ✅ §0 設計原則 確定 (= 「Map は場所の流れを見る面、 意味と行動は sheet に集約」)
+- ✅ §3 4 レイヤー構造 確定 (= 上部意味づけ / 主体 / 補助 / sheet)
+- ✅ §4-§17 15 spec 項目 1 次案 (= CEO 画像分析を spec 言語化)
+- ✅ §16 List rule 持ち込み / NG マッピング
+- ✅ §18 既存 MapTab inventory + 不触判定
+- ✅ §19 v1 8 論点 → CEO 補正後 確定方向
+
+### 20.2 次 phase 候補
+
+**A. Map Spec 確定 (= 本 audit 採用 + CEO 採用判定で spec 凍結)**
+**B. Map IA Audit 着手 (= List と同 3 段階 pattern、 IA で拘束条件を別 doc 化)**
+**C. Map impl readiness (= spec 採用後、 既存 MapTab inventory に対する改修計画書を別 doc)**
+**D. Map impl 直接着手 (= readiness 省略、 spec → impl)**
+
+### 20.3 Claude 推奨
+
+**A → C → impl** (= 本 audit を CEO 採用判定で spec 確定 → impl readiness → impl)
+
+理由:
+- 本 audit が CEO 画像分析を取り込んだ密度で、 IA Audit (= 案 B) 重複の必要性低
+- List は新規 List 視点で IA 必要だったが、 Map は既存改修中心 → 直接 spec + impl readiness で十分
+- 既存 MapTab inventory が明確 (= §18) なので、 改修範囲 / 不触範囲 判断可能
+
+### 20.4 CEO 採用判断仰ぐ 4 点
+
+1. **本 audit v2 採用 OK か** (= 1 次案 spec として確定、 修正、 別案)
+2. **§4-§17 各 spec 項目**: 採用 / 修正 / 別案
+3. **次 phase 候補**: A / B / C / D どれを採用 (= Claude 推奨 A→C→impl)
+4. **既存 MapTab inventory 不触判定** OK か (= PlanMapView + 3 hooks 不触、 改修は SelectedAnchorCard / DaySwitcher / CategoryGrid / 文字列)
+
+---
+
+## §21 補足: 「sheet で完成度決まる」 の意味
+
+CEO 強調点: **「Map の完成度は sheet の質で決まる」**
+
+これは Map impl で最も重視すべき優先順位:
+
+| 優先順位 | 項目 |
+|---|---|
+| **最優先** | §9 + §10 + §11 + §13 (= sheet 全体 / time/title/location / meaning / CTA) |
+| 高 | §4 + §5 (= pin / route) |
+| 中 | §6 + §7 + §8 (= map 上ラベル / legend / controls) |
+| 低 | §17 文字列統一 |
+
+impl 段階で sheet quality 不足なら、 spec 採用後でも 「sheet 詰め直し sub-phase」 を別途検討。
+
+---
+
+**本 audit v2 は CEO 画像分析統合済の 1 次案**。 CEO 採用判断後、 spec として凍結 → impl readiness or 直接 impl 着手。
