@@ -13154,3 +13154,54 @@ N-3a impl `d55aab5f` 着地後、 CEO 共有参考画像 2 枚 + GPT design audi
 - **ステータス**: Direction audit **採用確定**。 IA Audit 着手承認済。 doc 1379 lines、 19 section、 5 補正履歴反映済。 6 commit 全 frozen 候補 (= /plan complete まで)。
 
 ---
+
+## 2026-05-24 [Build/Product] List/Map IA Audit 採用 + List Redesign Spec audit 進行承認 + 第 7 補正 2 留意点 Spec 必須化 [承認: CEO + GPT 第 7 補正後最終判定]
+
+### 背景
+
+Direction audit `c21bffd7` 採用後、 IA Audit を着地 (= `fd42e3eb` 初回 + `4d1c3e7d` 第 6 補正、 13 拘束条件確定)。 CEO + GPT 第 7 補正後最終判定:
+- 「今回の IA Audit は採用でよい」
+- 「次は List Redesign Spec audit に進行」
+- 「UI 実装はその後」
+- 「Spec で 2 補正必須」
+
+### 採用確定 IA Audit
+
+- branch: `docs/plan-list-map-ia-audit`
+- 2 commit 累計 (= 初回 + 第 6 補正)
+- doc: 848 lines + 第 7 補正引き継ぎ追記 (= 本 commit で着地)
+- 拘束条件: **13 項目** 全確定 (= 11 + 第 6 補正 2)
+- HEAD: 本 commit
+
+### CEO + GPT 第 7 補正後 評価
+
+**特に評価された点**:
+- 3 source 共存に加えて **状態遷移 + 競合解決単位** まで入れた (= 第 6 補正 #12)
+- Event Execution Layer に加えて **Plan ↔ Alter 学習ループ** まで拘束条件にした (= 第 6 補正 #13)
+- 「方向性は良い」 段階から「次の Spec で何を絶対に決めるか見えた」 段階に上がった
+
+### 第 7 補正 2 留意点 (= List Redesign Spec で必須反映)
+
+| # | 留意点 | Spec での反映 |
+|---|---|---|
+| **1** | **provenance を「色 dot だけ」 にしない** | 色 + アイコン or 状態ラベル の最低 2 軸併用 (= a11y / 視認性 / 未確定確定 generated 拡張対応) |
+| **2** | **imported ロックの逃がし道** | 複製して user event 化 or override 差分管理 のいずれか (= truth 保持 + user 不便回避) |
+
+### 次
+
+- **List Redesign Spec audit** (= 別 audit / 別 branch `docs/plan-list-redesign-spec-audit`)
+- Spec で 13 拘束条件 + 第 7 補正 2 留意点を反映
+- その後 List redesign impl → Map Spec → Map impl → Design System Extraction
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ** (= GPT 第 7 補正明示):
+- List のコード実装 (= Spec audit 後)
+- Map のコード実装
+- Design System 実装
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 7 補正後最終判定 (= 2026-05-24、 「IA Audit は採用、 次は List Redesign Spec audit、 List のコード実装はその後」)
+- **ステータス**: IA Audit **採用確定**。 List Spec audit 着手承認済。 docs phase 一段進行 (= 4 phase 目: direction → IA → Spec → impl の Spec phase へ)。
+
+---

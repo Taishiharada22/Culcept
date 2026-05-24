@@ -702,10 +702,22 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 ### 10.1 引き継ぎ事項 (= List Redesign Spec audit で受け取る)
 
 - List IA 確定 spec (= §3、 4 層構造 + spine + card + chip)
-- 11 拘束条件確定 spec (= §2、 List に適用)
+- **13 拘束条件確定 spec** (= §2、 List に適用、 第 6 補正 #12 + #13 反映)
 - Event Execution Layer 核 (= §8.1)
 - 削除対象 (= §6)
 - ASCII 図 (= §3.7)
+- **第 7 補正 2 留意点** (= Spec で **必須反映**、 §10.1.5):
+
+### 10.1.5 第 7 補正 2 留意点 (= List Redesign Spec で必須反映)
+
+GPT 第 7 補正 (= 2026-05-24): 「IA Audit は採用。 次の Spec で必ず補足してください」
+
+| # | 留意点 | Spec で必須化する内容 |
+|---|---|---|
+| **1** | **provenance を「色 dot だけ」 にしない** (= a11y + 視認性 + 未確定/確定 generated 表現拡張) | source provenance は **色 + アイコン or 状態ラベル** の最低 2 軸併用 (= 単独 color encoding 禁止、 WCAG 整合) |
+| **2** | **imported ロックの逃がし道** (= truth 保持 + user 不便回避) | imported 時刻/場所ロックは維持、 但し user 編集したい場合の逃がし道として **複製して user event 化** or **override 差分管理** のいずれかを前提 |
+
+→ Spec audit ではこれら 2 点を **§4 component 設計 + §11 第 7 補正 spec** で確定する。
 
 ### 10.2 List Redesign Spec で決めるべきこと (= IA を超える、 詳細)
 
@@ -824,17 +836,24 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 8. List Redesign Spec への引き継ぎ事項整理 (= §10)
 9. **3 source 状態遷移 + 競合解決単位確定** (= §2.1 #12、 GPT 第 6 補正、 state machine 全 transition + 競合 3 階層 + 未確定/確定 metadata 分離)
 10. **Plan ↔ Alter 学習ループ前提化** (= §2.2 #13、 GPT 第 6 補正、 user 修正→Alter 学習 mapping + source 別学習対象 + silent learning + 学習 store IA 余地)
+11. **第 7 補正 2 留意点 Spec 必須化** (= §10.1.5、 GPT 第 7 補正、 provenance 多軸表現 + imported lock 逃がし道、 List Redesign Spec で必須反映)
 
 ### 14.2 IA Audit 完了宣言
 
 > 本 IA audit は direction audit `e99406ce` で確立した **11 必須拘束条件** + GPT 第 6 補正 **2 追加拘束条件** (= #12 状態遷移 + #13 学習ループ) の **計 13 拘束条件**をすべて具体的 spec として確定した。 §13.1.8 の完了判定基準 (= 必須項目 + 具体 spec + 曖昧 residual 0) を **充足**。 静的共存から **動的状態遷移**、 概念から **学習ループ前提化**に昇格。 List Redesign Spec audit に進める状態。
 
-### 14.3 次のアクション (= CEO 判断後)
+### 14.3 次のアクション (= CEO + GPT 第 7 補正後最終判定)
 
-1. CEO 判断 (= §13、 主要 9 項目)
-2. 採用なら → **List Redesign Spec audit** に進行 (= 別 audit / 別 branch、 §10.2 の 7 領域)
-3. その後 List redesign impl → Map Redesign Spec → impl → Design System Extraction
-4. merge: 引き続き /plan complete まで frozen 維持 (= 戦略 C)
+1. **IA Audit 採用確定** (= 2026-05-24、 CEO + GPT 第 7 補正後最終判定、 decision-log で正式記録)
+2. **List Redesign Spec audit** に進行 (= 別 audit / 別 branch `docs/plan-list-redesign-spec-audit`)
+3. Spec audit で **第 7 補正 2 留意点を必須反映** (= §10.1.5、 provenance 多軸 + imported lock 逃がし道)
+4. その後 List redesign impl → Map Redesign Spec → impl → Design System Extraction
+5. merge: 引き続き /plan complete まで frozen 維持 (= 戦略 C)
+
+**まだ待つもの** (= GPT 第 7 補正で明示):
+- List のコード実装 (= Spec audit 後)
+- Map のコード実装
+- Design System 実装
 
 ### 14.4 自律推奨 (= 思考原則 ⑤ ゴールから逆算)
 
