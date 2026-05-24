@@ -1,26 +1,32 @@
 /**
- * Phase 3-N List impl sub-phase 8a-pre — ExternalAnchor → List view model adapter
+ * Phase 3-N List impl sub-phase 8a-pre / 8b-2 — ExternalAnchor → List view model adapter
  *
  * 設計原則 (= CEO + GPT 合議 2026-05-24 案 1b 採用、 adapter 先行):
  *   - **pure module** (= LLM / API / DB / network 不使用、 純粋関数のみ)
  *   - **ExternalAnchor → StrictEventCardViewModel** 単件変換 (= 既存 anchor data model から新 view model へ)
- *   - **ExternalAnchor[] → TimelineSpineViewModel** list 変換 (= startTime asc 整列、 day 集約)
+ *   - **ExternalAnchor[] → events 配列** list 変換 (= startTime asc 整列、 day 集約)
+ *   - **8b-2 追加**: ExternalAnchor[] → TransitionViewModel[] 生成 (= 隣り合う events から簡易 transition、 label='移動')
+ *   - **8b-2 追加**: alterNote 注入 (= categoryMeaning module で生成、 Alter 由来観測 / 解釈)
  *
  *   - 8a 最小範囲: 全 anchor を **user origin (= createUserEvent)** として変換
- *     (= imported 由来 / alter_generated 由来 の扱いは 8a 範囲外、 将来 adapter 拡張で対応)
- *   - 8a 範囲外:
- *     - alterNote 注入 (= source field なし、 undefined)
- *     - executionLayerCounts (= undefined、 sub-phase 8b 以降で扱う)
- *     - transitions (= 8a-impl で別 adapter or 別 path、 本 file は events のみ)
+ *     (= imported 由来 / alter_generated 由来 の扱いは将来 adapter 拡張で対応)
+ *   - 8b 範囲拡張:
+ *     - alterNote 注入 (= categoryMeaning.getMeaningText 経由、 Alter 由来観測として明示)
+ *     - transitions 生成 (= 隣り合う events 間で endTime 定義あり時のみ、 label '移動' 固定)
+ *   - 範囲外:
+ *     - executionLayerCounts (= undefined、 sub-phase 8b では確認のみ)
+ *     - imported / alter_generated 由来扱い (= 将来 adapter 拡張)
+ *     - 距離 / mode 等の route truth (= TransitionChip は抽象 「移動」 のみ、 8b で truth 主張禁止)
  *
  *   - 規約 「DB / env / package / dependency 変更禁止」 遵守
  *   - 既存 lib/plan/list/* file 改変 0 (= types.ts / sourceProvenance.ts / copyContract.ts / featureFlags.ts 不触)
  *
  * 設計書:
- *   - decision-log (= sub-phase 8 8a/8b/8c 分割方針 + 案 1b 採用)
+ *   - decision-log (= sub-phase 8 8a/8b/8c 分割方針 + 案 1b 採用 + 8b redefine)
  *   - lib/plan/external-anchor.ts (= ExternalAnchor 型)
  *   - lib/plan/list/sourceProvenance.ts (= StrictEventCardViewModel + createUserEvent factory)
- *   - lib/plan/list/types.ts (= EventCategory + TimelineSpineViewModel)
+ *   - lib/plan/list/types.ts (= EventCategory + TransitionViewModel)
+ *   - lib/plan/list/categoryMeaning.ts (= 8b-1 で先行実装、 alterNote 注入用)
  *
  * 不変原則:
  *   - 入力 mutate なし
@@ -34,7 +40,8 @@ import {
   type StrictEventCardViewModel,
   createUserEvent,
 } from "@/lib/plan/list/sourceProvenance";
-import { type EventCategory } from "@/lib/plan/list/types";
+import { type EventCategory, type TransitionViewModel } from "@/lib/plan/list/types";
+import { getMeaningText } from "@/lib/plan/list/categoryMeaning";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Category mapping (= LocationCategory → EventCategory)
@@ -138,17 +145,17 @@ function resolveLocation(anchor: ExternalAnchor): string | undefined {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 単件 ExternalAnchor を StrictEventCardViewModel に変換 (= 8a 最小、 user origin 固定)
+ * 単件 ExternalAnchor を StrictEventCardViewModel に変換 (= 8b 範囲反映、 user origin 固定 + meaning text 注入)
  *
- * 8a 最小マッピング:
+ * 8a 最小 + 8b 拡張マッピング:
  *   - id / title → 直接
  *   - startTime → "HH:MM" 正規化
  *   - endTime → "HH:MM" 正規化 (= undefined ならそのまま undefined)
  *   - location → locationText (= sensitive 除外、 privacy 配慮)
  *   - category → mapCategory(locationCategory)
  *   - sourceModel → createUserEvent 由来 (= origin: 'user', authority: 'user_owned')
- *   - alterNote → undefined (= 8a 範囲外)
- *   - executionLayerCounts → undefined (= 8a 範囲外、 sub-phase 8b 以降で扱う)
+ *   - **alterNote → getMeaningText(category, startTime) (= 8b-2 追加、 Alter 由来観測、 'other' は undefined)**
+ *   - executionLayerCounts → undefined (= 8b では確認のみ、 future)
  */
 export function convertExternalAnchorToEventCard(
   anchor: ExternalAnchor,
@@ -158,6 +165,7 @@ export function convertExternalAnchorToEventCard(
     anchor.endTime !== undefined ? normalizeTimeToHHMM(anchor.endTime) : undefined;
   const location = resolveLocation(anchor);
   const category = mapCategory(anchor.locationCategory);
+  const alterNote = getMeaningText(category, startTime);
 
   return createUserEvent({
     id: anchor.id,
@@ -165,6 +173,7 @@ export function convertExternalAnchorToEventCard(
     startTime,
     ...(endTime !== undefined ? { endTime } : {}),
     ...(location !== undefined ? { location } : {}),
+    ...(alterNote !== undefined ? { alterNote } : {}),
     category,
   });
 }
@@ -176,14 +185,54 @@ export function convertExternalAnchorToEventCard(
 /**
  * ExternalAnchor 配列を TimelineSpine consume 用 events 配列に変換
  *
- * - 各 anchor を convertExternalAnchorToEventCard で変換
+ * - 各 anchor を convertExternalAnchorToEventCard で変換 (= alterNote 注入込み)
  * - startTime 昇順整列 (= "HH:MM" string sort、 24h 時刻なら lexicographic = chronological)
  * - 入力 mutate なし
- * - 8a 範囲: events のみ (= transitions は 8a-impl で別 path、 本 module は events 専用)
  */
 export function convertExternalAnchorListToTimelineEvents(
   anchors: ReadonlyArray<ExternalAnchor>,
 ): ReadonlyArray<StrictEventCardViewModel> {
   const converted = anchors.map((a) => convertExternalAnchorToEventCard(a));
   return [...converted].sort((a, b) => a.startTime.localeCompare(b.startTime));
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// List → transitions 配列 (= 8b-2 追加、 隣り合う events から生成)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * ExternalAnchor 配列から TransitionChip consume 用 transitions 配列を生成
+ *
+ * 8b-2 範囲 (= GPT 「truth なき semantics 主張禁止」 と整合):
+ *   - **抽象的な「移動」 chip のみ** (= 距離 / mode / 所要時間等の truth 主張なし)
+ *   - label = '移動' 固定 (= TransitionViewModel.label の default 通り、 mock の 「移動・リフレッシュ」 等は 8c 以降の解釈拡張)
+ *   - events を startTime asc 整列 → 隣り合うペアに対して transition 生成
+ *   - **endTime 定義あり時のみ生成** (= endTime なし event の後に transition 出すと不自然)
+ *   - **隣 event.startTime > 現 event.endTime のときのみ** (= 重複時刻は transition 不要、 二重表示防止)
+ *
+ * - 入力 mutate なし
+ * - 純粋関数 (= 同入力で同出力)
+ */
+export function convertExternalAnchorListToTransitions(
+  anchors: ReadonlyArray<ExternalAnchor>,
+): ReadonlyArray<TransitionViewModel> {
+  if (anchors.length < 2) {
+    return [];
+  }
+  const events = convertExternalAnchorListToTimelineEvents(anchors);
+  const transitions: TransitionViewModel[] = [];
+  for (let i = 0; i < events.length - 1; i += 1) {
+    const current = events[i];
+    const next = events[i + 1];
+    // endTime 定義なし → skip (= 終了不明な event 後に「移動」 を主張しない)
+    if (current.endTime === undefined) continue;
+    // 隣 event.startTime <= 現 event.endTime (= 重複 / 連続) → skip (= 余白なし、 transition 不要)
+    if (next.startTime <= current.endTime) continue;
+    transitions.push({
+      fromTime: current.endTime,
+      toTime: next.startTime,
+      label: '移動',
+    });
+  }
+  return transitions;
 }

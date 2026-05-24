@@ -26,6 +26,7 @@ import type { OneOffExternalAnchor } from "@/lib/plan/external-anchor";
 import {
   convertExternalAnchorToEventCard,
   convertExternalAnchorListToTimelineEvents,
+  convertExternalAnchorListToTransitions,
 } from "@/lib/plan/list/adapters/externalAnchorAdapter";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -321,17 +322,140 @@ describe("externalAnchorAdapter §7. time 正規化", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §8 8a 範囲外確認 (= alterNote undefined / executionLayerCounts undefined)
+// §8 8b 範囲外確認 (= executionLayerCounts undefined、 alterNote は §9 参照)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("externalAnchorAdapter §8. 8a 範囲外 (= alterNote / executionLayerCounts undefined)", () => {
-  it("§8.1 alterNote は undefined (= 8a 範囲外、 ExternalAnchor に source field なし)", () => {
-    const event = convertExternalAnchorToEventCard(makeAnchor({ id: 'j1' }));
+describe("externalAnchorAdapter §8. 8b 範囲外 (= executionLayerCounts undefined)", () => {
+  it("§8.1 executionLayerCounts は undefined (= 8b では確認のみ、 future)", () => {
+    const event = convertExternalAnchorToEventCard(makeAnchor({ id: 'j2' }));
+    expect(event.executionLayerCounts).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §9 alterNote 注入 (= 8b-2 追加、 categoryMeaning 経由)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("externalAnchorAdapter §9. alterNote 注入 (= 8b-2、 categoryMeaning 経由)", () => {
+  it("§9.1 cafe 朝 (= morning) → 「集中しやすい時間」", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({ id: 'k1', startTime: '08:00', locationCategory: 'cafe' }),
+    );
+    expect(event.alterNote).toBe('集中しやすい時間');
+  });
+
+  it("§9.2 office (= work) 午後 → 「午後の集中タイム」", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({ id: 'k2', startTime: '14:00', locationCategory: 'office' }),
+    );
+    expect(event.alterNote).toBe('午後の集中タイム');
+  });
+
+  it("§9.3 home 夜 → 「自分の余白に戻る時間」", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({ id: 'k3', startTime: '19:30', locationCategory: 'home' }),
+    );
+    expect(event.alterNote).toBe('自分の余白に戻る時間');
+  });
+
+  it("§9.4 'other' 相当 (= locationCategory undefined) → alterNote undefined", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({ id: 'k4', startTime: '15:00' }),
+    );
     expect(event.alterNote).toBeUndefined();
   });
 
-  it("§8.2 executionLayerCounts は undefined (= 8a 範囲外、 sub-phase 8b 以降)", () => {
-    const event = convertExternalAnchorToEventCard(makeAnchor({ id: 'j2' }));
-    expect(event.executionLayerCounts).toBeUndefined();
+  it("§9.5 transit (= LocationCategory) → 'other' (= EventCategory) → alterNote undefined", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({ id: 'k5', startTime: '10:00', locationCategory: 'transit' }),
+    );
+    expect(event.alterNote).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §10 convertExternalAnchorListToTransitions (= 8b-2 追加、 隣り合う events から生成)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("externalAnchorAdapter §10. transitions 生成 (= 8b-2)", () => {
+  it("§10.1 連続 events から transitions 生成 (= 余白あり)", () => {
+    const anchors = [
+      makeAnchor({ id: 'm1', startTime: '09:00', endTime: '11:00' }),
+      makeAnchor({ id: 'm2', startTime: '12:00', endTime: '13:00' }),
+      makeAnchor({ id: 'm3', startTime: '14:00', endTime: '18:00' }),
+    ];
+    const transitions = convertExternalAnchorListToTransitions(anchors);
+    expect(transitions).toEqual([
+      { fromTime: '11:00', toTime: '12:00', label: '移動' },
+      { fromTime: '13:00', toTime: '14:00', label: '移動' },
+    ]);
+  });
+
+  it("§10.2 endTime 未定義 event の後は transition 出さない", () => {
+    const anchors = [
+      makeAnchor({ id: 'n1', startTime: '09:00' }), // endTime 未定義
+      makeAnchor({ id: 'n2', startTime: '14:00', endTime: '15:00' }),
+    ];
+    const transitions = convertExternalAnchorListToTransitions(anchors);
+    expect(transitions).toEqual([]);
+  });
+
+  it("§10.3 隣 event.startTime <= 現 event.endTime (= 重複 / 連続) は skip", () => {
+    const anchors = [
+      makeAnchor({ id: 'o1', startTime: '09:00', endTime: '11:00' }),
+      makeAnchor({ id: 'o2', startTime: '11:00', endTime: '12:00' }), // 直結 (= ==)
+      makeAnchor({ id: 'o3', startTime: '10:30', endTime: '12:30' }), // 重複
+    ];
+    const transitions = convertExternalAnchorListToTransitions(anchors);
+    // o1 (= 11:00 end) → o2 (= 11:00 start) は ==、 skip
+    // o2 sort 順は startTime=11:00 で o3 (= 10:30) より後にならない、 整列後: o3, o1, o2
+    // o3 (= 12:30 end) → o1 (= 09:00 start) は 09:00 < 12:30、 skip
+    // o1 (= 11:00 end) → o2 (= 11:00 start) は ==、 skip
+    expect(transitions).toEqual([]);
+  });
+
+  it("§10.4 anchors 1 件 → 空配列", () => {
+    const anchors = [
+      makeAnchor({ id: 'p1', startTime: '09:00', endTime: '11:00' }),
+    ];
+    expect(convertExternalAnchorListToTransitions(anchors)).toEqual([]);
+  });
+
+  it("§10.5 anchors 0 件 → 空配列", () => {
+    expect(convertExternalAnchorListToTransitions([])).toEqual([]);
+  });
+
+  it("§10.6 入力配列を mutate しない (= pure 検証)", () => {
+    const anchors = [
+      makeAnchor({ id: 'q1', startTime: '14:00', endTime: '15:00' }),
+      makeAnchor({ id: 'q2', startTime: '09:00', endTime: '11:00' }),
+    ];
+    const beforeIds = anchors.map((a) => a.id);
+    convertExternalAnchorListToTransitions(anchors);
+    expect(anchors.map((a) => a.id)).toEqual(beforeIds);
+  });
+
+  it("§10.7 startTime asc 整列順で生成 (= 入力順無関係)", () => {
+    const anchors = [
+      makeAnchor({ id: 'r1', startTime: '14:00', endTime: '15:00' }), // 入力 1
+      makeAnchor({ id: 'r2', startTime: '09:00', endTime: '11:00' }), // 入力 2
+    ];
+    // 整列後: r2 (= 09:00-11:00), r1 (= 14:00-15:00)
+    // r2.endTime (= 11:00) → r1.startTime (= 14:00) で 1 transition
+    const transitions = convertExternalAnchorListToTransitions(anchors);
+    expect(transitions).toEqual([
+      { fromTime: '11:00', toTime: '14:00', label: '移動' },
+    ]);
+  });
+
+  it("§10.8 label は '移動' 固定 (= GPT 「truth なき semantics 主張禁止」、 距離 / mode の主張なし)", () => {
+    const anchors = [
+      makeAnchor({ id: 's1', startTime: '09:00', endTime: '11:00' }),
+      makeAnchor({ id: 's2', startTime: '12:00', endTime: '13:00' }),
+    ];
+    const transitions = convertExternalAnchorListToTransitions(anchors);
+    for (const t of transitions) {
+      expect(t.label).toBe('移動');
+    }
   });
 });
