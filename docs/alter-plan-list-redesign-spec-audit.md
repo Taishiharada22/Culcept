@@ -832,10 +832,56 @@ GPT 第 9 補正 (= 2026-05-24): 「foundation 採用、 次の sub-phase 進行
 
 | # | 留意点 | 反映 |
 |---|---|---|
-| **1** | **SourceType と ConfirmedState の不正組み合わせ対策** (= 現状 foundation type 上、 `user_entered + proposed` / `imported + proposed` / `alter_generated_proposed + alterAcceptedAt` 等の不正状態が表現可能) | **次 sub-phase 3 (= helper / factory phase) で機械的に締める**: **discriminated union** (= type system で表現不能化) + **factory function** (= API clean + validated transition) の両方採用 |
+| **1** | **SourceType と ConfirmedState の不正組み合わせ対策** (= 現状 foundation type 上、 `user_entered + proposed` / `imported + proposed` / `alter_generated_proposed + alterAcceptedAt` 等の不正状態が表現可能) | **sub-phase 3 で discriminated union + factory function 採用済** (= commit `66e3a841`)、 **更に sub-phase 3.5 で 2 軸モデル refactor** (= 第 10 補正、 §19.8) |
 | **2** | **「CEO smoke」 → 「checkpoint」 表現統一** (= UI 変更ではなく code-level 確認) | 以降の sub-phase で **`foundation checkpoint` / `contract checkpoint` / `code-level checkpoint`** に統一 (= sub-phase 4+ の UI 入った後は「visual smoke」 で区別、 §19.6 update 済) |
 
 **補足**: `EventCategory` 5 値 (= cafe / meal / work / home / other) は **仮**。 最終 domain 凍結扱いせず、 後段 sub-phase / spec / helper で **拡張可能**として保持。
+
+### 19.8 第 10 補正: source model 2 軸分離 (= sub-phase 3.5 で実装、 GPT 第 10 補正)
+
+GPT 第 10 補正 (= 2026-05-24): 「sub-phase 3 commit は採用、 ただし次の UI sub-phase 前に source model の主語整理を helper/factory 層で 1 回入れる」
+
+**問題**: sub-phase 3 の SourceType は 1 軸に「由来 / 所有権 / 確定状態」 を載せて混在。 「accepted Alter generated は user_entered 化」 vs 「alter_generated_accepted」 の説明が揺れる。
+
+**解決** (= 2 軸分離、 sub-phase 3.5 で実装):
+
+| 軸 | 値 | 性質 |
+|---|---|---|
+| **Origin** | user / imported / alter_generated | 由来 (= **immutable**、 「由来は消えない」) |
+| **Authority** | proposed / user_owned / import_locked | 所有権 (= transition 可能) |
+
+**5 valid variant** (= 9 組合せから 4 不正除外、 discriminated union):
+
+| variant | origin | authority | 追加 metadata |
+|---|---|---|---|
+| UserOwnedSource | user | user_owned | — |
+| ImportedLockedSource | imported | import_locked | importedFrom |
+| ImportedOverriddenSource | imported | user_owned | importedFrom (= 第 7 補正 #2 override 後) |
+| AlterProposedSource | alter_generated | proposed | — |
+| **AlterAcceptedSource** | **alter_generated** | **user_owned** | **acceptedAt** (= 第 8 補正 #2 + 第 10 補正本質) |
+
+**accepted Alter generated の正準形**:
+```typescript
+{
+  origin: 'alter_generated',  // 由来は永遠保持
+  authority: 'user_owned',    // 編集自由
+  acceptedAt: '...',          // 受け入れ時刻
+}
+```
+
+→ 「由来は消えない」 + 「user が編集できる」 を矛盾なく表現。
+
+**3 transition functions** (= 第 7 補正 + 第 8 補正 統合):
+- `acceptAlterProposed` (= 第 8 補正 #2、 acceptedAt 自動付与)
+- `overrideImported` (= 第 7 補正 #2 override 主方式、 importedFrom 保持)
+- `cloneImported` (= 第 7 補正 #2 複製 補助方式、 新規 user event)
+
+**3 derived helpers** (= UI 判定): `isProposed` / `isImportLocked` / `isAlterOrigin`
+
+**実装** (= sub-phase 3.5):
+- `lib/plan/list/sourceProvenance.ts` 全面 refactor (= commit `b6c4b2e2`)
+- `tests/unit/plan/list/sourceProvenanceFactoryContract.test.ts` 全面 update (= 31 tests)
+- 累計 68 tests PASS
 
 ### 19.4 自律推奨 (= 思考原則 ⑤ ゴールから逆算)
 

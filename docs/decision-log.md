@@ -13350,3 +13350,98 @@ List impl foundation `5ccfc163` (= 2 files / 373 lines、 pure type + contract t
 - **ステータス**: foundation checkpoint **PASS**。 次 sub-phase 3 (= helper / factory) 着手承認済。 第 9 補正 2 留意点 引き継ぎ確定。
 
 ---
+
+## 2026-05-24 [Build/Product] sub-phase 3 contract checkpoint PASS + 第 10 補正 source model 2 軸分離 + sub-phase 3.5 refactor 着地 + 次 UI sub-phase 4 進行承認 [承認: CEO + GPT 第 10 補正後最終判定]
+
+### 背景
+
+sub-phase 3 (= helper / factory、 commit `66e3a841`) 着地後、 CEO + GPT 第 10 補正後最終判定:
+- 「sub-phase 3 commit は採用、 やり直し不要」
+- 「次の UI sub-phase に入る前に 1 点必須: source model を 2 軸に分離」
+- 推奨: origin + authority 分離
+- 「これで『由来は消えない + user が編集できる』 を矛盾なく扱える」
+
+### CEO + GPT 第 10 補正後 評価
+
+sub-phase 3 commit (`66e3a841`) は **採用**。 但し SourceType 1 軸に由来 / 所有権 / 確定状態を混在させたため、 「accepted Alter generated は user_entered 化」 vs 「alter_generated_accepted」 の説明が揺れる問題。
+
+### 第 10 補正反映 (= sub-phase 3.5 で実装、 commit `b6c4b2e2`)
+
+**2 軸モデル**:
+- **Origin** (= 由来、 immutable): user / imported / alter_generated
+- **Authority** (= 所有権、 transition 可能): proposed / user_owned / import_locked
+
+**5 valid variant** (= 9 組合せから 4 不正除外、 discriminated union):
+| variant | origin | authority | metadata |
+|---|---|---|---|
+| UserOwnedSource | user | user_owned | — |
+| ImportedLockedSource | imported | import_locked | importedFrom |
+| ImportedOverriddenSource | imported | user_owned | importedFrom (= 第 7 補正 #2 override) |
+| AlterProposedSource | alter_generated | proposed | — |
+| **AlterAcceptedSource** | **alter_generated** | **user_owned** | **acceptedAt** (= 第 10 補正本質) |
+
+**accepted Alter generated の正準形**:
+- origin: 'alter_generated' (= 由来永遠保持)
+- authority: 'user_owned' (= 編集自由)
+- acceptedAt: '...' (= 受け入れ時刻)
+
+→ 「由来は消えない + user 編集可」 を矛盾なく表現。
+
+**3 transition functions**:
+- acceptAlterProposed (= 第 8 補正 #2、 acceptedAt 自動付与)
+- overrideImported (= 第 7 補正 #2 override 主)
+- cloneImported (= 第 7 補正 #2 複製 補助)
+
+**3 derived helpers**: isProposed / isImportLocked / isAlterOrigin
+
+### sub-phase 3 + 3.5 累計検証 (= contract checkpoint)
+
+| step | 結果 |
+|---|---|
+| tests | **68/68 PASS** (= foundation 15 + copyContract 22 + sourceProvenance 31) |
+| tsc surface | wave list 関連エラー 0 |
+| forbidden wording grep | ZERO HIT |
+| privacy/PII grep | ZERO HIT |
+| git diff scope | sub-phase 3 着地 file refactor (= +500/-231)、 新規 file 0 |
+
+→ **sub-phase 3 + 3.5 contract checkpoint PASS** (= 不正組み合わせ表現不能 + 2 軸モデル整合 + 第 7+8+9+10 補正全反映)
+
+### 第 7+8+9+10 補正 累計反映
+
+| 補正 | 反映 |
+|---|---|
+| 第 7 補正 #1 (= 多軸表現) | COMPACT_VARIANT (= 2 軸) / FULL_VARIANT (= 3 軸) |
+| 第 7 補正 #2 (= imported lock 逃がし道) | overrideImported / cloneImported |
+| 第 8 補正 #2 (= accepted 完全消失防止) | AlterAcceptedSource.acceptedAt + origin 永遠保持 |
+| 第 9 補正 #1 (= 不正組み合わせ機械的禁止) | discriminated union 5 variant + 4 不正型上不可 |
+| 第 9 補正 #2 (= checkpoint 表現統一) | foundation/contract/code-level checkpoint |
+| 第 10 補正 (= source model 2 軸分離) | Origin + Authority 分離、 5 valid variant、 「由来は消えない + 編集可」 |
+
+### Spec doc update (= §19.7 update + §19.8 新規)
+
+- §19.7: 第 9 補正 #1 反映済 → sub-phase 3 + 3.5 累計実装明示
+- §19.8 (新): 第 10 補正 2 軸モデル 詳細 spec
+
+### 次 sub-phase 4 (= TimelineSpine + EventCard、 UI 入る)
+
+- branch: `feat/alter-plan-list-impl-timeline-spine-event-card`
+- 完了 trigger: **visual smoke** (= UI 入った後、 第 9 補正 #2 表現)
+- 主要 component: TimelineSpine + EventCard
+- 既存 FlowTab 不触、 別 demo route で動作確認可
+
+### 補正履歴 (= 累計 10 補正)
+
+| commit | 内容 |
+|---|---|
+| ... | direction + IA + Spec (= 第 1-8 補正、 累計 10 commit) |
+| `98a7b924` | 第 9 補正引き継ぎ |
+| `66e3a841` | sub-phase 3 着地 (= 第 9 補正 #1 1 軸モデル) |
+| `b6c4b2e2` | **sub-phase 3.5 refactor** (= 第 10 補正 2 軸モデル) |
+| **本 commit** | **第 10 補正引き継ぎ + sub-phase 3.5 着地記録 + 次 UI sub-phase 4 進行承認** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 10 補正後最終判定 (= 2026-05-24、 「sub-phase 3 採用、 但し次 UI sub-phase 前に 2 軸分離必須」)
+- **ステータス**: sub-phase 3 + 3.5 contract checkpoint **PASS**。 source model 2 軸モデル確定。 次 sub-phase 4 (= TimelineSpine + EventCard、 UI 入る) 着手承認済。
+
+---
