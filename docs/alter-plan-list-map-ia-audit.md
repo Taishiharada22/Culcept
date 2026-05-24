@@ -66,18 +66,20 @@ direction audit の主要確定事項:
 | 後続 List/Map Redesign Spec | 各 list/map の **詳細 spec** (= component / interaction) |
 | 後続 impl | 実装 |
 
-### 1.3 2 留意点 (= GPT 第 5 補正後、 IA Audit で守る)
+### 1.3 4 留意点 (= GPT 第 5 + 第 6 補正後、 IA Audit で守る)
 
 | # | 留意点 | 本 IA audit での反映 |
 |---|---|---|
-| 1 | 「取り込み完了」 ではなく「拘束条件化成功」 段階 | §2 で 11 拘束条件すべてに具体 spec、 §9 完了判定でチェックリスト |
+| 1 | 「取り込み完了」 ではなく「拘束条件化成功」 段階 | §2 で 13 拘束条件すべてに具体 spec、 §9 完了判定でチェックリスト |
 | 2 | Event Execution Layer 自律追加 6 案は核+拡張分離 | §8 で核 (= GPT 提案) は IA first-class、 自律 6 案は拡張候補として後続評価 |
+| **3** | **3 source は静的共存だけでなく状態遷移まで定義** (= GPT 第 6 補正) | §2.1 末尾に **#12 拘束条件** (= 状態遷移 + 競合解決単位) を追加 |
+| **4** | **Event Execution Layer は Plan ↔ Alter 学習ループまで前提化** (= GPT 第 6 補正) | §2.2 末尾に **#13 拘束条件** (= 学習ループ + source 別学習対象 + Plan 側編集反映) を追加 |
 
 ---
 
-## 2. 拘束条件 11 項目 確定 spec
+## 2. 拘束条件 13 項目 確定 spec (= 11 + 第 6 補正 2)
 
-### 2.1 3 source 共存 5 拘束条件 (= §13.1.6 確定)
+### 2.1 3 source 共存 5+1 拘束条件 (= §13.1.6 確定 + #12 状態遷移)
 
 #### #1 source provenance を UI 上でどう見せるか
 
@@ -149,7 +151,55 @@ direction audit の主要確定事項:
 
 ---
 
-### 2.2 Event Execution Layer 6 拘束条件 (= §13.1.7 確定)
+#### #12 3 source 状態遷移 + 競合解決単位 (= GPT 第 6 補正、 静的共存から動的状態へ)
+
+GPT 第 6 補正: 「3 source は静的共存だけでなく **状態遷移まで定義**」
+
+**source 状態の全集合** (= state machine):
+
+| state | 説明 |
+|---|---|
+| `user_entered` | user が直接入力 |
+| `imported` | 文書取り込み (= シフト表 / 時間割 / PDF)、 source 真実性保持 |
+| `alter_generated_proposed` | Alter 提案、 **未確定** (= user 受け入れ前) |
+| `alter_generated_accepted` | user 受け入れ済 (= 内部状態、 表示上は user_entered に変換、 Alter 由来 hint は保持) |
+| (= 後段) `alter_generated_expired` | 提案放置 (= 24h 等) で expire、 archive |
+
+**状態遷移 table** (= 確定 spec):
+
+| 初期 source | 遷移 trigger | 遷移後 source | 備考 |
+|---|---|---|---|
+| `user_entered` | user 編集 | `user_entered` (= 同) | source 変化なし |
+| `user_entered` | 削除 | (= 削除) | — |
+| `imported` | user 編集 (= title / メモ / Execution Layer) | **`imported`** (= source 維持) | 編集差分は保存、 originally imported は不変 |
+| `imported` | user 編集 (= 時刻 / 場所) | **ロック** (= 編集不可) | 真実性保持 (= §2.1 #2) |
+| `imported` | 削除 | (= 削除) | imported source も削除 |
+| `imported` | (= 後段) user による override 強要 | (= 後段) `user_overridden_import` | 本 audit では未採用、 §10 後段 evaluation |
+| `alter_generated_proposed` | 受け入れる | **`user_entered`** (= Alter 由来 hint 保持) | source 変換、 Alter 由来 history は metadata 保持 |
+| `alter_generated_proposed` | **修正後受け入れ** | **`user_entered`** (= Alter 由来 + 修正 hint) | 同上 + user 修正記録 |
+| `alter_generated_proposed` | 削除 (= 拒否) | (= 削除) | Alter 学習: 「user は当該提案を拒否」 (= §2.2 #13 連携) |
+| `alter_generated_proposed` | 放置 (= 24h 等) | (= 後段) `alter_generated_expired` | 本 audit では simple 削除 default、 後段で expire policy |
+| `alter_generated_accepted` | user 編集 | `user_entered` (= 既に user own) | 受け入れ後は user_entered と同等 |
+
+**競合解決の単位** (= 確定 spec):
+
+| 単位 | 適用 | 確定動作 |
+|---|---|---|
+| **時刻スロット単位** | 同日同時刻範囲で複数 source の anchor 検出 | confirm modal trigger (= §2.1 #3) |
+| **anchor 単位** | modal 内の選択 (= imported 残す / Alter 残す / 両方残す / 修正) | 1 anchor 単位で remove or keep |
+| **time slot 単位** | 両方残す時の visual handling | List 縦並び (= sub-card stack) / Map 同 pin multi-icon (= §2.1 #4 連携) |
+
+**未確定 / 確定 generated の区別** (= 確定 spec、 §2.1 #5 連携):
+
+- **未確定** (= `alter_generated_proposed`): dashed border + opacity 0.7 + 「受け入れる ›」 chip
+- **確定済** (= `alter_generated_accepted` → user_entered 変換後): solid border + opacity 1.0 + chip なし
+- **metadata**: 確定後も「Alter 由来」 hint は内部保持 (= 例: subtle indigo dot in card detail)、 但し主画面 visual は user_entered と同等
+
+**理由**: 静的「3 source」 という分類だけでは user 操作後の挙動が曖昧。 状態遷移 table で全 transition を網羅、 競合解決の単位を 3 階層で確定、 未確定/確定の visual + metadata 分離で IA の動的整合を確保。
+
+---
+
+### 2.2 Event Execution Layer 6+1 拘束条件 (= §13.1.7 確定 + #13 学習ループ)
 
 #### #6 Event card 上で軽いサイン
 
@@ -258,6 +308,54 @@ direction audit の主要確定事項:
 - 主画面では **overemphasis 回避** (= 詳細 sheet 内のみ button 表示、 card 上には出さない)
 
 **本 audit scope**: button の **配置候補** のみ確定。 navigate 先 (= Alter 会話 surface) の実装は別 phase。
+
+---
+
+#### #13 Plan ↔ Alter 学習ループ + source 別学習対象 (= GPT 第 6 補正、 概念から前提化へ)
+
+GPT 第 6 補正: 「Event Execution Layer は Plan ↔ Alter の **学習ループまで前提化**」
+
+**学習ループの全体像** (= 確定 spec):
+
+```
+[Alter 推論] → [Plan 表示] → [user 修正/追加/削除] → [学習 store] → [次回 Alter 推論改善]
+                                                            ↓
+                                              [silent learning、 user に通知しない]
+```
+
+**user 修正 → Alter 学習 mapping** (= 確定 spec):
+
+| user 行為 | Alter 学習 |
+|---|---|
+| Alter 推論項目を **削除** | 「次回同種予定で当該項目は推論しない」 (= recurring negative learning) |
+| Alter 推論項目を **修正** | 「修正後内容を次回 default 推論にする」 (= 修正自体が学習 source) |
+| **手動追加項目** を作成 | 「次回同種予定で当該項目を推論候補にする」 (= user pattern positive learning) |
+| 項目 **order 変更** | 「次回 priority order に反映」 (= priority learning) |
+| (= 後段) 項目 **完了マーク** | 「予定時に当該項目が完了されたか」 を追跡、 完了率 metric (= future) |
+
+**source 別の学習対象差** (= 確定 spec):
+
+| source | 学習対象か | 理由 |
+|---|---|---|
+| **imported** (= 文書由来) | **学習対象外** | 文書 source の事実 (= シフト表 = 会社の確定情報)。 user 修正があれば override として保存、 但し Alter は文書 source を「正本」 と扱い続ける |
+| **Alter 推論** | **学習対象** | user 修正で推論モデル更新 (= core learning) |
+| **user 追加** | **学習対象** | user の自発的 pattern → 推論候補化 (= positive pattern learning) |
+| **過去学習** (= recurring) | **学習対象 (= 強化または弱化)** | user 修正でループ内更新 |
+
+**Plan 側編集 → Alter 側学習反映 spec** (= 確定):
+
+- 編集 event は **学習 store** に送信 (= 例: `alter_learning_events` table、 detail は別 phase)
+- Alter は学習 store を参照して次回推論を生成
+- user に「学習しました」 表示は **出さない** (= **silent learning**、 push しない)
+- 後段で「Alter があなたから学んだこと」 surface で可視化可能 (= future、 別 phase)
+- 学習の **可逆性**: user は学習を「忘れさせる」 (= reset 行為) も可能、 但し UI は別 phase で
+
+**学習ループの本 audit scope**:
+- 本 IA audit では **学習対象と学習方向の定義のみ**確定
+- 学習 store の実装 / Alter 推論 engine 接続 / silent learning UI / 可視化 surface は **別 phase**
+- IA 上は「Plan ↔ Alter 双方向接続を前提とする UI 余地」 を確保 (= 例: Execution Layer 項目に「Alter 学習対象」 metadata の見えない slot)
+
+**理由**: 「Event Execution Layer」 が単なる static checklist で終わるか、 **動的学習システム**として育つかの分岐点。 GPT 第 6 補正は後者を前提化、 IA Audit で学習方向を確定することで後段 implementation が「予定 1 件の実行知能 → 1 日の生成精度向上 → 北極星 §6.1 第 1 層」 への直接 driver となる。
 
 ---
 
@@ -569,7 +667,7 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 
 ## 9. IA Audit 完了判定 (= §13.1.8 チェックリスト)
 
-### 9.1 11 必須項目 確定状態
+### 9.1 13 必須項目 確定状態 (= 11 + 第 6 補正 2)
 
 | # | 項目 | 状態 | 出典 |
 |---|---|---|---|
@@ -578,12 +676,14 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 | 3 | 会話 plan と imported schedule 競合解決 | ✅ 確定 (= user 確認 modal、 自動マージ禁止) | §2.1 #3 |
 | 4 | 3 source 混在時の優先表示 | ✅ 確定 (= 時刻順 + source 順 + stacking) | §2.1 #4 |
 | 5 | generated plan 確定前後の表現分離 | ✅ 確定 (= dashed/opacity/chip vs solid) | §2.1 #5 |
+| **12** | **3 source 状態遷移 + 競合解決単位** (= 第 6 補正) | ✅ 確定 (= state machine 全 transition table + 競合解決 3 階層 + 未確定/確定 visual+metadata 分離) | §2.1 #12 |
 | 6 | Event card 上の軽いサイン | ✅ 確定 (= 「準備 3」 chip、 footer 配置) | §2.2 #6 |
 | 7 | 詳細 sheet の表示順序 | ✅ 確定 (= 時系列順 + 学習メモ default folded) | §2.2 #7 |
 | 8 | 出さないイベントの判定 | ✅ 確定 (= 5 系統 trigger logic) | §2.2 #8 |
 | 9 | 推論 / user / imported 由来区別 | ✅ 確定 (= icon prefix table) | §2.2 #9 |
 | 10 | imported event Execution Layer hybrid | ✅ 確定 (= provenance 分離表示) | §2.2 #10 |
 | 11 | Alter 会話 deep-dive 接続 | ✅ 確定 (= sheet 最下部 button) | §2.2 #11 |
+| **13** | **Plan ↔ Alter 学習ループ + source 別学習対象** (= 第 6 補正) | ✅ 確定 (= user 修正→Alter 学習 mapping + source 別学習対象表 + silent learning + 学習 store 仕様 + IA 上の UI 余地確保) | §2.2 #13 |
 
 ### 9.2 完了基準充足確認
 
@@ -683,9 +783,9 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 
 | # | 判断項目 |
 |---|---|
-| 1 | 3 source 共存 5 拘束条件 spec (= §2.1) 採用 |
-| 2 | Event Execution Layer 6 拘束条件 spec (= §2.2) 採用 |
-| 3 | 11 拘束条件 完了判定 (= §9) 通過 |
+| 1 | 3 source 共存 **5+1** 拘束条件 spec (= §2.1、 #1-#5 + **#12 状態遷移**) 採用 |
+| 2 | Event Execution Layer **6+1** 拘束条件 spec (= §2.2、 #6-#11 + **#13 学習ループ**) 採用 |
+| 3 | **13 拘束条件** 完了判定 (= §9) 通過 |
 
 ### 13.2 IA 確定
 
@@ -714,18 +814,20 @@ GPT 提案 (= direction §10.7 + §13.1.7):
 
 ### 14.1 本 audit の成果
 
-1. 11 必須拘束条件 **全項目確定** (= §2、 各項目に具体的 UI/構造 spec、 曖昧 residual 0)
+1. **13 必須拘束条件** **全項目確定** (= §2、 11 + 第 6 補正 2、 各項目に具体的 UI/構造 spec、 曖昧 residual 0)
 2. List IA 完全確定 (= §3、 4 層構造 + spine + card + chip + ASCII 図)
 3. マップ IA 完全確定 (= §4、 マップ主役 + sheet 補完 + List 流用)
 4. 共通 IA 原則 (= §5、 1 画面 1 主役 + 二層統合 + provenance 統一 + user 編集権限)
 5. 削除対象明示 (= §6、 二重表示 / category-by-place / map-list 分離)
 6. Event Execution Layer 核 + 拡張分離 (= §8、 GPT 第 5 補正留意点 #2 遵守)
-7. IA Audit 完了基準充足確認 (= §9、 11 項目 全 ✅)
+7. IA Audit 完了基準充足確認 (= §9、 13 項目 全 ✅)
 8. List Redesign Spec への引き継ぎ事項整理 (= §10)
+9. **3 source 状態遷移 + 競合解決単位確定** (= §2.1 #12、 GPT 第 6 補正、 state machine 全 transition + 競合 3 階層 + 未確定/確定 metadata 分離)
+10. **Plan ↔ Alter 学習ループ前提化** (= §2.2 #13、 GPT 第 6 補正、 user 修正→Alter 学習 mapping + source 別学習対象 + silent learning + 学習 store IA 余地)
 
 ### 14.2 IA Audit 完了宣言
 
-> 本 IA audit は direction audit `e99406ce` で確立した **11 必須拘束条件** をすべて具体的 spec として確定した。 §13.1.8 の完了判定基準 (= 11 必須項目 + 具体 spec + 曖昧 residual 0) を **充足**。 List Redesign Spec audit に進める状態。
+> 本 IA audit は direction audit `e99406ce` で確立した **11 必須拘束条件** + GPT 第 6 補正 **2 追加拘束条件** (= #12 状態遷移 + #13 学習ループ) の **計 13 拘束条件**をすべて具体的 spec として確定した。 §13.1.8 の完了判定基準 (= 必須項目 + 具体 spec + 曖昧 residual 0) を **充足**。 静的共存から **動的状態遷移**、 概念から **学習ループ前提化**に昇格。 List Redesign Spec audit に進める状態。
 
 ### 14.3 次のアクション (= CEO 判断後)
 
