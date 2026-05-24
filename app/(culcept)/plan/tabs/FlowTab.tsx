@@ -76,6 +76,8 @@ import {
 } from "@/lib/plan/list/adapters/externalAnchorAdapter";
 import { TimelineSpine } from "../components/list/TimelineSpine";
 import { EmptyDayEntry } from "../components/list/EmptyDayEntry";
+// 8c: SummaryFooter (= 1日全体の解釈レイヤーの器、 non-empty day で TimelineSpine 下に render)
+import { SummaryFooter } from "../components/list/SummaryFooter";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
@@ -398,8 +400,10 @@ export function FlowTab({
         );
       })}
 
-      {/* 静的 ALTER 提案 card placeholder (CEO 補正 #2、ボタン風 styling 禁止) */}
-      {firstEmptyDayLabel !== null && (
+      {/* 8c: 静的 ALTER 提案 card は flag OFF (= 既存 default) のみ。
+          flag ON 新 path では SummaryFooter (= FlowDaySection 内で render) + EmptyDayEntry が役割を担い、
+          StaticAlterSuggestionCard は外す (= CEO + GPT 「役割重複でノイズ」) */}
+      {!LIST_NEW_TIMELINE_ENABLED && firstEmptyDayLabel !== null && (
         <StaticAlterSuggestionCard firstEmptyDayLabel={firstEmptyDayLabel} />
       )}
 
@@ -548,6 +552,12 @@ function FlowDaySection({
             />
           )}
         </div>
+        {/* 8c: SummaryFooter (= non-empty day で TimelineSpine 下に render、 1日全体の解釈レイヤー器) */}
+        {hasAnchors && (
+          <div className="px-4 pb-3">
+            <SummaryFooter />
+          </div>
+        )}
       </section>
     );
   }
