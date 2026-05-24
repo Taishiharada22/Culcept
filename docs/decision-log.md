@@ -13718,3 +13718,90 @@ mock の文体:
 - **ステータス**: sub-phase 8a 全 2 commit **採用確定**、 branch 凍結。 sub-phase 8b/8c **scope redefine 確定**。 CategoryMeaning module + 状態/解釈型 文体方針確定。 8b readiness 提示 → CEO 判断後着手。
 
 ---
+
+## 2026-05-24 [Build/Product] List impl sub-phase 8b 全採用 (= 12 commit visual smoke PASS) + 8c readiness [承認: CEO 実機 smoke PASS]
+
+### 背景
+
+CEO 実機 visual smoke で sub-phase 8b (= 12 commit 累計改修) 全採用判定。 「OK、 smoke pass。 次に進みましょう」 と確認。
+
+### sub-phase 8b 全 commit 一覧 (= branch `feat/alter-plan-list-impl-flowtab-8b` 凍結)
+
+| commit | 内容 |
+|---|---|
+| `1d9dc87b` | 8b-1 CategoryMeaning pure module + 34 contract test |
+| `7d9d33c5` | 8b-2 adapter alterNote 注入 + transitions 生成 + test |
+| `c1d47d5d` | 8b-3 EventCard semantic tint + TimelineSpine spine icon + render test |
+| `3a3ea11f` | 8b-4 TimelineSpine transitions prop + FlowTab 接続 + 5 ケース test |
+| `5223519d` | 8b-5 corrective categoryInference 4 段階 heuristic + icon visibility fix |
+| `9d52bfff` | 8b-6 mock 整合 大幅改修 (= 視覚 + データ 7 項目) |
+| `9b39049f` | 8b-7-A 5W1H alterNote + 出発/帰宅 + 枠 -100 + triangle border + briefcase icon |
+| `418e136e` | 8b-7-B header 「当日のプラン」 + 1 日表示 + 「教えた予定」 削除 + 背景白 |
+| `bcc60f2f` | 8b-8 tabs 横並び + 文体 mock 整合 + アイコン大 + 出発↔予定↔帰宅 transitions + spine dashed |
+| `e939126c` | 8b-9 timeline 1 本軸 refactor + transition row + 色反転 + 地図→マップ + Calendar icon |
+| `841001b3` | 8b-10 density up + tabs left icon + 余白縮小 + event row line solid |
+| `2611120c` | 8b-11 移動 pill 小さく + spine pt-1 削除 + カレンダー文字小さく |
+| `d87dd191` | 8b-12 spine column items-stretch で line row 全体拡張 + 移動文字大 + 余白 |
+
+### visual smoke 結果 (= CEO 実機 PASS)
+- timeline 1 本軸が icon center を通る (= 8b-12 items-stretch fix)
+- semantic tint (= 薄 category 色) + 全周 細 border (= -300)
+- spine icon 白抜き SVG (= cup / fork / briefcase / home / unknown)
+- 出発 / 帰宅 virtual events 表示 + 各 transition 「移動」 pill
+- 自然な日本語 alterNote (= 「静かなカフェで、 今日の計画を整理しましょう」 等)
+- 「当日のプラン」 + tabs 「カレンダー / リスト / マップ」 (= 各 icon 付き)
+- date picker (= ‹ 📅 5月24日(日) ›)
+- 背景 上品な白
+- 「教えた予定」 + 「+ 教える」 + sticky header 非表示
+
+### 機械保証 (= 8b 12 commit 全期間 維持)
+- vitest: 307 tests PASS (13 test files、 +110 net for 8b)
+- tsc: 8b 関連 error 0 件
+- diff scope: 全 commit が flag OFF default 完全不変
+- frozen 不触: wave 1/2/3/3a + 既存 SVG icon system 不触
+
+### sub-phase 8c scope (= CEO + GPT 合議確定、 redefine 通り)
+
+**SummaryFooter を「解釈レイヤーの器」 として実装**:
+- 視覚サマリー枠 (= 左、 円形 indicator のような構造、 数値計算 logic は後段)
+- 状態名 (= 中央、 テンプレ文、 score 計算なし)
+- 一言解釈 (= 右、 テンプレ文、 強い評価文凍結維持)
+- subtle CTA (= 「リズムを整えるヒント >」 等)
+
+**ただし** (= 凍結維持):
+- 78% 等の score 算出 logic
+- 強い評価文 (= 「最適」 「重要」 等)
+
+「箱だけ」 では弱いが 「最終評価文まで全部」 でも早い → **中間 (= 解釈レイヤーの器)** が正解
+
+### sub-phase 8c 文体方針 (= CategoryMeaning 8b-8 pattern 準拠)
+- 「ましょう」 OK (= mock 文体)
+- 命令形強い (= 「しなさい」 「しろ」) 0
+- 評価形容詞 0 (= 「最適」 「重要」)
+- 状態描写 / 解釈型
+
+### 次
+
+- decision-log 記録 commit (= 本 entry)
+- branch 切替 (= `feat/alter-plan-list-impl-flowtab-8c`、 8b 最終 d87dd191 から)
+- 8c readiness 提示 + CEO 判断後着手
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ**:
+- 8c 即時着手 (= readiness 提示 + CEO 判断後)
+- LLM 接続 (= CEO 「LLM で推論作成していい」 許可済だが pure template 継続)
+- 9 (= List closeout audit)
+
+### 補正履歴 (= 累計 24+ commit)
+
+| commit | 内容 |
+|---|---|
+| 8b-1 〜 8b-12 (= 12 commit 累計) | sub-phase 8b 全採用 (= base + 4 redefine 反映 + 5 corrective) |
+| **本 commit** | **sub-phase 8b 採用確定 + 8c readiness 明示** |
+
+### 承認 + ステータス
+
+- **承認**: CEO 実機 smoke PASS (= 2026-05-24、 「OK、 smoke pass。 次に進みましょう」)
+- **ステータス**: sub-phase 8b 全 12 commit **採用確定**、 branch 凍結。 sub-phase 8c readiness 提示 → CEO 判断後着手。
+
+---
