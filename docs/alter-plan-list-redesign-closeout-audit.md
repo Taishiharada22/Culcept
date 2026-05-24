@@ -168,10 +168,13 @@
 | 帰宅後 spine line なし | ✅ 到達 | 8b-9 + 8b-12 |
 | sticky header 「今日 · 5月24日(日) 2件」 重複 | ✅ 到達 (= 削除) | 8b-9 |
 
-### 3.2 mock 到達率 (= 視覚要素)
-- **完全到達**: 13 項目 / 15 項目 = **87%**
-- **構造到達 + 中身凍結**: 1 項目 (= SummaryFooter 78%)
-- **未着手**: 1 項目 (= EventCard 写真サムネ)
+### 3.2 mock 到達率 (= Claude 自己評価、 CEO 採用判定とは別)
+
+**注**: 以下は Claude の self-assessment であり、 客観的 metric ではない。 CEO + GPT の合議 / 実機 smoke が事実の正本。
+
+- 完全到達と Claude が判定: 上記表の ✅ 印 (= 約 13 項目)
+- 構造到達 + 中身凍結: 1 項目 (= SummaryFooter 数値部分)
+- 未着手: 1 項目 (= EventCard 写真サムネ)
 
 ---
 

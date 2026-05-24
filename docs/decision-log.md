@@ -13866,3 +13866,80 @@ closeout audit file: `docs/alter-plan-list-redesign-closeout-audit.md` (= 本 co
 - **ステータス**: sub-phase 8c + 8c-2 **採用確定**。 List redesign closeout audit 着手。 新機能追加禁止 (= List close 後 Map に判断)。
 
 ---
+
+## 2026-05-24 [Build/Product] List closeout audit 採用 + 達成率表現 softening + 次工程 A: Map spec audit 着手 (= 8d / 別 task 不採用) [承認: CEO + GPT 合議]
+
+### 背景
+
+List redesign closeout audit doc (= commit `732166ff`) を CEO + GPT が確認。 「List closeout 採用で問題なし、 docs-only で閉じた進め方は妥当」 判定。 次工程は 3 案 (= A Map spec audit / B 8d / C 別 task) のうち **A 採用**。
+
+### CEO + GPT 補正 (= closeout doc に反映済)
+
+「達成率 13/15、 87% は Claude 側の自己評価。 事実として強く断定しすぎないでください」 → 本 commit で closeout doc §3.2 を 「Claude 自己評価、 CEO 採用判定とは別」 明示に softening。
+
+### 次工程 採用判定 (= A: Map spec audit)
+
+CEO + GPT 判定理由:
+- 主関心は List / Map の完成度向上
+- List は一度 close して整理できる段階に到達
+- B (= 8d) は List 残課題ループに戻りやすい
+- C (= 別 task 転換) はまだ早い、 Map がまだ本格的に詰め切れていない
+- → list を閉じて、 map を同じ熱量で設計しに行く段階
+
+### 重要条件 (= GPT 明示)
+
+**List の設計 rule を Map にそのままコピーしない**。 Map 固有の論点を先に定義する。
+
+### Map spec audit で先に詰める 8 項目 (= CEO + GPT 確定)
+
+| # | 論点 |
+|---|---|
+| 1 | pin の情報密度 |
+| 2 | route / flow の見せ方 |
+| 3 | map 上での source semantics の見せ方 |
+| 4 | selected pin と bottom sheet の関係 |
+| 5 | list と map の役割分担 |
+| 6 | map における移動の扱い |
+| 7 | map でも 「意味文」 をどう使うか |
+| 8 | 「地図」 → 「マップ」 表記統一 (= sub-phase 8b-9 で List tab は反映済、 残り箇所 全体監査) |
+
+### docs 構成 (= 本 commit で着手)
+
+新規: `docs/alter-plan-map-redesign-spec-audit.md`
+- §1 background + scope
+- §2-§9 各 8 項目を 1 次案で整理
+- §10 List との対比 + Map 固有点
+- §11 既存 MapTab inventory + 不触判定
+- §12 readiness 結論 + 次 phase 候補 (= IA audit → impl 等)
+
+### 不採用 案 (= CEO + GPT 確定)
+
+- **B (= List 8d)**: 今はやらない (= ImportedLockEscape trigger / SummaryFooter score 等 残課題は別 sub-phase で扱う、 今やると List 残課題ループ)
+- **C (= 別 task 転換)**: 「論外」 (= CEO 明示)、 Map がまだ詰め切れていない
+
+### 次
+
+- closeout doc 達成率 softening commit (= 本 entry)
+- Map spec audit doc 新規 (= 本 commit で着手)
+- atomic docs-only commit
+- CEO 判断後 Map impl readiness or IA audit へ
+- merge: /plan complete まで frozen 維持
+
+**まだやらない**:
+- Map impl (= spec audit 完成 + CEO 判定後)
+- List 8d (= 8d は別 sub-phase、 今 List ループに戻らない)
+- 別 task (= CEO 「論外」)
+
+### 補正履歴 (= 累計 27+ commit + 2 docs)
+
+| commit | 内容 |
+|---|---|
+| `732166ff` | List redesign closeout audit 着手 (= 8c + 8c-2 採用記録 + 6 章 audit doc) |
+| **本 commit** | **closeout 採用確定 + 達成率 softening + Map spec audit 着手** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「List closeout 採用、 次 A: Map spec audit、 設計 rule そのままコピー禁止、 map 固有 8 論点先定義」)
+- **ステータス**: List redesign **closeout 確定**。 Map spec audit 着手 → 8 論点 1 次案 → CEO 判断仰ぐ。
+
+---
