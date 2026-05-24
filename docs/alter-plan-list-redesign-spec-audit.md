@@ -790,12 +790,39 @@ List 画面 (= mobile)
 
 > 本 Spec audit は IA Audit `88fdbef1` で確立した 13 拘束条件 + 第 7 補正 2 留意点をすべて **component / token / interaction の詳細 spec** として確定した。 List 実装の **完全な出発点** が整った。 但しコード実装は本 audit 採用 + 別 phase 着手承認後。
 
-### 19.3 次のアクション (= CEO 判断後)
+### 19.3 次のアクション (= CEO + GPT 第 8 補正後最終判定)
 
-1. CEO 判断 (= §18、 主要 8 項目)
-2. 採用なら → **List impl phase** に進行 (= 別 phase、 §15 sub-phase 分割、 各 phase で CEO smoke 必須、 連続 GO 不可)
-3. List impl 完了後 → Map Redesign Spec audit → Map impl → Design System Extraction
-4. merge: 引き続き /plan complete まで frozen 維持
+1. **Spec 採用確定** (= 2026-05-24、 CEO + GPT 第 8 補正後最終判定、 decision-log で正式記録)
+2. **List impl phase** に進行 (= 但し最初の sub-phase から、 各段階で停止して報告)
+3. 第 8 補正 3 留意点を **implement で必須反映** (= §19.5 詳細)
+4. List impl 完了後 → List closeout → Map Spec → Map impl → Design System Extraction
+5. merge: /plan complete まで frozen 維持
+
+### 19.5 第 8 補正 3 留意点 (= List impl で必須反映、 GPT 第 8 補正)
+
+GPT 第 8 補正 (= 2026-05-24): 「実装に進んでよい。 但し全面実装ではなく、 最初の sub-phase から始める。 各段階で停止」
+
+| # | 留意点 | impl での反映 |
+|---|---|---|
+| 1 | **SummaryFooter は first pass で score / 評価文を作り込まない** | foundation + 初期 sub-phase では **構造の箱まで**。 score / 「78%」 / 「バランス良好」 等の評価文は **凍結**、 timeline / event card / transition / provenance / empty day を優先 |
+| 2 | **accepted Alter generated の provenance は完全消失前提にしない** | foundation type で **`alterAcceptedAt?: string` metadata を確保**。 main card は dot 消滅 (= §3.1) 維持、 詳細 sheet では由来表示、 main card に極小 metadata の逃がし道残す (= 後段 sub-phase で実装) |
+| 3 | **Event Execution Layer は first pass で全部やらない** | foundation + 初期 sub-phase では **card 上の軽い chip + detail 内の置き場所 + provenance 表示の枠** まで。 学習ループ本実装は後続 sub-phase / 別 phase |
+
+### 19.6 sub-phase 分割の具体 (= §15 詳細化、 各停止点明示)
+
+| # | sub-phase | 内容 | 完了 trigger |
+|---|---|---|---|
+| **2** | **List impl foundation** (= **次に着手**) | **最小**: type 定義 + contract test。 `lib/plan/list/types.ts` + `tests/unit/plan/list/listTypesContract.test.ts` のみ | CEO smoke (= type 整合 + test PASS + 既存不触) |
+| 3 | List impl: copy contract + helper | copy contract + sourceProvenance helper + test (= N-3a pattern) | CEO smoke |
+| 4 | List impl: TimelineSpine + EventCard | 主要 component 2 件、 UI 接続なし (= 既存 FlowTab 不触、 別 demo route) | CEO smoke |
+| 5 | List impl: TransitionChip + EmptyDayEntry | 補助 component | CEO smoke |
+| 6 | List impl: SourceIndicator + ExecutionLayerChip | 第 7 補正 #1 + IA #6 (= **first pass: 枠まで**) | CEO smoke |
+| 7 | List impl: ImportedLockEscape | 第 7 補正 #2 modal (= override 主、 複製 補助) | CEO smoke |
+| 8 | List impl: SummaryFooter | **第 8 補正 #1: 構造の箱まで**、 score 凍結 | CEO smoke |
+| 9 | List impl: 統合 + FlowTab 段階置換 | 全 component 統合、 feature flag で old/new 並走 | CEO smoke |
+| 10 | List closeout audit | 完了 audit + freeze 宣言 | — |
+
+→ **連続 GO 不可**、 各 sub-phase で CEO smoke 必須、 報告で停止。
 
 ### 19.4 自律推奨 (= 思考原則 ⑤ ゴールから逆算)
 

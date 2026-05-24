@@ -13205,3 +13205,68 @@ Direction audit `c21bffd7` 採用後、 IA Audit を着地 (= `fd42e3eb` 初回 
 - **ステータス**: IA Audit **採用確定**。 List Spec audit 着手承認済。 docs phase 一段進行 (= 4 phase 目: direction → IA → Spec → impl の Spec phase へ)。
 
 ---
+
+## 2026-05-24 [Build/Product] List Redesign Spec audit 採用 + List impl phase 進行承認 + 第 8 補正 3 留意点 impl 必須化 [承認: CEO + GPT 第 8 補正後最終判定]
+
+### 背景
+
+List Redesign Spec audit `6bc20c49` (= 809 lines、 19 section、 13 拘束条件 + 第 7 補正 2 留意点) 着地後、 CEO + GPT 第 8 補正後最終判定:
+- 「List Spec audit は採用」
+- 「List impl phase に進行 OK」
+- 「但し最初の sub-phase から、 各段階で停止して報告」
+- 「3 実装条件を必須反映」
+
+### CEO + GPT 第 8 補正後 評価
+
+**特に評価された点**:
+- IA Audit 採用後に List Spec へ進んだ順序
+- provenance を **色 + icon + 状態ラベル** の多軸にしたこと
+- imported ロックに **override / 複製の逃がし道** を入れたこと
+- 13 拘束条件を **component 単位**に落とし始めたこと
+- **List first / Map later / Design System later** の順を守っていること
+- Event Execution Layer を **核 / 拡張候補**に分けたこと
+
+### 第 8 補正 3 留意点 (= List impl で必須反映、 §19.5)
+
+| # | 留意点 | impl での反映 |
+|---|---|---|
+| 1 | SummaryFooter は first pass で score / 評価文を作り込まない | foundation + 初期 sub-phase は **構造の箱まで**、 score / 評価文凍結、 timeline / event / transition / provenance / empty day 優先 |
+| 2 | accepted Alter generated の provenance は完全消失前提にしない | foundation type で **`alterAcceptedAt?: string` metadata 確保**、 詳細 sheet で由来表示、 main card に極小 metadata の逃がし道残す |
+| 3 | Event Execution Layer は first pass で全部やらない | foundation + 初期 sub-phase は **card 軽い chip + detail 置き場所 + provenance 枠まで**、 学習ループ本実装は後続 |
+
+### sub-phase 分割 (= §19.6 詳細化)
+
+| # | sub-phase | 次に着手 |
+|---|---|---|
+| 2 | **List impl foundation** (= 最小 type + contract test) | ✅ **次** |
+| 3 | copy contract + helper | — |
+| 4 | TimelineSpine + EventCard | — |
+| 5 | TransitionChip + EmptyDayEntry | — |
+| 6 | SourceIndicator + ExecutionLayerChip (= 第 7 補正 #1 + IA #6、 first pass: 枠まで) | — |
+| 7 | ImportedLockEscape (= 第 7 補正 #2) | — |
+| 8 | SummaryFooter (= 第 8 補正 #1: 構造の箱まで) | — |
+| 9 | 統合 + FlowTab 段階置換 | — |
+| 10 | List closeout audit | — |
+
+→ **連続 GO 不可**、 各 sub-phase で CEO smoke 必須。
+
+### 次
+
+- **List impl foundation** sub-phase に着手 (= 別 impl branch `feat/alter-plan-list-impl-foundation`)
+- 最小: type 定義 + contract test (= N-3a pure pattern 踏襲)
+- 完了後 CEO smoke → 次 sub-phase 判断
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ** (= GPT 第 8 補正明示):
+- 全 9 sub-phase の連続実装 (= 各 sub-phase で停止)
+- SummaryFooter の score / 評価文確定 (= 凍結)
+- Execution Layer 学習ループ本実装 (= 後続)
+- Map のコード実装
+- Design System 実装
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 8 補正後最終判定 (= 2026-05-24、 「List Spec audit は採用、 List impl phase に進行 OK、 最初の sub-phase から、 各段階で停止」)
+- **ステータス**: List Spec audit **採用確定**。 List impl foundation sub-phase 着手承認済。 docs phase 完了、 impl phase 開始 (= 5 phase 目: direction → IA → Spec → **impl** → closeout)。
+
+---
