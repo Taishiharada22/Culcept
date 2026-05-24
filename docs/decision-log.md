@@ -13528,3 +13528,59 @@ sub-phase 3.5 (= source model 2 軸 refactor、 commit `b6c4b2e2`) 着地後、 
 - **ステータス**: sub-phase 3.5 + 3.6 contract checkpoint **PASS**。 UI 責務分離 + source link 確定。 次 sub-phase 4 (= UI、 visual smoke) 着手承認済。
 
 ---
+
+## 2026-05-24 [Build/Product] sub-phase 3.6 採用 + 第 12 補正 clonedFrom UI hierarchy 引き継ぎ + sub-phase 4 進行承認 + visual smoke フェーズ切替 [承認: CEO + GPT 第 12 補正後最終判定]
+
+### 背景
+
+sub-phase 3.6 (= source link refactor、 commit `90af5d32`) 着地後、 CEO + GPT 第 12 補正後最終判定:
+- 「sub-phase 3.6 PASS、 sub-phase 4 進行 OK」
+- 「ここから visual smoke フェーズに切り替え」
+- 「軽い補足 2 件 + future scope 1 件」
+
+### 第 12 補正 3 補足 (= sub-phase 4 UI 実装で必須遵守)
+
+| # | 補足 | 反映 |
+|---|---|---|
+| 1 | clonedFrom は provenance ではなく「派生関係 (derivation)」 として扱う | Spec §19.10.3 用語確定 table (= provenance / authority / derivation 3 axis 名称統一) |
+| 2 | main card で origin / authority / clonedFrom を同格に出しすぎず、 clonedFrom は詳細 / 小さい caption に寄せる | Spec §19.10.2 UI hierarchy table (= primary / secondary / tertiary / 詳細 sheet のみ、 EventCard main card で clonedFrom 非表示) |
+| 3 | 将来 clonedFrom snapshot 追加余地は残してよいが今は不要 | future scope (= 本 sub-phase なし、 type 拡張余地保持) |
+
+### UI hierarchy 確定 (= EventCard main card、 sub-phase 4 で実装)
+
+| 階層 | 表示 | axis |
+|---|---|---|
+| primary | title + 時刻 + 場所 + Alter 補助文 | content |
+| secondary | proposed dashed border + opacity 0.7 + 「受け入れる」 chip | authority |
+| tertiary | source dot + execution chip count | origin + execution |
+| 詳細 sheet のみ | clonedFrom / imported 詳細 / acceptedAt | derivation + provenance detail + metadata |
+
+### 用語確定 (= 第 12 補正 #1)
+
+- 由来 = provenance (= 内部 origin)
+- 所有権 = (state via chip / border、 内部 authority)
+- 派生関係 = derivation (= 内部 clonedFrom)
+
+→ UI 表現で provenance と derivation を混在禁止。
+
+### 次 sub-phase 4 (= TimelineSpine + EventCard、 UI 入る)
+
+- branch: `feat/alter-plan-list-impl-timeline-spine-event-card`
+- 完了 trigger: **visual checkpoint** (= component が valid build + render 可能 + 規約 24-extended 整合 + 第 11 補正 #1 + 第 12 補正 #2 遵守)
+- actual user visual smoke は sub-phase 8 統合 + demo route 着地後
+
+### 補正履歴 (= 累計 12 補正)
+
+| commit | 内容 |
+|---|---|
+| ... | direction + IA + Spec + 第 1-11 補正 |
+| `90af5d32` | sub-phase 3.6 (= source link refactor) |
+| `823fab54` | 第 11 補正引き継ぎ |
+| 本 commit | **第 12 補正引き継ぎ + sub-phase 4 進行承認 + visual smoke フェーズ切替** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 12 補正後最終判定 (= 2026-05-24、 「sub-phase 3.6 PASS、 sub-phase 4 へ進行、 軽い補足 3 件」)
+- **ステータス**: sub-phase 3.6 採用確定。 第 12 補正 3 補足明示。 次 sub-phase 4 (= UI、 TimelineSpine + EventCard、 visual checkpoint) 着手承認済。 visual smoke フェーズ切替。
+
+---
