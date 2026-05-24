@@ -13449,3 +13449,140 @@ sub-phase 6 commit `cf87c472` (= SourceIndicator + ExecutionLayerChip first-pass
 - **ステータス**: sub-phase 6 commit `cf87c472` **採用確定**。 sub-phase 7 readiness 整理 → CEO 判断後 着手。 accepted Alter provenance 確認は sub-phase 7 範囲内で必ず実施。
 
 ---
+
+## 2026-05-24 [Build/Product] List impl sub-phase 7 採用 + sub-phase 8 8a/8b/8c 分割方針確定 + 8a readiness (= 既存 FlowTab inventory + 進行案 3) [承認: CEO + GPT 合議]
+
+### 背景
+
+sub-phase 7 commit `df4b7ae4` (= ImportedLockEscapeModal first-pass、 2 files / 520 insertions) 着地後、 CEO + GPT 合議:
+- 「sub-phase 7 採用で問題ありません。 commit は維持でよく、 やり直し不要です」
+- 「次の sub-phase 8 はそのままの塊では進めないでください。 既存画面への反映開始 になるため、 範囲が広すぎます」
+- 「sub-phase 8 進行 OK、 ただし 8a / 8b / 8c に分割必須」
+
+### CEO + GPT sub-phase 7 評価 (= 採用判定根拠)
+
+特に評価された点:
+- imported lock escape を modal first-pass に閉じている
+- override / clone の文言が十分に分かれている (= CEO 追加条件遵守)
+- 実データ更新 logic に踏み込んでいない
+- accepted Alter provenance は **案 A** を守って main card を静かに保っている
+- a11y と render contract も押さえている
+
+### sub-phase 8 分割方針 (= CEO + GPT 確定)
+
+| sub-phase | 範囲 | 守る | 守らない |
+|---|---|---|---|
+| **8a** | FlowTab への最小統合のみ | TimelineSpine / EventCard / TransitionChip / EmptyDayEntry | SummaryFooter / ImportedLockEscape 本接続 / ExecutionLayer 中身 / 評価文 / score |
+| **8b** | 補助要素の統合 | SourceIndicator / ExecutionLayerChip / ImportedLockEscape trigger 接続 | SummaryFooter |
+| **8c** | SummaryFooter の箱だけ | 構造のみ | score / 評価文 (= 凍結維持) |
+
+### 8a 着手前 4 条件 (= CEO + GPT 必須要件)
+
+1. **既存 FlowTab のどの表示を置換するか** を先に明示
+2. **何を残して何を消すか**
+3. **二重表示をどう避けるか**
+4. **visual smoke をどの段階で行うか** (= 8a 完了後に一度入れる、 GPT 指示)
+
+### 既存 FlowTab inventory (= 772 lines、 `app/(culcept)/plan/tabs/FlowTab.tsx`)
+
+| 要素 (= 関数) | 行数 | 役割 |
+|---|---|---|
+| **FlowTab** (component) | 96-336 | 7 day list の orchestration、 StaticAlterSuggestionCard + FAB |
+| **FlowDaySection** | 342-515 | sticky header + anchor list + DayGraphTimeline (transition) |
+| **AnchorRow** | 521-649 | 時刻 + title + sub + location + overlap indicator + AnchorThumbnail |
+| **AnchorThumbnail** | 665-720 | sensitive / brand / category icon の thumbnail |
+| **StaticAlterSuggestionCard** | 740-771 | 静的 ALTER 提案 placeholder (= Phase 3 で動作予定) |
+
+### 置換 mapping table (= 8a 範囲)
+
+| 既存要素 | 新 component | 操作 | 備考 |
+|---|---|---|---|
+| AnchorRow (= 各 anchor 行) | EventCard | **置換** | ExternalAnchor → StrictEventCardViewModel adapter 必要 |
+| FlowDaySection の anchor list ul | TimelineSpine | **置換** | 3 column 構造 (= 時間 / spine / event) に変更 |
+| DayGraphTimeline の transition 表示 | TransitionChip | **置換** | 既存 movement display は label のみ流用 |
+| FlowDaySection の empty inline "予定なし ›" | EmptyDayEntry | **置換** | N-3a EMPTY_DAY_ENTRY_LABEL "ALTER で見る ›" に切替 |
+| AnchorThumbnail | (8a では無) | **残す or 一時 hide** | EventCard sub-phase 4 設計には thumbnail なし、 8c 以降で別領域に retire 検討 |
+| StaticAlterSuggestionCard | (8c で SummaryFooter に置換予定) | **残す** | 8a/8b では touch しない |
+| FAB (= 今日 prefill) | (8a 範囲外) | **残す** | 既存挙動維持 |
+| sticky header (= 日付 + 件数 badge) | (8a 範囲外) | **残す** | 7 day 連続表示 + 曜日色 維持 |
+
+**何を残す**: sticky header / 曜日色 / FAB / StaticAlterSuggestionCard / DayGraph 系 props (= movementDisplay / feasibilityDisplay) の参照経路
+**何を消す**: AnchorRow / AnchorThumbnail (= 8a で一時 hide) / FlowDaySection の anchor list ul / DayGraphTimeline transition 表示
+
+### 二重表示防止策 (= 3 案、 CEO 判断仰ぐ)
+
+#### 案 1: feature flag 制御段階起動 (= 安全寄り、 dogfood 可能)
+- 既存 FlowTab の `return` 直前で flag check (= `process.env.NEXT_PUBLIC_PLAN_LIST_NEW_TIMELINE` 等)
+- flag ON: 新 TimelineSpine + 4 component で render
+- flag OFF: 既存 FlowDaySection で render (= default、 user 影響 0)
+- **利点**: 既存 0 リスク、 user dogfood 可能、 rollback easy
+- **欠点**: 内部に flag 分岐、 二重 maintenance (= 8a 期間限定)、 env 追加 (= DB / package 追加なし、 規約遵守)
+
+#### 案 2: adapter pre + 内部置換 (= clean、 frozen file 大幅改変)
+- **8a-pre**: `lib/plan/list/adapters/externalAnchorAdapter.ts` (= ExternalAnchor → StrictEventCardViewModel adapter、 pure module、 contract test)
+- **8a-impl**: FlowTab 内部置換 (= AnchorRow → EventCard、 DayGraphTimeline transition → TransitionChip 等)
+- 既存 dayGraph 系 props は adapter 経由で新 component に通す
+- **利点**: code clean、 二重表示 0、 maintenance 1 系統
+- **欠点**: frozen file 大幅改変、 既存 dayGraph 系 props 整合性確認必要、 rollback heavy
+
+#### 案 3: 別 entry point (= 既存無影響、 新 tab で公開)
+- 新 URL path (= `/plan?view=newlist`) or 新 tab で新 List 表示
+- 既存 FlowTab は完全不変
+- **利点**: 既存 完全 0 リスク
+- **欠点**: 「既存画面への反映」 の趣旨と合わない (= 8a の目的に反する)
+
+### Claude 推奨
+
+**案 1 (flag 制御)** を 8a の進行案として推奨。 理由:
+1. CEO + GPT が指示した 「段階統合」 と最も整合
+2. 既存 FlowTab の frozen file 性を最後まで保持できる
+3. visual smoke は flag ON で実機確認 → 問題なければ 8b/8c へ
+4. 8c 完了後に flag 削除して完全置換 (= 完全 migration)
+5. env 追加のみ (= 規約 「DB / env / package / dependency 変更禁止」 のうち env が論点、 ただし NEXT_PUBLIC_ feature flag は user 影響なしで CEO 判断可)
+
+ただし、 **env 追加が規約抵触するなら案 2 (adapter pre + 内部置換)** が次案。
+
+### visual smoke タイミング (= GPT 明示)
+
+- **8a 完了後に 1 回**: 実機で FlowTab を開いて、 新 component の見え方確認 (= 二重表示なし、 表示崩れなし)
+- **8b 完了後に 1 回**: SourceIndicator / ExecutionLayerChip 表示確認 + ImportedLockEscape trigger 動作確認
+- **8c 完了後に 1 回**: SummaryFooter 箱の表示確認 (= 中身まだ凍結)
+- **8c 全完了後 closeout audit 前に最終 visual smoke**
+
+### sub-phase 8a readiness 整理 結論
+
+- 既存 FlowTab inventory 取得完了 (= 5 関数 / 772 lines)
+- 置換 mapping table 確定 (= 4 component vs 既存 5 要素)
+- 残す / 消す リスト明示
+- 二重表示防止策 3 案提示 (= Claude 推奨は案 1 flag 制御)
+- visual smoke タイミング案 4 件提示
+
+### 次
+
+- decision-log 記録 commit (= 本 entry)
+- CEO 判断仰ぐ:
+  1. 8a 進行案 1 / 2 / 3 どれを採用するか
+  2. NEXT_PUBLIC_ feature flag 追加 (= 案 1 採用なら) が規約 「env 変更禁止」 に抵触するかの judgment
+  3. visual smoke は本当に 8a 完了後 1 回でよいか (= 段階毎追加か)
+- 判断後に branch 切替 (= `feat/alter-plan-list-impl-flowtab-8a` 等) → 8a 着手
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ**:
+- 8a 着手 (= CEO 判断後)
+- 既存 FlowTab.tsx の改変 (= CEO 判断後)
+- SourceIndicator / ExecutionLayerChip の FlowTab 統合 (= 8b 範囲)
+- SummaryFooter (= 8c 範囲、 score / 評価文凍結維持)
+
+### 補正履歴 (= 累計 16 補正)
+
+| commit | 内容 |
+|---|---|
+| `df4b7ae4` | sub-phase 7 着地 (= 第 15 補正範囲制限 + CEO 案 A + 追加条件) |
+| **本 commit** | **sub-phase 7 採用 + sub-phase 8 8a/8b/8c 分割確定 + 8a readiness 提示** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「sub-phase 7 採用、 sub-phase 8 進行 OK、 ただし分割必須」)
+- **ステータス**: sub-phase 7 commit `df4b7ae4` **採用確定**。 sub-phase 8 8a/8b/8c **分割方針確定**。 8a readiness 提示 → CEO 進行案 1/2/3 判断待ち。
+
+---
