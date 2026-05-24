@@ -51,6 +51,28 @@ import { DayGraphTimeline } from "../components/DayGraphTimeline";
 import { useFlowWeekMovementDisplay } from "./_useFlowWeekMovementDisplay";
 import { useFlowWeekFeasibilityDisplay } from "./_useFlowWeekFeasibilityDisplay";
 import { usePlanGeocode } from "./_usePlanGeocode";
+
+// ── Phase 3-N List impl sub-phase 8a-impl: 案 1b コード内 flag による新旧切替 ──
+//
+//   不変原則 (= CEO + GPT 合議 2026-05-24):
+//     - flag OFF (= default) で **既存 FlowTab path 完全不変** (= user 影響 0)
+//     - flag ON で新 TimelineSpine + EventCard + EmptyDayEntry に同責務範囲で差し替え
+//     - 二重表示禁止 (= flag ON で 旧 anchor list / 旧 empty inline button / 旧 DayGraphTimeline を同時表示しない)
+//     - truth なき source semantics は UI で強く主張しない:
+//         - TransitionChip は 8a 範囲では skip (= adapter に transitions 含まず、 8b 以降で接続)
+//         - SourceIndicator は EventCard 内蔵で、 adapter 産 user origin → 自動 null return (= 過剰表示なし)
+//         - ImportedLockEscape trigger は FlowTab 本体に未配置 (= 8b 以降)
+//
+//   8c 完了後 closeout audit で flag + 旧 path 一括削除 (= 完全 migration)
+//
+//   設計書:
+//     - decision-log (= sub-phase 8 8a/8b/8c 分割方針 + 案 1b 採用)
+//     - lib/plan/list/featureFlags.ts
+//     - lib/plan/list/adapters/externalAnchorAdapter.ts
+import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
+import { convertExternalAnchorListToTimelineEvents } from "@/lib/plan/list/adapters/externalAnchorAdapter";
+import { TimelineSpine } from "../components/list/TimelineSpine";
+import { EmptyDayEntry } from "../components/list/EmptyDayEntry";
 import type { MovementDisplayView } from "@/lib/plan/transport/movementDisplayFormatter";
 import type { FeasibilityDisplayView } from "@/lib/plan/feasibility/feasibilityDisplayFormatter";
 import {
@@ -396,6 +418,97 @@ function FlowDaySection({
     ? `${label} · ${anchors.length} 件`
     : `${label} · 予定なし`;
 
+  // ─────────────────────────────────────────────────────────────────────
+  // sub-phase 8a-impl: 新 List 表示 path (= LIST_NEW_TIMELINE_ENABLED 時のみ)
+  //
+  //   構造のみ置換 (= GPT 重要条件遵守、 truth なき source semantics 主張禁止):
+  //     - 旧 anchor list (= ul + AnchorRow + AnchorThumbnail) → TimelineSpine + EventCard
+  //     - 旧 empty inline button (= 予定なし ›) → EmptyDayEntry (= 「ALTER で見る ›」、 N-3a label)
+  //     - 旧 DayGraphTimeline (= transition + warnings) → 8a 範囲では skip (= 8b 以降で接続)
+  //
+  //   不触:
+  //     - sticky header (= 日付 + 件数 + 曜日色) → 完全不変、 新 path でも render
+  //     - movement / feasibility / disclosure 系 props → 新 path では参照しない (= 8b 以降で活用)
+  //     - 「予定なし」 static label (= onEmptyClick 未提供時の non-interactive 表示) → 旧 path 同様 sticky header 内 render
+  //
+  //   flag OFF (= default) では本 block を完全に通過 (= 既存 return 文に到達、 user 影響 0)
+  // ─────────────────────────────────────────────────────────────────────
+  if (LIST_NEW_TIMELINE_ENABLED) {
+    const newTimelineEvents = hasAnchors
+      ? convertExternalAnchorListToTimelineEvents(anchors)
+      : [];
+    return (
+      <section
+        data-testid={`plan-flow-section-${iso}`}
+        aria-label={ariaLabel}
+      >
+        {/* sticky header (= 完全不変、 8a-impl 不触範囲) */}
+        <header
+          className="
+            sticky top-0 z-10
+            bg-white/95 backdrop-blur-sm
+            px-4 py-2
+            flex items-baseline justify-between gap-2
+            border-b border-slate-100
+          "
+        >
+          <h3 className="text-sm">
+            <span className={TONE_CLASS[tone]}>{label}</span>
+            {hasAnchors && (
+              <span
+                className="ml-2 text-xs font-normal text-slate-400"
+                data-testid={`plan-flow-count-${iso}`}
+              >
+                {anchors.length} 件
+              </span>
+            )}
+          </h3>
+
+          {/*
+            新 path では empty inline button (= 旧 「予定なし ›」) は header に出さない。
+            EmptyDayEntry (= 「ALTER で見る ›」) が下の body block で代替する。
+            ただし onEmptyClick === undefined の場合のみ static 「予定なし」 を header に表示
+            (= 旧 path と整合、 onEmptyClick がない時は body も empty entry 不可)。
+          */}
+          {!hasAnchors && onEmptyClick === undefined && (
+            <span
+              className="text-xs text-slate-400"
+              data-testid={`plan-flow-empty-${iso}-static`}
+            >
+              予定なし
+            </span>
+          )}
+        </header>
+
+        {/* body: 新 timeline / empty entry */}
+        <div className="px-4 py-3">
+          {hasAnchors && (
+            <TimelineSpine
+              events={newTimelineEvents}
+              onEventTap={
+                onAnchorClick
+                  ? (id: string) => {
+                      const a = anchors.find((x) => x.id === id);
+                      if (a) onAnchorClick(a);
+                    }
+                  : undefined
+              }
+            />
+          )}
+          {!hasAnchors && onEmptyClick !== undefined && (
+            <EmptyDayEntry
+              context={{ tab: "flow", iso }}
+              onTap={onEmptyClick}
+            />
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 既存 path (= LIST_NEW_TIMELINE_ENABLED false、 default、 完全不変)
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <section
       data-testid={`plan-flow-section-${iso}`}
