@@ -121,7 +121,7 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
     // 単件: line 全部 skip されるのが期待動作
   });
 
-  it("§1.7 8b-8: icon circle 大型化 (= w-12 h-12、 旧 w-8 から拡大)", () => {
+  it("§1.7 8b-10: icon circle (= w-10 h-10、 8b-8 w-12 → 8b-10 w-10 density up)", () => {
     const event = createUserEvent({
       id: 'icon-big',
       title: 'カフェ',
@@ -129,8 +129,9 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('w-12 h-12'); // 大きい circle
-    expect(html).not.toMatch(/w-8 h-8/); // 旧 size 廃止
+    expect(html).toContain('w-10 h-10'); // 8b-10 size
+    expect(html).not.toMatch(/w-12 h-12 rounded-full/); // 旧 size 廃止
+    expect(html).not.toMatch(/w-8 h-8 rounded-full/);
   });
 });
 

@@ -150,26 +150,24 @@ export type EventCardProps = {
 export function EventCard({ event, onTap }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
 
-  // container class (= 8b-7 corrective: border -200 → -100、 triangle に外周 border 追加)
-  //   - ::before: 中身 triangle (= card bg 同色で延長感)、 z-10 で外周より前
-  //   - ::after: 外周 1px 線 (= card border 同色 -100)、 1px 外側に配置して縁取り表現
+  // container class (= 8b-10 density up: p-4 → p-3、 rounded-2xl → rounded-xl)
   const containerClass = [
     "relative", // for ::before / ::after triangle positioning
     "block w-full text-left",
-    "rounded-2xl",
+    "rounded-xl",
     CATEGORY_BG_CLASS[event.category],
     "border", // 全周 1px
-    CATEGORY_BORDER_CLASS[event.category], // border-{color}-100 (= 8b-7 薄く)
+    CATEGORY_BORDER_CLASS[event.category],
     // 左尖り 内部 triangle (= ::before pseudo、 card 延長感)
-    "before:content-[''] before:absolute before:left-[-7px] before:top-4 before:z-10",
-    "before:border-y-[7px] before:border-y-transparent before:border-r-[7px]",
+    "before:content-[''] before:absolute before:left-[-6px] before:top-3 before:z-10",
+    "before:border-y-[6px] before:border-y-transparent before:border-r-[6px]",
     CATEGORY_TRIANGLE_CLASS[event.category],
-    // 左尖り 外周 border triangle (= ::after pseudo、 8b-7 「三角形も周りの太線で囲む」)
-    "after:content-[''] after:absolute after:left-[-8px] after:top-[15px]",
-    "after:border-y-[8px] after:border-y-transparent after:border-r-[8px]",
+    // 左尖り 外周 border triangle (= ::after pseudo)
+    "after:content-[''] after:absolute after:left-[-7px] after:top-[11px]",
+    "after:border-y-[7px] after:border-y-transparent after:border-r-[7px]",
     CATEGORY_TRIANGLE_BORDER_CLASS[event.category],
     "shadow-sm",
-    "p-4",
+    "p-3",
     "transition-colors duration-150",
     "focus:outline-none focus-visible:border-slate-300",
     "hover:shadow-md",
@@ -188,45 +186,40 @@ export function EventCard({ event, onTap }: EventCardProps): ReactNode {
       className={containerClass}
       data-testid={`plan-list-event-card-${event.id}`}
     >
-      {/* PRIMARY: 時刻 range (= top right area、 category color) */}
+      {/* 8b-10: 時刻 range 小さく text-sm → text-xs */}
       <p
-        className={`text-sm font-medium ${CATEGORY_TIME_TEXT_CLASS[event.category]} tabular-nums`}
+        className={`text-xs font-medium ${CATEGORY_TIME_TEXT_CLASS[event.category]} tabular-nums`}
       >
         {timeRangeText}
       </p>
 
-      {/* PRIMARY: title (= text-lg semibold) */}
-      <p className="text-lg font-semibold text-slate-900 mt-1">
+      {/* 8b-10: title text-lg → text-base */}
+      <p className="text-base font-semibold text-slate-900 mt-0.5">
         {event.title}
       </p>
 
-      {/* PRIMARY: 場所 (= optional、 8b-6: 📍 → SVG outline pin + text-xs text-slate-400 控えめ) */}
+      {/* 場所 (= 8b-10 size 維持) */}
       {event.location !== undefined && (
-        <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-          <LocationPinIcon size={12} />
+        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
+          <LocationPinIcon size={11} />
           <span>{event.location}</span>
         </p>
       )}
 
-      {/* PRIMARY: Alter 補助文 (= optional、 ✨ + 自然な日本語、 CategoryMeaning 8b-6 書き直し済) */}
+      {/* 8b-10: Alter 補助文 text-sm → text-xs */}
       {event.alterNote !== undefined && (
-        <p className="text-sm text-slate-600 mt-2 flex items-start gap-1">
+        <p className="text-xs text-slate-600 mt-1.5 flex items-start gap-1">
           <span aria-hidden="true">✨</span>
           <span>{event.alterNote}</span>
         </p>
       )}
 
-      {/* TERTIARY footer: SourceIndicator (= origin axis、 compact) + ExecutionLayerChip + SECONDARY chip (= authority) */}
-      <div className="mt-3 flex items-center gap-2 text-xs">
-        {/* origin axis: SourceIndicator compact (= 第 11 補正 #1 軸分離、 第 12 補正 #2 hierarchy) */}
+      {/* TERTIARY footer (= 8b-10 mt 縮小) */}
+      <div className="mt-2 flex items-center gap-2 text-xs empty:hidden">
         <SourceIndicator sourceModel={event.sourceModel} variant="compact" />
-
-        {/* 軽いサイン: ExecutionLayerChip (= 第 8 補正 #3 first-pass、 sub-phase 6 範囲) */}
         {event.executionLayerCounts !== undefined && (
           <ExecutionLayerChip counts={event.executionLayerCounts} />
         )}
-
-        {/* SECONDARY: proposed chip (= authority、 right) */}
         {proposed && (
           <span className="ml-auto text-indigo-600">
             受け入れる ›

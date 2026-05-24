@@ -211,9 +211,9 @@ export function TimelineSpine({
                   data-testid={`plan-list-spine-transition-row-${matchingTransition.fromTime}-${matchingTransition.toTime}`}
                 >
                   {/* 左 column 空白 */}
-                  <div className="w-14 flex-shrink-0" aria-hidden="true" />
-                  {/* 中央 column: spine 軸 + 小 dot center */}
-                  <div className="w-12 flex-shrink-0 relative">
+                  <div className="w-12 flex-shrink-0" aria-hidden="true" />
+                  {/* 中央 column: spine 軸 (= dashed、 transition 用) + 小 dot center */}
+                  <div className="w-10 flex-shrink-0 relative">
                     <div
                       className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 border-l border-dashed border-slate-300"
                       aria-hidden="true"
@@ -223,49 +223,49 @@ export function TimelineSpine({
                       aria-hidden="true"
                     />
                   </div>
-                  {/* 右 column: 「移動」 pill (= TransitionChip)、 card と同じ left に揃う */}
-                  <div className="flex-1 min-w-0 py-2 pl-2">
+                  {/* 右 column: 「移動」 pill */}
+                  <div className="flex-1 min-w-0 py-1.5 pl-2">
                     <TransitionChip transition={matchingTransition} />
                   </div>
                 </li>
               )}
-              {/* event row */}
+              {/* event row (= 8b-10: 全体 density up、 line solid で icon gap 埋め) */}
               <li
                 className="relative flex items-start"
                 role="listitem"
               >
-                {/* 左 column: 時刻 label */}
+                {/* 左 column: 時刻 label (= w-14→w-12、 text-base→text-sm) */}
                 <div
-                  className={`w-14 flex-shrink-0 pt-3 text-base font-medium tabular-nums ${CATEGORY_TIME_TEXT_CLASS[event.category]}`}
+                  className={`w-12 flex-shrink-0 pt-2 text-sm font-medium tabular-nums ${CATEGORY_TIME_TEXT_CLASS[event.category]}`}
                 >
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: spine column (= 48px、 spine line + circle 完全中央配置) */}
-                <div className="w-12 flex-shrink-0 relative pt-1">
-                  {/* spine line top 半分 (= 最初 event は line なし、 timeline 開始) */}
+                {/* 中央 column: spine column (= 8b-10 w-10、 spine line solid で icon 隣接 gap 埋め) */}
+                <div className="w-10 flex-shrink-0 relative pt-1">
+                  {/* spine line top 半分 (= 8b-10 solid、 icon 隣接 gap 埋め) */}
                   {!isFirstEvent && (
                     <div
-                      className="absolute left-1/2 -translate-x-1/2 top-0 h-1/2 border-l border-dashed border-slate-300"
+                      className="absolute left-1/2 -translate-x-1/2 top-0 h-1/2 border-l border-solid border-slate-300"
                       aria-hidden="true"
                     />
                   )}
-                  {/* spine line bottom 半分 (= 最後 event は line なし、 帰宅後線 なし) */}
+                  {/* spine line bottom 半分 (= 8b-10 solid、 最後 event は line なし) */}
                   {!isLastEvent && (
                     <div
-                      className="absolute left-1/2 -translate-x-1/2 bottom-0 top-1/2 border-l border-dashed border-slate-300"
+                      className="absolute left-1/2 -translate-x-1/2 bottom-0 top-1/2 border-l border-solid border-slate-300"
                       aria-hidden="true"
                     />
                   )}
-                  {/* circle (= z-10 で line と重ねる、 中央 column 内 center) */}
+                  {/* circle (= 8b-10 w-12→w-10、 icon 22→18) */}
                   <div className="relative flex justify-center z-10">
                     <div
-                      className={`w-12 h-12 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
+                      className={`w-10 h-10 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
                       aria-hidden="true"
                     >
                       {(() => {
                         const Icon = CATEGORY_ICON_COMPONENT[event.category];
-                        return <Icon size={22} className="text-white" />;
+                        return <Icon size={18} className="text-white" />;
                       })()}
                     </div>
                   </div>

@@ -310,10 +310,10 @@ export function FlowTab({
 
   return (
     <div data-testid="plan-flow-tab" className="relative pb-24">
-      {/* 8b-7-B + 8b-9: 1 日表示時の date picker (= flag ON のみ、 SVG calendar icon + 中央日付 + 左右 nav) */}
+      {/* 8b-10: date picker 小さく + 余白縮小 (= mb-4→mb-2, p-3→p-2, text-sm→text-xs) */}
       {LIST_NEW_TIMELINE_ENABLED && selectedDay && (
         <div
-          className="mx-auto mb-4 max-w-3xl flex items-center justify-center gap-4 px-4 py-3 rounded-2xl border border-slate-100 bg-white shadow-sm"
+          className="mx-auto mb-2 max-w-3xl flex items-center justify-center gap-3 px-3 py-2 rounded-xl border border-slate-100 bg-white shadow-sm"
           data-testid="plan-flow-date-picker"
         >
           <button
@@ -321,15 +321,14 @@ export function FlowTab({
             onClick={handleGoPrev}
             disabled={!canGoPrev}
             aria-label="前日"
-            className="px-3 py-1 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors"
+            className="px-2 py-0.5 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors text-sm"
           >
             ‹
           </button>
-          <span className="text-sm font-medium text-slate-700 tabular-nums inline-flex items-center gap-1.5">
-            {/* 8b-9: 📅 emoji → SVG outline calendar icon (= CEO 「Calendar icon 新規作成」) */}
+          <span className="text-xs font-medium text-slate-700 tabular-nums inline-flex items-center gap-1">
             <svg
-              width="14"
-              height="14"
+              width="12"
+              height="12"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -354,7 +353,7 @@ export function FlowTab({
             onClick={handleGoNext}
             disabled={!canGoNext}
             aria-label="翌日"
-            className="px-3 py-1 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors"
+            className="px-2 py-0.5 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors text-sm"
           >
             ›
           </button>

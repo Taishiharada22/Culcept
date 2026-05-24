@@ -432,7 +432,8 @@ describe("EventCard render contract §7. 8b-6 border + triangle", () => {
     // before:content-[''] は HTML escape されて before:content-[&#x27;&#x27;] になる
     expect(html).toContain("before:content-[&#x27;&#x27;]");
     expect(html).toContain('before:absolute');
-    expect(html).toContain('before:left-[-7px]');
+    // 8b-10: -7px → -6px (= padding 縮小)
+    expect(html).toContain('before:left-[-6px]');
     expect(html).toContain('before:border-r-blue-50');
   });
 });

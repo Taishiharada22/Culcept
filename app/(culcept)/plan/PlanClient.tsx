@@ -601,19 +601,20 @@ export default function PlanClient({
     void load();
   };
 
-  // ── chrome 出し分け (Phase 1 + 8b-7-B mock 整合) ──
-  // route mode: min-h-screen + 上品な白背景 (= 8b-7-B、 flag ON で gradient 廃止)
+  // ── chrome 出し分け (Phase 1 + 8b-7-B / 8b-10 mock 整合) ──
+  // route mode: min-h-screen + 上品な白背景 (= 8b-7-B 以降)
   // pane mode : h-full overflow-y-auto + 薄紫 gradient + 簡素 chrome (= 既存維持)
+  // 8b-10: py-8 → py-4 (= 余白縮小、 CEO 「上に詰める」)
   const containerClass = isPane
     ? "h-full overflow-y-auto bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30 px-4 py-6"
     : LIST_NEW_TIMELINE_ENABLED
-      ? "min-h-screen bg-white px-4 py-8" // 8b-7-B: 上品な白
+      ? "min-h-screen bg-white px-4 py-4" // 8b-10: 余白縮小
       : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
 
   return (
     <main className={containerClass} data-display-mode={displayMode}>
-      {/* ── Header (mode で chrome 出し分け、機能 button は両 mode 共通) ── */}
-      <header className="mx-auto mb-6 max-w-3xl">
+      {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小) ── */}
+      <header className={LIST_NEW_TIMELINE_ENABLED ? "mx-auto mb-3 max-w-3xl" : "mx-auto mb-6 max-w-3xl"}>
         {!isPane && (
           <p className="text-xs font-medium uppercase tracking-widest text-indigo-600">
             ALTER · PLAN
@@ -627,7 +628,9 @@ export default function PlanClient({
           <h1 className={
             isPane
               ? "text-3xl font-semibold text-slate-900"
-              : "text-2xl font-bold text-slate-900"
+              : LIST_NEW_TIMELINE_ENABLED
+                ? "text-lg font-bold text-slate-900" // 8b-10: 小さく (text-2xl → text-lg)
+                : "text-2xl font-bold text-slate-900"
           }>
             {/* 8b-7-B: header 文言 mock 整合 (= flag ON で 「当日のプラン」 / OFF で旧文言) */}
             {isPane
@@ -636,10 +639,10 @@ export default function PlanClient({
                 ? "当日のプラン"
                 : "あなたの生活、3 つのレンズ"}
           </h1>
-          {/* 8b-8 / 8b-9: title 行右側に tabs (= 8b-9 で角張 + 大きく + 各 tab 幅均一) */}
+          {/* 8b-8 / 8b-9 / 8b-10: title 行右側 tabs (= 8b-10 で 小さく + 左 icon 追加) */}
           {LIST_NEW_TIMELINE_ENABLED ? (
             <div
-              className="inline-flex rounded-lg bg-slate-100 p-1 gap-0.5"
+              className="inline-flex rounded-lg bg-slate-100 p-0.5 gap-0.5"
               role="tablist"
               aria-label="Plan tabs"
             >
@@ -655,13 +658,14 @@ export default function PlanClient({
                     id={`plan-tab-${tab.key}`}
                     onClick={() => setActiveTab(tab.key)}
                     className={
-                      // 8b-9: 角張 (= rounded-md)、 大きく (= px-4 py-2 text-sm)、 各幅均一 (= w-20 固定)
-                      "w-20 px-4 py-2 rounded-md text-sm font-medium transition-all " +
+                      // 8b-10: 小さく (= w-20→w-[68px], py-2→py-1, text-sm→text-xs)、 left icon
+                      "w-[68px] px-2 py-1 rounded-md text-xs font-medium transition-all inline-flex items-center justify-center gap-1 " +
                       (isActive
                         ? "bg-white text-slate-900 shadow-sm"
                         : "text-slate-500 hover:text-slate-800")
                     }
                   >
+                    <TabIcon tabKey={tab.key} />
                     {tab.label}
                   </button>
                 );
@@ -681,8 +685,8 @@ export default function PlanClient({
           )}
         </div>
         {!isPane && (
-          <p className="mt-2 text-sm text-slate-500">
-            {/* 8b-7-B: subtitle mock 整合 (= flag ON で 「時間の流れを把握して、心地よい1日に。」) */}
+          <p className={LIST_NEW_TIMELINE_ENABLED ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
+            {/* 8b-7-B / 8b-10: subtitle 小さく (= flag ON で mt-0.5 + text-xs) */}
             {LIST_NEW_TIMELINE_ENABLED
               ? "時間の流れを把握して、心地よい1日に。"
               : "同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。"}
@@ -840,6 +844,58 @@ export default function PlanClient({
       />
     </main>
   );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 8b-10: Tab icon component (= カレンダー / リスト / マップ 各 tab の左 icon)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TabIcon({ tabKey }: { tabKey: string }): React.ReactElement {
+  const baseProps = {
+    width: 12,
+    height: 12,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+    "aria-hidden": true,
+    className: "flex-shrink-0",
+  };
+  switch (tabKey) {
+    case "calendar":
+      return (
+        <svg {...baseProps}>
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M3 9 H21" />
+          <path d="M8 3 V7" />
+          <path d="M16 3 V7" />
+        </svg>
+      );
+    case "flow":
+      // List icon (= 3 lines)
+      return (
+        <svg {...baseProps}>
+          <path d="M4 6 H20" />
+          <path d="M4 12 H20" />
+          <path d="M4 18 H20" />
+          <circle cx="4" cy="6" r="0.5" fill="currentColor" />
+          <circle cx="4" cy="12" r="0.5" fill="currentColor" />
+          <circle cx="4" cy="18" r="0.5" fill="currentColor" />
+        </svg>
+      );
+    case "map":
+      // Map pin icon
+      return (
+        <svg {...baseProps}>
+          <path d="M12 22 s8-7.5 8-13 a8 8 0 0 0 -16 0 c0 5.5 8 13 8 13 z" />
+          <circle cx="12" cy="9" r="2.5" />
+        </svg>
+      );
+    default:
+      return <svg {...baseProps} />;
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
