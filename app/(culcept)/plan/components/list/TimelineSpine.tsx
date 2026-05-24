@@ -241,9 +241,10 @@ export function TimelineSpine({
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: spine column (= 8b-10 w-10、 spine line solid で icon 隣接 gap 埋め) */}
-                <div className="w-10 flex-shrink-0 relative pt-1">
-                  {/* spine line top 半分 (= 8b-10 solid、 icon 隣接 gap 埋め) */}
+                {/* 中央 column: spine column (= 8b-11: pt-1 削除 → line が row top から本当に start、 icon に mt-1)
+                    8b-10: line solid for event row (= icon と密着)、 8b-11: gap が visual に消える */}
+                <div className="w-10 flex-shrink-0 relative">
+                  {/* spine line top 半分 (= 8b-10 solid、 8b-11 で row top から確実に start) */}
                   {!isFirstEvent && (
                     <div
                       className="absolute left-1/2 -translate-x-1/2 top-0 h-1/2 border-l border-solid border-slate-300"
@@ -257,8 +258,8 @@ export function TimelineSpine({
                       aria-hidden="true"
                     />
                   )}
-                  {/* circle (= 8b-10 w-12→w-10、 icon 22→18) */}
-                  <div className="relative flex justify-center z-10">
+                  {/* circle (= 8b-11 mt-1 個別付与で line を遮らない) */}
+                  <div className="relative flex justify-center z-10 mt-1">
                     <div
                       className={`w-10 h-10 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
                       aria-hidden="true"

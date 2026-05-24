@@ -658,8 +658,8 @@ export default function PlanClient({
                     id={`plan-tab-${tab.key}`}
                     onClick={() => setActiveTab(tab.key)}
                     className={
-                      // 8b-10: 小さく (= w-20→w-[68px], py-2→py-1, text-sm→text-xs)、 left icon
-                      "w-[68px] px-2 py-1 rounded-md text-xs font-medium transition-all inline-flex items-center justify-center gap-1 " +
+                      // 8b-11: text-xs → text-[10px] (= 「カレンダー」 文字小さく、 5 文字でも均一幅収まる)、 w-[68px]→w-16 さらに縮小
+                      "w-16 px-2 py-1 rounded-md text-[10px] font-medium transition-all inline-flex items-center justify-center gap-1 " +
                       (isActive
                         ? "bg-white text-slate-900 shadow-sm"
                         : "text-slate-500 hover:text-slate-800")

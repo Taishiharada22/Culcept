@@ -49,8 +49,8 @@ export function TransitionChip({ transition }: TransitionChipProps): ReactNode {
       data-testid={`plan-list-transition-${fromTime}-${toTime}`}
       aria-label={`transition: ${label} ${timeRange}`}
     >
-      {/* 左: capsule label (= 8b-9 大きく text-sm + padding 増、 白背景 + 細枠) */}
-      <span className="rounded-full bg-white border border-slate-200 px-4 py-1 text-sm text-slate-500">
+      {/* 左: 8b-11 で 小さく + 横長 (= text-xs + px-2.5 py-0.5 + rounded-md 角度抑え) */}
+      <span className="rounded-md bg-white border border-slate-200 px-2.5 py-0.5 text-[10px] text-slate-500 whitespace-nowrap">
         {label}
       </span>
       {/* 中: dashed line */}
