@@ -349,6 +349,12 @@ const DEPARTURE_BUFFER_MIN = 30;
 const ARRIVAL_BUFFER_MIN = 30;
 
 /**
+ * 8b-9: 出発→最初 event 間の transition gap (= 15 min)
+ * 「出発」 endTime を first.startTime - 15min にすることで、 transition 自動生成可能になる
+ */
+const TRANSITION_TO_NEXT_MIN = 15;
+
+/**
  * 8b-7: convertExternalAnchorListToTimelineEvents の結果に
  *       **「出発」 (= 最初) + 「帰宅」 (= 最後) virtual events を付与** (= CEO 明示)
  *
@@ -397,10 +403,14 @@ export function convertExternalAnchorListWithDayBookends(
   const first = events[0];
   const last = events[events.length - 1];
 
-  // 「出発」 virtual event (= 最初 event 30 min 前、 first.startTime 未満で clamp)
+  // 「出発」 virtual event (= 8b-9: first.startTime 30 min 前 → 15 min 前 で終了、 残 15 min が移動 gap)
+  // これにより 8b-9 で convertEventsToTransitions が 出発 → 最初 event の transition を生成可能になる
   const firstMin = hhmmToMinutes(first.startTime);
   const departureStartMin = Math.max(0, firstMin - DEPARTURE_BUFFER_MIN);
-  const departureEndMin = Math.max(departureStartMin + 1, firstMin);
+  const departureEndMin = Math.max(
+    departureStartMin + 1,
+    firstMin - TRANSITION_TO_NEXT_MIN, // 15 min 前に終了 → 移動 gap 確保
+  );
   const departure: StrictEventCardViewModel = createUserEvent({
     id: 'virtual-departure',
     title: '出発',

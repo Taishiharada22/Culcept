@@ -38,14 +38,14 @@ import { ExecutionLayerChip } from "./ExecutionLayerChip";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 全周 border 色 (= 8b-7 で更に薄く -200 → -100、 CEO 「枠の色もまだ濃い」)
+ * 全周 border 色 (= 8b-9 で 反転、 CEO 「囲み色濃く、 中身薄く」、 -100 → -300)
  */
 const CATEGORY_BORDER_CLASS: Record<EventCategory, string> = {
-  cafe: 'border-indigo-100',
-  meal: 'border-orange-100',
-  work: 'border-blue-100',
-  home: 'border-emerald-100',
-  other: 'border-slate-100',
+  cafe: 'border-indigo-300',
+  meal: 'border-orange-300',
+  work: 'border-blue-300',
+  home: 'border-emerald-300',
+  other: 'border-slate-300',
 };
 
 /**
@@ -60,13 +60,13 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * 背景 tint (= 8b-3 から継続、 上品な低彩度 -50 系)
+ * 背景 tint (= 8b-9 でさらに薄く、 CEO 「中の色が濃すぎ」、 bg-{color}-50 → 50/30 opacity)
  */
 const CATEGORY_BG_CLASS: Record<EventCategory, string> = {
-  cafe: 'bg-indigo-50',
-  meal: 'bg-orange-50',
-  work: 'bg-blue-50',
-  home: 'bg-emerald-50',
+  cafe: 'bg-indigo-50/30',
+  meal: 'bg-orange-50/30',
+  work: 'bg-blue-50/30',
+  home: 'bg-emerald-50/30',
   other: 'bg-white',
 };
 
@@ -82,17 +82,14 @@ const CATEGORY_TRIANGLE_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * 左尖り triangle 外周 border 色 (= 8b-7 追加、 CEO 「三角形も周りの太線で囲む」)
- *
- * ::after で 1px 外周線 triangle、 card border と同色 (= -100 系)
- * before は中身 bg 色 (= card 延長)、 after は 1px 外側にずらして border 線として見せる
+ * 左尖り triangle 外周 border 色 (= 8b-9 で 反転、 border と同色 -300)
  */
 const CATEGORY_TRIANGLE_BORDER_CLASS: Record<EventCategory, string> = {
-  cafe: 'after:border-r-indigo-100',
-  meal: 'after:border-r-orange-100',
-  work: 'after:border-r-blue-100',
-  home: 'after:border-r-emerald-100',
-  other: 'after:border-r-slate-100',
+  cafe: 'after:border-r-indigo-300',
+  meal: 'after:border-r-orange-300',
+  work: 'after:border-r-blue-300',
+  home: 'after:border-r-emerald-300',
+  other: 'after:border-r-slate-300',
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

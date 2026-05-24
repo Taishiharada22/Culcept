@@ -310,7 +310,7 @@ export function FlowTab({
 
   return (
     <div data-testid="plan-flow-tab" className="relative pb-24">
-      {/* 8b-7-B: 1 日表示時の date picker (= flag ON のみ、 中央 日付 + 左右 nav) */}
+      {/* 8b-7-B + 8b-9: 1 日表示時の date picker (= flag ON のみ、 SVG calendar icon + 中央日付 + 左右 nav) */}
       {LIST_NEW_TIMELINE_ENABLED && selectedDay && (
         <div
           className="mx-auto mb-4 max-w-3xl flex items-center justify-center gap-4 px-4 py-3 rounded-2xl border border-slate-100 bg-white shadow-sm"
@@ -325,8 +325,29 @@ export function FlowTab({
           >
             ‹
           </button>
-          <span className="text-sm font-medium text-slate-700 tabular-nums">
-            📅 {formatJpDate(selectedDay)}
+          <span className="text-sm font-medium text-slate-700 tabular-nums inline-flex items-center gap-1.5">
+            {/* 8b-9: 📅 emoji → SVG outline calendar icon (= CEO 「Calendar icon 新規作成」) */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              className="text-slate-500"
+            >
+              <rect x="3" y="5" width="18" height="16" rx="2" />
+              <path d="M3 9 H21" />
+              <path d="M8 3 V7" />
+              <path d="M16 3 V7" />
+              <circle cx="8" cy="14" r="1" />
+              <circle cx="12" cy="14" r="1" />
+              <circle cx="16" cy="14" r="1" />
+            </svg>
+            {formatJpDate(selectedDay)}
           </span>
           <button
             type="button"
@@ -497,43 +518,13 @@ function FlowDaySection({
         data-testid={`plan-flow-section-${iso}`}
         aria-label={ariaLabel}
       >
-        {/* sticky header (= 完全不変、 8a-impl 不触範囲) */}
-        <header
-          className="
-            sticky top-0 z-10
-            bg-white/95 backdrop-blur-sm
-            px-4 py-2
-            flex items-baseline justify-between gap-2
-            border-b border-slate-100
-          "
-        >
-          <h3 className="text-sm">
-            <span className={TONE_CLASS[tone]}>{label}</span>
-            {hasAnchors && (
-              <span
-                className="ml-2 text-xs font-normal text-slate-400"
-                data-testid={`plan-flow-count-${iso}`}
-              >
-                {anchors.length} 件
-              </span>
-            )}
-          </h3>
-
-          {/*
-            新 path では empty inline button (= 旧 「予定なし ›」) は header に出さない。
-            EmptyDayEntry (= 「ALTER で見る ›」) が下の body block で代替する。
-            ただし onEmptyClick === undefined の場合のみ static 「予定なし」 を header に表示
-            (= 旧 path と整合、 onEmptyClick がない時は body も empty entry 不可)。
-          */}
-          {!hasAnchors && onEmptyClick === undefined && (
-            <span
-              className="text-xs text-slate-400"
-              data-testid={`plan-flow-empty-${iso}-static`}
-            >
-              予定なし
-            </span>
-          )}
-        </header>
+        {/* 8b-9 corrective: sticky header (= 「今日 · 5月24日(日) 2 件」 等) は date picker と重複するため非表示
+            ただし onEmptyClick === undefined の場合 (= read-only) のみ minimal static 「予定なし」 を表示 */}
+        {!hasAnchors && onEmptyClick === undefined && (
+          <div className="px-4 py-2 text-xs text-slate-400" data-testid={`plan-flow-empty-${iso}-static`}>
+            予定なし
+          </div>
+        )}
 
         {/* body: 新 timeline / empty entry */}
         <div className="px-4 py-3">

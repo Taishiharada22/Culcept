@@ -122,7 +122,7 @@ const TABS: ReadonlyArray<{
 }> = [
   { key: "calendar", label: "カレンダー" },
   { key: "flow", label: "リスト" },
-  { key: "map", label: "地図" },
+  { key: "map", label: "マップ" }, // 8b-9: CEO 「地図 → マップ」
 ];
 
 type FetchState =
@@ -636,10 +636,10 @@ export default function PlanClient({
                 ? "当日のプラン"
                 : "あなたの生活、3 つのレンズ"}
           </h1>
-          {/* 8b-8: flag ON で title 行右側に tabs を配置 (= CEO 「カレンダー/リスト/地図 は当日のプラン右側」) */}
+          {/* 8b-8 / 8b-9: title 行右側に tabs (= 8b-9 で角張 + 大きく + 各 tab 幅均一) */}
           {LIST_NEW_TIMELINE_ENABLED ? (
             <div
-              className="inline-flex rounded-full bg-slate-100/80 p-1 shadow-inner"
+              className="inline-flex rounded-lg bg-slate-100 p-1 gap-0.5"
               role="tablist"
               aria-label="Plan tabs"
             >
@@ -655,10 +655,11 @@ export default function PlanClient({
                     id={`plan-tab-${tab.key}`}
                     onClick={() => setActiveTab(tab.key)}
                     className={
-                      "px-3 py-1.5 rounded-full text-xs font-medium transition-all " +
+                      // 8b-9: 角張 (= rounded-md)、 大きく (= px-4 py-2 text-sm)、 各幅均一 (= w-20 固定)
+                      "w-20 px-4 py-2 rounded-md text-sm font-medium transition-all " +
                       (isActive
-                        ? "bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-sm"
-                        : "text-slate-600 hover:text-slate-800")
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-500 hover:text-slate-800")
                     }
                   >
                     {tab.label}

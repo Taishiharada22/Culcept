@@ -1,21 +1,23 @@
 /**
- * Phase 3-N List impl sub-phase 4 — TimelineSpine component
+ * Phase 3-N List impl sub-phase 4 + 8b-9 corrective — TimelineSpine component
  *
- * 設計原則 (= Spec audit §5.2 + §4.3 + 第 11 補正 #1 反映):
- *   - 時間軸を主役にする構造 component (= 左に時刻、 中央 spine line、 右に EventCard)
- *   - 各 event の category color circle で spine と接続
- *   - transition (= 「移動」 chip) は本 sub-phase 4 では inline placeholder (= sub-phase 5 で TransitionChip 専用 component 化)
- *   - 規約 24-extended (= focus surface は EventCard 内で適用、 spine 自体は非 interactive)
+ * 8b-9 大規模 refactor (= CEO + GPT 詳細要件):
+ *   - **1 本の timeline 軸** (= spine column 固定 width、 全 row で icon center / transition dot center / 軸 完全同一 X)
+ *   - **transition row 新設** (= spine 上小 dot + 「移動」 pill 弱め、 card と card の間)
+ *   - **帰宅 (= 最後 event) 以降に spine line 出さない** (= row-internal で線を繋ぐ pattern に refactor)
+ *   - icon center / transition dot center / spine 軸 完全同一 X (= w-12 円中心 = 24px、 spine column 内中央)
+ *   - 線色 neutral gray (= category 色使わず)
+ *   - 線スタイル dashed (= 8b-8 から継続、 mock 整合)
  *
- * UI 責務 (= 構造のみ):
- *   - 時刻 label (= left、 56px width、 tabular-nums、 category color)
- *   - spine line (= 中央、 2px、 slate-200)
- *   - event circle (= 32px、 category color bg、 spine 上 z-10)
- *   - EventCard render (= right、 flex-1)
+ * 設計原則:
+ *   - 時間軸を主役にする構造 component
+ *   - 各 event の category color circle + SVG icon 白抜き
+ *   - 規約 24-extended (= focus surface は EventCard 内、 spine 自体は非 interactive)
  *
  * 設計書:
  *   - docs/alter-plan-list-redesign-spec-audit.md §5.2 + §4.3
  *   - app/(culcept)/plan/components/list/EventCard.tsx
+ *   - app/(culcept)/plan/components/list/TransitionChip.tsx
  *   - lib/plan/list/sourceProvenance.ts
  */
 
@@ -54,9 +56,7 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * 8b-6: meal 専用 SVG icon (= 既存 categoryIconMap には meal 相当なし、 inline 提供)
- *
- * 設計: fork + knife outline、 stroke="currentColor" で text-{color} に追従 (= 白抜き)
+ * 8b-6: meal 専用 SVG icon (= fork + knife outline、 白抜き)
  */
 function MealIcon({ className, size = 16, ariaLabel }: CategoryIconProps): ReactNode {
   const isInteractive = !!ariaLabel;
@@ -76,21 +76,17 @@ function MealIcon({ className, size = 16, ariaLabel }: CategoryIconProps): React
       aria-label={ariaLabel}
       aria-hidden={isInteractive ? undefined : true}
     >
-      {/* Fork (= left): 3 tine + handle */}
       <path d="M7 3 v6" />
       <path d="M9 3 v6" />
       <path d="M11 3 v6 a2 2 0 0 1 -2 2 h-2 a2 2 0 0 1 -2 -2 V3" />
       <path d="M9 11 v10" />
-      {/* Knife (= right): blade + handle */}
       <path d="M17 3 c2 0 3 4 3 8 h-3 v10" />
     </svg>
   );
 }
 
 /**
- * 8b-7 corrective: work 専用 BriefcaseIcon (= 既存 CategoryOfficeIcon が「不適切」 と CEO 指摘)
- *
- * 設計: 美しい briefcase outline、 stroke="currentColor" で 白抜き
+ * 8b-7 corrective: work 専用 Briefcase icon (= handle + body + closure)
  */
 function BriefcaseIcon({ className, size = 16, ariaLabel }: CategoryIconProps): ReactNode {
   const isInteractive = !!ariaLabel;
@@ -110,23 +106,15 @@ function BriefcaseIcon({ className, size = 16, ariaLabel }: CategoryIconProps): 
       aria-label={ariaLabel}
       aria-hidden={isInteractive ? undefined : true}
     >
-      {/* Handle (= top) */}
       <path d="M9 6 V4.5 a1 1 0 0 1 1 -1 h4 a1 1 0 0 1 1 1 V6" />
-      {/* Body (= main rectangle、 rounded corners) */}
       <rect x="3.5" y="6" width="17" height="13" rx="1.5" />
-      {/* Front horizontal split line (= bag closure suggestion) */}
       <path d="M3.5 11 H20.5" />
     </svg>
   );
 }
 
 /**
- * Spine category icon component (= 8b-6/8b-7 corrective、 emoji → SVG component 切替):
- *   - cafe / home / other は既存 SVG icon system 再利用
- *   - meal は MealIcon (= inline、 fork + knife)
- *   - work は BriefcaseIcon (= inline、 8b-7 で CategoryOfficeIcon から差替、 CEO 「不適切」 指摘反映)
- *   - stroke="currentColor" + text-white で **白抜き** 表現
- *   - 全 icon size 統一 (= 16px、 32px circle 内で適切)
+ * Spine category icon component (= 8b-6/8b-7、 SVG 白抜き、 stroke=currentColor で text-white 追従)
  */
 const CATEGORY_ICON_COMPONENT: Record<EventCategory, ComponentType<CategoryIconProps>> = {
   cafe: CategoryCafeIcon,
@@ -137,18 +125,24 @@ const CATEGORY_ICON_COMPONENT: Record<EventCategory, ComponentType<CategoryIconP
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TimelineSpine component
+// TimelineSpine component (= 8b-9 大規模 refactor)
+//
+// Layout (= 3 column structure):
+//   - 左 column (= w-14、 時刻 label)
+//   - 中央 column (= w-12、 spine 軸 + circle/dot 完全中央配置)
+//   - 右 column (= flex-1、 EventCard or TransitionChip)
+//
+// spine line (= 8b-9):
+//   - **各 row 内に縦線を絶対配置** (= row 内 background line)
+//   - 最初 row の top 半分 / 最後 row の bottom 半分 は線出さない (= 帰宅後 line なし)
+//   - 各 row 内で line が連続して見える → 1 本の軸として認識
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export type TimelineSpineProps = {
   readonly events: ReadonlyArray<StrictEventCardViewModel>;
   /**
    * Optional: events 間に挿入する transitions (= 8b-4 追加、 後方互換)
-   *
-   * - undefined or 空配列 → transition render なし (= 既存 sub-phase 4 動作)
-   * - transition.fromTime <= 直前 event.endTime かつ transition.toTime >= 直後 event.startTime に
-   *   合致する transition を、 events 間に時系列順で interleave で render
-   * - 不一致な transition は skip (= silent、 throw しない)
+   * transitions は events 間の transition row として render
    */
   readonly transitions?: ReadonlyArray<TransitionViewModel>;
   /** Optional: event tap handler (= id を受け取る、 詳細 sheet open trigger 等) */
@@ -156,14 +150,16 @@ export type TimelineSpineProps = {
 };
 
 /**
- * TimelineSpine — 時間軸を spine に List 上の event 群を render
+ * TimelineSpine — 時間軸を spine に List 上の event 群を render (= 8b-9 大規模 refactor)
  *
- * 構造:
- *   - 左 column (= 56px): 時刻 label (= 各 event の startTime)
- *   - 中央 column (= 32px circle area): category color circle、 spine line 上
- *   - 右 column (= flex-1): EventCard
+ * 構造 (= 3 column):
+ *   - 左 (= 56px、 時刻)
+ *   - 中央 (= 48px、 spine column、 circle/dot center 完全同一 X)
+ *   - 右 (= flex-1、 EventCard / TransitionChip)
  *
- * spine line は absolute 配置で背景に置く (= 各 row の circle が接続)
+ * spine line (= 中央 column 内に絶対配置、 row-internal):
+ *   - 最初 row の top 半分: line なし (= timeline 開始)
+ *   - 最後 row の bottom 半分: line なし (= 帰宅後 line なし、 CEO 指示)
  */
 export function TimelineSpine({
   events,
@@ -175,10 +171,24 @@ export function TimelineSpine({
       <div
         className="text-sm text-slate-500 py-8 text-center"
         data-testid="plan-list-timeline-spine-empty"
-      >
-        {/* empty timeline (= empty 日)、 EmptyDayEntry は別 component で render (= sub-phase 5) */}
-      </div>
+      />
     );
+  }
+
+  // 各 event の前にある transition を lookup table 化 (= 後で iteration で使用)
+  const transitionBefore: Map<number, TransitionViewModel> = new Map();
+  if (transitions !== undefined && transitions.length > 0) {
+    for (let i = 1; i < events.length; i += 1) {
+      const prev = events[i - 1];
+      const cur = events[i];
+      const prevEnd = prev.endTime ?? prev.startTime;
+      const matched = transitions.find(
+        (t) => t.fromTime === prevEnd && t.toTime === cur.startTime,
+      );
+      if (matched !== undefined) {
+        transitionBefore.set(i, matched);
+      }
+    }
   }
 
   return (
@@ -186,46 +196,42 @@ export function TimelineSpine({
       className="relative"
       data-testid="plan-list-timeline-spine"
     >
-      {/* 8b-6 corrective + 8b-8: spine line position fix (= 56px + 16px gap + 24px = 96px = w-12 circle 中心)
-          8b-8: dashed line (= mock 整合、 solid → dotted dashed vertical) */}
-      <div
-        className="absolute top-6 bottom-6 pointer-events-none border-l border-dashed border-slate-300"
-        style={{ left: '95px' }}
-        aria-hidden="true"
-      />
-
-      <ul className="flex flex-col gap-4 list-none m-0 p-0" role="list">
+      <ul className="flex flex-col list-none m-0 p-0" role="list">
         {events.map((event, index) => {
-          // 8b-4: 直前 event の endTime と現 event の startTime に一致する transition があれば interleave
-          //   - 隣り合う events 間でのみ判定 (= index > 0)
-          //   - transitions が undefined / 空 / 一致なし の場合は何も挟まない (= 後方互換)
-          //   - 「truth なき semantics 主張禁止」 のため、 一致しない transition は silent skip
-          const prevEvent = index > 0 ? events[index - 1] : null;
-          const matchingTransition =
-            prevEvent !== null && prevEvent.endTime !== undefined
-              ? transitions?.find(
-                  (t) =>
-                    t.fromTime === prevEvent.endTime &&
-                    t.toTime === event.startTime,
-                )
-              : undefined;
+          const matchingTransition = transitionBefore.get(index);
+          const isFirstEvent = index === 0;
+          const isLastEvent = index === events.length - 1;
           return (
             <Fragment key={event.id}>
+              {/* transition row (= 前 event との間に「移動」 pill、 spine 上小 dot 含む) */}
               {matchingTransition && (
                 <li
-                  className="relative flex items-center"
+                  className="relative flex items-stretch"
                   role="listitem"
+                  data-testid={`plan-list-spine-transition-row-${matchingTransition.fromTime}-${matchingTransition.toTime}`}
                 >
-                  {/* 左 column 余白 (= 時刻 column 幅と合わせる、 transition 自体は中央に出す) */}
+                  {/* 左 column 空白 */}
                   <div className="w-14 flex-shrink-0" aria-hidden="true" />
-                  {/* 中央 + 右 (= TransitionChip は flex-1 で中央寄せ済) */}
-                  <div className="flex-1 min-w-0">
+                  {/* 中央 column: spine 軸 + 小 dot center */}
+                  <div className="w-12 flex-shrink-0 relative">
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 border-l border-dashed border-slate-300"
+                      aria-hidden="true"
+                    />
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-slate-400"
+                      aria-hidden="true"
+                    />
+                  </div>
+                  {/* 右 column: 「移動」 pill (= TransitionChip)、 card と同じ left に揃う */}
+                  <div className="flex-1 min-w-0 py-2 pl-2">
                     <TransitionChip transition={matchingTransition} />
                   </div>
                 </li>
               )}
+              {/* event row */}
               <li
-                className="relative flex items-start gap-4"
+                className="relative flex items-start"
                 role="listitem"
               >
                 {/* 左 column: 時刻 label */}
@@ -235,22 +241,38 @@ export function TimelineSpine({
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: category circle (= 8b-8 大きく w-8 → w-12、 24px icon)
-                    spine line と circle 中心が一致 (= 88→95 位置調整、 w-12 中心 = 56+16+24) */}
-                <div className="relative flex-shrink-0 z-10 pt-1">
-                  <div
-                    className={`w-12 h-12 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
-                    aria-hidden="true"
-                  >
-                    {(() => {
-                      const Icon = CATEGORY_ICON_COMPONENT[event.category];
-                      return <Icon size={22} className="text-white" />;
-                    })()}
+                {/* 中央 column: spine column (= 48px、 spine line + circle 完全中央配置) */}
+                <div className="w-12 flex-shrink-0 relative pt-1">
+                  {/* spine line top 半分 (= 最初 event は line なし、 timeline 開始) */}
+                  {!isFirstEvent && (
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 top-0 h-1/2 border-l border-dashed border-slate-300"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {/* spine line bottom 半分 (= 最後 event は line なし、 帰宅後線 なし) */}
+                  {!isLastEvent && (
+                    <div
+                      className="absolute left-1/2 -translate-x-1/2 bottom-0 top-1/2 border-l border-dashed border-slate-300"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {/* circle (= z-10 で line と重ねる、 中央 column 内 center) */}
+                  <div className="relative flex justify-center z-10">
+                    <div
+                      className={`w-12 h-12 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-[3px] border-white flex items-center justify-center text-white shadow-sm`}
+                      aria-hidden="true"
+                    >
+                      {(() => {
+                        const Icon = CATEGORY_ICON_COMPONENT[event.category];
+                        return <Icon size={22} className="text-white" />;
+                      })()}
+                    </div>
                   </div>
                 </div>
 
                 {/* 右 column: EventCard */}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 pl-2">
                   <EventCard
                     event={event}
                     onTap={onEventTap ? () => onEventTap(event.id) : undefined}

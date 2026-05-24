@@ -396,7 +396,7 @@ describe("EventCard render contract §7. 8b-6 border + triangle", () => {
     expect(html).not.toContain('border-l-slate-500');
   });
 
-  it("§7.2 cafe → 全周 border-indigo-100 (= 8b-7 で -200 → -100 更に薄く)", () => {
+  it("§7.2 cafe → 全周 border-indigo-300 (= 8b-9 で 反転 -100 → -300、 CEO 「囲み濃く」)", () => {
     const event = createUserEvent({
       id: 'border-2',
       title: 'カフェ',
@@ -404,11 +404,11 @@ describe("EventCard render contract §7. 8b-6 border + triangle", () => {
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
-    expect(html).toContain('border-indigo-100');
-    expect(html).not.toContain('border-indigo-200'); // 旧値否定
+    expect(html).toContain('border-indigo-300');
+    expect(html).not.toContain('border-indigo-100'); // 旧値否定
   });
 
-  it("§7.3 meal → border-orange-100 + 内 triangle border-r-orange-50 + 外周 after:border-r-orange-100", () => {
+  it("§7.3 meal → border-orange-300 + 内 triangle border-r-orange-50 + 外周 after:border-r-orange-300 (= 8b-9)", () => {
     const event = createUserEvent({
       id: 'border-3',
       title: 'ランチ',
@@ -416,9 +416,9 @@ describe("EventCard render contract §7. 8b-6 border + triangle", () => {
       category: 'meal',
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
-    expect(html).toContain('border-orange-100'); // 全周 border 8b-7 薄く
-    expect(html).toContain('before:border-r-orange-50'); // 内 triangle bg
-    expect(html).toContain('after:border-r-orange-100'); // 外周 triangle 8b-7 新規
+    expect(html).toContain('border-orange-300'); // 8b-9 反転 濃く
+    expect(html).toContain('before:border-r-orange-50'); // 内 triangle bg (= 不変)
+    expect(html).toContain('after:border-r-orange-300'); // 外周 triangle 8b-9 反転
   });
 
   it("§7.4 左尖り ::before pseudo-triangle 適用 (= card 延長感、 spine 方向)", () => {

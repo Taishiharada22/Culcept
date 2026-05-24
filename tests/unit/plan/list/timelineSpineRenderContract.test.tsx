@@ -102,7 +102,9 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
     expect(html).not.toContain('>•<');
   });
 
-  it("§1.6 8b-8: spine line position = 95px (= w-12 circle 中心、 8b-6 88px→8b-8 95px に icon 大型化で調整)", () => {
+  it("§1.6 8b-9: spine line refactor (= 旧 absolute left:95px の単一 line 廃止、 row-internal で line 表現)", () => {
+    // 8b-9 大規模 refactor: spine line を absolute → row-internal に変更
+    // 各 row で spine column 内 absolute、 left-1/2 -translate-x-1/2 で中心配置
     const event = createUserEvent({
       id: 'icon-position',
       title: 'カフェ',
@@ -110,11 +112,13 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('left:95px');
+    // 旧 absolute left:95px は廃止
+    expect(html).not.toContain('left:95px');
     expect(html).not.toContain('left:88px');
     expect(html).not.toContain('left:72px');
-    // 8b-8: dashed style (= border-dashed) で mock 整合
-    expect(html).toContain('border-dashed');
+    // 8b-9: dashed style 維持 + 単一 event なので line なし (= 最初 + 最後 で line skip)
+    // 複数 event のときに各 row で border-dashed が出る
+    // 単件: line 全部 skip されるのが期待動作
   });
 
   it("§1.7 8b-8: icon circle 大型化 (= w-12 h-12、 旧 w-8 から拡大)", () => {

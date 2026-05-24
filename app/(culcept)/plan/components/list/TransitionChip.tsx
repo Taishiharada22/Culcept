@@ -1,14 +1,16 @@
 /**
- * Phase 3-N List impl sub-phase 5 + 8b-7/8b-8 corrective — TransitionChip component
+ * Phase 3-N List impl sub-phase 5 + 8b-7/8b-8/8b-9 corrective — TransitionChip component
  *
- * 8b-8 corrective (= CEO + mock 整合):
- *   - mock 形式: 「(移動 capsule) ──── dashed line ──── 時刻」
- *   - 横長 subtle capsule + dashed line + 右端時刻
- *   - timeline spine 上に重なるように TimelineSpine 側で配置
+ * 8b-9 corrective (= CEO + GPT 詳細要件):
+ *   - **「移動」 pill を 予定 card の左端に揃える** (= TimelineSpine の content column 内で render)
+ *   - pill 大きく (= text-xs → text-sm、 padding 増)
+ *   - 中立 gray、 上品で細い
+ *   - card title より明確に弱い
+ *   - 右端時刻は subtle text
  *
  * 設計原則:
  *   - 非 interactive (= div)
- *   - text-xs + text-slate-400/500 (= subtle、 main content 邪魔しない)
+ *   - text-sm + text-slate-500 (= mock 整合)
  *
  * 設計書:
  *   - Spec audit §5.3 + §19.6 + §19.12
@@ -27,13 +29,15 @@ export type TransitionChipProps = {
 };
 
 /**
- * TransitionChip — event 間の余白表現 (= 8b-8 mock 整合)
+ * TransitionChip — event 間の余白表現 (= 8b-9 mock 整合 + card 左端揃え)
  *
  * 構造:
- *   - 左: capsule label (= rounded-full + bg-white + border-slate-200 + text-xs text-slate-500)
+ *   - 左: capsule label (= rounded-full + bg-white + border-slate-200 + text-sm text-slate-500)
  *   - 中: dashed line (= flex-1、 border-t-dashed border-slate-300)
- *   - 右: 時刻 range (= text-xs text-slate-400 tabular-nums)
+ *   - 右: 時刻 range 薄く (= text-xs text-slate-400 tabular-nums)
  *   - non-interactive (= div)
+ *
+ * TimelineSpine 内で右 column に配置されるため、 card と同 left edge に並ぶ
  */
 export function TransitionChip({ transition }: TransitionChipProps): ReactNode {
   const { fromTime, toTime, label } = transition;
@@ -41,12 +45,12 @@ export function TransitionChip({ transition }: TransitionChipProps): ReactNode {
 
   return (
     <div
-      className="flex items-center gap-2 py-1"
+      className="flex items-center gap-2"
       data-testid={`plan-list-transition-${fromTime}-${toTime}`}
       aria-label={`transition: ${label} ${timeRange}`}
     >
-      {/* 左: capsule label (= 白背景 + 細枠 + subtle text) */}
-      <span className="rounded-full bg-white border border-slate-200 px-3 py-0.5 text-xs text-slate-500">
+      {/* 左: capsule label (= 8b-9 大きく text-sm + padding 増、 白背景 + 細枠) */}
+      <span className="rounded-full bg-white border border-slate-200 px-4 py-1 text-sm text-slate-500">
         {label}
       </span>
       {/* 中: dashed line */}
