@@ -479,6 +479,8 @@ export function MapTab({
         }
         // 9a-impl: 8 場面表準拠 handler を flag ON 時のみ差し替え
         onPinClick={MAP_NEW_SURFACE_ENABLED ? handleNewPinTap : handlePinTap}
+        // 9a-impl-fix1: background tap (= 場面 #7、 newMode 専用) → selected 解除
+        onBackgroundClick={MAP_NEW_SURFACE_ENABLED ? handleNewSheetClose : undefined}
         // 9a-impl: PlanMapView 内 controls + visual 補正用 flag
         newMode={MAP_NEW_SURFACE_ENABLED}
       />
@@ -700,6 +702,7 @@ function PlanMapView({
   anchorsWithoutPinCount,
   selectedAnchorId,
   onPinClick,
+  onBackgroundClick,
   newMode = false,
 }: {
   pins: AnchorWithCoord[];
@@ -712,6 +715,12 @@ function PlanMapView({
   selectedAnchorId: string | null;
   onPinClick?: (anchor: ExternalAnchor) => void;
   /**
+   * 9a-impl-fix1: background tap handler (= 8 場面表 #7 「map 余白 tap → selected 解除」)
+   *   newMode 専用、 OFF path では undefined のまま (= 既存挙動完全不変)。
+   *   marker click は別 listener で消費されるため、 本 handler は marker 外 tap のみ発火。
+   */
+  onBackgroundClick?: () => void;
+  /**
    * 9a-impl: 新 surface mode flag (= MAP_NEW_SURFACE_ENABLED 由来)
    * - false (default): 既存挙動完全維持 (= disableDefaultUI=true、 既存 marker scale)
    * - true: zoomControl 有効 + 現在地 button + marker visual 弱補正 (= scale+2 + shadow + z-index)
@@ -723,6 +732,9 @@ function PlanMapView({
   const mapInstanceRef = useRef<GmapsMap | null>(null);
   const onPinClickRef = useRef(onPinClick);
   onPinClickRef.current = onPinClick;
+  // 9a-impl-fix1: background click handler ref (= Effect 1 内 listener が prop 変化に追従)
+  const onBackgroundClickRef = useRef(onBackgroundClick);
+  onBackgroundClickRef.current = onBackgroundClick;
 
   // ── selected day の active categories (legend 用、hooks rule で early return 前に declare) ──
   const activeCategories = useMemo(() => {
@@ -760,7 +772,25 @@ function PlanMapView({
     });
     mapInstanceRef.current = map;
 
+    // 9a-impl-fix1: background tap → selected 解除 (= 8 場面表 #7、 仕様確定済み実装漏れ補強)
+    //   newMode 専用、 OFF path では listener 不 attach (= 既存挙動完全不変)。
+    //   Google Maps の `click` event は marker click を消費した後のみ発火 (= marker tap で誤発火しない)。
+    //   handler は ref 経由で prop 変化に追従 (= Effect 1 は 1 度だけ実行されるため)。
+    //
+    //   型注記: GmapsMap interface に addListener が未公開のため、 実 Google Maps Map class の
+    //   公開 method として local cast (= googleMapsLoader.ts 不触、 frozen file 制約遵守)。
+    type MapWithListener = GmapsMap & {
+      addListener: (event: string, handler: () => void) => { remove: () => void };
+    };
+    let backgroundClickListener: { remove: () => void } | null = null;
+    if (newMode) {
+      backgroundClickListener = (map as MapWithListener).addListener("click", () => {
+        onBackgroundClickRef.current?.();
+      });
+    }
+
     return () => {
+      backgroundClickListener?.remove();
       mapInstanceRef.current = null;
     };
   }, [keyAvailable, ready, newMode]);
