@@ -90,6 +90,14 @@ import {
   type LivedGeographyFallback,
 } from "@/lib/plan/livedGeographyFallback";
 
+// ── Phase 3-N Map impl sub-phase 9a-impl: flag + 新 surface ──
+//   既存 OFF path は不変、 flag ON 時のみ 新 BottomSheet 表示 + 旧 UI 群非表示。
+//   state は完全分離 (= newSelectedPinId 専用、 legacy selectedAnchorId と相互参照禁止)。
+import { MAP_NEW_SURFACE_ENABLED } from "@/lib/plan/map/featureFlags";
+import { MapBottomSheet } from "@/components/plan/map/MapBottomSheet";
+import { convertExternalAnchorToMapSheet } from "@/lib/plan/map/adapters/externalAnchorMapAdapter";
+import type { MapSheetViewModel } from "@/lib/plan/map/types";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
@@ -189,6 +197,11 @@ export function MapTab({
   // ── selectedAnchorId state (mockup の "tap で詳細" UX、bottom card で表示中の anchor) ──
   const [selectedAnchorId, setSelectedAnchorId] = useState<string | null>(null);
 
+  // ── Phase 3-N 9a-impl: 新 selected pin state (= 完全分離、 default null、 legacy fallback 漏れ込み禁止) ──
+  // legacy `selectedAnchorId` は default fallback で dayAnchors[0] に auto-set される (旧 UX)。
+  // 新 `newSelectedPinId` は 8 場面表準拠で 「初期 = なし」 を厳守 (= CEO + GPT 着手判断条件 A)。
+  const [newSelectedPinId, setNewSelectedPinId] = useState<string | null>(null);
+
   // ── CategoryGrid 用 window (14 日固定、anchor 集計 context) ──
   const aggregateEnd = useMemo(
     () => addDays(todayDate, CATEGORY_AGGREGATE_WINDOW_DAYS - 1),
@@ -267,23 +280,51 @@ export function MapTab({
   );
 
   // ── day switcher handlers (day 切替で selected anchor リセット) ──
+  // 9a-impl: legacy `selectedAnchorId` + 新 `newSelectedPinId` 両方 reset (= 8 場面表 #5 「day switch → 解除」)
   const handlePrevDay = () => {
     setSelectedDate((d) => addDays(d, -1));
     setSelectedAnchorId(null);
+    setNewSelectedPinId(null);
   };
   const handleNextDay = () => {
     setSelectedDate((d) => addDays(d, 1));
     setSelectedAnchorId(null);
+    setNewSelectedPinId(null);
   };
   const handleGoToday = () => {
     setSelectedDate(todayDate);
     setSelectedAnchorId(null);
+    setNewSelectedPinId(null);
   };
 
   // ── pin tap → bottom card 表示切替 (and AnchorDetailModal は別 button から起動) ──
   const handlePinTap = (anchor: ExternalAnchor) => {
     setSelectedAnchorId(anchor.id);
   };
+
+  // ── 9a-impl: 新 pin tap handler (= 8 場面表準拠、 同 pin = no-op / 別 pin = 切替) ──
+  // legacy `handlePinTap` とは別。 state も `newSelectedPinId` 専用、 fallback なし。
+  const handleNewPinTap = (anchor: ExternalAnchor) => {
+    setNewSelectedPinId((prev) => {
+      if (prev === anchor.id) return prev; // 場面 #3: 同 pin 再 tap → no-op
+      return anchor.id; // 場面 #2/#8: pin tap (= 初回 or 別 pin) → 切替
+    });
+  };
+
+  // ── 9a-impl: sheet close handler (= 場面 #4 「sheet close → 解除」) ──
+  const handleNewSheetClose = () => {
+    setNewSelectedPinId(null);
+  };
+
+  // ── 9a-impl: 新 sheet view model (= newSelectedPinId 由来、 default null、 legacy fallback 不参照) ──
+  // newSelectedPinId が dayAnchors に存在しない場合は null (= sheet 非表示)。
+  const newSheet = useMemo<MapSheetViewModel | null>(() => {
+    if (!MAP_NEW_SURFACE_ENABLED) return null;
+    if (!newSelectedPinId) return null;
+    const anchor = dayAnchors.find((a) => a.id === newSelectedPinId);
+    if (!anchor) return null;
+    return convertExternalAnchorToMapSheet(anchor);
+  }, [newSelectedPinId, dayAnchors]);
 
   // ── 現在 bottom card で表示する anchor (default = day の最初の anchor) ──
   const selectedAnchorForCard = useMemo<ExternalAnchor | null>(() => {
@@ -430,10 +471,30 @@ export function MapTab({
         loading={loading}
         apiAvailable={apiAvailable}
         anchorsWithoutPinCount={anchorsWithoutPin.length}
-        selectedAnchorId={selectedAnchorForCard?.id ?? null}
-        onPinClick={handlePinTap}
+        // 9a-impl: state 完全分離 (= flag ON path は newSelectedPinId、 OFF path は legacy)
+        selectedAnchorId={
+          MAP_NEW_SURFACE_ENABLED
+            ? newSelectedPinId
+            : selectedAnchorForCard?.id ?? null
+        }
+        // 9a-impl: 8 場面表準拠 handler を flag ON 時のみ差し替え
+        onPinClick={MAP_NEW_SURFACE_ENABLED ? handleNewPinTap : handlePinTap}
+        // 9a-impl: PlanMapView 内 controls + visual 補正用 flag
+        newMode={MAP_NEW_SURFACE_ENABLED}
       />
 
+      {/* 9a-impl 新 BottomSheet (= flag ON、 half 固定、 close 明示) */}
+      {MAP_NEW_SURFACE_ENABLED && (
+        <MapBottomSheet sheet={newSheet} onClose={handleNewSheetClose} />
+      )}
+
+      {/* 9a-impl: flag ON 時は 旧 UI 群 (= SelectedAnchorCard / DayGraph / CategoryGrid /
+       *   UnresolvedAnchorsSection / StaticAlterSuggestionCard / FAB) を非表示。
+       *   sheet が主戦場、 map 上は軽く、 の spec v3 §0 整合。
+       *   旧 file 本体は残し、 描画のみ flag で gate (= 9 closeout で一括削除予定)。
+       */}
+      {!MAP_NEW_SURFACE_ENABLED && (
+        <>
       {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button
        *
        * Phase 3-J-6d: proposal hint props pass-through。
@@ -532,6 +593,8 @@ export function MapTab({
         >
           +
         </button>
+      )}
+        </>
       )}
     </div>
   );
@@ -637,6 +700,7 @@ function PlanMapView({
   anchorsWithoutPinCount,
   selectedAnchorId,
   onPinClick,
+  newMode = false,
 }: {
   pins: AnchorWithCoord[];
   baselineCoords: BaselineCoords | null;
@@ -647,6 +711,12 @@ function PlanMapView({
   /** 現在 selected な anchor id (= bottom card で表示中)、pin marker emphasis 用 */
   selectedAnchorId: string | null;
   onPinClick?: (anchor: ExternalAnchor) => void;
+  /**
+   * 9a-impl: 新 surface mode flag (= MAP_NEW_SURFACE_ENABLED 由来)
+   * - false (default): 既存挙動完全維持 (= disableDefaultUI=true、 既存 marker scale)
+   * - true: zoomControl 有効 + 現在地 button + marker visual 弱補正 (= scale+2 + shadow + z-index)
+   */
+  newMode?: boolean;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -677,9 +747,13 @@ function PlanMapView({
     const maps = window.google?.maps;
     if (!maps) return;
 
+    // 9a-impl: newMode の時のみ zoomControl 有効化 (= CEO + GPT 着手条件 B 「controls 維持」)
+    //   既存 OFF path は disableDefaultUI=true で全 controls 非表示 (= 不変)
+    //   ON path は zoom +/- を残す (= 最小限 map 体験を担保)、 current location は別 button で実装
     const map: GmapsMap = new maps.Map(el, {
       gestureHandling: "cooperative",
       disableDefaultUI: true,
+      ...(newMode ? { zoomControl: true } : {}),
       clickableIcons: false,
       center: TEMPORARY_FALLBACK_MAP_CENTER,
       zoom: TEMPORARY_FALLBACK_MAP_ZOOM,
@@ -689,7 +763,7 @@ function PlanMapView({
     return () => {
       mapInstanceRef.current = null;
     };
-  }, [keyAvailable, ready]);
+  }, [keyAvailable, ready, newMode]);
 
   // ─── Effect 2: pins / baseline 変化に応じて center/zoom + markers を update ───
   //
@@ -776,6 +850,11 @@ function PlanMapView({
       });
     }
 
+    // 9a-impl: 番号 label 用 (= 時刻順、 selected ラベルに "1·09:00" 形式で含む)
+    //   sortedPins は polyline 用と同じく時刻 ascending、 pin id → order map で marker 内引き
+    const orderById = new Map<string, number>();
+    sortedPins.forEach((p, i) => orderById.set(p.anchor.id, i + 1));
+
     // ── markers (pin label 含む) ──
     const markers: GmapsMarker[] = [];
     for (const pin of pins) {
@@ -785,8 +864,16 @@ function PlanMapView({
 
       const isSelected = pin.anchor.id === selectedAnchorId;
       // selected pin は scale 大きめで強調 (mockup の "tap で詳細" UX 整合)
+      //   - OFF path (legacy): selected = baseScale + 4 (大きく強調)
+      //   - ON path (9a-impl): selected = baseScale + 2 (= CEO + GPT 「強すぎない first-pass」、 軽い scale up)
       const baseScale = pin.kind === "resolved" ? 12 : 10;
-      const scale = isSelected ? baseScale + 4 : baseScale;
+      const selectedOffset = newMode ? 2 : 4;
+      const scale = isSelected ? baseScale + selectedOffset : baseScale;
+
+      // 9a-impl: ON path で selected pin に shadow 強化 substitute (= strokeWeight bump)
+      //   Google Maps Marker は直接 box-shadow 不可、 stroke 太さで「際立ち」 を演出
+      const baseStrokeResolved = newMode && isSelected ? 3 : 2;
+      const baseStrokeBaseline = newMode && isSelected ? 3.5 : 2.5;
 
       // resolved = filled circle、baseline = hollow circle (approximate)
       const iconStyle =
@@ -797,7 +884,7 @@ function PlanMapView({
               fillColor: markerSpec.color,
               fillOpacity: 1,
               strokeColor: "#ffffff",
-              strokeWeight: 2,
+              strokeWeight: baseStrokeResolved,
               // label を pin の下に表示 (mockup の "time + name" box style に近い)
               labelOrigin: new maps.Point(0, scale + 12),
             }
@@ -807,7 +894,7 @@ function PlanMapView({
               fillColor: "#ffffff",
               fillOpacity: 0.95,
               strokeColor: markerSpec.color,
-              strokeWeight: 2.5,
+              strokeWeight: baseStrokeBaseline,
               labelOrigin: new maps.Point(0, scale + 12),
             };
 
@@ -822,9 +909,16 @@ function PlanMapView({
             ? `${baseTitle} (場所未定 — 最近の場所傾向の仮置き)`
             : baseTitle;
 
-      // pin label = 時刻 ("09:00")。mockup の "time + name" box は OverlayView 別途必要だが、
-      // marker.label で minimum viable 時刻表示。name は marker.title (hover) と bottom card で見れる。
-      const labelText = formatTime(pin.anchor.startTime);
+      // pin label = 時刻 ("09:00")。
+      //   OFF path (legacy): 全 pin 時刻表示 (= 既存挙動)
+      //   ON path (9a-impl): selected pin のみ label 表示 (= GPT/CEO 「selected 時のみラベル」)、
+      //     format = "{order}·{time}" (= 番号 + 時刻)、 unselected は label 空文字 (= 番号も非表示、 「map 上は軽く」)
+      const order = orderById.get(pin.anchor.id) ?? 0;
+      const labelText = newMode
+        ? isSelected
+          ? `${order}·${formatTime(pin.anchor.startTime)}`
+          : ""
+        : formatTime(pin.anchor.startTime);
 
       const marker = new maps.Marker({
         map,
@@ -837,6 +931,8 @@ function PlanMapView({
           fontSize: isSelected ? "12px" : "11px",
           fontWeight: "600",
         },
+        // 9a-impl: ON path + selected で z-index 上昇 (= CEO/GPT 「z-index 上昇」)
+        ...(newMode && isSelected ? { zIndex: 100 } : {}),
       });
       marker.addListener("click", () => {
         onPinClickRef.current?.(pin.anchor);
@@ -849,7 +945,7 @@ function PlanMapView({
       for (const m of markers) m.setMap(null);
       polyline?.setMap(null);
     };
-  }, [pins, baselineCoords, selectedAnchorId]);
+  }, [pins, baselineCoords, selectedAnchorId, newMode]);
 
   // ─── render: keyAvailable=false / script 未 ready のみ placeholder、それ以外は Map 本体 ───
 
@@ -911,6 +1007,25 @@ function PlanMapView({
     return null;
   })();
 
+  // 9a-impl: 現在地 button handler (= newMode 専用、 navigator.geolocation で center 移動)
+  //   CEO + GPT 着手条件 B 「controls 維持」 整合: zoom (= Maps native) + current location (= 自前) を 9a でも残す
+  //   失敗時は silent (= permission denied / unavailable で UI 不変)
+  const handleGoToCurrentLocation = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const map = mapInstanceRef.current;
+        if (!map) return;
+        // setCenter のみ使用 (= GmapsMap 型 contract、 panTo は未公開)
+        map.setCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
+      () => {
+        /* silent fail (= permission denied 等) */
+      },
+      { timeout: 8000 },
+    );
+  }, []);
+
   return (
     <div className="relative w-full mb-4">
       <div
@@ -921,6 +1036,35 @@ function PlanMapView({
         className="w-full rounded-2xl overflow-hidden border border-slate-200"
         style={{ height: `${MAP_HEIGHT_PX}px` }}
       />
+      {/* 9a-impl: 現在地 button (= newMode のみ、 右下 absolute、 minimal UI) */}
+      {newMode && (
+        <button
+          type="button"
+          onClick={handleGoToCurrentLocation}
+          aria-label="現在地を中心に表示"
+          data-testid="plan-map-current-location"
+          className="absolute right-3 bottom-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-700 shadow-md transition hover:bg-slate-50 focus:outline-none focus-visible:border focus-visible:border-slate-300"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width={20}
+            height={20}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden={true}
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2 v3" />
+            <path d="M12 19 v3" />
+            <path d="M2 12 h3" />
+            <path d="M19 12 h3" />
+          </svg>
+        </button>
+      )}
       {overlay && (
         <div
           data-testid={overlay.testId}
@@ -935,8 +1079,10 @@ function PlanMapView({
         </div>
       )}
 
-      {/* Category legend overlay (mockup: bottom-left、active categories のみ) */}
-      {activeCategories.length > 0 && (
+      {/* Category legend overlay (mockup: bottom-left、active categories のみ)
+       *  9a-impl: newMode では非表示 (= 「map 上は軽く」 spec v3 §0、 sheet が主戦場)
+       */}
+      {!newMode && activeCategories.length > 0 && (
         <div
           data-testid="plan-map-legend"
           aria-label="カテゴリ凡例"
