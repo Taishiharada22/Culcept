@@ -46,6 +46,21 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
   other: 'text-slate-600',
 };
 
+/**
+ * Spine category icon (= 8b-3 追加、 timeline 節点マーカー):
+ *   - 各 category に emoji icon を spine circle 内に配置
+ *   - カテゴリ認識の最短経路 (= 視覚処理 < 1ms、 GPT 「アイコンは飾りではなく節点マーカー」 整合)
+ *   - 'other' は ·  (= 中点、 中立)
+ *   - aria-hidden (= テキスト等価情報は EventCard 内に存在)
+ */
+const CATEGORY_ICON: Record<EventCategory, string> = {
+  cafe: '☕',
+  meal: '🍴',
+  work: '💼',
+  home: '🏠',
+  other: '·',
+};
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // TimelineSpine component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -104,12 +119,14 @@ export function TimelineSpine({ events, onEventTap }: TimelineSpineProps): React
               {event.startTime}
             </div>
 
-            {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) */}
+            {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー) */}
             <div className="relative flex-shrink-0 z-10 pt-2">
               <div
-                className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white`}
+                className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-sm leading-none`}
                 aria-hidden="true"
-              />
+              >
+                {CATEGORY_ICON[event.category]}
+              </div>
             </div>
 
             {/* 右 column: EventCard */}

@@ -296,3 +296,64 @@ describe("EventCard render contract §5. focus-visible slate (= 規約 24-extend
     expect(html).toContain('focus:outline-none');
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §6 semantic tint (= 8b-3 追加、 CEO + GPT mock 整合、 「白い箱」 感の解消)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("EventCard render contract §6. semantic tint (= 8b-3)", () => {
+  it("§6.1 cafe → bg-indigo-50", () => {
+    const event = createUserEvent({
+      id: 'tint-cafe',
+      title: 'カフェ',
+      startTime: '09:00',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('bg-indigo-50');
+  });
+
+  it("§6.2 meal → bg-orange-50", () => {
+    const event = createUserEvent({
+      id: 'tint-meal',
+      title: 'ランチ',
+      startTime: '12:00',
+      category: 'meal',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('bg-orange-50');
+  });
+
+  it("§6.3 work → bg-blue-50", () => {
+    const event = createUserEvent({
+      id: 'tint-work',
+      title: 'オフィス',
+      startTime: '14:00',
+      category: 'work',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('bg-blue-50');
+  });
+
+  it("§6.4 home → bg-emerald-50", () => {
+    const event = createUserEvent({
+      id: 'tint-home',
+      title: '帰宅',
+      startTime: '18:30',
+      category: 'home',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('bg-emerald-50');
+  });
+
+  it("§6.5 other → bg-white (= 中立、 default)", () => {
+    const event = createUserEvent({
+      id: 'tint-other',
+      title: 'その他',
+      startTime: '10:00',
+      category: 'other',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('bg-white');
+  });
+});

@@ -53,6 +53,24 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
   other: 'text-slate-600',
 };
 
+/**
+ * Semantic tint (= 8b-3 追加、 CEO + GPT 合議 2026-05-24):
+ *   - 各 category に薄い背景色を付与 (= mock 整合、 「白い箱」 感の解消)
+ *   - 上品な低彩度 (= -50 系)、 ノイズにならない最小限の温度感
+ *   - 'other' は default 白 (= bg-white、 中立)
+ *
+ * 第 12 補正 #2 hierarchy との整合:
+ *   - tint は origin axis ではなく content axis (= category 認識補助)
+ *   - SourceIndicator (= origin 表示) と並立、 干渉なし
+ */
+const CATEGORY_BG_CLASS: Record<EventCategory, string> = {
+  cafe: 'bg-indigo-50',
+  meal: 'bg-orange-50',
+  work: 'bg-blue-50',
+  home: 'bg-emerald-50',
+  other: 'bg-white',
+};
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // EventCard component
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -74,10 +92,11 @@ export type EventCardProps = {
 export function EventCard({ event, onTap }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
 
-  // container class
+  // container class (= 8b-3 で semantic tint 追加、 white → category 別薄背景)
   const containerClass = [
     "block w-full text-left",
-    "rounded-2xl bg-white",
+    "rounded-2xl",
+    CATEGORY_BG_CLASS[event.category],
     "border-l-4",
     CATEGORY_BORDER_CLASS[event.category],
     "border border-slate-100",
