@@ -13092,3 +13092,65 @@ Wave 3 + 3a closeout audit `f6ac65d4` 着地後、 CEO 判断 (= 「今回の報
 - **ステータス**: N-3 plan audit 着地 (= `04ccca51`)。 N-3a 最小 scope 確定 (= pure layer のみ、 既存 file 不触)。 N-3a 実装着手は CEO 判断後。 merge 戦略は /plan complete まで frozen 維持 (= 戦略 C 確定)。
 
 ---
+
+## 2026-05-24 [Build/Product] Plan List / Map Design Redesign Direction Audit 採用 (= CEO + GPT 第 1-5 補正反映、 11 必須拘束条件確定、 IA Audit 進行承認) [承認: CEO + GPT 第 5 補正後最終判定]
+
+### 背景
+
+N-3a impl `d55aab5f` 着地後、 CEO 共有参考画像 2 枚 + GPT design audit + 既存 plan UI を統合した design redesign direction audit を着地 (= 計 6 commit、 累計 5 補正反映)。 CEO + GPT 第 5 補正後最終判定で **採用** 確定。
+
+### 6 commit 履歴 (= 累計 5 補正反映)
+
+| commit | 内容 | doc 行数 |
+|---|---|---|
+| `28c03646` | direction 初回着地 (= 自律推論 + GPT 監査統合) | 842 |
+| `70720d59` | 初回 copy 確定 (= 過剰 framing) | 938 |
+| `0a4f2619` | **第 2 補正** (= revert + 「Alter Planning」 + IA Audit 先行) | 998 |
+| `9c0f8d62` | **第 3 補正** (= 北極星二層 + 外部データ取り込み復活 + 「マップ」 統一) | 1133 |
+| `47da95c1` | **第 4 補正** (= 北極星主従明示 + 3 source 共存 + Event Execution Layer) | 1312 |
+| `e99406ce` | **第 5 補正** (= 11 必須拘束条件で IA Audit 完了基準明示) | 1379 |
+
+### CEO + GPT 最終評価 (= 第 5 補正後)
+
+> 「今回はかなり良いです。 前回までの弱点は、 ほぼ必要十分に潰せています。 『話していた内容が取り込まれているか』 という観点では、 合格寄りです。」
+
+**特に評価された点**:
+1. 北極星が「観測」 単独ではなく、 「**生成・反映が主、 観測・編集が体験面**」 に修正
+2. シフト表 / 時間割 / PDF / 画像などの外部データ取り込みが復活
+3. UI 名称が「マップ」 に寄った
+4. Event Execution Layer が 6 分類 / 5 付与条件 / 10 軸 / UI 3 層まで整理
+5. 3 source 共存と Event Execution Layer が、 単なる future scope ではなく IA Audit の **必須拘束条件** になった
+
+### 2 留意点 (= IA Audit で守るべき)
+
+1. **これは「取り込み完了」 ではなく、 「次の IA Audit で必ず落とし切る拘束条件化に成功した」 段階**
+2. **Event Execution Layer の自律追加 6 案は面白いが、 IA Audit では全部を first-class にせず、 核と拡張候補を分ける**
+
+### 確定事項 (= direction audit から IA Audit への bridge)
+
+| 確定項目 | 出典 |
+|---|---|
+| 北極星 二層構造 (= 生成・反映 主 / 観測・編集 体験面) | §6.1 + §6.1.5 + §6.1.6 |
+| Copy contract 14 項目 (= 3 件変更 / 11 件維持) | §11.5 |
+| 用語統一 (= UI 「マップ」、 内部 「空間軸」) | §11.5.5 + §9.3.4 |
+| 外部データ取り込み future scope | §10.5 |
+| 自律 planning engine future scope | §10.6 |
+| Event Execution Layer future scope | §10.7 |
+| 3 source 共存 5 必須拘束条件 | §13.1.6 |
+| Event Execution Layer 6 必須拘束条件 | §13.1.7 |
+| IA Audit 完了判定基準 | §13.1.8 |
+| 実装順序 16 phase (= IA Audit 先行 / design system 最後) | §13.1 |
+
+### 次 (= CEO 承認済進行)
+
+- **List / Map Information Architecture Audit** (= 北極星補正版、 11 必須拘束条件確定版) に進行 (= 別 audit / 別 branch)
+- IA Audit は 11 拘束条件 + 2 留意点 (= 核+拡張分離) を遵守
+- IA Audit 完了後 → List Redesign Spec → impl → Map Redesign Spec → impl → Design System Extraction
+- merge: 引き続き /plan complete まで frozen 維持
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 5 補正後最終判定 (= 2026-05-24、 「今回は採用でよいです。 次は北極星補正版 List / Map Information Architecture Audit に進んでください」)
+- **ステータス**: Direction audit **採用確定**。 IA Audit 着手承認済。 doc 1379 lines、 19 section、 5 補正履歴反映済。 6 commit 全 frozen 候補 (= /plan complete まで)。
+
+---
