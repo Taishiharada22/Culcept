@@ -74,6 +74,8 @@ import {
   computeFirstUseDateFromAnchors,
   groupProposalsByDate,
 } from "@/lib/plan/proposal/planClientProposalHelpers";
+// 8b-7-B: List 新表示 flag (= header/subtitle/button/bg を flag ON で mock 整合に切替)
+import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
 import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
 // J-6e-3: accept transaction + Quiet Undo Window
 import { acceptProposal } from "@/lib/plan/proposal/acceptProposal";
@@ -599,12 +601,14 @@ export default function PlanClient({
     void load();
   };
 
-  // ── chrome 出し分け (Phase 1) ──
-  // route mode: min-h-screen + white→slate gradient + full header chrome
-  // pane mode : h-full overflow-y-auto + 薄紫 gradient + 簡素 chrome
+  // ── chrome 出し分け (Phase 1 + 8b-7-B mock 整合) ──
+  // route mode: min-h-screen + 上品な白背景 (= 8b-7-B、 flag ON で gradient 廃止)
+  // pane mode : h-full overflow-y-auto + 薄紫 gradient + 簡素 chrome (= 既存維持)
   const containerClass = isPane
     ? "h-full overflow-y-auto bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30 px-4 py-6"
-    : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
+    : LIST_NEW_TIMELINE_ENABLED
+      ? "min-h-screen bg-white px-4 py-8" // 8b-7-B: 上品な白
+      : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
 
   return (
     <main className={containerClass} data-display-mode={displayMode}>
@@ -625,20 +629,31 @@ export default function PlanClient({
               ? "text-3xl font-semibold text-slate-900"
               : "text-2xl font-bold text-slate-900"
           }>
-            {isPane ? "Plan" : "あなたの生活、3 つのレンズ"}
+            {/* 8b-7-B: header 文言 mock 整合 (= flag ON で 「当日のプラン」 / OFF で旧文言) */}
+            {isPane
+              ? "Plan"
+              : LIST_NEW_TIMELINE_ENABLED
+                ? "当日のプラン"
+                : "あなたの生活、3 つのレンズ"}
           </h1>
           <div className="flex gap-2">
             <GlassButton size="sm" variant="primary" onClick={() => openAdd()}>
               + 教える
             </GlassButton>
-            <GlassButton size="sm" variant="secondary" onClick={() => setListOpen(true)}>
-              📋 教えた予定
-            </GlassButton>
+            {/* 8b-7-B: 「教えた予定」 button は flag ON で非表示 (= CEO 「いらない、 消してください」) */}
+            {!LIST_NEW_TIMELINE_ENABLED && (
+              <GlassButton size="sm" variant="secondary" onClick={() => setListOpen(true)}>
+                📋 教えた予定
+              </GlassButton>
+            )}
           </div>
         </div>
         {!isPane && (
           <p className="mt-2 text-sm text-slate-500">
-            同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。
+            {/* 8b-7-B: subtitle mock 整合 (= flag ON で 「時間の流れを把握して、心地よい1日に。」) */}
+            {LIST_NEW_TIMELINE_ENABLED
+              ? "時間の流れを把握して、心地よい1日に。"
+              : "同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。"}
           </p>
         )}
       </header>

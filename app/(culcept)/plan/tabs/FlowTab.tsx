@@ -289,10 +289,58 @@ export function FlowTab({
     });
   };
 
+  // 8b-7-B: 1 日表示用 selectedIso state (= flag ON で 1 日のみ表示 + 左右 nav)
+  //   default: today。 flag OFF では完全に使われない (= 既存 7 日縦並び維持)
+  const [selectedIso, setSelectedIso] = useState<string>(isoDate(today));
+  const selectedIndex = days.findIndex((d) => isoDate(d) === selectedIso);
+  const safeSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0;
+  const canGoPrev = safeSelectedIndex > 0;
+  const canGoNext = safeSelectedIndex < days.length - 1;
+  const handleGoPrev = () => {
+    if (canGoPrev) setSelectedIso(isoDate(days[safeSelectedIndex - 1]));
+  };
+  const handleGoNext = () => {
+    if (canGoNext) setSelectedIso(isoDate(days[safeSelectedIndex + 1]));
+  };
+  // 8b-7-B: flag ON 時は selectedDay 1 件のみ render、 OFF 時は 7 day 全件
+  const daysToRender = LIST_NEW_TIMELINE_ENABLED
+    ? days.slice(safeSelectedIndex, safeSelectedIndex + 1)
+    : days;
+  const selectedDay = days[safeSelectedIndex];
+
   return (
     <div data-testid="plan-flow-tab" className="relative pb-24">
-      {/* 7-day list (各日 = FlowDaySection、sticky header 内蔵) */}
-      {days.map((day) => {
+      {/* 8b-7-B: 1 日表示時の date picker (= flag ON のみ、 中央 日付 + 左右 nav) */}
+      {LIST_NEW_TIMELINE_ENABLED && selectedDay && (
+        <div
+          className="mx-auto mb-4 max-w-3xl flex items-center justify-center gap-4 px-4 py-3 rounded-2xl border border-slate-100 bg-white shadow-sm"
+          data-testid="plan-flow-date-picker"
+        >
+          <button
+            type="button"
+            onClick={handleGoPrev}
+            disabled={!canGoPrev}
+            aria-label="前日"
+            className="px-3 py-1 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors"
+          >
+            ‹
+          </button>
+          <span className="text-sm font-medium text-slate-700 tabular-nums">
+            📅 {formatJpDate(selectedDay)}
+          </span>
+          <button
+            type="button"
+            onClick={handleGoNext}
+            disabled={!canGoNext}
+            aria-label="翌日"
+            className="px-3 py-1 rounded-md text-slate-500 hover:bg-slate-50 disabled:opacity-30 focus:outline-none focus-visible:border-slate-300 border border-transparent transition-colors"
+          >
+            ›
+          </button>
+        </div>
+      )}
+      {/* 8b-7-B: flag ON で 1 日のみ、 OFF で 7 day 全件 (= 既存) */}
+      {daysToRender.map((day) => {
         const iso = isoDate(day);
         const dayAnchors = dayAnchorsMap.get(iso) ?? [];
         const dayOverlaps = dayOverlapsMap.get(iso) ?? new Set<string>();
