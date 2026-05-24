@@ -71,7 +71,7 @@ describe("EventCard render contract §1. primary 情報", () => {
     expect(html).not.toMatch(/12:00-/);
   });
 
-  it("§1.3 場所 / Alter 補助文 が optional (= 出さない時は HTML に含まれない)", () => {
+  it("§1.3 場所 / Alter 補助文 が optional (= 出さない時は HTML に含まれない、 8b-6: 📍 廃止確認)", () => {
     const event = createUserEvent({
       id: 'e3',
       title: 'minimal',
@@ -80,9 +80,26 @@ describe("EventCard render contract §1. primary 情報", () => {
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
     expect(html).toContain('minimal');
+    // 8b-6: 📍 emoji 廃止、 SVG pin に切替済
     expect(html).not.toContain('📍');
     // user origin で alterNote なし → ✨ も出ない (= SourceIndicator も null)
     expect(html).not.toContain('✨');
+  });
+
+  it("§1.4 8b-6: location あり → 📍 emoji なし、 SVG pin (= <svg + path d=…/> outline) で render", () => {
+    const event = createUserEvent({
+      id: 'e1-svg',
+      title: 'カフェ',
+      startTime: '09:00',
+      location: '甲府駅前',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).not.toContain('📍'); // emoji 廃止
+    expect(html).toContain('<svg'); // SVG pin icon
+    expect(html).toContain('甲府駅前');
+    // text-slate-400 (= 8b-6 控えめ、 旧 text-slate-500 から弱化)
+    expect(html).toContain('text-slate-400');
   });
 });
 
@@ -355,5 +372,65 @@ describe("EventCard render contract §6. semantic tint (= 8b-3)", () => {
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
     expect(html).toContain('bg-white');
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §7 8b-6 corrective: 全周 border + 左尖り triangle (= CEO 「左濃いやめ、 全周細く、 吹き出し形状」)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("EventCard render contract §7. 8b-6 border + triangle", () => {
+  it("§7.1 旧 border-l-4 廃止 (= 左濃い border なし)", () => {
+    const event = createUserEvent({
+      id: 'border-1',
+      title: 'カフェ',
+      startTime: '09:00',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).not.toMatch(/border-l-4/);
+    expect(html).not.toContain('border-l-indigo-500');
+    expect(html).not.toContain('border-l-orange-500');
+    expect(html).not.toContain('border-l-blue-500');
+    expect(html).not.toContain('border-l-emerald-500');
+    expect(html).not.toContain('border-l-slate-500');
+  });
+
+  it("§7.2 cafe → 全周 border-indigo-200 (= 細色)", () => {
+    const event = createUserEvent({
+      id: 'border-2',
+      title: 'カフェ',
+      startTime: '09:00',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('border-indigo-200');
+  });
+
+  it("§7.3 meal → border-orange-200 + triangle border-r-orange-50", () => {
+    const event = createUserEvent({
+      id: 'border-3',
+      title: 'ランチ',
+      startTime: '12:00',
+      category: 'meal',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    expect(html).toContain('border-orange-200');
+    expect(html).toContain('before:border-r-orange-50');
+  });
+
+  it("§7.4 左尖り ::before pseudo-triangle 適用 (= card 延長感、 spine 方向)", () => {
+    const event = createUserEvent({
+      id: 'border-4',
+      title: 'work',
+      startTime: '14:00',
+      category: 'work',
+    });
+    const html = renderToStaticMarkup(<EventCard event={event} />);
+    // before:content-[''] は HTML escape されて before:content-[&#x27;&#x27;] になる
+    expect(html).toContain("before:content-[&#x27;&#x27;]");
+    expect(html).toContain('before:absolute');
+    expect(html).toContain('before:left-[-7px]');
+    expect(html).toContain('before:border-r-blue-50');
   });
 });

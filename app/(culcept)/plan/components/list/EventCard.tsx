@@ -1,24 +1,24 @@
 /**
- * Phase 3-N List impl sub-phase 6 — EventCard component (= SourceIndicator + ExecutionLayerChip 統合反映)
+ * Phase 3-N List impl sub-phase 8b-6 corrective — EventCard component (= mock 整合 大幅改修)
  *
- * 設計原則 (= Spec audit §5.1 + 第 11+12+14+15 補正反映):
- *   - main card UI hierarchy (= Spec §19.10.2):
- *     - primary: title + 時刻 + 場所 + Alter 補助文 (= content axis)
- *     - secondary: proposed dashed border + opacity 0.7 + 「受け入れる」 chip (= authority axis)
- *     - tertiary: SourceIndicator (= origin axis、 compact) + ExecutionLayerChip (= 軽いサイン)
- *     - **詳細 sheet のみ**: clonedFrom / imported 詳細 / acceptedAt (= 第 12 補正 #2、 main card 非表示)
+ * 8b-6 改修内容 (= CEO + GPT 合議 2026-05-24):
+ *   - **左濃い border 廃止** (= border-l-4 + border-l-{color}-500 削除)
+ *   - **全周 細 border** (= border + border-{color}-200、 mock 「全周を細く囲む」)
+ *   - **背景 tint そのまま** (= bg-{color}-50、 既に薄い、 CEO 「もっと薄い色」 でも -50 系継続)
+ *   - **左尖り 吹き出し形状** (= ::before pseudo-triangle、 card 本体の延長として spine icon 方向に向く)
+ *   - **📍 emoji 廃止** (= inline SVG pin icon、 mock の洗練された pin 表現)
+ *   - **location 控えめ** (= text-xs + text-slate-400、 mock の薄く扱う pattern)
+ *   - **alterNote 自然な日本語** (= CategoryMeaning 8b-6 で書き直し済、 本 file は表示のみ)
  *
- *   - 第 11 補正 #1 UI 責務分離: origin / authority / clonedFrom を **3 axis 独立**で扱う
- *   - 第 12 補正 #2 hierarchy: accepted Alter generated は main card で user_owned 同等 (= dot 消滅)
- *   - 第 14 補正 first-pass: SourceIndicator + ExecutionLayerChip は **component 統合のみ**
- *     (= 詳細 sheet 起動 logic / 学習ループ本実装は sub-phase 7+)
- *   - 第 15 補正範囲制限: 既存 wave 1/2/3/3a frozen file 不触、 新 component 追加 + 本 file refactor のみ
- *
- *   - 規約 24-extended (= focus surface): focus-visible:border-slate-300
- *   - 自然な日本語維持 (= 第 2 補正、 命令形 / 評価 / push 系単語狩り禁止)
+ * 既存維持:
+ *   - main card UI hierarchy (= Spec §19.10.2、 primary/secondary/tertiary)
+ *   - 第 11 補正 #1 UI 責務分離 (= origin/authority/clonedFrom 3 axis 独立)
+ *   - 第 12 補正 #2 hierarchy (= accepted Alter は main card で user_owned 同等)
+ *   - 規約 24-extended (= focus-visible:border-slate-300)
  *
  * 設計書:
  *   - docs/alter-plan-list-redesign-spec-audit.md §5.1 + §19.10 + §19.13
+ *   - decision-log (= 8b-6 corrective 7 項目)
  *   - lib/plan/list/sourceProvenance.ts (= 2 軸 source model + helpers)
  *   - ./SourceIndicator.tsx (= origin axis 表示)
  *   - ./ExecutionLayerChip.tsx (= 軽いサイン)
@@ -34,17 +34,23 @@ import { SourceIndicator } from "./SourceIndicator";
 import { ExecutionLayerChip } from "./ExecutionLayerChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Category visual mapping (= Spec §8.2 color tokens、 sub-phase 6 inline、 sub-phase 10 で extract)
+// Category visual mapping (= 8b-6 corrective、 全周 border + tint + triangle)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/**
+ * 全周 border 色 (= 8b-6、 旧 border-l-4 + border-l-{color}-500 廃止)
+ */
 const CATEGORY_BORDER_CLASS: Record<EventCategory, string> = {
-  cafe: 'border-l-indigo-500',
-  meal: 'border-l-orange-500',
-  work: 'border-l-blue-500',
-  home: 'border-l-emerald-500',
-  other: 'border-l-slate-500',
+  cafe: 'border-indigo-200',
+  meal: 'border-orange-200',
+  work: 'border-blue-200',
+  home: 'border-emerald-200',
+  other: 'border-slate-200',
 };
 
+/**
+ * 時刻 text 色 (= category 別、 8a/8b-3 から継続)
+ */
 const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
   cafe: 'text-indigo-600',
   meal: 'text-orange-600',
@@ -54,14 +60,7 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * Semantic tint (= 8b-3 追加、 CEO + GPT 合議 2026-05-24):
- *   - 各 category に薄い背景色を付与 (= mock 整合、 「白い箱」 感の解消)
- *   - 上品な低彩度 (= -50 系)、 ノイズにならない最小限の温度感
- *   - 'other' は default 白 (= bg-white、 中立)
- *
- * 第 12 補正 #2 hierarchy との整合:
- *   - tint は origin axis ではなく content axis (= category 認識補助)
- *   - SourceIndicator (= origin 表示) と並立、 干渉なし
+ * 背景 tint (= 8b-3 から継続、 上品な低彩度 -50 系)
  */
 const CATEGORY_BG_CLASS: Record<EventCategory, string> = {
   cafe: 'bg-indigo-50',
@@ -70,6 +69,49 @@ const CATEGORY_BG_CLASS: Record<EventCategory, string> = {
   home: 'bg-emerald-50',
   other: 'bg-white',
 };
+
+/**
+ * 左尖り triangle 色 (= 8b-6 追加、 card 本体の延長として spine icon 方向に向く)
+ *
+ * triangle 色 = card bg 色 (= 延長感)、 'other' は white で実質 invisible (= 中立、 triangle なし扱い)
+ */
+const CATEGORY_TRIANGLE_CLASS: Record<EventCategory, string> = {
+  cafe: 'before:border-r-indigo-50',
+  meal: 'before:border-r-orange-50',
+  work: 'before:border-r-blue-50',
+  home: 'before:border-r-emerald-50',
+  other: 'before:border-r-white',
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// LocationPin (= 8b-6 corrective、 📍 emoji 廃止 → 洗練 outline SVG)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Location pin outline SVG (= 8b-6、 mock の細線 pin 表現整合)
+ *
+ * 設計: stroke="currentColor" で text-{color} に追従、 fill="none" で outline 強調
+ */
+function LocationPinIcon({ size = 12 }: { size?: number }): ReactNode {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="flex-shrink-0"
+    >
+      <path d="M12 22 s8-7.5 8-13 a8 8 0 0 0 -16 0 c0 5.5 8 13 8 13 z" />
+      <circle cx="12" cy="9" r="2.5" />
+    </svg>
+  );
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // EventCard component
@@ -81,25 +123,36 @@ export type EventCardProps = {
 };
 
 /**
- * EventCard — main timeline 上の event 表示単位
+ * EventCard — main timeline 上の event 表示単位 (= 8b-6 corrective 改修版)
  *
- * UI hierarchy (= 第 12 補正 #2 遵守):
- *   - primary: title + 時刻 range + 場所 + Alter 補助文
+ * UI hierarchy:
+ *   - primary: title + 時刻 range + 場所 (SVG pin) + Alter 補助文 (✨)
  *   - secondary: authority 状態 (= proposed なら dashed border + chip)
  *   - tertiary: SourceIndicator (= origin、 compact) + ExecutionLayerChip
  *   - 詳細 sheet のみ: clonedFrom / imported 詳細 / acceptedAt
+ *
+ * 視覚仕様 (= 8b-6):
+ *   - 全周細 border (= border + border-{color}-200)
+ *   - 薄 tint 背景 (= bg-{color}-50)
+ *   - 左尖り pseudo-triangle (= card 延長感、 spine icon 方向)
+ *   - 📍 廃止 → SVG outline pin
+ *   - location: text-xs + text-slate-400 (= 控えめ)
  */
 export function EventCard({ event, onTap }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
 
-  // container class (= 8b-3 で semantic tint 追加、 white → category 別薄背景)
+  // container class (= 8b-6 corrective: 左濃い border 廃止、 全周薄 border、 ::before 左尖り)
   const containerClass = [
+    "relative", // for ::before triangle positioning
     "block w-full text-left",
     "rounded-2xl",
     CATEGORY_BG_CLASS[event.category],
-    "border-l-4",
-    CATEGORY_BORDER_CLASS[event.category],
-    "border border-slate-100",
+    "border", // 全周 1px (= 旧 border-l-4 廃止)
+    CATEGORY_BORDER_CLASS[event.category], // border-{color}-200
+    // 左尖り triangle (= ::before pseudo、 card 延長として spine icon 方向)
+    "before:content-[''] before:absolute before:left-[-7px] before:top-4",
+    "before:border-y-[7px] before:border-y-transparent before:border-r-[7px]",
+    CATEGORY_TRIANGLE_CLASS[event.category],
     "shadow-sm",
     "p-4",
     "transition-colors duration-150",
@@ -108,7 +161,7 @@ export function EventCard({ event, onTap }: EventCardProps): ReactNode {
     proposed ? "border-dashed opacity-70" : "",
   ].filter(Boolean).join(" ");
 
-  // 時刻 range text
+  // 時刻 range text (= startTime - endTime、 endTime は adapter で必ず推論済)
   const timeRangeText = event.endTime
     ? `${event.startTime}-${event.endTime}`
     : event.startTime;
@@ -132,15 +185,15 @@ export function EventCard({ event, onTap }: EventCardProps): ReactNode {
         {event.title}
       </p>
 
-      {/* PRIMARY: 場所 (= optional) */}
+      {/* PRIMARY: 場所 (= optional、 8b-6: 📍 → SVG outline pin + text-xs text-slate-400 控えめ) */}
       {event.location !== undefined && (
-        <p className="text-sm text-slate-500 mt-1 flex items-start gap-1">
-          <span aria-hidden="true">📍</span>
+        <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+          <LocationPinIcon size={12} />
           <span>{event.location}</span>
         </p>
       )}
 
-      {/* PRIMARY: Alter 補助文 (= optional) */}
+      {/* PRIMARY: Alter 補助文 (= optional、 ✨ + 自然な日本語、 CategoryMeaning 8b-6 書き直し済) */}
       {event.alterNote !== undefined && (
         <p className="text-sm text-slate-600 mt-2 flex items-start gap-1">
           <span aria-hidden="true">✨</span>

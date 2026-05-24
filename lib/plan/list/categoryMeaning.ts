@@ -62,47 +62,51 @@ export function getTimeOfDay(startTime: string): TimeOfDay {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 意味文 mapping (= category 4 × TimeOfDay 5 = 20 文、 全 8-18 字、 状態/解釈型)
+ * 意味文 mapping (= category 4 × TimeOfDay 5 = 20 文、 状態描写型、 8b-6 で自然な日本語化)
  *
  * 'other' は entry なし (= getMeaningText で undefined return)
  *
- * 全 20 文の文体ルール遵守:
+ * 全 20 文の文体ルール遵守 (= CEO + GPT 合議 2026-05-24 8b-6):
+ *   - **自然な日本語** (= 「〜時間」 末尾強制 廃止、 硬い 文体を緩和)
  *   - 命令形 0 (= 「ましょう」 「ください」 「しよう」 含まず)
- *   - 評価形容詞 0 (= 「重要な」 「大事な」 「最適な」 含まず)
- *   - 末尾「時間」 / 「タイム」 統一
- *   - 8-18 字
+ *   - 評価形容詞 0 (= 「重要な」 「大事な」 「最適な」 「おすすめ」 「推奨」 含まず)
+ *   - 状態描写型 (= 場面 / ペース / 質感 を一言で添える)
+ *   - 8-22 字 (= 自然な長さ、 厳格上限緩和)
+ *
+ * 注: 将来 LLM 推論で動的生成も可 (= CEO 「LLM で推論させて作成していい」 明示)、
+ *     ただし本 module は deterministic pure fallback として残す (= 8b-6 範囲)
  */
 const MEANING_TABLE: Record<
   Exclude<EventCategory, 'other'>,
   Record<TimeOfDay, string>
 > = {
   cafe: {
-    morning: '集中しやすい時間',
-    lunch: 'ひと息ついて過ごす時間',
-    afternoon: '気持ちを切り替える時間',
-    evening: '静かに過ごす時間',
-    late_night: '静かに過ごす時間',
+    morning: '集中の入り口にちょうどいい朝',
+    lunch: '気持ちが少し緩むひととき',
+    afternoon: 'ペースを取り戻す午後',
+    evening: '夜にひと息つくひととき',
+    late_night: '夜更けの静かなひととき',
   },
   meal: {
-    morning: '朝食をゆっくりとる時間',
-    lunch: 'ランチで切り替える時間',
-    afternoon: '軽くお腹を満たす時間',
-    evening: 'ゆっくり食べる時間',
-    late_night: '軽く済ませる時間',
+    morning: '朝をはじめる食卓',
+    lunch: '半日を区切るランチ',
+    afternoon: '軽くお腹を満たすひと品',
+    evening: '夜のゆっくりした食卓',
+    late_night: '夜更けの軽い食事',
   },
   work: {
-    morning: '集中しやすい時間',
-    lunch: '区切りをつける時間',
-    afternoon: '午後の集中タイム',
-    evening: '仕事を切り上げる時間',
-    late_night: '仕事を切り上げる時間',
+    morning: '朝の集中が乗りやすい仕事',
+    lunch: '午前を区切るお昼',
+    afternoon: '午後の仕事を進める',
+    evening: '仕事を締めにいく時間帯',
+    late_night: '残作業を片付ける時間帯',
   },
   home: {
-    morning: '一日を整える時間',
-    lunch: '家で休憩を取る時間',
-    afternoon: 'ひと息ついて過ごす時間',
-    evening: '自分の余白に戻る時間',
-    late_night: 'ゆっくり休む時間',
+    morning: '一日のスタートを整える朝',
+    lunch: '家で少しゆっくり休む昼',
+    afternoon: '家でひと息つく午後',
+    evening: '自分の余白に戻る夜',
+    late_night: 'ゆっくり休みに入る夜更け',
   },
 };
 

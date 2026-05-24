@@ -144,7 +144,9 @@ describe("externalAnchorAdapter §3. endTime あり/なし", () => {
     expect(event.endTime).toBe('11:00');
   });
 
-  it("§3.2 endTime なし → undefined", () => {
+  it("§3.2 endTime なし → 単件 convert で undefined (= 推論は list 側で適用)", () => {
+    // convertExternalAnchorToEventCard 単件は endTime 推論しない (= 単件では次 event が不明)
+    // 推論は convertExternalAnchorListToTimelineEvents で適用 → §12 参照
     const anchor = makeAnchor({ id: 'e2', startTime: '12:00' });
     const event = convertExternalAnchorToEventCard(anchor);
     expect(event.endTime).toBeUndefined();
@@ -337,25 +339,25 @@ describe("externalAnchorAdapter §8. 8b 範囲外 (= executionLayerCounts undefi
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("externalAnchorAdapter §9. alterNote 注入 (= 8b-2、 categoryMeaning 経由)", () => {
-  it("§9.1 cafe 朝 (= morning) → 「集中しやすい時間」", () => {
+  it("§9.1 cafe 朝 (= morning) → 「集中の入り口にちょうどいい朝」 (= 8b-6 自然な日本語化)", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k1', startTime: '08:00', locationCategory: 'cafe' }),
     );
-    expect(event.alterNote).toBe('集中しやすい時間');
+    expect(event.alterNote).toBe('集中の入り口にちょうどいい朝');
   });
 
-  it("§9.2 office (= work) 午後 → 「午後の集中タイム」", () => {
+  it("§9.2 office (= work) 午後 → 「午後の仕事を進める」 (= 8b-6)", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k2', startTime: '14:00', locationCategory: 'office' }),
     );
-    expect(event.alterNote).toBe('午後の集中タイム');
+    expect(event.alterNote).toBe('午後の仕事を進める');
   });
 
-  it("§9.3 home 夜 → 「自分の余白に戻る時間」", () => {
+  it("§9.3 home 夜 → 「自分の余白に戻る夜」 (= 8b-6)", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({ id: 'k3', startTime: '19:30', locationCategory: 'home' }),
     );
-    expect(event.alterNote).toBe('自分の余白に戻る時間');
+    expect(event.alterNote).toBe('自分の余白に戻る夜');
   });
 
   it("§9.4 'other' 相当 (= locationCategory undefined) → alterNote undefined", () => {
@@ -391,13 +393,17 @@ describe("externalAnchorAdapter §10. transitions 生成 (= 8b-2)", () => {
     ]);
   });
 
-  it("§10.2 endTime 未定義 event の後は transition 出さない", () => {
+  it("§10.2 endTime 未定義 でも 8b-6 で auto-inferred → transition 自動生成 (= CEO 「移動が出ない」 修正)", () => {
+    // 8b-6 corrective: endTime は inferEndTime で必ず補われる
+    // anchor n1 (= 09:00、 'other'、 next 14:00) → default 60 min か gap 制限で endTime 推論
+    // gap = 5h、 default other 60 → 09:00 + 60 = 10:00、 next 14:00 とのギャップで transition 生成
     const anchors = [
-      makeAnchor({ id: 'n1', startTime: '09:00' }), // endTime 未定義
+      makeAnchor({ id: 'n1', startTime: '09:00' }), // endTime 未定義、 'other' (= title default)
       makeAnchor({ id: 'n2', startTime: '14:00', endTime: '15:00' }),
     ];
     const transitions = convertExternalAnchorListToTransitions(anchors);
-    expect(transitions).toEqual([]);
+    expect(transitions.length).toBeGreaterThan(0);
+    expect(transitions[0].label).toBe('移動');
   });
 
   it("§10.3 隣 event.startTime <= 現 event.endTime (= 重複 / 連続) は skip", () => {
@@ -482,7 +488,7 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
     expect(event.category).toBe('work');
   });
 
-  it("§11.2 priority 2: 「週次ミーティング」 (= CEO real case) → work (= title hit)", () => {
+  it("§11.2 priority 2: 「週次ミーティング」 (= CEO real case) → work (= title hit) + 8b-6 文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({
         id: 'p2-1',
@@ -492,10 +498,10 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
       }),
     );
     expect(event.category).toBe('work');
-    expect(event.alterNote).toBe('区切りをつける時間'); // work × lunch
+    expect(event.alterNote).toBe('午前を区切るお昼'); // 8b-6: work × lunch
   });
 
-  it("§11.3 priority 2: 「会食」 (= CEO real case) → meal", () => {
+  it("§11.3 priority 2: 「会食」 (= CEO real case) → meal + 8b-6 文体", () => {
     const event = convertExternalAnchorToEventCard(
       makeAnchor({
         id: 'p2-2',
@@ -505,7 +511,7 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
       }),
     );
     expect(event.category).toBe('meal');
-    expect(event.alterNote).toBe('軽くお腹を満たす時間'); // meal × afternoon
+    expect(event.alterNote).toBe('軽くお腹を満たすひと品'); // 8b-6: meal × afternoon
   });
 
   it("§11.4 priority 3: title hit なし、 locationText で hit (= 「ふきぬき成田店」 は keyword 不在、 fallback 例)", () => {
@@ -558,5 +564,79 @@ describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corr
       }),
     );
     expect(event.category).toBe('meal');
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §12 8b-6: endTime 推論 (= 未指定なら category default duration + 次 event 考慮)
+//   - cafe 90 / meal 60 / work 240 / home 120 / other 60 minutes default
+//   - 次 event - 30 min buffer で頭打ち
+//   - clamp [30, 240] min
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("externalAnchorAdapter §12. endTime 推論 (= 8b-6)", () => {
+  it("§12.1 endTime あり → そのまま (= 推論しない)", () => {
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't1', startTime: '09:00', endTime: '11:00' }),
+    ]);
+    expect(events[0].endTime).toBe('11:00');
+  });
+
+  it("§12.2 endTime なし + 単件 → category default で補う (= work 240 min)", () => {
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't2', startTime: '09:00', locationCategory: 'office' }),
+    ]);
+    // work default 240 min = 09:00 + 4h = 13:00
+    expect(events[0].endTime).toBe('13:00');
+  });
+
+  it("§12.3 endTime なし + 単件 cafe → 90 min", () => {
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't3', startTime: '09:00', locationCategory: 'cafe' }),
+    ]);
+    // cafe default 90 min = 09:00 + 1h30m = 10:30
+    expect(events[0].endTime).toBe('10:30');
+  });
+
+  it("§12.4 endTime なし + 次 event あり → buffer 30 min 引いて頭打ち", () => {
+    // event1 cafe @ 09:00、 event2 (meal via title) @ 10:30 → gap=90 min → 90 - 30 buffer = 60 min available
+    // default cafe 90 vs max 60 → 60 min 採用 → endTime 10:00
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't4-a', startTime: '09:00', locationCategory: 'cafe' }),
+      makeAnchor({ id: 't4-b', startTime: '10:30', title: 'ランチ' }), // meal via title heuristic
+    ]);
+    expect(events[0].endTime).toBe('10:00');
+  });
+
+  it("§12.5 endTime なし + 次 event 連続 (= gap 0 以下) → default duration を fallback", () => {
+    // 同時刻 event は anchor 化されない実用 case だが、 fallback として default を使う
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't5-a', startTime: '09:00', locationCategory: 'cafe' }),
+      makeAnchor({ id: 't5-b', startTime: '09:00', title: 'ランチ' }), // meal via title
+    ]);
+    // 2 件 sort 後 cafe→meal、 cafe.startTime=09:00、 次 event.startTime=09:00 → gap=0
+    // → fallback で default 90 min → 10:30
+    expect(events[0].endTime).toBe('10:30');
+  });
+
+  it("§12.6 endTime 推論 → 最低 30 分 clamp (= 次 event が近すぎる case)", () => {
+    // event1 cafe @ 09:00、 event2 @ 09:30 (= gap 30 min → 30 - 30 buffer = 0、 30 min clamp)
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 't6-a', startTime: '09:00', locationCategory: 'cafe' }),
+      makeAnchor({ id: 't6-b', startTime: '09:30', title: 'ランチ' }), // meal via title
+    ]);
+    expect(events[0].endTime).toBe('09:30'); // 最低 30 min clamp
+  });
+
+  it("§12.7 endTime 推論結果は real-data CEO case にも適用 (= 週次ミーティング / 会食 双方に endTime 出る)", () => {
+    const events = convertExternalAnchorListToTimelineEvents([
+      makeAnchor({ id: 'real-1', title: '週次ミーティング', startTime: '12:00' }), // work
+      makeAnchor({ id: 'real-2', title: '会食', startTime: '14:01' }), // meal
+    ]);
+    // event 1 (work): startTime=12:00、 next=14:01 → gap=121 min → 121-30=91 min available
+    //   default 240 vs max 91 → 91 min → 12:00 + 91 = 13:31
+    // event 2 (meal): startTime=14:01、 next なし → default 60 min → 15:01
+    expect(events[0].endTime).toBe('13:31');
+    expect(events[1].endTime).toBe('15:01');
   });
 });

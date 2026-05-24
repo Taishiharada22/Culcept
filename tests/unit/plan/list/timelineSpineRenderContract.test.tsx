@@ -25,8 +25,11 @@ import { createUserEvent } from "@/lib/plan/list/sourceProvenance";
 // §1 spine circle category icon (= 8b-3 追加)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () => {
-  it("§1.1 cafe → ☕ icon が spine circle 内に出る", () => {
+describe("TimelineSpine render contract §1. spine category icon (= 8b-6 SVG 白抜き)", () => {
+  // 8b-6 corrective: emoji → SVG component (= stroke="currentColor" + text-white、 白抜き表現)
+  // SVG なので HTML 出力は <svg ...> + <path .../> 形式、 className に text-white 確認
+
+  it("§1.1 cafe → CategoryCafeIcon SVG (= 白抜き)", () => {
     const event = createUserEvent({
       id: 'icon-cafe',
       title: 'カフェ',
@@ -34,11 +37,15 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('☕');
     expect(html).toContain('bg-indigo-500'); // category circle bg
+    expect(html).toContain('<svg'); // SVG icon rendered
+    expect(html).toContain('text-white'); // icon white via currentColor
+    expect(html).toContain('stroke="currentColor"');
+    // emoji ☕ は出さない (= 8b-6 で SVG に切替)
+    expect(html).not.toContain('☕');
   });
 
-  it("§1.2 meal → 🍴 icon", () => {
+  it("§1.2 meal → MealIcon SVG (= inline、 fork + knife)", () => {
     const event = createUserEvent({
       id: 'icon-meal',
       title: 'ランチ',
@@ -46,11 +53,13 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'meal',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('🍴');
     expect(html).toContain('bg-orange-500');
+    expect(html).toContain('<svg');
+    expect(html).toContain('text-white');
+    expect(html).not.toContain('🍴');
   });
 
-  it("§1.3 work → 💼 icon", () => {
+  it("§1.3 work → CategoryOfficeIcon SVG", () => {
     const event = createUserEvent({
       id: 'icon-work',
       title: 'オフィス',
@@ -58,11 +67,13 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'work',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('💼');
     expect(html).toContain('bg-blue-500');
+    expect(html).toContain('<svg');
+    expect(html).toContain('text-white');
+    expect(html).not.toContain('💼');
   });
 
-  it("§1.4 home → 🏠 icon", () => {
+  it("§1.4 home → CategoryHomeIcon SVG", () => {
     const event = createUserEvent({
       id: 'icon-home',
       title: '帰宅',
@@ -70,11 +81,13 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'home',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('🏠');
     expect(html).toContain('bg-emerald-500');
+    expect(html).toContain('<svg');
+    expect(html).toContain('text-white');
+    expect(html).not.toContain('🏠');
   });
 
-  it("§1.5 other → • (= bullet、 中立、 8b-5 で · から差し替え = · は invisible だった)", () => {
+  it("§1.5 other → CategoryUnknownIcon SVG", () => {
     const event = createUserEvent({
       id: 'icon-other',
       title: 'その他',
@@ -82,22 +95,23 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'other',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('•');
     expect(html).toContain('bg-slate-500');
-    // 8b-5 corrective: · (= invisible on slate-500 + text-white) は出さない
-    expect(html).not.toContain('>·<');
+    expect(html).toContain('<svg');
+    expect(html).toContain('text-white');
+    // 8b-6: • bullet も使わない (= SVG に統一)
+    expect(html).not.toContain('>•<');
   });
 
-  it("§1.6 8b-5: icon size = text-lg (= circle 内で見える、 元 text-sm は小さすぎた)", () => {
+  it("§1.6 8b-6: spine line position = 88px (= circle 中心、 旧 72px は左端でズレ原因)", () => {
     const event = createUserEvent({
-      id: 'icon-size',
+      id: 'icon-position',
       title: 'カフェ',
       startTime: '09:00',
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('text-lg');
-    expect(html).not.toMatch(/text-sm leading-none/);
+    expect(html).toContain('left:88px');
+    expect(html).not.toContain('left:72px');
   });
 });
 
@@ -131,7 +145,7 @@ describe("TimelineSpine render contract §3. events 1+ → spine + events render
     expect(html).toContain('カフェ'); // EventCard title
   });
 
-  it("§3.2 複数 event で全 spine row が render", () => {
+  it("§3.2 複数 event で全 spine row が render (= 8b-6 SVG icon)", () => {
     const events = [
       createUserEvent({ id: 'mult-1', title: 'A', startTime: '09:00', category: 'cafe' }),
       createUserEvent({ id: 'mult-2', title: 'B', startTime: '12:00', category: 'meal' }),
@@ -141,9 +155,14 @@ describe("TimelineSpine render contract §3. events 1+ → spine + events render
     expect(html).toContain('A');
     expect(html).toContain('B');
     expect(html).toContain('C');
-    expect(html).toContain('☕'); // cafe icon
-    expect(html).toContain('🍴'); // meal icon
-    expect(html).toContain('💼'); // work icon
+    // 8b-6: SVG circle bg は 3 件分すべて出る
+    expect(html).toContain('bg-indigo-500'); // cafe circle
+    expect(html).toContain('bg-orange-500'); // meal circle
+    expect(html).toContain('bg-blue-500'); // work circle
+    // 8b-6: emoji 廃止
+    expect(html).not.toContain('☕');
+    expect(html).not.toContain('🍴');
+    expect(html).not.toContain('💼');
   });
 });
 

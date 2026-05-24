@@ -78,32 +78,32 @@ describe("categoryMeaning §2. getMeaningText 全網羅", () => {
 
   const expected: Record<Exclude<EventCategory, 'other'>, Record<TimeOfDay, string>> = {
     cafe: {
-      morning: '集中しやすい時間',
-      lunch: 'ひと息ついて過ごす時間',
-      afternoon: '気持ちを切り替える時間',
-      evening: '静かに過ごす時間',
-      late_night: '静かに過ごす時間',
+      morning: '集中の入り口にちょうどいい朝',
+      lunch: '気持ちが少し緩むひととき',
+      afternoon: 'ペースを取り戻す午後',
+      evening: '夜にひと息つくひととき',
+      late_night: '夜更けの静かなひととき',
     },
     meal: {
-      morning: '朝食をゆっくりとる時間',
-      lunch: 'ランチで切り替える時間',
-      afternoon: '軽くお腹を満たす時間',
-      evening: 'ゆっくり食べる時間',
-      late_night: '軽く済ませる時間',
+      morning: '朝をはじめる食卓',
+      lunch: '半日を区切るランチ',
+      afternoon: '軽くお腹を満たすひと品',
+      evening: '夜のゆっくりした食卓',
+      late_night: '夜更けの軽い食事',
     },
     work: {
-      morning: '集中しやすい時間',
-      lunch: '区切りをつける時間',
-      afternoon: '午後の集中タイム',
-      evening: '仕事を切り上げる時間',
-      late_night: '仕事を切り上げる時間',
+      morning: '朝の集中が乗りやすい仕事',
+      lunch: '午前を区切るお昼',
+      afternoon: '午後の仕事を進める',
+      evening: '仕事を締めにいく時間帯',
+      late_night: '残作業を片付ける時間帯',
     },
     home: {
-      morning: '一日を整える時間',
-      lunch: '家で休憩を取る時間',
-      afternoon: 'ひと息ついて過ごす時間',
-      evening: '自分の余白に戻る時間',
-      late_night: 'ゆっくり休む時間',
+      morning: '一日のスタートを整える朝',
+      lunch: '家で少しゆっくり休む昼',
+      afternoon: '家でひと息つく午後',
+      evening: '自分の余白に戻る夜',
+      late_night: 'ゆっくり休みに入る夜更け',
     },
   };
 
@@ -162,16 +162,18 @@ describe("categoryMeaning §4. 文体制約 (= Aneurasync 哲学 + CEO + GPT 合
     }
   });
 
-  it("§4.4 末尾「時間」 / 「タイム」 統一", () => {
+  it("§4.4 末尾「時間」 強制制約 廃止 (= 8b-6 で自然な日本語化、 ただし命令形語尾 0)", () => {
+    // 8b-6: 「時間」 末尾統一は廃止 (= CEO 「〜時間 は日本語として綺麗じゃない」)
+    // 代わりに 命令形語尾 (= 「しろ」 「しなさい」 「やれ」 等) が含まれないことを確認
     for (const meaning of allMeanings) {
-      expect(meaning, `「${meaning}」 が末尾「時間」/「タイム」 で終わっていない`).toMatch(/(時間|タイム)$/);
+      expect(meaning, `「${meaning}」 に命令形語尾`).not.toMatch(/(しろ|しなさい|やれ|やめろ)$/);
     }
   });
 
-  it("§4.5 文字数 8-18 字 (= CEO + GPT 合議で緩和、 自然な長さ)", () => {
+  it("§4.5 文字数 8-22 字 (= 8b-6 で上限緩和、 自然な長さ)", () => {
     for (const meaning of allMeanings) {
       expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeGreaterThanOrEqual(8);
-      expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeLessThanOrEqual(18);
+      expect(meaning.length, `「${meaning}」 (= ${meaning.length} 字) が範囲外`).toBeLessThanOrEqual(22);
     }
   });
 
@@ -191,7 +193,7 @@ describe("categoryMeaning §4. 文体制約 (= Aneurasync 哲学 + CEO + GPT 合
 describe("categoryMeaning §5. 入力不正 fallback", () => {
   it("§5.1 HH:MM 数値抽出不可 (= 「abc」) → morning fallback", () => {
     expect(getTimeOfDay('abc')).toBe('morning');
-    expect(getMeaningText('cafe', 'abc')).toBe('集中しやすい時間');
+    expect(getMeaningText('cafe', 'abc')).toBe('集中の入り口にちょうどいい朝');
   });
 
   it("§5.2 空文字 → morning fallback", () => {

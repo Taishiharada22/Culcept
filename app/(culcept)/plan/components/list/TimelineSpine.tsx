@@ -19,13 +19,20 @@
  *   - lib/plan/list/sourceProvenance.ts
  */
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ComponentType, type ReactNode } from "react";
 import {
   type StrictEventCardViewModel,
 } from "@/lib/plan/list/sourceProvenance";
 import { type EventCategory, type TransitionViewModel } from "@/lib/plan/list/types";
 import { EventCard } from "./EventCard";
 import { TransitionChip } from "./TransitionChip";
+import {
+  CategoryCafeIcon,
+  CategoryHomeIcon,
+  CategoryOfficeIcon,
+  CategoryUnknownIcon,
+  type CategoryIconProps,
+} from "@/components/ui/icons/category";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Category circle bg + 時刻 text color (= Spec §8.2 + EventCard 整合)
@@ -48,17 +55,54 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * Spine category icon (= 8b-3 + 8b-5 corrective):
- *   - 各 category に emoji icon を spine circle 内に配置 (= timeline 節点マーカー)
- *   - 'other' は • bullet (= 中立、 静かに見える、 8b-5 で · から差し替え = · は text-white で invisible だった)
+ * 8b-6: meal 専用 SVG icon (= 既存 categoryIconMap には meal 相当なし、 inline 提供)
+ *
+ * 設計: fork + knife outline、 stroke="currentColor" で text-{color} に追従 (= 白抜き)
+ */
+function MealIcon({ className, size = 16, ariaLabel }: CategoryIconProps): ReactNode {
+  const isInteractive = !!ariaLabel;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      role={isInteractive ? "img" : undefined}
+      aria-label={ariaLabel}
+      aria-hidden={isInteractive ? undefined : true}
+    >
+      {/* Fork (= left): 3 tine + handle */}
+      <path d="M7 3 v6" />
+      <path d="M9 3 v6" />
+      <path d="M11 3 v6 a2 2 0 0 1 -2 2 h-2 a2 2 0 0 1 -2 -2 V3" />
+      <path d="M9 11 v10" />
+      {/* Knife (= right): blade + handle */}
+      <path d="M17 3 c2 0 3 4 3 8 h-3 v10" />
+    </svg>
+  );
+}
+
+/**
+ * Spine category icon component (= 8b-6 corrective、 emoji → SVG component 切替):
+ *   - 既存 SVG icon system (CategoryCafeIcon / OfficeIcon / HomeIcon / UnknownIcon) を再利用
+ *   - stroke="currentColor" + text-white で **白抜き** 表現 (= CEO 「アイコンの中身は白抜き」)
+ *   - meal は MealIcon (= inline、 fork + knife)
+ *   - 'other' は CategoryUnknownIcon (= 既存 fallback、 「?」 等)
+ *   - 全 icon size 統一 (= 16px、 32px circle 内で適切)
  *   - aria-hidden (= テキスト等価情報は EventCard 内に存在)
  */
-const CATEGORY_ICON: Record<EventCategory, string> = {
-  cafe: '☕',
-  meal: '🍴',
-  work: '💼',
-  home: '🏠',
-  other: '•', // 8b-5: bullet (= text-white on slate-500 で visible、 中立 subtle)
+const CATEGORY_ICON_COMPONENT: Record<EventCategory, ComponentType<CategoryIconProps>> = {
+  cafe: CategoryCafeIcon,
+  meal: MealIcon,
+  work: CategoryOfficeIcon,
+  home: CategoryHomeIcon,
+  other: CategoryUnknownIcon,
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -111,10 +155,11 @@ export function TimelineSpine({
       className="relative"
       data-testid="plan-list-timeline-spine"
     >
-      {/* 中央 spine line (= 56px + 16px gap + 16px (circle center) = 88px from left) */}
+      {/* 8b-6 corrective: spine line position fix (= 56px + 16px gap + 16px = 88px = circle 中心)
+          旧 72px は circle 左端 → ズレ原因 */}
       <div
         className="absolute top-4 bottom-4 w-0.5 bg-slate-200 pointer-events-none"
-        style={{ left: '72px' }}
+        style={{ left: '88px' }}
         aria-hidden="true"
       />
 
@@ -159,14 +204,18 @@ export function TimelineSpine({
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー)
-                    8b-5 corrective: text-sm → text-lg (= circle 内で見える size)、 leading-none で row-height 抑制 */}
+                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + SVG icon (= 節点マーカー、 白抜き)
+                    8b-6 corrective: emoji → SVG component (= stroke="currentColor" + text-white で白抜き)、
+                    spine line と circle 中心が一致 */}
                 <div className="relative flex-shrink-0 z-10 pt-2">
                   <div
-                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-lg leading-none`}
+                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white`}
                     aria-hidden="true"
                   >
-                    {CATEGORY_ICON[event.category]}
+                    {(() => {
+                      const Icon = CATEGORY_ICON_COMPONENT[event.category];
+                      return <Icon size={16} className="text-white" />;
+                    })()}
                   </div>
                 </div>
 

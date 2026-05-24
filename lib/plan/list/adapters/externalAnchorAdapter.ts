@@ -99,10 +99,11 @@ function resolveCategory(anchor: ExternalAnchor): EventCategory {
   // 1. explicit locationCategory が 'home'/'office'/'school'/'cafe' なら 直接
   if (anchor.locationCategory !== undefined) {
     const explicit = LOCATION_CATEGORY_TO_EVENT_CATEGORY[anchor.locationCategory];
-    if (explicit !== 'other') {
+    // 防御: unknown locationCategory string (= type 違反 case) → undefined、 heuristic に fall-through
+    if (explicit !== undefined && explicit !== 'other') {
       return explicit;
     }
-    // 'outdoor'/'public'/'transit'/'unknown' は heuristic に fall-through
+    // 'outdoor'/'public'/'transit'/'unknown' / 不明値 は heuristic に fall-through
   }
 
   // 2. title keyword heuristic
@@ -218,7 +219,98 @@ export function convertExternalAnchorToEventCard(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// List → TimelineSpine input (= events 配列、 startTime asc 整列)
+// endTime inference (= 8b-6 追加、 CEO 「未指定なら推論で出していい」)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Category 別 default duration (= minutes、 8b-6)
+ *
+ * 「極端にあり得ない duration を避ける」 (= CEO 明示):
+ *   - cafe: 90 min (= ひと息 〜 短い作業)
+ *   - meal: 60 min (= 一般的食事 + 余白)
+ *   - work: 240 min (= 半日仕事の見立て)
+ *   - home: 120 min (= ゆっくり過ごす想定)
+ *   - other: 60 min (= 中庸 fallback)
+ */
+const CATEGORY_DEFAULT_DURATION_MIN: Record<EventCategory, number> = {
+  cafe: 90,
+  meal: 60,
+  work: 240,
+  home: 120,
+  other: 60,
+};
+
+const DURATION_MIN_CLAMP_MIN = 30; // 最低 30 分
+const DURATION_MAX_CLAMP_MIN = 240; // 最大 4 時間
+const TRANSITION_BUFFER_MIN = 30; // 次 event との余裕 buffer
+
+/**
+ * "HH:MM" 文字列を分単位に変換 (= 00:00 → 0、 23:59 → 1439)
+ */
+function hhmmToMinutes(hhmm: string): number {
+  const parts = hhmm.split(':');
+  const h = Number.parseInt(parts[0] ?? '0', 10);
+  const m = Number.parseInt(parts[1] ?? '0', 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+  return h * 60 + m;
+}
+
+/**
+ * 分単位を "HH:MM" 文字列に変換 (= 0 → "00:00"、 1439 → "23:59"、 1440 以上は "23:59" clamp)
+ */
+function minutesToHHMM(minutes: number): string {
+  const clamped = Math.min(Math.max(minutes, 0), 23 * 60 + 59);
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/**
+ * endTime 推論 (= CEO 明示、 8b-6 追加):
+ *   - **未指定なら category 別 default duration で推論**
+ *   - 次 event の startTime がある場合は (nextStartTime - TRANSITION_BUFFER_MIN) を上限に
+ *   - 最低 30 分、 最大 240 分の clamp で「極端な duration」 回避
+ *
+ * pure (= 入力 mutate なし、 deterministic)
+ *
+ * @param startTime 現 event の startTime (= "HH:MM")
+ * @param category 現 event の EventCategory
+ * @param nextStartTime 直後 event の startTime (= 未指定なら infinity 扱い)
+ * @returns inferred endTime "HH:MM"
+ */
+function inferEndTime(
+  startTime: string,
+  category: EventCategory,
+  nextStartTime?: string,
+): string {
+  const startMin = hhmmToMinutes(startTime);
+  const defaultDurationMin = CATEGORY_DEFAULT_DURATION_MIN[category];
+
+  // 次 event あり: nextStartTime - TRANSITION_BUFFER を上限
+  let maxAvailableDurationMin = DURATION_MAX_CLAMP_MIN;
+  if (nextStartTime !== undefined) {
+    const nextMin = hhmmToMinutes(nextStartTime);
+    const gapToNextMin = nextMin - startMin;
+    // gap が 0 以下 (= 同時刻 or 前後逆転) なら default を使う
+    if (gapToNextMin > 0) {
+      maxAvailableDurationMin = Math.max(
+        DURATION_MIN_CLAMP_MIN,
+        gapToNextMin - TRANSITION_BUFFER_MIN,
+      );
+    }
+  }
+
+  // 「若干多めに」 (= CEO) = default duration を採用、 ただし maxAvailable で頭打ち
+  const inferredDurationMin = Math.max(
+    DURATION_MIN_CLAMP_MIN,
+    Math.min(defaultDurationMin, maxAvailableDurationMin, DURATION_MAX_CLAMP_MIN),
+  );
+
+  return minutesToHHMM(startMin + inferredDurationMin);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// List → TimelineSpine input (= events 配列、 startTime asc 整列 + endTime 推論)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
@@ -226,13 +318,22 @@ export function convertExternalAnchorToEventCard(
  *
  * - 各 anchor を convertExternalAnchorToEventCard で変換 (= alterNote 注入込み)
  * - startTime 昇順整列 (= "HH:MM" string sort、 24h 時刻なら lexicographic = chronological)
+ * - **8b-6 追加: endTime 未指定 event は inferEndTime で補う** (= 次 event の startTime 考慮)
  * - 入力 mutate なし
  */
 export function convertExternalAnchorListToTimelineEvents(
   anchors: ReadonlyArray<ExternalAnchor>,
 ): ReadonlyArray<StrictEventCardViewModel> {
   const converted = anchors.map((a) => convertExternalAnchorToEventCard(a));
-  return [...converted].sort((a, b) => a.startTime.localeCompare(b.startTime));
+  const sorted = [...converted].sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+  // 8b-6 追加: endTime 未定義 event に対して category default + 次 event 考慮で推論
+  return sorted.map((event, index) => {
+    if (event.endTime !== undefined) return event;
+    const nextStartTime = index + 1 < sorted.length ? sorted[index + 1].startTime : undefined;
+    const inferredEndTime = inferEndTime(event.startTime, event.category, nextStartTime);
+    return { ...event, endTime: inferredEndTime } as StrictEventCardViewModel;
+  });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
