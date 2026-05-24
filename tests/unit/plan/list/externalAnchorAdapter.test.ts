@@ -459,3 +459,104 @@ describe("externalAnchorAdapter §10. transitions 生成 (= 8b-2)", () => {
     }
   });
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §11 8b-5 corrective: category 4 段階優先順位
+//   1. explicit locationCategory ('home'/'office'/'school'/'cafe')
+//   2. title keyword heuristic
+//   3. locationText keyword heuristic
+//   4. 'other' fallback
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("externalAnchorAdapter §11. category 4 段階優先順位 (= 8b-5 corrective)", () => {
+  it("§11.1 priority 1: explicit locationCategory='office' は title heuristic を上書きしない (= explicit 優先)", () => {
+    // title 「ランチミーティング」 は heuristic で meal hit するが、 explicit 'office' (= work) が優先
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p1-1',
+        title: 'ランチミーティング',
+        locationCategory: 'office',
+        startTime: '12:00',
+      }),
+    );
+    expect(event.category).toBe('work');
+  });
+
+  it("§11.2 priority 2: 「週次ミーティング」 (= CEO real case) → work (= title hit)", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p2-1',
+        title: '週次ミーティング',
+        startTime: '12:00',
+        // locationCategory 未設定 (= real data 大半)
+      }),
+    );
+    expect(event.category).toBe('work');
+    expect(event.alterNote).toBe('区切りをつける時間'); // work × lunch
+  });
+
+  it("§11.3 priority 2: 「会食」 (= CEO real case) → meal", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p2-2',
+        title: '会食',
+        locationText: 'ふきぬき成田店',
+        startTime: '14:00',
+      }),
+    );
+    expect(event.category).toBe('meal');
+    expect(event.alterNote).toBe('軽くお腹を満たす時間'); // meal × afternoon
+  });
+
+  it("§11.4 priority 3: title hit なし、 locationText で hit (= 「ふきぬき成田店」 は keyword 不在、 fallback 例)", () => {
+    // title generic、 locationText に keyword (例: 「居酒屋」)
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p3-1',
+        title: '集まり',
+        locationText: '居酒屋わら',
+        startTime: '19:00',
+      }),
+    );
+    expect(event.category).toBe('meal');
+  });
+
+  it("§11.5 priority 4: 全て hit なし → 'other'", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p4-1',
+        title: '散歩',
+        locationText: '公園',
+        startTime: '15:00',
+      }),
+    );
+    expect(event.category).toBe('other');
+    expect(event.alterNote).toBeUndefined(); // 'other' は meaning なし
+  });
+
+  it("§11.6 priority 1 (= explicit) は keyword に勝つ (= 「自宅作業」 + locationCategory='office' → work)", () => {
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p1-2',
+        title: '自宅で作業',
+        locationCategory: 'office',
+        startTime: '10:00',
+      }),
+    );
+    expect(event.category).toBe('work');
+  });
+
+  it("§11.7 locationCategory='transit' は 'other' に落ちる candidate、 title で再判定可能 (= 「ランチ移動」 → meal)", () => {
+    // locationCategory='transit' は LOCATION_CATEGORY_TO_EVENT_CATEGORY で 'other'、
+    // fall-through で title heuristic に
+    const event = convertExternalAnchorToEventCard(
+      makeAnchor({
+        id: 'p7-1',
+        title: 'ランチ移動',
+        locationCategory: 'transit',
+        startTime: '12:30',
+      }),
+    );
+    expect(event.category).toBe('meal');
+  });
+});

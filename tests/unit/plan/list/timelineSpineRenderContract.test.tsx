@@ -74,7 +74,7 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
     expect(html).toContain('bg-emerald-500');
   });
 
-  it("§1.5 other → · (= 中点、 中立)", () => {
+  it("§1.5 other → • (= bullet、 中立、 8b-5 で · から差し替え = · は invisible だった)", () => {
     const event = createUserEvent({
       id: 'icon-other',
       title: 'その他',
@@ -82,8 +82,22 @@ describe("TimelineSpine render contract §1. spine category icon (= 8b-3)", () =
       category: 'other',
     });
     const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
-    expect(html).toContain('·');
+    expect(html).toContain('•');
     expect(html).toContain('bg-slate-500');
+    // 8b-5 corrective: · (= invisible on slate-500 + text-white) は出さない
+    expect(html).not.toContain('>·<');
+  });
+
+  it("§1.6 8b-5: icon size = text-lg (= circle 内で見える、 元 text-sm は小さすぎた)", () => {
+    const event = createUserEvent({
+      id: 'icon-size',
+      title: 'カフェ',
+      startTime: '09:00',
+      category: 'cafe',
+    });
+    const html = renderToStaticMarkup(<TimelineSpine events={[event]} />);
+    expect(html).toContain('text-lg');
+    expect(html).not.toMatch(/text-sm leading-none/);
   });
 });
 

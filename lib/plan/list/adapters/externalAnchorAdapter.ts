@@ -42,27 +42,23 @@ import {
 } from "@/lib/plan/list/sourceProvenance";
 import { type EventCategory, type TransitionViewModel } from "@/lib/plan/list/types";
 import { getMeaningText } from "@/lib/plan/list/categoryMeaning";
+import { inferCategoryFromText } from "@/lib/plan/list/categoryInference";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Category mapping (= LocationCategory → EventCategory)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * LocationCategory → EventCategory mapping (= 8a 最小範囲)
+ * LocationCategory → EventCategory 決定的 mapping (= 8a 最小範囲、 8b-5 で fallback 拡張)
  *
- * 既存 LocationCategory (= 8 値) と新 EventCategory (= 5 値) の対応:
+ * 「決定的」 値のみ (= mapping 結果が non-'other' になる LocationCategory):
  *   - home (= 家) → home
  *   - office (= 職場) → work
- *   - school (= 学校) → work (= 学校も work-like 扱い、 8a 最小)
+ *   - school (= 学校) → work
  *   - cafe (= カフェ) → cafe
- *   - outdoor (= 屋外) → other
- *   - public (= 公共) → other
- *   - transit (= 移動) → other
- *   - unknown (= 未分類) → other
- *   - undefined (= locationCategory 未設定) → other
  *
- * 'meal' (= 食事) に該当する LocationCategory なし (= 既存 anchor data model に食事カテゴリなし、 8a 最小では未対応)
- * 将来: anchor に foodCategory 等が追加されたら adapter 拡張
+ * 「非決定的」 値 (= 'other' に落ちる、 8b-5 で title/locationText heuristic に fallback):
+ *   - outdoor / public / transit / unknown / undefined
  */
 const LOCATION_CATEGORY_TO_EVENT_CATEGORY: Record<LocationCategory, EventCategory> = {
   home: 'home',
@@ -76,13 +72,55 @@ const LOCATION_CATEGORY_TO_EVENT_CATEGORY: Record<LocationCategory, EventCategor
 };
 
 /**
- * LocationCategory または undefined を EventCategory に変換
+ * 旧 API 保持 (= 既存 test 互換、 8b-5 内部では使われない)
  */
 function mapCategory(locationCategory: LocationCategory | undefined): EventCategory {
   if (locationCategory === undefined) {
     return 'other';
   }
   return LOCATION_CATEGORY_TO_EVENT_CATEGORY[locationCategory];
+}
+
+/**
+ * 8b-5 corrective: anchor から category を 4 段階優先順位で解決
+ *
+ * 優先順位 (= CEO + GPT 合議 2026-05-24):
+ *   1. **explicit locationCategory** が決定的な値 ('home'/'office'/'school'/'cafe') → 直接 mapping
+ *   2. **title keyword heuristic** (= inferCategoryFromText)
+ *   3. **locationText keyword heuristic** (= inferCategoryFromText 再利用)
+ *   4. **'other' fallback** (= 判断不能)
+ *
+ * 不変原則 (= GPT 重要条件):
+ *   - 表示のための deterministic fallback (= 元データ書き換えなし)
+ *   - inferred category を storage に保存しない (= adapter view layer 専用)
+ *   - LLM 不使用 (= pure keyword matching)
+ */
+function resolveCategory(anchor: ExternalAnchor): EventCategory {
+  // 1. explicit locationCategory が 'home'/'office'/'school'/'cafe' なら 直接
+  if (anchor.locationCategory !== undefined) {
+    const explicit = LOCATION_CATEGORY_TO_EVENT_CATEGORY[anchor.locationCategory];
+    if (explicit !== 'other') {
+      return explicit;
+    }
+    // 'outdoor'/'public'/'transit'/'unknown' は heuristic に fall-through
+  }
+
+  // 2. title keyword heuristic
+  const titleHit = inferCategoryFromText(anchor.title);
+  if (titleHit !== undefined) {
+    return titleHit;
+  }
+
+  // 3. locationText keyword heuristic
+  if (anchor.locationText !== undefined && anchor.locationText.length > 0) {
+    const locationHit = inferCategoryFromText(anchor.locationText);
+    if (locationHit !== undefined) {
+      return locationHit;
+    }
+  }
+
+  // 4. fallback
+  return 'other';
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -164,7 +202,8 @@ export function convertExternalAnchorToEventCard(
   const endTime =
     anchor.endTime !== undefined ? normalizeTimeToHHMM(anchor.endTime) : undefined;
   const location = resolveLocation(anchor);
-  const category = mapCategory(anchor.locationCategory);
+  // 8b-5 corrective: 4 段階優先順位 (= explicit locationCategory → title heuristic → locationText heuristic → 'other')
+  const category = resolveCategory(anchor);
   const alterNote = getMeaningText(category, startTime);
 
   return createUserEvent({

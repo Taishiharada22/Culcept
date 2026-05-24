@@ -48,10 +48,9 @@ const CATEGORY_TIME_TEXT_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * Spine category icon (= 8b-3 追加、 timeline 節点マーカー):
- *   - 各 category に emoji icon を spine circle 内に配置
- *   - カテゴリ認識の最短経路 (= 視覚処理 < 1ms、 GPT 「アイコンは飾りではなく節点マーカー」 整合)
- *   - 'other' は ·  (= 中点、 中立)
+ * Spine category icon (= 8b-3 + 8b-5 corrective):
+ *   - 各 category に emoji icon を spine circle 内に配置 (= timeline 節点マーカー)
+ *   - 'other' は • bullet (= 中立、 静かに見える、 8b-5 で · から差し替え = · は text-white で invisible だった)
  *   - aria-hidden (= テキスト等価情報は EventCard 内に存在)
  */
 const CATEGORY_ICON: Record<EventCategory, string> = {
@@ -59,7 +58,7 @@ const CATEGORY_ICON: Record<EventCategory, string> = {
   meal: '🍴',
   work: '💼',
   home: '🏠',
-  other: '·',
+  other: '•', // 8b-5: bullet (= text-white on slate-500 で visible、 中立 subtle)
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -160,10 +159,11 @@ export function TimelineSpine({
                   {event.startTime}
                 </div>
 
-                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー) */}
+                {/* 中央 column: category circle (= spine 上、 z-10 で line と重ねる) + icon (= 節点マーカー)
+                    8b-5 corrective: text-sm → text-lg (= circle 内で見える size)、 leading-none で row-height 抑制 */}
                 <div className="relative flex-shrink-0 z-10 pt-2">
                   <div
-                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-sm leading-none`}
+                    className={`w-8 h-8 rounded-full ${CATEGORY_CIRCLE_BG_CLASS[event.category]} border-4 border-white flex items-center justify-center text-white text-lg leading-none`}
                     aria-hidden="true"
                   >
                     {CATEGORY_ICON[event.category]}
