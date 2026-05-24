@@ -13350,3 +13350,102 @@ List impl foundation `5ccfc163` (= 2 files / 373 lines、 pure type + contract t
 - **ステータス**: foundation checkpoint **PASS**。 次 sub-phase 3 (= helper / factory) 着手承認済。 第 9 補正 2 留意点 引き継ぎ確定。
 
 ---
+
+## 2026-05-24 [Build/Product] List impl sub-phase 6 採用 + GPT 指摘 (accepted Alter provenance) sub-phase 7 確認事項として明示記録 [承認: CEO + GPT 合議]
+
+### 背景
+
+sub-phase 6 commit `cf87c472` (= SourceIndicator + ExecutionLayerChip first-pass + EventCard 統合、 6 files / 679 insertions) 着地後、 CEO + GPT 合議:
+- 「sub-phase 6 採用で問題ありません。 commit は維持でよく、 次の sub-phase 7 に進んでください」
+- 「ただし 1 点だけ重要な確認: accepted Alter の provenance が main card で消えすぎていないかを、 次の sub-phase 前後で確認してください」
+
+### CEO + GPT 評価 (= 採用判定根拠)
+
+**特に評価された点**:
+- SourceIndicator / ExecutionLayerChip の first-pass に閉じている
+- `origin / authority / clonedFrom` の責務分離を崩していない (= 第 11 補正 #1 維持)
+- `ExecutionLayerChip` を first-pass の軽いサインに留めている (= 第 14 補正準拠)
+- 規約 24-extended を壊していない (= focus-visible:border-slate-300 のみ)
+- 既存 file / frozen file を触っていない (= 第 15 補正範囲制限準拠)
+- テスト 150 PASS / grep 0 件 / diff scope 妥当
+
+### 重要な確認事項 (= sub-phase 7 で必ず確認)
+
+**GPT 指摘**:
+- 現状 `SourceIndicator(compact)` で accepted Alter (= origin: 'alter_generated' + authority: 'user_owned') を null 返却 (= 第 12 補正 #2 hierarchy)
+- これはノイズ削減としては理解可能だが、 第 8 補正 #2 「accepted Alter generated 完全消失防止」 の意図に対して **main card 上で 弱くなる可能性**
+
+**整理 (= CEO 思考原則 ①-⑦ で再評価)**:
+
+| 層 | 由来保持 | 現状 | 評価 |
+|---|---|---|---|
+| **data layer** (= sourceModel) | `origin: 'alter_generated'` + `authority: 'user_owned'` + `acceptedAt` | 完全保持 | ✅ 第 8 補正 #2 達成 |
+| **detail layer** (= SourceIndicator full / 詳細 sheet) | 「Alter 提案を受け入れ済」 caption | 表示 | ✅ 第 8 補正 #2 達成 |
+| **main card layer** (= SourceIndicator compact) | dot 消滅 (= user_owned 同等表示) | null | ⚠️ GPT 指摘点 |
+
+**論点**:
+- 「main card 一瞥で accepted Alter を見分ける必要性」 が真にあるか
+- もし必要なら **第 12 補正 #2 hierarchy を緩める** (= main card に極小 dot 残す)
+- もし不要なら 現状維持 + **詳細 sheet で 「Alter 提案を受け入れ済」 caption 機械保証** で完了
+
+### sub-phase 7 で確認 (= GPT 指摘反映)
+
+1. **`SourceIndicator(full)` で 「Alter 提案を受け入れ済」 caption が確実に出る** ことを render contract test で機械保証 (= sub-phase 6 で test 済、 sub-phase 7 で再確認)
+2. main card 上で **accepted Alter 完全無印** が user 体験として弱いか強いかを CEO 判断
+3. **「弱い」 判定なら**: main card に 極小 metadata (= 例: indigo-300 dot subdued、 詳細 sheet tap 専用) を追加検討
+4. **「強い (= 現状維持) 」 判定なら**: 詳細 sheet の caption 強化 + acceptedAt 表示 + Edit-history 表示
+
+### sub-phase 7 範囲 (= GPT 指示明示)
+
+| 守る | 守らない |
+|---|---|
+| `ImportedLockEscape` は modal の first-pass に閉じる | 実データ更新ロジック広げない |
+| `override / clone` の選択 affordance だけに絞る | ExecutionLayer 本体実装 |
+| modal UI + a11y + render contract test | SummaryFooter 評価文 |
+| 既存 file 改変 0 (= frozen 全件不触) | 「逃がし道」 以外の機能 |
+
+### sub-phase 7 readiness 整理
+
+- **scope**: imported event の locked 状態に対して、 user が編集したい時の 「逃がし道」 modal を提供
+- **affordance** (= modal 内 2 選択):
+  - **override**: 同じ event を自由に編集 (= sourceModel `imported + import_locked` → `imported + user_owned`、 由来保持 + 編集自由)
+  - **clone**: 元 imported を保持しつつ user 作成の新 event として複製 (= sourceModel `user + user_owned + clonedFrom`、 第 11 補正 #2 source link)
+- **first-pass 範囲**:
+  - component: `app/(culcept)/plan/components/list/ImportedLockEscapeModal.tsx`
+  - copy: 「この予定を編集する」 / 「複製して別の予定を作る」 (= 仮、 sub-phase 7 で確定)
+  - render contract test: open / close / 2 option affordance + 規約 24-extended
+  - **既存 `lib/plan/list/sourceProvenance.ts` の `overrideImported` / `cloneImported` factory を呼び出す試験的 hook のみ** (= 実 plan data 接続は sub-phase 8+)
+
+### 次
+
+- decision-log 記録 commit (= 本 entry)
+- sub-phase 7 branch 切替 (= `feat/alter-plan-list-impl-imported-lock-escape`、 cf87c472 から)
+- sub-phase 7 readiness を CEO に提示 + accepted Alter 確認手順 同時提示
+- CEO 判断後に sub-phase 7 着手 (= 報告と停止パターン継続)
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ**:
+- sub-phase 7 即時着手 (= readiness 提示 + CEO 判断後)
+- accepted Alter provenance の main card 表示変更 (= CEO 判断後)
+- SummaryFooter / ExecutionLayer 本体 / FlowTab 段階置換
+
+### 補正履歴 (= 累計 15 補正)
+
+| commit | 内容 |
+|---|---|
+| `5ccfc163` | foundation 着地 (= 第 8 補正反映) |
+| `66e3a841` | sub-phase 3 着地 (= 第 9 補正反映) |
+| `b6c4b2e2` | sub-phase 3.5 着地 (= 第 10 補正反映 source model 2 軸) |
+| `90af5d32` | sub-phase 3.6 着地 (= 第 11 補正 #2 source link) |
+| `4c2996d8` | sub-phase 4 着地 (= 第 11+12 補正反映 EventCard + TimelineSpine) |
+| `a10aacc8` | sub-phase 4 render contract test (= 第 13 補正 #2) |
+| `75691a36` | sub-phase 5 着地 (= 第 14 補正範囲制限) |
+| `cf87c472` | **sub-phase 6 着地** (= 第 15 補正範囲制限 + 第 11/12 補正適用) |
+| **本 commit** | **sub-phase 6 採用 + GPT 指摘 (accepted Alter provenance) sub-phase 7 確認事項として明示記録** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「sub-phase 6 採用、 次 sub-phase 7 進行 OK、 accepted Alter provenance 確認必須」)
+- **ステータス**: sub-phase 6 commit `cf87c472` **採用確定**。 sub-phase 7 readiness 整理 → CEO 判断後 着手。 accepted Alter provenance 確認は sub-phase 7 範囲内で必ず実施。
+
+---
