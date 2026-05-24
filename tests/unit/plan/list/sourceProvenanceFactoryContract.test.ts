@@ -41,6 +41,8 @@ import {
   isProposed,
   isImportLocked,
   isAlterOrigin,
+  isClonedFromImported,
+  getClonedSourceLink,
   COMPACT_VARIANT,
   FULL_VARIANT,
 } from "@/lib/plan/list/sourceProvenance";
@@ -246,7 +248,7 @@ describe("List sub-phase 3.5 §5. Transition functions — state transition", ()
     expect(() => overrideImported(userEvent)).toThrow();
   });
 
-  it("§5.6 cloneImported: imported → 新規 user event (= 第 7 補正 #2 補助方式、 元 imported 不変)", () => {
+  it("§5.6 cloneImported: imported → 新規 user event (= 第 7 補正 #2 補助方式、 元 imported 不変、 第 11 補正 #2 clonedFrom 保持)", () => {
     const imported = createImportedEvent({
       id: 'e6',
       title: 'シフト',
@@ -259,6 +261,12 @@ describe("List sub-phase 3.5 §5. Transition functions — state transition", ()
     expect(cloned.title).toBe('シフト'); // title 継承
     expect(cloned.sourceModel.origin).toBe('user'); // 新規 user
     expect(cloned.sourceModel.authority).toBe('user_owned');
+    // 第 11 補正 #2: clonedFrom metadata で source link 保持
+    if (cloned.sourceModel.origin === 'user' && cloned.sourceModel.authority === 'user_owned') {
+      expect(cloned.sourceModel.clonedFrom).toBeDefined();
+      expect(cloned.sourceModel.clonedFrom?.importedEventId).toBe('e6');
+      expect(cloned.sourceModel.clonedFrom?.importedSource).toBe('シフト表');
+    }
     // 元 imported 不変
     expect(imported.sourceModel.origin).toBe('imported');
     expect(imported.sourceModel.authority).toBe('import_locked');
@@ -402,5 +410,114 @@ describe("List sub-phase 3.5 §8. 「由来は消えない」 — 第 10 補正�
     if (accepted.sourceModel.origin === 'alter_generated' && accepted.sourceModel.authority === 'user_owned') {
       expect(accepted.sourceModel.acceptedAt).toBe('2026-05-24T16:00:00Z');
     }
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §9 cloneImported source link (= 第 11 補正 #2、 元 imported ↔ 派生 user の関係追跡)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("List sub-phase 3.6 §9. cloneImported source link — 第 11 補正 #2", () => {
+  it("§9.1 cloneImported 後 clonedFrom metadata 保持 (= source link 確保)", () => {
+    const imported = createImportedEvent({
+      id: 'imp-1',
+      title: 'シフト',
+      startTime: '14:00',
+      category: 'work',
+      importedFrom: 'シフト表',
+    });
+    const cloned = cloneImported(imported, 'cloned-1');
+    if (cloned.sourceModel.origin === 'user' && cloned.sourceModel.authority === 'user_owned') {
+      expect(cloned.sourceModel.clonedFrom).toBeDefined();
+      expect(cloned.sourceModel.clonedFrom?.importedEventId).toBe('imp-1');
+      expect(cloned.sourceModel.clonedFrom?.importedSource).toBe('シフト表');
+    }
+  });
+
+  it("§9.2 createUserEvent は clonedFrom undefined (= 純粋 user 作成)", () => {
+    const userEvent = createUserEvent({
+      id: 'u-1',
+      title: 'user 作成',
+      startTime: '10:00',
+      category: 'cafe',
+    });
+    if (userEvent.sourceModel.origin === 'user' && userEvent.sourceModel.authority === 'user_owned') {
+      expect(userEvent.sourceModel.clonedFrom).toBeUndefined();
+    }
+  });
+
+  it("§9.3 isClonedFromImported: true (= cloned user event)", () => {
+    const imported = createImportedEvent({
+      id: 'imp-2',
+      title: 'シフト',
+      startTime: '14:00',
+      category: 'work',
+      importedFrom: 'シフト表',
+    });
+    const cloned = cloneImported(imported, 'cloned-2');
+    expect(isClonedFromImported(cloned.sourceModel)).toBe(true);
+  });
+
+  it("§9.4 isClonedFromImported: false (= 純粋 user 作成 + 他の全 variant)", () => {
+    const userEvent = createUserEvent({
+      id: 'u-2',
+      title: 'user 作成',
+      startTime: '10:00',
+      category: 'cafe',
+    });
+    expect(isClonedFromImported(userEvent.sourceModel)).toBe(false);
+    // 他の variant
+    expect(isClonedFromImported({ origin: 'imported', authority: 'import_locked', importedFrom: 'シフト表' })).toBe(false);
+    expect(isClonedFromImported({ origin: 'imported', authority: 'user_owned', importedFrom: 'シフト表' })).toBe(false);
+    expect(isClonedFromImported({ origin: 'alter_generated', authority: 'proposed' })).toBe(false);
+    expect(isClonedFromImported({ origin: 'alter_generated', authority: 'user_owned', acceptedAt: '2026-05-24T14:00:00Z' })).toBe(false);
+  });
+
+  it("§9.5 getClonedSourceLink: 派生元 imported metadata 取得 (= UI 表示用)", () => {
+    const imported = createImportedEvent({
+      id: 'imp-3',
+      title: 'シフト',
+      startTime: '14:00',
+      category: 'work',
+      importedFrom: 'シフト表',
+    });
+    const cloned = cloneImported(imported, 'cloned-3');
+    const link = getClonedSourceLink(cloned.sourceModel);
+    expect(link).not.toBeNull();
+    expect(link?.importedEventId).toBe('imp-3');
+    expect(link?.importedSource).toBe('シフト表');
+  });
+
+  it("§9.6 getClonedSourceLink: null (= 純粋 user 作成 + 他の variant)", () => {
+    const userEvent = createUserEvent({
+      id: 'u-3',
+      title: 'user 作成',
+      startTime: '10:00',
+      category: 'cafe',
+    });
+    expect(getClonedSourceLink(userEvent.sourceModel)).toBeNull();
+    expect(getClonedSourceLink({ origin: 'imported', authority: 'import_locked', importedFrom: 'シフト表' })).toBeNull();
+    expect(getClonedSourceLink({ origin: 'alter_generated', authority: 'proposed' })).toBeNull();
+  });
+
+  it("§9.7 source link が UI 責務分離整合 (= origin/authority/clonedFrom 3 軸独立に扱える)", () => {
+    const imported = createImportedEvent({
+      id: 'imp-4',
+      title: 'シフト',
+      startTime: '14:00',
+      category: 'work',
+      importedFrom: 'シフト表',
+    });
+    const cloned = cloneImported(imported, 'cloned-4');
+    // origin axis (= provenance 表示用): user
+    expect(cloned.sourceModel.origin).toBe('user');
+    // authority axis (= 操作可否/編集可否 用): user_owned (= 自由編集)
+    expect(cloned.sourceModel.authority).toBe('user_owned');
+    expect(isProposed(cloned.sourceModel)).toBe(false); // proposed chip 不要
+    expect(isImportLocked(cloned.sourceModel)).toBe(false); // 編集ロックなし
+    // clonedFrom (= 派生元 追跡): source link 保持
+    expect(isClonedFromImported(cloned.sourceModel)).toBe(true);
+    const link = getClonedSourceLink(cloned.sourceModel);
+    expect(link?.importedSource).toBe('シフト表');
   });
 });

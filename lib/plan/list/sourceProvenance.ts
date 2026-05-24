@@ -70,10 +70,19 @@ export type Authority = 'proposed' | 'user_owned' | 'import_locked';
  * | alter_generated | import_locked  | ❌ 不正 | Alter generated は import_locked にならない |
  */
 
-/** user 作成、 user 所有 */
+/**
+ * user 作成、 user 所有 (= 第 11 補正 #2 で clonedFrom optional metadata 追加、 source link 保持)
+ *
+ * - clonedFrom undefined: 純粋 user 作成 (= createUserEvent 由来)
+ * - clonedFrom 定義あり: imported event から複製 (= cloneImported 由来、 派生関係追跡可能)
+ */
 export type UserOwnedSource = {
   readonly origin: 'user';
   readonly authority: 'user_owned';
+  readonly clonedFrom?: {
+    readonly importedEventId: string;
+    readonly importedSource: string;
+  };
 };
 
 /** imported default (= ロック)、 importedFrom required */
@@ -164,6 +173,39 @@ export function isImportLocked(sourceModel: SourceModel): boolean {
  */
 export function isAlterOrigin(sourceModel: SourceModel): boolean {
   return sourceModel.origin === 'alter_generated';
+}
+
+/**
+ * Imported event から複製された user event か (= 第 11 補正 #2 source link 判定)
+ *
+ * UI 表示用 (= 詳細 sheet で「シフト表からの複製」 等の caption 表示判定)
+ */
+export function isClonedFromImported(sourceModel: SourceModel): boolean {
+  return (
+    sourceModel.origin === 'user' &&
+    sourceModel.authority === 'user_owned' &&
+    sourceModel.clonedFrom !== undefined
+  );
+}
+
+/**
+ * Cloned source link metadata 取得 (= 第 11 補正 #2、 派生元 imported 情報)
+ *
+ * UI 表示用 (= 詳細 sheet で「シフト表 (event id: xxx) からの複製」 等)
+ *
+ * @returns clonedFrom metadata if cloned、 それ以外は null
+ */
+export function getClonedSourceLink(
+  sourceModel: SourceModel,
+): { readonly importedEventId: string; readonly importedSource: string } | null {
+  if (
+    sourceModel.origin === 'user' &&
+    sourceModel.authority === 'user_owned' &&
+    sourceModel.clonedFrom !== undefined
+  ) {
+    return sourceModel.clonedFrom;
+  }
+  return null;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -261,11 +303,11 @@ export function overrideImported(event: StrictEventCardViewModel): StrictEventCa
 }
 
 /**
- * Imported event を複製して新規 user event 化 (= 第 7 補正 #2 「複製」 補助方式)
+ * Imported event を複製して新規 user event 化 (= 第 7 補正 #2 「複製」 補助方式、 第 11 補正 #2 source link 保持)
  *
  * - 元 imported は不変
  * - 新規 user event を返す (= origin: 'user', authority: 'user_owned')
- * - importedFrom は不継承 (= 完全に別 anchor)
+ * - **clonedFrom metadata で source link 保持** (= 第 11 補正 #2、 元 imported と派生 user の関係追跡可能)
  *
  * @param event 元 imported event (= 不変、 imported origin のみ受け付け)
  * @param newId 新規 user event の id
@@ -287,7 +329,14 @@ export function cloneImported(
     alterNote: event.alterNote,
     category: event.category,
     executionLayerCounts: event.executionLayerCounts,
-    sourceModel: { origin: 'user', authority: 'user_owned' },
+    sourceModel: {
+      origin: 'user',
+      authority: 'user_owned',
+      clonedFrom: {
+        importedEventId: event.id,
+        importedSource: event.sourceModel.importedFrom,
+      },
+    },
   };
 }
 
