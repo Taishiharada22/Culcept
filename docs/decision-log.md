@@ -14111,3 +14111,89 @@ CEO + GPT 「readiness で落とし切る」 4 領域:
 - **ステータス**: Map spec audit v3 **3 点補正反映完了**。 CEO 採用判定 → Map impl readiness 着手 (= 別 doc)。
 
 ---
+
+## 2026-05-24 [Build/Product] Map impl readiness doc 新規 (= v3 採用方向 + 4 領域細部 + MapTab 改修計画 + sub-phase 9a/9b/9c 候補) [承認: CEO + GPT 「v3 補正方向正しい」 + 既定 C 着手]
+
+### 背景
+
+CEO 直近メッセージで 「v3 (= commit c14e7778) での補正方向は正しかった」 と v3 validation 確認。 これにより既定の **A → C → impl** path の **C: Map impl readiness 段階** に進行 OK 確定。
+
+(= 直前に CEO sub-phase 3.5/4 transition の古いメッセージ誤送信があり、 Claude 状況確認後 CEO が正しい v3 評価メッセージを再送信。 矛盾解消済)
+
+### docs 新規 (= 本 commit)
+
+`docs/alter-plan-map-redesign-impl-readiness.md` (= 全 6 章 + sub-phase 計画書)
+
+#### §1 background + readiness 役割
+- v3 spec の 4 領域大枠を impl 段階で 「ぶれない」 ように細部まで落とし切る
+
+#### §2 v3 spec → impl 4 領域 落とし切り
+
+- **§2.1 selected pin label policy 細部**: 起動 trigger / dismiss / 表示制限 (= 8 文字 ellipsis) / z-index 関係 / animation (= 150ms fade)
+- **§2.2 sheet state 細部**: state transition timing (= 250ms slide up) / drag threshold (= 60px expand / 100px collapse) / sheet 内 scroll vs sheet drag 判別 / escape (= ESC / back button)
+- **§2.3 route rendering source**: 3 候補比較 → **C 採用** (= 既存 PlanMapView Polyline 流用 + gray dashed 抽象化、 frozen 不触維持)
+- **§2.4 legend / controls / CTA 優先順位**: sub-phase 内 commit 順序 (= 最優先 sheet → pin → route → 中 legend/controls → 低 文字列)
+
+#### §3 既存 MapTab 改修計画
+- 改修対象 5 件 (= SelectedAnchorCard 切替 / DaySwitcher 統一検討 / CategoryGrid 削除 / FAB 削除 / 文字列 5 件)
+- 不触 (= PlanMapView + 3 hooks + コメント内 「地図」 + 別領域)
+- 新規 file 候補 8 件 (= MapBottomSheet / MapPin / MapRouteLine or PlanMapView 内 + adapter + test + featureFlags 拡張)
+
+#### §4 sub-phase 候補 (= List 8a-8c pattern 流用)
+- **9a-pre**: adapter + featureFlags + contract test
+- **9a-impl**: MapTab flag 切替 + 新 component 統合 (= sheet + pin + route 主要部)
+- **9b**: Legend / Controls / CategoryGrid 削除 / FAB 削除
+- **9c**: 文字列統一 + 仕上げ
+- visual smoke: 9a 完了後 必須 + 9b/9c 各 1 回
+
+#### §5 機械保証規約
+- List で確立した 7 規約 (= vitest contract / tsc 0 / 禁止語 grep / 規約 24-extended / flag OFF default / pure module / frozen 不触) を Map に持ち込み
+
+#### §6 next phase
+- CEO 採用判定 → branch 切替 (= `feat/alter-plan-map-impl-flowtab-9a`) → 9a-pre 着手 → 報告と停止 (= List pattern 流用)
+
+### 重要選択 (= readiness で確定方向)
+
+| 項目 | 選択 | 理由 |
+|---|---|---|
+| pin label 起動 | pin tap → selected | 単一 selected と sheet 同期、 シンプル |
+| sheet state | half + expanded | collapsed は v3 scope 外 |
+| route source | 候補 C Polyline 抽象化 | 既存 frozen 不触 + spec 整合 |
+| sub-phase 順序 | 9a sheet/pin/route → 9b 補助 → 9c 仕上げ | 「sheet で完成度決まる」 を優先順位化 |
+
+### 不採用 案 継続 (= CEO + GPT 確定)
+- ❌ B IA Audit (= v3 で IA 吸収)
+- ❌ D 直接 impl (= sheet ぶれる、 危険)
+- ❌ Directions API (= v3 「ナビ禁止」 と矛盾)
+- ❌ inline SVG line overlay (= 既存 PlanMapView と二重 layer 複雑)
+
+### 新機能追加 0 (= docs-only、 readiness は計画書)
+
+- pure module / adapter / component / test 全件不触
+- 既存 MapTab.tsx 不触 (= readiness のみ、 impl は CEO 採用判定後 9a-pre から)
+
+### 次
+
+- 本 readiness を CEO 採用判定
+- OK なら 9a-pre 着手 (= branch 切替 + adapter + featureFlags + contract test)
+- 報告と停止 pattern 継続 (= sub-phase 毎)
+- merge: /plan complete まで frozen 維持
+
+**まだやらない**:
+- Map impl 着手 (= readiness 採用判定後)
+- 既存 MapTab.tsx 改変 (= 9a-impl から)
+- LLM 接続 / Directions API (= 全 sub-phase で禁止維持)
+
+### 補正履歴 (= 累計 30+ commit + 5 docs)
+
+| commit | 内容 |
+|---|---|
+| `c14e7778` | Map spec audit v3 (= 3 点補正反映) |
+| **本 commit** | **Map impl readiness doc 新規 (= 4 領域細部 + 改修計画 + sub-phase 候補)** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「v3 補正方向は正しい、 readiness 進行 OK」)
+- **ステータス**: Map impl readiness **1 次案 提示完了**。 CEO 採用判定 → sub-phase 9a-pre 着手。
+
+---
