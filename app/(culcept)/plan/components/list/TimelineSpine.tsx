@@ -196,7 +196,7 @@ export function TimelineSpine({
       className="relative"
       data-testid="plan-list-timeline-spine"
     >
-      <ul className="flex flex-col list-none m-0 p-0" role="list">
+      <ul className="flex flex-col gap-3 list-none m-0 p-0" role="list">
         {events.map((event, index) => {
           const matchingTransition = transitionBefore.get(index);
           const isFirstEvent = index === 0;
@@ -229,9 +229,9 @@ export function TimelineSpine({
                   </div>
                 </li>
               )}
-              {/* event row (= 8b-10: 全体 density up、 line solid で icon gap 埋め) */}
+              {/* event row (= 8b-12 corrective: items-start → items-stretch、 spine column が row 全体 height に拡張) */}
               <li
-                className="relative flex items-start"
+                className="relative flex items-stretch"
                 role="listitem"
               >
                 {/* 左 column: 時刻 label (= w-14→w-12、 text-base→text-sm) */}
