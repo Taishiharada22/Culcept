@@ -41,7 +41,7 @@ import {
   createUserEvent,
 } from "@/lib/plan/list/sourceProvenance";
 import { type EventCategory, type TransitionViewModel } from "@/lib/plan/list/types";
-import { getMeaningText } from "@/lib/plan/list/categoryMeaning";
+import { getMeaningText, getNarrative } from "@/lib/plan/list/categoryMeaning";
 import { inferCategoryFromText } from "@/lib/plan/list/categoryInference";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -205,7 +205,10 @@ export function convertExternalAnchorToEventCard(
   const location = resolveLocation(anchor);
   // 8b-5 corrective: 4 段階優先順位 (= explicit locationCategory → title heuristic → locationText heuristic → 'other')
   const category = resolveCategory(anchor);
-  const alterNote = getMeaningText(category, startTime);
+  // 8b-7: getNarrative で 5W1H 文章 (= location 含む自然な日本語)、 fallback で getMeaningText
+  const alterNote =
+    getNarrative(category, startTime, location, anchor.title) ??
+    getMeaningText(category, startTime);
 
   return createUserEvent({
     id: anchor.id,
@@ -314,12 +317,15 @@ function inferEndTime(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * ExternalAnchor 配列を TimelineSpine consume 用 events 配列に変換
+ * ExternalAnchor 配列を TimelineSpine consume 用 events 配列に変換 (= user 提供 anchor のみ)
  *
  * - 各 anchor を convertExternalAnchorToEventCard で変換 (= alterNote 注入込み)
  * - startTime 昇順整列 (= "HH:MM" string sort、 24h 時刻なら lexicographic = chronological)
  * - **8b-6 追加: endTime 未指定 event は inferEndTime で補う** (= 次 event の startTime 考慮)
  * - 入力 mutate なし
+ *
+ * 注: 8b-7 「出発」 / 「帰宅」 virtual events は本関数ではなく
+ *     **convertExternalAnchorListWithDayBookends** で別途付与 (= 既存 test contract 維持のため分離)
  */
 export function convertExternalAnchorListToTimelineEvents(
   anchors: ReadonlyArray<ExternalAnchor>,
@@ -327,13 +333,69 @@ export function convertExternalAnchorListToTimelineEvents(
   const converted = anchors.map((a) => convertExternalAnchorToEventCard(a));
   const sorted = [...converted].sort((a, b) => a.startTime.localeCompare(b.startTime));
 
-  // 8b-6 追加: endTime 未定義 event に対して category default + 次 event 考慮で推論
+  // 8b-6: endTime 未定義 event に対して category default + 次 event 考慮で推論
   return sorted.map((event, index) => {
     if (event.endTime !== undefined) return event;
     const nextStartTime = index + 1 < sorted.length ? sorted[index + 1].startTime : undefined;
     const inferredEndTime = inferEndTime(event.startTime, event.category, nextStartTime);
     return { ...event, endTime: inferredEndTime } as StrictEventCardViewModel;
   });
+}
+
+/**
+ * 出発 / 帰宅 buffer constants (= 8b-7、 「移動」 想定の余白)
+ */
+const DEPARTURE_BUFFER_MIN = 30;
+const ARRIVAL_BUFFER_MIN = 30;
+
+/**
+ * 8b-7: convertExternalAnchorListToTimelineEvents の結果に
+ *       **「出発」 (= 最初) + 「帰宅」 (= 最後) virtual events を付与** (= CEO 明示)
+ *
+ * 元 list が空ならそのまま空配列 (= 1 日 0 件は bookend 不要)
+ *
+ * 不変原則:
+ *   - 元 list の events は不変 (= 純粋 wrapper)
+ *   - virtual events id: 'virtual-departure' / 'virtual-arrival'
+ *   - virtual events alterNote は固定 (= getNarrative 通さず、 mock 整合短文)
+ */
+export function convertExternalAnchorListWithDayBookends(
+  anchors: ReadonlyArray<ExternalAnchor>,
+): ReadonlyArray<StrictEventCardViewModel> {
+  const events = convertExternalAnchorListToTimelineEvents(anchors);
+  if (events.length === 0) {
+    return events;
+  }
+  const first = events[0];
+  const last = events[events.length - 1];
+
+  // 「出発」 virtual event (= 最初 event 30 min 前、 first.startTime 未満で clamp)
+  const firstMin = hhmmToMinutes(first.startTime);
+  const departureStartMin = Math.max(0, firstMin - DEPARTURE_BUFFER_MIN);
+  const departureEndMin = Math.max(departureStartMin + 1, firstMin);
+  const departure: StrictEventCardViewModel = createUserEvent({
+    id: 'virtual-departure',
+    title: '出発',
+    startTime: minutesToHHMM(departureStartMin),
+    endTime: minutesToHHMM(departureEndMin),
+    category: 'home',
+    alterNote: '今日を始めるための家を出る時間',
+  });
+
+  // 「帰宅」 virtual event (= 最後 event の endTime 直後、 23:59 で clamp)
+  const lastEndMin = last.endTime !== undefined ? hhmmToMinutes(last.endTime) : hhmmToMinutes(last.startTime);
+  const arrivalStartMin = Math.min(23 * 60 + 59, lastEndMin + ARRIVAL_BUFFER_MIN);
+  const arrivalEndMin = Math.min(23 * 60 + 59, arrivalStartMin + 60);
+  const arrival: StrictEventCardViewModel = createUserEvent({
+    id: 'virtual-arrival',
+    title: '帰宅',
+    startTime: minutesToHHMM(arrivalStartMin),
+    endTime: minutesToHHMM(arrivalEndMin),
+    category: 'home',
+    alterNote: '一日を締めくくる、 家に戻る時間',
+  });
+
+  return [departure, ...events, arrival];
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

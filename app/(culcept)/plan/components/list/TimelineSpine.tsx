@@ -29,7 +29,6 @@ import { TransitionChip } from "./TransitionChip";
 import {
   CategoryCafeIcon,
   CategoryHomeIcon,
-  CategoryOfficeIcon,
   CategoryUnknownIcon,
   type CategoryIconProps,
 } from "@/components/ui/icons/category";
@@ -89,18 +88,50 @@ function MealIcon({ className, size = 16, ariaLabel }: CategoryIconProps): React
 }
 
 /**
- * Spine category icon component (= 8b-6 corrective、 emoji → SVG component 切替):
- *   - 既存 SVG icon system (CategoryCafeIcon / OfficeIcon / HomeIcon / UnknownIcon) を再利用
- *   - stroke="currentColor" + text-white で **白抜き** 表現 (= CEO 「アイコンの中身は白抜き」)
+ * 8b-7 corrective: work 専用 BriefcaseIcon (= 既存 CategoryOfficeIcon が「不適切」 と CEO 指摘)
+ *
+ * 設計: 美しい briefcase outline、 stroke="currentColor" で 白抜き
+ */
+function BriefcaseIcon({ className, size = 16, ariaLabel }: CategoryIconProps): ReactNode {
+  const isInteractive = !!ariaLabel;
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      role={isInteractive ? "img" : undefined}
+      aria-label={ariaLabel}
+      aria-hidden={isInteractive ? undefined : true}
+    >
+      {/* Handle (= top) */}
+      <path d="M9 6 V4.5 a1 1 0 0 1 1 -1 h4 a1 1 0 0 1 1 1 V6" />
+      {/* Body (= main rectangle、 rounded corners) */}
+      <rect x="3.5" y="6" width="17" height="13" rx="1.5" />
+      {/* Front horizontal split line (= bag closure suggestion) */}
+      <path d="M3.5 11 H20.5" />
+    </svg>
+  );
+}
+
+/**
+ * Spine category icon component (= 8b-6/8b-7 corrective、 emoji → SVG component 切替):
+ *   - cafe / home / other は既存 SVG icon system 再利用
  *   - meal は MealIcon (= inline、 fork + knife)
- *   - 'other' は CategoryUnknownIcon (= 既存 fallback、 「?」 等)
+ *   - work は BriefcaseIcon (= inline、 8b-7 で CategoryOfficeIcon から差替、 CEO 「不適切」 指摘反映)
+ *   - stroke="currentColor" + text-white で **白抜き** 表現
  *   - 全 icon size 統一 (= 16px、 32px circle 内で適切)
- *   - aria-hidden (= テキスト等価情報は EventCard 内に存在)
  */
 const CATEGORY_ICON_COMPONENT: Record<EventCategory, ComponentType<CategoryIconProps>> = {
   cafe: CategoryCafeIcon,
   meal: MealIcon,
-  work: CategoryOfficeIcon,
+  work: BriefcaseIcon,
   home: CategoryHomeIcon,
   other: CategoryUnknownIcon,
 };

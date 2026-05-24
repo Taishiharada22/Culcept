@@ -38,14 +38,14 @@ import { ExecutionLayerChip } from "./ExecutionLayerChip";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 全周 border 色 (= 8b-6、 旧 border-l-4 + border-l-{color}-500 廃止)
+ * 全周 border 色 (= 8b-7 で更に薄く -200 → -100、 CEO 「枠の色もまだ濃い」)
  */
 const CATEGORY_BORDER_CLASS: Record<EventCategory, string> = {
-  cafe: 'border-indigo-200',
-  meal: 'border-orange-200',
-  work: 'border-blue-200',
-  home: 'border-emerald-200',
-  other: 'border-slate-200',
+  cafe: 'border-indigo-100',
+  meal: 'border-orange-100',
+  work: 'border-blue-100',
+  home: 'border-emerald-100',
+  other: 'border-slate-100',
 };
 
 /**
@@ -71,9 +71,7 @@ const CATEGORY_BG_CLASS: Record<EventCategory, string> = {
 };
 
 /**
- * 左尖り triangle 色 (= 8b-6 追加、 card 本体の延長として spine icon 方向に向く)
- *
- * triangle 色 = card bg 色 (= 延長感)、 'other' は white で実質 invisible (= 中立、 triangle なし扱い)
+ * 左尖り triangle 内部色 (= 8b-6 追加、 card bg と同色で延長感)
  */
 const CATEGORY_TRIANGLE_CLASS: Record<EventCategory, string> = {
   cafe: 'before:border-r-indigo-50',
@@ -81,6 +79,20 @@ const CATEGORY_TRIANGLE_CLASS: Record<EventCategory, string> = {
   work: 'before:border-r-blue-50',
   home: 'before:border-r-emerald-50',
   other: 'before:border-r-white',
+};
+
+/**
+ * 左尖り triangle 外周 border 色 (= 8b-7 追加、 CEO 「三角形も周りの太線で囲む」)
+ *
+ * ::after で 1px 外周線 triangle、 card border と同色 (= -100 系)
+ * before は中身 bg 色 (= card 延長)、 after は 1px 外側にずらして border 線として見せる
+ */
+const CATEGORY_TRIANGLE_BORDER_CLASS: Record<EventCategory, string> = {
+  cafe: 'after:border-r-indigo-100',
+  meal: 'after:border-r-orange-100',
+  work: 'after:border-r-blue-100',
+  home: 'after:border-r-emerald-100',
+  other: 'after:border-r-slate-100',
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -141,18 +153,24 @@ export type EventCardProps = {
 export function EventCard({ event, onTap }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
 
-  // container class (= 8b-6 corrective: 左濃い border 廃止、 全周薄 border、 ::before 左尖り)
+  // container class (= 8b-7 corrective: border -200 → -100、 triangle に外周 border 追加)
+  //   - ::before: 中身 triangle (= card bg 同色で延長感)、 z-10 で外周より前
+  //   - ::after: 外周 1px 線 (= card border 同色 -100)、 1px 外側に配置して縁取り表現
   const containerClass = [
-    "relative", // for ::before triangle positioning
+    "relative", // for ::before / ::after triangle positioning
     "block w-full text-left",
     "rounded-2xl",
     CATEGORY_BG_CLASS[event.category],
-    "border", // 全周 1px (= 旧 border-l-4 廃止)
-    CATEGORY_BORDER_CLASS[event.category], // border-{color}-200
-    // 左尖り triangle (= ::before pseudo、 card 延長として spine icon 方向)
-    "before:content-[''] before:absolute before:left-[-7px] before:top-4",
+    "border", // 全周 1px
+    CATEGORY_BORDER_CLASS[event.category], // border-{color}-100 (= 8b-7 薄く)
+    // 左尖り 内部 triangle (= ::before pseudo、 card 延長感)
+    "before:content-[''] before:absolute before:left-[-7px] before:top-4 before:z-10",
     "before:border-y-[7px] before:border-y-transparent before:border-r-[7px]",
     CATEGORY_TRIANGLE_CLASS[event.category],
+    // 左尖り 外周 border triangle (= ::after pseudo、 8b-7 「三角形も周りの太線で囲む」)
+    "after:content-[''] after:absolute after:left-[-8px] after:top-[15px]",
+    "after:border-y-[8px] after:border-y-transparent after:border-r-[8px]",
+    CATEGORY_TRIANGLE_BORDER_CLASS[event.category],
     "shadow-sm",
     "p-4",
     "transition-colors duration-150",

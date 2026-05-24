@@ -115,10 +115,12 @@ const MEANING_TABLE: Record<
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * category + startTime から意味文取得 (= deterministic、 pure)
+ * category + startTime から意味文取得 (= deterministic、 pure、 8b-1 base)
  *
  * - 'other' category → undefined (= 判断不能な対象に Alter が解釈を押し付けない)
  * - 'cafe' / 'meal' / 'work' / 'home' → 時刻帯 lookup
+ *
+ * 注: 8b-7 で getNarrative (5W1H 文章) を主用、 本関数は内部 fallback として残す
  */
 export function getMeaningText(
   category: EventCategory,
@@ -129,4 +131,111 @@ export function getMeaningText(
   }
   const tod = getTimeOfDay(startTime);
   return MEANING_TABLE[category][tod];
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// getNarrative (= 8b-7、 5W1H 文章生成、 location / title を含む)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 時刻帯名を日本語に変換 (= 「朝」 「昼」 「午後」 「夜」 「深夜」)
+ */
+function todToJp(tod: TimeOfDay): string {
+  switch (tod) {
+    case 'morning': return '朝';
+    case 'lunch': return '昼';
+    case 'afternoon': return '午後';
+    case 'evening': return '夜';
+    case 'late_night': return '深夜';
+  }
+}
+
+/**
+ * 5W1H narrative 生成 (= 8b-7 追加、 CEO 「自然な日本語、 5W1H 意識」)
+ *
+ * 設計原則 (= CEO + GPT 合議 2026-05-24 8b-7):
+ *   - **場所 (where)** + **環境** + **何を (what)** + **いつ (when)** を一文に組み込む
+ *   - 例: 「集中しやすい静かなカフェで今日の計画を整理しましょう」 (= mock 整合)
+ *   - location あり: 場所を主役にした自然な文
+ *   - location なし: 時刻帯 + category 主体の自然な文
+ *   - 'other' category: undefined (= 判断不能、 押し付けない)
+ *
+ * 文体 (= Aneurasync 哲学整合):
+ *   - 命令形 0
+ *   - 評価形容詞 0 (= 「重要」 「最適」 等)
+ *   - 状態 / 動作描写、 自然な日本語
+ *
+ * pure (= LLM / API 不使用、 deterministic template、 入力 mutate なし)
+ *
+ * 将来: LLM 接続版に拡張可 (= CEO 「LLM で推論作成していい」 許可済)、 ただし pure fallback を残す
+ */
+export function getNarrative(
+  category: EventCategory,
+  startTime: string,
+  location?: string,
+  title?: string,
+): string | undefined {
+  if (category === 'other') {
+    return undefined;
+  }
+  const tod = getTimeOfDay(startTime);
+  const todJp = todToJp(tod);
+
+  // location あり (= 場所を主役に、 自然な文章)
+  if (location !== undefined && location.length > 0) {
+    switch (category) {
+      case 'cafe':
+        if (tod === 'morning') return `${todJp}の${location}で、 一日の計画を静かに整える時間`;
+        if (tod === 'lunch') return `${todJp}の${location}で、 ひと息ついて気持ちを緩める時間`;
+        if (tod === 'afternoon') return `${location}で、 午後のペースを取り戻す時間`;
+        if (tod === 'evening') return `${todJp}の${location}で、 静かに過ごす時間`;
+        return `${location}で、 深夜の静かなひとときを過ごす`;
+      case 'meal':
+        if (tod === 'morning') return `${location}で、 朝を始める食卓を囲む`;
+        if (tod === 'lunch') return `${location}で、 半日を区切るランチをとる`;
+        if (tod === 'afternoon') return `${location}で、 軽くお腹を満たすひと品を楽しむ`;
+        if (tod === 'evening') return `${todJp}の${location}で、 ゆっくり食卓を囲む`;
+        return `${location}で、 夜更けに軽い食事をとる`;
+      case 'work':
+        if (tod === 'morning') return `${location}で、 朝の集中が乗りやすい時間に仕事を進める`;
+        if (tod === 'lunch') return `${location}で、 午前を区切る時間帯`;
+        if (tod === 'afternoon') return `${location}で、 午後の仕事を着実に進める`;
+        if (tod === 'evening') return `${location}で、 仕事を締めにいく時間帯`;
+        return `${location}で、 残作業を片付ける時間帯`;
+      case 'home':
+        if (tod === 'morning') return `${location}で、 一日のスタートを整える朝`;
+        if (tod === 'lunch') return `${location}で、 少しゆっくりと休む昼`;
+        if (tod === 'afternoon') return `${location}で、 午後にひと息つく時間`;
+        if (tod === 'evening') return `${location}に戻り、 自分の余白を取り戻す夜`;
+        return `${location}で、 深夜にゆっくり休みに入る`;
+    }
+  }
+
+  // location なし (= 時刻帯 + category 主体の自然な文)
+  switch (category) {
+    case 'cafe':
+      if (tod === 'morning') return '集中しやすい静かな朝のひととき';
+      if (tod === 'lunch') return '気持ちを少し緩めるカフェタイム';
+      if (tod === 'afternoon') return '午後のペースを取り戻すひととき';
+      if (tod === 'evening') return '夜にひと息つくカフェタイム';
+      return '深夜の静かなひとときを過ごす';
+    case 'meal':
+      if (tod === 'morning') return '朝を始める食卓を囲む';
+      if (tod === 'lunch') return '半日を区切るランチをとる';
+      if (tod === 'afternoon') return '軽くお腹を満たすひと品を楽しむ';
+      if (tod === 'evening') return '夜のゆっくりした食卓を囲む';
+      return '夜更けに軽い食事をとる';
+    case 'work':
+      if (tod === 'morning') return '朝の集中が乗りやすい時間に仕事を進める';
+      if (tod === 'lunch') return '午前を区切るお昼の時間';
+      if (tod === 'afternoon') return '午後の仕事を着実に進める時間';
+      if (tod === 'evening') return '仕事を締めにいく時間帯';
+      return '残作業を片付ける時間帯';
+    case 'home':
+      if (tod === 'morning') return '一日のスタートを整える朝の時間';
+      if (tod === 'lunch') return '少しゆっくりと休む昼';
+      if (tod === 'afternoon') return '午後にひと息つく時間';
+      if (tod === 'evening') return '自分の余白を取り戻す夜';
+      return '深夜にゆっくり休みに入る';
+  }
 }

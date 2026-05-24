@@ -71,7 +71,7 @@ import { usePlanGeocode } from "./_usePlanGeocode";
 //     - lib/plan/list/adapters/externalAnchorAdapter.ts
 import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
 import {
-  convertExternalAnchorListToTimelineEvents,
+  convertExternalAnchorListWithDayBookends,
   convertExternalAnchorListToTransitions,
 } from "@/lib/plan/list/adapters/externalAnchorAdapter";
 import { TimelineSpine } from "../components/list/TimelineSpine";
@@ -437,8 +437,9 @@ function FlowDaySection({
   //   flag OFF (= default) では本 block を完全に通過 (= 既存 return 文に到達、 user 影響 0)
   // ─────────────────────────────────────────────────────────────────────
   if (LIST_NEW_TIMELINE_ENABLED) {
+    // 8b-7: 「出発」 / 「帰宅」 virtual events を含む timeline (= CEO 明示)
     const newTimelineEvents = hasAnchors
-      ? convertExternalAnchorListToTimelineEvents(anchors)
+      ? convertExternalAnchorListWithDayBookends(anchors)
       : [];
     // 8b-4: TransitionChip 接続 (= 隣り合う events から自動生成、 label '移動' 固定)
     //   - truth なき distance/mode 主張なし、 単純な 「流れ」 表現
