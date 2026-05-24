@@ -1,12 +1,18 @@
 /**
- * Phase 3-N List impl sub-phase 4 — EventCard render contract test (= 第 13 補正 #2 必須化)
+ * Phase 3-N List impl sub-phase 6 — EventCard render contract test (= 第 13 補正 #2 必須化 + sub-phase 6 反映)
  *
- * 検証範囲 (= GPT 第 13 補正 5 必須項目、 react-dom/server で string HTML 検査):
+ * 検証範囲 (= GPT 第 13 補正 5 必須項目 + sub-phase 6 反映、 react-dom/server で string HTML 検査):
  *   §1 primary 情報が出る (= title / 時刻 / 場所 / Alter 補助文)
  *   §2 proposed の見え方 (= dashed border + opacity 0.7 + 「受け入れる」 chip)
- *   §3 origin 表示 (= source dot + aria-label)
+ *   §3 origin 表示 (= SourceIndicator compact 経由、 第 12 補正 #2 hierarchy 反映)
  *   §4 clonedFrom が main card に出ない (= 第 12 補正 #2 機械保証)
  *   §5 focus-visible slate (= brand focus 出ない、 規約 24-extended 機械保証)
+ *
+ * 第 12 補正 #2 hierarchy (= sub-phase 6 で反映):
+ *   - imported origin: dot + 📄 icon + aria-label="source: ${importedFrom} imported"
+ *   - alter_generated proposed: dot + ✨ icon + aria-label="source: Alter proposed"
+ *   - alter_generated accepted (compact): null (= main card で user_owned 同等表示、 dot 消滅)
+ *   - user origin: null (= visual noise 回避、 cloned event も同等)
  *
  * 不変原則:
  *   - @testing-library なし (= react-dom/server.renderToStaticMarkup のみ使用)
@@ -14,8 +20,10 @@
  *   - 既存 file 不触
  *
  * 設計書:
- *   - Spec audit §19.11 (= 第 13 補正)
- *   - decision-log (= 第 13 補正引き継ぎ commit)
+ *   - Spec audit §19.11 (= 第 13 補正) + §19.13 (= 第 15 補正)
+ *   - lib/plan/list/sourceProvenance.ts
+ *   - app/(culcept)/plan/components/list/SourceIndicator.tsx
+ *   - decision-log (= 第 13 / 14 / 15 補正引き継ぎ commit)
  */
 
 import { describe, expect, it } from "vitest";
@@ -73,6 +81,7 @@ describe("EventCard render contract §1. primary 情報", () => {
     const html = renderToStaticMarkup(<EventCard event={event} />);
     expect(html).toContain('minimal');
     expect(html).not.toContain('📍');
+    // user origin で alterNote なし → ✨ も出ない (= SourceIndicator も null)
     expect(html).not.toContain('✨');
   });
 });
@@ -124,11 +133,11 @@ describe("EventCard render contract §2. proposed 見え方", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §3 origin 表示 (= source dot + aria-label)
+// §3 origin 表示 (= SourceIndicator compact 経由、 第 12 補正 #2 hierarchy 反映)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("EventCard render contract §3. origin 表示", () => {
-  it("§3.1 imported は source dot (= bg-slate-500) + aria-label", () => {
+describe("EventCard render contract §3. origin 表示 (= sub-phase 6 SourceIndicator 経由)", () => {
+  it("§3.1 imported は SourceIndicator compact (= bg-slate-500 dot + 📄 icon + aria-label に importedFrom 名)", () => {
     const event = createImportedEvent({
       id: 'e7',
       title: 'シフト',
@@ -137,11 +146,15 @@ describe("EventCard render contract §3. origin 表示", () => {
       importedFrom: 'シフト表',
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
-    expect(html).toContain('aria-label="source: imported"');
+    // 第 11 補正 #1 origin axis: dot + icon + (compact なので label 出さない)
     expect(html).toContain('bg-slate-500');
+    expect(html).toContain('📄');
+    expect(html).toContain('aria-label="source: シフト表 imported"');
+    // compact なので label (= 「シフト表から」) は出さない
+    expect(html).not.toContain('シフト表から');
   });
 
-  it("§3.2 alter_generated_accepted は source dot (= bg-indigo-400) + aria-label", () => {
+  it("§3.2 alter_generated_accepted は SourceIndicator compact で null (= 第 12 補正 #2 dot 消滅、 main card で user_owned 同等表示)", () => {
     const proposed = createAlterProposedEvent({
       id: 'e8',
       title: 'Alter 受け入れ',
@@ -150,11 +163,13 @@ describe("EventCard render contract §3. origin 表示", () => {
     });
     const accepted = acceptAlterProposed(proposed, '2026-05-24T15:00:00Z');
     const html = renderToStaticMarkup(<EventCard event={accepted} />);
-    expect(html).toContain('aria-label="source: Alter generated"');
-    expect(html).toContain('bg-indigo-400');
+    // 第 12 補正 #2: accepted の dot 消滅 (= main card で user_owned 同等)
+    expect(html).not.toContain('bg-indigo-400');
+    expect(html).not.toContain('source: Alter');
+    expect(html).not.toContain('Alter 提案を受け入れ済');
   });
 
-  it("§3.3 user_entered は source dot なし (= default、 visual noise 回避)", () => {
+  it("§3.3 user_entered は SourceIndicator compact で null (= default、 visual noise 回避)", () => {
     const event = createUserEvent({
       id: 'e9',
       title: 'user 作成',
@@ -162,11 +177,13 @@ describe("EventCard render contract §3. origin 表示", () => {
       category: 'cafe',
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
-    expect(html).not.toContain('aria-label="source: imported"');
-    expect(html).not.toContain('aria-label="source: Alter generated"');
+    expect(html).not.toContain('source: imported');
+    expect(html).not.toContain('source: Alter');
+    expect(html).not.toContain('bg-slate-500');
+    expect(html).not.toContain('bg-indigo-400');
   });
 
-  it("§3.4 alter_generated_proposed は source dot 出ない (= chip で表示、 alterOrigin && !proposed で出す条件)", () => {
+  it("§3.4 alter_generated_proposed は SourceIndicator compact (= bg-indigo-400 dot + ✨ icon)、 同時に 受け入れる chip も出る (= 第 11 補正 #1 origin / authority 軸独立)", () => {
     const event = createAlterProposedEvent({
       id: 'e10',
       title: 'Alter 提案',
@@ -174,8 +191,10 @@ describe("EventCard render contract §3. origin 表示", () => {
       category: 'other',
     });
     const html = renderToStaticMarkup(<EventCard event={event} />);
-    // proposed なので proposed chip で表現、 dot は出さない
-    expect(html).not.toContain('aria-label="source: Alter generated"');
+    // 第 11 補正 #1: origin axis (= SourceIndicator) と authority axis (= proposed chip) が独立
+    expect(html).toContain('bg-indigo-400');
+    expect(html).toContain('aria-label="source: Alter proposed"');
+    expect(html).toContain('✨');
     expect(html).toContain('受け入れる');
   });
 });
@@ -202,7 +221,7 @@ describe("EventCard render contract §4. clonedFrom 非表示 (= 第 12 補正 #
     expect(html).not.toContain('imp-1'); // 元 imported event id も出さない
   });
 
-  it("§4.2 cloned event は main card で user_entered と区別なし (= dot なし、 chip なし)", () => {
+  it("§4.2 cloned event は main card で user_entered と区別なし (= SourceIndicator compact で null、 chip なし)", () => {
     const imported = createImportedEvent({
       id: 'imp-2',
       title: 'シフト',
@@ -212,8 +231,11 @@ describe("EventCard render contract §4. clonedFrom 非表示 (= 第 12 補正 #
     });
     const cloned = cloneImported(imported, 'cloned-2');
     const html = renderToStaticMarkup(<EventCard event={cloned} />);
-    expect(html).not.toContain('aria-label="source: imported"'); // imported source dot 出ない
-    expect(html).not.toContain('aria-label="source: Alter generated"');
+    // cloned = user origin → SourceIndicator compact null
+    expect(html).not.toContain('source: imported');
+    expect(html).not.toContain('source: Alter');
+    expect(html).not.toContain('bg-slate-500');
+    expect(html).not.toContain('bg-indigo-400');
     expect(html).not.toContain('受け入れる');
     expect(html).not.toContain('border-dashed');
   });

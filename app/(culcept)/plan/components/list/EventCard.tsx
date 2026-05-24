@@ -1,38 +1,40 @@
 /**
- * Phase 3-N List impl sub-phase 4 — EventCard component
+ * Phase 3-N List impl sub-phase 6 — EventCard component (= SourceIndicator + ExecutionLayerChip 統合反映)
  *
- * 設計原則 (= Spec audit §5.1 + 第 11+12 補正反映):
+ * 設計原則 (= Spec audit §5.1 + 第 11+12+14+15 補正反映):
  *   - main card UI hierarchy (= Spec §19.10.2):
  *     - primary: title + 時刻 + 場所 + Alter 補助文 (= content axis)
  *     - secondary: proposed dashed border + opacity 0.7 + 「受け入れる」 chip (= authority axis)
- *     - tertiary: source dot + execution chip count (= origin axis + execution)
+ *     - tertiary: SourceIndicator (= origin axis、 compact) + ExecutionLayerChip (= 軽いサイン)
  *     - **詳細 sheet のみ**: clonedFrom / imported 詳細 / acceptedAt (= 第 12 補正 #2、 main card 非表示)
  *
- *   - 第 11 補正 #1 UI 責務分離: origin と authority と clonedFrom を **3 axis 独立**で扱う
- *   - 第 12 補正 #1: provenance = origin (= source dot)、 derivation = clonedFrom (= 詳細 sheet のみ)
+ *   - 第 11 補正 #1 UI 責務分離: origin / authority / clonedFrom を **3 axis 独立**で扱う
+ *   - 第 12 補正 #2 hierarchy: accepted Alter generated は main card で user_owned 同等 (= dot 消滅)
+ *   - 第 14 補正 first-pass: SourceIndicator + ExecutionLayerChip は **component 統合のみ**
+ *     (= 詳細 sheet 起動 logic / 学習ループ本実装は sub-phase 7+)
+ *   - 第 15 補正範囲制限: 既存 wave 1/2/3/3a frozen file 不触、 新 component 追加 + 本 file refactor のみ
  *
  *   - 規約 24-extended (= focus surface): focus-visible:border-slate-300
  *   - 自然な日本語維持 (= 第 2 補正、 命令形 / 評価 / push 系単語狩り禁止)
  *
- * 第 7 補正 #1 多軸表現 minimal compact (= 色 + icon、 sub-phase 6 で SourceIndicator 専用 component 化):
- *   - 本 sub-phase 4 では minimal inline (= source dot + emoji icon)
- *   - sub-phase 6 で SourceIndicator + ExecutionLayerChip component に分離
- *
  * 設計書:
- *   - docs/alter-plan-list-redesign-spec-audit.md §5.1 + §19.10
+ *   - docs/alter-plan-list-redesign-spec-audit.md §5.1 + §19.10 + §19.13
  *   - lib/plan/list/sourceProvenance.ts (= 2 軸 source model + helpers)
+ *   - ./SourceIndicator.tsx (= origin axis 表示)
+ *   - ./ExecutionLayerChip.tsx (= 軽いサイン)
  */
 
 import { type ReactNode } from "react";
 import {
   type StrictEventCardViewModel,
   isProposed,
-  isAlterOrigin,
 } from "@/lib/plan/list/sourceProvenance";
 import { type EventCategory } from "@/lib/plan/list/types";
+import { SourceIndicator } from "./SourceIndicator";
+import { ExecutionLayerChip } from "./ExecutionLayerChip";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Category visual mapping (= Spec §8.2 color tokens、 sub-phase 4 inline、 sub-phase 10 で extract)
+// Category visual mapping (= Spec §8.2 color tokens、 sub-phase 6 inline、 sub-phase 10 で extract)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const CATEGORY_BORDER_CLASS: Record<EventCategory, string> = {
@@ -66,13 +68,11 @@ export type EventCardProps = {
  * UI hierarchy (= 第 12 補正 #2 遵守):
  *   - primary: title + 時刻 range + 場所 + Alter 補助文
  *   - secondary: authority 状態 (= proposed なら dashed border + chip)
- *   - tertiary: origin source dot + execution chip count
+ *   - tertiary: SourceIndicator (= origin、 compact) + ExecutionLayerChip
  *   - 詳細 sheet のみ: clonedFrom / imported 詳細 / acceptedAt
  */
 export function EventCard({ event, onTap }: EventCardProps): ReactNode {
   const proposed = isProposed(event.sourceModel);
-  const alterOrigin = isAlterOrigin(event.sourceModel);
-  const imported = event.sourceModel.origin === 'imported';
 
   // container class
   const containerClass = [
@@ -129,29 +129,15 @@ export function EventCard({ event, onTap }: EventCardProps): ReactNode {
         </p>
       )}
 
-      {/* TERTIARY footer: source dot (= origin axis) + execution chip + SECONDARY chip (= authority) */}
+      {/* TERTIARY footer: SourceIndicator (= origin axis、 compact) + ExecutionLayerChip + SECONDARY chip (= authority) */}
       <div className="mt-3 flex items-center gap-2 text-xs">
-        {/* origin source dot (= 第 7 補正 #1 minimal compact、 sub-phase 6 で SourceIndicator 化) */}
-        {imported && (
-          <span
-            className="inline-block w-2 h-2 rounded-full bg-slate-500"
-            aria-label="source: imported"
-          />
-        )}
-        {alterOrigin && !proposed && (
-          <span
-            className="inline-block w-2 h-2 rounded-full bg-indigo-400"
-            aria-label="source: Alter generated"
-          />
-        )}
+        {/* origin axis: SourceIndicator compact (= 第 11 補正 #1 軸分離、 第 12 補正 #2 hierarchy) */}
+        <SourceIndicator sourceModel={event.sourceModel} variant="compact" />
 
-        {/* execution chip count (= 第 8 補正 #3 枠まで、 sub-phase 6 で ExecutionLayerChip 化) */}
-        {event.executionLayerCounts?.preparation !== undefined &&
-          event.executionLayerCounts.preparation > 0 && (
-            <span className="text-slate-500">
-              準備 {event.executionLayerCounts.preparation}
-            </span>
-          )}
+        {/* 軽いサイン: ExecutionLayerChip (= 第 8 補正 #3 first-pass、 sub-phase 6 範囲) */}
+        {event.executionLayerCounts !== undefined && (
+          <ExecutionLayerChip counts={event.executionLayerCounts} />
+        )}
 
         {/* SECONDARY: proposed chip (= authority、 right) */}
         {proposed && (
