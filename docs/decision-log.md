@@ -13584,3 +13584,72 @@ sub-phase 3.6 (= source link refactor、 commit `90af5d32`) 着地後、 CEO + G
 - **ステータス**: sub-phase 3.6 採用確定。 第 12 補正 3 補足明示。 次 sub-phase 4 (= UI、 TimelineSpine + EventCard、 visual checkpoint) 着手承認済。 visual smoke フェーズ切替。
 
 ---
+
+## 2026-05-24 [Build/Product] sub-phase 4 着地 + 第 13 補正 2 点 (表現補正 + render contract test) 引き継ぎ + sub-phase 4 内で render contract test 追加 [承認: CEO + GPT 第 13 補正後最終判定]
+
+### 背景
+
+sub-phase 4 (= TimelineSpine + EventCard、 commit `4c2996d8`) 着地後、 CEO + GPT 第 13 補正後最終判定:
+- 「sub-phase 4 commit は維持、 次に進んでよい」
+- 「但し 2 補正必須」
+  1. 表現補正: 「visual checkpoint」 → 「UI foundation checkpoint」
+  2. render contract test 追加 (= @testing-library なし、 react-dom/server で)
+
+### CEO + GPT 第 13 補正 2 補正
+
+#### #1 表現補正
+
+旧: 「visual checkpoint PASS」 (= GPT 「強すぎる」 指摘)
+新: 「**UI foundation checkpoint PASS**」 (= import / type / grep / 既存不触ベース、 actual DOM 未確認の段階で正確)
+
+| 段階 | 表現 |
+|---|---|
+| sub-phase 2-3 | foundation / contract checkpoint (= 維持) |
+| **sub-phase 4-6** | **UI foundation checkpoint** (= 表現補正) |
+| sub-phase 7+ | visual smoke (= demo route で実 render、 維持) |
+
+#### #2 render contract test 必須
+
+`react-dom/server` の `renderToStaticMarkup` で string HTML 出力 → string 検査:
+
+| # | 必須項目 |
+|---|---|
+| 1 | primary 情報が出る (= title / 時刻 / 場所 / Alter 補助文) |
+| 2 | proposed の見え方 (= dashed / opacity / 受け入れる chip) |
+| 3 | origin 表示 (= source dot + aria-label) |
+| 4 | clonedFrom が main card に出ない (= 第 12 補正 #2 機械保証) |
+| 5 | focus-visible slate (= brand focus 出ない、 規約 24-extended 機械保証) |
+
+### 反映 sub-phase
+
+- 本 sub-phase 4 内で render contract test 追加 (= 同 branch `feat/alter-plan-list-impl-timeline-spine-event-card`)
+- file: `tests/unit/plan/list/eventCardRenderContract.test.tsx`
+- 完了 trigger: **UI foundation checkpoint PASS** (= import test + render contract test 5 必須 PASS)
+
+### Doc update
+
+- §19.11 (新): 第 13 補正 2 補正詳細 (= 表現補正 + render contract test 必須)
+- §19.6 sub-phase 表現 update (= 「visual smoke」 → 「UI foundation checkpoint」 部分修正)
+- decision-log 新 entry (= 第 13 補正引き継ぎ)
+
+### 補正履歴 (= 累計 13 補正)
+
+| commit | 内容 |
+|---|---|
+| ... | direction + IA + Spec + 第 1-12 補正 |
+| `480ceaf9` | 第 12 補正引き継ぎ |
+| `4c2996d8` | sub-phase 4 (= TimelineSpine + EventCard) |
+| 本 commit | **第 13 補正引き継ぎ + 表現補正 + render contract test 必須化** |
+
+### 次
+
+- 本 sub-phase 4 内で render contract test 追加 → commit
+- 完了 trigger: UI foundation checkpoint PASS
+- CEO 判断後 → 次 sub-phase 5 (= TransitionChip + EmptyDayEntry)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 13 補正後最終判定 (= 2026-05-24、 「sub-phase 4 commit 維持、 但し 2 補正必須」)
+- **ステータス**: sub-phase 4 採用確定。 第 13 補正 2 点引き継ぎ。 render contract test 追加 を本 sub-phase 4 内で実施。
+
+---
