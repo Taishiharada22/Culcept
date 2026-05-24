@@ -13714,3 +13714,66 @@ sub-phase 4 内で第 13 補正反映 (= 表現補正 + render contract test 16 
 - **ステータス**: sub-phase 4 UI foundation checkpoint **PASS**。 第 14 補正範囲制限引き継ぎ。 次 sub-phase 5 (= TransitionChip + EmptyDayEntry first-pass) 着手承認済。
 
 ---
+
+## 2026-05-24 [Build/Product] sub-phase 5 UI foundation checkpoint PASS + 第 15 補正 (表現補正 + 3 tab 先行準備明示 + sub-phase 6 範囲制限) 引き継ぎ + sub-phase 6 進行承認 [承認: CEO + GPT 第 15 補正後最終判定]
+
+### 背景
+
+sub-phase 5 (= TransitionChip + EmptyDayEntry first-pass、 commit `75691a36`) 着地後、 CEO + GPT 第 15 補正後最終判定:
+- 「sub-phase 5 採用、 sub-phase 6 進行 OK」
+- 「軽い補正 2 + 範囲制限 1」
+
+### 第 15 補正 #1 表現補正 (= 不変原則 文言の正確化)
+
+旧: 「既存 UI / レイアウト / デザイン変更 0」
+新: **3 表現に分離**
+
+| 表現 | 意味 |
+|---|---|
+| **既存画面への反映 0** | 既存 plan 画面 (= FlowTab / MapTab / CalendarTab / page) に新 component 統合していない |
+| **既存画面 component 改変 0** | 既存 plan component (= FlowTab.tsx 等の旧画面 file) を改変していない |
+| **統合前の新規 component 追加のみ** | List impl 累積 phase 内の新 component 追加 / 旧 sub-phase 着地 file の refactor は許容 (= 統合は sub-phase 8+) |
+
+→ 旧表現は「新規 component 追加 = 既存 UI 変更」 とも読めるため不正確。 第 15 補正で 3 分離。
+
+### 第 15 補正 #2 3 tab union 扱い (= 先行準備のみ、 先回り禁止)
+
+EmptyDayEntry の `calendar / flow / map` 3 tab 対応は:
+- **先行準備のみ** (= type union で受け入れる構造)
+- **calendar / map 実装への先回り禁止** (= 本 sub-phase 5 + 後続 sub-phase 6+ の対象は **List (= flow) のみ**)
+- calendar / map の actual UI 実装は **別 phase** (= List redesign 完了後の Map redesign Spec + 後段)
+
+### 範囲制限 (= sub-phase 6、 第 15 補正)
+
+| 含める | 含めない |
+|---|---|
+| **SourceIndicator** (= first-pass、 第 7 補正 #1 多軸表現の専用 component 化) | 詳細 sheet 専用 component (= sub-phase 7+) |
+| **ExecutionLayerChip** (= first-pass、 IA #6 軽いサイン専用 component 化) | ExecutionLayer **本体** (= 学習ループ / 詳細 fields、 後続 phase) |
+| EventCard refactor (= sub-phase 4 着地 file の inline → 専用 component 化) | actual 詳細 sheet 起動 logic (= sub-phase 7) |
+| import + render contract test | ImportedLockEscape 本実装 (= sub-phase 7) |
+
+→ first-pass = 専用 component 化 + render contract test まで。 詳細 logic / sheet 起動 は後続。
+
+### 次 sub-phase 6 (= SourceIndicator + ExecutionLayerChip first-pass)
+
+- branch: `feat/alter-plan-list-impl-source-indicator-execution-chip`
+- 完了 trigger: UI foundation checkpoint (= import + render contract + 既存 sub-phase 4 着地 EventCard refactor 整合 + 規約 24-extended machine guaranteed)
+- 主要 component:
+  - SourceIndicator (= 第 7 補正 #1 多軸 provenance、 compact + full variant)
+  - ExecutionLayerChip (= IA #6 軽いサイン、 onTap optional)
+- EventCard refactor (= sub-phase 4 着地 file の inline → 専用 component 化、 既存 render contract test update)
+
+### 補正履歴 (= 累計 15 補正)
+
+| commit | 内容 |
+|---|---|
+| ... | direction + IA + Spec + 第 1-14 補正 |
+| `75691a36` | sub-phase 5 (= TransitionChip + EmptyDayEntry first-pass) |
+| 本 commit | **第 15 補正引き継ぎ + sub-phase 6 進行承認 + 表現補正 + 3 tab 先行準備明示** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 15 補正後最終判定 (= 2026-05-24、 「sub-phase 5 採用、 sub-phase 6 進行、 表現補正 + 3 tab 先行準備明示 + first-pass 範囲制限」)
+- **ステータス**: sub-phase 5 UI foundation checkpoint **PASS**。 第 15 補正 2 補正引き継ぎ。 次 sub-phase 6 (= SourceIndicator + ExecutionLayerChip first-pass + EventCard refactor) 着手承認済。
+
+---
