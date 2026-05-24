@@ -13653,3 +13653,64 @@ sub-phase 4 (= TimelineSpine + EventCard、 commit `4c2996d8`) 着地後、 CEO 
 - **ステータス**: sub-phase 4 採用確定。 第 13 補正 2 点引き継ぎ。 render contract test 追加 を本 sub-phase 4 内で実施。
 
 ---
+
+## 2026-05-24 [Build/Product] sub-phase 4 UI foundation checkpoint PASS + 第 14 補正 (sub-phase 5 範囲制限 + test pickup 注意) 引き継ぎ + sub-phase 5 進行承認 [承認: CEO + GPT 第 14 補正後最終判定]
+
+### 背景
+
+sub-phase 4 内で第 13 補正反映 (= 表現補正 + render contract test 16 tests、 commit `a10aacc8`) 着地後、 CEO + GPT 第 14 補正後最終判定:
+- 「第 13 補正反映は妥当」
+- 「sub-phase 4 採用、 sub-phase 5 へ進行 OK」
+- 「軽い注意 1 + 範囲制限 1」
+
+### CEO + GPT 第 14 補正 評価点
+
+特に評価された 5 点:
+1. `visual checkpoint` → `UI foundation checkpoint` の表現補正
+2. render contract test で必須 5 項目 機械保証
+3. `clonedFrom` 非表示も test に入っている
+4. 規約 24-extended も machine guarantee に乗せられている
+5. 既存 file 改変は vitest.config.ts の最小追加に閉じている
+
+### 軽い注意 (= 第 14 補正の唯一の注意点)
+
+- `.test.tsx` の include 追加は妥当
+- 但し**今後の test pickup 範囲だけは意識** (= 他 directory の `.test.tsx` が予期せず pickup される可能性)
+- blocker ではない
+
+→ 反映: 本 sub-phase 5 以降の new test file は通常通り `tests/unit/plan/list/` 内に限定、 他 directory への波及なし。
+
+### 範囲制限 (= sub-phase 5 で必須遵守、 第 14 補正)
+
+| 含める | 含めない (= 後続 sub-phase) |
+|---|---|
+| **TransitionChip** (= first-pass) | SummaryFooter (= sub-phase 8、 score / 評価文凍結維持 = 第 8 補正 #1) |
+| **EmptyDayEntry** (= first-pass、 N-3a 連携) | ExecutionLayer **本体** (= 学習ループ / 詳細 fields = sub-phase 7+) |
+| (= 上記の) import test + render contract test | ImportedLockEscape **本実装** (= sub-phase 7 で modal 専用) |
+
+→ 「first-pass」 = 構造の箱まで。 詳細 logic / 本実装 は後続 sub-phase。
+
+### 次 sub-phase 5 (= TransitionChip + EmptyDayEntry first-pass)
+
+- branch: `feat/alter-plan-list-impl-transition-empty-entry` (= sub-phase 4 から派生)
+- 完了 trigger: **UI foundation checkpoint** (= import + render contract test + 既存不触 + 規約整合)
+- 主要 component:
+  - TransitionChip (= 非 interactive 構造 component、 「移動」 chip)
+  - EmptyDayEntry (= interactive、 N-3a `EMPTY_DAY_ENTRY_LABEL` consume、 onTap optional)
+
+### 補正履歴 (= 累計 14 補正)
+
+| commit | 内容 |
+|---|---|
+| ... | direction + IA + Spec + 第 1-12 補正 |
+| `4c2996d8` | sub-phase 4 (= TimelineSpine + EventCard) |
+| `8545e197` | 第 13 補正引き継ぎ + 表現補正 |
+| `a10aacc8` | sub-phase 4 render contract test (= UI foundation checkpoint 確立) |
+| 本 commit | **第 14 補正引き継ぎ + sub-phase 5 進行承認 + 範囲制限明示** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 第 14 補正後最終判定 (= 2026-05-24、 「第 13 補正反映妥当、 sub-phase 4 採用、 sub-phase 5 へ TransitionChip + EmptyDayEntry first-pass のみ」)
+- **ステータス**: sub-phase 4 UI foundation checkpoint **PASS**。 第 14 補正範囲制限引き継ぎ。 次 sub-phase 5 (= TransitionChip + EmptyDayEntry first-pass) 着手承認済。
+
+---
