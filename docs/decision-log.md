@@ -13586,3 +13586,135 @@ sub-phase 7 commit `df4b7ae4` (= ImportedLockEscapeModal first-pass、 2 files /
 - **ステータス**: sub-phase 7 commit `df4b7ae4` **採用確定**。 sub-phase 8 8a/8b/8c **分割方針確定**。 8a readiness 提示 → CEO 進行案 1/2/3 判断待ち。
 
 ---
+
+## 2026-05-24 [Build/Product] List impl sub-phase 8a 採用 (= 構造置換) + visual smoke 結果 + 規律違反認識 + 8b/8c scope redefine 確定 [承認: CEO + GPT 合議]
+
+### 背景
+
+sub-phase 8a 全 2 commit (= `b6be22e5` 8a-pre + `41fbb01e` 8a-impl) 着地後、 flag true で visual smoke 実施。 CEO + GPT 合議:
+
+- 「sub-phase 8a の構造置換自体は通っています」 (= 採用)
+- 「ただし見た目はまだ弱く、 現時点では 50〜55 点くらい」 (= mock 品質に届かない)
+- 「8a commit は維持、 やり直し不要」
+- 「問題は 8a ではなく、 8b / 8c の定義が mock 品質に対して弱すぎたこと」
+- 「**案 B (= 8a 採用維持 + 8b/8c redefine) 採用**」
+
+### CEO 規律違反認識 (= 重要)
+
+CEO 強い叱責: 「俺が送った画像は正確に見たの？分析したの？スクショから分析する必要があるのに、 なぜしない？明確な規律違反」
+
+Claude 自己批判:
+1. CEO mock を 「品質基準」 として正面分析せず (= 過去の同類規律違反再発)
+2. 「sub-phase 最小範囲」 を自己解釈で mock 要素を後送り
+3. adapter で `alterNote` undefined 化 (= 「truth なき semantics 主張禁止」 を誤適用、 mock 意味文は Alter 由来観測として別 source 正当化可能だった)
+
+### mock 自己分析 (= Claude 自身、 GPT 鵜呑みではない)
+
+mock 構造 7 領域 vs 現状実装 gap:
+
+| # | 領域 | mock | 現状実装 | gap |
+|---|---|---|---|---|
+| 1 | EventCard 質感 | 薄 category tint + 写真 + 意味文 + 「面の温度感」 | white bg + border-l-4 のみ | **致命的**: 「白い箱の並び」 |
+| 2 | Spine | filled category circle + 白 icon (cup/fork/briefcase/home) | 無地 color circle のみ | カテゴリ認識装置として機能せず |
+| 3 | TransitionChip | 細 chip 「移動」 「移動・リフレッシュ」 + 時刻 | **完全非 render** | 1 日の 「流れ」 分断 (= 8a で skip した私の判断ミス) |
+| 4 | 意味文 (= alterNote) | ✨ + 1 行 × 4 = 1 日の物語 (朝整える/昼回復/午後進める/夜休める) | undefined 全件 | mock の魂が抜けている |
+| 5 | Header/Title/Tab | ALTER MORNING / 今日のプラン / 地図リスト / 日付 picker | 8a 改変範囲外 (= PlanClient 責務) | 別 sub-phase |
+| 6 | SummaryFooter (= 78%) | 円グラフ + 状態名 + 解釈文 + subtle CTA | なし (= 8c 待ち、 計画では 「箱だけ」) | 「箱だけ」 では mock 品質届かず |
+| 7 | Empty day | (mock 直接比較なし) | 「ALTER で見る ›」 button minimal | 「Alter が入ってくる余白」 質感欠落 |
+
+### CEO + GPT 合議結論 (= 修正 3 案から)
+
+**案 B 採用** (= 8a 採用維持 + 8b/8c scope redefine):
+- 案 A (= 8a 内で大改修) 不採用: 8a 責務を壊しすぎる、 構造置換フェーズに視覚品質全部押し戻すのは重い
+- 案 B (= 8a 採用維持 + 8b/8c redefine) **採用**: 直すべきは 8a ではなく後続 scope
+- 案 C (= 8a やり直し) 不採用: 骨格として成立、 やり直し不要
+
+### sub-phase 8b 再定義 (= mock 品質に届く責務)
+
+| # | 責務 | 詳細 |
+|---|---|---|
+| 1 | EventCard semantic tint | bg-{indigo|orange|blue|emerald|slate}-50 を category 別に適用 + 細 border 整合 |
+| 2 | spine category icon | filled circle + 白 icon (= cup / fork / briefcase / home / generic) |
+| 3 | TransitionChip 接続 | 隣り合う events から自動生成、 label 「移動」 固定 (= truth なき route detail なし、 1 日の 「流れ」 抽象レイヤー) |
+| 4 | meaning text (= alterNote) | **CategoryMeaning module 新設**、 category + 時刻帯 → 状態/解釈型 文体生成 |
+| 5 | SourceIndicator first-pass 統合 | 既存 EventCard 内蔵で OK (= 元 user origin 自動 null 維持) |
+| 6 | ExecutionLayerChip first-pass 統合 | 同 |
+
+**画像 slot は optional** (= GPT 明示):
+- external anchor に truthful image なし
+- fake photo 入れるより 色 / 説明文 / 余白 で質感を作る
+- 必須条件にしない、 8b では skip OK、 後段で別解決
+
+### sub-phase 8c 再定義 (= 解釈レイヤーの器、 score 凍結維持)
+
+SummaryFooter の構造:
+- 左: 視覚サマリー枠 (= 円形 indicator、 ただし数値計算 logic 後段)
+- 中央: 状態名 (= 「バランス良好」 等のテンプレ、 score 計算なし)
+- 右: 一言解釈 (= テンプレ文、 強い評価文凍結維持)
+- subtle CTA (= 「リズムを整えるヒント >」 等)
+
+**ただし**:
+- 78% 等の score 算出 logic は **凍結維持** (= 後段)
+- 強い評価文も **凍結維持** (= 後段)
+- 「箱だけ」 では弱いが 「最終評価文まで全部」 でも早い → **中間 (= 解釈レイヤーの器)** が正解
+
+### meaning text 文体方針 (= CategoryMeaning module 設計)
+
+mock の文体:
+- 「集中しやすい静かなカフェで、 今日の計画を整理しましょう。」
+- 「地元の美味しいランチでリフレッシュ。」
+- 「午後の集中タイム。 重要なタスクを進めましょう。」
+- 「ゆっくり過ごして、 明日への活力に。」
+
+**問題**: 「〜しましょう」 (= 指示型) は Aneurasync 哲学 (= 観測 / 解釈、 押し付けない、 第二の自己) と少し抵触
+
+**Aneurasync 採用文体** (= 状態 / 解釈型):
+- 「集中しやすい時間」
+- 「切り替える時間」
+- 「集中タイム」
+- 「余白に戻る時間」
+- 「整える時間」
+- 「ひと息つく時間」
+
+**CategoryMeaning module 設計** (= 8b で実装):
+- `lib/plan/list/categoryMeaning.ts`
+- pure module、 deterministic、 (EventCategory + 時刻帯 5 種) → 意味文 mapping
+- truth 源は **Alter 由来の観測 / 解釈** として明示 (= adapter 経由ではなく別 module で生成、 GPT 「truth なき semantics 捏造禁止」 と整合)
+
+### sub-phase 8a 最終状態 (= 採用確定)
+
+- commit `b6be22e5` (= 8a-pre featureFlags + adapter + 30 contract test)
+- commit `41fbb01e` (= 8a-impl FlowTab 内 flag check + 新 TimelineSpine/EmptyDayEntry 統合)
+- branch `feat/alter-plan-list-impl-flowtab-8a` 凍結
+- flag default false 維持 (= visual smoke 完了、 true → false 戻し確認済、 commit 差分 0)
+- dev server 停止 (= clean state、 8b readiness 整理 doc 期間中)
+
+### 次
+
+- decision-log 記録 commit (= 本 entry、 8a 採用確定 + 8b/8c redefine 明示)
+- branch 切替 (= `feat/alter-plan-list-impl-flowtab-8b`)
+- 8b readiness 整理 (= 6 件責務 + CategoryMeaning module 文体テンプレ案 + 実装順序)
+- CEO 判断後 8b 着手 (= 報告と停止パターン継続)
+- 8c は 8b 完了後別 sub-phase
+- merge: /plan complete まで frozen 維持
+
+**まだ待つ**:
+- 8b 即時着手 (= readiness 提示 + CEO 判断後)
+- 画像 slot 必須化 (= GPT 明示 optional、 後段別解決)
+- SummaryFooter 数値計算 / 強い評価文 (= 8c 凍結維持)
+- Header / Title / Tab / Date picker 改修 (= 8a-8c 範囲外、 別 sub-phase)
+
+### 補正履歴 (= 累計 17 補正)
+
+| commit | 内容 |
+|---|---|
+| `b6be22e5` | sub-phase 8a-pre 着地 (= 案 1b 採用、 adapter 先行) |
+| `41fbb01e` | sub-phase 8a-impl 着地 (= flag check + early return、 純粋追加 +113) |
+| **本 commit** | **sub-phase 8a 採用確定 + 規律違反認識 + 8b/8c redefine 明示 + meaning text 文体方針確定** |
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-24、 「8a 維持、 案 B、 8b/8c scope 格上げ」)
+- **ステータス**: sub-phase 8a 全 2 commit **採用確定**、 branch 凍結。 sub-phase 8b/8c **scope redefine 確定**。 CategoryMeaning module + 状態/解釈型 文体方針確定。 8b readiness 提示 → CEO 判断後着手。
+
+---
