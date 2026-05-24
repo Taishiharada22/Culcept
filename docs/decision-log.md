@@ -13805,3 +13805,64 @@ CEO 実機 visual smoke で sub-phase 8b (= 12 commit 累計改修) 全採用判
 - **ステータス**: sub-phase 8b 全 12 commit **採用確定**、 branch 凍結。 sub-phase 8c readiness 提示 → CEO 判断後着手。
 
 ---
+
+## 2026-05-24 [Build/Product] List impl sub-phase 8c + 8c-2 採用 (= CEO smoke PASS) + List redesign closeout audit 開始 [承認: CEO 実機 smoke + closeout 指示]
+
+### 背景
+
+CEO smoke で sub-phase 8c (= SummaryFooter 解釈レイヤーの器) + 8c-2 (= TransitionChip 詳細 button + SummaryFooter 階層強化 + 下部固定 + FAB 再配置) 採用判定。 CEO 「8c-2 corrective は採用で問題ありません。 次は新しい実装を足すのではなく、 List 側の closeout に進んでください」。
+
+### sub-phase 8c + 8c-2 commit 一覧 (= branch `feat/alter-plan-list-impl-flowtab-8c`)
+
+| commit | 内容 |
+|---|---|
+| `22502a85` | 8c SummaryFooter 解釈レイヤーの器 + StaticAlterSuggestionCard flag ON 削除 |
+| `61bd612c` | 8c-2 corrective TransitionChip 詳細 button + SummaryFooter 階層強化 + 下部固定 + FAB 再配置 |
+
+### CEO smoke 結果 (= 8c + 8c-2 PASS)
+- SummaryFooter が下部固定で常時表示 (= スクロール非依存)
+- 「面」 感 (= shadow-lg + backdrop + size up + border-200)
+- 内部階層 (= 左 indicator 48 / 中央 状態名 text-base font-semibold / 右 CTA visual weight)
+- 「移動」 chip に 「詳細 ›」 button 復活 (= 規約 24-extended 遵守)
+- FAB が SummaryFooter の上に持ち上げ済 (= bottom-36)
+- StaticAlterSuggestionCard flag ON で消失 (= GPT 「役割重複でノイズ」 解消)
+- 中立文体 (= 「集中と休息のリズム」 / 「集中する時間と、ひと息つく時間が交互に入っています」)
+- score / 数値 / 強い評価 0 維持
+
+### 機械保証 (= 8c + 8c-2 全期間)
+- vitest: 326 tests PASS (= +19 new SummaryFooter contract)
+- tsc: 0 error
+- 規約 24-extended 維持
+
+### 次工程: List redesign closeout audit (= CEO 明示)
+
+「List に新しい機能を足さない。 まず List を close する。 その後、 Map spec / Map impl に進むかを判断する」
+
+closeout audit 内容:
+- 8a / 8b / 8c / 8c-2 の到達点
+- 何が完成したか
+- まだ後段に残したもの
+- mock に対して何が到達 / 未到達か
+- 今後 Map 側に持ち込むべき design rule
+
+closeout audit file: `docs/alter-plan-list-redesign-closeout-audit.md` (= 本 commit で新規)
+
+### flag 状態
+- flag default false 復帰確認済 (= true → false 戻し、 commit 差分 0)
+- dev server: CEO 「closeout 進めて」 で smoke 役目終了
+
+### 補正履歴 (= 累計 26+ commit)
+
+| commit | 内容 |
+|---|---|
+| `f1bc474a` | sub-phase 8b 全 12 commit 採用確定 |
+| `22502a85` | 8c SummaryFooter 解釈レイヤーの器 |
+| `61bd612c` | 8c-2 corrective TransitionChip 詳細 + SummaryFooter 下部固定 |
+| **本 commit** | **8c + 8c-2 採用確定 + List closeout audit doc 開始** |
+
+### 承認 + ステータス
+
+- **承認**: CEO 実機 smoke PASS (= 2026-05-24、 「smoke pass です。 8c-2 corrective は採用で問題ありません」)
+- **ステータス**: sub-phase 8c + 8c-2 **採用確定**。 List redesign closeout audit 着手。 新機能追加禁止 (= List close 後 Map に判断)。
+
+---
