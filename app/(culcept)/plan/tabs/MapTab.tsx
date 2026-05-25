@@ -497,8 +497,16 @@ export function MapTab({
   };
 
   // ── render ──
+  //   Step δ-corrective: newMode 時 container は full-bleed (= pb なし、 余白なし、
+  //     map が画面下端まで占有、 bottom sheet が overlay として上から重なる)
+  //   OFF path: 既存 relative pb-24 維持 (= FAB 余白 + legacy 挙動完全不変)
   return (
-    <div data-testid="plan-map-tab" className="relative pb-24">
+    <div
+      data-testid="plan-map-tab"
+      className={
+        MAP_NEW_SURFACE_ENABLED ? "relative" : "relative pb-24"
+      }
+    >
       {/* 9a-impl Step α: PlanClient header に統一されたため、 旧 「あなたの地理」 内 header は flag ON 時 hide */}
       {!MAP_NEW_SURFACE_ENABLED && (
         <header className="mb-3">
@@ -1165,14 +1173,30 @@ function PlanMapView({
   })();
 
   return (
-    <div className="relative w-full mb-4">
+    <div
+      className={
+        newMode
+          ? "relative w-full" // Step δ-corrective: full-bleed (= mb なし、 card 化撤去)
+          : "relative w-full mb-4"
+      }
+    >
       <div
         ref={mapRef}
         data-testid="plan-map-view"
         role="region"
         aria-label="地図 (選択日の予定の場所)"
-        className="w-full rounded-2xl overflow-hidden border border-slate-200"
-        style={{ height: `${MAP_HEIGHT_PX}px` }}
+        className={
+          newMode
+            ? "w-full overflow-hidden" // Step δ-corrective: 角丸 / 枠なし (= map が画面いっぱい)
+            : "w-full rounded-2xl overflow-hidden border border-slate-200"
+        }
+        style={{
+          // Step δ-corrective: newMode は dvh-based で画面下端まで (= header + tab area 約 130px 引く)
+          //   OFF path は既存 380px 固定
+          height: newMode
+            ? "calc(100dvh - 130px)"
+            : `${MAP_HEIGHT_PX}px`,
+        }}
       />
       {/* 9a-impl Step α: 現在地 button (= newMode のみ、 右上 absolute、 zoom default position [BOTTOM_RIGHT] と分離)
        *   重なり解消: Google Maps default zoom = 右下 → 現在地 button を 右上 に移動 (= CEO 補正 #5「重なり解消」 厳守)

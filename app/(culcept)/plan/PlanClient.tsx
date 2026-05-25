@@ -739,12 +739,20 @@ export default function PlanClient({
         </nav>
       )}
 
-      {/* ── Content area ── */}
+      {/* ── Content area ──
+       *  Step δ-corrective: map newMode 時は full-bleed (= 横方向に container padding を相殺、
+       *    max-width 制約解除)。 header と tab は max-w-3xl 維持、 map のみ全画面。
+       *  flag OFF / 他 tab は既存 max-w-3xl mx-auto。
+       */}
       <section
         id={`plan-panel-${activeTab}`}
         role="tabpanel"
         aria-labelledby={`plan-tab-${activeTab}`}
-        className="mx-auto max-w-3xl"
+        className={
+          useNewShell && activeTab === "map"
+            ? "-mx-4" // 親 px-4 を相殺、 full-bleed
+            : "mx-auto max-w-3xl"
+        }
       >
         {state.kind === "loading" && <LoadingState />}
         {state.kind === "error" && (

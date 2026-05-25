@@ -38,8 +38,8 @@ describe("pinSvg §1 全 category → 涙型 + カテゴリ色", () => {
     it(`§1.${c.category} → data URI に色 ${c.expectedColor} を含む`, () => {
       const uri = generatePinSvgDataUri(c.category, false);
       expect(uri).toContain(c.expectedColor);
-      // 涙型 path 確認 (= encodeURIComponent された M)
-      expect(uri).toContain('M%2020%200'); // "M 20 0" encoded
+      // Step δ-corrective: 涙型 path 開始 (= y +16 shift で M 20 16) を含む
+      expect(uri).toContain('M%2020%2016'); // "M 20 16" encoded
     });
   }
 });
@@ -47,24 +47,24 @@ describe("pinSvg §1 全 category → 涙型 + カテゴリ色", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("pinSvg §2 selected 時 size 拡大 + stroke 強化", () => {
-  it("§2.1 unselected → width 40 / height 64 (= pin 48 + label 16)", () => {
+  it("§2.1 unselected → width 40 / height 64 (= label 上 14 + gap 2 + pin 48)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
     expect(uri).toContain('width%3D%2240%22');
     expect(uri).toContain('height%3D%2264%22');
   });
 
-  it("§2.2 selected → width 48 / height 72 (= 1.2x scale + label area)", () => {
+  it("§2.2 selected → width 48 / height 77 (= 1.2x scale)", () => {
     const uri = generatePinSvgDataUri('cafe', true);
     expect(uri).toContain('width%3D%2248%22');
-    expect(uri).toContain('height%3D%2272%22');
+    expect(uri).toContain('height%3D%2277%22');
   });
 
-  it("§2.3 unselected → stroke-width 2 (= 通常)", () => {
+  it("§2.3 unselected → teardrop stroke-width 2 (= 通常)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
     expect(uri).toContain('stroke-width%3D%222%22');
   });
 
-  it("§2.4 selected → stroke-width 3 (= halo 強化)", () => {
+  it("§2.4 selected → teardrop stroke-width 3 (= halo 強化)", () => {
     const uri = generatePinSvgDataUri('cafe', true);
     expect(uri).toContain('stroke-width%3D%223%22');
   });
@@ -72,32 +72,36 @@ describe("pinSvg §2 selected 時 size 拡大 + stroke 強化", () => {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("pinSvg §3 各 category icon path embedded", () => {
-  it("§3.cafe → コーヒーカップ本体 path 含む", () => {
+describe("pinSvg §3 各 category icon path embedded (= Step δ-corrective redesign)", () => {
+  it("§3.cafe → コーヒーカップ本体 path 含む (= 「M 4 8 H 13」)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
-    // cafe path "M 3 9 H 12" の "M 3 9" 部分が encoded で含まれる
-    expect(uri).toContain('M%203%209');
+    expect(uri).toContain('M%204%208%20H%2013');
   });
 
-  it("§3.meal → フォーク + ナイフ path 含む (= 「M 4 2 V 7」 フォーク 1 本目)", () => {
+  it("§3.meal → フォーク + ナイフ path 含む (= 「M 4 3 V 7」 フォーク 1 本目)", () => {
     const uri = generatePinSvgDataUri('meal', false);
-    expect(uri).toContain('M%204%202%20V%207');
+    expect(uri).toContain('M%204%203%20V%207');
   });
 
-  it("§3.work → ブリーフケース 取っ手 path 含む (= 「M 6 4」 開始)", () => {
+  it("§3.work → ブリーフケース 取っ手 path 含む (= 「M 7 4 V 3」 開始)", () => {
     const uri = generatePinSvgDataUri('work', false);
-    expect(uri).toContain('M%206%204');
+    expect(uri).toContain('M%207%204%20V%203');
   });
 
-  it("§3.home → 家屋根 path 含む (= 「M 2 8 L 9 2 L 16 8」 三角)", () => {
+  it("§3.home → 家屋根 path 含む (= 「M 3 9 L 9 3 L 15 9」 三角)", () => {
     const uri = generatePinSvgDataUri('home', false);
-    expect(uri).toContain('M%202%208%20L%209%202');
+    expect(uri).toContain('M%203%209%20L%209%203');
   });
 
   it("§3.other → 円 dot 含む (= circle cx=9 cy=9)", () => {
     const uri = generatePinSvgDataUri('other', false);
     expect(uri).toContain('cx%3D%229%22');
     expect(uri).toContain('cy%3D%229%22');
+  });
+
+  it("§3.icon-centering → translate(11, 25) で SVG (20, 34) = 涙型 upper bulb center", () => {
+    const uri = generatePinSvgDataUri('cafe', false);
+    expect(uri).toContain('translate(11%2C%2025)');
   });
 });
 
@@ -109,7 +113,7 @@ describe("pinSvg §4 出力 format", () => {
     expect(uri.startsWith('data:image/svg+xml;charset=utf-8,')).toBe(true);
   });
 
-  it("§4.2 xmlns / viewBox / path 全 含む (= viewBox unselected 40×64 で label 領域含む)", () => {
+  it("§4.2 xmlns / viewBox / path 全 含む (= viewBox 40×64 統一 で label 上 + pin 下)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
     expect(uri).toContain('xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22');
     expect(uri).toContain('viewBox%3D%220%200%2040%2064%22');
@@ -124,13 +128,13 @@ describe("pinSvg §4 出力 format", () => {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("pinSvg §5 getPinSize", () => {
-  it("§5.1 unselected → {width: 40, height: 64, pinTipY: 48}", () => {
-    expect(getPinSize(false)).toEqual({ width: 40, height: 64, pinTipY: 48 });
+describe("pinSvg §5 getPinSize (= Step δ-corrective: anchor = 物理 height = pin tip)", () => {
+  it("§5.1 unselected → {width: 40, height: 64, pinTipY: 64}", () => {
+    expect(getPinSize(false)).toEqual({ width: 40, height: 64, pinTipY: 64 });
   });
 
-  it("§5.2 selected → {width: 48, height: 72, pinTipY: 48}", () => {
-    expect(getPinSize(true)).toEqual({ width: 48, height: 72, pinTipY: 48 });
+  it("§5.2 selected → {width: 48, height: 77, pinTipY: 77}", () => {
+    expect(getPinSize(true)).toEqual({ width: 48, height: 77, pinTipY: 77 });
   });
 });
 
