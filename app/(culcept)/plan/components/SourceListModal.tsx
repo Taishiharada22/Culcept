@@ -44,6 +44,7 @@ const SOURCE_TYPE_LABELS: Record<ExternalAnchorSource["sourceType"], string> = {
   pdf: "PDF",
   image: "画像",
   chat: "会話",
+  ics: "カレンダー", // P3 W3 (= 2026-05-26): .ics / iCalendar 取り込み
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
