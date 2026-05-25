@@ -1321,8 +1321,12 @@ function PlanMapView({
 
       {/* Step δ: DayItemsPanel (= 左下 当日リスト / 凡例 hybrid、 newMode 時のみ)
        *   旧 Category legend (= 下) を newMode で置換、 panel は機能 + 視覚で凡例を兼ねる
+       *
+       *   9b-4 layout: sheet 表示中は panel hide (= 視線競合解消、 CEO 残課題 C)
+       *     - sheet 閉じる (= ✕ or 余白 tap、 8 場面表 #4/#7) で panel 再表示
+       *     - pin 切替は map pin tap で行う (= 8 場面表 #8、 panel 不在でも操作可)
        */}
-      {newMode && dayItemsForPanel && onDayItemTap && (
+      {newMode && dayItemsForPanel && onDayItemTap && !selectedSheetForLabel && (
         <DayItemsPanel
           items={dayItemsForPanel}
           selectedId={selectedAnchorId}
