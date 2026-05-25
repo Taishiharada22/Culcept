@@ -157,7 +157,8 @@ describe("generateAlterNote: LLM 成功", () => {
       expect.objectContaining({
         taskType: "plan_alter_note",
         requireJson: true,
-        temperature: 0.2,
+        // v3.4.2: temperature 0.2 → 0.7 (= cache miss 時の variation 確保、 CEO 2026-05-25)
+        temperature: 0.7,
         maxOutputTokens: 128,
         timeoutMs: 4000,
       }),

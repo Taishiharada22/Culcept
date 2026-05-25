@@ -97,12 +97,30 @@ export async function convertExternalAnchorListWithDayBookendsAsync(
       ctxList.push(null);
       continue;
     }
+    // v3.4.2: OneOff anchor の dateOfActivity から dayContext を導出
+    //   (= 同 anchor を別日に置いた場合の cache 多様化 + 自然な日付文脈)
+    //   形式: "M/D(曜)" 例: "5/31(月)"
+    let dayContext: string | undefined;
+    if (anchor.anchorKind === "one_off" && anchor.date) {
+      try {
+        const d = new Date(`${anchor.date}T00:00:00`);
+        if (!isNaN(d.getTime())) {
+          const m = d.getMonth() + 1;
+          const day = d.getDate();
+          const weekday = ["日", "月", "火", "水", "木", "金", "土"][d.getDay()];
+          dayContext = `${m}/${day}(${weekday})`;
+        }
+      } catch {
+        // 日付 parse 失敗 → dayContext undefined (= safe degrade)
+      }
+    }
     ctxList.push({
       category: e.category,
       startTime: e.startTime,
       ...(e.endTime !== undefined ? { endTime: e.endTime } : {}),
       ...(anchor.title !== undefined ? { title: anchor.title } : {}),
       ...(e.location !== undefined ? { location: e.location } : {}),
+      ...(dayContext !== undefined ? { dayContext } : {}),
       ...(personalModelV2 !== undefined ? { personalModelV2 } : {}),
     });
   }

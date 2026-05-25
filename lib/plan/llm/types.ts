@@ -47,6 +47,17 @@ export type AlterNoteContext = {
   /** 表示用 location 文字列 (= sensitive 除外済) */
   readonly location?: string;
   /**
+   * v3.4.2 (= CEO 2026-05-25): 日付コンテキスト (= 「5/31(月)」 等)
+   *
+   * 役割:
+   *   1. LLM に日付の文脈を渡す (= 月曜の朝 vs 土曜の夜 で alterNote が自然に変わる)
+   *   2. **cache key 多様化** (= 同 anchor を 6 日間に置いた場合、 各日で cache miss → fresh LLM 出力)
+   *      これにより 「同 anchor 全日で同じ文」 問題を解消。
+   *
+   * フォーマット: "M/D(曜)" (= 例 「5/31(月)」)。 undefined なら出力スキップ (= safe degrade)。
+   */
+  readonly dayContext?: string;
+  /**
    * Step 2 拡張余地: Personal Model short tag (= v1 型、 v3.1 で deprecated 移行中).
    * Step 1 では **常に undefined**。 Step 2 では personalModelV2 を使う。
    *
