@@ -1,10 +1,10 @@
-# P2 Step 3 Phase 6 — Real PM Smoke 結果
+# P2 Step 3 Phase 6 — Real PM Smoke 結果 + v3.4 prompt 強化
 
-**Status**: smoke 完了、 wiring PASS / personalization quality FAIL 判定
+**Status**: **暫定 pass (= 未確定、 50+ データ集まり次第 再分析、 CEO 2026-05-25)**
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
 **Smoke user**: aneurasync@outloo.com (= userId prefix `1c6ef878***`)
-**Scope**: Step 3 Stage A + B + Phase 5 (= Option A' Plan-specific gate) の **実機 wiring 動作確認 + 個別化 quality 評価**。
+**Scope**: Step 3 全体 (= Stage A + B + Phase 5 + v3.4 prompt 強化 + v3.4.1 自然な日本語 + debug cache bypass)。
 
 ---
 
@@ -149,12 +149,82 @@ GPT 指示:
 
 ---
 
-## 7. 次
+## 7. v3.4 / v3.4.1 / v3.4.2 経緯 (= CEO + GPT 反復補正)
 
-1. 本結果 docs を atomic commit
-2. CEO 判断仰ぐ (= Option I / II / III)
-3. 判断後の readiness 起草 (= v3.4 か Stage C か)
-4. 実装 + 再 smoke → 採点 → preview canary GO 判定
+### v3.4 (= commit `49bcc45b`): prompt 強化 3 patch
+- Patch I: judgmentMode → 解釈動詞 vocabulary mapping (= 集中型 → 「深める / 沈む / 没頭」 等)
+- Patch II: anchor 事実焼き直し禁止 (= Phase 6 で観測した 「夜カフェで静かに読書」 pattern)
+- Patch III: timePreference=中庸 補助化 (= 「主役にしない」)
+
+CEO + GPT 観測: 「集中型 reframe 効果あり、 ただし 「思考」 過剰繰り返し + 「〜時間」 終わり残る」
+
+### v3.4.1 (= commit `914a63ba`): 自然な日本語 micro patch
+- Patch 1: 「〜の時間 / 〜する時間 / 〜ための準備」 等 説明的名詞句終わり 原則禁止
+- Patch 2: 自然 hedging (= 「〜そうです」 「〜やすそう」 「〜られそう」)
+- Patch 3: 同名詞反復禁止 (= 「思考」 過剰繰り返し抑制)
+- 既存 few-shot 例を 「〜時間」 から 「〜そうです」 系に書換
+
+### v3.4.2 (= commit `c86ad93b` → revert `81448a3b`): 不採用
+- prompt 強化 + temperature 0.7 + dayContext (= 3 変更同時投入)
+- CEO + GPT 判定: 「3 変更混ぜで原因切り分け不能」 「raw date を cache breaker に使うのは人工的 variation」 「V1 baseline 汚染」 「temperature 0.7 過激」
+- revert 後、 知見 (= cache が悪さしている発見) のみ保持
+
+### debug cache bypass (= commit `2bf0bfd1`): 診断手段
+- `PLAN_ALTER_NOTE_CACHE_BYPASS=true` env で 1 ファイル変更
+- 既存 `metadata.skipCache` 機構を流用 (= lib/ai/cache.ts:136-138)
+- default OFF、 production 影響 0
+- smoke で 同 anchor 比較を可能に
+
+---
+
+## 8. 暫定 pass 判定 (= CEO 2026-05-25)
+
+CEO 判断:
+> 「とりあえず、ここは pass にしておきます。 しかし、 まだ未確定としてください。
+>  50 件以上のデータが集まり次第また分析しましょう。 次に進みましょう。」
+
+### 確定事項
+- ✓ Wiring (= 配線): 完全成功 (= real PM 経路、 Plan-gate、 V2 path、 stable injection 全 OK)
+- ✓ 「〜の時間」 等 説明的名詞句終わり 抑制 (= v3.4.1 で消去確認)
+- ✓ 集中型 reframe 効果 (= 「思考を潜らせる / 深める」 系の解釈動詞が文に visible)
+- ✓ regression なし (= V1 baseline 動作不変、 3265/3265 tests PASS)
+- ✓ safe degrade 動作 (= flag OFF で完全 V1 baseline)
+
+### 未確定事項 (= 50+ データ集まり次第 再分析)
+- ? semantic delta が 多 anchor / 多 user で 安定的に出るか
+- ? 「思考」 過剰繰り返しが production scale で 顕在化するか
+- ? cache hit 経由の 「同 anchor 同文」 問題が UX として許容範囲か
+- ? Stage C (= recentRhythm) が 必要 / 不要 / 後段最適か
+
+### 50+ データ収集計画
+- preview canary を経て 一般 user で alterNote 実出力を蓄積
+- analytics で 「同 anchor 同文発生率」 + 「semantic delta 多様度」 + 「『思考』 反復率」 を観測
+- 50+ output サンプル後、 改めて評価 + Stage C 必要性判断
+
+---
+
+## 9. 不変原則 維持 確認
+
+- 既存 Stargazer module 完全 frozen ✓
+- DB write 0 ✓
+- 既存 frozen file 不触 ✓
+- safe degrade 動作 ✓ (= flag OFF で完全 V1 baseline)
+- alter plan scope 限定 ✓
+- broad rewrite なし ✓ (= v3.4.2 revert、 v3.4.1 + cache bypass のみ採用)
+- cache 設計 frozen ✓ (= lib/ai/cache.ts 不触、 既存 skipCache 機構流用のみ)
+
+---
+
+## 10. 次
+
+CEO 「次に進みましょう」 指示受領。 次のアクションは CEO 判断仰ぐ:
+
+### 候補
+- A: branch を local main に merge し、 暫定 pass 状態を固定
+- B: preview canary readiness 起草 (= Step 3 完了の自然な続き)
+- C: 別の優先 task に着手 (= CEO 別途指定)
+- D: 50+ データ収集の analytics 仕組み起草 (= 再分析の準備)
 
 dev server kill 済 (= clean state)。
-branch: `feat/alter-plan-p2-llm-step3-real-pm`、 最新 commit `76cbb492` (= Option A' Plan-gate)。
+branch: `feat/alter-plan-p2-llm-step3-v3.4-prompt-fix`、 最新 commit `2bf0bfd1` (= debug cache bypass)。
+Step 3 全 series: Stage A `28508617` → Stage B `56a1a6e7` → Phase 5 `19e1cc2e` → Option A' `76cbb492` → v3.4 `49bcc45b` → v3.4.1 `914a63ba` → v3.4.2 revert `81448a3b` → cache bypass `2bf0bfd1`。
