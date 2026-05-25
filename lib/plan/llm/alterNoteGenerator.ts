@@ -114,6 +114,19 @@ export async function generateAlterNote(
   const useV2Path =
     PLAN_FLAGS.personalModelIntegration && ctx.personalModelV2 !== undefined;
 
+  // Phase 6 smoke 観測用 dev-only log (= V2 path 発火確認、 本番 emit しない)
+  if (process.env.NODE_ENV !== "production") {
+    const pm = ctx.personalModelV2;
+    console.info("[plan/alterNote] path", {
+      path: useV2Path ? "v2" : "v1",
+      hdmPhase: pm?.meta.hdmPhase ?? null,
+      hasStable: !!pm?.stable,
+      hasRecent: !!pm?.recent,
+      hasContextual: !!pm?.contextual,
+      category: ctx.category,
+    });
+  }
+
   let systemPrompt: string;
   let userPrompt: string;
   let jsonSchema: Record<string, unknown>;

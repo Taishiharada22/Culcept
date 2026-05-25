@@ -386,6 +386,29 @@ export async function extractPersonalModelFromStargazer(
     observationCompleteness: 0, // Stage 後段で axisRegistry 充足度算定
   };
 
+  // Phase 6 smoke 観測用 dev-only log (= 本番では emit しない)
+  // PII 出さない (= userId は 8 文字 + ***、 軸値・mu は出さない、 短 tag のみ)
+  if (process.env.NODE_ENV !== "production") {
+    const observedAxesCount = snapshot.scores
+      ? Object.keys(snapshot.scores).length
+      : 0;
+    console.info("[plan/pm] extracted", {
+      userIdPrefix: userId.slice(0, 8) + "***",
+      hdmPhase,
+      observedAxesCount,
+      judgmentMode: judgmentMode ?? null,
+      timePreference: timePreference ?? null,
+      layer:
+        hdmPhase < 2
+          ? "meta-only"
+          : hdmPhase === 2
+            ? "stable"
+            : hdmPhase === 3
+              ? "stable+recent"
+              : "full",
+    });
+  }
+
   // Phase < 2 → meta-only (= 個別化 skip、 deterministic 等価)
   if (hdmPhase < 2) {
     return { meta };
