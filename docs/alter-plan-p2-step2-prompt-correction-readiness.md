@@ -1,14 +1,23 @@
 # Alter Plan P2 Step 2 — Prompt 補正 Readiness (= weak_personalization 48.7% targeted patch)
 
-**Status**: readiness 起草 (= 着手前停止、 CEO Q1-Q5 採用判定待ち)
+**Status**: readiness v3.2 (= GPT 3 点補正反映、 着手前停止、 CEO Q1-Q5 採用判定待ち)
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
 **Scope**: G3-B full 250 で判明した weak_personalization 48.7% を **targeted patch** で潰す。 broad rewrite **禁止** (= GPT 明示)。
-**Predecessor commits**:
+
+**Predecessor commits** (= **local main 上の統合作業のみ完了**、 fetch/push/gh 0 制約下):
 - `5b4543ba` Step 2 v3.1 実装
 - `0bed0e22` G3 全 gate 完了
-- `44c737ef` Step 1+2 main merge
+- `44c737ef` Step 1+2 を local main に統合 (= `--no-ff` merge、 push なし、 origin/main との同期は CEO 操作)
+
 **着手 timing**: CEO Q1-Q5 採用判定後
+
+## 改訂履歴
+
+| Version | 内容 |
+|---|---|
+| v3.1 初版 (= 7630ceba) | 4 targeted patch (A/B/C/D) + 統合効果見積 + Q1-Q5 |
+| **v3.2** | **GPT 3 補正反映**: ①local merge 表現修正 / ②adoption 基準 3.5 strict 維持 / ③Patch B framing は内部指示強化、 出力テンプレ化禁止 |
 
 ---
 
@@ -24,8 +33,8 @@ GPT 補正 (= 2026-05-25 Step 2 採用判定):
 | # | patch | 効果対象 |
 |---|---|---|
 | A | **profile vs anchor 衝突優先 rule** 明文化 | profile が anchor metadata で打ち消される問題 (= pilot で観測した 「昼のカフェ、 穏やかに話を進める時間」 等) |
-| B | **「あなたの軸では」 framing Phase ≥ 3 必須化** | P3-P4 で 「あなたらしさ」 が薄い問題 |
-| C | **Few-shot examples 注入** (= Top 10 から 3-5 例) | LLM が個別化パターンを学習 (= 「朝のスタバで、 静かに一日を始める」 style) |
+| B | **profile 個別化の内部指示強化** (= v3.2 補正、 出力テンプレ化禁止) | P3-P4 で 「あなたらしさ」 が薄い問題 (= 表層語句固定は不可、 内容で個別化) |
+| C | **Few-shot examples 注入** (= Top 10 から P1/P2/P3/P4 各 1 例) | LLM が個別化パターンを学習 (= 「朝のスタバで、 静かに一日を始める」 style) |
 | D | **中庸 profile の唯一性立て指示** | P2 (= 関係エネルギー型) / P4 (= 中庸型) の uniqueness 抽出 |
 
 ---
@@ -94,7 +103,7 @@ const SYSTEM_PROMPT_BASE_V2 = [
 
 ---
 
-## 3. Patch B: 「あなたの軸では」 framing Phase ≥ 3 必須化 (= 1 行強化)
+## 3. Patch B: Profile 個別化の **内部指示強化** (= 出力テンプレ化禁止、 GPT v3.2 補正)
 
 ### 3.1 観測事例
 
@@ -103,9 +112,19 @@ G3-B full で:
 - P4 (= 中庸型、 Phase 4) personalness 2.50
 - judge comment 多数: 「もう少し profile らしさが欲しい」
 
-### 3.2 補正案
+### 3.2 v3.2 補正 (= GPT 「framing は内部指示として強化、 表層の言い回し固定はテンプレ感」)
 
-既存 `hdmPhaseGate.ts` の Phase 3-5 framing instruction を **strict 化**:
+**v3.1 (= 不採用)**: 出力に 「あなたの軸」 「あなたが」 等の特定語句を **必須化**
+**v3.2 (= 採用)**: prompt 内部で 「**profile を文に確実に反映せよ**」 を強く指示するが、 **表層の言い回しは LLM 自由**
+
+理由 (= GPT):
+- 表層語句固定 → 「あなたが」 が機械的反復 → テンプレ感 → naturalness が下がる
+- judge LLM が表層パターンを学習 → personalness score 上がるが、 実 user 体感は逆に下がる
+- **personalness 真の向上は 「profile が暗黙的に文に染み込んでいる」 状態** (= 表層語句ではなく 内容で profile を立てる)
+
+### 3.3 補正案 (= v3.2、 表層語句不要 + 内部指示強化)
+
+既存 `hdmPhaseGate.ts` の Phase 3-5 framing instruction を **「profile 反映の強度を上げる」 内部指示** に書き直す:
 
 ```typescript
 case "moderate_personal":
@@ -114,9 +133,11 @@ case "moderate_personal":
     "- 「あなた」 主語 OK、 hedging 弱化",
     "- Personal Model から自然に文体に反映 (= 「あなたが集中しやすい」 等)",
     "- 直近の状態を踏まえた framing OK",
-    // ← v3.1 で追加 (= Patch B、 strict 化)
-    "- **強い推奨**: 文中に 「あなたの軸」 「あなたが」 「あなたらしい」 等の personal framing を最低 1 つ含める",
-    "- 含めない場合は意図的判断 (= profile 弱 / anchor 強 で fact 主役) のみ許容",
+    // ← v3.2 補正 (= 内部指示強化、 表層語句は LLM 自由)
+    "- **重要**: profile (= 判断モード / 時刻偏好 / 性格傾向) が **文の内容そのもの** に反映されるよう、",
+    "  単なる事実描写ではなく **profile らしさが滲む表現** を選んでください。",
+    "  「あなた」 主語を必ず使う必要はなく、 文体・選語・場面捉え方で profile を立てるのが理想。",
+    "  例: P1 (集中型 + ひとり静か) → 「静かに沈む時間」 (= 「あなた」 主語なしでも個別性 visible)",
   ].join("\n");
 case "deep_personal_framing":
   return [
@@ -124,13 +145,19 @@ case "deep_personal_framing":
     "- 「あなたの軸では」 「あなたが本当に」 等の深い framing 解禁",
     "- Personal Model を統合的に活用、 「あなたという人」 の一面を映す",
     "- ただし押しつけは厳禁、 観測寄りの解釈に留める",
-    // ← v3.1 で追加 (= Patch B、 必須化)
-    "- **必須**: 文中に 「あなたの軸」 「あなたが」 「あなたらしい」 等の personal framing を**必ず**含める",
-    "- (profile を反映しないと weak_personalization → fallback、 user の 「第二の自己」 体験を達成できない)",
+    // ← v3.2 補正 (= 内部指示強化、 表層語句固定禁止)
+    "- **必須**: profile の唯一性が **文の内容** に反映されること。",
+    "  ただし 「あなたの軸では」 等の特定語句を **毎回使う必要はない**。",
+    "  表層の言い回し固定はテンプレ感を生むため、 LLM が文体を自由に選んで profile を立てる方が良い。",
+    "  judge は 「表層語句の有無」 ではなく 「profile らしさが伝わるか」 で採点される前提。",
+    "  (profile を反映しないと weak_personalization → fallback、 user の 「第二の自己」 体験を達成できない)",
   ].join("\n");
 ```
 
-**期待効果**: Phase 3-5 で personal framing が文に visible になり、 judge personalness +0.3-0.5 期待。
+**期待効果**:
+- Phase 3-5 で profile らしさが **内容レベル** で文に染み込む
+- 表層テンプレ化 (= 「あなたが…」 連発) を回避
+- naturalness を落とさずに personalness +0.3-0.5 期待 (= テンプレ感なし)
 
 ---
 
@@ -212,17 +239,27 @@ function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
 | C: Few-shot examples | 全 profile | +0.40 |
 | D: 中庸 profile ヒント | P4 (= 中庸型) | +0.30 (P4 のみ) |
 
-### 6.2 統合期待 score
+### 6.2 統合期待 score (= adoption 基準 3.5 strict 維持、 GPT v3.2 補正)
 
-| Profile | Step 2 v3.1 現状 per | 補正後期待 per | adoption 達成? |
+**adoption 基準 (= 緩和 NG)**: personalness ≥ **3.5** (= readiness §3.2.5 通り、 strict 維持)
+
+3.4 は **near-pass** 扱い (= 採用判定 NG、 追加補正検討 candidate)。 基準そのものを 3.4 に下げるのは NG (= GPT 明示)。
+
+| Profile | Step 2 v3.1 現状 per | 補正後期待 per | adoption 判定 |
 |---|---|---|---|
-| P1 | 3.59 | 3.7-3.9 | ✅ 維持 |
-| P2 | 2.67 | 3.4-3.6 | △-✅ |
-| P3 | 2.79 | 3.5-3.7 | ✅ |
-| P4 | 2.50 | 3.4-3.6 | △-✅ |
-| P5 | 1.51 (= 設計通り) | 1.51 維持 | n/a |
+| P1 | 3.59 | 3.7-3.9 | ✅ adoption pass 維持 |
+| P2 | 2.67 | 3.4-3.6 | adoption pass: ≥ 3.5 達成 / near-pass: 3.4-3.49 |
+| P3 | 2.79 | 3.5-3.7 | ✅ adoption pass 達成想定 |
+| P4 | 2.50 | 3.4-3.6 | adoption pass: ≥ 3.5 達成 / near-pass: 3.4-3.49 |
+| P5 | 1.51 (= 設計通り) | 1.51 維持 | n/a (= Phase 1 個別化 OFF) |
 
-→ 平均 (= Phase ≥ 2) 推定: **2.89 → 3.4-3.6** (= adoption 3.5 を達成または近接)
+→ 平均 (= Phase ≥ 2) 推定: **2.89 → 3.4-3.6**
+
+### 6.3 採用判定 (= v3.2 strict)
+
+- **全 P1-P4 で personalness ≥ 3.5** 達成 → ✅ adoption pass → real PM smoke 着手
+- **一部 profile で 3.4-3.49 (= near-pass)** → △ 追加補正 candidate (= 個別 profile-specific 例追加、 別 readiness)
+- **複数 profile で 3.4 未満** → ❌ 補正方向 再検討
 
 ---
 
@@ -316,10 +353,12 @@ Cost: ~$1-2 (= G3-B full 再 run、 cache 効果で安価)
 - **A (= 推奨)**: 既存 50 件 dataset 再利用 (= cache 効果)
 - B: 新しい 50 件で fresh evaluation
 
-### Q5. 採用基準
-- **A (= 推奨)**: personalness ≥ 3.4 (= adoption 3.5 近接、 改善幅 +0.7)
-- B: personalness ≥ 3.5 strict adoption
-- C: 全 profile (= P2-P4) で ≥ 3.0 (= 最低限)
+### Q5. 採用基準 (= v3.2 補正、 GPT 「基準緩和 NG」)
+- **A (= 推奨)**: **personalness ≥ 3.5 strict** (= adoption 基準維持)、 3.4-3.49 は near-pass 扱い (= 追加補正 candidate)
+- B: 全 profile (= P2-P4) で ≥ 3.5 strict adoption (= より厳しい、 全達成必須)
+- C: 平均で ≥ 3.5 達成すれば pass (= profile 別の不均衡許容)
+
+注: v3.1 で 「3.4 推奨」 と書いたが、 **GPT v3.2 補正で 「基準緩和 NG」** 受領、 ≥ 3.5 strict に修正。 3.4 は **near-pass** という middle status で扱う (= 採用 pass にはしないが、 完全失敗でもない)。
 
 ---
 
