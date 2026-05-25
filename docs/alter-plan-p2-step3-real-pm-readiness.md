@@ -1,21 +1,34 @@
 # Alter Plan P2 Step 3 — Real Stargazer Personal Model Read-only Wire Readiness
 
-**Status**: readiness 起草 (= 着手前停止、 実装/実行は **G3-B + G3-C 通過後、 preview canary 前**)
+**Status**: readiness v3.3 失敗 教訓反映済 (= 着手前停止、 **CEO 「v3.3 不採用 → v3.2 ベース real PM smoke 直行」 受領で即着手 GO 段階**)
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
-**Scope**: P2 Step 2 v3.1 の synthetic / stub PersonalModelV2 を **実 Stargazer 既存 module 経由** に置換する readiness。 GPT 「preview canary 前必須」 受領。
+**Scope**: P2 Step 2 v3.2 の synthetic / stub PersonalModelV2 を **実 Stargazer 既存 module 経由** に置換し、 **synthetic 限界 vs prompt 弱さの切り分け** を実 PM で行う。
 **CEO 思考原則 ①〜⑦ 適用**: 「人間同等推論 (⑥)」 「実 Stargazer 既存資産活用 (= 既存 50+ module の Aneurasync 競争優位)」 を結合する。
+
+## 改訂履歴
+
+| Version | 内容 |
+|---|---|
+| 初版 (= eb46b95f) | G3 通過後着手前提、 4 module mapping + 6 phase 手順 |
+| **v3.3 後補正 (= 本稿)** | **v3.3 P4 失敗の教訓反映**: 「synthetic 限界 vs prompt 弱さ切り分け」 が本 Step 3 の主要目的に格上げ、 P4 中庸型の本質的判定困難への対応観点追加 |
 
 ---
 
-## 0. 結論 (= TL;DR)
+## 0. 結論 (= TL;DR、 v3.3 後 更新)
 
-GPT G3 後の追加条件:
-- **synthetic / stub ではなく real Stargazer read-only PM を通した smoke が preview canary 前に必須**
-- ただし **G3-B / G3-C を止めて先行しない** (= GPT 明示)
-- readiness 起草は G3-B / G3-C と並行可 (= 本 doc)
+GPT 判定 (= 2026-05-25 v3.3 失敗後):
+- **v3.3 不採用** (= P3 部分改善のみ、 P4 後退、 net negative)
+- v3.2 base (= P1+P2 adoption pass) を local main に統合済 (= `cf53c9c5`)
+- **Real PM smoke を次フェーズとして直接着手 GO**
+- 結果見て v3.4 要否判断
 
-本 doc は **readiness 起草のみ**。 実装は G3 完了後の別 phase。
+本 Step 3 の主要目的 (= v3.3 失敗後の再定義):
+- **synthetic limitation vs prompt 弱さ** の切り分け
+  - synthetic で 2 回試行 (= v3.2 / v3.3) で P4 中庸型 strict 3.5 達成できず
+  - 実 Stargazer 軸データ (= 「中庸の中の個性」 が明確) なら P3/P4 が adoption pass する可能性
+  - real PM で達成 → synthetic 限界が主因 (= prompt は正しい)
+  - real PM でも未達 → prompt 弱さが主因 (= v3.4 必要)
 
 ### 設計の核心
 
