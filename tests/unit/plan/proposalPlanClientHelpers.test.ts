@@ -18,8 +18,13 @@
  *   - localStorage write は dismiss (J-6e-2) と undo (J-6e-3) の 2 種のみ (= modify は書込なし)
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
+
+// P2 Step 1: PlanClient module 経由で transitively 取り込まれる server-only modules を stub
+//   (= lib/plan/llm/alterNoteGenerator + lib/plan/list/adapters/externalAnchorAdapterAsync)
+// 既存 pattern (= tests/unit/structuredJson.test.ts 等) と同 stub。
+vi.mock("server-only", () => ({}));
 
 import {
   computeFirstUseDateFromAnchors,

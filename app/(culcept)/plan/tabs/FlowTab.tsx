@@ -74,6 +74,9 @@ import {
   convertExternalAnchorListWithDayBookends,
   convertEventsToTransitions,
 } from "@/lib/plan/list/adapters/externalAnchorAdapter";
+// P2 Step 1: server action wrapper for LLM-aware alterNote enhancement (= popcorn 防止、 1 day 1 setState)
+import { enhanceAlterNotesAction } from "../_actions/enhanceAlterNotes";
+import type { StrictEventCardViewModel } from "@/lib/plan/list/sourceProvenance";
 import { TimelineSpine } from "../components/list/TimelineSpine";
 import { EmptyDayEntry } from "../components/list/EmptyDayEntry";
 // 8c: SummaryFooter (= 1日全体の解釈レイヤーの器、 non-empty day で TimelineSpine 下に render)
@@ -513,10 +516,48 @@ function FlowDaySection({
   //
   //   flag OFF (= default) では本 block を完全に通過 (= 既存 return 文に到達、 user 影響 0)
   // ─────────────────────────────────────────────────────────────────────
+  // P2 Step 1: LLM-enhanced events state (= null 初期、 LLM 解決完了で 1 度だけ set)
+  //   - 初期 render: deterministic sync builder の output (= 既存 8b 文体)
+  //   - LLM 完了後: enhanceAlterNotesAction で alterNote 上書き済の events (= 1 transition、 popcorn 防止)
+  //   - flag OFF / LLM 失敗 → null のまま、 deterministic path 維持
+  //
+  //   GPT 補正 (= readiness v2): カードごとに後から差し替わる popcorn を避けるため、
+  //     1 day 分まとめて Promise.all 解決 → 1 setState commit。
+  const [llmEnhancedEvents, setLlmEnhancedEvents] = useState<
+    ReadonlyArray<StrictEventCardViewModel> | null
+  >(null);
+
+  useEffect(() => {
+    // P2 Step 1: flag OFF (= PLAN_FLAGS.alterNoteLive=false) なら useEffect で server action 呼んでも
+    //   全 anchor の result が "unavailable" (reason: flag_off) になり、 sync builder の output 通り
+    //   が返る → setState しても events 不変。 ただし無駄な network round-trip を避けるため
+    //   LIST_NEW_TIMELINE_ENABLED && hasAnchors の場合のみ呼ぶ。
+    if (!LIST_NEW_TIMELINE_ENABLED) return;
+    if (!hasAnchors) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const enhanced = await enhanceAlterNotesAction(anchors);
+        if (!cancelled) {
+          setLlmEnhancedEvents(enhanced);
+        }
+      } catch {
+        // server action 失敗 (= network 等) → silent、 deterministic 維持
+        if (!cancelled) {
+          setLlmEnhancedEvents(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [anchors, hasAnchors]);
+
   if (LIST_NEW_TIMELINE_ENABLED) {
     // 8b-7: 「出発」 / 「帰宅」 virtual events を含む timeline (= CEO 明示)
+    // P2 Step 1: LLM enhanced events 優先、 未解決時は deterministic sync builder fallback
     const newTimelineEvents = hasAnchors
-      ? convertExternalAnchorListWithDayBookends(anchors)
+      ? (llmEnhancedEvents ?? convertExternalAnchorListWithDayBookends(anchors))
       : [];
     // 8b-8: bookends 込み events から transitions 生成 (= 出発↔最初、 最後↔帰宅 にも移動 chip)
     //   - convertEventsToTransitions は events 配列から直接、 bookends 込みで通せる

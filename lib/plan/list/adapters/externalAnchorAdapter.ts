@@ -476,3 +476,13 @@ export function convertExternalAnchorListToTransitions(
   }
   return transitions;
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 3-N P2 Step 1: async builder は server-only file へ分離
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//
+// 注: 本 file (= externalAnchorAdapter.ts) は client component (= FlowTab.tsx) から
+//     import されるため、 「server-only」 を transitively 含む import は禁止。
+//
+// LLM-aware async builder は別 file `externalAnchorAdapterAsync.ts` (= "server-only" 明示)
+// に分離。 server action 経由でのみ呼出される。
