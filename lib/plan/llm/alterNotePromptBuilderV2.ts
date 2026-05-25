@@ -1,0 +1,335 @@
+/**
+ * Phase 3-N Plan P2 Step 2 v3.1 — alterNote prompt builder V2 (= 3 層 PM 注入、 GPT 「層を分けたまま」 補正)
+ *
+ * 設計書: docs/alter-plan-p2-llm-step2-readiness-v3.md §3 + §4 + Q5 補正
+ *
+ * 設計原則 (= CEO + GPT 2026-05-25 G2 通過判定):
+ *   - **pure module** (= LLM / API / DB / network 不使用、 入力 mutate なし)
+ *   - **層を分けたまま注入** (= GPT 「雑に混ぜると generic、 Stable/Recent/Contextual を別 section に」)
+ *   - **Output Contract V2 promptInstruction を system prompt に統合** (= 3 部明文化)
+ *   - **Phase 別 framing hint** (= PhaseFramingHint で hedging level 制御)
+ *
+ * V1 (= Step 1) との差:
+ *   - V1: 4 short tag を 1 行 「ユーザーの傾向: ◯◯、 ◯◯」 で短く注入 (= 雑に混ぜる)
+ *   - V2: Stable / Recent / Contextual を **別 section に分けて注入** (= 「あなたの長期傾向」 「今のあなたの状態」 「今日の文脈」)
+ *
+ * 構造:
+ *   - system prompt:
+ *     1. 基本文体規約 (= V1 と同等)
+ *     2. **Personal Model 3 層 (= 注入、 Phase に応じた layer)**
+ *     3. **Phase 別 framing hint**
+ *     4. **Output Contract V2 promptInstruction** (= 3 部統合 1 文ガイド)
+ *   - user prompt: V1 と同等 (= ctx の構造化、 personalModel は user prompt に出さない)
+ */
+
+import type { AlterNoteContext } from "./types";
+import type { PersonalModelV2 } from "./types";
+import type { PhaseFramingHint } from "./hdmPhaseGate";
+import { ALTER_NOTE_CONTRACT_V2 } from "./outputContract";
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Base system prompt (= V1 と共通の文体規約)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const SYSTEM_PROMPT_BASE_V2 = [
+  "あなたは Aneurasync の予定解釈アシスタントです。",
+  "ユーザーが教えてくれた 1 件の予定について、 8〜30 字の短い 「観測的な意味文」 を 1 文だけ返してください。",
+  "",
+  "目的:",
+  "  - ユーザー自身が予定の流れを掴むための、 静かな 「状態描写」 を提供する。",
+  "  - 評価や推奨はしない。 観測者の視点で、 場面 / ペース / 質感 を一言で添える。",
+].join("\n");
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Personal Model 3 層 注入 (= GPT 「層を分けたまま」 補正)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Stable layer → prompt 行 (= 「あなたの長期傾向」 section)
+ *
+ * 全 field optional、 不在 field は出力しない (= token 節約 + safe degrade)
+ *
+ * 出力例:
+ *   ## あなたの長期傾向 (= Stable)
+ *   - 判断モード: 集中型
+ *   - 時刻偏好: 朝強い
+ *   - 内面トーン: ひとり静か
+ */
+function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
+  if (!stable) return "";
+  const lines: string[] = ["## あなたの長期傾向 (= Stable layer)"];
+  let count = 0;
+  if (stable.judgmentMode) {
+    lines.push(`- 判断モード: ${stable.judgmentMode}`);
+    count += 1;
+  }
+  if (stable.psycheTone) {
+    lines.push(`- 深層トーン: ${stable.psycheTone}`);
+    count += 1;
+  }
+  if (stable.timePreference) {
+    lines.push(`- 時刻偏好: ${stable.timePreference}`);
+    count += 1;
+  }
+  if (stable.traitTone) {
+    lines.push(`- 性格傾向: ${stable.traitTone}`);
+    count += 1;
+  }
+  if (stable.archetype) {
+    lines.push(`- アーキタイプ: ${stable.archetype}`);
+    count += 1;
+  }
+  if (stable.decisionMode) {
+    lines.push(`- 判断スタイル: ${stable.decisionMode}`);
+    count += 1;
+  }
+  if (stable.strengthAxis) {
+    lines.push(`- 強み: ${stable.strengthAxis}`);
+    count += 1;
+  }
+  if (stable.workStyle) {
+    lines.push(`- 仕事スタイル: ${stable.workStyle}`);
+    count += 1;
+  }
+  if (stable.lifeStageHint) {
+    lines.push(`- ライフステージ: ${stable.lifeStageHint}`);
+    count += 1;
+  }
+  if (count === 0) return "";
+  return lines.join("\n");
+}
+
+/**
+ * Recent layer → prompt 行 (= 「今のあなたの状態」 section)
+ */
+function formatRecentLayerSection(recent: PersonalModelV2["recent"]): string {
+  if (!recent) return "";
+  const lines: string[] = ["## 今のあなたの状態 (= Recent layer、 直近 7-14 日)"];
+  let count = 0;
+  if (recent.innerWeather) {
+    lines.push(`- 内的天気: ${recent.innerWeather}`);
+    count += 1;
+  }
+  if (recent.recentMood) {
+    lines.push(`- 直近気分: ${recent.recentMood}`);
+    count += 1;
+  }
+  if (recent.recentEvents) {
+    lines.push(`- 直近イベント: ${recent.recentEvents}`);
+    count += 1;
+  }
+  if (recent.reactionPattern) {
+    lines.push(`- 反応パターン: ${recent.reactionPattern}`);
+    count += 1;
+  }
+  if (recent.fluctuation) {
+    lines.push(`- 揺らぎ: ${recent.fluctuation}`);
+    count += 1;
+  }
+  if (recent.stressLoad) {
+    lines.push(`- ストレス負荷: ${recent.stressLoad}`);
+    count += 1;
+  }
+  if (recent.recentRupture) {
+    lines.push(`- 直近 rupture: あり (= 慎重に観測)`);
+    count += 1;
+  }
+  if (recent.recentRhythm) {
+    lines.push(`- 直近リズム: ${recent.recentRhythm}`);
+    count += 1;
+  }
+  if (count === 0) return "";
+  return lines.join("\n");
+}
+
+/**
+ * Contextual layer → prompt 行 (= 「今日の予定の文脈」 section)
+ */
+function formatContextualLayerSection(contextual: PersonalModelV2["contextual"]): string {
+  if (!contextual) return "";
+  const lines: string[] = ["## 今日の予定の文脈 (= Contextual layer)"];
+  let count = 0;
+  if (contextual.similarDayRecall) {
+    lines.push(`- 似た日の想起: ${contextual.similarDayRecall}`);
+    count += 1;
+  }
+  if (contextual.pastSelfDelta) {
+    lines.push(`- 過去自己との差分: ${contextual.pastSelfDelta}`);
+    count += 1;
+  }
+  if (contextual.shiftSignal) {
+    lines.push(`- context shift: ${contextual.shiftSignal}`);
+    count += 1;
+  }
+  if (contextual.narrativeContinuity) {
+    lines.push(`- 物語の連続性: ${contextual.narrativeContinuity}`);
+    count += 1;
+  }
+  if (contextual.sameSlotHistory) {
+    lines.push(`- 同時間帯履歴: ${contextual.sameSlotHistory}`);
+    count += 1;
+  }
+  if (count === 0) return "";
+  return lines.join("\n");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Phase 別 framing hint (= prompt に追加する指示)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function getFramingInstructionForPhase(hint: PhaseFramingHint): string {
+  switch (hint) {
+    case "no_personal_framing":
+      return [
+        "## 文体ガイド (= Phase 0-1)",
+        "- 「あなた」 主語を使わない、 一般的な観測文に留める",
+        "- 上記 Personal Model は無視して、 fact + interpretation のみで構築",
+      ].join("\n");
+    case "soft_personal_with_hedge":
+      return [
+        "## 文体ガイド (= Phase 2)",
+        "- 「あなた」 主語 OK、 ただし hedging 強 (= 「〜の傾向」 「〜かもしれない」)",
+        "- Personal Model は **参考程度**、 主張しない",
+      ].join("\n");
+    case "moderate_personal":
+      return [
+        "## 文体ガイド (= Phase 3)",
+        "- 「あなた」 主語 OK、 hedging 弱化",
+        "- Personal Model から自然に文体に反映 (= 「あなたが集中しやすい」 等)",
+        "- 直近の状態を踏まえた framing OK",
+      ].join("\n");
+    case "deep_personal_framing":
+      return [
+        "## 文体ガイド (= Phase 4-5)",
+        "- 「あなたの軸では」 「あなたが本当に」 等の深い framing 解禁",
+        "- Personal Model を統合的に活用、 「あなたという人」 の一面を映す",
+        "- ただし押しつけは厳禁、 観測寄りの解釈に留める",
+      ].join("\n");
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// System prompt 構築 (= base + PM 3 層 + framing + contract)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * V2 system prompt (= 層を分けたまま注入、 GPT 補正)
+ *
+ * 順序:
+ *   1. base 文体規約
+ *   2. Personal Model 3 層 (= 充填された layer のみ、 別 section)
+ *   3. Phase 別 framing hint
+ *   4. Output Contract V2 promptInstruction (= 3 部統合 1 文ガイド)
+ *
+ * pm が undefined → V1 system prompt と等価動作 (= safe degrade)
+ */
+export function buildSystemPromptV2(
+  pm?: PersonalModelV2,
+  framingHint?: PhaseFramingHint,
+): string {
+  const sections: string[] = [SYSTEM_PROMPT_BASE_V2];
+
+  // PM 3 層を別 section に挿入 (= 雑に混ぜない、 GPT 補正)
+  if (pm) {
+    const stableSection = formatStableLayerSection(pm.stable);
+    const recentSection = formatRecentLayerSection(pm.recent);
+    const contextualSection = formatContextualLayerSection(pm.contextual);
+
+    if (stableSection || recentSection || contextualSection) {
+      sections.push(""); // 空行で区切り
+      if (stableSection) sections.push(stableSection);
+      if (recentSection) sections.push(recentSection);
+      if (contextualSection) sections.push(contextualSection);
+    }
+  }
+
+  // Phase framing hint (= Phase < 2 では PM 無視指示も含む)
+  if (framingHint) {
+    sections.push("");
+    sections.push(getFramingInstructionForPhase(framingHint));
+  }
+
+  // Output Contract V2 (= 3 部統合 + 禁止語 + generic self-help 拒否)
+  sections.push("");
+  sections.push(ALTER_NOTE_CONTRACT_V2.promptInstruction);
+
+  return sections.join("\n");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// User prompt (= V1 と等価、 PM は system prompt に注入済み)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const CATEGORY_LABEL: Record<AlterNoteContext["category"], string> = {
+  cafe: "カフェ",
+  meal: "食事",
+  work: "仕事 / 学習 / 業務",
+  home: "自宅",
+  other: "その他",
+};
+
+function timeOfDayLabel(hhmm: string): string {
+  const hour = Number.parseInt(hhmm.slice(0, 2), 10);
+  if (Number.isNaN(hour)) return "(時刻不明)";
+  if (hour >= 5 && hour < 11) return "朝";
+  if (hour >= 11 && hour < 14) return "昼";
+  if (hour >= 14 && hour < 18) return "午後";
+  if (hour >= 18 && hour < 23) return "夜";
+  return "深夜";
+}
+
+export function buildUserPromptV2(ctx: AlterNoteContext): string {
+  const lines: string[] = [];
+  lines.push(`カテゴリ: ${CATEGORY_LABEL[ctx.category]}`);
+  lines.push(`時刻帯: ${timeOfDayLabel(ctx.startTime)} (${ctx.startTime}${ctx.endTime ? `-${ctx.endTime}` : ""})`);
+  if (ctx.title !== undefined && ctx.title.length > 0) {
+    lines.push(`予定タイトル: ${ctx.title}`);
+  }
+  if (ctx.location !== undefined && ctx.location.length > 0) {
+    lines.push(`場所: ${ctx.location}`);
+  }
+  lines.push("");
+  lines.push(
+    "この 1 件の予定について、 上記 Personal Model を踏まえ、 出力契約に従い 8〜30 字の意味文 1 文を JSON で返してください。",
+  );
+  return lines.join("\n");
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 統合 builder
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Build alterNote V2 prompt (= 統合 entry、 generator V2 から呼出)
+ *
+ * - ctx.personalModelV2 が undefined → V1 等価の system prompt (= safe degrade)
+ * - ctx.personalModelV2 + framingHint が指定 → 層を分けたまま PM 注入 + Phase 別 framing
+ */
+export function buildAlterNotePromptV2(
+  ctx: AlterNoteContext,
+  framingHint?: PhaseFramingHint,
+): {
+  readonly systemPrompt: string;
+  readonly userPrompt: string;
+} {
+  return {
+    systemPrompt: buildSystemPromptV2(ctx.personalModelV2, framingHint),
+    userPrompt: buildUserPromptV2(ctx),
+  };
+}
+
+/**
+ * JSON schema (= V1 同 shape、 runAI requireJson 用)
+ */
+export const ALTER_NOTE_JSON_SCHEMA_V2 = {
+  type: "object",
+  properties: {
+    text: {
+      type: "string",
+      minLength: 0,
+      maxLength: 60,
+    },
+  },
+  required: ["text"],
+  additionalProperties: false,
+} as const;

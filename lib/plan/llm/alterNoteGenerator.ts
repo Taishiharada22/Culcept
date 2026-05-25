@@ -34,8 +34,19 @@ import {
   buildAlterNotePrompt,
 } from "./alterNotePromptBuilder";
 import {
+  buildAlterNotePromptV2,
+  ALTER_NOTE_JSON_SCHEMA_V2,
+} from "./alterNotePromptBuilderV2";
+import {
   validateAlterNoteOutput,
 } from "./alterNoteValidator";
+import {
+  validateAlterNoteOutputV2,
+} from "./alterNoteValidatorV2";
+import {
+  evaluatePhaseGate,
+  type PhaseFramingHint,
+} from "./hdmPhaseGate";
 import type {
   AlterNoteContext,
   AlterNoteResult,
@@ -99,8 +110,28 @@ export async function generateAlterNote(
     return { source: "unavailable", reason: "category_other" };
   }
 
-  // 3. prompt 生成
-  const { systemPrompt, userPrompt } = buildAlterNotePrompt(ctx);
+  // 3. prompt 生成 (= Step 2 v3.1: PM integration flag ON で V2 builder、 OFF で V1)
+  const useV2Path =
+    PLAN_FLAGS.personalModelIntegration && ctx.personalModelV2 !== undefined;
+
+  let systemPrompt: string;
+  let userPrompt: string;
+  let jsonSchema: Record<string, unknown>;
+  if (useV2Path) {
+    // V2 path: 層を分けたまま PM 注入 + Phase framing
+    const phaseGate = evaluatePhaseGate(ctx.personalModelV2!.meta.hdmPhase);
+    const framingHint: PhaseFramingHint = phaseGate.framingHint;
+    const prompts = buildAlterNotePromptV2(ctx, framingHint);
+    systemPrompt = prompts.systemPrompt;
+    userPrompt = prompts.userPrompt;
+    jsonSchema = ALTER_NOTE_JSON_SCHEMA_V2 as Record<string, unknown>;
+  } else {
+    // V1 path (= Step 1 同等、 flag OFF or PM 未注入 で safe degrade)
+    const prompts = buildAlterNotePrompt(ctx);
+    systemPrompt = prompts.systemPrompt;
+    userPrompt = prompts.userPrompt;
+    jsonSchema = ALTER_NOTE_JSON_SCHEMA as Record<string, unknown>;
+  }
 
   // 4. runAI 呼出
   const startedAt = Date.now();
@@ -111,7 +142,7 @@ export async function generateAlterNote(
       prompt: userPrompt,
       systemPrompt,
       requireJson: true,
-      jsonSchema: ALTER_NOTE_JSON_SCHEMA as Record<string, unknown>,
+      jsonSchema,
       temperature: ALTER_NOTE_TEMPERATURE,
       maxOutputTokens: ALTER_NOTE_MAX_OUTPUT_TOKENS,
       timeoutMs: ALTER_NOTE_TIMEOUT_MS,
@@ -153,8 +184,10 @@ export async function generateAlterNote(
     return { source: "unavailable", reason: "llm_failure" };
   }
 
-  // 6. validator post-check
-  const validation = validateAlterNoteOutput(rawText);
+  // 6. validator post-check (= V2 path で 8 段、 V1 path で 5 段)
+  const validation = useV2Path
+    ? validateAlterNoteOutputV2(rawText)
+    : validateAlterNoteOutput(rawText);
   if (!validation.ok) {
     return { source: "unavailable", reason: "validation_failed" };
   }

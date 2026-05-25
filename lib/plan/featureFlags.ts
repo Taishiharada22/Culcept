@@ -59,4 +59,25 @@ export const PLAN_FLAGS = {
    * 本番 ON は別 patch (= CEO 判断経由、 default false で merge)。
    */
   alterNoteLive: process.env.PLAN_ALTER_NOTE_LIVE === "true",
+
+  /**
+   * P2 Step 2 v3.1: Personal Model V2 統合を有効化するか (= 3 層 PM + Output Contract V2 + framing)
+   *   true  : alterNoteLive=true 前提 + PersonalModelV2 + promptBuilderV2 + validatorV2 経路
+   *   false : Step 1 同等 (= 4 short tag なし、 generic prompt builder、 5 段 validator)
+   *
+   * env: PLAN_PERSONAL_MODEL_INTEGRATION=true で有効化
+   *
+   * 設計書: docs/alter-plan-p2-llm-step2-readiness-v3.md (= CEO + GPT 合議 2026-05-25 G2 通過判定)
+   *
+   * Step 2 v3.1 制約:
+   *   - Step 1 と同 cost cap (= 1 view 20 calls、 並列 5、 timeout 4000ms)
+   *   - 3 層 PM (= Stable / Recent / Contextual) を **層を分けたまま** prompt 注入 (= GPT 補正)
+   *   - Phase 別 framing hint で hedging level 制御
+   *   - 8 段 validator (= V1 5 段 + generic_self_help + fact / interp)
+   *   - Step 2 v3.1 stub: 実 Stargazer wire 未着手、 synthetic / safe Phase 0 fallback
+   *   - 失敗時 → deterministic fallback (= V1 と同 fail-open)
+   *
+   * 本番 ON は別 patch (= CEO 判断経由、 default false で merge)。
+   */
+  personalModelIntegration: process.env.PLAN_PERSONAL_MODEL_INTEGRATION === "true",
 } as const;

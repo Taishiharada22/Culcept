@@ -24,10 +24,12 @@ import "server-only";
 
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { StrictEventCardViewModel } from "@/lib/plan/list/sourceProvenance";
-import type { AlterNoteContext } from "@/lib/plan/llm/types";
+import type { AlterNoteContext, PersonalModelV2 } from "@/lib/plan/llm/types";
 
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { convertExternalAnchorListWithDayBookends } from "./externalAnchorAdapter";
 import { generateAlterNoteBatch } from "@/lib/plan/llm/alterNoteGenerator";
+import { extractPersonalModelV2 } from "@/lib/plan/llm/personalModelExtractorV2";
 
 /**
  * **Async** ExternalAnchor[] → events 配列 + bookends (= LLM alterNote 上書き、 P2 Step 1)
@@ -69,6 +71,20 @@ export async function convertExternalAnchorListWithDayBookendsAsync(
     anchorById.set(a.id, a);
   }
 
+  // 3b. Step 2 v3.1: Personal Model V2 を 1 度だけ抽出 (= 1 user 1 day 1 PM、 cache 効果)
+  //     PM integration flag OFF or userId 不在 → undefined (= V1 path に safe degrade)
+  //     Step 2 v3.1 stub の extractPersonalModelV2 は現在 Phase 0 fallback を返すが、
+  //     ここで呼ぶ entry を確定しておくことで実 Stargazer wire 完了後の差し替えを 1 接点に局所化。
+  let personalModelV2: PersonalModelV2 | undefined;
+  if (PLAN_FLAGS.personalModelIntegration && options?.userId !== undefined) {
+    try {
+      personalModelV2 = await extractPersonalModelV2(options.userId);
+    } catch {
+      // fail-open: PM 抽出失敗 → V1 path に degrade
+      personalModelV2 = undefined;
+    }
+  }
+
   // 4. LLM context 配列を build (= sensitive は ctx に含めず null marker)
   const ctxList: Array<AlterNoteContext | null> = [];
   for (const e of realEvents) {
@@ -87,6 +103,7 @@ export async function convertExternalAnchorListWithDayBookendsAsync(
       ...(e.endTime !== undefined ? { endTime: e.endTime } : {}),
       ...(anchor.title !== undefined ? { title: anchor.title } : {}),
       ...(e.location !== undefined ? { location: e.location } : {}),
+      ...(personalModelV2 !== undefined ? { personalModelV2 } : {}),
     });
   }
 

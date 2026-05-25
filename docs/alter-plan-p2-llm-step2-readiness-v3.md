@@ -12,7 +12,26 @@
 |---|---|---|
 | 2026-05-25 | v1 | 4 short tag + HDM Phase ゲート + 5 CEO 判断 |
 | 2026-05-25 | v2 | GPT 4 補強反映 (= 3 層 PM + correction memory + 評価 dataset + Output Contract) |
-| **2026-05-25** | **v3** | **CEO + GPT 「実データ blocker 禁止」 ルール固定 (= §0 新方針、 §6 canary plan 修正、 §13 並行運用ルール 追加)** |
+| 2026-05-25 | v3 | CEO + GPT 「実データ blocker 禁止」 ルール固定 (= §0 新方針、 §6 canary plan 修正、 §13 並行運用ルール 追加) |
+| **2026-05-25** | **v3.1** | **G2 通過 + Q1-Q7 確定 (= GPT 全件採用) + Q5 補正 (= generic self-help detector 追加) + Step 1 merge 停止条件外し** |
+
+## CEO + GPT 確定済 (= 2026-05-25 G2 通過、 readiness v3.1)
+
+| # | 確定 |
+|---|---|
+| Q1 | **3 層** (= Stable / Recent / Contextual) |
+| Q2 | **Layer A のみ** (= 暗黙的反応観測の受け皿、 UI button なし) |
+| Q3 | **50 件 dataset** (= commit 40e92892 で完成済) |
+| Q4 | **CEO + LLM-as-judge 併用** |
+| Q5 | **3 field + 既存 5 段 + generic self-help detector** (= GPT 補正、 「自然だけど平均的」 を弾く) |
+| Q6 | **canary 前提: 50 件採点合格 + forced-failure smoke PASS** |
+| Q7 | **Step 2 実装 timing: 今 GO** |
+
+追加方針:
+- **Step 1 merge は停止条件にしない** (= CEO merge 待ちで止めない)
+- **Step 2 は Step 1 branch 上に積む** (= 同 branch `feat/alter-plan-p2-llm-step1`)
+- **実データ待ち停止禁止** 維持
+- **3 層を分けたまま prompt に入れる** (= GPT 「雑に混ぜると generic」、 promptBuilderV2 実装要件)
 
 ---
 
@@ -357,22 +376,52 @@ export const ALTER_NOTE_CONTRACT_V2: OutputContract = {
 };
 ```
 
-#### 4.2.3 validator 拡張 (= 既存 `alterNoteValidator.ts` 強化)
+#### 4.2.3 validator 拡張 (= 既存 `alterNoteValidator.ts` 強化、 v3.1 で **generic self-help detector 追加**)
 
 - 既存 5 段 (= empty / length / forbidden_word / forbidden_tone / forbidden_char) 維持
 - v2 追加: contract field detector で `fact_acknowledgment` と `interpretation` の **不在**を 「貧弱な解釈」 として reject
+- **v3.1 追加 (= GPT Q5 補正)**: **generic self-help 文を落とす detector** (= 「自然だけど平均的」 を弾く)
 
 ```typescript
-// 追加 reason
+// 追加 reason (= v3.1 で generic_self_help 追加)
 export type AlterNoteValidationReason =
   | "empty"
   | "length_out_of_range"
   | "forbidden_word"
   | "forbidden_tone"
   | "forbidden_char"
-  | "missing_fact_acknowledgment"   // ← 新規
-  | "missing_interpretation";       // ← 新規
+  | "missing_fact_acknowledgment"   // v2 で追加
+  | "missing_interpretation"        // v2 で追加
+  | "generic_self_help";            // v3.1 で追加 ← GPT Q5 補正
 ```
+
+**Generic self-help pattern detector** (= 「自己啓発書の平均文」 を弾く):
+
+```typescript
+const GENERIC_SELF_HELP_PATTERN = [
+  // 抽象的 「集中」 「整える」 が文脈なしで並ぶ平均文
+  /^[^、。]{0,8}集中[^、。]{0,8}時間[^、。]{0,5}$/,
+  /^[^、。]{0,10}整える時間[^、。]{0,5}$/,
+  // 「〜しましょう」 単独 + 状態語なし
+  /^[^、。]{0,6}しましょう[^、。]{0,5}$/,
+  // 「今日も」 「明日も」 等の自己啓発書 phrase
+  /(今日も|明日も)(頑張|新しい|素敵|良い)/,
+  // 「あなたの一日が」 等の generic open-ended
+  /あなたの一日が[^、。]+ように/,
+];
+```
+
+検証順序 (= v3.1 final):
+1. forbidden_char (= 数値 / 絵文字 / 改行)
+2. empty
+3. length 6-30 字
+4. forbidden_word (= 押しつけ語 10 件)
+5. forbidden_tone (= 強命令 / 評価形容詞)
+6. **generic_self_help** (= 新規、 平均文 pattern)
+7. missing_fact_acknowledgment (= contract field、 V2 generator のみ)
+8. missing_interpretation (= contract field、 V2 generator のみ)
+
+V2 generator では 8 段全部、 V1 generator では 1-5 段のみ (= 既存契約維持)。
 
 ### 4.3 期待される効果
 
