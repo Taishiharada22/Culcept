@@ -95,8 +95,13 @@ import {
 //   state は完全分離 (= newSelectedPinId 専用、 legacy selectedAnchorId と相互参照禁止)。
 import { MAP_NEW_SURFACE_ENABLED } from "@/lib/plan/map/featureFlags";
 import { MapBottomSheet } from "@/components/plan/map/MapBottomSheet";
-import { convertExternalAnchorToMapSheet } from "@/lib/plan/map/adapters/externalAnchorMapAdapter";
+import {
+  convertExternalAnchorToMapSheet,
+  resolveCategory as resolveMapEventCategory,
+} from "@/lib/plan/map/adapters/externalAnchorMapAdapter";
 import type { MapSheetViewModel } from "@/lib/plan/map/types";
+// Step γ: 独自 pin (= 涙型 SVG data URI + 白抜き icon、 newMode 時のみ)
+import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -939,9 +944,32 @@ function PlanMapView({
       const baseStrokeResolved = newMode && isSelected ? 3 : 2;
       const baseStrokeBaseline = newMode && isSelected ? 3.5 : 2.5;
 
+      // Step γ: newMode の時、 既存 CIRCLE marker の代わりに 涙型 SVG data URI を使う
+      //   (= 独自 pin、 涙型 + カテゴリ色 + 白抜き icon、 mock fidelity)
+      //   既存 OFF path は CIRCLE のまま (= legacy 完全不変)
+      const useCustomPin = newMode;
+      const eventCategory = useCustomPin
+        ? resolveMapEventCategory(pin.anchor)
+        : null;
+      // GmapsIcon 拡張型 (= url field、 GmapsIcon に未公開、 local cast pattern)
+      type IconWithUrl = {
+        url?: string;
+        anchor?: ReturnType<typeof maps.Point extends abstract new (...args: never) => infer R ? () => R : never>;
+      };
+
       // resolved = filled circle、baseline = hollow circle (approximate)
-      const iconStyle =
-        pin.kind === "resolved"
+      const iconStyle: IconWithUrl & Record<string, unknown> = useCustomPin && eventCategory
+        ? (() => {
+            const pinSize = getPinSize(isSelected);
+            // Step γ: time label を SVG 内に embed (= 全 pin 時刻表示、 mock 白カード)
+            const timeLabel = formatTime(pin.anchor.startTime);
+            return {
+              url: generatePinSvgDataUri(eventCategory, isSelected, timeLabel),
+              // anchor = pin 尖り先 (= 下端中央) で coord に attach、 label 部分は anchor より下
+              anchor: new maps.Point(pinSize.width / 2, pinSize.pinTipY),
+            };
+          })()
+        : pin.kind === "resolved"
           ? {
               path: maps.SymbolPath.CIRCLE,
               scale,
@@ -975,13 +1003,12 @@ function PlanMapView({
 
       // pin label = 時刻 ("09:00")。
       //   OFF path (legacy): 全 pin 時刻表示 (= 既存挙動)
-      //   ON path (9a-impl): selected pin のみ label 表示 (= GPT/CEO 「selected 時のみラベル」)、
-      //     format = "{order}·{time}" (= 番号 + 時刻)、 unselected は label 空文字 (= 番号も非表示、 「map 上は軽く」)
-      const order = orderById.get(pin.anchor.id) ?? 0;
+      //   ON path (Step γ): **全 pin 時刻表示** (= CEO Q3 採用、 mock 整合)、 selected 強調
+      //     - unselected: 時刻のみ (= "09:00")
+      //     - selected: 時刻のみ太字大 (= "09:00"、 fontSize / weight で強調)
+      //     - title 含む白カードラベルは Step γ 後段 or 9b で OverlayView 導入時
       const labelText = newMode
-        ? isSelected
-          ? `${order}·${formatTime(pin.anchor.startTime)}`
-          : ""
+        ? formatTime(pin.anchor.startTime)
         : formatTime(pin.anchor.startTime);
 
       const marker = new maps.Marker({
@@ -989,12 +1016,18 @@ function PlanMapView({
         position: pin.coord,
         title: markerTitle,
         icon: iconStyle,
-        label: {
-          text: labelText,
-          color: isSelected ? "#1e1b4b" : "#374151", // selected は濃いめ
-          fontSize: isSelected ? "12px" : "11px",
-          fontWeight: "600",
-        },
+        // Step γ: newMode (= custom SVG pin) では time label を SVG 内 embed 済み、
+        //   marker.label 不使用 (= 二重表示防止、 視覚 clean)。 OFF path は既存 label 維持。
+        ...(useCustomPin
+          ? {}
+          : {
+              label: {
+                text: labelText,
+                color: isSelected ? "#1e1b4b" : "#374151",
+                fontSize: isSelected ? "12px" : "11px",
+                fontWeight: "600",
+              },
+            }),
         // 9a-impl: ON path + selected で z-index 上昇 (= CEO/GPT 「z-index 上昇」)
         ...(newMode && isSelected ? { zIndex: 100 } : {}),
       });

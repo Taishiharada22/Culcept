@@ -85,7 +85,11 @@ const LOCATION_CATEGORY_TO_EVENT_CATEGORY: Record<LocationCategory, EventCategor
  * 3. locationText keyword heuristic
  * 4. 'other' fallback
  */
-function resolveCategory(anchor: ExternalAnchor): EventCategory {
+/**
+ * Step γ で公開 (= MapTab PlanMapView の独自 pin marker 生成で category 取得用)
+ * 9a-pre で internal だったが、 pin SVG generation で同 logic 再利用が必要なため export 化。
+ */
+export function resolveCategory(anchor: ExternalAnchor): EventCategory {
   if (anchor.locationCategory !== undefined) {
     const explicit = LOCATION_CATEGORY_TO_EVENT_CATEGORY[anchor.locationCategory];
     if (explicit !== undefined && explicit !== 'other') {
