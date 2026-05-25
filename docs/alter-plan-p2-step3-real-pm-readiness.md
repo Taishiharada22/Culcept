@@ -208,15 +208,34 @@ real PM smoke PASS + G3 (= G3-A + G3-B + G3-C) PASS → preview canary GO (= G4)
 
 ---
 
-## 6. CEO 判断 (= Step 3 着手前停止、 G3 通過後)
+## 6. CEO 判断 (= 2026-05-25 確定済)
 
-| # | 質問 | 推奨 |
+| # | 質問 | 確定 |
 |---|---|---|
-| Q1 | adapter 分離 (= 新 file) vs 既存 file 内拡張 | **新 file** (= personalModelStargazerAdapter.ts、 clean separation) |
-| Q2 | safe degrade 戦略 | **try/catch + undefined return** (= 各 field 独立) |
-| Q3 | real PM smoke test user | **CEO 自身 user account** (= 実 軸データ取得) |
-| Q4 | smoke 観測項目 | **5 項目** (= 上記 Phase 4) |
-| Q5 | Stable layer wire の優先順位 | judgmentMode + timePreference を最初に (= 即効性高) |
+| Q1 | Step 3 着手 GO? | ✅ **GO** |
+| Q2 | adapter 分離 vs 既存拡張 | ✅ **新 file `personalModelStargazerAdapter.ts`** |
+| Q3 | smoke test user | ✅ **`aneurasync@outloo.com`** (= 既存 test account) |
+| Q4 | smoke 観測 5 項目 | ✅ 採用 (= 下記 §4 通り) |
+| Q5 | wire 優先順位 (= v3.3 後補正) | ✅ **判断モード + 時刻偏好 → recentRhythm 次点 → energyRecovery 以後** |
+
+### Q5 wire 優先順 (= CEO 補正、 推奨理由)
+
+| Order | Field | Source module | 推奨理由 |
+|---|---|---|---|
+| 1st | `judgmentMode` | `axisRegistry` + `axisInferenceEngine` | 即効性高、 P1/P2/P3 個別化に直結 (= 「集中型」 「関係エネルギー型」 等が明確) |
+| 1st | `timePreference` | `chronotypeFitness` | 即効性高、 anchor 時刻と直結 (= 「朝強い user の夜予定」 等の対比) |
+| **2nd (= 次点)** | **`recentRhythm`** | **`lifeContext` (= W1 直近 7-14 日)** | **直近の状態 reflection が P4 中庸型の 「中の動き」 visible 化に寄与する可能性 (= v3.3 失敗後 補正)** |
+| 3rd | `energyRecovery` | `axisRegistry` (= traitTone 経由) | 後段、 P1/P2 の補助 |
+| 4th 以後 | psycheTone / archetype / 等 | 各 module | 段階的に拡張 (= 別 Step) |
+
+## 6.5 Step 3 終了後 報告 必須 4 項目 (= CEO 確定、 2026-05-25)
+
+| # | 項目 | 判定基準 |
+|---|---|---|
+| 1 | **real PM で P3/P4 がどこまで上がったか** | strict 3.5 達成 / near-pass / 未達 を明示 |
+| 2 | **P1/P2 regression なしか** | v3.2 base (P1=4.23 / P2=4.04) からの低下幅 |
+| 3 | **naturalness / personalness / non_pushy の 3 軸** | 平均値 + Profile 別 + v3.2 synthetic 比 |
+| 4 | **実 PM 由来で効いた field は何か** | 「judgmentMode が効いた / timePreference が効いた / recentRhythm が効いた」 等の効き具合分析 |
 
 ---
 
