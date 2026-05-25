@@ -38,10 +38,10 @@ const TARGET_FILES: ReadonlyArray<{ path: string; description: string }> = [
     path: "app/(culcept)/plan/components/DayGraphTimeline.tsx",
     description: "DayGraphTimeline (= K-3a EventItem + M-3c-ui TransitionItem、 wave 1 で適用済)",
   },
-  {
-    path: "app/(culcept)/plan/tabs/MapTab.tsx",
-    description: "MapTab (= 予定 / カテゴリ card、 wave 2 で適用)",
-  },
+  // 9 closeout (= 2026-05-25): MapTab.tsx は旧 sub-components (SelectedAnchorCard / CategoryGrid 等)
+  //   物理削除済みのため、 focus-ring パターンの存在検証対象から除外。
+  //   新 MapBottomSheet / DayItemsPanel / MapSelectedPinLabel は focus-visible:border-slate-300
+  //   (= 規約 24-extended) で各々 contract test 済み (= components/plan/map/*.tsx)。
   {
     path: "app/(culcept)/plan/tabs/FlowTab.tsx",
     description: "FlowTab (= 予定 card、 wave 2 で適用)",
@@ -103,14 +103,15 @@ for (const { path, description } of TARGET_FILES) {
 // Cross-file 規約宣言 (= 規約 24 永続性の構造的保証)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("N-2 wave 2 規約 24 永続性宣言 (= 6 file 全件)", () => {
+describe("N-2 wave 2 規約 24 永続性宣言 (= 9 closeout で MapTab 除外、 5 file 残存)", () => {
   it("全 target file が読込可能 (= file 削除や rename を検知)", () => {
     for (const { path } of TARGET_FILES) {
       expect(() => readFileSync(path, "utf-8")).not.toThrow();
     }
   });
 
-  it("規約 24 は 6 file に適用 (= TARGET_FILES の数で永続管理)", () => {
-    expect(TARGET_FILES.length).toBe(6);
+  it("規約 24 は 5 file に適用 (= 9 closeout で MapTab 除外後の TARGET_FILES 数)", () => {
+    // 旧: 6 (= MapTab 含む) / 新: 5 (= MapTab は新 sub-components へ移譲、 9 closeout)
+    expect(TARGET_FILES.length).toBe(5);
   });
 });

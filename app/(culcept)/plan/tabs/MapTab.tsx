@@ -90,10 +90,9 @@ import {
   type LivedGeographyFallback,
 } from "@/lib/plan/livedGeographyFallback";
 
-// ── Phase 3-N Map impl sub-phase 9a-impl: flag + 新 surface ──
-//   既存 OFF path は不変、 flag ON 時のみ 新 BottomSheet 表示 + 旧 UI 群非表示。
-//   state は完全分離 (= newSelectedPinId 専用、 legacy selectedAnchorId と相互参照禁止)。
-import { MAP_NEW_SURFACE_ENABLED } from "@/lib/plan/map/featureFlags";
+// ── Phase 3-N Map impl 9 closeout: flag 削除済み、 単一 path 化 (= 常に新 surface) ──
+//   旧 UI (SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard /
+//   DaySwitcher / FAB) は本 file から物理削除済み。 PlanMapView 内 CIRCLE marker logic も削除。
 import { MapBottomSheet } from "@/components/plan/map/MapBottomSheet";
 import {
   convertExternalAnchorToMapSheet,
@@ -169,24 +168,7 @@ interface AnchorWithCoord {
 export function MapTab({
   anchors,
   now,
-  onAddRequest,
   onAnchorClick,
-  // ── Phase 3-J-6d: Proposal hint 導線 (= presentational 寄り) ──
-  // 全 optional。 未指定なら Phase 2 と完全同じ表示 (= backward compat 100%)。
-  // 実 proposal 生成 + state 接続は J-6e で PlanClient が担当。
-  proposalsByDate,
-  proposalTemplateVariables,
-  onProposalAccept,
-  onProposalModify,
-  onProposalDismiss,
-  // ── Phase 3-J-6e-3 ──
-  acceptingProposalIds,
-  recentUndoRecords,
-  onProposalUndo,
-  // ── Phase 3-K-3c-i: DayGraph UI 接続 (= SelectedAnchorCard 下に静かに追加) ──
-  // K-2 から受領していた dayGraphByDate を、 ここで active 利用。
-  // 既存 SelectedAnchorCard / proposal hint / CategoryGrid 等は不変、 timeline を静かに追加。
-  dayGraphByDate,
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
@@ -195,175 +177,129 @@ export function MapTab({
   onAnchorClick?: (anchor: ExternalAnchor) => void;
   /**
    * K-2 接続層: PlanClient で計算した DayGraph。
-   * K-2 では tab 側は使用しない (= K-3 以降で UI 接続予定)。
+   * 9 closeout: DayGraphTimeline section 削除済み、 本 prop は backward compat のため受領のみ。
    */
   dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
 } & CalendarProposalProps) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
 
-  // ── selectedDate state (CEO 補正: MapTab は selectedDate-centric) ──
-  // default は今日。前日 / 翌日 切替で変更。
-  const [selectedDate, setSelectedDate] = useState<Date>(todayDate);
-  const isToday = isoDate(selectedDate) === isoDate(todayDate);
+  // 9 closeout: selectedDate は 「今日」 固定 (= DaySwitcher 削除済み)
+  //   将来 day 切替再導入時は新設計で作り直す (= CEO Q3 判定)
+  const selectedDate = todayDate;
 
-  // ── selectedAnchorId state (mockup の "tap で詳細" UX、bottom card で表示中の anchor) ──
-  const [selectedAnchorId, setSelectedAnchorId] = useState<string | null>(null);
+  // ── selectedPinId state (= 旧 newSelectedPinId、 9 closeout で rename) ──
+  //   default null = 8 場面表 #1 「初期 selected なし」
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
 
-  // ── Phase 3-N 9a-impl: 新 selected pin state (= 完全分離、 default null、 legacy fallback 漏れ込み禁止) ──
-  // legacy `selectedAnchorId` は default fallback で dayAnchors[0] に auto-set される (旧 UX)。
-  // 新 `newSelectedPinId` は 8 場面表準拠で 「初期 = なし」 を厳守 (= CEO + GPT 着手判断条件 A)。
-  const [newSelectedPinId, setNewSelectedPinId] = useState<string | null>(null);
-
-  // ── CategoryGrid 用 window (14 日固定、anchor 集計 context) ──
-  const aggregateEnd = useMemo(
-    () => addDays(todayDate, CATEGORY_AGGREGATE_WINDOW_DAYS - 1),
-    [todayDate],
-  );
-
-  // ── selectedDate 当日の anchor を取得 (recurring 展開 + exception_dates 全継承) ──
+  // ── 当日 anchor 取得 (= recurring 展開 + exception_dates 全継承) ──
   const dayAnchors = useMemo(
     () => anchorsForDay(anchors, selectedDate),
     [anchors, selectedDate],
   );
 
-  // ── Geocode は selectedDate 当日 anchor のみ (lazy resolve) ──
+  // ── geocode (= lazy resolve、 当日 anchor のみ) ──
   const { resolutions, loading: geocodeLoading, apiAvailable } =
     usePlanGeocode(dayAnchors);
-
-  // ── L-4d MapTab-only: bridge → pipeline で MovementDisplayView を取得 ──
-  //    既存 resolutions を読むだけ (= 新規 geocode call なし、 fetch なし、 localStorage なし)。
-  //    結果は下の DayGraphTimeline.movementDisplayByTransitionIndex に渡す。
-  //    pipeline 解決前 / エラー時は空 Map で、 K view fallback (= 「→ 移動」) が維持される。
-  const movementDisplayByTransitionIndex = useMapTabMovementDisplay(
-    dayAnchors,
-    isoDate(selectedDate),
-    resolutions,
-  );
-
-  // ── M-3c-ui MapTab-only: feasibility display + per-transition disclosure ──
-  //    既存 resolutions を読むだけ (= 新規 fetch なし、 localStorage なし、 telemetry なし)。
-  //    pipeline は parallel computation (= L-4c-pure の result が overlay を露出しないため)。
-  //    結果は DayGraphTimeline.feasibilityDisplayByTransitionIndex に渡す。
-  //    not_applicable は M-2a で map から除外済 (= sensitive / unresolved / location_unknown 対策)。
-  const feasibilityDisplayByTransitionIndex = useMapTabFeasibilityDisplay(
-    dayAnchors,
-    isoDate(selectedDate),
-    resolutions,
-  );
-
-  // M-3c-ui disclosure state — default 全 hidden (= M-3c-pure-harden 規約)
-  //   React lazy initial state pattern (= `resetAllDisclosures` 関数 ref を渡す)。
-  //   - 初期 state は必ず新規 empty Set (= mutation 攻撃面 0)
-  //   - re-render 時に再計算されない (= function ref が安定)
-  const [expandedTransitionIndices, setExpandedTransitionIndices] = useState<
-    ExpandedTransitionIndices
-  >(resetAllDisclosures);
-
-  // M-3c-ui: selectedDate 変化で reset (= 「観測の幕間」、 革新 5)
-  //   localStorage 禁止と整合: persist なし、 日切替で fresh observation 再起動。
-  useEffect(() => {
-    setExpandedTransitionIndices(resetAllDisclosures());
-  }, [selectedDate]);
-
-  // M-3c-ui: per-transition disclosure toggle handler
-  //   transition line tap / Enter / Space で呼ばれる。
-  //   M-3c-pure-harden の applyDisclosureAction (= idempotency 同参照保持) 経由で状態更新。
-  const handleToggleFeasibilityDisclosure = useCallback(
-    (transitionIndex: number) => {
-      setExpandedTransitionIndices((current) => {
-        const currentState = getDisclosureStateForIndex(current, transitionIndex);
-        const action = currentState === "expanded" ? "request_collapse" : "request_expand";
-        return applyDisclosureAction(current, transitionIndex, action);
-      });
-    },
-    [],
-  );
 
   const { baselineCoords, loading: baselineLoading } = usePlanBaseline();
   const loading = geocodeLoading || baselineLoading;
 
-  // ── visibleAnchors = dayAnchors (day-centric) ──
   const visibleAnchors = dayAnchors;
 
-  // ── Category groups (CategoryGrid 用、aggregateEnd window で集計) ──
-  const groups = useMemo(
-    () => groupAnchorsByLocation(anchors, todayDate, aggregateEnd),
-    [anchors, todayDate, aggregateEnd],
+  // ── pin tap handler (= 8 場面表準拠、 同 pin = no-op / 別 pin = 切替) ──
+  const handlePinTap = useCallback(
+    (anchor: ExternalAnchor) => {
+      setSelectedPinId((prev) => (prev === anchor.id ? prev : anchor.id));
+    },
+    [],
   );
 
-  // ── day switcher handlers (day 切替で selected anchor リセット) ──
-  // 9a-impl: legacy `selectedAnchorId` + 新 `newSelectedPinId` 両方 reset (= 8 場面表 #5 「day switch → 解除」)
-  const handlePrevDay = () => {
-    setSelectedDate((d) => addDays(d, -1));
-    setSelectedAnchorId(null);
-    setNewSelectedPinId(null);
-  };
-  const handleNextDay = () => {
-    setSelectedDate((d) => addDays(d, 1));
-    setSelectedAnchorId(null);
-    setNewSelectedPinId(null);
-  };
-  const handleGoToday = () => {
-    setSelectedDate(todayDate);
-    setSelectedAnchorId(null);
-    setNewSelectedPinId(null);
-  };
+  // ── sheet close handler (= ✕ button or background tap、 場面 #4/#7) ──
+  const handleSheetClose = useCallback(() => {
+    setSelectedPinId(null);
+  }, []);
 
-  // ── pin tap → bottom card 表示切替 (and AnchorDetailModal は別 button から起動) ──
-  const handlePinTap = (anchor: ExternalAnchor) => {
-    setSelectedAnchorId(anchor.id);
-  };
+  // ── selected anchor (= sheet/label/CTA 共通参照) ──
+  const selectedAnchor = useMemo<ExternalAnchor | null>(() => {
+    if (!selectedPinId) return null;
+    return dayAnchors.find((a) => a.id === selectedPinId) ?? null;
+  }, [selectedPinId, dayAnchors]);
 
-  // ── 9a-impl: 新 pin tap handler (= 8 場面表準拠、 同 pin = no-op / 別 pin = 切替) ──
-  // legacy `handlePinTap` とは別。 state も `newSelectedPinId` 専用、 fallback なし。
-  const handleNewPinTap = (anchor: ExternalAnchor) => {
-    setNewSelectedPinId((prev) => {
-      if (prev === anchor.id) return prev; // 場面 #3: 同 pin 再 tap → no-op
-      return anchor.id; // 場面 #2/#8: pin tap (= 初回 or 別 pin) → 切替
-    });
-  };
+  // ── sheet view model (= MapBottomSheet + MapSelectedPinLabel 用) ──
+  const sheet = useMemo<MapSheetViewModel | null>(() => {
+    if (!selectedAnchor) return null;
+    return convertExternalAnchorToMapSheet(selectedAnchor);
+  }, [selectedAnchor]);
 
-  // ── 9a-impl: sheet close handler (= 場面 #4 「sheet close → 解除」) ──
-  const handleNewSheetClose = () => {
-    setNewSelectedPinId(null);
-  };
-
-  // ── 9a-impl: 新 sheet view model (= newSelectedPinId 由来、 default null、 legacy fallback 不参照) ──
-  // newSelectedPinId が dayAnchors に存在しない場合は null (= sheet 非表示)。
-  const newSheet = useMemo<MapSheetViewModel | null>(() => {
-    if (!MAP_NEW_SURFACE_ENABLED) return null;
-    if (!newSelectedPinId) return null;
-    const anchor = dayAnchors.find((a) => a.id === newSelectedPinId);
-    if (!anchor) return null;
-    return convertExternalAnchorToMapSheet(anchor);
-  }, [newSelectedPinId, dayAnchors]);
-
-  // ── Step β: selected pin の anchor (= CTA wire-up 用) ──
-  const newSelectedAnchor = useMemo<ExternalAnchor | null>(() => {
-    if (!MAP_NEW_SURFACE_ENABLED) return null;
-    if (!newSelectedPinId) return null;
-    return dayAnchors.find((a) => a.id === newSelectedPinId) ?? null;
-  }, [newSelectedPinId, dayAnchors]);
-
-  // ── Step β: 「ここへの経路」 用 Google Maps dir URL (= CEO Q2 採用 B、 lat/lng 不在なら null = disabled) ──
-  const newRouteUrl = useMemo<string | null>(() => {
-    if (!MAP_NEW_SURFACE_ENABLED) return null;
-    if (!newSelectedAnchor) return null;
-    const r = resolutions.get(newSelectedAnchor.id);
+  // ── route URL (= 「ここへの経路」 CTA、 Google Maps dir URL、 lat/lng 不在で null=disabled) ──
+  const routeUrl = useMemo<string | null>(() => {
+    if (!selectedAnchor) return null;
+    const r = resolutions.get(selectedAnchor.id);
     if (!r || !isValidLatLng(r.lat, r.lng)) return null;
     return `https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}`;
-  }, [newSelectedAnchor, resolutions]);
+  }, [selectedAnchor, resolutions]);
 
-  // ── Step β: 「詳細を見る」 handler (= 既存 onAnchorClick 経由で AnchorDetailModal 起動) ──
-  const handleNewOpenDetail = useCallback(() => {
-    if (!newSelectedAnchor || !onAnchorClick) return;
-    onAnchorClick(newSelectedAnchor);
-  }, [newSelectedAnchor, onAnchorClick]);
+  // ── 「詳細を見る」 handler (= 既存 onAnchorClick 経由で AnchorDetailModal 起動) ──
+  const handleOpenDetail = useCallback(() => {
+    if (!selectedAnchor || !onAnchorClick) return;
+    onAnchorClick(selectedAnchor);
+  }, [selectedAnchor, onAnchorClick]);
 
-  // ── Step δ: DayItemsPanel 用 当日 item list (= 時刻順、 category 解決) ──
+  // ── lived geography fallback (= 信頼度つき生活圏、 pin computation 用) ──
+  const livedGeography: LivedGeographyFallback | null = useMemo(
+    () => computeLivedGeographyFallback(anchors, resolutions, new Date()),
+    [anchors, resolutions],
+  );
+
+  // ── 全 anchor を pin 化 (= 4 段階優先順位、 旧 MapTab logic 流用) ──
+  //   1. resolved (= place_resolution_cache hit)
+  //   2. home baseline
+  //   3. lived_geography (= confidence gate 通過)
+  //   4. city / prefecture baseline
+  //   5. なし → noPin (= pin 不能、 anchorsWithoutPinCount で count)
+  const { allPins, anchorsWithoutPin } = useMemo(() => {
+    const pins: AnchorWithCoord[] = [];
+    const noPin: ExternalAnchor[] = [];
+    for (const anchor of visibleAnchors) {
+      const r = resolutions.get(anchor.id);
+      if (r && isValidLatLng(r.lat, r.lng)) {
+        pins.push({
+          anchor,
+          coord: { lat: r.lat, lng: r.lng },
+          resolvedName: r.resolvedName,
+          kind: "resolved",
+        });
+      } else if (baselineCoords && baselineCoords.source === "home") {
+        pins.push({
+          anchor,
+          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
+          resolvedName: baselineCoords.label ?? "自宅 周辺",
+          kind: "baseline",
+        });
+      } else if (livedGeography) {
+        pins.push({
+          anchor,
+          coord: { lat: livedGeography.lat, lng: livedGeography.lng },
+          resolvedName: "最近の場所傾向",
+          kind: "lived_geography",
+        });
+      } else if (baselineCoords) {
+        pins.push({
+          anchor,
+          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
+          resolvedName: baselineCoords.label ?? "baseline 周辺",
+          kind: "baseline",
+        });
+      } else {
+        noPin.push(anchor);
+      }
+    }
+    return { allPins: pins, anchorsWithoutPin: noPin };
+  }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
+
+  // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
   const dayItemsForPanel = useMemo<DayItem[]>(() => {
-    if (!MAP_NEW_SURFACE_ENABLED) return [];
     return [...dayAnchors]
       .sort((a, b) => a.startTime.localeCompare(b.startTime))
       .map((a) => ({
@@ -372,403 +308,46 @@ export function MapTab({
       }));
   }, [dayAnchors]);
 
-  // ── Step δ: DayItemsPanel row tap handler (= anchorId → anchor 解決 → handleNewPinTap 経由) ──
+  // ── DayItemsPanel row tap handler (= anchorId → handlePinTap 経由) ──
   const handleDayItemTap = useCallback(
     (anchorId: string) => {
       const anchor = dayAnchors.find((a) => a.id === anchorId);
-      if (anchor) handleNewPinTap(anchor);
+      if (anchor) handlePinTap(anchor);
     },
-    [dayAnchors],
+    [dayAnchors, handlePinTap],
   );
 
-  // ── 現在 bottom card で表示する anchor (default = day の最初の anchor) ──
-  const selectedAnchorForCard = useMemo<ExternalAnchor | null>(() => {
-    if (selectedAnchorId) {
-      const found = dayAnchors.find((a) => a.id === selectedAnchorId);
-      if (found) return found;
-    }
-    // default fallback: 日の最初の anchor (時刻順 先頭)
-    return dayAnchors[0] ?? null;
-  }, [selectedAnchorId, dayAnchors]);
-
-  // ── Phase 2-E: 時刻重なり気付き indicator 用、dayAnchors の overlap Set を pre-compute ──
-  // 判定は detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、独自判定なし
-  // CEO 補正 3 第一候補: MapTab で pre-compute、SelectedAnchorCard に hasOverlap prop で渡す
-  const dayAnchorsOverlapSet = useMemo(
-    () => detectTimedAnchorOverlaps(dayAnchors),
-    [dayAnchors],
-  );
-
-  // ── 全 anchor を pin 化 (CEO 補正: 予定 → pin guarantee) ──
-  //
-  // 戦略:
-  //   1. resolution あり (locationText 解決済) → resolved pin (具体 coord、category color filled)
-  //   2. resolution なし + baselineCoords あり → baseline pin (baseline coord、outline-only、approximate)
-  //   3. resolution なし + baselineCoords なし → no pin、semantic fallback list のみ
-  //
-  // sensitive anchor は server 側で resolution=null (unresolved_sensitive) のため自動的に
-  // baselineCoords / lived_geography に流れる (privacy: 具体 location は外送信されない、 fallback は user 既知 area)。
-  //
-  // Phase 2-G: Lived Geography Confidence Fallback を baseline 優先順位に挿入。
-  // 優先順位 (= mini design §2.2):
-  //   1. resolved anchor (= place_resolution_cache hit、 最高信頼)
-  //   2. baseline.source === "home" → home pin (= user 明示・安定 base、 最優先)
-  //   3. lived_geography (= confidence gate 通過時のみ)
-  //   4. baseline.source === "city" / "prefecture" → 既存 baseline pin
-  //   5. なし → noPin
-  const livedGeography: LivedGeographyFallback | null = useMemo(
-    () => computeLivedGeographyFallback(anchors, resolutions, new Date()),
-    [anchors, resolutions],
-  );
-
-  const { allPins, anchorsWithoutPin } = useMemo(() => {
-    const pins: AnchorWithCoord[] = [];
-    const noPin: ExternalAnchor[] = [];
-    for (const anchor of visibleAnchors) {
-      const r = resolutions.get(anchor.id);
-      if (r && isValidLatLng(r.lat, r.lng)) {
-        // 1. resolved (= 最優先)
-        pins.push({
-          anchor,
-          coord: { lat: r.lat, lng: r.lng },
-          resolvedName: r.resolvedName,
-          kind: "resolved",
-        });
-      } else if (baselineCoords && baselineCoords.source === "home") {
-        // 2. home baseline 優先 (= user 明示拠点)
-        pins.push({
-          anchor,
-          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
-          resolvedName: baselineCoords.label ?? "自宅 周辺",
-          kind: "baseline",
-        });
-      } else if (livedGeography) {
-        // 3. lived_geography (= 信頼度 gate 通過時、 city/prefecture より上位)
-        pins.push({
-          anchor,
-          coord: { lat: livedGeography.lat, lng: livedGeography.lng },
-          resolvedName: "最近の場所傾向",
-          kind: "lived_geography",
-        });
-      } else if (baselineCoords) {
-        // 4. city / prefecture baseline (= 既存 fallback)
-        pins.push({
-          anchor,
-          coord: { lat: baselineCoords.lat, lng: baselineCoords.lng },
-          resolvedName: baselineCoords.label ?? "baseline 周辺",
-          kind: "baseline",
-        });
-      } else {
-        // 5. no pin
-        noPin.push(anchor);
-      }
-    }
-    return { allPins: pins, anchorsWithoutPin: noPin };
-  }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
-
-  // ── Map 上に pin 化されていない anchor (= baseline すらない) ──
-  // UnresolvedAnchorsSection に表示する (transparency: user が "何が pin にならない" を理解)
-  const unresolvedAnchors = useMemo(() => {
-    // baseline ありなら全 unresolved が baseline pin になるが、user に「これは具体場所ではなく
-    // baseline pin」 と明示するため、resolution=null の anchor を section にも残す
-    const out: ExternalAnchor[] = [];
-    for (const anchor of visibleAnchors) {
-      const r = resolutions.get(anchor.id);
-      if (!r || !isValidLatLng(r.lat, r.lng)) out.push(anchor);
-    }
-    return out;
-  }, [visibleAnchors, resolutions]);
-
-  // ── handlers ──
-  const handleAddFab = () => {
-    onAddRequest?.({
-      initial: {},
-      subtitle: "地理 / カテゴリ未指定 から",
-    });
-  };
-
-  const handleCategoryAdd = (category: LocationGroupKey) => {
-    if (!onAddRequest) return;
-    const meta = CATEGORY_META[category];
-    // AnchorFormState.locationCategory は LocationCategory | "" 型。
-    // "none" カテゴリの場合は空文字 (= 未選択) で起動、それ以外は category を pre-fill。
-    const initial =
-      category === "none"
-        ? {}
-        : { locationCategory: category as LocationCategory };
-    onAddRequest({
-      initial,
-      subtitle: `${meta.emoji} ${meta.label}での予定を教える`,
-    });
-  };
-
-  // ── render ──
-  //   Step δ-corrective: newMode 時 container は full-bleed (= pb なし、 余白なし、
-  //     map が画面下端まで占有、 bottom sheet が overlay として上から重なる)
-  //   OFF path: 既存 relative pb-24 維持 (= FAB 余白 + legacy 挙動完全不変)
+  // ── render (= 9 closeout: 単一 path、 flag check / 旧 UI なし) ──
   return (
-    <div
-      data-testid="plan-map-tab"
-      className={
-        MAP_NEW_SURFACE_ENABLED ? "relative" : "relative pb-24"
-      }
-    >
-      {/* 9a-impl Step α: PlanClient header に統一されたため、 旧 「あなたの地理」 内 header は flag ON 時 hide */}
-      {!MAP_NEW_SURFACE_ENABLED && (
-        <header className="mb-3">
-          <h2 className="text-sm font-semibold text-slate-900">あなたの地理</h2>
-          <p className="text-xs text-slate-500">
-            {isToday ? "今日の予定がある場所" : "選択日の予定がある場所"}
-          </p>
-        </header>
-      )}
-
-      {/* 9a-impl Step α: mock fidelity (= map がタブ直下に埋め込み)、 flag ON 時 DaySwitcher 非表示
-       *   day 切替機能は別 step 候補、 mock では「今日」 のみ */}
-      {!MAP_NEW_SURFACE_ENABLED && (
-        <DaySwitcher
-          selectedDate={selectedDate}
-          todayDate={todayDate}
-          onPrev={handlePrevDay}
-          onNext={handleNextDay}
-          onGoToday={handleGoToday}
-        />
-      )}
-
+    <div data-testid="plan-map-tab" className="relative">
       <PlanMapView
         pins={allPins}
         baselineCoords={baselineCoords}
         loading={loading}
         apiAvailable={apiAvailable}
         anchorsWithoutPinCount={anchorsWithoutPin.length}
-        // 9a-impl: state 完全分離 (= flag ON path は newSelectedPinId、 OFF path は legacy)
-        selectedAnchorId={
-          MAP_NEW_SURFACE_ENABLED
-            ? newSelectedPinId
-            : selectedAnchorForCard?.id ?? null
-        }
-        // 9a-impl: 8 場面表準拠 handler を flag ON 時のみ差し替え
-        onPinClick={MAP_NEW_SURFACE_ENABLED ? handleNewPinTap : handlePinTap}
-        // 9a-impl-fix1: background tap (= 場面 #7、 newMode 専用) → selected 解除
-        onBackgroundClick={MAP_NEW_SURFACE_ENABLED ? handleNewSheetClose : undefined}
-        // 9a-impl: PlanMapView 内 controls + visual 補正用 flag
-        newMode={MAP_NEW_SURFACE_ENABLED}
-        // Step δ: 左下 当日リスト panel data (= flag ON 時のみ非空、 OFF 時 []) + tap handler
+        selectedAnchorId={selectedPinId}
+        onPinClick={handlePinTap}
+        onBackgroundClick={handleSheetClose}
         dayItemsForPanel={dayItemsForPanel}
-        onDayItemTap={MAP_NEW_SURFACE_ENABLED ? handleDayItemTap : undefined}
-        // 9b-1 carry: selected pin の sheet view model (= overlay label 用、 newMode 専用)
-        selectedSheetForLabel={MAP_NEW_SURFACE_ENABLED ? newSheet : null}
+        onDayItemTap={handleDayItemTap}
+        selectedSheetForLabel={sheet}
       />
-
-      {/* 9a-impl Step β 新 BottomSheet (= flag ON、 8 段構造、 CTA 2 + image slot β) */}
-      {MAP_NEW_SURFACE_ENABLED && (
-        <MapBottomSheet
-          sheet={newSheet}
-          onClose={handleNewSheetClose}
-          onOpenDetail={onAnchorClick ? handleNewOpenDetail : undefined}
-          routeUrl={newRouteUrl}
-        />
-      )}
-
-      {/* 9a-impl: flag ON 時は 旧 UI 群 (= SelectedAnchorCard / DayGraph / CategoryGrid /
-       *   UnresolvedAnchorsSection / StaticAlterSuggestionCard / FAB) を非表示。
-       *   sheet が主戦場、 map 上は軽く、 の spec v3 §0 整合。
-       *   旧 file 本体は残し、 描画のみ flag で gate (= 9 closeout で一括削除予定)。
-       */}
-      {!MAP_NEW_SURFACE_ENABLED && (
-        <>
-      {/* mockup の bottom sheet 相当: 選択 anchor の詳細 + 詳細 button
-       *
-       * Phase 3-J-6d: proposal hint props pass-through。
-       * Phase 3-J-6e-3: accept transaction + Quiet Undo Window 関連 props も pass-through。
-       */}
-      {selectedAnchorForCard && (
-        <SelectedAnchorCard
-          anchor={selectedAnchorForCard}
-          pinKind={
-            allPins.find((p) => p.anchor.id === selectedAnchorForCard.id)?.kind ??
-            "baseline"
-          }
-          baselineCoords={baselineCoords}
-          hasOverlap={dayAnchorsOverlapSet.has(selectedAnchorForCard.id)}
-          onOpenDetail={onAnchorClick}
-          proposalsByDate={proposalsByDate}
-          proposalTemplateVariables={proposalTemplateVariables}
-          onProposalAccept={onProposalAccept}
-          onProposalModify={onProposalModify}
-          onProposalDismiss={onProposalDismiss}
-          acceptingProposalIds={acceptingProposalIds}
-          recentUndoRecords={recentUndoRecords}
-          onProposalUndo={onProposalUndo}
-        />
-      )}
-
-      {/*
-       * Phase 3-K-3c-i: DayGraphTimeline を **selected day の 1 日構造**として
-       * SelectedAnchorCard 直後に静かに追加。
-       *
-       * 不変原則:
-       *   - 既存 Map / SelectedAnchorCard / CategoryGrid / FAB 等は不変
-       *   - selectedDate (= MapTab state) から ISO date string 化 (= isoDate helper)
-       *   - dayGraphByDate[isoDate] が undefined / null なら何も render しない
-       *   - 「場所文脈 → 時間文脈」 の自然な bridge (= where + when)
-       *   - warnings / duration / mode / risk 表示なし
-       *   - onEventClick → dayAnchors.find → 既存 onAnchorClick bridge
-       */}
-      {dayGraphByDate?.[isoDate(selectedDate)] && (
-        <div
-          className="mt-6 pt-4 border-t border-slate-100"
-          data-testid="plan-map-day-graph-section"
-        >
-          <h4 className="text-xs font-medium text-slate-500 italic mb-2">
-            1 日の構造
-          </h4>
-          <DayGraphTimeline
-            result={dayGraphByDate[isoDate(selectedDate)] ?? null}
-            view="user_self"
-            onEventClick={(anchorId: string) => {
-              if (!onAnchorClick) return;
-              const anchor = dayAnchors.find((a) => a.id === anchorId);
-              if (anchor) onAnchorClick(anchor);
-            }}
-            dataTestId="plan-map-day-graph-timeline"
-            movementDisplayByTransitionIndex={movementDisplayByTransitionIndex}
-            feasibilityDisplayByTransitionIndex={feasibilityDisplayByTransitionIndex}
-            expandedTransitionIndices={expandedTransitionIndices}
-            onToggleFeasibilityDisclosure={handleToggleFeasibilityDisclosure}
-          />
-        </div>
-      )}
-
-      <CategoryGrid
-        groups={groups}
-        windowDays={CATEGORY_AGGREGATE_WINDOW_DAYS}
-        onAddCategory={onAddRequest ? handleCategoryAdd : undefined}
-        onAnchorClick={onAnchorClick}
+      <MapBottomSheet
+        sheet={sheet}
+        onClose={handleSheetClose}
+        onOpenDetail={onAnchorClick ? handleOpenDetail : undefined}
+        routeUrl={routeUrl}
       />
-
-      <UnresolvedAnchorsSection
-        anchors={unresolvedAnchors}
-        loading={loading}
-        baselineCoords={baselineCoords}
-        onAnchorClick={onAnchorClick}
-      />
-
-      <StaticAlterSuggestionCard />
-
-      {onAddRequest && (
-        <button
-          type="button"
-          onClick={handleAddFab}
-          aria-label="場所カテゴリ未指定で予定を追加"
-          data-testid="plan-map-fab"
-          className="
-            fixed bottom-20 right-6 z-30
-            w-14 h-14 rounded-full
-            bg-gradient-to-br from-indigo-500 to-purple-500
-            text-white text-3xl font-light leading-none
-            shadow-lg hover:shadow-xl active:scale-95
-            transition-all
-            flex items-center justify-center
-          "
-          style={{ marginBottom: "env(safe-area-inset-bottom, 0px)" }}
-        >
-          +
-        </button>
-      )}
-        </>
-      )}
     </div>
   );
 }
 
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// DaySwitcher (CEO 補正: MapTab は selectedDate-centric、前日/今日/翌日 切替)
+// 9 closeout: DaySwitcher 削除済み (= CEO Q3 判定、 新 map 体験には合わず)
+//   将来 day 切替再導入時は新設計で作り直す
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function DaySwitcher({
-  selectedDate,
-  todayDate,
-  onPrev,
-  onNext,
-  onGoToday,
-}: {
-  selectedDate: Date;
-  todayDate: Date;
-  onPrev: () => void;
-  onNext: () => void;
-  onGoToday: () => void;
-}) {
-  const isToday = isoDate(selectedDate) === isoDate(todayDate);
-  const dateLabel = isToday ? `今日 · ${formatJpDate(selectedDate)}` : formatJpDate(selectedDate);
-  const prevDate = addDays(selectedDate, -1);
-  const nextDate = addDays(selectedDate, 1);
-
-  return (
-    <div
-      data-testid="plan-map-day-switcher"
-      className="mb-3 flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-2 py-2"
-    >
-      <button
-        type="button"
-        onClick={onPrev}
-        aria-label={`前日 (${formatJpDate(prevDate)}) を表示`}
-        data-testid="plan-map-prev-day"
-        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M15 18l-6-6 6-6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-
-      <div className="flex flex-1 flex-col items-center text-center">
-        <p
-          className={
-            "text-sm font-semibold " + (isToday ? "text-indigo-700" : "text-slate-900")
-          }
-          data-testid="plan-map-selected-date-label"
-        >
-          {dateLabel}
-        </p>
-        {!isToday && (
-          <button
-            type="button"
-            onClick={onGoToday}
-            aria-label="今日へ戻る"
-            data-testid="plan-map-go-today"
-            className="text-xs font-medium text-indigo-600 hover:underline"
-          >
-            今日へ戻る
-          </button>
-        )}
-      </div>
-
-      <button
-        type="button"
-        onClick={onNext}
-        aria-label={`翌日 (${formatJpDate(nextDate)}) を表示`}
-        data-testid="plan-map-next-day"
-        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M9 18l6-6-6-6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </button>
-    </div>
-  );
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // PlanMapView (vanilla Google Maps)
@@ -1408,661 +987,16 @@ function MapPlaceholder({
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SelectedAnchorCard (mockup の bottom sheet 相当、day-centric の詳細 panel)
+// 9 closeout: SelectedAnchorCard / CategoryGrid / CategoryCard / UnresolvedAnchorsSection 全削除済み
+//   旧 OFF path 専用 sub-components、 単一 path 化で不要に。
+//   - SelectedAnchorCard → MapBottomSheet (= 新)
+//   - CategoryGrid / CategoryCard → DayItemsPanel (= 新)
+//   - UnresolvedAnchorsSection → 9b-1〜9b-6 で新 surface に統合
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function SelectedAnchorCard({
-  anchor,
-  pinKind,
-  // Phase 2-G で type 拡張、 prop name 不変
-  baselineCoords,
-  hasOverlap,
-  onOpenDetail,
-  // ── Phase 3-J-6d: Proposal hint 導線 ──
-  proposalsByDate,
-  proposalTemplateVariables,
-  onProposalAccept,
-  onProposalModify,
-  onProposalDismiss,
-  // ── Phase 3-J-6e-3: accept transaction + Quiet Undo ──
-  acceptingProposalIds,
-  recentUndoRecords,
-  onProposalUndo,
-}: {
-  anchor: ExternalAnchor;
-  /** Phase 2-G: "lived_geography" を追加 (= 信頼度つき生活圏 fallback) */
-  pinKind: "resolved" | "baseline" | "lived_geography";
-  baselineCoords: BaselineCoords | null;
-  /**
-   * Phase 2-E: 同日内で時刻が他 anchor と重なるか。
-   * 判定は MapTab 側の detectTimedAnchorOverlaps (Cross-tab 単一仕様) のみ使用、
-   * SelectedAnchorCard 内で独自判定しない。
-   * sensitive anchor でも `true` の場合は表示 (= 外部送信でも内容開示でもない、文言固定)。
-   */
-  hasOverlap: boolean;
-  onOpenDetail?: (anchor: ExternalAnchor) => void;
-} & CalendarProposalProps) {
-  const cat = categoryOf(anchor);
-  const meta = CATEGORY_META[cat];
-  const marker = anchor.sensitiveCategory
-    ? MAP_SENSITIVE_MARKER
-    : MAP_CATEGORY_MARKER[cat];
-  const isSensitive = !!anchor.sensitiveCategory;
-
-  // Phase 2-F: Compact density (primary only)、title に fullLabel
-  // sensitive 配慮は既存の `!isSensitive` gate で gate される (= 場所表示自体 sensitive 時非表示)
-  const { primary: locationPrimary, fullLabel: locationFullLabel } =
-    formatLocationDisplayParts(anchor);
-
-  // sensitive は title を masked 表示 (privacy preserve、modal で実 title 開示)
-  const displayTitle = isSensitive
-    ? `[${SENSITIVE_LABEL[anchor.sensitiveCategory!]}] (詳細は modal で)`
-    : anchor.title;
-
-  // baseline source 透明性 (CEO 補正: 「成田市 中心 付近」 等で具体性を伝達)
-  // Phase 2-G: pinKind="lived_geography" の場合は信頼度 fallback 文言を表示
-  const baselineSourceLabel = (() => {
-    if (pinKind === "lived_geography") {
-      // GPT 補正 5 採用文言 (= 断定回避、 「仮置き」 で暫定を明示)
-      return "場所未定 — 最近の場所傾向をもとに仮置きしています";
-    }
-    if (pinKind !== "baseline" || !baselineCoords) return null;
-    const granularity =
-      baselineCoords.source === "home"
-        ? "自宅"
-        : baselineCoords.source === "city"
-          ? "市区町村中心"
-          : "県中心"; // prefecture
-    const where = baselineCoords.label ?? granularity;
-    return `場所未定 — ${where} (${granularity}) 付近に置いています`;
-  })();
-
-  return (
-    <section
-      data-testid="plan-map-selected-card"
-      role="region"
-      aria-label="選択中の予定の詳細"
-      className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-    >
-      <div className="flex items-start gap-3">
-        {/*
-         * Phase 2-I 拡張: brand-specific icon を最優先
-         * 優先順位: sensitive > brand > category
-         * - sensitive: pickCategoryIcon が CategorySensitiveIcon を返す、 brand 露出させない
-         * - brand: filled style、 brand color (= white background container)
-         * - category fallback: outlined + category color
-         */}
-        {(() => {
-          if (isSensitive) {
-            const Icon = pickCategoryIcon({ sensitive: true });
-            return (
-              <div
-                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: marker.color + "20" }}
-                aria-hidden="true"
-              >
-                <Icon className="w-6 h-6 text-slate-500" />
-              </div>
-            );
-          }
-          const brandHit = pickBrandIcon(anchor.locationText);
-          if (brandHit) {
-            const BrandIcon = brandHit.icon;
-            return (
-              <div
-                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full overflow-hidden bg-white border border-slate-200"
-                aria-hidden="true"
-                title={brandHit.displayName}
-              >
-                <BrandIcon className="w-10 h-10" />
-              </div>
-            );
-          }
-          const Icon = pickCategoryIcon({ category: cat });
-          const colorClass = pickCategoryColorClass({ category: cat });
-          return (
-            <div
-              className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full"
-              style={{ backgroundColor: marker.color + "20" }}
-              aria-hidden="true"
-            >
-              <Icon className={`w-6 h-6 ${colorClass}`} title={meta.hint} />
-            </div>
-          );
-        })()}
-
-        <div className="flex-1 min-w-0">
-          {/* time + title (mockup の "09:00 / 甲府駅近くのカフェ" 構造) */}
-          <p className="text-sm font-mono text-indigo-700">
-            {formatTime(anchor.startTime)}
-            {anchor.endTime ? ` – ${formatTime(anchor.endTime)}` : ""}
-          </p>
-          <h3 className="text-base font-semibold text-slate-900 truncate">
-            {displayTitle}
-          </h3>
-
-          {/*
-           * Phase 2-F: Compact density (primary only)
-           * title 属性に fullLabel (= mouse hover で full 情報)
-           * 非 interactive な <p> なので aria-label は付けない (W3C ARIA 1.2)
-           * 既存 SelectedAnchorCard 全体の `role="region" aria-label="選択中の予定の詳細"` は完全不変
-           * sensitive 配慮は既存の `!isSensitive` gate (= 場所表示自体 sensitive 時非表示) 完全維持
-           */}
-          {locationPrimary && !isSensitive && (
-            <p
-              className="text-xs text-slate-500 mt-1 truncate"
-              title={locationFullLabel}
-            >
-              📍 {locationPrimary}
-            </p>
-          )}
-          {/*
-           * Phase 2-D C3: 場所未確定 banner (subtle muted、tap で行動誘導しない)
-           * 判定は Cross-tab 単一仕様の isPlaceUnconfirmed のみ使用
-           *
-           * pinKind="baseline" の baselineSourceLabel とは異なる概念:
-           *   - baseline: 完全に座標なし、baseline 中心に置いている (= 既存表示)
-           *   - unconfirmed: locationText は入っているが canonical でない (= 本 banner)
-           * 両者が重なるケース (baseline + unconfirmed) は baseline label を優先
-           * (より具体的な状態説明なので)。
-           */}
-          {/* Phase 2-G: pinKind !== "resolved" の場合は fallback、 unconfirmed indicator を非表示 (= baseline / lived_geography の透明性表示で十分) */}
-          {!isSensitive &&
-            pinKind === "resolved" &&
-            isPlaceUnconfirmed(anchor.locationText) && (
-              <p
-                data-testid="plan-map-selected-unconfirmed-banner"
-                className="text-xs text-slate-500 mt-1 italic"
-              >
-                場所未確定 — もっと具体的にできます
-              </p>
-            )}
-          {/*
-           * Phase 2-G: pinKind が baseline / lived_geography の場合に baselineSourceLabel を表示
-           * - baseline: 「自宅 / 市区町村中心 / 県中心 付近に置いています」 (= 既存 text-amber-600 維持)
-           * - lived_geography: 「最近の場所傾向をもとに仮置きしています」 (= muted slate、 警告色なし)
-           */}
-          {pinKind === "baseline" && !isSensitive && baselineSourceLabel && (
-            <p
-              className="text-xs text-amber-600 mt-1 italic"
-              data-testid="plan-map-selected-baseline-source"
-            >
-              {baselineSourceLabel}
-            </p>
-          )}
-          {pinKind === "lived_geography" && !isSensitive && baselineSourceLabel && (
-            <p
-              className="text-xs text-slate-500 mt-1 italic"
-              data-testid="plan-map-selected-lived-geography-source"
-            >
-              {baselineSourceLabel}
-            </p>
-          )}
-          {isSensitive && (
-            <p className="text-xs text-slate-500 mt-1 italic">
-              敏感カテゴリのため場所は外部に送信されません
-              {baselineCoords &&
-                ` (${baselineCoords.label ?? "baseline"} 付近に置いています)`}
-            </p>
-          )}
-          {/*
-           * Phase 2-E: 時刻重なり気付き banner (場所未確定 banner / sensitive 説明の下、muted slate)
-           * - 警告ではなく「気付き」(muted slate のみ、警告色禁止)
-           * - sensitive anchor でも表示 (= 外部送信でも内容開示でもない、Cross-tab 一貫性、GPT 補正 1)
-           * - 文言固定、他 anchor 名・件数・内容は出さない
-           * - 既存場所未確定 banner と同 tone / 同 余白 (mt-1 italic text-xs slate-500) で並ぶ
-           */}
-          {hasOverlap && (
-            <p
-              data-testid="plan-map-selected-overlap-banner"
-              className="text-xs text-slate-500 mt-1 italic"
-            >
-              この時刻に他の予定があります
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Action button: 詳細 (AnchorDetailModal 起動、W1-X5 既存) */}
-      {onOpenDetail && (
-        <div className="mt-3 flex justify-end">
-          <button
-            type="button"
-            onClick={() => onOpenDetail(anchor)}
-            aria-label={`${displayTitle} の詳細を見る`}
-            data-testid="plan-map-selected-detail"
-            className="rounded-full border border-indigo-200 px-4 py-1.5 text-sm font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
-          >
-            詳細を見る
-          </button>
-        </div>
-      )}
-
-      {/*
-       * Phase 3-J-6d / J-6e-3: Proposal hint chip + Quiet Undo 「戻す」 link
-       *
-       * 配置: 「詳細を見る」 button の **更に下**、 SelectedAnchorCard 全体の最末尾。
-       *       Phase 2-G の lived_geography banner / Phase 2-I の icon と物理分離。
-       *
-       * 表示優先 (= mutually exclusive):
-       *   1. active undo record (= 5 分以内 accept 直後) → 「戻す」 link
-       *   2. それ以外 + proposal 存在 → ProposalChip (= accept in-flight 中は subtle pending)
-       *
-       * 条件:
-       *   - anchor が one_off (= MVP 範囲、 recurring は次 phase)
-       *   - 「戻す」 link / chip の選択は anchor.date 基準
-       *
-       * 視覚規約:
-       *   - 「戻す」 link: text-xs italic text-slate-400 underline (= 警告色なし)
-       *   - chip: Memory Chip style 維持
-       *   - subtle pending: opacity-60 + pointer-events-none + aria-busy (= 二重 tap 防止)
-       */}
-      {(() => {
-        if (anchor.anchorKind !== "one_off") return null;
-        const anchorDate = anchor.date;
-
-        // [1] active undo for anchor.date
-        const activeUndo = recentUndoRecords
-          ? selectActiveUndoForDate(
-              recentUndoRecords,
-              anchorDate,
-              new Date().toISOString(),
-            )
-          : null;
-        if (activeUndo) {
-          return (
-            <div
-              className="mt-3"
-              data-testid={`plan-map-undo-${activeUndo.proposalId}`}
-            >
-              <button
-                type="button"
-                className="text-xs italic text-slate-400 underline transition hover:text-slate-500 motion-reduce:transition-none"
-                onClick={() => onProposalUndo?.(activeUndo.proposalId)}
-                aria-label="提案を戻す"
-              >
-                戻す
-              </button>
-            </div>
-          );
-        }
-
-        // [2] proposal chip (= 通常)
-        const proposalForAnchor = selectFirstProposalForDate(
-          proposalsByDate,
-          anchorDate,
-        );
-        if (!proposalForAnchor) return null;
-        const variables = buildVariablesForProposal(
-          proposalForAnchor,
-          proposalTemplateVariables,
-        );
-        const isAccepting =
-          acceptingProposalIds?.has(proposalForAnchor.id) ?? false;
-        return (
-          <div
-            className={
-              "mt-3 " +
-              (isAccepting
-                ? "opacity-60 pointer-events-none motion-reduce:transition-none"
-                : "")
-            }
-            aria-busy={isAccepting || undefined}
-            data-testid={`plan-map-proposal-${anchorDate}`}
-          >
-            <ProposalChip
-              proposal={proposalForAnchor}
-              variables={variables}
-              onTap={isAccepting ? undefined : onProposalAccept}
-              onModify={onProposalModify}
-              onDismiss={onProposalDismiss}
-            />
-          </div>
-        );
-      })()}
-    </section>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// CategoryGrid (v1 で設計、v3 で維持、aggregateEnd window で集計)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function CategoryGrid({
-  groups,
-  windowDays,
-  onAddCategory,
-  onAnchorClick,
-}: {
-  groups: CategoryGroup[];
-  windowDays: number;
-  onAddCategory?: (category: LocationGroupKey) => void;
-  onAnchorClick?: (anchor: ExternalAnchor) => void;
-}) {
-  // groups は active のみ。empty も含めて 9 categories 全表示 (Phase 2-C §11.10 empty as silence)
-  const groupByCategory = new Map<LocationGroupKey, CategoryGroup>();
-  for (const g of groups) groupByCategory.set(g.category, g);
-
-  return (
-    <section
-      role="region"
-      aria-label="カテゴリ別の地理"
-      className="mb-4"
-    >
-      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-        カテゴリ別
-      </h3>
-      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {LOCATION_GROUP_ORDER.map((cat) => {
-          const g = groupByCategory.get(cat);
-          const isActive = g !== undefined && g.totalCount > 0;
-          return (
-            <li key={cat}>
-              <CategoryCard
-                category={cat}
-                group={g}
-                isActive={isActive}
-                windowDays={windowDays}
-                onAdd={
-                  onAddCategory && cat !== "none"
-                    ? () => onAddCategory(cat)
-                    : undefined
-                }
-                onAnchorClick={onAnchorClick}
-              />
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// CategoryCard
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function CategoryCard({
-  category,
-  group,
-  isActive,
-  windowDays,
-  onAdd,
-  onAnchorClick,
-}: {
-  category: LocationGroupKey;
-  group: CategoryGroup | undefined;
-  isActive: boolean;
-  windowDays: number;
-  onAdd?: () => void;
-  onAnchorClick?: (anchor: ExternalAnchor) => void;
-}) {
-  const meta = CATEGORY_META[category];
-  const count = group?.totalCount ?? 0;
-  const frequencyVoice = categoryFrequencyVoice(count, windowDays);
-  const timeSig = useMemo(
-    () =>
-      group
-        ? categoryTimeSignature(group.anchors.map(({ anchor }) => anchor))
-        : null,
-    [group],
-  );
-
-  return (
-    <article
-      data-testid={`plan-map-card-${category}`}
-      aria-label={`${meta.label} · ${meta.hint} · ${frequencyVoice}`}
-      className={
-        "rounded-2xl border border-slate-200 bg-white p-4 " +
-        (isActive ? "" : "opacity-60")
-      }
-    >
-      <header className="mb-3 flex items-start gap-3">
-        {/*
-         * Phase 2-I 拡張: CategoryCard header の emoji → category-specific colored SVG
-         * 細線 SVG (stroke 1.5px) + category color で識別性追加
-         */}
-        {(() => {
-          const Icon = pickCategoryIcon({ category });
-          const colorClass = pickCategoryColorClass({ category });
-          return <Icon className={`w-9 h-9 ${colorClass} flex-shrink-0`} />;
-        })()}
-        <div className="flex-1 min-w-0">
-          <h4 className="text-base font-semibold text-slate-900">
-            {meta.label}
-          </h4>
-          <p className="text-xs italic text-slate-500">{meta.hint}</p>
-          <p className="text-xs text-indigo-600 mt-1">
-            {frequencyVoice}
-            {timeSig && ` · ${timeSig}`}
-          </p>
-        </div>
-      </header>
-
-      {isActive && group && (
-        <ul className="space-y-2 mb-3">
-          {group.anchors.map(({ anchor, count: c }) => {
-            const clickable = !!onAnchorClick;
-            const handleClick = (
-              e:
-                | React.MouseEvent<HTMLLIElement>
-                | React.KeyboardEvent<HTMLLIElement>,
-            ) => {
-              if (!onAnchorClick) return;
-              e.stopPropagation();
-              onAnchorClick(anchor);
-            };
-            return (
-              <li
-                key={anchor.id}
-                {...(clickable
-                  ? {
-                      role: "button" as const,
-                      tabIndex: 0,
-                      "aria-label": `${anchor.title} の詳細を見る`,
-                      onClick: handleClick,
-                      onKeyDown: (e: React.KeyboardEvent<HTMLLIElement>) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          handleClick(e);
-                        }
-                      },
-                    }
-                  : {})}
-                data-testid={`plan-map-anchor-${anchor.id}`}
-                className={
-                  "rounded-lg border border-slate-100 bg-white/60 p-2 " +
-                  (clickable
-                    ? "cursor-pointer transition hover:border-indigo-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                    : "")
-                }
-              >
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-900 truncate">
-                    {anchor.title}
-                  </p>
-                  <span className="text-xs text-slate-500">×{c}</span>
-                </div>
-                {anchor.locationText && (
-                  <p className="text-xs text-slate-500 truncate">
-                    {anchor.locationText}
-                  </p>
-                )}
-                {anchor.sensitiveCategory && (
-                  <p className="mt-1">
-                    <GlassBadge variant="default" size="sm">
-                      {SENSITIVE_LABEL[anchor.sensitiveCategory]}
-                    </GlassBadge>
-                  </p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {onAdd && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd();
-            }}
-            aria-label={`${meta.label}での予定を教える`}
-            data-testid={`plan-map-add-${category}`}
-            className="rounded-full border border-indigo-200 px-3 py-1 text-xs font-medium text-indigo-600 transition hover:border-indigo-500 hover:bg-indigo-50"
-          >
-            + {meta.label}での予定を教える
-          </button>
-        </div>
-      )}
-    </article>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// UnresolvedAnchorsSection (semantic fallback list)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function UnresolvedAnchorsSection({
-  anchors,
-  loading,
-  baselineCoords,
-  onAnchorClick,
-}: {
-  anchors: ExternalAnchor[];
-  loading: boolean;
-  baselineCoords: BaselineCoords | null;
-  onAnchorClick?: (anchor: ExternalAnchor) => void;
-}) {
-  // loading 中は section を隠す (optimistic UI: 確定後に表示)
-  if (loading || anchors.length === 0) return null;
-
-  // baseline あり → これら anchor は baseline pin として地図に出ている (transparency 表示)
-  // baseline なし → これら anchor は地図に出ていない (locationText 入力 or baseline 設定が必要)
-  const hasBaseline = baselineCoords !== null;
-  const headerText = hasBaseline ? "📍 場所未確定の予定" : "📂 場所が曖昧 / 未指定";
-  const headerSub = hasBaseline
-    ? `これらは ${baselineCoords.label ?? "baseline"} 周辺の概算 pin として地図に表示されています — 具体的な場所を予定に追加すると正確な pin になります`
-    : "地図に出せなかった予定 — 予定に場所 (locationText) を追加するか、/baseline で居住地を設定すると pin に出ます";
-
-  return (
-    <section
-      role="region"
-      aria-label={
-        hasBaseline
-          ? "場所未確定の予定 (baseline 周辺で表示中)"
-          : "場所が曖昧 / 未指定の予定"
-      }
-      data-testid="plan-map-unresolved"
-      className="mb-4 rounded-2xl bg-slate-50 p-4"
-    >
-      <header className="mb-2">
-        <h3 className="text-sm font-semibold text-slate-700">{headerText}</h3>
-        <p className="text-xs italic text-slate-500">{headerSub}</p>
-      </header>
-      <ul className="space-y-2">
-        {anchors.map((anchor) => {
-          const clickable = !!onAnchorClick;
-          const handleClick = (
-            e:
-              | React.MouseEvent<HTMLLIElement>
-              | React.KeyboardEvent<HTMLLIElement>,
-          ) => {
-            if (!onAnchorClick) return;
-            e.stopPropagation();
-            onAnchorClick(anchor);
-          };
-          const meta = CATEGORY_META[categoryOf(anchor)];
-          return (
-            <li
-              key={anchor.id}
-              {...(clickable
-                ? {
-                    role: "button" as const,
-                    tabIndex: 0,
-                    "aria-label": `${anchor.title} の詳細を見る`,
-                    onClick: handleClick,
-                    onKeyDown: (e: React.KeyboardEvent<HTMLLIElement>) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        handleClick(e);
-                      }
-                    },
-                  }
-                : {})}
-              data-testid={`plan-map-unresolved-anchor-${anchor.id}`}
-              className={
-                "rounded-lg border border-slate-200 bg-white p-2 " +
-                (clickable
-                  ? "cursor-pointer transition hover:border-indigo-300 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                  : "")
-              }
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <p className="text-sm font-medium text-slate-900 truncate">
-                  {anchor.title}
-                </p>
-                <span className="text-xs text-slate-400">
-                  {meta.emoji} {meta.label}
-                </span>
-              </div>
-              {anchor.locationText && (
-                <p className="text-xs text-slate-500 truncate">
-                  {`"${anchor.locationText}"`}
-                </p>
-              )}
-              {anchor.sensitiveCategory && (
-                <p className="mt-1">
-                  <GlassBadge variant="default" size="sm">
-                    {SENSITIVE_LABEL[anchor.sensitiveCategory]}
-                  </GlassBadge>
-                </p>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// StaticAlterSuggestionCard (Phase 2-B 整合、CEO 補正 #2、ボタン風禁止)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function StaticAlterSuggestionCard() {
-  return (
-    <section
-      role="region"
-      aria-label="ALTER 提案 (今後の機能、Phase 3 で実装予定)"
-      data-testid="plan-map-static-alter-card"
-      className="
-        rounded-2xl
-        bg-gradient-to-br from-indigo-50/60 to-purple-50/60
-        p-4 mb-4
-        select-none
-      "
-      style={{ cursor: "default" }}
-    >
-      <p className="text-xs text-slate-500 mb-3 italic">
-        あなたの地理を、ALTER が読みに来る予定です
-      </p>
-      <div className="rounded-xl bg-white/70 px-4 py-3 border border-slate-100">
-        <p className="text-sm text-slate-700">
-          あなたの場所のパターン、見てみますか?
-        </p>
-        <p className="text-xs text-slate-400 mt-1">
-          (Phase 3 で動作予定 — 今は説明だけ)
-        </p>
-      </div>
-    </section>
-  );
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Pure helpers (Map 描画前提条件チェック)
+// 9 closeout: StaticAlterSuggestionCard 削除済み (= 旧 Phase 2-B 用、 新 surface では sheet が役割を引き継ぐ)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function isValidLatLng(lat: unknown, lng: unknown): boolean {

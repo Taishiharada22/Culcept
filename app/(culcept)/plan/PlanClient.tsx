@@ -76,12 +76,10 @@ import {
 } from "@/lib/plan/proposal/planClientProposalHelpers";
 // 8b-7-B: List 新表示 flag (= header/subtitle/button/bg を flag ON で mock 整合に切替)
 import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
-import { MAP_NEW_SURFACE_ENABLED } from "@/lib/plan/map/featureFlags";
 
-// ── Phase 3-N Map impl 9a-impl Step α: 統一 shell flag (= list ON or map ON で同一 shell) ──
-//   どちらか片方でも ON なら 「今日のプラン」 shell に統一する。
-//   list / map で「stale な独自 shell が残らない」 ことを担保 (= CEO + GPT 補正 #1)。
-const useNewShell: boolean = LIST_NEW_TIMELINE_ENABLED || MAP_NEW_SURFACE_ENABLED;
+// ── Phase 3-N Map impl 9 closeout: MAP_NEW_SURFACE_ENABLED 削除済み、 Map 単一 path 化 ──
+//   Map tab は常に新 shell。 List は LIST_NEW_TIMELINE_ENABLED で別管理 (= 既存維持)。
+//   Calendar は LIST flag に乗っかる形 (= 既存挙動継続)。
 import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
 // J-6e-3: accept transaction + Quiet Undo Window
 import { acceptProposal } from "@/lib/plan/proposal/acceptProposal";
@@ -164,6 +162,11 @@ export default function PlanClient({
   const isPane = displayMode === "pane";
 
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
+
+  // ── 9 closeout: 新 shell 適用条件 (= LIST flag OR Map tab) ──
+  //   Map tab は常に新 shell (= MAP_NEW_SURFACE_ENABLED 削除済み、 単一 path 化)
+  //   List / Calendar は LIST_NEW_TIMELINE_ENABLED で別管理 (= 既存維持)
+  const useNewShell: boolean = LIST_NEW_TIMELINE_ENABLED || activeTab === "map";
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [addOpen, setAddOpen] = useState(false);
   const [addInitial, setAddInitial] = useState<Partial<AnchorFormState> | undefined>(undefined);

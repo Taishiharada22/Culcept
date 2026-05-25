@@ -291,20 +291,9 @@ describe("§7. 永続禁止項目 — 各 Tab で 0 件", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// §8. MapTab 既存挙動維持 (= regression guard)
+// §8. (削除済み、 9 closeout) MapTab regression — L-4d 既存挙動維持
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-describe("§8. MapTab regression — L-4d 既存挙動維持", () => {
-  const mapTabContent = readFileSync(
-    "app/(culcept)/plan/tabs/MapTab.tsx",
-    "utf-8",
-  );
-
-  it("MapTab で useMapTabMovementDisplay 呼出維持 (= L-4d の継続)", () => {
-    expect(mapTabContent).toMatch(/useMapTabMovementDisplay/);
-  });
-
-  it("MapTab で DayGraphTimeline への prop 渡し維持", () => {
-    expect(mapTabContent).toMatch(/movementDisplayByTransitionIndex=\{movementDisplayByTransitionIndex\}/);
-  });
-});
+//
+// 9 closeout (= 2026-05-25) で MapTab.tsx から DayGraphTimeline section + useMapTabMovementDisplay
+// 呼出が物理削除されたため、 本 §8 regression guard は obsolete に。
+// Calendar / Flow の MovementDisplay wiring (§1〜§7) は維持 (= 9 closeout は Map 限定)。
