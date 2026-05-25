@@ -73,9 +73,9 @@ describe("pinSvg §2 selected 時 size 拡大 + stroke 強化", () => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 describe("pinSvg §3 各 category icon path embedded (= Step δ-corrective redesign)", () => {
-  it("§3.cafe → コーヒーカップ本体 path 含む (= 「M 4 8 H 13」)", () => {
+  it("§3.cafe → コーヒーカップ本体 path 含む (= 9b-3 redesign 「M 4 7 H 12」)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
-    expect(uri).toContain('M%204%208%20H%2013');
+    expect(uri).toContain('M%204%207%20H%2012');
   });
 
   it("§3.meal → フォーク + ナイフ path 含む (= 「M 4 3 V 7」 フォーク 1 本目)", () => {
@@ -88,9 +88,10 @@ describe("pinSvg §3 各 category icon path embedded (= Step δ-corrective redes
     expect(uri).toContain('M%207%204%20V%203');
   });
 
-  it("§3.home → 家屋根 path 含む (= 「M 3 9 L 9 3 L 15 9」 三角)", () => {
+  it("§3.home → 家屋根 path 含む (= 「M 3 9 L 9 3 L 15 9」 三角) + 9b-3 ドア縮小 「M 7.5 15 V 12」", () => {
     const uri = generatePinSvgDataUri('home', false);
     expect(uri).toContain('M%203%209%20L%209%203');
+    expect(uri).toContain('M%207.5%2015%20V%2012');
   });
 
   it("§3.other → 円 dot 含む (= circle cx=9 cy=9)", () => {
@@ -139,6 +140,29 @@ describe("pinSvg §5 getPinSize (= Step δ-corrective: anchor = 物理 height = 
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("pinSvg §7 9b-3 visual polish: drop-shadow filter", () => {
+  it("§7.1 unselected → defs + feDropShadow + filter url ref 含む", () => {
+    const uri = generatePinSvgDataUri('cafe', false);
+    expect(uri).toContain('defs');
+    expect(uri).toContain('feDropShadow');
+    expect(uri).toContain('filter%3D%22url(%23ps)%22');
+  });
+
+  it("§7.2 unselected → dy 2 / stdDeviation 1.5 / opacity 0.22 (= soft shadow)", () => {
+    const uri = generatePinSvgDataUri('cafe', false);
+    expect(uri).toContain('dy%3D%222%22');
+    expect(uri).toContain('stdDeviation%3D%221.5%22');
+    expect(uri).toContain('flood-opacity%3D%220.22%22');
+  });
+
+  it("§7.3 selected → dy 3 / stdDeviation 2 / opacity 0.3 (= 重要度視覚化)", () => {
+    const uri = generatePinSvgDataUri('cafe', true);
+    expect(uri).toContain('dy%3D%223%22');
+    expect(uri).toContain('stdDeviation%3D%222%22');
+    expect(uri).toContain('flood-opacity%3D%220.3%22');
+  });
+});
 
 describe("pinSvg §6 time label embedded (= Step γ 白カードラベル)", () => {
   it("§6.1 timeLabel 渡しで rect (= 白カード) + text 含む", () => {

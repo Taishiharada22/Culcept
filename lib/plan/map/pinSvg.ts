@@ -62,29 +62,33 @@ const CATEGORY_FILL_COLOR: Record<EventCategory, string> = {
  *                     pin 内で見ると ズレていた。 全 icon を center (9, 9) に redesign。
  */
 const CATEGORY_ICON_PATH: Record<EventCategory, string> = {
-  // cafe: コーヒーカップ (= 本体 4-13 中央 + 取っ手右 + 蒸気 2 本上)、 center ≈ (9, 9)
+  // cafe: コーヒーカップ (= 本体 + 取っ手 + 蒸気)、 9b-3 で steam 短く + body 中央寄せ
+  //   旧: steam y 3-6 (= 上空き)、 body y 8-15 (= 下重心)
+  //   新: steam y 5-7 (= 短く)、 body y 7-14 (= 中央寄せ)、 center (9, 10) ≈ 9
   cafe:
-    '<path d="M 4 8 H 13 V 13 Q 13 15 11 15 H 6 Q 4 15 4 13 Z"/>' +
-    '<path d="M 13 9 Q 16 9 16 11 Q 16 13 13 12.5"/>' +
-    '<path d="M 6 3 V 6"/>' +
-    '<path d="M 10 3 V 6"/>',
-  // meal: フォーク (左 3 歯) + ナイフ (右)、 center ≈ (9, 9)
+    '<path d="M 4 7 H 12 V 13 Q 12 14 11 14 H 5 Q 4 14 4 13 Z"/>' +
+    '<path d="M 12 8 Q 15 8 15 10 Q 15 12 12 11.5"/>' +
+    '<path d="M 6 5 V 7"/>' +
+    '<path d="M 9 5 V 7"/>',
+  // meal: フォーク (左 3 歯) + ナイフ (右)、 center ≈ (9, 9) (= 維持)
   meal:
     '<path d="M 4 3 V 7"/>' +
     '<path d="M 6 3 V 7"/>' +
     '<path d="M 8 3 V 7 Q 8 9 6 9 H 5 Q 3 9 3 7"/>' +
     '<path d="M 6 9 V 15"/>' +
     '<path d="M 13 3 Q 15 3 15 7 V 10 H 13 V 15"/>',
-  // work: ブリーフケース (取っ手 + 本体 + 中央線)、 center (9, 9)
+  // work: ブリーフケース (取っ手 + 本体 + 中央線)、 center (9, 9) (= 維持)
   work:
     '<path d="M 7 4 V 3 Q 7 2 8 2 H 10 Q 11 2 11 3 V 4"/>' +
     '<path d="M 3.5 4 H 14.5 V 14 H 3.5 Z"/>' +
     '<path d="M 3.5 8 H 14.5"/>',
-  // home: 家 (屋根 + 本体 + ドア)、 center ≈ (9, 9-10)
+  // home: 家 (屋根 + 本体 + ドア)、 9b-3 で proportion 整理 + ドア 縮小で 中央バランス向上
+  //   旧: ドア y 11-15 (= 大きい、 屋根に比べ重い)
+  //   新: ドア y 12-15 (= 縮小)、 center (9, 9)
   home:
     '<path d="M 3 9 L 9 3 L 15 9 V 15 H 3 Z"/>' +
-    '<path d="M 7 15 V 11 H 11 V 15"/>',
-  // other: 円ドット中央、 center (9, 9)
+    '<path d="M 7.5 15 V 12 H 10.5 V 15"/>',
+  // other: 円ドット中央、 center (9, 9) (= 維持)
   other:
     '<circle cx="9" cy="9" r="3"/>',
 };
@@ -168,13 +172,25 @@ export function generatePinSvgDataUri(
       `<text x="20" y="10.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="${isSelected ? 10 : 9}" font-weight="600" fill="#374151">${escapeXml(timeLabel)}</text>`
     : '';
 
-  // 9b-1 carry: icon 中心微調整
+  // 9b-1 carry: icon 中心微調整、 9b-3 で per-icon redesign + drop-shadow filter で 高級感
   //   旧 transform (11, 25): icon center (20, 34) ← upper bulb 幾何中心
   //   新 transform (11, 24): icon center (20, 33) ← 視覚的重心 (= cafe/work 等が下重心の補正)
+  //
+  // 9b-3 visual polish: <filter feDropShadow> で teardrop 本体に soft shadow 追加
+  //   - selected はやや強い shadow (= 重要度視覚化)
+  //   - filter id は SVG 内 local (= 各 Marker は独自 SVG context、 id 衝突なし)
+  //   - perf: SVG filter は GPU accelerated、 多 pin でも実害なし
+  const shadowDy = isSelected ? 3 : 2;
+  const shadowStdDev = isSelected ? 2 : 1.5;
+  const shadowOpacity = isSelected ? 0.3 : 0.22;
+
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}">` +
+    `<defs><filter id="ps" x="-20%" y="-20%" width="140%" height="140%">` +
+    `<feDropShadow dx="0" dy="${shadowDy}" stdDeviation="${shadowStdDev}" flood-color="#000000" flood-opacity="${shadowOpacity}"/>` +
+    `</filter></defs>` +
     labelEl +
-    `<path d="${TEARDROP_PATH}" fill="${color}" stroke="white" stroke-width="${teardropStroke}"/>` +
+    `<path d="${TEARDROP_PATH}" fill="${color}" stroke="white" stroke-width="${teardropStroke}" filter="url(#ps)"/>` +
     `<g transform="translate(11, 24)" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
     iconPath +
     `</g>` +
