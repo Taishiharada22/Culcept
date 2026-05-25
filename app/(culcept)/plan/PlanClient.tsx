@@ -76,6 +76,12 @@ import {
 } from "@/lib/plan/proposal/planClientProposalHelpers";
 // 8b-7-B: List 新表示 flag (= header/subtitle/button/bg を flag ON で mock 整合に切替)
 import { LIST_NEW_TIMELINE_ENABLED } from "@/lib/plan/list/featureFlags";
+import { MAP_NEW_SURFACE_ENABLED } from "@/lib/plan/map/featureFlags";
+
+// ── Phase 3-N Map impl 9a-impl Step α: 統一 shell flag (= list ON or map ON で同一 shell) ──
+//   どちらか片方でも ON なら 「今日のプラン」 shell に統一する。
+//   list / map で「stale な独自 shell が残らない」 ことを担保 (= CEO + GPT 補正 #1)。
+const useNewShell: boolean = LIST_NEW_TIMELINE_ENABLED || MAP_NEW_SURFACE_ENABLED;
 import type { ProposedAnchor } from "@/lib/plan/proposal/proposalTypes";
 // J-6e-3: accept transaction + Quiet Undo Window
 import { acceptProposal } from "@/lib/plan/proposal/acceptProposal";
@@ -607,14 +613,14 @@ export default function PlanClient({
   // 8b-10: py-8 → py-4 (= 余白縮小、 CEO 「上に詰める」)
   const containerClass = isPane
     ? "h-full overflow-y-auto bg-gradient-to-b from-white via-indigo-50/40 to-purple-50/30 px-4 py-6"
-    : LIST_NEW_TIMELINE_ENABLED
-      ? "min-h-screen bg-white px-4 py-4" // 8b-10: 余白縮小
+    : useNewShell
+      ? "min-h-screen bg-white px-4 py-4" // 8b-10: 余白縮小、 9a-impl Step α: useNewShell に統一
       : "min-h-screen bg-gradient-to-b from-white to-slate-50 px-4 py-8";
 
   return (
     <main className={containerClass} data-display-mode={displayMode}>
-      {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小) ── */}
-      <header className={LIST_NEW_TIMELINE_ENABLED ? "mx-auto mb-3 max-w-3xl" : "mx-auto mb-6 max-w-3xl"}>
+      {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小、 9a-impl Step α で useNewShell 統一) ── */}
+      <header className={useNewShell ? "mx-auto mb-3 max-w-3xl" : "mx-auto mb-6 max-w-3xl"}>
         {!isPane && (
           <p className="text-xs font-medium uppercase tracking-widest text-indigo-600">
             ALTER · PLAN
@@ -628,19 +634,19 @@ export default function PlanClient({
           <h1 className={
             isPane
               ? "text-3xl font-semibold text-slate-900"
-              : LIST_NEW_TIMELINE_ENABLED
+              : useNewShell
                 ? "text-lg font-bold text-slate-900" // 8b-10: 小さく (text-2xl → text-lg)
                 : "text-2xl font-bold text-slate-900"
           }>
-            {/* 8b-7-B: header 文言 mock 整合 (= flag ON で 「当日のプラン」 / OFF で旧文言) */}
+            {/* 8b-7-B → 9a-impl Step α: useNewShell で 「今日のプラン」 (= mock 整合、 list/map 統一) */}
             {isPane
               ? "Plan"
-              : LIST_NEW_TIMELINE_ENABLED
-                ? "当日のプラン"
+              : useNewShell
+                ? "今日のプラン"
                 : "あなたの生活、3 つのレンズ"}
           </h1>
-          {/* 8b-8 / 8b-9 / 8b-10: title 行右側 tabs (= 8b-10 で 小さく + 左 icon 追加) */}
-          {LIST_NEW_TIMELINE_ENABLED ? (
+          {/* 8b-8 / 8b-9 / 8b-10: title 行右側 tabs (= 8b-10 で 小さく + 左 icon 追加、 9a-impl Step α: useNewShell 統一) */}
+          {useNewShell ? (
             <div
               className="inline-flex rounded-lg bg-slate-100 p-0.5 gap-0.5"
               role="tablist"
@@ -685,17 +691,22 @@ export default function PlanClient({
           )}
         </div>
         {!isPane && (
-          <p className={LIST_NEW_TIMELINE_ENABLED ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
-            {/* 8b-7-B / 8b-10: subtitle 小さく (= flag ON で mt-0.5 + text-xs) */}
-            {LIST_NEW_TIMELINE_ENABLED
-              ? "時間の流れを把握して、心地よい1日に。"
+          <p className={useNewShell ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
+            {/* 8b-7-B / 8b-10 / 9a-impl Step α: subtitle 小さく + tab-aware
+             *   - map: 「場所を地図で確認して、流れをつかみましょう。」 (= mock 整合)
+             *   - calendar / flow: 「時間の流れを把握して、心地よい1日に。」 (= 8b-7-B 既存)
+             */}
+            {useNewShell
+              ? activeTab === "map"
+                ? "場所を地図で確認して、流れをつかみましょう。"
+                : "時間の流れを把握して、心地よい1日に。"
               : "同じ予定を 3 つの視点で見ると、自分の生活パターンが見えてきます。"}
           </p>
         )}
       </header>
 
-      {/* ── Tab nav (= flag OFF default、 既存 placement 維持) ── */}
-      {!LIST_NEW_TIMELINE_ENABLED && (
+      {/* ── Tab nav (= flag OFF default、 既存 placement 維持、 9a-impl Step α: useNewShell 統一) ── */}
+      {!useNewShell && (
         <nav
           role="tablist"
           aria-label="Plan tabs"

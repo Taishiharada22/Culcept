@@ -450,20 +450,27 @@ export function MapTab({
   // ── render ──
   return (
     <div data-testid="plan-map-tab" className="relative pb-24">
-      <header className="mb-3">
-        <h2 className="text-sm font-semibold text-slate-900">あなたの地理</h2>
-        <p className="text-xs text-slate-500">
-          {isToday ? "今日の予定がある場所" : "選択日の予定がある場所"}
-        </p>
-      </header>
+      {/* 9a-impl Step α: PlanClient header に統一されたため、 旧 「あなたの地理」 内 header は flag ON 時 hide */}
+      {!MAP_NEW_SURFACE_ENABLED && (
+        <header className="mb-3">
+          <h2 className="text-sm font-semibold text-slate-900">あなたの地理</h2>
+          <p className="text-xs text-slate-500">
+            {isToday ? "今日の予定がある場所" : "選択日の予定がある場所"}
+          </p>
+        </header>
+      )}
 
-      <DaySwitcher
-        selectedDate={selectedDate}
-        todayDate={todayDate}
-        onPrev={handlePrevDay}
-        onNext={handleNextDay}
-        onGoToday={handleGoToday}
-      />
+      {/* 9a-impl Step α: mock fidelity (= map がタブ直下に埋め込み)、 flag ON 時 DaySwitcher 非表示
+       *   day 切替機能は別 step 候補、 mock では「今日」 のみ */}
+      {!MAP_NEW_SURFACE_ENABLED && (
+        <DaySwitcher
+          selectedDate={selectedDate}
+          todayDate={todayDate}
+          onPrev={handlePrevDay}
+          onNext={handleNextDay}
+          onGoToday={handleGoToday}
+        />
+      )}
 
       <PlanMapView
         pins={allPins}
@@ -1070,14 +1077,17 @@ function PlanMapView({
         className="w-full rounded-2xl overflow-hidden border border-slate-200"
         style={{ height: `${MAP_HEIGHT_PX}px` }}
       />
-      {/* 9a-impl: 現在地 button (= newMode のみ、 右下 absolute、 minimal UI) */}
+      {/* 9a-impl Step α: 現在地 button (= newMode のみ、 右上 absolute、 zoom default position [BOTTOM_RIGHT] と分離)
+       *   重なり解消: Google Maps default zoom = 右下 → 現在地 button を 右上 に移動 (= CEO 補正 #5「重なり解消」 厳守)
+       *   mock fidelity 改善は Step γ/δ で検討 (= 右中央 zoom + 右下 location などへ）
+       */}
       {newMode && (
         <button
           type="button"
           onClick={handleGoToCurrentLocation}
           aria-label="現在地を中心に表示"
           data-testid="plan-map-current-location"
-          className="absolute right-3 bottom-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-700 shadow-md transition hover:bg-slate-50 focus:outline-none focus-visible:border focus-visible:border-slate-300"
+          className="absolute right-3 top-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-700 shadow-md transition hover:bg-slate-50 focus:outline-none focus-visible:border focus-visible:border-slate-300"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
