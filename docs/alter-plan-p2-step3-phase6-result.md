@@ -3,7 +3,7 @@
 **Status**: **暫定 pass (= 未確定、 50+ データ集まり次第 再分析、 CEO 2026-05-25)**
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
-**Smoke user**: aneurasync@outloo.com (= userId prefix `1c6ef878***`)
+**Smoke user**: aneurasync@outlook.com (= userId prefix `1c6ef878***`)
 **Scope**: Step 3 全体 (= Stage A + B + Phase 5 + v3.4 prompt 強化 + v3.4.1 自然な日本語 + debug cache bypass)。
 
 ---
@@ -103,7 +103,7 @@
 **prompt 弱さが主因** (= v3.4 必要)
 
 根拠:
-- aneurasync@outloo.com は **39 軸観測** (= 軸データ豊富、 synthetic profile よりも具体的)
+- aneurasync@outlook.com は **39 軸観測** (= 軸データ豊富、 synthetic profile よりも具体的)
 - judgmentMode = 集中型、 timePreference = 中庸 が prompt に注入済
 - それでも PM OFF baseline と alterNote が **核 95% 同一**
 - v3.3 P4 後退仮説 (= 「振り幅 / バランス」 hint が抽象すぎ + 機械的反復) は real PM 環境でも再現

@@ -226,7 +226,7 @@ real PM smoke PASS + G3 (= G3-A + G3-B + G3-C) PASS → preview canary GO (= G4)
 |---|---|---|
 | Q1 | Step 3 着手 GO? | ✅ **GO** |
 | Q2 | adapter 分離 vs 既存拡張 | ✅ **新 file `personalModelStargazerAdapter.ts`** |
-| Q3 | smoke test user | ✅ **`aneurasync@outloo.com`** (= 既存 test account) |
+| Q3 | smoke test user | ✅ **`aneurasync@outlook.com`** (= 既存 test account) |
 | Q4 | smoke 観測 5 項目 | ✅ 採用 (= 下記 §4 通り) |
 | Q5 | wire 優先順位 (= v3.3 後補正) | ✅ **判断モード + 時刻偏好 → recentRhythm 次点 → energyRecovery 以後** |
 

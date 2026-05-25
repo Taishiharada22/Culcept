@@ -3,7 +3,7 @@
 **Status**: 着手準備完了 (= Phase 5 接続 commit `19e1cc2e` 後)
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
-**Scope**: `aneurasync@outloo.com` で real Stargazer Personal Model 読み取り経路を実機検証し、 「synthetic 限界 vs prompt 弱さ」 を切り分ける。
+**Scope**: `aneurasync@outlook.com` で real Stargazer Personal Model 読み取り経路を実機検証し、 「synthetic 限界 vs prompt 弱さ」 を切り分ける。
 
 ---
 
@@ -43,7 +43,7 @@ PLAN_PERSONAL_MODEL_INTEGRATION=true \
 npm run dev
 ```
 
-`http://localhost:3000/plan` を開く。 `aneurasync@outloo.com` で sign-in 済の前提。
+`http://localhost:3000/plan` を開く。 `aneurasync@outlook.com` で sign-in 済の前提。
 
 ### 2.2 観測対象 anchor を 1 日分準備
 
@@ -80,7 +80,7 @@ npm run dev
 
 ## 3. 認証 / 実施方式 — **CEO 判断仰ぐ**
 
-`aneurasync@outloo.com` への sign-in が必要。 私 (= Claude) は credentials を保持していないため、 以下 3 方式から CEO 選択:
+`aneurasync@outlook.com` への sign-in が必要。 私 (= Claude) は credentials を保持していないため、 以下 3 方式から CEO 選択:
 
 | 方式 | 内容 | 必要情報 |
 |---|---|---|

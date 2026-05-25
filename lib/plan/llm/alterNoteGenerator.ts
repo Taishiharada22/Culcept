@@ -251,11 +251,41 @@ export async function generateAlterNote(
     ? validateAlterNoteOutputV2(rawText)
     : validateAlterNoteOutput(rawText);
   if (!validation.ok) {
+    // LLM closeout 帯 Track 2 (= CEO 2026-05-26): 観測用 dev log
+    //   - validator reject 率の計算用 (= reject ratio)
+    //   - 反復文 検出 (= 同 anchor で 同じ text を返すケース)
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[plan/alterNote] result", {
+        outcome: "validation_failed",
+        path: useV2Path ? "v2" : "v1",
+        rawTextSample: rawText.slice(0, 40), // 観測用 (= sample のみ、 full text 不要)
+        category: ctx.category,
+      });
+    }
     return { source: "unavailable", reason: "validation_failed" };
   }
 
   // 7. 通過 → llm result
   const latencyMs = Date.now() - startedAt;
+
+  // LLM closeout 帯 Track 2: 成功時 観測 dev log (= 50+ 実データ蓄積用)
+  //   - 「同 anchor 同文率」 計算 (= text 比較)
+  //   - 「『思考』 反復率」 計算 (= text に 「思考」 含まれるか)
+  //   - 「〜の時間 残存率」 計算 (= 末尾文体 check)
+  //   - latency 分布 (= P50 / P95)
+  //   注: PII 出さない (= userId は別 log で prefix 8 文字、 ここでは含めない)
+  if (process.env.NODE_ENV !== "production") {
+    console.info("[plan/alterNote] result", {
+      outcome: "success",
+      path: useV2Path ? "v2" : "v1",
+      text: validation.text, // 観測指標計算用 (= full text)
+      category: ctx.category,
+      startTime: ctx.startTime,
+      latencyMs,
+      cacheHit: runResult.cacheHit,
+    });
+  }
+
   return {
     source: "llm",
     text: validation.text,

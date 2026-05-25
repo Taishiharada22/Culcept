@@ -23,7 +23,7 @@
 ### Step 3 暫定 pass 状態 (= main HEAD `284bd41f`)
 - `PLAN_FLAGS.alterNoteLive` env `PLAN_ALTER_NOTE_LIVE=true` で V1/V2 LLM 経路 起動
 - `PLAN_FLAGS.personalModelIntegration` env `PLAN_PERSONAL_MODEL_INTEGRATION=true` で V2 + PM injection 経路 起動
-- real PM (= aneurasync@outloo.com smoke で確認) → judgmentMode + timePreference を Plan-gate 経由で stable 注入
+- real PM (= aneurasync@outlook.com smoke で確認) → judgmentMode + timePreference を Plan-gate 経由で stable 注入
 - v3.4.1 prompt 強化 (= 「〜の時間」 禁止 / hedging / 同名詞反復禁止)
 - debug-only `PLAN_ALTER_NOTE_CACHE_BYPASS=true` env で 同 anchor variation 検証可能
 
@@ -45,7 +45,7 @@
 ### 2.2 候補 user pool (= 10% canary 第 1 段)
 | 段階 | user 数 (想定) | 選定基準 |
 |---|---|---|
-| **canary 1 (= 10%)** | 1〜3 user | CEO + 内部信頼テスター (= aneurasync@outloo.com 含む) |
+| **canary 1 (= 10%)** | 1〜3 user | CEO + 内部信頼テスター (= aneurasync@outlook.com 含む) |
 | canary 2 (= 30%) | 10〜30 user | 初期 β user (= 招待制) |
 | canary 3 (= 50%) | 50+ user | 初期 β + 既存 active user |
 | full (= 100%) | 全 user | 全 production |
@@ -182,14 +182,14 @@
 |---|---|---|
 | Q1 | LLM closeout 帯 着手 GO? | GO / 保留 |
 | Q2 | preview canary 方式 | **Option B (= userId allowlist gate)** / Option A (= global env) / Option C (= GrowthBook 等) |
-| Q3 | canary 1 user pool | aneurasync@outloo.com のみ / aneurasync + 内部 1-2 user |
+| Q3 | canary 1 user pool | aneurasync@outlook.com のみ / aneurasync + 内部 1-2 user |
 | Q4 | 50+ データ観測方法 | **Option A (= server log)** 先行 / Option B (= 新 table) 一気に |
 | Q5 | P3 着手 timing | LLM closeout 全完了後 / canary 1 起動と並行 (= 推奨、 closeout は監視のみで data 蓄積中に P3 進める) |
 
 私の推奨:
 - Q1: GO
 - Q2: Option B (= userId allowlist、 surgical)
-- Q3: aneurasync@outloo.com のみで開始
+- Q3: aneurasync@outlook.com のみで開始
 - Q4: Option A (= server log) 先行、 50+ 見込み時に Option B 検討
 - Q5: 並行 (= canary 起動後 P3 に着手、 data 蓄積中の妨害なし)
 

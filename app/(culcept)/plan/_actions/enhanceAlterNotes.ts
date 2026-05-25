@@ -16,6 +16,11 @@
  *   - options.userId が呼出側から渡されればそれを優先 (= test 等の override)
  *   - userId 取得失敗 → undefined のまま伝搬 → PM extraction skip → V1 path (= safe degrade)
  *
+ * LLM closeout 帯 Track 1 (= CEO 2026-05-26): preview canary userId allowlist
+ *   - PLAN_FLAGS.canaryUserIds が **非空** なら、 該当 userId のみ V2 経路に進む
+ *   - allowlist 外の userId は userId を 「降ろさず」 V1 baseline に safe degrade
+ *   - allowlist が **空** (= default) なら gate なし (= 既存挙動完全保持)
+ *
  * 不変原則:
  *   - flag OFF / LLM 失敗時は **既存 sync builder の output 通り** を return (= UI 不変)
  *   - 入力 anchors mutate なし (= server action 内で readonly 扱い)
@@ -23,6 +28,7 @@
  */
 
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
+import { PLAN_FLAGS } from "@/lib/plan/featureFlags";
 import { convertExternalAnchorListWithDayBookendsAsync } from "@/lib/plan/list/adapters/externalAnchorAdapterAsync";
 import type { StrictEventCardViewModel } from "@/lib/plan/list/sourceProvenance";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -66,10 +72,32 @@ export async function enhanceAlterNotesAction(
     }
   }
 
-  const effectiveOptions =
-    effectiveUserId !== undefined
-      ? { ...options, userId: effectiveUserId }
-      : options;
+  // LLM closeout 帯 Track 1: canary userId allowlist gate (= CEO 2026-05-26)
+  //   - allowlist 非空 かつ userId 不在 → gate (= V1 baseline 維持)
+  //   - allowlist 非空 かつ userId allowlist 外 → gate (= V1 baseline 維持)
+  //   - allowlist 空 (= default) → 既存挙動 (= 全 user で gate なし)
+  let canaryAllowed = true;
+  if (PLAN_FLAGS.canaryUserIds.length > 0) {
+    canaryAllowed =
+      effectiveUserId !== undefined &&
+      PLAN_FLAGS.canaryUserIds.includes(effectiveUserId);
+  }
+
+  // canary gate 不通過 → userId を 「降ろさず」 V1 baseline に safe degrade
+  // (= externalAnchorAdapterAsync 内で options.userId === undefined で PM 注入 skip → V1 path)
+  const effectiveOptions = canaryAllowed && effectiveUserId !== undefined
+    ? { ...options, userId: effectiveUserId }
+    : options;
+
+  // canary 観測用 dev-only log (= 本番では emit しない)
+  if (process.env.NODE_ENV !== "production" && PLAN_FLAGS.canaryUserIds.length > 0) {
+    console.info("[plan/alterNote] canary gate", {
+      hasUserId: effectiveUserId !== undefined,
+      allowlistSize: PLAN_FLAGS.canaryUserIds.length,
+      canaryAllowed,
+      decision: canaryAllowed ? "v2_enabled" : "v1_baseline_fallback",
+    });
+  }
 
   const result = await convertExternalAnchorListWithDayBookendsAsync(
     anchors,

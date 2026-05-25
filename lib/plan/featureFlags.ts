@@ -80,4 +80,31 @@ export const PLAN_FLAGS = {
    * 本番 ON は別 patch (= CEO 判断経由、 default false で merge)。
    */
   personalModelIntegration: process.env.PLAN_PERSONAL_MODEL_INTEGRATION === "true",
+
+  /**
+   * LLM closeout 帯 Track 1: preview canary userId allowlist (= CEO 2026-05-26)
+   *
+   * 役割:
+   *   - personalModelIntegration が true でも、 **本 allowlist にある userId のみ** で V2 経路 起動
+   *   - 段階展開 (= 10% → 30% → 50% → 100%) を env 値更新だけで control
+   *   - 50+ 実データ観測の枠組み (= readiness LLM closeout)
+   *
+   * env: `PLAN_CANARY_USER_IDS=uuid1,uuid2,uuid3` (= comma-separated UUIDs)
+   *
+   * 動作:
+   *   - allowlist が **空** (= env 未設定 or 空文字) → **全 user で gate なし** (= 既存挙動維持)
+   *   - allowlist が **非空** → 該当 userId のみ V2 経路、 他は V1 baseline (= 段階展開模式)
+   *
+   * 不変:
+   *   - personalModelIntegration=false なら本 const は無視 (= 既存契約優先)
+   *   - default 空 (= 既存挙動完全保持)
+   *   - empty allowlist = no gating (= 旧コードと同等)
+   */
+  canaryUserIds: (() => {
+    const raw = process.env.PLAN_CANARY_USER_IDS ?? "";
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  })() as readonly string[],
 } as const;
