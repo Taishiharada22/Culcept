@@ -95,6 +95,23 @@ describe("buildSystemPromptV2: base 文体規約 (= PM 未指定でも含む)", 
     expect(sys).toContain("reframe");
   });
 
+  // v3.3: P3/P4 軸別解釈 hint (= GPT 「P3 静か集中引っ張り防止 + P4 中庸 active 化」)
+  it("v3.3: P3 分散型 / 夜強い 用 dispersive 軸 hint を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("分散型");
+    expect(sys).toContain("夜強い");
+    expect(sys).toContain("分散的閃き");
+    expect(sys).toContain("思考の漂流");
+  });
+
+  it("v3.3: P4 中庸型 用 active 調整語彙 hint を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("中庸");
+    expect(sys).toContain("振り幅");
+    expect(sys).toContain("バランス");
+    expect(sys).toContain("中和");
+  });
+
   // v3.2 Patch C: few-shot examples (= profile 差のみ、 文体バラけ)
   it("v3.2 Patch C: 4 profile 差 few-shot examples を含む", () => {
     const sys = buildSystemPromptV2();
@@ -110,6 +127,27 @@ describe("buildSystemPromptV2: base 文体規約 (= PM 未指定でも含む)", 
     const sys = buildSystemPromptV2();
     expect(sys).toContain("句読点・長さ・韻律・言い回し");
     expect(sys).toContain("テンプレ感");
+  });
+
+  // v3.3: P3/P4 each 2 examples + comma 散らし
+  it("v3.3: P3 二例 (= 分散型強化、 comma 散らし)", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("散らした思考が新しい筋を編む");
+    expect(sys).toContain("思考が漂い 新しい線を見つける");
+    expect(sys).toContain("P3 別文体");
+  });
+
+  it("v3.3: P4 二例 (= 中庸 active 化、 「振り幅」 + 「バランス」)", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("振り幅を整えながら踏み出す");
+    expect(sys).toContain("バランスを取り戻すための一区切り");
+    expect(sys).toContain("P4 別文体");
+  });
+
+  it("v3.3: comma 散らし指示 (= few-shot 同 profile で comma 0 / 1 個 混合)", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("comma 0 個");
+    expect(sys).toContain("diversification");
   });
 });
 
