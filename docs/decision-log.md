@@ -4,6 +4,62 @@
 
 ---
 
+## 2026-05-25 [Build/Product] Map impl 9b-1 採用 (= selected label overlay + icon 微調整) + 残 3 課題 backlog [承認: CEO + GPT 合議]
+
+### 背景
+
+9b-1 (= carry from 9a-impl): selected pin title overlay + pin icon centering 微調整 を CEO + GPT smoke 判定。 「採用、 通すけど完成ではない、 残課題は次で詰める」 判定。
+
+### 9b-1 commit
+
+| commit | branch | 内容 |
+|---|---|---|
+| `c665898d` | `feat/alter-plan-map-impl-9b-1` | MapSelectedPinLabel 新規 + MapTab 改変 + pinSvg transform 微調整 + contract test 12 |
+
+### 9b-1 採用理由 (= CEO 確認)
+
+1. `17:00 / 勉強` 白ラベルが画面上部に逃がされ、 sheet で隠れない → carry の主目的達成
+2. map と sheet の役割分担が見やすくなった
+3. controls 衝突解消済み維持
+4. 左下 panel 最低限成立
+
+### 残課題 3 件 (= CEO + GPT 明示、 9b 後続 step で潰す)
+
+| # | 課題 | 内容 | 9b 担当 step |
+|---|---|---|---|
+| **A** | **selected label と pin の spatial binding 強化** | visibility は改善、 ただし「どの pin のラベルか」 「どの地点に対応か」 が弱い | **9b-2 (carry-2)** |
+| **B** | **pin 品質仕上げ** | 前より良い、 ただし icon 重心微妙 + 高級感弱い (= 特に灰色 pin の icon 下寄り) | **9b-3 (visual polish)** |
+| **C** | **左下 panel と sheet 競合整理** | 同じ画面下部視線領域取り合い、 sheet open 時の panel 扱い・縮退/z-index 距離感 | **9b-4 (layout 整理)** |
+
+### 9b sub-step 再整理 (= readiness doc update)
+
+| step | 内容 | 優先度 |
+|---|---|---|
+| **9b-2 (carry-2)** | selected label と pin の spatial binding 強化 (= connector line or dynamic position with clamp) | 次最優先 |
+| **9b-3 (visual polish)** | pin 品質仕上げ (= icon 重心 + stroke + shadow + proportion) | 次 |
+| **9b-4 (layout 整理)** | 左下 panel と sheet 競合整理 | 次 |
+| 9b-5 | 旧 UI file 削除 | 後 |
+| 9b-6 | 文字列統一 | 後 |
+| 9b-7 | animation | 後 |
+| 9 closeout | flag 削除 + 単一 path 化 | 最後 |
+
+### CEO + GPT 進行判断
+
+> 「9b-1 は採用、 ただし完成ではない、 closeout を止めるほどではない」
+> 「今は止める ではなく 通して次の改善で詰める が正しい段階」
+
+### flag 状態
+
+- `MAP_NEW_SURFACE_ENABLED = false` (= 戻し済み、 diff 0 確認、 commit せず)
+- 9b-1 完成形 commit は 1 本 (= c665898d)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-25、 「9b-1 採用 + 残 3 課題 backlog」)
+- **ステータス**: 9b-1 採用確定、 9b-2 (carry-2 spatial binding) 着手承認待ち
+
+---
+
 ## 2026-05-25 [Build/Product] Map impl 9a-impl 4 step + corrective 概ね採用 + 9b readiness 着手 GO [承認: CEO + GPT 合議]
 
 ### 背景
