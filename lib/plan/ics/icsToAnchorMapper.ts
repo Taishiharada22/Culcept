@@ -5,9 +5,17 @@
  *
  * 役割:
  *   - ParsedIcsEvent (= icsParser.ts の出力) を ExternalAnchor 入力 shape に変換
- *   - **OneOff / Recurring の自動判定** (= recurrenceRuleRaw 有無)
+ *   - **OneOff / Recurring の自動判定** (= recurrenceRuleRaw 有無、 expansion なし、 raw RRULE 保持のみ)
  *   - **pure module** (= I/O なし、 deterministic)
  *   - **safe degrade** (= 不正 event は IcsAnchorDraft で reason 付き skip)
+ *
+ * CEO + GPT 4 補正 (= 2026-05-26):
+ *   - 補正 1: rigidity="hard" は **デフォルト値** であり invariant ではない (= W2 で user 選択可)
+ *           「動かせなさ」 (= rigidity) と 「由来 / authority」 (= imported / import_locked) は別 concept
+ *           既存 sourceProvenance.ts の SourceModel に従い、 source は W3 で authority="import_locked" 設定
+ *   - 補正 2: recurring は **判定のみ**、 expansion / 複雑 RRULE 解釈は後段 (= W4 以降)
+ *   - 補正 3: W2 では本 draft を **review/approve UI** に渡す (= user が承認後に保存)
+ *   - 補正 4: dedup (= UID 完全一致) は W3、 W2 では sourceUid を保持して 簡易 「重複候補」 warning に流す
  *
  * 不変原則:
  *   - 入力 mutate なし
@@ -15,10 +23,11 @@
  *     (= W3 server action 経由で 永続時に割り当てる、 W1 では draft shape)
  *   - timezone: UTC 想定 MVP (= startDateIso → "HH:MM" 抽出 / date YYYY-MM-DD 抽出)
  *   - RRULE は raw のまま保存 (= ExternalAnchor.recurrenceRule field 流用、 RFC 5545)
- *   - sourceUid: ParsedIcsEvent.uid を保持 (= W3 dedup 用)
+ *   - sourceUid: ParsedIcsEvent.uid を保持 (= W2 重複候補 warning + W3 dedup 用)
  *
  * 設計参考:
  *   - lib/plan/external-anchor.ts (= ExternalAnchor 型)
+ *   - lib/plan/list/sourceProvenance.ts (= SourceModel、 ImportedLockedSource pattern)
  *   - lib/plan/ics/icsParser.ts (= ParsedIcsEvent)
  */
 
@@ -63,7 +72,13 @@ export type IcsAnchorDraft = {
   /** ExternalAnchor.locationText 相当 (= optional) */
   readonly locationText?: string;
 
-  /** ExternalAnchor.rigidity (= デフォルト "hard"、 .ics import の予定は「動かせない」 想定) */
+  /**
+   * ExternalAnchor.rigidity (= デフォルト "hard"、 ただし invariant ではない)
+   *
+   * CEO + GPT 補正 1 (= 2026-05-26): rigidity は 「動かせなさ」 (= 仕事会議 hard / 定期ジム soft)、
+   * source 由来とは独立。 .ics import default は "hard" だが、 W2 preview で user が toggle 可能。
+   * 永続化時の lock 管理は authority="import_locked" (= sourceProvenance.ts) で別 layer 化。
+   */
   readonly rigidity: AnchorRigidity;
 
   /** .ics の VEVENT UID (= W3 dedup 用) */
@@ -195,7 +210,7 @@ function mapSingleIcsEventToDraft(event: ParsedIcsEvent): SingleMapResult {
       ? event.location.trim()
       : undefined;
 
-  // rigidity (= "hard" 固定、 .ics import は外部 fixed)
+  // rigidity (= 補正 1: "hard" デフォルト、 W2 preview で user 選択可、 invariant ではない)
   const rigidity: AnchorRigidity = "hard";
 
   // anchorKind 判定 + 専用 field
