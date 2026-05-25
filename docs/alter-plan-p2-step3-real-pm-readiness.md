@@ -11,7 +11,8 @@
 | Version | 内容 |
 |---|---|
 | 初版 (= eb46b95f) | G3 通過後着手前提、 4 module mapping + 6 phase 手順 |
-| **v3.3 後補正 (= 本稿)** | **v3.3 P4 失敗の教訓反映**: 「synthetic 限界 vs prompt 弱さ切り分け」 が本 Step 3 の主要目的に格上げ、 P4 中庸型の本質的判定困難への対応観点追加 |
+| v3.3 後補正 | **v3.3 P4 失敗の教訓反映**: 「synthetic 限界 vs prompt 弱さ切り分け」 が本 Step 3 の主要目的に格上げ、 P4 中庸型の本質的判定困難への対応観点追加 |
+| **Stage A 補正 (= 本稿、 着手後)** | **Phase 2 を Stage A-D の wire enablement sub-stage に分割**: A (= scaffold + safe fallback、 本 commit) / B (= judgmentMode + timePreference、 CEO Q5 1st) / C (= recentRhythm、 CEO Q5 次点) / D (= 後続)。 各 stage で commit + 単体 test、 全体 commit 数を 3-4 に分割 |
 
 ---
 
@@ -149,9 +150,20 @@ async function safeGetJudgmentMode(userId: string): Promise<string | undefined> 
 GPT 「Step 1 + Step 2 まとめて merge」 通り、 Step 3 も同 branch に積む。
 
 ### Phase 2: personalModelStargazerAdapter.ts 実装
+
+内部的に **Stage A → D の wire enablement sub-stage** に分割 (= 各 stage で commit + smoke):
+
+| Stage | 範囲 | WIRE_* 状態 | 想定 commit |
+|---|---|---|---|
+| **A** | scaffold + safe fallback (= 既存 stub と同 挙動) | 全 false | 1 |
+| **B** | judgmentMode + timePreference 実 wire (= CEO Q5 1st) | `WIRE_JUDGMENT_MODE` / `WIRE_TIME_PREFERENCE` = true | 1 |
+| **C** | recentRhythm 実 wire (= CEO Q5 次点、 P4 中庸型対策) | `WIRE_RECENT_RHYTHM` = true | 1 |
+| **D** | energyRecovery / 等 後続 field 段階拡張 | `WIRE_ENERGY_RECOVERY` = true 等 | 段階別 |
+
+手順:
 1. 既存 Stargazer 4 module の実 export 確認 (= grep / read)
 2. 各 module の signature を adapter helper に wrap (= safe degrade)
-3. `extractPersonalModelV2` を adapter 経由に変更
+3. `extractPersonalModelV2` を adapter 経由に変更 (= 別 Phase 5、 Stage A 後)
 
 ### Phase 3: 単体 test
 - `tests/unit/plan/llm/personalModelStargazerAdapter.test.ts` (= mock Stargazer module)
