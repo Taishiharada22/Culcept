@@ -68,18 +68,8 @@ export const ALTER_NOTE_TIMEOUT_MS = 4000;
 /** LLM 出力 token 上限 (= alterNote 短文前提) */
 const ALTER_NOTE_MAX_OUTPUT_TOKENS = 128;
 
-/**
- * Temperature (= LLM sampling variation)
- *
- * v3.4.2 (= CEO 2026-05-25): 0.2 → 0.7 (= cache miss 時の variation 確保)
- *   - 旧 0.2 では同 prompt → ほぼ deterministic、 cache miss でも似た output
- *   - 0.7 で 「自然な観測の言い回し」 を LLM が複数候補から選べる
- *   - validator (= 規約 24 + prohibitions + genericSelfHelp) で逸脱は post-filter
- *
- * 注: cache hit 時は temperature は無関係 (= cached value をそのまま return)。
- *     同 anchor cache hit による 「同じ文」 は cache 設計通り (= 別 patch 検討)。
- */
-const ALTER_NOTE_TEMPERATURE = 0.7;
+/** Temperature (= 再現性高、 cache hit 率高) */
+const ALTER_NOTE_TEMPERATURE = 0.2;
 
 /** taskType (= router failover 対象、 analytics 集約用) */
 const ALTER_NOTE_TASK_TYPE = "plan_alter_note";

@@ -115,10 +115,6 @@ export function buildUserPrompt(ctx: AlterNoteContext): string {
   if (ctx.location !== undefined && ctx.location.length > 0) {
     lines.push(`場所: ${ctx.location}`);
   }
-  // v3.4.2: 日付コンテキスト (= V1 path も同等扱い、 cache 多様化 + 自然な日付文脈)
-  if (ctx.dayContext !== undefined && ctx.dayContext.length > 0) {
-    lines.push(`日付: ${ctx.dayContext}`);
-  }
   lines.push("");
   lines.push("この 1 件の予定について、 8〜22 字の観測的な意味文を 1 文だけ JSON で返してください。");
   return lines.join("\n");
