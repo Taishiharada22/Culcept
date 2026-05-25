@@ -107,6 +107,8 @@ import type { BuildDayGraphResult } from "@/lib/plan/dayGraph/dayGraphTypes";
 import { AddAnchorModal } from "./components/AddAnchorModal";
 import { AnchorDetailModal } from "./components/AnchorDetailModal";
 import { EditAnchorModal } from "./components/EditAnchorModal";
+// P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI)
+import { IcsImportModal } from "./components/IcsImportModal";
 import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
@@ -176,6 +178,8 @@ export default function PlanClient({
   const [addInitial, setAddInitial] = useState<Partial<AnchorFormState> | undefined>(undefined);
   const [addSubtitle, setAddSubtitle] = useState<string | undefined>(undefined);
   const [listOpen, setListOpen] = useState(false);
+  // P3 W2: .ics import modal state (= CEO 2026-05-26、 「カレンダーから取り込む」 entry)
+  const [icsImportOpen, setIcsImportOpen] = useState(false);
   // W1-X2: edit modal state
   const [editAnchor, setEditAnchor] = useState<ExternalAnchor | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -696,6 +700,21 @@ export default function PlanClient({
               </GlassButton>
             </div>
           )}
+          {/* P3 W2 (= CEO 2026-05-26): .ics import entry point は常時表示 (= useNewShell 不問)。
+              「+ 教える」 が flag ON で非表示でも 取り込み 経路は user に必要。
+              CEO 補正 (= 2026-05-26): 既存独自 calendar svg + 「取り込み」 矢印 + gradient。 */}
+          {!isPane && (
+            <button
+              type="button"
+              onClick={() => setIcsImportOpen(true)}
+              className="text-[10px] px-2 py-1 rounded-md text-indigo-600 hover:text-purple-700 hover:bg-indigo-50 transition-colors inline-flex items-center gap-1.5 font-medium"
+              data-testid="plan-header-ics-import"
+              aria-label="カレンダー (.ics) から取り込む"
+            >
+              <IcsImportIcon />
+              <span>取り込む</span>
+            </button>
+          )}
         </div>
         {!isPane && (
           <p className={useNewShell ? "mt-0.5 text-xs text-slate-500" : "mt-2 text-sm text-slate-500"}>
@@ -770,7 +789,10 @@ export default function PlanClient({
           />
         )}
         {state.kind === "ok" && state.anchors.length === 0 && (
-          <EmptyState onStartTeaching={() => openAdd()} />
+          <EmptyState
+            onStartTeaching={() => openAdd()}
+            onIcsImport={() => setIcsImportOpen(true)}
+          />
         )}
         {state.kind === "ok" && state.anchors.length > 0 && (
           <>
@@ -830,6 +852,24 @@ export default function PlanClient({
         onSuccess={handleAddSuccess}
         initialState={addInitial}
         contextSubtitle={addSubtitle}
+      />
+      {/* P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI) */}
+      <IcsImportModal
+        isOpen={icsImportOpen}
+        onClose={() => setIcsImportOpen(false)}
+        onSuccess={() => {
+          // 取り込み成功時、 anchor 一覧を再 fetch (= addOnSuccess と同等 pattern)
+          // W2 では server action stub なので実 persist は無いが、 callback shape は固定
+          setIcsImportOpen(false);
+          handleAddSuccess();
+        }}
+        existingAnchors={state.kind === "ok" ? state.anchors : []}
+        onSwitchToManualInput={() => {
+          // CEO 補正 (= 2026-05-26): .ics 不在 user の手入力経路
+          //   ics modal を閉じる → AddAnchorModal を開く
+          setIcsImportOpen(false);
+          openAdd();
+        }}
       />
       <SourceListModal
         isOpen={listOpen}
@@ -918,6 +958,44 @@ function TabIcon({ tabKey }: { tabKey: string }): React.ReactElement {
   }
 }
 
+/**
+ * P3 W2 (= CEO 2026-05-26): .ics import 専用 icon
+ *
+ * 既存 TabIcon の `calendar` shape を基に:
+ *   - indigo → purple gradient stroke (= 「特別な経路」 を視覚で示す)
+ *   - 内側に下向き矢印 (= 「外から取り込む」 を暗示)
+ */
+function IcsImportIcon(): React.ReactElement {
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className="flex-shrink-0"
+    >
+      <defs>
+        <linearGradient id="ics-import-icon-gradient" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#6366f1" />
+          <stop offset="100%" stopColor="#a855f7" />
+        </linearGradient>
+      </defs>
+      {/* Calendar frame (= 既存 TabIcon calendar pattern を踏襲) */}
+      <rect x="3" y="5" width="18" height="16" rx="2.5" stroke="url(#ics-import-icon-gradient)" />
+      <path d="M3 9 H21" stroke="url(#ics-import-icon-gradient)" />
+      <path d="M8 3 V7" stroke="url(#ics-import-icon-gradient)" />
+      <path d="M16 3 V7" stroke="url(#ics-import-icon-gradient)" />
+      {/* Inbound arrow (= 「外から取り込む」 を暗示、 calendar 内側に配置) */}
+      <path d="M12 12 V18" stroke="url(#ics-import-icon-gradient)" />
+      <path d="M9 15 L12 18 L15 15" stroke="url(#ics-import-icon-gradient)" />
+    </svg>
+  );
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // State views
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -956,7 +1034,13 @@ function ErrorState({
   );
 }
 
-function EmptyState({ onStartTeaching }: { onStartTeaching: () => void }) {
+function EmptyState({
+  onStartTeaching,
+  onIcsImport,
+}: {
+  onStartTeaching: () => void;
+  onIcsImport: () => void;
+}) {
   return (
     <GlassCard data-testid="plan-empty" className="p-8 text-center">
       <GlassBadge variant="default">予定なし</GlassBadge>
@@ -971,6 +1055,18 @@ function EmptyState({ onStartTeaching }: { onStartTeaching: () => void }) {
         <GlassButton variant="primary" onClick={onStartTeaching}>
           + Alter に教える
         </GlassButton>
+      </div>
+      {/* P3 W2: .ics import entry (= 既存「教える」 の隣に小さく secondary、 CEO 補正でアイコン付き) */}
+      <div className="mt-3 flex justify-center">
+        <button
+          type="button"
+          onClick={onIcsImport}
+          className="text-xs text-indigo-600 hover:text-purple-700 inline-flex items-center gap-1.5 font-medium"
+          data-testid="plan-empty-ics-import"
+        >
+          <IcsImportIcon />
+          <span>カレンダー (.ics) から取り込む</span>
+        </button>
       </div>
     </GlassCard>
   );
