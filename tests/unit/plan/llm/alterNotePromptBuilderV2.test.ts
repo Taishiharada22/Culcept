@@ -326,6 +326,76 @@ describe("buildSystemPromptV2: v3.4 prompt 強化", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// v3.4.1 micro patch: 自然な日本語に寄せる (= CEO + GPT 2026-05-25 spot check 後)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildSystemPromptV2: v3.4.1 自然な日本語 micro patch", () => {
+  // Patch 1: 説明的名詞句終わり 禁止
+  it("v3.4.1 Patch 1: 「〜の時間 / 〜する時間 / 〜ための準備」 禁止指示を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("説明的な名詞句終わりは原則禁止");
+    expect(sys).toContain("〜の時間");
+    expect(sys).toContain("〜する時間");
+    expect(sys).toContain("〜ための準備");
+  });
+
+  it("v3.4.1 Patch 1: 悪い例に Phase 6 で観測した failure pattern を明示", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("夜のカフェ、 思考を潜らせる時間");
+    expect(sys).toContain("朝の自宅、 思考を潜らせるための準備");
+    expect(sys).toContain("午前のオフィス、 思考を深める会議の時間");
+  });
+
+  // Patch 2: 自然な hedging
+  it("v3.4.1 Patch 2: 自然 hedging (= 〜そう / 〜やすそう / 〜られそう) を推奨", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("自然な hedging で終える");
+    expect(sys).toContain("〜そうです");
+    expect(sys).toContain("〜やすそう");
+    expect(sys).toContain("〜られそう");
+  });
+
+  it("v3.4.1 Patch 2: 良い例に 自然 hedging 文を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("夕方のカフェなら、 学びに静かに沈めそうです");
+    expect(sys).toContain("夜のカフェだと、 ひとりで没頭しやすそう");
+  });
+
+  // Patch 3: 同名詞反復禁止
+  it("v3.4.1 Patch 3: 同じ名詞 (= 「思考」 等) 多用しない指示を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("同じ名詞");
+    expect(sys).toContain("「思考」");
+    expect(sys).toContain("多用しない");
+  });
+
+  it("v3.4.1 Patch 3: 別名詞 (= 自分 / 内側 / 場面 / ひととき / 静けさ) との組合せ余地を示す", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("自分");
+    expect(sys).toContain("内側");
+    expect(sys).toContain("ひととき");
+  });
+
+  // Profile 別 few-shot 更新確認 (= 「〜時間」 消去)
+  it("v3.4.1: P1 few-shot 例が 「〜時間」 を含まず 「〜られそう」 になっている", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("朝のスタバなら、 静かに一日を始められそう");
+    expect(sys).not.toContain("朝のスタバで、 静かに一日を始める");
+  });
+
+  it("v3.4.1: P2 few-shot 例が 「〜時間」 を含まず 「〜そうです」 になっている", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("朝のカフェなら、 対話から活力を受け取れそうです");
+    expect(sys).not.toContain("活力を得る時間");
+  });
+
+  it("v3.4.1: P4 few-shot 例から 「〜時間」 ではなく 「〜そう」 hedging を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("朝の自宅で、 リズムが整っていきそう");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // buildUserPromptV2
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
