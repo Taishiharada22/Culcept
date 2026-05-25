@@ -74,6 +74,27 @@ const ALTER_NOTE_TEMPERATURE = 0.2;
 /** taskType (= router failover 対象、 analytics 集約用) */
 const ALTER_NOTE_TASK_TYPE = "plan_alter_note";
 
+/**
+ * Debug-only cache bypass (= CEO + GPT 2026-05-25、 diagnostic 用):
+ *
+ * 役割:
+ *   - smoke 時、 same-anchor 比較で **同 prompt → 同 cache hit → 同 文** という
+ *     設計上の挙動が 「prompt の本当の効果」 を覆い隠す問題への 切り分け手段。
+ *   - env `PLAN_ALTER_NOTE_CACHE_BYPASS=true` で skipCache: true を runAI に渡す。
+ *   - lib/ai/cache.ts:136-138 の既存 metadata.skipCache 機構を流用 (= 既存 frozen contract 活用)。
+ *
+ * 用途:
+ *   - dev / smoke 限定 (= production では false 維持必須、 cost 跳ね上がる)
+ *   - 「v3.4.1 prompt 強化が同 anchor で variation 生む能力があるか」 の純粋検証
+ *   - 検証後は OFF に戻す
+ *
+ * 安全策:
+ *   - default OFF (= 既存挙動完全保持)
+ *   - prompt / temperature は不変 (= 1 軸変更で原因切り分け clean)
+ */
+const ALTER_NOTE_CACHE_BYPASS =
+  process.env.PLAN_ALTER_NOTE_CACHE_BYPASS === "true";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Single anchor → AlterNoteResult
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -187,6 +208,8 @@ export async function generateAlterNote(
       timeoutMs: ALTER_NOTE_TIMEOUT_MS,
       ...(options?.userId !== undefined ? { userId: options.userId } : {}),
       ...(options?.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
+      // Debug-only cache bypass (= ALTER_NOTE_CACHE_BYPASS env、 dev/smoke 限定)
+      ...(ALTER_NOTE_CACHE_BYPASS ? { metadata: { skipCache: true } } : {}),
     });
   } catch {
     // 例外は runAI 内で握り潰されているはずだが、 防御的に
