@@ -51,15 +51,17 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
 
 **論点**: Google 側の OAuth 2.0 Client 登録手順とコンフィグ範囲。
 
-**必要設定**:
-1. **Project**: 新規作成 or 既存 Aneurasync project 流用 (= CEO 確認必要)
+**必要設定** (= GPT 補正 2026-05-26: project 単位ではなく **client 単位** で分離):
+1. **Project**: **既存 Aneurasync project があれば流用優先**、 その中で **別 OAuth client** を作る
+   - 分けるべきは Project ではなく Client (= 認証用 client と calendar 連携用 client を別々に登録)
+   - 既存 project なしの場合のみ新規作成
 2. **OAuth consent screen**:
    - User type: **External** (= 一般ユーザー対象)
    - App name: "Aneurasync"
-   - Support email / Developer email: CEO 指定
+   - Support email / Developer email: **プロダクト運用で継続管理できる email を固定** (= 個人 email 避ける)
    - Scopes: `calendar.events.readonly` + `calendar.calendarlist.readonly` (= 親 Q2 確定)
    - Test users: 初期は CEO + 検証メンバーのみ (= consent screen "Pending verification" 状態回避)
-3. **Credentials > OAuth 2.0 Client ID**:
+3. **Credentials > OAuth 2.0 Client ID** (= calendar 連携専用、 認証 client とは別物):
    - Application type: **Web application**
    - Name: "Aneurasync Calendar Integration"
    - Authorized JavaScript origins: dev (= `http://localhost:3000`) + prod (= 上記 domain)
@@ -67,8 +69,8 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
 4. **secret**: Client ID + Client Secret を取得 → `.env.local` (= `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET`)
 
 **CEO 判断必要事項**:
-- ⬜ Project: 新規 / 既存流用
-- ⬜ Support email
+- ⬜ 既存 Aneurasync Google Cloud project の有無確認 (= 流用 or 新規)
+- ⬜ Support email (= プロダクト運用 email、 個人不可)
 - ⬜ App verification 申請タイミング (= 初期は test users で十分、 開放時に申請)
 
 ---
@@ -102,8 +104,11 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
 2. GET /api/calendar/google/connect
    - state token 生成 (= CSRF 防止、 cookie に signed cookie で保管)
    - scope = "calendar.events.readonly calendar.calendarlist.readonly"
-   - access_type=offline (= refresh_token 取得必須)
-   - prompt=consent (= 初回確実に refresh_token 発行、 既存連携時の reapproval も対応)
+   - access_type=offline (= refresh_token 取得必須、 これだけで通常 refresh_token は確保される)
+   - prompt 制御 (= GPT 補正 2026-05-26):
+     - 初回 connect: `prompt=consent` (= refresh_token 確実発行のため)
+     - 再接続 / refresh_token 再取得時: `prompt=consent` (= 再 reapproval 必要時のみ)
+     - 通常 reconnect: prompt 指定なし (= UX 軽量、 同意 screen を毎回出さない)
    - Google OAuth URL 構築 → 302 redirect
    ↓
 3. Google consent screen (= user 同意)
@@ -121,7 +126,7 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
 **選択肢 (= 詳細決定事項)**:
 - **state 保管**: ⬜ signed cookie (= 推奨、 stateless) / ⬜ DB temporary table
 - **PKCE 採用**: ⬜ yes (= 推奨、 mobile 対応 + 一般 best practice) / ⬜ no (= 古典 OAuth flow)
-- **prompt=consent 常用**: ⬜ 初回のみ / ⬜ 再連携時も常に (= 推奨、 refresh_token 確実取得)
+- **prompt 制御**: ✅ **採用 (= GPT 補正 2026-05-26)** = 初回 connect + refresh_token 再取得時のみ `prompt=consent`、 通常 reconnect は prompt 指定なし
 
 **CEO 判断**: 上記 3 つの選択肢 + 全体フロー GO / 補正
 
@@ -139,7 +144,8 @@ CREATE TABLE user_calendar_connections (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   provider text NOT NULL CHECK (provider IN ('google', 'microsoft')),
-  -- pgsodium or pgcrypto で暗号化された refresh_token
+  -- ⚠️ 暗号化 column (= 方式は実装時確定、 GPT 補正 2026-05-26: readiness で掘りすぎず)
+  --    候補: pgsodium / pgcrypto / Supabase Vault — どれを採用するかは migration draft 時に確定
   refresh_token_encrypted bytea NOT NULL,
   -- access_token は短命なので暗号化保管せず、 都度 refresh で取得
   -- ただし期限切れ判定用に expires_at は保管
@@ -199,6 +205,12 @@ CREATE POLICY "own_connection_modify" ON user_calendar_connections
 - **pattern card v1 内容**: ⬜ statistics only (= 「火曜午前が集中」 等の頻度系) / ⬜ Phase Next-1 待ち (= P3-A-1-1 では skeleton のみ)
 
 **推奨初手**: statistics only の最小実装で v1、 詳細文体や深い解釈は Phase Next-1。
+
+**⚠️ 不変原則 (= GPT 補正 2026-05-26、 明文化強化)**:
+- pattern card は **本当に 1 枚だけ**
+- **「明日の予定提案」 等の予定生成 logic は P3-A-1-1 で実装しない** (= 自動提案禁止)
+- 自動予定生成は Phase Next-1 (= Rhythm baseline 学習) / Next-2 (= 1 日構成権限の Alter 委譲) 範疇
+- P3-A-1-1 の役割は **「制約取り込みが動いた、 軽い驚き 1 枚」 まで**
 
 **CEO 判断**: 上記 3 つの選択肢 + 全体遷移 GO / 補正
 
