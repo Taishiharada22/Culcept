@@ -39,6 +39,9 @@ import type {
   PersonalModelMeta,
 } from "./types";
 
+// Step 3 Phase 5: 実 Stargazer adapter (= Stage A 28508617 + Stage B 56a1a6e7) への接続
+import { extractPersonalModelFromStargazer } from "./personalModelStargazerAdapter";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Synthetic input型 (= test dataset EvalUserProfile と shape 一致、 import 循環避け inline)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -156,29 +159,32 @@ export function buildPersonalModelV2FromSynthetic(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// extractPersonalModelV2 (= server entry、 実 Stargazer wire は別 Step)
+// extractPersonalModelV2 (= server entry、 Step 3 で 実 adapter 接続)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
  * userId + hdmPhase から PersonalModelV2 を取得 (= server entry)
  *
- * Step 2 v3.1 では **stub** (= 実 Stargazer wire 未着手、 readiness §13 並行運用通り):
- *   - userId が undefined / 空 → meta-only (= Phase 0 で deterministic 維持)
- *   - userId 指定あり → 安全側 fallback (= Phase 0、 meta のみ) を return
+ * **Step 3 Phase 5 (= 2026-05-25)**: 実 Stargazer adapter 接続:
+ *   - 既存 stub から `extractPersonalModelFromStargazer` (= 28508617 Stage A scaffold + 56a1a6e7 Stage B 実 wire) 呼出に置換
+ *   - 接続 1 接点 (= 本 file のみ)、 caller (= externalAnchorAdapterAsync.ts:81) は不変
+ *   - Phase 5 後の Phase 6 で real PM read-only smoke 実施予定
  *
- * 別 Step で:
- *   - axisRegistry / chronotypeFitness / lifeContext / episodicRecall から実 extraction
- *   - hdmPhase を hdmPhaseState から取得
- *   - DB read を含む async 取得
+ * 挙動:
+ *   - userId が undefined / 空 → meta-only (= Phase 0 で deterministic 維持、 早期 return)
+ *   - userId 指定あり → `extractPersonalModelFromStargazer(userId)` 呼出
+ *     - WIRE_JUDGMENT_MODE / WIRE_TIME_PREFERENCE = true (= 実 wire)
+ *     - hdmPhase = stargazer_alter_growth.hdm_phase_state.currentPhase (= 実 DB)
+ *     - 軸 confidence > 0 ⇒ scores が body に伝わる、 未観測 user は meta-only に safe degrade
  *
- * 本 step では `buildPersonalModelV2FromSynthetic` (= 評価 harness 用) のみ動作。
- * production live ON 前に実 wire を完成させる責務は別 readiness。
+ * 並行運用 (= readiness §13 維持):
+ *   - synthetic adapter `buildPersonalModelV2FromSynthetic` は不変 (= eval harness 用)
+ *   - 評価データセット で 引き続き V2 prompt 確認可能
  */
 export async function extractPersonalModelV2(
   userId?: string,
 ): Promise<PersonalModelV2> {
-  // Step 2 v3.1 stub: 実 Stargazer wire 未着手、 safe meta-only return
-  // userId 不在 → 完全 deterministic 経路 (= Phase 0、 個別化 skip)
+  // userId 不在 → 完全 deterministic 経路 (= Phase 0、 個別化 skip、 DB 接続不要)
   if (userId === undefined || userId.length === 0) {
     return {
       meta: {
@@ -188,13 +194,6 @@ export async function extractPersonalModelV2(
       },
     };
   }
-  // userId あり → 実 wire 未着手のため、 Phase 0 (= meta-only) で安全 fallback
-  // 別 Step で本実装に置換予定
-  return {
-    meta: {
-      hdmPhase: 0,
-      trustLevel: 0,
-      observationCompleteness: 0,
-    },
-  };
+  // Step 3 Phase 5: 実 Stargazer adapter 経由 (= 56a1a6e7 で Stage B 実 wire 完了済)
+  return extractPersonalModelFromStargazer(userId);
 }

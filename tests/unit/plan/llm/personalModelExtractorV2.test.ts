@@ -171,17 +171,20 @@ describe("buildPersonalModelV2FromSynthetic: Phase 別 layer 充填", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// extractPersonalModelV2 (= server stub、 Step 2 v3.1 は Phase 0 fallback)
+// extractPersonalModelV2 (= server entry、 Step 3 Phase 5 で実 adapter 接続済)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-describe("extractPersonalModelV2: server stub", () => {
-  it("userId 不在 → meta-only (Phase 0)", async () => {
+describe("extractPersonalModelV2: server entry (= Phase 5 実 adapter 接続)", () => {
+  it("userId 不在 → meta-only Phase 0 (= 早期 return、 DB 接続なし)", async () => {
     const pm = await extractPersonalModelV2();
     expect(pm.meta.hdmPhase).toBe(0);
     expect(pm.stable).toBeUndefined();
   });
 
-  it("userId 指定あり → Step 2 v3.1 では Phase 0 fallback (= 実 wire は別 Step)", async () => {
+  it("userId 指定あり (= vitest 環境、 supabase Next.js context 不在) → safe fallback Phase 0", async () => {
+    // vitest 環境では supabaseServer() の cookies() が動かないため、
+    // adapter 内部の try/catch で fail-open し meta-only Phase 0 に degrade する。
+    // 実 wire の test は personalModelStargazerAdapter.test.ts で mock 経由実施済。
     const pm = await extractPersonalModelV2("user-x");
     expect(pm.meta.hdmPhase).toBe(0);
     expect(pm.stable).toBeUndefined();
