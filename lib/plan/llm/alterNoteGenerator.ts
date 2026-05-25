@@ -114,26 +114,31 @@ export async function generateAlterNote(
   const useV2Path =
     PLAN_FLAGS.personalModelIntegration && ctx.personalModelV2 !== undefined;
 
-  // Phase 6 smoke 観測用 dev-only log (= V2 path 発火確認、 本番 emit しない)
-  if (process.env.NODE_ENV !== "production") {
-    const pm = ctx.personalModelV2;
-    console.info("[plan/alterNote] path", {
-      path: useV2Path ? "v2" : "v1",
-      hdmPhase: pm?.meta.hdmPhase ?? null,
-      hasStable: !!pm?.stable,
-      hasRecent: !!pm?.recent,
-      hasContextual: !!pm?.contextual,
-      category: ctx.category,
-    });
-  }
-
   let systemPrompt: string;
   let userPrompt: string;
   let jsonSchema: Record<string, unknown>;
+  // dev log で 「Plan 補正後 framing」 まで観測するため、 framingHint を分岐外で宣言
+  let effectiveFramingHint: PhaseFramingHint | null = null;
   if (useV2Path) {
     // V2 path: 層を分けたまま PM 注入 + Phase framing
     const phaseGate = evaluatePhaseGate(ctx.personalModelV2!.meta.hdmPhase);
-    const framingHint: PhaseFramingHint = phaseGate.framingHint;
+    let framingHint: PhaseFramingHint = phaseGate.framingHint;
+
+    // Plan 専用補正 (= CEO + GPT Option A' 2026-05-25):
+    //   adapter 側で stable layer が Plan-gate 経由で構築されている場合、
+    //   raw HDM phase < 2 由来の "no_personal_framing" だと
+    //   system prompt が 「Personal Model は無視してください」 と LLM に指示する
+    //   → stable 注入 自体が無効化される
+    //   そのため、 **stable 存在時は Phase 2 同等の soft_personal_with_hedge に格上げ**。
+    //   recent/contextual gate は不変 (= meta.hdmPhase 基準のまま、 framing も moderate/deep に上げない)
+    if (
+      ctx.personalModelV2!.stable !== undefined &&
+      framingHint === "no_personal_framing"
+    ) {
+      framingHint = "soft_personal_with_hedge";
+    }
+    effectiveFramingHint = framingHint;
+
     const prompts = buildAlterNotePromptV2(ctx, framingHint);
     systemPrompt = prompts.systemPrompt;
     userPrompt = prompts.userPrompt;
@@ -144,6 +149,27 @@ export async function generateAlterNote(
     systemPrompt = prompts.systemPrompt;
     userPrompt = prompts.userPrompt;
     jsonSchema = ALTER_NOTE_JSON_SCHEMA as Record<string, unknown>;
+  }
+
+  // Phase 6 smoke 観測用 dev-only log (= V2 path 発火 + Plan 補正後 framing 確認、 本番 emit しない)
+  if (process.env.NODE_ENV !== "production") {
+    const pm = ctx.personalModelV2;
+    console.info("[plan/alterNote] path", {
+      path: useV2Path ? "v2" : "v1",
+      rawHdmPhase: pm?.meta.hdmPhase ?? null,
+      effectiveFramingHint, // = Plan 補正後の framing (= soft_personal_with_hedge 等)
+      hasStable: !!pm?.stable,
+      hasRecent: !!pm?.recent,
+      hasContextual: !!pm?.contextual,
+      stableFields: pm?.stable
+        ? {
+            judgmentMode: pm.stable.judgmentMode ?? null,
+            timePreference: pm.stable.timePreference ?? null,
+            traitTone: pm.stable.traitTone ?? null,
+          }
+        : null,
+      category: ctx.category,
+    });
   }
 
   // 4. runAI 呼出

@@ -403,6 +403,113 @@ describe("Stage B: HdmPhase gating (= layer 注入の Phase 依存)", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Option A' (= 2026-05-25): Plan 専用 stable-layer gate
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("Option A': Plan 専用 stable-layer gate (= Alter trust phase と責務分離)", () => {
+  /**
+   * threshold (= STABLE_PLAN_AXIS_THRESHOLD = 8) を超えるか否かで挙動切替。
+   *
+   * 不変:
+   *   - meta.hdmPhase は **raw HDM phase を維持** (= 偽装しない)
+   *   - recent/contextual gate は不変 (= 8+ 軸でも hdmPhase < 3 なら recent 不在)
+   */
+
+  it("rawHdmPhase=0 + observedAxes=8 → stable 注入 (= Plan gate 解放、 meta.hdmPhase=0 維持)", async () => {
+    // 8 軸ぴったり: chronotype 5 + individual + stress_iso + 1 個追加
+    mockProfileRow = {
+      axis_beliefs: buildAxisBeliefs({
+        plan_vs_spontaneous: -0.5,
+        cautious_vs_bold: -0.3,
+        emotional_variability: -0.1,
+        emotional_regulation: 0.4,
+        analytical_vs_intuitive: 0.2,
+        individual_vs_social: -0.5,
+        stress_isolation_vs_social: -0.2,
+        direct_vs_diplomatic: 0.1, // 8 個目
+      }),
+    };
+    mockGrowthRow = { hdm_phase_state: buildHdmState(0) };
+
+    const pm = await extractPersonalModelFromStargazer("user-axes-8");
+    // raw HDM phase は 0 のまま (= 偽装しない)
+    expect(pm.meta.hdmPhase).toBe(0);
+    // 軸数 ≥ 8 で stable 解放
+    expect(pm.stable).toBeDefined();
+    expect(pm.stable?.judgmentMode).toBe("集中型");
+    expect(pm.stable?.timePreference).toBe("朝強い");
+    // recent / contextual は hdmPhase < 3 なので不在 (= gate 不変)
+    expect(pm.recent).toBeUndefined();
+    expect(pm.contextual).toBeUndefined();
+  });
+
+  it("rawHdmPhase=0 + observedAxes=7 → stable 不在 (= Plan gate threshold 未満)", async () => {
+    // 7 軸: threshold 未満
+    mockProfileRow = {
+      axis_beliefs: buildAxisBeliefs({
+        plan_vs_spontaneous: -0.5,
+        cautious_vs_bold: -0.3,
+        emotional_variability: -0.1,
+        emotional_regulation: 0.4,
+        analytical_vs_intuitive: 0.2,
+        individual_vs_social: -0.5,
+        stress_isolation_vs_social: -0.2,
+      }),
+    };
+    mockGrowthRow = { hdm_phase_state: buildHdmState(0) };
+
+    const pm = await extractPersonalModelFromStargazer("user-axes-7");
+    expect(pm.meta.hdmPhase).toBe(0);
+    expect(pm.stable).toBeUndefined();
+  });
+
+  it("rawHdmPhase=0 + observedAxes=39 (= 実 user 想定) → stable 注入", async () => {
+    // 実 user (= aneurasync@outloo.com smoke で観測した shape) を再現
+    const scores: Record<string, number> = {};
+    // 39 軸 (= 適当な keys でも shape として valid)
+    const axisKeys = [
+      "plan_vs_spontaneous", "cautious_vs_bold", "emotional_variability",
+      "emotional_regulation", "analytical_vs_intuitive", "individual_vs_social",
+      "stress_isolation_vs_social", "direct_vs_diplomatic", "introvert_vs_extrovert",
+      "perfectionist_vs_pragmatic", "independence_vs_harmony", "intimacy_pace",
+    ];
+    // 12 axes from registry + dummy 27 axes (= total 39)
+    axisKeys.forEach((k, i) => { scores[k] = (i - 6) * 0.1; });
+    for (let i = 0; i < 27; i++) {
+      scores[`dummy_axis_${i}`] = 0.1;
+    }
+
+    mockProfileRow = { axis_beliefs: buildAxisBeliefs(scores) };
+    mockGrowthRow = { hdm_phase_state: buildHdmState(0) };
+
+    const pm = await extractPersonalModelFromStargazer("user-axes-39");
+    expect(pm.meta.hdmPhase).toBe(0);
+    expect(pm.stable).toBeDefined();
+    // recent/contextual は依然不在 (= 緩めない)
+    expect(pm.recent).toBeUndefined();
+    expect(pm.contextual).toBeUndefined();
+  });
+
+  it("rawHdmPhase=3 + observedAxes=2 (= sparse but trust) → stable 注入 (= Alter trust gate 経由)", async () => {
+    // raw HDM trust 経路: 軸 sparse でも Phase >= 2 で stable 注入
+    mockProfileRow = {
+      axis_beliefs: buildAxisBeliefs({
+        individual_vs_social: -0.5,
+        stress_isolation_vs_social: -0.2,
+      }),
+    };
+    mockGrowthRow = { hdm_phase_state: buildHdmState(3) };
+
+    const pm = await extractPersonalModelFromStargazer("user-trust-sparse");
+    expect(pm.meta.hdmPhase).toBe(3);
+    // 2 軸 < 8 だが Phase >= 2 で stable 解放
+    expect(pm.stable?.judgmentMode).toBe("集中型");
+    // 軸 < 5 → timePreference undefined (= chronotype gate)
+    expect(pm.stable?.timePreference).toBeUndefined();
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Stage B: 不正 / 欠損 DB row 耐性
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

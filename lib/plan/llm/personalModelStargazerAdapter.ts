@@ -93,6 +93,51 @@ const JUDGMENT_MODE_THRESHOLD = 0.25;
 const RELATIONAL_ENERGY_THRESHOLD = 0.25;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Plan 専用 stable-layer gate (= Alter trust phase と責務分離、 CEO + GPT 2026-05-25)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Plan 専用: stable layer を解放する 観測軸 threshold
+ *
+ * 設計理由 (= CEO + GPT 補正、 Option A' 採用):
+ *   - HDM Phase は **Alter 対話 trust の安全 gate** (= 早期 deep injection 抑止)
+ *   - Plan は対話 therapy ではなく、 task UI への style 反映 layer
+ *   - 「集中型 user の夕方カフェ予定」 を 「学びに静かに沈む時間」 と書くのは
+ *     対話 trust 進行と無関係 (= Alter 安全継承は categorical error)
+ *   - そこで Plan 専用に **stable layer のみ** 別 gate を導入
+ *   - threshold 8 (= CEO 補正、 当初案 5 → 「8〜10 が安全」)
+ *     - 8 軸以上観測 = onboarding 通過 / 数回 quiz 答え済 user 相当
+ *     - 5 だと sparse user で誤適用リスク
+ *
+ * recent / contextual は **既存 HDM Phase 基準維持** (= 緩めない):
+ *   - recent (= 直近 7-14 日 lifeEvents) は最新情動状態に近く、 trust が要る
+ *   - contextual (= 当日履歴 narrative) も同様
+ *   - stable (= 数ヶ月-数年の傾向) だけが trust と独立
+ */
+const STABLE_PLAN_AXIS_THRESHOLD = 8;
+
+/**
+ * Plan 用 stable-layer 解放判定 (= 責務分離 gate)
+ *
+ * 判定:
+ *   - HDM Phase ≥ 2 (= Alter trust 進行済) → 既存契約通り許可
+ *   - **OR** 観測軸数 ≥ 8 (= Plan 専用緩和、 user が axis 観測を十分積んでいる)
+ *
+ * 不変:
+ *   - meta.hdmPhase は **真の値のまま** (= Phase 偽装 0 → 2 などしない)
+ *   - recent/contextual gate は本関数では緩和しない (= 別 readout)
+ *   - pure function (= I/O なし)
+ */
+function shouldEnableStableLayerForPlan(
+  rawHdmPhase: HdmPhase,
+  observedAxesCount: number,
+): boolean {
+  if (rawHdmPhase >= 2) return true;
+  if (observedAxesCount >= STABLE_PLAN_AXIS_THRESHOLD) return true;
+  return false;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Observed-axis filter (= prior の 0 を本人特性と誤判定しないため)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -378,7 +423,7 @@ export async function extractPersonalModelFromStargazer(
   const recentRhythm = deriveRecentRhythm(snapshot.scores);
   const energyRecovery = deriveEnergyRecovery(snapshot.scores);
 
-  // Meta build (= hdmPhase は snapshot から、 trust / completeness は Stage 後段)
+  // Meta build (= **raw HDM phase を維持**、 Phase 偽装はしない、 CEO + GPT 補正)
   const hdmPhase: HdmPhase = snapshot.hdmPhase ?? 0;
   const meta: PersonalModelMeta = {
     hdmPhase,
@@ -386,46 +431,61 @@ export async function extractPersonalModelFromStargazer(
     observationCompleteness: 0, // Stage 後段で axisRegistry 充足度算定
   };
 
+  // Plan 専用 stable-layer gate (= Alter trust phase と責務分離、 Option A' 補正)
+  //   - rawHdmPhase >= 2 (= Alter trust 進行済) → 既存通り
+  //   - OR observedAxesCount >= 8 (= Plan 専用緩和、 軸データ十分)
+  //   - recent/contextual は緩めない (= 既存 hdmPhase 基準維持)
+  const observedAxesCount = snapshot.scores
+    ? Object.keys(snapshot.scores).length
+    : 0;
+  const stableEnabledForPlan = shouldEnableStableLayerForPlan(
+    hdmPhase,
+    observedAxesCount,
+  );
+
   // Phase 6 smoke 観測用 dev-only log (= 本番では emit しない)
-  // PII 出さない (= userId は 8 文字 + ***、 軸値・mu は出さない、 短 tag のみ)
+  // PII 出さない (= userId 8 文字 + ***、 mu 値出さない、 短 tag のみ)
   if (process.env.NODE_ENV !== "production") {
-    const observedAxesCount = snapshot.scores
-      ? Object.keys(snapshot.scores).length
-      : 0;
     console.info("[plan/pm] extracted", {
       userIdPrefix: userId.slice(0, 8) + "***",
-      hdmPhase,
+      rawHdmPhase: hdmPhase,
       observedAxesCount,
+      stableEnabledForPlan,
       judgmentMode: judgmentMode ?? null,
       timePreference: timePreference ?? null,
-      layer:
-        hdmPhase < 2
-          ? "meta-only"
-          : hdmPhase === 2
-            ? "stable"
-            : hdmPhase === 3
-              ? "stable+recent"
-              : "full",
+      readout: stableEnabledForPlan
+        ? hdmPhase >= 4
+          ? "stable+recent+contextual"
+          : hdmPhase === 3
+            ? "stable+recent"
+            : "stable"
+        : "meta-only",
     });
   }
 
-  // Phase < 2 → meta-only (= 個別化 skip、 deterministic 等価)
+  // Stable layer build (= Plan 専用 gate、 raw HDM Phase に依存しない)
+  // 注: 旧 code は `if (hdmPhase < 2) return { meta }` で early return していた。
+  //     Option A' 後は stable gate を分離するため、 stable build を先行し、
+  //     gate false の場合は stable undefined で recent/contextual 判定へ進む。
+  const stable: PersonalModelStableLayer | undefined = stableEnabledForPlan
+    ? (() => {
+        const built: PersonalModelStableLayer = {
+          ...(judgmentMode ? { judgmentMode } : {}),
+          ...(timePreference ? { timePreference } : {}),
+          // energyRecovery → traitTone slot に格納 (= Stable layer の slot 名)
+          ...(energyRecovery ? { traitTone: energyRecovery } : {}),
+        };
+        return Object.keys(built).length > 0 ? built : undefined;
+      })()
+    : undefined;
+
+  // recent/contextual gate は **既存 raw HDM phase 基準のまま** (= 緩めない、 CEO 補正)
+  // Phase < 2 → recent/contextual 不在、 stable のみ (= Plan gate 経由) ある可能性
   if (hdmPhase < 2) {
-    return { meta };
+    return stable !== undefined ? { stable, meta } : { meta };
   }
 
-  // Stable layer build (= 充填 field のみ含む、 readonly 維持のため spread で構築)
-  const stable: PersonalModelStableLayer | undefined = (() => {
-    const built: PersonalModelStableLayer = {
-      ...(judgmentMode ? { judgmentMode } : {}),
-      ...(timePreference ? { timePreference } : {}),
-      // energyRecovery → traitTone slot に格納 (= Stable layer の slot 名)
-      ...(energyRecovery ? { traitTone: energyRecovery } : {}),
-    };
-    return Object.keys(built).length > 0 ? built : undefined;
-  })();
-
-  // Phase 2 → stable のみ
+  // Phase 2 → stable のみ (= recent/contextual は Phase 3+ 必要)
   if (hdmPhase === 2) {
     return stable !== undefined ? { stable, meta } : { meta };
   }
