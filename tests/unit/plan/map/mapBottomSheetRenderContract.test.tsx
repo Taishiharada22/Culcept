@@ -262,6 +262,23 @@ describe("MapBottomSheet Step β §6 CTA (= 詳細 / 経路)", () => {
 // §7 a11y / 規約 24-extended
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+describe("MapBottomSheet 9b-6 §8 animation (= slide-up)", () => {
+  const sheet = makeSheet({ pinId: 'p1', title: 'カフェ作業' });
+
+  it("§8.1 初回 render: transform translateY(100%) (= initial state)", () => {
+    // SSR / 初回 render では useEffect 未実行、 isVisible=false で translateY(100%)
+    const markup = renderToStaticMarkup(<MapBottomSheet sheet={sheet} onClose={() => {}} />);
+    expect(markup).toContain('translateY(100%)');
+  });
+
+  it("§8.2 transition style (= 250ms cubic-bezier、 iOS-like easing)", () => {
+    const markup = renderToStaticMarkup(<MapBottomSheet sheet={sheet} onClose={() => {}} />);
+    expect(markup).toContain('transition');
+    expect(markup).toContain('transform 250ms');
+    expect(markup).toContain('cubic-bezier(0.32, 0.72, 0, 1)');
+  });
+});
+
 describe("MapBottomSheet Step β §7 規約 24-extended + 絵文字", () => {
   it("§7.1 focus-visible:border-slate-* のみ (= brand-color focus 禁止)", () => {
     const sheet = makeSheet({ pinId: 'p1' });

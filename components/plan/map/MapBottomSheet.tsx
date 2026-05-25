@@ -29,7 +29,7 @@
  *   - lib/plan/map/types.ts (= MapSheetViewModel)
  */
 
-import { type ComponentType, type ReactNode } from "react";
+import { type ComponentType, type ReactNode, useEffect, useState } from "react";
 
 import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import type { EventCategory } from "@/lib/plan/list/types";
@@ -313,6 +313,21 @@ export function MapBottomSheet({
   onOpenDetail,
   routeUrl,
 }: MapBottomSheetProps): ReactNode {
+  // 9b-6 animation: sheet 表示時に下から slide-up (= mount 時 transform translateY(100%) → 0)
+  //   - sheet=null → return null (= 即 unmount、 exit animation なし first-pass)
+  //   - sheet=set → 初回 frame で translateY(100%)、 次 frame で 0、 CSS transition で animate
+  //   - pin 切替 (= sheet 維持で内容変化) → 既に isVisible=true、 animation 再発火なし (= 自然な内容 swap)
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (sheet) {
+      // 次 frame で visible 化 (= 初回 render の translateY(100%) から CSS transition 発火)
+      const id = requestAnimationFrame(() => setIsVisible(true));
+      return () => cancelAnimationFrame(id);
+    }
+    setIsVisible(false);
+  }, [sheet]);
+
   if (!sheet) return null;
 
   const Icon = CATEGORY_ICON_COMPONENT[sheet.category];
@@ -332,7 +347,12 @@ export function MapBottomSheet({
       aria-label={`${sheet.title} の詳細`}
       data-testid="plan-map-bottom-sheet"
       className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-2xl rounded-t-3xl border-t border-slate-200 bg-white shadow-2xl"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      style={{
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
+        // 9b-6 slide-up animation (= 250ms cubic-bezier iOS-like easing)
+        transform: isVisible ? "translateY(0)" : "translateY(100%)",
+        transition: "transform 250ms cubic-bezier(0.32, 0.72, 0, 1)",
+      }}
     >
       {/* Handle (= 上端中央 pill、 Step β 視覚化、 drag は 9b) */}
       <div className="flex justify-center pt-3 pb-1">
