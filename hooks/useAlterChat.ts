@@ -13,6 +13,7 @@ import {
   markSnoozed,
   markNotAsked, // PR B-2d-d: declined → not_asked recovery
   getEffectiveOptInState,
+  SNOOZE_DURATION_MS, // Phase 2-A blocker fix: in-memory state 直接更新で使用
   type LocationOptInRecord,
 } from "@/lib/alter-morning/journey/locationOptIn";
 // PR B-2d-d: declined recovery 判定を pure helper に切り出し (test 容易性)
@@ -439,8 +440,21 @@ export function useAlterChat(options?: UseAlterChatOptions) {
               ? new Date(pos.timestamp).toISOString()
               : null,
           });
-          markGranted();
-          setOptInRecord(readLocationOptIn());
+          // Phase 2-A blocker fix (2026-05-20、CEO smoke で banner 非 dismiss を観測):
+          //   旧実装は markGranted() + setOptInRecord(readLocationOptIn()) で localStorage
+          //   round-trip 経由で state を更新。React 19 dev strict mode の double-render や
+          //   何らかの race condition で read 値が stale になるケースがあり、banner が
+          //   unmount されない事象を CEO local smoke で確認。
+          //   in-memory state を直接 set してから localStorage に永続化する順序に変更。
+          //   banner dismissal は in-memory state に依存、localStorage は次回 mount での復元用。
+          const nowMs = Date.now();
+          const grantedAt = new Date(nowMs).toISOString();
+          markGranted(nowMs);
+          setOptInRecord({
+            state: "granted",
+            grantedAt,
+            updatedAt: grantedAt,
+          });
           setBannerMode("normal"); // banner unmount するので reset しておく
         } else {
           // coords が NaN/Infinity (異常値) → error 扱い
@@ -449,8 +463,13 @@ export function useAlterChat(options?: UseAlterChatOptions) {
       },
       (err) => {
         if (err.code === err.PERMISSION_DENIED) {
+          // Phase 2-A blocker fix: in-memory state 直接更新 (上記 grant 経路と同パターン)
+          const updatedAt = new Date().toISOString();
           markDeclined();
-          setOptInRecord(readLocationOptIn());
+          setOptInRecord({
+            state: "declined",
+            updatedAt,
+          });
           setBannerMode("normal"); // banner unmount するので reset
         } else {
           // POSITION_UNAVAILABLE / TIMEOUT: state 不変、ユーザー再操作可能
@@ -465,10 +484,22 @@ export function useAlterChat(options?: UseAlterChatOptions) {
    * 「あとで」押下時のフロー。
    *
    * 副作用: markSnoozed() (7 日 snooze)、optInRecord 更新 → banner unmount。
+   *
+   * Phase 2-A blocker fix (2026-05-20、CEO smoke):
+   *   in-memory state を直接 set して banner 即時 unmount を保証。
+   *   localStorage 永続化は markSnoozed で別途 (次回 mount での復元用)。
+   *   旧 setOptInRecord(readLocationOptIn()) は React 19 strict mode 等で race
+   *   condition が起き、banner が unmount されないケースを観測したため変更。
    */
   const handleLocationOptInSnooze = useCallback(() => {
-    markSnoozed();
-    setOptInRecord(readLocationOptIn());
+    const nowMs = Date.now();
+    const snoozeUntil = new Date(nowMs + SNOOZE_DURATION_MS).toISOString();
+    markSnoozed(nowMs);
+    setOptInRecord({
+      state: "snoozed",
+      snoozeUntil,
+      updatedAt: new Date(nowMs).toISOString(),
+    });
     setBannerMode("normal");
   }, []);
 

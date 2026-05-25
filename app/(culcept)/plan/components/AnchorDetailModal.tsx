@@ -31,7 +31,7 @@ import {
   buildDeleteImpactSummary,
   formatExceptionDates,
   formatJpDateLong,
-  formatLocation,
+  formatLocationDisplayParts,
   formatRRuleJp,
   formatTimeRange,
   formatValidityRange,
@@ -39,6 +39,10 @@ import {
   SENSITIVE_LABEL,
   SOURCE_TYPE_LABEL,
 } from "@/lib/plan/anchor-detail-format";
+import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
+import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
+import { displayProposalAwareNotes } from "@/lib/plan/proposal/displayNotes";
+import { pickBrandIcon } from "@/lib/plan/brandIconMap";
 import { deleteAnchorSource } from "@/lib/plan/anchor-fetch";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
@@ -159,8 +163,61 @@ export function AnchorDetailModal({
           </GlassBadge>
         </DetailRow>
 
-        {/* 場所 */}
-        <DetailRow label="場所">{formatLocation(anchor)}</DetailRow>
+        {/*
+         * Phase 2-F: Detail density (= displayCategoryLabel + primary + secondary 3 段)
+         * - displayCategoryLabel: 補正 6 で重複抑制済 (categoryLabel === primary なら undefined)
+         * - primary: 主名 (canonical の displayName / 補正 2 fallback で保存情報消えない)
+         * - secondary: 補助 (canonical の address のみ)
+         * - 全空 → 「場所未指定」 既存文言維持
+         * - DetailRow 構造不変、children 内で段組
+         * - sensitive masking は既存仕様 (AnchorDetailModal は user 自身のみ開ける modal、内部 UI で開示は設計通り)
+         */}
+        <DetailRow label="場所">
+          {(() => {
+            const parts = formatLocationDisplayParts(anchor);
+            if (!parts.displayCategoryLabel && !parts.primary) {
+              return <span className="text-slate-400">場所未指定</span>;
+            }
+            // Phase 2-I 拡張: brand 優先 (= 「スタバなら スタバ icon」)
+            // 優先順位: sensitive > brand > category
+            const isSensitive = !!anchor.sensitiveCategory;
+            const brandHit = !isSensitive
+              ? pickBrandIcon(anchor.locationText)
+              : null;
+            const CategoryIcon = pickCategoryIcon({
+              category: anchor.locationCategory,
+              sensitive: isSensitive,
+            });
+            const colorClass = pickCategoryColorClass({
+              category: anchor.locationCategory,
+              sensitive: isSensitive,
+            });
+            return (
+              <div className="flex flex-col gap-0.5">
+                {parts.displayCategoryLabel && (
+                  <span className="text-xs text-slate-500 inline-flex items-center gap-1">
+                    {brandHit ? (
+                      <brandHit.icon className="w-3.5 h-3.5" />
+                    ) : (
+                      <CategoryIcon className={`w-3.5 h-3.5 ${colorClass}`} />
+                    )}
+                    {parts.displayCategoryLabel}
+                  </span>
+                )}
+                {parts.primary && (
+                  <span className="text-sm font-medium text-slate-900">
+                    {parts.primary}
+                  </span>
+                )}
+                {parts.secondary && (
+                  <span className="text-xs text-slate-500">
+                    {parts.secondary}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+        </DetailRow>
 
         {/* sensitive */}
         {anchor.sensitiveCategory && (
@@ -171,12 +228,21 @@ export function AnchorDetailModal({
           </DetailRow>
         )}
 
-        {/* 登録元 (source) */}
+        {/* 登録元 (source)
+         *
+         * Phase 3-J-6b: source.notes は displayProposalAwareNotes 経由で表示する。
+         * proposal accept 由来 anchor の notes には trace prefix "alter-proposal:..." が
+         * 入るが、 これは internal only。 表示時には strip + 「提案から追加」 label に
+         * 変換 (= proposalId 完全 hide、 Invariant 17)。
+         */}
         {source && (
           <DetailRow label="登録元">
             {SOURCE_TYPE_LABEL[source.sourceType]} ·{" "}
             {source.capturedAt.slice(0, 10)} に登録
-            {source.notes ? ` · ${source.notes}` : ""}
+            {(() => {
+              const notesDisplay = displayProposalAwareNotes(source.notes);
+              return notesDisplay ? ` · ${notesDisplay}` : "";
+            })()}
           </DetailRow>
         )}
 

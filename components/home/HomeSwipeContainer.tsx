@@ -186,11 +186,16 @@ export default function HomeSwipeContainer({
               aria-roledescription="swipeable pane"
               aria-hidden={inactive}
               tabIndex={inactive ? -1 : 0}
-              // inert: 旧仕様の "inactive" 状態の代替。React 19 / Next 15 で
-              // 標準サポート。tabindex / pointer-events / aria-hidden の全てを
-              // recursively 一発で適用 (a11y + 操作の二重防御)。
-              // 型に inert がない場合は string 化で問題なく動作。
-              {...((inactive ? { inert: "" } : {}) as Record<string, string>)}
+              // inert: React 19 で標準サポート (HTMLAttributes に inert?: boolean)。
+              //   - inactive=true  → inert={true}      → DOM `inert` attribute 効く
+              //   - inactive=false → inert={undefined} → attribute 不在 (active pane は通常 interactive)
+              //
+              // 履歴: PR #214 で `inert: ""` 文字列を spread していたが、React 19 が
+              //   "Received an empty string for a boolean attribute" warning を出し、
+              //   inert を **false 扱い**にしてしまうため、inactive pane が isolation
+              //   できず active 側に rendering error / click 不能の二次症状を誘発した
+              //   (CEO smoke 2026-05-20 で観測)。本 commit で boolean 直渡しに修正。
+              inert={inactive || undefined}
               className="flex-shrink-0 h-full overflow-hidden relative"
               style={{
                 width: `${100 / PANE_COUNT}%`,

@@ -38,6 +38,14 @@ import {
 } from "@/lib/plan/anchor-input-form";
 import type { Weekday } from "@/lib/plan/weekday-template";
 
+import {
+  PlaceCandidatesPanel,
+  type PlaceCandidate,
+} from "./PlaceCandidatesPanel";
+import { useBiasContext } from "./_useBiasContext";
+import { inferLocationCategory } from "@/lib/plan/categoryInference";
+import { LOCATION_CATEGORY_LABEL } from "@/lib/plan/anchor-detail-format";
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 const WEEKDAY_LABELS: ReadonlyArray<{ value: Weekday; label: string }> = [
@@ -94,6 +102,25 @@ export function AnchorFormFields({
     [form.selectedWeekdays]
   );
   const sourceTypeDefault = defaultSourceTypeForKind(form.kind);
+
+  // Phase 2-D: PlaceCandidatesPanel 用 bias context (baseline-only v1)
+  const { biasContext } = useBiasContext();
+
+  // Phase 2-D: PlaceCandidatesPanel handlers
+  // 候補 tap → locationText を canonical text に更新 (= "displayName · address")
+  const handlePlaceCandidateSelect = (
+    canonicalText: string,
+    _candidate: PlaceCandidate,
+  ) => {
+    onChange("locationText", canonicalText);
+    // Note: cache write to place_resolution_cache は本 wave 範囲外 (Phase 2-D+ 預け)。
+    // MapTab 初回 geocode で resolved になる (+1 Places API call、cache 化される)。
+  };
+
+  // 候補を選ばずに保存 → 何もしない (panel 内部で close 処理)
+  const handlePlaceCandidateSkip = () => {
+    // no-op: 親では locationText を変えない、panel が closed 状態に
+  };
 
   // W1-X4: exception dates の add 候補（form state には含めない、submit 対象でない）
   const [exceptionCandidate, setExceptionCandidate] = useState("");
@@ -160,7 +187,7 @@ export function AnchorFormFields({
           onChange={(e) => onChange("title", e.target.value)}
           disabled={submitting}
           placeholder="歯科予約 / 週次ミーティング 等"
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
         />
       </Field>
 
@@ -172,7 +199,7 @@ export function AnchorFormFields({
             value={form.date}
             onChange={(e) => onChange("date", e.target.value)}
             disabled={submitting}
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
           />
         </Field>
       ) : (
@@ -183,7 +210,7 @@ export function AnchorFormFields({
               value={form.validFrom}
               onChange={(e) => onChange("validFrom", e.target.value)}
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             />
           </Field>
           <Field label="曜日" error={errorsByField.get("recurrenceRule")}>
@@ -256,7 +283,7 @@ export function AnchorFormFields({
                   onChange={(e) => setExceptionCandidate(e.target.value)}
                   disabled={submitting}
                   data-testid="plan-form-exception-candidate"
-                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
                 />
                 <button
                   type="button"
@@ -320,7 +347,7 @@ export function AnchorFormFields({
           value={form.startTime}
           onChange={(e) => onChange("startTime", e.target.value)}
           disabled={submitting}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
         />
       </Field>
 
@@ -350,6 +377,45 @@ export function AnchorFormFields({
         </div>
       </Field>
 
+      {/*
+       * Phase 2-D 補正 (CEO 補正 2026-05-21): locationText を「もっと細かく」 disclosure 外の
+       * 主要 field へ昇格。CEO 指示「場所の設定が教える の下に埋もれている」 の core 解決。
+       *
+       * - input は常時 visible (rigidity の直下)
+       * - 直下に PlaceCandidatesPanel (非強制 UI、close/skip 可)
+       * - sensitiveCategory が set されたら panel は完全抑制
+       * - locationCategory は disclosure 内に残す (CEO C2 scope minimum、locationText のみ昇格)
+       */}
+      <Field label="場所（任意）" error={errorsByField.get("locationText")}>
+        {/*
+         * Phase 2-D C3 polish: focus-visible ring 統一 (PlaceCandidatesPanel と整合)
+         * keyboard focus 時に subtle indigo ring、mouse focus 時は不要
+         */}
+        <input
+          type="text"
+          value={form.locationText}
+          onChange={(e) => onChange("locationText", e.target.value)}
+          disabled={submitting}
+          placeholder="例: 成田のスタバ / 渋谷歯科クリニック"
+          data-testid="plan-form-location-text"
+          className="
+            w-full rounded-lg border border-slate-200 px-3 py-2 text-sm
+            transition-colors duration-150
+            focus:outline-none focus-visible:border-slate-300
+            focus-visible:ring-2 focus-visible:ring-slate-300
+            disabled:opacity-50
+          "
+        />
+        <PlaceCandidatesPanel
+          query={form.locationText}
+          title={form.title}
+          biasContext={biasContext}
+          sensitive={!!form.sensitiveCategory}
+          onSelect={handlePlaceCandidateSelect}
+          onSkip={handlePlaceCandidateSkip}
+        />
+      </Field>
+
       {/* Optional 折り畳み */}
       <button
         type="button"
@@ -368,7 +434,7 @@ export function AnchorFormFields({
               value={form.endTime}
               onChange={(e) => onChange("endTime", e.target.value)}
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             />
           </Field>
 
@@ -379,7 +445,7 @@ export function AnchorFormFields({
                 value={form.validUntil}
                 onChange={(e) => onChange("validUntil", e.target.value)}
                 disabled={submitting}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
               />
             </Field>
           )}
@@ -394,7 +460,7 @@ export function AnchorFormFields({
                 )
               }
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             >
               <option value="">未選択</option>
               {LOCATION_CATEGORY_OPTIONS.map((o) => (
@@ -403,18 +469,48 @@ export function AnchorFormFields({
                 </option>
               ))}
             </select>
+            {/*
+             * Phase 2-H: Category Inference suggestion chip (= subtle、非強制)
+             * - 予定名から推定したカテゴリと、user 選択値が違う場合のみ表示
+             * - tap で auto-apply (= 強制ではなく user 選択を補助)
+             * - 推定不能 (null) なら chip 非表示
+             * - 警告色なし、 muted slate / italic で Aneurasync 思想整合
+             */}
+            {(() => {
+              const inferred = inferLocationCategory(form.title);
+              if (!inferred) return null;
+              if (form.locationCategory === inferred) return null;
+              const label = LOCATION_CATEGORY_LABEL[inferred];
+              return (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChange(
+                      "locationCategory",
+                      inferred as AnchorFormState["locationCategory"],
+                    )
+                  }
+                  disabled={submitting}
+                  data-testid="plan-form-category-suggestion-chip"
+                  className="
+                    mt-1.5 inline-flex items-center gap-1
+                    text-xs text-slate-500 italic
+                    hover:text-indigo-600
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300
+                    rounded-md px-1
+                  "
+                >
+                  💡 「{form.title}」 → <span className="font-medium">{label}</span> ですか?
+                </button>
+              );
+            })()}
           </Field>
 
-          <Field label="場所名（任意）" error={errorsByField.get("locationText")}>
-            <input
-              type="text"
-              value={form.locationText}
-              onChange={(e) => onChange("locationText", e.target.value)}
-              disabled={submitting}
-              placeholder="渋谷歯科クリニック 等"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
-            />
-          </Field>
+          {/*
+           * Phase 2-D 補正: locationText (場所名) は disclosure 外の主要 field へ昇格済 (上記参照)。
+           * 本 disclosure には locationCategory / sensitiveCategory / endTime / validUntil 等の
+           * advanced field のみ残す。
+           */}
 
           <Field label="敏感カテゴリ（任意）" error={errorsByField.get("sensitiveCategory")}>
             <select
@@ -426,7 +522,7 @@ export function AnchorFormFields({
                 )
               }
               disabled={submitting}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-400 focus:outline-none disabled:opacity-50"
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus-visible:border-slate-300 disabled:opacity-50"
             >
               <option value="">未選択</option>
               {SENSITIVE_CATEGORY_OPTIONS.map((o) => (

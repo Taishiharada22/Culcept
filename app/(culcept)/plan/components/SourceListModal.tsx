@@ -28,6 +28,7 @@ import { registerHomeSwipeModalOpen } from "@/lib/home-swipe-modal-lock";
 import { deleteAnchorSource } from "@/lib/plan/anchor-fetch";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
 import type { ExternalAnchorSource } from "@/lib/plan/external-anchor-source";
+import { displayProposalAwareNotes } from "@/lib/plan/proposal/displayNotes";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -132,10 +133,18 @@ export function SourceListModal({
                   <li key={s.id}>
                     <GlassCard className="p-3">
                       <header className="flex items-baseline justify-between gap-2">
+                        {/*
+                         * Phase 3-J-6b: s.notes は displayProposalAwareNotes 経由で表示。
+                         * proposal accept 由来 notes の "alter-proposal:..." prefix は
+                         * 「提案から追加」 label に変換 (= proposalId 完全 hide)。
+                         */}
                         <p className="text-xs font-medium text-slate-500">
                           {SOURCE_TYPE_LABELS[s.sourceType]} ·{" "}
                           {s.capturedAt.slice(0, 10)} に登録
-                          {s.notes && ` · ${s.notes}`}
+                          {(() => {
+                            const notesDisplay = displayProposalAwareNotes(s.notes);
+                            return notesDisplay ? ` · ${notesDisplay}` : "";
+                          })()}
                         </p>
                         <GlassBadge variant="default" size="sm">
                           {list.length} 件

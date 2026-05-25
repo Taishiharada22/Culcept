@@ -131,6 +131,11 @@ export function createMockSupabaseClient(
     let insertPayload: Record<string, unknown> | Record<string, unknown>[] | null = null;
     let updatePayload: Record<string, unknown> | null = null;
     const filters: Array<[string, unknown]> = [];
+    /**
+     * Phase 2-C v3 C1 で追加: `.in(col, [vals])` filter support (additive、`.eq` は不変)
+     * 既存 test は `.in()` を使っていないので影響なし
+     */
+    const inFilters: Array<[string, unknown[]]> = [];
     let returnRows = false;
     let isSingle = false;
     let isMaybeSingle = false;
@@ -165,6 +170,14 @@ export function createMockSupabaseClient(
         filters.push([col, val]);
         return builder;
       },
+      /**
+       * Phase 2-C v3 C1 で追加: `.in(col, [vals])` で col の値が vals に含まれる行を filter。
+       * additive: `.eq` の挙動は変えない、別 filter 配列で記録。
+       */
+      in(col: string, vals: unknown[]) {
+        inFilters.push([col, vals]);
+        return builder;
+      },
       single() {
         isSingle = true;
         return builder;
@@ -195,7 +208,14 @@ export function createMockSupabaseClient(
     };
 
     function applyFilters(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-      return rows.filter((row) => filters.every(([col, val]) => row[col] === val));
+      let result = rows.filter((row) =>
+        filters.every(([col, val]) => row[col] === val),
+      );
+      // Phase 2-C v3 C1: `.in()` filter は eq filter の後に適用 (順序不変、AND 結合)
+      for (const [col, vals] of inFilters) {
+        result = result.filter((row) => vals.includes(row[col]));
+      }
+      return result;
     }
 
     function execute(): {
