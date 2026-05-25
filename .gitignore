@@ -75,3 +75,6 @@ supabase/.temp/
 
 # Stage 2.3 variant quality review 一時出力 (CEO 厳守: commit しない、PII 含む可能性)
 .tmp/
+
+# P2 Step 2 G3-B judge harness 一時出力 (= local result JSON、 commit しない)
+tmp/
