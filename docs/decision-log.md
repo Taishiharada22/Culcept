@@ -4,6 +4,88 @@
 
 ---
 
+## 2026-05-26 [Build] P3 redefinition + Phase Next 6 軸記録 [承認: CEO 直接指示]
+
+### CEO 指示 (= 一字一句、 抜粋)
+
+> 「世界観に固執しすぎないでください。 固執しすぎると、 自由な発想がなくなります。
+> 自由に想像してください。 最終的に目指すものだけ意識してください。
+> **最終的には、 ユーザーが予定を立てなくても勝手に最良の予定が既にできあがってる状態**です。」
+
+> 「外部予定取り込みの主導線は OAuth に変えてください。 .ics は fallback に降格。」
+
+### P3 redefinition (旧 → 新)
+
+| 旧 | 新 |
+|----|-----|
+| P3 = 「.ics import を作る」 | P3 = 「**制約取り込み基盤** (= ゴールへの前提整備)」 |
+| .ics 単独 | **3 段構成**: P3-A (OAuth 主導線) / P3-B (.ics fallback) / P3-C (URL subscription) |
+
+```
+P3-A: OAuth 連携 (= 主導線)
+    P3-A-1: Google Calendar OAuth (← 次着手、 readiness 起草済)
+    P3-A-2: Microsoft Outlook OAuth (= P3-A-1 完了後)
+
+P3-B: .ics file upload (= fallback、 W1-W3 で完成済)
+    branch: feat/alter-plan-p3-ics-import-w1 (= commit fd6d827a まで)
+    migration: 20260526100000_p3_ics_import.sql (= apply HOLD)
+
+P3-C: ICS URL / subscription (= Apple/iCloud 等 fallback、 P3-A 完了後)
+```
+
+### Phase Next 6 軸記録 (= P3 完了後の本丸候補、 各 3 行)
+
+P3 は手段。 ゴール (= 予定が勝手にできあがる) に到達する本丸を 6 軸で記録:
+
+**Next-1: Rhythm baseline 学習**
+- 目指す: 取り込んだ予定 + 編集履歴 + 達成率から 「あなたの自然な rhythm」 を pattern 化
+- 必要: 個別 event を並べるだけの calendar との差別化、 Aneurasync 独自価値の核
+- defer 理由: P3 で観測源 (= 取り込み層) を整える前に rhythm 学習を作っても fuel がない
+
+**Next-2: 1 日構成権限の Alter 委譲**
+- 目指す: task 入力なしで Alter が前日夜/朝に 「今日はこれです」 を proactively 提示
+- 必要: CEO ゴール 「予定を立てなくても勝手に最良の予定」 の中核機能、 Motion すら超える
+- defer 理由: Next-1 (= rhythm) が前提、 P3 完了 + Next-1 完了後に着手
+
+**Next-3: 詩学的予定言語**
+- 目指す: 「14:00 散歩」 → 「午後の光が一番きれいな時間、 外に出ましょう」 等の状態描写型 / 解釈型文体
+- 必要: Aneurasync 文体思想 (= 既存 List 8b CategoryMeaning 等) を calendar に持ち込む
+- defer 理由: 予定生成 logic (= Next-1/2) が動いてから言語化 layer を被せるべき
+
+**Next-4: State-aware multi-rhythm (= HDM v1 連動)**
+- 目指す: 平日 / 休日 / 元気 / 疲れ で別 rhythm 切替 (= 「複数の自分」 ごとの rhythm)
+- 必要: HDM v1 「複数自分の可視化」 直結、 単一 rhythm では Aneurasync の精度が出ない
+- defer 理由: Next-1 で baseline 1 つを確立してから 「状態別」 へ拡張すべき
+
+**Next-5: Failure as observation**
+- 目指す: 「歩く予定だったけど雨で行けなかった」 等 failure を学習信号として観測
+- 必要: 他 calendar app に無い独自観測軸、 Aneurasync の自己理解強化の入口
+- defer 理由: P3 問 10 (= user 編集の学習信号化) で観測点だけ確保、 詳細設計は後
+
+**Next-6: 「今」 が主役 UI 反転**
+- 目指す: 週/月 view ではなく 「次の 1 時間」 が前景の ambient calendar
+- 必要: 「ユーザーが意識する前に予定が立っている」 (= CEO ゴール) の UI 体現
+- defer 理由: 予定生成 (= Next-1/2) が動いてから UI 反転を検討すべき
+
+### 革新案 X / Y / Z の合流先
+
+- **X (= Calendar gap noticing)**: Next-1 / Next-2 に合流 (= 空白から欲求引き出し)
+- **Y (= Pattern Inference 先行)**: Next-1 / Next-2 に合流 (= pattern 一次表示)
+- **Z (= Soft connect)**: **主導線から降格**、 内部 rollout / 安全設計として保持 (= GPT 案採用、 CEO ゴール 「意識させない」 と主導線では噛み合わない)
+
+### 着地ルール
+
+- P3 scope に Phase Next を混ぜない (= 文書肥大防止)
+- 各 Next 軸の詳細設計は **着手時** の readiness で扱う (= 今は記録のみ)
+- 着手順序: P3-A-1 → P3-A-2 → P3-B (= 既存保持) → P3-C → Next-1 → Next-2 → ...
+
+### 関連 docs
+
+- `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草、 本体 12 問 + Appendix 3 項目)
+- `docs/alter-plan-p3-ics-import-readiness.md` (= 旧、 P3-B fallback として保持)
+
+---
+
 ## 2026-05-25 [Build] Plan 9 closeout cleanup 完了 (= 「最新の状態を確実に保存」 達成) [承認: CEO 直接指示]
 
 ### CEO 指示 (= 一字一句)
