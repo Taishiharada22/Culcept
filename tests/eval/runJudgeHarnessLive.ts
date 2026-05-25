@@ -469,6 +469,19 @@ async function main() {
     mkdirSync(dirname(resultFile), { recursive: true });
     writeFileSync(resultFile, JSON.stringify(result, null, 2), "utf-8");
     console.info(`[runJudgeHarnessLive] saved: ${resultFile}`);
+    // Raw entries も別 file に保存 (= judge 失敗除外などの再分析用)
+    const entriesFile = resultFile.replace(".json", "-entries.json");
+    const rawEntries = entries.map((e) => ({
+      caseId: e.caseId,
+      source: e.candidate.source,
+      text: e.candidate.text,
+      latencyMs: e.candidate.latencyMs,
+      score: e.score,
+      category: e.category,
+      comment: e.comment,
+    }));
+    writeFileSync(entriesFile, JSON.stringify(rawEntries, null, 2), "utf-8");
+    console.info(`[runJudgeHarnessLive] entries saved: ${entriesFile}`);
   } catch (e) {
     console.warn(`[runJudgeHarnessLive] save failed:`, e);
   }
