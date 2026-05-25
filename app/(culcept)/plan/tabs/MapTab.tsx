@@ -102,6 +102,8 @@ import {
 import type { MapSheetViewModel } from "@/lib/plan/map/types";
 // Step γ: 独自 pin (= 涙型 SVG data URI + 白抜き icon、 newMode 時のみ)
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
+// Step δ: 左下 当日リスト / 凡例 hybrid (= newMode 時のみ)
+import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -353,6 +355,26 @@ export function MapTab({
     onAnchorClick(newSelectedAnchor);
   }, [newSelectedAnchor, onAnchorClick]);
 
+  // ── Step δ: DayItemsPanel 用 当日 item list (= 時刻順、 category 解決) ──
+  const dayItemsForPanel = useMemo<DayItem[]>(() => {
+    if (!MAP_NEW_SURFACE_ENABLED) return [];
+    return [...dayAnchors]
+      .sort((a, b) => a.startTime.localeCompare(b.startTime))
+      .map((a) => ({
+        anchorId: a.id,
+        category: resolveMapEventCategory(a),
+      }));
+  }, [dayAnchors]);
+
+  // ── Step δ: DayItemsPanel row tap handler (= anchorId → anchor 解決 → handleNewPinTap 経由) ──
+  const handleDayItemTap = useCallback(
+    (anchorId: string) => {
+      const anchor = dayAnchors.find((a) => a.id === anchorId);
+      if (anchor) handleNewPinTap(anchor);
+    },
+    [dayAnchors],
+  );
+
   // ── 現在 bottom card で表示する anchor (default = day の最初の anchor) ──
   const selectedAnchorForCard = useMemo<ExternalAnchor | null>(() => {
     if (selectedAnchorId) {
@@ -517,6 +539,9 @@ export function MapTab({
         onBackgroundClick={MAP_NEW_SURFACE_ENABLED ? handleNewSheetClose : undefined}
         // 9a-impl: PlanMapView 内 controls + visual 補正用 flag
         newMode={MAP_NEW_SURFACE_ENABLED}
+        // Step δ: 左下 当日リスト panel data (= flag ON 時のみ非空、 OFF 時 []) + tap handler
+        dayItemsForPanel={dayItemsForPanel}
+        onDayItemTap={MAP_NEW_SURFACE_ENABLED ? handleDayItemTap : undefined}
       />
 
       {/* 9a-impl Step β 新 BottomSheet (= flag ON、 8 段構造、 CTA 2 + image slot β) */}
@@ -743,6 +768,8 @@ function PlanMapView({
   onPinClick,
   onBackgroundClick,
   newMode = false,
+  dayItemsForPanel,
+  onDayItemTap,
 }: {
   pins: AnchorWithCoord[];
   baselineCoords: BaselineCoords | null;
@@ -765,6 +792,16 @@ function PlanMapView({
    * - true: zoomControl 有効 + 現在地 button + marker visual 弱補正 (= scale+2 + shadow + z-index)
    */
   newMode?: boolean;
+  /**
+   * Step δ: DayItemsPanel 用 当日 item list (= 時刻順、 newMode 時のみ非空、 OFF 時 []) 。
+   *   panel は map div 内 absolute 左下、 newMode かつ非空のみ render。
+   */
+  dayItemsForPanel?: ReadonlyArray<DayItem>;
+  /**
+   * Step δ: DayItemsPanel row tap handler (= 該 anchorId を newSelectedPinId に同期)。
+   *   newMode 専用、 OFF 時 undefined。
+   */
+  onDayItemTap?: (anchorId: string) => void;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -1181,6 +1218,17 @@ function PlanMapView({
             <p className="text-xs text-slate-500 mt-1">{overlay.sub}</p>
           </div>
         </div>
+      )}
+
+      {/* Step δ: DayItemsPanel (= 左下 当日リスト / 凡例 hybrid、 newMode 時のみ)
+       *   旧 Category legend (= 下) を newMode で置換、 panel は機能 + 視覚で凡例を兼ねる
+       */}
+      {newMode && dayItemsForPanel && onDayItemTap && (
+        <DayItemsPanel
+          items={dayItemsForPanel}
+          selectedId={selectedAnchorId}
+          onItemTap={onDayItemTap}
+        />
       )}
 
       {/* Category legend overlay (mockup: bottom-left、active categories のみ)
