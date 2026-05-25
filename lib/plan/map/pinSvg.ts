@@ -168,11 +168,14 @@ export function generatePinSvgDataUri(
       `<text x="20" y="10.5" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="${isSelected ? 10 : 9}" font-weight="600" fill="#374151">${escapeXml(timeLabel)}</text>`
     : '';
 
+  // 9b-1 carry: icon 中心微調整
+  //   旧 transform (11, 25): icon center (20, 34) ← upper bulb 幾何中心
+  //   新 transform (11, 24): icon center (20, 33) ← 視覚的重心 (= cafe/work 等が下重心の補正)
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" viewBox="0 0 ${viewBoxWidth} ${viewBoxHeight}">` +
     labelEl +
     `<path d="${TEARDROP_PATH}" fill="${color}" stroke="white" stroke-width="${teardropStroke}"/>` +
-    `<g transform="translate(11, 25)" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
+    `<g transform="translate(11, 24)" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
     iconPath +
     `</g>` +
     `</svg>`;

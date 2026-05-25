@@ -104,6 +104,8 @@ import type { MapSheetViewModel } from "@/lib/plan/map/types";
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // Step δ: 左下 当日リスト / 凡例 hybrid (= newMode 時のみ)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
+// 9b-1 carry: selected pin title overlay (= sheet で隠れない map 上部固定)
+import { MapSelectedPinLabel } from "@/components/plan/map/MapSelectedPinLabel";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -550,6 +552,8 @@ export function MapTab({
         // Step δ: 左下 当日リスト panel data (= flag ON 時のみ非空、 OFF 時 []) + tap handler
         dayItemsForPanel={dayItemsForPanel}
         onDayItemTap={MAP_NEW_SURFACE_ENABLED ? handleDayItemTap : undefined}
+        // 9b-1 carry: selected pin の sheet view model (= overlay label 用、 newMode 専用)
+        selectedSheetForLabel={MAP_NEW_SURFACE_ENABLED ? newSheet : null}
       />
 
       {/* 9a-impl Step β 新 BottomSheet (= flag ON、 8 段構造、 CTA 2 + image slot β) */}
@@ -778,6 +782,7 @@ function PlanMapView({
   newMode = false,
   dayItemsForPanel,
   onDayItemTap,
+  selectedSheetForLabel,
 }: {
   pins: AnchorWithCoord[];
   baselineCoords: BaselineCoords | null;
@@ -810,6 +815,11 @@ function PlanMapView({
    *   newMode 専用、 OFF 時 undefined。
    */
   onDayItemTap?: (anchorId: string) => void;
+  /**
+   * 9b-1 carry: selected pin の sheet view model (= map 上部 overlay label 用)。
+   *   newMode + selected の時のみ非 null、 sheet で隠れない位置に title + 時刻表示。
+   */
+  selectedSheetForLabel?: MapSheetViewModel | null;
 }) {
   const { ready, keyAvailable } = useGoogleMapsScript();
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -1253,6 +1263,15 @@ function PlanMapView({
           selectedId={selectedAnchorId}
           onItemTap={onDayItemTap}
         />
+      )}
+
+      {/* 9b-1 carry: MapSelectedPinLabel (= map 上部 selected pin title + 時刻 overlay)
+       *   sheet が下から出ても sheet 上端より上の可読領域に常駐 (= Y clamp = top-3 固定)
+       *   newMode 専用、 selected ない時 (= sheet=null) は自動で非表示
+       *   auto-pan は CEO 補正で 9b-1 では実装しない (= fallback、 必要時 9b-1 corrective)
+       */}
+      {newMode && (
+        <MapSelectedPinLabel sheet={selectedSheetForLabel ?? null} />
       )}
 
       {/* Category legend overlay (mockup: bottom-left、active categories のみ)

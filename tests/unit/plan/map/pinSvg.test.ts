@@ -99,9 +99,9 @@ describe("pinSvg §3 各 category icon path embedded (= Step δ-corrective redes
     expect(uri).toContain('cy%3D%229%22');
   });
 
-  it("§3.icon-centering → translate(11, 25) で SVG (20, 34) = 涙型 upper bulb center", () => {
+  it("§3.icon-centering → translate(11, 24) で 視覚的重心 (= 9b-1 carry 微調整、 旧 25 → 24)", () => {
     const uri = generatePinSvgDataUri('cafe', false);
-    expect(uri).toContain('translate(11%2C%2025)');
+    expect(uri).toContain('translate(11%2C%2024)');
   });
 });
 
