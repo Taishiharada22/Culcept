@@ -219,8 +219,23 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/);
   });
 
-  it("MapTab に proposalsByDate prop が pass されている (= 同上)", () => {
-    expect(content).toMatch(/<MapTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/);
+  // 9 closeout cleanup (= 2026-05-25): MapTab 単一 path 化により proposal UI 削除済み。
+  //   - 旧: SelectedAnchorCard / DayGraphTimeline 内に proposal hint UI があった
+  //   - 新: MapBottomSheet / DayItemsPanel に置換、 proposal hint は CalendarTab 専属
+  //   - 物理削除: 旧 a78c5f6c で sub-components 削除、 cleanup patch で残存 dead prop forward を整理
+  //   よって MapTab には proposal 系 prop は pass しない (= 不在 assertion で固定)。
+
+  it("MapTab には proposal 系 prop を渡さない (= 9 closeout cleanup、 単一 path 化)", () => {
+    // MapTab JSX block (= self-closing) を抽出して proposal 系 prop がないことを確認
+    const mapMatch = content.match(/<MapTab[\s\S]*?\/>/);
+    expect(mapMatch).not.toBeNull();
+    expect(mapMatch![0]).not.toContain("proposalsByDate");
+    expect(mapMatch![0]).not.toContain("onProposalDismiss");
+    expect(mapMatch![0]).not.toContain("onProposalAccept");
+    expect(mapMatch![0]).not.toContain("onProposalModify");
+    expect(mapMatch![0]).not.toContain("acceptingProposalIds");
+    expect(mapMatch![0]).not.toContain("recentUndoRecords");
+    expect(mapMatch![0]).not.toContain("onProposalUndo");
   });
 
   it("FlowTab には proposalsByDate を渡さない (= J-6 scope 外)", () => {
@@ -236,10 +251,6 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalDismiss=\{handleProposalDismiss\}/);
   });
 
-  it("MapTab に onProposalDismiss callback が pass されている (= J-6e-2)", () => {
-    expect(content).toMatch(/<MapTab[\s\S]*?onProposalDismiss=\{handleProposalDismiss\}/);
-  });
-
   it("FlowTab には onProposalDismiss を渡さない (= J-6 scope 外)", () => {
     const flowMatch = content.match(/<FlowTab[\s\S]*?\/>/);
     expect(flowMatch).not.toBeNull();
@@ -247,38 +258,31 @@ describe("PlanClient.tsx structural invariants (= J-6e-1)", () => {
   });
 
   // ── Phase 3-J-6e-3: accept callback IS wired ──
+  //   9 closeout cleanup 後: CalendarTab 専属 (= MapTab 削除済み)
 
-  it("accept callback IS wired (= J-6e-3)", () => {
+  it("accept callback IS wired on CalendarTab (= J-6e-3、 9 closeout で MapTab 除外)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalAccept=\{handleProposalAccept\}/);
-    expect(content).toMatch(/<MapTab[\s\S]*?onProposalAccept=\{handleProposalAccept\}/);
   });
 
-  it("acceptingProposalIds prop が pass されている (= subtle pending UI)", () => {
+  it("acceptingProposalIds prop が CalendarTab に pass されている (= subtle pending UI、 9 closeout で MapTab 除外)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?acceptingProposalIds=\{acceptingProposalIds\}/);
-    expect(content).toMatch(/<MapTab[\s\S]*?acceptingProposalIds=\{acceptingProposalIds\}/);
   });
 
-  it("recentUndoRecords + onProposalUndo prop が pass されている (= Quiet Undo Window)", () => {
+  it("recentUndoRecords + onProposalUndo prop が CalendarTab に pass されている (= Quiet Undo Window、 9 closeout で MapTab 除外)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?recentUndoRecords=\{recentUndoRecords\}/);
     expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalUndo=\{handleProposalUndo\}/);
-    expect(content).toMatch(/<MapTab[\s\S]*?recentUndoRecords=\{recentUndoRecords\}/);
-    expect(content).toMatch(/<MapTab[\s\S]*?onProposalUndo=\{handleProposalUndo\}/);
   });
 
-  it("filteredProposalsByDate が pass されている (= L3+L4 suppression 適用後)", () => {
+  it("filteredProposalsByDate が CalendarTab に pass されている (= L3+L4 suppression 適用後、 9 closeout で MapTab 除外)", () => {
     expect(content).toMatch(
       /<CalendarTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/,
-    );
-    expect(content).toMatch(
-      /<MapTab[\s\S]*?proposalsByDate=\{filteredProposalsByDate\}/,
     );
   });
 
   // ── Phase 3-J-6e-4: modify callback IS wired ──
 
-  it("modify callback IS wired (= J-6e-4、 CalendarTab + MapTab に handleProposalModify を pass)", () => {
+  it("modify callback IS wired on CalendarTab (= J-6e-4、 9 closeout で MapTab 除外)", () => {
     expect(content).toMatch(/<CalendarTab[\s\S]*?onProposalModify=\{handleProposalModify\}/);
-    expect(content).toMatch(/<MapTab[\s\S]*?onProposalModify=\{handleProposalModify\}/);
   });
 
   it("proposalDraftToFormState IS imported (= J-6e-4 modify path の pure converter)", () => {

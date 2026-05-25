@@ -1,22 +1,31 @@
 "use client";
 
 /**
- * MapTab — 「自分の地理」 view (Phase 2-C v3、CEO mock 整合 + Google Maps あり 本命)
+ * MapTab — 「自分の地理」 view (Phase 3-N Map impl 9 closeout 後の単一 path)
  *
- * 設計書: docs/alter-plan-phase2-c-map-tab-mini-design.md
+ * 設計書:
+ *   - docs/alter-plan-phase2-c-map-tab-mini-design.md (= 旧 Phase 2-C v3、 歴史参照のみ)
+ *   - docs/alter-plan-map-spec-audit-v3.md (= 9 closeout 後の現行 spec)
+ *   - docs/alter-plan-map-impl-readiness.md (= 9a/9b/9 closeout 計画)
  *
- * 構造 (上から下へ):
- *   1. Header: "あなたの地理" + "今後 N 日間で訪れる場所"
- *   2. PlanMapView: vanilla Google Maps、category-themed marker、fitBounds、pin tap → AnchorDetailModal
- *      - failsafe: keyAvailable=false / pins<2 / API throw → semantic-only モード (Map 非表示)
- *   3. CategoryGrid: 9 categories grid (active + empty を全表示、empty は "今は静か" voice)
- *   4. UnresolvedAnchorsSection: locationText 空 / sensitive / API miss anchor を semantic で集約
- *   5. StaticAlterSuggestionCard: Phase 3 へ向けた静的 placeholder (CEO 補正 #2、ボタン風禁止)
- *   6. FAB: 右下 紫 gradient (Phase 2-A / 2-B 整合、AddAnchorModal 起動)
+ * 現行構造 (9 closeout 後):
+ *   - PlanMapView (= vanilla Google Maps、 涙型 SVG data URI marker、 fitBounds、 pin tap → MapBottomSheet)
+ *     - failsafe: keyAvailable=false / script load 中 → MapPlaceholder
+ *     - 現在地 button (= 右上、 navigator.geolocation)
+ *     - overlay (= loading / no-pins-no-baseline / no-anchors / api-unavailable の adaptive 文言)
+ *   - MapBottomSheet (= 下から立ち上がる sheet、 8 段構造、 9b-6 で animation 追加)
+ *   - DayItemsPanel (= 左下 hybrid、 当日リスト + 凡例、 sheet 表示中は hide)
+ *   - MapSelectedPinLabel (= selected pin の overlay、 pin 追従 + Y clamp)
  *
- * 既存資産流用 (CEO 方針 "Alter Morning 用 API 資産は Plan で流用してよい"):
- *   - lib/shared/googleMapsLoader.ts (vanilla script loader、本 wave 新規、MorningMapView 不可触)
- *   - /api/plan/anchors/geocode (server endpoint、placesApiClient + placeResolver cache 流用)
+ * 9 closeout で削除済み (= 旧 OFF path):
+ *   - SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection /
+ *     StaticAlterSuggestionCard / DaySwitcher / FAB
+ *   - CIRCLE marker logic (= MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER)
+ *   - marker.label 形式 (= 番号 "1·09:00"、 SVG 内 time embed で代替)
+ *
+ * 既存資産流用 (CEO 方針 「Alter Morning 用 API 資産は Plan で流用してよい」):
+ *   - lib/shared/googleMapsLoader.ts (vanilla script loader、 frozen file)
+ *   - /api/plan/anchors/geocode (server endpoint、 placesApiClient + placeResolver cache 流用)
  *   - lib/alter-morning/* の内部 logic は touch なし (call signature 経由のみ)
  *
  * 不変原則 (CEO + GPT 補正):
@@ -29,44 +38,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { GlassBadge } from "@/components/ui/glassmorphism-design";
 import type { ExternalAnchor } from "@/lib/plan/external-anchor";
-import { isPlaceUnconfirmed } from "@/lib/plan/locationConfirmationStatus";
-import { detectTimedAnchorOverlaps } from "@/lib/plan/anchorOverlap";
-import { formatLocationDisplayParts } from "@/lib/plan/anchor-detail-format";
-import { pickCategoryIcon } from "@/lib/plan/categoryIconMap";
-import { pickCategoryColorClass } from "@/lib/plan/categoryColorMap";
-import { pickBrandIcon } from "@/lib/plan/brandIconMap";
-import {
-  buildVariablesForProposal,
-  selectFirstProposalForDate,
-  type CalendarProposalProps,
-} from "@/lib/plan/proposal/calendarProposalSelector";
-import { selectActiveUndoForDate } from "@/lib/plan/proposal/quietUndoWindow";
 
-import { DayGraphTimeline } from "../components/DayGraphTimeline";
-import { ProposalChip } from "../components/ProposalChip";
-import type { AddRequest } from "../PlanClient";
 import {
-  CATEGORY_META,
-  LOCATION_GROUP_ORDER,
-  MAP_CATEGORY_MARKER,
-  MAP_SENSITIVE_MARKER,
   SENSITIVE_LABEL,
-  addDays,
   anchorsForDay,
-  categoryFrequencyVoice,
-  categoryOf,
-  categoryTimeSignature,
-  countOccurrences,
-  formatJpDate,
   formatTime,
-  groupAnchorsByLocation,
-  isoDate,
   utcMidnight,
-  type CategoryGroup,
-  type LocationCategory,
-  type LocationGroupKey,
 } from "./_helpers";
 import {
   useGoogleMapsScript,
@@ -76,15 +54,7 @@ import {
   type GmapsPolyline,
 } from "@/lib/shared/googleMapsLoader";
 import { usePlanBaseline, type BaselineCoords } from "./_usePlanBaseline";
-import { usePlanGeocode, type AnchorResolution } from "./_usePlanGeocode";
-import { useMapTabMovementDisplay } from "./_useMapTabMovementDisplay";
-import { useMapTabFeasibilityDisplay } from "./_useMapTabFeasibilityDisplay";
-import {
-  applyDisclosureAction,
-  getDisclosureStateForIndex,
-  resetAllDisclosures,
-  type ExpandedTransitionIndices,
-} from "@/lib/plan/feasibility/feasibilityDisclosureAdapter";
+import { usePlanGeocode } from "./_usePlanGeocode";
 import {
   computeLivedGeographyFallback,
   type LivedGeographyFallback,
@@ -93,18 +63,25 @@ import {
 // ── Phase 3-N Map impl 9 closeout: flag 削除済み、 単一 path 化 (= 常に新 surface) ──
 //   旧 UI (SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard /
 //   DaySwitcher / FAB) は本 file から物理削除済み。 PlanMapView 内 CIRCLE marker logic も削除。
+//   旧 sub-components 専用 import (= GlassBadge / categoryIconMap / categoryColorMap / brandIconMap /
+//   calendarProposalSelector / quietUndoWindow / DayGraphTimeline / ProposalChip / CATEGORY_META /
+//   LOCATION_GROUP_ORDER / MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER / categoryOf / categoryFrequencyVoice /
+//   categoryTimeSignature / countOccurrences / formatJpDate / groupAnchorsByLocation / isoDate /
+//   useMapTabMovementDisplay / useMapTabFeasibilityDisplay / feasibilityDisclosureAdapter /
+//   isPlaceUnconfirmed / detectTimedAnchorOverlaps / formatLocationDisplayParts / addDays /
+//   AddRequest / AnchorResolution / CategoryGroup / LocationCategory / LocationGroupKey) は
+//   cleanup patch (= 2026-05-25) で物理削除済み。
 import { MapBottomSheet } from "@/components/plan/map/MapBottomSheet";
 import {
   convertExternalAnchorToMapSheet,
   resolveCategory as resolveMapEventCategory,
 } from "@/lib/plan/map/adapters/externalAnchorMapAdapter";
 import type { MapSheetViewModel } from "@/lib/plan/map/types";
-// Step γ: 独自 pin (= 涙型 SVG data URI + 白抜き icon、 newMode 時のみ)
+// 9 closeout: 独自 pin (= 涙型 SVG data URI + 白抜き icon + 時刻 embed、 単一 path 化済み)
 import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
-// Step δ: 左下 当日リスト / 凡例 hybrid (= newMode 時のみ)
+// 9 closeout: 左下 当日リスト / 凡例 hybrid (= 単一 path 化済み)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
-// 9b-1 carry: selected pin title overlay (= sheet で隠れない map 上部固定)
-// 9b-2 carry-2: pin に水平追従 + Y clamp の動的 position 計算
+// 9b-1/9b-2 carry: selected pin title overlay (= sheet で隠れない map 上部固定 + 動的 position 計算)
 import {
   MapSelectedPinLabel,
   type PinScreenPosition,
@@ -112,14 +89,8 @@ import {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-/**
- * CategoryGrid (= 9 categories 集計) 用の window 日数。
- *
- * CEO 補正 (2026-05-20): MapTab の **主視点は selectedDate (= 1 日)** に shift。
- * CategoryGrid の window は anchor 集計の context として 14 日 default を維持
- * (= "私の地理の全体傾向" を見るための meta view)。
- */
-const CATEGORY_AGGREGATE_WINDOW_DAYS = 14;
+// 9 closeout cleanup: CATEGORY_AGGREGATE_WINDOW_DAYS 削除済み
+//   (= CategoryGrid 削除と同時に dead、 単一 path 化済み)
 const MAP_HEIGHT_PX = 380;
 const MAP_DEFAULT_ZOOM_FOR_RESOLVED_SINGLE = 14;
 const MAP_DEFAULT_ZOOM_FOR_BASELINE_SINGLE = 11;
@@ -172,15 +143,9 @@ export function MapTab({
 }: {
   anchors: ExternalAnchor[];
   now?: Date;
-  onAddRequest?: (req: AddRequest) => void;
-  /** W1-X5: anchor 行クリック / Enter / Space で detail modal を開く */
+  /** anchor 行クリック / pin tap で AnchorDetailModal を開く (= sheet 「詳細を見る」 CTA で利用) */
   onAnchorClick?: (anchor: ExternalAnchor) => void;
-  /**
-   * K-2 接続層: PlanClient で計算した DayGraph。
-   * 9 closeout: DayGraphTimeline section 削除済み、 本 prop は backward compat のため受領のみ。
-   */
-  dayGraphByDate?: Readonly<Record<string, import("@/lib/plan/dayGraph/dayGraphTypes").BuildDayGraphResult>>;
-} & CalendarProposalProps) {
+}) {
   const baseNow = now ?? new Date();
   const todayDate = utcMidnight(baseNow);
 
@@ -257,10 +222,9 @@ export function MapTab({
   //   2. home baseline
   //   3. lived_geography (= confidence gate 通過)
   //   4. city / prefecture baseline
-  //   5. なし → noPin (= pin 不能、 anchorsWithoutPinCount で count)
-  const { allPins, anchorsWithoutPin } = useMemo(() => {
+  //   5. なし → silent drop (= 9 closeout: 旧 UnresolvedAnchorsSection 削除済みのため count 不要)
+  const allPins = useMemo<AnchorWithCoord[]>(() => {
     const pins: AnchorWithCoord[] = [];
-    const noPin: ExternalAnchor[] = [];
     for (const anchor of visibleAnchors) {
       const r = resolutions.get(anchor.id);
       if (r && isValidLatLng(r.lat, r.lng)) {
@@ -291,11 +255,11 @@ export function MapTab({
           resolvedName: baselineCoords.label ?? "baseline 周辺",
           kind: "baseline",
         });
-      } else {
-        noPin.push(anchor);
       }
+      // 9 closeout cleanup: noPin 配列削除 (= 旧 UnresolvedAnchorsSection で表示していたが、
+      //   sub-section ごと削除済みのため pin 化失敗 anchor は silent drop)
     }
-    return { allPins: pins, anchorsWithoutPin: noPin };
+    return pins;
   }, [visibleAnchors, resolutions, baselineCoords, livedGeography]);
 
   // ── 左下 DayItemsPanel data (= 時刻順、 category 解決) ──
@@ -325,7 +289,6 @@ export function MapTab({
         baselineCoords={baselineCoords}
         loading={loading}
         apiAvailable={apiAvailable}
-        anchorsWithoutPinCount={anchorsWithoutPin.length}
         selectedAnchorId={selectedPinId}
         onPinClick={handlePinTap}
         onBackgroundClick={handleSheetClose}
@@ -358,7 +321,6 @@ function PlanMapView({
   baselineCoords,
   loading,
   apiAvailable,
-  anchorsWithoutPinCount,
   selectedAnchorId,
   onPinClick,
   onBackgroundClick,
@@ -370,9 +332,7 @@ function PlanMapView({
   baselineCoords: BaselineCoords | null;
   loading: boolean;
   apiAvailable: boolean;
-  /** Map に pin 化されていない anchor の件数 (baseline なし → pin 不能) */
-  anchorsWithoutPinCount: number;
-  /** 現在 selected な anchor id (= sheet/label sync key、 newSelectedPinId 由来) */
+  /** 現在 selected な anchor id (= sheet/label sync key、 9 closeout で rename 済み) */
   selectedAnchorId: string | null;
   onPinClick?: (anchor: ExternalAnchor) => void;
   /**
@@ -396,17 +356,8 @@ function PlanMapView({
   const onBackgroundClickRef = useRef(onBackgroundClick);
   onBackgroundClickRef.current = onBackgroundClick;
 
-  // ── selected day の active categories (legend 用、hooks rule で early return 前に declare) ──
-  const activeCategories = useMemo(() => {
-    const set = new Set<LocationGroupKey>();
-    for (const pin of pins) {
-      // sensitive は legend にも表示しない (privacy)
-      if (pin.anchor.sensitiveCategory) continue;
-      set.add(categoryOf(pin.anchor));
-    }
-    // LOCATION_GROUP_ORDER 順で並べる
-    return LOCATION_GROUP_ORDER.filter((c) => set.has(c));
-  }, [pins]);
+  // 9 closeout cleanup: activeCategories useMemo 削除済み
+  //   (= 旧 legend (CategoryGrid 内) 専用、 DayItemsPanel が hybrid 凡例を兼ねるため不要)
 
   // ─── Effect 1: Map instance を 1 度だけ作成 (keyAvailable + ready 確定時) ───
   //
@@ -534,18 +485,13 @@ function PlanMapView({
       });
     }
 
-    // 9a-impl: 番号 label 用 (= 時刻順、 selected ラベルに "1·09:00" 形式で含む)
-    //   sortedPins は polyline 用と同じく時刻 ascending、 pin id → order map で marker 内引き
-    const orderById = new Map<string, number>();
-    sortedPins.forEach((p, i) => orderById.set(p.anchor.id, i + 1));
+    // 9 closeout cleanup: orderById Map / markerSpec 削除済み
+    //   - orderById: 旧 marker.label "1·09:00" 形式 用、 9 closeout で marker.label 不使用化により dead
+    //   - markerSpec: 旧 CIRCLE marker (MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER) 用、 涙型 SVG 単一 path 化により dead
 
-    // ── markers (pin label 含む) ──
+    // ── markers (= 涙型 SVG data URI 単一 path) ──
     const markers: GmapsMarker[] = [];
     for (const pin of pins) {
-      const markerSpec = pin.anchor.sensitiveCategory
-        ? MAP_SENSITIVE_MARKER
-        : MAP_CATEGORY_MARKER[categoryOf(pin.anchor)];
-
       const isSelected = pin.anchor.id === selectedAnchorId;
 
       // 9 closeout: 常に 涙型 SVG data URI marker (= 旧 CIRCLE 削除済み、 単一 path)
@@ -651,7 +597,7 @@ function PlanMapView({
         y,
         mapWidth: rect.width,
         mapHeight: rect.height,
-        // sheet 表示中の前提 (= selectedAnchorId set → sheet open、 MapTab 側で newSheet flow)
+        // sheet 表示中の前提 (= selectedAnchorId set → MapBottomSheet open、 単一 path)
         sheetVisible: true,
       });
     };

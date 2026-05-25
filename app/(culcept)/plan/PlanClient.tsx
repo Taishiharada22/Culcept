@@ -810,19 +810,13 @@ export default function PlanClient({
                 dayGraphByDate={dayGraphByDate}
               />
             )}
+            {/* 9 closeout cleanup: MapTab 単一 path 化、 受領 prop は anchors + now + onAnchorClick のみ。
+              * 旧 FAB / SelectedAnchorCard / CategoryGrid / DayGraphTimeline 削除に伴い、
+              * onAddRequest / proposal hint 系 / dayGraphByDate は dead props として削除。 */}
             {activeTab === "map" && (
               <MapTab
                 anchors={state.anchors}
-                onAddRequest={openAdd}
                 onAnchorClick={openDetail}
-                proposalsByDate={filteredProposalsByDate}
-                onProposalAccept={handleProposalAccept}
-                onProposalModify={handleProposalModify}
-                onProposalDismiss={handleProposalDismiss}
-                acceptingProposalIds={acceptingProposalIds}
-                recentUndoRecords={recentUndoRecords}
-                onProposalUndo={handleProposalUndo}
-                dayGraphByDate={dayGraphByDate}
               />
             )}
           </>
