@@ -225,6 +225,107 @@ describe("buildSystemPromptV2: Phase 別 framing", () => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// v3.4: prompt 強化 (= judgmentMode 解釈動詞 / anchor 焼き直し抑制 / 中庸 補助)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("buildSystemPromptV2: v3.4 prompt 強化", () => {
+  // Patch I: judgmentMode 別 解釈動詞 vocabulary mapping
+  it("v3.4 Patch I: judgmentMode=集中型 → 解釈動詞 「深める / 沈む / 没頭」 を含む", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "集中型", timePreference: "中庸" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("解釈の向き hint");
+    expect(sys).toContain("深める");
+    expect(sys).toContain("沈む");
+    expect(sys).toContain("没頭");
+    expect(sys).toContain("潜らせる");
+  });
+
+  it("v3.4 Patch I: judgmentMode=分散型 → 「広げる / 触れる / つなぐ」 を含む", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "分散型" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("広げる");
+    expect(sys).toContain("触れる");
+    expect(sys).toContain("つなぐ");
+  });
+
+  it("v3.4 Patch I: judgmentMode=関係エネルギー型 → 「対話 / 交わる / 響き合う」 を含む", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "関係エネルギー型" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("対話");
+    expect(sys).toContain("交わる");
+    expect(sys).toContain("響き合う");
+  });
+
+  it("v3.4 Patch I: 「使え」 ではなく 「例」 framing (= テンプレ化禁止)", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "集中型" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("テンプレ化禁止");
+    expect(sys).toContain("anchor 文脈に応じて選択 / 派生");
+  });
+
+  it("v3.4 Patch I: 「静か」 等の雰囲気語のみで終わらせない注意", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "集中型" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("「静か」 等の雰囲気語のみで終わらせない");
+  });
+
+  // Patch II: anchor 事実焼き直し禁止
+  it("v3.4 Patch II: anchor 事実の焼き直し禁止指示を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("anchor 事実の焼き直し禁止");
+    expect(sys).toContain("連続して");
+  });
+
+  it("v3.4 Patch II: 禁止例 「読書 19:00 カフェ → 夜のカフェで静かに読書する時間」 を含む", () => {
+    const sys = buildSystemPromptV2();
+    // 実 Phase 6 smoke で観測した failure pattern を明示
+    expect(sys).toContain("夜のカフェで静かに読書する時間");
+  });
+
+  it("v3.4 Patch II: anchor 要素 3 語以上連続並列の禁止指示を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("anchor 要素 3 語以上の連続並列");
+  });
+
+  // Patch III: timePreference=中庸 補助化
+  it("v3.4 Patch III: timePreference=中庸 → 「時間帯に左右されない、 偏向押し付け禁止、 主役にしない」 framing", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "集中型", timePreference: "中庸" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("時刻偏好: 中庸");
+    expect(sys).toContain("時間帯に左右されない");
+    expect(sys).toContain("主役にしない");
+  });
+
+  it("v3.4 Patch III: timePreference=朝強い はそのまま (= 中庸 のみ補助化)", () => {
+    const pm: PersonalModelV2 = {
+      stable: { judgmentMode: "集中型", timePreference: "朝強い" },
+      meta: { hdmPhase: 2, trustLevel: 2, observationCompleteness: 0.5 },
+    };
+    const sys = buildSystemPromptV2(pm, "soft_personal_with_hedge");
+    expect(sys).toContain("時刻偏好: 朝強い");
+    expect(sys).not.toContain("時刻偏好: 朝強い (= 時間帯");
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // buildUserPromptV2
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

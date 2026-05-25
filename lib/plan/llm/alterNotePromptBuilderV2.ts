@@ -45,6 +45,16 @@ const SYSTEM_PROMPT_BASE_V2 = [
   "    衝突する場合、 **profile を優先して解釈** してください。",
   "  - 例: 「ひとり静か」 ユーザーが 「カフェミーティング」 anchor → 「人と話す前のひととき、 内側を整える時間」",
   "    (= anchor の 「ミーティング」 を無視ではなく、 profile 軸 「ひとり静か」 で reframe)",
+  "",
+  // v3.4 Patch II (= CEO + GPT 2026-05-25): anchor 事実焼き直し抑制
+  "**重要 — anchor 事実の焼き直し禁止**:",
+  "  - anchor のタイトル / 時刻 / 場所 / category を そのまま **連続して** 並べて出力するのは禁止。",
+  "  - 例 (禁止): anchor 「読書 19:00 カフェ」 → 「夜のカフェで静かに読書する時間」",
+  "    (= 「カフェ」 + 「読書」 をほぼ素のまま並べ、 profile (= 集中型) の解釈が一切入っていない)",
+  "  - 例 (許可): 「読書 19:00 カフェ」 + 集中型 profile → 「夕方の場所で、 思考を潜らせる」",
+  "    (= 「カフェ」 → 「場所」 で抽象化、 「読書」 → 「思考を潜らせる」 で profile 経由 reframe)",
+  "  - 「夜 + カフェ + 静か + 読書」 のような **anchor 要素 3 語以上の連続並列** はテンプレ感が強い、 避けてください。",
+  "  - anchor の事実は 「半分隠す」 くらいで OK (= profile による意味の方が主役)。",
 ].join("\n");
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -62,6 +72,41 @@ const SYSTEM_PROMPT_BASE_V2 = [
  *   - 時刻偏好: 朝強い
  *   - 内面トーン: ひとり静か
  */
+/**
+ * v3.4 Patch I (= CEO + GPT 2026-05-25): judgmentMode → 解釈の向き vocabulary mapping
+ *
+ * 設計意図:
+ *   - v3.2 / Step 3 Phase 6 smoke で発見: judgmentMode=集中型 注入しても alterNote が
+ *     V1 baseline と核 95% 同 (= 「静か」 1 語のみの差)。
+ *   - 「静か」 は generic な category 反射、 judgmentMode 由来ではない。
+ *   - prompt が profile 情報を 「文の具体的選語」 に変換しきれていない。
+ *
+ * 対策 (= CEO 指示):
+ *   - judgmentMode 別に **「解釈動詞」 examples** を prompt に明示
+ *   - 「これらを使え」 ではなく 「事実描写ではなく 行為の意味 に効かせろ、 例:」 framing
+ *   - 集中型: 深める / 沈む / 没頭する / 潜らせる / 一人で整う
+ *   - 分散型: 広げる / 触れる / つなぐ / 受け取る / 開く
+ *   - 関係エネルギー型: 対話する / 交わる / 響き合う / 通わせる
+ *   - 中庸型: 整える / 一息 / 切り替える (= 詩的化禁止維持、 v3.3 轍回避)
+ *
+ * 注: v3.3 轍回避のため 「必須」 「強制」 ではなく **「例」 framing**。
+ *     LLM が anchor 文脈に応じて選択 / 派生できる余地を残す。
+ */
+function getJudgmentModeInterpretationVerbs(judgmentMode: string): string {
+  switch (judgmentMode) {
+    case "集中型":
+      return "深める / 沈む / 没頭する / 潜らせる / 一人で整う";
+    case "分散型":
+      return "広げる / 触れる / つなぐ / 受け取る / 開く";
+    case "関係エネルギー型":
+      return "対話する / 交わる / 響き合う / 通わせる";
+    case "中庸型":
+      return "整える / 一息 / 切り替える";
+    default:
+      return "";
+  }
+}
+
 function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
   if (!stable) return "";
   const lines: string[] = ["## あなたの長期傾向 (= Stable layer)"];
@@ -75,7 +120,14 @@ function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
     count += 1;
   }
   if (stable.timePreference) {
-    lines.push(`- 時刻偏好: ${stable.timePreference}`);
+    // v3.4 Patch III: 中庸 timePreference は補助 framing (= 主役にしない、 GPT 指示)
+    //   raw 「中庸」 だけだと LLM が 「整え/バランス」 系に詩的化しやすい (= v3.3 P4 後退原因)。
+    //   「時間帯に左右されない、 偏向押し付け禁止」 と明示して suppress。
+    if (stable.timePreference === "中庸") {
+      lines.push("- 時刻偏好: 中庸 (= 時間帯に左右されない、 偏向押し付け禁止、 主役にしない)");
+    } else {
+      lines.push(`- 時刻偏好: ${stable.timePreference}`);
+    }
     count += 1;
   }
   if (stable.traitTone) {
@@ -103,7 +155,24 @@ function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
     count += 1;
   }
   if (count === 0) return "";
-  // v3.2 Patch D: 中庸 profile の唯一性立てヒント (= GPT 注意: 詩的化させない)
+
+  // v3.4 Patch I (= CEO + GPT 2026-05-25): judgmentMode 別 解釈動詞 examples
+  //   stable injection の prompt 反映を 「雰囲気語」 から 「解釈の向き」 に効かせる。
+  //   anchor 事実の焼き直し (= 「夜カフェで静かに読書」) を抑止、
+  //   行為の意味 (= 「深める / 没頭する」) に主役を渡す。
+  if (stable.judgmentMode) {
+    const verbs = getJudgmentModeInterpretationVerbs(stable.judgmentMode);
+    if (verbs) {
+      lines.push("");
+      lines.push(`**解釈の向き hint (= 判断モード ${stable.judgmentMode} の場合の例)**:`);
+      lines.push(`  事実描写 (= 「カフェで読書」) ではなく、 **行為の意味** を一段入れる。`);
+      lines.push(`  例の動詞: ${verbs}`);
+      lines.push(`  注: 「使え」 ではない (= テンプレ化禁止)、 anchor 文脈に応じて選択 / 派生 OK。`);
+      lines.push(`  「静か」 等の雰囲気語のみで終わらせない (= V1 baseline と同等になる)。`);
+    }
+  }
+
+  // v3.2 Patch D 維持: 中庸 profile 対策 (= 詩的化禁止)
   lines.push("");
   lines.push("**解釈ヒント (= 中庸 profile 対策)**:");
   lines.push("  profile が中庸 / バランス系の場合、 「リズム」 「整え」 「ペース」 等の");
