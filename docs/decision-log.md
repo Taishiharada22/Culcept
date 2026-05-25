@@ -4,6 +4,69 @@
 
 ---
 
+## 2026-05-25 [Build/Product] Map impl 9b-2/9b-3/9b-4 採用 + readiness 訂正 (= 9b-5 を文字列統一に再定義、 旧 UI 削除 9 closeout 統合) [承認: CEO + GPT 合議]
+
+### 背景
+
+CEO 「9b-2/9b-3/9b-4 pass、 次へ」 受領後、 9b-5 着手前に Claude が **readiness 論理矛盾** を発見し CEO 判断仰ぐ。 CEO + GPT 「**A 採用** (= 旧 UI 削除を 9 closeout に統合、 9b-5 を文字列統一に再定義)」 判定。
+
+### 9b 完了 step (= 3 件)
+
+| step | commit | 内容 |
+|---|---|---|
+| ✅ 9b-2 | `9dc9eb7e` | carry-2 spatial binding 強化 (= pin 真上寄り + Y clamp、 sheet 被り時のみ sheet 上端 clamp) |
+| ✅ 9b-3 | `cac68b89` | visual polish (= cafe/home icon redesign + drop-shadow filter で 高級感) |
+| ✅ 9b-4 | `e7afc125` | layout 整理 (= sheet open 時 DayItemsPanel hide で 視線競合解消) |
+
+### 9b-5 着手前 矛盾発見
+
+**問題**:
+- readiness の 9b-5 定義: 「旧 UI file 削除 (= SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard / FAB)」
+- 但しこれらは **flag OFF path で active に使用中** (= `{!MAP_NEW_SURFACE_ENABLED && (...)}` blocks)
+- `MAP_NEW_SURFACE_ENABLED = false` (= default、 production 設定)
+- → 9b-5 で物理削除すると flag OFF path 破壊 = production user 体験 destroy
+
+**Claude が CEO に 3 選択肢提示**:
+- A. readiness 訂正 + 9b-5 を文字列統一に再定義 (= 旧 UI 削除は 9 closeout)
+- B. 9b-5 を旧 UI 削除のまま着手 (= flag OFF 廃止前提)
+- C. 9 closeout 直行 (= 段階確認壊す)
+
+### CEO + GPT 判定: **A 採用**
+
+> 「削除はするけど flag 削除はまだしない」 は rollback / smoke の安全弁を捨てる → B 不採用
+> closeout 直行は変更の塊が大きくなりすぎ、 段階確認壊す → C 不採用
+> 旧 UI file 削除は 9 closeout (= flag 削除 + 単一 path 化) と同時が論理的に正解
+
+### readiness 訂正内容
+
+| step | 旧 readiness | 新 readiness (= 訂正後) |
+|---|---|---|
+| 9b-5 | 旧 UI file 削除 | **文字列統一 (= 旧 9b-6 を前倒し)** |
+| 9b-6 | 文字列統一 | **animation (= 旧 9b-7 を前倒し)** |
+| 9b-7 | animation | (削除、 9b-6 と統合) |
+| 9 closeout | flag 削除 + 単一 path 化 | **flag 削除 + 旧 UI file 物理削除 + 旧 code path 削除 + 単一 path 化 (= atomic)** |
+
+### 9 closeout で atomic に行う 4 件
+
+1. `MAP_NEW_SURFACE_ENABLED` const 削除
+2. 全 flag check 削除 (= `{!MAP_NEW_SURFACE_ENABLED && (...)}` block 削除)
+3. 旧 UI file 物理削除 (= SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard 等)
+4. 単一 path 化 (= MapTab.tsx + PlanClient.tsx 統一)
+
+これにより clean migration が成立。 中間段階で flag OFF 壊れない。
+
+### flag 状態
+
+- `MAP_NEW_SURFACE_ENABLED = false` (= 戻し済み、 commit せず、 9 closeout まで維持)
+- 9b 完成形 commit は 9b-1 c665898d + 9b-2 9dc9eb7e + 9b-3 cac68b89 + 9b-4 e7afc125 の 4 本
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-25、 「A 採用、 readiness 訂正後 9b-5 文字列統一 着手」)
+- **ステータス**: readiness 訂正済み、 9b-5 (= 文字列統一) 着手準備完了
+
+---
+
 ## 2026-05-25 [Build/Product] Map impl 9b-1 採用 (= selected label overlay + icon 微調整) + 残 3 課題 backlog [承認: CEO + GPT 合議]
 
 ### 背景

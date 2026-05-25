@@ -101,17 +101,36 @@
 | **B. pin 品質仕上げ** | 現状: 涙型 + 白抜き icon (= 機能成立) → 改善: アイコン重心微調整 (= cafe/work 等)、 stroke / shadow / proportion で高級感 | **9b-3 (visual polish)** |
 | **C. 左下 panel と sheet 競合整理** | 現状: 同じ下部領域取り合い → 改善: sheet open 時 panel 縮退 / z-index 整理 / 距離感 | **9b-4 (layout 整理)** |
 
-### 後続 step (= 9b-2 以降)
+### 完了 step
+
+| step | commit | 内容 | 判定 |
+|---|---|---|---|
+| ✅ **9b-2 (carry-2)** | `9dc9eb7e` | spatial binding 強化 (= pin 真上寄り + Y clamp) | 採用 |
+| ✅ **9b-3 (visual polish)** | `cac68b89` | pin 品質仕上げ (= cafe/home redesign + drop-shadow filter) | 採用 |
+| ✅ **9b-4 (layout 整理)** | `e7afc125` | sheet open 時 DayItemsPanel hide (= 視線競合解消) | 採用 |
+
+### 後続 step (= 訂正、 旧 UI 削除を 9 closeout に統合)
 
 | step | 内容 | 規模 | 優先度 |
 |---|---|---|---|
-| **9b-2 (carry-2)** | selected label と pin の spatial binding 強化 (= connector line or dynamic position with clamp) | 中 (= MapSelectedPinLabel 拡張 + map projection 統合) | **次最優先 (= carry-2、 CEO 残課題 A)** |
-| **9b-3 (visual polish)** | pin 品質仕上げ (= icon 重心 + stroke + shadow + proportion) | 小-中 (= pinSvg.ts 微調整、 mock 比較) | 次 (= CEO 残課題 B) |
-| **9b-4 (layout 整理)** | 左下 panel と sheet 競合整理 (= sheet open 時 panel 縮退 / z-index / 距離) | 中 (= DayItemsPanel + MapBottomSheet 連携) | 次 (= CEO 残課題 C) |
-| 9b-5 | 旧 UI file 削除 (= SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard / FAB) | 中-大 | 後 |
-| 9b-6 | 文字列統一 (= 9c 統合) | 小 | 後 |
-| 9b-7 | animation (= sheet slide-up / pin tap scale) | 中 | 後 |
-| 9 closeout | flag 削除 + 単一 path 化 | 大 | 最後 |
+| **9b-5 (= 訂正、 旧 9b-6 を前倒し)** | 文字列統一 (= 「マップ」 vs 「地図」 等の表記混在解消、 残 5 件程度) | 小 | **次最優先** |
+| **9b-6 (= 訂正、 旧 9b-7 を前倒し)** | animation (= sheet slide-up / pin tap scale) | 中 | 後 |
+| ~~旧 9b-5 旧 UI file 削除~~ | **9 closeout に統合** (= flag 削除と同 atomic commit、 OFF path 同時廃止) | - | - |
+| 9 closeout | flag 削除 + **旧 UI file 物理削除** + 旧 code path 削除 + 単一 path 化 | 大 | 最後 |
+
+### 9b-5 旧 UI 削除を 9 closeout に統合した理由 (= CEO + GPT A 採用、 2026-05-25)
+
+> 旧 UI file は **まだ flag OFF path で active に使われている**。
+> `MAP_NEW_SURFACE_ENABLED = false` が default の現状で物理削除に入ると、 OFF path を壊す。
+> したがって旧 UI file 削除は 9 closeout (= flag 削除 + 単一 path 化) と同時が正しい。
+
+これにより 9 closeout が:
+1. `MAP_NEW_SURFACE_ENABLED` const 削除
+2. 全 flag check 削除 (= 旧 path code 削除)
+3. 旧 UI file 物理削除 (= SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard 等)
+4. 単一 path に統一 (= 二重実装解消)
+
+を atomic commit で行う clean migration になる。
 
 ---
 
