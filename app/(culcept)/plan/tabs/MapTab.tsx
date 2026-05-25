@@ -326,6 +326,28 @@ export function MapTab({
     return convertExternalAnchorToMapSheet(anchor);
   }, [newSelectedPinId, dayAnchors]);
 
+  // ── Step β: selected pin の anchor (= CTA wire-up 用) ──
+  const newSelectedAnchor = useMemo<ExternalAnchor | null>(() => {
+    if (!MAP_NEW_SURFACE_ENABLED) return null;
+    if (!newSelectedPinId) return null;
+    return dayAnchors.find((a) => a.id === newSelectedPinId) ?? null;
+  }, [newSelectedPinId, dayAnchors]);
+
+  // ── Step β: 「ここへの経路」 用 Google Maps dir URL (= CEO Q2 採用 B、 lat/lng 不在なら null = disabled) ──
+  const newRouteUrl = useMemo<string | null>(() => {
+    if (!MAP_NEW_SURFACE_ENABLED) return null;
+    if (!newSelectedAnchor) return null;
+    const r = resolutions.get(newSelectedAnchor.id);
+    if (!r || !isValidLatLng(r.lat, r.lng)) return null;
+    return `https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}`;
+  }, [newSelectedAnchor, resolutions]);
+
+  // ── Step β: 「詳細を見る」 handler (= 既存 onAnchorClick 経由で AnchorDetailModal 起動) ──
+  const handleNewOpenDetail = useCallback(() => {
+    if (!newSelectedAnchor || !onAnchorClick) return;
+    onAnchorClick(newSelectedAnchor);
+  }, [newSelectedAnchor, onAnchorClick]);
+
   // ── 現在 bottom card で表示する anchor (default = day の最初の anchor) ──
   const selectedAnchorForCard = useMemo<ExternalAnchor | null>(() => {
     if (selectedAnchorId) {
@@ -492,9 +514,14 @@ export function MapTab({
         newMode={MAP_NEW_SURFACE_ENABLED}
       />
 
-      {/* 9a-impl 新 BottomSheet (= flag ON、 half 固定、 close 明示) */}
+      {/* 9a-impl Step β 新 BottomSheet (= flag ON、 8 段構造、 CTA 2 + image slot β) */}
       {MAP_NEW_SURFACE_ENABLED && (
-        <MapBottomSheet sheet={newSheet} onClose={handleNewSheetClose} />
+        <MapBottomSheet
+          sheet={newSheet}
+          onClose={handleNewSheetClose}
+          onOpenDetail={onAnchorClick ? handleNewOpenDetail : undefined}
+          routeUrl={newRouteUrl}
+        />
       )}
 
       {/* 9a-impl: flag ON 時は 旧 UI 群 (= SelectedAnchorCard / DayGraph / CategoryGrid /
