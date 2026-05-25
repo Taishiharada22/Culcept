@@ -105,7 +105,11 @@ import { generatePinSvgDataUri, getPinSize } from "@/lib/plan/map/pinSvg";
 // Step δ: 左下 当日リスト / 凡例 hybrid (= newMode 時のみ)
 import { DayItemsPanel, type DayItem } from "@/components/plan/map/DayItemsPanel";
 // 9b-1 carry: selected pin title overlay (= sheet で隠れない map 上部固定)
-import { MapSelectedPinLabel } from "@/components/plan/map/MapSelectedPinLabel";
+// 9b-2 carry-2: pin に水平追従 + Y clamp の動的 position 計算
+import {
+  MapSelectedPinLabel,
+  type PinScreenPosition,
+} from "@/components/plan/map/MapSelectedPinLabel";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -1099,6 +1103,67 @@ function PlanMapView({
     };
   }, [pins, baselineCoords, selectedAnchorId, newMode]);
 
+  // ─── Effect 3 (9b-2): pin screen position 計算 (= label spatial binding 用、 newMode 専用) ───
+  //   selectedAnchorId 変化 + bounds_changed event で再計算、 setState で MapSelectedPinLabel に流す。
+  //   bounds 取得 API は GmapsMap interface 未公開のため local cast (= 9a-impl-fix1 と同 pattern)。
+  //
+  //   ★ Rules of Hooks 厳守: 早期 return より **前** に declare (= fix2 と同 pattern)。
+  const [selectedPinScreenPos, setSelectedPinScreenPos] = useState<PinScreenPosition | null>(null);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const mapDiv = mapRef.current;
+    if (!newMode || !map || !mapDiv || !selectedAnchorId) {
+      setSelectedPinScreenPos(null);
+      return;
+    }
+    const selectedPin = pins.find((p) => p.anchor.id === selectedAnchorId);
+    if (!selectedPin) {
+      setSelectedPinScreenPos(null);
+      return;
+    }
+
+    // GmapsMap interface に getBounds / addListener 未公開のため cast (= 既存 pattern)
+    type MapWithBoundsAndListener = GmapsMap & {
+      getBounds: () =>
+        | {
+            getNorthEast: () => { lat: () => number; lng: () => number };
+            getSouthWest: () => { lat: () => number; lng: () => number };
+          }
+        | undefined;
+      addListener: (event: string, handler: () => void) => { remove: () => void };
+    };
+    const mapExt = map as MapWithBoundsAndListener;
+
+    const updatePosition = () => {
+      const bounds = mapExt.getBounds?.();
+      if (!bounds) return;
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      const rect = mapDiv.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      // Linear 比例計算 (= Mercator 非線形誤差は label 配置の精度として無視可)
+      const x =
+        ((selectedPin.coord.lng - sw.lng()) / (ne.lng() - sw.lng())) * rect.width;
+      const y =
+        ((ne.lat() - selectedPin.coord.lat) / (ne.lat() - sw.lat())) * rect.height;
+
+      setSelectedPinScreenPos({
+        x,
+        y,
+        mapWidth: rect.width,
+        mapHeight: rect.height,
+        // sheet 表示中かどうか = selectedAnchorId set かつ newMode (= MapTab で newSheet が flow される)
+        sheetVisible: true,
+      });
+    };
+
+    // 初回計算 + bounds_changed listener
+    updatePosition();
+    const listener = mapExt.addListener("bounds_changed", updatePosition);
+    return () => listener.remove();
+  }, [newMode, selectedAnchorId, pins]);
+
   // 9a-impl: 現在地 button handler (= newMode 専用、 navigator.geolocation で center 移動)
   //   CEO + GPT 着手条件 B 「controls 維持」 整合: zoom (= Maps native) + current location (= 自前) を 9a でも残す
   //   失敗時は silent (= permission denied / unavailable で UI 不変)
@@ -1265,13 +1330,16 @@ function PlanMapView({
         />
       )}
 
-      {/* 9b-1 carry: MapSelectedPinLabel (= map 上部 selected pin title + 時刻 overlay)
-       *   sheet が下から出ても sheet 上端より上の可読領域に常駐 (= Y clamp = top-3 固定)
-       *   newMode 専用、 selected ない時 (= sheet=null) は自動で非表示
-       *   auto-pan は CEO 補正で 9b-1 では実装しない (= fallback、 必要時 9b-1 corrective)
+      {/* 9b-1 carry → 9b-2 carry-2: MapSelectedPinLabel (= 動的 pin 追従 + Y clamp)
+       *   - sheet null なら自動非表示 (= 既存挙動)
+       *   - newMode + selectedPinScreenPos set → pin 真上寄り + sheet で隠れない Y clamp
+       *   - newMode + selectedPinScreenPos null → top-center fallback (= 9b-1 旧挙動)
        */}
       {newMode && (
-        <MapSelectedPinLabel sheet={selectedSheetForLabel ?? null} />
+        <MapSelectedPinLabel
+          sheet={selectedSheetForLabel ?? null}
+          pinPosition={selectedPinScreenPos}
+        />
       )}
 
       {/* Category legend overlay (mockup: bottom-left、active categories のみ)

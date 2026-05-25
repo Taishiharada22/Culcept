@@ -14,7 +14,11 @@
 
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MapSelectedPinLabel } from "@/components/plan/map/MapSelectedPinLabel";
+import {
+  MapSelectedPinLabel,
+  calculateLabelPosition,
+  type PinScreenPosition,
+} from "@/components/plan/map/MapSelectedPinLabel";
 import type { MapSheetViewModel } from "@/lib/plan/map/types";
 
 function makeSheet(overrides: Partial<MapSheetViewModel> & { pinId: string }): MapSheetViewModel {
@@ -120,5 +124,115 @@ describe("MapSelectedPinLabel §4 a11y", () => {
     expect(markup).not.toContain('📍');
     expect(markup).not.toContain('✨');
     expect(markup).not.toContain('☕');
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §5 9b-2 spatial binding: pin 真上寄り + Y clamp + 左右 clamp
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("MapSelectedPinLabel §5 9b-2 spatial binding (= calculateLabelPosition)", () => {
+  it("§5.1 pin 上部 (= Y 小) → label 真上 ideal (= idealTop 採用)", () => {
+    // pin at (200, 200) in 400x800 map, sheet visible
+    const pos: PinScreenPosition = {
+      x: 200, y: 200, mapWidth: 400, mapHeight: 800, sheetVisible: true,
+    };
+    const result = calculateLabelPosition(pos);
+    // idealTop = 200 - 80(pin) - 56(label) - 8(gap) = 56
+    expect(result.top).toBe(56);
+    // x = 200 - 110(label half) = 90、 clamp range [12, 400-220-12=168] → 90 OK
+    expect(result.left).toBe(90);
+  });
+
+  it("§5.2 pin 下部 (= Y 大、 sheet と被る) → sheet 上端 clamp", () => {
+    // pin at (200, 700), sheet visible
+    const pos: PinScreenPosition = {
+      x: 200, y: 700, mapWidth: 400, mapHeight: 800, sheetVisible: true,
+    };
+    const result = calculateLabelPosition(pos);
+    // idealTop = 700 - 80 - 56 - 8 = 556
+    // sheetTopY = 800 - 320 = 480
+    // sheetClampTop = 480 - 56 - 8 = 416
+    // ideal (556) > sheetClampTop (416) → sheetClampTop 採用
+    expect(result.top).toBe(416);
+  });
+
+  it("§5.3 pin が画面左端 → label 左端 clamp (= TOP_PADDING=12)", () => {
+    const pos: PinScreenPosition = {
+      x: 30, y: 200, mapWidth: 400, mapHeight: 800, sheetVisible: false,
+    };
+    const result = calculateLabelPosition(pos);
+    // idealLeft = 30 - 110 = -80 → minLeft 12 で clamp
+    expect(result.left).toBe(12);
+  });
+
+  it("§5.4 pin が画面右端 → label 右端 clamp", () => {
+    const pos: PinScreenPosition = {
+      x: 380, y: 200, mapWidth: 400, mapHeight: 800, sheetVisible: false,
+    };
+    const result = calculateLabelPosition(pos);
+    // idealLeft = 380 - 110 = 270
+    // maxLeft = 400 - 220 - 12 = 168
+    // 270 > 168 → 168 clamp
+    expect(result.left).toBe(168);
+  });
+
+  it("§5.5 pin 真上が画面上端を超える (= ideal < 12) → TOP_PADDING で停止", () => {
+    // pin at (200, 100), sheet not visible
+    const pos: PinScreenPosition = {
+      x: 200, y: 100, mapWidth: 400, mapHeight: 800, sheetVisible: false,
+    };
+    const result = calculateLabelPosition(pos);
+    // idealTop = 100 - 80 - 56 - 8 = -44 → TOP_PADDING 12 で stop
+    expect(result.top).toBe(12);
+  });
+
+  it("§5.6 sheet not visible + pin 下部 → ideal そのまま (= clamp なし)", () => {
+    const pos: PinScreenPosition = {
+      x: 200, y: 700, mapWidth: 400, mapHeight: 800, sheetVisible: false,
+    };
+    const result = calculateLabelPosition(pos);
+    // sheet not visible → clamp 適用なし、 idealTop = 700 - 80 - 56 - 8 = 556
+    expect(result.top).toBe(556);
+  });
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// §6 pinPosition prop による 動的 position 適用
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+describe("MapSelectedPinLabel §6 pinPosition prop", () => {
+  const sheet = makeSheet({ pinId: 'p1', timeRange: '09:00-10:00', title: 'カフェ' });
+
+  it("§6.1 pinPosition undefined → top-3 left-1/2 fallback (= 旧 top-center)", () => {
+    const markup = renderToStaticMarkup(<MapSelectedPinLabel sheet={sheet} />);
+    expect(markup).toContain('top-3');
+    expect(markup).toContain('left-1/2');
+    expect(markup).toContain('-translate-x-1/2');
+    // dynamic style なし
+    expect(markup).not.toContain('style=');
+  });
+
+  it("§6.2 pinPosition null → top-center fallback", () => {
+    const markup = renderToStaticMarkup(
+      <MapSelectedPinLabel sheet={sheet} pinPosition={null} />,
+    );
+    expect(markup).toContain('top-3');
+    expect(markup).not.toContain('style=');
+  });
+
+  it("§6.3 pinPosition set → 動的 style 適用 (= left + top px)", () => {
+    const pos: PinScreenPosition = {
+      x: 200, y: 300, mapWidth: 400, mapHeight: 800, sheetVisible: true,
+    };
+    const markup = renderToStaticMarkup(
+      <MapSelectedPinLabel sheet={sheet} pinPosition={pos} />,
+    );
+    expect(markup).toContain('style=');
+    expect(markup).toContain('left:');
+    expect(markup).toContain('top:');
+    // top-3 fallback class なし (= dynamic 適用)
+    expect(markup).not.toContain('left-1/2');
+    expect(markup).not.toContain('-translate-x-1/2');
   });
 });
