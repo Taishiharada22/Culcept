@@ -163,10 +163,14 @@ export default function PlanClient({
 
   const [activeTab, setActiveTab] = useState<PlanTab>("calendar");
 
-  // ── 9 closeout: 新 shell 適用条件 (= LIST flag OR Map tab) ──
-  //   Map tab は常に新 shell (= MAP_NEW_SURFACE_ENABLED 削除済み、 単一 path 化)
-  //   List / Calendar は LIST_NEW_TIMELINE_ENABLED で別管理 (= 既存維持)
-  const useNewShell: boolean = LIST_NEW_TIMELINE_ENABLED || activeTab === "map";
+  // ── 9 closeout corrective (= 2026-05-25 CEO 「最新の状態に」): useNewShell = true 固定 ──
+  //   旧 (= MAP smoke 期間): MAP_NEW_SURFACE_ENABLED の副作用で全 tab 新 shell
+  //   9 closeout 直後: useNewShell = LIST || activeTab === "map" で List/Calendar 旧 shell に戻った (= bug)
+  //   corrective: useNewShell = true 固定で全 tab 常に新 shell (= 「最新の状態」 復元)
+  //   LIST_NEW_TIMELINE_ENABLED は引き続き保持 (= List unit 別管理、 削除は別 closeout)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _listFlagPlaceholder = LIST_NEW_TIMELINE_ENABLED;
+  const useNewShell: boolean = true;
   const [state, setState] = useState<FetchState>({ kind: "loading" });
   const [addOpen, setAddOpen] = useState(false);
   const [addInitial, setAddInitial] = useState<Partial<AnchorFormState> | undefined>(undefined);

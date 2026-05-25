@@ -35,4 +35,8 @@
  *   2. `npm run dev` で実機確認
  *   3. 確認後 `false` に戻す or 8c で本 const + 旧表示 code path 一括削除
  */
-export const LIST_NEW_TIMELINE_ENABLED: boolean = false;
+// 9 closeout corrective (= 2026-05-25 CEO 「最新の状態に」 受領): true 固定で List 8b/8c 完成形を常時表示
+//   旧 default false: smoke 期間外は旧 FlowDaySection 表示 (= bug、 「最新の状態」 ではない)
+//   新 true 固定: List 8a/8b/8c の TimelineSpine + EventCard + TransitionChip + SummaryFooter 常時表示
+//   List 正式 closeout (= flag + 旧 UI 物理削除) は List unit 担当の別 patch、 本 line edit は暫定
+export const LIST_NEW_TIMELINE_ENABLED: boolean = true;
