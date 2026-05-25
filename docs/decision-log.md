@@ -4,6 +4,59 @@
 
 ---
 
+## 2026-05-25 [Build/Product] Map impl 9b 全 6 step 完了 + 9 closeout readiness 着手 GO [承認: CEO smoke pass]
+
+### 背景
+
+9b 全 6 step 完了 (= 9b-1 selected label / 9b-2 spatial binding / 9b-3 visual polish / 9b-4 layout / 9b-5 string audit / 9b-6 animation)。 CEO 「smoke pass」 で 9b-6 採用後、 9 closeout (= flag 削除 + 旧 UI file 物理削除 + 単一 path 化) に進行準備。
+
+### 9b 完成形 commit (= 6 + audit)
+
+| step | commit | 内容 |
+|---|---|---|
+| 9b-1 | `c665898d` | selected pin title overlay + icon 中心微調整 |
+| 9b-2 | `9dc9eb7e` | spatial binding (= pin 真上寄り + Y clamp) |
+| 9b-3 | `cac68b89` | visual polish (= cafe/home redesign + drop-shadow filter) |
+| 9b-4 | `e7afc125` | layout 整理 (= sheet open 時 panel hide) |
+| 9b-5 | `ec07808c` + `6670d48a` | string audit (= 真の混在 0、 docs-only + 補正) |
+| 9b-6 | `3363b48c` | sheet slide-up animation (= 250ms iOS-like easing) |
+
+### 9 closeout readiness 整理 (= 本 commit doc)
+
+**新規 doc**: `docs/alter-plan-map-redesign-9-closeout-readiness.md`
+
+範囲 (= atomic 1 commit 推奨):
+1. `MAP_NEW_SURFACE_ENABLED` const 削除 (= featureFlags.ts 全 file 削除候補)
+2. 全 flag check 削除 (= MapTab.tsx 62 reference + PlanClient.tsx 3 reference)
+3. 旧 UI sub-components 物理削除 (= SelectedAnchorCard / CategoryGrid / CategoryCard / UnresolvedAnchorsSection / StaticAlterSuggestionCard、 ~800-900 lines)
+4. 旧 state / handlers 削除 (= selectedAnchorId / selectedAnchorForCard / handlePinTap 等)
+5. PlanMapView 内 CIRCLE marker logic 削除 (= newMode 専用化)
+6. PlanClient useNewShell 改変 (= `LIST_NEW_TIMELINE_ENABLED || activeTab === 'map'` で Map 常に新 shell)
+7. test 更新 (= 旧 testid 参照 24 件、 修正 or 削除)
+
+CEO 判断 3 点 (= readiness 内):
+- Q1: atomic 1 commit でよい? → **atomic** 推奨 (= CEO + GPT 既判定)
+- Q2: 9b-5 deferred 8 件 (= placeholder/overlay text 統一) を含める? → **含める** 推奨 (= clean migration の機会)
+- Q3: DaySwitcher 削除 vs 維持? → **維持** 推奨 (= 機能損失なし)
+
+### Risk + Mitigation
+
+- 削除 line 推定 800-900、 影響 test 5-10 file
+- 各段階 tsc/vitest 確認 + 旧 testid 参照 test の update
+- atomic 1 commit で中間状態 avoid
+
+### flag 状態
+
+- `MAP_NEW_SURFACE_ENABLED = false` (= 戻し済み、 commit せず、 closeout で削除予定)
+- 9 closeout 後: flag 自体存在せず、 常に新 surface
+
+### 承認 + ステータス
+
+- **承認 9b-6**: CEO 「smoke pass」 (= 2026-05-25)
+- **ステータス**: 9 closeout readiness 完成、 着手承認待ち (= CEO Q1-Q3 判断後 implementation)
+
+---
+
 ## 2026-05-25 [Build/Product] Map impl 9b-2/9b-3/9b-4 採用 + readiness 訂正 (= 9b-5 を文字列統一に再定義、 旧 UI 削除 9 closeout 統合) [承認: CEO + GPT 合議]
 
 ### 背景
