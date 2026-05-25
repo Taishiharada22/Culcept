@@ -1,10 +1,17 @@
-# Alter Plan P2 — LLM 連携 Readiness (= 着手前計画書)
+# Alter Plan P2 — LLM 連携 Readiness (= 着手前計画書、 CEO + GPT 合議補正済)
 
-**Status**: readiness 提示 (= 着手前停止)
+**Status**: **法案 C 採用、 Step 1 着手 GO** (= 2026-05-25 CEO + GPT 合議、 4 補正反映済)
 **Date**: 2026-05-25
 **Author**: Build Unit (Claude)
-**Scope**: 本セッションで完成した Plan App (= List + Map) の **解釈レイヤー** (= alterNote / meaningText / SummaryFooter) を LLM で動かす場合の計画書。 **コード変更はまだ着手しない**。
+**Scope**: 本セッションで完成した Plan App (= List + Map) の **解釈レイヤー** (= alterNote / meaningText / SummaryFooter) を LLM で動かす計画書。
 **CEO 思考原則 ①〜⑦ 適用**: 前提を疑い (①)、 自立推論 (②)、 シンプル法案 (③)、 外科的修正 (④)、 ゴール逆算 (⑤)、 人間同等推論 (⑥)、 革新的アイデア (⑦)。
+
+## 補正履歴
+
+| Date | 補正者 | 内容 |
+|---|---|---|
+| 2026-05-25 v1 | Claude | 初版起草 (= 12 章、 513 行) |
+| 2026-05-25 v2 | CEO + GPT 合議 | **法案 C 採用、 Step 1 着手 GO** + 4 点補正 + popcorn 防止追加 |
 
 ---
 
@@ -356,14 +363,19 @@ export function validateAlterNoteOutput(
   - `convertExternalAnchorListToTimelineEventsAsync(anchors, userId?)` を新設、 LLM 呼び出し含む
   - 既存 sync 版は frozen file 扱い、 触らない
 
-**`app/(culcept)/plan/tabs/FlowTab.tsx`** (= 1 接点):
-- `useEffect` で flag check → live なら async builder 呼び出し → setState で events 上書き
-- flag OFF → 同期 builder のみ (= 現状)
+**`app/(culcept)/plan/tabs/FlowTab.tsx`** (= 1 接点、 **v2 補正: popcorn 防止**):
+- `useEffect` で flag check → live なら async builder 呼び出し → **1 日分まとめて Promise.all 解決 → 一括 setState commit**
+- 「カードごとに後から差し替わる popcorn」 を防ぐ (= GPT 追加補正)
+- 採用 pattern: **Pattern A** (= 全 anchor の LLM 結果が揃ってから 1 transition で state 上書き)
+  - Pattern B (= deterministic 先 render + 後で diff 差し替え) は state transition 2 回必要、 popcorn 残るので**不採用**
+- flag OFF → 同期 builder のみ、 既存挙動完全維持
+- LLM 解決中の UI: 既存 deterministic alterNote をそのまま表示 → LLM 完了で 1 回だけ全体差し替え (= 「より深い解釈に切り替わった」 感覚)
 
 これにより:
 - 既存 deterministic test 全て影響 0
 - 新 LLM path は新 async builder 経由のみ
 - kill switch OFF default で本番影響 0
+- **popcorn なし** (= 体感安っぽくない、 1 transition のみ)
 
 ---
 
@@ -384,15 +396,26 @@ export function validateAlterNoteOutput(
 
 すべて **fail-open** (= UI は壊れない)。
 
-### 6.2 Cost cap
+### 6.2 Cost cap (= v2 補正、 「無制限」 → **上限あり** へ修正)
 
+**GPT 補正**: 「`runAI` には cache と failover の資産があるが、 実ログ上も Gemini 503 や OpenAI timeout は起きている。 cache hit がある一方で、 miss 時や高負荷時は普通に失敗する。 cache を信頼するから無制限 は危険」 → 上限固定。
+
+**Step 1 で固定する 4 項目**:
+
+| 項目 | 値 | 根拠 |
+|---|---|---|
+| 1 view あたり最大 LLM call 数 | **20** | 1 日 anchor 数の現実上限 (= 20 件以上は表示優先) |
+| 同時実行数 (= Promise 並列度) | **5** | runAI rate-limit 配慮、 popcorn 防止と整合 |
+| timeout per call | **4000ms** | 表示遅延の体感上限 (= 4s 超で離脱増加) |
+| 失敗時挙動 | **deterministic fallback** | 既存 `getNarrative` / `getMeaningText` 経路 |
+
+**その他**:
 - runAI semantic cache 活用 → 同一 anchor 再表示は cost 0
 - maxOutputTokens 128 (= alterNote 短文前提)
 - temperature 0.2 (= 再現性高、 cache hit 率高)
-- timeout 4000ms (= 表示遅延上限)
-- 1 user 1 日表示 = N anchors × 1 LLM call、 N=10 として 10 calls/day/user
-- 1k user × 10 calls = 10k/day = ~$0.30/day (= Gemini Flash 想定)
-- monthly ~$10、 許容範囲
+- 1 user 1 日表示 = N anchors × 1 LLM call、 N≤20、 cache hit 期待 → 実効 5-10 calls/view
+- 1k user × 10 calls = 10k/day = ~$0.30/day (= Gemini Flash 想定)、 monthly ~$10
+- 1 view 内 21+ anchor → 最初 20 件のみ LLM、 残りは deterministic (= silent degrade)
 
 ### 6.3 Privacy
 
@@ -425,50 +448,38 @@ export function validateAlterNoteOutput(
 
 ---
 
-## 8. CEO 判断 (= 5 件、 着手前停止)
+## 8. CEO 判断 (= v2 で確定済)
 
-### Q1. scope = 法案 A / B / C のどれを採用するか
-- **A (= 最小、 alterNote のみ、 Personal Model なし)**
-- **B (= 完全統合、 一気通貫)**
-- **C (= 段階的、 Step 1 から開始) ← 推奨**
+| # | 質問 | 結論 (= CEO + GPT 合議 2026-05-25) |
+|---|---|---|
+| Q1 | 法案 A / B / C 採用 | **法案 C 採用、 Step 1 のみ着手 GO** |
+| Q2 | env 追加許可 | **許可。 default false、 merge 後の live ON は別 patch (= CEO 判断経由)** |
+| Q3 | Personal Model 接続タイミング | **Step 2** (= Step 1 では LLM 経路の安定性を見る。 ただし prompt/context 型は Step 2 で PM short tag を差し込める拡張余地を持たせる) |
+| Q4 | LLM 失敗時 fallback 文体 | **既存 deterministic 維持** (= `getNarrative` / `getMeaningText`、 Negative Capability は Step 1 では早い) |
+| Q5 | cost cap policy | **上限あり** (= 1 view 20 calls / 並列 5 / timeout 4000ms / 失敗 deterministic、 「無制限」 は不採用) |
+| 追加 | popcorn 防止 | **1 日分まとめて解決 → 一括 state commit** (= Pattern A、 §5 参照) |
 
-### Q2. env 追加を許可するか
-- 必要 env: `PLAN_ALTER_NOTE_LIVE` (= Step 1 のみ、 default false)
-- 既存不変原則 「env 変更禁止」 の緩和判断
-- 緩和する場合、 段階展開 (= live OFF で merge → 別 patch で env 設定 → live ON) を採用するか
-
-### Q3. Personal Model 接続 (= Stargazer 統合) はどのタイミングで?
-- Step 1 (= 最初から)
-- Step 2 (= alterNote LLM 化採用後)
-- 当面なし (= Plan は LLM のみで進める)
-
-### Q4. LLM 失敗 / safety 違反時の文体 fallback
-- 既存 deterministic getMeaningText / getNarrative (= 現状文体維持) ← 推奨
-- 「(今日の予定の意味は今は読めない)」 等の Negative Capability 表明
-- alterNote を出さない (= 'other' と同等)
-
-### Q5. cost cap policy
-- 無制限 (= cache 信頼)
-- 1 user 1 日 N 件まで (= 例: 20 LLM call)
-- timeout 4000ms 厳守、 超過は fallback
+**Step 1 着手 GO** (= 「ファイル変更開始」 確定)。
 
 ---
 
-## 9. 想定 timeline (= Step 1 のみ)
+## 9. Step 1 着手手順 (= 確定済 GO)
 
-**前提**: CEO judgment 後の着手 day を Day 0
-
-| Day | 内容 |
+| 段階 | 内容 |
 |---|---|
-| Day 0 | branch 切替 + PLAN_FLAGS module + AlterNoteContext 型定義 |
-| Day 0-1 | promptBuilder + validator pure module + contract test |
-| Day 1 | alterNoteGenerator (= LLM 呼び出し、 fallback、 fail-open) |
-| Day 1-2 | async builder + FlowTab useEffect 接続 |
-| Day 2 | validation (= tsc + vitest 既存 PASS + 新規 contract test) |
-| Day 2 | self-dev Playwright smoke (= flag OFF で既存挙動不変、 ON で LLM 経路発火) |
-| Day 2 | atomic commit + readiness doc 更新 + CEO smoke 仰ぐ |
-
-合計 **2-3 day** (= 法案 C Step 1 のみ)。
+| A | branch 切替: `feat/alter-plan-p2-llm-step1` |
+| B | `lib/plan/featureFlags.ts` 新規 (= `PLAN_FLAGS.alterNoteLive` default false) |
+| C | `lib/plan/llm/types.ts` 新規 (= AlterNoteContext + AlterNoteResult、 **Personal Model short tag を後付け可能な optional field を予め用意**) |
+| D | `lib/plan/llm/alterNotePromptBuilder.ts` 新規 (= pure、 ctx → system+user prompt、 Aneurasync 文体規約 system prompt 込み) |
+| E | `lib/plan/llm/alterNoteValidator.ts` 新規 (= pure、 規約 24 + 禁止語 10 件 + 長さ 6-30 字 + 命令形 / 評価語 検出) |
+| F | `lib/plan/llm/alterNoteGenerator.ts` 新規 (= runAI 呼出、 cost cap 5 並列 / 20 calls / 4000ms、 fail-open) |
+| G | `lib/plan/list/adapters/externalAnchorAdapter.ts` 拡張 (= **async builder 追加**、 sync 版は frozen) |
+| H | `app/(culcept)/plan/tabs/FlowTab.tsx` 改変 (= useEffect で 1 日分 Promise.all → 一括 setState、 popcorn 防止) |
+| I | 単体 test (= promptBuilder / validator / generator with mock runAI) |
+| J | validation: tsc + vitest 全 PASS + 規約 24 regression PASS |
+| K | self-dev Playwright smoke: flag OFF で既存挙動完全不変 / flag ON で LLM 経路 + popcorn なし確認 |
+| L | atomic commit (= ファイル個別指定)、 decision-log 更新 |
+| M | CEO live 採用判定 (= flag ON は別 patch、 まず merge できる状態で停止) |
 
 ---
 
