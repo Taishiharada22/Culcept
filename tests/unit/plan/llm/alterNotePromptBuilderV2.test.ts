@@ -86,6 +86,31 @@ describe("buildSystemPromptV2: base 文体規約 (= PM 未指定でも含む)", 
     const sys = buildSystemPromptV2();
     expect(sys).toContain("JSON");
   });
+
+  // v3.2 Patch A: profile vs anchor 衝突優先 rule
+  it("v3.2 Patch A: profile vs anchor 衝突優先 rule を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("衝突優先 rule");
+    expect(sys).toContain("profile を優先");
+    expect(sys).toContain("reframe");
+  });
+
+  // v3.2 Patch C: few-shot examples (= profile 差のみ、 文体バラけ)
+  it("v3.2 Patch C: 4 profile 差 few-shot examples を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("Profile 差を立てる例");
+    expect(sys).toContain("P1");
+    expect(sys).toContain("P2");
+    expect(sys).toContain("P3");
+    expect(sys).toContain("P4");
+    expect(sys).toContain("文体見本集ではありません");
+  });
+
+  it("v3.2 Patch C: 文体寄せすぎ禁止指示を含む", () => {
+    const sys = buildSystemPromptV2();
+    expect(sys).toContain("句読点・長さ・韻律・言い回し");
+    expect(sys).toContain("テンプレ感");
+  });
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -169,6 +194,33 @@ describe("buildSystemPromptV2: Phase 別 framing", () => {
     const sys = buildSystemPromptV2(FULL_PM, "deep_personal_framing");
     expect(sys).toContain("Phase 4-5");
     expect(sys).toContain("あなたの軸では");
+  });
+
+  // v3.2 Patch B: 内部指示強化、 表層テンプレ化禁止
+  it("v3.2 Patch B: moderate_personal で profile 内容反映の重要指示を含む", () => {
+    const sys = buildSystemPromptV2(FULL_PM, "moderate_personal");
+    expect(sys).toContain("文の内容そのもの");
+    expect(sys).toContain("profile らしさが滲む表現");
+  });
+
+  it("v3.2 Patch B: deep_personal_framing で表層語句固定禁止指示を含む", () => {
+    const sys = buildSystemPromptV2(FULL_PM, "deep_personal_framing");
+    expect(sys).toContain("毎回使う必要はない");
+    expect(sys).toContain("テンプレ感を生む");
+  });
+
+  // v3.2 Patch D: 中庸 profile 状態語ヒント (= 詩的化注意)
+  it("v3.2 Patch D: 中庸 profile 状態語ヒントを Stable layer に含む", () => {
+    const sys = buildSystemPromptV2(STABLE_ONLY_PM, "soft_personal_with_hedge");
+    expect(sys).toContain("中庸 profile 対策");
+    expect(sys).toContain("リズム");
+    expect(sys).toContain("整え");
+    expect(sys).toContain("ペース");
+  });
+
+  it("v3.2 Patch D: 詩的化注意 (= 「リズムの調べ」 等の比喩禁止) を含む", () => {
+    const sys = buildSystemPromptV2(STABLE_ONLY_PM, "soft_personal_with_hedge");
+    expect(sys).toContain("詩的にしすぎない");
   });
 });
 

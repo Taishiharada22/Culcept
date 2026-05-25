@@ -38,6 +38,13 @@ const SYSTEM_PROMPT_BASE_V2 = [
   "目的:",
   "  - ユーザー自身が予定の流れを掴むための、 静かな 「状態描写」 を提供する。",
   "  - 評価や推奨はしない。 観測者の視点で、 場面 / ペース / 質感 を一言で添える。",
+  "",
+  // v3.2 Patch A: profile vs anchor 衝突優先 rule
+  "**重要 — 衝突優先 rule**:",
+  "  - ユーザー profile (= 長期傾向 / 内面トーン / 直近リズム) と anchor metadata (= 「会議」 「飲み会」 等) が",
+  "    衝突する場合、 **profile を優先して解釈** してください。",
+  "  - 例: 「ひとり静か」 ユーザーが 「カフェミーティング」 anchor → 「人と話す前のひととき、 内側を整える時間」",
+  "    (= anchor の 「ミーティング」 を無視ではなく、 profile 軸 「ひとり静か」 で reframe)",
 ].join("\n");
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -96,6 +103,13 @@ function formatStableLayerSection(stable: PersonalModelV2["stable"]): string {
     count += 1;
   }
   if (count === 0) return "";
+  // v3.2 Patch D: 中庸 profile の唯一性立てヒント (= GPT 注意: 詩的化させない)
+  lines.push("");
+  lines.push("**解釈ヒント (= 中庸 profile 対策)**:");
+  lines.push("  profile が中庸 / バランス系の場合、 「リズム」 「整え」 「ペース」 等の");
+  lines.push("  **状態語** で唯一性を立てる (= 中庸の中での個性化)。");
+  lines.push("  ただし詩的にしすぎない (= 「リズムの調べ」 「ペースの旋律」 等の比喩は曖昧化を生む)。");
+  lines.push("  あくまで観測語として 「整え」 「リズム」 等を素直に使う。");
   return lines.join("\n");
 }
 
@@ -197,6 +211,11 @@ function getFramingInstructionForPhase(hint: PhaseFramingHint): string {
         "- 「あなた」 主語 OK、 hedging 弱化",
         "- Personal Model から自然に文体に反映 (= 「あなたが集中しやすい」 等)",
         "- 直近の状態を踏まえた framing OK",
+        // v3.2 Patch B: 内部指示強化、 表層テンプレ化禁止
+        "- **重要**: profile (= 判断モード / 時刻偏好 / 性格傾向) が **文の内容そのもの** に反映されるよう、",
+        "  単なる事実描写ではなく **profile らしさが滲む表現** を選んでください。",
+        "  「あなた」 主語を必ず使う必要はなく、 文体・選語・場面捉え方で profile を立てるのが理想。",
+        "  例: P1 (集中型 + ひとり静か) → 「静かに沈む時間」 (= 「あなた」 主語なしでも個別性 visible)",
       ].join("\n");
     case "deep_personal_framing":
       return [
@@ -204,6 +223,12 @@ function getFramingInstructionForPhase(hint: PhaseFramingHint): string {
         "- 「あなたの軸では」 「あなたが本当に」 等の深い framing 解禁",
         "- Personal Model を統合的に活用、 「あなたという人」 の一面を映す",
         "- ただし押しつけは厳禁、 観測寄りの解釈に留める",
+        // v3.2 Patch B: 内部指示強化、 表層テンプレ化禁止
+        "- **必須**: profile の唯一性が **文の内容** に反映されること。",
+        "  ただし 「あなたの軸では」 等の特定語句を **毎回使う必要はない**。",
+        "  表層の言い回し固定はテンプレ感を生むため、 LLM が文体を自由に選んで profile を立てる方が良い。",
+        "  judge は 「表層語句の有無」 ではなく 「profile らしさが伝わるか」 で採点される前提。",
+        "  (profile を反映しないと weak_personalization、 user の 「第二の自己」 体験を達成できない)",
       ].join("\n");
   }
 }
