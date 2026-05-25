@@ -4,6 +4,82 @@
 
 ---
 
+## 2026-05-25 [Build] Plan 9 closeout cleanup 完了 (= 「最新の状態を確実に保存」 達成) [承認: CEO 直接指示]
+
+### CEO 指示 (= 一字一句)
+
+> 「Calendar 再設計は、 まだ未処置でいいです。 ここは従来のカレンダーとの統合を考えておりますが、
+> まだ私のイメージが固まっていません。 calender は後回しで、 それ以外を順に進めます。
+> まずは、 clean up から始めて、 最新の状態を確実に保存してください。」
+
+### 背景
+
+9 closeout (= commit `a78c5f6c` flag 削除 + 旧 UI 物理削除、 `c399f121` PlanMapView newMode 完全削除)
+で 「単一 path 化」 を完了したが、 file 内に旧 OFF path 専用 import / dead variable / dead prop forward
+が残存していた (= residual audit doc `0c01f70e` で 12 issues 識別済み)。
+
+### 本 commit (= `4db733df`)
+
+3 file / -56 lines net (= 134 削除、 78 追加) で残存物を物理削除。
+
+#### app/(culcept)/plan/PlanClient.tsx (-6 lines)
+- MapTab call site を 11 props → 2 props 単一化
+  (= anchors / onAnchorClick のみ。 旧 proposal hint 系 + FAB 系 + dayGraphByDate 全削除)
+
+#### app/(culcept)/plan/tabs/MapTab.tsx (-89 lines)
+- Dead imports 削除 (~30 個): GlassBadge / categoryIconMap / categoryColorMap / brandIconMap /
+  calendarProposalSelector / quietUndoWindow / DayGraphTimeline / ProposalChip /
+  CATEGORY_META / LOCATION_GROUP_ORDER / MAP_CATEGORY_MARKER / MAP_SENSITIVE_MARKER /
+  categoryOf / 他多数
+- Dead variables 削除:
+  - `CATEGORY_AGGREGATE_WINDOW_DAYS` (= CategoryGrid 削除と同時に dead)
+  - `activeCategories` useMemo (= 旧 legend 用)
+  - `orderById` Map (= 旧 marker.label "1·09:00" 用)
+  - `markerSpec` (= 旧 CIRCLE marker spec)
+  - `anchorsWithoutPin` 配列 + PlanMapView `anchorsWithoutPinCount` prop (= 旧 UnresolvedAnchorsSection 用)
+- 旧 file 先頭コメント (= Phase 2-C v3 6 段構造) を 9 closeout 後の現行構造に書き直し
+
+#### tests/unit/plan/proposalPlanClientHelpers.test.ts (+42 -42 net 0)
+- 7 個の 「MapTab に <proposal_prop> が pass」 assertion を、
+  「MapTab には proposal 系 prop を渡さない」 不在 assertion 1 本に統合
+- CalendarTab assertion は維持 (= proposal UI は CalendarTab 専属化)
+- 36 tests PASS (= count 不変)
+
+### 検証 (= CEO 9 closeout 教訓踏襲、 commit 前必須)
+
+#### 機械検証
+- `npx tsc --noEmit`: MapTab.tsx + PlanClient.tsx 0 error (= 既存無関係 error は preexisting)
+- `npx vitest run tests/unit/plan/`: 109 files / 2992 tests PASS
+- regression test (`planComponentsFocusRingRegimeWiring`): 22/22 PASS
+- grep 確認: dead symbol references は cleanup コメント内のみ (= 実コード 0)
+
+#### Self-dev Playwright smoke (= 9 closeout 教訓: CEO smoke 前に自分で確認)
+- 3 tabs 全 render 確認 (= PORT=3010 で起動、 smoke 後安全停止):
+  1. Calendar tab: グリッド + 5月 25日 selected + day-detail timeline (= テスト 14:55 / 勉強 17:00)
+  2. List tab: TimelineSpine 1 本軸 + 出発/予定/帰宅 EventCard + 移動 TransitionChip +
+     SummaryFooter (集中と休息のリズム) + FAB
+  3. Map tab: Google Maps + 涙型 SVG pins (= 甲府 cluster) + DayItemsPanel + 現在地 button
+- Runtime error 0 (= favicon.ico 404 のみ、 cleanup 無関係)
+
+### 採用判断
+
+採用 (= 自律承認、 CEO の 「最新の状態を確実に保存」 指示通り)。
+
+CEO smoke は本 cleanup 単体では不要 (= 機能変更 0 / 純 dead code 削除 / 自分で smoke 済)。
+次の P1 work (= List 正式 closeout / Map polish 残 / 9 closeout-2 text polish) で
+体験変化を伴う patch があれば CEO smoke 仰ぐ。
+
+### 不変原則
+
+- env / DB / package / dependency 変更 0
+- 機能変更 0 (= 純粋な dead code 削除)
+- 規約 24 / 24-extended 維持
+- ファイル個別指定 (= git add -A 禁止遵守)
+- 禁止語 10 件 0
+- LLM / API / network / localStorage 不使用
+
+---
+
 ## 2026-05-25 [Build/Product] Map impl 9b 全 6 step 完了 + 9 closeout readiness 着手 GO [承認: CEO smoke pass]
 
 ### 背景
