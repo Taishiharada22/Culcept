@@ -2,6 +2,92 @@
 
 重要な意思決定を時系列で記録する。
 
+---
+
+## 2026-05-25 [Build/Product] Map impl 9a-impl 4 step + corrective 概ね採用 + 9b readiness 着手 GO [承認: CEO + GPT 合議]
+
+### 背景
+
+Plan Map redesign 9a-impl (= 4 step + 2 corrective patch) 完了。 CEO + GPT smoke 判定で 「概ね採用、 ただし selected pin title ラベル の sheet 隠れ問題のみ carry」 判定。 9a corrective に戻して止まらず、 9b 先頭 patch で carry 処理して進行。
+
+### 9a-impl 完了 step + commit
+
+| step | commit | 内容 | CEO smoke 判定 |
+|---|---|---|---|
+| 9a-pre | `bff08159` | pure module (= adapter + types + featureFlags + contract test) | ✅ PASS |
+| Step α | `92ca364d` | shell 統一 + map 埋め込み + controls 衝突修正 | ✅ PASS |
+| Step β | `5f1c239b` | bottom sheet 再設計 (= 8 段構造 + CTA 2 + image slot β + handle) | ✅ PASS |
+| Step γ | `79c36733` | 独自 pin (= 涙型 + 白抜き SVG icon + 時刻 embed) | ✅ PASS (= 条件付き、 title 未達 carry) |
+| Step δ | `355756dc` | 左下 DayItemsPanel (= 凡例 + 当日リスト hybrid + selected sync) | ✅ PASS |
+| Step δ-corr | `38840548` | map full-bleed + pin redesign (= label 上 + icon 中心修正) | ✅ 概ね採用 (= 進行判断調整) |
+| fix1 | `9e8c6861` | background tap → selected 解除 (= 場面 #7 仕様確定済み実装漏れ) | ✅ PASS |
+| fix2 | `60c61baf` | Rules of Hooks 厳守 (= useCallback を早期 return 前に移動) | ✅ PASS |
+
+### Carry 1 件 (= 9b 先頭 patch で処理)
+
+**Selected pin title ラベル の sheet 隠れ問題**:
+- 現状: 時刻 label は SVG 内 embed (= pin 上)、 全 pin 共通、 title 表示なし
+- CEO 指摘: selected pin に **時刻 + title の白カードラベル** が必要、 sheet open 時に隠れない設計
+- 修正方針 (= 9b-1):
+  - **HTML overlay として title ラベルを表示** (= SVG 内 embed ではなく)
+  - map.LatLng → pixel 変換で position 計算
+  - sheet open 時 **Y 位置を sheet top より上に clamp** (= sheet で隠れない)
+  - 必要なら **map auto-pan** で selected pin を sheet 領域外に持ち上げ
+  - pin icon 中心微調整も軽く一緒に処理 (= path 内部 visual center pixel 単位)
+
+### 進行判断調整 (= CEO + GPT 補足)
+
+> 「9a corrective に戻って停止」 ではなく
+> 「9a はほぼ採用、 未解決 1 件だけ carry して次へ進む」
+
+→ 「修正方針としては正しいが、 進行判断としては重すぎる」 (= GPT)
+→ 1 セッション単独で切らず、 **次の改善フローの先頭 patch と一緒に処理**
+
+### 9a-impl scope summary (= 4 step + 2 corrective)
+
+**改変 file**:
+- `app/(culcept)/plan/PlanClient.tsx` (= useNewShell 統一 + section full-bleed)
+- `app/(culcept)/plan/tabs/MapTab.tsx` (= flag 分岐 + 新 state + PlanMapView 改修 + full-bleed)
+- `components/plan/map/MapBottomSheet.tsx` (= 大規模リライト、 8 段構造 + CTA 2 + image slot β + handle)
+- `components/plan/map/DayItemsPanel.tsx` (= 新規、 左下 凡例 + 当日リスト hybrid)
+- `lib/plan/map/pinSvg.ts` (= 新規、 pure helper、 涙型 + 白抜き icon + 時刻 embed + corrective 再設計)
+- `lib/plan/map/adapters/externalAnchorMapAdapter.ts` (= resolveCategory 公開化)
+- `tests/unit/plan/map/*.test.{ts,tsx}` (= 3 contract test、 全 PASS)
+
+**実装規模**: 約 1,800 lines insertion / 200 lines deletion / 7 commit
+
+**validation 全 step**:
+- vitest: 112 files / 3102 tests 全 PASS
+- tsc: plan/map 0 error
+- 絵文字 0
+- 規約 24-extended
+- 中立文体
+- 既存 frozen file 不触
+
+### 9b readiness (= 本 commit 新規 doc)
+
+**新規**: `docs/alter-plan-map-redesign-9b-readiness.md`
+
+**範囲**:
+- 9b-1 (carry): selected pin title overlay + icon 中心微調整
+- 9b-2: 旧 UI file 削除 (= SelectedAnchorCard / CategoryGrid / UnresolvedAnchorsSection / StaticAlterSuggestionCard / FAB)
+- 9b-3: 文字列統一 (= 9c 統合検討)
+- 9b-4: 視覚仕上げ (= animation + 細部 mock fidelity)
+- 9 closeout: flag 削除 + 単一 path 化
+
+### flag 状態
+
+- `MAP_NEW_SURFACE_ENABLED = false` (= smoke 後 false 戻し済み、 diff 0 確認済み、 commit せず)
+- 9a-impl 完成形 commit は 7 本 (= bff08159 → 60c61baf)
+- flag は smoke 用一時切替のみ、 完成形には含めない (= CEO 訂正準拠)
+
+### 承認 + ステータス
+
+- **承認**: CEO + GPT 合議 (= 2026-05-25、 「9a 概ね採用 + carry 9b 先頭」)
+- **ステータス**: 9a-impl **採用確定 (= carry 1 件 9b へ)**、 9b-1 着手承認待ち
+
+---
+
 ## Format
 ```
 ### [YYYY-MM-DD] タイトル
