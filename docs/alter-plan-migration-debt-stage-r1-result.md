@@ -73,11 +73,14 @@
 | 18-25 | 2-prefix 9 種 | 計 18 | weather_*, tag_*, saved_*, product_*, fit_*, external_*, diagnostic_*, body_* |
 | 26+ | **1-prefix 29 種** | 計 29 | **profiles, conversations, messages, notifications, app_admins, brands, ...** |
 
-### Layer 別分類（R2-redesign の入力、 **CEO 補正 2026-05-26 反映、 3 回目補正後**）
+### Layer 別分類（R2-redesign の入力、 **CEO 補正 4 回目反映**）
 
-> 初版で「Layer 1 = Core Application Base」を 1 軸（.from() 数）で決定したが、 CEO 指摘により誤判定と判明。
-> 2 回目補正で「Frozen Compatibility Layer」と命名したが、 3 回目補正で **「frozen 確定」表現を撤回**。
-> 真実: 現時点で「凍結確定」「未使用確定」とは言えない。**Unknown / Legacy-candidate** に変更。
+> 初版（.from() 数）→ 2 回目（Frozen Compat）→ 3 回目（Unknown / Legacy-candidate）→ **4 回目（5 軸 audit + 軸 5 拡張完了、 4 区分確定）**
+>
+> 4 回目補正で判明:
+> - profiles + notifications は active core **かつ** Replay-blocker → **L-A**
+> - shops/orders/conversations/messages/drops は active **だが** non-blocker → **L-D**（新設）
+> - 「使ってる」と「最優先土台」は別、 L-A 昇格しない
 
 #### ⛔ 絶対原則（CEO 確定 2026-05-26）
 
@@ -93,62 +96,59 @@
 | **軸 1: product 上の優先度** | Active core / Maybe active / Unknown / Legacy-candidate |
 | **軸 2: migration replay 上の必要度** | Replay blocker / Replay-adjacent / Not needed |
 
-#### 3 区分の Layer 構造
+#### 4 区分の Layer 構造（CEO 確定 4 回目）
 
 | Layer | 内容 | 件数 | 扱い |
 |---|---|---|---|
-| **L-A: Runtime Active Layer** | profiles / notifications | 2 件（確定） | 完全な CREATE TABLE + INDEX + RLS + POLICY 補完 |
-| **L-B: Replay Blocker Candidate Layer** | L-A 以外で、 後続 172 migration の ALTER / FK / policy が前提とする table | 要 audit | 完全補完（Step 4 以降で audit） |
-| **L-C: Unknown / Legacy-candidate Layer** | shops / orders / conversations / messages / drops 系（"主役ではない可能性"段階） | 推定 30-50 件 | **7 軸 audit 完了まで判定保留**、 削除禁止、 補完判断未定 |
-| その他（154 件中の残り） | Stargazer / Rendezvous / 機能群 | 残り | Layer 2-Q として段階補完 |
+| **L-A: Runtime Active Core** | active core + Replay-blocker（profiles + notifications） | **2 件確定** | 完全補完（CREATE + INDEX + RLS + POLICY） |
+| **L-B: Replay Blocker Candidate** | L-A 以外で後続 172 migration が前提とする table | 要 audit | 完全補完 |
+| **L-C: Unknown / Legacy-candidate** | 未 audit table（残り） | **147 件** | 7 軸 audit 完了まで判定保留、 削除禁止 |
+| **L-D: Runtime evidence あり / non-blocker** | shops, orders, conversations, messages, drops | **5 件確定** | 削除しない、 補完優先度は L-A / L-B より低い |
 
-#### L-A の usage 根拠（最終更新日ベース、 2026-05-26 確認）
+#### L-A の usage + Replay-blocker 根拠（軸 5 拡張 audit 2026-05-26）
 
-| table | 最終更新日 | 用途 |
+| table | 軸 5 拡張依存 | 用途 |
 |---|---|---|
-| profiles | 2026-05-20 | stargazer / genome / my-page で現役 |
-| notifications | 2026-04-19 + 2026-04 以降 counselor C1-2/C7 関連 commit | Stargazer / Counselor の核心と直結 |
+| profiles | ALTER 6 lines (3 files) + body 1 = **7** | stargazer / genome / my-page で現役、 後続 migration が column 拡張 |
+| notifications | ALTER 1 + body 1 = **2** | Stargazer / Counselor 核心、 notification_preferences.sql で data column 追加 |
 
-#### L-C Unknown の観察（未確定、 削除禁止）
+#### L-D Runtime evidence あり / non-blocker（audit 済 5 件）
 
-> .from() 累積数 と 最終更新日 のみでは「未使用」とは言えない。 観察データは下記、 判定保留中。
+軸 1-4 で active 利用、 軸 5 拡張で **non-blocker** 確認。
 
-| table | 観察 | 状態 |
-|---|---|---|
-| shops | 2026-03-30 全 file 同一 commit | Unknown |
-| orders | 2026-04-04 stripe webhook + cron expire のみ | Unknown |
-| conversations | 2026-03-30 / 2026-02-02 旧 commerce 交渉 messaging | Unknown |
-| messages | 2026-02-02 4 ヶ月前、 file 1 つのみ | Unknown |
-| drops 系 | commerce 由来 | Unknown |
+| table | runtime evidence (軸 1-4) | 軸 5 拡張依存 | 解釈 |
+|---|---|---|---|
+| shops | page 1 + .from()=35 + files=66 | 0 | 使ってる、 ただし後続 migration 触らず |
+| orders | page 1 + .from()=13 + cron 2 + webhook 6 | 0 | 同上 |
+| conversations | page 2 + api 2 + .from()=5 + files=25 | 0 | 同上 |
+| messages | page 3 + api 2 + .from()=3 + files=101 + cron 8 | 0 | 同上 |
+| drops | page 1 + .from()=72 + files=107 + webhook 2 | 0 | 同上 |
 
-#### L-C audit 必要 7 軸（Step 4-pre で実施）
+**重要**: 「使ってる」と「最優先土台」は別 → L-A 昇格 NG、 L-D に分類。
 
-| 軸 | 内容 |
-|---|---|
-| 1. route 到達性 | UI button / page / API endpoint から到達するか |
-| 2. import / call graph | code 内で import / 呼び出しされるか |
-| 3. feature flag | flag が ON になり得るか |
-| 4. cron / webhook / cleanup 経路 | バックグラウンドジョブで呼ばれるか |
-| 5. FK / function / trigger / policy 依存 | DB 層で参照されるか |
-| 6. 本番ログ上の痕跡 | Vercel / Sentry / route log での実利用 |
-| 7. 現在 UI からの導線 | user 操作で到達可能か |
+#### L-C audit 待ち（残り 147 件、 Step 4-pre）
 
-#### audit 結果による分類（後段判定、 現在は保留）
+7 軸 audit を未実施の table。 削除禁止 / 補完不要ともまだ言わない。
 
-| 結果 | 分類 |
-|---|---|
-| 7 軸全て 0 痕跡 | **Confirmed Unused**（それでも削除しない） |
-| 一部でも痕跡あり | **Active**（L-A 同等扱い、 完全補完） |
-| audit 不能 | **Unknown 維持**（補完判断保留） |
+audit 後の遷移:
+- active + blocker → L-A
+- active + non-blocker → L-D
+- 非 active + blocker → L-B
+- 非 active + non-blocker → 保留（削除しない）
 
 #### L-B（Replay Blocker Candidate）audit 方針
 
-Step 4 以降で実施:
-- 既存 172 migration file 内の `REFERENCES "public"."xxx"` 全抽出
-- 該当先が prod-only 154 件に含まれるか確認
-- 含まれる場合は L-B 対象（完全補完必要）
+Step 4 で実施:
+- 既存 172 migration file 内の `ALTER TABLE / INDEX / POLICY / TRIGGER / FK / body` の全依存
+- prod-only 154 件のうち blocker 候補を抽出
 
-合計 154 件。**Step 4 以降の優先順序**: L-A → L-B → L-C audit → 残り 機能群
+#### Step 4 以降の優先順序
+
+1. **L-A 2 件 補完**（最優先）
+2. **L-B audit** → 補完 list 確定
+3. **L-D 5 件 補完**（応じて、 staging 機能再現要否で判断）
+4. **L-C 147 件 audit** → 段階補完
+5. 全 154 件カバー後 → staging リセット + 一括 push 検証（Stage R3）
 
 ---
 
