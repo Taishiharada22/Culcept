@@ -152,10 +152,49 @@ P3-A-1-1-a migration を staging で先行検証する B1 試行を実行、 想
   - 既存 migration `notifications` table SQL error (= local 起動が止まる)
   - P3-A-1-1-a migration の実 apply は CEO 個別承認制 (= staging / production)
 
+### D-e 採用 (= 同日 2026-05-26、 migration apply は止めて計画整理のみ)
+
+CEO 「read-only で確認 → 結果で分岐」 指示に従い、 production / staging の migration 状態を確認した結果、 **「production が main と未同期」** 該当 → CEO 分岐ルール 「No → D-e」 採用。
+
+**確認結果 (= read-only)**:
+
+| 環境 | 状態 |
+|------|------|
+| production (= Culcept Tokyo) | **6 timestamp / 8 file が未適用** (= 169 件適用済、 残り 6 件 = 重複 timestamp 影響で 8 file) |
+| staging (= culcept-staging Mumbai) | **175 件全て未適用** (= 完全空、 一度も apply されていない dev project) |
+| repo main | **175 file**、 うち **重複 timestamp 2 セット**: `20260430100000` ×2 / `20260430110000` ×2 |
+
+**production 未適用 8 file**:
+1. `20260430100000_coalter_memory_items_realtime.sql`
+2. `20260430100000_external_anchors.sql` (= P3 foundation、 重大: P3 全体 [ics + OAuth] の前提 table が production にない)
+3. `20260430110000_coalter_memory_items_replica_full.sql`
+4. `20260430110000_plan_drift_events.sql`
+5. `20260519100000_create_external_anchor_bundle.sql` (= W1-Y RPC、 P3 が使用)
+6. `20260520120000_coalter_mirror_app_settings.sql`
+7. `20260526100000_p3_ics_import.sql` (= P3-B)
+8. `20260526110000_p3_a_1_1_calendar_oauth.sql` (= P3-A-1-1-a、 calendar OAuth)
+
+**実 apply 不実施 (= 本 turn の不変原則)**:
+- staging / production への migration push は実行しない
+- migration debt の解消は P3 範囲外 (= 別 phase の運用課題)
+
+**P3 側の継続範囲** (= CEO 確定):
+- DB 非依存部分のみ進める (= fetch / transform / mapping / unit test)
+- DB persist 前提の実動作確認は止める
+- C = initial sync は 「実装は進めるが、 実 DB 接続確認は migration apply 後」 の 2 段構成
+
+**運用観察 (= 別 phase 課題)**:
+- production にも未適用 migration が残る → 環境管理 debt の存在
+- staging 完全空 → dev/test 環境としては未稼働、 検証用には不適
+- 重複 timestamp は migration history を曖昧化、 解消が必要
+
+詳細計画は `docs/alter-plan-migration-apply-plan.md` 参照。
+
 ### 関連 docs
 
 - `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草 + Q2 補正、 本体 12 問 + Appendix 3 項目)
 - `docs/alter-plan-p3-a-1-1-oauth-scaffold-readiness.md` (= OAuth scaffold 8 項目、 GPT 4 補正反映、 §1.1/§1.2 CEO 確定値反映済)
+- `docs/alter-plan-migration-apply-plan.md` (= 本日起草、 D-e 採用後の apply 計画整理 / 範囲外)
 - `supabase/migrations/20260526110000_p3_a_1_1_calendar_oauth.sql` (= P3-A-1-1-a schema draft、 db push HOLD)
 - `docs/alter-plan-p3-ics-import-readiness.md` (= 旧、 P3-B fallback として保持)
 
