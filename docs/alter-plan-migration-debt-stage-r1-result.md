@@ -73,32 +73,34 @@
 | 18-25 | 2-prefix 9 種 | 計 18 | weather_*, tag_*, saved_*, product_*, fit_*, external_*, diagnostic_*, body_* |
 | 26+ | **1-prefix 29 種** | 計 29 | **profiles, conversations, messages, notifications, app_admins, brands, ...** |
 
-### Layer 別分類（R2-redesign の入力、 **CEO 補正 2026-05-26 反映**）
+### Layer 別分類（R2-redesign の入力、 **CEO 補正 2026-05-26 反映、 3 回目補正後**）
 
 > 初版で「Layer 1 = Core Application Base」を 1 軸（.from() 数）で決定したが、 CEO 指摘により誤判定と判明。
-> 「product 上 frozen」と「migration replay 上 不要」を混同していた。
-> 修正: **2 軸（product 優先度 / replay 必要度）+ 3 区分**で再設計。
+> 2 回目補正で「Frozen Compatibility Layer」と命名したが、 3 回目補正で **「frozen 確定」表現を撤回**。
+> 真実: 現時点で「凍結確定」「未使用確定」とは言えない。**Unknown / Legacy-candidate** に変更。
+
+#### ⛔ 絶対原則（CEO 確定 2026-05-26）
+
+- ❌ **削除判断は禁止**
+- ❌ **「未使用確定」と言わない**
+- ❌ **「frozen 確定」と言わない**
+- ✅ Unknown は **そのまま残す**、 確認の上に確認
 
 #### 2 軸構造
 
 | 軸 | 値 |
 |---|---|
-| **軸 1: product 上の優先度** | Active core / Maybe active / Frozen / Legacy |
-| **軸 2: migration replay 上の必要度** | Replay blocker（後続 migration が依存） / Replay-adjacent / Not needed |
+| **軸 1: product 上の優先度** | Active core / Maybe active / Unknown / Legacy-candidate |
+| **軸 2: migration replay 上の必要度** | Replay blocker / Replay-adjacent / Not needed |
 
 #### 3 区分の Layer 構造
 
 | Layer | 内容 | 件数 | 扱い |
 |---|---|---|---|
 | **L-A: Runtime Active Layer** | profiles / notifications | 2 件（確定） | 完全な CREATE TABLE + INDEX + RLS + POLICY 補完 |
-| **L-B: Replay Blocker Layer** | L-A 以外で、 後続 172 migration の ALTER / FK / policy が前提とする table | 要 audit | 完全補完（Step 4 以降で audit） |
-| **L-C: Frozen Compatibility Layer** | shops / orders / conversations / messages / drops 系（commerce / 旧 messaging） | 推定 30-50 件 | **最小限の CREATE TABLE のみ**（復活ではなく replay 互換土台） |
+| **L-B: Replay Blocker Candidate Layer** | L-A 以外で、 後続 172 migration の ALTER / FK / policy が前提とする table | 要 audit | 完全補完（Step 4 以降で audit） |
+| **L-C: Unknown / Legacy-candidate Layer** | shops / orders / conversations / messages / drops 系（"主役ではない可能性"段階） | 推定 30-50 件 | **7 軸 audit 完了まで判定保留**、 削除禁止、 補完判断未定 |
 | その他（154 件中の残り） | Stargazer / Rendezvous / 機能群 | 残り | Layer 2-Q として段階補完 |
-
-**重要原則**: 凍結機能を「復活させる」のではなく、 「migration replay を通すための最小互換土台だけ作る」。
-- L-A: index / RLS / policy 完全
-- L-B: index / RLS / policy 完全（後続 migration が前提とするため）
-- L-C: CREATE TABLE のみ、 index は性能用なので最小、 policy は必要なら追加（後続 migration からの依存有無で判断）
 
 #### L-A の usage 根拠（最終更新日ベース、 2026-05-26 確認）
 
@@ -107,24 +109,46 @@
 | profiles | 2026-05-20 | stargazer / genome / my-page で現役 |
 | notifications | 2026-04-19 + 2026-04 以降 counselor C1-2/C7 関連 commit | Stargazer / Counselor の核心と直結 |
 
-#### L-C 凍結判定根拠（最終更新日ベース）
+#### L-C Unknown の観察（未確定、 削除禁止）
 
-| table | 最終更新日 | 性質 |
+> .from() 累積数 と 最終更新日 のみでは「未使用」とは言えない。 観察データは下記、 判定保留中。
+
+| table | 観察 | 状態 |
 |---|---|---|
-| shops | 2026-03-30 13:29:37（全 file 同一 commit） | 旧 commerce、 bulk touch = 凍結 commit |
-| orders | 2026-04-04 / 2026-03-30 / 2026-02-02 | stripe webhook + cron expire のみ |
-| conversations | 2026-03-30 / 2026-02-02 | 旧 commerce 交渉 messaging（drops checkout 紐付） |
-| messages | **2026-02-02**（4 ヶ月前、 1 file のみ） | 凍結確定 |
-| drops 系 | （要再確認） | commerce 由来 |
+| shops | 2026-03-30 全 file 同一 commit | Unknown |
+| orders | 2026-04-04 stripe webhook + cron expire のみ | Unknown |
+| conversations | 2026-03-30 / 2026-02-02 旧 commerce 交渉 messaging | Unknown |
+| messages | 2026-02-02 4 ヶ月前、 file 1 つのみ | Unknown |
+| drops 系 | commerce 由来 | Unknown |
 
-#### L-B（Replay Blocker）audit 方針
+#### L-C audit 必要 7 軸（Step 4-pre で実施）
+
+| 軸 | 内容 |
+|---|---|
+| 1. route 到達性 | UI button / page / API endpoint から到達するか |
+| 2. import / call graph | code 内で import / 呼び出しされるか |
+| 3. feature flag | flag が ON になり得るか |
+| 4. cron / webhook / cleanup 経路 | バックグラウンドジョブで呼ばれるか |
+| 5. FK / function / trigger / policy 依存 | DB 層で参照されるか |
+| 6. 本番ログ上の痕跡 | Vercel / Sentry / route log での実利用 |
+| 7. 現在 UI からの導線 | user 操作で到達可能か |
+
+#### audit 結果による分類（後段判定、 現在は保留）
+
+| 結果 | 分類 |
+|---|---|
+| 7 軸全て 0 痕跡 | **Confirmed Unused**（それでも削除しない） |
+| 一部でも痕跡あり | **Active**（L-A 同等扱い、 完全補完） |
+| audit 不能 | **Unknown 維持**（補完判断保留） |
+
+#### L-B（Replay Blocker Candidate）audit 方針
 
 Step 4 以降で実施:
 - 既存 172 migration file 内の `REFERENCES "public"."xxx"` 全抽出
 - 該当先が prod-only 154 件に含まれるか確認
 - 含まれる場合は L-B 対象（完全補完必要）
 
-合計 154 件。**Step 4 以降の優先順序**: L-A → L-B → L-C → 残り 機能群
+合計 154 件。**Step 4 以降の優先順序**: L-A → L-B → L-C audit → 残り 機能群
 
 ---
 
