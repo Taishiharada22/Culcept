@@ -96,14 +96,32 @@
 | **軸 1: product 上の優先度** | Active core / Maybe active / Unknown / Legacy-candidate |
 | **軸 2: migration replay 上の必要度** | Replay blocker / Replay-adjacent / Not needed |
 
-#### 4 区分の Layer 構造（CEO 確定 4 回目）
+#### 4 区分の Layer 構造（CEO 確定 5 回目、 L-B audit 完了）
 
 | Layer | 内容 | 件数 | 扱い |
 |---|---|---|---|
 | **L-A: Runtime Active Core** | active core + Replay-blocker（profiles + notifications） | **2 件確定** | 完全補完（CREATE + INDEX + RLS + POLICY） |
-| **L-B: Replay Blocker Candidate** | L-A 以外で後続 172 migration が前提とする table | 要 audit | 完全補完 |
-| **L-C: Unknown / Legacy-candidate** | 未 audit table（残り） | **147 件** | 7 軸 audit 完了まで判定保留、 削除禁止 |
+| **L-B: Replay Blocker** | L-A 以外で後続 172 migration が前提とする table（全部 Stargazer 系） | **5 件確定** | 完全補完 |
 | **L-D: Runtime evidence あり / non-blocker** | shops, orders, conversations, messages, drops | **5 件確定** | 削除しない、 補完優先度は L-A / L-B より低い |
+| **L-C: No blocker evidence yet** | 未 audit + non-blocker | **142 件** | 削除禁止、 staging 機能再現要否で判断 |
+
+**合計: 2 + 5 + 5 + 142 = 154 件 ✅**
+
+#### L-B 確定 5 件（CEO 確定 2026-05-26、 5 回目）
+
+全て Stargazer 関連。CLAUDE.md「Stargazer 深層観測の完成 = 最優先テーマ」と完全に一致。
+
+| name | 依存件数 | カテゴリ |
+|---|---|---|
+| `stargazer_resolved_types` | 6 | Stargazer |
+| `stargazer_core_star` | 5 | Stargazer |
+| `stargazer_orbit_snapshots` | 4 | Stargazer |
+| `stargazer_profiles` | 3 | Stargazer |
+| `stargazer_observations` | 2 | Stargazer |
+
+#### staging replay 最低限必要補完 = 7 件（L-A 2 + L-B 5）
+
+L-D 5 件 + L-C 142 件は **non-blocker**。 補完しなくても replay は通る（理論上）。 staging で機能再現には別途必要。
 
 #### L-A の usage + Replay-blocker 根拠（軸 5 拡張 audit 2026-05-26）
 
