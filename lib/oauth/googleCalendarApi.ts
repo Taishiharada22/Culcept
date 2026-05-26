@@ -22,6 +22,7 @@
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const GOOGLE_CALENDAR_LIST_ENDPOINT =
   "https://www.googleapis.com/calendar/v3/users/me/calendarList";
+const GOOGLE_REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Token Exchange
@@ -239,10 +240,66 @@ export async function fetchCalendarList(
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Token Revocation (= P3-A-1-1-f disconnect 用)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type RevokeResult =
+  | { readonly ok: true; readonly alreadyRevoked: boolean }
+  | { readonly ok: false; readonly reason: "network" | "unknown"; readonly detail?: string };
+
+/**
+ * Google token (= refresh_token or access_token) を revoke。
+ *
+ * - 200 OK → ok: true (= 新規 revoke 成功)
+ * - 400 invalid_token → ok: true, alreadyRevoked: true (= 既 revoke 済 / 期限切れ、 idempotent 扱い)
+ * - 401 / 403 / 500 等 → ok: false, reason="unknown"
+ * - network throw → ok: false, reason="network"
+ *
+ * Google 仕様: https://oauth2.googleapis.com/revoke?token=<token>
+ *   - POST + Content-Type: application/x-www-form-urlencoded
+ *   - body 形式: `token=<token>`
+ */
+export async function revokeGoogleToken(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<RevokeResult> {
+  if (typeof token !== "string" || token.length === 0) {
+    return { ok: false, reason: "unknown", detail: "empty_token" };
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(GOOGLE_REVOKE_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `token=${encodeURIComponent(token)}`,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "network",
+      detail: e instanceof Error ? e.message : "unknown",
+    };
+  }
+
+  if (response.ok) {
+    return { ok: true, alreadyRevoked: false };
+  }
+
+  // 400 = invalid_token (= 既 revoke 済 or 期限切れ): idempotent として扱う
+  if (response.status === 400) {
+    return { ok: true, alreadyRevoked: true };
+  }
+
+  return { ok: false, reason: "unknown", detail: `http_${response.status}` };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Test 用 const export
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export const __test__ = {
   GOOGLE_TOKEN_ENDPOINT,
   GOOGLE_CALENDAR_LIST_ENDPOINT,
+  GOOGLE_REVOKE_ENDPOINT,
 };

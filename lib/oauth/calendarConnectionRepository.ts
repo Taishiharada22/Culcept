@@ -144,6 +144,138 @@ export function buildSubscriptionRows(
   }));
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// findConnection / deleteConnection (= P3-A-1-1-f status / disconnect 用)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export type ConnectionView = {
+  readonly id: string;
+  readonly status: "active" | "revoked" | "token_expired";
+  readonly lastSyncedAt: string | null;
+  readonly scopes: ReadonlyArray<string>;
+  readonly refreshTokenEncrypted: Buffer;
+};
+
+export type FindConnectionResult =
+  | { readonly ok: true; readonly connection: ConnectionView | null }
+  | { readonly ok: false; readonly reason: "db_error"; readonly detail: string };
+
+/**
+ * user × provider で 1 件の connection を取得 (= 存在しない場合 null)。
+ *
+ * - status route で接続状態判定用
+ * - disconnect route で revoke 用 refresh_token 取り出し用
+ * - schema 不一致 / DB error は fail-safe で reason='db_error'
+ */
+export async function findConnection(
+  client: SupabaseClient,
+  userId: string,
+  provider: "google" | "microsoft",
+): Promise<FindConnectionResult> {
+  try {
+    const { data, error } = await client
+      .from("user_calendar_connections")
+      .select("id, status, last_synced_at, scopes, refresh_token_encrypted")
+      .eq("user_id", userId)
+      .eq("provider", provider)
+      .maybeSingle();
+
+    if (error) {
+      return { ok: false, reason: "db_error", detail: error.message };
+    }
+    if (!data) {
+      return { ok: true, connection: null };
+    }
+
+    const row = data as {
+      id?: unknown;
+      status?: unknown;
+      last_synced_at?: unknown;
+      scopes?: unknown;
+      refresh_token_encrypted?: unknown;
+    };
+
+    if (typeof row.id !== "string") {
+      return { ok: false, reason: "db_error", detail: "invalid_id" };
+    }
+    if (
+      row.status !== "active" &&
+      row.status !== "revoked" &&
+      row.status !== "token_expired"
+    ) {
+      return { ok: false, reason: "db_error", detail: "invalid_status" };
+    }
+
+    // refresh_token_encrypted は Supabase 経由で base64 string (= bytea encoded) or Buffer
+    let refreshTokenEncrypted: Buffer;
+    if (Buffer.isBuffer(row.refresh_token_encrypted)) {
+      refreshTokenEncrypted = row.refresh_token_encrypted;
+    } else if (typeof row.refresh_token_encrypted === "string") {
+      // Supabase は bytea を `\x` prefix の hex 16 進文字列で返す
+      const s = row.refresh_token_encrypted;
+      refreshTokenEncrypted = s.startsWith("\\x")
+        ? Buffer.from(s.slice(2), "hex")
+        : Buffer.from(s, "base64");
+    } else {
+      return { ok: false, reason: "db_error", detail: "invalid_refresh_token_format" };
+    }
+
+    return {
+      ok: true,
+      connection: {
+        id: row.id,
+        status: row.status,
+        lastSyncedAt: typeof row.last_synced_at === "string" ? row.last_synced_at : null,
+        scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+        refreshTokenEncrypted,
+      },
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "db_error",
+      detail: e instanceof Error ? e.message : "unknown_exception",
+    };
+  }
+}
+
+export type DeleteConnectionResult =
+  | { readonly ok: true; readonly deleted: boolean }
+  | { readonly ok: false; readonly reason: "db_error"; readonly detail: string };
+
+/**
+ * user × provider で connection 削除 (= subscriptions は ON DELETE CASCADE で自動削除)。
+ *
+ * @returns deleted: true = 削除した、 false = もともと無かった
+ */
+export async function deleteConnection(
+  client: SupabaseClient,
+  userId: string,
+  provider: "google" | "microsoft",
+): Promise<DeleteConnectionResult> {
+  try {
+    const { data, error } = await client
+      .from("user_calendar_connections")
+      .delete()
+      .eq("user_id", userId)
+      .eq("provider", provider)
+      .select("id");
+
+    if (error) {
+      return { ok: false, reason: "db_error", detail: error.message };
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    return { ok: true, deleted: rows.length > 0 };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "db_error",
+      detail: e instanceof Error ? e.message : "unknown_exception",
+    };
+  }
+}
+
 /**
  * user_calendar_subscriptions への bulk UPSERT。
  *
