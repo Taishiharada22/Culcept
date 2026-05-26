@@ -161,16 +161,24 @@ du -h "$OUT"
 
 ### Step 3: sanitize ルール表（CEO 補正 2026-05-26、 6 ルール確定）
 
-#### 6 ルール
+#### 7 ルール（CEO 確定 6 回目、 2026-05-26 ALTER 内訳 audit 後の追加）
 
 | # | 対象構文 | sanitize 方針 | 既存環境安全性 |
 |---|---|---|---|
-| **1** | `CREATE TABLE` | → `CREATE TABLE IF NOT EXISTS` に変換（pg_dump v17 で既に `IF NOT EXISTS` 付与済の場合は no-op） | production no-op、 staging で作成 |
+| **1** | `CREATE TABLE` | → `CREATE TABLE IF NOT EXISTS` に変換 | production no-op、 staging で作成 |
 | **2** | `CREATE INDEX` | → `CREATE INDEX IF NOT EXISTS` に変換 | production no-op、 staging で作成 |
-| **3** | `ALTER TABLE ... ADD COLUMN` | → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` に変換 | production no-op、 staging で追加 |
-| **4** | `CREATE POLICY` | 存在確認 or `DROP POLICY IF EXISTS "<name>" ON "public"."<table>";` を**前置** | production: 既存と一致なら無害、 staging: 新規作成 |
-| **5** | `ALTER TABLE ... ADD CONSTRAINT` | **`pg_constraint` catalog で existence check 後に追加**（**DO $$ EXCEPTION は第一候補にしない**、 CEO 補正） | production 既存 constraint と衝突回避 |
+| **3** | `ALTER TABLE ... ADD COLUMN` | → `ADD COLUMN IF NOT EXISTS` に変換（**該当 0 件想定**） | production no-op、 staging で追加 |
+| **4** | `CREATE POLICY` | `DROP POLICY IF EXISTS "<name>" ON "public"."<table>";` を**前置** | production: 一致なら無害、 staging: 新規作成 |
+| **5** | `ALTER TABLE ... ADD CONSTRAINT` | **`pg_constraint` catalog existence check 後に追加**（DO $$ IF NOT EXISTS block、 EXCEPTION 非採用） | production 既存 constraint と衝突回避 |
 | **6** | `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` | そのまま（idempotent） | production / staging で安全 |
+| **7** ⭐ | `ALTER TABLE ... OWNER TO` | **除去**（sed で完全削除） | OWNER は staging で `postgres` のため不要、 production にも影響なし |
+
+#### audit 確定値（2026-05-26 ALTER 内訳）
+
+- ADD CONSTRAINT 詳細は **複数行 SQL**（pg_dump v17 標準: `ALTER TABLE ONLY ... \n  ADD CONSTRAINT ...`）→ 実 sanitize 時に raw で確認
+- OWNER TO は `supabase db dump --schema public` 経由では除去されない（`--no-owner` 効かない）→ ルール 7 で対応
+- INDEX: UNIQUE 0、 partial 4（profiles 3 + notifications 1）、 expression 0 → 全 `IF NOT EXISTS` で OK
+- POLICY: 全 23 件 named、 `DROP IF EXISTS` pattern で OK
 
 #### ルール 5 詳細（pg_constraint existence check pattern）
 
