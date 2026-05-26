@@ -109,6 +109,49 @@ OAuth scaffold readiness §1.1 (production domain) + §1.2 (Google Cloud Console
 
 `.env.example` に `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` / `GOOGLE_CALENDAR_REDIRECT_URI` template を追加 (= secret 値は空、 server-side のみ NEXT_PUBLIC_ prefix なし)。
 
+### B1 試行結果 + D3 採用 (= 同日 2026-05-26)
+
+P3-A-1-1-a migration を staging で先行検証する B1 試行を実行、 想定外問題が連続 → D3 採用に方針転換。
+
+**B1 試行手順** (= CEO 厳格 7 step):
+1. ✅ link を staging (`hjcrvndumgiovyfdacwc`、 Mumbai) に切替
+2. ✅ link 切替確認 (= `●` mark culcept-staging に移動)
+3. 🔴 `supabase db push --dry-run` → **30+ migration が staging 未適用** が判明
+   - `supabase db push` は 「未適用 全 migration を一括 apply」 する設計 (= 1 migration 限定 push は不可)
+   - staging が main 追従していない環境管理問題が露呈
+4. ⛔ 実 push 実行を停止
+5. ✅ link を production (`aljavfujeqcwnqryjmhl`、 Culcept Tokyo) に **即時 戻し** (= 安全状態復帰)
+
+**C4 (= local Supabase 検証) 試行**:
+- `supabase start` 実行 → 既存 migration の SQL error (= `notifications` table 関連) で停止
+- 私の P3-A-1-1-a migration まで到達できない
+- 既存 migration の修正は P3 範囲外、 別 phase の運用課題
+
+**D3 採用** (= application 層 unit test で品質担保):
+- callback route 実装の品質保証は unit test mock で完結:
+  - token exchange: fetch mock で 200 / 4xx / network error 網羅
+  - AES-256-GCM crypto: pure module、 round-trip + tampered + key-mismatch
+  - supabase upsert: client mock で payload 厳密 assert
+  - state verify: 既存 `googleCalendarState.verifyState` 再利用
+- schema 実 apply 検証は **staging / production push 判断時** に別 phase で行う
+- local schema 実 apply には固執しない
+
+**CEO 確定 (2026-05-26)**:
+> 「local schema 検証は諦めるが、 application 層の callback 品質は unit test で厳密に担保で進めて。」
+
+**実装条件 6 点** (= CEO 確定、 callback route の不変原則):
+  1. token exchange を fetch mock で網羅
+  2. AES-256-GCM helper を pure module に分離
+  3. supabase client は mock で insert / update payload 厳密確認
+  4. state verify は既存 helper 再利用
+  5. DB write 失敗時の degrade を明示
+  6. schema 不一致でも fail-safe に落ちる
+
+**残課題** (= 別 phase):
+  - staging が main 同期されていない環境管理問題 (= staging maintenance phase)
+  - 既存 migration `notifications` table SQL error (= local 起動が止まる)
+  - P3-A-1-1-a migration の実 apply は CEO 個別承認制 (= staging / production)
+
 ### 関連 docs
 
 - `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草 + Q2 補正、 本体 12 問 + Appendix 3 項目)
