@@ -159,23 +159,87 @@ du -h "$OUT"
 - raw output は credential / OWNER 行 / publication 行を含む可能性
 - 次 Step で sanitize
 
-### Step 3: sanitize（OWNER / publication / SET 系の除去）
+### Step 3: sanitize ルール表（CEO 補正 2026-05-26、 6 ルール確定）
 
-```bash
-# sanitize: pg_dump preamble / comments / OWNER / publication 行を除去し、
-# 純粋な CREATE TABLE + INDEX + RLS + POLICY のみ残す
-OUT_CLEAN=/tmp/r2-1-layer1-clean.sql
-> "$OUT_CLEAN"
+#### 6 ルール
 
-# 詳細 sanitize は実装時に決定:
-# - `--` で始まる comment 行は保持（context として有用）
-# - `SET ...` / `SELECT pg_catalog.set_config(...)` は除去
-# - `ALTER TABLE ... OWNER TO` は除去（既に --no-owner で除去済の想定だが念のため）
-# - `CREATE PUBLICATION` / `ALTER PUBLICATION` は除去
-# - `CREATE TABLE` → `CREATE TABLE IF NOT EXISTS` に変換（pg_dump v17 が IF NOT EXISTS を出すか確認、 出さなければ sed で変換）
-# - `CREATE INDEX` → `CREATE INDEX IF NOT EXISTS` 同様
-# - `CREATE POLICY` → `DROP POLICY IF EXISTS ... CASCADE; CREATE POLICY ...` の安全 pattern（既存 environment への影響回避）
+| # | 対象構文 | sanitize 方針 | 既存環境安全性 |
+|---|---|---|---|
+| **1** | `CREATE TABLE` | → `CREATE TABLE IF NOT EXISTS` に変換（pg_dump v17 で既に `IF NOT EXISTS` 付与済の場合は no-op） | production no-op、 staging で作成 |
+| **2** | `CREATE INDEX` | → `CREATE INDEX IF NOT EXISTS` に変換 | production no-op、 staging で作成 |
+| **3** | `ALTER TABLE ... ADD COLUMN` | → `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` に変換 | production no-op、 staging で追加 |
+| **4** | `CREATE POLICY` | 存在確認 or `DROP POLICY IF EXISTS "<name>" ON "public"."<table>";` を**前置** | production: 既存と一致なら無害、 staging: 新規作成 |
+| **5** | `ALTER TABLE ... ADD CONSTRAINT` | **`pg_constraint` catalog で existence check 後に追加**（**DO $$ EXCEPTION は第一候補にしない**、 CEO 補正） | production 既存 constraint と衝突回避 |
+| **6** | `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` | そのまま（idempotent） | production / staging で安全 |
+
+#### ルール 5 詳細（pg_constraint existence check pattern）
+
+```sql
+-- 例: stargazer_core_star に PK を追加
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'stargazer_core_star_pkey'
+      AND conrelid = 'public.stargazer_core_star'::regclass
+  ) THEN
+    ALTER TABLE "public"."stargazer_core_star"
+      ADD CONSTRAINT "stargazer_core_star_pkey" PRIMARY KEY (id);
+  END IF;
+END $$;
 ```
+
+**注**: 上記は構造的に `DO $$ ... END $$` block を使うが、 これは `EXCEPTION` catch ではなく `IF NOT EXISTS` check pattern。CEO 補正の意図は「**EXCEPTION 例外捕捉ではなく、 catalog existence check ベース**」。
+
+#### EXCEPTION を使うべき特殊ケース（提案、 要 CEO 判断）
+
+以下は `pg_constraint` で対応できない特殊ケース。 該当した場合に限り EXCEPTION 採用:
+
+| ケース | 理由 |
+|---|---|
+| 既存 constraint 名が pg_constraint で見つかるが、 定義が異なる | name only check では不十分、 構造比較が必要 |
+| catalog 検索が複雑になりすぎる（partial index など） | コストパフォーマンス |
+
+ただし、 **7 件の DDL は標準形** (PK + FK to auth.users + RLS + Policy) の想定。 7 件全てで catalog check で対応可能の見込み。
+
+#### sanitize で除去する pg_dump 副産物
+
+- `SET ...`（session 設定、 不要）
+- `SELECT pg_catalog.set_config(...)`（同上）
+- `ALTER TABLE ... OWNER TO`（`--no-owner` で除去済の想定、 grep で 0 確認）
+- `CREATE PUBLICATION` / `ALTER PUBLICATION`（`--no-publications` で除去済）
+- `\restrict` / `\unrestrict` の psql meta command（pg_dump v17 で出力されるため除去）
+
+### Step 3.5: 7 件適用表（ルール × table マトリックス）
+
+| table | R1 CT | R2 INDEX | R3 ADD COLUMN | R4 POLICY | R5 ADD CONSTRAINT | R6 ENABLE RLS |
+|---|---|---|---|---|---|---|
+| profiles | ✅ (1) | ✅ (5) | 要 raw 確認 (ALTER 5 件内訳) | ✅ (5) | 要 raw 確認 (PK/FK 数) | ✅ (1 件想定) |
+| notifications | ✅ (1) | ✅ (4) | 要 raw 確認 (ALTER 3 件内訳) | ✅ (5) | 要 raw 確認 (PK 数) | ✅ |
+| stargazer_resolved_types | ✅ (1) | 0 | 要 raw 確認 (ALTER 5 件内訳) | ✅ (3) | 要 raw 確認 | ✅ |
+| stargazer_core_star | ✅ (1) | 0 | 要 raw 確認 (ALTER 4 件内訳) | ✅ (3) | 要 raw 確認 | ✅ |
+| stargazer_orbit_snapshots | ✅ (1) | ✅ (1) | 要 raw 確認 (ALTER 4 件内訳) | ✅ (2) | 要 raw 確認 | ✅ |
+| stargazer_profiles | ✅ (1) | 0 | 要 raw 確認 (ALTER 5 件内訳) | ✅ (3) | 要 raw 確認 | ✅ |
+| stargazer_observations | ✅ (1) | ✅ (3) | 要 raw 確認 (ALTER 4 件内訳) | ✅ (2) | 要 raw 確認 | ✅ |
+
+#### ALTER TABLE 30 件の内訳（要 raw 再確認）
+
+ALTER TABLE 30 件には以下が混在の想定（標準 pg_dump 出力パターン）:
+- `ADD CONSTRAINT ..._pkey PRIMARY KEY` （各 1 件 × 7 = 7 件）
+- `ADD CONSTRAINT ..._fkey FOREIGN KEY ... REFERENCES "auth"."users"` （各 1 件 × 7 = 7 件、 auth.users 経由のみ）
+- `ENABLE ROW LEVEL SECURITY` （各 1 件 × 7 = 7 件）
+- その他（ADD COLUMN、 ALTER COLUMN、 OWNER 残存 等） = 残り 9 件 → **要 raw 確認**
+
+**raw 確認が必要な不明点**:
+1. ALTER 30 件の正確な内訳（PK / FK / RLS / ADD COLUMN / etc.）
+2. POLICY 23 件の `WITH CHECK` / `USING` 句の構造（DROP POLICY IF EXISTS で安全に置換可能か）
+3. INDEX 13 件の partial / unique / expression の有無（IF NOT EXISTS で対応可能か）
+
+→ Step 4 sanitize 実施時に **個別 file を Read で 1 件ずつ確認**して確定する。 ここでは設計レベルで止める。
+
+#### EXCEPTION 想定使用箇所
+
+現状: **0 件想定**。pg_constraint catalog check で全 ADD CONSTRAINT を対応可能と判断。 ただし raw 確認で特殊ケースが見つかれば追記。
 
 ### Step 4: 補完 migration file の構築
 
@@ -253,36 +317,50 @@ git commit -m "<message>"
 
 ---
 
-## §4 — 補完 migration file 設計
+## §4 — 補完 migration file 設計（7 件最小補完）
 
 ### 4.1 ファイル名 / timestamp
 
-- file: `supabase/migrations/20260101000000_layer1_core_base.sql`
+- file: `supabase/migrations/20260101000000_layer1_minimal_base.sql`
 - timestamp `20260101000000` は **既存最古 migration（`20260202010849`）より前置**
-- Stage R2-2-A 以降の補完 file は `20260101010000`, `20260101020000`, ... と alphabetical 順で続ける
+- 内容: L-A 2 件 + L-B 5 件 = 7 件の **最小 replay base**
+- L-D 5 件は別 sub-stage（後段、 staging 機能再現用）
 
 ### 4.2 file 内 table 順序
 
-FK 依存に従う順序（pg_dump -t 出力をそのまま順序維持で十分 / 確認は実装時）:
-- conversations → messages（messages.conversation_id FK の可能性）
-- profiles → orders（orders.user_id FK の可能性）
-- profiles → notifications（同上）
-- profiles → shops（shop owner FK の可能性）
-- 上記 1-4 は **pg_dump 出力で判明**、 実装時に並び順を決定
+**7 件相互依存なし**（全て auth.users 経由）→ 順序自由。 ただし慣例的に依存元 → 派生:
 
-### 4.3 RLS / POLICY の扱い
+1. profiles（L-A、 最大 active）
+2. notifications（L-A）
+3. stargazer_profiles（Stargazer の user-level entity）
+4. stargazer_observations
+5. stargazer_core_star
+6. stargazer_resolved_types
+7. stargazer_orbit_snapshots
 
-production の RLS が active なら、 補完 file にも `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` + `CREATE POLICY` を含める。
-ただし **既存 environment（production）には既に同名 policy がある可能性**:
-- pg_dump 出力の `CREATE POLICY` をそのまま使うと既存と衝突 → error
-- 対策: `DROP POLICY IF EXISTS ... CASCADE;` を `CREATE POLICY` 前に挿入（既存環境への安全 pattern）
+各 table block の中で:
+- CREATE TABLE → ADD CONSTRAINT PK → ENABLE RLS → CREATE INDEX → CREATE POLICY → ADD CONSTRAINT FK の順
+- これは pg_dump v17 標準出力順序
 
-または、 `CREATE POLICY IF NOT EXISTS` が PostgreSQL でサポートされていないため、 上記 DROP + CREATE pattern が必要。
+### 4.3 sanitize 詳細（§3 の 6 ルールを適用）
+
+| 構文 | sanitize 後の形 |
+|---|---|
+| `CREATE TABLE "public"."<t>" (...)` | `CREATE TABLE IF NOT EXISTS "public"."<t>" (...)` |
+| `CREATE INDEX "<i>" ON "public"."<t>" ...` | `CREATE INDEX IF NOT EXISTS "<i>" ON "public"."<t>" ...` |
+| `ALTER TABLE "public"."<t>" ADD COLUMN ...` | `ALTER TABLE "public"."<t>" ADD COLUMN IF NOT EXISTS ...` |
+| `CREATE POLICY "<p>" ON "public"."<t>" ...` | `DROP POLICY IF EXISTS "<p>" ON "public"."<t>";` + 改行 + `CREATE POLICY "<p>" ON "public"."<t>" ...` |
+| `ALTER TABLE "public"."<t>" ADD CONSTRAINT "<c>" PRIMARY KEY (...)` | `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '<c>' AND conrelid = 'public.<t>'::regclass) THEN ALTER TABLE "public"."<t>" ADD CONSTRAINT "<c>" PRIMARY KEY (...); END IF; END $$;` |
+| `ALTER TABLE "public"."<t>" ADD CONSTRAINT "<c>" FOREIGN KEY ...` | 同上の pg_constraint check pattern |
+| `ALTER TABLE "public"."<t>" ENABLE ROW LEVEL SECURITY` | そのまま |
 
 ### 4.4 expected file size
 
-- 6 table × 各 50-100 行（CREATE TABLE + index + RLS + policy）= 300-600 行
-- 過去経験では `notifications` の DDL は 30 行程度（前 forensic で確認）
+- 7 table × 各 50-100 行（CREATE TABLE + sanitize-wrapped ALTER/INDEX/POLICY）= **約 400-700 行**
+- 加えて header / footer 等で +50 行
+- 想定: **約 500-800 行**
+
+ただし sanitize で `DO $$` block が追加されるため、 raw DDL より若干膨らむ可能性あり。
 
 ---
 
