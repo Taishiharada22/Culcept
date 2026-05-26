@@ -305,13 +305,43 @@ F-β closeout 直後、 CEO + GPT 「scope をかなり絞って、 本丸の入
 - Next-1 実装は migration apply + sync persist 完了後の別 phase
 - F-α (= LLM Track 3) は GPT 判断で 「今ではない」 (= 50+ data 蓄積後)
 
+### 本 phase 着地宣言 (= 同日 2026-05-26、 CEO 確定 「freeze / main merge せず」)
+
+F-γ 完了直後、 CEO 「次は本 phase 着地宣言、 main merge はまだしない」 採用。
+
+**着地宣言の意義**:
+- DB 非依存範囲は closeout 完了
+- ただし **phase 全体としては未完** (= migration apply / 実 DB persist / sourceType 分離 / initial sync 完走 が未着手)
+- **中核の DB 層が未接続のまま main merge すると、 中間状態を main に固定することになる** → 早い
+
+**数字 freeze** (= 表記揺れ防止):
+- P3-A-1 phase 内 **197 unit tests** = 28 + 51 + 32 + 20 + 36 + 11 + 19
+- ics merge (= P3-B 由来 57 tests) は別 phase 数値、 本 phase に含めない
+- 「198」 等の数字揺れ → **全 docs / 全 commit message は 197 で統一**
+
+**再開条件** (= 3 step、 各 step CEO 個別着手 GO):
+1. migration debt phase の方針確定 (= production 未適用 8 file / staging 空 / 重複 timestamp の扱い、 別 phase)
+2. apply 方針確定 (= どの environment にどの順序で、 production 直 push 禁止 厳守)
+3. DB persist / initial sync / sourceType 'google_calendar' 分離 (= Step 2 後)
+
+**freeze 中の不変原則**:
+- 本 phase に commit 追加しない
+- main merge を実施しない
+- branch (`feat/alter-plan-p3-a-1-google-readiness`) は保持
+- 他 phase からの参照は本 doc + decision-log + readiness chain で完結
+
+**CEO 確定文**:
+> 「ここは "完成した部分をきれいに凍結する" 地点であって、 "main に流し込む" 地点ではありません。」
+
+詳細は `docs/alter-plan-p3-a-1-closeout.md` §10。
+
 ### 関連 docs
 
 - `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草 + Q2 補正、 本体 12 問 + Appendix 3 項目)
 - `docs/alter-plan-p3-a-1-1-oauth-scaffold-readiness.md` (= OAuth scaffold 8 項目、 GPT 4 補正反映、 §1.1/§1.2 CEO 確定値反映済)
 - `docs/alter-plan-migration-apply-plan.md` (= 本日起草、 D-e 採用後の apply 計画整理 / 範囲外)
-- `docs/alter-plan-p3-a-1-closeout.md` (= P3-A-1 phase 全体の closeout 報告、 9 section + 5 必須項目)
-- `docs/alter-plan-phase-next-1-rhythm-baseline-readiness.md` (= 本 entry で着地、 Next-1 = 本丸の入口、 docs-only)
+- `docs/alter-plan-p3-a-1-closeout.md` (= P3-A-1 phase 全体の closeout 報告 + §10 着地宣言)
+- `docs/alter-plan-phase-next-1-rhythm-baseline-readiness.md` (= Next-1 = 本丸の入口、 docs-only)
 - `supabase/migrations/20260526110000_p3_a_1_1_calendar_oauth.sql` (= P3-A-1-1-a schema draft、 db push HOLD)
 - `docs/alter-plan-p3-ics-import-readiness.md` (= 旧、 P3-B fallback として保持)
 

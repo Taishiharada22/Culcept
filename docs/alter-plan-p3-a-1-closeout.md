@@ -331,3 +331,70 @@ migration apply phase は別タイミング、 CEO 慎重判断。
 - P3-A-1 の resume point は §5.1 着手順序案で明示済
 - D-e により block された範囲は `docs/alter-plan-migration-apply-plan.md` で別 phase 管理
 - 本 closeout を逸脱した 「次の commit」 は CEO の明示的着手 GO が必要
+
+---
+
+## 10. 本 phase 着地宣言 (= CEO 確定 2026-05-26)
+
+### 10.1 着地宣言
+
+**P3-A-1 phase は 「DB 非依存範囲 closeout 完了」 として本日 (= 2026-05-26) 凍結する。**
+
+これは:
+- ✅ DB 非依存範囲 (= OAuth flow / Crypto / Repository helpers / UI shell / events fetch + transform / refresh helper) は完成
+- ❌ **phase 全体としては未完** (= migration apply / 実 DB persist / sourceType 'google_calendar' 分離 / initial sync 完走 が未着手)
+- ❌ **本番投入可能状態ではない** (= 中核の DB 層が未接続)
+- 🔒 **main merge は本日時点で実施しない** (= 中間状態を main に固定するのは早い)
+
+### 10.2 「数字 freeze」 (= 表記揺れ防止)
+
+P3-A-1 phase の閉じた数字を **本 §10 で確定** する:
+
+```
+P3-A-1 phase 内 unit tests: 197 = 28 + 51 + 32 + 20 + 36 + 11 + 19
+                                    │    │    │    │    │    │    │
+                                    │    │    │    │    │    │    └ G-α (= 設定画面、 11 pure + 8 markup)
+                                    │    │    │    │    │    └─── E-α (= refresh helper)
+                                    │    │    │    │    └─────── C-α (= events 15 + mapper 21)
+                                    │    │    │    └──────────── P3-A-1-1-h (= banner)
+                                    │    │    └───────────────── P3-A-1-1-f (= revoke 8 + find/delete 10 + status/disconnect 14)
+                                    │    └────────────────────── P3-A-1-1-d (= helper 12 + api 16 + repo 12 + route 11)
+                                    └─────────────────────────── P3-A-1-1-c (= state helper 15 + route 13)
+
+注: ics merge (= P3-B、 57 tests) は別 phase の merge 経由、 本 phase 数値には含めない
+    本 phase 内合計 + ics 由来 = 197 + 57 = 254 (= branch 全体 unit tests)
+```
+
+**今後 P3-A-1 phase を参照する全 docs / commit message は 「197 tests」 で統一**。 P3-B の ics test 群を含めて言及する場合のみ 「254 tests (= P3-A-1 197 + P3-B 57)」 と明示。
+
+### 10.3 再開条件 (= 3 step、 CEO 個別判断で各 step 起動)
+
+**Step 1: migration debt phase の方針確定** (= P3 範囲外、 別 phase の運用課題)
+- production 未適用 8 file の apply 順序
+- staging 完全空状態への対応 (= 同期 / 廃止 / 新 project)
+- repo 重複 timestamp 2 セット (= rename / そのまま保持)
+- 参照: `docs/alter-plan-migration-apply-plan.md` の 4 scenario
+
+**Step 2: apply 方針確定** (= Step 1 後)
+- どの migration を、 どの環境に、 どの順序で apply するか CEO 慎重判断
+- 「production 直 push ではない」 制約遵守
+- staging 同期するか、 production 単独で進めるかの最終判断
+
+**Step 3: DB persist / initial sync / sourceType 分離** (= Step 2 後)
+- closeout §5.2 の Step 2 〜 Step 5 (= sourceType 分離 / sync persist / toggle 永続化 / 通し smoke)
+- これらは migration apply が完了して初めて意味を持つ phase
+
+**3 step すべてに CEO 個別着手 GO が必要**。 順序を飛ばさない。
+
+### 10.4 freeze 中の不変原則
+
+- 本 phase の commit を追加しない (= 本 §10 着地以降)
+- main merge を実施しない (= CEO 個別判断まで)
+- branch (`feat/alter-plan-p3-a-1-google-readiness`) は保持
+- 他 phase からの参照は本 doc + decision-log + readiness chain で完結
+
+### 10.5 「完成した部分をきれいに凍結する」 (= CEO 確定文)
+
+> 「ここは "完成した部分をきれいに凍結する" 地点であって、 "main に流し込む" 地点ではありません。」 (CEO 2026-05-26)
+
+P3-A-1 phase 着地。
