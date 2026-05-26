@@ -95,9 +95,25 @@ CEO 確定文:
 
 意図: CEO 思想 「意識させない」 (= selector なし) と 「最良の予定 = 全制約捕捉」 (= 複数 calendar 対応) を Aneurasync 独自 logic で両立。 これは Soft connect の内部 rollout 設計 (= shared default OFF + 設定で段階解放) の典型例。
 
+### P3-A-1-1-b CEO 確定情報 (= 同日 2026-05-26)
+
+OAuth scaffold readiness §1.1 (production domain) + §1.2 (Google Cloud Console) を CEO 確定値で確定:
+
+- **production domain**: `https://aneurasync.com` ✅
+- **redirect URI** (= Google Cloud Console 登録済):
+  - prod: `https://aneurasync.com/api/calendar/google/callback`
+  - dev:  `http://localhost:3000/api/calendar/google/callback`
+- **OAuth client**: 既存 Aneurasync Google Cloud project に **別 OAuth client** として登録 (= GPT 補正通り project ≠ client 分離)
+- **Support email**: `aneurasync@outlook.com` (主) / `th200122aish@icloud.com` (副)
+- **Client ID / Secret**: CEO がローカル `.env.local` で安全保管 (= commit / docs / chat 載せず、 不変原則)
+
+`.env.example` に `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` / `GOOGLE_CALENDAR_REDIRECT_URI` template を追加 (= secret 値は空、 server-side のみ NEXT_PUBLIC_ prefix なし)。
+
 ### 関連 docs
 
 - `docs/alter-plan-p3-a-1-google-calendar-readiness.md` (= 本日起草 + Q2 補正、 本体 12 問 + Appendix 3 項目)
+- `docs/alter-plan-p3-a-1-1-oauth-scaffold-readiness.md` (= OAuth scaffold 8 項目、 GPT 4 補正反映、 §1.1/§1.2 CEO 確定値反映済)
+- `supabase/migrations/20260526110000_p3_a_1_1_calendar_oauth.sql` (= P3-A-1-1-a schema draft、 db push HOLD)
 - `docs/alter-plan-p3-ics-import-readiness.md` (= 旧、 P3-B fallback として保持)
 
 ---

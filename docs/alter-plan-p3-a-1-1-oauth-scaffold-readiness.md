@@ -39,11 +39,11 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
 
 **推奨初手**: **(b)**。 理由 = 親 Q1 「別 OAuth client」 の設計と一貫、 既存 Supabase Auth callback を一切触らない (= regression risk 0)、 「API route = サーバー専用処理」 が semantic に合う。
 
-**URL 具体案**:
+**URL 具体案** (= CEO 確定 2026-05-26):
 - Development: `http://localhost:3000/api/calendar/google/callback`
-- Production: `https://<aneurasync-domain>/api/calendar/google/callback` (= ⚠️ 実 domain は CEO 確認必要)
+- Production: `https://aneurasync.com/api/calendar/google/callback` ✅ **確定**
 
-**CEO 判断**: ⬜ (a) / ⬜ (b) / ⬜ (c) / ⬜ 補正 (= 例: domain 確定)
+**CEO 判断**: ✅ **採用案 (b) 確定 (2026-05-26)** = 専用 route `/api/calendar/google/callback` 新設、 production domain は `aneurasync.com`、 Google Cloud Console redirect URI 両方登録済
 
 ---
 
@@ -68,10 +68,12 @@ P3-A-1 の親 readiness は **判断の枠組み** (= 12 問の選択) を確定
    - Authorized redirect URIs: 項目 1 の URL 2 つ
 4. **secret**: Client ID + Client Secret を取得 → `.env.local` (= `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET`)
 
-**CEO 判断必要事項**:
-- ⬜ 既存 Aneurasync Google Cloud project の有無確認 (= 流用 or 新規)
-- ⬜ Support email (= プロダクト運用 email、 個人不可)
-- ⬜ App verification 申請タイミング (= 初期は test users で十分、 開放時に申請)
+**CEO 確定 (2026-05-26)**:
+- ✅ 既存 Aneurasync Google Cloud project に **別 OAuth client** として登録済 (= GPT 補正通り project ≠ client 分離)
+- ✅ Support email: `aneurasync@outlook.com` (主) / `th200122aish@icloud.com` (副)
+- ✅ Web application OAuth client 作成済、 redirect URI (dev + prod) 登録済
+- ✅ Client ID 取得済、 Client Secret は CEO のローカルで安全保管 (= commit / docs / chat 載せず)
+- ⬜ App verification 申請タイミング (= 初期は test users で十分、 開放時に CEO 判断)
 
 ---
 
