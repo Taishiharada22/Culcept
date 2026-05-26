@@ -33,6 +33,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// P3-A-1-1-h: Google Calendar OAuth banner 用 (= URL query 読み取り + clean 化)
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   GlassBadge,
@@ -109,6 +111,11 @@ import { AnchorDetailModal } from "./components/AnchorDetailModal";
 import { EditAnchorModal } from "./components/EditAnchorModal";
 // P3 W2: .ics import modal (= CEO 2026-05-26、 review/approve UI)
 import { IcsImportModal } from "./components/IcsImportModal";
+// P3-A-1-1-h: Google Calendar OAuth 結果 banner (= callback redirect 後の user feedback)
+import {
+  CalendarConnectBanner,
+  parseBannerStatus,
+} from "./components/CalendarConnectBanner";
 import { SourceListModal } from "./components/SourceListModal";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { FlowTab } from "./tabs/FlowTab";
@@ -180,6 +187,40 @@ export default function PlanClient({
   const [listOpen, setListOpen] = useState(false);
   // P3 W2: .ics import modal state (= CEO 2026-05-26、 「カレンダーから取り込む」 entry)
   const [icsImportOpen, setIcsImportOpen] = useState(false);
+
+  // P3-A-1-1-h: Google Calendar OAuth callback redirect 後の banner status
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const bannerStatus = useMemo(
+    () => parseBannerStatus(searchParams),
+    [searchParams],
+  );
+  // banner dismiss / retry 後、 URL から calendar_* query を消す (= 二重 trigger 防止)
+  const clearCalendarQuery = useCallback(() => {
+    if (!pathname) return;
+    const next = new URLSearchParams(searchParams.toString());
+    let touched = false;
+    for (const key of [
+      "calendar_connected",
+      "calendar_connect_error",
+      "calendar_connect_partial",
+      "google_error",
+    ]) {
+      if (next.has(key)) {
+        next.delete(key);
+        touched = true;
+      }
+    }
+    if (touched) {
+      const qs = next.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+  }, [pathname, router, searchParams]);
+  const handleBannerRetry = useCallback(() => {
+    clearCalendarQuery();
+    setIcsImportOpen(true);
+  }, [clearCalendarQuery]);
   // W1-X2: edit modal state
   const [editAnchor, setEditAnchor] = useState<ExternalAnchor | null>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -630,6 +671,12 @@ export default function PlanClient({
 
   return (
     <main className={containerClass} data-display-mode={displayMode}>
+      {/* P3-A-1-1-h: Google Calendar OAuth callback redirect 後の user feedback banner */}
+      <CalendarConnectBanner
+        status={bannerStatus}
+        onRetry={handleBannerRetry}
+        onDismiss={clearCalendarQuery}
+      />
       {/* ── Header (8b-10: mb-6 → flag ON で mb-3 余白縮小、 9a-impl Step α で useNewShell 統一) ── */}
       <header className={useNewShell ? "mx-auto mb-3 max-w-3xl" : "mx-auto mb-6 max-w-3xl"}>
         {!isPane && (
