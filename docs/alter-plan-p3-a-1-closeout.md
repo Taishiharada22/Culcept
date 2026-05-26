@@ -21,9 +21,9 @@ D-e 採用 (= 2026-05-26、 migration debt が production / staging 両方に発
 
 ---
 
-## 1. 完成済み範囲 (= 12 commits、 197 unit tests、 D-e 整合)
+## 1. 完成済み範囲 (= 23 commits、 197 unit tests、 D-e 整合)
 
-### 1.1 commit 履歴 (= 20 commits、 ics branch merge 経由)
+### 1.1 commit 履歴 (= 23 commits 全体 = 私 19 + ics merge 経由 4)
 
 ```
 153456c2 feat: G-α settings/integrations + UI shell (= 19 tests)
@@ -263,7 +263,7 @@ Step 5: 全 chain 通し smoke (= 実 user で OAuth → sync → 表示確認)
 
 ### 6.2 D-e 不変原則の徹底
 
-「DB 非依存で進める」 ことを **20 commits 通して 1 度も破らず** に完走。 これは 「進行を止めずに、 本番 DB に手を出さず、 安全な範囲で最大進める」 という ④ 外科的緻密の実践例。
+「DB 非依存で進める」 ことを **23 commits 通して 1 度も破らず** に完走。 これは 「進行を止めずに、 本番 DB に手を出さず、 安全な範囲で最大進める」 という ④ 外科的緻密の実践例。
 
 ### 6.3 multi-state 設計の徹底
 
@@ -350,6 +350,8 @@ migration apply phase は別タイミング、 CEO 慎重判断。
 
 P3-A-1 phase の閉じた数字を **本 §10 で確定** する:
 
+#### Unit tests (= 本 phase 内 197)
+
 ```
 P3-A-1 phase 内 unit tests: 197 = 28 + 51 + 32 + 20 + 36 + 11 + 19
                                     │    │    │    │    │    │    │
@@ -365,7 +367,50 @@ P3-A-1 phase 内 unit tests: 197 = 28 + 51 + 32 + 20 + 36 + 11 + 19
     本 phase 内合計 + ics 由来 = 197 + 57 = 254 (= branch 全体 unit tests)
 ```
 
-**今後 P3-A-1 phase を参照する全 docs / commit message は 「197 tests」 で統一**。 P3-B の ics test 群を含めて言及する場合のみ 「254 tests (= P3-A-1 197 + P3-B 57)」 と明示。
+#### Commit 数 (= branch 全体 23、 私の独自 19、 production code 8)
+
+```
+P3-A-1 branch 全 commits: 23 = 19 (= 私の独自) + 4 (= ics merge 経由)
+
+私の独自 19 の内訳:
+  - feat (= production code): 8
+      P3-A-1-1-a migration draft (= schema-only)
+      P3-A-1-1-c connect route
+      P3-A-1-1-d callback route + crypto/api/repo helpers
+      P3-A-1-1-f modal toggle + status/disconnect
+      P3-A-1-1-h CalendarConnectBanner
+      C-α events fetch + mapper
+      E-α refresh helper
+      G-α settings/integrations
+  - chore (= env / config): 1
+      P3-A-1-1-b env 整備
+  - docs (= readiness / decision-log / closeout): 9
+      P3 redefinition + readiness 起草
+      Q2 補正
+      OAuth scaffold readiness 起草
+      OAuth scaffold readiness GPT 4 補正
+      B1 試行 + D3 採用
+      D-e 採用
+      F-β closeout 報告
+      F-γ Next-1 readiness
+      P3-A-1 着地宣言 (= 本 §10)
+  - merge: 1
+      ics branch merge (= P3-B 統合)
+
+ics merge 経由 4 (= main にいない、 ics branch 由来):
+  - P3 W1 ics parser + mapper
+  - P3 readiness 補正 (= ics branch 経由)
+  - P3 W2 review/approve UI
+  - P3 W3 ics persist
+```
+
+**今後 P3-A-1 phase を参照する全 docs / commit message は本 §10.2 数字に統一**:
+- 「197 tests」 (= P3-A-1 phase 内、 ics 除く)
+- 「23 commits」 (= branch 全体)
+- 「19 commits」 (= 私の独自、 ics merge 経由 除く)
+- 「8 production code commits」 (= feat 系のみ)
+
+P3-B の ics test 群を含めて言及する場合のみ 「254 tests (= P3-A-1 197 + P3-B 57)」 と明示。
 
 ### 10.3 再開条件 (= 3 step、 CEO 個別判断で各 step 起動)
 
