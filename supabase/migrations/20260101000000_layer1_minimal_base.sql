@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "public"."profiles" (
     "city" "text",
     "occupation" "text",
     "occupation_detail" "text",
-    "public_id" "text" DEFAULT "public"."generate_public_id"() NOT NULL,
+    "public_id" "text" NOT NULL,
     "baseline_home_label" "text",
     "baseline_home_place_type" "text" DEFAULT 'home'::"text" NOT NULL,
     "baseline_home_lat" numeric(9,6),
@@ -467,3 +467,14 @@ CREATE POLICY "stargazer_orbit_insert_own" ON "public"."stargazer_orbit_snapshot
 DROP POLICY IF EXISTS "stargazer_orbit_select_own" ON "public"."stargazer_orbit_snapshots";
 CREATE POLICY "stargazer_orbit_select_own" ON "public"."stargazer_orbit_snapshots" FOR SELECT USING (("auth"."uid"() = "user_id"));
 
+
+
+-- ════════════════════════════════════════════════════════════════════
+-- post-function: 関数依存の wiring (base functions 20251231000000 以降)
+-- ════════════════════════════════════════════════════════════════════
+
+-- profiles.public_id の DEFAULT を関数 ref で設定
+-- production: 既に同 default、 idempotent (実質 no-op)
+-- staging: 初回 setting
+ALTER TABLE "public"."profiles"
+  ALTER COLUMN "public_id" SET DEFAULT "public"."generate_public_id"();
